@@ -1,5 +1,110 @@
 # Astroray Next Stage Report
 
+## 2026-08-31 SESSION HANDOFF — overnight round closed (12 PRs); pkg131 FULLY DONE both backends; NEXT = pkg225-S1 hair build+verify
+
+**This round's landings (11 PRs + 1 direct-to-main docs commit):**
+- **pkg131 — zero-knob adaptive sampling, NOW FULLY DONE** (PR #659 CPU leg
+  + PR #665 GPU leg). GPU wavefront compacted active-pixel round
+  (`stageRegenKernel`, gated `__constant__ c_wfAdaptive`, opt-in via pkg224's
+  progressive sampler) HW-verified RTX 5070 Ti: byte-identical-off,
+  unbiased-on, round loop engages; wavefront-diff + photon-caustic
+  regression green. Deferred follow-up (not blocking DONE): sample-count
+  AOV + addon UI knob removal.
+- **pkg208** (#666 + #668) — chromatic-light-source dispersion oracle DONE:
+  sodium_vapor chromaticity spread 0.0146 vs led_6500k 0.4917 (~33x, 3x
+  margin asserted), CPU-only, CI-verifiable.
+- **pkg209** (#664) — pkg187 Cauchy parity re-verify vs merged Cycles +
+  MNEE citation fix, DONE, comment/doc-only.
+- **pkg212** (#663) — wavefront ray-gen `+0.5f` pixel-center fix DONE,
+  RTX-verified; GPU silhouette was ~0.4-0.6px off vs the CPU megakernel.
+- **pkg218** (#667) — GPU spectral emission device upload DONE, HW-verified:
+  fleet register probe byte-identical to baseline (REG:254/STACK:3368/
+  CONSTANT[0]:1716), 9/9 CPU/GPU emission-colour parity tests within 5%.
+  Closes the long-standing "GPU lamp colour is RGB-approximated" gap.
+- **pkg207** (#658) — addon dispersion-socket probe DONE (prior-round
+  landing, carried forward accurately).
+- **pkg219 — tracker-hygiene fix, not new work:** #661 (prior round)
+  correctly flipped this spec to DONE; an out-of-scope revert inside #664
+  silently reverted it back to "open" (a real bug, not an owner decision).
+  Restored the exact post-#661 DONE content this round — see STATUS.md for
+  the full account.
+- **pkg219d** — filed open (direct-to-main commit, no PR): the one genuine
+  residual pkg219's completion audit surfaced (scalar param-textures —
+  op-VM output wired only to Base Color, not roughness/metallic).
+  Register-hostile GPU shade path; architect to detail before dispatch.
+- **Docs infra:** #660 (status/tracker reconciliation), #662 (architect
+  agent-ready specs + overnight routing) — both docs-only.
+
+**Fleet register baseline unchanged: `stageShadeBucketedKernel<0,…>` REG 254
+/ STACK 3368 / CONSTANT[0] 1716** (pkg131's GPU round and pkg218's emission
+lookup are both off the REG:254 frame — side-table / trivial-store patterns;
+re-measure from the actual `.pyd` before trusting, per usual).
+
+---
+
+### NEXT (highest-priority pickup): pkg225-S1 — hair ray-curve intersection, build + verify
+
+A WIP branch `pkg225-s1-curve-intersect` (origin, 1 commit: "wip(pkg225-S1):
+CPU ray-curve intersection primitive — UNVERIFIED, do not merge") already
+exists but has **not been built or tested**. Per the owner's explicit
+directive — "no half-assing hair" — this is NOT ready to extend; the next
+step is:
+1. Build the branch clean (CPU-only leg first; this is a math/geometry
+   primitive, no CUDA required yet).
+2. Write the analytic test the spec calls for (known ray-vs-curve-segment
+   cases with a closed-form answer) before trusting the intersection math.
+3. A math review of the curve-intersection derivation itself (register-
+   hostile GPU leg comes later, once the CPU primitive is proven correct) —
+   Claude-last-line, this is exactly the class of thing that silently
+   produces plausible-looking-but-wrong hits.
+4. Only then proceed to pkg225's later stages (shading, GPU leg) per the
+   spec's 6-stage design (`packages/pkg225-hair-rendering.md`).
+
+Tier: Claude-last-line for the math review; the build+analytic-test
+scaffolding can go to an implementer once the WIP branch's actual diff is
+inspected (do not blindly trust "UNVERIFIED, do not merge" — read the diff
+first).
+
+### Then: fresh grounded pickup queue (each Status verified this pass)
+
+1. **pkg210 — companion wavelengths on specular reflection** (Pillar 3,
+   open, filed 2026-08-19, register-sensitive). Claude-last-line: touches
+   per-hit spectral state on the specular-reflection path, same risk class
+   as the shade-kernel register work above.
+2. **pkg180 — systemic Cycles-dim diagnosis** (open, dispatchable,
+   diagnosis-first; no fix work until the offset mechanism is localized).
+   Local Blender + RTX available for this.
+3. **pkg211 — per-bounce spectral MIS + ray-differentials prototype**
+   (Pillar 3, open, filed 2026-08-19, research-grade). May park if the
+   research doesn't converge on a shippable design — treat as exploratory,
+   not a committed deliverable.
+4. **pkg219d — scalar parameter textures** (Pillar 5, open, filed
+   2026-08-31, register-hostile). Needs an architect pass to detail the
+   fork (new `GMaterial` scalar-param-texture field vs a side-table, same
+   design question every recent shade-kernel feature has faced) before
+   dispatch — do not implement ad hoc.
+5. **Long-tail backlog, L-effort, no new urgency this pass** — pkg126
+   (mesh-emitter unification), pkg127 (specular-polynomials SMS), pkg130
+   (light-group emission decomposition), pkg132–137 (host-mapped memory
+   fallback, SRF spectral sensors, LPE automata, SVO path guiding,
+   partitioned-SMS ReSTIR caustics; pkg135 texture-overflow fallback is
+   explicitly CONDITIONAL/dormant, do not implement pre-emptively). Audited
+   2026-08-29 (#648) — still genuinely open, none superseded. Needs a
+   dedicated day arc per package, not overnight-run shaped.
+6. **De-prioritized below the Integration Milestone (owner-endorsed
+   2026-08-03, unchanged):** pkg153 (wavefront-diff env-gate disposition,
+   sub-percent tail), pkg155 (GPU absolute-slowdown investigation — the
+   1.5s ceiling stays, memory `wavefront-perf-ceiling-owner-decision`, do
+   NOT dispatch as a perf package), pkg173 (bounce-1 geometry-sampling
+   parity, sub-percent tail). Re-enters the queue only if the paper turns
+   out to require bit-level parity, or on explicit owner request.
+
+**Paused, do not queue:** Pillar 4 (pkg45/pkg46/pkg48/pkg49/pkg50/pkg51/
+pkg107 + `pkg218-spectral-colorimetry-fidelity.md` Thread B) — no unpause
+directive issued; do not self-dispatch (memory `pillar4-on-pause`).
+
+---
+
 ## 2026-08-30 SESSION HANDOFF — pkg224 + pkg201-S3 + pkg223b round closed; NEXT = pkg131 GPU leg
 
 **This session's own landings (2 PRs, docs-only reconciliation otherwise):**
@@ -26,34 +131,9 @@ toggles) both backends at REG 254, **pkg223b** (#655, Bump node, shared
 byte-identical to this — re-measure from the actual `.pyd` before trusting,
 per usual).
 
----
-
-### NEXT (highest-priority pickup): pkg131 session 2 — GPU wavefront leg
-
-The shared core + CPU leg are DONE and the prerequisite (pkg224 progressive
-sampler) is in the tree; the natural, already-scoped next step is the GPU
-leg. From the pkg131 spec's own Progress checklist
-(`.astroray_plan/packages/pkg131-zero-knob-adaptive-sampling.md`):
-
-- **C (GPU) — compacted active-pixel round.** The wavefront is a flat
-  persistent-thread work pool (`w % numPixels`), not wave-based, so there is
-  no wave boundary to drop converged pixels the way Cycles does. Design:
-  `stageRegenKernel` indexes `activePixels[w % numActive]`, a per-pixel
-  sample counter, and a per-pixel final divide, with a convergence-check
-  kernel between rounds — additive on top of the existing flat pool, byte-
-  identical when the feature is off, does not touch the 1.5s perf ceiling
-  design (memory `wavefront-perf-ceiling-owner-decision`). NOT a wave-based
-  rewrite. Design detail: `.astroray_plan/docs/pkg131-adaptive-sampling-autothreshold-research.md`
-  (memory `pkg131-gpu-leg-compacted-active-pixel-round`). HW-verify on RTX
-  (CI has no GPU).
-- **Sample-count AOV + addon UI removal** — report measured speedup, remove
-  the `samples=N` knob, expose `max_samples` + optional auto-defaulted
-  noise-threshold override in the panel. Natural follow-up once the GPU leg
-  lands (needs the GPU leg's per-pixel counter to report a real AOV).
-
-Tier: Claude-last-line (register-hostile GPU wavefront change, same shape as
-pkg223/pkg223b/pkg224 — up-front `cuobjdump` probe on the current fleet
-baseline BEFORE feature code).
+**NOTE (superseded by the 2026-08-31 entry above):** pkg131's GPU leg,
+pkg212, pkg208/pkg209/pkg218 all landed since this entry was written; the
+pickup queue below is historical, kept for the record.
 
 ### Then: fresh grounded pickup queue (each Status verified this pass)
 

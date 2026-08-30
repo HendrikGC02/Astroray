@@ -3,7 +3,14 @@
 **Pillar:** 3 (light transport / render efficiency)
 **Track:** A (CPU-first convergence-check + scheduler on CI; wavefront active-pixel compaction leg verified on RTX)
 **Codex-paste-ready:** no (one film convergence kernel + scheduler change + wavefront compaction integration + addon UI *removal* — architectural, needs the wavefront's compaction owner in the loop)
-**Status:** UNBLOCKED — the hard prerequisite (a progressive/low-discrepancy RNG with the Sobol/PMJ prefix property) is now MET by **pkg224** (`packages/pkg224-progressive-sampler.md`, landed): an opt-in hash-Owen-scrambled Sobol' sampler at every GPU wavefront draw, selected by `renderer.set_use_progressive_sampler(True)` → the `__constant__ c_wfSamplerMode` published in `cuda_wavefront_render` → `WavefrontRNG::Uniform()`. Verified prefix property + faster-than-1/√N convergence (`tests/test_pkg224_progressive_sobol.py`). **To implement pkg131:** turn the progressive sampler ON for the wavefront, then vary per-pixel sample counts against the convergence estimator — the progressive prefix property guarantees every partial sample count is well-distributed, so early stopping in easy regions no longer degrades noise. pkg224 is GPU-only (CPU keeps `std::mt19937`); pkg131's wavefront leg is the natural first target. Spec-filing PR #492; memory `pkg131-blocked-on-progressive-sampler`.
+**Status:** done (PR #659 CPU leg + #665 GPU leg, merged 2026-08-30/31 — zero-knob
+Dammertz auto-threshold core cited to Cycles `adaptive_sampling.h`, wired into the
+CPU per-pixel loop and, on top of pkg224's progressive sampler, a GPU wavefront
+compacted-active-pixel round (`stageRegenKernel` gated by `__constant__
+c_wfAdaptive`); byte-identical when off, unbiased/bounded when on; HW-verified on
+RTX 5070 Ti (`tests/test_pkg131_adaptive_gpu.py`, wavefront-diff + photon-caustic
+regression green). Sample-count AOV + addon UI knob removal explicitly deferred as
+a follow-up slice — see the unchecked item in Progress below.
 **Estimated effort:** M (2–3 sessions per the research doc — one film kernel, scheduler change, addon UI removal rather than addition)
 **Depends on:** progressive-in-samples RNG (pkg92's sequence must have the PMJ/Sobol prefix property — a hard prerequisite; verify before implementing). Composes with pkg55 Phase C (the wavefront already owns active-pixel compaction — the convergence check feeds it). OIDN pairing is fine (Cycles ships the same combination).
 

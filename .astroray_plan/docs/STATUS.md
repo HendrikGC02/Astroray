@@ -1,5 +1,103 @@
 # Astroray Status
 
+**2026-08-30 → 2026-08-31 (OVERNIGHT ROUND — 12 PRs merged: pkg131 adaptive
+sampling now FULLY DONE across both backends, the pkg208/pkg209/pkg218 spectral/
+dispersion cluster closes out, pkg212 fixes a real GPU/CPU wavefront pixel-offset
+bug, and pkg219's DONE flip — accidentally reverted by an in-flight PR — is
+restored): the wavefront now compacts converged pixels on the GPU exactly like the
+CPU, GPU lamp colour matches the CPU's true SPD (was RGB-approximated), and the
+GPU silhouette is pixel-exact vs the CPU megakernel.**
+- **pkg131 — Zero-knob adaptive sampling — NOW FULLY DONE, both backends**
+  (PR #659 CPU leg 2026-08-30 + PR #665 GPU leg 2026-08-31). The shared
+  `__host__ __device__` Dammertz auto-threshold core (cited to Cycles
+  `adaptive_sampling.h`, byte-exact) drives both the CPU per-pixel early-out
+  and a GPU wavefront **compacted active-pixel round**: `stageRegenKernel`
+  remaps claimed work to `activePixels[w % numActive]` under a gated
+  `__constant__ c_wfAdaptive` flag (byte-identical when off), opt-in via
+  pkg224's progressive sampler (adaptive needs its prefix property). HW-verified
+  RTX 5070 Ti: byte-identical-off, unbiased-on, round loop engages
+  (`tests/test_pkg131_adaptive_gpu.py`), wavefront-diff + photon-caustic
+  regression green. **Deferred as a follow-up slice (not blocking DONE):**
+  sample-count AOV + addon UI knob removal (`samples=N` → `max_samples`).
+- **pkg208 — chromatic-light-source dispersion oracle DONE** (PR #666 +
+  #668) — CPU-only oracle test: `sodium_vapor` (narrow-line, ~589 nm)
+  chromaticity spread 0.0146 vs `led_6500k` broadband control 0.4917
+  (~33x), asserted at a conservative 3x margin; sodium mean chroma
+  (0.852, 0.148, 0.000) confirms amber. #668 also restored the spec's
+  "Agent-ready recipe" section, which an out-of-scope edit in PR #664 had
+  reverted to a stale pre-fork state.
+- **pkg209 — pkg187 Cauchy parity re-verify + citation refresh DONE**
+  (PR #664) — refreshed the dispersion WIP wording to the now-merged Cycles
+  commit (`f15daf81bf7c...`, PR #162041, merged 2026-08-18) and re-verified
+  `cauchyAB`/`gpu_cauchy_ior` character-for-character against the merged
+  diff (no divergence); fixed the MNEE citation ("Manakov"→"Fascione")
+  across `half_vector_constraint.h`/`sms_attempt_device.cuh`/
+  `sms_caustic_path_tracer.cpp`. Comment/doc-only, no algorithm change.
+- **pkg218 — GPU spectral emission device upload DONE** (PR #667) —
+  closes the "GPU lamp colour is RGB-approximated" gap (memory
+  `gpu-emission-is-rgb-approximated`): non-RGB dedicated lights
+  (blackbody/measured_spd/composite) now bake their true `EmissionSpectrum`
+  onto a device grid (360-830 nm @ 1 nm) and evaluate it directly at render
+  wavelengths, instead of one reference-RGB upsample. Global memory, not
+  `__constant__` (avoids risking the shared 64 KB constant budget). Traced
+  and patched THREE NEE sites the spec's reference list missed (deferred/
+  bucketed `stageShadowKernel` resolve, `intersectPathSlot` direct-hit, and
+  the volume in-scatter NEE park site) beyond the one the spec named.
+  HW-verified: register probe on `stageShadeBucketedKernel` byte-identical
+  to the fleet baseline (REG:254/STACK:3368/CONSTANT[0]:1716 — the new
+  `GNEESample` field is a trivial store, no spill), CPU/GPU emission colour
+  parity within 5% across 9 profiles including sodium amber. `GMaterial`
+  and ReSTIR (`stage_restir.cu`) untouched by design.
+- **pkg212 — wavefront ray-gen half-pixel center fix DONE** (PR #663) —
+  the GPU wavefront silhouette was shifted ~0.4-0.6px right of the CPU
+  megakernel (uniform across all pixel filters); wavefront `u`/`v` were
+  centered at `px+0.0` instead of `px+0.5`. Fixed at the single true
+  source, `generatePrimaryRay` in `src/gpu/wavefront/stage_init.cu` (also
+  covers the `initPathSlot` regen path, confirmed NOT a second call site)
+  and `init_path` in `src/cpu/wavefront/path_kernel.cpp`; the megakernel
+  already used the correct convention, untouched. RTX-verified, silhouette
+  edge shift eliminated.
+- **pkg207 — addon dispersion-socket probe DONE** (PR #658) — reads the
+  merged Cycles 5.3 socket names (`Transmission Dispersion Scale`/
+  `...Abbe Number`), short forms kept as fallback; pure-Python, CI-gate
+  only, 4/4 unit tests green.
+- **pkg219 — per-texel shader-graph evaluator DONE, flip RESTORED** (PR
+  #661, tracker-hygiene fix this round) — #661 correctly flipped the spec
+  to DONE (219a/b/c op-VM core + pkg223/pkg223b normal-perturbation
+  landed), but an out-of-scope revert inside PR #664 (`docs(pkg209):
+  drop out-of-scope pkg208/pkg219 spec edits`, commit 5064d81) silently
+  reverted the pkg219 spec all the way back to its pre-#661 "open" state
+  instead of to what was actually on `main` at the time — a genuine
+  tracker bug, not a real status change. Restored the exact post-#661
+  content this round (verified via `git diff <661-sha> -- <file>` == empty
+  after restore). The one deliberately out-of-scope acceptance item
+  (Math/MapRange driving roughness) is now tracked as its own spec,
+  **pkg219d** (below).
+- **pkg219d — scalar parameter textures FILED, open** (direct-to-main
+  commit 5fc01e4, no PR — docs-only) — the one genuine residual the pkg219
+  completion audit surfaced: the op-VM evaluator is complete but its
+  program-texture output is wired only to Base Color; roughness/metallic/
+  etc. still read constant-folded floats. Register-hostile GPU shade path
+  (touches BSDF scalar-parameter eval on both backends); architect to
+  detail before dispatch. Real backlog item, kept open.
+- **Docs infra:** PR #660 (2026-08-30 status/tracker reconciliation) and
+  PR #662 (architect agent-ready specs + overnight routing) — both
+  docs-only, no code.
+- **Fleet register baseline unchanged: `stageShadeBucketedKernel<0,…>`
+  REG 254 / STACK 3368 / CONSTANT[0] 1716** — pkg131's GPU adaptive round
+  and pkg218's emission-profile lookup are both off the REG:254 frame
+  (side-table / trivial-store patterns); re-measure from the actual `.pyd`
+  before trusting, per usual.
+- **Next pickup (verified against this pass's Status flips):** pkg225-S1
+  (hair ray-curve intersection — a WIP branch `pkg225-s1-curve-intersect`
+  exists, UNVERIFIED/uncompiled, next step is build + analytic-test + math
+  review — "no half-assing hair"), pkg210 (companion wavelengths on
+  specular reflection, register-hostile, Claude-last-line), pkg180
+  (systemic Cycles-dim diagnosis, local Blender+RTX), pkg211 (per-bounce
+  spectral MIS prototype, research, may park), pkg219d (scalar
+  param-textures, architect to detail). Pillar 4 + pkg218-Thread-B stay
+  PAUSED. See `NEXT_STAGE_REPORT.md` for the full queue.
+
 **2026-08-30 (pkg207 + pkg131 session 1, PRs #658/#659 — plus a spec/tracker
 reconciliation pass): the addon dispersion-socket probe now reads the merged
 Cycles 5.3 names, and zero-knob adaptive sampling lands its shared core + CPU

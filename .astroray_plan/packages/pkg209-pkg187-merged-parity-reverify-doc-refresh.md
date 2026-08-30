@@ -3,7 +3,12 @@
 **Pillar:** 5
 **Track:** A (verification + doc/comment refresh; no algorithm change expected).
 **Estimated effort:** S.
-**Status:** open (filed 2026-08-19).
+**Status:** done (PR #664, 2026-08-31 — refreshed the dispersion WIP wording to the
+merged Cycles commit `f15daf81bf7c...` (PR #162041 squash-merged 2026-08-18) and
+re-verified `cauchyAB`/`gpu_cauchy_ior` character-for-character against the merged
+diff, no divergence; also fixed the MNEE citation ("Manakov"→"Fascione") across
+`half_vector_constraint.h`, `sms_attempt_device.cuh`, `sms_caustic_path_tracer.cpp`.
+Comment/doc-only, no algorithm change).
 **Depends on:** nothing (pkg187 shipped; the reference merged 2026-08-18).
 
 ## Goal

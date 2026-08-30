@@ -94,9 +94,10 @@ issued; do not unpause unilaterally).
 Milestone package set (b) is COMPLETE, but the owner judges the Pillar 4
 gate NOT MET — Blender integration is "still a ways off" in practice.
 Specifically: socket coverage is 117 SUPPORTED / 22 APPROXIMATED / 385
-DROPPED-SILENT of 524 (pkg219 per-texel shader eval is expected to cascade
-into resolving many of the DROPPED-SILENT shader-node sockets once it
-lands); hair/curve rendering is entirely absent (pkg225 spec now filed);
+DROPPED-SILENT of 524 (pkg219 per-texel shader eval, now DONE, is expected
+to cascade into resolving many of the DROPPED-SILENT shader-node sockets —
+re-audit the coverage numbers next pass); hair/curve rendering is entirely
+absent (pkg225 spec filed, pkg225-S1 has an unbuilt/unverified WIP branch);
 viewport UI fps is coupled to render fps rather than uncoupled as in Cycles
 (a UX gap to investigate — Cycles uncouples viewport interaction fps from
 render progressive-refinement fps). **All features being built should be
@@ -104,12 +105,17 @@ render progressive-refinement fps). **All features being built should be
 astrophysical pipeline will need from them (volumes for nebulae, curves for
 filaments, spectral for emission lines).
 
-**Current active queue (2026-08-30):** pkg224 DONE (#657) and pkg131 session 1
-of 3 DONE (#659, shared core + CPU leg) — next up is **pkg131's GPU wavefront
-leg** (compacted active-pixel round, HW-verify) + sample-count AOV/addon UI
-removal, then pkg225 (hair rendering, 6-stage) → pkg219 remainder (per-texel
-shader eval, structural socket-coverage unlock). The exact dispatch order past
-pkg131 is an architect decision per round.
+**Current active queue (2026-08-31):** pkg131 (zero-knob adaptive sampling) is
+now **FULLY DONE, both backends** (#659 CPU + #665 GPU) — sample-count AOV +
+addon UI knob removal remain as a deferred follow-up, not a blocker. pkg219
+(per-texel shader-graph eval, structural socket-coverage unlock) is also
+DONE (#640/#641/#642 + #647/#655; a tracker revert bug reverted its Status
+flip mid-round, restored 2026-08-31). Next up: **pkg225-S1** (hair
+ray-curve intersection — a WIP branch exists, unbuilt/unverified, "no
+half-assing hair" per owner directive), then pkg210/pkg180/pkg211 (spectral-
+transport cluster) and pkg219d (scalar param-textures, the one residual
+pkg219's completion audit surfaced). The exact dispatch order is an
+architect decision per round.
 
 **Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU
 parity tail — **pkg172 effect (B) / pkg173** (bounce-1 geometry-sampling
@@ -285,12 +291,17 @@ fix:
   to pkg55 Phase B per the spec's escape clause; smaller H2/H5
   follow-ups split out as **pkg83** + **pkg84**.
 
-**Round closeout (2026-08-30): 2 PRs (#658/#659) — pkg207 addon dispersion
-socket probe DONE, pkg131 (zero-knob adaptive sampling) session 1 of 3 DONE
-(shared core + CPU leg); GPU leg + addon UI removal remain. A docs-only pass
-also flipped the stale pkg220/221/222 spec Status headers to DONE (code
-landed 2026-08-25, headers were never updated) and rewrote
-`NEXT_STAGE_REPORT.md`'s stale top handoff. Full detail: `STATUS.md`.**
+**Round closeout (2026-08-30 → 2026-08-31): 12 PRs (#658/#659/#660/#661/#662/
+#663/#664/#665/#666/#667/#668 + 1 direct-to-main docs commit) — pkg131
+(zero-knob adaptive sampling) is now FULLY DONE both backends (#659 CPU +
+#665 GPU, HW-verified); the pkg208/pkg209/pkg218 spectral/dispersion cluster
+closes out (chromatic dispersion oracle, Cauchy/MNEE citation refresh, GPU
+spectral emission device upload — the GPU lamp-colour-is-RGB-approximated
+gap); pkg212 fixes a real GPU-vs-CPU wavefront pixel-center offset
+(RTX-verified); pkg219's DONE flip, accidentally reverted by an in-flight
+PR mid-round, is restored; pkg219d (scalar param-textures) filed open as
+the one residual pkg219's completion audit surfaced. Full detail:
+`STATUS.md`.**
 
 **Round closeout (2026-08-29): 7 PRs (#648–#656) — pkg201-S3 items A+E
 ship per-type bounce limits and native caustic toggles on BOTH backends,

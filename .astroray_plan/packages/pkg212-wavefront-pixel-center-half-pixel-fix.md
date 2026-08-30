@@ -2,7 +2,11 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open (filed 2026-08-20).
+**Status:** done (PR #663, 2026-08-30 — `+0.5f` raster pixel-center offset added to
+both wavefront ray-gen sites, `generatePrimaryRay` in `src/gpu/wavefront/stage_init.cu`
+(also covers the `initPathSlot` regen path, which calls it) and `init_path` in
+`src/cpu/wavefront/path_kernel.cpp`; megakernel already correct, untouched;
+RTX-verified, silhouette edge shift eliminated).
 **Estimated effort:** XS–S.
 **Depends on:** nothing (independent of, but discovered by, **pkg203** — the pkg203 RTX visual-centering gate exposed this). Cross-links: **pkg203** (Cycles σ mapping — orthogonal, merged), **pkg200** (honour matrix), **pkg119-B** (numeric Cycles parity).
 

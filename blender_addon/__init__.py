@@ -3667,17 +3667,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
         put_float('thin_film_thickness', 'Thin Film Thickness')
         put_float('thin_film_ior', 'Thin Film IOR')
         put_float('thin_wall', 'Thin Wall')
-        # Dispersion (pkg187) — FORWARD-COMPATIBLE probe. No shipped Blender exposes
-        # a Dispersion socket on Principled BSDF: headless probes of 4.3.2 / 4.5.0 /
-        # 5.1.0 / 5.2.0 all return no such input. It is the unmerged upstream WIP,
-        # Blender PR #162041, which adds two sockets — 'Dispersion Scale' (in [0,1])
-        # and 'Dispersion Abbe Number' (default 20). These put_float calls are a
-        # no-op on every current build (socket absent -> key not written -> engine
-        # stays non-dispersive) and start round-tripping automatically the day that
-        # PR ships. The native material (principled.cpp) reads dispersion_scale +
-        # dispersion_abbe; a one-socket 'Dispersion' build aliases the scale.
-        put_float('dispersion_scale', 'Dispersion Scale', 'Dispersion')
-        put_float('dispersion_abbe', 'Dispersion Abbe Number')
+        # Dispersion (pkg187) — FORWARD-COMPATIBLE probe. No shipped Blender <=5.2
+        # exposes a dispersion socket on Principled BSDF: headless probes of 4.3.2 /
+        # 4.5.0 / 5.1.0 / 5.2.0 all return no such input. Blender PR #162041 (merged
+        # 2026-08-18, commit f15daf81bf7c) added the two sockets under their MERGED
+        # names — 'Transmission Dispersion Scale' (in [0,1]) and 'Transmission
+        # Dispersion Abbe Number' (default 20); see node_shader_bsdf_principled.cc.
+        # We probe the merged names first, then fall back to the older short forms an
+        # experimental/WIP build may still use (put_float takes a name list, first
+        # match wins). On every current shipped build the socket is absent -> key not
+        # written -> engine stays non-dispersive. The native material (principled.cpp)
+        # reads dispersion_scale + dispersion_abbe; a one-socket 'Dispersion' build
+        # aliases the scale.
+        put_float('dispersion_scale', 'Transmission Dispersion Scale', 'Dispersion Scale', 'Dispersion')
+        put_float('dispersion_abbe', 'Transmission Dispersion Abbe Number', 'Dispersion Abbe Number')
         # Alpha — a REAL value routed to the native transparent lobe; NOT folded
         # into transmission (that conflation is the convicted BSDF_TRANSPARENT
         # bug family the Disney path still carries).

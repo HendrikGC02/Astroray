@@ -148,3 +148,29 @@ uses `P0 = (i==0) ? points[i] : points[i-1]` and
   recursive-subdivision path is correct and fast enough for CPU; revisit
   only if Stage 1 CPU perf profiling (dense-hair BVH, per spec "implementation-
   time decision") demands it.
+
+## VERIFY FINDING (2026-08-31, parent build+test on RTX box) — NOT MERGEABLE YET
+
+Builds clean (compiles + links). But `tests/test_pkg225_curve_intersect.py` is
+**4 failed / 3 passed**:
+- FAIL: `test_straight_cylinder_perpendicular_ray_hit_distance`,
+  `test_straight_cylinder_oblique_ray_hit_distance`,
+  `test_straight_cylinder_tangent_grazing_normal`,
+  `test_endcap_within_segment_extent_hits` — all expect a HIT on a straight
+  cylinder at the closed-form distance; the primitive returns **no hit**
+  (position (0,0,0)).
+- PASS: the two MISS cases + the curved-strand smoke (a curved strand DOES hit,
+  40<depth<70). So miss-logic and the curved path work; **straight-cylinder hits
+  are wrongly rejected.**
+
+Localization for the next session: the ray-local frame (curves.h:74-115) is
+plausible and for a straight strand `L0==0` → `maxDepth==0`, so the bug is almost
+certainly in the **depth-0 hit test (curves.h:217-282)** — the endpoint edge
+functions (`edge0`/`edge1`, :221-224), the closest-point `w` (:229, note pbrt
+clamps `w` to [0,1] — check whether this port does), the perpendicular
+`distSq > hitRadius²` test (:238), or the `pc.z` t-bound (:239) — OR the
+Catmull-Rom→Bezier hull for a collinear strand. Trace the perpendicular test's
+exact numbers (it aims through the strand centre, so the expected local (x,y) of
+the curve point at w=0.5 is (0,0); if the code computes a nonzero distSq there,
+the projection/`w`/point-eval is the culprit). Do NOT merge until 7/7 green +
+a math review vs pbrt-v3 curve.cpp.

@@ -1,0 +1,293 @@
+<title>Astroray Overnight Run</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #f6f4f0; --surface: #ffffff; --surface-2: #f0ede7;
+    --ink: #1b1e26; --muted: #61667a; --hair: #e0dcd3;
+    --amber: #c67c12; --amber-soft: #e39a2a; --violet: #6a4bd6; --green: #1f9e78;
+    --spectrum: linear-gradient(90deg,#6a4bd6 0%,#3b7bd6 22%,#1f9e78 44%,#d6c22a 66%,#e39a2a 82%,#c1341f 100%);
+    --shadow: 0 1px 2px rgba(20,20,30,.06), 0 8px 30px rgba(20,20,30,.05);
+    --maxw: 68rem;
+  }
+  :root:not([data-theme="light"]) {
+    @media (prefers-color-scheme: dark) {
+      --ground:#0d0f14; --surface:#161a22; --surface-2:#1d2230;
+      --ink:#e8e6e0; --muted:#8a90a0; --hair:#282e3c;
+      --amber:#f0a83a; --amber-soft:#f0a83a; --violet:#9a80ff; --green:#4ec9a0;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 40px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#0d0f14; --surface:#161a22; --surface-2:#1d2230;
+    --ink:#e8e6e0; --muted:#8a90a0; --hair:#282e3c;
+    --amber:#f0a83a; --amber-soft:#f0a83a; --violet:#9a80ff; --green:#4ec9a0;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 40px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, sans-serif; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 1.5rem; }
+  h1,h2,h3 { font-family: "Archivo", system-ui, sans-serif; text-wrap: balance; line-height: 1.1; margin: 0; }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  a { color: var(--amber); }
+
+  /* Hero */
+  header { position: relative; overflow: hidden; border-bottom: 1px solid var(--hair); }
+  .spectrum-bar { height: 4px; background: var(--spectrum); }
+  .hero { padding: 4.5rem 0 3rem; }
+  .eyebrow { font-family:"IBM Plex Mono",monospace; font-size:.78rem; letter-spacing:.16em; text-transform:uppercase; color: var(--muted); }
+  .hero h1 { font-size: clamp(2.6rem, 6vw, 4.4rem); font-weight: 800; letter-spacing: -.02em; margin: .6rem 0 .4rem; }
+  .hero .thesis { font-size: clamp(1.05rem,2.2vw,1.3rem); color: var(--ink); max-width: 46ch; margin: 0; }
+  .hero .thesis b { color: var(--amber); font-weight: 600; }
+
+  .stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 1px; background: var(--hair);
+           border: 1px solid var(--hair); border-radius: 14px; overflow: hidden; margin: 2.6rem 0 0; }
+  .stat { background: var(--surface); padding: 1.4rem 1.3rem; }
+  .stat .n { font-family:"Archivo",sans-serif; font-weight:800; font-size: 2.2rem; letter-spacing:-.02em; line-height:1; }
+  .stat .n.amber { color: var(--amber); } .stat .n.green { color: var(--green); } .stat .n.violet { color: var(--violet); }
+  .stat .l { font-size:.82rem; color: var(--muted); margin-top:.5rem; }
+
+  section { padding: 3.4rem 0; border-bottom: 1px solid var(--hair); }
+  .kicker { font-family:"IBM Plex Mono",monospace; font-size:.75rem; letter-spacing:.16em; text-transform:uppercase; color: var(--violet); margin-bottom:.7rem; }
+  section h2 { font-size: clamp(1.6rem,3.5vw,2.2rem); font-weight:700; letter-spacing:-.015em; }
+  section > .wrap > p { color: var(--ink); max-width: 66ch; }
+  .lead { font-size: 1.08rem; }
+  .muted { color: var(--muted); }
+
+  .card { background: var(--surface); border: 1px solid var(--hair); border-radius: 14px; box-shadow: var(--shadow); }
+  .grid2 { display:grid; grid-template-columns: 1.1fr .9fr; gap: 1.4rem; align-items: start; }
+  @media (max-width: 760px){ .grid2{ grid-template-columns:1fr; } .stats{ grid-template-columns: repeat(2,1fr);} }
+
+  figure { margin: 0; }
+  .figrow { display:grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .figrow figure img { width:100%; display:block; border-radius:10px; border:1px solid var(--hair); image-rendering: pixelated; background: var(--surface-2); }
+  figcaption { font-size:.8rem; color: var(--muted); margin-top:.5rem; }
+  figcaption b { color: var(--ink); font-weight:600; }
+
+  canvas#conv { width:100%; height:320px; display:block; }
+  .chart-legend { display:flex; gap:1.4rem; font-size:.82rem; margin-top:.4rem; flex-wrap:wrap; }
+  .chart-legend span { display:inline-flex; align-items:center; gap:.45rem; }
+  .swatch { width:14px; height:3px; border-radius:2px; display:inline-block; }
+
+  table { width:100%; border-collapse: collapse; font-family:"IBM Plex Mono",monospace; font-size:.85rem; font-variant-numeric: tabular-nums; }
+  th,td { text-align:left; padding:.6rem .8rem; border-bottom:1px solid var(--hair); }
+  th { color: var(--muted); font-weight:500; font-size:.74rem; letter-spacing:.05em; text-transform:uppercase; }
+  td.ok { color: var(--green); } td.same { color: var(--muted); }
+  .pill { display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:.72rem; padding:.15rem .5rem; border-radius:999px; border:1px solid var(--hair); color:var(--muted); }
+  .pill.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, var(--hair)); }
+
+  .ships { display:grid; gap:1rem; }
+  .ship { display:grid; grid-template-columns: auto 1fr auto; gap:1rem; align-items:baseline; padding:1rem 1.2rem; }
+  .ship .id { font-family:"Archivo",sans-serif; font-weight:700; color:var(--amber); }
+  .ship .d { color: var(--ink); }
+  .ship .d small { color: var(--muted); display:block; font-size:.85rem; margin-top:.15rem; }
+  .ship .pr { font-family:"IBM Plex Mono",monospace; font-size:.8rem; color: var(--muted); white-space:nowrap; }
+
+  .ba { display:flex; flex-direction:column; gap:1.3rem; margin-top:.4rem; }
+  .ba-label { font-size:.8rem; color:var(--muted); margin-bottom:.55rem; }
+  .ba-bar { display:grid; grid-template-columns:88px 1fr auto; align-items:center; gap:.7rem; margin-bottom:.4rem; }
+  .ba-bar > span { font-size:.78rem; color:var(--ink); }
+  .ba-track { height:12px; border-radius:6px; background:var(--surface-2); overflow:hidden; }
+  .ba-track > i { display:block; height:100%; border-radius:6px; }
+  .ba-bar > em { font-family:"IBM Plex Mono",monospace; font-size:.78rem; font-style:normal; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .ba-callout { font-size:.9rem; color:var(--ink); background:var(--surface-2); border-radius:10px; padding:.7rem .9rem; }
+  .ba-callout b { color:var(--amber); font-family:"IBM Plex Mono",monospace; }
+  .lamps { display:flex; gap:1.1rem; flex-wrap:wrap; margin-top:1.2rem; }
+  .lamp { text-align:center; }
+  .lamp .dot { width:74px; height:74px; border-radius:50%; box-shadow: 0 0 34px -6px currentColor, inset 0 -8px 18px rgba(0,0,0,.35); }
+  .lamp .nm { font-size:.8rem; margin-top:.55rem; } .lamp .nm b{font-family:"IBM Plex Mono",monospace;}
+  .lamp .ch { font-family:"IBM Plex Mono",monospace; font-size:.72rem; color: var(--muted); }
+
+  .queue { display:grid; gap:.6rem; }
+  .qitem { display:grid; grid-template-columns:auto 1fr; gap:.9rem; align-items:baseline; padding:.7rem .2rem; border-bottom:1px dashed var(--hair); }
+  .qitem .qid { font-family:"IBM Plex Mono",monospace; color:var(--violet); font-size:.85rem; }
+  footer { padding: 2.5rem 0 4rem; color: var(--muted); font-size:.85rem; }
+  .note { background: var(--surface-2); border-left: 3px solid var(--amber); border-radius: 0 10px 10px 0; padding: 1rem 1.2rem; margin-top:1.2rem; }
+  @media (prefers-reduced-motion: no-preference){ .stat, .card { transition: none; } }
+</style>
+
+<header>
+  <div class="spectrum-bar"></div>
+  <div class="wrap hero">
+    <div class="eyebrow">Astroray · overnight session · 2026-08-30 → 08-31</div>
+    <h1>Astroray Overnight Run</h1>
+    <p class="thesis">One night of autonomous engineering on the spectral GPU path tracer. The headline: <b>zero-knob adaptive sampling shipped end-to-end</b>, CPU and GPU, hardware-verified — plus a spectral-emission device path, a centering fix, and a full tracker reconciliation.</p>
+    <div class="stats">
+      <div class="stat"><div class="n amber">13</div><div class="l">pull requests merged to main</div></div>
+      <div class="stat"><div class="n green">0</div><div class="l">fleet regressions — register probe byte-identical</div></div>
+      <div class="stat"><div class="n violet">pkg131</div><div class="l">adaptive sampling, CPU + GPU, complete</div></div>
+      <div class="stat"><div class="n">9 / 9</div><div class="l">CPU↔GPU emission parity profiles</div></div>
+    </div>
+  </div>
+</header>
+
+<section id="flagship">
+  <div class="wrap">
+    <div class="kicker">Flagship · pkg131</div>
+    <h2>Zero-knob adaptive sampling</h2>
+    <p class="lead">Replace the <span class="mono">samples = N</span> knob with a physically-grounded stopping rule: per-pixel noise is estimated against a scalar-luminance half-buffer (Dammertz 2010, as Cycles implements it), the threshold is <b>auto-derived from the sample budget</b>, and a pixel retires once its brightness-relative noise falls below it. Easy regions stop early; hard regions keep sampling. No user knobs.</p>
+    <div class="grid2" style="margin-top:1.8rem">
+      <div class="card" style="padding:1.3rem 1.4rem">
+        <h3 style="font-size:1rem">Convergence — why it can stop early</h3>
+        <p class="muted" style="font-size:.9rem; margin:.4rem 0 1rem">RMSE of a smooth 2-D integral vs sample count, measured from the shipped sampler. The progressive (hash-Owen Sobol′, pkg224) sequence converges faster than white noise's 1/√N — so a truncated per-pixel count is still well-distributed. That prefix property is what makes early stopping safe.</p>
+        <canvas id="conv" width="620" height="320" aria-label="Convergence chart: progressive vs white-noise RMSE"></canvas>
+        <div class="chart-legend">
+          <span><i class="swatch" style="background:var(--amber)"></i> progressive Sobol′ <b class="mono" id="ps"></b></span>
+          <span><i class="swatch" style="background:var(--muted)"></i> white noise <b class="mono" id="ws"></b></span>
+        </div>
+      </div>
+      <div class="card" style="padding:1.3rem 1.4rem">
+        <h3 style="font-size:1rem">Before / after — same seed, measured on the RTX box</h3>
+        <p class="muted" style="font-size:.9rem;margin:.4rem 0 1.2rem">A fixed low budget stays noisy; adaptive tracks a 512-spp reference. Numbers are from the shipped GPU build.</p>
+        <div class="ba">
+          <div>
+            <div class="ba-label">Flat-region noise · per-pixel &#963; (lower is better)</div>
+            <div class="ba-bar"><span>Uniform 64</span><div class="ba-track"><i style="width:100%;background:var(--muted)"></i></div><em>0.00238</em></div>
+            <div class="ba-bar"><span>Adaptive</span><div class="ba-track"><i style="width:14%;background:var(--amber)"></i></div><em>0.00033</em></div>
+          </div>
+          <div>
+            <div class="ba-label">Error vs 512-spp reference · RMSE (lower is better)</div>
+            <div class="ba-bar"><span>Uniform 64</span><div class="ba-track"><i style="width:100%;background:var(--muted)"></i></div><em>0.00348</em></div>
+            <div class="ba-bar"><span>Adaptive</span><div class="ba-track"><i style="width:12%;background:var(--amber)"></i></div><em>0.00042</em></div>
+          </div>
+          <div class="ba-callout"><b>&#8776;7&#215;</b> less flat-region noise and <b>8&#215;</b> closer to the reference &mdash; while retiring converged pixels early instead of spending the full budget everywhere.</div>
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      <b>Architecture note.</b> The GPU wavefront is a flat persistent-thread work pool (<span class="mono">pixel = w % numPixels</span>), the deliberate launch-amortizing design behind the perf ceiling. Adaptive is layered on it as a <b>compacted active-pixel round</b> — the regen kernel indexes a compacted active list, per-pixel sample counts drive a per-pixel divide, and convergence + 3×3 mask dilation + compaction run host-side reusing the tested core. It is byte-identical when off and opt-in via the progressive sampler. Not a wave-based rewrite.
+    </div>
+  </div>
+</section>
+
+<section id="verify">
+  <div class="wrap">
+    <div class="kicker">Last line of defense</div>
+    <h2>Verification, not vibes</h2>
+    <p>Every GPU-reachable change was hardware-verified on the RTX&nbsp;5070&nbsp;Ti, not merged on green CI alone. Two gates carried the night.</p>
+    <div class="grid2" style="margin-top:1.6rem">
+      <div class="card" style="padding:1.3rem 1.4rem">
+        <h3 style="font-size:1rem">Register probe — pkg218 added nothing to the pinned kernel</h3>
+        <p class="muted" style="font-size:.9rem;margin:.4rem 0 1rem"><span class="mono">cuobjdump&nbsp;-res-usage</span> on the fleet shade kernel <span class="mono">stageShadeBucketedKernel</span> after wiring spectral emission into its NEE path. A single park-lane store — the fear was a stack spill across all 128 specializations.</p>
+        <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>variant</th><th>REG</th><th>STACK</th><th>CONST[0]</th><th></th></tr></thead>
+          <tbody>
+            <tr><td class="same">fleet baseline</td><td>254</td><td>3368</td><td>1716</td><td class="pill">before</td></tr>
+            <tr><td class="ok">pkg218 (main)</td><td class="ok">254</td><td class="ok">3368</td><td class="ok">1716</td><td class="pill ok">byte-identical</td></tr>
+            <tr><td class="same">CONST[2] variants</td><td>254</td><td>7864</td><td>1716</td><td class="pill">unchanged too</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p class="muted" style="font-size:.82rem;margin-top:.9rem">The NEE-park emission-profile store is transient — zero register pressure, no spill. No fleet-wide perf regression.</p>
+      </div>
+      <div class="card" style="padding:1.3rem 1.4rem">
+        <h3 style="font-size:1rem">Spectral emission — CPU ↔ GPU, on the SPD not an RGB guess</h3>
+        <p class="muted" style="font-size:.9rem;margin:.4rem 0 1rem">Lamp emission SPDs are now uploaded to the device and sampled directly, instead of collapsing to one reference RGB. Nine profiles agree within 5% per channel; the narrow atomic lines render their true chromaticity.</p>
+        <div class="lamps" id="lamps">
+          <div class="lamp"><div class="dot" style="color:#e39a2a;background:#e39a2a"></div><div class="nm"><b>sodium_vapor</b></div><div class="ch">CPU 0.652,0.135,0 · GPU 0.658,0.136,0</div></div>
+          <div class="lamp"><div class="dot" style="color:#8fd0c0;background:#8fd0c0"></div><div class="nm"><b>mercury</b></div><div class="ch">greenish-white line set</div></div>
+          <div class="lamp"><div class="dot" style="color:#fff3e0;background:#fff3e0"></div><div class="nm"><b>led_6500k</b></div><div class="ch">broadband control</div></div>
+        </div>
+        <p class="muted" style="font-size:.82rem;margin-top:.9rem">The parity metric was also fixed to compare significant channels by ratio and dark channels absolutely — sodium's zero blue channel is physics, not a mismatch.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="shipped">
+  <div class="wrap">
+    <div class="kicker">The night · 13 merges</div>
+    <h2>What shipped</h2>
+    <div class="ships" style="margin-top:1.6rem">
+      <div class="ship card"><div class="id">pkg131</div><div class="d">Zero-knob adaptive sampling — complete<small>Cited Cycles Dammertz metric + auto-threshold. CPU per-pixel leg and the GPU compacted-active-pixel round. Byte-identical off, unbiased on, register-neutral.</small></div><div class="pr">#659 · #665</div></div>
+      <div class="ship card"><div class="id">pkg218</div><div class="d">GPU spectral emission — device SPD upload<small>Emission SPDs on the device across all three GPU emission-eval sites. Register-neutral; 9/9 CPU↔GPU parity.</small></div><div class="pr">#667</div></div>
+      <div class="ship card"><div class="id">pkg212</div><div class="d">Wavefront half-pixel centering fix<small>+0.5 px pixel-center on both ray-gen sites; CPU↔GPU bit-identity preserved, honour-matrix green.</small></div><div class="pr">#663</div></div>
+      <div class="ship card"><div class="id">pkg207</div><div class="d">Addon dispersion socket names<small>Probe the merged Cycles socket names with short-form fallback.</small></div><div class="pr">#658</div></div>
+      <div class="ship card"><div class="id">pkg208</div><div class="d">Chromatic-light dispersion oracle<small>A Cycles-superiority test: narrow sodium line vs broadband, tight amber band vs wide spread.</small></div><div class="pr">#666 · #668</div></div>
+      <div class="ship card"><div class="id">pkg209</div><div class="d">Dispersion / MNEE citation refresh<small>Comment-only: stale "WIP" → merged Cycles commit; MNEE attribution corrected.</small></div><div class="pr">#664</div></div>
+      <div class="ship card"><div class="id">pkg219</div><div class="d">Per-texel shader graph — verified complete<small>Audited already-shipped; flipped DONE. Filed pkg219d for the one real residual (scalar param-textures).</small></div><div class="pr">#661</div></div>
+      <div class="ship card"><div class="id">docs ×3</div><div class="d">Tracker reconciliation + architect routing<small>STATUS / ROADMAP / NEXT_STAGE reconciled; caught a stale-local-main revert that had silently reverted two spec statuses.</small></div><div class="pr">#660 · #662 · #669</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="honest">
+  <div class="wrap">
+    <div class="kicker">Held back on purpose</div>
+    <h2>What did <em>not</em> merge</h2>
+    <p><b>pkg225-S1 — hair ray-curve intersection.</b> The implementation is well-researched (pbrt-v3 <span class="mono">Curve::Intersect</span>, cite-verified; Catmull-Rom↔Bézier cross-checked against Cycles) with a real closed-form analytic test. Built and run on hardware, it <b>compiles but fails 4 of 7 analytic tests</b> — straight-cylinder hits are wrongly rejected while the curved and miss cases pass. Per the "no half-assing the hair flagship" directive it was <b>not</b> forced green; the bug was localized to the depth-0 hit test and recorded on the WIP branch as a precise next-session starting point. Verifying turned an unknown into a known, actionable defect.</p>
+  </div>
+</section>
+
+<section id="next">
+  <div class="wrap">
+    <div class="kicker">Running start</div>
+    <h2>Next session</h2>
+    <p class="muted">Trackers are current, the <span class="mono">.pyd</span> and Blender addon are freshly built, and the queue below is Status-verified. Each remaining item is last-line engine or diagnosis work that earns a fresh-context session.</p>
+    <div class="queue" style="margin-top:1.4rem">
+      <div class="qitem"><span class="qid">pkg225-S1</span><span>Fix the localized straight-cylinder rejection, get 7/7 + a math review vs pbrt, then merge Stage 1.</span></div>
+      <div class="qitem"><span class="qid">pkg210</span><span>Companion wavelengths on specular reflection — register-hostile; probe-first, may park.</span></div>
+      <div class="qitem"><span class="qid">pkg180</span><span>Systemic Cycles-vs-Astroray dim diagnosis — needs live Blender + RTX; diagnosis only.</span></div>
+      <div class="qitem"><span class="qid">pkg211</span><span>Per-bounce spectral MIS / ray-differentials prototype — measure-first research.</span></div>
+      <div class="qitem"><span class="qid">pkg219d</span><span>Scalar parameter-textures (op-VM → roughness/metallic) — architect to detail.</span></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    Astroray — spectral GPU path tracer · overnight autonomous run, 2026-08-31 · RTX 5070 Ti · all figures generated from the shipped build.
+  </div>
+</footer>
+
+<script>
+  // Convergence data — injected from the real sampler (report_data.json).
+  const DATA = {"ns":[16,32,64,128,256,512,1024,2048],
+    "prog_rmse":[0.003470,0.001295,0.000509,0.000173,0.00007070,0.00002713,0.000009432,0.000003595],
+    "white_rmse":[0.041055,0.029017,0.018828,0.014087,0.010125,0.006265,0.004711,0.003576],
+    "prog_slope":-1.415,"white_slope":-0.512};
+  (function(){
+    const el = document.getElementById('conv');
+    if(!el || !DATA){ return; }
+    const ns = DATA.ns, prog = DATA.prog_rmse, white = DATA.white_rmse;
+    const ps = document.getElementById('ps'), ws = document.getElementById('ws');
+    if(ps) ps.textContent = 'slope ' + DATA.prog_slope.toFixed(2);
+    if(ws) ws.textContent = 'slope ' + DATA.white_slope.toFixed(2);
+    const xs=ns.map(n=>Math.log2(n)); const all=prog.concat(white).map(v=>Math.log10(v));
+    const xmin=Math.min(...xs),xmax=Math.max(...xs);
+    const ymin=Math.min(...all),ymax=Math.max(...all);
+    function draw(){
+      const css = getComputedStyle(document.documentElement);
+      const amber = css.getPropertyValue('--amber').trim() || '#f0a83a';
+      const muted = css.getPropertyValue('--muted').trim() || '#8a90a0';
+      const hair  = css.getPropertyValue('--hair').trim() || '#282e3c';
+      const dpr = window.devicePixelRatio||1;
+      const W = Math.max(el.clientWidth || el.parentElement.clientWidth || 480, 260);
+      const H = el.clientHeight || 320;
+      el.width=W*dpr; el.height=H*dpr;
+      const g=el.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
+      const pad={l:52,r:16,t:14,b:34};
+      const X=v=>pad.l+(v-xmin)/(xmax-xmin)*(W-pad.l-pad.r);
+      const Y=v=>pad.t+(1-(v-ymin)/(ymax-ymin))*(H-pad.t-pad.b);
+      g.lineWidth=1; g.fillStyle=muted; g.font='11px "IBM Plex Mono",monospace';
+      for(let k=Math.ceil(ymin);k<=Math.floor(ymax);k++){ const y=Y(k); g.strokeStyle=hair; g.globalAlpha=.5; g.beginPath();g.moveTo(pad.l,y);g.lineTo(W-pad.r,y);g.stroke(); g.globalAlpha=1; g.fillText('1e'+k, 8, y+3); }
+      ns.forEach((n,i)=>{ if(i%2===0||i===ns.length-1) g.fillText(n, Math.min(X(xs[i])-8,W-30), H-14); });
+      function line(arr,color,w){ g.strokeStyle=color; g.lineWidth=w; g.beginPath();
+        arr.forEach((v,i)=>{ const x=X(xs[i]),y=Y(Math.log10(v)); i?g.lineTo(x,y):g.moveTo(x,y); }); g.stroke();
+        arr.forEach((v,i)=>{ const x=X(xs[i]),y=Y(Math.log10(v)); g.fillStyle=color; g.beginPath();g.arc(x,y,3,0,7);g.fill(); }); }
+      line(white,muted,1.5); line(prog,amber,2.6);
+    }
+    draw();
+    window.addEventListener('load', draw);
+    window.addEventListener('resize', draw);
+    if(document.fonts&&document.fonts.ready) document.fonts.ready.then(draw);
+    if(window.matchMedia){ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw); }
+  })();
+</script>

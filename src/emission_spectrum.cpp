@@ -163,6 +163,23 @@ void EmissionSpectrum::deviceReference(Vec3& outRGB, bool& exactRGB) const {
     exactRGB = false;
 }
 
+// pkg218 — bake this emission spectrum onto the fixed device grid
+// (kDeviceEmissionLambdaMin/Step, kDeviceEmissionSamples) for GPU spectral-
+// emission upload. Same per-nm four-lane eval() trick deviceReference already
+// uses for its fine CMF-grid integral above: eval() at a given lambda depends
+// only on wl.lambda(i) per lane, so packing one wavelength into all four lanes
+// and reading lane 0 yields S(lambda) exactly for any mode (Blackbody's
+// luminance normalization and Composite's recursive filter multiply both fall
+// out of eval()'s existing dispatch — no separate handling needed here).
+std::vector<float> EmissionSpectrum::bakeDeviceProfile() const {
+    std::vector<float> out(kDeviceEmissionSamples);
+    for (int i = 0; i < kDeviceEmissionSamples; ++i) {
+        float lam = kDeviceEmissionLambdaMin + static_cast<float>(i) * kDeviceEmissionLambdaStep;
+        out[i] = eval(SampledWavelengths::fromLambdas({lam, lam, lam, lam}))[0];
+    }
+    return out;
+}
+
 // Internal: evaluate Blackbody mode.
 SampledSpectrum EmissionSpectrum::evalBlackbody(const Blackbody& bb,
                                                  const SampledWavelengths& wl) const {

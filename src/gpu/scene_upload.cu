@@ -1072,6 +1072,9 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             Vec3 E = sun->emittedRadiance();   // irradiance S (RGB)
             gd.emissionRGB = GVec3(E.x, E.y, E.z);
             gd.staticScale = 1.0f;             // magnitude carried in emissionRGB
+            // pkg218: the legacy hittable-sun conversion has no EmissionSpectrum
+            // (emittedRadiance() is a plain RGB) — always the RGB fallback.
+            gd.emissionProfileIndex = -1;
             convertedSuns.push_back(gd);
             convertedLegacySun = true;
             continue;                          // NO hittable GLight / no dead CDF slot
@@ -1136,6 +1139,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             gd.power           = powerDist[k] - prev;
             gd.cumulativePower = powerDist[k];
             astroray::DeviceLightParams p;
+            gd.emissionProfileIndex = -1;  // pkg218 default: RGB fallback
             if (L && L->fillDeviceParams(p)) {
                 gd.kind        = p.kind;
                 gd.position    = GVec3(p.position.x, p.position.y, p.position.z);
@@ -1151,6 +1155,27 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 gd.cosOuter    = p.cosOuter;
                 gd.emissionRGB = GVec3(p.emissionRGB.x, p.emissionRGB.y, p.emissionRGB.z);
                 gd.staticScale = p.staticScale;
+                // pkg218: non-RGB emission modes (blackbody/measured_spd/
+                // composite) carry a baked device SPD (see light.h
+                // DeviceLightParams::emissionProfileSamples). Register it into
+                // the flat upload table and stamp the row index; RGB mode
+                // (exactIlluminant true) leaves emissionProfileSamples empty
+                // and keeps the -1 default (existing RGBIlluminant path).
+                if (!p.emissionProfileSamples.empty()) {
+                    if ((int)p.emissionProfileSamples.size() != G_EMISSION_SAMPLES) {
+                        fprintf(stderr,
+                                "[CUDA] WARNING: emission profile size %zu != "
+                                "G_EMISSION_SAMPLES %d; skipping device SPD "
+                                "(RGB fallback)\n",
+                                p.emissionProfileSamples.size(), G_EMISSION_SAMPLES);
+                    } else {
+                        gd.emissionProfileIndex =
+                            (int)(r.emissionProfileTable.size() / G_EMISSION_SAMPLES);
+                        r.emissionProfileTable.insert(r.emissionProfileTable.end(),
+                            p.emissionProfileSamples.begin(),
+                            p.emissionProfileSamples.end());
+                    }
+                }
             } else {
                 // Unsupported type (e.g. Background): keep the CDF slot aligned
                 // but flag invalid so the device sampler yields no contribution.
@@ -1158,6 +1183,9 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             }
             r.dedicatedLights.push_back(gd);
         }
+        // pkg218: row count for uploadEmissionProfileTable (scene_upload.cu
+        // callers) — mirrors r.profileCount's dedicated field above.
+        r.emissionProfileCount = (int)(r.emissionProfileTable.size() / G_EMISSION_SAMPLES);
     }
 
     // pkg202: fold the converted legacy suns in as dedicated distant lights and

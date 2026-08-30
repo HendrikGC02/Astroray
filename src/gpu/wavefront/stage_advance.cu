@@ -570,11 +570,23 @@ __device__ int intersectPathSlotT(
             dedLights, numDed, ray.origin, ray.direction, 0.001f, surfaceT,
             &lampT, &lampScale);
         if (lampIdx >= 0) {
+            // pkg218: a directly-visible dedicated light (area/distant disc hit
+            // by a BSDF-continuation ray) reads the baked device SPD for non-RGB
+            // emission modes, same substitution as the NEE paths above/below
+            // (gpu_nee.cuh gpu_nee_resolve, stageShadowKernel). This is the
+            // INTERSECT stage per the pkg181 comment above (not the REG:254
+            // shade kernel), so the extra branch is not register-critical.
+            int profIdx = dedLights[lampIdx].emissionProfileIndex;
             GSampledSpectrum Le;
-            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
-                Le.v[i] = gpu_rgbSpectrumAt(dedLights[lampIdx].emissionRGB,
-                                            lambdas.lambda[i], GSPEC_RGB_ILLUMINANT)
-                          * lampScale;
+            if (profIdx >= 0) {
+                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                    Le.v[i] = gpu_emission_profile(profIdx, lambdas.lambda[i]) * lampScale;
+            } else {
+                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                    Le.v[i] = gpu_rgbSpectrumAt(dedLights[lampIdx].emissionRGB,
+                                                lambdas.lambda[i], GSPEC_RGB_ILLUMINANT)
+                              * lampScale;
+            }
             if (Le.maxValue() > 0.f) {
                 // pkg199 Stage 1 (role 3): the lamp is closer than the surface,
                 // so throughput is not yet segment-attenuated; attenuate the
@@ -1368,6 +1380,7 @@ __device__ bool shadePathSlot(
                         nee_i[ 0 * nee_capacity + idx] = s.lightMatId;
                         nee_i[ 1 * nee_capacity + idx] = s.isSphere;
                         nee_i[ 2 * nee_capacity + idx] = s.isDedicated;  // pkg89-wavefront
+                        nee_i[ 5 * nee_capacity + idx] = s.dedEmissionProfileIndex;  // pkg218
                         // pkg157: park the bounce depth this NEE sample was taken
                         // at -- the shadow-resolve kernel runs in a later launch,
                         // after state.bounce[idx] may already have advanced (see
@@ -1736,6 +1749,7 @@ __global__ void stageShadowKernel(
     s.dedEmissionRGB = GVec3(nee_f[11 * nee_capacity + idx],
                              nee_f[12 * nee_capacity + idx],
                              nee_f[13 * nee_capacity + idx]);
+    s.dedEmissionProfileIndex = nee_i[5 * nee_capacity + idx];  // pkg218
     s.valid      = 1;
 
     // pkg55-C4: thread TLAS + path time + motionVerts to shadow rays.
@@ -1762,9 +1776,21 @@ __global__ void stageShadowKernel(
         // pkg89-wavefront: dedicated lights carry emission intrinsically —
         // same RGBIlluminant upsample gpu_nee_resolve uses (dedGeoScale
         // already folded into the parked lanes at shade time).
-        for (int k = 0; k < G_SPECTRUM_SAMPLES; ++k)
-            L_spec[k] = gpu_rgbSpectrumAt(s.dedEmissionRGB, lambdas.lambda[k],
-                                          GSPEC_RGB_ILLUMINANT);
+        // pkg218: non-RGB emission modes read the baked device SPD instead
+        // (dedEmissionProfileIndex >= 0) — same substitution as gpu_nee_resolve
+        // (gpu_nee.cuh), parked/read via nee_i lane 5 since this kernel resolves
+        // the emission in a LATER launch than gpu_dedicated_sample. This lean
+        // shadow-resolve kernel is explicitly not register-critical (see the
+        // file-header note above), so the branch costs nothing worth measuring.
+        if (s.dedEmissionProfileIndex >= 0) {
+            for (int k = 0; k < G_SPECTRUM_SAMPLES; ++k)
+                L_spec[k] = gpu_emission_profile(s.dedEmissionProfileIndex,
+                                                 lambdas.lambda[k]);
+        } else {
+            for (int k = 0; k < G_SPECTRUM_SAMPLES; ++k)
+                L_spec[k] = gpu_rgbSpectrumAt(s.dedEmissionRGB, lambdas.lambda[k],
+                                              GSPEC_RGB_ILLUMINANT);
+        }
     } else {
         bool lightFront = s.isSphere ? (occ.frontFace != 0) : true;
         L_spec = gpu_material_emitted_spectral(
@@ -2172,6 +2198,7 @@ __global__ void stageVolumeScatterKernel(
                 nee_i[ 1 * nee_capacity + idx] = s.isSphere;
                 nee_i[ 2 * nee_capacity + idx] = s.isDedicated;
                 nee_i[ 3 * nee_capacity + idx] = bounce;
+                nee_i[ 5 * nee_capacity + idx] = s.dedEmissionProfileIndex;  // pkg218
                 // pkg204: volume direct/indirect encoding (see G_WF_NEE_I_LANES).
                 // +(bounce+1) for a first-interaction in-scatter (=> VOLUME_DIRECT),
                 // -(bounce+1) for a deeper scatter (=> VOLUME_INDIRECT). The shadow

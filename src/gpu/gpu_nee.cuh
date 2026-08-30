@@ -13,6 +13,7 @@
 #include "astroray/gpu_materials.h"
 #include "astroray/gpu_bvh.h"
 #include "light_tree_device.cuh"  // gpu_light_tree_pick (pkg86-B)
+#include "gpu_spectral_tables.h"  // pkg218: gpu_emission_profile
 
 #include <curand_kernel.h>
 
@@ -142,6 +143,7 @@ __device__ inline GNEESample gpu_dedicated_sample(
     s.isSphere    = 0;   // occlusion via the "any occluder in [eps,maxDist]" branch
     s.origin      = shadingPoint;
     s.dedEmissionRGB = d.emissionRGB;
+    s.dedEmissionProfileIndex = d.emissionProfileIndex;  // pkg218
 
     if (d.kind == GDED_POINT || d.kind == GDED_SPOT) {
         GVec3 sampledPos = d.position;
@@ -555,11 +557,22 @@ __device__ inline GSampledSpectrum gpu_nee_resolve(
     // RGBIlluminant path the CPU uses (gpu_rgbSpectrumAt == CPU
     // RGBIlluminantSpectrum::sample), scaled by the wavelength-independent
     // dedGeoScale (staticScale · per-sample geometric factor).
+    // pkg218 — non-RGB emission modes (blackbody/measured_spd/composite) carry
+    // a baked device SPD instead (dedEmissionProfileIndex >= 0): read it
+    // directly at the render wavelengths rather than upsampling the lossy
+    // RGB/RGBIlluminant reference. RGB mode (index == -1) is untouched —
+    // gpu_rgbSpectrumAt already reproduces CPU RGBIlluminantSpectrum exactly.
     GSampledSpectrum L_spec;
     if (s.isDedicated) {
-        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
-            L_spec[i] = gpu_rgbSpectrumAt(s.dedEmissionRGB, lambdas.lambda[i],
-                                          GSPEC_RGB_ILLUMINANT) * s.dedGeoScale;
+        if (s.dedEmissionProfileIndex >= 0) {
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                L_spec[i] = gpu_emission_profile(s.dedEmissionProfileIndex,
+                                                 lambdas.lambda[i]) * s.dedGeoScale;
+        } else {
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                L_spec[i] = gpu_rgbSpectrumAt(s.dedEmissionRGB, lambdas.lambda[i],
+                                              GSPEC_RGB_ILLUMINANT) * s.dedGeoScale;
+        }
     } else {
         L_spec = gpu_material_emitted_spectral(materials[s.lightMatId], lightFront, lambdas);
     }

@@ -217,6 +217,8 @@ bool DistantLight::fillDeviceParams(DeviceLightParams& out) const {
     // cancellation the CPU fix addresses) -- see gpu_nee.cuh gpu_dedicated_sample.
     out.spread   = distantSolidAngle(angularDiameter_);
     emission_.deviceReference(out.emissionRGB, out.exactIlluminant);
+    // pkg218: baked device SPD for non-RGB emission modes (see point_light.cpp).
+    if (!out.exactIlluminant) out.emissionProfileSamples = emission_.bakeDeviceProfile();
     // Distant light omits the 1/π factor (matches distant_light.cpp sampleLi).
     out.staticScale = intensity_ * normalizeFactor_;
     return true;

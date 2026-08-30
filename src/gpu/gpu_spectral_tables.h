@@ -66,6 +66,15 @@ extern __device__ const float* g_jhLutScale;   // [res]
 extern __device__ const float* g_jhLutCoeffs;  // flat [3][res][res][res][3]
 extern __device__ int          g_jhLutRes;
 
+// pkg218: emission-profile table (baked EmissionSpectrum SPD for non-RGB
+// dedicated-light modes — blackbody/measured_spd/composite; see gpu_types.h's
+// G_EMISSION_* grid constants for the layout doc). Device GLOBAL memory, same
+// reasoning as the JH LUT above; re-uploaded per scene (unlike the static JH
+// LUT) via uploadEmissionProfileTable(). count == 0 / table == nullptr means
+// no scene profiles resident, matching the JH-LUT-style guard.
+extern __device__ const float* g_emissionProfileTable;  // [count * G_EMISSION_SAMPLES]
+extern __device__ int          g_emissionProfileCount;
+
 // ---------------------------------------------------------------------------
 // Host-callable uploads / probe (defined in gpu_spectral_tables.cu).
 // ---------------------------------------------------------------------------
@@ -78,6 +87,10 @@ void uploadJakobHanikaLut();
 void uploadProfileTable(const float* host, int count);
 // pkg55-C7: number of profiles currently resident on the device (0 = none).
 int uploadedProfileCount();
+// pkg218 — copies the baked emission-profile table (host layout: count rows
+// of G_EMISSION_SAMPLES floats) into device global memory. count == 0 clears
+// the device table (every emissionProfileIndex then falls back to RGB).
+void uploadEmissionProfileTable(const float* host, int count);
 // pkg54d — single-lookup probe binding (tests/test_gpu_profile_lookup.py).
 float launchProfileLookup(int profileIndex, float lambda);
 // pkg168 — test-only batch RGB→spectral upsampling probe. Returns nRgb*nLambda
@@ -114,6 +127,28 @@ __device__ inline float gpu_profile_reflectance(int profileIndex, float lambda_n
     const float* row = &g_profileTable[profileIndex * G_PROFILE_SAMPLES];
     if (i < 0)                       return row[0];
     if (i >= G_PROFILE_SAMPLES - 1)  return row[G_PROFILE_SAMPLES - 1];
+    return row[i] * (1.f - f) + row[i + 1] * f;
+}
+
+// pkg218 — linear-interpolated emission-profile lookup. Mirrors
+// gpu_profile_reflectance's interpolation shape above, but reads the emission
+// table (device global memory — g_emissionProfileTable, see the "widely-
+// included header" note by its declaration) on the G_EMISSION_LAMBDA_MIN/MAX/
+// STEP grid, which matches EmissionSpectrum::bakeDeviceProfile's per-nm
+// domain (src/emission_spectrum.cpp) so this reproduces the CPU eval to well
+// under 1%. profileIndex < 0 (RGB fallback) or out-of-range returns 0 — the
+// caller (gpu_nee.cuh gpu_nee_resolve) only takes this branch when
+// dedEmissionProfileIndex >= 0, so 0 here would only surface as a bug, not a
+// silently-tolerated fallback.
+__device__ inline float gpu_emission_profile(int profileIndex, float lambda_nm) {
+    if (profileIndex < 0 || profileIndex >= g_emissionProfileCount || !g_emissionProfileTable)
+        return 0.f;
+    float t = (lambda_nm - G_EMISSION_LAMBDA_MIN) / G_EMISSION_LAMBDA_STEP;
+    int   i = (int)t;
+    float f = t - (float)i;
+    const float* row = g_emissionProfileTable + profileIndex * G_EMISSION_SAMPLES;
+    if (i < 0)                        return row[0];
+    if (i >= G_EMISSION_SAMPLES - 1)  return row[G_EMISSION_SAMPLES - 1];
     return row[i] * (1.f - f) + row[i + 1] * f;
 }
 

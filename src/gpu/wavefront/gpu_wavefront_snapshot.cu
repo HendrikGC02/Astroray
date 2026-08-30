@@ -33,6 +33,9 @@ void uploadJakobHanikaLut();
 // (pkg54a per-material spectral profiles).
 void uploadGgxGlassTables();
 void uploadProfileTable(const float* host, int count);
+// pkg218 — dedicated-light emission-profile table (gpu_spectral_tables.cu),
+// same reasoning as uploadProfileTable above.
+void uploadEmissionProfileTable(const float* host, int count);
 // pkg152 (#523, rebased into C7): reflection-lobe multi-scatter/layering
 // compensation tables (gpu_ggx_tables.cu) — required by gpu_disney_eval's
 // gpu_ggxCompensationFactor/DirectionalAlbedo/sheen/clearcoat lookups.
@@ -1679,6 +1682,10 @@ std::vector<float> cuda_wavefront_render(
     uploadThinFilmTable();  // pkg178 Stage 4 PR-3 — thin-film CIE sensitivity LUT
     if (res.profileCount > 0)
         uploadProfileTable(res.profileTable.data(), res.profileCount);
+    // pkg218: dedicated-light emission-profile table (device global memory).
+    // Always call — count==0 clears any stale table from a prior scene, same
+    // "clear on empty" contract cuda_renderer.cu's calls rely on.
+    uploadEmissionProfileTable(res.emissionProfileTable.data(), res.emissionProfileCount);
 
     // pkg131 — zero-knob adaptive sampling gate. `adaptiveOn` and `h_pixelSamples`
     // are function-scoped so the resolve loop below divides beauty by the per-pixel

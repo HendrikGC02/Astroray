@@ -90,6 +90,26 @@ milestone built, is next in sequence per the 2026-08-03 directive — **still
 PAUSED pending an explicit owner go-ahead** (no unpause directive has been
 issued; do not unpause unilaterally).
 
+**Owner assessment (2026-08-29):** the originally-scoped Integration
+Milestone package set (b) is COMPLETE, but the owner judges the Pillar 4
+gate NOT MET — Blender integration is "still a ways off" in practice.
+Specifically: socket coverage is 117 SUPPORTED / 22 APPROXIMATED / 385
+DROPPED-SILENT of 524 (pkg219 per-texel shader eval is expected to cascade
+into resolving many of the DROPPED-SILENT shader-node sockets once it
+lands); hair/curve rendering is entirely absent (pkg225 spec now filed);
+viewport UI fps is coupled to render fps rather than uncoupled as in Cycles
+(a UX gap to investigate — Cycles uncouples viewport interaction fps from
+render progressive-refinement fps). **All features being built should be
+"future-aware"** — designed with awareness of what Pillar 4 and the
+astrophysical pipeline will need from them (volumes for nebulae, curves for
+filaments, spectral for emission lines).
+
+**Current active queue (2026-08-29):** pkg224 (progressive sampler,
+owner-confirmed forks, unblocks pkg131) → pkg225 (hair rendering, 6-stage)
+→ pkg219 (per-texel shader eval, structural socket-coverage unlock) →
+pkg131 (adaptive sampling, now unblocked by pkg224). The exact dispatch
+order past pkg224 is an architect decision per round.
+
 **Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU
 parity tail — **pkg172 effect (B) / pkg173** (bounce-1 geometry-sampling
 expectations) and the **pkg153** remainder — sits BELOW the Integration
@@ -166,6 +186,12 @@ back without user intervention.
 > **PAUSED (2026-06-08, owner) — unpause is sequenced AFTER the Integration
 > Milestone** (see "Current sequencing" at the top): the science layer gets
 > built and exercised from inside Blender via the steering wheel.
+> **Owner assessment (2026-08-29):** despite the Integration Milestone's
+> original package set being COMPLETE, the owner judges the Pillar 4
+> gate NOT MET — Blender integration has gaps (shader-node socket coverage,
+> zero hair/curve support, viewport fps coupling). The specs from the
+> Pillar 4 era are outdated and will receive a full audit pass when the
+> owner is ready to unfreeze. Do not unpause unilaterally.
 
 > **Thaw notice (2026-05-10) + shipping (2026-05-11+):** the strategic
 > gate released, and Pillar 4 is actively shipping. pkg40 (Kerr
@@ -257,6 +283,30 @@ fix:
   pressure — pkg55-A.0's documented cliff) dominates. Phase 3 routes
   to pkg55 Phase B per the spec's escape clause; smaller H2/H5
   follow-ups split out as **pkg83** + **pkg84**.
+
+**Round closeout (2026-08-29): 7 PRs (#648–#656) — pkg201-S3 items A+E
+ship per-type bounce limits and native caustic toggles on BOTH backends,
+pkg223b ships Bump node CPU+GPU parity, pkg224 progressive-sampler spec
+filed (unblocking pkg131), and pkg225 hair-rendering spec filed.**
+**pkg201-S3 item A DONE** (PR #651) — Cycles per-type bounce limits
+(diffuse/glossy/transmission) honoured BOTH backends; runtime SoA compare
+(owner option B). REG 254 unchanged, STACK +8, CONSTANT[0] +8 (perf-
+neutral). **pkg201-S3 item E DONE** (PR #654) — native caustic toggles
+(`caustics_reflective`/`caustics_refractive`) honoured BOTH backends via
+sticky `hadDiffuseAncestor` flag + delta-caustic cull. Default ON →
+byte-identical fleet. **pkg223b Bump node DONE** (PR #655) — Cycles
+`svm_node_set_bump` surface-gradient (Mikkelsen 2010) on UV-aligned frame,
+sharing `HasNormalPerturb` axis; fixed the UV-upload gate blind spot
+(bump-only triangles shipped `hasUV=0`, GPU bump silently skipped). Fleet
+`<0,...>` byte-identical. **pkg201-S3 item C PARKED** — filter_glossy needs
+per-material floored-roughness refactor at ~4 inline alpha sites × 5
+materials × 2 backends; disproportionate to one honour row. **Docs/infra:**
+pkg126–137 audit (PR #648), tracker hygiene (PR #649), cite-algorithm
+research notes (PRs #650/#652/#653), **pkg224 progressive-sampler spec**
+(PR #656, owner-confirmed forks: hash-Owen Sobol' / opt-in `__constant__`
+flag / GPU-only first), **pkg225 hair-rendering spec** filed (6-stage,
+Pillar 3). Fleet register baseline: REG 254 / STACK 3368 / CONSTANT[0]
+1716. Pillar 4 stays PAUSED. Full detail: `.astroray_plan/docs/STATUS.md`.
 
 **In progress (2026-08-19 → 2026-08-21): 6 PRs merged (#624–#628), 1 open/HW-FAIL (#629) — pkg200's last filter honour row and the pkg198 volume-pass split both close, a test-hygiene chip lands, the light-intensity slider is exposed, and the sodium-vapor fix regressed mercury via peak-normalisation coupling.**
 **pkg203 DONE** (PR #624, 2026-08-19) — Cycles-accurate pixel-filter width→σ

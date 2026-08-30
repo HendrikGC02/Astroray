@@ -227,8 +227,12 @@ __device__ inline void generatePrimaryRay(
     float lambdaMin, float lambdaMax)
 {
     // 1. Filter u/v (CPU draws 2× std::uniform_real_distribution<float>(0,1)).
-    float u = (px + filterSample(rng)) / float(width - 1);
-    float v = 1.0f - (py + filterSample(rng)) / float(height - 1);
+    // pkg212: +0.5f pixel-center offset — filterSample() returns the filter
+    // offset centered at 0 ([-0.5,0.5]); the raster pixel-center convention
+    // (integer+0.5, matches Cycles + the megakernel raytracer.h) belongs at
+    // the call site, not inside filterSample. See pkg212 spec.
+    float u = (px + 0.5f + filterSample(rng)) / float(width - 1);
+    float v = 1.0f - (py + 0.5f + filterSample(rng)) / float(height - 1);
 
     // 2. Lens seed draw (CPU converts to mt19937; we consume the same dimension).
     uint32_t lens_seed = rng.UniformUInt32();

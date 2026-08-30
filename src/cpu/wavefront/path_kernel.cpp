@@ -81,8 +81,14 @@ void init_path(PathState& ps, const Camera& cam, int x, int y,
     // dimension, byte-identical to the GPU sampler. See the filterSample
     // history comment above.
 
-    float u = (x + filterSample(ps.rng)) / (width - 1);
-    float v = 1.0f - (y + filterSample(ps.rng)) / (height - 1);
+    // pkg212: +0.5f pixel-center offset — filterSample() returns the filter
+    // offset centered at 0 ([-0.5,0.5]); the raster pixel-center convention
+    // (integer+0.5, matches Cycles + the megakernel raytracer.h) belongs at
+    // the call site, not inside filterSample. Mirrors the GPU wavefront edit
+    // in stage_init.cu (CPU<->GPU wavefront byte-identity invariant). See
+    // pkg212 spec.
+    float u = (x + 0.5f + filterSample(ps.rng)) / (width - 1);
+    float v = 1.0f - (y + 0.5f + filterSample(ps.rng)) / (height - 1);
 
     // Lens sampling via a temporary mt19937 seeded from the live RNG. This
     // consumes exactly one WavefrontRNG draw (dimension auto-increments).

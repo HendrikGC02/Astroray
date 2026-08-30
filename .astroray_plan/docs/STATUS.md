@@ -1,5 +1,42 @@
 # Astroray Status
 
+**2026-08-30 (pkg207 + pkg131 session 1, PRs #658/#659 — plus a spec/tracker
+reconciliation pass): the addon dispersion-socket probe now reads the merged
+Cycles 5.3 names, and zero-knob adaptive sampling lands its shared core + CPU
+leg (GPU leg + addon UI removal remain as follow-ups).**
+- **pkg207 DONE** (PR #658) — the forward-compat dispersion probe in
+  `blender_addon/__init__.py` read the pre-merge WIP socket names
+  (`Dispersion Scale`/`Dispersion Abbe Number`); Blender PR #162041 (merged
+  2026-08-18) shipped them as `Transmission Dispersion Scale`/`Transmission
+  Dispersion Abbe Number`. Fixed to probe the merged names first, short forms
+  as a fallback (`put_float`'s existing variadic name-list, no refactor);
+  stale "unmerged PR" comment refreshed. Pure-Python, CI-gate only, unit test
+  4/4 green.
+- **pkg131 session 1 of 3 DONE** (PR #659) — ports Cycles' zero-knob adaptive
+  sampler (Dammertz 2010 brightness-relative noise metric + auto-derived
+  threshold from the sample budget, cited to Cycles `main`) as a shared
+  `__host__ __device__` core (`include/astroray/sampling/adaptive_sampling.h`,
+  byte-exact vs Cycles' derived values; 8 GB-hardware deviation: scalar-
+  luminance half-buffer instead of Cycles' float3 aux), and wires it into the
+  **CPU** per-pixel loop (`Renderer::render`), replacing the old uncited
+  coefficient-of-variation early-out. Below the min-sample floor the check
+  never fires → bit-identical to the non-adaptive render (pinned); above it,
+  gated unbiased/bounded. 6 host unit tests + 2 CPU render gates, 63 existing
+  regression tests unaffected. **Remaining for pkg131:** the GPU wavefront
+  leg (compacted active-pixel round on top of the flat work pool — additive,
+  byte-identical when off, HW-verify required) and the sample-count AOV +
+  addon UI knob removal — see the Progress checklist in the spec and
+  `.astroray_plan/docs/pkg131-adaptive-sampling-autothreshold-research.md`.
+- **Spec/tracker reconciliation** (no code): pkg207 Status flipped open→done
+  above. pkg220/pkg221/pkg222 (GPU spectral-caustic quality round, merged
+  #644/#645/#646 on 2026-08-25) had their spec `Status:` headers still
+  reading "open" — flipped to DONE with merge PR/sha; the round itself
+  already closed out in STATUS.md on 2026-08-25→26, this only fixed the
+  stale spec headers that the orchestrator's queue-read depends on (memory
+  `orchestrator-next-stage-report-stale`). `NEXT_STAGE_REPORT.md` top handoff
+  (stale since 2026-08-29, still pointing at "implement pkg224") rewritten
+  for the next pickup.
+
 **2026-08-30 (pkg224 — progressive hash-Owen Sobol' sampler for the GPU wavefront,
 PR #657 merged 4f919b9): opt-in low-discrepancy sampler at every wavefront RNG draw,
 the prerequisite that UNBLOCKS pkg131 (adaptive sampling). Off by default →

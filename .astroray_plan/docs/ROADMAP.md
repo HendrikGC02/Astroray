@@ -104,11 +104,12 @@ render progressive-refinement fps). **All features being built should be
 astrophysical pipeline will need from them (volumes for nebulae, curves for
 filaments, spectral for emission lines).
 
-**Current active queue (2026-08-29):** pkg224 (progressive sampler,
-owner-confirmed forks, unblocks pkg131) → pkg225 (hair rendering, 6-stage)
-→ pkg219 (per-texel shader eval, structural socket-coverage unlock) →
-pkg131 (adaptive sampling, now unblocked by pkg224). The exact dispatch
-order past pkg224 is an architect decision per round.
+**Current active queue (2026-08-30):** pkg224 DONE (#657) and pkg131 session 1
+of 3 DONE (#659, shared core + CPU leg) — next up is **pkg131's GPU wavefront
+leg** (compacted active-pixel round, HW-verify) + sample-count AOV/addon UI
+removal, then pkg225 (hair rendering, 6-stage) → pkg219 remainder (per-texel
+shader eval, structural socket-coverage unlock). The exact dispatch order past
+pkg131 is an architect decision per round.
 
 **Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU
 parity tail — **pkg172 effect (B) / pkg173** (bounce-1 geometry-sampling
@@ -283,6 +284,13 @@ fix:
   pressure — pkg55-A.0's documented cliff) dominates. Phase 3 routes
   to pkg55 Phase B per the spec's escape clause; smaller H2/H5
   follow-ups split out as **pkg83** + **pkg84**.
+
+**Round closeout (2026-08-30): 2 PRs (#658/#659) — pkg207 addon dispersion
+socket probe DONE, pkg131 (zero-knob adaptive sampling) session 1 of 3 DONE
+(shared core + CPU leg); GPU leg + addon UI removal remain. A docs-only pass
+also flipped the stale pkg220/221/222 spec Status headers to DONE (code
+landed 2026-08-25, headers were never updated) and rewrote
+`NEXT_STAGE_REPORT.md`'s stale top handoff. Full detail: `STATUS.md`.**
 
 **Round closeout (2026-08-29): 7 PRs (#648–#656) — pkg201-S3 items A+E
 ship per-type bounce limits and native caustic toggles on BOTH backends,

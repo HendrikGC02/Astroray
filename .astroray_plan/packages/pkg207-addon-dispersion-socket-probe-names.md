@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A (small local addon fix — pure Python, no engine code, no GPU, no HW).
-**Status:** open (filed 2026-08-19).
+**Status:** done (PR #658, 2026-08-30 — merged-name probe (`Transmission Dispersion Scale`/`Transmission Dispersion Abbe Number`) + short-form fallback + comment refresh; unit test 4/4 green, CI-gate only).
 **Estimated effort:** XS.
 **Depends on:** nothing.
 

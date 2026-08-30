@@ -28,6 +28,11 @@
 
 #ifdef __CUDACC__
 #  define WF_RNG_HD __host__ __device__
+// pkg224 -- opt-in progressive (hash-Owen Sobol') sampler. Device pass only;
+// gated at runtime by c_wfSamplerMode (off by default -> byte-identical PCG32
+// fleet). Not included in a pure-host build, so the CPU wavefront oracle and
+// its snapshot-parity gate are untouched.
+#  include "astroray/sampling/progressive_sobol_device.h"
 #else
 #  define WF_RNG_HD
 #endif
@@ -76,6 +81,18 @@ public:
     // Generate uniform float in [0, 1).
     // Increments internal dimension counter with each call.
     WF_RNG_HD float Uniform() {
+#ifdef __CUDA_ARCH__
+        // pkg224 -- progressive Sobol' opt-in. When the runtime flag is on and
+        // this draw's dimension is within the Sobol' table, return a
+        // hash-Owen-scrambled Sobol' value instead of PCG32; the dimension
+        // counter advances identically so path bookkeeping is unchanged. Off
+        // (the default) and for deep tail dims (>= kSobolNumDims) this branch is
+        // skipped and the PCG32 path below runs verbatim (register-probe gate).
+        if (wavefront::c_wfSamplerMode != 0 && dimension_ < kSobolNumDims) {
+            uint32_t dim = dimension_++;
+            return ProgressiveSobolSampleDevice(pixel_, sample_, dim, seed_);
+        }
+#endif
         uint32_t u = UniformUInt32();
         // Convert to float: multiply by 2^-32, then clamp to [0, 1).
         // PBRT-v4 uses OneMinusEpsilon clamping; we match that.

@@ -189,6 +189,21 @@ __constant__ int c_wfBounceLimit[3] = { -1, -1, -1 };
 // skip the caustic-cull block entirely → the fleet kernel stays byte-identical.
 __constant__ int c_wfCausticGate[2] = { 1, 1 };
 
+// pkg224 — progressive (hash-Owen Sobol') sampler opt-in. Published once per
+// frame by cuda_wavefront_render (setWavefrontSamplerMode). 0 = PCG32 white
+// noise (this static default, and every render that leaves the sampler on
+// "white" plus the snapshot/ReSTIR drivers that never publish) → the shade
+// kernel's WavefrontRNG::Uniform() takes the untouched PCG32 path, byte-identical
+// to pre-pkg224 (register-probe gate). 1 = progressive Sobol' (opt-in). This is
+// a plain runtime flag (NOT a template axis), the pkg201-S3/pkg186 pattern.
+__constant__ int c_wfSamplerMode = 0;
+
+// pkg224 — Sobol' direction-vector table in __constant__ memory (8 KB). Filled
+// from the host constexpr kSobolMatrices32 by setWavefrontSamplerMode(true)
+// (only when the progressive sampler is enabled); the byte-identical PCG32
+// default never touches it. Read by SobolDirect() in the shade + init kernels.
+__constant__ uint32_t c_sobolMatrices[kSobolNumDims][kSobolMatrixSize];
+
 // Splat a spectral contribution into slot `idx`'s pass `passIdx` accumulator.
 // Per-slot (mirrors the color SoA — accumulate-at-death like beauty), so no atomics:
 // one path owns one slot for the duration of a bounce, exactly like the color_/
@@ -2295,6 +2310,22 @@ void setWavefrontCausticGate(bool reflective, bool refractive)
 {
     const int gate[2] = { reflective ? 1 : 0, refractive ? 1 : 0 };
     cudaMemcpyToSymbol(c_wfCausticGate, gate, sizeof(gate));
+}
+
+// pkg224 — publish the progressive-sampler mode into the __constant__
+// c_wfSamplerMode symbol (read by WavefrontRNG::Uniform() in the shade + init
+// kernels). false (PCG32) is the byte-identical fleet default.
+void setWavefrontSamplerMode(bool useProgressive)
+{
+    const int mode = useProgressive ? 1 : 0;
+    cudaMemcpyToSymbol(c_wfSamplerMode, &mode, sizeof(mode));
+    if (useProgressive) {
+        // Upload the direction-vector table from the single host source only
+        // when the progressive sampler is on (8 KB; the default path uploads
+        // nothing, so it stays byte-identical to pre-pkg224).
+        cudaMemcpyToSymbol(c_sobolMatrices, astroray::kSobolMatrices32,
+                           sizeof(astroray::kSobolMatrices32));
+    }
 }
 
 // pkg198 Stage 2 — publish the frame's light-path pass buffers into the

@@ -1,7 +1,18 @@
 # pkg218 — GPU spectral emission: upload emission SPDs to the device (exact CPU↔GPU lamp-colour parity)
 
 **Track:** A
-**Status:** open (filed 2026-08-22, follow-up to the deviceReference chroma fix).
+**Status:** in review (PR #667, 2026-08-31 — device SPD table + upload +
+wired into all 3 GPU emission-eval sites for dedicated lights (point/spot/
+area/distant): immediate NEE resolve, deferred/bucketed production shadow
+stage, and direct visibility to BSDF-continuation rays. ReSTIR deferred
+(RGB-only reservoirs, not the default path). GMaterial untouched;
+material-level "emissive GMaterial mode" from the design section does not
+correspond to an actual CPU gap (verified — GCLOSURE_EMISSION is plain RGB
+both sides already), scope narrowed accordingly. Regression gate tightened
+8%/30%→5%. NOT YET BUILT OR HARDWARE-VERIFIED — implementer had no CUDA
+build access; parent must build + run
+tests/test_gpu_emission_colour_parity.py on the RTX 5070 Ti and check the
+GNEESample/nee_i register-footprint flag in the PR body before merge).
 **Estimated effort:** M (new device table + NEE / emissive-hit eval + addon upload wiring; no register-hostile shade-kernel change).
 **Depends on:** the `deviceReference` fine-integration fix (same investigation — ships first, this tightens it).
 

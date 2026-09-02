@@ -711,6 +711,60 @@ public:
         return {reflected.x, reflected.y, reflected.z};
     }
 
+    // pkg225 Stage 2 — hair-BSDF test helpers. Build a curve-style HitRecord
+    // (uvTangent = strand tangent, hair_v set) so the principled_hair branch
+    // activates (it returns 0 when hair_v < 0). eval_hair_material evaluates f;
+    // integrate_hair_reflectance is the energy gate — a FULL-SPHERE directional
+    // reflectance rho = (1/N) sum f/pdf (hair scatters to both hemispheres via
+    // the TT/TRT transmission lobes, so — unlike integrateMaterialReflectance —
+    // it does NOT cull by the normal hemisphere).
+    HitRecord makeHairTestRecord(const std::vector<float>& tangentInput, float hairV) const {
+        HitRecord rec;
+        Vec3 t(1.0f, 0.0f, 0.0f);
+        if (tangentInput.size() == 3)
+            t = Vec3(tangentInput[0], tangentInput[1], tangentInput[2]).normalized();
+        rec.uvTangent = t;
+        rec.normal = Vec3(0.0f, 1.0f, 0.0f);
+        rec.frontFace = true;
+        buildOrthonormalBasis(rec.normal, rec.tangent, rec.bitangent);
+        rec.hair_u = 0.5f;
+        rec.hair_v = hairV;
+        return rec;
+    }
+    std::vector<float> evalHairMaterial(int materialId,
+                                        const std::vector<float>& woInput,
+                                        const std::vector<float>& wiInput,
+                                        const std::vector<float>& tangentInput,
+                                        float hairV) const {
+        auto it = materials.find(materialId);
+        if (it == materials.end() || !it->second) throw std::runtime_error("Unknown material id");
+        if (woInput.size() != 3 || wiInput.size() != 3) throw std::runtime_error("wo,wi must be length 3");
+        HitRecord rec = makeHairTestRecord(tangentInput, hairV);
+        Vec3 wo(woInput[0], woInput[1], woInput[2]);
+        Vec3 wi(wiInput[0], wiInput[1], wiInput[2]);
+        Vec3 v = it->second->eval(rec, wo.normalized(), wi.normalized());
+        return {v.x, v.y, v.z};
+    }
+    std::vector<float> integrateHairReflectance(int materialId,
+                                                const std::vector<float>& woInput,
+                                                const std::vector<float>& tangentInput,
+                                                float hairV, int samples) const {
+        auto it = materials.find(materialId);
+        if (it == materials.end() || !it->second) throw std::runtime_error("Unknown material id");
+        if (woInput.size() != 3) throw std::runtime_error("wo must be length 3");
+        if (samples <= 0) throw std::runtime_error("samples must be positive");
+        HitRecord rec = makeHairTestRecord(tangentInput, hairV);
+        Vec3 wo = Vec3(woInput[0], woInput[1], woInput[2]).normalized();
+        std::mt19937 gen(0x9e3779b9u);
+        Vec3 sum(0.0f);
+        for (int i = 0; i < samples; ++i) {
+            BSDFSample s = it->second->sample(rec, wo, gen);
+            if (s.pdf > 0.0f) sum += s.f / s.pdf;   // full sphere — no normal cull
+        }
+        const Vec3 rho = sum / float(samples);
+        return {rho.x, rho.y, rho.z};
+    }
+
     // pkg121: batched BSDF sample+pdf for chi² tests (CPU-only).
     // Convention: wo = outgoing to viewer (fixed), sample() returns wi = incoming from light.
     // Returns (wi_array, pdf_array) where wi_array is (N,3) sampled incident directions.
@@ -2964,6 +3018,14 @@ PYBIND11_MODULE(astroray, m) {
         .def("integrate_material_reflectance", &PyRenderer::integrateMaterialReflectance,
              "material_id"_a, "cos_theta_o"_a, "samples"_a = 4096,
              "Halton hemisphere integration of material eval(), used for BRDF conservation tests.")
+        .def("eval_hair_material", &PyRenderer::evalHairMaterial,
+             "material_id"_a, "wo"_a, "wi"_a, "tangent"_a, "hair_v"_a,
+             "pkg225-S2: eval the hair BSDF with a curve-style HitRecord "
+             "(uvTangent=tangent, hair_v set). Returns RGB f (cosine folded in).")
+        .def("integrate_hair_reflectance", &PyRenderer::integrateHairReflectance,
+             "material_id"_a, "wo"_a, "tangent"_a, "hair_v"_a, "samples"_a = 20000,
+             "pkg225-S2: FULL-SPHERE directional reflectance rho=(1/N)sum f/pdf via "
+             "sample() (no normal-hemisphere cull — hair transmits). Energy gate: rho<=1.")
         .def("debug_bsdf_sample_batch", &PyRenderer::debug_bsdf_sample_batch,
              "material_id"_a, "wo"_a, "u2_array"_a,
              "pkg121: batched BSDF sample for chi² tests (CPU-only). "

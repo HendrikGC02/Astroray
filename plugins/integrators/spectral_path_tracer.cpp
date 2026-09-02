@@ -184,6 +184,13 @@ public:
                 r.albedo = rec.material->getAlbedo();
                 r.depth = rec.t;
                 r.normal = rec.normal;
+                // World-space first-hit position (Cycles PASS_POSITION,
+                // intern/cycles/integrator/pass.cpp; Apache-2.0). Was never
+                // filled — get_position_buffer returned Vec3(0) for every shape;
+                // the only prior consumer (test_python_bindings) asserted shape/
+                // finiteness, not value, so the gap went unnoticed. Misses keep
+                // Vec3(0), matching depth/normal here.
+                r.position = rec.point;
             }
         }
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);

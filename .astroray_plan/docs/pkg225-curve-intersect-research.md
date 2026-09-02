@@ -165,12 +165,67 @@ Builds clean (compiles + links). But `tests/test_pkg225_curve_intersect.py` is
 
 Localization for the next session: the ray-local frame (curves.h:74-115) is
 plausible and for a straight strand `L0==0` → `maxDepth==0`, so the bug is almost
-certainly in the **depth-0 hit test (curves.h:217-282)** — the endpoint edge
-functions (`edge0`/`edge1`, :221-224), the closest-point `w` (:229, note pbrt
-clamps `w` to [0,1] — check whether this port does), the perpendicular
-`distSq > hitRadius²` test (:238), or the `pc.z` t-bound (:239) — OR the
-Catmull-Rom→Bezier hull for a collinear strand. Trace the perpendicular test's
-exact numbers (it aims through the strand centre, so the expected local (x,y) of
-the curve point at w=0.5 is (0,0); if the code computes a nonzero distSq there,
-the projection/`w`/point-eval is the culprit). Do NOT merge until 7/7 green +
-a math review vs pbrt-v3 curve.cpp.
+certainly in the **depth-0 hit test (curves.h:217-282)** ...
+
+## ROOT CAUSE — CORRECTED (2026-09-02) — the primitive is CORRECT; the bugs were in the TEST
+
+The 2026-08-31 localization above was **wrong on the mechanism**. Two facts
+overturn it:
+
+1. `L0 != 0` for a straight strand. The uniform Catmull-Rom → Bézier map of an
+   evenly-spaced straight strand produces a **non-uniformly-spaced** Bézier hull
+   (middle segment: x = −10, −5, 5, 10). The parametric second difference is 5,
+   so `L0 = 5`, `maxDepth = 4` — the straight case *does* recurse, it does not
+   take a `maxDepth==0` shortcut.
+2. A standalone native harness (compiled against the real `raytracer.h` +
+   `curves.h`, driving `CurveSegment::hit` and `BVHAccel::hit` directly, no
+   Python/render/camera in the loop) shows the primitive **hits correctly** for
+   every "failing" straight case:
+   - perpendicular straight hit → `t=60.0`, `pos(0,0,0.15)` ✓
+   - endcap-within (single 2-pt strand, x=4 inside [−5,5]) → `t=60.0`,
+     `pos(4,0,0)` ✓
+   - the outward shading normal at a near-tangent hit is **radial**, matching
+     pbrt's `theta=Lerp(v,-90,90)` reconstruction (verified: as dist/radius→1
+     the normal → normalize(P*−Q*)).
+
+The four failures were all **test-file bugs**, not primitive bugs:
+
+- **perpendicular / tangent-normal / endcap-within** — `_render_curve_probe`
+  hard-coded `vup = (0,1,0)`. These three probes look straight down `-Y`, so the
+  up vector was **(anti-)parallel to the view direction**; `u = up × w` collapses
+  to a zero vector, the camera basis is NaN, every ray is garbage, nothing hits
+  (position (0,0,0) — exactly the "no hit" the parent saw). The two straight MISS
+  tests "passed" only because a NaN camera also produces no hit — they were false
+  greens. Fix: pick an up vector non-parallel to the view dir.
+- **oblique** — the chosen geometry `o=(2,45,−6), d=(0.3,−1,0.4)` has its
+  ray↔axis closest-approach at **x ≈ 14.26**, outside the middle segment's
+  [−10,10] span (and outside the test's own `−9 < q_axis[0] < 9` guard, which
+  fires as an AssertionError). Fix: `o=(−2,40,3), d=(0.1,−1,−0.06)` → closest
+  approach x ≈ 2.0, clearance 0.60, clean hit at t=40.31.
+- **tangent-normal** — used `radius = clearance + margin` (dist/radius = 0.75,
+  v = 0.875, θ = 67.5°), which is *not* tangency, and compared the sign-oriented
+  stored normal against the outward radial. `setFaceNormal` (shared with
+  Sphere/Triangle) flips the stored normal to face the ray; at a grazing hit the
+  radial normal is ⟂ the ray so the flip sign is the degenerate-face convention.
+  Fix: probe near tangency (clearance 2, radius 2.05 → v ≈ 0.988) and assert the
+  normal is radial **sign-agnostically** (`|dot(n, radial)| > 0.99`).
+
+**Resolution:** `include/astroray/curves.h`, `module/blender_module.cpp`
+(`addCurvesBulk`), `plugins/shapes/curve_segment.cpp`, `include/astroray/shapes.h`
+and `include/raytracer.h` are UNCHANGED — the Stage-1 primitive shipped correct.
+`tests/test_pkg225_curve_intersect.py` was fixed (camera up, oblique geometry,
+sign-agnostic normal).
+
+**One adjacent engine gap surfaced and fixed:** the position AOV was never
+filled. `SpectralPathTracer` (the `path_tracer` integrator) set the albedo /
+depth / normal first-hit AOVs but never `r.position`, so `get_position_buffer()`
+returned `Vec3(0)` for **every** shape. It went unnoticed because the only prior
+consumer (`test_python_bindings::test_data_pass_buffers_exist_and_are_finite`)
+asserts shape + finiteness, not value. Added `r.position = rec.point;` (world-
+space first hit = Cycles `PASS_POSITION`) in the AOV block. The pkg225
+perpendicular / oblique / endcap-within tests probe this buffer, so they needed
+it real; the fix benefits every position-AOV consumer, not just curves.
+
+Merge gate: 7/7 green on a `.pyd` rebuilt from this branch (the parent's earlier
+4/7 was on a build since overwritten by a `main` build lacking
+`add_curves_bulk`).

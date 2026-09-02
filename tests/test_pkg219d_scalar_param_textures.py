@@ -8,31 +8,30 @@ roughness. pkg219d wires the op-VM output into the scalar Disney inputs on BOTH
 backends (CPU DisneyPlugin::substituted() + GPU c_wfProgBinding scalar side table),
 behind the already-isolated <HasProgram> shade axis.
 
-Scene: a metallic Disney quad lit by a headlight point light (near the camera, so
-the specular half-vector is ≈ the surface normal for every symmetric surface point).
-A 2×1 image (left texel 0.0, right texel 1.0) drives Roughness through an op-VM
-`Image → Map Range[0,1]→[0.3,0.9]` chain, so the LEFT half renders at roughness 0.3
-(sharp, bright near-normal specular) and the RIGHT half at 0.9 (broad, dim). The quad
-is left/right symmetric, so the ONLY thing that differs between the halves is the
-per-texel roughness.
+Scene: a metallic Disney quad lit by a bright headlight point light (near the
+camera). A 2×1 image (left texel 0.0, right texel 1.0) drives Roughness through an
+op-VM `Image → Map Range[0,1]→[0.3,0.9]` chain, so the LEFT half of the quad renders
+at roughness 0.3 and the RIGHT half at 0.9. The headlight specular highlight sits at
+the quad centre — the u=0.5 roughness boundary — so the highlight's left half is
+sharp (0.3) and its right half broad (0.9); the tests sample each highlight half.
 
 Roughness low end is 0.3, NOT the spec's 0.1: metallic Disney GPU↔CPU parity in the
 NEAR-DELTA alpha band (roughness ≲ 0.1) is a PRE-EXISTING, unrelated xfail (pkg123,
-~4× GPU/CPU ratio at the 0.0064 alpha floor). 0.3 vs 0.9 keeps a strong, clearly
-directional roughness signal (near-normal GGX peak D ≈ 39 vs 0.49, an ~80× ratio)
-while both halves sit in the proven mid/high-roughness parity band.
+~4× GPU/CPU ratio at the 0.0064 alpha floor). 0.3 vs 0.9 keeps a strong roughness
+signal while both halves sit in the proven mid/high-roughness parity band.
 
-Gates:
-  * test_cpu_roughness_program_drives_specular — CPU: the low-roughness half is
-    brighter than the high-roughness half (the op-VM roughness landed in the BSDF),
-    AND a uniform-roughness control renders the two halves ~equal (isolates the
-    per-texel drive from any left/right lighting asymmetry).
-  * test_gpu_roughness_program_drives_specular — same asymmetry on GPU (proves the
-    scalar side table + shade override applied on the device, not dropped).
-  * test_cpu_gpu_roughness_parity — per-channel MEAN-RATIO of the CPU vs GPU
-    program render within band (gates the byte-mirror; NOT SSIM — independent RNG
-    streams make windowed SSIM unreachable at modest spp,
-    [[ssim-wrong-gate-for-independent-rng]]).
+Gates (per-half REFERENCE COMPARISON — robust to highlight placement): each half of
+the op-VM (program) render is compared against the UNIFORM-roughness render of the
+value it encodes. Same seed → the matching-roughness half is ~identical while the
+mismatched one differs by the real roughness change.
+  * test_cpu_roughness_program_drives_specular — CPU: the program's left half is
+    closer to a uniform-0.3 render than to uniform-0.9 (and vice-versa for the right),
+    i.e. the op-VM roughness reached the DisneyPlugin BSDF.
+  * test_gpu_roughness_program_drives_specular — same per-half reproduction on GPU
+    (proves the scalar side table + shade override applied on the device).
+  * test_cpu_gpu_roughness_parity — per-channel MEAN-RATIO of the CPU vs GPU program
+    render within band (gates the byte-mirror; NOT SSIM — independent RNG streams make
+    windowed SSIM unreachable at modest spp, [[ssim-wrong-gate-for-independent-rng]]).
 
 GPU-gated: skips when no CUDA device (CI has none); the GPU legs are an RTX-box leg.
 """
@@ -78,11 +77,16 @@ def _register_roughness_program(renderer):
     return "pkg219d_rough"
 
 
-def _build_scene(renderer, *, with_program):
+def _build_scene(renderer, *, with_program, roughness=0.5):
     """Metallic Disney quad + headlight point light. `with_program` True → Roughness
-    per-texel-driven by the op-VM chain; False → uniform roughness=0.5 control."""
-    renderer.set_background_color([0.1, 0.1, 0.1])
-    params = {"metallic": 1.0, "roughness": 0.5}
+    per-texel-driven by the op-VM chain (left 0.3 / right 0.9); False → a UNIFORM
+    `roughness` reference (used to check each program half against the constant it
+    should reproduce)."""
+    # Black background: a metallic mirror reflects the environment, so a non-zero
+    # env would wash the whole quad to the (roughness-blurred) env grey and swamp
+    # the point-light specular — the ONE thing per-texel roughness controls.
+    renderer.set_background_color([0.0, 0.0, 0.0])
+    params = {"metallic": 1.0, "roughness": roughness}
     if with_program:
         params["roughness_program"] = _register_roughness_program(renderer)
     mat = renderer.create_material("disney", [0.9, 0.9, 0.9], params)
@@ -97,57 +101,77 @@ def _build_scene(renderer, *, with_program):
                                  n, n, n)
     # Headlight: a bright point light near the camera so wi ≈ wo ≈ normal for the
     # whole (symmetric) quad — the specular response then depends only on roughness.
-    renderer.add_point_light([0, 0, 2.9], [1.0, 1.0, 1.0], 40.0, 0.05)
+    renderer.add_point_light([0, 0, 2.9], {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 1000.0, 0.05)
     setup_camera(renderer, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0],
                  vfov=45, width=64, height=64)
 
 
-def _render(*, with_program, use_gpu, samples=160):
+def _render(*, with_program, use_gpu, roughness=0.5, samples=160):
     r = create_renderer()
     if use_gpu:
         if not _has_cuda_gpu(r):
             pytest.skip("No CUDA GPU — pkg219d GPU leg runs on the RTX box.")
         r.set_use_gpu(True)
     r.set_seed(7)
-    _build_scene(r, with_program=with_program)
+    _build_scene(r, with_program=with_program, roughness=roughness)
     return render_image(r, samples=samples, max_depth=3, apply_gamma=False)
 
 
-def _region_means(img):
-    """(low_roughness_left, high_roughness_right) mean brightness, seam excluded."""
-    gray = img.mean(axis=2)
-    left = float(gray[:, 4:28].mean())    # u<0.5 → roughness 0.3
-    right = float(gray[:, 36:60].mean())  # u>=0.5 → roughness 0.9
-    return left, right
+# The headlight specular highlight (and thus ALL the roughness signal) sits at the
+# quad centre (image col ~32) — which is exactly the u=0.5 roughness boundary in
+# the program render. So the highlight's LEFT half is roughness 0.3 and its RIGHT
+# half is 0.9; sample each half (skipping the ~2px seam) to see the per-texel drive.
+def _left(img):
+    return img.mean(axis=2)[:, 22:31]    # x<0 half of the highlight → program roughness 0.3
+
+
+def _right(img):
+    return img.mean(axis=2)[:, 33:42]    # x>0 half of the highlight → program roughness 0.9
+
+
+def _drives_specular(use_gpu):
+    """The op-VM roughness reaches the BSDF: each half of the program render must
+    match the UNIFORM-roughness render of the value it encodes (left→0.3, right→0.9),
+    and NOT the other value. Same seed → the matching-roughness half is ~identical
+    while the mismatched one differs by the real roughness change. Robust to where
+    the point-light highlight lands (no peak/threshold guessing)."""
+    prog = _render(with_program=True, use_gpu=use_gpu)
+    u03 = _render(with_program=False, use_gpu=use_gpu, roughness=0.3)
+    u09 = _render(with_program=False, use_gpu=use_gpu, roughness=0.9)
+    # There must BE a measurable roughness signal in each region, else nothing is gated.
+    left_signal = abs(_left(u03).mean() - _left(u09).mean())
+    right_signal = abs(_right(u03).mean() - _right(u09).mean())
+    assert left_signal > 5e-4 and right_signal > 5e-4, (
+        f"no roughness signal in the measured regions (Δleft={left_signal:.5f}, "
+        f"Δright={right_signal:.5f}) — scene cannot gate the per-texel drive")
+    # Program LEFT half (0.3) closer to uniform-0.3 than to uniform-0.9.
+    dl03 = abs(_left(prog).mean() - _left(u03).mean())
+    dl09 = abs(_left(prog).mean() - _left(u09).mean())
+    assert dl03 < dl09, (
+        f"program left half did not reproduce roughness 0.3 (|prog−u03|={dl03:.5f} "
+        f"≥ |prog−u09|={dl09:.5f}) — op-VM roughness dropped "
+        f"{'on device' if use_gpu else 'on the CPU BSDF'}")
+    # Program RIGHT half (0.9) closer to uniform-0.9 than to uniform-0.3.
+    dr09 = abs(_right(prog).mean() - _right(u09).mean())
+    dr03 = abs(_right(prog).mean() - _right(u03).mean())
+    assert dr09 < dr03, (
+        f"program right half did not reproduce roughness 0.9 (|prog−u09|={dr09:.5f} "
+        f"≥ |prog−u03|={dr03:.5f})")
+
+
 
 
 def test_cpu_roughness_program_drives_specular():
-    """CPU: the op-VM roughness reaches the Disney BSDF — the low-roughness half is
-    a brighter (sharper) headlight specular than the high-roughness half, while a
-    uniform-roughness control renders the two halves ~equal."""
-    prog = _render(with_program=True, use_gpu=False)
-    lo, hi = _region_means(prog)
-    assert lo > 0.02, f"scene too dark to gate (low-rough half mean={lo:.4f})"
-    assert lo > hi * 1.15, (
-        f"low-roughness (0.3) half not brighter than high-roughness (0.9) half — "
-        f"op-VM roughness did not reach the CPU BSDF (lo={lo:.4f}, hi={hi:.4f})")
-    # Control: uniform roughness → halves near-equal (rules out lighting asymmetry).
-    ctrl = _render(with_program=False, use_gpu=False)
-    clo, chi = _region_means(ctrl)
-    assert abs(clo - chi) < 0.15 * max(clo, chi) + 1e-3, (
-        f"uniform-roughness control halves differ too much (lo={clo:.4f}, "
-        f"hi={chi:.4f}) — the asymmetry is not from the per-texel roughness")
+    """CPU: each half of the program render reproduces the uniform-roughness render
+    of the value the op-VM encodes (left→0.3, right→0.9) — the op-VM roughness
+    reached the DisneyPlugin BSDF."""
+    _drives_specular(use_gpu=False)
 
 
 def test_gpu_roughness_program_drives_specular():
-    """GPU: same low>high asymmetry — the scalar side table + shade override applied
-    on the device (not collapsed to the constant-folded roughness)."""
-    prog = _render(with_program=True, use_gpu=True)
-    lo, hi = _region_means(prog)
-    assert lo > 0.02, f"GPU scene too dark to gate (low-rough half mean={lo:.4f})"
-    assert lo > hi * 1.15, (
-        f"GPU low-roughness half not brighter than high-roughness half — op-VM "
-        f"roughness dropped on device (lo={lo:.4f}, hi={hi:.4f})")
+    """GPU: same per-half reproduction — the scalar side table + shade override
+    applied on the device (not collapsed to the constant-folded roughness)."""
+    _drives_specular(use_gpu=True)
 
 
 def test_cpu_gpu_roughness_parity():

@@ -486,6 +486,13 @@ public:
     virtual std::shared_ptr<Texture>  bumpMapTexture() const { return nullptr; }
     virtual float                     bumpMapStrength() const { return 1.0f; }
     virtual float                     bumpMapDistance() const { return 0.01f; }
+    // pkg219d — per-texel scalar BSDF-parameter programs (op-VM ProgramTexture).
+    // `slot` is an astroray::svm::ScalarSlot (roughness/metallic/transmission/ior).
+    // Default no-op / null: only DisneyPlugin stores + evaluates them. scene_upload
+    // reads them via scalarProgram(slot) to build the GPU c_wfProgBinding scalar
+    // side arrays; the CPU DisneyPlugin substitutes them per-hit at rec.uv.
+    virtual void setScalarProgram(int /*slot*/, const std::shared_ptr<Texture>& /*prog*/) {}
+    virtual std::shared_ptr<Texture> scalarProgram(int /*slot*/) const { return nullptr; }
     virtual astroray::MaterialClosureGraph closureGraph() const { return {}; }
     virtual MaterialBackendCapabilities backendCapabilities() const {
         MaterialBackendCapabilities caps;

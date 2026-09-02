@@ -34,6 +34,13 @@ constexpr int VM_MAX_CONST      = 16;   // vec3 constant pool
 constexpr int VM_MAX_TEX        = 2;    // pre-sampled input textures
 constexpr int RAMP_TABLE_SIZE   = 256;  // baked ramp resolution (Cycles: 256)
 constexpr int VM_MAX_RAMPS      = 2;
+// pkg219d — scalar BSDF-parameter program slots. A fixed small K per material;
+// each slot binds an op-VM program (+ its own source image) that per-texel drives
+// one scalar Disney input. Order is load-bearing (host upload, GPU shade loop,
+// and CPU DisneyPlugin all index by it): {0:ROUGHNESS,1:METALLIC,2:TRANSMISSION,3:IOR}.
+constexpr int VM_SCALAR_SLOTS   = 4;
+enum ScalarSlot : int { SCALAR_ROUGHNESS = 0, SCALAR_METALLIC = 1,
+                        SCALAR_TRANSMISSION = 2, SCALAR_IOR = 3 };
 
 enum OpCode : unsigned char {
     OP_END        = 0,
@@ -390,4 +397,13 @@ HD inline GVec3 svm_eval(const ShaderVMProgram& p, const GVec3* inputs) {
 struct GWavefrontProgramBinding {
     const astroray::svm::ShaderVMProgram* programs;  // device global array
     const int*                            matProgId; // per-material index (-1=none)
+    // pkg219d — scalar BSDF-param programs. Both indexed [mat*VM_SCALAR_SLOTS + slot]
+    // (slots per astroray::svm::ScalarSlot). matScalarProgId[..] = index into the
+    // SAME `programs` array (-1 = no program on that slot); matScalarTexId[..] =
+    // index into c_wfTexBinding.textures for that slot's OWN source image (a scalar
+    // program feeds its own map, NOT the base-colour texel). Read ONLY inside the
+    // shade kernel's `if constexpr (HasProgram)` block, so the <false> fleet never
+    // touches these and stays byte-identical.
+    const int*                            matScalarProgId;
+    const int*                            matScalarTexId;
 };

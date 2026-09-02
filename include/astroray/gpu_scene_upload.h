@@ -63,6 +63,15 @@ struct SceneUploadResult {
     std::vector<astroray::svm::ShaderVMProgram> programs;
     std::vector<int>                            materialProgramId;
     bool                                        hasProgram = false;
+    // pkg219d — scalar BSDF-param op-VM programs. Flattened [mat*VM_SCALAR_SLOTS +
+    // slot] tables parallel to `materials` (slots per astroray::svm::ScalarSlot):
+    // materialScalarProgId = program index into `programs` (-1 = none);
+    // materialScalarTexId = source-image index into `textures` (-1 = none). Deduped
+    // into the SAME `programs`/`textures` buffers as the base-colour program. A
+    // scalar-program material also sets hasProgram (and hasTexture, since its source
+    // image uploads through the pkg186 texture path).
+    std::vector<int>                            materialScalarProgId;
+    std::vector<int>                            materialScalarTexId;
 
     // pkg189 — true when ANY uploaded material is dispersive (Sellmeier dielectric
     // → GMAT_DIELECTRIC, or Cauchy Principled glass → GMAT_CLOSURE_GRAPH; both set

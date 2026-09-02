@@ -1,5 +1,60 @@
 # Astroray Next Stage Report
 
+## 2026-09-03 SESSION HANDOFF — 8 packages landed/resolved; NEXT = architect re-vet (overnight queue exhausted)
+
+**This session's landings (5 code PRs + 3 resolutions/docs):**
+- **pkg225-S1 — hair ray-curve intersection, LANDED** (PR #670). The 2026-08-31
+  "4/7, bug in curves.h" handoff was **wrong on the mechanism**: a standalone
+  native harness proved the pbrt-ported primitive hits correctly (t, position,
+  radial normal). The 4 failures were TEST-harness bugs (degenerate camera
+  up-vector ∥ view dir; broken oblique geometry; a normal check ignoring
+  `setFaceNormal`'s sign) + an **unfilled position AOV** (`SpectralPathTracer`
+  never set `r.position` → `get_position_buffer()` was `Vec3(0)` for every
+  shape; fixed). 7/7.
+- **pkg225-S2 — CPU Principled Hair BSDF (Chiang 2016), LANDED** (PR #673).
+  `include/astroray/hair_bsdf.h` (Mp/Np/Ap, header-only STL-free for GPU reuse)
+  + `plugins/materials/principled_hair.cpp` (R/TT/TRT+residual, 3 σ_a
+  parametrizations, view-dependent tangent frame, h=2·hair_v−1, coat→R-roughness).
+  9/9 gates (energy ρ≤1 across β_m, absorption, colour, spectral render smoke).
+  Research note: `docs/pkg225-hair-bsdf-research.md` (PR #672).
+- **pkg219d — scalar parameter textures (op-VM → roughness/metallic/transmission/
+  IOR), LANDED** (PR #674). Extends the `c_wfProgBinding` `__constant__`
+  side-table (`matScalarProgId`/`matScalarTexId`) + CPU `DisneyPlugin::
+  substituted()`. **Register gate byte-identical** (fleet `<0,…>` REG:254/
+  STACK:3368/CONSTANT[0]:1716); 3/3 CPU+GPU parity tests; 297 regression;
+  cpp-abi-guard APPROVE; **addon clean-rebuilt + headless-Blender node-chain
+  render verified**. Known-bounded: metallic/transmission GPU parity approximate
+  (closure lobe-mix baked at upload); roughness/IOR exact.
+- **pkg210 — SUPERSEDED.** Premise stale: all 4 `terminateSecondary()` sites
+  already refraction-gated (dielectric since pkg31, principled since pkg187).
+- **pkg180 — CLOSED, no engine change.** The systemic ~12–20% Cycles-dim does
+  NOT reproduce on the current build: common-linear-space A/B reads backdrop
+  1.02 / world 1.01 / diffuse 0.997 / glossy 1.016 (all in `[0.90,1.10]`).
+  Resolved by the intervening dielectric/metal/Principled parity work and/or a
+  since-corrected harness view-transform. Full diagnosis in `docs/`.
+- **Docs:** pkg219d fork-resolution + CPU-model pin; hair_v comment fix (Stage-1
+  prose was inverted vs the code — v=0.5 is fiber centre).
+
+**Fleet register baseline (unchanged, re-measured from the linked .pyd):
+`stageShadeBucketedKernel<0,0,0,0,0,0,0>` REG:254 / STACK:3368 / CONSTANT[0]:1716.**
+(pkg219d's scalar override rides the isolated `<HasProgram=true>` axis; the fleet
+paid nothing.)
+
+### NEXT: spawn the architect — the overnight-shaped queue is exhausted
+Remaining known work is all **dedicated-day** (not overnight-run shaped):
+- **pkg225 Stage 3+** — GPU curve geometry + GPU hair BSDF (`template<bool
+  HasHair>` isolation; transcendental-heavy → will spill, needs the isolated
+  axis). Continuation of the just-landed S1+S2 arc. Claude-last-line.
+- **pkg211** — per-bounce spectral MIS + ray-differentials. Premise LIVE
+  (architect re-vetted 2026-09-03: not superseded by pkg206/pkg224), but
+  prototype-first with a legitimate PARK outcome. Dedicated-day research.
+- **Long-tail** (pkg126/127/130/132–137) — each a dedicated day arc; pkg127
+  (specular-polynomials SMS) is the highest-value bounded caustics upgrade.
+- Spawn an architect for a fresh vetted set before the next autonomous run
+  (memory `overnight-queue-exhaustion-replan`).
+
+---
+
 ## 2026-08-31 SESSION HANDOFF — overnight round closed (12 PRs); pkg131 FULLY DONE both backends; NEXT = pkg225-S1 hair: fix localized straight-cylinder bug
 
 **This round's landings (11 PRs + 1 direct-to-main docs commit):**

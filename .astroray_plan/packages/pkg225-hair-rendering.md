@@ -21,8 +21,12 @@ native harness proved the intersection math correct; the failures were
 test-harness bugs (degenerate camera up-vector, broken oblique geometry, a
 normal check that ignored `setFaceNormal`'s sign convention) plus an unfilled
 position AOV. See `.astroray_plan/docs/pkg225-curve-intersect-research.md`
-"ROOT CAUSE — CORRECTED". Stages 2–6 (hair BSDF, GPU leg, spectral melanin)
-remain open.
+"ROOT CAUSE — CORRECTED". Stages 3–6 (GPU leg, spectral melanin, addon)
+remain open. **NEXT = Stage 3 (GPU curve geometry), then Stage 4 (GPU hair
+BSDF)** — architect re-vetted 2026-09-03: S3 is a cleanly-separable geometry-only
+PR and goes first; S4 hard-depends on it. Implementation-readiness detail (live
+`GHitRecord`/intersect-stage grounding + the `__noinline__`-vs-9th-axis isolation
+decision) filed into the Stage 3/4 sections below.
 **Estimated effort:** 6–8 sessions (~18–24 h), staged
 **Depends on:** pkg55 (wavefront SoA), pkg36 (closure graph — GPU BSDF lowering)
 
@@ -255,6 +259,32 @@ the register-pressure-sensitive stage.
   is the perf target for dense hair but is an implementation-time decision
   gated by measured traversal cost.
 
+**Implementation-readiness (architect, 2026-09-03 — grounded in live code):**
+
+- **Stage 3 goes FIRST and is cleanly separable from Stage 4.** It is a
+  geometry-only PR: it produces a `GHitRecord` (point, radial normal,
+  `uvTangent = ∂p/∂u`, and `hair_v`) and is verified independently by rendering
+  curves on GPU with a *plain diffuse/emissive* material and mean-ratioing vs the
+  CPU curve intersector — no hair BSDF needed. Stage 4 hard-depends on Stage 3's
+  hit output (it reads `uvTangent`, `hair_v`, and the per-strand random from the
+  hit). Sequence is fixed: **S3 → S4**, one PR each.
+- **`uvTangent` is ALREADY on the GPU hit record** (`gpu_types.h:801`, added by
+  pkg178 for anisotropy). The hair frame's X-axis (strand tangent) is therefore
+  already plumbed on GPU — Stage 3 just needs to *fill* it from the curve
+  derivative at the hit (it currently defaults to `(1,0,0)` and is only set for
+  anisotropic Principled triangles). **`hair_v` is NOT yet on `GHitRecord`** —
+  Stage 3 adds one transient `float hairV` field (twin of the CPU
+  `HitRecord::hair_v`) and sets it in the curve leaf. `h = 2·hairV − 1` on the
+  Stage-4 side, per the S2 research note §5.
+- **The intersect stage is `src/gpu/wavefront/stage_intersect_session_n3.cu`**
+  (pkg55-B' N+3 rewrite; the only live intersect kernel — `stage_intersect.cu`
+  is retired). It currently takes only `const GTriangle* tris`. Stage 3 threads a
+  new `const GCurveSegment* curves` device array + segment/strand counts and adds
+  the curve-intersection branch. Register-probe THIS kernel (it is *not* the
+  REG:254 shade kernel — likely far lower, so a curve branch may fit without an
+  axis). Default **ribbon** mode on GPU (2D, transcendental-free); gate **thick**
+  mode behind the `template<bool HasCurves>` axis only if the probe shows a spill.
+
 ### Stage 4 — GPU Hair BSDF
 
 **Goal:** Principled Hair BSDF evaluates on the GPU wavefront shade kernel.
@@ -282,6 +312,26 @@ the register-pressure-sensitive stage.
   colour variation. Upload as part of `GCurveSegment` (one extra float per
   segment) — the shade kernel reads it from the hit geometry, not from
   the material table.
+
+**Isolation-pattern decision (architect, 2026-09-03 — grounded in live code).**
+The live shade kernel `stageShadeBucketedKernel` (`stage_advance.cu:2068`) already
+carries **eight** template axes (`Deferred, HasPrincipled, HasTexture, HasPhotons,
+HasDispersion, HasLightPassAOVs, HasProgram, HasNormalPerturb`), dispatched through
+a deeply-nested launch ladder (`stage_advance.cu:~2630-2645`). Adding `HasHair` as a
+**9th compile-time axis doubles the instantiation matrix and the ladder** — a real
+maintenance/compile cost, not free. Because the hair BSDF is transcendental-heavy
+(Bessel-`I0`/`sinh`/`log`/`atan2` per lobe — S2 note §6) and hair is a **whole-scene
+property** (a scene has curve geometry or it doesn't), this is the textbook fit for
+the **`__noinline__` runtime-flag** pattern (MEMORY `noinline-runtime-flag-avoids-shade-spill`,
+proven byte-identical off-path on pkg224): funnel the hair branch through a
+`__device__ __noinline__` function gated on a runtime `__constant__ c_hasHair` flag —
+zero fleet register cost, **no 9th axis**. **Directive: probe the `__noinline__`
+runtime-flag form FIRST; fall back to `template<bool HasHair>` only if the probe
+shows the noinline body still perturbs the fleet `<...>` specialization** (re-measure
+REG/STACK from the linked `.pyd` vs the baseline `REG:254/STACK:3368/CONSTANT[0]:1716`,
+never trust `ptxas -v`). The standalone `GMAT_HAIR_PRINCIPLED` branch (NOT
+closure-graph lowering) stands regardless — the hair BSDF is not a sum of GGX/diffuse
+closures and does not fit pkg36's graph (S2 note §6).
 
 ### Stage 5 — Spectral melanin absorption
 

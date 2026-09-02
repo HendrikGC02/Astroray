@@ -2,7 +2,16 @@
 
 **Pillar:** 5 (Blender/DCC integration — shader-node compatibility)
 **Track:** A (engine + addon; CPU + GPU BSDF eval)
-**Status:** open — **fork DECIDED 2026-09-02 (architect), dispatchable.** Was "architect to detail before dispatch"; the design pass below resolves it. Route: dv4/deepseek implements to the decided design, HARD `cuobjdump` probe + `cpp-abi-guard` + Claude-last-line review before merge — same routing shape as pkg223 (PR #647). Filed 2026-08-31 — residual surfaced by the pkg219 completion audit, PR #661.
+**Status:** DONE 2026-09-03 — built + register-probed + HW-verified by the parent.
+Fleet `stageShadeBucketedKernel<0,0,0,0,0,0,0>` measured **byte-identical** to
+baseline (REG:254/STACK:3368/CONSTANT[0]:1716) from the linked `.pyd` — the
+`<HasProgram=false>` fleet paid nothing (the `if constexpr` + empty
+`GScalarOverride<false>` + collapsed pointer-indirection held). `tests/
+test_pkg219d_scalar_param_textures.py` 3/3 on the RTX box (CPU + GPU roughness
+per-half reproduction + CPU/GPU mean-ratio parity); 297 disney/material/hair
+regression tests pass. Known-bounded: metallic/transmission GPU parity is
+approximate (closure lobe-MIX baked at upload); roughness/IOR exact. — **fork
+DECIDED 2026-09-02 (architect), CPU-model pinned 2026-09-03 (parent).** Was "architect to detail before dispatch"; the design pass below resolves it. Route: dv4/deepseek implements to the decided design, HARD `cuobjdump` probe + `cpp-abi-guard` + Claude-last-line review before merge — same routing shape as pkg223 (PR #647). Filed 2026-08-31 — residual surfaced by the pkg219 completion audit, PR #661.
 **Estimated effort:** M–L (extends a proven side-table pattern; the GPU register probe is the only Claude-last-line step).
 **Depends on:** pkg219a/b/c (op-VM evaluator, all landed) — the machinery already exists; this only wires its output into non-base-color BSDF inputs.
 

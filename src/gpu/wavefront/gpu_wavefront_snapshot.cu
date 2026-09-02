@@ -1006,6 +1006,7 @@ struct WfContext {
     WfDeviceBuf materialNormalTexId, materialNormalStrength;  // pkg223 normal maps
     WfDeviceBuf materialBumpTexId, materialBumpStrength, materialBumpDistance;  // pkg223b bump
     WfDeviceBuf programs, materialProgramId;   // pkg219b op-VM programs
+    WfDeviceBuf materialScalarProgId, materialScalarTexId;  // pkg219d scalar-param programs
     WfDeviceBuf tlas, instances, blas;        // pkg55-C4 / pkg114
     WfDeviceBuf motionVertices;               // pkg55-C4 / pkg88-C.0
     WfDeviceBuf treeNodes, treeEmitters, lightToEmitter;
@@ -1411,8 +1412,15 @@ std::vector<float> cuda_wavefront_render(
     astroray::svm::ShaderVMProgram* d_programs =
         wfUpload(C.programs, res.programs);
     int* d_matProgId = wfUpload(C.materialProgramId, res.materialProgramId);
+    // pkg219d — scalar BSDF-param side arrays ([mat*VM_SCALAR_SLOTS+slot]). Null
+    // when no material carries a scalar program; the <…,false> shade kernel never
+    // reads them. Their source images ride the SAME c_wfTexBinding texture arrays
+    // uploaded above (res.hasTexture is set for a scalar-program material).
+    int* d_matScalarProgId = wfUpload(C.materialScalarProgId, res.materialScalarProgId);
+    int* d_matScalarTexId  = wfUpload(C.materialScalarTexId,  res.materialScalarTexId);
     if (res.hasProgram)
-        setWavefrontProgramBinding(GWavefrontProgramBinding{d_programs, d_matProgId});
+        setWavefrontProgramBinding(GWavefrontProgramBinding{
+            d_programs, d_matProgId, d_matScalarProgId, d_matScalarTexId});
     // pkg199 Stage 1 — publish the homogeneous world-volume medium every frame
     // (c_worldVolume is __constant__ and persists across calls, so set it
     // unconditionally — vacuum scenes publish hasVolume==0, which the intersect /

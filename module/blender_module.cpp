@@ -612,6 +612,22 @@ public:
             catch (const std::runtime_error&) {}
         }
         if (!mat) mat = makeLegacyMaterial(type, color, params);
+        // pkg219d — attach per-texel scalar-parameter op-VM programs. Each named
+        // param resolves to an already-created ProgramTexture; only DisneyPlugin
+        // stores them (the base Material virtual is a no-op elsewhere). Attached to
+        // the un-wrapped material so a NormalMapped(disney) still drives its scalars.
+        if (mat) {
+            const std::pair<const char*, int> scalarProgs[] = {
+                {"roughness_program",    astroray::svm::SCALAR_ROUGHNESS},
+                {"metallic_program",     astroray::svm::SCALAR_METALLIC},
+                {"transmission_program", astroray::svm::SCALAR_TRANSMISSION},
+                {"ior_program",          astroray::svm::SCALAR_IOR},
+            };
+            for (const auto& sp : scalarProgs) {
+                if (auto tex = getTexture(sp.first))
+                    mat->setScalarProgram(sp.second, tex);
+            }
+        }
         auto normalTex = getTexture("normal_map_texture"), bumpTex = getTexture("bump_map_texture");
         if (normalTex || bumpTex)
             mat = astroray::makeNormalMapped(mat, normalTex, bumpTex,

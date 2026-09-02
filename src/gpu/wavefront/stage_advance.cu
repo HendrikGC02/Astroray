@@ -879,6 +879,92 @@ __constant__ GWavefrontTextureBinding c_wfTexBinding;
 // only inside `if constexpr (HasProgram)`. The <false> fleet kernel never reads it.
 __constant__ GWavefrontProgramBinding c_wfProgBinding;
 
+// pkg219d — scalar BSDF-parameter op-VM override storage. Only the
+// <HasProgram=true> shade specialization instantiates a full GMaterial copy to
+// hold the per-hit-substituted roughness/metallic/transmission/ior;
+// GScalarOverride<false> is an EMPTY struct (zero stack), so the fleet
+// <HasProgram=false> shade kernel allocates nothing and stays byte-identical.
+template<bool> struct GScalarOverride {};
+template<> struct GScalarOverride<true> { ::GMaterial mat; };
+
+// pkg219d — fetch a scalar program's OWN source texel at the hit UV. Mirrors the
+// base-colour triangle-UV recompute (Ericson §3.4) + Mapping in shadePathSlot's
+// HasTexture block, but for the scalar program's own image (matScalarTexId, a
+// DIFFERENT image than the base colour). Returns false for non-triangle / UV-less
+// hits (the override is then skipped, exactly like the base-colour path). Reads
+// c_wfTexBinding (published this frame); only ever called from <HasProgram=true>.
+__device__ __forceinline__ bool gpu_scalarProgSourceTexel(
+    const GHitRecord& rec, const GPrimitive* prims, const GTriangle* tris,
+    int texId, GVec3& outTexel)
+{
+    if (!(rec.primId >= 0 && prims[rec.primId].type == GPRIM_TRIANGLE)) return false;
+    const GTriangle& ttri = tris[prims[rec.primId].index];
+    if (!ttri.hasUV) return false;
+    GVec3 e1 = ttri.v1 - ttri.v0, e2 = ttri.v2 - ttri.v0;
+    GVec3 ep = rec.point - ttri.v0;
+    float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
+    float d20 = ep.dot(e1), d21 = ep.dot(e2);
+    float denom = d00 * d11 - d01 * d01;
+    if (fabsf(denom) <= 1e-20f) return false;
+    float b1 = (d11 * d20 - d01 * d21) / denom;
+    float b2 = (d00 * d21 - d01 * d20) / denom;
+    float b0 = 1.0f - b1 - b2;
+    float uu = b0*ttri.uv0.x + b1*ttri.uv1.x + b2*ttri.uv2.x;
+    float vv = b0*ttri.uv0.y + b1*ttri.uv1.y + b2*ttri.uv2.y;
+    const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
+    if (tdesc.hasMapping) {
+        const float* m = tdesc.mapping;
+        float mu = m[0]*uu + m[1]*vv + m[3];
+        float mv = m[4]*uu + m[5]*vv + m[7];
+        uu = mu; vv = mv;
+    }
+    outTexel = gpu_sampleImageTexture(tdesc, c_wfTexBinding.texelBuf, uu, vv);
+    return true;
+}
+
+// pkg219d — apply one op-VM scalar result to the LOCAL GMaterial copy. Overwrites
+// EVERY representation the closure dispatch may read: the top-level field (plain
+// lambertian/metal + the GCLOSURE_DIFFUSE path, which reads parent.roughness), the
+// native-Principled block (gpu_principled_* fast path), and every closure lobe
+// (gpu_closure_as_material reads closure.{roughness,metallic,ior,transmission}).
+// Clamps MUST match the CPU DisneyPlugin::substituted() and its constructor.
+// NOTE: closure WEIGHTS were baked at upload from the ORIGINAL metallic/transmission,
+// so metallic/transmission programs shift the per-lobe fields but not the diffuse/
+// specular/transmission MIX on GPU — exact CPU↔GPU parity holds for roughness and
+// ior (which never change lobe selection); metallic/transmission are a documented
+// closure-graph approximation (same class as other GPU closure-graph cuts).
+__device__ __forceinline__ void gpu_applyScalarOverride(
+    ::GMaterial& mat, int slot, float v)
+{
+    switch (slot) {
+        case astroray::svm::SCALAR_ROUGHNESS: {
+            float r = fminf(fmaxf(v, 0.001f), 1.0f);
+            mat.roughness = r; mat.principled.roughness = r;
+            for (int i = 0; i < mat.closureCount; ++i) mat.closures[i].roughness = r;
+            break;
+        }
+        case astroray::svm::SCALAR_METALLIC: {
+            float m = fminf(fmaxf(v, 0.0f), 1.0f);
+            mat.metallic = m; mat.principled.metallic = m;
+            for (int i = 0; i < mat.closureCount; ++i) mat.closures[i].metallic = m;
+            break;
+        }
+        case astroray::svm::SCALAR_TRANSMISSION: {
+            float t = fminf(fmaxf(v, 0.0f), 1.0f);
+            mat.transmission = t; mat.principled.transmission = t;
+            for (int i = 0; i < mat.closureCount; ++i) mat.closures[i].transmission = t;
+            break;
+        }
+        case astroray::svm::SCALAR_IOR: {
+            float io = fmaxf(v, 1.0f);
+            mat.ior = io; mat.principled.ior = io;
+            for (int i = 0; i < mat.closureCount; ++i) mat.closures[i].ior = io;
+            break;
+        }
+        default: break;
+    }
+}
+
 // pkg184 — HasPhotons isolates the bounce-0 photon-map caustic KNN gather
 // (photonGridGatherKnn, 50-neighbour live set) behind `if constexpr`. The gather
 // only ever fires at bounce 0 in scenes that carry a photon grid, yet ptxas had to
@@ -1148,7 +1234,44 @@ __device__ bool shadePathSlot(
         }
     }
 
-    const ::GMaterial& mat = materials[rec.materialId];
+    // pkg219d — scalar BSDF-parameter op-VM override. Independent of the base-colour
+    // texture (a roughness-only material has base-colour texId == -1), so it runs
+    // HERE (before the HasTexture base-colour block and before the NEE/BSDF closure
+    // is built). Each of the K slots fetches its OWN source image (matScalarTexId)
+    // and runs the SAME shared svm_eval as the CPU DisneyPlugin::substituted() twin,
+    // then overwrites a LOCAL GMaterial copy. The copy + the whole block live ONLY in
+    // the <HasProgram=true> specialization (an already-isolated axis); the fleet
+    // <false> kernel keeps `mat` a plain reference to the uploaded material and
+    // allocates ZERO extra stack (GScalarOverride<false> is empty), so it stays
+    // byte-identical (register-probe gate). matPtr never re-points in the <false>
+    // path, so the compiler collapses it back to the original reference.
+    const ::GMaterial* matPtr = &materials[rec.materialId];
+    GScalarOverride<HasProgram> matScalarOv;
+    if constexpr (HasProgram) {
+        if (c_wfProgBinding.matScalarProgId && c_wfProgBinding.matScalarTexId) {
+            const int base = rec.materialId * astroray::svm::VM_SCALAR_SLOTS;
+            bool anyOverride = false;
+            for (int slot = 0; slot < astroray::svm::VM_SCALAR_SLOTS; ++slot) {
+                int sProg = c_wfProgBinding.matScalarProgId[base + slot];
+                int sTex  = c_wfProgBinding.matScalarTexId[base + slot];
+                if (sProg < 0 || sTex < 0) continue;
+                GVec3 srcTexel;
+                if (!gpu_scalarProgSourceTexel(rec, prims, tris, sTex, srcTexel))
+                    continue;  // non-triangle / UV-less hit → skip (mirrors base colour)
+                GVec3 vmIn[astroray::svm::VM_MAX_TEX];
+                for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t) vmIn[t] = srcTexel;
+                float v = astroray::svm::svm_eval(
+                    c_wfProgBinding.programs[sProg], vmIn).x;
+                if (!anyOverride) {
+                    matScalarOv.mat = materials[rec.materialId];
+                    anyOverride = true;
+                }
+                gpu_applyScalarOverride(matScalarOv.mat, slot, v);
+            }
+            if (anyOverride) matPtr = &matScalarOv.mat;
+        }
+    }
+    const ::GMaterial& mat = *matPtr;
 
     // pkg186 — image-texture base color for a textured lambertian. The whole
     // diffuse bounce (NEE eval, BSDF throughput, continuation) is LINEAR in

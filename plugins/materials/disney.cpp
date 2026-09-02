@@ -11,6 +11,42 @@ class DisneyPlugin : public Material {
     float transmission_, ior_;
     static constexpr float kDeltaTransmissionRoughness = 0.03f;
 
+    // pkg219d — optional per-texel op-VM programs driving the scalar BSDF inputs
+    // (Image → Map Range → Roughness, etc.). Each is a ProgramTexture (held as the
+    // base Texture so value(rec,wo) resolves coord + Mapping) evaluated at the hit
+    // UV; when set, it SUBSTITUTES for the constant member below. The GPU twin
+    // (stage_advance.cu, if constexpr(HasProgram)) runs the SAME svm_eval on the
+    // SAME source texel, so CPU↔GPU parity is by construction. Slots mirror
+    // astroray::svm::ScalarSlot.
+    std::shared_ptr<Texture> roughnessProgram_, metallicProgram_,
+                             transmissionProgram_, iorProgram_;
+
+    bool hasScalarProgram() const {
+        return roughnessProgram_ || metallicProgram_ ||
+               transmissionProgram_ || iorProgram_;
+    }
+
+    // Build a copy of this material with the op-VM scalars evaluated at THIS hit
+    // and the programs cleared, then delegate the (unchanged) constant-material
+    // physics to it. Thread-safe (a fresh local per call — the plugin instance is
+    // shared across OpenMP worker threads, so an in-place mutate would race) and
+    // exactly one level deep (the clone has no programs). The clamps MUST match the
+    // constructor's and the GPU override's, or CPU/GPU diverge.
+    DisneyPlugin substituted(const HitRecord& rec, const Vec3& wo) const {
+        DisneyPlugin c(*this);
+        if (roughnessProgram_)
+            c.roughness_ = std::clamp(roughnessProgram_->value(rec, wo).x, 0.001f, 1.0f);
+        if (metallicProgram_)
+            c.metallic_ = std::clamp(metallicProgram_->value(rec, wo).x, 0.0f, 1.0f);
+        if (transmissionProgram_)
+            c.transmission_ = std::clamp(transmissionProgram_->value(rec, wo).x, 0.0f, 1.0f);
+        if (iorProgram_)
+            c.ior_ = std::max(1.0f, iorProgram_->value(rec, wo).x);
+        c.roughnessProgram_ = c.metallicProgram_ =
+            c.transmissionProgram_ = c.iorProgram_ = nullptr;
+        return c;
+    }
+
     // GGX/Trowbridge-Reitz NDF (Walter 2007 Eq. 33, pbrt-v4 §9.6).
     // D(wm) = α² / (π (1 + (α²-1)·cos²θm)²)
     float D_GTR2(float NdotH, float a) const {
@@ -506,6 +542,27 @@ public:
 
     Vec3 getAlbedo() const override { return baseColor_; }
     std::string getGPUTypeName() const override { return "disney"; }
+    // pkg219d — per-texel scalar-parameter op-VM programs (slots per
+    // astroray::svm::ScalarSlot). Stored as the base Texture so value(rec,wo)
+    // resolves the ProgramTexture's coord + Mapping; substituted() evaluates them.
+    void setScalarProgram(int slot, const std::shared_ptr<Texture>& prog) override {
+        switch (slot) {
+            case astroray::svm::SCALAR_ROUGHNESS:    roughnessProgram_ = prog;    break;
+            case astroray::svm::SCALAR_METALLIC:     metallicProgram_ = prog;     break;
+            case astroray::svm::SCALAR_TRANSMISSION: transmissionProgram_ = prog; break;
+            case astroray::svm::SCALAR_IOR:          iorProgram_ = prog;          break;
+            default: break;
+        }
+    }
+    std::shared_ptr<Texture> scalarProgram(int slot) const override {
+        switch (slot) {
+            case astroray::svm::SCALAR_ROUGHNESS:    return roughnessProgram_;
+            case astroray::svm::SCALAR_METALLIC:     return metallicProgram_;
+            case astroray::svm::SCALAR_TRANSMISSION: return transmissionProgram_;
+            case astroray::svm::SCALAR_IOR:          return iorProgram_;
+            default: return nullptr;
+        }
+    }
     astroray::MaterialClosureGraph closureGraph() const override {
         astroray::MaterialClosureGraph graph;
         const astroray::ClosureColor base{baseColor_.x, baseColor_.y, baseColor_.z};
@@ -550,7 +607,8 @@ public:
     float getAnisotropic() const override { return anisotropic_; }
     float getAnisotropicRotation() const override { return anisotropicRotation_; }
 
-    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+    Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
+        if (hasScalarProgram()) return substituted(rec, wo).eval(rec, wo, wi);
         Vec3 N = rec.normal;
         float NdotL = N.dot(wi);
         float NdotV = N.dot(wo);
@@ -730,12 +788,15 @@ public:
     astroray::SampledSpectrum evalSpectral(
             const HitRecord& rec, const Vec3& wo, const Vec3& wi,
             const astroray::SampledWavelengths& lambdas) const override {
+        if (hasScalarProgram())
+            return substituted(rec, wo).evalSpectral(rec, wo, wi, lambdas);
         // pkg13 fallback: upsample final RGB Disney eval to stay within the pkg14 1.5x perf budget.
         Vec3 rgb = eval(rec, wo, wi);
         return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
     }
 
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
+        if (hasScalarProgram()) return substituted(rec, wo).sample(rec, wo, gen);
         BSDFSample s;
         s.wi = rec.normal;
         s.f = Vec3(0);
@@ -880,6 +941,7 @@ public:
     }
 
     float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
+        if (hasScalarProgram()) return substituted(rec, wo).pdf(rec, wo, wi);
         if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness &&
             rec.normal.dot(wo) * rec.normal.dot(wi) < 0.0f) {
             return roughTransmissionPdf(rec, wo, wi);

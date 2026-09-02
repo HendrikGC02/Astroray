@@ -334,7 +334,23 @@ static void appendOnePrim(
             // material's triangle uploads no UVs (hasUV=0) and the bump branch skips.
             const bool bumpMapped =
                 mtl && mtl->bumpMapTexture() != nullptr;
-            if ((anisoPrincipled || imageTextured || normalMapped || bumpMapped) &&
+            // pkg219d — a scalar-parameter op-VM material (roughness/metallic/etc.
+            // driven by an image) needs the active-layer UVs on the device: the
+            // shade path fetches the scalar program's OWN source texel at the hit
+            // UV. Without this a scalar-ONLY material (no base-colour/normal/bump
+            // texture) uploads UV-less (hasUV=0) and the scalar override reads
+            // garbage → silently no-ops (same class as the pkg223b bump-only gate).
+            // Checked on the inner material so a NormalMapped(disney) also qualifies.
+            const auto& scalarMtl =
+                (mtl && mtl->normalMapInner()) ? mtl->normalMapInner() : mtl;
+            const bool scalarProgrammed =
+                scalarMtl &&
+                (scalarMtl->scalarProgram(astroray::svm::SCALAR_ROUGHNESS) ||
+                 scalarMtl->scalarProgram(astroray::svm::SCALAR_METALLIC) ||
+                 scalarMtl->scalarProgram(astroray::svm::SCALAR_TRANSMISSION) ||
+                 scalarMtl->scalarProgram(astroray::svm::SCALAR_IOR));
+            if ((anisoPrincipled || imageTextured || normalMapped || bumpMapped ||
+                 scalarProgrammed) &&
                 tri->hasUVLayers()) {
                 Vec2 t0 = tri->getUV0(), t1 = tri->getUV1(), t2 = tri->getUV2();
                 gt.uv0 = GVec2(t0.u, t0.v);
@@ -1000,6 +1016,60 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         r.materialBumpDistance.push_back(bmDistance);
         r.materialTextureId.push_back(texId);
         r.materialProgramId.push_back(progId);
+        // pkg219d — scalar BSDF-parameter op-VM programs (Roughness/Metallic/
+        // Transmission/IOR). Same shape as the base-colour ProgramTexture above: a
+        // program whose single input is an ImageTexture. Source image + compiled
+        // program dedup into the SAME textures/programs buffers (texIdx/progIdx);
+        // matScalarTexId feeds the shade path's OWN per-slot texel fetch (a scalar
+        // map is a DIFFERENT image than the base colour). Non-image / multi-image
+        // program inputs fall through to -1 (GPU-degraded; CPU stays correct — the
+        // pkg186 cut). Read only in the <HasProgram=true> shade kernel.
+        auto uploadProgramTexture = [&](const std::shared_ptr<ProgramTexture>& pt,
+                                        int& outTexId, int& outProgId) {
+            std::shared_ptr<Texture> child =
+                pt->numInputs() >= 1 ? pt->getInput(0) : nullptr;
+            auto childImg = std::dynamic_pointer_cast<ImageTexture>(child);
+            if (!(childImg && !childImg->getData().empty() && pt->numInputs() == 1))
+                return;
+            auto tit = texIdx.find(childImg.get());
+            if (tit != texIdx.end()) {
+                outTexId = tit->second;
+            } else {
+                outTexId = (int)r.textures.size();
+                texIdx[childImg.get()] = outTexId;
+                GImageTexture desc;
+                desc.offset = (int)r.textureTexels.size();
+                desc.width  = childImg->getWidth();
+                desc.height = childImg->getHeight();
+                if (pt->hasMapping()) {
+                    desc.hasMapping = 1;
+                    const float* mm = pt->getMappingMatrix();
+                    for (int i = 0; i < 12; ++i) desc.mapping[i] = mm[i];
+                }
+                const std::vector<Vec3>& px = childImg->getData();
+                r.textureTexels.reserve(r.textureTexels.size() + px.size());
+                for (const Vec3& c : px)
+                    r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+                r.textures.push_back(desc);
+            }
+            auto pit = progIdx.find(pt.get());
+            if (pit != progIdx.end()) {
+                outProgId = pit->second;
+            } else {
+                outProgId = (int)r.programs.size();
+                progIdx[pt.get()] = outProgId;
+                r.programs.push_back(pt->getProgram());
+            }
+            r.hasTexture = true;
+            r.hasProgram = true;
+        };
+        for (int slot = 0; slot < astroray::svm::VM_SCALAR_SLOTS; ++slot) {
+            int sTexId = -1, sProgId = -1;
+            if (auto pt = std::dynamic_pointer_cast<ProgramTexture>(m->scalarProgram(slot)))
+                uploadProgramTexture(pt, sTexId, sProgId);
+            r.materialScalarProgId.push_back(sProgId);
+            r.materialScalarTexId.push_back(sTexId);
+        }
         return id;
     };
 

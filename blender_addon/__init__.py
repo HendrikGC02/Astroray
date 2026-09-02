@@ -4161,6 +4161,30 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 self._warn_shader_fallback('BSDF_PRINCIPLED', msg)
             return renderer.create_material('principled', base_color, native)
 
+        # pkg219d — per-texel scalar-parameter op-VM chains (Image → Map Range →
+        # Roughness, etc.). Reuse the base-colour op-VM detection/upload; attach the
+        # resulting program-texture names so the engine (DisneyPlugin::substituted()
+        # on CPU + the GPU c_wfProgBinding scalar side table) per-texel-drives the
+        # scalar BSDF inputs. Wired only on this Disney path — the native 'principled'
+        # material and the textured-base-colour 'lambertian' route above do not carry
+        # the DisneyPlugin scalar slots (a documented follow-up). No-ops when a socket
+        # is unlinked or its chain is not a per-texel op (constant default stands).
+        for _sock_name, _param_key in (('Roughness', 'roughness_program'),
+                                       ('Metallic', 'metallic_program'),
+                                       ('IOR', 'ior_program')):
+            _sock = node.inputs.get(_sock_name)
+            if _sock is not None and getattr(_sock, 'is_linked', False):
+                _prog = self._maybe_build_program_texture(
+                    _sock, node, _sock_name, renderer)
+                if _prog is not None:
+                    params[_param_key] = _prog
+        # Transmission uses the Blender-4.0 renamed socket ('Transmission Weight').
+        _tsock = node.inputs.get('Transmission Weight') or node.inputs.get('Transmission')
+        if _tsock is not None and getattr(_tsock, 'is_linked', False):
+            _prog = self._maybe_build_program_texture(
+                _tsock, node, 'Transmission', renderer)
+            if _prog is not None:
+                params['transmission_program'] = _prog
         return renderer.create_material('disney', base_color, params)
 
     def _render_will_use_gpu(self, settings, renderer):

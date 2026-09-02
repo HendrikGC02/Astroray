@@ -2,7 +2,15 @@
 
 **Pillar:** 3 (GPU/CPU + Cycles parity) / Integration Milestone verification layer
 **Track:** A (RTX + headless-Blender/Cycles; render legs serialize on the GPU lane per repo rule)
-**Status:** open — dispatchable (DIAGNOSIS-FIRST; no fix work until the offset is localized to a mechanism)
+**Status:** CLOSED — offset not reproducible on current build (diagnosed
+2026-09-02, no engine change). A common-linear-space A/B (Blender 5.2 Cycles vs
+Astroray, 128 spp) on the exact baseline scenes now reads: backdrop_probe 1.02
+(was ~0.79–0.82), world 1.01, diffuse 0.997 (was ~0.88), glossy 1.016 (was
+~0.93) — all in `[0.90,1.10]`. The uniform ~12–20% dim is gone (resolved by the
+intervening dielectric/metal/Principled parity work, and/or a since-corrected
+harness view-transform artifact). Full diagnosis + Phase-1 methodology audit:
+`.astroray_plan/docs/pkg180-systemic-cycles-dim-diagnosis.md`. If a large uniform
+dim is ever re-reported, check the Cycles leg's `view_transform` FIRST.
 **Estimated effort:** S–M (Phase 1 is a cheap methodology check; a real-engine conviction only then sizes into further work with architect sign-off)
 **Depends on:** pkg119-B differential harness landed + HW-validated (PR #550 — the passing-cell ratio cluster is this package's primary evidence), pkg129-narrowed metal A/B (research doc §5, run 2026-08-08 — the metal cross-datapoint), pkg104 reference bank + pkg71 cycles-parity benches (oracle blessing + metrics). Reads: memory `pkg119b-harness-runbook`, `ssim-wrong-gate-for-independent-rng`, `gamma-vs-linear-comparison-artifact`, `mc-noise-vs-deterministic`.
 

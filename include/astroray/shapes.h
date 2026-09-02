@@ -2,6 +2,13 @@
 // Shape class definitions moved from raytracer.h and advanced_features.h (pkg04).
 // Include this header wherever Sphere, Triangle, Mesh, or ConstantMedium are
 // instantiated directly (blender_module.cpp, shape plugins).
+//
+// Shapes: Sphere, Triangle, ConstantMedium, Mesh (all below, this file) —
+// plus CurveSegment / CurveStrip (pkg225 Stage 1, "astroray/curves.h" —
+// ray-thick-curve/hair-strand primitive; not defined here since it needs no
+// manifold/surface_partials dependency, but forward-declared below so headers
+// that only need the type name don't have to pull in the full curve-math header).
+class CurveSegment;
 #include "raytracer.h"
 #include "manifold/surface_partials.h"  // pkg178 PR-3 — trianglePartials (dp_du/dp_dv)
 #include <fstream>

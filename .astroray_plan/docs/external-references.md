@@ -200,6 +200,14 @@ own because a dependency for 40 lines of code is ridiculous.
   line broadening cannot inflate a lamp's overall brightness (Wyszecki & Stiles
   "Color Science" 2nd ed. 1982; PBRT 4th ed. §4.5). Notes:
   `spectral-spd-energy-normalization-research.md`.
+- **Principled Hair BSDF — Chiang 2016 (pkg225 Stage 2)** — "A Practical and
+  Controllable Hair and Fur Model for Production Path Tracing" (CGF 35(2),
+  DOI:10.1145/2775280.2792559), on Marschner 2003 + d'Eon 2011. Reference impls:
+  Cycles `intern/cycles/kernel/closure/bsdf_principled_hair_chiang.h` +
+  `bsdf_util.h` (σ_a) + `svm/closure.h` (socket packing), Apache-2.0 (primary);
+  pbrt-v3 `src/materials/hair.cpp`, BSD-2-Clause (cross-check). R/TT/TRT+residual
+  lobes, longitudinal Mp / azimuthal logistic Np, melanin & reflectance σ_a. Notes:
+  `pkg225-hair-bsdf-research.md`.
 
 Astroray targets MIT (or Apache 2.0). Compatible:
 - Apache 2.0, BSD-2/3, MIT, ISC — link freely.

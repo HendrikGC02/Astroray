@@ -83,6 +83,28 @@ rare); spill on (1) is impossible-by-construction and, if observed, means the
   `get_float_input` path; mirror the op-VM scalar substitution there so CPU↔GPU parity
   holds (the byte-mirror convention).
 
+## CPU-model design pass (parent, 2026-09-03) — injection point pinned
+
+The architect's design pinned the GPU side-table but left the CPU injection point
+open. Grounded decision: the addon creates the **`disney` material**
+(`plugins/materials/disney.cpp`, DisneyPlugin) for a Blender Principled node
+(confirmed: `blender_addon/__init__.py` create_material('disney', …)), and **no
+CPU material reads a scalar texture today** — so this is genuinely new.
+
+**Decision: give DisneyPlugin up to K optional `std::shared_ptr<ProgramTexture>`
+scalar members (roughness/metallic/transmission/ior). In eval/pdf/sample, if a
+slot's program is set, `svm_eval` it at the hit UV (`rec.uv`, the same texel the
+base color uses) and substitute for the constant member, recomputing GGX alpha
+etc. locally per-hit.** Self-contained — NO integrator change, NO HitRecord
+field (unlike normal maps, which needed a decorator; a scalar program is just a
+per-hit float substitution the material can do itself). The addon attaches them
+via new createMaterial params (`roughness_program` etc., resolved through
+`textureManager.getTexture`), mirroring the base-color attach. GPU mirrors the
+same substituted VALUES via the side-table above (storage differs — CPU on the
+material, GPU in `c_wfProgBinding` — but the numeric result is byte-identical:
+same `svm_eval`, same source texel). Dispatched to a fresh implementer
+2026-09-03 behind the standard REG-probe + Claude-review gate.
+
 ## Scope (design decided above; implement to it)
 
 - **Addon:** detect op-VM-eligible node chains feeding the K scalar BSDF inputs; attach

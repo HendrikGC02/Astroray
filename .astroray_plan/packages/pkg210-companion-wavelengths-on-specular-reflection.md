@@ -4,7 +4,26 @@
 **Track:** A (CPU+GPU spectral transport change — register-sensitive, probe-first).
 **Estimated effort:** S–M (small logic change, but touches the register-pinned
 hero-collapse path — MUST clear a cuobjdump probe before feature code).
-**Status:** open (filed 2026-08-19).
+**Status:** SUPERSEDED — premise stale, no work needed (verified 2026-09-02).
+The described bug ("collapses companions on specular reflection too") does **not
+exist** in current code. All four runtime `terminateSecondary()` sites already
+fire on *actual refraction only*, never on reflection:
+- GPU dielectric `gpu_materials.h:524` — inside the refraction `else` branch
+  (the reflect branch at :510-514 never collapses). The spec misread this as
+  "unconditional-on-dispersive"; it is refraction-gated.
+- GPU principled `gpu_materials.h:3284` — `if (refracted) wl.terminateSecondary()`.
+- CPU dielectric `dielectric.cpp:214` — `bool reflected = ...; if (!reflected)`
+  (present since **pkg31**, the original Sellmeier impl).
+- CPU principled `principled.cpp:2038` — gated on a Transmission lobe whose `wi`
+  crosses the hemisphere (added by **pkg187**, PR #593).
+Both guards predate this spec's 2026-08-19 filing, so companions have always
+been retained through reflection. The desired behaviour is already the shipped
+behaviour; a reflective-dispersive A/B render is available if belt-and-suspenders
+confirmation is wanted, but there is nothing to implement.
+
+Original spec below (kept for the record).
+
+**~~Status:~~** ~~open (filed 2026-08-19).~~
 **Depends on:** nothing hard. Independent of pkg206 (that changes the hero
 *proposal*; this changes *when* companions are terminated). CPU+GPU byte-mirrored
 in the SAME PR.

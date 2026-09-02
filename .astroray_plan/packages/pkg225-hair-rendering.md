@@ -2,7 +2,17 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** open
+**Status:** open — **Stage 1 (CPU curve geometry primitive) LANDED** (PR #670,
+2026-09-02). The pbrt-v3-ported `CurveSegment`/`CurveStrip` (`include/astroray/
+curves.h`), `add_curves_bulk` ingest, and the analytic parity gate
+(`tests/test_pkg225_curve_intersect.py`, 7/7) are merged. The 2026-08-31 "4/7,
+bug localized to curves.h" handoff was wrong on the mechanism — a standalone
+native harness proved the intersection math correct; the failures were
+test-harness bugs (degenerate camera up-vector, broken oblique geometry, a
+normal check that ignored `setFaceNormal`'s sign convention) plus an unfilled
+position AOV. See `.astroray_plan/docs/pkg225-curve-intersect-research.md`
+"ROOT CAUSE — CORRECTED". Stages 2–6 (hair BSDF, GPU leg, spectral melanin)
+remain open.
 **Estimated effort:** 6–8 sessions (~18–24 h), staged
 **Depends on:** pkg55 (wavefront SoA), pkg36 (closure graph — GPU BSDF lowering)
 

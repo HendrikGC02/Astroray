@@ -2,8 +2,8 @@
 
 **Pillar:** 5 (Blender/DCC integration — shader-node compatibility)
 **Track:** A (engine + addon; CPU + GPU BSDF eval)
-**Status:** open (filed 2026-08-31 — residual surfaced by the pkg219 completion audit, PR #661).
-**Estimated effort:** M–L (register-hostile GPU shade path — Claude-last-line).
+**Status:** open — **fork DECIDED 2026-09-02 (architect), dispatchable.** Was "architect to detail before dispatch"; the design pass below resolves it. Route: dv4/deepseek implements to the decided design, HARD `cuobjdump` probe + `cpp-abi-guard` + Claude-last-line review before merge — same routing shape as pkg223 (PR #647). Filed 2026-08-31 — residual surfaced by the pkg219 completion audit, PR #661.
+**Estimated effort:** M–L (extends a proven side-table pattern; the GPU register probe is the only Claude-last-line step).
 **Depends on:** pkg219a/b/c (op-VM evaluator, all landed) — the machinery already exists; this only wires its output into non-base-color BSDF inputs.
 
 ## Finding (grounded, from the pkg219 audit)
@@ -19,19 +19,79 @@ the op-VM can already evaluate `image → MapRange → scalar`; there is simply 
 in the BSDF to plug the result. (This is the one unmet row of the original pkg219
 acceptance matrix: "Math/MapRange driving roughness.")
 
-## Scope (to be detailed by the architect before dispatch)
+## Architect design pass (2026-09-02) — fork resolved
 
-Add a per-texel **scalar parameter-texture** path:
-- Addon: detect op-VM-eligible node chains feeding scalar BSDF inputs (roughness,
-  metallic, transmission, IOR, …); attach a scalar program texture per input.
-- Engine material: a scalar-param-texture slot (or small set) alongside the existing
-  base-color/normal/bump program hooks.
-- CPU + GPU BSDF eval: sample the op-VM scalar at the shade point and use it in place
-  of the constant `get_float_input`. **GPU is register-hostile** — this touches the
-  REG:254 shade kernel; ride the `__constant__` side-table pattern (memory
-  `shade-axis-side-table-avoids-spill`), keep it off `GMaterial`, and gate behind an
-  `if-constexpr`/side-table axis with a MANDATORY up-front `cuobjdump` register probe
-  (memory `closure-graph-lobe-count-spills-fused-kernel`). Spill → escalate/park.
+The report framed this as an undecided fork: "new `GMaterial` scalar-param-texture
+field vs a side-table." **It is not a real fork — the side-table wins by precedent,
+and the base-color program already lives there.** Grounded in the live code:
+
+- The op-VM already rides a `__constant__` side-table, NOT `GMaterial`:
+  `GWavefrontProgramBinding { const ShaderVMProgram* programs; const int* matProgId; }`
+  (`include/astroray/shader_vm.h:390-393`), published once per frame via
+  `setWavefrontProgramBinding` and read only inside `if constexpr (HasProgram)`
+  (`src/gpu/wavefront/stage_advance.cu:1249-1259`). `matProgId[mat] == -1` for every
+  non-program material, so the entire `<HasProgram=false>` fleet compiles the VM out —
+  byte-identical to main.
+- A `GMaterial` field is the anti-pattern the fleet explicitly avoids (memory
+  `shade-axis-side-table-avoids-spill`, `pkg114`-era 640 B struct is register-adjacent).
+  **Decision: extend the existing `c_wfProgBinding` side-table. Do NOT touch `GMaterial`.**
+
+**Decided representation (the one sub-fork that was real — N parallel arrays vs a
+flattened slot table):** use a **flattened per-(material, slot) table**, fixed small
+`K`. Start `K = 4`: `{ROUGHNESS, METALLIC, TRANSMISSION, IOR}` — the highest-value
+scalar BSDF inputs; specular/sheen/clearcoat/etc. deferred (add slots later, same
+shape, no re-architecture). Extend the binding to:
+
+```
+struct GWavefrontProgramBinding {
+    const ShaderVMProgram* programs;          // unchanged: device global array
+    const int*             matProgId;         // unchanged: base-color program (-1=none)
+    const int*             matScalarProgId;   // NEW: [mat*K + slot] program idx (-1=none)
+    const int*             matScalarTexId;    // NEW: [mat*K + slot] source-image id (-1=none)
+};
+```
+Two new `const int*` in the constant binding (not per-launch args), one scene-upload
+pair, one eval loop. `matScalarTexId` is required because a roughness program's input
+texel is a *different* image than the base-color map (the current single program feeds
+`vmIn[0] = texColor`, the base-color texel — a scalar program must fetch its OWN map).
+
+**GPU eval (inside the existing `if constexpr (HasProgram)` block, after the base-color
+swap, `stage_advance.cu` ~:1260):** loop `slot = 0..K-1`; if `matScalarProgId[mat*K+slot] >= 0`,
+fetch that slot's source texel, run `svm_eval` into a **single reused `vmIn` scratch**
+(eval slot, extract `.x`, reuse the scratch for the next slot — keep live state to one
+float result at a time), and write the result into the local roughness/metallic/etc.
+BEFORE the BSDF/NEE closure is built. Register discipline: the ON-path is
+`HasProgram=true`, which is **already an isolated axis** (not the fleet) — so the fleet
+`<HasProgram=false>` stays byte-identical by `if constexpr` construction. The register
+risk here is therefore LOWER than the report implied: it is confined to the
+already-isolated program specialization, NOT the shared REG:254 fleet kernel.
+
+**MANDATORY probe (Claude-last-line, before merge):** (1) fleet `stageShadeBucketedKernel<0,…>`
+`<HasProgram=false>` byte-identical to baseline REG 254 / STACK 3368 / CONSTANT[0] 1716
+(measure from the actual `.pyd`); (2) `<HasProgram=true>` still compiles and doesn't
+tank program-material perf. Spill on (2) is acceptable-if-bounded (program materials are
+rare); spill on (1) is impossible-by-construction and, if observed, means the
+`if constexpr` was breached — stop and escalate.
+
+**Two gates the implementer MUST wire (grounded, cost real rebuilds before):**
+- **UV-upload gate** (memory `uv-upload-gate-needs-new-normal-perturb-consumers`):
+  `scene_upload` only sets `GTriangle.hasUV` for aniso/image/normal/bump-mapped
+  materials. A material whose ONLY texture is a roughness/metallic map would ship
+  **UV-less**, and the scalar program's texel fetch would read garbage. Add scalar-param
+  textures to that `hasUV` predicate — verify a scalar-only material actually gets UVs.
+- **CPU mirror:** the CPU BSDF eval reads roughness/metallic via the constant
+  `get_float_input` path; mirror the op-VM scalar substitution there so CPU↔GPU parity
+  holds (the byte-mirror convention).
+
+## Scope (design decided above; implement to it)
+
+- **Addon:** detect op-VM-eligible node chains feeding the K scalar BSDF inputs; attach
+  a scalar program + record its source-image id per input. Reuse the existing base-color
+  op-VM detection/translation — this is the same VM, a new output binding.
+- **Engine binding:** the two new `matScalarProgId` / `matScalarTexId` side-table arrays
+  above (NOT a `GMaterial` field), uploaded once per frame.
+- **CPU + GPU BSDF eval:** substitute the op-VM scalar in place of the constant
+  `get_float_input` / `mat.roughness` etc., per the GPU-eval + CPU-mirror notes above.
 
 ## Non-goals
 - Not new op-VM opcodes (the VM already evaluates the chains).
@@ -39,5 +99,8 @@ Add a per-texel **scalar parameter-texture** path:
 
 ## Provenance
 Surfaced by the pkg219 completion audit (PR #661, 2026-08-31): pkg219 itself is DONE;
-this is the one genuine remaining shader-node-compatibility gap it exposed. Owner/
-architect to decide priority vs other Pillar-5 work.
+this is the one genuine remaining shader-node-compatibility gap it exposed. Fork
+resolved by the architect 2026-09-02 (queue re-vet pass) grounded in
+`shader_vm.h:390` + `stage_advance.cu:1249-1259`: extend the existing `c_wfProgBinding`
+side-table, do not touch `GMaterial`. Now dispatchable to dv4 behind the standard
+REG-probe + `cpp-abi-guard` + Claude-review gate.

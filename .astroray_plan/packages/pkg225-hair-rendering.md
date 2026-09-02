@@ -2,8 +2,18 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** open — **Stage 1 (CPU curve geometry primitive) LANDED** (PR #670,
-2026-09-02). The pbrt-v3-ported `CurveSegment`/`CurveStrip` (`include/astroray/
+**Status:** open — **Stage 1 (CPU curve geometry) + Stage 2 (CPU Principled
+Hair BSDF, Chiang 2016) LANDED.** Stage 2 (2026-09-03): `include/astroray/
+hair_bsdf.h` (Mp/Np/Ap/logistic/Fresnel + σ_a helpers, header-only STL-free hot
+path for GPU reuse) + `plugins/materials/principled_hair.cpp` (R/TT/TRT+residual,
+three σ_a parametrizations, view-dependent tangent frame from `uvTangent`,
+h=2·hair_v−1, coat→R-roughness, pbrt cuticle-tilt), CPU eval/pdf/sample +
+evalSpectral + overridden sampleSpectral. Gate `tests/test_pkg225_hair_bsdf.py`
+9/9: energy conservation ρ≤1 across β_m∈{0.1,0.3,0.6,1.0}, absorption-darkens,
+per-channel colour response, eval finite/≥0, non-curve regression guard, and a
+spectral-path render smoke. Stages 3–6 (GPU, spectral melanin, addon) remain
+open. Stage-1 landed via PR #670,
+2026-09-02. The pbrt-v3-ported `CurveSegment`/`CurveStrip` (`include/astroray/
 curves.h`), `add_curves_bulk` ingest, and the analytic parity gate
 (`tests/test_pkg225_curve_intersect.py`, 7/7) are merged. The 2026-08-31 "4/7,
 bug localized to curves.h" handoff was wrong on the mechanism — a standalone

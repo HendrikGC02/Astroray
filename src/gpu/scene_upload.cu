@@ -5,6 +5,7 @@
 #include "astroray/gpu_scene_upload.h"
 #include "astroray/gpu_types.h"
 #include "astroray/shapes.h"
+#include "astroray/curves.h"   // pkg225 Stage 3 — CurveSegment (dynamic_cast in appendOnePrim)
 #include "astroray/spectral_profile.h"
 #include "raytracer.h"
 #include "astroray/light_tree.h"   // pkg86-B: LightTree flattening (needs raytracer.h's Vec3/AABB)
@@ -281,7 +282,10 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
 // ---------------------------------------------------------------------------
 static void appendOnePrim(
     const std::shared_ptr<Hittable>& hittable, SceneUploadResult& r,
-    const std::function<int(const std::shared_ptr<Material>&)>& getOrAddMat)
+    const std::function<int(const std::shared_ptr<Material>&)>& getOrAddMat,
+    // pkg225 Stage 3 — scene-wide GPU curve mode (Renderer::getCurveThickMode()),
+    // written onto every emitted GCurveSegment. Ignored for non-curve prims.
+    bool curveThick = false)
 {
     GPrimitive gp;
     if (auto* tri = dynamic_cast<Triangle*>(hittable.get())) {
@@ -387,6 +391,24 @@ static void appendOnePrim(
         if (matName.empty()) matName = "Unnamed_Material_" + std::to_string(gs.materialId);
         MurmurHash3_x86_32(matName.c_str(), static_cast<int>(matName.length()), 0, &gs.materialHash);
         r.spheres.push_back(gs);
+    } else if (auto* curve = dynamic_cast<CurveSegment*>(hittable.get())) {
+        // pkg225 Stage 3 — one CPU CurveSegment → one GCurveSegment + GPRIM_CURVE
+        // leaf. The Catmull-Rom→Bezier conversion already happened in the CPU
+        // CurveSegment ctor; bezierHull() is the world-space cubic-Bezier control
+        // hull, uploaded verbatim so the device leaf runs the same pbrt math.
+        gp.type  = GPRIM_CURVE;
+        gp.index = (int)r.curveSegments.size();
+        GCurveSegment gc;
+        const Vec3* hull = curve->bezierHull();
+        gc.bezier0 = GVec3(hull[0].x, hull[0].y, hull[0].z);
+        gc.bezier1 = GVec3(hull[1].x, hull[1].y, hull[1].z);
+        gc.bezier2 = GVec3(hull[2].x, hull[2].y, hull[2].z);
+        gc.bezier3 = GVec3(hull[3].x, hull[3].y, hull[3].z);
+        gc.radius0 = curve->getRadius0();
+        gc.radius1 = curve->getRadius1();
+        gc.materialId = getOrAddMat(curve->getMaterial());
+        gc.thick = curveThick ? 1 : 0;
+        r.curveSegments.push_back(gc);
     } else {
         // pkg85-C: GPRIM_SKIP placeholder keeps prims index-aligned within a BLAS.
         gp.type  = GPRIM_SKIP;
@@ -462,7 +484,7 @@ static size_t appendFlatScene(
         }
     }
     for (auto& hittable : orderedPrims) {
-        appendOnePrim(hittable, r, getOrAddMat);
+        appendOnePrim(hittable, r, getOrAddMat, cpu.getCurveThickMode());
         if (auto* tri = dynamic_cast<Triangle*>(hittable.get())) {
             const Vec3* motionBuf = tri->getMotionVertexBuffer();
             if (motionBuf != nullptr) {

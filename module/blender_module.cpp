@@ -1851,6 +1851,9 @@ public:
     void setUseProgressiveSampler(bool use) {  // pkg224: opt-in GPU progressive (Sobol') sampler
         renderer.setUseProgressiveSampler(use);
     }
+    void setCurveThickMode(bool thick) {  // pkg225 Stage 3: GPU ribbon(false)/thick(true) curves
+        renderer.setCurveThickMode(thick);
+    }
 
     // pkg64 Phase 3 — per-object opt-in for SMS connection attempts in
     // the default path_tracer. `objectId` is the addObject call order
@@ -3169,6 +3172,10 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_use_refractive_caustics", &PyRenderer::setUseRefractiveCaustics, "use"_a)
         .def("set_use_photon_caustics", &PyRenderer::setUsePhotonCaustics, "use"_a)
         .def("set_use_progressive_sampler", &PyRenderer::setUseProgressiveSampler, "use"_a)
+        .def("set_curve_thick_mode", &PyRenderer::setCurveThickMode, "thick"_a,
+             "pkg225 Stage 3: GPU curve shading mode — False (default) = ribbon "
+             "(camera-facing flat strip); True = thick swept-circle (CPU-parity "
+             "Cylinder). The CPU path always renders thick; set True for GPU/CPU parity.")
         .def("set_object_caustic_caster", &PyRenderer::setObjectCausticCaster,
              "object_id"_a, "enabled"_a,
              "pkg64 Phase 3 — flag an object (by addObject order) as a "

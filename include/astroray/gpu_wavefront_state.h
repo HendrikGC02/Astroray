@@ -257,7 +257,8 @@ void launchStageIntersect_SessionN3(
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
-    const GSphere*    d_spheres);
+    const GSphere*    d_spheres,
+    const GCurveSegment* d_curveSegments = nullptr);  // pkg225 Stage 3
 
 // Session N+3 part 2: Lambertian shade stage.
 // NOTE: ::GMaterial is in the global namespace (gpu_types.h); we qualify with
@@ -327,7 +328,8 @@ void launchStageIntersectQueued(
     GLightTreeView    lightTree,
     int* d_vol_queue, int* d_vol_count,   // pkg199 Stage 2
     bool has_world_scatter,               // pkg199 Stage 2 fleet-isolation axis
-    bool has_light_pass_aovs);            // pkg198 Stage 2 pass-AOV axis
+    bool has_light_pass_aovs,             // pkg198 Stage 2 pass-AOV axis
+    const GCurveSegment* d_curveSegments = nullptr);  // pkg225 Stage 3
 
 // pkg199 Stage 2 — dedicated volume-scatter wavefront stage (between intersect
 // and shade). Drains the volume-scatter queue, parks the phase-sampled
@@ -555,7 +557,8 @@ void launchStageShadow(
     const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     bool              useLuminanceOutput,   // pkg157
-    float             clampDirect, float clampIndirect);  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    const GCurveSegment* d_curveSegments = nullptr);  // pkg225 Stage 3
 
 // Session N+7 part 4: path regeneration -- dense pass accumulating dead
 // paths' radiance (atomic, per-pixel) then refilling slots from a global

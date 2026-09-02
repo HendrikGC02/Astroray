@@ -250,10 +250,15 @@ struct GBVHNode {
 // isn't a Sphere or Triangle, so r.prims stays index-aligned with the
 // BVH's primitivesOffset and with GLight.primitiveIndex. gpu_bvh_hit
 // and the area-light sampler treat GPRIM_SKIP as a no-op.
-enum GPrimType : uint8_t { GPRIM_TRIANGLE = 0, GPRIM_SPHERE = 1, GPRIM_SKIP = 2 };
+// pkg225 Stage 3 — GPRIM_CURVE dispatches a leaf to gpu_curve_intersect
+// (gpu_curve_intersect.cuh), indexing the d_curveSegments array. Curve segments
+// ride the SAME multi-primitive BVH as triangles/spheres (each CurveSegment ->
+// one GPrimitive + AABB leaf, built on the CPU BVH so the uploaded node bounds
+// already enclose the curve hulls).
+enum GPrimType : uint8_t { GPRIM_TRIANGLE = 0, GPRIM_SPHERE = 1, GPRIM_SKIP = 2, GPRIM_CURVE = 3 };
 struct GPrimitive {
     GPrimType type;
-    int       index;   // index into d_triangles or d_spheres
+    int       index;   // index into d_triangles / d_spheres / d_curveSegments
 };
 
 struct GTriangle {
@@ -294,6 +299,27 @@ struct GSphere {
     // pkg87a — Cryptomatte hashed names, populated at scene upload
     uint32_t objectHash;
     uint32_t materialHash;
+};
+
+// ---------------------------------------------------------------------------
+// pkg225 Stage 3 — GPU curve segment (hair strand span).
+//
+// GPU twin of the CPU CurveSegment (include/astroray/curves.h). One segment =
+// the cubic-Bezier control hull (already converted from Catmull-Rom on the CPU
+// in the CurveSegment ctor — we upload the hull verbatim via bezierHull()) plus
+// the swept-circle radius at each on-curve endpoint. The intersection math lives
+// in gpu_curve_intersect.cuh (ribbon-default / thick-swept-circle behind a flag),
+// a device port of the pbrt-v3 Curve::Intersect algorithm the CPU uses.
+// ---------------------------------------------------------------------------
+struct GCurveSegment {
+    GVec3 bezier0, bezier1, bezier2, bezier3;  // world-space cubic-Bezier hull
+    float radius0, radius1;                     // radius at u=0 (bezier0) / u=1 (bezier3)
+    int   materialId;
+    // 0 = ribbon (camera-facing flat strip, cheap 2D — GPU viewport default);
+    // 1 = thick (swept circle — full CPU-parity Cylinder mode). Scene-wide, set
+    // identically for every segment at upload from Renderer::getCurveThickMode()
+    // (avoids threading a runtime flag through every intersect signature).
+    int   thick;
 };
 
 // ---------------------------------------------------------------------------
@@ -800,6 +826,12 @@ struct GHitRecord {
     // Isotropic shading never reads it → bit-identical.
     GVec3 uvTangent      = GVec3(1.f, 0.f, 0.f);
     float uvBitangentSign = 1.f;
+    // pkg225 Stage 3 — azimuthal curve coordinate (GPU twin of CPU
+    // HitRecord::hair_v). Transient/per-hit; filled ONLY by the curve leaf
+    // (gpu_curve_intersect). v=0.5 is the fiber centre (the near-hemisphere half-
+    // turn spans [0,1]); default 0.5 so a non-curve hit reads the centre. The
+    // Stage-4 hair BSDF maps h = 2*hairV - 1 (S2 research note §5).
+    float hairV          = 0.5f;
     float t;
     int   materialId;
     int   primId;     // index into d_prims[] — set by gpu_bvh_hit

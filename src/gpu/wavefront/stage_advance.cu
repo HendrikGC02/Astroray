@@ -415,7 +415,10 @@ __device__ int intersectPathSlotT(
     const ::GLight*   lights, int numLights, float totalLightPower,
     // pkg181: dedicated lamps for the BSDF-ray lamp-intersection pass.
     const GDedicatedLight* dedLights, int numDed,
-    GLightTreeView    lightTree)
+    GLightTreeView    lightTree,
+    // pkg225 Stage 3 — device curve segments (nullptr = no curves; the curve
+    // leaf inside gpu_tlas_hit → gpu_bvh_hit is guarded on this pointer).
+    const GCurveSegment* curves = nullptr)
 {
     const int bounce = state.bounce[idx];
 
@@ -462,7 +465,7 @@ __device__ int intersectPathSlotT(
     // stay byte-identical (pkg114 inc-1 identity test).
     GHitRecord rec;
     bool hit = gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                            ray, 0.001f, 1e30f, rec, motionVerts);
+                            ray, 0.001f, 1e30f, rec, motionVerts, curves);
 
     // pkg199 Stage 2 — homogeneous medium free-flight scatter DECISION (Option A:
     // the cheap decision + queue routing lives here; the register-heavy scatter
@@ -1849,7 +1852,8 @@ __global__ void stageShadowKernel(
     const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     bool              useLuminanceOutput,   // pkg157
-    float             clampDirect, float clampIndirect)  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    const GCurveSegment* curves)  // pkg225 Stage 3 — curve shadow occluders
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *shadow_count) return;
@@ -1879,7 +1883,7 @@ __global__ void stageShadowKernel(
     float time = state.path_time[idx];
     GNEEOcclusion occ = gpu_nee_occlude(
         s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
-        time, motionVerts);
+        time, motionVerts, curves);
     if (occ.occluded) return;
 
     // Emission upsample only (the BSDF/MIS parts were pre-resolved in the
@@ -2036,7 +2040,9 @@ __global__ void stageIntersectQueuedKernel(
     // path that scattered in the medium; that slot is routed here (not the shade
     // bucket) for the dedicated stageVolumeScatterKernel. Null when the medium
     // does not scatter (scatter==0) — the -2 return never fires then.
-    int* vol_queue, int* vol_count)
+    int* vol_queue, int* vol_count,
+    // pkg225 Stage 3 — device curve segments (nullptr = no curves).
+    const GCurveSegment* curves)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *count_in) return;
@@ -2053,7 +2059,8 @@ __global__ void stageIntersectQueuedKernel(
                                     useLuminanceOutput, enableNEE,
                                     clampDirect, clampIndirect,
                                     lights, numLights, totalLightPower,
-                                    dedLights, numDed, lightTree);  // pkg120+pkg181
+                                    dedLights, numDed, lightTree,  // pkg120+pkg181
+                                    curves);  // pkg225 Stage 3
     if (matType == -2) {   // pkg199 Stage 2: scattered → volume-scatter queue
         int vslot = atomicAdd(vol_count, 1);
         vol_queue[vslot] = idx;
@@ -2165,7 +2172,8 @@ void launchStageIntersectQueued(
     GLightTreeView    lightTree,
     int* d_vol_queue, int* d_vol_count,   // pkg199 Stage 2
     bool has_world_scatter,               // pkg199 Stage 2: picks the fleet-isolation axis
-    bool has_light_pass_aovs)             // pkg198 Stage 2: picks the pass-AOV axis
+    bool has_light_pass_aovs,             // pkg198 Stage 2: picks the pass-AOV axis
+    const GCurveSegment* d_curveSegments) // pkg225 Stage 3 (nullptr = no curves)
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -2183,7 +2191,8 @@ void launchStageIntersectQueued(
         useLuminanceOutput, enableNEE, clampDirect, clampIndirect, \
         d_lights, num_lights, total_light_power, \
         d_dedLights, num_ded, lightTree, \
-        d_vol_queue, d_vol_count
+        d_vol_queue, d_vol_count, \
+        d_curveSegments
     {
         // pkg198 Stage 2: the second axis picks the pass-AOV specialization. The
         // fleet (no scatter, no passes) launches <false,false> — REG 127, byte-
@@ -2971,7 +2980,8 @@ void launchStageShadow(
     const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     bool              useLuminanceOutput,   // pkg157
-    float             clampDirect, float clampIndirect)  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    const GCurveSegment* d_curveSegments)  // pkg225 Stage 3 (nullptr = no curves)
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -2985,7 +2995,7 @@ void launchStageShadow(
             d_shadow_queue, d_shadow_count, nee_capacity,
             d_tlas, d_instances, d_blas,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-            useLuminanceOutput, clampDirect, clampIndirect);
+            useLuminanceOutput, clampDirect, clampIndirect, d_curveSegments);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_shadow launch error: %s\n",

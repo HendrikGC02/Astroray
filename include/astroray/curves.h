@@ -132,6 +132,9 @@ public:
     const Vec3* bezierHull() const { return bezier_; }
     float getRadius0() const { return radius0_; }
     float getRadius1() const { return radius1_; }
+    // pkg225 Stage 3 — GPU scene upload reads the material to dedup into the
+    // GMaterial table (mirrors Triangle::getMaterial / Sphere::getMaterial).
+    std::shared_ptr<Material> getMaterial() const { return material_; }
 
 private:
     Vec3 bezier_[4];

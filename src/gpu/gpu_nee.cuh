@@ -505,7 +505,9 @@ __device__ inline GNEEOcclusion gpu_nee_occlude(
     const GTriangle*  tris,
     const GSphere*    spheres,
     float             time,         // pkg88-C.0: path shutter time for shadow rays
-    const GVec3*      motionVerts)  // pkg88-C.0 (nullptr = static)
+    const GVec3*      motionVerts,  // pkg88-C.0 (nullptr = static)
+    // pkg225 Stage 3 — curves occlude shadow rays too (nullptr = no curves).
+    const GCurveSegment* curves = nullptr)
 {
     GNEEOcclusion occ{};
     occ.occluded = 1;
@@ -515,7 +517,7 @@ __device__ inline GNEEOcclusion gpu_nee_occlude(
         // Sphere sources: the ray must REACH the light (hit it, with the
         // light's own material) — miss or a different material = occluded.
         if (!gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                         GRay(s.origin, s.wi, time), 0.001f, s.maxDist, sh, motionVerts) ||
+                         GRay(s.origin, s.wi, time), 0.001f, s.maxDist, sh, motionVerts, curves) ||
             sh.materialId != s.lightMatId)
             return occ;
         occ.frontFace = sh.frontFace ? 1 : 0;
@@ -527,7 +529,7 @@ __device__ inline GNEEOcclusion gpu_nee_occlude(
         // Cycles scene_intersect_shadow).
         if (gpu_tlas_occluded(tlas, instances, blas, bvhNodes, prims, tris,
                               spheres, GRay(s.origin, s.wi, time), 0.001f,
-                              s.maxDist, motionVerts))
+                              s.maxDist, motionVerts, curves))
             return occ;
     }
     occ.occluded = 0;

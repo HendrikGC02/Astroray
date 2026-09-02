@@ -12,6 +12,11 @@ struct SceneUploadResult {
     std::vector<GPrimitive> prims;
     std::vector<GTriangle>  triangles;
     std::vector<GSphere>    spheres;
+    // pkg225 Stage 3 — GPU curve segments (hair strands). One GCurveSegment per
+    // CPU CurveSegment; a GPRIM_CURVE GPrimitive indexes this array. Curve AABBs
+    // enter the BVH on the CPU (CurveSegment::boundingBox), so the uploaded
+    // `nodes` already bound the curves — no separate GPU AABB build.
+    std::vector<GCurveSegment> curveSegments;
     std::vector<GMaterial>  materials;
     // pkg178 Stage-3b D4: true when ANY uploaded material lowers to a
     // closure-graph Principled (mirrors gpu_closure_graph_is_principled:

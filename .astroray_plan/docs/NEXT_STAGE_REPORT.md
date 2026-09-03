@@ -43,29 +43,32 @@ paid nothing.)
 ### UPDATE (later 2026-09-03): architect re-vet done (#675); pkg225-S3 landing
 The architect re-vet ranked the next arc and filed Stage-3/4 implementation
 detail. Since then:
-- **pkg225-S3 (GPU curve geometry) — IN FINAL CI** (PR #676). Curves render on
-  GPU (`GPRIM_CURVE` leaf, `gpu_curve_intersect.cuh`); the curve leaf is isolated
+- **pkg225-S3 (GPU curve geometry) — LANDED** (PR #676). Curves render on GPU
+  (`GPRIM_CURVE` leaf, `gpu_curve_intersect.cuh`); the curve leaf is isolated
   behind `template<bool HasCurves>` so non-curve kernels are byte-identical
   (intersect 127/616, N3 61/272, shadow 108/584, fleet shade 254/3368/1716).
-  GPU↔CPU parity + 25 regression pass; cpp-abi-guard APPROVE.
+  GPU↔CPU parity + 25 regression pass; cpp-abi-guard APPROVE. Visually verified.
 - **NEXT = pkg225-S4 (GPU hair BSDF).** Design pinned: `__noinline__` runtime-flag
   isolation (NOT a 9th shade axis), standalone `GMAT_HAIR_PRINCIPLED` branch.
   **HARD S3→S4 dependency:** S3 sets `hairV`/`uvTangent` in the curve leaf but
   does NOT persist `hairV` to the SoA `GPUWavefrontHitBuffers` — S4 must add a
   `hit_hair_v` lane (+ `loadHit`/`storeHit`) first, else the hair BSDF reads a
   stale centre value (cpp-abi-guard flagged this).
-- **Research fan-out IN FLIGHT** (owner-directed 2026-09-03): deepseek-v4-pro
-  web-research agents (opencode `architect` agent, webfetch+websearch enabled;
-  strict "web-verify or NOT FOUND, never fabricate" contract) are gathering
-  cited literature for **pkg127** (Specular Polynomials SMS seeds), **pkg211**
-  (per-bounce spectral MIS + ray-differentials), **pkg136** (SVO path guiding)
-  → notes at `docs/pkg{127,211,136}-*-research.md`; then one Opus spec-writer per
-  package turns each into a detailed, design-choice spec (Claude verifies the
-  research before it feeds the spec).
-- **Alternate pickup: pkg127** — highest-value bounded caustics-quality upgrade
-  (drop-in SMS seed swap on the landed pkg64 SMS); ready once its spec lands.
-- **Parked:** pkg211 (prototype-first, legitimate PARK); long-tail
-  pkg126/130/132/134/136/137 each a dedicated-day arc.
+- **Research → detailed specs — DONE** (owner-directed 2026-09-03): deepseek-v4-pro
+  web-research (opencode `architect` agent, webfetch+websearch; strict
+  "web-verify or NOT FOUND, never fabricate" contract — 14/11/13 real searches,
+  URL-cited, no fabrication) → notes `docs/pkg{127,211,136}-*-research.md`, then
+  Opus spec-writers produced detailed design-choice specs, **all merged**:
+  - **pkg127** — Specular Polynomials SMS-seed upgrade (**PR #679**). Highest-value
+    bounded caustics-quality upgrade (drop-in SMS seed swap on landed pkg64). Ready
+    to dispatch. Research fixed a wrong author cite + resolved the license
+    (mollnn/spoly unlicensed → re-derive from the CC-BY paper + MIT cyPolynomial).
+  - **pkg211** — per-bounce spectral MIS (**PR #677**). Prototype-first, **legitimate
+    PARK outcome** (only ships if a CPU Stage-1 beats the pkg206 baseline by ≥10%);
+    ray-differentials split to pkg211b. Architect's read: park unless a free slot.
+  - **pkg136** — path guiding (**PR #678**). Renamed SVO→**SD-tree** (the honest
+    structure call), CPU-first, gated GPU leg.
+- **Long-tail parked:** pkg126/130/132/134/137 each a dedicated-day arc.
 
 ---
 

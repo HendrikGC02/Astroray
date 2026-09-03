@@ -47,8 +47,10 @@ backends, and two stale/ghost items were retired.**
   register-hostile rebuilds. Registers: fleet `stageShadeBucketedKernel
   <0,0,0,0,0,0,0>` stays REG:254/STACK:3368/CONSTANT[0]:1716 through all of it.
 - **NEXT:** pkg225 S4 (GPU hair BSDF, design pinned, needs the S3 `hit_hair_v`
-  SoA lane first) → S5/S6. Research fan-out in flight for pkg127/pkg211/pkg136
-  (deepseek notes → Opus specs). Full handoff: NEXT_STAGE_REPORT.md.
+  SoA lane first) → S5/S6. Detailed specs LANDED for pkg127 (Specular Polynomials
+  SMS-seed, #679), pkg211 (per-bounce spectral MIS, #677, park-eligible), pkg136
+  (SD-tree path guiding, #678) — web-verified deepseek research → Opus specs, all
+  merged. Full handoff: NEXT_STAGE_REPORT.md.
 
 ---
 

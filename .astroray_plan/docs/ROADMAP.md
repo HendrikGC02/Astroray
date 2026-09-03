@@ -96,8 +96,12 @@ gate NOT MET — Blender integration is "still a ways off" in practice.
 Specifically: socket coverage is 117 SUPPORTED / 22 APPROXIMATED / 385
 DROPPED-SILENT of 524 (pkg219 per-texel shader eval, now DONE, is expected
 to cascade into resolving many of the DROPPED-SILENT shader-node sockets —
-re-audit the coverage numbers next pass); hair/curve rendering is entirely
-absent (pkg225 spec filed, pkg225-S1 has an unbuilt/unverified WIP branch);
+re-audit the coverage numbers next pass); hair/curve rendering has since
+advanced hard (2026-09-03: pkg225-S1 CPU ray-curve intersection + S2 CPU
+Principled Hair BSDF LANDED and visually verified — anisotropic fiber sheen;
+S3 GPU curve geometry landing; S4 GPU hair BSDF next), plus scalar parameter
+textures (pkg219d) shipped both backends — so the "entirely absent" hair gap is
+closing, though the addon curve-ingest (Stage 6) + viewport story remain;
 viewport UI fps is coupled to render fps rather than uncoupled as in Cycles
 (a UX gap to investigate — Cycles uncouples viewport interaction fps from
 render progressive-refinement fps). **All features being built should be
@@ -105,17 +109,18 @@ render progressive-refinement fps). **All features being built should be
 astrophysical pipeline will need from them (volumes for nebulae, curves for
 filaments, spectral for emission lines).
 
-**Current active queue (2026-08-31):** pkg131 (zero-knob adaptive sampling) is
-now **FULLY DONE, both backends** (#659 CPU + #665 GPU) — sample-count AOV +
-addon UI knob removal remain as a deferred follow-up, not a blocker. pkg219
-(per-texel shader-graph eval, structural socket-coverage unlock) is also
-DONE (#640/#641/#642 + #647/#655; a tracker revert bug reverted its Status
-flip mid-round, restored 2026-08-31). Next up: **pkg225-S1** (hair
-ray-curve intersection — a WIP branch exists, unbuilt/unverified, "no
-half-assing hair" per owner directive), then pkg210/pkg180/pkg211 (spectral-
-transport cluster) and pkg219d (scalar param-textures, the one residual
-pkg219's completion audit surfaced). The exact dispatch order is an
-architect decision per round.
+**Current active queue (2026-09-03):** the hair arc is the live thread —
+**pkg225-S1** (CPU ray-curve intersection, #670) + **pkg225-S2** (CPU Principled
+Hair BSDF, Chiang 2016, #673) LANDED and visually verified; **pkg225-S3** (GPU
+curve geometry, #676) landing; **NEXT = pkg225-S4** (GPU hair BSDF; design
+pinned, needs S3's `hit_hair_v` SoA lane first). Also landed this session:
+**pkg219d** scalar parameter textures both backends (#674); **pkg210** SUPERSEDED
+(premise stale) and **pkg180** systemic-Cycles-dim CLOSED (not reproducible).
+Queued behind hair: **pkg127** (Specular Polynomials SMS-seed upgrade — spec in
+progress from web-verified research), **pkg211** (per-bounce spectral MIS —
+prototype-first, park-eligible), **pkg136** (SVO path guiding), long-tail
+pkg126/130/132/134/137. The exact dispatch order is an architect decision per
+round.
 
 **Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU
 parity tail — **pkg172 effect (B) / pkg173** (bounce-1 geometry-sampling

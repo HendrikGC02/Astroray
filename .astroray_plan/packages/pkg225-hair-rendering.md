@@ -3,7 +3,17 @@
 **Pillar:** 3
 **Track:** A
 **Status:** open — **Stage 1 (CPU curve geometry) + Stage 2 (CPU Principled
-Hair BSDF, Chiang 2016) LANDED.** Stage 2 (2026-09-03): `include/astroray/
+Hair BSDF, Chiang 2016) + Stage 3 (GPU curve geometry) LANDED.** Stage 3
+(2026-09-03, PR #676): curves render on the GPU wavefront as a `GPRIM_CURVE`
+BVH leaf (`include/astroray/gpu_curve_intersect.cuh`, iterative de Casteljau,
+ribbon/thick modes), isolated behind `template<bool HasCurves>` so non-curve
+kernels stay byte-identical (intersect 127/616, N3 61/272, shadow 108/584,
+fleet shade 254/3368/1716). GPU↔CPU parity + 25 regression pass; cpp-abi-guard
+APPROVE. Visually verified (GPU curves match CPU; hair BSDF shows anisotropic
+fiber sheen). **Stage-4 prerequisite (cpp-abi-guard-flagged):** S3 sets `hairV`
+in the curve leaf but does NOT persist it to the SoA `GPUWavefrontHitBuffers` —
+S4 must add a `hit_hair_v` lane (+ `loadHit`/`storeHit`) before the GPU hair
+BSDF can read it. Stage 2 (2026-09-03): `include/astroray/
 hair_bsdf.h` (Mp/Np/Ap/logistic/Fresnel + σ_a helpers, header-only STL-free hot
 path for GPU reuse) + `plugins/materials/principled_hair.cpp` (R/TT/TRT+residual,
 three σ_a parametrizations, view-dependent tangent frame from `uvTangent`,

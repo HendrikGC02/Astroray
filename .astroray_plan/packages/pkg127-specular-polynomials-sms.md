@@ -2,230 +2,172 @@
 
 **Pillar:** 3 (light transport / caustics) + 2 (spectral core)
 **Track:** A (CPU-first seed-stage upgrade with numerical caustic-quality gates; the GPU/wavefront SMS mirror is RTX-verified against the CPU result)
-**Codex-paste-ready:** no (research-grade algorithm port with a license-verification gate, a math re-derivation from the paper, and a caustic-quality acceptance bar — needs judgment at each step, not a mechanical patch)
-**Status:** still-open — never implemented; no specular-polynomial/SMS-seed code in the repo, only the spec-filing PR #491. Was: open — the highest-value bounded caustics-quality upgrade on the roadmap (per `.astroray_plan/docs/2026-07-pbr-advances-research.md` headline finding 1)
-**Estimated effort:** L (single-bounce polynomial solver + integration into the existing seed stage, then the two-bounce extension; a license phase-0, a paper re-derivation, and a before/after seed-failure measurement)
-**Depends on:** **pkg64** (SMS folded into the default spectral path — DONE; this package upgrades its seed stage) and **pkg106** (multi-vertex MNEE/manifold-chain foundation — the two-bounce leg builds on `include/astroray/manifold/manifold_chain.h`). No hard blocker: this is a drop-in upgrade to landed code, gated behind a flag so the current Newton seeding stays the fallback.
+**Status:** open — spec DETAILED 2026-09-03 from a web-verified research note (`.astroray_plan/docs/pkg127-specular-polynomials-research.md`, every citation checked against a live URL). Ready to dispatch (Claude/careful tier). The highest-value *bounded* caustics-quality upgrade on the roadmap.
+**Estimated effort:** L — single-bounce polynomial solver + seed-stage integration, then the two-bounce extension; a license phase-0, a paper re-derivation, and a before/after seed-failure measurement.
+**Depends on:** **pkg64** (SMS folded into the default spectral path — DONE; this upgrades its seed stage), **pkg106** (multi-vertex manifold-chain foundation — the two-bounce leg uses `include/astroray/manifold/manifold_chain.h`). No hard blocker: a flag-gated drop-in on landed code, Newton seeding stays the fallback.
 
 ---
 
 ## Goal
 
-**Before:** Astroray's caustics come from Specular Manifold Sampling (SMS, Zeltner
-2020) folded into the default spectral path tracer (pkg64). Seed finding is a
-**stochastic-seed + Newton-solve** loop: `runSMSAttempt`
-(`include/astroray/manifold/sms_attempt.h:107-148`) draws a **uniform-on-sphere**
-seed on the caster (`nSeed`, lines 111-118, Zeltner 2020 §4.4), then runs
-Newton iteration to convergence
-(`include/astroray/manifold/newton_iterate.h::solve`, called at
-`sms_attempt.h:148`). A seed that does not converge is simply dropped —
-`if (!R.converged) return false;` (`sms_attempt.h:149`). This has the two failure
-modes the Specular Polynomials paper was written to kill:
+Replace SMS's **random-init Newton seed** (uniform-on-sphere start → iterate → drop
+on non-convergence) with the **deterministic all-roots polynomial seed** of Fan et
+al. 2024: reformulate the specular-chain half-vector constraint as a polynomial
+system whose **real roots enumerate every admissible specular vertex** for a given
+triangle tuple — no seed, no convergence basin, no missed caustic branches. Newton
+is retained only as (a) a 1–2 step polish of each root and (b) the flag-off fallback.
 
-1. **Divergence from a bad seed.** Newton has a finite convergence basin; a seed
-   outside it diverges or stalls (`newton_iterate.h:106-107` bails on a singular
-   Jacobian, `:82` on non-convergence within `maxIterations`). On triangulated
-   casters the basin shrinks further because ±h finite-difference steps cross
-   triangle edges into neighbours with different normals (the pkg106
-   SMS-fails-on-triangles failure, documented at `newton_iterate.h:121-131`); the
-   analytic-Jacobian path (`solveAnalytic`, `newton_iterate.h:151`) mitigates but
-   does not eliminate the basin problem.
-2. **One solution per seed.** Each seed can reach at most one manifold vertex.
-   Admissible specular paths whose vertices sit in a different basin are missed
-   unless a *different* seed happens to land near them — so multi-solution
-   configurations (a glass sphere focusing several caustic branches to one
-   receiver point, an SF11 prism with strong dispersion) need many seeds and still
-   under-sample, showing up as seed-failure waste and residual caustic noise.
-
-**After:** The SMS seed stage finds specular-chain solutions by **deterministic
-polynomial root-finding** (Specular Polynomials, Fan et al. SIGGRAPH 2024) instead
-of a stochastic-seed Newton search. For the **single-bounce** case the reflection/
-refraction constraint is reformulated as a univariate polynomial whose **real roots
-enumerate every admissible manifold vertex exactly** — no seed, no divergence,
-every solution branch found in one solve. For **two bounces** a bivariate system is
-reduced by the hidden-variable resultant to univariate root-finding, robust where
-Newton's basin fails (the paper reports the two-bounce GPU solver is ~10× the cost
-of a single Newton step but far more robust). Newton is retained only as an optional
-refinement/fallback behind a flag. Caustic quality on the refbank glass/prism scenes
-is **equal-or-better at equal spp**, and the measured **seed-failure rate drops**.
+**Why now.** SMS-from-one-Newton-seed silently misses caustic branches when a
+receiver point has multiple specular connections (a glass sphere focusing ≥2
+paths to one point), producing grainy/incomplete caustics that no amount of spp
+fixes. The polynomial solver finds *all* branches deterministically — a bounded,
+high-value quality upgrade on the already-landed SMS path, flag-gated so it can
+never regress the fleet.
 
 ---
 
-## Context — why this is the top caustics upgrade
+## Citations (web-verified 2026-09-03 — the prior spec's cite line was WRONG)
 
-The 2026-07-17 PBR sweep ranked four independent 2023–2026 lines of specular/caustic
-transport work and put Specular Polynomials first for Astroray specifically:
-*"a targeted drop-in upgrade for the SMS seed-finding stage (pkg64/pkg106
-lineage)"* and, in the adoption recommendation, *"the highest-value bounded upgrade
-to what we already have"*
-(`.astroray_plan/docs/2026-07-pbr-advances-research.md` finding 1 + §"Adoption
-recommendation"). It is bounded because it replaces exactly one stage — seed finding
-— inside an integrator that already ships, rather than adding a new subsystem
-(unlike ReSTIR-PT, path guiding, or the Gaussian photon guiding on the horizon
-list). The visual payoff is directly on the owner's showcase scenes: the prism
-rainbow (`prism-bk7-collimated`, `prism-sf11-collimated`) and the glass-sphere
-caustic (`sms-refractive-glass-sphere`), which are the journal article's caustic
-figures. Deterministic root-finding is also the natural fit for the wavefront GPU
-kernel: no per-seed rejection divergence.
+- **Fan, Guo, Wang, Xiao, Zhang, Zhou, Chen, Hong, Guo, Yan 2024 — "Specular
+  Polynomials."** ACM TOG 43(4) (SIGGRAPH 2024), Article 126, 13 pp.
+  **DOI 10.1145/3658132** · arXiv:2405.13409 · project https://zhiminfan.work/specPoly.html.
+  ⚠️ The prior filing's "Fan, Wang, Dong, Wang, Hašan, Yan et al." is **incorrect** —
+  Hašan is not an author; the authors are Zhimin **Fan**, Jie **Guo**, … Ling-Qi
+  **Yan** (10 total). Use the corrected list + DOI above in all code citations.
+- **Zeltner, Georgiev, Jakob 2020 — "Specular Manifold Sampling"** (SMS), ACM TOG
+  39(4) Art. 149. DOI 10.1145/3386569.3392408. Ref code
+  `github.com/tizian/specular-manifold-sampling` (**BSD-3-Clause**, already the
+  basis of pkg64).
+- **Hanika, Droske, Fascione 2015 — "Manifold Next Event Estimation"** (MNEE),
+  CGF 34(4) 87–97. DOI 10.1111/cgf.12681. (The half-vector residual Astroray
+  already implements.)
+- **Jakob & Marschner 2012 — "Manifold Exploration."** ACM TOG 31(4) 58. DOI
+  10.1145/2185520.2185554.
 
----
+## License phase-0 (RESOLVED — do NOT copy the paper's reference code)
 
-## Fix plan (cite — no inventions, CLAUDE.md §6)
-
-### Phase 0 — license verification (blocking, do first)
-
-The reference implementation is **github.com/mollnn/spoly**. The research doc lists
-its license as **"MIT-style" but explicitly UNVERIFIED**
-(`2026-07-pbr-advances-research.md` finding 1: *"MIT-style — VERIFY"*). Before any
-code is written or any source line is read for porting:
-
-- [ ] Fetch the actual `LICENSE` file from `github.com/mollnn/spoly` and record the
-      exact license text + SPDX identifier in the research note.
-- [ ] Confirm compatibility with Astroray's MIT license (MIT/BSD-3/Apache-2.0/
-      MPL-2.0/public-domain are fine; GPL is **not** — mirror the pkg64 decision that
-      kept Cycles' GPL MNEE at arm's length and re-derived from the paper instead).
-- [ ] If the license is incompatible or absent, **stop and re-derive from the paper
-      alone** (arXiv:2405.13409 carries the full math), exactly as pkg64 did for the
-      Hanika spectral extension. Do not copy source under an unverified license.
-
-**Cite:** Fan, Wang, Dong, Wang, Hašan, Yan et al., "Specular Polynomials",
-SIGGRAPH 2024, ACM ToG, **DOI 10.1145/3658132**, **arXiv:2405.13409**. Reference
-impl **github.com/mollnn/spoly** (license per phase 0).
-
-### Phase 1 — single-bounce polynomial seed finding (CPU first)
-
-- Reformulate the single-vertex specular constraint currently solved by Newton
-  (`sms_attempt.h::constraint`, the Hanika half-vector residual
-  `h(λ) = ω_i + η(λ)·ω_o` at `sms_attempt.h:124-128`) as the paper's polynomial
-  system: rational coordinate mapping of the caster surface parameterisation →
-  univariate polynomial whose real roots are the admissible manifold vertices
-  (Specular Polynomials §4, single-bounce case). Solve for **all** real roots
-  (robust companion-matrix / Sturm-sequence root isolation), then map each root back
-  to a surface vertex and validate it (in-surface, correct refraction side, not
-  TIR) with the existing checks (`sms_attempt.h:159-181`).
-- Wire this behind a new integrator flag (mirror the pkg64 `spectral_newton` toggle
-  convention, read via `getInt(...) != 0` per the pkg64 Phase-2 lesson) so the
-  current uniform-seed Newton path stays the default fallback until the gates prove
-  the replacement. Keep the per-wavelength η dispatch: the polynomial coefficients
-  depend on `η(λ_hero)` exactly as the residual does today, so the hero-wavelength
-  decoupling (pkg64 Phase-2 lesson) carries over unchanged — one solve per ray at
-  `λ_hero`, contribution written to the hero spectral channel.
-- Retain Newton as an **optional refinement** of each polynomial root (one or two
-  steps of the existing `newton_iterate.h::solveAnalytic`) to polish floating-point
-  root error to the existing `tolerance` — the paper notes root-finding gives the
-  basin, a Newton polish gives the last digits.
-
-### Phase 2 — two-bounce (build on the pkg106 manifold chain)
-
-- Extend to the two-vertex chain (`include/astroray/manifold/manifold_chain.h`,
-  pkg106) using the paper's **hidden-variable resultant**: eliminate one vertex
-  parameter to reduce the bivariate constraint system to univariate root-finding
-  (Specular Polynomials §5, multi-bounce). This is where the robustness win over
-  Newton is largest (multi-solution glass-sphere and double-refraction prism paths).
-- Budget accordingly: the paper measures the two-bounce GPU solver at ~10× a single
-  Newton step but far more robust. Gate on **quality-at-equal-spp and
-  seed-failure-rate**, not raw solver walltime — the point is fewer wasted samples
-  and lower caustic variance per spp.
-
-### Phase 3 — GPU/wavefront mirror
-
-- Mirror the single-bounce solver into the device SMS path
-  (`include/astroray/manifold/sms_attempt_device.cuh`) and RTX-verify against the
-  CPU result via the existing caustic parity harness
-  (`tests/test_gpu_caustic_parity.py`, `tests/test_pkg64_gpu_sms_attempt_unit.py`).
-  Deterministic root-finding removes the per-seed rejection divergence that hurts
-  wavefront occupancy, so this is a natural GPU fit — but keep the port CPU-gated
-  first; GPU parity is verification, not the primary gate.
+- `github.com/mollnn/spoly` (the paper's supplemental code) is **UNLICENSED** —
+  GitHub API `"license": null`, no LICENSE file, README declares no terms. Under
+  GitHub ToS an unlicensed public repo grants read/fork only, **not** derivative
+  rights. The prior note's "MIT-style but unverified" is confirmed **wrong**.
+  **Astroray must not copy source from mollnn/spoly.**
+- **Path taken (pkg64's Hanika precedent): re-derive the math from the paper
+  alone** — it is **CC BY 4.0** (open-access arXiv), which permits re-derivation +
+  a `DOI 10.1145/3658132` citation. Permitted supporting references:
+  - **cyCodeBase / `cyPolynomial.h`** (Cem Yuksel) — **MIT** — for the univariate
+    real-root solver (the paper cites Yuksel 2022; spoly itself builds on it).
+    http://codebase.cemyuksel.com/code.html
+  - **tizian/specular-manifold-sampling** — **BSD-3-Clause** — the SMS plumbing
+    already in `sms_attempt.h`.
 
 ---
 
-## Acceptance criteria
+## Algorithm (implementation altitude — from arXiv:2405.13409 full text)
 
-- [ ] **Phase 0 license recorded:** `github.com/mollnn/spoly` license fetched,
-      SPDX identifier + compatibility decision written into
-      `.astroray_plan/docs/specular-polynomials-research.md`; if incompatible, the
-      note records the paper-only re-derivation path taken instead (no source
-      copied under an unverified license).
-- [ ] **Single-bounce exact:** the polynomial solver enumerates all admissible
-      single-bounce manifold vertices on the analytic glass-sphere caster; a unit
-      test confirms it finds solutions Newton-from-uniform-seed misses on a
-      multi-solution configuration.
-- [ ] **Caustic-quality gates equal-or-better at equal spp:** `prism-bk7-collimated`,
-      `prism-sf11-collimated`, and `sms-refractive-glass-sphere` reference-bank gates
-      (`benchmarks/reference_bank/scenes/*/gates.toml`) hold or improve their metrics
-      (prism `hue_spread`/`bright_coverage`; glass-sphere receiver energy / SSIM) at
-      the same spp as the current Newton seeding — no regression on
-      `sms-reflective-metal-sphere` (single-bounce reflective).
-- [ ] **Seed-failure rate measured before/after:** instrument the fraction of SMS
-      attempts that reach a valid path (the current `return false` drop rate at
-      `sms_attempt.h:149`) on the glass-sphere and SF11 scenes; report the Newton
-      baseline and the polynomial rate. The polynomial rate must be **lower**
-      (fewer wasted attempts per valid path) — this is the headline quantitative gate.
-- [ ] **Two-bounce lands second:** the hidden-variable resultant two-bounce solver
-      passes a double-refraction convergence unit test where Newton stalls; gated as
-      a distinct phase so single-bounce can ship first.
-- [ ] **No regression with the flag off:** default integrator (flag off) is bit-equal
-      to the pre-pkg127 SMS path — `tests/test_sms_caustic_validation.py`,
-      `tests/test_sms_caustic_spectral.py`, `tests/test_glass_sphere_caustic.py`,
-      `tests/test_prism_caustic_rainbow.py` unchanged.
-- [ ] **GPU parity:** wavefront single-bounce solver matches the CPU result on
-      `tests/test_gpu_caustic_parity.py`; RTX-verified.
-- [ ] **Citations in code:** every polynomial-solver call site cites
-      "Fan et al. 2024 (Specular Polynomials) §4/§5, DOI 10.1145/3658132" and the
-      license-verified provenance of any borrowed structure, per CLAUDE.md §6.
+Connect fixed separators x0 (shading point) and x_{k+1} (light) by a specular
+chain x1…xk on triangles T_i. Per-vertex constraint = the **generalized
+half-vector** relation `h_i × n_i = 0`, `h_i = η_i·d̂_i − η_{i−1}·d̂_{i−1}` (paper
+Eq. 3) — **exactly** the residual in `sms_attempt.h::halfVectorResidual` (η per
+wavelength).
+
+1. **Polynomialize the constraint** (§3.2–3.3): split into *coplanarity*
+   `(d_{i−1}×d_i)·n_i = 0` (already polynomial) + *angularity*
+   `η_{i−1}‖d̂_{i−1}×n_i‖ = η_i‖d̂_i×n_i‖`; remove the √ via the **square form**
+   (reflection+refraction, max degree 6 refraction / 4 reflection with interpolated
+   normals; 4/2 flat) — the paper's general choice — or the lower-degree **product
+   form** (reflection only, 4/2).
+2. **Reduce to bivariate** (§3.4–3.5): "rational coordinate mapping" expresses each
+   u_{i+1} as a rational function of u_i,u_{i−1} via recursive Möller–Trumbore, so
+   the whole chain collapses to u_1. Refraction's refracted-direction √ is a
+   **6-piece piecewise-rational fit to √x on [0,1]** (Eq. 23, error < 1e-3);
+   reflection is exact (Eq. 19). Closed forms are given for **R** (Eq. 25),
+   **T** (Eq. 26), **RR** (Eq. 27).
+3. **Solve** (§4): eliminate one variable via the **Bézout hidden-variable
+   resultant** (their stability/complexity choice) → zeros of the determinant of a
+   univariate matrix polynomial; solve the univariate problem by **Laplacian
+   expansion for one bounce (exact)** and a **bisection solver for two bounces**.
+   (Companion-matrix eigenvalue decomposition is the benchmarked *alternative*, not
+   the headline method — the prior spec's "companion-matrix/Sturm" paraphrase is
+   corrected here.)
+4. **Completeness + superfluous roots.** The real roots enumerate *all* admissible
+   specular vertices — no seed. BUT the square form can introduce **superfluous
+   roots** (spurious sign solutions) that MUST be filtered by re-checking the
+   original constraint in path space (§3.3, §6) — i.e. keep the existing
+   in-surface / refraction-side / TIR checks.
+
+> **Spec-anchor correction (from the note):** the prior filing cited "§4
+> single-bounce / §5 multi-bounce". Per the real ToC, §4 = the solver, §5 =
+> Results. Correct anchors: single-bounce **§3.5 (R/T) + §4.1–4.2**; two-bounce
+> **§3.5 (RR) + §4.2 (bisection)**.
 
 ---
+
+## Astroray integration (file:line anchors)
+
+`runSMSAttempt` (`include/astroray/manifold/sms_attempt.h:107-148`) today: uniform
+seed (:111-118) → `newton_iterate.h::solve` (:148) → drop on `!R.converged`
+(:149). The polynomial path replaces **only the seed+solve**; it reuses the exact
+downstream refraction/Fresnel/visibility/MIS chain (:159-201) unchanged.
+
+- **Phase 1 — single-bounce, CPU (the core deliverable).** For the caster
+  triangle / analytic sphere, build the bivariate system (Eq. 25 R / Eq. 26 T),
+  Bézout resultant (§4.1), Laplacian-expand the determinant (§4.2), isolate real
+  roots with the **MIT cyPolynomial** solver, map each root → surface vertex, run
+  the **existing** validation (`sms_attempt.h:159-181`). Newton = 1–2 step polish +
+  flag-off fallback. Flag convention per pkg64 (`p.getInt("sms_polynomial_seed",0)!=0`),
+  default OFF ⇒ byte-identical to current SMS.
+- **Hero-wavelength decoupling carries over unchanged:** η enters only through the
+  angularity coefficients, so one solve at λ_hero (pkg64 convention) is the drop-in.
+  **Verify** the 6-piece rational √-fit error (<1e-3) is inside the current Newton
+  `SMSConfig::tolerance` (1e-4f) before trusting it on the spectral path — this is
+  the single biggest correctness risk in a spectral caustic pipeline.
+- **Phase 2 — two-bounce (CPU).** RR case (Eq. 27) on `manifold_chain.h`, bisection
+  solver (§4.2). Gate on seed-failure-rate + equal-spp quality, NOT walltime.
+- **Phase 3 — GPU.** Mirror into `sms_attempt_device.cuh`; deterministic roots
+  remove per-seed rejection divergence. CPU-gate first, then RTX-verify via the
+  existing caustic parity harness. The resultant/eigen step is branchy for a
+  wavefront kernel — treat GPU as verification, not the primary gate; defer if it
+  perturbs the register budget.
+
+---
+
+## Acceptance gates
+
+1. **Seed-completeness (the headline).** A new unit test builds a **multi-solution
+   configuration** (glass sphere with ≥2 caustic branches to one receiver point)
+   and asserts the polynomial solver returns **all** branches that Newton-from-one-
+   seed misses.
+2. **Seed-failure-rate down.** Fraction of SMS attempts returning false at
+   `sms_attempt.h:149` (Newton baseline) must be strictly lower for the polynomial
+   path on `sms-refractive-glass-sphere` and SF11.
+3. **Equal-spp caustic quality holds or improves.** Prism `hue_spread` /
+   `bright_coverage`, glass-sphere receiver energy / SSIM — LINEAR EXR, seed-pinned.
+4. **Superfluous-root safety.** Assert no spurious paths pass validation (the
+   path-space re-check catches all square-form artifacts); furnace / energy on a
+   non-caustic scene unchanged.
+5. **Flag-off byte-identical.** `sms_polynomial_seed=0` produces the current SMS
+   result bit-for-bit (CPU) / within-MC (GPU) — the fleet never pays.
+
+---
+
+## Risks (paper §6 + practical)
+
+- **Conditioning / degree.** Refraction square-form degree 6 (interp normals) / 4
+  (flat) + resultant matrices ⇒ ill-conditioned for near-grazing/degenerate
+  configs; the paper flags "better numerical root-finding" as open.
+- **Refraction mapping is approximate** (6-piece √ fit, <1e-3) — must stay under
+  the Newton tolerance or it surfaces as caustic bias on the spectral path.
+- **Superfluous roots** — keep the path-space re-check; a lax filter silently adds
+  energy.
+- **Perf.** One bounce is faster than Newton-from-seed; two-bounce bisection ~10× a
+  Newton step (fine on CPU). GPU resultant/eigen is branchy.
+- **Non-goal: 3+ bounce chains** (paper §6 "long specular chains") — out of scope.
 
 ## Non-goals
+- No GPU-primary path in Phase 1–2 (CPU-gated; GPU is Phase 3 verification).
+- No copying mollnn/spoly source (unlicensed — re-derive from the CC-BY paper).
+- No 3+ specular bounces.
 
-- **Not a replacement for SMS as a whole.** This upgrades the **seed-finding stage**
-  only. The refraction, Fresnel, visibility, and MIS-composition chain
-  (`sms_attempt.h:159-201`) is untouched; Newton stays as an optional root-polish and
-  a flagged fallback.
-- **Not the forward light-tracing prism path.** pkg106 ships the triangulated-prism
-  rainbow via `light_tracer_caustic`; that integrator is out of scope. This package
-  targets the camera-side SMS seed stage (`runSMSAttempt`).
-- **Not three-plus bounces.** Single-bounce first, two-bounce second, as the paper
-  and the research doc scope it. Higher-order chains are a follow-up if the
-  resultant approach proves tractable at that order.
-- **Not ReSTIR / partitioned SMS.** The Hong et al. 2025 Partitioned-SMS+ReSTIR line
-  (research finding 2) presupposes ReSTIR reservoir infrastructure from pkg55
-  Phase C; it is a separate, later package.
-- **Not glint rendering.** SMS supports rough normal-mapped glints; out of scope
-  here, as in pkg64.
-- **No new caustic algorithm.** CLAUDE.md §6: port the published method, cite it,
-  verify its license — do not invent a root-finder.
-
----
-
-## Provenance
-
-Filed from the **2026-07-17 PBR-advances research sweep**
-(`.astroray_plan/docs/2026-07-pbr-advances-research.md`, finding 1, verified 3-0),
-which ranked Specular Polynomials the top directly-adoptable caustics upgrade for
-Astroray's existing SMS pipeline and flagged the mollnn/spoly license as needing
-verification at port. Grounded against the live SMS seed stage
-(`include/astroray/manifold/sms_attempt.h` + `newton_iterate.h`) delivered by pkg64
-(SMS in the default path) and pkg106 (multi-vertex manifold chain). Owner context:
-the prism rainbow and glass-sphere caustic are journal-article caustic figures and
-spectral-showcase scenes — deterministic, exact seed finding is what makes them
-clean at production spp.
-
----
-
-## Progress
-
-- [ ] Phase 0 — mollnn/spoly license fetched + recorded; compatibility decided.
-- [ ] Phase 1 — single-bounce univariate polynomial solver, CPU, behind a flag;
-      Newton retained as root-polish/fallback.
-- [ ] Phase 2 — two-bounce hidden-variable resultant on the pkg106 manifold chain.
-- [ ] Phase 3 — GPU/wavefront mirror; caustic parity RTX-verified.
-- [ ] Seed-failure-rate before/after measured on glass-sphere + SF11.
-- [ ] Research note `.astroray_plan/docs/specular-polynomials-research.md` written
-      (paper + DOI/arXiv, license decision, the exact math reproduced).
-
----
-
-## Lessons
-
-*(Fill in after the package is done.)*
+## Routing
+Claude / careful tier (license judgment, math re-derivation, caustic-quality gate,
+register/ABI on the GPU leg). The cite/research phase is DONE (web-verified note).

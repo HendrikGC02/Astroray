@@ -285,6 +285,12 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         g.transmission = h.coat;
         g.clearcoat = h.alpha;
         g.ior = h.eta;
+        // pkg225 Stage 5 — spectral melanin rides hair-unused scalar fields so
+        // GMaterial stays 640 B (gpu_hair.cuh gpu_hair_unpack reads these back):
+        //   specular = melaninMode flag   metallic = eumelanin   subsurface = pheomelanin
+        g.specular = h.melaninMode ? 1.0f : 0.0f;
+        g.metallic = h.eumelanin;
+        g.subsurface = h.pheomelanin;
     } else {
         throw std::runtime_error("Material declares unsupported GPU type: " + gpuType);
     }

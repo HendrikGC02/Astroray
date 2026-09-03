@@ -14,6 +14,7 @@
 // Y=normalize(X×wo), Z=X×Y — rebuilt from wo in eval/sample/pdf.
 #include "astroray/register.h"
 #include "astroray/hair_bsdf.h"
+#include "astroray/hair_melanin_spectral.h"
 #include "raytracer.h"
 #include <cmath>
 
@@ -81,6 +82,13 @@ public:
                 float tintSigma = sigmaAFromReflectanceChannel(tint[c], betaN_);
                 (&sigmaA_.x)[c] = ce * eu + cp * ph + tintSigma;
             }
+            // pkg225 Stage 5: retain the eu/ph concentrations so the spectral
+            // path evaluates the physical per-λ melanin absorption directly
+            // (hair_melanin_spectral.h) instead of upsampling the RGB sigmaA_.
+            // sigmaA_ above stays the unchanged RGB fallback (S2 melanin gate).
+            melaninMode_ = true;
+            eu_ = eu;
+            ph_ = ph;
         } else {  // reflectance / direct coloring (node default)
             // The Blender node's "Color" socket maps to the material base color,
             // which createMaterial() routes into ParamDict "albedo". Prefer an
@@ -110,6 +118,9 @@ public:
         h.alpha = alpha_;
         h.coat = coat_;
         h.sigmaA = sigmaA_;
+        h.melaninMode = melaninMode_;  // pkg225 Stage 5 — spectral melanin on GPU
+        h.eumelanin = eu_;
+        h.pheomelanin = ph_;
         return h;
     }
     Vec3 getAlbedo() const override {
@@ -286,10 +297,13 @@ private:
         return g.frame.fromAngles(sinThetaI, cosThetaI, phiI).normalized();
     }
 
-    // Spectral sigma_a: piecewise-linear upsample of the RGB absorption over the
-    // 3 primaries' representative wavelengths. Stage-5 replaces this with a true
-    // melanin cross-section (the sigmaA function boundary is the seam).
+    // Spectral sigma_a — the Stage-5 seam. In melanin/pigment mode, evaluate the
+    // physical eumelanin+pheomelanin cross-section per wavelength directly (no
+    // RGB round-trip). Otherwise (reflectance / direct absorption — no melanin
+    // concentrations) fall back to the Stage-2 piecewise-linear RGB upsample.
     float sigmaAAtLambda(float lambda) const {
+        if (melaninMode_)
+            return melaninSigmaAtLambda(eu_, ph_, lambda);
         if (lambda <= 450.0f) return sigmaA_.z;
         if (lambda >= 600.0f) return sigmaA_.x;
         if (lambda < 550.0f) { float t = (lambda - 450.0f) / 100.0f; return sigmaA_.z * (1 - t) + sigmaA_.y * t; }
@@ -298,6 +312,8 @@ private:
 
     float betaM_, betaN_, eta_, s_;
     float alpha_ = 0.0349f, coat_ = 0.0f;  // pkg225 Stage 4 — GPU-upload retained
+    bool  melaninMode_ = false;            // pkg225 Stage 5 — spectral melanin
+    float eu_ = 0.0f, ph_ = 0.0f;          // eumelanin/pheomelanin concentrations
     float v_[kPMax + 1];
     AlphaTilt tilt_;
     Vec3 sigmaA_;

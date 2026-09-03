@@ -4,7 +4,30 @@
 **Track:** A
 **Status:** open — **Stage 1 (CPU curve geometry) + Stage 2 (CPU Principled
 Hair BSDF, Chiang 2016) + Stage 3 (GPU curve geometry) + Stage 4 (GPU Principled
-Hair BSDF) LANDED.** Stage 4 (2026-09-03): the GPU wavefront shade kernel evaluates
+Hair BSDF) + Stage 5 (spectral melanin, CPU) LANDED. Only Stage 6 (addon) remains.**
+Stage 5 (2026-09-03): the hair BSDF's spectral path now evaluates per-wavelength
+eumelanin/pheomelanin absorption directly from physically-cited power laws
+(`include/astroray/hair_melanin_spectral.h`: eumelanin σ_a∝λ^−3.33 [Jacques 2013,
+verified vs OMLC], pheomelanin σ_a∝λ^−4.75 [Donner&Jensen 2006], each anchored at
+550 nm to the Cycles green melanin coefficient for RGB-mode magnitude parity), with
+**no Jakob–Hanika round-trip** — the `principled_hair.cpp sigmaAAtLambda()` seam
+branches to `melaninSigmaAtLambda()` in pigment-concentration mode; the RGB `sigmaA_`
+(and the S2 melanin gate) is unchanged. Research + citations:
+`.astroray_plan/docs/pkg225-spectral-melanin-research.md`. Gates
+(`tests/test_pkg225_spectral_hair.py`): the eumelanin absorption ratio at 500/600/700 nm
+matches the published λ^−3.33 law within 10% (the spec acceptance criterion); a
+spectral-mode render is distinct from and physically graded vs the RGB Cycles-triple
+(MEASURED: the spec's "spectral is *more* saturated" guess did NOT hold — spectral is
+the *less*-extreme, more-plausible brown, R/B≈5.5 vs the RGB triple's over-red ≈32 at
+melanin 0.7; documented with a side-by-side render). The GPU spectral-melanin seam is
+mirrored in `gpu_hair.cuh` (eu/ph ride the hair-unused GMaterial scalars
+metallic/subsurface, mode on specular — **GMaterial stays 640 B, fleet shade kernel
+stays REG:254, no spill, register-verified**) and is byte-parallel to the CPU seam, but
+is **dormant**: GPU *multiwavelength* rendering shades every curve-geometry hit as black
+(a pre-existing S3/S4 shade-side defect — a plain lambertian curve is equally black; RGB
+GPU curves/hair work), so the GPU spectral-melanin parity gate is `@pytest.mark.skip` and
+the defect is filed separately. No regressions (17 S1–S4 hair/curve tests green).
+Stage 4 (2026-09-03): the GPU wavefront shade kernel evaluates
 the Chiang 2016 hair BSDF via a standalone `GMAT_HAIR_PRINCIPLED` branch whose
 eval/sample/pdf are `__device__ __noinline__` functions (`include/astroray/
 gpu_hair.cuh`) that `#include hair_bsdf.h` and reuse the EXACT CPU Mp/Np/Ap math —
@@ -467,12 +490,14 @@ Cycles-panel settings, and render with Astroray — no manual workarounds.
 
 ## Progress
 
-- [ ] Spec filed (this file).
-- [ ] Stage 1: CPU curve geometry primitive.
-- [ ] Stage 2: Principled Hair BSDF (CPU).
+- [x] Spec filed (this file).
+- [x] Stage 1: CPU curve geometry primitive.
+- [x] Stage 2: Principled Hair BSDF (CPU).
 - [x] Stage 3: GPU curve geometry.
 - [x] Stage 4: GPU Hair BSDF.
-- [ ] Stage 5: Spectral melanin absorption.
+- [x] Stage 5: Spectral melanin absorption (CPU landed; GPU seam landed +
+      register-verified but dormant — see Stage-5 note re: the GPU-spectral-curve
+      shade blocker).
 - [ ] Stage 6: Addon integration.
 
 ---

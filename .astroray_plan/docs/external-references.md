@@ -208,6 +208,14 @@ own because a dependency for 40 lines of code is ridiculous.
   pbrt-v3 `src/materials/hair.cpp`, BSD-2-Clause (cross-check). R/TT/TRT+residual
   lobes, longitudinal Mp / azimuthal logistic Np, melanin & reflectance σ_a. Notes:
   `pkg225-hair-bsdf-research.md`.
+- **Spectral melanin absorption — Jacques 2013 / Donner&Jensen 2006 (pkg225
+  Stage 5)** — per-wavelength eumelanin σ_a=6.6×10¹¹·λ^−3.33 cm⁻¹ (Jacques,
+  DOI:10.1088/0031-9155/58/11/R37, verified vs OMLC Skin-Optics) + pheomelanin
+  σ_a=2.9×10¹⁴·λ^−4.75 mm⁻¹ (Donner&Jensen 2006 EGSR). Replaces the RGB→σ_a
+  upsample in the hair BSDF with direct per-hero-λ absorption (no Jakob–Hanika
+  round-trip); anchored at 550 nm to the Cycles green melanin coefficients for
+  magnitude parity. Physical data (public domain); no code copied. Notes:
+  `pkg225-spectral-melanin-research.md`.
 
 Astroray targets MIT (or Apache 2.0). Compatible:
 - Apache 2.0, BSD-2/3, MIT, ISC — link freely.

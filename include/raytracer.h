@@ -453,6 +453,23 @@ struct MaterialBackendCapabilities {
     std::string notes = "no GPU lowering declared";
 };
 
+// pkg225 Stage 4 — a principled_hair material exports its GPU parameters through
+// this hook so scene_upload can fill a GMAT_HAIR_PRINCIPLED GMaterial WITHOUT
+// growing the 640 B struct (a GHairParams field would round it to 704 B and spill
+// the shared shade kernel; see gpu_types.h GImageTexture note). All three sigma_a
+// parametrizations are already resolved to `sigmaA` here (host-side, in the plugin
+// ctor) exactly as the CPU BSDF uses them, so the GPU is per-construction identical.
+// Mirrors the codebase's dedicated GPU-upload hooks (normalMapInner/bumpMapTexture).
+struct HairGPUParams {
+    bool  isHair = false;
+    float betaM = 0.3f;   // longitudinal roughness
+    float betaN = 0.3f;   // radial/azimuthal roughness
+    float eta   = 1.55f;  // keratin IOR
+    float alpha = 0.0349f;// cuticle tilt (rad); 2° default
+    float coat  = 0.0f;   // Cycles Coat -> R-lobe m0_roughness
+    Vec3  sigmaA{0.f, 0.f, 0.f};  // resolved RGB absorption coefficient
+};
+
 // ============================================================================
 // MATERIALS - ALL FIXES APPLIED
 // ============================================================================
@@ -486,6 +503,8 @@ public:
     virtual std::shared_ptr<Texture>  bumpMapTexture() const { return nullptr; }
     virtual float                     bumpMapStrength() const { return 1.0f; }
     virtual float                     bumpMapDistance() const { return 0.01f; }
+    // pkg225 Stage 4 — hair GPU params (isHair=false for every non-hair material).
+    virtual HairGPUParams             hairGPUParams() const { return {}; }
     // pkg219d — per-texel scalar BSDF-parameter programs (op-VM ProgramTexture).
     // `slot` is an astroray::svm::ScalarSlot (roughness/metallic/transmission/ior).
     // Default no-op / null: only DisneyPlugin stores + evaluates them. scene_upload

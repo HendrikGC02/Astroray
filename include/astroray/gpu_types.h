@@ -409,7 +409,8 @@ enum GMaterialType : uint8_t {
     GMAT_DIFFUSE_LIGHT = 3,
     GMAT_DISNEY       = 4,
     GMAT_THIN_GLASS   = 5,
-    GMAT_CLOSURE_GRAPH = 6
+    GMAT_CLOSURE_GRAPH = 6,
+    GMAT_HAIR_PRINCIPLED = 7   // pkg225 Stage 4 — standalone Chiang 2016 hair BSDF
 };
 
 enum GSpectralMode : uint8_t {

@@ -25,6 +25,12 @@ struct SceneUploadResult {
     // this flag so non-principled scenes never compile in gpu_principled_* code.
     bool hasPrincipled = false;
 
+    // pkg225 Stage 4 — true if the scene carries any principled_hair
+    // (GMAT_HAIR_PRINCIPLED) material. The driver publishes it via
+    // setWavefrontHairEnabled(c_hasHair); false leaves the fleet shade kernel
+    // byte-identical (the hair uvTangent/hairV SoA restore is gated off).
+    bool hasHair = false;
+
     // pkg186 — GPU image textures. `textureTexels` is the flat RGB texel buffer
     // holding ALL uploaded images concatenated; `textures[i]` slices it with an
     // {offset,width,height}. `materialTextureId` is parallel to `materials`

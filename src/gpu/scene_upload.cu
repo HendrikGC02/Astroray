@@ -267,6 +267,24 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         // Store color and intensity separately: emissionIntensity=1, baseColor=full emission
         g.baseColor = GVec3(em.x, em.y, em.z);
         g.emissionIntensity = 1.f;
+    } else if (gpuType == "principled_hair") {
+        // pkg225 Stage 4 — standalone Chiang 2016 hair BSDF. No GMaterial growth
+        // (640 B lock): the hair params reuse existing scalar fields, filled from
+        // the plugin's OWN ctor-resolved values (hairGPUParams()), so all three
+        // sigma_a parametrizations are already resolved host-side and CPU/GPU are
+        // per-construction identical. The device BSDF (gpu_hair.cuh) recomputes
+        // v/s/tilt from these each hit; sigma_a rides baseColor.
+        //   baseColor=sigma_a  roughness=beta_m  clearcoatGloss=beta_n
+        //   transmission=coat  clearcoat=alpha(tilt)  ior=eta
+        HairGPUParams h = mat->hairGPUParams();
+        g.type = GMAT_HAIR_PRINCIPLED;
+        g.spectralMode = GSPEC_RGB_ALBEDO;
+        g.baseColor = GVec3(h.sigmaA.x, h.sigmaA.y, h.sigmaA.z);
+        g.roughness = h.betaM;
+        g.clearcoatGloss = h.betaN;
+        g.transmission = h.coat;
+        g.clearcoat = h.alpha;
+        g.ior = h.eta;
     } else {
         throw std::runtime_error("Material declares unsupported GPU type: " + gpuType);
     }
@@ -769,6 +787,12 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         if (g.type == GMAT_CLOSURE_GRAPH && g.closureCount >= 1 &&
             g.closures[0].type == GCLOSURE_PRINCIPLED)
             r.hasPrincipled = true;
+        // pkg225 Stage 4: flag scenes carrying any principled_hair material so the
+        // driver publishes c_hasHair (setWavefrontHairEnabled), which gates the
+        // shade kernel's hair uvTangent/hairV SoA restore. Non-hair scenes leave it
+        // false → the fleet shade kernel is register-byte-identical.
+        if (g.type == GMAT_HAIR_PRINCIPLED)
+            r.hasHair = true;
         // pkg189: flag scenes carrying ANY dispersive material so the wavefront
         // launcher selects the <*,*,*,true> shade kernel (hero-λ collapse
         // write-back). Set for both the Sellmeier dielectric (GMAT_DIELECTRIC)

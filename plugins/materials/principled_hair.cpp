@@ -54,6 +54,8 @@ public:
         float coat = std::clamp(p.getFloat("coat", 0.0f), 0.0f, 1.0f);
         eta_ = p.getFloat("ior", 1.55f);
         float alpha = p.getFloat("offset", 2.0f * kPi / 180.0f);  // 2° default
+        coat_ = coat;    // pkg225 Stage 4 — retained for GPU upload (hairGPUParams)
+        alpha_ = alpha;
 
         // Longitudinal variances: R uses a coat-smoothed roughness (Cycles
         // m0_roughness = (1-coat) multiplier); TT/TRT/residual from base betaM.
@@ -93,6 +95,23 @@ public:
     bool isTransmissive() const override { return true; }
     float getIOR() const override { return eta_; }
     float getRoughness() const override { return betaM_; }
+
+    // pkg225 Stage 4 — GPU lowering. getGPUTypeName() makes the default
+    // backendCapabilities() advertise gpu/gpuSpectral; scene_upload tags the
+    // GMaterial as GMAT_HAIR_PRINCIPLED and reads hairGPUParams() (the OWN
+    // ctor-resolved sigma_a + roughness/tilt) so CPU/GPU are identical.
+    std::string getGPUTypeName() const override { return "principled_hair"; }
+    HairGPUParams hairGPUParams() const override {
+        HairGPUParams h;
+        h.isHair = true;
+        h.betaM = betaM_;
+        h.betaN = betaN_;
+        h.eta = eta_;
+        h.alpha = alpha_;
+        h.coat = coat_;
+        h.sigmaA = sigmaA_;
+        return h;
+    }
     Vec3 getAlbedo() const override {
         return Vec3(std::exp(-std::sqrt(std::max(0.0f, sigmaA_.x))),
                     std::exp(-std::sqrt(std::max(0.0f, sigmaA_.y))),
@@ -278,6 +297,7 @@ private:
     }
 
     float betaM_, betaN_, eta_, s_;
+    float alpha_ = 0.0349f, coat_ = 0.0f;  // pkg225 Stage 4 — GPU-upload retained
     float v_[kPMax + 1];
     AlphaTilt tilt_;
     Vec3 sigmaA_;

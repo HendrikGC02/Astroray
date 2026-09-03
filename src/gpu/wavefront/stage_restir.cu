@@ -237,6 +237,13 @@ __device__ inline GHitRecord loadHit(const GPUWavefrontHitBuffers& hb, int i) {
     rec.primId     = hb.hit_prim_id[i];
     rec.frontFace  = hb.hit_front_face[i] != 0;
     rec.isDelta    = hb.hit_is_delta[i] != 0;
+    // pkg225 Stage 4 — carry the strand tangent + azimuthal v (a curve/hair hit
+    // needs them; for non-curve hits these are the harmless parked defaults). This
+    // is the ReSTIR reconstruction twin of shadePathSlot's c_hasHair-gated restore;
+    // the ReSTIR kernels are not the register-critical fleet shade kernel.
+    rec.uvTangent  = GVec3(hb.hit_uv_tangent_x[i], hb.hit_uv_tangent_y[i],
+                           hb.hit_uv_tangent_z[i]);
+    rec.hairV      = hb.hit_hair_v[i];
     return rec;
 }
 

@@ -3,7 +3,27 @@
 **Pillar:** 3
 **Track:** A
 **Status:** open — **Stage 1 (CPU curve geometry) + Stage 2 (CPU Principled
-Hair BSDF, Chiang 2016) + Stage 3 (GPU curve geometry) LANDED.** Stage 3
+Hair BSDF, Chiang 2016) + Stage 3 (GPU curve geometry) + Stage 4 (GPU Principled
+Hair BSDF) LANDED.** Stage 4 (2026-09-03): the GPU wavefront shade kernel evaluates
+the Chiang 2016 hair BSDF via a standalone `GMAT_HAIR_PRINCIPLED` branch whose
+eval/sample/pdf are `__device__ __noinline__` functions (`include/astroray/
+gpu_hair.cuh`) that `#include hair_bsdf.h` and reuse the EXACT CPU Mp/Np/Ap math —
+CPU/GPU parity by construction. Isolation is the pkg224 `__noinline__` runtime-flag
+form (a `c_hasHair __constant__` gates the fleet-body SoA restore), NOT a 9th
+template axis: **the fleet `<…>` shade kernel stays REG:254 on all 128
+instantiations (no spill; STACK +32 B / CONSTANT[0] +32 B, occupancy-neutral since
+REG-bound — the pkg201-S3 accepted-outcome discipline).** The S3 hand-off gap
+(cpp-abi-guard-flagged) is closed: the curve leaf's `uvTangent` (strand tangent) AND
+`hairV` now persist across intersect→shade via new `hit_uv_tangent_*`/`hit_hair_v`
+SoA lanes (the task's "uvTangent already has a lane" was inaccurate — neither was
+persisted). GMaterial stays EXACTLY 640 B: hair params reuse existing scalar fields
+(`baseColor`=σ_a, `roughness`=β_m, `clearcoatGloss`=β_n, `transmission`=coat,
+`clearcoat`=α, `ior`=η), resolved host-side via a new `Material::hairGPUParams()`
+hook (so all three σ_a parametrizations match the CPU ctor). GPU↔CPU hair parity
+(`tests/test_pkg225_gpu_hair.py`): well-lit per-channel ratios in band + channel-
+balanced (a colour-shift bug breaks balance); visually verified (the GPU tuft shows
+the same Marschner/Chiang longitudinal sheen). Non-hair GPU parity fleet green
+(disney/metal/principled/texture/dispersion/volume/normal-map/ReSTIR). Stage 3
 (2026-09-03, PR #676): curves render on the GPU wavefront as a `GPRIM_CURVE`
 BVH leaf (`include/astroray/gpu_curve_intersect.cuh`, iterative de Casteljau,
 ribbon/thick modes), isolated behind `template<bool HasCurves>` so non-curve
@@ -450,8 +470,8 @@ Cycles-panel settings, and render with Astroray — no manual workarounds.
 - [ ] Spec filed (this file).
 - [ ] Stage 1: CPU curve geometry primitive.
 - [ ] Stage 2: Principled Hair BSDF (CPU).
-- [ ] Stage 3: GPU curve geometry.
-- [ ] Stage 4: GPU Hair BSDF.
+- [x] Stage 3: GPU curve geometry.
+- [x] Stage 4: GPU Hair BSDF.
 - [ ] Stage 5: Spectral melanin absorption.
 - [ ] Stage 6: Addon integration.
 

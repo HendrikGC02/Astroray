@@ -468,6 +468,11 @@ struct HairGPUParams {
     float alpha = 0.0349f;// cuticle tilt (rad); 2° default
     float coat  = 0.0f;   // Cycles Coat -> R-lobe m0_roughness
     Vec3  sigmaA{0.f, 0.f, 0.f};  // resolved RGB absorption coefficient
+    // pkg225 Stage 5 — spectral melanin: when melaninMode, the GPU spectral path
+    // evaluates eu/ph per-λ (hair_melanin_spectral.h) instead of upsampling sigmaA.
+    bool  melaninMode  = false;
+    float eumelanin    = 0.0f;
+    float pheomelanin  = 0.0f;
 };
 
 // ============================================================================

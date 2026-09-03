@@ -31,6 +31,7 @@
 
 #include "gpu_types.h"
 #include "hair_bsdf.h"
+#include "hair_melanin_spectral.h"
 
 namespace astroray_gpu_hair {
 
@@ -69,6 +70,11 @@ struct GHairMat {
     float s;
     ah::AlphaTilt tilt;
     GVec3 sigmaA;
+    // pkg225 Stage 5 — spectral melanin (rides hair-unused GMaterial scalars so
+    // GMaterial stays EXACTLY 640 B): specular=melaninMode flag, metallic=eu,
+    // subsurface=ph. RGB path & non-melanin modes untouched (sigmaA carries them).
+    bool  melaninMode;
+    float eu, ph;
 };
 
 __device__ inline GHairMat gpu_hair_unpack(const GMaterial& mat) {
@@ -86,6 +92,9 @@ __device__ inline GHairMat gpu_hair_unpack(const GMaterial& mat) {
     m.s = ah::azimuthalScale(betaN);
     m.tilt = ah::makeAlphaTilt(alpha);
     m.sigmaA = mat.baseColor;
+    m.melaninMode = (mat.specular > 0.5f);  // pkg225 Stage 5
+    m.eu = mat.metallic;
+    m.ph = mat.subsurface;
     return m;
 }
 
@@ -170,9 +179,14 @@ __device__ inline float gpu_hair_pdfCore(const GHairMat& m, const GHairGeom& g,
     return pdfSum;
 }
 
-// Spectral sigma_a: piecewise-linear from the RGB absorption (principled_hair.cpp
-// sigmaAAtLambda). Stage-5 replaces this with a true melanin cross-section.
-__device__ inline float gpu_hair_sigmaAAtLambda(const GVec3& sigmaA, float lambda) {
+// Spectral sigma_a — the Stage-5 seam, byte-parallel to principled_hair.cpp
+// sigmaAAtLambda(). In melanin mode, evaluate the physical eu/ph cross-section
+// per wavelength directly (hair_melanin_spectral.h); otherwise piecewise-linear
+// upsample the RGB absorption (reflectance / direct-absorption modes).
+__device__ inline float gpu_hair_sigmaAAtLambda(const GHairMat& m, float lambda) {
+    if (m.melaninMode)
+        return ah::melaninSigmaAtLambda(m.eu, m.ph, lambda);
+    const GVec3& sigmaA = m.sigmaA;
     if (lambda <= 450.0f) return sigmaA.z;
     if (lambda >= 600.0f) return sigmaA.x;
     if (lambda < 550.0f) { float t = (lambda - 450.0f) / 100.0f; return sigmaA.z * (1 - t) + sigmaA.y * t; }
@@ -243,7 +257,7 @@ __device__ __noinline__ inline GSampledSpectrum gpu_hair_eval_spectral(
     float cosThetaI = ah::safeSqrt(1.0f - ah::sqr(sinThetaI));
     float phi = phiI - g.phiO;
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
-        out[i] = gpu_hair_fChannel(m, g, gpu_hair_sigmaAAtLambda(m.sigmaA, wl.lambda[i]),
+        out[i] = gpu_hair_fChannel(m, g, gpu_hair_sigmaAAtLambda(m, wl.lambda[i]),
                                    sinThetaI, cosThetaI, phi);
     return out;
 }
@@ -320,7 +334,7 @@ __device__ __noinline__ inline GBSDFSample gpu_hair_sample_spectral(
         fRGB[c] = gpu_hair_fChannel(m, g, m.sigmaA[c], sinThetaI, cosThetaI, phi);
     s.f = fRGB;
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
-        s.fSpectral[i] = gpu_hair_fChannel(m, g, gpu_hair_sigmaAAtLambda(m.sigmaA, wl.lambda[i]),
+        s.fSpectral[i] = gpu_hair_fChannel(m, g, gpu_hair_sigmaAAtLambda(m, wl.lambda[i]),
                                            sinThetaI, cosThetaI, phi);
     return s;
 }

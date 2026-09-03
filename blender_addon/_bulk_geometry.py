@@ -95,6 +95,85 @@ def mesh_to_bulk_arrays(mesh, matrix, normal_matrix, slot_to_id, default_mat_id,
     return positions, material_ids, mat_pass, uvs, uv_names, normals
 
 
+def extract_curves_bulk(curves, matrix, default_radius=0.005):
+    """pkg225 Stage 6 — a Blender ``Curves`` (hair / geometry-nodes) data-block →
+    the arrays ``Renderer.add_curves_bulk`` consumes.
+
+    Returns (positions, radii, strand_point_counts):
+      positions            (P,3) float32 — WORLD-space control points (the engine
+                           adds them directly; add_curves_bulk applies no transform)
+      radii                (P,)  float32 — per-point world-space radius
+      strand_point_counts  list[int]     — points per strand (each >= 2)
+
+    Uses C-speed ``foreach_get`` for positions/radius. `matrix` is the 4x4 world
+    matrix; control points are transformed by its linear+translation part and the
+    per-point radius by the mean axis scale (exact for uniform scale, Cycles'
+    approximation otherwise). Kept dependency-free (numpy + the passed data-block)
+    so it is headlessly unit-testable with a fake ``foreach_get`` object.
+    """
+    points = curves.points
+    n_pts = len(points)
+    if n_pts == 0:
+        return (np.zeros((0, 3), dtype=np.float32),
+                np.zeros((0,), dtype=np.float32), [])
+
+    co = np.empty(n_pts * 3, dtype=np.float32)
+    points.foreach_get("position", co)
+    co = co.reshape(n_pts, 3)
+    M = np.asarray(matrix, dtype=np.float32)
+    positions = np.ascontiguousarray(co @ M[:3, :3].T + M[:3, 3], dtype=np.float32)
+
+    # Mean axis scale for the scalar radius (exact under uniform scale).
+    scale = float(np.mean(np.linalg.norm(M[:3, :3], axis=0))) or 1.0
+    radii = np.empty(n_pts, dtype=np.float32)
+    try:
+        points.foreach_get("radius", radii)
+    except (RuntimeError, TypeError, AttributeError, KeyError):
+        # Some Curves have radius only as a generic attribute (or none at all).
+        attrs = getattr(curves, "attributes", None)
+        rad_attr = attrs.get("radius") if attrs is not None else None
+        if rad_attr is not None and hasattr(rad_attr, "data"):
+            rad_attr.data.foreach_get("value", radii)
+        else:
+            radii.fill(default_radius)
+    radii = np.ascontiguousarray(np.abs(radii) * scale, dtype=np.float32)
+    # A zero/degenerate radius makes a strand invisible; floor it.
+    radii[radii < 1e-6] = default_radius * scale
+
+    # Per-strand point counts. Prefer the C-speed offsets; fall back to a slice
+    # loop. `Curves.curve_offsets` (Blender 3.5+) is the cumulative point index of
+    # each strand start plus a final total, so counts = diff(offsets).
+    counts = None
+    offsets_owner = getattr(curves, "curve_offsets", None)
+    if offsets_owner is not None and len(offsets_owner) >= 2:
+        try:
+            off = np.empty(len(offsets_owner), dtype=np.int32)
+            offsets_owner.foreach_get("value", off)
+            counts = np.diff(off).astype(np.int64).tolist()
+        except (RuntimeError, TypeError, AttributeError, KeyError):
+            counts = None
+    if counts is None:
+        counts = [int(s.points_length) for s in curves.curves]
+
+    # add_curves_bulk requires each strand >= 2 points; drop degenerate strands
+    # (and the points they own) so a single 1-point strand can't abort the batch.
+    if any(c < 2 for c in counts):
+        keep_pos, keep_rad, keep_counts, off = [], [], [], 0
+        for c in counts:
+            if c >= 2:
+                keep_pos.append(positions[off:off + c])
+                keep_rad.append(radii[off:off + c])
+                keep_counts.append(c)
+            off += c
+        positions = (np.concatenate(keep_pos, axis=0) if keep_pos
+                     else np.zeros((0, 3), dtype=np.float32))
+        radii = (np.concatenate(keep_rad, axis=0) if keep_rad
+                 else np.zeros((0,), dtype=np.float32))
+        counts = keep_counts
+
+    return positions, radii, counts
+
+
 def mesh_world_positions(mesh, matrix):
     """Return (Nt,3,3) world-space triangle-corner positions for `mesh` under
     `matrix`, using the SAME vertex->loop-triangle indexing as

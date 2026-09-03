@@ -316,40 +316,40 @@
     "feature": "BSDF_HAIR",
     "bl_idname": "ShaderNodeBsdfHair",
     "socket_or_prop": "input:Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "pkg225-S6: Kajiya-Kay Hair approximated with Principled Hair (Chiang) reflectance"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR",
     "bl_idname": "ShaderNodeBsdfHair",
     "socket_or_prop": "input:Offset",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "pkg225-S6: mapped to Principled Hair cuticle tilt"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR",
     "bl_idname": "ShaderNodeBsdfHair",
     "socket_or_prop": "input:RoughnessU",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "pkg225-S6: mapped to Principled Hair longitudinal roughness"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR",
     "bl_idname": "ShaderNodeBsdfHair",
     "socket_or_prop": "input:RoughnessV",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "pkg225-S6: mapped to Principled Hair radial roughness"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR",
     "bl_idname": "ShaderNodeBsdfHair",
     "socket_or_prop": "input:Tangent",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "pkg225-S6: custom tangent socket ignored; geometric curve tangent used"
   },
   {
     "category": "shader_node",
@@ -364,120 +364,120 @@
     "feature": "BSDF_HAIR",
     "bl_idname": "ShaderNodeBsdfHair",
     "socket_or_prop": "prop:component",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "APPROXIMATED",
+    "notes": "pkg225-S6: Reflection/Transmission component approximated by the full R/TT/TRT model"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Melanin",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Melanin Redness",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Tint",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Absorption Coefficient",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Aspect Ratio",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "pkg225-S6: Huang elliptical cross-section approximated with Chiang"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Roughness",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Radial Roughness",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Coat",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:IOR",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Offset",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Random Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "pkg225-S6: per-strand colour variation not yet plumbed (single value used)"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Random Roughness",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "pkg225-S6: per-strand roughness variation not yet plumbed"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Random",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "pkg225-S6: per-strand random attribute not yet plumbed"
   },
   {
     "category": "shader_node",
@@ -492,40 +492,40 @@
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Reflection",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "pkg225-S6: Huang R-lobe weight approximated with Chiang"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Transmission",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "pkg225-S6: Huang TT-lobe weight approximated with Chiang"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Secondary Reflection",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "pkg225-S6: Huang TRT-lobe weight approximated with Chiang"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "prop:model",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "APPROXIMATED",
+    "notes": "pkg225-S6: Huang 2022 model approximated with Chiang 2016"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "prop:parametrization",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
   },
   {
     "category": "shader_node",

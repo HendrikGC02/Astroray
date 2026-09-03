@@ -32,6 +32,7 @@ from native_settings import resolve_native_settings, report_unsupported_native_c
 from degradation import DegradationReport
 from _bulk_geometry import mesh_to_bulk_arrays  # pkg112 batched geometry upload
 from _bulk_geometry import mesh_world_positions  # pkg88-B object motion blur bake
+from _bulk_geometry import extract_curves_bulk   # pkg225 Stage 6 hair/curves export
 
 
 def _matrices_differ(m1, m2, eps=1e-6):
@@ -1235,6 +1236,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     "Spectral Replace material",
                     "routed to multiwavelength integrator for per-λ reflectance")
             renderer.set_integrator(integrator_name)
+
+            # pkg225 Stage 6 — Curves Shape (Cycles' Curves panel). THICK =
+            # swept-circle Cylinder (final-render default, CPU-parity, higher
+            # quality); RIBBON = camera-facing flat strip (cheap). The CPU path
+            # always renders thick; this only steers the GPU curve leaf. Default
+            # thick when the scene has no Cycles curve settings.
+            if hasattr(renderer, 'set_curve_thick_mode'):
+                _cshape = getattr(getattr(scene, 'cycles_curves', None), 'shape', 'THICK')
+                renderer.set_curve_thick_mode(str(_cshape).upper() != 'RIBBONS')
+
             has_denoise_pass = False
             if settings.use_denoising and not is_outside_visible:
                 denoise_pass = _resolve_denoiser_pass(settings)
@@ -3851,7 +3862,59 @@ class CustomRaytracerRenderEngine(RenderEngine):
             rough = self.get_float_input(node, 'Roughness', 0.2)
             self._warn_shader_fallback('BSDF_METALLIC', 'F82 edge tint is approximated with Disney metallic base color')
             return {'kind': 'principled', 'base_color': color, 'params': {'metallic': 1.0, 'roughness': rough}}
+        if ntype in ('BSDF_HAIR_PRINCIPLED', 'BSDF_HAIR'):
+            # pkg225 Stage 6 — the Principled Hair BSDF (Chiang 2016) node, and the
+            # simpler Kajiya-Kay ShaderNodeBsdfHair, both map to the native
+            # `principled_hair` material (Stages 2/5). Socket set + defaults per the
+            # S2 research note §8. The material matches Cycles' parameterisation so
+            # sockets pass through with no remap; only the Huang model + the
+            # Kajiya-Kay node are approximations.
+            return self._hair_shader_spec(node, ntype)
         return None
+
+    def _hair_shader_spec(self, node, ntype):
+        params = {}
+        if ntype == 'BSDF_HAIR':
+            # Legacy Kajiya-Kay ShaderNodeBsdfHair: Color + RoughnessU/V + Offset.
+            self._warn_shader_fallback(
+                'BSDF_HAIR', 'Kajiya-Kay Hair BSDF is approximated with the '
+                'physically-based Principled Hair (Chiang 2016) in reflectance mode')
+            color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
+            params['parametrization'] = 'reflectance'
+            params['color'] = list(color)
+            params['roughness'] = self.get_float_input(node, 'RoughnessU', 0.1)
+            params['radial_roughness'] = self.get_float_input(node, 'RoughnessV', 0.1)
+            params['offset'] = self.get_float_input(node, 'Offset', 0.0)
+            return {'kind': 'hair', 'base_color': list(color), 'params': params}
+
+        # ShaderNodeBsdfHairPrincipled (Chiang default; Huang approximated to Chiang).
+        model = str(getattr(node, 'model', 'CHIANG')).upper()
+        if model and model != 'CHIANG':
+            self._warn_shader_fallback(
+                'BSDF_HAIR_PRINCIPLED',
+                'the Huang 2022 near-field hair model is approximated with Chiang 2016')
+        # parametrization enum: COLOR (Direct Coloring), MELANIN (Pigment
+        # Concentration), ABSORPTION (Direct Absorption). Blender 5.x enum values.
+        par = str(getattr(node, 'parametrization', 'COLOR')).upper()
+        color = self.get_color_input(node, 'Color', [0.017513, 0.005763, 0.002059])
+        if par in ('MELANIN', 'MELANIN_CONCENTRATION'):
+            params['parametrization'] = 'melanin'
+            params['melanin'] = self.get_float_input(node, 'Melanin', 0.8)
+            params['melanin_redness'] = self.get_float_input(node, 'Melanin Redness', 1.0)
+            params['tint'] = list(self.get_color_input(node, 'Tint', [1.0, 1.0, 1.0]))
+        elif par in ('ABSORPTION', 'ABSORPTION_COEFFICIENT'):
+            params['parametrization'] = 'absorption'
+            params['absorption_coefficient'] = list(
+                self.get_color_input(node, 'Absorption Coefficient', [0.245531, 0.52, 1.365]))
+        else:  # COLOR / Direct Coloring (node default)
+            params['parametrization'] = 'reflectance'
+            params['color'] = list(color)
+        params['roughness'] = self.get_float_input(node, 'Roughness', 0.3)
+        params['radial_roughness'] = self.get_float_input(node, 'Radial Roughness', 0.3)
+        params['coat'] = self.get_float_input(node, 'Coat', 0.0)
+        params['ior'] = self.get_float_input(node, 'IOR', 1.55)
+        params['offset'] = self.get_float_input(node, 'Offset', 0.0349066)  # ~2 deg
+        return {'kind': 'hair', 'base_color': list(color), 'params': params}
 
     def _shader_spec_from_node(self, node, renderer, node_tree, depth=0):
         if node is None or depth > 32:
@@ -3933,6 +3996,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return renderer.create_material('lambertian', color, lambert_params)
 
             return renderer.create_material('disney', color, params)
+
+        if kind == 'hair':
+            # pkg225 Stage 6 — native Principled Hair BSDF (Chiang 2016). The
+            # base_color feeds the reflectance/direct-coloring parametrization; the
+            # melanin/absorption modes read their own params and ignore it.
+            color = list(spec.get('base_color', [0.017513, 0.005763, 0.002059]))
+            params = dict(spec.get('params', {}))
+            return renderer.create_material('principled_hair', color, params)
 
         if kind == 'transparent':
             color = list(spec.get('base_color', [1.0, 1.0, 1.0]))
@@ -4570,6 +4641,44 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # depsgraph.object_instances are already evaluated, so modifiers and
             # curve/text/metaball resolution apply. The temporary mesh must be freed
             # with to_mesh_clear() once its triangles are uploaded.
+            # pkg225 Stage 6 — Blender `Curves` (hair / geometry-nodes curves)
+            # render as NATIVE curve primitives (add_curves_bulk), not the
+            # polygon-soup to_mesh() fallback. Extract world-space control points +
+            # radii + per-strand counts and upload with the object's active
+            # material (one material per Curves object; Cycles-parity Shape mode is
+            # applied once per render via set_curve_thick_mode).
+            if obj.type == 'CURVES':
+                if not hasattr(renderer, 'add_curves_bulk'):
+                    continue
+                curves_data = obj.data
+                if curves_data is None or len(curves_data.points) == 0:
+                    continue
+                try:
+                    positions, radii, counts = extract_curves_bulk(
+                        curves_data, obj_instance.matrix_world)
+                except Exception as e:
+                    print(f"Astroray: curve extract failed on '{obj.name}': {e}")
+                    continue
+                if not counts:
+                    continue
+                # One material for the batch: the object's first slot (hair grooms
+                # carry a single Principled Hair material). Falls back to a default.
+                curve_mat_id = 0
+                curve_mat_pass = 0
+                for slot in obj.material_slots:
+                    if slot.material is not None:
+                        curve_mat_id = material_map.get(slot.material.name, 0)
+                        curve_mat_pass = int(getattr(slot.material, 'pass_index', 0))
+                        break
+                try:
+                    renderer.add_curves_bulk(
+                        positions, radii, counts, curve_mat_id,
+                        int(getattr(obj, 'pass_index', 0)), curve_mat_pass)
+                    obj_count += 1
+                except Exception as e:
+                    print(f"Astroray: add_curves_bulk failed on '{obj.name}': {e}")
+                continue
+
             _temp_mesh = False
             if obj.type == 'MESH':
                 mesh = obj.data

@@ -2,9 +2,33 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** open — **Stage 1 (CPU curve geometry) + Stage 2 (CPU Principled
+**Status:** COMPLETE — **all six stages landed (CPU + GPU curve geometry, CPU +
+GPU Principled Hair BSDF Chiang 2016, spectral melanin, and the Blender addon).**
+Stage 6 (2026-09-04): the addon renders Blender `Curves` (hair / geometry-nodes)
+objects as NATIVE curve primitives — `convert_objects` detects `obj.type ==
+'CURVES'` and calls `renderer.add_curves_bulk` with world-space control points +
+per-point radii + per-strand counts extracted by `_bulk_geometry.extract_curves_bulk`
+(C-speed `foreach_get`; degenerate <2-point strands dropped; radius scaled by the
+mean object-axis scale) — instead of the polygon-soup `to_mesh()` fallback (that
+`else: continue` silently skipped `CURVES`). `ShaderNodeBsdfHairPrincipled` and the
+legacy `ShaderNodeBsdfHair` translate to the native `principled_hair` material
+(`_hair_shader_spec`): all three parametrizations (Direct Coloring / Melanin /
+Absorption) + Chiang sockets map 1:1 to Cycles' node (verified against Blender 5.2's
+enum + socket set); Huang-only sockets, per-strand Random, and the Kajiya-Kay node
+degrade to APPROXIMATED. The Cycles Curves *Shape* (`scene.cycles_curves.shape`)
+drives `set_curve_thick_mode` (THICK default / RIBBON). Coverage matrix: BSDF_HAIR_PRINCIPLED
+11 sockets SUPPORTED + 8 APPROXIMATED, BSDF_HAIR 6 APPROXIMATED (was all DROPPED-SILENT).
+Headless-Blender verified (Blender 5.2, GPU): a curved-strand tuft with a Principled
+Hair material renders the anisotropic along-fiber Chiang R-lobe sheen end-to-end
+(coverage 0.45, warm-brown R/B 1.44). Unit-tested `extract_curves_bulk` (5 cases,
+headless, no bpy/engine). **NOTE — required an addon `.pyd` rebuild**: the staged
+`dist/astroray` module predated S3 (no `set_curve_thick_mode` / GPU curve rendering),
+so hair was invisible on the addon's GPU path until `build_blender_addon.py --backend
+cuda` restaged it at HEAD.
+
+Stage 1 (CPU curve geometry) + Stage 2 (CPU Principled
 Hair BSDF, Chiang 2016) + Stage 3 (GPU curve geometry) + Stage 4 (GPU Principled
-Hair BSDF) + Stage 5 (spectral melanin, CPU) LANDED. Only Stage 6 (addon) remains.**
+Hair BSDF) + Stage 5 (spectral melanin, CPU) previously LANDED.
 Stage 5 (2026-09-03): the hair BSDF's spectral path now evaluates per-wavelength
 eumelanin/pheomelanin absorption directly from physically-cited power laws
 (`include/astroray/hair_melanin_spectral.h`: eumelanin σ_a∝λ^−3.33 [Jacques 2013,
@@ -498,7 +522,9 @@ Cycles-panel settings, and render with Astroray — no manual workarounds.
 - [x] Stage 5: Spectral melanin absorption (CPU landed; GPU seam landed +
       register-verified but dormant — see Stage-5 note re: the GPU-spectral-curve
       shade blocker).
-- [ ] Stage 6: Addon integration.
+- [x] Stage 6: Addon integration — Blender `Curves` hair export + Principled
+      Hair BSDF node translation + Cycles Curves-Shape setting. Headless-Blender
+      verified (the anisotropic Chiang sheen renders end-to-end).
 
 ---
 

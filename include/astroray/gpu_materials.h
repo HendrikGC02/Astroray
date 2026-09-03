@@ -37,6 +37,13 @@ __device__ inline float gpu_rng_uniform(curandState* rng) {
     return curand_uniform(rng);
 }
 
+// pkg225 Stage 4 — standalone GMAT_HAIR_PRINCIPLED BSDF. Included AFTER the
+// curandState gpu_rng_uniform overload (its template sampler resolves the RNG
+// draw by ADL at instantiation; the WavefrontRNG overload is visible in
+// stage_advance.cu). Every entry point is __device__ __noinline__ so its
+// transcendental register pressure stays out of the REG:254 fleet shade kernel.
+#include "astroray/gpu_hair.cuh"
+
 // ---------------------------------------------------------------------------
 // Sampling helpers
 // ---------------------------------------------------------------------------
@@ -3195,6 +3202,7 @@ __device__ inline GVec3 gpu_material_eval(
         case GMAT_DISNEY:        return gpu_disney_eval(mat, rec, wo, wi);
         case GMAT_THIN_GLASS:    return GVec3(0.f); // mostly-delta pane
         case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_eval<HasPrincipled>(mat, rec, wo, wi);
+        case GMAT_HAIR_PRINCIPLED: return astroray_gpu_hair::gpu_hair_eval(mat, rec, wo, wi);
         default:                 return GVec3(0.f);
     }
 }
@@ -3210,6 +3218,9 @@ __device__ inline GSampledSpectrum gpu_material_eval_spectral(
     // graph (its GGXConductor lobe validates), so both entry points are covered.
     if (mat.type == GMAT_METAL)
         return gpu_metal_eval_spectral(mat, rec, wo, wi, wl);
+    // pkg225 Stage 4: hair is natively per-λ (sigma_a spectral); NOT a JH upsample.
+    if (mat.type == GMAT_HAIR_PRINCIPLED)
+        return astroray_gpu_hair::gpu_hair_eval_spectral(mat, rec, wo, wi, wl);
     // pkg178 Stage 2: native per-λ Principled (its own spectral mixture path).
     if constexpr (HasPrincipled) {
         if (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_is_principled(mat))
@@ -3255,6 +3266,7 @@ __device__ inline GBSDFSample gpu_material_sample(
         case GMAT_DISNEY:        return gpu_disney_sample(mat, rec, wo, rng);
         case GMAT_THIN_GLASS:    return gpu_thin_glass_sample(mat, rec, wo, rng);
         case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_sample<HasPrincipled>(mat, rec, wo, rng);
+        case GMAT_HAIR_PRINCIPLED: return astroray_gpu_hair::gpu_hair_sample(mat, rec, wo, rng);
         default: { GBSDFSample s; s.f=GVec3(0); s.fSpectral=GSampledSpectrum(0.f); s.wi=GVec3(0,1,0); s.pdf=0; s.isDelta=false; return s; }
     }
 }
@@ -3268,6 +3280,12 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     // sampler (it calls wl.terminateSecondary() on refraction -- hero collapse).
     GBSDFSample s;
     bool handled = false;
+    // pkg225 Stage 4 — hair returns f_spectral directly (mirrors the CPU
+    // sampleSpectral override): the sampled lobe's spectral value is built from
+    // the per-λ sigma_a, NOT the RGBAlbedo eta² clamp / diffuse-upsample fallback
+    // path below. Early-return before any of that post-processing.
+    if (mat.type == GMAT_HAIR_PRINCIPLED)
+        return astroray_gpu_hair::gpu_hair_sample_spectral(mat, rec, wo, wl, rng);
     // pkg187 -- dispersive Principled glass lowers to GMAT_CLOSURE_GRAPH (not
     // GMAT_DIELECTRIC), so the hero-wavelength refraction + secondary-collapse is
     // done here rather than through gpu_dielectric_sample_spectral. All state lives
@@ -3398,6 +3416,7 @@ __device__ inline float gpu_material_pdf(
         case GMAT_METAL:      return gpu_metal_pdf(mat, rec, wo, wi);
         case GMAT_DISNEY:     return gpu_disney_pdf(mat, rec, wo, wi);
         case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_pdf<HasPrincipled>(mat, rec, wo, wi);
+        case GMAT_HAIR_PRINCIPLED: return astroray_gpu_hair::gpu_hair_pdf(mat, rec, wo, wi);
         default:              return 0.f;
     }
 }

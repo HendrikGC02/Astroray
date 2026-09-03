@@ -198,6 +198,16 @@ __constant__ int c_wfCausticGate[2] = { 1, 1 };
 // a plain runtime flag (NOT a template axis), the pkg201-S3/pkg186 pattern.
 __constant__ int c_wfSamplerMode = 0;
 
+// pkg225 Stage 4 — scene-has-any-principled-hair flag. Published once per frame by
+// cuda_wavefront_render (setWavefrontHairEnabled). 0 (this static default, and
+// every non-hair render) makes shadePathSlot skip the hair uvTangent/hairV SoA
+// restore ENTIRELY, so the fleet <…> shade kernel stays register-byte-identical.
+// The GMAT_HAIR_PRINCIPLED BSDF math is reached through the ordinary material-type
+// dispatch and lives in __noinline__ device functions (gpu_hair.cuh), so a curve-
+// less scene never executes it and its register pressure never enters the fleet
+// kernel. Plain runtime flag, NOT a template axis (architect-pinned).
+__constant__ int c_hasHair = 0;
+
 // pkg224 — Sobol' direction-vector table in __constant__ memory (8 KB). Filled
 // from the host constexpr kSobolMatrices32 by setWavefrontSamplerMode(true)
 // (only when the progressive sampler is enabled); the byte-identical PCG32
@@ -813,6 +823,16 @@ __device__ int intersectPathSlotT(
     hitBufs.hit_front_face[idx]  = rec.frontFace ? 1 : 0;
     hitBufs.hit_is_delta[idx]    = rec.isDelta ? 1 : 0;
     hitBufs.hit_valid[idx]       = 1;
+    // pkg225 Stage 4 — persist the strand tangent + azimuthal v across the
+    // intersect->shade hand-off (the curve leaf set them in the register-resident
+    // GHitRecord; nothing else parks them). Written unconditionally in the (non-
+    // register-critical) intersect stage; a triangle hit stores the default
+    // uvTangent/hairV=0.5, which the shade side only reads for a GMAT_HAIR_PRINCIPLED
+    // (curve) hit, so it is a harmless don't-care for every other material.
+    hitBufs.hit_uv_tangent_x[idx] = rec.uvTangent.x;
+    hitBufs.hit_uv_tangent_y[idx] = rec.uvTangent.y;
+    hitBufs.hit_uv_tangent_z[idx] = rec.uvTangent.z;
+    hitBufs.hit_hair_v[idx]       = rec.hairV;
     return (int)mat.type;
 }
 
@@ -1276,6 +1296,21 @@ __device__ bool shadePathSlot(
         }
     }
     const ::GMaterial& mat = *matPtr;
+
+    // pkg225 Stage 4 — restore the strand tangent + azimuthal v for a curve/hair
+    // hit. The curve leaf set rec.uvTangent (∂p/∂u) and rec.hairV in the register-
+    // resident GHitRecord, but the default parking does not persist them and the
+    // shade reconstruction above defaulted rec.uvTangent to the arbitrary `tangent`
+    // frame (the triangle-UV override is HasPrincipled+GPRIM_TRIANGLE only). Gated
+    // by the runtime c_hasHair flag AND the hair material type, so a non-hair fleet
+    // scene NEVER emits these SoA loads → the fleet shade kernel is register-byte-
+    // identical (register-probe gate). h = 2·hairV − 1 is applied in gpu_hair.cuh.
+    if (c_hasHair && mat.type == GMAT_HAIR_PRINCIPLED) {
+        rec.uvTangent = GVec3(hitBufs.hit_uv_tangent_x[idx],
+                              hitBufs.hit_uv_tangent_y[idx],
+                              hitBufs.hit_uv_tangent_z[idx]);
+        rec.hairV = hitBufs.hit_hair_v[idx];
+    }
 
     // pkg186 — image-texture base color for a textured lambertian. The whole
     // diffuse bounce (NEE eval, BSDF throughput, continuation) is LINEAR in
@@ -2512,6 +2547,15 @@ void setWavefrontSamplerMode(bool useProgressive)
         cudaMemcpyToSymbol(c_sobolMatrices, astroray::kSobolMatrices32,
                            sizeof(astroray::kSobolMatrices32));
     }
+}
+
+// pkg225 Stage 4 — publish the scene-has-hair flag into __constant__ c_hasHair
+// (read by shadePathSlot to gate the hair uvTangent/hairV SoA restore). false (the
+// default) keeps the fleet shade kernel byte-identical for non-hair scenes.
+void setWavefrontHairEnabled(bool hasHair)
+{
+    const int flag = hasHair ? 1 : 0;
+    cudaMemcpyToSymbol(c_hasHair, &flag, sizeof(flag));
 }
 
 // pkg131 — publish the adaptive-round binding into __constant__ c_wfAdaptive.

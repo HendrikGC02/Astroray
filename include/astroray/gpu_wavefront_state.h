@@ -486,6 +486,16 @@ void setWavefrontCausticGate(bool reflective, bool refractive);
 // progressive-prefix convergence (unblocks pkg131 adaptive sampling).
 void setWavefrontSamplerMode(bool useProgressive);
 
+// pkg225 Stage 4 — publish whether the scene contains any principled_hair
+// material into the shade kernel's __constant__ c_hasHair. Call ONCE per frame in
+// cuda_wavefront_render. false (the default) makes shadePathSlot skip the hair
+// uvTangent/hairV SoA restore entirely, so the fleet render stays byte-identical
+// (register-probe gate). The GMAT_HAIR_PRINCIPLED BSDF itself is reached only
+// through the material-type dispatch, isolated in __noinline__ device functions
+// (gpu_hair.cuh) so its transcendental register pressure never touches the
+// REG:254 fleet shade kernel.
+void setWavefrontHairEnabled(bool hasHair);
+
 // pkg131 — GPU zero-knob adaptive sampling. When enabled, stageRegenKernel maps a
 // claimed work item w to pixel = activePixels[w % numActive], sample = baseSample +
 // w / numActive (instead of the flat pixel = w % numPixels), and at path death
@@ -636,6 +646,18 @@ struct GPUWavefrontHitBuffers {
     int*   hit_front_face   = nullptr;  // 0/1
     int*   hit_is_delta     = nullptr;  // 0/1
     int*   hit_valid        = nullptr;  // 0 = miss, 1 = hit
+    // pkg225 Stage 4 — hair hand-off. The curve leaf (gpu_curve_intersect) sets
+    // rec.uvTangent (strand tangent = ∂p/∂u) and rec.hairV (azimuthal v) in the
+    // register-resident GHitRecord, but the default parking does NOT persist them
+    // (uvTangent has no other lane; the shade kernel's uvTangent override is
+    // triangle-only, so a GPRIM_CURVE hit would lose the strand tangent AND read a
+    // stale hairV=0.5). These lanes carry them across the intersect->shade hand-off;
+    // read ONLY inside the runtime c_hasHair-gated GMAT_HAIR_PRINCIPLED path, so the
+    // fleet <…> shade kernel stays register-byte-identical for non-hair scenes.
+    float* hit_uv_tangent_x = nullptr;
+    float* hit_uv_tangent_y = nullptr;
+    float* hit_uv_tangent_z = nullptr;
+    float* hit_hair_v       = nullptr;  // GHitRecord.hairV (0.5 = fiber centre)
 };
 
 // Allocation helper for hit buffers. Returns true on success.

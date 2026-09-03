@@ -1461,6 +1461,10 @@ std::vector<float> cuda_wavefront_render(
     // pkg224 — progressive (hash-Owen Sobol') sampler opt-in. false (the
     // default) leaves WavefrontRNG::Uniform() on the PCG32 path → byte-identical.
     setWavefrontSamplerMode(renderer.getUseProgressiveSampler());
+    // pkg225 Stage 4 — publish whether the scene has any principled_hair material.
+    // false (non-hair scenes) gates off the shade kernel's hair SoA restore →
+    // fleet render byte-identical.
+    setWavefrontHairEnabled(res.hasHair);
     ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
     // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
     // power CDF continues past the GLight entries; see gpu_nee.cuh).

@@ -116,11 +116,12 @@ curve geometry, #676) landing; **NEXT = pkg225-S4** (GPU hair BSDF; design
 pinned, needs S3's `hit_hair_v` SoA lane first). Also landed this session:
 **pkg219d** scalar parameter textures both backends (#674); **pkg210** SUPERSEDED
 (premise stale) and **pkg180** systemic-Cycles-dim CLOSED (not reproducible).
-Queued behind hair: **pkg127** (Specular Polynomials SMS-seed upgrade — spec in
-progress from web-verified research), **pkg211** (per-bounce spectral MIS —
-prototype-first, park-eligible), **pkg136** (SVO path guiding), long-tail
-pkg126/130/132/134/137. The exact dispatch order is an architect decision per
-round.
+Queued behind hair, all with **detailed specs landed from web-verified research**
+(2026-09-03): **pkg127** (Specular Polynomials SMS-seed upgrade — spec #679, the
+highest-value bounded caustics upgrade, ready to dispatch), **pkg211** (per-bounce
+spectral MIS — spec #677, prototype-first / park-eligible), **pkg136** (SD-tree
+path guiding — spec #678, renamed from "SVO"), long-tail pkg126/130/132/134/137.
+The exact dispatch order is an architect decision per round.
 
 **Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU
 parity tail — **pkg172 effect (B) / pkg173** (bounce-1 geometry-sampling

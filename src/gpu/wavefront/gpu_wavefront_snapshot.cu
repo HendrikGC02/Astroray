@@ -1001,6 +1001,7 @@ T* wfUpload(WfDeviceBuf& b, const std::vector<T>& src) {
 struct WfContext {
     // Scene slices.
     WfDeviceBuf nodes, prims, tris, spheres, materials, lights;
+    WfDeviceBuf curveSegments;                // pkg225 Stage 3 — GPU curve segments
     WfDeviceBuf dedLights;                    // pkg89-wavefront (C7)
     WfDeviceBuf textures, textureTexels, materialTextureId;  // pkg186 image textures
     WfDeviceBuf materialNormalTexId, materialNormalStrength;  // pkg223 normal maps
@@ -1377,6 +1378,10 @@ std::vector<float> cuda_wavefront_render(
     GPrimitive* d_prims     = wfUpload(C.prims, res.prims);
     GTriangle*  d_tris      = wfUpload(C.tris, res.triangles);
     GSphere*    d_spheres   = wfUpload(C.spheres, res.spheres);
+    // pkg225 Stage 3 — GPU curve segments (nullptr for non-curve scenes; the
+    // gpu_bvh_hit/occluded curve leaf is guarded on this pointer, so passing
+    // nullptr keeps non-curve renders byte-identical).
+    GCurveSegment* d_curveSegments = wfUpload(C.curveSegments, res.curveSegments);
     // pkg55-C4 / pkg114: TLAS/instances/blas for instancing support (empty unless
     // scene has instances; null-TLAS path in gpu_tlas_hit falls back to single-level).
     GTLASNode*  d_tlas      = wfUpload(C.tlas, res.tlas);
@@ -1839,7 +1844,8 @@ std::vector<float> cuda_wavefront_render(
                                        // Stage-1, no fog-free regression).
                                        renderer.getHasWorldVolume() &&
                                            renderer.getWorldVolumeScatter() > 0.0f,
-                                       passesOn);  // pkg198 Stage 2 pass-AOV axis
+                                       passesOn,   // pkg198 Stage 2 pass-AOV axis
+                                       d_curveSegments);  // pkg225 Stage 3
             // pkg199 Stage 2 — dedicated volume-scatter stage, between intersect
             // and shade. Drains the volume queue (scattered slots), parks the
             // phase NEE into the shared nee/shadow lanes, and requeues survivors
@@ -1887,7 +1893,8 @@ std::vector<float> cuda_wavefront_render(
                               d_bvhNodes, d_prims, d_tris, d_spheres,
                               d_motionVerts, d_materials,  // pkg55-C4
                               useLuminanceOutput,
-                              clampDirect, clampIndirect);  // pkg157
+                              clampDirect, clampIndirect,  // pkg157
+                              d_curveSegments);  // pkg225 Stage 3 — curve shadows
             if (waves == 1) continue;  // fixed pass count, no readbacks
             if (workExhausted) {
                 if (--drainLeft <= 0) break;

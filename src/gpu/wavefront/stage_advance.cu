@@ -391,7 +391,8 @@ __device__ inline float gpu_freeflightUniform(uint32_t pixel, uint32_t sample,
 // launch <true> (which pays the 130, but they are scattering-bound anyway). The
 // non-template `intersectPathSlot` symbol below forwards to <false> so the
 // cross-TU callers (ReSTIR primary, MIS-audit; both scatter=0) link unchanged.
-template<bool HasWorldScatter, bool HasLightPassAOVs = false>  // pkg199 scatter; pkg198 S2 pass axis
+template<bool HasWorldScatter, bool HasLightPassAOVs = false,
+         bool HasCurves = false>  // pkg225 Stage 3 — curve-leaf isolation axis
 __device__ int intersectPathSlotT(
     int idx,
     GPUWavefrontState& state,
@@ -415,7 +416,10 @@ __device__ int intersectPathSlotT(
     const ::GLight*   lights, int numLights, float totalLightPower,
     // pkg181: dedicated lamps for the BSDF-ray lamp-intersection pass.
     const GDedicatedLight* dedLights, int numDed,
-    GLightTreeView    lightTree)
+    GLightTreeView    lightTree,
+    // pkg225 Stage 3 — device curve segments (nullptr = no curves; the curve
+    // leaf inside gpu_tlas_hit → gpu_bvh_hit is guarded on this pointer).
+    const GCurveSegment* curves = nullptr)
 {
     const int bounce = state.bounce[idx];
 
@@ -461,8 +465,8 @@ __device__ int intersectPathSlotT(
     // to the single-level gpu_bvh_hit path inside gpu_tlas_hit, so static scenes
     // stay byte-identical (pkg114 inc-1 identity test).
     GHitRecord rec;
-    bool hit = gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                            ray, 0.001f, 1e30f, rec, motionVerts);
+    bool hit = gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris, spheres,
+                            ray, 0.001f, 1e30f, rec, motionVerts, curves);
 
     // pkg199 Stage 2 — homogeneous medium free-flight scatter DECISION (Option A:
     // the cheap decision + queue routing lives here; the register-heavy scatter
@@ -1834,6 +1838,7 @@ __device__ bool shadePathSlot(
 // original ran post-trace. Contribution adds into color (one entry per
 // slot per pass: non-atomic).
 // ---------------------------------------------------------------------------
+template<bool HasCurves = false>  // pkg225 Stage 3 — curve shadow-occlusion isolation
 __global__ void stageShadowKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -1849,7 +1854,8 @@ __global__ void stageShadowKernel(
     const GVec3*      motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* materials,
     bool              useLuminanceOutput,   // pkg157
-    float             clampDirect, float clampIndirect)  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    const GCurveSegment* curves)  // pkg225 Stage 3 — curve shadow occluders
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *shadow_count) return;
@@ -1877,9 +1883,9 @@ __global__ void stageShadowKernel(
 
     // pkg55-C4: thread TLAS + path time + motionVerts to shadow rays.
     float time = state.path_time[idx];
-    GNEEOcclusion occ = gpu_nee_occlude(
+    GNEEOcclusion occ = gpu_nee_occlude<HasCurves>(
         s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
-        time, motionVerts);
+        time, motionVerts, curves);
     if (occ.occluded) return;
 
     // Emission upsample only (the BSDF/MIS parts were pre-resolved in the
@@ -2004,7 +2010,8 @@ __global__ void stageQueueIotaKernel(int* queue, int* count, int n)
 // material dispatch of Laine 2013 sec. 5 / Cycles X shader sorting, realized
 // as bucketed atomic append instead of a radix sort (7 types only).
 // ---------------------------------------------------------------------------
-template<bool HasWorldScatter, bool HasLightPassAOVs = false>   // pkg199 scatter; pkg198 S2 pass axis
+template<bool HasWorldScatter, bool HasLightPassAOVs = false,
+         bool HasCurves = false>   // pkg225 Stage 3 — curve-leaf isolation axis
 __global__ void stageIntersectQueuedKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -2036,7 +2043,9 @@ __global__ void stageIntersectQueuedKernel(
     // path that scattered in the medium; that slot is routed here (not the shade
     // bucket) for the dedicated stageVolumeScatterKernel. Null when the medium
     // does not scatter (scatter==0) — the -2 return never fires then.
-    int* vol_queue, int* vol_count)
+    int* vol_queue, int* vol_count,
+    // pkg225 Stage 3 — device curve segments (nullptr = no curves).
+    const GCurveSegment* curves)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *count_in) return;
@@ -2045,7 +2054,7 @@ __global__ void stageIntersectQueuedKernel(
     // (no-op there); the regeneration driver iterates a dense identity
     // queue where exhausted slots stay dead.
     if (state.path_alive[idx] == 0) return;
-    int matType = intersectPathSlotT<HasWorldScatter, HasLightPassAOVs>(
+    int matType = intersectPathSlotT<HasWorldScatter, HasLightPassAOVs, HasCurves>(
                                     idx, state, hitBufs, tlas, instances, blas,
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
@@ -2053,7 +2062,8 @@ __global__ void stageIntersectQueuedKernel(
                                     useLuminanceOutput, enableNEE,
                                     clampDirect, clampIndirect,
                                     lights, numLights, totalLightPower,
-                                    dedLights, numDed, lightTree);  // pkg120+pkg181
+                                    dedLights, numDed, lightTree,  // pkg120+pkg181
+                                    curves);  // pkg225 Stage 3
     if (matType == -2) {   // pkg199 Stage 2: scattered → volume-scatter queue
         int vslot = atomicAdd(vol_count, 1);
         vol_queue[vslot] = idx;
@@ -2165,7 +2175,8 @@ void launchStageIntersectQueued(
     GLightTreeView    lightTree,
     int* d_vol_queue, int* d_vol_count,   // pkg199 Stage 2
     bool has_world_scatter,               // pkg199 Stage 2: picks the fleet-isolation axis
-    bool has_light_pass_aovs)             // pkg198 Stage 2: picks the pass-AOV axis
+    bool has_light_pass_aovs,             // pkg198 Stage 2: picks the pass-AOV axis
+    const GCurveSegment* d_curveSegments) // pkg225 Stage 3 (nullptr = no curves)
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -2183,26 +2194,46 @@ void launchStageIntersectQueued(
         useLuminanceOutput, enableNEE, clampDirect, clampIndirect, \
         d_lights, num_lights, total_light_power, \
         d_dedLights, num_ded, lightTree, \
-        d_vol_queue, d_vol_count
+        d_vol_queue, d_vol_count, \
+        d_curveSegments
     {
         // pkg198 Stage 2: the second axis picks the pass-AOV specialization. The
         // fleet (no scatter, no passes) launches <false,false> — REG 127, byte-
         // identical Stage-1. All four instantiations are referenced so they land in
         // the cubin for the cuobjdump register report (intersect<false,false> must
         // stay 127/616).
+        // pkg225 Stage 3: the 3rd (HasCurves) axis. NON-curve scenes launch the
+        // <..,..,false> kernels (the curve leaf DCE'd → intersect<false,false,false>
+        // stays REG 127 / 616, byte-identical Stage-1); only scenes carrying curve
+        // segments launch <..,..,true>. All 8 instantiations are referenced so they
+        // land in the cubin for the cuobjdump register report.
+        const bool hc = (d_curveSegments != nullptr);
         const int sel = (has_world_scatter ? 2 : 0) | (has_light_pass_aovs ? 1 : 0);
-        const void* kptr =
-            sel == 3 ? (const void*)stageIntersectQueuedKernel<true, true>  :
-            sel == 2 ? (const void*)stageIntersectQueuedKernel<true, false> :
-            sel == 1 ? (const void*)stageIntersectQueuedKernel<false, true> :
-                       (const void*)stageIntersectQueuedKernel<false, false>;
+        const void* kptr = hc ?
+            (sel == 3 ? (const void*)stageIntersectQueuedKernel<true, true, true>  :
+             sel == 2 ? (const void*)stageIntersectQueuedKernel<true, false, true> :
+             sel == 1 ? (const void*)stageIntersectQueuedKernel<false, true, true> :
+                        (const void*)stageIntersectQueuedKernel<false, false, true>) :
+            (sel == 3 ? (const void*)stageIntersectQueuedKernel<true, true, false>  :
+             sel == 2 ? (const void*)stageIntersectQueuedKernel<true, false, false> :
+             sel == 1 ? (const void*)stageIntersectQueuedKernel<false, true, false> :
+                        (const void*)stageIntersectQueuedKernel<false, false, false>);
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_intersect_queued_n7", kptr, blocks, threads);
-        switch (sel) {
-            case 3: stageIntersectQueuedKernel<true, true> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
-            case 2: stageIntersectQueuedKernel<true, false><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
-            case 1: stageIntersectQueuedKernel<false, true> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
-            default:stageIntersectQueuedKernel<false, false><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
+        if (hc) {
+            switch (sel) {
+                case 3: stageIntersectQueuedKernel<true, true, true> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
+                case 2: stageIntersectQueuedKernel<true, false, true><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
+                case 1: stageIntersectQueuedKernel<false, true, true> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
+                default:stageIntersectQueuedKernel<false, false, true><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
+            }
+        } else {
+            switch (sel) {
+                case 3: stageIntersectQueuedKernel<true, true, false> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
+                case 2: stageIntersectQueuedKernel<true, false, false><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
+                case 1: stageIntersectQueuedKernel<false, true, false> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
+                default:stageIntersectQueuedKernel<false, false, false><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
+            }
         }
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
@@ -2971,21 +3002,30 @@ void launchStageShadow(
     const GVec3*      d_motionVerts, // pkg55-C4 / pkg88-C.0
     const ::GMaterial* d_materials,
     bool              useLuminanceOutput,   // pkg157
-    float             clampDirect, float clampIndirect)  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    const GCurveSegment* d_curveSegments)  // pkg225 Stage 3 (nullptr = no curves)
 {
     if (state.num_active <= 0) return;
     int threads = 256;
     int blocks  = (state.num_active + threads - 1) / threads;
     {
+        // pkg225 Stage 3: curve shadow-occlusion axis. Non-curve scenes launch
+        // stageShadowKernel<false> (curve leaf DCE'd, byte-identical); only curve
+        // scenes launch <true>. Both referenced so they land in the cubin.
+        const bool hc = (d_curveSegments != nullptr);
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_shadow_n7",
-            (const void*)stageShadowKernel, blocks, threads);
-        stageShadowKernel<<<blocks, threads>>>(
-            state, hitBufs, d_nee_f, d_nee_i,
-            d_shadow_queue, d_shadow_count, nee_capacity,
-            d_tlas, d_instances, d_blas,
-            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-            useLuminanceOutput, clampDirect, clampIndirect);
+            hc ? (const void*)stageShadowKernel<true> : (const void*)stageShadowKernel<false>,
+            blocks, threads);
+        #define ASTRORAY_PKG225_SHADOW_ARGS \
+            state, hitBufs, d_nee_f, d_nee_i, \
+            d_shadow_queue, d_shadow_count, nee_capacity, \
+            d_tlas, d_instances, d_blas, \
+            d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials, \
+            useLuminanceOutput, clampDirect, clampIndirect, d_curveSegments
+        if (hc) stageShadowKernel<true> <<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS);
+        else    stageShadowKernel<false><<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS);
+        #undef ASTRORAY_PKG225_SHADOW_ARGS
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_shadow launch error: %s\n",

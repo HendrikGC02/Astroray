@@ -5,8 +5,19 @@
 
 #include "gpu_types.h"
 #include "gpu_materials.h"  // for gpu_buildONB
+#include "gpu_curve_intersect.cuh"  // pkg225 Stage 3 — gpu_curve_intersect
 
 // ---------------------------------------------------------------------------
+// pkg225 Stage 3 — HasCurves template axis: the curve leaf (a __noinline__
+// gpu_curve_intersect call + its Frame-stack frame) measurably raises the
+// intersect kernel's register/stack footprint (127->158 REG, 616->1704 STACK on
+// stageIntersectQueuedKernel<0,0>), dropping register-limited occupancy on the
+// UNIVERSAL intersect path. `template<bool HasCurves=false>` + `if constexpr`
+// keeps every non-curve caller (photon pre-pass, TLAS-parity, and the intersect
+// kernel's <false> specialization) byte-identical — the curve branch (and its
+// call) is dead-code-eliminated. Only scenes that actually upload curve segments
+// launch the <true> intersect/shadow kernels and pay the cost.
+
 // pkg88-C.0 GPU — verify on RTX. Motion-aware triangle hit: interpolate vertices
 // at ray.time before Möller-Trumbore. Per Cycles motion_triangle.h (Apache-2.0):
 // linear blend between bracketing time steps. If motionOffset < 0, falls back to static.
@@ -169,6 +180,7 @@ __device__ inline bool gpu_sphere_hit(
 // Iterative BVH traversal — direct port of BVHAccel::hit()
 // Thread-local stack[64] matches the CPU implementation.
 // ---------------------------------------------------------------------------
+template<bool HasCurves = false>  // pkg225 Stage 3 — curve-leaf isolation (see header)
 __device__ inline bool gpu_bvh_hit(
     const GBVHNode*  nodes,
     const GPrimitive* prims,
@@ -180,7 +192,12 @@ __device__ inline bool gpu_bvh_hit(
     // pkg88-C.0: device motion-vertex buffer. nullptr = no deformation motion
     // anywhere in the scene (default keeps motion-agnostic callers — photon
     // pre-pass, TLAS parity probe, wavefront — unchanged).
-    const GVec3*     motionVerts = nullptr)
+    const GVec3*     motionVerts = nullptr,
+    // pkg225 Stage 3: device curve-segment array. nullptr = no curves (default
+    // keeps every non-curve caller byte-identical — the GPRIM_CURVE leaf below
+    // is guarded on `curves`, and the intersection body is __noinline__ so it
+    // adds only a guarded call to the inlined traversal loop).
+    const GCurveSegment* curves = nullptr)
 {
     if (!nodes) return false;
 
@@ -213,10 +230,16 @@ __device__ inline bool gpu_bvh_hit(
                         }
                     } else if (p.type == GPRIM_SPHERE) {
                         isHit = gpu_sphere_hit(spheres[p.index], ray, tMin, tMax, tmpRec);
-                    } else {
-                        // pkg85-C: GPRIM_SKIP placeholder — see gpu_types.h.
-                        isHit = false;
+                    } else if constexpr (HasCurves) {
+                        // pkg225 Stage 3 — curve leaf (ribbon/thick swept-circle).
+                        // if constexpr: DCE'd entirely in the <false> fleet path,
+                        // so the __noinline__ gpu_curve_intersect call never enters
+                        // the non-curve intersect kernel's register/stack budget.
+                        if (curves != nullptr && p.type == GPRIM_CURVE)
+                            isHit = gpu_curve_intersect(curves[p.index], ray, tMin, tMax, tmpRec);
+                        // else GPRIM_SKIP → isHit stays false
                     }
+                    // (HasCurves=false: GPRIM_CURVE/SKIP fall through, isHit stays false)
                     if (isHit) {
                         hit  = true;
                         tMax = tmpRec.t;
@@ -254,6 +277,7 @@ __device__ inline bool gpu_bvh_hit(
 // gpu_bvh_hit above so accept/reject decisions are identical; only the
 // early-exit differs.
 // ---------------------------------------------------------------------------
+template<bool HasCurves = false>  // pkg225 Stage 3 — curve-leaf isolation (see header)
 __device__ inline bool gpu_bvh_occluded(
     const GBVHNode*  nodes,
     const GPrimitive* prims,
@@ -261,7 +285,9 @@ __device__ inline bool gpu_bvh_occluded(
     const GSphere*    spheres,
     const GRay&       ray,
     float tMin, float tMax,
-    const GVec3*     motionVerts = nullptr)
+    const GVec3*     motionVerts = nullptr,
+    // pkg225 Stage 3 — curves cast shadows too (any-hit). nullptr = no curves.
+    const GCurveSegment* curves = nullptr)
 {
     if (!nodes) return false;
 
@@ -290,6 +316,9 @@ __device__ inline bool gpu_bvh_occluded(
                         }
                     } else if (p.type == GPRIM_SPHERE) {
                         isHit = gpu_sphere_hit(spheres[p.index], ray, tMin, tMax, tmpRec);
+                    } else if constexpr (HasCurves) {
+                        if (curves != nullptr && p.type == GPRIM_CURVE)
+                            isHit = gpu_curve_intersect(curves[p.index], ray, tMin, tMax, tmpRec);
                     }
                     if (isHit) return true;  // any hit occludes
                 }
@@ -342,6 +371,7 @@ __device__ inline bool gpu_bvh_occluded(
 //  - rec.primId is remapped BLAS-local -> global (blas.primOffset + localPrimId)
 //    so prims[rec.primId] (Cryptomatte / NEE) keeps working unchanged.
 // ---------------------------------------------------------------------------
+template<bool HasCurves = false>  // pkg225 Stage 3 — forwarded to the single-level fallback
 __device__ inline bool gpu_tlas_hit(
     const GTLASNode*  tlas,
     const GInstance*  instances,
@@ -356,12 +386,15 @@ __device__ inline bool gpu_tlas_hit(
     // pkg88-C.0: motion verts apply to the classic single-level path only.
     // Deformation motion on INSTANCED meshes is out of scope v1 (the BLAS
     // walk below intentionally does not receive the buffer).
-    const GVec3*      motionVerts = nullptr)
+    const GVec3*      motionVerts = nullptr,
+    // pkg225 Stage 3: curves live in the single-level BVH (addObject → orderedPrims),
+    // not in a per-mesh BLAS, so they are threaded to the null-TLAS fallback only.
+    const GCurveSegment* curves = nullptr)
 {
     // No TLAS uploaded -> behave exactly like the single-level path. (Lets a
     // caller route unconditionally through gpu_tlas_hit before instances exist.)
     if (!tlas || !instances || !blas) {
-        return gpu_bvh_hit(blasNodes, prims, tris, spheres, ray, tMin, tMax, rec, motionVerts);
+        return gpu_bvh_hit<HasCurves>(blasNodes, prims, tris, spheres, ray, tMin, tMax, rec, motionVerts, curves);
     }
 
     bool  hit    = false;
@@ -447,6 +480,7 @@ __device__ inline bool gpu_tlas_hit(
 // gpu_bvh_occluded walk (the wavefront path). With a TLAS, v1 delegates to
 // the closest-hit instance walk and discards the record — boolean-identical;
 // a dedicated any-hit instance walk is a follow-up optimization.
+template<bool HasCurves = false>  // pkg225 Stage 3 — forwarded to the single-level fallback
 __device__ inline bool gpu_tlas_occluded(
     const GTLASNode*  tlas,
     const GInstance*  instances,
@@ -457,15 +491,17 @@ __device__ inline bool gpu_tlas_occluded(
     const GSphere*    spheres,
     const GRay&       ray,
     float tMin, float tMax,
-    const GVec3*      motionVerts = nullptr)
+    const GVec3*      motionVerts = nullptr,
+    // pkg225 Stage 3 — curves cast shadows (single-level fallback only).
+    const GCurveSegment* curves = nullptr)
 {
     if (!tlas || !instances || !blas) {
-        return gpu_bvh_occluded(blasNodes, prims, tris, spheres,
-                                ray, tMin, tMax, motionVerts);
+        return gpu_bvh_occluded<HasCurves>(blasNodes, prims, tris, spheres,
+                                ray, tMin, tMax, motionVerts, curves);
     }
     GHitRecord rec;
-    return gpu_tlas_hit(tlas, instances, blas, blasNodes, prims, tris,
-                        spheres, ray, tMin, tMax, rec, motionVerts);
+    return gpu_tlas_hit<HasCurves>(tlas, instances, blas, blasNodes, prims, tris,
+                        spheres, ray, tMin, tMax, rec, motionVerts, curves);
 }
 
 __device__ inline int gpu_lower_bound(const float* arr, int n, float target) {

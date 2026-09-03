@@ -2175,6 +2175,13 @@ class Renderer {
     // sampling. GPU-only (the CPU oracle keeps std::mt19937); published into the
     // __constant__ c_wfSamplerMode by cuda_wavefront_render.
     bool useProgressiveSampler = false;
+    // pkg225 Stage 3 — GPU curve shading mode. false = ribbon (camera-facing
+    // flat strip, cheap 2D — the viewport default); true = thick swept-circle
+    // (full CPU-parity Cylinder mode). Read by scene_upload when building
+    // GCurveSegment (set identically on every segment) and by the GPU curve
+    // leaf. The CPU path always renders the thick Cylinder mode (curves.h), so
+    // the GPU-vs-CPU parity gate sets this true to compare identical math.
+    bool curveThickMode = false;
     // pkg131 — GPU wavefront zero-knob adaptive sampling opt-in. Mirrors the CPU
     // `adaptive` render arg; read by cuda_wavefront_render to drive the compacted
     // active-pixel round loop. Default true (matches PyRenderer.useAdaptiveSampling).
@@ -2409,6 +2416,9 @@ public:
     // pkg224 — progressive-sampler opt-in (GPU wavefront only).
     void setUseProgressiveSampler(bool use) { useProgressiveSampler = use; }
     bool getUseProgressiveSampler() const { return useProgressiveSampler; }
+    // pkg225 Stage 3 — GPU curve shading mode (ribbon default / thick parity).
+    void setCurveThickMode(bool thick) { curveThickMode = thick; }
+    bool getCurveThickMode() const { return curveThickMode; }
     // pkg131 — GPU adaptive-sampling opt-in (see field above).
     void setUseAdaptiveSampling(bool use) { useAdaptiveSampling = use; }
     bool getUseAdaptiveSampling() const { return useAdaptiveSampling; }

@@ -36,7 +36,8 @@ __global__ void stageIntersectKernel_N3(
     const GBVHNode*   bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
-    const GSphere*    spheres)
+    const GSphere*    spheres,
+    const GCurveSegment* curves)  // pkg225 Stage 3 (nullptr = no curves)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= state.num_active) return;
@@ -64,7 +65,7 @@ __global__ void stageIntersectKernel_N3(
     GHitRecord rec;
     rec.primId = -1;
     bool hit = gpu_bvh_hit(bvhNodes, prims, tris, spheres,
-                           ray, 0.001f, 1e30f, rec);
+                           ray, 0.001f, 1e30f, rec, nullptr, curves);
 
     if (hit) {
         // Write hit record into SoA. Mirrors CPU PostIntersect snapshot fields.
@@ -102,7 +103,8 @@ void launchStageIntersect_SessionN3(
     const GBVHNode*   d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle*  d_tris,
-    const GSphere*    d_spheres)
+    const GSphere*    d_spheres,
+    const GCurveSegment* d_curveSegments)  // pkg225 Stage 3 (nullptr = no curves)
 {
     int n = state.num_active;
     if (n <= 0) return;
@@ -114,7 +116,7 @@ void launchStageIntersect_SessionN3(
             "wavefront_stage_intersect_n3",
             (const void*)stageIntersectKernel_N3, blocks, threads);
         stageIntersectKernel_N3<<<blocks, threads>>>(
-            state, hitBufs, d_bvhNodes, d_prims, d_tris, d_spheres);
+            state, hitBufs, d_bvhNodes, d_prims, d_tris, d_spheres, d_curveSegments);
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_intersect_n3 launch error: %s\n",

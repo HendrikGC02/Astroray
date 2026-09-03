@@ -1,5 +1,57 @@
 # Astroray Status
 
+**2026-09-03 (SESSION — 8 packages merged/resolved + pkg225-S3 in final CI):
+the hair pipeline advanced CPU→GPU (S1 ray-curve intersection, S2 Principled
+Hair BSDF, S3 GPU curve geometry), scalar parameter textures shipped both
+backends, and two stale/ghost items were retired.**
+- **pkg225-S1 — CPU ray-curve (hair) intersection — LANDED** (PR #670). The
+  prior handoff's "bug in curves.h" diagnosis was WRONG: a standalone native
+  harness proved the pbrt-ported primitive hits correctly (t / position /
+  radial normal). The 4 test failures were TEST-harness bugs (degenerate camera
+  up-vector ∥ view dir; broken oblique geometry; a sign-convention normal check)
+  + an **unfilled position AOV** (`SpectralPathTracer` never set `r.position` →
+  `get_position_buffer()` was `Vec3(0)` for every shape — fixed). 7/7.
+- **pkg225-S2 — CPU Principled Hair BSDF (Chiang 2016) — LANDED** (PR #673).
+  `include/astroray/hair_bsdf.h` (Mp/Np/Ap, header-only STL-free for GPU reuse) +
+  `plugins/materials/principled_hair.cpp` (R/TT/TRT+residual, 3 σ_a
+  parametrizations, view-dependent tangent frame from `uvTangent`, h=2·hair_v−1,
+  coat→R-roughness). 9/9 gates (energy ρ≤1 across β_m, absorption, colour,
+  spectral render smoke). cite-algorithm research note `docs/pkg225-hair-bsdf-
+  research.md` (PR #672).
+- **pkg225-S3 — GPU curve geometry — IN FINAL CI** (PR #676). Curves render on
+  the GPU wavefront as a `GPRIM_CURVE` BVH leaf (`gpu_curve_intersect.cuh`,
+  iterative de Casteljau, ribbon default / thick swept-circle). **Register
+  isolation via `template<bool HasCurves>`:** the curve leaf raised the universal
+  intersect/shadow kernels for every scene, so it is gated behind `if constexpr`
+  — non-curve `<…,false>` kernels re-measured byte-identical (intersect 127/616,
+  N3 61/272, shadow 108/584, fleet shade 254/3368/1716); only curve scenes launch
+  `<…,true>` (158). GPU↔CPU curve parity + 25 regression tests pass; cpp-abi-guard
+  APPROVE. (Stage-4 dependency noted: `hairV` is set in the curve leaf but not yet
+  persisted to the SoA hit buffers — S4 needs a `hit_hair_v` lane.)
+- **pkg219d — scalar parameter textures (op-VM → roughness/metallic/transmission/
+  IOR) — LANDED** (PR #674). Extends the `c_wfProgBinding` `__constant__` side-
+  table + CPU `DisneyPlugin::substituted()`. Register gate byte-identical (fleet
+  254/3368/1716); 3/3 CPU+GPU parity; 297 regression; cpp-abi-guard APPROVE;
+  **addon clean-rebuilt + headless-Blender node-chain render verified.**
+  Known-bounded: metallic/transmission GPU parity approximate (closure lobe-mix
+  baked at upload); roughness/IOR exact.
+- **pkg210 — SUPERSEDED.** Premise stale: all 4 `terminateSecondary()` sites are
+  already refraction-gated (dielectric since pkg31, principled since pkg187).
+- **pkg180 — CLOSED, no engine change.** The systemic ~12–20% Cycles-dim does not
+  reproduce on the current build — common-linear-space A/B: backdrop 1.02 / world
+  1.01 / diffuse 0.997 / glossy 1.016 (all in `[0.90,1.10]`). Resolved by the
+  intervening dielectric/metal/Principled parity work and/or a since-corrected
+  harness view-transform.
+- **Method note:** two prior-handoff diagnoses were overturned by first-principle
+  checks — pkg225-S1 (native harness) and pkg210 (grep sweep) — avoiding wasted
+  register-hostile rebuilds. Registers: fleet `stageShadeBucketedKernel
+  <0,0,0,0,0,0,0>` stays REG:254/STACK:3368/CONSTANT[0]:1716 through all of it.
+- **NEXT:** pkg225 S4 (GPU hair BSDF, design pinned, needs the S3 `hit_hair_v`
+  SoA lane first) → S5/S6. Research fan-out in flight for pkg127/pkg211/pkg136
+  (deepseek notes → Opus specs). Full handoff: NEXT_STAGE_REPORT.md.
+
+---
+
 **2026-08-30 → 2026-08-31 (OVERNIGHT ROUND — 12 PRs merged: pkg131 adaptive
 sampling now FULLY DONE across both backends, the pkg208/pkg209/pkg218 spectral/
 dispersion cluster closes out, pkg212 fixes a real GPU/CPU wavefront pixel-offset

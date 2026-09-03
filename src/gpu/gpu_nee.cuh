@@ -495,6 +495,7 @@ __device__ inline GNEESample gpu_nee_sample(
     return s;
 }
 
+template<bool HasCurves = false>  // pkg225 Stage 3 — curve shadow-occlusion isolation
 __device__ inline GNEEOcclusion gpu_nee_occlude(
     const GNEESample& s,
     const GTLASNode*  tlas,        // pkg114
@@ -516,7 +517,7 @@ __device__ inline GNEEOcclusion gpu_nee_occlude(
     if (s.isSphere) {
         // Sphere sources: the ray must REACH the light (hit it, with the
         // light's own material) — miss or a different material = occluded.
-        if (!gpu_tlas_hit(tlas, instances, blas, bvhNodes, prims, tris, spheres,
+        if (!gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris, spheres,
                          GRay(s.origin, s.wi, time), 0.001f, s.maxDist, sh, motionVerts, curves) ||
             sh.materialId != s.lightMatId)
             return occ;
@@ -527,7 +528,7 @@ __device__ inline GNEEOcclusion gpu_nee_occlude(
         // pkg55-B' any-hit: boolean-identical to the previous closest-hit
         // query, but the walk exits at the FIRST occluder (PBRT IntersectP /
         // Cycles scene_intersect_shadow).
-        if (gpu_tlas_occluded(tlas, instances, blas, bvhNodes, prims, tris,
+        if (gpu_tlas_occluded<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris,
                               spheres, GRay(s.origin, s.wi, time), 0.001f,
                               s.maxDist, motionVerts, curves))
             return occ;

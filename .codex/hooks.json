@@ -1,0 +1,32 @@
+{
+  "description": "Astroray Codex lifecycle guards. These supplement, and do not change, the existing Claude and opencode hooks.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$(git rev-parse --show-toplevel)\\.codex\\hooks\\session_start.ps1\"",
+            "statusMessage": "Loading Astroray repository state",
+            "additionalContextLimit": 800
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$(git rev-parse --show-toplevel)\\.codex\\hooks\\pre_tool_guard.ps1\"",
+            "timeout": 20,
+            "statusMessage": "Applying Astroray safety checks",
+            "additionalContextLimit": 800
+          }
+        ]
+      }
+    ]
+  }
+}

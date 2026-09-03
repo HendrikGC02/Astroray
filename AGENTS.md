@@ -21,7 +21,17 @@ Astroray/
 
 - `AGENTS.md` is the shared repo contract for coding agents.
 - `CLAUDE.md` remains Claude Code's behavioral guide. Do not delete or replace it.
-- `.astroray_plan/docs/STATUS.md` is the current planning source of truth.
+  Its durable rules are also summarised below for every harness, including
+  Codex; when its detailed rule is relevant, read it before acting.
+- **Live planning hierarchy (read before proposing or dispatching work):**
+  1. `.astroray_plan/docs/STATUS.md` — latest factual project state.
+  2. `.astroray_plan/docs/NEXT_STAGE_REPORT.md` — current handoff and
+     deployable next work.
+  3. `.astroray_plan/docs/ROADMAP.md` — especially **Current sequencing**,
+     owner priorities, and pause directives.
+  Then confirm the candidate package's own `Status:`/dependencies and current
+  git/GitHub state. Do not route from old handoffs, archived plans, or an
+  apparent empty queue alone.
 - `KNOWLEDGE.md` is the repo routing map — it documents `scripts/project_index.py`
   (`query`/`owns`/`script`/`deps`/`whatis`) for answering "who owns this file",
   "what package does X", and "is there already a script for this task". Consult it
@@ -33,7 +43,27 @@ Astroray/
   do not create a parallel one-off. New reusable scripts must be registered
   in `scripts/README.md` in the same commit.**
 
-## Agent Driver (2026-08: opencode primary, Claude Code fallback)
+## Shared Operating Discipline
+
+- Work on Windows with PowerShell. Avoid Bash/cmd escaping, reserved PowerShell
+  automatic variables, and non-UTF-8 output.
+- Make the smallest change that satisfies the assigned goal. Do not refactor,
+  format, or clean up unrelated code; every changed line must trace to the task.
+- For non-trivial physics, sampling, or numerical algorithms, use the
+  `cite-algorithm` workflow before coding. Prefer a cited published method and
+  a license-compatible reference over invention.
+- Code-writing subagents require a verified isolated worktree. Their first
+  action must confirm `git rev-parse --show-toplevel` is that worktree; abort
+  rather than writing if it is not. Keep implementation concurrency to three
+  or fewer and serialize CUDA-heavy builds/renders with the project GPU lock.
+- Before GPU verification, check the `.pyd` timestamp against `HEAD`, rebuild
+  if stale, and confirm `astroray.__file__` resolves to the intended build
+  output. A root or test-directory `.pyd` can silently shadow a fresh build.
+- Before pushing, list changed function/class signatures and inspect all
+  callers, including tests, mocks, and bindings. A green delegated narrative or
+  CI-only result is not evidence of GPU/runtime correctness.
+
+## Agent Drivers (opencode primary, Claude Code fallback, Codex supported)
 
 - **opencode** (Go, `opencode-ai` v1.18.x) is the primary agent driver. Config:
   `opencode.jsonc` (defaults) + `.opencode/agents/*.md` (per-agent model/permission)
@@ -45,11 +75,18 @@ Astroray/
   out to the `claude` CLI (subscription). Never hardcode model ids in
   skill/hook bodies; routing lives in `.opencode/agents/*` frontmatter +
   `.claude/skills/delegate/config/tiers.json`.
-- The 15 skills in `.claude/skills/` are **shared**: both harnesses auto-discover
-  them (opencode reads `.claude/skills/` natively). Keep their bodies
-  model-agnostic.
+- The 15 skills in `.claude/skills/` remain the canonical shared workflow
+  definitions for Claude Code and opencode. Codex uses the discoverable
+  `.agents/skills/astroray-workflows/` bridge to load the matching canonical
+  body, avoiding a second, drifting copy.
 - Claude Code (`.claude/`, `CLAUDE.md`) remains untouched and fully functional —
   switch back any time; it is the fallback and last-line-of-defense layer.
+- **Codex** uses `.codex/` for project configuration, lifecycle hooks, and
+  focused subagents, plus `.agents/skills/` for the index/workflow bridge.
+  Codex model and provider choice stays user-level so it can evolve. For cheap
+  external-model work, `astroray-opencode-delegator` reads the current mapping
+  from `.claude/skills/delegate/config/tiers.json`; never hard-code those model
+  IDs in agents, hooks, or task prompts.
 
 ## Build & Test Commands
 
@@ -93,12 +130,10 @@ Vec3, Ray, Material, Hittable, BVH, Monte Carlo estimation (NOT ML).
 Python module (`astroray`) via pybind11. Module is at `build/astroray.cpython-*.so` (Linux) or `build/astroray.cp*-win_amd64.pyd` (Windows).
 
 Pillars 1 and 2 are complete: plugin architecture and the spectral core are
-now the baseline. Do NOT rely on this file for the active queue — it goes
-stale within days on this project. The authoritative sequencing is
-`.astroray_plan/docs/ROADMAP.md` "Current sequencing" plus
-`.astroray_plan/docs/STATUS.md`. Standing owner directives: Blender/DCC
-integration-first (2026-08); Pillar 4 astrophysics is PAUSED until core
-rendering is stable.
+now the baseline. Do NOT rely on this file for the active queue — use the live
+planning hierarchy above. The standing owner directive is Blender/DCC
+integration-first; Pillar 4 astrophysics remains PAUSED until an explicit owner
+unpause.
 
 ## Test Structure
 

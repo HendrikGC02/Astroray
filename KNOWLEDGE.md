@@ -6,9 +6,14 @@ packages, docs, tests, and optionally GitHub issues/PRs).
 
 ## Planning source of truth
 
-- `.astroray_plan/docs/ROADMAP.md` — pillars, sequencing, tracks A–D.
-- `.astroray_plan/docs/STATUS.md` — current state (goes stale within days; trust ROADMAP + git over this).
-- `.astroray_plan/docs/NEXT_STAGE_REPORT.md` — recommended deployable set + drop-in prompts.
+Read these together before choosing work, in this order:
+
+1. `.astroray_plan/docs/STATUS.md` — latest factual state.
+2. `.astroray_plan/docs/NEXT_STAGE_REPORT.md` — current handoff and deployable set.
+3. `.astroray_plan/docs/ROADMAP.md` — **Current sequencing**, owner priority, and pause directives.
+
+Then check package frontmatter and current git/GitHub state. Old reports and
+archived plans are context, not dispatch authority.
 
 ## Work packages (one per PR/session)
 
@@ -42,3 +47,6 @@ packages, docs, tests, and optionally GitHub issues/PRs).
 - `AGENTS.md` — shared repo contract (read automatically).
 - `CLAUDE.md` §1–§6 — behavioral rules (§6 no-invented-algorithms invokes the `cite-algorithm` skill).
 - `.opencode/` — opencode agent drivers (opencode is the primary harness; Claude Code is the fallback).
+- `.codex/` + `.agents/skills/` — Codex project config, lifecycle guards,
+  focused subagents, and discoverable workflow/index entry points. Detailed
+  shared workflow bodies remain canonical in `.claude/skills/`.

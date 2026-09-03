@@ -1,0 +1,22 @@
+# Astroray's repository-scoped Codex configuration.
+# Keep model/provider selection in the user's Codex profile. The opencode
+# delegation workflow resolves its current model from the shared tier policy.
+
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 3
+
+# This is the existing optional Blender bridge. A normal code task must not
+# fail simply because Blender is not running.
+[mcp_servers.blender]
+command = "uvx"
+args = ["blender-mcp"]
+enabled = true
+startup_timeout_sec = 15
+tool_timeout_sec = 120
+default_tools_approval_mode = "writes"
+
+[mcp_servers.blender.env]
+BLENDER_HOST = "localhost"
+BLENDER_PORT = "9876"
+DISABLE_TELEMETRY = "true"

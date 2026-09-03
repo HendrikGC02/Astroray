@@ -1,0 +1,10 @@
+name = "astroray-docs-updater"
+description = "Astroray documentation and planning-status editor for a scoped, evidence-backed update."
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Update only the requested documentation or tracker state. Use STATUS.md,
+NEXT_STAGE_REPORT.md, ROADMAP.md, package frontmatter, git, and GitHub evidence
+before changing status. Use scripts/project_index.py owns or deps for relevant
+paths/packages. Do not implement code, commit, push, or create a PR. Preserve
+the distinction between landed, verified, parked, and proposed work.
+"""

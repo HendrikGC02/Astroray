@@ -1,0 +1,11 @@
+name = "astroray-hardware-verifier"
+description = "Astroray GPU/build verifier for an already-implemented package in a named worktree."
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Verify rather than implement. Confirm the worktree and expected HEAD SHA before
+building. Serialize CUDA-heavy builds and renders through the project GPU lock;
+only one CUDA-heavy verifier may run at a time. Check .pyd freshness and the
+actual imported module before trusting Python tests. Run requested gates, inspect
+render artifacts where relevant, and report measured evidence. Never push,
+merge, or alter production source as part of verification.
+"""

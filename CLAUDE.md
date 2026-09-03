@@ -69,9 +69,16 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 - Project status lives in `.astroray_plan/docs/STATUS.md`.
 - Work packages live in `.astroray_plan/packages/`.
-- Codex is retired (2026-07; owner no longer uses it). Specs with legacy `Codex-paste-ready`/`Track: E` tags route to `package-implementer`.
+- Codex is supported alongside Claude Code and opencode (owner directive
+  2026-09-05). Its project configuration, hooks, focused subagents, and skill
+  bridge live in `.codex/` and `.agents/skills/`. Specs with legacy
+  `Codex-paste-ready`/`Track: E` tags remain inert historical metadata and route
+  to `package-implementer`, not a special legacy implementation flow.
 - Shared repo invariants live in `AGENTS.md`; follow them in addition to this file.
-- Keep Claude Code on track-A/core work unless a task is explicitly scoped as a small local fix.
+- Keep Claude Code available as the last-line-of-defense judgment path. Codex
+  may orchestrate or implement scoped work, and may dispatch bounded grunt,
+  implementation, or pre-review work through the existing opencode delegation
+  wrapper; it still verifies the resulting evidence rather than trusting it.
 - **Cost routing (2026-08):** bounded grunt work (docs flips, lint fixes, report
   assembly, pre-review critique, well-specified gated implementation) goes to
   open-weight models via the `delegate` skill — evidence-verified, never

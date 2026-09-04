@@ -356,6 +356,14 @@ reduction on indirect-heavy scenes.
       ref; clean-room PPG port).
 - [ ] Stage 1A — host `SDTree` build/refine + iteration driver (learn-then-sample,
       inverse-variance combination, filtered splatting).
+      **Directional-quadtree core DE-RISKED 2026-09-05** (numpy prototype
+      `scratchpad/proto_sdtree.py`, note `.astroray_plan/docs/pkg136-stage1-
+      derisking.md`): quadtree build + hierarchical-warp sample/pdf + guide/BSDF
+      MIS gives ~110× variance reduction on a hard-transport integrand, unbiased.
+      **#1 gotcha found: training samples must be drawn from the evolving guide
+      (MIS), not BSDF-only** (else the hard region is undersampled → zero-support
+      holes → bias, worse with finer trees). Refine-before-final-splat; splat
+      radiance `Li/pdf`; equal-area map jac 2π. Spatial-tree half still to de-risk.
 - [ ] Stage 1B — CPU guided sampling + guide/BSDF MIS in `pathTraceSpectral`; unbiased +
       variance-reduction gates green on CI.
 - [ ] Stage 2A — device directional side-table + gated `__noinline__` guided draw;

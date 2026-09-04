@@ -12,6 +12,7 @@
 #include "astroray/sampling/progressive_sobol.h"
 #include "astroray/sampling/adaptive_sampling.h"
 #include "astroray/energy_compensation.h"
+#include "astroray/guiding/dtree.h"
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -135,4 +136,50 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
           }, "converged"_a, "width"_a, "height"_a,
           "Two-pass 3x3 dilation of the converged mask (1=converged/retired).");
     m.attr("ADAPTIVE_STEP") = astroray::adaptive::kAdaptiveStep;
+
+    // pkg136 — SD-tree path guiding, directional quadtree (Stage 1A). The
+    // host DTree (include/astroray/guiding/dtree.h) is a clean-room port of the
+    // Müller 2017 directional tree; binding it here lets
+    // tests/test_pkg136_dtree_unit.py drive the exact primitives (splat / refine
+    // / reset / sample / pdf / snapshot) and reproduce the numpy-de-risked
+    // variance-reduction + unbiasedness result in C++. Not public API.
+    m.def("guiding_dir_to_square", [](float wx, float wy, float wz) {
+        float x, y;
+        astroray::guiding::dirToSquare(wx, wy, wz, x, y);
+        return py::make_tuple(x, y);
+    }, "wx"_a, "wy"_a, "wz"_a,
+       "Equal-area cylindrical map: world unit direction → unit-square (x,y).");
+    m.def("guiding_square_to_dir", [](float x, float y) {
+        float wx, wy, wz;
+        astroray::guiding::squareToDir(x, y, wx, wy, wz);
+        return py::make_tuple(wx, wy, wz);
+    }, "x"_a, "y"_a,
+       "Inverse equal-area map: unit-square (x,y) → world unit direction.");
+    m.attr("GUIDING_SPHERE_JACOBIAN") = astroray::guiding::kGuidingSphereJacobian;
+
+    py::class_<astroray::guiding::DTree>(m, "DTree")
+        .def(py::init<>())
+        .def("splat", &astroray::guiding::DTree::splat, "x"_a, "y"_a, "v"_a,
+             "Splat flux v at square point (x,y) along the descent path.")
+        .def("refine", &astroray::guiding::DTree::refine, "rho"_a,
+             "Subdivide (one level) every leaf holding > rho of total flux. Call "
+             "between iterations, using the finished iteration's flux, before reset().")
+        .def("reset", &astroray::guiding::DTree::reset,
+             "Zero all node flux, keeping topology.")
+        .def("sample", [](const astroray::guiding::DTree& t, float u1, float u2) {
+            float x, y, pdf;
+            t.sample(u1, u2, x, y, pdf);
+            return py::make_tuple(x, y, pdf);
+        }, "u1"_a, "u2"_a,
+           "Hierarchical-warp sample → (x, y, square-measure pdf).")
+        .def("pdf", &astroray::guiding::DTree::pdf, "x"_a, "y"_a,
+             "Square-measure pdf of point (x,y).")
+        .def("pdf_dir", &astroray::guiding::DTree::pdfDir, "wx"_a, "wy"_a, "wz"_a,
+             "Solid-angle pdf of a world direction (folds in the 1/4π jacobian).")
+        .def("total_flux", &astroray::guiding::DTree::totalFlux)
+        .def("num_nodes", &astroray::guiding::DTree::numNodes)
+        .def("num_leaves", &astroray::guiding::DTree::numLeaves)
+        .def("snapshot", [](const astroray::guiding::DTree& t) {
+            return astroray::guiding::DTree(t);  // deep copy (frozen guide)
+        }, "Deep copy — the frozen previous-iteration guide for training draws.");
 }

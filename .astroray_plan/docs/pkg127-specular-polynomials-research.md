@@ -299,6 +299,40 @@ compiling `specular_poly.h` both confirm the degree-6 real roots equal a
 reaches only 1 of the 2 real roots in every case (the "one solution per seed"
 miss). Locked as a CI unit test: `tests/test_pkg127_specular_poly_unit.py`.
 
+### 7.5 Estimator finding + weight decision (2026-09-04, owner-directed)
+
+Wiring the deterministic solver in surfaced that Astroray carries **two
+inconsistent SMS weighting schemes**, and that the blessed glass-sphere
+reference encoded the biased one:
+
+- `runSMSAttempt` (single-vertex sphere) weights each found solution by the
+  **stochastic biased-SMS seed-area pdf** `seedAreaWeight = pi*r^2/cosSeed`, and
+  **double-counts the receiver cosine**: `evalSpectral` already returns
+  `albedo*cos/pi` (verified in `plugins/materials/lambertian.cpp`), yet its `G`
+  multiplies `cosX0` again. The 2026-05-27 `sms-refractive-glass-sphere`
+  reference is a 1024-spp render of this path.
+- `runMeshSMSAttempt` (prism) uses the **physically-correct MNEE generalized-
+  geometry term** (`chainGeometryTerm`), no double-cosine.
+
+A seed-area pdf is undefined without a random seed, so the deterministic poly
+path uses the **MNEE term** (correct). Measured on the reference scene at 1024
+spp: poly and Newton have the **same caustic focus/peak** (linear ROI max 8.37
+vs 8.93, p99 2.03 vs 2.02) but poly's total ROI energy is **0.65x** — the biased
+estimator's excess. Everything but the (biased-calibrated) `bright_coverage`
+gate passed.
+
+**Owner decision (2026-09-04): ship the MNEE weight and re-bless.** The
+`sms-refractive-glass-sphere` scene now sets `sms_specular_poly=1` and its
+reference + `bright_coverage` threshold (0.45 -> 0.13, measured 0.1874) were
+re-blessed to the corrected render (4/4 gates pass). The 2.0 firefly clamp
+`runMeshSMSAttempt` applies is omitted for the sphere (it capped the focused
+caustic to bright_coverage 0.19-with-clamp === without-clamp here, i.e. the clamp
+was not even the limiter; per-solution `contribClamp` still bounds fireflies).
+
+**Filed separately:** the `runSMSAttempt` receiver-cosine double-count +
+biased-weight over-brightening is a pre-existing bug in the DEFAULT (non-poly)
+Newton SMS path — see `packages/pkg226-sms-newton-cosine-double-count.md`.
+
 ### 7.4 Section-anchor correction (carried into the code citations)
 
 Per §2 above, the correct paper anchors are single-bounce **§3.3 (square form) +

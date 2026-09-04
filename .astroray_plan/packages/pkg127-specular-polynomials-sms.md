@@ -234,14 +234,25 @@ at production spp.
 
 ## Progress
 
-- [ ] Phase 0 — mollnn/spoly license re-confirmed absent; paper-only re-derivation +
-      MIT cyPolynomial recorded.
-- [ ] Phase 1 — single-bounce univariate polynomial solver (Bézout resultant +
-      Laplacian expansion + cyPolynomial), CPU, behind a flag; Newton retained as
-      root-polish/fallback.
-- [ ] Phase 2 — two-bounce RR resultant + bisection on the pkg106 manifold chain.
+- [x] Phase 0 — mollnn/spoly license fetched + recorded (UNLICENSED → not
+      ported; re-derive from CC BY 4.0 paper, Yuksel-2022/cyPolynomial MIT root
+      finder). Recorded in the research note §3 + §7.
+- [x] Phase 1 — single-bounce polynomial solver, CPU, behind `sms_specular_poly`
+      flag; Newton retained as per-root polish + axial-degenerate fallback.
+      **Sphere-specialized (exact planar degree-6 poly), not the paper's
+      approximate triangle rational mapping** — see research note §7.
+      Deterministic MNEE weight (chainGeometryTerm, N=1). Validated vs brute-force
+      (`tests/test_pkg127_specular_poly_unit.py`); engine + reference-gate tests
+      added. *(pending HW gate run at closeout.)*
+- [ ] Phase 2 — two-bounce hidden-variable resultant on the pkg106 manifold chain
+      (sphere entry+exit planar; the triangle/prism case is a distinct scope
+      decision — see research note §7.1).
 - [ ] Phase 3 — GPU/wavefront mirror; caustic parity RTX-verified.
-- [ ] Seed-failure-rate before/after measured on glass-sphere + SF11.
+- [~] Seed-failure-rate before/after measured on glass-sphere (poly enumerates all
+      branches; instrumented via sms_attempts/sms_converged stats). SF11 is a
+      two-bounce/triangle case → Phase 2.
+- [x] Research note `pkg127-specular-polynomials-research.md` written (paper +
+      DOI/arXiv, license decision, the exact math reproduced + §7 design).
 
 ---
 

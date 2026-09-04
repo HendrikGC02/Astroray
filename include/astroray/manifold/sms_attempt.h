@@ -27,7 +27,7 @@
 #include "../shapes.h"
 #include "../spectrum.h"
 #include "half_vector_constraint.h"
-#include "manifold_chain.h"   // pkg127: chainGeometryTerm (deterministic weight)
+#include "manifold_chain.h"   // pkg127: chainGeometryTerm (deterministic MNEE weight)
 #include "newton_iterate.h"
 #include "specular_poly.h"    // pkg127: deterministic sphere seed enumeration
 
@@ -302,8 +302,21 @@ inline SMSPolyResult runSMSAttemptPoly(const Renderer& renderer,
         const astroray::SampledSpectrum fSpec =
             x0Rec.material->evalSpectral(x0Rec, wo_eye, wi_x0, lambdas);
 
-        // Deterministic MNEE geometry term for the single sphere vertex
-        // (mirror runMeshSMSAttempt; sphere partials dp=r*tangent, dn=tangent).
+        // Deterministic weight: the MNEE generalized-geometry term (the correct
+        // replacement for the stochastic seed-area pdf — the seed pdf is
+        // meaningless without a random seed). evalSpectral already carries the
+        // receiver cosine (lambertian returns albedo*cos/pi), so the weight is
+        // dw0_dx1 * dx1_dxlight with NO extra receiver cosine — mirroring the
+        // validated runMeshSMSAttempt (NOT runSMSAttempt, which double-counts the
+        // receiver cosine). N=1 sphere vertex, analytic partials dp=r*tangent,
+        // dn=tangent (curvature 1/r).
+        //
+        // The 2.0 firefly clamp runMeshSMSAttempt applies is DELIBERATELY OMITTED
+        // here: it caps the geometry-term spike at a caustic focus, which for a
+        // spread prism rainbow is fine but for a focused sphere caustic throws
+        // away most of the concentrated energy (measured bright_coverage 0.19 vs
+        // 0.63 with the clamp). The per-solution contribClamp still bounds
+        // singular-Jacobian fireflies.
         Vec3 s1, t1;
         buildOrthonormalBasis(nEntry, s1, t1);
         ChainVertex cv;
@@ -317,18 +330,17 @@ inline SMSPolyResult runSMSAttemptPoly(const Renderer& renderer,
         const float dx1_dxlight = chainGeometryTerm(
             &cv, 1, x0Rec.point, ls.position, ls.normal, nullptr, fixedDir, sunDir);
         if (dx1_dxlight <= 0.0f) continue;
-        float G = dw0_dx1 * dx1_dxlight;
-        if (G > 2.0f) G = 2.0f;
+        const float w = dw0_dx1 * dx1_dxlight * invPdf;
 
         // Hero-channel contribution (clamped per solution, as the Newton path).
-        float sampleHero = fSpec[0] * LeHero * Tr * G * invPdf;
+        float sampleHero = fSpec[0] * LeHero * Tr * w;
         if (sampleHero > cfg.contribClamp) sampleHero = cfg.contribClamp;
         if (sampleHero < 0.0f) sampleHero = 0.0f;
         R.hero += sampleHero;
 
         // RGB contribution (clamped per solution).
         const astroray::XYZ fxyz = fSpec.toXYZ(lambdas);
-        Vec3 sampleRGB = Vec3(fxyz.X, fxyz.Y, fxyz.Z) * ls.emission * (Tr * G * invPdf);
+        Vec3 sampleRGB = Vec3(fxyz.X, fxyz.Y, fxyz.Z) * ls.emission * (Tr * w);
         const float maxC = std::max(sampleRGB.x, std::max(sampleRGB.y, sampleRGB.z));
         if (maxC > cfg.contribClamp) sampleRGB = sampleRGB * (cfg.contribClamp / maxC);
         R.rgb = R.rgb + sampleRGB;

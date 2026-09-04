@@ -1,6 +1,12 @@
 # sms-refractive-glass-sphere — non-dispersive refractive caustic
-# Reference blessed 2026-05-27. Measured baselines:
-#   bright_coverage L>0.35 in floor ROI = 0.6080
+# Reference RE-BLESSED 2026-09-04 (pkg127): the scene now exercises the
+# deterministic Specular-Polynomials seed stage with the physically-correct
+# MNEE-weighted estimator. The prior 2026-05-27 reference used the stochastic
+# single-vertex Newton estimator, which over-brightened the caustic (~1.5x) and
+# double-counted the receiver cosine (filed as a separate runSMSAttempt bug).
+# Measured baselines (poly): bright_coverage L>0.35 in floor ROI = 0.1874 (same
+# caustic focus/peak as the old reference; the biased estimator's excess spread
+# energy is gone).
 
 [scene]
 description = "Non-dispersive BK7-equivalent (scalar IOR 1.52) glass sphere + area emitter + diffuse floor. Tests SMS path-finding for refractive caustics without the per-wavelength complication."
@@ -17,11 +23,11 @@ direction = "le"
 
 [[gate]]
 type = "bright_coverage"
-threshold = 0.45
+threshold = 0.13
 direction = "ge"
 roi = [140, 256, 60, 324]
 luminance_threshold = 0.35
-description = "Caustic-presence gate. Measured 0.61; threshold gives headroom for MC noise."
+description = "Caustic-presence gate. Measured 0.1874 (pkg127 MNEE-weighted poly); threshold gives headroom for MC noise."
 
 [[gate]]
 type = "phash"

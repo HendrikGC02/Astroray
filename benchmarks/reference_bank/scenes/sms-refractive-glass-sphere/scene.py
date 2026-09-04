@@ -39,6 +39,12 @@ def make_scene(astroray):
     r.set_integrator_param("max_depth", MAX_DEPTH)
     r.set_integrator_param("caustic_chain_iters", 3)
     r.set_integrator_param("spectral_newton", 0)  # achromatic — scalar IOR path
+    # pkg127: exercise the deterministic Specular-Polynomials seed stage (the
+    # correct MNEE-weighted estimator). Re-blessed 2026-09-04 to this path — the
+    # prior reference used the stochastic Newton seeding whose single-vertex
+    # estimator over-brightened the caustic and double-counted the receiver
+    # cosine (filed separately). See notes.md.
+    r.set_integrator_param("sms_specular_poly", 1)
 
     r.setup_camera(
         [0.0, 1.2, 3.4], [0.0, -0.8, 0.0], [0.0, 1.0, 0.0],

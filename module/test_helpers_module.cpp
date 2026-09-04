@@ -8,11 +8,14 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <array>
+
 #include "astroray/sampling/wavefront_rng.h"
 #include "astroray/sampling/progressive_sobol.h"
 #include "astroray/sampling/adaptive_sampling.h"
 #include "astroray/energy_compensation.h"
 #include "astroray/guiding/dtree.h"
+#include "astroray/guiding/sdtree.h"
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -182,4 +185,45 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
         .def("snapshot", [](const astroray::guiding::DTree& t) {
             return astroray::guiding::DTree(t);  // deep copy (frozen guide)
         }, "Deep copy — the frozen previous-iteration guide for training draws.");
+
+    // pkg136 — SD-tree spatial binary tree (Stage 1A). Wraps the float[3] API
+    // in tuples so tests/test_pkg136_sdtree_unit.py can de-risk the spatial
+    // half: leaf lookup, point-count split with directional-tree inheritance,
+    // and that spatially-separated regions specialise to different guides.
+    using SDT = astroray::guiding::SDTree;
+    py::class_<SDT>(m, "SDTree")
+        .def(py::init([](std::array<float, 3> mn, std::array<float, 3> mx) {
+            return SDT(mn.data(), mx.data());
+        }), "minb"_a, "maxb"_a)
+        .def("record", [](SDT& t, std::array<float, 3> p,
+                          float wx, float wy, float wz, float value) {
+            t.record(p.data(), wx, wy, wz, value);
+        }, "p"_a, "wx"_a, "wy"_a, "wz"_a, "value"_a,
+           "Splat radiance `value` at world dir (wx,wy,wz) into the leaf at p.")
+        .def("sample_dir", [](const SDT& t, std::array<float, 3> p, float u1, float u2) {
+            float wx, wy, wz, pdf;
+            t.sampleDir(p.data(), u1, u2, wx, wy, wz, pdf);
+            return py::make_tuple(wx, wy, wz, pdf);
+        }, "p"_a, "u1"_a, "u2"_a,
+           "Sample a world direction from the leaf at p → (wx,wy,wz,pdf_sa).")
+        .def("pdf_dir", [](const SDT& t, std::array<float, 3> p,
+                           float wx, float wy, float wz) {
+            return t.pdfDir(p.data(), wx, wy, wz);
+        }, "p"_a, "wx"_a, "wy"_a, "wz"_a)
+        .def("refine", &SDT::refine, "spatial_threshold"_a, "dir_rho"_a,
+             "Spatial split (count > threshold) with DTree inheritance, then "
+             "directional refine of every leaf.")
+        .def("reset_iteration", &SDT::resetIteration,
+             "Zero all directional flux + spatial sample counts, keep topology.")
+        .def("snapshot", &SDT::snapshot, "Deep copy (frozen guide).")
+        .def("num_leaves", &SDT::numLeaves)
+        .def("num_nodes", &SDT::numNodes)
+        .def("leaf_bounds", [](const SDT& t, std::array<float, 3> p) {
+            float mn[3], mx[3];
+            t.leafBounds(p.data(), mn, mx);
+            return py::make_tuple(mn[0], mn[1], mn[2], mx[0], mx[1], mx[2]);
+        }, "p"_a, "AABB (minx,miny,minz,maxx,maxy,maxz) of the leaf at p.")
+        .def("leaf_sample_count", [](const SDT& t, std::array<float, 3> p) {
+            return t.leafSampleCount(p.data());
+        }, "p"_a);
 }

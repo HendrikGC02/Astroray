@@ -82,12 +82,15 @@ def _render_pair(lmin, lmax, mode, *,
     cpu.set_output_mode(mode)
     cpu.set_integrator("multiwavelength_path_tracer")
     # pkg195: this integrator is the GPU parity NAIVE oracle. Stage A gave the CPU
-    # multiwavelength_path_tracer dedicated-light NEE (default on), but the GPU MW
-    # leg still has no light sampling (module/blender_module.cpp:1814 derives
-    # enableNEE=false for this integrator name). Pin the CPU leg naive so parity
-    # compares naive transport on BOTH legs until pkg195 Phase 3 lands GPU
-    # spectral-light NEE. Pinned on both legs (the GPU render path derives naive
-    # from the integrator name, so the param is a no-op there, kept for symmetry).
+    # multiwavelength_path_tracer dedicated-light NEE (default on), so pin BOTH legs
+    # naive to compare naive transport against naive transport.
+    #
+    # pkg225-S6 UPDATE: `enable_nee=0` is now load-bearing on the GPU leg too, not
+    # "a no-op kept for symmetry". blender_module.cpp used to derive naive-ness from
+    # the integrator NAME, which forced the GPU leg naive no matter what the param
+    # said — and made every non-emissive, non-specular surface render EXACTLY black
+    # under GPU multiwavelength. The GPU now reads the same `enable_nee` param the
+    # CPU reads (default 1), so this pin is what keeps both legs naive here.
     cpu.set_integrator_param("enable_nee", 0)
     cpu_px = np.array(cpu.render(samples_per_pixel=spp, max_depth=depth, apply_gamma=False),
                       dtype=np.float32)

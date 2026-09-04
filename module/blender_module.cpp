@@ -2068,7 +2068,23 @@ public:
                     useLum = !(lmin >= 379.5f && lmax <= 780.5f);
                 else
                     useLum = (mode == "luminance");
-                bool enableNEE = (integratorName_ != "multiwavelength_path_tracer");
+                // pkg225-S6: honour the integrator's own `enable_nee` param
+                // instead of deriving naive-ness from the integrator NAME.
+                // The CPU MultiwavelengthPathTracer takes `enable_nee` with
+                // DEFAULT 1 (plugins/integrators/multiwavelength_path_tracer.cpp,
+                // pkg195 Stage A), so the old name-derived `false` here made the
+                // GPU leg light-sampling-blind while the CPU leg sampled lights
+                // — every non-emissive, non-specular surface rendered EXACTLY
+                // black on GPU spectral (naive mode accumulates emission only on
+                // `bounce == 0 || wasSpecular`, and the two-sided-MIS w_B leg is
+                // itself gated on enableNEE: stage_advance.cu emission block).
+                // Diagnosed on pkg225 curve/hair geometry, but it was never
+                // curve-specific — a lambertian sphere is equally black.
+                // The naive parity oracles keep working: they already pin
+                // `enable_nee=0` on BOTH legs (tests/test_gpu_multiwavelength.py).
+                bool enableNEE = true;
+                if (integratorName_ == "multiwavelength_path_tracer")
+                    enableNEE = integratorParams_.getInt("enable_nee", 1) != 0;
                 // pkg159: restore GPU cryptomatte (dropped with the megakernels
                 // in pkg55-C7). The driver writes the Camera's rank buffers
                 // directly — sorted + normalised — so get_cryptomatte_*_buffer

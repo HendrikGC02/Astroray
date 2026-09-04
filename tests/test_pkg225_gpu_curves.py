@@ -93,10 +93,10 @@ def _make_strands():
     return np.asarray(positions, dtype=np.float32), counts
 
 
-def _make_curve_scene(use_gpu: bool):
+def _make_curve_scene(use_gpu: bool, spectral: bool = False):
     """Diffuse curve field + one area light, black background. Built identically
     for CPU and GPU; only the backend flag (and the harmless-on-CPU thick-mode
-    flag) differ."""
+    flag) differ. `spectral` swaps in the multiwavelength integrator."""
     r = astroray.Renderer()
     r.set_background_color([0.0, 0.0, 0.0])
 
@@ -111,7 +111,9 @@ def _make_curve_scene(use_gpu: bool):
     r.setup_camera([0.0, 0.0, 4.2], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
                     40.0, WIDTH / HEIGHT, 0.0, 4.2, WIDTH, HEIGHT)
 
-    r.set_integrator("path_tracer")
+    r.set_integrator("multiwavelength_path_tracer" if spectral else "path_tracer")
+    if spectral:
+        r.set_wavelength_range(380.0, 780.0)
     r.set_integrator_param("max_depth", MAX_DEPTH)
     # CPU always renders the thick swept-circle Cylinder; make the GPU do the
     # same so the two backends run identical math (else GPU defaults to ribbon).
@@ -121,8 +123,8 @@ def _make_curve_scene(use_gpu: bool):
     return r
 
 
-def _render(use_gpu: bool) -> np.ndarray:
-    r = _make_curve_scene(use_gpu=use_gpu)
+def _render(use_gpu: bool, spectral: bool = False) -> np.ndarray:
+    r = _make_curve_scene(use_gpu=use_gpu, spectral=spectral)
     r.set_seed(SEED)
     return np.asarray(r.render(SAMPLES, MAX_DEPTH, None, False), dtype=np.float32)
 
@@ -176,3 +178,71 @@ def test_gpu_curve_render_matches_cpu():
 
     print("[pkg225-S3 GPU curves] PASS: finite, curves visible, per-channel "
           f"mean ratios within [{RATIO_LOW}, {RATIO_HIGH}]")
+
+
+# ---------------------------------------------------------------------------
+# pkg225-S6 regression — the SAME diffuse curve field under the multiwavelength
+# (spectral) integrator.
+#
+# This gate exists because GPU spectral used to render every curve EXACTLY black
+# (cov=0.0, max=0.0) while GPU RGB and CPU spectral rendered them fine. The cause
+# was never curve-specific: module/blender_module.cpp derived the wavefront's
+# `enableNEE` from the integrator NAME, hard-forcing naive (no light sampling) on
+# `multiwavelength_path_tracer`, while the CPU MultiwavelengthPathTracer takes
+# `enable_nee` with default 1 (pkg195 Stage A). In naive mode the shade stage
+# accumulates emission only on `bounce == 0 || wasSpecular` AND skips the
+# two-sided-MIS w_B leg, so a lambertian surface lit solely by an off-camera area
+# light receives zero radiance by construction. The GPU now honours the same
+# `enable_nee` param the CPU reads.
+# ---------------------------------------------------------------------------
+
+def test_gpu_spectral_curve_render_matches_cpu():
+    gpu = _render(use_gpu=True, spectral=True)
+    cpu = _render(use_gpu=False, spectral=True)
+
+    assert int(np.sum(~np.isfinite(gpu))) == 0, "GPU spectral curve render non-finite"
+    assert int(np.sum(~np.isfinite(cpu))) == 0, "CPU spectral curve render non-finite"
+
+    gpu_cov = float(np.mean(np.any(gpu > 1e-4, axis=-1)))
+    cpu_cov = float(np.mean(np.any(cpu > 1e-4, axis=-1)))
+    print(f"\n[pkg225-S6 GPU spectral curves] coverage cpu={cpu_cov:.3f} "
+          f"gpu={gpu_cov:.3f}")
+    assert cpu_cov >= COVERAGE_FLOOR, (
+        f"CPU spectral render shows no curve coverage ({cpu_cov:.3f}) -- fix the "
+        f"CPU leg before gating the GPU.")
+    assert gpu_cov >= COVERAGE_FLOOR, (
+        f"GPU spectral render shows no curve coverage ({gpu_cov:.3f} < "
+        f"{COVERAGE_FLOOR}) -- the multiwavelength route is light-sampling-blind "
+        f"again (enableNEE derived from the integrator name instead of the "
+        f"`enable_nee` param), so every non-emissive surface shades black.")
+
+    for c, ch in enumerate("RGB"):
+        gm = float(gpu[..., c].mean())
+        cm = float(cpu[..., c].mean())
+        ratio = (gm / cm) if cm > 1e-9 else (float("inf") if gm > 1e-9 else 1.0)
+        print(f"  {ch}: cpu_mean={cm:.5f} gpu_mean={gm:.5f} ratio={ratio:.4f}")
+        assert RATIO_LOW <= ratio <= RATIO_HIGH, (
+            f"pkg225-S6 GPU/CPU SPECTRAL curve parity FAILED: channel {ch} mean "
+            f"ratio {ratio:.4f} outside [{RATIO_LOW}, {RATIO_HIGH}] "
+            f"(cpu_mean={cm:.5f}, gpu_mean={gm:.5f}).")
+
+    print("[pkg225-S6 GPU spectral curves] PASS")
+
+
+def test_gpu_spectral_naive_mode_still_naive():
+    """`enable_nee=0` must still reach the GPU wavefront (the naive parity oracle
+    used by tests/test_gpu_multiwavelength.py). With no light sampling and an
+    off-camera emitter, this diffuse-only scene loses essentially all of its
+    radiance -- that is the naive contract, not a bug."""
+    r = _make_curve_scene(use_gpu=True, spectral=True)
+    r.set_integrator_param("enable_nee", 0)
+    r.set_seed(SEED)
+    naive = np.asarray(r.render(SAMPLES, MAX_DEPTH, None, False), dtype=np.float32)
+    lit = _render(use_gpu=True, spectral=True)
+    print(f"\n[pkg225-S6] GPU spectral mean: nee=1 {lit.mean():.6f}  "
+          f"nee=0 {naive.mean():.6f}")
+    assert lit.mean() > 1e-4, "NEE-on reference render is itself black"
+    assert naive.mean() < 0.1 * lit.mean(), (
+        f"enable_nee=0 no longer reaches the GPU wavefront (naive mean "
+        f"{naive.mean():.6f} vs NEE-on {lit.mean():.6f}); the naive parity oracle "
+        f"in test_gpu_multiwavelength.py is compromised.")

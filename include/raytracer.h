@@ -635,8 +635,18 @@ public:
             const astroray::SampledWavelengths& lambdas) const {
         if (!spectralProfile_) {
             // No profile: return 0 for outside-visible samples, normal eval for visible.
-            float cosTheta = wi.dot(rec.normal);
-            if (cosTheta <= 0.0f) return astroray::SampledSpectrum(0.0f);
+            //
+            // pkg225-S6: NO `wi.dot(rec.normal) <= 0 -> 0` gate here. That gate
+            // assumed every BSDF is hemisphere-limited, which silently deleted the
+            // back-hemisphere response of the ones that are not — the Principled
+            // Hair TT/TRT lobes (which transmit THROUGH the fibre and are most of
+            // its energy: CPU spectral hair rendered ~9x darker than CPU RGB hair
+            // with the same material), plus `subsurface` (deliberate abs(cosTheta))
+            // and `isotropic` (a 4-pi phase function). It was also redundant: every
+            // hemisphere-limited material already gates inside its own evalSpectral
+            // (lambertian / oren_nayar / phong / metal / closure_matte / ...), which
+            // is the SAME contract the RGB `eval()` honours on the RGB NEE leg.
+            // Delegating the gate to the material keeps RGB and spectral consistent.
             astroray::SampledSpectrum base = evalSpectral(rec, wo, wi, lambdas);
             for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
                 float lam = lambdas.lambda(i);
@@ -671,6 +681,15 @@ public:
             const HitRecord& rec, const Vec3& wo,
             std::mt19937& gen,
             astroray::SampledWavelengths& lambdas) const {
+        // NOTE (pkg225-S6): this body deliberately does NOT delegate to the virtual
+        // sampleSpectral when no profile is attached, even though it is otherwise a
+        // near-copy of that default. The one difference is load-bearing: the copy
+        // resolves its non-delta BSDF factor through evalSpectralExt (which zeroes
+        // samples outside 380-780 nm — the "no profile => 0 out of band, physically
+        // honest" contract) where the virtual default calls the raw evalSpectral.
+        // Delegating dropped that zeroing and broke the UV-band no-profile baseline
+        // (test_gpu_multiwavelength::test_uv_band_cpu_gpu_ssim_with_profiles: the
+        // CPU prof/no-prof ratio fell 1.48 -> 0.97 while the GPU stayed at 1.48).
         BSDFSample bs = sample(rec, wo, gen);
         BSDFSampleSpectral bss;
         bss.wi = bs.wi;

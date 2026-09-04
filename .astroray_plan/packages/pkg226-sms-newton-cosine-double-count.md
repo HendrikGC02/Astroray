@@ -2,7 +2,14 @@
 
 **Pillar:** 3 (light transport / caustics)
 **Track:** A (correctness; render-level caustic gates)
-**Status:** open — filed 2026-09-04 as a finding surfaced while implementing pkg127
+**Status:** LANDED (#686, 2026-09-04) — `runSMSAttempt` now uses the MNEE
+`chainGeometryTerm` weight (no cos² double-count, no biased seed-area pdf),
+matching the pkg127 poly path. The over-bright (~1.5×) default Newton caustic is
+corrected; measured Newton-vs-poly SSIM 0.987, mean ratio ~0.95 (residual ~5%
+underestimate at multi-solution foci is inherent to stochastic single-seed
+Newton — the exact result is the poly path). The `sms_caustic_validation` PSNR
+gate was recalibrated 5.0 → 2.5 dB (the de-brightened caustic sits closer to the
+caustic-free baseline; the larger old gain encoded the bug). CPU-only change.
 **Estimated effort:** S–M (one weight expression + a re-bless; the risk is
 touching the fleet-blessed caustic references)
 **Depends on:** independent of pkg127 (pkg127 already sidesteps this by using the

@@ -43,7 +43,10 @@ inline const Material* gatherTriangleCasters(const Renderer& renderer,
         if (!tri) continue;
         const auto& m = tri->getMaterial();
         if (!m || !m->isTransmissive()) continue;
-        out.push_back(CausticTri{tri->getV0(), tri->getV1(), tri->getV2()});
+        CausticTri ct{tri->getV0(), tri->getV1(), tri->getV2()};
+        // pkg227 2b-smooth: carry per-vertex shading normals for smooth casters.
+        ct.smooth = tri->getVertexNormals(ct.n0, ct.n1, ct.n2);
+        out.push_back(ct);
         if (!mat) mat = m.get();
     }
     return mat;
@@ -224,19 +227,38 @@ inline SMSPolyResult runMeshSMSAttemptPoly(const Renderer& renderer,
 
     for (int ci = 0; ci < nCand; ++ci) {
         const CausticTri& tr = tris[cand[ci]];
-        specpoly::FlatTriSolution sols[4];
-        const int nsol = specpoly::solveFlatTriangleSpecular(
-            x0Rec.point, ls.position, tr.v0, tr.v1, tr.v2, eta,
-            /*refraction=*/true, sols, 4);
-        if (nsol <= 0) continue;   // -1 degenerate / 0 no in-facet root
-        R.nSolutions += nsol;
-
         const Vec3 e1v = tr.v1 - tr.v0;
         const Vec3 e2v = tr.v2 - tr.v0;
 
+        specpoly::FlatTriSolution sols[4];
+        int nsol = specpoly::solveFlatTriangleSpecular(
+            x0Rec.point, ls.position, tr.v0, tr.v1, tr.v2, eta,
+            /*refraction=*/true, sols, 4);
+        if (nsol < 0) continue;   // degenerate facet
+        if (nsol == 0) {
+            // pkg227 2b-smooth: the flat quartic can miss the in-facet root at
+            // coarse tessellation while the SMOOTH vertex is on this facet; seed
+            // the smooth polish from the centroid. (No flat solution => skip.)
+            if (!tr.smooth) continue;
+            sols[0].p = (tr.v0 + tr.v1 + tr.v2) * (1.0f / 3.0f);
+            sols[0].n = e1v.cross(e2v).normalized();
+            nsol = 1;
+        }
+        R.nSolutions += nsol;
+
         for (int i = 0; i < nsol; ++i) {
-            const Vec3 x1 = sols[i].p;
-            const Vec3 nEntry = sols[i].n;
+            Vec3 x1 = sols[i].p;
+            Vec3 nEntry = sols[i].n;
+            Vec3 dnDu(0.0f), dnDv(0.0f);   // flat facet => zero shading-normal partials
+            // pkg227 2b-smooth: polish the flat basin to the interpolated-normal
+            // solution and take the smooth unit-normal partials for the weight.
+            if (tr.smooth) {
+                Vec3 sp, sn, sdu, sdv;
+                if (!specpoly::polishSmoothVertex(sols[i].p, tr, x0Rec.point,
+                                                  ls.position, eta, sp, sn, sdu, sdv))
+                    continue;
+                x1 = sp; nEntry = sn; dnDu = sdu; dnDv = sdv;
+            }
 
             const Vec3 dirToX1 = x1 - x0Rec.point;
             const float distX0X1_2 = dirToX1.length2();
@@ -250,11 +272,14 @@ inline SMSPolyResult runMeshSMSAttemptPoly(const Renderer& renderer,
                 continue;
             if (!(vrec.hitObject && vrec.hitObject->isCausticCaster())) continue;
 
-            // Orient the facet normal toward x0 (a facet has no innate side).
+            // Orient the normal toward x0. A flat facet has no innate side; the
+            // smooth interpolated normal does, but the receiver-side convention is
+            // the same (cosI > 0). Flip the shading-normal partials with it so the
+            // MNEE Jacobian stays consistent with the oriented normal.
             Vec3 nOr = nEntry;
             const Vec3 wi_in = -wi_x0;
             float cosI = -wi_in.dot(nOr);
-            if (cosI < 0.0f) { nOr = nOr * -1.0f; cosI = -cosI; }
+            if (cosI < 0.0f) { nOr = nOr * -1.0f; cosI = -cosI; dnDu = dnDu * -1.0f; dnDv = dnDv * -1.0f; }
             if (cosI <= 1e-6f) continue;
             const float sin2T = eta * eta * std::max(0.0f, 1.0f - cosI * cosI);
             if (sin2T >= 1.0f) continue;  // TIR
@@ -282,14 +307,15 @@ inline SMSPolyResult runMeshSMSAttemptPoly(const Renderer& renderer,
             const astroray::SampledSpectrum fSpec =
                 x0Rec.material->evalSpectral(x0Rec, wo_eye, wi_x0, lambdas);
 
-            // MNEE generalized-geometry weight, N=1 flat vertex: surface tangents
-            // are the triangle edges, dn=0 (flat facet — trianglePartials
-            // convention). No extra receiver cosine (evalSpectral carries it); no
-            // 2.0 clamp (as runSMSAttemptPoly).
+            // MNEE generalized-geometry weight, N=1 vertex: surface tangents are
+            // the triangle edges; the shading-normal partials are 0 for a flat
+            // facet (trianglePartials) and the interpolated dn_du/dn_dv for a
+            // smooth caster (2b-smooth). No extra receiver cosine (evalSpectral
+            // carries it); no 2.0 clamp (as runSMSAttemptPoly).
             ChainVertex cv;
             cv.p = x1;  cv.n = nOr;
             cv.dp_du = e1v;  cv.dp_dv = e2v;
-            cv.dn_du = Vec3(0.0f);  cv.dn_dv = Vec3(0.0f);
+            cv.dn_du = dnDu;  cv.dn_dv = dnDv;
             cv.eta = iorHero;
             const Vec3 sunDir = dirLight;
             const float dw0_dx1 =

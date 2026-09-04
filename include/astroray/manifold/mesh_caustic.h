@@ -22,6 +22,10 @@ namespace astroray::manifold {
 // A flat caustic-caster triangle (geometric normal derived from the winding).
 struct CausticTri {
     Vec3 v0, v1, v2;
+    // pkg227 2b-smooth: per-vertex shading normals (populated from the caster
+    // Triangle when it is smooth-shaded). `smooth` false => flat facet (dn=0).
+    Vec3 n0, n1, n2;
+    bool smooth = false;
 };
 
 // Möller-Trumbore ray-triangle intersection. Returns the front/back hit

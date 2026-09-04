@@ -424,10 +424,34 @@ demand.
       vs `solveSphereSpecular`, 3/3, CI, < 1e-4 rad) + `tests/test_pkg227_mesh_
       caustic.py` (render-level, 4/4). Branch `pkg227-s2b-flat`. See Phase 2b-flat
       findings below.
-- [ ] Phase 2b-smooth — interpolated shading-normal support (constraint + Jacobian).
+- [x] Phase 2b-smooth — interpolated shading-normal support (constraint + Jacobian).
+      **LANDED 2026-09-05.** `specpoly::polishSmoothVertex` + `mneeResidual2`
+      (`mesh_specular_poly.h`): a short Newton polish of the flat basin on the
+      MNEE half-vector residual with the interpolated normal — NO degree-inflated
+      polynomial needed (de-risked, see below). `CausticTri` carries per-vertex
+      normals (pulled in `gatherTriangleCasters`); `runMeshSMSAttemptPoly` polishes
+      + feeds smooth `dn_du/dn_dv` to `chainGeometryTerm`. Gates:
+      `tests/test_pkg227_mesh_smooth_unit.py` (numpy oracle, 2/2, CI: reaches the
+      oracle at coarse tessellation, beats flat by 10-1e6×) +
+      `tests/test_pkg227_mesh_smooth_caustic.py` (render, 4/4: smooth mesh caustic
+      NCC 0.86 vs analytic sphere, flat only 0.40). Branch `pkg227-s2b-smooth`.
+      See Phase 2b-smooth findings below.
 - [ ] Phase 2c — triangle-tuple pruning subsystem (M-prune) — GATED on Open Decision #1.
 - [ ] Phase 2d — two-bounce mesh, supersede `runMeshSMSAttempt`.
 - [ ] Phase 3 — GPU / wavefront mirror; caustic parity RTX-verified.
+      **RE-SCOPED 2026-09-05 — greenfield, not a mirror.** The GPU wavefront path
+      has NO camera-side SMS/caustic stage (stages: intersect / shade_lambertian /
+      light_sample / RR / restir); `src/gpu/pkg64_sms_probe.cu` landed only the
+      caustic-caster flag round-trip and EXPLICITLY deferred the device SMS solve.
+      `specular_poly.h` being STL-free/portable is necessary but not sufficient:
+      there is no GPU SMS stage to mirror the solver INTO, and the spec's named
+      `tests/test_gpu_caustic_parity.py` does not exist. Phase 3 therefore requires
+      a NEW wavefront caustic stage (device caster gather + per-pixel sphere-chain
+      solve + NEE deposit) under the REG:254 shade-fleet budget
+      ([[wavefront-shade-kernels-register-saturated]]) — an XL package, not the
+      "M mirror" the spec estimated. Deferred as its own scoped package (aligns
+      with the wavefront-perf-ceiling + integration-first owner directives);
+      CPU Track S remains the research-grade path.
 
 ## Phase 2a findings (2026-09-04)
 
@@ -515,6 +539,43 @@ Parallel numpy prototype (`scratchpad/proto_mesh_specular.py`, research note
   so a finer mesh yields fewer per-pixel hits (measured attempts 267k→78k from
   subdiv 1→2) with a sharper but sparser caustic. Smooth-shaded curved casters
   are exactly Phase 2b-smooth's job; the multi-facet fold coverage is Phase 2c.
+
+## Phase 2b-smooth findings (2026-09-05)
+
+- **No degree-inflated polynomial needed.** The spec (Finding 2) anticipated
+  porting the paper's higher-degree interpolated-normal polynomial (Fan §6). The
+  de-risking prototype (`scratchpad/proto_mesh_smooth.py`,
+  `.astroray_plan/docs/pkg227-phase2b-smooth-research.md`) proved the cheaper
+  realization suffices: **enumerate basins with the landed flat degree-4 quartic,
+  then Newton-polish each on the standard MNEE half-vector residual with the
+  interpolated normal.** All 8 sphere-oracle roots reach < 1e-4 rad at 6
+  subdivision levels (~80k-tri-equiv), where the flat solver reaches NONE — gains
+  10× to 1.9M×. The polish reuses the existing manifold residual/Jacobian; the
+  smooth `dn_du/dn_dv` come from `surface_partials.h::trianglePartialsSmooth`.
+- **Convergence is quadratic (vs flat's linear).** The interpolated normal
+  deviates from the true smooth normal by O(edge²), so the polished vertex
+  converges quadratically in facet edge length — the quantitative reason smooth
+  casters reach the oracle at coarse tessellation and Cycles shows caustics only
+  on smooth-shaded casters ([[cycles-caustics-need-smooth-shading]]).
+- **Render-level: the smooth mesh caustic ≈ the analytic sphere caustic.** On a
+  subdiv-2 glass icosphere the smooth-shaded caustic correlates with the analytic
+  sphere-primitive poly caustic at **NCC 0.86**, vs the flat mesh's **0.40** — the
+  flat facets scatter the caustic into a triangular pattern, the smooth normals
+  recover the smooth focus (visually unmistakable). This is the Cycles-parity
+  intent of the phase, gated self-contained (procedural icosphere, no external
+  asset — `glass-mesh-caustic` remains the untouched forward showcase, per 2b-flat).
+- **Position stays on the flat facet; only the shading normal interpolates** —
+  matching Cycles' smooth shading (geometry faceted, normal smooth). The vertex
+  normal is oriented toward x0 and the smooth partials flip with it to keep the
+  MNEE Jacobian consistent. Flat casters (no per-vertex normals) are unchanged —
+  the flat gate still passes (`smooth=false` path byte-identical).
+
+## In-scope caustic-polynomial work remaining
+
+Per owner decisions (2026-09-04), **Phase 2c (M-prune, XL) and 2d (two-bounce
+mesh) are DEFERRED** — gated on a real multi-caster/high-poly scene demanding
+production-speed arbitrary-geometry caustics. The remaining in-scope phase is
+**Phase 3 (GPU / wavefront mirror of Track S — the exact sphere chain)**.
 
 ## Lessons
 

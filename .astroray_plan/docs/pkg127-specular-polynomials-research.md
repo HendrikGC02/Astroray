@@ -161,10 +161,10 @@ HTML/PDF, which is sufficient to re-implement without reading mollnn/spoly sourc
 ### 3.3 Phase-0 verdict (write this into the spec)
 
 - [x] mollnn/spoly license fetched: **absent** (null), SPDX = **none**.
-- [ ] Compatibility: **NOT MIT/BSD/Apache-compatible → do not port its source.**
-- [ ] Re-derivation path taken: paper-only (CC BY 4.0 math), with cyCodeBase/cyPolynomial
+- [x] Compatibility: **NOT MIT/BSD/Apache-compatible → do not port its source.**
+- [x] Re-derivation path taken: paper-only (CC BY 4.0 math), with cyCodeBase/cyPolynomial
   (MIT) as the permitted reference for the root-finder, and the BSD-3 SMS reference
-  for the surrounding SMS plumbing.
+  for the surrounding SMS plumbing. **No mollnn/spoly source read or copied.**
 
 ---
 
@@ -239,4 +239,69 @@ solver finds *all* branches Newton-from-one-seed misses.
 
 Confirmed: this note was written to
 `C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray/.astroray_plan/docs/pkg127-specular-polynomials-research.md`.
-Nothing else in the repo was touched.
+Nothing else in the repo was touched (Phase-0 research pass).
+
+---
+
+## 7. Implementation design + validation (Phase 1, added 2026-09-04)
+
+**Phase 0 is CLOSED** (§3.3): mollnn/spoly is unlicensed, not ported; the method
+is re-derived from the CC BY 4.0 paper, the real-root finder follows Yuksel 2022
+(the paper's own §2 citation, MIT in cyPolynomial), the SMS plumbing reuses the
+existing BSD-3-derived Astroray code.
+
+### 7.1 Sphere specialization (exact — the paper's triangle machinery is not needed)
+
+Astroray's camera-side single-vertex SMS operates on **analytic sphere casters
+only** (`SMSCaster` holds a `const Sphere*`; `gatherSphereCasters` collects
+nothing else). For a single specular vertex on a sphere the normal passes
+through the centre, so Snell/reflection keep ω_i, ω_o, n coplanar and the vertex
+lies **exactly** in the plane through (x0, x2, centre). Parameterising the great
+circle in that plane by one angle θ collapses the generalized half-vector
+constraint to a single variable — the sphere form of the paper's "collapse every
+coordinate to u₁" (§3.4-3.5). Squaring the angularity condition (§3.3 "square
+form") and substituting the Weierstrass half-angle t = tan(θ/2) yields a
+**degree-6 polynomial in t** whose real roots enumerate every candidate vertex.
+
+This is **exact**: the 6-piece rational √-fit the paper needs for triangle
+refraction (§3.5, error < 1e-3) — flagged in §5 as the biggest correctness risk
+for a spectral pipeline — is **unnecessary** for the sphere. The triangulated
+caster (prism) path (`runMeshSMSAttempt` / pkg106 chain) is where that machinery
+would be required; it is deferred to a later pkg127 phase and is a distinct
+scope decision.
+
+Derivation (in-plane coords a = proj(x0−c), b = proj(x2−c), vertex p(θ)=r·n,
+n=(cosθ,sinθ)):
+
+  Ci = n × (a−p) = a₁cosθ − a₀sinθ   (the r-terms cancel identically)
+  Ro² = |b−p|² = |b|² − 2r(b·n) + r² ,  likewise Ri²
+  angularity  g = Ci/Ri + η·Co/Ro = 0
+  square →  Ci²·Ro² − η²·Co²·Ri² = 0  → degree-6 poly in t=tan(θ/2)
+
+Superfluous (sign-flipped) roots from squaring are filtered by re-checking the
+**signed** residual g; near-double roots at a caustic (Jacobian → 0) are deduped.
+
+### 7.2 Deterministic weight
+
+The stochastic uniform-seed area pdf (`seedAreaWeight`) is replaced by the
+deterministic MNEE generalized-geometry term — the SAME weight
+`runMeshSMSAttempt` already uses (`chainGeometryTerm`, pkg106, validated to
+~1e-10 vs brute-force finite differences), applied at N=1 with analytic sphere
+partials (dp/du = r·s, dn/du = s ⇒ curvature 1/r). This makes the poly path
+estimate the same caustic radiance as the Newton path, at lower variance.
+
+### 7.3 Numerical validation
+
+`scratchpad/proto_specpoly_sphere.py` (numpy oracle) and a standalone C++ harness
+compiling `specular_poly.h` both confirm the degree-6 real roots equal a
+200k-sample brute-force angular scan to < 1e-4 rad across refraction / reflection
+(Alhazen) / multi-branch / SF11-dispersion cases, and that Newton-from-one-seed
+reaches only 1 of the 2 real roots in every case (the "one solution per seed"
+miss). Locked as a CI unit test: `tests/test_pkg127_specular_poly_unit.py`.
+
+### 7.4 Section-anchor correction (carried into the code citations)
+
+Per §2 above, the correct paper anchors are single-bounce **§3.3 (square form) +
+§3.5 (R/T) + §4.1-4.2 (solve)**, not the spec's original "§4/§5". Author list
+corrected to Fan, Guo, Wang, Xiao, Zhang, Zhou, Chen, Hong, Guo, Yan. The code
+comments in `specular_poly.h` use these corrected references.

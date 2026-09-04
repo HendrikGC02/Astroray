@@ -58,6 +58,7 @@ namespace amf = astroray::manifold;
 class SpectralPathTracer : public Integrator {
     int  maxDepth_;
     bool spectralNewton_;     // default ON for the prism use case
+    bool specularPoly_;       // pkg127: deterministic sphere seed finding (default OFF)
     amf::SMSConfig smsCfg_;
     std::string causticMode_; // pkg111: "none", "sms" (default), or "photon_map"
     // pkg125: band awareness. Mirrors multiwavelength_path_tracer.cpp:22-23,45-46
@@ -94,6 +95,12 @@ public:
           // set_integrator_param("spectral_newton", 0|1) for parity
           // with sms_caustic_path_tracer.
           spectralNewton_(p.getInt("spectral_newton", 1) != 0),
+          // pkg127: deterministic Specular-Polynomials seed finding for sphere
+          // casters (Fan et al. 2024). OFF by default -> byte-identical to the
+          // stochastic uniform-seed + Newton path; on, one polynomial solve
+          // enumerates every specular vertex (no per-seed misses). Exposed via
+          // set_integrator_param("sms_specular_poly", 0|1).
+          specularPoly_(p.getInt("sms_specular_poly", 0) != 0),
           // pkg111: caustic mode. "sms" is the default (existing SMS behavior).
           // "photon_map" builds a forward light-traced photon map + gathers at
           // diffuse hits. "none" disables caustics entirely.
@@ -157,6 +164,7 @@ public:
             {"sms_converged",       smsConverged_},
             {"sms_energy",          smsEnergy_},
             {"sms_spectral_newton", spectralNewton_ ? 1.0f : 0.0f},
+            {"sms_specular_poly",   specularPoly_ ? 1.0f : 0.0f},
         };
     }
 
@@ -326,6 +334,21 @@ private:
                               x0Rec.normal * (-1.0f));
 
         float heroAccum = 0.0f;
+        // pkg127: deterministic Specular-Polynomials seed finding. One solve
+        // enumerates every specular vertex on the sphere; the axial-degenerate
+        // case falls back to the stochastic Newton loop below.
+        if (specularPoly_) {
+            amf::SMSPolyResult pr = amf::runSMSAttemptPoly(
+                *renderer_, x0Rec, syntheticPrimary, lambdas, C, eta, iorHero,
+                casterPickPdf, ls, smsCfg_);
+            if (!pr.fellBack) {
+                smsAttempts_  += static_cast<float>(pr.nSolutions);
+                smsConverged_ += static_cast<float>(pr.nValid);
+                smsEnergy_    += pr.hero;
+                out[0] = pr.hero;
+                return out;
+            }
+        }
         for (int s = 0; s < smsCfg_.seeds; ++s) {
             smsAttempts_ += 1.0f;
             astroray::SampledSpectrum fSpec;
@@ -371,6 +394,19 @@ private:
 
         Ray syntheticPrimary(x0Rec.point - x0Rec.normal,
                               x0Rec.normal * (-1.0f));
+        // pkg127: deterministic Specular-Polynomials seed finding (RGB path).
+        if (specularPoly_) {
+            amf::SMSPolyResult pr = amf::runSMSAttemptPoly(
+                *renderer_, x0Rec, syntheticPrimary, lambdas, C, eta, C.iorFlat,
+                casterPickPdf, ls, smsCfg_);
+            if (!pr.fellBack) {
+                smsAttempts_  += static_cast<float>(pr.nSolutions);
+                smsConverged_ += static_cast<float>(pr.nValid);
+                smsEnergy_    += std::max(pr.rgb.x, std::max(pr.rgb.y, pr.rgb.z));
+                return astroray::RGBIlluminantSpectrum(
+                    {pr.rgb.x, pr.rgb.y, pr.rgb.z}).sample(lambdas);
+            }
+        }
         Vec3 contribRGB(0);
         for (int s = 0; s < smsCfg_.seeds; ++s) {
             smsAttempts_ += 1.0f;

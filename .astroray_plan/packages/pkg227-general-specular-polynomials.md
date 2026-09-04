@@ -439,6 +439,19 @@ demand.
 - [ ] Phase 2c — triangle-tuple pruning subsystem (M-prune) — GATED on Open Decision #1.
 - [ ] Phase 2d — two-bounce mesh, supersede `runMeshSMSAttempt`.
 - [ ] Phase 3 — GPU / wavefront mirror; caustic parity RTX-verified.
+      **RE-SCOPED 2026-09-05 — greenfield, not a mirror.** The GPU wavefront path
+      has NO camera-side SMS/caustic stage (stages: intersect / shade_lambertian /
+      light_sample / RR / restir); `src/gpu/pkg64_sms_probe.cu` landed only the
+      caustic-caster flag round-trip and EXPLICITLY deferred the device SMS solve.
+      `specular_poly.h` being STL-free/portable is necessary but not sufficient:
+      there is no GPU SMS stage to mirror the solver INTO, and the spec's named
+      `tests/test_gpu_caustic_parity.py` does not exist. Phase 3 therefore requires
+      a NEW wavefront caustic stage (device caster gather + per-pixel sphere-chain
+      solve + NEE deposit) under the REG:254 shade-fleet budget
+      ([[wavefront-shade-kernels-register-saturated]]) — an XL package, not the
+      "M mirror" the spec estimated. Deferred as its own scoped package (aligns
+      with the wavefront-perf-ceiling + integration-first owner directives);
+      CPU Track S remains the research-grade path.
 
 ## Phase 2a findings (2026-09-04)
 

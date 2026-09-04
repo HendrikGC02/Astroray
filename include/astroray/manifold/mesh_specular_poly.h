@@ -60,6 +60,7 @@
 
 #include "../../raytracer.h"
 #include "specular_poly.h"   // realRoots, polyMul (degree-4 subset of degree-6)
+#include "mesh_caustic.h"    // CausticTri (per-vertex normals for the smooth polish)
 #include <cmath>
 
 namespace astroray::manifold {
@@ -209,6 +210,106 @@ inline int solveFlatTriangleSpecular(const Vec3& x0, const Vec3& x2,
         ++n;
     }
     return n;
+}
+
+// ---------------------------------------------------------------------------
+// pkg227 Phase 2b-smooth — interpolated (smooth) shading-normal support.
+//
+// The flat solver above enumerates the specular BASINS (position on the facet).
+// For a smooth-shaded caster the SHADING normal is the interpolated
+//   n̂(u,v) = normalize(n0*(1-u-v) + n1*u + n2*v),
+// nonlinear in (u,v) — porting the paper's degree-inflated interpolated-normal
+// polynomial (Fan §6) is unnecessary: a short Newton polish of the flat root on
+// the standard MNEE half-vector residual (Hanika 2015 / Cycles mnee.h) reaches
+// the smooth solution. The interpolated normal deviates from the true smooth
+// normal by O(edge^2), so the polished vertex converges QUADRATICALLY in facet
+// edge length (vs the flat solver's linear) — reaching the sphere oracle at
+// ~80k triangles where flat needs ~3e8 (proven in
+// scratchpad/proto_mesh_smooth.py; note pkg227-phase2b-smooth-research.md). The
+// vertex POSITION stays on the flat facet (faceted geometry, interpolated
+// shading normal) — matching Cycles' smooth shading.
+// ---------------------------------------------------------------------------
+
+// MNEE half-vector residual (2 tangential components) at facet point p with
+// shading normal nhat: h = d1 + eta*d2 (d1 toward x0, d2 toward x2), the residual
+// is the part of h perpendicular to nhat, expressed in an nhat-orthonormal frame.
+// Zero exactly on a specular vertex (h || nhat).
+inline void mneeResidual2(const Vec3& p, const Vec3& x0, const Vec3& x2,
+                          const Vec3& nhat, float eta, float& r0, float& r1) {
+    const Vec3 d1 = (x0 - p).normalized();
+    const Vec3 d2 = (x2 - p).normalized();
+    const Vec3 h = d1 + d2 * eta;
+    const Vec3 ht = h - nhat * h.dot(nhat);
+    const Vec3 a = (std::fabs(nhat.x) < 0.9f) ? Vec3(1.0f, 0.0f, 0.0f)
+                                              : Vec3(0.0f, 1.0f, 0.0f);
+    const Vec3 t1 = (a - nhat * a.dot(nhat)).normalized();
+    const Vec3 t2 = nhat.cross(t1);
+    r0 = ht.dot(t1);
+    r1 = ht.dot(t2);
+}
+
+// Newton-polish a flat-facet specular seed vertex to the SMOOTH (interpolated-
+// normal) solution, staying on the facet plane. On convergence fills outP (the
+// polished vertex), outN (the interpolated unit shading normal there), and
+// outDnDu/outDnDv (the smooth unit-normal partials for the MNEE weight, matching
+// surface_partials.h::trianglePartialsSmooth). Returns false if it does not
+// converge or the vertex leaves the facet. `seedP` is the flat root (or the facet
+// centroid when the flat quartic found none).
+inline bool polishSmoothVertex(const Vec3& seedP, const CausticTri& tr,
+                               const Vec3& x0, const Vec3& x2, float eta,
+                               Vec3& outP, Vec3& outN, Vec3& outDnDu, Vec3& outDnDv,
+                               int iters = 8) {
+    const Vec3 e1 = tr.v1 - tr.v0;
+    const Vec3 e2 = tr.v2 - tr.v0;
+    const float d11 = e1.dot(e1), d12 = e1.dot(e2), d22 = e2.dot(e2);
+    const float den = d11 * d22 - d12 * d12;
+    if (std::fabs(den) < 1e-20f) return false;
+    const Vec3 vp = seedP - tr.v0;
+    float u = (d22 * vp.dot(e1) - d12 * vp.dot(e2)) / den;
+    float v = (d11 * vp.dot(e2) - d12 * vp.dot(e1)) / den;
+
+    for (int it = 0; it < iters; ++it) {
+        const Vec3 p = tr.v0 + e1 * u + e2 * v;
+        const Vec3 nhat = (tr.n0 * (1.0f - u - v) + tr.n1 * u + tr.n2 * v).normalized();
+        float r0, r1;
+        mneeResidual2(p, x0, x2, nhat, eta, r0, r1);
+        if (r0 * r0 + r1 * r1 < 1e-20f) break;
+        const float hs = 1e-5f;
+        const Vec3 pu = tr.v0 + e1 * (u + hs) + e2 * v;
+        const Vec3 nu = (tr.n0 * (1.0f - (u + hs) - v) + tr.n1 * (u + hs) + tr.n2 * v).normalized();
+        float ru0, ru1; mneeResidual2(pu, x0, x2, nu, eta, ru0, ru1);
+        const Vec3 pv = tr.v0 + e1 * u + e2 * (v + hs);
+        const Vec3 nv = (tr.n0 * (1.0f - u - (v + hs)) + tr.n1 * u + tr.n2 * (v + hs)).normalized();
+        float rv0, rv1; mneeResidual2(pv, x0, x2, nv, eta, rv0, rv1);
+        const float j00 = (ru0 - r0) / hs, j01 = (rv0 - r0) / hs;
+        const float j10 = (ru1 - r1) / hs, j11 = (rv1 - r1) / hs;
+        const float jdet = j00 * j11 - j01 * j10;
+        if (std::fabs(jdet) < 1e-20f) break;
+        float du = (-r0 * j11 + r1 * j01) / jdet;   // solve J*(du,dv) = -(r0,r1)
+        float dv = (r0 * j10 - r1 * j00) / jdet;
+        du = du < -0.5f ? -0.5f : (du > 0.5f ? 0.5f : du);   // damp to the facet nbhd
+        dv = dv < -0.5f ? -0.5f : (dv > 0.5f ? 0.5f : dv);
+        u += du; v += dv;
+    }
+
+    const Vec3 p = tr.v0 + e1 * u + e2 * v;
+    const Vec3 ni = tr.n0 * (1.0f - u - v) + tr.n1 * u + tr.n2 * v;
+    const float len = std::sqrt(ni.length2());
+    if (len < 1e-12f) return false;
+    const Vec3 nhat = ni * (1.0f / len);
+    float r0, r1;
+    mneeResidual2(p, x0, x2, nhat, eta, r0, r1);
+    if (r0 * r0 + r1 * r1 > 1e-12f) return false;                       // not converged
+    if (u < -1e-4f || v < -1e-4f || (u + v) > 1.0f + 1e-4f) return false;  // left facet
+
+    outP = p;
+    outN = nhat;
+    const float invLen = 1.0f / len;
+    const Vec3 dni_du = tr.n1 - tr.n0;
+    const Vec3 dni_dv = tr.n2 - tr.n0;
+    outDnDu = (dni_du - nhat * nhat.dot(dni_du)) * invLen;
+    outDnDv = (dni_dv - nhat * nhat.dot(dni_dv)) * invLen;
+    return true;
 }
 
 }  // namespace specpoly

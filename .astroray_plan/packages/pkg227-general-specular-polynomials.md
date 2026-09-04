@@ -415,8 +415,15 @@ demand.
       Gates: `tests/test_pkg227_sphere_chain_unit.py` (numpy oracle, 5/5, CI) +
       `tests/test_pkg227_raindrop_bow.py` (render-level: fires/concentrated/
       chromatic, 3/3). Branch `pkg227-s2a`. See Phase 2a findings below.
-- [ ] Phase 2b-flat — single-bounce mesh solver on one known caster (M-solve), oracle-gated.
-      **De-risked 2026-09-04** — numpy prototype PASSES vs sphere oracle (see below).
+- [x] Phase 2b-flat — single-bounce mesh solver on one known caster (M-solve), oracle-gated.
+      **LANDED 2026-09-05.** Solver `specpoly::solveFlatTriangleSpecular`
+      (`include/astroray/manifold/mesh_specular_poly.h`, exact degree-4 flat-facet
+      form) + `runMeshSMSAttemptPoly` (`mesh_attempt.h`), gated in
+      `sms_caustic_path_tracer` behind `sms_specular_poly` (+ `spectral_newton=1`,
+      the mesh path). Gates: `tests/test_pkg227_mesh_poly_unit.py` (numpy oracle
+      vs `solveSphereSpecular`, 3/3, CI, < 1e-4 rad) + `tests/test_pkg227_mesh_
+      caustic.py` (render-level, 4/4). Branch `pkg227-s2b-flat`. See Phase 2b-flat
+      findings below.
 - [ ] Phase 2b-smooth — interpolated shading-normal support (constraint + Jacobian).
 - [ ] Phase 2c — triangle-tuple pruning subsystem (M-prune) — GATED on Open Decision #1.
 - [ ] Phase 2d — two-bounce mesh, supersede `runMeshSMSAttempt`.
@@ -466,6 +473,48 @@ Parallel numpy prototype (`scratchpad/proto_mesh_specular.py`, research note
   an isolated Snell sanity check — the wrong convention is locally self-consistent
   and fails SILENTLY (a different plausible specular point, not an error).
 - Port target: new `mesh_specular_poly.h` reusing `specular_poly.h` helpers.
+
+## Phase 2b-flat findings (2026-09-05)
+
+- **Solver ports cleanly and is exact.** `solveFlatTriangleSpecular` is a
+  line-for-line C++ port of the validated numpy prototype (degree-4 square form,
+  `realRoots` reused from `specular_poly.h`), STL-free. The oracle unit test
+  reproduces `solveSphereSpecular` to < 1e-4 rad over an icosphere tessellation
+  (3/3). ABI-clean (device path does not include the header).
+- **The un-pruned camera-side mesh path is O(pixels × triangles) — it MUST use
+  candidate-face selection even for a single caster.** The first cut solved the
+  quartic on EVERY caster facet per shading point; on a 320–1280-triangle
+  tessellated sphere that hung for hours (the exact O(pixels × triangles) blow-up
+  the spec flags as the M-prune motivation, §"dominant constraint"). Fix: cast the
+  cheap x0→centroid seed ray (Möller–Trumbore, mirroring
+  `seedChainTowardCaster`) and solve the quartic ONLY on the ≤4 faces it crosses.
+  Runtime dropped to ~3–4 s/render. This is the flat-facet form of the spec's
+  "use the existing `seedChainFromRay` candidate triangle (one caster, no global
+  pruning yet)" — pruning to a *global* candidate set across many casters is still
+  Phase 2c, but even one caster needs per-shading-point face scoping.
+- **Deterministic enumeration decisively beats the Newton mesh path.** On the
+  tessellated glass sphere the single-seed Newton path (`runMeshSMSAttempt`)
+  converges on ~0.1 % of attempts and collects ~0.1 caustic energy; the poly path
+  validates ~100 % of enumerated solutions and collects ~12–15 (≈100×), band
+  concentration ~0.62–0.69. The render gate asserts this gap. (The Newton mesh
+  path was never actually exercised by any reference scene — both SMS reference
+  scenes use analytic spheres — so this is the first camera-side mesh caustic.)
+- **`glass-mesh-caustic` was the WRONG scene to bless.** The spec named it as the
+  2b-flat reference shell, but it is a FORWARD `light_tracer_caustic` scene whose
+  caster is an 18 MB gitignored `samples/Glass.obj` (local-only, never CI). It
+  does not use the camera-side poly path at all. Blessing it as-is would lock a
+  forward render, not test 2b-flat. So 2b-flat is gated by a self-contained
+  procedural-icosphere pytest (no external asset, like the 2a raindrop gate)
+  rather than by converting that forward showcase. Left `glass-mesh-caustic`
+  untouched as the forward showcase it is; a reference-bank *camera-side* mesh
+  scene can be added later if wanted (would need a committed reference.png; still
+  local-only to render).
+- **Flat facets → faceted caustics, by design.** Convergence to the smooth
+  continuum is linear in facet edge length (research note §3), and the
+  candidate-face solve only finds a vertex when it lies on a seed-crossed facet —
+  so a finer mesh yields fewer per-pixel hits (measured attempts 267k→78k from
+  subdiv 1→2) with a sharper but sparser caustic. Smooth-shaded curved casters
+  are exactly Phase 2b-smooth's job; the multi-facet fold coverage is Phase 2c.
 
 ## Lessons
 

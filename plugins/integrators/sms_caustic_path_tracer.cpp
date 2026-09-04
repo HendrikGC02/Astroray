@@ -345,6 +345,20 @@ private:
         lights.sample(ls, x0Rec.point, x0Rec.normal, lambdas, gen);
         if (ls.pdf <= 0.0f) return out;
 
+        // pkg227 2b-flat: deterministic flat-triangle Specular-Polynomials —
+        // enumerate every admissible single refractive vertex across the caster
+        // faces (no seeds, no Newton-basin miss), hero-channel write.
+        if (specularPoly_) {
+            amf::SMSPolyResult pr = amf::runMeshSMSAttemptPoly(
+                *renderer_, x0Rec, primary, lambdas, meshCasters_, meshCasterMat_,
+                /*casterPickPdf=*/1.0f, ls, smsCfg_);
+            smsAttempts_  += static_cast<float>(pr.nSolutions);
+            smsConverged_ += static_cast<float>(pr.nValid);
+            smsEnergy_    += pr.hero;
+            out[0] = pr.hero;
+            return out;
+        }
+
         float heroAccum = 0.0f;
         for (int s = 0; s < smsCfg_.seeds; ++s) {
             smsAttempts_ += 1.0f;

@@ -8,10 +8,14 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <array>
+
 #include "astroray/sampling/wavefront_rng.h"
 #include "astroray/sampling/progressive_sobol.h"
 #include "astroray/sampling/adaptive_sampling.h"
 #include "astroray/energy_compensation.h"
+#include "astroray/guiding/dtree.h"
+#include "astroray/guiding/sdtree.h"
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -135,4 +139,91 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
           }, "converged"_a, "width"_a, "height"_a,
           "Two-pass 3x3 dilation of the converged mask (1=converged/retired).");
     m.attr("ADAPTIVE_STEP") = astroray::adaptive::kAdaptiveStep;
+
+    // pkg136 — SD-tree path guiding, directional quadtree (Stage 1A). The
+    // host DTree (include/astroray/guiding/dtree.h) is a clean-room port of the
+    // Müller 2017 directional tree; binding it here lets
+    // tests/test_pkg136_dtree_unit.py drive the exact primitives (splat / refine
+    // / reset / sample / pdf / snapshot) and reproduce the numpy-de-risked
+    // variance-reduction + unbiasedness result in C++. Not public API.
+    m.def("guiding_dir_to_square", [](float wx, float wy, float wz) {
+        float x, y;
+        astroray::guiding::dirToSquare(wx, wy, wz, x, y);
+        return py::make_tuple(x, y);
+    }, "wx"_a, "wy"_a, "wz"_a,
+       "Equal-area cylindrical map: world unit direction → unit-square (x,y).");
+    m.def("guiding_square_to_dir", [](float x, float y) {
+        float wx, wy, wz;
+        astroray::guiding::squareToDir(x, y, wx, wy, wz);
+        return py::make_tuple(wx, wy, wz);
+    }, "x"_a, "y"_a,
+       "Inverse equal-area map: unit-square (x,y) → world unit direction.");
+    m.attr("GUIDING_SPHERE_JACOBIAN") = astroray::guiding::kGuidingSphereJacobian;
+
+    py::class_<astroray::guiding::DTree>(m, "DTree")
+        .def(py::init<>())
+        .def("splat", &astroray::guiding::DTree::splat, "x"_a, "y"_a, "v"_a,
+             "Splat flux v at square point (x,y) along the descent path.")
+        .def("refine", &astroray::guiding::DTree::refine, "rho"_a,
+             "Subdivide (one level) every leaf holding > rho of total flux. Call "
+             "between iterations, using the finished iteration's flux, before reset().")
+        .def("reset", &astroray::guiding::DTree::reset,
+             "Zero all node flux, keeping topology.")
+        .def("sample", [](const astroray::guiding::DTree& t, float u1, float u2) {
+            float x, y, pdf;
+            t.sample(u1, u2, x, y, pdf);
+            return py::make_tuple(x, y, pdf);
+        }, "u1"_a, "u2"_a,
+           "Hierarchical-warp sample → (x, y, square-measure pdf).")
+        .def("pdf", &astroray::guiding::DTree::pdf, "x"_a, "y"_a,
+             "Square-measure pdf of point (x,y).")
+        .def("pdf_dir", &astroray::guiding::DTree::pdfDir, "wx"_a, "wy"_a, "wz"_a,
+             "Solid-angle pdf of a world direction (folds in the 1/4π jacobian).")
+        .def("total_flux", &astroray::guiding::DTree::totalFlux)
+        .def("num_nodes", &astroray::guiding::DTree::numNodes)
+        .def("num_leaves", &astroray::guiding::DTree::numLeaves)
+        .def("snapshot", [](const astroray::guiding::DTree& t) {
+            return astroray::guiding::DTree(t);  // deep copy (frozen guide)
+        }, "Deep copy — the frozen previous-iteration guide for training draws.");
+
+    // pkg136 — SD-tree spatial binary tree (Stage 1A). Wraps the float[3] API
+    // in tuples so tests/test_pkg136_sdtree_unit.py can de-risk the spatial
+    // half: leaf lookup, point-count split with directional-tree inheritance,
+    // and that spatially-separated regions specialise to different guides.
+    using SDT = astroray::guiding::SDTree;
+    py::class_<SDT>(m, "SDTree")
+        .def(py::init([](std::array<float, 3> mn, std::array<float, 3> mx) {
+            return SDT(mn.data(), mx.data());
+        }), "minb"_a, "maxb"_a)
+        .def("record", [](SDT& t, std::array<float, 3> p,
+                          float wx, float wy, float wz, float value) {
+            t.record(p.data(), wx, wy, wz, value);
+        }, "p"_a, "wx"_a, "wy"_a, "wz"_a, "value"_a,
+           "Splat radiance `value` at world dir (wx,wy,wz) into the leaf at p.")
+        .def("sample_dir", [](const SDT& t, std::array<float, 3> p, float u1, float u2) {
+            float wx, wy, wz, pdf;
+            t.sampleDir(p.data(), u1, u2, wx, wy, wz, pdf);
+            return py::make_tuple(wx, wy, wz, pdf);
+        }, "p"_a, "u1"_a, "u2"_a,
+           "Sample a world direction from the leaf at p → (wx,wy,wz,pdf_sa).")
+        .def("pdf_dir", [](const SDT& t, std::array<float, 3> p,
+                           float wx, float wy, float wz) {
+            return t.pdfDir(p.data(), wx, wy, wz);
+        }, "p"_a, "wx"_a, "wy"_a, "wz"_a)
+        .def("refine", &SDT::refine, "spatial_threshold"_a, "dir_rho"_a,
+             "Spatial split (count > threshold) with DTree inheritance, then "
+             "directional refine of every leaf.")
+        .def("reset_iteration", &SDT::resetIteration,
+             "Zero all directional flux + spatial sample counts, keep topology.")
+        .def("snapshot", &SDT::snapshot, "Deep copy (frozen guide).")
+        .def("num_leaves", &SDT::numLeaves)
+        .def("num_nodes", &SDT::numNodes)
+        .def("leaf_bounds", [](const SDT& t, std::array<float, 3> p) {
+            float mn[3], mx[3];
+            t.leafBounds(p.data(), mn, mx);
+            return py::make_tuple(mn[0], mn[1], mn[2], mx[0], mx[1], mx[2]);
+        }, "p"_a, "AABB (minx,miny,minz,maxx,maxy,maxz) of the leaf at p.")
+        .def("leaf_sample_count", [](const SDT& t, std::array<float, 3> p) {
+            return t.leafSampleCount(p.data());
+        }, "p"_a);
 }

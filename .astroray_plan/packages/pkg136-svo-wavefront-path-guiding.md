@@ -354,8 +354,16 @@ reduction on indirect-heavy scenes.
 
 - [ ] Stage 0 — `cite-algorithm` note + license decision (OpenPGL Apache-2.0 structural
       ref; clean-room PPG port).
-- [ ] Stage 1A — host `SDTree` build/refine + iteration driver (learn-then-sample,
+- [~] Stage 1A — host `SDTree` build/refine + iteration driver (learn-then-sample,
       inverse-variance combination, filtered splatting).
+      **Directional quadtree `astroray::guiding::DTree` LANDED 2026-09-05**
+      (`include/astroray/guiding/dtree.h`): equal-area cylindrical map (full
+      sphere, jacobian 4π) + splat/refine/reset + hierarchical-warp sample/pdf +
+      snapshot; bound in `astroray_test_helpers`, unit test
+      `tests/test_pkg136_dtree_unit.py` (3/3) reproduces the numpy de-risk in
+      C++ — guided ~116× / MIS ~35× variance reduction, both unbiased (map
+      round-trip + pdf-normalization gates pass). **Remaining 1A: spatial binary
+      tree (point-count split + leaf lookup from `rec.point`) + iteration driver.**
       **Directional-quadtree core DE-RISKED 2026-09-05** (numpy prototype
       `scratchpad/proto_sdtree.py`, note `.astroray_plan/docs/pkg136-stage1-
       derisking.md`): quadtree build + hierarchical-warp sample/pdf + guide/BSDF

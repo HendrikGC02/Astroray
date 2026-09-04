@@ -82,7 +82,10 @@ inline void gatherSphereCasters(const Renderer& renderer,
 //
 // Outputs on ok=true:
 //   outFSpec        BSDF at x0 toward x1, queried on the caller's lambdas
-//   outScalarWeight (G · seedAreaWeight) / (ls.pdf · casterPickPdf · seeds)
+//   outScalarWeight pkg226: MNEE weight (dw0_dx1 · chainGeometryTerm) /
+//                   (ls.pdf · casterPickPdf · seeds) — matches
+//                   runSMSAttemptPoly; no extra receiver cosine (evalSpectral
+//                   carries it)
 //   outLeRGB        emitter colour at the sampled light point
 //   outTr           Schlick transmittance with hero-η at the entry vertex
 //   outWiX0         direction at x0 toward the converged x1 (for MIS pdf)
@@ -170,8 +173,7 @@ inline bool runSMSAttempt(const Renderer& renderer,
     refracted = refracted.normalized();
 
     Vec3 toLight = ls.position - R.x1;
-    float distLight2 = toLight.length2();
-    float distLight = std::sqrt(distLight2);
+    float distLight = std::sqrt(toLight.length2());
     Vec3 dirLight = toLight * (1.0f / distLight);
     Vec3 exitOrigin = R.x1 + refracted * (2.0f * radius + 1e-3f);
     HitRecord lrec;
@@ -189,16 +191,33 @@ inline bool runSMSAttempt(const Renderer& renderer,
 
     outFSpec = x0Rec.material->evalSpectral(x0Rec, wo_eye, wi_x0, lambdas);
 
-    float cosSeed = std::max(1e-3f, nSeed.dot(dirToX0));
-    float seedAreaWeight = (M_PI * radius * radius) / cosSeed;
-
-    float cosX0 = std::max(0.0f, x0Rec.normal.dot(wi_x0));
-    float cosLight = std::max(0.0f, ls.normal.dot(-dirLight));
-    float G = cosX0 * cosLight / std::max(distX0X1_2 * distLight2, 1e-6f);
+    // pkg226: MNEE generalized-geometry weight, replacing the stochastic
+    // seed-area pdf (meaningless for a converged deterministic vertex) with
+    // the same chainGeometryTerm() term runSMSAttemptPoly (above) already
+    // uses for this sphere caster. Also drops the extra receiver cosine —
+    // evalSpectral() already carries it (lambertian.cpp returns
+    // albedo*cosTheta/pi), so re-multiplying by cosX0 here double-counted it.
+    // N=1 sphere vertex, analytic partials dp=r*tangent / dn=tangent
+    // (curvature 1/r), mirroring runSMSAttemptPoly exactly. No 2.0 firefly
+    // clamp (see runSMSAttemptPoly's comment on why that clamp is wrong for a
+    // focused sphere caustic).
+    Vec3 sEntry, tEntry;
+    buildOrthonormalBasis(nEntry, sEntry, tEntry);
+    ChainVertex cv;
+    cv.p = R.x1;  cv.n = nEntry;
+    cv.dp_du = sEntry * radius;  cv.dp_dv = tEntry * radius;
+    cv.dn_du = sEntry;           cv.dn_dv = tEntry;
+    cv.eta = 1.0f / eta;  // iorHero (eta is 1/iorHero at every call site)
+    const bool fixedDir = (ls.distance > 1.0e5f);
+    const float dw0_dx1 = std::fabs(wi_x0.dot(nEntry)) / std::max(distX0X1_2, 1e-6f);
+    const float dx1_dxlight = chainGeometryTerm(
+        &cv, 1, x0Rec.point, ls.position, ls.normal, nullptr, fixedDir, dirLight);
+    if (dx1_dxlight <= 0.0f) return false;
+    const float invPdf = 1.0f / std::max(ls.pdf * casterPickPdf, 1e-6f);
 
     outLeRGB = ls.emission;
-    outScalarWeight = (G * seedAreaWeight) /
-                      (ls.pdf * casterPickPdf * static_cast<float>(cfg.seeds));
+    outScalarWeight = (dw0_dx1 * dx1_dxlight * invPdf) /
+                      static_cast<float>(cfg.seeds);
     outWiX0 = wi_x0;
     return true;
 }

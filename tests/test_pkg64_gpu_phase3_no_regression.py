@@ -112,6 +112,16 @@ def test_empty_hook_bit_equality():
 
     pix, _ = _render(seed=145, use_caustics=False)
 
+    # pkg225-S6: refuse to pin (or compare against) an all-black frame. Both
+    # pinned Cornell baselines here were captured while the GPU
+    # multiwavelength route was light-sampling-blind, so they were literally
+    # all zeros and this gate certified black-against-black for as long as the
+    # bug lived. A bit-equality canary is only a canary if it has signal.
+    assert float(pix.max()) > 0.0, (
+        "refusing to use an all-black Cornell render as a bit-equality baseline "
+        "-- the scene is lit, so a black frame means the render path is broken, "
+        "not that it is stable.")
+
     if not baseline_path.exists():
         # First run: write the baseline and skip.
         baseline_path.parent.mkdir(parents=True, exist_ok=True)

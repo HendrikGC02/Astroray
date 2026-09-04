@@ -22,12 +22,14 @@ class MultiwavelengthPathTracer : public Integrator {
     float lambdaMin_;
     float lambdaMax_;
     bool  useLuminanceOutput_;  // true when rendering outside visible
-    // pkg195: gate the dedicated-light NEE + two-sided-MIS legs (Stage A). This
-    // MIRRORS the engine-wide "multiwavelength_path_tracer == naive" contract
-    // (module/blender_module.cpp:1814 sets the GPU wavefront's enableNEE = false
-    // for this integrator) and the pkg156 lesson: the GPU wavefront naive route
-    // is gated to match THIS integrator as the light-sampling-blind oracle, so a
-    // NEE/w_B term firing here in naive mode silently breaks CPU<->GPU parity
+    // pkg195: gate the dedicated-light NEE + two-sided-MIS legs (Stage A).
+    // pkg225-S6: the GPU render path reads THIS SAME param (blender_module.cpp,
+    // default 1) instead of deriving naive-ness from the integrator name, so CPU
+    // and GPU agree by construction. It used to force the GPU leg naive
+    // unconditionally, which rendered every non-emissive, non-specular surface
+    // exactly black under GPU multiwavelength. Recall the pkg156 lesson: the naive
+    // route is gated to match THIS integrator as the light-sampling-blind oracle,
+    // so a NEE/w_B term firing here in naive mode silently breaks CPU<->GPU parity
     // (pkg120/pkg156, test_gpu_multiwavelength / test_pkg55_c3). Default ON so the
     // addon's NIR/UV lamp rendering works (Stage A); parity harnesses that use
     // this integrator as the naive oracle pin `enable_nee=0`.

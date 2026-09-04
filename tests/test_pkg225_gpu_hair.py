@@ -90,7 +90,7 @@ def _make_tuft():
     return np.asarray(positions, dtype=np.float32), counts
 
 
-def _make_hair_scene(use_gpu: bool):
+def _make_hair_scene(use_gpu: bool, spectral: bool = False):
     r = astroray.Renderer()
     r.set_background_color([0.0, 0.0, 0.0])
 
@@ -110,7 +110,9 @@ def _make_hair_scene(use_gpu: bool):
     r.setup_camera([0.0, 0.0, 4.2], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
                    40.0, WIDTH / HEIGHT, 0.0, 4.2, WIDTH, HEIGHT)
 
-    r.set_integrator("path_tracer")
+    r.set_integrator("multiwavelength_path_tracer" if spectral else "path_tracer")
+    if spectral:
+        r.set_wavelength_range(380.0, 780.0)
     r.set_integrator_param("max_depth", MAX_DEPTH)
     r.set_curve_thick_mode(True)  # CPU-parity swept-circle mode on both backends
     if use_gpu:
@@ -118,15 +120,15 @@ def _make_hair_scene(use_gpu: bool):
     return r
 
 
-def _render(use_gpu: bool) -> np.ndarray:
-    r = _make_hair_scene(use_gpu=use_gpu)
+def _render(use_gpu: bool, spectral: bool = False) -> np.ndarray:
+    r = _make_hair_scene(use_gpu=use_gpu, spectral=spectral)
     r.set_seed(SEED)
     return np.asarray(r.render(SAMPLES, MAX_DEPTH, None, False), dtype=np.float32)
 
 
-def test_gpu_hair_render_matches_cpu():
-    gpu = _render(use_gpu=True)
-    cpu = _render(use_gpu=False)
+def _gate_hair_parity(spectral: bool):
+    gpu = _render(use_gpu=True, spectral=spectral)
+    cpu = _render(use_gpu=False, spectral=spectral)
 
     assert gpu.shape == (HEIGHT, WIDTH, 3)
     assert cpu.shape == (HEIGHT, WIDTH, 3)
@@ -181,3 +183,17 @@ def test_gpu_hair_render_matches_cpu():
 
     print("[pkg225-S4 GPU hair] PASS: finite, hair visible, well-lit per-channel "
           f"ratios within [{RATIO_LOW}, {RATIO_HIGH}], channel-balanced.")
+
+
+def test_gpu_hair_render_matches_cpu():
+    _gate_hair_parity(spectral=False)
+
+
+# pkg225-S6: the same parity gate under the multiwavelength (spectral) integrator.
+# GPU spectral used to render every curve hit EXACTLY black -- not a hair or curve
+# defect but a name-derived `enableNEE=false` on the multiwavelength route
+# (module/blender_module.cpp), which left the GPU leg light-sampling-blind while
+# the CPU leg sampled lights. Without this variant nothing exercised GPU hair in
+# spectral mode.
+def test_gpu_spectral_hair_render_matches_cpu():
+    _gate_hair_parity(spectral=True)

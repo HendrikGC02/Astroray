@@ -133,15 +133,28 @@ def test_eumelanin_cross_section_matches_power_law():
 
 # ---------------------------------------------------------------------------
 # Gate 2 — spectral melanin is a DISTINCT, physically-graded absorption vs the
-# RGB Cycles-triple. NOTE (measured, pkg225-S5): the spec's "spectral should be
-# MORE saturated" guess did NOT hold — the spectral R/B is FIXED by the cited
-# Jacques lambda^-3.33 exponent and comes out LESS extreme than the Cycles RGB
-# triple (which over-saturates dark hair toward pure red: R/B ~32 at melanin 0.7
-# vs the physical ~5.5). The spectral render is the more physically-plausible
-# brown. So we gate on robust, direction-honest facts: (a) spectral eumelanin is
-# red-dominant (absorbs blue more than red — the correct qualitative melanin
-# behaviour), and (b) the two modes genuinely differ (spectral follows the power
-# law, not the Cycles triple). See the research note "Differences from the ref".
+# RGB Cycles-triple. We gate on two robust, direction-honest facts:
+#   (a) spectral eumelanin is red-dominant (absorbs blue more than red — the
+#       correct qualitative melanin behaviour), and
+#   (b) the two modes genuinely differ somewhere in the parameter space
+#       (spectral follows the power law, not the Cycles triple).
+#
+# RECALIBRATED by pkg225-S6. The original single-point form of (b) asserted
+# >5% R/B divergence at (melanin=0.6, redness=0.0), citing a measured "spectral
+# R/B ~5.5 vs Cycles ~32". Both of those numbers came from the BROKEN CPU
+# spectral hair path: Material::evalSpectralExt/sampleSpectralExt (the only
+# entry points the multiwavelength integrator uses) applied a `wi.n <= 0 -> 0`
+# gate and shadowed principled_hair's own sampleSpectral override, deleting the
+# TT/TRT lobes and rendering CPU spectral hair ~9x darker than CPU RGB hair with
+# the SAME material. With that fixed, CPU spectral hair matches CPU RGB hair in
+# magnitude to <1% (they describe one material), and the honest measured result
+# is that the Jacques lambda^-3.33 law and the Cycles eumelanin triple AGREE
+# closely for pure eumelanin at moderate concentration (2.1% at 0.6/0.0) and
+# diverge as concentration and pheomelanin fraction rise (up to ~14% at 0.9/1.0,
+# where the lambda^-4.75 pheomelanin exponent dominates). So (b) is now gated
+# across a small (melanin, redness) sweep instead of one accidental point — the
+# claim it defends is "the seam is engaged, not silently falling back to the RGB
+# triple", and a silent fallback would show 0% divergence EVERYWHERE.
 # ---------------------------------------------------------------------------
 
 def _hair_channel_sums(img):
@@ -170,33 +183,64 @@ def test_spectral_melanin_distinct_and_red_dominant():
     assert rb_spec > 1.5, (
         f"spectral eumelanin R/B={rb_spec:.3f} should be red-dominant (>1.5); the "
         f"lambda^-3.33 absorption must pass red and absorb blue. Melanin seam broken?")
-    # (b) The spectral physical path differs meaningfully from the RGB triple.
-    rel = abs(rb_spec - rb_rgb) / max(rb_rgb, 1e-9)
-    assert rel > 0.05, (
-        f"spectral R/B ({rb_spec:.3f}) is within {rel:.1%} of the RGB-triple R/B "
-        f"({rb_rgb:.3f}) -- the spectral melanin seam appears not engaged (it should "
-        f"follow the physical power law, not the Cycles RGB coefficients).")
+    # (a2) The spectral magnitude must track the RGB mode: both parametrizations
+    # describe the SAME material, so a large brightness gap means the spectral
+    # hair path is dropping lobes (the pkg225-S6 evalSpectralExt/sampleSpectralExt
+    # defect made spectral ~9x darker than RGB here).
+    lum_rgb = float(s_rgb.sum())
+    lum_spec = float(s_spec.sum())
+    mag = lum_spec / max(lum_rgb, 1e-9)
+    print(f"[pkg225-S5] spectral/rgb total energy ratio = {mag:.4f}")
+    assert 0.8 <= mag <= 1.25, (
+        f"spectral hair total energy is {mag:.3f}x the RGB-mode render -- the two "
+        f"parametrizations describe the same material, so this is a dropped-lobe / "
+        f"clamped-upsample defect in the spectral hair path, not an absorption shape "
+        f"difference.")
+
+    # (b) The spectral physical path differs meaningfully from the RGB triple
+    # SOMEWHERE in the parameter space. A silent fallback to the RGB triple would
+    # show ~0% divergence at every point; the power law diverges most where the
+    # pheomelanin exponent (lambda^-4.75) and the concentration are highest.
+    divergences = []
+    for melanin, redness in [(0.6, 0.0), (0.9, 0.5), (0.9, 1.0)]:
+        a = _render(use_gpu=False, spectral=False, melanin=melanin, redness=redness)
+        b = _render(use_gpu=False, spectral=True, melanin=melanin, redness=redness)
+        sa, _ = _hair_channel_sums(a)
+        sb, _ = _hair_channel_sums(b)
+        assert sa is not None and sb is not None, "too little hair coverage to gate"
+        ra = sa[0] / max(sa[2], 1e-9)
+        rb_ = sb[0] / max(sb[2], 1e-9)
+        rel = abs(rb_ - ra) / max(ra, 1e-9)
+        divergences.append(rel)
+        print(f"  melanin={melanin} redness={redness}: rgb R/B={ra:.3f} "
+              f"spectral R/B={rb_:.3f} rel={rel:.1%}")
+
+    assert max(divergences) > 0.05, (
+        f"spectral R/B tracks the RGB-triple R/B to within {max(divergences):.1%} at "
+        f"EVERY sampled (melanin, redness) point -- the spectral melanin seam appears "
+        f"not engaged (it should follow the physical power law, not the Cycles RGB "
+        f"coefficients).")
 
 
 # ---------------------------------------------------------------------------
 # Gate 3 — GPU<->CPU spectral melanin parity.
 #
-# BLOCKED on a pre-existing, Stage-5-INDEPENDENT defect: GPU *spectral*
-# (multiwavelength) rendering shades ALL curve-geometry hits as black — a
-# lambertian curve is equally invisible, so it is NOT the melanin seam (RGB GPU
-# curves + hair work; S4 only ever gated GPU hair in RGB). The GPU melanin seam
-# (gpu_hair.cuh: eu/ph on the hair-unused GMaterial scalars) is register-verified
-# (fleet stageShadeBucketedKernel stays REG:254, no spill) and byte-parallel to
-# the CPU path, so it is correct-by-construction and will render once the upstream
-# GPU-spectral-curve shade gap is fixed (filed separately). Skip until then rather
-# than assert a parity we cannot currently produce.
+# pkg225-S6 UNBLOCKED this gate. It was skipped because GPU *spectral*
+# (multiwavelength) rendering shaded every curve hit EXACTLY black. That was
+# never curve- or melanin-specific: module/blender_module.cpp derived the GPU
+# wavefront's `enableNEE` from the integrator NAME, hard-forcing naive (no light
+# sampling) on `multiwavelength_path_tracer`, while the CPU integrator takes
+# `enable_nee` with default 1. In naive mode the shade stage takes emission only
+# on `bounce == 0 || wasSpecular` and skips the two-sided-MIS w_B leg, so any
+# lambertian surface lit solely by an off-camera area light is black by
+# construction. The GPU now honours the same param the CPU reads, and the
+# register-verified GPU melanin seam (gpu_hair.cuh: eu/ph on the hair-unused
+# GMaterial scalars) lights up as designed.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skip(reason="pkg225: GPU spectral (multiwavelength) renders ALL curve "
-                         "hits black -- a pre-existing shade-side defect independent "
-                         "of the Stage-5 melanin seam (affects lambertian curves too; "
-                         "RGB GPU curves/hair work). Filed separately. The GPU melanin "
-                         "seam is register-verified + byte-parallel to CPU.")
+@pytest.mark.skipif(
+    not (AVAILABLE and astroray.__features__.get("cuda", False)),
+    reason="CUDA feature not in this build -- GPU spectral melanin parity needs the RTX box.")
 def test_gpu_spectral_melanin_matches_cpu():
     cpu = _render(use_gpu=False, spectral=True, melanin=0.6, redness=0.0)
     gpu = _render(use_gpu=True, spectral=True, melanin=0.6, redness=0.0)

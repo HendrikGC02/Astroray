@@ -24,7 +24,8 @@
 #include "../shapes.h"
 #include "../spectrum.h"
 #include "mesh_caustic.h"
-#include "sms_attempt.h"   // SMSConfig, SMSCaster (sphere path lives alongside)
+#include "sms_attempt.h"          // SMSConfig, SMSCaster, SMSPolyResult (sphere poly path)
+#include "mesh_specular_poly.h"   // pkg227 2b-flat: deterministic flat-triangle solver
 #include <cmath>
 #include <vector>
 
@@ -160,6 +161,158 @@ inline float runMeshSMSAttempt(const Renderer& renderer,
     if (contrib < 0.0f) contrib = 0.0f;
     if (contrib > cfg.contribClamp) contrib = cfg.contribClamp;
     return contrib;
+}
+
+// pkg227 Phase 2b-flat — DETERMINISTIC single-vertex mesh caustic (flat facets).
+//
+// The mesh analogue of runSMSAttemptPoly (sphere): instead of the single-seed
+// Newton search of runMeshSMSAttempt (which finds at most one path per attempt
+// and misses the caustic-fold branches), enumerate EVERY admissible single
+// refractive vertex across the caster triangles with specpoly::
+// solveFlatTriangleSpecular, and accumulate each valid path with the SAME MNEE
+// generalized-geometry weight the sphere poly path uses. Flat facet normals only
+// (dn=0) — smooth shading is Phase 2b-smooth; two-bounce (prism) is Phase 2d, so
+// this is one refractive vertex from x0 to the light. Returns SMSPolyResult
+// (hero + RGB), mirroring runSMSAttemptPoly's Fresnel / weight / clamp
+// conventions exactly (no 2.0 firefly clamp — the per-solution contribClamp
+// bounds singular-Jacobian spikes). Validated against the sphere oracle
+// (tests/test_pkg227_mesh_poly_unit.py; mesh_specular_poly.h).
+inline SMSPolyResult runMeshSMSAttemptPoly(const Renderer& renderer,
+                                           const HitRecord& x0Rec, const Ray& primary,
+                                           const astroray::SampledWavelengths& lambdas,
+                                           const std::vector<CausticTri>& tris,
+                                           const Material* casterMat, float casterPickPdf,
+                                           const LightSample& ls, const SMSConfig& cfg) {
+    SMSPolyResult R;
+    const auto& bvh = renderer.getBVH();
+    if (!bvh || tris.empty() || ls.pdf <= 0.0f) return R;
+
+    const float lambdaHero = lambdas.lambda(0);
+    const float iorHero = casterMat ? casterMat->iorAt(lambdaHero) : 1.5f;
+    if (iorHero <= 1.0f) return R;
+    const float eta = 1.0f / iorHero;   // air -> glass (x0-side is air), matches sphere
+
+    const Vec3 wo_eye = -primary.direction.normalized();
+    const bool fixedDir = (ls.distance > 1.0e5f);
+    const float invPdf = 1.0f / std::max(ls.pdf * casterPickPdf, 1e-6f);
+    const float LeHero = astroray::RGBIlluminantSpectrum(
+        {ls.emission.x, ls.emission.y, ls.emission.z}).sample(lambdas)[0];
+
+    // Candidate-face selection (no global pruning yet — Phase 2c). Solving the
+    // quartic on EVERY facet is O(pixels * triangles) and unusable; instead cast
+    // a cheap seed ray x0 -> caster centroid and solve the exact quartic ONLY on
+    // the few faces it crosses (the specular vertex lives on an entry face the
+    // straight seed traverses), mirroring the Newton path's seedChainTowardCaster
+    // scoping. Bounds quartic solves to <= kMaxCand per shading point.
+    Vec3 centroid(0.0f);
+    for (const auto& tr : tris) centroid = centroid + (tr.v0 + tr.v1 + tr.v2) * (1.0f / 3.0f);
+    centroid = centroid * (1.0f / static_cast<float>(tris.size()));
+    const Vec3 aim = centroid - x0Rec.point;
+    const float aimLen = std::sqrt(aim.length2());
+    if (aimLen < 1e-9f) return R;
+    const Vec3 seedDir = aim * (1.0f / aimLen);
+    const float tMax = aimLen * 4.0f;
+
+    constexpr int kMaxCand = 4;
+    int cand[kMaxCand];
+    int nCand = 0;
+    for (int ti = 0; ti < (int)tris.size() && nCand < kMaxCand; ++ti) {
+        float t;
+        if (rayTriHit(x0Rec.point, seedDir, tris[ti], t) && t > 1e-4f && t < tMax)
+            cand[nCand++] = ti;
+    }
+
+    for (int ci = 0; ci < nCand; ++ci) {
+        const CausticTri& tr = tris[cand[ci]];
+        specpoly::FlatTriSolution sols[4];
+        const int nsol = specpoly::solveFlatTriangleSpecular(
+            x0Rec.point, ls.position, tr.v0, tr.v1, tr.v2, eta,
+            /*refraction=*/true, sols, 4);
+        if (nsol <= 0) continue;   // -1 degenerate / 0 no in-facet root
+        R.nSolutions += nsol;
+
+        const Vec3 e1v = tr.v1 - tr.v0;
+        const Vec3 e2v = tr.v2 - tr.v0;
+
+        for (int i = 0; i < nsol; ++i) {
+            const Vec3 x1 = sols[i].p;
+            const Vec3 nEntry = sols[i].n;
+
+            const Vec3 dirToX1 = x1 - x0Rec.point;
+            const float distX0X1_2 = dirToX1.length2();
+            if (distX0X1_2 < 1e-8f) continue;
+            const float distX0X1 = std::sqrt(distX0X1_2);
+            const Vec3 wi_x0 = dirToX1 * (1.0f / distX0X1);
+
+            // Visibility x0 -> x1 must reach a caustic-caster face (the glass).
+            HitRecord vrec;
+            if (!bvh->hit(Ray(x0Rec.point, wi_x0), 0.001f, distX0X1 + 1e-2f, vrec))
+                continue;
+            if (!(vrec.hitObject && vrec.hitObject->isCausticCaster())) continue;
+
+            // Orient the facet normal toward x0 (a facet has no innate side).
+            Vec3 nOr = nEntry;
+            const Vec3 wi_in = -wi_x0;
+            float cosI = -wi_in.dot(nOr);
+            if (cosI < 0.0f) { nOr = nOr * -1.0f; cosI = -cosI; }
+            if (cosI <= 1e-6f) continue;
+            const float sin2T = eta * eta * std::max(0.0f, 1.0f - cosI * cosI);
+            if (sin2T >= 1.0f) continue;  // TIR
+
+            // Exit-side occlusion: only glass (caster) or the light may lie
+            // between x1 and the light (mirrors runMeshSMSAttempt).
+            const Vec3 toLight = ls.position - x1;
+            const float distLight = std::sqrt(toLight.length2());
+            if (distLight < 1e-5f) continue;
+            const Vec3 dirLight = toLight * (1.0f / distLight);
+            HitRecord lrec;
+            const bool hitOcc = bvh->hit(Ray(x1 + dirLight * 1e-3f, dirLight),
+                                         0.001f, distLight - 1e-2f, lrec);
+            if (hitOcc && lrec.hitObject && !lrec.hitObject->isInfiniteLight() &&
+                !lrec.hitObject->isCausticCaster())
+                continue;
+
+            // Fresnel transmittance at the vertex (hero eta).
+            float F0 = (1.0f - eta) / (1.0f + eta);
+            F0 *= F0;
+            const float fresnel =
+                F0 + (1.0f - F0) * std::pow(std::max(0.0f, 1.0f - cosI), 5.0f);
+            const float Tr = 1.0f - fresnel;
+
+            const astroray::SampledSpectrum fSpec =
+                x0Rec.material->evalSpectral(x0Rec, wo_eye, wi_x0, lambdas);
+
+            // MNEE generalized-geometry weight, N=1 flat vertex: surface tangents
+            // are the triangle edges, dn=0 (flat facet — trianglePartials
+            // convention). No extra receiver cosine (evalSpectral carries it); no
+            // 2.0 clamp (as runSMSAttemptPoly).
+            ChainVertex cv;
+            cv.p = x1;  cv.n = nOr;
+            cv.dp_du = e1v;  cv.dp_dv = e2v;
+            cv.dn_du = Vec3(0.0f);  cv.dn_dv = Vec3(0.0f);
+            cv.eta = iorHero;
+            const Vec3 sunDir = dirLight;
+            const float dw0_dx1 =
+                std::fabs(wi_x0.dot(nOr)) / std::max(distX0X1_2, 1e-6f);
+            const float dx1_dxlight = chainGeometryTerm(
+                &cv, 1, x0Rec.point, ls.position, ls.normal, nullptr, fixedDir, sunDir);
+            if (dx1_dxlight <= 0.0f) continue;
+            const float w = dw0_dx1 * dx1_dxlight * invPdf;
+
+            float sampleHero = fSpec[0] * LeHero * Tr * w;
+            if (sampleHero > cfg.contribClamp) sampleHero = cfg.contribClamp;
+            if (sampleHero < 0.0f) sampleHero = 0.0f;
+            R.hero += sampleHero;
+
+            const astroray::XYZ fxyz = fSpec.toXYZ(lambdas);
+            Vec3 sampleRGB = Vec3(fxyz.X, fxyz.Y, fxyz.Z) * ls.emission * (Tr * w);
+            const float maxC = std::max(sampleRGB.x, std::max(sampleRGB.y, sampleRGB.z));
+            if (maxC > cfg.contribClamp) sampleRGB = sampleRGB * (cfg.contribClamp / maxC);
+            R.rgb = R.rgb + sampleRGB;
+            R.nValid += 1;
+        }
+    }
+    return R;
 }
 
 }  // namespace astroray::manifold

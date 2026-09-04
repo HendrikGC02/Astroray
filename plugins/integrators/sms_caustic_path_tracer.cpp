@@ -55,6 +55,7 @@ class SMSCausticPathTracer : public Integrator {
     int   maxDepth_;
     int   chainIters_;
     bool  spectralNewton_;    // pkg64 Phase 2: hero-λ Newton (Hanika 2015 §4)
+    bool  specularPoly_;      // pkg127: deterministic sphere seed finding (default OFF)
     amf::SMSConfig smsCfg_;
 
     Renderer* renderer_ = nullptr;
@@ -76,7 +77,11 @@ public:
           chainIters_(p.getInt("caustic_chain_iters", 3)),
           // set_integrator_param Python binding routes through int values
           // (module/blender_module.cpp), so the toggle reads as int.
-          spectralNewton_(p.getInt("spectral_newton", 0) != 0) {
+          spectralNewton_(p.getInt("spectral_newton", 0) != 0),
+          // pkg127: deterministic Specular-Polynomials seed finding for sphere
+          // casters (Fan et al. 2024). OFF by default -> byte-identical to the
+          // stochastic uniform-seed + Newton path.
+          specularPoly_(p.getInt("sms_specular_poly", 0) != 0) {
         smsCfg_.seeds         = p.getInt("sms_seeds", 1);
         smsCfg_.maxIterations = p.getInt("sms_max_iterations", 20);
         smsCfg_.tolerance     = p.getFloat("sms_tolerance", 1e-4f);
@@ -108,6 +113,7 @@ public:
             {"sms_energy",          smsEnergy_},
             {"sms_caster_count",    static_cast<float>(casters_.size())},
             {"sms_spectral_newton", spectralNewton_ ? 1.0f : 0.0f},
+            {"sms_specular_poly",   specularPoly_ ? 1.0f : 0.0f},
         };
     }
 
@@ -214,6 +220,18 @@ private:
         lights.sample(ls, x0Rec.point, x0Rec.normal, lambdas, gen);
         if (ls.pdf <= 0.0f) return Vec3(0);
 
+        // pkg127: deterministic Specular-Polynomials seed finding (RGB path).
+        if (specularPoly_) {
+            amf::SMSPolyResult pr = amf::runSMSAttemptPoly(
+                *renderer_, x0Rec, primary, lambdas, C, eta, C.iorFlat,
+                casterPickPdf, ls, smsCfg_);
+            if (!pr.fellBack) {
+                smsAttempts_  += static_cast<float>(pr.nSolutions);
+                smsConverged_ += static_cast<float>(pr.nValid);
+                smsEnergy_    += std::max(pr.rgb.x, std::max(pr.rgb.y, pr.rgb.z));
+                return pr.rgb;
+            }
+        }
         Vec3 contrib(0);
         for (int s = 0; s < smsCfg_.seeds; ++s) {
             smsAttempts_ += 1.0f;
@@ -267,6 +285,19 @@ private:
         if (ls.pdf <= 0.0f) return out;
 
         float heroAccum = 0.0f;
+        // pkg127: deterministic Specular-Polynomials seed finding (hero path).
+        if (specularPoly_) {
+            amf::SMSPolyResult pr = amf::runSMSAttemptPoly(
+                *renderer_, x0Rec, primary, lambdas, C, eta, iorHero,
+                casterPickPdf, ls, smsCfg_);
+            if (!pr.fellBack) {
+                smsAttempts_  += static_cast<float>(pr.nSolutions);
+                smsConverged_ += static_cast<float>(pr.nValid);
+                smsEnergy_    += pr.hero;
+                out[0] = pr.hero;
+                return out;
+            }
+        }
         for (int s = 0; s < smsCfg_.seeds; ++s) {
             smsAttempts_ += 1.0f;
 

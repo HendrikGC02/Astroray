@@ -27,7 +27,9 @@
 #include "../shapes.h"
 #include "../spectrum.h"
 #include "half_vector_constraint.h"
+#include "manifold_chain.h"   // pkg127: chainGeometryTerm (deterministic MNEE weight)
 #include "newton_iterate.h"
+#include "specular_poly.h"    // pkg127: deterministic sphere seed enumeration
 
 #include <algorithm>
 #include <cmath>
@@ -199,6 +201,153 @@ inline bool runSMSAttempt(const Renderer& renderer,
                       (ls.pdf * casterPickPdf * static_cast<float>(cfg.seeds));
     outWiX0 = wi_x0;
     return true;
+}
+
+// pkg127 — deterministic specular-polynomial seed stage for a sphere caster.
+//
+// Replaces the stochastic uniform-seed + Newton search of runSMSAttempt with a
+// single polynomial solve (specular_poly.h) that enumerates EVERY admissible
+// single-vertex specular path, then runs the identical downstream validation
+// (visibility / refraction side / TIR / exit occlusion) on each. The stochastic
+// seed-area pdf is replaced by the deterministic MNEE geometry term
+// (chainGeometryTerm, N=1 sphere vertex) — the same weight runMeshSMSAttempt
+// uses for the triangulated caster — so the poly path estimates the same caustic
+// radiance as the Newton path, at lower variance (no per-seed rejection).
+//
+// `eta` is the half-vector ratio 1/iorHero (as passed to runSMSAttempt);
+// `iorHero` (= the caster IOR at the hero wavelength, or the flat IOR for the
+// RGB path) feeds the geometry term and Fresnel. Contributions are summed over
+// all valid solutions; the caller reads .hero or .rgb. .fellBack signals the
+// degenerate axial case (x0, light, centre collinear) where the plane is
+// undefined and the caller must fall back to the Newton seed loop.
+struct SMSPolyResult {
+    float hero = 0.0f;    // summed hero-channel contribution
+    Vec3  rgb  = Vec3(0); // summed RGB contribution
+    int   nSolutions = 0; // polynomial candidates enumerated
+    int   nValid = 0;     // candidates that produced a valid path
+    bool  fellBack = false;
+};
+
+inline SMSPolyResult runSMSAttemptPoly(const Renderer& renderer,
+                                       const HitRecord& x0Rec,
+                                       const Ray& primary,
+                                       const astroray::SampledWavelengths& lambdas,
+                                       const SMSCaster& C,
+                                       float eta, float iorHero,
+                                       float casterPickPdf,
+                                       const LightSample& ls,
+                                       const SMSConfig& cfg) {
+    SMSPolyResult R;
+    const Vec3 wo_eye = -primary.direction.normalized();
+    const auto& bvh = renderer.getBVH();
+    if (!bvh) return R;
+
+    specpoly::SphereSolution sols[specpoly::kMaxRoots];
+    const int nsol = specpoly::solveSphereSpecular(
+        x0Rec.point, ls.position, C.center, C.radius, eta,
+        /*refraction=*/true, sols, specpoly::kMaxRoots);
+    if (nsol < 0) { R.fellBack = true; return R; }  // axial degenerate
+    R.nSolutions = nsol;
+
+    const bool fixedDir = (ls.distance > 1.0e5f);
+    const float invPdf = 1.0f / std::max(ls.pdf * casterPickPdf, 1e-6f);
+    const float LeHero = astroray::RGBIlluminantSpectrum(
+        {ls.emission.x, ls.emission.y, ls.emission.z}).sample(lambdas)[0];
+
+    for (int i = 0; i < nsol; ++i) {
+        const Vec3 x1 = sols[i].x1;
+        const Vec3 nEntry = sols[i].n1;
+
+        const Vec3 dirToX1 = x1 - x0Rec.point;
+        const float distX0X1_2 = dirToX1.length2();
+        if (distX0X1_2 < 1e-8f) continue;
+        const float distX0X1 = std::sqrt(distX0X1_2);
+        const Vec3 wi_x0 = dirToX1 * (1.0f / distX0X1);
+
+        // Visibility x0 -> x1 must actually reach this caster sphere.
+        HitRecord vrec;
+        if (!bvh->hit(Ray(x0Rec.point, wi_x0), 0.001f, distX0X1 + 1e-2f, vrec))
+            continue;
+        if (vrec.hitObject != static_cast<const Hittable*>(C.sphere))
+            continue;
+
+        // Refraction side / TIR (wavelength-specific hero eta).
+        const Vec3 wi_in = -wi_x0;
+        const float cosI = -wi_in.dot(nEntry);
+        if (cosI <= 0.0f) continue;  // vertex faces away from x0
+        const float sin2T = eta * eta * std::max(0.0f, 1.0f - cosI * cosI);
+        if (sin2T >= 1.0f) continue;  // TIR
+        const Vec3 refracted =
+            (wi_in * eta + nEntry * (eta * cosI - std::sqrt(1.0f - sin2T)))
+                .normalized();
+
+        // Exit-side occlusion — identical single-vertex model to runSMSAttempt.
+        const Vec3 toLight = ls.position - x1;
+        const float distLight = std::sqrt(toLight.length2());
+        const Vec3 dirLight = toLight * (1.0f / distLight);
+        const Vec3 exitOrigin = x1 + refracted * (2.0f * C.radius + 1e-3f);
+        HitRecord lrec;
+        const bool hitOcc = bvh->hit(Ray(exitOrigin, dirLight), 0.001f,
+                                     distLight + 1e-2f, lrec);
+        if (hitOcc && !(lrec.hitObject && lrec.hitObject->isInfiniteLight()))
+            continue;
+
+        // Fresnel transmittance at the entry vertex.
+        float F0 = (1.0f - eta) / (1.0f + eta);
+        F0 *= F0;
+        const float fresnel =
+            F0 + (1.0f - F0) * std::pow(std::max(0.0f, 1.0f - cosI), 5.0f);
+        const float Tr = 1.0f - fresnel;
+
+        const astroray::SampledSpectrum fSpec =
+            x0Rec.material->evalSpectral(x0Rec, wo_eye, wi_x0, lambdas);
+
+        // Deterministic weight: the MNEE generalized-geometry term (the correct
+        // replacement for the stochastic seed-area pdf — the seed pdf is
+        // meaningless without a random seed). evalSpectral already carries the
+        // receiver cosine (lambertian returns albedo*cos/pi), so the weight is
+        // dw0_dx1 * dx1_dxlight with NO extra receiver cosine — mirroring the
+        // validated runMeshSMSAttempt (NOT runSMSAttempt, which double-counts the
+        // receiver cosine). N=1 sphere vertex, analytic partials dp=r*tangent,
+        // dn=tangent (curvature 1/r).
+        //
+        // The 2.0 firefly clamp runMeshSMSAttempt applies is DELIBERATELY OMITTED
+        // here: it caps the geometry-term spike at a caustic focus, which for a
+        // spread prism rainbow is fine but for a focused sphere caustic throws
+        // away most of the concentrated energy (measured bright_coverage 0.19 vs
+        // 0.63 with the clamp). The per-solution contribClamp still bounds
+        // singular-Jacobian fireflies.
+        Vec3 s1, t1;
+        buildOrthonormalBasis(nEntry, s1, t1);
+        ChainVertex cv;
+        cv.p = x1;  cv.n = nEntry;
+        cv.dp_du = s1 * C.radius;  cv.dp_dv = t1 * C.radius;
+        cv.dn_du = s1;             cv.dn_dv = t1;
+        cv.eta = iorHero;
+        const Vec3 sunDir = (ls.position - x1).normalized();
+        const float dw0_dx1 =
+            std::fabs(wi_x0.dot(nEntry)) / std::max(distX0X1_2, 1e-6f);
+        const float dx1_dxlight = chainGeometryTerm(
+            &cv, 1, x0Rec.point, ls.position, ls.normal, nullptr, fixedDir, sunDir);
+        if (dx1_dxlight <= 0.0f) continue;
+        const float w = dw0_dx1 * dx1_dxlight * invPdf;
+
+        // Hero-channel contribution (clamped per solution, as the Newton path).
+        float sampleHero = fSpec[0] * LeHero * Tr * w;
+        if (sampleHero > cfg.contribClamp) sampleHero = cfg.contribClamp;
+        if (sampleHero < 0.0f) sampleHero = 0.0f;
+        R.hero += sampleHero;
+
+        // RGB contribution (clamped per solution).
+        const astroray::XYZ fxyz = fSpec.toXYZ(lambdas);
+        Vec3 sampleRGB = Vec3(fxyz.X, fxyz.Y, fxyz.Z) * ls.emission * (Tr * w);
+        const float maxC = std::max(sampleRGB.x, std::max(sampleRGB.y, sampleRGB.z));
+        if (maxC > cfg.contribClamp) sampleRGB = sampleRGB * (cfg.contribClamp / maxC);
+        R.rgb = R.rgb + sampleRGB;
+
+        R.nValid += 1;
+    }
+    return R;
 }
 
 }  // namespace astroray::manifold

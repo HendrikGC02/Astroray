@@ -121,6 +121,15 @@ def test_sms_caustic_validation_gate(test_results_dir):
     # baseline brightness and the SMS caustic focal spot, moving the measured gain to
     # ~5.7 dB (still a large, clear improvement). The SMS-adds-energy check above is
     # unchanged. See .astroray_plan/docs/glass-dark-energy-bug-2026-05-30.md.
-    assert psnr_sms - psnr_baseline >= 5.0, (
+    #
+    # Threshold relaxed 5.0 -> 2.5 dB by pkg226: runSMSAttempt (the Newton sphere path
+    # this integrator uses) previously double-counted the receiver cosine and weighted
+    # by a biased seed-area pdf, over-brightening the caustic ~1.5x. pkg226 replaces
+    # that with the physically-correct MNEE chainGeometryTerm weight (matching the
+    # pkg127 poly path). The now-correct, dimmer SMS caustic sits closer to the baseline
+    # in absolute energy, so the measured PSNR gain drops to ~3.1 dB — a smaller but
+    # still clear improvement over a caustic-free baseline (SMS-adds-energy check above
+    # unchanged). The larger old gain encoded the over-bright bug. See pkg226 spec.
+    assert psnr_sms - psnr_baseline >= 2.5, (
         f"PSNR improvement {psnr_sms - psnr_baseline:.2f} dB below 5 dB target "
         f"(baseline={psnr_baseline:.2f}, sms={psnr_sms:.2f})")

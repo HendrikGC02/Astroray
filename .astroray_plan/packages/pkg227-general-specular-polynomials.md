@@ -4,7 +4,8 @@
 **Track:** A (CPU-first solver + candidate-generation research, numerical caustic
 quality gates, sphere-exact oracle; GPU mirror is RTX-verified against the CPU
 result and lands last)
-**Status:** open — spec DETAILED, ready for owner review
+**Status:** APPROVED (owner 2026-09-04) — implementing in order 2a → 2b-flat →
+2b-smooth; 2c (M-prune) DEFERRED, 2d/3 follow. See "Owner decisions" below.
 **Estimated effort:** XL — spans a cheap exact win (sphere multi-bounce), a
 research-grade approximate mesh solver, a whole candidate-generation subsystem
 (triangle-tuple pruning), and a GPU mirror. Phased so the first payoff ships
@@ -169,6 +170,41 @@ approximation interacts with per-λ IOR (the entire point of dispersive caustics
   spine (`sms_attempt.h`, `manifold_chain.h`).
 
 ---
+
+## Owner decisions (2026-09-04, RESOLVED)
+
+The owner reviewed the four open decisions and ruled:
+
+1. **Phasing / pruning (Open Decision #1).** APPROVED the recommendation: implement
+   in order **2a → 2b-flat → 2b-smooth**; **defer 2c (M-prune)** and 2d/3. Track S
+   (raindrop rainbow, exact) + single-caster smooth-mesh solver ship first; the
+   production-speed arbitrary-geometry pruning subsystem is gated on a real
+   multi-caster/high-poly scene demanding it.
+2. **Mesh √-fit accuracy (Open Decision #2).** ACCEPT the paper's approximate
+   rational √-fit for the *mesh* path, **conditioned on it not influencing
+   scientific results for research-grade simulations.** Interpretation locked for
+   implementation: the **exact analytic sphere path (2a) is the research-grade
+   dispersion path** (raindrops, journal-figure spheres) and carries no
+   approximation; the mesh √-fit is for *general/visual* geometry and MUST stay
+   oracle-gated (< `SMSConfig::tolerance` 1e-4 vs `solveSphereSpecular` after the
+   Newton polish). Any scene used for a research/scientific claim uses the exact
+   sphere solver, not the mesh √-fit — document the approximation prominently where
+   the mesh solver is exposed so it is never silently used for a physics result.
+3. **Newton mesh fallback (Open Decision #3).** KEEP `runMeshSMSAttempt` as a
+   flag-gated fallback through Phase 2d (remove only once the deterministic mesh
+   path proves out), per the recommendation.
+4. **Depth caps (Open Decision #4).** Sphere cap **3** (primary bow), headroom 4 —
+   approved. Mesh cap **2** (paper's feasible limit). Owner asks: expose the mesh
+   depth as a **UI/config knob switchable to 3 *if* that is simple and doesn't
+   change the core algorithm** — "use best judgement." **Judgement (implementer):**
+   the depth *knob* is cheap and will be exposed as a per-object config parameter
+   (same mechanism as the sphere-chain depth in 2a), but **actually solving depth-3
+   mesh chains is NOT a simple knob** — it is precisely the combinatorial
+   tuple-explosion the paper flags (§6) and requires the deferred M-prune subsystem.
+   So: the parameter is honored and validated; requesting mesh depth > 2 is
+   **clamped to 2 with a one-time warning** until 2c/2d land, at which point the cap
+   is raised. This gives the owner the switch now without pretending the algorithm
+   supports depth-3 mesh chains before the machinery exists.
 
 ## Phasing (each phase has a verifiable success criterion — CLAUDE.md §4)
 

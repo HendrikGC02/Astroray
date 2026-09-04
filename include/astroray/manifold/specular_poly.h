@@ -276,5 +276,177 @@ inline int solveSphereSpecular(const Vec3& x0, const Vec3& x2,
     return n;
 }
 
+// ---------------------------------------------------------------------------
+// pkg227 Phase 2a — analytic-sphere MULTI-BOUNCE chain (the raindrop rainbow).
+//
+// A specular chain on ONE sphere: refract-in -> k internal reflections ->
+// refract-out (primary rainbow k=1 => 3 vertices; secondary k=2 => 4). Because
+// every surface normal passes through the centre, the incidence angle is equal
+// at every interaction and the whole path stays in the plane through
+// (x0, light, centre) — so the exit ray is a deterministic function of a SINGLE
+// parameter, the entry-point angle on the great circle. Given fixed x0 and
+// light, the chains connecting them are the roots of
+//   g(theta) = signed miss of the exit ray to the light,
+// a UNIVARIATE, EXACT residual (real Snell, no rational sqrt-fit).
+//
+// This is the sphere form of the paper's variable reduction: the concentric-
+// normal symmetry makes the residual directly univariate in the entry angle, so
+// no hidden-variable resultant elimination is needed — equally exact, simpler
+// (CLAUDE.md §2). Enumerating ALL sign changes of g captures the two branches
+// that straddle the rainbow caustic fold, which a Newton-from-one-seed search
+// misses. The classical deviation D(i)=2(i-t)+k(pi-2t), sin t = sin i / n
+// (Descartes 1637 / Newton) is the analytic cross-check; validated to <1e-8 rad
+// in scratchpad/proto_sphere_chain.py and locked by tests/test_pkg227_sphere_
+// chain_unit.py.
+// ---------------------------------------------------------------------------
+
+inline constexpr int kMaxChainVerts = 4;   // entry + up to 2 reflections + exit
+inline constexpr int kMaxChains     = 8;   // distinct branches per attempt
+
+struct SphereChainSolution {
+    Vec3 x[kMaxChainVerts];   // vertices in order: entry, reflections..., exit
+    Vec3 n[kMaxChainVerts];   // outward unit normals at each vertex
+    int  count = 0;           // number of vertices = k + 2
+};
+
+// 2D refraction (GLSL convention): d incident unit dir toward the surface, N
+// unit normal facing the incident medium, eta = n_from/n_to. Writes the unit
+// transmitted dir to (ox,oy); returns false on total internal reflection.
+inline bool refract2(float dx, float dy, float nx, float ny, float eta,
+                     float& ox, float& oy) {
+    const float cosi = -(dx * nx + dy * ny);
+    const float k = 1.0f - eta * eta * (1.0f - cosi * cosi);
+    if (k < 0.0f) return false;
+    const float f = eta * cosi - std::sqrt(k);
+    float tx = eta * dx + f * nx, ty = eta * dy + f * ny;
+    const float il = 1.0f / std::sqrt(tx * tx + ty * ty);
+    ox = tx * il; oy = ty * il;
+    return true;
+}
+
+// Far intersection of the ray (p + s*d, s>0) with the origin-centred circle of
+// radius r, for p strictly inside. Writes the hit point to (ox,oy).
+inline void circleExit2(float px, float py, float dx, float dy, float r,
+                        float& ox, float& oy) {
+    const float b = 2.0f * (px * dx + py * dy);
+    const float c = px * px + py * py - r * r;
+    float disc = b * b - 4.0f * c;
+    if (disc < 0.0f) disc = 0.0f;
+    const float s = 0.5f * (-b + std::sqrt(disc));
+    ox = px + s * dx; oy = py + s * dy;
+}
+
+// Forward-trace one entry angle theta through k internal reflections, in the 2D
+// plane coords (a=x0, everything relative to the sphere centre at the origin).
+// On success fills the k+2 vertex angles vAng[] and the final exit dir
+// (edx,edy) and exit point (epx,epy); returns false on back-face / TIR.
+inline bool traceSphereChain2(float theta, float ax, float ay, float r,
+                              float eta, int k, float* vAng, int& nv,
+                              float& epx, float& epy, float& edx, float& edy) {
+    float px = r * std::cos(theta), py = r * std::sin(theta);
+    float nx = px / r, ny = py / r;                 // outward normal
+    float dx = px - ax, dy = py - ay;               // incoming ray dir
+    const float il0 = 1.0f / std::sqrt(dx * dx + dy * dy);
+    dx *= il0; dy *= il0;
+    if (dx * nx + dy * ny >= 0.0f) return false;    // must hit the front face
+    nv = 0;
+    vAng[nv++] = theta;                             // entry vertex
+    float rx, ry;
+    if (!refract2(dx, dy, nx, ny, 1.0f / eta, rx, ry)) return false;  // air->glass
+    dx = rx; dy = ry;
+    for (int b = 0; b < k; ++b) {                   // internal reflections
+        circleExit2(px, py, dx, dy, r, px, py);
+        nx = px / r; ny = py / r;
+        const float dn = dx * nx + dy * ny;
+        dx = dx - 2.0f * dn * nx; dy = dy - 2.0f * dn * ny;
+        vAng[nv++] = std::atan2(py, px);
+    }
+    circleExit2(px, py, dx, dy, r, px, py);         // to the exit point
+    nx = px / r; ny = py / r;
+    if (!refract2(dx, dy, -nx, -ny, eta, rx, ry)) return false;       // glass->air (TIR?)
+    vAng[nv++] = std::atan2(py, px);                // exit vertex
+    epx = px; epy = py; edx = rx; edy = ry;
+    return true;
+}
+
+// Signed perpendicular miss (2D cross product) of the chain's exit ray to the
+// light at (lx,ly). NaN sentinel (returned as the large `miss` via `ok=false`)
+// where the entry ray is invalid, so the sign-change scan skips that interval.
+inline float sphereChainMiss2(float theta, float ax, float ay, float lx, float ly,
+                              float r, float eta, int k, bool& ok) {
+    float vAng[kMaxChainVerts]; int nv;
+    float epx, epy, edx, edy;
+    ok = traceSphereChain2(theta, ax, ay, r, eta, k, vAng, nv, epx, epy, edx, edy);
+    if (!ok) return 0.0f;
+    const float vx = lx - epx, vy = ly - epy;
+    return edx * vy - edy * vx;
+}
+
+// Enumerate every k-reflection specular chain on the sphere connecting x0 to the
+// light, by bracketing all sign changes of the univariate exit-miss residual.
+// `refraction` is implied (a chain always refracts in and out); `eta` is the
+// hero-wavelength IOR ratio (glass/air). Returns the number of chains written
+// (<= maxOut). `nSamples` sets the residual scan resolution (default catches the
+// two caustic-straddling branches; raise for very high-IOR narrow bows).
+inline int solveSphereChain(const Vec3& x0, const Vec3& light,
+                            const Vec3& center, float radius, float eta,
+                            int reflections, SphereChainSolution* out,
+                            int maxOut, int nSamples = 512) {
+    const Vec3 av = x0 - center;
+    const Vec3 bv = light - center;
+    const Vec3 nplane = av.cross(bv);
+    const float nl2 = nplane.length2();
+    if (nl2 < 1e-12f) return -1;              // axial degenerate -> caller Newton
+    const float al2 = av.length2();
+    if (al2 < 1e-12f) return -1;
+    const Vec3 e1 = av * (1.0f / std::sqrt(al2));
+    const Vec3 nrm = nplane * (1.0f / std::sqrt(nl2));
+    const Vec3 e2 = nrm.cross(e1);
+    const float ax = av.dot(e1), ay = av.dot(e2);
+    const float lx = bv.dot(e1), ly = bv.dot(e2);
+
+    const float twoPi = 6.2831853071795864769f;
+    const float dTheta = twoPi / static_cast<float>(nSamples);
+    int n = 0;
+    bool okPrev = false;
+    float gPrev = 0.0f, thPrev = -3.14159265358979323846f;
+    for (int i = 0; i <= nSamples && n < maxOut; ++i) {
+        const float th = -3.14159265358979323846f + dTheta * static_cast<float>(i);
+        bool ok;
+        const float g = sphereChainMiss2(th, ax, ay, lx, ly, radius, eta,
+                                         reflections, ok);
+        if (ok && okPrev && gPrev * g < 0.0f) {
+            // Bisect [thPrev, th] for the exact root.
+            float a = thPrev, b = th, fa = gPrev;
+            for (int it = 0; it < 60; ++it) {
+                const float m = 0.5f * (a + b);
+                bool okm;
+                const float fm = sphereChainMiss2(m, ax, ay, lx, ly, radius, eta,
+                                                  reflections, okm);
+                if (!okm) break;
+                if (fa * fm <= 0.0f) { b = m; }
+                else { a = m; fa = fm; }
+            }
+            const float root = 0.5f * (a + b);
+            float vAng[kMaxChainVerts]; int nv;
+            float epx, epy, edx, edy;
+            if (traceSphereChain2(root, ax, ay, radius, eta, reflections,
+                                  vAng, nv, epx, epy, edx, edy)) {
+                SphereChainSolution& sc = out[n];
+                sc.count = nv;
+                for (int v = 0; v < nv; ++v) {
+                    const float ct = std::cos(vAng[v]), st = std::sin(vAng[v]);
+                    const Vec3 nloc = (e1 * ct + e2 * st).normalized();
+                    sc.n[v] = nloc;
+                    sc.x[v] = center + nloc * radius;
+                }
+                ++n;
+            }
+        }
+        okPrev = ok; gPrev = g; thPrev = th;
+    }
+    return n;
+}
+
 }  // namespace specpoly
 }  // namespace astroray::manifold

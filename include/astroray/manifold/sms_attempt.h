@@ -44,6 +44,11 @@ struct SMSCaster {
     Vec3            center;
     const Material* mat;
     float           iorFlat;
+    // pkg227 Phase 2a: internal-reflection rainbow chain depth. 0 = disabled
+    // (the default single-vertex lens caustic only); 1 = primary bow (3 vertices);
+    // 2 = secondary bow (4 vertices). Set by the integrator from a param after
+    // gatherSphereCasters; not a scene property yet.
+    int             chainReflections = 0;
 };
 
 struct SMSConfig {
@@ -360,6 +365,136 @@ inline SMSPolyResult runSMSAttemptPoly(const Renderer& renderer,
         // RGB contribution (clamped per solution).
         const astroray::XYZ fxyz = fSpec.toXYZ(lambdas);
         Vec3 sampleRGB = Vec3(fxyz.X, fxyz.Y, fxyz.Z) * ls.emission * (Tr * w);
+        const float maxC = std::max(sampleRGB.x, std::max(sampleRGB.y, sampleRGB.z));
+        if (maxC > cfg.contribClamp) sampleRGB = sampleRGB * (cfg.contribClamp / maxC);
+        R.rgb = R.rgb + sampleRGB;
+
+        R.nValid += 1;
+    }
+    return R;
+}
+
+// pkg227 Phase 2a — analytic-sphere MULTI-BOUNCE chain attempt (raindrop rainbow).
+// Enumerates every internal-reflection specular chain on the caster sphere that
+// connects x0 to the light (specpoly::solveSphereChain), and accumulates each
+// valid chain with the SAME deterministic MNEE weight the single-vertex poly
+// path uses (chainGeometryTerm, N = reflections + 2). ADDITIVE to
+// runSMSAttemptPoly's single-vertex lens caustic — a glass drop both refracts
+// light through AND throws internal-reflection bows; distinct light paths.
+// `reflections`: 1 = primary bow (3 vertices), 2 = secondary (4). Throughput is
+// the per-interface Fresnel product Tr_entry · Π R_reflect · Tr_exit.
+inline SMSPolyResult runSphereChainAttempt(const Renderer& renderer,
+                                           const HitRecord& x0Rec,
+                                           const Ray& primary,
+                                           const astroray::SampledWavelengths& lambdas,
+                                           const SMSCaster& C,
+                                           float /*eta*/, float iorHero,
+                                           float casterPickPdf,
+                                           const LightSample& ls,
+                                           const SMSConfig& cfg,
+                                           int reflections) {
+    SMSPolyResult R;
+    if (reflections < 1) return R;
+    const Vec3 wo_eye = -primary.direction.normalized();
+    const auto& bvh = renderer.getBVH();
+    if (!bvh) return R;
+
+    specpoly::SphereChainSolution chains[specpoly::kMaxChains];
+    const int nchain = specpoly::solveSphereChain(
+        x0Rec.point, ls.position, C.center, C.radius, iorHero,
+        reflections, chains, specpoly::kMaxChains);
+    if (nchain < 0) { R.fellBack = true; return R; }  // axial degenerate
+    R.nSolutions = nchain;
+
+    const bool fixedDir = (ls.distance > 1.0e5f);
+    const float invPdf = 1.0f / std::max(ls.pdf * casterPickPdf, 1e-6f);
+    const float LeHero = astroray::RGBIlluminantSpectrum(
+        {ls.emission.x, ls.emission.y, ls.emission.z}).sample(lambdas)[0];
+
+    // Schlick F0 for the air/glass interface (same at every vertex on a sphere).
+    float F0 = (1.0f - iorHero) / (1.0f + iorHero);
+    F0 *= F0;
+
+    for (int ci = 0; ci < nchain; ++ci) {
+        const specpoly::SphereChainSolution& ch = chains[ci];
+        const int N = ch.count;
+        if (N < 2 || N > specpoly::kMaxChainVerts) continue;
+
+        const Vec3 xEntry = ch.x[0];
+        const Vec3 nEntry = ch.n[0];
+        const Vec3 dirToEntry = xEntry - x0Rec.point;
+        const float distX0X1_2 = dirToEntry.length2();
+        if (distX0X1_2 < 1e-8f) continue;
+        const float distX0X1 = std::sqrt(distX0X1_2);
+        const Vec3 wi_x0 = dirToEntry * (1.0f / distX0X1);
+
+        // Visibility x0 -> entry must actually reach this caster sphere.
+        HitRecord vrec;
+        if (!bvh->hit(Ray(x0Rec.point, wi_x0), 0.001f, distX0X1 + 1e-2f, vrec))
+            continue;
+        if (vrec.hitObject != static_cast<const Hittable*>(C.sphere))
+            continue;
+
+        // Per-interface Fresnel throughput: transmit at entry+exit, reflect at
+        // the internal vertices. Incidence cosine at vertex i from the incoming
+        // leg (prev -> x[i]).
+        float through = 1.0f;
+        bool bad = false;
+        for (int i = 0; i < N; ++i) {
+            const Vec3 prev = (i == 0) ? x0Rec.point : ch.x[i - 1];
+            Vec3 wiLeg = prev - ch.x[i];
+            const float l2 = wiLeg.length2();
+            if (l2 < 1e-12f) { bad = true; break; }
+            wiLeg = wiLeg * (1.0f / std::sqrt(l2));
+            const float cosI = std::fabs(wiLeg.dot(ch.n[i]));
+            const float fr = F0 + (1.0f - F0) *
+                std::pow(std::max(0.0f, 1.0f - cosI), 5.0f);
+            const bool isRefract = (i == 0 || i == N - 1);
+            through *= isRefract ? (1.0f - fr) : fr;
+        }
+        if (bad || through <= 0.0f) continue;
+
+        // Exit-side occlusion from the last vertex toward the light.
+        const Vec3 xExit = ch.x[N - 1];
+        const Vec3 toLight = ls.position - xExit;
+        const float distLight = std::sqrt(toLight.length2());
+        const Vec3 dirLight = toLight * (1.0f / distLight);
+        const Vec3 exitOrigin = xExit + dirLight * 1e-3f;
+        HitRecord lrec;
+        const bool hitOcc = bvh->hit(Ray(exitOrigin, dirLight), 0.001f,
+                                     distLight + 1e-2f, lrec);
+        if (hitOcc && !(lrec.hitObject && lrec.hitObject->isInfiniteLight()))
+            continue;
+
+        const astroray::SampledSpectrum fSpec =
+            x0Rec.material->evalSpectral(x0Rec, wo_eye, wi_x0, lambdas);
+
+        // Deterministic MNEE weight for the full N-vertex chain. Sphere partials
+        // dp = r·tangent, dn = tangent; refraction vertices carry eta = iorHero,
+        // reflection vertices eta = 1. Same dw0_dx1 · chainGeometryTerm structure
+        // as runSMSAttemptPoly. No extra receiver cosine (evalSpectral carries it).
+        ChainVertex cv[specpoly::kMaxChainVerts];
+        for (int i = 0; i < N; ++i) {
+            Vec3 si, ti; buildOrthonormalBasis(ch.n[i], si, ti);
+            cv[i].p = ch.x[i]; cv[i].n = ch.n[i];
+            cv[i].dp_du = si * C.radius; cv[i].dp_dv = ti * C.radius;
+            cv[i].dn_du = si;            cv[i].dn_dv = ti;
+            cv[i].eta = (i == 0 || i == N - 1) ? iorHero : 1.0f;
+        }
+        const float dw0_dx1 =
+            std::fabs(wi_x0.dot(nEntry)) / std::max(distX0X1_2, 1e-6f);
+        const float dxChain = chainGeometryTerm(
+            cv, N, x0Rec.point, ls.position, ls.normal, nullptr, fixedDir, dirLight);
+        if (dxChain <= 0.0f) continue;
+        const float w = dw0_dx1 * dxChain * invPdf;
+
+        float sampleHero = fSpec[0] * LeHero * through * w;
+        if (sampleHero > cfg.contribClamp) sampleHero = cfg.contribClamp;
+        if (sampleHero < 0.0f) sampleHero = 0.0f;
+        R.hero += sampleHero;
+
+        const astroray::XYZ fxyz = fSpec.toXYZ(lambdas);
+        Vec3 sampleRGB = Vec3(fxyz.X, fxyz.Y, fxyz.Z) * ls.emission * (through * w);
         const float maxC = std::max(sampleRGB.x, std::max(sampleRGB.y, sampleRGB.z));
         if (maxC > cfg.contribClamp) sampleRGB = sampleRGB * (cfg.contribClamp / maxC);
         R.rgb = R.rgb + sampleRGB;

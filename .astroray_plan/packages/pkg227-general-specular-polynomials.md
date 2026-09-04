@@ -409,12 +409,63 @@ demand.
 
 ## Progress
 
-- [ ] Phase 2a — analytic-sphere multi-bounce (raindrop rainbow), Track S.
+- [x] Phase 2a — analytic-sphere multi-bounce (raindrop rainbow), Track S.
+      Solver `specpoly::solveSphereChain` + `runSphereChainAttempt`, `path_tracer`
+      param `sphere_chain_reflections` (0=off default, 1=primary, 2=secondary).
+      Gates: `tests/test_pkg227_sphere_chain_unit.py` (numpy oracle, 5/5, CI) +
+      `tests/test_pkg227_raindrop_bow.py` (render-level: fires/concentrated/
+      chromatic, 3/3). Branch `pkg227-s2a`. See Phase 2a findings below.
 - [ ] Phase 2b-flat — single-bounce mesh solver on one known caster (M-solve), oracle-gated.
+      **De-risked 2026-09-04** — numpy prototype PASSES vs sphere oracle (see below).
 - [ ] Phase 2b-smooth — interpolated shading-normal support (constraint + Jacobian).
 - [ ] Phase 2c — triangle-tuple pruning subsystem (M-prune) — GATED on Open Decision #1.
 - [ ] Phase 2d — two-bounce mesh, supersede `runMeshSMSAttempt`.
 - [ ] Phase 3 — GPU / wavefront mirror; caustic parity RTX-verified.
+
+## Phase 2a findings (2026-09-04)
+
+- **Solver is exact and simpler than scoped.** The sphere's concentric-normal
+  symmetry makes the multi-bounce residual DIRECTLY univariate in the entry-point
+  angle — the hidden-variable resultant (spec §2a) is unnecessary; a forward-trace
+  + sign-change bisection enumerates all branches exactly. Validated to <1e-8 rad
+  vs the analytic Descartes bow (i=59.41°, D=137.92° for water).
+- **The engine is correct; a single-drop bow is intrinsically a faint, noisy
+  caustic.** Camera-side SMS to a directional sun makes the primary bow a thin,
+  high-variance caustic band (chain adds real chromatic energy, row-profile ~42%
+  concentrated in the 42°-caustic band, both red- and blue-dominant pixels). It
+  does NOT render as a clean visible arc at practical spp — the same reason the
+  repo renders the PRISM rainbow via a forward light-tracer, not SMS. So the
+  Phase 2a gate asserts the **physics** (chain adds chromatic, banded energy vs
+  chain-off), NOT a pretty full-frame image. A clean showcase bow needs a forward
+  light-tracer or a dense drop cloud — deferred to a publication scene (owner:
+  "we can always build a nicer looking scene for publication", physically-honest
+  first). No reference-bank scene blessed for 2a (a full-frame single-drop image
+  is too faint to gate robustly); the render-level pytest is the gate.
+
+## Phase 2b-flat de-risking (2026-09-04, prototype)
+
+Parallel numpy prototype (`scratchpad/proto_mesh_specular.py`, research note
+`.astroray_plan/docs/pkg227-phase2b-research.md`) — PASSES vs the sphere oracle:
+
+- **Flat-facet single-vertex refraction is EXACT degree-4 — no √-fit.** For a
+  constant (flat) normal, coplanarity collapses to a LINEAR constraint and the
+  squared angularity to a plain degree-4 polynomial in one line-parameter. The
+  paper's 6-piece rational √-fit (Eq. 23) is NOT needed for 2b-flat (it's for the
+  multi-vertex position propagation in 2d, and interpolated normals in 2b-smooth).
+  **This refines Owner Decision #2:** the √-fit "visual-only" concern applies to
+  2b-smooth/2d, not 2b-flat, which is research-grade exact. Degree-4 independently
+  matches the paper's Table 2 flat-normal degree.
+- Oracle agreement <5.65e-6 rad (18× inside the 1e-4 gate) across 4 cases × 2
+  branches; superfluous roots filter cleanly (445/448 removed).
+- **Convergence is LINEAR in facet edge length (err/edge≈0.41), not quadratic** —
+  a globally-uniform mesh fine enough would need ~3e8 triangles. This is the
+  quantitative reason smooth normals (2b-smooth) are a REQUIRED separate phase,
+  not "just tessellate finer".
+- **Implementer gotcha:** pass `eta` UNMODIFIED (mirror `specular_poly.h`'s Ci/Co
+  pattern); verify eta direction empirically against the pkg127 CI oracle, never
+  an isolated Snell sanity check — the wrong convention is locally self-consistent
+  and fails SILENTLY (a different plausible specular point, not an error).
+- Port target: new `mesh_specular_poly.h` reusing `specular_poly.h` helpers.
 
 ## Lessons
 

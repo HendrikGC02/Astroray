@@ -59,6 +59,7 @@ class SpectralPathTracer : public Integrator {
     int  maxDepth_;
     bool spectralNewton_;     // default ON for the prism use case
     bool specularPoly_;       // pkg127: deterministic sphere seed finding (default OFF)
+    int  sphereChainRefl_ = 0; // pkg227: sphere internal-reflection rainbow depth (0=off)
     amf::SMSConfig smsCfg_;
     std::string causticMode_; // pkg111: "none", "sms" (default), or "photon_map"
     // pkg125: band awareness. Mirrors multiwavelength_path_tracer.cpp:22-23,45-46
@@ -123,6 +124,11 @@ public:
         smsCfg_.contribClamp  = p.getFloat("sms_contrib_clamp", 4.0f);
         // pkg111: photon map parameters (used when caustics == "photon_map")
         photonGatherK_ = p.getInt("photon_knn", 50);
+        // pkg227 Phase 2a: sphere internal-reflection rainbow chain depth. 0 = off
+        // (byte-identical to the pkg127 single-vertex lens caustic); 1 = primary
+        // bow, 2 = secondary. Owner decision #4: sphere cap 3 vertices (=1 reflect)
+        // with headroom to 4 (=2). Clamped to [0,2]; only active with sms_specular_poly.
+        sphereChainRefl_ = std::max(0, std::min(2, p.getInt("sphere_chain_reflections", 0)));
     }
 
     void beginFrame(Renderer& scene, Camera& cam) override {
@@ -139,6 +145,8 @@ public:
         } else if (scene.getUseRefractiveCaustics()) {
             // SMS path: per-object opt-in: only flagged objects participate.
             amf::gatherSphereCasters(scene, casters_, /*requireFlag=*/true);
+            // pkg227: apply the global rainbow-chain depth to every caster.
+            for (auto& c : casters_) c.chainReflections = sphereChainRefl_;
         }
     }
 
@@ -342,10 +350,22 @@ private:
                 *renderer_, x0Rec, syntheticPrimary, lambdas, C, eta, iorHero,
                 casterPickPdf, ls, smsCfg_);
             if (!pr.fellBack) {
-                smsAttempts_  += static_cast<float>(pr.nSolutions);
-                smsConverged_ += static_cast<float>(pr.nValid);
-                smsEnergy_    += pr.hero;
-                out[0] = pr.hero;
+                float hero = pr.hero;
+                int nSol = pr.nSolutions, nVal = pr.nValid;
+                // pkg227: ADD the internal-reflection rainbow chain (distinct
+                // light path from the single-vertex lens caustic).
+                if (C.chainReflections > 0) {
+                    amf::SMSPolyResult cr = amf::runSphereChainAttempt(
+                        *renderer_, x0Rec, syntheticPrimary, lambdas, C, eta,
+                        iorHero, casterPickPdf, ls, smsCfg_, C.chainReflections);
+                    if (!cr.fellBack) {
+                        hero += cr.hero; nSol += cr.nSolutions; nVal += cr.nValid;
+                    }
+                }
+                smsAttempts_  += static_cast<float>(nSol);
+                smsConverged_ += static_cast<float>(nVal);
+                smsEnergy_    += hero;
+                out[0] = hero;
                 return out;
             }
         }
@@ -400,11 +420,22 @@ private:
                 *renderer_, x0Rec, syntheticPrimary, lambdas, C, eta, C.iorFlat,
                 casterPickPdf, ls, smsCfg_);
             if (!pr.fellBack) {
-                smsAttempts_  += static_cast<float>(pr.nSolutions);
-                smsConverged_ += static_cast<float>(pr.nValid);
-                smsEnergy_    += std::max(pr.rgb.x, std::max(pr.rgb.y, pr.rgb.z));
+                Vec3 rgb = pr.rgb;
+                int nSol = pr.nSolutions, nVal = pr.nValid;
+                // pkg227: ADD the internal-reflection rainbow chain (RGB path).
+                if (C.chainReflections > 0) {
+                    amf::SMSPolyResult cr = amf::runSphereChainAttempt(
+                        *renderer_, x0Rec, syntheticPrimary, lambdas, C, eta,
+                        C.iorFlat, casterPickPdf, ls, smsCfg_, C.chainReflections);
+                    if (!cr.fellBack) {
+                        rgb = rgb + cr.rgb; nSol += cr.nSolutions; nVal += cr.nValid;
+                    }
+                }
+                smsAttempts_  += static_cast<float>(nSol);
+                smsConverged_ += static_cast<float>(nVal);
+                smsEnergy_    += std::max(rgb.x, std::max(rgb.y, rgb.z));
                 return astroray::RGBIlluminantSpectrum(
-                    {pr.rgb.x, pr.rgb.y, pr.rgb.z}).sample(lambdas);
+                    {rgb.x, rgb.y, rgb.z}).sample(lambdas);
             }
         }
         Vec3 contribRGB(0);

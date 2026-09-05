@@ -2,8 +2,8 @@
 
 **Pillar:** 5 (Blender integration / shader-node coverage)
 **Track:** A
-**Status:** Phase 1 LANDED (#696); Phase 2 VERIFIED 2026-09-06; final sign-off/CI/merge pending
-(branch `codex/pkg230-p2`, architecture independently signed off)
+**Status:** DONE — Phase 1 LANDED (#696); Phase 2 LANDED (#701, 2026-09-06 Sydney)
+(branch `codex/pkg230-p2`, reviewed implementation `4035a00`)
 **Estimated effort:** Phase 1 S (~1 session); Phase 2 M
 **Depends on:** pkg219a/b/c (op-VM evaluator), pkg229 (re-audit that ranked these)
 
@@ -132,8 +132,10 @@ flag and inverse-convention conditions included above.
       non-program fleet kernel REG/STACK/CONST against same-toolchain baseline.
 - [x] Headless Blender real graphs render through exporter; compare saved
       vector/Mix charts with Cycles in common linear space.
-- [ ] Full local suite, focused regressions, differential lint and caller/binding
-      sweep recorded; independent Claude final sign-off and green CI.
+- [x] Full local suite, focused regressions, differential lint and caller/binding
+      sweep recorded; independent Claude final sign-off and green CI. Two local
+      baseline failures remain explicitly accepted/tracked under pkg237/pkg238;
+      the original full local run is not represented as green.
 
 ---
 
@@ -159,8 +161,8 @@ flag and inverse-convention conditions included above.
       specializations** — no spill; the fleet `<0,…>` is REG:254/STACK:3400/
       CONSTANT[0]:1748 (STACK/CONST are current-main baseline; the VM rides
       `<HasProgram=true>`, so the fleet `<false>` path is untouched by construction).
-- [ ] Phase 2 — Vector Math / Vector Rotate op-VM opcodes (color-chain) + faithful
-      Mix `clamp_factor=OFF`, fork resolved.
+- [x] Phase 2 — Vector Math / Vector Rotate op-VM opcodes (color-chain) + faithful
+      Mix `clamp_factor=OFF`, fork resolved. LANDED #701, merge `b38a7d8`.
 
 ## Lessons
 
@@ -168,4 +170,5 @@ Hardware/visual verification and investigated baseline failures are recorded in
 [Phase 2 delivery evidence](../docs/pkg230-phase2-delivery-evidence.md).
 The full suite recorded 2326 passes and four failures; corrected Blender/harness
 reruns pass, while HDRI SSIM and PostInit ULP remain baseline-reproduced failures.
-No rendering thresholds were weakened. Final independent sign-off and CI pending.
+No rendering thresholds were weakened. Independent Claude final sign-off granted
+on `4035a00`; both CI runs passed before #701 merged as `b38a7d8`.

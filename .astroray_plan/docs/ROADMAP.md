@@ -130,21 +130,28 @@ Full evidence:
 scalar parameter textures remain landed (#674); pkg210 is SUPERSEDED and pkg180
 CLOSED.
 **Owner update 2026-09-06:** next-package priority is delegated to Astra, with
-parallel lower-level backlog work and an evidence-backed roadmap gap audit.
-The current round selects **pkg230b affine coordinate chains**, alongside
-**pkg232 delegate containment**; both architectures are independently signed
-off and implementation/verification is in progress. Common texture-placement
-fidelity is the bounded next Blender gain; the larger Principled arc and
-specialized caustic/sampling extensions remain future work.
+parallel lower-level backlog and a roadmap gap audit. The round implemented
+**pkg230b affine coordinate chains** locally and shipped **pkg232 delegate
+containment** in PR #705 (`d997c499`; independent approval, both host/CUDA CI runs
+passed). Common texture placement outranked the larger Principled arc and
+specialized caustic/sampling extensions.
 
-After this round, **pkg241 Phase 0 cancellation/viewport-response measurement**
-is the recommended next pickup, followed by pkg242 procedural mapping/bake
-parity. pkg243 preserves raw relative-band output as a lower-priority scientific
-foundation. pkg244 records the reproduced compiler-identity/cache-reset build
-defect separately from pkg231 latency and pkg240 CI cost. These new specs are
-OPEN, with implementation gates UNRUN; see the
-[production gap audit](production-gap-audit-2026-09-06.md). pkg127 Phase 2 needs
+Pkg230b remains **uncommitted/unmerged**: 2370 local tests passed and two native
+failures reproduced against untouched source; all 21 CPU/GPU/Cycles chart legs
+and both isolated package smokes passed. The full suite is NOT green. Required
+Claude final source/ABI/parity/visual review is blocked by its weekly subscription
+limit (reported reset 2026-09-10 13:00 Australia/Sydney). Architecture approval
+alone is not release approval. Do not duplicate-dispatch pkg230b.
+
+After pkg230b closes, **pkg241 Phase 0 cancellation/viewport-response measurement**
+is next, followed by pkg242 procedural mapping/bake parity. pkg243 preserves raw
+relative-band output; pkg244 covers compiler-identity/cache-reset safeguards;
+pkg245 covers normal/bump coordinate provenance. Specs pkg241–245 are merged
+(#704/#706), OPEN with implementation gates UNRUN. Local pkg246–248 drafts await
+independent filing review and are NOT dispatch eligible. pkg127 Phase 2 needs
 reconciliation against existing pkg227 topology and gates before dispatch.
+See the [production gap audit](production-gap-audit-2026-09-06.md) and
+[round delivery status](round-20260906-delivery-status.md).
 **Pillar 4 remains PAUSED**; priority delegation does not unpause astrophysics.
 
 **Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU

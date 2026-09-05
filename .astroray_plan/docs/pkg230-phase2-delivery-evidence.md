@@ -1,6 +1,10 @@
 # pkg230 Phase 2 delivery evidence
 
-Verified implementation, 2026-09-06; final independent sign-off and CI/merge pending.
+LANDED in [PR #701](https://github.com/HendrikGC02/Astroray/pull/701),
+2026-09-05 17:10:30 UTC (2026-09-06 Sydney), merge
+`b38a7d8471884c43c7aa5a2fd60ddb447c859309`.
+Independent final sign-off and both CI runs passed on reviewed source
+`4035a000f8b45dc549e072ebfd31799f608f1755`.
 Base: `31f30298c79dad151b270bef448184b598995137`.
 
 ## Architecture and scope
@@ -123,7 +127,7 @@ The other two failures were investigated and corrected for reruns:
   **All 37 harness tests pass in 7.68 s.** Astra inspected the convergence sheet:
   noise decreases and baseline/feature structure agrees. A small bright patch on
   the green backdrop persists in both Astroray builds and is absent in Cycles;
-  this local baseline discrepancy is a separate diagnostic follow-up, not a
+  this local baseline discrepancy is filed as pkg239 (#702), not a
   claim of perfect backdrop parity.
 
 ## Callers, hygiene and independent review
@@ -139,19 +143,39 @@ material layouts change. Final caller sweep is saved.
 
 Differential Ruff/cppcheck/markdownlint/codespell/diff-check reports zero new
 findings, no unavailable/error tools. clang-format is skipped because the repo
-has no style configuration. Final harness/evidence edits will receive the same
+has no style configuration. Final harness/evidence edits passed the same
 scoped check before commit.
 
 Two early cheap source-critic attempts timed out: incomplete, never counted as
 PASS. Later bounded opencode call-path and settings traces completed; Astra
 corrected their mistaken inferences before use. Claude architecture, source and
-conditional failure reviews are retained. Final independent judgment and CI
-remain release gates.
+conditional failure reviews are retained. Final independent Claude SIGN-OFF
+accepted the exact source, math, ABI/callers, hardware evidence, visual inspection,
+and baseline-failure exceptions. Both CI runs passed before merge, and the
+reviewed implementation remained unchanged. The subsequent source rebase changed only
+already-merged follow-up docs; `tested-source-identity.json` records source identity.
+No GPU result is claimed after the implementation commit.
+
+## Final CI and merge
+
+- PR run [33978574168](https://github.com/HendrikGC02/Astroray/actions/runs/33978574168):
+  host build/test and CUDA syntax **SUCCESS**. Host tests: **2074 passed,
+  243 skipped, 15 xfailed, 4 xpassed, 5 warnings in 1421.70 s**.
+- Push run [33978571904](https://github.com/HendrikGC02/Astroray/actions/runs/33978571904):
+  host build/test and CUDA syntax **SUCCESS** on the same reviewed head.
+- PR #701 merged only after all six checks (two changes, two host, two CUDA)
+  completed successfully. Host CI does not replace the local RTX/Blender gates
+  or erase the two documented local baseline failures.
+- `ci-pr-701.log`, `ci-push-701.log`, corresponding job JSON, and
+  `pr-701-merged.json` are saved under the root evidence directory.
 
 ## Follow-ups and artifacts
 
 Separately filed after independent Claude review and docs CI: pkg230b (#697),
-pkg231 (#698), pkg232-235 (#699), pkg236-238 (#700). All new follow-ups remain OPEN
+pkg231 (#698), pkg232-235 (#699), pkg236-238 (#700), pkg239 (#702).
+The planning closeout separately files pkg240 CI workflow cost audit; it makes
+no speedup or new-regression claim and preserves full validation coverage.
+All new follow-ups remain OPEN
 with implementation gates UNRUN, no queue promotion. Pillar 4 remains PAUSED.
 
 `test_results/pkg230-p2/` retains builds, import proofs, raw resource dumps,

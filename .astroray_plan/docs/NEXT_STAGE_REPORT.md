@@ -1,6 +1,52 @@
 # Astroray Next Stage Report
 
-## 2026-09-05 LIVE HANDOFF — reconciled with `origin/main`
+## 2026-09-06 CURRENT HANDOFF — pkg230 Phase 2 LANDED (#701)
+
+pkg230 Phase 2 (30 Vector Math ops, 5 Vector Rotate modes, faithful Mix factor
+clamping in the color/scalar op-VM chain) is **LANDED in PR #701**, merged
+2026-09-05 17:10 UTC (2026-09-06 Sydney), commit
+`b38a7d8471884c43c7aa5a2fd60ddb447c859309`. Independent Claude final SIGN-OFF
+covers reviewed source `4035a000f8b45dc549e072ebfd31799f608f1755`.
+Both push and PR CI runs passed host build/tests and CUDA syntax checks.
+The PR host run recorded 2074 passed, 243 skipped, 15 xfailed, 4 xpassed.
+Do not redispatch Phase 2.
+
+**Gates (concise; full gates/artifacts in
+[pkg230-phase2-delivery-evidence.md](pkg230-phase2-delivery-evidence.md)):**
+
+- 158 focused pkg219/pkg230 tests passed; 37 harness tests passed; isolated
+  Blender dev-loop smoke PASS after live-profile-incident recovery.
+- 15 real-Blender comparison legs = 5 cases across CPU-only Astroray, GPU
+  Astroray, and Cycles; max RGB mean-ratio deviation 2.38% vs the 5% gate.
+  Astra and independent Claude visual review PASS; charts saved.
+- All 64 non-program shade variants match their recorded baseline resource
+  fields. Fleet: REG 254 / STACK 3400 / CONST 1748 / LOCAL 0. The comparison
+  measured resources, not complete machine-code byte streams.
+- Original full split run: 2326 passed (1642 CPU + 684 serial), 4 original
+  failures. Two environment/sampling failures resolved on rerun (hermetic
+  profile smoke; backdrop correct artifact + 256 samples); two baseline
+  HDRI/ULP failures remain under pkg237/pkg238. The original full suite is NOT
+  green and was NOT wholly rerun.
+- A local bright patch on the backdrop persists on main+feature despite the
+  global SSIM pass at 256; pkg239 follow-up #702. No claim of perfect
+  baseline/Cycles visual parity.
+- Follow-ups filed separately, all OPEN for architect review before
+  implementation, no queue promotion: pkg230b #697, build-latency pkg231 #698,
+  pkg232–235 #699, pkg236–238 #700, pkg239 #702. This closeout also files
+  pkg240 CI workflow cost audit, separate from renderer work and pkg231.
+
+**Scope boundaries:** the verified real-Blender carrier is textured Principled
+with specular zero and Closest filtering — not universal BSDF/filter coverage.
+Coordinate chains warn/defer to pkg230b.
+
+**NEXT is OWNER CHOICE** among pkg127 Phase 2, Principled
+advanced-inputs (needs a scoped spec), pkg211 prototype-first-or-park, and the
+pkg136 GPU leg. No autonomous priority promotion; Pillar 4 remains PAUSED. Mere
+filed follow-ups do not preempt owner choice.
+
+---
+
+## 2026-09-05 HISTORICAL HANDOFF — superseded by 2026-09-06 above
 
 The earlier 2026-09-03 handoff below is historical. Since then, pkg225-S3/S4/S5/S6
 landed (#676, #681–#684), pkg127 Phase 1 landed (#685), pkg229's coverage re-audit
@@ -26,7 +72,8 @@ untouched by construction). Caught & fixed a Cycles-parity bug (`svm_clampf`
 diverges from Cycles `min(max())` when min>max). Spec:
 `.astroray_plan/packages/pkg230-opvm-utility-opcodes.md`.
 
-**IMMEDIATE NEXT PICKUP — pkg230 Phase 2** (spec written, not started): **Vector
+**Historical pickup on 2026-09-05 — pkg230 Phase 2** (then scoped and unstarted;
+superseded by the current handoff above): **Vector
 Math + Vector Rotate** op-VM opcodes + **faithful Mix `clamp_factor=OFF`**. Key
 context for whoever takes it:
 - The op-VM (`include/astroray/shader_vm.h`) is one shared `HD svm_eval` with a

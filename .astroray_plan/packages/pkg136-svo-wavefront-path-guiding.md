@@ -372,8 +372,21 @@ reduction on indirect-heavy scenes.
       (MIS), not BSDF-only** (else the hard region is undersampled → zero-support
       holes → bias, worse with finer trees). Refine-before-final-splat; splat
       radiance `Li/pdf`; equal-area map jac 2π. Spatial-tree half still to de-risk.
-- [ ] Stage 1B — CPU guided sampling + guide/BSDF MIS in `pathTraceSpectral`; unbiased +
-      variance-reduction gates green on CI.
+- [~] Stage 1B — CPU guided sampling + guide/BSDF MIS in `pathTraceSpectral`.
+      **Integration LANDED 2026-09-05** (raytracer.h): full-`SDTree` spatial tree
+      + learn-then-sample training-pass driver in `Renderer::render` (deferred
+      per-thread record splatting, no atomics) + guide/BSDF one-sample MIS at the
+      continuation with the matching NEE mixed-pdf weight. `guiding:off` is
+      byte-identical; runtime-tunable via `set_guiding_params(...)`; `guide_probe`
+      / `get_guide_debug` for diagnosis. Gates (`tests/test_pkg136_guiding_render.py`):
+      **unbiased ✓, no-harm-when-off ✓, guide-concentrates-correctly ✓**.
+      **The ≥2× variance-reduction gate is NOT yet met (xfail):** the integration
+      is correct/unbiased/probe-verified but *basic radiance guiding is ~break-even*
+      on the scenes tried (worse on firefly-heavy ones). Root causes + the path to
+      a real win (product guiding, filtered splatting, guide/NEE MIS handling,
+      benchmark-scene design) are in
+      `.astroray_plan/docs/pkg136-stage1b-findings.md`. **Remaining 1B = that
+      effectiveness work.**
 - [ ] Stage 2A — device directional side-table + gated `__noinline__` guided draw;
       fleet-kernel byte-identical probe.
 - [ ] Stage 2B — between-iteration build (copy-back first), CPU↔GPU parity, RTX

@@ -1,6 +1,44 @@
 # Astroray Status
 
-**2026-09-06 (CURRENT — pkg230 Phase 2 LANDED):** pkg230
+## 2026-09-06 CURRENT — implemented round awaiting final independent review
+
+The owner delegated next-package selection to Astra after pkg230 Phase 2 and
+#703. This round implemented pkg230b and parallel pkg232, and audited the plans.
+
+- **pkg230b: implemented locally, UNCOMMITTED / NOT MERGED.** Affine coordinate
+  chains and image-program cache isolation pass 101 focused tests, six real-RNA
+  probe sets, all 21 CPU/GPU/Cycles render legs, and isolated CPU/CUDA package
+  smokes. Full split suites: **2370 passed, two failures**. HDRI SSIM and PostInit
+  ULP failures reproduce against untouched source with the same fresh native
+  artifact (pkg237/pkg238); the full suite is **NOT green**.
+- **pkg230b release blocker:** independent Claude architecture approval passed,
+  but final source/ABI/parity/visual review has NOT run. Claude's subscription
+  weekly limit resets 2026-09-10 at 13:00 Australia/Sydney. Do not treat earlier
+  architecture approval or Astra visual inspection as final independent sign-off.
+  Preserve `codex/pkg230b` in `.claude/worktrees/pkg230b`; do not redispatch it.
+- **pkg232 LANDED in PR #705**, merge `d997c499` at 2026-09-05 18:50:24 UTC.
+  Windows Job containment passed 39 Windows tests, 14 actual-Linux tests, real
+  opencode smoke, caller review and independent Claude source SIGN-OFF. Both CI
+  runs passed host tests (2088 passed each) and CUDA syntax checks. Do not redispatch.
+- **Merged specifications:** pkg241–244 in #704 and pkg245 in #706. Their
+  implementation gates remain UNRUN. Three further local **DRAFT** specs,
+  pkg246 spectral RGB reconstruction, pkg247 launch-timeout boundary, and pkg248
+  content-change evidence, await independent filing review and are NOT dispatch
+  eligible. They remain in `.claude/worktrees/pkg230-followups`.
+- **Next after pkg230b closes: pkg241 Phase 0**, measuring render cancellation
+  and viewport response before implementation architecture. pkg242 follows for
+  procedural mapping fidelity; pkg243 preserves scientific output provenance.
+  pkg127 Phase 2 still requires topology/spec reconciliation before dispatch.
+- **Pillar 4 remains PAUSED.** GPU verification is finished and the GPU lock is
+  released. The user's live Blender profile was not used by this round's tests.
+
+Actual gates, retained failure evidence, reviewed filings and resumption state:
+[round delivery status](round-20260906-delivery-status.md).
+
+---
+
+
+**2026-09-06 (completed pkg230 Phase 2 record):** pkg230
 Phase 2 (30 Vector Math ops, 5 Vector Rotate modes, faithful Mix factor
 clamping in the color/scalar op-VM chain) is **LANDED in PR #701**, merged
 2026-09-05 17:10 UTC (2026-09-06 Sydney), commit

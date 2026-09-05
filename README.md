@@ -4,6 +4,14 @@ A physically based path tracer with a plugin core, a spectral pipeline, a
 Blender 5.2 addon, and a general-relativistic mode for astrophysical
 scenes. C++17 / CUDA on the inside, pybind11 + Python API on the outside.
 
+The near-term goal is a production-capable, Blender/DCC-native renderer: credible
+Cycles compatibility where applicable, a fast interactive GPU viewport, and a
+CPU fallback that remains a correctness oracle. The long-term goal is
+research-grade astrophysical simulation and science visualization, including
+physically meaningful spectral and instrument-like outputs. That is why spectral
+transport, dispersion, band-aware rendering, and robust light transport are
+foundational rather than side features.
+
 The design goal is **pluggability**: materials, shapes, lights, integrators,
 textures, and post-process passes all register into small factory registries.
 Adding a feature usually means dropping in one file.

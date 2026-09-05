@@ -16,6 +16,7 @@ new reusable script, register it here in the same commit.
 | Build-integrity guard (header-hash stamp, <5 s host-only ABI canary, cuobjdump CUDA-arch gate) invoked by all three build wrappers | `scripts/build/build_guard.py` (pkg183) |
 | Build/package/install the Blender addon | `scripts/build/build_blender_addon.py` (default backend: `cuda`) |
 | One-command Blender dev loop (build → install → smoke) | `scripts/dev_addon.ps1` |
+| Diagnose the local Blender MCP bridge without changing it | `scripts/dev/check_blender_mcp.ps1` |
 | Run the test suite against a build dir | `scripts/dev/run_tests.py` (default: `build_cuda/`) |
 | Material contact sheet / showcase renders / convergence + timing graphs | `benchmarks/showcase/runner.py` (curated presets: `config.MATERIAL_ZOO_VARIANTS`) |
 | Multi-scene SPP convergence sweep (diagnostic) | `scripts/diagnostics/convergence_tracker.py` |

@@ -50,3 +50,5 @@ archived plans are context, not dispatch authority.
 - `.codex/` + `.agents/skills/` — Codex project config, lifecycle guards,
   focused subagents, and discoverable workflow/index entry points. Detailed
   shared workflow bodies remain canonical in `.claude/skills/`.
+- `$astroray-architect-round` — Codex's architect-first autonomous delivery
+  workflow; use it to select, dispatch, verify, and close a bounded round.

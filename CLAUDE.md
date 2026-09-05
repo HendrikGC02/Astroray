@@ -86,6 +86,29 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
   cycles-parity, ABI reachability, gate-failure root-cause, merge decisions,
   visual inspection. Tier→model mapping: `.claude/skills/delegate/config/tiers.json`.
 
+### 5c. Product direction, delivery, and visual proof
+
+Astroray's near-term mission is a production-capable Blender/DCC renderer with
+Cycles-compatible behavior where applicable and a fast interactive GPU viewport.
+The RTX 5070 Ti is the primary hardware gate; CPU rendering remains a
+first-class correctness oracle and fallback. Correctness and visual fidelity
+outrank performance, while viewport performance is a co-equal product goal.
+
+The eventual destination is research-grade astrophysical simulation and science
+visualization: physically meaningful spectra, photon counts, and instrument-like
+observables for scenes such as emission nebulae, HMXBs, and relativistic lensing.
+Spectral, dispersion, infrared/band-aware, and robust light-transport work is
+therefore foundational even while Pillar 4 itself is paused.
+
+When documented gates and independent reviews pass, agents may commit, push,
+open PRs, and merge autonomously through the shared workflow. For any visually
+meaningful change, save representative render output and have Astra or Claude
+inspect it qualitatively alongside numerical gates. Treat a numerical failure as
+an investigation of both implementation and test/reference validity. File a
+tightly scoped follow-up for valuable tangents (including tooling, benchmarks,
+test throughput, project hygiene, hooks, skills, MCPs, or indexing) instead of
+mixing it into an unrelated diff.
+
 ## 5b. No Duplicate Scripts — Check the Index First
 
 **Before writing ANY new script (render harness, contact sheet, diagnostic,

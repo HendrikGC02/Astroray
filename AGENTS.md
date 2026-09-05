@@ -62,17 +62,35 @@ Astroray/
 - Before pushing, list changed function/class signatures and inspect all
   callers, including tests, mocks, and bindings. A green delegated narrative or
   CI-only result is not evidence of GPU/runtime correctness.
+- **Autonomous delivery:** once the package's documented gates and required
+  independent reviews pass, agents are authorized to commit, push, open PRs,
+  and merge through the canonical workflow. Escalate only when the proposed
+  work changes owner priority, package scope, or an explicit pause directive.
+- **Visual evidence is a release input.** Any change with a visual render,
+  viewport, material, spectral, or image-output effect must save representative
+  output and receive a qualitative inspection by a visual-capable high-tier
+  agent (Astra or Claude) in addition to numerical gates. A visual regression
+  is a gate failure even when scalar checks pass. Conversely, investigate a
+  failed test or stale reference image rather than assuming the new rendering
+  code is wrong.
+- **Continuous-improvement lane:** record a worthwhile out-of-scope finding as
+  a tightly scoped follow-up package or delegate it as a bounded, isolated
+  maintenance task. Do not hide a tangent in an unrelated package diff. This
+  applies to renderer performance, build/test throughput, skills, hooks, MCPs,
+  project indexing, tracker automation, documentation, repository hygiene,
+  benchmarks, and test-suite quality.
 
 ## Agent Drivers (opencode primary, Claude Code fallback, Codex supported)
 
 - **opencode** (Go, `opencode-ai` v1.18.x) is the primary agent driver. Config:
   `opencode.jsonc` (defaults) + `.opencode/agents/*.md` (per-agent model/permission)
   + `.opencode/plugins/astroray-hooks.ts` (ported `.claude/hooks/*` guards).
-- **Model routing (hybrid):** open-weight models draft/implement/review;
-  `claude -p` signs off on the judgment seats (architect specs, gate-failure
-  root-cause, cpp-abi-guard, cycles-parity, pr-reviewer SIGN-OFF/BLOCK, visual
-  inspection). There is **no Anthropic API key** — the `sign-off` agent shells
-  out to the `claude` CLI (subscription). Never hardcode model ids in
+- **Model routing (hybrid):** Astra owns orchestration and can perform the
+  judgment seats; open-weight models draft/implement/review bounded work;
+  `claude -p` provides an independent last-line sign-off for architect specs,
+  gate-failure root-cause, cpp-abi-guard, Cycles parity, PR SIGN-OFF/BLOCK, and
+  visual inspection when required. There is **no Anthropic API key** — the
+  `sign-off` agent shells out to the `claude` CLI (subscription). Never hardcode model ids in
   skill/hook bodies; routing lives in `.opencode/agents/*` frontmatter +
   `.claude/skills/delegate/config/tiers.json`.
 - The 15 skills in `.claude/skills/` remain the canonical shared workflow
@@ -134,6 +152,25 @@ now the baseline. Do NOT rely on this file for the active queue — use the live
 planning hierarchy above. The standing owner directive is Blender/DCC
 integration-first; Pillar 4 astrophysics remains PAUSED until an explicit owner
 unpause.
+
+## Product Direction
+
+Astroray is becoming a production-capable, Blender/DCC-native renderer with a
+fast interactive GPU viewport and trustworthy CPU fallback, measured against
+Cycles where that is the right baseline. Correctness, visual fidelity, and
+physical robustness come before raw speed; the RTX 5070 Ti is the principal
+hardware gate, while CPU rendering and portable CUDA behavior remain first-class
+compatibility paths.
+
+The long-term target is research-grade astrophysical simulation as well as
+scientific visualization: outputs may ultimately include radiance, spectra,
+photon counts, and observables for theoretical instruments and phenomena such
+as nebulae, HMXBs, and relativistic lensing. That future constrains present
+design: the spectral pipeline, dispersion, infrared/band-aware rendering,
+physically grounded transport, and DCC interoperability are core foundations,
+not optional embellishments. Do not resume paused astrophysics packages without
+an owner directive; preserve their requirements while advancing the renderer and
+viewport baseline.
 
 ## Test Structure
 

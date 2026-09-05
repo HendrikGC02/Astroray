@@ -1838,6 +1838,26 @@ public:
         renderer.setWorldVolume(density, Vec3(color[0], color[1], color[2]), anisotropy, scatter);
     }
 
+    void setGuiding(bool use) {
+        renderer.setGuiding(use);
+    }
+    void setGuidingParams(int iterations, int trainSpp, float alpha,
+                          float spatialFrac, float dirRho, bool divPdf,
+                          float valueClamp) {
+        renderer.setGuidingParams(iterations, trainSpp, alpha, spatialFrac, dirRho,
+                                  divPdf, valueClamp);
+    }
+    py::tuple getGuideDebug() {
+        return py::make_tuple(renderer.getGuideDebugLeaves(),
+                              renderer.getGuideDebugRecords());
+    }
+    py::tuple guideProbe(float px, float py, float pz, int n,
+                         float tx, float ty, float tz) {
+        float mx, my, mz, conc, pdfT;
+        renderer.guideProbe(px, py, pz, n, tx, ty, tz, mx, my, mz, conc, pdfT);
+        return py::make_tuple(mx, my, mz, conc, pdfT);
+    }
+
     void setUseReflectiveCaustics(bool use) {
         renderer.setUseReflectiveCaustics(use);
     }
@@ -3184,6 +3204,21 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_world_max_bounces", &PyRenderer::setWorldMaxBounces, "max_bounces"_a)
         .def("set_world_volume", &PyRenderer::setWorldVolume,
              "density"_a, "color"_a, "anisotropy"_a = 0.0f, "scatter"_a = 0.0f)
+        .def("set_guiding", &PyRenderer::setGuiding, "use"_a,
+             "pkg136 — enable CPU SD-tree path guiding (off = byte-identical).")
+        .def("set_guiding_params", &PyRenderer::setGuidingParams,
+             "iterations"_a, "train_spp"_a, "alpha"_a,
+             "spatial_frac"_a = 0.004f, "dir_rho"_a = 0.01f,
+             "div_pdf"_a = false, "value_clamp"_a = 0.0f,
+             "pkg136 — training budget: iterations, samples/pixel per iteration, "
+             "guide/BSDF MIS probability, spatial split fraction, dir-quadtree rho, "
+             "splat-quantity (divPdf: radiance vs product guiding), value clamp.")
+        .def("get_guide_debug", &PyRenderer::getGuideDebug,
+             "pkg136 — (spatial leaf count, total training records) from last render.")
+        .def("guide_probe", &PyRenderer::guideProbe,
+             "px"_a, "py"_a, "pz"_a, "n"_a, "tx"_a, "ty"_a, "tz"_a,
+             "pkg136 — probe last trained guide at p: (mean_dir xyz, concentration, "
+             "pdf toward target dir).")
         .def("set_use_reflective_caustics", &PyRenderer::setUseReflectiveCaustics, "use"_a)
         .def("set_use_refractive_caustics", &PyRenderer::setUseRefractiveCaustics, "use"_a)
         .def("set_use_photon_caustics", &PyRenderer::setUsePhotonCaustics, "use"_a)

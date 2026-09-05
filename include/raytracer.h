@@ -26,6 +26,11 @@
 #include "astroray/light_sampler.h"
 #include "astroray/cryptomatte.h"
 #include "astroray/sampling/adaptive_sampling.h"  // pkg131 zero-knob adaptive core
+#include "astroray/guiding/sdtree.h"               // pkg136 SD-tree path guiding
+#include "astroray/guiding/guide_context.h"        // pkg136 training record
+#ifdef _OPENMP
+#include <omp.h>                                    // pkg136 per-thread record buffer index
+#endif
 
 // Forward declaration needed by HitRecord
 class Hittable;
@@ -2265,6 +2270,48 @@ class Renderer {
     // Stage-1 Beer-Lambert absorption path, byte-identical, same RNG stream).
     // α>0 turns on HG in-scatter / god-rays and makes worldVolumeAnisotropy live.
     float worldVolumeScatter = 0.0f;
+    // pkg136 — SD-tree path guiding (CPU Stage 1). Off by default → the render
+    // path is byte-identical to pre-pkg136. When enabled, Renderer::render()
+    // prepends learn-then-sample training passes that build `guideSampling_`, then
+    // the normal render draws continuation directions from it (guide/BSDF MIS).
+    // These are transient per-render pointers, set by render() and read by
+    // pathTraceSpectral (a Renderer method): `guideSampling_` = the read-only
+    // trained guide for the current pass (null ⇒ pure BSDF, e.g. training pass 0);
+    // `guideRecordBufs_` = per-thread record buffers to append to while learning
+    // (null ⇒ don't record, e.g. the final image render); `guideAlpha_` = the
+    // guide/BSDF MIS selection probability. See pkg136-stage1b-design.md.
+    bool guidingEnabled_ = false;
+    const astroray::guiding::SDTree* guideSampling_ = nullptr;
+    std::vector<std::vector<astroray::guiding::GuideRecord>>* guideRecordBufs_ = nullptr;
+    float guideAlpha_ = 0.5f;
+    // Tunable training budget (runtime, so it can be swept without a rebuild).
+    int guideIterations_ = 6;    // learn-then-sample training iterations
+    int guideTrainSpp_ = 8;      // samples/pixel/iteration during training
+    // Defensive default: a modest guide weight keeps NEE competitive for direct
+    // light (a concentrated guide's pdf can otherwise beat low-variance NEE in the
+    // balance heuristic). Basic radiance guiding is ~break-even on smooth scenes;
+    // see .astroray_plan/docs/pkg136-stage1b-findings.md for the ≥2× follow-up.
+    float guideAlphaParam_ = 0.3f;  // guide/BSDF MIS selection probability
+    // Spatial split threshold as a FRACTION of the per-iteration record count
+    // (a leaf splits once it holds > frac·records-this-iteration); constant across
+    // iterations to match the constant per-iteration budget. Smaller ⇒ finer tree.
+    float guideSpatialFrac_ = 0.004f;
+    float guideDirRho_ = 0.01f;  // directional-quadtree split threshold
+    // Splat quantity choice (tuning): divPdf=false splats L_i (≈product guiding,
+    // robust but feedback-drifts); true splats L_i/pdf (radiance guiding, clean but
+    // noisy for low-pdf dirs). clamp>0 caps the splat value (outlier robustness).
+    bool guideDivPdf_ = false;
+    float guideValueClamp_ = 0.0f;
+    // Diagnostics from the last guided render (concentration sanity).
+    mutable int guideDbgLeaves_ = 0;
+    mutable long long guideDbgRecords_ = 0;
+    // Persisted trained guide (kept after render for probing/debug).
+    std::unique_ptr<astroray::guiding::SDTree> lastGuide_;
+    // guiding draws a mixed continuation this vertex (non-delta + a trained guide).
+    bool guidingActive() const { return guidingEnabled_ && guideSampling_ != nullptr; }
+    // this pass is a training pass that should emit radiance records.
+    bool guideLearning() const { return guidingEnabled_ && guideRecordBufs_ != nullptr; }
+
     // pkg87b — Cryptomatte per-shade-point accumulation gate
     bool cryptomatteEnabled = false;
     // pkg197 — GPU wavefront first-hit denoise-guide AOV capture gate. On by
@@ -2465,6 +2512,43 @@ public:
     // pkg131 — GPU adaptive-sampling opt-in (see field above).
     void setUseAdaptiveSampling(bool use) { useAdaptiveSampling = use; }
     bool getUseAdaptiveSampling() const { return useAdaptiveSampling; }
+    // pkg136 — CPU SD-tree path-guiding opt-in (off = byte-identical to pre-pkg136).
+    void setGuiding(bool use) { guidingEnabled_ = use; }
+    bool getGuiding() const { return guidingEnabled_; }
+    void setGuidingParams(int iterations, int trainSpp, float alpha,
+                          float spatialFrac = 0.004f, float dirRho = 0.01f,
+                          bool divPdf = false, float valueClamp = 0.0f) {
+        guideIterations_ = std::max(1, iterations);
+        guideTrainSpp_ = std::max(1, trainSpp);
+        guideAlphaParam_ = std::clamp(alpha, 0.0f, 1.0f);
+        guideSpatialFrac_ = std::max(1e-5f, spatialFrac);
+        guideDirRho_ = std::clamp(dirRho, 1e-4f, 0.5f);
+        guideDivPdf_ = divPdf;
+        guideValueClamp_ = std::max(0.0f, valueClamp);
+    }
+    int getGuideDebugLeaves() const { return guideDbgLeaves_; }
+    long long getGuideDebugRecords() const { return guideDbgRecords_; }
+    // Probe the last trained guide at world point p with N samples: returns the
+    // mean sampled direction (mx,my,mz), its length (0=isotropic, 1=fully
+    // concentrated), and the solid-angle pdf toward the target dir (tx,ty,tz).
+    void guideProbe(float px, float py, float pz, int n,
+                    float tx, float ty, float tz,
+                    float& mx, float& my, float& mz, float& conc, float& pdfT) const {
+        mx = my = mz = conc = pdfT = 0.0f;
+        if (!lastGuide_) return;
+        const float p[3] = {px, py, pz};
+        std::mt19937 g(12345);
+        std::uniform_real_distribution<float> u(0.0f, 1.0f);
+        double sx = 0, sy = 0, sz = 0;
+        for (int i = 0; i < n; ++i) {
+            float wx, wy, wz, pdf;
+            lastGuide_->sampleDir(p, u(g), u(g), wx, wy, wz, pdf);
+            sx += wx; sy += wy; sz += wz;
+        }
+        mx = float(sx / n); my = float(sy / n); mz = float(sz / n);
+        conc = std::sqrt(mx * mx + my * my + mz * mz);
+        pdfT = lastGuide_->pdfDir(p, tx, ty, tz);
+    }
     bool getUsePhotonCaustics() const { return usePhotonCaustics; }
     // pkg64 Phase 3 — per-object opt-in for SMS connection attempts. The
     // index is the order in which `addObject` was called (same order as
@@ -2773,6 +2857,12 @@ public:
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
         int lastBounce = 0;
         float weightSum = 0.0f;
+        // pkg136 — per-vertex radiance records for SD-tree training. Only populated
+        // during a guiding training pass (guideLearning()); replayed into the
+        // per-thread record buffer at path end. Fixed stack storage (maxDepth small).
+        struct GuideVtx { Vec3 p; Vec3 w; float Csnap; float betaSnap; float pdf; };
+        GuideVtx gverts[64];
+        int gvertCount = 0;
         // pkg199 Stage 2 — engage the scattering estimator only when the medium
         // has nonzero single-scattering albedo. α==0 (default) keeps the exact
         // Stage-1 Beer-Lambert absorption path (byte-identical, same RNG stream).
@@ -3092,6 +3182,16 @@ public:
                         // pkg89: use emission_spec directly (fixes RGB-collapse bug).
                         astroray::SampledSpectrum L_spec = ls.emission_spec;
                         float bsdfPdf = rec.material->pdf(rec, wo, wi);
+                        // pkg136: when guiding is active the continuation is drawn
+                        // from the guide/BSDF mixture, so the BSDF-strategy pdf this
+                        // NEE leg weights against must be that SAME mixture pdf toward
+                        // the light — otherwise wL + wB != 1 and the estimator is
+                        // biased. (Delta lights keep wt=1 below regardless.)
+                        if (guidingActive() && !rec.isDelta) {
+                            const float gp[3] = {rec.point.x, rec.point.y, rec.point.z};
+                            float pg = guideSampling_->pdfDir(gp, wi.x, wi.y, wi.z);
+                            bsdfPdf = guideAlpha_ * pg + (1.0f - guideAlpha_) * bsdfPdf;
+                        }
                         float a = ls.pdf, b = bsdfPdf;
                         // pkg140: a delta light sample (e.g. DistantLight with
                         // angular_diameter == 0) can never be reproduced by
@@ -3161,6 +3261,34 @@ public:
 
             BSDFSampleSpectral bss = rec.material->sampleSpectral(rec, wo, gen, lambdas);
             if (bss.pdf <= 0.0f) break;
+            // pkg136: guide/BSDF one-sample MIS on non-specular vertices. With
+            // probability alpha the continuation is redrawn from the SD-tree guide
+            // (else the BSDF sample is kept); either way bss.pdf becomes the mixture
+            // density p = alpha*p_guide + (1-alpha)*p_bsdf, so the throughput divide
+            // below (bss.f_spectral / bss.pdf) is the balance-heuristic estimator.
+            // f_spectral already folds in cos (matches evalSpectral), so a guided wi
+            // in the wrong hemisphere evaluates to 0 → contributes nothing (unbiased,
+            // the support floor is the (1-alpha) BSDF term). Delta lobes are excluded
+            // (a Dirac the guide cannot represent). guidingActive() is false when the
+            // guide is off or absent (training pass 0) → this whole block is skipped.
+            if (guidingActive() && !bss.isDelta) {
+                const float a = guideAlpha_;
+                const float gp[3] = {rec.point.x, rec.point.y, rec.point.z};
+                if (dist01(gen) < a) {
+                    float gx, gy, gz, gpdfSa;
+                    guideSampling_->sampleDir(gp, dist01(gen), dist01(gen),
+                                              gx, gy, gz, gpdfSa);
+                    Vec3 wiG(gx, gy, gz);
+                    float pbG = rec.material->pdf(rec, wo, wiG);
+                    bss.wi = wiG;
+                    bss.f_spectral = rec.material->evalSpectral(rec, wo, wiG, lambdas);
+                    bss.pdf = a * gpdfSa + (1.0f - a) * pbG;
+                } else {
+                    float pgB = guideSampling_->pdfDir(gp, bss.wi.x, bss.wi.y, bss.wi.z);
+                    bss.pdf = a * pgB + (1.0f - a) * bss.pdf;
+                }
+                if (bss.pdf <= 0.0f) break;
+            }
             wasSpecular = bss.isDelta;
             // pkg120: carry this bounce's BSDF pdf so the next iteration's
             // emissive-hit two-sided MIS can weight the BSDF leg (see above).
@@ -3264,6 +3392,45 @@ public:
             weightSum += throughput.maxValue();
             float maxC = throughput.maxValue();
             if (maxC > 10.0f) throughput = throughput * (10.0f / maxC);
+
+            // pkg136 — record this vertex for SD-tree training. Snapshot the image
+            // luminance and the throughput LEAVING this vertex (after the f/pdf
+            // update + clamp above); at path end the downstream contribution
+            // (Yfinal - Csnap) / betaSnap is the incident radiance L_i(p, w) that
+            // came back along the sampled direction — exactly what the guide caches.
+            // Non-delta only (guiding excludes Dirac lobes).
+            if (guideLearning() && !wasSpecular && gvertCount < 64) {
+                gverts[gvertCount++] = GuideVtx{
+                    rec.point, bss.wi,
+                    color.toXYZ(lambdas).Y, throughput.toXYZ(lambdas).Y, bss.pdf};
+            }
+        }
+        // pkg136 — replay the path's vertices into this thread's training buffer.
+        if (guideLearning() && gvertCount > 0) {
+            const float Yfinal = color.toXYZ(lambdas).Y;
+            int tid = 0;
+#ifdef _OPENMP
+            tid = omp_get_thread_num();
+#endif
+            auto& buf = (*guideRecordBufs_)[tid];
+            for (int i = 0; i < gvertCount; ++i) {
+                float beta = gverts[i].betaSnap > 1e-8f ? gverts[i].betaSnap : 1e-8f;
+                // L_i estimate = downstream/betaSnap. divPdf ⇒ splat L_i/pdf
+                // (radiance guiding, tree ≈ ∫L_i dω); else splat L_i (≈product
+                // guiding). Optional clamp caps outliers (esp. low-pdf blowups).
+                float val = (Yfinal - gverts[i].Csnap) / beta;
+                if (guideDivPdf_) {
+                    float pdf = gverts[i].pdf > 1e-4f ? gverts[i].pdf : 1e-4f;
+                    val /= pdf;
+                }
+                if (guideValueClamp_ > 0.0f && val > guideValueClamp_)
+                    val = guideValueClamp_;
+                if (val > 0.0f && std::isfinite(val)) {
+                    buf.push_back(astroray::guiding::GuideRecord{
+                        {gverts[i].p.x, gverts[i].p.y, gverts[i].p.z},
+                        {gverts[i].w.x, gverts[i].w.y, gverts[i].w.z}, val});
+                }
+            }
         }
         if (outBounces) *outBounces = lastBounce;
         if (outWeight) *outWeight = weightSum;
@@ -3674,6 +3841,110 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         int tilesY = (cam.height + tileSize - 1) / tileSize;
         int totalTiles = tilesX * tilesY;
 
+        // pkg136 — SD-tree path guiding: learn-then-sample training passes build
+        // the guide, then the render below draws guided continuations from it.
+        // Skipped when guiding is off ⇒ the default render path is byte-identical.
+        // pkg136-S1B fix (blocker 1): the training passes are full, unbiased path
+        // traces of the SAME image, so their radiance is accumulated into these
+        // per-pixel buffers and folded into the final image below rather than
+        // discarded — otherwise the guided render casts K·trainSpp spp of rays it
+        // throws away, making an equal-cost variance win arithmetically impossible.
+        // Allocated only when guiding is on; the combine below is guarded so the
+        // default (guiding-off) render path stays byte-identical.
+        std::vector<Vec3> gAccCol;
+        std::vector<std::array<Vec3, PASS_COUNT>> gAccPass;
+        std::vector<float> gAccAlpha;
+        long long gTrainPerPixel = 0;
+        lastGuide_.reset();
+        if (guidingEnabled_ && integrator_) {
+            AABB sbox;
+            bvh->boundingBox(sbox);
+            Vec3 pad = (sbox.max - sbox.min) * 0.01f + Vec3(1e-3f);
+            float gmn[3] = {sbox.min.x - pad.x, sbox.min.y - pad.y, sbox.min.z - pad.z};
+            float gmx[3] = {sbox.max.x + pad.x, sbox.max.y + pad.y, sbox.max.z + pad.z};
+            astroray::guiding::SDTree building(gmn, gmx);
+            int nthreads = 1;
+#ifdef _OPENMP
+            nthreads = omp_get_max_threads();
+#endif
+            std::vector<std::vector<astroray::guiding::GuideRecord>> bufs(nthreads);
+            const int K = guideIterations_;      // training iterations
+            const int trainSpp = guideTrainSpp_; // samples/pixel/iteration
+            // Per-pixel accumulators for the training radiance (folded into the
+            // image below). Every pixel receives exactly K·trainSpp training
+            // samples, so the per-pixel count is uniform.
+            const size_t gNpix = (size_t)cam.width * (size_t)cam.height;
+            gAccCol.assign(gNpix, Vec3(0));
+            gAccPass.assign(gNpix, std::array<Vec3, PASS_COUNT>{});
+            gAccAlpha.assign(gNpix, 0.0f);
+            long long totalRecords = 0;
+            long long prevIterRecords = 0;
+            astroray::guiding::SDTree guide = building;  // empty (pass 0 = pure PT)
+            for (int it = 0; it < K; ++it) {
+                if (it > 0) {
+                    // Split a leaf once it holds > frac·(records this iteration).
+                    // Constant across iterations (the per-iteration budget is
+                    // constant), so the tree keeps subdividing to fine spatial
+                    // resolution instead of stalling. Smaller frac ⇒ finer.
+                    uint32_t thresh = (uint32_t)std::max(
+                        50.0, guideSpatialFrac_ * double(prevIterRecords));
+                    building.refine(thresh, guideDirRho_);
+                    guide = building;  // previous flux on the refined topology
+                }
+                building.resetIteration();
+                guideSampling_ = (it == 0) ? nullptr : &guide;
+                guideAlpha_ = (it == 0) ? 0.0f : guideAlphaParam_;
+                for (auto& b : bufs) b.clear();
+                guideRecordBufs_ = &bufs;
+                #pragma omp parallel for schedule(dynamic) collapse(2)
+                for (int tileY = 0; tileY < tilesY; ++tileY) {
+                    for (int tileX = 0; tileX < tilesX; ++tileX) {
+                        uint32_t baseSeed = (renderSeed == 0)
+                            ? 0x9E3779B9u : static_cast<uint32_t>(renderSeed);
+                        std::mt19937 tgen(baseSeed + 0x1000u * (uint32_t)(it + 1) +
+                                          static_cast<uint32_t>(tileY * tilesX + tileX));
+                        std::uniform_real_distribution<float> td(0, 1);
+                        int tx0 = tileX * tileSize, tx1 = std::min(tx0 + tileSize, cam.width);
+                        int ty0 = tileY * tileSize, ty1 = std::min(ty0 + tileSize, cam.height);
+                        for (int y = ty0; y < ty1; ++y)
+                            for (int x = tx0; x < tx1; ++x)
+                                for (int s = 0; s < trainSpp; ++s) {
+                                    float u = (x + td(tgen)) / (cam.width - 1);
+                                    float v = 1.0f - (y + td(tgen)) / (cam.height - 1);
+                                    Ray pr = cam.getRay(u, v, 0.0f, tgen);
+                                    // Full path trace: builds the guide (records)
+                                    // AND contributes its radiance to the image
+                                    // (folded in below — not discarded). Each pixel
+                                    // is owned by exactly one tile/thread, so the
+                                    // per-pixel accumulator writes are race-free.
+                                    SampleResult ir = integrator_->sampleFull(pr, tgen);
+                                    int gidx = y * cam.width + x;
+                                    gAccCol[gidx] += finiteVecOrZero(ir.color);
+                                    for (int pI = 0; pI < PASS_COUNT; ++pI)
+                                        gAccPass[gidx][pI] += ir.passes[pI];
+                                    gAccAlpha[gidx] += ir.alpha;
+                                }
+                    }
+                }
+                guideRecordBufs_ = nullptr;
+                long long iterRecords = 0;
+                for (auto& b : bufs)
+                    for (auto& rr : b) {
+                        building.record(rr.p, rr.w[0], rr.w[1], rr.w[2], rr.value);
+                        ++iterRecords;
+                    }
+                totalRecords += iterRecords;
+                prevIterRecords = iterRecords;
+            }
+            guideDbgLeaves_ = building.numLeaves();
+            guideDbgRecords_ = totalRecords;
+            gTrainPerPixel = (long long)K * (long long)trainSpp;  // folded in below
+            lastGuide_ = std::make_unique<astroray::guiding::SDTree>(std::move(building));
+            guideSampling_ = lastGuide_.get();
+            guideAlpha_ = guideAlphaParam_;
+            guideRecordBufs_ = nullptr;  // final render samples the guide, no learning
+        }
+
         #pragma omp parallel for schedule(dynamic) collapse(2)
         for (int tileY = 0; tileY < tilesY; ++tileY) {
             for (int tileX = 0; tileX < tilesX; ++tileX) {
@@ -3811,11 +4082,25 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                             }
                         }
 
-                        color = color / float(samples);
+                        // pkg136-S1B: fold the discarded-no-more training samples
+                        // into this pixel. They are unbiased estimates of the same
+                        // image, so equal-weight combination stays unbiased and
+                        // stops wasting the K·trainSpp training rays. Colour/passes/
+                        // alpha divide by the COMBINED count; the main-loop-only
+                        // diagnostic AOVs (bounce/sampleWeight) keep `samples`.
+                        int totalSamples = samples;
+                        if (guidingEnabled_ && gTrainPerPixel > 0) {
+                            color += gAccCol[idx];
+                            for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex)
+                                passColor[passIndex] += gAccPass[idx][passIndex];
+                            alpha += gAccAlpha[idx];
+                            totalSamples += (int)gTrainPerPixel;
+                        }
+                        color = color / float(totalSamples);
                         color *= filmExposure;
-                        alpha = alpha / float(samples);
+                        alpha = alpha / float(totalSamples);
                         for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex) {
-                            passColor[passIndex] /= float(samples);
+                            passColor[passIndex] /= float(totalSamples);
                         }
                         passColor[PASS_DIFFUSE_DIRECT] *= filmExposure;
                         passColor[PASS_DIFFUSE_INDIRECT] *= filmExposure;
@@ -3899,6 +4184,11 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
             }
         }
         if (integrator_) integrator_->endFrame();
+
+        // pkg136 — clear the transient guide pointers before `trainedGuide` (a
+        // render-scope local) is destroyed, so the members never dangle.
+        guideSampling_ = nullptr;
+        guideRecordBufs_ = nullptr;
 
         if (!passes_.empty()) {
             Framebuffer fb(cam);

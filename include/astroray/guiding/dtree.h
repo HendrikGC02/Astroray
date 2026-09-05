@@ -141,10 +141,9 @@ public:
     // measure pdf. A tree with no flux warps nothing (returns pdf 0); the caller
     // falls back to the BSDF (the MIS support floor keeps the estimator valid).
     void sample(float u1, float u2, float& x, float& y, float& pdf) const {
-        if (!(nodes_[0].flux > 0.0f)) { x = u1; y = u2; pdf = 0.0f; return; }
         int idx = 0;
         float x0 = 0.0f, y0 = 0.0f, size = 1.0f;
-        pdf = 1.0f;
+        pdf = 1.0f;  // root leaf ⇒ uniform on the square, pdf 1 (full support)
         while (nodes_[idx].child[0] >= 0) {
             float f[4];
             float total = 0.0f;
@@ -152,22 +151,43 @@ public:
                 f[c] = nodes_[nodes_[idx].child[c]].flux;
                 total += f[c];
             }
-            if (!(total > 0.0f)) break;  // degenerate interior: stop, sample here
-            // Pick a quadrant with cumulative u1; rescale u1 within it.
-            float r = u1 * total;
-            int c = 0;
-            float acc = f[0];
-            while (c < 3 && r > acc) { ++c; acc += f[c]; }
-            float pc = f[c] / total;
-            u1 = std::min(0.9999999f, (r - (acc - f[c])) / (f[c] > 0.0f ? f[c] : 1.0f));
-            pdf *= pc * 4.0f;
-            int qx = c & 1, qy = c >> 1;
+            // Zero-flux subtree ⇒ uniform among the four children (equal weight),
+            // so an untrained region samples uniformly with a pdf consistent with
+            // pdf() below — the MIS support floor that keeps the estimator unbiased.
+            if (!(total > 0.0f)) { f[0] = f[1] = f[2] = f[3] = 1.0f; total = 4.0f; }
+            // Proper 2D hierarchical warp: u2 selects the row (y-quadrant) by its
+            // marginal, then u1 selects the column (x-quadrant) within that row,
+            // each rescaled to [0,1). Using one number for a flattened 4-way pick
+            // does NOT reproduce pdf() (the sample/pdf inconsistency that made the
+            // guide's MIS weight wrong). child index = 2*qy + qx.
+            float bottom = f[0] + f[1];  // qy = 0 row
+            int qy;
+            if (u2 * total < bottom && bottom > 0.0f) {
+                qy = 0;
+                u2 = std::min(0.9999999f, u2 * total / bottom);
+            } else {
+                qy = 1;
+                float top = total - bottom;
+                u2 = std::min(0.9999999f, (u2 * total - bottom) / (top > 0.0f ? top : 1.0f));
+            }
+            float left = f[2 * qy + 0], right = f[2 * qy + 1];
+            float row = left + right;
+            int qx;
+            if (u1 * row < left && left > 0.0f) {
+                qx = 0;
+                u1 = std::min(0.9999999f, u1 * row / left);
+            } else {
+                qx = 1;
+                u1 = std::min(0.9999999f, (u1 * row - left) / (right > 0.0f ? right : 1.0f));
+            }
+            int c = 2 * qy + qx;
+            pdf *= (f[c] / total) * 4.0f;
             size *= 0.5f;
             x0 += float(qx) * size;
             y0 += float(qy) * size;
             idx = nodes_[idx].child[c];
         }
-        // Uniform within the reached leaf.
+        // Uniform within the reached leaf (u1, u2 are now independent uniforms).
         x = x0 + u1 * size;
         y = y0 + u2 * size;
     }
@@ -175,9 +195,8 @@ public:
     // Square-measure pdf of the point (x,y): the density this tree would sample
     // it with. Descends to the leaf containing (x,y), telescoping Π(f_c/f · 4).
     float pdf(float x, float y) const {
-        if (!(nodes_[0].flux > 0.0f)) return 0.0f;
         int idx = 0;
-        float p = 1.0f;
+        float p = 1.0f;  // root leaf ⇒ uniform, pdf 1 (consistent with sample())
         while (nodes_[idx].child[0] >= 0) {
             float f[4];
             float total = 0.0f;
@@ -185,7 +204,8 @@ public:
                 f[c] = nodes_[nodes_[idx].child[c]].flux;
                 total += f[c];
             }
-            if (!(total > 0.0f)) return 0.0f;
+            // Zero-flux subtree ⇒ uniform (matches sample()'s fallback).
+            if (!(total > 0.0f)) { f[0] = f[1] = f[2] = f[3] = 1.0f; total = 4.0f; }
             int qx = x < 0.5f ? 0 : 1;
             int qy = y < 0.5f ? 0 : 1;
             x = x * 2.0f - float(qx);

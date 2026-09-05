@@ -58,7 +58,20 @@ enum OpCode : unsigned char {
     OP_SEP_COLOR  = 11, // reg[out].xyz = separate(col=a, imm=space*4+comp).broadcast svm/color_util.h
     OP_COMBINE_COLOR = 12, // reg[out] = combine(r=a.x,g=b.x,b=c.x, imm=space) svm/color_util.h
     OP_RGB_TO_BW  = 13, // reg[out] = luma(col=a).broadcast        svm/convert.h
+    // pkg230 — utility opcodes.
+    OP_CLAMP      = 14, // reg[out].x = clamp(imm=type, v=a.x, min=b.x, max=c.x) svm/clamp
 };
+
+// pkg230 — Clamp node type (Cycles NodeClampType, svm_clamp / node_clamp.osl).
+enum ClampType : unsigned char { CLAMP_MINMAX = 0, CLAMP_RANGE = 1 };
+
+// pkg230 — clamp FLAG bits packed into the free high bits of an op's `imm`
+// (the sub-op enums are small: MathOp <= 17 uses bits 0..6; MixOp <= 8 uses
+// bits 0..3). OP_MATH honours use_clamp; OP_MIX honours clamp_result (the mix
+// factor is already saturated in svm_mix = Blender's default clamp_factor).
+// The addon compiler sets these bits; both sides MUST agree.
+static const unsigned char SVM_MATH_CLAMP        = 0x80u; // OP_MATH: clamp result to [0,1]
+static const unsigned char SVM_MIX_CLAMP_RESULT  = 0x80u; // OP_MIX:  clamp result to [0,1]
 
 // Colour-space enum for Separate/Combine Color (Cycles NodeCombSepColorType).
 // pkg219c ships RGB + HSV (HSL deferred).
@@ -307,6 +320,17 @@ HD inline float svm_rgb_to_bw(GVec3 c) {
     return c.x * 0.2126729f + c.y * 0.7151522f + c.z * 0.0721750f;
 }
 
+// ---- Clamp node (pkg230) ---------------------------------------------------
+// Cycles svm_clamp (svm/svm_clamp.h) uses clamp(v,lo,hi) = min(max(v,lo),hi).
+// MINMAX passes min/max literally (so min>max collapses to max, matching
+// Cycles); RANGE first orders the bounds. NOTE: this deliberately does NOT use
+// svm_clampf's `v<lo?lo:...` form, which diverges from Cycles when lo>hi.
+HD inline float svm_clamp(unsigned char type, float v, float lo, float hi) {
+    if (type == CLAMP_RANGE && lo > hi) { float t = lo; lo = hi; hi = t; }
+    float mx = v > lo ? v : lo;   // max(v, lo)
+    return mx < hi ? mx : hi;     // min(max(v,lo), hi)
+}
+
 // ============================================================================
 // The evaluator. Pure, HD, byte-identical CPU<->GPU. `inputs` holds the
 // pre-sampled child-texture RGBs. Returns the program's output slot RGB.
@@ -327,12 +351,25 @@ HD inline GVec3 svm_eval(const ShaderVMProgram& p, const GVec3* inputs) {
                 reg[in.out] = p.consts[in.imm < VM_MAX_CONST ? in.imm : 0];
                 break;
             case OP_MATH: {
-                float r = svm_math(in.imm, reg[in.a].x, reg[in.b].x, reg[in.c].x);
+                // low 7 bits = MathOp; bit 7 = use_clamp (pkg230)
+                float r = svm_math(in.imm & 0x7Fu, reg[in.a].x, reg[in.b].x, reg[in.c].x);
+                if (in.imm & SVM_MATH_CLAMP) r = svm_saturatef(r);
                 reg[in.out] = GVec3(r);
                 break;
             }
-            case OP_MIX:
-                reg[in.out] = svm_mix(in.imm, reg[in.a].x, reg[in.b], reg[in.c]);
+            case OP_MIX: {
+                // low 6 bits = MixOp; bit 7 = clamp_result (pkg230). The factor is
+                // already saturated inside svm_mix (Blender's default clamp_factor);
+                // faithful clamp_factor=OFF is a Phase-2 item.
+                GVec3 m = svm_mix(in.imm & 0x3Fu, reg[in.a].x, reg[in.b], reg[in.c]);
+                if (in.imm & SVM_MIX_CLAMP_RESULT)
+                    m = GVec3(svm_saturatef(m.x), svm_saturatef(m.y), svm_saturatef(m.z));
+                reg[in.out] = m;
+                break;
+            }
+            case OP_CLAMP:
+                reg[in.out] = GVec3(svm_clamp(in.imm, reg[in.a].x, reg[in.b].x,
+                                              reg[in.c].x));
                 break;
             case OP_RAMP:
                 reg[in.out] = svm_ramp_lookup(p.ramp[in.imm < VM_MAX_RAMPS ? in.imm : 0],

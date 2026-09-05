@@ -19,7 +19,15 @@ Opcode / sub-op enums MUST match include/astroray/shader_vm.h exactly.
 # ---- opcode / sub-op enums (mirror include/astroray/shader_vm.h) -----------
 (OP_END, OP_LOAD_TEX, OP_LOAD_CONST, OP_MATH, OP_MIX, OP_RAMP, OP_MAP_RANGE,
  OP_HSV, OP_INVERT, OP_GAMMA, OP_BRIGHT_CONTRAST, OP_SEP_COLOR,
- OP_COMBINE_COLOR, OP_RGB_TO_BW) = range(14)
+ OP_COMBINE_COLOR, OP_RGB_TO_BW, OP_CLAMP) = range(15)
+
+# pkg230 — Clamp node type (Cycles NodeClampType) + clamp FLAG bits packed into
+# the free high bits of an op's imm (mirror include/astroray/shader_vm.h).
+CLAMP_MINMAX, CLAMP_RANGE = 0, 1
+CLAMP_TYPES = {'MINMAX': CLAMP_MINMAX, 'RANGE': CLAMP_RANGE}
+SVM_MATH_CLAMP = 0x80        # OP_MATH: clamp result to [0,1]
+SVM_MIX_CLAMP_RESULT = 0x80  # OP_MIX:  clamp result to [0,1] (factor always
+#                              saturated in svm_mix = Blender default clamp_factor)
 
 # Colour-space enum for Separate/Combine Color (Cycles NodeCombSepColorType).
 CS_RGB, CS_HSV = 0, 1
@@ -188,8 +196,14 @@ def compile_socket(socket, builder, depth=0):
                 c2_in = c2_in or ins[-1]
         c1_s = compile_socket(c1_in, builder, depth + 1)
         c2_s = compile_socket(c2_in, builder, depth + 1)
+        imm = MIX_OPS[blend]
+        # pkg230 — clamp the result: modern Mix node clamp_result, or legacy
+        # MixRGB use_clamp. (The factor is always saturated in svm_mix, matching
+        # Blender's default clamp_factor; faithful clamp_factor=OFF is Phase 2.)
+        if getattr(node, 'clamp_result', False) or getattr(node, 'use_clamp', False):
+            imm |= SVM_MIX_CLAMP_RESULT
         out = builder.alloc_slot()
-        builder.emit(OP_MIX, out, a=fac_s, b=c1_s, c=c2_s, imm=MIX_OPS[blend])
+        builder.emit(OP_MIX, out, a=fac_s, b=c1_s, c=c2_s, imm=imm)
         return out
 
     if ntype == 'MATH':
@@ -202,8 +216,22 @@ def compile_socket(socket, builder, depth=0):
         c_s = 0
         if op in MATH_TERNARY and len(node.inputs) > 2:
             c_s = compile_socket(node.inputs[2], builder, depth + 1)
+        imm = MATH_OPS[op]
+        if getattr(node, 'use_clamp', False):  # pkg230
+            imm |= SVM_MATH_CLAMP
         out = builder.alloc_slot()
-        builder.emit(OP_MATH, out, a=a_s, b=b_s, c=c_s, imm=MATH_OPS[op])
+        builder.emit(OP_MATH, out, a=a_s, b=b_s, c=c_s, imm=imm)
+        return out
+
+    if ntype == 'CLAMP':  # pkg230
+        ctype = getattr(node, 'clamp_type', 'MINMAX')
+        if ctype not in CLAMP_TYPES:
+            raise VMCompileError("unsupported Clamp type: %s" % ctype)
+        v_s = compile_socket(_get_input(node, 'Value'), builder, depth + 1)
+        mn_s = compile_socket(_get_input(node, 'Min'), builder, depth + 1)
+        mx_s = compile_socket(_get_input(node, 'Max'), builder, depth + 1)
+        out = builder.alloc_slot()
+        builder.emit(OP_CLAMP, out, a=v_s, b=mn_s, c=mx_s, imm=CLAMP_TYPES[ctype])
         return out
 
     if ntype == 'MAP_RANGE':

@@ -4,8 +4,8 @@
 
 The earlier 2026-09-03 handoff below is historical. Since then, pkg225-S3/S4/S5/S6
 landed (#676, #681–#684), pkg127 Phase 1 landed (#685), pkg229's coverage re-audit
-landed (spec #692 + re-audit #695), and pkg136 CPU Stage 1 (1A+1B) landed
-(#693/#694).
+landed (spec #692 + re-audit #695), pkg136 CPU Stage 1 (1A+1B) landed (#693/#694),
+and pkg230 Phase 1 (op-VM utility opcodes) landed (#696).
 
 **pkg136's ≥2× variance campaign is CONCLUDED, not pending.** ≥2× is a
 scene-physics ceiling in a real NEE integrator, not a bug (the de-risked 110×
@@ -18,14 +18,45 @@ hard-transport slot scene (moderate/veach ≤1×). Warp/MIS verified correct
 on purpose-built hard scenes — a separate spec. Full diagnosis:
 `.astroray_plan/docs/pkg136-stage1b-findings.md`.
 
-**Immediate next pickup:** the pkg229 next-wave **op-VM utility cluster** —
-Vector Math, Clamp, MATH/MIX clamp flags, Vector Rotate — all small opcode
-additions on the existing per-texel evaluator (best ROI, S/M effort;
-frequency-★★★ utilities). Then the owner selects among **pkg127 Phase 2**,
-**Principled advanced-inputs** (highest-value single node, L effort — sequence
-Alpha + Specular Tint first), **pkg211's** prototype-first/park path, and
-**pkg136's GPU leg** (Stage 2A/2B). Ranked backlog with S/M/L close-effort notes:
-`.astroray_plan/docs/blender-coverage-reaudit-2026-09.md`.
+**pkg230 (op-VM utility opcodes) — Phase 1 LANDED (#696, 2026-09-05).** Clamp node
++ Math `use_clamp` + Mix `clamp_result` on the shared HD `svm_eval` (CPU+GPU).
+CI green, RTX HW-verified (GPU parity 3/3 + `cuobjdump` REG:254 across all 128
+shade specializations, no spill — the VM rides `<HasProgram=true>`, fleet `<false>`
+untouched by construction). Caught & fixed a Cycles-parity bug (`svm_clampf`
+diverges from Cycles `min(max())` when min>max). Spec:
+`.astroray_plan/packages/pkg230-opvm-utility-opcodes.md`.
+
+**IMMEDIATE NEXT PICKUP — pkg230 Phase 2** (spec written, not started): **Vector
+Math + Vector Rotate** op-VM opcodes + **faithful Mix `clamp_factor=OFF`**. Key
+context for whoever takes it:
+- The op-VM (`include/astroray/shader_vm.h`) is one shared `HD svm_eval` with a
+  **GVec3 register file** (vectors already first-class) and an `Instr` with 5 src
+  slots (`a..e`) + `imm`. Add an opcode in THREE synced places: the Python enum
+  tuple in `blender_addon/shader_vm_compiler.py`, the `OpCode` enum in
+  `shader_vm.h`, and a `case` in `svm_eval`. Everything is behind
+  `if constexpr (HasProgram)` → **zero fleet register cost by construction**.
+- **The real fork (documented in the spec):** Vector Math/Rotate can sit in the
+  op-VM color/scalar chain (`compile_socket` → add opcodes — this is Phase 2's
+  scope) OR the coordinate chain (`_resolve_vector_input`/`_resolve_mapping_matrix`,
+  which resolve to an *affine matrix* at upload and can't express general vector
+  math). Phase 2 does the color-chain opcodes; the coordinate-chain case is a
+  separate later slice (recommend affine-subset + honest `VMCompileError` degrade).
+- `clamp_factor=OFF`: `svm_mix` currently ALWAYS saturates the factor (= Blender
+  default clamp_factor=ON). Faithful OFF means gating that saturate behind a flag
+  (restore `SVM_MIX_CLAMP_FACTOR`), with the addon setting it per node.
+- **BUILD GOTCHA (cost ~6 rebuilds this session):** editing `shader_vm.h` and
+  running `cmake --build build_cuda --config Release --target astroray` can exit 0
+  WITHOUT recompiling the changed TU (OneDrive mtime skew), and deleting the `.pyd`
+  does NOT force a relink. Force it by touching the sources
+  (`shader_vm.h`, `advanced_features.h`, `plugins/materials/disney.cpp`,
+  `module/blender_module.cpp`, `src/gpu/wavefront/stage_advance.cu`,
+  `src/gpu/scene_upload.cu`) to `Get-Date` before building; the canary is the TEST
+  OUTPUT, never the `.pyd` mtime. See memory `vs-generator-pyd-relink-skip`.
+
+Then the owner selects among **pkg127 Phase 2**, **Principled advanced-inputs**
+(highest-value single node, L — sequence Alpha + Specular Tint first), **pkg211's**
+prototype-first/park path, and **pkg136's GPU leg** (Stage 2A/2B). Full ranked
+backlog: `.astroray_plan/docs/blender-coverage-reaudit-2026-09.md`.
 
 ## 2026-09-03 SESSION HANDOFF — 8 packages landed/resolved; NEXT = architect re-vet (historical)
 

@@ -1,9 +1,10 @@
 # Astroray Status
 
 **2026-09-05 (LIVE RECONCILIATION — verified against `origin/main` at
-`a898f1b` and merged PRs #676, #681–#685, #692–#695): pkg225 hair is complete
+`aecff0d` and merged PRs #676, #681–#685, #692–#696): pkg225 hair is complete
 through the Blender addon; pkg127 Phase 1 and pkg136 CPU Stage 1A/1B are
-landed; pkg229's coverage re-audit is landed.**
+landed; pkg229's coverage re-audit is landed; pkg230 Phase 1 (op-VM utility
+opcodes) is landed. NEXT = pkg230 Phase 2 (Vector Math/Rotate).**
 - **pkg225-S1 — CPU ray-curve (hair) intersection — LANDED** (PR #670). The
   prior handoff's "bug in curves.h" diagnosis was WRONG: a standalone native
   harness proved the pbrt-ported primitive hits correctly (t / position /
@@ -59,11 +60,18 @@ landed; pkg229's coverage re-audit is landed.**
   the hard-transport slot scene (moderate/veach ≤1×). Warp/MIS confirmed correct
   (`E[1/pdf]=|support|`, not a bug). Full diagnosis:
   `.astroray_plan/docs/pkg136-stage1b-findings.md`.
-- **NEXT:** the pkg229 next-wave op-VM utility cluster (Vector Math / Clamp /
-  MATH+MIX clamp flags / Vector Rotate — small opcode adds on the existing
-  evaluator, best ROI), then the owner chooses among pkg127 Phase 2, Principled
-  advanced-inputs (highest-value single node, L), pkg211's prototype-first/park
-  path, and the pkg136 GPU leg. **pkg229 coverage re-audit is landed in #695**
+- **pkg230 Phase 1 — LANDED (#696, 2026-09-05).** op-VM Clamp node + Math
+  `use_clamp` + Mix `clamp_result` on the shared HD `svm_eval` (CPU+GPU); the
+  pkg229 re-audit's #3/#4 items. CI green + RTX HW-verified (GPU parity 3/3;
+  `cuobjdump` REG:254 across all 128 shade specializations, no spill). Fixed a
+  Cycles-parity bug (`svm_clampf` vs Cycles `min(max())` when min>max). Spec:
+  `.astroray_plan/packages/pkg230-opvm-utility-opcodes.md`.
+- **NEXT: pkg230 Phase 2** (spec written, not started) — Vector Math + Vector
+  Rotate op-VM opcodes + faithful Mix `clamp_factor=OFF`; the coordinate-chain-vs-
+  op-VM fork is documented in the spec + NEXT_STAGE_REPORT. Then the owner chooses
+  among pkg127 Phase 2, Principled advanced-inputs (highest-value single node, L),
+  pkg211's prototype-first/park path, and the pkg136 GPU leg. **pkg229 coverage
+  re-audit is landed in #695**
   (152 SUPPORTED / 35 APPROX / 340 DROPPED of 527; op-VM scanner blind spot fixed,
   render-verified; ranked backlog in `.astroray_plan/docs/blender-coverage-reaudit-2026-09.md`).
 

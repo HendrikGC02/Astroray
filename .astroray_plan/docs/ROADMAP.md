@@ -117,12 +117,14 @@ pending:** ≥2× is a scene-physics ceiling in a real NEE integrator (the de-ri
 110× prototype had no NEE), not a bug — the campaign instead found and fixed a
 real architectural bug (discarded training samples: 3× ray waste + a high-α dark
 bias) and delivered a genuine ~1.3× equal-cost win on the hard-transport slot
-scene (#694). **NEXT = the pkg229 next-wave op-VM utility cluster** (Vector Math /
-Clamp / MATH+MIX clamp flags / Vector Rotate — small opcode additions on the
-existing evaluator, best ROI), followed by the owner's choice of pkg127 Phase 2,
-Principled advanced-inputs (highest-value single node, L), pkg211's
-prototype-first/park path, or pkg136's GPU leg. pkg219d scalar parameter textures
-remain landed (#674); pkg210 is SUPERSEDED and pkg180 CLOSED.
+scene (#694). **pkg230 Phase 1 (op-VM utility opcodes: Clamp + Math `use_clamp` +
+Mix `clamp_result`) is landed (#696)** — CI green + RTX HW-verified (REG:254 held).
+**NEXT = pkg230 Phase 2** (Vector Math + Vector Rotate op-VM opcodes + faithful Mix
+`clamp_factor=OFF`; spec written, coordinate-chain-vs-op-VM fork documented),
+followed by the owner's choice of pkg127 Phase 2, Principled advanced-inputs
+(highest-value single node, L), pkg211's prototype-first/park path, or pkg136's GPU
+leg. pkg219d scalar parameter textures remain landed (#674); pkg210 is SUPERSEDED
+and pkg180 CLOSED.
 The exact dispatch order is an architect decision per round.
 
 **Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU

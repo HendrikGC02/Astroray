@@ -2952,112 +2952,269 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # ------------------------------------------------------------------ #
 
     @staticmethod
+    def _resolve_affine_coordinates(vector_socket, depth=0, default_coord_mode="UV",
+                                    warn=None, allow_affine=True):
+        """Resolve coordinates and their affine together (pkg230b).
+
+        Cycles v5.1.0 adfe2921d5f3c0fe699149bcd9bc347543bbd82e,
+        svm/{mapping_util,vector_rotate,math_util}.h (Apache-2.0).
+        The legacy fields preserve the outer Mapping node's 2-D interface;
+        image/program consumers use the matrix, never that approximation.
+        """
+        import math
+        import numpy as np
+        cls = CustomRaytracerRenderEngine
+        limit = 32
+
+        def result(matrix=None, mode=None, layer="", varying=True, legacy=None):
+            if matrix is not None and (not np.all(np.isfinite(matrix)) or
+                                       np.any(np.abs(matrix) > np.finfo(np.float32).max)):
+                raise ValueError('affine coefficients are not representable by native float32')
+            return {
+                'matrix': np.identity(4) if matrix is None else matrix,
+                'coord_mode': default_coord_mode if mode is None else mode,
+                'uv_layer': layer,
+                'varying': varying and (matrix is None or bool(np.any(matrix[:3, :3] != 0))),
+                'legacy': ((1.0, 1.0), (0.0, 0.0), 0.0) if legacy is None else legacy,
+            }
+
+        def reject(node, reason):
+            if warn is not None:
+                ntype = getattr(node, 'type', 'COORDINATES') or 'COORDINATES'
+                label = getattr(node, 'name', '') or ntype
+                warn(ntype, "coordinate node '%s': %s; using default %s coordinates; "
+                     "outer Mapping nodes remain" % (label, reason, default_coord_mode))
+            return result()
+
+        def node_identity(node):
+            # RNA may create different Python wrappers for the same Blender node.
+            pointer = getattr(node, 'as_pointer', None)
+            if callable(pointer):
+                try:
+                    address = int(pointer())
+                    if address:
+                        return ('rna', address)
+                except (ReferenceError, TypeError, ValueError):
+                    pass
+            return ('python', id(node))
+
+        def inp(node, name):
+            inputs = getattr(node, 'inputs', None)
+            return inputs.get(name) if inputs is not None else None
+
+        def positional(node, index):
+            inputs = getattr(node, 'inputs', None)
+            try:
+                return inputs[index]
+            except (KeyError, IndexError, TypeError):
+                # Legacy dict mocks only; real Blender duplicate Vector sockets
+                # must be indexed, because get('Vector') always returns the first.
+                if isinstance(inputs, dict):
+                    return list(inputs.values())[index] if index < len(inputs) else None
+                return None
+
+        def link(socket):
+            try:
+                return socket.links[0]
+            except (AttributeError, IndexError, TypeError):
+                raise ValueError('invalid linked socket')
+
+        def numeric(value, size):
+            try:
+                if size == 1:
+                    out = float(value)
+                elif hasattr(value, '__iter__') or hasattr(value, '__getitem__'):
+                    out = np.array([float(value[i]) for i in range(3)])
+                else:
+                    out = np.full(3, float(value))
+            except (TypeError, ValueError, IndexError, KeyError, OverflowError):
+                raise ValueError('invalid constant control') from None
+            if not np.all(np.isfinite(out)):
+                raise ValueError('non-finite constant control')
+            return out
+
+        def constant(socket, size, level, path):
+            if socket is None:
+                raise ValueError('missing active input')
+            if not getattr(socket, 'is_linked', False):
+                return numeric(getattr(socket, 'default_value', None), size)
+            edge = link(socket)
+            node = edge.from_node
+            if level > limit or node_identity(node) in path:
+                raise ValueError('constant control cycle or depth limit')
+            kind = getattr(node, 'type', None)
+            next_path = path | {node_identity(node)}
+            if kind in ('VALUE', 'RGB'):
+                source = edge.from_socket
+                if not hasattr(source, 'default_value'):
+                    try:
+                        source = node.outputs[0]
+                    except (AttributeError, KeyError, IndexError, TypeError):
+                        raise ValueError('constant output has no value') from None
+                value = source.default_value
+                if kind == 'RGB' and size == 1:
+                    rgb = numeric(value, 3)
+                    value = float(np.dot(rgb, [0.2126, 0.7152, 0.0722]))
+                return numeric(value, size)
+            if kind == 'COMBXYZ':
+                value = np.array([constant(inp(node, axis), 1, level + 1, next_path)
+                                  for axis in ('X', 'Y', 'Z')])
+                return float(np.mean(value)) if size == 1 else value
+            raise ValueError("linked %s control is not a supported constant" % kind)
+
+        def affine_constant(value):
+            matrix = np.zeros((4, 4))
+            matrix[:3, 3] = value
+            matrix[3, 3] = 1.0
+            return result(matrix, varying=False)
+
+        def walk(socket, level, path, implicit=False):
+            if socket is None or not getattr(socket, 'is_linked', False):
+                if implicit:
+                    return result()
+                return affine_constant(constant(socket, 3, level, path))
+            try:
+                edge = link(socket)
+                node = edge.from_node
+            except (ValueError, AttributeError):
+                return reject(None, 'invalid linked socket')
+            kind = getattr(node, 'type', None)
+            if level > limit:
+                return reject(node, 'coordinate depth limit exceeded')
+            if node_identity(node) in path:
+                return reject(node, 'coordinate cycle detected')
+            next_path = path | {node_identity(node)}
+            try:
+                if kind in ('TEX_COORD', 'UVMAP'):
+                    name = getattr(edge.from_socket, 'name', '')
+                    modes = {'UV': 'UV', 'Generated': 'GENERATED', 'Object': 'OBJECT',
+                             'Camera': 'CAMERA', 'Window': 'WINDOW',
+                             'Reflection': 'REFLECTION', 'Normal': 'NORMAL'}
+                    mode = 'UV' if kind == 'UVMAP' else modes.get(name)
+                    if mode is None:
+                        raise ValueError("unsupported coordinate output '%s'" % name)
+                    layer = (getattr(node, 'uv_map', '') or '') if mode == 'UV' else ''
+                    return result(mode=mode, layer=layer)
+                if kind in ('VALUE', 'RGB', 'COMBXYZ'):
+                    return affine_constant(constant(socket, 3, level, path))
+                if kind == 'MAPPING':
+                    values = []
+                    for name, neutral in (('Location', (0, 0, 0)),
+                                          ('Rotation', (0, 0, 0)),
+                                          ('Scale', (1, 1, 1))):
+                        control = inp(node, name)
+                        try:
+                            value = numeric(neutral, 3) if control is None else constant(
+                                control, 3, level + 1, next_path)
+                        except ValueError as error:
+                            # Preserve the established neutral-component fallback;
+                            # never read the ignored default of a linked socket.
+                            reject(node, "%s: %s; using neutral %s" % (name, error, neutral))
+                            value = numeric(neutral, 3)
+                        values.append(value)
+                    location, rotation, scale = values
+                    vector_type = getattr(node, 'vector_type', 'POINT')
+                    if vector_type not in ('POINT', 'VECTOR', 'TEXTURE', 'NORMAL'):
+                        raise ValueError('unsupported Mapping vector type')
+                    if vector_type == 'NORMAL' and warn is not None:
+                        warn('MAPPING', 'NORMAL Mapping uses the existing rotation-only '
+                             'approximation; inverse scale and normalization are not represented')
+                    vector_input = inp(node, 'Vector')
+                    if (vector_input is None or
+                            (not getattr(vector_input, 'is_linked', False) and
+                             not hasattr(getattr(vector_input, 'default_value', None), '__getitem__'))):
+                        inner = reject(node, 'malformed Mapping Vector socket')
+                    else:
+                        # Mapping Vector is an ordinary constant input when
+                        # unlinked, unlike an Image Texture's implicit UV input.
+                        inner = walk(vector_input, level + 1, next_path)
+                    outer = cls._compose_mapping_matrix(location, rotation, scale, vector_type)
+                    return result(outer @ inner['matrix'], inner['coord_mode'], inner['uv_layer'],
+                                  inner['varying'], (tuple(scale[:2]), tuple(location[:2]),
+                                                     float(rotation[2])))
+                if kind in ('VECT_MATH', 'VECTOR_ROTATE') and not allow_affine:
+                    raise ValueError('new affine chains are unsupported by the procedural '
+                                     'transformed-p evaluator (pkg242)')
+                if kind == 'VECT_MATH':
+                    operation = getattr(node, 'operation', None)
+                    if operation not in ('ADD', 'SUBTRACT', 'MULTIPLY', 'SCALE'):
+                        raise ValueError("unsupported Vector Math operation '%s'" % operation)
+                    a = walk(positional(node, 0), level + 1, next_path)
+                    if operation == 'SCALE':
+                        factor = constant(inp(node, 'Scale'), 1, level + 1, next_path)
+                        matrix = a['matrix'].copy()
+                        matrix[:3, :] *= factor
+                        return result(matrix, a['coord_mode'], a['uv_layer'], a['varying'])
+                    b = walk(positional(node, 1), level + 1, next_path)
+                    if a['varying'] and b['varying']:
+                        raise ValueError('multiple varying vector operands are unsupported')
+                    source = a if a['varying'] else b
+                    matrix = np.identity(4)
+                    if operation in ('ADD', 'SUBTRACT'):
+                        matrix[:3, :] = a['matrix'][:3, :] + (
+                            1 if operation == 'ADD' else -1) * b['matrix'][:3, :]
+                    else:
+                        varying, fixed = (a, b) if a['varying'] else (b, a)
+                        matrix[:3, :] = varying['matrix'][:3, :] * fixed['matrix'][:3, 3, None]
+                    return result(matrix, source['coord_mode'], source['uv_layer'],
+                                  a['varying'] or b['varying'])
+                if kind == 'VECTOR_ROTATE':
+                    rotation_type = getattr(node, 'rotation_type', None)
+                    if rotation_type not in ('AXIS_ANGLE', 'X_AXIS', 'Y_AXIS', 'Z_AXIS', 'EULER_XYZ'):
+                        raise ValueError('unsupported Vector Rotate mode')
+                    inner = walk(inp(node, 'Vector'), level + 1, next_path)
+                    center = constant(inp(node, 'Center'), 3, level + 1, next_path)
+                    invert = bool(getattr(node, 'invert', False))
+                    if rotation_type == 'EULER_XYZ':
+                        # Blender removes Axis/Angle sockets in this mode.
+                        angles = constant(inp(node, 'Rotation'), 3, level + 1, next_path)
+                        rotation = cls._compose_mapping_matrix((0, 0, 0), angles, (1, 1, 1))[:3, :3]
+                        if invert:
+                            rotation = rotation.T
+                    else:
+                        # Rotation is absent in axis modes; read only active controls.
+                        angle = constant(inp(node, 'Angle'), 1, level + 1, next_path)
+                        angle = -angle if invert else angle
+                        axis = (constant(inp(node, 'Axis'), 3, level + 1, next_path)
+                                if rotation_type == 'AXIS_ANGLE' else
+                                np.eye(3)[('X_AXIS', 'Y_AXIS', 'Z_AXIS').index(rotation_type)])
+                        length = float(np.linalg.norm(axis))
+                        if length == 0:
+                            rotation = np.identity(3)
+                        else:
+                            x, y, z = axis / length
+                            cross = np.array([[0, -z, y], [z, 0, -x], [-y, x, 0]])
+                            c, s = math.cos(angle), math.sin(angle)
+                            rotation = c * np.eye(3) + (1 - c) * np.outer(axis / length, axis / length) + s * cross
+                    outer = np.identity(4)
+                    outer[:3, :3] = rotation
+                    outer[:3, 3] = center - rotation @ center
+                    return result(outer @ inner['matrix'], inner['coord_mode'], inner['uv_layer'],
+                                  inner['varying'])
+                raise ValueError("unsupported coordinate node '%s'" % kind)
+            except (ValueError, TypeError, IndexError, KeyError, OverflowError, FloatingPointError) as error:
+                return reject(node, str(error))
+
+        with np.errstate(over='raise', invalid='raise', divide='raise'):
+            return walk(vector_socket, depth, frozenset(), implicit=True)
+
+    @staticmethod
     def _resolve_vector_input(vector_socket, depth=0, default_coord_mode="UV",
                               warn=None):
-        """Walk the Vector input on a TEX_IMAGE / procedural texture node and
-        return ``(coord_mode, scale_xy, offset_xy, rotation_z, uv_layer_name)``:
+        """Compatibility five-tuple; image/program paths use the shared affine."""
+        resolved = CustomRaytracerRenderEngine._resolve_affine_coordinates(
+            vector_socket, depth, default_coord_mode, warn)
+        scale, offset, rotation = resolved['legacy']
+        return resolved['coord_mode'], scale, offset, rotation, resolved['uv_layer']
 
-        - ``coord_mode``: one of "UV", "GENERATED", "OBJECT" — passed straight
-          to ``renderer.set_texture_coord_mode``. Other Texture Coordinate
-          outputs (Camera, Window, Reflection, Normal) currently fall back to
-          "UV"; the C++ side supports them but the Blender semantics need a
-          real test scene to pin down.
-        - ``scale_xy`` / ``offset_xy``: (sx, sy) and (ox, oy) baked from a
-          ``Mapping`` node on the chain.
-        - ``rotation_z``: float in radians, baked from a ``Mapping`` node's
-          Rotation.z (Blender 2D-effective Z component). Default 0.
-        - ``default_coord_mode``: fallback when vector_socket is unlinked.
-          Per pkg115 Blender parity audit: procedural textures default to
-          "GENERATED", Image Texture defaults to "UV".
-        - ``warn``: optional callable ``(node_type, message)`` — pkg230 Phase 2
-          surfaces a visible ``_warn_shader_fallback`` when a VECT_MATH /
-          VECTOR_ROTATE node appears on the coordinate chain (a per-texel
-          coordinate op the affine resolver cannot express). Static method, so
-          it cannot warn on its own; instance callers pass their warn hook.
-
-        Limit chain depth to avoid pathological node graphs (Mapping → Mapping
-        → Mapping…).
-        """
-        coord_mode = default_coord_mode
-        scale = (1.0, 1.0)
-        offset = (0.0, 0.0)
-        rotation = 0.0
-        uv_layer_name = ""
-        if depth > 4 or vector_socket is None or not getattr(vector_socket, 'is_linked', False):
-            return coord_mode, scale, offset, rotation, uv_layer_name
-        try:
-            link = vector_socket.links[0]
-            src = link.from_node
-            src_socket_name = link.from_socket.name
-        except (IndexError, AttributeError):
-            return coord_mode, scale, offset, rotation, uv_layer_name
-
-        ntype = getattr(src, 'type', None)
-        if ntype == 'MAPPING':
-            # Read Location, Rotation, and Scale defaults. Linked inputs
-            # aren't followed — would require a real expression evaluator.
-            # Most user-facing mappings have constant defaults.
-            loc_inp = src.inputs.get('Location') if hasattr(src, 'inputs') else None
-            if loc_inp is not None and not getattr(loc_inp, 'is_linked', False):
-                v = loc_inp.default_value
-                try:
-                    offset = (float(v[0]), float(v[1]))
-                except (TypeError, IndexError):
-                    pass
-            rot_inp = src.inputs.get('Rotation') if hasattr(src, 'inputs') else None
-            if rot_inp is not None and not getattr(rot_inp, 'is_linked', False):
-                v = rot_inp.default_value
-                try:
-                    # 2D-effective: only the Z component rotates UVs.
-                    rotation = float(v[2])
-                except (TypeError, IndexError):
-                    pass
-            scl_inp = src.inputs.get('Scale') if hasattr(src, 'inputs') else None
-            if scl_inp is not None and not getattr(scl_inp, 'is_linked', False):
-                v = scl_inp.default_value
-                try:
-                    scale = (float(v[0]), float(v[1]))
-                except (TypeError, IndexError):
-                    pass
-            # Recurse to find the upstream coord source.
-            inner_socket = src.inputs.get('Vector') if hasattr(src, 'inputs') else None
-            inner_coord, _inner_scale, _inner_offset, _inner_rot, inner_layer = \
-                CustomRaytracerRenderEngine._resolve_vector_input(inner_socket, depth + 1, default_coord_mode, warn)
-            return inner_coord, scale, offset, rotation, inner_layer
-
-        if ntype == 'TEX_COORD':
-            if src_socket_name == 'Generated':
-                return "GENERATED", scale, offset, rotation, uv_layer_name
-            if src_socket_name == 'Object':
-                return "OBJECT", scale, offset, rotation, uv_layer_name
-            if src_socket_name == 'UV':
-                return "UV", scale, offset, rotation, getattr(src, 'uv_map', '') or ""
-            # pkg219a: Camera / Window / Reflection / Normal are all implemented
-            # C++-side (Texture::CoordMode / parseCoordMode). Route them through
-            # instead of the old blanket UV fallback.
-            if src_socket_name == 'Camera':
-                return "CAMERA", scale, offset, rotation, uv_layer_name
-            if src_socket_name == 'Window':
-                return "WINDOW", scale, offset, rotation, uv_layer_name
-            if src_socket_name == 'Reflection':
-                return "REFLECTION", scale, offset, rotation, uv_layer_name
-            if src_socket_name == 'Normal':
-                return "NORMAL", scale, offset, rotation, uv_layer_name
-            return "UV", scale, offset, rotation, uv_layer_name
-
-        if ntype == 'UVMAP':
-            return "UV", scale, offset, rotation, getattr(src, 'uv_map', '') or ""
-
-        # pkg230 Phase 2 — a Vector Math / Vector Rotate node on the coordinate
-        # chain is a per-texel coordinate op the affine resolver cannot express.
-        # Surface a VISIBLE degradation entry (never a silent plain-UV fallback);
-        # the actual coordinate behaviour stays the deferred follow-up.
-        if ntype in ('VECT_MATH', 'VECTOR_ROTATE') and warn is not None:
-            warn(ntype, "per-texel Vector Math/Rotate on texture coordinates is "
-                        "unsupported — using default %s coordinates; outer Mapping nodes remain"
-                        % default_coord_mode)
-
-        return coord_mode, scale, offset, rotation, uv_layer_name
+    @staticmethod
+    def _affine_matrix_values(resolved):
+        """Exact identity detection preserves tiny edits and zero/mirror scales."""
+        import numpy as np
+        matrix = resolved['matrix']
+        if np.array_equal(matrix, np.identity(4)):
+            return None
+        return [float(value) for value in matrix[:3, :].reshape(-1)]
 
     @staticmethod
     def _compose_mapping_matrix(location, rotation, scale, vector_type='POINT'):
@@ -3095,67 +3252,25 @@ class CustomRaytracerRenderEngine(RenderEngine):
             M[:3, :3] = R @ S
             M[:3, 3] = [lx, ly, lz]
         if vector_type == 'TEXTURE':
-            M = np.linalg.inv(M)
+            # Cycles safe_divide(inverse_rotate(vector - location), scale).
+            # A zero scale component maps to zero, including singular matrices.
+            reciprocal = np.array([1.0 / v if v != 0.0 else 0.0 for v in (sx, sy, sz)])
+            M[:3, :3] = np.diag(reciprocal) @ R.T
+            M[:3, 3] = -M[:3, :3] @ np.array([lx, ly, lz])
         return M
 
     def _resolve_mapping_matrix(self, vector_socket, depth=0):
-        """Walk the Vector chain and compose all Mapping nodes into a single
-        3x4 (top-rows, row-major) affine, or return None if there is no
-        non-identity Mapping. pkg219a: full 3-D transform incl. X/Y rotation and
-        Z location/scale — supersedes the old 2-D ``_resolve_vector_input``
-        scale/offset/rotation for texture sampling.
-
-        Linked Location/Rotation/Scale inputs cannot be constant-folded (that is
-        the op-VM's job, pkg219b) — those components fall back to their socket
-        defaults and record a visible degradation entry.
-        """
-        import numpy as np
-        if depth > 4 or vector_socket is None or not getattr(vector_socket, 'is_linked', False):
-            return None
-        try:
-            src = vector_socket.links[0].from_node
-        except (IndexError, AttributeError):
-            return None
-        if getattr(src, 'type', None) != 'MAPPING':
-            return None
-
-        def _default(name, fallback):
-            inp = src.inputs.get(name) if hasattr(src, 'inputs') else None
-            if inp is None:
-                return fallback
-            if getattr(inp, 'is_linked', False):
-                self._warn_shader_fallback(
-                    'MAPPING',
-                    f"linked '{name}' input constant-folded to its default "
-                    f"(per-texel Mapping inputs need the op-VM, pkg219b)")
-                return fallback
-            v = inp.default_value
-            try:
-                return (float(v[0]), float(v[1]), float(v[2]))
-            except (TypeError, IndexError):
-                return fallback
-
-        location = _default('Location', (0.0, 0.0, 0.0))
-        rotation = _default('Rotation', (0.0, 0.0, 0.0))
-        scale = _default('Scale', (1.0, 1.0, 1.0))
-        vtype = getattr(src, 'vector_type', 'POINT')
-        M = self._compose_mapping_matrix(location, rotation, scale, vtype)
-
-        inner_socket = src.inputs.get('Vector') if hasattr(src, 'inputs') else None
-        inner = self._resolve_mapping_matrix(inner_socket, depth + 1)
-        if inner is not None:
-            M = M @ np.array(inner + [0.0, 0.0, 0.0, 1.0], dtype=np.float64).reshape(4, 4)
-
-        if np.allclose(M, np.identity(4), atol=1e-7):
-            return None
-        return [float(x) for x in M[:3, :].reshape(-1)]
+        """Compatibility 12-float matrix wrapper around the shared resolver."""
+        resolved = self._resolve_affine_coordinates(
+            vector_socket, depth=depth, warn=self._warn_shader_fallback)
+        return self._affine_matrix_values(resolved)
 
     @staticmethod
     def _is_default_uv_transform(coord_mode, scale, offset, rotation, uv_layer_name=""):
         return (coord_mode == "UV"
-                and abs(scale[0] - 1.0) < 1e-6 and abs(scale[1] - 1.0) < 1e-6
-                and abs(offset[0]) < 1e-6 and abs(offset[1]) < 1e-6
-                and abs(rotation) < 1e-6
+                and scale[0] == 1.0 and scale[1] == 1.0
+                and offset[0] == 0.0 and offset[1] == 0.0
+                and rotation == 0.0
                 and not uv_layer_name)
 
     @staticmethod
@@ -3171,12 +3286,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # in the key so the same image under different 3-D mappings gets distinct
         # C++ texture entries.
         if mapping_matrix is not None:
-            mstr = ",".join(f"{v:.4f}" for v in mapping_matrix)
+            mstr = ",".join(f"{0.0 if v == 0.0 else v:.17g}" for v in mapping_matrix)
             return f"{base_name}::{coord_mode}::M[{mstr}]::{uv_layer_name}"
         return (f"{base_name}::{coord_mode}::"
-                f"{scale[0]:.4f},{scale[1]:.4f},"
-                f"{offset[0]:.4f},{offset[1]:.4f},"
-                f"{rotation:.4f}::{uv_layer_name}")
+                f"{scale[0]:.17g},{scale[1]:.17g},"
+                f"{offset[0]:.17g},{offset[1]:.17g},"
+                f"{rotation:.17g}::{uv_layer_name}")
 
     def _apply_texture_transform(self, renderer, tex_name, coord_mode,
                                  scale, offset, rotation, uv_layer_name="",
@@ -3197,13 +3312,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # pkg219a: a full 3-D Mapping matrix supersedes the legacy 2-D UV
             # transform. Prefer it when present (image textures sample at
             # (M*coord).xy on both CPU and GPU).
-            if mapping_matrix is not None and hasattr(renderer, "set_texture_mapping_matrix"):
-                renderer.set_texture_mapping_matrix(tex_name, list(mapping_matrix))
+            if mapping_matrix is not None:
+                if hasattr(renderer, "set_texture_mapping_matrix"):
+                    renderer.set_texture_mapping_matrix(tex_name, list(mapping_matrix))
+                else:
+                    self._warn_shader_fallback('MAPPING', 'native matrix binding unavailable; '
+                                               'using untransformed coordinates')
                 return
             non_identity = (
-                abs(scale[0] - 1.0) >= 1e-6 or abs(scale[1] - 1.0) >= 1e-6
-                or abs(offset[0]) >= 1e-6 or abs(offset[1]) >= 1e-6
-                or abs(rotation) >= 1e-6
+                scale[0] != 1.0 or scale[1] != 1.0
+                or offset[0] != 0.0 or offset[1] != 0.0
+                or rotation != 0.0
             )
             if non_identity:
                 renderer.set_texture_uv_transform(
@@ -3212,9 +3331,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     float(offset[0]), float(offset[1]),
                     float(rotation),
                 )
-        except AttributeError:
-            # Older C++ module without these bindings — silently skip.
-            pass
+        except AttributeError as error:
+            self._warn_shader_fallback('MAPPING', 'native coordinate binding unavailable '
+                                       '(%s); using available coordinate defaults' % error)
 
     def load_blender_image(self, bpy_image, renderer, vector_input=None):
         """Load a Blender image datablock into the renderer's texture manager.
@@ -3232,10 +3351,19 @@ class CustomRaytracerRenderEngine(RenderEngine):
         """
         if bpy_image is None:
             return None
-        # Image Texture defaults to UV when Vector socket is unconnected.
-        coord_mode, uv_scale, offset, rotation, uv_layer_name = self._resolve_vector_input(vector_input, default_coord_mode="UV", warn=self._warn_shader_fallback)
-        mapping_matrix = self._resolve_mapping_matrix(vector_input)
-        cache_key = self._texture_variant_key(bpy_image.name, coord_mode, uv_scale, offset, rotation, uv_layer_name, mapping_matrix)
+        # One traversal supplies both provenance and the complete affine.
+        resolved = self._resolve_affine_coordinates(vector_input, warn=self._warn_shader_fallback)
+        return self._load_blender_image_resolved(bpy_image, renderer, resolved)
+
+    def _load_blender_image_resolved(self, bpy_image, renderer, resolved, child_signature=None):
+        """Upload one resolved image; only program children receive isolation salt."""
+        coord_mode, uv_layer_name = resolved['coord_mode'], resolved['uv_layer']
+        uv_scale, offset, rotation = (1.0, 1.0), (0.0, 0.0), 0.0
+        mapping_matrix = self._affine_matrix_values(resolved)
+        cache_key = self._texture_variant_key(bpy_image.name, coord_mode, uv_scale,
+                                              offset, rotation, uv_layer_name, mapping_matrix)
+        if child_signature is not None:
+            cache_key += "::program-child[%s]" % child_signature
 
         # Deduplicate: a single (image, transform) pair is uploaded at most
         # once per conversion pass.
@@ -3297,7 +3425,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # combination is always identical — the variant key is defensive.
         # pkg115 parity fix: procedural textures default to GENERATED when
         # Vector socket is unconnected (Blender standard behavior).
-        coord_mode, uv_scale, offset, rotation, uv_layer_name = self._resolve_vector_input(vector_input, default_coord_mode="GENERATED", warn=self._warn_shader_fallback)
+        # Native procedural evaluation still receives the original p. Keep the
+        # legacy Mapping behavior and visibly reject new affine node chains.
+        resolved = self._resolve_affine_coordinates(
+            vector_input, default_coord_mode="GENERATED", warn=self._warn_shader_fallback,
+            allow_affine=False)
+        coord_mode, uv_layer_name = resolved['coord_mode'], resolved['uv_layer']
+        uv_scale, offset, rotation = resolved['legacy']
         # pkg115 residual fix (black gradient/magic spheres): id(node) is NOT a
         # stable key — convert_node_material works on a temporary
         # inline_shader_nodes() tree that is freed after each material, and
@@ -3518,27 +3652,45 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # Require image-texture inputs; a program input that is not a loadable
         # image texture is out of scope (procedural inputs stay on the pkg190
         # bake path).
-        child_names = []
-        for in_node in compiled['inputs']:
+        inputs = compiled['inputs']
+        if not inputs:
+            self._warn_shader_fallback('op-VM', 'program has no image inputs; flattened')
+            return None
+        resolved_inputs = []
+        signatures = []
+        for in_node in inputs:
             img = getattr(in_node, 'image', None)
             if getattr(in_node, 'type', None) != 'TEX_IMAGE' or img is None:
                 self._warn_shader_fallback(
-                    "op-VM", "op-VM input is not an image texture — flattened")
+                    "op-VM", "op-VM input is not an image texture; flattened")
                 return None
-            cn = self.load_blender_image(img, renderer, vector_input=None)
+            vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
+            resolved = self._resolve_affine_coordinates(vinp, warn=self._warn_shader_fallback)
+            resolved_inputs.append(resolved)
+            signatures.append(self._texture_variant_key(
+                '', resolved['coord_mode'], (1.0, 1.0), (0.0, 0.0), 0.0,
+                resolved['uv_layer'], self._affine_matrix_values(resolved)))
+        if any(signature != signatures[0] for signature in signatures[1:]):
+            self._warn_shader_fallback('op-VM', 'image inputs have differing coordinate mappings; '
+                                       'independent program coordinates are unsupported; flattened')
+            return None
+        resolved = resolved_inputs[0]
+        coord_mode, uvlayer = resolved['coord_mode'], resolved['uv_layer']
+        scale, offset, rot = (1.0, 1.0), (0.0, 0.0), 0.0
+        mapping_matrix = self._affine_matrix_values(resolved)
+        # scene_upload.cu deduplicates child ImageTexture pointers and attaches
+        # the first parent's mapping. Isolate identity child samplers by parent
+        # coordinates; CPU children must never apply that mapping a second time.
+        identity = {'matrix': np.identity(4), 'coord_mode': 'UV', 'uv_layer': ''}
+        child_names = []
+        for in_node in inputs:
+            cn = self._load_blender_image_resolved(
+                in_node.image, renderer, identity, child_signature=signatures[0])
             if cn is None:
                 return None
             child_names.append(cn)
         mat_name = getattr(self, "_current_material_name", "") or ""
         prog_name = "_prog_%s.%s.%s" % (mat_name, getattr(node, "name", "n"), input_name)
-        # Coord + Mapping come from the FIRST image input's Vector wiring and are
-        # applied to the PROGRAM texture (children are plain samplers); differing
-        # per-input mappings on a multi-image Mix are a documented follow-up.
-        first = compiled['inputs'][0]
-        vinp = first.inputs.get('Vector') if hasattr(first, 'inputs') else None
-        coord_mode, scale, offset, rot, uvlayer = self._resolve_vector_input(
-            vinp, default_coord_mode="UV", warn=self._warn_shader_fallback)
-        mapping_matrix = self._resolve_mapping_matrix(vinp)
         try:
             renderer.create_program_texture(prog_name, coord_mode)
             self._apply_texture_transform(renderer, prog_name, coord_mode, scale,

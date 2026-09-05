@@ -36,6 +36,8 @@ COMPOSITE_SCENES = (
     "mix_shader_stack", "texture_driven_roughness", "bump_plus_normal",
     "opvm_plain", "opvm_vector_math", "opvm_vector_rotate",
     "opvm_mix_clamped", "opvm_mix_unclamped",
+    "coords_plain", "coords_arithmetic", "coords_euler", "coords_axis",
+    "coords_mirror", "coords_program", "coords_shared_programs",
 )
 
 
@@ -490,6 +492,81 @@ def build_vector_opvm_scene(bpy, variant):
     return scene
 
 
+def build_affine_coordinate_scene(bpy, variant):
+    """pkg230b: spatial operations before image lookup, including shared samplers."""
+    scene = build_vector_opvm_scene(bpy, 'plain')
+    plane = next(obj for obj in scene.objects if obj.type == 'MESH')
+
+    def wire(material, mode):
+        nt = material.node_tree
+        image = next(node for node in nt.nodes if node.type == 'TEX_IMAGE')
+        # Native image samplers clamp outside [0,1]. Match Extend here; Repeat
+        # and the wider image-extension contract remain under pkg234.
+        image.extension = 'EXTEND'
+        principled = next(node for node in nt.nodes if node.type == 'BSDF_PRINCIPLED')
+        source = nt.nodes.new('ShaderNodeTexCoord').outputs['UV']
+
+        def vector_math(operation, constant, varying_slot=0):
+            nonlocal source
+            node = nt.nodes.new('ShaderNodeVectorMath')
+            node.operation = operation
+            nt.links.new(source, node.inputs[varying_slot])
+            node.inputs[1 - varying_slot].default_value = constant
+            source = node.outputs['Vector']
+
+        # Keep the arithmetic/mirror chart inside the image domain so the
+        # visible pattern tests placement rather than a clamped edge texel.
+        if mode == 'arithmetic':
+            vector_math('ADD', (0.13, -0.08, 0.0))
+            vector_math('MULTIPLY', (0.8, 0.7, 1.0))
+            vector_math('SUBTRACT', (1.05, 0.85, 0.0), varying_slot=1)
+            mapping = nt.nodes.new('ShaderNodeMapping')
+            mapping.inputs['Rotation'].default_value = (0.0, 0.0, 0.17)
+            mapping.inputs['Location'].default_value = (0.04, 0.02, 0.0)
+            nt.links.new(source, mapping.inputs['Vector'])
+            source = mapping.outputs['Vector']
+        elif mode in ('euler', 'axis', 'program'):
+            rotate = nt.nodes.new('ShaderNodeVectorRotate')
+            rotate.rotation_type = 'AXIS_ANGLE' if mode == 'axis' else 'EULER_XYZ'
+            rotate.invert = True
+            rotate.inputs['Center'].default_value = (0.42, 0.57, 0.1)
+            if mode == 'axis':
+                rotate.inputs['Axis'].default_value = (0.2, 0.3, 1.0)
+                rotate.inputs['Angle'].default_value = 0.65
+            else:
+                rotate.inputs['Rotation'].default_value = (0.2, -0.3, 0.55)
+            nt.links.new(source, rotate.inputs['Vector'])
+            source = rotate.outputs['Vector']
+        elif mode == 'mirror':
+            vector_math('MULTIPLY', (-0.8, 0.8, 1.0))
+            vector_math('ADD', (0.9, 0.08, 0.0))
+        elif mode != 'plain':
+            raise ValueError(f'unknown affine coordinate variant: {mode}')
+        nt.links.new(source, image.inputs['Vector'])
+        if variant in ('program', 'shared_programs'):
+            post = nt.nodes.new('ShaderNodeVectorMath')
+            post.operation = 'SCALE'
+            post.inputs['Scale'].default_value = 0.8
+            nt.links.new(image.outputs['Color'], post.inputs[0])
+            nt.links.new(post.outputs['Vector'], principled.inputs['Base Color'])
+
+    if variant == 'shared_programs':
+        # Independent materials share the SAME bpy image. Each program must
+        # carry its own mapping into the GPU descriptor, regardless of order.
+        right = plane.copy()
+        right.data = plane.data.copy()
+        scene.collection.objects.link(right)
+        right.data.materials.clear()
+        right.data.materials.append(plane.data.materials[0].copy())
+        plane.scale.x = right.scale.x = 0.5
+        plane.location.x, right.location.x = -0.5, 0.5
+        wire(plane.data.materials[0], 'euler')
+        wire(right.data.materials[0], 'mirror')
+    else:
+        wire(plane.data.materials[0], variant)
+    return scene
+
+
 COMPOSITE_BUILDERS = {
     "mix_shader_stack": build_mix_shader_stack,
     "texture_driven_roughness": build_texture_driven_roughness,
@@ -499,6 +576,13 @@ COMPOSITE_BUILDERS = {
     "opvm_vector_rotate": lambda bpy: build_vector_opvm_scene(bpy, 'vector_rotate'),
     "opvm_mix_clamped": lambda bpy: build_vector_opvm_scene(bpy, 'mix_clamped'),
     "opvm_mix_unclamped": lambda bpy: build_vector_opvm_scene(bpy, 'mix_unclamped'),
+    "coords_plain": lambda bpy: build_affine_coordinate_scene(bpy, 'plain'),
+    "coords_arithmetic": lambda bpy: build_affine_coordinate_scene(bpy, 'arithmetic'),
+    "coords_euler": lambda bpy: build_affine_coordinate_scene(bpy, 'euler'),
+    "coords_axis": lambda bpy: build_affine_coordinate_scene(bpy, 'axis'),
+    "coords_mirror": lambda bpy: build_affine_coordinate_scene(bpy, 'mirror'),
+    "coords_program": lambda bpy: build_affine_coordinate_scene(bpy, 'program'),
+    "coords_shared_programs": lambda bpy: build_affine_coordinate_scene(bpy, 'shared_programs'),
 }
 
 

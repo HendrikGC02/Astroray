@@ -85,22 +85,46 @@ def test_guiding_concentrates_toward_light():
     assert my > -0.05, f"guide points into the floor (my={my:.3f}) — wrong hemisphere"
 
 
-@pytest.mark.xfail(reason="basic radiance guiding is ~break-even; a robust >=2x "
-                          "needs product guiding + filtered splatting — see "
-                          ".astroray_plan/docs/pkg136-stage1b-findings.md",
+@pytest.mark.xfail(reason=">=2x is a scene-physics ceiling for radiance guiding in "
+                          "an integrator WITH NEE: NEE already handles the direct-light "
+                          "spike, so guiding only reduces residual-indirect variance "
+                          "(~1.3x on this slot scene at equal cost). See "
+                          ".astroray_plan/docs/pkg136-stage1b-findings.md.",
                    strict=False)
 def test_guiding_reduces_variance_on_hard_scene():
-    """Target gate (spec §6): >=2x MSE reduction vs unguided at equal image spp.
-    Currently xfail — the integration is correct/unbiased but basic radiance
-    guiding does not yet beat BSDF on these scenes (findings note)."""
-    ref = _render(guiding=False, spp=768, seed=101)
-    spp = 24
-    unguided = _render(guiding=False, spp=spp, seed=202)
-    guided = _render(guiding=True, spp=spp, seed=202)
+    """Target gate (spec §6): >=2x MSE reduction vs unguided at EQUAL TOTAL COST.
+
+    The guided render folds its K*trainSpp training samples into the image (they
+    are unbiased samples of the same image), so a fair comparison charges those
+    rays: unguided runs at finalSpp + K*trainSpp. Measuring at equal *image* spp
+    instead would let the guided run spend ~3x the rays and pass trivially — the
+    metric artifact this test deliberately avoids.
+
+    Currently xfail: the integration is correct/unbiased and does deliver a real
+    but modest equal-cost win (~1.3x on this slot scene); >=2x is not reachable
+    with radiance guiding + NEE on these scene classes (findings note)."""
+    K, train_spp, final_spp = 6, 8, 32
+    total = final_spp + K * train_spp
+    ref = _render(guiding=False, spp=1024, seed=101)
+
+    def guided_render():
+        r = create_renderer()
+        r.set_use_gpu(False)
+        build_scene(r)
+        setup_camera(r, W, H)
+        r.set_seed(202)
+        r.set_adaptive_sampling(False)
+        r.set_guiding(True)
+        # Corrected config (pkg136 de-risking finding 3): splat Li/pdf (div_pdf=True).
+        r.set_guiding_params(K, train_spp, 0.3, 0.0015, 0.008, True, 0.0)
+        return np.asarray(r.render(final_spp, 8, None, False))
+
+    unguided = _render(guiding=False, spp=total, seed=202)  # equal total budget
+    guided = guided_render()
     lit = ref.sum(axis=2) > 0.02
     mse_unguided = ((unguided - ref) ** 2)[lit].mean()
     mse_guided = ((guided - ref) ** 2)[lit].mean()
     reduction = mse_unguided / max(mse_guided, 1e-12)
     print(f"\nMSE unguided={mse_unguided:.5f} guided={mse_guided:.5f} "
-          f"→ {reduction:.2f}× reduction at {spp} image spp")
+          f"→ {reduction:.2f}× at equal total cost ({total} spp)")
     assert reduction >= 2.0

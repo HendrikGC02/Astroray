@@ -3844,6 +3844,17 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         // pkg136 — SD-tree path guiding: learn-then-sample training passes build
         // the guide, then the render below draws guided continuations from it.
         // Skipped when guiding is off ⇒ the default render path is byte-identical.
+        // pkg136-S1B fix (blocker 1): the training passes are full, unbiased path
+        // traces of the SAME image, so their radiance is accumulated into these
+        // per-pixel buffers and folded into the final image below rather than
+        // discarded — otherwise the guided render casts K·trainSpp spp of rays it
+        // throws away, making an equal-cost variance win arithmetically impossible.
+        // Allocated only when guiding is on; the combine below is guarded so the
+        // default (guiding-off) render path stays byte-identical.
+        std::vector<Vec3> gAccCol;
+        std::vector<std::array<Vec3, PASS_COUNT>> gAccPass;
+        std::vector<float> gAccAlpha;
+        long long gTrainPerPixel = 0;
         lastGuide_.reset();
         if (guidingEnabled_ && integrator_) {
             AABB sbox;
@@ -3859,6 +3870,13 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
             std::vector<std::vector<astroray::guiding::GuideRecord>> bufs(nthreads);
             const int K = guideIterations_;      // training iterations
             const int trainSpp = guideTrainSpp_; // samples/pixel/iteration
+            // Per-pixel accumulators for the training radiance (folded into the
+            // image below). Every pixel receives exactly K·trainSpp training
+            // samples, so the per-pixel count is uniform.
+            const size_t gNpix = (size_t)cam.width * (size_t)cam.height;
+            gAccCol.assign(gNpix, Vec3(0));
+            gAccPass.assign(gNpix, std::array<Vec3, PASS_COUNT>{});
+            gAccAlpha.assign(gNpix, 0.0f);
             long long totalRecords = 0;
             long long prevIterRecords = 0;
             astroray::guiding::SDTree guide = building;  // empty (pass 0 = pure PT)
@@ -3894,7 +3912,17 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                     float u = (x + td(tgen)) / (cam.width - 1);
                                     float v = 1.0f - (y + td(tgen)) / (cam.height - 1);
                                     Ray pr = cam.getRay(u, v, 0.0f, tgen);
-                                    integrator_->sampleFull(pr, tgen);  // discard; records only
+                                    // Full path trace: builds the guide (records)
+                                    // AND contributes its radiance to the image
+                                    // (folded in below — not discarded). Each pixel
+                                    // is owned by exactly one tile/thread, so the
+                                    // per-pixel accumulator writes are race-free.
+                                    SampleResult ir = integrator_->sampleFull(pr, tgen);
+                                    int gidx = y * cam.width + x;
+                                    gAccCol[gidx] += finiteVecOrZero(ir.color);
+                                    for (int pI = 0; pI < PASS_COUNT; ++pI)
+                                        gAccPass[gidx][pI] += ir.passes[pI];
+                                    gAccAlpha[gidx] += ir.alpha;
                                 }
                     }
                 }
@@ -3910,6 +3938,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
             }
             guideDbgLeaves_ = building.numLeaves();
             guideDbgRecords_ = totalRecords;
+            gTrainPerPixel = (long long)K * (long long)trainSpp;  // folded in below
             lastGuide_ = std::make_unique<astroray::guiding::SDTree>(std::move(building));
             guideSampling_ = lastGuide_.get();
             guideAlpha_ = guideAlphaParam_;
@@ -4053,11 +4082,25 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                             }
                         }
 
-                        color = color / float(samples);
+                        // pkg136-S1B: fold the discarded-no-more training samples
+                        // into this pixel. They are unbiased estimates of the same
+                        // image, so equal-weight combination stays unbiased and
+                        // stops wasting the K·trainSpp training rays. Colour/passes/
+                        // alpha divide by the COMBINED count; the main-loop-only
+                        // diagnostic AOVs (bounce/sampleWeight) keep `samples`.
+                        int totalSamples = samples;
+                        if (guidingEnabled_ && gTrainPerPixel > 0) {
+                            color += gAccCol[idx];
+                            for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex)
+                                passColor[passIndex] += gAccPass[idx][passIndex];
+                            alpha += gAccAlpha[idx];
+                            totalSamples += (int)gTrainPerPixel;
+                        }
+                        color = color / float(totalSamples);
                         color *= filmExposure;
-                        alpha = alpha / float(samples);
+                        alpha = alpha / float(totalSamples);
                         for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex) {
-                            passColor[passIndex] /= float(samples);
+                            passColor[passIndex] /= float(totalSamples);
                         }
                         passColor[PASS_DIFFUSE_DIRECT] *= filmExposure;
                         passColor[PASS_DIFFUSE_INDIRECT] *= filmExposure;

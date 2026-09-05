@@ -1,87 +1,111 @@
-# pkg136 Stage-1B findings — CPU path-guiding integration: correct, not yet a win
+# pkg136 Stage-1B findings — CPU path-guiding: correct primitives, three real blockers
 
 Stage 1B wired the SD-tree guide into `pathTraceSpectral` (raytracer.h). The
-integration is **correct** — unbiased, byte-identical when off, sample/pdf
-consistent, and the guide provably concentrates toward incident radiance — but
-**basic radiance guiding does not yet beat BSDF sampling** on the scenes tried
-(≈break-even on smooth scenes, worse on firefly-heavy ones). This note records
-what was built, what was verified, the mechanisms behind the non-win, and the
-concrete path to a real ≥2× variance reduction. It is the honest state so the
-follow-up starts with the diagnosis in hand rather than re-deriving it.
+**data structures are correct** (unbiased warp, sample==pdf, no MIS-measure bug —
+verified below), but path guiding **does not yet reduce variance**, and on hard
+(Veach-door) scenes it makes noise 3–9× *worse*. This note gives the root-caused,
+independently-corroborated reason and the corrected fix priority.
 
-## What is correct and verified
+The diagnosis below was reached two ways that agree: (a) direct measurement on
+this build (knob sweeps + a bias/variance decomposition + an isolated warp
+consistency test via the `test_helpers` DTree/SDTree bindings), and (b) an
+independent code+math review by a second model (glm-5.1 via the `delegate`
+critic; its full analysis is in the session transcript — it corroborated the
+warp/MIS correctness and surfaced the discarded-training and 1/(1−α) points).
 
-- **Unbiased.** Guided render converges to the unguided image (per-channel
-  mean-ratio within noise). Gate: `test_pkg136_guiding_render.py`.
-- **No-harm-when-off.** `guiding=off` is byte-identical (every hook gated on
-  `guidingEnabled_`). Gate: same file.
-- **Sample/pdf consistent.** `DTree::sample()` returns exactly `DTree::pdf()`
-  (ratio 1.0) and `E[1/pdf]` over samples equals the support area (=1 for a
-  full-support tree; <1 for a peaked one — this is expected, not a bug; an early
-  misread of this invariant sent me chasing a phantom sample/pdf bug that did not
-  exist). The directional sampler was rewritten to a proper 2D hierarchical warp
-  (u2→row, u1→column, each rescaled) — the textbook method; the prior flattened
-  4-way warp was equivalent but less clearly correct.
-- **The guide concentrates correctly.** The `guide_probe` API (sample the trained
-  guide at a world point, report mean direction + concentration + pdf toward a
-  target) shows, e.g., a back-wall point's guide pointing into the room (conc
-  0.69) and a floor point under a side-door pointing at the door (conc up to
-  1.0). The machinery learns the incident-radiance field as designed.
+## What is correct and verified (do not re-investigate)
 
-## Why it does not (yet) beat BSDF — the mechanisms
+- **Warp is measure-consistent — there is NO normalization bug.** A 2D histogram
+  of `DTree::sample()` outputs matches `DTree::pdf()` cell-for-cell (ratio 1.00).
+  `E[1/pdf]` equals the *support area* (0.5 for a half-supported tree, 1.0 for a
+  full one), NOT 1 — this is expected and was twice misread as a bug in this
+  package. Do not chase it again. Test: `scratchpad dtree_consistency.py` /
+  `dtree_hist.py` against `astroray_test_helpers`.
+- **MIS is measure-consistent.** `ls.pdf` (solid-angle × selection) and the
+  mixture `bsdfPdf` are both solid-angle; NEE `wt` and the emitter-hit `wB` both
+  use the same mixture pdf → wL+wB≈1. (One pre-existing pkg120 joint-vs-marginal
+  subtlety exists for multi-emitter directions; benign for single-light scenes.)
+- **Guide trains and concentrates** toward incident radiance (conc→1.0 via
+  `guide_probe`). The machinery works end-to-end.
 
-1. **Diffuse-box indirect is near-isotropic.** In a closed diffuse room the
-   dominant indirect radiance arrives from the large lit walls over a wide solid
-   angle; cosine sampling is already near-optimal there, so a directional guide
-   cannot improve it and a mis-concentrated one hurts. Path guiding needs
-   *directional, hard-to-find* indirect light.
-2. **NEE already handles direct light well; the guide competes with it and
-   loses variance.** The guide learns *incident radiance*, which includes the
-   direct light. When it over-concentrates (conc→1.0) its pdf toward the light
-   becomes huge, so the balance-heuristic MIS cedes the light to the
-   guided-continuation strategy and suppresses NEE (`wt≈0`). But hitting a small
-   light via a continuation ray is *higher* variance than NEE's direct
-   connection — so ceding to the guide raises variance. The balance heuristic
-   misweights because the guide's per-sample variance for the light is worse than
-   its pdf implies.
-3. **Fireflies are not guide-addressable.** On bright-light scenes the variance
-   is dominated by high-throughput emitter/NEE spikes; guiding the continuation
-   direction cannot reduce that and can worsen it by steering more rays at the
-   bright source.
+## The three real blockers (corrected priority)
 
-Empirically: smooth indirect scenes gave ~0.9–1.1× (break-even) at low α;
-firefly/bright scenes gave 0.2–0.8× (worse), worse with higher α — the signature
-of (2)+(3), not a code defect.
+### 1. [DOMINANT, architectural] Training samples were discarded — NOW FIXED
+`render()` cast `K·trainSpp` samples/pixel to build the guide, then **threw every
+one away** (`sampleFull(...); // discard`) and rendered the image separately. At
+24 image spp with defaults (K=6, trainSpp=8) the guided render cast ~24+48=72 spp
+of rays but showed 24 — 2/3 of the work discarded, making an equal-*cost* win
+arithmetically impossible. **Fixed** (raytracer.h, this branch): the training
+passes are full unbiased path traces, so their radiance + light-path passes are
+now accumulated per-pixel and folded into the final image (equal-weight — still
+unbiased; Σpasses==beauty preserved; default-off byte-identical). This also
+removed the high-α dark bias (the folded lower-α training samples dilute the
+final-pass clamp bias: α=0.9 mean-ratio 0.37→0.99). Follow-up headroom:
+inverse-variance pass weighting instead of equal-weight.
 
-## The path to a real ≥2× (Stage-1B continuation)
+### 2. [dominant on hard scenes] The 1/(1−α) undercover penalty
+One-sample guide/BSDF MIS with mixture `p_mix = α·p_guide + (1−α)·p_bsdf`. Where
+the guide has ~zero mass but the integrand has variance mass, `p_mix ≈
+(1−α)·p_bsdf`, so that region's second moment is inflated by **1/(1−α)**: α=0.3→
+1.43×, 0.5→2×, 0.9→10×. Measured MSE-ratios on the Veach-door track this closely
+(α=0.5→0.11×, α=0.9→0.14×), and interacting with the energy clamps
+(`clampContribSpectral`, the `maxC>10` throughput cap) it also produces a
+**persistent dark bias that grows with α** (guided-512 mean ratio-to-ref: α=0.1→
+1.00, α=0.7→0.69, α=0.9→0.37). This is the "guiding actively hurts" mechanism.
+**Fix: a coverage floor** — blend a uniform (or BSDF-cosine) component into the
+guide so `p_guide>0` wherever the BSDF has support, and/or cap α. Removes the
+active harm; brings hard-scene guiding back to ≥ break-even.
 
-In rough priority order — these are the 2017 paper's robustness + the 2019 course
-improvements that basic radiance guiding omits:
+### 3. [ceiling] Radiance guiding on Lambertian-isotropic light is capped ~1.3×
+With `divPdf=false` the splat positions are drawn from the training pdf `q`, so
+the learned density converges to `L_i·q`; for Lambertian+cosine that is already
+product-optimal, i.e. the guide converges to the BSDF you already have. On a
+near-isotropic diffuse box the oracle bound is ~1.1–1.3×, so ≥2× is **impossible
+there regardless of algorithm**. A real ≥2× needs a scene where cosine is far
+from optimal: glossy interreflection, or hard directional indirect where NEE
+fails. Note the de-risked 110× prototype used `divPdf=true` (`L_i/pdf`); the
+shipped default is `false` — the labels in raytracer.h:2300-2303 are inverted vs
+the prototype and should be reconciled when this is revisited.
 
-1. **Product guiding** (sample ∝ `f·cosθ·L_i`, not `L_i`). Cures both the
-   isotropic-diffuse non-win and much of the NEE-competition misweighting, because
-   the guide then targets the actual integrand. Needs the BSDF evaluated at
-   guide-build time or a cosine-product approximation.
-2. **Filtered splatting** (2019 course, box-filter each splat across neighbouring
-   spatial/directional cells). Denoises the guide so it is smooth rather than a
-   near-delta — directly fixes the over-concentration in mechanism (2).
-3. **Guide/NEE MIS that respects each strategy's true variance**, or simply
-   restrict guiding to the *indirect* continuation (bounce ≥1) and leave NEE to
-   own direct light. The simplest robust step: cap the directional-quadtree depth
-   so the guide can never become a near-delta that dwarfs NEE.
-4. **Inverse-variance iteration combination** (2019 course) for the training
-   image, and a proper **doubling sample budget** per iteration (currently a
-   constant per-iteration budget).
-5. **A guiding-favourable benchmark scene**: a true Veach-door where the
-   camera-visible surfaces are lit by *smooth, strongly directional* indirect
-   light through a moderate aperture, with the emitter neither directly visible
-   nor easily NEE-connectable, and modest intensity (no fireflies). The scenes in
-   this investigation were each missing one of these (emission-dominated, too
-   isotropic, or firefly-heavy).
+## Secondary defects (fix opportunistically)
+- **Data-starved DTrees**: constant `trainSpp` instead of a doubling budget →
+  ~200 records/leaf on the 48² gate scene (design §4 wants 1,2,4,… doubling).
+- **refine() off-by-one**: `refine()` runs only at the *start* of it>0, so the
+  final guide carries iteration K-1 flux on topology adapted to K-2 data; the
+  last iteration's records never drive a refinement.
+- **clamp-before-snapshot**: the `maxC>10` throughput clamp (3392-3394) fires
+  *before* the `betaSnap` capture (3402-3406), biasing the L_i records low on the
+  brightest paths (guide-quality only).
 
-## Tunable knobs shipped (for the follow-up, all runtime)
+## Measured outcome after the blocker-1 fix (equal total budget, this build)
+With training folded in and the corrected `div_pdf=true` (Li/pdf) config, at
+equal total sample budget (finalSpp + K·trainSpp vs unguided at that total):
+- **hard_transport_slot: ~1.3×** (a real, repeatable equal-cost win; α≈0.3, K=8–10).
+- moderate_indirect: ~0.7–0.9× (guiding ≈ neutral-to-slightly-worse).
+- veach_door (heavily baffled): ~0.4–0.6× (too hard for the coarse guide).
 
-`set_guiding_params(iterations, train_spp, alpha, spatial_frac, dir_rho,
-div_pdf, value_clamp)` and `guide_probe(...)` / `get_guide_debug()` — so the
-continuation work can sweep and diagnose without rebuilds. `div_pdf` toggles
-radiance (`L_i/pdf`) vs product-ish (`L_i`) splatting; both are implemented.
+**≥2× did not materialise on any scene, and this is now understood as a ceiling,
+not a remaining bug.** The de-risked prototype's 110× (pkg136-stage1-derisking.md)
+was measured **without NEE** — there, guiding captured the entire direct-light
+spike. In the real integrator NEE already handles that spike, so guiding only
+reduces *residual-indirect* variance: near-isotropic on diffuse (oracle ~1.3×),
+and, where it is genuinely directional+hard, too fine for a 16–1000-leaf guide
+trained in a handful of iterations to resolve. Note also the spatial tree splits
+one binary level per training iteration, so leaves ≤ 2^(K−1) — spatial resolution
+is iteration-bound, and adding leaves did not help (often hurt) on these scenes.
+
+## If ≥2× is later pursued (in order)
+1. **Product guiding** (sample ∝ f·cosθ·L_i) — the only lever with headroom on
+   diffuse-isotropic, though still capped ~1.3× there; worth it only alongside (3).
+2. A scene class where NEE fundamentally fails AND the transport is learnable by a
+   coarse guide (glossy interreflection; a *moderately* occluded emitter). The
+   pure-diffuse and over-baffled scenes here bracket the two failure modes.
+3. Doubling sample budget + multi-level spatial splits per iteration (lift the
+   2^(K−1) leaf ceiling) + inverse-variance pass combination.
+4. Coverage floor (uniform blend so p_guide>0 on the BSDF support) to bound the
+   1/(1−α) penalty if higher α is ever wanted.
+
+## Tunable knobs shipped (all runtime, no rebuild)
+`set_guiding_params(iterations, train_spp, alpha, spatial_frac, dir_rho, div_pdf,
+value_clamp)`, `guide_probe(...)`, `get_guide_debug()`. `div_pdf` toggles
+`L_i/pdf` vs `L_i` splatting.

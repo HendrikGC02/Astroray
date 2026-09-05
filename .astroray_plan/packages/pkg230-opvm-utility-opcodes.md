@@ -129,12 +129,13 @@ flag, addon setting it per node (legacy always; modern per `clamp_factor`).
       `tests/test_pkg230_opvm_clamp.py` **7/7** (incl. MINMAX-vs-RANGE Cycles-parity
       — caught & fixed a `svm_clampf` divergence for min>max), and **38/38** pkg219
       op-VM regression (incl. GPU parity renders) green — no regression.
-- [~] Phase 1 — GPU: CUDA rebuilt; GPU op-VM path exercised green by the pkg219c/d
-      parity renders. `<HasProgram=false>` fleet kernel is byte-identical **by
-      construction** (the VM is instantiated only inside `if constexpr (HasProgram)`;
-      OP_CLAMP is uploaded verbatim by the unchanged program path). Remaining for
-      HW-verify: a clamp-specific RTX CPU/GPU render + a confirmatory `cuobjdump`
-      register probe on `stageShadeBucketedKernel<0,…>`.
+- [x] Phase 1 — GPU HW-verified on RTX 5070 Ti (2026-09-05):
+      `tests/test_pkg230_gpu_clamp_parity.py` **3/3** (GPU OP_CLAMP changes the image
+      + matches CPU mean-ratio). `cuobjdump --dump-resource-usage` on the built
+      `.pyd`: `stageShadeBucketedKernel` **REG:254 across all 128 shade
+      specializations** — no spill; the fleet `<0,…>` is REG:254/STACK:3400/
+      CONSTANT[0]:1748 (STACK/CONST are current-main baseline; the VM rides
+      `<HasProgram=true>`, so the fleet `<false>` path is untouched by construction).
 - [ ] Phase 2 — Vector Math / Vector Rotate op-VM opcodes (color-chain) + faithful
       Mix `clamp_factor=OFF`, fork resolved.
 

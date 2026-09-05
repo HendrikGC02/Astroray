@@ -32,7 +32,11 @@ LIGHT_CONFIGS = {
     "SUN": dict(energy=5.0, height=10.0, extra={"angle": math.radians(0.526)}),
 }
 
-COMPOSITE_SCENES = ("mix_shader_stack", "texture_driven_roughness", "bump_plus_normal")
+COMPOSITE_SCENES = (
+    "mix_shader_stack", "texture_driven_roughness", "bump_plus_normal",
+    "opvm_plain", "opvm_vector_math", "opvm_vector_rotate",
+    "opvm_mix_clamped", "opvm_mix_unclamped",
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -412,10 +416,89 @@ def build_bump_plus_normal(bpy):
     return scene
 
 
+def build_vector_opvm_scene(bpy, variant):
+    """pkg230: image-driven vector/color chains on a Principled UV chart.
+
+    The plain image and clamped Mix are controls. Fixed linear image values,
+    white world illumination and a front-facing plane isolate node semantics
+    from geometry, glossy lobes and color-management differences.
+    """
+    scene = _reset(bpy)
+    _add_world(bpy, scene, strength=1.0, color=(0.5, 0.5, 0.5))
+    bpy.ops.mesh.primitive_plane_add(size=2.0)
+    plane = bpy.context.active_object
+    mat = bpy.data.materials.new('VectorChartMaterial')
+    mat.use_nodes = True
+    plane.data.materials.append(mat)
+    nt = mat.node_tree
+    diffuse = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+    diffuse.inputs['Specular IOR Level'].default_value = 0.0
+    diffuse.inputs['Roughness'].default_value = 0.0
+    img = bpy.data.images.new("VectorChart", width=8, height=8, float_buffer=True)
+    img.colorspace_settings.name = 'Non-Color'
+    pixels = []
+    for y in range(8):
+        for x in range(8):
+            pixels.extend((0.15 + 0.6 * x / 7, 0.15 + 0.6 * y / 7,
+                           0.25 + 0.3 * ((x // 2 + y // 2) % 2), 1.0))
+    img.pixels[:] = pixels
+    img.pack()
+    tex = nt.nodes.new('ShaderNodeTexImage')
+    tex.image = img
+    # pkg186 image sampling currently supports nearest on both backends.
+    # Match that explicitly; Linear/Cubic filtering belongs to pkg234.
+    tex.interpolation = 'Closest'
+    source = tex.outputs['Color']
+    if variant == 'vector_math':
+        node = nt.nodes.new('ShaderNodeVectorMath')
+        node.operation = 'MULTIPLY_ADD'
+        nt.links.new(source, node.inputs[0])
+        node.inputs[1].default_value = (0.6, 0.85, 0.45)
+        node.inputs[2].default_value = (0.12, 0.04, 0.18)
+        source = node.outputs['Vector']
+    elif variant == 'vector_rotate':
+        node = nt.nodes.new('ShaderNodeVectorRotate')
+        node.rotation_type = 'EULER_XYZ'
+        node.invert = True
+        node.inputs['Center'].default_value = (0.5, 0.5, 0.5)
+        node.inputs['Rotation'].default_value = (0.2, -0.3, 0.5)
+        nt.links.new(source, node.inputs['Vector'])
+        source = node.outputs['Vector']
+    elif variant in ('mix_clamped', 'mix_unclamped'):
+        node = nt.nodes.new('ShaderNodeMix')
+        node.data_type = 'RGBA'
+        node.blend_type = 'MIX'
+        node.clamp_factor = variant == 'mix_clamped'
+        node.clamp_result = False
+        # Real Blender has duplicate Factor/A/B names for each data type.
+        enabled = {s.name: s for s in node.inputs if s.enabled}
+        enabled['Factor'].default_value = 1.4
+        enabled['A'].default_value = (0.3, 0.3, 0.3, 1.0)
+        nt.links.new(source, enabled['B'])
+        source = next(s for s in node.outputs if s.enabled)
+    elif variant != 'plain':
+        raise ValueError(f'unknown vector op-VM variant: {variant}')
+    nt.links.new(source, diffuse.inputs['Base Color'])
+    camera_data = bpy.data.cameras.new('VectorChartCamera')
+    camera_data.type = 'PERSP'
+    camera_data.lens = 47.0
+    camera = bpy.data.objects.new('VectorChartCamera', camera_data)
+    scene.collection.objects.link(camera)
+    camera.location = (0, 0, 3)
+    scene.camera = camera
+    scene.cycles.max_bounces = 2
+    return scene
+
+
 COMPOSITE_BUILDERS = {
     "mix_shader_stack": build_mix_shader_stack,
     "texture_driven_roughness": build_texture_driven_roughness,
     "bump_plus_normal": build_bump_plus_normal,
+    "opvm_plain": lambda bpy: build_vector_opvm_scene(bpy, 'plain'),
+    "opvm_vector_math": lambda bpy: build_vector_opvm_scene(bpy, 'vector_math'),
+    "opvm_vector_rotate": lambda bpy: build_vector_opvm_scene(bpy, 'vector_rotate'),
+    "opvm_mix_clamped": lambda bpy: build_vector_opvm_scene(bpy, 'mix_clamped'),
+    "opvm_mix_unclamped": lambda bpy: build_vector_opvm_scene(bpy, 'mix_unclamped'),
 }
 
 

@@ -2,8 +2,8 @@
 
 **Pillar:** 5 (Blender integration / shader-node coverage)
 **Track:** A
-**Status:** Phase 1 IN PROGRESS 2026-09-05 (branch `pkg230-opvm-utility-cluster`);
-Phase 2 SCOPED (fork documented, not started)
+**Status:** Phase 1 LANDED (#696); Phase 2 VERIFIED 2026-09-06; final sign-off/CI/merge pending
+(branch `codex/pkg230-p2`, architecture independently signed off)
 **Estimated effort:** Phase 1 S (~1 session); Phase 2 M
 **Depends on:** pkg219a/b/c (op-VM evaluator), pkg229 (re-audit that ranked these)
 
@@ -96,27 +96,50 @@ clamp to [min(min,max), max(min,max)]). Verified against Cycles `svm_clamp` /
 
 ---
 
-## Specification — Phase 2 (scoped, not started)
+## Specification — Phase 2 (architecture resolved 2026-09-05)
 
-Vector Math (`VECT_MATH`) + Vector Rotate (`VECTOR_ROTATE`) op-VM opcodes for the
-**color/scalar-chain case** (`OP_VEC_MATH` with a `VecMathOp` family over full
-GVec3 slots; `OP_VEC_ROTATE` axis-angle Rodrigues + Euler, `imm`=rotation_type).
-`Instr` a..e already suffice (vec1/vec2/vec3/scale, and vector/center/axis/angle).
-**Open fork:** the coordinate-chain case (vector math on texture coordinates before
-the lookup) is not expressible by `_resolve_mapping_matrix`'s affine model — decide
-per node whether to (a) compose into the matrix for the affine subset only and
-`VMCompileError`/degrade otherwise, or (b) extend the coordinate path to a per-texel
-vector op-VM. Recommend (a) first (cheap, honest degradation), (b) as a later
-package if usage warrants. cite-algorithm: Rodrigues rotation is trivial; Vector
-Math op semantics cite Cycles `svm_vector_math`. Also in Phase 2: faithful Mix
-**`clamp_factor=OFF`** — gate `svm_mix`'s unconditional factor saturate behind a
-flag, addon setting it per node (legacy always; modern per `clamp_factor`).
+Implement Vector Math (`OP_VEC_MATH=15`, all 30 Blender 5.1 operations) and
+Vector Rotate (`OP_VEC_ROTATE=16`, axis-angle, X/Y/Z, Euler XYZ, center/invert)
+in the shared HD VM for image-driven **color/scalar chains**. Read only used
+operands; index duplicate Vector sockets positionally. Keep VM limits and POD
+layouts unchanged. Scalar vector-math outputs broadcast; Euler inverse uses
+transpose, axis-angle inverse negates angle, zero axis is identity.
+
+Mix uses negative-polarity `SVM_MIX_UNCLAMP_FACTOR=0x40`: legacy/default raw
+bytecode keeps clamping; modern Mix obeys `clamp_factor`. Select enabled typed
+sockets, and visibly reject unsupported modes. `clamp_result` remains bit 0x80.
+
+**Coordinate fork resolved:** retain the existing affine Mapping path and make
+unsupported Vector Math/Rotate chains emit a visible degradation warning.
+Affine vector operations and general per-texel coordinate evaluation are a
+separate follow-up; this phase does not claim their support.
+
+Pinned sources, rationale, dependencies and risks:
+[`pkg230-phase2-vector-semantics-research.md`](../docs/pkg230-phase2-vector-semantics-research.md).
+Independent Claude architecture SIGN-OFF accepted with the warning, negative
+flag and inverse-convention conditions included above.
+
+### Acceptance criteria — Phase 2
+
+- [x] All 30 vector operations, all 5 rotation modes, linked operands and edge
+      cases evaluated against explicit mathematical oracles; enum/flag parity.
+- [x] Legacy/default Mix unchanged; unclamped factors below zero/above one;
+      duplicate real Blender socket layout and unsupported-mode rejection.
+- [x] Coordinate-chain Vector Math/Rotate emits visible degradation (test).
+- [x] CPU/GPU image programs change the control render and per-channel mean
+      ratios lie in [0.95,1.05]; saved outputs inspected qualitatively.
+- [x] Fresh canonical builds, intended import path, new-op canary, unchanged
+      non-program fleet kernel REG/STACK/CONST against same-toolchain baseline.
+- [x] Headless Blender real graphs render through exporter; compare saved
+      vector/Mix charts with Cycles in common linear space.
+- [ ] Full local suite, focused regressions, differential lint and caller/binding
+      sweep recorded; independent Claude final sign-off and green CI.
 
 ---
 
 ## Non-goals
 
-- No new coordinate-chain per-texel vector VM in Phase 1 (that's the Phase 2 fork).
+- No new coordinate-chain per-texel vector VM; Phase 2 explicitly warns/degrades.
 - No touching the fleet `<false>` shade kernel or `GMaterial` layout.
 - No Principled advanced-inputs (separate, higher-effort spec).
 
@@ -141,4 +164,8 @@ flag, addon setting it per node (legacy always; modern per `clamp_factor`).
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+Hardware/visual verification and investigated baseline failures are recorded in
+[Phase 2 delivery evidence](../docs/pkg230-phase2-delivery-evidence.md).
+The full suite recorded 2326 passes and four failures; corrected Blender/harness
+reruns pass, while HDRI SSIM and PostInit ULP remain baseline-reproduced failures.
+No rendering thresholds were weakened. Final independent sign-off and CI pending.

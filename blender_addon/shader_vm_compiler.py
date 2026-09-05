@@ -19,15 +19,19 @@ Opcode / sub-op enums MUST match include/astroray/shader_vm.h exactly.
 # ---- opcode / sub-op enums (mirror include/astroray/shader_vm.h) -----------
 (OP_END, OP_LOAD_TEX, OP_LOAD_CONST, OP_MATH, OP_MIX, OP_RAMP, OP_MAP_RANGE,
  OP_HSV, OP_INVERT, OP_GAMMA, OP_BRIGHT_CONTRAST, OP_SEP_COLOR,
- OP_COMBINE_COLOR, OP_RGB_TO_BW, OP_CLAMP) = range(15)
+ OP_COMBINE_COLOR, OP_RGB_TO_BW, OP_CLAMP, OP_VEC_MATH, OP_VEC_ROTATE) = range(17)
 
 # pkg230 — Clamp node type (Cycles NodeClampType) + clamp FLAG bits packed into
 # the free high bits of an op's imm (mirror include/astroray/shader_vm.h).
 CLAMP_MINMAX, CLAMP_RANGE = 0, 1
 CLAMP_TYPES = {'MINMAX': CLAMP_MINMAX, 'RANGE': CLAMP_RANGE}
 SVM_MATH_CLAMP = 0x80        # OP_MATH: clamp result to [0,1]
-SVM_MIX_CLAMP_RESULT = 0x80  # OP_MIX:  clamp result to [0,1] (factor always
-#                              saturated in svm_mix = Blender default clamp_factor)
+SVM_MIX_CLAMP_RESULT = 0x80  # OP_MIX:  clamp result to [0,1]
+# pkg230 Phase 2 — negative-polarity Mix factor flag (bit SET = skip the factor
+# saturation svm_mix otherwise applies). Legacy MixRGB and modern Mix
+# clamp_factor=true leave it clear (factor always saturated); modern Mix
+# clamp_factor=false sets it. Existing bytecode (bit clear) is preserved exactly.
+SVM_MIX_UNCLAMP_FACTOR = 0x40
 
 # Colour-space enum for Separate/Combine Color (Cycles NodeCombSepColorType).
 CS_RGB, CS_HSV = 0, 1
@@ -48,6 +52,37 @@ MIX_OPS = {
 }
 MAP_RANGE_OPS = {'LINEAR': 0, 'STEPPED': 1, 'SMOOTHSTEP': 2, 'SMOOTHERSTEP': 3}
 
+# pkg230 Phase 2 — Vector Math (Cycles NodeVectorMathType; the 30 operations in
+# compiler-owned ordering — see include/astroray/shader_vm.h VecMathOp).
+VEC_MATH_OPS = {
+    'ADD': 0, 'SUBTRACT': 1, 'MULTIPLY': 2, 'DIVIDE': 3,
+    'CROSS_PRODUCT': 4, 'PROJECT': 5, 'REFLECT': 6, 'REFRACT': 7,
+    'FACEFORWARD': 8, 'MULTIPLY_ADD': 9, 'DOT_PRODUCT': 10,
+    'DISTANCE': 11, 'LENGTH': 12, 'SCALE': 13, 'NORMALIZE': 14,
+    'SNAP': 15, 'ROUND': 16, 'FLOOR': 17, 'CEIL': 18, 'MODULO': 19,
+    'WRAP': 20, 'FRACTION': 21, 'ABSOLUTE': 22, 'POWER': 23,
+    'SIGN': 24, 'MINIMUM': 25, 'MAXIMUM': 26, 'SINE': 27,
+    'COSINE': 28, 'TANGENT': 29,
+}
+# Which Vector Math input sockets each operation actually consumes. The node
+# declares three `Vector` sockets (indices 0/1/2) plus a float `Scale` (index 3);
+# the compiler must only compile the operands the op reads so hidden/dead inputs
+# don't consume the 8 register slots. Scalar-result ops (dot/distance/length) are
+# broadcast by the evaluator.
+_VECMATH_USE_B = {
+    'ADD', 'SUBTRACT', 'MULTIPLY', 'DIVIDE', 'CROSS_PRODUCT', 'PROJECT',
+    'REFLECT', 'REFRACT', 'FACEFORWARD', 'MULTIPLY_ADD', 'DOT_PRODUCT',
+    'DISTANCE', 'SNAP', 'MODULO', 'WRAP', 'POWER', 'MINIMUM', 'MAXIMUM',
+}
+_VECMATH_USE_C = {'FACEFORWARD', 'MULTIPLY_ADD', 'WRAP'}
+_VECMATH_USE_SCALE = {'REFRACT', 'SCALE'}
+
+# pkg230 Phase 2 — Vector Rotate (Cycles NodeVectorRotateType).
+VEC_ROTATE_TYPES = {
+    'AXIS_ANGLE': 0, 'X_AXIS': 1, 'Y_AXIS': 2, 'Z_AXIS': 3, 'EULER_XYZ': 4,
+}
+VEC_ROTATE_INVERT = 0x08  # OP_VEC_ROTATE imm bit 3 (above the low 3 type bits)
+
 VM_MAX_INSTR = 32
 VM_MAX_SLOTS = 8
 VM_MAX_CONST = 16
@@ -61,9 +96,11 @@ class VMCompileError(Exception):
 
 def _socket_default_rgb(socket):
     val = socket.default_value
-    if hasattr(val, '__iter__'):
+    # mathutils.Euler supports indexing but does not advertise __iter__.
+    try:
+        f = float(val)
+    except (TypeError, ValueError):
         return [float(val[0]), float(val[1]), float(val[2])]
-    f = float(val)
     return [f, f, f]
 
 
@@ -154,7 +191,92 @@ def _get_input(node, *names):
     return None
 
 
+def _mix_enabled_inputs(node):
+    """Select the modern Mix node's enabled (data-type-active) input sockets.
+
+    Blender's ShaderNodeMix declares every data type's sockets (Factor/A/B across
+    FLOAT/VECTOR/RGBA/ROTATION) with an ``enabled`` flag; only the sockets matching
+    the node's current data_type are enabled. Name lookup returns the FIRST match
+    (e.g. the disabled FLOAT ``A`` when data_type is RGBA), so enabled + position
+    wins. Legacy MixRGB / test mocks without ``enabled`` metadata return None so
+    the name-based path is used instead.
+    """
+    try:
+        ins = list(getattr(node, 'inputs', []))
+    except (TypeError, AttributeError):
+        return None
+    if not ins or not any(hasattr(s, 'enabled') for s in ins):
+        return None
+    return [s for s in ins if getattr(s, 'enabled', False)]
+
+
+def _compile_mix_modern(node, builder, depth):
+    """Compile a modern ShaderNodeMix (data_type / factor_mode aware).
+
+    ROTATION and non-uniform VECTOR factors are unsupported (honest
+    VMCompileError). FLOAT and uniform VECTOR use a linear mix regardless of
+    blend_type; only RGBA honours blend_type / clamp_result. The factor follows
+    clamp_factor (default true → saturated; false sets SVM_MIX_UNCLAMP_FACTOR).
+    """
+    data_type = getattr(node, 'data_type', 'RGBA')
+    if data_type not in ('RGBA', 'FLOAT', 'VECTOR'):
+        raise VMCompileError("unsupported Mix data_type: %s" % data_type)
+    if data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM':
+        raise VMCompileError("unsupported Mix non-uniform VECTOR factor")
+    enabled = _mix_enabled_inputs(node)
+    if enabled is not None and len(enabled) >= 3:
+        fac_in, a_in, b_in = enabled[0], enabled[1], enabled[2]
+    else:
+        fac_in = _get_input(node, 'Factor', 'Fac')
+        a_in = _get_input(node, 'A')
+        b_in = _get_input(node, 'B')
+    fac_s = compile_socket(fac_in, builder, depth + 1)
+    a_s = compile_socket(a_in, builder, depth + 1)
+    b_s = compile_socket(b_in, builder, depth + 1)
+    if data_type == 'RGBA':
+        blend = getattr(node, 'blend_type', 'MIX')
+        if blend not in MIX_OPS:
+            raise VMCompileError("unsupported Mix blend: %s" % blend)
+        imm = MIX_OPS[blend]
+        if getattr(node, 'clamp_result', False):
+            imm |= SVM_MIX_CLAMP_RESULT
+    else:
+        # FLOAT / uniform VECTOR: linear mix, blend_type not applicable.
+        imm = MIX_OPS['MIX']
+    # Modern Mix follows clamp_factor (default true). False -> unclamp bit.
+    if not getattr(node, 'clamp_factor', True):
+        imm |= SVM_MIX_UNCLAMP_FACTOR
+    out = builder.alloc_slot()
+    builder.emit(OP_MIX, out, a=fac_s, b=a_s, c=b_s, imm=imm)
+    return out
+
+
 def compile_socket(socket, builder, depth=0):
+    """Compile a value and apply Blender's implicit conversion to scalar sockets.
+
+    Cycles svm/convert.h: color -> linear luminance, vector -> component average.
+    Float results are already broadcast by the VM. Explicit socket metadata is
+    required; lightweight callers without it retain their historical behavior.
+    """
+    slot = _compile_socket_value(socket, builder, depth)
+    if (getattr(socket, 'type', None) != 'VALUE'
+            or not getattr(socket, 'is_linked', False)):
+        return slot
+    source_type = getattr(socket.links[0].from_socket, 'type', None)
+    if source_type == 'RGBA':
+        out = builder.alloc_slot()
+        builder.emit(OP_RGB_TO_BW, out, a=slot)
+        return out
+    if source_type == 'VECTOR':
+        weight = builder.push_const([1.0 / 3.0] * 3)
+        out = builder.alloc_slot()
+        builder.emit(OP_VEC_MATH, out, a=slot, b=weight,
+                     imm=VEC_MATH_OPS['DOT_PRODUCT'])
+        return out
+    return slot
+
+
+def _compile_socket_value(socket, builder, depth=0):
     """Compile the node feeding `socket` into the VM; return its result slot.
 
     Any value that is constant-foldable becomes an OP_LOAD_CONST; a texture
@@ -181,14 +303,13 @@ def compile_socket(socket, builder, depth=0):
         builder.emit(OP_RAMP, out, a=fac_slot, imm=builder.add_ramp(table))
         return out
 
-    if ntype in ('MIX_RGB', 'MIX'):
+    if ntype == 'MIX_RGB':  # legacy MixRGB node (factor always saturated)
         blend = getattr(node, 'blend_type', 'MIX')
         if blend not in MIX_OPS:
             raise VMCompileError("unsupported Mix blend: %s" % blend)
-        fac_s = compile_socket(_get_input(node, 'Fac', 'Factor'), builder, depth + 1)
-        c1_in = _get_input(node, 'Color1', 'A')
-        c2_in = _get_input(node, 'Color2', 'B')
-        # positional fallback for the modern Mix node (Factor, A, B / …)
+        fac_s = compile_socket(_get_input(node, 'Fac'), builder, depth + 1)
+        c1_in = _get_input(node, 'Color1')
+        c2_in = _get_input(node, 'Color2')
         if c1_in is None or c2_in is None:
             ins = list(getattr(node, 'inputs', []))
             if len(ins) >= 3:
@@ -197,13 +318,71 @@ def compile_socket(socket, builder, depth=0):
         c1_s = compile_socket(c1_in, builder, depth + 1)
         c2_s = compile_socket(c2_in, builder, depth + 1)
         imm = MIX_OPS[blend]
-        # pkg230 — clamp the result: modern Mix node clamp_result, or legacy
-        # MixRGB use_clamp. (The factor is always saturated in svm_mix, matching
-        # Blender's default clamp_factor; faithful clamp_factor=OFF is Phase 2.)
-        if getattr(node, 'clamp_result', False) or getattr(node, 'use_clamp', False):
+        # Legacy MixRGB ALWAYS saturates the factor (SVM_MIX_UNCLAMP_FACTOR stays
+        # clear); use_clamp clamps the result (bit 7).
+        if getattr(node, 'use_clamp', False):
             imm |= SVM_MIX_CLAMP_RESULT
         out = builder.alloc_slot()
         builder.emit(OP_MIX, out, a=fac_s, b=c1_s, c=c2_s, imm=imm)
+        return out
+
+    if ntype == 'MIX':  # modern ShaderNodeMix
+        return _compile_mix_modern(node, builder, depth)
+
+    if ntype == 'VECT_MATH':  # pkg230 Phase 2 — Vector Math
+        op = getattr(node, 'operation', None)
+        if op not in VEC_MATH_OPS:
+            raise VMCompileError("unsupported Vector Math op: %s" % op)
+        ins = list(getattr(node, 'inputs', []))
+        # Positional reads: the node declares three `Vector` sockets (0/1/2) and a
+        # float `Scale` (3). Compile ONLY the operands the op consumes so hidden
+        # inputs don't burn register slots.
+        a_s = compile_socket(ins[0], builder, depth + 1) if len(ins) > 0 \
+            else builder.push_const([0, 0, 0])
+        b_s = 0
+        if op in _VECMATH_USE_B and len(ins) > 1:
+            b_s = compile_socket(ins[1], builder, depth + 1)
+        c_s = 0
+        if op in _VECMATH_USE_C and len(ins) > 2:
+            c_s = compile_socket(ins[2], builder, depth + 1)
+        d_s = 0
+        if op in _VECMATH_USE_SCALE and len(ins) > 3:
+            d_s = compile_socket(ins[3], builder, depth + 1)
+        out = builder.alloc_slot()
+        builder.emit(OP_VEC_MATH, out, a=a_s, b=b_s, c=c_s, d=d_s,
+                     imm=VEC_MATH_OPS[op])
+        return out
+
+    if ntype == 'VECTOR_ROTATE':  # pkg230 Phase 2 — Vector Rotate
+        rtype = getattr(node, 'rotation_type', 'AXIS_ANGLE')
+        if rtype not in VEC_ROTATE_TYPES:
+            raise VMCompileError("unsupported Vector Rotate type: %s" % rtype)
+        ins = list(getattr(node, 'inputs', []))
+        # Positional: Vector(0), Center(1), Axis(2), Angle(3), Rotation(4).
+        # Operand routing: a=vector, b=center, c=axis (AXIS_ANGLE) | rotation
+        # (EULER_XYZ) | unused, d=angle (AXIS_ANGLE + X/Y/Z) | unused.
+        vec_s = compile_socket(ins[0], builder, depth + 1) if len(ins) > 0 \
+            else builder.push_const([0, 0, 0])
+        ctr_s = compile_socket(ins[1], builder, depth + 1) if len(ins) > 1 \
+            else builder.push_const([0, 0, 0])
+        c_s = 0
+        d_s = 0
+        if rtype == 'AXIS_ANGLE':
+            c_s = compile_socket(ins[2], builder, depth + 1) if len(ins) > 2 \
+                else builder.push_const([0, 0, 0])
+            d_s = compile_socket(ins[3], builder, depth + 1) if len(ins) > 3 \
+                else builder.push_const([0, 0, 0])
+        elif rtype == 'EULER_XYZ':
+            c_s = compile_socket(ins[4], builder, depth + 1) if len(ins) > 4 \
+                else builder.push_const([0, 0, 0])
+        else:  # X/Y/Z axis: angle in d, axis slot (c) unused
+            d_s = compile_socket(ins[3], builder, depth + 1) if len(ins) > 3 \
+                else builder.push_const([0, 0, 0])
+        imm = VEC_ROTATE_TYPES[rtype]
+        if getattr(node, 'invert', False):
+            imm |= VEC_ROTATE_INVERT
+        out = builder.alloc_slot()
+        builder.emit(OP_VEC_ROTATE, out, a=vec_s, b=ctr_s, c=c_s, d=d_s, imm=imm)
         return out
 
     if ntype == 'MATH':

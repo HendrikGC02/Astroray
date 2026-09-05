@@ -68,7 +68,7 @@ def _bootstrap_astroray_addon(repo_root: Path):
             raise
 
 
-def _configure_render(scene, engine, res, samples):
+def _configure_render(scene, engine, res, samples, device="gpu"):
     scene.render.resolution_x = res
     scene.render.resolution_y = res
     scene.render.resolution_percentage = 100
@@ -80,18 +80,21 @@ def _configure_render(scene, engine, res, samples):
     scene.render.image_settings.color_depth = "32"
     scene.render.image_settings.exr_codec = "NONE"
     scene.render.engine = engine
-    if engine == "CYCLES":
+    # Astroray also consumes these native Cycles settings (pkg176).
+    if hasattr(scene, "cycles"):
         scene.cycles.samples = samples
         scene.cycles.use_denoising = False
         scene.cycles.use_adaptive_sampling = False
         scene.cycles.seed = 7
-    elif hasattr(scene, "custom_raytracer"):
+    if engine == "CUSTOM_RAYTRACER" and hasattr(scene, "custom_raytracer"):
         cr = scene.custom_raytracer
         cr.samples = samples
         if hasattr(cr, "preview_samples"):
             cr.preview_samples = samples
         if hasattr(cr, "device_mode"):
-            cr.device_mode = "gpu"
+            cr.device_mode = device
+        # Adaptive sampling remains an Astroray-only setting in the resolver.
+        cr.use_adaptive_sampling = False
 
 
 def _render_to_npy(bpy, scene, out_stem: Path, res: int):
@@ -143,6 +146,8 @@ def main():
     p.add_argument("--out", required=True, help="output stem (no extension)")
     p.add_argument("--res", type=int, default=128)
     p.add_argument("--samples", type=int, default=64)
+    p.add_argument("--device", choices=("cpu", "gpu", "auto"), default="gpu",
+                   help="Astroray backend (default: gpu; Cycles stays on CPU)")
     args = p.parse_args(argv)
 
     repo_root = Path(__file__).resolve().parents[2]
@@ -157,7 +162,7 @@ def main():
 
         scene = scene_library.build_scene(
             bpy, args.category, args.feature, args.bl_idname, engine=args.engine)
-        _configure_render(scene, args.engine, args.res, args.samples)
+        _configure_render(scene, args.engine, args.res, args.samples, args.device)
         out_stem = Path(args.out)
         out_stem.parent.mkdir(parents=True, exist_ok=True)
         npy = _render_to_npy(bpy, scene, out_stem, args.res)

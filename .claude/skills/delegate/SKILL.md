@@ -59,7 +59,22 @@ else you notice".
 ## The evidence contract (non-negotiable)
 
 The wrapper prints a JSON summary: `status` (`completed|timeout|errored|
-no_clean_finish`), `files_changed`, `tokens`, `cost`, `transcript` path.
+no_clean_finish`), `files_changed`, `tokens`, `cost`, `transcript`
+path, plus two additive fields introduced by pkg232:
+
+- `termination_reason` — `normal|timeout|cancelled|error`, the structured
+  initiating event. A cleanup failure cannot erase it: `status: timeout` stays
+  `timeout` even if the orphaned worker would later have completed.
+- `cleanup` — a cleanup-evidence object `{method, confirmed, error}`.
+  `method` is `windows_job_object` on Windows, `direct_child` elsewhere, or
+  `not_started` when command resolution failed before launch. For a Windows
+  Job, `confirmed: true` means the wrapper verified zero active processes and
+  awaited its helper before taking the final snapshot. For `direct_child`, it
+  proves only the immediate child exited; descendants may remain. If `confirmed: false`, the wrapper
+  reports `error`, skips the final git snapshot and transcript-derived claims,
+  and emits `files_changed: null` / `git_head: null` / `tool_calls: null` rather
+  than misleading empty evidence. The task file is retained for diagnosis.
+  Cancellation uses `status: errored` with `termination_reason: cancelled`.
 
 - `status: completed` means the PROCESS finished — **not that the task
   succeeded**. opencode has documented exit-0-on-error bugs; open models
@@ -70,6 +85,32 @@ no_clean_finish`), `files_changed`, `tokens`, `cost`, `transcript` path.
   applies unchanged.
 - The full JSONL transcript is kept for diagnosis — read it when the result
   looks wrong before re-dispatching.
+
+## Process-tree containment (platform boundary)
+
+On **Windows**, the wrapper launches the worker inside an unnamed Job Object
+with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and no breakaway flags, so every
+ordinary `CreateProcess` descendant of the worker inherits Job membership. On
+timeout/cancellation/error — and on ordinary completion — the wrapper
+terminates and awaits the full Job tree, confirms `ActiveProcesses == 0`, and
+only then takes the final git snapshot and parses the transcript. No owned
+process keeps writing files after a return with `cleanup.confirmed: true`.
+If confirmation fails, the evidence explicitly remains unavailable. Ordinary
+completion now ends leftover background subprocesses; delegated tasks are
+bounded, so persistent servers/daemons are not supported.
+
+The configured timeout is a **worker-runtime budget after launch-gate payload
+delivery**, not a strict whole-launch deadline. OS process creation and the
+synchronous control-pipe handoff precede that budget. A stalled helper startup
+or very large single-line prompt can therefore delay the timeout or handled
+cancellation checkpoint. The bounded cleanup/exit-evidence contract applies
+when teardown runs; it does not prove a bound on pre-delivery startup latency.
+
+On **non-Windows** (Linux/macOS), the wrapper keeps its existing
+`subprocess.run(timeout=)` direct-child path: it kills and waits only the
+immediate child, with no descendant-tree supervisor. The full-tree containment
+guarantee is Windows-only; it does not imply that an escaped/brokered process
+is contained on any platform.
 
 ## Failure handling
 

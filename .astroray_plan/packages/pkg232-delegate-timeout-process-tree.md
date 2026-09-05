@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** verified locally — independent final source sign-off and parent integration passed; CI/delivery pending
+**Status:** DONE — PR #705 merged 2026-09-06 Sydney
 **Estimated effort:** one bounded maintenance slice
 **Depends on:** none
 **Dispatch authority:** owner instruction 2026-09-06 authorizes parallel lower-level backlog; parent selected pkg232 in isolated worktree codex/pkg232 at 305caf5.
@@ -187,7 +187,7 @@ process supervisor or imply that an escaped/brokered process is contained.
 ## Progress
 
 - [x] Detailed architecture reviewed by Astra and independent Claude (2026-09-06).
-- [x] Implementation and scoped Windows gates complete (2026-09-06); CI and final review remain explicit gates.
+- [x] Implementation, Windows/Linux gates, independent final review and CI complete; PR #705 merged.
 Independent Claude filing review: SIGN-OFF TO FILE ONLY, 2026-09-06.
 Evidence: `test_results/pkg232-235/claude-filing-review.txt`.
 
@@ -234,7 +234,8 @@ Evidence in the pkg232 worktree under `test_results/pkg232/`:
 `focused.xml`, `lint.log`, `real-opencode-smoke.json`, `caller-signatures.json`,
 `caller-sweep.txt`, `source-manifest.json`, `non-windows-tests.log`, and
 `non-windows.xml`. `final-claude.txt` records independent final SIGN-OFF
-conditional on parent integration/CI and actual Linux verification (now run). No commit, push, PR, CI success or merge is claimed here.
+conditional on parent integration/CI and actual Linux verification; all conditions
+are now fulfilled by the evidence above and release record below.
 
 Parent integration raised a separate launch-latency edge after final source
 review: the configured worker timeout starts after synchronous stdin payload
@@ -249,3 +250,21 @@ reviewed architecture and required this explicit limitation in the spec and
 SKILL. The process implementation remains byte-identical to final-reviewed
 source. Bounded startup/payload delivery remains future hardening, outside this
 package's containment fix; no full-launch deadline is claimed.
+
+## Release record — 2026-09-06 Sydney
+
+PR #705 merged at 2026-09-05 18:50:24 UTC, commit
+`d997c499203e6e4b7493d8377e887c435e86c6bf`. Reviewed source commit
+`32458d64be8ed444df63f3fdbf49339b467702bc` remained unchanged through delivery.
+Both CI runs passed host build/tests and CUDA syntax checks:
+
+- Push 33983634230: 2088 passed, 269 skipped, 14 xfailed, 5 xpassed.
+- PR 33983636316: 2088 passed, 269 skipped, 15 xfailed, 4 xpassed; actual
+  `test_non_windows_actual_runtime` passed.
+
+Root `test_results/pkg232/ci-push.log`, `ci-pr.log`, source manifest and independent
+review retain the evidence. No renderer/visual behavior changed; no GPU runtime
+result is claimed for this maintenance package. The worker-runtime timeout
+boundary remains explicit above; local DRAFT pkg247 covers startup/payload time.
+Local DRAFT pkg248 covers content-aware snapshots; neither draft is approved for
+implementation. Do not redispatch pkg232.

@@ -1,31 +1,39 @@
 # Astroray Next Stage Report
 
-## 2026-09-06 CURRENT — owner delegates next-package selection to Astra
+## 2026-09-06 CURRENT — implemented round awaiting final independent review
 
-After pkg230 Phase 2 and #703 completed, the owner explicitly requested another
-implemented package, parallel lower-level backlog work, and a roadmap gap audit.
-This supersedes the previous requirement to stop for an owner choice.
+The owner delegated next-package selection to Astra after pkg230 Phase 2 and
+#703. This round implemented pkg230b and parallel pkg232, and audited the plans.
 
-- **Active delivery: pkg230b** affine Vector Math/Rotate coordinate chains.
-  Astra selected common texture-placement fidelity over the larger Principled
-  arc and specialized caustic/sampling extensions. Architecture independently
-  signed off; implementation, runtime, visual and CI gates remain pending.
-- **Parallel maintenance: pkg232** Windows delegate process containment.
-  Architecture independently signed off; implementation and real process gates
-  remain pending. At most two implementation worktrees; GPU work serialized.
-- New OPEN specifications: pkg241 cancellation/viewport response, pkg242
-  procedural mapping/bake parity, pkg243 raw relative-band output/provenance,
-  and pkg244 compiler-identity/configuration safeguards. All implementation
-  gates UNRUN. Details and coverage exclusions:
-  [production gap audit](production-gap-audit-2026-09-06.md).
-- **Recommended next after this round: pkg241 Phase 0**, measuring response and
-  cancellation latency before choosing its implementation architecture.
-  pkg242 follows pkg230b for procedural fidelity; pkg243 is a lower-priority
-  scientific-output foundation. pkg127 Phase 2 requires topology/spec
-  reconciliation before dispatch; code existence does not prove its gates.
-- Pillar 4 remains PAUSED. The owner delegated priority judgment, not an
-  astrophysics unpause. The completed pkg230 evidence and its two reproduced
-  baseline test failures remain recorded below.
+- **pkg230b: implemented locally, UNCOMMITTED / NOT MERGED.** Affine coordinate
+  chains and image-program cache isolation pass 101 focused tests, six real-RNA
+  probe sets, all 21 CPU/GPU/Cycles render legs, and isolated CPU/CUDA package
+  smokes. Full split suites: **2370 passed, two failures**. HDRI SSIM and PostInit
+  ULP failures reproduce against untouched source with the same fresh native
+  artifact (pkg237/pkg238); the full suite is **NOT green**.
+- **pkg230b release blocker:** independent Claude architecture approval passed,
+  but final source/ABI/parity/visual review has NOT run. Claude's subscription
+  weekly limit resets 2026-09-10 at 13:00 Australia/Sydney. Do not treat earlier
+  architecture approval or Astra visual inspection as final independent sign-off.
+  Preserve `codex/pkg230b` in `.claude/worktrees/pkg230b`; do not redispatch it.
+- **pkg232 LANDED in PR #705**, merge `d997c499` at 2026-09-05 18:50:24 UTC.
+  Windows Job containment passed 39 Windows tests, 14 actual-Linux tests, real
+  opencode smoke, caller review and independent Claude source SIGN-OFF. Both CI
+  runs passed host tests (2088 passed each) and CUDA syntax checks. Do not redispatch.
+- **Merged specifications:** pkg241–244 in #704 and pkg245 in #706. Their
+  implementation gates remain UNRUN. Three further local **DRAFT** specs,
+  pkg246 spectral RGB reconstruction, pkg247 launch-timeout boundary, and pkg248
+  content-change evidence, await independent filing review and are NOT dispatch
+  eligible. They remain in `.claude/worktrees/pkg230-followups`.
+- **Next after pkg230b closes: pkg241 Phase 0**, measuring render cancellation
+  and viewport response before implementation architecture. pkg242 follows for
+  procedural mapping fidelity; pkg243 preserves scientific output provenance.
+  pkg127 Phase 2 still requires topology/spec reconciliation before dispatch.
+- **Pillar 4 remains PAUSED.** GPU verification is finished and the GPU lock is
+  released. The user's live Blender profile was not used by this round's tests.
+
+Actual gates, retained failure evidence, reviewed filings and resumption state:
+[round delivery status](round-20260906-delivery-status.md).
 
 ---
 

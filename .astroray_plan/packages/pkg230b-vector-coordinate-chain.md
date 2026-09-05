@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (Blender integration / shader-node coverage)
 **Track:** A
-**Status:** OPEN — detailed architect review required before dispatch
+**Status:** IN PROGRESS — implemented locally; independent final review pending
 **Estimated effort:** M
 **Depends on:** pkg219a, pkg230 Phase 2
 
@@ -78,4 +78,18 @@ or independent per-image program coordinates. The latter require their own
 architecture if real usage warrants them.
 
 Independent Claude review (2026-09-05): SIGN-OFF to file this bounded future
-spec. Detailed implementation readiness and every acceptance gate remain pending.
+spec. At filing, detailed implementation readiness and every acceptance gate
+were pending; the current delivery state below supersedes that factual status.
+
+## Current delivery state — 2026-09-06
+
+Architecture SIGN-OFF received; implementation and local verification completed
+in `codex/pkg230b`, worktree `.claude/worktrees/pkg230b`. Source remains
+uncommitted/unpushed pending required independent final review. Full split tests:
+2370 passed, two reproduced native baseline failures (pkg237/pkg238); NOT green.
+All 21 CPU/GPU/Cycles comparison legs and isolated CPU/CUDA package smokes passed
+Astra inspection. Claude's weekly subscription limit blocks final source/ABI/
+parity/visual review; reported reset 2026-09-10 13:00 Australia/Sydney.
+Do not redispatch. The detailed implementation specification and full evidence
+are retained in that worktree; factual handoff:
+[round delivery status](../docs/round-20260906-delivery-status.md).

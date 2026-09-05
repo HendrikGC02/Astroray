@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** LANDED (2026-09-05) — report `.astroray_plan/docs/blender-coverage-reaudit-2026-09.md`
 **Estimated effort:** 1 session (~3–4 h)
 **Depends on:** none (all inputs already landed: pkg119-A generator, pkg195, pkg219a/b/c, pkg219d, pkg223, pkg223b)
 

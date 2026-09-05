@@ -133,15 +133,15 @@
     "bl_idname": "ShaderNodeBrightContrast",
     "socket_or_prop": "input:Color",
     "classification": "SUPPORTED",
-    "notes": ""
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "BRIGHTCONTRAST",
     "bl_idname": "ShaderNodeBrightContrast",
     "socket_or_prop": "input:Brightness",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -149,7 +149,7 @@
     "bl_idname": "ShaderNodeBrightContrast",
     "socket_or_prop": "input:Contrast",
     "classification": "SUPPORTED",
-    "notes": ""
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -316,40 +316,40 @@
     "feature": "BSDF_HAIR",
     "bl_idname": "ShaderNodeBsdfHair",
     "socket_or_prop": "input:Color",
-    "classification": "APPROXIMATED",
-    "notes": "pkg225-S6: Kajiya-Kay Hair approximated with Principled Hair (Chiang) reflectance"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR",
     "bl_idname": "ShaderNodeBsdfHair",
     "socket_or_prop": "input:Offset",
-    "classification": "APPROXIMATED",
-    "notes": "pkg225-S6: mapped to Principled Hair cuticle tilt"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR",
     "bl_idname": "ShaderNodeBsdfHair",
     "socket_or_prop": "input:RoughnessU",
-    "classification": "APPROXIMATED",
-    "notes": "pkg225-S6: mapped to Principled Hair longitudinal roughness"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR",
     "bl_idname": "ShaderNodeBsdfHair",
     "socket_or_prop": "input:RoughnessV",
-    "classification": "APPROXIMATED",
-    "notes": "pkg225-S6: mapped to Principled Hair radial roughness"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR",
     "bl_idname": "ShaderNodeBsdfHair",
     "socket_or_prop": "input:Tangent",
-    "classification": "APPROXIMATED",
-    "notes": "pkg225-S6: custom tangent socket ignored; geometric curve tangent used"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
@@ -357,127 +357,127 @@
     "bl_idname": "ShaderNodeBsdfHair",
     "socket_or_prop": "input:Weight",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR",
     "bl_idname": "ShaderNodeBsdfHair",
     "socket_or_prop": "prop:component",
-    "classification": "APPROXIMATED",
-    "notes": "pkg225-S6: Reflection/Transmission component approximated by the full R/TT/TRT model"
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Color",
-    "classification": "SUPPORTED",
-    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Melanin",
-    "classification": "SUPPORTED",
-    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Melanin Redness",
-    "classification": "SUPPORTED",
-    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Tint",
-    "classification": "SUPPORTED",
-    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Absorption Coefficient",
-    "classification": "SUPPORTED",
-    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Aspect Ratio",
-    "classification": "APPROXIMATED",
-    "notes": "pkg225-S6: Huang elliptical cross-section approximated with Chiang"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Roughness",
-    "classification": "SUPPORTED",
-    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Radial Roughness",
-    "classification": "SUPPORTED",
-    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Coat",
-    "classification": "SUPPORTED",
-    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:IOR",
-    "classification": "SUPPORTED",
-    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Offset",
-    "classification": "SUPPORTED",
-    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Random Color",
-    "classification": "APPROXIMATED",
-    "notes": "pkg225-S6: per-strand colour variation not yet plumbed (single value used)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Random Roughness",
-    "classification": "APPROXIMATED",
-    "notes": "pkg225-S6: per-strand roughness variation not yet plumbed"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Random",
-    "classification": "APPROXIMATED",
-    "notes": "pkg225-S6: per-strand random attribute not yet plumbed"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
@@ -485,47 +485,47 @@
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Weight",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Reflection",
-    "classification": "APPROXIMATED",
-    "notes": "pkg225-S6: Huang R-lobe weight approximated with Chiang"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Transmission",
-    "classification": "APPROXIMATED",
-    "notes": "pkg225-S6: Huang TT-lobe weight approximated with Chiang"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Secondary Reflection",
-    "classification": "APPROXIMATED",
-    "notes": "pkg225-S6: Huang TRT-lobe weight approximated with Chiang"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "prop:model",
-    "classification": "APPROXIMATED",
-    "notes": "pkg225-S6: Huang 2022 model approximated with Chiang 2016"
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "prop:parametrization",
-    "classification": "SUPPORTED",
-    "notes": "pkg225-S6: native principled_hair material (Chiang 2016) via add_curves_bulk"
+    "classification": "DROPPED-SILENT",
+    "notes": "property ENUM"
   },
   {
     "category": "shader_node",
@@ -644,7 +644,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Base Color",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -652,7 +652,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Metallic",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -660,7 +660,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Roughness",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -668,7 +668,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:IOR",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -683,8 +683,16 @@
     "category": "shader_node",
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
+    "socket_or_prop": "input:Thin Wall",
+    "classification": "DROPPED-SILENT",
+    "notes": ""
+  },
+  {
+    "category": "shader_node",
+    "feature": "BSDF_PRINCIPLED",
+    "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Normal",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -708,7 +716,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Subsurface Weight",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -764,7 +772,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Anisotropic",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -788,7 +796,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Transmission Weight",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -796,7 +804,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Coat Weight",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -804,7 +812,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Coat Roughness",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -836,7 +844,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Sheen Weight",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -860,7 +868,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Emission Color",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -868,7 +876,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Emission Strength",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -1116,40 +1124,40 @@
     "feature": "BUMP",
     "bl_idname": "ShaderNodeBump",
     "socket_or_prop": "input:Strength",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "BUMP",
     "bl_idname": "ShaderNodeBump",
     "socket_or_prop": "input:Distance",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "BUMP",
     "bl_idname": "ShaderNodeBump",
     "socket_or_prop": "input:Filter Width",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "BUMP",
     "bl_idname": "ShaderNodeBump",
     "socket_or_prop": "input:Height",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "BUMP",
     "bl_idname": "ShaderNodeBump",
     "socket_or_prop": "input:Normal",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -1196,24 +1204,24 @@
     "feature": "COMBINE_COLOR",
     "bl_idname": "ShaderNodeCombineColor",
     "socket_or_prop": "input:Red",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "COMBINE_COLOR",
     "bl_idname": "ShaderNodeCombineColor",
     "socket_or_prop": "input:Green",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "COMBINE_COLOR",
     "bl_idname": "ShaderNodeCombineColor",
     "socket_or_prop": "input:Blue",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -1429,7 +1437,7 @@
     "bl_idname": "ShaderNodeGamma",
     "socket_or_prop": "input:Color",
     "classification": "SUPPORTED",
-    "notes": ""
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -1437,7 +1445,7 @@
     "bl_idname": "ShaderNodeGamma",
     "socket_or_prop": "input:Gamma",
     "classification": "SUPPORTED",
-    "notes": ""
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -1453,7 +1461,7 @@
     "bl_idname": "ShaderNodeHueSaturation",
     "socket_or_prop": "input:Hue",
     "classification": "SUPPORTED",
-    "notes": ""
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -1461,7 +1469,7 @@
     "bl_idname": "ShaderNodeHueSaturation",
     "socket_or_prop": "input:Saturation",
     "classification": "SUPPORTED",
-    "notes": ""
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -1469,15 +1477,15 @@
     "bl_idname": "ShaderNodeHueSaturation",
     "socket_or_prop": "input:Value",
     "classification": "SUPPORTED",
-    "notes": ""
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "HUE_SAT",
     "bl_idname": "ShaderNodeHueSaturation",
     "socket_or_prop": "input:Factor",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -1485,15 +1493,15 @@
     "bl_idname": "ShaderNodeHueSaturation",
     "socket_or_prop": "input:Color",
     "classification": "SUPPORTED",
-    "notes": ""
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "INVERT",
     "bl_idname": "ShaderNodeInvert",
     "socket_or_prop": "input:Factor",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -1501,7 +1509,7 @@
     "bl_idname": "ShaderNodeInvert",
     "socket_or_prop": "input:Color",
     "classification": "SUPPORTED",
-    "notes": ""
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -1540,96 +1548,96 @@
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Value",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Min",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Max",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Min",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Max",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Steps",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Min",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Max",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Min",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Max",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Steps",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -1660,32 +1668,32 @@
     "feature": "MAPPING",
     "bl_idname": "ShaderNodeMapping",
     "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MAPPING",
     "bl_idname": "ShaderNodeMapping",
     "socket_or_prop": "input:Location",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MAPPING",
     "bl_idname": "ShaderNodeMapping",
     "socket_or_prop": "input:Rotation",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MAPPING",
     "bl_idname": "ShaderNodeMapping",
     "socket_or_prop": "input:Scale",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -1700,24 +1708,24 @@
     "feature": "MATH",
     "bl_idname": "ShaderNodeMath",
     "socket_or_prop": "input:Value",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MATH",
     "bl_idname": "ShaderNodeMath",
     "socket_or_prop": "input:Value",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MATH",
     "bl_idname": "ShaderNodeMath",
     "socket_or_prop": "input:Value",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -1740,80 +1748,80 @@
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:Factor",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:Factor",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -1860,24 +1868,24 @@
     "feature": "MIX_RGB",
     "bl_idname": "ShaderNodeMixRGB",
     "socket_or_prop": "input:Factor",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MIX_RGB",
     "bl_idname": "ShaderNodeMixRGB",
     "socket_or_prop": "input:Color1",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "MIX_RGB",
     "bl_idname": "ShaderNodeMixRGB",
     "socket_or_prop": "input:Color2",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -1940,16 +1948,16 @@
     "feature": "NORMAL_MAP",
     "bl_idname": "ShaderNodeNormalMap",
     "socket_or_prop": "input:Strength",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
     "feature": "NORMAL_MAP",
     "bl_idname": "ShaderNodeNormalMap",
     "socket_or_prop": "input:Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -2251,6 +2259,22 @@
     "category": "shader_node",
     "feature": "MATERIAL_RAYCAST",
     "bl_idname": "ShaderNodeRaycast",
+    "socket_or_prop": "input:",
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MATERIAL_RAYCAST",
+    "bl_idname": "ShaderNodeRaycast",
+    "socket_or_prop": "prop:active_index",
+    "classification": "DROPPED-SILENT",
+    "notes": "property INT"
+  },
+  {
+    "category": "shader_node",
+    "feature": "MATERIAL_RAYCAST",
+    "bl_idname": "ShaderNodeRaycast",
     "socket_or_prop": "prop:only_local",
     "classification": "DROPPED-SILENT",
     "notes": "property BOOLEAN"
@@ -2276,8 +2300,8 @@
     "feature": "SEPARATE_COLOR",
     "bl_idname": "ShaderNodeSeparateColor",
     "socket_or_prop": "input:Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -2692,8 +2716,8 @@
     "feature": "TEX_IMAGE",
     "bl_idname": "ShaderNodeTexImage",
     "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",
@@ -3204,8 +3228,8 @@
     "feature": "VALTORGB",
     "bl_idname": "ShaderNodeValToRGB",
     "socket_or_prop": "input:Factor",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
     "category": "shader_node",

@@ -129,10 +129,23 @@ Full evidence:
 [pkg230-phase2-delivery-evidence.md](pkg230-phase2-delivery-evidence.md). pkg219d
 scalar parameter textures remain landed (#674); pkg210 is SUPERSEDED and pkg180
 CLOSED.
-NEXT is an OWNER CHOICE among pkg127 Phase 2, Principled
-advanced-inputs (needs a scoped spec), pkg211's prototype-first/park path, and
-pkg136's GPU leg — no autonomous priority promotion; Pillar 4 remains PAUSED, and
-mere filed follow-ups do not preempt owner choice.
+**Owner update 2026-09-06:** next-package priority is delegated to Astra, with
+parallel lower-level backlog work and an evidence-backed roadmap gap audit.
+The current round selects **pkg230b affine coordinate chains**, alongside
+**pkg232 delegate containment**; both architectures are independently signed
+off and implementation/verification is in progress. Common texture-placement
+fidelity is the bounded next Blender gain; the larger Principled arc and
+specialized caustic/sampling extensions remain future work.
+
+After this round, **pkg241 Phase 0 cancellation/viewport-response measurement**
+is the recommended next pickup, followed by pkg242 procedural mapping/bake
+parity. pkg243 preserves raw relative-band output as a lower-priority scientific
+foundation. pkg244 records the reproduced compiler-identity/cache-reset build
+defect separately from pkg231 latency and pkg240 CI cost. These new specs are
+OPEN, with implementation gates UNRUN; see the
+[production gap audit](production-gap-audit-2026-09-06.md). pkg127 Phase 2 needs
+reconciliation against existing pkg227 topology and gates before dispatch.
+**Pillar 4 remains PAUSED**; priority delegation does not unpause astrophysics.
 
 **Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU
 parity tail — **pkg172 effect (B) / pkg173** (bounce-1 geometry-sampling

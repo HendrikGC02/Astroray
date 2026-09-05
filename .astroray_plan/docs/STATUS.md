@@ -1,6 +1,36 @@
 # Astroray Status
 
-**2026-09-06 (CURRENT — pkg230 Phase 2 LANDED):** pkg230
+## 2026-09-06 CURRENT — owner delegates next-package selection to Astra
+
+After pkg230 Phase 2 and #703 completed, the owner explicitly requested another
+implemented package, parallel lower-level backlog work, and a roadmap gap audit.
+This supersedes the previous requirement to stop for an owner choice.
+
+- **Active delivery: pkg230b** affine Vector Math/Rotate coordinate chains.
+  Astra selected common texture-placement fidelity over the larger Principled
+  arc and specialized caustic/sampling extensions. Architecture independently
+  signed off; implementation, runtime, visual and CI gates remain pending.
+- **Parallel maintenance: pkg232** Windows delegate process containment.
+  Architecture independently signed off; implementation and real process gates
+  remain pending. At most two implementation worktrees; GPU work serialized.
+- New OPEN specifications: pkg241 cancellation/viewport response, pkg242
+  procedural mapping/bake parity, pkg243 raw relative-band output/provenance,
+  and pkg244 compiler-identity/configuration safeguards. All implementation
+  gates UNRUN. Details and coverage exclusions:
+  [production gap audit](production-gap-audit-2026-09-06.md).
+- **Recommended next after this round: pkg241 Phase 0**, measuring response and
+  cancellation latency before choosing its implementation architecture.
+  pkg242 follows pkg230b for procedural fidelity; pkg243 is a lower-priority
+  scientific-output foundation. pkg127 Phase 2 requires topology/spec
+  reconciliation before dispatch; code existence does not prove its gates.
+- Pillar 4 remains PAUSED. The owner delegated priority judgment, not an
+  astrophysics unpause. The completed pkg230 evidence and its two reproduced
+  baseline test failures remain recorded below.
+
+---
+
+
+**2026-09-06 (completed pkg230 Phase 2 record):** pkg230
 Phase 2 (30 Vector Math ops, 5 Vector Rotate modes, faithful Mix factor
 clamping in the color/scalar op-VM chain) is **LANDED in PR #701**, merged
 2026-09-05 17:10 UTC (2026-09-06 Sydney), commit

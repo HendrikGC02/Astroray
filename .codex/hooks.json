@@ -7,6 +7,7 @@
         "hooks": [
           {
             "type": "command",
+            "command": "pwsh -NoProfile -File \"$(git rev-parse --show-toplevel)/.codex/hooks/session_start.ps1\"",
             "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$(git rev-parse --show-toplevel)\\.codex\\hooks\\session_start.ps1\"",
             "statusMessage": "Loading Astroray repository state",
             "additionalContextLimit": 800
@@ -20,6 +21,7 @@
         "hooks": [
           {
             "type": "command",
+            "command": "pwsh -NoProfile -File \"$(git rev-parse --show-toplevel)/.codex/hooks/pre_tool_guard.ps1\"",
             "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$(git rev-parse --show-toplevel)\\.codex\\hooks\\pre_tool_guard.ps1\"",
             "timeout": 20,
             "statusMessage": "Applying Astroray safety checks",

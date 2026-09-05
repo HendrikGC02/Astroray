@@ -12,7 +12,7 @@ max_concurrent_threads_per_session = 3
 command = "uvx"
 args = ["blender-mcp"]
 enabled = true
-startup_timeout_sec = 15
+startup_timeout_sec = 60
 tool_timeout_sec = 120
 default_tools_approval_mode = "writes"
 

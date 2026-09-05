@@ -50,10 +50,22 @@ landed; pkg229's coverage re-audit is landed.**
   checks — pkg225-S1 (native harness) and pkg210 (grep sweep) — avoiding wasted
   register-hostile rebuilds. Registers: fleet `stageShadeBucketedKernel
   <0,0,0,0,0,0,0>` stays REG:254/STACK:3368/CONSTANT[0]:1716 through all of it.
-- **NEXT:** pkg136 Stage 1 variance campaign (the CPU SD-tree integration is
-  landed in PRs #693/#694; the ≥2× win gate remains pending), then the owner
-  chooses among pkg127 Phase 2, pkg211's prototype-first/park path, and the
-  pkg136 GPU leg. pkg229 coverage re-audit is landed in #692.
+- **pkg136 Stage 1 variance campaign — CONCLUDED (#694), not pending.** ≥2× is a
+  scene-physics ceiling, not a bug: the de-risked 110× prototype had no NEE, so a
+  real NEE integrator caps guiding at the residual-indirect win (~1.3× diffuse
+  oracle bound; unlearnable-by-coarse-guide on hard scenes). #694 instead fixed a
+  real bug — training passes cast full unbiased samples then discarded (3× ray
+  waste + high-α dark bias) — and shipped a genuine **~1.3× equal-cost win** on
+  the hard-transport slot scene (moderate/veach ≤1×). Warp/MIS confirmed correct
+  (`E[1/pdf]=|support|`, not a bug). Full diagnosis:
+  `.astroray_plan/docs/pkg136-stage1b-findings.md`.
+- **NEXT:** the pkg229 next-wave op-VM utility cluster (Vector Math / Clamp /
+  MATH+MIX clamp flags / Vector Rotate — small opcode adds on the existing
+  evaluator, best ROI), then the owner chooses among pkg127 Phase 2, Principled
+  advanced-inputs (highest-value single node, L), pkg211's prototype-first/park
+  path, and the pkg136 GPU leg. **pkg229 coverage re-audit is landed in #695**
+  (152 SUPPORTED / 35 APPROX / 340 DROPPED of 527; op-VM scanner blind spot fixed,
+  render-verified; ranked backlog in `.astroray_plan/docs/blender-coverage-reaudit-2026-09.md`).
 
 ---
 

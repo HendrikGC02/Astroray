@@ -1,12 +1,31 @@
 # Astroray Next Stage Report
 
-## 2026-09-05 LIVE HANDOFF — reconciled with `origin/main` (`6795fc9`)
+## 2026-09-05 LIVE HANDOFF — reconciled with `origin/main`
 
 The earlier 2026-09-03 handoff below is historical. Since then, pkg225-S3/S4/S5/S6
-landed (#676, #681–#684), pkg127 Phase 1 landed (#685), pkg229 landed (#692), and
-pkg136 CPU Stage 1A/1B landed (#693/#694). The immediate measurable follow-up is
-the pkg136 variance campaign (the ≥2× improvement gate is still pending); the
-owner then selects pkg127 Phase 2, pkg211's prototype, or pkg136's GPU leg.
+landed (#676, #681–#684), pkg127 Phase 1 landed (#685), pkg229's coverage re-audit
+landed (spec #692 + re-audit #695), and pkg136 CPU Stage 1 (1A+1B) landed
+(#693/#694).
+
+**pkg136's ≥2× variance campaign is CONCLUDED, not pending.** ≥2× is a
+scene-physics ceiling in a real NEE integrator, not a bug (the de-risked 110×
+prototype had no NEE, so guiding there absorbed the direct-light spike NEE now
+handles). #694 instead root-caused and fixed a real architectural bug — training
+passes were cast as full unbiased path traces then discarded (3× ray waste + a
+high-α dark bias) — and shipped a genuine **~1.3× equal-cost win** on the
+hard-transport slot scene (moderate/veach ≤1×). Warp/MIS verified correct
+(`E[1/pdf]=|support|`). Any further ≥2× would need product guiding + guide/NEE MIS
+on purpose-built hard scenes — a separate spec. Full diagnosis:
+`.astroray_plan/docs/pkg136-stage1b-findings.md`.
+
+**Immediate next pickup:** the pkg229 next-wave **op-VM utility cluster** —
+Vector Math, Clamp, MATH/MIX clamp flags, Vector Rotate — all small opcode
+additions on the existing per-texel evaluator (best ROI, S/M effort;
+frequency-★★★ utilities). Then the owner selects among **pkg127 Phase 2**,
+**Principled advanced-inputs** (highest-value single node, L effort — sequence
+Alpha + Specular Tint first), **pkg211's** prototype-first/park path, and
+**pkg136's GPU leg** (Stage 2A/2B). Ranked backlog with S/M/L close-effort notes:
+`.astroray_plan/docs/blender-coverage-reaudit-2026-09.md`.
 
 ## 2026-09-03 SESSION HANDOFF — 8 packages landed/resolved; NEXT = architect re-vet (historical)
 

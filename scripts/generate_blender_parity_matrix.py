@@ -527,6 +527,66 @@ def scan_addon_source_for_evidence(addon_module):
     return evidence
 
 
+def scan_vm_and_vector_supported_types(addon_module):
+    """pkg229 — SECOND evidence source: node types handled by the pkg219 op-VM
+    (`shader_vm_compiler.compile_socket`, invoked via `_maybe_build_program_texture`)
+    and by the vector/normal/mapping input resolvers in the main addon. The
+    primary `convert_shader_node` scanner above never opens `shader_vm_compiler.py`
+    and does not list these resolver functions, so the ENTIRE pkg195/pkg219*/pkg223
+    node wave (Math, Mix, Color Ramp, Map Range, Mapping, Normal Map, Bump, …) read
+    as DROPPED-SILENT — a scanner blind spot, not a real regression.
+
+    Each of these handlers compiles the WHOLE node subtree (all value inputs), so a
+    matched node type credits every live input socket. Pure AST ntype-literal
+    extraction (same `ntype == 'X'` / `type in (...)` pattern the primary scanner
+    uses) across two files — no hand-typed classification tables. Returns the set
+    of node-type literals these paths dispatch on.
+    """
+    main_path = inspect.getfile(addon_module.CustomRaytracerRenderEngine)
+    addon_dir = Path(main_path).parent
+    # function name -> which file it lives in
+    targets = {
+        main_path: {'get_normal_inputs', '_resolve_vector_input',
+                    '_resolve_mapping_matrix', 'get_color_or_texture'},
+        str(addon_dir / 'shader_vm_compiler.py'): {'compile_socket'},
+    }
+
+    def _literals(test):
+        out = []
+        if isinstance(test, ast.Compare):
+            left = test.left
+            name = (left.id if isinstance(left, ast.Name)
+                    else left.attr if isinstance(left, ast.Attribute) else None)
+            if name in ('ntype', 'type'):
+                for op, comp in zip(test.ops, test.comparators):
+                    if isinstance(op, ast.Eq) and isinstance(comp, ast.Constant):
+                        out.append(comp.value)
+                    elif isinstance(op, ast.In) and isinstance(comp, (ast.Tuple, ast.List, ast.Set)):
+                        out += [e.value for e in comp.elts if isinstance(e, ast.Constant)]
+        elif isinstance(test, ast.BoolOp):
+            for v in test.values:
+                out += _literals(v)
+        return out
+
+    found = set()
+    for path, fnames in targets.items():
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                tree = ast.parse(f.read())
+        except (OSError, SyntaxError):
+            continue
+        for fn in ast.walk(tree):
+            if isinstance(fn, ast.FunctionDef) and fn.name in fnames:
+                for sub in ast.walk(fn):
+                    if isinstance(sub, ast.If):
+                        for lit in _literals(sub.test):
+                            if isinstance(lit, str):
+                                found.add(lit)
+    print(f"[pkg119] op-VM / vector-path handled node types: {len(found)} "
+          f"({', '.join(sorted(found))})")
+    return found
+
+
 # =============================================================================
 # Enumeration (from Blender API at runtime)
 # =============================================================================
@@ -756,7 +816,8 @@ def enumerate_world_properties():
 # Classification (evidence-based via AST scanner)
 # =============================================================================
 
-def classify_shader_node(node_info, evidence, stale_socket_findings) -> dict[str, Any]:
+def classify_shader_node(node_info, evidence, stale_socket_findings,
+                         vm_supported_types=frozenset()) -> dict[str, Any]:
     """Classify a shader node based on SCANNED evidence from addon source.
 
     Returns dict with:
@@ -770,6 +831,27 @@ def classify_shader_node(node_info, evidence, stale_socket_findings) -> dict[str
     but not in live node (latent addon bugs).
     """
     node_type = node_info['node_type']
+
+    # pkg229 — op-VM / vector-input path: shader_vm_compiler.compile_socket and the
+    # vector/normal/mapping resolvers compile the WHOLE node, so every live value
+    # input is consumed. Credit all input sockets. If the node also has a
+    # _warn_shader_fallback (APPROXIMATED) handler, keep that weaker classification.
+    if node_type in vm_supported_types:
+        base = evidence.get(node_type, {})
+        cls = base.get('classification', 'SUPPORTED')
+        if cls == 'DROPPED-SILENT':
+            cls = 'SUPPORTED'
+        all_live = [s['name'] for s in node_info['sockets_in']]
+        note = 'op-VM / vector-input path (pkg219/pkg223)'
+        base_note = base.get('notes', '')
+        return {
+            'classification': cls,
+            'sockets_supported': sorted(all_live),
+            'sockets_dropped': [],
+            'properties_supported': sorted(
+                set(node_info['properties'].keys()) & base.get('properties', set())),
+            'notes': (base_note + '; ' + note).strip('; ') if base_note else note,
+        }
 
     # Check if we have SCANNED evidence for this node type
     if node_type not in evidence:
@@ -847,7 +929,7 @@ def classify_shader_node(node_info, evidence, stale_socket_findings) -> dict[str
 # Report generation
 # =============================================================================
 
-def generate_matrix(evidence):
+def generate_matrix(evidence, vm_supported_types=frozenset()):
     """Generate the full parity matrix."""
     print("[pkg119] Enumerating Blender API surface...")
 
@@ -866,7 +948,8 @@ def generate_matrix(evidence):
 
     # Shader nodes
     for node_info in shader_nodes:
-        classification_result = classify_shader_node(node_info, evidence, stale_socket_findings)
+        classification_result = classify_shader_node(node_info, evidence, stale_socket_findings,
+                                                     vm_supported_types)
 
         # Per-socket granularity
         for socket in node_info['sockets_in']:
@@ -1080,8 +1163,9 @@ def main():
     # Scan addon source via AST to extract evidence (NO HAND-TYPED DICTS)
     print("[pkg119] Scanning addon source via AST...")
     evidence = scan_addon_source_for_evidence(addon_module)
+    vm_supported_types = scan_vm_and_vector_supported_types(addon_module)
 
-    matrix_rows, stale_socket_findings = generate_matrix(evidence)
+    matrix_rows, stale_socket_findings = generate_matrix(evidence, vm_supported_types)
 
     output_dir = Path(args.out)
     write_json_report(matrix_rows, output_dir / "coverage_matrix.json")

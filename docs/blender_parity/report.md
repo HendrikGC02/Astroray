@@ -1,6 +1,6 @@
 # Blender Parity Coverage Matrix — Phase A (AST-Scanned Evidence)
 
-**Generated:** 5.1.2
+**Generated:** 5.2.0 LTS
 
 **Evidence sources:**
 - Shader nodes: AST-scanned from addon source (helper-method reads included)
@@ -10,11 +10,11 @@
 
 ## Summary
 
-- **SUPPORTED**: 117 features
-- **APPROXIMATED**: 22 features
-- **DROPPED-SILENT**: 385 features ⚠️
+- **SUPPORTED**: 152 features
+- **APPROXIMATED**: 35 features
+- **DROPPED-SILENT**: 340 features ⚠️
 - **UNKNOWN**: 0 features
-- **Total**: 524 features
+- **Total**: 527 features
 
 ## ⚠️ Stale Socket Reads — Latent Bugs (Unguarded, Name Not in Blender 5.1)
 
@@ -22,30 +22,20 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BRIGHTCONTRAST**: socket `Bright` (addon __init__.py line 2356)
-- **HUE_SAT**: socket `Fac` (addon __init__.py line 2338)
-- **INVERT**: socket `Fac` (addon __init__.py line 2324)
-- **MIX_SHADER**: socket `Fac` (addon __init__.py line 3061, line 3183)
-- **TEX_BRICK**: socket `Offset` (addon __init__.py line 2848)
-- **TEX_BRICK**: socket `Color3` (addon __init__.py line 2848)
-- **VALTORGB**: socket `Fac` (addon __init__.py line 2366)
+- **MIX_SHADER**: socket `Fac` (addon __init__.py line 3931, line 4069)
+- **TEX_BRICK**: socket `Color3` (addon __init__.py line 3399)
+- **TEX_BRICK**: socket `Offset` (addon __init__.py line 3399)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_METALLIC**: socket `Color` (addon __init__.py line 3039)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 3054)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 3054)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 3054)
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 3054)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 3054)
-- **MIX**: socket `Color1` (addon __init__.py line 2312)
-- **MIX**: socket `Fac` (addon __init__.py line 2312)
-- **MIX**: socket `Color2` (addon __init__.py line 2312)
-- **MIX_RGB**: socket `B` (addon __init__.py line 2312)
-- **MIX_RGB**: socket `Fac` (addon __init__.py line 2312)
-- **MIX_RGB**: socket `A` (addon __init__.py line 2312)
+- **BSDF_METALLIC**: socket `Color` (addon __init__.py line 3857)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 3924)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 3924)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 3924)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 3924)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 3924)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -105,7 +95,6 @@ These features are silently ignored by the addon with no warning:
 - **BEVEL**: `input:Radius` — no handler in addon translation layer
 - **BEVEL**: `input:Normal` — no handler in addon translation layer
 - **BEVEL**: `prop:samples` — property INT
-- **BRIGHTCONTRAST**: `input:Brightness`
 - **BSDF_GLOSSY**: `input:Anisotropy`
 - **BSDF_GLOSSY**: `input:Rotation`
 - **BSDF_GLOSSY**: `input:Normal`
@@ -119,31 +108,31 @@ These features are silently ignored by the addon with no warning:
 - **BSDF_GLASS**: `input:Thin Film Thickness`
 - **BSDF_GLASS**: `input:Thin Film IOR`
 - **BSDF_GLASS**: `prop:distribution` — property ENUM
-- **BSDF_HAIR**: `input:Color` — no handler in addon translation layer
-- **BSDF_HAIR**: `input:Offset` — no handler in addon translation layer
-- **BSDF_HAIR**: `input:RoughnessU` — no handler in addon translation layer
-- **BSDF_HAIR**: `input:RoughnessV` — no handler in addon translation layer
-- **BSDF_HAIR**: `input:Tangent` — no handler in addon translation layer
-- **BSDF_HAIR**: `input:Weight` — no handler in addon translation layer
+- **BSDF_HAIR**: `input:Color`
+- **BSDF_HAIR**: `input:Offset`
+- **BSDF_HAIR**: `input:RoughnessU`
+- **BSDF_HAIR**: `input:RoughnessV`
+- **BSDF_HAIR**: `input:Tangent`
+- **BSDF_HAIR**: `input:Weight`
 - **BSDF_HAIR**: `prop:component` — property ENUM
-- **BSDF_HAIR_PRINCIPLED**: `input:Color` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Melanin` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Melanin Redness` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Tint` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Absorption Coefficient` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Aspect Ratio` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Roughness` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Radial Roughness` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Coat` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:IOR` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Offset` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Random Color` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Random Roughness` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Random` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Weight` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Reflection` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Transmission` — no handler in addon translation layer
-- **BSDF_HAIR_PRINCIPLED**: `input:Secondary Reflection` — no handler in addon translation layer
+- **BSDF_HAIR_PRINCIPLED**: `input:Color`
+- **BSDF_HAIR_PRINCIPLED**: `input:Melanin`
+- **BSDF_HAIR_PRINCIPLED**: `input:Melanin Redness`
+- **BSDF_HAIR_PRINCIPLED**: `input:Tint`
+- **BSDF_HAIR_PRINCIPLED**: `input:Absorption Coefficient`
+- **BSDF_HAIR_PRINCIPLED**: `input:Aspect Ratio`
+- **BSDF_HAIR_PRINCIPLED**: `input:Roughness`
+- **BSDF_HAIR_PRINCIPLED**: `input:Radial Roughness`
+- **BSDF_HAIR_PRINCIPLED**: `input:Coat`
+- **BSDF_HAIR_PRINCIPLED**: `input:IOR`
+- **BSDF_HAIR_PRINCIPLED**: `input:Offset`
+- **BSDF_HAIR_PRINCIPLED**: `input:Random Color`
+- **BSDF_HAIR_PRINCIPLED**: `input:Random Roughness`
+- **BSDF_HAIR_PRINCIPLED**: `input:Random`
+- **BSDF_HAIR_PRINCIPLED**: `input:Weight`
+- **BSDF_HAIR_PRINCIPLED**: `input:Reflection`
+- **BSDF_HAIR_PRINCIPLED**: `input:Transmission`
+- **BSDF_HAIR_PRINCIPLED**: `input:Secondary Reflection`
 - **BSDF_HAIR_PRINCIPLED**: `prop:model` — property ENUM
 - **BSDF_HAIR_PRINCIPLED**: `prop:parametrization` — property ENUM
 - **BSDF_METALLIC**: `input:Base Color`
@@ -160,6 +149,7 @@ These features are silently ignored by the addon with no warning:
 - **BSDF_METALLIC**: `prop:distribution` — property ENUM
 - **BSDF_METALLIC**: `prop:fresnel_type` — property ENUM
 - **BSDF_PRINCIPLED**: `input:Alpha`
+- **BSDF_PRINCIPLED**: `input:Thin Wall`
 - **BSDF_PRINCIPLED**: `input:Weight`
 - **BSDF_PRINCIPLED**: `input:Diffuse Roughness`
 - **BSDF_PRINCIPLED**: `input:Subsurface Radius`
@@ -197,19 +187,11 @@ These features are silently ignored by the addon with no warning:
 - **BSDF_TRANSLUCENT**: `input:Normal`
 - **BSDF_TRANSLUCENT**: `input:Weight`
 - **BSDF_TRANSPARENT**: `input:Weight`
-- **BUMP**: `input:Strength` — no handler in addon translation layer
-- **BUMP**: `input:Distance` — no handler in addon translation layer
-- **BUMP**: `input:Filter Width` — no handler in addon translation layer
-- **BUMP**: `input:Height` — no handler in addon translation layer
-- **BUMP**: `input:Normal` — no handler in addon translation layer
 - **BUMP**: `prop:invert` — property BOOLEAN
 - **CLAMP**: `input:Value` — no handler in addon translation layer
 - **CLAMP**: `input:Min` — no handler in addon translation layer
 - **CLAMP**: `input:Max` — no handler in addon translation layer
 - **CLAMP**: `prop:clamp_type` — property ENUM
-- **COMBINE_COLOR**: `input:Red` — no handler in addon translation layer
-- **COMBINE_COLOR**: `input:Green` — no handler in addon translation layer
-- **COMBINE_COLOR**: `input:Blue` — no handler in addon translation layer
 - **COMBINE_COLOR**: `prop:mode` — property ENUM
 - **COMBXYZ**: `input:X` — no handler in addon translation layer
 - **COMBXYZ**: `input:Y` — no handler in addon translation layer
@@ -235,62 +217,26 @@ These features are silently ignored by the addon with no warning:
 - **FRESNEL**: `input:IOR` — no handler in addon translation layer
 - **FRESNEL**: `input:Normal` — no handler in addon translation layer
 - **HOLDOUT**: `input:Weight` — no handler in addon translation layer
-- **HUE_SAT**: `input:Factor`
-- **INVERT**: `input:Factor`
 - **LAYER_WEIGHT**: `input:Blend` — no handler in addon translation layer
 - **LAYER_WEIGHT**: `input:Normal` — no handler in addon translation layer
 - **LIGHT_FALLOFF**: `input:Strength` — no handler in addon translation layer
 - **LIGHT_FALLOFF**: `input:Smooth` — no handler in addon translation layer
-- **MAP_RANGE**: `input:Value` — no handler in addon translation layer
-- **MAP_RANGE**: `input:From Min` — no handler in addon translation layer
-- **MAP_RANGE**: `input:From Max` — no handler in addon translation layer
-- **MAP_RANGE**: `input:To Min` — no handler in addon translation layer
-- **MAP_RANGE**: `input:To Max` — no handler in addon translation layer
-- **MAP_RANGE**: `input:Steps` — no handler in addon translation layer
-- **MAP_RANGE**: `input:Vector` — no handler in addon translation layer
-- **MAP_RANGE**: `input:From Min` — no handler in addon translation layer
-- **MAP_RANGE**: `input:From Max` — no handler in addon translation layer
-- **MAP_RANGE**: `input:To Min` — no handler in addon translation layer
-- **MAP_RANGE**: `input:To Max` — no handler in addon translation layer
-- **MAP_RANGE**: `input:Steps` — no handler in addon translation layer
 - **MAP_RANGE**: `prop:clamp` — property BOOLEAN
 - **MAP_RANGE**: `prop:data_type` — property ENUM
 - **MAP_RANGE**: `prop:interpolation_type` — property ENUM
-- **MAPPING**: `input:Vector` — no handler in addon translation layer
-- **MAPPING**: `input:Location` — no handler in addon translation layer
-- **MAPPING**: `input:Rotation` — no handler in addon translation layer
-- **MAPPING**: `input:Scale` — no handler in addon translation layer
 - **MAPPING**: `prop:vector_type` — property ENUM
-- **MATH**: `input:Value` — no handler in addon translation layer
-- **MATH**: `input:Value` — no handler in addon translation layer
-- **MATH**: `input:Value` — no handler in addon translation layer
 - **MATH**: `prop:operation` — property ENUM
 - **MATH**: `prop:use_clamp` — property BOOLEAN
-- **MIX**: `input:Factor`
-- **MIX**: `input:Factor`
-- **MIX**: `input:A`
-- **MIX**: `input:B`
-- **MIX**: `input:A`
-- **MIX**: `input:B`
-- **MIX**: `input:A`
-- **MIX**: `input:B`
-- **MIX**: `input:A`
-- **MIX**: `input:B`
 - **MIX**: `prop:clamp_factor` — property BOOLEAN
 - **MIX**: `prop:clamp_result` — property BOOLEAN
 - **MIX**: `prop:data_type` — property ENUM
 - **MIX**: `prop:factor_mode` — property ENUM
-- **MIX_RGB**: `input:Factor`
-- **MIX_RGB**: `input:Color1`
-- **MIX_RGB**: `input:Color2`
 - **MIX_RGB**: `prop:use_alpha` — property BOOLEAN
 - **MIX_RGB**: `prop:use_clamp` — property BOOLEAN
 - **MIX_SHADER**: `input:Factor`
 - **MIX_SHADER**: `input:Shader`
 - **MIX_SHADER**: `input:Shader`
 - **NORMAL**: `input:Normal` — no handler in addon translation layer
-- **NORMAL_MAP**: `input:Strength` — no handler in addon translation layer
-- **NORMAL_MAP**: `input:Color` — no handler in addon translation layer
 - **NORMAL_MAP**: `prop:base` — property ENUM
 - **NORMAL_MAP**: `prop:convention` — property ENUM
 - **NORMAL_MAP**: `prop:space` — property ENUM
@@ -327,10 +273,11 @@ These features are silently ignored by the addon with no warning:
 - **MATERIAL_RAYCAST**: `input:Position` — no handler in addon translation layer
 - **MATERIAL_RAYCAST**: `input:Direction` — no handler in addon translation layer
 - **MATERIAL_RAYCAST**: `input:Length` — no handler in addon translation layer
+- **MATERIAL_RAYCAST**: `input:` — no handler in addon translation layer
+- **MATERIAL_RAYCAST**: `prop:active_index` — property INT
 - **MATERIAL_RAYCAST**: `prop:only_local` — property BOOLEAN
 - **SCRIPT**: `prop:mode` — property ENUM
 - **SCRIPT**: `prop:use_auto_update` — property BOOLEAN
-- **SEPARATE_COLOR**: `input:Color` — no handler in addon translation layer
 - **SEPARATE_COLOR**: `prop:mode` — property ENUM
 - **SEPXYZ**: `input:Vector` — no handler in addon translation layer
 - **SHADERTORGB**: `input:Shader` — no handler in addon translation layer
@@ -367,7 +314,6 @@ These features are silently ignored by the addon with no warning:
 - **TEX_IES**: `input:Vector` — no handler in addon translation layer
 - **TEX_IES**: `input:Strength` — no handler in addon translation layer
 - **TEX_IES**: `prop:mode` — property ENUM
-- **TEX_IMAGE**: `input:Vector`
 - **TEX_IMAGE**: `prop:extension` — property ENUM
 - **TEX_IMAGE**: `prop:interpolation` — property ENUM
 - **TEX_IMAGE**: `prop:projection` — property ENUM
@@ -399,7 +345,6 @@ These features are silently ignored by the addon with no warning:
 - **TEX_WHITE_NOISE**: `prop:noise_dimensions` — property ENUM
 - **UVALONGSTROKE**: `prop:use_tips` — property BOOLEAN
 - **UVMAP**: `prop:from_instancer` — property BOOLEAN
-- **VALTORGB**: `input:Factor`
 - **CURVE_VEC**: `input:Factor` — no handler in addon translation layer
 - **CURVE_VEC**: `input:Vector` — no handler in addon translation layer
 - **VECTOR_DISPLACEMENT**: `input:Vector` — no handler in addon translation layer
@@ -547,9 +492,9 @@ These features are silently ignored by the addon with no warning:
 | BEVEL | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
 | BEVEL | prop:samples | DROPPED-SILENT | property INT |
 | BLACKBODY | input:Temperature | SUPPORTED |  |
-| BRIGHTCONTRAST | input:Color | SUPPORTED |  |
-| BRIGHTCONTRAST | input:Brightness | DROPPED-SILENT |  |
-| BRIGHTCONTRAST | input:Contrast | SUPPORTED |  |
+| BRIGHTCONTRAST | input:Color | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| BRIGHTCONTRAST | input:Brightness | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| BRIGHTCONTRAST | input:Contrast | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | BSDF_GLOSSY | input:Color | SUPPORTED |  |
 | BSDF_GLOSSY | input:Roughness | SUPPORTED |  |
 | BSDF_GLOSSY | input:Anisotropy | DROPPED-SILENT |  |
@@ -570,31 +515,31 @@ These features are silently ignored by the addon with no warning:
 | BSDF_GLASS | input:Thin Film Thickness | DROPPED-SILENT |  |
 | BSDF_GLASS | input:Thin Film IOR | DROPPED-SILENT |  |
 | BSDF_GLASS | prop:distribution | DROPPED-SILENT | property ENUM |
-| BSDF_HAIR | input:Color | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR | input:Offset | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR | input:RoughnessU | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR | input:RoughnessV | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR | input:Tangent | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR | input:Weight | DROPPED-SILENT | no handler in addon translation layer |
+| BSDF_HAIR | input:Color | DROPPED-SILENT |  |
+| BSDF_HAIR | input:Offset | DROPPED-SILENT |  |
+| BSDF_HAIR | input:RoughnessU | DROPPED-SILENT |  |
+| BSDF_HAIR | input:RoughnessV | DROPPED-SILENT |  |
+| BSDF_HAIR | input:Tangent | DROPPED-SILENT |  |
+| BSDF_HAIR | input:Weight | DROPPED-SILENT |  |
 | BSDF_HAIR | prop:component | DROPPED-SILENT | property ENUM |
-| BSDF_HAIR_PRINCIPLED | input:Color | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Melanin | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Melanin Redness | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Tint | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Absorption Coefficient | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Aspect Ratio | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Roughness | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Radial Roughness | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Coat | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:IOR | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Offset | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Random Color | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Random Roughness | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Random | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Weight | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Reflection | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Transmission | DROPPED-SILENT | no handler in addon translation layer |
-| BSDF_HAIR_PRINCIPLED | input:Secondary Reflection | DROPPED-SILENT | no handler in addon translation layer |
+| BSDF_HAIR_PRINCIPLED | input:Color | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Melanin | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Melanin Redness | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Tint | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Absorption Coefficient | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Aspect Ratio | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Roughness | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Radial Roughness | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Coat | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:IOR | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Offset | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Random Color | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Random Roughness | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Random | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Weight | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Reflection | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Transmission | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Secondary Reflection | DROPPED-SILENT |  |
 | BSDF_HAIR_PRINCIPLED | prop:model | DROPPED-SILENT | property ENUM |
 | BSDF_HAIR_PRINCIPLED | prop:parametrization | DROPPED-SILENT | property ENUM |
 | BSDF_METALLIC | input:Base Color | DROPPED-SILENT |  |
@@ -611,35 +556,36 @@ These features are silently ignored by the addon with no warning:
 | BSDF_METALLIC | input:Thin Film IOR | DROPPED-SILENT |  |
 | BSDF_METALLIC | prop:distribution | DROPPED-SILENT | property ENUM |
 | BSDF_METALLIC | prop:fresnel_type | DROPPED-SILENT | property ENUM |
-| BSDF_PRINCIPLED | input:Base Color | SUPPORTED |  |
-| BSDF_PRINCIPLED | input:Metallic | SUPPORTED |  |
-| BSDF_PRINCIPLED | input:Roughness | SUPPORTED |  |
-| BSDF_PRINCIPLED | input:IOR | SUPPORTED |  |
+| BSDF_PRINCIPLED | input:Base Color | APPROXIMATED |  |
+| BSDF_PRINCIPLED | input:Metallic | APPROXIMATED |  |
+| BSDF_PRINCIPLED | input:Roughness | APPROXIMATED |  |
+| BSDF_PRINCIPLED | input:IOR | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Alpha | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Normal | SUPPORTED |  |
+| BSDF_PRINCIPLED | input:Thin Wall | DROPPED-SILENT |  |
+| BSDF_PRINCIPLED | input:Normal | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Weight | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Diffuse Roughness | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Subsurface Weight | SUPPORTED |  |
+| BSDF_PRINCIPLED | input:Subsurface Weight | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Subsurface Radius | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Subsurface Scale | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Subsurface IOR | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Subsurface Anisotropy | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Specular IOR Level | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Specular Tint | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Anisotropic | SUPPORTED |  |
+| BSDF_PRINCIPLED | input:Anisotropic | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Anisotropic Rotation | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Tangent | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Transmission Weight | SUPPORTED |  |
-| BSDF_PRINCIPLED | input:Coat Weight | SUPPORTED |  |
-| BSDF_PRINCIPLED | input:Coat Roughness | SUPPORTED |  |
+| BSDF_PRINCIPLED | input:Transmission Weight | APPROXIMATED |  |
+| BSDF_PRINCIPLED | input:Coat Weight | APPROXIMATED |  |
+| BSDF_PRINCIPLED | input:Coat Roughness | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Coat IOR | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Coat Tint | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Coat Normal | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Sheen Weight | SUPPORTED |  |
+| BSDF_PRINCIPLED | input:Sheen Weight | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Sheen Roughness | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Sheen Tint | DROPPED-SILENT |  |
-| BSDF_PRINCIPLED | input:Emission Color | SUPPORTED |  |
-| BSDF_PRINCIPLED | input:Emission Strength | SUPPORTED |  |
+| BSDF_PRINCIPLED | input:Emission Color | APPROXIMATED |  |
+| BSDF_PRINCIPLED | input:Emission Strength | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Thin Film Thickness | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | input:Thin Film IOR | DROPPED-SILENT |  |
 | BSDF_PRINCIPLED | prop:distribution | DROPPED-SILENT | property ENUM |
@@ -670,19 +616,19 @@ These features are silently ignored by the addon with no warning:
 | BSDF_TRANSLUCENT | input:Weight | DROPPED-SILENT |  |
 | BSDF_TRANSPARENT | input:Color | SUPPORTED |  |
 | BSDF_TRANSPARENT | input:Weight | DROPPED-SILENT |  |
-| BUMP | input:Strength | DROPPED-SILENT | no handler in addon translation layer |
-| BUMP | input:Distance | DROPPED-SILENT | no handler in addon translation layer |
-| BUMP | input:Filter Width | DROPPED-SILENT | no handler in addon translation layer |
-| BUMP | input:Height | DROPPED-SILENT | no handler in addon translation layer |
-| BUMP | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
+| BUMP | input:Strength | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| BUMP | input:Distance | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| BUMP | input:Filter Width | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| BUMP | input:Height | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| BUMP | input:Normal | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | BUMP | prop:invert | DROPPED-SILENT | property BOOLEAN |
 | CLAMP | input:Value | DROPPED-SILENT | no handler in addon translation layer |
 | CLAMP | input:Min | DROPPED-SILENT | no handler in addon translation layer |
 | CLAMP | input:Max | DROPPED-SILENT | no handler in addon translation layer |
 | CLAMP | prop:clamp_type | DROPPED-SILENT | property ENUM |
-| COMBINE_COLOR | input:Red | DROPPED-SILENT | no handler in addon translation layer |
-| COMBINE_COLOR | input:Green | DROPPED-SILENT | no handler in addon translation layer |
-| COMBINE_COLOR | input:Blue | DROPPED-SILENT | no handler in addon translation layer |
+| COMBINE_COLOR | input:Red | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| COMBINE_COLOR | input:Green | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| COMBINE_COLOR | input:Blue | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | COMBINE_COLOR | prop:mode | DROPPED-SILENT | property ENUM |
 | COMBXYZ | input:X | DROPPED-SILENT | no handler in addon translation layer |
 | COMBXYZ | input:Y | DROPPED-SILENT | no handler in addon translation layer |
@@ -709,63 +655,63 @@ These features are silently ignored by the addon with no warning:
 | CURVE_FLOAT | input:Value | DROPPED-SILENT | no handler in addon translation layer |
 | FRESNEL | input:IOR | DROPPED-SILENT | no handler in addon translation layer |
 | FRESNEL | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
-| GAMMA | input:Color | SUPPORTED |  |
-| GAMMA | input:Gamma | SUPPORTED |  |
+| GAMMA | input:Color | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| GAMMA | input:Gamma | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | HOLDOUT | input:Weight | DROPPED-SILENT | no handler in addon translation layer |
-| HUE_SAT | input:Hue | SUPPORTED |  |
-| HUE_SAT | input:Saturation | SUPPORTED |  |
-| HUE_SAT | input:Value | SUPPORTED |  |
-| HUE_SAT | input:Factor | DROPPED-SILENT |  |
-| HUE_SAT | input:Color | SUPPORTED |  |
-| INVERT | input:Factor | DROPPED-SILENT |  |
-| INVERT | input:Color | SUPPORTED |  |
+| HUE_SAT | input:Hue | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| HUE_SAT | input:Saturation | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| HUE_SAT | input:Value | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| HUE_SAT | input:Factor | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| HUE_SAT | input:Color | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| INVERT | input:Factor | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| INVERT | input:Color | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | LAYER_WEIGHT | input:Blend | DROPPED-SILENT | no handler in addon translation layer |
 | LAYER_WEIGHT | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
 | LIGHT_FALLOFF | input:Strength | DROPPED-SILENT | no handler in addon translation layer |
 | LIGHT_FALLOFF | input:Smooth | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:Value | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:From Min | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:From Max | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:To Min | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:To Max | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:Steps | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:From Min | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:From Max | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:To Min | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:To Max | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:Steps | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:Value | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MAP_RANGE | input:From Min | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MAP_RANGE | input:From Max | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MAP_RANGE | input:To Min | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MAP_RANGE | input:To Max | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MAP_RANGE | input:Steps | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MAP_RANGE | input:Vector | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MAP_RANGE | input:From Min | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MAP_RANGE | input:From Max | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MAP_RANGE | input:To Min | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MAP_RANGE | input:To Max | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MAP_RANGE | input:Steps | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | MAP_RANGE | prop:clamp | DROPPED-SILENT | property BOOLEAN |
 | MAP_RANGE | prop:data_type | DROPPED-SILENT | property ENUM |
 | MAP_RANGE | prop:interpolation_type | DROPPED-SILENT | property ENUM |
-| MAPPING | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
-| MAPPING | input:Location | DROPPED-SILENT | no handler in addon translation layer |
-| MAPPING | input:Rotation | DROPPED-SILENT | no handler in addon translation layer |
-| MAPPING | input:Scale | DROPPED-SILENT | no handler in addon translation layer |
+| MAPPING | input:Vector | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MAPPING | input:Location | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MAPPING | input:Rotation | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MAPPING | input:Scale | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | MAPPING | prop:vector_type | DROPPED-SILENT | property ENUM |
-| MATH | input:Value | DROPPED-SILENT | no handler in addon translation layer |
-| MATH | input:Value | DROPPED-SILENT | no handler in addon translation layer |
-| MATH | input:Value | DROPPED-SILENT | no handler in addon translation layer |
+| MATH | input:Value | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MATH | input:Value | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MATH | input:Value | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | MATH | prop:operation | DROPPED-SILENT | property ENUM |
 | MATH | prop:use_clamp | DROPPED-SILENT | property BOOLEAN |
-| MIX | input:Factor | DROPPED-SILENT |  |
-| MIX | input:Factor | DROPPED-SILENT |  |
-| MIX | input:A | DROPPED-SILENT |  |
-| MIX | input:B | DROPPED-SILENT |  |
-| MIX | input:A | DROPPED-SILENT |  |
-| MIX | input:B | DROPPED-SILENT |  |
-| MIX | input:A | DROPPED-SILENT |  |
-| MIX | input:B | DROPPED-SILENT |  |
-| MIX | input:A | DROPPED-SILENT |  |
-| MIX | input:B | DROPPED-SILENT |  |
+| MIX | input:Factor | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MIX | input:Factor | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MIX | input:A | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MIX | input:B | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MIX | input:A | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MIX | input:B | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MIX | input:A | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MIX | input:B | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MIX | input:A | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MIX | input:B | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | MIX | prop:blend_type | SUPPORTED |  |
 | MIX | prop:clamp_factor | DROPPED-SILENT | property BOOLEAN |
 | MIX | prop:clamp_result | DROPPED-SILENT | property BOOLEAN |
 | MIX | prop:data_type | DROPPED-SILENT | property ENUM |
 | MIX | prop:factor_mode | DROPPED-SILENT | property ENUM |
-| MIX_RGB | input:Factor | DROPPED-SILENT |  |
-| MIX_RGB | input:Color1 | DROPPED-SILENT |  |
-| MIX_RGB | input:Color2 | DROPPED-SILENT |  |
+| MIX_RGB | input:Factor | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MIX_RGB | input:Color1 | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| MIX_RGB | input:Color2 | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | MIX_RGB | prop:blend_type | SUPPORTED |  |
 | MIX_RGB | prop:use_alpha | DROPPED-SILENT | property BOOLEAN |
 | MIX_RGB | prop:use_clamp | DROPPED-SILENT | property BOOLEAN |
@@ -773,8 +719,8 @@ These features are silently ignored by the addon with no warning:
 | MIX_SHADER | input:Shader | DROPPED-SILENT |  |
 | MIX_SHADER | input:Shader | DROPPED-SILENT |  |
 | NORMAL | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
-| NORMAL_MAP | input:Strength | DROPPED-SILENT | no handler in addon translation layer |
-| NORMAL_MAP | input:Color | DROPPED-SILENT | no handler in addon translation layer |
+| NORMAL_MAP | input:Strength | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
+| NORMAL_MAP | input:Color | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | NORMAL_MAP | prop:base | DROPPED-SILENT | property ENUM |
 | NORMAL_MAP | prop:convention | DROPPED-SILENT | property ENUM |
 | NORMAL_MAP | prop:space | DROPPED-SILENT | property ENUM |
@@ -812,10 +758,12 @@ These features are silently ignored by the addon with no warning:
 | MATERIAL_RAYCAST | input:Position | DROPPED-SILENT | no handler in addon translation layer |
 | MATERIAL_RAYCAST | input:Direction | DROPPED-SILENT | no handler in addon translation layer |
 | MATERIAL_RAYCAST | input:Length | DROPPED-SILENT | no handler in addon translation layer |
+| MATERIAL_RAYCAST | input: | DROPPED-SILENT | no handler in addon translation layer |
+| MATERIAL_RAYCAST | prop:active_index | DROPPED-SILENT | property INT |
 | MATERIAL_RAYCAST | prop:only_local | DROPPED-SILENT | property BOOLEAN |
 | SCRIPT | prop:mode | DROPPED-SILENT | property ENUM |
 | SCRIPT | prop:use_auto_update | DROPPED-SILENT | property BOOLEAN |
-| SEPARATE_COLOR | input:Color | DROPPED-SILENT | no handler in addon translation layer |
+| SEPARATE_COLOR | input:Color | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | SEPARATE_COLOR | prop:mode | DROPPED-SILENT | property ENUM |
 | SEPXYZ | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
 | SHADERTORGB | input:Shader | DROPPED-SILENT | no handler in addon translation layer |
@@ -867,7 +815,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_IES | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
 | TEX_IES | input:Strength | DROPPED-SILENT | no handler in addon translation layer |
 | TEX_IES | prop:mode | DROPPED-SILENT | property ENUM |
-| TEX_IMAGE | input:Vector | DROPPED-SILENT |  |
+| TEX_IMAGE | input:Vector | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | TEX_IMAGE | prop:extension | DROPPED-SILENT | property ENUM |
 | TEX_IMAGE | prop:interpolation | DROPPED-SILENT | property ENUM |
 | TEX_IMAGE | prop:projection | DROPPED-SILENT | property ENUM |
@@ -931,7 +879,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_WHITE_NOISE | prop:noise_dimensions | DROPPED-SILENT | property ENUM |
 | UVALONGSTROKE | prop:use_tips | DROPPED-SILENT | property BOOLEAN |
 | UVMAP | prop:from_instancer | DROPPED-SILENT | property BOOLEAN |
-| VALTORGB | input:Factor | DROPPED-SILENT |  |
+| VALTORGB | input:Factor | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | CURVE_VEC | input:Factor | DROPPED-SILENT | no handler in addon translation layer |
 | CURVE_VEC | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
 | VECTOR_DISPLACEMENT | input:Vector | DROPPED-SILENT | no handler in addon translation layer |

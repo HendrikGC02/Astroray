@@ -109,18 +109,20 @@ render progressive-refinement fps). **All features being built should be
 astrophysical pipeline will need from them (volumes for nebulae, curves for
 filaments, spectral for emission lines).
 
-**Current active queue (2026-09-03):** the hair arc is the live thread —
-**pkg225-S1** (CPU ray-curve intersection, #670) + **pkg225-S2** (CPU Principled
-Hair BSDF, Chiang 2016, #673) LANDED and visually verified; **pkg225-S3** (GPU
-curve geometry, #676) landing; **NEXT = pkg225-S4** (GPU hair BSDF; design
-pinned, needs S3's `hit_hair_v` SoA lane first). Also landed this session:
-**pkg219d** scalar parameter textures both backends (#674); **pkg210** SUPERSEDED
-(premise stale) and **pkg180** systemic-Cycles-dim CLOSED (not reproducible).
-Queued behind hair, all with **detailed specs landed from web-verified research**
-(2026-09-03): **pkg127** (Specular Polynomials SMS-seed upgrade — spec #679, the
-highest-value bounded caustics upgrade, ready to dispatch), **pkg211** (per-bounce
-spectral MIS — spec #677, prototype-first / park-eligible), **pkg136** (SD-tree
-path guiding — spec #678, renamed from "SVO"), long-tail pkg126/130/132/134/137.
+**Current active queue (2026-09-05):** pkg225 hair rendering is complete through
+S6 (PRs #670, #673, #676, #681–#684). pkg127 Phase 1 is landed (#685), pkg229's
+coverage re-audit is landed (spec #692 + re-audit #695), and pkg136 CPU Stage 1
+(1A+1B) is landed (#693/#694). **pkg136's ≥2× variance campaign is CONCLUDED, not
+pending:** ≥2× is a scene-physics ceiling in a real NEE integrator (the de-risked
+110× prototype had no NEE), not a bug — the campaign instead found and fixed a
+real architectural bug (discarded training samples: 3× ray waste + a high-α dark
+bias) and delivered a genuine ~1.3× equal-cost win on the hard-transport slot
+scene (#694). **NEXT = the pkg229 next-wave op-VM utility cluster** (Vector Math /
+Clamp / MATH+MIX clamp flags / Vector Rotate — small opcode additions on the
+existing evaluator, best ROI), followed by the owner's choice of pkg127 Phase 2,
+Principled advanced-inputs (highest-value single node, L), pkg211's
+prototype-first/park path, or pkg136's GPU leg. pkg219d scalar parameter textures
+remain landed (#674); pkg210 is SUPERSEDED and pkg180 CLOSED.
 The exact dispatch order is an architect decision per round.
 
 **Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU

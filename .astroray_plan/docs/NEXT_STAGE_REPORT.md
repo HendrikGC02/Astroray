@@ -1,6 +1,14 @@
 # Astroray Next Stage Report
 
-## 2026-09-03 SESSION HANDOFF — 8 packages landed/resolved; NEXT = architect re-vet (overnight queue exhausted)
+## 2026-09-05 LIVE HANDOFF — reconciled with `origin/main` (`6795fc9`)
+
+The earlier 2026-09-03 handoff below is historical. Since then, pkg225-S3/S4/S5/S6
+landed (#676, #681–#684), pkg127 Phase 1 landed (#685), pkg229 landed (#692), and
+pkg136 CPU Stage 1A/1B landed (#693/#694). The immediate measurable follow-up is
+the pkg136 variance campaign (the ≥2× improvement gate is still pending); the
+owner then selects pkg127 Phase 2, pkg211's prototype, or pkg136's GPU leg.
+
+## 2026-09-03 SESSION HANDOFF — 8 packages landed/resolved; NEXT = architect re-vet (historical)
 
 **This session's landings (5 code PRs + 3 resolutions/docs):**
 - **pkg225-S1 — hair ray-curve intersection, LANDED** (PR #670). The 2026-08-31

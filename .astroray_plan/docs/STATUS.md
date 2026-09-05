@@ -1,9 +1,9 @@
 # Astroray Status
 
-**2026-09-03 (SESSION — 8 packages merged/resolved + pkg225-S3 in final CI):
-the hair pipeline advanced CPU→GPU (S1 ray-curve intersection, S2 Principled
-Hair BSDF, S3 GPU curve geometry), scalar parameter textures shipped both
-backends, and two stale/ghost items were retired.**
+**2026-09-05 (LIVE RECONCILIATION — verified against `origin/main` at
+`6795fc9` and merged PRs #676, #681–#685, #692–#694): pkg225 hair is complete
+through the Blender addon; pkg127 Phase 1 and pkg136 CPU Stage 1A/1B are
+landed; pkg229's coverage re-audit is landed.**
 - **pkg225-S1 — CPU ray-curve (hair) intersection — LANDED** (PR #670). The
   prior handoff's "bug in curves.h" diagnosis was WRONG: a standalone native
   harness proved the pbrt-ported primitive hits correctly (t / position /
@@ -18,7 +18,7 @@ backends, and two stale/ghost items were retired.**
   coat→R-roughness). 9/9 gates (energy ρ≤1 across β_m, absorption, colour,
   spectral render smoke). cite-algorithm research note `docs/pkg225-hair-bsdf-
   research.md` (PR #672).
-- **pkg225-S3 — GPU curve geometry — IN FINAL CI** (PR #676). Curves render on
+- **pkg225-S3 — GPU curve geometry — LANDED** (PR #676, merged 2026-09-03). Curves render on
   the GPU wavefront as a `GPRIM_CURVE` BVH leaf (`gpu_curve_intersect.cuh`,
   iterative de Casteljau, ribbon default / thick swept-circle). **Register
   isolation via `template<bool HasCurves>`:** the curve leaf raised the universal
@@ -26,8 +26,12 @@ backends, and two stale/ghost items were retired.**
   — non-curve `<…,false>` kernels re-measured byte-identical (intersect 127/616,
   N3 61/272, shadow 108/584, fleet shade 254/3368/1716); only curve scenes launch
   `<…,true>` (158). GPU↔CPU curve parity + 25 regression tests pass; cpp-abi-guard
-  APPROVE. (Stage-4 dependency noted: `hairV` is set in the curve leaf but not yet
-  persisted to the SoA hit buffers — S4 needs a `hit_hair_v` lane.)
+  APPROVE. The `hit_hair_v` SoA lane was added by S4.
+- **pkg225-S4/S5/S6 — LANDED** (PRs #681–#684, merged 2026-09-03/04): GPU
+  Principled Hair BSDF, CPU spectral melanin absorption, and Blender Curves /
+  Principled Hair addon integration; the S6 multiwavelength NEE regression was
+  fixed in #684. The pkg225 package is complete across CPU, GPU, spectral, and
+  addon paths.
 - **pkg219d — scalar parameter textures (op-VM → roughness/metallic/transmission/
   IOR) — LANDED** (PR #674). Extends the `c_wfProgBinding` `__constant__` side-
   table + CPU `DisneyPlugin::substituted()`. Register gate byte-identical (fleet
@@ -46,11 +50,10 @@ backends, and two stale/ghost items were retired.**
   checks — pkg225-S1 (native harness) and pkg210 (grep sweep) — avoiding wasted
   register-hostile rebuilds. Registers: fleet `stageShadeBucketedKernel
   <0,0,0,0,0,0,0>` stays REG:254/STACK:3368/CONSTANT[0]:1716 through all of it.
-- **NEXT:** pkg225 S4 (GPU hair BSDF, design pinned, needs the S3 `hit_hair_v`
-  SoA lane first) → S5/S6. Detailed specs LANDED for pkg127 (Specular Polynomials
-  SMS-seed, #679), pkg211 (per-bounce spectral MIS, #677, park-eligible), pkg136
-  (SD-tree path guiding, #678) — web-verified deepseek research → Opus specs, all
-  merged. Full handoff: NEXT_STAGE_REPORT.md.
+- **NEXT:** pkg136 Stage 1 variance campaign (the CPU SD-tree integration is
+  landed in PRs #693/#694; the ≥2× win gate remains pending), then the owner
+  chooses among pkg127 Phase 2, pkg211's prototype-first/park path, and the
+  pkg136 GPU leg. pkg229 coverage re-audit is landed in #692.
 
 ---
 

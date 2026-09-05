@@ -2,9 +2,12 @@
 
 **Pillar:** 3 (light transport / variance reduction)
 **Track:** A (Stage 1 is a CPU-verifiable SD-tree build + guided-sampling gate on CI; Stage 2 wavefront leg verified on RTX)
-**Status:** open — spec rewritten 2026-09-03 from the web-verified research note
-(`.astroray_plan/docs/pkg136-svo-path-guiding-research.md`). No guiding code in the
-repo; supersedes the 2026-07 sketch (PR #492).
+**Status:** Stage 1A/1B LANDED (PRs #693/#694, merged 2026-09-04/05). The CPU
+SD-tree structures and path-tracer integration are in `origin/main`; the ≥2×
+variance-win acceptance gate remains pending. Stage 2 (GPU wavefront leg) is
+open. Spec rewritten 2026-09-03 from the web-verified research note
+(`.astroray_plan/docs/pkg136-svo-path-guiding-research.md`), superseding the
+2026-07 sketch (PR #492).
 **Estimated effort:** L overall (Stage 1 CPU: M, 2–3 sessions; Stage 2 GPU: L, a
 dedicated guiding stage + between-iteration build — a multi-session architectural leg).
 **Depends on:** pkg55 Phase C (the wavefront is the only GPU pipeline — a moving

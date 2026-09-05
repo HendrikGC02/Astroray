@@ -3,9 +3,12 @@
 **Pillar:** 3 (light transport / variance reduction)
 **Track:** A (Stage 1 is a CPU-verifiable SD-tree build + guided-sampling gate on CI; Stage 2 wavefront leg verified on RTX)
 **Status:** Stage 1A/1B LANDED (PRs #693/#694, merged 2026-09-04/05). The CPU
-SD-tree structures and path-tracer integration are in `origin/main`; the ≥2×
-variance-win acceptance gate remains pending. Stage 2 (GPU wavefront leg) is
-open. Spec rewritten 2026-09-03 from the web-verified research note
+SD-tree structures and path-tracer integration are in `origin/main`. **The ≥2×
+variance-win acceptance gate is CONCLUDED as a scene-physics ceiling, not a bug**
+(the de-risked 110× prototype had no NEE; a real NEE integrator caps the residual-
+indirect win — see the 1B Progress note + `.astroray_plan/docs/pkg136-stage1b-
+findings.md`); #694 instead fixed a real discarded-training-samples bug and shipped
+a genuine ~1.3× equal-cost win. Stage 2 (GPU wavefront leg) is open. Spec rewritten 2026-09-03 from the web-verified research note
 (`.astroray_plan/docs/pkg136-svo-path-guiding-research.md`), superseding the
 2026-07 sketch (PR #492).
 **Estimated effort:** L overall (Stage 1 CPU: M, 2–3 sessions; Stage 2 GPU: L, a
@@ -357,8 +360,9 @@ reduction on indirect-heavy scenes.
 
 - [ ] Stage 0 — `cite-algorithm` note + license decision (OpenPGL Apache-2.0 structural
       ref; clean-room PPG port).
-- [~] Stage 1A — host `SDTree` build/refine + iteration driver (learn-then-sample,
-      inverse-variance combination, filtered splatting).
+- [x] Stage 1A — host `SDTree` build/refine + iteration driver (learn-then-sample,
+      inverse-variance combination, filtered splatting). **COMPLETE** — the
+      remaining spatial binary tree + iteration driver landed with 1B (#694).
       **Directional quadtree `astroray::guiding::DTree` LANDED 2026-09-05**
       (`include/astroray/guiding/dtree.h`): equal-area cylindrical map (full
       sphere, jacobian 4π) + splat/refine/reset + hierarchical-warp sample/pdf +
@@ -375,7 +379,7 @@ reduction on indirect-heavy scenes.
       (MIS), not BSDF-only** (else the hard region is undersampled → zero-support
       holes → bias, worse with finer trees). Refine-before-final-splat; splat
       radiance `Li/pdf`; equal-area map jac 2π. Spatial-tree half still to de-risk.
-- [~] Stage 1B — CPU guided sampling + guide/BSDF MIS in `pathTraceSpectral`.
+- [x] Stage 1B — CPU guided sampling + guide/BSDF MIS in `pathTraceSpectral`.
       **Integration LANDED 2026-09-05** (raytracer.h): full-`SDTree` spatial tree
       + learn-then-sample training-pass driver in `Renderer::render` (deferred
       per-thread record splatting, no atomics) + guide/BSDF one-sample MIS at the
@@ -383,13 +387,23 @@ reduction on indirect-heavy scenes.
       byte-identical; runtime-tunable via `set_guiding_params(...)`; `guide_probe`
       / `get_guide_debug` for diagnosis. Gates (`tests/test_pkg136_guiding_render.py`):
       **unbiased ✓, no-harm-when-off ✓, guide-concentrates-correctly ✓**.
-      **The ≥2× variance-reduction gate is NOT yet met (xfail):** the integration
-      is correct/unbiased/probe-verified but *basic radiance guiding is ~break-even*
-      on the scenes tried (worse on firefly-heavy ones). Root causes + the path to
-      a real win (product guiding, filtered splatting, guide/NEE MIS handling,
-      benchmark-scene design) are in
-      `.astroray_plan/docs/pkg136-stage1b-findings.md`. **Remaining 1B = that
-      effectiveness work.**
+      **The ≥2× variance-reduction gate is CONCLUDED as a scene-physics ceiling,
+      not a bug (#694):** the de-risked 110× prototype was measured *without* NEE
+      (guiding captured the entire direct-light spike); a real integrator with NEE
+      leaves guiding only the residual-indirect variance — capped ~1.3× on diffuse
+      (oracle bound) and unlearnable-by-coarse-guide on genuinely hard scenes.
+      **Confirmed NOT bugs** (do not re-investigate): DTree/SDTree warp is
+      measure-consistent (2D-histogram vs `pdf()` ratio 1.00), `E[1/pdf] = |support|`
+      (≠ 1 — misread as a bug twice), and the MIS legs are measure-consistent.
+      **The real bug fixed in #694:** the training passes cast `K·trainSpp`
+      full unbiased samples/pixel then DISCARDED them — 3× ray waste + a high-α
+      dark bias (clamped fireflies). Folding them into the image (equal-weight,
+      Σpasses==beauty preserved, guiding-off byte-identical) removed the waste and
+      the bias and delivered a genuine **~1.3× equal-cost win on the hard-transport
+      slot scene**; moderate/veach ≤1×. Full triangulated diagnosis (corroborated
+      by an independent glm-5.1 review): `.astroray_plan/docs/pkg136-stage1b-
+      findings.md`. **Any future ≥2× would need product guiding + guide/NEE MIS on
+      purpose-built hard scenes — a separate spec, not "remaining 1B".**
 - [ ] Stage 2A — device directional side-table + gated `__noinline__` guided draw;
       fleet-kernel byte-identical probe.
 - [ ] Stage 2B — between-iteration build (copy-back first), CPU↔GPU parity, RTX
@@ -399,4 +413,25 @@ reduction on indirect-heavy scenes.
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+*(Stage 1 CPU; Stage 2 pending.)*
+
+- **De-risk prototypes must match the shipping integrator's variance sources.**
+  The 110× Stage-1 de-risk had no NEE, so guiding absorbed the direct-light spike
+  that the real renderer's NEE already handles. That single mismatch made ≥2×
+  look reachable when it is a scene-physics ceiling. Pin the prototype's transport
+  assumptions to the target integrator *before* setting an acceptance threshold.
+- **`E[1/pdf] = |support|`, not 1** — for a peaked/partial-support warp this is a
+  correctness invariant, not a bug. It was misread as a broken sampler twice in
+  this package; verify a warp with a 2D-histogram-vs-`pdf()` ratio (should be 1.00)
+  before touching the sampler.
+- **A "correct + unbiased + probe-verified" integration can still be net-negative**
+  if it wastes samples elsewhere. The real defect here wasn't the guide — it was
+  training passes cast as full unbiased path traces and then discarded (3× ray
+  waste + a high-α dark bias from clamped fireflies). Fold training work into the
+  image (equal-weight, Σpasses==beauty preserved, off-path byte-identical) instead.
+- **Second-model reviews stall reading `raytracer.h`** (memory
+  [[delegate-tier-stalls-on-hard-packages]]): the glm-5.1 critic timed out at 900s
+  burning budget on the file, but its analysis was recoverable from the delegate
+  transcript JSONL and independently corroborated the ceiling + the 1/(1−α)
+  undercover penalty. Give hard-physics workers inline snippets, never "read the
+  header."

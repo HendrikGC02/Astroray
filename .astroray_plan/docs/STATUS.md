@@ -1,7 +1,7 @@
 # Astroray Status
 
 **2026-09-05 (LIVE RECONCILIATION — verified against `origin/main` at
-`6795fc9` and merged PRs #676, #681–#685, #692–#694): pkg225 hair is complete
+`a898f1b` and merged PRs #676, #681–#685, #692–#695): pkg225 hair is complete
 through the Blender addon; pkg127 Phase 1 and pkg136 CPU Stage 1A/1B are
 landed; pkg229's coverage re-audit is landed.**
 - **pkg225-S1 — CPU ray-curve (hair) intersection — LANDED** (PR #670). The

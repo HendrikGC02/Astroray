@@ -224,3 +224,5 @@ Astroray targets MIT (or Apache 2.0). Compatible:
   only. GYOTO, GRay2, CLOUDY fall here.
 
 When in doubt, ask before adding a dependency.
+
+- Cycles Blender v5.1.0 vector math, Vector Rotate and Mix factor semantics (Apache-2.0), pinned at adfe2921d5f3: [pkg230 Phase 2 research](pkg230-phase2-vector-semantics-research.md).

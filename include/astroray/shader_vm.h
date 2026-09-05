@@ -60,6 +60,10 @@ enum OpCode : unsigned char {
     OP_RGB_TO_BW  = 13, // reg[out] = luma(col=a).broadcast        svm/convert.h
     // pkg230 — utility opcodes.
     OP_CLAMP      = 14, // reg[out].x = clamp(imm=type, v=a.x, min=b.x, max=c.x) svm/clamp
+    // pkg230 Phase 2 — vector opcodes (Cycles svm/math_util.h + svm/vector_rotate.h).
+    OP_VEC_MATH   = 15, // reg[out] = vec_math(imm=op, a, b, c, scale=d.x)  svm/math_util.h
+    OP_VEC_ROTATE = 16, // reg[out] = vec_rotate(imm=type|invert, a=vec, b=center,
+                        //                      c=axis|rotation, d=angle) svm/vector_rotate.h
 };
 
 // pkg230 — Clamp node type (Cycles NodeClampType, svm_clamp / node_clamp.osl).
@@ -72,6 +76,15 @@ enum ClampType : unsigned char { CLAMP_MINMAX = 0, CLAMP_RANGE = 1 };
 // The addon compiler sets these bits; both sides MUST agree.
 static const unsigned char SVM_MATH_CLAMP        = 0x80u; // OP_MATH: clamp result to [0,1]
 static const unsigned char SVM_MIX_CLAMP_RESULT  = 0x80u; // OP_MIX:  clamp result to [0,1]
+// pkg230 Phase 2 — negative-polarity Mix factor flag (bit 6 = SKIP the factor
+// saturation svm_mix otherwise applies). Existing/default bytecode keeps the bit
+// clear and saturates the factor EXACTLY as before (legacy MixRGB + modern Mix
+// clamp_factor=true); modern clamp_factor=false sets it. The existing OP_MIX
+// sub-op mask `imm & 0x3F` already excludes this bit (and bit 7 stays CLAMP_RESULT).
+static const unsigned char SVM_MIX_UNCLAMP_FACTOR = 0x40u;
+// pkg230 Phase 2 — Vector Rotate invert bit (packed in OP_VEC_ROTATE imm bit 3,
+// above the low 3 bits carrying VecRotateType). Set = invert the rotation.
+static const unsigned char VEC_ROTATE_INVERT = 0x08u;
 
 // Colour-space enum for Separate/Combine Color (Cycles NodeCombSepColorType).
 // pkg219c ships RGB + HSV (HSL deferred).
@@ -90,6 +103,29 @@ enum MathOp : unsigned char {
 enum MixOp : unsigned char {
     MIX_BLEND = 0, MIX_ADD, MIX_MUL, MIX_SUB, MIX_SCREEN, MIX_DIFF,
     MIX_DARKEN, MIX_LIGHTEN, MIX_OVERLAY,
+};
+
+// Vector Math — 30 operations from Cycles svm/math_util.h. Dot/Distance/Length
+// write a scalar result broadcast across xyz. Values are the addon
+// compiler's own enum (the compiler maps Blender `operation` strings -> these).
+// Adapted from Cycles intern/cycles/kernel/svm/math_util.h, Apache-2.0, commit
+// adfe2921d5f3c0fe699149bcd9bc347543bbd82e.
+enum VecMathOp : unsigned char {
+    VECMATH_ADD = 0, VECMATH_SUBTRACT, VECMATH_MULTIPLY, VECMATH_DIVIDE,
+    VECMATH_CROSS_PRODUCT, VECMATH_PROJECT, VECMATH_REFLECT, VECMATH_REFRACT,
+    VECMATH_FACEFORWARD, VECMATH_MULTIPLY_ADD, VECMATH_DOT_PRODUCT,
+    VECMATH_DISTANCE, VECMATH_LENGTH, VECMATH_SCALE, VECMATH_NORMALIZE,
+    VECMATH_SNAP, VECMATH_ROUND, VECMATH_FLOOR, VECMATH_CEIL, VECMATH_MODULO,
+    VECMATH_WRAP, VECMATH_FRACTION, VECMATH_ABSOLUTE, VECMATH_POWER,
+    VECMATH_SIGN, VECMATH_MINIMUM, VECMATH_MAXIMUM, VECMATH_SINE,
+    VECMATH_COSINE, VECMATH_TANGENT,
+};
+
+// NodeVectorRotateType (Cycles svm/vector_rotate.h) — 5 modes. The op's `imm`
+// low 3 bits carry the type; bit 3 (0x08) is the invert flag.
+enum VecRotateType : unsigned char {
+    VECROT_AXIS_ANGLE = 0, VECROT_X_AXIS, VECROT_Y_AXIS, VECROT_Z_AXIS,
+    VECROT_EULER_XYZ,
 };
 
 // NodeMapRangeType subset (Cycles svm/map_range.h).
@@ -173,9 +209,11 @@ HD inline float svm_math(unsigned char op, float a, float b, float c) {
 }
 
 // ---- colour Mix (Cycles svm/color_util.h svm_mix) --------------------------
-HD inline GVec3 svm_mix(unsigned char op, float t, GVec3 c1, GVec3 c2) {
-    // factor clamp mirrors legacy NODE_MIX (svm_mix_clamped_factor).
-    t = svm_saturatef(t);
+HD inline GVec3 svm_mix(unsigned char op, float t, GVec3 c1, GVec3 c2,
+                        bool unclamp_factor = false) {
+    // factor saturation is the DEFAULT (legacy MixRGB + modern clamp_factor=true);
+    // SVM_MIX_UNCLAMP_FACTOR (pkg230 P2) skips it for modern clamp_factor=false.
+    if (!unclamp_factor) t = svm_saturatef(t);
     float mt = 1.f - t;
     switch (op) {
         case MIX_BLEND:   return c1 * mt + c2 * t;
@@ -331,6 +369,157 @@ HD inline float svm_clamp(unsigned char type, float v, float lo, float hi) {
     return mx < hi ? mx : hi;     // min(max(v,lo), hi)
 }
 
+// ---- Vector Math (pkg230 P2) — Cycles svm/math_util.h svm_vector_math -------
+// Copyright 2011-2022 Blender Foundation. Component-wise helpers mirror Cycles util/math_float3.h + util/math_base.h
+// (Apache-2.0, commit adfe2921d5f3c0fe699149bcd9bc347543bbd82e).
+HD inline GVec3 svm_safe_normalize(GVec3 a) {
+    float t = a.length();
+    return t != 0.f ? a * (1.f / t) : a;   // zero vector stays itself (Cycles safe_normalize)
+}
+HD inline GVec3 svm_safe_divide3(GVec3 a, GVec3 b) {
+    return GVec3(b.x != 0.f ? a.x / b.x : 0.f,
+                 b.y != 0.f ? a.y / b.y : 0.f,
+                 b.z != 0.f ? a.z / b.z : 0.f);
+}
+HD inline GVec3 svm_floor3(GVec3 a) { return GVec3(floorf(a.x), floorf(a.y), floorf(a.z)); }
+HD inline GVec3 svm_ceil3(GVec3 a)  { return GVec3(ceilf(a.x), ceilf(a.y), ceilf(a.z)); }
+HD inline GVec3 svm_fabs3(GVec3 a)  { return GVec3(fabsf(a.x), fabsf(a.y), fabsf(a.z)); }
+HD inline GVec3 svm_sin3(GVec3 a)   { return GVec3(sinf(a.x), sinf(a.y), sinf(a.z)); }
+HD inline GVec3 svm_cos3(GVec3 a)   { return GVec3(cosf(a.x), cosf(a.y), cosf(a.z)); }
+HD inline GVec3 svm_tan3(GVec3 a)   { return GVec3(tanf(a.x), tanf(a.y), tanf(a.z)); }
+HD inline GVec3 svm_safe_fmod3(GVec3 a, GVec3 b) {
+    return GVec3(b.x != 0.f ? fmodf(a.x, b.x) : 0.f,
+                 b.y != 0.f ? fmodf(a.y, b.y) : 0.f,
+                 b.z != 0.f ? fmodf(a.z, b.z) : 0.f);
+}
+HD inline float svm_vec_wrapf(float value, float mx, float mn) {
+    float range = mx - mn;
+    return range != 0.f ? value - range * floorf((value - mn) / range) : mn;
+}
+HD inline GVec3 svm_wrap3(GVec3 value, GVec3 mx, GVec3 mn) {
+    return GVec3(svm_vec_wrapf(value.x, mx.x, mn.x),
+                 svm_vec_wrapf(value.y, mx.y, mn.y),
+                 svm_vec_wrapf(value.z, mx.z, mn.z));
+}
+HD inline float svm_vec_safe_powf(float a, float b) {
+    if (b == 0.f) return 1.f; // Cycles compatible_powf includes 0^0.
+    if (a == 0.f || (a < 0.f && b != floorf(b))) return 0.f;
+    // CUDA powf does not accept a negative base, even for integer exponents.
+    if (a < 0.f) return fmodf(b, 2.f) == 0.f ? powf(-a, b) : -powf(-a, b);
+    return powf(a, b);
+}
+HD inline GVec3 svm_safe_pow3(GVec3 a, GVec3 b) {
+    return GVec3(svm_vec_safe_powf(a.x, b.x), svm_vec_safe_powf(a.y, b.y),
+                 svm_vec_safe_powf(a.z, b.z));
+}
+HD inline GVec3 svm_sign3(GVec3 a) {
+    // Cycles compatible_sign: +1 / -1 / 0 (zero maps to zero).
+    float sx = a.x == 0.f ? 0.f : (a.x < 0.f ? -1.f : 1.f);
+    float sy = a.y == 0.f ? 0.f : (a.y < 0.f ? -1.f : 1.f);
+    float sz = a.z == 0.f ? 0.f : (a.z < 0.f ? -1.f : 1.f);
+    return GVec3(sx, sy, sz);
+}
+HD inline GVec3 svm_project(GVec3 v, GVec3 v_proj) {
+    float len2 = v_proj.length2();
+    return len2 != 0.f ? v_proj * (v.dot(v_proj) / len2) : GVec3(0.f);
+}
+HD inline GVec3 svm_reflect(GVec3 incident, GVec3 unit_normal) {
+    return incident - unit_normal * (2.f * incident.dot(unit_normal));
+}
+HD inline GVec3 svm_refract(GVec3 incident, GVec3 normal, float eta) {
+    float d = normal.dot(incident);
+    float k = 1.f - eta * eta * (1.f - d * d);
+    if (k < 0.f) return GVec3(0.f);   // total internal reflection
+    return incident * eta - normal * (eta * d + sqrtf(k));
+}
+
+HD inline GVec3 svm_vec_math(unsigned char op, GVec3 a, GVec3 b, GVec3 c, float param1) {
+    switch (op) {
+        case VECMATH_ADD:           return a + b;
+        case VECMATH_SUBTRACT:      return a - b;
+        case VECMATH_MULTIPLY:      return a * b;
+        case VECMATH_DIVIDE:        return svm_safe_divide3(a, b);
+        case VECMATH_CROSS_PRODUCT: return a.cross(b);
+        case VECMATH_PROJECT:       return svm_project(a, b);
+        case VECMATH_REFLECT:       return svm_reflect(a, svm_safe_normalize(b));
+        case VECMATH_REFRACT:       return svm_refract(a, svm_safe_normalize(b), param1);
+        case VECMATH_FACEFORWARD:   return c.dot(b) < 0.f ? a : -a;
+        case VECMATH_MULTIPLY_ADD:  return a * b + c;
+        case VECMATH_DOT_PRODUCT:   return GVec3(a.dot(b));
+        case VECMATH_DISTANCE:      return GVec3((a - b).length());
+        case VECMATH_LENGTH:        return GVec3(a.length());
+        case VECMATH_SCALE:         return a * param1;
+        case VECMATH_NORMALIZE:     return svm_safe_normalize(a);
+        case VECMATH_SNAP:          return svm_floor3(svm_safe_divide3(a, b)) * b;
+        case VECMATH_ROUND:         return svm_floor3(a + GVec3(0.5f));
+        case VECMATH_FLOOR:         return svm_floor3(a);
+        case VECMATH_CEIL:          return svm_ceil3(a);
+        case VECMATH_MODULO:        return svm_safe_fmod3(a, b);
+        case VECMATH_WRAP:          return svm_wrap3(a, b, c);
+        case VECMATH_FRACTION:      return a - svm_floor3(a);
+        case VECMATH_ABSOLUTE:      return svm_fabs3(a);
+        case VECMATH_POWER:         return svm_safe_pow3(a, b);
+        case VECMATH_SIGN:          return svm_sign3(a);
+        case VECMATH_MINIMUM:       return gvec3_min(a, b);
+        case VECMATH_MAXIMUM:       return gvec3_max(a, b);
+        case VECMATH_SINE:          return svm_sin3(a);
+        case VECMATH_COSINE:        return svm_cos3(a);
+        case VECMATH_TANGENT:       return svm_tan3(a);
+        default:                    return GVec3(0.f);
+    }
+}
+
+// ---- Vector Rotate (pkg230 P2) — Cycles svm/vector_rotate.h -----------------
+// Copyright 2011-2022 Blender Foundation. Adapted from
+// Cycles intern/cycles/kernel/svm/vector_rotate.h and
+// util/transform.h (Apache-2.0, commit adfe2921d5f3c0fe699149bcd9bc347543bbd82e).
+HD inline GVec3 svm_rotate_around_axis(GVec3 p, GVec3 axis, float angle) {
+    float ct = cosf(angle), st = sinf(angle), u = 1.f - ct;
+    GVec3 r;
+    r.x = (ct + u * axis.x * axis.x) * p.x
+        + (u * axis.x * axis.y - axis.z * st) * p.y
+        + (u * axis.x * axis.z + axis.y * st) * p.z;
+    r.y = (u * axis.x * axis.y + axis.z * st) * p.x
+        + (ct + u * axis.y * axis.y) * p.y
+        + (u * axis.y * axis.z - axis.x * st) * p.z;
+    r.z = (u * axis.x * axis.z - axis.y * st) * p.x
+        + (u * axis.y * axis.z + axis.x * st) * p.y
+        + (ct + u * axis.z * axis.z) * p.z;
+    return r;
+}
+
+HD inline GVec3 svm_vec_rotate(unsigned char type, bool invert, GVec3 vector,
+                               GVec3 center, GVec3 axis_or_rot, float angle) {
+    if (type == VECROT_EULER_XYZ) {
+        // Cycles euler_to_transform (XYZ order) + transform_direction; INVERT uses
+        // transform_direction_transposed (== the rotation inverse), NOT negating
+        // the same-order angles.
+        GVec3 e = axis_or_rot;
+        float cx = cosf(e.x), cy = cosf(e.y), cz = cosf(e.z);
+        float sx = sinf(e.x), sy = sinf(e.y), sz = sinf(e.z);
+        GVec3 v = vector - center;
+        if (invert) {
+            GVec3 c0(cy * cz, cy * sz, -sy);
+            GVec3 c1(sy * sx * cz - cx * sz, sy * sx * sz + cx * cz, cy * sx);
+            GVec3 c2(sy * cx * cz + sx * sz, sy * cx * sz - sx * cz, cy * cx);
+            return GVec3(c0.dot(v), c1.dot(v), c2.dot(v)) + center;
+        }
+        GVec3 r0(cy * cz, sy * sx * cz - cx * sz, sy * cx * cz + sx * sz);
+        GVec3 r1(cy * sz, sy * sx * sz + cx * cz, sy * cx * sz - sx * cz);
+        GVec3 r2(-sy, cy * sx, cy * cx);
+        return GVec3(r0.dot(v), r1.dot(v), r2.dot(v)) + center;
+    }
+    // Axis-angle / single-axis: INVERT negates the angle (not a transpose).
+    GVec3 axis = axis_or_rot;
+    float axis_len = axis.length();
+    if (type == VECROT_X_AXIS)      { axis = GVec3(1.f, 0.f, 0.f); axis_len = 1.f; }
+    else if (type == VECROT_Y_AXIS) { axis = GVec3(0.f, 1.f, 0.f); axis_len = 1.f; }
+    else if (type == VECROT_Z_AXIS) { axis = GVec3(0.f, 0.f, 1.f); axis_len = 1.f; }
+    if (axis_len == 0.f) return vector;   // zero axis -> input unchanged
+    float a = invert ? -angle : angle;
+    return svm_rotate_around_axis(vector - center, axis / axis_len, a) + center;
+}
+
 // ============================================================================
 // The evaluator. Pure, HD, byte-identical CPU<->GPU. `inputs` holds the
 // pre-sampled child-texture RGBs. Returns the program's output slot RGB.
@@ -358,10 +547,11 @@ HD inline GVec3 svm_eval(const ShaderVMProgram& p, const GVec3* inputs) {
                 break;
             }
             case OP_MIX: {
-                // low 6 bits = MixOp; bit 7 = clamp_result (pkg230). The factor is
-                // already saturated inside svm_mix (Blender's default clamp_factor);
-                // faithful clamp_factor=OFF is a Phase-2 item.
-                GVec3 m = svm_mix(in.imm & 0x3Fu, reg[in.a].x, reg[in.b], reg[in.c]);
+                // low 6 bits = MixOp; bit 6 = unclamp_factor (pkg230 P2); bit 7 =
+                // clamp_result (pkg230). The factor is saturated inside svm_mix
+                // unless the unclamp bit is set (modern Mix clamp_factor=false).
+                GVec3 m = svm_mix(in.imm & 0x3Fu, reg[in.a].x, reg[in.b], reg[in.c],
+                                  (in.imm & SVM_MIX_UNCLAMP_FACTOR) != 0);
                 if (in.imm & SVM_MIX_CLAMP_RESULT)
                     m = GVec3(svm_saturatef(m.x), svm_saturatef(m.y), svm_saturatef(m.z));
                 reg[in.out] = m;
@@ -371,6 +561,17 @@ HD inline GVec3 svm_eval(const ShaderVMProgram& p, const GVec3* inputs) {
                 reg[in.out] = GVec3(svm_clamp(in.imm, reg[in.a].x, reg[in.b].x,
                                               reg[in.c].x));
                 break;
+            case OP_VEC_MATH:
+                reg[in.out] = svm_vec_math(in.imm, reg[in.a], reg[in.b], reg[in.c],
+                                           reg[in.d].x);
+                break;
+            case OP_VEC_ROTATE: {
+                unsigned char type = in.imm & 7u;
+                bool invert = (in.imm & 8u) != 0;
+                reg[in.out] = svm_vec_rotate(type, invert, reg[in.a], reg[in.b],
+                                             reg[in.c], reg[in.d].x);
+                break;
+            }
             case OP_RAMP:
                 reg[in.out] = svm_ramp_lookup(p.ramp[in.imm < VM_MAX_RAMPS ? in.imm : 0],
                                               reg[in.a].x);

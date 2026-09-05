@@ -163,10 +163,12 @@ def test_mix_clamp_result():
 
 
 # --------------------------------------------------------------------------- #
-# 5. Mix factor is always saturated (svm_mix = Blender default clamp_factor=ON).
-#    Faithful clamp_factor=OFF is a Phase-2 item.
+# 5. Mix factor is saturated by DEFAULT (modern Mix clamp_factor=True, and legacy
+#    MixRGB always). Unclamped factors (modern clamp_factor=False -> the
+#    SVM_MIX_UNCLAMP_FACTOR bit, pkg230 Phase 2) are covered in
+#    tests/test_pkg230_opvm_vectors.py.
 # --------------------------------------------------------------------------- #
-def test_mix_factor_always_saturated():
+def test_mix_factor_default_clamped():
     tex = Node('TEX_IMAGE')
     mix = Node('MIX', blend_type='MIX',
                inputs=[Sock('Factor', 0.0, Link(tex, 'Color')),

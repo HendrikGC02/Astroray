@@ -2952,7 +2952,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _resolve_vector_input(vector_socket, depth=0, default_coord_mode="UV"):
+    def _resolve_vector_input(vector_socket, depth=0, default_coord_mode="UV",
+                              warn=None):
         """Walk the Vector input on a TEX_IMAGE / procedural texture node and
         return ``(coord_mode, scale_xy, offset_xy, rotation_z, uv_layer_name)``:
 
@@ -2968,6 +2969,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         - ``default_coord_mode``: fallback when vector_socket is unlinked.
           Per pkg115 Blender parity audit: procedural textures default to
           "GENERATED", Image Texture defaults to "UV".
+        - ``warn``: optional callable ``(node_type, message)`` — pkg230 Phase 2
+          surfaces a visible ``_warn_shader_fallback`` when a VECT_MATH /
+          VECTOR_ROTATE node appears on the coordinate chain (a per-texel
+          coordinate op the affine resolver cannot express). Static method, so
+          it cannot warn on its own; instance callers pass their warn hook.
 
         Limit chain depth to avoid pathological node graphs (Mapping → Mapping
         → Mapping…).
@@ -3016,7 +3022,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # Recurse to find the upstream coord source.
             inner_socket = src.inputs.get('Vector') if hasattr(src, 'inputs') else None
             inner_coord, _inner_scale, _inner_offset, _inner_rot, inner_layer = \
-                CustomRaytracerRenderEngine._resolve_vector_input(inner_socket, depth + 1, default_coord_mode)
+                CustomRaytracerRenderEngine._resolve_vector_input(inner_socket, depth + 1, default_coord_mode, warn)
             return inner_coord, scale, offset, rotation, inner_layer
 
         if ntype == 'TEX_COORD':
@@ -3041,6 +3047,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         if ntype == 'UVMAP':
             return "UV", scale, offset, rotation, getattr(src, 'uv_map', '') or ""
+
+        # pkg230 Phase 2 — a Vector Math / Vector Rotate node on the coordinate
+        # chain is a per-texel coordinate op the affine resolver cannot express.
+        # Surface a VISIBLE degradation entry (never a silent plain-UV fallback);
+        # the actual coordinate behaviour stays the deferred follow-up.
+        if ntype in ('VECT_MATH', 'VECTOR_ROTATE') and warn is not None:
+            warn(ntype, "per-texel Vector Math/Rotate on texture coordinates is "
+                        "unsupported — using default %s coordinates; outer Mapping nodes remain"
+                        % default_coord_mode)
 
         return coord_mode, scale, offset, rotation, uv_layer_name
 
@@ -3218,7 +3233,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if bpy_image is None:
             return None
         # Image Texture defaults to UV when Vector socket is unconnected.
-        coord_mode, uv_scale, offset, rotation, uv_layer_name = self._resolve_vector_input(vector_input, default_coord_mode="UV")
+        coord_mode, uv_scale, offset, rotation, uv_layer_name = self._resolve_vector_input(vector_input, default_coord_mode="UV", warn=self._warn_shader_fallback)
         mapping_matrix = self._resolve_mapping_matrix(vector_input)
         cache_key = self._texture_variant_key(bpy_image.name, coord_mode, uv_scale, offset, rotation, uv_layer_name, mapping_matrix)
 
@@ -3282,7 +3297,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # combination is always identical — the variant key is defensive.
         # pkg115 parity fix: procedural textures default to GENERATED when
         # Vector socket is unconnected (Blender standard behavior).
-        coord_mode, uv_scale, offset, rotation, uv_layer_name = self._resolve_vector_input(vector_input, default_coord_mode="GENERATED")
+        coord_mode, uv_scale, offset, rotation, uv_layer_name = self._resolve_vector_input(vector_input, default_coord_mode="GENERATED", warn=self._warn_shader_fallback)
         # pkg115 residual fix (black gradient/magic spheres): id(node) is NOT a
         # stable key — convert_node_material works on a temporary
         # inline_shader_nodes() tree that is freed after each material, and
@@ -3522,7 +3537,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         first = compiled['inputs'][0]
         vinp = first.inputs.get('Vector') if hasattr(first, 'inputs') else None
         coord_mode, scale, offset, rot, uvlayer = self._resolve_vector_input(
-            vinp, default_coord_mode="UV")
+            vinp, default_coord_mode="UV", warn=self._warn_shader_fallback)
         mapping_matrix = self._resolve_mapping_matrix(vinp)
         try:
             renderer.create_program_texture(prog_name, coord_mode)

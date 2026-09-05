@@ -470,8 +470,11 @@ def test_backdrop_is_parity_safe(tmp_path):
     renders.mkdir()
 
     feat = H.Feature("backdrop_probe", "backdrop", "", "SUPPORTED")
+    # Both engines now honor the requested native sample count without denoising.
+    # At 64 spp, main and pkg230 both score 0.8395; 256 spp gives 0.9141 on both.
+    # Keep the structural threshold unchanged and budget enough samples for it.
     arrays, bad_engine, log_tail = H._render_pair(
-        blender, feat, renders, 128, 64, 300, env)
+        blender, feat, renders, 128, 256, 300, env)
     assert arrays is not None, f"backdrop probe {bad_engine} leg crashed:\n{log_tail}"
     _ssim, delta_e, ratio = H._metrics(
         arrays["CUSTOM_RAYTRACER"], arrays["CYCLES"])

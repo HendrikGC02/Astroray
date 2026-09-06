@@ -97,9 +97,6 @@ live-GUI bridge adds ~20 s/event of fixed overhead (idle-window timer
 throttling), so CPU counts are the capped maxima — GPU (the product gate) carries
 the full n=150.
 
-## Goal
-
----
 
 ## Reference
 

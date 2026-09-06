@@ -1,6 +1,6 @@
 {
-  "updated": "2026-08-20",
-  "note": "Tier -> model policy for opencode delegation. Update models here as the roster shifts; never hardcode model ids in skills/hooks. Evidence: .astroray_plan/docs/open-model-research-2026-08.md + scripts/model_bench.py (2026-08-20 run, see docs/model-bench-results.json). 2026-08-19 owner directive: lean harder on opencode models — deepseek-v4-pro promoted to implement primary (near-Opus capability at a fraction of the cost). Verify gates unchanged; open-model diffs are still evidence-verified, never trusted. Bench (clean-finish only, NOT quality): muse-spark errored 3/3 (avoid); hy3 cheapest+fastest clean (strong grunt candidate); minimax-m3 functional (M2.7 tool-call bug not present); mimo-v2.5 clean but tool-heavy/slow. Re-rank with quality gates before swapping primaries.",
+  "updated": "2026-09-07",
+  "note": "Tier -> model policy for opencode delegation. Update models here as the roster shifts; never hardcode model ids in skills/hooks. Evidence: .astroray_plan/docs/open-model-research-2026-08.md + scripts/model_bench.py (2026-08-20 run, see docs/model-bench-results.json). 2026-08-19 owner directive: lean harder on opencode models — deepseek-v4-pro promoted to implement primary (near-Opus capability at a fraction of the cost). Verify gates unchanged; open-model diffs are still evidence-verified, never trusted. Bench (clean-finish only, NOT quality): muse-spark errored 3/3 (avoid); hy3 cheapest+fastest clean (strong grunt candidate); minimax-m3 functional (M2.7 tool-call bug not present); mimo-v2.5 clean but tool-heavy/slow. Re-rank with quality gates before swapping primaries. 2026-09-07: the `opencode/` provider is not authenticated (only `opencode-go/` is), so the free-tier grunt entries were removed; verify primary bumped to glm-5.3 and a docs_variant added to grunt.",
   "avoid": [
     "opencode-go/muse-spark-1.2-contributor"
   ],
@@ -8,8 +8,8 @@
     "grunt": {
       "primary": "opencode-go/deepseek-v4-flash",
       "primary_note": "China-hosting opt-in enabled by owner 2026-08-06; verified working same day",
-      "free_variant": "opencode/deepseek-v4-flash-free",
-      "free_variant_paths_only": [".astroray_plan/", "*.md"],
+      "docs_variant": "opencode-go/glm-5.3-flash",
+      "docs_variant_note": "owner 2026-09-07: extra usage available; preferred for .astroray_plan/ and *.md grunt work",
       "fallback": "opencode-go/qwen3.6-plus",
       "use_for": "docs status flips, standup drafts, lint-finding fixes, report assembly, summarization",
       "default_timeout_s": 600
@@ -22,10 +22,17 @@
       "default_timeout_s": 3600
     },
     "verify": {
-      "primary": "opencode-go/glm-5.1",
+      "primary": "opencode-go/glm-5.3",
       "fallback": "opencode-go/qwen3.6-plus",
       "use_for": "cheap pre-review diff critique before Claude review; second opinion; read-only",
       "default_timeout_s": 900
     }
+  },
+  "codex": {
+    "reviewer_deep": "gpt-5.6-terra",
+    "reviewer_cheap": "gpt-5.6-luna",
+    "never_spend": ["gpt-6-astra"],
+    "invocation": "codex exec -m <model> -s read-only - < prompt.txt",
+    "budget_note": "owner 2026-09-07: <=4 Terra calls per overnight session; Luna freely; Codex reviews only, never implements or orchestrates"
   }
 }

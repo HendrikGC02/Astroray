@@ -1,5 +1,5 @@
 ---
-description: Implement one Astroray package spec end-to-end in an isolated worktree. Use for any package with Track A or Track B routing; legacy Track-E/Codex-paste-ready specs route here too (Codex retired).
+description: Implement one Astroray package spec end-to-end in an isolated worktree. Use for any package with Track A or Track B routing; legacy Track-E/Codex-paste-ready specs route here too (Codex is supported again as a CLI second-opinion reviewer only, never as an implementer or orchestrator).
 mode: subagent
 model: opencode-go/deepseek-v4-pro
 temperature: 0.1

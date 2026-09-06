@@ -45,8 +45,10 @@ Note: `cli.py` always emits the plan JSON and performs **no** side effects itsel
 In this order, respecting caps already applied by the engine:
 
 1. **Dispatch** each pkg in `plan.dispatch` via `dispatch-next` routing
-   (`package-implementer` in its own fresh worktree; Codex is retired, so legacy
-   Track-E / Codex-paste-ready specs route here too) with the
+   (`package-implementer` in its own fresh worktree; Codex is supported again
+   (2026-09-05) as a CLI second-opinion reviewer (Terra/Luna via `codex exec`),
+   never as an implementer or orchestrator, so legacy Track-E / Codex-paste-ready
+   specs remain inert and route here too) with the
    NEXT_STAGE_REPORT §3 drop-in prompt verbatim. **Record the dispatch BEFORE
    spawning:** `ledger.setdefault("impl_dispatches", {})[<pkg>] = {"outcome":
    "dispatched", "ts": <now>}` then `save_ledger(...)` — this is what stops the

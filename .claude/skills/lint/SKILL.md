@@ -57,9 +57,7 @@ python .claude/skills/lint/scripts/lint.py check --require-coverage
 - **Never installs anything.** A missing tool is reported `unavailable` with an
   install hint and (if `--require-coverage`) a coverage gap — it is **never**
   counted as a pass.
-- **A crashing tool is an `error`, never a pass.** (This is why the broken
-  Strawberry-Perl `cppcheck` on the travel laptop shows as `error`, not green —
-  see below.)
+- **A crashing tool is an `error`, never a pass.**
 - **Nothing is auto-fixed.** No `--fix`, no `--write-changes`. It reports; you fix.
 
 ## Exit codes
@@ -79,16 +77,9 @@ fresh machine the gate still runs and still refuses to lie (missing tools show
 python -m pip install ruff codespell          # Python lint + spelling
 npm install -g markdownlint-cli2              # Markdown
 choco install llvm shellcheck                 # clang-format + shellcheck
-choco install cppcheck                        # C++  (see caveat below)
+choco install cppcheck                        # C++
 ```
 
-- **Travel laptop caveat:** the `cppcheck` currently on `PATH`
-  (`C:\Strawberry\c\bin\cppcheck.exe`, v2.14.0) is a broken winlibs build — its
-  `FILESDIR` points at a non-existent `R:\...` path so it cannot load `std.cfg`
-  and exits non-zero with no findings. The gate correctly flags that as `error`.
-  If you want C++ lint on this machine, install a working cppcheck (e.g.
-  `choco install cppcheck`) so its `share/Cppcheck/cfg` is present, and make sure
-  it precedes Strawberry on `PATH`.
 - **`clang-format`** stays dormant until a root `.clang-format` exists — without
   a project style it would emit noise against LLVM defaults. Add one deliberately
   if/when the team wants C++ formatting enforced.

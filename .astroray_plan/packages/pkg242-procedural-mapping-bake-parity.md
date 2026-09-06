@@ -103,12 +103,16 @@ instances and stale bake keys can apply another object's coordinate frame.
   upload (`src/gpu/scene_upload.cu`) now sets `GTriangle.hasUV` and uploads
   `getUV0/1/2` — i.e. exactly that CPU fallback domain — for the 2D
   texture-sampling consumers (image/procedural base colour, normal map, bump,
-  scalar op-VM program) regardless of authored layers. The
-  anisotropic-Principled UV-tangent path stays gated on real authored layers
-  (`tri->hasUVLayers()`) to mirror the CPU, which only computes a UV-aligned
-  tangent when `!uvLayers.empty()` (`shapes.h`); a UV-less anisotropic surface
-  keeps the arbitrary fallback frame on both backends. The fixture was NOT
-  changed to hide the mismatch.
+  scalar op-VM program) regardless of authored layers. `hasUV` therefore means
+  "UVs uploaded, safe to sample" and gates only the device texel fetches. The
+  UV-ALIGNED-FRAME recomputes (anisotropy tangent, normal-map decode, bump
+  frame in `stage_advance.cu`) instead gate on a separate `GTriangle.uvAuthored`
+  bit set from `tri->hasUVLayers()`, mirroring the CPU, which only computes a
+  UV-aligned tangent when `!uvLayers.empty()` (`shapes.h`) and otherwise keeps
+  the arbitrary frame from `setFaceNormal`. So a UV-less anisotropic/normal-
+  mapped/bump surface keeps the arbitrary frame on both backends, while still
+  getting a valid base-colour texel fetch from the uploaded fallback UVs. The
+  fixture was NOT changed to hide the mismatch.
 
 ## Progress
 

@@ -56,6 +56,33 @@ def _luminance(img):
     return 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
 
 
+def _grid_means(lum, cells=8):
+    """Downsample a luminance image to a cells×cells grid of block means.
+
+    Cheap spatial fingerprint: a v-flipped or phase-shifted GPU checker has the
+    same luminance std as the CPU (so the std-ratio gate passes) but a different
+    spatial layout, which shows up as a low cross-correlation between the grids.
+    """
+    h, w = lum.shape
+    ys = np.linspace(0, h, cells + 1).astype(int)
+    xs = np.linspace(0, w, cells + 1).astype(int)
+    out = np.empty((cells, cells), dtype=np.float64)
+    for i in range(cells):
+        for j in range(cells):
+            out[i, j] = lum[ys[i]:ys[i + 1], xs[j]:xs[j + 1]].mean()
+    return out
+
+
+def _normalized_xcorr(a, b):
+    """Zero-mean unit-variance (Pearson) cross-correlation of two grids."""
+    a = a.ravel() - a.mean()
+    b = b.ravel() - b.mean()
+    denom = np.sqrt((a * a).sum() * (b * b).sum())
+    if denom < 1e-12:
+        return 0.0
+    return float((a * b).sum() / denom)
+
+
 def _build_scene(renderer, *, authored_uv):
     """Two triangles forming a quad at z=0 with a UV-mode CheckerTexture.
 
@@ -124,6 +151,16 @@ def test_uvless_checker_cpu_gpu_parity():
         f"GPU/CPU luminance-std ratio {ratio:.3f} out of band [0.8,1.25] "
         f"(cpu_std={cpu_std:.4f}, gpu_std={gpu_std:.4f}); UV-less checker still "
         "diverges on GPU."
+    )
+    # Spatial check: the std ratio alone would pass a v-flipped or phase-shifted
+    # GPU checker (same contrast, wrong layout). Compare 8×8 block-mean grids by
+    # normalized cross-correlation — a matching checker correlates ~1.0.
+    xcorr = _normalized_xcorr(_grid_means(_luminance(cpu)),
+                              _grid_means(_luminance(gpu)))
+    assert xcorr > 0.9, (
+        f"GPU checker layout does not match CPU (8×8 grid cross-correlation "
+        f"{xcorr:.3f} <= 0.9); the checker may be v-flipped or phase-shifted "
+        "even though its luminance std matches."
     )
 
 

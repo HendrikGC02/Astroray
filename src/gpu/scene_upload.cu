@@ -332,11 +332,18 @@ static void appendOnePrim(
             gt.flat_shaded = true;
         }
         gt.materialId = getOrAddMat(tri->getMaterial());
-        // pkg178 Stage-3b PR-4b — upload the active-UV-layer texcoords ONLY when
-        // the triangle's material is an anisotropic Principled AND it carries a UV
-        // parameterization. hasUV gates the device UV-tangent computation, so
-        // non-aniso scenes leave every triangle hasUV=false → zero shade cost and
-        // zero UV upload (memory is the GTriangle field footprint only).
+        // pkg178 Stage-3b PR-4b / pkg186 / pkg242 Phase 0 — upload per-triangle
+        // texcoords for every 2D texture-sampling consumer (image / normal /
+        // bump / scalar) plus authored anisotropic-Principled triangles, and set
+        // two bits: `hasUV` = "UVs uploaded, safe to sample" (gates the device
+        // base-colour/height/scalar fetch), and `uvAuthored` = tri->hasUVLayers()
+        // = "the mesh carries a real UV layer" (gates the UV-ALIGNED-FRAME
+        // recomputes in stage_advance.cu). pkg242 uploads the CPU implicit
+        // fallback domain (uv0=(0,0),uv1=(1,0),uv2=(0,1)) for UV-less consumers so
+        // the device fetch matches the CPU; those UV-less triangles get hasUV=true
+        // but uvAuthored=false, so the anisotropy/normal-map/bump frame recomputes
+        // stay off (arbitrary frame kept — CPU↔GPU agree). Non-consumer triangles
+        // leave both bits false → zero shade cost and zero UV upload.
         {
             const auto& mtl = tri->getMaterial();
             // pkg178 aniso-Principled UV-tangent OR pkg186 image-textured
@@ -386,11 +393,13 @@ static void appendOnePrim(
             // CPU luminance std 0.4182 vs GPU 0.0330). getUV0/1/2 returns exactly
             // that CPU fallback domain, so upload it for the 2D texture-sampling
             // consumers regardless of authored layers -- this mirrors CPU byte-
-            // for-byte. The anisotropic-Principled UV-tangent path stays gated on
-            // real authored layers (tri->hasUVLayers()) because the CPU only
-            // computes a UV-aligned tangent when !uvLayers.empty() (shapes.h); a
-            // UV-less aniso surface keeps the arbitrary fallback frame on both
-            // backends.
+            // for-byte. The UV-ALIGNED-FRAME recomputes (anisotropy tangent,
+            // normal-map decode, bump frame) instead gate on gt.uvAuthored =
+            // tri->hasUVLayers(), because the CPU only computes a UV-aligned
+            // tangent when !uvLayers.empty() (shapes.h); a UV-less
+            // aniso/normal/bump surface keeps the arbitrary frame on both
+            // backends. The anisotropic-Principled UV-tangent path is ALSO only
+            // uploaded for authored layers (nothing to sample otherwise).
             const bool textureUVConsumer =
                 imageTextured || normalMapped || bumpMapped || scalarProgrammed;
             if (textureUVConsumer || (anisoPrincipled && tri->hasUVLayers())) {
@@ -399,6 +408,7 @@ static void appendOnePrim(
                 gt.uv1 = GVec2(t1.u, t1.v);
                 gt.uv2 = GVec2(t2.u, t2.v);
                 gt.hasUV = true;
+                gt.uvAuthored = tri->hasUVLayers();
             }
         }
         // pkg88-C.0: defaults — the BVH primitive walk in buildSceneArrays

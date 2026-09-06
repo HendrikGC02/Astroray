@@ -1110,11 +1110,12 @@ __device__ bool shadePathSlot(
 
     // pkg178 Stage-3b PR-4b — UV-aligned shading tangent for anisotropic
     // Principled. Default to the arbitrary frame; override from the hit triangle's
-    // uploaded active-layer UVs when present (scene_upload sets hasUV only on
-    // anisotropic-Principled triangles). Behind `if constexpr (HasPrincipled)` so
-    // the non-principled <false> shade kernel compiles this out entirely, and
-    // behind the per-triangle `hasUV` runtime gate so non-aniso principled scenes
-    // pay nothing. Computed here (not the intersect stage) to avoid a per-path
+    // uploaded active-layer UVs when present. Behind `if constexpr (HasPrincipled)`
+    // so the non-principled <false> shade kernel compiles this out entirely, and
+    // behind the per-triangle `uvAuthored` runtime gate (pkg242): the CPU only
+    // builds a UV-aligned tangent for meshes with a real UV layer (shapes.h), so a
+    // UV-less aniso surface keeps the arbitrary frame here too — and non-aniso
+    // principled scenes pay nothing. Computed here (not the intersect stage) to avoid a per-path
     // hit-buffer SoA field (see PR report: honors "zero device memory" for
     // non-aniso scenes at the cost of the aniso branch's registers in the <true>
     // kernel — LEAD measures via cuobjdump). NOTE: uses the triangle's stored
@@ -1126,7 +1127,7 @@ __device__ bool shadePathSlot(
     if constexpr (HasPrincipled) {
         if (rec.primId >= 0 && prims[rec.primId].type == GPRIM_TRIANGLE) {
             const GTriangle& utri = tris[prims[rec.primId].index];
-            if (utri.hasUV) {
+            if (utri.uvAuthored) {  // pkg242: UV-aligned frame only for authored UVs (CPU parity)
                 GVec3 uvT; float uvSign;
                 if (gpu_pr_uvAlignedTangent(utri.v0, utri.v1, utri.v2,
                                             utri.uv0, utri.uv1, utri.uv2,
@@ -1154,7 +1155,7 @@ __device__ bool shadePathSlot(
         if (nmTexId >= 0 && rec.primId >= 0 &&
             prims[rec.primId].type == GPRIM_TRIANGLE) {
             const GTriangle& ntri = tris[prims[rec.primId].index];
-            if (ntri.hasUV) {
+            if (ntri.uvAuthored) {  // pkg242: keep arbitrary frame for UV-less normal-map (CPU parity)
                 GVec3 nT; float nSign;
                 if (gpu_pr_uvAlignedTangent(ntri.v0, ntri.v1, ntri.v2,
                                             ntri.uv0, ntri.uv1, ntri.uv2,
@@ -1202,7 +1203,7 @@ __device__ bool shadePathSlot(
         if (bmTexId >= 0 && rec.primId >= 0 &&
             prims[rec.primId].type == GPRIM_TRIANGLE) {
             const GTriangle& btri = tris[prims[rec.primId].index];
-            if (btri.hasUV) {
+            if (btri.uvAuthored) {  // pkg242: keep arbitrary frame for UV-less bump (CPU parity)
                 GVec3 bT; float bSign;
                 if (gpu_pr_uvAlignedTangent(btri.v0, btri.v1, btri.v2,
                                             btri.uv0, btri.uv1, btri.uv2,

@@ -1,17 +1,17 @@
-"""Blender startup script: bring up the MCP bridges so agents can drive Blender.
+"""Blender startup script: bring up the MCP bridge so agents can drive Blender.
 
 Run by scripts/dev/launch_blender_mcp.ps1 as
     blender.exe --python scripts/dev/blender_mcp_autostart.py
 
-Two MCP add-ons exist on this machine and BOTH default to port 9876:
-  * community ``blender_mcp`` (ahujasid/blender-mcp; scripts/addons/blender_mcp.py) —
-    this is what the ``uvx blender-mcp`` server (Claude's ``mcp__blender__*`` tools)
-    connects to. It is started here on ASTRORAY_MCP_PORT (default 9876).
-  * official Blender Lab ``mcp`` extension (user_default/mcp) — moved to
-    ASTRORAY_MCP_PORT + 1 so the two never collide; its autostart is left as configured.
+The bridge is the official Blender Lab ``mcp`` extension
+(``bl_ext.user_default.mcp``; null-byte-delimited JSON on localhost:9876).
+It is what the Claude "Blender" MCP server and Codex's ``blender_mcp`` command
+talk to. The community ``blender_mcp`` add-on (ahujasid) also defaults to 9876;
+it is NOT started here so the two never collide.
 
-The community add-on's start operator needs a window context, so it is invoked
-from a deferred timer once the UI is up. The script never modifies the .blend.
+The script enables the extension, pins its port to ASTRORAY_MCP_PORT (default
+9876), turns on its autostart preference, and starts the server from a deferred
+timer once the UI exists. It never modifies the .blend.
 """
 import os
 import sys
@@ -20,6 +20,7 @@ import bpy
 
 PORT = int(os.environ.get("ASTRORAY_MCP_PORT", "9876"))
 PID_FILE = os.environ.get("ASTRORAY_BLENDER_PID_FILE")
+EXT_MODULE = "bl_ext.user_default.mcp"
 
 
 def _log(msg: str) -> None:
@@ -35,33 +36,34 @@ def _enable(module: str) -> bool:
         return False
 
 
-def _configure_official_extension() -> None:
-    """Keep the official 'mcp' extension off the community port."""
-    for key, addon in bpy.context.preferences.addons.items():
-        if key.endswith(".mcp") or key == "mcp":
-            prefs = getattr(addon, "preferences", None)
-            if prefs is not None and hasattr(prefs, "port"):
-                if prefs.port == PORT:
-                    prefs.port = PORT + 1
-                    _log(f"official mcp extension moved to port {prefs.port}")
-            return
+def _prefs():
+    addon = bpy.context.preferences.addons.get(EXT_MODULE)
+    return getattr(addon, "preferences", None) if addon else None
 
 
-def _start_community_server() -> float | None:
-    scene = bpy.context.scene
-    if scene is None or not hasattr(scene, "blendermcp_port"):
-        _log("community blender_mcp scene props missing; retrying")
-        return 1.0
-    scene.blendermcp_port = PORT
-    if getattr(scene, "blendermcp_server_running", False):
-        _log(f"community server already running on {PORT}")
-        return None
-    try:
-        bpy.ops.blendermcp.start_server()
-        _log(f"community blender_mcp server started on port {PORT}")
-    except Exception as ex:  # noqa: BLE001
-        _log(f"start_server failed ({ex}); retrying in 2 s")
+def _start_bridge() -> float | None:
+    prefs = _prefs()
+    if prefs is None:
+        _log("mcp extension preferences missing; retrying")
         return 2.0
+    if hasattr(prefs, "port"):
+        prefs.port = PORT
+    if hasattr(prefs, "use_autostart"):
+        prefs.use_autostart = True
+    try:
+        from bl_ext.user_default.mcp import mcp_to_blender_server as srv  # type: ignore
+
+        if srv.is_running():
+            _log(f"mcp bridge already running on {PORT}")
+            return None
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        bpy.ops.blmcp.server_start()
+        _log(f"mcp bridge started on port {PORT}")
+    except Exception as ex:  # noqa: BLE001
+        _log(f"server_start failed ({ex}); retrying in 3 s")
+        return 3.0
     return None
 
 
@@ -72,15 +74,10 @@ def main() -> None:
                 fh.write(str(os.getpid()))
         except OSError as ex:
             _log(f"pid file not written: {ex}")
-    _enable("blender_mcp")
-    _configure_official_extension()
-    # Astroray addon should already be installed as an extension; make sure it is on.
-    for key in list(bpy.context.preferences.addons.keys()):
-        if key.endswith(".astroray"):
-            break
-    else:
+    _enable(EXT_MODULE)
+    if not any(k.endswith(".astroray") for k in bpy.context.preferences.addons.keys()):
         _enable("bl_ext.user_default.astroray")
-    bpy.app.timers.register(_start_community_server, first_interval=2.0, persistent=True)
+    bpy.app.timers.register(_start_bridge, first_interval=2.0, persistent=True)
     _log(f"Blender {bpy.app.version_string}, pid {os.getpid()}, argv={sys.argv[1:]}")
 
 

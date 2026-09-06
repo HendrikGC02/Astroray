@@ -1,11 +1,11 @@
 <#
 .SYNOPSIS
 Launch (and optionally babysit) a GUI Blender with the MCP bridge started, so
-agents can drive it through the `uvx blender-mcp` server on localhost:9876.
+agents can drive it through the official Blender Lab `mcp` extension bridge on localhost:9876.
 
 .DESCRIPTION
 Starts Blender 5.2 with scripts/dev/blender_mcp_autostart.py, which enables the
-community blender_mcp add-on and starts its socket server. With -Watch the
+official `mcp` extension and starts its bridge server. With -Watch the
 script loops: if Blender exits or the port stops listening, it relaunches.
 Read-only diagnostic counterpart: scripts/dev/check_blender_mcp.ps1.
 

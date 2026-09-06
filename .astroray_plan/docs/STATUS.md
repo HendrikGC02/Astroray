@@ -1,39 +1,32 @@
 # Astroray Status
 
-## 2026-09-06 CURRENT — implemented round awaiting final independent review
+## 2026-09-06 CURRENT — pkg230b landed; smoke isolation in progress
 
-The owner delegated next-package selection to Astra after pkg230 Phase 2 and
-#703. This round implemented pkg230b and parallel pkg232, and audited the plans.
+- **pkg230b LANDED in PR #708**, merge `8217234b`, 2026-09-06 00:24:49 UTC.
+  The owner approved Terra/DeepSeek independent review while Claude is unavailable.
+  Terra final source/caller/binding/visual SIGN-OFF passed. PR CI: **2133 passed,
+  269 skipped, 15 xfailed, 4 xpassed**; host and CUDA checks passed.
+- Local pkg230b evidence remains **101 focused passes**, six real-RNA probe sets,
+  **21 CPU/GPU/Cycles render legs** and both isolated package smokes passing.
+  Full local suites remain **2370 passed, two reproduced baseline failures**
+  (pkg237 HDRI SSIM / pkg238 PostInit ULP); NOT GREEN, neither failure closed.
+- **pkg232 already landed #705.** Specs **pkg241–248 are filed**, #704/#706/#709;
+  filing approval is not implementation approval. Pillar 4 remains PAUSED.
+- **pkg236 is IN PROGRESS** in `.claude/worktrees/pkg236`, parallel lower backlog
+  authorized by the owner. Smoke profile isolation and transactional installation
+  have 62 focused passes plus real isolated CPU smoke evidence; independent final
+  review/delivery are pending. Do not duplicate-dispatch.
+- **Next main feature: pkg241 Phase 0**, completing the existing interactive
+  recorder and measuring actual Blender response/cancellation before behavior
+  changes. pkg242 then improves procedural mapping; pkg245 covers normal/bump
+  provenance. pkg240 CI cost audit is suitable parallel throughput work.
+- **Spark CLI access verified** with the installed Codex CLI and current account.
+  Bounded Spark workers can run via CLI even though this task's native subagent
+  roster lacks Spark. No account/configuration change was required.
 
-- **pkg230b: implemented locally, UNCOMMITTED / NOT MERGED.** Affine coordinate
-  chains and image-program cache isolation pass 101 focused tests, six real-RNA
-  probe sets, all 21 CPU/GPU/Cycles render legs, and isolated CPU/CUDA package
-  smokes. Full split suites: **2370 passed, two failures**. HDRI SSIM and PostInit
-  ULP failures reproduce against untouched source with the same fresh native
-  artifact (pkg237/pkg238); the full suite is **NOT green**.
-- **pkg230b release blocker:** independent Claude architecture approval passed,
-  but final source/ABI/parity/visual review has NOT run. Claude's subscription
-  weekly limit resets 2026-09-10 at 13:00 Australia/Sydney. Do not treat earlier
-  architecture approval or Astra visual inspection as final independent sign-off.
-  Preserve `codex/pkg230b` in `.claude/worktrees/pkg230b`; do not redispatch it.
-- **pkg232 LANDED in PR #705**, merge `d997c499` at 2026-09-05 18:50:24 UTC.
-  Windows Job containment passed 39 Windows tests, 14 actual-Linux tests, real
-  opencode smoke, caller review and independent Claude source SIGN-OFF. Both CI
-  runs passed host tests (2088 passed each) and CUDA syntax checks. Do not redispatch.
-- **Merged specifications:** pkg241–244 in #704 and pkg245 in #706. Their
-  implementation gates remain UNRUN. Three further local **DRAFT** specs,
-  pkg246 spectral RGB reconstruction, pkg247 launch-timeout boundary, and pkg248
-  content-change evidence, await independent filing review and are NOT dispatch
-  eligible. They remain in `.claude/worktrees/pkg230-followups`.
-- **Next after pkg230b closes: pkg241 Phase 0**, measuring render cancellation
-  and viewport response before implementation architecture. pkg242 follows for
-  procedural mapping fidelity; pkg243 preserves scientific output provenance.
-  pkg127 Phase 2 still requires topology/spec reconciliation before dispatch.
-- **Pillar 4 remains PAUSED.** GPU verification is finished and the GPU lock is
-  released. The user's live Blender profile was not used by this round's tests.
-
-Actual gates, retained failure evidence, reviewed filings and resumption state:
+See [pkg230b evidence](pkg230b-delivery-evidence.md) and
 [round delivery status](round-20260906-delivery-status.md).
+
 
 ---
 

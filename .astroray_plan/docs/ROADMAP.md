@@ -129,30 +129,27 @@ Full evidence:
 [pkg230-phase2-delivery-evidence.md](pkg230-phase2-delivery-evidence.md). pkg219d
 scalar parameter textures remain landed (#674); pkg210 is SUPERSEDED and pkg180
 CLOSED.
-**Owner update 2026-09-06:** next-package priority is delegated to Astra, with
-parallel lower-level backlog and a roadmap gap audit. The round implemented
-**pkg230b affine coordinate chains** locally and shipped **pkg232 delegate
-containment** in PR #705 (`d997c499`; independent approval, both host/CUDA CI runs
-passed). Common texture placement outranked the larger Principled arc and
-specialized caustic/sampling extensions.
-
-Pkg230b remains **uncommitted/unmerged**: 2370 local tests passed and two native
-failures reproduced against untouched source; all 21 CPU/GPU/Cycles chart legs
-and both isolated package smokes passed. The full suite is NOT green. Required
-Claude final source/ABI/parity/visual review is blocked by its weekly subscription
-limit (reported reset 2026-09-10 13:00 Australia/Sydney). Architecture approval
-alone is not release approval. Do not duplicate-dispatch pkg230b.
-
-After pkg230b closes, **pkg241 Phase 0 cancellation/viewport-response measurement**
-is next, followed by pkg242 procedural mapping/bake parity. pkg243 preserves raw
-relative-band output; pkg244 covers compiler-identity/cache-reset safeguards;
-pkg245 covers normal/bump coordinate provenance. Specs pkg241–245 are merged
-(#704/#706), OPEN with implementation gates UNRUN. Local pkg246–248 drafts await
-independent filing review and are NOT dispatch eligible. pkg127 Phase 2 needs
-reconciliation against existing pkg227 topology and gates before dispatch.
-See the [production gap audit](production-gap-audit-2026-09-06.md) and
-[round delivery status](round-20260906-delivery-status.md).
-**Pillar 4 remains PAUSED**; priority delegation does not unpause astrophysics.
+**Owner update 2026-09-06:** Astra chooses next-package priority and parallel
+lower backlog. While Claude is unavailable, the owner authorizes Terra or
+DeepSeek independent review and accepts documented reversible risks this round.
+**pkg230b LANDED #708 (`8217234b`)** after Terra source/caller/binding/visual
+SIGN-OFF and green PR host/CUDA CI (2133 host tests passed). Local 101 focused
+passes, 21 CPU/GPU/Cycles legs and isolated CPU/CUDA package smokes passed;
+the full local suite remains 2370 passed / two reproduced baseline failures
+(pkg237/pkg238), not green. Neither baseline failure is closed.
+**pkg232 LANDED #705**; specs241–248 filed #704/#706/#709 with independent filing
+review, implementation gates remain pending. **pkg236 smoke isolation is in
+progress** in its isolated worktree, with 62 focused passes and actual CPU smoke;
+independent final review/delivery remain pending. Do not duplicate-dispatch.
+**Next main feature: pkg241 Phase0**, finish the existing interactive recorder
+and measure actual UI/cancel response before behavior changes; then pkg242
+procedural mapping and pkg245 normal/bump provenance. pkg240 CI cost audit is a
+useful parallel throughput lane; pkg244 shares builder ownership with pkg236.
+pkg127 Phase2 still needs topology/spec reconciliation. Spark CLI access is
+verified for bounded work without changing account/configuration; native
+subagent availability is a separate interface limit.
+See [round delivery status](round-20260906-delivery-status.md).
+**Pillar4 remains PAUSED.**
 
 **Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU
 parity tail — **pkg172 effect (B) / pkg173** (bounce-1 geometry-sampling

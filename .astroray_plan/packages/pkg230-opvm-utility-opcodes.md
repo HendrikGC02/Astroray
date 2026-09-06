@@ -1,30 +1,35 @@
 # pkg230 — op-VM utility opcodes (Clamp + Math/Mix clamp flags; Vector Math/Rotate)
 
-**Pillar:** 5 (Blender integration / shader-node coverage)
+**Pillar:** 5
 **Track:** A
-**Status:** DONE — Phase 1 LANDED (#696); Phase 2 LANDED (#701, 2026-09-06 Sydney)
-(branch `codex/pkg230-p2`, reviewed implementation `4035a00`)
+**Status:** done — Phase 1 PR #696, Phase 2 PR #701, 2026-09-06
 **Estimated effort:** Phase 1 S (~1 session); Phase 2 M
-**Depends on:** pkg219a/b/c (op-VM evaluator), pkg229 (re-audit that ranked these)
+**Depends on:** pkg219, pkg229
 
 ---
 
 ## Goal
 
-The pkg229 re-audit's #3/#4 next-wave items are the highest-ROI remaining
-DROPPED-SILENT shader features: the **Clamp** node and the **Math/Mix clamp
-flags** — all ★★★ frequency, all pure per-texel color/scalar ops that the op-VM
-already has the machinery for. This package closes them (Phase 1) and scopes the
-adjacent #2/#7 **Vector Math / Vector Rotate** items (Phase 2), which turn out to
-carry a real architecture fork the re-audit's one-liner did not surface.
-
-**After Phase 1:** a Blender graph with a Clamp node, or a Math/Mix node with its
-clamp checkbox(es) enabled, downstream of a texture renders per-texel-correct on
-both CPU and GPU (previously the node was dropped / the flag ignored).
+Before: the **Clamp** node and the **Math/Mix clamp flags** — the pkg229
+re-audit's #3/#4 next-wave items, all ★★★ frequency and all pure per-texel
+color/scalar ops the op-VM already has the machinery for — were the highest-ROI
+remaining DROPPED-SILENT shader features, and the adjacent #2/#7 **Vector Math /
+Vector Rotate** items carried a real architecture fork the re-audit's one-liner
+did not surface. After: this package closes the Clamp node and the Math/Mix
+clamp flags (Phase 1) and scopes Vector Math / Vector Rotate (Phase 2); a
+Blender graph with a Clamp node, or a Math/Mix node with its clamp checkbox(es)
+enabled, downstream of a texture renders per-texel-correct on both CPU and GPU
+(previously the node was dropped / the flag ignored).
 
 ---
 
 ## Context
+
+This package serves Pillar 5 (Blender integration / shader-node coverage). It
+depends on pkg219a/b/c (the op-VM evaluator) and pkg229 (the re-audit that
+ranked these items). Phase 1 landed as PR #696; Phase 2 landed as PR #701
+(2026-09-06 Sydney) on branch `codex/pkg230-p2`, with reviewed implementation
+`4035a00`.
 
 The op-VM (`include/astroray/shader_vm.h`) is a bounded register machine with a
 single shared `HD svm_eval` used by **both** the CPU (`DisneyPlugin::substituted`)
@@ -48,55 +53,62 @@ not assume "just add an opcode."
 
 ---
 
-## Specification — Phase 1 (this PR)
+## Reference
 
-### Sub-op enum (Cycles NodeClampType)
+- Phase 2 pinned sources, rationale, dependencies and risks:
+  [`pkg230-phase2-vector-semantics-research.md`](../docs/pkg230-phase2-vector-semantics-research.md)
+- Phase 2 delivery evidence (hardware/visual verification and investigated
+  baseline failures):
+  [`pkg230-phase2-delivery-evidence.md`](../docs/pkg230-phase2-delivery-evidence.md)
 
-`CLAMP_MINMAX = 0` (clamp to [min,max], swapping if min>max is **not** done by
-Cycles — MINMAX clamps to the literal [min,max]) / `CLAMP_RANGE = 1` (order-agnostic:
-clamp to [min(min,max), max(min,max)]). Verified against Cycles `svm_clamp` /
-`node_clamp.osl`.
+---
+
+## Prerequisites
+
+- [ ] TBD
+
+---
+
+## Specification
+
+### Files to create
+
+| File | Purpose |
+|---|---|
+| `tests/test_pkg230_opvm_clamp.py` | CPU render/parity + unit-level bytecode tests (see gates). |
 
 ### Files to modify
 
-| File | Change |
+| File | What changes |
 |---|---|
 | `include/astroray/shader_vm.h` | Add `OP_CLAMP` to `OpCode`; add `enum ClampType`; add `HD inline float svm_clamp(type,v,min,max)` (reuse the existing `svm_clampf`/`svm_saturatef`). Add `case OP_CLAMP` to `svm_eval`. Add `SVM_MATH_CLAMP` (0x80) handling in `case OP_MATH` (mask sub-op with 0x7F, saturate result if set) and `SVM_MIX_CLAMP_RESULT` (0x80) in `case OP_MIX` (mask sub-op with 0x3F, saturate result if set). |
 | `blender_addon/shader_vm_compiler.py` | Extend the opcode tuple to `range(15)` incl. `OP_CLAMP`; add `CLAMP` handler in `compile_socket` (Value/Min/Max + `clamp_type`); set `imm |= 0x80` on MATH when `node.use_clamp`; set `SVM_MIX_CLAMP_RESULT` from `clamp_result` (modern Mix) or `use_clamp` (legacy MixRGB). |
-| `tests/test_pkg230_opvm_clamp.py` (new) | CPU render/parity + unit-level bytecode tests (see gates). |
 
 ### Key design decisions
 
-- **Flags in the free `imm` high bits, not new opcodes.** MathOp ≤17 (bit 7 free);
-  MixOp ≤8 (bit 7 free). This keeps `Instr` at 8 bytes and adds zero opcodes for
-  the flag features — only Clamp gets an opcode.
+#### Phase 1 (this PR) — Clamp + Math/Mix clamp flags
+
+- **Sub-op enum (Cycles NodeClampType):** `CLAMP_MINMAX = 0` (clamp to
+  [min,max], swapping if min>max is **not** done by Cycles — MINMAX clamps to
+  the literal [min,max]) / `CLAMP_RANGE = 1` (order-agnostic: clamp to
+  [min(min,max), max(min,max)]). Verified against Cycles `svm_clamp` /
+  `node_clamp.osl`.
+- **Flags in the free `imm` high bits, not new opcodes.** MathOp ≤17 (bit 7
+  free); MixOp ≤8 (bit 7 free). This keeps `Instr` at 8 bytes and adds zero
+  opcodes for the flag features — only Clamp gets an opcode.
 - **`clamp_factor` is deferred to Phase 2, not shipped as a bit.** `svm_mix`
   already saturates the factor unconditionally (`t = svm_saturatef(t)`), which
   equals Blender's *default* `clamp_factor=ON`. A `clamp_factor=OFF` (unclamped
   factor) would require gating that shared saturate — a base-mix behavior change
   for a rare case — so Phase 1 ships only the genuinely-new `clamp_result` and
   documents the always-saturated factor.
-- **Clamp result broadcasts scalar → GVec3** like OP_MATH/OP_MAP_RANGE (Clamp is a
-  scalar node).
-- **Shared evaluator ⇒ CPU and GPU are correct from one edit.** GPU still needs a
-  full CUDA rebuild + an RTX parity render (the shared header is compiled into the
-  device kernel), and a confirmatory `<HasProgram=false>` register probe.
+- **Clamp result broadcasts scalar → GVec3** like OP_MATH/OP_MAP_RANGE (Clamp
+  is a scalar node).
+- **Shared evaluator ⇒ CPU and GPU are correct from one edit.** GPU still needs
+  a full CUDA rebuild + an RTX parity render (the shared header is compiled into
+  the device kernel), and a confirmatory `<HasProgram=false>` register probe.
 
-### Acceptance criteria — Phase 1
-
-- [ ] Clamp node (both `clamp_type`s) downstream of a texture renders per-texel;
-      CPU/GPU mean-ratio parity within tolerance.
-- [ ] Math `use_clamp` and Mix `clamp_result` change the render in the correct
-      direction vs the flag-off baseline; off ⇒ byte-identical to pre-pkg230.
-      (Mix factor is always saturated = Blender default clamp_factor; asserted.)
-- [ ] `<HasProgram=false>` fleet shade kernel byte-identical (REG:254/STACK/CONST).
-- [ ] Enum parity: addon tuple ↔ `shader_vm.h` verified (a test asserts the values).
-- [ ] No new socket read is silently dropped by the pkg229 coverage scanner
-      (CLAMP is auto-credited; regenerate is optional, not required).
-
----
-
-## Specification — Phase 2 (architecture resolved 2026-09-05)
+#### Phase 2 (architecture resolved 2026-09-05) — Vector Math / Vector Rotate
 
 Implement Vector Math (`OP_VEC_MATH=15`, all 30 Blender 5.1 operations) and
 Vector Rotate (`OP_VEC_ROTATE=16`, axis-angle, X/Y/Z, Euler XYZ, center/invert)
@@ -114,12 +126,26 @@ unsupported Vector Math/Rotate chains emit a visible degradation warning.
 Affine vector operations and general per-texel coordinate evaluation are a
 separate follow-up; this phase does not claim their support.
 
-Pinned sources, rationale, dependencies and risks:
-[`pkg230-phase2-vector-semantics-research.md`](../docs/pkg230-phase2-vector-semantics-research.md).
 Independent Claude architecture SIGN-OFF accepted with the warning, negative
 flag and inverse-convention conditions included above.
 
-### Acceptance criteria — Phase 2
+---
+
+## Acceptance criteria
+
+**Phase 1 (this PR):**
+
+- [ ] Clamp node (both `clamp_type`s) downstream of a texture renders per-texel;
+      CPU/GPU mean-ratio parity within tolerance.
+- [ ] Math `use_clamp` and Mix `clamp_result` change the render in the correct
+      direction vs the flag-off baseline; off ⇒ byte-identical to pre-pkg230.
+      (Mix factor is always saturated = Blender default clamp_factor; asserted.)
+- [ ] `<HasProgram=false>` fleet shade kernel byte-identical (REG:254/STACK/CONST).
+- [ ] Enum parity: addon tuple ↔ `shader_vm.h` verified (a test asserts the values).
+- [ ] No new socket read is silently dropped by the pkg229 coverage scanner
+      (CLAMP is auto-credited; regenerate is optional, not required).
+
+**Phase 2:**
 
 - [x] All 30 vector operations, all 5 rotation modes, linked operands and edge
       cases evaluated against explicit mathematical oracles; enum/flag parity.
@@ -163,6 +189,8 @@ flag and inverse-convention conditions included above.
       `<HasProgram=true>`, so the fleet `<false>` path is untouched by construction).
 - [x] Phase 2 — Vector Math / Vector Rotate op-VM opcodes (color-chain) + faithful
       Mix `clamp_factor=OFF`, fork resolved. LANDED #701, merge `b38a7d8`.
+
+---
 
 ## Lessons
 

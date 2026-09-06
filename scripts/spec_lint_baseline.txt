@@ -130,7 +130,6 @@ pkg214-sodium-vapor-emission-fix.md
 pkg215-project-index-query-overhaul.md
 pkg216-project-index-agent-wiring.md
 pkg217-gpu-refractive-dispersive-caustics.md
-pkg218-gpu-spectral-emission-device-upload.md
 pkg218-spectral-colorimetry-fidelity.md
 pkg219-per-texel-shader-graph.md
 pkg219d-scalar-param-textures.md
@@ -147,14 +146,10 @@ pkg227-general-specular-polynomials.md
 pkg228-forward-lighttracer-rainbow.md
 pkg229-shader-node-coverage-reaudit.md
 pkg23-restir-temporal-spatial-design.md
-pkg230-opvm-utility-opcodes.md
-pkg230b-vector-coordinate-chain.md
 pkg231-cuda-build-latency.md
-pkg232-delegate-timeout-process-tree.md
 pkg233-standalone-bsdf-textures.md
 pkg234-image-texture-filtering.md
 pkg235-scalar-power-edge-parity.md
-pkg236-hermetic-blender-smoke.md
 pkg237-hdri-cpu-gpu-ssim-diagnosis.md
 pkg238-postinit-cpu-gpu-threshold.md
 pkg239-backdrop-highlight-parity.md
@@ -170,7 +165,6 @@ pkg247-delegate-launch-timeout-boundary.md
 pkg248-delegate-content-change-evidence.md
 pkg249-ci-reference-smoke-diagnostics.md
 pkg25-tiny-cuda-nn-prototype.md
-pkg250-standalone-cuda-wavefront-dispatch.md
 pkg251-spectral-band-parameter-reachability.md
 pkg252-cuda-caller-build-ci-coverage.md
 pkg26-nrc-prototype.md

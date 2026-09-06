@@ -251,7 +251,7 @@ detail. Since then:
   MNEE citation fix, DONE, comment/doc-only.
 - **pkg212** (#663) — wavefront ray-gen `+0.5f` pixel-center fix DONE,
   RTX-verified; GPU silhouette was ~0.4-0.6px off vs the CPU megakernel.
-- **pkg218** (#667) — GPU spectral emission device upload DONE, HW-verified:
+- **pkg218b** (#667) — GPU spectral emission device upload DONE, HW-verified:
   fleet register probe byte-identical to baseline (REG:254/STACK:3368/
   CONSTANT[0]:1716), 9/9 CPU/GPU emission-colour parity tests within 5%.
   Closes the long-standing "GPU lamp colour is RGB-approximated" gap.
@@ -270,7 +270,7 @@ detail. Since then:
   agent-ready specs + overnight routing) — both docs-only.
 
 **Fleet register baseline unchanged: `stageShadeBucketedKernel<0,…>` REG 254
-/ STACK 3368 / CONSTANT[0] 1716** (pkg131's GPU round and pkg218's emission
+/ STACK 3368 / CONSTANT[0] 1716** (pkg131's GPU round and pkg218b's emission
 lookup are both off the REG:254 frame — side-table / trivial-store patterns;
 re-measure from the actual `.pyd` before trusting, per usual).
 
@@ -370,7 +370,7 @@ byte-identical to this — re-measure from the actual `.pyd` before trusting,
 per usual).
 
 **NOTE (superseded by the 2026-08-31 entry above):** pkg131's GPU leg,
-pkg212, pkg208/pkg209/pkg218 all landed since this entry was written; the
+pkg212, pkg208/pkg209/pkg218b all landed since this entry was written; the
 pickup queue below is historical, kept for the record.
 
 ### Then: fresh grounded pickup queue (each Status verified this pass)
@@ -398,7 +398,7 @@ pickup queue below is historical, kept for the record.
    doc refresh), pkg210 (companion wavelengths on specular reflection,
    register-sensitive), pkg211 (per-bounce spectral MIS + ray-differentials
    prototype). Not yet sequenced against each other — architect call.
-5. **pkg218 — GPU spectral emission device upload** (`packages/pkg218-gpu-spectral-emission-device-upload.md`,
+5. **pkg218b — GPU spectral emission device upload** (`packages/pkg218b-gpu-spectral-emission-device-upload.md`,
    open, filed 2026-08-22). Exact CPU↔GPU lamp-colour parity (memory
    `gpu-emission-is-rgb-approximated`); distinct from the Pillar-4-paused
    `pkg218-spectral-colorimetry-fidelity.md` Thread B (swappable CIE

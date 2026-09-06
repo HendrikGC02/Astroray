@@ -3,6 +3,8 @@
 Authoritative direction document. Supersedes the "Current sequencing" section of
 `ROADMAP.md` (which now points here). Written state+refine; no new specs filed.
 Every number below is sourced (file + command) or marked **unmeasured**.
+Reviewed by Codex Terra (2026-09-07, `test_results/2026-09-07-setup/terra2_northstar_review.md`); adopted
+items are marked **[Terra]**. Owner decisions still open are marked **[OWNER]**.
 
 ---
 
@@ -39,43 +41,43 @@ CPU oracle cross-check. Refined from the lead's proposal with current evidence.
 
 ### (a) Viewport responsiveness
 
-- **Target:** camera-edit and material-edit → present p95 ≤ 100 ms on GPU; render-cancel ack ≤ 200 ms.
-- **Measured by:** pkg241 Phase 0 recorder (extends the pkg81 harness) inside a real Blender session, not the in-process harness.
+- **Target [Terra]:** on two pinned scenes (10k and 100k triangles), warm session, 3×100 camera edits and 3×100 material edits: event dispatch → first *correctly updated* Blender-presented frame, GPU p95 ≤ 100 ms and p99 ≤ 150 ms; cancellation acknowledgement p95 ≤ 200 ms, p99 ≤ 300 ms, and no stale frame presented after the ack. Denoise is **not** in the interactive loop (progressive refine; denoise on idle/pause) **[Terra recommendation, OWNER to confirm]**. CPU is the image oracle, not a latency oracle.
+- **Measured by:** pkg241 Phase 0 recorder (extends the pkg81 harness) inside a real Blender session, not the in-process harness. Baseline measured tonight through the MCP bridge: idle progressive refinement redraws at **~1.3 Hz** (6 redraws / 4.46 s, 2 220-triangle scene, RENDERED viewport) — the owner's "3–5 fps, no visible refine" report reproduces.
 - **Current:** the only artifact, `benchmarks/viewport_parity/2026-09-03.json`, is **in-process and explicitly bypasses the Blender GPU texture blit** (`harness_notes[0]`). Under that harness, GPU camera-only 10k-tri, no-denoise: frame p50 34.7 ms / p99 37.7 ms / max 48.4 ms (config 3); **with the OIDN pass in-loop it is p50 140.8 ms / p99 184.8 ms** (config 4) — already over 100 ms. Real end-to-end present latency is **unmeasured**.
 - **If pkg241 Phase 0 says otherwise:** if real present > 100 ms even without denoise, the fix is engine/blit work (a new spec), not a target relaxation; if it is only denoise-in-loop that fails, the gate must state denoise is *not* in the interactive loop (progressive refine, denoise on pause) — see §6 owner decision.
 
 ### (b) Shader-socket coverage
 
-- **Target:** DROPPED-SILENT < 25% of 527 sockets, **and** Principled advanced inputs, Metallic BSDF, Sky texture, and Displacement each SUPPORTED or explicitly APPROXIMATED-with-warning.
+- **Target [Terra, OWNER to confirm]:** frequency-weighted coverage, not raw count: over a frozen corpus of ~50 Blender scenes, score socket *uses* (SUPPORTED = 1, APPROXIMATED = 0.5 only when a warning is emitted), require ≥ 95 % weighted coverage **and zero silent drops in corpus scenes**. Raw socket counts stay diagnostic. Principled advanced inputs, Metallic BSDF, Sky texture and Displacement must each be SUPPORTED or APPROXIMATED-with-warning; only pkg253 (Principled) is scheduled — bounded support-or-warn packages for Metallic, Sky and Displacement are filed when the owner ratifies this gate, not before.
 - **Measured by:** `blender.exe --background --factory-startup --python scripts/generate_blender_parity_matrix.py -- --out docs/blender_parity` → `coverage_matrix.json` (reproduce block in `blender-coverage-reaudit-2026-09.md`).
 - **Current:** 152 SUPPORTED / 35 APPROXIMATED / **340 DROPPED-SILENT = 64.5%** of 527 (`blender-coverage-reaudit-2026-09.md` headline table). Target < 25% needs DROPPED ≤ 131 — a swing of ~209 sockets. pkg230 Ph1+Ph2 (Clamp, Math use_clamp, Mix clamp, Vector Math, Vector Rotate = backlog items 2/3/4/7) landed *after* that audit; their delta is **unmeasured** — re-run the generator first. The four named nodes are today all DROPPED-SILENT (BSDF_PRINCIPLED advanced 21 sockets, BSDF_METALLIC 13, TEX_SKY 14, DISPLACEMENT 5 — reaudit backlog rows 1/6/5/9).
 - **Note:** the audit argues raw socket-count is the wrong metric; see §6.
 
 ### (c) Three reference scenes render CPU+GPU, no exception, parity-clean
 
-- **Target:** three named `.blend`/scene builders render F12 on CPU and GPU with no addon exception and pass the CPU/GPU mean-ratio parity gate (≤ 5% per-channel).
-  1. Cornell-class interior — `tests/scenes/disney_cornell.py` (or `lambertian_cornell.py`).
-  2. Material zoo — `tests/scenes/disney_contact_sheet.py` (or `blender_addon/scenes/metal_sweep.blend`).
-  3. HDRI exterior with hair — `blender_addon/scenes/ir_vegetation.blend` (verified to contain `World` + `ShaderNodeTexEnvironment` + `CurvesGeometry`; the only shipped .blend with all three).
+- **Target [Terra]:** exactly three pinned `.blend` assets (fixed settings, pinned SHA — no "or" alternatives) render F12 on CPU and GPU with no addon exception and pass: linear CPU↔GPU ROI mean ratio within ±5 % per channel, a structural metric (SSIM ≥ 0.95 on the GPU vs CPU pair), and scene-specific non-vacuity checks (checker contrast present, HDRI contribution present, hair-pixel coverage > 0) so a black or missing feature cannot pass.
+  1. Cornell-class interior — to be authored as a `.blend` from `tests/scenes/disney_cornell.py` (the `tests/scenes/*.py` files are native scene builders, not Blender assets).
+  2. Material zoo — `blender_addon/scenes/metal_sweep.blend` (probe 2026-09-07: CPU/GPU whole-frame ratio 1.015/1.027/1.013, but floor-reflection blocks reach 1.06 — outside ±5 % locally).
+  3. HDRI exterior with hair — **does not exist yet**: `ir_vegetation.blend`, `uv_skin.blend` and `metal_sweep.blend` are byte-identical placeholders (914 023 bytes, same SHA-256). Authoring the three assets is a prerequisite task for this gate.
 - **Measured by:** `benchmarks/cycles-parity` harness + the addon F12 path; parity gate is the existing 5% RGB ROI mean-ratio.
 - **Current:** only **cornell** has parity data (`benchmarks/cycles-parity/2026-09-03-*.csv`): astroray-gpu SSIM 0.9538 vs Cycles, mean-ratio 0.9967/0.9975/0.9944, 1477 ms vs cycles-cuda 3134 ms. The material-zoo case is **NOT GREEN on GPU** — the checker texture disappears (CPU luminance std 0.4182 vs GPU 0.0330; GPU samples only real UV layers, CPU synthesizes fallback UVs; `rebuild-handoff-2026-09-06.md`, carried by pkg242). HDRI-with-hair parity is **unmeasured**.
 
 ### (d) Adaptive sampling + denoise from native Cycles panels
 
 - **Target:** both usable from Blender's own sampling/denoise panels.
-- **Measured by:** headless addon smoke that sets the native panel props and asserts they reach the engine.
+- **Measured by [Terra]:** an output-effect test, not a reachability test: with adaptive sampling on vs off the sample-count AOV must differ and noise must fall in flat regions; with denoise on vs off the output must differ and residual noise must fall — both on CPU and GPU, driven only from native panel properties.
 - **Current:** adaptive sampling landed both backends (pkg131, #659 CPU / #665 GPU, HW-verified); GPU denoise wired (pkg197). Panel-driven end-to-end usability is **unmeasured** as a single gate — needs one smoke test asserting native-panel → engine for both.
 
 ### (e) Zero open high-severity addon bugs
 
 - **Target:** zero open GitHub issues labelled `addon-bug` with severity high.
-- **Measured by:** `gh issue list --label addon-bug --state open`.
+- **Measured by [Terra]:** `gh issue list --label addon-bug --state open` against a published severity rubric (high = wrong image, crash, or a native setting silently ignored; medium = degraded but flagged; low = cosmetic) with an independent triage pass, so the gate cannot be met by relabeling.
 - **Current:** the `addon-bug` label **does not exist** and no severity taxonomy is defined (`gh label list` shows only generic `bug`; 13 open issues total). This gate is currently **unmeasurable** — first action is to create the label + severity convention and triage the 13 open issues. Cheapest gate to make measurable.
 
 ### (f) Documented one-command build+install for a new user
 
 - **Target:** a new user follows one documented command to get a working addon.
-- **Measured by:** following `docs/QUICKSTART.md` on a clean profile.
+- **Measured by [Terra]:** a fresh-profile install of the release ZIP through Blender's own extension installer (distinct from `dev_addon.ps1`), followed by one F12 render, on a machine without the build toolchain.
 - **Current:** `scripts/dev_addon.ps1` (build→install→smoke) and `scripts/build/build_blender_addon.py` exist; the transactional installer placed 42 files and passed an isolated smoke (`rebuild-handoff-2026-09-06.md`); `dist/astroray-4.0.0-cuda.zip` ships. The *developer* loop is one-command; the *end-user* (no build toolchain, install-zip-from-Blender) path is documented but **unverified on a clean machine**. Partially GREEN.
 
 ---
@@ -104,18 +106,20 @@ gate-critical package is blocked or under review.
 ## 4. Sequencing — next 4–6 weeks, rounds of ~3 (existing IDs only)
 
 Ranked by contribution to the exit gate first, then the science lane. IDs only —
-no invented numbers. pkg253 (Principled advanced inputs) is being filed by the
-lead tonight.
+no invented numbers. pkg253 (Principled advanced inputs) is being filed tonight
+(lane L3, branch `feat/pkg253-principled-advanced-inputs`).
 
 **Round 1 — measure truth + unblock a green baseline (gate a, c-precondition)**
 - **pkg241 Phase 0** — measure real present + cancel latency in a live Blender session. Gate (a). No deps. Highest priority: the whole responsiveness lane is guessing until this exists.
-- **pkg237 + pkg238** — close the two reproduced baseline failures (HDRI SSIM, PostInit ULP) that keep the full suite NOT GREEN. Gate (c) precondition — parity work on a red baseline hides regressions. No deps.
+- **pkg237 + pkg238** — diagnose, then repair or evidence-calibrate the two reproduced baseline failures (HDRI SSIM, PostInit ULP); both specs forbid assuming a fix or relaxing a bound without independent numeric/image evidence **[Terra]**. Gate (c) precondition — parity work on a red baseline hides regressions. No deps.
 - **pkg242** — procedural mapping / bake-domain parity; closes the material-zoo checker-vanishes-on-GPU NOT-GREEN. Gate (c). Depends on landed pkg230b.
 
 **Round 2 — coverage + texture fidelity (gate b, c)**
 - **pkg253** — Principled advanced inputs; highest-value single node (backlog row 1, 21 sockets). Sequence Alpha + Specular Tint first (cheapest, most-used). Gate (b).
 - **pkg245** — normal/bump image coordinate provenance. Gate (b)/(c). Pairs with the pkg223/pkg219 normal path.
 - **pkg234 + pkg233** — image-texture filtering honor + standalone-BSDF texture plumbing. Gate (b)/(c) texture fidelity. pkg233 unblocks textures on non-Principled BSDFs.
+
+**Gate-closure order [Terra]:** pkg241 → pkg242/pkg245 → coverage-node work (pkg253, then Metallic/Sky/Displacement once filed) → three-scene corpus + settings/build/triage gates → science lane. Rounds 3–4 below are **conditional fill work**: a science-lane package is dispatched only when every gate-critical package is blocked or under review.
 
 **Round 3 — close responsiveness + open the science lane (gate a, science)**
 - **pkg241 behavior phases** — cooperative cancellation contract + response behavior, on top of Phase 0 numbers. Gate (a) close.

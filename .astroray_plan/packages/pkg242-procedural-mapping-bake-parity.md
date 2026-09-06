@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — detailed architect review required before implementation
+**Status:** in-progress — Phase 1 in review (PR #737, 2026-09-07; CPU analytic oracles green, GPU parity pending lead build); Phase 2 real-Blender parity still open
 **Estimated effort:** TBD
 **Depends on:** pkg115, pkg190, pkg219, pkg230b
 
@@ -189,6 +189,43 @@ All implementation gates UNRUN:
   bake/cache-domain contract (Phase 1/2) remains OPEN and unstarted.
 
 ---
+
+- **2026-09-07 -- Phase 1 transformed-p + bake/cache contract (PR pending).**
+  Implemented the single transformed-coordinate contract. CPU: the HitRecord
+  overloads of `Texture::value/valueOffset/sampleSpectral`
+  (`include/advanced_features.h`) now feed the procedural evaluator the
+  Mapping-transformed point `mp = M*p` (previously only the 2-D image coord was
+  transformed; procedural `p` stayed untransformed, so Checker/Wave/Noise
+  ignored the Mapping). GPU: `scene_upload.cu` folds the SAME transform into the
+  procedural UV and Generated-voxel bakes at upload time (via a new public
+  `Texture::mappedPoint`, identity when unset), so the device fetch stays
+  transform-agnostic — zero new per-hit shade state, register-neutral. Bake
+  dedup moved to a `(Texture*, Mapping-matrix)` key so a Mapping edit re-bakes.
+  Singular (det~0) Mapping matrices now print a visible `[pkg242]` stderr
+  warning instead of silently shading flat. Added a test-only binding
+  `sample_named_texture_mapped` (mirrors the existing pkg219b
+  `sample_named_texture` helper) for point-wise oracles.
+  - Measured (CPU-only build, seed=1): analytic point-wise oracles for Checker
+    under identity/offset/scale/rotate30/mirror_x all match the Cycles
+    floor-parity formula computed from `mp = M*(u,v,0)`; a one-cell x-offset
+    inverts the checker and a two-cell offset restores it; Wave (bands-X sine)
+    under an x-scale mapping matches the analytic frequency-scaled profile
+    (atol 2e-3); Noise is bit-invariant under an identity Mapping (== raw
+    sample) and 100/100 grid samples change under an offset. Untransformed
+    baseline render pinned byte-stable (means [0.685399,0.687098,0.674164],
+    lum std 0.434213 — identical to the pkg242 uvless authored-UV pin).
+    `tests/test_pkg242_transformed_p_contract.py`: 10 passed, 3 skipped (GPU).
+  - Finite bake error (separate from the transform contract): the GPU
+    procedural bake stays 64x64 (UV) / 64^3 (Generated); a Mapping that scales
+    the field frequency up shrinks the effective per-cell sample budget and can
+    alias, exactly as the untransformed bake already can. This PR does not
+    change the bake resolution; the transform is folded at the SAME grid points,
+    so the transform contract is exact and the residual is purely the
+    pre-existing finite-resolution term. Quantifying/escalating that budget for
+    high-frequency transformed fields is deferred (Non-goal: bake resolution).
+  - GPU verification pending the lead's RTX 5070 Ti CUDA build: the gpu-marked
+    twins assert CPU/GPU 8x8 block-mean cross-correlation > 0.9 for scale/offset/
+    rotate30 transformed checkers.
 
 ## Lessons
 

@@ -287,10 +287,12 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
         lights.sample(ls, rec.point, rec.normal, ps.lambdas, light_gen);
         if (ls.pdf > 0) {
             Vec3 wi = (ls.position - rec.point).normalized();
-            HitRecord shadow;
-            bool hitOccluder = bvh->hit(Ray(rec.point, wi), 0.001f, ls.distance - 0.001f, shadow);
-            bool occluded = hitOccluder && !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
-            if (!occluded) {
+            // pkg253 G1: shared transparent-shadow transmittance (see
+            // shadowTransmittance in raytracer.h). This kernel claims per-channel
+            // parity with production pathTraceSpectral, so it mirrors the exact
+            // same shadow-ray treatment. Tr==0 for opaque scenes.
+            float shadowTr = shadowTransmittance(*bvh, Ray(rec.point, wi), ls.distance);
+            if (shadowTr > 0.0f) {
                 SampledSpectrum f_spec = rec.material->evalSpectral(rec, wo, wi, ps.lambdas);
                 SampledSpectrum L_spec = ls.emission_spec;
                 float bsdfPdf = rec.material->pdf(rec, wo, wi);
@@ -298,7 +300,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
                 // pkg140: see raytracer.h pathTraceSpectral's identical comment
                 // -- delta-light NEE samples always get full MIS weight.
                 float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
-                SampledSpectrum nee_contribution = f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f);
+                SampledSpectrum nee_contribution = f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f) * shadowTr;  // pkg253 G1
                 ps.color += ps.throughput * nee_contribution;
 
                 if (sink) {

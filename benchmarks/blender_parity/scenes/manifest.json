@@ -1,0 +1,143 @@
+{
+  "scenes": {
+    "cornell_interior": {
+      "blend_path": "benchmarks/blender_parity/scenes/cornell_interior.blend",
+      "sha256": "1b6105cdb1bdeff20f07ae92655803830a021a39b351526bf24dc1b483ef1f3e",
+      "settings": {
+        "res_x": 512,
+        "res_y": 512,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "reopen_verified": true,
+      "triangle_count": 36,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "MESH": 8,
+        "LIGHT": 1,
+        "CAMERA": 1
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld"
+      ],
+      "cycles_cpu_32spp": {
+        "ok": true,
+        "non_vacuity": {},
+        "png": "benchmarks/blender_parity/scenes/refs/cornell_interior_cycles_cpu.png"
+      },
+      "astroray_cpu_attempt": {
+        "ok": true,
+        "non_vacuity": {},
+        "png": "benchmarks/blender_parity/scenes/refs/cornell_interior_astroray_cpu.png"
+      }
+    },
+    "material_zoo": {
+      "blend_path": "benchmarks/blender_parity/scenes/material_zoo.blend",
+      "sha256": "c892a8e544e4c32a22d00da4e265dd7f34b4ae3ff1d0eab208e480a7d645368b",
+      "settings": {
+        "res_x": 640,
+        "res_y": 360,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "reopen_verified": true,
+      "triangle_count": 8450,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "MESH": 17,
+        "LIGHT": 1,
+        "CAMERA": 1
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeNormalMap",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeTexChecker",
+        "ShaderNodeTexCoord",
+        "ShaderNodeTexImage"
+      ],
+      "cycles_cpu_32spp": {
+        "ok": true,
+        "non_vacuity": {
+          "checker_contrast": {
+            "ok": true,
+            "dark_fraction": 0.1431578947368421
+          }
+        },
+        "png": "benchmarks/blender_parity/scenes/refs/material_zoo_cycles_cpu.png"
+      },
+      "astroray_cpu_attempt": {
+        "ok": true,
+        "non_vacuity": {
+          "checker_contrast": {
+            "ok": true,
+            "dark_fraction": 0.14652777777777778
+          }
+        },
+        "png": "benchmarks/blender_parity/scenes/refs/material_zoo_astroray_cpu.png"
+      }
+    },
+    "hdri_exterior_hair": {
+      "blend_path": "benchmarks/blender_parity/scenes/hdri_exterior_hair.blend",
+      "sha256": "1edcc6cbc4478936e664ae2d1d2f4d4c2a563415f4fda40e780ff2e77354cc08",
+      "settings": {
+        "res_x": 640,
+        "res_y": 360,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "reopen_verified": true,
+      "triangle_count": 1922,
+      "curve_count": 2400,
+      "curve_point_count": 14400,
+      "object_counts": {
+        "MESH": 3,
+        "CURVES": 1,
+        "CAMERA": 1
+      },
+      "node_ids": [
+        "ShaderNodeBsdfGlass",
+        "ShaderNodeBsdfHairPrincipled",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeTexEnvironment"
+      ],
+      "cycles_cpu_32spp": {
+        "ok": true,
+        "non_vacuity": {
+          "hdri_background": {
+            "ok": true,
+            "mean": 0.12088152021169662
+          },
+          "hair_coverage": {
+            "ok": true,
+            "coverage_fraction": 0.1923913043478261
+          }
+        },
+        "png": "benchmarks/blender_parity/scenes/refs/hdri_exterior_hair_cycles_cpu.png"
+      },
+      "astroray_cpu_attempt": {
+        "ok": true,
+        "non_vacuity": {
+          "hdri_background": {
+            "ok": false,
+            "mean": 0.04722638428211212
+          },
+          "hair_coverage": {
+            "ok": true,
+            "coverage_fraction": 0.38115942028985506
+          }
+        },
+        "png": "benchmarks/blender_parity/scenes/refs/hdri_exterior_hair_astroray_cpu.png"
+      }
+    }
+  }
+}

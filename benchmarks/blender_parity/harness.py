@@ -165,6 +165,100 @@ def compare_and_triage(feat: Feature, actual, reference) -> FeatureResult:
 
 
 # --------------------------------------------------------------------------- #
+# Reference-scene non-vacuity checks (north-star gate (c): "scene-specific
+# non-vacuity checks... so a black or missing feature cannot pass")
+#
+# Pure functions on a linear HxWx3 array; ROIs are FRACTIONAL (0-1) so they
+# resolve against any render resolution (the Astroray CPU sanity leg renders
+# at <=320x180 while the pinned scene settings are 512x512 / 640x360).
+# Thresholds were tuned against real cornell_interior/material_zoo/
+# hdri_exterior_hair Cycles-CPU and Astroray-CPU renders (see the PR
+# description): a pipeline that silently drops the feature (grey checker
+# backdrop, black world, no hair strands) collapses these metrics far below
+# the margin a correct render clears.
+# --------------------------------------------------------------------------- #
+
+# material_zoo: box around the CheckerGenerated sphere (row 3, col 1 of the
+# 4x4 grid), pinned camera/resolution 640x360.
+CHECKER_ROI = (235 / 640, 225 / 360, 330 / 640, 285 / 360)
+CHECKER_DARK_LUMINANCE = 0.03   # linear
+CHECKER_MIN_DARK_FRACTION = 0.05  # measured: real checker ~0.14-0.15, flat control ~0.00-0.03
+
+# hdri_exterior_hair: top strip, above the hair apex at every camera/res the
+# scene is rendered at - guaranteed sky-only (no scalp/hair/glass/ground).
+HDRI_BACKGROUND_ROI = (0.0, 0.0, 1.0, 30 / 360)
+HDRI_MIN_BACKGROUND_MEAN = 0.05  # linear; matches the north-star doc's own gate (c) wording
+
+# hdri_exterior_hair: a band strictly ABOVE the bald scalp sphere's apex
+# (verified against build_hdri_exterior_hair_scene's pinned geometry+camera:
+# bald apex projects to y=92px of 360, hair strands can reach y=44px) so it
+# can ONLY show non-background pixels if Curves/hair actually rendered.
+HAIR_ROI = (245 / 640, 44 / 360, 365 / 640, 90 / 360)
+HAIR_COVERAGE_TOL = 0.05
+HAIR_MIN_COVERAGE_FRACTION = 0.02  # measured: real hair ~0.19-0.38, geometrically 0 if strands are absent
+
+
+def _resolve_roi(img, roi: tuple[float, float, float, float]):
+    h, w = img.shape[:2]
+    x0, y0, x1, y1 = roi
+    return img[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)]
+
+
+def checker_contrast_ok(img, roi=CHECKER_ROI, dark_luminance=CHECKER_DARK_LUMINANCE,
+                        min_dark_fraction=CHECKER_MIN_DARK_FRACTION) -> tuple[bool, float]:
+    """material_zoo non-vacuity: the checker sphere must show a genuine
+    bimodal (near-black cell / near-white cell) pattern, not the flat grey a
+    silently-dropped checker node produces. Returns (ok, dark_fraction)."""
+    patch = _resolve_roi(img, roi)
+    lum = patch.mean(axis=-1)
+    dark_fraction = float((lum < dark_luminance).mean())
+    return dark_fraction >= min_dark_fraction, dark_fraction
+
+
+def hdri_background_ok(img, roi=HDRI_BACKGROUND_ROI,
+                       min_mean=HDRI_MIN_BACKGROUND_MEAN) -> tuple[bool, float]:
+    """hdri_exterior_hair non-vacuity: the environment texture must actually
+    illuminate the background - a black/near-black world is the gate's own
+    definition of a failed HDRI leg. Returns (ok, mean)."""
+    patch = _resolve_roi(img, roi)
+    mean = float(patch.mean())
+    return mean > min_mean, mean
+
+
+def hair_pixel_coverage_ok(img, roi=HAIR_ROI, background_roi=HDRI_BACKGROUND_ROI,
+                           tol=HAIR_COVERAGE_TOL,
+                           min_fraction=HAIR_MIN_COVERAGE_FRACTION) -> tuple[bool, float]:
+    """hdri_exterior_hair non-vacuity: ``roi`` sits strictly above the bald
+    scalp sphere's silhouette, so it can only contain non-background pixels
+    if the Curves/hair strands rendered. Returns (ok, coverage_fraction)."""
+    import numpy as np
+    patch = _resolve_roi(img, roi)
+    bg_patch = _resolve_roi(img, background_roi)
+    bg_ref = bg_patch.reshape(-1, patch.shape[-1]).mean(axis=0)
+    diff = np.abs(patch - bg_ref).sum(axis=-1)
+    coverage = float((diff > tol).mean())
+    return coverage > min_fraction, coverage
+
+
+def _run_non_vacuity_checks(scene_id: str, npy_path: Path) -> dict:
+    """Dispatch the applicable non-vacuity check(s) for one scene's rendered
+    .npy (linear HxWx3 float32). cornell_interior has no scene-specific
+    texture/HDRI/hair feature to probe, so it gets an empty dict."""
+    import numpy as np
+    img = np.load(npy_path)
+    checks: dict[str, Any] = {}
+    if scene_id == "material_zoo":
+        ok, val = checker_contrast_ok(img)
+        checks["checker_contrast"] = {"ok": ok, "dark_fraction": val}
+    elif scene_id == "hdri_exterior_hair":
+        ok_bg, val_bg = hdri_background_ok(img)
+        checks["hdri_background"] = {"ok": ok_bg, "mean": val_bg}
+        ok_hair, val_hair = hair_pixel_coverage_ok(img)
+        checks["hair_coverage"] = {"ok": ok_hair, "coverage_fraction": val_hair}
+    return checks
+
+
+# --------------------------------------------------------------------------- #
 # Render-leg orchestration (needs Blender)
 # --------------------------------------------------------------------------- #
 
@@ -197,6 +291,170 @@ def _pyd_dir(root: Path) -> Path | None:
         if list(cand.glob("astroray*.pyd")):
             return cand
     return None
+
+
+def _run_render_leg_script(blender: Path, script_args: list[str], env: dict,
+                            timeout: int) -> tuple[bool, str, str]:
+    """Spawn render_leg.py with arbitrary CLI args (used by the reference-scene
+    export/verify flow, which doesn't fit the per-feature (category, feature,
+    engine) shape of ``_run_leg``). Returns (ok, full_combined_output, tail)."""
+    cmd = [str(blender), "--background", "--factory-startup",
+           "--python", str(_RENDER_LEG), "--"] + script_args
+    try:
+        proc = subprocess.run(cmd, env=env, capture_output=True, text=True,
+                              timeout=timeout, check=False)
+    except subprocess.TimeoutExpired:
+        msg = f"TIMEOUT after {timeout}s"
+        return False, msg, msg
+    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    ok = f"{SENTINEL} FAIL" not in combined and f"{SENTINEL} PASS" in combined
+    return ok, combined, combined[-3000:]
+
+
+def _npy_to_png(npy_path: Path, png_path: Path) -> None:
+    """sRGB-encode a linear .npy render for the manifest's small reference
+    PNGs (render_leg.py's own PNG write is skipped - Blender's bundled Python
+    has no PIL - so this runs in the harness's own Python instead). Deletes
+    the (much larger, float32) .npy afterwards - refs/ is meant to hold only
+    the small PNGs."""
+    import numpy as np
+    from PIL import Image
+    px = np.load(npy_path)
+    srgb = np.where(px <= 0.0031308, px * 12.92,
+                    1.055 * np.clip(px, 0, None) ** (1 / 2.4) - 0.055)
+    Image.fromarray((np.clip(srgb, 0, 1) * 255 + 0.5).astype(np.uint8)).save(png_path)
+    npy_path.unlink(missing_ok=True)
+
+
+def export_reference_scenes(scenes_dir: Path, *, timeout: int = 600) -> int:
+    """Pillar-4 exit-gate (c): build+save the three pinned reference .blend
+    files, verify each reopens headlessly (object/node census), render each
+    with Cycles CPU at 32spp into ``scenes_dir/refs`` and attempt a tiny
+    Astroray CPU render. A thrown Astroray exception is RECORDED in the
+    manifest, not treated as a harness failure or "fixed" here (task
+    instruction: that IS a finding). Writes ``scenes_dir/manifest.json``.
+
+    Returns 0 iff every .blend exported, reopened, and rendered clean under
+    Cycles CPU (the addon-CPU column is diagnostic, not gating).
+    """
+    import hashlib
+    from benchmarks.blender_parity import scene_library
+
+    blender = _find_blender()
+    if blender is None:
+        print("[pkg119b] Blender not found (set BLENDER_EXE) - cannot export.",
+              file=sys.stderr)
+        return 2
+
+    scenes_dir = Path(scenes_dir).resolve()
+    scenes_dir.mkdir(parents=True, exist_ok=True)
+    refs_dir = scenes_dir / "refs"
+    refs_dir.mkdir(parents=True, exist_ok=True)
+
+    env = os.environ.copy()
+    build_dir = _pyd_dir(_REPO_ROOT) or _pyd_dir(_REPO_ROOT.parent / "Astroray")
+    if build_dir is not None:
+        env["ASTRORAY_PYD_DIR"] = str(build_dir)
+        env["ASTRORAY_BUILD_DIR"] = str(_REPO_ROOT / "build_cuda")
+    # A worktree checkout (memory: parallel-agent-worktree-contamination) has
+    # no local build_* dir of its own; honour a caller-supplied
+    # ASTRORAY_PYD_DIR pointing at the shared build instead of concluding
+    # "no build" whenever _pyd_dir(_REPO_ROOT) comes up empty.
+    have_astroray_build = build_dir is not None or bool(env.get("ASTRORAY_PYD_DIR"))
+
+    manifest: dict[str, Any] = {"scenes": {}}
+    all_ok = True
+    for scene_id, spec in scene_library.REFERENCE_SCENES.items():
+        print(f"[pkg119b] exporting {scene_id} ...", flush=True)
+        entry: dict[str, Any] = {}
+        blend_path = scenes_dir / f"{scene_id}.blend"
+
+        ok, _combined, tail = _run_render_leg_script(
+            blender, ["--category", "reference_scene", "--feature", scene_id,
+                      "--export-blend", str(blend_path)], env, timeout)
+        if not ok or not blend_path.exists():
+            entry["export_error"] = tail
+            manifest["scenes"][scene_id] = entry
+            all_ok = False
+            continue
+
+        entry["blend_path"] = str(blend_path.relative_to(_REPO_ROOT)).replace("\\", "/")
+        entry["sha256"] = hashlib.sha256(blend_path.read_bytes()).hexdigest()
+        entry["settings"] = {"res_x": spec["res_x"], "res_y": spec["res_y"],
+                             "samples": spec["samples"], "saved_default_engine": "CYCLES"}
+
+        # Reopen headlessly + object/node census.
+        ok_r, combined_r, tail_r = _run_render_leg_script(
+            blender, ["--load-blend", str(blend_path), "--report-only"], env, timeout)
+        report: dict[str, Any] = {}
+        if ok_r:
+            for line in combined_r.splitlines():
+                prefix = f"{SENTINEL} REPORT "
+                if line.startswith(prefix):
+                    report = json.loads(line[len(prefix):])
+                    break
+        entry["reopen_verified"] = ok_r and bool(report)
+        if not entry["reopen_verified"]:
+            entry["reopen_error"] = tail_r
+            all_ok = False
+        entry["triangle_count"] = report.get("triangle_count")
+        entry["curve_count"] = report.get("curve_count")
+        entry["curve_point_count"] = report.get("curve_point_count")
+        entry["object_counts"] = report.get("object_counts")
+        entry["node_ids"] = report.get("node_ids")
+
+        # Cycles CPU reference render at 32 spp (task-pinned).
+        cycles_stem = refs_dir / f"{scene_id}_cycles_cpu"
+        ok_c, _combined_c, tail_c = _run_render_leg_script(
+            blender, ["--load-blend", str(blend_path), "--engine", "CYCLES",
+                      "--out", str(cycles_stem), "--res", str(spec["res_x"]),
+                      "--res-y", str(spec["res_y"]), "--samples", "32",
+                      "--device", "cpu"], env, timeout)
+        cycles_ok = ok_c and cycles_stem.with_suffix(".npy").exists()
+        if cycles_ok:
+            entry["cycles_cpu_32spp"] = {
+                "ok": True,
+                "non_vacuity": _run_non_vacuity_checks(scene_id, cycles_stem.with_suffix(".npy")),
+                "png": str(cycles_stem.with_suffix(".png").relative_to(_REPO_ROOT)).replace("\\", "/"),
+            }
+            _npy_to_png(cycles_stem.with_suffix(".npy"), cycles_stem.with_suffix(".png"))
+        else:
+            entry["cycles_cpu_32spp"] = {"ok": False, "error": tail_c}
+            all_ok = False
+
+        # Astroray CPU tiny attempt (<=320x180, <=32spp) - diagnostic only,
+        # never gates this function's return value. An exception here is a
+        # finding to report, not something this task fixes.
+        if not have_astroray_build:
+            entry["astroray_cpu_attempt"] = {"ok": False, "error": "no astroray*.pyd build found"}
+        else:
+            astro_res_x, astro_res_y = min(320, spec["res_x"]), min(180, spec["res_y"])
+            astro_stem = refs_dir / f"{scene_id}_astroray_cpu"
+            ok_a, _combined_a, tail_a = _run_render_leg_script(
+                blender, ["--load-blend", str(blend_path), "--engine", "CUSTOM_RAYTRACER",
+                          "--out", str(astro_stem), "--res", str(astro_res_x),
+                          "--res-y", str(astro_res_y), "--samples", "16",
+                          "--device", "cpu"], env, timeout)
+            astro_ok = ok_a and astro_stem.with_suffix(".npy").exists()
+            if astro_ok:
+                entry["astroray_cpu_attempt"] = {
+                    "ok": True,
+                    "non_vacuity": _run_non_vacuity_checks(scene_id, astro_stem.with_suffix(".npy")),
+                    "png": str(astro_stem.with_suffix(".png").relative_to(_REPO_ROOT)).replace("\\", "/"),
+                }
+                _npy_to_png(astro_stem.with_suffix(".npy"), astro_stem.with_suffix(".png"))
+            else:
+                entry["astroray_cpu_attempt"] = {"ok": False, "traceback_tail": tail_a}
+
+        manifest["scenes"][scene_id] = entry
+        print(f"    sha256={entry['sha256'][:12]} tris={entry['triangle_count']} "
+              f"reopen={entry['reopen_verified']} cycles_cpu={cycles_ok} "
+              f"astroray_cpu={entry['astroray_cpu_attempt']['ok']}", flush=True)
+
+    manifest_path = scenes_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    print(f"[pkg119b] wrote {manifest_path}", flush=True)
+    return 0 if all_ok else 1
 
 
 def _run_leg(blender: Path, feat: Feature, engine: str, out_stem: Path,
@@ -417,7 +675,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--samples", type=int, default=64)
     p.add_argument("--timeout", type=int, default=300)
     p.add_argument("--no-composites", action="store_true")
+    p.add_argument("--export-blend", type=Path, default=None,
+                   help="north-star gate (c): build+save the pinned "
+                        "cornell_interior/material_zoo/hdri_exterior_hair "
+                        ".blend corpus into this directory (with a "
+                        "manifest.json) instead of running the differential "
+                        "matrix")
     args = p.parse_args(argv)
+    if args.export_blend is not None:
+        return export_reference_scenes(args.export_blend, timeout=args.timeout)
     return run(args.matrix, args.out, res=args.res, samples=args.samples,
                timeout=args.timeout, include_composites=not args.no_composites)
 

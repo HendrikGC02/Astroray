@@ -23,6 +23,7 @@ Run:
 """
 
 import argparse
+import json
 import os
 import sys
 import traceback
@@ -68,9 +69,9 @@ def _bootstrap_astroray_addon(repo_root: Path):
             raise
 
 
-def _configure_render(scene, engine, res, samples, device="gpu"):
+def _configure_render(scene, engine, res, samples, device="gpu", res_y=None):
     scene.render.resolution_x = res
-    scene.render.resolution_y = res
+    scene.render.resolution_y = res if res_y is None else res_y
     scene.render.resolution_percentage = 100
     scene.render.film_transparent = False
     scene.view_settings.view_transform = "Standard"
@@ -136,18 +137,68 @@ def _render_to_npy(bpy, scene, out_stem: Path, res: int):
     return npy_path
 
 
+def _object_and_node_report(bpy):
+    """Reopen-verification payload: object counts + shader-graph node ids.
+    Pure inspection, no render - used by --report-only after --load-blend."""
+    scene = bpy.context.scene
+    obj_counts: dict = {}
+    for obj in scene.objects:
+        obj_counts[obj.type] = obj_counts.get(obj.type, 0) + 1
+
+    node_ids = set()
+    for mat in bpy.data.materials:
+        if mat.use_nodes and mat.node_tree:
+            node_ids.update(n.bl_idname for n in mat.node_tree.nodes)
+    if scene.world and scene.world.use_nodes and scene.world.node_tree:
+        node_ids.update(n.bl_idname for n in scene.world.node_tree.nodes)
+
+    tri_count = 0
+    for obj in scene.objects:
+        if obj.type != "MESH":
+            continue
+        for poly in obj.data.polygons:
+            tri_count += max(0, len(poly.vertices) - 2)
+    # Hair/curve strand segments (not triangles, but part of the geometry
+    # census the manifest records).
+    curve_points = 0
+    curve_count = 0
+    for obj in scene.objects:
+        if obj.type == "CURVES":
+            curve_count += len(obj.data.curves)
+            curve_points += len(obj.data.points)
+
+    return {
+        "object_counts": obj_counts,
+        "object_names": sorted(o.name for o in scene.objects),
+        "node_ids": sorted(node_ids),
+        "triangle_count": tri_count,
+        "curve_count": curve_count,
+        "curve_point_count": curve_points,
+    }
+
+
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     p = argparse.ArgumentParser()
-    p.add_argument("--category", required=True)
-    p.add_argument("--feature", required=True)
+    p.add_argument("--category", default="")
+    p.add_argument("--feature", default="")
     p.add_argument("--bl-idname", default="")
-    p.add_argument("--engine", required=True, choices=("CYCLES", "CUSTOM_RAYTRACER"))
-    p.add_argument("--out", required=True, help="output stem (no extension)")
+    p.add_argument("--engine", choices=("CYCLES", "CUSTOM_RAYTRACER"))
+    p.add_argument("--out", help="output stem (no extension)")
     p.add_argument("--res", type=int, default=128)
+    p.add_argument("--res-y", type=int, default=None)
     p.add_argument("--samples", type=int, default=64)
     p.add_argument("--device", choices=("cpu", "gpu", "auto"), default="gpu",
                    help="Astroray backend (default: gpu; Cycles stays on CPU)")
+    p.add_argument("--export-blend", default="",
+                   help="build the (category, feature) scene and save it as a "
+                        ".blend at this path instead of rendering")
+    p.add_argument("--load-blend", default="",
+                   help="open this .blend instead of building a scene from "
+                        "(category, feature)")
+    p.add_argument("--report-only", action="store_true",
+                   help="with --load-blend: print an object/node census as "
+                        "JSON and exit, no render")
     args = p.parse_args(argv)
 
     repo_root = Path(__file__).resolve().parents[2]
@@ -157,12 +208,51 @@ def main():
         import bpy
         import scene_library
 
+        if args.load_blend:
+            bpy.ops.wm.open_mainfile(filepath=args.load_blend)
+            scene = bpy.context.scene
+        else:
+            if not args.category or not args.feature:
+                raise ValueError("--category/--feature are required unless --load-blend is given")
+            scene = scene_library.build_scene(
+                bpy, args.category, args.feature, args.bl_idname, engine=args.engine)
+
+        if args.report_only:
+            report = _object_and_node_report(bpy)
+            print(f"{SENTINEL} REPORT {json.dumps(report)}", flush=True)
+            print(f"{SENTINEL} PASS", flush=True)
+            return
+
+        if args.export_blend:
+            spec = scene_library.REFERENCE_SCENES.get(args.feature)
+            if spec is None:
+                raise ValueError(f"--export-blend needs a reference_scene feature, got {args.feature!r}")
+            _configure_render(scene, "CYCLES", spec["res_x"], spec["samples"],
+                               res_y=spec["res_y"])
+            out_path = Path(args.export_blend)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            bpy.ops.wm.save_as_mainfile(filepath=str(out_path))
+            # The HDRI world (hdri_exterior_hair only) was loaded via an
+            # absolute path so the build could read real pixels; now that
+            # bpy.data.filepath is the final saved location, rewrite it to
+            # the repo-relative "//..." form and re-save so a fresh Blender
+            # process resolves it from THIS file's directory (task spec:
+            # verify the relative path resolves from the scene directory).
+            hdri_relpath = scene.get("hdri_relpath")
+            if hdri_relpath:
+                for img in bpy.data.images:
+                    if img.source == "FILE" and img.filepath.endswith("test_env.hdr"):
+                        img.filepath_raw = hdri_relpath
+                bpy.ops.wm.save_as_mainfile(filepath=str(out_path))
+            print(f"[pkg119b-leg] exported {out_path}", flush=True)
+            print(f"{SENTINEL} PASS", flush=True)
+            return
+
         if args.engine == "CUSTOM_RAYTRACER":
             _bootstrap_astroray_addon(repo_root)
 
-        scene = scene_library.build_scene(
-            bpy, args.category, args.feature, args.bl_idname, engine=args.engine)
-        _configure_render(scene, args.engine, args.res, args.samples, args.device)
+        _configure_render(scene, args.engine, args.res, args.samples, args.device,
+                           res_y=args.res_y)
         out_stem = Path(args.out)
         out_stem.parent.mkdir(parents=True, exist_ok=True)
         npy = _render_to_npy(bpy, scene, out_stem, args.res)

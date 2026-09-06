@@ -3,7 +3,8 @@
 2026-09-06, isolated worktree `.claude/worktrees/pkg236`, branch `codex/pkg236`,
 base `45331d3f4e200f845885a612c709c130e4ee06a9`, integrated main `8217234`.
 Implementation, actual Blender smoke and owner-authorized Terra final SIGN-OFF
-complete; CI and delivery pending.
+complete. LANDED PR #711, merge `2699b43e05f648bed846f8b7b6abd406100677e7`,
+2026-09-06 01:04:32 UTC, reviewed source `2b81ad2`.
 
 ## Measured host gates
 
@@ -127,3 +128,26 @@ Final staging includes the landed pkg230b addon from main `8217234`.
   Root evidence: `test_results/pkg236/final-terra-review.txt`,
   `real-cpu-smoke.log`, `real-powershell51-cpu-smoke-final.log`,
   `real-smoke-guard-result.json`; feature `test_results/pkg236-local-host.xml`.
+
+## Delivery, CI and saved visual
+
+Push run34001549179 and PR run34001551993 both passed authoritative pytest:
+**2173 passed, 277 skipped, 15 xfailed, 4 xpassed, 5 warnings**, respectively
+1589.95s and1593.24s. Both CUDA syntax checks passed. Detailed logs are retained
+in root `test_results/pkg236/ci-push.log` and `ci-pr.log`.
+
+The existing informational reference-bank smoke is NOT GREEN: literal
+`FAIL (2/3 gates)` means two gates passed and one failed, followed by exit1.
+Both pkg236 runs and both earlier pkg230b runs have this same aggregate result.
+The unchanged workflow explicitly makes it non-blocking with continue-on-error;
+pytest remains authoritative. No renderer/native/reference-bank/workflow code
+changed. Independent Terra adjudicated the advisory non-blocking for pkg236,
+without claiming an exact image-level cause. Pkg249 records separate diagnosis.
+Evidence: root `test_results/pkg236/ci-terra-adjudication.txt`.
+
+Astra inspected saved `test_results/pkg236/cpu-smoke.png` (sRGB display) and its
+identity record: centered illuminated peach/orange geometry, expected noise,
+no visible corruption. Raw linear data is `cpu-smoke.npy`; qualitative decision
+is `astra-visual-review.json`. This is visible CPU smoke liveness only, not
+Cycles parity or a fresh native/GPU build. All471 live-profile files were also
+rechecked after the visual capture; no changed/new files, original PID36532 only.

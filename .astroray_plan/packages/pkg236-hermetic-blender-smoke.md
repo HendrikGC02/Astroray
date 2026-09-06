@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (Blender/DCC dev-loop tooling)
 **Track:** A
-**Status:** IMPLEMENTED — Terra SIGN-OFF and real Blender gates passed; CI/delivery pending
+**Status:** DONE — PR #711, merge2699b43, 2026-09-06; Terra SIGN-OFF and documented gates passed
 **Estimated effort:** TBD at architect review
 **Depends on:** none — reuses canonical `scripts/dev_addon.ps1` and existing build/install helpers; no owner queue promotion
 
@@ -49,7 +49,7 @@ Scope: `scripts/dev_addon.ps1`, `scripts/build/build_blender_addon.py`,
 `tests/test_dev_loop_smoke.py`, and `tests/test_pkg236_hermetic_install.py`.
 The owner authorized bounded parallel lower-backlog work for this round.
 
-## Acceptance — host/real-Blender/review complete; CI/delivery pending
+## Acceptance — implemented and delivered
 
 - [x] Disposable-profile real Blender register/smoke, with a sentinel proving the
       real user profile was never written.
@@ -74,6 +74,12 @@ Terra final review passed. Post-promotion
 backup cleanup failure is an explicitly reported incomplete cleanup, not a
 claim that the prior installation was restored. Full evidence and delegation
 JSON: [pkg236 implementation evidence](../docs/pkg236-implementation-evidence.md).
+
+Both push/PR CI runs passed authoritative pytest (2173 passed, 277 skipped,
+15 xfailed, 4 xpassed) and CUDA checks. The existing informational reference
+smoke remains a recorded failure: two gates passed, one failed; independent
+Terra adjudicated it non-blocking for this installer-only package. Pkg249 owns
+separate diagnosis; no exact image-level cause or full-reference-green claim.
 
 ## Non-goals
 

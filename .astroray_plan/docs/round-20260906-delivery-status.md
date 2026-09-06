@@ -1,25 +1,69 @@
 # Delivery round status — 2026-09-06
 
-## Current update — pkg230b shipped, 2026-09-06
+## Current update — delivery and next milestone, 2026-09-06
 
 Pkg230b landed in #708, merge `8217234be0ce981075635647259fc78abdb1b77c`, at
 00:24:49 UTC. Owner-authorized Terra final SIGN-OFF covered source, callers,
 bindings, numerical evidence and actual saved visuals. PR run34000095026 passed
 host (2133 passed,269 skipped,15 xfailed,4 xpassed;1202.30s test step) and CUDA
 syntax checks. The duplicate push run34000075314 was still finishing at merge;
-no claim that it passed then. Local full-suite failures remain baseline debt,
+it subsequently passed host and CUDA checks (2133 passed, 269 skipped,
+15 xfailed, 4 xpassed; 1564.59s pytest). Local full-suite failures remain baseline debt,
 not passing gates. Source commit0cf3a3d; reviewed integration head0b98f9e.
 
 The three local draft specs246–248 received Terra filing SIGN-OFF and landed
 #709 (`45331d3`). They require detailed architecture before implementation.
-Pkg236 is now parallel in-flight work:62 focused passes, actual isolated CPU
-Blender smoke, live-profile hashes unchanged; independent final review and
-release pending. Main feature priority remains pkg241 measurement then viewport
-response, followed by mapped procedural/normal fidelity. No astrophysics unpause.
+Pkg236 landed in PR #711, merge `2699b43`, at 01:04:32 UTC, reviewed source
+`2b81ad2`, with owner-authorized
+Terra final SIGN-OFF. Host gates: 62 focused passes plus the exact real-Blender
+local-host test (1 passed, 8.15s); both PowerShell 7 and Windows PowerShell 5.1
+real isolated CPU smokes passed. All 471 live-profile files remained unchanged;
+only the original user Blender process remained. Both CI runs passed host/CUDA
+checks: 2173 passed, 277 skipped, 15 xfailed, 4 xpassed (5 warnings). The PR
+pytest run took 1593.24s; push 1589.95s. Runs: 34001551993 / 34001549179.
+The saved CPU smoke PNG and linear array received Astra qualitative inspection:
+visible illuminated geometry, expected noise, no visible corruption. This is a
+CPU liveness check, not a new native build, GPU test or Cycles parity claim.
+See [pkg236 evidence](pkg236-implementation-evidence.md) for transaction limits.
 
-Spark access was tested successfully through Codex CLI0.153.4. One bounded real
-critique completed; Astra/Terra rejected its false positives. The session's native
+The informational reference-bank smoke remains NOT GREEN: literal
+`FAIL (2/3 gates)` means two gates passed and one failed. It exited 1 in both
+pkg236 and both earlier pkg230b runs. The existing workflow makes it non-blocking;
+Terra independently adjudicated its lack of relevance to the installer change.
+No image-level cause is established. Pkg249 filed a separate diagnostic scope
+in #713 (`6bc382f`), with independent Terra filing SIGN-OFF and docs-only CI;
+no threshold, reference, required check or transport code changed.
+
+Pkg240's factual CI baseline audit landed in #712 (`6ae2421`). Four measured
+push/PR runs put host testing at 90.1–91.7% of host job time. The package remains
+OPEN: no workflow change, candidate speedup or collection-parity result is
+claimed. Independent Terra approved filing; docs-only CI passed change detection
+and skipped host/CUDA as designed. A controlled canonical split-runner trial is
+the next bounded throughput experiment.
+
+Spark access was tested successfully through Codex CLI0.153.4. Two bounded real
+critiques completed; Astra/Terra rejected false positives. The session's native
 subagent roster still lacks Spark, but CLI execution requires no new setup.
+
+### Recommended next milestone
+
+Pkg241 Phase 0 is the next main feature: finish the existing interactive recorder
+and measure actual Blender events before selecting behavior changes. The current
+interactive driver is a stub; native stage averages do not establish UI-event
+or cancellation percentiles. Reuse the canonical benchmark and isolated profile
+contract. Record CPU/GPU identity and raw event, update, presentation, cancel
+acknowledgement and completion timings; then pin workload-specific budgets.
+
+The visible milestone is orbit, settle/refine, edit, F12 cancel and restart on
+a representative expensive scene, without mixed accumulation or stale frames.
+Astra owns session/GIL/CUDA architecture, integration and actual visual judgment;
+owner-authorized Terra supplies independent review while Claude is unavailable.
+Use bounded Spark/DeepSeek workers for tracing, harness work and mechanical
+changes. Keep at most two implementation worktrees and serialize GPU work.
+After pkg240 detailed architecture, its controlled trial may run in parallel
+with this feature; follow with pkg242 procedural mapping and pkg245 normal/bump
+fidelity after checking file ownership. No paused
+astrophysics work resumes. The two known local baseline failures remain open.
 
 ## Earlier closeout — historical state, superseded above
 

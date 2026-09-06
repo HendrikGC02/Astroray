@@ -40,20 +40,47 @@ POST_PIXEL draw handler; 3x50 events/class, 5 warmup discarded. CPU material on
 the 100k scene is deadline-truncated (marked in the JSON) — CPU is the slow
 correctness oracle, not the interactivity target.
 
-<!-- MEASUREMENTS_TABLE -->
+edit -> present (ms), full region resolution:
 
-Structural findings that drive the design:
-- **GPU camera edit->present is already ~130 ms** — near the p95<=100 ms budget
-  but the render itself (~125 ms) is the whole cost; engine-entry latency is
-  ~1 ms (event routing is not the bottleneck).
-- **Material edits cost ~2x a camera edit** because `view_update` renders an
-  un-presented chunk and then `view_draw` renders again before blitting. First
-  pixels after a material edit are gated on two sequential render chunks.
+| scene | tris | region | device | class | n | p50 | p95 | p99 |
+|---|---|---|---|---|---|---|---|---|
+| metal_sweep | 2 220 | 2112x829 | gpu | camera | 150 | 396.8 | 425.6 | 454.2 |
+| metal_sweep | 2 220 | 2112x829 | gpu | material | 150 | 809.1 | 882.0 | 957.0 |
+| metal_sweep | 2 220 | 2112x829 | cpu | camera | 19* | 11613 | 12446 | 13257 |
+| metal_sweep | 2 220 | 2112x829 | cpu | material | 22* | 22370 | 22672 | 22803 |
+| big | 101 920 | 2100x1221 | gpu | camera | 150 | 162.1 | 165.0 | 169.5 |
+| big | 101 920 | 2100x1221 | gpu | material | 145* | 1350.8 | 1378.5 | 1404.8 |
+| big | 101 920 | 2100x1221 | cpu | camera | 25 | 1743.2 | 1756.6 | 1757.6 |
+| big | 101 920 | 2100x1221 | cpu | material | 24* | 14150 | 14333 | 14367 |
+
+Cancel full-stop floor (F12 render wall-time, ms): metal_sweep gpu 1107 /
+cpu 148 511; big gpu 483 / cpu 16 148. `*` = deadline-capped below the
+30-event floor. CPU could not reach 30 events/class within a bounded wall
+budget: the socket-driven bridge adds ~20 s/event of fixed overhead (idle-GUI
+timer throttling) on top of the render, so CPU counts are the capped maxima.
+CPU is the slow correctness oracle, not the interactivity gate; GPU carries the
+full n=150.
+
+Structural findings that drive the design (region-resolution viewport, so the
+absolute ms scale with pixel count — the JSON logs the region px per config):
+- **GPU camera edit->present is render-bound.** At full region resolution it is
+  p50 162 ms (100k scene) to 397 ms (metal_sweep at a larger nav-res chunk);
+  the block is ~99% inside the single `render()` call, engine-entry latency is
+  ~1 ms (event routing is not the bottleneck). Both exceed the p95<=100 ms
+  budget, but the cost is the render itself, not the response path — see Open
+  Question 1.
+- **A material edit costs ~2x its own render** because `view_update` renders an
+  un-presented chunk and then `view_draw` renders again before blitting: present
+  p50 809 ms vs a 397 ms material render (metal_sweep), 1351 ms vs a 609 ms
+  render (100k). First pixels after a material edit are gated on two sequential
+  render chunks. The material render is also costlier than a camera render
+  because the depsgraph edit forces a re-sync, not just a view-matrix update.
 - **CPU is 10-15x slower per frame**; a single CPU frame blocks the main thread
-  (and thus any cancel) for 1.5-30 s depending on scene.
+  (and thus any cancel) for ~1.7 s (100k camera) to ~23 s (metal_sweep material)
+  depending on scene, and the F12 full-render floor reaches ~148 s on CPU.
 - **Cancel full-stop floor == one render call.** With no cooperative break, a
   cancel/ESC cannot take effect until the in-flight `render()` returns. The F12
-  probe measures that floor directly.
+  probe measures that floor directly (GPU 483-1107 ms; CPU 16-148 s).
 
 ## 3. Proposed cooperative-cancellation contract (Phase 1)
 

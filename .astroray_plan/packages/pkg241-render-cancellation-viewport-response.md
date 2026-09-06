@@ -69,6 +69,21 @@ un-presented chunk, then view_draw renders again before blitting); CPU is
 because the native progress-callback return value is discarded
 (`blender_module.cpp:2220`) and the viewport passes `None` as the callback.
 
+**Measured headline (edit→present, full region resolution, p50/p95/p99 ms):**
+metal_sweep GPU camera 396.8/425.6/454.2 (n=150), material 809.1/882.0/957.0
+(n=150); big-scene GPU camera 162.1/165.0/169.5 (n=150), material
+1350.8/1378.5/1404.8 (n=145). CPU (slow oracle, deadline-capped): metal_sweep
+camera 11613/12446/13257 (n=19), material 22370/22672/22803 (n=22); big camera
+1743/1757/1758 (n=25), material 14150/14333/14367 (n=24). Cancel full-stop floor
+(F12 render wall-time): metal_sweep GPU 1107 ms / CPU 148 511 ms; big GPU 483 ms
+/ CPU 16 148 ms. GPU edit→present exceeds the p95 ≤ 100 ms budget because it is
+render-bound (engine entry ~1 ms), so meeting that budget needs render-time work
+beyond pkg241's cancellation scope (design-doc Open Question 1). The CPU
+≥30-event floor was not reachable within a bounded wall budget: the socket-driven
+live-GUI bridge adds ~20 s/event of fixed overhead (idle-window timer
+throttling), so CPU counts are the capped maxima — GPU (the product gate) carries
+the full n=150.
+
 ## Goal
 
 A cooperative render-cancellation and viewport-response contract: the viewport

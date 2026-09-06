@@ -21,6 +21,7 @@ Usage:
   python -m project_index graph --json out.json   # nodes/edges for the viz
   python -m project_index graph --html graph.html # self-contained node tree
   python -m project_index gh-sync            # pull issues/PRs via gh CLI (network)
+  python -m project_index lint --all         # lint package specs against TEMPLATE v2
 
 The DB is written to .astroray_plan/.project-index.db (gitignored). Read
 commands (query/deps/owns/script/whatis) auto-rebuild it when a source file is
@@ -45,20 +46,95 @@ README_PATH = ROOT / "scripts" / "README.md"
 PKG_ID_RE = re.compile(r"^pkg(\d+[a-z]?)", re.IGNORECASE)
 DEP_RE = re.compile(r"pkg\d+[a-z]?", re.IGNORECASE)
 
+# TEMPLATE v2 vocabulary (see .astroray_plan/packages/TEMPLATE.md). Tried
+# first by _status_token so a v2-compliant "done — PR #716" (or a legacy
+# "**DONE — ...**" with a stray trailing "**") both reduce cleanly to "done"
+# instead of falling into the legacy split below.
+_V2_STATUS_PREFIX_RE = re.compile(
+    r"^(open|in-progress|blocked|paused|done|superseded)\b", re.IGNORECASE
+)
+
 
 def _status_token(raw: str) -> str:
     """Reduce a Status line to a short scannable token.
 
-    Takes the text up to the first of '(', em-dash, '.', ',', or newline,
-    lower-cased and stripped. e.g. "done (PR #540, ...)" -> "done";
-    "open (filed 2026-08-21)." -> "open"; "Stage 2 done ..." -> "stage 2 done".
+    Tries the TEMPLATE v2 vocabulary first (case-insensitive prefix match).
+    Falls back to the legacy heuristic: text up to the first of '(', em-dash,
+    '.', ',', or newline, lower-cased and stripped. e.g. "done (PR #540, ...)"
+    -> "done"; "open (filed 2026-08-21)." -> "open"; "Stage 2 done ..." ->
+    "stage 2 done"; "done — PR #716" -> "done".
     """
+    m = _V2_STATUS_PREFIX_RE.match(raw.strip())
+    if m:
+        return m.group(1).lower()
     token = re.split(r"[(—.,\n]", raw, maxsplit=1)[0]
     return token.strip().lower()
 
 
+# ── Spec lint (TEMPLATE v2) ─────────────────────────────────────────────
+#
+# See .astroray_plan/packages/TEMPLATE.md for the grammar these validate.
+
+SPEC_FILENAME_RE = re.compile(r"^pkg(\d{1,3}[a-z]?)-[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
+TITLE_RE = re.compile(r"^# (pkg\d{1,3}[a-z]?) — \S.*$")
+STATUS_RE = re.compile(
+    r"^(open|in-progress|blocked|paused|done|superseded)(?: — \S.*)?$"
+)
+PILLAR_RE = re.compile(r"^[1-5]?$")
+TRACK_RE = re.compile(r"^[A-D]$")
+DEPENDS_RE = re.compile(r"^(none|TBD|pkg\d{1,3}[a-z]?(?:, pkg\d{1,3}[a-z]?)*)$")
+
+H2_ORDER = [
+    "Goal", "Context", "Evidence", "Reference", "Prerequisites",
+    "Specification", "Acceptance criteria", "Non-goals", "Progress", "Lessons",
+]
+H2_OPTIONAL = {"Evidence"}
+SPEC_H3_ORDER = ["Files to create", "Files to modify", "Key design decisions"]
+
+TABLE_ROW_RE = re.compile(r"^\|\s*`[^`\s]+`\s*\|\s*\S.*\|\s*$")
+TABLE_SEP_RE = re.compile(r"^\|\s*-{3,}\s*\|\s*-{3,}\s*\|$")
+
+# Six duplicate package numbers grandfathered from before numbering
+# discipline existed. Only pkg218 is slated to be renamed, and that is a
+# later PR — not this one. Do not add new entries here; a NEW duplicate
+# filename is always a lint error.
+LEGACY_DUP_NUMS = {"pkg38", "pkg55", "pkg64", "pkg85", "pkg86", "pkg218"}
+
+FIELD_LINE_RE = re.compile(r"^\*\*([A-Za-z][A-Za-z ]*):\*\*\s*(.*)$")
+REQUIRED_HEADER_FIELDS = ["Pillar", "Track", "Status", "Estimated effort", "Depends on"]
+
+DEFAULT_BASELINE_PATH = ROOT / "scripts" / "spec_lint_baseline.txt"
+
+
 def _pkg_files() -> list[Path]:
     return sorted(p for p in (PLAN / "packages").glob("*.md") if p.name != "TEMPLATE.md")
+
+
+def _header_value(text: str, label: str, fold: bool = False) -> str:
+    """Extract a **label:** header value (first matching physical line).
+
+    Transitional: legacy specs sometimes wrap a field's prose across several
+    lines; the linter (see `lint`) forbids this for non-baseline files, so
+    this is a tolerant reader for the pre-v2 corpus, not a grammar. With
+    fold=True, up to 8 continuation lines (non-blank, not a new `**Field:**`,
+    not `---`/`#`) are appended — use fold=True ONLY for Depends on, whose
+    legacy prose continuations can otherwise hide dependency tokens from
+    DEP_RE. fold=False (the default) matches only the first physical line,
+    same as the old field_line() this replaces.
+    """
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip().startswith(f"**{label}:**"):
+            value = line.split("**", 3)[-1].strip()
+            if fold:
+                for j in range(i + 1, min(i + 9, len(lines))):
+                    nxt = lines[j]
+                    stripped = nxt.strip()
+                    if not stripped or stripped.startswith(("**", "---", "#")):
+                        break
+                    value += " " + stripped
+            return value
+    return ""
 
 
 def _parse_package(path: Path) -> dict:
@@ -67,24 +143,13 @@ def _parse_package(path: Path) -> dict:
     m = PKG_ID_RE.match(key)
     num = m.group(0).lower() if m else key
 
-    def field(label: str) -> str:
-        mm = re.search(rf"\*\*{label}:\*\*\s*(.+)", text)
-        return mm.group(1).strip() if mm else ""
-
-    def field_line(label: str) -> str:
-        # Some older specs use "**Track:** A" all on one line; match to end of line.
-        for line in text.splitlines():
-            if line.strip().startswith(f"**{label}:**"):
-                return line.split("**", 3)[-1].strip()
-        return ""
-
     title = ""
     for line in text.splitlines():
         if line.startswith("# "):
             title = line[2:].strip()
             break
 
-    depends = sorted({d.lower() for d in DEP_RE.findall(field_line("Depends on"))})
+    depends = sorted({d.lower() for d in DEP_RE.findall(_header_value(text, "Depends on", fold=True))})
 
     # Files-to-create / Files-to-modify tables.
     files: list[tuple[str, str]] = []
@@ -104,20 +169,242 @@ def _parse_package(path: Path) -> dict:
             if cells and cells[0] and not cells[0].startswith("---") and cells[0] != "File":
                 files.append((cells[0], section))
 
-    status = field_line("Status")
+    status = _header_value(text, "Status")
     return {
         "key": key,
         "num": num,
         "title": title,
-        "pillar": field_line("Pillar"),
-        "track": field_line("Track"),
+        "pillar": _header_value(text, "Pillar"),
+        "track": _header_value(text, "Track"),
         "status": status,
         "status_short": _status_token(status),
-        "effort": field_line("Estimated effort"),
+        "effort": _header_value(text, "Estimated effort"),
         "depends": depends,
         "files": files,
         "body": text,
     }
+
+
+def _build_id_index(files: list[Path]) -> dict[str, list[Path]]:
+    """id ("pkg219") -> every spec file whose filename starts with that id."""
+    idx: dict[str, list[Path]] = {}
+    for p in files:
+        m = PKG_ID_RE.match(p.stem)
+        key = ("pkg" + m.group(1)).lower() if m else p.stem.lower()
+        idx.setdefault(key, []).append(p)
+    return idx
+
+
+def _read_baseline(path: Path) -> set[str]:
+    """Read scripts/spec_lint_baseline.txt: one filename per line, '#' comments ok."""
+    if not path.exists():
+        return set()
+    names: set[str] = set()
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            names.add(line)
+    return names
+
+
+def _lint_one(path: Path, id_index: dict[str, list[Path]]) -> list[tuple[int, str, str]]:
+    """Lint one spec file against TEMPLATE v2. Returns (line_no, code, msg)."""
+    findings: list[tuple[int, str, str]] = []
+    text = path.read_text(encoding="utf-8", errors="replace")
+    lines = text.splitlines()
+
+    fname_match = SPEC_FILENAME_RE.match(path.name)
+    if not fname_match:
+        findings.append((1, "E001", f"filename '{path.name}' does not match {SPEC_FILENAME_RE.pattern}"))
+
+    title_idx = None
+    title_id = None
+    for i, line in enumerate(lines):
+        if line.startswith("# "):
+            title_idx = i
+            m = TITLE_RE.match(line)
+            if m:
+                title_id = m.group(1).lower()
+            else:
+                findings.append((i + 1, "E002", "title line does not match '# pkgNNN — <text>'"))
+            break
+    if title_idx is None:
+        findings.append((1, "E002", "no title line ('# ...') found"))
+    elif title_id is not None and fname_match:
+        fname_id = ("pkg" + fname_match.group(1)).lower()
+        if title_id != fname_id:
+            findings.append((title_idx + 1, "E002", f"title id '{title_id}' does not match filename id '{fname_id}'"))
+
+    id_m = PKG_ID_RE.match(path.stem)
+    pkg_id = ("pkg" + id_m.group(1)).lower() if id_m else None
+    if pkg_id and len(id_index.get(pkg_id, [])) > 1 and pkg_id not in LEGACY_DUP_NUMS:
+        others = sorted(p.name for p in id_index[pkg_id] if p.name != path.name)
+        findings.append((1, "E018", f"duplicate package number '{pkg_id}', also used by: {', '.join(others)}"))
+
+    if title_idx is None:
+        return findings  # can't scope the header/sections without a title anchor
+
+    # Header block: from just after the title to the line before the first
+    # "---" or "## " (whichever comes first).
+    header_end = len(lines)
+    for i in range(title_idx + 1, len(lines)):
+        if lines[i].strip() == "---" or lines[i].startswith("## "):
+            header_end = i
+            break
+
+    field_hits: list[tuple[int, str, str]] = []  # (line_idx, label, value)
+    for i in range(title_idx + 1, header_end):
+        m = FIELD_LINE_RE.match(lines[i])
+        if m:
+            field_hits.append((i, m.group(1).strip(), m.group(2).strip()))
+
+    counts: dict[str, int] = {}
+    first_idx: dict[str, int] = {}
+    first_val: dict[str, str] = {}
+    for i, label, value in field_hits:
+        counts[label] = counts.get(label, 0) + 1
+        if label not in first_idx:
+            first_idx[label] = i
+            first_val[label] = value
+
+    for req in REQUIRED_HEADER_FIELDS:
+        c = counts.get(req, 0)
+        if c == 0:
+            findings.append((header_end, "E003", f"missing required header field '**{req}:**'"))
+        elif c > 1:
+            findings.append((first_idx[req] + 1, "E003", f"duplicate header field '**{req}:**' ({c} occurrences)"))
+
+    for i, label, value in field_hits:
+        if label not in REQUIRED_HEADER_FIELDS:
+            findings.append((i + 1, "E012", f"unexpected header field '**{label}:**' (move prose into ## Context)"))
+
+    for i, label, value in field_hits:
+        if i + 1 < len(lines):
+            nxt = lines[i + 1]
+            if nxt.strip() != "" and not FIELD_LINE_RE.match(nxt) and nxt.strip() != "---":
+                findings.append((i + 2, "E005", f"'**{label}:**' field spills onto the next line; must be one physical line"))
+
+    if all(counts.get(f, 0) >= 1 for f in REQUIRED_HEADER_FIELDS):
+        order_idxs = [first_idx[f] for f in REQUIRED_HEADER_FIELDS]
+        if any(order_idxs[k + 1] != order_idxs[k] + 1 for k in range(len(order_idxs) - 1)):
+            findings.append((title_idx + 2, "E004",
+                              "header fields must be contiguous, one per line, in order: "
+                              + ", ".join(REQUIRED_HEADER_FIELDS)))
+
+    if counts.get("Pillar", 0) >= 1 and not PILLAR_RE.match(first_val["Pillar"]):
+        findings.append((first_idx["Pillar"] + 1, "E006",
+                          f"Pillar value '{first_val['Pillar']}' must be a bare integer 1-5, or empty for infrastructure"))
+
+    if counts.get("Track", 0) >= 1 and not TRACK_RE.match(first_val["Track"]):
+        findings.append((first_idx["Track"] + 1, "E007", f"Track value '{first_val['Track']}' must be a single letter A-D"))
+
+    if counts.get("Status", 0) >= 1 and not STATUS_RE.match(first_val["Status"]):
+        findings.append((first_idx["Status"] + 1, "E008",
+                          f"Status value '{first_val['Status']}' must be one of "
+                          "open|in-progress|blocked|paused|done|superseded, "
+                          "optionally followed by ' — <free text>'"))
+
+    if counts.get("Estimated effort", 0) >= 1 and first_val["Estimated effort"] == "":
+        findings.append((first_idx["Estimated effort"] + 1, "E009", "Estimated effort must not be empty (use 'TBD' if unknown)"))
+
+    if counts.get("Depends on", 0) >= 1:
+        dep_val = first_val["Depends on"]
+        dep_line = first_idx["Depends on"] + 1
+        if not DEPENDS_RE.match(dep_val):
+            findings.append((dep_line, "E010",
+                              f"Depends on value '{dep_val}' must be 'none', 'TBD', or a comma-separated pkg list"))
+        elif dep_val == "TBD":
+            findings.append((dep_line, "W003", "Depends on: TBD"))
+        elif dep_val != "none":
+            for tok in (t.strip() for t in dep_val.split(",")):
+                if not id_index.get(tok.lower()):
+                    findings.append((dep_line, "E011", f"dependency '{tok}' has no matching spec file"))
+
+    # ── Sections (## headings) ──
+    h2_entries = [(i, line[3:].strip()) for i, line in enumerate(lines) if line.startswith("## ")]
+    h2_names = [name for _, name in h2_entries]
+    h2_name_set = set(h2_names)
+
+    for name in H2_ORDER:
+        if name not in H2_OPTIONAL and name not in h2_name_set:
+            findings.append((header_end + 1, "E013", f"missing required section '## {name}'"))
+
+    for i, name in h2_entries:
+        if name not in H2_ORDER:
+            findings.append((i + 1, "E015", f"unknown section '## {name}' (not in TEMPLATE v2)"))
+
+    present_ordered = [name for name in h2_names if name in H2_ORDER]
+    expected_ordered = [name for name in H2_ORDER if name in h2_name_set]
+    if present_ordered != expected_ordered:
+        bad_line = h2_entries[0][0] + 1 if h2_entries else header_end + 1
+        findings.append((bad_line, "E014", "sections out of order; expected order: " + ", ".join(H2_ORDER)))
+
+    # ── Specification: H3 order + Files tables ──
+    spec_pos = next((k for k, (_, name) in enumerate(h2_entries) if name == "Specification"), None)
+    if spec_pos is not None:
+        spec_start = h2_entries[spec_pos][0] + 1
+        spec_end = h2_entries[spec_pos + 1][0] if spec_pos + 1 < len(h2_entries) else len(lines)
+        h3_entries = [(i, lines[i][4:].strip()) for i in range(spec_start, spec_end) if lines[i].startswith("### ")]
+        h3_names = [name for _, name in h3_entries]
+        if h3_names != SPEC_H3_ORDER:
+            findings.append((spec_start + 1, "E016",
+                              f"Specification H3 sections must be exactly {SPEC_H3_ORDER}, in order; got {h3_names}"))
+
+        h3_ranges: dict[str, tuple[int, int]] = {}
+        for k, (i, name) in enumerate(h3_entries):
+            start = i + 1
+            end = h3_entries[k + 1][0] if k + 1 < len(h3_entries) else spec_end
+            h3_ranges[name] = (start, end)
+
+        for table_name in ("Files to create", "Files to modify"):
+            if table_name not in h3_ranges:
+                continue
+            start, end = h3_ranges[table_name]
+            content = [(i, lines[i]) for i in range(start, end) if lines[i].strip() != ""]
+            if len(content) == 1 and content[0][1].strip() == "None.":
+                continue
+            if len(content) >= 2 and TABLE_SEP_RE.match(content[1][1].strip()):
+                for i, row in content[2:]:
+                    if not TABLE_ROW_RE.match(row.strip()):
+                        findings.append((i + 1, "E017", f"malformed table row in '### {table_name}': {row.strip()!r}"))
+                    elif table_name == "Files to modify":
+                        cell = row.strip().strip("|").split("|")[0].strip().strip("`")
+                        if not (ROOT / cell).exists():
+                            findings.append((i + 1, "W001", f"path '{cell}' does not exist in the repo"))
+            else:
+                findings.append((start + 1, "E017",
+                                  f"'### {table_name}' must be either the single line 'None.' or a header+separator+rows table"))
+
+    return findings
+
+
+def lint(paths: list[Path], baseline: set[str] | None, quiet: bool = False) -> int:
+    """Lint each path against TEMPLATE v2. Returns process exit code (0/1)."""
+    id_index = _build_id_index(_pkg_files())
+    baseline = baseline or set()
+    had_error = False
+    for path in paths:
+        if not path.exists():
+            print(f"{path}: file not found", file=sys.stderr)
+            had_error = True
+            continue
+        if path.name == "TEMPLATE.md":
+            continue
+        is_baselined = path.name in baseline
+        file_had_error = False
+        for line_no, code, msg in _lint_one(path, id_index):
+            is_err = code.startswith("E")
+            if is_err:
+                file_had_error = True
+            prefix = "baseline: " if (is_err and is_baselined) else ""
+            print(f"{prefix}{path}:{line_no}: {code} {msg}")
+        if is_baselined and not file_had_error:
+            print(f"{path}:1: W002 file lints clean; remove it from the baseline")
+        if file_had_error and not is_baselined:
+            had_error = True
+    if not quiet and not had_error:
+        print(f"lint OK: {len(paths)} file(s) checked, {len(baseline)} baselined")
+    return 1 if had_error else 0
 
 
 def _parse_docs() -> list[dict]:
@@ -470,8 +757,9 @@ _HTML_TEMPLATE = r"""<!doctype html>
   <div class="section">Packages</div>
   <div class="row"><span class="sw" style="background:#58a6ff"></span><label>open</label></div>
   <div class="row"><span class="sw" style="background:#d29922"></span><label>in-progress / in-review</label></div>
+  <div class="row"><span class="sw" style="background:#f85149"></span><label>blocked</label></div>
+  <div class="row"><span class="sw" style="background:#8b949e"></span><label>paused / superseded / other</label></div>
   <div class="row"><span class="sw" style="background:#3fb950"></span><label>done</label></div>
-  <div class="row"><span class="sw" style="background:#8b949e"></span><label>other / research</label></div>
   <div class="section">Other nodes</div>
   <div class="row"><span class="sw box" style="background:#bc8cff"></span><label>research doc</label></div>
   <div class="row"><span class="sw box" style="background:#2ea043"></span><label>file (source / test)</label></div>
@@ -493,7 +781,9 @@ const DATA = __DATA__;
 let graph;
 
 function statusColor(s){ s = (s||'').toLowerCase();
+  if(s.indexOf('blocked')>=0) return '#f85149';
   if(s.indexOf('done')>=0) return '#3fb950';
+  if(s.indexOf('paused')>=0 || s.indexOf('superseded')>=0) return '#8b949e';
   if(s.indexOf('progress')>=0 || s.indexOf('review')>=0) return '#d29922';
   if(s.indexOf('open')>=0) return '#58a6ff';
   return '#8b949e'; }
@@ -617,8 +907,32 @@ def main() -> None:
     p_g.add_argument("--json", dest="json_out")
     p_g.add_argument("--html", dest="html_out")
     sub.add_parser("gh-sync", help="sync GitHub issues/PRs")
+    p_l = sub.add_parser("lint", help="lint package specs against TEMPLATE v2")
+    p_l.add_argument("paths", nargs="*", metavar="PATH")
+    p_l.add_argument("--all", action="store_true", help="lint every package spec")
+    p_l.add_argument("--baseline", dest="baseline_path", default=None,
+                      help=f"baseline file (default: {DEFAULT_BASELINE_PATH})")
+    p_l.add_argument("--no-baseline", action="store_true", help="ignore the baseline; every finding fails")
+    p_l.add_argument("--quiet", action="store_true", help="suppress the summary line on success")
 
     args = ap.parse_args()
+    cmd = args.cmd or "build"
+
+    if cmd == "lint":
+        # Never touches the DB (must not trigger a rebuild), and an empty
+        # target list is a usage error so an empty hook file list can't
+        # silently "pass".
+        if not args.all and not args.paths:
+            print("usage: project_index.py lint [PATH ...] | --all", file=sys.stderr)
+            sys.exit(2)
+        target_paths = _pkg_files() if args.all else [Path(p) for p in args.paths]
+        if args.no_baseline:
+            baseline = None
+        else:
+            baseline_path = Path(args.baseline_path) if args.baseline_path else DEFAULT_BASELINE_PATH
+            baseline = _read_baseline(baseline_path)
+        sys.exit(lint(target_paths, baseline, quiet=args.quiet))
+
     # Capture staleness BEFORE connecting: sqlite3.connect() creates an empty
     # file, which would otherwise look "fresh" (mtime=now) but have no tables.
     stale = _db_is_stale()
@@ -626,7 +940,6 @@ def main() -> None:
         Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     db = _connect()
 
-    cmd = args.cmd or "build"
     # Read commands auto-rebuild when a source file is newer than the DB.
     if cmd in ("query", "deps", "owns", "script", "whatis") and stale:
         build(db)

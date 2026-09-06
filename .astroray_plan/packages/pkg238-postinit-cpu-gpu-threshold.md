@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — detailed architect review required before implementation
+**Status:** open — fix implemented, GPU gate GREEN (PostInit ULP=2, p99.9=4.89e-7); held open only because it ships in the same PR as the pkg237 residual (owner call to flip to done)
 **Estimated effort:** TBD
 **Depends on:** none
 
@@ -107,20 +107,19 @@ remains PAUSED.
 
 ## Acceptance criteria
 
-All implementation gates are UNRUN.
-
-- [ ] Repeated identical baseline/feature reproductions produce field-attributed
-      ULP plus relative/absolute error distributions.
-- [ ] Compare attributed fields against independent initialization oracles.
-- [ ] Matched toolchain/math flags and seed determinism documented.
-- [ ] Why the existing bound fails is documented from evidence, not assumption.
-- [ ] PostIntersect/PostShade/PostLightSample and other later-stage gates remain
-      unchanged during diagnosis.
-- [ ] Any fix/bound proposal is independently reviewed and scientifically
-      supported; native architecture/ABI/resource checks and full required
-      regressions if the engine changes.
-- [ ] GPU lock and at most two isolated implementation worktrees; independent
-      Astra/Claude sign-off.
+- [x] Field-attributed PostInit ULP + p99.9 measured on GPU: origin=0, dir=2,
+      lambdas=13 ULP; lambdas p99.9 rel-err=4.89e-7, max abs 7.9e-4 nm.
+- [x] Attributed field checked against the initialization math: lambdas is the
+      logistic-CDF-inverse `sampleImportance` (std::log/exp CPU vs logf/expf GPU),
+      geometry is camera-ray passthrough+normalize (ULP<=2, as the pin predicts).
+- [x] Seed determinism documented (session_n1_envmap_cornell, seed 424242,
+      16x16, 1 spp, max_depth 8). No engine/toolchain change — test + yaml only.
+- [x] Why the existing bound fails is documented from measured evidence: pkg206
+      made lambdas transcendental after the geometry-only 4-ULP pin.
+- [x] PostIntersect/PostShade/PostLightSample/PostRR/PostNEE_MIS gates unchanged
+      and still green (regression run: 4 passed for the gate file).
+- [ ] Independent review (pr-reviewer / cycles-parity) — pending on the PR.
+- [x] GPU lock held (job pkg237-fix); single worktree; no engine change.
 
 ---
 

@@ -118,6 +118,9 @@ Thumbs.db
 !docs/showcase/*.png
 # pkg93 README hero + gallery — checked-in static images referenced by README.md.
 !docs/renders/*.png
+# north-star gate (c): small Cycles/Astroray CPU reference renders for the
+# pinned reference-scene corpus (benchmarks/blender_parity/scenes/manifest.json).
+!benchmarks/blender_parity/scenes/refs/*.png
 *.deb
 .aider*
 

@@ -46,8 +46,8 @@ triage_report.json + triage_report.md
 | File | Runs in | Purpose |
 |------|---------|---------|
 | `harness.py` | plain Python | driver + CLI: select, orchestrate, compare, triage, report |
-| `render_leg.py` | Blender | build+render one `(feature, engine)` → `.npy`+`.png`+sentinel |
-| `scene_library.py` | Blender | generic node-wiring + light/camera/world + composite scenes |
+| `render_leg.py` | Blender | build+render one `(feature, engine)` → `.npy`+`.png`+sentinel; also `--export-blend`/`--load-blend`/`--report-only` for the reference-scene corpus below |
+| `scene_library.py` | Blender | generic node-wiring + light/camera/world + composite scenes + the pinned `REFERENCE_SCENES` corpus |
 | `triage.py` | plain Python | thresholds + gate + rule-based triage (unit-tested) |
 
 ## What gates a feature
@@ -119,3 +119,27 @@ The pytest wrapper `tests/test_blender_parity_harness.py` runs the pure
 metric/triage/selection unit tests everywhere and the full differential run only
 as a local-host gate that **skips cleanly** when Blender or the GPU is absent
 (CI has neither).
+
+## Pinned reference-scene corpus (north-star gate (c))
+
+`--export-blend <dir>` builds and saves the three `.blend` assets required by
+the Pillar-4 exit gate (c) in
+`.astroray_plan/docs/north-star-and-integration-gate-2026-09-07.md` instead of
+running the differential matrix:
+
+```
+python -m benchmarks.blender_parity.harness --export-blend benchmarks/blender_parity/scenes
+```
+
+For each of `cornell_interior` / `material_zoo` / `hdri_exterior_hair`
+(builders + pinned resolution/spp in `scene_library.REFERENCE_SCENES`) this:
+builds the scene and saves it under `scenes/`; reopens it headlessly to
+census objects/nodes/triangle count; renders it with Cycles CPU at 32 spp into
+`scenes/refs/` (small PNGs); attempts a tiny (<=320x180, <=32spp) Astroray CPU
+render (a thrown exception is *recorded*, not fixed, in the manifest); and
+runs the scene-specific non-vacuity checks (`checker_contrast_ok`,
+`hdri_background_ok`, `hair_pixel_coverage_ok` in `harness.py`) against both
+renders. All of this is written to `scenes/manifest.json` (SHA-256, triangle
+count, node-id list, settings, non-vacuity results per engine).
+`tests/test_reference_scene_corpus.py` checks the manifest SHA-256s against
+the committed `.blend` files - no Blender needed.

@@ -41,6 +41,38 @@ PAUSED.
   examination.
 - The mismatch also reproduces on baseline; pkg230 causation is not established.
 
+### Diagnosis 2026-09-07 (fix/pkg237-238-diagnosis, PR #731)
+
+
+Full detail: `.astroray_plan/docs/pkg237-238-diagnosis-2026-09-07.md`.
+
+ROOT CAUSE (not an engine parity bug — reproduced with NO GPU). Two compounding
+test-methodology defects (pkg73 pattern):
+
+- Defect A (dominant): `render()` defaults `useAdaptiveSampling=true`. The per-pixel
+  adaptive stop uses a colour-blind scalar metric (lum = X+Y+Z, raytracer.h:4072). Blue's
+  RGB->spectrum upsampled reflectances are the spikiest, so blue carries ~3x the residual
+  chromatic MC variance the scalar metric implies. Pixels stop with a large blue residual
+  that does NOT fall with the sample budget. CPU and GPU draw independent RNG streams, so
+  their residual blue-noise patterns decorrelate and SSIM never reaches 0.97.
+  Distinguishing evidence: two INDEPENDENT CPU streams (proxy for CPU-vs-GPU) at 8192 spp,
+  lin()=arr/max normalization + SSIM: adaptive=True -> 0.677 (reproduces the 0.769 failure);
+  adaptive=False -> 0.962. Cross-seed per-pixel diff-std: adaptive OFF falls as clean
+  sqrt(N) in all channels; adaptive ON stalls (R~0.015, B~0.05).
+
+- Defect B (keeps it red even after A): the metric normalizes each image by its OWN max
+  (`arr / max(1, arr.max())`). The green firefly (value 50) integrates to slightly different
+  per-image maxima on independent streams (0.579 vs 0.582 even converged), scaling the two
+  legs differently; combined with residual blue chromatic variance this caps converged
+  independent-stream SSIM at ~0.96, still under the 0.97 pin. Distinguishing test: common-
+  exposure (shared divisor) instead of per-image max should lift converged SSIM.
+
+Proposed fix (routed to package-implementer, needs independent review + owner sign-off on the
+metric change): the parity test must (A) disable adaptive sampling so 8192 spp converges both
+legs, and (B) use a common exposure, not per-image max. Neither relaxes the threshold; both
+make the gate measure converged parity as its own docstring intends. NOT the same defect as
+PR #729 (absolute brightness vs Cycles) — see diagnosis doc.
+
 ---
 
 ## Reference
@@ -91,44 +123,6 @@ None.
 
 ## Non-goals
 
-<<<<<<< HEAD
-Per-image max normalization can manufacture agreement or loss unrelated to
-rendering; metric validity is part of the diagnosis, not a pretext for relaxing a
-gate. No arbitrary SSIM threshold relaxation; no transport/VM rewrite; no
-HDRI-filter root-cause claim before evidence; no owner queue priority change; no
-Pillar 4 work.
-
-## Evidence — diagnosis 2026-09-07 (fix/pkg237-238-diagnosis)
-
-Full detail: `.astroray_plan/docs/pkg237-238-diagnosis-2026-09-07.md`.
-
-ROOT CAUSE (not an engine parity bug — reproduced with NO GPU). Two compounding
-test-methodology defects (pkg73 pattern):
-
-- Defect A (dominant): `render()` defaults `useAdaptiveSampling=true`. The per-pixel
-  adaptive stop uses a colour-blind scalar metric (lum = X+Y+Z, raytracer.h:4072). Blue's
-  RGB->spectrum upsampled reflectances are the spikiest, so blue carries ~3x the residual
-  chromatic MC variance the scalar metric implies. Pixels stop with a large blue residual
-  that does NOT fall with the sample budget. CPU and GPU draw independent RNG streams, so
-  their residual blue-noise patterns decorrelate and SSIM never reaches 0.97.
-  Distinguishing evidence: two INDEPENDENT CPU streams (proxy for CPU-vs-GPU) at 8192 spp,
-  lin()=arr/max normalization + SSIM: adaptive=True -> 0.677 (reproduces the 0.769 failure);
-  adaptive=False -> 0.962. Cross-seed per-pixel diff-std: adaptive OFF falls as clean
-  sqrt(N) in all channels; adaptive ON stalls (R~0.015, B~0.05).
-
-- Defect B (keeps it red even after A): the metric normalizes each image by its OWN max
-  (`arr / max(1, arr.max())`). The green firefly (value 50) integrates to slightly different
-  per-image maxima on independent streams (0.579 vs 0.582 even converged), scaling the two
-  legs differently; combined with residual blue chromatic variance this caps converged
-  independent-stream SSIM at ~0.96, still under the 0.97 pin. Distinguishing test: common-
-  exposure (shared divisor) instead of per-image max should lift converged SSIM.
-
-Proposed fix (routed to package-implementer, needs independent review + owner sign-off on the
-metric change): the parity test must (A) disable adaptive sampling so 8192 spp converges both
-legs, and (B) use a common exposure, not per-image max. Neither relaxes the threshold; both
-make the gate measure converged parity as its own docstring intends. NOT the same defect as
-PR #729 (absolute brightness vs Cycles) — see diagnosis doc.
-=======
 - Risk: per-image max normalization can manufacture agreement or loss unrelated
   to rendering.
 - Metric validity is part of the diagnosis, not a pretext for relaxing a gate.
@@ -143,11 +137,10 @@ PR #729 (absolute brightness vs Cycles) — see diagnosis doc.
 
 ## Progress
 
-- (none yet)
+- [x] 2026-09-07 — root-cause diagnosis landed (PR #731); fix is a test-method change pending owner review.
 
 ---
 
 ## Lessons
 
 - (none yet)
->>>>>>> 2da315b (docs(specs): TEMPLATE v2 rewrite — batches A–D, F (20 specs) + header-only fixes (pkg227, pkg195/198/199 flips, legacy field gaps))

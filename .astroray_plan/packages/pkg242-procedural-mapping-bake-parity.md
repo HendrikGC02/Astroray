@@ -116,6 +116,27 @@ Phase 1 implements the approved native/bake/cache subset.
 
 Phase 2 verifies real Blender parity.
 
+#### 2026-09-07 — UV-less fallback contract (PR #726)
+- **UV-less primitives use the documented CPU implicit UV domain; the GPU
+  uploads the same UVs.** The CPU `Triangle` always defines `(uv0,uv1,uv2)`:
+  authored UV-layer 0 when present, else the implicit default domain
+  `uv0=(0,0), uv1=(1,0), uv2=(0,1)` (`include/astroray/shapes.h` ctors,
+  interpolated at `shapes.h:209`). So a UV-less triangle still yields a valid
+  `rec.uv` and the CPU procedural/image sampler shades correctly. The GPU
+  upload (`src/gpu/scene_upload.cu`) now sets `GTriangle.hasUV` and uploads
+  `getUV0/1/2` — i.e. exactly that CPU fallback domain — for the 2D
+  texture-sampling consumers (image/procedural base colour, normal map, bump,
+  scalar op-VM program) regardless of authored layers. `hasUV` therefore means
+  "UVs uploaded, safe to sample" and gates only the device texel fetches. The
+  UV-ALIGNED-FRAME recomputes (anisotropy tangent, normal-map decode, bump
+  frame in `stage_advance.cu`) instead gate on a separate `GTriangle.uvAuthored`
+  bit set from `tri->hasUVLayers()`, mirroring the CPU, which only computes a
+  UV-aligned tangent when `!uvLayers.empty()` (`shapes.h`) and otherwise keeps
+  the arbitrary frame from `setFaceNormal`. So a UV-less anisotropic/normal-
+  mapped/bump surface keeps the arbitrary frame on both backends, while still
+  getting a valid base-colour texel fetch from the uploaded fallback UVs. The
+  fixture was NOT changed to hide the mismatch.
+
 ---
 
 ## Acceptance criteria
@@ -152,33 +173,6 @@ All implementation gates UNRUN:
 
 ---
 
-<<<<<<< HEAD
-Finite bake resolution can hide transform errors or alias high-frequency fields;
-unbounded Object coordinates need an explicit supported domain. Shared material
-instances and stale bake keys can apply another object's coordinate frame.
-
-## Key design decisions
-
-- **UV-less primitives use the documented CPU implicit UV domain; the GPU
-  uploads the same UVs.** The CPU `Triangle` always defines `(uv0,uv1,uv2)`:
-  authored UV-layer 0 when present, else the implicit default domain
-  `uv0=(0,0), uv1=(1,0), uv2=(0,1)` (`include/astroray/shapes.h` ctors,
-  interpolated at `shapes.h:209`). So a UV-less triangle still yields a valid
-  `rec.uv` and the CPU procedural/image sampler shades correctly. The GPU
-  upload (`src/gpu/scene_upload.cu`) now sets `GTriangle.hasUV` and uploads
-  `getUV0/1/2` — i.e. exactly that CPU fallback domain — for the 2D
-  texture-sampling consumers (image/procedural base colour, normal map, bump,
-  scalar op-VM program) regardless of authored layers. `hasUV` therefore means
-  "UVs uploaded, safe to sample" and gates only the device texel fetches. The
-  UV-ALIGNED-FRAME recomputes (anisotropy tangent, normal-map decode, bump
-  frame in `stage_advance.cu`) instead gate on a separate `GTriangle.uvAuthored`
-  bit set from `tri->hasUVLayers()`, mirroring the CPU, which only computes a
-  UV-aligned tangent when `!uvLayers.empty()` (`shapes.h`) and otherwise keeps
-  the arbitrary frame from `setFaceNormal`. So a UV-less anisotropic/normal-
-  mapped/bump surface keeps the arbitrary frame on both backends, while still
-  getting a valid base-colour texel fetch from the uploaded fallback UVs. The
-  fixture was NOT changed to hide the mismatch.
-
 ## Progress
 
 - **2026-09-07 -- Phase 0 baseline + UV-less fallback contract (PR #726).** Reproduced
@@ -192,14 +186,9 @@ instances and stale bake keys can apply another object's coordinate frame.
   regression pin pass on the CPU-only build; the GPU std-ratio parity gate is
   pending the lead's RTX 5070 Ti CUDA build). The full transformed-p /
   bake/cache-domain contract (Phase 1/2) remains OPEN and unstarted.
-=======
-## Progress
-
-- (none yet)
 
 ---
 
 ## Lessons
 
 - (none yet)
->>>>>>> 2da315b (docs(specs): TEMPLATE v2 rewrite — batches A–D, F (20 specs) + header-only fixes (pkg227, pkg195/198/199 flips, legacy field gaps))

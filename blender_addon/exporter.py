@@ -38,6 +38,17 @@ from enum import IntFlag
 VIEWPORT_NAV_RES_DIVISOR = 2   # render W/2 x H/2 while the camera is moving.
 VIEWPORT_NAV_SETTLE_S = 0.25   # snap back to full res after this quiet window.
 
+# pkg241 Phase 1: interactive-resolution budget. On the "expensive profile"
+# (an edit whose estimated full-resolution render exceeds the interaction
+# budget) start a fresh edit coarse (W/4 x H/4) for a fast first present, then
+# refine one rung toward full res on each settled frame (4 -> 2 -> 1). This
+# extends the pkg196 navigation divisor rather than adding a parallel ladder.
+# VIEWPORT_INTERACTIVE_BUDGET_MS is the pinned GPU edit->present p95 gate; the
+# coarse start engages only above this measured threshold so cheap scenes keep
+# rendering full res immediately.
+VIEWPORT_START_RES_DIVISOR = 4       # coarse first present on the expensive profile.
+VIEWPORT_INTERACTIVE_BUDGET_MS = 100.0  # pinned edit->present p95 budget (GPU).
+
 
 def _nav_clock():
     """Monotonic clock for the nav-settle debounce (patchable in tests)."""
@@ -306,6 +317,15 @@ class Exporter:
         # recent camera move, used for the settle debounce in view_draw.
         self._viewport_render_divisor = 1
         self._viewport_nav_last_change_time = 0.0
+        # pkg241 Phase 1: present-first + interactive-resolution budget.
+        # _viewport_present_pending is set when view_update renders and caches a
+        # fresh texture it does NOT blit; the next view_draw presents that texture
+        # before scheduling its own refinement chunk (removes the material
+        # double-render). _viewport_last_full_render_ms is the last render's wall
+        # time scaled to full resolution, the measured signal that engages the
+        # coarse starting divisor above the interaction budget.
+        self._viewport_present_pending = False
+        self._viewport_last_full_render_ms = 0.0
 
         # Per-domain caches
         self._camera_cache = CameraCache(bpy_module)
@@ -327,6 +347,17 @@ class Exporter:
         self._viewport_current_spp = 0
         self._viewport_target_spp = 0
         self._viewport_accum_key = None
+
+    def _budget_start_divisor(self):
+        """pkg241 Phase 1: interactive-resolution budget. Return the coarse
+        starting divisor for a fresh edit when the last render's estimated
+        full-resolution wall time exceeds VIEWPORT_INTERACTIVE_BUDGET_MS, else 1
+        (full res). The estimate (_viewport_last_full_render_ms) is measured, so
+        the coarse profile engages only above the threshold and cheap scenes
+        render full res immediately (Cycles start_resolution analogue)."""
+        if self._viewport_last_full_render_ms > VIEWPORT_INTERACTIVE_BUDGET_MS:
+            return VIEWPORT_START_RES_DIVISOR
+        return 1
 
     def _renderer_object_id_for(self, blender_id):
         """Resolve a Blender Object → renderer primitive insertion id.
@@ -608,6 +639,7 @@ class Exporter:
             return False
 
         depth = max(2, settings.max_bounces // 2)
+        _render_t0 = time.perf_counter()
         pixels = renderer.render(
             samples, depth, None, False,
             min(settings.diffuse_bounces, depth),
@@ -619,6 +651,12 @@ class Exporter:
         )
         if pixels is None:
             return
+        # pkg241 Phase 1: record the render cost scaled to full resolution so the
+        # interactive-resolution budget can engage the coarse starting divisor on
+        # expensive edits. render() cost is roughly pixel-count bound, so a
+        # divisor-N reduced render estimates the full-res cost as t * N^2.
+        _render_ms = (time.perf_counter() - _render_t0) * 1000.0
+        self._viewport_last_full_render_ms = _render_ms * (res_divisor * res_divisor)
 
         # pkg62: for compositor-style passes, fetch named buffer
         pixels_to_display = pixels
@@ -702,19 +740,33 @@ class Exporter:
             skip_upload = self._viewport_skip_upload_next
             self._viewport_skip_upload_next = False
 
+            # pkg241 Phase 1: render this scene-edit chunk at the interactive-
+            # resolution budget's starting divisor (coarse first present on the
+            # expensive profile), then flag it so the next view_draw presents THIS
+            # texture before scheduling its own refinement chunk — removing the
+            # material double-render (view_update render + a second view_draw
+            # render before the first present).
+            start_divisor = self._budget_start_divisor()
             t0 = time.perf_counter()
-            self.render_viewport_frame(renderer, context, settings, region,
-                                      reset_accumulation=True,
-                                      engine_methods=engine_methods,
-                                      skip_upload=skip_upload)
+            produced = self.render_viewport_frame(
+                renderer, context, settings, region,
+                reset_accumulation=True,
+                engine_methods=engine_methods,
+                skip_upload=skip_upload,
+                res_divisor=start_divisor)
             viewport_perf_record_fn("render", t0)
             viewport_perf_frame_complete_fn()
+            if produced:
+                self._viewport_present_pending = True
 
             # Stamp camera hash
             self._viewport_camera_hash = camera_state_hash_fn(context, region)
             self._viewport_camera_substantive_hash = camera_substantive_state_hash_fn(context, region)
 
-            if self._viewport_current_spp < self._viewport_target_spp:
+            # Refine to full res / target SPP: pump a redraw while below the SPP
+            # target OR while still below full resolution (divisor > 1).
+            if (self._viewport_current_spp < self._viewport_target_spp
+                    or self._viewport_render_divisor > 1):
                 request_viewport_redraw_fn()
 
         except Exception as e:
@@ -759,27 +811,57 @@ class Exporter:
                 and new_substantive_hash != self._viewport_camera_substantive_hash
             )
 
-            # pkg196: reduced-resolution navigation decision. While the camera is
-            # actively moving (changed this frame) OR still inside the settle
-            # window after the last move, render at a reduced divisor and upscale;
-            # once the view has been quiet for VIEWPORT_NAV_SETTLE_S, snap back to
-            # full res (divisor 1) and hand off to the pkg191 progressive loop.
+            # pkg196 + pkg241 Phase 1: reduced-resolution navigation / interactive-
+            # resolution budget. While the camera is actively moving (changed this
+            # frame) OR still inside the settle window after the last move, render
+            # at a reduced divisor and upscale; once the view has been quiet for
+            # VIEWPORT_NAV_SETTLE_S, refine one rung toward full res on each frame
+            # (4 -> 2 -> 1) and hand off to the pkg191 progressive loop at full res.
             # Cycles start_resolution analogue (session.cpp BlenderSession::reset).
             now = _nav_clock()
             if camera_changed:
                 self._viewport_nav_last_change_time = now
             within_settle = (
                 (now - self._viewport_nav_last_change_time) < VIEWPORT_NAV_SETTLE_S)
-            navigating = self._viewport_full_synced and (
-                camera_changed
-                or (within_settle and self._viewport_render_divisor > 1))
-            desired_divisor = VIEWPORT_NAV_RES_DIVISOR if navigating else 1
+            # pkg241 Phase 1: a camera move starts coarse at the interaction
+            # budget's divisor (at least the pkg196 divisor-2 floor); while the
+            # view is settling, hold the current divisor; once settled but still
+            # below full res, step down one rung; at full res stay at 1.
+            if not self._viewport_full_synced:
+                desired_divisor = 1
+            elif camera_changed:
+                desired_divisor = max(VIEWPORT_NAV_RES_DIVISOR,
+                                      self._budget_start_divisor())
+            elif within_settle and self._viewport_render_divisor > 1:
+                desired_divisor = self._viewport_render_divisor
+            elif self._viewport_render_divisor > 1:
+                desired_divisor = max(1, self._viewport_render_divisor // 2)
+            else:
+                desired_divisor = 1
             resolution_switch = (desired_divisor != self._viewport_render_divisor)
+
+            # pkg241 Phase 1: present-first. view_update rendered and cached a
+            # fresh texture but does not blit it; present THAT texture before
+            # scheduling the next refinement chunk, so a scene/material edit pays
+            # one render before first present instead of two. Only present-first
+            # when the pending texture still matches the current view (no camera
+            # or settings change since it was rendered) — never blit a stale cache.
+            present_pending = (self._viewport_present_pending
+                               and not camera_changed and not settings_changed)
 
             render_needed = (camera_changed or needs_progress or settings_changed
                              or self._viewport_texture is None or resolution_switch)
 
-            if render_needed:
+            if present_pending:
+                # Show the fresh view_update chunk now; defer the next resolution
+                # step-down / SPP refinement to the following redraw.
+                self._viewport_present_pending = False
+                request_viewport_redraw_fn()
+            elif render_needed:
+                # pkg241 Phase 1: taking the render path supersedes any pending
+                # view_update chunk (its view changed, or we are refining), so
+                # drop the present-first flag — it is consumed by this render.
+                self._viewport_present_pending = False
                 renderer = self._get_viewport_renderer()
                 # If user opened rendered-shading without ever firing view_update,
                 # renderer has no scene. Fall back to full sync.
@@ -842,12 +924,14 @@ class Exporter:
                 self._viewport_camera_hash = new_hash
                 self._viewport_camera_substantive_hash = new_substantive_hash
 
-            # pkg196: keep pumping redraws while the view is settling at reduced
-            # res (so it always resolves to full res even if the reduced chunk hit
-            # the sample target), or while the pkg191 progressive loop is refining
-            # at full res. Without the settle pump the view could stick at low res.
-            settling = within_settle and self._viewport_render_divisor > 1
-            if settling or self._viewport_current_spp < self._viewport_target_spp:
+            # pkg196 + pkg241 Phase 1: keep pumping redraws while below full res
+            # (divisor > 1, so a coarse first present always resolves up to full
+            # res even if the reduced chunk hit the sample target) or while the
+            # pkg191 progressive loop is refining at full res. A pending present
+            # this frame also needs a follow-up redraw to run its refinement.
+            resolving = self._viewport_render_divisor > 1
+            if (resolving or present_pending
+                    or self._viewport_current_spp < self._viewport_target_spp):
                 request_viewport_redraw_fn()
 
             if self._viewport_texture is None:

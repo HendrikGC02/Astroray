@@ -2195,14 +2195,18 @@ inline float halton(int index, int base) {
 // CPU integrator (pathTraceSpectral, pathTraceSpectralCaustic, the CPU
 // wavefront kernel, ReSTIR-DI, neural-cache, and the multiwavelength tracer).
 //
-// Mirrors Cycles' transparent-shadow bounce loop (vendored
-// external/cycles_light_tree; grep SD_HAS_TRANSPARENT_SHADOW / shadow_transparent
-// / kernel_shadow): a surface with shadowAlpha<1 does NOT fully block the
-// shadow ray, it lets (1-alpha) of the light through and the trace continues
-// PAST it to any opaque occluder behind. Cycles caps the number of such
-// transparent bounces; we cap at maxHops (default 8, Cycles' default
-// transparent max bounces) and also stop once the accumulated transmittance
-// falls below 1e-3 (effectively opaque).
+// Mirrors Cycles' transparent-shadow bounce loop. Reference:
+// intern/cycles/kernel/integrator/shade_shadow.h —
+// integrate_transparent_shadow() loops over recorded shadow intersections and
+// integrate_transparent_surface_shadow() multiplies the shadow-path throughput
+// by each occluder's transparency (throughput *= transparency). (The vendored
+// external/cycles_light_tree subset here contains only the light tree, not the
+// shadow kernel, so this cites upstream Cycles directly.) A surface with
+// shadowAlpha<1 does NOT fully block the shadow ray: it lets (1-alpha) of the
+// light through and the trace continues PAST it to any opaque occluder behind.
+// Cycles caps the recorded transparent hits (INTEGRATOR_SHADOW_ISECT_SIZE);
+// we cap at maxHops (default 8, Cycles' default transparent max bounces) and
+// also stop once the accumulated transmittance falls below 1e-3 (opaque).
 //
 // Every non-Principled material returns the default shadowAlpha()==1.0, and a
 // Principled material at alpha==1 also returns 1.0, so the FIRST hit of an

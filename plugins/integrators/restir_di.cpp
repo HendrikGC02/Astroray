@@ -294,12 +294,11 @@ public:
                     Vec3 toLight    = res.y.position - rec.point;
                     float distLocal = toLight.length();
                     Vec3 wi         = distLocal > 1e-6f ? toLight / distLocal : toLight.normalized();
-                    HitRecord shadow;
-                    bool hitOcc = bvh->hit(
-                        Ray(rec.point, wi), 0.001f, distLocal - 0.001f, shadow);
-                    bool occluded = hitOcc &&
-                        !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
-                    if (!occluded) {
+                    // pkg253 G1: shared transparent-shadow transmittance (see
+                    // shadowTransmittance in raytracer.h). Tr==0 for an all-opaque
+                    // scene in one hop, so pre-pkg253 ReSTIR renders are unchanged.
+                    float shadowTr = shadowTransmittance(*bvh, Ray(rec.point, wi), distLocal);
+                    if (shadowTr > 0.0f) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
                         astroray::SampledSpectrum L_spec =
@@ -328,7 +327,7 @@ public:
                                                            0, cryptoDepth, objectId, materialId, weight);
                         }
 
-                        color += throughput * f_spec * L_spec * res.W;
+                        color += throughput * f_spec * L_spec * res.W * shadowTr;  // pkg253 G1
                     }
                 }
             }

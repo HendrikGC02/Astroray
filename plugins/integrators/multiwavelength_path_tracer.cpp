@@ -282,12 +282,11 @@ private:
                 lights.sample(ls, rec.point, rec.normal, lambdas, gen);
                 if (ls.pdf > 0) {
                     Vec3 wi = (ls.position - rec.point).normalized();
-                    HitRecord shadow;
-                    bool hitOccluder = bvh->hit(Ray(rec.point, wi, ray.time), 0.001f,
-                                                ls.distance - 0.001f, shadow);
-                    bool occluded = hitOccluder &&
-                        !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
-                    if (!occluded) {
+                    // pkg253 G1: shared transparent-shadow transmittance (see
+                    // shadowTransmittance in raytracer.h). Tr==0 for an all-opaque
+                    // scene in one hop, so pre-pkg253 MW renders are unchanged.
+                    float shadowTr = shadowTransmittance(*bvh, Ray(rec.point, wi, ray.time), ls.distance);
+                    if (shadowTr > 0.0f) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectralExt(rec, wo, wi, lambdas);
                         astroray::SampledSpectrum L_spec = ls.emission_spec;
@@ -297,7 +296,7 @@ private:
                         // (BSDF sampling can never reproduce it).
                         float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
                         color += throughput * f_spec * L_spec *
-                                 (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f);
+                                 (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f) * shadowTr;  // pkg253 G1
                     }
                 }
             }

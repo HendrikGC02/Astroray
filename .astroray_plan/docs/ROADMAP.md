@@ -138,9 +138,14 @@ passes, 21 CPU/GPU/Cycles legs and isolated CPU/CUDA package smokes passed;
 the full local suite remains 2370 passed / two reproduced baseline failures
 (pkg237/pkg238), not green. Neither baseline failure is closed.
 **pkg232 LANDED #705**; specs241–248 filed #704/#706/#709 with independent filing
-review, implementation gates remain pending. **pkg236 smoke isolation is in
-progress** in its isolated worktree, with 62 focused passes and actual CPU smoke;
-independent final review/delivery remain pending. Do not duplicate-dispatch.
+review, implementation gates remain pending. **pkg236 LANDED #711 (`2699b43`)**,
+with Terra final SIGN-OFF, 62 focused passes, the exact real-Blender local-host
+pass, PowerShell 7/5.1 CPU smokes and 471 unchanged live-profile files.
+Both CI runs passed host/CUDA checks: 2173 passed, 277 skipped, 15 xfailed,
+4 xpassed. Retain the existing reference-smoke advisory failure (two passed
+gates, one failed); pkg249 owns separate diagnosis. Do not duplicate-dispatch.
+**pkg240 baseline audit landed #712**; its controlled trial requires detailed
+architecture. No CI behavior change or candidate speedup is claimed.
 **Next main feature: pkg241 Phase0**, finish the existing interactive recorder
 and measure actual UI/cancel response before behavior changes; then pkg242
 procedural mapping and pkg245 normal/bump provenance. pkg240 CI cost audit is a

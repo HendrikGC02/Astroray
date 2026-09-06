@@ -1,6 +1,6 @@
 # Astroray Status
 
-## 2026-09-06 CURRENT — pkg230b landed; smoke isolation in progress
+## 2026-09-06 CURRENT — pkg230b and pkg236 landed
 
 - **pkg230b LANDED in PR #708**, merge `8217234b`, 2026-09-06 00:24:49 UTC.
   The owner approved Terra/DeepSeek independent review while Claude is unavailable.
@@ -12,10 +12,17 @@
   (pkg237 HDRI SSIM / pkg238 PostInit ULP); NOT GREEN, neither failure closed.
 - **pkg232 already landed #705.** Specs **pkg241–248 are filed**, #704/#706/#709;
   filing approval is not implementation approval. Pillar 4 remains PAUSED.
-- **pkg236 is IN PROGRESS** in `.claude/worktrees/pkg236`, parallel lower backlog
-  authorized by the owner. Smoke profile isolation and transactional installation
-  have 62 focused passes plus real isolated CPU smoke evidence; independent final
-  review/delivery are pending. Do not duplicate-dispatch.
+- **pkg236 LANDED #711**, merge `2699b43`; Terra final SIGN-OFF passed.
+  Smoke isolation and transactional installation passed 62 focused tests and the
+  exact real-Blender local-host test. PowerShell 7 and 5.1 CPU smokes passed;
+  all 471 live-profile files remained unchanged. Both CI runs: **2173 passed,
+  277 skipped, 15 xfailed, 4 xpassed**; host/CUDA checks passed.
+  [Evidence](pkg236-implementation-evidence.md) retains transaction limits and
+  the pre-existing non-blocking reference-smoke failure (two gates passed, one
+  failed). The advisory is NOT GREEN; pkg249 records the diagnostic follow-up.
+- **pkg240 baseline audit landed #712**: host tests occupy 90.1-91.7% of the
+  measured host job time. Package remains OPEN; no workflow change or speedup
+  claim. Detailed architecture precedes a controlled split-runner trial.
 - **Next main feature: pkg241 Phase 0**, completing the existing interactive
   recorder and measuring actual Blender response/cancellation before behavior
   changes. pkg242 then improves procedural mapping; pkg245 covers normal/bump

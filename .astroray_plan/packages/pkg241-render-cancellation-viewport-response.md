@@ -5,8 +5,8 @@
 **Status:** OPEN — detailed architect review required before implementation
 **Estimated effort:** TBD at architect review
 **Depends on:** landed pkg52/81/191/192/196 viewport machinery and pkg147
-OpenMP/GIL safeguards; coordinate real Blender tests with OPEN pkg236's
-isolated-profile contract. OPEN pkg232 owns delegate subprocess cleanup only.
+OpenMP/GIL safeguards; coordinate real Blender tests with DONE pkg236's (#711)
+isolated-profile contract. DONE pkg232 (#705) owns delegate subprocess cleanup only.
 
 Coverage specs: [pkg52](pkg52-persistent-viewport-session.md),
 [pkg81](pkg81-viewport-interactivity-parity.md),

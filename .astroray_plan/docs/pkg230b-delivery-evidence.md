@@ -160,6 +160,7 @@ refreshed after recording approval. CI and final merge are recorded at closeout.
 PR #708 merged2026-09-06 00:24:49 UTC. PR CI run34000095026 passed
 host (2133 passed,269 skipped,15 xfailed,4 xpassed) and CUDA syntax checks.
 Source0cf3a3d, reviewed integration0b98f9e; no renderer source changed after
-review. The duplicate push run was still finishing at merge. Local baseline
-failures remain unresolved. Full local logs and final Terra review remain in
+review. The duplicate push run34000075314 was still finishing at merge and
+subsequently passed host (2133 passed, 269 skipped, 15 xfailed, 4 xpassed) and
+CUDA checks. Local baseline failures remain unresolved. Full local logs and final Terra review remain in
 root test_results/pkg230b/.

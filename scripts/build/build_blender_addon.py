@@ -6,7 +6,7 @@ What it does
 ============
 1. Picks a Python interpreter matching the target Blender's bundled Python
    (auto-detected from the Blender install, or user-supplied via --python-exe).
-2. Runs CMake in a dedicated build directory (default: build_blender_addon/)
+2. Runs CMake in a dedicated build directory (default: build_blender_addon_cuda/)
    pointed at that interpreter, so pybind11 builds the `.pyd` / `.so` against
    the matching C API.
 3. Stages everything Blender needs (`__init__.py`, `blender_manifest.toml`,
@@ -18,7 +18,8 @@ What it does
 
 Usage
 -----
-    python scripts/build/build_blender_addon.py                          # CPU build (default)
+    python scripts/build/build_blender_addon.py                          # CUDA GPU build (default)
+    python scripts/build/build_blender_addon.py --backend cpu            # CPU-only build
     python scripts/build/build_blender_addon.py --backend cuda           # CUDA GPU build
     python scripts/build/build_blender_addon.py --backend tcnn           # CUDA + TinyNN build
     python scripts/build/build_blender_addon.py --backend auto           # probe nvcc, choose best
@@ -40,7 +41,7 @@ Notes
 Blender's bundled Python does NOT include development headers on any OS, so
 the C++ module cannot be built against it directly. You need a separately
 installed Python whose *minor* version matches Blender's bundled Python
-(Blender 4.x → 3.11, Blender 5.1 → 3.13). Install via:
+(supported Blender 5.2 uses Python 3.13). Install via:
 
     winget install Python.Python.3.13        # Windows
     brew install python@3.13                 # macOS
@@ -303,7 +304,7 @@ def _cmake_generator_args(use_cuda: bool = False) -> list[str]:
 def _backend_config(backend: str) -> tuple[Path, list[str]]:
     """Return (build_dir, extra_cmake_flags) for the requested backend.
 
-    backend — one of: tcnn (default), cuda, cpu, auto
+    backend — one of: cuda (CLI default), tcnn, cpu, auto
     """
     # libgomp (MinGW OpenMP) deadlocks inside Blender's MSVC host Python —
     # always keep OpenMP off for Blender builds regardless of backend.

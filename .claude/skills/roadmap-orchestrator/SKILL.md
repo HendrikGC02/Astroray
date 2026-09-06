@@ -127,7 +127,7 @@ dependency.
 ## Recurrence (Windows Task Scheduler, not /schedule)
 
 opencode has no built-in cron. Recurrence is a Windows Task Scheduler task
-(`Astroray-RoadmapOrchestrator`) that runs `scripts/orchestrator_tick_opencode.ps1`
+(`Astroray-RoadmapOrchestrator`) that runs `scripts/orchestrator_tick.ps1 -Driver opencode`
 every 10 minutes, which pins the environment + PATH and invokes
 `opencode run -m opencode-go/deepseek-v4-pro "Run the roadmap-orchestrator skill —
 one bounded tick."`. The tick lock makes exact firing time immaterial.

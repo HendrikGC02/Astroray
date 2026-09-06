@@ -95,6 +95,7 @@ new reusable script, register it here in the same commit.
 | Render-output triage | `scripts/diagnostics/render_output_triage.py` |
 | Denoiser A/B | `scripts/diagnostics/oidn_comparison.py` |
 | Roadmap orchestrator tick | `scripts/orchestrator_tick.ps1` → `python -m roadmap_orchestrator.cli` |
+| Roadmap orchestrator tick | `scripts/orchestrator_tick.ps1 -Driver claude\|opencode` → `python -m roadmap_orchestrator.cli` |
 | Project knowledge index (search / owns / deps / node-tree graph) | `scripts/project_index.py` (SQLite; `build` / `query` / `owns <path>` / `script <task>` / `whatis <pkg>` / `deps` / `graph` / `gh-sync`; auto-rebuilds when a spec is newer than the DB). **Interactive 3D graph of the whole index (exactly what agents query — packages, docs, files + dependency/doc/file edges): [`.astroray_plan/project-index-graph.html`](../.astroray_plan/project-index-graph.html).** Regenerate with `python scripts/project_index.py build && python scripts/project_index.py graph --html .astroray_plan/project-index-graph.html`. |
 | Open-weight model evaluation bench | `scripts/model_bench.py` (`--dry-run`, `--models`, `--timeout`; read-only, writes `docs/model-bench-results.json`) |
 | Native-settings F12 pixel-honour A/B matrix (does each adopted Blender/Cycles control actually change the render?) | `scripts/verify_pkg200_honour_matrix_run.py` (outer, cv2/per-channel mean-ratio) + `verify_pkg200_honour_matrix.py` (in-Blender A/B leg) + `pkg200_honour_matrix.py` (pure contract/predicate layer, enumerated from `settings_map.py`) |
@@ -103,6 +104,20 @@ new reusable script, register it here in the same commit.
 | Sobol' direction-vector table (pkg224 progressive sampler) | `scripts/gen_sobol_matrices.py` → `include/astroray/sampling/sobol_matrices.h` (bakes SciPy's Joe-Kuo vectors; idempotent, commit header with any change) |
 | Hero-wavelength luminance-CDF fit (pkg206 importance-sampling constants) | `scripts/data/fit_hero_luminance_cdf.py` |
 | Regenerate the addon known-issues doc from GitHub issues (`addon-bug`/`addon-gap`) | `python scripts/dev/known_issues_report.py` (`--check` in CI) |
+| Launch GUI Blender 5.2 with the MCP bridge (watch/restart) | `pwsh scripts/dev/launch_blender_mcp.ps1 -Watch` (diagnostic: `scripts/dev/check_blender_mcp.ps1`) |
+| Viewport-interactivity parity harness (in-process pan/zoom/orbit timing) | `benchmarks/viewport_parity/run.py` (pkg81) |
+| Viewport-interactivity Cycles A/B driver (runs inside Blender) | `benchmarks/viewport_parity/blender_driver.py` (pkg81 companion to `run.py`) |
+| Blender parity coverage-matrix generator (AST-scanned SUPPORTED/APPROXIMATED/DROPPED-SILENT/UNKNOWN) | `scripts/generate_blender_parity_matrix.py` (pkg119 Phase A; run inside Blender) |
+| Rough-metal live-Cycles A/B driver (CPU/GPU vs Cycles oracle) | `benchmarks/cycles-parity/metal_ab/harness.py` (pkg129) |
+| Thin-film iridescence A/B driver vs Cycles-5.2 oracle | `benchmarks/cycles-parity/thin_film/harness.py` (pkg178 Stage-4 acceptance) |
+| Blender dev-loop guard functions (stale-.pyd, OpenMP-off, addon-files-drift, sentinel-pass) used by `dev_addon.ps1` | `scripts/dev_loop_guards.py` (pkg175) |
+| Wavefront SoA baseline measurement harness | `benchmarks/wavefront_baseline.py` (pkg55 Phase A) |
+| Caustic-integrator visual/stat validation (pkg74 may reuse its scene builders) | `scripts/benchmarks/benchmark_caustic_transport.py` (pkg29a) |
+| Light-transport integrator head-to-head (path tracer / auto / NRC fallback / NRC backend) | `scripts/benchmarks/benchmark_light_transport.py` (pkg27b) |
+| Kerr validation fixture generator (analytic, GYOTO/RAPTOR-cited but not linked; imported by `tests/test_kerr_validation.py`) | `scripts/generate_gyoto_references.py` (pkg41) |
+| tiny-cuda-nn CUDA smoke build (opt-in CMake target `tcnn_smoke`) | `scripts/cuda/tiny_cuda_nn_smoke.cu` |
+| NRC prototype CUDA smoke render (opt-in CMake target `nrc_smoke_render`) | `scripts/cuda/nrc_smoke_render.cu` (pkg26) |
+| Standalone-binary render used by the Blender addon smoke test | `scripts/dev/render_test_scene.py` (invoked by `scripts/dev/blender_addon_smoke.py`) |
 
 Note on the two `build_cuda_worktree.bat` copies: they are intentionally
 different pipelines (root = VS multi-config, no configure step, SHA

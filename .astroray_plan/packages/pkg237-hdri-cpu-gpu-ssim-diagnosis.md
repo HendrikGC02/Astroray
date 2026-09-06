@@ -137,7 +137,22 @@ None.
 
 ## Progress
 
-- [ ] 2026-09-07 08:30 — owner approved the test-method fix (adaptive sampling off + shared exposure); dispatched after a GPU field-attribution run.
+- [x] 2026-09-07 08:30 — owner approved the test-method fix (adaptive sampling
+      off + shared exposure); threshold 0.97 unchanged.
+- [x] 2026-09-07 — CPU two-stream proxy re-confirmed on the fix branch module
+      (build_cuda .pyd 05:40, main+pkg253). Env-only scene, 8192 spp, seeds
+      1234 vs 5678 (independent streams == the CPU-vs-GPU situation):
+      - adaptive=True : SSIM 0.6768 (reproduces the 0.769 failure signature)
+      - adaptive=False: SSIM 0.9618 per-image-max AND 0.9618 shared-exposure
+        (maxA=0.5793, maxB=0.5856; shared divisor = max of both).
+      Turning adaptive off restores clean sqrt(N) convergence (0.677 -> 0.962),
+      confirming Defect A; the two per-image maxima differ only 0.5% so SSIM's
+      local normalization makes the shared-exposure lift marginal in the proxy,
+      but shared exposure is the methodologically correct divisor (Defect B).
+- [x] 2026-09-07 — implemented the approved test-method fix in
+      `tests/test_world_hdri_parity.py::test_gpu_cpu_ssim_hdri`:
+      `set_adaptive_sampling(False)` on both legs + a single shared exposure
+      divisor. Threshold left at 0.97.
 - [x] 2026-09-07 — root-cause diagnosis landed (PR #731); fix is a test-method change pending owner review.
 
 ---

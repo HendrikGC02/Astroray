@@ -6,9 +6,9 @@ Blender's user_default extensions directory, and render the bundled
 
 Usage
 -----
-    python scripts/dev/test_blender_addon.py
-    python scripts/dev/test_blender_addon.py --blender "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe"
-    python scripts/dev/test_blender_addon.py --scene path/to/other.blend --samples 8 --skip-build
+    python scripts/dev/blender_addon_smoke.py
+    python scripts/dev/blender_addon_smoke.py --blender "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe"
+    python scripts/dev/blender_addon_smoke.py --scene path/to/other.blend --samples 8 --skip-build
 
 Exit codes
 ----------

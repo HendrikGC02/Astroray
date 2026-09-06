@@ -47,7 +47,7 @@ verification confirmed process exit and live-profile preservation as below.
 
 `install_to_blender(blender_exe: Path, *, allowed_root: Path | None = None) -> bool`
 adds one optional keyword. Existing calls in its CLI `main()` and
-`scripts/dev/test_blender_addon.py` remain compatible. PowerShell smoke passes
+`scripts/dev/blender_addon_smoke.py` remain compatible. PowerShell smoke passes
 the owned child as `allowed_root`; launch passes `None`. The existing resolver
 signature is unchanged. New private validators are used by installer and
 PowerShell stage preflight. `-SmokeProfileParent` is an optional PowerShell

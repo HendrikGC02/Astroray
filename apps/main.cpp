@@ -5,6 +5,9 @@
 #include "astroray/register.h"
 #ifdef ASTRORAY_CUDA_ENABLED
 #include "astroray/gpu_renderer.h"
+#  ifdef ASTRORAY_WAVEFRONT_CUDA_N3
+#include "../src/gpu/wavefront/gpu_wavefront_snapshot.h"
+#  endif
 #endif
 #include "stb_image_write.h"
 #include <iostream>
@@ -14,8 +17,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -236,10 +241,20 @@ int main(int argc, char* argv[]) {
     bool useGpu = false;
     CUDARenderer cudaRenderer;
     bool cudaAvailable = cudaRenderer.isAvailable();
-    if ((device == "auto" && cudaAvailable && pathTracerSelected) || device == "gpu") {
+#ifdef ASTRORAY_WAVEFRONT_CUDA_N3
+    const bool wavefrontAvailable = true;
+#else
+    const bool wavefrontAvailable = false;
+#endif
+    if ((device == "auto" && cudaAvailable && wavefrontAvailable && pathTracerSelected) || device == "gpu") {
         if (!pathTracerSelected) {
             std::cerr << "Error: CUDA standalone backend currently supports path_tracer only; requested integrator '"
                       << integratorName << "'. Use --device cpu for this integrator.\n";
+            return 2;
+        }
+        if (!wavefrontAvailable) {
+            std::cerr << "Error: GPU rendering requires the wavefront build "
+                         "(ASTRORAY_WAVEFRONT_CUDA_N3=ON).\n";
             return 2;
         }
         if (!cudaAvailable) {
@@ -268,17 +283,42 @@ int main(int argc, char* argv[]) {
     auto start = std::chrono::high_resolution_clock::now();
 #ifdef ASTRORAY_CUDA_ENABLED
     if (useGpu) {
+#  ifdef ASTRORAY_WAVEFRONT_CUDA_N3
         try {
             renderer.buildAcceleration();
-            cudaRenderer.uploadScene(renderer, camera);
-            if (!envmap.empty() && renderer.getEnvironmentMap() && renderer.getEnvironmentMap()->loaded()) {
-                cudaRenderer.uploadEnvironmentMap(*renderer.getEnvironmentMap());
+            // Match the binding's path_tracer dispatch; wavefront owns uploads.
+            float lmin = integratorParams.getFloat("lambda_min", 380.0f);
+            float lmax = integratorParams.getFloat("lambda_max", 780.0f);
+            std::string mode = integratorParams.getString("output_mode", "");
+            bool useLum;
+            if (mode.empty())
+                useLum = !(lmin >= 379.5f && lmax <= 780.5f);
+            else
+                useLum = (mode == "luminance");
+            const uint64_t effectiveSeed =
+                (renderer.getSeed() == 0)
+                    ? static_cast<uint64_t>(std::random_device{}())
+                    : static_cast<uint64_t>(renderer.getSeed());
+            auto rgb = astroray::wavefront::cuda_wavefront_render(
+                renderer, camera, camera.width, camera.height,
+                samples, depth, effectiveSeed,
+                lmin, lmax, useLum, /*enableNEE=*/true);
+            for (size_t i = 0; i < camera.pixels.size(); ++i) {
+                camera.pixels[i] = Vec3(rgb[i * 3 + 0],
+                                        rgb[i * 3 + 1],
+                                        rgb[i * 3 + 2]);
             }
-            cudaRenderer.render(camera.pixels, camera.width, camera.height, renderer.getSeed(), samples, depth);
         } catch (const std::exception& e) {
             std::cerr << "Error: CUDA standalone render failed: " << e.what() << "\n";
             return 2;
         }
+#  else
+        // pkg55-C7: the megakernels are deleted; a CUDA build without the
+        // wavefront has no GPU render path.
+        std::cerr << "Error: GPU rendering requires the wavefront build "
+                     "(ASTRORAY_WAVEFRONT_CUDA_N3=ON).\n";
+        return 2;
+#  endif
     } else
 #endif
     {

@@ -202,6 +202,124 @@ def test_energy_conservation_diffuse_light(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Explicit device dispatch regression coverage (pkg250)
+# ---------------------------------------------------------------------------
+
+def _dispatch_args(device, output, scene="1"):
+    return ["--device", device, "--scene", scene,
+            "--width", "48", "--height", "36", "--samples", "8",
+            "--depth", "6", "--output", str(output)]
+
+
+def _assert_gpu_result(result, output):
+    """Accept only documented unavailable builds; never hide a render error."""
+    unavailable = (
+        "compiled without CUDA",
+        "no CUDA GPU is available",
+        "GPU rendering requires the wavefront build",
+    )
+    if any(message in result.stderr for message in unavailable):
+        assert result.returncode == 2, result.stderr
+        assert not output.exists()
+        pytest.skip(result.stderr.strip())
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Device: CUDA GPU" in result.stdout
+
+
+@pytest.mark.parametrize("scene,extension", [("1", "png"), ("2", "ppm")])
+def test_explicit_cpu_images(tmp_path, scene, extension):
+    """CPU remains usable independently of CUDA availability and output type."""
+    output = tmp_path / f"cpu-scene{scene}.{extension}"
+    result = _run(_dispatch_args("cpu", output, scene))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Device: CPU" in result.stdout
+    pixels = _assert_png_valid(output)
+    assert pixels.shape == (36, 48, 3)
+    assert np.ptp(pixels) > 0.05
+
+
+@pytest.mark.parametrize("scene,extension", [("1", "png"), ("2", "ppm")])
+def test_explicit_gpu_images(tmp_path, scene, extension):
+    """The actual CUDA path writes nonempty Cornell and material images."""
+    output = tmp_path / f"gpu-scene{scene}.{extension}"
+    result = _run(_dispatch_args("gpu", output, scene))
+    _assert_gpu_result(result, output)
+    pixels = _assert_png_valid(output)
+    assert pixels.shape == (36, 48, 3)
+    assert np.ptp(pixels) > 0.05
+
+
+def test_auto_falls_back_when_gpu_unavailable(tmp_path):
+    """No CUDA/device/wavefront build must leave auto usable on the CPU."""
+    gpu_output = tmp_path / "probe.png"
+    result = _run(_dispatch_args("gpu", gpu_output))
+    if result.returncode == 0:
+        assert "Device: CUDA GPU" in result.stdout
+        pytest.skip("GPU backend available; fallback requires another build/device")
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert any(message in result.stderr for message in (
+        "compiled without CUDA", "no CUDA GPU is available",
+        "GPU rendering requires the wavefront build",
+    )), result.stderr
+    assert not gpu_output.exists()
+    auto_output = tmp_path / "auto.png"
+    auto = _run(_dispatch_args("auto", auto_output))
+    assert auto.returncode == 0, auto.stdout + auto.stderr
+    assert "Device: CPU" in auto.stdout
+    _assert_png_valid(auto_output)
+
+
+def test_gpu_visible_wavelength_band(tmp_path):
+    """The requested narrow visible band reaches the GPU spectral sampler."""
+    output = tmp_path / "band-visible.png"
+    result = _run(_dispatch_args("gpu", output) + [
+        "--integrator-param", "lambda_min=540.0",
+        "--integrator-param", "lambda_max=550.0",
+        "--integrator-param", "output_mode=rgb",
+    ])
+    _assert_gpu_result(result, output)
+    pixels = _assert_png_valid(output)
+    assert np.mean(pixels[:, :, 1]) > np.mean(pixels[:, :, 0])
+    assert np.mean(np.max(pixels, axis=2) - np.min(pixels, axis=2)) > 0.01
+
+
+@pytest.mark.parametrize("mode,has_signal", [("rgb", False), ("luminance", True)])
+def test_gpu_nonvisible_output_mode(tmp_path, mode, has_signal):
+    """Only explicit band-radiance output retains signal beyond the CMF domain.
+
+    Equal XYZ is not neutral sRGB; an exact-gray PNG is not the luma contract.
+    This pair tests mode reachability without pinning that presentation debt.
+    """
+    output = tmp_path / f"band-ir-{mode}.png"
+    result = _run(_dispatch_args("gpu", output, "2") + [
+        "--integrator-param", "lambda_min=900.0",
+        "--integrator-param", "lambda_max=910.0",
+        "--integrator-param", f"output_mode={mode}",
+    ])
+    _assert_gpu_result(result, output)
+    pixels = np.asarray(Image.open(output))
+    assert pixels.shape == (36, 48, 3)
+    if has_signal:
+        assert pixels.max() > 0
+    else:
+        assert pixels.max() == 0
+
+
+def test_gpu_environment_upload(tmp_path):
+    """Wavefront uploads the loaded environment without the legacy uploader."""
+    env = tmp_path / "environment.png"
+    Image.new("RGB", (16, 8), (32, 64, 255)).save(env)
+    output = tmp_path / "environment-render.png"
+    result = _run(_dispatch_args("gpu", output, "2") + ["--envmap", str(env)])
+    _assert_gpu_result(result, output)
+    assert "Using environment map:" in result.stdout
+    pixels = _assert_png_valid(output)
+    # The material scene has open sky above its finite ground plane.
+    sky = pixels[0, :, :]
+    assert np.mean(sky[:, 2]) > np.mean(sky[:, 0]) + 0.05
+
+
+# ---------------------------------------------------------------------------
 # Stand-alone entry-point
 # ---------------------------------------------------------------------------
 

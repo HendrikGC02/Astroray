@@ -941,17 +941,197 @@ def blender_user_extensions_dir(blender_exe: Path) -> Path | None:
     return None
 
 
-def install_to_blender(blender_exe: Path) -> bool:
+def _is_reparse_point(path: Path) -> bool:
+    """Return True if `path` is a symlink, junction, or other reparse point.
+
+    A reparse point lets a path silently redirect to a different location, so
+    an install that traverses one could write outside the intended directory
+    (or read a stage tree that points elsewhere).  We reject them defensively.
+    """
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    return stat.S_ISLNK(info.st_mode) or bool(
+        getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def _validate_target_path(target: Path, allowed_root: Path | None) -> str | None:
+    """Return an error string if `target` is unsafe to install into, else None.
+
+    Checks, in order:
+      1. no '..' / '.' components in the raw (unresolved) path;
+      2. neither the target nor any existing ancestor is a reparse point;
+      3. the resolved target does not escape `allowed_root` (when given).
+    """
+    if not target.is_absolute():
+        return f"target path must be absolute: {target}"
+    # 1. Reject '..' tricks before any resolution. Path already folds '.'.
+    for part in target.parts:
+        if part in ("..", "."):
+            return f"target path contains a '{part}' component: {target}"
+
+    # 2. Walk from the filesystem anchor down to the target, rejecting any
+    #    existing component that is a reparse point.  Non-existent trailing
+    #    components cannot be reparse points yet, so stop at the first gap.
+    try:
+        for cur in (*reversed(target.parents), target):
+            if _is_reparse_point(cur):
+                return f"target path traverses a reparse point at {cur}"
+        if os.name == "nt":
+            for part in target.parts[1:]:
+                if ":" in part or part.endswith((".", " ")):
+                    return f"ambiguous Windows path component: {part}"
+    except OSError as exc:
+        return f"cannot inspect target path {target}: {exc}"
+
+    # 3. Reject a resolved escape of the optional allowed_root.
+    if allowed_root is not None:
+        error = _validate_target_path(allowed_root, None)
+        if error:
+            return f"invalid allowed_root: {error}"
+        resolved_target = target.resolve(strict=False)
+        resolved_root = allowed_root.resolve(strict=False)
+        try:
+            resolved_target.relative_to(resolved_root)
+        except ValueError:
+            return (f"resolved target {resolved_target} escapes "
+                    f"allowed_root {resolved_root}")
+
+    return None
+
+
+def _validate_stage_tree(stage: Path) -> str | None:
+    """Return an error string if the stage tree contains any reparse point."""
+    error = _validate_target_path(stage, None)
+    if error:
+        return error
+    if not stage.is_dir():
+        return f"stage tree is not a directory: {stage}"
+
+    def fail_walk(exc):
+        raise exc
+
+    try:
+        for root, dirs, files in os.walk(stage, onerror=fail_walk, followlinks=False):
+            for name in dirs + files:
+                p = Path(root) / name
+                if _is_reparse_point(p):
+                    return f"stage tree contains a reparse point at {p}"
+    except OSError as exc:
+        return f"cannot inspect stage tree {stage}: {exc}"
+    return None
+
+
+def install_to_blender(blender_exe: Path, *, allowed_root: Path | None = None) -> bool:
+    """Install the staged addon into Blender's user_default extensions dir.
+
+    Copy and promotion failures preserve the previous complete installation.
+    Process termination between renames is not crash-atomic; recovery paths
+    are retained and reported for rollback/cleanup failures:
+
+      1. validate the target path (no '..', no reparse points, no escape of
+         `allowed_root`) and the stage tree (no reparse points) BEFORE any
+         mutation;
+      2. copy the entire STAGE_DIR into a unique sibling staging directory;
+      3. only after the copy succeeds, rename the existing target into a
+         unique backup;
+      4. promote the staging directory into place with a rename;
+      5. on promotion failure, roll the complete backup back into place.
+
+    A locked old target (e.g. its .pyd is loaded by a running Blender) makes
+    the rename fail; in that case the old bytes are preserved untouched and we
+    return False rather than deleting a live module to force success.
+
+    Returns True on success, False on any failure (with a diagnostic printed).
+    """
     ext_dir = blender_user_extensions_dir(blender_exe)
     if ext_dir is None:
         print("warning: could not determine Blender extensions dir — skipping install")
         return False
     target = ext_dir / "astroray"
+
+    # --- pre-mutation validation -------------------------------------------
+    err = _validate_target_path(target, allowed_root)
+    if err is not None:
+        print(f"error: refusing to install: {err}")
+        return False
+    err = _validate_stage_tree(STAGE_DIR)
+    if err is None and target.exists():
+        err = _validate_stage_tree(target)
+    if err is not None:
+        print(f"error: refusing to install: {err}")
+        return False
+
     print(f"installing to {target}")
-    ext_dir.mkdir(parents=True, exist_ok=True)
-    _force_remove(target)
-    shutil.copytree(STAGE_DIR, target)
-    return True
+
+    import uuid
+    token = uuid.uuid4().hex[:12]
+    parent = target.parent
+    staging = parent / f".{target.name}.staging-{token}"
+    backup = parent / f".{target.name}.backup-{token}"
+
+    def remove_owned_tree(path):
+        error = _validate_target_path(path, parent) or _validate_stage_tree(path)
+        if error:
+            raise OSError(error)
+        # Never chmod or force-delete a locked old module to claim success.
+        shutil.rmtree(path)
+
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+
+        # 1. Copy the entire stage tree into a unique sibling staging dir
+        #    BEFORE touching the old target.
+        shutil.copytree(STAGE_DIR, staging)
+
+        # 2. Rename the existing target into a unique backup — only after the
+        #    copy above succeeded.
+        had_old = target.exists() or target.is_symlink()
+        if had_old:
+            try:
+                os.rename(target, backup)
+            except OSError as e:
+                # Locked old target: preserve all old bytes; never delete a
+                # live locked module to force success.
+                remove_owned_tree(staging)
+                print(f"error: could not move existing install aside ({e}); "
+                      f"old files preserved at {target}")
+                return False
+
+        # 3. Promote the staging directory into place.
+        try:
+            os.rename(staging, target)
+        except OSError as e:
+            # Roll the complete backup back into place.
+            if had_old:
+                try:
+                    os.rename(backup, target)
+                except OSError as e2:
+                    print(f"error: promotion failed ({e}) AND rollback failed "
+                          f"({e2}); backup retained at {backup}")
+                    return False
+            remove_owned_tree(staging)
+            print(f"error: promotion failed ({e}); previous install restored")
+            return False
+
+        # Promotion commits the new complete tree. Cleanup can fail partway
+        # through deleting old files, so never roll that partial backup back.
+        if had_old:
+            try:
+                remove_owned_tree(backup)
+            except Exception as e:
+                print(f"error: backup cleanup failed ({e}); complete new install "
+                      f"retained at {target}; remaining backup at {backup}. "
+                      "Rollback was not attempted after backup cleanup began.")
+                return False
+        return True
+    except Exception as e:
+        # Recovery/cleanup unknown: report an explicit failure with the
+        # retained paths so nothing is silently lost.
+        print(f"error: install failed ({e}); staging/backup retained at "
+              f"{staging} / {backup}")
+        return False
 
 
 # --------------------------------------------------------------------------- #

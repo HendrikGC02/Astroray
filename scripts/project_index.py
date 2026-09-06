@@ -98,7 +98,7 @@ TABLE_SEP_RE = re.compile(r"^\|\s*-{3,}\s*\|\s*-{3,}\s*\|$")
 # discipline existed. Only pkg218 is slated to be renamed, and that is a
 # later PR — not this one. Do not add new entries here; a NEW duplicate
 # filename is always a lint error.
-LEGACY_DUP_NUMS = {"pkg38", "pkg55", "pkg64", "pkg85", "pkg86", "pkg218"}
+LEGACY_DUP_NUMS = {"pkg38", "pkg55", "pkg64", "pkg85", "pkg86"}
 
 FIELD_LINE_RE = re.compile(r"^\*\*([A-Za-z][A-Za-z ]*):\*\*\s*(.*)$")
 REQUIRED_HEADER_FIELDS = ["Pillar", "Track", "Status", "Estimated effort", "Depends on"]

@@ -143,9 +143,7 @@ pkg224-progressive-sampler.md
 pkg225-hair-rendering.md
 pkg227-general-specular-polynomials.md
 pkg23-restir-temporal-spatial-design.md
-pkg231-cuda-build-latency.md
 pkg24-restir-validation.md
-pkg240-ci-workflow-cost-audit.md
 pkg25-tiny-cuda-nn-prototype.md
 pkg26-nrc-prototype.md
 pkg27-nrc-plugin.md

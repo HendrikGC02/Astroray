@@ -26,9 +26,11 @@ already have an open PR or an active worktree.
 
 1. Otherwise spawn the `package-implementer` subagent in a fresh worktree
    (create it with `git worktree add` per the agent's worktree discipline —
-   there is no `EnterWorktree` under opencode). Codex is retired — legacy
-   `Track: E` / `Codex-paste-ready` tags in spec frontmatter are inert and
-   route here too.
+   there is no `EnterWorktree` under opencode). Codex is supported again
+   (2026-09-05) as a CLI second-opinion reviewer (Terra/Luna via
+   `codex exec`), never as an implementer or orchestrator; legacy `Track: E`
+   / `Codex-paste-ready` tags in spec frontmatter remain inert and route
+   here too.
 
 2. Pass to the spawned agent:
    - The drop-in prompt from NEXT_STAGE_REPORT.md §3 for that package

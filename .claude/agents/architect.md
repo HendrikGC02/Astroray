@@ -82,8 +82,11 @@ Protocol:
 - **Short questions.** The architect's framing can be 3–5 lines. The
   question itself is one line.
 - **Tag every spec.** `Track: A/B/C/D`. The dispatcher uses these tags to
-  route. (Track E / `Codex-paste-ready` are retired — do not tag new specs
-  with them; legacy tags route to `package-implementer`.)
+  route. Do not tag new specs `Track: E` / `Codex-paste-ready` — Codex is
+  supported again (2026-09-05) as a CLI second-opinion reviewer (Terra/Luna
+  via `codex exec`), never as an implementer or orchestrator; legacy
+  `Track: E` / `Codex-paste-ready` tags remain inert and route to
+  `package-implementer`.
 - **Write the PR.** Every architect dialogue that changes direction or files
   a new spec ends with a PR. No silent state changes.
 - **Surface visuals.** Use `Read` on PNG outputs when doing state+refine.

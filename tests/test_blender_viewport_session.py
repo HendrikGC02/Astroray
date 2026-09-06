@@ -455,7 +455,14 @@ def test_view_draw_re_renders_on_camera_view_zoom_change(monkeypatch):
 
 def test_view_draw_progresses_until_preview_sample_target(monkeypatch):
     """pkg52 progressive preview: same camera, no scene sync, keep rendering
-    one-sample chunks until preview_samples is reached."""
+    one-sample chunks until preview_samples is reached.
+
+    pkg241 Phase 1a (present-first): view_update caches a chunk it does not blit,
+    so the FIRST view_draw now PRESENTS that pending chunk instead of rendering
+    another one (removing the material double-render). The progressive refinement
+    is unchanged in substance — it just costs one extra view_draw because the
+    first still-frame draw is spent presenting the already-rendered chunk before
+    scheduling the next."""
     _RecordingRenderer.construction_count = 0
     addon = _load_blender_addon(monkeypatch, renderer_cls=_RecordingRenderer)
     engine = addon.CustomRaytracerRenderEngine()
@@ -475,6 +482,12 @@ def test_view_draw_progresses_until_preview_sample_target(monkeypatch):
     depsgraph = types.SimpleNamespace(scene=ctx.scene)
 
     engine.view_update(ctx, depsgraph)
+    assert engine._viewport_renderer.render_calls == 1
+    assert engine._viewport_current_spp == 1
+
+    # pkg241: present-first. This draw blits the pending view_update chunk; it
+    # does not render a new one, so spp/render_calls hold.
+    engine.view_draw(ctx, depsgraph)
     assert engine._viewport_renderer.render_calls == 1
     assert engine._viewport_current_spp == 1
 

@@ -201,7 +201,7 @@ def test_resolve_vector_input_mapping_scale_only(monkeypatch):
     addon = _load_blender_addon(monkeypatch)
     cls = addon.CustomRaytracerRenderEngine
     mapping = _Node('MAPPING', inputs={
-        'Vector': _Socket(),  # unlinked → 'UV' fallback
+        'Vector': _Socket(linked_to=_Node('TEX_COORD'), output_name='UV'),  # explicit varying UV coordinates
         'Location': _Socket(default=(0.0, 0.0, 0.0)),
         'Scale': _Socket(default=(2.0, 3.0, 1.0)),
     })
@@ -216,7 +216,7 @@ def test_resolve_vector_input_mapping_offset(monkeypatch):
     addon = _load_blender_addon(monkeypatch)
     cls = addon.CustomRaytracerRenderEngine
     mapping = _Node('MAPPING', inputs={
-        'Vector': _Socket(),
+        'Vector': _Socket(linked_to=_Node('TEX_COORD'), output_name='UV'),
         'Location': _Socket(default=(0.5, -0.25, 0.0)),
         'Scale': _Socket(default=(1.0, 1.0, 1.0)),
     })
@@ -294,7 +294,7 @@ def test_load_blender_image_with_mapping_applies_transform(monkeypatch):
     renderer = _RecordingRenderer()
     image = _FakeImage(name="brick.png")
     mapping = _Node('MAPPING', inputs={
-        'Vector':   _Socket(),  # unlinked → 'UV'
+        'Vector':   _Socket(linked_to=_Node('TEX_COORD'), output_name='UV'),  # explicit varying UV coordinates
         'Location': _Socket(default=(0.0, 0.0, 0.0)),
         'Scale':    _Socket(default=(2.0, 2.0, 1.0)),
     })
@@ -342,7 +342,7 @@ def test_load_blender_image_caches_per_transform(monkeypatch):
     n1 = engine.load_blender_image(image, renderer)
     # Second: Mapping(Scale=2).
     mapping = _Node('MAPPING', inputs={
-        'Vector':   _Socket(),
+        'Vector':   _Socket(linked_to=_Node('TEX_COORD'), output_name='UV'),
         'Location': _Socket(default=(0.0, 0.0, 0.0)),
         'Scale':    _Socket(default=(2.0, 2.0, 1.0)),
     })
@@ -371,7 +371,7 @@ def test_resolve_vector_input_mapping_rotation_z(monkeypatch):
     addon = _load_blender_addon(monkeypatch)
     cls = addon.CustomRaytracerRenderEngine
     mapping = _Node('MAPPING', inputs={
-        'Vector':   _Socket(),
+        'Vector':   _Socket(linked_to=_Node('TEX_COORD'), output_name='UV'),
         'Location': _Socket(default=(0.0, 0.0, 0.0)),
         'Rotation': _Socket(default=(0.0, 0.0, math.pi / 4)),
         'Scale':    _Socket(default=(1.0, 1.0, 1.0)),
@@ -394,7 +394,7 @@ def test_load_blender_image_with_mapping_rotation_passes_through(monkeypatch):
     renderer = _RecordingRenderer()
     image = _FakeImage(name="rotated.png")
     mapping = _Node('MAPPING', inputs={
-        'Vector':   _Socket(),
+        'Vector':   _Socket(linked_to=_Node('TEX_COORD'), output_name='UV'),
         'Location': _Socket(default=(0.0, 0.0, 0.0)),
         'Rotation': _Socket(default=(0.0, 0.0, math.pi / 6)),
         'Scale':    _Socket(default=(1.0, 1.0, 1.0)),
@@ -421,7 +421,7 @@ def test_resolve_vector_input_mapping_full_combo(monkeypatch):
     addon = _load_blender_addon(monkeypatch)
     cls = addon.CustomRaytracerRenderEngine
     mapping = _Node('MAPPING', inputs={
-        'Vector':   _Socket(),
+        'Vector':   _Socket(linked_to=_Node('TEX_COORD'), output_name='UV'),
         'Location': _Socket(default=(0.5, -0.25, 0.0)),
         'Rotation': _Socket(default=(0.0, 0.0, math.pi / 2)),
         'Scale':    _Socket(default=(2.0, 3.0, 1.0)),

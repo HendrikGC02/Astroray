@@ -99,7 +99,7 @@ def test_resolve_matrix_none_for_identity_mapping(monkeypatch):
     cls = _cls(monkeypatch)
     engine = cls()
     mapping = _Node('MAPPING', inputs={
-        'Vector': _Socket(),
+        'Vector': _Socket(linked_to=_Node('TEX_COORD'), output_name='UV'),
         'Location': _Socket(default=(0.0, 0.0, 0.0)),
         'Rotation': _Socket(default=(0.0, 0.0, 0.0)),
         'Scale': _Socket(default=(1.0, 1.0, 1.0)),
@@ -113,7 +113,7 @@ def test_resolve_matrix_full_3d_rotation(monkeypatch):
     cls = _cls(monkeypatch)
     engine = cls()
     mapping = _Node('MAPPING', inputs={
-        'Vector': _Socket(),
+        'Vector': _Socket(linked_to=_Node('TEX_COORD'), output_name='UV'),
         'Location': _Socket(default=(0.0, 5.6, 0.0)),
         'Rotation': _Socket(default=(1.30, 0.87, 0.95)),  # owner's repro mapping
         'Scale': _Socket(default=(0.4, 0.4, 0.4)),
@@ -130,7 +130,7 @@ def test_resolve_matrix_chained_composes(monkeypatch):
     cls = _cls(monkeypatch)
     engine = cls()
     inner = _Node('MAPPING', inputs={
-        'Vector': _Socket(),
+        'Vector': _Socket(linked_to=_Node('TEX_COORD'), output_name='UV'),
         'Location': _Socket(default=(0.0, 0.0, 0.0)),
         'Rotation': _Socket(default=(0.0, 0.0, 0.0)),
         'Scale': _Socket(default=(2.0, 2.0, 2.0)),
@@ -155,7 +155,7 @@ def test_resolve_matrix_linked_input_degrades(monkeypatch):
     engine = cls()
     driver = _Node('TEX_NOISE')
     mapping = _Node('MAPPING', inputs={
-        'Vector': _Socket(),
+        'Vector': _Socket(linked_to=_Node('TEX_COORD'), output_name='UV'),
         'Location': _Socket(default=(1.0, 0.0, 0.0)),  # unlinked, non-identity
         'Rotation': _Socket(default=(0.0, 0.0, 0.0)),
         'Scale': _Socket(default=(2.0, 2.0, 2.0), linked_to=driver, output_name='Fac'),
@@ -217,7 +217,7 @@ def test_load_image_3d_mapping_sends_matrix(monkeypatch):
     renderer = _RecordingRenderer()
     image = _FakeImage(name="wood.png")
     mapping = _Node('MAPPING', inputs={
-        'Vector': _Socket(),
+        'Vector': _Socket(linked_to=_Node('TEX_COORD'), output_name='UV'),
         'Location': _Socket(default=(0.0, 5.6, 0.0)),
         'Rotation': _Socket(default=(1.30, 0.87, 0.95)),
         'Scale': _Socket(default=(0.4, 0.4, 0.4)),

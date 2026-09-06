@@ -3,7 +3,9 @@
 **Pillar:** 5 (Blender/DCC viewport response)
 **Track:** A
 **Status:** OPEN — Phase 0 recorder + measurements + design delivered
-(PR pending, 2026-09-07); Phase 1 code awaits owner/Terra approval of the design
+(PR #733, 2026-09-07 — GPU edit→present p95 426 ms (metal_sweep) / 165 ms (100k),
+material ~2× camera, F12 cancel floor 483–1107 ms GPU); Phase 1 code awaits
+owner/Terra approval of the design
 **Estimated effort:** TBD at architect review
 **Depends on:** landed pkg52/81/191/192/196 viewport machinery and pkg147
 OpenMP/GIL safeguards; coordinate real Blender tests with DONE pkg236's (#711)

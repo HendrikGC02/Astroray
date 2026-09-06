@@ -76,3 +76,11 @@ implementation scope after the audit.
       required-check completion and trust boundaries.
 - [ ] Measured benefit for the accepted change with no lost validation.
 - [ ] Independent Astra/Claude review.
+
+## Baseline audit recorded — 2026-09-06
+
+See [CI baseline audit](../docs/pkg240-ci-baseline-audit.md) for four measured
+push/PR runs, job/step latency and API billable fields. Host tests account for
+90.1–91.7% of host job time in these samples. This is baseline evidence only;
+no CI change or candidate speedup is claimed. Detailed architecture, candidate
+collection/marker parity and event-matrix gates remain pending.

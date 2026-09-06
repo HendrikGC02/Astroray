@@ -181,7 +181,7 @@ utility opcodes) is landed. NEXT = pkg230 Phase 2 (Vector Math/Rotate).**
 ---
 
 **2026-08-30 → 2026-08-31 (OVERNIGHT ROUND — 12 PRs merged: pkg131 adaptive
-sampling now FULLY DONE across both backends, the pkg208/pkg209/pkg218 spectral/
+sampling now FULLY DONE across both backends, the pkg208/pkg209/pkg218b spectral/
 dispersion cluster closes out, pkg212 fixes a real GPU/CPU wavefront pixel-offset
 bug, and pkg219's DONE flip — accidentally reverted by an in-flight PR — is
 restored): the wavefront now compacts converged pixels on the GPU exactly like the
@@ -213,7 +213,7 @@ GPU silhouette is pixel-exact vs the CPU megakernel.**
   diff (no divergence); fixed the MNEE citation ("Manakov"→"Fascione")
   across `half_vector_constraint.h`/`sms_attempt_device.cuh`/
   `sms_caustic_path_tracer.cpp`. Comment/doc-only, no algorithm change.
-- **pkg218 — GPU spectral emission device upload DONE** (PR #667) —
+- **pkg218b — GPU spectral emission device upload DONE** (PR #667) —
   closes the "GPU lamp colour is RGB-approximated" gap (memory
   `gpu-emission-is-rgb-approximated`): non-RGB dedicated lights
   (blackbody/measured_spd/composite) now bake their true `EmissionSpectrum`
@@ -265,7 +265,7 @@ GPU silhouette is pixel-exact vs the CPU megakernel.**
   docs-only, no code.
 - **Fleet register baseline unchanged: `stageShadeBucketedKernel<0,…>`
   REG 254 / STACK 3368 / CONSTANT[0] 1716** — pkg131's GPU adaptive round
-  and pkg218's emission-profile lookup are both off the REG:254 frame
+  and pkg218b's emission-profile lookup are both off the REG:254 frame
   (side-table / trivial-store patterns); re-measure from the actual `.pyd`
   before trusting, per usual.
 - **Next pickup (verified against this pass's Status flips):** pkg225-S1

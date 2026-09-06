@@ -23,11 +23,16 @@ if ($inputJson -and $inputJson.tool_input -and $inputJson.tool_input.command) {
     $command = $inputJson.input.command
 }
 
-if ($command -notmatch "git\s+commit") {
+if ($command -notmatch "git\s+(-C\s+(?:'[^']*'|`"[^`"]*`"|\S+)\s+)?commit\b") {
     exit 0
 }
 
-Set-Location $env:CLAUDE_PROJECT_DIR
+# Resolve which repo checkout to check: a `git -C <path>` or `cd <path> &&`
+# commit may target a linked worktree, not the main checkout.
+. "$PSScriptRoot\_resolve_repo.ps1"
+$repoPath = Resolve-HookRepoPath -Command $command -PayloadCwd $inputJson.cwd
+
+Set-Location $repoPath
 
 # Collect staged AND unstaged package-spec paths: a combined "git add ... &&
 # git commit" stages files after this hook runs, so --cached alone misses

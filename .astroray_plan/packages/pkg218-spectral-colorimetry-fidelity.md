@@ -2,8 +2,8 @@
 
 **Pillar:** 2
 **Track:** A (architect to research + scope before implementation)
-**Status:** open (filed 2026-08-22). **RESEARCH SPEC** — architect researches, splits,
-and sizes before any implementation.
+**Status:** open (filed 2026-08-22). **RESEARCH SPEC** — architect researches, splits, and sizes before any implementation.
+**Estimated effort:** TBD
 **Priority:** owner (2026-08-22): part of Pillar 4, **not the current main focus**.
 Sequence behind the active work. Filed so it is tracked, not to dispatch now.
 

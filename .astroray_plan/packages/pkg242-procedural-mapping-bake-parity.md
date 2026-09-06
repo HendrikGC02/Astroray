@@ -1,22 +1,37 @@
 # pkg242 — Procedural transformed-p and bake/cache-domain parity
 
-**Pillar:** 5 (Blender integration / procedural texture parity)
+**Pillar:** 5
 **Track:** A
-**Status:** OPEN — detailed architect review required before implementation
-**Estimated effort:** TBD at architect review
-**Depends on:** pkg115, pkg190, pkg219, pkg230b (DONE #708); the pkg230b
-foundation has landed, while this package's architecture and gates remain OPEN
+**Status:** open — detailed architect review required before implementation
+**Estimated effort:** TBD
+**Depends on:** pkg115, pkg190, pkg219, pkg230b
 
-## Existing coverage and boundary
+---
 
-- [pkg59](pkg59-shader-graph-uv-vector.md) — UV plumbing baseline.
-- [pkg115](pkg115-adopt-blender-shader-node-textures.md) — line 125: full-3D Mapping
-  transform still TODO.
-- [pkg190](pkg190-gpu-procedural-texture-support.md), PR #612/#615 — UV/Generated bake
-  only; guarded Object-coordinate fallback.
-- [pkg219](pkg219-per-texel-shader-graph.md), DONE — image Mapping acceptance.
-- [pkg230b](pkg230b-vector-coordinate-chain.md), DONE #708 — owns the image/compatible-program affine
-  path and warns on unsupported procedurals.
+## Goal
+
+Before: CPU procedural evaluation and GPU bake domains disagree — the
+HitRecord overloads of `Texture::value`, `valueOffset`, and `sampleSpectral`
+map UV but retain the original procedural `p`, GPU baking is limited to
+UV/Generated and evaluates procedural samples in the original bake domain,
+and UV-less primitives shade a flat fallback. After: building on landed
+pkg230b, native procedural transformed-p and bake/cache-domain parity — one
+transformed-coordinate contract covering CPU and GPU bake domains, supporting
+an explicitly bounded affine subset and reporting unrepresentable coordinate
+chains visibly instead of implying full coverage.
+
+---
+
+## Context
+
+This package serves Pillar 5 (Blender integration / procedural texture
+parity). pkg230b is DONE (#708): the pkg230b foundation has landed, while
+this package's architecture and gates remain OPEN. Estimated effort is TBD at
+architect review. The 2026-09-06 rebuild baseline shows the gap is
+user-visible today (CPU checker placement against a flat GPU ground), and
+this evidence strengthens the existing bake/domain scope.
+
+---
 
 ## Evidence
 
@@ -28,72 +43,80 @@ foundation has landed, while this package's architecture and gates remain OPEN
 
 ### Additional 2026-09-06 baseline: standalone UV-less checker
 
-The full rebuild's 192x144,256spp material chart shows CPU checker placement but
-a flat GPU ground. This was independently reproduced through the unchanged
-f30bc5f Python binding, so it is not caused by pkg250's new CLI caller. A default
-UV CheckerTexture on two triangles without explicit UV arrays gives CPU image
-luminance standard deviation 0.4182 versus GPU 0.0330. The case is NOT a visual
-parity pass. Saved raw arrays/previews and imported-module identity are at
-`test_results/rebuild-handoff-20260906/checker-binding-*`;
-`standalone-{cpu,gpu}-scene2.png` shows the production CLI example.
+- 2026-09-06: The full rebuild's 192x144,256spp material chart shows CPU
+  checker placement but a flat GPU ground. This was independently reproduced
+  through the unchanged f30bc5f Python binding, so it is not caused by
+  pkg250's new CLI caller.
+- 2026-09-06: A default UV CheckerTexture on two triangles without explicit
+  UV arrays gives CPU image luminance standard deviation 0.4182 versus GPU
+  0.0330. The case is NOT a visual parity pass.
+- 2026-09-06: Saved raw arrays/previews and imported-module identity are at
+  `test_results/rebuild-handoff-20260906/checker-binding-*`;
+  `standalone-{cpu,gpu}-scene2.png` shows the production CLI example.
+- 2026-09-06: Terra traced the precise gap: CPU triangles interpolate
+  implicit fallback UVs even without authored UV layers; GPU triangles set
+  hasUV only for real UV layers, so the shader skips their baked 2D texture
+  and shades the flat fallback.
 
-Terra traced the precise gap: CPU triangles interpolate implicit fallback UVs
-even without authored UV layers; GPU triangles set hasUV only for real UV layers,
-so the shader skips their baked 2D texture and shades the flat fallback.
-Include the default-coordinate/UV-availability contract in Phase 0: determine
-whether UV-less primitives should use a documented generated/default domain or
-report unsupported input. Reconcile CPU procedural evaluation with GPU baking
-and sampling without hiding the mismatch by changing the fixture. This evidence
-strengthens the existing bake/domain scope; implementation gates remain UNRUN.
+---
 
-## Goal
+## Reference
 
-Building on landed pkg230b, deliver native procedural transformed-p and
-bake/cache-domain parity: one transformed-coordinate contract covering CPU and
-GPU bake domains. Support an explicitly bounded affine subset; report
-unrepresentable coordinate chains visibly instead of implying full coverage.
+- [pkg59](pkg59-shader-graph-uv-vector.md) — UV plumbing baseline.
+- [pkg115](pkg115-adopt-blender-shader-node-textures.md) — line 125: full-3D
+  Mapping transform still TODO.
+- [pkg190](pkg190-gpu-procedural-texture-support.md), PR #612/#615 —
+  UV/Generated bake only; guarded Object-coordinate fallback.
+- [pkg219](pkg219-per-texel-shader-graph.md), DONE — image Mapping acceptance.
+- [pkg230b](pkg230b-vector-coordinate-chain.md), DONE #708 — owns the
+  image/compatible-program affine path and warns on unsupported procedurals.
 
-## Scoped direction
+---
 
-Phase 0 records the baseline, then the detailed architect pass defines the single
-transformed-coordinate contract for CPU+GPU bake domains covering: chain
-order; negative/zero/singular transforms; shared/transformed-object
-provenance; cache invalidation; and a visible unsupported policy. Quantify
-finite bake error separately from the transform contract. Phase 1 implements
-the approved native/bake/cache subset; Phase 2 verifies real Blender parity.
+## Prerequisites
+
+- [ ] TBD
+
+---
+
+## Specification
+
+### Files to create
+
+None.
+
+### Files to modify
+
+| File | What changes |
+|---|---|
+| `include/advanced_features.h` | HitRecord overloads of `Texture::value` (`:177`), `valueOffset` (`:187`), and `sampleSpectral` (`:249`) currently map UV but retain the original procedural `p` passed to the underlying evaluator; bring them onto the approved coordinate contract. |
+| `src/gpu/scene_upload.cu` | Baking is limited to UV/Generated (`:927`); `:953` and `:979` evaluate procedural samples directly in the original bake domain; align bake/sample domains with the approved contract. |
+
+### Key design decisions
+
 Reuse the pkg119 differential harness and existing procedural parity tests.
 
-## Acceptance — all implementation gates UNRUN
+#### Phase 0
 
-- [ ] Analytic coordinate oracles for Checker/Wave/Noise under XYZ
-      rotation/offset/scale/mirror/singular transforms.
-- [ ] Blender CPU/GPU/Cycles comparisons for the same cases, plus shared
-      objects and bake edges.
-- [ ] The `value`, `valueOffset`, and `sampleSpectral` entry points follow the
-      approved coordinate contract; trace material, bump, and spectral callers.
-      Image/program consumers retain pkg230b's behavior; unsupported domains warn.
-- [ ] Untransformed baseline preserved (byte-identical where applicable).
-- [ ] Cache correctness across transform edits; unaffected kernel-fleet
-      identity (REG/STACK/CONST/LOCAL) for untouched kernels.
-- [ ] Fresh native build identity if engine code is touched; GPU lock; at most
-      two isolated implementation worktrees; caller/binding/ABI review; saved
-      visuals with Astra/Claude review; independent Claude sign-off.
+Phase 0 records the baseline, then the detailed architect pass defines the
+single transformed-coordinate contract for CPU+GPU bake domains covering:
+chain order; negative/zero/singular transforms; shared/transformed-object
+provenance; cache invalidation; and a visible unsupported policy. Quantify
+finite bake error separately from the transform contract. Include the
+default-coordinate/UV-availability contract in Phase 0: determine whether
+UV-less primitives should use a documented generated/default domain or report
+unsupported input. Reconcile CPU procedural evaluation with GPU baking and
+sampling without hiding the mismatch by changing the fixture.
 
-## Non-goals / exclusions
+#### Phase 1
 
-- pkg230b's image/program child-sampler cache isolation (primary pkg230b
-  scope).
-- pkg234 image filtering; pkg233 standalone BSDF texture plumbing.
-- Arbitrary coordinate VM; new procedural algorithms or physics.
+Phase 1 implements the approved native/bake/cache subset.
 
-## Risks
+#### Phase 2
 
-Finite bake resolution can hide transform errors or alias high-frequency fields;
-unbounded Object coordinates need an explicit supported domain. Shared material
-instances and stale bake keys can apply another object's coordinate frame.
+Phase 2 verifies real Blender parity.
 
-## Key design decisions
-
+#### 2026-09-07 — UV-less fallback contract (PR #726)
 - **UV-less primitives use the documented CPU implicit UV domain; the GPU
   uploads the same UVs.** The CPU `Triangle` always defines `(uv0,uv1,uv2)`:
   authored UV-layer 0 when present, else the implicit default domain
@@ -114,6 +137,42 @@ instances and stale bake keys can apply another object's coordinate frame.
   getting a valid base-colour texel fetch from the uploaded fallback UVs. The
   fixture was NOT changed to hide the mismatch.
 
+---
+
+## Acceptance criteria
+
+All implementation gates UNRUN:
+
+- [ ] Analytic coordinate oracles for Checker/Wave/Noise under XYZ
+      rotation/offset/scale/mirror/singular transforms.
+- [ ] Blender CPU/GPU/Cycles comparisons for the same cases, plus shared
+      objects and bake edges.
+- [ ] The `value`, `valueOffset`, and `sampleSpectral` entry points follow the
+      approved coordinate contract; trace material, bump, and spectral callers.
+      Image/program consumers retain pkg230b's behavior; unsupported domains warn.
+- [ ] Untransformed baseline preserved (byte-identical where applicable).
+- [ ] Cache correctness across transform edits; unaffected kernel-fleet
+      identity (REG/STACK/CONST/LOCAL) for untouched kernels.
+- [ ] Fresh native build identity if engine code is touched; GPU lock; at most
+      two isolated implementation worktrees; caller/binding/ABI review; saved
+      visuals with Astra/Claude review; independent Claude sign-off.
+
+---
+
+## Non-goals
+
+- pkg230b's image/program child-sampler cache isolation (primary pkg230b
+  scope).
+- pkg234 image filtering; pkg233 standalone BSDF texture plumbing.
+- Arbitrary coordinate VM; new procedural algorithms or physics.
+- Risk: Finite bake resolution can hide transform errors or alias
+  high-frequency fields.
+- Risk: Unbounded Object coordinates need an explicit supported domain.
+- Risk: Shared material instances and stale bake keys can apply another
+  object's coordinate frame.
+
+---
+
 ## Progress
 
 - **2026-09-07 -- Phase 0 baseline + UV-less fallback contract (PR #726).** Reproduced
@@ -127,3 +186,9 @@ instances and stale bake keys can apply another object's coordinate frame.
   regression pin pass on the CPU-only build; the GPU std-ratio parity gate is
   pending the lead's RTX 5070 Ti CUDA build). The full transformed-p /
   bake/cache-domain contract (Phase 1/2) remains OPEN and unstarted.
+
+---
+
+## Lessons
+
+- (none yet)

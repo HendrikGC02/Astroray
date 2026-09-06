@@ -1,10 +1,9 @@
 # pkg222 — Atomic-line lamp SPDs: cited, chromatically-correct line intensities (pkg218 Thread A, extracted)
 
-**Pillar:** 3 (spectral rendering) — data-correctness fix. (This is the
-*data-bug* half of pkg218; pkg218 Thread B — the swappable observer / camera
-response function — stays a separate Pillar-4 research item and is NOT in scope.)
+**Pillar:** 3 (spectral rendering) — data-correctness fix. (This is the *data-bug* half of pkg218; pkg218 Thread B — the swappable observer / camera response function — stays a separate Pillar-4 research item and is NOT in scope.)
 **Track:** A
 **Status:** DONE — merged via PR #646 (`d1fc1a0`, correct mercury lamp SPD to NIST Handbook lines: magenta → greenish-white); round closed out `4c95741`. (Header flipped 2026-08-30 during queue reconciliation — the code landed 2026-08-25 but this Status line was never updated.) Extracted pkg218 Thread A into an independently dispatchable unit.
+**Depends on:** TBD
 **Priority:** MEDIUM-HIGH — every preset atomic-line lamp renders the wrong color
 (mercury is magenta, should be greenish-white). Cheap to fix once the reference
 line intensities are cited. Synergistic with pkg221 (emission-line dispersion is

@@ -1,21 +1,10 @@
 # pkg227 — General Specular Polynomials (any-geometry deterministic caustics)
 
-**Pillar:** 3 (light transport / caustics) + 2 (spectral core)
-**Track:** A (CPU-first solver + candidate-generation research, numerical caustic
-quality gates, sphere-exact oracle; GPU mirror is RTX-verified against the CPU
-result and lands last)
-**Status:** APPROVED (owner 2026-09-04) — implementing in order 2a → 2b-flat →
-2b-smooth; 2c (M-prune) DEFERRED, 2d/3 follow. See "Owner decisions" below.
-**Estimated effort:** XL — spans a cheap exact win (sphere multi-bounce), a
-research-grade approximate mesh solver, a whole candidate-generation subsystem
-(triangle-tuple pruning), and a GPU mirror. Phased so the first payoff ships
-independently.
-**Depends on:** **pkg127** (exact single-vertex SPHERE specular-polynomial solver
-— LANDED #685; this generalizes it), **pkg106** (multi-vertex MNEE manifold chain
-`manifold_chain.h`, `chainGeometryTerm` — the shared deterministic weight), **pkg64**
-(SMS folded into the default spectral path). Soft-coupled to **pkg226** (the Newton
-sphere-path weight bug) — independent, but both converge the two SMS weighting
-schemes onto the single MNEE term.
+**Pillar:** 3
+**Track:** A
+**Status:** in-progress — owner-approved 2026-09-04; Phase 2a (#688), 2b-flat (#689), 2b-smooth (#691) landed; 2c deferred
+**Estimated effort:** XL — spans a cheap exact win (sphere multi-bounce), a research-grade approximate mesh solver, a whole candidate-generation subsystem (triangle-tuple pruning), and a GPU mirror. Phased so the first payoff ships independently.
+**Depends on:** **pkg127** (exact single-vertex SPHERE specular-polynomial solver — LANDED #685; this generalizes it), **pkg106** (multi-vertex MNEE manifold chain `manifold_chain.h`, `chainGeometryTerm` — the shared deterministic weight), **pkg64** (SMS folded into the default spectral path). Soft-coupled to **pkg226** (the Newton sphere-path weight bug) — independent, but both converge the two SMS weighting schemes onto the single MNEE term.
 
 ---
 
@@ -408,6 +397,7 @@ demand.
 ---
 
 ## Progress
+- 2026-09-07 — status header normalized to `in-progress`; previous text: APPROVED (owner 2026-09-04) — implementing in order 2a → 2b-flat → 2b-smooth; 2c (M-prune) DEFERRED, 2d/3 follow. See "Owner decisions" below.
 
 - [x] Phase 2a — analytic-sphere multi-bounce (raindrop rainbow), Track S.
       Solver `specpoly::solveSphereChain` + `runSphereChainAttempt`, `path_tracer`

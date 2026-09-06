@@ -2,21 +2,12 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** DONE (PR #647 merged 2026-08-26, be7cbec). GPU-only scope confirmed on
-investigation: the addon export, CPU decode, and UV-aligned tangent infra already
-existed; the gap was GPU consumption + a latent CPU arbitrary-frame bug. Register
-probe PASS (64 HasNormalPerturb=false specializations byte-identical to main, 64
-=true no spill/no STACK increase — normal-map data rides the c_wfTexBinding side
-arrays so GMaterial stays 640 B). CPU/GPU parity + visible-relief + Strength gates
-pass on RTX 5070 Ti. **Bump remains deferred** (pkg223b follow-up). Splits the
-pkg219c-deferred "pkg219d"
-Bump+Normal-Map item; **this package is Normal Map ONLY.** Bump (which needs
-height-texture derivatives) is deferred to a separate follow-up — see §Scope.
+**Status:** DONE (PR #647 merged 2026-08-26, be7cbec). GPU-only scope confirmed on investigation: the addon export, CPU decode, and UV-aligned tangent infra already existed; the gap was GPU consumption + a latent CPU arbitrary-frame bug. Register probe PASS (64 HasNormalPerturb=false specializations byte-identical to main, 64 =true no spill/no STACK increase — normal-map data rides the c_wfTexBinding side arrays so GMaterial stays 640 B). CPU/GPU parity + visible-relief + Strength gates pass on RTX 5070 Ti. **Bump remains deferred** (pkg223b follow-up). Splits the pkg219c-deferred "pkg219d" Bump+Normal-Map item; **this package is Normal Map ONLY.** Bump (which needs height-texture derivatives) is deferred to a separate follow-up — see §Scope.
+**Depends on:** TBD
 **Priority:** HIGH usability — Normal maps are ubiquitous in real Blender materials
 and currently silently do nothing (the addon constant-folds the node tree; memory
 `addon-constant-folds-shader-graph`).
-**Estimated effort:** M–L. **Register-sensitive** (perturbs the shading normal in
-the REG:254 GPU shade kernel) — a REG probe gate is MANDATORY.
+**Estimated effort:** M–L. **Register-sensitive** (perturbs the shading normal in the REG:254 GPU shade kernel) — a REG probe gate is MANDATORY.
 **Implementer tier:** deepseek-v4-pro for the implementation, **but the GPU
 shade-path register budget is Opus-last-line territory** — dispatch with a HARD
 `cuobjdump` register-probe gate and a `cpp-abi-guard` + Claude review before merge.

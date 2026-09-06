@@ -1,42 +1,102 @@
 # pkg228 — Forward light-tracer rainbow (internal-reflection branch for spheres/droplets)
 
-**Pillar:** 3 (light transport / caustics)
-**Track:** A (physically-based forward transport; render-level caustic gates)
+**Pillar:** 3
+**Track:** A
 **Status:** superseded — PROPOSED but never owner-approved; the internal-reflection rainbow is covered by pkg227 Track S (Phase 2a landed) (2026-09-07 backlog triage)
-**Estimated effort:** M (one bounded internal-reflection branch in an existing
-general refraction loop + a showcase scene + a render gate; the risk is photon
-budget / deposit balance, not new math)
-**Depends on:** nothing in pkg227 (independent path). Shares no code with the SMS
-solver — this is the *showcase/publication* path; pkg227-S2a stays the
-camera-side physically-exact path for research renders.
+**Estimated effort:** M
+**Depends on:** pkg227
 
 ---
 
-## The gap
+## Goal
 
-`plugins/integrators/light_tracer_caustic.cpp` already traces per-wavelength
-photons from the collimated sun through caster geometry and deposits CIE flux
-into a world-space photon map (pkg106/109/110). Its **general deterministic BVH
-refraction loop** (the non-flat-prism path, ~line 108–130) already "makes a glass
-sphere focus a caustic" — but at each transmissive hit it **refracts through, and
-only reflects on TIR**:
+Before: the forward light tracer's general deterministic BVH refraction loop
+transmits through every dielectric hit and reflects only on TIR, so a water
+sphere renders its lens caustic but the forward tracer physically cannot render
+a rainbow — the primary bow needs one partial internal reflection and the
+secondary bow needs two. After: at a dielectric hit the loop also spawns a
+Fresnel-reflected internal photon carrying `R·Φ`, continued up to
+`caustic_internal_reflections` bounces (default 0 keeps every existing scene
+byte-identical; 2 covers the primary k=1 and secondary k=2 bows), and a
+droplet-curtain showcase scene with a seed-pinned render gate demonstrates a
+continuous primary bow at 42° from the antisolar point.
 
-```cpp
-for (int bounce = 0; bounce < maxDepth_; ++bounce) {
-    ...
-    if (refract(d, nf, eta, dt)) { d = dt; }               // transmit
-    else { d = (d - nf*(2*d.dot(nf))).normalized(); }      // reflect ONLY on TIR
-}
-```
+---
 
-A water sphere's primary rainbow is: **refract-in → ONE internal reflection at
-the back face (a partial, ~6% Fresnel reflection — NOT a TIR) → refract-out.** A
-centered ray into a water drop never hits TIR, so the current loop always
-transmits straight through — it produces the **lens caustic only, never the
-bow.** The secondary bow needs **two** internal reflections. So the forward
-tracer physically cannot render a rainbow today.
+## Context
 
-## The fix (bounded internal-reflection sub-path split)
+This package serves Pillar 3 (light transport / caustics) on Track A
+(physically-based forward transport; render-level caustic gates). The forward
+tracer physically cannot render a rainbow today (see Evidence) — that is the
+gap this package closes. Estimated effort M: one bounded internal-reflection
+branch in an existing general refraction loop + a showcase scene + a render
+gate; the risk is photon budget / deposit balance, not new math. It depends on
+nothing in pkg227 (independent path). It shares no code with the SMS solver —
+this is the *showcase/publication* path; pkg227-S2a stays the camera-side
+physically-exact path for research renders.
+
+---
+
+## Evidence
+
+- `plugins/integrators/light_tracer_caustic.cpp` already traces per-wavelength
+  photons from the collimated sun through caster geometry and deposits CIE flux
+  into a world-space photon map (pkg106/109/110).
+- Its **general deterministic BVH refraction loop** (the non-flat-prism path,
+  ~line 108–130) already "makes a glass sphere focus a caustic" — but at each
+  transmissive hit it **refracts through, and only reflects on TIR**:
+
+  ```cpp
+  for (int bounce = 0; bounce < maxDepth_; ++bounce) {
+      ...
+      if (refract(d, nf, eta, dt)) { d = dt; }               // transmit
+      else { d = (d - nf*(2*d.dot(nf))).normalized(); }      // reflect ONLY on TIR
+  }
+  ```
+
+- A water sphere's primary rainbow is: **refract-in → ONE internal reflection
+  at the back face (a partial, ~6% Fresnel reflection — NOT a TIR) →
+  refract-out.** A centered ray into a water drop never hits TIR, so the
+  current loop always transmits straight through — it produces the **lens
+  caustic only, never the bow.** The secondary bow needs **two** internal
+  reflections.
+
+---
+
+## Reference
+
+- Arvo, "Backward Ray Tracing", SIGGRAPH 1986 Course Notes (forward light
+  particles for caustics) — already used by `light_tracer_caustic`.
+- Jensen, "Global Illumination using Photon Maps", EGWR 1996 (diffuse deposit +
+  k-NN density estimate).
+- Descartes / Newton geometric rainbow theory (deviation stationarity → 42°
+  primary / 51° secondary for water); see `tests/test_pkg227_sphere_chain_unit.py`
+  for the Descartes oracle already in the tree.
+
+---
+
+## Prerequisites
+
+- [ ] TBD
+
+---
+
+## Specification
+
+### Files to create
+
+None.
+
+### Files to modify
+
+| File | What changes |
+|---|---|
+| `plugins/integrators/light_tracer_caustic.cpp` | Add the reflected-branch split to the general deterministic BVH refraction loop only (flat-prism 2-face path untouched) and the new `caustic_internal_reflections` integrator param. |
+| `scripts/README.md` | Register the droplet-curtain showcase harness (§5b) if reusable; delete if one-off. |
+
+### Key design decisions
+
+#### Bounded internal-reflection sub-path split
 
 At a dielectric hit, in addition to the transmitted photon, spawn a
 **Fresnel-reflected internal photon** carrying `R·Φ` flux and continue it up to
@@ -49,14 +109,15 @@ hit, gated by a per-branch depth counter). Deposit every branch's exit photon
 into the same photon map. This is standard forward caustic transport (Arvo 1986;
 Jensen 1996 — already cited in the file header).
 
-Physically-honest throughput: transmit `(1−R)`, reflect `R` (Schlick/dielectric
-Fresnel, already in `refract`/the material). The primary bow is intrinsically
-faint (one ~6% reflection between two transmissions) — **do not brighten it**;
-make it visible by throwing enough photons and letting many drops overlap, the
-way a real sky does. A `caustic_boost` display gain already exists for
-inspection.
+#### Physically-honest throughput
 
-## Scope
+Transmit `(1−R)`, reflect `R` (Schlick/dielectric Fresnel, already in
+`refract`/the material). The primary bow is intrinsically faint (one ~6%
+reflection between two transmissions) — **do not brighten it**; make it visible
+by throwing enough photons and letting many drops overlap, the way a real sky
+does. A `caustic_boost` display gain already exists for inspection.
+
+#### Scope decisions
 
 - Add the reflected-branch split to the general loop only (leave the flat-prism
   2-face path untouched — it is fleet-blessed for the existing prism showcase).
@@ -72,22 +133,26 @@ inspection.
   forward-photon path — out of scope here (CPU showcase first); note whether the
   GPU photon loop has the same transmit-only limitation for a later GPU package.
 
-## Success criteria (gate)
+---
+
+## Acceptance criteria
 
 A render-level pytest (mirror `tests/test_pkg227_raindrop_bow.py` conventions):
 `caustic_internal_reflections=0` vs `=2` on a droplet-curtain scene, seed-pinned:
 
-1. **FIRES:** the internal-reflection branch deposits photon energy the
-   transmit-only path lacked.
-2. **BANDED at 42°:** the added energy concentrates in the angular band the
-   Descartes construction predicts (deviation ≈138° for water n=1.333 → 42°
-   antisolar), not uniformly — a real bow arc, measured as a strong band
-   concentration in the antisolar annulus (target: markedly higher than the 0.18
-   the camera-side 40-drop SMS scene reached).
-3. **CHROMATIC + ORDERED:** red outer, violet inner (primary bow), both hues
-   present — the rainbow signature, with the correct radial colour order.
-4. **NO REGRESSION:** the existing prism rainbow reference render is byte-identical
-   at the default (`caustic_internal_reflections=0`).
+- [ ] **FIRES:** the internal-reflection branch deposits photon energy the
+      transmit-only path lacked.
+- [ ] **BANDED at 42°:** the added energy concentrates in the angular band the
+      Descartes construction predicts (deviation ≈138° for water n=1.333 → 42°
+      antisolar), not uniformly — a real bow arc, measured as a strong band
+      concentration in the antisolar annulus (target: markedly higher than the
+      0.18 the camera-side 40-drop SMS scene reached).
+- [ ] **CHROMATIC + ORDERED:** red outer, violet inner (primary bow), both hues
+      present — the rainbow signature, with the correct radial colour order.
+- [ ] **NO REGRESSION:** the existing prism rainbow reference render is
+      byte-identical at the default (`caustic_internal_reflections=0`).
+
+---
 
 ## Non-goals
 
@@ -95,6 +160,8 @@ A render-level pytest (mirror `tests/test_pkg227_raindrop_bow.py` conventions):
   research-grade path).
 - Not supertemporal / animated rain. One still showcase frame.
 - No new density-estimation kernel — reuse the existing k-NN gather.
+
+---
 
 ## Progress
 
@@ -105,12 +172,8 @@ A render-level pytest (mirror `tests/test_pkg227_raindrop_bow.py` conventions):
 - [ ] verify prism reference byte-identical at default; regression sweep
 - [ ] (note-only) GPU photon-loop transmit-only audit for a future GPU package
 
-## Citations
+---
 
-- Arvo, "Backward Ray Tracing", SIGGRAPH 1986 Course Notes (forward light
-  particles for caustics) — already used by `light_tracer_caustic`.
-- Jensen, "Global Illumination using Photon Maps", EGWR 1996 (diffuse deposit +
-  k-NN density estimate).
-- Descartes / Newton geometric rainbow theory (deviation stationarity → 42°
-  primary / 51° secondary for water); see `tests/test_pkg227_sphere_chain_unit.py`
-  for the Descartes oracle already in the tree.
+## Lessons
+
+- (none yet)

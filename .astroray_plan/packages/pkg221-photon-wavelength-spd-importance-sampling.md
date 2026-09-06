@@ -3,11 +3,11 @@
 **Pillar:** 3 (light transport / spectral rendering)
 **Track:** A
 **Status:** DONE — merged via PR #645 (`e3e1451`, importance-sample photon wavelengths from the light SPD; emission-line caustics); round closed out `4c95741`. (Header flipped 2026-08-30 during queue reconciliation — the code landed 2026-08-25 but this Status line was never updated.)
+**Depends on:** TBD
 **Priority:** HIGH — a physics-correctness bug: a narrow-line lamp (sodium D,
 mercury lines) currently throws a full continuous rainbow caustic, which is
 physically impossible. Emission-line dispersion cannot work in this path.
-**Estimated effort:** M–L (host-side SPD extraction + CDF build, plumbed into two
-photon loops CPU+GPU; the numerics must be exactly mirrored).
+**Estimated effort:** M–L (host-side SPD extraction + CDF build, plumbed into two photon loops CPU+GPU; the numerics must be exactly mirrored).
 **Implementer tier:** deepseek-v4-pro / sonnet, with a `cite-algorithm` step and a
 `cycles-parity-reviewer` pass on the sampling math. The SPD-extraction plumbing is
 the crux — read §2 carefully.

@@ -1,14 +1,8 @@
 # pkg199 — GPU wavefront world volume (homogeneous world medium)
 
-**Pillar:** 5 / integration-first (also 3 — CPU↔GPU parity)
+**Pillar:** 5
 **Track:** A
-**Status:** Stage 1 done (PR #611, 2026-08-14 — HW PASS after fix 6e7bf6d). GPU
-wavefront homogeneous-world Beer-Lambert absorption at CPU parity; furnace Tr
-matches analytic exp(-σ·d) to <2e-4; shade kernel byte-identical REG 254/STACK
-3352/CONST 1700. **hw-611 HW FAIL (sphere-light NEE fog saturation — a 1e30
-occlusion sentinel used as the Beer-Lambert path length) FIXED** (true geometric
-NEE distance; see the "Hardware verification" audit blocks below) and re-verified
-HW PASS. **Stage 2 — full HG scattering medium — done, BOTH backends:**
+**Status:** done — Stage 1 PR #611, Stage 2 PR #617 (CPU) + #619 (GPU), HW PASS
 **PR 2a (CPU, #617, 2026-08-14, HW PASS)** lands the CPU homogeneous
 scattering estimator (HG in-scatter, per-channel exponential distance sampling,
 NEE-through-medium phase/light MIS) behind a new single-scattering-albedo α
@@ -921,3 +915,7 @@ measurements showed no gross-regression signature, and the register-gate
 byte-identity is offered as the authoritative structural evidence instead of
 an unverifiable wall-clock number. This gap is reported, not glossed over --
 gate/merge decision remains with the architect.
+
+## Progress
+
+- 2026-09-07 — status header normalized to `done`; previous text: Stage 1 done (PR #611, 2026-08-14 — HW PASS after fix 6e7bf6d). GPU wavefront homogeneous-world Beer-Lambert absorption at CPU parity; furnace Tr matches analytic exp(-σ·d) to <2e-4; shade kernel byte-identical REG 254/STACK 3352/CONST 1700. **hw-611 HW FAIL (sphere-light NEE fog saturation — a 1e30 occlusion sentinel used as the Beer-Lambert path length) FIXED** (true geometric NEE distance; see the "Hardware verification" audit blocks below) and re-verified HW PASS. **Stage 2 — full HG scattering medium — done, BOTH backends:**

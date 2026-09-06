@@ -1,6 +1,7 @@
 ---
 description: Astroray read-only critic — reviews a diff or file for defects before expensive review. May read anything; may change nothing.
 mode: primary
+model: opencode-go/glm-5.3
 temperature: 0.1
 tools:
   write: false

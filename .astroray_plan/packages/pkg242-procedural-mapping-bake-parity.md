@@ -112,7 +112,7 @@ instances and stale bake keys can apply another object's coordinate frame.
 
 ## Progress
 
-- **2026-09-07 — Phase 0 baseline + UV-less fallback contract PR.** Reproduced
+- **2026-09-07 -- Phase 0 baseline + UV-less fallback contract (PR #726).** Reproduced
   and root-caused the "UV-less procedural checker disappears on GPU" bug (the
   2026-09-06 baseline: CPU luminance std 0.4182 vs GPU 0.0330). Root cause:
   `scene_upload.cu` set `GTriangle.hasUV` only when `tri->hasUVLayers()`, so a

@@ -1,11 +1,62 @@
 # Astroray Status
 
-## 2026-09-06 CURRENT — rebuilt, installed, ready for pkg241/240
+## 2026-09-07 CURRENT — overnight course-correction: north star + measurable gate, spec hygiene, debt removal, four lanes
+
+Lead: Claude Fable 5.1 (autonomous, owner-approved plan; usage-limit gap 02:10–04:40).
+Direction now lives in [`north-star-and-integration-gate-2026-09-07.md`](north-star-and-integration-gate-2026-09-07.md)
+(owner-approved north star, **measurable Pillar-4 exit gate**, Round 1–4 sequencing;
+Terra-reviewed). ROADMAP "Current sequencing" points there; 2026-05→08 history archived.
+Report: [`reports/2026-09-07-overnight-course-correction.html`](reports/2026-09-07-overnight-course-correction.html).
+
+**Merged (squash):** #719 harness routing sync (tiers.json verify→glm-5.3, docs grunt
+glm-5.3-flash, Codex = CLI reviewer, Blender MCP launcher) · #727 **TEMPLATE v2 +
+`project_index.py lint`** (E001–E018, baseline, pre-commit hook, CI `spec-lint`, Apps
+Script parser sync) · #718 north star + exit gate · #725 fixtures (metal_sweep HDRI path
+repaired; two byte-identical placeholder scenes removed; `known_issues_report.py` →
+`KNOWN_ISSUES.md`) · #729 pinned reference-scene corpus for gate (c) · **#726 pkg242
+UV-less checker fix** (implicit fallback UVs uploaded + `uvAuthored` bit; GPU lum std
+0.033→0.4228 vs CPU 0.4217; 3/3 GPU tests RTX 5070 Ti) · #731 pkg237/238 root-cause
+diagnosis · #730 spec rewrite pilot (batch E + pkg218b renumber) · direct: backlog triage
+(10 specs superseded, pkg240/pkg231 deleted, pkg127 flag name), pkg254 filed.
+
+**Open at closeout (see report for final status):** #720 debt removal (scripts, dead
+scheduled workflows → `weekly_local_bench.ps1`, 4 XPASS xfails removed, docs archived) ·
+#728 pkg253 Principled advanced inputs (15/21 sockets were already implemented — the
+audit scanner was blind; real gap = alpha transparent shadows, now shared
+`shadowTransmittance` across all CPU NEE sites; **GPU alpha is a follow-up**: the
+wavefront resolves occlusion in the deferred shadow stage) · #732 spec rewrite batches
+A–D/F (20 specs; baseline 262→236) · #733 pkg241 Phase 0 recorder + measurements +
+cancellation design.
+
+**Measured (live Blender 5.2, RTX 5070 Ti, edit→present p50/p95/p99 ms):** metal_sweep
+GPU camera 397/426/454, material 809/882/957; 101 920-tri GPU camera 162/165/170,
+material 1351/1379/1405; CPU 11.6 s / 22.4 s. Cancel full-stop floor GPU 1.1 s. Idle
+refine 1.3 Hz. The p95 ≤ 100 ms target is render-bound, not cancellation-bound —
+Phase 1 design (bool-returning progress callback, no threads) awaits owner + Terra.
+
+**Bug list started:** issues #721 viewport blocking (P1), #722 native Cycles Device
+ignored (P2), #723 missing image dropped silently (P2), #724 clip planes (P3); labels
+`addon-bug`/`addon-gap`; `python scripts/dev/known_issues_report.py` regenerates the doc.
+
+**NOT GREEN, diagnosed:** pkg237 = adaptive sampler's colour-blind stop metric leaves a
+blue variance floor (two CPU streams SSIM 0.677; 0.962 with adaptive off) + per-image max
+normalization; pkg238 = `lambdas` made transcendental by pkg206 (13 ULP). Both fixes are
+test-method changes needing owner review. Separate: Astroray CPU HDRI background 0.047 vs
+Cycles 0.121 on the new corpus scene (exposure/world-strength suspect).
+
+**Owner actions:** paste `.astroray_plan/tracker/astroray_dashboard.gs` into the Apps
+Script project and run `refresh()`; add `spec-lint` to required checks; decide gate (b)
+metric + denoise-out-of-loop + pkg237/238 test-method changes; review ghost GitHub app
+workflows; install the weekly bench task after one manual run.
+
+---
+
+## 2026-09-06 HISTORICAL — rebuilt, installed, ready for pkg241/240 (superseded by 2026-09-07 above)
 
 Owner milestone for the next round: **responsive camera/material edits, reliable
 cancellation, and faithful mapped textures**. Start pkg241 with real Blender
 measurement, then behavior changes; use pkg240 as a parallel measured CI lane.
-Follow the [ready-to-paste agent prompt](next-agent-prompt-pkg241-pkg240.md) and
+Follow the [ready-to-paste agent prompt](archive/next-agent-prompt-pkg241-pkg240.md) and
 [full rebuild evidence](rebuild-handoff-2026-09-06.md). Pkg242/245 remain separate
 mapped-texture scopes; pkg230b/232/236 are already landed. Pillar 4 stays PAUSED.
 The initial clean CUDA all-target build found a stale standalone GPU caller;

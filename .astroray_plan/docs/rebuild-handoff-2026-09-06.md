@@ -4,7 +4,7 @@
 
 The next agent starts with pkg241 and pkg240 for **responsive camera/material
 edits, reliable cancellation, and faithful mapped textures**. Use the
-[ready-to-paste agent prompt](next-agent-prompt-pkg241-pkg240.md).
+[ready-to-paste agent prompt](archive/next-agent-prompt-pkg241-pkg240.md).
 Pkg241 owns measured viewport/cancellation behavior; pkg240 owns measured CI
 throughput while preserving coverage and trust. Landed pkg230b covers bounded
 affine image/program mapping. OPEN pkg242 procedural/default-coordinate parity

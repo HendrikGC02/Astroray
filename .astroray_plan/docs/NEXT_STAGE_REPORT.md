@@ -1,6 +1,15 @@
 # Astroray Next Stage Report
 
-## 2026-09-06 CURRENT — rebuilt, installed, ready for pkg241/240
+## 2026-09-07 CURRENT — read the north-star doc; Round 1 is in flight
+
+Authoritative sequencing: [`north-star-and-integration-gate-2026-09-07.md`](north-star-and-integration-gate-2026-09-07.md) §4.
+Round 1 status after the 2026-09-07 overnight: pkg241 Phase 0 measured (PR #733, design
+awaiting owner/Terra decision on Phase 1); pkg242 UV-less checker fixed (#726, transformed-p
+contract still open); pkg237/238 diagnosed (#731, test-method fix needs owner sign-off).
+Round 2 opener pkg253 (#728) landed CPU alpha shadows; GPU alpha is its follow-up. Specs now
+must pass `python scripts/project_index.py lint`. Everything below this line is historical.
+
+## 2026-09-06 HISTORICAL — rebuilt, installed, ready for pkg241/240
 
 Owner milestone for the next round: **responsive camera/material edits, reliable
 cancellation, and faithful mapped textures**. Start pkg241 with real Blender

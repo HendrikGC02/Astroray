@@ -193,10 +193,15 @@ __device__ float traceShadowRay(
     if (!hit) return 1.0f;  // unobstructed to the light
 
     // Single-hit transparent-shadow attenuation (see function header).
+    // Only a Principled closure graph carries an alpha (GMaterial::principled
+    // is written once per Principled material and is zero for every other
+    // material type, so reading it unguarded would make those fully
+    // transparent). Mirrors the CPU default Material::shadowAlpha() == 1.
     float alpha = 1.0f;
     int mid = shadow_hit.materialId;
     if (mid >= 0 && mid < num_materials) {
-        alpha = d_materials[mid].alpha;
+        const GMaterial& m = d_materials[mid];
+        if (gpu_closure_graph_is_principled(m)) alpha = m.principled.alpha;
     }
     return 1.0f - alpha;
 }

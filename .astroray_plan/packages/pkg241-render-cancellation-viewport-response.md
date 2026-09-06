@@ -194,6 +194,11 @@ All implementation gates UNRUN:
 ## Progress
 
 - [x] 2026-09-07 — Phase 0 recorder + measurements + cancellation design landed (PR #733); Terra review posted on the PR (BLOCK as written: present-first + interactive-resolution budget first).
+- [ ] 2026-09-07 — Phase 1a (owner order steps 1+2) implemented, addon Python only (`blender_addon/exporter.py`); step 3 (bool-returning cancellation callback + completion metadata) deferred to a later PR.
+  - **Present-first (step 1):** `view_update` caches its scene-edit chunk and flags it present-pending; the next `view_draw` blits that fresh texture before scheduling the next refinement chunk — removes the material double-render (was: `view_update` render + a second `view_draw` render before first present). Stale-guarded: never present-first after a camera/settings change.
+  - **Interactive-resolution budget (step 2):** on the expensive profile (estimated full-res render > `VIEWPORT_INTERACTIVE_BUDGET_MS`=100 ms, measured from the last render's wall time scaled by divisor²), a fresh edit starts coarse at `VIEWPORT_START_RES_DIVISOR`=4 and refines one rung toward full res per settled frame (4→2→1). Extends the pkg196 nav divisor rather than forking a parallel ladder; camera nav keeps its divisor-2 floor and bumps to the budget divisor when expensive. Cheap scenes (below the threshold) render full res immediately — ordinary path unchanged.
+  - **Unit coverage:** `tests/test_pkg241_present_first_budget.py` (7 tests: budget engages only above the measured threshold; expensive edit starts coarse; refine 4→2→1; present-first blits without an extra render; no stale present after a camera change). pkg196/pkg191/viewport-session suites green; the pkg52 progressive-preview test updated to the present-first sequence (first still-frame `view_draw` now presents the pending chunk before scheduling the next render — refinement to the sample target unchanged, one extra `view_draw`).
+  - **GPU before/after measurement:** PENDING — deferred while the lead-owned CUDA addon-rebuild-install holds the GPU (no GPU contention). Numbers to be appended here + `benchmarks/viewport_parity/results/2026-09-07-phase1/`.
 
 ---
 

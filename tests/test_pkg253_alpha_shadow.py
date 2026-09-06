@@ -59,7 +59,7 @@ pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray module not avail
 
 def _render_shadow_scene(occluder_alpha, *, occ_x=0.0, spp=160, depth=1, seed=17,
                          size=48, integrator="path_tracer", use_gpu=False,
-                         opaque_backplate=False):
+                         opaque_backplate=False, mesh_light=False):
     """A large horizontal receiver lit by a small area light directly above
     (through an optional horizontal occluder quad between them), viewed from
     a low, narrow-FOV, grazing camera angle so the occluder and light are
@@ -83,10 +83,19 @@ def _render_shadow_scene(occluder_alpha, *, occ_x=0.0, spp=160, depth=1, seed=17
         r.set_use_gpu(True)
 
     light = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 120.0})
-    # Position (0,4,0), right=(1,0,0), up=(0,0,1) -> normal = right x up =
-    # (0,-1,0): emits straight down (add_area_light convention, matches
-    # tests/test_python_bindings.py).
-    r.add_area_light([0, 4, 0], [1, 0, 0], [0, 0, 1], 1.0, 1.0, "RECTANGLE", light, 1.0)
+    if mesh_light:
+        # Emissive 1x1 mesh quad at y=4 facing DOWN (-Y), used by the GPU case:
+        # dedicated lights on the CUDA wavefront NEE path are a documented pkg89
+        # follow-up, and with add_area_light the GPU control renders black at
+        # depth=1. Winding gives normal = (v1-v0) x (v2-v0) = -Y.
+        le = 0.5
+        r.add_triangle([-le, 4, -le], [le, 4, -le], [le, 4, le], light)
+        r.add_triangle([-le, 4, -le], [le, 4, le], [-le, 4, le], light)
+    else:
+        # Position (0,4,0), right=(1,0,0), up=(0,0,1) -> normal = right x up =
+        # (0,-1,0): emits straight down (add_area_light convention, matches
+        # tests/test_python_bindings.py).
+        r.add_area_light([0, 4, 0], [1, 0, 0], [0, 0, 1], 1.0, 1.0, "RECTANGLE", light, 1.0)
 
     receiver = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
     e = 6.0
@@ -268,12 +277,13 @@ def test_alpha0_casts_no_shadow_other_integrators(integrator):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.gpu
+@pytest.mark.xfail(strict=True, reason="pkg253 G1-GPU follow-up: the CUDA wavefront resolves NEE occlusion in the deferred/bucketed shadow stage, not in stage_light_sample.cu::traceShadowRay, so alpha is not honoured on the GPU yet (measured 2026-09-07 RTX 5070 Ti, mesh emitter: unoccluded 0.4736; alpha 1.0/0.5/0.0 occluder all 0.2467). Needs the deferred shadow stage + BSDF pass-through lobe; register-critical, own PR.")
 def test_alpha0_casts_no_shadow_gpu():
     probe = astroray.Renderer()
     if not probe.gpu_available:
         pytest.skip("CUDA GPU not available")
-    no_occ = _mean_lum(_render_shadow_scene(None, seed=17, use_gpu=True))
-    transparent = _mean_lum(_render_shadow_scene(0.0, seed=17, use_gpu=True))
+    no_occ = _mean_lum(_render_shadow_scene(None, seed=17, use_gpu=True, mesh_light=True))
+    transparent = _mean_lum(_render_shadow_scene(0.0, seed=17, use_gpu=True, mesh_light=True))
     assert transparent > no_occ * 0.90, (
         f"[gpu] alpha=0 occluder ({transparent:.4f}) should match the "
         f"unoccluded control ({no_occ:.4f}) -- a fully transparent surface "

@@ -210,6 +210,7 @@ still missing, instead of re-implementing sockets that already work.
 
 ## Progress
 
+- [ ] 2026-09-07 — GPU verification (RTX 5070 Ti, lead): CPU alpha shadows green (8 passed); GPU alpha NOT honoured — wavefront NEE occlusion is resolved in the deferred/bucketed shadow stage, not `stage_light_sample.cu::traceShadowRay` (alpha 1.0/0.5/0.0 occluder all 0.2467 vs 0.4736 unoccluded). `test_alpha0_casts_no_shadow_gpu` is a strict xfail; G1-GPU is a follow-up PR (deferred shadow stage + BSDF pass-through lobe, register-critical).
 - [x] Step 1 — spec written, grounded in reading pkg178's status, the
       addon's native-param plumbing, and both engine backends first.
 - [x] Step 2 — G1 Alpha: found the real gap (shadow rays, not BSDF

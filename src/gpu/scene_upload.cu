@@ -27,6 +27,8 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <array>
+#include <string>    // pkg242 — procedural-bake dedup key
+#include <cstdint>   // pkg242 — uintptr_t for the transform-aware bake key
 
 #define CUDA_CHECK(call) do {                                               \
     cudaError_t _e = (call);                                                \
@@ -781,6 +783,19 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     std::unordered_map<Texture*, int> texIdx;
     // pkg219b — op-VM program dedup: one ShaderVMProgram slot per ProgramTexture*.
     std::unordered_map<Texture*, int> progIdx;
+    // pkg242 — procedural-bake dedup keyed on (Texture*, Mapping matrix). The
+    // bake FOLDS the transform into the texels (see below), so the cache key
+    // must include the transform: a Mapping edit changes the key and forces a
+    // re-bake, and two textures differing only by transform never alias.
+    std::unordered_map<std::string, int> procBakeIdx;
+    auto procBakeKey = [](Texture* t) {
+        std::string k = std::to_string(reinterpret_cast<uintptr_t>(t));
+        if (t->hasMapping()) {
+            const float* m = t->getMappingMatrix();
+            for (int i = 0; i < 12; ++i) { k += '|'; k += std::to_string(m[i]); }
+        }
+        return k;
+    };
     auto getOrAddMat = [&](const std::shared_ptr<Material>& mIn) -> int {
         auto it = matIdx.find(mIn.get());
         if (it != matIdx.end()) return it->second;
@@ -949,10 +964,13 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 const bool uvMode  = cmode == Texture::CoordMode::UV;
                 const bool bakeable =
                     uvMode || cmode == Texture::CoordMode::Generated;
-                auto tit = texIdx.find(key);
+                // pkg242 — dedup on (pointer, Mapping) so an edited transform
+                // re-bakes (the transform is folded into the texels below).
+                std::string pkey = procBakeKey(key);
+                auto tit = procBakeIdx.find(pkey);
                 if (!bakeable) {
                     // guarded fallback — no bake (see convention above)
-                } else if (tit != texIdx.end()) {
+                } else if (tit != procBakeIdx.end()) {
                     texId = tit->second;
                     r.hasTexture = true;
                 } else {
@@ -974,7 +992,13 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                             float v = 1.0f - (j + 0.5f) / res;
                             for (int i = 0; i < res; ++i) {
                                 float u = (i + 0.5f) / res;
-                                Vec3 c = tex->value(Vec2(u, v), Vec3(u, v, 0.0f));
+                                // pkg242 — fold the Mapping transform into the
+                                // baked texel: evaluate the field at the same
+                                // transformed point the CPU HitRecord overload
+                                // samples (mappedPoint == identity when unset,
+                                // so the untransformed bake stays byte-identical).
+                                Vec3 mp = tex->mappedPoint(Vec3(u, v, 0.0f));
+                                Vec3 c = tex->value(Vec2(mp.x, mp.y), mp);
                                 r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
                             }
                         }
@@ -1000,15 +1024,17 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                                 float py = (j + 0.5f) / res;
                                 for (int i = 0; i < res; ++i) {
                                     float px = (i + 0.5f) / res;
-                                    Vec3 c = tex->value(Vec2(px, py),
-                                                        Vec3(px, py, pz));
+                                    // pkg242 — fold the Mapping transform into
+                                    // the voxel (identity when unset).
+                                    Vec3 mp = tex->mappedPoint(Vec3(px, py, pz));
+                                    Vec3 c = tex->value(Vec2(mp.x, mp.y), mp);
                                     r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
                                 }
                             }
                         }
                     }
                     texId = (int)r.textures.size();
-                    texIdx[key] = texId;
+                    procBakeIdx[pkey] = texId;
                     r.textures.push_back(desc);
                     r.hasTexture = true;
                 }

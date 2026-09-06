@@ -529,6 +529,19 @@ public:
         return {r.x, r.y, r.z};
     }
 
+    // pkg242 test helper — sample a registered texture THROUGH the transformed-
+    // coordinate contract: mp = mappedPoint((u,v,0)), then value(mp.xy, mp).
+    // This is exactly what the UV-mode HitRecord overload (and the folded GPU
+    // bake) evaluate, so tests can assert the Mapping transform reaches the
+    // procedural evaluator point-wise, without building a HitRecord or render.
+    std::vector<float> sampleNamedTextureMapped(const std::string& name, float u, float v) {
+        auto tex = textureManager.getTexture(name);
+        if (!tex) throw std::runtime_error("sample_named_texture_mapped: unknown texture " + name);
+        Vec3 mp = tex->mappedPoint(Vec3(u, v, 0.0f));
+        Vec3 r = tex->value(Vec2(mp.x, mp.y), mp);
+        return {r.x, r.y, r.z};
+    }
+
     std::vector<float> sampleTexture(const std::string& type, py::dict params, float u, float v) {
         astroray::ParamDict p;
         for (auto& item : params) {
@@ -3397,6 +3410,10 @@ PYBIND11_MODULE(astroray, m) {
         .def("sample_named_texture", &PyRenderer::sampleNamedTexture,
              "name"_a, "u"_a = 0.5f, "v"_a = 0.5f,
              "pkg219b: sample a registered texture (image/procedural/program) at (u,v).")
+        .def("sample_named_texture_mapped", &PyRenderer::sampleNamedTextureMapped,
+             "name"_a, "u"_a = 0.5f, "v"_a = 0.5f,
+             "pkg242: sample a registered texture through the transformed-coordinate "
+             "contract (mappedPoint((u,v,0)) then value(mp.xy, mp)).")
         .def("eval_texture_at_3d", &PyRenderer::evalTextureAt3D,
              "type"_a, "params"_a, "x"_a, "y"_a, "z"_a,
              "pkg115 debug helper: evaluate texture at explicit (x,y,z) point")

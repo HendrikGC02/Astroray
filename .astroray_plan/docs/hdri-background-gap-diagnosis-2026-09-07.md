@@ -167,3 +167,23 @@ block on a "make Astroray brighter" fix without first deciding which of the
 two directions above the owner wants — pushing Astroray's background toward
 Cycles' 0.121 by an ad-hoc multiplier would move it further from the
 independently-verified physical ground truth (0.034), not closer.
+
+---
+
+## Lead review note (2026-09-07 09:00, Claude Fable 5.1)
+
+The conclusion "Cycles is inflated by its environment importance sampling" is **not yet
+verified** and is physically surprising: a camera ray that misses all geometry should
+return the environment lookup in Cycles regardless of world sampling. The evidence that
+only the Ground plane triggers the inflation, and that most of it survives with bounces
+at zero, is equally consistent with the ROI containing Ground-plane pixels *in Cycles*
+(different clip planes, plane extent or horizon position) while the black-world geometry
+probe was run only in Astroray.
+
+Distinguishing test before anyone acts on this doc: repeat the black-world geometry probe
+**in Cycles** (world colour 0, emission 0, only Ground visible, same camera) and count
+nonzero ROI pixels; then re-render the ROI with `world.cycles.sampling_method = 'NONE'`
+and `'MANUAL'` and compare against the ground-truth `.hdr` decode (0.0338). If Cycles'
+black-world probe shows Ground pixels inside the ROI, the gap is a fixture/ROI problem,
+not a Cycles bias, and the `HDRI_MIN_BACKGROUND_MEAN` floor must be re-derived from the
+ground-truth decode. Until then treat both engines' numbers as unconfirmed.

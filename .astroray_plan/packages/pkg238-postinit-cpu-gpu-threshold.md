@@ -138,7 +138,27 @@ All implementation gates are UNRUN.
 
 ## Progress
 
-- [ ] 2026-09-07 08:30 — owner approved the field-split ULP bound (`lambdas` on the p99.9 relative bound; origin/direction stay <= 4 ULP); dispatched after GPU attribution.
+- [x] 2026-09-07 08:30 — owner approved the field-split ULP bound (`lambdas` on
+      the p99.9 relative bound; origin/direction stay <= 4 ULP), gated on ONE
+      GPU field-attribution run first.
+- [x] 2026-09-07 — GPU field-attribution run (RTX 5070 Ti, build_cuda .pyd 05:40,
+      main+pkg253; session_n1_envmap_cornell 16x16, seed 424242, 256 PostInit
+      rows). Per-field PostInit CPU<->GPU ULP:
+      - ray_origin    ULP = 0
+      - ray_direction ULP = 2
+      - lambdas       ULP = 13   <- the sole overshoot vs the pinned 4
+      - geometry-only max_ulp (origin, dir) = 2  (<= 4)
+      p99.9 relative error: lambdas = 4.89e-7 (max abs 7.9e-4 nm over the
+      362-825 nm range), origin = 0.0, dir = 1.34e-7. lambdas' p99.9 rel-err is
+      ~20x under the existing PostInit 1.0e-5 bound. This confirms the diagnosis:
+      `lambdas` (transcendental log/exp since pkg206) is the entire overshoot;
+      geometry is within the 4-ULP pin.
+- [x] 2026-09-07 — implemented the field-split: `_compute_stage_ulp('PostInit')`
+      now bounds only ray_origin/ray_direction under max_ulp=4; `lambdas` is
+      dropped from the ULP max and remains covered by the existing PostInit
+      p99.9 relative-error gate (1.0e-5), already computed over lambdas in
+      `_compute_stage_p999`. Dated note added to pkg55_cuda_thresholds.yaml
+      citing pkg206's sampleImportance (log/exp) with the measured numbers.
 - [x] 2026-09-07 — root-cause diagnosis landed (PR #731); fix is a test-method change pending owner review.
 
 ---

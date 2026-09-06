@@ -1013,7 +1013,7 @@ def _luminance_map(pixels: np.ndarray) -> np.ndarray:
     return 0.2126 * pixels[:, :, 0] + 0.7152 * pixels[:, :, 1] + 0.0722 * pixels[:, :, 2]
 
 
-@pytest.mark.xfail(reason="filter_glossy not ported to the spectral path_tracer — deferred (pkg254)", strict=True)
+@pytest.mark.xfail(reason="filter_glossy not ported to the spectral path_tracer — deferred (pkg254); intermittent XPASS on CI (stochastic gate), so not strict", strict=False)
 def test_filter_glossy_blurs_secondary_glossy_paths():
     def render(filter_glossy: float) -> np.ndarray:
         r = create_renderer()

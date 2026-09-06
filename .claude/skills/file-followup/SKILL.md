@@ -22,7 +22,8 @@ Pass the architect:
 ## Output
 
 The architect should produce:
-- A new spec file at `.astroray_plan/packages/<pkgNN>-<slug>.md`
+- A new spec file at `.astroray_plan/packages/<pkgNN>-<slug>.md`, passing
+  `python scripts/project_index.py lint` against `TEMPLATE.md`
 - Auto-tagged with `Track:`
 - A one-PR doc update (spec file only; STATUS.md gets updated at round close)
 

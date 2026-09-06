@@ -48,7 +48,8 @@ and change the `Status:` line to:
 done (PR #<N>, YYYY-MM-DD — <headline numbers in one line>)
 ```
 
-Do not change any other part of the spec.
+Do not change any other part of the spec. New or rewritten specs must pass
+`python scripts/project_index.py lint` against `TEMPLATE.md`.
 
 ### 3 — Update STATUS.md
 

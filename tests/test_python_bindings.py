@@ -513,7 +513,7 @@ def test_background_sky_present():
                        label='background_sky')
 
 
-@pytest.mark.xfail(reason="transparent alpha not ported to the spectral path_tracer — deferred (pkg253)", strict=True)
+@pytest.mark.xfail(reason="transparent alpha not ported to the spectral path_tracer — deferred (pkg254)", strict=True)
 def test_transparent_film_alpha_masks_background():
     r = create_renderer()
     r.set_use_transparent_film(True)
@@ -543,7 +543,7 @@ def test_transparent_film_default_alpha_is_opaque():
     assert float(np.min(alpha)) > 0.99
 
 
-@pytest.mark.xfail(reason="transparent alpha not ported to the spectral path_tracer — deferred (pkg253)", strict=True)
+@pytest.mark.xfail(reason="transparent alpha not ported to the spectral path_tracer — deferred (pkg254)", strict=True)
 def test_transparent_glass_keeps_rgb_but_zeroes_alpha():
     r = create_renderer()
     r.set_use_transparent_film(True)
@@ -677,7 +677,6 @@ def test_glass_render():
     assert_valid_image(pixels, H, W, min_mean=0.03, label='glass')
 
 
-@pytest.mark.xfail(reason="per-closure bounce limits not ported to the spectral path_tracer — deferred (pkg253)", strict=False)
 def test_glossy_bounces_zero_reduces_specular_reflections():
     def render(glossy_bounces: int) -> np.ndarray:
         r = create_renderer()
@@ -696,7 +695,6 @@ def test_glossy_bounces_zero_reduces_specular_reflections():
     assert float(np.mean(no_glossy[center])) < float(np.mean(glossy[center])) * 0.55
 
 
-@pytest.mark.xfail(reason="per-closure bounce limits not ported to the spectral path_tracer — deferred (pkg253)", strict=False)
 def test_transmission_bounces_zero_makes_glass_darker():
     def render(transmission_bounces: int) -> np.ndarray:
         r = create_renderer()
@@ -1015,7 +1013,7 @@ def _luminance_map(pixels: np.ndarray) -> np.ndarray:
     return 0.2126 * pixels[:, :, 0] + 0.7152 * pixels[:, :, 1] + 0.0722 * pixels[:, :, 2]
 
 
-@pytest.mark.xfail(reason="filter_glossy not ported to the spectral path_tracer — deferred (pkg253)", strict=True)
+@pytest.mark.xfail(reason="filter_glossy not ported to the spectral path_tracer — deferred (pkg254)", strict=True)
 def test_filter_glossy_blurs_secondary_glossy_paths():
     def render(filter_glossy: float) -> np.ndarray:
         r = create_renderer()
@@ -1042,7 +1040,6 @@ def test_filter_glossy_blurs_secondary_glossy_paths():
         "filter_glossy=1.0 should slightly blur secondary glossy reflections"
 
 
-@pytest.mark.xfail(reason="caustics flags not ported to the spectral path_tracer — deferred (pkg253)", strict=False)
 def test_disable_reflective_caustics_reduces_mirror_caustic_outliers():
     def render(use_reflective_caustics: bool) -> np.ndarray:
         r = create_renderer()
@@ -1060,7 +1057,6 @@ def test_disable_reflective_caustics_reduces_mirror_caustic_outliers():
         "Disabling reflective caustics should reduce bright mirror caustic pixels on diffuse surfaces"
 
 
-@pytest.mark.xfail(reason="caustics flags not ported to the spectral path_tracer — deferred (pkg253)", strict=False)
 def test_disable_refractive_caustics_reduces_glass_caustic_outliers():
     def render(use_refractive_caustics: bool) -> np.ndarray:
         r = create_renderer()
@@ -1276,7 +1272,7 @@ def test_data_pass_buffers_exist_and_are_finite():
     assert float(np.max(mat_idx)) >= 0.0
 
 
-@pytest.mark.xfail(reason="cryptomatte/render passes not ported to the spectral path_tracer — deferred (pkg253)", strict=True)
+@pytest.mark.xfail(reason="cryptomatte/render passes not ported to the spectral path_tracer — deferred (pkg254)", strict=True)
 def test_cryptomatte_buffers_exist_and_have_coverage():
     r = create_renderer()
     r.set_background_color([0.0, 0.0, 0.0])
@@ -1422,7 +1418,7 @@ def test_solid_background_color():
     assert mean_r > mean_b * 2, f"Red ({mean_r:.3f}) should dominate blue ({mean_b:.3f})"
 
 
-@pytest.mark.xfail(reason="HDR/linear output pass not ported to the spectral path_tracer — deferred (pkg253)", strict=True)
+@pytest.mark.xfail(reason="HDR/linear output pass not ported to the spectral path_tracer — deferred (pkg254)", strict=True)
 def test_linear_output_preserves_hdr_values():
     """Linear render output should preserve HDR values (>1.0) for EXR workflows."""
     r = create_renderer()
@@ -1516,7 +1512,7 @@ def test_world_volume_zero_density_matches_clear_behavior():
     assert max_diff < 1e-5, f"Zero-density world volume should match clear behavior (max diff={max_diff:.6f})"
 
 
-@pytest.mark.xfail(reason="gamma toggle not ported to the spectral path_tracer — deferred (pkg253)", strict=True)
+@pytest.mark.xfail(reason="gamma toggle not ported to the spectral path_tracer — deferred (pkg254)", strict=True)
 def test_render_apply_gamma_toggle():
     """render(apply_gamma=...) should control whether output is gamma-encoded."""
     r = create_renderer()

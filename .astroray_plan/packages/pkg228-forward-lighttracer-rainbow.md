@@ -2,15 +2,7 @@
 
 **Pillar:** 3 (light transport / caustics)
 **Track:** A (physically-based forward transport; render-level caustic gates)
-**Status:** PROPOSED (2026-09-04) — follow-up to pkg227 Phase 2a. The camera-side
-SMS chain solver (pkg227-S2a, on branch `pkg227-s2a`) is *correct* — it computes
-the exact multi-bounce sphere caustic (proven to <1e-8 rad, gated in CI) — but a
-single raindrop's primary bow rendered from the **camera side** is intrinsically
-a faint, noisy caustic, and a curtain of drops smears into an unresolved band
-(measured: band concentration 0.42 single-drop → 0.18 at 40 drops; the direct
-lens caustic is ~17× brighter and dominates the eye). This is the *same* reason
-the prism rainbow uses the **forward light-tracer** (`light_tracer_caustic`), not
-SMS. A beautiful rainbow is a rendering-**method** problem, not a solver problem.
+**Status:** superseded — PROPOSED but never owner-approved; the internal-reflection rainbow is covered by pkg227 Track S (Phase 2a landed) (2026-09-07 backlog triage)
 **Estimated effort:** M (one bounded internal-reflection branch in an existing
 general refraction loop + a showcase scene + a render gate; the risk is photon
 budget / deposit balance, not new math)
@@ -105,6 +97,8 @@ A render-level pytest (mirror `tests/test_pkg227_raindrop_bow.py` conventions):
 - No new density-estimation kernel — reuse the existing k-NN gather.
 
 ## Progress
+
+- 2026-09-07 backlog triage: status flipped to `superseded`. Previous status text: PROPOSED (2026-09-04) — follow-up to pkg227 Phase 2a. The camera-side SMS chain solver (pkg227-S2a, on branch `pkg227-s2a`) is *correct* — it computes the exact multi-bounce sphere caustic (proven to <1e-8 rad, gated in CI) — but a single raindrop's primary bow rendered from the **camera side** is intrinsically a faint, noisy caustic, and a curtain of drops smears into an unresolved band (measured: band concentration 0.42 single-drop → 0.18 at 40 drops; the direct lens caustic is ~17× brighter and dominates the eye). This is the *same* reason the prism rainbow uses the **forward light-tracer** (`light_tracer_caustic`), not SMS. A beautiful rainbow is a rendering-**method** problem, not a solver problem.
 
 - [ ] reflected-branch split in the general BVH loop + `caustic_internal_reflections` param
 - [ ] droplet-curtain showcase scene + render gate (4 asserts above)

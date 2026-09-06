@@ -124,7 +124,7 @@ root-finding is also the natural GPU fit: no per-seed rejection divergence.
   alternative, not the headline solver** (correcting the prior spec's paraphrase).
 - **Superfluous roots:** the square form introduces spurious sign solutions (§3.3,
   §6) — the path-space re-check MUST filter them; a lax filter silently adds energy.
-- **Flag-gated** (pkg64 convention, `p.getInt("sms_polynomial_seed",0) != 0`),
+- **Flag-gated** (pkg64 convention, `p.getInt("sms_specular_poly",0) != 0`),
   default OFF ⇒ current uniform-seed Newton stays the fallback until the gates prove
   the replacement. **Hero-wavelength decoupling carries over unchanged:** η enters
   only through the angularity coefficients, so one solve per ray at `λ_hero`, written

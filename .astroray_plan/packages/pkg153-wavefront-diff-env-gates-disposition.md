@@ -3,7 +3,7 @@
 **Pillar:** 3 (GPU pipeline health / gate integrity)
 **Track:** A (RTX-gated — CI is blind to every one of these gates)
 **Codex-paste-ready:** no (disposition-first: decide recalibration vs real regression from the gate-failure-reviewer's evidence, then a small targeted PR either way)
-**Status:** open — investigation IN FLIGHT (gate-failure-reviewer dispatched 2026-07-25 by the team-lead; this spec is the formal owner of the failures and receives its findings). **PRIORITY NOTE 2026-08-03 (owner-endorsed):** any remainder after the reviewer's disposition is sub-percent parity tail — DE-PRIORITIZED below the Integration Milestone alongside pkg173, unless the paper requires bit-level parity. The reviewer finishes its disposition; no new fix packages spawn from it ahead of the milestone. A disposition PR may ship during the 2026-07-24/25 overnight run ONLY if the root cause is proven to be stale machine-pinned baselines/thresholds (a re-pin with workstation evidence); if a real rendering regression is convicted, file a targeted fix spec — do NOT blind-fix or relax gates without conviction.
+**Status:** superseded — 2026-07 gate dossier is stale; the live baseline failures are owned by pkg237 (HDRI SSIM) and pkg238 (PostInit ULP) (2026-09-07 backlog triage)
 **Estimated effort:** S (disposition) + unknown (if a real regression is behind it)
 **Depends on:** none. **Blocks clean HW verdicts for every PR** until dispositioned — the full RTX sweep includes these gates, so every verifier run inherits the FAIL (see Interim protocol).
 
@@ -98,3 +98,7 @@ Ownership unchanged: these gates stay quarantined and pkg153-owned (the
 emitter-linked ~4.6 pp discriminator still points at a separate co-mechanism in
 the light-energy arc), and this spec closes only via its own disposition
 contract after consuming pkg168's result.
+
+## Progress
+
+- 2026-09-07 backlog triage: status flipped to `superseded`. Previous status text: open — investigation IN FLIGHT (gate-failure-reviewer dispatched 2026-07-25 by the team-lead; this spec is the formal owner of the failures and receives its findings). **PRIORITY NOTE 2026-08-03 (owner-endorsed):** any remainder after the reviewer's disposition is sub-percent parity tail — DE-PRIORITIZED below the Integration Milestone alongside pkg173, unless the paper requires bit-level parity. The reviewer finishes its disposition; no new fix packages spawn from it ahead of the milestone. A disposition PR may ship during the 2026-07-24/25 overnight run ONLY if the root cause is proven to be stale machine-pinned baselines/thresholds (a re-pin with workstation evidence); if a real rendering regression is convicted, file a targeted fix spec — do NOT blind-fix or relax gates without conviction.

@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (GPU/CPU transport parity)
 **Track:** A (RTX-gated; the counters are cheap instrumentation both legs)
-**Status:** open — dispatchable after PR #541 merges (its fix is the floor this package measures on; #541 disposition now settled: option A confirmed by the owner 2026-08-03, lands in the supervised settlement round — see pkg168 Status). **PRIORITY DOWNGRADED 2026-08-03 (owner-endorsed):** this is sub-percent parity tail; it is explicitly DE-PRIORITIZED below the Integration Milestone (pkg175/pkg176/pkg177 + pkg119-B/C) and is NOT part of the settlement round. It re-enters the queue after the milestone, or earlier ONLY if the paper turns out to require bit-level parity.
+**Status:** superseded — bounce-1 +6% escape-rate parity sits below the Integration Milestone; reopen only if a paper needs bit-level CPU/GPU parity (2026-09-07 backlog triage)
 **Estimated effort:** S–M (the counter harness already exists from pkg172's UPDATE-3 trace; the work is convicting two discrete causes and fixing them mirrored)
 **Depends on:** PR #541 (pkg168 Step 2). Parent: **pkg172** (this spec owns its effect-(B') decomposition; pkg172 retains effect (A), the epsilon fix + re-pin batch). Cross-links: **pkg156** (BLOCKED-ON pointer moves here), pkg55 PostInit ≤4-ULP acceptance (NOT implicated — see Scope rationale), memory `ssim-wrong-gate-for-independent-rng` (why the CONDITIONAL fallback below is shaped the way it is).
 
@@ -96,3 +96,7 @@ sampler/BVH program, with (b)'s re-baseline demoted to an evidence-gated
 fallback. Statistical basis: expectations of unbiased estimators are
 RNG-stream-independent; 6%/5.5% systematic offsets at 8192 spp are defects
 with discrete causes, not irreducible stream noise.
+
+## Progress
+
+- 2026-09-07 backlog triage: status flipped to `superseded`. Previous status text: open — dispatchable after PR #541 merges (its fix is the floor this package measures on; #541 disposition now settled: option A confirmed by the owner 2026-08-03, lands in the supervised settlement round — see pkg168 Status). **PRIORITY DOWNGRADED 2026-08-03 (owner-endorsed):** this is sub-percent parity tail; it is explicitly DE-PRIORITIZED below the Integration Milestone (pkg175/pkg176/pkg177 + pkg119-B/C) and is NOT part of the settlement round. It re-enters the queue after the milestone, or earlier ONLY if the paper turns out to require bit-level parity.

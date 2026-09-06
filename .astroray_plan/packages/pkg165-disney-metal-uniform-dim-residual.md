@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (GPU/CPU parity)
 **Track:** A (RTX-gated)
-**Status:** verify-and-close (2026-08-08) — **the GPU-dim premise DOES NOT REPRODUCE on current main.** The pkg129 metal A/B (research doc `reflection-multiscatter-turquin-research.md` §5, lead HW lane, RTX 5070 Ti + Blender 5.1, Disney metallic=1) measures **GPU ≈ CPU with GPU marginally BRIGHTER (≤~1%), not dimmer**, at every roughness — the opposite sign of this package's "uniform ~5–8% GPU-dim" finding, which was measured on the old SHA `b036ac93`. Likely resolved by pkg170's opaque-Disney 2× gain fix (PR #542) + intervening work. **Disposition:** recommend verify-and-close — a focused confirm on pkg158's exact Step-0 scene at r ∈ {0.0, 0.3, 0.6, 0.9} would fully close it, but it is non-urgent, in-band, and below the Integration Milestone. Spec retained (not deleted) for the finding + disposition record. *(Superseded original status: open — dispatchable, diagnosis-first, NOT urgent-tier — every reading inside the `[0.90, 1.10]` band.)*
+**Status:** superseded — verify-and-close completed: the GPU-dim premise does not reproduce on current main (pkg129 metal A/B, 2026-08-08) (2026-09-07 backlog triage)
 **Estimated effort:** S (diagnosis/localization) + S–M only if a material-side defect is convicted
 **Depends on:** pkg158 closed (PR #535, Outcome A — reconciliation table is this package's baseline). pkg163 done (PR #533, `b036ac9` — the plain-metal per-λ spectral path; its gate numbers are the cross-datapoint below). Reads: pkg158 Step-0 reconciliation table, `.astroray_plan/docs/pkg141-gpu-metal-near-delta-research.md` (per-event instrumentation pattern).
 
@@ -109,3 +109,7 @@ Filed by the architect 2026-08-02 at team-lead request, from the pkg158 Step-0
 out-of-scope finding (PR #535) plus pkg163's same-night opposite-sign gate
 reading (PR #533). **Disposition update 2026-08-08:** premise not reproducing on
 current main per the pkg129 metal A/B (research doc §5) → verify-and-close.
+
+## Progress
+
+- 2026-09-07 backlog triage: status flipped to `superseded`. Previous status text: verify-and-close (2026-08-08) — **the GPU-dim premise DOES NOT REPRODUCE on current main.** The pkg129 metal A/B (research doc `reflection-multiscatter-turquin-research.md` §5, lead HW lane, RTX 5070 Ti + Blender 5.1, Disney metallic=1) measures **GPU ≈ CPU with GPU marginally BRIGHTER (≤~1%), not dimmer**, at every roughness — the opposite sign of this package's "uniform ~5–8% GPU-dim" finding, which was measured on the old SHA `b036ac93`. Likely resolved by pkg170's opaque-Disney 2× gain fix (PR #542) + intervening work. **Disposition:** recommend verify-and-close — a focused confirm on pkg158's exact Step-0 scene at r ∈ {0.0, 0.3, 0.6, 0.9} would fully close it, but it is non-urgent, in-band, and below the Integration Milestone. Spec retained (not deleted) for the finding + disposition record. *(Superseded original status: open — dispatchable, diagnosis-first, NOT urgent-tier — every reading inside the `[0.90, 1.10]` band.)*

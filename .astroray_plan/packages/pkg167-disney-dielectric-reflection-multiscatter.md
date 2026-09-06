@@ -2,7 +2,7 @@
 
 **Pillar:** 2 (materials / BSDF energy correctness)
 **Track:** A (CPU furnace gates on CI; GPU twin RTX-verified)
-**Status:** Part 1 done (PR #562, 2026-08-08 — reflection-lobe glass multiscatter compensation CPU+GPU; CPU furnace r=0.3/0.6/1.0 = 0.9855/0.9368/0.9260, all in [0.92,1.03]; pkg169 xfail retired; GPU verify deferred to lead). **Part 2 (pkg150 dead-sample fix) DEFERRED — premise falsified by measurement: the delta fallback carried ~0.44 furnace energy at r=1.0 (below-horizon reflection rate 22.9%, ~3x pkg150's documented 7.1%), which the reflection-lobe compensation recovers by only +0.009; removing the fallback collapses the furnace to 0.485. ESCALATED to architect/lead — Astroray's split-lobe architecture cannot replicate Cycles' combined-closure energy redistribution via a reflection-lobe multiply. See PR #562 body for the full decomposition.**
+**Status:** superseded — Part 1 landed (PR #562); Part 2 (pkg150 dead-sample redistribution) is owned by pkg179 (2026-09-07 backlog triage)
 **Estimated effort:** M (the compensation term follows an in-repo shipped pattern; the work is the dielectric-specific `E(μ, roughness, η)` dependence, the GPU mirror, and holding the furnace at all roughnesses with the dead-sample fix re-applied)
 **Depends on:** nothing open. The pkg151→pkg154→pkg149 sampler chain is on main (#519/#521/#522), and pkg150's charter is met by it. **Composes with:** pkg60 (CPU Kulla-Conty GGX reflection compensation for the metal lobe, DONE), pkg118 (rough-dielectric *transmission* multiscatter, DONE), pkg160/pkg163 (plain-metal compensation, DONE — the in-repo pattern to mirror), pkg129 (open — *metal*-lobe Turquin LUT unification; see Relationship note). pkg166 (linear furnace conversion) is not a blocker but its rules apply to every gate here.
 
@@ -140,3 +140,7 @@ smooth-mirror delta fallback was masking a missing dielectric reflection-lobe
 multi-scatter term. Reverted diff preserved in the pkg150 spec. Third member of
 the compensation family: pkg60 (metal CPU) → pkg118 (transmission) →
 pkg160/pkg163 (plain metal CPU+GPU) → **pkg167 (dielectric reflection)**.
+
+## Progress
+
+- 2026-09-07 backlog triage: status flipped to `superseded`. Previous status text: Part 1 done (PR #562, 2026-08-08 — reflection-lobe glass multiscatter compensation CPU+GPU; CPU furnace r=0.3/0.6/1.0 = 0.9855/0.9368/0.9260, all in [0.92,1.03]; pkg169 xfail retired; GPU verify deferred to lead). **Part 2 (pkg150 dead-sample fix) DEFERRED — premise falsified by measurement: the delta fallback carried ~0.44 furnace energy at r=1.0 (below-horizon reflection rate 22.9%, ~3x pkg150's documented 7.1%), which the reflection-lobe compensation recovers by only +0.009; removing the fallback collapses the furnace to 0.485. ESCALATED to architect/lead — Astroray's split-lobe architecture cannot replicate Cycles' combined-closure energy redistribution via a reflection-lobe multiply. See PR #562 body for the full decomposition.**

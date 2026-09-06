@@ -377,9 +377,23 @@ static void appendOnePrim(
                  scalarMtl->scalarProgram(astroray::svm::SCALAR_METALLIC) ||
                  scalarMtl->scalarProgram(astroray::svm::SCALAR_TRANSMISSION) ||
                  scalarMtl->scalarProgram(astroray::svm::SCALAR_IOR));
-            if ((anisoPrincipled || imageTextured || normalMapped || bumpMapped ||
-                 scalarProgrammed) &&
-                tri->hasUVLayers()) {
+            // pkg242 Phase 0 -- UV-less fallback contract. The CPU Triangle ALWAYS
+            // defines (uv0,uv1,uv2): authored layer 0 when present, else the
+            // implicit default domain uv0=(0,0),uv1=(1,0),uv2=(0,1)
+            // (include/astroray/shapes.h ctors), so shapes.h interpolates a valid
+            // rec.uv even for a UV-less triangle and the CPU procedural/image
+            // sampler shades correctly (the reproduced checker-binding baseline:
+            // CPU luminance std 0.4182 vs GPU 0.0330). getUV0/1/2 returns exactly
+            // that CPU fallback domain, so upload it for the 2D texture-sampling
+            // consumers regardless of authored layers -- this mirrors CPU byte-
+            // for-byte. The anisotropic-Principled UV-tangent path stays gated on
+            // real authored layers (tri->hasUVLayers()) because the CPU only
+            // computes a UV-aligned tangent when !uvLayers.empty() (shapes.h); a
+            // UV-less aniso surface keeps the arbitrary fallback frame on both
+            // backends.
+            const bool textureUVConsumer =
+                imageTextured || normalMapped || bumpMapped || scalarProgrammed;
+            if (textureUVConsumer || (anisoPrincipled && tri->hasUVLayers())) {
                 Vec2 t0 = tri->getUV0(), t1 = tri->getUV1(), t2 = tri->getUV2();
                 gt.uv0 = GVec2(t0.u, t0.v);
                 gt.uv1 = GVec2(t1.u, t1.v);

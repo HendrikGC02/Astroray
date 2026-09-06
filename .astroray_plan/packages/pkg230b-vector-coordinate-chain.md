@@ -1,12 +1,19 @@
 # pkg230b — Affine Vector Math / Rotate coordinate chains
 
-**Pillar:** 5 (Blender integration / shader-node coverage)
+**Pillar:** 5
 **Track:** A
-**Status:** DONE — PR #708, merge8217234b; owner-authorized Terra SIGN-OFF and PR CI passed
+**Status:** done — PR #708, merge 8217234, 2026-09-06; owner-authorized Terra sign-off and PR CI passed
 **Estimated effort:** M
-**Depends on:** pkg219a, pkg230 Phase 2
+**Depends on:** pkg219, pkg230
 
-## Problem and priority
+## Goal
+
+Before: image textures fed through Mapping/vector nodes lost their affine coordinate chain and the program cache identity ignored it, so mapped textures rendered untransformed. After: bounded affine image/program mapping chains are preserved on both backends with cache identity that includes the chain (delivered in PR #708, 2026-09-06).
+
+---
+
+## Context
+
 
 pkg230 Phase 2 supports image → Vector Math/Rotate → color/scalar evaluation.
 Its audit of base `31f3029` found that the same nodes *before* an image lookup
@@ -19,7 +26,54 @@ of specialized caustics/sampling extensions and the larger Principled arc.
 pkg219a and pkg230 Phase 2 are landed; base `305caf5`, no open PRs at selection.
 Pillar 4 remains PAUSED; no universal coordinate VM is introduced.
 
-## Proposed scope
+---
+
+## Evidence
+
+- 2026-09-06 — delivered in PR #708 (`8217234`); measured gates and delivery evidence are recorded in `.astroray_plan/docs/pkg230b-delivery-evidence.md`.
+
+---
+
+## Reference
+
+
+Use the pkg230 Phase 2 research note
+`../docs/pkg230-phase2-vector-semantics-research.md`, the source package spec,
+and Cycles v5.1.0 commit `adfe2921d5f3c0fe699149bcd9bc347543bbd82e`:
+`intern/cycles/kernel/svm/math_util.h`, `vector_rotate.h`, `mapping_util.h`
+and `intern/cycles/util/transform.h` (Apache-2.0).
+
+No light-transport/physics changes, new UI, general per-texel coordinate VM,
+or independent per-image program coordinates. The latter require their own
+architecture if real usage warrants them.
+
+Independent Claude review (2026-09-05): SIGN-OFF to file this bounded future
+spec. Detailed implementation readiness and every acceptance gate remain pending.
+
+
+---
+
+## Prerequisites
+
+- [x] pkg219 per-texel op-VM landed.
+- [x] pkg230 Phase 1/2 vector opcodes landed.
+
+---
+
+## Specification
+
+### Files to create
+
+None.
+
+### Files to modify
+
+None.
+
+### Key design decisions
+
+#### Proposed scope
+
 
 Fold Vector Math ADD, SUBTRACT, MULTIPLY and SCALE with one varying vector and
 constant operands into the existing affine coordinate matrix. Include Vector
@@ -52,46 +106,14 @@ include small numeric edits that the current four-decimal matrix key can alias.
 Candidate implementation ownership is `blender_addon/__init__.py` plus focused
 resolver/cache tests. Inspect real call paths before fixing the file list.
 
-## Acceptance (results in delivery evidence)
+#### Implementation decision — 2026-09-06
 
-The detailed architect pass must pin numerical tolerances before implementation.
-
-- Real headless Blender coordinate-texture comparisons against Cycles in a
-  common linear space, with CPU/GPU parity and saved qualitative visual proof.
-- Noncommutative operation and Mapping order, zero/mirror/singular cases,
-  nonzero rotation center, Euler inverse, and coordinate provenance tested.
-- Image, procedural and program consumers each exercise the feature or emit
-  an explicit warning; no silent default on unsupported chains.
-- Distinct same-image transforms and subsequent edits preserve cache correctness.
-- No GMaterial growth or new universal shader specialization. If engine code is
-  needed, use fresh native builds, intended import path, GPU lock and linked
-  kernel resource checks; addon-only changes still require visual review.
-- Full tests, caller/binding sweep and independent sign-off (Terra authorized by
-  the owner on 2026-09-06 while Claude is unavailable).
-
-## References and limits
-
-Use the pkg230 Phase 2 research note
-`../docs/pkg230-phase2-vector-semantics-research.md`, the source package spec,
-and Cycles v5.1.0 commit `adfe2921d5f3c0fe699149bcd9bc347543bbd82e`:
-`intern/cycles/kernel/svm/math_util.h`, `vector_rotate.h`, `mapping_util.h`
-and `intern/cycles/util/transform.h` (Apache-2.0).
-
-No light-transport/physics changes, new UI, general per-texel coordinate VM,
-or independent per-image program coordinates. The latter require their own
-architecture if real usage warrants them.
-
-Independent Claude review (2026-09-05): SIGN-OFF to file this bounded future
-spec. Detailed implementation readiness and every acceptance gate remain pending.
-
-
-## Implementation decision — 2026-09-06
 
 This is an addon-only coordinate translation package. Reuse the existing 3x4
 matrix binding and shared native image/program sampler. No C++/CUDA, GMaterial,
 ABI, specialization, spectral transport or scientific-output changes.
 
-### Resolver contract
+#### Resolver contract
 
 - Introduce one bounded affine-chain resolver shared by the coordinate-source
   and matrix wrappers, keeping existing public helper signatures compatible.
@@ -125,7 +147,7 @@ ABI, specialization, spectral transport or scientific-output changes.
   Valid outer Mapping operations may remain on the explicit fallback, matching
   the existing degradation contract; do not silently take the first operand.
 
-### Consumers and cache identity
+#### Consumers and cache identity
 
 - Bare images receive resolved provenance and full affine matrix. Keys retain
   sufficient float precision to distinguish edits below 0.0001 and include
@@ -148,7 +170,7 @@ ABI, specialization, spectral transport or scientific-output changes.
 - Missing matrix bindings must emit a visible degradation, rather than silently
   treating a full-affine transform as identity or its partial 2D projection.
 
-### Ownership and measured gates (pin before implementation)
+#### Ownership and measured gates (pin before implementation)
 
 Implementation: `blender_addon/__init__.py`, focused
 `tests/test_pkg230b_coordinate_chains.py`, and minimal updates to affected
@@ -207,3 +229,42 @@ The final visual fixtures keep arithmetic/mirror coordinates inside the image
 domain to preserve pattern sensitivity. Out-of-domain Repeat and clamped-edge
 failures remain retained, with untouched-addon equivalent-Mapping controls;
 they are not counted as passing cases. See the delivery evidence.
+
+---
+
+## Acceptance criteria
+
+
+The detailed architect pass must pin numerical tolerances before implementation.
+
+- Real headless Blender coordinate-texture comparisons against Cycles in a
+  common linear space, with CPU/GPU parity and saved qualitative visual proof.
+- Noncommutative operation and Mapping order, zero/mirror/singular cases,
+  nonzero rotation center, Euler inverse, and coordinate provenance tested.
+- Image, procedural and program consumers each exercise the feature or emit
+  an explicit warning; no silent default on unsupported chains.
+- Distinct same-image transforms and subsequent edits preserve cache correctness.
+- No GMaterial growth or new universal shader specialization. If engine code is
+  needed, use fresh native builds, intended import path, GPU lock and linked
+  kernel resource checks; addon-only changes still require visual review.
+- Full tests, caller/binding sweep and independent sign-off (Terra authorized by
+  the owner on 2026-09-06 while Claude is unavailable).
+
+---
+
+## Non-goals
+
+- Do not add an arbitrary coordinate VM; procedural transformed-p parity is pkg242; normal/bump provenance is pkg245.
+
+---
+
+## Progress
+
+- [x] 2026-09-06 — PR #708 merged (`8217234`).
+- [x] 2026-09-07 — spec rewritten to TEMPLATE v2.
+
+---
+
+## Lessons
+
+*(Fill in after the package is done.)*

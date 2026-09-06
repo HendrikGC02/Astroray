@@ -2,45 +2,165 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** DONE — PR #705 merged 2026-09-06 Sydney
+**Status:** done — PR #705, 2026-09-06
 **Estimated effort:** one bounded maintenance slice
 **Depends on:** none
-**Dispatch authority:** owner instruction 2026-09-06 authorizes parallel lower-level backlog; parent selected pkg232 in isolated worktree codex/pkg232 at 305caf5.
 
 ---
 
 ## Goal
 
-**Before:** a delegate wrapper timeout returns `status: timeout` while the worker's Windows `opencode.exe` descendant tree stays alive and keeps writing files after the wrapper has returned its evidence.
-**After:** on timeout/cancellation/error the wrapper owns, stops, and awaits its full descendant process tree before the final snapshot; no post-return edits; returned status stays `timeout` even if the orphaned child would later have completed.
+Before: a delegate wrapper timeout returns `status: timeout` while the worker's
+Windows `opencode.exe` descendant tree stays alive and keeps writing files after
+the wrapper has returned its evidence. After: on timeout/cancellation/error the
+wrapper owns, stops, and awaits its full descendant process tree before the
+final snapshot; no post-return edits; returned status stays `timeout` even if
+the orphaned child would later have completed.
 
 ---
 
-## Context & evidence
+## Context
 
-Observed 2026-09-06 Australia/Sydney, 2026-09-05 UTC (wrapper JSON + retained transcript `20260906-002341-grunt.jsonl` in `%LOCALAPPDATA%/astroray/delegate-logs`): wrapper returned `status timeout` at 180.0 s, 18 tool calls, `files_changed []`, `finish_reason tool-calls` — yet the Windows `opencode.exe` child (PID 42916) stayed live and wrote scoped tests AFTER the wrapper returned. The retained transcript eventually holds 31 tool calls, `reason stop`; first event 2026-09-05T14:24:20.006Z, last 2026-09-05T14:27:59.717Z (219.711 s event span — not total wrapper runtime). Parent verified the exact command line matched task token `.delegate-task-20260906-002341.md`, stopped only that child, and independently checked the final files. `files_changed []` must not be read as "no edits".
+Owner instruction 2026-09-06 authorizes parallel lower-level backlog; the parent
+selected pkg232 in isolated worktree codex/pkg232 at 305caf5. Without the
+containment fix, output/logs and files remain mutable after returned evidence,
+and `files_changed []` must not be read as "no edits".
 
-Mechanism (`.claude/skills/delegate/scripts/delegate.py`): `_opencode_cmd` (L35) wraps the Windows shim via `cmd /c`; `subprocess.run` (L126) with `timeout=` kills/waits only the immediate shim; `except TimeoutExpired` (L130) only marks `status = "timeout"`; `finally` (L132) removes the task file; the post snapshot (L137) is taken without owning/stopping the full descendant tree. This leaves output/logs and files mutable after returned evidence.
+---
+
+## Evidence
+
+- Observed 2026-09-06 Australia/Sydney, 2026-09-05 UTC (wrapper JSON + retained
+  transcript `20260906-002341-grunt.jsonl` in `%LOCALAPPDATA%/astroray/delegate-logs`):
+  wrapper returned `status timeout` at 180.0 s, 18 tool calls, `files_changed []`,
+  `finish_reason tool-calls` — yet the Windows `opencode.exe` child (PID 42916)
+  stayed live and wrote scoped tests AFTER the wrapper returned.
+- The retained transcript eventually holds 31 tool calls, `reason stop`; first
+  event 2026-09-05T14:24:20.006Z, last 2026-09-05T14:27:59.717Z (219.711 s event
+  span — not total wrapper runtime).
+- Parent verified the exact command line matched task token
+  `.delegate-task-20260906-002341.md`, stopped only that child, and independently
+  checked the final files.
+- Mechanism (`.claude/skills/delegate/scripts/delegate.py`): `_opencode_cmd` (L35)
+  wraps the Windows shim via `cmd /c`; `subprocess.run` (L126) with `timeout=`
+  kills/waits only the immediate shim; `except TimeoutExpired` (L130) only marks
+  `status = "timeout"`; `finally` (L132) removes the task file; the post snapshot
+  (L137) is taken without owning/stopping the full descendant tree.
+- 2026-09-06 local verification: isolated branch `codex/pkg232`, base
+  `305caf569b43c62cb8a8a0d6af9f35fb5f4fc9a2`; only the four owned files changed.
+  No renderer, GPU, build or live Blender work.
+- Initial dynamic implement delegation returned `no_clean_finish`, exit 0,
+  110 tool calls, 1075.3 seconds. This is draft evidence, not success. An
+  independent monitor retained exact process-instance handles and confirmed
+  all 1130 observed instances exited. Subsequent Astra inspection repaired
+  duplicated handle closure, setup interruption, cancellation classification,
+  insufficient canary acknowledgements and unavailable-evidence handling.
+- Focused pytest: **39 passed, 1 skipped in 6.66 seconds** on Windows 11,
+  64-bit CPython 3.13.12. The skip is the actual non-Windows runtime test;
+  the same suite also ran on actual Ubuntu WSL/Linux with Python 3.10.12:
+  **14 passed, 26 Windows-only skipped in 2.74 seconds**, including the actual
+  direct-child runtime test. This is local platform verification, not GitHub CI.
+- Real Windows tests prove assignment using the existing Popen process handle,
+  non-inheritable Job handle, exactly KILL_ON_JOB_CLOSE/no breakaway flags,
+  CREATE_NO_WINDOW helper startup, blocked launch before assignment,
+  timeout/cancel/error/normal cleanup, zero active processes, and closed helper
+  handles. Child and grandchild acknowledge startup; they attempt both file
+  and inherited stdout writes only after return. Neither writes; the unrelated
+  sentinel remains alive and writes successfully. Native handle count does not
+  grow across repeated runs; concurrent contained runs remain isolated.
+- Failure tests exercise assignment rejection/interruption/exception, Job/log/
+  helper creation failure, worker launch failure, query/termination/deadline
+  failure, and cancellation during assignment and cleanup. Unconfirmed cleanup
+  withholds snapshot/transcript-derived fields and retains the task file.
+- Real dynamic grunt-tier smoke: **completed**, 58.9 seconds, one read tool call,
+  finish_reason stop, exit 0, no changed files, cleanup confirmed with
+  **active_processes 0**. Parent independently inspected the JSON and transcript.
+- Differential lint: **0 new findings**, Ruff/markdownlint/codespell/diff-check
+  ran, no unavailable or errored tools. No existing callable signature changed;
+  new lifecycle helpers are private and their callers are in this wrapper and
+  the focused tests. Existing CLI consumers and agent/workflow docs were checked.
+- Evidence in the pkg232 worktree under `test_results/pkg232/`:
+  `implement-wrapper.json`, `implement-monitor.json`, `focused-tests.log`,
+  `focused.xml`, `lint.log`, `real-opencode-smoke.json`, `caller-signatures.json`,
+  `caller-sweep.txt`, `source-manifest.json`, `non-windows-tests.log`, and
+  `non-windows.xml`. `final-claude.txt` records independent final SIGN-OFF
+  conditional on parent integration/CI and actual Linux verification; all conditions
+  are now fulfilled by the evidence above and release record below.
+- Parent integration raised a separate launch-latency edge after final source
+  review: the configured worker timeout starts after synchronous stdin payload
+  handoff, so process creation or a stalled/large payload write can delay timeout
+  and handled cancellation. Full Job cleanup/exit evidence after the handoff is
+  unaffected; no strict whole-launch deadline has been proved. A targeted Claude
+  follow-up could not run because the subscription reached its weekly limit
+  (`timeout-boundary-claude.txt`). The existing final source sign-off is retained;
+  no independent approval of this additional edge is claimed. Parent Astra
+  integration accepted the existing worker-runtime budget as consistent with the
+  reviewed architecture and required this explicit limitation in the spec and
+  SKILL. The process implementation remains byte-identical to final-reviewed
+  source. Bounded startup/payload delivery remains future hardening, outside this
+  package's containment fix; no full-launch deadline is claimed.
+- 2026-09-06 Sydney release record: PR #705 merged at 2026-09-05 18:50:24 UTC,
+  commit `d997c499203e6e4b7493d8377e887c435e86c6bf`. Reviewed source commit
+  `32458d64be8ed444df63f3fdbf49339b467702bc` remained unchanged through delivery.
+  Both CI runs passed host build/tests and CUDA syntax checks:
+  - Push 33983634230: 2088 passed, 269 skipped, 14 xfailed, 5 xpassed.
+  - PR 33983636316: 2088 passed, 269 skipped, 15 xfailed, 4 xpassed; actual
+    `test_non_windows_actual_runtime` passed.
+- Root `test_results/pkg232/ci-push.log`, `ci-pr.log`, source manifest and independent
+  review retain the evidence. No renderer/visual behavior changed; no GPU runtime
+  result is claimed for this maintenance package. The worker-runtime timeout
+  boundary remains explicit above; local DRAFT pkg247 covers startup/payload time.
+  Local DRAFT pkg248 covers content-aware snapshots; neither draft is approved for
+  implementation. Do not redispatch pkg232.
+
+---
+
+## Reference
+
+Primary references checked 2026-09-06:
+
+- [Microsoft Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+  — descendant membership, no-breakaway policy, kill-on-close and accounting.
+- [AssignProcessToJobObject](https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-assignprocesstojobobject)
+  — process-instance handles and nested Job assignment requirements.
+- [TerminateJobObject](https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-terminatejobobject)
+  — termination covers the assigned Job and nested child Jobs.
+- [Python subprocess](https://docs.python.org/3/library/subprocess.html)
+  — run(timeout=) kills and waits its immediate child; Popen permits the
+  explicit lifecycle needed here.
+
+---
+
+## Prerequisites
+
+- [ ] TBD
 
 ---
 
 ## Specification
 
-### Files and ownership
+### Files to create
 
-| File | Bounded responsibility |
+| File | Purpose |
 |---|---|
-| .claude/skills/delegate/scripts/delegate.py | Windows containment, private gated-helper entry point, lifecycle cleanup and truthful JSON evidence. Extend this wrapper; no parallel launcher script. |
-| tests/test_delegate_process_tree.py | Focused lifecycle/summary tests and real Windows child/grandchild/sentinel canaries; temporary worker programs are test fixtures. |
-| .claude/skills/delegate/SKILL.md | Document additive cleanup evidence and the explicit platform boundary. Preserve dynamic tier policy and routing. |
-| .astroray_plan/packages/pkg232-delegate-timeout-process-tree.md | Architecture, reviewed gates and factual delivery evidence. |
+| `tests/test_delegate_process_tree.py` | Focused lifecycle/summary tests and real Windows child/grandchild/sentinel canaries; temporary worker programs are test fixtures. |
+
+### Files to modify
+
+| File | What changes |
+|---|---|
+| `.claude/skills/delegate/scripts/delegate.py` | Windows containment, private gated-helper entry point, lifecycle cleanup and truthful JSON evidence. Extend this wrapper; no parallel launcher script. |
+| `.claude/skills/delegate/SKILL.md` | Document additive cleanup evidence and the explicit platform boundary. Preserve dynamic tier policy and routing. |
+| `.astroray_plan/packages/pkg232-delegate-timeout-process-tree.md` | Architecture, reviewed gates and factual delivery evidence. |
+
+### Key design decisions
 
 The existing script index and project index were consulted. No other existing
 process-tree helper was found in the scoped wrapper, tests, scripts, tools or
 benchmarks. Renderer, CUDA, Blender installation, tier configuration and live
 planning records are outside this implementation lane.
 
-### Architectural decision
+#### Architectural decision
 
 Use an unnamed Windows Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
 set neither breakaway flag. The parent retains the non-inheritable Job handle.
@@ -71,7 +191,7 @@ Do not use NtResumeProcess, executable-name termination, PID-tree scans,
 taskkill, or breakaway flags. Existing console windows must remain hidden;
 the helper must use CREATE_NO_WINDOW, covered by a startup-flag assertion.
 
-### Lifecycle and failure semantics
+#### Lifecycle and failure semantics
 
 1. Allocate a unique invocation suffix for transcript/task paths so concurrent
    delegates cannot delete each other's task files or share an output stream.
@@ -114,7 +234,9 @@ termination behavior, with regression coverage. This package makes the full-tree
 containment guarantee on Windows only. It does not introduce a Linux/macOS
 process supervisor or imply that an escaped/brokered process is contained.
 
-### Acceptance gates (local results recorded below; CI/integration pending)
+---
+
+## Acceptance criteria
 
 - [x] Unit lifecycle tests cover configured Job before assignment, blocked helper
   before command release, assignment/launch failures, no command after EOF,
@@ -148,39 +270,24 @@ process supervisor or imply that an escaped/brokered process is contained.
   containment/race/PID/output-evidence sign-off. Parent integration independently
   inspected the source and ran 39 passing Windows tests (one platform skip).
 
-### Risks and boundaries
-
-- Windows hosts may already place the wrapper in a restrictive Job. Nested Job
-  assignment failure must report an error before releasing the worker; silently
-  falling back to uncontained execution would reproduce the defect.
-- Forcibly stopping a descendant can leave a partially written file. The final
-  diff is evidence of that state, not a rollback or proof of a successful task.
-- The cleanup deadline bounds the failure path; an OS/API failure is reported
-  as unverified containment. The wrapper must never fabricate a final snapshot.
-- The private CPython process-handle seam and ctypes structure layout require
-  the real Windows gate, including pointer-sized fields on the current 64-bit
-  interpreter. No optional process-management dependency is introduced.
-- Ordinary completion now ends leftover background subprocesses. Delegated tasks
-  are bounded; persistent servers/daemons are not supported by this wrapper.
-
-### Primary references checked 2026-09-06
-
-- [Microsoft Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
-  — descendant membership, no-breakaway policy, kill-on-close and accounting.
-- [AssignProcessToJobObject](https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-assignprocesstojobobject)
-  — process-instance handles and nested Job assignment requirements.
-- [TerminateJobObject](https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-terminatejobobject)
-  — termination covers the assigned Job and nested child Jobs.
-- [Python subprocess](https://docs.python.org/3/library/subprocess.html)
-  — run(timeout=) kills and waits its immediate child; Popen permits the
-  explicit lifecycle needed here.
-
 ---
 
 ## Non-goals
 
 - No model-policy changes, no watchdog daemon, no broad killall.
 - No delegate routing/tier/prompt changes; no queue priority changes; no Pillar 4 work.
+- Risk: Windows hosts may already place the wrapper in a restrictive Job. Nested Job
+  assignment failure must report an error before releasing the worker; silently
+  falling back to uncontained execution would reproduce the defect.
+- Risk: Forcibly stopping a descendant can leave a partially written file. The final
+  diff is evidence of that state, not a rollback or proof of a successful task.
+- Risk: The cleanup deadline bounds the failure path; an OS/API failure is reported
+  as unverified containment. The wrapper must never fabricate a final snapshot.
+- Risk: The private CPython process-handle seam and ctypes structure layout require
+  the real Windows gate, including pointer-sized fields on the current 64-bit
+  interpreter. No optional process-management dependency is introduced.
+- Risk: Ordinary completion now ends leftover background subprocesses. Delegated tasks
+  are bounded; persistent servers/daemons are not supported by this wrapper.
 
 ---
 
@@ -188,83 +295,15 @@ process supervisor or imply that an escaped/brokered process is contained.
 
 - [x] Detailed architecture reviewed by Astra and independent Claude (2026-09-06).
 - [x] Implementation, Windows/Linux gates, independent final review and CI complete; PR #705 merged.
+
 Independent Claude filing review: SIGN-OFF TO FILE ONLY, 2026-09-06.
 Evidence: `test_results/pkg232-235/claude-filing-review.txt`.
 
 Architecture review: independent Claude SIGN-OFF 2026-09-06; binding corrections
 above incorporated. Evidence: root `test_results/pkg232/architecture-claude.txt`.
 
-## Local verification — 2026-09-06
+---
 
-- Isolated branch `codex/pkg232`, base `305caf569b43c62cb8a8a0d6af9f35fb5f4fc9a2`;
-  only the four owned files changed. No renderer, GPU, build or live Blender work.
-- Initial dynamic implement delegation returned `no_clean_finish`, exit 0,
-  110 tool calls, 1075.3 seconds. This is draft evidence, not success. An
-  independent monitor retained exact process-instance handles and confirmed
-  all 1130 observed instances exited. Subsequent Astra inspection repaired
-  duplicated handle closure, setup interruption, cancellation classification,
-  insufficient canary acknowledgements and unavailable-evidence handling.
-- Focused pytest: **39 passed, 1 skipped in 6.66 seconds** on Windows 11,
-  64-bit CPython 3.13.12. The skip is the actual non-Windows runtime test;
-  the same suite also ran on actual Ubuntu WSL/Linux with Python 3.10.12:
-  **14 passed, 26 Windows-only skipped in 2.74 seconds**, including the actual
-  direct-child runtime test. This is local platform verification, not GitHub CI.
-- Real Windows tests prove assignment using the existing Popen process handle,
-  non-inheritable Job handle, exactly KILL_ON_JOB_CLOSE/no breakaway flags,
-  CREATE_NO_WINDOW helper startup, blocked launch before assignment,
-  timeout/cancel/error/normal cleanup, zero active processes, and closed helper
-  handles. Child and grandchild acknowledge startup; they attempt both file
-  and inherited stdout writes only after return. Neither writes; the unrelated
-  sentinel remains alive and writes successfully. Native handle count does not
-  grow across repeated runs; concurrent contained runs remain isolated.
-- Failure tests exercise assignment rejection/interruption/exception, Job/log/
-  helper creation failure, worker launch failure, query/termination/deadline
-  failure, and cancellation during assignment and cleanup. Unconfirmed cleanup
-  withholds snapshot/transcript-derived fields and retains the task file.
-- Real dynamic grunt-tier smoke: **completed**, 58.9 seconds, one read tool call,
-  finish_reason stop, exit 0, no changed files, cleanup confirmed with
-  **active_processes 0**. Parent independently inspected the JSON and transcript.
-- Differential lint: **0 new findings**, Ruff/markdownlint/codespell/diff-check
-  ran, no unavailable or errored tools. No existing callable signature changed;
-  new lifecycle helpers are private and their callers are in this wrapper and
-  the focused tests. Existing CLI consumers and agent/workflow docs were checked.
+## Lessons
 
-Evidence in the pkg232 worktree under `test_results/pkg232/`:
-`implement-wrapper.json`, `implement-monitor.json`, `focused-tests.log`,
-`focused.xml`, `lint.log`, `real-opencode-smoke.json`, `caller-signatures.json`,
-`caller-sweep.txt`, `source-manifest.json`, `non-windows-tests.log`, and
-`non-windows.xml`. `final-claude.txt` records independent final SIGN-OFF
-conditional on parent integration/CI and actual Linux verification; all conditions
-are now fulfilled by the evidence above and release record below.
-
-Parent integration raised a separate launch-latency edge after final source
-review: the configured worker timeout starts after synchronous stdin payload
-handoff, so process creation or a stalled/large payload write can delay timeout
-and handled cancellation. Full Job cleanup/exit evidence after the handoff is
-unaffected; no strict whole-launch deadline has been proved. A targeted Claude
-follow-up could not run because the subscription reached its weekly limit
-(`timeout-boundary-claude.txt`). The existing final source sign-off is retained;
-no independent approval of this additional edge is claimed. Parent Astra
-integration accepted the existing worker-runtime budget as consistent with the
-reviewed architecture and required this explicit limitation in the spec and
-SKILL. The process implementation remains byte-identical to final-reviewed
-source. Bounded startup/payload delivery remains future hardening, outside this
-package's containment fix; no full-launch deadline is claimed.
-
-## Release record — 2026-09-06 Sydney
-
-PR #705 merged at 2026-09-05 18:50:24 UTC, commit
-`d997c499203e6e4b7493d8377e887c435e86c6bf`. Reviewed source commit
-`32458d64be8ed444df63f3fdbf49339b467702bc` remained unchanged through delivery.
-Both CI runs passed host build/tests and CUDA syntax checks:
-
-- Push 33983634230: 2088 passed, 269 skipped, 14 xfailed, 5 xpassed.
-- PR 33983636316: 2088 passed, 269 skipped, 15 xfailed, 4 xpassed; actual
-  `test_non_windows_actual_runtime` passed.
-
-Root `test_results/pkg232/ci-push.log`, `ci-pr.log`, source manifest and independent
-review retain the evidence. No renderer/visual behavior changed; no GPU runtime
-result is claimed for this maintenance package. The worker-runtime timeout
-boundary remains explicit above; local DRAFT pkg247 covers startup/payload time.
-Local DRAFT pkg248 covers content-aware snapshots; neither draft is approved for
-implementation. Do not redispatch pkg232.
+- (none yet)

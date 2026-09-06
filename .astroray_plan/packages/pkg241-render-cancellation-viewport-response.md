@@ -193,6 +193,7 @@ All implementation gates UNRUN:
 
 ## Progress
 
+- [ ] 2026-09-07 08:30 — owner chose Terra's order for Phase 1: present-first blit, then an interactive-resolution budget, then the cancellation callback with completion metadata (all in pkg241); Phase 1a dispatched.
 - [x] 2026-09-07 — Phase 0 recorder + measurements + cancellation design landed (PR #733); Terra review posted on the PR (BLOCK as written: present-first + interactive-resolution budget first).
 
 ---

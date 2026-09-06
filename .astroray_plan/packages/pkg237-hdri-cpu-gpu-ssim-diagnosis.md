@@ -137,6 +137,7 @@ None.
 
 ## Progress
 
+- [ ] 2026-09-07 08:30 — owner approved the test-method fix (adaptive sampling off + shared exposure); dispatched after a GPU field-attribution run.
 - [x] 2026-09-07 — root-cause diagnosis landed (PR #731); fix is a test-method change pending owner review.
 
 ---

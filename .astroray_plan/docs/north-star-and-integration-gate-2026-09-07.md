@@ -41,14 +41,14 @@ CPU oracle cross-check. Refined from the lead's proposal with current evidence.
 
 ### (a) Viewport responsiveness
 
-- **Target [Terra]:** on two pinned scenes (10k and 100k triangles), warm session, 3×100 camera edits and 3×100 material edits: event dispatch → first *correctly updated* Blender-presented frame, GPU p95 ≤ 100 ms and p99 ≤ 150 ms; cancellation acknowledgement p95 ≤ 200 ms, p99 ≤ 300 ms, and no stale frame presented after the ack. Denoise is **not** in the interactive loop (progressive refine; denoise on idle/pause) **[Terra recommendation, OWNER to confirm]**. CPU is the image oracle, not a latency oracle.
+- **Target [Terra]:** on two pinned scenes (10k and 100k triangles), warm session, 3×100 camera edits and 3×100 material edits: event dispatch → first *correctly updated* Blender-presented frame, GPU p95 ≤ 100 ms and p99 ≤ 150 ms; cancellation acknowledgement p95 ≤ 200 ms, p99 ≤ 300 ms, and no stale frame presented after the ack. Denoise is **not** in the interactive loop (progressive refine; denoise on idle/pause) **[OWNER-RATIFIED 2026-09-07 08:30: denoise stays out of the interactive loop]**. CPU is the image oracle, not a latency oracle.
 - **Measured by:** pkg241 Phase 0 recorder (extends the pkg81 harness) inside a real Blender session, not the in-process harness. Baseline measured tonight through the MCP bridge: idle progressive refinement redraws at **~1.3 Hz** (6 redraws / 4.46 s, 2 220-triangle scene, RENDERED viewport) — the owner's "3–5 fps, no visible refine" report reproduces.
 - **Current:** the only artifact, `benchmarks/viewport_parity/2026-09-03.json`, is **in-process and explicitly bypasses the Blender GPU texture blit** (`harness_notes[0]`). Under that harness, GPU camera-only 10k-tri, no-denoise: frame p50 34.7 ms / p99 37.7 ms / max 48.4 ms (config 3); **with the OIDN pass in-loop it is p50 140.8 ms / p99 184.8 ms** (config 4) — already over 100 ms. Real end-to-end present latency is **unmeasured**.
 - **If pkg241 Phase 0 says otherwise:** if real present > 100 ms even without denoise, the fix is engine/blit work (a new spec), not a target relaxation; if it is only denoise-in-loop that fails, the gate must state denoise is *not* in the interactive loop (progressive refine, denoise on pause) — see §6 owner decision.
 
 ### (b) Shader-socket coverage
 
-- **Target [Terra, OWNER to confirm]:** frequency-weighted coverage, not raw count: over a frozen corpus of ~50 Blender scenes, score socket *uses* (SUPPORTED = 1, APPROXIMATED = 0.5 only when a warning is emitted), require ≥ 95 % weighted coverage **and zero silent drops in corpus scenes**. Raw socket counts stay diagnostic. Principled advanced inputs, Metallic BSDF, Sky texture and Displacement must each be SUPPORTED or APPROXIMATED-with-warning; only pkg253 (Principled) is scheduled — bounded support-or-warn packages for Metallic, Sky and Displacement are filed when the owner ratifies this gate, not before.
+- **Target [OWNER-RATIFIED 2026-09-07 08:30 — frequency-weighted]:** frequency-weighted coverage, not raw count: over a frozen corpus of ~50 Blender scenes, score socket *uses* (SUPPORTED = 1, APPROXIMATED = 0.5 only when a warning is emitted), require ≥ 95 % weighted coverage **and zero silent drops in corpus scenes**. Raw socket counts stay diagnostic. Principled advanced inputs, Metallic BSDF, Sky texture and Displacement must each be SUPPORTED or APPROXIMATED-with-warning; only pkg253 (Principled) is scheduled — bounded support-or-warn packages for Metallic, Sky and Displacement are being filed (owner 2026-09-07 08:30).
 - **Measured by:** `blender.exe --background --factory-startup --python scripts/generate_blender_parity_matrix.py -- --out docs/blender_parity` → `coverage_matrix.json` (reproduce block in `blender-coverage-reaudit-2026-09.md`).
 - **Current:** 152 SUPPORTED / 35 APPROXIMATED / **340 DROPPED-SILENT = 64.5%** of 527 (`blender-coverage-reaudit-2026-09.md` headline table). Target < 25% needs DROPPED ≤ 131 — a swing of ~209 sockets. pkg230 Ph1+Ph2 (Clamp, Math use_clamp, Mix clamp, Vector Math, Vector Rotate = backlog items 2/3/4/7) landed *after* that audit; their delta is **unmeasured** — re-run the generator first. The four named nodes are today all DROPPED-SILENT (BSDF_PRINCIPLED advanced 21 sockets, BSDF_METALLIC 13, TEX_SKY 14, DISPLACEMENT 5 — reaudit backlog rows 1/6/5/9).
 - **Note:** the audit argues raw socket-count is the wrong metric; see §6.
@@ -166,3 +166,14 @@ choice re-scopes multiple rounds of §4 — a raw count forces breadth across ni
 closures; a frequency-weighted target lets Principled-advanced + the common nodes
 carry the gate. (Close second, embedded in Risk 1: whether denoise is in the
 interactive viewport loop, which decides an entire responsiveness work lane.)
+
+---
+
+## 7. Owner decisions — 2026-09-07 morning
+
+- Gate (b) uses the **frequency-weighted** corpus metric; raw counts are diagnostic only.
+- **Denoise is out of the interactive loop** (progressive refine while interacting, denoise on idle/pause).
+- pkg237/pkg238 **test-method changes approved** (adaptive sampling off + shared exposure for the HDRI parity gate; field-split PostInit ULP bound with `lambdas` on the p99.9 relative bound), after one GPU field-attribution run.
+- pkg241 Phase 1 follows **Terra's order**: present the fresh `view_update` texture before scheduling the next chunk, then an interactive-resolution budget, then the bool-returning cancellation callback with completion metadata — all inside pkg241.
+- Metallic BSDF, Sky texture and Displacement support-or-warn specs are filed now (pkg255–257).
+- Round 1 (in flight from 2026-09-07 08:30): pkg241 present-first, pkg237/238 fix, pkg242 transformed-p contract, plus a diagnosis of the Astroray-vs-Cycles HDRI background gap (0.047 vs 0.121).

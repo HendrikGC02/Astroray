@@ -138,6 +138,7 @@ All implementation gates are UNRUN.
 
 ## Progress
 
+- [ ] 2026-09-07 08:30 — owner approved the field-split ULP bound (`lambdas` on the p99.9 relative bound; origin/direction stay <= 4 ULP); dispatched after GPU attribution.
 - [x] 2026-09-07 — root-cause diagnosis landed (PR #731); fix is a test-method change pending owner review.
 
 ---

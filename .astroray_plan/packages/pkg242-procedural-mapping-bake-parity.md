@@ -175,6 +175,7 @@ All implementation gates UNRUN:
 
 ## Progress
 
+- [ ] 2026-09-07 08:30 — owner: the transformed-p / bake / cache contract runs this round in parallel with pkg241; dispatched.
 - **2026-09-07 -- Phase 0 baseline + UV-less fallback contract (PR #726).** Reproduced
   and root-caused the "UV-less procedural checker disappears on GPU" bug (the
   2026-09-06 baseline: CPU luminance std 0.4182 vs GPU 0.0330). Root cause:

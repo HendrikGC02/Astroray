@@ -153,18 +153,26 @@ __device__ GLightSample sampleAreaLight(
     return result;
 }
 
-// BVH shadow ray any-hit test.
-// Returns true if an occluder was hit before reaching the light.
+// BVH shadow ray transmittance test.
+// Returns the fraction of light that reaches the shading point:
+//   1.0 → fully unoccluded, 0.0 → fully blocked (opaque occluder).
+//
+// pkg253 G1: transparent shadows. Cycles
+// (intern/cycles/kernel/integrator/shade_shadow.h —
+// integrate_transparent_surface_shadow multiplies the shadow-path throughput
+// by each occluder's transparency) re-traces PAST every transparent occluder.
+// This wavefront stage reuses the closest-hit gpu_bvh_hit() and does NOT
+// re-trace, so we apply a SINGLE-HIT attenuation by (1 - alpha) of the first
+// occluder's uploaded material alpha (GMaterial.alpha; 1 == opaque). A fully
+// opaque occluder returns 0.0 — byte-identical to the pre-pkg253 bool any-hit
+// test. LIMITATION (single-hit): a transparent occluder standing in front of an
+// opaque one lets (1-alpha) through here, whereas the CPU shadowTransmittance
+// re-trace would find the opaque surface behind it and return 0. A dedicated
+// any-hit re-trace loop is deferred to a shade/advance-neutral follow-up.
 //
 // Mirrors CPU BVH::hit() with tmax clamped to light distance.
-// For Session N+4, we use a simplified any-hit traversal (terminate on
-// first hit within [tmin, tmax]).
-//
-// Production would:
-//   - Skip transparent/alpha-tested geometry.
-//   - Handle infinite lights (no occlusion test).
-//   - Use dedicated any-hit BVH traversal (faster than closest-hit).
-__device__ bool traceShadowRay(
+// (No infinite lights in this stage, so no isInfiniteLight guard is needed.)
+__device__ float traceShadowRay(
     const GVec3& origin,
     const GVec3& direction,
     float tmin,
@@ -172,25 +180,30 @@ __device__ bool traceShadowRay(
     const GBVHNode* d_bvhNodes,
     const GPrimitive* d_prims,
     const GTriangle* d_tris,
-    const GSphere* d_spheres)
+    const GSphere* d_spheres,
+    const ::GMaterial* d_materials,
+    int num_materials)
 {
-    // Simplified any-hit traversal: reuse gpu_bvh_hit() and check if t < tmax.
-    // This is not optimal (we only need any-hit, not closest-hit), but it
-    // avoids duplicating the BVH traversal code in Session N+4.
-    //
-    // Session N+5+ would add a dedicated gpu_bvh_any_hit() function for
-    // shadow rays (terminates on first hit, no material/normal computation).
     GHitRecord shadow_hit;
     GRay shadow_ray;
     shadow_ray.origin = origin;
     shadow_ray.direction = direction;  // assume normalized by caller
     bool hit = gpu_bvh_hit(d_bvhNodes, d_prims, d_tris, d_spheres,
                             shadow_ray, tmin, tmax, shadow_hit);
+    if (!hit) return 1.0f;  // unobstructed to the light
 
-    // If we hit something within [tmin, tmax], the shadow ray is occluded.
-    // NOTE: The CPU version checks `!(shadow.hitObject && shadow.hitObject->isInfiniteLight())`.
-    // For Session N+4 (no infinite lights), any hit is an occlusion.
-    return hit;
+    // Single-hit transparent-shadow attenuation (see function header).
+    // Only a Principled closure graph carries an alpha (GMaterial::principled
+    // is written once per Principled material and is zero for every other
+    // material type, so reading it unguarded would make those fully
+    // transparent). Mirrors the CPU default Material::shadowAlpha() == 1.
+    float alpha = 1.0f;
+    int mid = shadow_hit.materialId;
+    if (mid >= 0 && mid < num_materials) {
+        const GMaterial& m = d_materials[mid];
+        if (gpu_closure_graph_is_principled(m)) alpha = m.principled.alpha;
+    }
+    return 1.0f - alpha;
 }
 
 // NEE kernel: for each active path, sample one area light, trace shadow ray,
@@ -281,10 +294,13 @@ __global__ void stageLightSampleKernel(
     // tmax = distance - 0.001 to avoid hitting the light geometry itself.
     float tmin = 0.001f;
     float tmax = ls.distance - 0.001f;
-    bool occluded = traceShadowRay(hit_point, wi, tmin, tmax,
-                                    d_bvhNodes, d_prims, d_tris, d_spheres);
+    // pkg253 G1: transmittance in [0,1]; 0 for an opaque occluder (identical to
+    // the old bool any-hit test), (1-alpha) for a single transparent occluder.
+    float shadowTr = traceShadowRay(hit_point, wi, tmin, tmax,
+                                    d_bvhNodes, d_prims, d_tris, d_spheres,
+                                    d_materials, num_materials);
 
-    if (!occluded) {
+    if (shadowTr > 0.0f) {
         // Evaluate BSDF at light direction.
         // For Lambertian: f = albedo / π.
         // We need to call the material's evalSpectral function.
@@ -315,7 +331,7 @@ __global__ void stageLightSampleKernel(
         // NEE contribution: f * L * (wt / pdf).
         // Mirrors CPU line 246.
         GSampledSpectrum L_spec = ls.emission;
-        GSampledSpectrum nee_contribution = f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f);
+        GSampledSpectrum nee_contribution = f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f) * shadowTr;  // pkg253 G1
 
         // Accumulate to path color: color += throughput * nee_contribution.
         GSampledSpectrum color_update = throughput * nee_contribution;

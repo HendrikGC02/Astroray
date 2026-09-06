@@ -503,6 +503,53 @@ def scan_addon_source_for_evidence(addon_module):
                                         'source_lines': [child.lineno],
                                     }
 
+            # pkg253: _principled_native_params (pkg178 Stage 5) reads the FULL
+            # native-routing socket map onto local `put_float(dst, *names)` /
+            # `put_vec(dst, *names)` closures — a helper function the primary
+            # scanner never opens, same blind-spot class as pkg229's op-VM fix
+            # above (a called-but-not-inlined handler). `dst` (args[0]) is the
+            # internal native param key; args[1:] are the Blender socket names
+            # tried in FIRST-MATCH-WINS order (get_float_input walks the list and
+            # stops at the first socket that exists on the node).
+            #
+            # pkg253 gap #6: only the FIRST name (args[1]) is the canonical socket
+            # actually read on a current build; args[2:] are cross-version renames
+            # / forward-compat probes that no shipped Blender <= 5.2 necessarily
+            # exposes (e.g. put_float('dispersion_scale', 'Transmission Dispersion
+            # Scale', 'Dispersion Scale', 'Dispersion') — the short 'Dispersion
+            # Scale'/'Dispersion' forms exist on NO shipped build; see
+            # blender_addon/__init__.py dispersion block). Crediting them as PRIMARY
+            # sockets previously (a) inflated the supported-socket count and (b)
+            # raised them as GENUINE-BUG stale-socket findings when absent from the
+            # live node. Route the alternates to `fallback_sockets` instead —
+            # exactly the intentional-cross-version treatment `_float_with_fallback`
+            # already gets — so they neither count as supported nor fire false bugs.
+            elif node.name == '_principled_native_params':
+                sockets = set()
+                fallback_sockets = set()
+                for call in ast.walk(node):
+                    if (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                            and call.func.id in ('put_float', 'put_vec')):
+                        name_args = [a for a in call.args[1:]
+                                     if isinstance(a, ast.Constant)
+                                     and not isinstance(a.value, int)]
+                        if name_args:
+                            sockets.add(name_args[0].value)           # canonical read
+                            for a in name_args[1:]:
+                                fallback_sockets.add(a.value)          # cross-version / probe
+                if 'BSDF_PRINCIPLED' in evidence:
+                    evidence['BSDF_PRINCIPLED']['sockets'].update(sockets)
+                    evidence['BSDF_PRINCIPLED']['fallback_sockets'].update(fallback_sockets)
+                else:
+                    evidence['BSDF_PRINCIPLED'] = {
+                        'sockets': sockets,
+                        'fallback_sockets': fallback_sockets,
+                        'guarded_sockets': set(),
+                        'properties': set(),
+                        'classification': 'SUPPORTED',
+                        'source_lines': [node.lineno],
+                    }
+
             self.generic_visit(node)
 
     DedicatedHandlerScanner().visit(tree)

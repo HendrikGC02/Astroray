@@ -676,7 +676,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Alpha",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -684,7 +684,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Thin Wall",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -708,7 +708,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Diffuse Roughness",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -724,7 +724,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Subsurface Radius",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -732,7 +732,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Subsurface Scale",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -748,7 +748,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Subsurface Anisotropy",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -756,7 +756,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Specular IOR Level",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -764,7 +764,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Specular Tint",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -780,7 +780,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Anisotropic Rotation",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -820,7 +820,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Coat IOR",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -828,7 +828,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Coat Tint",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -852,7 +852,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Sheen Roughness",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -860,7 +860,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Sheen Tint",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -884,7 +884,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Thin Film Thickness",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -892,7 +892,7 @@
     "feature": "BSDF_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Thin Film IOR",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -1204,24 +1204,24 @@
     "feature": "COMBINE_COLOR",
     "bl_idname": "ShaderNodeCombineColor",
     "socket_or_prop": "input:Red",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "COMBINE_COLOR",
     "bl_idname": "ShaderNodeCombineColor",
     "socket_or_prop": "input:Green",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "COMBINE_COLOR",
     "bl_idname": "ShaderNodeCombineColor",
     "socket_or_prop": "input:Blue",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
@@ -1500,8 +1500,8 @@
     "feature": "INVERT",
     "bl_idname": "ShaderNodeInvert",
     "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
@@ -1509,7 +1509,7 @@
     "bl_idname": "ShaderNodeInvert",
     "socket_or_prop": "input:Color",
     "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "notes": ""
   },
   {
     "category": "shader_node",
@@ -1548,96 +1548,96 @@
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Value",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Min",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Max",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Min",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Max",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Steps",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Vector",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Min",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Max",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Min",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Max",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Steps",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
@@ -1668,32 +1668,32 @@
     "feature": "MAPPING",
     "bl_idname": "ShaderNodeMapping",
     "socket_or_prop": "input:Vector",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MAPPING",
     "bl_idname": "ShaderNodeMapping",
     "socket_or_prop": "input:Location",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MAPPING",
     "bl_idname": "ShaderNodeMapping",
     "socket_or_prop": "input:Rotation",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MAPPING",
     "bl_idname": "ShaderNodeMapping",
     "socket_or_prop": "input:Scale",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
@@ -1708,24 +1708,24 @@
     "feature": "MATH",
     "bl_idname": "ShaderNodeMath",
     "socket_or_prop": "input:Value",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MATH",
     "bl_idname": "ShaderNodeMath",
     "socket_or_prop": "input:Value",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "MATH",
     "bl_idname": "ShaderNodeMath",
     "socket_or_prop": "input:Value",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
@@ -1748,80 +1748,80 @@
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
@@ -1868,24 +1868,24 @@
     "feature": "MIX_RGB",
     "bl_idname": "ShaderNodeMixRGB",
     "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX_RGB",
     "bl_idname": "ShaderNodeMixRGB",
     "socket_or_prop": "input:Color1",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX_RGB",
     "bl_idname": "ShaderNodeMixRGB",
     "socket_or_prop": "input:Color2",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",
@@ -2300,8 +2300,8 @@
     "feature": "SEPARATE_COLOR",
     "bl_idname": "ShaderNodeSeparateColor",
     "socket_or_prop": "input:Color",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
@@ -3228,8 +3228,8 @@
     "feature": "VALTORGB",
     "bl_idname": "ShaderNodeValToRGB",
     "socket_or_prop": "input:Factor",
-    "classification": "SUPPORTED",
-    "notes": "op-VM / vector-input path (pkg219/pkg223)"
+    "classification": "DROPPED-SILENT",
+    "notes": ""
   },
   {
     "category": "shader_node",

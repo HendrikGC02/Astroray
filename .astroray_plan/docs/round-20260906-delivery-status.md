@@ -1,5 +1,29 @@
 # Delivery round status — 2026-09-06
 
+## Current update — pkg230b shipped, 2026-09-06
+
+Pkg230b landed in #708, merge `8217234be0ce981075635647259fc78abdb1b77c`, at
+00:24:49 UTC. Owner-authorized Terra final SIGN-OFF covered source, callers,
+bindings, numerical evidence and actual saved visuals. PR run34000095026 passed
+host (2133 passed,269 skipped,15 xfailed,4 xpassed;1202.30s test step) and CUDA
+syntax checks. The duplicate push run34000075314 was still finishing at merge;
+no claim that it passed then. Local full-suite failures remain baseline debt,
+not passing gates. Source commit0cf3a3d; reviewed integration head0b98f9e.
+
+The three local draft specs246–248 received Terra filing SIGN-OFF and landed
+#709 (`45331d3`). They require detailed architecture before implementation.
+Pkg236 is now parallel in-flight work:62 focused passes, actual isolated CPU
+Blender smoke, live-profile hashes unchanged; independent final review and
+release pending. Main feature priority remains pkg241 measurement then viewport
+response, followed by mapped procedural/normal fidelity. No astrophysics unpause.
+
+Spark access was tested successfully through Codex CLI0.153.4. One bounded real
+critique completed; Astra/Terra rejected its false positives. The session's native
+subagent roster still lacks Spark, but CLI execution requires no new setup.
+
+## Earlier closeout — historical state, superseded above
+
+
 This is a factual handoff, not final approval of pkg230b or a new scope decision.
 The owner requested another implementation after pkg230 Phase 2, parallel lower
 backlog, and specifications for production gaps. Pillar 4 remains PAUSED.

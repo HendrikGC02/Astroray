@@ -1,7 +1,7 @@
 # pkg230b — affine coordinate delivery evidence
 
 Status: implemented and locally verified with two reproduced baseline failures;
-**REVIEW APPROVED; delivery and CI pending**. Independent Claude architecture review passed.
+**LANDED in PR #708, merge8217234b**. Independent Claude architecture review passed.
 On 2026-09-06 the owner approved commit/merge and explicitly authorized Terra or
 DeepSeek independent review while Claude is unavailable. Terra final review
 returned SIGN-OFF after source/caller/binding and visual inspection.
@@ -154,3 +154,12 @@ sheets and confirmed correct placement, rotations, mirroring and distinct shared
 program mappings. Review: root `test_results/pkg230b/final-terra-review.txt`.
 All five source/test manifest hashes remain exact; documentation hashes were
 refreshed after recording approval. CI and final merge are recorded at closeout.
+
+## Delivery
+
+PR #708 merged2026-09-06 00:24:49 UTC. PR CI run34000095026 passed
+host (2133 passed,269 skipped,15 xfailed,4 xpassed) and CUDA syntax checks.
+Source0cf3a3d, reviewed integration0b98f9e; no renderer source changed after
+review. The duplicate push run was still finishing at merge. Local baseline
+failures remain unresolved. Full local logs and final Terra review remain in
+root test_results/pkg230b/.

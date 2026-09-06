@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (Blender integration / shader-node coverage)
 **Track:** A
-**Status:** IN PROGRESS — Terra final SIGN-OFF; delivery and CI pending
+**Status:** DONE — PR #708, merge8217234b; owner-authorized Terra SIGN-OFF and PR CI passed
 **Estimated effort:** M
 **Depends on:** pkg219a, pkg230 Phase 2
 
@@ -187,7 +187,7 @@ program children, false procedural support, rotation convention, and stale
 native module selection. Current results and retained failed reference cases are
 recorded in [delivery evidence](../docs/pkg230b-delivery-evidence.md).
 Full tests and isolated CPU/CUDA package smokes are complete; the two baseline
-failures remain unresolved. Final independent review passed; delivery and CI remain pending.
+failures remain unresolved. Final independent review passed; delivery completed in PR #708.
 The owner explicitly approved commit/merge and Terra or DeepSeek independent
 review on 2026-09-06 while Claude is unavailable. Terra approved the final
 source/ABI/parity/visual evidence; the earlier architecture approval remains

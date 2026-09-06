@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (Blender/DCC dev-loop tooling)
 **Track:** A
-**Status:** OPEN — detailed architect review required before implementation
+**Status:** IMPLEMENTED — Terra SIGN-OFF and real Blender gates passed; CI/delivery pending
 **Estimated effort:** TBD at architect review
 **Depends on:** none — reuses canonical `scripts/dev_addon.ps1` and existing build/install helpers; no owner queue promotion
 
@@ -25,32 +25,55 @@ profile with explicitly bounded staging/install paths. The test invocation must
 pass isolated-profile plumbing through the canonical `scripts/dev_addon.ps1` and
 existing build/install helpers; never infer safety from `-SkipBuild` (it still
 installs). Resolve and check final absolute targets before any destructive
-copy/remove/move; reject profile-escape, symlink/reparse, and path tricks. Make
-the install atomic or roll back completely on a locked `.pyd` or any failure.
+copy/remove/move; reject profile-escape, symlink/reparse, and path tricks. Copy,
+locked-target rename, and promotion failures preserve or restore the complete
+prior install. Promotion commits the new complete tree; subsequent backup
+cleanup failure reports failure and both recovery paths. Never restore a
+partially deleted backup. This is not crash-atomic across process termination
+between filesystem renames.
 Preserve the live user addon/files/preferences and restore the process
 environment after the test.
 
 ## Scoped direction
 
-Detailed architect review chooses the implementation and exact file scope. Reuse
-canonical scripts and existing build/install helpers; create no parallel
-installer. This follow-up does not change owner queue priority; Pillar 4 remains
-PAUSED.
+Astra's 2026-09-06 bounded architecture uses an owned fresh profile before any
+Blender invocation. All five `BLENDER_USER_*` paths and `ASTRORAY_SMOKE_*` values
+are restored in `finally`. `-SmokeProfileParent` selects only the parent of a
+fresh disposable child; it is never itself installed into or removed. Smoke
+must load the actual bounded installation, without a staged-path fallback.
+The canonical installer gains an optional keyword-only `allowed_root` and uses
+copy-before-mutation plus sibling backup/promotion renames. Launch retains its
+explicit user-facing semantics. Pillar 4 remains PAUSED.
 
-## Acceptance — all implementation gates UNRUN
+Scope: `scripts/dev_addon.ps1`, `scripts/build/build_blender_addon.py`,
+`tests/test_dev_loop_smoke.py`, and `tests/test_pkg236_hermetic_install.py`.
+The owner authorized bounded parallel lower-backlog work for this round.
 
-- [ ] Disposable-profile real Blender register/smoke, with a sentinel proving the
+## Acceptance — host/real-Blender/review complete; CI/delivery pending
+
+- [x] Disposable-profile real Blender register/smoke, with a sentinel proving the
       real user profile was never written.
-- [ ] Path-boundary adversarial/mocked checks: profile escape, symlink/reparse,
+- [x] Path-boundary adversarial/mocked checks: profile escape, symlink/reparse,
       and path tricks rejected before any destructive operation.
-- [ ] Concurrent unrelated/live-profile sentinel files and content hashes unchanged
+- [x] Concurrent unrelated/live-profile sentinel files and content hashes unchanged
       across the full invocation.
-- [ ] Injected locked-module or copy failure rolls back and preserves the complete
+- [x] Injected locked-module or copy failure rolls back and preserves the complete
       prior installation.
-- [ ] No leftover child processes or environment changes after the test.
-- [ ] Full-suite invocation demonstrably cannot write the real user profile.
-- [ ] GPU lock if a future smoke uses the GPU; at most two isolated implementation
-      worktrees; independent Astra/Claude review.
+- [x] No leftover child processes or environment changes after the test.
+- [x] Exact full-suite local-host test passes through disposable profile plumbing.
+- [x] CPU-only smoke, no GPU work; at most two implementation worktrees;
+      Astra integration and owner-authorized independent Terra SIGN-OFF.
+
+Host evidence: 62 focused tests passed, one real Blender test deliberately
+deselected; differential lint reported zero new findings. Both unset and set
+environment states, stage-root links, real Windows junctions, missing installed
+paths, temporary unrelated sentinels, and both smoke/launch modes under actual
+PowerShell7 and Windows PowerShell5.1 were exercised. Actual Blender smokes,
+exact local-host test (8.15s), all471 unchanged live-profile hashes and independent
+Terra final review passed. Post-promotion
+backup cleanup failure is an explicitly reported incomplete cleanup, not a
+claim that the prior installation was restored. Full evidence and delegation
+JSON: [pkg236 implementation evidence](../docs/pkg236-implementation-evidence.md).
 
 ## Non-goals
 

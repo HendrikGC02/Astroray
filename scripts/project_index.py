@@ -95,8 +95,7 @@ TABLE_ROW_RE = re.compile(r"^\|\s*`[^`\s]+`\s*\|\s*\S.*\|\s*$")
 TABLE_SEP_RE = re.compile(r"^\|\s*-{3,}\s*\|\s*-{3,}\s*\|$")
 
 # Six duplicate package numbers grandfathered from before numbering
-# discipline existed. Only pkg218 is slated to be renamed, and that is a
-# later PR — not this one. Do not add new entries here; a NEW duplicate
+# discipline existed. pkg218 was renumbered to pkg218b on 2026-09-07 (#730).
 # filename is always a lint error.
 LEGACY_DUP_NUMS = {"pkg38", "pkg55", "pkg64", "pkg85", "pkg86"}
 

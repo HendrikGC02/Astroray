@@ -308,19 +308,28 @@ def _compute_stage_ulp(cpu_snapshots, gpu_snapshot_array, stage):
     import numpy as np
 
     if stage == 'PostInit':
+        # pkg238: the PostInit ULP gate covers ONLY the geometry fields
+        # (ray_origin, ray_direction). The `lambdas` field is intentionally
+        # excluded from the ULP bound and instead governed by the PostInit
+        # p99.9 relative-error bound (see _compute_stage_p999, which already
+        # includes lambdas). Since pkg206 the default wavelength sampler is
+        # `sampleImportance`, which inverts a logistic CDF with std::log/exp
+        # (CPU, spectrum.cpp) vs logf/expf (GPU, stage_init.cu). Device
+        # transcendentals are not IEEE-correctly-rounded, so lambdas drifts
+        # ~13 ULP by design while geometry stays ~1-2 ULP — a tight geometry
+        # ULP bound is meaningless for a transcendental field. This mirrors
+        # PostShade, which already carries no max_ulp and uses p99.9 for the
+        # same reason. See pkg238 and pkg55_cuda_thresholds.yaml PostInit note.
         cpu_ray_origin = np.array([snap['ray_origin'] for snap in cpu_snapshots], dtype=np.float32)
         cpu_ray_dir = np.array([snap['ray_direction'] for snap in cpu_snapshots], dtype=np.float32)
-        cpu_lambdas = np.array([snap['lambdas'] for snap in cpu_snapshots], dtype=np.float32)
 
         gpu_ray_origin = gpu_snapshot_array[:, 0:3].astype(np.float32)
         gpu_ray_dir = gpu_snapshot_array[:, 3:6].astype(np.float32)
-        gpu_lambdas = gpu_snapshot_array[:, 6:10].astype(np.float32)
 
         ulp_origin = _compute_ulp_distance(cpu_ray_origin.flatten(), gpu_ray_origin.flatten())
         ulp_dir = _compute_ulp_distance(cpu_ray_dir.flatten(), gpu_ray_dir.flatten())
-        ulp_lambdas = _compute_ulp_distance(cpu_lambdas.flatten(), gpu_lambdas.flatten())
 
-        return max(ulp_origin, ulp_dir, ulp_lambdas)
+        return max(ulp_origin, ulp_dir)
 
     elif stage == 'PostIntersect':
         # Only compare hit fields on rows where BOTH sides actually hit (valid=1).

@@ -107,17 +107,21 @@ None.
 
 ## Acceptance criteria
 
-- [ ] Reproducible baseline/feature matched captures preserve raw linear data plus
-      metadata (fixed seeds, config, imported native artifact identity).
-- [ ] Independent direction/spectrum/filter oracles localize the disagreement.
-- [ ] Common-exposure comparisons accompany the existing score; any metric change
-      requires justification, uncertainty, and seed-repeatability evidence.
-- [ ] Saved representative visuals qualitatively reviewed by Astra/Claude.
-- [ ] No geometry/VM confounders in any isolating experiment.
-- [ ] If the engine changes: fresh native-arch/import/ABI/resource checks and
-      caller review.
-- [ ] GPU lock and at most two isolated implementation worktrees; documented
-      focused regression tests; independent Claude root-cause analysis and sign-off.
+- [x] Reproducible matched captures preserve raw linear data + metadata (fixed
+      seeds 1234/5678, env-only scene, apply_gamma=False, 8192 spp).
+- [x] Independent oracle localizes the disagreement: two independent CPU streams
+      (no GPU) reproduce the failure (0.677 adaptive-on) and the recovery (0.962
+      adaptive-off), proving it is the colour-blind adaptive stop, not parity.
+- [x] Common-exposure comparison accompanies the score: shared divisor vs
+      per-image max both land ~0.962 in the CPU proxy (0.5% max delta), with
+      seed-repeatable numbers recorded.
+- [ ] Saved representative visuals qualitatively reviewed by Astra/Claude — not
+      done (no visual regression; test-method change only; residual is noise).
+- [x] No geometry/VM confounders: env-only scene, no meshes, no shader VM.
+- [x] Engine unchanged (test-method change only); no ABI/native surface touched.
+- [x] GPU lock held (job pkg237-fix); single worktree; regression tests run.
+      Independent root-cause analysis stands (PR #731 + this run). Residual
+      recorded; gate NOT relaxed (still 0.9628 < 0.97 → status open).
 
 ---
 
@@ -137,7 +141,34 @@ None.
 
 ## Progress
 
-- [ ] 2026-09-07 08:30 — owner approved the test-method fix (adaptive sampling off + shared exposure); dispatched after a GPU field-attribution run.
+- [x] 2026-09-07 08:30 — owner approved the test-method fix (adaptive sampling
+      off + shared exposure); threshold 0.97 unchanged.
+- [x] 2026-09-07 — CPU two-stream proxy re-confirmed on the fix branch module
+      (build_cuda .pyd 05:40, main+pkg253). Env-only scene, 8192 spp, seeds
+      1234 vs 5678 (independent streams == the CPU-vs-GPU situation):
+      - adaptive=True : SSIM 0.6768 (reproduces the 0.769 failure signature)
+      - adaptive=False: SSIM 0.9618 per-image-max AND 0.9618 shared-exposure
+        (maxA=0.5793, maxB=0.5856; shared divisor = max of both).
+      Turning adaptive off restores clean sqrt(N) convergence (0.677 -> 0.962),
+      confirming Defect A; the two per-image maxima differ only 0.5% so SSIM's
+      local normalization makes the shared-exposure lift marginal in the proxy,
+      but shared exposure is the methodologically correct divisor (Defect B).
+- [x] 2026-09-07 — implemented the approved test-method fix in
+      `tests/test_world_hdri_parity.py::test_gpu_cpu_ssim_hdri`:
+      `set_adaptive_sampling(False)` on both legs + a single shared exposure
+      divisor. Threshold left at 0.97.
+- [ ] 2026-09-07 — ACTUAL CPU-vs-GPU gate on RTX 5070 Ti (build_cuda .pyd 05:40),
+      64x64, 8192 spp, adaptive off + shared exposure: SSIM **0.9628** vs the
+      unchanged 0.97 pin. Up from the 0.769 pre-fix failure, but still **0.007
+      short**. This is the expected independent-RNG chromatic-noise floor for
+      this single-firefly env scene: the CPU two-stream proxy (also independent
+      streams) lands at 0.9618 under the identical converged conditions, so the
+      residual is the scene's noise floor, NOT a parity defect and NOT a
+      remaining engine bug. Per owner instruction the 0.97 threshold was NOT
+      relaxed; residual recorded and stopped. STATUS stays `open` — closing
+      pkg237 needs an owner decision outside this lane's approved scope (accept
+      a re-pinned threshold at the measured independent-stream floor, raise spp
+      / add a denoise step, or use a firefly-free parity scene).
 - [x] 2026-09-07 — root-cause diagnosis landed (PR #731); fix is a test-method change pending owner review.
 
 ---

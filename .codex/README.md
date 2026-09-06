@@ -22,6 +22,14 @@ Run `scripts/dev/check_blender_mcp.ps1` to distinguish a missing `uvx`, a
 closed Blender bridge port, and a Codex configuration problem. It is read-only;
 the normal 60-second Codex startup window accommodates a cold `uvx` launch.
 
+### Blender MCP
+
+To actually start (and keep alive) the GUI Blender instance the bridge above
+connects to, use `pwsh scripts/dev/launch_blender_mcp.ps1 -Watch` — it starts
+Blender 5.2 with `scripts/dev/blender_mcp_autostart.py` and relaunches it if
+the process or the port dies. `check_blender_mcp.ps1` stays the read-only
+diagnostic; the launcher is the one script that mutates local state.
+
 The planning sequence is deliberately explicit:
 
 1. Read `.astroray_plan/docs/STATUS.md` for the latest factual state.

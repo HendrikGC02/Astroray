@@ -91,3 +91,39 @@ Reuse the pkg119 differential harness and existing procedural parity tests.
 Finite bake resolution can hide transform errors or alias high-frequency fields;
 unbounded Object coordinates need an explicit supported domain. Shared material
 instances and stale bake keys can apply another object's coordinate frame.
+
+## Key design decisions
+
+- **UV-less primitives use the documented CPU implicit UV domain; the GPU
+  uploads the same UVs.** The CPU `Triangle` always defines `(uv0,uv1,uv2)`:
+  authored UV-layer 0 when present, else the implicit default domain
+  `uv0=(0,0), uv1=(1,0), uv2=(0,1)` (`include/astroray/shapes.h` ctors,
+  interpolated at `shapes.h:209`). So a UV-less triangle still yields a valid
+  `rec.uv` and the CPU procedural/image sampler shades correctly. The GPU
+  upload (`src/gpu/scene_upload.cu`) now sets `GTriangle.hasUV` and uploads
+  `getUV0/1/2` — i.e. exactly that CPU fallback domain — for the 2D
+  texture-sampling consumers (image/procedural base colour, normal map, bump,
+  scalar op-VM program) regardless of authored layers. `hasUV` therefore means
+  "UVs uploaded, safe to sample" and gates only the device texel fetches. The
+  UV-ALIGNED-FRAME recomputes (anisotropy tangent, normal-map decode, bump
+  frame in `stage_advance.cu`) instead gate on a separate `GTriangle.uvAuthored`
+  bit set from `tri->hasUVLayers()`, mirroring the CPU, which only computes a
+  UV-aligned tangent when `!uvLayers.empty()` (`shapes.h`) and otherwise keeps
+  the arbitrary frame from `setFaceNormal`. So a UV-less anisotropic/normal-
+  mapped/bump surface keeps the arbitrary frame on both backends, while still
+  getting a valid base-colour texel fetch from the uploaded fallback UVs. The
+  fixture was NOT changed to hide the mismatch.
+
+## Progress
+
+- **2026-09-07 -- Phase 0 baseline + UV-less fallback contract (PR #726).** Reproduced
+  and root-caused the "UV-less procedural checker disappears on GPU" bug (the
+  2026-09-06 baseline: CPU luminance std 0.4182 vs GPU 0.0330). Root cause:
+  `scene_upload.cu` set `GTriangle.hasUV` only when `tri->hasUVLayers()`, so a
+  UV-less textured material uploaded no UVs and the device base-colour fetch
+  (gated on `ttri.hasUV`) was skipped. Fix uploads the CPU implicit fallback
+  UVs for texture-sampling consumers (see Key design decisions). Added
+  `tests/test_pkg242_uvless_checker_parity.py` (CPU contrast + authored-UV
+  regression pin pass on the CPU-only build; the GPU std-ratio parity gate is
+  pending the lead's RTX 5070 Ti CUDA build). The full transformed-p /
+  bake/cache-domain contract (Phase 1/2) remains OPEN and unstarted.

@@ -276,14 +276,21 @@ struct GTriangle {
     // motionSteps=2 → one additional step. Linear blend per Cycles motion_triangle.h (Apache-2.0).
     int motionOffset = -1;    // -1 = no motion (static)
     int motionSteps = 1;      // 1 = static, 2 = pre+post shutter
-    // pkg178 Stage-3b PR-4b — active-UV-layer texture coordinates, uploaded by
-    // scene_upload ONLY for triangles whose material is an anisotropic Principled
-    // (host-side conditional). `hasUV` false ⇒ the shade path skips the
-    // UV-aligned-tangent computation entirely (zero cost for non-aniso scenes);
-    // fields are then left default. Consumed by the GPU shade path to build the
-    // anisotropy tangent frame (mirror of CPU manifold::uvAlignedTangent).
+    // pkg178 Stage-3b PR-4b / pkg242 Phase 0 — per-triangle texture coordinates.
+    // `hasUV` means "UVs were uploaded and are safe to sample": true for every
+    // 2D texture-sampling consumer (image/normal/bump/scalar) AND for authored
+    // anisotropic-Principled triangles. pkg242 also uploads the CPU implicit
+    // fallback domain (uv0=(0,0),uv1=(1,0),uv2=(0,1)) for UV-less texture
+    // consumers so the device base-colour fetch matches the CPU.
+    // `uvAuthored` is the narrower "the mesh carries a real UV layer" bit
+    // (tri->hasUVLayers()); the device UV-ALIGNED-FRAME recomputes (anisotropy
+    // tangent, normal-map decode, bump frame) gate on THIS, not hasUV, because
+    // the CPU only builds a UV-aligned tangent when !uvLayers.empty()
+    // (shapes.h) — a UV-less surface keeps the arbitrary frame on both backends.
+    // Both bools share the struct's 4-byte tail padding (sizeof unchanged).
     GVec2 uv0, uv1, uv2;
     bool  hasUV = false;
+    bool  uvAuthored = false;
 };
 
 struct GSphere {

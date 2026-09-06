@@ -87,7 +87,8 @@ still missing, instead of re-implementing sockets that already work.
 | File | What changes |
 |---|---|
 | `scripts/generate_blender_parity_matrix.py` | `DedicatedHandlerScanner` gets a third branch scanning `_principled_native_params`'s local `put_float(dst, *names)` / `put_vec(dst, *names)` closures, crediting `args[1:]` (the actual Blender socket names) into the existing `BSDF_PRINCIPLED` evidence entry — mirrors the existing `_principled_shader_spec` / `_standalone_bsdf_spec` branches immediately above it. |
-| `docs/blender_parity/coverage_matrix.json`, `docs/blender_parity/report.md` | Regenerated with the fixed scanner. |
+| `docs/blender_parity/coverage_matrix.json` | Regenerated with the fixed scanner. |
+| `docs/blender_parity/report.md` | Regenerated with the fixed scanner. |
 | `include/raytracer.h` | New `Material::shadowAlpha(rec)` virtual (default `1.0`, opaque — every pre-existing material unaffected). The two surface-NEE occlusion blocks in `pathTraceSpectral` and `pathTraceSpectralCaustic` compute `shadowTransmittance = 1 - shadow.material->shadowAlpha(shadow)` at a hit (instead of an unconditional `occluded=true`) and scale `neeContrib` by it. |
 | `plugins/materials/principled.cpp` | `PrincipledMaterial::shadowAlpha()` override returns `alpha_` (the same value the camera-ray delta-transparent lobe already reads, pkg178 PR-6). |
 

@@ -130,17 +130,14 @@ def test_preview_panel_poll_hides_for_visible_preset(monkeypatch, astroray_modul
 def test_reference_scene_files_are_shipped_and_small():
     """pkg58 reference scenes are bundled source assets, not external deps.
 
-    Full Blender CPU render verification on 2026-05-09:
-    ir_vegetation 32 spp mean 0.3886, uv_skin 32 spp mean 0.3803,
-    metal_sweep 32 spp mean 0.3804. All three rendered non-black through the
-    local Astroray addon.
+    2026-09-07: ir_vegetation.blend and uv_skin.blend were byte-identical copies
+    of metal_sweep.blend (the pkg58 demo scenes were never authored) and were
+    removed; the pinned reference-scene corpus lives under
+    benchmarks/blender_parity/scenes/ (Pillar-4 exit gate c). Only the real
+    scene is shipped with the addon.
     """
     scenes_dir = Path(__file__).parent.parent / "blender_addon" / "scenes"
-    expected = {
-        "ir_vegetation.blend",
-        "uv_skin.blend",
-        "metal_sweep.blend",
-    }
+    expected = {"metal_sweep.blend"}
 
     for name in expected:
         path = scenes_dir / name

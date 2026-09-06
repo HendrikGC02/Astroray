@@ -19,14 +19,17 @@ UV-less checker fix** (implicit fallback UVs uploaded + `uvAuthored` bit; GPU lu
 diagnosis · #730 spec rewrite pilot (batch E + pkg218b renumber) · direct: backlog triage
 (10 specs superseded, pkg240/pkg231 deleted, pkg127 flag name), pkg254 filed.
 
-**Open at closeout (see report for final status):** #720 debt removal (scripts, dead
-scheduled workflows → `weekly_local_bench.ps1`, 4 XPASS xfails removed, docs archived) ·
-#728 pkg253 Principled advanced inputs (15/21 sockets were already implemented — the
-audit scanner was blind; real gap = alpha transparent shadows, now shared
-`shadowTransmittance` across all CPU NEE sites; **GPU alpha is a follow-up**: the
-wavefront resolves occlusion in the deferred shadow stage) · #732 spec rewrite batches
-A–D/F (20 specs; baseline 262→236) · #733 pkg241 Phase 0 recorder + measurements +
-cancellation design.
+**Also merged before closeout (07:05):** #720 debt removal (5 one-off scripts deleted, 11
+entry points registered, orchestrator tick unified, dead scheduled workflows →
+`weekly_local_bench.ps1`, 4 XPASS xfails removed / 6 strict, 14 stale docs archived) ·
+**#728 pkg253 Principled advanced inputs** (15/21 sockets were already implemented — the
+audit scanner was blind; real gap = alpha transparent shadows, now a shared
+`shadowTransmittance` across every CPU NEE site with a bounded re-trace; **GPU alpha is a
+follow-up** — the wavefront resolves occlusion in the deferred shadow stage; strict xfail
+records it) · #732 spec rewrite batches A–D/F (20 specs; lint baseline 262→236) ·
+**#733 pkg241 Phase 0** recorder + measurements + cancellation design (Terra: BLOCK as
+written — present-first blit + interactive-resolution budget before cancellation code).
+**Zero open PRs at closeout.** Index rebuilt (263 packages); graph regenerated.
 
 **Measured (live Blender 5.2, RTX 5070 Ti, edit→present p50/p95/p99 ms):** metal_sweep
 GPU camera 397/426/454, material 809/882/957; 101 920-tri GPU camera 162/165/170,

@@ -1,6 +1,6 @@
 # Known issues — Blender addon
 
-Generated 2026-09-06 15:12 UTC by `scripts/dev/known_issues_report.py` from GitHub issues labelled `addon-bug` / `addon-gap`. Do not edit by hand; file or close issues instead.
+Generated 2026-09-06 21:00 UTC by `scripts/dev/known_issues_report.py` from GitHub issues labelled `addon-bug` / `addon-gap`. Do not edit by hand; file or close issues instead.
 
 Pillar-4 exit-gate (e): open `addon-bug` at P0/P1 = **1** (target 0).
 

@@ -792,7 +792,13 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         std::string k = std::to_string(reinterpret_cast<uintptr_t>(t));
         if (t->hasMapping()) {
             const float* m = t->getMappingMatrix();
-            for (int i = 0; i < 12; ++i) { k += '|'; k += std::to_string(m[i]); }
+            // Bit-exact float identity: std::to_string rounds to 6 decimals,
+            // which would alias two Mapping matrices that differ below 5e-7 in
+            // any element onto one bake (pre-review finding 2026-09-07).
+            for (int i = 0; i < 12; ++i) {
+                uint32_t bits; std::memcpy(&bits, &m[i], sizeof bits);
+                k += '|'; k += std::to_string(bits);
+            }
         }
         return k;
     };

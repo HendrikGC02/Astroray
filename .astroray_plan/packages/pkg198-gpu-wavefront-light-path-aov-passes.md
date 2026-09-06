@@ -1,12 +1,8 @@
 # pkg198 — Light-path-expression render passes (diffuse/glossy/transmission direct+indirect, emission, environment)
 
-**Pillar:** 5 / integration-first (also 3 — CPU↔GPU parity)
+**Pillar:** 5
 **Track:** A
-**Status:** Stage 1 (CPU classification) — done (PR #614, 2026-08-14 — sum-to-beauty rel_L1
-0.0000, per-channel ratio 1.000/1.000/1.000; isolated-lobe leak <1e-2). Stage 2 (GPU wavefront
-mirror + register probe) — register probe **PROCEED** (2026-08-15, branch `pkg198-s2-probe`;
-fleet `<…,false>` shade kernel byte-identical 254/3352/1700, pass-AOV kernels add zero
-STACK/no tier crossing — see "Stage 2 REGISTER PROBE" evidence block below). Full mirror —
+**Status:** done — Stage 1 PR #614, Stage 2 PR #622, HW-verified 2026-08-15
 **done (PR #622, 2026-08-15 — GPU sum-to-beauty exact [1,1,1]/rel_L1 0.0; CPU↔GPU per-pass
 mean-ratio all within ~2%; fleet HARD gate re-confirmed on the full-impl .pyd: shade
 `<0,0,0,0,0>` 254/3352/1700 + intersect `<false,false>` 127/616; passes ON/OFF beauty
@@ -15,11 +11,8 @@ byte-identical 3.6e-7). Hardware-verified 2026-08-15 (PASS) — see "Hardware ve
 attributes to volume; volume in-scatter routed to PASS_VOLUME_INDIRECT (direct/indirect
 split not mirrored — documented limitation, fog outside the parity gate). Photon-caustic
 gather left out of the partition (GPU-only, not in pathTraceSpectral).
-**Estimated effort:** Stage 1 = M (landed). Stage 2 = L (register-hostile — the up-front probe
-decides whether it ships at all).
-**Depends on:** Stage 2 depends on Stage 1 (this PR — the CPU reference to mirror) and pkg197
-(first-hit guide AOVs — its intersect-stage capture + `__constant__` binding is the template);
-[[wavefront-shade-kernels-register-saturated]]; [[closure-graph-lobe-count-spills-fused-kernel]].
+**Estimated effort:** Stage 1 = M (landed). Stage 2 = L (register-hostile — the up-front probe decides whether it ships at all).
+**Depends on:** Stage 2 depends on Stage 1 (this PR — the CPU reference to mirror) and pkg197 (first-hit guide AOVs — its intersect-stage capture + `__constant__` binding is the template); [[wavefront-shade-kernels-register-saturated]]; [[closure-graph-lobe-count-spills-fused-kernel]].
 
 ---
 
@@ -438,3 +431,7 @@ exact, fleet-inert ~2.4e-7 vs spec's ~3.6e-7 — same order, well inside the 1e-
 bound, CPU/GPU per-pass parity within band), full sweep clean modulo the 3
 pre-existing/reproduced Unicode console-encoding artifacts, visual inspection
 confirms genuine light-transport isolation per pass with no artifacts.
+
+## Progress
+
+- 2026-09-07 — status header normalized to `done`; previous text: Stage 1 (CPU classification) — done (PR #614, 2026-08-14 — sum-to-beauty rel_L1 0.0000, per-channel ratio 1.000/1.000/1.000; isolated-lobe leak <1e-2). Stage 2 (GPU wavefront mirror + register probe) — register probe **PROCEED** (2026-08-15, branch `pkg198-s2-probe`; fleet `<…,false>` shade kernel byte-identical 254/3352/1700, pass-AOV kernels add zero STACK/no tier crossing — see "Stage 2 REGISTER PROBE" evidence block below). Full mirror —

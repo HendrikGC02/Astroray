@@ -1,49 +1,104 @@
 # pkg244 — Compiler identity and post-configure build safeguards
 
-**Pillar:** 5 (reliable Blender/native builds)
+**Pillar:** 5
 **Track:** A
-**Status:** OPEN — detailed architect review required before implementation
+**Status:** open — detailed architect review required before implementation
 **Estimated effort:** S, confirm at architect review
-**Depends on:** existing addon builder and pkg183 build guards
+**Depends on:** pkg183
 
-## Reproduced failure
+---
 
-During pkg230b verification on 2026-09-06 Sydney, the canonical addon builder
-reconfigured the existing pkg230 Phase 2 CUDA cache. Compiler discovery returned
-`nvcc.EXE` while the cache held the same Windows executable as `nvcc.exe`.
-CMake treated the textual compiler-path change as a compiler replacement and
-re-ran configuration with a cleared cache. The first configuration said Release,
-native sm_120, OpenMP disabled; the subsequent configuration silently selected
-Debug, architectures 75/86/89, and OpenMP enabled. The helper proceeded to build.
-Compilation failed on incompatible `/RTC1` and `/O2`; no replacement module was
-produced or used. The retry restored the canonical flags and shared dependency
-directory before compilation. A successful retry is not yet this package's gate.
+## Goal
 
-Evidence at root `test_results/pkg230b/fresh-cuda-build.log` and
-`fresh-cuda-build-retry.log`; source baseline `305caf5`, source-identical native
-cache at `4035a00`. This is configuration correctness, distinct from pkg231's
-broader local rebuild-latency diagnosis and pkg240's CI cost audit.
+Before: equivalent Windows compiler paths can invalidate a valid cache, and a
+configure is not verified against the actual effective build settings before
+compilation, staging or installation. After: `scripts/build/build_blender_addon.py`
+and the existing build-guard/tests are extended so equivalent Windows compiler
+paths do not invalidate a valid cache, and every configure is followed by
+verification of the actual effective build settings before any compilation,
+staging or installation, reusing canonical helpers.
 
-## Goal and scope
+---
 
-Extend `scripts/build/build_blender_addon.py` and existing build-guard/tests so
-equivalent Windows compiler paths do not invalidate a valid cache, and every
-configure is followed by verification of the actual effective build settings
-before any compilation, staging or installation. Reuse canonical helpers.
+## Context
 
-The architect pass must distinguish path spelling/case from a genuinely changed
-compiler/toolchain. Normalize identity using Windows path semantics without
-mistaking a different executable/version for the same compiler. An intentional
-toolchain change must re-establish the complete requested configuration after a
-cache reset, or fail explicitly. Never continue with silently substituted flags.
+This package serves Pillar 5 (reliable Blender/native builds) and builds on the
+existing addon builder and pkg183 build guards. The reproduced failure below
+(pkg230b verification, 2026-09-06) is configuration correctness, distinct from
+pkg231's broader local rebuild-latency diagnosis and pkg240's CI cost audit.
 
-Validate Release, requested backend/CUDA presence, disabled OpenMP for Blender,
-resolved CUDA architectures, build ID and selected Python ABI. Preserve intended
-dependency-cache configuration. Inspect generated target flags where a cache
-value alone does not prove the requested setting took effect. Keep custom
-CPU/CUDA/tcnn and configure-only behavior intact.
+---
 
-## Acceptance — implementation gates UNRUN
+## Evidence
+
+- 2026-09-06: During pkg230b verification (Sydney), the canonical addon builder
+  reconfigured the existing pkg230 Phase 2 CUDA cache: compiler discovery
+  returned `nvcc.EXE` while the cache held the same Windows executable as
+  `nvcc.exe`, so CMake treated the textual compiler-path change as a compiler
+  replacement and re-ran configuration with a cleared cache.
+- 2026-09-06: The first configuration said Release, native sm_120, OpenMP
+  disabled; the subsequent configuration silently selected Debug, architectures
+  75/86/89, and OpenMP enabled.
+- 2026-09-06: The helper proceeded to build; compilation failed on incompatible
+  `/RTC1` and `/O2`; no replacement module was produced or used.
+- 2026-09-06: The retry restored the canonical flags and shared dependency
+  directory before compilation.
+
+---
+
+## Reference
+
+- Reproduced-failure logs at root `test_results/pkg230b/fresh-cuda-build.log`
+  and `fresh-cuda-build-retry.log`.
+- Source baseline `305caf5`; source-identical native cache at `4035a00`.
+
+---
+
+## Prerequisites
+
+- [ ] TBD
+
+---
+
+## Specification
+
+### Files to create
+
+None.
+
+### Files to modify
+
+| File | What changes |
+|---|---|
+| `scripts/build/build_blender_addon.py` | Extend so equivalent Windows compiler paths do not invalidate a valid cache, and every configure is followed by verification of the actual effective build settings before any compilation, staging or installation. |
+
+### Key design decisions
+
+#### Compiler identity
+
+- The architect pass must distinguish path spelling/case from a genuinely
+  changed compiler/toolchain.
+- Normalize identity using Windows path semantics without mistaking a different
+  executable/version for the same compiler.
+- An intentional toolchain change must re-establish the complete requested
+  configuration after a cache reset, or fail explicitly. Never continue with
+  silently substituted flags.
+
+#### Post-configure verification
+
+- Reuse canonical helpers.
+- Validate Release, requested backend/CUDA presence, disabled OpenMP for
+  Blender, resolved CUDA architectures, build ID and selected Python ABI.
+- Preserve intended dependency-cache configuration.
+- Inspect generated target flags where a cache value alone does not prove the
+  requested setting took effect.
+- Keep custom CPU/CUDA/tcnn and configure-only behavior intact.
+
+---
+
+## Acceptance criteria
+
+Implementation gates (UNRUN):
 
 - [ ] Windows case/separator-equivalent compiler paths preserve cache identity;
       a genuinely different compiler follows the explicit replacement path.
@@ -58,8 +113,26 @@ CPU/CUDA/tcnn and configure-only behavior intact.
       configuration reaches the artifact; serialize CUDA work with the GPU lock.
 - [ ] Differential lint, caller sweep, and independent Astra/Claude review.
 
+---
+
 ## Non-goals
 
-No broad build-speed claims, cache deletion policy rewrite, renderer changes,
-new build wrapper, or live Blender installation. No queue preemption or Pillar 4
-activation merely from filing this spec.
+- No broad build-speed claims.
+- No cache deletion policy rewrite.
+- No renderer changes.
+- No new build wrapper.
+- No live Blender installation.
+- No queue preemption or Pillar 4 activation merely from filing this spec.
+- A successful retry is not yet this package's gate.
+
+---
+
+## Progress
+
+- (none yet)
+
+---
+
+## Lessons
+
+- (none yet)

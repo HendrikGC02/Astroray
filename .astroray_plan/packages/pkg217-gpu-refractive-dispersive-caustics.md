@@ -2,11 +2,10 @@
 
 **Pillar:** 3 (light transport / spectral rendering)
 **Track:** A
-**Status:** done, Path A (PR #TBD, 2026-08-23) — root-cause was addon wiring, not a
-missing GPU caustic mechanism. See "CORRECTION" below.
+**Status:** done, Path A (PR #TBD, 2026-08-23) — root-cause was addon wiring, not a missing GPU caustic mechanism. See "CORRECTION" below.
+**Depends on:** TBD
 **Priority:** NOT top — owner (2026-08-21) explicitly deprioritised: "not necessarily #1 if there are more pressing things or older packages waiting their turn." Sequence behind the existing backlog; this is a real feature, not a quick fix.
-**Estimated effort:** revised down to S (addon Python wiring; no CUDA kernel change) —
-see CORRECTION. Original "L / register-hostile" estimate was based on a false premise.
+**Estimated effort:** revised down to S (addon Python wiring; no CUDA kernel change) — see CORRECTION. Original "L / register-hostile" estimate was based on a false premise.
 **Research note:** [`../docs/pkg217-wavefront-caustic-integration-research.md`](../docs/pkg217-wavefront-caustic-integration-research.md) — READ FIRST (corrected 2026-08-23).
 
 ## CORRECTION (2026-08-23, package-implementer — READ THIS FIRST)

@@ -1,22 +1,10 @@
 # pkg195 — Spectral node system Phase 1: make spectral authoring real (fix dead nodes + spectrum sources + spectral lights)
 
-**Pillar:** 2/3 (spectral rendering / Blender integration)
+**Pillar:** 2
 **Track:** A
-**Status:** Stage A + B done (PR #602, 2026-08-13 — MW NIR snow-sphere mean
-0.0709 > 0.05, snow/water NIR ratio 4.82, MW↔path_tracer visible parity 1.00;
-sodium lamp linear RGB (0.673, 0.127, 0.000) amber, cie_f2 differs 100% on blue;
-headless Blender 5.1 render confirms amber sodium vs neutral cie_f2). Stage C
-done (PR #610, 2026-08-14 — register_spectral_profile + Drawn/Preset/Blackbody
-spectrum nodes + in-band Replace mode + IR/UV de-fang + Sellmeier B/C; Gate C all
-green, headless Blender drawn 550 nm bump G=0.4396>R=0.2642>B=0.0003, manual BK7
-B/C == bk7 preset 0.00%, 16/16 A/B+parity gates unchanged). All three stages
-landed. Filed 2026-08-12 from the owner-directed spectral-node design session;
-design doc: `.astroray_plan/docs/spectral-node-system-design-2026-08.md`.
+**Status:** done — Stage A+B PR #602, Stage C PR #610, 2026-08-14
 **Estimated effort:** L (three gated stages; each independently landable)
-**Depends on:** nothing in flight. Touches `multiwavelength_path_tracer.cpp`
-(CPU only), `blender_addon/`, `module/blender_module.cpp`,
-`plugins/materials/dielectric.cpp`. Does NOT touch the wavefront GPU kernels
-(REG:254 — keep it that way).
+**Depends on:** nothing in flight. Touches `multiwavelength_path_tracer.cpp` (CPU only), `blender_addon/`, `module/blender_module.cpp`, `plugins/materials/dielectric.cpp`. Does NOT touch the wavefront GPU kernels (REG:254 — keep it that way).
 
 ---
 
@@ -515,3 +503,7 @@ a one-off under scripts/dev/) alongside the PR, or at minimum note in the PR
 body that it was ad hoc and will not survive for re-verification -- this
 verification had to reconstruct the check from the addon source rather than
 simply re-running it.
+
+## Progress
+
+- 2026-09-07 — status header normalized to `done`; previous text: Stage A + B done (PR #602, 2026-08-13 — MW NIR snow-sphere mean 0.0709 > 0.05, snow/water NIR ratio 4.82, MW↔path_tracer visible parity 1.00; sodium lamp linear RGB (0.673, 0.127, 0.000) amber, cie_f2 differs 100% on blue; headless Blender 5.1 render confirms amber sodium vs neutral cie_f2). Stage C done (PR #610, 2026-08-14 — register_spectral_profile + Drawn/Preset/Blackbody spectrum nodes + in-band Replace mode + IR/UV de-fang + Sellmeier B/C; Gate C all green, headless Blender drawn 550 nm bump G=0.4396>R=0.2642>B=0.0003, manual BK7 B/C == bk7 preset 0.00%, 16/16 A/B+parity gates unchanged). All three stages landed. Filed 2026-08-12 from the owner-directed spectral-node design session; design doc: `.astroray_plan/docs/spectral-node-system-design-2026-08.md`.

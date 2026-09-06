@@ -2,9 +2,9 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** LANDED (2026-09-05) — report `.astroray_plan/docs/blender-coverage-reaudit-2026-09.md`
+**Status:** done — report .astroray_plan/docs/blender-coverage-reaudit-2026-09.md, 2026-09-05
 **Estimated effort:** 1 session (~3–4 h)
-**Depends on:** none (all inputs already landed: pkg119-A generator, pkg195, pkg219a/b/c, pkg219d, pkg223, pkg223b)
+**Depends on:** pkg119, pkg195, pkg219, pkg219d, pkg223, pkg223b
 
 ---
 
@@ -32,15 +32,29 @@ integration is close or still far, and what to build next.
 
 ## Context
 
-The integration-first directive (memory `integration-first-directive-2026-08`)
-puts rigorous Blender/DCC integration ahead of new engine features, and the
-owner judges the Pillar 4 gate NOT MET partly on socket coverage. But the
-coverage number driving that judgment predates the entire pkg195/pkg219* /
-pkg223* shader-node wave. We are steering integration priorities off a
-6-week-stale measurement. This package re-measures mechanically (no
-hand-classification), so the next wave of feature specs is grounded in
-current, frequency-ranked evidence rather than guesswork. It is cheap,
-CI-verifiable, GPU-free, and its output is directly a ranked backlog.
+We are steering integration priorities off a 6-week-stale measurement. This
+package re-measures mechanically (no hand-classification), so the next wave of
+feature specs is grounded in current, frequency-ranked evidence rather than
+guesswork. It is cheap, CI-verifiable, GPU-free, and its output is directly a
+ranked backlog. At filing, all dependency inputs had already landed: the
+pkg119-A generator, pkg195, pkg219a/b/c, pkg219d, pkg223, and pkg223b.
+
+---
+
+## Evidence
+
+- Memory `integration-first-directive-2026-08`: the integration-first
+  directive puts rigorous Blender/DCC integration ahead of new engine
+  features, and the owner judges the Pillar 4 gate NOT MET partly on socket
+  coverage.
+- The last authoritative matrix is pkg119-A (2026-07-19, PR #487): **131
+  SUPPORTED / 23 APPROXIMATED / 370 DROPPED-SILENT / 20 stale of 524**
+  socket-level features; the owner's 2026-08-29 assessment cited **117 / 22 /
+  385** and explicitly asked to "re-audit the coverage numbers next pass."
+- The coverage number driving that Pillar-4-gate judgment predates the entire
+  pkg195/pkg219*/pkg223* shader-node wave — pkg195, pkg219a/b/c, pkg219d,
+  pkg223, and pkg223b have landed since and are not reflected in a re-run of
+  the coverage matrix.
 
 ---
 
@@ -153,4 +167,4 @@ CI-verifiable, GPU-free, and its output is directly a ranked backlog.
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- (none yet)

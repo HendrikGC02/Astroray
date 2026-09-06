@@ -1,36 +1,80 @@
 # pkg238 — PostInit CPU/GPU numerical threshold diagnosis
 
-**Pillar:** 5 (GPU numerical parity gates)
+**Pillar:** 5
 **Track:** A
-**Status:** OPEN — detailed architect review required before implementation
-**Estimated effort:** TBD at architect review
-**Depends on:** none (diagnosis of existing behavior)
+**Status:** open — detailed architect review required before implementation
+**Estimated effort:** TBD
+**Depends on:** none
 
-## Evidence
-
-`tests/wavefront_diff/test_pkg55_cuda_threshold_gate.py::test_cpu_to_gpu_threshold_gate`
-failed PostInit max-ULP 13 against the pinned bound 4 IDENTICALLY on baseline and
-feature. PostInit is initial camera/wavelength state before shader evaluation, so
-this does not prove a pkg230 VM regression. Evidence files: feature
-`test_results/pkg230-p2/full-suite.log` and `baseline-full-suite-failures.log`.
+---
 
 ## Goal
 
-Diagnose the exact snapshot fields/pixels/lanes behind the PostInit max-ULP
-overshoot, including signed-zero/subnormal/near-zero handling in the ULP metric,
-compiler/math options (FMA, fast math, FP precision), seeding/camera/wavelength
-initialization, and the actual code paths, before proposing any bound change.
-Preserve root/feature raw snapshots and source/toolchain/options/import identity
-throughout. Do not assume 13 is acceptable or 4 is invalid; decide only on
-independent numerical evidence.
+Before: the PostInit max-ULP overshoot is undiagnosed — the exact snapshot
+fields, pixels, and lanes behind it are unknown, as are the roles of
+signed-zero/subnormal/near-zero handling in the ULP metric, compiler/math
+options (FMA, fast math, FP precision), seeding/camera/wavelength
+initialization, and the actual code paths. After: the overshoot is diagnosed
+down to those exact fields/pixels/lanes, with root/feature raw snapshots and
+source/toolchain/options/import identity preserved throughout, before
+proposing any bound change. Do not assume 13 is acceptable or 4 is invalid;
+decide only on independent numerical evidence.
 
-## Scoped direction
+---
+
+## Context
+
+This package serves Pillar 5 (GPU numerical parity gates). It is a diagnosis
+of existing behavior and depends on no other package. The effort estimate is
+to be determined at architect review.
+
+---
+
+## Evidence
+
+- `tests/wavefront_diff/test_pkg55_cuda_threshold_gate.py::test_cpu_to_gpu_threshold_gate`
+  failed PostInit max-ULP 13 against the pinned bound 4 identically on
+  baseline and feature.
+- PostInit is initial camera/wavelength state before shader evaluation, so
+  this does not prove a pkg230 VM regression.
+
+---
+
+## Reference
+
+- Evidence files: feature `test_results/pkg230-p2/full-suite.log` and
+  `baseline-full-suite-failures.log`.
+
+---
+
+## Prerequisites
+
+- [ ] TBD
+
+---
+
+## Specification
+
+### Files to create
+
+None.
+
+### Files to modify
+
+None.
+
+### Key design decisions
 
 Detailed architect review decides the correct minimal implementation or a
-calibrated bound change only after independent numerical evidence is produced.
-This follow-up does not change owner queue priority; Pillar 4 remains PAUSED.
+calibrated bound change only after independent numerical evidence is
+produced. This follow-up does not change owner queue priority; Pillar 4
+remains PAUSED.
 
-## Acceptance — all implementation gates UNRUN
+---
+
+## Acceptance criteria
+
+All implementation gates are UNRUN.
 
 - [ ] Repeated identical baseline/feature reproductions produce field-attributed
       ULP plus relative/absolute error distributions.
@@ -45,8 +89,11 @@ This follow-up does not change owner queue priority; Pillar 4 remains PAUSED.
 - [ ] GPU lock and at most two isolated implementation worktrees; independent
       Astra/Claude sign-off.
 
+---
+
 ## Non-goals
 
+<<<<<<< HEAD
 A blanket threshold increase could mask a genuine PostInit divergence or a later
 regression. No blanket threshold increase; no masking of later-stage failures; no
 shader VM/transport changes; no owner queue priority change; no Pillar 4 work.
@@ -82,3 +129,24 @@ ray_origin/ray_direction on a tight geometry ULP (<=4) and move `lambdas` to the
 PostInit p99.9 relative-error bound (1.0e-5, satisfied by the ~2.3e-6 drift), or give lambdas
 a separate ~16-ULP transcendental bound. Land only after GPU field attribution + independent
 review.
+=======
+- Risk: a blanket threshold increase could mask a genuine PostInit divergence
+  or a later regression.
+- No blanket threshold increase.
+- No masking of later-stage failures.
+- No shader VM/transport changes.
+- No owner queue priority change.
+- No Pillar 4 work.
+
+---
+
+## Progress
+
+- (none yet)
+
+---
+
+## Lessons
+
+- (none yet)
+>>>>>>> 2da315b (docs(specs): TEMPLATE v2 rewrite — batches A–D, F (20 specs) + header-only fixes (pkg227, pkg195/198/199 flips, legacy field gaps))

@@ -1,24 +1,35 @@
 # pkg241 — Cooperative render cancellation and viewport-response contract
 
-**Pillar:** 5 (Blender/DCC viewport response)
+**Pillar:** 5
 **Track:** A
-**Status:** OPEN — Phase 0 recorder + measurements + design delivered
-(PR #733, 2026-09-07 — GPU edit→present p95 426 ms (metal_sweep) / 165 ms (100k),
-material ~2× camera, F12 cancel floor 483–1107 ms GPU); Phase 1 code awaits
-owner/Terra approval of the design
-**Estimated effort:** TBD at architect review
-**Depends on:** landed pkg52/81/191/192/196 viewport machinery and pkg147
-OpenMP/GIL safeguards; coordinate real Blender tests with DONE pkg236's (#711)
-isolated-profile contract. DONE pkg232 (#705) owns delegate subprocess cleanup only.
+**Status:** open — Phase 0 recorder + measurements + design delivered (PR #733, 2026-09-07: GPU edit→present p95 426 ms metal_sweep / 165 ms 100k-tri, material ~2× camera, F12 cancel floor 483–1107 ms GPU); Phase 1 awaits owner decision — Terra 2026-09-07 BLOCK as written (present-first blit + interactive-resolution budget before cancellation code)
+**Estimated effort:** TBD
+**Depends on:** pkg52, pkg81, pkg147, pkg191, pkg192, pkg196, pkg232, pkg236
 
-Coverage specs: [pkg52](pkg52-persistent-viewport-session.md),
-[pkg81](pkg81-viewport-interactivity-parity.md),
-[pkg191](pkg191-viewport-gpu-progressive-refinement.md),
-[pkg192](pkg192-viewport-navigation-interactivity.md),
-[pkg196](pkg196-viewport-reduced-res-navigation.md),
-[pkg147](pkg147-addon-cpu-render-hang.md),
-[pkg232](pkg232-delegate-timeout-process-tree.md),
-[pkg236](pkg236-hermetic-blender-smoke.md).
+---
+
+## Goal
+
+Before: `test_break()` results are discarded and `renderer.render(...)` has no
+cancellation channel, so the viewport cannot promptly acknowledge a
+cancel/restart request and can keep producing stale frames. After: a
+cooperative render-cancellation and viewport-response contract — the viewport
+acknowledges a cancel/restart request promptly, stops producing stale frames,
+and returns to a consistent session state without mixed accumulation or leaked
+resources. Camera and material edits must produce the correct new frame
+without stale results or mixed accumulation. Ordinary completion must be
+unchanged.
+
+---
+
+## Context
+
+This package depends on the landed pkg52/81/191/192/196 viewport machinery and
+pkg147 OpenMP/GIL safeguards; coordinate real Blender tests with DONE pkg236's
+(#711) isolated-profile contract. DONE pkg232 (#705) owns delegate subprocess
+cleanup only. It serves Pillar 5 (Blender/DCC viewport response).
+
+---
 
 ## Evidence
 
@@ -43,7 +54,7 @@ extensions to the existing harness are part of Phase 0 after architectural
 review; the interactive driver currently needs completion to record real UI
 events. Native stage averages alone do not establish event/cancel percentiles.
 
-### Phase 0 measurements (2026-09-07, PR pending)
+### Phase 0 measurements (2026-09-07, PR #733)
 
 Recorded through the live GUI Blender 5.2 `mcp` bridge with a finished
 `benchmarks/viewport_parity/blender_driver.py --mode interactive` (a
@@ -88,25 +99,70 @@ the full n=150.
 
 ## Goal
 
-A cooperative render-cancellation and viewport-response contract: the viewport
-must acknowledge a cancel/restart request promptly, stop producing stale
-frames, and return to a consistent session state without mixed accumulation or
-leaked resources. Camera and material edits must produce the correct new frame
-without stale results or mixed accumulation. Ordinary completion must be unchanged.
+---
 
-## Scoped direction
+## Reference
+
+Coverage specs: [pkg52](pkg52-persistent-viewport-session.md),
+[pkg81](pkg81-viewport-interactivity-parity.md),
+[pkg191](pkg191-viewport-gpu-progressive-refinement.md),
+[pkg192](pkg192-viewport-navigation-interactivity.md),
+[pkg196](pkg196-viewport-reduced-res-navigation.md),
+[pkg147](pkg147-addon-cpu-render-hang.md),
+[pkg232](pkg232-delegate-timeout-process-tree.md),
+[pkg236](pkg236-hermetic-blender-smoke.md).
+
+---
+
+## Prerequisites
+
+- [ ] TBD
+
+---
+
+## Specification
+
+### Files to create
+
+None.
+
+### Files to modify
+
+| File | What changes |
+|---|---|
+| `blender_addon/__init__.py` | The `test_break()` result at `:1210` must reach the render; the full render currently continues at `:1276` regardless of the break result. |
+| `module/blender_module.cpp` | The `std::function<void(float)>` progress callback at `:2220-2227` discards the Python return value; `renderer.render(...)` at `:2227` needs a cancellation channel; GPU dispatch at `:2171` has no cancellation or progress argument. |
+| `include/raytracer.h` | `progress` at `:4183` is a void fire-and-forget after each tile. |
+| `blender_addon/exporter.py` | Blocking `renderer.render(...)` at `:611` from `render_viewport_frame` (`:541`), reached from `view_draw` (`:724`) and `view_update` (`:651`). |
+| `benchmarks/viewport_parity/run.py` | Reuse and extend the existing viewport stage recorder; extend canonical harnesses rather than fork. |
+
+### Key design decisions
 
 Phase 0 (mandatory, before behavior changes): measure, SEPARATELY, matched CPU
-and GPU camera/material UI-event latency, render-update/presentation latency, and cancellation
-acknowledgement/completion latency; pin exact numeric budgets plus the
-workload/settings/measurement protocol. The detailed architect pass then picks
-the safe session/GIL/Blender-API/CUDA-ownership design; this spec does NOT
-prescribe background threads. Phase 1 implements the approved bounded
+and GPU camera/material UI-event latency, render-update/presentation latency,
+and cancellation acknowledgement/completion latency; pin exact numeric budgets
+plus the workload/settings/measurement protocol. The detailed architect pass
+then picks the safe session/GIL/Blender-API/CUDA-ownership design; this spec
+does NOT prescribe background threads. Phase 1 implements the approved bounded
 cancellation/restart/stale-result contract; Phase 2 verifies its native and
 Blender lifecycle behavior. Reuse `benchmarks/viewport_parity/run.py` and the
 existing viewport stage recorder; extend canonical harnesses rather than fork.
 
-## Acceptance — implementation gates UNRUN (Phase 0 gate met 2026-09-07)
+#### Owner scope decisions
+
+The owner handoff milestone also requires faithful mapped textures. Preserve
+landed pkg230b affine image/program behavior across edits and cancellation.
+New procedural-coordinate fidelity belongs to OPEN pkg242; direct-image
+normal/bump provenance belongs to OPEN pkg245. Resolve those scopes through
+their own architecture and PRs instead of hiding texture changes in pkg241 or
+the parallel pkg240 CI-throughput package. All implementation gates remain
+UNRUN.
+
+---
+
+## Acceptance criteria
+
+All implementation gates UNRUN:
 
 - [x] Phase 0 budgets pinned: p50/p95/p99 on an expensive scene for UI-event,
       render-update, and cancellation acknowledgement/completion, CPU and GPU,
@@ -125,19 +181,25 @@ existing viewport stage recorder; extend canonical harnesses rather than fork.
       build identity if touched; GPU lock; at most two isolated implementation
       worktrees; independent Claude sign-off.
 
-## Risks
-
-GIL/thread ownership; partial CUDA state at cancellation boundaries; Blender API
-re-entrancy in `view_update`/`view_draw`.
+---
 
 ## Non-goals
 
-No transport-math changes; no forced GPU preemption guarantees; no silently
-changing the requested backend.
+- No transport-math changes.
+- No forced GPU preemption guarantees.
+- No silently changing the requested backend.
+- Risk: GIL/thread ownership.
+- Risk: partial CUDA state at cancellation boundaries.
+- Risk: Blender API re-entrancy in `view_update`/`view_draw`.
 
-The owner handoff milestone also requires faithful mapped textures. Preserve
-landed pkg230b affine image/program behavior across edits and cancellation.
-New procedural-coordinate fidelity belongs to OPEN pkg242; direct-image
-normal/bump provenance belongs to OPEN pkg245. Resolve those scopes through
-their own architecture and PRs instead of hiding texture changes in pkg241 or
-the parallel pkg240 CI-throughput package. All implementation gates remain UNRUN.
+---
+
+## Progress
+
+- [x] 2026-09-07 — Phase 0 recorder + measurements + cancellation design landed (PR #733); Terra review posted on the PR (BLOCK as written: present-first + interactive-resolution budget first).
+
+---
+
+## Lessons
+
+- (none yet)

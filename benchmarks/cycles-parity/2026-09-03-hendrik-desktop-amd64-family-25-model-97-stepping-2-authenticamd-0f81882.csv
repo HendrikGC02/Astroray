@@ -1,0 +1,5 @@
+scene,engine,samples,time_ms,peak_mem_mb,ssim_to_cycles,mean_ratio_cpu_gpu,skip_reason
+cornell,cycles-cpu,64,7480.012,601.6,1.000000,,
+cornell,cycles-cuda,64,3133.815,665.8,0.999963,,
+cornell,astroray-cpu,64,10466.890,153.6,0.953844,,
+cornell,astroray-gpu,64,1477.866,783.2,0.953824,"0.9967,0.9975,0.9944",

@@ -94,9 +94,9 @@ SPEC_H3_ORDER = ["Files to create", "Files to modify", "Key design decisions"]
 TABLE_ROW_RE = re.compile(r"^\|\s*`[^`\s]+`\s*\|\s*\S.*\|\s*$")
 TABLE_SEP_RE = re.compile(r"^\|\s*-{3,}\s*\|\s*-{3,}\s*\|$")
 
-# Six duplicate package numbers grandfathered from before numbering
-# discipline existed. pkg218 was renumbered to pkg218b on 2026-09-07 (#730).
-# filename is always a lint error.
+# Five duplicate package numbers grandfathered from before numbering
+# discipline existed (pkg218 was renumbered to pkg218b on 2026-09-07, #730).
+# Do not add new entries here; a NEW duplicate filename is always a lint error.
 LEGACY_DUP_NUMS = {"pkg38", "pkg55", "pkg64", "pkg85", "pkg86"}
 
 FIELD_LINE_RE = re.compile(r"^\*\*([A-Za-z][A-Za-z ]*):\*\*\s*(.*)$")

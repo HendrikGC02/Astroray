@@ -2,7 +2,10 @@
 
 **Pillar:** 5 (Blender/DCC viewport response)
 **Track:** A
-**Status:** OPEN — detailed architect review required before implementation
+**Status:** OPEN — Phase 0 recorder + measurements + design delivered
+(PR #733, 2026-09-07 — GPU edit→present p95 426 ms (metal_sweep) / 165 ms (100k),
+material ~2× camera, F12 cancel floor 483–1107 ms GPU); Phase 1 code awaits
+owner/Terra approval of the design
 **Estimated effort:** TBD at architect review
 **Depends on:** landed pkg52/81/191/192/196 viewport machinery and pkg147
 OpenMP/GIL safeguards; coordinate real Blender tests with DONE pkg236's (#711)
@@ -40,6 +43,49 @@ extensions to the existing harness are part of Phase 0 after architectural
 review; the interactive driver currently needs completion to record real UI
 events. Native stage averages alone do not establish event/cancel percentiles.
 
+### Phase 0 measurements (2026-09-07, PR pending)
+
+Recorded through the live GUI Blender 5.2 `mcp` bridge with a finished
+`benchmarks/viewport_parity/blender_driver.py --mode interactive` (a
+`bpy.app.timers` + `SpaceView3D` POST_PIXEL draw-handler recorder that wraps
+`view_update`/`view_draw`/`render_viewport_frame`). Two pinned scenes
+(2 220-tri metal_sweep; ~100k-tri procedural `pkg241_grid_100k.blend`), CPU and
+GPU (`device_mode`) separately, camera (±1° view_rotation) and material
+(Principled Base Color toggle) event classes, GPU 3×50 events/class, CPU
+bounded (slow oracle). Full JSON + summary:
+`benchmarks/viewport_parity/results/2026-09-07-phase0/`.
+
+Lead's prior baseline (smaller viewport, recorded per handoff): idle progressive
+refinement ~1.3 Hz (6 redraws / 4.46 s); orbit ~155 ms blocking/camera event,
+~6.4 redraws/s. The in-process `benchmarks/viewport_parity/2026-09-03.json`
+bypasses the Blender present path and is NOT a substitute.
+
+**Pinned budgets (GPU, from lead/Terra):** edit→present p95 ≤ 100 ms /
+p99 ≤ 150 ms; cancel-ack p95 ≤ 200 ms / p99 ≤ 300 ms. Measured values against
+these are in the results JSON and `pkg241-cancellation-design-2026-09-07.md`.
+Key structural results (region-size dependent — the recorder logs region px):
+engine-entry latency ~1 ms (event routing is not the bottleneck); edit→present
+is render-bound; material edits cost ~2× a camera edit (view_update renders an
+un-presented chunk, then view_draw renders again before blitting); CPU is
+10–15× slower/frame; the cancel full-stop floor equals one `render()` call
+because the native progress-callback return value is discarded
+(`blender_module.cpp:2220`) and the viewport passes `None` as the callback.
+
+**Measured headline (edit→present, full region resolution, p50/p95/p99 ms):**
+metal_sweep GPU camera 396.8/425.6/454.2 (n=150), material 809.1/882.0/957.0
+(n=150); big-scene GPU camera 162.1/165.0/169.5 (n=150), material
+1350.8/1378.5/1404.8 (n=145). CPU (slow oracle, deadline-capped): metal_sweep
+camera 11613/12446/13257 (n=19), material 22370/22672/22803 (n=22); big camera
+1743/1757/1758 (n=25), material 14150/14333/14367 (n=24). Cancel full-stop floor
+(F12 render wall-time): metal_sweep GPU 1107 ms / CPU 148 511 ms; big GPU 483 ms
+/ CPU 16 148 ms. GPU edit→present exceeds the p95 ≤ 100 ms budget because it is
+render-bound (engine entry ~1 ms), so meeting that budget needs render-time work
+beyond pkg241's cancellation scope (design-doc Open Question 1). The CPU
+≥30-event floor was not reachable within a bounded wall budget: the socket-driven
+live-GUI bridge adds ~20 s/event of fixed overhead (idle-window timer
+throttling), so CPU counts are the capped maxima — GPU (the product gate) carries
+the full n=150.
+
 ## Goal
 
 A cooperative render-cancellation and viewport-response contract: the viewport
@@ -60,11 +106,14 @@ cancellation/restart/stale-result contract; Phase 2 verifies its native and
 Blender lifecycle behavior. Reuse `benchmarks/viewport_parity/run.py` and the
 existing viewport stage recorder; extend canonical harnesses rather than fork.
 
-## Acceptance — all implementation gates UNRUN
+## Acceptance — implementation gates UNRUN (Phase 0 gate met 2026-09-07)
 
-- [ ] Phase 0 budgets pinned: p50/p95/p99 on an expensive scene for UI-event,
+- [x] Phase 0 budgets pinned: p50/p95/p99 on an expensive scene for UI-event,
       render-update, and cancellation acknowledgement/completion, CPU and GPU,
-      with the exact workload/settings/protocol recorded.
+      with the exact workload/settings/protocol recorded. Budgets: GPU
+      edit→present p95 ≤ 100 ms / p99 ≤ 150 ms; cancel-ack p95 ≤ 200 ms /
+      p99 ≤ 300 ms. Measured 2026-09-07 (see Evidence + results JSON + design
+      doc); protocol recorded in `blender_driver.py --mode interactive`.
 - [ ] F12 cancel, camera and material changes, scene replacement, shutdown/restart, and
       partial-failure paths behave per the contract.
 - [ ] No mixed accumulation across cancel/restart; no leaked

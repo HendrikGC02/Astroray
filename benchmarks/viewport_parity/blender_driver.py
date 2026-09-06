@@ -58,8 +58,11 @@ from pathlib import Path
 try:
     import bpy  # type: ignore
 except ImportError:
-    print("blender_driver.py must be invoked via 'blender --python'.")
-    raise
+    # --mode offline runs INSIDE Blender (blender --python) and needs bpy.
+    # --mode interactive (pkg241) runs OUTSIDE Blender as a plain-Python client
+    # that drives a live GUI Blender over the mcp socket bridge; it never
+    # touches bpy locally, so a missing bpy is only fatal for offline mode.
+    bpy = None  # type: ignore
 
 
 def _camera_path(n_frames: int):
@@ -312,12 +315,415 @@ def run_offline(args) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# pkg241 Phase 0 — interactive latency recorder (client of the live GUI Blender)
+#
+# Runs OUTSIDE Blender as a plain-Python process. Drives the running GUI Blender
+# 5.2 through the Blender Lab ``mcp`` socket bridge (localhost:9876): it sends
+# ``blender_recorder.py`` (a bpy.app.timers + SpaceView3D draw-handler recorder)
+# and ``blender_cancel_probe.py`` as ``execute`` requests, polls the recorder
+# state, and aggregates real UI-event -> presented-frame latencies. The bridge
+# wire protocol is: json.dumps({"type":"execute","code":..,"strict_json":..})+"\0".
+# ---------------------------------------------------------------------------
+
+import socket as _socket
+
+_HERE = Path(__file__).resolve().parent
+_REPO = _HERE.parents[1]
+_BIG_SCENE = _HERE / "scenes" / "pkg241_grid_100k.blend"
+_METAL_SWEEP = _REPO / "blender_addon" / "scenes" / "metal_sweep.blend"
+_ADDON = "bl_ext.user_default.astroray"
+
+
+def _bridge(code: str, host: str, port: int, timeout: float = 120.0) -> dict:
+    """One request/response against the mcp bridge. Raises on transport or
+    Blender-side error so the driver fails loudly rather than banking noise."""
+    s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    s.connect((host, port))
+    try:
+        payload = {"type": "execute", "code": code, "strict_json": False}
+        s.sendall((json.dumps(payload) + "\0").encode("utf-8"))
+        buf = bytearray()
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            buf.extend(chunk)
+            if buf.endswith(b"\0"):
+                break
+    finally:
+        s.close()
+    resp = json.loads(buf.rstrip(b"\0").decode("utf-8"))
+    if resp.get("status") != "ok":
+        raise RuntimeError("Blender bridge error:\n" + str(resp.get("message")))
+    return resp.get("result", {})
+
+
+def _recorder_src() -> str:
+    return (_HERE / "blender_recorder.py").read_text(encoding="utf-8")
+
+
+def _cancel_src() -> str:
+    return (_HERE / "blender_cancel_probe.py").read_text(encoding="utf-8")
+
+
+# --- in-Blender snippets (sent verbatim) -----------------------------------
+
+_ENSURE_RENDERED = """
+import bpy
+sc = bpy.context.scene
+sc.render.engine = 'CUSTOM_RAYTRACER'
+area = None
+for win in bpy.context.window_manager.windows:
+    for a in win.screen.areas:
+        if a.type == 'VIEW_3D':
+            area = a
+tri = sum(max(0, len(p.vertices) - 2) for o in bpy.data.objects
+          if o.type == 'MESH' for p in o.data.polygons)
+region = None
+if area is not None:
+    area.spaces.active.shading.type = 'RENDERED'
+    area.tag_redraw()
+    for r in area.regions:
+        if r.type == 'WINDOW':
+            region = [r.width, r.height]
+result = {'engine': sc.render.engine, 'tris': tri, 'v3d': area is not None,
+          'file': bpy.data.filepath, 'region': region,
+          'preview_samples': int(getattr(sc.cycles, 'preview_samples', 0)),
+          'nav_res_divisor': 2}
+"""
+
+_BUILD_BIG = r"""
+import bpy, bmesh, math
+# ~100k-tri procedural stress scene: one subdivision-6 icosphere (~82k tris)
+# plus a subdivided ground grid (~20k tris), lit by a sun, seen by a camera.
+# Built via bmesh + the data API (NOT operators) because read_homefile leaves a
+# restricted context where bpy.context.active_object is unavailable.
+bpy.ops.wm.read_homefile(use_empty=True)
+scene = bpy.context.scene
+coll = scene.collection
+mats = []
+for k, rgba in enumerate([(0.8,0.3,0.2,1), (0.2,0.5,0.8,1), (0.7,0.7,0.2,1)]):
+    m = bpy.data.materials.new('pkg241_' + str(k))
+    m.use_nodes = True
+    b = m.node_tree.nodes.get('Principled BSDF')
+    if b is not None:
+        b.inputs['Base Color'].default_value = rgba
+        b.inputs['Metallic'].default_value = 0.6 if k == 0 else 0.0
+        b.inputs['Roughness'].default_value = 0.3
+    mats.append(m)
+
+def _mesh_obj(name, build_fn, mat, smooth=False, location=(0,0,0)):
+    bm = bmesh.new()
+    build_fn(bm)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    if smooth:
+        for p in me.polygons:
+            p.use_smooth = True
+    me.materials.append(mat)
+    ob = bpy.data.objects.new(name, me)
+    ob.location = location
+    coll.objects.link(ob)
+    return ob
+
+_mesh_obj('pkg241_ico', lambda bm: bmesh.ops.create_icosphere(
+    bm, subdivisions=7, radius=2.0), mats[0], smooth=True, location=(0, 0, 2))
+_mesh_obj('pkg241_grid', lambda bm: bmesh.ops.create_grid(
+    bm, x_segments=100, y_segments=100, size=20.0), mats[1])
+
+light = bpy.data.lights.new('pkg241_sun', 'SUN')
+light.energy = 4.0
+lob = bpy.data.objects.new('pkg241_sun', light)
+lob.location = (4, 4, 10)
+coll.objects.link(lob)
+
+camd = bpy.data.cameras.new('pkg241_cam')
+cam = bpy.data.objects.new('pkg241_cam', camd)
+cam.location = (9, -9, 7)
+cam.rotation_euler = (math.radians(60), 0.0, math.radians(45))
+coll.objects.link(cam)
+scene.camera = cam
+w = bpy.context.scene.world or bpy.data.worlds.new('pkg241_world')
+bpy.context.scene.world = w
+w.use_nodes = True
+bg = w.node_tree.nodes.get('Background')
+if bg is not None:
+    bg.inputs[0].default_value = (0.5, 0.7, 1.0, 1.0)
+sc = bpy.context.scene
+sc.render.engine = 'CUSTOM_RAYTRACER'
+sc.render.resolution_x = 480
+sc.render.resolution_y = 270
+sc.render.resolution_percentage = 100
+bpy.ops.wm.save_as_mainfile(filepath=__BIG_PATH__)
+tri = sum(max(0, len(p.vertices) - 2) for o in bpy.data.objects
+          if o.type == 'MESH' for p in o.data.polygons)
+result = {'tris': tri, 'saved': __BIG_PATH__}
+"""
+
+_DEVICE_SWITCH = r"""
+import bpy
+sc = bpy.context.scene
+sc.custom_raytracer.device_mode = __MODE__
+# Force the viewport engine (+exporter) to rebuild on the new device by cycling
+# the 3D view out of and back into RENDERED shading: Blender frees the
+# RenderEngine on leaving rendered shading and recreates it on return, so the
+# next sync reconfigures the backend (configure_backend_for_context).
+area = None
+for win in bpy.context.window_manager.windows:
+    for a in win.screen.areas:
+        if a.type == 'VIEW_3D':
+            area = a
+sp = area.spaces.active
+sp.shading.type = 'SOLID'
+area.tag_redraw()
+def _back():
+    sp.shading.type = 'RENDERED'
+    area.tag_redraw()
+    return None
+bpy.app.timers.register(_back, first_interval=0.3)
+result = {'device_mode': sc.custom_raytracer.device_mode}
+"""
+
+_STATUS = ("import bpy; result = "
+           "bpy.app.driver_namespace['_pkg241']['status']()")
+_RESULTS = ("import bpy; result = "
+            "bpy.app.driver_namespace['_pkg241']['results']()")
+_STOP = ("import bpy; _S = bpy.app.driver_namespace.get('_pkg241');\n"
+         "_S and _S.__setitem__('done', True);\n"
+         "_S and _S.get('teardown') and _S['teardown']();\n"
+         "result = {'stopped': bool(_S)}")
+_TEARDOWN = ("import bpy; _S = bpy.app.driver_namespace.get('_pkg241');\n"
+             "_S and _S.get('teardown') and _S['teardown']();\n"
+             "result = {'torn_down': bool(_S)}")
+_GPU_NAME = r"""
+import astroray
+r = astroray.Renderer()
+try:
+    r.set_use_gpu(True)
+    name = r.gpu_device_name
+except Exception as exc:
+    name = 'unknown (' + str(exc) + ')'
+result = {'gpu': str(name)}
+"""
+
+
+def _open_scene(host, port, which):
+    """Open (or build) a pinned scene and return its info dict."""
+    def _open(path):
+        return ("import bpy; bpy.ops.wm.open_mainfile(filepath="
+                + json.dumps(str(path)) + "); result = {'ok': True}")
+
+    if which == "big":
+        if not _BIG_SCENE.exists():
+            _BIG_SCENE.parent.mkdir(parents=True, exist_ok=True)
+            build = _BUILD_BIG.replace("__BIG_PATH__", json.dumps(str(_BIG_SCENE)))
+            info = _bridge(build, host, port, timeout=180.0)
+            print(f"[pkg241] built big scene: {info['tris']} tris")
+        else:
+            _bridge(_open(_BIG_SCENE), host, port)
+    else:
+        _bridge(_open(_METAL_SWEEP), host, port)
+    return _bridge(_ENSURE_RENDERED, host, port)
+
+
+def _switch_device(host, port, mode):
+    _bridge(_DEVICE_SWITCH.replace("__MODE__", json.dumps(mode)), host, port)
+    time.sleep(3.0)  # let the shading toggle rebuild + do a fresh sync frame
+
+
+def _run_class(host, port, event_class, n, reps, warmup, deadline_s,
+               rotate_deg=1.0):
+    """Install the recorder for one event class, poll to completion (or the
+    per-config wall-clock deadline), fetch and return non-warmup events."""
+    cfg = {"event_class": event_class, "n": n, "reps": reps, "warmup": warmup,
+           "rotate_deg": rotate_deg}
+    setup = "_PKG241_CONFIG = " + json.dumps(cfg) + "\n" + _recorder_src()
+    info = _bridge(setup, host, port)
+    if info.get("setup") != "ok":
+        raise RuntimeError(f"recorder setup failed: {info}")
+    t_start = time.time()
+    truncated = False
+    while True:
+        time.sleep(1.0)
+        st = _bridge(_STATUS, host, port)
+        if st.get("error"):
+            raise RuntimeError("recorder error:\n" + st["error"])
+        if st.get("done"):
+            break
+        if time.time() - t_start > deadline_s:
+            _bridge(_STOP, host, port)
+            truncated = True
+            break
+    res = _bridge(_RESULTS, host, port)
+    _bridge(_TEARDOWN, host, port)
+    events = [e for e in res.get("events", []) if not e.get("warmup")]
+    return {"events": events, "truncated": truncated,
+            "material": res.get("material")}
+
+
+def _run_cancel(host, port, samples):
+    src = "_PKG241_CANCEL = " + json.dumps({"samples": samples}) + "\n" + _cancel_src()
+    return _bridge(src, host, port, timeout=600.0)
+
+
+def _agg(events, field):
+    xs = sorted(e[field] for e in events if e.get(field) is not None)
+    if not xs:
+        return None
+    return {
+        "n": len(xs),
+        "mean_ms": round(statistics.mean(xs), 2),
+        "p50_ms": round(_percentile(xs, 50), 2),
+        "p95_ms": round(_percentile(xs, 95), 2),
+        "p99_ms": round(_percentile(xs, 99), 2),
+        "max_ms": round(max(xs), 2),
+    }
+
+
+# Budgets pinned by the lead/Terra (pkg241 spec Evidence + Acceptance).
+_BUDGETS = {
+    "gpu_present_p95_ms": 100.0,
+    "gpu_present_p99_ms": 150.0,
+    "cancel_ack_p95_ms": 200.0,
+    "cancel_ack_p99_ms": 300.0,
+}
+
+
+def run_interactive(args) -> dict:
+    host, port = args.host, args.port
+    scenes = args.scenes
+    devices = args.devices
+    classes = args.classes
+    gpu_name = ""
+    try:
+        gpu_name = _bridge(_GPU_NAME, host, port).get("gpu", "")
+    except Exception as exc:  # non-fatal
+        gpu_name = f"probe failed ({exc})"
+
+    configs = []
+    for scene in scenes:
+        sinfo = _open_scene(host, port, scene)
+        print(f"[pkg241] scene={scene} tris={sinfo.get('tris')} "
+              f"file={sinfo.get('file')}")
+        for device in devices:
+            _switch_device(host, port, device)
+            # CPU renders can be 10-20x slower; a hard per-class deadline keeps
+            # the matrix tractable while still banking >= the accepted floor.
+            deadline = args.cpu_deadline_s if device == "cpu" else args.gpu_deadline_s
+            n_ev = args.cpu_events if device == "cpu" else args.events
+            n_rep = args.cpu_reps if device == "cpu" else args.reps
+            entry = {"scene": scene, "tris": sinfo.get("tris"),
+                     "region": sinfo.get("region"),
+                     "preview_samples": sinfo.get("preview_samples"),
+                     "device": device, "classes": {}}
+            for cls in classes:
+                print(f"[pkg241]   {device}/{cls} ...", flush=True)
+                r = _run_class(host, port, cls, n_ev, n_rep,
+                               args.warmup, deadline, args.rotate_deg)
+                ev = r["events"]
+                entry["classes"][cls] = {
+                    "n_events": len(ev),
+                    "truncated": r["truncated"],
+                    "material": r.get("material"),
+                    "present": _agg(ev, "present_ms"),
+                    "entry": _agg(ev, "entry_ms"),
+                    "render": _agg(ev, "render_ms"),
+                    "block": _agg(ev, "block_ms"),
+                    "raw_present_ms": [round(e["present_ms"], 2)
+                                       for e in ev if e.get("present_ms")],
+                }
+                p = entry["classes"][cls]["present"]
+                print(f"[pkg241]     present p50={p['p50_ms']} "
+                      f"p95={p['p95_ms']} p99={p['p99_ms']} (n={p['n']})")
+            if args.cancel:
+                print(f"[pkg241]   {device}/cancel (F12 full-stop floor) ...",
+                      flush=True)
+                entry["cancel"] = _run_cancel(host, port, args.cancel_samples)
+                print(f"[pkg241]     F12 render_ms="
+                      f"{entry['cancel'].get('render_ms')}")
+            configs.append(entry)
+
+    return {
+        "schema": "astroray.viewport_parity.pkg241_phase0.v1",
+        "package": "pkg241",
+        "phase": "0 (viewport + cancellation latency recorder)",
+        "generated_utc": _dt.datetime.now(_dt.timezone.utc)
+            .isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "host": f"{host}:{port}",
+        "gpu": gpu_name,
+        "budgets": _BUDGETS,
+        "protocol": {
+            "bridge": "Blender Lab mcp socket; execute requests over localhost",
+            "recorder": "blender_recorder.py (bpy.app.timers state machine + "
+                        "SpaceView3D POST_PIXEL draw handler; wraps "
+                        "CustomRaytracerRenderEngine.view_update/view_draw and "
+                        "Exporter.render_viewport_frame)",
+            "dispatch_zero": "time.perf_counter() taken in the timer immediately "
+                             "before the scene edit + tag_redraw (excludes "
+                             "Blender input-event routing a socket harness "
+                             "cannot exercise)",
+            "present": "SpaceView3D POST_PIXEL draw-handler timestamp of the "
+                       "first redraw at/after dispatch = edit->present",
+            "camera_event": f"{args.rotate_deg} deg view_rotation nudge "
+                            "(view_draw path)",
+            "material_event": "Principled Base Color red-channel toggle "
+                              "0.3<->0.7 (view_update depsgraph path)",
+            "cancel": "F12 render wall-time = current cancel full-stop floor; "
+                      "the return value of test_break is discarded natively "
+                      "(blender_module.cpp:2220) so ESC cannot stop early",
+            "warmup_discarded": args.warmup,
+            "reps_x_events": f"{args.reps}x{args.events}",
+        },
+        "configs": configs,
+    }
+
+
+def _write_summary_md(doc, path):
+    lines = ["# pkg241 Phase 0 — viewport / cancellation latency", "",
+             f"Generated: {doc['generated_utc']}  ", f"GPU: {doc['gpu']}  ",
+             f"Bridge: {doc['host']}  ",
+             f"Protocol: {doc['protocol']['reps_x_events']} events/class, "
+             f"{doc['protocol']['warmup_discarded']} warmup discarded, "
+             f"dispatch->present via POST_PIXEL draw handler.", "",
+             "Budgets (GPU): edit->present p95 <= 100 ms / p99 <= 150 ms; "
+             "cancel-ack p95 <= 200 ms / p99 <= 300 ms.", "",
+             "Latency scales with viewport pixel count (region x nav-divisor) "
+             "and the chunk/target sample budget; the region and preview_samples "
+             "per config are recorded so numbers are interpretable.", "",
+             "## edit -> present (ms)", "",
+             "| scene | tris | region | prev_spp | device | class | n | p50 | p95 | p99 | max | trunc |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for c in doc["configs"]:
+        reg = "x".join(str(v) for v in (c.get("region") or []))
+        for cls, d in c["classes"].items():
+            p = d["present"] or {}
+            lines.append(
+                f"| {c['scene']} | {c['tris']} | {reg} | "
+                f"{c.get('preview_samples')} | {c['device']} | {cls} | "
+                f"{d['n_events']} | {p.get('p50_ms')} | {p.get('p95_ms')} | "
+                f"{p.get('p99_ms')} | {p.get('max_ms')} | "
+                f"{'Y' if d['truncated'] else ''} |")
+    lines += ["", "## cancel full-stop floor (F12 render wall-time, ms)", "",
+              "| scene | device | samples | render_ms |",
+              "|---|---|---|---|"]
+    for c in doc["configs"]:
+        cn = c.get("cancel")
+        if cn:
+            lines.append(f"| {c['scene']} | {c['device']} | "
+                         f"{cn.get('samples')} | {cn.get('render_ms')} |")
+    lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def main():
     # Blender invokes us with the standard argv plus everything after `--`.
     if "--" in sys.argv:
         argv = sys.argv[sys.argv.index("--") + 1:]
     else:
-        argv = []
+        argv = sys.argv[1:]
     p = argparse.ArgumentParser()
     p.add_argument("--engine", default="CYCLES",
                    choices=["CYCLES", "CUSTOM_RAYTRACER"])
@@ -338,19 +744,53 @@ def main():
     p.add_argument("--integrator", default=None,
                    help="Astroray integrator name for the CUSTOM_RAYTRACER "
                         "engine (e.g. wavefront_path_tracer)")
+    # pkg241 interactive-mode options (client of the live GUI Blender bridge).
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=9876)
+    p.add_argument("--scenes", nargs="+", default=["metal_sweep", "big"],
+                   choices=["metal_sweep", "big"])
+    p.add_argument("--devices", nargs="+", default=["gpu", "cpu"],
+                   choices=["gpu", "cpu"])
+    p.add_argument("--classes", nargs="+", default=["camera", "material"],
+                   choices=["camera", "material"])
+    p.add_argument("--events", type=int, default=50)
+    p.add_argument("--reps", type=int, default=3)
+    p.add_argument("--warmup", type=int, default=5)
+    # CPU is the slow correctness oracle (~10-15x GPU per frame at this viewport
+    # size); a bounded CPU count keeps the matrix tractable. Defaults are set in
+    # main() to the GPU counts unless explicitly overridden.
+    p.add_argument("--cpu-events", dest="cpu_events", type=int, default=None)
+    p.add_argument("--cpu-reps", dest="cpu_reps", type=int, default=None)
+    p.add_argument("--rotate-deg", dest="rotate_deg", type=float, default=1.0)
+    p.add_argument("--cancel", action="store_true",
+                   help="also run the F12 cancel full-stop-floor probe")
+    p.add_argument("--cancel-samples", dest="cancel_samples", type=int,
+                   default=64)
+    p.add_argument("--gpu-deadline-s", dest="gpu_deadline_s", type=float,
+                   default=300.0)
+    p.add_argument("--cpu-deadline-s", dest="cpu_deadline_s", type=float,
+                   default=300.0)
     args = p.parse_args(argv)
+    if args.cpu_events is None:
+        args.cpu_events = args.events
+    if args.cpu_reps is None:
+        args.cpu_reps = args.reps
 
-    if args.mode == "offline":
-        doc = run_offline(args)
-    else:
-        # Interactive mode kept as a documented stub. Implementing a
-        # robust modal+timer recorder is its own ~day of work and is
-        # routed to the project owner's station for the live numbers.
-        # See blender_driver.py docstring.
-        print("[pkg81] interactive mode is a stub — see docstring. "
-              "Use offline for headless A/B numbers.")
+    if args.mode == "interactive":
+        doc = run_interactive(args)
+        args.out.mkdir(parents=True, exist_ok=True)
+        tag = args.tag or _dt.date.today().isoformat()
+        json_path = args.out / f"{tag}-phase0.json"
+        json_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        _write_summary_md(doc, args.out / f"{tag}-phase0-summary.md")
+        print(f"[pkg241] wrote {json_path}")
+        return
+
+    if bpy is None:
+        print("blender_driver.py --mode offline must be invoked via "
+              "'blender --python'.")
         sys.exit(2)
-
+    doc = run_offline(args)
     args.out.mkdir(parents=True, exist_ok=True)
     tag = args.tag or f"{_dt.date.today().isoformat()}-{args.engine.lower()}"
     json_path = args.out / f"{tag}.json"

@@ -4,8 +4,8 @@
 **Track:** A
 **Status:** OPEN — detailed architect review required before implementation
 **Estimated effort:** TBD at architect review
-**Depends on:** pkg115, pkg190, pkg219, pkg230b (landed/active); sequenced
-AFTER pkg230b
+**Depends on:** pkg115, pkg190, pkg219, pkg230b (DONE #708); the pkg230b
+foundation has landed, while this package's architecture and gates remain OPEN
 
 ## Existing coverage and boundary
 
@@ -15,7 +15,7 @@ AFTER pkg230b
 - [pkg190](pkg190-gpu-procedural-texture-support.md), PR #612/#615 — UV/Generated bake
   only; guarded Object-coordinate fallback.
 - [pkg219](pkg219-per-texel-shader-graph.md), DONE — image Mapping acceptance.
-- [pkg230b](pkg230b-vector-coordinate-chain.md), active — owns the image/compatible-program affine
+- [pkg230b](pkg230b-vector-coordinate-chain.md), DONE #708 — owns the image/compatible-program affine
   path and warns on unsupported procedurals.
 
 ## Evidence
@@ -26,9 +26,29 @@ AFTER pkg230b
 - `src/gpu/scene_upload.cu:927` limits baking to UV/Generated; `:953` and
   `:979` evaluate procedural samples directly in the original bake domain.
 
+### Additional 2026-09-06 baseline: standalone UV-less checker
+
+The full rebuild's 192x144,256spp material chart shows CPU checker placement but
+a flat GPU ground. This was independently reproduced through the unchanged
+f30bc5f Python binding, so it is not caused by pkg250's new CLI caller. A default
+UV CheckerTexture on two triangles without explicit UV arrays gives CPU image
+luminance standard deviation 0.4182 versus GPU 0.0330. The case is NOT a visual
+parity pass. Saved raw arrays/previews and imported-module identity are at
+`test_results/rebuild-handoff-20260906/checker-binding-*`;
+`standalone-{cpu,gpu}-scene2.png` shows the production CLI example.
+
+Terra traced the precise gap: CPU triangles interpolate implicit fallback UVs
+even without authored UV layers; GPU triangles set hasUV only for real UV layers,
+so the shader skips their baked 2D texture and shades the flat fallback.
+Include the default-coordinate/UV-availability contract in Phase 0: determine
+whether UV-less primitives should use a documented generated/default domain or
+report unsupported input. Reconcile CPU procedural evaluation with GPU baking
+and sampling without hiding the mismatch by changing the fixture. This evidence
+strengthens the existing bake/domain scope; implementation gates remain UNRUN.
+
 ## Goal
 
-After pkg230b lands, deliver native procedural transformed-p and
+Building on landed pkg230b, deliver native procedural transformed-p and
 bake/cache-domain parity: one transformed-coordinate contract covering CPU and
 GPU bake domains. Support an explicitly bounded affine subset; report
 unrepresentable coordinate chains visibly instead of implying full coverage.

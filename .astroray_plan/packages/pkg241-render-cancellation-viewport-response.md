@@ -35,19 +35,23 @@ Static call-path evidence only — NOT measured latency:
   `view_update` (`:651`).
 
 None of the above is a measured responsiveness number; Phase 0 must produce
-those before any code is written.
+those before renderer or session behavior changes. Bounded measurement-only
+extensions to the existing harness are part of Phase 0 after architectural
+review; the interactive driver currently needs completion to record real UI
+events. Native stage averages alone do not establish event/cancel percentiles.
 
 ## Goal
 
 A cooperative render-cancellation and viewport-response contract: the viewport
 must acknowledge a cancel/restart request promptly, stop producing stale
 frames, and return to a consistent session state without mixed accumulation or
-leaked resources. Ordinary completion must be unchanged.
+leaked resources. Camera and material edits must produce the correct new frame
+without stale results or mixed accumulation. Ordinary completion must be unchanged.
 
 ## Scoped direction
 
-Phase 0 (mandatory, before coding): measure, SEPARATELY, matched CPU and GPU
-UI-event latency, render-update latency, and cancellation
+Phase 0 (mandatory, before behavior changes): measure, SEPARATELY, matched CPU
+and GPU camera/material UI-event latency, render-update/presentation latency, and cancellation
 acknowledgement/completion latency; pin exact numeric budgets plus the
 workload/settings/measurement protocol. The detailed architect pass then picks
 the safe session/GIL/Blender-API/CUDA-ownership design; this spec does NOT
@@ -61,7 +65,7 @@ existing viewport stage recorder; extend canonical harnesses rather than fork.
 - [ ] Phase 0 budgets pinned: p50/p95/p99 on an expensive scene for UI-event,
       render-update, and cancellation acknowledgement/completion, CPU and GPU,
       with the exact workload/settings/protocol recorded.
-- [ ] F12 cancel, camera change, scene replacement, shutdown/restart, and
+- [ ] F12 cancel, camera and material changes, scene replacement, shutdown/restart, and
       partial-failure paths behave per the contract.
 - [ ] No mixed accumulation across cancel/restart; no leaked
       sessions/threads/resources.
@@ -81,3 +85,10 @@ re-entrancy in `view_update`/`view_draw`.
 
 No transport-math changes; no forced GPU preemption guarantees; no silently
 changing the requested backend.
+
+The owner handoff milestone also requires faithful mapped textures. Preserve
+landed pkg230b affine image/program behavior across edits and cancellation.
+New procedural-coordinate fidelity belongs to OPEN pkg242; direct-image
+normal/bump provenance belongs to OPEN pkg245. Resolve those scopes through
+their own architecture and PRs instead of hiding texture changes in pkg241 or
+the parallel pkg240 CI-throughput package. All implementation gates remain UNRUN.

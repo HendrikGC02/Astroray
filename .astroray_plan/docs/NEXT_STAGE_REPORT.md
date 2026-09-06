@@ -1,5 +1,24 @@
 # Astroray Next Stage Report
 
+## 2026-09-06 CURRENT — rebuilt, installed, ready for pkg241/240
+
+Owner milestone for the next round: **responsive camera/material edits, reliable
+cancellation, and faithful mapped textures**. Start pkg241 with real Blender
+measurement, then behavior changes; use pkg240 as a parallel measured CI lane.
+Follow the [ready-to-paste agent prompt](next-agent-prompt-pkg241-pkg240.md) and
+[full rebuild evidence](rebuild-handoff-2026-09-06.md). Pkg242/245 remain separate
+mapped-texture scopes; pkg230b/232/236 are already landed. Pillar 4 stays PAUSED.
+The initial clean CUDA all-target build found a stale standalone GPU caller;
+pkg250 LANDED in PR #716, merge `37f7343` (03:05:15 UTC). Local gates and
+independent SIGN-OFF passed. Both host/CUDA CI runs passed; each host suite had
+2176 passed, 283 skipped, 15 xfailed, 4 xpassed. The advisory Cornell reference
+smoke remains NOT GREEN (two of three gates passed), tracked under pkg249.
+Development ALL_BUILD, both clean addon builds, native/Blender checks and the
+installed CUDA addon smoke passed. All 429 non-addon profile files were preserved.
+The affine mapping chart passes CPU/GPU/Cycles; the separate UV-less procedural
+checker baseline remains NOT GREEN under pkg242. See the report for exact gates.
+
+
 ## 2026-09-06 CURRENT — pkg230b and pkg236 landed
 
 - **pkg230b LANDED in PR #708**, merge `8217234b`, 2026-09-06 00:24:49 UTC.

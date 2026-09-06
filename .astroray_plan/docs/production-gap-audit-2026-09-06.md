@@ -3,14 +3,31 @@
 **Source baseline:** `305caf569b43c62cb8a8a0d6af9f35fb5f4fc9a2` (pkg230 Phase 2
 closeout, PR #703)
 **Date:** 2026-09-06 (Sydney)
-**Status:** Accepted new filings; no implementation, hardware, or visual gates
-run.
+**Status:** Historical gap inventory with current routing update below.
+The source-specific audit findings retain their original baseline; this document
+does not claim new implementation, hardware, or visual results.
+
+## Current routing update — 2026-09-06
+
+pkg230b affine image/program coordinates landed in **#708**, pkg232 delegate
+process cleanup in **#705**, and pkg236 isolated Blender smoke in **#711**.
+Their distinct scopes do not close the responsiveness or texture gaps below.
+The current milestone is responsive camera/material edits, reliable render
+cancellation, and faithful mapped textures: pkg241 Phase 0 measures response and
+cancellation first; pkg242 owns procedural mapping/bake-domain parity; pkg245
+owns direct-image normal/bump coordinate provenance. All three remain OPEN.
+pkg240 is the parallel CI lane: its baseline audit landed in **#712**, with no
+workflow optimization or candidate speedup claim. Pillar 4 remains PAUSED.
+
+See [current status](STATUS.md), [rebuild record](rebuild-handoff-2026-09-06.md),
+and [next-agent handoff](next-agent-prompt-pkg241-pkg240.md) for current work and
+verification boundaries. The evidence below remains tied to the audit baseline.
 
 ## Accepted new filings
 
 - [pkg241 — Cooperative render cancellation and viewport-response
   contract](../packages/pkg241-render-cancellation-viewport-response.md) —
-  Pillar 5, Track A, OPEN. Phase 0 latency measurement before any code;
+  Pillar 5, Track A, OPEN. Phase 0 latency measurement before behavior changes;
   bounded cancellation/restart/stale-result contract.
 - [pkg242 — Procedural transformed-p and bake/cache-domain
   parity](../packages/pkg242-procedural-mapping-bake-parity.md) — Pillar 5,
@@ -26,13 +43,13 @@ run.
 - Cancellation/viewport response reuses DONE pkg52 (persistent session),
   pkg81 (interactivity benchmark), pkg191 (progressive refinement), pkg192
   (navigation interactivity), pkg196 (reduced-res navigation), pkg147
-  (OpenMP/GIL hang). OPEN pkg232 owns delegate process lifecycle only;
-  OPEN pkg236 owns isolated smoke profiles. pkg241 adds the cancellation/
+  (OpenMP/GIL hang). DONE pkg232 (#705) owns delegate process lifecycle only;
+  DONE pkg236 (#711) owns isolated smoke profiles. pkg241 adds the cancellation/
   response contract and reuses the existing benchmark; future architecture
   decides the session mechanism.
 - Procedural mapping reuses pkg59, pkg115 (line 125 full-3D Mapping TODO),
   pkg190 (UV/Generated bake only, guarded Object fallback), pkg219
-  (image Mapping acceptance), active pkg230b (image/compatible-program affine path;
+  (image Mapping acceptance), DONE pkg230b (#708, image/compatible-program affine path;
   warns on unsupported procedurals). pkg242 excludes pkg230b's child-sampler
   cache isolation, pkg234 image filtering, pkg233 standalone BSDF texture
   plumbing.
@@ -44,9 +61,9 @@ run.
 
 - Cancellation/viewport response (pkg241) is the highest production risk and
   first priority.
-- Procedural mapping parity (pkg242) second, after pkg230b lands.
+- Procedural mapping parity (pkg242) follows the landed pkg230b foundation.
 - Raw band provenance (pkg243) is lower immediate priority.
-- pkg230b is currently active — do NOT duplicate-dispatch it.
+- pkg230b is landed in #708 — do NOT duplicate-dispatch it.
 
 ## Owner state
 

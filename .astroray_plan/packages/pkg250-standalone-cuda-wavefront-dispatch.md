@@ -2,7 +2,7 @@
 
 **Pillar:** 5 (renderer verification and delivery tooling)
 **Track:** A
-**Status:** IMPLEMENTING — CPU checks passed; clean CUDA build, GPU runtime and independent review pending
+**Status:** DONE — PR #716, merge 37f7343, 2026-09-06; native/visual/independent and required CI gates passed
 **Depends on:** existing pkg55-C7 wavefront backend; no new renderer algorithm
 
 ## Problem and scope
@@ -58,7 +58,7 @@ Local checks on 2026-09-06 (isolated `pkg250` worktree, source repair above
 | Check | Result |
 | --- | --- |
 | MSVC Release CPU standalone, `windows-cpu-vs`, Python/OIDN off | PASS; `build/bin/Release/raytracer.exe` |
-| Full standalone suite against that CPU binary | 11 passed, 5 explicitly skipped because CUDA was not compiled |
+| Final standalone suite against that CPU binary | 11 passed, 6 explicitly skipped because CUDA was not compiled (7.39s) |
 | MSVC `/Zs` host syntax, CUDA defined with N3 off and on | PASS for both; no CUDA compilation or linking in these checks |
 | Delegated implement process | Completed in 304.5 s, Windows Job cleanup confirmed, zero active processes |
 
@@ -68,10 +68,31 @@ No function signatures changed. The caller sweep covers the standalone test
 suite, `CMakeLists.txt` target, and the binding/header implementation contract.
 The final standalone caller has no legacy upload or removed render call.
 
-Hardware/build evidence and final independent judgment are owned by the parent
-delivery agent. CPU tests produced images in `test_results/`; qualitative
-review, CUDA completion, GPU images, and CUDA/N3-off runtime behavior remain
-pending. Syntax-only checks do not establish linking or device behavior.
+Final parent verification completed before merge:
+
+- Clean root CUDA library/module build plus repaired all-target completion PASS.
+- Actual CUDA/N3-off target build/link/runtime: 11 passed, 6 expected skips,
+  6.75s; explicit GPU exit2/no image, auto CPU render succeeds. LNK4098 remains
+  documented, not suppressed or claimed resolved.
+- CUDA/N3-on standalone/progressive viewport/wavefront gates: 21 passed,
+  1 expected fallback skip, 8.68s. Unsupported GPU integrator exits2/no image.
+- Astra inspected CPU/GPU Cornell/material scenes and the real-Blender mapped
+  chart; chart GPU/Cycles ROI max deviation 1.3693%, within the existing 5% gate.
+  A missing UV-less checker also reproduces through the unchanged binding;
+  this baseline remains NOT GREEN under pkg242 and is not a release-parity claim.
+- The first exact-gray luminance assertion was invalid for existing XYZ-to-sRGB
+  presentation. Terra traced it; a same-band 900-910nm RGB-zero versus positive
+  radiance oracle passed. Original failed evidence is retained; pkg251 owns debt.
+- Terra independent final source/caller/ABI/runtime SIGN-OFF and Astra visual
+  review passed. Five differential lint tools passed with zero new findings.
+- Both push and PR host/CUDA CI checks passed. Each host suite: 2176 passed,
+  283 skipped, 15 xfailed, 4 xpassed (PR 1601.98s; push 1652.51s). Advisory
+  reference smoke remained FAIL (2/3 gates); pkg249 stays OPEN.
+
+The [full rebuild handoff](../docs/rebuild-handoff-2026-09-06.md) records source,
+artifact identities, original failures, commands and saved visual evidence.
+Pkg237/238 full-local-suite baseline failures remain open; focused gates do not
+claim those passed. Pkg252 separately covers the CUDA host-caller CI gap.
 
 ## Limits
 

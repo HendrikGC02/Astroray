@@ -17,7 +17,7 @@ archived plans are context, not dispatch authority.
 
 ## Work packages (one per PR/session)
 
-- `.astroray_plan/packages/*.md` — ~219 specs. Frontmatter: Pillar / Track / Status / Estimated effort / Depends on.
+- `.astroray_plan/packages/*.md` — package specs. Frontmatter: Pillar / Track / Status / Estimated effort / Depends on.
 - `python scripts/project_index.py deps pkgNNN` — a package's dependencies + reverse-dependents.
 
 ## Research notes
@@ -39,7 +39,7 @@ archived plans are context, not dispatch authority.
 
 ## Code & tests
 
-- `include/` — header-only core; `src/` — implementation; `plugins/` — plugin registry; `tests/` — 244 test files.
+- `include/` — header-only core; `src/` — implementation; `plugins/` — plugin registry; `tests/` — pytest coverage.
 - Build & test commands: see `AGENTS.md`.
 
 ## Rules & drivers

@@ -12,6 +12,15 @@ physically meaningful spectral and instrument-like outputs. That is why spectral
 transport, dispersion, band-aware rendering, and robust light transport are
 foundational rather than side features.
 
+The current milestone is responsive camera and material edits, reliable render
+cancellation, and faithful mapped textures. Affine image/program coordinates
+(pkg230b), delegate process cleanup (pkg232), and isolated Blender smoke
+(pkg236) have landed. Responsiveness/cancellation measurement (pkg241),
+procedural mapping (pkg242), and normal/bump coordinate provenance (pkg245)
+remain open. The parallel CI effort (pkg240) has baseline measurements only.
+See [current status](.astroray_plan/docs/STATUS.md) and the
+[next-agent handoff](.astroray_plan/docs/next-agent-prompt-pkg241-pkg240.md).
+
 The design goal is **pluggability**: materials, shapes, lights, integrators,
 textures, and post-process passes all register into small factory registries.
 Adding a feature usually means dropping in one file.
@@ -38,18 +47,20 @@ Adding a feature usually means dropping in one file.
 |---|---|
 | **Core** | Plugin registries for integrators, materials, shapes, textures, lights, post-process passes. Each is a registry-discoverable name. |
 | **Light transport** | Path tracing with NEE + MIS, Russian roulette, adaptive sampling. Spectral path tracer with Jakob-Hanika RGB→spectrum upsampling and CIE 1964 10° CMFs. Specular Manifold Sampling for spectral caustics. ReSTIR DI and Neural Radiance Caching are wired as plugin integrators (CPU only today). |
-| **Materials** | Disney Principled BRDF with Kulla-Conty energy compensation tables (pkg60), Lambertian, Metal, Dielectric with Sellmeier dispersion, Subsurface, Emissive, Volumetric. CPU + GPU material capability metadata; no silent fallbacks. |
+| **Materials** | Native Cycles Principled (`principled`, pkg178), Disney BRDF with Kulla-Conty energy compensation tables (pkg60), Lambertian, Metal, Dielectric with Sellmeier dispersion, Subsurface, Emissive, Volumetric. CPU + GPU material capability metadata; no silent fallbacks. |
 | **GR / astrophysics** | Kerr metric (pkg40, pkg41), Schwarzschild extraction, synchrotron emission with Pandya 2016 fits and bipolar relativistic jets (pkg42), slim disk accretion model (pkg43, Abramowicz 1988 / Sadowski 2009). Spectral wavelengths transport gravitational redshift through `MinkowskiMetric` (pkg67). |
 | **Denoising** | OIDN persistent device with CUDA backend (pkg68), OptiX denoiser with HDR/AOV models (pkg70), OptiX temporal denoiser via motion vectors (pkg73). |
 | **GPU** | CUDA **wavefront path tracer** (pkg55) — staged intersect/shade with material-sorted buckets, path regeneration, dedicated NEE shadow stage, any-hit shadow rays — measured **1.50× faster** than the previous megakernel on the 7-material gate scene, at per-channel image parity. Two-level BVH (TLAS/BLAS) instancing with transform-only refit (pkg114), GPU light tree for many-light scenes (pkg86-B), deformation motion blur (pkg88-C.0), multi-wavelength spectral rendering with measured CPU/GPU parity (pkg54 chain). |
-| **Blender** | Blender 5.2 addon: viewport rendering at **Cycles-OPTIX parity** (in-Blender A/B: steady-state p99 0.84× Cycles, pkg81), depsgraph-driven incremental scene sync (pkg56), persistent viewport session (pkg52), native shader nodes (pkg57), **Cycles-parity procedural textures** — Noise/Voronoi/Wave/Brick/Magic/Gradient/Checker ported from Cycles SVM, bit-exact hash family (pkg115), HDRI/World parity (pkg63), automatic GPU instancing for repeated meshes (pkg114). |
+| **Blender** | Blender 5.2 addon: persistent viewport sessions (pkg52), incremental scene sync (pkg56), native shader nodes (pkg57), and automatic GPU instancing (pkg114). Historical pkg81 A/B measured steady-state pan-frame p99 at 0.84× Cycles-OPTIX; this does not establish the pending camera/material-edit and cancellation contract. Cycles-derived procedural evaluators (pkg115) and bounded affine image/program mapping (pkg230b) are available; procedural transformed-coordinate/bake parity (pkg242) and mapped normal/bump provenance (pkg245) remain open. |
 | **I/O** | Pure-Python `.blend` reader walking Blender's SDNA — no `bpy` runtime dependency (pkg76). |
 
 ---
 
 ## Validation snapshot
 
-Numbers below trace to merged PRs and to `.astroray_plan/docs/STATUS.md`.
+The historical measurements below trace to their named packages and PRs; they
+are not a fresh validation of the current build. Current local and CI results
+are recorded separately in [.astroray_plan/docs/STATUS.md](.astroray_plan/docs/STATUS.md).
 All hardware-measured numbers are from the project workstation (NVIDIA RTX
 5070 Ti, OptiX 9.1, CUDA 12.8).
 
@@ -69,7 +80,7 @@ All hardware-measured numbers are from the project workstation (NVIDIA RTX
 | OptiX temporal denoise | **53.1% inter-frame variance reduction** vs ≥30% gate | pkg73, PR #249 |
 | Slim disk accretion | T(9M, ṁ=1) = **7.45×10⁶ K**; 14/14 tests vs Abramowicz 1988 / Sadowski 2009 | pkg43, PR #271 |
 | Cold-start viewport latency | First frame **83.3 ms** (was 12,079 ms before pkg84) — **145× improvement** | pkg84, PR #260 |
-| Test suite | **1848 passed / 1 failed** (69 skipped, 25 xfailed, 3 xpassed) on the Windows `build_cuda` (Ninja, native sm_120, clean build) configuration, RTX-verified; the 1 failure is the open pkg185 GPU glass-caustic parity defect | full local sweep, 2026-08-12 |
+| Historical test suite | **1848 passed / 1 failed** (69 skipped, 25 xfailed, 3 xpassed) on Windows `build_cuda` (Ninja, native sm_120, clean build), RTX-verified. This snapshot preceded the pkg185 GPU glass-caustic fix in PR #589; it is not current suite status. | full local sweep, 2026-08-12 |
 
 ---
 
@@ -223,11 +234,14 @@ build), perf-gate calibration notes, and the known Windows footguns.
 ```bash
 # Linux/macOS
 ./build/bin/raytracer --scene 1 --width 800 --height 600 --samples 64 --output output.png
-
-# Windows (the exe needs the OIDN + CUDA runtime DLLs on PATH)
-build_cuda\bin\Release\raytracer.exe --scene 1 --width 800 --height 600 ^
-    --samples 128 --device gpu --integrator wavefront_path_tracer --output output.png
 ```
+
+```powershell
+# Windows Ninja build (OIDN + CUDA runtime DLLs must be on PATH)
+.\build_cuda\bin\raytracer.exe --scene 1 --width 800 --height 600 --samples 128 --device gpu --integrator path_tracer --output output.png
+```
+
+Visual Studio multi-config builds place the executable under `bin/Release/`.
 
 ### Python API
 
@@ -256,14 +270,21 @@ print(astroray.pass_registry_names())
 ### Blender addon
 
 ```bash
-# Build the installable .zip (auto-detects Blender + matching Python)
+# Build the installable .zip (CUDA default; detects Blender + matching Python)
 python scripts/build/build_blender_addon.py
 
-# Build and install directly into Blender's extensions dir
+# Explicit CPU-only addon build
+python scripts/build/build_blender_addon.py --backend cpu
+
+# Build and install directly into the user's Blender extensions dir
 python scripts/build/build_blender_addon.py --install
 ```
 
 Then in Blender: `Edit > Preferences > Get Extensions > Install from Disk...`
+
+For an automated check, use `pwsh scripts/dev_addon.ps1 -Smoke`: it builds,
+packages, installs, and tests under a disposable Blender profile. See
+[the dev loop guide](DEVELOPMENT.md) for isolated smoke and explicit launch modes.
 
 ---
 
@@ -293,7 +314,7 @@ Astroray/
 │   └── textures/            # checker, noise, voronoi, brick, ...
 ├── src/gpu/                 # CUDA wavefront pipeline + megakernel
 ├── scripts/                 # Build, dev, benchmark, diagnostic helpers
-├── tests/                   # pytest suite (~1950 collected; see Validation snapshot)
+├── tests/                   # pytest suite; current results are in STATUS.md
 ├── .astroray_plan/          # Roadmap, package specs, research notes
 └── CMakeLists.txt
 ```

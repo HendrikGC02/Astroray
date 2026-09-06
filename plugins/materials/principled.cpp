@@ -1688,6 +1688,11 @@ public:
     float getIOR() const override { return ior_; }
     float getTransmission() const override { return transmission_; }
     bool isTransmissive() const override { return transmission_ > 1e-4f; }
+    // pkg253 G1 — shadow rays through this surface are attenuated by
+    // (1-alpha) rather than unconditionally blocked (Material::shadowAlpha
+    // doc-comment, include/raytracer.h). alpha_ is the same value the
+    // camera-ray delta-transparent lobe already uses (pkg178 PR-6).
+    float shadowAlpha(const HitRecord& /*rec*/) const override { return alpha_; }
     // pkg187 — wavelength-dependent IOR via the OpenPBR Cauchy fit (cauchyAB).
     // Non-dispersive → the flat d-line IOR, so SMS/MNEE (mesh_attempt.h keys off
     // iorAt) and every other caller are byte-identical to today. Consumed by the

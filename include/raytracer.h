@@ -495,6 +495,16 @@ public:
     virtual bool isEmissive() const { return false; }
     virtual bool isTransmissive() const { return false; }
     virtual bool isGlossy() const { return false; }
+    // pkg253 G1 — shadow-ray opacity. 1.0 (default, every existing material)
+    // means fully opaque: an NEE shadow ray hitting this surface is blocked,
+    // unchanged from every render before this package. A Principled material
+    // with Alpha < 1 overrides this to return its alpha, so a shadow ray
+    // through an alpha-cutout surface is attenuated by (1-alpha) instead of
+    // unconditionally blocked — matching the camera-ray delta-transparent-
+    // lobe treatment already shipped for BSDF sampling (pkg178 PR-6) and
+    // Cycles' "Transparent Shadows" (an Alpha<1 surface lets (1-alpha) of the
+    // shadow ray's light through). See pathTraceSpectral / pathTraceSpectralCaustic.
+    virtual float shadowAlpha(const HitRecord& /*rec*/) const { return 1.0f; }
     virtual Vec3 getAlbedo() const { return Vec3(0.5f); }
     virtual std::string getGPUTypeName() const { return ""; }
     // pkg223 — normal-map decorator unwrap for GPU upload. A NormalMapped
@@ -3175,7 +3185,19 @@ public:
                     // pkg88-C.0: shadow rays carry the path's shutter time so
                     // moving geometry occludes at the sampled instant.
                     bool hitOccluder = bvh->hit(Ray(rec.point, wi, ray.time), 0.001f, ls.distance - 0.001f, shadow);
-                    bool occluded = hitOccluder && !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
+                    bool infiniteLightHit = hitOccluder && shadow.hitObject && shadow.hitObject->isInfiniteLight();
+                    // pkg253 G1: an occluder with shadowAlpha<1 (Principled Alpha<1)
+                    // attenuates the shadow ray by (1-alpha) instead of unconditionally
+                    // blocking it (Cycles "Transparent Shadows"; single-occluder scope,
+                    // see Material::shadowAlpha). shadowTransmittance==1.0 whenever no
+                    // occluder is hit or the default (opaque) shadowAlpha()==1.0 applies,
+                    // so every pre-pkg253 render is byte-identical.
+                    float shadowTransmittance = 1.0f;
+                    if (hitOccluder && !infiniteLightHit) {
+                        shadowTransmittance = shadow.material
+                            ? (1.0f - shadow.material->shadowAlpha(shadow)) : 0.0f;
+                    }
+                    bool occluded = shadowTransmittance <= 0.0f;
                     if (!occluded) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
@@ -3203,7 +3225,8 @@ public:
                         // angle == 0, undercounting the delta sun's energy.
                         float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
                         astroray::SampledSpectrum neeContrib =
-                            throughput * f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f);
+                            throughput * f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f)
+                            * shadowTransmittance;  // pkg253 G1
                         // pkg199 Stage 1 (role 2): attenuate the NEE contribution
                         // over the shadow-ray segment (vertex→lamp, ls.distance).
                         // throughput already carries the camera→vertex fog (role
@@ -3554,7 +3577,19 @@ public:
                     // pkg88-C.0: shadow rays carry the path's shutter time so
                     // moving geometry occludes at the sampled instant.
                     bool hitOccluder = bvh->hit(Ray(rec.point, wi, ray.time), 0.001f, ls.distance - 0.001f, shadow);
-                    bool occluded = hitOccluder && !(shadow.hitObject && shadow.hitObject->isInfiniteLight());
+                    bool infiniteLightHit = hitOccluder && shadow.hitObject && shadow.hitObject->isInfiniteLight();
+                    // pkg253 G1: an occluder with shadowAlpha<1 (Principled Alpha<1)
+                    // attenuates the shadow ray by (1-alpha) instead of unconditionally
+                    // blocking it (Cycles "Transparent Shadows"; single-occluder scope,
+                    // see Material::shadowAlpha). shadowTransmittance==1.0 whenever no
+                    // occluder is hit or the default (opaque) shadowAlpha()==1.0 applies,
+                    // so every pre-pkg253 render is byte-identical.
+                    float shadowTransmittance = 1.0f;
+                    if (hitOccluder && !infiniteLightHit) {
+                        shadowTransmittance = shadow.material
+                            ? (1.0f - shadow.material->shadowAlpha(shadow)) : 0.0f;
+                    }
+                    bool occluded = shadowTransmittance <= 0.0f;
                     if (!occluded) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
@@ -3566,7 +3601,8 @@ public:
                         // delta-light NEE samples always get full MIS weight.
                         float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
                         astroray::SampledSpectrum neeContrib =
-                            throughput * f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f);
+                            throughput * f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f)
+                            * shadowTransmittance;  // pkg253 G1
                         color += clampContribSpectral(neeContrib, lambdas, bounce);
                     }
                 }

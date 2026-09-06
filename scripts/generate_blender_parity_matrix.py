@@ -503,6 +503,35 @@ def scan_addon_source_for_evidence(addon_module):
                                         'source_lines': [child.lineno],
                                     }
 
+            # pkg253: _principled_native_params (pkg178 Stage 5) reads the FULL
+            # native-routing socket map onto local `put_float(dst, *names)` /
+            # `put_vec(dst, *names)` closures — a helper function the primary
+            # scanner never opens, same blind-spot class as pkg229's op-VM fix
+            # above (a called-but-not-inlined handler). `dst` (args[0]) is the
+            # internal native param key; args[1:] are the actual Blender socket
+            # names read (first match wins across version renames — all listed
+            # names are live reads, so every one is credited, matching the
+            # guarded/fallback-free treatment `_float_with_fallback` gets).
+            elif node.name == '_principled_native_params':
+                sockets = set()
+                for call in ast.walk(node):
+                    if (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                            and call.func.id in ('put_float', 'put_vec')):
+                        for arg in call.args[1:]:
+                            if isinstance(arg, ast.Constant) and not isinstance(arg.value, int):
+                                sockets.add(arg.value)
+                if 'BSDF_PRINCIPLED' in evidence:
+                    evidence['BSDF_PRINCIPLED']['sockets'].update(sockets)
+                else:
+                    evidence['BSDF_PRINCIPLED'] = {
+                        'sockets': sockets,
+                        'fallback_sockets': set(),
+                        'guarded_sockets': set(),
+                        'properties': set(),
+                        'classification': 'SUPPORTED',
+                        'source_lines': [node.lineno],
+                    }
+
             self.generic_visit(node)
 
     DedicatedHandlerScanner().visit(tree)

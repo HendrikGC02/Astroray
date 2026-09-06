@@ -10,20 +10,29 @@ try {
     }
 } catch {}
 
-# Only act on Bash tool calls that invoke git commit
+# Only act on Bash tool calls that invoke git commit. The current
+# PreToolUse payload nests the command at .tool_input.command; the other
+# two shapes are kept as fallbacks for parity with the sibling spec-lint hook.
 $command = ""
-if ($inputJson -and $inputJson.command) {
+if ($inputJson -and $inputJson.tool_input -and $inputJson.tool_input.command) {
+    $command = $inputJson.tool_input.command
+} elseif ($inputJson -and $inputJson.command) {
     $command = $inputJson.command
 } elseif ($inputJson -and $inputJson.input -and $inputJson.input.command) {
     $command = $inputJson.input.command
 }
 
-if ($command -notmatch "git\s+commit") {
+if ($command -notmatch "git\s+(-C\s+(?:'[^']*'|`"[^`"]*`"|\S+)\s+)?commit\b") {
     exit 0
 }
 
+# Resolve which repo checkout to check: a `git -C <path>` or `cd <path> &&`
+# commit may target a linked worktree, not the main checkout.
+. "$PSScriptRoot\_resolve_repo.ps1"
+$repoPath = Resolve-HookRepoPath -Command $command -PayloadCwd $inputJson.cwd
+
 # Check staged changes for diagnostic markers
-Set-Location $env:CLAUDE_PROJECT_DIR
+Set-Location $repoPath
 
 $markerPatterns = @(
     '\[pkg\d+-diag\]',

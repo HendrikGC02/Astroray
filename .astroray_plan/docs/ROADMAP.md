@@ -26,155 +26,34 @@ itself with a concrete caller today.
 
 ---
 
-## Current sequencing (OWNER DIRECTIVE 2026-08-03 — supersedes older "next pickup" lists below)
+## Current sequencing
 
-**2026-09-06 owner handoff:** the next milestone is **responsive camera/material
-edits, reliable cancellation, and faithful mapped textures**. Pkg241 leads with
-actual interactive measurements and then safe response/cancellation behavior;
-pkg240 runs as a parallel measured CI-throughput lane. Pkg242 procedural mapping
-and pkg245 normal/bump provenance retain their own scopes. Follow the
-[agent prompt](next-agent-prompt-pkg241-pkg240.md) and
-[rebuild handoff](rebuild-handoff-2026-09-06.md) for current evidence and artifact
-identity. The full rebuild exposed a standalone CUDA caller failure; pkg250
-landed as the bounded repair in #716 (`37f7343`), with local/native/visual and
-required CI checks passing. Existing astrophysics pauses are unchanged.
+**Authoritative direction lives in
+[`north-star-and-integration-gate-2026-09-07.md`](north-star-and-integration-gate-2026-09-07.md)**
+(owner-approved north star + the measurable Pillar-4 exit gate + the next
+4–6-week sequencing). Read that first; the summary below is a pointer, not a
+second source of truth.
 
+- **North star:** a spectral C++/CUDA path tracer for research-grade
+  astrophysical rendering, driven from inside Blender as the steering wheel.
+  Near-term bar: a production-capable Blender renderer with a fast interactive
+  GPU viewport on the RTX 5070 Ti, CPU as correctness oracle, Cycles-compatible
+  where Cycles is right. **correctness > fidelity > speed.**
+- **Pillar 4 stays PAUSED** until the exit gate (§2 of the north-star doc) is
+  met — viewport present p95 ≤ 100 ms, shader-socket coverage, three reference
+  scenes rendering CPU+GPU parity-clean, native adaptive-sampling + denoise,
+  zero high-severity addon bugs, a documented one-command install.
+- **Science-foundational side lane** (allowed while Pillar 4 is paused, ordered
+  behind the gate work): pkg243 raw band provenance, pkg133 SRF spectral
+  sensors, pkg130 light groups, pkg251 spectral reachability.
+- **Next rounds (~3 packages each):** R1 pkg241 Phase 0 + pkg237/238 +
+  pkg242; R2 pkg253 + pkg245 + pkg234/233; R3 pkg241 behavior + pkg251 +
+  pkg243; R4 pkg133 + pkg130 + pkg136 GPU. Full ranking and dependencies in the
+  north-star doc §4.
 
-After the 2026-08-01/02 correctness cascade (11 PRs), the owner issued a
-course correction. The order is now:
-
-**(a) Engine settlement — one SUPERVISED round.** ~~**PR #541 option
-A**~~ **shipped 2026-08-06 (`bbf2d8c`)** — correctness v4 landed with the
-temporary ceiling raise. ~~**pkg172 effect (A)**~~ **CLOSED** (PRs
-#551/#553/#576, 2026-08-07 → 2026-08-10 — pbrt-v4 guarded-pdf form, the
-universal 0.628%/bounce `f/(pdf+1e-3)` energy loss removed CPU+GPU across
-all legs, coordinated clearcoat re-pin). **pkg174** register-pressure
-recovery closed as owner-accepted ceiling (PR #554, 2026-08-08 — the
-structural stage-split does not recover ≤1.0s on the current toolchain;
-temporary raise stays; see the spec for the measured levers). **Phase (a)
-COMPLETE.**
-
-**Round closeout (2026-08-06→07, workflow restructure):** #541 merged
-(`bbf2d8c`); local builds NMake→Ninja + native sm_120 + CUDA 12.8 (cold
-320.7→61.1s, `50b1d93`); sccache shared across worktrees (`0ddfa49`); CI
-docs-skip (~17min→11s on docs-only pushes) + concurrency-cancel + caches;
-pytest CPU/GPU split + xdist (#545, `c2e7bc3`); opencode delegation layer
-(`78b451b`) — open-model grunt/implement/verify tiers behind an
-evidence-contract wrapper, Claude retained on all last-line-of-defense
-seats. Full report: `.astroray_plan/docs/reports/2026-08-06-restructure.html`.
-
-**(b) The Integration Milestone — BEFORE Pillar 4.** *"The purpose of
-mimicking Cycles was to be able to use as much of the existing options and
-settings in Blender as the steering wheel for this engine."* All four
-originally-scoped milestone packages are now DONE, and the milestone grew
-one owner-requested extension along the way:
-
-- **pkg175** — DONE (PR #547, 2026-08-07): one-command dev loop
-  (build → package → install → launch → headless smoke-render); 150s full
-  rebuild / 5.8s `-SkipBuild`.
-- **pkg176** — DONE, Stages 0–4 (PRs #555/#556/#561/#568, 2026-08-08 →
-  2026-08-09): Blender's NATIVE render settings + Cycles-style panels +
-  native world/light/camera properties are the steering wheel; the custom
-  ground-up UI is retired down to one Astroray-only panel.
-- **pkg177** — DONE (PR #546, ratified 2026-08-07): Route 1 (native
-  `RenderEngine` plugin) + Route 2 (session-boundary discipline) adopted;
-  Route 3 (Hydra) deferred. Research: `dcc-integration-research-2026-08.md`.
-- **pkg119 Phases B/C** — DONE (PRs #550, #564): differential harness vs
-  Cycles + graceful-degradation policy (never silently wrong).
-- **pkg178 (owner-requested extension, filed 2026-08-08)** — DONE, Stages
-  0–5 (PRs #566–#581, 2026-08-07 → 2026-08-10): a faithful native
-  `"principled"` material plugin (Cycles main / Blender 5.2-era) — the
-  Disney↔Principled structural mismatch the milestone's parity numbers
-  kept running into. Full closure stack incl. coat/sheen/anisotropy/
-  approx-SSS/emission/alpha/**thin film + thin wall** (Belcour-Barla),
-  CPU+GPU, driven from the Blender addon Stage 5 socket routing.
-  **pkg181** (dedicated-light BSDF visibility, PR #569) and **pkg182**
-  (`ggxReflect` eval-D/pdf-D consistency, PR #582) are correctness
-  prerequisites/side-findings this extension surfaced and closed along
-  the way. **pkg179** (dielectric dead-sample "3× rate") was CLOSED by
-  diagnosis — mislabel, no fix needed.
-
-**Integration Milestone phase (b) is COMPLETE on its originally-scoped
-package set.** Open, not blocking: thin-film-vs-Cycles saturation parity
-verification + one coordinated pkg119-B/pkg129 harness band re-pin
-(reflecting pkg181 + Smith-G + pkg172(A) + thin-film + pkg182 together).
-
-**(c) Pillar 4 unpause** (pkg45/46/48/49/50/51 + pkg107) and the GR/astro
-science layer, driven from inside Blender via the steering wheel the
-milestone built, is next in sequence per the 2026-08-03 directive — **still
-PAUSED pending an explicit owner go-ahead** (no unpause directive has been
-issued; do not unpause unilaterally).
-
-**Owner assessment (2026-08-29):** the originally-scoped Integration
-Milestone package set (b) is COMPLETE, but the owner judges the Pillar 4
-gate NOT MET — Blender integration is "still a ways off" in practice.
-Specifically: socket coverage is 117 SUPPORTED / 22 APPROXIMATED / 385
-DROPPED-SILENT of 524 (pkg219 per-texel shader eval, now DONE, is expected
-to cascade into resolving many of the DROPPED-SILENT shader-node sockets —
-re-audit the coverage numbers next pass); hair/curve rendering has since
-advanced hard (2026-09-03: pkg225-S1 CPU ray-curve intersection + S2 CPU
-Principled Hair BSDF LANDED and visually verified — anisotropic fiber sheen;
-S3 GPU curve geometry landing; S4 GPU hair BSDF next), plus scalar parameter
-textures (pkg219d) shipped both backends — so the "entirely absent" hair gap is
-closing, though the addon curve-ingest (Stage 6) + viewport story remain;
-viewport UI fps is coupled to render fps rather than uncoupled as in Cycles
-(a UX gap to investigate — Cycles uncouples viewport interaction fps from
-render progressive-refinement fps). **All features being built should be
-"future-aware"** — designed with awareness of what Pillar 4 and the
-astrophysical pipeline will need from them (volumes for nebulae, curves for
-filaments, spectral for emission lines).
-
-**Current active queue (2026-09-06):** pkg225 hair rendering is complete through
-S6 (PRs #670, #673, #676, #681–#684). pkg127 Phase 1 is landed (#685), pkg229's
-coverage re-audit is landed (spec #692 + re-audit #695), and pkg136 CPU Stage 1
-(1A+1B) is landed (#693/#694). **pkg136's ≥2× variance campaign is CONCLUDED, not
-pending:** ≥2× is a scene-physics ceiling in a real NEE integrator (the de-risked
-110× prototype had no NEE), not a bug — the campaign instead found and fixed a
-real architectural bug (discarded training samples: 3× ray waste + a high-α dark
-bias) and delivered a genuine ~1.3× equal-cost win on the hard-transport slot
-scene (#694). **pkg230 Phase 1 (op-VM utility opcodes: Clamp + Math `use_clamp` +
-Mix `clamp_result`) is landed (#696)** — CI green + RTX HW-verified (REG:254 held).
-**pkg230 Phase 2 (Vector Math + Vector Rotate op-VM opcodes + faithful Mix
-`clamp_factor=OFF`) is LANDED in PR #701**, merged 2026-09-06 Sydney at
-`b38a7d8471884c43c7aa5a2fd60ddb447c859309`. Independent Claude final SIGN-OFF
-covered reviewed source `4035a00`; both host CI and CUDA syntax runs passed.
-Local hardware/visual gates passed with the two reproduced baseline test
-failures explicitly retained under pkg237/pkg238. Do not redispatch Phase 2.
-Full evidence:
-[pkg230-phase2-delivery-evidence.md](pkg230-phase2-delivery-evidence.md). pkg219d
-scalar parameter textures remain landed (#674); pkg210 is SUPERSEDED and pkg180
-CLOSED.
-**Owner update 2026-09-06:** Astra chooses next-package priority and parallel
-lower backlog. While Claude is unavailable, the owner authorizes Terra or
-DeepSeek independent review and accepts documented reversible risks this round.
-**pkg230b LANDED #708 (`8217234b`)** after Terra source/caller/binding/visual
-SIGN-OFF and green PR host/CUDA CI (2133 host tests passed). Local 101 focused
-passes, 21 CPU/GPU/Cycles legs and isolated CPU/CUDA package smokes passed;
-the full local suite remains 2370 passed / two reproduced baseline failures
-(pkg237/pkg238), not green. Neither baseline failure is closed.
-**pkg232 LANDED #705**; specs241–248 filed #704/#706/#709 with independent filing
-review, implementation gates remain pending. **pkg236 LANDED #711 (`2699b43`)**,
-with Terra final SIGN-OFF, 62 focused passes, the exact real-Blender local-host
-pass, PowerShell 7/5.1 CPU smokes and 471 unchanged live-profile files.
-Both CI runs passed host/CUDA checks: 2173 passed, 277 skipped, 15 xfailed,
-4 xpassed. Retain the existing reference-smoke advisory failure (two passed
-gates, one failed); pkg249 owns separate diagnosis. Do not duplicate-dispatch.
-**pkg240 baseline audit landed #712**; its controlled trial requires detailed
-architecture. No CI behavior change or candidate speedup is claimed.
-**Next main feature: pkg241 Phase0**, finish the existing interactive recorder
-and measure actual UI/cancel response before behavior changes; then pkg242
-procedural mapping and pkg245 normal/bump provenance. pkg240 CI cost audit is a
-useful parallel throughput lane; pkg244 shares builder ownership with pkg236.
-pkg127 Phase2 still needs topology/spec reconciliation. Spark CLI access is
-verified for bounded work without changing account/configuration; native
-subagent availability is a separate interface limit.
-See [round delivery status](round-20260906-delivery-status.md).
-**Pillar4 remains PAUSED.**
-
-**Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU
-parity tail — **pkg172 effect (B) / pkg173** (bounce-1 geometry-sampling
-expectations) and the **pkg153** remainder — sits BELOW the Integration
-Milestone unless the paper turns out to require bit-level parity.
+**Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU parity
+tail — pkg172 effect (B) / pkg173 and the pkg153 remainder — sits below the
+integration gate unless a paper requires bit-level parity.
 
 ---
 
@@ -244,15 +123,16 @@ back without user intervention.
 
 ### Pillar 4 — Astrophysics platform
 
-> **PAUSED (2026-06-08, owner) — unpause is sequenced AFTER the Integration
-> Milestone** (see "Current sequencing" at the top): the science layer gets
-> built and exercised from inside Blender via the steering wheel.
-> **Owner assessment (2026-08-29):** despite the Integration Milestone's
-> original package set being COMPLETE, the owner judges the Pillar 4
-> gate NOT MET — Blender integration has gaps (shader-node socket coverage,
-> zero hair/curve support, viewport fps coupling). The specs from the
-> Pillar 4 era are outdated and will receive a full audit pass when the
-> owner is ready to unfreeze. Do not unpause unilaterally.
+> **PAUSED (2026-06-08, owner; reaffirmed 2026-09-07) — unpause is gated on the
+> MEASURABLE Pillar-4 exit checklist in
+> [`north-star-and-integration-gate-2026-09-07.md`](north-star-and-integration-gate-2026-09-07.md)
+> §2**, not a prose judgement. The gate covers viewport responsiveness,
+> shader-socket coverage, three reference scenes rendering CPU+GPU parity-clean,
+> native adaptive-sampling + denoise, zero high-severity addon bugs, and a
+> documented one-command install. As of 2026-09-07 the gate is NOT MET
+> (DROPPED-SILENT sockets 64.5%, real viewport present latency unmeasured, one
+> of three reference scenes NOT GREEN on GPU). The Pillar-4-era specs are
+> outdated and get a full audit pass at unpause. Do not unpause unilaterally.
 
 > **Thaw notice (2026-05-10) + shipping (2026-05-11+):** the strategic
 > gate released, and Pillar 4 is actively shipping. pkg40 (Kerr

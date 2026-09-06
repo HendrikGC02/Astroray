@@ -1,10 +1,10 @@
 # pkgNN — Package Title
 
-**Pillar:** <1-5> <!-- MUST be a bare integer 1-5 (blank only for infrastructure) so the tracker's parsePackageMd_ extracts it -->  
-**Track:** A / B / C / D  
-**Status:** open / in-progress / done  
-**Estimated effort:** e.g. 1 session (~3 h), 3 sessions (~9 h), 1 week  
-**Depends on:** pkgXX, pkgYY (or "none")
+**Pillar:** 1
+**Track:** A
+**Status:** open
+**Estimated effort:** e.g. 1 session (~3 h), 3 sessions (~9 h), 1 week, or TBD
+**Depends on:** none
 
 ---
 
@@ -22,6 +22,16 @@ serve? What breaks without it?
 
 Keep this under 150 words. If you find yourself writing more, the
 package is probably too big.
+
+---
+
+## Evidence
+
+*(Optional. Dated, factual bullets only — measurements, log excerpts,
+gate output. No narrative. Omit this section entirely if there is
+nothing to cite yet.)*
+
+- 2026-MM-DD: `<fact>`
 
 ---
 
@@ -58,10 +68,17 @@ needed:
 |---|---|
 | `path/to/existing.cpp` | What and why |
 
+An empty table (nothing to create, or nothing to modify) is written as
+the single line `None.` instead of an empty header/separator.
+
 ### Key design decisions
 
 Describe any decisions that are not obvious from the goal. If the
 answer is "follow the pattern in pkgXX," say that explicitly.
+
+If the package has phases, or an owner-decided fork between competing
+approaches, break them out as `####` subsections here (e.g.
+`#### Phase 1`, `#### Fork (a): ...`) — never as a new `##` section.
 
 ---
 
@@ -100,3 +117,36 @@ Update this section as work proceeds. Do not delete old entries.
 
 What was harder than expected? What would you do differently? What
 should the next agent know before starting a similar package?
+
+<!--
+TEMPLATE v2 GRAMMAR (2026-09). Delete this comment in real specs.
+
+Header (five bold fields, one physical line each, contiguous, in this
+exact order, directly after the title line):
+  **Pillar:**            bare integer 1-5, or empty for infrastructure
+  **Track:**             a single letter A-D
+  **Status:**            open | in-progress | blocked | paused | done |
+                          superseded, optionally followed by
+                          " — <free text>" (em dash), e.g.
+                          "done — PR #716, 2026-09-06"
+  **Estimated effort:**  one line; "TBD" if unknown
+  **Depends on:**        none | TBD | pkg12, pkg219, pkg223b
+                          (comma-separated pkg tokens only; every token
+                          must resolve to an existing
+                          packages/pkg<token>-*.md file)
+No other **Field:** lines belong in the header — prose that used to
+live there (Priority, Implementer tier, Dispatch authority, ...) goes
+into ## Context as sentences instead.
+
+Sections (## only, in this order): Goal, Context, Evidence (optional),
+Reference, Prerequisites, Specification, Acceptance criteria,
+Non-goals, Progress, Lessons.
+
+Specification's ### subsections, in order: Files to create, Files to
+modify, Key design decisions. Each files table uses a
+`| File | Purpose |` or `| File | What changes |` header, a
+`|---|---|` separator, then rows with a backticked path (no whitespace)
+in the first cell; an empty table is the single line `None.` instead.
+
+Validated by: python scripts/project_index.py lint <spec.md>
+-->

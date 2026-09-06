@@ -43,7 +43,8 @@ Protocol:
    Your framing can be 3–5 lines. The question itself is one line.
 6. After dialogue converges: write the package spec(s) to
    `.astroray_plan/packages/`, tag each with `Track: A/B/C/D`.
-   Open a PR with all new/updated docs.
+   Open a PR with all new/updated docs. New specs must pass
+   `python scripts/project_index.py lint` against `TEMPLATE.md`.
 
 ### (b) state+refine
 

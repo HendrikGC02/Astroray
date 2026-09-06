@@ -85,6 +85,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
   trusted. Claude stays on last-line-of-defense judgment: architect/specs,
   cycles-parity, ABI reachability, gate-failure root-cause, merge decisions,
   visual inspection. Tier→model mapping: `.claude/skills/delegate/config/tiers.json`.
+- Package specs must pass `python scripts/project_index.py lint`; template:
+  `.astroray_plan/packages/TEMPLATE.md`.
 
 ### 5c. Product direction, delivery, and visual proof
 

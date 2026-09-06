@@ -20,6 +20,13 @@ below.
 to the tracker logic lands here first, then gets pasted into the standalone Apps
 Script project in Google Drive.
 
+A second, newer copy had drifted to `Google_Apps_Script.txt` at the repo root
+(standalone-project bootstrap, a Prompts sheet, and TEMPLATE v2-aware status/
+pillar parsing). That drift is resolved as of 2026-09-07: the root copy was
+folded into this file and removed. Paste the current `astroray_dashboard.gs`
+into the standalone Apps Script project (see Recovery procedure below) and run
+`refresh()` to pick up the parser changes.
+
 ## Recovery procedure
 
 1. Open <https://script.google.com/u/0/home> → **New project**.

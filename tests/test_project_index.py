@@ -5,6 +5,7 @@ can't rot (they discover the packages/paths they assert on from the built DB).
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -221,3 +222,121 @@ def test_graph_html_is_wellformed(built_db, tmp_path):
     assert html.rstrip().endswith("</html>")
     assert "3d-force-graph" in html
     assert "__DATA__" not in html  # template placeholder was substituted
+
+
+# --- 8. Spec lint (pkg TEMPLATE v2) ----------------------------------------
+
+_VALID_SPEC_SKELETON = """# {pkg} — {title}
+
+**Pillar:** 1
+**Track:** A
+**Status:** {status}
+**Estimated effort:** TBD
+**Depends on:** {depends}
+
+---
+
+## Goal
+
+x
+
+## Context
+
+x
+
+## Reference
+
+x
+
+## Prerequisites
+
+x
+
+## Specification
+
+### Files to create
+
+None.
+
+### Files to modify
+
+None.
+
+### Key design decisions
+
+x
+
+## Acceptance criteria
+
+x
+
+## Non-goals
+
+x
+
+## Progress
+
+x
+
+## Lessons
+
+x
+"""
+
+
+def _load_project_index_module():
+    spec = importlib.util.spec_from_file_location("project_index_lint_test", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_lint_all_exits_zero_with_baseline(built_db):
+    r = run("lint", "--all")
+    assert r.returncode == 0, f"stdout:\n{r.stdout}\nstderr:\n{r.stderr}"
+
+
+def test_lint_rejects_multiline_header(tmp_path):
+    spec = tmp_path / "pkg997-multiline-header-probe.md"
+    text = _VALID_SPEC_SKELETON.format(
+        pkg="pkg997", title="multiline header probe", status="open", depends="none"
+    )
+    # Insert spillover prose directly after the Depends-on line (non-blank,
+    # not another **Field:**, not "---") — a forbidden multi-line header.
+    text = text.replace(
+        "**Depends on:** none\n\n---",
+        "**Depends on:** none\nspillover text that must not be here\n\n---",
+    )
+    spec.write_text(text, encoding="utf-8")
+    r = run("lint", str(spec))
+    assert r.returncode == 1, f"stdout:\n{r.stdout}"
+    assert "E005" in r.stdout
+
+
+def test_lint_rejects_offvocab_status(tmp_path):
+    spec = tmp_path / "pkg996-offvocab-status-probe.md"
+    text = _VALID_SPEC_SKELETON.format(
+        pkg="pkg996", title="offvocab status probe", status="LANDED", depends="none"
+    )
+    spec.write_text(text, encoding="utf-8")
+    r = run("lint", str(spec))
+    assert r.returncode == 1, f"stdout:\n{r.stdout}"
+    assert "E008" in r.stdout
+
+
+def test_lint_unresolved_dependency(tmp_path):
+    spec = tmp_path / "pkg995-unresolved-dependency-probe.md"
+    text = _VALID_SPEC_SKELETON.format(
+        pkg="pkg995", title="unresolved dependency probe", status="open", depends="pkg999"
+    )
+    spec.write_text(text, encoding="utf-8")
+    r = run("lint", str(spec))
+    assert r.returncode == 1, f"stdout:\n{r.stdout}"
+    assert "E011" in r.stdout
+
+
+def test_status_token_v2():
+    mod = _load_project_index_module()
+    assert mod._status_token("done — PR #716") == "done"
+    assert mod._status_token("in-progress — x") == "in-progress"
+    assert mod._status_token("done (PR #540)") == "done"

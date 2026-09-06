@@ -6,7 +6,7 @@
 
 - **C++17 compiler**: MSVC 2019+ (Windows), GCC 10+, or Clang 12+
 - **CMake** 3.18+
-- **Python** 3.11+ (3.13 recommended — matches Blender 5.x)
+- **Python** 3.11+ (3.13 recommended — matches Blender 5.2)
 - **pybind11**, **OpenImageIO**, **OpenEXR** (or install via `requirements.txt`)
 
 ```bash
@@ -16,9 +16,9 @@ python3 -m pip install -r requirements.txt
 ### Optional (NVIDIA GPU users)
 
 These unlock GPU rendering and hardware-accelerated denoising. Astroray
-builds and runs CPU-only without them; CMake auto-detects what's
-installed and silently disables the corresponding code paths if not
-found.
+builds and runs CPU-only without them. Optional denoisers are auto-detected.
+The addon builder's default CUDA request requires NVCC; select `--backend cpu`
+for a CPU-only package or `--backend auto` for explicit compiler-based selection.
 
 - **CUDA Toolkit 12.x** — GPU path tracer + OIDN-CUDA denoiser backend.
   Standard NVIDIA installer.
@@ -138,7 +138,9 @@ Test artifacts (rendered PNGs) are written to `test_results/` (gitignored).
 build\bin\Release\raytracer.exe --scene 1 --width 800 --height 600 --samples 64 --depth 50 --output output.png
 ```
 
-CLI flags: `--scene`, `--width`, `--height`, `--samples`, `--depth`, `--output`, `--help`
+CLI flags: `--scene`, `--width`, `--height`, `--samples`, `--depth`, `--output`,
+`--device auto|gpu|cpu` (with `--gpu` / `--cpu` aliases), `--integrator`,
+`--integrator-param key=value`, `--envmap <hdr>`, `--help`
 
 ---
 
@@ -152,8 +154,13 @@ Blender ships its own Python **without** development headers, so the C++ module 
 
 | Blender version | Bundled Python | Required system Python |
 |---|---|---|
-| 5.1+ | 3.13 | `python3.13` / `Python.Python.3.13` |
-| 4.x | 3.11 | `python3.11` / `Python.Python.3.11` |
+| 5.2 | 3.13 | `python3.13` / `Python.Python.3.13` |
+
+The current extension requires Blender **5.2+** (`blender_manifest.toml`:
+`blender_version_min = "5.2.0"`); 5.1 and 4.x are not supported. Rather than
+assuming a fixed future Python, let the canonical script
+(`scripts/build/build_blender_addon.py`) probe the exact Blender install's
+bundled Python minor version and pick a matching host Python.
 
 Install if needed:
 ```bash
@@ -186,25 +193,32 @@ python scripts/build/build_blender_addon.py --install
 python scripts/build/build_blender_addon.py --clean
 ```
 
-The script auto-detects whether to use MinGW or MSVC based on what's available in `PATH`. It always passes `-DASTRORAY_ENABLE_CUDA=OFF` and `-DASTRORAY_DISABLE_OPENMP=ON` for Blender compatibility.
+The script's `--backend` default is `cuda` (CUDA ON); `cpu` is opt-in and
+`auto` probes for `nvcc` (CUDA if found, else CPU). It always passes
+`-DASTRORAY_DISABLE_OPENMP=ON` for Blender compatibility (OpenMP deadlocks
+inside Blender). On Windows, CUDA builds prefer the Ninja + MSVC generator;
+CPU builds can use MinGW Makefiles when gcc is on PATH.
 
 ### Output
 
 ```
 dist/
-├── astroray-<version>.zip   ← install via Blender > Preferences > Get Extensions
+├── astroray-<version>-cuda.zip   ← install via Blender > Preferences > Get Extensions
 └── astroray/                ← staged dir (also used for --install)
 ```
+
+The default CUDA build uses the filename above. Explicit `--backend cpu`
+produces `astroray-<version>.zip`; use the package path printed by the builder.
 
 ### Install in Blender
 
 **Option A — Extension installer (recommended):**
 1. `Edit > Preferences > Get Extensions`
 2. Click the dropdown (top-right) → `Install from Disk...`
-3. Select `dist/astroray-<version>.zip`
+3. Select `dist/astroray-<version>-cuda.zip`
 
 **Option B — Manual:**
-Unzip `dist/astroray-<version>.zip` into Blender's `extensions/user_default/` directory.
+Unzip `dist/astroray-<version>-cuda.zip` into Blender's `extensions/user_default/` directory.
 
 ---
 

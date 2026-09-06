@@ -7,7 +7,7 @@
 **Depends on:** pkg219a (coordinate/Mapping foundation in [pkg219](pkg219-per-texel-shader-graph.md)),
 [pkg223](pkg223-normal-map-node.md) (DONE PR #647),
 [pkg223b](pkg223b-bump-node.md) (DONE),
-[pkg230b](pkg230b-vector-coordinate-chain.md) (active).
+[pkg230b](pkg230b-vector-coordinate-chain.md) (DONE #708).
 No queue promotion. Pillar 4 remains PAUSED.
 
 ## Goal
@@ -30,7 +30,7 @@ ROADMAP and does not unpause Pillar 4.
 
 ## Existing coverage and boundary
 - pkg223 (DONE PR #647): native normal-map perturbation/TBN. pkg223b (DONE): Bump via UV-aligned surface-gradient; historical acceptance caveats apply. These statuses do not prove the mapped/named-UV export route.
-- pkg230b owns the primary affine image/program resolver and child-sampler cache work — exclude here; reuse it once landed.
+- Landed pkg230b (#708) owns the primary affine image/program resolver and child-sampler cache work — exclude here; reuse its existing behavior.
 - [pkg242](pkg242-procedural-mapping-bake-parity.md) owns procedural transformed-p/bake-domain changes, not this direct-image carrier.
 - Coordinate with [pkg234](pkg234-image-texture-filtering.md): the bump finite-difference step currently assumes nearest filtering, but no filtering policy is implemented here.
 

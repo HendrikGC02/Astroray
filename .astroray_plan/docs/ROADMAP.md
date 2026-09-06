@@ -7,10 +7,13 @@ because this roadmap points at it. New to the project? Read this first.
 
 ## Vision in one paragraph
 
-Astroray is a C++/CUDA path tracer with a Blender 5.1 addon, aiming to be
-the best open-source engine for physically-accurate astrophysical
-visualization while remaining competitive as a general-purpose PBR
-renderer. The design goal is **pluggability** — new materials, shapes,
+Astroray is a C++/CUDA path tracer with a Blender 5.2+ addon. Near-term delivery
+prioritizes a production-capable Blender/DCC renderer: responsive GPU interaction,
+trustworthy CPU fallback, and Cycles-compatible behavior where appropriate.
+The long-term target remains research-grade astrophysical rendering and
+scientific visualization. Spectral transport, dispersion, infrared/band-aware
+outputs and robust physical transport are foundations of both goals; Pillar 4
+remains paused under the current sequencing below. The design goal is **pluggability** — new materials, shapes,
 light transport techniques, and astrophysical phenomena should be
 drop-in plugins that register into a small set of factory registries,
 not patches to core files. A veteran engineer looking at the codebase
@@ -24,6 +27,18 @@ itself with a concrete caller today.
 ---
 
 ## Current sequencing (OWNER DIRECTIVE 2026-08-03 — supersedes older "next pickup" lists below)
+
+**2026-09-06 owner handoff:** the next milestone is **responsive camera/material
+edits, reliable cancellation, and faithful mapped textures**. Pkg241 leads with
+actual interactive measurements and then safe response/cancellation behavior;
+pkg240 runs as a parallel measured CI-throughput lane. Pkg242 procedural mapping
+and pkg245 normal/bump provenance retain their own scopes. Follow the
+[agent prompt](next-agent-prompt-pkg241-pkg240.md) and
+[rebuild handoff](rebuild-handoff-2026-09-06.md) for current evidence and artifact
+identity. The full rebuild exposed a standalone CUDA caller failure; pkg250
+landed as the bounded repair in #716 (`37f7343`), with local/native/visual and
+required CI checks passing. Existing astrophysics pauses are unchanged.
+
 
 After the 2026-08-01/02 correctness cascade (11 PRs), the owner issued a
 course correction. The order is now:

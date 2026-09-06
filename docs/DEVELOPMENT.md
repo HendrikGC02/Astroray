@@ -13,10 +13,10 @@ full developer workflow and the Windows footguns.
 | Component | Version | Notes |
 |---|---|---|
 | Visual Studio 2022 Build Tools | MSVC v143 (14.4x) | C++ workload. The VS CMake generator finds it itself — no `vcvars` needed for `configure_and_build.bat`. |
-| CUDA Toolkit | 12.6+ (12.8 workstation, 13.2 laptop) | `nvcc` on PATH or default install path. Targets `sm_75;86;89` (see "GPU architectures"). With several toolkits installed, the CMake VS integration picks the **newest** — not the one on PATH. |
-| CMake | 3.24+ | VS generator used for the canonical build. |
+| CUDA Toolkit | 12.8 for the sm_120 workstation; 13.2 on the laptop | Local wrappers pin the selected NVCC and native GPU arch. Broad-compatibility builds need an explicit supported arch list; verify the actual compiler/cache and embedded code. |
+| CMake | 3.24+ | Ninja generator used for the canonical build; the VS generator is the legacy alternative. |
 | Python | 3.13 x64 | Must match Blender 5.2's bundled Python minor version for addon work. `winget install Python.Python.3.13`. `pip install -r requirements.txt`. |
-| Blender | 5.1 | Only for addon work / cross-engine benchmarks. Auto-detected at the default install path, or set `BLENDER_EXE`. |
+| Blender | 5.2 | Only for addon work / cross-engine benchmarks. Auto-detected at the default install path, or set `BLENDER_EXE`. |
 | OptiX SDK | 8.x / 9.x (optional) | OptiX denoiser. Auto-detected from `C:\ProgramData\NVIDIA Corporation\OptiX SDK 9.x.x\` or `OPTIX_INSTALL_DIR`. Without it, the denoiser falls back to OIDN. |
 | OIDN | 2.4+ (optional install) | CMake finds a local install (e.g. `C:\oidn`, `C:\Program Files\Intel\OpenImageDenoise`) and otherwise **fetches the v2.4.1 prebuilt automatically** during configure — a fresh machine needs nothing. |
 
@@ -53,7 +53,7 @@ Astroray on Windows is always built **twice**, into two separate build dirs:
    deadlocks inside Blender 5.2 on Windows with BOTH MinGW libgomp and MSVC
    vcomp** (diagnosed in PR #471). It stages `dist/astroray/` (addon +
    `.pyd` + CUDA runtime DLLs + OIDN DLLs) and zips
-   `dist/astroray-<version>.zip` for `Install from Disk...`.
+   `dist/astroray-<version>-cuda.zip` for `Install from Disk...`.
 
    **Never load the OpenMP test build's `.pyd` into Blender.** The two build
    dirs exist precisely so the artifacts cannot be confused.
@@ -64,9 +64,11 @@ Astroray on Windows is always built **twice**, into two separate build dirs:
 Turing, Ampere (RTX 3000 = sm_86), Ada — for distributable/CI builds;
 Blackwell cards (RTX 5070 Ti = sm_120) then run the `compute_89` PTX via
 JIT. **Local dev builds override this**: `scripts/build/build_cuda.bat` and
-`build_cuda_worktree.bat` pass `-DASTRORAY_CUDA_ARCHS=native` (AOT sm_120,
-~3× less device compile work; a *build-time* win — distinct from the
-separate pkg155 runtime finding about sm_120 AOT documented below). The
+`scripts/build/build_cuda_worktree.bat` pass `-DASTRORAY_CUDA_ARCHS=native`
+(AOT sm_120). The separate repo-root `build_cuda_worktree.bat` uses the existing
+VS cache and does not configure it. Reducing the compiled arch list does not
+establish a speedup for the current source/toolchain; pkg231 owns matched build
+latency diagnosis. The
 tiny-cuda-nn targets keep the fixed list (`TCNN_CUDA_ARCHITECTURES`, floor
 `TCNN_MIN_GPU_ARCH=75`).
 
@@ -141,10 +143,14 @@ Rules that save hours:
 ## Blender addon on a second machine
 
 1. Build + install: `python scripts/build/build_blender_addon.py --backend cuda --install`
-   (or copy `dist/astroray-<version>.zip` and install via
+   (or copy `dist/astroray-<version>-cuda.zip` and install via
    `Edit > Preferences > Get Extensions > Install from Disk...`).
    The staged addon bundles the CUDA runtime DLLs (cublas/cudart/nvrtc) and
    OIDN — the target machine only needs an NVIDIA driver, not the toolkit.
+   The default package targets the build machine's native GPU. For a different
+   GPU, build on that machine or pass an explicit supported list such as
+   `--cuda-archs "75;86;89;120"`; a native sm_120 package is not an older-GPU
+   compatibility claim. Verify the target's actual import, arch and render.
 2. On Python 3.13, DLL resolution is strict: the addon (and all headless
    harness scripts) call `os.add_dll_directory()` for the `.pyd` dir and the
    CUDA runtime — if you wire up a custom loader, replicate that.
@@ -162,11 +168,16 @@ Rules that save hours:
 ## Standalone renderer
 
 ```bat
-build_cuda\bin\Release\raytracer.exe --scene 1 --width 800 --height 600 ^
+build_cuda\bin\raytracer.exe --scene 1 --width 800 --height 600 ^
     --samples 128 --depth 8 --device gpu --output cornell.png
 ```
 
-`--device auto|gpu|cpu`, `--integrator <name>` (e.g.
-`wavefront_path_tracer`), `--integrator-param key=value`, `--envmap <hdr>`.
+The canonical Ninja build lands the exe at `build_cuda\bin\raytracer.exe`;
+the legacy VS multi-config build puts it under `build_cuda\bin\Release\`.
+
+`--device auto|gpu|cpu` (with `--gpu` / `--cpu` aliases), `--integrator <name>`
+(e.g. `path_tracer`), `--integrator-param key=value`, `--envmap <hdr>`.
+The CUDA standalone backend currently supports `path_tracer` only
+(`apps/main.cpp`); `wavefront_path_tracer` is not the GPU CLI selection name.
 The exe needs the OIDN and CUDA runtime DLLs on PATH when run outside the
 test harness (e.g. `set PATH=C:\oidn\bin;%CUDA_PATH%\bin;%PATH%`).

@@ -2,6 +2,7 @@
 #include "raytracer.h"
 #include "astroray/shader_vm.h"   // pkg219b — bounded per-texel op-VM
 #include <utility>
+#include <cstdio>   // pkg242 — visible warning for singular Mapping matrices
 
 // ============================================================================
 // TEXTURES
@@ -50,6 +51,16 @@ protected:
             mapping_[0]*p.x + mapping_[1]*p.y + mapping_[2]*p.z  + mapping_[3],
             mapping_[4]*p.x + mapping_[5]*p.y + mapping_[6]*p.z  + mapping_[7],
             mapping_[8]*p.x + mapping_[9]*p.y + mapping_[10]*p.z + mapping_[11]);
+    }
+
+    // pkg242 — determinant of the 3x3 linear block of the 3x4 Mapping matrix.
+    // Near-zero means a singular (collapsing) transform: the coordinate field
+    // degenerates to a plane/line/point and the procedural becomes constant.
+    float mappingLinearDet() const {
+        float a = mapping_[0], b = mapping_[1], c = mapping_[2];
+        float d = mapping_[4], e = mapping_[5], f = mapping_[6];
+        float g = mapping_[8], h = mapping_[9], i = mapping_[10];
+        return a*(e*i - f*h) - b*(d*i - f*g) + c*(d*h - e*g);
     }
 
     Vec2 applyUVTransform(const Vec2& uv) const {
@@ -176,20 +187,24 @@ public:
     virtual Vec3 value(const Vec2& uv, const Vec3& p) const = 0;
     Vec3 value(const HitRecord& rec, const Vec3& wo) const {
         auto [uv, p] = textureCoordinates(rec, wo);
-        // pkg219a: full 3-D Mapping applies to the texture coordinate. The
-        // image sample uses (M*p).xy; p (untransformed) still feeds procedural
-        // value(uv,p) so pkg190 voxel bakes stay byte-identical.
+        // pkg242 — one transformed-coordinate contract: the 3-D Mapping applies
+        // to BOTH the 2-D image sample coord (M*p).xy AND the procedural point
+        // fed to value(uv,p), so Checker/Wave/Noise sample the transformed field
+        // (identical to the GPU bake domain folded in scene_upload.cu). Image
+        // and program consumers ignore p, so their behavior is unchanged
+        // (pkg230b retained). hasMapping_==false keeps the legacy path
+        // byte-identical (untransformed baseline).
         if (hasMapping_) {
             Vec3 mp = applyMappingPoint(p);
-            return value(Vec2(mp.x, mp.y), p);
+            return value(Vec2(mp.x, mp.y), mp);
         }
         return value(applyUVTransform(uv), p);
     }
     Vec3 valueOffset(const HitRecord& rec, const Vec3& wo, float du, float dv) const {
         auto [uv, p] = textureCoordinates(rec, wo);
-        if (hasMapping_) {
+        if (hasMapping_) {  // pkg242 — transform the procedural point too (see value())
             Vec3 mp = applyMappingPoint(p);
-            return value(Vec2(mp.x + du, mp.y + dv), p);
+            return value(Vec2(mp.x + du, mp.y + dv), mp);
         }
         Vec2 t = applyUVTransform(uv);
         return value(Vec2(t.u + du, t.v + dv), p);
@@ -231,9 +246,25 @@ public:
     void setMappingMatrix(const float m12[12]) {
         for (int i = 0; i < 12; ++i) mapping_[i] = m12[i];
         hasMapping_ = true;
+        // pkg242 — a singular (zero-determinant) linear part collapses the
+        // coordinate field, so the procedural degenerates to a constant. Report
+        // it visibly instead of silently shading a flat surface.
+        float det = mappingLinearDet();
+        if (std::fabs(det) < 1e-8f)
+            std::fprintf(stderr,
+                "[pkg242] warning: texture Mapping matrix is singular "
+                "(det=%.3g); the procedural coordinate field collapses to a "
+                "constant.\n", det);
     }
     bool hasMapping() const { return hasMapping_; }
     const float* getMappingMatrix() const { return mapping_; }
+    // pkg242 — public coordinate transform onto the approved contract: applies
+    // the 3-D Mapping matrix when set, else identity (byte-identical). The GPU
+    // scene-upload folds this into the procedural bake so the device fetch stays
+    // transform-agnostic and register-neutral (no new per-hit shade state).
+    Vec3 mappedPoint(const Vec3& p) const {
+        return hasMapping_ ? applyMappingPoint(p) : p;
+    }
     void setUVLayerName(const std::string& name) { uvLayerName_ = name; }
     const std::string& getUVLayerName() const { return uvLayerName_; }
 
@@ -248,10 +279,10 @@ public:
             const HitRecord& rec, const Vec3& wo,
             const astroray::SampledWavelengths& lambdas) const {
         auto [uv, p] = textureCoordinates(rec, wo);
-        // pkg219a: full 3-D Mapping applies to the sample coord (see value()).
+        // pkg242 — full 3-D Mapping applies to the sample coord AND p (see value()).
         if (hasMapping_) {
             Vec3 mp = applyMappingPoint(p);
-            return sampleSpectral(Vec2(mp.x, mp.y), p, lambdas);
+            return sampleSpectral(Vec2(mp.x, mp.y), mp, lambdas);
         }
         return sampleSpectral(applyUVTransform(uv), p, lambdas);
     }

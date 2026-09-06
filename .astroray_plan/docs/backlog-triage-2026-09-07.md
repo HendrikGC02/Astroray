@@ -43,4 +43,4 @@ they were deleted (git history retains them).
 ## Test debt folded into a spec
 
 The ten `strict=False` xfails in `tests/test_python_bindings.py` ("not ported to the spectral path_tracer") get an
-owning spec, **pkg253 spectral path_tracer feature parity**, and become `strict=True` so an accidental fix is noticed.
+owning spec, **pkg254 spectral path_tracer feature parity** (pkg253 = Principled advanced inputs), and become `strict=True` so an accidental fix is noticed.

@@ -187,3 +187,29 @@ and `'MANUAL'` and compare against the ground-truth `.hdr` decode (0.0338). If C
 black-world probe shows Ground pixels inside the ROI, the gap is a fixture/ROI problem,
 not a Cycles bias, and the `HDRI_MIN_BACKGROUND_MEAN` floor must be re-derived from the
 ground-truth decode. Until then treat both engines' numbers as unconfirmed.
+
+## Owner decision + lead code read (2026-09-07 evening)
+
+Owner: "I doubt that [Cycles inflation]; I suspect the importance sampling from
+Astroray (from the HDRI) is borked and needs work." The lead's code read the same
+evening supports the owner's direction and is now the basis of **pkg258**
+(`packages/pkg258-hdri-environment-nee-importance-sampling.md`):
+
+- No reachable integrator performs environment next-event estimation. The in-header
+  spectral tracer says so at `include/raytracer.h:3105` ("No env NEE in
+  pathTraceSpectral, so env always contributes on miss"); the CPU wavefront kernel, the
+  multiwavelength tracer and the GPU wavefront all evaluate the environment only on a
+  BSDF-ray miss.
+- The CDF sampler exists on both backends (`EnvironmentMap::sample`/`pdf`,
+  `gpu_envmap_sample`/`gpu_envmap_pdf`) but has **no callers** and computes the
+  sampled azimuth in pixel units (`phi = (u + 0.5 - 0.5)·2π`, missing `/width`), so every
+  sample would point to azimuth 0 while carrying the correct texel's radiance and pdf.
+  `envSelectProb()` is dead code; `BackgroundLight::sampleLi` is a uniform-sphere stub
+  that nothing constructs. pkg63's "already wires env-MIS" progress line is stale.
+- Consequence for this doc: the receiver-lit part of the scene (the Ground plane and
+  everything the ROI's lower rows touch) is lit in Astroray by rare BSDF-sampled misses
+  under the firefly clamp, which biases dark; that is a candidate mechanism for the
+  Astroray side of the gap that experiments 1–4 never tested because they only varied the
+  Cycles side. Experiment 1a must be re-run after pkg258 lands, and the
+  `HDRI_MIN_BACKGROUND_MEAN` floor re-derived from the `.hdr` decode, before this doc's
+  "not in Astroray" conclusion is repeated anywhere.

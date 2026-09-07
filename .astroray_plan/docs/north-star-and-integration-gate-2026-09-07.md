@@ -118,6 +118,7 @@ no invented numbers. pkg253 (Principled advanced inputs) is being filed tonight
 - **pkg253** — Principled advanced inputs; highest-value single node (backlog row 1, 21 sockets). Sequence Alpha + Specular Tint first (cheapest, most-used). Gate (b).
 - **pkg245** — normal/bump image coordinate provenance. Gate (b)/(c). Pairs with the pkg223/pkg219 normal path.
 - **pkg234 + pkg233** — image-texture filtering honor + standalone-BSDF texture plumbing. Gate (b)/(c) texture fidelity. pkg233 unblocks textures on non-Principled BSDFs.
+- **pkg258** *(added 2026-09-07 evening)* — environment NEE + importance sampling: no reachable integrator samples the HDRI, and the dormant sampler is wrong. Gate (c) blocker for every HDRI-lit scene; owner-prioritised. CPU first, GPU wavefront under the lock.
 
 **Gate-closure order [Terra]:** pkg241 → pkg242/pkg245 → coverage-node work (pkg253, then Metallic/Sky/Displacement once filed) → three-scene corpus + settings/build/triage gates → science lane. Rounds 3–4 below are **conditional fill work**: a science-lane package is dispatched only when every gate-critical package is blocked or under review.
 
@@ -125,6 +126,8 @@ no invented numbers. pkg253 (Principled advanced inputs) is being filed tonight
 - **pkg241 behavior phases** — cooperative cancellation contract + response behavior, on top of Phase 0 numbers. Gate (a) close.
 - **pkg251** — spectral band parameter reachability; foundation that unblocks pkg243/pkg133. Science lane + parity contract debt (pkg251 already owns the rebuild luminance/checker contract debt).
 - **pkg243** — raw relative band provenance. Science lane. Depends on pkg251 contract.
+- **pkg259** *(added 2026-09-07 evening)* — Cycles feature-coverage reference scene corpus (the gate (b)/(c) instrument; Phase 0 design brainstorm with Astra, then one scene family per session). Can start its Phase 0 in Round 2 while engine lanes hold the GPU.
+- **pkg241 Phase 2** *(added 2026-09-07 evening)* — off-main-thread viewport session so the UI stops running at the render's frame rate; after Phase 1b, measurement first.
 
 **Round 4 — science lane + kept foundation**
 - **pkg133** — SRF spectral sensors. Science lane; depends on the spectral sampling contract (pkg251-adjacent).
@@ -177,3 +180,11 @@ interactive viewport loop, which decides an entire responsiveness work lane.)
 - pkg241 Phase 1 follows **Terra's order**: present the fresh `view_update` texture before scheduling the next chunk, then an interactive-resolution budget, then the bool-returning cancellation callback with completion metadata — all inside pkg241.
 - Metallic BSDF, Sky texture and Displacement support-or-warn specs are filed now (pkg255–257).
 - Round 1 (in flight from 2026-09-07 08:30): pkg241 present-first, pkg237/238 fix, pkg242 transformed-p contract, plus a diagnosis of the Astroray-vs-Cycles HDRI background gap (0.047 vs 0.121).
+
+### Owner decisions — 2026-09-07 evening (after Round 1 closed)
+
+- **pkg237 residual (0.9628 vs 0.97):** move the gate to a **firefly-free parity scene**; threshold unchanged. pkg238 closed as done (#738).
+- **HDRI gap:** the owner rejects the "Cycles inflated" reading and suspects Astroray's HDRI importance sampling. The lead's code read agrees in direction (no environment NEE in any reachable integrator; the dormant CDF sampler has a pixel-unit azimuth bug) → **pkg258** filed and prioritised into Round 2.
+- **Next dispatch order left to the lead** → recorded in `next-session-prompt-2026-09-07.md`.
+- **UI decoupling:** the Blender UI still runs at the viewport render's frame rate with Astroray (Cycles decouples them) → pkg241 Phase 2 (off-main-thread viewport session), after Phase 1b; comment on issue #721.
+- **Standard scene corpus:** representative, attractive scenes covering every Cycles feature Astroray should support, with a generated coverage/parity report; design brainstorm with Astra → **pkg259** filed.

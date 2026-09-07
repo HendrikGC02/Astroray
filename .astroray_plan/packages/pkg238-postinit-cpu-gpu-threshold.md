@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — fix implemented, GPU gate GREEN (PostInit ULP=2, p99.9=4.89e-7); held open only because it ships in the same PR as the pkg237 residual (owner call to flip to done)
+**Status:** done — PR #738, 2026-09-07; GPU gate GREEN (PostInit ULP=2, p99.9=4.89e-7); owner approved the field-split bound and closed it 2026-09-07 evening
 **Estimated effort:** TBD
 **Depends on:** none
 

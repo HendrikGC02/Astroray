@@ -1,6 +1,6 @@
 # Known issues — Blender addon
 
-Generated 2026-09-07 10:26 UTC by `scripts/dev/known_issues_report.py` from GitHub issues labelled `addon-bug` / `addon-gap`. Do not edit by hand; file or close issues instead.
+Generated 2026-09-07 12:09 UTC by `scripts/dev/known_issues_report.py` from GitHub issues labelled `addon-bug` / `addon-gap`. Do not edit by hand; file or close issues instead.
 
 Pillar-4 exit-gate (e): open `addon-bug` at P0/P1 = **1** (target 0).
 
@@ -8,7 +8,7 @@ Pillar-4 exit-gate (e): open `addon-bug` at P0/P1 = **1** (target 0).
 
 | # | Severity | Title | Updated |
 |---|---|---|---|
-| [721](https://github.com/HendrikGC02/Astroray/issues/721) | P1-high | Viewport: camera events block ~155 ms each; progressive refinement idles at ~1.3 Hz | 2026-09-06 |
+| [721](https://github.com/HendrikGC02/Astroray/issues/721) | P1-high | Viewport: camera events block ~155 ms each; progressive refinement idles at ~1.3 Hz | 2026-09-07 |
 
 ## Open gaps (`addon-gap`)
 

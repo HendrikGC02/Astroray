@@ -1,5 +1,50 @@
 # Astroray Status
 
+## 2026-09-07 EVENING — handoff to the next lead session
+
+Owner decisions (recorded in `north-star-and-integration-gate-2026-09-07.md` §7,
+evening block): pkg237 residual → **firefly-free parity scene** (0.97 pin kept);
+pkg238 **done** (#738); HDRI gap → owner rejects the "Cycles inflated" reading and
+suspects Astroray's HDRI importance sampling; next dispatch order delegated to the lead.
+
+**Filed / recorded this evening (docs-only commit to main):**
+- **pkg258 HDRI environment NEE + importance sampling** (issue #741, P1). Lead code
+  read: *no reachable integrator does environment NEE* (`raytracer.h:3105` says so;
+  CPU wavefront, MW tracer and GPU wavefront likewise), the CDF sampler on both
+  backends has **zero callers** and a pixel-unit azimuth bug (`phi = (u+0.5-0.5)·2π`),
+  `envSelectProb()` is dead, `BackgroundLight` is an unconstructed uniform stub.
+  pkg63's "env-MIS already wired" progress line corrected. Placed in Round 2.
+- **pkg259 Cycles feature-coverage reference scene corpus** — owner-requested standard
+  scenes (pretty + rigorous) covering every Cycles feature Astroray should support,
+  manifest-vs-coverage-matrix test, generated coverage/parity report; Phase 0 design
+  brainstorm with Astra. Placed in Round 3 (Phase 0 may start in Round 2).
+- **pkg241 Phase 2** — owner: the Blender UI still runs at the viewport render's frame
+  rate (Cycles decouples them). Off-main-thread viewport session, measurement first
+  (UI event latency during a chunk, target p95 ≤ 33 ms); comment on #721.
+- **pkg237** Progress: the firefly-free scene change specified (test-only).
+- HDRI gap diagnosis doc: evening addendum with the owner decision + code read.
+- `next-session-prompt-2026-09-07.md` — the paste-ready prompt for the next Fable
+  lead session (same restrictions: no Fable subagents, Opus 4.8 not 5, Sonnet 5 for
+  low-level, opencode grunt via `delegate`, Codex Terra ≤4 / Luna free / Astra only
+  for the pkg259 brainstorm). Dispatch order: pkg258 → pkg241 1b + Phase 2 metric →
+  pkg237 scene + pkg255 → pkg259 Phase 0 → fill (pkg242 Ph2, pkg245, pkg254).
+- Repo hygiene: six orphaned `.claude/worktrees/*` directories (pruned checkouts
+  from the overnight PRs, nothing unique) deleted; weekly-bench validation results
+  (`benchmarks/cycles-parity/2026-09-07-*`) committed; KNOWN_ISSUES regenerated;
+  index rebuilt; `lint --all` clean.
+
+**Still owner-manual:** paste `tracker/astroray_dashboard.gs` into Apps Script +
+`refresh()`; add `spec-lint` to required checks; review ghost GitHub app workflows;
+install `dist/astroray-4.0.0-cuda.zip` with Blender closed (live profile has the new
+exporter Python, old native module).
+
+**Note for the next session:** `build_cuda/astroray.cp313-win_amd64.pyd` (08:45) is
+older than HEAD; only docs + addon Python landed after it, but rebuild before the first
+GPU gate.
+
+---
+
+
 ## 2026-09-07 CURRENT — Round 1 after the overnight course-correction
 
 Owner decisions 08:30 (recorded in `north-star-and-integration-gate-2026-09-07.md` §7):

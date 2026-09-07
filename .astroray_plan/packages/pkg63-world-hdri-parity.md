@@ -101,8 +101,11 @@ The implementer must do a fresh WebSearch + WebFetch pass to confirm the PBRT v4
 - [x] Research note (`.astroray_plan/docs/cycles-world-parity-research.md`).
 - [x] CDF builder + sample/pdf methods on `EnvironmentMap` (already
       present from pkg14; verified against Cycles).
-- [x] Path-tracer NEE already wires env-MIS via the existing balance
-      heuristic in `default_integrator.cpp` and `path_trace_kernel.cu`.
+- [x] ~~Path-tracer NEE already wires env-MIS via the existing balance
+      heuristic in `default_integrator.cpp` and `path_trace_kernel.cu`.~~
+      **Corrected 2026-09-07:** false. No reachable integrator calls
+      `EnvironmentMap::sample`/`pdf` or `gpu_envmap_sample`/`pdf`, and the
+      sampler's azimuth is computed in pixel units. Owned by pkg258.
 - [x] Addon: Mapping XYZ rotation, color tint (linked + unlinked
       Background.Color via `_get_socket_color`).
 - [x] `load_environment_map` Python binding extended with

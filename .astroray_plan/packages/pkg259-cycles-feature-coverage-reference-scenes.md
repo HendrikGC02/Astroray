@@ -1,0 +1,179 @@
+# pkg259 — Cycles feature-coverage reference scene corpus
+
+**Pillar:** 5
+**Track:** B
+**Status:** open — owner-requested 2026-09-07 evening; design phase needs a creative brainstorm with Astra before scenes are built
+**Estimated effort:** 1 week (~20 h across sessions; Phase 0 one session, then one scene family per session)
+**Depends on:** pkg229, pkg249, pkg253
+
+---
+
+## Goal
+
+Before: parity, benchmark and addon-smoke work each pick their own tiny
+scene (`metal_sweep`, three #729 corpus scenes, the pkg119b per-feature
+single-sphere library, `benchmarks/showcase`), so coverage is accidental and
+a Cycles feature that Astroray silently drops is only noticed when someone
+happens to wire it. After: a standard, version-pinned corpus of
+representative, deliberately attractive Blender scenes that together exercise
+every Cycles feature Astroray is meant to support (materials, textures and
+mapping, lights, world, geometry, camera, render settings, passes), each
+scene carrying a manifest of the features it covers, with a generated
+coverage-and-parity report that makes any Cycles/Astroray inconsistency
+visible per feature. Benchmarks, parity gates, viewport measurements and
+addon smoke tests all draw from this corpus instead of ad-hoc scenes.
+
+---
+
+## Context
+
+Owner directive (2026-09-07 evening): constructing representative scenes
+that cover "pretty much all features and materials and things that work in
+Cycles that we would want to work in Astroray too" is too tedious to do by
+hand and needs the rigour an agent can apply so no feature is overlooked;
+the scenes should also be interesting and pretty, and their design may be a
+creative brainstorm with GPT-6 Astra. This package is the Pillar-4 exit-gate
+(c) instrument (three pinned scenes become the corpus) and the substrate for
+gate (b)'s frequency-weighted coverage measurement. It serves Pillar 5.
+
+---
+
+## Evidence
+
+- 2026-09-07: coverage matrix after the pkg253 scanner fix: SUPPORTED 114 /
+  APPROXIMATED 50 / DROPPED-SILENT 363 of 527 enumerable features
+  (`docs/blender_parity/coverage_matrix.json`).
+- 2026-09-07: #729 corpus: `cornell_interior` (36 tri), `material_zoo`
+  (8 450 tri), `hdri_exterior_hair` (1 922 tri + 2 400 strands); node ids
+  per scene in `benchmarks/blender_parity/scenes/manifest.json`; only eight
+  distinct shader node types across all three.
+- 2026-09-07: pkg241 viewport measurements use `metal_sweep.blend` and a
+  procedural 100k-triangle grid; the weekly bench uses `cornell` and
+  `textured_plane`; none of these share a manifest or feature tags.
+
+---
+
+## Reference
+
+- `benchmarks/blender_parity/README.md` (pkg119b harness),
+  `scene_library.py::REFERENCE_SCENES`, `render_leg.py --export-blend /
+  --load-blend / --report-only`, `manifest.json` schema (#729).
+- `docs/blender_parity/coverage_matrix.json` and
+  `scripts/generate_blender_parity_matrix.py` (pkg119 Phase A, pkg229
+  re-audit) — the feature universe the corpus must cover.
+- `.astroray_plan/docs/north-star-and-integration-gate-2026-09-07.md` §2
+  gates (b) and (c).
+- Cycles regression scene conventions: Blender's `tests/render/` layout
+  (one feature per small scene, reference PNG per engine) — the structure to
+  borrow, not the assets.
+- `readme-showcase-render-feedback` memory (owner's composition rules:
+  lift glass spheres, zoom, sample-heatmap AOV).
+
+---
+
+## Prerequisites
+
+- [ ] pkg253 socket groups landed or at least enumerated, so the Principled
+      scene knows which sockets are expected to render vs warn.
+- [ ] Blender 5.2 reachable headless (`scripts/dev/launch_blender_mcp.ps1`
+      for the GUI bridge; `blender -b` for exports); isolated profile per
+      pkg236.
+- [ ] Astra (gpt-6-astra) available through the Codex CLI for the Phase 0
+      brainstorm, or the owner waives it.
+
+---
+
+## Specification
+
+### Files to create
+
+| File | Purpose |
+|---|---|
+| `benchmarks/reference_corpus/README.md` | Corpus charter: scene families, naming, manifest schema, how a new Cycles feature gets a home, how to regenerate references. |
+| `benchmarks/reference_corpus/build_corpus.py` | Runs inside Blender: deterministic builders for every scene (procedural where possible, packed assets otherwise), writes `.blend` + manifest with feature tags, node ids, object/light/world inventory, sha256. |
+| `benchmarks/reference_corpus/scenes/<family>_<name>.blend` | The scenes. Families: `materials_hall` (every BSDF + Principled socket groups), `textures_mapping` (image/procedural textures, Mapping/TexCoord/UV/generated/object, bump/normal/displacement), `lighting_studio` (point/spot/sun/area incl. spread/shape, mesh emitters, IES, light groups), `world_sky` (HDRI incl. sun disc, Sky texture, colour world, rotation/strength), `geometry_zoo` (instances, hair/curves, volumes, motion blur, smooth/flat/auto-smooth, modifiers applied), `camera_lens` (DoF, clip, orthographic/panoramic, exposure/view transform), `render_settings` (passes, cryptomatte, adaptive, denoise on/off, film transparent). |
+| `benchmarks/reference_corpus/coverage_report.py` | Joins the manifests against `coverage_matrix.json`: features covered by ≥1 scene, uncovered features, and per-feature Cycles-vs-Astroray verdict from the parity harness; emits `docs/blender_parity/corpus_coverage.md` + JSON. |
+| `tests/test_reference_corpus_manifest.py` | Every `.blend` reopens, sha256 matches, manifest node ids match the file, each family covers its declared feature list, no feature in the matrix's SUPPORTED/APPROXIMATED set is uncovered (DROPPED-SILENT features may be uncovered but must be listed). |
+| `.astroray_plan/docs/reference-corpus-design-2026-09.md` | Phase 0 output: brainstorm record (with Astra), per-scene concept, camera/composition notes, asset licences, which existing scenes are absorbed or retired. |
+
+### Files to modify
+
+| File | What changes |
+|---|---|
+| `benchmarks/blender_parity/scene_library.py` | `REFERENCE_SCENES` reads the corpus directory instead of the hard-coded three. |
+| `benchmarks/blender_parity/render_leg.py` | `--load-blend` works for every corpus scene; non-vacuity checks come from the manifest, not code. |
+| `benchmarks/blender_parity/harness.py` | Manifest loader + per-feature verdict export consumed by `coverage_report.py`. |
+| `benchmarks/blender_parity/scenes/manifest.json` | The three #729 scenes are absorbed into the corpus (kept byte-identical or regenerated by `build_corpus.py`, recorded either way); this manifest becomes a pointer or is retired. |
+| `scripts/benchmarks/weekly_local_bench.ps1` | Parity and showcase legs iterate the corpus families instead of `cornell`/`textured_plane`. |
+| `scripts/run_parity.py` | Accepts corpus scene ids. |
+| `benchmarks/viewport_parity/blender_driver.py` | Accepts corpus scenes as workloads (pkg241 keeps `metal_sweep` as its historical baseline). |
+| `scripts/dev/known_issues_report.py` | Optional: link each open `addon-gap` issue to the corpus scene that reproduces it. |
+| `scripts/README.md` | Register `build_corpus.py` and `coverage_report.py`. |
+
+### Key design decisions
+
+- **Rigour first, beauty second, but both required.** Coverage is proven
+  by the manifest-vs-matrix test, not by eyeballing. Composition follows
+  the owner's showcase rules; each scene must be something the owner would
+  put in the README.
+- **Deterministic builders over hand-authored files** wherever the feature
+  allows it (procedural geometry, node trees built in code), so a scene can
+  be regenerated when the schema changes; packed external assets only for
+  image textures, IES profiles and HDRIs, each with a recorded licence.
+- **One feature can live in several scenes; every SUPPORTED/APPROXIMATED
+  feature must live in at least one.** DROPPED-SILENT features are
+  represented by a "gap card" in the report, and where cheap, by a scene
+  element so the drop is visible in the render (a missing Sky texture
+  should show as black sky, not as an absent object).
+- **Verdicts come from the existing harness** (pkg104 metrics, pkg119b
+  triage buckets, per-channel mean ratio); this package adds scenes and a
+  report, not a metric stack (§5b).
+- **Phase 0 brainstorm with Astra** (owner request): one Codex session,
+  read-only, producing scene concepts and a feature-to-scene allocation;
+  the lead keeps final say and records disagreements.
+- **Phases:** 0 design doc + allocation table → 1 `materials_hall` +
+  `textures_mapping` (largest matrix share) → 2 `lighting_studio` +
+  `world_sky` → 3 `geometry_zoo` + `camera_lens` + `render_settings` →
+  4 harness/bench integration + coverage report + absorb #729 scenes.
+
+---
+
+## Acceptance criteria
+
+- [ ] `tests/test_reference_corpus_manifest.py` green: every corpus scene
+      reopens with matching sha256 and node inventory; zero uncovered
+      SUPPORTED/APPROXIMATED features; DROPPED-SILENT features listed.
+- [ ] `coverage_report.py` produces `docs/blender_parity/corpus_coverage.md`
+      with a per-feature Cycles/Astroray verdict for every covered feature;
+      the report is regenerable from a clean checkout with Blender 5.2.
+- [ ] Each scene renders in both engines headless (CPU; GPU where the addon
+      supports it) without an addon exception; renders saved under
+      `benchmarks/reference_corpus/refs/` and inspected by the lead.
+- [ ] Weekly bench and the pkg119b harness run on the corpus; the three
+      #729 scenes are absorbed with their existing gates still passing.
+- [ ] Design doc records the Astra brainstorm, the feature allocation, and
+      asset licences.
+
+---
+
+## Non-goals
+
+- Do not fix engine or addon defects the corpus exposes; file issues
+  (`addon-bug` / `addon-gap`) and let the owning package fix them.
+- No new comparison metrics or a new render driver.
+- No Pillar 4 (astrophysics) scenes; a science corpus is a later package.
+- No animation sequences; single frames only (motion blur uses
+  sub-frame motion inside one frame).
+
+---
+
+## Progress
+
+- [ ] 2026-09-07 evening — filed by the lead from the owner's directive;
+      Phase 0 not started.
+
+---
+
+## Lessons
+
+- (none yet)

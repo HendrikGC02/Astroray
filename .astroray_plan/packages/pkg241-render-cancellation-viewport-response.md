@@ -227,6 +227,29 @@ their own architecture and PRs instead of hiding texture changes in pkg241 or
 the parallel pkg240 CI-throughput package. All implementation gates remain
 UNRUN.
 
+#### Phase 2 — decouple the UI from the viewport render (owner, 2026-09-07 evening)
+
+Owner observation after Phase 1a: with Astroray the Blender UI runs at the
+viewport render's frame rate (panels, sliders and menus stall while a chunk
+renders), whereas Cycles keeps the UI responsive because its viewport session
+renders on its own thread and `view_draw` only blits the latest result.
+Phase 1a/1b reduce the per-chunk cost but leave `view_update`/`view_draw`
+synchronous in the main thread, so the coupling remains. Phase 2 is the
+architecture that removes it: the render runs off the Blender main thread
+(native worker thread owning the CUDA context or a CPU render session; the
+GIL released for the whole chunk), `view_draw` becomes a non-blocking blit of
+the last completed chunk plus a `tag_redraw`, and the Phase 1b cancellation
+callback becomes the thread's stop signal. Risks already listed in Non-goals
+(GIL/thread ownership, partial CUDA state, `view_update`/`view_draw`
+re-entrancy) apply in full; the pkg147 OpenMP/GIL safeguards and the
+`mingw_openmp_blender_deadlock` memory are the constraints. The measurable
+target is a new recorder metric, UI event latency during an active render
+(p95 ≤ 33 ms, i.e. the UI holds 30 fps while a chunk renders), added to
+`blender_driver.py --mode interactive` in Phase 2's own measurement step
+before any threading change. Sequence: Phase 1b (cancel + completion
+metadata) → Phase 2 measurement → Phase 2 design review (Opus 4.8 architect
++ Terra) → implementation.
+
 ---
 
 ## Acceptance criteria
@@ -269,6 +292,10 @@ All implementation gates UNRUN:
 
 ## Progress
 
+- [ ] 2026-09-07 evening — owner: UI still coupled to the viewport render
+      frame rate (Cycles decouples them); recorded as Phase 2 under Key
+      design decisions and as a comment on issue #721. Next: Phase 1b, then
+      the Phase 2 UI-latency measurement.
 - [ ] 2026-09-07 08:30 — owner chose Terra's order for Phase 1: present-first blit, then an interactive-resolution budget, then the cancellation callback with completion metadata (all in pkg241); Phase 1a dispatched.
 - [x] 2026-09-07 — Phase 0 recorder + measurements + cancellation design landed (PR #733); Terra review posted on the PR (BLOCK as written: present-first + interactive-resolution budget first).
 - [ ] 2026-09-07 — Phase 1a (owner order steps 1+2) implemented, addon Python only (`blender_addon/exporter.py`); step 3 (bool-returning cancellation callback + completion metadata) deferred to a later PR.

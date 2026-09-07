@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — detailed architect review required before implementation
+**Status:** open — owner decision 2026-09-07 evening: move the gate to a firefly-free parity scene (threshold 0.97 unchanged); implementation pending
 **Estimated effort:** TBD
 **Depends on:** none
 
@@ -141,6 +141,15 @@ None.
 
 ## Progress
 
+- [ ] 2026-09-07 evening — owner chose option (c) for the 0.9628 residual:
+      **replace the single-firefly synthetic HDRI with a firefly-free parity
+      scene** in `tests/test_world_hdri_parity.py::test_gpu_cpu_ssim_hdri`
+      (keep the gradient so rotation is still detectable; cap the bright
+      spot at a value that does not dominate the per-pixel variance, e.g.
+      ≤ 4× the gradient peak, or spread it over a 3×3 patch), keep adaptive
+      off + shared exposure, keep the 0.97 pin, and record the new measured
+      CPU-vs-GPU SSIM on the RTX 5070 Ti. The rotation/tint tests keep
+      their own HDRI. Flip to `done` when the GPU gate is green.
 - [x] 2026-09-07 08:30 — owner approved the test-method fix (adaptive sampling
       off + shared exposure); threshold 0.97 unchanged.
 - [x] 2026-09-07 — CPU two-stream proxy re-confirmed on the fix branch module

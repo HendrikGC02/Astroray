@@ -171,6 +171,16 @@ gate (b)'s frequency-weighted coverage measurement. It serves Pillar 5.
 
 - [ ] 2026-09-07 evening — filed by the lead from the owner's directive;
       Phase 0 not started.
+- [x] 2026-09-08 — Phase 0 design doc drafted:
+      `.astroray_plan/docs/reference-corpus-design-2026-09.md`. Covers all
+      seven families, a generated feature-to-scene allocation (527/527
+      matrix rows assigned, 114 SUPPORTED + 50 APPROXIMATED with a family
+      home, 363 DROPPED-SILENT as gap cards), asset-licence inventory and
+      proposals, manifest/tool-interface design, the one-call Astra
+      brainstorm (succeeded, folded in with an explicit accept/reject
+      record), and a concrete Phase 1 (`materials_hall` +
+      `textures_mapping`) build checklist. No scenes built; Phase 1 is the
+      next session.
 
 ---
 

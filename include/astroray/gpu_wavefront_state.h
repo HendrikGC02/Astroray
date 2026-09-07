@@ -593,8 +593,10 @@ constexpr int G_WF_NEE_I_LANES = 6;
 // nee_f/nee_i above; see GWavefrontEnvNeeBinding). Float lanes: 0-2 origin,
 // 3-5 wi, 6-9 the pre-folded throughput*f*wt/envPdf (env radiance L_spec is
 // resolved lazily in the env shadow kernel, mirroring how the lamp stage defers
-// emission). Int lanes: 0 = parked bounce depth (clamp direct/indirect split).
-constexpr int G_WF_ENV_NEE_F_LANES = 10;
+// emission), 10-13 generate-time lambdas, 14-17 generate-time lambda pdfs (Terra
+// item 10: L_spec + clamp must use the wavelengths f_spec was evaluated at, not
+// the post-dispersive-collapse slot state). Int lanes: 0 = parked bounce depth.
+constexpr int G_WF_ENV_NEE_F_LANES = 18;
 constexpr int G_WF_ENV_NEE_I_LANES = 1;
 void launchStageShadow(
     GPUWavefrontState& state,

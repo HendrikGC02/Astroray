@@ -691,7 +691,10 @@ __device__ int intersectPathSlotT(
                 !wasSpecular && state.env_nee_sampled_prev[idx]) {
                 float ep = gpu_envmap_pdf(envMap, dir);
                 float bsdfPdfPrev = state.path_bsdf_pdf[idx];
-                float wMiss = gpu_mw_powerHeuristic(bsdfPdfPrev, ep);
+                // pkg258 (Terra item 6): complementary heuristic — this w(bsdf,env)
+                // plus the env-NEE leg's w(env,bsdf) sum to EXACTLY one (no 1e-8
+                // denom epsilon), so the miss/NEE pair loses no energy (dark bias).
+                float wMiss = gpu_mw_powerHeuristicExact(bsdfPdfPrev, ep);
                 for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) envSpec.v[i] *= wMiss;
             }
             // pkg157: clamp by bounce depth (Cycles film_clamp_light split);
@@ -1060,8 +1063,16 @@ __device__ __noinline__ bool gpu_env_nee_generate(
     const GSampledWavelengths& lambdas, WavefrontRNG* rng)
 {
     const GEnvMap& em = c_wfEnvNeeBinding.envMap;
-    float xi1 = rng->Uniform();
-    float xi2 = rng->Uniform();
+    // pkg258 (Terra item 3): RNG contract — draw exactly ONE main-stream
+    // dimension (UniformUInt32), matching the CPU wavefront oracle
+    // (path_kernel.cpp:374) which seeds a std::mt19937 from a single draw. The
+    // two CDF uniforms come from a LOCAL PCG32 hash of that seed, so downstream
+    // RR + the next bounce stay dimension-aligned with the CPU on HDRI scenes.
+    // The draw is UNCONDITIONAL (even on the rejections below), mirroring the
+    // CPU's unconditional env_seed draw inside its gated block.
+    uint32_t env_seed = rng->UniformUInt32();
+    float xi1 = gpu_env_seed_uniform(env_seed, 0);
+    float xi2 = gpu_env_seed_uniform(env_seed, 1);
     GEnvSample es = gpu_envmap_sample_dir_pdf(em, xi1, xi2);
     if (es.pdf <= 0.f) return true;
     GVec3 wi = es.direction.normalized();
@@ -1072,10 +1083,11 @@ __device__ __noinline__ bool gpu_env_nee_generate(
     if (bsdfPdf <= 0.f) return true;
     GSampledSpectrum f_spec = gpu_material_eval_spectral<HasPrincipled>(mat, rec, wo, wi, lambdas);
     if (f_spec.maxValue() <= 0.f) return true;
-    // Power heuristic (Veach 1997); gpu_mw_powerHeuristic is the same epsilon form
-    // the GPU lamp NEE + emissive-hit legs use, so env NEE and the env miss leg
-    // form a consistent complementary pair.
-    float wt = gpu_mw_powerHeuristic(es.pdf, bsdfPdf);
+    // pkg258 (Terra item 6): COMPLEMENTARY power heuristic (Veach 1997). This
+    // w(env,bsdf) plus the miss leg's w(bsdf,env) sum to EXACTLY one; the old
+    // gpu_mw_powerHeuristic 1e-8 denom epsilon made the pair sum to < 1 (dark
+    // bias). The lamp/emissive legs keep the epsilon form unchanged.
+    float wt = gpu_mw_powerHeuristicExact(es.pdf, bsdfPdf);
     float scale = wt / es.pdf;
     int cap = c_wfEnvNeeBinding.capacity;
     float* ef = c_wfEnvNeeBinding.envNeeF;
@@ -1089,6 +1101,23 @@ __device__ __noinline__ bool gpu_env_nee_generate(
     ef[7 * cap + idx] = throughput.v[1] * f_spec.v[1] * scale;
     ef[8 * cap + idx] = throughput.v[2] * f_spec.v[2] * scale;
     ef[9 * cap + idx] = throughput.v[3] * f_spec.v[3] * scale;
+    // pkg258 (Terra item 10): park the GENERATE-TIME wavelength state with the
+    // record. f_spec above was evaluated at THESE lambdas, but a dispersive
+    // refraction on the continuation ray (gpu_material_sample_spectral →
+    // terminateSecondary, written back to state.lambda_*) mutates the slot's
+    // wavelengths BEFORE stageEnvShadowKernel resolves L_spec. Reading the
+    // post-mutation state there would evaluate the env radiance at collapsed
+    // hero-only wavelengths while f_spec used the full spectrum — a dispersive
+    // bias. Parking the pre-sample lambdas + pdfs keeps L_spec and the clamp
+    // consistent with f_spec. Non-dispersive paths write back identical values.
+    ef[10 * cap + idx] = lambdas.lambda[0];
+    ef[11 * cap + idx] = lambdas.lambda[1];
+    ef[12 * cap + idx] = lambdas.lambda[2];
+    ef[13 * cap + idx] = lambdas.lambda[3];
+    ef[14 * cap + idx] = lambdas.pdf[0];
+    ef[15 * cap + idx] = lambdas.pdf[1];
+    ef[16 * cap + idx] = lambdas.pdf[2];
+    ef[17 * cap + idx] = lambdas.pdf[3];
     c_wfEnvNeeBinding.envNeeI[idx] = bounce;
     int q = atomicAdd(c_wfEnvNeeBinding.envShadowCount, 1);
     c_wfEnvNeeBinding.envShadowQueue[q] = idx;
@@ -2179,11 +2208,16 @@ __global__ void stageEnvShadowKernel(
         time, motionVerts, curves);
     if (occ.occluded) return;
 
+    // pkg258 (Terra item 10): use the wavelength state PARKED with the record
+    // (generate-time lambdas), NOT state.lambda_*[idx] — a dispersive refraction
+    // on the continuation ray may have collapsed the slot's wavelengths to
+    // hero-only after this record was parked, which would resolve L_spec at
+    // different wavelengths than f_spec was evaluated at (dispersive bias).
     GSampledWavelengths lambdas;
-    lambdas.lambda[0] = state.lambda_0[idx]; lambdas.lambda[1] = state.lambda_1[idx];
-    lambdas.lambda[2] = state.lambda_2[idx]; lambdas.lambda[3] = state.lambda_3[idx];
-    lambdas.pdf[0] = state.lambda_pdf_0[idx]; lambdas.pdf[1] = state.lambda_pdf_1[idx];
-    lambdas.pdf[2] = state.lambda_pdf_2[idx]; lambdas.pdf[3] = state.lambda_pdf_3[idx];
+    lambdas.lambda[0] = ef[10 * cap + idx]; lambdas.lambda[1] = ef[11 * cap + idx];
+    lambdas.lambda[2] = ef[12 * cap + idx]; lambdas.lambda[3] = ef[13 * cap + idx];
+    lambdas.pdf[0] = ef[14 * cap + idx]; lambdas.pdf[1] = ef[15 * cap + idx];
+    lambdas.pdf[2] = ef[16 * cap + idx]; lambdas.pdf[3] = ef[17 * cap + idx];
 
     // Env radiance from the SAME spectral lookup the miss leg uses (Terra
     // constraint 3). backgroundColor is irrelevant here (env NEE only parks when

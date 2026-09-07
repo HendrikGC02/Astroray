@@ -29,6 +29,40 @@ __device__ inline float gpu_mw_powerHeuristic(float a, float b) {
     return (a * a) / (a * a + b * b + 1e-8f);
 }
 
+// pkg258 (Terra item 6): COMPLEMENTARY power heuristic mirroring CPU
+// Renderer::powerHeuristic (raytracer.h:2806) exactly — 0.5 only when both pdfs
+// are ~0, otherwise a²/(a²+b²) with NO 1e-8 denominator epsilon. Paired across
+// two legs (w(a,b) on one, w(b,a) on the other) it sums to EXACTLY one, so the
+// env-NEE + env-miss MIS pair loses no energy to a dark bias. The lamp/emissive
+// legs deliberately keep the epsilon form (gpu_mw_powerHeuristic) unchanged.
+__device__ inline float gpu_mw_powerHeuristicExact(float a, float b) {
+    float a2 = a * a, b2 = b * b;
+    float denom = a2 + b2;
+    if (denom < 1e-8f) return 0.5f;
+    return a2 / denom;
+}
+
+// pkg258 (Terra item 3): local generator for the two env-NEE CDF uniforms,
+// seeded by a SINGLE main-stream dimension. The CPU wavefront oracle
+// (path_kernel.cpp:374) draws one UniformUInt32 from the path stream and seeds a
+// std::mt19937 for the 2D env sample; the GPU has no mt19937, so we key a PCG32
+// hash on (env_seed, k) to produce two decorrelated uniforms. The VALUES need
+// not match the CPU mt19937 sequence (the env-sample routines already differ —
+// gpu_envmap_sample_dir_pdf vs EnvironmentMap::sample); what MUST match is the
+// single main-stream draw, so Russian roulette and the next bounce stay
+// dimension-aligned with the CPU oracle on HDRI scenes (PCG32 XSH-RR, PBRT-v4).
+__device__ inline float gpu_env_seed_uniform(uint32_t env_seed, uint32_t k) {
+    uint64_t inc = ((uint64_t)env_seed << 1) | 1u;
+    uint64_t state = 0;
+    state = state * 6364136223846793005ULL + inc;
+    state += (uint64_t)k * 0x9E3779B97F4A7C15ULL;
+    state = state * 6364136223846793005ULL + inc;
+    uint32_t xorshifted = (uint32_t)(((state >> 18u) ^ state) >> 27u);
+    uint32_t rot = (uint32_t)(state >> 59u);
+    uint32_t u = (xorshifted >> rot) | (xorshifted << ((-(int32_t)rot) & 31));
+    return fminf(u * 0x1p-32f, 0x1.fffffep-1f);
+}
+
 // ---------------------------------------------------------------------------
 // pkg120: reverse light-sampling pdf for two-sided MIS. A BSDF continuation
 // ray from a DIFFUSE bounce (origin prevPoint, direction dir) HIT the emitter

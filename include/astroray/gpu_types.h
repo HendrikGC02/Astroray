@@ -1036,7 +1036,7 @@ struct GWavefrontEnvNeeBinding {
     float   bgR, bgG, bgB;          // renderer background colour (plain floats: no GVec3 ctor in __constant__)
     int     hasBackgroundColor;     // 0/1 (mirrors the miss leg's hasBackgroundColor)
     int     enabled;                // set_env_nee flag; 0 = byte-identical fleet default
-    float*  envNeeF;                // G_WF_ENV_NEE_F_LANES * capacity: [0-2]=origin, [3-5]=wi, [6-9]=throughput*f*wt/envPdf
+    float*  envNeeF;                // G_WF_ENV_NEE_F_LANES * capacity: [0-2]=origin, [3-5]=wi, [6-9]=throughput*f*wt/envPdf, [10-13]=gen-time lambdas, [14-17]=gen-time lambda pdfs (Terra item 10)
     int*    envNeeI;                // 1 * capacity: [0]=parked bounce depth (clamp split)
     int*    envShadowQueue;         // capacity: idxs with a parked env NEE record this pass
     int*    envShadowCount;         // 1: env queue length (atomicAdd at park; zeroed per pass)

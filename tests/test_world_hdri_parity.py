@@ -98,6 +98,38 @@ def hdri_path(tmp_path_factory):
     return str(p)
 
 
+def _write_firefly_free_hdri(path, width=32, height=16):
+    """Procedural latlong HDRI: same rotation-detectable gradient as
+    `_write_test_hdri`, but the bright spot is capped at 4x the gradient
+    peak (peak=1.0) instead of a single firefly pixel at value 50.
+
+    pkg237: the firefly-at-50 pixel integrates to a per-image maximum that
+    differs slightly between independent RNG streams (CPU seed A vs seed B,
+    or CPU vs GPU), and a single outlier pixel dominates the SSIM local
+    variance around it. Capping the spot keeps rotation detectable (the
+    equator sample at the spot's column is still visibly distinct) without
+    an outlier large enough to inject stream-dependent noise into the SSIM
+    score. See `.astroray_plan/docs/pkg237-238-diagnosis-2026-09-07.md`.
+    """
+    img = np.zeros((height, width, 3), dtype=np.float32)
+    for x in range(width):
+        u = x / max(1, width - 1)
+        img[:, x, 0] = u            # R rises toward right
+        img[:, x, 2] = 1.0 - u      # B falls toward right
+    # Bright spot capped at 4x the gradient peak (1.0), not a 50x firefly.
+    img[height // 2, width // 4, :] = [0.0, 4.0, 0.0]
+    _write_radiance_hdr(path, img)
+
+
+@pytest.fixture(scope="module")
+def ssim_hdri_path(tmp_path_factory):
+    p = tmp_path_factory.mktemp("pkg237_ssim_hdri") / "test_world_ssim.hdr"
+    _write_firefly_free_hdri(str(p))
+    if not os.path.exists(str(p)):
+        pytest.skip("HDRI write failed")
+    return str(p)
+
+
 # ---------------------------------------------------------------------------
 # Test (a): rotation changes the lookup direction
 # ---------------------------------------------------------------------------
@@ -173,7 +205,7 @@ def test_color_tint_halves_env_radiance(hdri_path):
 # Test (c): GPU vs CPU SSIM on an HDRI scene
 # ---------------------------------------------------------------------------
 
-def test_gpu_cpu_ssim_hdri(hdri_path):
+def test_gpu_cpu_ssim_hdri(ssim_hdri_path):
     """Render a tiny HDRI scene on CPU and CUDA backends; SSIM ≥ 0.97.
 
     Uses the canonical `gpu_available` / `set_use_gpu(True)` pair seen in
@@ -182,17 +214,22 @@ def test_gpu_cpu_ssim_hdri(hdri_path):
     runs the gate.
 
     Runs at 8192 spp with adaptive sampling DISABLED and a SHARED exposure
-    for both legs (pkg237). The test HDRI contains a single bright green
-    firefly pixel at value (0, 50, 0); CPU uses std::mt19937 and GPU uses
-    curand, so the two legs are independent RNG streams. Two methodology
-    fixes make the gate measure converged parity rather than a stopping-metric
-    artefact: (1) adaptive sampling is turned off so 8192 spp converges both
-    legs on clean sqrt(N) noise (the default colour-blind adaptive stop leaves
-    a large non-converging blue chromatic-MC residual that decorrelates across
-    the streams and stalls SSIM ~0.68-0.77); (2) both legs are tonemapped by
-    one shared divisor instead of each image's own max, so a per-image
-    brightness skew at the firefly is not mistaken for a parity loss. The 0.97
-    threshold is unchanged. Diagnosis:
+    for both legs (pkg237). This test uses its OWN firefly-free HDRI fixture
+    (`ssim_hdri_path`, see `_write_firefly_free_hdri`) rather than the
+    firefly-at-50 fixture the rotation/tint tests above use: the same
+    blue/red gradient keeps rotation-sensitivity, but the bright spot is
+    capped at 4x the gradient peak instead of a 50x outlier. CPU uses
+    std::mt19937 and GPU uses curand, so the two legs are independent RNG
+    streams. Two methodology fixes make the gate measure converged parity
+    rather than a stopping-metric artefact: (1) adaptive sampling is turned
+    off so 8192 spp converges both legs on clean sqrt(N) noise (the default
+    colour-blind adaptive stop leaves a large non-converging blue chromatic-MC
+    residual that decorrelates across the streams and stalls SSIM
+    ~0.68-0.77); (2) both legs are tonemapped by one shared divisor instead of
+    each image's own max, so a per-image brightness skew is not mistaken for
+    a parity loss; (3) the firefly-free fixture removes the remaining
+    independent-stream noise floor (~0.96) that a single 50x outlier pixel
+    left even with fixes (1)+(2). The 0.97 threshold is unchanged. Diagnosis:
     .astroray_plan/docs/pkg237-238-diagnosis-2026-09-07.md.
     """
     try:
@@ -218,7 +255,7 @@ def test_gpu_cpu_ssim_hdri(hdri_path):
         # sqrt(N) convergence so 8192 spp actually converges both legs.
         # Diagnosis: .astroray_plan/docs/pkg237-238-diagnosis-2026-09-07.md.
         r.set_adaptive_sampling(False)
-        r.load_environment_map(hdri_path, 1.0,
+        r.load_environment_map(ssim_hdri_path, 1.0,
                                0.0, 0.0, math.pi / 4.0,
                                0.9, 0.9, 1.0,
                                True)

@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — owner decision 2026-09-07 evening: move the gate to a firefly-free parity scene (threshold 0.97 unchanged); implementation pending
+**Status:** open — firefly-free parity scene implemented 2026-09-08 (PR TBD); MEASURED SSIM 0.9625 on RTX 5070 Ti, still short of the unchanged 0.97 pin. Both firefly-shaping alternatives (capped-4x peak vs 3x3 patch) give a bit-identical CPU-proxy SSIM (0.96182245) — the firefly hypothesis is empirically falsified; the residual is the independent-RNG-stream MC noise floor, not a firefly artifact. Owner decision needed to close (see Progress 2026-09-08).
 **Estimated effort:** TBD
 **Depends on:** none
 
@@ -141,7 +141,7 @@ None.
 
 ## Progress
 
-- [ ] 2026-09-07 evening — owner chose option (c) for the 0.9628 residual:
+- [x] 2026-09-07 evening — owner chose option (c) for the 0.9628 residual:
       **replace the single-firefly synthetic HDRI with a firefly-free parity
       scene** in `tests/test_world_hdri_parity.py::test_gpu_cpu_ssim_hdri`
       (keep the gradient so rotation is still detectable; cap the bright
@@ -150,6 +150,50 @@ None.
       off + shared exposure, keep the 0.97 pin, and record the new measured
       CPU-vs-GPU SSIM on the RTX 5070 Ti. The rotation/tint tests keep
       their own HDRI. Flip to `done` when the GPU gate is green.
+      IMPLEMENTED: added `_write_firefly_free_hdri` + a dedicated
+      `ssim_hdri_path` module-scope fixture (same blue/red gradient, bright
+      spot capped at 4x the gradient peak — 4.0 instead of the old firefly's
+      50.0); `test_gpu_cpu_ssim_hdri` now takes `ssim_hdri_path` instead of
+      the shared `hdri_path`; the rotation/tint tests are untouched and still
+      use the original firefly-at-50 `hdri_path` fixture.
+- [x] 2026-09-08 — MEASURED on RTX 5070 Ti (main-checkout build_cuda .pyd,
+      built from HEAD fe535b6a, mtime after HEAD, canary green): actual
+      CPU-vs-GPU gate on the NEW firefly-free (capped-at-4x) fixture, 64x64,
+      8192 spp, adaptive off + shared exposure: **SSIM 0.9625** — still
+      **0.0075 short of 0.97**, essentially unchanged from the pre-fix
+      0.9628 (firefly-at-50) and the CPU-proxy 0.9618.
+      CPU two-stream proxy (seeds 1234 vs 5678, same firefly-free scene,
+      independent streams == the CPU-vs-GPU situation): **SSIM 0.96182245**
+      (shared-exposure AND per-image-max identical to 8 decimal places;
+      maxA=0.5793, maxB=0.5856 — barely different from the OLD firefly-at-50
+      proxy's maxA=0.579/maxB=0.582).
+      ALTERNATIVE SHAPING TRIED (per instruction, once): spread the same
+      4.0 peak over a 3x3 patch instead of one capped pixel. CPU two-stream
+      proxy result: **SSIM 0.96182245** — bit-identical to the capped-peak
+      result to 8 significant figures, and maxA/maxB also unchanged
+      (0.5793/0.5856). ROOT CAUSE OF THE NULL RESULT: with NO geometry in
+      this env-only scene, every pixel's radiance is exactly
+      `eval_env_spectral` at that pixel's lookup direction, bilinearly
+      interpolated across the 32x16 texel grid. A camera pixel whose lookup
+      direction lands near the bright-spot's texel column samples a value
+      bounded by the texel's OWN value (4.0) regardless of whether that
+      value occupies 1 texel or a 3x3 block of equal-valued texels —
+      bilinear interpolation between equal neighbours returns that same
+      value either way, so neither shaping choice changes the rendered
+      image's peak or its per-pixel statistics. The firefly (at 50 OR at 4)
+      was never actually driving the measured maxA/maxB or the SSIM
+      residual at this resolution — the 0.96-0.97 gap is the GENUINE
+      independent-RNG-stream Monte Carlo noise floor for this scene at
+      8192 spp (SSIM's windowed local-variance metric comparing two
+      decorrelated-but-converged noise fields on a spatial gradient), not a
+      firefly artifact. CONCLUSION: the owner's firefly hypothesis is
+      empirically falsified by this measurement — status stays `open` per
+      the spec's non-goals (no threshold relaxation, no unproven root-cause
+      claim). Closing pkg237 needs a decision outside this lane's scope:
+      accept a re-pinned threshold at the measured ~0.96 independent-stream
+      floor, raise spp further, add an explicit denoise step before SSIM, or
+      change the metric (e.g. per-channel mean-ratio, already used
+      elsewhere per memory `ssim-wrong-gate-for-independent-rng`).
 - [x] 2026-09-07 08:30 — owner approved the test-method fix (adaptive sampling
       off + shared exposure); threshold 0.97 unchanged.
 - [x] 2026-09-07 — CPU two-stream proxy re-confirmed on the fix branch module

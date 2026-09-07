@@ -44,7 +44,7 @@ brainstorm, four Codex Terra reviews. Next prompt: `next-session-prompt-2026-09-
 - Direct to main (docs): interim STATUS blocks, `KNOWN_ISSUES.md` (#746), pkg241 Phase 2 design
   doc + Terra review + lead decision (below), spec Progress lines.
 
-**pkg258 GPU wavefront leg — PR #751 (OPEN, parked with state-of-play):** env NEE in the CUDA
+**#751 pkg258 GPU wavefront leg — MERGED 06:45 after the Terra fixes (complementary env MIS, parked gen-time wavelengths, single main-stream RNG draw + local PCG hash, env-off equivalence test; post-fix GPU sun-disc ratio 0.522, furnace 0.9952, dispersive-glass env NEE ≤ 3.6 %, REG 254). pkg258 → done.** Pre-fix state for the record: env NEE in the CUDA
 wavefront — second parked shadow record + env strategy tag in the deferred shadow stage,
 env RNG before RR, infinite occlusion / zero volume distance, `env_nee_sampled_prev`,
 `__noinline__` generate behind a `__constant__` flag. Engine gates green on the RTX build:
@@ -55,7 +55,7 @@ Terra call 4: **MERGE-AFTER-FIX** — (a) `gpu_mw_powerHeuristic` 1e-8 epsilon m
 weights sum < 1 (dark bias); (b) lazy env-shadow resolve reads post-dispersion wavelengths
 while the parked BSDF factor is pre-dispersion; (c) HDRI RNG-dimension contract differs from
 the CPU kernel (2 main-stream draws vs 1 + local generator); plus a `set_env_nee(false)`
-byte-identity regression. Fix lane dispatched 05:45 (time-boxed 07:30). Residual
+byte-identity regression. Fix lane landed 06:40. Residual
 measurements on the pre-fix build: `hdri_exterior_hair` CPU-vs-GPU per-channel ratio (fixed harness ROIs) sky **1.000**, hair 0.984–0.995, ground strip 0.996–0.998, whole 1.0005; pkg81 GPU viewport bench frame p50 ratio GPU-leg/main **0.988–1.008** across the six configs (≤ +1 %, gate +5 %) — both residuals from the PR body are now measured and in-band.
 
 **Phase 2 design (pkg241) — decision recorded, no threading code yet.**

@@ -87,10 +87,9 @@ morning-readable record.
 ## State you inherit (verified 2026-09-08 ~07:00)
 
 - main at the closeout commit; PRs #742–#745, #747–#750 merged tonight (details + numbers
-  in STATUS.md 2026-09-08 block); the `Astroray-pkg258gpu` worktree holds the open #751 branch; every other worktree was removed after merge.
+  in STATUS.md 2026-09-08 block); only the main worktree remains; every lane worktree was removed after merge.
 - Engine: CPU env NEE + continuous HDRI importance sampling (#747); GPU wavefront env NEE
-  in #751 (OPEN at handoff — Terra MERGE-AFTER-FIX; the fix lane was time-boxed to 07:30; both residual measurements are in-band: hdri_exterior_hair CPU/GPU ROI ratios ≥ 0.984, frame time ≤ +1 %). Main `.pyd` must be rebuilt before the first
-  GPU gate if #751 merged after the 03:37 build (launcher-free variant).
+  merged as #751 (Terra fixes applied; pkg258 done). The main `.pyd` rebuild for post-#751 main was started at closeout (check `test_results/2026-09-08-session/build_main_3.log` ends with BUILD_EXIT_0; otherwise rebuild launcher-free before the first GPU gate).
 - Viewport: Phase 1a present-first + budget (#739), Phase 1b cooperative cancellation
   (#748: GPU cancel-ack p95 4–9 ms in-process). Phase 2 measured (#750): main-thread
   tick-gap p95 179 / 274 ms Astroray vs 9.6 / 8.1 ms Cycles; design doc exists, Terra
@@ -108,10 +107,7 @@ morning-readable record.
 
 ## Dispatch order (the outgoing lead's choice; owner delegated it)
 
-1. **pkg258 GPU leg (#751) closeout** if it is still open: merge on green CI after the
-   residuals in its PR body are measured, then re-run the `hdri_exterior_hair` harness CPU vs
-   GPU and record per-channel ratios in the spec; flip pkg258 to done only when every
-   acceptance line is met. Then the **ground-row residual** (Sonnet 5 diagnosis lane,
+1. **pkg258 ground-row residual** (Sonnet 5 diagnosis lane,
    systematic-debugging: firefly-clamp on sun-texel NEE vs hair-sphere indirect vs
    `hdri_exterior_hair` material differences; A/B with the clamp disabled; no fix without
    evidence).

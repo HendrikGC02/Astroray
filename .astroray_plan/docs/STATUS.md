@@ -1,6 +1,6 @@
 # Astroray Status
 
-## 2026-09-08 IN-PROGRESS — overnight lead session (interim record, updated ~03:15)
+## 2026-09-08 IN-PROGRESS — overnight lead session (interim record, ~01:30)
 
 Lead: Claude Fable 5.1, autonomous, dispatch order from `next-session-prompt-2026-09-07.md`.
 Lanes: pkg258 (Opus 4.8), pkg241 Phase 1b + Phase 2 metric (Opus 4.8), pkg237→pkg255→pkg257
@@ -30,38 +30,29 @@ Lanes: pkg258 (Opus 4.8), pkg241 Phase 1b + Phase 2 metric (Opus 4.8), pkg237→
   far fainter through the F12 pipeline than through the direct API — pre-existing on the
   `ShaderNodeBump` path.
 
-**Merged since the 01:30 record:**
-- **#747 pkg258 CPU env NEE + importance sampling** — Terra call 1 blocked (centre-only
-  texel sampling, delta guard, medium-scatter miss discount, epsilon MIS weights, MW gate);
-  all fixed (continuous within-texel sampling CPU+GPU sampler, `bsdfPdf>0` guard,
-  `envNeeSampledPrev`, complementary weights, MW gate paired); Terra call 2: **MERGE**.
-  Numbers (RTX build): pdf(sample)==sample.pdf 9e-6; sun-disc RMSE ratio NEE on/off
-  **0.526** vs a 65 536-spp reference (gate re-pinned 0.25 → 0.58, derivation in the spec);
-  furnace CPU 0.9946 / GPU 0.9943. Residual follow-ups in the spec Lessons: caustic + MW
-  lamp-NEE delta guard, MW `worldMaxBounces` non-compliance (pre-existing).
-- **#749 parity-harness pixel order** — `render_leg.py` now stores frames top-down; the
-  experiment-1c decode script had its own flip, so the true sky-strip radiance is **0.184**
-  (both engines 0.1837/0.1838), floor re-derived to 0.092; `CHECKER_ROI` re-measured by
-  projection; hair coverage now real (0.89/0.90). ROI proof images inspected by the lead.
-  The 0.121-vs-0.047 "background gap" was the Ground plane's receiver lighting all along.
-- **#748 pkg241 Phase 1b** — bool progress callback, GPU host cancel hook polled between
-  wavefront passes, F12 `test_break` honoured (partial result written like Cycles), GIL
-  released around the CPU render (OpenMP-worker callback deadlock found + fixed); cpp-abi-guard
-  found a Python-exception-through-OpenMP terminate path — fixed (stash + rethrow after the
-  metadata is published), regression test added; 10/10 on the RTX build. In-process GPU
-  cancel-ack p95 **4.1 ms** (metal) / **8.6 ms** (100k) vs the 200 ms budget. Live-bridge
-  cancel probing is impossible in the synchronous model (RNA `test_break` cannot be
-  monkeypatched; a chunk is atomic) — the Phase 2 metric is the honest instrument.
-
-**Open (in flight, ~03:15):**
-- **pkg258 GPU wavefront leg** (branch `feat/pkg258-gpu-2026-09-08`, Opus 4.8): second parked
-  shadow record + env strategy tag in the deferred shadow stage, env RNG draw before RR,
-  infinite occlusion / zero volume distance, `envNeeSampledPrev` equivalent (GPU has volume
-  scattering), REG must stay 254. Un-xfails the GPU convergence + CPU/GPU HDRI mean parity.
-- **pkg241 Phase 2 measurement** (branch `feat/pkg241-phase2-measure`, Sonnet 5): UI tick-gap
-  metric while a chunk renders, Astroray GPU vs Cycles on both pinned scenes; addon rebuilt
-  from main for the isolated profile. Design review (architect + Terra) only after the numbers.
-- Main dev `.pyd` rebuild queued behind the lock (engine changed by #747/#748).
+**Open (in flight):**
+- **#747 pkg258 CPU env NEE** — azimuth fix (pdf(sample)==sample.pdf 99 % broken → 2e-4),
+  env NEE + power-heuristic MIS in the in-header tracer, CPU wavefront kernel and MW tracer,
+  bindings, contract + convergence tests (sun-disc RMSE ratio 0.53, furnace 0.997).
+  **HDRI-gap experiment 1a re-run (lead, CPU):** harness ROI Astroray **0.049 → 0.112** vs
+  Cycles 0.121 (sky strip exact at 0.183 both; whole image 0.68× → 0.94× Cycles) — the
+  owner's hypothesis is confirmed and the "Cycles inflated" reading withdrawn (addendum in
+  `hdri-background-gap-diagnosis-2026-09-07.md`, image under `docs/pkg258-hdri-gap/`).
+  **Codex Terra review (1/4): block as-is** — centre-only texel sampling (quadrature vs the
+  bilinear signal), delta guard reads `rec.isDelta` before it is set, env-miss discount after
+  medium scatter without an env-NEE complement, epsilon MIS weights in wavefront/MW summing
+  < 1, MW bounce-gate mismatch; convergence re-pin 0.25→~0.5 approved by the lead once fixes
+  land. Fixes dispatched (lane258b). GPU wavefront leg after that (Terra Q7: the deferred
+  shadow queue needs a second parked record + env strategy tag).
+- **Parity-harness orientation bug** (found via the re-run): `render_leg.py` stores
+  Blender's bottom-up pixels unflipped, so `HDRI_BACKGROUND_ROI` measured the near ground
+  strip and `HAIR_ROI` a ground band — the whole 0.121-vs-0.047 "background" gap was the
+  Ground plane's receiver lighting. Fix PR in flight (branch
+  `fix/parity-harness-pixel-order`): flip once, re-derive `HDRI_MIN_BACKGROUND_MEAN` from the
+  `.hdr` sky decode (0.0338), regenerate manifest numbers with ROI proof images.
+- **pkg241 Phase 1b** (branch `feat/pkg241b-2026-09-08`): bool progress callback + GPU
+  cancel hook + F12 `test_break` + GIL release around the CPU render (OpenMP-worker callback
+  deadlock found and fixed); cancel-ack measurement and the Phase 2 UI-latency metric pending.
 
 **Residual after pkg258 (open):** Astroray ground rows still 7–17 % darker than Cycles with
 env NEE on (blue worst, 0.914) — candidates: firefly clamp on sun-texel NEE, sun-disc

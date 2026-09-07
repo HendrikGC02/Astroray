@@ -59,7 +59,7 @@ if ($parityCode -eq 0) {
 }
 
 "=== showcase: benchmarks/showcase/runner.py ===" | Out-File $Log -Append -Encoding ascii
-& python benchmarks/showcase/runner.py --quick --output-dir benchmarks/showcase/output *>> $Log
+& python -m benchmarks.showcase.runner --quick --output-dir benchmarks/showcase/output *>> $Log
 $showcaseCode = $LASTEXITCODE
 "runner.py exit=$showcaseCode" | Out-File $Log -Append -Encoding ascii
 

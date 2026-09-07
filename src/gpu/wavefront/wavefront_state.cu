@@ -96,6 +96,7 @@ bool allocateGPUWavefrontState(GPUWavefrontState& s, int capacity) {
 
     // Path-continuation flags.
     ALLOC_CHECK(s.was_specular, capacity * sizeof(int));
+    ALLOC_CHECK(s.env_nee_sampled_prev, capacity * sizeof(int));  // pkg258
     ALLOC_CHECK(s.path_alive,   capacity * sizeof(int));
 
     #undef ALLOC_CHECK
@@ -153,6 +154,7 @@ void freeGPUWavefrontState(GPUWavefrontState& s) {
     cudaFree(s.per_type_bounce);       // pkg201 Stage 3 (A)
     cudaFree(s.had_diffuse_ancestor);  // pkg201 Stage 3 (E)
     cudaFree(s.was_specular);
+    cudaFree(s.env_nee_sampled_prev);  // pkg258
     cudaFree(s.path_alive);
 
     // Zero out all pointers.

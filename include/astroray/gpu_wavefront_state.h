@@ -167,6 +167,15 @@ struct GPUWavefrontState {
 
     // Path-continuation flags.
     int*      was_specular  = nullptr;  // 0/1
+    // pkg258 - env-NEE-competed flag (device twin of CPU pathTraceSpectral's
+    // envNeeSampledPrev). Set to 1 by the surface shade kernel when env NEE
+    // actually ran at the current vertex, 0 at path birth and after a volume
+    // phase scatter (which does lamp NEE only, never env NEE). The miss leg
+    // discounts a background hit by the env power heuristic ONLY when this flag
+    // is set, so was_specular==0 alone (true after a phase event) does not
+    // wrongly discount a post-scatter env miss. Byte-identical when env NEE is
+    // off (never set true; the miss leg's env-MIS branch is gated on the flag).
+    int*      env_nee_sampled_prev = nullptr;  // 0/1
     int*      path_alive    = nullptr;  // 0 = terminated, 1 = active
 
     // Sizing.
@@ -450,6 +459,35 @@ void setWavefrontLightPassBinding(const GWavefrontLightPassBinding& binding);
 // intersectPathSlot/stageShadowKernel. See stage_advance.cu / GWorldVolume.
 void setWavefrontWorldVolume(const GWorldVolume& volume);
 
+// pkg258 - publish the frame's environment-NEE binding (HDRI + parked-record
+// arrays + set_env_nee flag) into the wavefront's __constant__ symbol. Call ONCE
+// per frame (cuda_wavefront_render). enabled==0 / null arrays (the default) leave
+// the shade kernel byte-identical and consume no extra RNG. See stage_advance.cu /
+// GWavefrontEnvNeeBinding.
+void setWavefrontEnvNeeBinding(const GWavefrontEnvNeeBinding& binding);
+
+// pkg258 - env NEE shadow-resolve stage. Lean occlusion + lazy HDRI spectral
+// resolve over the env records parked by the shade kernel's env-NEE generate
+// body (an independent additive strategy, separate from the lamp shadow stage).
+// Traces each parked shadow ray to INFINITY (occlusion sentinel), looks up the
+// env radiance through the same spectral lookup the miss leg uses, multiplies the
+// pre-folded throughput*f*wt/envPdf, and adds to the slot colour. Not register-
+// critical (like stageShadowKernel). No-op when envShadowCount is 0.
+struct GPUWavefrontHitBuffers;  // fwd (full def below)
+void launchStageEnvShadow(
+    GPUWavefrontState& state,
+    const GTLASNode*  d_tlas,
+    const GInstance*  d_instances,
+    const GBLAS*      d_blas,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts,
+    bool              useLuminanceOutput,
+    float             clampDirect, float clampIndirect,
+    const GCurveSegment* d_curves = nullptr);
+
 // pkg201 Stage 2 (Finding F, transparent film) — publish the frame's bounce-0
 // background-miss coverage accumulator (numPixels floats, or nullptr to disable).
 // intersectPathSlot atomicAdds 1.0 into c_wfMissCoverage[pixel] for every
@@ -552,6 +590,13 @@ void setWavefrontAdaptiveBinding(const GWavefrontAdaptiveBinding& binding);
 // here carries none of the shade-kernel spill risk.
 constexpr int G_WF_NEE_F_LANES = 15;
 constexpr int G_WF_NEE_I_LANES = 6;
+// pkg258 - env-NEE parked-record lane counts (SEPARATE arrays from the lamp
+// nee_f/nee_i above; see GWavefrontEnvNeeBinding). Float lanes: 0-2 origin,
+// 3-5 wi, 6-9 the pre-folded throughput*f*wt/envPdf (env radiance L_spec is
+// resolved lazily in the env shadow kernel, mirroring how the lamp stage defers
+// emission). Int lanes: 0 = parked bounce depth (clamp direct/indirect split).
+constexpr int G_WF_ENV_NEE_F_LANES = 10;
+constexpr int G_WF_ENV_NEE_I_LANES = 1;
 void launchStageShadow(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,

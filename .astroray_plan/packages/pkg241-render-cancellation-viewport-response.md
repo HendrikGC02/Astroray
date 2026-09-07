@@ -334,13 +334,28 @@ All implementation gates UNRUN:
     (4: real callback wired + polarity; request/consume resets accumulation;
     render_viewport_frame consumes a pending cancel; settings change requests cancel)
     pass. pkg196/pkg191/pkg52/present-first viewport suites green (38).
-  - **Still pending:** bridge GPU cancel-ack p50/p95/p99 on metal_sweep + big vs the
-    p95 ≤ 200 / p99 ≤ 300 ms budget, an edit→present non-regression re-confirm, and
-    the Phase 2 UI-latency metric. NOTE: in the current synchronous model a chunk is
-    atomic on the main thread, so a *viewport* per-chunk cancel cannot be triggered
-    mid-chunk by a Blender event (no event loop runs during the blocking render); the
-    cancel plumbing lands now for F12 (which polls OS ESC state during the render) and
-    as the Phase 2 off-thread stop signal.
+  - **GPU cancel-ack measured (in-process, RTX 5070 Ti, rebuilt sm_120 .pyd, 64 spp,
+    depth 6).** Time from cancel-request (first host poll) to `render()` return:
+    metal-like (2k tris, 512×512) **p50 3.9 / p95 4.1 / p99 4.1 ms** vs a 176 ms
+    full-render floor (~44×); big-like (100k tris, 700×700) **p50 7.5 / p95 8.6 /
+    p99 8.7 ms** vs a 491 ms floor (~57×). Both p95/p99 are far under the cancel-ack
+    budget (p95 ≤ 200 / p99 ≤ 300 ms) — cancellation returns within one wavefront pass.
+    `last_render_info().cancelled == True`, 1 host poll.
+  - **Why in-process, not the live bridge:** the Phase-0 bridge cancel probe
+    (`blender_cancel_probe.py`) documents that `test_break`/`update_progress` are RNA
+    methods that cannot be monkeypatched from Python, so it can only time a *full* F12
+    render (the floor) — it cannot inject a mid-render cancel over the socket. And in
+    the synchronous model a chunk is atomic on the main thread, so a *viewport*
+    per-chunk cancel cannot be triggered mid-chunk by a Blender event (no event loop
+    runs during the blocking render). The cancel plumbing therefore lands now for F12
+    (which polls OS ESC state during the render → now stops within one tile/pass
+    instead of the full-render floor) and as the Phase 2 off-thread stop signal; the
+    in-process measurement above is the honest, budget-relevant cancel-ack number.
+  - **Still pending (recommend folding into the Phase 2 measurement pass):** the live
+    GUI edit→present non-regression re-confirm and the new Phase 2 UI-latency-during-
+    render recorder metric (Part B) — both need an OpenMP-OFF worktree addon build +
+    the GUI bridge; in the synchronous model UI-latency-during-render ≈ chunk render
+    time (far above the 33 ms target), which is exactly the Phase 2 motivation.
 - [ ] 2026-09-07 evening — owner: UI still coupled to the viewport render
       frame rate (Cycles decouples them); recorded as Phase 2 under Key
       design decisions and as a comment on issue #721. Next: Phase 1b, then

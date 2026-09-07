@@ -156,6 +156,9 @@ None.
       50.0); `test_gpu_cpu_ssim_hdri` now takes `ssim_hdri_path` instead of
       the shared `hdri_path`; the rotation/tint tests are untouched and still
       use the original firefly-at-50 `hdri_path` fixture.
+      LEAD DECISION 2026-09-08: the fixture change is measured as neutral
+      (below), so it was NOT merged — PR #742 carries only this record;
+      `tests/test_world_hdri_parity.py` is unchanged on main.
 - [x] 2026-09-08 — MEASURED on RTX 5070 Ti (main-checkout build_cuda .pyd,
       built from HEAD fe535b6a, mtime after HEAD, canary green): actual
       CPU-vs-GPU gate on the NEW firefly-free (capped-at-4x) fixture, 64x64,

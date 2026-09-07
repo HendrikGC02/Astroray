@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** B
-**Status:** open — owner-requested 2026-09-07 evening; design phase needs a creative brainstorm with Astra before scenes are built
+**Status:** in-progress — Phase 0 design merged (#743, 2026-09-08); owner answers to §7 recorded 2026-09-08 morning; scanner extension split out as pkg260; Phase 1 (`materials_hall` + `textures_mapping`) may start
 **Estimated effort:** 1 week (~20 h across sessions; Phase 0 one session, then one scene family per session)
 **Depends on:** pkg229, pkg249, pkg253
 
@@ -168,6 +168,12 @@ gate (b)'s frequency-weighted coverage measurement. It serves Pillar 5.
 ---
 
 ## Progress
+
+- [x] 2026-09-08 morning — owner answered the design doc §7: scanner extension filed as
+      pkg260 (Phase 1 proceeds in parallel); gate (c) switches to the corpus trio when built;
+      gate (b) weight = distinct scenes per socket capped at 3; `test_env.hdr` provenance
+      waits for the corpus HDRI (Phase 2); duplicate rows folded into pkg260; light/shadow
+      linking out of scope; pkg253 landed (#728) so Alcove D tags are final.
 
 - [ ] 2026-09-07 evening — filed by the lead from the owner's directive;
       Phase 0 not started.

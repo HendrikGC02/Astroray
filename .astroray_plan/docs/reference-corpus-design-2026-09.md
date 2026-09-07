@@ -943,6 +943,17 @@ builder session to implement directly against `scene_library.py`.
 
 ---
 
+### Owner answers (2026-09-08 morning)
+
+1. Scanner extension filed as **pkg260** (object / image-property / input-node rows, duplicate
+   collapse); Phase 1 proceeds against the matrix as it stands. 2. Moot — pkg258 landed
+   (#747/#751); `world_sky` builds with env NEE. 3. `test_env.hdr` provenance waits for the
+   corpus HDRI (Phase 2). 4. Duplicate rows → pkg260. 5. Moot — pkg253 landed (#728).
+6. → pkg260. 7. Light/shadow linking out of scope for the corpus. 8. Weight = distinct corpus
+   scenes per socket, capped at 3; no easy-node down-weighting beyond the cap. 9. Gate (c)
+   switches to the corpus trio (gallery / workshop / terrace-with-hair) once built; the #729
+   trio stays the baseline until then.
+
 ## 8. Existing-scene disposition summary
 
 | Existing scene | Disposition |

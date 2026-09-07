@@ -20,7 +20,7 @@ morning-readable record.
    star, gate (a)–(f), §7 owner decisions).
 3. `.astroray_plan/docs/STATUS.md` top block (2026-09-08) — what merged with
    numbers, what is parked, the owner decisions pending.
-4. Specs: pkg258, pkg241, pkg237, pkg259, pkg256, pkg242, pkg245, pkg254
+4. Specs: pkg241, pkg237, pkg259, pkg260, pkg256, pkg242, pkg245, pkg254 (pkg258 is done)
    (`.astroray_plan/packages/`) plus
    `hdri-background-gap-diagnosis-2026-09-07.md` (read the 2026-09-08 addendum:
    the "background gap" was a harness ROI orientation bug + missing env NEE),
@@ -99,11 +99,13 @@ morning-readable record.
   closed (ground strip 0.112 vs 0.121 with env NEE); the remaining 7–17 % ground-row deficit
   is the open residual (firefly clamp on sun-texel NEE / indirect from the hair sphere).
 - Coverage matrix: 114 SUPPORTED / 61 APPROXIMATED / 352 DROPPED-SILENT after pkg255/257.
-- pkg237 stays open on an owner decision (0.97 SSIM pin vs the measured 0.962 floor).
+- pkg237: owner decided (2026-09-08) → replace SSIM with the per-channel mean-ratio gate; test edit pending (dispatch item 3).
 - Issue #746 fixed (#752); #753 (P2) tracks the ~1.8× bump-strength calibration residual.
-- Owner manual items still outstanding: Apps Script `refresh()`; `spec-lint` required
-  check; ghost GitHub app workflows; install `dist/astroray-4.0.0-cuda.zip` with Blender
-  closed; close the two isolated Blender instances (port 9877) left from measurement.
+- Owner decisions of 2026-09-08 morning are in the north-star doc §7 (pkg237 metric, Phase 2
+  denoise settled-only + F12 pauses the viewport, pkg260 scanner extension filed, gate (c)
+  corpus trio when built, gate (b) weight = distinct scenes capped at 3). Apps Script and the
+  new addon are INSTALLED. Still manual: `spec-lint` required check; ghost GitHub app
+  workflows; close the two isolated Blender instances (port 9877).
 
 ## Dispatch order (the outgoing lead's choice; owner delegated it)
 
@@ -112,20 +114,26 @@ morning-readable record.
    `hdri_exterior_hair` material differences; A/B with the clamp disabled; no fix without
    evidence).
 2. **pkg241 Phase 2 — revise the design, then the A2 spike (Opus 4.8).** Revise
-   `pkg241-phase2-offthread-design-2026-09-08.md` per its §6/§7 (request snapshot, GPU
-   arbiter, generation-tagged non-blocking handoff, main-thread timer queue, acknowledged
-   shutdown, wider GIL release, denoise settled-only); Terra (1 call) on the revision; then
+   `pkg241-phase2-offthread-design-2026-09-08.md` per its §6/§7/§8 (request snapshot,
+   generation-tagged non-blocking handoff, main-thread timer queue, acknowledged shutdown,
+   wider GIL release; owner: denoise settled-only, F12 PAUSES the viewport session — no
+   F12/viewport arbiter); Terra (1 call) on the revision; then
    the minimal real-Blender A2 spike measured with `--mode ui_latency` (go/no-go on
    p95 ≤ 33 ms, cancel p99, correctness, CUDA errors). No production threading before the
    spike passes.
-3. **#753 bump-strength calibration (Sonnet 5, systematic-debugging)** — #746 is FIXED (#752:
+3. **pkg237 metric change (Sonnet 5, small):** replace the SSIM assertion in
+   `tests/test_world_hdri_parity.py::test_gpu_cpu_ssim_hdri` with the converged per-channel
+   mean-ratio gate (same divisor/adaptive-off setup; SSIM printed, not asserted), measure on
+   the RTX, flip pkg237 to done. Then **#753 bump-strength calibration (Sonnet 5, systematic-debugging)** — #746 is FIXED (#752:
    Scale → bump distance); the residual is that Astroray's pkg223b bump is ~1.8–2× Cycles' at
    equal distance with faint ring banding. Fit the normal tilt on the ramp scene in both
    engines, compare `plugins/materials/normal_mapped.cpp` against Cycles `svm_bump.h` line by
    line (cite), fix the constant with evidence; gate (c)-relevant (`material_zoo` normal map).
-4. **pkg259 Phase 1 (`materials_hall` + `textures_mapping`)** per the design doc §6 —
-   Sonnet 5 builders in Blender headless; reuse `scene_library` builders; manifest schema
-   §4.1; renders inspected by the lead. Start only if lanes 1–3 are blocked on the GPU.
+4. **pkg259 Phase 1 (`materials_hall` + `textures_mapping`)** per the design doc §6 and the
+   owner answers (§7 addendum) — Sonnet 5 builders in Blender headless; reuse `scene_library`
+   builders; manifest schema §4.1; weight rule = distinct scenes per socket capped at 3;
+   renders inspected by the lead. **pkg260 scanner extension** (Sonnet 5, `scripts/` change →
+   its own PR merged before feature PRs) runs in parallel; no GPU needed for either.
 5. **Fill:** pkg256 Sky texture (needs `cite-algorithm` for the Nishita bake), pkg242
    Phase 2 real-Blender parity, pkg245, pkg254.
 

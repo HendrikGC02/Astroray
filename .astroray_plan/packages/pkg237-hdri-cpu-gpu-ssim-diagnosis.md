@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — firefly-free parity scene implemented 2026-09-08 (PR #742); MEASURED SSIM 0.9625 on RTX 5070 Ti, still short of the unchanged 0.97 pin. Both firefly-shaping alternatives (capped-4x peak vs 3x3 patch) give a bit-identical CPU-proxy SSIM (0.96182245) — the firefly hypothesis is empirically falsified; the residual is the independent-RNG-stream MC noise floor, not a firefly artifact. Owner decision needed to close (see Progress 2026-09-08).
+**Status:** in-progress — owner decision 2026-09-08: replace the SSIM gate in `tests/test_world_hdri_parity.py::test_gpu_cpu_ssim_hdri` with the converged per-channel mean-ratio gate (SSIM kept as a diagnostic print); implementation pending
 **Estimated effort:** TBD
 **Depends on:** none
 
@@ -140,6 +140,11 @@ None.
 ---
 
 ## Progress
+
+- [ ] 2026-09-08 morning — OWNER DECISION: close the gate with the converged per-channel
+      mean-ratio (the metric `benchmarks/blender_parity` already uses); keep SSIM as a
+      diagnostic print, retire the 0.97 pin (independent-stream floor 0.962–0.963). Next:
+      Sonnet lane edits the test, measures on the RTX, flips to done.
 
 - [x] 2026-09-07 evening — owner chose option (c) for the 0.9628 residual:
       **replace the single-firefly synthetic HDRI with a firefly-free parity

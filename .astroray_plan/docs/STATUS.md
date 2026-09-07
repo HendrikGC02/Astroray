@@ -70,20 +70,14 @@ needs a process-wide GPU arbiter + generation-tagged non-blocking handoff, ackno
 exit before release, wider GIL release, denoise settled-only. Lead decision (doc §7): revise
 per Terra 1–6, then a minimal real-Blender A2 spike is the first implementation task.
 
-**Owner decisions needed:**
-1. pkg237: the 0.97 SSIM pin on a 64×64 env-only scene cannot be met by independent RNG
-   streams (measured floor 0.962–0.963 CPU-proxy and CPU/GPU, before and after env NEE).
-   Options: re-pin at the measured floor; downsample/denoise before SSIM; replace with the
-   per-channel converged-mean gate (already ≤ 3.9 % on the firefly channel).
-2. pkg241 Phase 2: confirm viewport denoise stays settled-only (consistent with §7) and
-   whether F12-while-viewport-refines must keep working (arbiter) or the viewport pauses on
-   F12 as Cycles does.
-3. pkg259 §7 questions (scanner extension for geometry/object features, gate (c) trio,
-   frequency-weight scoring rule).
+**Owner decisions — taken 2026-09-08 morning** (recorded in the north-star doc §7): pkg237 →
+per-channel mean-ratio gate (SSIM diagnostic only); pkg241 Phase 2 → denoise settled-only, F12
+pauses the viewport session; pkg259 → scanner extension filed as **pkg260** with Phase 1 in
+parallel, gate (c) switches to the corpus trio when built, gate (b) weight = distinct scenes per
+socket capped at 3, `test_env.hdr` provenance waits for the corpus HDRI, light linking out of scope.
 
-**Owner-manual (unchanged):** Apps Script `refresh()`; add `spec-lint` to required checks;
-review ghost GitHub app workflows; install `dist/astroray-4.0.0-cuda.zip` with Blender
-closed. Three Blender processes were left running at closeout (the owner's live instance
+**Owner-manual:** DONE 2026-09-08 — Apps Script dashboard installed, new addon installed. Still
+open: add `spec-lint` to required checks; review ghost GitHub app workflows. Three Blender processes were left running at closeout (the owner's live instance
 from 23:33 plus two isolated measurement instances from 03:11/03:22 on port 9877) — the lead
 did not kill any process; close the two isolated ones by hand.
 

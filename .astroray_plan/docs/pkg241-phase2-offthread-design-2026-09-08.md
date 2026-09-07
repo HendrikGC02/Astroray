@@ -405,3 +405,10 @@ settled-only (already the §7 decision "denoise out of the interactive loop") an
 whether F12-while-viewport-refines must keep working during Phase 2 (the arbiter
 serialises it; the alternative is pausing the viewport session on F12, as Cycles does).
 
+## 8. Owner decisions (2026-09-08 morning)
+
+- Viewport denoise is **settled-only** — drop the "denoise as cancellation/latency concern"
+  branch from Terra item 7; the interactive loop presents raw progressive chunks.
+- **F12 pauses the viewport session** (Cycles behaviour): the revision replaces the process-wide
+  GPU arbiter between F12 and the viewport with a pause/resume handshake (the arbiter is still
+  needed between multiple 3D viewports of one session).

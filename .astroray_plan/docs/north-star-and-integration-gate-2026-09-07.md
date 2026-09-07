@@ -188,3 +188,20 @@ interactive viewport loop, which decides an entire responsiveness work lane.)
 - **Next dispatch order left to the lead** → recorded in `next-session-prompt-2026-09-07.md`.
 - **UI decoupling:** the Blender UI still runs at the viewport render's frame rate with Astroray (Cycles decouples them) → pkg241 Phase 2 (off-main-thread viewport session), after Phase 1b; comment on issue #721.
 - **Standard scene corpus:** representative, attractive scenes covering every Cycles feature Astroray should support, with a generated coverage/parity report; design brainstorm with Astra → **pkg259** filed.
+
+### Owner decisions — 2026-09-08 morning (after the overnight session)
+
+- **pkg237 gate:** replace the CPU/GPU HDRI SSIM gate with the **converged per-channel
+  mean-ratio** gate (SSIM stays as a diagnostic print); the 0.97 pin is retired because
+  independent RNG streams on the 64×64 env-only scene floor at 0.962–0.963.
+- **pkg241 Phase 2:** viewport denoise is **settled-only** (never inside the interactive
+  refinement loop); an **F12 render pauses the viewport session** (Cycles behaviour) rather
+  than sharing the GPU through an arbiter.
+- **pkg259 corpus:** file the **coverage-scanner extension now (pkg260)** — object /
+  image-property / input-node rows + duplicate-row collapse — and let Phase 1
+  (`materials_hall`, `textures_mapping`) proceed in parallel; light/shadow linking is out of
+  scope. Gate (c) **switches to the corpus trio when built** (the #729 scenes stay the
+  baseline until then). Gate (b) frequency weight = **distinct corpus scenes per socket,
+  capped at 3**. `samples/test_env.hdr` provenance waits for the corpus HDRI (Phase 2).
+- **Manual items done:** the Apps Script dashboard is installed; the new addon
+  (`dist/astroray-4.0.0-cuda.zip`) is installed in the live profile.

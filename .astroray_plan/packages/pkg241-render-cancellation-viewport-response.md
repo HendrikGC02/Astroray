@@ -301,6 +301,11 @@ All implementation gates UNRUN:
 ---
 
 ## Progress
+
+- [ ] 2026-09-08 morning — OWNER DECISIONS for Phase 2: viewport denoise is settled-only
+      (never in the interactive loop); an F12 render PAUSES the viewport session (Cycles
+      behaviour) — no shared-GPU arbiter between F12 and the viewport. Fold both into the
+      design-doc revision before the A2 spike.
 - [ ] 2026-09-08 05:15 — Phase 2 design pass done: `pkg241-phase2-offthread-design-2026-09-08.md` (Opus 4.8 architect; A2 = addon-owned worker thread driving the existing binding, GPU path releasing the GIL, `view_draw` blit-only). Codex Terra: **BLOCK as written** — `skip_upload` premise wrong (wavefront re-uploads every render; single-render-thread global `WfContext`), worker must never touch `bpy`/GPUTexture/redraw, needs a process-wide GPU arbiter + generation-tagged non-blocking handoff, acknowledged worker exit before release, wider GIL release, denoise as settled-only. Lead decision (doc §7): revise the doc per Terra 1–6, then a minimal real-Blender A2 spike is the first implementation task; no threading code before that spike passes. Phase 2 measurement itself: PR #750.
 
 - [x] 2026-09-08 — Phase 2 measurement: UI event latency while a viewport

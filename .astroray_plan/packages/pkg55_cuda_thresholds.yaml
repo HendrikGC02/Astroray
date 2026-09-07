@@ -41,14 +41,17 @@ cpu_to_cpu_baseline:
 # Structure: per-stage thresholds + final image SSIM
 cpu_to_gpu_thresholds:
   # PostInit: primary ray generation + wavelength sampling
-  # Geometry-only (camera ray math, no transcendentals beyond normalize).
+  # ULP bound applies to the GEOMETRY fields only (ray_origin, ray_direction):
+  # camera ray math, no transcendentals beyond normalize. The `lambdas` field
+  # is governed by p99_9_relative_error below, NOT max_ulp (pkg238, see note).
   # MEASURED 2026-05-23 on RTX 5070 Ti, CUDA 12.x, MSVC after RNG+hero fixes:
-  # max ULP = 2. Pinned at 4 (2 measured + 2× headroom).
+  # geometry max ULP = 2. Pinned at 4 (2 measured + 2× headroom).
   PostInit:
     max_ulp: 4
+    ulp_fields: ["ray_origin", "ray_direction"]
     fields: ["ray_origin", "ray_direction", "lambdas"]
     p99_9_relative_error: 1.0e-5
-    note: "Pinned 2026-05-23 (PR #349). Measured ULP=2 after RNG-adaptor (a875754) + hero-wavelength (a271126) fixes; pinned with 2× headroom."
+    note: "Pinned 2026-05-23 (PR #349). Geometry (ray_origin/ray_direction) ULP=2, pinned at 4 with 2x headroom. pkg238 (2026-09-07): `lambdas` is EXCLUDED from the ULP bound and governed by p99_9_relative_error instead. pkg206 switched the default primary-path wavelength sampler to sampleImportance, which inverts a logistic CDF with std::log/std::exp (CPU, spectrum.cpp) vs logf/expf (GPU, stage_init.cu). Device transcendentals are not IEEE-correctly-rounded, so lambdas legitimately drifts. MEASURED 2026-09-07 on RTX 5070 Ti (session_n1_envmap_cornell 16x16, seed 424242, 256 rows): ULP ray_origin=0, ray_direction=2, lambdas=13; lambdas p99.9 rel-err=4.89e-7 (max abs 7.9e-4 nm over 362-825 nm), well under the 1.0e-5 bound. Geometry-only ULP stays 2. The original 4-ULP pin assumed 'geometry-only, no transcendentals'; pkg206 invalidated that for lambdas. Mirrors PostShade, which carries no max_ulp for the same reason."
 
   # PostIntersect: BVH traversal + hit record
   # Geometry-only on valid-hit rows (Möller-Trumbore, ray.at, normal interp).

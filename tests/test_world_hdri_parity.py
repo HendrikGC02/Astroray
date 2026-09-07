@@ -181,12 +181,19 @@ def test_gpu_cpu_ssim_hdri(hdri_path):
     rather than collection time so a CUDA-equipped verifier host actually
     runs the gate.
 
-    Runs at 4096 spp. The test HDRI contains a single bright green firefly
-    pixel at value (0, 50, 0); CPU uses std::mt19937 and GPU uses curand, so
-    the firefly is sampled at different output pixels per backend. At 64 spp
-    the resulting spatial noise dominates SSIM regardless of parity (see
-    pkg85-D PR #283 trajectory: 64 spp → 0.45, 256 → 0.68, 1024 → 0.87, 4096
-    → ≥ 0.97). 4096 spp is the noise-margin floor for this gate.
+    Runs at 8192 spp with adaptive sampling DISABLED and a SHARED exposure
+    for both legs (pkg237). The test HDRI contains a single bright green
+    firefly pixel at value (0, 50, 0); CPU uses std::mt19937 and GPU uses
+    curand, so the two legs are independent RNG streams. Two methodology
+    fixes make the gate measure converged parity rather than a stopping-metric
+    artefact: (1) adaptive sampling is turned off so 8192 spp converges both
+    legs on clean sqrt(N) noise (the default colour-blind adaptive stop leaves
+    a large non-converging blue chromatic-MC residual that decorrelates across
+    the streams and stalls SSIM ~0.68-0.77); (2) both legs are tonemapped by
+    one shared divisor instead of each image's own max, so a per-image
+    brightness skew at the firefly is not mistaken for a parity loss. The 0.97
+    threshold is unchanged. Diagnosis:
+    .astroray_plan/docs/pkg237-238-diagnosis-2026-09-07.md.
     """
     try:
         from skimage.metrics import structural_similarity as ssim_fn
@@ -200,6 +207,17 @@ def test_gpu_cpu_ssim_hdri(hdri_path):
                 pytest.skip("No CUDA GPU available")
             r.set_use_gpu(True)
         r.set_integrator("path_tracer")
+        # pkg237: render() defaults useAdaptiveSampling=true, whose per-pixel
+        # stop uses a colour-blind scalar metric (lum = X+Y+Z, raytracer.h).
+        # Blue's RGB->spectrum upsampled reflectances are the spikiest, so
+        # pixels stop with a large blue chromatic-MC residual that does NOT
+        # fall with the sample budget. CPU (mt19937) and GPU (curand) draw
+        # independent streams, so that residual decorrelates and SSIM stalls
+        # ~0.68-0.77 regardless of spp — an artefact of the stopping metric,
+        # not a parity divergence. Disabling adaptive sampling restores clean
+        # sqrt(N) convergence so 8192 spp actually converges both legs.
+        # Diagnosis: .astroray_plan/docs/pkg237-238-diagnosis-2026-09-07.md.
+        r.set_adaptive_sampling(False)
         r.load_environment_map(hdri_path, 1.0,
                                0.0, 0.0, math.pi / 4.0,
                                0.9, 0.9, 1.0,
@@ -212,10 +230,16 @@ def test_gpu_cpu_ssim_hdri(hdri_path):
     gpu = build(True)
     assert cpu.shape == gpu.shape == (64, 64, 3)
 
-    # Tonemap-ish before SSIM so HDR fireflies don't dominate.
+    # pkg237: normalize BOTH legs by a single SHARED exposure, not each image's
+    # own max. The bright green env pixel (value 50) integrates to slightly
+    # different per-image maxima on the two independent RNG streams; per-image
+    # `arr/arr.max()` scales the two legs by different divisors, injecting a
+    # brightness mismatch unrelated to parity. A shared divisor tonemaps both
+    # legs identically so SSIM measures converged parity, not exposure skew.
+    shared_denom = max(1.0, float(cpu.max()), float(gpu.max()))
+
     def lin(arr):
-        a = arr / max(1.0, float(arr.max()))
-        return np.clip(a, 0.0, 1.0)
+        return np.clip(arr / shared_denom, 0.0, 1.0)
 
     score = ssim_fn(lin(cpu), lin(gpu), channel_axis=2, data_range=1.0)
     assert score >= 0.97, f"GPU vs CPU SSIM {score:.4f} < 0.97"

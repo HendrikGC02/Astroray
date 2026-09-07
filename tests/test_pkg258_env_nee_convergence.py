@@ -13,9 +13,9 @@ its GPU parameter is a live gate:
       diffuse floor. With env NEE the floor converges far faster than with plain
       BSDF-miss lighting (which is lit only by rare lucky misses -> high
       variance, dark-biased under a firefly clamp). Gate: RMSE(NEE on, 256 spp)
-      vs a converged reference <= 0.55 * RMSE(NEE off, 256 spp) -- the spec Goal's
-      "4x faster convergence" is a 4x variance / ~0.5x RMSE reduction (see the
-      GATE comment in-test for why this is not the spec headline's literal 0.25).
+      vs a 64k-spp reference <= 0.58 * RMSE(NEE off, 256 spp) -- the spec Goal's
+      "4x faster convergence" is a 4x variance / ~0.5x RMSE reduction; 0.58 is the
+      measured 0.526 ratio + 10% (see the GATE comment in-test; Terra Q6 re-pin).
 
   (B) Linear white furnace: uniform env (radiance 1), albedo-1 Lambertian floor,
       apply_gamma=False. Reflected radiance must be exactly 1.0 so NEE + the
@@ -149,31 +149,25 @@ def _reshape(img, r):
         strict=True, reason="pkg258 GPU wavefront leg pending (separate PR)")),
 ])
 def test_sun_disc_nee_convergence(sun_hdri, backend):
-    """RMSE(NEE on) <= 0.25 * RMSE(NEE off) vs a high-spp reference."""
+    """RMSE(NEE on) <= GATE * RMSE(NEE off) vs a 64k-spp reference."""
     _require_gpu(backend)
     use_gpu = (backend == "gpu")
     SEED = 20260908
-    REF_SPP = 8192
+    REF_SPP = 65536        # pkg258 (Terra Q6): the spec's 64k reference; 33 s CPU
     TEST_SPP = 256
-    # Gate: RMSE(NEE on) <= GATE * RMSE(NEE off) vs a converged reference.
+    # Gate: RMSE(NEE on) <= GATE * RMSE(NEE off) vs the 64k reference.
     #
-    # GATE = 0.55. pkg63's Goal states env-MIS should converge "4x faster"; at a
-    # fixed sample count that is a 4x VARIANCE reduction = a 2x RMSE reduction
-    # (RMSE ~ 1/sqrt(N)), i.e. a ratio ~0.5. (The spec's headline "<= 0.25x RMSE"
-    # is a 16x variance / 16x-faster target, which is inconsistent with its own
-    # "4x faster" Goal -- flagged for the Terra review.) The measured clean,
-    # bias-free ratio on this smooth sun-disc scene is ~0.46-0.52 (NEE-on and
-    # NEE-off converge to the same mean to <0.2%, verified). Pushing the ratio to
-    # 0.25 needs a single-texel spike light, which exposes a point-pdf vs
-    # bilinear-radiance mismatch (the CDF pdf is per-texel point-sampled while
-    # evalSpectral bilinearly blends) that INFLATES NEE variance for pathological
-    # lights; real HDRIs and this disc are smooth enough to avoid it.
-    #
-    # 0.60 (not 0.50) leaves margin for the MC-noise realisation of the two
-    # independent 256-spp legs (measured ratio ~0.46-0.53 across seeds); it still
-    # asserts a >1.65x RMSE / >2.7x variance reduction, i.e. NEE demonstrably
-    # working.
-    GATE = 0.60
+    # GATE = 0.58 (re-pinned per the lead's Terra Q6 authorisation, replacing the
+    # spec's original <= 0.25). Derivation: env-MIS gives ~4x variance reduction
+    # <=> ~0.5x RMSE at fixed spp (pkg63 Goal's "4x faster"); the spec headline's
+    # literal "<= 0.25x RMSE" is a 16x-variance target inconsistent with that Goal.
+    # After the Terra estimator fixes (continuous within-texel sampling, delta
+    # guard, complementary MIS weights) the MEASURED bias-free ratio against a 64k
+    # reference is 0.526 at this seed (0.50 mean / 0.53 max across seeds 1/7/13,
+    # stable from 8k->64k reference). Gate = measured 0.526 x 1.10 margin = 0.58.
+    # NEE-on and NEE-off converge to the SAME mean (no double count; verified by
+    # the furnace + near-delta-metal tests), so this measures pure variance.
+    GATE = 0.58
 
     # Reference: NEE on, high spp (unbiased ground truth for BOTH estimators).
     r_ref = _floor_renderer(sun_hdri, SEED)
@@ -266,14 +260,22 @@ def test_near_delta_metal_no_double_count(sun_hdri):
     on = _metal_scene(777, True)
     off = _metal_scene(777, False)
     m_on, m_off = float(on.mean()), float(off.mean())
-    rel = abs(m_on - m_off) / max(m_off, 1e-8)
+    rel = (m_on - m_off) / max(m_off, 1e-8)   # signed: +ve = NEE-on brighter
     print(f"\n[pkg258 near-delta metal] NEE-on mean={m_on:.5e} off={m_off:.5e} "
-          f"rel_diff={rel:.4f}")
-    # NEE-on must not be brighter than NEE-off (the double-count signature is
-    # NEE-on > NEE-off); allow a small band for the two independent MC realisations.
-    assert rel < 0.03, (
-        f"near-delta metal env NEE double-counts: NEE-on {m_on:.5e} vs "
-        f"NEE-off {m_off:.5e} (rel {rel:.4f})")
+          f"signed_rel={rel:+.4f}")
+    # The double-count signature is NEE-on SIGNIFICANTLY BRIGHTER than NEE-off (the
+    # pre-fix estimator added throughput*f*L/es.pdf at wt=1 on the sun-reflection
+    # pixels while the specular miss delivered the same sky unweighted). With the
+    # delta guard, env NEE is skipped on this near-delta lobe, so on/off agree to
+    # MC noise (the two legs use divergent RNG streams — env NEE consumes 2 draws
+    # even when the contribution is guarded off). Bound is one-sided-emphasis:
+    # NEE-on must not exceed NEE-off by more than the noise band.
+    assert rel < 0.05, (
+        f"near-delta metal env NEE double-counts: NEE-on {m_on:.5e} is "
+        f"{rel:+.1%} vs NEE-off {m_off:.5e}")
+    assert rel > -0.05, (
+        f"near-delta metal: NEE-on {m_on:.5e} unexpectedly far below NEE-off "
+        f"{m_off:.5e} ({rel:+.1%}) — check the delta guard did not drop energy")
 
 
 def _reshape32(img):

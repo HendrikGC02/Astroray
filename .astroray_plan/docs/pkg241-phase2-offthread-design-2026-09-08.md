@@ -328,3 +328,80 @@ pumped on the main thread (see Terra Q3).
    cleaner mechanism?
 4. Is A2 (Python worker + existing binding) the right call over A1 (native
    session thread), given the cross-thread-context risk in Q1?
+
+---
+
+## 6. Codex Terra review (2026-09-08 ~05:10, lead-run, call 3/4) — VERDICT: BLOCK as written
+
+1. VERDICT OK — The diagnosis is correct. Both hooks call `render_viewport_frame()` inline: `view_update` at `blender_addon/exporter.py:791-796`, `view_draw` at `:957-964`, and that calls `renderer.render()` at `:683-691`. Releasing the GIL cannot return the Blender main thread to its event loop while it remains in that synchronous C++ call. GPU holds the GIL across `cuda_wavefront_render`: the code explicitly says so at `module/blender_module.cpp:2245-2251`, calls CUDA at `:2267-2275`, and the binding has no GIL-release guard at `:3446-3449`. CPU alone releases it at `:2351-2355`.
+
+2. VERDICT CHANGE — A2 is viable in principle; CUDA primary-context sharing does not force A1. CUDA Runtime primary contexts are shared per device/process, but `cudaSetDevice()` makes the context current per calling host thread. [NVIDIA CUDA Runtime documentation](https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__DRIVER.html) supports that model. Add an explicit same-device selection on both threads and prove it.
+
+   The current code is nevertheless unsafe for overlap. The wavefront driver says “Single render thread assumed” at `gpu_wavefront_snapshot.cu:963`, has a process-global mutable `WfContext` at `:1001-1062`, reallocates and overwrites cached pointers at `:973-999`, uploads scene buffers each render at `:1374-1415`, and rewrites global `__constant__` bindings at `:1413`, `:1635`, `:1684`, `:1692-1706`, and `:1785`. A second host thread touching any of that while a render is live is a race; default-stream semantics do not save the host-side state.
+
+   More importantly, the document’s device-state premise is inaccurate: `skip_upload=True` only skips `renderer.buildAcceleration()` (`blender_module.cpp:2068-2072`); the wavefront path still rebuilds/upload scene arrays on every render (`gpu_wavefront_snapshot.cu:1374-1380`). A1 is not “broken,” but it cannot own Blender export: the main thread must still populate host renderer state without `bpy` escaping to the native worker. It is a larger session/snapshot design, not the required fallback for ordinary serialized A2.
+
+3. VERDICT CHANGE — A timeout join is acceptable only as a “do not mutate/release state yet” outcome, not as the normal UI-serialization mechanism. A join blocks the UI for its timeout, so it cannot itself establish p95 ≤33 ms. Use a non-blocking busy/try-lock or generation-state pattern: request cancel, retain the old published frame, defer the upload/restart until idle.
+
+   GPU worst case is the currently executing wavefront pass, followed by its synchronizing resolve/download; cancellation is checked only before each pass at `gpu_wavefront_snapshot.cu:1820-1825`, then `cudaDeviceSynchronize()` occurs at `:1927-1935`. The reported 8.7 ms p99 is encouraging but is not a hard bound. CPU worst case is one complete 16×16 tile at all requested samples/path depths, plus pre-loop BVH/integrator setup. Cancellation is only observed after a finished tile (`raytracer.h:4072-4075`, `:4192-4195`, `:4421-4426`); with the OpenMP-off addon it is one serial tile. Neither backend currently proves a 33 ms upper bound.
+
+4. VERDICT WRONG — Reference swap under the GIL is safe only if the published array is immutable after publication. The worker must finish its accumulation in a private array, then swap the reference; it must never use that same array for the next accumulation. Current accumulation happens to create a new result (`exporter.py:710-721`), with a first-frame copy at `:711-713`, which is a workable ownership pattern.
+
+   The size claim is wrong: 2112×829 RGBA `float32` is 28,013,568 bytes, about 26.7 MiB—not 7 MB. Current beauty is RGB float32, about 20.0 MiB. The main-thread texture path additionally constructs float RGBA, flips/copies it, converts it to a Python list, and creates a `GPUTexture` (`__init__.py:1801-1813`); “sub-ms” is unsupported and unlikely with `flat.tolist()`. Keep that GPU texture creation/upload on the main thread. Copy only before publication if the result can be reused/mutated; the display conversion/upload is necessarily separate.
+
+5. VERDICT CHANGE — The daemon + stop flag + timed join is insufficient. The proposed worker cannot call the existing `render_viewport_frame()`: it reads Blender context through `setup_viewport_camera` (`exporter.py:634`, `__init__.py:1733-1799`), creates GPU drawing resources (`__init__.py:1801-1813`), updates RenderEngine stats (`:1393-1400`), and `tag_redraw()` is an engine call (`:1387-1391`). Nor may it call `engine.report`.
+
+   Blender’s own guidance says persistent Python threads must not use Blender APIs; its timer documentation recommends a thread-safe queue pumped on the main thread. [Blender threading guidance](https://docs.blender.org/api/main/info_gotchas_threading.html), [timer queue pattern](https://docs.blender.org/api/3.3/bpy.app.timers.html). Install the timer on the main thread; the worker may only enqueue plain-Python notifications.
+
+   There is no explicit RenderEngine destructor/worker shutdown path today; `unregister()` only unregisters classes (`__init__.py:6666-6686`). Add an explicit main-thread lifecycle owner for engine disposal, file/load replacement, addon unregister, and final-render transition. If shutdown join times out, renderer/context release must not proceed while the worker remains live; daemon status does not make use-after-free safe.
+
+6. VERDICT OK — With strict separation, one worker does restore UI responsiveness on CPU: the CPU native render already releases the GIL (`blender_module.cpp:2351-2355`) and the OpenMP-off addon leaves the main Blender thread available. It does not improve CPU render cadence. The design should explicitly report CPU chunk/publish latency and frame age, not imply comparable refinement rate: the documented 1.7–23 s chunks mean a responsive UI but infrequent visible updates.
+
+7. VERDICT CHANGE — Missing implementation-critical items:
+
+   - Expand the GIL-release scope beyond only `cuda_wavefront_render`; GPU copy-back, `applyPasses()` (`blender_module.cpp:2276-2305`), and result packaging currently reacquire/hold it. Measure this tail.
+   - Define a main-thread-only render request snapshot: camera, resolution divisor, passes, settings, generation, and render key. Current `render_viewport_frame()` configures all of them before rendering (`exporter.py:613-674`).
+   - Add one process-wide GPU render arbiter. Multiple 3D views and F12 can otherwise overlap through the static `WfContext`; F12 creates a separate renderer (`__init__.py:1191-1195`) but reaches the same global wavefront state.
+   - Tag every publication with a monotonically increasing generation, not only mutable shared accumulation fields. Discard cancelled, superseded, resolution-changed, or scene-replaced results.
+   - Treat denoise as a cancellation/latency concern. It is currently enabled per viewport chunk at `exporter.py:657-662` and GPU invokes the pass pipeline after rendering (`blender_module.cpp:2295-2305`). Either defer it to a settled generation or include it in cancellation/latency gates.
+   - Specify worker exception storage, main-thread reporting, and terminal-session behavior. Do not recover a shared primary context with an uncoordinated reset; CUDA documents primary contexts as shared resources.
+   - Test scene reload, addon unregister, two viewports, GPU F12 while viewport refines, device loss, worker exception, denoise, and timed-out cancellation—not just ordinary cancel/restart.
+
+8. VERDICT BLOCK — Do not implement the document as written. Before implementation, in order: (1) correct the `skip_upload`/wavefront-upload model and define a strict main-thread request snapshot; (2) make all Blender/GPUTexture/redraw/report work main-thread-pumped; (3) add a process-wide GPU/session arbiter plus generation-based non-blocking handoff; (4) specify shutdown as “acknowledged worker exit before release,” not daemon-plus-timeout; (5) expand the GIL and denoise/cancellation design; (6) correct buffer-cost claims and measure texture-upload tail. The single most important pre-implementation experiment is a minimal real-Blender A2 spike: main thread prepares generation N, worker calls only native GPU render with explicit `cudaSetDevice`, main requests cancel and prepares N+1 only after worker-idle, repeated across the two scenes while measuring tick-gap, cancellation p99, output correctness, and CUDA errors.
+
+## 7. Lead decision (2026-09-08 05:15)
+
+The A2 direction stands (Terra: viable, CUDA primary-context sharing does not force
+A1), but the document is NOT implementation-ready. Before any threading code:
+
+1. Revise §3(a)/§4 for the corrected device-state model: `skip_upload=True` only skips
+   `buildAcceleration()`; the wavefront driver re-uploads scene arrays and rewrites
+   `__constant__` bindings on every render (`gpu_wavefront_snapshot.cu:973-999`,
+   `:1374-1415`, `:1413/1635/1684/1692-1706/1785`; "Single render thread assumed" at
+   `:963`). Upload and render must be strictly serialised by ONE process-wide GPU/session
+   arbiter that F12 and every 3D view share.
+2. Define the main-thread-only render-request snapshot (camera, divisor, passes,
+   settings, generation, render key) — the worker consumes plain data, never `bpy`,
+   never `GPUTexture`, never `tag_redraw`/`report`; results come back through a queue
+   pumped by a main-thread `bpy.app.timers` timer (Blender's documented pattern).
+3. Generation-tagged, non-blocking handoff (request cancel, keep the last published
+   frame, defer upload/restart until the worker reports idle); a timed join is never
+   the serialisation mechanism. Publication = immutable buffer + reference swap; the
+   texture conversion/upload stays on the main thread and its tail must be measured
+   (RGBA float at 2112×829 is 26.7 MiB, `flat.tolist()` is not sub-ms).
+4. Shutdown = acknowledged worker exit before renderer/context release, with an explicit
+   main-thread lifecycle owner (engine disposal, file load, addon unregister, F12
+   transition) — `unregister()` today only unregisters classes.
+5. Widen the GIL release to the GPU copy-back / `applyPasses` tail; make viewport
+   denoise a settled-generation pass (or include it in the cancel/latency gate).
+6. Pre-implementation experiment (the first task of the implementation package): a
+   minimal real-Blender A2 spike — main thread prepares generation N; worker calls only
+   the native GPU render with explicit `cudaSetDevice`; main requests cancel and prepares
+   N+1 only after worker-idle; both pinned scenes; measure tick-gap, cancel p99, output
+   correctness, CUDA errors. Go/no-go on that spike decides A2 vs a native session (A1).
+
+Owner input wanted before the spike: whether viewport denoise may move to
+settled-only (already the §7 decision "denoise out of the interactive loop") and
+whether F12-while-viewport-refines must keep working during Phase 2 (the arbiter
+serialises it; the alternative is pausing the viewport session on F12, as Cycles does).
+

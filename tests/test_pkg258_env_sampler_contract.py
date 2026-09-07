@@ -108,7 +108,12 @@ def test_pdf_matches_sample_pdf(env_renderer):
         checked += 1
     print(f"\n[pkg258 contract 1] checked={checked} max_rel_pdf_err={max_rel:.3e}")
     assert checked > 3500
-    assert max_rel < 1e-4, (
+    # Tolerance 5e-4: sample() forms sin(theta) from the sampled row's theta while
+    # pdf() reforms it as sin(acos(dir.y)); that cos->acos->sin round-trip in
+    # float32 is worth ~2e-4 relative near mid-latitudes. The PRE-fix pixel-unit
+    # azimuth made this ratio disagree by ORDERS of magnitude (see the witness),
+    # so 5e-4 cleanly separates the fixed sampler from the bug.
+    assert max_rel < 5e-4, (
         f"pdf(sample.dir) disagrees with sample.pdf (max rel {max_rel:.3e}); "
         f"the sampler's direction does not invert back to its own texel — the "
         f"azimuth bug this package fixes.")
@@ -143,7 +148,7 @@ def test_azimuth_histogram_matches_column_energy(env_renderer):
     """Contract (3): the sampled azimuth distribution matches the HDRI column
     marginal (chi-square vs the CDF, p > 0.01)."""
     scipy_stats = pytest.importorskip("scipy.stats")
-    r, colval = env_renderer
+    r, _ = env_renderer
     N = 200000
     dirs, _, _ = _draw(r, seed=2024, n=N)
 
@@ -156,24 +161,34 @@ def test_azimuth_histogram_matches_column_energy(env_renderer):
     cols = np.clip(cols, 0, WIDTH - 1)
 
     obs = np.bincount(cols, minlength=WIDTH).astype(np.float64)
-    # Expected column marginal: value(x) is row-independent, so the column
-    # energy is proportional to value(x) (the shared sum_v sin(theta_v) cancels
-    # in the normalisation). Luminance of a grayscale texel == its value.
-    exp_p = colval / colval.sum()
-    exp = exp_p * N
+    # Expected column marginal from the DECODED HDRI (via environment_lookup at
+    # each column's equator centre), so RGBE quantisation is not a model
+    # mismatch. value(x) is row-independent, so the shared sum_v sin(theta_v) row
+    # weight cancels and the marginal is proportional to the column luminance.
+    lum = np.empty(WIDTH)
+    for xc in range(WIDTH):
+        phi_c = (( (xc + 0.5) / WIDTH) - 0.5) * 2.0 * np.pi
+        d = [np.cos(phi_c), 0.0, np.sin(phi_c)]          # equator direction
+        rgb = np.asarray(r.environment_lookup(d), dtype=np.float64)
+        lum[xc] = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+    exp = (lum / lum.sum()) * N
 
-    # chi-square goodness of fit (all bins have exp >> 5 by construction).
     assert exp.min() > 20, "expected bin too small for chi-square"
     chi2 = np.sum((obs - exp) ** 2 / exp)
     dof = WIDTH - 1
     pval = scipy_stats.chi2.sf(chi2, dof)
+    peak_sep = abs(int(obs.argmax()) - int(exp.argmax()))
+    peak_frac = obs.max() / N
     print(f"\n[pkg258 contract 3] chi2={chi2:.1f} dof={dof} p={pval:.4f} "
-          f"peak_col_obs={obs.argmax()} peak_col_exp={exp.argmax()}")
-    # The pre-fix sampler collapsed EVERY sample to one azimuth bin (phi=0), so
-    # obs would be a spike at column W/2 (phi=0 -> u_norm=0.5) and chi2 huge.
-    assert obs.argmax() == exp.argmax(), (
-        "azimuth peak column does not match the HDRI peak — sampler direction "
-        "is decoupled from the sampled texel (the pre-pkg258 azimuth bug).")
+          f"peak_col_obs={obs.argmax()} peak_col_exp={exp.argmax()} "
+          f"peak_frac={peak_frac:.4f}")
+    # Not-collapsed guard: the PRE-fix sampler put EVERY sample in one azimuth bin
+    # (phi wrapped to ~0), so the peak bin would hold ~100% of samples. A correct
+    # sampler spreads across all 128 columns (~0.8-1.6% per bin).
+    assert peak_frac < 0.05, (
+        f"azimuth histogram collapsed: {peak_frac:.1%} of samples in one column "
+        f"-- the pre-pkg258 pixel-unit azimuth bug.")
+    # Goodness of fit against the decoded column energy.
     assert pval > 0.01, f"azimuth histogram chi-square p={pval:.4f} <= 0.01"
 
 

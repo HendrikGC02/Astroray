@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — firefly-free parity scene implemented 2026-09-08 (PR TBD); MEASURED SSIM 0.9625 on RTX 5070 Ti, still short of the unchanged 0.97 pin. Both firefly-shaping alternatives (capped-4x peak vs 3x3 patch) give a bit-identical CPU-proxy SSIM (0.96182245) — the firefly hypothesis is empirically falsified; the residual is the independent-RNG-stream MC noise floor, not a firefly artifact. Owner decision needed to close (see Progress 2026-09-08).
+**Status:** open — firefly-free parity scene implemented 2026-09-08 (PR #742); MEASURED SSIM 0.9625 on RTX 5070 Ti, still short of the unchanged 0.97 pin. Both firefly-shaping alternatives (capped-4x peak vs 3x3 patch) give a bit-identical CPU-proxy SSIM (0.96182245) — the firefly hypothesis is empirically falsified; the residual is the independent-RNG-stream MC noise floor, not a firefly artifact. Owner decision needed to close (see Progress 2026-09-08).
 **Estimated effort:** TBD
 **Depends on:** none
 

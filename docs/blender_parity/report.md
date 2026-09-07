@@ -11,8 +11,8 @@
 ## Summary
 
 - **SUPPORTED**: 114 features
-- **APPROXIMATED**: 58 features
-- **DROPPED-SILENT**: 355 features ⚠️
+- **APPROXIMATED**: 61 features
+- **DROPPED-SILENT**: 352 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 527 features
 
@@ -22,33 +22,33 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 4122)
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 4122)
-- **INVERT**: socket `Fac` (addon __init__.py line 2759)
-- **MIX_SHADER**: socket `Fac` (addon __init__.py line 4129, line 4267)
-- **TEX_BRICK**: socket `Offset` (addon __init__.py line 3548)
-- **TEX_BRICK**: socket `Color3` (addon __init__.py line 3548)
-- **VALTORGB**: socket `Fac` (addon __init__.py line 2801)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 4183)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 4183)
+- **INVERT**: socket `Fac` (addon __init__.py line 2770)
+- **MIX_SHADER**: socket `Fac` (addon __init__.py line 4190, line 4328)
+- **TEX_BRICK**: socket `Offset` (addon __init__.py line 3609)
+- **TEX_BRICK**: socket `Color3` (addon __init__.py line 3609)
+- **VALTORGB**: socket `Fac` (addon __init__.py line 2812)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 4122)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 4122)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 4122)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 4122)
-- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 4122)
-- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 4122)
-- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 4122)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 4122)
-- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 4122)
-- **MIX**: socket `Fac` (addon __init__.py line 2747)
-- **MIX**: socket `Color1` (addon __init__.py line 2747)
-- **MIX**: socket `Color2` (addon __init__.py line 2747)
-- **MIX_RGB**: socket `Fac` (addon __init__.py line 2747)
-- **MIX_RGB**: socket `B` (addon __init__.py line 2747)
-- **MIX_RGB**: socket `A` (addon __init__.py line 2747)
+- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 4183)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 4183)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 4183)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 4183)
+- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 4183)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 4183)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 4183)
+- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 4183)
+- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 4183)
+- **MIX**: socket `Fac` (addon __init__.py line 2758)
+- **MIX**: socket `Color1` (addon __init__.py line 2758)
+- **MIX**: socket `Color2` (addon __init__.py line 2758)
+- **MIX_RGB**: socket `Fac` (addon __init__.py line 2758)
+- **MIX_RGB**: socket `B` (addon __init__.py line 2758)
+- **MIX_RGB**: socket `A` (addon __init__.py line 2758)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -189,10 +189,7 @@ These features are silently ignored by the addon with no warning:
 - **COMBXYZ**: `input:X` — no handler in addon translation layer
 - **COMBXYZ**: `input:Y` — no handler in addon translation layer
 - **COMBXYZ**: `input:Z` — no handler in addon translation layer
-- **DISPLACEMENT**: `input:Height` — no handler in addon translation layer
-- **DISPLACEMENT**: `input:Midlevel` — no handler in addon translation layer
-- **DISPLACEMENT**: `input:Scale` — no handler in addon translation layer
-- **DISPLACEMENT**: `input:Normal` — no handler in addon translation layer
+- **DISPLACEMENT**: `input:Normal` — Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed
 - **DISPLACEMENT**: `prop:space` — property ENUM
 - **EEVEE_SPECULAR**: `input:Base Color` — no handler in addon translation layer
 - **EEVEE_SPECULAR**: `input:Specular` — no handler in addon translation layer
@@ -661,10 +658,10 @@ These features are silently ignored by the addon with no warning:
 | COMBXYZ | input:X | DROPPED-SILENT | no handler in addon translation layer |
 | COMBXYZ | input:Y | DROPPED-SILENT | no handler in addon translation layer |
 | COMBXYZ | input:Z | DROPPED-SILENT | no handler in addon translation layer |
-| DISPLACEMENT | input:Height | DROPPED-SILENT | no handler in addon translation layer |
-| DISPLACEMENT | input:Midlevel | DROPPED-SILENT | no handler in addon translation layer |
-| DISPLACEMENT | input:Scale | DROPPED-SILENT | no handler in addon translation layer |
-| DISPLACEMENT | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
+| DISPLACEMENT | input:Height | APPROXIMATED | Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed |
+| DISPLACEMENT | input:Midlevel | APPROXIMATED | Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed |
+| DISPLACEMENT | input:Scale | APPROXIMATED | Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed |
+| DISPLACEMENT | input:Normal | DROPPED-SILENT | Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed |
 | DISPLACEMENT | prop:space | DROPPED-SILENT | property ENUM |
 | EEVEE_SPECULAR | input:Base Color | DROPPED-SILENT | no handler in addon translation layer |
 | EEVEE_SPECULAR | input:Specular | DROPPED-SILENT | no handler in addon translation layer |

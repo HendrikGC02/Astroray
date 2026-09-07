@@ -2264,6 +2264,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
             volume_spec = self.convert_volume_node(volume_input.links[0].from_node, node_tree)
         self._volume_material_map[mat.name] = volume_spec
 
+        # pkg257: a ShaderNodeDisplacement wired into the Material Output's
+        # Displacement socket is bump-approximated through the same pkg223b
+        # bump machinery a ShaderNodeBump on a BSDF's Normal already drives.
+        # True geometric displacement (Normal input, space, displacement_method
+        # in (DISPLACEMENT, BOTH)) is out of scope; warn once instead of dropping
+        # silently.
+        displacement_bump, displacement_warning = self.get_displacement_bump_inputs(output, mat)
+        if displacement_warning:
+            self._warn_shader_fallback('DISPLACEMENT', displacement_warning)
+
         surface_input = output.inputs.get('Surface')
         if not surface_input or not surface_input.is_linked:
             if volume_spec is not None:
@@ -2281,7 +2291,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         native = self._convert_astroray_native_surface(shader_node, mat, renderer, node_tree)
         if native is not None:
             return _apply_spectral_profile(native)
-        return _apply_spectral_profile(self.convert_shader_node(shader_node, renderer, node_tree))
+        return _apply_spectral_profile(
+            self.convert_shader_node(shader_node, renderer, node_tree, displacement_bump))
 
     # ------------------------------------------------------------------ #
     # pkg57: Astroray-native node tree conversion.
@@ -2946,6 +2957,56 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         walk_normal_chain(node.inputs.get('Normal'))
         return result
+
+    def get_displacement_bump_inputs(self, output, mat):
+        """pkg257: extract a bump-approximated spec from the Material Output's
+        Displacement socket (a ShaderNodeDisplacement's Height/Midlevel/Scale),
+        mirroring get_normal_inputs's BUMP branch. Returns
+        (result_dict, warning_or_None); result_dict always has the
+        'bump_image'/'bump_strength'/'bump_distance' keys (bump_image is None
+        when nothing usable is wired), so callers can pass it straight to
+        convert_shader_node unconditionally.
+
+        True geometric displacement (mesh offset) is not implemented — Height
+        is approximated as a bump perturbation through the same pkg223b
+        machinery a ShaderNodeBump on a BSDF's Normal already drives. Reads
+        exactly one entry point: the Material Output's own 'Displacement'
+        socket (not the AstrorayOutputNode path).
+        """
+        result = {'bump_image': None, 'bump_strength': 1.0, 'bump_distance': 0.01}
+
+        disp_input = output.inputs.get('Displacement')
+        if not disp_input or not disp_input.is_linked:
+            return result, None
+        try:
+            disp_node = disp_input.links[0].from_node
+        except (IndexError, AttributeError):
+            return result, None
+        if getattr(disp_node, 'type', None) != 'DISPLACEMENT':
+            return result, None
+
+        result['bump_image'] = self.get_image_from_socket(disp_node.inputs.get('Height'))
+        result['bump_strength'] = self.get_float_input(disp_node, 'Scale', 1.0)
+        # Midlevel is read (never a silent drop) but is mathematically inert for
+        # a gradient-based bump approximation: the surface-gradient formula
+        # (svm_node_set_bump, reused from pkg223b) finite-differences the height
+        # field — dU=(hU-h0)/eps — and any constant subtracted from every sample
+        # cancels in that subtraction. Midlevel only matters for true geometric
+        # displacement, which this package does not implement (warned below).
+        self.get_float_input(disp_node, 'Midlevel', 0.5)
+
+        warn_parts = []
+        normal_socket = disp_node.inputs.get('Normal')
+        if normal_socket is not None and normal_socket.is_linked:
+            warn_parts.append(
+                "'Normal' input is dropped (bump derives its own gradient from Height)")
+        method = getattr(mat, 'displacement_method', 'BUMP')
+        if method != 'BUMP':
+            warn_parts.append(
+                f"displacement_method '{method}' requests true geometric displacement "
+                "but is bump-approximated only ('space' is likewise ignored)")
+        warning = '; '.join(warn_parts) if warn_parts else None
+        return result, warning
 
     # ------------------------------------------------------------------ #
     # pkg59 follow-up: Vector input → coord_mode + UV transform
@@ -4306,8 +4367,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
         del node_tree  # reserved for future graph-dependent volume conversion.
         return self._volume_spec_from_node(node)
 
-    def convert_shader_node(self, node, renderer, node_tree):
-        """Route a surface-shader node to the appropriate material builder."""
+    def convert_shader_node(self, node, renderer, node_tree, displacement_bump=None):
+        """Route a surface-shader node to the appropriate material builder.
+
+        ``displacement_bump`` (pkg257, optional): the dict
+        ``get_displacement_bump_inputs`` returns for the Material Output's
+        Displacement socket. When it carries a resolved 'bump_image', it is
+        loaded and merged into the returned spec's bump_map_texture/
+        bump_strength/bump_distance — Scale becomes bump_strength — the same
+        keys ``_create_material_from_shader_spec``'s 'principled' branch
+        already forwards for a BSDF's own Normal->Bump chain.
+        """
         ntype = node.type
         if ntype in ('VOLUME_ABSORPTION', 'VOLUME_SCATTER', 'PRINCIPLED_VOLUME'):
             return renderer.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.0})
@@ -4322,6 +4392,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 f"shader node '{ntype}'",
                 "unsupported surface shader -> neutral grey",
             )
+        elif displacement_bump is not None and displacement_bump.get('bump_image') is not None:
+            tex_name = self.load_blender_image(displacement_bump['bump_image'], renderer)
+            if tex_name:
+                spec['bump_map_texture'] = tex_name
+                spec['bump_strength'] = float(displacement_bump.get('bump_strength', 1.0))
+                spec['bump_distance'] = float(displacement_bump.get('bump_distance', 0.01))
         return self._create_material_from_shader_spec(spec, renderer)
 
     def _float_with_fallback(self, node, new_name, old_name, default):

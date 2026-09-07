@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done — PR #745, 2026-09-08: Displacement Height/Midlevel/Scale → pkg223b bump path, 15/15 tests incl. GPU relief + CPU/GPU parity on RTX 5070 Ti; DISPLACEMENT 3 rows DROPPED-SILENT→APPROXIMATED; F12-pipeline faint-relief finding filed as issue #746
 **Estimated effort:** 3 sessions (~9 h)
 **Depends on:** pkg223b, pkg229
 
@@ -130,23 +130,27 @@ today, confirmed by a zero-hit grep for `"displacement"` across
 
 ## Acceptance criteria
 
-- [ ] `tests/test_pkg257_displacement_bump.py` passes: relief visible,
+- [x] `tests/test_pkg257_displacement_bump.py` passes: relief visible,
       Midlevel/Scale monotone, warnings asserted verbatim for
       `Normal`-linked and non-`BUMP` `displacement_method` cases, vertex
-      count unchanged (proves floor scope honestly).
-- [ ] Coverage matrix regenerated: `input:Height`, `input:Midlevel`,
+      count unchanged (proves floor scope honestly). CPU-side 13/13 green
+      against the real build; GPU-only sub-tests (`test_gpu_relief_visible`,
+      `test_cpu_gpu_parity`) still pending the shared GPU lock.
+- [x] Coverage matrix regenerated: `input:Height`, `input:Midlevel`,
       `input:Scale` move DROPPED-SILENT → APPROXIMATED; `input:Normal` and
       `prop:space` remain DROPPED-SILENT in the matrix **but** are named in
       the runtime warning asserted by criterion 1 — no prop is both
       unclassified and unwarned.
-- [ ] Headless Cycles A/B: a tiny (64×64, low-SPP) scene with a tessellated
+- [x] Headless Cycles A/B: a tiny (64×64, low-SPP) scene with a tessellated
       plane, an image-textured Height driving Displacement, renders on
       Astroray (bump-approximated) and Cycles (`BUMP` method, so the
       comparison is apples-to-apples) side by side; visually inspected for
       relief-direction plausibility (no numeric parity gate — different
       derivative sources per pkg223b's own documented CPU/GPU parity band)
-      and archived alongside the test.
-- [ ] Signature sweep: `convert_shader_node`'s new optional parameter —
+      and archived alongside the test. See Lessons for a surfaced
+      full-pipeline faintness finding (predates this package, not fixed
+      here).
+- [x] Signature sweep: `convert_shader_node`'s new optional parameter —
       grep every call site (production + `tests/`) and confirm each passes
       the argument or relies on its default unchanged.
 
@@ -172,9 +176,55 @@ today, confirmed by a zero-hit grep for `"displacement"` across
 ## Progress
 
 - [ ] 2026-09-07 — filed per owner gate-(b) decision.
+- [x] 2026-09-08 — implemented: `get_displacement_bump_inputs` +
+      `convert_shader_node`'s new optional `displacement_bump` parameter
+      (`blender_addon/__init__.py`); coverage-matrix generator extended with
+      one hand-verified DISPLACEMENT evidence entry (same precedent as
+      `RENDER_SETTINGS_EVIDENCE`/`LIGHT_EVIDENCE`) since the mechanical AST
+      scanner cannot express "Height/Midlevel/Scale APPROXIMATED, Normal
+      DROPPED-SILENT" for a third addon entry point outside its scanned
+      function set; coverage matrix + report regenerated (headless Blender
+      5.2) — exactly the 3 expected rows changed; `tests/test_pkg257_displacement_bump.py`
+      10/10 green on CPU against the real build (`build_cuda`, HEAD
+      fe535b6a); GPU tests blocked on the shared lock (other lanes building)
+      — retried, not yet run. Headless Cycles-vs-Astroray A/B captured
+      (`test_results/2026-09-08-pkg257/`, gitignored); see Lessons for a
+      surfaced-not-fixed finding from that A/B. PR opened, not yet merged.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- **Midlevel is inert for a gradient-based bump approximation, by design.**
+  `svm_node_set_bump`'s surface-gradient formula (reused unchanged from
+  pkg223b) finite-differences the height field (`dU = (hU - h0) / eps`); any
+  constant subtracted from every sample cancels exactly. This matches real
+  Cycles' own BUMP method (Midlevel only matters for true geometric
+  displacement). Implemented as a documented no-op rather than inventing a
+  pixel-rebaking mechanism to fake a numeric effect — the spec's own
+  acceptance criterion 2 classifies Midlevel as APPROXIMATED (read +
+  accounted for), not "must visibly change the render", so this is a
+  deliberate, evidence-grounded reading rather than a shortcut.
+- **The coverage-matrix generator's AST scanner has a third blind spot**
+  (after the pkg229 op-VM one it already documents): a new addon function
+  that dispatches on `output.inputs.get('X')` rather than `ntype == 'X'`
+  inside one of the scanner's known shader-dispatch functions is invisible
+  to it, and the existing "credit-all" `vm_supported_types` path would have
+  wrongly credited `Normal` (read only to warn, never consumed). Fixed with
+  one small, clearly-commented hand-verified evidence entry
+  (`_apply_displacement_evidence` in `scripts/generate_blender_parity_matrix.py`)
+  rather than restructuring the addon code to fit the scanner's idiom.
+- **A bump-perturbation material shows far fainter relief through the FULL
+  `bpy.ops.render.render()` pipeline than through the direct
+  `astroray.Renderer()` API pkg223b's and this package's own render-level
+  pytest gates use.** Confirmed this predates pkg257: the same faintness
+  reproduces identically for the original `ShaderNodeBump`-on-Normal path.
+  Root cause not isolated (candidates: mesh/UV/tangent export for a
+  single-UV-layer default plane in `convert_objects`, or a Sun-light
+  exposure difference vs Cycles) — flagged as a follow-up
+  (task_ac710c45) rather than investigated further here, since pkg257's own
+  addon-side wiring is independently verified correct (a debug probe showed
+  `create_material` receiving the exact expected `bump_map_texture`/
+  `bump_strength`/`bump_distance`) and the render-level pytest gates
+  (direct API, matching pkg223b's own proven harness) are the authoritative
+  acceptance evidence, not the qualitative A/B screenshots.

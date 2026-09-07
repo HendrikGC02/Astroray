@@ -1260,24 +1260,24 @@
     "feature": "DISPLACEMENT",
     "bl_idname": "ShaderNodeDisplacement",
     "socket_or_prop": "input:Height",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed"
   },
   {
     "category": "shader_node",
     "feature": "DISPLACEMENT",
     "bl_idname": "ShaderNodeDisplacement",
     "socket_or_prop": "input:Midlevel",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed"
   },
   {
     "category": "shader_node",
     "feature": "DISPLACEMENT",
     "bl_idname": "ShaderNodeDisplacement",
     "socket_or_prop": "input:Scale",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "APPROXIMATED",
+    "notes": "Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed"
   },
   {
     "category": "shader_node",
@@ -1285,7 +1285,7 @@
     "bl_idname": "ShaderNodeDisplacement",
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed"
   },
   {
     "category": "shader_node",

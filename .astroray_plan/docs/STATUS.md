@@ -30,10 +30,10 @@ resolution budget → cancellation); pkg255–257 filed for Metallic/Sky/Displac
   all 600 events (no stale frame; material double-render gone). Camera classes
   now meet the p95 ≤ 100 ms budget; material edits remain render-bound. The
   earlier "cheap-scene camera regression" was a recorder artifact (camera-view
-  scenes ignore the rotation nudge) — recorder fixed. STATUS: see PR.
+  scenes ignore the rotation nudge) — recorder fixed. MERGED 20:26.
 - Addon rebuilt (CUDA, hermetic smoke PASS, `dist/astroray-4.0.0-cuda.zip`);
   the live profile runs the new exporter. Weekly local bench validated
-  (parity leg OK; showcase leg needed `python -m` — #740).
+  (parity leg OK; showcase leg fixed to `python -m` in #740, merged); scheduled task `Astroray-WeeklyBench` installed (Sundays 03:00, next 2026-09-13).
 - HDRI background gap (0.047 vs 0.121): diagnosis doc claims Cycles' own
   environment importance sampling inflates the reference; lead marked the claim
   **unverified** pending a Cycles black-world geometry probe.

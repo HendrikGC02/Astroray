@@ -291,6 +291,7 @@ All implementation gates UNRUN:
 ---
 
 ## Progress
+- [ ] 2026-09-08 05:15 — Phase 2 design pass done: `pkg241-phase2-offthread-design-2026-09-08.md` (Opus 4.8 architect; A2 = addon-owned worker thread driving the existing binding, GPU path releasing the GIL, `view_draw` blit-only). Codex Terra: **BLOCK as written** — `skip_upload` premise wrong (wavefront re-uploads every render; single-render-thread global `WfContext`), worker must never touch `bpy`/GPUTexture/redraw, needs a process-wide GPU arbiter + generation-tagged non-blocking handoff, acknowledged worker exit before release, wider GIL release, denoise as settled-only. Lead decision (doc §7): revise the doc per Terra 1–6, then a minimal real-Blender A2 spike is the first implementation task; no threading code before that spike passes. Phase 2 measurement itself: PR #750.
 
 - [ ] 2026-09-08 — Phase 1b (cooperative cancellation) code implemented; PR pending.
   - **Native callback returns bool.** `Renderer::render`'s progress callback is

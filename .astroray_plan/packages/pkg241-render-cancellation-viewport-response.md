@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — Phase 1a delivered (PR #739, 2026-09-07: present-first + interactive-resolution budget, addon Python only; matched GPU A/B — material p95 −6× metal_sweep 964→155 ms / big 1495→224 ms, big camera p95 169→64 ms meets ≤100 ms budget, renders_before_present=1 on all 600 events; metal_sweep camera 107.6→30.4 ms p50 after correcting a CAMERA-view recorder artifact — exporter divisor logic was correct, the pkg196 divisor-2 nav floor is unit-locked, and the recorder now forces PERSP for camera runs). Phase 0 recorder + measurements + design landed (PR #733). Phase 1b (bool-returning cancellation callback + completion metadata + F12 cooperative cancel) still pending owner decision — Terra 2026-09-07 wanted present-first + budget first, now delivered.
+**Status:** in-progress — Phase 1b code delivered (native + addon cooperative cancellation, PR pending 2026-09-08: bool-returning progress callback honoured by the CPU tile loop and the GPU wavefront host loop, `Renderer.last_render_info()` completion metadata, viewport cancel-flag + accumulation reset, effective F12 `test_break` cancel; GIL released around the CPU render so OpenMP-worker callbacks don't deadlock; native+addon tests 5+4 pass on the rebuilt sm_120 .pyd; bridge cancel-ack + Phase 2 UI-latency measurement pending). Phase 1a delivered (PR #739, 2026-09-07: present-first + interactive-resolution budget, addon Python only; matched GPU A/B — material p95 −6× metal_sweep 964→155 ms / big 1495→224 ms, big camera p95 169→64 ms meets ≤100 ms budget, renders_before_present=1 on all 600 events; metal_sweep camera 107.6→30.4 ms p50 after correcting a CAMERA-view recorder artifact — exporter divisor logic was correct, the pkg196 divisor-2 nav floor is unit-locked, and the recorder now forces PERSP for camera runs). Phase 0 recorder + measurements + design landed (PR #733).
 **Estimated effort:** TBD
 **Depends on:** pkg52, pkg81, pkg147, pkg191, pkg192, pkg196, pkg232, pkg236
 
@@ -292,6 +292,55 @@ All implementation gates UNRUN:
 
 ## Progress
 
+- [ ] 2026-09-08 — Phase 1b (cooperative cancellation) code implemented; PR pending.
+  - **Native callback returns bool.** `Renderer::render`'s progress callback is
+    now `std::function<bool(float)>` (`include/raytracer.h`): the OpenMP tile loop
+    sets a shared `std::atomic<bool> cancelled` on a `false` return and skips the
+    remaining tiles (OpenMP for-loops cannot `break`), returning a partial
+    framebuffer with the completed tiles correctly normalised. Null callback =>
+    never set => byte-identical to the pre-pkg241 path (verified: two `progress=None`
+    renders on a fixed seed are `array_equal`, and an always-True callback matches
+    `None` exactly).
+  - **GPU host-side cancel hook.** `cuda_wavefront_render` gains a
+    `std::function<bool()> cancelRequested = nullptr` (default null = bit-identical),
+    polled between wavefront passes on the host; on cancel it breaks the pass/round
+    loops and returns the last host-accumulated (partial) frame. No device-side
+    preemption. All call sites updated (`module/blender_module.cpp:2184`, prewarm
+    `:2773`, module-level `m.def` `:4924` use the default; `apps/main.cpp` and the
+    restir variant are unaffected).
+  - **Completion metadata.** `Renderer.last_render_info()` returns
+    `{cancelled, tiles_completed, total_tiles}` (GPU tiles are 0/0; cancel state
+    from the host hook). Smallest binding surface chosen over per-sample counts.
+  - **Addon.** `exporter.render_viewport_frame` passes a real
+    `not _viewport_cancel_requested` callback (was `None`); `view_draw` requests a
+    cancel on a substantive camera / settings change; `_consume_viewport_cancel`
+    drops the cancelled chunk's partial accumulation before the next chunk (no mixed
+    accumulation, decision key = existing `render_key`). F12 `test_break()` now
+    actually stops the render and the partial framebuffer is written to the render
+    result like Cycles (`__init__.py`).
+  - **GIL fix (deviation from design doc §5).** The design doc assumed the per-tile
+    callback runs on the main thread and re-acquires reentrantly. Under OpenMP the
+    callback runs on WORKER threads, so holding the GIL through `render()` deadlocks
+    (workers block on the GIL the main thread holds at the OpenMP barrier). Fixed by
+    releasing the GIL around the CPU render (`py::gil_scoped_release`) — the standard
+    pybind11+OpenMP pattern, matching Cycles. The addon .pyd is built OpenMP-OFF so
+    there the single main thread runs the callback (reentrant no-op). Reproduced the
+    deadlock (faulthandler: 7 worker threads + main stuck in `render()`), then
+    verified fixed (callback render completes in 0.12 s).
+  - **Tests.** `tests/test_pkg241_cancellation.py` (5: CPU cancel→partial buffer +
+    stops within N+thread-slack tiles; `None` byte-identical; non-bool return =
+    continue; GPU cancel stops between passes; GPU null hook == always-continue) all
+    pass on the rebuilt sm_120 worktree .pyd. `tests/test_pkg241_cancellation_addon.py`
+    (4: real callback wired + polarity; request/consume resets accumulation;
+    render_viewport_frame consumes a pending cancel; settings change requests cancel)
+    pass. pkg196/pkg191/pkg52/present-first viewport suites green (38).
+  - **Still pending:** bridge GPU cancel-ack p50/p95/p99 on metal_sweep + big vs the
+    p95 ≤ 200 / p99 ≤ 300 ms budget, an edit→present non-regression re-confirm, and
+    the Phase 2 UI-latency metric. NOTE: in the current synchronous model a chunk is
+    atomic on the main thread, so a *viewport* per-chunk cancel cannot be triggered
+    mid-chunk by a Blender event (no event loop runs during the blocking render); the
+    cancel plumbing lands now for F12 (which polls OS ESC state during the render) and
+    as the Phase 2 off-thread stop signal.
 - [ ] 2026-09-07 evening — owner: UI still coupled to the viewport render
       frame rate (Cycles decouples them); recorded as Phase 2 under Key
       design decisions and as a comment on issue #721. Next: Phase 1b, then

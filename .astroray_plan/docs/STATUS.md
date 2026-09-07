@@ -1,5 +1,50 @@
 # Astroray Status
 
+## 2026-09-07 CURRENT — Round 1 after the overnight course-correction
+
+Owner decisions 08:30 (recorded in `north-star-and-integration-gate-2026-09-07.md` §7):
+gate (b) is frequency-weighted; denoise out of the interactive loop; pkg237/238
+test-method fixes approved; pkg241 Phase 1 follows Terra's order (present-first →
+resolution budget → cancellation); pkg255–257 filed for Metallic/Sky/Displacement.
+
+**Landed today (after the 07:00 closeout):**
+- **#738 pkg237/238** — parity gates measure converged parity. pkg238 GREEN
+  (field attribution: `lambdas` 13 ULP, geometry 2; `lambdas` now on the p99.9
+  relative bound). pkg237 improved 0.769 → 0.9628 with adaptive off + shared
+  exposure; still 0.007 under the unchanged 0.97 pin (single-firefly scene
+  floor) — **owner call pending**: re-pin / more spp / firefly-free scene.
+- **#737 + fe1c95c pkg242 Phase 1** — one transformed-coordinate contract
+  (Mapping rotation/offset/scale/mirror; singular reported) for CPU overloads and
+  GPU bake domains, transform-aware bake cache keys. GPU-verified (16 contract
+  tests incl. 3 GPU twins, 129 procedural regressions). NOTE: the contract code
+  reached main inside docs commit `fe1c95c` (lead `commit -a` while the branch
+  was cherry-picked for GPU verification); #737 carries the bit-exact key fix.
+- **#736** pkg255 Metallic BSDF, pkg256 Sky texture, pkg257 Displacement specs
+  (support-or-warn floors + full ceilings) — gate (b) is now reachable on paper.
+- **#735** pre-commit hooks read `tool_input.command` and resolve the repo from
+  `-C`/`cd`/`cwd` (worktree commits checked against the worktree); 6 hermetic tests.
+- **#739 pkg241 Phase 1a** — present-first blit + interactive-resolution budget
+  (addon Python only). Matched GPU A/B, RTX 5070 Ti, p95 edit→present:
+  metal_sweep camera 430 → **32 ms**, material 964 → **155 ms**; 100k-tri camera
+  169 → **63.5 ms**, material 1495 → **224 ms**. `renders_before_present == 1` on
+  all 600 events (no stale frame; material double-render gone). Camera classes
+  now meet the p95 ≤ 100 ms budget; material edits remain render-bound. The
+  earlier "cheap-scene camera regression" was a recorder artifact (camera-view
+  scenes ignore the rotation nudge) — recorder fixed. STATUS: see PR.
+- Addon rebuilt (CUDA, hermetic smoke PASS, `dist/astroray-4.0.0-cuda.zip`);
+  the live profile runs the new exporter. Weekly local bench validated
+  (parity leg OK; showcase leg needed `python -m` — #740).
+- HDRI background gap (0.047 vs 0.121): diagnosis doc claims Cycles' own
+  environment importance sampling inflates the reference; lead marked the claim
+  **unverified** pending a Cycles black-world geometry probe.
+
+**Open at closeout:** pkg237 residual (owner), pkg253 G1-GPU alpha (deferred
+shadow stage), pkg241 Phase 1b (cancellation callback + completion metadata),
+pkg242 Phase 2 (real-Blender parity), pkg255–257 dispatch.
+
+---
+
+
 ## 2026-09-07 CURRENT — overnight course-correction: north star + measurable gate, spec hygiene, debt removal, four lanes
 
 Lead: Claude Fable 5.1 (autonomous, owner-approved plan; usage-limit gap 02:10–04:40).

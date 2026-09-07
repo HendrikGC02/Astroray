@@ -5,8 +5,9 @@ Invoked once per feature per engine by ``harness.py`` for subprocess isolation
 (pkg71 discipline: Cycles and the Astroray addon hold conflicting global state,
 so each engine renders in its own Blender process). Builds the scene for exactly
 one matrix feature via ``scene_library``, renders it with one engine, and writes
-the LINEAR scene-referred pixels to ``<out>.npy`` (float32 HxWx3) plus a display
-PNG for the human report.
+the LINEAR scene-referred pixels to ``<out>.npy`` (float32 HxWx3, row 0 = TOP of
+the frame - flipped from Blender's native bottom-up buffer) plus a display PNG
+for the human report.
 
 Contract with the driver:
   * On success prints ``PKG119B_LEG PASS`` and writes ``<out>.npy``.
@@ -98,6 +99,18 @@ def _configure_render(scene, engine, res, samples, device="gpu", res_y=None):
         cr.use_adaptive_sampling = False
 
 
+def _to_top_down(px):
+    """Flip Blender's native bottom-up pixel buffer (row 0 = bottom of the
+    picture) to top-down (row 0 = top), matching every ROI constant in
+    harness.py (HDRI_BACKGROUND_ROI "top strip", HAIR_ROI "above the scalp
+    apex", CHECKER_ROI "row 3, col 1") - blender_addon/__init__.py's
+    image-loading path does the same flip for the same reason. Pure/bpy-free
+    (takes a plain ndarray) so it is unit-testable without Blender - see
+    tests/test_blender_parity_harness.py."""
+    import numpy as np
+    return np.ascontiguousarray(px[::-1, :, :])
+
+
 def _render_to_npy(bpy, scene, out_stem: Path, res: int):
     import glob
     import numpy as np
@@ -116,6 +129,7 @@ def _render_to_npy(bpy, scene, out_stem: Path, res: int):
     img = bpy.data.images.load(matches[0])
     w, h = img.size
     px = np.asarray(img.pixels[:], dtype=np.float32).reshape(h, w, 4)[:, :, :3]
+    px = _to_top_down(px)
     bpy.data.images.remove(img)
     for f in matches:
         try:

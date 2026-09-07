@@ -493,3 +493,48 @@ def test_backdrop_is_parity_safe(tmp_path):
         f"backdrop structure diverges after removing the uniform dim "
         f"(offset-normalized SSIM {norm_ssim:.4f}, dE {delta_e:.2f}); real "
         f"backdrop contamination")
+
+
+# --------------------------------------------------------------------------- #
+# Pixel-orientation regression (2026-09-08 pkg119b harness fix). Blender's
+# native image buffer is bottom-up (row 0 = bottom of the picture); every
+# top-down ROI constant above (HDRI_BACKGROUND_ROI, HAIR_ROI, CHECKER_ROI)
+# assumes row 0 = top. render_leg.py's ``_to_top_down`` is the single place
+# that reconciles the two - a synthetic bright-top/dark-bottom array must
+# round-trip through it with row 0 landing on the bright (top) row.
+# --------------------------------------------------------------------------- #
+
+def test_to_top_down_flips_native_bottom_up_buffer():
+    import sys as _sys
+    render_leg_dir = str(REPO_ROOT / "benchmarks" / "blender_parity")
+    if render_leg_dir not in _sys.path:
+        _sys.path.insert(0, render_leg_dir)
+    import render_leg  # noqa: E402 - Blender-free helper only, no bpy import needed
+
+    # Native Blender buffer: row 0 = bottom of the picture (dark), last row =
+    # top of the picture (bright) - the orientation render_leg.py must flip.
+    native = np.zeros((4, 3, 3), dtype=np.float32)
+    native[0] = (0.0, 0.0, 0.0)   # bottom of the picture
+    native[-1] = (1.0, 1.0, 1.0)  # top of the picture
+
+    top_down = render_leg._to_top_down(native)
+
+    assert top_down.shape == native.shape
+    assert (top_down[0] == 1.0).all(), "row 0 must be the TOP (bright) row"
+    assert (top_down[-1] == 0.0).all(), "last row must be the BOTTOM (dark) row"
+
+
+def test_hdri_background_roi_reads_the_top_of_a_top_down_array():
+    """The ROI itself must agree with _to_top_down's contract: a bright row 0
+    (top of a correctly-oriented array) should be inside HDRI_BACKGROUND_ROI
+    ("top strip"), and a dark last row (bottom) should not."""
+    h, w = 360, 640
+    img = np.full((h, w, 3), 0.01, dtype=np.float32)
+    img[0:5, :, :] = 0.5  # bright top rows, well inside the top-30/360 strip
+    ok, mean = H.hdri_background_ok(img, min_mean=0.05)
+    assert ok and mean > 0.05
+
+    img_dark_top = np.full((h, w, 3), 0.01, dtype=np.float32)
+    img_dark_top[-5:, :, :] = 0.5  # bright BOTTOM rows only - must not satisfy the top-strip ROI
+    ok2, mean2 = H.hdri_background_ok(img_dark_top, min_mean=0.05)
+    assert not ok2 and mean2 < 0.05

@@ -179,23 +179,68 @@ def compare_and_triage(feat: Feature, actual, reference) -> FeatureResult:
 # --------------------------------------------------------------------------- #
 
 # material_zoo: box around the CheckerGenerated sphere (row 3, col 1 of the
-# 4x4 grid), pinned camera/resolution 640x360.
-CHECKER_ROI = (235 / 640, 225 / 360, 330 / 640, 285 / 360)
+# 4x4 grid), pinned camera/resolution 640x360. Re-measured 2026-09-08 (pkg119b
+# harness pixel-orientation fix) via bpy_extras.object_utils.world_to_camera_view
+# on the sphere's actual world location/radius (scene_library.build_material_zoo_scene:
+# sphere_at(1, 3) -> (-0.7, 2.1, 0.5), r=0.5): projects to row 83-138 of 360 /
+# col 247-308 of 640 - the OLD box (row 225-285) was correct only under the
+# pre-fix bottom-up array reading and framed empty background/shadow between
+# other spheres once row 0 became the top (verified by cropping both boxes
+# out of the rendered PNG - see PR).
+CHECKER_ROI = (230 / 640, 75 / 360, 325 / 640, 145 / 360)
 CHECKER_DARK_LUMINANCE = 0.03   # linear
-CHECKER_MIN_DARK_FRACTION = 0.05  # measured: real checker ~0.14-0.15, flat control ~0.00-0.03
+CHECKER_MIN_DARK_FRACTION = 0.05  # measured (post-fix, corrected ROI): real checker ~0.14-0.15, flat control ~0.00-0.03
 
 # hdri_exterior_hair: top strip, above the hair apex at every camera/res the
 # scene is rendered at - guaranteed sky-only (no scalp/hair/glass/ground).
 HDRI_BACKGROUND_ROI = (0.0, 0.0, 1.0, 30 / 360)
-HDRI_MIN_BACKGROUND_MEAN = 0.05  # linear; matches the north-star doc's own gate (c) wording
+# Floor re-derived 2026-09-08 (pkg119b harness pixel-orientation fix). Before
+# the render_leg.py bottom-up/top-down orientation fix this ROI actually
+# sampled the near-GROUND strip, not the sky, which is why the old floor
+# (0.05) and the old measured means (Cycles 0.121, Astroray-pre-258 0.047)
+# were both meaningless for a "sky-only" check.
+#
+# .astroray_plan/docs/hdri-background-gap-diagnosis-2026-09-07.md experiment
+# 1c reports an independent ground-truth `.hdr` decode of 0.033811 for "this
+# ROI", but that decode script (test_results/2026-09-07-hdri-gap/sample_hdr.py
+# in the main checkout) has its OWN, separate v-axis flip bug: it indexes the
+# OpenCV-loaded (top-down, row 0 = file's first/TOP row) pixel array directly
+# with `vp = v * H`, while Cycles' v=1 means the TOP of the image - so its
+# samples are taken from the mirrored (bottom-hemisphere-facing) direction.
+# Verified here (2026-09-08) two independent ways: (1) a round-trip camera-ray
+# check (cast the reconstructed ray 10 units out, feed it back through
+# bpy_extras.object_utils.world_to_camera_view - the row/col recovers exactly,
+# so the ray directions themselves are correct) and (2) sampling
+# samples/test_env.hdr with `vp = (1.0 - v) * H` instead reproduces the ACTUAL
+# rendered Cycles pixel values for this ROI to <1% (32-spp MC noise), while
+# the unflipped indexing does not (matches neither in value nor in hue - the
+# unflipped decode is warm/ground-toned, the real sky here is blue/grey
+# cloud). The correct ground-truth sky mean for this ROI is therefore
+# ~0.184 (Cycles 0.18370, pre-pkg258 Astroray 0.18382 - both agree, since a
+# direct camera-miss env lookup does not depend on env-NEE), not 0.034; the
+# diagnosis doc's experiment 1c figure (and anything reasoning from a "true
+# ground-truth sky mean 0.034" for this scene/camera) should be treated as
+# stale pending its own fix. Floor is set to roughly half of the verified
+# ground-truth mean (0.184 / 2 = 0.092) so real MC noise at the pinned
+# 32-64spp doesn't false-positive-fail the check while a black/near-black
+# world (the failure mode this guards against) still clears no bar.
+HDRI_MIN_BACKGROUND_MEAN = 0.092  # linear; see derivation above
 
 # hdri_exterior_hair: a band strictly ABOVE the bald scalp sphere's apex
 # (verified against build_hdri_exterior_hair_scene's pinned geometry+camera:
 # bald apex projects to y=92px of 360, hair strands can reach y=44px) so it
-# can ONLY show non-background pixels if Curves/hair actually rendered.
+# can ONLY show non-background pixels if Curves/hair actually rendered. This
+# ROI was already written top-down (y=44 above y=92, matching
+# world_to_camera_view + the render_leg.py orientation fix) so its box is
+# unchanged by the fix; only the coverage numbers below were re-measured.
 HAIR_ROI = (245 / 640, 44 / 360, 365 / 640, 90 / 360)
 HAIR_COVERAGE_TOL = 0.05
-HAIR_MIN_COVERAGE_FRACTION = 0.02  # measured: real hair ~0.19-0.38, geometrically 0 if strands are absent
+HAIR_MIN_COVERAGE_FRACTION = 0.02  # re-measured 2026-09-08 (post-fix): real hair
+# ~0.89-0.90 (this tight box is centred on the fringe of strands against sky,
+# so most of it differs from the flat sky reference - see PR crop), 0 if
+# strands are absent. The old comment's 0.19-0.38 was measured against the
+# pre-fix ground/shadow band, not hair; the 0.02 gate floor itself does not
+# need to change (it is already far below either era's numbers).
 
 
 def _resolve_roi(img, roi: tuple[float, float, float, float]):

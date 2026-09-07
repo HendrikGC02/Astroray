@@ -161,6 +161,15 @@ __constant__ float* c_wfMissCoverage = nullptr;
 // so the snapshot/ReSTIR drivers that never publish it render as vacuum.
 __constant__ GWorldVolume c_worldVolume;
 
+// pkg258 - environment-NEE side-table binding (see GWavefrontEnvNeeBinding).
+// Published once per frame by cuda_wavefront_render (setWavefrontEnvNeeBinding).
+// enabled==0 (the default) means the env-NEE generate body is never entered and
+// the miss-leg env-MIS branch is skipped, so fleet renders are byte-identical and
+// consume no extra RNG. Read by shadePathSlot (generate), intersectPathSlot (miss
+// MIS weight + gate), stageEnvShadowKernel (resolve), and stageRegenKernel (per-
+// pass env queue-count reset) -- all behind `c_wfEnvNeeBinding.enabled`.
+__constant__ GWavefrontEnvNeeBinding c_wfEnvNeeBinding = {};
+
 // pkg198 Stage 2 — light-path pass binding in constant memory (see
 // GWavefrontLightPassBinding in gpu_types.h). Set once per frame by
 // setWavefrontLightPassBinding; the shade/intersect kernels read it ONLY inside
@@ -669,6 +678,25 @@ __device__ int intersectPathSlotT(
                 envSpec = gpu_env_miss_spectral(
                     envMap, backgroundColor, hasBackgroundColor, dir, lambdas);
             }
+            // pkg258: two-strategy MIS for the background (twin of CPU
+            // pathTraceSpectral / path_kernel.cpp miss leg). A camera ray or a
+            // post-specular miss takes the full env (unweighted -> sky exact);
+            // after a NON-specular surface bounce where env NEE actually competed
+            // for this direction, discount by the power heuristic against the env
+            // importance pdf. env_nee_sampled_prev distinguishes a surface bounce
+            // (env NEE ran) from a post-phase-scatter miss (lamp NEE only) so the
+            // latter is NOT wrongly discounted. Gated on the loaded HDRI + the
+            // runtime enabled flag: no-op (byte-identical) otherwise.
+            if (c_wfEnvNeeBinding.enabled && envMap.loaded && bounce > 0 &&
+                !wasSpecular && state.env_nee_sampled_prev[idx]) {
+                float ep = gpu_envmap_pdf(envMap, dir);
+                float bsdfPdfPrev = state.path_bsdf_pdf[idx];
+                // pkg258 (Terra item 6): complementary heuristic — this w(bsdf,env)
+                // plus the env-NEE leg's w(env,bsdf) sum to EXACTLY one (no 1e-8
+                // denom epsilon), so the miss/NEE pair loses no energy (dark bias).
+                float wMiss = gpu_mw_powerHeuristicExact(bsdfPdfPrev, ep);
+                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) envSpec.v[i] *= wMiss;
+            }
             // pkg157: clamp by bounce depth (Cycles film_clamp_light split);
             // see gpu_clampContribMW (gpu_spectral_tables.h).
             GSampledSpectrum envContrib = gpu_clampContribMW(
@@ -1014,6 +1042,88 @@ __device__ __forceinline__ void gpu_applyScalarOverride(
 // shade kernel stays byte-identical); the launcher picks <true> off the
 // host-side hasDispersive scene flag. See
 // .astroray_plan/packages/pkg189-gpu-wavefront-dispersion-enablement.md.
+// pkg258 - environment NEE sample generation, register-isolated OUT of the
+// REG-254 shade kernel via __noinline__ so the fleet kernel's live set is
+// unchanged (memory noinline-runtime-flag-avoids-shade-spill / pkg224 pattern).
+// Called from shadePathSlot only when c_wfEnvNeeBinding.enabled && a loaded HDRI
+// && the (bounce+1)<=worldMaxBounces gate holds -- an INDEPENDENT additive
+// strategy, disjoint from lamp NEE (env miss vs finite emitter). RNG contract
+// (Terra GPU-leg constraint 1): the two CDF uniforms are drawn FIRST and
+// UNCONDITIONALLY (even on rejection), matching the CPU wavefront's unconditional
+// env_seed draw so the RNG dimension is consumed before RR. Returns true whenever
+// the env-NEE strategy ran at this vertex (drew RNG), regardless of whether a
+// record was parked -- the caller stores this into env_nee_sampled_prev so the
+// next-bounce miss leg knows env NEE competed. The env radiance L_spec is resolved
+// lazily in stageEnvShadowKernel (register economy); here we prefold everything
+// except L_spec: throughput * f_spec * (wt / envPdf).
+template<bool HasPrincipled>
+__device__ __noinline__ bool gpu_env_nee_generate(
+    int idx, int bounce, GHitRecord& rec, const GVec3& wo,
+    const GMaterial& mat, const GSampledSpectrum& throughput,
+    const GSampledWavelengths& lambdas, WavefrontRNG* rng)
+{
+    const GEnvMap& em = c_wfEnvNeeBinding.envMap;
+    // pkg258 (Terra item 3): RNG contract — draw exactly ONE main-stream
+    // dimension (UniformUInt32), matching the CPU wavefront oracle
+    // (path_kernel.cpp:374) which seeds a std::mt19937 from a single draw. The
+    // two CDF uniforms come from a LOCAL PCG32 hash of that seed, so downstream
+    // RR + the next bounce stay dimension-aligned with the CPU on HDRI scenes.
+    // The draw is UNCONDITIONAL (even on the rejections below), mirroring the
+    // CPU's unconditional env_seed draw inside its gated block.
+    uint32_t env_seed = rng->UniformUInt32();
+    float xi1 = gpu_env_seed_uniform(env_seed, 0);
+    float xi2 = gpu_env_seed_uniform(env_seed, 1);
+    GEnvSample es = gpu_envmap_sample_dir_pdf(em, xi1, xi2);
+    if (es.pdf <= 0.f) return true;
+    GVec3 wi = es.direction.normalized();
+    // Delta guard (Terra Q1d): rec.isDelta is not set before NEE; guard per
+    // direction on bsdfPdf>0 so a near-delta metal (f!=0, pdf==0) does not
+    // double-count with its unweighted specular miss.
+    float bsdfPdf = gpu_material_pdf<HasPrincipled>(mat, rec, wo, wi);
+    if (bsdfPdf <= 0.f) return true;
+    GSampledSpectrum f_spec = gpu_material_eval_spectral<HasPrincipled>(mat, rec, wo, wi, lambdas);
+    if (f_spec.maxValue() <= 0.f) return true;
+    // pkg258 (Terra item 6): COMPLEMENTARY power heuristic (Veach 1997). This
+    // w(env,bsdf) plus the miss leg's w(bsdf,env) sum to EXACTLY one; the old
+    // gpu_mw_powerHeuristic 1e-8 denom epsilon made the pair sum to < 1 (dark
+    // bias). The lamp/emissive legs keep the epsilon form unchanged.
+    float wt = gpu_mw_powerHeuristicExact(es.pdf, bsdfPdf);
+    float scale = wt / es.pdf;
+    int cap = c_wfEnvNeeBinding.capacity;
+    float* ef = c_wfEnvNeeBinding.envNeeF;
+    ef[0 * cap + idx] = rec.point.x;
+    ef[1 * cap + idx] = rec.point.y;
+    ef[2 * cap + idx] = rec.point.z;
+    ef[3 * cap + idx] = wi.x;
+    ef[4 * cap + idx] = wi.y;
+    ef[5 * cap + idx] = wi.z;
+    ef[6 * cap + idx] = throughput.v[0] * f_spec.v[0] * scale;
+    ef[7 * cap + idx] = throughput.v[1] * f_spec.v[1] * scale;
+    ef[8 * cap + idx] = throughput.v[2] * f_spec.v[2] * scale;
+    ef[9 * cap + idx] = throughput.v[3] * f_spec.v[3] * scale;
+    // pkg258 (Terra item 10): park the GENERATE-TIME wavelength state with the
+    // record. f_spec above was evaluated at THESE lambdas, but a dispersive
+    // refraction on the continuation ray (gpu_material_sample_spectral →
+    // terminateSecondary, written back to state.lambda_*) mutates the slot's
+    // wavelengths BEFORE stageEnvShadowKernel resolves L_spec. Reading the
+    // post-mutation state there would evaluate the env radiance at collapsed
+    // hero-only wavelengths while f_spec used the full spectrum — a dispersive
+    // bias. Parking the pre-sample lambdas + pdfs keeps L_spec and the clamp
+    // consistent with f_spec. Non-dispersive paths write back identical values.
+    ef[10 * cap + idx] = lambdas.lambda[0];
+    ef[11 * cap + idx] = lambdas.lambda[1];
+    ef[12 * cap + idx] = lambdas.lambda[2];
+    ef[13 * cap + idx] = lambdas.lambda[3];
+    ef[14 * cap + idx] = lambdas.pdf[0];
+    ef[15 * cap + idx] = lambdas.pdf[1];
+    ef[16 * cap + idx] = lambdas.pdf[2];
+    ef[17 * cap + idx] = lambdas.pdf[3];
+    c_wfEnvNeeBinding.envNeeI[idx] = bounce;
+    int q = atomicAdd(c_wfEnvNeeBinding.envShadowCount, 1);
+    c_wfEnvNeeBinding.envShadowQueue[q] = idx;
+    return true;
+}
+
 template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPhotons = false,
          bool HasDispersion = false, bool HasLightPassAOVs = false,  // pkg198 S2 pass axis
          bool HasProgram = false,   // pkg219b — per-texel op-VM axis
@@ -1608,6 +1718,21 @@ __device__ bool shadePathSlot(
         }
     }
 
+    // ---- Environment NEE (pkg258). Independent additive strategy (disjoint
+    // from lamp NEE), MIS-combined with BSDF sampling via the power heuristic.
+    // Placed AFTER lamp NEE and BEFORE RR to match the CPU wavefront oracle's RNG
+    // ordering (path_kernel.cpp env block before the RR draw; Terra GPU-leg
+    // constraint 1). Register-isolated: the sample generation is a __noinline__
+    // body entered only when env NEE is enabled AND an importance-sampled HDRI is
+    // loaded AND the (bounce+1)<=worldMaxBounces gate holds -- so non-env / fleet
+    // renders never draw the two env uniforms and stay byte-identical (REG 254).
+    bool envNeeRan = false;
+    if (c_wfEnvNeeBinding.enabled && c_wfEnvNeeBinding.envMap.loaded &&
+        (bounce + 1) <= c_wfEnvNeeBinding.worldMaxBounces) {
+        envNeeRan = gpu_env_nee_generate<HasPrincipled>(
+            idx, bounce, rec, wo, mat, throughput, lambdas, &rng);
+    }
+
     // ---- Russian roulette on luminance of throughput's XYZ (bounce > 3).
     // pkg55-C3: for useLuminanceOutput (non-visible bands), use average of
     // spectral samples instead of XYZ.Y (multiwavelength_kernel.cu:315-318).
@@ -1674,6 +1799,11 @@ __device__ bool shadePathSlot(
     // can weight a diffuse-bounce emissive hit by the two-sided MIS heuristic
     // (mirrors CPU bsdfPdfPrev = bss.pdf in pathTraceSpectral).
     state.path_bsdf_pdf[idx] = bss.pdf;
+    // pkg258: record whether env NEE competed at THIS vertex so the next-bounce
+    // miss leg applies the env power heuristic only when it actually ran (mirrors
+    // CPU pathTraceSpectral envNeeSampledPrev; the miss leg also requires
+    // !wasSpecular, so a specular continuation stays unweighted regardless).
+    state.env_nee_sampled_prev[idx] = envNeeRan ? 1 : 0;
 
     // pkg55-C3/C7: non-visible-band profile override — mirrors the deleted
     // MW megakernel block (multiwavelength_kernel.cu:376-390) and CPU
@@ -2018,6 +2148,109 @@ __global__ void stageShadowKernel(
             bool volDirect = (volEnc > 0) && (volEnc - 1 == bounce);
             passIdx = volDirect ? (3 * 3 + 0)    // PASS_VOLUME_DIRECT (9)
                                 : (3 * 3 + 1);   // PASS_VOLUME_INDIRECT (10)
+        } else if (bounce == 0) {
+            int dc = (fc == G_LP_CAT_UNSET) ? 0 : (fc >= 2 ? 1 : (int)fc);
+            passIdx = dc * 3 + 0;              // <reflectLobe>_DIRECT
+        } else {
+            int ic = (fc == G_LP_CAT_UNSET) ? 0 : (int)fc;
+            passIdx = ic * 3 + 1;              // <firstCat>_INDIRECT
+        }
+        lpAccumulate(idx, passIdx, contrib);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// pkg258 - env NEE shadow-resolve stage. Independent additive twin of
+// stageShadowKernel over the SEPARATE env records parked by gpu_env_nee_generate
+// (c_wfEnvNeeBinding.envNeeF/envNeeI/envShadowQueue). Each parked ray is traced to
+// INFINITY (maxDist sentinel 1e30f, isSphere=0 -> any-hit occlusion) but carries
+// ZERO geometric distance for volume attenuation (env miss convention: geomDist=0
+// => gpu_worldTransmittanceMW=1), so the shadow segment is not fogged while the
+// camera->vertex fog already rides the prefolded throughput (memory
+// occlusion-sentinel-as-distance-class-of-bug). The env radiance L_spec comes from
+// the SAME spectral lookup the miss leg uses (gpu_env_miss_spectral); everything
+// else (throughput*f*wt/envPdf) was prefolded at shade time. Not register-critical.
+// No-op when envShadowCount is 0 (env NEE off / no HDRI).
+template<bool HasCurves = false>
+__global__ void stageEnvShadowKernel(
+    GPUWavefrontState state,
+    const GTLASNode*  tlas,
+    const GInstance*  instances,
+    const GBLAS*      blas,
+    const GBVHNode*   bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const GVec3*      motionVerts,
+    bool              useLuminanceOutput,
+    float             clampDirect, float clampIndirect,
+    const GCurveSegment* curves)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    const int* countPtr = c_wfEnvNeeBinding.envShadowCount;
+    if (countPtr == nullptr || i >= *countPtr) return;
+    const int cap = c_wfEnvNeeBinding.capacity;
+    const float* ef = c_wfEnvNeeBinding.envNeeF;
+    const int*   ei = c_wfEnvNeeBinding.envNeeI;
+    int idx = c_wfEnvNeeBinding.envShadowQueue[i];
+
+    GNEESample s{};
+    s.origin  = GVec3(ef[0 * cap + idx], ef[1 * cap + idx], ef[2 * cap + idx]);
+    s.wi      = GVec3(ef[3 * cap + idx], ef[4 * cap + idx], ef[5 * cap + idx]);
+    s.maxDist = 1e30f;   // infinite occlusion distance (Terra GPU-leg constraint 4)
+    s.isSphere   = 0;    // any-hit occlusion (no finite emitter to reach)
+    s.lightMatId = -1;
+    s.valid   = 1;
+
+    float time = state.path_time[idx];
+    GNEEOcclusion occ = gpu_nee_occlude<HasCurves>(
+        s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
+        time, motionVerts, curves);
+    if (occ.occluded) return;
+
+    // pkg258 (Terra item 10): use the wavelength state PARKED with the record
+    // (generate-time lambdas), NOT state.lambda_*[idx] — a dispersive refraction
+    // on the continuation ray may have collapsed the slot's wavelengths to
+    // hero-only after this record was parked, which would resolve L_spec at
+    // different wavelengths than f_spec was evaluated at (dispersive bias).
+    GSampledWavelengths lambdas;
+    lambdas.lambda[0] = ef[10 * cap + idx]; lambdas.lambda[1] = ef[11 * cap + idx];
+    lambdas.lambda[2] = ef[12 * cap + idx]; lambdas.lambda[3] = ef[13 * cap + idx];
+    lambdas.pdf[0] = ef[14 * cap + idx]; lambdas.pdf[1] = ef[15 * cap + idx];
+    lambdas.pdf[2] = ef[16 * cap + idx]; lambdas.pdf[3] = ef[17 * cap + idx];
+
+    // Env radiance from the SAME spectral lookup the miss leg uses (Terra
+    // constraint 3). backgroundColor is irrelevant here (env NEE only parks when
+    // envMap.loaded), but pass the binding's values for a single code path.
+    GVec3 bg(c_wfEnvNeeBinding.bgR, c_wfEnvNeeBinding.bgG, c_wfEnvNeeBinding.bgB);
+    GSampledSpectrum L_spec = gpu_env_miss_spectral(
+        c_wfEnvNeeBinding.envMap, bg, c_wfEnvNeeBinding.hasBackgroundColor != 0,
+        s.wi, lambdas);
+    if (L_spec.maxValue() <= 0.f) return;
+
+    GSampledSpectrum contrib;
+    contrib.v[0] = ef[6 * cap + idx] * L_spec.v[0];
+    contrib.v[1] = ef[7 * cap + idx] * L_spec.v[1];
+    contrib.v[2] = ef[8 * cap + idx] * L_spec.v[2];
+    contrib.v[3] = ef[9 * cap + idx] * L_spec.v[3];
+    // Volume: env NEE shadow segment carries geomDist=0 -> Tr=1 (no attenuation of
+    // the connection; the camera->vertex fog already rode the prefolded lanes).
+
+    int bounce = ei[idx];
+    contrib = gpu_clampContribMW(contrib, lambdas, bounce,
+                                 clampDirect, clampIndirect, useLuminanceOutput);
+    state.color_0[idx] += contrib.v[0];
+    state.color_1[idx] += contrib.v[1];
+    state.color_2[idx] += contrib.v[2];
+    state.color_3[idx] += contrib.v[3];
+    // pkg198 Stage 2: attribute resolved env NEE like the lamp NEE resolve (env
+    // NEE never fires on a delta lobe -> a reflection event; bounce 0 direct,
+    // deeper indirect by firstCat). Runtime-gated on passAccum (fleet: null).
+    if (c_wfLpBinding.passAccum != nullptr) {
+        unsigned char fc = c_wfLpBinding.firstCat[idx];
+        int passIdx;
+        if (fc == 3) {
+            passIdx = 3 * 3 + 1;               // PASS_VOLUME_INDIRECT
         } else if (bounce == 0) {
             int dc = (fc == G_LP_CAT_UNSET) ? 0 : (fc >= 2 ? 1 : (int)fc);
             passIdx = dc * 3 + 0;              // <reflectLobe>_DIRECT
@@ -2434,6 +2667,11 @@ __global__ void stageVolumeScatterKernel(
     state.throughput_2[idx] = throughput.v[2];
     state.throughput_3[idx] = throughput.v[3];
     state.was_specular[idx]  = 0;
+    // pkg258: a volume phase scatter does lamp NEE only (never env NEE), so clear
+    // the env-NEE-competed flag -- otherwise the next-bounce env miss would be
+    // wrongly discounted (was_specular==0 alone is insufficient after a phase
+    // event; memory occlusion-sentinel / wavefront-snapshot-semantics).
+    state.env_nee_sampled_prev[idx] = 0;
     state.path_bsdf_pdf[idx] = phasePdf;
     state.rng_dimension[idx] = rng.dimension();
     int next_bounce = bounce + 1;
@@ -2833,6 +3071,10 @@ __global__ void stageRegenKernel(
         *count_out    = 0;
         *shadow_count = 0;
         if (vol_count != nullptr) *vol_count = 0;   // pkg199 Stage 2
+        // pkg258: reset the env NEE shadow queue count each pass (thread 0, same
+        // same-stream ordering as *shadow_count). Null when env NEE is off.
+        if (c_wfEnvNeeBinding.envShadowCount != nullptr)
+            *c_wfEnvNeeBinding.envShadowCount = 0;
         #pragma unroll
         for (int m = 0; m < G_WF_NUM_MAT_TYPES; ++m) shade_counts[m] = 0;
     }
@@ -3077,6 +3319,51 @@ void launchStageShadow(
                          cudaGetErrorString(err));
             throw std::runtime_error(cudaGetErrorString(err));
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// pkg258 - publish the frame's env-NEE binding into the __constant__ symbol.
+void setWavefrontEnvNeeBinding(const GWavefrontEnvNeeBinding& binding)
+{
+    cudaMemcpyToSymbol(c_wfEnvNeeBinding, &binding, sizeof(GWavefrontEnvNeeBinding));
+}
+
+// pkg258 - env NEE shadow-resolve launch (twin of launchStageShadow). Reads the
+// env queue / arrays / HDRI from c_wfEnvNeeBinding, so only geometry pointers are
+// passed. The kernel early-outs on an empty queue, so calling it every pass with
+// env NEE off (envShadowCount==0) is a cheap no-op.
+void launchStageEnvShadow(
+    GPUWavefrontState& state,
+    const GTLASNode*  d_tlas,
+    const GInstance*  d_instances,
+    const GBLAS*      d_blas,
+    const GBVHNode*   d_bvhNodes,
+    const GPrimitive* d_prims,
+    const GTriangle*  d_tris,
+    const GSphere*    d_spheres,
+    const GVec3*      d_motionVerts,
+    bool              useLuminanceOutput,
+    float             clampDirect, float clampIndirect,
+    const GCurveSegment* d_curves)
+{
+    if (state.num_active <= 0) return;
+    int threads = 256;
+    int blocks  = (state.num_active + threads - 1) / threads;
+    const bool hc = (d_curves != nullptr);
+    astroray::gpu_profile::ScopedTimer _t(
+        "wavefront_stage_env_shadow_pkg258",
+        hc ? (const void*)stageEnvShadowKernel<true> : (const void*)stageEnvShadowKernel<false>,
+        blocks, threads);
+    #define ASTRORAY_PKG258_ENV_SHADOW_ARGS         state, d_tlas, d_instances, d_blas,         d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts,         useLuminanceOutput, clampDirect, clampIndirect, d_curves
+    if (hc) stageEnvShadowKernel<true> <<<blocks, threads>>>(ASTRORAY_PKG258_ENV_SHADOW_ARGS);
+    else    stageEnvShadowKernel<false><<<blocks, threads>>>(ASTRORAY_PKG258_ENV_SHADOW_ARGS);
+    #undef ASTRORAY_PKG258_ENV_SHADOW_ARGS
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        std::fprintf(stderr, "stage_env_shadow launch error: %s\n",
+                     cudaGetErrorString(err));
+        throw std::runtime_error(cudaGetErrorString(err));
     }
 }
 

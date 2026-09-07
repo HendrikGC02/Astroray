@@ -98,6 +98,11 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
     if (total_paths <= 0) {
         throw std::runtime_error("cuda_wavefront_snapshot_post_init: invalid dimensions");
     }
+    // pkg258: these harness/ReSTIR paths never do env NEE. The env-NEE binding is
+    // a process-global __constant__; a prior cuda_wavefront_render may have left it
+    // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
+    // so the shade/intersect kernels here stay byte-identical (no stray env draw).
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
 
     // Build GCameraParams from Camera (mirrors production GPU render path).
     // Camera CPU→GPU conversion (mirrors gpu_renderer.cu::upload_camera_params).
@@ -267,6 +272,11 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
     if (total_paths <= 0) {
         throw std::runtime_error("cuda_wavefront_snapshot_post_intersect: invalid dimensions");
     }
+    // pkg258: these harness/ReSTIR paths never do env NEE. The env-NEE binding is
+    // a process-global __constant__; a prior cuda_wavefront_render may have left it
+    // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
+    // so the shade/intersect kernels here stay byte-identical (no stray env draw).
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
 
     // Build GCameraParams from Camera.
     GCameraParams gcam;
@@ -445,6 +455,11 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     if (total_paths <= 0) {
         throw std::runtime_error("cuda_wavefront_snapshot_post_shade: invalid dimensions");
     }
+    // pkg258: these harness/ReSTIR paths never do env NEE. The env-NEE binding is
+    // a process-global __constant__; a prior cuda_wavefront_render may have left it
+    // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
+    // so the shade/intersect kernels here stay byte-identical (no stray env draw).
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
 
     // Build GCameraParams from Camera.
     GCameraParams gcam;
@@ -601,6 +616,11 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
     if (total_paths <= 0) {
         throw std::runtime_error("cuda_wavefront_snapshot_post_light_sample: invalid dimensions");
     }
+    // pkg258: these harness/ReSTIR paths never do env NEE. The env-NEE binding is
+    // a process-global __constant__; a prior cuda_wavefront_render may have left it
+    // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
+    // so the shade/intersect kernels here stay byte-identical (no stray env draw).
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
 
     // Build GCameraParams from Camera.
     GCameraParams gcam;
@@ -775,6 +795,11 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     if (total_paths <= 0) {
         throw std::runtime_error("cuda_wavefront_snapshot_post_rr: invalid dimensions");
     }
+    // pkg258: these harness/ReSTIR paths never do env NEE. The env-NEE binding is
+    // a process-global __constant__; a prior cuda_wavefront_render may have left it
+    // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
+    // so the shade/intersect kernels here stay byte-identical (no stray env draw).
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
 
     // Build GCameraParams from Camera.
     GCameraParams gcam;
@@ -1020,6 +1045,10 @@ struct WfContext {
     WfDeviceBuf accum, queueA, queueB, counts, shadeQueues, shadeCounts;
     WfDeviceBuf neeF, neeI, shadowQueue, shadowCount, work;
     WfDeviceBuf volQueue, volCount;   // pkg199 Stage 2 volume-scatter queue
+    // pkg258 - env NEE parked-record arrays + queue (SEPARATE from the lamp neeF/
+    // neeI so an idx carries independent lamp AND env NEE records). Grow-only; only
+    // touched when a render enables env NEE with a loaded importance-sampled HDRI.
+    WfDeviceBuf envNeeF, envNeeI, envShadowQueue, envShadowCount;
     // pkg131 — zero-knob adaptive sampling per-pixel buffers (numPixels each).
     // Grow-only; only touched when a render enables adaptive sampling, so the
     // uniform path pays nothing. sampleCount = samples accumulated per pixel;
@@ -1082,6 +1111,11 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     if (total_paths <= 0) {
         throw std::runtime_error("cuda_wavefront_snapshot_post_nee_mis: invalid dimensions");
     }
+    // pkg258: these harness/ReSTIR paths never do env NEE. The env-NEE binding is
+    // a process-global __constant__; a prior cuda_wavefront_render may have left it
+    // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
+    // so the shade/intersect kernels here stay byte-identical (no stray env draw).
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
 
     GCameraParams gcam;
     gcam.origin = GVec3(cam.getOrigin().x, cam.getOrigin().y, cam.getOrigin().z);
@@ -1566,6 +1600,30 @@ std::vector<float> cuda_wavefront_render(
     int*   d_volCount    = wfEnsure<int>(C.volCount, 1);
     int*   d_work        = wfEnsure<int>(C.work, 1);
 
+    // pkg258 - env NEE arrays + queue, allocated only when env NEE is on AND an
+    // importance-sampled HDRI is loaded (else null -> binding.enabled=0, the shade
+    // kernel skips the env draw, byte-identical). Separate from the lamp neeF/neeI.
+    const bool envNeeOn = renderer.getEnvNee() && res.envLoaded && envMap.loaded;
+    float* d_envNeeF = nullptr;
+    int*   d_envNeeI = nullptr;
+    int*   d_envShadowQueue = nullptr;
+    int*   d_envShadowCount = nullptr;
+    if (envNeeOn) {
+        d_envNeeF        = wfEnsure<float>(C.envNeeF, size_t(G_WF_ENV_NEE_F_LANES) * total_paths);
+        d_envNeeI        = wfEnsure<int>(C.envNeeI, size_t(G_WF_ENV_NEE_I_LANES) * total_paths);
+        d_envShadowQueue = wfEnsure<int>(C.envShadowQueue, total_paths);
+        d_envShadowCount = wfEnsure<int>(C.envShadowCount, 1);
+        cudaMemset(d_envShadowCount, 0, sizeof(int));  // regen re-zeros each pass
+    }
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{
+        envMap,
+        gbg.x, gbg.y, gbg.z,
+        hasBg ? 1 : 0,
+        envNeeOn ? 1 : 0,
+        d_envNeeF, d_envNeeI, d_envShadowQueue, d_envShadowCount,
+        total_paths,
+        worldMaxBounces});
+
     {
         cudaError_t ae = cudaMemset(d_accum, 0,
                                     size_t(total_paths) * 3 * sizeof(float));
@@ -1906,6 +1964,13 @@ std::vector<float> cuda_wavefront_render(
                               useLuminanceOutput,
                               clampDirect, clampIndirect,  // pkg157
                               d_curveSegments);  // pkg225 Stage 3 — curve shadows
+            // pkg258: resolve env NEE records parked by the shade stage this pass
+            // (independent additive strategy; no-op when env NEE off / no HDRI).
+            if (envNeeOn)
+                launchStageEnvShadow(state, d_tlas, d_instances, d_blas,
+                                     d_bvhNodes, d_prims, d_tris, d_spheres,
+                                     d_motionVerts, useLuminanceOutput,
+                                     clampDirect, clampIndirect, d_curveSegments);
             if (waves == 1) continue;  // fixed pass count, no readbacks
             if (workExhausted) {
                 if (--drainLeft <= 0) break;
@@ -2170,6 +2235,11 @@ std::vector<float> cuda_wavefront_render_restir(
     int numPixels = width * height;
     if (numPixels <= 0 || samples <= 0)
         throw std::runtime_error("cuda_wavefront_render_restir: invalid dimensions");
+    // pkg258: these harness/ReSTIR paths never do env NEE. The env-NEE binding is
+    // a process-global __constant__; a prior cuda_wavefront_render may have left it
+    // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
+    // so the shade/intersect kernels here stay byte-identical (no stray env draw).
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
 
     GCameraParams gcam;
     gcam.origin     = GVec3(cam.getOrigin().x, cam.getOrigin().y, cam.getOrigin().z);

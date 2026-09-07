@@ -174,11 +174,15 @@ def test_color_tint_halves_env_radiance(hdri_path):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.xfail(strict=True,
-    reason="pkg258 GPU leg pending: the CPU path tracer now does environment NEE "
-           "(PR feat/pkg258-2026-09-08) but the GPU wavefront does not yet. The "
-           "converged MEANS still agree (NEE is unbiased), but env NEE reshapes "
-           "the noise on env-lit regions, so windowed SSIM sits ~0.962 (< 0.97). "
-           "Un-xfail when the pkg258 GPU wavefront leg lands. Do NOT weaken 0.97.")
+    reason="pkg237 independent-RNG-stream SSIM ceiling (NOT pkg258). Both legs now "
+           "do environment NEE (pkg258 GPU leg landed): the converged per-channel "
+           "MEANS agree within MC noise (CPU [0.457,0.014,0.475] vs GPU "
+           "[0.469,0.015,0.465], rel <=3.9% on the firefly channel at 8192 spp; the "
+           "GPU furnace mean 0.9946 confirms unbiasedness). The residual is that CPU "
+           "(mt19937) and GPU (curand/PCG32) are independent MC streams, so windowed "
+           "SSIM sits ~0.963 (< 0.97) even at convergence. Raising it is a separate "
+           "owner question (common-random-number or a noise-robust metric); do NOT "
+           "weaken 0.97. See memory ssim-wrong-gate-for-independent-rng.")
 def test_gpu_cpu_ssim_hdri(hdri_path):
     """Render a tiny HDRI scene on CPU and CUDA backends; SSIM ≥ 0.97.
 

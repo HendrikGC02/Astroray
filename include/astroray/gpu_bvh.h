@@ -533,6 +533,53 @@ __device__ inline GVec3 gpu_envmap_apply_rot_T(const GEnvMap& em, const GVec3& d
                  em.rotMat[2]*d.x + em.rotMat[5]*d.y + em.rotMat[8]*d.z);
 }
 
+// pkg258: environment CDF sampler from EXPLICIT uniforms (xi1, xi2), returning
+// only the direction + solid-angle pdf (NO radiance lookup). Used by the GPU
+// wavefront env-NEE generate body, which draws its two uniforms directly from the
+// per-path PCG32 stream (WavefrontRNG) rather than a curandState, and defers the
+// spectral radiance to the env shadow-resolve kernel (register economy in the
+// REG-254 shade kernel). The direction/pdf math is IDENTICAL to gpu_envmap_sample
+// (continuous within-texel residual remap + lat-long Jacobian); factored so the
+// two share one contract.
+__device__ inline GEnvSample gpu_envmap_sample_dir_pdf(const GEnvMap& em,
+                                                       float xi1, float xi2) {
+    GEnvSample es;
+    es.pdf = 0.f;
+    es.radiance = GVec3(0.f);
+    es.direction = GVec3(0,1,0);
+    if (!em.loaded || em.totalPower <= 0.f) return es;
+
+    int v = gpu_lower_bound(em.marginalCdf, em.height, xi1);
+    if (v >= em.height) v = em.height - 1;
+    float vCdfLo = (v > 0) ? em.marginalCdf[v - 1] : 0.f;
+    float vCdfHi = em.marginalCdf[v];
+    float dv = (vCdfHi > vCdfLo) ? (xi1 - vCdfLo) / (vCdfHi - vCdfLo) : 0.5f;
+    dv = fminf(fmaxf(dv, 0.f), 1.f);
+
+    const float* condRow = em.conditionalCdf + v*em.width;
+    int u = gpu_lower_bound(condRow, em.width, xi2);
+    if (u >= em.width) u = em.width - 1;
+    float uCdfLo = (u > 0) ? condRow[u - 1] : 0.f;
+    float uCdfHi = condRow[u];
+    float du = (uCdfHi > uCdfLo) ? (xi2 - uCdfLo) / (uCdfHi - uCdfLo) : 0.5f;
+    du = fminf(fmaxf(du, 0.f), 1.f);
+
+    float uCont = u + du;
+    float vCont = v + dv;
+    float theta = (1.f - vCont / em.height) * M_PI_F;
+    float phi   = (uCont / em.width - 0.5f) * 2.f * M_PI_F;
+
+    GVec3 dir_env = GVec3(sinf(theta)*cosf(phi), cosf(theta), sinf(theta)*sinf(phi));
+    es.direction = gpu_envmap_apply_rot_T(em, dir_env);
+
+    float sinTheta = fmaxf(sinf(theta), 1e-6f);
+    int   pixIdx   = v * em.width + u;
+    float funcVal  = em.conditionalFunc[pixIdx];
+    float mapPdf   = funcVal * em.width * em.height / (em.totalPower + 1e-10f);
+    es.pdf         = mapPdf / (2.f * M_PI_F * M_PI_F * sinTheta);
+    return es;
+}
+
 __device__ inline GEnvSample gpu_envmap_sample(const GEnvMap& em, curandState* rng) {
     GEnvSample es;
     es.pdf = 0.f;

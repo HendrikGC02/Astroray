@@ -368,6 +368,7 @@ __device__ void initPathSlot(
 
     // Path flags.
     state.was_specular[idx] = 1;  // true
+    state.env_nee_sampled_prev[idx] = 0;  // pkg258: no env NEE ran before the camera ray
     state.path_alive[idx]   = 1;  // true
 }
 

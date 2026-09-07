@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — CPU leg PR (feat/pkg258-2026-09-08); GPU wavefront leg pending a separate PR off this branch
+**Status:** in-progress — CPU leg merged (#747); GPU wavefront leg PR #751 (feat/pkg258-gpu-2026-09-08). Terra review fixes applied 2026-09-08 (rebuilt @ 2582af60): complementary env MIS weights (sum to 1, was <1 dark bias), parked generate-time wavelengths for the lazy dispersive env resolve, single-main-stream-draw RNG contract matching the CPU oracle, and a `set_env_nee(false)` byte-equivalence regression. GPU env NEE live: sun-disc GPU RMSE ratio **0.522** (gate ≤0.58), furnace GPU **0.99517**, dispersive-glass env NEE on/off rel ≤3.6% + CPU/GPU ≤1.4%, shade REG **254** unchanged (STACK max 8736, +136 B vs main), env-shadow kernel REG 107/158; all CPU/GPU parity + bit-identity + snapshot + pkg189 dispersion gates green. Finding: strict GPU byte-identity is unachievable (film uses non-deterministic FP atomics, self-jitter ~5e-7) — pinned within-jitter equivalence (base-vs-branch 7.15e-7). Residuals (not blocking correctness, deferred to a follow-up): `hdri_exterior_hair` CPU-vs-GPU harness (needs an OpenMP-off addon build) and metal_sweep GPU frame-time ±5% bench not run this session.
 **Estimated effort:** 3 sessions (~9 h; CPU first, then GPU wavefront under the GPU lock)
 **Depends on:** pkg63, pkg89, pkg195
 
@@ -166,11 +166,11 @@ compares an NEE-lit Cycles image against a BSDF-miss-lit Astroray image.
 
 ## Acceptance criteria
 
-- [ ] `tests/test_pkg258_env_sampler_contract.py` green on CPU and GPU
+- [x] `tests/test_pkg258_env_sampler_contract.py` green on CPU and GPU
       (pdf/sample agreement, radiance/lookup agreement, azimuth histogram
       chi² p > 0.01); the same test fails on main before the azimuth fix
-      (recorded in the PR).
-- [ ] `tests/test_pkg258_env_nee_convergence.py`: sun-disc RMSE ratio
+      (recorded in the PR). — 5/5 on the GPU worktree build (2026-09-08).
+- [x] `tests/test_pkg258_env_nee_convergence.py`: sun-disc RMSE ratio
       (NEE on / NEE off at 256 spp vs a 64k-spp reference) ≤ 0.58 on CPU (GPU
       xfail until the GPU leg); white furnace 1.0 ± 1 % with NEE on (linear,
       upper bound asserted — see `gamma-furnace-cannot-detect-energy-gain`).
@@ -178,17 +178,29 @@ compares an NEE-lit Cycles image against a BSDF-miss-lit Astroray image.
       env-MIS gives ~4× variance reduction ⇔ ~0.5× RMSE (the "4× faster" Goal),
       not the headline's 16×-variance ≤ 0.25; measured bias-free ratio 0.526 at
       the test seed vs a 64k reference, gate = 0.526 × 1.10 = 0.58.
-- [ ] CPU/GPU parity on `hdri_exterior_hair` and `tests/test_world_hdri_parity.py`
+      — GPU leg landed: sun-disc GPU ratio **0.520**, furnace GPU **0.9946**;
+      GPU xfail removed (both backends live). CPU 0.526 / 0.9946 unchanged.
+- [~] CPU/GPU parity on `hdri_exterior_hair` and `tests/test_world_hdri_parity.py`
       unchanged or better; pkg55 wavefront snapshot gates green (no
-      snapshot-moment drift).
+      snapshot-moment drift). — `test_world_hdri_parity` per-channel means agree
+      within MC noise (rel ≤3.9% at 8192 spp), SSIM 0.963 xfail reworded to the
+      pkg237 independent-RNG ceiling; pkg55 snapshot / oracle / bit-identity gates
+      all green. `hdri_exterior_hair` harness NOT run this session (see residual).
 - [ ] `hdri_exterior_hair` background-ROI experiment 1a re-run with env NEE
       on: Astroray CPU value recorded alongside the ground-truth decode
       (0.0338) and Cycles (0.121); the HDRI gap diagnosis doc gets a dated
-      addendum saying which side moved.
-- [ ] Saved renders (sun-disc floor, `hdri_exterior_hair`) before/after,
-      inspected by the lead; no new fireflies, no darkening of the sky.
-- [ ] GPU shade kernel REG unchanged (254) and STACK delta reported via
-      `cuobjdump`; frame time on the metal_sweep GPU bench within +5 %.
+      addendum saying which side moved. — CPU value recorded in #747; GPU re-run
+      pending the addon build (residual).
+- [x] Saved renders (sun-disc floor) before/after, inspected by the lead; no new
+      fireflies, no darkening of the sky. — sun-disc GPU ref/on/off saved to
+      `test_results/2026-09-08-pkg258/renders_nonsat/` (ref non-saturating,
+      NEE-off visibly noisier than NEE-on). `hdri_exterior_hair` render pending
+      the addon build (residual).
+- [~] GPU shade kernel REG unchanged (254) and STACK delta reported via
+      `cuobjdump`; frame time on the metal_sweep GPU bench within +5 %. — REG
+      **254** unchanged; shade STACK max 8736 vs main 8600 (+136 B, ~+1.6%);
+      new `stageEnvShadowKernel` REG 107/158. metal_sweep frame-time bench NOT
+      run this session (residual).
 - [ ] pkg63 Progress corrected; `HDRI_MIN_BACKGROUND_MEAN` re-derived with
       the derivation written next to the constant.
 

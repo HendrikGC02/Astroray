@@ -4,10 +4,10 @@
 pkg258 — Environment-NEE convergence and energy-conservation gate.
 
 pkg63's never-run gate, finally run. Two scenes. The sun-disc NEE-variance win
-needs env NEE in the render path, so its GPU parameter is xfail(strict) until the
-pkg258 GPU wavefront leg lands; the white furnace conserves energy on BOTH
-backends already (the GPU miss leg gives full env with no NEE double-count), so
-its GPU parameter is a live gate:
+needs env NEE in the render path; with the pkg258 GPU wavefront leg landed both
+the CPU and GPU parameters are live gates. The white furnace conserves energy on
+BOTH backends already (the GPU miss leg gives full env with no NEE double-count),
+so its GPU parameter is a live gate too:
 
   (A) Sun-disc HDRI over a Lambertian floor. A concentrated bright disc lights a
       diffuse floor. With env NEE the floor converges far faster than with plain
@@ -143,11 +143,7 @@ def _reshape(img, r):
     return a
 
 
-@pytest.mark.parametrize("backend", [
-    "cpu",
-    pytest.param("gpu", marks=pytest.mark.xfail(
-        strict=True, reason="pkg258 GPU wavefront leg pending (separate PR)")),
-])
+@pytest.mark.parametrize("backend", ["cpu", "gpu"])  # pkg258 GPU leg landed
 def test_sun_disc_nee_convergence(sun_hdri, backend):
     """RMSE(NEE on) <= GATE * RMSE(NEE off) vs a 64k-spp reference."""
     _require_gpu(backend)
@@ -283,3 +279,81 @@ def _reshape32(img):
     if a.ndim == 1:
         a = a.reshape((32, 32, 3))
     return a
+
+
+# ---------------------------------------------------------------------------
+# pkg258 (Terra item 10): dispersive-glass env-NEE regression.
+#
+# A ROUGH dispersive Principled glass is the discriminating material: its
+# transmission lobe is non-delta, so env NEE PARKS a record at that vertex
+# (smooth dielectrics are delta-guarded and never park), and its continuation
+# ray refracts dispersively, collapsing the slot's wavelengths
+# (terminateSecondary) BEFORE the deferred env-shadow stage resolves L_spec.
+# Pre-fix, stageEnvShadowKernel read the POST-collapse slot wavelengths while the
+# parked BSDF factor f_spec was evaluated at the PRE-sample wavelengths -> the env
+# radiance and f_spec disagreed on wavelength -> a dispersive bias that shows up
+# as NEE-on diverging from NEE-off. With the wavelengths parked alongside the
+# record they agree, so NEE-on and NEE-off converge to the SAME mean and the two
+# backends agree.
+# ---------------------------------------------------------------------------
+_DISP_GLASS = {"transmission_weight": 1.0, "ior": 1.5, "roughness": 0.22,
+               "metallic": 0.0, "dispersion_scale": 1.0, "dispersion_abbe": 20.0}
+
+
+def _disp_glass_renderer(hdri_path, seed, use_gpu, nee):
+    r = astroray.Renderer()
+    r.set_use_gpu(use_gpu)
+    r.set_integrator("path_tracer")
+    r.set_seed(seed)
+    r.set_adaptive_sampling(False)
+    if use_gpu:
+        # Engage the spectral wavefront leg so hero-λ dispersion is live (pkg189).
+        r.set_wavelength_range(380.0, 780.0)
+    floor = r.create_material("lambertian", [0.75, 0.75, 0.75], {})
+    s = 40.0
+    r.add_triangle([-s, 0, -s], [s, 0, -s], [s, 0, s], floor)
+    r.add_triangle([-s, 0, -s], [s, 0, s], [-s, 0, s], floor)
+    glass = r.create_material("principled", [1.0, 1.0, 1.0], _DISP_GLASS)
+    r.add_sphere([0.0, 1.2, 0.0], 1.2, glass)
+    r.setup_camera(look_from=[0, 2.4, 6], look_at=[0, 1.0, 0], vup=[0, 1, 0],
+                   vfov=42, aspect_ratio=1.0, aperture=0.0, focus_dist=6.0,
+                   width=24, height=24)
+    assert r.load_environment_map(hdri_path, 1.0, 0.0, 0.0, 0.0)
+    r.set_env_nee(nee)
+    return r
+
+
+def test_dispersive_glass_hdri_env_nee_gpu(sun_hdri):
+    """Rough dispersive glass under the sun-disc HDRI: GPU NEE-on and NEE-off
+    converge to the same mean (no dispersive env-NEE bias), and CPU vs GPU agree.
+    Regression for Terra item 10 (parked wavelength state at lazy env resolve)."""
+    if not astroray.Renderer().gpu_available:
+        pytest.skip("no CUDA GPU available for the dispersive env-NEE gpu leg")
+    SEED = 25808
+    SPP = 3072
+    DEPTH = 6
+
+    def _mean_ch(r):
+        img = _reshape(_render_linear(r, SPP, depth=DEPTH), r)
+        return np.asarray([img[..., c].mean() for c in range(3)], dtype=np.float64)
+
+    g_on = _mean_ch(_disp_glass_renderer(sun_hdri, SEED, True, True))
+    g_off = _mean_ch(_disp_glass_renderer(sun_hdri, SEED + 1, True, False))
+    c_on = _mean_ch(_disp_glass_renderer(sun_hdri, SEED, False, True))
+
+    # GPU NEE on vs off: same converged mean (no bias). Independent RNG streams so
+    # allow a MC-noise band; the pre-fix dispersive bias was a systematic offset
+    # far outside this band on the refracting glass pixels.
+    rel_gpu = np.abs(g_on - g_off) / np.maximum(g_off, 1e-6)
+    # CPU vs GPU (both NEE on): the env is RGB-approximated on the GPU
+    # (memory gpu-emission-is-rgb-approximated), so a slightly wider band.
+    rel_xbe = np.abs(g_on - c_on) / np.maximum(c_on, 1e-6)
+    print(f"\n[pkg258 disp-glass] GPU on={g_on} off={g_off} cpu_on={c_on}")
+    print(f"[pkg258 disp-glass] rel(GPU on/off)={rel_gpu} rel(CPU/GPU)={rel_xbe}")
+
+    assert float(rel_gpu.max()) < 0.08, (
+        f"GPU dispersive env NEE biased vs NEE-off (Terra item 10): per-channel "
+        f"rel {rel_gpu} (on={g_on}, off={g_off})")
+    assert float(rel_xbe.max()) < 0.12, (
+        f"CPU vs GPU dispersive env NEE disagree: per-channel rel {rel_xbe} "
+        f"(gpu={g_on}, cpu={c_on})")

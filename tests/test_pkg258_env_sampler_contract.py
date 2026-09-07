@@ -208,7 +208,6 @@ def test_azimuth_histogram_matches_column_energy(env_renderer):
     chi2 = np.sum((obs - exp) ** 2 / exp)
     dof = WIDTH - 1
     pval = scipy_stats.chi2.sf(chi2, dof)
-    peak_sep = abs(int(obs.argmax()) - int(exp.argmax()))
     peak_frac = obs.max() / N
     print(f"\n[pkg258 contract 3] chi2={chi2:.1f} dof={dof} p={pval:.4f} "
           f"peak_col_obs={obs.argmax()} peak_col_exp={exp.argmax()} "
@@ -260,11 +259,14 @@ def test_within_texel_uniformity(single_texel_renderer):
     v_norm = 1.0 - theta / np.pi
     col = np.clip(np.floor(u_norm * W).astype(int), 0, W - 1)
     row = np.clip(np.floor(v_norm * H).astype(int), 0, H - 1)
-    # Find the dominant texel empirically (the HDR loader's row convention makes
-    # the sampled row != the written image row, so do not hardcode by).
+    # Find the dominant texel empirically (the HDR loader flips rows, so the
+    # sampled row != the written image row `by`; do not hardcode it).
     flat = row * W + col
     dom = np.bincount(flat, minlength=W * H).argmax()
     dcol, drow = int(dom % W), int(dom // W)
+    # Column is preserved; row is vertically flipped by the loader.
+    assert dcol == bx, f"sampled column {dcol} != written {bx}"
+    assert drow == H - 1 - by, f"sampled row {drow} != flipped {H - 1 - by}"
     inb = (col == dcol) & (row == drow)
     frac = inb.mean()
     print(f"\n[pkg258 within-texel] dominant texel (col={dcol}, row={drow}); "

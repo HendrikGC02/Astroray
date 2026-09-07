@@ -175,6 +175,8 @@ All implementation gates UNRUN:
 
 ## Progress
 
+- [x] 2026-09-07 — Phase 1 transformed-p contract LANDED on main in commit `fe1c95c` (lead error: swept into a docs commit while the PR #737 cherry-pick was applied for GPU verification; the code is the PR #737 code, GPU-verified 08:45 — 16 contract tests incl. 3 GPU twins, 129 procedural regressions, cpp-abi-guard PASS). PR #737 then carries only the bit-exact bake-dedup key fix.
+- [ ] 2026-09-07 — pre-review follow-ups from PR #737: (a) the singular-Mapping check uses an absolute |det| < 1e-8, so a legitimate uniform scale below ~0.002 is reported as singular — make it scale-relative; (b) `valueOffset` perturbs only the 2-D coordinate, so p-reading procedurals still yield a zero bump gradient under Mapping — perturb the mapped 3-D point or document the limitation.
 - [ ] 2026-09-07 08:30 — owner: the transformed-p / bake / cache contract runs this round in parallel with pkg241; dispatched.
 - **2026-09-07 -- Phase 0 baseline + UV-less fallback contract (PR #726).** Reproduced
   and root-caused the "UV-less procedural checker disappears on GPU" bug (the

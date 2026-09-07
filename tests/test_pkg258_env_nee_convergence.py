@@ -4,10 +4,10 @@
 pkg258 — Environment-NEE convergence and energy-conservation gate.
 
 pkg63's never-run gate, finally run. Two scenes. The sun-disc NEE-variance win
-needs env NEE in the render path, so its GPU parameter is xfail(strict) until the
-pkg258 GPU wavefront leg lands; the white furnace conserves energy on BOTH
-backends already (the GPU miss leg gives full env with no NEE double-count), so
-its GPU parameter is a live gate:
+needs env NEE in the render path; with the pkg258 GPU wavefront leg landed both
+the CPU and GPU parameters are live gates. The white furnace conserves energy on
+BOTH backends already (the GPU miss leg gives full env with no NEE double-count),
+so its GPU parameter is a live gate too:
 
   (A) Sun-disc HDRI over a Lambertian floor. A concentrated bright disc lights a
       diffuse floor. With env NEE the floor converges far faster than with plain

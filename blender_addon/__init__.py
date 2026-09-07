@@ -1206,6 +1206,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 except Exception:
                     pass
 
+            # pkg241 Phase 1b: the False return on test_break() now actually
+            # cancels the render (the native progress callback returns bool and
+            # the tile loop / GPU wavefront stop cooperatively). renderer.render
+            # returns the partial framebuffer accumulated so far; like Cycles,
+            # we write that partial result to the render result below rather
+            # than discarding it.
             def progress_callback(value):
                 if self.test_break(): return False
                 self.update_progress(value)

@@ -326,6 +326,16 @@ class Exporter:
         # coarse starting divisor above the interaction budget.
         self._viewport_present_pending = False
         self._viewport_last_full_render_ms = 0.0
+        # pkg241 Phase 1b: cooperative-cancellation request flag. Set by
+        # view_update / view_draw when a newer camera/settings edit supersedes
+        # an in-flight or pending refinement chunk; consumed at the start of
+        # render_viewport_frame (drops the cancelled chunk's partial
+        # accumulation so it never blends with the new state) and read live by
+        # the progress callback passed to renderer.render (returns
+        # not _viewport_cancel_requested). In the current synchronous model a
+        # chunk is atomic, so this is the plumbing the Phase 2 off-thread
+        # render will flip; today it guarantees no mixed accumulation.
+        self._viewport_cancel_requested = False
 
         # Per-domain caches
         self._camera_cache = CameraCache(bpy_module)
@@ -347,6 +357,23 @@ class Exporter:
         self._viewport_current_spp = 0
         self._viewport_target_spp = 0
         self._viewport_accum_key = None
+
+    def _request_viewport_cancel(self):
+        """pkg241 Phase 1b: request cancellation of the in-flight/pending
+        viewport chunk. render_viewport_frame consumes the flag before the
+        next render."""
+        self._viewport_cancel_requested = True
+
+    def _consume_viewport_cancel(self):
+        """pkg241 Phase 1b: if a cancel was requested, drop the cancelled
+        chunk's partial accumulation (no mixed accumulation across the
+        camera/settings change that requested it) and clear the flag. Returns
+        True if a cancel was consumed."""
+        if not self._viewport_cancel_requested:
+            return False
+        self._reset_viewport_accumulation()
+        self._viewport_cancel_requested = False
+        return True
 
     def _budget_start_divisor(self):
         """pkg241 Phase 1: interactive-resolution budget. Return the coarse
@@ -588,6 +615,12 @@ class Exporter:
         height = max(1, region.height // res_divisor)
         render_key = engine_methods['viewport_render_key'](context, settings, region)
 
+        # pkg241 Phase 1b: if a cancel was requested (a newer camera/settings
+        # edit superseded the in-flight/pending chunk), drop that chunk's
+        # partial accumulation before starting this render so the two states
+        # never blend (no mixed accumulation).
+        self._consume_viewport_cancel()
+
         if (reset_accumulation or render_key != self._viewport_accum_key
                 or res_divisor != self._viewport_render_divisor):
             self._reset_viewport_accumulation()
@@ -639,9 +672,16 @@ class Exporter:
             return False
 
         depth = max(2, settings.max_bounces // 2)
+        # pkg241 Phase 1b: pass a real cooperative-cancellation callback
+        # (returns not _viewport_cancel_requested) instead of None, so the
+        # native CPU tile loop / GPU wavefront can stop when a cancel is
+        # requested. In the current synchronous model the flag cannot flip
+        # mid-call, so ordinary completion is unchanged.
+        def _viewport_progress(_frac):
+            return not self._viewport_cancel_requested
         _render_t0 = time.perf_counter()
         pixels = renderer.render(
-            samples, depth, None, False,
+            samples, depth, _viewport_progress, False,
             min(settings.diffuse_bounces, depth),
             min(settings.glossy_bounces, depth),
             min(settings.transmission_bounces, depth),
@@ -810,6 +850,15 @@ class Exporter:
                 new_substantive_hash is not None
                 and new_substantive_hash != self._viewport_camera_substantive_hash
             )
+
+            # pkg241 Phase 1b: a substantive camera change or a settings edit
+            # supersedes any in-flight / pending refinement chunk. Request
+            # cancellation so render_viewport_frame drops the cancelled chunk's
+            # partial accumulation (these are exactly the cases that already
+            # reset accumulation, so ordinary progressive refine at a fixed
+            # view/settings is untouched — no new resets).
+            if camera_substantive_changed or settings_changed:
+                self._request_viewport_cancel()
 
             # pkg196 + pkg241 Phase 1: reduced-resolution navigation / interactive-
             # resolution budget. While the camera is actively moving (changed this

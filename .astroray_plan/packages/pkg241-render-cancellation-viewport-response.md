@@ -244,11 +244,21 @@ callback becomes the thread's stop signal. Risks already listed in Non-goals
 re-entrancy) apply in full; the pkg147 OpenMP/GIL safeguards and the
 `mingw_openmp_blender_deadlock` memory are the constraints. The measurable
 target is a new recorder metric, UI event latency during an active render
-(p95 ≤ 33 ms, i.e. the UI holds 30 fps while a chunk renders), added to
-`blender_driver.py --mode interactive` in Phase 2's own measurement step
-before any threading change. Sequence: Phase 1b (cancel + completion
-metadata) → Phase 2 measurement → Phase 2 design review (Opus 4.8 architect
-+ Terra) → implementation.
+(p95 ≤ 33 ms, i.e. the UI holds 30 fps while a chunk renders), added as
+`blender_driver.py --mode ui_latency` (a `bpy.app.timers` ticker at a 5 ms
+interval measures its own invocation-gap p50/p95/p99/max plus the fraction of
+wall time blocked) in Phase 2's own measurement step before any threading
+change. **Measured 2026-09-08** (GPU, isolated Blender profile, OpenMP-off
+CUDA build of this branch's HEAD, 3 reps × 10 s post-warmup per config,
+metal_sweep + `pkg241_grid_100k.blend`, astroray-gpu vs Cycles/OPTIX):
+Astroray tick-gap p95 179.5 ms (metal_sweep) / 274.2 ms (big) — both far over
+the 33 ms budget, ~95–97% of wall time blocked; Cycles tick-gap p95 9.6 ms
+(metal_sweep) / 8.1 ms (big) — near the 5 ms tick floor, confirming the
+decoupled reference the owner described. Full table + protocol: Progress
+"Phase 2 measurement" below and
+`benchmarks/viewport_parity/results/2026-09-08-phase2/`. Sequence: Phase 1b
+(cancel + completion metadata) → **Phase 2 measurement (DONE)** → Phase 2
+design review (Opus 4.8 architect + Terra) → implementation.
 
 ---
 
@@ -293,6 +303,56 @@ All implementation gates UNRUN:
 ## Progress
 - [ ] 2026-09-08 05:15 — Phase 2 design pass done: `pkg241-phase2-offthread-design-2026-09-08.md` (Opus 4.8 architect; A2 = addon-owned worker thread driving the existing binding, GPU path releasing the GIL, `view_draw` blit-only). Codex Terra: **BLOCK as written** — `skip_upload` premise wrong (wavefront re-uploads every render; single-render-thread global `WfContext`), worker must never touch `bpy`/GPUTexture/redraw, needs a process-wide GPU arbiter + generation-tagged non-blocking handoff, acknowledged worker exit before release, wider GIL release, denoise as settled-only. Lead decision (doc §7): revise the doc per Terra 1–6, then a minimal real-Blender A2 spike is the first implementation task; no threading code before that spike passes. Phase 2 measurement itself: PR #750.
 
+- [x] 2026-09-08 — Phase 2 measurement: UI event latency while a viewport
+      chunk renders. New `blender_recorder.py _install_ui_latency` +
+      `blender_driver.py --mode ui_latency`: a `bpy.app.timers` ticker
+      registered at `tick_s`=5 ms records the wall-clock gap between its own
+      consecutive invocations while continuously dispatching the next
+      camera/material edit + `tag_redraw()` from inside the same callback —
+      the main thread is therefore never idle (always either running the
+      ticker or blocked inside the redraw/render it just triggered), which
+      avoids the Phase 0 idle-window timer-throttling artifact structurally
+      rather than via OS input injection. Cross-checked two ways: (1) the
+      POST_PIXEL draw-handler present-timestamp stream, recorded throughout,
+      confirms the viewport kept refining rather than idling; (2) on
+      Astroray, `Exporter.render_viewport_frame` is wrapped the same way
+      `_install()` wraps it, giving a `render_time_fraction` (time inside
+      render / wall time) that should track `blocked_time_fraction_from_ticks`
+      (derived purely from tick gaps, so it applies to Cycles too, which has
+      no Python `view_update`/`view_draw` hook to wrap) — confirmed below.
+      Protocol: isolated Blender 5.2 profile per pkg236 (GUI, `mcp` bridge,
+      port 9877 — never the owner's live profile/port 9876), OpenMP-off CUDA
+      addon built from this worktree HEAD (`dist/astroray/astroray.cp313-win_amd64.pyd`,
+      md5 `a49dd8739e9adef5198a0ba3acdd1ba8`, built 2026-09-08 03:09, confirmed
+      byte-identical to the module the live isolated Blender had loaded at
+      measurement time), 3 reps × 10 s measured (post 2 s warmup discard) per
+      (scene, engine), region size logged per config.
+
+      | scene | tris | region | engine | gpu | n_ticks | p50 ms | p95 ms | p99 ms | max ms | blocked_frac | render_frac | budget (≤33ms p95) |
+      |---|---|---|---|---|---|---|---|---|---|---|---|---|
+      | metal_sweep | 2220 | 2112×829 | astroray | astroray-gpu | 275 | 157.82 | 179.48 | 194.42 | 208.31 | 0.9548 | 0.444 | FAIL |
+      | metal_sweep | 2220 | 2112×829 | cycles | OPTIX×3 | 4398 | 6.53 | 9.62 | 11.06 | 15.43 | 0.2673 | 0.0 (no hook) | PASS |
+      | big (`pkg241_grid_100k.blend`) | 101920 | 2100×1221 | astroray | astroray-gpu | 188 | 232.62 | 274.21 | 283.41 | 284.83 | 0.9693 | 0.7451 | FAIL |
+      | big (`pkg241_grid_100k.blend`) | 101920 | 2100×1221 | cycles | OPTIX×3 | 4578 | 6.52 | 8.13 | 9.4 | 11.07 | 0.2372 | 0.0 (no hook) | PASS |
+
+      Reading: Astroray's tick-gap p95 (179–274 ms) is 5–8× the 33 ms budget,
+      with 95–97% of wall time main-thread-blocked, and the render-time
+      fraction (44–75%) tracks the blocked fraction closely enough (same
+      order, same direction across scenes: bigger scene → both fractions
+      rise) to confirm the tick gaps are real render blocking, not a
+      timer-throttling artifact — this makes the owner's complaint
+      quantitative: with Astroray the UI genuinely runs at the render's own
+      pace. Cycles holds p95 within ~2× the 5 ms tick interval on both scenes
+      (8–10 ms), with `blocked_frac` well under Astroray's and a large,
+      steadily growing present count, demonstrating the decoupled reference
+      — Cycles' native viewport session renders off the main thread, so
+      `view_draw` only blits. Cycles' `render_frac`=0 is expected (no Python
+      `render_viewport_frame` hook exists to wrap on that engine), not a
+      measurement gap. Full JSON + summary:
+      `benchmarks/viewport_parity/results/2026-09-08-phase2/`.
+      Not separately re-measured this pass (unchanged from Phase 1a/1b,
+      no new evidence needed): CPU legs, and the cancel-ack numbers already
+      landed under the Phase 1b entry below.
 - [ ] 2026-09-08 — Phase 1b (cooperative cancellation) code implemented; PR pending.
   - **Native callback returns bool.** `Renderer::render`'s progress callback is
     now `std::function<bool(float)>` (`include/raytracer.h`): the OpenMP tile loop

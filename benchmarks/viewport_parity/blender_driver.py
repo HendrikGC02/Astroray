@@ -487,6 +487,61 @@ bpy.app.timers.register(_back, first_interval=0.3)
 result = {'device_mode': sc.custom_raytracer.device_mode}
 """
 
+_ENGINE_SWITCH = r"""
+import bpy
+sc = bpy.context.scene
+target = __ENGINE__
+sc.render.engine = target
+if target == 'CYCLES':
+    gpu_note = 'cpu (cycles addon prefs unavailable)'
+    prefs = bpy.context.preferences.addons.get('cycles')
+    if prefs is not None:
+        cprefs = prefs.preferences
+        for dev_type in ('OPTIX', 'CUDA'):
+            try:
+                cprefs.compute_device_type = dev_type
+            except TypeError:
+                continue
+            cprefs.get_devices()
+            n = 0
+            for d in cprefs.devices:
+                use = d.type != 'CPU'
+                d.use = use
+                n += int(use)
+            if n:
+                sc.cycles.device = 'GPU'
+                gpu_note = dev_type + ' x' + str(n)
+                break
+    sc.cycles.samples = 1024
+    sc.cycles.preview_samples = 1024
+    sc.cycles.use_denoising = False
+else:
+    if hasattr(sc, 'custom_raytracer'):
+        sc.custom_raytracer.device_mode = 'gpu'
+    gpu_note = 'astroray-gpu'
+# Cycle the 3D view out of and back into RENDERED shading so the active
+# RenderEngine is freed and recreated against the new engine/device (same
+# trick as _DEVICE_SWITCH below).
+area = None
+for win in bpy.context.window_manager.windows:
+    for a in win.screen.areas:
+        if a.type == 'VIEW_3D':
+            area = a
+sp = area.spaces.active
+sp.shading.type = 'SOLID'
+area.tag_redraw()
+def _back():
+    sp.shading.type = 'RENDERED'
+    area.tag_redraw()
+    return None
+bpy.app.timers.register(_back, first_interval=0.3)
+region = None
+for r in area.regions:
+    if r.type == 'WINDOW':
+        region = [r.width, r.height]
+result = {'engine': sc.render.engine, 'gpu': gpu_note, 'region': region}
+"""
+
 _STATUS = ("import bpy; result = "
            "bpy.app.driver_namespace['_pkg241']['status']()")
 _RESULTS = ("import bpy; result = "
@@ -534,6 +589,14 @@ def _switch_device(host, port, mode):
     time.sleep(3.0)  # let the shading toggle rebuild + do a fresh sync frame
 
 
+def _switch_engine(host, port, engine):
+    """engine: 'CUSTOM_RAYTRACER' (Astroray, GPU) or 'CYCLES' (GPU)."""
+    info = _bridge(_ENGINE_SWITCH.replace("__ENGINE__", json.dumps(engine)),
+                    host, port)
+    time.sleep(3.0)  # let the shading toggle rebuild + do a fresh sync frame
+    return info
+
+
 def _run_class(host, port, event_class, n, reps, warmup, deadline_s,
                rotate_deg=1.0):
     """Install the recorder for one event class, poll to completion (or the
@@ -569,6 +632,76 @@ def _run_cancel(host, port, samples):
     return _bridge(src, host, port, timeout=600.0)
 
 
+def _run_ui_latency(host, port, duration_s, warmup_s, tick_s, _retries=1):
+    """pkg241 Phase 2: install the fine-ticker recorder, poll to completion,
+    fetch the raw tick/render/present streams for one (scene, engine) rep.
+
+    One retry on a lost driver_namespace['_pkg241'] key (observed rarely,
+    root cause not isolated -- possibly an interaction between the rapid
+    alternating camera/material edits and Blender's undo-step bookkeeping;
+    harmless to retry since the whole recorder state is freshly reinstalled
+    by the setup call below and no partial results are banked on failure)."""
+    cfg = {"event_class": "ui_latency", "duration_s": duration_s,
+           "warmup_s": warmup_s, "tick_s": tick_s}
+    setup = "_PKG241_CONFIG = " + json.dumps(cfg) + "\n" + _recorder_src()
+    info = _bridge(setup, host, port)
+    if info.get("setup") != "ok":
+        raise RuntimeError(f"ui_latency recorder setup failed: {info}")
+    deadline_s = warmup_s + duration_s + 30.0
+    t_start = time.time()
+    truncated = False
+    try:
+        while True:
+            time.sleep(0.5)
+            st = _bridge(_STATUS, host, port)
+            if st.get("error"):
+                raise RuntimeError("ui_latency recorder error:\n" + st["error"])
+            if st.get("done"):
+                break
+            if time.time() - t_start > deadline_s:
+                _bridge(_STOP, host, port)
+                truncated = True
+                break
+    except RuntimeError as exc:
+        if _retries > 0 and "_pkg241" in str(exc):
+            print(f"[pkg241-p2]     recorder state lost mid-rep "
+                  f"({exc}); retrying once")
+            return _run_ui_latency(host, port, duration_s, warmup_s, tick_s,
+                                    _retries=_retries - 1)
+        raise
+    res = _bridge(_RESULTS, host, port)
+    _bridge(_TEARDOWN, host, port)
+    res["truncated"] = truncated
+    return res
+
+
+def _summarize_ui_latency(res):
+    """Reduce one rep's raw tick/render/present streams to the reported
+    statistics: tick-gap percentiles (the UI-latency proxy, works for any
+    engine) and, when Astroray hooks fired, the render-time-fraction
+    cross-check (works only when Astroray is the active engine)."""
+    ticks = res.get("ticks") or []
+    gaps_ms = [(ticks[i] - ticks[i - 1]) * 1000.0 for i in range(1, len(ticks))]
+    renders = res.get("renders") or []
+    presents = res.get("presents") or []
+    tick_s = (res.get("cfg") or {}).get("tick_s", 0.005)
+    nominal_ms = tick_s * 1000.0
+    total_wall_ms = (ticks[-1] - ticks[0]) * 1000.0 if len(ticks) >= 2 else 0.0
+    render_ms_total = sum((e - s) for s, e in renders) * 1000.0
+    blocked_excess_ms = sum(max(0.0, g - nominal_ms) for g in gaps_ms)
+    return {
+        "gaps_ms": gaps_ms,
+        "n_ticks": len(ticks),
+        "n_renders": len(renders),
+        "n_presents": len(presents),
+        "render_ms_total": round(render_ms_total, 1),
+        "total_wall_ms": round(total_wall_ms, 1),
+        "blocked_excess_ms": round(blocked_excess_ms, 1),
+        "truncated": bool(res.get("truncated")),
+        "engine_has_hooks": res.get("engine_has_hooks"),
+    }
+
+
 def _agg(events, field):
     xs = sorted(e[field] for e in events if e.get(field) is not None)
     if not xs:
@@ -589,6 +722,9 @@ _BUDGETS = {
     "gpu_present_p99_ms": 150.0,
     "cancel_ack_p95_ms": 200.0,
     "cancel_ack_p99_ms": 300.0,
+    # pkg241 Phase 2 (owner, 2026-09-07 evening): UI holds 30 fps while a
+    # viewport chunk renders.
+    "ui_latency_p95_ms": 33.0,
 }
 
 
@@ -734,6 +870,175 @@ def _write_summary_md(doc, path):
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+# ---------------------------------------------------------------------------
+# pkg241 Phase 2 — UI event latency while a viewport chunk renders.
+#
+# Owner observation (design doc "Phase 2 — decouple the UI"): with Astroray
+# the Blender UI runs at the viewport render's frame rate; Cycles decouples
+# them because its viewport session renders on its own thread and view_draw
+# only blits. This is the measurement step that must land BEFORE any
+# threading change (spec: "Sequence: Phase 1b -> Phase 2 measurement ->
+# Phase 2 design review -> implementation").
+# ---------------------------------------------------------------------------
+
+_ENGINE_NAME = {"astroray": "CUSTOM_RAYTRACER", "cycles": "CYCLES"}
+
+
+def run_ui_latency(args) -> dict:
+    host, port = args.host, args.port
+    configs = []
+    for scene in args.scenes:
+        sinfo = _open_scene(host, port, scene)
+        print(f"[pkg241-p2] scene={scene} tris={sinfo.get('tris')} "
+              f"file={sinfo.get('file')}")
+        for engine in args.ui_engines:
+            einfo = _switch_engine(host, port, _ENGINE_NAME[engine])
+            print(f"[pkg241-p2]   engine={engine} ({einfo.get('gpu')}) "
+                  f"region={einfo.get('region')}")
+            reps = []
+            for rep in range(args.ui_reps):
+                res = _run_ui_latency(host, port, args.duration_s,
+                                       args.warmup_s, args.tick_s)
+                summ = _summarize_ui_latency(res)
+                reps.append(summ)
+                print(f"[pkg241-p2]     rep {rep + 1}/{args.ui_reps}: "
+                      f"n_ticks={summ['n_ticks']} n_renders={summ['n_renders']} "
+                      f"n_presents={summ['n_presents']} "
+                      f"render_ms_total={summ['render_ms_total']} / "
+                      f"wall_ms={summ['total_wall_ms']}"
+                      f"{' TRUNCATED' if summ['truncated'] else ''}")
+            all_gaps = [g for r in reps for g in r["gaps_ms"]]
+            gap_agg = _agg([{"g": g} for g in all_gaps], "g")
+            total_wall_ms = sum(r["total_wall_ms"] for r in reps)
+            render_ms_total = sum(r["render_ms_total"] for r in reps)
+            nominal_ms = args.tick_s * 1000.0
+            blocked_excess_ms = sum(r["blocked_excess_ms"] for r in reps)
+            blocked_fraction_ticks = (blocked_excess_ms / total_wall_ms
+                                       if total_wall_ms > 0 else None)
+            render_fraction = (render_ms_total / total_wall_ms
+                                if total_wall_ms > 0 else None)
+            n_renders = sum(r["n_renders"] for r in reps)
+            n_presents = sum(r["n_presents"] for r in reps)
+            configs.append({
+                "scene": scene, "tris": sinfo.get("tris"),
+                "region": einfo.get("region"), "engine": engine,
+                "gpu": einfo.get("gpu"),
+                "reps": args.ui_reps, "duration_s": args.duration_s,
+                "warmup_s": args.warmup_s, "tick_s": args.tick_s,
+                "nominal_tick_ms": round(nominal_ms, 3),
+                "gap_ms": gap_agg,
+                "total_wall_ms": round(total_wall_ms, 1),
+                "n_ticks": sum(r["n_ticks"] for r in reps),
+                "n_renders": n_renders,
+                "n_presents": n_presents,
+                "render_ms_total": round(render_ms_total, 1),
+                "blocked_time_fraction_from_ticks":
+                    round(blocked_fraction_ticks, 4)
+                    if blocked_fraction_ticks is not None else None,
+                "render_time_fraction": round(render_fraction, 4)
+                    if render_fraction is not None else None,
+                "engine_has_render_hooks": reps[0]["engine_has_hooks"]
+                    if reps else None,
+                "truncated": any(r["truncated"] for r in reps),
+            })
+            p95 = (gap_agg or {}).get("p95_ms")
+            print(f"[pkg241-p2]   gap p50={_or(gap_agg, 'p50_ms')} "
+                  f"p95={p95} p99={_or(gap_agg, 'p99_ms')} "
+                  f"max={_or(gap_agg, 'max_ms')} "
+                  f"blocked_frac={blocked_fraction_ticks} "
+                  f"render_frac={render_fraction} "
+                  f"budget<=33ms: {'PASS' if p95 is not None and p95 <= 33.0 else 'FAIL/NA'}")
+
+    return {
+        "schema": "astroray.viewport_parity.pkg241_phase2_ui_latency.v1",
+        "package": "pkg241",
+        "phase": "2 (UI event latency while a viewport chunk renders)",
+        "generated_utc": _dt.datetime.now(_dt.timezone.utc)
+            .isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "host": f"{host}:{port}",
+        "budgets": {"ui_latency_p95_ms": _BUDGETS["ui_latency_p95_ms"]},
+        "protocol": {
+            "bridge": "Blender Lab mcp socket; execute requests over localhost",
+            "recorder": "blender_recorder.py _install_ui_latency: a "
+                        "bpy.app.timers ticker at tick_s (default 5 ms) "
+                        "records its own invocation timestamps while every "
+                        "tick also dispatches the next camera/material edit "
+                        "+ tag_redraw, so the main thread is continuously "
+                        "either running the ticker or blocked inside the "
+                        "redraw/render that ticker just triggered -- never "
+                        "idle (avoids the Phase 0 idle-window timer-"
+                        "throttling artifact structurally rather than via "
+                        "OS input injection).",
+            "metric": "tick-gap p50/p95/p99/max (ms); a gap >> tick_s is "
+                      "main-thread blocking. blocked_time_fraction_from_ticks "
+                      "= sum(max(0, gap - tick_s)) / total wall time -- "
+                      "computed identically for both engines from the ticks "
+                      "alone, so it needs no engine-specific hook.",
+            "cross_check": "render_time_fraction = time inside "
+                           "Exporter.render_viewport_frame / total wall time "
+                           "(Astroray only -- Cycles has no Python "
+                           "view_update/view_draw hook to wrap). Presents "
+                           "(POST_PIXEL draw-handler) count is recorded for "
+                           "both engines as a liveness check that the "
+                           "viewport was actually refining, not idle.",
+            "warmup_discarded_s": args.warmup_s,
+            "duration_s_per_rep": args.duration_s,
+            "reps": args.ui_reps,
+            "tick_s": args.tick_s,
+        },
+        "configs": configs,
+    }
+
+
+def _or(d, k):
+    return d.get(k) if d else None
+
+
+def _write_ui_latency_summary_md(doc, path):
+    lines = ["# pkg241 Phase 2 — UI event latency while a viewport chunk renders",
+             "", f"Generated: {doc['generated_utc']}  ",
+             f"Bridge: {doc['host']}  ",
+             f"Protocol: {doc['protocol']['reps']}x{doc['protocol']['duration_s_per_rep']}s "
+             f"per config, {doc['protocol']['warmup_discarded_s']}s warmup "
+             f"discarded, tick_s={doc['protocol']['tick_s']}.", "",
+             f"Budget: UI-latency-during-render p95 <= "
+             f"{doc['budgets']['ui_latency_p95_ms']} ms (30 fps).", "",
+             "## tick-gap (ms) -- lower is more responsive; ~tick_s means fully decoupled", "",
+             "| scene | tris | region | engine | gpu | n_ticks | p50 | p95 | p99 | max | blocked_frac | render_frac | n_renders | n_presents | budget | trunc |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for c in doc["configs"]:
+        reg = "x".join(str(v) for v in (c.get("region") or []))
+        g = c.get("gap_ms") or {}
+        p95 = g.get("p95_ms")
+        budget = doc["budgets"]["ui_latency_p95_ms"]
+        verdict = ("PASS" if p95 is not None and p95 <= budget else
+                   ("FAIL" if p95 is not None else "-"))
+        lines.append(
+            f"| {c['scene']} | {c['tris']} | {reg} | {c['engine']} | "
+            f"{c.get('gpu')} | {c.get('n_ticks')} | {g.get('p50_ms')} | "
+            f"{p95} | {g.get('p99_ms')} | {g.get('max_ms')} | "
+            f"{c.get('blocked_time_fraction_from_ticks')} | "
+            f"{c.get('render_time_fraction')} | {c.get('n_renders')} | "
+            f"{c.get('n_presents')} | {verdict} | "
+            f"{'Y' if c.get('truncated') else ''} |")
+    lines.append("")
+    lines.append(
+        "`render_frac` (Astroray only -- time inside "
+        "`Exporter.render_viewport_frame` / total wall time) cross-checks "
+        "`blocked_frac` (derived purely from tick gaps, so it applies to "
+        "Cycles too, which has no Python view_update/view_draw hook to "
+        "wrap): the two should track together on the Astroray rows, "
+        "confirming the tick gaps are real render blocking and not a "
+        "timer-throttling artifact. Cycles rows are expected to show "
+        "`render_frac`=0/None (no Astroray render calls happened -- Cycles "
+        "is native C++, no Python hook to wrap) alongside a low "
+        "`blocked_frac` and a nonzero, growing `n_presents` (proving the "
+        "viewport kept refining, not merely idling), demonstrating the "
+        "decoupled reference the owner described.")
+    lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def main():
     # Blender invokes us with the standard argv plus everything after `--`.
     if "--" in sys.argv:
@@ -744,7 +1049,7 @@ def main():
     p.add_argument("--engine", default="CYCLES",
                    choices=["CYCLES", "CUSTOM_RAYTRACER"])
     p.add_argument("--mode", default="offline",
-                   choices=["offline", "interactive"])
+                   choices=["offline", "interactive", "ui_latency"])
     p.add_argument("--frames", type=int, default=30)
     p.add_argument("--width", type=int, default=512)
     p.add_argument("--height", type=int, default=512)
@@ -790,6 +1095,17 @@ def main():
     # output file so a phase-1 A/B run does not overwrite the phase-0 baseline.
     p.add_argument("--label", default="phase0",
                    help="output-file phase label (e.g. phase0, phase1)")
+    # pkg241 Phase 2 (--mode ui_latency): UI event latency while a viewport
+    # chunk renders. astroray = CUSTOM_RAYTRACER/gpu; cycles = CYCLES/gpu.
+    p.add_argument("--ui-engines", dest="ui_engines", nargs="+",
+                   default=["astroray", "cycles"],
+                   choices=["astroray", "cycles"])
+    p.add_argument("--ui-reps", dest="ui_reps", type=int, default=3)
+    p.add_argument("--duration-s", dest="duration_s", type=float, default=10.0,
+                   help="measured (post-warmup) seconds per rep")
+    p.add_argument("--warmup-s", dest="warmup_s", type=float, default=2.0)
+    p.add_argument("--tick-s", dest="tick_s", type=float, default=0.005,
+                   help="fine ticker interval (default 5 ms)")
     args = p.parse_args(argv)
     if args.cpu_events is None:
         args.cpu_events = args.events
@@ -804,6 +1120,16 @@ def main():
         json_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
         _write_summary_md(doc, args.out / f"{tag}-{args.label}-summary.md")
         print(f"[pkg241] wrote {json_path}")
+        return
+
+    if args.mode == "ui_latency":
+        doc = run_ui_latency(args)
+        args.out.mkdir(parents=True, exist_ok=True)
+        tag = args.tag or _dt.date.today().isoformat()
+        json_path = args.out / f"{tag}-{args.label}.json"
+        json_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        _write_ui_latency_summary_md(doc, args.out / f"{tag}-{args.label}-summary.md")
+        print(f"[pkg241-p2] wrote {json_path}")
         return
 
     if bpy is None:

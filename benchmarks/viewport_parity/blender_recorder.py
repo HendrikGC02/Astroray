@@ -315,4 +315,226 @@ def _install():
             "material": S["material"], "v3d": area is not None}
 
 
-result = _install()
+# ---------------------------------------------------------------------------
+# pkg241 Phase 2 — UI event latency while a viewport chunk renders.
+#
+# Different question from _install() above: not "how long from one edit to
+# its presented frame" but "while chunk renders keep happening, how promptly
+# can the main thread service anything else" (a UI event, a timer, a redraw).
+# A bpy.app.timers callback registered at a fine interval (TICK_S, default
+# 5 ms) is itself serviced by exactly the same single-threaded main loop that
+# a mouse click or panel redraw would be, so the wall-clock gap between two
+# consecutive invocations of that callback is a direct, code-simple proxy for
+# "how long would the UI have been unresponsive here" — no synthetic OS input
+# injection required.
+#
+# Idle-window throttling (the Phase 0 finding: bpy.app.timers fire slowly
+# while the GUI is idle/unfocused) is avoided structurally, not by injecting
+# mouse/keyboard events: every tick's callback body itself dispatches the next
+# camera/material edit and calls area.tag_redraw() (the same tag_redraw the
+# Phase 0/1 recorder already uses to force activity) before returning, so the
+# main thread is never left with nothing scheduled — it is always either
+# running this callback or blocked inside the render/redraw that callback
+# just triggered. There is therefore no idle gap for Blender's own idle-sleep
+# backoff to engage. Warmup ticks (first WARMUP_S seconds) are discarded so
+# scene-open/shading-toggle settling never pollutes the measured gaps.
+#
+# Cross-check against a timer-throttling artifact (as opposed to real
+# render-caused blocking): (1) the POST_PIXEL draw-handler timestamp stream
+# (`presents`) is recorded throughout — if ticks show large gaps but no
+# presents/renders are happening nearby, that would indicate a stalled
+# recorder rather than an actively-refining viewport; (2) when the Astroray
+# addon is the active engine, `Exporter.render_viewport_frame` is wrapped the
+# same way _install() wraps it, so the driver can compute the fraction of
+# wall time actually spent inside a render() call and compare it against the
+# fraction implied by tick-gap excess — the two should agree when gaps are
+# real render blocking. Cycles has no Python-level view_update/view_draw hook
+# (it is a native C++ RenderEngine, not a bpy_types.RenderEngine subclass), so
+# for a Cycles leg the tick-gap statistic is the whole measurement — which is
+# exactly the point: Cycles is expected to keep gaps near TICK_S because its
+# viewport session renders off the main thread and view_draw only blits.
+def _install_ui_latency():
+    import sys
+
+    # The addon may be registered either through the Extensions Platform
+    # (bl_ext.user_default.astroray, the normal user-profile install Phase
+    # 0/1 used) or via a direct sys.path import as the plain top-level
+    # "blender_addon" package (pkg241 Phase 2's isolated-profile bootstrap,
+    # scripts/dev/pkg241p2_isolated_bootstrap.py -- a fresh BLENDER_USER_
+    # RESOURCES profile has no extension repository registered, so bl_ext.*
+    # never resolves there). Try both so this hook works under either.
+    addon = (sys.modules.get("bl_ext.user_default.astroray")
+             or sys.modules.get("blender_addon"))
+    exporter_cls = addon.exporter.Exporter if addon is not None else None
+    dns = bpy.app.driver_namespace
+
+    prev = dns.get("_pkg241")
+    if prev is not None and prev.get("teardown"):
+        try:
+            prev["teardown"]()
+        except Exception as exc:  # pragma: no cover - defensive
+            print("[pkg241] prior teardown warn:", exc)
+
+    area, rv3d = _find_v3d()
+    if rv3d is not None:
+        rv3d.view_perspective = 'PERSP'
+        try:
+            rv3d.update()
+        except Exception:
+            pass
+    mat, bsdf = _pick_material()
+
+    duration_s = float(_CFG.get("duration_s", 10.0))
+    warmup_s = float(_CFG.get("warmup_s", 2.0))
+    tick_s = float(_CFG.get("tick_s", 0.005))
+
+    S = {
+        "cfg": {"event_class": "ui_latency", "duration_s": duration_s,
+                "warmup_s": warmup_s, "tick_s": tick_s},
+        "ticks": [],       # perf_counter() at every timer invocation (post-warmup)
+        "renders": [],     # (start, end) render_viewport_frame calls (astroray only)
+        "presents": [],    # POST_PIXEL draw-handler timestamps
+        "phase": "warmup",
+        "t_phase_start": None,
+        "done": False,
+        "error": None,
+        "orig": {},
+        "handler": None,
+        "material": mat.name if mat else None,
+        "engine_has_hooks": exporter_cls is not None,
+    }
+    dns["_pkg241"] = S
+
+    if exporter_cls is not None:
+        o_render = exporter_cls.render_viewport_frame
+        S["orig"]["render_viewport_frame"] = o_render
+
+        def w_render(self, *a, **k):
+            e = time.perf_counter()
+            try:
+                return o_render(self, *a, **k)
+            finally:
+                S["renders"].append((e, time.perf_counter()))
+
+        exporter_cls.render_viewport_frame = w_render
+
+    def present_cb():
+        S["presents"].append(time.perf_counter())
+
+    S["handler"] = bpy.types.SpaceView3D.draw_handler_add(
+        present_cb, (), "WINDOW", "POST_PIXEL")
+
+    def teardown():
+        if exporter_cls is not None and "render_viewport_frame" in S["orig"]:
+            try:
+                exporter_cls.render_viewport_frame = S["orig"]["render_viewport_frame"]
+            except Exception:
+                pass
+        if S.get("handler") is not None:
+            try:
+                bpy.types.SpaceView3D.draw_handler_remove(S["handler"], "WINDOW")
+            except Exception:
+                pass
+            S["handler"] = None
+
+    S["teardown"] = teardown
+
+    def status():
+        return {"done": S["done"], "error": S["error"], "phase": S["phase"],
+                "n_ticks": len(S["ticks"]), "n_renders": len(S["renders"]),
+                "n_presents": len(S["presents"])}
+
+    S["status"] = status
+
+    def results():
+        return {"cfg": S["cfg"], "material": S["material"],
+                "ticks": S["ticks"], "renders": S["renders"],
+                "presents": S["presents"], "done": S["done"],
+                "error": S["error"], "engine_has_hooks": S["engine_has_hooks"]}
+
+    S["results"] = results
+
+    _mat_state = {"toggle": False}
+    _cam_state = {"toggle": False}
+    _drive_idx = {"n": 0}
+    _last_edit = {"t": None}
+    # Cap the edit-dispatch rate at ~50 Hz (comfortably above the 30 fps/33 ms
+    # target this metric is graded against). Astroray chunks already take
+    # 150+ ms so this never throttles it in practice (dispatch is already
+    # paced far slower by the render blocking the main thread); it mainly
+    # bounds Cycles, which would otherwise be driven at whatever rate the
+    # (unblocked) ticker can reach, closer to a real user's input rate.
+    _MIN_EDIT_INTERVAL_S = 0.02
+
+    def _drive_edit():
+        # Alternate camera / material edits so both event classes contribute
+        # continuous chunk-render pressure (Phase 0/1: a material edit costs
+        # ~2x a camera edit) — the owner's complaint is not class-specific.
+        now = time.perf_counter()
+        if (_last_edit["t"] is not None
+                and now - _last_edit["t"] < _MIN_EDIT_INTERVAL_S):
+            return
+        _last_edit["t"] = now
+        _drive_idx["n"] += 1
+        if _drive_idx["n"] % 2 == 0 and bsdf is not None:
+            _mat_state["toggle"] = not _mat_state["toggle"]
+            v = 0.7 if _mat_state["toggle"] else 0.3
+            col = list(bsdf.inputs["Base Color"].default_value)
+            col[0] = v
+            bsdf.inputs["Base Color"].default_value = col
+        else:
+            _cam_state["toggle"] = not _cam_state["toggle"]
+            sign = 1.0 if _cam_state["toggle"] else -1.0
+            _, rv = _find_v3d()
+            if rv is not None:
+                q = Quaternion((0.0, 0.0, 1.0), math.radians(sign * ROTATE_DEG))
+                rv.view_rotation = (q @ rv.view_rotation).normalized()
+                try:
+                    rv.update()
+                except Exception:
+                    pass
+        _tag_redraw()
+
+    def timer():
+        if S["done"]:
+            return None
+        now = time.perf_counter()
+        try:
+            if S["t_phase_start"] is None:
+                S["t_phase_start"] = now
+            if S["phase"] == "warmup":
+                if now - S["t_phase_start"] >= warmup_s:
+                    # Transition tick: flip phase and reset the window, but
+                    # don't record this tick itself as a measured sample —
+                    # the next tick is the first one timed against the fresh
+                    # "run" start, so no stale-elapsed comparison is possible.
+                    S["phase"] = "run"
+                    S["t_phase_start"] = now
+                    S["ticks"] = []
+                    S["renders"] = []
+                    S["presents"] = []
+                _drive_edit()
+                return tick_s
+            # phase == "run"
+            S["ticks"].append(now)
+            if now - S["t_phase_start"] >= duration_s:
+                S["done"] = True
+                S["phase"] = "done"
+                return None
+            _drive_edit()
+            return tick_s
+        except Exception:
+            import traceback
+            S["error"] = traceback.format_exc()
+            S["done"] = True
+            return None
+
+    S["timer"] = timer
+    bpy.app.timers.register(timer, first_interval=0.05)
+    return {"setup": "ok", "event_class": "ui_latency",
+            "duration_s": duration_s, "warmup_s": warmup_s, "tick_s": tick_s,
+            "material": S["material"], "v3d": area is not None,
+            "engine_has_hooks": S["engine_has_hooks"]}
+
+
+result = (_install_ui_latency() if EVENT_CLASS == "ui_latency" else _install())

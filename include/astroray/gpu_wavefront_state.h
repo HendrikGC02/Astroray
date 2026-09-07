@@ -473,7 +473,6 @@ void setWavefrontEnvNeeBinding(const GWavefrontEnvNeeBinding& binding);
 // env radiance through the same spectral lookup the miss leg uses, multiplies the
 // pre-folded throughput*f*wt/envPdf, and adds to the slot colour. Not register-
 // critical (like stageShadowKernel). No-op when envShadowCount is 0.
-struct GPUWavefrontHitBuffers;  // fwd (full def below)
 void launchStageEnvShadow(
     GPUWavefrontState& state,
     const GTLASNode*  d_tlas,

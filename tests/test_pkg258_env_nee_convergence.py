@@ -143,11 +143,7 @@ def _reshape(img, r):
     return a
 
 
-@pytest.mark.parametrize("backend", [
-    "cpu",
-    pytest.param("gpu", marks=pytest.mark.xfail(
-        strict=True, reason="pkg258 GPU wavefront leg pending (separate PR)")),
-])
+@pytest.mark.parametrize("backend", ["cpu", "gpu"])  # pkg258 GPU leg landed
 def test_sun_disc_nee_convergence(sun_hdri, backend):
     """RMSE(NEE on) <= GATE * RMSE(NEE off) vs a 64k-spp reference."""
     _require_gpu(backend)

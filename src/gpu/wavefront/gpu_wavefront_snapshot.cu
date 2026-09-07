@@ -98,6 +98,11 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
     if (total_paths <= 0) {
         throw std::runtime_error("cuda_wavefront_snapshot_post_init: invalid dimensions");
     }
+    // pkg258: these harness/ReSTIR paths never do env NEE. The env-NEE binding is
+    // a process-global __constant__; a prior cuda_wavefront_render may have left it
+    // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
+    // so the shade/intersect kernels here stay byte-identical (no stray env draw).
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
 
     // Build GCameraParams from Camera (mirrors production GPU render path).
     // Camera CPU→GPU conversion (mirrors gpu_renderer.cu::upload_camera_params).
@@ -267,6 +272,11 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
     if (total_paths <= 0) {
         throw std::runtime_error("cuda_wavefront_snapshot_post_intersect: invalid dimensions");
     }
+    // pkg258: these harness/ReSTIR paths never do env NEE. The env-NEE binding is
+    // a process-global __constant__; a prior cuda_wavefront_render may have left it
+    // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
+    // so the shade/intersect kernels here stay byte-identical (no stray env draw).
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
 
     // Build GCameraParams from Camera.
     GCameraParams gcam;
@@ -445,6 +455,11 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     if (total_paths <= 0) {
         throw std::runtime_error("cuda_wavefront_snapshot_post_shade: invalid dimensions");
     }
+    // pkg258: these harness/ReSTIR paths never do env NEE. The env-NEE binding is
+    // a process-global __constant__; a prior cuda_wavefront_render may have left it
+    // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
+    // so the shade/intersect kernels here stay byte-identical (no stray env draw).
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
 
     // Build GCameraParams from Camera.
     GCameraParams gcam;
@@ -601,6 +616,11 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
     if (total_paths <= 0) {
         throw std::runtime_error("cuda_wavefront_snapshot_post_light_sample: invalid dimensions");
     }
+    // pkg258: these harness/ReSTIR paths never do env NEE. The env-NEE binding is
+    // a process-global __constant__; a prior cuda_wavefront_render may have left it
+    // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
+    // so the shade/intersect kernels here stay byte-identical (no stray env draw).
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
 
     // Build GCameraParams from Camera.
     GCameraParams gcam;
@@ -775,6 +795,11 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     if (total_paths <= 0) {
         throw std::runtime_error("cuda_wavefront_snapshot_post_rr: invalid dimensions");
     }
+    // pkg258: these harness/ReSTIR paths never do env NEE. The env-NEE binding is
+    // a process-global __constant__; a prior cuda_wavefront_render may have left it
+    // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
+    // so the shade/intersect kernels here stay byte-identical (no stray env draw).
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
 
     // Build GCameraParams from Camera.
     GCameraParams gcam;
@@ -1086,6 +1111,11 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     if (total_paths <= 0) {
         throw std::runtime_error("cuda_wavefront_snapshot_post_nee_mis: invalid dimensions");
     }
+    // pkg258: these harness/ReSTIR paths never do env NEE. The env-NEE binding is
+    // a process-global __constant__; a prior cuda_wavefront_render may have left it
+    // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
+    // so the shade/intersect kernels here stay byte-identical (no stray env draw).
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
 
     GCameraParams gcam;
     gcam.origin = GVec3(cam.getOrigin().x, cam.getOrigin().y, cam.getOrigin().z);
@@ -2205,6 +2235,11 @@ std::vector<float> cuda_wavefront_render_restir(
     int numPixels = width * height;
     if (numPixels <= 0 || samples <= 0)
         throw std::runtime_error("cuda_wavefront_render_restir: invalid dimensions");
+    // pkg258: these harness/ReSTIR paths never do env NEE. The env-NEE binding is
+    // a process-global __constant__; a prior cuda_wavefront_render may have left it
+    // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
+    // so the shade/intersect kernels here stay byte-identical (no stray env draw).
+    setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
 
     GCameraParams gcam;
     gcam.origin     = GVec3(cam.getOrigin().x, cam.getOrigin().y, cam.getOrigin().z);

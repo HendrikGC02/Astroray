@@ -2,7 +2,7 @@
   "scenes": {
     "cornell_interior": {
       "blend_path": "benchmarks/blender_parity/scenes/cornell_interior.blend",
-      "sha256": "1b6105cdb1bdeff20f07ae92655803830a021a39b351526bf24dc1b483ef1f3e",
+      "sha256": "b8625b1228d05950f60b3ef5b29657250f0c37771d1773068ad6c6f4432b610a",
       "settings": {
         "res_x": 512,
         "res_y": 512,
@@ -37,7 +37,7 @@
     },
     "material_zoo": {
       "blend_path": "benchmarks/blender_parity/scenes/material_zoo.blend",
-      "sha256": "c892a8e544e4c32a22d00da4e265dd7f34b4ae3ff1d0eab208e480a7d645368b",
+      "sha256": "1e0dbe3399dfd30873d637dd16a19ff40a83e7c1f290e44824cd6bae858d4dda",
       "settings": {
         "res_x": 640,
         "res_y": 360,
@@ -68,7 +68,7 @@
         "non_vacuity": {
           "checker_contrast": {
             "ok": true,
-            "dark_fraction": 0.1431578947368421
+            "dark_fraction": 0.11578947368421053
           }
         },
         "png": "benchmarks/blender_parity/scenes/refs/material_zoo_cycles_cpu.png"
@@ -78,7 +78,7 @@
         "non_vacuity": {
           "checker_contrast": {
             "ok": true,
-            "dark_fraction": 0.14652777777777778
+            "dark_fraction": 0.11185410334346504
           }
         },
         "png": "benchmarks/blender_parity/scenes/refs/material_zoo_astroray_cpu.png"
@@ -86,7 +86,7 @@
     },
     "hdri_exterior_hair": {
       "blend_path": "benchmarks/blender_parity/scenes/hdri_exterior_hair.blend",
-      "sha256": "1edcc6cbc4478936e664ae2d1d2f4d4c2a563415f4fda40e780ff2e77354cc08",
+      "sha256": "119f3fcfdbad65b64555ca64a1e8f3952c21c3160910728d3a456999dbe862c7",
       "settings": {
         "res_x": 640,
         "res_y": 360,
@@ -115,11 +115,11 @@
         "non_vacuity": {
           "hdri_background": {
             "ok": true,
-            "mean": 0.12088152021169662
+            "mean": 0.18369628489017487
           },
           "hair_coverage": {
             "ok": true,
-            "coverage_fraction": 0.1923913043478261
+            "coverage_fraction": 0.8871376811594203
           }
         },
         "png": "benchmarks/blender_parity/scenes/refs/hdri_exterior_hair_cycles_cpu.png"
@@ -128,12 +128,12 @@
         "ok": true,
         "non_vacuity": {
           "hdri_background": {
-            "ok": false,
-            "mean": 0.04722638428211212
+            "ok": true,
+            "mean": 0.18381856381893158
           },
           "hair_coverage": {
             "ok": true,
-            "coverage_fraction": 0.38115942028985506
+            "coverage_fraction": 0.9021739130434783
           }
         },
         "png": "benchmarks/blender_parity/scenes/refs/hdri_exterior_hair_astroray_cpu.png"

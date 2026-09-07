@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done — PR #744, 2026-09-08, 9/9 tests green CPU+GPU on RTX 5070 Ti
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg178, pkg229, pkg253
 
@@ -129,25 +129,51 @@ path pkg178/pkg253 already wired end-to-end.
 
 ## Acceptance criteria
 
-- [ ] `tests/test_pkg255_metallic_f82.py` passes: F82-mode renders a
+- [x] `tests/test_pkg255_metallic_f82.py` passes: F82-mode renders a
       non-grey, Edge-Tint-responsive conductor; Roughness monotone;
       CPU/GPU parity in-band; `PHYSICAL_CONDUCTOR`-mode node renders without
       exception and the degradation report contains the exact warning text
-      asserted by the test.
-- [ ] Coverage matrix regenerated: `BSDF_METALLIC` shows Base Color,
+      asserted by the test. MEASURED: 9/9 passed (4 stub-Blender dispatch +
+      5 real-renderer, including the 2-case GPU/CPU parametrized parity
+      test) on the RTX 5070 Ti, main-checkout build_cuda .pyd (HEAD
+      fe535b6a, canary green).
+- [x] Coverage matrix regenerated: `BSDF_METALLIC` shows Base Color,
       Edge Tint, Anisotropy, Rotation, Thin Film Thickness, Thin Film IOR,
       `prop:fresnel_type` moved DROPPED-SILENT → SUPPORTED or APPROXIMATED
-      (all credited, none silent); Normal, Tangent, Weight,
-      `prop:distribution` remain DROPPED-SILENT but are provably
-      APPROXIMATED-with-warning at render time per criterion 1 — the same
-      classification-vs-runtime-warning residual pkg229 already documents
-      for `BSDF_HAIR_PRINCIPLED`.
-- [ ] Headless Cycles A/B: a tiny (64×64, low-SPP) scene with an F82-mode
-      Metallic sphere renders on Astroray and on Cycles; visually inspected
-      side by side (not a numeric parity gate — no reference conductor
-      parametrization match is claimed) and archived alongside the test.
-- [ ] Signature sweep: no new `Material` virtuals or engine-facing
-      signatures added (addon-only change) — confirmed by diff.
+      (all credited, none silent); Normal, Tangent, Weight
+      remain DROPPED-SILENT but are provably APPROXIMATED-with-warning at
+      render time per criterion 1 — the same classification-vs-runtime-
+      warning residual pkg229 already documents for `BSDF_HAIR_PRINCIPLED`.
+      `prop:distribution` was ALSO picked up as APPROXIMATED by the scanner
+      (better than the minimum bar above — the `getattr(node,
+      'distribution', ...)` read is itself AST-visible). IOR/Extinction
+      correctly remain DROPPED-SILENT (Phase-2 PHYSICAL_CONDUCTOR ceiling,
+      never read). Verified via `git diff docs/blender_parity/*` — exactly
+      8 rows changed, all `BSDF_METALLIC`, all DROPPED-SILENT→APPROXIMATED,
+      nothing else touched (APPROXIMATED 50→58, DROPPED-SILENT 363→355,
+      SUPPORTED unchanged 114).
+- [x] Headless Cycles A/B: a tiny (64×64, 32spp) scene with an F82-mode
+      Metallic sphere (default node params, Blender's default
+      `fresnel_type=F82`) rendered on Astroray (CPU, staged OpenMP-off addon
+      .pyd) and on Cycles (CPU) via `benchmarks/blender_parity/render_leg.py
+      --category shader_node --feature BSDF_METALLIC --bl-idname
+      ShaderNodeBsdfMetallic`; visually inspected side by side (not a
+      numeric parity gate). Both show a grey-metallic sphere with a bright
+      area-light specular highlight in the same position over the same
+      checker backdrop; per-channel means are close (Cycles
+      R=0.2153/G=0.2125/B=0.2353 vs Astroray R=0.2152/G=0.2185/B=0.2370)
+      despite independent 32-spp MC streams with no denoising (Astroray
+      visibly noisier, expected). Archived under
+      `test_results/2026-09-08-pkg255/` (`f82_metallic_cycles.{npy,png}`,
+      `f82_metallic_astroray.{npy,png}`,
+      `f82_metallic_sidebyside_256.png`, plus the Edge-Tint-responsiveness
+      pair `f82_edge_tint_neutral.png` / `f82_edge_tint_tinted.png` saved by
+      the test itself).
+- [x] Signature sweep: no new `Material` virtuals or engine-facing
+      signatures added (addon-only change) — confirmed by diff: only
+      `blender_addon/__init__.py`'s `BSDF_METALLIC` branch inside
+      `_standalone_bsdf_spec` changed (no new function/method signatures),
+      plus the two regenerated coverage-matrix docs and the new test file.
 
 ---
 
@@ -170,10 +196,55 @@ path pkg178/pkg253 already wired end-to-end.
 
 ## Progress
 
-- [ ] 2026-09-07 — filed per owner gate-(b) decision.
+- [x] 2026-09-07 — filed per owner gate-(b) decision.
+- [x] 2026-09-08 — implemented. `blender_addon/__init__.py`'s
+      `_standalone_bsdf_spec` `BSDF_METALLIC` branch: dropped the dead
+      `Color`-socket else-branch (reads `Base Color` directly); reads Edge
+      Tint / Anisotropy / Rotation / Thin Film Thickness / Thin Film IOR;
+      branches on `fresnel_type` (F82 maps onto native-principled conductor
+      keys `specular_tint`/`anisotropic`/`anisotropic_rotation`/
+      `thin_film_thickness`/`thin_film_ior`, zero new engine code;
+      `PHYSICAL_CONDUCTOR` warns verbatim and falls back to F82 defaults);
+      unconditional named warnings for Normal/Tangent/Weight/distribution.
+      New spec dict carries `native_params` so it rides
+      `_create_native_principled_material` (pkg178) exactly like a
+      Principled node would.
+      Wrote `tests/test_pkg255_metallic_f82.py` (9 tests: 4 stub-Blender
+      addon-dispatch, 5 real-renderer including a 2-case GPU/CPU parity
+      parametrization mirroring `test_pkg178_principled_gpu_cpu_parity.py`'s
+      metallic_r0.3/r0.6 band [0.95, 1.05]).
+      Regenerated `docs/blender_parity/coverage_matrix.json` +
+      `docs/blender_parity/report.md` headlessly (Blender 5.2,
+      `scripts/generate_blender_parity_matrix.py`, staged OpenMP-off addon
+      `.pyd`) — clean 8-row diff, all `BSDF_METALLIC`, all
+      DROPPED-SILENT→APPROXIMATED.
+      Ran the headless Cycles-vs-Astroray A/B via
+      `benchmarks/blender_parity/render_leg.py` (category=shader_node,
+      feature=BSDF_METALLIC, 64x64, 32spp, CPU); archived images under
+      `test_results/2026-09-08-pkg255/`.
+      GPU gate: 9/9 green on RTX 5070 Ti (main-checkout build_cuda .pyd,
+      HEAD fe535b6a, canary green, single-lock session shared with pkg237).
+      No engine/C++/CUDA files touched; no new `Material` signatures.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The AST coverage-matrix scanner credits a socket/prop as read whenever
+  the addon code contains a matching `node.inputs.get(...)` /
+  `getattr(node, '<name>', ...)` pattern in the dispatch function it scans
+  — it isn't limited to a hand-maintained table. Referencing
+  `getattr(node, 'distribution', ...)` even just to NAME it in a warning
+  message was enough to get `prop:distribution` upgraded from
+  DROPPED-SILENT to APPROXIMATED, better than the spec's stated minimum
+  bar (which expected it to stay DROPPED-SILENT, matching the pkg229
+  `BSDF_HAIR_PRINCIPLED` residual pattern).
+- Before regenerating a coverage matrix and comparing to a prior audit
+  doc's headline numbers, diff against the ACTUALLY COMMITTED
+  `coverage_matrix.json`, not the doc's prose table — the committed file
+  had already drifted from the `blender-coverage-reaudit-2026-09.md`
+  doc's claimed 152/35/340 figures (committed baseline was 114/50/363
+  before this change), unrelated to this package. Comparing against the
+  doc instead of the file briefly looked like a large unexplained
+  regression; `git diff` on the actual file showed a clean, fully
+  attributable 8-row change.

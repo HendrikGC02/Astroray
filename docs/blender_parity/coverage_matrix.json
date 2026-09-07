@@ -532,7 +532,7 @@
     "feature": "BSDF_METALLIC",
     "bl_idname": "ShaderNodeBsdfMetallic",
     "socket_or_prop": "input:Base Color",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -540,7 +540,7 @@
     "feature": "BSDF_METALLIC",
     "bl_idname": "ShaderNodeBsdfMetallic",
     "socket_or_prop": "input:Edge Tint",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -572,7 +572,7 @@
     "feature": "BSDF_METALLIC",
     "bl_idname": "ShaderNodeBsdfMetallic",
     "socket_or_prop": "input:Anisotropy",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -580,7 +580,7 @@
     "feature": "BSDF_METALLIC",
     "bl_idname": "ShaderNodeBsdfMetallic",
     "socket_or_prop": "input:Rotation",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -612,7 +612,7 @@
     "feature": "BSDF_METALLIC",
     "bl_idname": "ShaderNodeBsdfMetallic",
     "socket_or_prop": "input:Thin Film Thickness",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -620,7 +620,7 @@
     "feature": "BSDF_METALLIC",
     "bl_idname": "ShaderNodeBsdfMetallic",
     "socket_or_prop": "input:Thin Film IOR",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -628,16 +628,16 @@
     "feature": "BSDF_METALLIC",
     "bl_idname": "ShaderNodeBsdfMetallic",
     "socket_or_prop": "prop:distribution",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "APPROXIMATED",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "BSDF_METALLIC",
     "bl_idname": "ShaderNodeBsdfMetallic",
     "socket_or_prop": "prop:fresnel_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "APPROXIMATED",
+    "notes": ""
   },
   {
     "category": "shader_node",

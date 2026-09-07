@@ -11,8 +11,8 @@
 ## Summary
 
 - **SUPPORTED**: 114 features
-- **APPROXIMATED**: 50 features
-- **DROPPED-SILENT**: 363 features ⚠️
+- **APPROXIMATED**: 58 features
+- **DROPPED-SILENT**: 355 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 527 features
 
@@ -22,34 +22,33 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 4091)
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 4091)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 4122)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 4122)
 - **INVERT**: socket `Fac` (addon __init__.py line 2759)
-- **MIX_SHADER**: socket `Fac` (addon __init__.py line 4098, line 4236)
-- **TEX_BRICK**: socket `Color3` (addon __init__.py line 3548)
+- **MIX_SHADER**: socket `Fac` (addon __init__.py line 4129, line 4267)
 - **TEX_BRICK**: socket `Offset` (addon __init__.py line 3548)
+- **TEX_BRICK**: socket `Color3` (addon __init__.py line 3548)
 - **VALTORGB**: socket `Fac` (addon __init__.py line 2801)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_METALLIC**: socket `Color` (addon __init__.py line 4024)
-- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 4091)
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 4091)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 4091)
-- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 4091)
-- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 4091)
-- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 4091)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 4091)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 4091)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 4091)
-- **MIX**: socket `Color2` (addon __init__.py line 2747)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 4122)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 4122)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 4122)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 4122)
+- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 4122)
+- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 4122)
+- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 4122)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 4122)
+- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 4122)
 - **MIX**: socket `Fac` (addon __init__.py line 2747)
 - **MIX**: socket `Color1` (addon __init__.py line 2747)
-- **MIX_RGB**: socket `A` (addon __init__.py line 2747)
+- **MIX**: socket `Color2` (addon __init__.py line 2747)
 - **MIX_RGB**: socket `Fac` (addon __init__.py line 2747)
 - **MIX_RGB**: socket `B` (addon __init__.py line 2747)
+- **MIX_RGB**: socket `A` (addon __init__.py line 2747)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -149,19 +148,11 @@ These features are silently ignored by the addon with no warning:
 - **BSDF_HAIR_PRINCIPLED**: `input:Secondary Reflection`
 - **BSDF_HAIR_PRINCIPLED**: `prop:model` — property ENUM
 - **BSDF_HAIR_PRINCIPLED**: `prop:parametrization` — property ENUM
-- **BSDF_METALLIC**: `input:Base Color`
-- **BSDF_METALLIC**: `input:Edge Tint`
 - **BSDF_METALLIC**: `input:IOR`
 - **BSDF_METALLIC**: `input:Extinction`
-- **BSDF_METALLIC**: `input:Anisotropy`
-- **BSDF_METALLIC**: `input:Rotation`
 - **BSDF_METALLIC**: `input:Normal`
 - **BSDF_METALLIC**: `input:Tangent`
 - **BSDF_METALLIC**: `input:Weight`
-- **BSDF_METALLIC**: `input:Thin Film Thickness`
-- **BSDF_METALLIC**: `input:Thin Film IOR`
-- **BSDF_METALLIC**: `prop:distribution` — property ENUM
-- **BSDF_METALLIC**: `prop:fresnel_type` — property ENUM
 - **BSDF_PRINCIPLED**: `input:Weight`
 - **BSDF_PRINCIPLED**: `input:Subsurface IOR`
 - **BSDF_PRINCIPLED**: `input:Tangent`
@@ -579,20 +570,20 @@ These features are silently ignored by the addon with no warning:
 | BSDF_HAIR_PRINCIPLED | input:Secondary Reflection | DROPPED-SILENT |  |
 | BSDF_HAIR_PRINCIPLED | prop:model | DROPPED-SILENT | property ENUM |
 | BSDF_HAIR_PRINCIPLED | prop:parametrization | DROPPED-SILENT | property ENUM |
-| BSDF_METALLIC | input:Base Color | DROPPED-SILENT |  |
-| BSDF_METALLIC | input:Edge Tint | DROPPED-SILENT |  |
+| BSDF_METALLIC | input:Base Color | APPROXIMATED |  |
+| BSDF_METALLIC | input:Edge Tint | APPROXIMATED |  |
 | BSDF_METALLIC | input:IOR | DROPPED-SILENT |  |
 | BSDF_METALLIC | input:Extinction | DROPPED-SILENT |  |
 | BSDF_METALLIC | input:Roughness | APPROXIMATED |  |
-| BSDF_METALLIC | input:Anisotropy | DROPPED-SILENT |  |
-| BSDF_METALLIC | input:Rotation | DROPPED-SILENT |  |
+| BSDF_METALLIC | input:Anisotropy | APPROXIMATED |  |
+| BSDF_METALLIC | input:Rotation | APPROXIMATED |  |
 | BSDF_METALLIC | input:Normal | DROPPED-SILENT |  |
 | BSDF_METALLIC | input:Tangent | DROPPED-SILENT |  |
 | BSDF_METALLIC | input:Weight | DROPPED-SILENT |  |
-| BSDF_METALLIC | input:Thin Film Thickness | DROPPED-SILENT |  |
-| BSDF_METALLIC | input:Thin Film IOR | DROPPED-SILENT |  |
-| BSDF_METALLIC | prop:distribution | DROPPED-SILENT | property ENUM |
-| BSDF_METALLIC | prop:fresnel_type | DROPPED-SILENT | property ENUM |
+| BSDF_METALLIC | input:Thin Film Thickness | APPROXIMATED |  |
+| BSDF_METALLIC | input:Thin Film IOR | APPROXIMATED |  |
+| BSDF_METALLIC | prop:distribution | APPROXIMATED |  |
+| BSDF_METALLIC | prop:fresnel_type | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Base Color | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Metallic | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Roughness | APPROXIMATED |  |

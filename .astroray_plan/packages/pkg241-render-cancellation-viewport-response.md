@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — Phase 1a delivered (PR #739, 2026-09-07: present-first + interactive-resolution budget, addon Python only; matched GPU A/B — material p95 −6× metal_sweep 964→155 ms / big 1495→224 ms, big camera p95 169→64 ms meets ≤100 ms budget, renders_before_present=1 on all 600 events; metal_sweep camera 107.6→30.4 ms p50 after correcting a CAMERA-view recorder artifact — exporter divisor logic was correct, the pkg196 divisor-2 nav floor is unit-locked, and the recorder now forces PERSP for camera runs). Phase 0 recorder + measurements + design landed (PR #733). Phase 1b (bool-returning cancellation callback + completion metadata + F12 cooperative cancel) still pending owner decision — Terra 2026-09-07 wanted present-first + budget first, now delivered.
+**Status:** in-progress — Phase 1b code delivered (native + addon cooperative cancellation, PR pending 2026-09-08: bool-returning progress callback honoured by the CPU tile loop and the GPU wavefront host loop, `Renderer.last_render_info()` completion metadata, viewport cancel-flag + accumulation reset, effective F12 `test_break` cancel; GIL released around the CPU render so OpenMP-worker callbacks don't deadlock; native+addon tests 5+4 pass on the rebuilt sm_120 .pyd; bridge cancel-ack + Phase 2 UI-latency measurement pending). Phase 1a delivered (PR #739, 2026-09-07: present-first + interactive-resolution budget, addon Python only; matched GPU A/B — material p95 −6× metal_sweep 964→155 ms / big 1495→224 ms, big camera p95 169→64 ms meets ≤100 ms budget, renders_before_present=1 on all 600 events; metal_sweep camera 107.6→30.4 ms p50 after correcting a CAMERA-view recorder artifact — exporter divisor logic was correct, the pkg196 divisor-2 nav floor is unit-locked, and the recorder now forces PERSP for camera runs). Phase 0 recorder + measurements + design landed (PR #733).
 **Estimated effort:** TBD
 **Depends on:** pkg52, pkg81, pkg147, pkg191, pkg192, pkg196, pkg232, pkg236
 
@@ -292,6 +292,70 @@ All implementation gates UNRUN:
 
 ## Progress
 
+- [ ] 2026-09-08 — Phase 1b (cooperative cancellation) code implemented; PR pending.
+  - **Native callback returns bool.** `Renderer::render`'s progress callback is
+    now `std::function<bool(float)>` (`include/raytracer.h`): the OpenMP tile loop
+    sets a shared `std::atomic<bool> cancelled` on a `false` return and skips the
+    remaining tiles (OpenMP for-loops cannot `break`), returning a partial
+    framebuffer with the completed tiles correctly normalised. Null callback =>
+    never set => byte-identical to the pre-pkg241 path (verified: two `progress=None`
+    renders on a fixed seed are `array_equal`, and an always-True callback matches
+    `None` exactly).
+  - **GPU host-side cancel hook.** `cuda_wavefront_render` gains a
+    `std::function<bool()> cancelRequested = nullptr` (default null = bit-identical),
+    polled between wavefront passes on the host; on cancel it breaks the pass/round
+    loops and returns the last host-accumulated (partial) frame. No device-side
+    preemption. All call sites updated (`module/blender_module.cpp:2184`, prewarm
+    `:2773`, module-level `m.def` `:4924` use the default; `apps/main.cpp` and the
+    restir variant are unaffected).
+  - **Completion metadata.** `Renderer.last_render_info()` returns
+    `{cancelled, tiles_completed, total_tiles}` (GPU tiles are 0/0; cancel state
+    from the host hook). Smallest binding surface chosen over per-sample counts.
+  - **Addon.** `exporter.render_viewport_frame` passes a real
+    `not _viewport_cancel_requested` callback (was `None`); `view_draw` requests a
+    cancel on a substantive camera / settings change; `_consume_viewport_cancel`
+    drops the cancelled chunk's partial accumulation before the next chunk (no mixed
+    accumulation, decision key = existing `render_key`). F12 `test_break()` now
+    actually stops the render and the partial framebuffer is written to the render
+    result like Cycles (`__init__.py`).
+  - **GIL fix (deviation from design doc §5).** The design doc assumed the per-tile
+    callback runs on the main thread and re-acquires reentrantly. Under OpenMP the
+    callback runs on WORKER threads, so holding the GIL through `render()` deadlocks
+    (workers block on the GIL the main thread holds at the OpenMP barrier). Fixed by
+    releasing the GIL around the CPU render (`py::gil_scoped_release`) — the standard
+    pybind11+OpenMP pattern, matching Cycles. The addon .pyd is built OpenMP-OFF so
+    there the single main thread runs the callback (reentrant no-op). Reproduced the
+    deadlock (faulthandler: 7 worker threads + main stuck in `render()`), then
+    verified fixed (callback render completes in 0.12 s).
+  - **Tests.** `tests/test_pkg241_cancellation.py` (5: CPU cancel→partial buffer +
+    stops within N+thread-slack tiles; `None` byte-identical; non-bool return =
+    continue; GPU cancel stops between passes; GPU null hook == always-continue) all
+    pass on the rebuilt sm_120 worktree .pyd. `tests/test_pkg241_cancellation_addon.py`
+    (4: real callback wired + polarity; request/consume resets accumulation;
+    render_viewport_frame consumes a pending cancel; settings change requests cancel)
+    pass. pkg196/pkg191/pkg52/present-first viewport suites green (38).
+  - **GPU cancel-ack measured (in-process, RTX 5070 Ti, rebuilt sm_120 .pyd, 64 spp,
+    depth 6).** Time from cancel-request (first host poll) to `render()` return:
+    metal-like (2k tris, 512×512) **p50 3.9 / p95 4.1 / p99 4.1 ms** vs a 176 ms
+    full-render floor (~44×); big-like (100k tris, 700×700) **p50 7.5 / p95 8.6 /
+    p99 8.7 ms** vs a 491 ms floor (~57×). Both p95/p99 are far under the cancel-ack
+    budget (p95 ≤ 200 / p99 ≤ 300 ms) — cancellation returns within one wavefront pass.
+    `last_render_info().cancelled == True`, 1 host poll.
+  - **Why in-process, not the live bridge:** the Phase-0 bridge cancel probe
+    (`blender_cancel_probe.py`) documents that `test_break`/`update_progress` are RNA
+    methods that cannot be monkeypatched from Python, so it can only time a *full* F12
+    render (the floor) — it cannot inject a mid-render cancel over the socket. And in
+    the synchronous model a chunk is atomic on the main thread, so a *viewport*
+    per-chunk cancel cannot be triggered mid-chunk by a Blender event (no event loop
+    runs during the blocking render). The cancel plumbing therefore lands now for F12
+    (which polls OS ESC state during the render → now stops within one tile/pass
+    instead of the full-render floor) and as the Phase 2 off-thread stop signal; the
+    in-process measurement above is the honest, budget-relevant cancel-ack number.
+  - **Still pending (recommend folding into the Phase 2 measurement pass):** the live
+    GUI edit→present non-regression re-confirm and the new Phase 2 UI-latency-during-
+    render recorder metric (Part B) — both need an OpenMP-OFF worktree addon build +
+    the GUI bridge; in the synchronous model UI-latency-during-render ≈ chunk render
+    time (far above the 33 ms target), which is exactly the Phase 2 motivation.
 - [ ] 2026-09-07 evening — owner: UI still coupled to the viewport render
       frame rate (Cycles decouples them); recorded as Phase 2 under Key
       design decisions and as a comment on issue #721. Next: Phase 1b, then

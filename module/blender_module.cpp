@@ -457,6 +457,11 @@ class PyRenderer {
     // per-instance ownership (frame_state.h), defeating global-WfContext bleed
     // across independent renders (the TestDeterminism isolation requirement).
     uint64_t restirSessionId_ = 0;
+    // pkg241 Phase 1b: cooperative-cancellation completion metadata, surfaced
+    // to Python via last_render_info(). Set at the end of render().
+    bool lastRenderInfoCancelled_ = false;
+    int lastRenderInfoTilesCompleted_ = 0;
+    int lastRenderInfoTotalTiles_ = 0;
     // pkg89 Phase B: IES profile cache (shared_ptr keeps profiles alive).
     std::unordered_map<std::string, std::shared_ptr<IESProfile>> iesProfiles_;
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -1978,6 +1983,17 @@ public:
                               bool skipUpload = false) {
         if (!camera) throw std::runtime_error("Camera not set up");
 
+        // pkg241 Phase 1b: track which backend ran and whether it was
+        // cancelled, so last_render_info() can report completion state.
+        bool gpuPathRan = false;
+        bool gpuCancelled = false;
+        // pkg241 Phase 1b: a Python exception raised inside the CPU progress
+        // callback is stashed here (never unwound through the OpenMP region)
+        // and rethrown after the completion metadata is published.
+        std::exception_ptr callbackError;
+        std::mutex callbackErrorMutex;
+        (void)gpuPathRan; (void)gpuCancelled;
+
 #ifdef ASTRORAY_CUDA_ENABLED
         if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
             // pkg171: a CPU-only integrator (no GPU kernel) would otherwise fall
@@ -2181,6 +2197,28 @@ public:
                 // (opaque) — matching the CPU default alphaBuffer (resized to 1.0).
                 // alphaBuffer is width*height floats.
                 float* alphaOut = camera->alphaBuffer.data();
+                // pkg241 Phase 1b: bridge the Python progress callback to a
+                // host-side cancel hook polled between wavefront passes. The
+                // callback returns True to continue / False to cancel; a
+                // non-bool / None return counts as continue. render() holds
+                // the GIL for its whole duration (no gil_scoped_release), so
+                // re-acquiring here is a safe reentrant no-op. Null callback
+                // => null hook => byte-identical fleet GPU path.
+                std::function<bool()> gpuCancelHook = nullptr;
+                if (!progressCallback.is_none()) {
+                    gpuCancelHook = [&progressCallback, &gpuCancelled]() -> bool {
+                        py::gil_scoped_acquire acquire;
+                        py::object r = progressCallback(1.0f);
+                        bool cont = true;
+                        if (!r.is_none()) {
+                            try { cont = py::cast<bool>(r); }
+                            catch (const py::cast_error&) { cont = true; }
+                        }
+                        if (!cont) gpuCancelled = true;
+                        return !cont;  // hook returns true => cancel
+                    };
+                }
+                gpuPathRan = true;
                 auto rgb = astroray::wavefront::cuda_wavefront_render(
                     renderer, *camera, camera->width, camera->height,
                     samplesPerPixel, maxDepth, effectiveSeed,
@@ -2188,7 +2226,8 @@ public:
                     cryptoObjOut, cryptoMatOut, cryptoDepth,  // pkg159
                     albedoOut, normalOut, depthOut,           // pkg197
                     passesOut,                                 // pkg198
-                    alphaOut);                                 // pkg201
+                    alphaOut,                                  // pkg201
+                    gpuCancelHook);                            // pkg241 Phase 1b
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],
@@ -2229,17 +2268,62 @@ public:
         } else
 #endif
         {
-            // CPU path (unchanged)
-            std::function<void(float)> callback = nullptr;
+            // CPU path
+            // pkg241 Phase 1b: forward the Python callback's bool return
+            // (True = continue, False = cancel). A non-bool / None return
+            // counts as continue, so a progress-only callback is unchanged.
+            // A Python exception raised inside the callback must NOT unwind
+            // through the OpenMP parallel-for in Renderer::render (undefined
+            // behaviour -> std::terminate on the OpenMP-ON dev build): stash it,
+            // cancel cooperatively, and rethrow once render() has returned.
+            std::function<bool(float)> callback = nullptr;
             if (!progressCallback.is_none()) {
-                callback = [&progressCallback](float progress) {
-                    py::gil_scoped_acquire acquire;
-                    progressCallback(progress);
+                callback = [&](float progress) -> bool {
+                    try {
+                        py::gil_scoped_acquire acquire;
+                        py::object r = progressCallback(progress);
+                        if (r.is_none()) return true;
+                        try { return py::cast<bool>(r); }
+                        catch (const py::cast_error&) { return true; }
+                    } catch (...) {
+                        std::lock_guard<std::mutex> lock(callbackErrorMutex);
+                        if (!callbackError) callbackError = std::current_exception();
+                        return false;  // cooperative cancel; rethrown below
+                    }
                 };
             }
-            renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling, false,
-                            diffuseBounces, glossyBounces, transmissionBounces, volumeBounces, transparentBounces);
+            // pkg241 Phase 1b: release the GIL for the CPU render. render()
+            // is pure C++ and runs the tile loop under OpenMP; the progress
+            // callback is invoked from OpenMP WORKER threads, each of which
+            // re-acquires the GIL (py::gil_scoped_acquire above). Holding the
+            // GIL here would deadlock: the workers would block on the GIL the
+            // main thread holds while it waits at the OpenMP barrier. This is
+            // the standard pybind11 + OpenMP + Python-callback pattern (and
+            // what Cycles does around its render). With a null callback no
+            // Python is touched, so releasing is a safe no-op. The addon .pyd
+            // is built OpenMP-OFF, so there the single (main) thread runs the
+            // callback and the re-acquire is a reentrant no-op.
+            {
+                py::gil_scoped_release release;
+                renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling, false,
+                                diffuseBounces, glossyBounces, transmissionBounces, volumeBounces, transparentBounces);
+            }
         }
+
+        // pkg241 Phase 1b: publish cooperative-cancellation completion metadata
+        // for last_render_info(). GPU has no tile concept, so tiles are 0/0 and
+        // the cancel state comes from the host cancel hook; CPU reports the
+        // tile-loop completion recorded on the core Renderer.
+        if (gpuPathRan) {
+            lastRenderInfoCancelled_ = gpuCancelled;
+            lastRenderInfoTilesCompleted_ = 0;
+            lastRenderInfoTotalTiles_ = 0;
+        } else {
+            lastRenderInfoCancelled_ = renderer.getLastRenderCancelled();
+            lastRenderInfoTilesCompleted_ = renderer.getLastRenderTilesCompleted();
+            lastRenderInfoTotalTiles_ = renderer.getLastRenderTotalTiles();
+        }
+        if (callbackError) std::rethrow_exception(callbackError);
 
         // Package pixels into numpy array (height, width, 3)
         py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height),
@@ -2263,6 +2347,20 @@ public:
             }
         }
         return result;
+    }
+
+    // pkg241 Phase 1b: cooperative-cancellation completion metadata for the
+    // most recent render(). `cancelled` is true when the progress callback
+    // (CPU) or host cancel hook (GPU) requested a stop. `tiles_completed` /
+    // `total_tiles` describe CPU tile-loop progress (0 on the GPU path,
+    // which has no tile concept). The viewport/F12 paths read this to know
+    // whether the returned framebuffer is complete or partial.
+    py::dict lastRenderInfo() const {
+        py::dict d;
+        d["cancelled"] = lastRenderInfoCancelled_;
+        d["tiles_completed"] = lastRenderInfoTilesCompleted_;
+        d["total_tiles"] = lastRenderInfoTotalTiles_;
+        return d;
     }
 
     py::array_t<float> getAlbedoBuffer() {
@@ -3294,6 +3392,9 @@ PYBIND11_MODULE(astroray, m) {
              "progress_callback"_a = py::none(), "apply_gamma"_a = true,
              "diffuse_bounces"_a = -1, "glossy_bounces"_a = -1, "transmission_bounces"_a = -1,
              "volume_bounces"_a = -1, "transparent_bounces"_a = -1, "skip_upload"_a = false)
+        .def("last_render_info", &PyRenderer::lastRenderInfo,
+             "pkg241 Phase 1b: dict {cancelled, tiles_completed, total_tiles} "
+             "describing whether the last render() completed or was cancelled.")
         .def("get_albedo_buffer", &PyRenderer::getAlbedoBuffer)
         .def("get_normal_buffer", &PyRenderer::getNormalBuffer)
         .def("get_motion_buffer", &PyRenderer::getMotionBuffer)

@@ -17,6 +17,7 @@
 #include "raytracer.h"
 #include <vector>
 #include <cstdint>
+#include <functional>
 
 namespace astroray {
 namespace wavefront {
@@ -195,7 +196,14 @@ std::vector<float> cuda_wavefront_render(
     // OVERWRITTEN with transparent-film coverage (background-miss pixels → 0,
     // foreground → 1, silhouette edges antialiased); otherwise it is filled with
     // 1.0 (opaque). Passing nullptr (the default) leaves the alpha buffer alone.
-    float* alphaOut = nullptr);          // pkg201
+    float* alphaOut = nullptr,           // pkg201
+    // pkg241 Phase 1b: host-side cooperative-cancellation hook. When set,
+    // it is polled between wavefront passes on the host (the natural
+    // host-loop boundary); returning true stops the render and returns the
+    // last host-accumulated (partial) frame. No device-side preemption.
+    // Null (the default) => never polled => byte-identical to the
+    // pre-pkg241 GPU path.
+    std::function<bool()> cancelRequested = nullptr);
 
 // pkg55-C6b / pkg24: GPU ReSTIR-DI wavefront render. Direct-illumination
 // driver with double-buffered per-pixel reservoirs persisted across frames

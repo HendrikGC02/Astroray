@@ -1346,7 +1346,8 @@ std::vector<float> cuda_wavefront_render(
     float* depthOut,           // pkg197
     float* passesOut,          // pkg198 Stage 2: light-path passes, pass-major
                                // [p*numPixels*3 + pixel*3 + c] linear sRGB, or null
-    float* alphaOut)           // pkg201 Stage 2 (Finding F)
+    float* alphaOut,           // pkg201 Stage 2 (Finding F)
+    std::function<bool()> cancelRequested)  // pkg241 Phase 1b
 {
     int total_paths = width * height;
     if (total_paths <= 0 || samples <= 0) {
@@ -1754,6 +1755,7 @@ std::vector<float> cuda_wavefront_render(
         // later round adds adaptive_step samples to only the still-unconverged
         // pixels (compacted host-side after each round). Uniform (adaptiveOn=false)
         // runs exactly one round of `samples` over every pixel — byte-identical.
+        bool cwfCancelled = false;  // pkg241 Phase 1b
         while (baseSample < samples) {
         const int perPixel = !adaptiveOn
             ? samples
@@ -1816,6 +1818,11 @@ std::vector<float> cuda_wavefront_render(
         bool workExhausted = false;
         int drainLeft = max_depth;
         for (long long pass = 0; pass < kMaxPasses; ++pass) {
+            // pkg241 Phase 1b: cooperative cancellation checkpoint (host,
+            // between wavefront passes). Breaks out of the pass loop; the
+            // final accumulating regen + download below still run, so the
+            // returned image is a well-formed partial frame.
+            if (cancelRequested && cancelRequested()) { cwfCancelled = true; break; }
             // pkg55-C7 perf: the per-pass counter zeroing (cout/shadeCounts/
             // shadowCount) is fused into stageRegenKernel thread 0 — same
             // same-stream ordering as the 3 cudaMemsetAsync launches it
@@ -1925,6 +1932,7 @@ std::vector<float> cuda_wavefront_render(
 
         baseSample += perPixel;
         ++roundIdx;
+        if (cwfCancelled) break;           // pkg241 Phase 1b: stop rounds
         if (!adaptiveOn) break;            // uniform: a single round
         if (baseSample >= samples) break;  // hit the sample cap
 

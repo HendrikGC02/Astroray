@@ -2314,6 +2314,13 @@ class Renderer {
     // pre-pass + gather only runs when a caller explicitly opts in (set_use_photon_caustics).
     bool usePhotonCaustics = false;
     int renderSeed = 0;  // 0 = random (non-deterministic), non-zero = deterministic seed
+    // pkg241 Phase 1b - cooperative-cancellation completion metadata. Written
+    // at the end of render(); read via the getters below and surfaced to
+    // Python as Renderer.last_render_info(). Ordinary completion leaves
+    // cancelled=false and tilesCompleted==totalTiles.
+    bool lastRenderCancelled_ = false;
+    int lastRenderTilesCompleted_ = 0;
+    int lastRenderTotalTiles_ = 0;
     // Pixel reconstruction filter (0=Box, 1=Gaussian, 2=Blackman-Harris)
     int pixelFilterType = 0;
     float pixelFilterWidth = 1.5f;
@@ -2635,6 +2642,10 @@ public:
     int getSceneObjectCount() const { return static_cast<int>(scene.size()); }
     void setSeed(int s) { renderSeed = s; }
     int getSeed() const { return renderSeed; }
+    // pkg241 Phase 1b - cooperative-cancellation completion metadata.
+    bool getLastRenderCancelled() const { return lastRenderCancelled_; }
+    int getLastRenderTilesCompleted() const { return lastRenderTilesCompleted_; }
+    int getLastRenderTotalTiles() const { return lastRenderTotalTiles_; }
     void setPixelFilter(int type, float width) {
         pixelFilterType = std::clamp(type, 0, 2);
         pixelFilterWidth = std::max(0.01f, width);
@@ -3866,7 +3877,7 @@ public:
     int getWorldMaxBounces() const { return worldMaxBounces; }
 
 void render(Camera& cam, int maxSamples, int maxDepth,
-            std::function<void(float)> progress = nullptr, bool adaptive = true, bool applyGamma = false,
+            std::function<bool(float)> progress = nullptr, bool adaptive = true, bool applyGamma = false,
             int argDiffuseBounces = -1, int argGlossyBounces = -1, int argTransmissionBounces = -1,
             int argVolumeBounces = -1, int argTransparentBounces = -1);
 };
@@ -3882,7 +3893,7 @@ void render(Camera& cam, int maxSamples, int maxDepth,
 #include "astroray/pass.h"
 
 inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
-            std::function<void(float)> progress, bool adaptive, bool applyGamma,
+            std::function<bool(float)> progress, bool adaptive, bool applyGamma,
             int argDiffuseBounces, int argGlossyBounces, int argTransmissionBounces,
             int argVolumeBounces, int argTransparentBounces) {
         // pkg201 Stage 3 (Finding A) — honour the Cycles per-type bounce limits
@@ -3907,6 +3918,13 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         const astroray::adaptive::AdaptiveParams adaptiveParams =
             astroray::adaptive::deriveAdaptiveParams(maxSamples, /*auto*/0.0f, /*auto*/0);
         std::atomic<int> tilesCompleted{0};
+        // pkg241 Phase 1b - cooperative cancellation. A false return from the
+        // progress callback sets this; not-yet-started tiles then skip their
+        // work (OpenMP for-loops cannot break), so render() returns a partial
+        // framebuffer with the completed tiles correctly normalised and the
+        // remaining tiles left at their prior contents. Null progress =>
+        // never set => byte-identical to the pre-pkg241 path.
+        std::atomic<bool> cancelled{false};
         const int tileSize = 16;
         int tilesX = (cam.width + tileSize - 1) / tileSize;
         int tilesY = (cam.height + tileSize - 1) / tileSize;
@@ -4026,6 +4044,11 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                 std::uniform_real_distribution<float> dist(0, 1);
                 int x0 = tileX * tileSize, x1 = std::min(x0 + tileSize, cam.width);
                 int y0 = tileY * tileSize, y1 = std::min(y0 + tileSize, cam.height);
+
+                // pkg241 Phase 1b: skip remaining tiles once a cancel was
+                // requested (the earliest safe point that avoids partial-tile
+                // pixels in the returned buffer).
+                if (cancelled.load(std::memory_order_relaxed)) continue;
 
                 for (int y = y0; y < y1; ++y) {
                     for (int x = x0; x < x1; ++x) {
@@ -4251,9 +4274,18 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                     }
                 }
 
-                if (progress) progress(float(++tilesCompleted) / totalTiles);
+                // Count every completed tile (even without a progress
+                // callback) so last_render_info() reports accurate totals.
+                const int done = ++tilesCompleted;
+                if (progress && !progress(float(done) / totalTiles)) {
+                    cancelled.store(true, std::memory_order_relaxed);
+                }
             }
         }
+        // pkg241 Phase 1b: publish cooperative-cancellation completion state.
+        lastRenderCancelled_ = cancelled.load(std::memory_order_relaxed);
+        lastRenderTilesCompleted_ = tilesCompleted.load(std::memory_order_relaxed);
+        lastRenderTotalTiles_ = totalTiles;
         if (integrator_) integrator_->endFrame();
 
         // pkg136 — clear the transient guide pointers before `trainedGuide` (a

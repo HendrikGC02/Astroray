@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 pkg258 (Terra item 8 follow-up) — set_env_nee(False) GPU byte-identity regression.
 
@@ -29,7 +28,6 @@ import textwrap
 
 import numpy as np
 import pytest
-
 from runtime_setup import configure_test_imports
 
 configure_test_imports()
@@ -41,7 +39,7 @@ try:
 except ImportError:
     AVAILABLE = False
 
-from test_world_hdri_parity import _write_radiance_hdr  # noqa: E402
+from test_world_hdri_parity import _write_radiance_hdr
 
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
@@ -97,7 +95,7 @@ def _run_worker(pyd_dir, hdri, out_npy, seed):
         f.write(_WORKER)
     res = subprocess.run(
         [sys.executable, script, pyd_dir, hdri, out_npy, str(seed)],
-        capture_output=True, text=True, timeout=600)
+        capture_output=True, text=True, timeout=600, check=False)
     if res.returncode != 0:
         raise RuntimeError(f"render worker failed (rc={res.returncode}):\n"
                            f"STDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}")

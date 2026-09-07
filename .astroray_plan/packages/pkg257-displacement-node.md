@@ -194,6 +194,22 @@ today, confirmed by a zero-hit grep for `"displacement"` across
 ---
 
 ## Lessons
+- 2026-09-08 (issue #746, lead systematic-debugging pass) — the "faint relief through
+  F12" symptom was a UNIT MISMATCH in this package's mapping, not the export/UV path:
+  `Scale` was mapped onto `bump_strength` with a fixed `bump_distance` 0.01, but Cycles'
+  `ShaderGraph::bump_from_displacement` feeds its BumpNode height = dot(displacement, N)
+  = Scale·(h − Midlevel) in object units with `set_distance(1.0f)` — Scale is the bump
+  distance. Minimal headless repro (default plane, five-blob height image on disk, overhead
+  sun, Scale 0.35, method BUMP): Cycles mean|Δ| 0.084 vs Astroray 0.0044 (19× fainter);
+  after `bump_distance = Scale`, `bump_strength = 1.0`: Astroray 0.150. Two controls that
+  matter: (1) a ShaderNodeBump with Blender's DEFAULT Distance (0.001, not 1.0) is equally
+  faint in Cycles (mean|Δ| 9e-5) — the earlier "pkg223b path is faint too" observation was
+  that default, not a bug; (2) an in-memory generated image (never saved) renders with NO
+  relief in Cycles (it ignores it) but does reach Astroray — an unsaved height image is a
+  fixture trap, not an engine difference. Residual: at equal Distance Astroray's bump is
+  ~1.8–2× Cycles' (Bump node 0.038 vs 0.020; Displacement 0.150 vs 0.084) and shows faint
+  ring banding on smooth blobs — a pkg223b engine calibration item, filed separately.
+  Evidence image: `docs/issue746/displacement_scale035_cycles_fixed_prefix.png`.
 
 - **Midlevel is inert for a gradient-based bump approximation, by design.**
   `svm_node_set_bump`'s surface-gradient formula (reused unchanged from

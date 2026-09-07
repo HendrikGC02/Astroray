@@ -2979,7 +2979,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         exactly one entry point: the Material Output's own 'Displacement'
         socket (not the AstrorayOutputNode path).
         """
-        result = {'bump_image': None, 'bump_strength': 1.0, 'bump_distance': 0.01}
+        result = {'bump_image': None, 'bump_strength': 1.0, 'bump_distance': 1.0}
 
         disp_input = output.inputs.get('Displacement')
         if not disp_input or not disp_input.is_linked:
@@ -2992,7 +2992,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return result, None
 
         result['bump_image'] = self.get_image_from_socket(disp_node.inputs.get('Height'))
-        result['bump_strength'] = self.get_float_input(disp_node, 'Scale', 1.0)
+        # Issue #746: Cycles' ShaderGraph::bump_from_displacement (Apache-2.0)
+        # feeds its BumpNode height = dot(displacement, N) = Scale * (h - Midlevel)
+        # in OBJECT units with `set_distance(1.0f)` and unit strength, so Scale
+        # is the bump DISTANCE (height scale) of the pkg223b surface-gradient
+        # formula, not a strength multiplier. The pkg257 floor first mapped
+        # Scale -> bump_strength with a fixed 0.01 distance, which under-scaled
+        # the relief by Scale/0.01 (measured 19x fainter than Cycles at 0.35).
+        result['bump_distance'] = self.get_float_input(disp_node, 'Scale', 1.0)
+        result['bump_strength'] = 1.0
         # Midlevel is read (never a silent drop) but is mathematically inert for
         # a gradient-based bump approximation: the surface-gradient formula
         # (svm_node_set_bump, reused from pkg223b) finite-differences the height

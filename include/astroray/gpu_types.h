@@ -782,31 +782,6 @@ struct GWorldVolume {
     float anisotropy;            // worldVolumeAnisotropy (HG g)
 };
 
-// pkg258 - environment NEE side-table binding, published ONCE per frame into a
-// __constant__ symbol (setWavefrontEnvNeeBinding), read by shadePathSlot's
-// register-isolated env-NEE generate body and by the env shadow-resolve kernel.
-// Mirrors the pkg186/pkg197/pkg199 constant-binding pattern so the REG-254
-// stageShadeBucketedKernel signature never grows. `enabled==0` (the default; set
-// by set_env_nee(false) or a scene with no importance-sampled HDRI) makes the
-// shade kernel skip the env-NEE draw entirely -> byte-identical fleet renders and
-// zero extra RNG consumption. GEnvMap is all-POD (pointers/ints/floats/bool), so
-// it is trivially initializable as a __constant__ member (unlike a GVec3 member).
-// The parked env record lives in its OWN arrays (envNeeF/envNeeI/envShadowQueue),
-// SEPARATE from the lamp NEE nee_f/nee_i lanes, so an idx can carry an independent
-// lamp AND env NEE sample at the same vertex without overwriting one another.
-struct GWavefrontEnvNeeBinding {
-    GEnvMap envMap;                 // the frame's importance-sampled HDRI (miss-leg twin)
-    float   bgR, bgG, bgB;          // renderer background colour (plain floats: no GVec3 ctor in __constant__)
-    int     hasBackgroundColor;     // 0/1 (mirrors the miss leg's hasBackgroundColor)
-    int     enabled;                // set_env_nee flag; 0 = byte-identical fleet default
-    float*  envNeeF;                // G_WF_ENV_NEE_F_LANES * capacity: [0-2]=origin, [3-5]=wi, [6-9]=throughput*f*wt/envPdf
-    int*    envNeeI;                // 1 * capacity: [0]=parked bounce depth (clamp split)
-    int*    envShadowQueue;         // capacity: idxs with a parked env NEE record this pass
-    int*    envShadowCount;         // 1: env queue length (atomicAdd at park; zeroed per pass)
-    int     capacity;               // total path-slot count (lane stride)
-    int     worldMaxBounces;        // (bounce+1) <= worldMaxBounces gate, mirrors the miss gate
-};
-
 // Nearest-neighbour image fetch — mirrors CPU ImageTexture::value EXACTLY
 // (clamp u,v to [0,1]; v flip; floor to texel; clamp index to bounds).
 HD inline GVec3 gpu_sampleImageTexture(const GImageTexture& tex,
@@ -1042,6 +1017,31 @@ struct GEnvMap {
     float rotMat[9];
     float colorTint[3];
     bool  loaded;
+};
+
+// pkg258 - environment NEE side-table binding, published ONCE per frame into a
+// __constant__ symbol (setWavefrontEnvNeeBinding), read by shadePathSlot's
+// register-isolated env-NEE generate body and by the env shadow-resolve kernel.
+// Mirrors the pkg186/pkg197/pkg199 constant-binding pattern so the REG-254
+// stageShadeBucketedKernel signature never grows. `enabled==0` (the default; set
+// by set_env_nee(false) or a scene with no importance-sampled HDRI) makes the
+// shade kernel skip the env-NEE draw entirely -> byte-identical fleet renders and
+// zero extra RNG consumption. GEnvMap is all-POD (pointers/ints/floats/bool), so
+// it is trivially initializable as a __constant__ member (unlike a GVec3 member).
+// The parked env record lives in its OWN arrays (envNeeF/envNeeI/envShadowQueue),
+// SEPARATE from the lamp NEE nee_f/nee_i lanes, so an idx can carry an independent
+// lamp AND env NEE sample at the same vertex without overwriting one another.
+struct GWavefrontEnvNeeBinding {
+    GEnvMap envMap;                 // the frame's importance-sampled HDRI (miss-leg twin)
+    float   bgR, bgG, bgB;          // renderer background colour (plain floats: no GVec3 ctor in __constant__)
+    int     hasBackgroundColor;     // 0/1 (mirrors the miss leg's hasBackgroundColor)
+    int     enabled;                // set_env_nee flag; 0 = byte-identical fleet default
+    float*  envNeeF;                // G_WF_ENV_NEE_F_LANES * capacity: [0-2]=origin, [3-5]=wi, [6-9]=throughput*f*wt/envPdf
+    int*    envNeeI;                // 1 * capacity: [0]=parked bounce depth (clamp split)
+    int*    envShadowQueue;         // capacity: idxs with a parked env NEE record this pass
+    int*    envShadowCount;         // 1: env queue length (atomicAdd at park; zeroed per pass)
+    int     capacity;               // total path-slot count (lane stride)
+    int     worldMaxBounces;        // (bounce+1) <= worldMaxBounces gate, mirrors the miss gate
 };
 
 // ---------------------------------------------------------------------------

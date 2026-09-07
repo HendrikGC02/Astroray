@@ -120,7 +120,7 @@ def test_lookup_matches_sample_radiance(env_renderer):
     bilinearly blends the 4 neighbours, so a smooth high-res HDRI agrees to a
     few percent)."""
     r, _ = env_renderer
-    dirs, rads, pdfs = _draw(r, seed=999, n=3000)
+    dirs, rads, _ = _draw(r, seed=999, n=3000)
     # Exclude the top/bottom two rows (wrap/pole edge of the bilinear stencil):
     # keep samples with |dir.y| < cos(2*pi/HEIGHT-ish) ~ away from the poles.
     keep = np.abs(dirs[:, 1]) < 0.97

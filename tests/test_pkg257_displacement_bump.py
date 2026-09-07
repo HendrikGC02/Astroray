@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """pkg257 -- Displacement node support-or-warn floor (addon-only, zero engine code).
 
 Before: the Material Output's `Displacement` socket was never read anywhere
@@ -59,18 +58,18 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from runtime_setup import configure_test_imports  # noqa: E402
+from runtime_setup import configure_test_imports
 
 configure_test_imports()
 
 try:
-    import astroray  # noqa: E402
+    import astroray
     AVAILABLE = True
 except ImportError:
     AVAILABLE = False
 
 if AVAILABLE:
-    from base_helpers import create_renderer, setup_camera, render_image  # noqa: E402
+    from base_helpers import create_renderer, setup_camera, render_image  # noqa: I001
 
 
 # ===========================================================================
@@ -114,7 +113,7 @@ def _load_blender_addon(monkeypatch):
     astroray_module.__file__ = "/fake/astroray.pyd"
     astroray_module.integrator_registry_names = lambda: ["path_tracer"]
     astroray_module.material_registry_names = lambda: ["lambertian", "disney", "principled"]
-    astroray_module.pass_registry_names = lambda: []
+    astroray_module.pass_registry_names = list
 
     monkeypatch.setitem(sys.modules, "bpy", bpy_module)
     monkeypatch.setitem(sys.modules, "bpy.types", bpy_types_module)

@@ -39,7 +39,7 @@ def _bootstrap_addon():
             os.add_dll_directory(str(build_dir))
         except (OSError, AttributeError):
             pass
-    import astroray  # noqa: F401
+    import astroray
     print(f"[pkg257-ab] astroray module: {astroray.__file__}")
     import blender_addon
     try:
@@ -134,8 +134,8 @@ def _build_scene():
 
 
 def main():
-    addon = _bootstrap_addon()
-    scene, mat = _build_scene()
+    _bootstrap_addon()
+    scene, _mat = _build_scene()
 
     scene.render.engine = 'CYCLES'
     scene.render.filepath = str(OUT_DIR / "cycles_displacement_bump.png")

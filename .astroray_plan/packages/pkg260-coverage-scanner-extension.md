@@ -86,7 +86,8 @@ the corpus exercises needs a row. Serves Pillar 5.
 | File | What changes |
 |---|---|
 | `scripts/generate_blender_parity_matrix.py` | Add enumerators for `object` (Object/Mesh RNA: instancing modes, modifier presence via evaluated depsgraph, `use_motion_blur`, smooth/auto-smooth, Curves objects), `image_property` (`Image.colorspace_settings.name`, `alpha_mode`, `ShaderNodeTexImage.interpolation/extension/projection`, UDIM `source='TILED'`) and `input_node` (Geometry, Object Info, Attribute, Color Attribute, Hair Info, Light Path outputs); classify them with the same AST evidence scan of the addon; collapse duplicates by a stable row key. |
-| `docs/blender_parity/coverage_matrix.json`, `docs/blender_parity/report.md` | Regenerated headlessly. |
+| `docs/blender_parity/coverage_matrix.json` | Regenerated headlessly with the new categories. |
+| `docs/blender_parity/report.md` | Regenerated alongside the matrix. |
 | `.astroray_plan/docs/reference-corpus-design-2026-09.md` | §2 allocation table regenerated with the new rows (`pkg259-phase0/build_allocation_table.py`). |
 
 ### Key design decisions

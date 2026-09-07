@@ -256,11 +256,13 @@ bounces=0), and why `sampling_method=NONE` halved it (Cycles' own env importance
 sampling stopped converging the ground). The true sky strip (`rows[-7:]`) reads
 0.1829 (Cycles) vs 0.1826 (Astroray+NEE) — engines agree there, before and after.
 `HAIR_ROI` likewise measures a ground/shadow band, so the recorded `hair_coverage`
-numbers (0.19 Cycles / 0.38 Astroray) are not hair coverage. Fix = flip rows once in
-`render_leg.py` (store top-down like every other loader in the repo), re-derive
-`HDRI_MIN_BACKGROUND_MEAN` from the `.hdr` sky decode (0.0338 → floor ≈ 0.02) and
-regenerate the manifest numbers; tracked as a harness follow-up PR after #747
-(not folded into pkg258's engine change).
+numbers (0.19 Cycles / 0.38 Astroray) are not hair coverage. **Fixed in PR #749
+(merged 2026-09-08):** rows flipped once in `render_leg.py`; while re-deriving the floor
+that PR found that experiment 1c's `.hdr` decode script has its own v-axis flip, so the
+"ground-truth sky 0.0338" figure above is stale too — the verified sky-strip value is
+**0.184** (matches both engines' 0.183 above); `HDRI_MIN_BACKGROUND_MEAN` = 0.092
+(half of it), manifest regenerated (sky 0.1837 Cycles / 0.1838 Astroray-pre-258, hair
+coverage 0.89 / 0.90, checker ROI re-measured by projection).
 
 **Residual (open, carried by the pkg258 GPU leg / follow-up):** Astroray's ground
 rows remain 7–17 % darker than Cycles with env NEE on (blue channel worst, 0.914).

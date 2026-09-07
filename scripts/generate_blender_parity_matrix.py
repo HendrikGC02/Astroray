@@ -1197,6 +1197,39 @@ def write_markdown_report(matrix_rows, stale_socket_findings, output_path: Path)
     print(f"[pkg119] Wrote {output_path}")
 
 
+def _apply_displacement_evidence(evidence):
+    """pkg257 — hand-verified evidence for DISPLACEMENT (static, not scanner-derived;
+    same precedent as RENDER_SETTINGS_EVIDENCE/LIGHT_EVIDENCE below: the mechanical
+    scanner cannot express this case).
+
+    `get_displacement_bump_inputs` (blender_addon/__init__.py) is a THIRD addon
+    entry point neither `scan_addon_source_for_evidence` (scoped to
+    `convert_shader_node` and its shader-dispatch siblings) nor
+    `scan_vm_and_vector_supported_types` (which would credit-all, wrongly
+    including Normal) can classify precisely: it dispatches on
+    `output.inputs.get('Displacement')`, not `ntype == 'DISPLACEMENT'` inside a
+    scanned function, and it deliberately reads 'Normal' ONLY to name it in the
+    degradation warning — never to consume it. Height/Midlevel/Scale are
+    genuinely mapped to bump_map_texture/bump_strength/bump_distance (pkg223b's
+    machinery); Normal and the node's `space` property are read only to warn and
+    must stay DROPPED-SILENT (spec acceptance criterion 2: "no prop is both
+    unclassified and unwarned" — the DISPLACEMENT warning covers them instead).
+    """
+    evidence['DISPLACEMENT'] = {
+        'sockets': {'Height', 'Scale', 'Midlevel'},
+        'fallback_sockets': set(),
+        'guarded_sockets': set(),
+        'properties': set(),
+        'classification': 'APPROXIMATED',
+        'source_lines': [],
+        'notes': ('Height/Scale approximated as a bump perturbation via the pkg223b '
+                  'bump machinery (pkg257); Midlevel is read but mathematically inert '
+                  'for a gradient-based bump; Normal and displacement_method/space are '
+                  'read only to emit the DISPLACEMENT warning, never consumed'),
+    }
+    return evidence
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate Blender parity coverage matrix (AST-scanned)")
     parser.add_argument('--out', type=str, default='docs/blender_parity',
@@ -1211,6 +1244,7 @@ def main():
     print("[pkg119] Scanning addon source via AST...")
     evidence = scan_addon_source_for_evidence(addon_module)
     vm_supported_types = scan_vm_and_vector_supported_types(addon_module)
+    evidence = _apply_displacement_evidence(evidence)
 
     matrix_rows, stale_socket_findings = generate_matrix(evidence, vm_supported_types)
 

@@ -95,6 +95,20 @@ def _install():
             print("[pkg241] prior teardown warn:", exc)
 
     area, rv3d = _find_v3d()
+    # pkg241-p1d: camera events simulate viewport navigation by nudging
+    # rv3d.view_rotation, which only moves the view matrix in free-perspective
+    # (PERSP) view. If the saved .blend opens in CAMERA view the nudge is inert,
+    # _camera_state_hash never changes, and every frame degrades to a full-res
+    # full-upload SPP refinement (skip_upload requires camera_changed) — the
+    # artifact that made the phase-1 "after" camera leg read as a ~4x regression
+    # (start_divisor stuck at 1) while the PERSP "before" leg engaged the nav
+    # divisor. Force PERSP so the camera-class measurement exercises real nav.
+    if EVENT_CLASS == "camera" and rv3d is not None:
+        rv3d.view_perspective = 'PERSP'
+        try:
+            rv3d.update()
+        except Exception:
+            pass
     mat, bsdf = _pick_material() if EVENT_CLASS == "material" else (None, None)
 
     S = {
@@ -211,6 +225,13 @@ def _install():
         _, rv = _find_v3d()
         q = Quaternion((0.0, 0.0, 1.0), math.radians(sign * ROTATE_DEG))
         rv.view_rotation = (q @ rv.view_rotation).normalized()
+        # pkg241-p1d: recompute the view matrix now so _camera_state_hash sees
+        # the move on the very next view_draw (deterministic camera_changed),
+        # rather than relying on redraw-timing to flush the lazy recompute.
+        try:
+            rv.update()
+        except Exception:
+            pass
 
     def apply_material():
         _mat_state["toggle"] = not _mat_state["toggle"]

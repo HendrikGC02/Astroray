@@ -330,3 +330,71 @@ def test_expensive_edit_refines_to_full_res(monkeypatch):
     _draw(engine, _make_context(IDENTITY))
     assert exporter._viewport_render_divisor == 1
     assert dims[-1] == (320, 240), "must resolve to full region resolution"
+
+
+# ---------------------------------------------------------------------------
+# Camera-navigation divisor floor (pkg241-p1d)
+# ---------------------------------------------------------------------------
+# Owner/Terra intent: during camera navigation the pkg196 nav divisor (2) is the
+# FLOOR. The interactive-resolution budget may only RAISE it (to 4 on the
+# expensive profile), never LOWER it below 2 for a cheap scene. The regression
+# fixed here was a live build whose camera nav rendered a cheap scene at divisor
+# 1 (budget alone), losing pkg196's divisor-2 navigation speedup.
+
+def test_camera_nav_floor_cheap_scene(monkeypatch):
+    """Cheap scene: a camera move renders at the pkg196 divisor-2 floor, not the
+    budget's divisor 1 — the budget may only raise the nav divisor."""
+    addon, engine, clock, _dims = _wire(monkeypatch)
+    exporter = engine._get_exporter()
+
+    _update(engine, _make_context(IDENTITY))
+    exporter._viewport_last_full_render_ms = \
+        addon.exporter_module.VIEWPORT_INTERACTIVE_BUDGET_MS * 0.5
+    assert exporter._budget_start_divisor() == 1, "cheap profile: budget alone = 1"
+
+    clock[0] += 0.01
+    _draw(engine, _make_context(SHIFTED))
+    assert exporter._viewport_render_divisor == addon.exporter_module.VIEWPORT_NAV_RES_DIVISOR, \
+        "cheap-scene camera nav must render at the pkg196 divisor-2 floor"
+
+
+def test_camera_nav_floor_expensive_scene(monkeypatch):
+    """Expensive scene: the budget RAISES the nav divisor to the coarse start
+    (4), above the pkg196 floor."""
+    addon, engine, clock, _dims = _wire(monkeypatch)
+    exporter = engine._get_exporter()
+    coarse = addon.exporter_module.VIEWPORT_START_RES_DIVISOR
+
+    _update(engine, _make_context(IDENTITY))
+    exporter._viewport_last_full_render_ms = \
+        addon.exporter_module.VIEWPORT_INTERACTIVE_BUDGET_MS * 5.0
+    assert exporter._budget_start_divisor() == coarse
+
+    clock[0] += 0.01
+    _draw(engine, _make_context(SHIFTED))
+    assert exporter._viewport_render_divisor == coarse, \
+        "expensive-scene camera nav must raise the divisor to the coarse start (4)"
+
+
+def test_camera_nav_settles_to_full_res(monkeypatch):
+    """After navigation stops and the settle window elapses, the divisor refines
+    back down to full res (1)."""
+    addon, engine, clock, dims = _wire(monkeypatch)
+    exporter = engine._get_exporter()
+    nav = addon.exporter_module.VIEWPORT_NAV_RES_DIVISOR
+
+    _update(engine, _make_context(IDENTITY))
+    exporter._viewport_last_full_render_ms = \
+        addon.exporter_module.VIEWPORT_INTERACTIVE_BUDGET_MS * 0.5
+
+    # Move -> nav floor (2).
+    clock[0] += 0.01
+    _draw(engine, _make_context(SHIFTED))
+    assert exporter._viewport_render_divisor == nav
+
+    # Camera now quiet past the settle window -> refine to full res.
+    clock[0] += addon.exporter_module.VIEWPORT_NAV_SETTLE_S + 0.1
+    _draw(engine, _make_context(SHIFTED))
+    assert exporter._viewport_render_divisor == 1, \
+        "settled camera must refine back to full res (divisor 1)"
+    assert dims[-1] == (320, 240)

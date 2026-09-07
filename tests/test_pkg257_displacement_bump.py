@@ -265,8 +265,14 @@ def test_extracts_height_and_scale_no_warning_at_default_method(monkeypatch):
     result, warning = engine.get_displacement_bump_inputs(output, mat)
 
     assert result['bump_image'] is image
-    assert abs(result['bump_strength'] - 0.75) < 1e-6, "Scale must become bump_strength"
-    assert result['bump_distance'] == 0.01, "no Distance socket on Displacement -- constant default"
+    # Issue #746 (2026-09-08): Cycles' ShaderGraph::bump_from_displacement feeds
+    # the bump node height = dot(displacement, N) = Scale * (h - Midlevel) in
+    # OBJECT units with distance = 1.0 and unit strength, so Scale is the bump
+    # DISTANCE (height scale), not a strength multiplier. Mapping Scale onto
+    # bump_strength with a fixed 0.01 distance under-scaled the relief by
+    # Scale/0.01 (measured 19x fainter than Cycles at Scale 0.35).
+    assert abs(result['bump_distance'] - 0.75) < 1e-6, "Scale must become bump_distance (object-unit height scale)"
+    assert abs(result['bump_strength'] - 1.0) < 1e-6, "displacement-as-bump has unit strength (Cycles bump_from_displacement)"
     # Default displacement_method ('BUMP') + no linked Normal -> zero spurious warnings.
     assert warning is None
 
@@ -352,7 +358,7 @@ def test_no_displacement_wired_is_a_pure_noop(monkeypatch):
 
     result, warning = engine.get_displacement_bump_inputs(output, mat)
 
-    assert result == {'bump_image': None, 'bump_strength': 1.0, 'bump_distance': 0.01}
+    assert result == {'bump_image': None, 'bump_strength': 1.0, 'bump_distance': 1.0}
     assert warning is None
 
 
@@ -425,7 +431,8 @@ def test_convert_node_material_end_to_end_bump_approximation(monkeypatch):
     assert len(renderer.created_materials) == 1
     _mat_type, _color, params = renderer.created_materials[0]
     assert params.get('bump_map_texture') == "e2e_height.png"
-    assert abs(params.get('bump_strength') - 0.5) < 1e-6
+    assert abs(params.get('bump_distance') - 0.5) < 1e-6, "Scale -> bump_distance (#746)"
+    assert abs(params.get('bump_strength') - 1.0) < 1e-6
     assert engine._degradation_report().messages() == [], "BUMP method + no Normal must warn nothing"
 
 

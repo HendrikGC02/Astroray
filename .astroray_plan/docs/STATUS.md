@@ -1,5 +1,70 @@
 # Astroray Status
 
+## 2026-09-08 IN-PROGRESS — overnight lead session (interim record, ~01:30)
+
+Lead: Claude Fable 5.1, autonomous, dispatch order from `next-session-prompt-2026-09-07.md`.
+Lanes: pkg258 (Opus 4.8), pkg241 Phase 1b + Phase 2 metric (Opus 4.8), pkg237→pkg255→pkg257
+(Sonnet 5), pkg259 Phase 0 (Sonnet 5 + one Astra call), parity-harness fix (Sonnet 5).
+
+**Merged so far (squash):**
+- **#743 pkg259 Phase 0** — `reference-corpus-design-2026-09.md`: seven scene families, all
+  527 coverage-matrix rows allocated (114 SUPPORTED / 50 APPROXIMATED covered, 363
+  DROPPED-SILENT as gap cards, 0 uncovered), asset licences, manifest schema, Phase 1 build
+  plan; Astra brainstorm (1 call) adopted for the coverage-claim rule and the
+  `textures_mapping` workshop concept. Nine owner questions in doc §7.
+- **#742 pkg237** — owner option (c) measured: firefly-free fixture gives SSIM **0.9625**
+  (was 0.9628; 3×3 patch bit-identical 0.96182 in the CPU two-stream proxy). The firefly
+  hypothesis is falsified; the residual is the independent-RNG noise floor of a 64×64
+  env-only scene at 8192 spp. Fixture change reverted (neutral); record kept in the spec.
+  **Owner decision needed:** re-pin at the measured floor, more spp, denoise-before-SSIM,
+  or replace SSIM with the per-channel mean-ratio metric (memory
+  `ssim-wrong-gate-for-independent-rng`).
+- **#744 pkg255 Metallic BSDF F82 floor** — addon-only; 9/9 tests CPU+GPU (RTX 5070 Ti,
+  parity 0.9997–1.011); coverage matrix BSDF_METALLIC 8 rows DROPPED-SILENT→APPROXIMATED.
+  Lead removed a 700-line CRLF-normalisation hunk before merge (memory
+  `addon-init-mixed-line-endings`).
+- **#745 pkg257 Displacement→bump floor** — addon + one hand-verified scanner evidence entry;
+  15/15 tests incl. GPU relief + CPU/GPU parity on the RTX; DISPLACEMENT 3 rows →
+  APPROXIMATED (matrix now 114 / 61 / 352). Rebased over #744 and the report regenerated
+  by the lead. Finding filed as **issue #746 (addon-bug, P1)**: bump/displacement relief is
+  far fainter through the F12 pipeline than through the direct API — pre-existing on the
+  `ShaderNodeBump` path.
+
+**Open (in flight):**
+- **#747 pkg258 CPU env NEE** — azimuth fix (pdf(sample)==sample.pdf 99 % broken → 2e-4),
+  env NEE + power-heuristic MIS in the in-header tracer, CPU wavefront kernel and MW tracer,
+  bindings, contract + convergence tests (sun-disc RMSE ratio 0.53, furnace 0.997).
+  **HDRI-gap experiment 1a re-run (lead, CPU):** harness ROI Astroray **0.049 → 0.112** vs
+  Cycles 0.121 (sky strip exact at 0.183 both; whole image 0.68× → 0.94× Cycles) — the
+  owner's hypothesis is confirmed and the "Cycles inflated" reading withdrawn (addendum in
+  `hdri-background-gap-diagnosis-2026-09-07.md`, image under `docs/pkg258-hdri-gap/`).
+  **Codex Terra review (1/4): block as-is** — centre-only texel sampling (quadrature vs the
+  bilinear signal), delta guard reads `rec.isDelta` before it is set, env-miss discount after
+  medium scatter without an env-NEE complement, epsilon MIS weights in wavefront/MW summing
+  < 1, MW bounce-gate mismatch; convergence re-pin 0.25→~0.5 approved by the lead once fixes
+  land. Fixes dispatched (lane258b). GPU wavefront leg after that (Terra Q7: the deferred
+  shadow queue needs a second parked record + env strategy tag).
+- **Parity-harness orientation bug** (found via the re-run): `render_leg.py` stores
+  Blender's bottom-up pixels unflipped, so `HDRI_BACKGROUND_ROI` measured the near ground
+  strip and `HAIR_ROI` a ground band — the whole 0.121-vs-0.047 "background" gap was the
+  Ground plane's receiver lighting. Fix PR in flight (branch
+  `fix/parity-harness-pixel-order`): flip once, re-derive `HDRI_MIN_BACKGROUND_MEAN` from the
+  `.hdr` sky decode (0.0338), regenerate manifest numbers with ROI proof images.
+- **pkg241 Phase 1b** (branch `feat/pkg241b-2026-09-08`): bool progress callback + GPU
+  cancel hook + F12 `test_break` + GIL release around the CPU render (OpenMP-worker callback
+  deadlock found and fixed); cancel-ack measurement and the Phase 2 UI-latency metric pending.
+
+**Residual after pkg258 (open):** Astroray ground rows still 7–17 % darker than Cycles with
+env NEE on (blue worst, 0.914) — candidates: firefly clamp on sun-texel NEE, sun-disc
+pdf/bilinear mismatch (addressed by continuous sampling), hair-sphere indirect.
+
+**Still owner-manual:** Apps Script `refresh()`; `spec-lint` required check; ghost GitHub app
+workflows; install `dist/astroray-4.0.0-cuda.zip` with Blender closed. GPU build note:
+`scripts/build/build_cuda.bat` hit the sccache drop on `stage_advance.cu` again; the
+launcher-free retry built fine (main `.pyd` 22:59, sm_120, canary OK).
+
+---
+
 ## 2026-09-07 EVENING — handoff to the next lead session
 
 Owner decisions (recorded in `north-star-and-integration-gate-2026-09-07.md` §7,

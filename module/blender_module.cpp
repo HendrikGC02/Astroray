@@ -2277,8 +2277,22 @@ public:
                     catch (const py::cast_error&) { return true; }
                 };
             }
-            renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling, false,
-                            diffuseBounces, glossyBounces, transmissionBounces, volumeBounces, transparentBounces);
+            // pkg241 Phase 1b: release the GIL for the CPU render. render()
+            // is pure C++ and runs the tile loop under OpenMP; the progress
+            // callback is invoked from OpenMP WORKER threads, each of which
+            // re-acquires the GIL (py::gil_scoped_acquire above). Holding the
+            // GIL here would deadlock: the workers would block on the GIL the
+            // main thread holds while it waits at the OpenMP barrier. This is
+            // the standard pybind11 + OpenMP + Python-callback pattern (and
+            // what Cycles does around its render). With a null callback no
+            // Python is touched, so releasing is a safe no-op. The addon .pyd
+            // is built OpenMP-OFF, so there the single (main) thread runs the
+            // callback and the re-acquire is a reentrant no-op.
+            {
+                py::gil_scoped_release release;
+                renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling, false,
+                                diffuseBounces, glossyBounces, transmissionBounces, volumeBounces, transparentBounces);
+            }
         }
 
         // pkg241 Phase 1b: publish cooperative-cancellation completion metadata

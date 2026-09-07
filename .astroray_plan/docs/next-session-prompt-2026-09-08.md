@@ -100,7 +100,7 @@ morning-readable record.
   is the open residual (firefly clamp on sun-texel NEE / indirect from the hair sphere).
 - Coverage matrix: 114 SUPPORTED / 61 APPROXIMATED / 352 DROPPED-SILENT after pkg255/257.
 - pkg237 stays open on an owner decision (0.97 SSIM pin vs the measured 0.962 floor).
-- Issue #746 (P1 addon-bug): bump/displacement relief faint through the F12 pipeline.
+- Issue #746 fixed (#752); #753 (P2) tracks the ~1.8× bump-strength calibration residual.
 - Owner manual items still outstanding: Apps Script `refresh()`; `spec-lint` required
   check; ghost GitHub app workflows; install `dist/astroray-4.0.0-cuda.zip` with Blender
   closed; close the two isolated Blender instances (port 9877) left from measurement.
@@ -118,10 +118,11 @@ morning-readable record.
    the minimal real-Blender A2 spike measured with `--mode ui_latency` (go/no-go on
    p95 ≤ 33 ms, cancel p99, correctness, CUDA errors). No production threading before the
    spike passes.
-3. **#746 bump-through-F12 diagnosis (Sonnet 5)** — dump material params + UV/tangent arrays
-   the addon uploads for the pkg257 A/B plane; render through the addon and through the
-   direct API with the dumped inputs; first stage whose output differs is the cause. Fix
-   only with evidence; it is gate (c)-relevant (`material_zoo` normal map).
+3. **#753 bump-strength calibration (Sonnet 5, systematic-debugging)** — #746 is FIXED (#752:
+   Scale → bump distance); the residual is that Astroray's pkg223b bump is ~1.8–2× Cycles' at
+   equal distance with faint ring banding. Fit the normal tilt on the ramp scene in both
+   engines, compare `plugins/materials/normal_mapped.cpp` against Cycles `svm_bump.h` line by
+   line (cite), fix the constant with evidence; gate (c)-relevant (`material_zoo` normal map).
 4. **pkg259 Phase 1 (`materials_hall` + `textures_mapping`)** per the design doc §6 —
    Sonnet 5 builders in Blender headless; reuse `scene_library` builders; manifest schema
    §4.1; renders inspected by the lead. Start only if lanes 1–3 are blocked on the GPU.

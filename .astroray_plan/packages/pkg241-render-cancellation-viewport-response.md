@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — Phase 0 recorder + measurements + design delivered (PR #733, 2026-09-07: GPU edit→present p95 426 ms metal_sweep / 165 ms 100k-tri, material ~2× camera, F12 cancel floor 483–1107 ms GPU); Phase 1 awaits owner decision — Terra 2026-09-07 BLOCK as written (present-first blit + interactive-resolution budget before cancellation code)
+**Status:** in-progress — Phase 1a delivered (PR #PENDING, 2026-09-07: present-first + interactive-resolution budget, addon Python only; matched GPU A/B — material p95 −6× metal_sweep 964→155 ms / big 1495→224 ms, big camera p95 169→64 ms meets ≤100 ms budget, renders_before_present=1 on all 600 events; metal_sweep camera unchanged/render-bound). Phase 0 recorder + measurements + design landed (PR #733). Phase 1b (bool-returning cancellation callback + completion metadata + F12 cooperative cancel) still pending owner decision — Terra 2026-09-07 wanted present-first + budget first, now delivered.
 **Estimated effort:** TBD
 **Depends on:** pkg52, pkg81, pkg147, pkg191, pkg192, pkg196, pkg232, pkg236
 
@@ -98,6 +98,57 @@ throttling), so CPU counts are the capped maxima — GPU (the product gate) carr
 the full n=150.
 
 
+### Phase 1a matched before/after A/B (2026-09-07)
+
+Same live GUI Blender 5.2 session, GPU (RTX 5070 Ti), 3×50 events/class, 5
+warmup discarded, matched viewport region per scene (metal_sweep 2112×829, big
+2100×1221 — both legs share region and session state). "before" = `origin/main`
+`exporter.py` (hash 84be48c, no interactive-resolution budget); "after" = this
+branch (hash 3b175fb). Addon reloaded over the bridge between legs (fresh module
+re-import verified by hash). Full JSON + summaries:
+`benchmarks/viewport_parity/results/2026-09-07-phase1/` (`*-before-matched*`,
+`*-after-matched*`).
+
+**edit→present (ms), p50 / p95 / p99, and interactive-resolution divisor engaged
+(start_divisor distribution), and renders-before-present (stale-frame guard):**
+
+| scene | class | before p50/p95/p99 | after p50/p95/p99 | before div | after div | rbp before→after |
+|---|---|---|---|---|---|---|
+| metal_sweep | camera   | 107.6 / 429.9 / 441.0 | 411.2 / 431.6 / 436.9 | 1:34,2:116 | 1:150 | 1 → 1 |
+| metal_sweep | material | 942.9 / 964.0 / 1005.5 | 153.3 / 154.6 / 156.4 | 1:150 | 4:150 | 2 → 1 |
+| big         | camera   | 165.3 / 169.3 / 173.3 | 61.5 / 63.5 / 67.0  | 2:150 | 4:150 | 1 → 1 |
+| big         | material | 1388.7 / 1495.3 / 1538.2 (n=141, trunc) | 220.6 / 223.6 / 224.8 | 1:150 | 4:150 | 2 → 1 |
+
+Headline: **material edits improve ~6× at p95** (metal 964→155 ms, big
+1495→224 ms) — present-first removes the view_update+view_draw double-render
+(`renders_before_present` collapses 2→1 on every material event). **big-scene
+camera improves 2.7× at p95 (169→64 ms) and now meets the p95 ≤ 100 ms budget**
+via the coarse start divisor (4). `renders_before_present == 1` on all 600
+"after" events (both scenes × both classes × 150) — no stale frame is ever
+blitted.
+
+**Deviation (surfaced, not hidden):** metal_sweep **camera** did NOT improve —
+p50 regressed 107.6→411.2 ms, p95 flat (429.9→431.6). The interactive-resolution
+budget's coarse divisor did not engage for metal_sweep camera (start_divisor
+stayed 1), whereas main's pkg196 navigation rendered most camera frames at
+divisor 2 (fast, upscaled) giving a lower median. `_budget_start_divisor()` keys
+on the last render's wall time scaled by divisor²; for the cheap 2 220-tri scene
+the per-chunk cost between camera events can dip at/below the 100 ms threshold,
+so the coarse start does not latch. The p95 is render-bound and unchanged either
+way. This is a heuristic limitation of the measured-cost signal for cheap scenes,
+not a correctness regression (no stale frame, rbp=1). Recommend the lead decide
+whether camera nav should retain an unconditional pkg196 divisor-2 floor
+independent of the budget estimate; deferred out of this measurement PR.
+
+**Visual proof (big scene, through the bridge):**
+`test_results/2026-09-07-pkg241-p1/big_mid_orbit_reduced.png` (mid-orbit coarse
+present, divisor 4, overlay "Viewport 1/1024 spp") and `big_settled_full.png`
+(settled, divisor 1, overlay "22/1024 spp"). The spp/divisor progression
+confirms the coarse-first present refines up to full res; the framebuffer is
+non-stale and non-garbage. (The big scene is a synthetic 100k-tri latency-stress
+grid that renders dark, so the pair demonstrates the divisor/spp mechanism rather
+than a rich image.)
+
 ## Reference
 
 Coverage specs: [pkg52](pkg52-persistent-viewport-session.md),
@@ -167,6 +218,9 @@ All implementation gates UNRUN:
       edit→present p95 ≤ 100 ms / p99 ≤ 150 ms; cancel-ack p95 ≤ 200 ms /
       p99 ≤ 300 ms. Measured 2026-09-07 (see Evidence + results JSON + design
       doc); protocol recorded in `blender_driver.py --mode interactive`.
+      Phase 1a (2026-09-07) brings **big-scene camera within the p95 ≤ 100 ms
+      budget** (matched A/B: 64 ms, was 169 ms) and cuts material p95 ~6×; see
+      the Phase 1a matched A/B in Evidence. metal_sweep camera stays render-bound.
 - [ ] F12 cancel, camera and material changes, scene replacement, shutdown/restart, and
       partial-failure paths behave per the contract.
 - [ ] No mixed accumulation across cancel/restart; no leaked
@@ -199,7 +253,7 @@ All implementation gates UNRUN:
   - **Present-first (step 1):** `view_update` caches its scene-edit chunk and flags it present-pending; the next `view_draw` blits that fresh texture before scheduling the next refinement chunk — removes the material double-render (was: `view_update` render + a second `view_draw` render before first present). Stale-guarded: never present-first after a camera/settings change.
   - **Interactive-resolution budget (step 2):** on the expensive profile (estimated full-res render > `VIEWPORT_INTERACTIVE_BUDGET_MS`=100 ms, measured from the last render's wall time scaled by divisor²), a fresh edit starts coarse at `VIEWPORT_START_RES_DIVISOR`=4 and refines one rung toward full res per settled frame (4→2→1). Extends the pkg196 nav divisor rather than forking a parallel ladder; camera nav keeps its divisor-2 floor and bumps to the budget divisor when expensive. Cheap scenes (below the threshold) render full res immediately — ordinary path unchanged.
   - **Unit coverage:** `tests/test_pkg241_present_first_budget.py` (7 tests: budget engages only above the measured threshold; expensive edit starts coarse; refine 4→2→1; present-first blits without an extra render; no stale present after a camera change). pkg196/pkg191/viewport-session suites green; the pkg52 progressive-preview test updated to the present-first sequence (first still-frame `view_draw` now presents the pending chunk before scheduling the next render — refinement to the sample target unchanged, one extra `view_draw`).
-  - **GPU before/after measurement:** PENDING — deferred while the lead-owned CUDA addon-rebuild-install holds the GPU (no GPU contention). Numbers to be appended here + `benchmarks/viewport_parity/results/2026-09-07-phase1/`.
+  - **GPU before/after measurement:** DONE (matched same-session A/B, see Evidence "Phase 1a matched before/after A/B"). Material p95 −6× (metal_sweep 964→155 ms, big 1495→224 ms); big-scene camera p95 169→64 ms (now ≤ 100 ms budget); `renders_before_present == 1` on all 600 "after" events (double-render removed). metal_sweep camera did not improve (render-bound; coarse divisor did not latch for the cheap scene) — surfaced as a deviation for a lead call on an unconditional pkg196 divisor-2 floor. Results: `benchmarks/viewport_parity/results/2026-09-07-phase1/`; visual pair: `test_results/2026-09-07-pkg241-p1/big_{mid_orbit_reduced,settled_full}.png`.
 
 ---
 

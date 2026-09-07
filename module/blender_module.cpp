@@ -1987,6 +1987,11 @@ public:
         // cancelled, so last_render_info() can report completion state.
         bool gpuPathRan = false;
         bool gpuCancelled = false;
+        // pkg241 Phase 1b: a Python exception raised inside the CPU progress
+        // callback is stashed here (never unwound through the OpenMP region)
+        // and rethrown after the completion metadata is published.
+        std::exception_ptr callbackError;
+        std::mutex callbackErrorMutex;
         (void)gpuPathRan; (void)gpuCancelled;
 
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -2272,8 +2277,6 @@ public:
             // behaviour -> std::terminate on the OpenMP-ON dev build): stash it,
             // cancel cooperatively, and rethrow once render() has returned.
             std::function<bool(float)> callback = nullptr;
-            std::exception_ptr callbackError;
-            std::mutex callbackErrorMutex;
             if (!progressCallback.is_none()) {
                 callback = [&](float progress) -> bool {
                     try {
@@ -2305,7 +2308,6 @@ public:
                 renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling, false,
                                 diffuseBounces, glossyBounces, transmissionBounces, volumeBounces, transparentBounces);
             }
-            if (callbackError) std::rethrow_exception(callbackError);
         }
 
         // pkg241 Phase 1b: publish cooperative-cancellation completion metadata
@@ -2321,6 +2323,7 @@ public:
             lastRenderInfoTilesCompleted_ = renderer.getLastRenderTilesCompleted();
             lastRenderInfoTotalTiles_ = renderer.getLastRenderTotalTiles();
         }
+        if (callbackError) std::rethrow_exception(callbackError);
 
         // Package pixels into numpy array (height, width, 3)
         py::ssize_t shape[3] = {static_cast<py::ssize_t>(camera->height),

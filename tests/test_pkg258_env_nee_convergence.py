@@ -234,3 +234,50 @@ def test_white_furnace_energy_conservation(uniform_hdri, backend):
     # window is against energy GAIN (double counting), the real failure mode.
     assert mean < 1.01, f"furnace mean {mean:.5f} >= 1.01 -- NEE+miss double counts"
     assert mean > 0.97, f"furnace mean {mean:.5f} <= 0.97 -- NEE+miss loses energy"
+
+
+def test_near_delta_metal_no_double_count(sun_hdri):
+    """pkg258 (Terra Q1d) delta-guard regression. A near-delta metal sphere
+    (roughness < kNearDeltaThreshold=0.1) returns evalSpectral != 0 with pdf == 0.
+    rec.isDelta is NOT set before NEE, so the pre-fix estimator ran env NEE at this
+    vertex with wt = powerHeuristic(es.pdf, 0) = 1 while the specular miss leg was
+    ALSO taken unweighted -> double count. With the bsdfPdf>0 delta guard, env NEE
+    is skipped on this lobe and the reflected sky is delivered solely by the
+    (unweighted) specular miss, so NEE-on and NEE-off converge to the SAME mean.
+
+    A perfect mirror (metal eval == 0 off the exact reflection) would not exhibit
+    the bug because f == 0 for the NEE direction; the near-delta metal is the lobe
+    that actually has f != 0 & pdf == 0, so it is the discriminating case."""
+    def _metal_scene(seed, nee):
+        r = astroray.Renderer()
+        r.set_use_gpu(False)
+        r.set_integrator("path_tracer")
+        r.set_seed(seed)
+        r.set_adaptive_sampling(False)
+        metal = r.create_material("metal", [0.9, 0.9, 0.9], {"roughness": 0.05})
+        r.add_sphere([0, 0, 0], 1.5, metal)
+        r.setup_camera(look_from=[0, 1.5, 5], look_at=[0, 0, 0], vup=[0, 1, 0],
+                       vfov=45, aspect_ratio=1.0, aperture=0.0, focus_dist=5.0,
+                       width=32, height=32)
+        assert r.load_environment_map(sun_hdri, 1.0, 0.0, 0.0, 0.0)
+        r.set_env_nee(nee)
+        return _reshape32(_render_linear(r, 1024, depth=4))
+
+    on = _metal_scene(777, True)
+    off = _metal_scene(777, False)
+    m_on, m_off = float(on.mean()), float(off.mean())
+    rel = abs(m_on - m_off) / max(m_off, 1e-8)
+    print(f"\n[pkg258 near-delta metal] NEE-on mean={m_on:.5e} off={m_off:.5e} "
+          f"rel_diff={rel:.4f}")
+    # NEE-on must not be brighter than NEE-off (the double-count signature is
+    # NEE-on > NEE-off); allow a small band for the two independent MC realisations.
+    assert rel < 0.03, (
+        f"near-delta metal env NEE double-counts: NEE-on {m_on:.5e} vs "
+        f"NEE-off {m_off:.5e} (rel {rel:.4f})")
+
+
+def _reshape32(img):
+    a = np.asarray(img, dtype=np.float64)
+    if a.ndim == 1:
+        a = a.reshape((32, 32, 3))
+    return a

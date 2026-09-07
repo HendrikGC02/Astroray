@@ -44,13 +44,30 @@ piecewise-constant 2-D distribution:
 - `totalPower = Σ_{u,v} func`.
 
 Sampling (`EnvironmentMap::sample`): draw ξ1,ξ2; `lower_bound` in `marginalCdf`
-→ row v; `lower_bound` in `conditionalCdf` row → column u; take the texel
-centre `(u+0.5, v+0.5)`.
+→ row v; `lower_bound` in `conditionalCdf` row → column u; then **remap each CDF
+residual to a continuous offset inside the selected cell** (PBRT-v4
+`PiecewiseConstant1D::Sample`, `du = (u - cdf[o]) / (cdf[o+1] - cdf[o])`; Cycles
+`background_map_sample` does the same for the 2-D map):
+
+    dv = (ξ1 - marginalCdf[v-1]) / (marginalCdf[v] - marginalCdf[v-1])   # 0 if v==0 use 0
+    du = (ξ2 - condCdf[u-1])     / (condCdf[u] - condCdf[u-1])           # within row v
+    (u_cont, v_cont) = (u + du, v + dv)
+
+so the sampled location is **uniformly distributed inside the texel** while the
+returned `pdf` stays the piecewise-constant density of that texel
+(`func(u,v)·W·H/totalPower` in unit-square measure). This makes the estimator
+unbiased against the BILINEAR environment the BSDF-miss leg evaluates (Terra Q2).
+`sample.radiance` is the bilinear `lookup()` **at the sampled direction** — the
+same signal `evalSpectral`/`lookup` return on the miss leg — not the texel-centre
+point value the pre-pkg258 code returned. The GPU `gpu_envmap_sample` mirrors this
+exactly (continuous residual + bilinear radiance) so the two backends share one
+sampler contract.
 
 ## Lat-long direction map and its inverse (the azimuth bug this PR fixes)
 
-Env-map space uses **Y as the polar axis**. For pixel centre `(uc, vc)` with
-`uc = u+0.5`, `vc = v+0.5`:
+Env-map space uses **Y as the polar axis**. For the CONTINUOUS in-texel
+coordinate `(uc, vc)` with `uc = u+du`, `vc = v+dv` (the residual remap above;
+pre-pkg258 this was the texel centre `u+0.5, v+0.5`):
 
     theta = (1 - vc/H) · π          # polar angle, [0, π]
     phi   = (uc/W - 0.5) · 2π       # azimuth, [-π, π]      <-- the fix
@@ -71,8 +88,9 @@ for every integer column: every importance sample pointed at azimuth 0 while
 carrying the correct texel's radiance and pdf. `pdf()` used the correct
 normalised `u = 0.5 + phi/2π`, so sample() and pdf() disagreed. **Fix:**
 `phi = (uCont / width - 0.5) · 2π`, which is the exact inverse of `pdf()`'s
-`u_norm → phi` map (including the half-texel: sample uses centre `u+0.5`, pdf
-floors `u_norm·W` back to `u`). The polar/v convention was already consistent:
+`u_norm → phi` map: with continuous `uCont ∈ [u, u+1)`, `pdf()` recovers
+`u_norm = uCont/W` and floors `u_norm·W` back to the same texel `u`, so
+`pdf(sample.dir) == sample.pdf`. The polar/v convention was already consistent:
 sample `theta = (1 - vc/H)π` inverts pdf's `v_norm = 1 - theta/π` with the same
 half-texel offset.
 

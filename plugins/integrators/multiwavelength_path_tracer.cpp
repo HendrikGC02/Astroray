@@ -244,12 +244,18 @@ private:
                 // non-specular bounce, weight by the power heuristic against the
                 // env importance pdf. Only when env NEE is active and an
                 // importance map is loaded.
+                // pkg258 (Terra Q1c): !(bounce==0 || wasSpecular) is the correct
+                // "env NEE competed at the previous vertex" test HERE — the MW
+                // tracer has NO medium/phase scattering, so a non-delta surface
+                // bounce is exactly when env NEE ran (no explicit flag needed,
+                // unlike production pathTraceSpectral).
                 astroray::SampledSpectrum weighted = envSpec;
                 if (enableNEE_ && renderer_->getEnvNee() &&
                     !(bounce == 0 || wasSpecular) && envMap && envMap->loaded()) {
                     float ep = envMap->pdf(dir);
-                    float bp = bsdfPdfPrev;
-                    weighted = envSpec * ((bp * bp) / (bp * bp + ep * ep + 1e-8f));
+                    // pkg258 (Terra Q1b): complementary power heuristic (sums to 1
+                    // with the env-NEE leg); a²/(a²+b²+1e-8) summed to < 1 → dark bias.
+                    weighted = envSpec * renderer_->powerHeuristic(bsdfPdfPrev, ep);
                 }
                 color += throughput * weighted;
                 break;
@@ -319,24 +325,33 @@ private:
             // sampling via the power heuristic (PBRT 4e §12.5 / Cycles
             // background_light_sample). Uses evalSpectralExt for the BSDF factor
             // (profile-aware, like the lamp leg) and evalSpectral(wi) for L_env so
-            // NEE and miss agree per wavelength. Gated on worldMaxBounces (b+1).
-            if (enableNEE_ && renderer_->getEnvNee() && !rec.isDelta &&
-                envMap && envMap->loaded() &&
-                (bounce + 1) <= renderer_->getWorldMaxBounces()) {
+            // NEE and miss agree per wavelength.
+            // pkg258 (Terra Q1e): the MW MISS branch has NO worldMaxBounces gate,
+            // so this NEE branch must NOT have one either, or the discount and its
+            // complement are unpaired. The pre-existing MW gap (the tracer ignores
+            // worldMaxBounces entirely) is recorded as a separate follow-up in the
+            // pkg258 spec Lessons — do not change the MW miss behaviour here.
+            if (enableNEE_ && renderer_->getEnvNee() &&
+                envMap && envMap->loaded()) {
                 EnvironmentMap::EnvSample es = envMap->sample(gen);
                 if (es.pdf > 0.0f) {
                     Vec3 wi = es.direction.normalized();
-                    float shadowTr = shadowTransmittance(
-                        *bvh, Ray(rec.point, wi, ray.time),
-                        std::numeric_limits<float>::max());
-                    if (shadowTr > 0.0f) {
-                        astroray::SampledSpectrum f_spec =
-                            rec.material->evalSpectralExt(rec, wo, wi, lambdas);
-                        astroray::SampledSpectrum L_spec = envMap->evalSpectral(wi, lambdas);
-                        float bsdfPdf = rec.material->pdf(rec, wo, wi);
-                        float wt = (es.pdf * es.pdf) /
-                                   (es.pdf * es.pdf + bsdfPdf * bsdfPdf + 1e-8f);
-                        color += throughput * f_spec * L_spec * (wt / es.pdf) * shadowTr;
+                    // pkg258 (Terra Q1d): delta guard via per-direction bsdfPdf>0
+                    // (rec.isDelta is not set before NEE; near-delta metal returns
+                    // f!=0 with pdf==0 → double count with the unweighted miss).
+                    float bsdfPdf = rec.material->pdf(rec, wo, wi);
+                    if (bsdfPdf > 0.0f) {
+                        float shadowTr = shadowTransmittance(
+                            *bvh, Ray(rec.point, wi, ray.time),
+                            std::numeric_limits<float>::max());
+                        if (shadowTr > 0.0f) {
+                            astroray::SampledSpectrum f_spec =
+                                rec.material->evalSpectralExt(rec, wo, wi, lambdas);
+                            astroray::SampledSpectrum L_spec = envMap->evalSpectral(wi, lambdas);
+                            // pkg258 (Terra Q1b): complementary power heuristic.
+                            float wt = renderer_->powerHeuristic(es.pdf, bsdfPdf);
+                            color += throughput * f_spec * L_spec * (wt / es.pdf) * shadowTr;
+                        }
                     }
                 }
             }

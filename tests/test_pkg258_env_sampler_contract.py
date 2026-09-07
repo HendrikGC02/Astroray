@@ -120,14 +120,17 @@ def test_pdf_matches_sample_pdf(env_renderer):
 
 
 def test_lookup_matches_sample_radiance(env_renderer):
-    """Contract (2): environment_lookup(sample.dir) == sample.radiance within a
-    bilinear tolerance (the sampled direction points at the texel centre; lookup
-    bilinearly blends the 4 neighbours, so a smooth high-res HDRI agrees to a
-    few percent)."""
+    """Contract (2): environment_lookup(sample.dir) == sample.radiance.
+
+    pkg258 (Terra Q2): with continuous within-texel sampling, sample() returns the
+    BILINEAR radiance AT the sampled direction (the same signal the BSDF-miss leg
+    evaluates), so this is an exact identity (radiance is bilinear at the sampled
+    direction), not the old bilinear-vs-point approximation. Any residual is just
+    the float32 round-trip of the direction through the Python binding."""
     r, _ = env_renderer
     dirs, rads, _ = _draw(r, seed=999, n=3000)
-    # Exclude the top/bottom two rows (wrap/pole edge of the bilinear stencil):
-    # keep samples with |dir.y| < cos(2*pi/HEIGHT-ish) ~ away from the poles.
+    # Exclude the two polar rows (the bilinear stencil clamps at the top/bottom
+    # edge, so the direction round-trip there is not the identity).
     keep = np.abs(dirs[:, 1]) < 0.97
     rel_errs = []
     for i in np.where(keep)[0]:
@@ -139,9 +142,11 @@ def test_lookup_matches_sample_radiance(env_renderer):
     print(f"\n[pkg258 contract 2] n={len(rel_errs)} "
           f"mean_rel={rel_errs.mean():.3e} p95_rel={np.percentile(rel_errs,95):.3e} "
           f"max_rel={rel_errs.max():.3e}")
-    # Bilinear-vs-point half-texel smoothing on a 128-wide smooth HDRI is < 3%.
-    assert np.percentile(rel_errs, 95) < 0.05
-    assert rel_errs.max() < 0.12
+    # radiance IS lookup(sample.dir); only the float32 dir round-trip separates
+    # them (not the few-percent bilinear tolerance the pre-pkg258 centre-sampled
+    # radiance needed).
+    assert np.percentile(rel_errs, 95) < 5e-3
+    assert rel_errs.max() < 2e-2
 
 
 def test_azimuth_histogram_matches_column_energy(env_renderer):
@@ -190,6 +195,59 @@ def test_azimuth_histogram_matches_column_energy(env_renderer):
         f"-- the pre-pkg258 pixel-unit azimuth bug.")
     # Goodness of fit against the decoded column energy.
     assert pval > 0.01, f"azimuth histogram chi-square p={pval:.4f} <= 0.01"
+
+
+def _single_texel_hdri(width=16, height=8, bx=5, by=4):
+    """A near-delta HDRI: one very bright texel over a tiny floor, so essentially
+    every importance sample lands in that single texel."""
+    img = np.full((height, width, 3), 1e-3, dtype=np.float32)
+    img[by, bx, :] = 1.0e5
+    return img, bx, by, width, height
+
+
+@pytest.fixture(scope="module")
+def single_texel_renderer(tmp_path_factory):
+    img, bx, by, W, H = _single_texel_hdri()
+    p = tmp_path_factory.mktemp("pkg258_single") / "single_texel.hdr"
+    _write_radiance_hdr(str(p), img)
+    if not os.path.exists(str(p)):
+        pytest.skip("HDRI write failed")
+    r = astroray.Renderer()
+    assert r.load_environment_map(str(p), 1.0, 0.0, 0.0, 0.0)
+    return r, bx, by, W, H
+
+
+def test_within_texel_uniformity(single_texel_renderer):
+    """pkg258 (Terra Q2): continuous within-texel sampling. Samples drawn from one
+    dominant bright texel have fractional texel coordinates UNIFORM in [0,1)^2 (KS
+    test per axis). The pre-pkg258 sampler returned the texel CENTRE for every
+    sample, so the fractional coords would collapse to exactly 0.5 (a delta, KS
+    p ~ 0). This is the direct evidence that sample() draws a continuous location
+    inside the selected cell, making the estimator unbiased against the bilinear
+    signal the BSDF-miss leg evaluates."""
+    scipy_stats = pytest.importorskip("scipy.stats")
+    r, bx, by, W, H = single_texel_renderer
+    dirs, _, _ = _draw(r, seed=31337, n=20000)
+    phi = np.arctan2(dirs[:, 2], dirs[:, 0])
+    u_norm = np.mod(0.5 + phi / (2.0 * np.pi), 1.0)
+    theta = np.arccos(np.clip(dirs[:, 1], -1.0, 1.0))
+    v_norm = 1.0 - theta / np.pi
+    col = np.clip(np.floor(u_norm * W).astype(int), 0, W - 1)
+    row = np.clip(np.floor(v_norm * H).astype(int), 0, H - 1)
+    inb = (col == bx) & (row == by)
+    frac = inb.mean()
+    print(f"\n[pkg258 within-texel] {inb.sum()}/{len(inb)} in the bright texel "
+          f"({frac:.2%})")
+    assert frac > 0.9, "bright texel did not dominate the CDF"
+    fu = (u_norm[inb] * W) - bx
+    fv = (v_norm[inb] * H) - by
+    ks_u = scipy_stats.kstest(fu, "uniform")
+    ks_v = scipy_stats.kstest(fv, "uniform")
+    print(f"[pkg258 within-texel] KS_u p={ks_u.pvalue:.4f} KS_v p={ks_v.pvalue:.4f} "
+          f"mean_u={fu.mean():.3f} mean_v={fv.mean():.3f}")
+    # A centre-only sampler (pre-pkg258) would put all mass at 0.5 -> KS p ~ 0.
+    assert ks_u.pvalue > 0.01, f"within-texel u not uniform (KS p={ks_u.pvalue:.4f})"
+    assert ks_v.pvalue > 0.01, f"within-texel v not uniform (KS p={ks_v.pvalue:.4f})"
 
 
 def test_azimuth_bug_witness(env_renderer):

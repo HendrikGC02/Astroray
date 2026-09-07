@@ -1693,27 +1693,45 @@ public:
         float xi1 = dist(gen);
         float xi2 = dist(gen);
 
-        // Binary search in marginal CDF to find row
+        // Binary search in marginal CDF to find row, then remap the CDF residual
+        // to a CONTINUOUS offset inside the row. pkg258: PBRT-v4
+        // PiecewiseConstant1D::Sample (du = (u - cdf[o]) / (cdf[o+1] - cdf[o]));
+        // Cycles background_map_sample does the same for the 2-D map. This makes
+        // the returned direction uniformly distributed inside the selected texel
+        // while pdf stays the piecewise-constant density of that texel, so the
+        // estimator is unbiased against the BILINEAR environment the BSDF-miss leg
+        // evaluates (pre-pkg258 returned the texel centre = centre-sampled
+        // quadrature, biased against the bilinear signal).
         int v = 0;
+        float dv = 0.5f;
         if (marginalCdf.size() > 0) {
             auto it = std::lower_bound(marginalCdf.begin(), marginalCdf.end(), xi1);
             v = std::distance(marginalCdf.begin(), it);
             if (v >= height) v = height - 1;
+            float cdfLo = (v > 0) ? marginalCdf[v - 1] : 0.0f;
+            float cdfHi = marginalCdf[v];
+            dv = (cdfHi > cdfLo) ? (xi1 - cdfLo) / (cdfHi - cdfLo) : 0.5f;
+            dv = std::clamp(dv, 0.0f, 1.0f);
         }
 
-        // Binary search in conditional CDF to find column
+        // Binary search in conditional CDF to find column, then remap the residual.
         int u = 0;
+        float du = 0.5f;
         if (conditionalCdf.size() > 0) {
             int start = v * width;
             int end = start + width;
             auto it = std::lower_bound(conditionalCdf.begin() + start, conditionalCdf.begin() + end, xi2);
             u = std::distance(conditionalCdf.begin() + start, it);
             if (u >= width) u = width - 1;
+            float cdfLo = (u > 0) ? conditionalCdf[start + u - 1] : 0.0f;
+            float cdfHi = conditionalCdf[start + u];
+            du = (cdfHi > cdfLo) ? (xi2 - cdfLo) / (cdfHi - cdfLo) : 0.5f;
+            du = std::clamp(du, 0.0f, 1.0f);
         }
 
-        // Convert u, v to continuous coordinates for interpolation
-        float uCont = u + 0.5f;
-        float vCont = v + 0.5f;
+        // Continuous coordinates inside the selected texel (u+du, v+dv).
+        float uCont = u + du;
+        float vCont = v + dv;
 
         // Convert (u_cont, v_cont) to direction in env-map space (Y is the polar axis).
         // pkg258: azimuth uses NORMALISED u (uCont/width) — the exact inverse of
@@ -1739,12 +1757,14 @@ public:
         float mapPdf = funcValue * width * height / (totalPower + 1e-10f);
         float solidAnglePdf = mapPdf / (2.0f * M_PI * M_PI * sinTheta);
 
-        // Look up radiance with color tint applied (pkg63 Cycles parity).
-        Vec3 radiance(data[pixelIdx * 3 + 0] * colorTint[0],
-                      data[pixelIdx * 3 + 1] * colorTint[1],
-                      data[pixelIdx * 3 + 2] * colorTint[2]);
+        // pkg258: radiance is the BILINEAR value at the sampled direction — the
+        // SAME signal the BSDF-miss leg evaluates via lookup()/evalSpectral — so
+        // with continuous within-texel sampling the estimator is unbiased against
+        // the bilinear environment. lookup() applies strength+tint. (Pre-pkg258
+        // returned the texel-centre point value, which mismatched the miss leg.)
+        Vec3 radiance = lookup(dir);
 
-        return {dir, radiance * strength, solidAnglePdf};
+        return {dir, radiance, solidAnglePdf};
     }
 
     float pdf(const Vec3& direction) const {
@@ -2894,6 +2914,15 @@ public:
         astroray::SampledSpectrum throughput(1.0f);
         Ray ray = r;
         bool wasSpecular = true;
+        // pkg258 (Terra Q1c): true iff env NEE ACTUALLY drew a competing sample at
+        // the previous vertex (a non-delta surface vertex, HDRI loaded, bounce gate
+        // passed). Only then may the env-miss leg be MIS-discounted. After a
+        // medium/phase scatter (wasSpecular=false, bsdfPdfPrev=phasePdf) medium NEE
+        // samples lamps only, so this stays false and the env miss is UNWEIGHTED —
+        // otherwise the miss would be discounted with no env-NEE complement (dark
+        // bias on volumetric scenes under an HDRI). Adding env NEE at medium scatter
+        // events is out of scope for this PR.
+        bool envNeeSampledPrev = false;
         // pkg198 Stage 1: light-path pass category, locked at the first BSDF
         // interaction (Cycles locks pass_diffuse/glossy_weight at bounce 0).
         // -1 = not yet set (DIRECT regime); 0=diffuse, 1=glossy, 2=transmission.
@@ -3046,6 +3075,10 @@ public:
                     ray = next;
                     wasSpecular = false;
                     bsdfPdfPrev = phasePdf;
+                    // pkg258 (Terra Q1c): medium NEE samples lamps only, NOT the
+                    // environment, so env NEE did not compete here — the next env
+                    // miss must be UNWEIGHTED.
+                    envNeeSampledPrev = false;
                     // Russian roulette (mirror the surface RR below).
                     if (bounce > rrDepth) {
                         astroray::XYZ thrXYZ = throughput.toXYZ(lambdas);
@@ -3137,9 +3170,13 @@ public:
                     // this direction, so weight the BSDF-sampled miss by the power
                     // heuristic against the env importance pdf. w=1 when env NEE is off
                     // or no importance map is loaded (no competing strategy).
+                    // pkg258 (Terra Q1c): gate on envNeeSampledPrev — the miss is
+                    // discounted ONLY when env NEE actually ran at the previous vertex
+                    // (set false after a medium/phase scatter, whose NEE samples lamps
+                    // only). envNeeSampledPrev already implies envNeeEnabled + a loaded
+                    // HDRI + non-delta previous vertex.
                     astroray::SampledSpectrum weighted = envSpec;
-                    if (envNeeEnabled && !(bounce == 0 || wasSpecular) &&
-                        envMap && envMap->loaded()) {
+                    if (envNeeSampledPrev && envMap && envMap->loaded()) {
                         float ep = envMap->pdf(missDir);
                         weighted = envSpec * powerHeuristic(bsdfPdfPrev, ep);
                     }
@@ -3203,6 +3240,7 @@ public:
                 next.cameraW = ray.cameraW;
                 ray = next;
                 wasSpecular = true;
+                envNeeSampledPrev = false;  // pkg258: GR deflection ran no env NEE
                 continue;
             }
             if (!rec.material) break;
@@ -3294,7 +3332,15 @@ public:
                         // discontinuously from ~1/solidAngle (huge, wt->1 in
                         // the finite-angle limit) to selPdf (O(1)) right at
                         // angle == 0, undercounting the delta sun's energy.
-                        float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
+                        // pkg258 (Terra Q1d): the lamp NEE shares the env-NEE latent
+                        // delta bug — rec.isDelta is not set before NEE, so a
+                        // near-delta metal (evalSpectral!=0, pdf==0) would take wt=1
+                        // (b==0) and double-count with its UNWEIGHTED specular
+                        // miss/emissive-hit. Skip a non-delta-LIGHT connection the
+                        // material cannot reproduce (b<=0) by weighting it 0; delta
+                        // LIGHTS still fire (BSDF sampling can never hit them → wt=1).
+                        float wt = ls.isDelta ? 1.0f
+                                 : (b > 0.0f ? (a * a) / (a * a + b * b + 1e-8f) : 0.0f);
                         astroray::SampledSpectrum neeContrib =
                             throughput * f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f)
                             * shadowTr;  // pkg253 G1
@@ -3328,15 +3374,25 @@ public:
             // this is an INDEPENDENT NEE strategy forming its own power-heuristic
             // MIS pair with BSDF sampling (see pkg258-env-nee-research.md for the
             // env-vs-lamp selection rationale). Estimator = PBRT 4e §12.5 /
-            // Cycles background_light_sample (Apache-2.0). Skipped on delta lobes
-            // (no importance sample can be reproduced by/against a delta BSDF) and
-            // gated on worldMaxBounces exactly like the miss leg (the NEE sample is
-            // one more world bounce onto this vertex: b+1 <= worldMaxBounces).
-            if (envNeeEnabled && !rec.isDelta && envMap && envMap->loaded() &&
+            // Cycles background_light_sample (Apache-2.0). Delta guard (pkg258 fix,
+            // Terra Q1d): rec.isDelta is NOT reliable here — a fresh HitRecord is
+            // isDelta=false and mirror/dielectric/near-delta metal set it only in
+            // the later BSDF sample, so env NEE would run at delta vertices. Worse,
+            // near-delta metal returns evalSpectral!=0 with pdf==0, which with the
+            // UNWEIGHTED post-specular miss leg double-counts. Gate on the
+            // per-direction bsdfPdf>0 instead: the material-agnostic delta test (no
+            // material-level delta virtual exists, and this correctly handles the
+            // roughness-dependent near-delta metal case a coarse flag would miss).
+            // A delta lobe returns pdf==0 → NEE skipped, and its miss stays
+            // unweighted (wasSpecular). Gated on worldMaxBounces exactly like the
+            // miss leg (b+1 <= worldMaxBounces).
+            if (envNeeEnabled && envMap && envMap->loaded() &&
                 (bounce + 1) <= worldMaxBounces) {
                 EnvironmentMap::EnvSample es = envMap->sample(gen);
                 if (es.pdf > 0.0f) {
                     Vec3 wi = es.direction.normalized();
+                    float bsdfPdf = rec.material->pdf(rec, wo, wi);
+                    if (bsdfPdf > 0.0f) {
                     // Shadow ray to infinity through the shared transparent-shadow
                     // transmittance (pkg253); infinite maxDist since the env is at
                     // infinite distance. Unobstructed (Tr=1) when nothing occludes.
@@ -3348,9 +3404,10 @@ public:
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
                         // L from evalSpectral(wi) — the SAME lookup the miss leg
                         // uses (bilinear, strength+tint) so NEE and miss agree per
-                        // wavelength (spec). es.pdf is the point-sample CDF pdf.
+                        // wavelength (spec). es.pdf is the texel's piecewise-constant
+                        // CDF density in solid-angle measure (continuous within-texel
+                        // sample, pkg258 Terra Q2).
                         astroray::SampledSpectrum L_spec = envMap->evalSpectral(wi, lambdas);
-                        float bsdfPdf = rec.material->pdf(rec, wo, wi);
                         // pkg136: weight against the SAME mixture pdf the continuation
                         // is drawn from when guiding is active (see lamp NEE above).
                         if (guidingActive()) {
@@ -3371,6 +3428,7 @@ public:
                             clampContribSpectral(envNee, lambdas, bounce);
                         color += c; addPass(envNeePass, c);
                     }
+                    }  // bsdfPdf > 0 (delta guard, pkg258)
                 }
             }
 
@@ -3439,6 +3497,13 @@ public:
             // pkg120: carry this bounce's BSDF pdf so the next iteration's
             // emissive-hit two-sided MIS can weight the BSDF leg (see above).
             bsdfPdfPrev = bss.pdf;
+            // pkg258 (Terra Q1c): env NEE competed at THIS surface vertex iff the
+            // env-NEE strategy was active (enabled, HDRI loaded, bounce gate) AND
+            // this is a non-delta lobe (a delta continuation is unweighted on miss).
+            // Mirrors the env-NEE block's gate; the delta test is bss.isDelta, the
+            // same flag wasSpecular carries.
+            envNeeSampledPrev = envNeeEnabled && envMap && envMap->loaded() &&
+                                ((bounce + 1) <= worldMaxBounces) && !bss.isDelta;
 
             // pkg198 Stage 1: lock the light-path category at the FIRST BSDF
             // interaction (Cycles locks pass_diffuse/glossy_weight at bounce 0).

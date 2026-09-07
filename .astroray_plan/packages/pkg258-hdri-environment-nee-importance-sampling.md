@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — owner-prioritised 2026-09-07 evening ("I suspect the importance sampling from the HDRI is borked")
+**Status:** in-progress — CPU leg PR (feat/pkg258-2026-09-08); GPU wavefront leg pending a separate PR off this branch
 **Estimated effort:** 3 sessions (~9 h; CPU first, then GPU wavefront under the GPU lock)
 **Depends on:** pkg63, pkg89, pkg195
 
@@ -207,6 +207,23 @@ compares an NEE-lit Cycles image against a BSDF-miss-lit Astroray image.
 
 - [ ] 2026-09-07 evening — filed by the lead after the owner's hypothesis;
       code-read evidence above; no code changed yet.
+- [~] 2026-09-08 — CPU leg (PR feat/pkg258-2026-09-08). Done: cite-algorithm
+      research note; azimuth fix in `EnvironmentMap::sample` and
+      `gpu_envmap_sample` (phi normalised by width); env NEE + power-heuristic
+      MIS on the NEE leg and the miss leg in `pathTraceSpectral`, the
+      multiwavelength tracer, and the CPU wavefront shared kernel
+      (`advance_one_bounce`), all gated on a runtime `envNeeEnabled` flag
+      (default ON) and guarded on a loaded HDRI so non-env scenes are
+      byte-identical; `background_light.cpp` now importance-samples the fixed
+      CDF instead of the uniform-sphere stub; test bindings
+      (`sample_environment_map`, `environment_pdf`, `environment_lookup`,
+      `set_env_nee`); contract + convergence tests. Design choice: env and lamp
+      NEE are **independent additive strategies** (disjoint supports), no
+      `envSelectProb()` selection — see the research note (open question for the
+      Terra review). Not in this PR: GPU wavefront leg
+      (`stage_light_sample.cu` / `stage_advance.cu`) — a separate PR off this
+      branch; CPU/GPU HDRI parity gates that go red because CPU has env NEE and
+      GPU does not are marked xfail(strict) "pkg258 GPU leg pending".
 
 ---
 

@@ -1,0 +1,326 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+pkg258 — Environment importance-sampler contract test.
+
+Validates the fixed `EnvironmentMap::sample` (raytracer.h) against its own
+`pdf()` / `lookup()` and against the CDF's column-energy distribution, via the
+pkg258 test bindings (`sample_environment_map`, `environment_pdf`,
+`environment_lookup`).
+
+Three contracts (spec pkg258):
+  (1) pdf(sample.direction) == sample.pdf within 1e-4 relative.
+  (2) lookup(sample.direction) == sample.radiance within bilinear tolerance.
+  (3) the azimuth histogram of the drawn directions is proportional to the
+      HDRI's per-column energy (chi-square vs the CDF, p > 0.01).
+
+Regression witness (test_azimuth_bug_witness): reproduces, on THIS build, what
+the pre-pkg258 sampler produced — the azimuth computed in pixel units
+(`phi = u*2pi`, wrapping to ~0 for every column) — and shows it fails contract
+(1). The pre-fix sampler therefore failed this file on main; the one-line
+azimuth fix (`phi = (uCont/width - 0.5)*2pi`) makes it pass. Because the test
+bindings are new in this PR, the file cannot be executed against a main build
+directly; this witness is the in-build demonstration of the defect.
+
+Estimator reference: PBRT 4e §12.5 / Cycles background.h — see
+`.astroray_plan/docs/pkg258-env-nee-research.md`.
+"""
+import math
+import os
+import sys
+
+import numpy as np
+import pytest
+
+from runtime_setup import configure_test_imports
+
+configure_test_imports()
+sys.path.insert(0, os.path.dirname(__file__))
+
+try:
+    import astroray
+    AVAILABLE = True
+except ImportError:
+    AVAILABLE = False
+
+# Reuse the Radiance .hdr writer from the pkg63 parity suite (no duplicate).
+from test_world_hdri_parity import _write_radiance_hdr  # noqa: E402
+
+pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
+
+WIDTH, HEIGHT = 128, 64
+
+
+def _smooth_hdri_image(width=WIDTH, height=HEIGHT):
+    """Grayscale latlong HDRI whose per-column energy is smooth and strictly
+    positive, with a broad azimuthal peak at column width/4. Row-independent
+    value so the column marginal is exactly value(x) (up to the shared sin(theta)
+    row weight), which makes the chi-square expectation trivial to compute and
+    leaves no near-zero bins.
+    """
+    x = np.arange(width)
+    # base + raised cosine peak at x = width/4; always >= base.
+    val = 1.0 + 0.8 * (0.5 * (1.0 + np.cos(2.0 * np.pi * (x / width - 0.25))))
+    img = np.zeros((height, width, 3), dtype=np.float32)
+    for c in range(3):
+        img[:, :, c] = val[None, :]
+    return img, val
+
+
+@pytest.fixture(scope="module")
+def env_renderer(tmp_path_factory):
+    img, colval = _smooth_hdri_image()
+    p = tmp_path_factory.mktemp("pkg258_hdri") / "smooth_world.hdr"
+    _write_radiance_hdr(str(p), img)
+    if not os.path.exists(str(p)):
+        pytest.skip("HDRI write failed")
+    r = astroray.Renderer()
+    # Identity rotation, no tint, strength 1: world dir == env-map dir, so the
+    # azimuth of a sampled direction is atan2(dir.z, dir.x) directly.
+    assert r.load_environment_map(str(p), 1.0, 0.0, 0.0, 0.0)
+    return r, colval
+
+
+def _draw(r, seed, n):
+    dirs, rads, pdfs = r.sample_environment_map(seed, n)
+    dirs = np.asarray(dirs, dtype=np.float64).reshape(-1, 3)
+    rads = np.asarray(rads, dtype=np.float64).reshape(-1, 3)
+    pdfs = np.asarray(pdfs, dtype=np.float64)
+    return dirs, rads, pdfs
+
+
+def test_pdf_matches_sample_pdf(env_renderer):
+    """Contract (1): environment_pdf(sample.dir) == sample.pdf for continuous
+    within-texel samples (pkg258 Terra Q2)."""
+    r, _ = env_renderer
+    dirs, _, pdfs = _draw(r, seed=12345, n=4000)
+    assert len(pdfs) == 4000
+    # Skip degenerate (pole) samples where sin(theta) is floored — both sample()
+    # and pdf() floor identically, but the relative comparison is meaningless
+    # when pdf is dominated by the 1e-6 floor.
+    ok = pdfs > 0.0
+    # With CONTINUOUS within-texel sampling two float-precision artefacts appear
+    # that the pre-pkg258 texel-centre sample never hit:
+    #  (a) a sample landing within a sub-ULP of a texel edge: pdf() floors
+    #      u_norm*W / v_norm*H across the integer boundary and reads an ADJACENT
+    #      texel's func;
+    #  (b) a near-pole sample: the pdf's 1/sin(theta) and the cos->acos->sin
+    #      round-trip are ill-conditioned as |dir.y| -> 1 (acos derivative -> inf).
+    # Both are discretisation/float artefacts, not sampler bugs. Assert the identity
+    # on the well-conditioned interior (away from edges AND poles), and assert a
+    # high percentile over ALL non-pole samples so a real inversion break (the
+    # azimuth bug: orders-of-magnitude disagreement for nearly every sample) still
+    # fails loudly.
+    rels = []
+    interior_rels = []
+    for i in np.where(ok)[0]:
+        d = dirs[i]
+        phi = math.atan2(d[2], d[0])
+        u_norm = (0.5 + phi / (2.0 * math.pi)) % 1.0
+        theta = math.acos(max(-1.0, min(1.0, d[1])))
+        v_norm = 1.0 - theta / math.pi
+        uc, vc = u_norm * WIDTH, v_norm * HEIGHT
+        edge_u = min(uc - math.floor(uc), math.ceil(uc) - uc)
+        edge_v = min(vc - math.floor(vc), math.ceil(vc) - vc)
+        p_query = r.environment_pdf(d.tolist())
+        rel = abs(p_query - pdfs[i]) / max(abs(pdfs[i]), 1e-12)
+        rels.append(rel)
+        if edge_u > 2e-3 and edge_v > 2e-3 and abs(d[1]) < 0.99:
+            interior_rels.append(rel)
+    rels = np.asarray(rels)
+    interior_rels = np.asarray(interior_rels)
+    print(f"\n[pkg258 contract 1] checked={len(rels)} interior={len(interior_rels)} "
+          f"max_interior={interior_rels.max():.3e} p999_all={np.percentile(rels,99.9):.3e} "
+          f"max_all={rels.max():.3e}")
+    assert len(rels) > 3500
+    assert len(interior_rels) > 3000
+    # Interior samples (away from texel edges and the poles): the cos->acos->sin
+    # float32 round-trip is worth ~2e-4 relative near mid-latitudes.
+    assert interior_rels.max() < 5e-4, (
+        f"pdf(sample.dir) disagrees with sample.pdf on texel interior (max rel "
+        f"{interior_rels.max():.3e}) — the direction does not invert to its texel.")
+    # Over ALL non-pole samples (edges + poles included) the 99.9th percentile
+    # still holds the identity; only a handful of exact-edge/near-pole samples are
+    # ill-conditioned.
+    assert np.percentile(rels, 99.9) < 5e-3
+
+
+def test_lookup_matches_sample_radiance(env_renderer):
+    """Contract (2): environment_lookup(sample.dir) == sample.radiance.
+
+    pkg258 (Terra Q2): with continuous within-texel sampling, sample() returns the
+    BILINEAR radiance AT the sampled direction (the same signal the BSDF-miss leg
+    evaluates), so this is an exact identity (radiance is bilinear at the sampled
+    direction), not the old bilinear-vs-point approximation. Any residual is just
+    the float32 round-trip of the direction through the Python binding."""
+    r, _ = env_renderer
+    dirs, rads, _ = _draw(r, seed=999, n=3000)
+    # Exclude the two polar rows (the bilinear stencil clamps at the top/bottom
+    # edge, so the direction round-trip there is not the identity).
+    keep = np.abs(dirs[:, 1]) < 0.97
+    rel_errs = []
+    for i in np.where(keep)[0]:
+        look = np.asarray(r.environment_lookup(dirs[i].tolist()), dtype=np.float64)
+        ref = rads[i]
+        denom = max(np.max(ref), 1e-6)
+        rel_errs.append(np.max(np.abs(look - ref)) / denom)
+    rel_errs = np.asarray(rel_errs)
+    print(f"\n[pkg258 contract 2] n={len(rel_errs)} "
+          f"mean_rel={rel_errs.mean():.3e} p95_rel={np.percentile(rel_errs,95):.3e} "
+          f"max_rel={rel_errs.max():.3e}")
+    # radiance IS lookup(sample.dir); only the float32 dir round-trip separates
+    # them (not the few-percent bilinear tolerance the pre-pkg258 centre-sampled
+    # radiance needed).
+    assert np.percentile(rel_errs, 95) < 5e-3
+    assert rel_errs.max() < 2e-2
+
+
+def test_azimuth_histogram_matches_column_energy(env_renderer):
+    """Contract (3): the sampled azimuth distribution matches the HDRI column
+    marginal (chi-square vs the CDF, p > 0.01)."""
+    scipy_stats = pytest.importorskip("scipy.stats")
+    r, _ = env_renderer
+    N = 200000
+    dirs, _, _ = _draw(r, seed=2024, n=N)
+
+    # Azimuth -> column index. Identity rotation, env Y-polar: phi = atan2(z, x),
+    # u_norm = 0.5 + phi/2pi, column = floor(u_norm * W).
+    phi = np.arctan2(dirs[:, 2], dirs[:, 0])
+    u_norm = 0.5 + phi / (2.0 * np.pi)
+    u_norm = np.mod(u_norm, 1.0)
+    cols = np.floor(u_norm * WIDTH).astype(int)
+    cols = np.clip(cols, 0, WIDTH - 1)
+
+    obs = np.bincount(cols, minlength=WIDTH).astype(np.float64)
+    # Expected column marginal from the DECODED HDRI (via environment_lookup at
+    # each column's equator centre), so RGBE quantisation is not a model
+    # mismatch. value(x) is row-independent, so the shared sum_v sin(theta_v) row
+    # weight cancels and the marginal is proportional to the column luminance.
+    lum = np.empty(WIDTH)
+    for xc in range(WIDTH):
+        phi_c = (( (xc + 0.5) / WIDTH) - 0.5) * 2.0 * np.pi
+        d = [np.cos(phi_c), 0.0, np.sin(phi_c)]          # equator direction
+        rgb = np.asarray(r.environment_lookup(d), dtype=np.float64)
+        lum[xc] = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+    exp = (lum / lum.sum()) * N
+
+    assert exp.min() > 20, "expected bin too small for chi-square"
+    chi2 = np.sum((obs - exp) ** 2 / exp)
+    dof = WIDTH - 1
+    pval = scipy_stats.chi2.sf(chi2, dof)
+    peak_frac = obs.max() / N
+    print(f"\n[pkg258 contract 3] chi2={chi2:.1f} dof={dof} p={pval:.4f} "
+          f"peak_col_obs={obs.argmax()} peak_col_exp={exp.argmax()} "
+          f"peak_frac={peak_frac:.4f}")
+    # Not-collapsed guard: the PRE-fix sampler put EVERY sample in one azimuth bin
+    # (phi wrapped to ~0), so the peak bin would hold ~100% of samples. A correct
+    # sampler spreads across all 128 columns (~0.8-1.6% per bin).
+    assert peak_frac < 0.05, (
+        f"azimuth histogram collapsed: {peak_frac:.1%} of samples in one column "
+        f"-- the pre-pkg258 pixel-unit azimuth bug.")
+    # Goodness of fit against the decoded column energy.
+    assert pval > 0.01, f"azimuth histogram chi-square p={pval:.4f} <= 0.01"
+
+
+def _single_texel_hdri(width=16, height=8, bx=5, by=4):
+    """A near-delta HDRI: one very bright texel over a tiny floor, so essentially
+    every importance sample lands in that single texel."""
+    img = np.full((height, width, 3), 1e-3, dtype=np.float32)
+    img[by, bx, :] = 1.0e5
+    return img, bx, by, width, height
+
+
+@pytest.fixture(scope="module")
+def single_texel_renderer(tmp_path_factory):
+    img, bx, by, W, H = _single_texel_hdri()
+    p = tmp_path_factory.mktemp("pkg258_single") / "single_texel.hdr"
+    _write_radiance_hdr(str(p), img)
+    if not os.path.exists(str(p)):
+        pytest.skip("HDRI write failed")
+    r = astroray.Renderer()
+    assert r.load_environment_map(str(p), 1.0, 0.0, 0.0, 0.0)
+    return r, bx, by, W, H
+
+
+def test_within_texel_uniformity(single_texel_renderer):
+    """pkg258 (Terra Q2): continuous within-texel sampling. Samples drawn from one
+    dominant bright texel have fractional texel coordinates UNIFORM in [0,1)^2 (KS
+    test per axis). The pre-pkg258 sampler returned the texel CENTRE for every
+    sample, so the fractional coords would collapse to exactly 0.5 (a delta, KS
+    p ~ 0). This is the direct evidence that sample() draws a continuous location
+    inside the selected cell, making the estimator unbiased against the bilinear
+    signal the BSDF-miss leg evaluates."""
+    scipy_stats = pytest.importorskip("scipy.stats")
+    r, bx, by, W, H = single_texel_renderer
+    dirs, _, _ = _draw(r, seed=31337, n=20000)
+    phi = np.arctan2(dirs[:, 2], dirs[:, 0])
+    u_norm = np.mod(0.5 + phi / (2.0 * np.pi), 1.0)
+    theta = np.arccos(np.clip(dirs[:, 1], -1.0, 1.0))
+    v_norm = 1.0 - theta / np.pi
+    col = np.clip(np.floor(u_norm * W).astype(int), 0, W - 1)
+    row = np.clip(np.floor(v_norm * H).astype(int), 0, H - 1)
+    # Find the dominant texel empirically (the HDR loader flips rows, so the
+    # sampled row != the written image row `by`; do not hardcode it).
+    flat = row * W + col
+    dom = np.bincount(flat, minlength=W * H).argmax()
+    dcol, drow = int(dom % W), int(dom // W)
+    # Column is preserved; row is vertically flipped by the loader.
+    assert dcol == bx, f"sampled column {dcol} != written {bx}"
+    assert drow == H - 1 - by, f"sampled row {drow} != flipped {H - 1 - by}"
+    inb = (col == dcol) & (row == drow)
+    frac = inb.mean()
+    print(f"\n[pkg258 within-texel] dominant texel (col={dcol}, row={drow}); "
+          f"{inb.sum()}/{len(inb)} in it ({frac:.2%})")
+    assert frac > 0.9, "bright texel did not dominate the CDF"
+    fu = (u_norm[inb] * W) - dcol
+    fv = (v_norm[inb] * H) - drow
+    ks_u = scipy_stats.kstest(fu, "uniform")
+    ks_v = scipy_stats.kstest(fv, "uniform")
+    print(f"[pkg258 within-texel] KS_u p={ks_u.pvalue:.4f} KS_v p={ks_v.pvalue:.4f} "
+          f"mean_u={fu.mean():.3f} mean_v={fv.mean():.3f}")
+    # A centre-only sampler (pre-pkg258) would put all mass at 0.5 -> KS p ~ 0.
+    assert ks_u.pvalue > 0.01, f"within-texel u not uniform (KS p={ks_u.pvalue:.4f})"
+    assert ks_v.pvalue > 0.01, f"within-texel v not uniform (KS p={ks_v.pvalue:.4f})"
+
+
+def test_azimuth_bug_witness(env_renderer):
+    """Regression witness: reproduce the PRE-pkg258 pixel-unit azimuth formula on
+    this build and show it fails contract (1). This is the in-build evidence that
+    the sampler failed on main; the one-line fix makes contract (1) pass.
+    """
+    r, _ = env_renderer
+    dirs, _, pdfs = _draw(r, seed=777, n=500)
+    # For each FIXED sample, recover its texel column, then rebuild the direction
+    # with the BUGGY azimuth (phi = column * 2pi, wrapping to ~0) at the same
+    # polar angle, and query the pdf. On main every such dir pointed at phi~0, so
+    # environment_pdf reads column W/2's energy, not the sampled column's.
+    n_disagree = 0
+    n_checked = 0
+    for i in range(len(pdfs)):
+        if pdfs[i] <= 0:
+            continue
+        d = dirs[i]
+        phi = math.atan2(d[2], d[0])
+        u_norm = (0.5 + phi / (2.0 * math.pi)) % 1.0
+        col = min(WIDTH - 1, int(u_norm * WIDTH))
+        theta = math.acos(max(-1.0, min(1.0, d[1])))
+        # Buggy pixel-unit azimuth: phi_bug = (col + 0.5 - 0.5) * 2pi = col*2pi.
+        phi_bug = col * 2.0 * math.pi
+        dir_bug = [math.sin(theta) * math.cos(phi_bug),
+                   math.cos(theta),
+                   math.sin(theta) * math.sin(phi_bug)]
+        p_bug = r.environment_pdf(dir_bug)
+        # The buggy direction generally lands in a different column, so its pdf
+        # disagrees with the sampled texel's pdf unless col happens to map to
+        # phi~0's column.
+        denom = max(abs(pdfs[i]), 1e-12)
+        if abs(p_bug - pdfs[i]) / denom > 1e-4:
+            n_disagree += 1
+        n_checked += 1
+    frac = n_disagree / max(1, n_checked)
+    print(f"\n[pkg258 witness] buggy-azimuth pdf disagreement: "
+          f"{n_disagree}/{n_checked} ({frac:.2%})")
+    # The pre-fix sampler broke contract (1) for the large majority of samples.
+    assert frac > 0.8, (
+        "witness expected the pixel-unit azimuth to break pdf agreement for most "
+        "samples; if this fails the HDRI structure changed.")

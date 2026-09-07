@@ -244,7 +244,28 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
                 Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
                 envSpec = RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(ps.lambdas);
             }
-            ps.color += ps.throughput * envSpec;
+            // pkg258: two-strategy MIS for the background — twin of production
+            // pathTraceSpectral's miss leg. Camera/post-specular miss = full env;
+            // after a non-specular bounce env NEE competed for this direction, so
+            // weight the miss by the power heuristic against the env importance
+            // pdf. No-op (w=1) when env NEE is off or no importance map is loaded.
+            // NOTE: the GPU wavefront does NOT yet apply this weight (pkg258 GPU
+            // leg pending), so CPU/GPU HDRI parity gates are expected to move.
+            // pkg258 (Terra Q1c): !(bounce==0 || wasSpecular) is the correct
+            // "env NEE competed at the previous vertex" test HERE because this
+            // shared kernel has NO medium/phase scattering (unlike production
+            // pathTraceSpectral, which needs an explicit envNeeSampledPrev flag);
+            // a non-delta surface bounce is exactly when env NEE ran.
+            SampledSpectrum weighted = envSpec;
+            if (renderer.getEnvNee() && envMap && envMap->loaded() &&
+                !(bounce == 0 || ps.wasSpecular)) {
+                float ep = envMap->pdf(ps.ray_direction);
+                // pkg258 (Terra Q1b): complementary power heuristic (sums to 1
+                // with the env-NEE leg); the previous a²/(a²+b²+1e-8) summed to
+                // < 1 → systematic dark bias.
+                weighted = envSpec * renderer.powerHeuristic(ps.bsdfPdfPrev, ep);
+            }
+            ps.color += ps.throughput * weighted;
         }
         ps.alive = false;
         return false;
@@ -327,6 +348,52 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
                     s.nee_bsdf_pdf_at_dir = bsdfPdf;
                     s.nee_mis_weight      = wt;
                     sink->record(s);
+                }
+            }
+        }
+    }
+
+    // ---- Environment NEE (pkg258). Shared-kernel twin of production
+    // pathTraceSpectral's env-NEE leg: an independent, additive strategy
+    // (disjoint from lamp NEE) MIS-combined with BSDF sampling via the power
+    // heuristic. The RNG draw is GUARDED on an actually-loaded importance map, so
+    // scenes without an HDRI consume ZERO extra RNG and stay byte-identical to
+    // pre-pkg258 (the wavefront_diff bit-identity gates on non-env scenes are
+    // untouched). On an HDRI scene the env sample consumes one ps.rng.UniformUInt32
+    // BEFORE the RR draw — the GPU wavefront half (pkg258 GPU leg) must mirror this
+    // exact ordering; until it does, the GPU/CPU HDRI parity gates are expected to
+    // diverge and are xfailed. No new snapshot stage is emitted (the pinned
+    // snapshot moments are unchanged; see wavefront-snapshot-semantics memory).
+    {
+        const auto& envMap = renderer.getEnvironmentMap();
+        // pkg258 (Terra Q5): the ps.rng.UniformUInt32() draw below stays gated on
+        // getEnvNee() && HDRI-loaded && bounce-gate exactly as before (the removed
+        // !rec.isDelta was always true here, so RNG order is unchanged: non-HDRI
+        // scenes still consume ZERO extra RNG and stay byte-identical). The delta
+        // exclusion now happens per-direction on bsdfPdf>0 AFTER the draw.
+        if (renderer.getEnvNee() && envMap && envMap->loaded() &&
+            (bounce + 1) <= renderer.getWorldMaxBounces()) {
+            uint32_t env_seed = ps.rng.UniformUInt32();
+            std::mt19937 env_gen(env_seed);
+            EnvironmentMap::EnvSample es = envMap->sample(env_gen);
+            if (es.pdf > 0.0f) {
+                Vec3 wi = es.direction.normalized();
+                // pkg258 (Terra Q1d): delta guard via per-direction bsdfPdf>0.
+                // rec.isDelta is not set before NEE; a near-delta metal returns
+                // f!=0 with pdf==0, which would double-count with its unweighted
+                // specular miss. Skip when the BSDF cannot reproduce this direction.
+                float bsdfPdf = rec.material->pdf(rec, wo, wi);
+                if (bsdfPdf > 0.0f) {
+                    float shadowTr = shadowTransmittance(
+                        *bvh, Ray(rec.point, wi), std::numeric_limits<float>::max());
+                    if (shadowTr > 0.0f) {
+                        SampledSpectrum f_spec = rec.material->evalSpectral(rec, wo, wi, ps.lambdas);
+                        SampledSpectrum L_spec = envMap->evalSpectral(wi, ps.lambdas);
+                        // pkg258 (Terra Q1b): complementary power heuristic (sums to
+                        // 1 with the miss leg); a²/(a²+b²+1e-8) summed to < 1.
+                        float wt = renderer.powerHeuristic(es.pdf, bsdfPdf);
+                        ps.color += ps.throughput * f_spec * L_spec * (wt / es.pdf) * shadowTr;
+                    }
                 }
             }
         }

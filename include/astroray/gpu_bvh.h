@@ -516,6 +516,10 @@ __device__ inline int gpu_lower_bound(const float* arr, int n, float target) {
 
 struct GEnvSample { GVec3 direction; GVec3 radiance; float pdf; };
 
+// Forward declaration: gpu_envmap_sample returns the bilinear radiance at the
+// sampled direction (defined below), matching the CPU EnvironmentMap::sample.
+__device__ inline GVec3 gpu_envmap_lookup(const GEnvMap& em, const GVec3& dir);
+
 // pkg63: forward transform — apply baked rotation matrix M (world dir → env-map dir).
 __device__ inline GVec3 gpu_envmap_apply_rot(const GEnvMap& em, const GVec3& d) {
     return GVec3(em.rotMat[0]*d.x + em.rotMat[1]*d.y + em.rotMat[2]*d.z,
@@ -539,16 +543,32 @@ __device__ inline GEnvSample gpu_envmap_sample(const GEnvMap& em, curandState* r
     float xi1 = curand_uniform(rng);
     float xi2 = curand_uniform(rng);
 
+    // pkg258: remap the CDF residual to a continuous within-texel offset
+    // (PBRT PiecewiseConstant1D::Sample / Cycles background_map_sample) so the
+    // sampled direction is uniform inside the texel; pdf stays the texel's
+    // piecewise-constant density. Mirrors the CPU EnvironmentMap::sample.
     int v = gpu_lower_bound(em.marginalCdf, em.height, xi1);
     if (v >= em.height) v = em.height - 1;
+    float vCdfLo = (v > 0) ? em.marginalCdf[v - 1] : 0.f;
+    float vCdfHi = em.marginalCdf[v];
+    float dv = (vCdfHi > vCdfLo) ? (xi1 - vCdfLo) / (vCdfHi - vCdfLo) : 0.5f;
+    dv = fminf(fmaxf(dv, 0.f), 1.f);
 
-    int u = gpu_lower_bound(em.conditionalCdf + v*em.width, em.width, xi2);
+    const float* condRow = em.conditionalCdf + v*em.width;
+    int u = gpu_lower_bound(condRow, em.width, xi2);
     if (u >= em.width) u = em.width - 1;
+    float uCdfLo = (u > 0) ? condRow[u - 1] : 0.f;
+    float uCdfHi = condRow[u];
+    float du = (uCdfHi > uCdfLo) ? (xi2 - uCdfLo) / (uCdfHi - uCdfLo) : 0.5f;
+    du = fminf(fmaxf(du, 0.f), 1.f);
 
-    float uCont = u + 0.5f;
-    float vCont = v + 0.5f;
+    float uCont = u + du;
+    float vCont = v + dv;
+    // pkg258: azimuth uses NORMALISED u (uCont/width) -- exact inverse of
+    // gpu_envmap_pdf's u = 0.5 + phi/(2*pi). Pre-pkg258 used uCont in PIXEL
+    // units, wrapping phi to ~0 for every column (mirrors the CPU sample() bug).
     float theta = (1.f - vCont / em.height) * M_PI_F;
-    float phi   = (uCont - 0.5f) * 2.f * M_PI_F;
+    float phi   = (uCont / em.width - 0.5f) * 2.f * M_PI_F;
 
     GVec3 dir_env = GVec3(sinf(theta)*cosf(phi), cosf(theta), sinf(theta)*sinf(phi));
     es.direction = gpu_envmap_apply_rot_T(em, dir_env);
@@ -559,10 +579,9 @@ __device__ inline GEnvSample gpu_envmap_sample(const GEnvMap& em, curandState* r
     float mapPdf   = funcVal * em.width * em.height / (em.totalPower + 1e-10f);
     es.pdf         = mapPdf / (2.f * M_PI_F * M_PI_F * sinTheta);
 
-    // pkg63: apply color tint to radiance (Cycles parity).
-    es.radiance = GVec3(em.data[pixIdx*3+0] * em.colorTint[0],
-                        em.data[pixIdx*3+1] * em.colorTint[1],
-                        em.data[pixIdx*3+2] * em.colorTint[2]) * em.strength;
+    // pkg258: bilinear radiance at the sampled direction (matches the miss leg),
+    // strength+tint applied inside gpu_envmap_lookup.
+    es.radiance = gpu_envmap_lookup(em, es.direction);
     return es;
 }
 

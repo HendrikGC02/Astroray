@@ -106,6 +106,10 @@ The implementer must do a fresh WebSearch + WebFetch pass to confirm the PBRT v4
       **Corrected 2026-09-07:** false. No reachable integrator calls
       `EnvironmentMap::sample`/`pdf` or `gpu_envmap_sample`/`pdf`, and the
       sampler's azimuth is computed in pixel units. Owned by pkg258.
+      **Update 2026-09-08:** pkg258 CPU leg (PR feat/pkg258-2026-09-08) fixed the
+      azimuth (phi normalised by width) and wired env NEE + power-heuristic MIS
+      into `pathTraceSpectral`, the multiwavelength tracer and the CPU wavefront
+      kernel; the GPU wavefront leg follows in a second pkg258 PR.
 - [x] Addon: Mapping XYZ rotation, color tint (linked + unlinked
       Background.Color via `_get_socket_color`).
 - [x] `load_environment_map` Python binding extended with

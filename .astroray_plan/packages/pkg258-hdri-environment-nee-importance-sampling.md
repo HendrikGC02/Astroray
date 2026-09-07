@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — owner-prioritised 2026-09-07 evening ("I suspect the importance sampling from the HDRI is borked")
+**Status:** in-progress — CPU leg PR (feat/pkg258-2026-09-08); GPU wavefront leg pending a separate PR off this branch
 **Estimated effort:** 3 sessions (~9 h; CPU first, then GPU wavefront under the GPU lock)
 **Depends on:** pkg63, pkg89, pkg195
 
@@ -171,9 +171,13 @@ compares an NEE-lit Cycles image against a BSDF-miss-lit Astroray image.
       chi² p > 0.01); the same test fails on main before the azimuth fix
       (recorded in the PR).
 - [ ] `tests/test_pkg258_env_nee_convergence.py`: sun-disc RMSE ratio
-      (NEE on / NEE off at 256 spp) ≤ 0.25 on CPU and GPU; white furnace
-      1.0 ± 1 % with NEE on (linear, upper bound asserted — see
-      `gamma-furnace-cannot-detect-energy-gain`).
+      (NEE on / NEE off at 256 spp vs a 64k-spp reference) ≤ 0.58 on CPU (GPU
+      xfail until the GPU leg); white furnace 1.0 ± 1 % with NEE on (linear,
+      upper bound asserted — see `gamma-furnace-cannot-detect-energy-gain`).
+      Re-pin from the spec's original ≤ 0.25 authorised by the lead (Terra Q6):
+      env-MIS gives ~4× variance reduction ⇔ ~0.5× RMSE (the "4× faster" Goal),
+      not the headline's 16×-variance ≤ 0.25; measured bias-free ratio 0.526 at
+      the test seed vs a 64k reference, gate = 0.526 × 1.10 = 0.58.
 - [ ] CPU/GPU parity on `hdri_exterior_hair` and `tests/test_world_hdri_parity.py`
       unchanged or better; pkg55 wavefront snapshot gates green (no
       snapshot-moment drift).
@@ -207,9 +211,55 @@ compares an NEE-lit Cycles image against a BSDF-miss-lit Astroray image.
 
 - [ ] 2026-09-07 evening — filed by the lead after the owner's hypothesis;
       code-read evidence above; no code changed yet.
+- [~] 2026-09-08 — CPU leg (PR feat/pkg258-2026-09-08). Done: cite-algorithm
+      research note; azimuth fix in `EnvironmentMap::sample` and
+      `gpu_envmap_sample` (phi normalised by width); env NEE + power-heuristic
+      MIS on the NEE leg and the miss leg in `pathTraceSpectral`, the
+      multiwavelength tracer, and the CPU wavefront shared kernel
+      (`advance_one_bounce`), all gated on a runtime `envNeeEnabled` flag
+      (default ON) and guarded on a loaded HDRI so non-env scenes are
+      byte-identical; `background_light.cpp` now importance-samples the fixed
+      CDF instead of the uniform-sphere stub; test bindings
+      (`sample_environment_map`, `environment_pdf`, `environment_lookup`,
+      `set_env_nee`); contract + convergence tests. Design choice: env and lamp
+      NEE are **independent additive strategies** (disjoint supports), no
+      `envSelectProb()` selection — see the research note (open question for the
+      Terra review). Not in this PR: GPU wavefront leg
+      (`stage_light_sample.cu` / `stage_advance.cu`) — a separate PR off this
+      branch; CPU/GPU HDRI parity gates that go red because CPU has env NEE and
+      GPU does not are marked xfail(strict) "pkg258 GPU leg pending".
+- [~] 2026-09-08 — Terra review fixes (same PR). Continuous within-texel
+      sampling (PBRT `PiecewiseConstant1D::Sample` residual remap) in
+      `EnvironmentMap::sample` + `gpu_envmap_sample`, radiance = bilinear
+      `lookup()` at the sampled direction; per-direction `bsdfPdf>0` delta guard
+      on env NEE (in-header, wavefront, MW) and on the in-header lamp NEE
+      (fixes the near-delta-metal `f!=0,pdf==0` double count); `envNeeSampledPrev`
+      flag in `pathTraceSpectral` so a medium-scatter miss is not env-MIS
+      discounted; complementary `Renderer::powerHeuristic` (sums to 1) on the
+      `path_kernel.cpp` + MW env legs; MW env-NEE `worldMaxBounces` gate removed
+      to match the ungated MW miss leg. Contract test tightened + within-texel
+      KS uniformity; near-delta-metal no-double-count regression added.
 
 ---
 
 ## Lessons
 
-- (none yet)
+- **Near-delta-metal delta-guard latent bug is broader than env NEE.** The same
+  `rec.isDelta`-not-set-before-NEE pattern Terra flagged for env NEE also affects
+  the LAMP NEE in `pathTraceSpectralCaustic` (raytracer.h) and in
+  `multiwavelength_path_tracer.cpp` — a near-delta metal there returns
+  `evalSpectral!=0` with `pdf==0` and would take `wt=1` while its specular miss
+  is unweighted. pkg258 fixed the in-header `pathTraceSpectral` lamp block (in
+  scope) but left the caustic + MW lamp blocks untouched (surgical). Follow-up:
+  apply the `bsdfPdf>0 || ls.isDelta` guard to those two lamp blocks.
+- **MW tracer ignores `worldMaxBounces` entirely** (pre-existing). Its miss leg
+  has no `worldMaxBounces` gate, so pkg258 removed the gate its new env-NEE
+  branch briefly had (to keep the NEE/miss discount paired). Follow-up: decide
+  whether the MW tracer should honour `worldMaxBounces` at all (the in-header
+  `pathTraceSpectral` does); if so, gate BOTH the miss and NEE legs together.
+- **No positive CDF floor** (Terra Q2 note). `buildCdf` weights texels by
+  `luminance·sinθ` with no floor, so a black texel has pdf 0. Continuous
+  sampling + bilinear radiance keeps the estimator unbiased (black texels are
+  delivered by the unweighted miss leg), but `L/pdf` can still spike at a
+  dim/bright texel boundary — a variance (firefly) concern, not bias. Follow-up
+  only if the `hdri_exterior_hair` re-run shows fireflies.

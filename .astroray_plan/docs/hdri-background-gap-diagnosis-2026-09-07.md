@@ -213,3 +213,60 @@ evening supports the owner's direction and is now the basis of **pkg258**
   Cycles side. Experiment 1a must be re-run after pkg258 lands, and the
   `HDRI_MIN_BACKGROUND_MEAN` floor re-derived from the `.hdr` decode, before this doc's
   "not in Astroray" conclusion is repeated anywhere.
+
+
+## Addendum 2026-09-08 — experiment 1a re-run with pkg258 env NEE (lead, CPU)
+
+Setup: same driver (`test_results/2026-09-07-hdri-gap/run_experiment.py`, headless
+Blender 5.2, `hdri_exterior_hair.blend`, 160×90, Standard/exposure 0, EXR float),
+Astroray = the pkg258 branch (`feat/pkg258-2026-09-08`, PR #747) built as the
+OpenMP-off CPU addon module; "pre-258" = `dist/astroray` staged from main 2026-09-07.
+Raw arrays: `Astroray-pkg258/test_results/2026-09-08-pkg258/hdrigap/` (local);
+the side-by-side is committed as
+[`pkg258-hdri-gap/cycles128_astroray-nee128_astroray-pre258.png`](pkg258-hdri-gap/cycles128_astroray-nee128_astroray-pre258.png)
+(left Cycles 128 spp, middle Astroray+env-NEE 128 spp, right Astroray pre-258 32 spp).
+
+| leg | harness ROI mean (`rows[:7]`) | per-channel | whole-image mean |
+|---|---|---|---|
+| Cycles CPU 32 spp | 0.1211 | 0.1285 / 0.1310 / 0.1038 | 0.1909 |
+| Cycles CPU 128 spp | 0.1207 | 0.1280 / 0.1306 / 0.1036 | 0.1909 |
+| Astroray pre-258, 32 spp | 0.0487 | 0.0415 / 0.0496 / 0.0549 | 0.1298 |
+| **Astroray + env NEE, 32 spp** | **0.1120** | 0.1211 / 0.1203 / 0.0946 | 0.1796 |
+| **Astroray + env NEE, 128 spp** | **0.1120** | 0.1211 / 0.1203 / 0.0946 | 0.1794 |
+| world-only isolate (both engines) | 0.0347 | 0.0443 / 0.0380 / 0.0218 | 0.1312 |
+
+**Which side moved: Astroray.** Cycles is unchanged (0.121, reproduced at both spp);
+Astroray moved 0.0487 → 0.1120 (ratio to Cycles 0.40 → 0.925; per channel
+0.946 / 0.921 / 0.914) and the whole-image mean from 0.68× to 0.94× Cycles. The
+row-band ratio (bottom→top of the picture) is 0.93 / 0.90 / 0.83 / 0.84 / 0.90 /
+0.96 / 0.99 / 1.00 / 1.00: the sky is exact, the ground rows carry the residual.
+The owner's hypothesis (Astroray's environment sampling, not Cycles inflation) is
+confirmed; the "Cycles inflated" conclusion above is withdrawn.
+
+**Why the "sky-only" ROI responded to a lighting change — harness orientation bug.**
+`benchmarks/blender_parity/render_leg.py:118` stores `image.pixels[:]` as
+`(h, w, 3)` with **no vertical flip**; Blender's pixel buffer is bottom-up, so row 0
+of every `.npy` is the *bottom* of the picture. All ROI constants in `harness.py`
+(`HDRI_BACKGROUND_ROI` "top strip", `HAIR_ROI` "above the scalp apex",
+`CHECKER_ROI` "row 3, col 1") are written top-down. `HDRI_BACKGROUND_ROI`
+therefore measures the **near ground strip** (Ground plane under the sky), which is
+exactly why hiding the Ground collapsed Cycles to the isolate value (experiment 4a),
+why the zero-bounce test kept most of it (direct sun/sky NEE on the ground survives
+bounces=0), and why `sampling_method=NONE` halved it (Cycles' own env importance
+sampling stopped converging the ground). The true sky strip (`rows[-7:]`) reads
+0.1829 (Cycles) vs 0.1826 (Astroray+NEE) — engines agree there, before and after.
+`HAIR_ROI` likewise measures a ground/shadow band, so the recorded `hair_coverage`
+numbers (0.19 Cycles / 0.38 Astroray) are not hair coverage. **Fixed in PR #749
+(merged 2026-09-08):** rows flipped once in `render_leg.py`; while re-deriving the floor
+that PR found that experiment 1c's `.hdr` decode script has its own v-axis flip, so the
+"ground-truth sky 0.0338" figure above is stale too — the verified sky-strip value is
+**0.184** (matches both engines' 0.183 above); `HDRI_MIN_BACKGROUND_MEAN` = 0.092
+(half of it), manifest regenerated (sky 0.1837 Cycles / 0.1838 Astroray-pre-258, hair
+coverage 0.89 / 0.90, checker ROI re-measured by projection).
+
+**Residual (open, carried by the pkg258 GPU leg / follow-up):** Astroray's ground
+rows remain 7–17 % darker than Cycles with env NEE on (blue channel worst, 0.914).
+Candidates: the per-bounce firefly clamp (`clampContribSpectral`) trimming the
+sun-texel NEE contributions; the point-pdf vs bilinear-radiance mismatch at the
+sun disc (Terra review Q2/Q6); indirect from the hair sphere. Not exposure or the
+sampler contract (contract test green, furnace 0.997).

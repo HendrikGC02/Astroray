@@ -147,7 +147,11 @@ def _install():
         try:
             return o_render(self, *a, **k)
         finally:
-            S["renders"].append((e, time.perf_counter()))
+            # pkg241 Phase 1: snapshot the resolution divisor this chunk rendered
+            # at (self is the Exporter instance) so the driver can report the
+            # effective interactive-resolution divisor engaged per event class.
+            div = getattr(self, "_viewport_render_divisor", None)
+            S["renders"].append((e, time.perf_counter(), div))
 
     eng_cls.view_draw = w_draw
     eng_cls.view_update = w_update
@@ -233,6 +237,15 @@ def _install():
         # engine entry = earliest of the two handler entries after dispatch
         entries = [t[0] for t in (draw, upd) if t is not None]
         entry = min(entries) if entries else None
+        # pkg241 Phase 1 stale-frame / double-render guard: count render_viewport_frame
+        # calls that both STARTED after dispatch and FINISHED at/before the first
+        # present. A material edit's first present must be backed by >= 1 render for
+        # THIS edit (renders_before_present == 0 => a stale pre-edit texture was
+        # blitted). Present-first also collapses the material double-render from 2 to 1.
+        rbp = None
+        if pres is not None:
+            rbp = sum(1 for r in S["renders"]
+                      if r[0] >= dts and r[1] <= pres)
         row = {
             "idx": ev_idx,
             "warmup": ev_idx < N_WARMUP,
@@ -240,6 +253,10 @@ def _install():
             "entry_ms": (entry - dts) * 1000.0 if entry is not None else None,
             "render_ms": (rnd[1] - rnd[0]) * 1000.0 if rnd is not None else None,
             "block_ms": (max(draw[1] if draw else 0, upd[1] if upd else 0) - dts) * 1000.0,
+            "renders_before_present": rbp,
+            # divisor of the first chunk rendered for this edit = the coarse
+            # starting divisor the interactive-resolution budget engaged.
+            "start_divisor": (rnd[2] if rnd is not None and len(rnd) > 2 else None),
         }
         S["events"].append(row)
 

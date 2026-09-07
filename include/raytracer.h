@@ -1716,8 +1716,12 @@ public:
         float vCont = v + 0.5f;
 
         // Convert (u_cont, v_cont) to direction in env-map space (Y is the polar axis).
-        float theta = (1.0f - vCont / height) * M_PI;  // [0, pi]
-        float phi = (uCont - 0.5f) * 2.0f * M_PI;      // [-pi, pi]
+        // pkg258: azimuth uses NORMALISED u (uCont/width) — the exact inverse of
+        // pdf()'s u = 0.5 + phi/2π. The pre-pkg258 code used uCont in PIXEL units,
+        // so phi = u·2π wrapped to ≈0 for every column: every importance sample
+        // pointed at azimuth 0 while carrying the correct texel's radiance and pdf.
+        float theta = (1.0f - vCont / height) * M_PI;          // [0, pi]
+        float phi = (uCont / width - 0.5f) * 2.0f * M_PI;      // [-pi, pi]
 
         Vec3 dir_env(std::sin(theta) * std::cos(phi),
                      std::cos(theta),
@@ -2320,6 +2324,14 @@ class Renderer {
     // World/environment max bounces: env contribution is skipped for bounce > worldMaxBounces
     // Default 1024 = effectively unlimited. Set to 0 for camera-only, 1 for one indirect bounce.
     int worldMaxBounces = 1024;
+    // pkg258 — environment next-event estimation. When true (default post-pkg258)
+    // every non-delta shading vertex draws an importance sample from the loaded
+    // HDRI's CDF (EnvironmentMap::sample), traces a shadow ray to infinity, and
+    // combines it with the BSDF-sampled miss leg by the power heuristic. The A/B
+    // convergence gate (test_pkg258_env_nee_convergence) flips this via
+    // set_env_nee(false) to measure the variance win. No-op when no env map / CDF
+    // is loaded, so scenes without an HDRI are byte-identical to pre-pkg258.
+    bool envNeeEnabled = true;
     bool hasWorldVolume = false;
     float worldVolumeDensity = 0.0f;
     Vec3 worldVolumeColor = Vec3(1.0f);
@@ -2640,6 +2652,8 @@ public:
         pixelFilterWidth = std::max(0.01f, width);
     }
     void setWorldMaxBounces(int maxB) { worldMaxBounces = std::max(0, maxB); }
+    void setEnvNee(bool enable) { envNeeEnabled = enable; }   // pkg258
+    bool getEnvNee() const { return envNeeEnabled; }          // pkg258
     // pkg201 Stage 3 (Finding A) — set the Cycles per-type bounce limits. -1 (or
     // any negative) = unlimited. Called by Renderer::render() and by the GPU
     // dispatch (blender_module.cpp) before cuda_wavefront_render so both backends
@@ -3102,26 +3116,39 @@ public:
             }
 
             if (!didHit) {
-                // No env NEE in pathTraceSpectral, so env always contributes on miss
-                // (the wasSpecular gate would suppress diffuse-to-background paths).
                 if (bounce <= worldMaxBounces) {
                     astroray::SampledSpectrum envSpec(0.0f);
+                    Vec3 missDir = ray.direction.normalized();
                     if (envMap && envMap->loaded()) {
-                        envSpec = envMap->evalSpectral(ray.direction.normalized(), lambdas);
+                        envSpec = envMap->evalSpectral(missDir, lambdas);
                     } else if (backgroundColor.x >= 0) {
                         envSpec = astroray::RGBIlluminantSpectrum(
                             {backgroundColor.x, backgroundColor.y, backgroundColor.z}).sample(lambdas);
                     } else {
-                        float t = 0.5f * (ray.direction.normalized().y + 1.0f);
+                        float t = 0.5f * (missDir.y + 1.0f);
                         Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
                         envSpec = astroray::RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
+                    }
+                    // pkg258: two-strategy MIS for the background, mirroring the pkg120
+                    // two-sided emissive-hit weight. A camera ray (bounce==0) or a
+                    // post-specular/delta miss is UNWEIGHTED (no env NEE competed for
+                    // this direction — keeps the directly-visible sky exact). After a
+                    // non-specular bounce, env NEE at the previous vertex DID sample
+                    // this direction, so weight the BSDF-sampled miss by the power
+                    // heuristic against the env importance pdf. w=1 when env NEE is off
+                    // or no importance map is loaded (no competing strategy).
+                    astroray::SampledSpectrum weighted = envSpec;
+                    if (envNeeEnabled && !(bounce == 0 || wasSpecular) &&
+                        envMap && envMap->loaded()) {
+                        float ep = envMap->pdf(missDir);
+                        weighted = envSpec * powerHeuristic(bsdfPdfPrev, ep);
                     }
                     // pkg198: directly-visible background → PASS_ENVIRONMENT; background
                     // reached after a bounce → <firstCat>_INDIRECT (Cycles
                     // film_write_emission_or_background_pass / film_write_background).
                     int envPass = (firstCat < 0) ? PASS_ENVIRONMENT : (firstCat * 3 + 1);
                     astroray::SampledSpectrum c =
-                        clampContribSpectral(throughput * envSpec, lambdas, bounce);
+                        clampContribSpectral(throughput * weighted, lambdas, bounce);
                     color += c; addPass(envPass, c);
                 }
                 break;
@@ -3291,6 +3318,58 @@ public:
                         astroray::SampledSpectrum c =
                             clampContribSpectral(neeContrib, lambdas, bounce);
                         color += c; addPass(neePass, c);
+                    }
+                }
+            }
+
+            // pkg258: Environment next-event estimation. Disjoint from lamp NEE
+            // above (the environment is the infinite background; dedicated lamps
+            // are finite emitters — a shadow ray reaches at most one of them), so
+            // this is an INDEPENDENT NEE strategy forming its own power-heuristic
+            // MIS pair with BSDF sampling (see pkg258-env-nee-research.md for the
+            // env-vs-lamp selection rationale). Estimator = PBRT 4e §12.5 /
+            // Cycles background_light_sample (Apache-2.0). Skipped on delta lobes
+            // (no importance sample can be reproduced by/against a delta BSDF) and
+            // gated on worldMaxBounces exactly like the miss leg (the NEE sample is
+            // one more world bounce onto this vertex: b+1 <= worldMaxBounces).
+            if (envNeeEnabled && !rec.isDelta && envMap && envMap->loaded() &&
+                (bounce + 1) <= worldMaxBounces) {
+                EnvironmentMap::EnvSample es = envMap->sample(gen);
+                if (es.pdf > 0.0f) {
+                    Vec3 wi = es.direction.normalized();
+                    // Shadow ray to infinity through the shared transparent-shadow
+                    // transmittance (pkg253); infinite maxDist since the env is at
+                    // infinite distance. Unobstructed (Tr=1) when nothing occludes.
+                    float shadowTr = shadowTransmittance(
+                        *bvh, Ray(rec.point, wi, ray.time),
+                        std::numeric_limits<float>::max());
+                    if (shadowTr > 0.0f) {
+                        astroray::SampledSpectrum f_spec =
+                            rec.material->evalSpectral(rec, wo, wi, lambdas);
+                        // L from evalSpectral(wi) — the SAME lookup the miss leg
+                        // uses (bilinear, strength+tint) so NEE and miss agree per
+                        // wavelength (spec). es.pdf is the point-sample CDF pdf.
+                        astroray::SampledSpectrum L_spec = envMap->evalSpectral(wi, lambdas);
+                        float bsdfPdf = rec.material->pdf(rec, wo, wi);
+                        // pkg136: weight against the SAME mixture pdf the continuation
+                        // is drawn from when guiding is active (see lamp NEE above).
+                        if (guidingActive()) {
+                            const float gp[3] = {rec.point.x, rec.point.y, rec.point.z};
+                            float pg = guideSampling_->pdfDir(gp, wi.x, wi.y, wi.z);
+                            bsdfPdf = guideAlpha_ * pg + (1.0f - guideAlpha_) * bsdfPdf;
+                        }
+                        float wt = powerHeuristic(es.pdf, bsdfPdf);
+                        astroray::SampledSpectrum envNee =
+                            throughput * f_spec * L_spec * (wt / es.pdf) * shadowTr;
+                        // pkg258: env NEE is a reflection-side connection (never fires
+                        // on a delta/transmission lobe), tagged like lamp NEE — DIRECT
+                        // (diffuse/glossy) at the camera-visible vertex, else INDIRECT.
+                        int envNeePass = (firstCat < 0)
+                            ? (rec.material->isGlossy() ? 1 : 0) * 3 + 0
+                            : firstCat * 3 + 1;
+                        astroray::SampledSpectrum c =
+                            clampContribSpectral(envNee, lambdas, bounce);
+                        color += c; addPass(envNeePass, c);
                     }
                 }
             }

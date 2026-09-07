@@ -238,7 +238,20 @@ private:
                     Vec3 bg = (Vec3(1) * (1 - t) + Vec3(0.5f, 0.7f, 1.0f) * t) * 0.2f;
                     envSpec = astroray::RGBIlluminantSpectrum({bg.x, bg.y, bg.z}).sample(lambdas);
                 }
-                color += throughput * envSpec;
+                // pkg258: two-strategy MIS for the background (mirror of the
+                // pkg120 emissive-hit weight and pathTraceSpectral's miss leg).
+                // Camera/post-specular miss = full env (no NEE competed); after a
+                // non-specular bounce, weight by the power heuristic against the
+                // env importance pdf. Only when env NEE is active and an
+                // importance map is loaded.
+                astroray::SampledSpectrum weighted = envSpec;
+                if (enableNEE_ && renderer_->getEnvNee() &&
+                    !(bounce == 0 || wasSpecular) && envMap && envMap->loaded()) {
+                    float ep = envMap->pdf(dir);
+                    float bp = bsdfPdfPrev;
+                    weighted = envSpec * ((bp * bp) / (bp * bp + ep * ep + 1e-8f));
+                }
+                color += throughput * weighted;
                 break;
             }
 
@@ -297,6 +310,33 @@ private:
                         float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
                         color += throughput * f_spec * L_spec *
                                  (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f) * shadowTr;  // pkg253 G1
+                    }
+                }
+            }
+
+            // pkg258: Environment NEE (mirrors pathTraceSpectral). Independent,
+            // additive strategy disjoint from lamp NEE, MIS-combined with BSDF
+            // sampling via the power heuristic (PBRT 4e §12.5 / Cycles
+            // background_light_sample). Uses evalSpectralExt for the BSDF factor
+            // (profile-aware, like the lamp leg) and evalSpectral(wi) for L_env so
+            // NEE and miss agree per wavelength. Gated on worldMaxBounces (b+1).
+            if (enableNEE_ && renderer_->getEnvNee() && !rec.isDelta &&
+                envMap && envMap->loaded() &&
+                (bounce + 1) <= renderer_->getWorldMaxBounces()) {
+                EnvironmentMap::EnvSample es = envMap->sample(gen);
+                if (es.pdf > 0.0f) {
+                    Vec3 wi = es.direction.normalized();
+                    float shadowTr = shadowTransmittance(
+                        *bvh, Ray(rec.point, wi, ray.time),
+                        std::numeric_limits<float>::max());
+                    if (shadowTr > 0.0f) {
+                        astroray::SampledSpectrum f_spec =
+                            rec.material->evalSpectralExt(rec, wo, wi, lambdas);
+                        astroray::SampledSpectrum L_spec = envMap->evalSpectral(wi, lambdas);
+                        float bsdfPdf = rec.material->pdf(rec, wo, wi);
+                        float wt = (es.pdf * es.pdf) /
+                                   (es.pdf * es.pdf + bsdfPdf * bsdfPdf + 1e-8f);
+                        color += throughput * f_spec * L_spec * (wt / es.pdf) * shadowTr;
                     }
                 }
             }

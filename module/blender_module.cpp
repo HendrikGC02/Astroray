@@ -8,6 +8,8 @@
 #include <cmath>
 #include <mutex>
 #include <random>  // pkg191: std::random_device for the GPU seed-0 contract
+#include <tuple>    // pkg258: sample_environment_map returns a 3-tuple
+#include <cstdint>  // pkg258: uint32_t seed
 #include "raytracer.h"
 #include "advanced_features.h"
 #include "astroray/shapes.h"
@@ -1742,6 +1744,49 @@ public:
         return {s[0], s[1], s[2], s[3]};
     }
 
+    // pkg258 test binding — draw N importance samples from the loaded HDRI's CDF
+    // (EnvironmentMap::sample). Returns three flat arrays: directions (3N),
+    // radiances (3N, RGB), pdfs (N). Deterministic in `seed`. Used by
+    // test_pkg258_env_sampler_contract to check pdf/sample and lookup/sample
+    // agreement and the azimuth histogram vs the CDF.
+    std::tuple<std::vector<float>, std::vector<float>, std::vector<float>>
+    sampleEnvironmentMap(uint32_t seed, int n) const {
+        std::vector<float> dirs, rads, pdfs;
+        if (!envMap || !envMap->loaded() || n <= 0) return {dirs, rads, pdfs};
+        dirs.reserve(3 * n); rads.reserve(3 * n); pdfs.reserve(n);
+        std::mt19937 gen(seed);
+        for (int i = 0; i < n; ++i) {
+            EnvironmentMap::EnvSample es = envMap->sample(gen);
+            dirs.push_back(es.direction.x);
+            dirs.push_back(es.direction.y);
+            dirs.push_back(es.direction.z);
+            rads.push_back(es.radiance.x);
+            rads.push_back(es.radiance.y);
+            rads.push_back(es.radiance.z);
+            pdfs.push_back(es.pdf);
+        }
+        return {dirs, rads, pdfs};
+    }
+
+    // pkg258 test binding — solid-angle pdf of the HDRI CDF for a world direction.
+    float environmentPdf(const std::vector<float>& dir) const {
+        if (!envMap || !envMap->loaded()) return 0.0f;
+        return envMap->pdf(Vec3(dir[0], dir[1], dir[2]));
+    }
+
+    // pkg258 test binding — RGB radiance lookup (bilinear, strength+tint applied)
+    // for a world direction; the contract test compares this to sample.radiance.
+    std::vector<float> environmentLookup(const std::vector<float>& dir) const {
+        if (!envMap || !envMap->loaded()) return {0, 0, 0};
+        Vec3 c = envMap->lookup(Vec3(dir[0], dir[1], dir[2]));
+        return {c.x, c.y, c.z};
+    }
+
+    // pkg258 — toggle environment next-event estimation (default ON). The A/B
+    // convergence gate flips this to measure the variance win.
+    void setEnvNee(bool enable) { renderer.setEnvNee(enable); }
+    bool getEnvNee() const { return renderer.getEnvNee(); }
+
     void setBackgroundColor(const std::vector<float>& color) {
         renderer.setBackgroundColor(Vec3(color[0], color[1], color[2]));
     }
@@ -3284,6 +3329,16 @@ PYBIND11_MODULE(astroray, m) {
              "the Astroray->Blender coord-swap into the rotation matrix. pkg63.")
         .def("eval_env_spectral", &PyRenderer::evalEnvSpectral, "direction"_a, "u"_a)
         .def("eval_env_rgb_upsample", &PyRenderer::evalEnvRGBUpsample, "direction"_a, "u"_a)
+        .def("sample_environment_map", &PyRenderer::sampleEnvironmentMap, "seed"_a, "n"_a,
+             "pkg258 — draw n importance samples from the HDRI CDF. Returns "
+             "(directions[3n], radiances[3n], pdfs[n]).")
+        .def("environment_pdf", &PyRenderer::environmentPdf, "direction"_a,
+             "pkg258 — solid-angle pdf of the HDRI CDF for a world direction.")
+        .def("environment_lookup", &PyRenderer::environmentLookup, "direction"_a,
+             "pkg258 — RGB radiance lookup (bilinear, strength+tint) for a direction.")
+        .def("set_env_nee", &PyRenderer::setEnvNee, "enable"_a,
+             "pkg258 — toggle environment next-event estimation (default ON).")
+        .def("get_env_nee", &PyRenderer::getEnvNee)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)
         .def("set_film_exposure", &PyRenderer::setFilmExposure, "exposure"_a)
         .def("set_use_transparent_film", &PyRenderer::setUseTransparentFilm, "use"_a)

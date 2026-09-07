@@ -20,50 +20,48 @@ void BackgroundLight::sampleLi(LiSample& sample,
                                const Vec3& shadingNormal,
                                const SampledWavelengths& lambdas,
                                std::mt19937& gen) const {
-    // BackgroundLight wraps EnvironmentMap. The EnvironmentMap::sample method
-    // already performs importance sampling via marginal CDF.
-    // For Phase A, we provide a simple uniform-sphere sampling stub.
-    // Full integration with EnvironmentMap::sample is deferred to Phase B or
-    // when the EnvironmentMap API is extended to support spectral queries.
+    // pkg258: importance-sample the HDRI CDF (EnvironmentMap::sample, the same
+    // estimator pathTraceSpectral's env-NEE leg uses). Reference: Cycles
+    // background_light_sample / PBRT 4e §12.5 ImageInfiniteLight::SampleLi.
+    (void)shadingNormal;
+    EnvironmentMap::EnvSample es = envMap_->sample(gen);
 
-    // Uniform sphere sampling (placeholder).
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-    float u1 = dist(gen);
-    float u2 = dist(gen);
-    float z = 1.0f - 2.0f * u1;
-    float r = std::sqrt(std::max(0.0f, 1.0f - z * z));
-    float phi = 2.0f * static_cast<float>(M_PI) * u2;
-    Vec3 dir(r * std::cos(phi), r * std::sin(phi), z);
-
-    sample.position = shadingPoint + dir * 1e6f;  // far away
-    sample.normal = -dir;
+    Vec3 wi = es.direction;
+    // Infinite-distance light: place the "position" far along wi so callers that
+    // derive a direction from (position - shadingPoint) recover wi, and report an
+    // infinite distance so the shadow ray runs to infinity.
+    sample.position = shadingPoint + wi * 1e6f;
+    sample.normal   = -wi;
     sample.distance = std::numeric_limits<float>::max();
 
-    // Query EnvironmentMap for RGB emission.
-    // NOTE: EnvironmentMap::lookup currently returns RGB only. Spectral
-    // upsampling is a temporary workaround until EnvironmentMap is extended.
-    Vec3 emissionRGB = envMap_->lookup(dir);
+    // Spectral radiance from evalSpectral(wi) — bilinear, strength+tint applied —
+    // so this matches the env-NEE/miss legs per wavelength. emission_rgb keeps the
+    // point-sample RGB for ReSTIR compatibility.
+    sample.emission_spec = envMap_->evalSpectral(wi, lambdas);
+    sample.emission_rgb  = es.radiance;
 
-    // Upsample RGB to spectral via RGBIlluminantSpectrum (D65-weighted),
-    // matching the existing engine convention for env-map rgb emission.
-    RGBIlluminantSpectrum rgbSpectrum({emissionRGB.x, emissionRGB.y, emissionRGB.z});
-    sample.emission_spec = rgbSpectrum.sample(lambdas);
-    sample.emission_rgb = emissionRGB;
-
-    // PDF: 1 / (4π) for uniform sphere sampling.
-    sample.pdf = 1.0f / (4.0f * static_cast<float>(M_PI));
+    sample.pdf     = es.pdf;   // solid-angle pdf, 1/sr
+    sample.isDelta = false;    // area/environment light, not a delta direction
 }
 
 float BackgroundLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {
-    // Uniform sphere PDF.
-    return 1.0f / (4.0f * static_cast<float>(M_PI));
+    // pkg258: exact solid-angle pdf of the HDRI CDF for `direction` (the MIS
+    // partner of BSDF sampling). Cycles background_light_pdf.
+    (void)shadingPoint;
+    return envMap_->pdf(direction);
 }
 
 float BackgroundLight::power() const {
-    // Background light power: integrate envmap over all directions.
-    // Approximate by average luminance × 4π.
-    // This is a placeholder; accurate computation requires envmap CDF traversal.
-    return 1.0f;  // stub value
+    // pkg258: approximate radiant power as the solid-angle integral of radiance
+    // over the sphere, L̄·4π. totalPower = Σ_{u,v} luminance·sinθ_v; the lat-long
+    // per-texel solid angle is ΔΩ = sinθ·(π/H)·(2π/W), so ∫L dω ≈ totalPower·
+    // 2π²/(W·H), then scaled by strength. Nothing consumes this today (pkg86 owns
+    // light-tree inclusion); it is a monotone energy proxy, not a calibrated value.
+    int w = envMap_->getWidth(), h = envMap_->getHeight();
+    if (w == 0 || h == 0) return 0.0f;
+    const float twoPi2 = 2.0f * static_cast<float>(M_PI) * static_cast<float>(M_PI);
+    return envMap_->getTotalPower() * twoPi2 / (static_cast<float>(w) * h)
+           * envMap_->getStrength();
 }
 
 AABB BackgroundLight::bounds() const {

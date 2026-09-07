@@ -547,8 +547,11 @@ __device__ inline GEnvSample gpu_envmap_sample(const GEnvMap& em, curandState* r
 
     float uCont = u + 0.5f;
     float vCont = v + 0.5f;
+    // pkg258: azimuth uses NORMALISED u (uCont/width) — exact inverse of
+    // gpu_envmap_pdf's u = 0.5 + phi/2π. Pre-pkg258 used uCont in PIXEL units,
+    // wrapping phi to ≈0 for every column (mirrors the CPU sample() bug).
     float theta = (1.f - vCont / em.height) * M_PI_F;
-    float phi   = (uCont - 0.5f) * 2.f * M_PI_F;
+    float phi   = (uCont / em.width - 0.5f) * 2.f * M_PI_F;
 
     GVec3 dir_env = GVec3(sinf(theta)*cosf(phi), cosf(theta), sinf(theta)*sinf(phi));
     es.direction = gpu_envmap_apply_rot_T(em, dir_env);

@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done — PR #745, 2026-09-08: Displacement Height/Midlevel/Scale → pkg223b bump path, 15/15 tests incl. GPU relief + CPU/GPU parity on RTX 5070 Ti; DISPLACEMENT 3 rows DROPPED-SILENT→APPROXIMATED; F12-pipeline faint-relief finding filed as issue #746
 **Estimated effort:** 3 sessions (~9 h)
 **Depends on:** pkg223b, pkg229
 

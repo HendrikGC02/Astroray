@@ -353,7 +353,7 @@ All implementation gates UNRUN:
       Not separately re-measured this pass (unchanged from Phase 1a/1b,
       no new evidence needed): CPU legs, and the cancel-ack numbers already
       landed under the Phase 1b entry below.
-- [ ] 2026-09-08 — Phase 1b (cooperative cancellation) code implemented; PR pending.
+- [x] 2026-09-08 — Phase 1b (cooperative cancellation) MERGED as PR #748 (cpp-abi-guard: Python-exception-through-OpenMP terminate path fixed by stash + rethrow after metadata; 10/10 on the RTX build).
   - **Native callback returns bool.** `Renderer::render`'s progress callback is
     now `std::function<bool(float)>` (`include/raytracer.h`): the OpenMP tile loop
     sets a shared `std::atomic<bool> cancelled` on a `false` return and skips the

@@ -3327,8 +3327,7 @@ void launchStageEnvShadow(
     #undef ASTRORAY_PKG258_ENV_SHADOW_ARGS
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
-        std::fprintf(stderr, "stage_env_shadow launch error: %s
-",
+        std::fprintf(stderr, "stage_env_shadow launch error: %s\n",
                      cudaGetErrorString(err));
         throw std::runtime_error(cudaGetErrorString(err));
     }

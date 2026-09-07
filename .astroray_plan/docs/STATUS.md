@@ -1,6 +1,99 @@
 # Astroray Status
 
-## 2026-09-08 IN-PROGRESS — overnight lead session (interim record, updated ~03:15)
+## 2026-09-08 CURRENT — overnight lead session closeout (~07:00)
+
+Lead: Claude Fable 5.1, autonomous (dispatch order from `next-session-prompt-2026-09-07.md`);
+usage-limit gap 03:45–04:20 killed three lanes (all recovered from pushed WIP commits).
+Lanes: Opus 4.8 (pkg258 CPU + GPU, pkg241 Phase 1b, Phase 2 architect, cpp-abi-guard),
+Sonnet 5 (pkg237/255/257, pkg259 Phase 0, harness fix, Phase 2 measurement), one Astra
+brainstorm, four Codex Terra reviews. Next prompt: `next-session-prompt-2026-09-08.md`.
+
+**Merged (squash, all CI green, GPU-gated on the RTX 5070 Ti where engine code changed):**
+- **#743 pkg259 Phase 0** — `reference-corpus-design-2026-09.md`: seven scene families, all
+  527 matrix rows allocated (0 uncovered SUPPORTED/APPROXIMATED, 363 gap cards), licences,
+  manifest schema, Phase 1 build plan; Astra brainstorm folded in (coverage-claim rule,
+  `textures_mapping` workshop). Nine owner questions in §7.
+- **#742 pkg237** — owner option (c) measured: firefly-free fixture SSIM **0.9625** (was 0.9628),
+  3×3 patch bit-identical in the CPU proxy → the firefly hypothesis is falsified; the residual
+  is the independent-RNG noise floor. Fixture change reverted (neutral); spec records it.
+- **#744 pkg255 Metallic BSDF F82 floor** — 9/9 CPU+GPU; matrix BSDF_METALLIC 8 rows → APPROXIMATED.
+- **#745 pkg257 Displacement → bump floor** — 15/15 incl. GPU; DISPLACEMENT 3 rows → APPROXIMATED
+  (matrix 114 / 61 / 352). **Issue #746 (addon-bug, P1):** bump relief far fainter through the
+  F12 pipeline than the direct API — pre-existing on `ShaderNodeBump`.
+- **#747 pkg258 CPU env NEE + importance sampling** — sampler azimuth fix + continuous
+  within-texel sampling (CPU + GPU samplers); env NEE with power-heuristic MIS in the in-header
+  tracer, CPU wavefront kernel, MW tracer; Terra call 1 BLOCK → all five defects fixed → Terra
+  call 2 MERGE. pdf(sample)==sample.pdf 9e-6; sun-disc RMSE ratio **0.526** vs 65 536-spp
+  reference (gate re-pinned 0.25 → 0.58 with derivation); furnace 0.9946 CPU / 0.9943 GPU.
+- **#749 parity-harness pixel order** — `render_leg.py` stores frames top-down; the
+  "background" ROI had been measuring the ground strip and the ground-truth decode script had
+  its own flip: true sky-strip radiance **0.184** (Cycles 0.1837 / Astroray 0.1838), floor 0.092,
+  `CHECKER_ROI` re-measured by projection, hair coverage now real (0.89 / 0.90).
+  **The 0.121-vs-0.047 "HDRI background gap" is closed:** it was the Ground plane's receiver
+  lighting; with env NEE Astroray's ground strip is 0.112 vs Cycles 0.121 (0.925; whole image
+  0.94×, sky 1.00×) — addendum in `hdri-background-gap-diagnosis-2026-09-07.md`.
+- **#748 pkg241 Phase 1b** — bool progress callback, GPU host cancel hook between wavefront
+  passes, F12 `test_break` honoured, GIL released around the CPU render (OpenMP-worker
+  deadlock found + fixed), cpp-abi-guard exception-through-OpenMP path fixed; in-process GPU
+  cancel-ack p95 **4.1 ms** (metal_sweep) / **8.6 ms** (100k) vs the 200 ms budget.
+- **#750 pkg241 Phase 2 measurement** — `blender_driver.py --mode ui_latency`: main-thread
+  5 ms-ticker gap while a chunk renders (GPU, isolated Blender 5.2): Astroray p50/p95/p99
+  **158/179/194 ms** (metal_sweep, 95 % blocked) and **233/274/283 ms** (100k, 97 % blocked);
+  Cycles OPTIX **6.5/9.6/11.1** and **6.5/8.1/9.4** (24–27 % blocked). Budget p95 ≤ 33 ms —
+  the owner's "UI runs at the render's frame rate" is now a number.
+- Direct to main (docs): interim STATUS blocks, `KNOWN_ISSUES.md` (#746), pkg241 Phase 2 design
+  doc + Terra review + lead decision (below), spec Progress lines.
+
+**pkg258 GPU wavefront leg — PR #751 (OPEN, parked with state-of-play):** env NEE in the CUDA
+wavefront — second parked shadow record + env strategy tag in the deferred shadow stage,
+env RNG before RR, infinite occlusion / zero volume distance, `env_nee_sampled_prev`,
+`__noinline__` generate behind a `__constant__` flag. Engine gates green on the RTX build:
+GPU sun-disc RMSE ratio **0.520** (gate ≤ 0.58), furnace 0.9946, `stageShadeBucketedKernel`
+REG **254 unchanged** (STACK +136 B), 9/9 wavefront env parity, bit-identity + oracle green,
+CPU/GPU HDRI converged means agree ≤ 3.9 % (SSIM 0.963 kept xfail with the pkg237 reason).
+Terra call 4: **MERGE-AFTER-FIX** — (a) `gpu_mw_powerHeuristic` 1e-8 epsilon makes the env MIS
+weights sum < 1 (dark bias); (b) lazy env-shadow resolve reads post-dispersion wavelengths
+while the parked BSDF factor is pre-dispersion; (c) HDRI RNG-dimension contract differs from
+the CPU kernel (2 main-stream draws vs 1 + local generator); plus a `set_env_nee(false)`
+byte-identity regression. Fix lane dispatched 05:45 (time-boxed 07:30). Residual
+measurements on the pre-fix build: `hdri_exterior_hair` CPU-vs-GPU per-channel ratio (fixed harness ROIs) sky **1.000**, hair 0.984–0.995, ground strip 0.996–0.998, whole 1.0005; pkg81 GPU viewport bench frame p50 ratio GPU-leg/main **0.988–1.008** across the six configs (≤ +1 %, gate +5 %) — both residuals from the PR body are now measured and in-band.
+
+**Phase 2 design (pkg241) — decision recorded, no threading code yet.**
+`pkg241-phase2-offthread-design-2026-09-08.md` (Opus 4.8 architect): A2 = addon-owned worker
+thread driving the existing binding, GPU path releasing the GIL, `view_draw` blit-only.
+Terra call 3: **BLOCK as written** — the `skip_upload` premise is wrong (the wavefront re-uploads
+scene arrays and rewrites `__constant__` bindings every render; global single-render-thread
+`WfContext`), the worker must never touch `bpy`/GPUTexture/redraw (main-thread timer queue),
+needs a process-wide GPU arbiter + generation-tagged non-blocking handoff, acknowledged worker
+exit before release, wider GIL release, denoise settled-only. Lead decision (doc §7): revise
+per Terra 1–6, then a minimal real-Blender A2 spike is the first implementation task.
+
+**Owner decisions needed:**
+1. pkg237: the 0.97 SSIM pin on a 64×64 env-only scene cannot be met by independent RNG
+   streams (measured floor 0.962–0.963 CPU-proxy and CPU/GPU, before and after env NEE).
+   Options: re-pin at the measured floor; downsample/denoise before SSIM; replace with the
+   per-channel converged-mean gate (already ≤ 3.9 % on the firefly channel).
+2. pkg241 Phase 2: confirm viewport denoise stays settled-only (consistent with §7) and
+   whether F12-while-viewport-refines must keep working (arbiter) or the viewport pauses on
+   F12 as Cycles does.
+3. pkg259 §7 questions (scanner extension for geometry/object features, gate (c) trio,
+   frequency-weight scoring rule).
+
+**Owner-manual (unchanged):** Apps Script `refresh()`; add `spec-lint` to required checks;
+review ghost GitHub app workflows; install `dist/astroray-4.0.0-cuda.zip` with Blender
+closed. Three Blender processes were left running at closeout (the owner's live instance
+from 23:33 plus two isolated measurement instances from 03:11/03:22 on port 9877) — the lead
+did not kill any process; close the two isolated ones by hand.
+
+**Build/tooling notes:** `build_cuda.bat` hits the sccache drop on `stage_advance.cu` every
+time now — use the launcher-free variant; main `.pyd` rebuilt 03:37 from post-#748 main
+(13 passed / 2 xfail GPU smoke). New memories: `addon-init-mixed-line-endings`,
+`bash-heredoc-backslash-mangling`, `blender-pixels-bottom-up-roi-flip`,
+`continuing-agents-without-sendmessage`.
+
+---
+
+## 2026-09-08 INTERIM (superseded by the closeout block above) — overnight lead session ~03:15
 
 Lead: Claude Fable 5.1, autonomous, dispatch order from `next-session-prompt-2026-09-07.md`.
 Lanes: pkg258 (Opus 4.8), pkg241 Phase 1b + Phase 2 metric (Opus 4.8), pkg237→pkg255→pkg257

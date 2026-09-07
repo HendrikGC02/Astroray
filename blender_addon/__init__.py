@@ -4022,13 +4022,44 @@ class CustomRaytracerRenderEngine(RenderEngine):
             self._warn_shader_fallback('BSDF_SHEEN', 'Cycles microfiber sheen is approximated with Disney sheen')
             return {'kind': 'principled', 'base_color': color, 'params': {'sheen': weight, 'roughness': rough}}
         if ntype == 'BSDF_METALLIC':
-            if node.inputs.get('Base Color') is not None:
-                color = self.get_color_input(node, 'Base Color', [0.8, 0.8, 0.8])
-            else:
-                color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
+            # pkg255: ShaderNodeBsdfMetallic has never exposed a 'Color' socket
+            # on any shipped Blender version (live 5.2 probe, 2026-09-07); the
+            # old defensive else-branch was speculative dead code, not a
+            # cross-version fallback. Read Base Color directly.
+            color = self.get_color_input(node, 'Base Color', [0.8, 0.8, 0.8])
             rough = self.get_float_input(node, 'Roughness', 0.2)
-            self._warn_shader_fallback('BSDF_METALLIC', 'F82 edge tint is approximated with Disney metallic base color')
-            return {'kind': 'principled', 'base_color': color, 'params': {'metallic': 1.0, 'roughness': rough}}
+            native = {'metallic': 1.0, 'roughness': rough}
+            fresnel_type = str(getattr(node, 'fresnel_type', 'F82')).upper()
+            if fresnel_type == 'PHYSICAL_CONDUCTOR':
+                # Astroray has no direct complex-IOR Fresnel evaluator (CPU or
+                # GPU) — genuine Phase-2 ceiling (CLAUDE.md §6: cite-algorithm
+                # before building one). Fall back to F82 defaults.
+                self._warn_shader_fallback(
+                    'BSDF_METALLIC',
+                    'complex-IOR conductor Fresnel is approximated with the '
+                    'F82-tint model; IOR/Extinction spectra are not read')
+            else:
+                # F82 (Gulbrandsen 2014 / Kutz-Hoffman): Edge Tint maps onto
+                # the same native-principled conductor param the Principled
+                # metallic lobe already uses (plugins/materials/principled.cpp).
+                native['specular_tint'] = self.get_color_input(node, 'Edge Tint', [1.0, 1.0, 1.0])
+            native['anisotropic'] = self.get_float_input(node, 'Anisotropy', 0.0)
+            native['anisotropic_rotation'] = self.get_float_input(node, 'Rotation', 0.0)
+            native['thin_film_thickness'] = self.get_float_input(node, 'Thin Film Thickness', 0.0)
+            native['thin_film_ior'] = self.get_float_input(node, 'Thin Film IOR', 1.33)
+            # Normal / Tangent / Weight / distribution: no per-lobe normal or
+            # tangent input, no closure-weight mixing, and a single conductor
+            # microfacet model exist on the native material (same class of
+            # non-goal as pkg253's Principled Coat Normal/Tangent and Weight).
+            # Named warnings so these stay APPROXIMATED, never silently dropped.
+            distribution = str(getattr(node, 'distribution', 'MULTI_GGX')).upper()
+            self._warn_shader_fallback('BSDF_METALLIC', 'Normal input is not honoured by the native conductor material (dropped)')
+            self._warn_shader_fallback('BSDF_METALLIC', 'Tangent input is not honoured by the native conductor material (dropped)')
+            self._warn_shader_fallback('BSDF_METALLIC', 'Weight input is not honoured (per-closure mix weight; dropped)')
+            self._warn_shader_fallback('BSDF_METALLIC', f"distribution '{distribution}' is not honoured; the native conductor lobe implements a single microfacet model")
+            return {'kind': 'principled', 'base_color': color,
+                    'params': {'metallic': 1.0, 'roughness': rough},
+                    'native_params': native}
         if ntype in ('BSDF_HAIR_PRINCIPLED', 'BSDF_HAIR'):
             # pkg225 Stage 6 — the Principled Hair BSDF (Chiang 2016) node, and the
             # simpler Kajiya-Kay ShaderNodeBsdfHair, both map to the native

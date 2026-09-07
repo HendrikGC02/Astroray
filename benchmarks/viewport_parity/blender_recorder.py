@@ -95,6 +95,20 @@ def _install():
             print("[pkg241] prior teardown warn:", exc)
 
     area, rv3d = _find_v3d()
+    # pkg241-p1d: camera events simulate viewport navigation by nudging
+    # rv3d.view_rotation, which only moves the view matrix in free-perspective
+    # (PERSP) view. If the saved .blend opens in CAMERA view the nudge is inert,
+    # _camera_state_hash never changes, and every frame degrades to a full-res
+    # full-upload SPP refinement (skip_upload requires camera_changed) — the
+    # artifact that made the phase-1 "after" camera leg read as a ~4x regression
+    # (start_divisor stuck at 1) while the PERSP "before" leg engaged the nav
+    # divisor. Force PERSP so the camera-class measurement exercises real nav.
+    if EVENT_CLASS == "camera" and rv3d is not None:
+        rv3d.view_perspective = 'PERSP'
+        try:
+            rv3d.update()
+        except Exception:
+            pass
     mat, bsdf = _pick_material() if EVENT_CLASS == "material" else (None, None)
 
     S = {
@@ -147,7 +161,11 @@ def _install():
         try:
             return o_render(self, *a, **k)
         finally:
-            S["renders"].append((e, time.perf_counter()))
+            # pkg241 Phase 1: snapshot the resolution divisor this chunk rendered
+            # at (self is the Exporter instance) so the driver can report the
+            # effective interactive-resolution divisor engaged per event class.
+            div = getattr(self, "_viewport_render_divisor", None)
+            S["renders"].append((e, time.perf_counter(), div))
 
     eng_cls.view_draw = w_draw
     eng_cls.view_update = w_update
@@ -207,6 +225,13 @@ def _install():
         _, rv = _find_v3d()
         q = Quaternion((0.0, 0.0, 1.0), math.radians(sign * ROTATE_DEG))
         rv.view_rotation = (q @ rv.view_rotation).normalized()
+        # pkg241-p1d: recompute the view matrix now so _camera_state_hash sees
+        # the move on the very next view_draw (deterministic camera_changed),
+        # rather than relying on redraw-timing to flush the lazy recompute.
+        try:
+            rv.update()
+        except Exception:
+            pass
 
     def apply_material():
         _mat_state["toggle"] = not _mat_state["toggle"]
@@ -233,6 +258,15 @@ def _install():
         # engine entry = earliest of the two handler entries after dispatch
         entries = [t[0] for t in (draw, upd) if t is not None]
         entry = min(entries) if entries else None
+        # pkg241 Phase 1 stale-frame / double-render guard: count render_viewport_frame
+        # calls that both STARTED after dispatch and FINISHED at/before the first
+        # present. A material edit's first present must be backed by >= 1 render for
+        # THIS edit (renders_before_present == 0 => a stale pre-edit texture was
+        # blitted). Present-first also collapses the material double-render from 2 to 1.
+        rbp = None
+        if pres is not None:
+            rbp = sum(1 for r in S["renders"]
+                      if r[0] >= dts and r[1] <= pres)
         row = {
             "idx": ev_idx,
             "warmup": ev_idx < N_WARMUP,
@@ -240,6 +274,10 @@ def _install():
             "entry_ms": (entry - dts) * 1000.0 if entry is not None else None,
             "render_ms": (rnd[1] - rnd[0]) * 1000.0 if rnd is not None else None,
             "block_ms": (max(draw[1] if draw else 0, upd[1] if upd else 0) - dts) * 1000.0,
+            "renders_before_present": rbp,
+            # divisor of the first chunk rendered for this edit = the coarse
+            # starting divisor the interactive-resolution budget engaged.
+            "start_divisor": (rnd[2] if rnd is not None and len(rnd) > 2 else None),
         }
         S["events"].append(row)
 

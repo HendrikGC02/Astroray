@@ -624,6 +624,16 @@ def run_interactive(args) -> dict:
                 r = _run_class(host, port, cls, n_ev, n_rep,
                                args.warmup, deadline, args.rotate_deg)
                 ev = r["events"]
+                # pkg241 Phase 1: integer distributions for the stale-frame /
+                # double-render guard (renders_before_present) and the engaged
+                # interactive-resolution divisor (start_divisor).
+                def _dist(field):
+                    d = {}
+                    for e in ev:
+                        v = e.get(field)
+                        if v is not None:
+                            d[str(v)] = d.get(str(v), 0) + 1
+                    return d
                 entry["classes"][cls] = {
                     "n_events": len(ev),
                     "truncated": r["truncated"],
@@ -632,6 +642,8 @@ def run_interactive(args) -> dict:
                     "entry": _agg(ev, "entry_ms"),
                     "render": _agg(ev, "render_ms"),
                     "block": _agg(ev, "block_ms"),
+                    "renders_before_present": _dist("renders_before_present"),
+                    "start_divisor": _dist("start_divisor"),
                     "raw_present_ms": [round(e["present_ms"], 2)
                                        for e in ev if e.get("present_ms")],
                 }
@@ -694,17 +706,21 @@ def _write_summary_md(doc, path):
              "and the chunk/target sample budget; the region and preview_samples "
              "per config are recorded so numbers are interpretable.", "",
              "## edit -> present (ms)", "",
-             "| scene | tris | region | prev_spp | device | class | n | p50 | p95 | p99 | max | trunc |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "| scene | tris | region | prev_spp | device | class | n | p50 | p95 | p99 | max | rbp | start_div | trunc |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for c in doc["configs"]:
         reg = "x".join(str(v) for v in (c.get("region") or []))
         for cls, d in c["classes"].items():
             p = d["present"] or {}
+            rbp = d.get("renders_before_present") or {}
+            sdv = d.get("start_divisor") or {}
+            rbp_s = ",".join(f"{k}:{v}" for k, v in sorted(rbp.items())) or "-"
+            sdv_s = ",".join(f"{k}:{v}" for k, v in sorted(sdv.items())) or "-"
             lines.append(
                 f"| {c['scene']} | {c['tris']} | {reg} | "
                 f"{c.get('preview_samples')} | {c['device']} | {cls} | "
                 f"{d['n_events']} | {p.get('p50_ms')} | {p.get('p95_ms')} | "
-                f"{p.get('p99_ms')} | {p.get('max_ms')} | "
+                f"{p.get('p99_ms')} | {p.get('max_ms')} | {rbp_s} | {sdv_s} | "
                 f"{'Y' if d['truncated'] else ''} |")
     lines += ["", "## cancel full-stop floor (F12 render wall-time, ms)", "",
               "| scene | device | samples | render_ms |",
@@ -770,6 +786,10 @@ def main():
                    default=300.0)
     p.add_argument("--cpu-deadline-s", dest="cpu_deadline_s", type=float,
                    default=300.0)
+    # pkg241 Phase 1: the same recorder records before/after; --label names the
+    # output file so a phase-1 A/B run does not overwrite the phase-0 baseline.
+    p.add_argument("--label", default="phase0",
+                   help="output-file phase label (e.g. phase0, phase1)")
     args = p.parse_args(argv)
     if args.cpu_events is None:
         args.cpu_events = args.events
@@ -780,9 +800,9 @@ def main():
         doc = run_interactive(args)
         args.out.mkdir(parents=True, exist_ok=True)
         tag = args.tag or _dt.date.today().isoformat()
-        json_path = args.out / f"{tag}-phase0.json"
+        json_path = args.out / f"{tag}-{args.label}.json"
         json_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
-        _write_summary_md(doc, args.out / f"{tag}-phase0-summary.md")
+        _write_summary_md(doc, args.out / f"{tag}-{args.label}-summary.md")
         print(f"[pkg241] wrote {json_path}")
         return
 

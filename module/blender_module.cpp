@@ -2267,14 +2267,26 @@ public:
             // pkg241 Phase 1b: forward the Python callback's bool return
             // (True = continue, False = cancel). A non-bool / None return
             // counts as continue, so a progress-only callback is unchanged.
+            // A Python exception raised inside the callback must NOT unwind
+            // through the OpenMP parallel-for in Renderer::render (undefined
+            // behaviour -> std::terminate on the OpenMP-ON dev build): stash it,
+            // cancel cooperatively, and rethrow once render() has returned.
             std::function<bool(float)> callback = nullptr;
+            std::exception_ptr callbackError;
+            std::mutex callbackErrorMutex;
             if (!progressCallback.is_none()) {
-                callback = [&progressCallback](float progress) -> bool {
-                    py::gil_scoped_acquire acquire;
-                    py::object r = progressCallback(progress);
-                    if (r.is_none()) return true;
-                    try { return py::cast<bool>(r); }
-                    catch (const py::cast_error&) { return true; }
+                callback = [&](float progress) -> bool {
+                    try {
+                        py::gil_scoped_acquire acquire;
+                        py::object r = progressCallback(progress);
+                        if (r.is_none()) return true;
+                        try { return py::cast<bool>(r); }
+                        catch (const py::cast_error&) { return true; }
+                    } catch (...) {
+                        std::lock_guard<std::mutex> lock(callbackErrorMutex);
+                        if (!callbackError) callbackError = std::current_exception();
+                        return false;  // cooperative cancel; rethrown below
+                    }
                 };
             }
             // pkg241 Phase 1b: release the GIL for the CPU render. render()
@@ -2293,6 +2305,7 @@ public:
                 renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling, false,
                                 diffuseBounces, glossyBounces, transmissionBounces, volumeBounces, transparentBounces);
             }
+            if (callbackError) std::rethrow_exception(callbackError);
         }
 
         // pkg241 Phase 1b: publish cooperative-cancellation completion metadata

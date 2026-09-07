@@ -189,3 +189,29 @@ def test_gpu_null_hook_matches_always_continue():
     # assert numerical agreement rather than exact bytes.
     assert np.allclose(base, same, atol=2e-3), (
         f"null vs always-continue diverged: max |Δ|={np.max(np.abs(base - same))}")
+
+
+def test_cpu_callback_exception_propagates_without_terminate():
+    """cpp-abi-guard (PR #748): a Python exception raised inside the per-tile
+    progress callback must surface as a Python exception, not unwind through
+    the OpenMP parallel-for (undefined behaviour -> std::terminate on the
+    OpenMP-ON dev .pyd). The binding stashes the exception, cancels the render
+    cooperatively and rethrows after render() returns."""
+    r = _cornell(160, 160)
+
+    class Boom(RuntimeError):
+        pass
+
+    state = {"calls": 0}
+
+    def progress_cb(_frac):
+        state["calls"] += 1
+        if state["calls"] == 3:
+            raise Boom("callback failure")
+        return True
+
+    with pytest.raises(Boom):
+        r.render(4, 3, progress_cb, False)
+    info = r.last_render_info()
+    assert info["cancelled"] is True
+    assert info["tiles_completed"] < info["total_tiles"]

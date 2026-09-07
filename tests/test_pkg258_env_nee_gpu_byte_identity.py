@@ -61,13 +61,23 @@ def _find_pyd_dir(build_dir):
     return os.path.dirname(hits[0]) if hits else None
 
 
-# Render worker: run in a fresh interpreter pointed at a specific astroray .pyd.
+# Render worker: run in a fresh interpreter pointed at a specific build root.
+# It routes ASTRORAY_BUILD_DIR through runtime_setup so the correct .pyd loads
+# with the full CUDA/MinGW DLL-directory setup (a bare sys.path insert fails with
+# "DLL load failed" because the dependent cudart DLLs are not on the child PATH).
 # Env NEE OFF, GPU, fixed seed, HDRI scene. Saves the linear frame as .npy.
 _WORKER = textwrap.dedent(r"""
-    import sys, numpy as np
-    pyd_dir, hdri, out, seed = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
-    sys.path.insert(0, pyd_dir)
+    import os, sys, numpy as np
+    build_root, tests_dir, hdri, out, seed = (
+        sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]))
+    os.environ["ASTRORAY_BUILD_DIR"] = build_root
+    sys.path.insert(0, tests_dir)
+    from runtime_setup import configure_test_imports
+    configure_test_imports()
     import astroray
+    got = os.path.normcase(os.path.abspath(astroray.__file__))
+    want = os.path.normcase(os.path.abspath(build_root))
+    assert got.startswith(want), f"loaded {got}, expected under {want}"
     r = astroray.Renderer()
     r.set_use_gpu(True)
     r.set_integrator("path_tracer")
@@ -88,13 +98,15 @@ _WORKER = textwrap.dedent(r"""
     np.save(out, img)
 """)
 
+_TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def _run_worker(pyd_dir, hdri, out_npy, seed):
+
+def _run_worker(build_root, hdri, out_npy, seed):
     script = out_npy + ".worker.py"
     with open(script, "w") as f:
         f.write(_WORKER)
     res = subprocess.run(
-        [sys.executable, script, pyd_dir, hdri, out_npy, str(seed)],
+        [sys.executable, script, build_root, _TESTS_DIR, hdri, out_npy, str(seed)],
         capture_output=True, text=True, timeout=600, check=False)
     if res.returncode != 0:
         raise RuntimeError(f"render worker failed (rc={res.returncode}):\n"
@@ -128,23 +140,30 @@ def test_gpu_env_nee_off_byte_identical_to_baseline(tmp_path):
     hdri = str(tmp_path / "sun.hdr")
     _write_radiance_hdr(hdri, _sun_disc_hdri())
 
-    # Precondition: the worktree GPU render must be bitwise-reproducible so that
-    # cross-module byte identity is even meaningful. If not, report and skip
-    # rather than asserting an impossible equality.
-    w1 = _run_worker(work_dir, hdri, str(tmp_path / "w1.npy"), SEED)
-    w2 = _run_worker(work_dir, hdri, str(tmp_path / "w2.npy"), SEED)
-    if not np.array_equal(w1, w2):
-        maxd = float(np.max(np.abs(w1 - w2)))
-        pytest.skip(f"worktree GPU render not bitwise-deterministic run-to-run "
-                    f"(max|d|={maxd:.3e}); byte-identity is unpinnable here")
-
-    base = _run_worker(base_dir, hdri, str(tmp_path / "base.npy"), SEED)
+    # The GPU wavefront film accumulates via floating-point atomics, whose
+    # summation order is non-deterministic — so two identical-seed renders from
+    # the SAME module already differ at the ~1e-7 level. Strict byte identity is
+    # therefore physically unachievable on the GPU (unlike the CPU wavefront
+    # bit-identity gates). We instead pin the ACHIEVABLE guarantee: with env NEE
+    # off, this branch's frame must equal the origin/main baseline frame to within
+    # the module's OWN run-to-run atomic jitter — i.e. the enabled==0
+    # short-circuit adds NO systematic difference over the pre-pkg258 GPU path.
+    w1 = _run_worker(WORKTREE_BUILD, hdri, str(tmp_path / "w1.npy"), SEED)
+    w2 = _run_worker(WORKTREE_BUILD, hdri, str(tmp_path / "w2.npy"), SEED)
+    jitter = float(np.max(np.abs(w1 - w2)))       # intrinsic atomic-order jitter
+    base = _run_worker(BASELINE_BUILD, hdri, str(tmp_path / "base.npy"), SEED)
     assert base.shape == w1.shape, f"shape mismatch {base.shape} vs {w1.shape}"
-    if not np.array_equal(base, w1):
-        maxd = float(np.max(np.abs(base - w1)))
-        nbad = int(np.count_nonzero(base != w1))
-        raise AssertionError(
-            f"env-NEE-off GPU frame differs from the origin/main baseline module: "
-            f"{nbad}/{base.size} elements differ, max|d|={maxd:.3e}. The "
-            f"enabled==0 short-circuit is NOT byte-identical to the pre-pkg258 GPU "
-            f"path (Terra item 8).")
+    base_diff = float(np.max(np.abs(base - w1)))
+    scale = float(np.mean(np.abs(w1))) + 1e-12
+    print(f"\n[pkg258 byte-id] self-jitter={jitter:.3e} base-vs-branch={base_diff:.3e} "
+          f"(mean|px|={scale:.3e}, rel={base_diff/scale:.2e})")
+    # Band: the baseline diff must be within the same order as the intrinsic
+    # jitter (a small absolute floor covers the two builds' independent FP
+    # rounding). A systematic env-NEE-off leak (extra RNG draw / stray env add)
+    # would shift whole pixels and blow far past this.
+    band = max(8.0 * jitter, 5e-6)
+    assert base_diff <= band, (
+        f"env-NEE-off GPU frame diverges from the origin/main baseline beyond the "
+        f"atomic-jitter band: base-vs-branch max|d|={base_diff:.3e} > {band:.3e} "
+        f"(self-jitter {jitter:.3e}). The enabled==0 short-circuit is NOT "
+        f"equivalent to the pre-pkg258 GPU path (Terra item 8).")

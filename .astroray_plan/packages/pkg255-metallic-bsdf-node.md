@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** done — PR TBD, 2026-09-08, 9/9 tests green CPU+GPU on RTX 5070 Ti
+**Status:** done — PR #744, 2026-09-08, 9/9 tests green CPU+GPU on RTX 5070 Ti
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg178, pkg229, pkg253
 

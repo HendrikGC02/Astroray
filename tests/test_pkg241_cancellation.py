@@ -22,12 +22,14 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# base_helpers configures the build-dir sys.path and imports astroray; follow the
-# same pattern as the rest of the native test suite.
-from base_helpers import (  # noqa: E402
-    create_renderer, setup_camera, create_cornell_box
+# base_helpers configures the build-dir sys.path and imports astroray; it must be
+# imported before `import astroray`, so keep this order (isort would reorder it).
+from base_helpers import (  # noqa: I001
+    create_cornell_box,
+    create_renderer,
+    setup_camera,
 )
-import astroray  # noqa: E402
+import astroray
 
 # A fixed non-zero seed: seed 0 is the std::random_device sentinel (memory
 # seed-zero-is-random-sentinel), so determinism assertions require a real seed.

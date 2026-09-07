@@ -15,8 +15,13 @@ The native cancellation channel itself is covered by test_pkg241_cancellation.py
 import numpy as np
 
 # Reuse the loader + stubs from the Phase 1a test module (same directory).
-from test_pkg241_present_first_budget import (  # noqa: E402
-    _wire, _make_context, _update, _draw, _RecordingRenderer, IDENTITY, SHIFTED,
+from test_pkg241_present_first_budget import (
+    IDENTITY,
+    _draw,
+    _make_context,
+    _RecordingRenderer,
+    _update,
+    _wire,
 )
 
 
@@ -36,7 +41,7 @@ class _CallbackRecordingRenderer(_RecordingRenderer):
 def test_viewport_render_uses_bool_cancel_callback(monkeypatch):
     """view_update drives renderer.render with a callable progress callback (not
     None) that returns True normally and False once a cancel is requested."""
-    addon, engine, _clock, _dims = _wire(monkeypatch,
+    _addon, engine, _clock, _dims = _wire(monkeypatch,
                                          renderer_cls=_CallbackRecordingRenderer)
     exporter = engine._get_exporter()
 
@@ -56,7 +61,7 @@ def test_viewport_render_uses_bool_cancel_callback(monkeypatch):
 def test_request_and_consume_cancel_resets_accumulation(monkeypatch):
     """_request_viewport_cancel sets the flag; _consume_viewport_cancel drops the
     partial accumulation and clears the flag (no mixed accumulation)."""
-    addon, engine, _clock, _dims = _wire(monkeypatch)
+    _addon, engine, _clock, _dims = _wire(monkeypatch)
     exporter = engine._get_exporter()
 
     # Simulate a partially-accumulated in-flight chunk.
@@ -86,7 +91,7 @@ def test_render_viewport_frame_consumes_pending_cancel(monkeypatch):
     """A cancel requested before the next chunk is consumed by
     render_viewport_frame: the fresh chunk is NOT blended onto the pre-cancel
     accumulation (the returned buffer equals the new render, not a mix)."""
-    addon, engine, _clock, _dims = _wire(monkeypatch)
+    _addon, engine, _clock, _dims = _wire(monkeypatch)
     exporter = engine._get_exporter()
 
     ctx = _make_context(IDENTITY)
@@ -112,7 +117,7 @@ def test_render_viewport_frame_consumes_pending_cancel(monkeypatch):
 def test_view_draw_requests_cancel_on_settings_change(monkeypatch):
     """A settings change between draws requests a cancel so the stale chunk's
     accumulation is dropped before the new-settings render."""
-    addon, engine, _clock, _dims = _wire(monkeypatch)
+    _addon, engine, _clock, _dims = _wire(monkeypatch)
     exporter = engine._get_exporter()
 
     calls = {"n": 0}

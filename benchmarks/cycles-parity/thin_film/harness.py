@@ -210,7 +210,7 @@ def _run_leg(blender: Path, cfg, engine: str, device: str, out_stem: Path,
 
 
 def run(out_dir: Path, *, res: int = 128, samples: int = 256, timeout: int = 900,
-        band: Band | None = None) -> int:
+        band: Band | None = None, astroray_device: str = "gpu") -> int:
     import numpy as np
 
     band = band or Band(DEFAULT_RATIO_LOW, DEFAULT_RATIO_HIGH)
@@ -240,8 +240,9 @@ def run(out_dir: Path, *, res: int = 128, samples: int = 256, timeout: int = 900
         print(f"[pkg178tf] {cfg.name} ...", flush=True)
         arrays: dict[str, Any] = {}
         crash = None
-        for engine, device in (("CYCLES", "cpu"), ("CUSTOM_RAYTRACER", "gpu")):
-            tag = "cycles" if engine == "CYCLES" else "astroray_gpu"
+        astroray_tag = f"astroray_{astroray_device}"
+        for engine, device in (("CYCLES", "cpu"), ("CUSTOM_RAYTRACER", astroray_device)):
+            tag = "cycles" if engine == "CYCLES" else astroray_tag
             stem = renders_dir / f"{cfg.name}__{tag}"
             ok, log_tail = _run_leg(blender, cfg, engine, device, stem, res,
                                     samples, timeout, env)
@@ -255,7 +256,7 @@ def run(out_dir: Path, *, res: int = 128, samples: int = 256, timeout: int = 900
             print(f"    CRASH: {crash.splitlines()[0]}", flush=True)
             continue
 
-        r = compare_cell(cfg, arrays["astroray_gpu"], arrays["cycles"], band)
+        r = compare_cell(cfg, arrays[astroray_tag], arrays["cycles"], band)
         results.append(r)
         print(f"    {r.status.upper()} ratio={tuple(round(x, 3) for x in r.ratio)} "
               f"hue A/C={r.astroray_hue:.0f}/{r.cycles_hue:.0f} "
@@ -336,9 +337,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--timeout", type=int, default=900)
     p.add_argument("--ratio-low", type=float, default=DEFAULT_RATIO_LOW)
     p.add_argument("--ratio-high", type=float, default=DEFAULT_RATIO_HIGH)
+    p.add_argument("--astroray-device", choices=("cpu", "gpu"), default="gpu",
+                   help="Astroray leg backend (default: gpu, matching the "
+                        "original pkg178 run; use cpu on a CPU-only .pyd)")
     args = p.parse_args(argv)
     return run(args.out, res=args.res, samples=args.samples, timeout=args.timeout,
-               band=Band(args.ratio_low, args.ratio_high))
+               band=Band(args.ratio_low, args.ratio_high),
+               astroray_device=args.astroray_device)
 
 
 if __name__ == "__main__":

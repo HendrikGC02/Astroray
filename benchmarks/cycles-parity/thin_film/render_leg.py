@@ -79,12 +79,18 @@ def _configure_render(scene, engine, device, res, samples):
     scene.render.image_settings.color_depth = "32"
     scene.render.image_settings.exr_codec = "NONE"
     scene.render.engine = engine
-    if engine == "CYCLES":
+    # #765: since pkg176 Stage 4 the Astroray engine reads these NATIVE
+    # scene.cycles.* properties too (not just CYCLES itself), so this must be
+    # unconditional under hasattr(scene, "cycles") -- exactly as
+    # benchmarks/blender_parity/render_leg.py:86-90 already does -- or the
+    # Astroray leg silently renders at Blender's factory defaults (4096
+    # samples, denoise/adaptive on) instead of the requested samples.
+    if hasattr(scene, "cycles"):
         scene.cycles.samples = samples
         scene.cycles.use_denoising = False
         scene.cycles.use_adaptive_sampling = False
         scene.cycles.seed = 7
-    elif hasattr(scene, "custom_raytracer"):
+    if engine == "CUSTOM_RAYTRACER" and hasattr(scene, "custom_raytracer"):
         cr = scene.custom_raytracer
         cr.samples = samples
         if hasattr(cr, "preview_samples"):

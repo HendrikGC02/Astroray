@@ -1,5 +1,25 @@
 # Astroray Status
 
+## 2026-09-09 INTERIM — overnight lead session (~00:30 → 03:40, in progress; usage-limit kill at ~00:40 hit all three lanes, all resumed from pushed WIP)
+
+Lead: Claude Fable 5.1, autonomous from `next-session-prompt-2026-09-09.md`; dispatch order as the owner confirmed (#770/pkg265 → pkg241 P2.2 → pkg262, corpus + addon chips in parallel). Lanes: Opus 4.8 (pkg265 ×3 instances, pkg241 P2.2, pkg241 Terra-fix, pkg265 eval-fix), Sonnet 5 (addon chips, #762, pkg259 polish, two pkg241 measurement lanes, pkg265 harness), reviewers (cycles-parity, cpp-abi-guard on #778). Codex Terra: 1 of 4 (PR #777).
+
+**Merged (squash, CI green):**
+- **#774 → #769, #772, #765 closed** — `data/disney_compensation/*.bin` bundled into the staged addon + `ASTRORAY_DATA_DIR` pointed at the bundled dir at register + `energy_compensation_status()` binding + one-line load warning (gate (f)); shader-less World → explicit black (Cycles 0.0); thin_film `render_leg.py` gating removed (36/36 in-band on the CPU re-run; the Stage-4 deltas vs the original are the CPU-vs-GPU device swap, not the gating bug). Lead stripped a 770-line EOL-only hunk from `__init__.py` before merge.
+- **#775 → #762 closed** — linked Emission Color routed through the Base-Color texture lowering (`TexturedLight`, CPU); GPU stays flat colour with `gpuApproximate` + degradation warning. Follow-up **#776**: mesh-light NEE/light-tree read `getEmission()` (flat), only BSDF-sampled hits see the texture.
+
+**Filed:** pkg265 spec (Heitz 2016 multiple-scattering walk, owner physics-first rule); **#773** addon-side r0 glass limb −15 % (split from #770); **#776**; **#779** run_parity `.blend` Astroray leg is base-colour-only (the new glass_sphere row renders diffuse spheres).
+
+**In flight:**
+- **PR #778 pkg265 CPU leg** (`feat/pkg265-ms-microfacet-glass`, worktrees `../Astroray-pkg265` + `../Astroray-pkg265gpu` on `feat/pkg265-eval-fix`). Lead decision: **Option A clean-room** from the paper equations (the Heitz supplemental is licence-unstated, the Mitsuba plugin GPLv3 — nothing portable). Delivered: research note, numpy oracle (R+T=1.000, single-scatter dead fraction up to 85 %, Cycles 1/E over-counts reflection 5.5× at r1 μ0.1), directional gate 41/41 (±5 %/bin vs the oracle, entry+exit), furnace principled/disney 0.98–0.996 in [0.97,1.02], ~540 CPU tests green, delta reroutes removed on both lobes. **HOLD:** cycles-parity-reviewer CRITICAL — `eval()`/NEE is single-scatter while `sample()` is the walk (`stochasticEval` never called); the pkg263 harness after #778 reads centre 0.997/0.976/**1.076/1.518** (r 0/0.2/0.5/0.85) and limb 0.832/0.861/1.019/1.053 — the centre over-brightens with roughness (lead-inspected: bright core, hot transmitted caustic, heavy chromatic noise). Eval-fix lane localising (η² per-micro-event hypothesis) + stochastic-eval NEE + lit-furnace guard. GPU leg = later phase (GPU keeps the #771 reroute, documented). Reviewers: parity MERGE-AFTER-FIX, ABI MERGE-AFTER-FIX (rebase).
+- **PR #777 pkg241 P2.2** (`feat/pkg241-phase2-p22`, worktree `../Astroray-pkg241p22`). Items 1–5 delivered; Terra review 4 **BLOCK** → all items fixed (design §13; item 1 was a rebase artifact; `_worker_view_update` presented outside the draw context; settle-instrument completion semantics + generation-paired cancel correlation rewritten per Terra (b); Buffer byte-identity mode). Clean pre-fix numbers: present wiring **PASS** both scenes (frames reach the screen), realistic-settle tick-gap p95 32–40 ms metal_sweep / 31 ms big, continuous-storm 206/70 ms FAIL (real), cancel p99 262 ms metal PASS / 485 ms big FAIL (architectural → P2.3 cancellation-bounded wavefront dispatch + coalesced dirty-domain commit). **Lesson:** the first measurement ran during another worktree's CUDA build because the lane overwrote the GPU lock file (memory `gpu-lock-lanes-overwrite-lock-file`). Post-fix graded measurement running; merge after it. A2 stands.
+- **pkg259 Phase 1 polish** (`../Astroray-pkg259`, Sonnet): hall reframe + per-alcove crops rendering.
+- **Not started:** pkg262 (needs a worktree slot + the GPU), pkg256/242/245/254, #757.
+
+**Main .pyd:** rebuilt 23:41 at e18ba1a8 (sm_120); stale vs main HEAD only by #774's binding + #775's header — rebuild before the pkg262 red-on-main test.
+
+---
+
 ## 2026-09-08 CURRENT — day lead session closeout (~10:00 → ~16:30; usage gap 11:50–14:20)
 
 Lead: Claude Fable 5.1, autonomous from `next-session-prompt-2026-09-08.md`; owner questions

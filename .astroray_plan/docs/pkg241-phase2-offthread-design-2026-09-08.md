@@ -1335,3 +1335,52 @@ pre-dispatch corrections.
    5. Make lifecycle shutdown session-scoped, idempotent, and safe during disposal/finalization.
    6. Specify accumulated denoise guide AOVs, scheduling, and cancellation/discard behavior.
    7. Make the spike instrumentable with generation-tagged events and pin all comparator, presentation, and queue-depth acceptance thresholds.
+
+## 12. A2 spike result and lead decision (2026-09-08 ~16:00)
+
+Spike PR #768 (`feat/pkg241-phase2-a2-spike`, flag `ASTRORAY_VIEWPORT_WORKER=1`, default off =
+synchronous path unchanged). Full tables:
+`benchmarks/viewport_parity/results/2026-09-08-phase2-spike/SPIKE-SUMMARY.md`.
+
+**The load-bearing assumption holds.** Worker-thread GPU render with the GIL released over the
+render + copy-back + `applyPasses` tail, `cudaSetDevice` on the worker: correctness comparator
+(seed 12345, 2112x829, 64 spp, linear) per-channel mean-ratio 1.000 / 1.000 / 1.000 and
+**max-abs-diff 9.5e-7** (bound 2e-2); both threads on device 0; **zero CUDA errors over 400+
+generations**; mailbox depth never > 1; headless decoupling proxy: synchronous arm tick-gap 4435 ms
+vs worker arm **p95 5.94 ms**. The cancellation suite 9/9.
+
+**GUI `--mode ui_latency` (port 9877, both scenes, worker on):** run A (as committed) tick-gap p95
+662 / 324 ms with a texture tail of 222 / 317 ms -> the S9 texture-tail rule applied: the
+`flat.tolist()` upload was replaced by `gpu.types.Buffer` from the contiguous float32 array
+(**194.8 ms -> 0.0 ms, byte-identical texture**). Run B: tick-gap **p50 7.1 ms** on both scenes
+(was 158 / 233 ms in S1), p95 **94 / 75 ms** (budget 33), cancel p99 **341 / 583 ms** (budget 300),
+texture tail 13 / 17 ms. `completed = 0` on both runs: the 5 ms ticker never lets a generation be
+the latest desired one at its own `render_end`, so the present-rate gate is undefined under this
+instrument; separately, worker frames did not visibly reach the GUI (screenshots show Blender's
+grid) - a present-wiring defect in the spike, not root-caused.
+
+**Lead decision.** By the letter of S9 two GUI gates fail, but S9's NO-GO clause is "the
+serialised cross-thread primary-context model is not viable as A2" - and that clause is falsified by
+the proxy, the comparator and the CUDA/device evidence. **A2 stands; A1 is not designed.** The
+residual failures are owned by P2.2, whose scope is now concrete:
+
+1. **Present wiring:** the worker's published frame must reach `_update_viewport_texture` and the
+   blit (the spike's `presented = 0`); root-cause first (likely an engine-vs-exporter texture
+   attribute mismatch), with a bridge test that a settled worker frame appears on screen.
+2. **Bound the main-thread commit:** the residual p95 is `sync_viewport_scene` running a full
+   upload for every material-edit generation on the main thread. P2.2 must (a) collapse pending
+   edits to the newest generation per tick, (b) commit only what changed (materials-only / camera-only
+   commits; `skip_upload` for camera; incremental sync per pkg56), and (c) measure the commit cost per
+   generation as its own event so the gate can attribute it.
+3. **Cancel-ack through the pump:** the worker's idle notification is consumed by the ~16 ms timer;
+   with the main thread busy in a commit the ack waits behind it. Record `idle_ack` at enqueue
+   time as well as at drain, and bound the commit (item 2) so p99 <= 300 ms is meetable.
+4. **Gate instrument:** add a settle window to `--mode ui_latency` (edit bursts followed by idle
+   spans) so `completed`, present-rate and frame age are defined; keep the continuous ticker as
+   the stress variant.
+5. **`gpu.types.Buffer` upload for the synchronous path too** - the 195 ms per present is paid by
+   every viewport frame today; a byte-identity test then flip it on unconditionally.
+
+Owner input not required for this decision (A2 vs A1 was delegated to the spike's evidence); the
+owner's S8 decisions (denoise settled-only, F12 pauses) are unchanged. Codex Terra was not spent on
+the spike result (calls remaining: 2 of 4).

@@ -41,3 +41,30 @@ tables above) and back the rough-transmission compensation in
   `.astroray_plan/docs/pkg151-glass-multiscatter-magnitude-notes.md` for the
   full citation trail and a numeric probe of the resulting compensation
   magnitude across the furnace test's roughness grid.
+
+## pkg261 — generalized-Schlick / dielectric specular-layer albedo table
+
+`ggx_gen_schlick_ior_s.bin` is Cycles' `table_ggx_gen_schlick_ior_s[4096]`
+(16x16x16, roughness x cos_NI x z), the lobe-averaged Schlick blend factor `s`
+used by `bsdf_microfacet_estimate_albedo` (GENERALIZED_SCHLICK exponent<0 /
+DIELECTRIC branches, `intern/cycles/kernel/closure/bsdf_microfacet.h:423-470`,
+BSD-3-Clause) to estimate the rough dielectric specular layer's
+directional-hemispherical albedo for `closure_layering_weight`:
+`albedo = mix(f0, f90=1, s)`. Backs
+`DisneyEnergyCompensationTables::ggxGenSchlickIorS` (CPU) and `gpu_ggxGenSchlickS`
+(GPU); consumed by `plugins/materials/principled.cpp` (specular + coat layering)
+and the `gpu_pr_assembleLobes` twin. Replaces the pre-pkg261
+`E*Fview*darkening` layering estimate whose view-angle Fresnel overestimated the
+lobe albedo 1.2-5.5x at grazing (pkg261 research note).
+
+- Source: `intern/cycles/scene/shader.tables`, symbol
+  `table_ggx_gen_schlick_ior_s[4096]`, at the same pinned commit
+  `eaa5f63ba20e64a439af48a1600cb9ed7bf9bdf0` (blender/blender). **License:
+  Apache-2.0** (`SPDX-FileCopyrightText: 2011-2022 Blender Foundation`).
+- Layout: row-major, roughness fastest (x), then cos_NI (y), then
+  `z = sqrt(|ior-1|/(ior+1))` (z) — matches Cycles'
+  `lookup_table_read_3D(rough, cos_NI, z, ..., 16,16,16)` and the shared
+  `sample3D`; extracted byte-for-byte from the C initializer, no transpose.
+- Regenerate: `python scripts/data/extract_ggx_gen_schlick_ior_s.py --fetch`
+  (idempotent; verified 4096 floats, range [0.0, 0.999398]).
+- See `.astroray_plan/docs/pkg261-principled-layering-research.md`.

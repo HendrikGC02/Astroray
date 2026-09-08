@@ -10,7 +10,7 @@
       "bl_idname": "ShaderNodeAddShader",
       "category": "shader_node",
       "feature": "ADD_SHADER",
-      "socket_or_prop": "input:Shader"
+      "socket_or_prop": "input:Shader[Shader_001]"
     },
     {
       "bl_idname": "ShaderNodeBsdfAnisotropic",
@@ -514,7 +514,7 @@
       "bl_idname": "ShaderNodeMixShader",
       "category": "shader_node",
       "feature": "MIX_SHADER",
-      "socket_or_prop": "input:Shader"
+      "socket_or_prop": "input:Shader[Shader_001]"
     },
     {
       "bl_idname": "ShaderNodeOutputMaterial",

@@ -1227,14 +1227,28 @@ def build_materials_hall_scene(bpy):
     ]
     layout, total_width = _layout_slots(slots)
 
-    CAM_DIST = 17.0
-    cam = _add_pinned_camera(bpy, scene, (0.0, -CAM_DIST, 5.0), (0.0, 0.0, 1.3), lens=18.0)
+    # Phase-1-polish reframe (owner feedback on the #761 contact sheets: the
+    # establishing shot's alcove content was a thin horizontal strip lost in
+    # a 16:9 frame -- the corridor is ~27 units wide but its alcove content
+    # (pedestal to bust-top) is only ~2.4 units tall, so a normal-aspect
+    # frame is >85% dead floor/wall space above and below). Fix: tighten the
+    # horizontal margin a little (CAM_DIST) and switch
+    # REFERENCE_MATERIALS_HALL_RES (below) to a wide "frieze" aspect ratio
+    # sized to that real content height instead of a generic 16:9 -- the
+    # camera's own position/target/lens are otherwise unchanged, so the
+    # existing _crop_rect pinhole math stays valid.
+    CAM_DIST = 15.0
+    cam = _add_pinned_camera(bpy, scene, (0.0, -CAM_DIST, 4.3), (0.0, 0.0, 1.05), lens=18.0)
     cam.data.sensor_width = 36.0
     fov_x = 2.0 * math.atan(cam.data.sensor_width / (2.0 * cam.data.lens))
 
     def crop(name):
+        # y0/y1 tightened to match the reframed camera (see CAM_DIST/target
+        # comment above): content now spans roughly [0.02, 0.78] of the
+        # frame height (measured empirically off a preview render) instead
+        # of the old near-full-height [0.06, 0.94] a 16:9 frame needed.
         cx, hw = layout[name]
-        crop_rects[name] = _crop_rect(CAM_DIST, fov_x, cx - hw, cx + hw)
+        crop_rects[name] = _crop_rect(CAM_DIST, fov_x, cx - hw, cx + hw, y0=0.02, y1=0.80)
 
     # --- Alcove A: Diffuse ---------------------------------------------- #
     cx, hw = layout["A"]
@@ -1507,7 +1521,11 @@ def build_materials_hall_scene(bpy):
     return scene, tags, crop_rects, gap_tags
 
 
-REFERENCE_MATERIALS_HALL_RES = (960, 540)
+# Wide "frieze" aspect (see the CAM_DIST/target comment above) sized to the
+# corridor's real content-height-to-width ratio instead of a generic 16:9,
+# so the alcoves fill the frame instead of forming a thin strip inside a
+# mostly-empty image.
+REFERENCE_MATERIALS_HALL_RES = (960, 176)
 REFERENCE_MATERIALS_HALL_SAMPLES = 256
 
 

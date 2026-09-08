@@ -178,7 +178,10 @@ def test_bump_tilt_scales_with_world_size():
     ratio2 = bump2 / flat2
     tilt1 = _tilt_from_ratio(ratio1, 60.0)
     tilt2 = _tilt_from_ratio(ratio2, 60.0)
-    tan1, tan2 = math.tan(tilt1), math.tan(tilt2)
+    # abs(): the light/ramp geometry tilts the normal AWAY from the light
+    # (tilt < 0 in this construction) -- only the MAGNITUDE's world-size
+    # scaling is under test here, not the sign convention.
+    tan1, tan2 = abs(math.tan(tilt1)), abs(math.tan(tilt2))
     world_size2 = 2.0 * 1.0  # half=1.0
     expected_tan2 = distance / world_size2
     assert tan2 > 1e-6, (

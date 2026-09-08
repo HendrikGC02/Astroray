@@ -605,7 +605,21 @@ public:
             }
             return std::make_shared<Lambertian>(color);
         }
-        // All other types (metal, glass, dielectric, light, emission, disney, subsurface, phong,
+        // #762 — textured Emission Color: "light"/"emission"/"diffuse_light" have
+        // no texture slot in the registry plugin (plugins/materials/diffuse_light.cpp),
+        // so route a textured emission through TexturedLight the same way lambertian
+        // routes a textured Base Color through TexturedLambertian above. Falls back to
+        // a solid-color texture (behaviourally identical to DiffuseLightPlugin) if the
+        // named texture wasn't found, so an emissive material never silently goes dark.
+        if (type == "light" || type == "emission" || type == "diffuse_light") {
+            float intensity = getFloat("intensity", 1.0f);
+            std::shared_ptr<Texture> tex;
+            if (params.contains("texture"))
+                tex = textureManager.getTexture(params["texture"].cast<std::string>());
+            if (!tex) tex = std::make_shared<SolidColor>(color);
+            return std::make_shared<TexturedLight>(tex, intensity);
+        }
+        // All other types (metal, glass, dielectric, disney, subsurface, phong,
         // normal_mapped, mirror) are handled by the registry in createMaterial before this fallback.
         return std::make_shared<Lambertian>(color);
     }

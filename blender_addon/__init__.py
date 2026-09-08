@@ -4206,7 +4206,32 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if standalone is not None:
             return standalone
         if ntype == 'EMISSION':
-            return {'kind': 'emission', 'base_color': self.get_color_input(node, 'Color', [1.0, 1.0, 1.0]), 'emission_strength': self.get_float_input(node, 'Strength', 1.0)}
+            # #762: a procedural/image texture wired directly into Color rendered
+            # flat white -- get_color_input() only follows Mix/Ramp/etc. constant-
+            # evaluating chains (memory addon-constant-folds-shader-graph), it can't
+            # return a per-texel texture. Route through the same get_base_color_texture
+            # lowering the Principled Base Color path uses (_principled_shader_spec
+            # above), so Checker/Noise/Gradient/Brick/Image nodes sample per-texel.
+            color_input = node.inputs.get('Color')
+            spec = {
+                'kind': 'emission',
+                'base_color': self.get_color_input(node, 'Color', [1.0, 1.0, 1.0]),
+                'emission_strength': self.get_float_input(node, 'Strength', 1.0),
+            }
+            _, color_tex = self.get_base_color_texture(node, 'Color', renderer)
+            if color_tex is not None:
+                spec['emission_color_texture'] = color_tex
+            elif (color_input is not None and color_input.is_linked
+                  and self._get_socket_color(color_input) is None):
+                # Linked to a node chain neither get_color_input() nor the texture
+                # lowering can evaluate (e.g. a ColorRamp fed by a procedural
+                # texture rather than an image) -- surface it instead of silently
+                # rendering the [1,1,1] default (pkg119 Phase C policy).
+                self._warn_shader_fallback(
+                    'EMISSION',
+                    "Emission Color is linked to an unsupported node chain; "
+                    "using a flat default colour instead of the textured pattern")
+            return spec
         if ntype == 'MIX_SHADER':
             fac = self.get_float_input(node, 'Fac', 0.5)
             a = self._shader_spec_from_node(self._shader_input_node(node, 'Shader'), renderer, node_tree, depth + 1)
@@ -4224,8 +4249,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         kind = spec.get('kind')
         if kind == 'emission':
-            return renderer.create_material('light', spec.get('base_color', [1, 1, 1]),
-                                            {'intensity': float(spec.get('emission_strength', 1.0))})
+            params = {'intensity': float(spec.get('emission_strength', 1.0))}
+            color_tex = spec.get('emission_color_texture')
+            if color_tex is not None:
+                params['texture'] = color_tex
+                # #762: CPU samples this per-texel (TexturedLight); the GPU
+                # wavefront path has no textured-emission slot yet and renders
+                # a flat colour instead -- surface it rather than a silent
+                # CPU/GPU divergence.
+                self._warn_shader_fallback(
+                    'EMISSION',
+                    'Emission Color texture is sampled per-texel on CPU; the '
+                    'GPU path has no textured-emission slot yet (#762) and '
+                    'renders a flat colour')
+            return renderer.create_material('light', spec.get('base_color', [1, 1, 1]), params)
 
         if kind == 'principled':
             color = list(spec.get('base_color', [0.8, 0.8, 0.8]))

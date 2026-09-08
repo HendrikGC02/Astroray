@@ -1656,6 +1656,54 @@ public:
         return albedo->sampleSpectral(rec, wo, lambdas) * (cosTheta / float(M_PI));
     }
 };
+
+// #762 — textured Emission Color. Neither DiffuseLightPlugin ("light"/
+// "emission", plugins/materials/diffuse_light.cpp) nor EmissivePlugin
+// ("emissive") has a texture slot, so a procedural/image texture wired
+// directly into a Blender Emission node's Color input rendered flat white
+// (the addon's get_color_input() fallback default) with no per-texel
+// evaluation. Mirrors TexturedLambertian above: front-face-only emission
+// (matches DiffuseLightPlugin, NOT the two-sided EmissivePlugin), same
+// intensity*color-then-upsample convention DiffuseLightPlugin uses.
+class TexturedLight : public Material {
+    std::shared_ptr<Texture> emission;
+    float intensity_;
+public:
+    TexturedLight(std::shared_ptr<Texture> e, float intensity) : emission(e), intensity_(intensity) {}
+    // Mirrors TexturedLambertian::getTexture() — exposed for a future GPU
+    // scene-upload path; the GPU wavefront leg still renders a flat colour
+    // (see backendCapabilities() below).
+    std::shared_ptr<Texture> getTexture() const { return emission; }
+    // No HitRecord available here (used only for the mesh-light NEE power
+    // estimate, not per-hit radiance) — a representative flat value, same
+    // compromise TexturedLambertian::getAlbedo() makes with its flat 0.5.
+    Vec3 getEmission() const override { return Vec3(intensity_); }
+    bool isEmissive() const override { return true; }
+    std::string getGPUTypeName() const override { return "diffuse_light"; }
+    MaterialBackendCapabilities backendCapabilities() const override {
+        MaterialBackendCapabilities caps = Material::backendCapabilities();
+        caps.gpuApproximate = true;
+        caps.notes = "GPU: textured Emission Color not sampled; renders a flat colour (#762)";
+        return caps;
+    }
+    Vec3 emitted(const HitRecord& rec) const override {
+        if (!rec.frontFace) return Vec3(0);
+        return emission->value(rec, Vec3(0)) * intensity_;
+    }
+    astroray::SampledSpectrum emittedSpectral(
+            const HitRecord& rec,
+            const astroray::SampledWavelengths& lambdas) const override {
+        if (!rec.frontFace) return astroray::SampledSpectrum(0.0f);
+        Vec3 c = emission->value(rec, Vec3(0)) * intensity_;
+        return astroray::RGBIlluminantSpectrum({c.x, c.y, c.z}).sample(lambdas);
+    }
+    astroray::SampledSpectrum evalSpectral(
+            const HitRecord&, const Vec3&, const Vec3&,
+            const astroray::SampledWavelengths&) const override {
+        return astroray::SampledSpectrum(0.0f);
+    }
+};
+
 namespace astroray {
 // Defined in plugins/materials/normal_mapped.cpp
 std::shared_ptr<Material> makeNormalMapped(

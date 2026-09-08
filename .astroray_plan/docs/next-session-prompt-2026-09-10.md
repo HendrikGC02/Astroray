@@ -66,13 +66,13 @@ leave a morning-readable record.
 - main at the closeout commit; merged last night **#774 #775 #777 #781** (numbers in STATUS; run report
   `reports/2026-09-09-overnight-lead-session.html`).
 - **PR #778 pkg265 CPU leg — OPEN, HELD** (`feat/pkg265-ms-microfacet-glass`, worktree
-  `../Astroray-pkg265gpu`; a thin-film fix lane may still be pushing from `../Astroray-pkg265tf` on
-  `feat/pkg265-thinfilm-fix` — check `gh pr view 778` comments and `git log` on both branches first).
+  `../Astroray-pkg265gpu`; the stochastic-eval lane may still be pushing there — check `gh pr view 778`
+  comments and `git log` before touching the branch).
   State: Heitz 2016 walk clean-room (Option A — supplemental licence-unstated, Mitsuba GPLv3), oracle,
   directional gate 41/41, furnace in band, delta reroutes removed; TWO parity reviews: (1) eval/NEE
   single-scatter vs walk sample → fixed by a skip-NEE delta contract, which moved the pkg263 harness
   limb 1.05 → **0.60** of Cycles (centre 1.52 → 0.93) — inconsistent, NOT mergeable; (2) thin-film rough
-  glass double-counts (fix: film glass stays on main's single-scatter path, lane running at handoff).
+  glass double-counted — fixed (f6c06fa5, film glass stays single-scatter; thin-film-aware walk → #783).
   **Lead decision recorded on the PR:** implement the paper's stochastic eval (Eq 42, `msdiel::stochasticEval`)
   with a **hash-seeded RNG** (pbrt-v4 `LayeredBxDF::f` pattern, Apache-2.0, pure function of wo/wi, no
   signature change), `isDelta=false` again, pdf = §9 proxy; re-run the pkg263 harness (Phase 8), lit

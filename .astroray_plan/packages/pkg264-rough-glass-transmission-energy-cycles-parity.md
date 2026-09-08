@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — PR #<N> open (2026-09-08): native-`principled` rough-glass energy loss fixed CPU+GPU (furnace 0.645→0.958 @r0.85 = disney; harness r0.85 centre 0.525→0.742, limb 0.342→0.556; 289 regression pass, REG 254 held). Full ±5 % Cycles parity NOT reached — the residual is an engine-wide rough-glass angular gap that affects `disney` equally (follow-up filed); pkg264's principled=disney scope is delivered.
+**Status:** in-progress — PR #771 open (2026-09-08): native-`principled` rough-glass energy loss fixed CPU+GPU (furnace 0.645→0.958 @r0.85 = disney; harness r0.85 centre 0.525→0.742, limb 0.342→0.556; 289 regression pass, REG 254 held). Full ±5 % Cycles parity NOT reached — the residual is an engine-wide rough-glass angular gap that affects `disney` equally (follow-up filed); pkg264's principled=disney scope is delivered.
 **Estimated effort:** 2–3 sessions (~8 h; CPU fix + GPU closure-graph mirror under the GPU lock; gated by the pkg263 harness)
 **Depends on:** pkg263, pkg179, pkg169, pkg118
 
@@ -181,7 +181,7 @@ PBRT-v4 §9.7 dielectric BSDF. Serves Pillar 5.
       **Residual gap to full ±5 % Cycles parity is engine-wide** (post-fix
       `principled` ≥ trusted `disney`; the residual affects disney equally and both
       furnace-conserve) — filed as a follow-up (multiscatter angular lobe vs Cycles),
-      out of pkg264's principled=disney scope. Research note §7. PR #<N>.
+      out of pkg264's principled=disney scope. Research note §7. PR #771.
 
 ---
 

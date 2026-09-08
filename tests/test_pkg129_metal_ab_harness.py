@@ -11,6 +11,8 @@ verdict here by design.
 """
 from __future__ import annotations
 
+import json
+import math
 import sys
 import importlib.util
 from pathlib import Path
@@ -155,3 +157,100 @@ def test_write_reports_emits_json_and_md(tmp_path):
     text = md.read_text(encoding="utf-8")
     assert "VERDICT: DEFERRED" in text
     assert cfg.name in text
+
+
+# --------------------------------------------------------------------------- #
+# pkg263 — rough-glass preset (sweep, ROI geometry, ROI metrics, report)
+# --------------------------------------------------------------------------- #
+
+def test_glass_sweep_is_4_roughness_ior_145():
+    sweep = S.glass_sweep()
+    assert len(sweep) == 4
+    rough = sorted(c.roughness for c in sweep)
+    assert rough == [0.0, 0.2, 0.5, 0.85]
+    assert all(c.ior == pytest.approx(1.45) for c in sweep)
+    assert len({c.name for c in sweep}) == 4
+    assert "glass_r000" in {c.name for c in sweep}
+    assert "glass_r085" in {c.name for c in sweep}
+
+
+def test_glass_config_by_name_roundtrip_and_unknown():
+    cfg = S.glass_config_by_name("glass_r050")
+    assert cfg.roughness == 0.5
+    assert cfg.ior == pytest.approx(1.45)
+    with pytest.raises(ValueError):
+        S.glass_config_by_name("no_such_glass_config")
+
+
+def test_sphere_projected_radius_px_matches_hand_calc():
+    import math
+    # r=0.6, d=2.4 -> alpha=asin(0.25); half_fov=25deg; res=256
+    r_px = S.sphere_projected_radius_px(0.6, 2.4, math.radians(25.0), 256)
+    alpha = math.asin(0.25)
+    expected = (math.tan(alpha) / math.tan(math.radians(25.0))) * 128.0
+    assert r_px == pytest.approx(expected, rel=1e-9)
+    # scales linearly with resolution at fixed geometry
+    r_px_2x = S.sphere_projected_radius_px(0.6, 2.4, math.radians(25.0), 512)
+    assert r_px_2x == pytest.approx(r_px * 2.0, rel=1e-9)
+
+
+def test_roi_masks_disjoint_centered_and_within_frame():
+    res = 128
+    masks, r_px, (cx, cy) = H._roi_masks(res)
+    assert cx == cy == res / 2.0
+    assert r_px > 0
+    # centre disc and limb annulus never overlap (there's a gap 0.35R..0.8R)
+    assert not (masks["centre"] & masks["limb"]).any()
+    # background patch touches neither the centre disc nor the limb annulus
+    assert not (masks["background"] & masks["centre"]).any()
+    assert not (masks["background"] & masks["limb"]).any()
+    for m in masks.values():
+        assert m.any()  # every ROI has at least one pixel at this resolution
+    # background patch sits strictly above the sphere's top edge (smaller row
+    # index == top, memory blender-pixels-bottom-up-roi-flip)
+    import numpy as np
+    bg_rows = np.nonzero(masks["background"])[0]
+    assert bg_rows.max() < cy - r_px
+
+
+def test_roi_mean_rgb_and_elementwise_ratio():
+    img = np.zeros((8, 8, 3), dtype=np.float32)
+    img[:4, :, :] = (0.2, 0.4, 0.8)
+    mask_top = np.zeros((8, 8), dtype=bool)
+    mask_top[:4, :] = True
+    mean = H.roi_mean_rgb(img, mask_top)
+    assert mean == pytest.approx((0.2, 0.4, 0.8), abs=1e-6)
+
+    empty_mask = np.zeros((8, 8), dtype=bool)
+    assert all(np.isnan(v) for v in H.roi_mean_rgb(img, empty_mask))
+
+    ratio = H._elementwise_ratio((0.4, 0.4, 0.0), (0.2, 0.0, 0.0))
+    assert ratio[0] == pytest.approx(2.0)
+    assert math.isnan(ratio[1])  # zero denominator -> nan, not a silent pass
+    assert math.isnan(ratio[2])
+
+
+def test_write_glass_reports_emits_json_and_md(tmp_path):
+    cfg = S.glass_sweep()[1]
+    rois = [
+        H.GlassRoiResult("centre", (0.50, 0.50, 0.50), (0.49, 0.51, 0.50), (0.98, 1.02, 1.00)),
+        H.GlassRoiResult("limb", (0.45, 0.45, 0.45), (0.30, 0.31, 0.30), (0.67, 0.69, 0.67)),
+        H.GlassRoiResult("background", (0.30, 0.30, 0.30), (0.30, 0.30, 0.30), (1.00, 1.00, 1.00)),
+    ]
+    result = H.GlassConfigResult(
+        cfg.name, cfg.roughness, "ok", rois,
+        limb_over_centre_cycles=(0.90, 0.90, 0.90),
+        limb_over_centre_astroray=(0.61, 0.61, 0.60),
+    )
+    H.write_glass_reports([result], tmp_path)
+
+    js = tmp_path / "glass_ab_report.json"
+    md = tmp_path / "glass_ab_report.md"
+    assert js.exists() and md.exists()
+    payload = json.loads(js.read_text(encoding="utf-8"))
+    assert payload["configs"][0]["name"] == cfg.name
+    assert payload["configs"][0]["rois"][1]["roi"] == "limb"
+    text = md.read_text(encoding="utf-8")
+    assert cfg.name in text
+    assert "limb/centre" in text
+    assert "Diagnostic only (pkg263)" in text

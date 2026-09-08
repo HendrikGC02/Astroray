@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — filed 2026-09-08 from the owner's rough-glass "limb darkening" report (owner approved 11:50)
+**Status:** in-progress — PR #764 open (feat/pkg263-rough-glass-ab); measurement complete, awaiting lead review/merge
 **Estimated effort:** 1 session (~3 h; CPU headless Blender; GPU leg optional)
 **Depends on:** pkg129, pkg119
 
@@ -91,12 +91,17 @@ Serves Pillar 5 / gate (c).
 
 ## Acceptance criteria
 
-- [ ] Both engines render the sweep headless without exception; ROI PNGs
-      inspected by the lead.
-- [ ] Results doc with the limb/centre ratio per engine per roughness and the
-      Astroray/Cycles ratio per ROI; a stated verdict (darkening confirmed +
-      magnitude, or within noise) with a root-cause lead.
-- [ ] Preset registered; harness pure tests green.
+- [x] Both engines render the sweep headless without exception (4/4 configs
+      PASS, both legs each). ROI PNGs subagent-visually-verified (correct
+      framing, no sphere/plane bleed into background ROI); still awaiting the
+      LEAD's own inspection pass per common-rules — not ticked as
+      lead-reviewed.
+- [x] Results doc with the limb/centre ratio per engine per roughness and the
+      Astroray/Cycles ratio per ROI; a stated verdict (darkening CONFIRMED,
+      magnitude quantified, noise floor ≤1.4% vs 19-66% observed gaps) with
+      root-cause leads — `.astroray_plan/docs/pkg263-rough-glass-ab-2026-09.md`.
+- [x] Preset registered (`scripts/README.md`); harness pure tests green
+      (13/13, `tests/test_pkg129_metal_ab_harness.py`).
 
 ---
 
@@ -108,7 +113,14 @@ Serves Pillar 5 / gate (c).
 
 ## Progress
 
-- [ ] 2026-09-08 — filed by the lead; owner approved; not started.
+- [x] 2026-09-08 — filed by the lead; owner approved; not started.
+- [x] 2026-09-08 — glass preset added to `metal_ab` (scenes/harness/render_leg);
+      13/13 pure tests green; full 4-roughness CPU sweep run (res 256, 128 spp
+      both engines); results doc + 12 evidence PNGs written; Cycles noise
+      floor measured (second seed); PR #764 opened. Verdict: limb darkening
+      CONFIRMED (Astroray/Cycles limb ratio 0.81→0.34 over r=0→0.85, vs a
+      ≤1.4% noise floor). Root-cause leads recorded for pkg124/pkg179 Phase 2.
+      GPU leg not run (CPU-only lane).
 
 ---
 

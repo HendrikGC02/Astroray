@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** B
-**Status:** in-progress — PR #758 open; scanner + tests + pkg259 allocation regen landed on the branch, awaiting review/merge
+**Status:** done — PR #758 merged 2026-09-08: matrix 527 → 586 rows (`object` +6, `image_property` +6, `input_node` +42, `camera` +4, `world` light-linking gap card +1; 13 duplicate-key groups collapsed with `[identifier]` suffixes), 0 classification changes on the 504 common keys, `tests/test_pkg260_scanner_categories.py` green, pkg259 allocation table regenerated; lead added the five `settings_map.py` rows the pkg176 contract requires
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg229, pkg259
 
@@ -68,8 +68,8 @@ the corpus exercises needs a row. Serves Pillar 5.
 ## Prerequisites
 
 - [x] pkg229 done — matrix regenerable headlessly.
-- [ ] pkg259 Phase 0 design merged (#743) — allocation table names the rows.
-- [ ] Build passes on main.
+- [x] pkg259 Phase 0 design merged (#743) — allocation table names the rows.
+- [x] Build passes on main.
 
 ---
 

@@ -369,24 +369,32 @@ class GlassConfigResult:
     notes: str = ""
 
 
+def _linear_to_srgb_u8(px):
+    """Linear float [0,1]-ish -> sRGB uint8 (matches render_leg._render_to_npy's
+    formula). Done on the HARNESS side, not inside Blender: Blender's bundled
+    Python has no PIL (verified: `import PIL` there raises ModuleNotFoundError),
+    so render_leg's own PNG write is silently skipped (wrapped in a
+    try/except — cosmetic by design) and this is the only place a display
+    image actually gets made for the glass sweep."""
+    import numpy as np
+    srgb = np.where(px <= 0.0031308, px * 12.92,
+                    1.055 * np.clip(px, 0, None) ** (1 / 2.4) - 0.055)
+    return (np.clip(srgb, 0, 1) * 255 + 0.5).astype(np.uint8)
+
+
 def _annotate_and_contact_sheet(renders_dir: Path, cfg_name: str, roi_masks,
-                                r_px: float, center: tuple[float, float]) -> None:
-    """Draws the three ROIs on each engine's proof PNG and writes a
-    Cycles | Astroray | abs-diff contact sheet (memory
-    blender-pixels-bottom-up-roi-flip: LOOK at the drawn ROI, don't just trust
-    the number)."""
+                                r_px: float, center: tuple[float, float],
+                                cyc_linear, ast_linear) -> None:
+    """Builds each engine's sRGB display image from its LINEAR array, draws
+    the three ROIs on each, and writes a Cycles | Astroray | abs-diff contact
+    sheet (memory blender-pixels-bottom-up-roi-flip: LOOK at the drawn ROI,
+    don't just trust the number)."""
     import numpy as np
     from PIL import Image, ImageDraw
 
     cx, cy = center
-
-    def _load(tag):
-        p = renders_dir / f"{cfg_name}__{tag}.png"
-        return Image.open(p).convert("RGB") if p.exists() else None
-
-    cyc_png, ast_png = _load("cycles"), _load("astroray_cpu")
-    if cyc_png is None or ast_png is None:
-        return
+    cyc_png = Image.fromarray(_linear_to_srgb_u8(cyc_linear), "RGB")
+    ast_png = Image.fromarray(_linear_to_srgb_u8(ast_linear), "RGB")
 
     def _draw(img):
         im = img.copy()
@@ -426,7 +434,14 @@ def run_glass(out_dir: Path, *, res: int = 256, samples: int = 128,
         print("[pkg263] Blender not found (set BLENDER_EXE) — cannot run legs.",
               file=sys.stderr)
         return 2
-    build_dir = _pyd_dir(_REPO_ROOT) or _pyd_dir(_REPO_ROOT.parent / "Astroray")
+    # A pre-set ASTRORAY_PYD_DIR (e.g. the staged CPU addon build under the
+    # main checkout's dist/astroray/, which _pyd_dir's build_cuda*/
+    # build_blender_addon* candidates don't cover) wins over auto-discovery.
+    env_override = os.environ.get("ASTRORAY_PYD_DIR", "")
+    if env_override and list(Path(env_override).glob("astroray*.pyd")):
+        build_dir = Path(env_override)
+    else:
+        build_dir = _pyd_dir(_REPO_ROOT) or _pyd_dir(_REPO_ROOT.parent / "Astroray")
     if build_dir is None:
         print("[pkg263] no astroray*.pyd found — build the addon first.",
               file=sys.stderr)
@@ -479,7 +494,8 @@ def run_glass(out_dir: Path, *, res: int = 256, samples: int = 128,
         results.append(GlassConfigResult(cfg.name, cfg.roughness, "ok", roi_results,
                                          limb_over_centre_cycles=loc_c,
                                          limb_over_centre_astroray=loc_a))
-        _annotate_and_contact_sheet(renders_dir, cfg.name, roi_masks, r_px, center)
+        _annotate_and_contact_sheet(renders_dir, cfg.name, roi_masks, r_px, center,
+                                    cyc, ast)
         for r in roi_results:
             print(f"    {r.roi:10s} astroray/cycles ratio="
                   f"{tuple(round(x, 4) for x in r.ratio)}", flush=True)

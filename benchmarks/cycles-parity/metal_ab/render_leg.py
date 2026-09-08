@@ -100,18 +100,29 @@ def _configure_render(scene, engine, device, res, samples):
     scene.render.image_settings.color_depth = "32"
     scene.render.image_settings.exr_codec = "NONE"
     scene.render.engine = engine
-    if engine == "CYCLES":
-        scene.cycles.samples = samples
-        scene.cycles.use_denoising = False
-        scene.cycles.use_adaptive_sampling = False
-        scene.cycles.seed = 7
-    elif hasattr(scene, "custom_raytracer"):
+    # pkg176 Stage 4 (blender_addon/settings_map.py): samples/use_denoising/
+    # use_adaptive_sampling/seed are DIRECT-mapped to native scene.cycles.* for
+    # BOTH engines now (the custom_raytracer.samples etc. duplicates were
+    # retired) — CUSTOM_RAYTRACER reads scene.cycles.samples same as CYCLES.
+    # Gating this to `if engine == "CYCLES"` (the old shape) silently leaves
+    # the Astroray leg at Blender's factory-default 4096 samples with
+    # denoising ON (confirmed: a CPU-device Astroray smoke render still
+    # printed "[OIDN] Using CUDA device" and "4096 samples" with
+    # --samples 32) — invalidates both the requested sample-matching and the
+    # "denoise off" requirement pkg263 needs for a clean A/B.
+    scene.cycles.samples = samples
+    scene.cycles.use_denoising = False
+    scene.cycles.use_adaptive_sampling = False
+    scene.cycles.seed = 7
+    # pkg263: denoise off on the scene AND the view layer (a view layer's own
+    # Cycles override can re-enable denoising independent of the scene flag).
+    for vl in scene.view_layers:
+        if hasattr(vl, "cycles") and hasattr(vl.cycles, "use_denoising"):
+            vl.cycles.use_denoising = False
+    if hasattr(scene, "custom_raytracer"):
         cr = scene.custom_raytracer
-        cr.samples = samples
-        if hasattr(cr, "preview_samples"):
-            cr.preview_samples = samples
         if hasattr(cr, "device_mode"):
-            cr.device_mode = device  # 'cpu' or 'gpu'
+            cr.device_mode = device  # 'cpu' or 'gpu' (astroray-only tri-state)
 
 
 def _render_to_npy(bpy, scene, out_stem: Path, *, top_down: bool = False):

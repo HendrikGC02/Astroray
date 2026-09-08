@@ -434,12 +434,28 @@ class _ViewportSpikeWorker:
         self._job_ready.set()
         return True
 
-    def pump(self):
-        """Main thread timer tick / every view_draw: drain the control queue and
-        the mailbox, present the freshest valid frame, and advance the state
-        machine (§3.4). bpy-free — present_fn does the GPUTexture work."""
+    def pump(self, present=True):
+        """Advance the session state machine (§3.4).
+
+        Always drains the control queue (idle/error notifications — bpy-free, safe
+        from any main-thread context, including a bpy.app.timers callback). The
+        mailbox drain, which builds a GPUTexture via present_fn, is gated on
+        `present`: it MUST run only from a real GPU draw context (view_draw), never
+        from the bpy.app.timers liveness pump.
+
+        pkg241 P2.2 item 1 (present-wiring fix): the spike called pump() with the
+        present branch from BOTH view_draw and the ~60 Hz timer. Creating a
+        GPUTexture off a draw context is unsafe and raised (swallowed by the
+        timer's try/except); because _drain_mailbox clears the depth-1 mailbox
+        before presenting, the only pending frame was consumed and lost before
+        view_draw could present it in a valid context, so _viewport_texture stayed
+        None and the blit fell through to Blender's grid. The timer now calls
+        pump(present=False) (state advance + tag_redraw only); view_draw calls
+        pump() (present=True) inside its draw context, where the GPUTexture upload
+        and blit are valid."""
         self._drain_control()
-        self._drain_mailbox()
+        if present:
+            self._drain_mailbox()
 
     def stop(self, timeout=5.0):
         """Main thread teardown (§3.4/§3.6): request cancel and PUMP the control
@@ -1460,7 +1476,11 @@ class Exporter:
             if w is None or w.state == _ViewportSpikeWorker.DEAD:
                 return None  # unregister
             try:
-                w.pump()
+                # State advance only — never build a GPUTexture off the draw
+                # context (P2.2 item 1). tag_redraw so view_draw runs and presents
+                # the freshest frame in its own valid draw context, even while
+                # Blender is otherwise idle.
+                w.pump(present=False)
                 if self._worker_redraw_fn is not None:
                     self._worker_redraw_fn()
             except Exception:

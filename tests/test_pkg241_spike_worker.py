@@ -109,6 +109,40 @@ def test_worker_publishes_a_frame_and_pump_presents_it():
         h.teardown()
 
 
+def test_control_only_pump_does_not_present_but_preserves_the_frame():
+    """pkg241 P2.2 item 1: the bpy.app.timers liveness pump calls pump(present=False)
+    so it never builds a GPUTexture off a draw context. It must still advance the
+    control-plane state machine (idle -> IDLE) but must NOT consume the mailbox
+    frame; a later pump() from the view_draw draw context then presents it. This is
+    the fix for the spike's presented=0 (the timer ate the only pending frame in an
+    invalid GPU context and it was lost before view_draw could present it)."""
+    gate = threading.Event()
+
+    def render_fn(job, cancel_check, publish):
+        publish(_frame(0.7), 2, 2)
+        gate.set()
+
+    h = _Harness(render_fn)
+    try:
+        h.edit_and_submit()
+        assert _wait(gate.is_set)
+        assert _wait(lambda: not h.worker._control.empty())
+        assert _wait(lambda: h.worker.mailbox_depth == 1)
+        # Timer-style pump: advances the state machine but presents nothing and
+        # leaves the frame in the mailbox for the draw-context pump.
+        h.worker.pump(present=False)
+        assert h.worker.state == Worker.IDLE          # control advanced
+        assert h.presented == []                      # nothing presented off-context
+        assert h.worker.mailbox_depth == 1            # frame preserved, not lost
+        # view_draw-style pump (draw context): now presents the preserved frame.
+        h.worker.pump()
+        assert len(h.presented) == 1
+        assert np.allclose(h.presented[0][0], 0.7)
+        assert h.worker.presents == 1
+    finally:
+        h.teardown()
+
+
 def test_view_draw_blit_reads_frame_without_triggering_render():
     """After a frame is published, repeated pumps (the view_draw/timer liveness
     loop) must NOT call render_fn again while nothing new is desired — view_draw

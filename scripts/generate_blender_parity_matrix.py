@@ -33,7 +33,7 @@ import inspect
 import json
 import os
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -634,6 +634,45 @@ def scan_vm_and_vector_supported_types(addon_module):
     return found
 
 
+def scan_object_image_evidence(addon_module):
+    """pkg260 -- whole-file AST evidence for the `object` and `image_property`
+    categories. Unlike shader-node sockets (scoped to convert_shader_node's
+    ntype dispatch), Object/Mesh/Image properties are read across several
+    unrelated functions (convert_objects, load_blender_image,
+    _load_blender_image_resolved) with no shared dispatch pattern to scope a
+    scanner to -- so this scans the WHOLE addon source, unscoped, for:
+      - direct attribute reads (`x.attr`) and `getattr(x, 'attr', default)`
+        calls naming a target property;
+      - `<expr>.attr == 'LITERAL'` comparisons (e.g. `obj.type == 'CURVES'`,
+        `image.source == 'TILED'`), keyed by the compared attribute name.
+    Same "mechanical, no hand-typed classification" discipline as the
+    shader-node scanner above -- just unscoped, since there is no shared
+    caller function to scope it to. Returns (found_attrs, compare_literals).
+    """
+    addon_source_path = inspect.getfile(addon_module.CustomRaytracerRenderEngine)
+    with open(addon_source_path, 'r', encoding='utf-8') as f:
+        tree = ast.parse(f.read())
+
+    found_attrs = set()
+    compare_literals = defaultdict(set)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            found_attrs.add(node.attr)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'getattr':
+            if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
+                found_attrs.add(node.args[1].value)
+        elif isinstance(node, ast.Compare):
+            left = node.left
+            if isinstance(left, ast.Attribute):
+                for comp in node.comparators:
+                    if isinstance(comp, ast.Constant):
+                        compare_literals[left.attr].add(comp.value)
+
+    print(f"[pkg260] object/image whole-file scan: {len(found_attrs)} distinct "
+          f"attribute names, {len(compare_literals)} compared attribute names")
+    return found_attrs, compare_literals
+
+
 # =============================================================================
 # Enumeration (from Blender API at runtime)
 # =============================================================================
@@ -763,6 +802,42 @@ def enumerate_shader_nodes_via_bpy_types():
     return results
 
 
+def enumerate_input_nodes_via_bpy_types():
+    """pkg260 -- shader input/source nodes with zero `shader_node` category
+    rows today: Geometry, Object Info, Attribute, Color Attribute, Hair Info,
+    Light Path. These supply data through OUTPUT sockets only (none of the six
+    has an input socket), so the existing scanner -- scoped to
+    convert_shader_node's ntype dispatch over INPUT sockets -- never had
+    anything to enumerate for them. Same bpy.types introspection as
+    enumerate_shader_nodes_via_bpy_types(), restricted to these six bl_idnames
+    and returning sockets_out instead of sockets_in.
+    """
+    target_idnames = [
+        'ShaderNodeNewGeometry', 'ShaderNodeObjectInfo', 'ShaderNodeAttribute',
+        'ShaderNodeVertexColor', 'ShaderNodeHairInfo', 'ShaderNodeLightPath',
+    ]
+    results = []
+    temp_mat = bpy.data.materials.new(name="_temp_introspect_input_node")
+    temp_mat.use_nodes = True
+    nt = temp_mat.node_tree
+    for bl_idname in target_idnames:
+        nt.nodes.clear()
+        try:
+            node = nt.nodes.new(type=bl_idname)
+        except RuntimeError as e:
+            print(f"[pkg260] Skip {bl_idname}: {e}")
+            continue
+        sockets_out = [
+            {'name': o.name, 'identifier': o.identifier, 'type': o.type, 'bl_idname': o.bl_idname}
+            for o in node.outputs
+        ]
+        results.append({'bl_idname': bl_idname, 'node_type': node.type, 'sockets_out': sockets_out})
+    bpy.data.materials.remove(temp_mat)
+    print(f"[pkg260] Found {len(results)} input-node types via bpy.types "
+          f"({sum(len(r['sockets_out']) for r in results)} output sockets)")
+    return results
+
+
 def enumerate_render_settings():
     """Return dict of render-relevant RenderSettings properties (allow-listed)."""
     allow_list = [
@@ -841,7 +916,13 @@ def enumerate_camera_properties():
 
     for prop in ['lens', 'sensor_width', 'sensor_height', 'shift_x', 'shift_y',
                  'dof_distance', 'gpu_dof', 'aperture_fstop', 'aperture_blades',
-                 'aperture_rotation', 'aperture_ratio', 'type', 'clip_start', 'clip_end']:
+                 'aperture_rotation', 'aperture_ratio', 'type', 'clip_start', 'clip_end',
+                 # pkg260 -- design doc Sec1.6 "unscanned" camera props. All four
+                 # resolve via the existing dof-nested fallback check below
+                 # (`hasattr(cam.dof, prop)` -- none start with 'dof_' so the
+                 # .replace('dof_', '') is a no-op) except ortho_scale/sensor_fit,
+                 # which are direct Camera attributes (first hasattr branch).
+                 'focus_distance', 'focus_object', 'ortho_scale', 'sensor_fit']:
         if hasattr(cam, prop):
             props[prop] = type(getattr(cam, prop, None)).__name__
         if hasattr(cam, 'dof') and hasattr(cam.dof, prop.replace('dof_', '')):
@@ -976,8 +1057,15 @@ def classify_shader_node(node_info, evidence, stale_socket_findings,
 # Report generation
 # =============================================================================
 
-def generate_matrix(evidence, vm_supported_types=frozenset()):
-    """Generate the full parity matrix."""
+def generate_matrix(evidence, vm_supported_types=frozenset(),
+                     found_attrs=frozenset(), compare_literals=None):
+    """Generate the full parity matrix.
+
+    found_attrs / compare_literals (pkg260): whole-file AST evidence from
+    scan_object_image_evidence(), used to classify the `object` and
+    `image_property` categories below.
+    """
+    compare_literals = compare_literals or {}
     print("[pkg119] Enumerating Blender API surface...")
 
     shader_nodes = enumerate_shader_nodes_via_bpy_types()
@@ -985,6 +1073,7 @@ def generate_matrix(evidence, vm_supported_types=frozenset()):
     light_props = enumerate_light_properties()
     camera_props = enumerate_camera_properties()
     world_props = enumerate_world_properties()
+    input_nodes = enumerate_input_nodes_via_bpy_types()
 
     print(f"[pkg119] Found {len(shader_nodes)} shader node types")
 
@@ -999,8 +1088,26 @@ def generate_matrix(evidence, vm_supported_types=frozenset()):
                                                      vm_supported_types)
 
         # Per-socket granularity
+        # pkg260: Blender keeps ALL data-type/positional socket variants in
+        # node.inputs simultaneously (only toggling `enabled`/hidden for the
+        # inactive ones) -- e.g. ShaderNodeMapRange's FLOAT vs FLOAT_VECTOR
+        # "From Min" sockets, or ShaderNodeMath's 3 positional "Value" sockets.
+        # Pre-pkg260 this produced 13 literal (category,feature,bl_idname,
+        # socket_or_prop) key collisions in the 527-row matrix. Fix: within
+        # THIS node's own socket list, a name occurring more than once gets
+        # its Blender socket `identifier` appended as a stable suffix --
+        # except the (at most one) member whose identifier already equals its
+        # name, which keeps the original bare key unchanged (identifiers are
+        # unique per node by construction, so this always fully
+        # disambiguates). Sockets with a unique name are untouched -- zero
+        # effect on the other 514 pre-existing rows.
+        name_counts = Counter(s['name'] for s in node_info['sockets_in'])
         for socket in node_info['sockets_in']:
             sock_name = socket['name']
+            if name_counts[sock_name] > 1 and socket['identifier'] != sock_name:
+                sock_key = f"{sock_name}[{socket['identifier']}]"
+            else:
+                sock_key = sock_name
             if sock_name in classification_result['sockets_supported']:
                 sock_classification = classification_result['classification']
             elif sock_name in classification_result['sockets_dropped']:
@@ -1012,7 +1119,7 @@ def generate_matrix(evidence, vm_supported_types=frozenset()):
                 'category': 'shader_node',
                 'feature': node_info['node_type'],
                 'bl_idname': node_info['bl_idname'],
-                'socket_or_prop': f"input:{sock_name}",
+                'socket_or_prop': f"input:{sock_key}",
                 'classification': sock_classification,
                 'notes': classification_result.get('notes', ''),
             })
@@ -1072,7 +1179,11 @@ def generate_matrix(evidence, vm_supported_types=frozenset()):
     # Camera properties (static evidence, hand-verified by review, not scanner-derived)
     # From camera extraction code (lines 1280-1288)
     CAMERA_EVIDENCE = {'lens', 'sensor_width', 'sensor_height', 'shift_x', 'shift_y',
-                       'dof_distance', 'aperture_fstop'}
+                       'dof_distance', 'aperture_fstop',
+                       # pkg260: confirmed direct reads (blender_addon/__init__.py
+                       # camera.dof.focus_object / .focus_distance / .sensor_fit).
+                       # ortho_scale is NOT read anywhere -- stays DROPPED-SILENT.
+                       'focus_distance', 'focus_object', 'sensor_fit'}
     for prop in camera_props:
         classification = 'SUPPORTED' if prop in CAMERA_EVIDENCE else 'DROPPED-SILENT'
         matrix_rows.append({
@@ -1094,6 +1205,121 @@ def generate_matrix(evidence, vm_supported_types=frozenset()):
             'classification': 'SUPPORTED' if prop_name == 'use_nodes' else 'DROPPED-SILENT',
             'notes': 'node tree handled separately' if prop_name == 'use_nodes' else '',
         })
+
+    # pkg260 -- world-category gap card: light linking / shadow linking.
+    # Real Cycles 4.x+ per-object light-linking/shadow-linking collections
+    # have no Astroray equivalent and no per-object rows are added for them
+    # (owner decision 2026-09-08, pkg259 design doc Sec7 Q7) -- one row here,
+    # not one per object.
+    matrix_rows.append({
+        'category': 'world',
+        'feature': 'World',
+        'bl_idname': '',
+        'socket_or_prop': 'light_linking_shadow_linking',
+        'classification': 'DROPPED-SILENT',
+        'notes': ('per-object light-linking / shadow-linking collections have no '
+                  'Astroray equivalent; declared out of scope by owner decision '
+                  '2026-09-08 -- one gap-card row, not per-object rows'),
+    })
+
+    # pkg260 -- `object` category: Object/Mesh RNA rows (instancing, modifier
+    # presence, motion blur, smooth/auto-smooth shading, Curves objects).
+    # Classified from scan_object_image_evidence()'s whole-file evidence
+    # (found_attrs / compare_literals), except `modifiers`, which needs one
+    # hand-verified entry the same way RENDER_SETTINGS_EVIDENCE/LIGHT_EVIDENCE/
+    # CAMERA_EVIDENCE above are hand-verified: convert_objects sources every
+    # mesh from `depsgraph.object_instances` (the EVALUATED depsgraph), so the
+    # full modifier stack is already baked into obj.data by the time the addon
+    # reads it -- there is no literal ".modifiers" read to scan for because the
+    # addon never needs one.
+    OBJECT_HAND_VERIFIED_SUPPORTED = {'modifiers'}
+    OBJECT_FEATURES = [
+        # (socket_or_prop, notes)
+        ('instance_type', ('read only to detect nested collection/dupli instancers '
+                            '(_register_instanced_groups); depsgraph.object_instances '
+                            'enumeration is what actually resolves VERTS/FACES/COLLECTION '
+                            'instancing, independent of this read')),
+        ('instance_collection', ''),
+        ('modifiers', ('hand-verified: depsgraph.object_instances is the sole geometry '
+                        'source in convert_objects, so the evaluated modifier stack is '
+                        'already baked in')),
+        ('use_motion_blur', ''),
+        ('split_normals', 'covers smooth / flat / auto-smooth shading uniformly'),
+    ]
+    for sock, notes in OBJECT_FEATURES:
+        if sock in OBJECT_HAND_VERIFIED_SUPPORTED:
+            classification = 'SUPPORTED'
+        else:
+            classification = 'SUPPORTED' if sock in found_attrs else 'DROPPED-SILENT'
+        matrix_rows.append({
+            'category': 'object', 'feature': 'Object', 'bl_idname': '',
+            'socket_or_prop': sock, 'classification': classification, 'notes': notes,
+        })
+    # Curves (hair) objects: `obj.type == 'CURVES'` dispatch in convert_objects.
+    curves_classification = 'SUPPORTED' if 'CURVES' in compare_literals.get('type', set()) else 'DROPPED-SILENT'
+    matrix_rows.append({
+        'category': 'object', 'feature': 'Object', 'bl_idname': '',
+        'socket_or_prop': 'type:CURVES', 'classification': curves_classification, 'notes': '',
+    })
+
+    # pkg260 -- `image_property` category: Image datablock sub-properties and
+    # ShaderNodeTexImage sampler-state properties. Same found_attrs whole-file
+    # evidence; none are read anywhere in the addon today (confirmed by both
+    # this scan and a manual source grep), so all six are DROPPED-SILENT.
+    matrix_rows.append({
+        'category': 'image_property', 'feature': 'Image', 'bl_idname': '',
+        'socket_or_prop': 'colorspace_settings.name',
+        'classification': 'SUPPORTED' if 'colorspace_settings' in found_attrs else 'DROPPED-SILENT',
+        'notes': '',
+    })
+    matrix_rows.append({
+        'category': 'image_property', 'feature': 'Image', 'bl_idname': '',
+        'socket_or_prop': 'alpha_mode',
+        'classification': 'SUPPORTED' if 'alpha_mode' in found_attrs else 'DROPPED-SILENT',
+        'notes': '',
+    })
+    matrix_rows.append({
+        'category': 'image_property', 'feature': 'Image', 'bl_idname': '',
+        'socket_or_prop': "source==TILED (UDIM)",
+        'classification': 'SUPPORTED' if 'TILED' in compare_literals.get('source', set()) else 'DROPPED-SILENT',
+        'notes': '',
+    })
+    for prop in ('interpolation', 'extension', 'projection'):
+        matrix_rows.append({
+            'category': 'image_property', 'feature': 'ShaderNodeTexImage',
+            'bl_idname': 'ShaderNodeTexImage', 'socket_or_prop': prop,
+            'classification': 'SUPPORTED' if prop in found_attrs else 'DROPPED-SILENT',
+            'notes': '',
+        })
+
+    # pkg260 -- `input_node` category: outputs of Geometry, Object Info,
+    # Attribute, Color Attribute, Hair Info, Light Path. Reuses
+    # classify_shader_node() unchanged (same evidence/vm_supported_types the
+    # shader_node category above already computed) by feeding it a pseudo
+    # node_info whose 'sockets_in' is these nodes' OUTPUT list -- these are
+    # pure source nodes with zero real input sockets, so nothing about the
+    # classification function's logic needs to change; only the category tag
+    # and the "output:" prefix differ from the shader_node loop above.
+    for node_info in input_nodes:
+        node_type = node_info['node_type']
+        pseudo_node_info = {
+            'node_type': node_type,
+            'sockets_in': [{'name': s['name']} for s in node_info['sockets_out']],
+            'properties': {},
+        }
+        result = classify_shader_node(pseudo_node_info, evidence, stale_socket_findings,
+                                      vm_supported_types)
+        for socket in node_info['sockets_out']:
+            name = socket['name']
+            classification = result['classification'] if name in result['sockets_supported'] else 'DROPPED-SILENT'
+            matrix_rows.append({
+                'category': 'input_node',
+                'feature': node_type,
+                'bl_idname': node_info['bl_idname'],
+                'socket_or_prop': f"output:{name}",
+                'classification': classification,
+                'notes': result.get('notes', ''),
+            })
 
     return matrix_rows, stale_socket_findings
 
@@ -1245,8 +1471,10 @@ def main():
     evidence = scan_addon_source_for_evidence(addon_module)
     vm_supported_types = scan_vm_and_vector_supported_types(addon_module)
     evidence = _apply_displacement_evidence(evidence)
+    found_attrs, compare_literals = scan_object_image_evidence(addon_module)  # pkg260
 
-    matrix_rows, stale_socket_findings = generate_matrix(evidence, vm_supported_types)
+    matrix_rows, stale_socket_findings = generate_matrix(
+        evidence, vm_supported_types, found_attrs, compare_literals)
 
     output_dir = Path(args.out)
     write_json_report(matrix_rows, output_dir / "coverage_matrix.json")

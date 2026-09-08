@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — Phase 2 (CPU) + Phase 4 (harness/run_parity) + Phase 5 (eval/NEE consistency fix, lead HOLD response) + Phase 6 (post-fix harness re-run) + #779 run_parity honesty fix done, all on PR #778, 2026-09-09; Phase 3 GPU still pending the lead's call (CPU-lands / GPU-phase decision, spec §Progress)
+**Status:** in-progress — Phase 2 (CPU) + Phase 4 (harness/run_parity) + Phase 5 (eval/NEE consistency fix, lead HOLD response) + Phase 6 (post-fix harness re-run) + Phase 7 (thin-film rough glass stays single-scatter, cycles-parity review 2 CRITICAL #2 fix) + #779 run_parity honesty fix done, all on PR #778, 2026-09-09; Phase 3 GPU still pending the lead's call (CPU-lands / GPU-phase decision, spec §Progress)
 **Estimated effort:** 3 sessions (~10 h; Python oracle + directional gate, CPU BSDF on both lobes, GPU mirror under the lock, harness re-runs)
 **Depends on:** pkg264, pkg263, pkg179, pkg124
 
@@ -145,6 +145,7 @@ depend on this. `cite-algorithm` is mandatory before any code. Serves Pillar 5.
   glass), 0 new failures. Class-of-bug found+fixed: the render calls `sampleSpectral`, whose
   base re-evaluates single-scatter `evalSpectral` for a non-delta sample — DisneyPlugin now
   overrides it (research note §Finding).
+- [x] 2026-09-09 — **Phase 7 (thin-film rough glass, cycles-parity review 2 CRITICAL #2) fixed** on PR #778 (`feat/pkg265-thinfilm-fix` → PR branch). The walk branch had no `filmActive()` guard, so a thin-film Principled glass (thickness > cutoff, roughness > 0.03) went through the walk (which sets `isDelta=true`) while `eval()` returned the nonzero thin-film f → NEE double-counted direct light (+5%/+13%/+31% at r0.3/0.5/0.85 in an emissive-behind scene) and the plain-Fresnel walk dropped iridescence (thin-film glass rendered **byte-identical** to plain glass, reldiff 0.0000). Fix: behind `filmActive()`, `chooseAndSampleDir` + `transmissionPdf` restore verbatim the origin/main single-scatter sampler (incl. pkg264 #771 reroute), `isDelta=false` → sample==eval==pdf single-scatter, as on main. Non-film glass unchanged. Disney glass has no thin-film path (no change). New gate `tests/test_pkg265_thinfilm_rough_consistency.py` RED→GREEN (reldiff 0.0000→0.158 at r0.85); 180+ CPU tests green. Follow-up: **#783** (thin-film-aware walk). CPU-only lane; GPU thin-film parity (`test_pkg178_thinfilm_gpu_cpu_parity` glass_r0.2) flagged for the hardware-verifier.
 - [ ] 2026-09-09 — **Phase 3 (GPU): DECISION FOR THE LEAD.** GPU glass
   lowers to `GMAT_CLOSURE_GRAPH` in the REG:254-pinned shade kernel and still carries the
   pkg264 #771 reroute (a documented, energy-conserving stub — GPU furnace principled

@@ -157,6 +157,21 @@ nothing is invented.
 ## Progress
 
 - [ ] 2026-09-08 — filed by the lead from #756; not started.
+- [~] 2026-09-08 — research note landed
+      (`.astroray_plan/docs/pkg261-principled-layering-research.md`). A VNDF
+      Monte-Carlo directional-albedo oracle proves the disagreeing term is **not**
+      the multi-scatter darkening (spec hypothesis) — that term is ≤3 %. The
+      defect is that `ggxDirectionalAlbedo` multiplies `E` by the **view-angle**
+      Fresnel `Fview`, which matches the true albedo within 2–3 % at mu≥0.8 but
+      overestimates the specular layer albedo by 1.2–5.5× at grazing (mu≤0.5),
+      over-attenuating the diffuse below exactly on the grazing near-ground band.
+      Cycles avoids this via the lobe-averaged `ggx_gen_schlick_ior_s` 16³ LUT
+      (`bsdf_microfacet_estimate_albedo`) that Astroray does not ship. **SCOPE
+      FORK surfaced to the lead:** the faithful fix needs a new LUT + its GPU
+      upload path (precedent: pkg151 `ggx_glass_E`), which is outside this spec's
+      Files-to-modify; a closed-form alternative risks a §6 invention. Awaiting
+      the lead's decision on the widened surface / CPU-first split before writing
+      the fix.
 
 ---
 

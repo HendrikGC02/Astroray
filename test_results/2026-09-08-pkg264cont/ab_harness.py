@@ -108,6 +108,24 @@ def render(roughness, maxd, db, gb, tb, seed=7):
     return img
 
 
+# pkg263 pinned references (linear luminance ~ per-channel mean since neutral)
+CYCLES = {0.0: (0.1773, 0.2842), 0.2: (0.1801, 0.3139),
+          0.5: (0.2225, 0.4271), 0.85: (0.2917, 0.5099)}
+ADDON = {0.0: (0.1708, 0.2315), 0.2: (0.1710, 0.2112),
+         0.5: (0.1801, 0.1891), 0.85: (0.1532, 0.1741)}
+
+
+def render_cfg(roughness, maxd, db, gb, tb, filter_glossy=None, seed=7):
+    r = astroray.Renderer()
+    build(r, roughness)
+    if filter_glossy is not None:
+        r.set_filter_glossy(filter_glossy)
+    r.set_seed(seed)
+    img = np.asarray(r.render(SPP, maxd, None, False, db, gb, tb),
+                     dtype=np.float32).reshape(RES, RES, 3)
+    return img
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--spp", type=int, default=128)
@@ -116,22 +134,25 @@ def main():
     global RES, SPP
     RES, SPP = args.res, args.spp
 
-    # (maxdepth, diffuse, glossy, transmission); -1 = unlimited
-    levers = [
-        ("baseline_12/d4/g4/t12", 12, 4, 4, 12),
-        ("high_all_64", 64, 64, 64, 64),
-        ("hi_glossy_only_g64", 64, 4, 64, 12),
-        ("hi_trans_only_t64", 64, 4, 4, 64),
-        ("hi_total_only_64", 64, 4, 4, 12),
-    ]
-    print(f"\nRES={RES} SPP={SPP}  (centre / limb / limb-centre-ratio)")
-    for roughness in (0.0, 0.85):
-        print(f"\n=== roughness {roughness} ===")
-        for name, md, db, gb, tb in levers:
-            img = render(roughness, md, db, gb, tb)
-            c, l, rpx = roi_means(img)
-            ratio = l / c if c > 0 else float("nan")
-            print(f"  {name:26s} centre={c:.4f} limb={l:.4f} limb/centre={ratio:.3f}  (rpx={rpx:.1f})")
+    print(f"\nRES={RES} SPP={SPP}")
+    print("Reference pkg263:  Cycles(centre/limb)   addon(centre/limb)")
+    print(f"{'r':>5} {'cfg':22} {'centre':>8} {'limb':>8} {'lc':>6}"
+          f" {'c/Cyc':>7} {'l/Cyc':>7} {'c/addon':>8} {'l/addon':>8}")
+    for roughness in (0.0, 0.2, 0.5, 0.85):
+        cc, cl = CYCLES[roughness]
+        ac, al = ADDON[roughness]
+        cfgs = [
+            ("baseline_d4g4t12", 12, 4, 4, 12, None),
+            ("high_all_64", 64, 64, 64, 64, None),
+            ("filterglossy_0", 12, 4, 4, 12, 0.0),
+            ("filterglossy_1", 12, 4, 4, 12, 1.0),
+        ]
+        for name, md, db, gb, tb, fg in cfgs:
+            img = render_cfg(roughness, md, db, gb, tb, filter_glossy=fg)
+            c, l, _ = roi_means(img)
+            lc = l / c if c > 0 else float("nan")
+            print(f"{roughness:>5} {name:22} {c:8.4f} {l:8.4f} {lc:6.3f}"
+                  f" {c/cc:7.3f} {l/cl:7.3f} {c/ac:8.3f} {l/al:8.3f}")
 
 
 if __name__ == "__main__":

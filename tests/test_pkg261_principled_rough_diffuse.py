@@ -48,7 +48,7 @@ _SZ = 16  # DisneyEnergyCompensationTables::kGenSchlickSize
 
 def _read_bin(name, n):
     with open(os.path.join(_DATA, name), "rb") as fh:
-        return list(struct.unpack("<%df" % n, fh.read(4 * n)))
+        return list(struct.unpack(f"<{n}f", fh.read(4 * n)))
 
 
 def _sample3D(table, r, mu, z):

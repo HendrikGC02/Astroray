@@ -57,7 +57,7 @@ _FLOAT_RE = re.compile(r"[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?f?")
 
 def parse_table(text):
     m = re.search(
-        rf"{TABLE_NAME}\[{TABLE_LEN}\]\s*=\s*\{{(.*?)\}};", text, re.S
+        rf"{TABLE_NAME}\[{TABLE_LEN}\]\s*=\s*\{{(.*?)\}};", text, re.DOTALL
     )
     if not m:
         raise SystemExit(f"could not find {TABLE_NAME}[{TABLE_LEN}] in input")
@@ -95,7 +95,7 @@ def main():
 
     vals = parse_table(text)
     with open(args.out, "wb") as fh:
-        fh.write(struct.pack("<%df" % TABLE_LEN, *vals))
+        fh.write(struct.pack(f"<{TABLE_LEN}f", *vals))
     print(
         f"wrote {args.out}: {TABLE_LEN} float32 LE "
         f"(min {min(vals):.6f}, max {max(vals):.6f})"

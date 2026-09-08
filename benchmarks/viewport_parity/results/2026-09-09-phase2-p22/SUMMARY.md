@@ -534,3 +534,37 @@ Raw per-run JSON/summary files for this pass: every `*-terra4.json` /
 `*-terra4-summary.md` file in this directory, plus the combined-scene
 `2026-09-09-present_check-terra4.json` kept as crash evidence (not used for
 gate numbers).
+
+## FIX — scene-switch CUDA corruption (PR #777, 2026-09-09, fix lane)
+
+**Root cause (design §13a):** the spike's admission token is a *per-worker*
+`threading.Lock`, serialising `render()` only WITHIN a session; §3.6's
+acknowledged-exit lifecycle owner (`load_pre`/`atexit` drain) was never
+implemented (only a best-effort `Exporter.__del__`). On a `.blend` switch the
+old worker daemon survives the file load — Blender does not guarantee `__del__`
+runs before the new file's `RenderEngine` starts a fresh worker — and the two
+workers' `render()` calls race the single process-global `WfContext` ("Single
+render thread assumed", `gpu_wavefront_snapshot.cu:988`) → illegal memory access
++ `cudaMalloc failed for s.pixel_index`. The worker-OFF path never has two
+render threads, hence its clean switch.
+
+**Fix (no native change):** a process-global live-session registry +
+`stop_all_viewport_sessions()`, installed lazily from the first worker start as a
+persistent bpy `load_pre` handler and an `atexit` hook (in the bpy-free
+`exporter` module, so `blender_addon/__init__.py` stays at the Buffer-only
+lines). `load_pre` fires before the incoming file replaces the scene, draining
+every prior worker to acknowledged idle (or quarantine) on the main thread, so no
+two workers ever touch the `WfContext` across a switch.
+
+**Headless evidence (`tests/test_pkg241_scene_switch.py`, 5 tests, bpy-free):** a
+shared single-render-thread device guard records peak concurrent renders across
+an old-worker-mid-render → scene switch → new-session sequence. Undrained
+(negative control) = **2** (the crash); with `stop_all` in the `load_pre` slot =
+**1**. `stop_all` also blocks until the in-flight worker acks exit (thread
+joined, `in_flight_generation` cleared). pkg241 bpy-free suite: **34 passed, 1
+skipped** (was 29+1; +5 new). Differential lint clean for the changed files.
+
+**GUI two-scene `present_check` under the GPU lock:** see the entry appended
+below once the RTX re-run lands (gated on an idle GPU — the fix lane found
+`nvcc`/`ninja`/`ptxas` from another worktree active on entry and did not contend
+the GPU, per the concurrency rules).

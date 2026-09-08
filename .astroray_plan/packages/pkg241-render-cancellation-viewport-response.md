@@ -302,6 +302,25 @@ All implementation gates UNRUN:
 
 ## Progress
 
+- [x] 2026-09-09 — **P2.2 scene-switch CUDA-corruption FIX (PR #777; design §13a).**
+      Root-caused the blocking finding below: the spike's admission token is a
+      *per-worker* `threading.Lock`, so `render()` is serialised only WITHIN a session,
+      and §3.6's acknowledged-exit lifecycle owner was never implemented (only a
+      best-effort `Exporter.__del__`, which Blender does not guarantee runs before the
+      new file's engine starts a fresh worker). On a scene switch the old worker daemon
+      survives the file load and races the new worker's `render()` into the single
+      process-global `WfContext` ("Single render thread assumed",
+      `gpu_wavefront_snapshot.cu:988`) — the illegal access + `cudaMalloc` failure.
+      Fix (no native change): a process-global live-session registry +
+      `stop_all_viewport_sessions()`, installed lazily as a persistent bpy `load_pre`
+      handler + an `atexit` hook, draining every prior worker to acknowledged idle (or
+      quarantine) on the main thread BEFORE the incoming file replaces the scene.
+      `blender_addon/__init__.py` stays at the Buffer-only lines (hooks live in the
+      bpy-free `exporter` module). Regression `tests/test_pkg241_scene_switch.py` (5
+      tests): undrained peak concurrent renders into the shared device = 2 (the crash),
+      drained = 1. Full pkg241 bpy-free suite 34 passed + 1 skip. The full §3.5/§3.6
+      process-global token (multi-viewport), F12 pause gate, and stop_session/stop_all
+      split remain P2.3 (§13a).
 - [ ] 2026-09-09 — **P2.2 Post-fix graded measurement (Terra-4 instrument), third pass
       (RTX 5070 Ti, isolated Blender 9877, disposable profile, GPU lock held correctly
       for the whole session; PR #777; tables in

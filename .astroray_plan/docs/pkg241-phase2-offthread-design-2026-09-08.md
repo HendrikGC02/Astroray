@@ -1530,3 +1530,51 @@ lines and their resolutions follow.
    generation/publication and cancel-correlation instrumentation is now correct
    (this PR); P2.3 re-measures latency thresholds with no concurrent CUDA build
    contending for CPU (the confound Terra flagged for (c)).
+
+## 13a. Post-review fix — scene-switch CUDA corruption (PR #777, 2026-09-09)
+
+The Terra-4 post-fix graded re-measure surfaced a NEW blocking finding: with
+`ASTRORAY_VIEWPORT_WORKER=1`, switching the open `.blend` from `metal_sweep` to
+`big` (or back) mid-session poisoned the CUDA context — `stage_env_shadow` /
+`stage_shade_bucketed` "illegal memory access", `allocateGPUWavefrontState:
+cudaMalloc failed for s.pixel_index` — after which every render in the process
+returned 0 presents. Reproduced 3/3; worker OFF handled the identical switch
+cleanly.
+
+**Root cause (a partial implementation of §3.5/§3.6, not a native bug).** The
+spike's admission token is a *per-worker* `threading.Lock` (`exporter.py`
+`_ViewportSpikeWorker._token`), so it serialises `render()` only WITHIN a
+session. It is NOT the process-global admission token §3.5 mandates, and §3.6's
+acknowledged-exit lifecycle owner (`stop_session`/`stop_all`, the `load_pre` /
+`atexit` triggers) was never implemented — the spike had only a best-effort
+`Exporter.__del__`. Blender does not guarantee `__del__` runs before the new
+file's `RenderEngine` constructs a fresh worker, so on a scene switch the old
+worker daemon survives the load and its `render()` races the new worker's
+`render()` into the single process-global `WfContext` ("Single render thread
+assumed", `gpu_wavefront_snapshot.cu:988`) — two writers of the same grow-only
+device allocations and `__constant__` bindings. That is the illegal access +
+`cudaMalloc` failure. The pre-Terra-4 `max_present_std=inf` outlier on `big` was
+the milder, stale-buffer-read severity of the same latent hazard (§13, third
+pass).
+
+**Fix (design §3.6 acknowledged exit, minimal slice — no native change).** A
+process-global live-session registry (`_LIVE_VIEWPORT_SESSIONS`) plus
+`stop_all_viewport_sessions()`, installed lazily from the first worker start as
+(a) a persistent bpy `load_pre` handler and (b) an `atexit` hook. `load_pre`
+fires BEFORE the incoming file replaces the scene, so every prior session's
+worker is drained to acknowledged idle (or quarantined, §3.6) on the main thread
+before any new worker can touch the `WfContext`. The main thread is the
+serialisation point (drain in `load_pre`, new worker created later in
+`view_update`/`view_draw`), so no two workers ever render concurrently across a
+switch. The hooks live in the bpy-free `exporter` module (guarded) so
+`__init__.py` stays at the Buffer-only lines. Regression:
+`tests/test_pkg241_scene_switch.py` (5 tests) models old-worker-mid-render →
+scene switch (`stop_all`) → new session against a shared single-render-thread
+device guard: undrained peak concurrency is 2 (the crash), drained is 1.
+
+**What this does NOT do (stays P2.3).** This is the single-viewport / file-switch
+slice of §3.5/§3.6. The full process-global admission token that makes *two live
+3D viewports of one session* safe (each with its own worker), the F12 process-
+wide pause gate, `stop_session` vs `stop_all` split, and the strong-ref
+quarantine registry beyond the current `_WORKER_QUARANTINE` list are still P2.3.
+Multi-viewport concurrent render() remains unserialised until that token lands.

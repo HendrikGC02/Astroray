@@ -568,3 +568,44 @@ skipped** (was 29+1; +5 new). Differential lint clean for the changed files.
 below once the RTX re-run lands (gated on an idle GPU — the fix lane found
 `nvcc`/`ninja`/`ptxas` from another worktree active on entry and did not contend
 the GPU, per the concurrency rules).
+
+## Scene-switch fix verification (RTX 5070 Ti, 2026-09-09, Sonnet verification lane)
+
+The RTX re-run above has landed. Same isolated-GUI-Blender-on-9877 /
+disposable-profile / GPU-lock methodology as the graded measurement, addon
+staged from this branch's HEAD `6db733b5` (main-tree `.pyd`, zero native diff,
+manifest build-ID matched to the `.pyd`'s own `dev` build-ID so the pkg94
+stale-module guard passes).
+
+Ran the exact `--mode present_check --scenes metal_sweep big` reproduction that
+crashed 3/3 pre-fix, worker ON, in **one continuous Blender process**: A->B
+(metal_sweep then big), B->A (big then metal_sweep), and a third switch back to
+big — 5 scene switches total. Every scene PASSed `present_check`
+(`n_present_calls` 42-59, `max_present_std` 1.06-1.13, all above the 1e-4
+floor) and the Blender log shows **zero** `illegal memory access` /
+`cudaMalloc failed` / `launch error` lines across the whole session (was
+guaranteed on every switch pre-fix). A follow-up realistic-settle `ui_latency`
+rep on `big` in the same process, after all switches, confirms rendering
+stays fully functional post-switch: 2606 presents, tick-gap p95 8.53 ms
+(budget <=33 ms, PASS), 0 CUDA errors.
+
+**Verdict: RESOLVED.** The §13a `stop_all_viewport_sessions()` fix closes the
+"NEW BLOCKING FINDING" above — 0/5 crashes post-fix vs 3/3 pre-fix. The P2.3
+block is lifted.
+
+Full detail and per-run numbers:
+`2026-09-09-sceneswitch-verify.md` / `.json` in this directory, plus the raw
+`sceneswitch-run{1,2,3}-*-phase0.json` and `sceneswitch-postswitch-settle-big-
+phase0.json` present_check/ui_latency outputs.
+
+One operational note for future GUI-Blender verification lanes: the `mcp`
+extension's own built-in autostart defaults to **port 9876** with a 1.0 s
+startup delay and will race an explicit port reassignment done via a
+2 s-delayed timer (the pattern `scripts/dev/blender_mcp_autostart.py` uses) —
+an early attempt here briefly bound 9876 before being caught and killed (no
+persistent effect; the port was immediately free again). The verification run
+used a hardened startup script that enables the extension and starts the
+bridge on the target port *synchronously*, before Blender's timer loop can run
+the extension's own autostart, so 9876 was never touched during the actual
+measurement. Worth folding into `blender_mcp_autostart.py` itself if GUI
+verification on a non-default port becomes routine.

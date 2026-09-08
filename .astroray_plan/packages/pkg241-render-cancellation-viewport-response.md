@@ -302,6 +302,23 @@ All implementation gates UNRUN:
 
 ## Progress
 
+- [x] 2026-09-09 — **P2.2 scene-switch CUDA-corruption FIX — RTX VERIFIED (PR #777).**
+      Sonnet verification lane re-ran the exact `--mode present_check --scenes
+      metal_sweep big` reproduction that crashed 3/3 pre-fix, worker ON, RTX 5070 Ti,
+      isolated Blender 9877 / disposable profile / GPU lock held correctly, addon staged
+      from this branch's HEAD `6db733b5` (main-tree `.pyd`, zero native diff). Ran it in
+      **one continuous process** across both switch orders plus a third switch back (5
+      scene switches total): every `present_check` PASSED (n_present_calls 42-59,
+      max_present_std 1.06-1.13), and **zero** `illegal memory access`/`cudaMalloc
+      failed`/`launch error` lines appeared anywhere in the Blender log (was guaranteed
+      on every switch pre-fix). A follow-up realistic-settle `ui_latency` rep on `big` in
+      the same process, after all switches, confirms rendering stays fully functional:
+      2606 presents, tick-gap p95 8.53 ms (budget PASS), 0 CUDA errors. **The "NEW
+      BLOCKING FINDING" below is RESOLVED** — the P2.3 block on this defect is lifted.
+      Full detail:
+      `benchmarks/viewport_parity/results/2026-09-09-phase2-p22/2026-09-09-sceneswitch-verify.md`
+      / `.json`, and the `SUMMARY.md` "Scene-switch fix verification" section. PR #777
+      body updated (blocking-finding paragraph replaced with this result).
 - [x] 2026-09-09 — **P2.2 scene-switch CUDA-corruption FIX (PR #777; design §13a).**
       Root-caused the blocking finding below: the spike's admission token is a
       *per-worker* `threading.Lock`, so `render()` is serialised only WITHIN a session,

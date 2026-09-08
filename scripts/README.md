@@ -35,6 +35,7 @@ new reusable script, register it here in the same commit.
 | Spectral data/profile generation | `scripts/data/generate_spectrum_data.py`, `build_spectral_profiles.py` |
 | Sobol' direction-vector table (pkg224 progressive sampler) | `scripts/gen_sobol_matrices.py` → `include/astroray/sampling/sobol_matrices.h` (bakes SciPy's Joe-Kuo vectors; idempotent, commit header with any change) |
 | Hero-wavelength luminance-CDF fit (pkg206 importance-sampling constants) | `scripts/data/fit_hero_luminance_cdf.py` |
+| Extract a Cycles `shader.tables` LUT to `data/disney_compensation/*.bin` (pkg261 `ggx_gen_schlick_ior_s`) | `scripts/data/extract_ggx_gen_schlick_ior_s.py` (`--fetch` pins blender/blender@eaa5f63b; parses the C initializer, writes float32 LE) |
 | Launch GUI Blender 5.2 with the MCP bridge (watch/restart) | `pwsh scripts/dev/launch_blender_mcp.ps1 -Watch` (diagnostic: `scripts/dev/check_blender_mcp.ps1`) |
 
 Note on the two `build_cuda_worktree.bat` copies: they are intentionally

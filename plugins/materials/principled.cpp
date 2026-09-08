@@ -633,18 +633,25 @@ class PrincipledPlugin : public Material {
                     astroray::ggxDarkeningChannel(Fss.y, E, Eavg),
                     astroray::ggxDarkeningChannel(Fss.z, E, Eavg));
     }
-    // Compensated GGX directional-hemispherical albedo at wo (disney.cpp pkg145),
-    // used by closure_layering_weight to attenuate the layer below the specular.
-    Vec3 ggxDirectionalAlbedo(const Vec3& Fview, float roughness, float mu) const {
+    // pkg261: Cycles bsdf_microfacet_estimate_albedo (bsdf_microfacet.h:405-475,
+    // GENERALIZED_SCHLICK exponent<0 / DIELECTRIC branch, BSD-3-Clause) — the
+    // rough dielectric specular/coat layer's directional-hemispherical albedo
+    // fed to closure_layering_weight. Cycles reads a lobe-averaged Schlick blend
+    //   z = sqrt(|ior-1|/(ior+1));  s = ggx_gen_schlick_ior_s[rough, cos_NI, z];
+    //   albedo = mix(f0, f90=1, s)              (reflection_tint = 1)
+    // This REPLACES the pre-pkg261 E*Fview*darkening estimate, whose view-angle
+    // Fresnel Fview->1 at grazing over-attenuated the diffuse layer beneath by
+    // 1.2-5.5x for mu<=0.5 (pkg261 research note): the s-table folds the Fresnel
+    // average over the visible-normal distribution, flattening toward f90 at
+    // grazing/high-roughness the same way the true lobe albedo does. `mu` is the
+    // view cosine N.wo (Cycles cos_NI); `f0` the layer's Fresnel-at-normal
+    // reflectance (specF0 for specular, F0_from_ior(coat_ior) for the coat).
+    Vec3 ggxLayeringAlbedo(const Vec3& f0, float roughness, float mu, float ior) const {
         const auto& t = astroray::DisneyEnergyCompensationTables::instance();
-        if (!t.loaded()) return Fview;
-        float E = std::max(t.ggxE(roughness, mu), 1e-4f);
-        float Eavg = std::clamp(t.ggxEavg(roughness), 0.0f, 0.999f);
-        auto ch = [&](float f) {
-            float fc = std::clamp(f, 0.0f, 0.999f);
-            return E * fc * astroray::ggxDarkeningChannel(fc, E, Eavg);
-        };
-        return Vec3(ch(Fview.x), ch(Fview.y), ch(Fview.z));
+        if (!t.loaded()) return f0;
+        float z = std::sqrt(std::abs((ior - 1.0f) / (ior + 1.0f)));
+        float s = std::clamp(t.ggxGenSchlickIorS(roughness, mu, z), 0.0f, 1.0f);
+        return f0 * (1.0f - s) + Vec3(1.0f) * s;  // mix(f0, f90=1, s)
     }
     float ggxGlassComp(float etap, float muAbs) const {
         const auto& t = astroray::DisneyEnergyCompensationTables::instance();
@@ -862,7 +869,7 @@ class PrincipledPlugin : public Material {
             L.sel = std::max(luminance(weight * coatWeight_) * Fview, 1e-4f);
             if (lam) L.weightSpec = weightSp * coatWeight_;
             lobes.push_back(L);
-            Vec3 coatAlb = ggxDirectionalAlbedo(Vec3(Fview), coatRoughness_, nv) * coatWeight_;
+            Vec3 coatAlb = ggxLayeringAlbedo(Vec3(f0c), coatRoughness_, nv, coatIor_) * coatWeight_;
             weight = layeringWeightAfter(weight, coatAlb);
             Vec3 beer = coatBeerFactor(nv);  // chromatic coat-tint Beer absorption
             weight = weight * beer;
@@ -962,7 +969,7 @@ class PrincipledPlugin : public Material {
             // specF0 upsampled separately in the eval (Fresnel) → weightSpec = layer weight.
             if (lam) L.weightSpec = weightSp;
             lobes.push_back(L);
-            Vec3 specAlb = ggxDirectionalAlbedo(Fview, roughness_, nv);
+            Vec3 specAlb = ggxLayeringAlbedo(specF0, roughness_, nv, ior_);
             weight = layeringWeightAfter(weight, specAlb);
             if (lam) weightSp = weightSp * layerTrans(specAlb);
         }

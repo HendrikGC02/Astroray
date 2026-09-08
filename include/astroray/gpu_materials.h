@@ -1939,7 +1939,7 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         L.sheenA = 0.f; L.sheenB = 0.f;
         L.sel = fmaxf(luminance(weight * c.coatWeight) * Fview, 1e-4f);
         if (wl) L.weightSpec = weightSp * c.coatWeight;
-        GVec3 coatAlb = gpu_ggxDirectionalAlbedo(GVec3(Fview), c.coatRoughness, nv) * c.coatWeight;
+        GVec3 coatAlb = gpu_ggxLayeringAlbedo(GVec3(f0c), c.coatRoughness, nv, c.coatIor) * c.coatWeight;  // pkg261
         weight = gpu_layeringWeightAfter(weight, coatAlb);
         GVec3 beer = gpu_pr_coatBeerFactor(c, nv);  // chromatic coat-tint Beer
         weight = weight * beer;
@@ -2007,7 +2007,7 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         L.anisotropic = c.anisotropic; L.anisoRotation = c.anisotropicRotation;  // PR-4b
         L.sel = fmaxf(luminance(weight * Fview), 1e-4f);
         if (wl) L.weightSpec = weightSp;  // specF0 upsampled separately in the eval
-        GVec3 specAlb = gpu_ggxDirectionalAlbedo(Fview, c.roughness, nv);
+        GVec3 specAlb = gpu_ggxLayeringAlbedo(specF0, c.roughness, nv, c.ior);  // pkg261
         weight = gpu_layeringWeightAfter(weight, specAlb);
         if (wl) weightSp = weightSp * layerTrans(specAlb);
     }

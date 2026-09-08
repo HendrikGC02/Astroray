@@ -67,7 +67,12 @@ def _assert_band(label, mat, ref, floor, ceil=1.05):
 def test_gpu_principled_diffuse_lambert():
     mat, ref = _ratio([1.0, 1.0, 1.0], {"metallic": 0.0, "roughness": 0.5})
     print(f"\n[pkg178 GPU furnace] diffuse/Lambert mean={mat:.4f} ref={ref:.4f} ratio={mat/ref:.4f}")
-    _assert_band("Principled diffuse/Lambert", mat, ref, floor=0.85)
+    # pkg261: floor re-derived from Cycles-parity (not from Astroray itself).
+    # The old 0.85 (15% loss) was self-referential; after the Cycles
+    # ggx_gen_schlick_ior_s layering-albedo port this GPU white furnace
+    # measures ratio 0.9974, so a 0.97 floor (~2.8% margin) catches a >3%
+    # energy loss and mirrors the CPU twin in test_principled_bsdf.py.
+    _assert_band("Principled diffuse/Lambert", mat, ref, floor=0.97)
 
 
 def test_gpu_principled_diffuse_eon():

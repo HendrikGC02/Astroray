@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — Phase 2 (CPU) + Phase 4 (harness/run_parity) done, both on PR #778, 2026-09-09; Phase 3 GPU still pending the lead's call (CPU-lands / GPU-phase decision, spec §Progress)
+**Status:** in-progress — Phase 2 (CPU) + Phase 4 (harness/run_parity) + Phase 5 (eval/NEE consistency fix, lead HOLD response) + Phase 6 (post-fix harness re-run) + #779 run_parity honesty fix done, all on PR #778, 2026-09-09; Phase 3 GPU still pending the lead's call (CPU-lands / GPU-phase decision, spec §Progress)
 **Estimated effort:** 3 sessions (~10 h; Python oracle + directional gate, CPU BSDF on both lobes, GPU mirror under the lock, harness re-runs)
 **Depends on:** pkg264, pkg263, pkg179, pkg124
 
@@ -174,6 +174,34 @@ depend on this. `cite-algorithm` is mandatory before any code. Serves Pillar 5.
   collision across ≥2 mesh datablocks in one file; joined the scene's meshes into one datablock
   to route around it and filed a follow-up task for the reader itself.
 - [x] 2026-09-09 — **Phase 1 complete** (WIP `fc083403`, pushed). Research note rewritten term by term; numpy oracle `benchmarks/cycles-parity/glass_ms_oracle/heitz_random_walk.py` (registered in scripts/README.md); divergence table produced. Headline: MS walk conserves energy EXACTLY (R+T=1.000, 0.0% dead over the 4×5 grid, IOR 1.45, M=2e5) — the built-in correctness check; single-scatter dead fraction reaches 68% (r0.85 μ0.1) / 85% (r1.0 μ0.1); Cycles' 1/E over-counts reflection 5.5× vs the walk at r1.0 μ0.1 (R:T 0.354:0.646 vs 0.064:0.936). Premise CONFIRMED. Directional gate `tests/test_pkg265_ms_glass_directional.py` written (histogram ±5%/bin, albedo ±2%, MIS pdf-coverage); RED shown on the entering grazing case; exit-interface RED needs the new `front_face` binding (builds in Phase 2). Optional `front_face` arg added to `debug_bsdf_sample_batch`/`_pdf_batch` (default true). Next: Phase 2 CPU (principled + disney transmission lobe → the walk; remove #771 reroute + pkg138 delta fallback; drop `ggxGlassComp` on these lobes; furnace ≤1.02 linear bound).
+
+- [x] 2026-09-09 — **Phase 5 (eval/NEE consistency fix) + Phase 6 (post-fix harness
+  re-run) + #779 (run_parity honesty) complete** (Sonnet 5 lane, CPU-only, no GPU
+  lock; PR #778, HEAD `fe04324e` after rebase/squash). Responds to the lead's
+  2026-09-09 03:20 HOLD: **(1)** rebuilt `build_cpu/` from this HEAD and re-ran the
+  full pkg265 gate suite (directional + lit furnace + pkg264/disney/dielectric/
+  rough-glass furnaces + issue #762/#769 regressions): 57 passed, 6 skipped, 1
+  failed (`test_principled_lit_furnace_conserves_gpu` — expected, `CUDA support
+  not compiled` on this intentionally CPU-only build, not a regression); the C++
+  eta unit test (`tests/cpp/test_pkg265_walk_eta.cpp`) PASSes with the numbers
+  already recorded in the research note (maxErr 0.00/4.8e-7, dead 0.0000%).
+  **(2)** Restaged the CPU addon from this HEAD and re-ran the UNCHANGED pkg263
+  metal_ab glass harness (256², 128 spp) to isolate the Phase 5 fix from Phase 4's
+  pre-fix numbers: the centre overshoot the lead flagged (1.518x at r0.85) drops to
+  0.929x post-fix; the limb moves the other way (1.05x → 0.60x), the accepted noise
+  cost of the unbiased skip-NEE contract at grazing incidence, quantified against
+  each engine's own per-ROI std/CV (Astroray centre CV runs 1.02–1.30x Cycles',
+  growing with roughness; limb CV is ≤ Cycles' own, since Cycles itself is noisy at
+  grazing in this scene). New contact sheets (`_evalfix` suffix, force-added) and a
+  new "Phase 6" research-note section carry the full three-way (before/#778-pre-fix/
+  #778-post-fix) table, noise table, and wall times. **(3)** Fixed issue #779: the
+  `glass_sphere` row in `run_parity.py`/`manifest.toml` previously attributed its
+  SSIM ~0.77 to "the multi-scatter walk diverging from Cycles' 1/E" — misleading;
+  the real cause is `tools/blend_import` mapping Base Color only, so the Astroray
+  leg renders a diffuse proxy, not glass. Row name/comments now say so and point to
+  the metal_ab harness as the real oracle; row itself unchanged (self-authored,
+  recorded not gated). PR #778 body rewritten with Phase 5/Phase 6/#779 sections,
+  the lead's HOLD items marked addressed, and the rebuilt test-gate results.
 
 ---
 

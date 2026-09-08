@@ -74,6 +74,33 @@ def test_reduce_reports_commit_and_pump_cancel_metrics():
     assert out["mailbox_depth_max"] == 1
 
 
+def test_cancel_ack_pairs_by_generation_not_by_timestamp():
+    """pkg241 P2.2 item 4 (Terra review 4): a cancel_request(g) must pair only
+    with the idle_ack(g)/idle_drain(g) of the SAME generation. Here gen 2's idle
+    events land (by wall time) between cancel_request(1) and gen 1's own idle; the
+    old timestamp-only pairing would have matched cancel(1) with idle(2) and
+    reported a bogus ~10 ms ack. The generation-paired reducer must skip gen 2 and
+    measure cancel_request(1)->idle_drain(1) = 200 ms."""
+    events = [
+        _ev("request", 1, 0.000),
+        _ev("render_start", 1, 0.001),
+        _ev("cancel_request", 1, 0.010),     # gen 1 in-flight, superseded
+        _ev("request", 2, 0.010),
+        # an unrelated gen 2 completes and idles FIRST (earlier timestamp):
+        _ev("idle_ack", 2, 0.020),
+        _ev("idle_drain", 2, 0.025),
+        # gen 1's own idle arrives later:
+        _ev("idle_ack", 1, 0.180),           # worker-side ack 170 ms
+        _ev("idle_drain", 1, 0.210),         # end-to-end through the pump 200 ms
+    ]
+    out = driver._reduce_spike_events(events)
+    assert out is not None
+    # cancel_ack (worker-side) must pair with idle_ack(1), not idle_ack(2).
+    assert abs(out["cancel_ack"]["p50_ms"] - 170.0) < 1.0
+    # cancel_ack_pump (the gate) must pair with idle_drain(1), not idle_drain(2).
+    assert abs(out["cancel_ack_pump"]["p50_ms"] - 200.0) < 1.0
+
+
 def test_reduce_returns_none_on_synchronous_path():
     # No events (worker flag off) -> None, so the synchronous path is unaffected.
     assert driver._reduce_spike_events([]) is None

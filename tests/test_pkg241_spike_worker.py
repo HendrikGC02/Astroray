@@ -372,3 +372,40 @@ def test_worker_view_update_pumps_control_only_preserving_the_frame():
 
     # The single pump in view_update must be control-plane only (present=False).
     assert pump_calls == [False]
+
+
+def test_cancel_request_emitted_only_for_in_flight_generation_once():
+    """pkg241 P2.2 item 4 (Terra review 4): request() emits cancel_request only
+    for the ACTUAL in-flight generation and only on the false->true transition of
+    the cancel flag — never while IDLE, never repeated while already cancelling."""
+    gate = threading.Event()
+    entered = threading.Event()
+
+    def render_fn(job, cancel_check, publish):
+        entered.set()
+        while not gate.is_set() and not cancel_check():
+            time.sleep(0.005)
+
+    captured = []
+    orig_sink = exporter._spike_event_sink
+    exporter._spike_event_sink = lambda name, gen, t, epoch, extra: \
+        captured.append((name, gen))
+    h = _Harness(render_fn)
+    try:
+        # request while IDLE (nothing in flight) -> NO cancel_request.
+        h.worker.request()  # desired 1
+        assert [e for e in captured if e[0] == "cancel_request"] == []
+        h.worker.maybe_submit(h.commit)  # submit gen 1, clears cancel flag
+        assert _wait(entered.is_set)
+        # first edit while gen 1 renders -> one cancel_request(1) (false->true).
+        h.worker.request()  # desired 2
+        cancels = [e for e in captured if e[0] == "cancel_request"]
+        assert cancels == [("cancel_request", 1)]
+        # repeated edit while already cancelling -> NO further cancel_request.
+        h.worker.request()  # desired 3, cancel flag already set
+        cancels = [e for e in captured if e[0] == "cancel_request"]
+        assert cancels == [("cancel_request", 1)]
+        gate.set()
+    finally:
+        exporter._spike_event_sink = orig_sink
+        h.teardown()

@@ -394,9 +394,18 @@ class _ViewportSpikeWorker:
         bump desired_generation and request cancel of any in-flight chunk (§3.4).
         Non-blocking: does NOT commit or join. Returns the new desired generation."""
         self.desired_generation += 1
-        self._cancel_event.set()
         _emit_spike_event("request", self.desired_generation, self.session_epoch)
-        _emit_spike_event("cancel_request", self.desired_generation, self.session_epoch)
+        # pkg241 P2.2 item 4 (Terra review 4): emit cancel_request only for the
+        # actual in-flight generation, and only on the false->true transition of
+        # the cancel flag. A request while IDLE (nothing in flight) or a repeated
+        # request for an already-cancelling render is NOT a cancel of a real
+        # render — recording those made the settle cancel p99 pair with an
+        # unrelated idle and go invalid. The cancel is tagged with the in-flight
+        # generation g so the reducer can pair it with idle_ack(g)/idle_drain(g).
+        if self.in_flight_generation is not None and not self._cancel_event.is_set():
+            _emit_spike_event("cancel_request", self.in_flight_generation,
+                              self.session_epoch)
+        self._cancel_event.set()
         return self.desired_generation
 
     def maybe_submit(self, commit_fn):
@@ -586,10 +595,11 @@ class _ViewportSpikeWorker:
                 self._control.put(("error", gen, self.session_epoch, exc))
                 _emit_spike_event("error", gen, self.session_epoch)
             finally:
-                # Release the token (worker-side, §3.1/§3.5) and report idle so the
-                # main-thread pump can advance the machine.
-                self._control.put(("idle", gen, self.session_epoch, None))
-                _emit_spike_event("idle_ack", gen, self.session_epoch)
+                # pkg241 P2.2 item 4 (Terra review 4): release the token BEFORE
+                # enqueueing the idle notification. The main-thread pump that
+                # consumes idle immediately tries to acquire the token for the next
+                # commit; releasing first removes the race where the pump sees idle
+                # but the worker has not yet dropped the token.
                 if self._token_holder == "worker":
                     self._token_holder = None
                     _emit_spike_event("token_release", gen, self.session_epoch)
@@ -597,6 +607,9 @@ class _ViewportSpikeWorker:
                         self._token.release()
                     except RuntimeError:
                         pass  # already released (defensive)
+                # Report idle so the main-thread pump can advance the machine.
+                self._control.put(("idle", gen, self.session_epoch, None))
+                _emit_spike_event("idle_ack", gen, self.session_epoch)
             del superseded_or_error
 
 

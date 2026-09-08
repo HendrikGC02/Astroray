@@ -727,23 +727,36 @@ def _reduce_spike_events(events):
                 if f_blit is not None:
                     presented_completed += 1
 
-    # cancel-ack (pkg241 P2.2 item 3): measured two ways per cancel_request.
-    #  - worker-side (cancel_request -> next idle_ack): how fast the worker stops
-    #    its in-flight chunk and enqueues idle.
-    #  - end-to-end through the pump (cancel_request -> next idle_drain): adds the
+    # cancel-ack (pkg241 P2.2 item 3/4, Terra review 4): each cancel_request(g) is
+    # now tagged with the actual IN-FLIGHT generation and emitted only on the
+    # false->true transition (exporter.py request()). Pair it ONLY with the
+    # idle_ack(g)/idle_drain(g) of the SAME generation — the old code paired each
+    # cancel with any next idle by timestamp, which let a cancel pair with an
+    # unrelated generation's idle and made the p99 invalid.
+    #  - worker-side diagnostic (cancel_request(g) -> idle_ack(g)): how fast the
+    #    worker stops its in-flight chunk and enqueues idle.
+    #  - the usable gate (cancel_request(in-flight g) -> idle_drain(g)): adds the
     #    time the idle notification waits on the busy main thread before the pump
     #    consumes it. This is the number the p99 <= 300 ms gate is graded against.
-    cancel_ts = sorted(t for (n, _g, t, _e, _x) in ev if n == "cancel_request")
-    idle_ts = sorted(t for (n, _g, t, _e, _x) in ev if n == "idle_ack")
-    drain_ts = sorted(t for (n, _g, t, _e, _x) in ev if n == "idle_drain")
+    cancel_reqs = [(g, t) for (n, g, t, _e, _x) in ev if n == "cancel_request"]
+    idle_ack_by_gen, idle_drain_by_gen = {}, {}
+    for (n, g, t, _e, _x) in ev:
+        if n == "idle_ack":
+            idle_ack_by_gen.setdefault(g, []).append(t)
+        elif n == "idle_drain":
+            idle_drain_by_gen.setdefault(g, []).append(t)
+    for g in idle_ack_by_gen:
+        idle_ack_by_gen[g].sort()
+    for g in idle_drain_by_gen:
+        idle_drain_by_gen[g].sort()
     cancel_ack_ms, cancel_ack_pump_ms = [], []
-    for tc in cancel_ts:
-        nxt = next((ti for ti in idle_ts if ti > tc), None)
-        if nxt is not None:
-            cancel_ack_ms.append((nxt - tc) * 1000.0)
-        nxt_d = next((ti for ti in drain_ts if ti > tc), None)
-        if nxt_d is not None:
-            cancel_ack_pump_ms.append((nxt_d - tc) * 1000.0)
+    for (g, tc) in cancel_reqs:
+        ack = next((ti for ti in idle_ack_by_gen.get(g, []) if ti >= tc), None)
+        if ack is not None:
+            cancel_ack_ms.append((ack - tc) * 1000.0)
+        drn = next((ti for ti in idle_drain_by_gen.get(g, []) if ti >= tc), None)
+        if drn is not None:
+            cancel_ack_pump_ms.append((drn - tc) * 1000.0)
 
     # texture-upload tail: mailbox_dequeue -> the next texture_upload_end (ms).
     tex_tail_ms = []

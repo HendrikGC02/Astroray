@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — PR #764 open (feat/pkg263-rough-glass-ab); measurement complete, awaiting lead review/merge
+**Status:** done — PR #764 merged 2026-09-08: glass preset in the metal_ab harness (IOR 1.45, roughness 0/0.2/0.5/0.85, centre/limb/background ROIs); limb darkening CONFIRMED far outside the 1.4 % noise floor — Astroray/Cycles limb 0.81 → 0.34 and centre 0.96 → 0.53 from r 0 to r 0.85; fix owned by pkg264. Also fixed the harness bug that left the Astroray leg at Blender's factory 4096 spp + denoise (thin-film twin tracked as #765)
 **Estimated effort:** 1 session (~3 h; CPU headless Blender; GPU leg optional)
 **Depends on:** pkg129, pkg119
 

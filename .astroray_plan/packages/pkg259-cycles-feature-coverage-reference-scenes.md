@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** B
-**Status:** in-progress — Phase 0 design merged (#743, 2026-09-08); owner answers to §7 recorded 2026-09-08 morning; scanner extension split out as pkg260; Phase 1 (`materials_hall` + `textures_mapping`) may start
+**Status:** in-progress — Phase 1 PR #N open (materials_hall + textures_mapping builders, manifest, build_corpus.py CLI, tests, README, both-engine renders)
 **Estimated effort:** 1 week (~20 h across sessions; Phase 0 one session, then one scene family per session)
 **Depends on:** pkg229, pkg249, pkg253
 
@@ -169,6 +169,25 @@ gate (b)'s frequency-weighted coverage measurement. It serves Pillar 5.
 
 ## Progress
 
+- [x] 2026-09-08 afternoon — Phase 1 built: `build_materials_hall_scene` +
+      `build_textures_mapping_scene` added to `scene_library.py` (corridor
+      gallery / printmaker's workshop per the design doc, both reusing
+      existing helpers); `build_corpus.py` CLI (runs inside Blender, cross-
+      checks each builder's actively-wired sockets against
+      `coverage_matrix.json` via the Phase-0 allocation table, fails loudly
+      on a gap); `materials_hall.blend` (57 feature_tags incl. 1 gap card,
+      13734 tri) and `textures_mapping.blend` (72 feature_tags, 2926 tri)
+      committed with `manifest.json` + `gap_registry.json`; corpus
+      `README.md` (charter, gap registry, regenerate instructions);
+      `tests/test_reference_corpus_manifest.py` (7 tests, all green: 2
+      Blender-dependent skip cleanly without it). Both scenes render in both
+      engines (Cycles 128spp CPU; Astroray CPU via the staged OpenMP-off
+      `dist/astroray` module) without an addon exception. Along the way,
+      found and worked around a real Blender quirk: past a few hundred
+      node-trees created in one session, `bpy_prop_collection` string-keyed
+      socket lookup starts spuriously raising `KeyError` for sockets plainly
+      present under iteration (worked around via an identifier-match
+      helper, `scene_library._sock`).
 - [x] 2026-09-08 morning — owner answered the design doc §7: scanner extension filed as
       pkg260 (Phase 1 proceeds in parallel); gate (c) switches to the corpus trio when built;
       gate (b) weight = distinct scenes per socket capped at 3; `test_env.hdr` provenance
@@ -192,4 +211,21 @@ gate (b)'s frequency-weighted coverage measurement. It serves Pillar 5.
 
 ## Lessons
 
-- (none yet)
+- A session that builds hundreds of distinct node-trees (a materials/
+  textures corpus scene does exactly this) can hit a real Blender quirk:
+  `node.inputs["Name"]` / `"Name" in node.inputs` starts spuriously raising
+  `KeyError` / returning `False` for a socket that is plainly present in
+  `[s.name for s in node.inputs]`, once enough prior node-trees exist in the
+  session (reproduced in isolation with 400 dummy Principled materials
+  created first). Iterating and matching by `identifier` (falling back to
+  `name`) sidesteps it -- see `scene_library._sock`. Not yet root-caused
+  inside Blender itself; flag if another corpus-scale scene hits it.
+- `coverage_matrix.json` scanner enumerates node PROPERTIES and INPUT
+  sockets, not OUTPUT sockets or (category, feature) pairs with no property
+  at all -- several nodes allocated to a family in Phase 0's design doc
+  (TEX_COORD, UVMAP, MAPPING, VALTORGB/ColorRamp, MATH, VECT_MATH, MAP_RANGE,
+  CLAMP, Combine/Separate Color/XYZ, Curves) turned out to have ZERO
+  SUPPORTED/APPROXIMATED rows in the current (post-pkg253) matrix, so Phase 1
+  did not need to build dedicated proofs for them -- only the README gap
+  registry. Worth knowing before over-building Phase 2/3 content for a node
+  the matrix doesn't actually credit yet.

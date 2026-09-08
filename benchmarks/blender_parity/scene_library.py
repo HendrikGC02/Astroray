@@ -1496,6 +1496,10 @@ def build_materials_hall_scene(bpy):
     diff = nt.nodes.new("ShaderNodeBsdfDiffuse")
     _sock(diff.inputs, "Color").default_value = (0.05, 0.05, 0.05, 1.0)
     nt.links.new(_sock(diff.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+    # An inert Script node (unconnected -- Astroray has zero OSL support, so
+    # there is nothing meaningful to wire it to) so the gap card's manifest
+    # claim corresponds to a real node_ids entry, not just a text object.
+    nt.nodes.new("ShaderNodeScript")
     placard.data.materials.append(mat)
     gap_tags.append(("ShaderNodeScript", "prop:mode"))
     crop("I")

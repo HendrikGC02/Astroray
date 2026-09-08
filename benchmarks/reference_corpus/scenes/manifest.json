@@ -1,0 +1,1294 @@
+{
+  "scenes": {
+    "materials_hall": {
+      "family": "materials_hall",
+      "builder_fn": "build_materials_hall_scene",
+      "blend_path": "benchmarks/reference_corpus/scenes/materials_hall.blend",
+      "sha256": "3e5439c6eea46e47d6b2b67ff62cfdbd7a4ed0d59085db36d353dd1c98f08b13",
+      "settings": {
+        "res_x": 960,
+        "res_y": 540,
+        "samples": 256,
+        "saved_default_engine": "CYCLES"
+      },
+      "reopen_verified": true,
+      "triangle_count": 13734,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "MESH": 37,
+        "LIGHT": 5,
+        "CAMERA": 1,
+        "FONT": 1
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBlackbody",
+        "ShaderNodeBsdfAnisotropic",
+        "ShaderNodeBsdfDiffuse",
+        "ShaderNodeBsdfGlass",
+        "ShaderNodeBsdfMetallic",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeBsdfRefraction",
+        "ShaderNodeBsdfSheen",
+        "ShaderNodeBsdfTranslucent",
+        "ShaderNodeBsdfTransparent",
+        "ShaderNodeBump",
+        "ShaderNodeEmission",
+        "ShaderNodeNewGeometry",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeScript",
+        "ShaderNodeTexNoise",
+        "ShaderNodeWavelength"
+      ],
+      "feature_tags": [
+        {
+          "category": "shader_node",
+          "feature": "BLACKBODY",
+          "bl_idname": "ShaderNodeBlackbody",
+          "socket_or_prop": "input:Temperature",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_GLOSSY",
+          "bl_idname": "ShaderNodeBsdfAnisotropic",
+          "socket_or_prop": "input:Color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_GLOSSY",
+          "bl_idname": "ShaderNodeBsdfAnisotropic",
+          "socket_or_prop": "input:Roughness",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_DIFFUSE",
+          "bl_idname": "ShaderNodeBsdfDiffuse",
+          "socket_or_prop": "input:Color",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_DIFFUSE",
+          "bl_idname": "ShaderNodeBsdfDiffuse",
+          "socket_or_prop": "input:Roughness",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_GLASS",
+          "bl_idname": "ShaderNodeBsdfGlass",
+          "socket_or_prop": "input:Color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_GLASS",
+          "bl_idname": "ShaderNodeBsdfGlass",
+          "socket_or_prop": "input:Roughness",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_GLASS",
+          "bl_idname": "ShaderNodeBsdfGlass",
+          "socket_or_prop": "input:IOR",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_METALLIC",
+          "bl_idname": "ShaderNodeBsdfMetallic",
+          "socket_or_prop": "input:Base Color",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_METALLIC",
+          "bl_idname": "ShaderNodeBsdfMetallic",
+          "socket_or_prop": "input:Edge Tint",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_METALLIC",
+          "bl_idname": "ShaderNodeBsdfMetallic",
+          "socket_or_prop": "input:Roughness",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_METALLIC",
+          "bl_idname": "ShaderNodeBsdfMetallic",
+          "socket_or_prop": "input:Anisotropy",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_METALLIC",
+          "bl_idname": "ShaderNodeBsdfMetallic",
+          "socket_or_prop": "input:Rotation",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_METALLIC",
+          "bl_idname": "ShaderNodeBsdfMetallic",
+          "socket_or_prop": "input:Thin Film Thickness",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_METALLIC",
+          "bl_idname": "ShaderNodeBsdfMetallic",
+          "socket_or_prop": "input:Thin Film IOR",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_METALLIC",
+          "bl_idname": "ShaderNodeBsdfMetallic",
+          "socket_or_prop": "prop:distribution",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_METALLIC",
+          "bl_idname": "ShaderNodeBsdfMetallic",
+          "socket_or_prop": "prop:fresnel_type",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Base Color",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Metallic",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Roughness",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:IOR",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Alpha",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Thin Wall",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Normal",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Diffuse Roughness",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Subsurface Weight",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Subsurface Radius",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Subsurface Scale",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Subsurface Anisotropy",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Specular IOR Level",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Specular Tint",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Anisotropic",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Anisotropic Rotation",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Transmission Weight",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Coat Weight",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Coat Roughness",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Coat IOR",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Coat Tint",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Sheen Weight",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Sheen Roughness",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Sheen Tint",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Emission Color",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Emission Strength",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Thin Film Thickness",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_PRINCIPLED",
+          "bl_idname": "ShaderNodeBsdfPrincipled",
+          "socket_or_prop": "input:Thin Film IOR",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_REFRACTION",
+          "bl_idname": "ShaderNodeBsdfRefraction",
+          "socket_or_prop": "input:Color",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_REFRACTION",
+          "bl_idname": "ShaderNodeBsdfRefraction",
+          "socket_or_prop": "input:Roughness",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_REFRACTION",
+          "bl_idname": "ShaderNodeBsdfRefraction",
+          "socket_or_prop": "input:IOR",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_SHEEN",
+          "bl_idname": "ShaderNodeBsdfSheen",
+          "socket_or_prop": "input:Color",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_SHEEN",
+          "bl_idname": "ShaderNodeBsdfSheen",
+          "socket_or_prop": "input:Roughness",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_SHEEN",
+          "bl_idname": "ShaderNodeBsdfSheen",
+          "socket_or_prop": "input:Weight",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_TRANSLUCENT",
+          "bl_idname": "ShaderNodeBsdfTranslucent",
+          "socket_or_prop": "input:Color",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BSDF_TRANSPARENT",
+          "bl_idname": "ShaderNodeBsdfTransparent",
+          "socket_or_prop": "input:Color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "EMISSION",
+          "bl_idname": "ShaderNodeEmission",
+          "socket_or_prop": "input:Color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "EMISSION",
+          "bl_idname": "ShaderNodeEmission",
+          "socket_or_prop": "input:Strength",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "SCRIPT",
+          "bl_idname": "ShaderNodeScript",
+          "socket_or_prop": "prop:mode",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "WAVELENGTH",
+          "bl_idname": "ShaderNodeWavelength",
+          "socket_or_prop": "input:Wavelength",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        }
+      ],
+      "assets": [],
+      "crops": {
+        "A": [
+          0.0971,
+          0.06,
+          0.1735,
+          0.94
+        ],
+        "B": [
+          0.1912,
+          0.06,
+          0.2853,
+          0.94
+        ],
+        "C": [
+          0.3029,
+          0.06,
+          0.4147,
+          0.94
+        ],
+        "D": [
+          0.4324,
+          0.06,
+          0.6265,
+          0.94
+        ],
+        "E": [
+          0.6441,
+          0.06,
+          0.7206,
+          0.94
+        ],
+        "H": [
+          0.7382,
+          0.06,
+          0.8382,
+          0.94
+        ],
+        "I": [
+          0.8559,
+          0.06,
+          0.9029,
+          0.94
+        ]
+      }
+    },
+    "textures_mapping": {
+      "family": "textures_mapping",
+      "builder_fn": "build_textures_mapping_scene",
+      "blend_path": "benchmarks/reference_corpus/scenes/textures_mapping.blend",
+      "sha256": "08d0d14b4979b7453ba98bbc38a0d15aae64cd40c1fbd5748019fcfc839e19f0",
+      "settings": {
+        "res_x": 960,
+        "res_y": 540,
+        "samples": 192,
+        "saved_default_engine": "CYCLES"
+      },
+      "reopen_verified": true,
+      "triangle_count": 2926,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "MESH": 21,
+        "LIGHT": 2,
+        "CAMERA": 1
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBrightContrast",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeBump",
+        "ShaderNodeDisplacement",
+        "ShaderNodeEmission",
+        "ShaderNodeGamma",
+        "ShaderNodeHueSaturation",
+        "ShaderNodeInvert",
+        "ShaderNodeMapping",
+        "ShaderNodeMix",
+        "ShaderNodeMixRGB",
+        "ShaderNodeNewGeometry",
+        "ShaderNodeNormalMap",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeRGBToBW",
+        "ShaderNodeTexBrick",
+        "ShaderNodeTexChecker",
+        "ShaderNodeTexCoord",
+        "ShaderNodeTexGradient",
+        "ShaderNodeTexImage",
+        "ShaderNodeTexMagic",
+        "ShaderNodeTexNoise",
+        "ShaderNodeTexVoronoi",
+        "ShaderNodeTexWave"
+      ],
+      "feature_tags": [
+        {
+          "category": "shader_node",
+          "feature": "BRIGHTCONTRAST",
+          "bl_idname": "ShaderNodeBrightContrast",
+          "socket_or_prop": "input:Color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BRIGHTCONTRAST",
+          "bl_idname": "ShaderNodeBrightContrast",
+          "socket_or_prop": "input:Brightness",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BRIGHTCONTRAST",
+          "bl_idname": "ShaderNodeBrightContrast",
+          "socket_or_prop": "input:Contrast",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BUMP",
+          "bl_idname": "ShaderNodeBump",
+          "socket_or_prop": "input:Strength",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BUMP",
+          "bl_idname": "ShaderNodeBump",
+          "socket_or_prop": "input:Distance",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BUMP",
+          "bl_idname": "ShaderNodeBump",
+          "socket_or_prop": "input:Filter Width",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BUMP",
+          "bl_idname": "ShaderNodeBump",
+          "socket_or_prop": "input:Height",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "BUMP",
+          "bl_idname": "ShaderNodeBump",
+          "socket_or_prop": "input:Normal",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "DISPLACEMENT",
+          "bl_idname": "ShaderNodeDisplacement",
+          "socket_or_prop": "input:Height",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "DISPLACEMENT",
+          "bl_idname": "ShaderNodeDisplacement",
+          "socket_or_prop": "input:Midlevel",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "DISPLACEMENT",
+          "bl_idname": "ShaderNodeDisplacement",
+          "socket_or_prop": "input:Scale",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "GAMMA",
+          "bl_idname": "ShaderNodeGamma",
+          "socket_or_prop": "input:Color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "GAMMA",
+          "bl_idname": "ShaderNodeGamma",
+          "socket_or_prop": "input:Gamma",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "HUE_SAT",
+          "bl_idname": "ShaderNodeHueSaturation",
+          "socket_or_prop": "input:Hue",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "HUE_SAT",
+          "bl_idname": "ShaderNodeHueSaturation",
+          "socket_or_prop": "input:Saturation",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "HUE_SAT",
+          "bl_idname": "ShaderNodeHueSaturation",
+          "socket_or_prop": "input:Value",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "HUE_SAT",
+          "bl_idname": "ShaderNodeHueSaturation",
+          "socket_or_prop": "input:Factor",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "HUE_SAT",
+          "bl_idname": "ShaderNodeHueSaturation",
+          "socket_or_prop": "input:Color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "INVERT",
+          "bl_idname": "ShaderNodeInvert",
+          "socket_or_prop": "input:Color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MIX",
+          "bl_idname": "ShaderNodeMix",
+          "socket_or_prop": "prop:blend_type",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MIX_RGB",
+          "bl_idname": "ShaderNodeMixRGB",
+          "socket_or_prop": "prop:blend_type",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "NORMAL_MAP",
+          "bl_idname": "ShaderNodeNormalMap",
+          "socket_or_prop": "input:Strength",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "NORMAL_MAP",
+          "bl_idname": "ShaderNodeNormalMap",
+          "socket_or_prop": "input:Color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "RGBTOBW",
+          "bl_idname": "ShaderNodeRGBToBW",
+          "socket_or_prop": "input:Color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_BRICK",
+          "bl_idname": "ShaderNodeTexBrick",
+          "socket_or_prop": "input:Color1",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_BRICK",
+          "bl_idname": "ShaderNodeTexBrick",
+          "socket_or_prop": "input:Color2",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_BRICK",
+          "bl_idname": "ShaderNodeTexBrick",
+          "socket_or_prop": "input:Scale",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_BRICK",
+          "bl_idname": "ShaderNodeTexBrick",
+          "socket_or_prop": "input:Mortar Size",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_BRICK",
+          "bl_idname": "ShaderNodeTexBrick",
+          "socket_or_prop": "input:Mortar Smooth",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_BRICK",
+          "bl_idname": "ShaderNodeTexBrick",
+          "socket_or_prop": "input:Bias",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_BRICK",
+          "bl_idname": "ShaderNodeTexBrick",
+          "socket_or_prop": "input:Brick Width",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_BRICK",
+          "bl_idname": "ShaderNodeTexBrick",
+          "socket_or_prop": "input:Row Height",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_BRICK",
+          "bl_idname": "ShaderNodeTexBrick",
+          "socket_or_prop": "prop:offset_frequency",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_BRICK",
+          "bl_idname": "ShaderNodeTexBrick",
+          "socket_or_prop": "prop:squash",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_BRICK",
+          "bl_idname": "ShaderNodeTexBrick",
+          "socket_or_prop": "prop:squash_frequency",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_CHECKER",
+          "bl_idname": "ShaderNodeTexChecker",
+          "socket_or_prop": "input:Color1",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_CHECKER",
+          "bl_idname": "ShaderNodeTexChecker",
+          "socket_or_prop": "input:Color2",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_CHECKER",
+          "bl_idname": "ShaderNodeTexChecker",
+          "socket_or_prop": "input:Scale",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_GRADIENT",
+          "bl_idname": "ShaderNodeTexGradient",
+          "socket_or_prop": "prop:gradient_type",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_IMAGE",
+          "bl_idname": "ShaderNodeTexImage",
+          "socket_or_prop": "input:Vector",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_MAGIC",
+          "bl_idname": "ShaderNodeTexMagic",
+          "socket_or_prop": "input:Scale",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_MAGIC",
+          "bl_idname": "ShaderNodeTexMagic",
+          "socket_or_prop": "input:Distortion",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_MAGIC",
+          "bl_idname": "ShaderNodeTexMagic",
+          "socket_or_prop": "prop:turbulence_depth",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_NOISE",
+          "bl_idname": "ShaderNodeTexNoise",
+          "socket_or_prop": "input:Scale",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_NOISE",
+          "bl_idname": "ShaderNodeTexNoise",
+          "socket_or_prop": "input:Detail",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_NOISE",
+          "bl_idname": "ShaderNodeTexNoise",
+          "socket_or_prop": "input:Roughness",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_NOISE",
+          "bl_idname": "ShaderNodeTexNoise",
+          "socket_or_prop": "input:Lacunarity",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_NOISE",
+          "bl_idname": "ShaderNodeTexNoise",
+          "socket_or_prop": "input:Offset",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_NOISE",
+          "bl_idname": "ShaderNodeTexNoise",
+          "socket_or_prop": "input:Gain",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_NOISE",
+          "bl_idname": "ShaderNodeTexNoise",
+          "socket_or_prop": "input:Distortion",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_NOISE",
+          "bl_idname": "ShaderNodeTexNoise",
+          "socket_or_prop": "prop:noise_type",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_NOISE",
+          "bl_idname": "ShaderNodeTexNoise",
+          "socket_or_prop": "prop:normalize",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_VORONOI",
+          "bl_idname": "ShaderNodeTexVoronoi",
+          "socket_or_prop": "input:Scale",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_VORONOI",
+          "bl_idname": "ShaderNodeTexVoronoi",
+          "socket_or_prop": "input:Detail",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_VORONOI",
+          "bl_idname": "ShaderNodeTexVoronoi",
+          "socket_or_prop": "input:Roughness",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_VORONOI",
+          "bl_idname": "ShaderNodeTexVoronoi",
+          "socket_or_prop": "input:Lacunarity",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_VORONOI",
+          "bl_idname": "ShaderNodeTexVoronoi",
+          "socket_or_prop": "input:Smoothness",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_VORONOI",
+          "bl_idname": "ShaderNodeTexVoronoi",
+          "socket_or_prop": "input:Exponent",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_VORONOI",
+          "bl_idname": "ShaderNodeTexVoronoi",
+          "socket_or_prop": "input:Randomness",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_VORONOI",
+          "bl_idname": "ShaderNodeTexVoronoi",
+          "socket_or_prop": "prop:distance",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_VORONOI",
+          "bl_idname": "ShaderNodeTexVoronoi",
+          "socket_or_prop": "prop:feature",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_VORONOI",
+          "bl_idname": "ShaderNodeTexVoronoi",
+          "socket_or_prop": "prop:normalize",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_WAVE",
+          "bl_idname": "ShaderNodeTexWave",
+          "socket_or_prop": "input:Scale",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_WAVE",
+          "bl_idname": "ShaderNodeTexWave",
+          "socket_or_prop": "input:Distortion",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_WAVE",
+          "bl_idname": "ShaderNodeTexWave",
+          "socket_or_prop": "input:Detail",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_WAVE",
+          "bl_idname": "ShaderNodeTexWave",
+          "socket_or_prop": "input:Detail Scale",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_WAVE",
+          "bl_idname": "ShaderNodeTexWave",
+          "socket_or_prop": "input:Detail Roughness",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_WAVE",
+          "bl_idname": "ShaderNodeTexWave",
+          "socket_or_prop": "input:Phase Offset",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_WAVE",
+          "bl_idname": "ShaderNodeTexWave",
+          "socket_or_prop": "prop:bands_direction",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_WAVE",
+          "bl_idname": "ShaderNodeTexWave",
+          "socket_or_prop": "prop:rings_direction",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_WAVE",
+          "bl_idname": "ShaderNodeTexWave",
+          "socket_or_prop": "prop:wave_profile",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_WAVE",
+          "bl_idname": "ShaderNodeTexWave",
+          "socket_or_prop": "prop:wave_type",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        }
+      ],
+      "assets": [],
+      "crops": {
+        "TexNoise": [
+          0.2179,
+          0.1,
+          0.3308,
+          0.3
+        ],
+        "TexVoronoi": [
+          0.3308,
+          0.1,
+          0.4436,
+          0.3
+        ],
+        "TexWaveBands": [
+          0.4436,
+          0.1,
+          0.5564,
+          0.3
+        ],
+        "TexWaveRings": [
+          0.5564,
+          0.1,
+          0.6692,
+          0.3
+        ],
+        "TexBrick": [
+          0.6692,
+          0.1,
+          0.7821,
+          0.3
+        ],
+        "TexChecker": [
+          0.2179,
+          0.3,
+          0.3308,
+          0.5
+        ],
+        "TexMagic": [
+          0.3308,
+          0.3,
+          0.4436,
+          0.5
+        ],
+        "TexGradient": [
+          0.4436,
+          0.3,
+          0.5564,
+          0.5
+        ],
+        "TexImage": [
+          0.5564,
+          0.3,
+          0.6692,
+          0.5
+        ],
+        "BumpDemo": [
+          0.6795,
+          0.3,
+          0.7718,
+          0.5
+        ],
+        "NormalMapDemo": [
+          0.2282,
+          0.5,
+          0.3205,
+          0.68
+        ],
+        "DisplacementDemo": [
+          0.341,
+          0.5,
+          0.4333,
+          0.68
+        ],
+        "BrightContrast": [
+          0.4436,
+          0.5,
+          0.5564,
+          0.68
+        ],
+        "Gamma": [
+          0.5564,
+          0.5,
+          0.6692,
+          0.68
+        ],
+        "HueSat": [
+          0.6692,
+          0.5,
+          0.7821,
+          0.68
+        ],
+        "Invert": [
+          0.2179,
+          0.68,
+          0.3308,
+          0.85
+        ],
+        "RgbToBw": [
+          0.3308,
+          0.68,
+          0.4436,
+          0.85
+        ],
+        "MixCard": [
+          0.4436,
+          0.68,
+          0.5564,
+          0.85
+        ],
+        "MixRgbCard": [
+          0.5564,
+          0.68,
+          0.6692,
+          0.85
+        ]
+      }
+    }
+  }
+}

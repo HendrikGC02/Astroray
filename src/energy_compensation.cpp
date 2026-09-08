@@ -62,7 +62,8 @@ bool DisneyEnergyCompensationTables::load() {
            readFloatTable(dir / "ggx_glass_E.bin", ggxGlassE_) &&
            readFloatTable(dir / "ggx_glass_Eavg.bin", ggxGlassEavg_) &&
            readFloatTable(dir / "ggx_glass_inv_E.bin", ggxGlassInvE_) &&
-           readFloatTable(dir / "ggx_glass_inv_Eavg.bin", ggxGlassInvEavg_);
+           readFloatTable(dir / "ggx_glass_inv_Eavg.bin", ggxGlassInvEavg_) &&
+           readFloatTable(dir / "ggx_gen_schlick_ior_s.bin", ggxGenSchlickIorS_);
 }
 
 template <std::size_t N>
@@ -178,6 +179,16 @@ float DisneyEnergyCompensationTables::ggxGlassEavg(float roughness, float ior) c
     const float z = glassZFromIOR(iorEff);
     return inv ? sample2D(ggxGlassInvEavg_, kGlassSize, roughness, z)
                : sample2D(ggxGlassEavg_, kGlassSize, roughness, z);
+}
+
+// pkg261: Cycles bsdf_microfacet_estimate_albedo (bsdf_microfacet.h:423-470,
+// BSD-3-Clause) reads s = lookup_table_read_3D(rough, cos_NI, z,
+// ggx_gen_schlick_ior_s, 16, 16, 16). Same trilinear axis order as the glass
+// tables (roughness x, cos_NI y, z z). z = sqrt(|ior-1|/(ior+1)) is computed by
+// the caller (the same remap glassZFromIOR uses).
+float DisneyEnergyCompensationTables::ggxGenSchlickIorS(
+        float roughness, float mu, float z) const {
+    return sample3D(ggxGenSchlickIorS_, kGenSchlickSize, roughness, mu, z);
 }
 
 } // namespace astroray

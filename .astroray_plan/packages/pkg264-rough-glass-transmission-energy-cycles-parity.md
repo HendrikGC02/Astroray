@@ -91,14 +91,14 @@ PBRT-v4 §9.7 dielectric BSDF. Serves Pillar 5.
 | File | Purpose |
 |---|---|
 | `.astroray_plan/docs/pkg264-glass-energy-research.md` | `cite-algorithm` note: Cycles' glass sample/eval/pdf and energy-preservation tables vs Astroray's, term by term; a per-(roughness, θ) table of transmitted+reflected energy from a Monte-Carlo oracle of the exact dielectric microfacet BSDF vs Astroray's lobe, isolating which regime (delta grazing vs rough transmission) each term explains. |
-| `tests/test_pkg264_glass_cycles_parity.py` | Renders the pkg263 sweep in-process (no Blender) against pinned Cycles ROI means from PR #764 (numbers + provenance in the docstring): per-ROI ratio within ±5 % at r ∈ {0, 0.2, 0.5, 0.85}, CPU and GPU; must FAIL on main today. |
+| `tests/test_pkg264_glass_cycles_parity.py` | White-furnace mechanism gate for the native `principled` rough-transmission lobe (IOR 1.45, target [0.95,1.05], CPU+GPU) + disney regression guard; RED on main (0.645@r0.85), GREEN after. The furnace (absolute ground truth 1.0) replaces an in-process render-vs-Cycles ROI assertion because the render's absolute scale depends on Blender area-light watt→radiance units; the pkg263 Blender-harness ROI re-run is the acceptance evidence (results doc / PR). |
 
 ### Files to modify
 
 | File | What changes |
 |---|---|
-| `plugins/materials/disney.cpp` | The glass branch: whatever the research note isolates — candidates are the delta-lobe grazing/TIR handling (r 0 limb), the rough transmission lobe's weight/pdf/Jacobian and its energy compensation (`ggxGlassComp` tables vs Cycles' `table_ggx_glass_*`), and the below-horizon fallback routing; cite Cycles lines. |
-| `include/astroray/gpu_materials.h` | Mirror every change in the GPU dielectric lowering; REG 254 must hold; report STACK. |
+| `plugins/materials/principled.cpp` | **Scope correction (lead 2026-09-08 Q1): `principled.cpp`, NOT `disney.cpp`.** The pkg263 acceptance render routes `ShaderNodeBsdfGlass` → native `principled` (`use_native_principled` default ON), so `disney.cpp` is never exercised by the gate. The research note (§7) isolated the defect to `principled.cpp`'s rough-transmission sampler `chooseAndSampleDir`, which drops dead microfacet samples (no smooth-delta fallback) — the below-horizon fallback routing candidate. Fix mirrors disney's proven fallback; no compensation/formula change. `disney.cpp` untouched. |
+| `include/astroray/gpu_materials.h` | Mirror the same dead-sample fallback in the GPU native-principled twin `gpu_pr_chooseAndSampleDir`; REG 254 must hold; report STACK. |
 | `include/astroray/energy_compensation.h` | Only if the glass tables/lookup are the defect (clamps, parameterisation, η-branch). |
 | `tests/test_disney_energy_conservation.py` | Furnace/chi² gates that pinned the old behaviour are re-derived with the derivation in a comment, never relaxed to pass. |
 | `.astroray_plan/packages/pkg179-dielectric-transmission-energy-redistribution.md` | Progress: Phase 2 leads resolved here (or what remains). |

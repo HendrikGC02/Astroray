@@ -198,3 +198,95 @@ am stopping before any engine edit and asking:
 
 Until Q1–Q2 are answered I have not modified any `.cpp/.h`. The oracle and this
 note are committed as the package's first deliverable.
+
+---
+
+## 7. CONTINUATION (2026-09-08 15:20, lead answers Q1–Q3) — mechanism found, fixed
+
+The lead answered: Q1 target = `principled.cpp` transmission lobe + its GPU twin
+(`disney.cpp` out of scope). Q2 = run the render-level A/B first. Q3 = fix whatever
+(a)–(d) isolates in principled.cpp (+ GPU mirror). This section records the A/B and
+the fix.
+
+### 7.1 Render-level A/B — bounce caps and filter_glossy REFUTED
+
+In-process reproduction of the pkg263 scene through the raw engine binding
+(`test_results/2026-09-08-pkg264cont/ab_harness.py`, build_cuda .pyd, CPU, 128 spp,
+200²), sweeping ONE integrator lever at a time. Centre disc (<0.35R) / limb annulus
+(0.80–0.98R) means vs the pinned pkg263 Cycles numbers:
+
+| r | cfg | c/Cyc | l/Cyc |
+|---|---|---|---|
+| 0.0 | baseline d4/g4/t12 | 0.948 | 0.954 |
+| 0.0 | high_all_64 | 0.948 | 0.952 |
+| 0.2 | baseline | 0.934 | 0.719 |
+| 0.5 | baseline | 0.809 | 0.502 |
+| 0.85 | baseline | 0.520 | 0.366 |
+
+Lever (a) transmission/glossy/total bounce cap (12 vs 64, and each per-type
+isolated) and filter_glossy (0 vs 1) are **byte-identical at r=0 and move the
+ratio by <0.5% at r=0.85** — REFUTED as the mechanism. The lead's prediction (a)
+is wrong. The pattern is instead a **roughness-driven whole-silhouette energy
+loss**: both centre and limb fall increasingly below Cycles as roughness rises,
+while r=0 already matches Cycles (0.95). (b) Russian roulette has no engine setter
+and r=0 already matches Cycles so RR is not implicated. (c) is the answer — see 7.2.
+
+A second, smaller effect: the pkg263 **addon** r=0 limb (0.232) is ~15% below both
+Cycles (0.284) and this in-process engine render (0.271). So a minor r=0 limb loss
+is introduced by the addon render path (not the core engine BSDF/integrator, which
+matches Cycles at r=0). It is dominated by the roughness loss below and is left as a
+separate, small follow-up.
+
+### 7.2 White-furnace isolation — principled rough transmission LOSES ENERGY
+
+`test_results/2026-09-08-pkg264cont/furnace_probe.py`, IOR 1.45, clear glass in a
+uniform white field (invisible ⇒ target 1.0), CPU 256 spp; GPU leg
+`gpu_furnace_check.py` under the GPU lock:
+
+| r | principled CPU | principled GPU | disney CPU | disney GPU |
+|---|---|---|---|---|
+| 0.0 | 0.997 | — | 0.997 | — |
+| 0.2 | 0.993 | 0.994 | 0.992 | 0.996 |
+| 0.5 | 0.909 | 0.908 | 0.967 | 1.015 |
+| 0.85 | 0.645 | 0.642 | 0.962 | 1.033 |
+| 1.0 | 0.524 | 0.526 | 0.957 | 1.005 |
+
+The native `principled` transmission lobe is **not energy-conserving** at high
+roughness on **either backend**, while `disney` glass **is**. The ~0.20
+per-interface loss compounds over the sphere's two interfaces (0.8²≈0.64) to match
+the ~0.5× render deficit. This furnace is now the mechanism gate
+(`tests/test_pkg264_glass_cycles_parity.py`).
+
+### 7.3 Root cause — dropped dead microfacet samples (no delta fallback)
+
+`principled.cpp chooseAndSampleDir` (and its GPU twin `gpu_pr_chooseAndSampleDir`)
+returns an **absorbing dead sample** (`ds.ok=false` ⇒ `sample()` `f=0,pdf=0`) when a
+grazing VNDF microfacet fails BOTH reflection (wi below the surface) and refraction
+(below-horizon / micro-TIR). On the solid sphere's **exit** interface (dense→rare,
+near the critical angle) this dead rate is high and rises with roughness — the
+entering-interface dead rate is only 0–4% (research note §4, corroborated by
+`deadrate.py`), which is why §4's single-front-interface oracle under-counted it.
+
+`disney.cpp` does NOT lose this energy because on a dead rough sample it **falls
+through to a smooth delta glass event** (disney.cpp:844-912; its own comment: a
+"return a dead (pdf=0) sample instead of this delta fallback … MEASURED to regress
+energy conservation severely — white-furnace collapsed … to ~0.0"). The GPU
+`gpu_disney_sample` has the same fallback. The native-principled samplers lacked it.
+
+### 7.4 Fix
+
+On a dead rough transmission sample, fall through to the existing smooth delta glass
+event instead of returning black — `if (ds.ok) return ds;` then let control reach the
+delta block (which sets `ds.isDelta=true` and the Fresnel-cancelling f/pdf the delta
+`sample()`/`sampleSpectral()` branch already handles). Two lines mirrored, byte-for-
+byte across the CPU/GPU twins:
+- `plugins/materials/principled.cpp` `chooseAndSampleDir`
+- `include/astroray/gpu_materials.h` `gpu_pr_chooseAndSampleDir`
+
+No compensation invented; no formula changed; disney untouched. The comp factor
+(`ggxGlassComp`) and the tables were confirmed to LOAD and apply (disney uses the
+same math and conserves) — they were never the defect.
+
+**Spec scope correction:** the fix is `principled.cpp` (+ GPU twin), NOT `disney.cpp`
+as the spec's Files-to-modify originally listed; the acceptance render (pkg263
+harness) renders native-principled by default. Recorded per the lead's Q1 decision.

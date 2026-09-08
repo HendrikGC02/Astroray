@@ -165,3 +165,70 @@ is raised before sinking the build time.
 - Heitz 2018, "Sampling the GGX Distribution of Visible Normals", JCGT — the VNDF
   sampler used by the oracle.
 - Kulla & Conty 2017 — the multi-scatter compensation (shown here not to be the defect).
+
+---
+
+## 5. Port decision (lead, 2026-09-08 11:05) — Option A: faithful Cycles table
+
+The lead chose to port Cycles' `bsdf_microfacet_estimate_albedo` faithfully
+rather than derive a closed form (which would risk a CLAUDE.md §6 invention).
+The layering albedo becomes, per channel:
+
+    z      = sqrt(|ior - 1| / (ior + 1))
+    s      = ggx_gen_schlick_ior_s[roughness, cos_NI(=nv), z]      (16^3 LUT)
+    albedo = mix(f0, f90=1, s)                                     (reflection_tint = 1)
+
+Exact reference (fetched 2026-09-08, blender/blender@`eaa5f63ba20e64a439af48a1600cb9ed7bf9bdf0`):
+- `intern/cycles/kernel/closure/bsdf_microfacet.h:405-475`
+  `bsdf_microfacet_estimate_albedo` — GENERALIZED_SCHLICK exponent<0 branch
+  (L423-445) for the Principled specular layer (`exponent = -ior`), and the
+  equivalent DIELECTRIC branch (L456-470, `mix(F0_from_ior(ior), 1, s)`) which
+  reuses the same table for the coat. BSD-3-Clause.
+- `intern/cycles/kernel/util/lookup_table.h:47-72` `lookup_table_read_3D` —
+  `x = saturate(x)*(size-1)`, floor + trilinear, memory order x fastest then y
+  then z. Astroray's `DisneyEnergyCompensationTables::sample3D` is byte-for-byte
+  equivalent (validated for pkg151's glass 16^3 tables). Apache-2.0.
+- `intern/cycles/scene/shader.tables:737` `table_ggx_gen_schlick_ior_s[4096]`.
+  Apache-2.0. Extracted verbatim to `data/disney_compensation/ggx_gen_schlick_ior_s.bin`
+  by `scripts/data/extract_ggx_gen_schlick_ior_s.py`.
+
+**Applies to:** the Principled specular (`principled.cpp` specular site, `ior_`)
+and coat (`coatIor_`) layering sites, and their `gpu_pr_assembleLobes` twins.
+The **sheen** layering site is NOT affected — sheen uses its own LTC microfiber
+albedo (`sheenAlbedo`/`sc.albedo`, Zeltner 2022), not `ggxDirectionalAlbedo`.
+The legacy `disney.cpp` / `gpu_disney_eval` material keeps its old estimate
+(out of scope for this Principled-only package).
+
+### Numeric check: Cycles table vs the MC oracle (IOR 1.5, f0 0.04)
+
+Cycles' `s`-table is a **lobe-averaged Schlick fit**, not the true single-scatter
+albedo the VNDF MC oracle computes. Because `s in [0,1]` and `f90 = 1`, the
+estimate cannot fall below f0, so at high roughness it OVER-estimates the true
+albedo at normal incidence even as it CORRECTS the large grazing over-estimate:
+
+```
+ r     mu    Cycles(mix f0,1,s)   MC        Cyc/MC   Astr(old E*Fview*dark)
+ 0.30  0.20  0.2706               0.2480    1.09     0.3195
+ 0.50  0.20  0.1667               0.1341    1.24     0.3035
+ 0.85  1.00  0.0414               0.0200    2.07     0.0199
+ 0.85  0.20  0.0822               0.0574    1.43     0.2660
+ 1.00  1.00  0.0413               0.0127    3.25     0.0127
+ 1.00  0.20  0.0686               0.0435    1.58     0.2386
+```
+
+Consequence for the parity target: matching **Cycles** (the render oracle) is the
+goal, so the fix slightly darkens high-roughness *normal-incidence* diffuse
+(Cycles floors the specular albedo near f0 there) while strongly brightening the
+grazing near-ground band (old estimate 0.266 -> 0.082 at r=0.85 mu=0.2, diffuse
+weight 0.734 -> 0.918, +25%). This is the correct sign/locus for the pkg258
+0.926 ground deficit.
+
+**Unit-test consequence (deviation from the original brief step 2).** The
+original brief asked the albedo unit check to land within 3% of the MC oracle
+after the fix. That is not achievable while porting Cycles faithfully (the lead's
+Option A): the Cycles table deviates from the MC oracle by up to 3.25x at high
+roughness (table above). The unit test therefore asserts the implemented CPU/GPU
+albedo reproduces the **Cycles reference** (independent Python evaluation of the
+extracted `s`-table, `mix(f0,1,s)`) within a tight tolerance — i.e. it gates the
+port, which is the actual fix target — and records the MC comparison as
+documentation. Surfaced to the lead for confirmation.

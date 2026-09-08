@@ -73,7 +73,21 @@ def _bootstrap_astroray_addon(repo_root: Path):
             raise
 
 
-def _configure_render(scene, engine, device, res, samples):
+def _to_top_down(px):
+    """Flip Blender's native bottom-up pixel buffer to top-down (row 0 = top).
+
+    Only the pkg263 glass leg needs this: its ROIs (centre disc, limb
+    annulus, background patch) are positional, computed in
+    ``scenes.sphere_projected_radius_px`` assuming row 0 = top (memory
+    blender-pixels-bottom-up-roi-flip). The metal leg's whole-frame mean is
+    orientation-invariant, so it is left untouched. Reused verbatim from
+    ``benchmarks/blender_parity/render_leg._to_top_down`` (import avoided here
+    to keep this file's bpy-free import surface identical to before)."""
+    import numpy as np
+    return np.ascontiguousarray(px[::-1, :, :])
+
+
+def _configure_render(scene, engine, device, res, samples, seed=7):
     scene.render.resolution_x = res
     scene.render.resolution_y = res
     scene.render.resolution_percentage = 100
@@ -86,21 +100,32 @@ def _configure_render(scene, engine, device, res, samples):
     scene.render.image_settings.color_depth = "32"
     scene.render.image_settings.exr_codec = "NONE"
     scene.render.engine = engine
-    if engine == "CYCLES":
-        scene.cycles.samples = samples
-        scene.cycles.use_denoising = False
-        scene.cycles.use_adaptive_sampling = False
-        scene.cycles.seed = 7
-    elif hasattr(scene, "custom_raytracer"):
+    # pkg176 Stage 4 (blender_addon/settings_map.py): samples/use_denoising/
+    # use_adaptive_sampling/seed are DIRECT-mapped to native scene.cycles.* for
+    # BOTH engines now (the custom_raytracer.samples etc. duplicates were
+    # retired) — CUSTOM_RAYTRACER reads scene.cycles.samples same as CYCLES.
+    # Gating this to `if engine == "CYCLES"` (the old shape) silently leaves
+    # the Astroray leg at Blender's factory-default 4096 samples with
+    # denoising ON (confirmed: a CPU-device Astroray smoke render still
+    # printed "[OIDN] Using CUDA device" and "4096 samples" with
+    # --samples 32) — invalidates both the requested sample-matching and the
+    # "denoise off" requirement pkg263 needs for a clean A/B.
+    scene.cycles.samples = samples
+    scene.cycles.use_denoising = False
+    scene.cycles.use_adaptive_sampling = False
+    scene.cycles.seed = seed
+    # pkg263: denoise off on the scene AND the view layer (a view layer's own
+    # Cycles override can re-enable denoising independent of the scene flag).
+    for vl in scene.view_layers:
+        if hasattr(vl, "cycles") and hasattr(vl.cycles, "use_denoising"):
+            vl.cycles.use_denoising = False
+    if hasattr(scene, "custom_raytracer"):
         cr = scene.custom_raytracer
-        cr.samples = samples
-        if hasattr(cr, "preview_samples"):
-            cr.preview_samples = samples
         if hasattr(cr, "device_mode"):
-            cr.device_mode = device  # 'cpu' or 'gpu'
+            cr.device_mode = device  # 'cpu' or 'gpu' (astroray-only tri-state)
 
 
-def _render_to_npy(bpy, scene, out_stem: Path):
+def _render_to_npy(bpy, scene, out_stem: Path, *, top_down: bool = False):
     import numpy as np
 
     for f in glob.glob(str(out_stem) + "*"):
@@ -117,6 +142,8 @@ def _render_to_npy(bpy, scene, out_stem: Path):
     img = bpy.data.images.load(matches[0])
     w, h = img.size
     px = np.asarray(img.pixels[:], dtype=np.float32).reshape(h, w, 4)[:, :, :3]
+    if top_down:
+        px = _to_top_down(px)
     bpy.data.images.remove(img)
     for f in matches:
         try:
@@ -141,11 +168,16 @@ def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     p = argparse.ArgumentParser()
     p.add_argument("--config", required=True)
+    p.add_argument("--material", default="metal", choices=("metal", "glass"))
     p.add_argument("--engine", required=True, choices=("CYCLES", "CUSTOM_RAYTRACER"))
     p.add_argument("--device", default="cpu", choices=("cpu", "gpu"))
     p.add_argument("--out", required=True, help="output stem (no extension)")
     p.add_argument("--res", type=int, default=128)
     p.add_argument("--samples", type=int, default=256)
+    p.add_argument("--seed", type=int, default=7,
+                   help="Cycles/Astroray RNG seed (0 is the engine's random "
+                        "sentinel, not a pin; pkg263 uses a second fixed seed "
+                        "to measure the Cycles MC noise floor)")
     args = p.parse_args(argv)
 
     repo_root = Path(__file__).resolve().parents[3]
@@ -158,12 +190,17 @@ def main():
         if args.engine == "CUSTOM_RAYTRACER":
             _bootstrap_astroray_addon(repo_root)
 
-        cfg = scenes.config_by_name(args.config)
-        scene = scenes.build_metal_scene(bpy, cfg)
-        _configure_render(scene, args.engine, args.device, args.res, args.samples)
+        if args.material == "glass":
+            cfg = scenes.glass_config_by_name(args.config)
+            scene = scenes.build_glass_scene(bpy, cfg)
+        else:
+            cfg = scenes.config_by_name(args.config)
+            scene = scenes.build_metal_scene(bpy, cfg)
+        _configure_render(scene, args.engine, args.device, args.res, args.samples,
+                         seed=args.seed)
         out_stem = Path(args.out)
         out_stem.parent.mkdir(parents=True, exist_ok=True)
-        npy = _render_to_npy(bpy, scene, out_stem)
+        npy = _render_to_npy(bpy, scene, out_stem, top_down=(args.material == "glass"))
         print(f"[pkg129-leg] wrote {npy}", flush=True)
         print(f"{SENTINEL} PASS", flush=True)
     except Exception as exc:  # noqa: BLE001

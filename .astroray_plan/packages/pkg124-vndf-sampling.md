@@ -29,6 +29,17 @@ extends it to the reflection lobe, which pkg121 flagged and which the current co
 comment (`disney.cpp:496-500`) explicitly left as NDF sampling only because the
 earlier attempt mis-paired VNDF-sample with the NDF pdf.
 
+**2026-09-08 (pkg263 evidence, adjacent not conclusive):** a live-Cycles rough-glass
+A/B (`.astroray_plan/docs/pkg263-rough-glass-ab-2026-09.md`) measured the owner's
+"limb darkening" report and found the sphere's limb annulus is 19-66% dimmer than
+Cycles' (Astroray/Cycles ratio 0.81→0.34 as roughness sweeps 0→0.85), present already
+at roughness 0 (Fresnel/TIR-flavoured) and worsening sharply with roughness (energy
+loss in the rough transmission lobe at grazing) — well outside the measured Cycles
+seed-noise floor (≤1.4%). This is the glass **transmission** lobe, not the reflection
+lobe pkg124 targets, but both draw on the same VNDF machinery this package is about
+to touch; worth a glance once pkg124 lands in case the reflection-lobe fix's
+before/after chi² grid also moves the glass-transmission numbers.
+
 ---
 
 ## Goal

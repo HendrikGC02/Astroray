@@ -366,3 +366,18 @@ ledger's established escalation pattern — do not pre-emptively build Option B.
   `matNormalTexId>=0`) cost **zero** register spill — the `<…,true>` kernel absorbed
   the bump branch at the same 254/3368/1716 as `<…,false>`. Option B (new axis) was
   correctly not needed.
+- **The Distance/Strength magnitude itself was still ~1.8-2x too strong vs Cycles
+  (#753, fixed by #<PR>).** `dPdx = T*eps`, `dPdy = Bt*eps` used the UV-aligned
+  frame's UNIT tangent/bitangent, so `eps` (a UV-space step) was fed into the
+  surfgrad formula AS IF it were a world-space step (Cycles' `svm_node_set_bump`,
+  `src/kernel/svm/displace.h`, sources `dP.dx`/`dP.dy` from
+  `differential_from_compact(sd->Ng, sd->dP)` — genuine world-space position
+  differentials; see `.astroray_plan/docs/pkg223b-bump-cycles-citation.md`). This
+  made `tan(tilt) = Distance * dh/dU` (UV-space slope) instead of Cycles'
+  `Distance * dh/dx` (world-space slope) — independent of the mesh's actual world
+  size, and off by exactly `|dP/dU_tex|` (the world length per UV unit; 2x on a
+  UV-0..1 / world-size-2 quad, matching the observed 1.8-2x). Fix: extend
+  `manifold::uvAlignedTangent`/`gpu_pr_uvAlignedTangent` to also return that
+  world-per-UV scale (optional out-params, source-compatible with every existing
+  call site) and carry it on `HitRecord` as `uvScaleU`/`uvScaleV` (default 1.0);
+  scale `eps` by it before building `dPdx`/`dPdy`, on both CPU and GPU. See #753.

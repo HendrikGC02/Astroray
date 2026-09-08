@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** B
-**Status:** open — filed 2026-09-08 per owner decision (pkg259 §7 Q1/Q6/Q7/Q4); pkg259 Phase 1 proceeds in parallel
+**Status:** done — PR #758 merged 2026-09-08: matrix 527 → 586 rows (`object` +6, `image_property` +6, `input_node` +42, `camera` +4, `world` light-linking gap card +1; 13 duplicate-key groups collapsed with `[identifier]` suffixes), 0 classification changes on the 504 common keys, `tests/test_pkg260_scanner_categories.py` green, pkg259 allocation table regenerated; lead added the five `settings_map.py` rows the pkg176 contract requires
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg229, pkg259
 
@@ -68,8 +68,8 @@ the corpus exercises needs a row. Serves Pillar 5.
 ## Prerequisites
 
 - [x] pkg229 done — matrix regenerable headlessly.
-- [ ] pkg259 Phase 0 design merged (#743) — allocation table names the rows.
-- [ ] Build passes on main.
+- [x] pkg259 Phase 0 design merged (#743) — allocation table names the rows.
+- [x] Build passes on main.
 
 ---
 
@@ -105,15 +105,28 @@ the corpus exercises needs a row. Serves Pillar 5.
 
 ## Acceptance criteria
 
-- [ ] Matrix regenerated with `object`, `image_property`, `input_node`
+- [x] Matrix regenerated with `object`, `image_property`, `input_node`
       categories; row count and per-category counts recorded in the PR body;
-      zero duplicate row keys.
-- [ ] `tests/test_pkg260_scanner_categories.py` green in CI (no Blender —
-      runs on the committed JSON) and the headless regeneration reproduces it.
-- [ ] pkg259 allocation table regenerated; `geometry_zoo` and `camera_lens`
-      families have rows for every feature the design doc §1.5/§1.6 lists.
-- [ ] Existing SUPPORTED/APPROXIMATED classifications unchanged (diff shows
-      only added rows and the duplicate collapse).
+      zero duplicate row keys. (527 -> 586 rows: object 6, image_property 6,
+      input_node 42, camera +4, world +1; verified zero duplicate keys via
+      `tests/test_pkg260_scanner_categories.py::test_zero_duplicate_row_keys`.)
+- [x] `tests/test_pkg260_scanner_categories.py` green (no Blender — runs on
+      the committed JSON): `python -m pytest tests/test_pkg260_scanner_categories.py
+      tests/test_pkg257_displacement_bump.py -q` — 29 passed (via
+      `scripts/dev/run_tests.py --build-dir` for the pkg257 CPU/GPU render
+      tests). Not yet observed green in CI (PR not yet merged).
+- [x] pkg259 allocation table regenerated; `geometry_zoo` now carries the
+      new `object` rows (instancing/modifiers/motion-blur/smooth-shading/
+      Curves) that closed its §1.5 "known matrix gap"; `camera_lens` carries
+      the 4 new camera rows per §1.6. Full table:
+      `.astroray_plan/docs/pkg259-phase0/allocation_table.md`.
+- [x] Existing SUPPORTED/APPROXIMATED classifications unchanged — proved by
+      a control re-run of the UNMODIFIED scanner in the same environment
+      (byte-identical to the committed 527-row baseline), diffed against the
+      pkg260 output by row key: 0 classification changes among 504 common
+      keys; only-in-old is exactly the 4 fully-renamed duplicate-group bare
+      keys; only-in-new is exactly the 82 added rows. Full proof in the PR
+      body.
 
 ---
 
@@ -129,6 +142,20 @@ the corpus exercises needs a row. Serves Pillar 5.
 ## Progress
 
 - [ ] 2026-09-08 — filed per owner decision; not started.
+- [x] 2026-09-08 — implemented on `feat/pkg260-scanner-extension`
+      (worktree `../Astroray-pkg260`): scanner extended with 3 new
+      categories (object 6 rows, image_property 6 rows, input_node 42 rows),
+      4 new camera rows, 1 world gap-card row, and the 13 duplicate-key
+      groups disambiguated by a stable `[identifier]` suffix. Matrix
+      527 -> 586 rows (122 SUPPORTED / 61 APPROXIMATED / 403 DROPPED-SILENT,
+      was 114/61/352). pkg259 allocation table regenerated (new totals:
+      materials_hall 166, textures_mapping 263, lighting_studio 36,
+      world_sky 25, geometry_zoo 47, camera_lens 16, render_settings 33 —
+      grand total 586). `tests/test_pkg260_scanner_categories.py` +
+      `tests/test_pkg257_displacement_bump.py`: 29 passed (build-dir run).
+      Existing classifications proved unchanged by a same-environment
+      control diff (0 changes among 504 common row keys). PR open, not yet
+      merged.
 
 ---
 

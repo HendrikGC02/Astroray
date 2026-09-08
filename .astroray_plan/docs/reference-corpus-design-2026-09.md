@@ -470,6 +470,48 @@ family under the current allocation, so it does not change any total or
 require a different scene; flagged for the pkg229/scanner owner as a
 data-quality note, not a Phase-0 blocker.
 
+**Addendum, 2026-09-08 (pkg260 landed):** the scanner-extension package filed
+by owner decision above (§7 Q1/Q4/Q6) shipped. `coverage_matrix.json` is now
+586 rows (was 527): 3 new categories (`object` 6 rows, `image_property` 6
+rows, `input_node` 42 rows), 4 new `camera` rows (`focus_distance`,
+`focus_object`, `sensor_fit`, `ortho_scale`), 1 new `world` gap-card row
+(`light_linking_shadow_linking`), and the 13 duplicate-key groups noted above
+are now disambiguated by a stable `[identifier]` suffix (row count unchanged
+by the collapse itself — it was already counting the literal duplicates).
+Every pre-existing SUPPORTED/APPROXIMATED classification is unchanged
+(verified by a control re-run of the unmodified scanner in the same
+environment, diffed by row key — see the pkg260 PR body for the full proof).
+Re-running `build_allocation_table.py` today also surfaces **pre-existing
+drift unrelated to pkg260**: this doc's own totals table above (114/50/363,
+materials_hall 10/38/118) predates pkg253 landing (owner answer 5, "moot —
+pkg253 landed #728"), which added APPROXIMATED classifications the table
+above does not yet reflect. The post-pkg260 totals below are measured against
+`main` as of 2026-09-08 (pkg253 + pkg260 both landed), not a re-derivation of
+the table above:
+
+| family | rows | SUPPORTED | APPROXIMATED | DROPPED-SILENT |
+|---|---|---|---|---|
+| materials_hall | 166 | 10 | 46 | 110 |
+| textures_mapping | 263 | 69 | 3 | 191 |
+| lighting_studio | 36 | 24 | 0 | 12 |
+| world_sky | 25 | 1 | 0 | 24 |
+| geometry_zoo | 47 | 5 | 12 | 30 |
+| camera_lens | 16 | 9 | 0 | 7 |
+| render_settings | 33 | 4 | 0 | 29 |
+| **total** | **586** | **122** | **61** | **403** |
+
+New-row family assignments (`.astroray_plan/docs/pkg259-phase0/build_allocation_table.py`):
+`object` → `geometry_zoo` (closes the "known matrix gap" §1.5 flagged);
+`image_property` → `textures_mapping`; `input_node`'s Geometry/Object
+Info/Light Path/Attribute/Color Attribute → `textures_mapping`; `input_node`'s
+Hair Info → `geometry_zoo` (primary) / `materials_hall` (secondary), mirroring
+`BSDF_HAIR`/`BSDF_HAIR_PRINCIPLED`'s existing cross-tag, since it is a
+hair-material-graph input rather than a generic converter — a judgment call,
+not pinned by the pkg259 spec; the light-linking/shadow-linking gap card →
+`lighting_studio` via a new per-row `SOCKET_OVERRIDE` (the World datablock's
+other row, `use_nodes`, stays `world_sky`). Full per-node table regenerated:
+`.astroray_plan/docs/pkg259-phase0/allocation_table.md`.
+
 ---
 
 ## 3. Asset licences

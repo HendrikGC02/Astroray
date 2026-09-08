@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** done — replaced the SSIM gate with the per-channel mean-ratio gate in `tests/test_world_hdri_parity.py::test_gpu_cpu_mean_ratio_hdri` (renamed from `test_gpu_cpu_ssim_hdri`); measured on RTX 5070 Ti (build_cuda .pyd 07:54 2026-09-08, HEAD 32c39836, no C++/CUDA changes since): GPU/CPU per-channel mean ratios R=1.0253, G=1.0400, B=0.9783 (all within +-5%), SSIM diagnostic 0.9622-0.9637 (printed, not asserted); PR TBD
+**Status:** done — replaced the SSIM gate with the per-channel mean-ratio gate in `tests/test_world_hdri_parity.py::test_gpu_cpu_mean_ratio_hdri` (renamed from `test_gpu_cpu_ssim_hdri`); measured on RTX 5070 Ti (build_cuda .pyd 07:54 2026-09-08, HEAD 32c39836, no C++/CUDA changes since): GPU/CPU per-channel mean ratios R=1.0253, G=1.0400, B=0.9783 (all within +-5%), SSIM diagnostic 0.9622-0.9637 (printed, not asserted); PR #754
 **Estimated effort:** TBD
 **Depends on:** none
 

@@ -127,6 +127,46 @@ def test_cpu_non_bool_return_counts_as_continue():
     assert np.count_nonzero(pixels) > 0
 
 
+def test_cpu_null_callback_omitted_vs_explicit_none_byte_identical():
+    """pkg241 Phase 2 A2 spike (§3.7 / test 16): omitting the progress callback
+    (default arg = py::none()) and passing an explicit None must resolve to the
+    SAME null-hook code path — no Python is touched either way — so the CPU
+    render is byte-identical on a fixed seed. This is the deterministic native
+    proof that the widened GIL/callback plumbing did not fork behaviour by how
+    the caller spells 'no callback'. (GPU byte-identity is not asserted: GPU
+    atomicAdd ordering is not bit-stable run-to-run — see the GPU test below,
+    which uses a numerical tolerance.)"""
+    omitted = np.asarray(_cornell(160, 120).render(16, 4, apply_gamma=False),
+                         dtype=np.float32)
+    explicit_none = np.asarray(
+        _cornell(160, 120).render(16, 4, None, False), dtype=np.float32)
+    np.testing.assert_array_equal(omitted, explicit_none)
+
+
+def test_last_render_info_device_cpu_sentinel():
+    """pkg241 Phase 2 A2 spike (§3.1/§9): last_render_info()['device'] is -1 after
+    a CPU render (no GPU device resolved). The off-thread worker relies on this
+    field to assert the worker and main thread resolve the SAME CUDA device; a
+    CPU render must not report a stale device id."""
+    r = _cornell(96, 96)
+    r.render(4, 2, None, False)
+    assert r.last_render_info()["device"] == -1
+
+
+@pytest.mark.gpu
+def test_last_render_info_device_gpu_zero():
+    """pkg241 Phase 2 A2 spike (§3.1/§9): a GPU render resolves device 0 (this
+    codebase renders exclusively on device 0) and reports it via
+    last_render_info()['device'], the same-device handle the worker checks."""
+    probe = astroray.Renderer()
+    if not _has_cuda_gpu(probe):
+        pytest.skip("CUDA GPU not available")
+    r = _cornell(96, 96)
+    r.set_use_gpu(True)
+    r.render(8, 4, None, False)
+    assert r.last_render_info()["device"] == 0
+
+
 # ---------------------------------------------------------------------------
 # GPU cooperative cancellation (wavefront)
 # ---------------------------------------------------------------------------

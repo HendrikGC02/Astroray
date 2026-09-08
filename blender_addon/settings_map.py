@@ -214,6 +214,11 @@ _WORLD = [
     MappingEntry("world", "mapping_rotation", "world MAPPING node Rotation", "",
                  "load_environment_map (baked rotation)", "direct", "n/a",
                  "XYZ Euler baked into HDRI rotation matrix."),
+    # pkg260 — single gap card for per-object light/shadow linking (owner 2026-09-08:
+    # out of scope for Astroray; recorded so the coverage matrix has a row).
+    MappingEntry("world", "light_linking_shadow_linking", "object.light_linking.*", "",
+                 "(none)", "dropped", "DROPPED-SILENT",
+                 "Per-object light linking / shadow linking collections not supported (owner decision, pkg260)."),
 ]
 
 # ---------------------------------------------------------------------------
@@ -241,6 +246,17 @@ _CAMERA = [
                  "(none)", "dropped", "DROPPED-SILENT", "Near clip ignored."),
     MappingEntry("camera", "clip_end", "camera.data.clip_end", "",
                  "(none)", "dropped", "DROPPED-SILENT", "Far clip ignored."),
+    # pkg260 — camera rows added by the scanner extension (classification mirrors
+    # the AST evidence in docs/blender_parity/coverage_matrix.json).
+    MappingEntry("camera", "focus_distance", "camera.data.dof.focus_distance", "",
+                 "setup_camera (DoF)", "direct", "SUPPORTED", "Thin-lens focus distance."),
+    MappingEntry("camera", "focus_object", "camera.data.dof.focus_object", "",
+                 "setup_camera (DoF)", "direct", "SUPPORTED",
+                 "Focus distance taken from the object's distance when set."),
+    MappingEntry("camera", "ortho_scale", "camera.data.ortho_scale", "",
+                 "(none)", "dropped", "DROPPED-SILENT", "Orthographic scale ignored (engine assumes perspective)."),
+    MappingEntry("camera", "sensor_fit", "camera.data.sensor_fit", "",
+                 "setup_camera(vfov)", "direct", "SUPPORTED", "AUTO/HORIZONTAL/VERTICAL fit honoured in the FOV derivation."),
 ]
 
 # ---------------------------------------------------------------------------

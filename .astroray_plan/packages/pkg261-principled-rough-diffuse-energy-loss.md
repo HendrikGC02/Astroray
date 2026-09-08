@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — CPU+GPU fix implemented and verified (sweep +-2.2-2.7% vs Cycles CPU/GPU, REG:254 held, furnace floors re-derived 0.85->0.97); PR pending
+**Status:** in-progress — PR #766 open (2026-09-08). CPU+GPU fix verified: sweep +-2.2-2.7% vs Cycles both backends, REG:254 held, furnace floors re-derived 0.85->0.97; ground strip 0.926->0.962 (out-of-scope blue skew leaves ~0.8pp to the 0.97 target)
 **Estimated effort:** 1–2 sessions (~4–6 h; CPU fix + GPU closure-graph mirror under the GPU lock)
 **Depends on:** pkg178, pkg253, pkg258
 

@@ -326,7 +326,7 @@ All implementation gates UNRUN:
   - **Tests:** in-process spike-worker suite (present-wiring fix test added) + driver-reduction unit
     test (commit_cost, cancel_ack_pump, present-rate) — addon/viewport subset 77/77 green.
   - **GUI measurement DONE (2026-09-09, RTX 5070 Ti, isolated Blender 9877, GPU lock held; tables in
-    `benchmarks/viewport_parity/results/2026-09-09-phase2-p22/SUMMARY.md`, PR #PENDING):**
+    `benchmarks/viewport_parity/results/2026-09-09-phase2-p22/SUMMARY.md`, PR #777):**
     - **present_check PASS both scenes** (metal_sweep 62 presents std 1.06, big 29 std 2.37 > 1e-4
       floor) — item-1 present wiring confirmed. Two harness bugs fixed first (commit `f9e0fa17`): a
       POST_PIXEL `gpu` framebuffer read-back crashed Blender (C-level AV in tbbmalloc, uncatchable) —

@@ -35,6 +35,7 @@ new reusable script, register it here in the same commit.
 | Spectral data/profile generation | `scripts/data/generate_spectrum_data.py`, `build_spectral_profiles.py` |
 | Sobol' direction-vector table (pkg224 progressive sampler) | `scripts/gen_sobol_matrices.py` → `include/astroray/sampling/sobol_matrices.h` (bakes SciPy's Joe-Kuo vectors; idempotent, commit header with any change) |
 | Hero-wavelength luminance-CDF fit (pkg206 importance-sampling constants) | `scripts/data/fit_hero_luminance_cdf.py` |
+| Extract a Cycles `shader.tables` LUT to `data/disney_compensation/*.bin` (pkg261 `ggx_gen_schlick_ior_s`) | `scripts/data/extract_ggx_gen_schlick_ior_s.py` (`--fetch` pins blender/blender@eaa5f63b; parses the C initializer, writes float32 LE) |
 | Launch GUI Blender 5.2 with the MCP bridge (watch/restart) | `pwsh scripts/dev/launch_blender_mcp.ps1 -Watch` (diagnostic: `scripts/dev/check_blender_mcp.ps1`) |
 
 Note on the two `build_cuda_worktree.bat` copies: they are intentionally
@@ -109,7 +110,7 @@ new reusable script, register it here in the same commit.
 | Viewport-interactivity Cycles A/B driver (runs inside Blender) | `benchmarks/viewport_parity/blender_driver.py` (pkg81 companion to `run.py`) |
 | Blender parity coverage-matrix generator (AST-scanned SUPPORTED/APPROXIMATED/DROPPED-SILENT/UNKNOWN) | `scripts/generate_blender_parity_matrix.py` (pkg119 Phase A; run inside Blender) |
 | Cycles feature-coverage reference-corpus builder (pkg259; builds `.blend` + manifest per family, cross-checks builder coverage against `coverage_matrix.json`) | `benchmarks/reference_corpus/build_corpus.py` (run inside Blender; families: `materials_hall`, `textures_mapping` as of Phase 1) |
-| Rough-metal/rough-glass live-Cycles A/B driver (CPU/GPU vs Cycles oracle; `--material metal\|glass`) | `benchmarks/cycles-parity/metal_ab/harness.py` (pkg129 metal preset; pkg263 added the glass preset — limb/centre/background ROI ratios) |
+| Rough-metal/rough-glass live-Cycles A/B driver (CPU/GPU vs Cycles oracle; `--material metal\|glass`) | `benchmarks/cycles-parity/metal_ab/harness.py` (pkg129 metal preset; pkg263 added the glass preset + limb/centre/background ROIs) |
 | Thin-film iridescence A/B driver vs Cycles-5.2 oracle | `benchmarks/cycles-parity/thin_film/harness.py` (pkg178 Stage-4 acceptance) |
 | Blender dev-loop guard functions (stale-.pyd, OpenMP-off, addon-files-drift, sentinel-pass) used by `dev_addon.ps1` | `scripts/dev_loop_guards.py` (pkg175) |
 | Wavefront SoA baseline measurement harness | `benchmarks/wavefront_baseline.py` (pkg55 Phase A) |
@@ -189,7 +190,7 @@ new reusable script, register it here in the same commit.
 | Viewport-interactivity Cycles A/B driver (runs inside Blender) | `benchmarks/viewport_parity/blender_driver.py` (pkg81 companion to `run.py`) |
 | Blender parity coverage-matrix generator (AST-scanned SUPPORTED/APPROXIMATED/DROPPED-SILENT/UNKNOWN) | `scripts/generate_blender_parity_matrix.py` (pkg119 Phase A; run inside Blender) |
 | Cycles feature-coverage reference-corpus builder (pkg259; builds `.blend` + manifest per family, cross-checks builder coverage against `coverage_matrix.json`) | `benchmarks/reference_corpus/build_corpus.py` (run inside Blender; families: `materials_hall`, `textures_mapping` as of Phase 1) |
-| Rough-metal/rough-glass live-Cycles A/B driver (CPU/GPU vs Cycles oracle; `--material metal\|glass`) | `benchmarks/cycles-parity/metal_ab/harness.py` (pkg129 metal preset; pkg263 added the glass preset — limb/centre/background ROI ratios) |
+| Rough-metal/rough-glass live-Cycles A/B driver (CPU/GPU vs Cycles oracle; `--material metal\|glass`) | `benchmarks/cycles-parity/metal_ab/harness.py` (pkg129 metal preset; pkg263 added the glass preset + limb/centre/background ROIs) |
 | Thin-film iridescence A/B driver vs Cycles-5.2 oracle | `benchmarks/cycles-parity/thin_film/harness.py` (pkg178 Stage-4 acceptance) |
 | Blender dev-loop guard functions (stale-.pyd, OpenMP-off, addon-files-drift, sentinel-pass) used by `dev_addon.ps1` | `scripts/dev_loop_guards.py` (pkg175) |
 | Wavefront SoA baseline measurement harness | `benchmarks/wavefront_baseline.py` (pkg55 Phase A) |

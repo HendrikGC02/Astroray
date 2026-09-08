@@ -52,6 +52,10 @@ public:
     // tables are baked at 16-resolution (table_ggx_glass_E[16*16*16] etc.),
     // NOT kGgxSize=32 — a distinct constant, do not reuse kGgxSize here.
     static constexpr int kGlassSize = 16;
+    // pkg261: Cycles' generalized-Schlick / dielectric specular-layer albedo
+    // factor table_ggx_gen_schlick_ior_s[16*16*16] (roughness x cos_NI x z),
+    // also 16-resolution (same as the glass tables, not kGgxSize).
+    static constexpr int kGenSchlickSize = 16;
 
     static const DisneyEnergyCompensationTables& instance();
 
@@ -72,6 +76,12 @@ public:
     float ggxGlassE(float roughness, float mu, float ior) const;
     float ggxGlassEavg(float roughness, float ior) const;
 
+    // pkg261: Cycles bsdf_microfacet_estimate_albedo (bsdf_microfacet.h:423-470,
+    // BSD-3-Clause) lobe-averaged Schlick blend factor `s` for the rough
+    // dielectric / generalized-Schlick specular reflection layer. Caller passes
+    // z = sqrt(|ior-1|/(ior+1)); the layering albedo is mix(f0, f90=1, s).
+    float ggxGenSchlickIorS(float roughness, float mu, float z) const;
+
     // Raw table pointers for the GPU upload path (cuda_renderer.cu); host-side
     // only, mirrors the Jakob-Hanika LUT upload convention in
     // src/gpu/gpu_spectral_tables.cu.
@@ -91,6 +101,9 @@ public:
     const float* ggxEavgData() const { return ggxEavg_.data(); }
     const float* sheenEData() const { return sheenE_.data(); }
     const float* clearcoatEData() const { return clearcoatE_.data(); }
+    // pkg261: GPU upload accessor for the generalized-Schlick specular-layer
+    // albedo table (16^3), mirroring the pkg151 glass-table accessors.
+    const float* ggxGenSchlickIorSData() const { return ggxGenSchlickIorS_.data(); }
 
 private:
     DisneyEnergyCompensationTables();
@@ -117,6 +130,7 @@ private:
     std::array<float, kGlassSize * kGlassSize> ggxGlassEavg_{};
     std::array<float, kGlassSize * kGlassSize * kGlassSize> ggxGlassInvE_{};
     std::array<float, kGlassSize * kGlassSize> ggxGlassInvEavg_{};
+    std::array<float, kGenSchlickSize * kGenSchlickSize * kGenSchlickSize> ggxGenSchlickIorS_{};
     std::string dataDirectory_;
     bool loaded_ = false;
 };

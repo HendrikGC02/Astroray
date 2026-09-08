@@ -35,12 +35,14 @@
 static constexpr int G_GGX_TABLE_SIZE       = 32;  // DisneyEnergyCompensationTables::kGgxSize
 static constexpr int G_SHEEN_TABLE_SIZE     = 32;  // kSheenSize
 static constexpr int G_CLEARCOAT_TABLE_SIZE = 32;  // kClearcoatSize
+static constexpr int G_GEN_SCHLICK_SIZE     = 16;  // kGenSchlickSize (pkg261)
 
 // Defined once in gpu_ggx_tables.cu; populated by uploadGgxTables().
 extern __device__ const float* g_ggxE;         // [32*32]
 extern __device__ const float* g_ggxEavg;      // [32]
 extern __device__ const float* g_sheenE;       // [32*32]
 extern __device__ const float* g_clearcoatE;   // [32]
+extern __device__ const float* g_ggxGenSchlickIorS;  // pkg261 [16*16*16]
 
 // Host-callable one-time upload (defined in gpu_ggx_tables.cu); copies the
 // same host-side DisneyEnergyCompensationTables data CPU disney.cpp uses.
@@ -152,6 +154,61 @@ __device__ inline GVec3 gpu_layeringWeightAfter(const GVec3& weight, const GVec3
     return GVec3(weight.x * (1.f - clampedAlbedo.x),
                  weight.y * (1.f - clampedAlbedo.y),
                  weight.z * (1.f - clampedAlbedo.z));
+}
+
+// pkg261: Cycles bsdf_microfacet_estimate_albedo (bsdf_microfacet.h:405-475,
+// BSD-3-Clause) generalized-Schlick / dielectric specular-layer albedo. The
+// lobe-averaged blend factor s = ggx_gen_schlick_ior_s[rough, cos_NI, z]
+// (16^3 trilinear, z = sqrt(|ior-1|/(ior+1))), then albedo = mix(f0, f90=1, s).
+// Replaces the pre-pkg261 gpu_ggxDirectionalAlbedo(Fview,...) layering estimate
+// in the Principled (gpu_pr_assembleLobes) path only; mirrors CPU
+// principled.cpp::ggxLayeringAlbedo byte-for-byte. Trilinear axis order matches
+// gpu_glass_sample3D / DisneyEnergyCompensationTables::sample3D (rough fastest,
+// then cos_NI, then z).
+__device__ inline float gpu_gen_schlick_sample3D(
+        const float* table, float roughness, float mu, float z)
+{
+    const int size = G_GEN_SCHLICK_SIZE;
+    roughness = fminf(fmaxf(roughness, 0.f), 1.f);
+    mu        = fminf(fmaxf(mu, 0.f), 1.f);
+    z         = fminf(fmaxf(z, 0.f), 1.f);
+
+    float fx = roughness * float(size - 1);
+    float fy = mu * float(size - 1);
+    float fz = z * float(size - 1);
+    int x0 = min(max((int)fx, 0), size - 1);
+    int y0 = min(max((int)fy, 0), size - 1);
+    int z0 = min(max((int)fz, 0), size - 1);
+    int x1 = min(x0 + 1, size - 1);
+    int y1 = min(y0 + 1, size - 1);
+    int z1 = min(z0 + 1, size - 1);
+    float tx = fx - float(x0);
+    float ty = fy - float(y0);
+    float tz = fz - float(z0);
+
+    auto at = [&] __device__ (int xi, int yi, int zi) {
+        return table[(zi * size + yi) * size + xi];
+    };
+    float c00 = at(x0, y0, z0) * (1.f - tx) + at(x1, y0, z0) * tx;
+    float c10 = at(x0, y1, z0) * (1.f - tx) + at(x1, y1, z0) * tx;
+    float c01 = at(x0, y0, z1) * (1.f - tx) + at(x1, y0, z1) * tx;
+    float c11 = at(x0, y1, z1) * (1.f - tx) + at(x1, y1, z1) * tx;
+    float c0 = c00 * (1.f - ty) + c10 * ty;
+    float c1 = c01 * (1.f - ty) + c11 * ty;
+    return c0 * (1.f - tz) + c1 * tz;
+}
+
+// mix(f0, f90=1, s) directional-albedo estimate for the rough dielectric
+// specular/coat layer. `f0` = Fresnel-at-normal reflectance, `mu` = view cosine
+// N.wo, `ior` = the layer ior (specular ior_ or coat_ior). Graceful f0 passthrough
+// if the table failed to upload (mirrors CPU's `tables.loaded()` guard).
+__device__ inline GVec3 gpu_ggxLayeringAlbedo(
+        const GVec3& f0, float roughness, float mu, float ior)
+{
+    if (!g_ggxGenSchlickIorS) return f0;
+    float z = sqrtf(fabsf((ior - 1.f) / (ior + 1.f)));
+    float s = fminf(fmaxf(gpu_gen_schlick_sample3D(g_ggxGenSchlickIorS, roughness, mu, z), 0.f), 1.f);
+    return GVec3(f0.x * (1.f - s) + s, f0.y * (1.f - s) + s, f0.z * (1.f - s) + s);
 }
 
 // Mirrors CPU disney.cpp::diffuseFurnaceScale (pkg60 grazing-incidence

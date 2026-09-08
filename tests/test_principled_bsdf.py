@@ -83,7 +83,15 @@ def _assert_band(label, mat, ref, floor, ceil=1.05):
 def test_principled_diffuse_lambert_energy_conservation():
     # metallic=0, transmission=0 -> plastic (specular dielectric + Lambert diffuse)
     mat, ref = _ratio([1.0, 1.0, 1.0], {"metallic": 0.0, "roughness": 0.5})
-    _assert_band("Principled diffuse/Lambert", mat, ref, floor=0.85)
+    # pkg261: floor re-derived from Cycles-parity, not from Astroray itself.
+    # The old floor=0.85 (15% loss tolerated) was self-referential and hid the
+    # ~6-7% diffuse over-attenuation the pkg258 ground residual traced to the
+    # specular-layer albedo (pkg261-principled-layering-research.md). After the
+    # Cycles ggx_gen_schlick_ior_s layering-albedo port, the white furnace
+    # (uniform L=1, where Cycles conserves energy) measures ratio 0.9988 on this
+    # CPU build; a 0.97 floor catches a >3% energy loss (~2.9% margin) and is the
+    # Cycles-consistent replacement.
+    _assert_band("Principled diffuse/Lambert", mat, ref, floor=0.97)
 
 
 def test_principled_diffuse_eon_energy_conservation():

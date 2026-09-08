@@ -10,11 +10,11 @@
 
 ## Summary
 
-- **SUPPORTED**: 114 features
+- **SUPPORTED**: 122 features
 - **APPROXIMATED**: 61 features
-- **DROPPED-SILENT**: 352 features ⚠️
+- **DROPPED-SILENT**: 403 features ⚠️
 - **UNKNOWN**: 0 features
-- **Total**: 527 features
+- **Total**: 586 features
 
 ## ⚠️ Stale Socket Reads — Latent Bugs (Unguarded, Name Not in Blender 5.1)
 
@@ -22,33 +22,33 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 4183)
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 4183)
-- **INVERT**: socket `Fac` (addon __init__.py line 2770)
-- **MIX_SHADER**: socket `Fac` (addon __init__.py line 4190, line 4328)
-- **TEX_BRICK**: socket `Offset` (addon __init__.py line 3609)
-- **TEX_BRICK**: socket `Color3` (addon __init__.py line 3609)
-- **VALTORGB**: socket `Fac` (addon __init__.py line 2812)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 4197)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 4197)
+- **INVERT**: socket `Fac` (addon __init__.py line 2776)
+- **MIX_SHADER**: socket `Fac` (addon __init__.py line 4204, line 4342)
+- **TEX_BRICK**: socket `Color3` (addon __init__.py line 3623)
+- **TEX_BRICK**: socket `Offset` (addon __init__.py line 3623)
+- **VALTORGB**: socket `Fac` (addon __init__.py line 2818)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 4183)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 4183)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 4183)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 4183)
-- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 4183)
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 4183)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 4183)
-- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 4183)
-- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 4183)
-- **MIX**: socket `Fac` (addon __init__.py line 2758)
-- **MIX**: socket `Color1` (addon __init__.py line 2758)
-- **MIX**: socket `Color2` (addon __init__.py line 2758)
-- **MIX_RGB**: socket `Fac` (addon __init__.py line 2758)
-- **MIX_RGB**: socket `B` (addon __init__.py line 2758)
-- **MIX_RGB**: socket `A` (addon __init__.py line 2758)
+- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 4197)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 4197)
+- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 4197)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 4197)
+- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 4197)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 4197)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 4197)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 4197)
+- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 4197)
+- **MIX**: socket `Color1` (addon __init__.py line 2764)
+- **MIX**: socket `Color2` (addon __init__.py line 2764)
+- **MIX**: socket `Fac` (addon __init__.py line 2764)
+- **MIX_RGB**: socket `A` (addon __init__.py line 2764)
+- **MIX_RGB**: socket `B` (addon __init__.py line 2764)
+- **MIX_RGB**: socket `Fac` (addon __init__.py line 2764)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -62,6 +62,61 @@ These features are silently ignored by the addon with no warning:
 - **Camera**: `type`
 - **Camera**: `clip_start`
 - **Camera**: `clip_end`
+- **Camera**: `ortho_scale`
+
+### image_property
+
+- **Image**: `colorspace_settings.name`
+- **Image**: `alpha_mode`
+- **Image**: `source==TILED (UDIM)`
+- **ShaderNodeTexImage**: `interpolation`
+- **ShaderNodeTexImage**: `extension`
+- **ShaderNodeTexImage**: `projection`
+
+### input_node
+
+- **NEW_GEOMETRY**: `output:Position` — no handler in addon translation layer
+- **NEW_GEOMETRY**: `output:Normal` — no handler in addon translation layer
+- **NEW_GEOMETRY**: `output:Tangent` — no handler in addon translation layer
+- **NEW_GEOMETRY**: `output:True Normal` — no handler in addon translation layer
+- **NEW_GEOMETRY**: `output:Incoming` — no handler in addon translation layer
+- **NEW_GEOMETRY**: `output:Parametric` — no handler in addon translation layer
+- **NEW_GEOMETRY**: `output:Backfacing` — no handler in addon translation layer
+- **NEW_GEOMETRY**: `output:Pointiness` — no handler in addon translation layer
+- **NEW_GEOMETRY**: `output:Random Per Island` — no handler in addon translation layer
+- **OBJECT_INFO**: `output:Location` — no handler in addon translation layer
+- **OBJECT_INFO**: `output:Color` — no handler in addon translation layer
+- **OBJECT_INFO**: `output:Alpha` — no handler in addon translation layer
+- **OBJECT_INFO**: `output:Object Index` — no handler in addon translation layer
+- **OBJECT_INFO**: `output:Material Index` — no handler in addon translation layer
+- **OBJECT_INFO**: `output:Random` — no handler in addon translation layer
+- **ATTRIBUTE**: `output:Color` — no handler in addon translation layer
+- **ATTRIBUTE**: `output:Vector` — no handler in addon translation layer
+- **ATTRIBUTE**: `output:Factor` — no handler in addon translation layer
+- **ATTRIBUTE**: `output:Alpha` — no handler in addon translation layer
+- **VERTEX_COLOR**: `output:Color` — no handler in addon translation layer
+- **VERTEX_COLOR**: `output:Alpha` — no handler in addon translation layer
+- **HAIR_INFO**: `output:Is Strand` — no handler in addon translation layer
+- **HAIR_INFO**: `output:Intercept` — no handler in addon translation layer
+- **HAIR_INFO**: `output:Length` — no handler in addon translation layer
+- **HAIR_INFO**: `output:Thickness` — no handler in addon translation layer
+- **HAIR_INFO**: `output:Tangent Normal` — no handler in addon translation layer
+- **HAIR_INFO**: `output:Random` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Is Camera Ray` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Is Shadow Ray` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Is Diffuse Ray` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Is Glossy Ray` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Is Singular Ray` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Is Reflection Ray` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Is Transmission Ray` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Is Volume Scatter Ray` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Ray Length` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Ray Depth` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Diffuse Depth` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Glossy Depth` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Transparent Depth` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Transmission Depth` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Portal Depth` — no handler in addon translation layer
 
 ### light
 
@@ -70,6 +125,10 @@ These features are silently ignored by the addon with no warning:
 - **SPOT**: `specular_factor`
 - **SPOT**: `show_cone`
 - **AREA**: `specular_factor`
+
+### object
+
+- **Object**: `instance_collection`
 
 ### render_settings
 
@@ -94,7 +153,7 @@ These features are silently ignored by the addon with no warning:
 ### shader_node
 
 - **ADD_SHADER**: `input:Shader`
-- **ADD_SHADER**: `input:Shader`
+- **ADD_SHADER**: `input:Shader[Shader_001]`
 - **AMBIENT_OCCLUSION**: `input:Color` — no handler in addon translation layer
 - **AMBIENT_OCCLUSION**: `input:Distance` — no handler in addon translation layer
 - **AMBIENT_OCCLUSION**: `input:Normal` — no handler in addon translation layer
@@ -219,11 +278,11 @@ These features are silently ignored by the addon with no warning:
 - **MAP_RANGE**: `input:To Max` — no handler in addon translation layer
 - **MAP_RANGE**: `input:Steps` — no handler in addon translation layer
 - **MAP_RANGE**: `input:Vector` — no handler in addon translation layer
-- **MAP_RANGE**: `input:From Min` — no handler in addon translation layer
-- **MAP_RANGE**: `input:From Max` — no handler in addon translation layer
-- **MAP_RANGE**: `input:To Min` — no handler in addon translation layer
-- **MAP_RANGE**: `input:To Max` — no handler in addon translation layer
-- **MAP_RANGE**: `input:Steps` — no handler in addon translation layer
+- **MAP_RANGE**: `input:From Min[From_Min_FLOAT3]` — no handler in addon translation layer
+- **MAP_RANGE**: `input:From Max[From_Max_FLOAT3]` — no handler in addon translation layer
+- **MAP_RANGE**: `input:To Min[To_Min_FLOAT3]` — no handler in addon translation layer
+- **MAP_RANGE**: `input:To Max[To_Max_FLOAT3]` — no handler in addon translation layer
+- **MAP_RANGE**: `input:Steps[Steps_FLOAT3]` — no handler in addon translation layer
 - **MAP_RANGE**: `prop:clamp` — property BOOLEAN
 - **MAP_RANGE**: `prop:data_type` — property ENUM
 - **MAP_RANGE**: `prop:interpolation_type` — property ENUM
@@ -233,20 +292,20 @@ These features are silently ignored by the addon with no warning:
 - **MAPPING**: `input:Scale` — no handler in addon translation layer
 - **MAPPING**: `prop:vector_type` — property ENUM
 - **MATH**: `input:Value` — no handler in addon translation layer
-- **MATH**: `input:Value` — no handler in addon translation layer
-- **MATH**: `input:Value` — no handler in addon translation layer
+- **MATH**: `input:Value[Value_001]` — no handler in addon translation layer
+- **MATH**: `input:Value[Value_002]` — no handler in addon translation layer
 - **MATH**: `prop:operation` — property ENUM
 - **MATH**: `prop:use_clamp` — property BOOLEAN
-- **MIX**: `input:Factor`
-- **MIX**: `input:Factor`
-- **MIX**: `input:A`
-- **MIX**: `input:B`
-- **MIX**: `input:A`
-- **MIX**: `input:B`
-- **MIX**: `input:A`
-- **MIX**: `input:B`
-- **MIX**: `input:A`
-- **MIX**: `input:B`
+- **MIX**: `input:Factor[Factor_Float]`
+- **MIX**: `input:Factor[Factor_Vector]`
+- **MIX**: `input:A[A_Float]`
+- **MIX**: `input:B[B_Float]`
+- **MIX**: `input:A[A_Vector]`
+- **MIX**: `input:B[B_Vector]`
+- **MIX**: `input:A[A_Color]`
+- **MIX**: `input:B[B_Color]`
+- **MIX**: `input:A[A_Rotation]`
+- **MIX**: `input:B[B_Rotation]`
 - **MIX**: `prop:clamp_factor` — property BOOLEAN
 - **MIX**: `prop:clamp_result` — property BOOLEAN
 - **MIX**: `prop:data_type` — property ENUM
@@ -258,7 +317,7 @@ These features are silently ignored by the addon with no warning:
 - **MIX_RGB**: `prop:use_clamp` — property BOOLEAN
 - **MIX_SHADER**: `input:Factor`
 - **MIX_SHADER**: `input:Shader`
-- **MIX_SHADER**: `input:Shader`
+- **MIX_SHADER**: `input:Shader[Shader_001]`
 - **NORMAL**: `input:Normal` — no handler in addon translation layer
 - **NORMAL_MAP**: `prop:base` — property ENUM
 - **NORMAL_MAP**: `prop:convention` — property ENUM
@@ -331,8 +390,8 @@ These features are silently ignored by the addon with no warning:
 - **TEX_GABOR**: `input:Scale` — no handler in addon translation layer
 - **TEX_GABOR**: `input:Frequency` — no handler in addon translation layer
 - **TEX_GABOR**: `input:Anisotropy` — no handler in addon translation layer
-- **TEX_GABOR**: `input:Orientation` — no handler in addon translation layer
-- **TEX_GABOR**: `input:Orientation` — no handler in addon translation layer
+- **TEX_GABOR**: `input:Orientation[Orientation 2D]` — no handler in addon translation layer
+- **TEX_GABOR**: `input:Orientation[Orientation 3D]` — no handler in addon translation layer
 - **TEX_GABOR**: `prop:gabor_type` — property ENUM
 - **TEX_GRADIENT**: `input:Vector`
 - **TEX_IES**: `input:Vector` — no handler in addon translation layer
@@ -377,8 +436,8 @@ These features are silently ignored by the addon with no warning:
 - **VECTOR_DISPLACEMENT**: `input:Scale` — no handler in addon translation layer
 - **VECTOR_DISPLACEMENT**: `prop:space` — property ENUM
 - **VECT_MATH**: `input:Vector` — no handler in addon translation layer
-- **VECT_MATH**: `input:Vector` — no handler in addon translation layer
-- **VECT_MATH**: `input:Vector` — no handler in addon translation layer
+- **VECT_MATH**: `input:Vector[Vector_001]` — no handler in addon translation layer
+- **VECT_MATH**: `input:Vector[Vector_002]` — no handler in addon translation layer
 - **VECT_MATH**: `input:Scale` — no handler in addon translation layer
 - **VECT_MATH**: `prop:operation` — property ENUM
 - **VECTOR_ROTATE**: `input:Vector` — no handler in addon translation layer
@@ -418,6 +477,10 @@ These features are silently ignored by the addon with no warning:
 - **WIREFRAME**: `input:Size` — no handler in addon translation layer
 - **WIREFRAME**: `prop:use_pixel_size` — property BOOLEAN
 
+### world
+
+- **World**: `light_linking_shadow_linking` — per-object light-linking / shadow-linking collections have no Astroray equivalent; declared out of scope by owner decision 2026-09-08 -- one gap-card row, not per-object rows
+
 ## Full Matrix by Category
 
 ### camera
@@ -436,6 +499,68 @@ These features are silently ignored by the addon with no warning:
 | Camera | type | DROPPED-SILENT |  |
 | Camera | clip_start | DROPPED-SILENT |  |
 | Camera | clip_end | DROPPED-SILENT |  |
+| Camera | focus_distance | SUPPORTED |  |
+| Camera | focus_object | SUPPORTED |  |
+| Camera | ortho_scale | DROPPED-SILENT |  |
+| Camera | sensor_fit | SUPPORTED |  |
+
+### image_property
+
+| Feature | Socket/Property | Classification | Notes |
+|---------|-----------------|----------------|-------|
+| Image | colorspace_settings.name | DROPPED-SILENT |  |
+| Image | alpha_mode | DROPPED-SILENT |  |
+| Image | source==TILED (UDIM) | DROPPED-SILENT |  |
+| ShaderNodeTexImage | interpolation | DROPPED-SILENT |  |
+| ShaderNodeTexImage | extension | DROPPED-SILENT |  |
+| ShaderNodeTexImage | projection | DROPPED-SILENT |  |
+
+### input_node
+
+| Feature | Socket/Property | Classification | Notes |
+|---------|-----------------|----------------|-------|
+| NEW_GEOMETRY | output:Position | DROPPED-SILENT | no handler in addon translation layer |
+| NEW_GEOMETRY | output:Normal | DROPPED-SILENT | no handler in addon translation layer |
+| NEW_GEOMETRY | output:Tangent | DROPPED-SILENT | no handler in addon translation layer |
+| NEW_GEOMETRY | output:True Normal | DROPPED-SILENT | no handler in addon translation layer |
+| NEW_GEOMETRY | output:Incoming | DROPPED-SILENT | no handler in addon translation layer |
+| NEW_GEOMETRY | output:Parametric | DROPPED-SILENT | no handler in addon translation layer |
+| NEW_GEOMETRY | output:Backfacing | DROPPED-SILENT | no handler in addon translation layer |
+| NEW_GEOMETRY | output:Pointiness | DROPPED-SILENT | no handler in addon translation layer |
+| NEW_GEOMETRY | output:Random Per Island | DROPPED-SILENT | no handler in addon translation layer |
+| OBJECT_INFO | output:Location | DROPPED-SILENT | no handler in addon translation layer |
+| OBJECT_INFO | output:Color | DROPPED-SILENT | no handler in addon translation layer |
+| OBJECT_INFO | output:Alpha | DROPPED-SILENT | no handler in addon translation layer |
+| OBJECT_INFO | output:Object Index | DROPPED-SILENT | no handler in addon translation layer |
+| OBJECT_INFO | output:Material Index | DROPPED-SILENT | no handler in addon translation layer |
+| OBJECT_INFO | output:Random | DROPPED-SILENT | no handler in addon translation layer |
+| ATTRIBUTE | output:Color | DROPPED-SILENT | no handler in addon translation layer |
+| ATTRIBUTE | output:Vector | DROPPED-SILENT | no handler in addon translation layer |
+| ATTRIBUTE | output:Factor | DROPPED-SILENT | no handler in addon translation layer |
+| ATTRIBUTE | output:Alpha | DROPPED-SILENT | no handler in addon translation layer |
+| VERTEX_COLOR | output:Color | DROPPED-SILENT | no handler in addon translation layer |
+| VERTEX_COLOR | output:Alpha | DROPPED-SILENT | no handler in addon translation layer |
+| HAIR_INFO | output:Is Strand | DROPPED-SILENT | no handler in addon translation layer |
+| HAIR_INFO | output:Intercept | DROPPED-SILENT | no handler in addon translation layer |
+| HAIR_INFO | output:Length | DROPPED-SILENT | no handler in addon translation layer |
+| HAIR_INFO | output:Thickness | DROPPED-SILENT | no handler in addon translation layer |
+| HAIR_INFO | output:Tangent Normal | DROPPED-SILENT | no handler in addon translation layer |
+| HAIR_INFO | output:Random | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Is Camera Ray | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Is Shadow Ray | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Is Diffuse Ray | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Is Glossy Ray | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Is Singular Ray | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Is Reflection Ray | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Is Transmission Ray | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Is Volume Scatter Ray | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Ray Length | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Ray Depth | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Diffuse Depth | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Glossy Depth | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Transparent Depth | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Transmission Depth | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Portal Depth | DROPPED-SILENT | no handler in addon translation layer |
 
 ### light
 
@@ -471,6 +596,17 @@ These features are silently ignored by the addon with no warning:
 | AREA | size_y | SUPPORTED |  |
 | AREA | spread | SUPPORTED |  |
 
+### object
+
+| Feature | Socket/Property | Classification | Notes |
+|---------|-----------------|----------------|-------|
+| Object | instance_type | SUPPORTED | read only to detect nested collection/dupli instancers (_register_instanced_groups); depsgraph.object_instances enumeration is what actually resolves VERTS/FACES/COLLECTION instancing, independent of this read |
+| Object | instance_collection | DROPPED-SILENT |  |
+| Object | modifiers | SUPPORTED | hand-verified: depsgraph.object_instances is the sole geometry source in convert_objects, so the evaluated modifier stack is already baked in |
+| Object | use_motion_blur | SUPPORTED |  |
+| Object | split_normals | SUPPORTED | covers smooth / flat / auto-smooth shading uniformly |
+| Object | type:CURVES | SUPPORTED |  |
+
 ### render_settings
 
 | Feature | Socket/Property | Classification | Notes |
@@ -502,7 +638,7 @@ These features are silently ignored by the addon with no warning:
 | Feature | Socket/Property | Classification | Notes |
 |---------|-----------------|----------------|-------|
 | ADD_SHADER | input:Shader | DROPPED-SILENT |  |
-| ADD_SHADER | input:Shader | DROPPED-SILENT |  |
+| ADD_SHADER | input:Shader[Shader_001] | DROPPED-SILENT |  |
 | AMBIENT_OCCLUSION | input:Color | DROPPED-SILENT | no handler in addon translation layer |
 | AMBIENT_OCCLUSION | input:Distance | DROPPED-SILENT | no handler in addon translation layer |
 | AMBIENT_OCCLUSION | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
@@ -701,11 +837,11 @@ These features are silently ignored by the addon with no warning:
 | MAP_RANGE | input:To Max | DROPPED-SILENT | no handler in addon translation layer |
 | MAP_RANGE | input:Steps | DROPPED-SILENT | no handler in addon translation layer |
 | MAP_RANGE | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:From Min | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:From Max | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:To Min | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:To Max | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:Steps | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:From Min[From_Min_FLOAT3] | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:From Max[From_Max_FLOAT3] | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:To Min[To_Min_FLOAT3] | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:To Max[To_Max_FLOAT3] | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | input:Steps[Steps_FLOAT3] | DROPPED-SILENT | no handler in addon translation layer |
 | MAP_RANGE | prop:clamp | DROPPED-SILENT | property BOOLEAN |
 | MAP_RANGE | prop:data_type | DROPPED-SILENT | property ENUM |
 | MAP_RANGE | prop:interpolation_type | DROPPED-SILENT | property ENUM |
@@ -715,20 +851,20 @@ These features are silently ignored by the addon with no warning:
 | MAPPING | input:Scale | DROPPED-SILENT | no handler in addon translation layer |
 | MAPPING | prop:vector_type | DROPPED-SILENT | property ENUM |
 | MATH | input:Value | DROPPED-SILENT | no handler in addon translation layer |
-| MATH | input:Value | DROPPED-SILENT | no handler in addon translation layer |
-| MATH | input:Value | DROPPED-SILENT | no handler in addon translation layer |
+| MATH | input:Value[Value_001] | DROPPED-SILENT | no handler in addon translation layer |
+| MATH | input:Value[Value_002] | DROPPED-SILENT | no handler in addon translation layer |
 | MATH | prop:operation | DROPPED-SILENT | property ENUM |
 | MATH | prop:use_clamp | DROPPED-SILENT | property BOOLEAN |
-| MIX | input:Factor | DROPPED-SILENT |  |
-| MIX | input:Factor | DROPPED-SILENT |  |
-| MIX | input:A | DROPPED-SILENT |  |
-| MIX | input:B | DROPPED-SILENT |  |
-| MIX | input:A | DROPPED-SILENT |  |
-| MIX | input:B | DROPPED-SILENT |  |
-| MIX | input:A | DROPPED-SILENT |  |
-| MIX | input:B | DROPPED-SILENT |  |
-| MIX | input:A | DROPPED-SILENT |  |
-| MIX | input:B | DROPPED-SILENT |  |
+| MIX | input:Factor[Factor_Float] | DROPPED-SILENT |  |
+| MIX | input:Factor[Factor_Vector] | DROPPED-SILENT |  |
+| MIX | input:A[A_Float] | DROPPED-SILENT |  |
+| MIX | input:B[B_Float] | DROPPED-SILENT |  |
+| MIX | input:A[A_Vector] | DROPPED-SILENT |  |
+| MIX | input:B[B_Vector] | DROPPED-SILENT |  |
+| MIX | input:A[A_Color] | DROPPED-SILENT |  |
+| MIX | input:B[B_Color] | DROPPED-SILENT |  |
+| MIX | input:A[A_Rotation] | DROPPED-SILENT |  |
+| MIX | input:B[B_Rotation] | DROPPED-SILENT |  |
 | MIX | prop:blend_type | SUPPORTED |  |
 | MIX | prop:clamp_factor | DROPPED-SILENT | property BOOLEAN |
 | MIX | prop:clamp_result | DROPPED-SILENT | property BOOLEAN |
@@ -742,7 +878,7 @@ These features are silently ignored by the addon with no warning:
 | MIX_RGB | prop:use_clamp | DROPPED-SILENT | property BOOLEAN |
 | MIX_SHADER | input:Factor | DROPPED-SILENT |  |
 | MIX_SHADER | input:Shader | DROPPED-SILENT |  |
-| MIX_SHADER | input:Shader | DROPPED-SILENT |  |
+| MIX_SHADER | input:Shader[Shader_001] | DROPPED-SILENT |  |
 | NORMAL | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
 | NORMAL_MAP | input:Strength | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | NORMAL_MAP | input:Color | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
@@ -832,8 +968,8 @@ These features are silently ignored by the addon with no warning:
 | TEX_GABOR | input:Scale | DROPPED-SILENT | no handler in addon translation layer |
 | TEX_GABOR | input:Frequency | DROPPED-SILENT | no handler in addon translation layer |
 | TEX_GABOR | input:Anisotropy | DROPPED-SILENT | no handler in addon translation layer |
-| TEX_GABOR | input:Orientation | DROPPED-SILENT | no handler in addon translation layer |
-| TEX_GABOR | input:Orientation | DROPPED-SILENT | no handler in addon translation layer |
+| TEX_GABOR | input:Orientation[Orientation 2D] | DROPPED-SILENT | no handler in addon translation layer |
+| TEX_GABOR | input:Orientation[Orientation 3D] | DROPPED-SILENT | no handler in addon translation layer |
 | TEX_GABOR | prop:gabor_type | DROPPED-SILENT | property ENUM |
 | TEX_GRADIENT | input:Vector | DROPPED-SILENT |  |
 | TEX_GRADIENT | prop:gradient_type | SUPPORTED |  |
@@ -912,8 +1048,8 @@ These features are silently ignored by the addon with no warning:
 | VECTOR_DISPLACEMENT | input:Scale | DROPPED-SILENT | no handler in addon translation layer |
 | VECTOR_DISPLACEMENT | prop:space | DROPPED-SILENT | property ENUM |
 | VECT_MATH | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
-| VECT_MATH | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
-| VECT_MATH | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
+| VECT_MATH | input:Vector[Vector_001] | DROPPED-SILENT | no handler in addon translation layer |
+| VECT_MATH | input:Vector[Vector_002] | DROPPED-SILENT | no handler in addon translation layer |
 | VECT_MATH | input:Scale | DROPPED-SILENT | no handler in addon translation layer |
 | VECT_MATH | prop:operation | DROPPED-SILENT | property ENUM |
 | VECTOR_ROTATE | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
@@ -971,4 +1107,5 @@ These features are silently ignored by the addon with no warning:
 | Feature | Socket/Property | Classification | Notes |
 |---------|-----------------|----------------|-------|
 | World | use_nodes | SUPPORTED | node tree handled separately |
+| World | light_linking_shadow_linking | DROPPED-SILENT | per-object light-linking / shadow-linking collections have no Astroray equivalent; declared out of scope by owner decision 2026-09-08 -- one gap-card row, not per-object rows |
 

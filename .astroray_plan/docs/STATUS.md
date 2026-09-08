@@ -1,5 +1,66 @@
 # Astroray Status
 
+## 2026-09-08 INTERIM — day lead session (~10:00 → 11:50, usage limit imminent)
+
+Lead: Claude Fable 5.1, dispatch order from `next-session-prompt-2026-09-08.md`. Lanes: Sonnet 5
+(pkg237, pkg258 residual diagnosis, pkg260, pkg259 Phase 1, #753), Opus 4.8 (pkg241 Phase 2 design
+Rev 2–4, pkg261, A2 spike). Codex Terra calls used: 2 of 4 (both on the Phase 2 design).
+
+**Merged (squash, CI green):**
+- **#754 pkg237 → done** — HDRI CPU/GPU gate is now the per-channel mean-ratio (±5 %); measured
+  R 1.025 / G 1.040 / B 0.978, SSIM 0.962 printed only. Finding: CPU-vs-GPU means differ 15–200×
+  more than two CPU streams (0.02–0.14 %) → **issue #755** (systematic env-lookup/spectral gap).
+- **#756 pkg258 ground-row residual diagnosis** — NOT env NEE: clamp, occlusion and the env
+  estimator all cleared (Sun-lamp-only reproduces 0.936); the deficit is gated by Principled
+  specular roughness alone (0 → 0.989, 0.85 → 0.926). Filed **pkg261**. Side finding: the addon
+  exports Diffuse BSDF as Principled with the default specular layer → **issue #757**.
+- **#758 pkg260 → done** — coverage matrix 527 → 586 rows (object/image_property/input_node/camera
+  + light-linking gap card; 13 duplicate keys collapsed), 0 classification changes; lead added the
+  five `settings_map.py` rows the pkg176 contract requires.
+- Docs direct to main: pkg241 Phase 2 design **Revisions 2–4** (`pkg241-phase2-offthread-design-2026-09-08.md`;
+  Terra reviews 1–3 recorded verbatim in §6/§10/§11, all items resolved and lead-verified; §9 A2
+  spike protocol pinned: seed 12345, ±5 % mean-ratio AND max-abs ≤ 2e-2, presents ≥ 0.9×gens,
+  mailbox depth ≤ 1, tick-gap p95 ≤ 33 ms); pkg261 spec.
+
+**Open PRs (do not lose):**
+- **#760 #753 bump world-scale fix** (`fix/753-bump-world-scale`, worktree `../Astroray-753`) — root
+  cause: bump finite-difference step was in UV units but treated as world units; fix returns the
+  world-per-UV scale from both tangent helpers. RED→GREEN test; Blender mean|Δ| vs Cycles 1.63×/1.78×
+  → 0.84×/0.87×; CPU/GPU 1.002; REG 254 on all 128 shade specialisations; cpp-abi-guard MERGE.
+  **Merge when CI green** (`gh pr merge 760 --squash`), then close #753, remove the worktree.
+- **#761 pkg259 Phase 1** (`feat/pkg259-phase1-materials-textures`, worktree `../Astroray-pkg259p1`) —
+  `materials_hall.blend` + `textures_mapping.blend`, `build_corpus.py`, manifest, README, 7/7 tests;
+  56/56 + 72/72 allocated rows tagged. Conflicts only in the generated `pkg259-phase0/allocation_table.md`
+  (pkg260 merged mid-lane): regenerate with `build_allocation_table.py` on the merged matrix.
+  Lane still rendering the materials_hall Astroray CPU leg. Finding to file: procedural texture
+  nodes feeding Emission render blank/white on the Astroray leg (Cycles correct).
+
+**In flight (WIP pushed on branches):**
+- **pkg261** (`fix/pkg261-principled-rough-diffuse`, worktree `../Astroray-pkg261`, Opus 4.8): real
+  defect found — the specular-layer albedo used for diffuse layering is `E·F(view)·darkening`; F(view)
+  → 1 at grazing overestimates the lobe albedo 1.2–5.5× at mu ≤ 0.5 (MC oracle table in
+  `pkg261-principled-layering-research.md`). Lead decision: faithful Cycles port of the
+  `ggx_gen_schlick_ior_s` table (`mix(f0, 1, s)`, no darkening in the layering estimate), CPU + GPU
+  in ONE PR. CUDA build was running under the GPU lock at 11:45.
+- **pkg241 Phase 2 A2 spike** (`feat/pkg241-phase2-a2-spike`, worktree `../Astroray-pkg241spike`,
+  Opus 4.8): flag-gated (`ASTRORAY_VIEWPORT_WORKER=1`) GPU worker per design §9; needs a CUDA addon
+  build + isolated Blender GUI on port 9877; go/no-go per §9.
+- Issue **#759** (P1): GPU adaptive sampling is a silent no-op in Blender — the wavefront requires
+  the progressive sampler, which the addon never enables.
+
+**Owner decision taken 11:50:** file (a) a default-flip package — progressive sampler (pkg224) +
+light tree (pkg86) on by default with A/B evidence, a GPU adaptive-sampling output-effect test, and
+the addon must stop exporting adaptive as effective on GPU until then; (b) a rough-glass Cycles A/B
+row in the parity harness ahead of the corpus (no Cycles-vs-Astroray rough-glass instrument exists;
+the pkg118/167/169/179 chain only used Astroray's own furnace). Owner audit answer: pkg206 hero
+sampling and pkg178 native Principled are ON; pkg224, pkg86 light tree, pkg136 guiding, pkg127
+poly-SMS are OFF in Blender.
+
+**Manual/owner:** three worktrees alive (753, pkg259p1, pkg261, pkg241spike); GPU lock may be held by
+the pkg261 build wrapper — check `.astroray_plan/.orchestrator.gpu.lock` (stale after 90 min).
+
+---
+
 ## 2026-09-08 CURRENT — overnight lead session closeout (~07:00)
 
 Lead: Claude Fable 5.1, autonomous (dispatch order from `next-session-prompt-2026-09-07.md`);

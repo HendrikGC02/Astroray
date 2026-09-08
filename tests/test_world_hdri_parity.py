@@ -11,7 +11,9 @@ Covers:
       radiance per stratum (RGBUnboundedSpectrum collapses to a flat scalar
       for grayscale; chromatic-tint parity vs the RGB path is left to a
       follow-up — see review notes).
-  (c) GPU vs CPU SSIM ≥ 0.97 on an HDRI scene at 64 spp (skipped without CUDA).
+  (c) GPU vs CPU per-channel mean ratio within ±5% on an HDRI scene at 8192
+      spp (skipped without CUDA); SSIM is printed as a diagnostic only
+      (pkg237 — independent RNG streams floor windowed SSIM ~0.962-0.963).
 
 Reference: Cycles `intern/cycles/blender/shader.cpp` (Apache-2.0) for Mapping
 node XYZ Euler order and Background Color tint composition. Detailed research
@@ -173,18 +175,24 @@ def test_color_tint_halves_env_radiance(hdri_path):
 # Test (c): GPU vs CPU SSIM on an HDRI scene
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True,
-    reason="pkg237 independent-RNG-stream SSIM ceiling (NOT pkg258). Both legs now "
-           "do environment NEE (pkg258 GPU leg landed): the converged per-channel "
-           "MEANS agree within MC noise (CPU [0.457,0.014,0.475] vs GPU "
-           "[0.469,0.015,0.465], rel <=3.9% on the firefly channel at 8192 spp; the "
-           "GPU furnace mean 0.9946 confirms unbiasedness). The residual is that CPU "
-           "(mt19937) and GPU (curand/PCG32) are independent MC streams, so windowed "
-           "SSIM sits ~0.963 (< 0.97) even at convergence. Raising it is a separate "
-           "owner question (common-random-number or a noise-robust metric); do NOT "
-           "weaken 0.97. See memory ssim-wrong-gate-for-independent-rng.")
-def test_gpu_cpu_ssim_hdri(hdri_path):
-    """Render a tiny HDRI scene on CPU and CUDA backends; SSIM ≥ 0.97.
+def test_gpu_cpu_mean_ratio_hdri(hdri_path):
+    """Render a tiny HDRI scene on CPU and CUDA backends; per-channel mean
+    ratio within +-5%. SSIM is printed as a diagnostic only.
+
+    pkg237 owner decision 2026-09-08: CPU (std::mt19937) and GPU
+    (curand/PCG32) draw independent RNG streams, so windowed SSIM comparing
+    two decorrelated-but-converged noise fields on this env-only gradient
+    scene floors at ~0.962-0.963 even at full convergence (measured: CPU
+    two-stream proxy 0.9618-0.9628, GPU-vs-CPU 0.9625-0.9628 across three
+    fixture variants) — SSIM is the wrong gate for independent MC streams
+    (memory ssim-wrong-gate-for-independent-rng). The per-channel mean ratio
+    is the metric the parity harness already uses elsewhere
+    (benchmarks/blender_parity/triage.py, cycles-parity thin_film sweep) to
+    separate a real energy/parity divergence from decorrelated noise: it
+    converges cleanly under independent streams because per-channel MEANS
+    agree within Monte Carlo noise long before per-pixel windowed structure
+    does (pkg258 measured CPU vs GPU means within 3.9% rel on this same
+    scene). Replaces the retired 0.97 SSIM pin.
 
     Uses the canonical `gpu_available` / `set_use_gpu(True)` pair seen in
     test_python_bindings.py::test_gpu_renders_match_cpu — skips at runtime
@@ -201,14 +209,14 @@ def test_gpu_cpu_ssim_hdri(hdri_path):
     a large non-converging blue chromatic-MC residual that decorrelates across
     the streams and stalls SSIM ~0.68-0.77); (2) both legs are tonemapped by
     one shared divisor instead of each image's own max, so a per-image
-    brightness skew at the firefly is not mistaken for a parity loss. The 0.97
-    threshold is unchanged. Diagnosis:
+    brightness skew at the firefly is not mistaken for a parity loss. Diagnosis:
     .astroray_plan/docs/pkg237-238-diagnosis-2026-09-07.md.
     """
     try:
         from skimage.metrics import structural_similarity as ssim_fn
+        HAVE_SKIMAGE = True
     except ImportError:
-        pytest.skip("scikit-image not available for SSIM")
+        HAVE_SKIMAGE = False
 
     def build(use_gpu):
         r = astroray.Renderer()
@@ -251,5 +259,20 @@ def test_gpu_cpu_ssim_hdri(hdri_path):
     def lin(arr):
         return np.clip(arr / shared_denom, 0.0, 1.0)
 
-    score = ssim_fn(lin(cpu), lin(gpu), channel_axis=2, data_range=1.0)
-    assert score >= 0.97, f"GPU vs CPU SSIM {score:.4f} < 0.97"
+    if HAVE_SKIMAGE:
+        score = ssim_fn(lin(cpu), lin(gpu), channel_axis=2, data_range=1.0)
+        print(f"[pkg237] SSIM diagnostic {score:.4f} (not asserted; independent-RNG floor ~0.962)")
+    else:
+        print("[pkg237] SSIM diagnostic n/a (scikit-image not available)")
+
+    # pkg237: the gate itself is the per-channel mean ratio on the raw linear
+    # arrays (no shared-exposure normalisation needed for a ratio) — the same
+    # +-5% per-channel band the north-star gate (c) uses.
+    for c, name in enumerate("RGB"):
+        cpu_mean = float(cpu[..., c].mean())
+        gpu_mean = float(gpu[..., c].mean())
+        ratio_c = gpu_mean / cpu_mean
+        assert abs(ratio_c - 1.0) <= 0.05, (
+            f"GPU/CPU {name} channel mean ratio {ratio_c:.4f} outside +-5% band "
+            f"(cpu mean={cpu_mean:.6f}, gpu mean={gpu_mean:.6f})"
+        )

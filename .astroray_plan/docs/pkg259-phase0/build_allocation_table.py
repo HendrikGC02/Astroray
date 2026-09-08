@@ -156,6 +156,42 @@ ASSIGN: dict[tuple[str, str], tuple[str, list[str]]] = {
     ("shader_node", "OUTPUT_AOV"): ("render_settings", []),
     ("shader_node", "OUTPUT_LINESTYLE"): ("render_settings", []),
     ("shader_node", "UVALONGSTROKE"): ("render_settings", []),
+
+    # --- pkg260 scanner extension (2026-09-08): object / image_property /
+    #     input_node categories, per the pkg260 brief's family assignments ---
+    # object: instancing, modifier presence, motion blur, smooth/auto-smooth
+    # shading, Curves objects -- exactly the geometry_zoo "known matrix gap"
+    # this design doc's Sec1.5 flagged before pkg260 existed.
+    ("object", "Object"): ("geometry_zoo", []),
+    # image_property: Image/TexImage sub-properties -- textures_mapping per
+    # the brief (same family as TEX_IMAGE itself, Row 3).
+    ("image_property", "Image"): ("textures_mapping", []),
+    ("image_property", "ShaderNodeTexImage"): ("textures_mapping", []),
+    # input_node: shader input/source nodes. Light Path / Object Info /
+    # Geometry -> textures_mapping per the brief (converter-node role, Row 5);
+    # Attribute / Color Attribute join the same family as their existing
+    # shader_node/ATTRIBUTE property-row sibling (already textures_mapping
+    # above). Hair Info is the one judgment call the brief left open: it is
+    # a hair-material-graph input (feeds hair BSDF params), not a generic
+    # converter, so it follows BSDF_HAIR/BSDF_HAIR_PRINCIPLED's own cross-tag
+    # pattern above (geometry_zoo primary, materials_hall secondary) rather
+    # than textures_mapping.
+    ("input_node", "NEW_GEOMETRY"): ("textures_mapping", []),
+    ("input_node", "OBJECT_INFO"): ("textures_mapping", []),
+    ("input_node", "LIGHT_PATH"): ("textures_mapping", []),
+    ("input_node", "ATTRIBUTE"): ("textures_mapping", []),
+    ("input_node", "VERTEX_COLOR"): ("textures_mapping", []),
+    ("input_node", "HAIR_INFO"): ("geometry_zoo", ["materials_hall"]),
+}
+
+# pkg260: per-ROW override for the rare case where two rows sharing one
+# (category, feature) tuple genuinely belong in different families. Checked
+# BEFORE the (category, feature)-level ASSIGN above. Today: World's other row
+# (use_nodes) stays world_sky per ASSIGN; the light-linking/shadow-linking
+# gap card is a lighting_studio concern per the pkg259 design doc Sec1.3 and
+# the pkg260 brief, not a world_sky one.
+SOCKET_OVERRIDE: dict[tuple[str, str, str], tuple[str, list[str]]] = {
+    ("world", "World", "light_linking_shadow_linking"): ("lighting_studio", []),
 }
 
 
@@ -173,7 +209,11 @@ def main() -> None:
 
     by_family: dict[str, list[dict]] = collections.defaultdict(list)
     for r in rows:
-        primary, secondary = ASSIGN[(r["category"], r["feature"])]
+        override = SOCKET_OVERRIDE.get((r["category"], r["feature"], r["socket_or_prop"]))
+        if override is not None:
+            primary, secondary = override
+        else:
+            primary, secondary = ASSIGN[(r["category"], r["feature"])]
         by_family[primary].append(r)
 
     totals = {}

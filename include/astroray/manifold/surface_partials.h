@@ -95,9 +95,20 @@ inline void spherePartials(const Vec3& center, const Vec3& p, float radius,
 //
 // (w0,w1,w2) are the active-layer UVs at the triangle's three vertices; pass the
 // SAME (motion-interpolated) positions p0/p1/p2 used for the intersection.
+// pkg753 (#753) — outScaleU/outScaleV (optional) return the WORLD length per
+// UV unit along outTangent / the reconstructed bitangent: |T| after removing
+// its N-component (outScaleU) and |dP/dV_tex| before normalisation
+// (outScaleV). A UV-space finite-difference step (`eps`) must be multiplied
+// by this scale to become a world-space step, matching Cycles'
+// svm_node_set_bump, whose `dP.dx`/`dP.dy` are WORLD-space position
+// differentials (see .astroray_plan/docs/pkg223b-bump-cycles-citation.md,
+// lines 19-24: `dP = differential_from_compact(sd->Ng, sd->dP)`), not unit
+// tangent vectors. Defaulted to nullptr so the pkg178/pkg223/pkg223b callers
+// that only need direction are unaffected.
 inline bool uvAlignedTangent(const Vec3& p0, const Vec3& p1, const Vec3& p2,
                              const Vec2& w0, const Vec2& w1, const Vec2& w2,
-                             const Vec3& N, Vec3& outTangent, float& outSign) {
+                             const Vec3& N, Vec3& outTangent, float& outSign,
+                             float* outScaleU = nullptr, float* outScaleV = nullptr) {
     Vec3 dp_du, dp_dv, dn_du, dn_dv;
     trianglePartials(p0, p1, p2, dp_du, dp_dv, dn_du, dn_dv);  // dp_du=p1-p0, dp_dv=p2-p0
     float du1 = w1.u - w0.u, dv1 = w1.v - w0.v;
@@ -110,8 +121,11 @@ inline bool uvAlignedTangent(const Vec3& p0, const Vec3& p1, const Vec3& p2,
     Vec3 Tortho = T - N * N.dot(T);
     float tlen2 = Tortho.length2();
     if (tlen2 <= 1e-12f) return false;  // T parallel to N
-    outTangent = Tortho * (1.0f / std::sqrt(tlen2));
+    float tlen = std::sqrt(tlen2);
+    outTangent = Tortho * (1.0f / tlen);
     outSign = (N.cross(outTangent).dot(Bt) < 0.0f) ? -1.0f : 1.0f;
+    if (outScaleU) *outScaleU = tlen;
+    if (outScaleV) *outScaleV = std::sqrt(Bt.length2());
     return true;
 }
 

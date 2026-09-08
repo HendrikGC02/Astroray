@@ -1315,9 +1315,11 @@ __device__ bool shadePathSlot(
             const GTriangle& btri = tris[prims[rec.primId].index];
             if (btri.uvAuthored) {  // pkg242: keep arbitrary frame for UV-less bump (CPU parity)
                 GVec3 bT; float bSign;
+                float bScaleU = 1.0f, bScaleV = 1.0f;  // #753 world-per-UV-unit scale
                 if (gpu_pr_uvAlignedTangent(btri.v0, btri.v1, btri.v2,
                                             btri.uv0, btri.uv1, btri.uv2,
-                                            rec.normal, bT, bSign)) {
+                                            rec.normal, bT, bSign,
+                                            &bScaleU, &bScaleV)) {
                     GVec3 e1 = btri.v1 - btri.v0, e2 = btri.v2 - btri.v0;
                     GVec3 ep = rec.point - btri.v0;
                     float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
@@ -1350,7 +1352,12 @@ __device__ bool shadePathSlot(
                         float h_y = 0.2126f*hy.x + 0.7152f*hy.y + 0.0722f*hy.z;
                         GVec3 N = rec.normal;
                         GVec3 Bt = N.cross(bT) * bSign;
-                        GVec3 dPdx = bT * eps, dPdy = Bt * eps;
+                        // #753 — dPdx/dPdy must be WORLD-space position
+                        // differentials (Cycles svm_node_set_bump dP.dx/dP.dy),
+                        // not UV-space ones; bT/Bt are unit vectors, so scale
+                        // the UV-space step `eps` by the world-per-UV-unit
+                        // factor (mirrors normal_mapped.cpp's CPU fix exactly).
+                        GVec3 dPdx = bT * (eps * bScaleU), dPdy = Bt * (eps * bScaleV);
                         GVec3 Rx = dPdy.cross(N), Ry = N.cross(dPdx);
                         float det = dPdx.dot(Rx);
                         GVec3 surfgrad = Rx * (h_x - h_c) + Ry * (h_y - h_c);

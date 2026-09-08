@@ -225,11 +225,17 @@ public:
         // device UV upload) gated behind the anisotropy path.
         if (!uvLayers.empty()) {
             Vec3 uvT;
-            float uvSign;
+            float uvSign, uvScaleU, uvScaleV;
             if (astroray::manifold::uvAlignedTangent(p0, p1, p2, uv0, uv1, uv2,
-                                                     rec.normal, uvT, uvSign)) {
+                                                     rec.normal, uvT, uvSign,
+                                                     &uvScaleU, &uvScaleV)) {
                 rec.uvTangent = uvT;
                 rec.uvBitangentSign = uvSign;
+                // pkg753 (#753) — world-per-UV-unit scale, consumed by the Bump
+                // node (plugins/materials/normal_mapped.cpp) to convert its
+                // UV-space finite-difference step into a world-space one.
+                rec.uvScaleU = uvScaleU;
+                rec.uvScaleV = uvScaleV;
             }
         }
         return true;

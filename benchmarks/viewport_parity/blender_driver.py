@@ -1126,6 +1126,66 @@ def run_present_check(args) -> dict:
     }
 
 
+# pkg241 P2.2 item 5 (Terra review 4): the Buffer byte-identity regression, run
+# inside the isolated GUI Blender (which has a live GPU context — gpu.types.Buffer
+# cannot be constructed under `blender -b`, which is why this is a bridge test and
+# not a pure headless pytest). It reproduces the addon's exact array pipeline
+# (__init__.py _update_viewport_texture: RGBA float32, alpha 1.0, vertically
+# flipped, contiguous, reshaped flat) and asserts the buffer-protocol path
+# (gpu.types.Buffer('FLOAT', n, flat)) is byte-identical to the legacy
+# flat.tolist() path that the ~195 ms/present upload used.
+_BUFFER_IDENTITY = r'''
+import struct
+import numpy as np
+import gpu
+width, height = 129, 71  # odd dims to catch any stride/pad assumption
+rng = np.random.default_rng(12345)
+pixels = rng.random((height, width, 3), dtype=np.float32)
+pixels[0, 0, :] = (0.1, 0.2, 0.3)
+pixels[1, 1, :] = (1.0 / 3.0, 2.0 / 3.0, 0.7)
+pixels[2, 2, :] = (65504.0, 6.1e-5, 0.0)  # near half-float extremes
+rgba = np.ones((height, width, 4), dtype=np.float32)
+rgba[:, :, :3] = pixels
+rgba = np.ascontiguousarray(rgba[::-1])
+flat = rgba.reshape(-1)
+n = int(flat.shape[0])
+buf_np = gpu.types.Buffer('FLOAT', n, flat)              # the buffer-protocol flip
+buf_list = gpu.types.Buffer('FLOAT', n, flat.tolist())   # legacy tolist() path
+b_np = bytes(buf_np)
+b_list = bytes(buf_list)
+equal = (b_np == b_list)
+roundtrips = (buf_np.to_list() == flat.tolist())
+ndiff = 0
+if not equal:
+    for i in range(n):
+        if (struct.unpack_from('<f', b_np, i * 4)[0]
+                != struct.unpack_from('<f', b_list, i * 4)[0]):
+            ndiff += 1
+result = {'equal': bool(equal), 'roundtrips': bool(roundtrips),
+          'n_floats': n, 'n_diff': int(ndiff)}
+'''
+
+
+def run_buffer_identity(args) -> dict:
+    """pkg241 P2.2 item 5: assert the gpu.types.Buffer-from-numpy upload is
+    byte-identical to flat.tolist(), inside the isolated GUI Blender's GPU
+    context. PASS requires equal bytes AND an exact source round-trip."""
+    host, port = args.host, args.port
+    res = _bridge(_BUFFER_IDENTITY, host, port)
+    passed = bool(res.get("equal")) and bool(res.get("roundtrips"))
+    print(f"[pkg241-p2] buffer_identity equal={res.get('equal')} "
+          f"roundtrips={res.get('roundtrips')} n_floats={res.get('n_floats')} "
+          f"n_diff={res.get('n_diff')} -> {'PASS' if passed else 'FAIL'}")
+    return {
+        "schema": "astroray.viewport_parity.pkg241_p22_buffer_identity.v1",
+        "package": "pkg241",
+        "phase": "P2.2 item 5 (Buffer byte-identity bridge test)",
+        "generated_utc": _dt.datetime.now(_dt.timezone.utc)
+            .isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "host": f"{host}:{port}", "passed": passed, "result": res,
+    }
+
+
 def run_ui_latency(args) -> dict:
     host, port = args.host, args.port
     configs = []
@@ -1358,7 +1418,7 @@ def main():
                    choices=["CYCLES", "CUSTOM_RAYTRACER"])
     p.add_argument("--mode", default="offline",
                    choices=["offline", "interactive", "ui_latency",
-                            "present_check"])
+                            "present_check", "buffer_identity"])
     p.add_argument("--frames", type=int, default=30)
     p.add_argument("--width", type=int, default=512)
     p.add_argument("--height", type=int, default=512)
@@ -1444,6 +1504,15 @@ def main():
 
     if args.mode == "present_check":
         doc = run_present_check(args)
+        args.out.mkdir(parents=True, exist_ok=True)
+        tag = args.tag or _dt.date.today().isoformat()
+        json_path = args.out / f"{tag}-{args.label}.json"
+        json_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        print(f"[pkg241-p2] wrote {json_path}")
+        sys.exit(0 if doc.get("passed") else 1)
+
+    if args.mode == "buffer_identity":
+        doc = run_buffer_identity(args)
         args.out.mkdir(parents=True, exist_ok=True)
         tag = args.tag or _dt.date.today().isoformat()
         json_path = args.out / f"{tag}-{args.label}.json"

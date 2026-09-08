@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** B
-**Status:** in-progress — PR #N open; scanner + tests + pkg259 allocation regen landed on the branch, awaiting review/merge
+**Status:** in-progress — PR #758 open; scanner + tests + pkg259 allocation regen landed on the branch, awaiting review/merge
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg229, pkg259
 

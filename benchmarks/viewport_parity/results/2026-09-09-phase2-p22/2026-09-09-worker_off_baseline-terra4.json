@@ -1,0 +1,88 @@
+{
+  "schema": "astroray.viewport_parity.pkg241_phase2_ui_latency.v1",
+  "package": "pkg241",
+  "phase": "2 (UI event latency while a viewport chunk renders)",
+  "generated_utc": "2026-09-08T17:38:00Z",
+  "host": "127.0.0.1:9877",
+  "budgets": {
+    "ui_latency_p95_ms": 33.0
+  },
+  "protocol": {
+    "bridge": "Blender Lab mcp socket; execute requests over localhost",
+    "recorder": "blender_recorder.py _install_ui_latency: a bpy.app.timers ticker at tick_s (default 5 ms) records its own invocation timestamps while every tick also dispatches the next camera/material edit + tag_redraw, so the main thread is continuously either running the ticker or blocked inside the redraw/render that ticker just triggered -- never idle (avoids the Phase 0 idle-window timer-throttling artifact structurally rather than via OS input injection).",
+    "metric": "tick-gap p50/p95/p99/max (ms); a gap >> tick_s is main-thread blocking. blocked_time_fraction_from_ticks = sum(max(0, gap - tick_s)) / total wall time -- computed identically for both engines from the ticks alone, so it needs no engine-specific hook.",
+    "cross_check": "render_time_fraction = time inside Exporter.render_viewport_frame / total wall time (Astroray only -- Cycles has no Python view_update/view_draw hook to wrap). Presents (POST_PIXEL draw-handler) count is recorded for both engines as a liveness check that the viewport was actually refining, not idle.",
+    "warmup_discarded_s": 2.0,
+    "duration_s_per_rep": 10.0,
+    "reps": 3,
+    "tick_s": 0.005
+  },
+  "configs": [
+    {
+      "scene": "metal_sweep",
+      "tris": 2220,
+      "region": [
+        2112,
+        829
+      ],
+      "engine": "astroray",
+      "gpu": "astroray-gpu",
+      "reps": 3,
+      "duration_s": 10.0,
+      "warmup_s": 2.0,
+      "tick_s": 0.005,
+      "nominal_tick_ms": 5.0,
+      "gap_ms": {
+        "n": 333,
+        "mean_ms": 90.32,
+        "p50_ms": 148.31,
+        "p95_ms": 160.13,
+        "p99_ms": 171.64,
+        "max_ms": 178.16
+      },
+      "total_wall_ms": 30076.7,
+      "n_ticks": 336,
+      "n_renders": 359,
+      "n_presents": 359,
+      "render_ms_total": 8710.1,
+      "blocked_time_fraction_from_ticks": 0.9446,
+      "render_time_fraction": 0.2896,
+      "engine_has_render_hooks": true,
+      "truncated": false,
+      "spike": null
+    },
+    {
+      "scene": "big",
+      "tris": 101920,
+      "region": [
+        2100,
+        1221
+      ],
+      "engine": "astroray",
+      "gpu": "astroray-gpu",
+      "reps": 3,
+      "duration_s": 10.0,
+      "warmup_s": 2.0,
+      "tick_s": 0.005,
+      "nominal_tick_ms": 5.0,
+      "gap_ms": {
+        "n": 220,
+        "mean_ms": 136.95,
+        "p50_ms": 212.15,
+        "p95_ms": 228.47,
+        "p99_ms": 252.5,
+        "max_ms": 277.19
+      },
+      "total_wall_ms": 30129.1,
+      "n_ticks": 223,
+      "n_renders": 232,
+      "n_presents": 232,
+      "render_ms_total": 18579.2,
+      "blocked_time_fraction_from_ticks": 0.9635,
+      "render_time_fraction": 0.6167,
+      "engine_has_render_hooks": true,
+      "truncated": false,
+      "spike": null
+    }
+  ]
+}

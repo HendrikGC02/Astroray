@@ -632,7 +632,8 @@ def _run_cancel(host, port, samples):
     return _bridge(src, host, port, timeout=600.0)
 
 
-def _run_ui_latency(host, port, duration_s, warmup_s, tick_s, _retries=1):
+def _run_ui_latency(host, port, duration_s, warmup_s, tick_s,
+                    pattern="continuous", burst_s=0.4, settle_s=2.0, _retries=1):
     """pkg241 Phase 2: install the fine-ticker recorder, poll to completion,
     fetch the raw tick/render/present streams for one (scene, engine) rep.
 
@@ -642,7 +643,8 @@ def _run_ui_latency(host, port, duration_s, warmup_s, tick_s, _retries=1):
     harmless to retry since the whole recorder state is freshly reinstalled
     by the setup call below and no partial results are banked on failure)."""
     cfg = {"event_class": "ui_latency", "duration_s": duration_s,
-           "warmup_s": warmup_s, "tick_s": tick_s}
+           "warmup_s": warmup_s, "tick_s": tick_s,
+           "pattern": pattern, "burst_s": burst_s, "settle_s": settle_s}
     setup = "_PKG241_CONFIG = " + json.dumps(cfg) + "\n" + _recorder_src()
     info = _bridge(setup, host, port)
     if info.get("setup") != "ok":
@@ -667,7 +669,8 @@ def _run_ui_latency(host, port, duration_s, warmup_s, tick_s, _retries=1):
             print(f"[pkg241-p2]     recorder state lost mid-rep "
                   f"({exc}); retrying once")
             return _run_ui_latency(host, port, duration_s, warmup_s, tick_s,
-                                    _retries=_retries - 1)
+                                    pattern=pattern, burst_s=burst_s,
+                                    settle_s=settle_s, _retries=_retries - 1)
         raise
     res = _bridge(_RESULTS, host, port)
     _bridge(_TEARDOWN, host, port)
@@ -694,39 +697,90 @@ def _reduce_spike_events(events):
         lst = by_gen.get(g, {}).get(name)
         return lst[0][0] if lst else None
 
-    def _max_desired_before(t_end):
-        m = 0
-        for (g, t) in request_ts:
-            if t <= t_end and g > m:
-                m = g
-        return m
+    # per-PUBLICATION enqueue/blit index (pkg241 P2.2 item 3, Terra review 4).
+    # Progressive frame age is measured per publication (mailbox_enqueue(pub) ->
+    # first_blit(pub)), which is necessarily >= 0. The spike's old definition
+    # (render_end -> first_blit) went NEGATIVE because the worker publishes
+    # progressive chunks BEFORE the terminal render_end, so it never established a
+    # rendering failure — it was a metric-definition bug.
+    enqueue_t, blit_t = {}, {}
+    for (n, g, t, _e, x) in ev:
+        if n == "mailbox_enqueue" and "pub_id" in x:
+            enqueue_t.setdefault(x["pub_id"], t)
+        elif n == "first_blit" and "pub_id" in x:
+            blit_t.setdefault(x["pub_id"], t)
+    frame_age_ms = []
+    for pub, tb in blit_t.items():
+        te = enqueue_t.get(pub)
+        if te is not None:
+            frame_age_ms.append(max(0.0, (tb - te) * 1000.0))
 
-    request_to_blit_ms, frame_age_ms = [], []
-    completed = superseded = presented_completed = 0
-    for g, names in by_gen.items():
-        r_end = _first(g, "render_end")
-        f_blit = _first(g, "first_blit")
+    request_to_blit_ms = []
+    commit_ms = []  # pkg241 P2.2 item 2: per-generation main-thread commit cost
+    for g in by_gen:
         r_req = _first(g, "request")
+        f_blit = _first(g, "first_blit")
+        c_start = _first(g, "commit_start")
+        c_end = _first(g, "commit_end")
+        if c_start is not None and c_end is not None:
+            commit_ms.append((c_end - c_start) * 1000.0)
         if f_blit is not None and r_req is not None:
             request_to_blit_ms.append((f_blit - r_req) * 1000.0)
-        if f_blit is not None and r_end is not None:
-            frame_age_ms.append((f_blit - r_end) * 1000.0)
-        if r_end is not None:
-            if _max_desired_before(r_end) > g:
-                superseded += 1
-            else:
-                completed += 1
-                if f_blit is not None:
-                    presented_completed += 1
 
-    # cancel-ack: each cancel_request -> the next idle_ack after it (ms).
-    cancel_ts = sorted(t for (n, _g, t, _e, _x) in ev if n == "cancel_request")
-    idle_ts = sorted(t for (n, _g, t, _e, _x) in ev if n == "idle_ack")
-    cancel_ack_ms = []
-    for tc in cancel_ts:
-        nxt = next((ti for ti in idle_ts if ti > tc), None)
-        if nxt is not None:
-            cancel_ack_ms.append((nxt - tc) * 1000.0)
+    # terminal completion + present rate (pkg241 P2.2 item 3, Terra review 4).
+    # A terminal_publication(g, pub_id) is emitted by the worker ONLY when a render
+    # reached its target spp without cancellation, so its existence already encodes
+    # "reached its marked final publication without cancellation". A terminal gen is
+    # ELIGIBLE (present-rate denominator) when it remained current until its final
+    # publication blitted (a blitted terminal frame was current at blit — the drain
+    # discards superseded frames) or was never superseded through run end; a terminal
+    # gen deliberately superseded before its terminal frame blitted is excluded.
+    # Settle mode is UNGRADEABLE when no eligible terminal generation exists.
+    max_request_gen = max((g for (g, _t) in request_ts), default=0)
+    terminal = {}  # gen -> terminal pub_id
+    for (n, g, _t, _e, x) in ev:
+        if n == "terminal_publication" and "pub_id" in x:
+            terminal[g] = x["pub_id"]
+    completed = superseded = presented_completed = 0
+    for g, pub in terminal.items():
+        if pub in blit_t:
+            completed += 1
+            presented_completed += 1
+        elif g >= max_request_gen:
+            completed += 1          # never superseded, but its final frame missed
+        else:
+            superseded += 1         # deliberately superseded before blit — excluded
+
+    # cancel-ack (pkg241 P2.2 item 3/4, Terra review 4): each cancel_request(g) is
+    # now tagged with the actual IN-FLIGHT generation and emitted only on the
+    # false->true transition (exporter.py request()). Pair it ONLY with the
+    # idle_ack(g)/idle_drain(g) of the SAME generation — the old code paired each
+    # cancel with any next idle by timestamp, which let a cancel pair with an
+    # unrelated generation's idle and made the p99 invalid.
+    #  - worker-side diagnostic (cancel_request(g) -> idle_ack(g)): how fast the
+    #    worker stops its in-flight chunk and enqueues idle.
+    #  - the usable gate (cancel_request(in-flight g) -> idle_drain(g)): adds the
+    #    time the idle notification waits on the busy main thread before the pump
+    #    consumes it. This is the number the p99 <= 300 ms gate is graded against.
+    cancel_reqs = [(g, t) for (n, g, t, _e, _x) in ev if n == "cancel_request"]
+    idle_ack_by_gen, idle_drain_by_gen = {}, {}
+    for (n, g, t, _e, _x) in ev:
+        if n == "idle_ack":
+            idle_ack_by_gen.setdefault(g, []).append(t)
+        elif n == "idle_drain":
+            idle_drain_by_gen.setdefault(g, []).append(t)
+    for g in idle_ack_by_gen:
+        idle_ack_by_gen[g].sort()
+    for g in idle_drain_by_gen:
+        idle_drain_by_gen[g].sort()
+    cancel_ack_ms, cancel_ack_pump_ms = [], []
+    for (g, tc) in cancel_reqs:
+        ack = next((ti for ti in idle_ack_by_gen.get(g, []) if ti >= tc), None)
+        if ack is not None:
+            cancel_ack_ms.append((ack - tc) * 1000.0)
+        drn = next((ti for ti in idle_drain_by_gen.get(g, []) if ti >= tc), None)
+        if drn is not None:
+            cancel_ack_pump_ms.append((drn - tc) * 1000.0)
 
     # texture-upload tail: mailbox_dequeue -> the next texture_upload_end (ms).
     tex_tail_ms = []
@@ -762,18 +816,25 @@ def _reduce_spike_events(events):
                 "p99_ms": round(_percentile(s, 99), 2),
                 "max_ms": round(max(s), 2)}
 
+    # present-rate is UNGRADEABLE when no eligible terminal generation exists
+    # (e.g. the continuous edit storm never lets a render reach its terminal
+    # publication while still desired). Report the flag rather than a fake 0.
+    present_rate_gradeable = completed > 0
     present_rate = (presented_completed / completed) if completed else None
     return {
         "n_events": len(ev),
         "request_to_first_blit": _pct(request_to_blit_ms),
         "frame_age": _pct(frame_age_ms),
+        "commit_cost": _pct(commit_ms),
         "cancel_ack": _pct(cancel_ack_ms),
+        "cancel_ack_pump": _pct(cancel_ack_pump_ms),
         "texture_upload_tail": _pct(tex_tail_ms),
         "mailbox_depth_max": mailbox_depth_max,
         "completed_generations": completed,
         "superseded_generations": superseded,
         "presented_completed": presented_completed,
         "present_rate": round(present_rate, 4) if present_rate is not None else None,
+        "present_rate_gradeable": present_rate_gradeable,
         "devices_seen": devices,
         "n_render_device": n_render_device,
         "cuda_errors": n_errors,
@@ -992,6 +1053,139 @@ def _write_summary_md(doc, path):
 _ENGINE_NAME = {"astroray": "CUSTOM_RAYTRACER", "cycles": "CYCLES"}
 
 
+def _run_present_check(host, port, duration_s, warmup_s, tick_s):
+    """pkg241 P2.2 item 1 bridge test (one scene): install the present-check
+    recorder, poll to done, fetch the read-back evidence for a settled worker
+    frame."""
+    cfg = {"event_class": "present_check", "duration_s": duration_s,
+           "warmup_s": warmup_s, "tick_s": tick_s}
+    setup = "_PKG241_CONFIG = " + json.dumps(cfg) + "\n" + _recorder_src()
+    info = _bridge(setup, host, port)
+    if info.get("setup") != "ok":
+        raise RuntimeError(f"present_check recorder setup failed: {info}")
+    deadline_s = warmup_s + duration_s + 30.0
+    t_start = time.time()
+    while True:
+        time.sleep(0.5)
+        st = _bridge(_STATUS, host, port)
+        if st.get("error"):
+            raise RuntimeError("present_check recorder error:\n" + st["error"])
+        if st.get("done"):
+            break
+        if time.time() - t_start > deadline_s:
+            _bridge(_STOP, host, port)
+            break
+    res = _bridge(_RESULTS, host, port)
+    _bridge(_TEARDOWN, host, port)
+    return res
+
+
+def run_present_check(args) -> dict:
+    """pkg241 P2.2 item 1: verify a settled off-thread worker frame actually
+    reaches the screen (the spike's presented=0 / grid), per scene, with pixel
+    read-back through the isolated Blender. PASS requires, on every scene:
+    Exporter._worker_present was called >= 1 time for the settled generation
+    (present-wiring restored) with a presented-buffer std above a rendered-content
+    floor (not a uniform clear)."""
+    host, port = args.host, args.port
+    # A near-uniform clear/grid buffer has std ~ 0; any rendered scene at these
+    # settings has clear spatial variation. 1e-4 is well above float noise and
+    # far below a real render's std.
+    MIN_STD = 1e-4
+    scenes = []
+    all_pass = True
+    # present_check is astroray-only (the worker path); ignore --ui-engines.
+    for scene in args.scenes:
+        sinfo = _open_scene(host, port, scene)
+        einfo = _switch_engine(host, port, _ENGINE_NAME["astroray"])
+        print(f"[pkg241-p2] present_check scene={scene} "
+              f"tris={sinfo.get('tris')} region={einfo.get('region')}")
+        res = _run_present_check(host, port, args.duration_s, args.warmup_s,
+                                 args.tick_s)
+        std = res.get("max_present_std")
+        n_calls = res.get("n_present_calls", 0)
+        fb_std = res.get("fb_std_max")
+        passed = (bool(res.get("engine_has_hooks")) and n_calls >= 1
+                  and std is not None and std > MIN_STD)
+        all_pass = all_pass and passed
+        print(f"[pkg241-p2]   n_present_calls={n_calls} max_present_std={std} "
+              f"fb_std_max={fb_std} -> {'PASS' if passed else 'FAIL'}")
+        scenes.append({"scene": scene, "tris": sinfo.get("tris"),
+                       "region": einfo.get("region"),
+                       "n_present_calls": n_calls, "max_present_std": std,
+                       "fb_std_max": fb_std, "passed": passed,
+                       "sample_buffers": res.get("present_buffers"),
+                       "n_fb_reads": res.get("n_fb_reads")})
+    return {
+        "schema": "astroray.viewport_parity.pkg241_p22_present_check.v1",
+        "package": "pkg241", "phase": "P2.2 item 1 (present-wiring bridge test)",
+        "generated_utc": _dt.datetime.now(_dt.timezone.utc)
+            .isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "host": f"{host}:{port}", "min_std_floor": MIN_STD,
+        "passed": all_pass, "scenes": scenes,
+    }
+
+
+# pkg241 P2.2 item 5 (Terra review 4): the Buffer byte-identity regression, run
+# inside the isolated GUI Blender (which has a live GPU context — gpu.types.Buffer
+# cannot be constructed under `blender -b`, which is why this is a bridge test and
+# not a pure headless pytest). It reproduces the addon's exact array pipeline
+# (__init__.py _update_viewport_texture: RGBA float32, alpha 1.0, vertically
+# flipped, contiguous, reshaped flat) and asserts the buffer-protocol path
+# (gpu.types.Buffer('FLOAT', n, flat)) is byte-identical to the legacy
+# flat.tolist() path that the ~195 ms/present upload used.
+_BUFFER_IDENTITY = r'''
+import struct
+import numpy as np
+import gpu
+width, height = 129, 71  # odd dims to catch any stride/pad assumption
+rng = np.random.default_rng(12345)
+pixels = rng.random((height, width, 3), dtype=np.float32)
+pixels[0, 0, :] = (0.1, 0.2, 0.3)
+pixels[1, 1, :] = (1.0 / 3.0, 2.0 / 3.0, 0.7)
+pixels[2, 2, :] = (65504.0, 6.1e-5, 0.0)  # near half-float extremes
+rgba = np.ones((height, width, 4), dtype=np.float32)
+rgba[:, :, :3] = pixels
+rgba = np.ascontiguousarray(rgba[::-1])
+flat = rgba.reshape(-1)
+n = int(flat.shape[0])
+buf_np = gpu.types.Buffer('FLOAT', n, flat)              # the buffer-protocol flip
+buf_list = gpu.types.Buffer('FLOAT', n, flat.tolist())   # legacy tolist() path
+b_np = bytes(buf_np)
+b_list = bytes(buf_list)
+equal = (b_np == b_list)
+roundtrips = (buf_np.to_list() == flat.tolist())
+ndiff = 0
+if not equal:
+    for i in range(n):
+        if (struct.unpack_from('<f', b_np, i * 4)[0]
+                != struct.unpack_from('<f', b_list, i * 4)[0]):
+            ndiff += 1
+result = {'equal': bool(equal), 'roundtrips': bool(roundtrips),
+          'n_floats': n, 'n_diff': int(ndiff)}
+'''
+
+
+def run_buffer_identity(args) -> dict:
+    """pkg241 P2.2 item 5: assert the gpu.types.Buffer-from-numpy upload is
+    byte-identical to flat.tolist(), inside the isolated GUI Blender's GPU
+    context. PASS requires equal bytes AND an exact source round-trip."""
+    host, port = args.host, args.port
+    res = _bridge(_BUFFER_IDENTITY, host, port)
+    passed = bool(res.get("equal")) and bool(res.get("roundtrips"))
+    print(f"[pkg241-p2] buffer_identity equal={res.get('equal')} "
+          f"roundtrips={res.get('roundtrips')} n_floats={res.get('n_floats')} "
+          f"n_diff={res.get('n_diff')} -> {'PASS' if passed else 'FAIL'}")
+    return {
+        "schema": "astroray.viewport_parity.pkg241_p22_buffer_identity.v1",
+        "package": "pkg241",
+        "phase": "P2.2 item 5 (Buffer byte-identity bridge test)",
+        "generated_utc": _dt.datetime.now(_dt.timezone.utc)
+            .isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "host": f"{host}:{port}", "passed": passed, "result": res,
+    }
+
+
 def run_ui_latency(args) -> dict:
     host, port = args.host, args.port
     configs = []
@@ -1006,7 +1200,10 @@ def run_ui_latency(args) -> dict:
             reps = []
             for rep in range(args.ui_reps):
                 res = _run_ui_latency(host, port, args.duration_s,
-                                       args.warmup_s, args.tick_s)
+                                       args.warmup_s, args.tick_s,
+                                       pattern=args.ui_pattern,
+                                       burst_s=args.ui_burst_s,
+                                       settle_s=args.ui_settle_s)
                 summ = _summarize_ui_latency(res)
                 reps.append(summ)
                 print(f"[pkg241-p2]     rep {rep + 1}/{args.ui_reps}: "
@@ -1064,12 +1261,18 @@ def run_ui_latency(args) -> dict:
                   f"budget<=33ms: {'PASS' if p95 is not None and p95 <= 33.0 else 'FAIL/NA'}")
             if spike is not None:
                 ca = spike.get("cancel_ack") or {}
+                cap = spike.get("cancel_ack_pump") or {}
                 tt = spike.get("texture_upload_tail") or {}
+                cc = spike.get("commit_cost") or {}
+                _pr = (spike['present_rate'] if spike.get('present_rate_gradeable')
+                       else "UNGRADEABLE")
                 print(f"[pkg241-p2]   spike: completed={spike['completed_generations']} "
                       f"presented={spike['presented_completed']} "
-                      f"present_rate={spike['present_rate']} "
+                      f"present_rate={_pr} "
                       f"mailbox_depth_max={spike['mailbox_depth_max']} "
+                      f"commit p95={cc.get('p95_ms')} "
                       f"cancel_ack p99={ca.get('p99_ms')} "
+                      f"cancel_ack_pump p99={cap.get('p99_ms')} "
                       f"tex_tail p95={tt.get('p95_ms')} "
                       f"devices={spike['devices_seen']} "
                       f"cuda_errors={spike['cuda_errors']} "
@@ -1162,6 +1365,45 @@ def _write_ui_latency_summary_md(doc, path):
         "viewport kept refining, not merely idling), demonstrating the "
         "decoupled reference the owner described.")
     lines.append("")
+
+    # pkg241 P2.2 (§9 + items 2/3): the generation-tagged worker reduction, when
+    # present (ASTRORAY_VIEWPORT_WORKER=1). Empty on the synchronous path.
+    spike_rows = [c for c in doc["configs"] if c.get("spike")]
+    if spike_rows:
+        def _p(d, k, s="p95_ms"):
+            v = (d or {}).get(k) or {}
+            return v.get(s)
+        lines += [
+            "## worker lifeline (ASTRORAY_VIEWPORT_WORKER=1) -- generation-tagged",
+            "",
+            "| scene | engine | completed | presented | present_rate | commit p95 | "
+            "cancel_ack p99 | cancel_ack_pump p99 | frame_age p95 | tex_tail p95 | "
+            "mailbox_max | devices | cuda_err |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        for c in spike_rows:
+            s = c["spike"]
+            # pkg241 P2.2 item 3 (Terra review 4): present_rate is UNGRADEABLE when
+            # no eligible terminal generation exists (continuous storm), not a fake 0.
+            pr = (s["present_rate"] if s.get("present_rate_gradeable")
+                  else "UNGRADEABLE")
+            lines.append(
+                f"| {c['scene']} | {c['engine']} | {s['completed_generations']} | "
+                f"{s['presented_completed']} | {pr} | "
+                f"{_p(s, 'commit_cost')} | {_p(s, 'cancel_ack', 'p99_ms')} | "
+                f"{_p(s, 'cancel_ack_pump', 'p99_ms')} | {_p(s, 'frame_age')} | "
+                f"{_p(s, 'texture_upload_tail')} | {s['mailbox_depth_max']} | "
+                f"{s['devices_seen']} | {s['cuda_errors']} |")
+        lines += [
+            "",
+            "`commit p95` (P2.2 item 2) is the per-generation main-thread commit "
+            "cost; a bounded commit is what lets `cancel_ack_pump p99` (P2.2 item "
+            "3/4 -- cancel_request(in-flight g) to the pump draining that gen's "
+            "idle_drain(g)) meet the <= 300 ms gate. `present_rate` (terminal "
+            "generations whose final publication blitted / eligible terminal "
+            "generations) and `frame_age` (per-publication mailbox_enqueue -> "
+            "first_blit, >= 0) are defined under `--ui-pattern settle`; when no "
+            "eligible terminal generation exists (the continuous stress storm) "
+            "`present_rate` is reported UNGRADEABLE, not 0.", ""]
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -1175,7 +1417,8 @@ def main():
     p.add_argument("--engine", default="CYCLES",
                    choices=["CYCLES", "CUSTOM_RAYTRACER"])
     p.add_argument("--mode", default="offline",
-                   choices=["offline", "interactive", "ui_latency"])
+                   choices=["offline", "interactive", "ui_latency",
+                            "present_check", "buffer_identity"])
     p.add_argument("--frames", type=int, default=30)
     p.add_argument("--width", type=int, default=512)
     p.add_argument("--height", type=int, default=512)
@@ -1232,6 +1475,17 @@ def main():
     p.add_argument("--warmup-s", dest="warmup_s", type=float, default=2.0)
     p.add_argument("--tick-s", dest="tick_s", type=float, default=0.005,
                    help="fine ticker interval (default 5 ms)")
+    # pkg241 P2.2 item 4: edit-dispatch pattern for --mode ui_latency.
+    p.add_argument("--ui-pattern", dest="ui_pattern", default="continuous",
+                   choices=["continuous", "settle"],
+                   help="continuous = an edit every tick (stress; present-rate "
+                        "undefined); settle = edit bursts + idle spans so "
+                        "completed/present-rate/frame-age are defined")
+    p.add_argument("--ui-burst-s", dest="ui_burst_s", type=float, default=0.4,
+                   help="settle pattern: seconds of edits per cycle")
+    p.add_argument("--ui-settle-s", dest="ui_settle_s", type=float, default=2.0,
+                   help="settle pattern: idle seconds per cycle (worker "
+                        "completes + presents the settling generation)")
     args = p.parse_args(argv)
     if args.cpu_events is None:
         args.cpu_events = args.events
@@ -1247,6 +1501,24 @@ def main():
         _write_summary_md(doc, args.out / f"{tag}-{args.label}-summary.md")
         print(f"[pkg241] wrote {json_path}")
         return
+
+    if args.mode == "present_check":
+        doc = run_present_check(args)
+        args.out.mkdir(parents=True, exist_ok=True)
+        tag = args.tag or _dt.date.today().isoformat()
+        json_path = args.out / f"{tag}-{args.label}.json"
+        json_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        print(f"[pkg241-p2] wrote {json_path}")
+        sys.exit(0 if doc.get("passed") else 1)
+
+    if args.mode == "buffer_identity":
+        doc = run_buffer_identity(args)
+        args.out.mkdir(parents=True, exist_ok=True)
+        tag = args.tag or _dt.date.today().isoformat()
+        json_path = args.out / f"{tag}-{args.label}.json"
+        json_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        print(f"[pkg241-p2] wrote {json_path}")
+        sys.exit(0 if doc.get("passed") else 1)
 
     if args.mode == "ui_latency":
         doc = run_ui_latency(args)

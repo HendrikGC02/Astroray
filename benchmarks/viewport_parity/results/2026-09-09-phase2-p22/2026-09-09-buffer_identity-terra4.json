@@ -1,0 +1,14 @@
+{
+  "schema": "astroray.viewport_parity.pkg241_p22_buffer_identity.v1",
+  "package": "pkg241",
+  "phase": "P2.2 item 5 (Buffer byte-identity bridge test)",
+  "generated_utc": "2026-09-08T17:42:29Z",
+  "host": "127.0.0.1:9877",
+  "passed": true,
+  "result": {
+    "equal": true,
+    "roundtrips": true,
+    "n_floats": 36636,
+    "n_diff": 0
+  }
+}

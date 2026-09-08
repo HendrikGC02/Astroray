@@ -302,6 +302,189 @@ All implementation gates UNRUN:
 
 ## Progress
 
+- [x] 2026-09-09 — **P2.2 scene-switch CUDA-corruption FIX — RTX VERIFIED (PR #777).**
+      Sonnet verification lane re-ran the exact `--mode present_check --scenes
+      metal_sweep big` reproduction that crashed 3/3 pre-fix, worker ON, RTX 5070 Ti,
+      isolated Blender 9877 / disposable profile / GPU lock held correctly, addon staged
+      from this branch's HEAD `6db733b5` (main-tree `.pyd`, zero native diff). Ran it in
+      **one continuous process** across both switch orders plus a third switch back (5
+      scene switches total): every `present_check` PASSED (n_present_calls 42-59,
+      max_present_std 1.06-1.13), and **zero** `illegal memory access`/`cudaMalloc
+      failed`/`launch error` lines appeared anywhere in the Blender log (was guaranteed
+      on every switch pre-fix). A follow-up realistic-settle `ui_latency` rep on `big` in
+      the same process, after all switches, confirms rendering stays fully functional:
+      2606 presents, tick-gap p95 8.53 ms (budget PASS), 0 CUDA errors. **The "NEW
+      BLOCKING FINDING" below is RESOLVED** — the P2.3 block on this defect is lifted.
+      Full detail:
+      `benchmarks/viewport_parity/results/2026-09-09-phase2-p22/2026-09-09-sceneswitch-verify.md`
+      / `.json`, and the `SUMMARY.md` "Scene-switch fix verification" section. PR #777
+      body updated (blocking-finding paragraph replaced with this result).
+- [x] 2026-09-09 — **P2.2 scene-switch CUDA-corruption FIX (PR #777; design §13a).**
+      Root-caused the blocking finding below: the spike's admission token is a
+      *per-worker* `threading.Lock`, so `render()` is serialised only WITHIN a session,
+      and §3.6's acknowledged-exit lifecycle owner was never implemented (only a
+      best-effort `Exporter.__del__`, which Blender does not guarantee runs before the
+      new file's engine starts a fresh worker). On a scene switch the old worker daemon
+      survives the file load and races the new worker's `render()` into the single
+      process-global `WfContext` ("Single render thread assumed",
+      `gpu_wavefront_snapshot.cu:988`) — the illegal access + `cudaMalloc` failure.
+      Fix (no native change): a process-global live-session registry +
+      `stop_all_viewport_sessions()`, installed lazily as a persistent bpy `load_pre`
+      handler + an `atexit` hook, draining every prior worker to acknowledged idle (or
+      quarantine) on the main thread BEFORE the incoming file replaces the scene.
+      `blender_addon/__init__.py` stays at the Buffer-only lines (hooks live in the
+      bpy-free `exporter` module). Regression `tests/test_pkg241_scene_switch.py` (5
+      tests): undrained peak concurrent renders into the shared device = 2 (the crash),
+      drained = 1. Full pkg241 bpy-free suite 34 passed + 1 skip. The full §3.5/§3.6
+      process-global token (multi-viewport), F12 pause gate, and stop_session/stop_all
+      split remain P2.3 (§13a).
+- [ ] 2026-09-09 — **P2.2 Post-fix graded measurement (Terra-4 instrument), third pass
+      (RTX 5070 Ti, isolated Blender 9877, disposable profile, GPU lock held correctly
+      for the whole session; PR #777; tables in
+      `benchmarks/viewport_parity/results/2026-09-09-phase2-p22/SUMMARY.md`
+      "Post-fix graded measurement" section):** the still-open "Post-fix GUI re-measure —
+      PENDING" item from the entry below is now DONE, against the current (Terra4-fixed)
+      build. **NEW BLOCKING FINDING surfaced by this pass:** `ASTRORAY_VIEWPORT_WORKER=1`
+      corrupts the CUDA context on an ordinary scene switch (metal_sweep <-> big)
+      mid-session — `stage_env_shadow`/`stage_shade_bucketed`/`stage_queue_iota` "illegal
+      memory access" + `allocateGPUWavefrontState: cudaMalloc failed`, reproduced 3/3
+      across two native `.pyd` candidates (this worktree's correct OpenMP-OFF Blender
+      build included), 0/1 with the worker OFF on the identical `.pyd` (clean switch, 0
+      errors). Isolated to the worker path specifically reacting to a full-scene-reload
+      commit, not to either scene alone, not to the pyd build. Leading hypothesis: the
+      same hazard explains the pre-terra4 `big`-scene `present_check`
+      `max_present_std=inf` outlier (milder manifestation, stale-buffer read instead of
+      a hard context poison) — re-running `big` in total isolation this pass gives clean
+      finite values (max ~9.8, std 1.06). **Methodology consequence:** every worker-ON
+      number this pass came from a freshly-launched, single-scene Blender process (never
+      switching `.blend` mid-session); the original combined `--scenes metal_sweep big`
+      `present_check` call was also run once and kept as crash evidence, not used for
+      gate numbers. **Confirmed working (Terra4 items 2/3/4):** progressive frame age is
+      non-negative in every sampled cell (was structurally negative pre-terra4, e.g. p50
+      -5628 ms); `--mode buffer_identity` (new) PASSES (equal=True, roundtrips=True,
+      n_diff=0); present-wiring PASSES both scenes in isolation (no `inf`); present_rate
+      correctly reports UNGRADEABLE (0 eligible terminal generations this pass, matching
+      pre-terra4's near-zero rate, not a regression). **Gate deltas vs the clean pre-fix
+      pass:** tick-gap p95 realistic-settle metal_sweep now FAILS both reps (40.03/37.95,
+      was a 39.5-FAIL/32.4-PASS coin flip); big stays PASS with a wider margin
+      (15.80/19.79 vs 30.86/30.88). cancel p99 continuous FAILS both scenes now
+      (390.71/470.85 vs pre-terra4 261.9-PASS/485.4-FAIL) — metal_sweep's read is not a
+      straight regression: Terra item 4 redefined cancel pairing to be generation-correct
+      (`cancel_request(in-flight g) -> idle_drain(g)`), so the two numbers measure
+      different things; big's FAIL verdict is unchanged. tick-gap p95 continuous-storm
+      unchanged (both FAIL, real). PR #777 body updated (replaced the "PENDING" section)
+      with the full gate table; **do not merge** — pending a decision on whether the
+      scene-switch CUDA-corruption fix must land before or alongside P2.3.
+- [ ] 2026-09-09 — **P2.2 CPU-contention correction, pre-terra4 build (RTX 5070 Ti,
+      isolated Blender 9877, GPU lock held correctly for the whole session via
+      `locks.acquire_lock` — never written directly; tables in
+      `benchmarks/viewport_parity/results/2026-09-09-phase2-p22/SUMMARY.md`
+      "Clean re-measurement" section, PR #777):** re-ran the original
+      2026-09-09 first-pass `ui_latency` measurements (below, "P2.2 code
+      delivered" entry) — this run is against the **pre-terra4** build
+      (`build_id 2beed0d+20260908T134329Z`, i.e. before the Terra review 4
+      item 2/3/4 instrument rewrite in the entry directly below), not the
+      Terra4 "Post-fix GUI re-measure" that entry still marks pending (P2.3
+      item 3) — because the branch was rebased and advanced by another lane
+      mid-session; do not read this entry as satisfying that pending item.
+      Purpose: the original first-pass tables ran 01:54-02:07 while an
+      unrelated worktree's CUDA build (nvcc/cl/ptxas, all cores) was compiling
+      01:38-02:08:27 — that lane overwrote the GPU lock file at 02:00 instead
+      of waiting, confounding its four `ui_latency` tables and the PR #777
+      body (`present_check` is a correctness check, not materially affected).
+      This pass isolates that variable: same code, no build running, lock held
+      correctly, plus one extra repetition of the realistic settle (0.3/6.0)
+      run per scene for spread. **Finding: the confound was real and it moved
+      one gate verdict** — cancel p99 under continuous stress for metal_sweep
+      (`cancel_ack_pump` p99) reads 261.9 ms clean vs 442.7 ms contended (PASS,
+      not FAIL); big stays a real FAIL (485.4 clean vs 785.2 contended, both
+      over the 300 ms budget). The realistic-settle tick-gap p95 for
+      metal_sweep is **not robust even clean**: two reps of the identical
+      config gave 39.5 ms (FAIL) then 32.4 ms (PASS), straddling the 33 ms
+      budget — report as borderline (big stayed a solid PASS both times,
+      30.9/30.9). The continuous-storm tick-gap p95 FAIL is confirmed real on
+      both scenes clean (206.0/70.3 vs contended 259/92, same verdict, lower
+      absolute numbers — not contention-driven). Present-wiring, buffer
+      upload, mailbox<=1, same device, 0 CUDA errors, and decoupling magnitude
+      all reproduce the same verdict clean as contended. Also noted: the
+      "big" scene's present_check `max_present_std` came back `inf` (a
+      ~1e30-scale outlier pixel value in the present buffer), reproducibly, in
+      both clean present_check runs — does not affect the PASS verdict but is
+      flagged for whoever does the Terra4/P2.3 post-fix re-measure next, since
+      it reproduces on the current code path too (present-wiring mechanism is
+      unchanged by the Terra4 items). **Net effect on the still-open Terra4
+      "Post-fix GUI re-measure — PENDING" item: unchanged** — it still needs a
+      fresh clean run against the current (Terra4) build; this entry only
+      retires the CPU-contention question for the pre-terra4 numbers so no one
+      re-litigates whether that confound mattered.
+- [ ] 2026-09-09 — **P2.2 Codex Terra review 4 (PR #777, call 3/4) — BLOCK, four items resolved**
+      (`feat/pkg241-phase2-p22-terra4` rebased onto origin/main 896d7f7c, fast-forwarded into
+      `feat/pkg241-phase2-p22`; full verdict + per-item resolutions in design doc §13). **Item 1
+      (unrelated #769/#772 reversions)**: rebase artifact — the branch predated PR #774; the rebase
+      dropped the deleted `test_issue769_*`/`test_issue772_*` tests and the `blender_module.cpp` /
+      `__init__.py` reversions (`git diff origin/main` clean, `__init__.py` plain `--stat` ==
+      `--ignore-space-at-eol`). **Item 2 (real defect)**: `_worker_view_update` pumped `present=True`
+      off the draw context, losing the queued frame; now `pump(present=False)` + a call-site test.
+      **Item 3 (settle instrument)**: implemented Terra (b) — publication-id + `terminal_publication`
+      marker, per-publication frame age (`first_blit(pub) - mailbox_enqueue(pub)` >= 0), terminal
+      completed-generation present-rate with UNGRADEABLE when no eligible terminal generation.
+      **Item 4 (cancel correlation)**: `cancel_request` only for the in-flight gen on false->true,
+      token released before idle enqueue, reducer pairs by generation (`cancel_request(g) ->
+      idle_drain(g)`). **Buffer byte-identity (Terra note)**: `--mode buffer_identity` GUI-bridge
+      test + a headless pytest that skips without a GPU context. **Terra (c) DEFERRED to P2.3**: the
+      coalesced dirty-domain deferred-replay restructures the incremental-sync path and is not
+      HW-verifiable in this lane; current behavior already coalesces N deferred edits to one full
+      sync per settle (not hidden behind the settle metric). pkg241 non-GPU suite 29 passed / 1
+      skipped; lint clean. Post-fix GUI re-measure (isolated Blender 9877, GPU lock held) tables in
+      `benchmarks/viewport_parity/results/2026-09-09-phase2-p22/SUMMARY.md` (-terra4 suffix).
+      **P2.3**: cancellation-bounded wavefront dispatch (`gpu_wavefront_snapshot.cu` between-pass
+      poll, interactive-resolution / sub-pass launches) + the coalesced commit + a clean re-measure
+      on an uncontended GPU.
+- [ ] 2026-09-08 — **P2.2 (design §12 items 1–5) code delivered** (`feat/pkg241-phase2-p22`,
+      branched from origin/main e18ba1a8; PR pending). All five items implemented as addon-Python
+      + benchmark code (no native change — the #768 GPU GIL-release native code is reused):
+  - **Item 1 (present wiring):** root cause = the spike built a `GPUTexture` in `_drain_mailbox`
+    reached from BOTH `view_draw` (valid draw context) AND the ~60 Hz `bpy.app.timers` pump (no draw
+    context); the timer's off-context present raised (swallowed) after clearing the depth-1 mailbox,
+    losing the only pending frame before `view_draw` could present it → `_viewport_texture` stayed
+    None → grid. Fix: `_ViewportSpikeWorker.pump(present=…)` — the timer calls `pump(present=False)`
+    (control-plane advance + `tag_redraw` only), `view_draw` calls `pump()` (present) in its draw
+    context. Bridge test `--mode present_check` (pixel read-back) added.
+  - **Item 5 (`gpu.types.Buffer` sync flip):** the ~195 ms/present `flat.tolist()` upload flipped ON
+    unconditionally (was worker-flag-gated); byte-identical (SPIKE-SUMMARY §9).
+  - **Item 2 (bounded main-thread commit):** `_worker_commit_and_submit(commit_mode=…)` — camera-only
+    commits skip the scene sync (`skip_upload`), an idle-time material edit uses the incremental pkg56
+    dispatch with its live depsgraph instead of a full `sync_viewport_scene`; only a scene edit deferred
+    while the worker was busy falls back to a full sync. Per-generation `commit_cost` reduced by the driver.
+  - **Item 3 (cancel-ack through the pump):** worker `idle_ack` at enqueue + new `idle_drain` when the
+    main-thread pump consumes it; driver reports `cancel_ack` (worker-side) and `cancel_ack_pump`
+    (end-to-end, the p99≤300 ms gate).
+  - **Item 4 (settle instrument):** `--mode ui_latency --ui-pattern settle` (edit bursts + idle spans)
+    so completed/present-rate/frame-age are defined; `continuous` stays the stress default.
+  - **Tests:** in-process spike-worker suite (present-wiring fix test added) + driver-reduction unit
+    test (commit_cost, cancel_ack_pump, present-rate) — addon/viewport subset 77/77 green.
+  - **GUI measurement DONE (2026-09-09, RTX 5070 Ti, isolated Blender 9877, GPU lock held; tables in
+    `benchmarks/viewport_parity/results/2026-09-09-phase2-p22/SUMMARY.md`, PR #777):**
+    - **present_check PASS both scenes** (metal_sweep 62 presents std 1.06, big 29 std 2.37 > 1e-4
+      floor) — item-1 present wiring confirmed. Two harness bugs fixed first (commit `f9e0fa17`): a
+      POST_PIXEL `gpu` framebuffer read-back crashed Blender (C-level AV in tbbmalloc, uncatchable) —
+      removed; and the present-count wrapper on `Exporter._worker_present` never fired (worker captures
+      `present_fn` before the recorder installs) — rewrapped `_ViewportSpikeWorker._drain_mailbox`.
+    - **Decoupling holds:** worker-ON settle p50 6.5 ms / p95 25-29 ms vs sync baseline p50 81-146 ms /
+      p95 169-230 ms (~6-22x); presents ~200-370 -> ~3900. mailbox <= 1, device [0], 0 CUDA errors
+      throughout. Correctness comparator inherited (zero native diff vs spike main; 9.5e-7).
+    - **tick-gap p95 PASSES under realistic settle** (0.3/6.0: 28.6/24.8; big passes at 0.4/2.0 too);
+      FAILS under the adversarial continuous 5 ms edit storm (259/92) — residual is the main-thread
+      commit (item 2 falls back to full sync when the worker is busy; commit p95 245-555 ms but only
+      8-16 commits/run, a tail not the p95 driver).
+    - **cancel p99 FAILS under continuous** (443/785 ms > 300; worker finishes its in-flight chunk
+      before idle). Settle-mode cancel p99 (569-6378) is an idle-worker measurement artifact.
+    - **present_rate UNGRADEABLE:** `completed`=0 in every pattern (progressive-chunk `render_end` +
+      continuous `request` events => every finished gen scored superseded; `frame_age` negative). An
+      item-4 instrument gap, not a worker failure — present_check independently proves frames present.
+      Widening settle 2s->6s did not change it. Metric fix deferred to the lead (avoid moving goalposts).
+    - **Lead decision needed:** A2 stands (wiring restored, main thread decoupled, correctness intact);
+      residual real failures are the commit cost under sustained edits + finish-the-chunk cancel latency.
 - [x] 2026-09-08 ~16:00 — **A2 spike measured (PR #768) — LEAD DECISION: A2 stands, no A1.** Model proven (max-abs 9.5e-7 vs the synchronous path, same device, 0 CUDA errors, proxy p95 5.9 ms, GUI p50 7.1 ms vs 158/233 ms before); GUI p95 94/75 ms and cancel p99 341/583 ms still over budget, owned by P2.2 items 1–5 in design doc §12 (present wiring, bounded incremental commit, cancel-ack through the pump, settle-window instrument, `gpu.types.Buffer` upload for the synchronous path — the `tolist()` upload cost 195 ms per present). Merge #768 as flag-gated infrastructure once CI + cpp-abi-guard pass.
 - [ ] 2026-09-08 — Phase 2 **A2 spike** implemented (`feat/pkg241-phase2-a2-spike`, PR #768): the design §9 "code touched", flag-gated on `ASTRORAY_VIEWPORT_WORKER=1` (synchronous path byte-identical when unset). Native (§3.7): the GPU `py::gil_scoped_release` widened over `cuda_wavefront_render` -> copy-back -> `applyPasses` (re-acquired before the NumPy packaging tail) via `std::optional`, + `cudaSetDevice(0)` on GPU render entry and a `cudaGetDevice` readback exposed as `last_render_info()['device']` for the §9 same-device assertion; parity-neutral. Addon (§3.2-§3.4): `_ViewportSpikeWorker` (bpy-free) — spike-local token handed main->worker, daemon thread runs only `renderer.render` + pass extraction + private numpy accumulate, depth-1 latest-frame mailbox + separate control/error queue, main-thread pump with by-class notification validation (late `idle(N)` after desired N+2 advances the machine; superseded frames discarded; errors for a superseded gen still processed), `stop()` pumps to ack before release (no-ack quarantine); wired into `view_update`/`view_draw` behind the flag. Recorder+driver (§9): generation-tagged event schema + per-generation reduction (request->first_blit, frame age, cancel-ack, texture-upload tail, mailbox depth, present-rate, per-gen device + CUDA-error count). Tests: 7 in-process worker tests + native null-callback-omitted-vs-None byte-identity + device sentinel/GPU-zero. **Measured (RTX 5070 Ti, PR #768 — full §9 table in `benchmarks/viewport_parity/results/2026-09-08-phase2-spike/SPIKE-SUMMARY.md`):** cancellation 9/9; correctness comparator PASS (seed 12345, 2112×829, 64 spp, linear — same_device=True, mean-ratio [1,1,1], max-abs 9.5e-07); decoupling proxy PASS (sync 4435 ms vs worker p95 **5.94 ms** — the §3.7 GIL/thread mechanism frees the main thread). GUI ui_latency needed the §9 texture-tail fix (`gpu.types.Buffer`-from-numpy, 195→0 ms, byte-identical); after it tick-gap p50 dropped to 7.1 ms but **p95 94/75 ms (>33, no longer texture-attributable) and cancel p99 341/583 ms (>300) still fail**; `completed=0`/present-rate undefined is a never-settling-ticker confound and frames do not visibly reach the screen (present-wiring). **Verdict: pinned gates fail (strict NO-GO) but the proxy falsifies the "model not viable" inference — the residual is main-thread commit + a present-wiring bug + the measurement confound, not the cross-thread primary-context model. Fork surfaced to the lead (bounded P2.2 integration pass + re-measure, vs A1 native session); do not mechanically route to A1.**
 - [ ] 2026-09-08 — Phase 2 design **Revision 4** written: Terra review 3 (call 2/4) returned **BLOCK** with seven ordered items; all resolved in `pkg241-phase2-offthread-design-2026-09-08.md` §3.1 (complete device-state inventory + token held from main-thread commit through completed `render()` and worker pass extraction; F12 acquires the token before ALL F12-side prep), §3.2/§3.3 (snapshot gains `reset_accumulation`/spp/chunk-sizing/accumulator-transfer semantics + worker-side pass extraction under the token + bounded latest-frame mailbox, depth 1, ~60-80 MiB/session bound), §3.4 (notification validation split into data-plane frame / control-plane idle-exited / error classes fixing the late-`idle(N)` contradiction; F12/teardown 5 s GIL-yielding timeout), §3.5/§3.6 (F12 no-ack quarantine; `stop_session` vs `stop_all` idempotent split; `load_pre`/`atexit` timeout; no `engine.report` during disposal), §3.8 (accumulated guide-AOV weighting/reset/immutable publication + settled denoise as a worker token-holding job that discards on edit), §9 (generation-tagged event schema, recorder+driver as touched files, pinned comparator: nonzero seed + res/divisor + spp + linear + ±5 % mean-ratio AND max-abs-diff ≤ 2.0e-2 with derivation, present-rate ≥ 0.9 × completed gens, mailbox-depth ≤ 1, texture-tail exemption rule); tests 18-23 added to §5; verbatim review pasted as §11. Lead verifies Revision 4 against the seven items, then dispatches the spike without another Terra call.

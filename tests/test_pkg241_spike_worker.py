@@ -109,6 +109,40 @@ def test_worker_publishes_a_frame_and_pump_presents_it():
         h.teardown()
 
 
+def test_control_only_pump_does_not_present_but_preserves_the_frame():
+    """pkg241 P2.2 item 1: the bpy.app.timers liveness pump calls pump(present=False)
+    so it never builds a GPUTexture off a draw context. It must still advance the
+    control-plane state machine (idle -> IDLE) but must NOT consume the mailbox
+    frame; a later pump() from the view_draw draw context then presents it. This is
+    the fix for the spike's presented=0 (the timer ate the only pending frame in an
+    invalid GPU context and it was lost before view_draw could present it)."""
+    gate = threading.Event()
+
+    def render_fn(job, cancel_check, publish):
+        publish(_frame(0.7), 2, 2)
+        gate.set()
+
+    h = _Harness(render_fn)
+    try:
+        h.edit_and_submit()
+        assert _wait(gate.is_set)
+        assert _wait(lambda: not h.worker._control.empty())
+        assert _wait(lambda: h.worker.mailbox_depth == 1)
+        # Timer-style pump: advances the state machine but presents nothing and
+        # leaves the frame in the mailbox for the draw-context pump.
+        h.worker.pump(present=False)
+        assert h.worker.state == Worker.IDLE          # control advanced
+        assert h.presented == []                      # nothing presented off-context
+        assert h.worker.mailbox_depth == 1            # frame preserved, not lost
+        # view_draw-style pump (draw context): now presents the preserved frame.
+        h.worker.pump()
+        assert len(h.presented) == 1
+        assert np.allclose(h.presented[0][0], 0.7)
+        assert h.worker.presents == 1
+    finally:
+        h.teardown()
+
+
 def test_view_draw_blit_reads_frame_without_triggering_render():
     """After a frame is published, repeated pumps (the view_draw/timer liveness
     loop) must NOT call render_fn again while nothing new is desired — view_draw
@@ -285,3 +319,93 @@ def test_stop_pumps_control_queue_before_release():
     assert released is True                       # acknowledged before release
     assert h.worker.in_flight_generation is None  # idle was pumped
     assert not h.worker.is_alive()                # thread joined, not leaked
+
+
+def test_worker_view_update_pumps_control_only_preserving_the_frame():
+    """pkg241 P2.2 item 2 (Terra review 4) — CALL-SITE test: Exporter._worker_
+    view_update must pump the worker with present=False (it is not a GPU draw
+    context). If it pumped with the default present=True, _drain_mailbox would
+    clear the depth-1 mailbox off a draw context and lose the queued frame before
+    view_draw could present it — exactly the spike's presented=0 grid. This spies
+    the actual view_update call site rather than the worker's pump() in isolation
+    (which test_control_only_pump_does_not_present_but_preserves_the_frame covers).
+    """
+    import types
+
+    pump_calls = []
+
+    class _FakeWorker:
+        def request(self):
+            pass
+
+        def pump(self, present=True):
+            pump_calls.append(present)
+
+    fake_worker = _FakeWorker()
+
+    # Minimal fake Exporter self: only the attributes _worker_view_update touches.
+    fake_self = types.SimpleNamespace()
+    fake_self.engine = types.SimpleNamespace(report=lambda *a, **k: None)
+    fake_self._ensure_worker = lambda em, redraw: fake_worker
+    fake_self._worker_deferred_scene = False
+    fake_self._viewport_camera_hash = None
+    fake_self._viewport_camera_substantive_hash = None
+    # commit succeeds (worker idle) so the deferred-scene branch is not taken.
+    fake_self._worker_commit_and_submit = lambda *a, **k: True
+
+    settings = object()
+    region = types.SimpleNamespace(width=64, height=64)
+    context = types.SimpleNamespace(region=region)
+    scene = types.SimpleNamespace(custom_raytracer=settings)
+    depsgraph = types.SimpleNamespace(scene=scene)
+    engine_methods = {"resolve_settings": lambda sc, rep: settings}
+
+    exporter.Exporter._worker_view_update(
+        fake_self, context, depsgraph,
+        configure_backend_fn=lambda *a, **k: None,
+        effective_integrator_name_fn=lambda *a, **k: "path",
+        viewport_perf_record_fn=lambda *a, **k: None,
+        camera_state_hash_fn=lambda ctx, reg: 1,
+        camera_substantive_state_hash_fn=lambda ctx, reg: 1,
+        request_viewport_redraw_fn=lambda: None,
+        engine_methods=engine_methods)
+
+    # The single pump in view_update must be control-plane only (present=False).
+    assert pump_calls == [False]
+
+
+def test_cancel_request_emitted_only_for_in_flight_generation_once():
+    """pkg241 P2.2 item 4 (Terra review 4): request() emits cancel_request only
+    for the ACTUAL in-flight generation and only on the false->true transition of
+    the cancel flag — never while IDLE, never repeated while already cancelling."""
+    gate = threading.Event()
+    entered = threading.Event()
+
+    def render_fn(job, cancel_check, publish):
+        entered.set()
+        while not gate.is_set() and not cancel_check():
+            time.sleep(0.005)
+
+    captured = []
+    orig_sink = exporter._spike_event_sink
+    exporter._spike_event_sink = lambda name, gen, t, epoch, extra: \
+        captured.append((name, gen))
+    h = _Harness(render_fn)
+    try:
+        # request while IDLE (nothing in flight) -> NO cancel_request.
+        h.worker.request()  # desired 1
+        assert [e for e in captured if e[0] == "cancel_request"] == []
+        h.worker.maybe_submit(h.commit)  # submit gen 1, clears cancel flag
+        assert _wait(entered.is_set)
+        # first edit while gen 1 renders -> one cancel_request(1) (false->true).
+        h.worker.request()  # desired 2
+        cancels = [e for e in captured if e[0] == "cancel_request"]
+        assert cancels == [("cancel_request", 1)]
+        # repeated edit while already cancelling -> NO further cancel_request.
+        h.worker.request()  # desired 3, cancel flag already set
+        cancels = [e for e in captured if e[0] == "cancel_request"]
+        assert cancels == [("cancel_request", 1)]
+        gate.set()
+    finally:
+        exporter._spike_event_sink = orig_sink
+        h.teardown()

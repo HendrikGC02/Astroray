@@ -1,0 +1,196 @@
+{
+  "schema": "astroray.viewport_parity.pkg241_phase2_ui_latency.v1",
+  "package": "pkg241",
+  "phase": "2 (UI event latency while a viewport chunk renders)",
+  "generated_utc": "2026-09-08T16:02:40Z",
+  "host": "127.0.0.1:9877",
+  "budgets": {
+    "ui_latency_p95_ms": 33.0
+  },
+  "protocol": {
+    "bridge": "Blender Lab mcp socket; execute requests over localhost",
+    "recorder": "blender_recorder.py _install_ui_latency: a bpy.app.timers ticker at tick_s (default 5 ms) records its own invocation timestamps while every tick also dispatches the next camera/material edit + tag_redraw, so the main thread is continuously either running the ticker or blocked inside the redraw/render that ticker just triggered -- never idle (avoids the Phase 0 idle-window timer-throttling artifact structurally rather than via OS input injection).",
+    "metric": "tick-gap p50/p95/p99/max (ms); a gap >> tick_s is main-thread blocking. blocked_time_fraction_from_ticks = sum(max(0, gap - tick_s)) / total wall time -- computed identically for both engines from the ticks alone, so it needs no engine-specific hook.",
+    "cross_check": "render_time_fraction = time inside Exporter.render_viewport_frame / total wall time (Astroray only -- Cycles has no Python view_update/view_draw hook to wrap). Presents (POST_PIXEL draw-handler) count is recorded for both engines as a liveness check that the viewport was actually refining, not idle.",
+    "warmup_discarded_s": 2.0,
+    "duration_s_per_rep": 20.0,
+    "reps": 2,
+    "tick_s": 0.005
+  },
+  "configs": [
+    {
+      "scene": "metal_sweep",
+      "tris": 2220,
+      "region": [
+        2112,
+        829
+      ],
+      "engine": "astroray",
+      "gpu": "astroray-gpu",
+      "reps": 2,
+      "duration_s": 20.0,
+      "warmup_s": 2.0,
+      "tick_s": 0.005,
+      "nominal_tick_ms": 5.0,
+      "gap_ms": {
+        "n": 3705,
+        "mean_ms": 10.82,
+        "p50_ms": 6.53,
+        "p95_ms": 28.57,
+        "p99_ms": 91.7,
+        "max_ms": 669.96
+      },
+      "total_wall_ms": 40084.4,
+      "n_ticks": 3707,
+      "n_renders": 0,
+      "n_presents": 3849,
+      "render_ms_total": 0.0,
+      "blocked_time_fraction_from_ticks": 0.5379,
+      "render_time_fraction": 0.0,
+      "engine_has_render_hooks": true,
+      "truncated": false,
+      "spike": {
+        "n_events": 1494,
+        "request_to_first_blit": {
+          "n": 8,
+          "p50_ms": 819.96,
+          "p95_ms": 1475.05,
+          "p99_ms": 1475.05,
+          "max_ms": 1475.05
+        },
+        "frame_age": {
+          "n": 6,
+          "p50_ms": -5617.58,
+          "p95_ms": -5116.61,
+          "p99_ms": -5116.61,
+          "max_ms": -5116.61
+        },
+        "commit_cost": {
+          "n": 8,
+          "p50_ms": 222.44,
+          "p95_ms": 345.81,
+          "p99_ms": 345.81,
+          "max_ms": 345.81
+        },
+        "cancel_ack": {
+          "n": 62,
+          "p50_ms": 228.67,
+          "p95_ms": 524.6,
+          "p99_ms": 569.42,
+          "max_ms": 6425.94
+        },
+        "cancel_ack_pump": {
+          "n": 62,
+          "p50_ms": 231.3,
+          "p95_ms": 526.62,
+          "p99_ms": 572.39,
+          "max_ms": 6428.34
+        },
+        "texture_upload_tail": {
+          "n": 50,
+          "p50_ms": 19.41,
+          "p95_ms": 61.03,
+          "p99_ms": 79.94,
+          "max_ms": 79.94
+        },
+        "mailbox_depth_max": 1,
+        "completed_generations": 0,
+        "superseded_generations": 8,
+        "presented_completed": 0,
+        "present_rate": null,
+        "devices_seen": [
+          0
+        ],
+        "n_render_device": 603,
+        "cuda_errors": 0
+      }
+    },
+    {
+      "scene": "big",
+      "tris": 101920,
+      "region": [
+        2100,
+        1221
+      ],
+      "engine": "astroray",
+      "gpu": "astroray-gpu",
+      "reps": 2,
+      "duration_s": 20.0,
+      "warmup_s": 2.0,
+      "tick_s": 0.005,
+      "nominal_tick_ms": 5.0,
+      "gap_ms": {
+        "n": 3731,
+        "mean_ms": 10.74,
+        "p50_ms": 6.53,
+        "p95_ms": 24.79,
+        "p99_ms": 83.08,
+        "max_ms": 724.74
+      },
+      "total_wall_ms": 40063.8,
+      "n_ticks": 3733,
+      "n_renders": 0,
+      "n_presents": 3890,
+      "render_ms_total": 0.0,
+      "blocked_time_fraction_from_ticks": 0.5344,
+      "render_time_fraction": 0.0,
+      "engine_has_render_hooks": true,
+      "truncated": false,
+      "spike": {
+        "n_events": 1474,
+        "request_to_first_blit": {
+          "n": 8,
+          "p50_ms": 1433.53,
+          "p95_ms": 1674.2,
+          "p99_ms": 1674.2,
+          "max_ms": 1674.2
+        },
+        "frame_age": {
+          "n": 6,
+          "p50_ms": -5092.39,
+          "p95_ms": -4610.84,
+          "p99_ms": -4610.84,
+          "max_ms": -4610.84
+        },
+        "commit_cost": {
+          "n": 8,
+          "p50_ms": 319.23,
+          "p95_ms": 542.28,
+          "p99_ms": 542.28,
+          "max_ms": 542.28
+        },
+        "cancel_ack": {
+          "n": 71,
+          "p50_ms": 200.1,
+          "p95_ms": 754.56,
+          "p99_ms": 6378.22,
+          "max_ms": 6525.95
+        },
+        "cancel_ack_pump": {
+          "n": 72,
+          "p50_ms": 194.98,
+          "p95_ms": 704.62,
+          "p99_ms": 775.49,
+          "max_ms": 6527.43
+        },
+        "texture_upload_tail": {
+          "n": 31,
+          "p50_ms": 29.58,
+          "p95_ms": 93.05,
+          "p99_ms": 175.99,
+          "max_ms": 175.99
+        },
+        "mailbox_depth_max": 1,
+        "completed_generations": 0,
+        "superseded_generations": 9,
+        "presented_completed": 0,
+        "present_rate": null,
+        "devices_seen": [
+          0
+        ],
+        "n_render_device": 600,
+        "cuda_errors": 0
+      }
+    }
+  ]
+}

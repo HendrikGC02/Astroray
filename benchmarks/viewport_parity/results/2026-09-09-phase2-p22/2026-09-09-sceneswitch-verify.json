@@ -1,0 +1,62 @@
+{
+  "schema": "astroray.viewport_parity.pkg241_p22_sceneswitch_verify.v1",
+  "package": "pkg241",
+  "pr": 777,
+  "phase": "P2.2 scene-switch CUDA-corruption fix verification (design doc S13a, PR #777)",
+  "generated_utc": "2026-09-09T06:55:00Z",
+  "environment": {
+    "gpu": "RTX 5070 Ti",
+    "blender": "5.2.0 LTS, isolated GUI, port 9877, disposable profile",
+    "mcp_port_9876_touched": false,
+    "worker": "ASTRORAY_VIEWPORT_WORKER=1",
+    "addon_source": "worktree HEAD 6db733b5 (feat/pkg241-phase2-p22)",
+    "native_pyd": "main-tree canonical build_cuda/astroray.cp313-win_amd64.pyd (zero native diff vs this branch; predates unrelated main commits 896d7f7c/015e3d30 which touch only TexturedLight material + energy-compensation status binding, not viewport-worker/session code)",
+    "gpu_lock_held": true
+  },
+  "reproduction": "benchmarks/viewport_parity/blender_driver.py --mode present_check --scenes metal_sweep big (the exact call that crashed pre-fix: illegal memory access in stage_env_shadow/stage_shade_bucketed, cudaMalloc failed for s.pixel_index)",
+  "runs": [
+    {
+      "id": "run1-AtoB",
+      "order": "metal_sweep -> big",
+      "result_file": "sceneswitch-run1-AtoB-phase0.json",
+      "scenes": [
+        {"scene": "metal_sweep", "n_present_calls": 59, "max_present_std": 1.1334, "passed": true},
+        {"scene": "big", "n_present_calls": 45, "max_present_std": 1.0601, "passed": true}
+      ],
+      "cuda_errors_in_log": 0
+    },
+    {
+      "id": "run2-BtoA",
+      "order": "big -> metal_sweep",
+      "result_file": "sceneswitch-run2-BtoA-phase0.json",
+      "scenes": [
+        {"scene": "big", "n_present_calls": 42, "max_present_std": 1.0626, "passed": true},
+        {"scene": "metal_sweep", "n_present_calls": 59, "max_present_std": 1.0607, "passed": true}
+      ],
+      "cuda_errors_in_log": 0
+    },
+    {
+      "id": "run3-thirdswitch",
+      "order": "metal_sweep -> big (third switch)",
+      "result_file": "sceneswitch-run3-thirdswitch-phase0.json",
+      "scenes": [
+        {"scene": "big", "n_present_calls": 44, "max_present_std": 1.0595, "passed": true}
+      ],
+      "cuda_errors_in_log": 0
+    },
+    {
+      "id": "postswitch-settle-big",
+      "description": "one worker-ON realistic-settle ui_latency rep on big, same live process, after 4 scene switches -- confirms rendering still works post-switch",
+      "result_file": "sceneswitch-postswitch-settle-big-phase0.json",
+      "config": "--ui-pattern settle --ui-burst-s 0.3 --ui-settle-s 6.0 --duration-s 20",
+      "measured": {
+        "n_ticks": 2467, "n_presents": 2606, "n_render_device": 146,
+        "gap_p50_ms": 7.01, "gap_p95_ms": 8.53, "gap_p99_ms": 28.88, "gap_max_ms": 294.17,
+        "cuda_errors": 0
+      }
+    }
+  ],
+  "total_scene_switches": 5,
+  "total_cuda_errors_all_runs": 0,
+  "verdict": "PASS -- the NEW BLOCKING FINDING (viewport worker corrupts the CUDA context on a scene switch, 3/3 pre-fix) does NOT reproduce post-fix. 4 successive .blend switches (metal_sweep<->big, both orders, plus a third switch) in one continuous worker-ON Blender process produced zero CUDA errors and every present_check PASS. A follow-up realistic-settle ui_latency rep on big in the same process after all switches confirms rendering is still fully functional (2606 presents, 0 CUDA errors, tick-gap p95 8.53ms well under the 33ms budget)."
+}

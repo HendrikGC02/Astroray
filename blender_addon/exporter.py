@@ -21,6 +21,7 @@ Design:
   - Datablock-grained granularity (no per-property minimal diffs — RH4 non-goal).
 """
 
+import atexit
 import os
 import queue
 import threading
@@ -52,6 +53,99 @@ _spike_event_sink = None
 # the leaked renderer alive so Python finalisation cannot destroy it out from
 # under a still-running worker thread (never a use-after-free). Terminal.
 _WORKER_QUARANTINE = []
+
+# pkg241 Phase 2.2 (§3.6 lifecycle owner): the process-global live-session
+# registry + stop_all. WHY THIS EXISTS (PR #777 scene-switch CUDA corruption):
+# the wavefront GPU render reaches one process-global WfContext singleton whose
+# contract is "Single render thread assumed" (gpu_wavefront_snapshot.cu:988).
+# Each viewport session owns its OWN worker daemon thread with its OWN per-worker
+# token (a threading.Lock), so the token serialises render() only WITHIN a
+# session, never ACROSS sessions. When the open .blend is switched mid-session,
+# Blender frees the old RenderEngine but does NOT guarantee Exporter.__del__ runs
+# before the new file's engine constructs a fresh worker; the old worker daemon
+# survives the load and its render() races the new worker's render() into the
+# shared WfContext -> "illegal memory access" in stage_env_shadow /
+# stage_shade_bucketed and "cudaMalloc failed for s.pixel_index". stop_all,
+# invoked from a bpy load_pre handler and atexit (registered in __init__.py),
+# drains EVERY live session to acknowledged exit (or quarantine) on the main
+# thread BEFORE the new .blend replaces the scene, so no two workers ever touch
+# the WfContext at once. The registry holds Exporter instances (strong refs only
+# while live; stop_worker removes them).
+_LIVE_VIEWPORT_SESSIONS = []
+
+
+def _register_viewport_session(exporter):
+    """Record a live viewport session (Exporter with a running worker) so
+    stop_all can drain it before a file switch (§3.6). Idempotent."""
+    if exporter not in _LIVE_VIEWPORT_SESSIONS:
+        _LIVE_VIEWPORT_SESSIONS.append(exporter)
+
+
+def _unregister_viewport_session(exporter):
+    """Drop a session from the live registry once its worker has been drained."""
+    try:
+        _LIVE_VIEWPORT_SESSIONS.remove(exporter)
+    except ValueError:
+        pass
+
+
+def stop_all_viewport_sessions():
+    """§3.6 stop_all — drain EVERY live viewport worker to acknowledged exit (or
+    quarantine) BEFORE a new .blend replaces the scene. Registered as the bpy
+    load_pre handler and the atexit hook in __init__.py. This is the fix for the
+    scene-switch CUDA corruption (PR #777): without it the previous session's
+    worker daemon thread survives the file load and races the process-global
+    wavefront WfContext against the incoming session's worker. Runs on the main
+    thread; each stop_worker cancels + pumps until the worker acks (bounded 5 s),
+    quarantining a no-ack worker rather than freeing its renderer. Idempotent."""
+    # Iterate a snapshot: stop_worker mutates the registry via
+    # _unregister_viewport_session during the loop.
+    for exporter in _LIVE_VIEWPORT_SESSIONS[:]:
+        try:
+            exporter.stop_worker()
+        except Exception:
+            pass
+    _LIVE_VIEWPORT_SESSIONS.clear()
+
+
+def _load_pre_drain(*_args):
+    """bpy load_pre handler body (§3.6): fires BEFORE the incoming .blend replaces
+    the scene, draining every live viewport worker so the old session's daemon
+    thread cannot race the new session's render() through the shared WfContext."""
+    stop_all_viewport_sessions()
+
+
+_LIFECYCLE_HOOKS_INSTALLED = False
+
+
+def _install_lifecycle_hooks():
+    """Register the §3.6 drain hooks exactly once, lazily, from the first worker
+    start (which only happens inside a real Blender session). Kept out of
+    module import + out of __init__.py so the bpy-free unit tests never touch bpy
+    and the __init__.py diff stays at the Buffer-only lines. Idempotent:
+
+      - a persistent bpy `load_pre` handler — drains before every file switch
+        (PR #777 scene-switch CUDA corruption fix);
+      - an `atexit` hook — ordered cancel + drain on a clean interpreter quit.
+
+    Both are guarded: if bpy is absent (headless stub) only atexit is installed."""
+    global _LIFECYCLE_HOOKS_INSTALLED
+    if _LIFECYCLE_HOOKS_INSTALLED:
+        return
+    _LIFECYCLE_HOOKS_INSTALLED = True
+    try:
+        atexit.register(stop_all_viewport_sessions)
+    except Exception:
+        pass
+    try:
+        import bpy
+        # Mark persistent so the handler survives across file loads, then append
+        # once (identity membership check avoids a duplicate on re-register).
+        bpy.app.handlers.persistent(_load_pre_drain)
+        if _load_pre_drain not in bpy.app.handlers.load_pre:
+            bpy.app.handlers.load_pre.append(_load_pre_drain)
+    except Exception:
+        pass
 
 
 def _emit_spike_event(name, generation, session_epoch, **extra):
@@ -357,10 +451,15 @@ class _ViewportSpikeWorker:
 
         # depth-1 latest-frame mailbox (§3.3): a newer frame REPLACES an unconsumed
         # older one; depth never exceeds 1. Protected by _mailbox_lock.
-        self._mailbox = None       # (generation, buffer, width, height) or None
+        self._mailbox = None       # (generation, pub_id, buffer, width, height) or None
         self._mailbox_lock = threading.Lock()
         self.mailbox_depth = 0
         self.mailbox_depth_max = 0
+        # pkg241 P2.2 item 3 (Terra review 4): a monotonic publication id per chunk
+        # so frame age is measured per PUBLICATION (enqueue -> first_blit, >= 0) and
+        # a generation's terminal (final, uncancelled) publication can be marked.
+        self._pub_seq = 0
+        self._last_pub_id = None
 
         # control/error queue (§3.3) — never dropped, unlike stale frames.
         self._control = queue.Queue(maxsize=64)
@@ -394,9 +493,18 @@ class _ViewportSpikeWorker:
         bump desired_generation and request cancel of any in-flight chunk (§3.4).
         Non-blocking: does NOT commit or join. Returns the new desired generation."""
         self.desired_generation += 1
-        self._cancel_event.set()
         _emit_spike_event("request", self.desired_generation, self.session_epoch)
-        _emit_spike_event("cancel_request", self.desired_generation, self.session_epoch)
+        # pkg241 P2.2 item 4 (Terra review 4): emit cancel_request only for the
+        # actual in-flight generation, and only on the false->true transition of
+        # the cancel flag. A request while IDLE (nothing in flight) or a repeated
+        # request for an already-cancelling render is NOT a cancel of a real
+        # render — recording those made the settle cancel p99 pair with an
+        # unrelated idle and go invalid. The cancel is tagged with the in-flight
+        # generation g so the reducer can pair it with idle_ack(g)/idle_drain(g).
+        if self.in_flight_generation is not None and not self._cancel_event.is_set():
+            _emit_spike_event("cancel_request", self.in_flight_generation,
+                              self.session_epoch)
+        self._cancel_event.set()
         return self.desired_generation
 
     def maybe_submit(self, commit_fn):
@@ -434,12 +542,28 @@ class _ViewportSpikeWorker:
         self._job_ready.set()
         return True
 
-    def pump(self):
-        """Main thread timer tick / every view_draw: drain the control queue and
-        the mailbox, present the freshest valid frame, and advance the state
-        machine (§3.4). bpy-free — present_fn does the GPUTexture work."""
+    def pump(self, present=True):
+        """Advance the session state machine (§3.4).
+
+        Always drains the control queue (idle/error notifications — bpy-free, safe
+        from any main-thread context, including a bpy.app.timers callback). The
+        mailbox drain, which builds a GPUTexture via present_fn, is gated on
+        `present`: it MUST run only from a real GPU draw context (view_draw), never
+        from the bpy.app.timers liveness pump.
+
+        pkg241 P2.2 item 1 (present-wiring fix): the spike called pump() with the
+        present branch from BOTH view_draw and the ~60 Hz timer. Creating a
+        GPUTexture off a draw context is unsafe and raised (swallowed by the
+        timer's try/except); because _drain_mailbox clears the depth-1 mailbox
+        before presenting, the only pending frame was consumed and lost before
+        view_draw could present it in a valid context, so _viewport_texture stayed
+        None and the blit fell through to Blender's grid. The timer now calls
+        pump(present=False) (state advance + tag_redraw only); view_draw calls
+        pump() (present=True) inside its draw context, where the GPUTexture upload
+        and blit are valid."""
         self._drain_control()
-        self._drain_mailbox()
+        if present:
+            self._drain_mailbox()
 
     def stop(self, timeout=5.0):
         """Main thread teardown (§3.4/§3.6): request cancel and PUMP the control
@@ -494,6 +618,13 @@ class _ViewportSpikeWorker:
                     self.in_flight_generation = None
                     if self.state == self.RENDERING:
                         self.state = self.IDLE
+                    # pkg241 P2.2 item 3: the idle notification is DRAINED here, on
+                    # the main thread. idle_ack was emitted worker-side at enqueue;
+                    # idle_drain marks when the main-thread pump actually consumed
+                    # it (which waits behind any in-progress commit — bounded by
+                    # item 2). cancel_request -> idle_drain is the true end-to-end
+                    # cancel-ack the p99 <= 300 ms gate is measured against.
+                    _emit_spike_event("idle_drain", gen, self.session_epoch)
             elif kind == "error":
                 # Errors are never dropped for a superseded generation (a
                 # superseded render can still corrupt the shared WfContext); only
@@ -512,25 +643,29 @@ class _ViewportSpikeWorker:
             self.mailbox_depth = 0
         if frame is None:
             return
-        gen, buffer, width, height = frame
+        gen, pub_id, buffer, width, height = frame
         _emit_spike_event("mailbox_dequeue", gen, self.session_epoch,
-                          depth_before=depth_before)
+                          pub_id=pub_id, depth_before=depth_before)
         if gen == self.desired_generation and self.state != self.DEAD:
             self._present_fn(buffer, width, height, gen)
             self.presents += 1
-            _emit_spike_event("texture_upload_end", gen, self.session_epoch)
+            _emit_spike_event("texture_upload_end", gen, self.session_epoch,
+                              pub_id=pub_id)
         # else: superseded — discarded (no stale present).
 
     def _publish_frame(self, generation, buffer, width, height):
         """Worker thread: publish a completed chunk into the depth-1 mailbox,
         REPLACING any unconsumed older frame (§3.3). Depth never exceeds 1."""
         with self._mailbox_lock:
-            self._mailbox = (generation, buffer, width, height)
+            self._pub_seq += 1
+            pub_id = self._pub_seq
+            self._mailbox = (generation, pub_id, buffer, width, height)
             self.mailbox_depth = 1
             if self.mailbox_depth > self.mailbox_depth_max:
                 self.mailbox_depth_max = self.mailbox_depth
+        self._last_pub_id = pub_id
         _emit_spike_event("mailbox_enqueue", generation, self.session_epoch,
-                          depth_after=1)
+                          pub_id=pub_id, depth_after=1)
 
     def _worker_loop(self):
         """Worker daemon thread: wait for a committed job, render it (holding the
@@ -545,6 +680,7 @@ class _ViewportSpikeWorker:
             if job is None:
                 continue
             gen = job.get("generation")
+            self._last_pub_id = None
             _emit_spike_event("render_start", gen, self.session_epoch)
             superseded_or_error = False
             try:
@@ -558,15 +694,26 @@ class _ViewportSpikeWorker:
                 _emit_spike_event("render_end", gen, self.session_epoch)
                 if not self._cancel_event.is_set():
                     self.completed_generations += 1
+                    # pkg241 P2.2 item 3 (Terra review 4): the render reached its
+                    # target spp WITHOUT cancellation, so this generation's last
+                    # publication is its TERMINAL publication. Mark it (by pub_id)
+                    # so the reducer scores terminal completion + present-rate on
+                    # the final frame — not on render_end, which is later than the
+                    # progressive first_blit and made the old frame_age negative.
+                    if self._last_pub_id is not None:
+                        _emit_spike_event("terminal_publication", gen,
+                                          self.session_epoch,
+                                          pub_id=self._last_pub_id)
             except Exception as exc:  # worker exception (§3.9): store + report
                 superseded_or_error = True
                 self._control.put(("error", gen, self.session_epoch, exc))
                 _emit_spike_event("error", gen, self.session_epoch)
             finally:
-                # Release the token (worker-side, §3.1/§3.5) and report idle so the
-                # main-thread pump can advance the machine.
-                self._control.put(("idle", gen, self.session_epoch, None))
-                _emit_spike_event("idle_ack", gen, self.session_epoch)
+                # pkg241 P2.2 item 4 (Terra review 4): release the token BEFORE
+                # enqueueing the idle notification. The main-thread pump that
+                # consumes idle immediately tries to acquire the token for the next
+                # commit; releasing first removes the race where the pump sees idle
+                # but the worker has not yet dropped the token.
                 if self._token_holder == "worker":
                     self._token_holder = None
                     _emit_spike_event("token_release", gen, self.session_epoch)
@@ -574,6 +721,9 @@ class _ViewportSpikeWorker:
                         self._token.release()
                     except RuntimeError:
                         pass  # already released (defensive)
+                # Report idle so the main-thread pump can advance the machine.
+                self._control.put(("idle", gen, self.session_epoch, None))
+                _emit_spike_event("idle_ack", gen, self.session_epoch)
             del superseded_or_error
 
 
@@ -649,7 +799,13 @@ class Exporter:
         self._worker_timer = None
         self._worker_engine_methods = None
         self._worker_redraw_fn = None
-        self._worker_pending_full_sync = False
+        # pkg241 P2.2 item 2 (bounded commit): True when a scene/material edit
+        # arrived while the worker was busy (token held) and therefore could not
+        # be committed incrementally with its live depsgraph. The deferred commit
+        # (next idle view_draw) falls back to a full sync_viewport_scene; an
+        # edit committed immediately while the worker is idle uses the cheaper
+        # incremental apply_depsgraph_updates dispatch instead.
+        self._worker_deferred_scene = False
 
         # Per-domain caches
         self._camera_cache = CameraCache(bpy_module)
@@ -1444,6 +1600,11 @@ class Exporter:
             report_fn=_report)
         self._worker.start()
         self._register_worker_timer()
+        # §3.6: install the process-wide drain hooks (load_pre + atexit) once, and
+        # enroll this session so a file switch / atexit drains it before a new
+        # session's worker can race the shared WfContext (PR #777).
+        _install_lifecycle_hooks()
+        _register_viewport_session(self)
         return self._worker
 
     def _register_worker_timer(self):
@@ -1460,7 +1621,11 @@ class Exporter:
             if w is None or w.state == _ViewportSpikeWorker.DEAD:
                 return None  # unregister
             try:
-                w.pump()
+                # State advance only — never build a GPUTexture off the draw
+                # context (P2.2 item 1). tag_redraw so view_draw runs and presents
+                # the freshest frame in its own valid draw context, even while
+                # Blender is otherwise idle.
+                w.pump(present=False)
                 if self._worker_redraw_fn is not None:
                     self._worker_redraw_fn()
             except Exception:
@@ -1476,16 +1641,53 @@ class Exporter:
     def _worker_commit_and_submit(self, context, depsgraph, settings, region,
                                   configure_backend_fn, viewport_perf_record_fn,
                                   effective_integrator_name_fn, engine_methods,
-                                  full_sync):
+                                  commit_mode):
         """Main thread: if the worker is IDLE and a newer generation is desired,
-        commit the snapshot (scene sync when full_sync, then camera + wavelength +
-        integrator + passes) into the persistent renderer under the token and
-        submit render() to the worker (§3.2). The commit reads bpy here, on the
-        main thread; the worker only renders."""
+        commit the snapshot into the persistent renderer under the token and submit
+        render() to the worker (§3.2). The commit reads bpy here, on the main
+        thread; the worker only renders.
+
+        pkg241 P2.2 item 2 (bounded commit) — `commit_mode` selects only what
+        changed, so the main thread no longer runs a full scene upload for every
+        generation (the residual tick-gap p95 in the spike):
+
+          - 'camera'          : camera/settings only, no scene sync, skip_upload=True
+                                (a pan/zoom/orbit re-renders from device state).
+          - 'scene'           : a scene/material edit committed immediately while the
+                                worker is idle, with its LIVE depsgraph — uses the
+                                incremental pkg56 dispatch (apply_depsgraph_updates),
+                                falling back to a full sync only on first sync or an
+                                unrecognised update.
+          - 'scene_full'      : a scene edit that was deferred while the worker was
+                                busy (its depsgraph is now stale) — full sync.
+
+        In all modes the cheap per-frame config (camera, wavelength, integrator,
+        passes) is committed. The commit_start/commit_end lifeline events emitted by
+        maybe_submit bracket this so the driver can attribute the per-generation
+        commit cost."""
         def commit_fn(gen):
             renderer = self._get_viewport_renderer()
-            do_full = full_sync or not self._viewport_full_synced
-            if do_full:
+            skip_upload = False
+            if commit_mode == 'camera' and self._viewport_full_synced:
+                # No scene mutation: refit/render from already-uploaded device state.
+                skip_upload = True
+            elif commit_mode == 'scene' and self._viewport_full_synced:
+                # Incremental dispatch with the live depsgraph (pkg56). 'fallback'
+                # => an unrecognised update, so do a full sync; 'idle'/'dispatched'
+                # => the matching uploader(s) ran, and skip_upload was set by
+                # apply_depsgraph_updates for a refit-only (transform) edit.
+                dispatch = self.apply_depsgraph_updates(
+                    renderer, depsgraph, settings, configure_backend_fn,
+                    self.engine.report)
+                if dispatch == 'fallback':
+                    self.sync_viewport_scene(
+                        renderer, depsgraph, settings, configure_backend_fn,
+                        viewport_perf_record_fn, effective_integrator_name_fn)
+                else:
+                    skip_upload = self._viewport_skip_upload_next
+                self._viewport_skip_upload_next = False
+            else:
+                # 'scene_full', or the first sync in any mode: full scene upload.
                 self.sync_viewport_scene(
                     renderer, depsgraph, settings, configure_backend_fn,
                     viewport_perf_record_fn, effective_integrator_name_fn)
@@ -1518,9 +1720,10 @@ class Exporter:
                 "width": width, "height": height, "depth": depth,
                 "target_spp": target, "chunk": max(1, chunk),
                 "display_pass": display_pass,
-                # First render of a full-sync generation must upload + build the
-                # BVH; a camera-only generation reuses device state.
-                "skip_upload": (not do_full),
+                # skip_upload was resolved above per commit_mode: True only for a
+                # camera/refit generation (or a refit-only incremental dispatch);
+                # a full or material sync must upload + rebuild device state.
+                "skip_upload": bool(skip_upload),
                 "diffuse": min(settings.diffuse_bounces, depth),
                 "glossy": min(settings.glossy_bounces, depth),
                 "transmission": min(settings.transmission_bounces, depth),
@@ -1529,17 +1732,22 @@ class Exporter:
             }
 
         submitted = self._worker.maybe_submit(commit_fn)
-        if submitted:
-            self._worker_pending_full_sync = False
+        if submitted and commit_mode in ('scene', 'scene_full'):
+            # A committed scene edit clears the deferred-scene debt (item 2).
+            self._worker_deferred_scene = False
+        return submitted
 
     def _worker_view_update(self, context, depsgraph, configure_backend_fn,
                             effective_integrator_name_fn, viewport_perf_record_fn,
                             camera_state_hash_fn, camera_substantive_state_hash_fn,
                             request_viewport_redraw_fn, engine_methods):
         """Worker-path view_update (§3.4): a scene/material edit bumps the desired
-        generation, requests cancel, and — if the worker is idle — commits (with a
-        full scene sync) and submits. If the worker is busy, the edit is deferred:
-        the next view_draw retries the commit with its own depsgraph."""
+        generation and requests cancel. pkg241 P2.2 item 2 (bounded commit): if the
+        worker is idle the edit is committed immediately with its LIVE depsgraph via
+        the incremental pkg56 dispatch (commit_mode='scene'); if the worker is busy
+        (token held) the edit is DEFERRED and the next idle view_draw re-commits it
+        as a full sync (commit_mode='scene_full'), because the depsgraph.updates it
+        would need are only valid during this call."""
         import traceback
         try:
             scene = depsgraph.scene
@@ -1550,12 +1758,21 @@ class Exporter:
             region = context.region
             worker = self._ensure_worker(engine_methods, request_viewport_redraw_fn)
             worker.request()
-            self._worker_pending_full_sync = True
-            worker.pump()
-            self._worker_commit_and_submit(
+            # pkg241 P2.2 item 2 (Terra review 4): view_update is NOT a GPU draw
+            # context, so pump here must be control-plane only (present=False). The
+            # spike's default pump(present=True) built a GPUTexture off a draw
+            # context: the upload raised (swallowed), but _drain_mailbox had already
+            # cleared the depth-1 mailbox, losing the queued frame before view_draw
+            # could present it. Only view_draw (below) pumps with present=True.
+            worker.pump(present=False)
+            submitted = self._worker_commit_and_submit(
                 context, depsgraph, settings, region, configure_backend_fn,
                 viewport_perf_record_fn, effective_integrator_name_fn,
-                engine_methods, full_sync=True)
+                engine_methods, commit_mode='scene')
+            if not submitted:
+                # Worker busy: defer. The live depsgraph is gone by the next tick,
+                # so the deferred commit falls back to a full sync.
+                self._worker_deferred_scene = True
             self._viewport_camera_hash = camera_state_hash_fn(context, region)
             self._viewport_camera_substantive_hash = \
                 camera_substantive_state_hash_fn(context, region)
@@ -1587,7 +1804,6 @@ class Exporter:
                               and new_hash != self._viewport_camera_hash)
             if camera_changed:
                 worker.request()
-                self._worker_pending_full_sync = False
                 self._viewport_camera_hash = new_hash
                 self._viewport_camera_substantive_hash = \
                     camera_substantive_state_hash_fn(context, region)
@@ -1595,10 +1811,14 @@ class Exporter:
             # Pump: present the freshest valid published frame + advance state.
             worker.pump()
             # Commit + submit the desired generation if the worker is now idle.
+            # pkg241 P2.2 item 2: a scene edit deferred while the worker was busy is
+            # re-committed here as a full sync (its live depsgraph is gone); an
+            # ordinary camera move commits camera-only with skip_upload.
+            commit_mode = 'scene_full' if self._worker_deferred_scene else 'camera'
             self._worker_commit_and_submit(
                 context, depsgraph, settings, region, configure_backend_fn,
                 viewport_perf_record_fn, effective_integrator_name_fn,
-                engine_methods, full_sync=self._worker_pending_full_sync)
+                engine_methods, commit_mode=commit_mode)
 
             # Keep the loop alive while a render is in flight or a frame is queued.
             if worker.state != _ViewportSpikeWorker.IDLE:
@@ -1624,6 +1844,7 @@ class Exporter:
         releasing the renderer. Idempotent."""
         worker = self._worker
         if worker is None:
+            _unregister_viewport_session(self)
             return
         acked = worker.stop(timeout=5.0)
         bpy = getattr(self, "bpy", None)
@@ -1638,6 +1859,9 @@ class Exporter:
         if not acked:
             _WORKER_QUARANTINE.append(worker)  # no-ack: never destroy
         self._worker = None
+        # §3.6: this session no longer owns a live worker — drop it from the
+        # registry so a later stop_all does not double-drain (idempotent).
+        _unregister_viewport_session(self)
 
     def __del__(self):
         # pkg241 Phase 2 A2 spike: best-effort worker teardown so an engine

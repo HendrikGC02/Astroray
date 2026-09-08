@@ -387,10 +387,22 @@ def _install_ui_latency():
     duration_s = float(_CFG.get("duration_s", 10.0))
     warmup_s = float(_CFG.get("warmup_s", 2.0))
     tick_s = float(_CFG.get("tick_s", 0.005))
+    # pkg241 P2.2 item 4: edit-dispatch pattern.
+    #  - "continuous" (default): an edit every tick — the stress variant. The
+    #    worker never settles, so no generation is ever the latest desired at its
+    #    own render_end and completed/present-rate/frame-age are undefined (the
+    #    spike's measurement confound).
+    #  - "settle": bursts of edits (burst_s) followed by idle spans (settle_s) so
+    #    a generation becomes the latest desired and can complete + present; this
+    #    is what makes completed, present-rate and frame age well defined.
+    pattern = str(_CFG.get("pattern", "continuous"))
+    burst_s = float(_CFG.get("burst_s", 0.4))
+    settle_s = float(_CFG.get("settle_s", 2.0))
 
     S = {
         "cfg": {"event_class": "ui_latency", "duration_s": duration_s,
-                "warmup_s": warmup_s, "tick_s": tick_s},
+                "warmup_s": warmup_s, "tick_s": tick_s,
+                "pattern": pattern, "burst_s": burst_s, "settle_s": settle_s},
         "ticks": [],       # perf_counter() at every timer invocation (post-warmup)
         "renders": [],     # (start, end) render_viewport_frame calls (astroray only)
         "presents": [],    # POST_PIXEL draw-handler timestamps
@@ -406,8 +418,11 @@ def _install_ui_latency():
         # by the exporter's _spike_event_sink (worker + main thread) when
         # ASTRORAY_VIEWPORT_WORKER=1. Empty on the synchronous path.
         "events": [],           # (name, generation, t_perf_counter, epoch, extra)
-        "blitted_gens": set(),  # generations that already produced a first_blit
+        # pkg241 P2.2 item 3 (Terra review 4): first_blit is per-PUBLICATION (pub_id)
+        # so progressive frame age = first_blit(pub) - mailbox_enqueue(pub) >= 0.
+        "blitted_pubs": set(),  # pub_ids that already produced a first_blit
         "pending_blit_gen": None,
+        "pending_blit_pubid": None,
     }
     dns["_pkg241"] = S
 
@@ -425,6 +440,7 @@ def _install_ui_latency():
             S["events"].append((name, generation, t, epoch, dict(extra)))
             if name == "texture_upload_end":
                 S["pending_blit_gen"] = generation
+                S["pending_blit_pubid"] = extra.get("pub_id")
 
         exporter_mod._spike_event_sink = _event_sink
 
@@ -444,13 +460,16 @@ def _install_ui_latency():
     def present_cb():
         now = time.perf_counter()
         S["presents"].append(now)
-        # pkg241 Phase 2 A2 spike (§9): the first present after a texture upload is
-        # the first_blit for that generation — the end of the request->blit chain.
+        # pkg241 P2.2 item 3 (Terra review 4): the first present after a texture
+        # upload is the first_blit for that PUBLICATION (pub_id) — the end of the
+        # enqueue->blit chain for that specific progressive frame.
         g = S.get("pending_blit_gen")
-        if g is not None and g not in S["blitted_gens"]:
-            S["blitted_gens"].add(g)
+        pub = S.get("pending_blit_pubid")
+        if pub is not None and pub not in S["blitted_pubs"]:
+            S["blitted_pubs"].add(pub)
             S["pending_blit_gen"] = None
-            S["events"].append(("first_blit", g, now, 0, {}))
+            S["pending_blit_pubid"] = None
+            S["events"].append(("first_blit", g, now, 0, {"pub_id": pub}))
 
     S["handler"] = bpy.types.SpaceView3D.draw_handler_add(
         present_cb, (), "WINDOW", "POST_PIXEL")
@@ -506,13 +525,18 @@ def _install_ui_latency():
     # (unblocked) ticker can reach, closer to a real user's input rate.
     _MIN_EDIT_INTERVAL_S = 0.02
 
-    def _drive_edit():
+    def _drive_edit(dispatch=True):
         # Alternate camera / material edits so both event classes contribute
         # continuous chunk-render pressure (Phase 0/1: a material edit costs
         # ~2x a camera edit) — the owner's complaint is not class-specific.
+        # pkg241 P2.2 item 4: when `dispatch` is False (a settle span) no edit is
+        # made, but the viewport is still tag_redraw'd so it keeps presenting the
+        # settling generation and the pump keeps advancing.
         now = time.perf_counter()
-        if (_last_edit["t"] is not None
-                and now - _last_edit["t"] < _MIN_EDIT_INTERVAL_S):
+        rate_capped = (_last_edit["t"] is not None
+                       and now - _last_edit["t"] < _MIN_EDIT_INTERVAL_S)
+        if not dispatch or rate_capped:
+            _tag_redraw()
             return
         _last_edit["t"] = now
         _drive_idx["n"] += 1
@@ -535,6 +559,18 @@ def _install_ui_latency():
                     pass
         _tag_redraw()
 
+    def _should_dispatch(now):
+        # pkg241 P2.2 item 4: in "settle" mode, dispatch edits only during the
+        # burst_s window of each (burst_s + settle_s) cycle, measured from the run
+        # phase start; the settle_s span lets the worker complete + present a
+        # generation. "continuous" always dispatches (the stress variant).
+        if pattern != "settle" or S["t_phase_start"] is None:
+            return True
+        cycle = burst_s + settle_s
+        if cycle <= 0:
+            return True
+        return ((now - S["t_phase_start"]) % cycle) < burst_s
+
     def timer():
         if S["done"]:
             return None
@@ -555,9 +591,10 @@ def _install_ui_latency():
                     S["presents"] = []
                     # pkg241 Phase 2 A2 spike: drop warmup lifeline events too.
                     S["events"] = []
-                    S["blitted_gens"] = set()
+                    S["blitted_pubs"] = set()
                     S["pending_blit_gen"] = None
-                _drive_edit()
+                    S["pending_blit_pubid"] = None
+                _drive_edit(_should_dispatch(now))
                 return tick_s
             # phase == "run"
             S["ticks"].append(now)
@@ -565,7 +602,7 @@ def _install_ui_latency():
                 S["done"] = True
                 S["phase"] = "done"
                 return None
-            _drive_edit()
+            _drive_edit(_should_dispatch(now))
             return tick_s
         except Exception:
             import traceback
@@ -581,4 +618,201 @@ def _install_ui_latency():
             "engine_has_hooks": S["engine_has_hooks"]}
 
 
-result = (_install_ui_latency() if EVENT_CLASS == "ui_latency" else _install())
+def _install_present_check():
+    """pkg241 P2.2 item 1 bridge test: prove a SETTLED off-thread worker frame
+    actually reaches the screen (the spike's presented=0 / grid).
+
+    Enables the worker (ASTRORAY_VIEWPORT_WORKER=1), makes ONE material edit to
+    spawn a worker generation, then lets the scene SETTLE (no further edits) so the
+    generation becomes the latest desired and can complete + present. Two pieces of
+    read-back evidence are collected:
+
+      - buffer read-back: _ViewportSpikeWorker._drain_mailbox is wrapped (class
+        level, so it applies to a worker created before this recorder installs) to
+        capture per-present (generation, min, max, std) of the buffer it blits.
+        _drain_mailbox blitting the desired generation at all is exactly the
+        present-wiring the item-1 fix restores (the timer no longer eats the frame
+        off a draw context); a std well above 0 confirms the buffer carries
+        rendered content, not a uniform clear.
+    """
+    import os
+    import sys
+    os.environ["ASTRORAY_VIEWPORT_WORKER"] = "1"
+    try:
+        import numpy as _np
+    except Exception:
+        _np = None
+
+    addon = (sys.modules.get("bl_ext.user_default.astroray")
+             or sys.modules.get("blender_addon"))
+    exporter_cls = addon.exporter.Exporter if addon is not None else None
+    dns = bpy.app.driver_namespace
+    prev = dns.get("_pkg241")
+    if prev is not None and prev.get("teardown"):
+        try:
+            prev["teardown"]()
+        except Exception as exc:  # pragma: no cover - defensive
+            print("[pkg241] prior teardown warn:", exc)
+
+    area, rv3d = _find_v3d()
+    if rv3d is not None:
+        rv3d.view_perspective = 'PERSP'
+        try:
+            rv3d.update()
+        except Exception:
+            pass
+    mat, bsdf = _pick_material()
+    duration_s = float(_CFG.get("duration_s", 8.0))
+    warmup_s = float(_CFG.get("warmup_s", 2.0))
+    tick_s = float(_CFG.get("tick_s", 0.05))
+
+    S = {
+        "cfg": {"event_class": "present_check", "duration_s": duration_s,
+                "warmup_s": warmup_s, "tick_s": tick_s},
+        "present_buffers": [],   # (generation, min, max, std) from _worker_present
+        "fb_std": [],            # framebuffer patch std after each present
+        "phase": "warmup", "t_phase_start": None, "edited": False,
+        "done": False, "error": None, "orig": {}, "handler": None,
+        "material": mat.name if mat else None,
+        "engine_has_hooks": exporter_cls is not None,
+    }
+    dns["_pkg241"] = S
+
+    # pkg241 P2.2 measurement (2026-09-09): instrument the ACTUAL present at
+    # _ViewportSpikeWorker._drain_mailbox, NOT Exporter._worker_present. The worker
+    # captures `present_fn=self._worker_present` as a bound method ONCE at creation
+    # (_ensure_worker), which happens during the engine-switch RENDERED toggle,
+    # BEFORE this recorder installs. Wrapping the Exporter class attribute here
+    # would therefore never fire (the worker's stored bound reference is stale) and
+    # report a false present-wiring FAIL even while frames present correctly.
+    # _drain_mailbox is a *class method looked up per call* on the live worker, so
+    # wrapping it catches presents regardless of when the worker was created. It
+    # increments self.presents only when it actually blits the desired generation,
+    # so `presents > before` is an exact present count; we snapshot the frame it is
+    # about to present to record the buffer std (the on-screen content proof).
+    worker_cls = getattr(addon.exporter, "_ViewportSpikeWorker", None)         if addon is not None else None
+    if worker_cls is not None:
+        o_drain = worker_cls._drain_mailbox
+        S["orig"]["_drain_mailbox"] = (worker_cls, o_drain)
+
+        def w_drain(self):
+            frame = None
+            try:
+                with self._mailbox_lock:
+                    frame = self._mailbox
+            except Exception:
+                frame = None
+            before = getattr(self, "presents", 0)
+            o_drain(self)
+            after = getattr(self, "presents", 0)
+            if after > before and frame is not None and _np is not None:
+                try:
+                    # pkg241 P2.2 item 3: mailbox tuple gained a pub_id.
+                    gen, _pub_id, buffer, _w, _h = frame
+                    a = _np.asarray(buffer, dtype=_np.float32)
+                    S["present_buffers"].append(
+                        (int(gen), float(a.min()), float(a.max()),
+                         float(a.std())))
+                except Exception:
+                    pass
+
+        worker_cls._drain_mailbox = w_drain
+
+    # NOTE (pkg241 P2.2 measurement, 2026-09-09): a prior "best-effort" POST_PIXEL
+    # framebuffer read-back here (gpu framebuffer read_color of a central patch,
+    # then a `buf.dimensions` reassignment) crashed Blender with a C-level
+    # EXCEPTION_ACCESS_VIOLATION in tbbmalloc (heap corruption) that the
+    # surrounding try/except could NOT catch -- a Python handler cannot trap a
+    # hardware access violation. It was never load-bearing: the gate reads the
+    # _drain_mailbox wrap above, which snapshots the exact float buffer blitted to
+    # the GPUTexture (the pixels that reach the screen), so fb_std is left empty
+    # (reported as None) rather than risk crashing the instrument. The presented
+    # buffer std > floor IS the on-screen proof: _drain_mailbox blits only the
+    # desired generation from a valid draw context (P2.2 item-1 pump(present=True)).
+    S["handler"] = None
+
+    def teardown():
+        if "_drain_mailbox" in S["orig"]:
+            try:
+                wc, ofn = S["orig"]["_drain_mailbox"]
+                wc._drain_mailbox = ofn
+            except Exception:
+                pass
+        if S.get("handler") is not None:
+            try:
+                bpy.types.SpaceView3D.draw_handler_remove(S["handler"], "WINDOW")
+            except Exception:
+                pass
+            S["handler"] = None
+    S["teardown"] = teardown
+
+    def status():
+        return {"done": S["done"], "error": S["error"], "phase": S["phase"],
+                "n_present_buffers": len(S["present_buffers"]),
+                "n_fb": len(S["fb_std"])}
+    S["status"] = status
+
+    def _std(gen_min=1):
+        vals = [s for (_g, _mn, _mx, s) in S["present_buffers"] if _g >= gen_min]
+        return max(vals) if vals else None
+
+    def results():
+        return {"cfg": S["cfg"], "material": S["material"],
+                "engine_has_hooks": S["engine_has_hooks"],
+                "n_present_calls": len(S["present_buffers"]),
+                "present_buffers": S["present_buffers"][-8:],
+                "max_present_std": _std(),
+                "fb_std_max": max(S["fb_std"]) if S["fb_std"] else None,
+                "n_fb_reads": len(S["fb_std"]),
+                "done": S["done"], "error": S["error"]}
+    S["results"] = results
+
+    def _apply_edit():
+        if bsdf is None:
+            return
+        col = list(bsdf.inputs["Base Color"].default_value)
+        col[0] = 0.85 if col[0] < 0.5 else 0.15
+        bsdf.inputs["Base Color"].default_value = col
+
+    def timer():
+        if S["done"]:
+            return None
+        now = time.perf_counter()
+        try:
+            if S["t_phase_start"] is None:
+                S["t_phase_start"] = now
+            if S["phase"] == "warmup":
+                if now - S["t_phase_start"] >= warmup_s:
+                    S["phase"] = "run"
+                    S["t_phase_start"] = now
+                _tag_redraw()
+                return tick_s
+            # run phase: one edit at the start, then settle (only tag_redraw).
+            if not S["edited"]:
+                _apply_edit()
+                S["edited"] = True
+            _tag_redraw()
+            if now - S["t_phase_start"] >= duration_s:
+                S["done"] = True
+                S["phase"] = "done"
+                return None
+            return tick_s
+        except Exception:
+            import traceback
+            S["error"] = traceback.format_exc()
+            S["done"] = True
+            return None
+    S["timer"] = timer
+    bpy.app.timers.register(timer, first_interval=0.05)
+    return {"setup": "ok", "event_class": "present_check",
+            "duration_s": duration_s, "warmup_s": warmup_s, "tick_s": tick_s,
+            "material": S["material"], "v3d": area is not None,
+            "engine_has_hooks": S["engine_has_hooks"]}
+
+
+if EVENT_CLASS == "ui_latency":
+    result = _install_ui_latency()
+elif EVENT_CLASS == "present_check":
+    result = _install_present_check()
+else:
+    result = _install()

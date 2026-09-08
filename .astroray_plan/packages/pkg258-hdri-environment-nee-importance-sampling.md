@@ -292,3 +292,9 @@ compares an NEE-lit Cycles image against a BSDF-miss-lit Astroray image.
   (`plugins/materials/principled.cpp:638-668`), the GGX multiscatter
   energy-compensation layering between the specular and diffuse lobes. Belongs
   to a new materials/BSDF follow-up package, not pkg258; no code changed here.
+  **(pkg261, 2026-09-08) OWNED + FIXED:** the residual is Astroray's
+  specular-layer directional albedo using the view-angle Fresnel `Fview`
+  (->1 at grazing), over-attenuating the diffuse 1.2-5.5x at mu<=0.5. pkg261
+  ports Cycles' lobe-averaged `ggx_gen_schlick_ior_s` `mix(f0,1,s)` estimate
+  (CPU+GPU); the roughness sweep is now within +-3% of Cycles on both
+  backends. See `pkg261-principled-rough-diffuse-energy-loss.md`.

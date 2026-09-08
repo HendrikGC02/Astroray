@@ -1,6 +1,75 @@
 # Astroray Status
 
-## 2026-09-08 INTERIM — day lead session (~10:00 → 11:50, usage limit imminent)
+## 2026-09-08 CURRENT — day lead session closeout (~10:00 → ~16:30; usage gap 11:50–14:20)
+
+Lead: Claude Fable 5.1, autonomous from `next-session-prompt-2026-09-08.md`; owner questions
+answered at 11:30 (off-by-default audit, rough glass) and both recommendations approved at 11:50.
+Lanes: Sonnet 5 (pkg237, pkg258 residual, pkg260, pkg259 Phase 1, #753, pkg263), Opus 4.8
+(pkg241 design Rev 2–4, pkg261, A2 spike, pkg264). Codex Terra: 2 of 4 calls (both on the Phase 2
+design). The usage limit killed every lane once; all resumed from pushed WIP (memory
+`subagent-background-build-stall` corrected: lanes DO re-wake on their own background builds here).
+
+**Merged (squash, CI green, GPU-gated where engine code changed):**
+- **#754 pkg237 → done** — HDRI CPU/GPU gate is the per-channel mean-ratio (±5 %): R 1.025 / G 1.040 /
+  B 0.978, SSIM 0.962 printed only. Finding → **#755** (CPU-vs-GPU means differ 15–200× the two-CPU-stream floor).
+- **#756 pkg258 ground-row residual diagnosis** — not env NEE (clamp, occlusion, estimator cleared;
+  Sun-lamp-only reproduces 0.936); gated by Principled specular roughness alone → **pkg261**. Side
+  finding **#757** (Diffuse BSDF exported as Principled with the default specular layer).
+- **#758 pkg260 → done** — matrix 527 → 586 rows (object / image_property / input_node / camera + the
+  light-linking gap card; 13 duplicate keys collapsed), 0 classification changes; lead added five
+  `settings_map.py` rows (pkg176 contract).
+- **#760 #753 → closed** — bump finite-difference step was in UV units but treated as world units; both
+  tangent helpers now return the world-per-UV scale (CPU + GPU). Blender mean|Δ| vs Cycles 1.63×/1.78× →
+  0.84×/0.87×; CPU/GPU 1.002; REG 254 on all 128 shade specialisations; cpp-abi-guard MERGE.
+- **#761 pkg259 Phase 1** — `materials_hall.blend` + `textures_mapping.blend`, `build_corpus.py`,
+  manifest (§4.1), README + gap registry, 7/7 manifest tests; 56/56 + 72/72 allocated rows tagged; both
+  scenes render in both engines. Lead inspection: layouts/colours match; hall shot too wide (reframe +
+  per-alcove crops = Phase 1 polish); Astroray far noisier at equal 128 spp → **#763**; procedural
+  textures → Emission render blank on Astroray → **#762**.
+- **#766 pkg261 → done** — the diffuse-layering albedo used `E·F(view)·darkening` (F(view) → 1 at grazing,
+  1.2–5.5× too high at mu ≤ 0.5); ported Cycles' lobe-averaged `ggx_gen_schlick_ior_s` table
+  (`mix(f0, 1, s)`, specular + coat, CPU + GPU). Roughness sweep within 2.2–2.7 % of Cycles both
+  backends; furnace floors re-derived 0.85 → 0.97 (measured 0.998); REG 254; HDRI ground strip
+  0.926 → 0.962 (blue-skew residual → **#767**). cycles-parity-reviewer + cpp-abi-guard MERGE; the
+  ABI pass found the addon zip never ships `data/disney_compensation/*.bin` → **#769** (P1, gate (f)).
+- **#764 pkg263 → done** — rough-glass Cycles A/B preset in the metal_ab harness; **limb darkening
+  confirmed**: Astroray/Cycles limb 0.81 (r 0) → 0.67 → 0.44 → 0.34 (r 0.85), centre 0.96 → 0.53,
+  noise floor 1.4 %; lead-inspected (r 0.85 Astroray = dark grey ball, Cycles = bright frosted). Also
+  fixed the harness leaving the Astroray leg at factory 4096 spp + denoise (thin-film twin → **#765**).
+- **#768 pkg241 Phase 2 A2 spike** (flag-gated `ASTRORAY_VIEWPORT_WORKER`, default off byte-identical)
+  — worker-thread GPU render with the GIL released over the render tail: correctness max-abs 9.5e-7 vs
+  the synchronous path, same device, 0 CUDA errors / 400+ generations, decoupling proxy p95 5.9 ms,
+  GUI tick-gap **p50 7.1 ms** (was 158/233); `gpu.types.Buffer` texture upload 195 ms → 0 ms.
+  GUI p95 94/75 ms and cancel p99 341/583 ms still over budget (main-thread commit cost + a
+  present-wiring defect). **Lead decision (design doc §12): A2 stands, no A1; P2.2 scope = items 1–5.**
+- Docs direct to main: Phase 2 design **Revisions 2–4** (Terra reviews 1–3 verbatim in §6/§10/§11,
+  all items resolved and lead-verified; §9 spike protocol; §12 result + decision); specs pkg261–pkg264;
+  KNOWN_ISSUES regenerated; index + graph rebuilt; `lint --all` clean (234 baselined).
+
+**In flight at closeout:** **pkg264** rough-glass transmission energy (`fix/pkg264-rough-glass-energy`,
+worktree `../Astroray-pkg264`, Opus 4.8): research note + MC oracle committed (per-interface BSDF is
+77–100 % efficient before compensation → the 2× deficit is not a single-interface formula error);
+lead redirected the target to `principled.cpp`'s transmission lobe (the addon routes Glass BSDF to
+native Principled) and authorised the render-level A/B first (transmission-bounce cap / TIR
+classification, RR, compensation-table loading, thin-wall vs solid). Lane still running at closeout write time (16:35); its result is appended below when it lands.
+
+**Owner decisions taken today (11:50):** (a) pkg262 filed — flip the progressive sampler + light tree
+on by default with A/B evidence, add a GPU adaptive output-effect test, stop exporting GPU adaptive
+as honoured until then (#759); (b) pkg263 filed and done (above). Owner audit answer: pkg206 hero
+sampling and pkg178 native Principled are ON; pkg224 sampler, pkg86 light tree, pkg136 guiding,
+pkg127 poly-SMS are OFF in Blender (memory `landed-features-off-by-default-audit`).
+
+**Decisions the owner should make next:** (1) pkg262 default flips — proceed as filed? (2) #769 addon
+data-table packaging is a gate (f) blocker — schedule before the next release zip. (3) pkg241 P2.2
+(design §12 items 1–5) vs pkg264 vs pkg262 — dispatch order for the next session (lead recommends
+pkg264 finish → P2.2 → pkg262; pkg259 Phase 1 polish + Phase 2 in parallel on CPU).
+
+**Manual/owner:** none new. Three Blender-side processes from earlier are gone; only the owner's live
+Blender (PID 1676) remains. Worktrees: `../Astroray-pkg264` only.
+
+---
+
+## 2026-09-08 INTERIM (superseded by the closeout block above) — day lead session (~10:00 → 11:50)
 
 Lead: Claude Fable 5.1, dispatch order from `next-session-prompt-2026-09-08.md`. Lanes: Sonnet 5
 (pkg237, pkg258 residual diagnosis, pkg260, pkg259 Phase 1, #753), Opus 4.8 (pkg241 Phase 2 design

@@ -699,7 +699,7 @@ def _install_present_check():
             after = getattr(self, "presents", 0)
             if after > before and frame is not None and _np is not None:
                 try:
-                    gen, buffer, width, height = frame
+                    gen, buffer, _w, _h = frame
                     a = _np.asarray(buffer, dtype=_np.float32)
                     S["present_buffers"].append(
                         (int(gen), float(a.min()), float(a.max()),

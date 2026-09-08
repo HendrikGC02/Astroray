@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — owner decision 2026-09-08: replace the SSIM gate in `tests/test_world_hdri_parity.py::test_gpu_cpu_ssim_hdri` with the converged per-channel mean-ratio gate (SSIM kept as a diagnostic print); implementation pending
+**Status:** done — replaced the SSIM gate with the per-channel mean-ratio gate in `tests/test_world_hdri_parity.py::test_gpu_cpu_mean_ratio_hdri` (renamed from `test_gpu_cpu_ssim_hdri`); measured on RTX 5070 Ti (build_cuda .pyd 07:54 2026-09-08, HEAD 32c39836, no C++/CUDA changes since): GPU/CPU per-channel mean ratios R=1.0253, G=1.0400, B=0.9783 (all within +-5%), SSIM diagnostic 0.9622-0.9637 (printed, not asserted); PR #754
 **Estimated effort:** TBD
 **Depends on:** none
 
@@ -115,13 +115,24 @@ None.
 - [x] Common-exposure comparison accompanies the score: shared divisor vs
       per-image max both land ~0.962 in the CPU proxy (0.5% max delta), with
       seed-repeatable numbers recorded.
-- [ ] Saved representative visuals qualitatively reviewed by Astra/Claude — not
-      done (no visual regression; test-method change only; residual is noise).
+- [x] Saved representative visuals qualitatively reviewed by Astra/Claude — N/A:
+      the gate change is a metric/assertion swap only (no renderer, camera, or
+      HDRI fixture change), so there is no new visual output to review; the
+      rendered images are byte-identical to the pre-change legs.
 - [x] No geometry/VM confounders: env-only scene, no meshes, no shader VM.
 - [x] Engine unchanged (test-method change only); no ABI/native surface touched.
-- [x] GPU lock held (job pkg237-fix); single worktree; regression tests run.
-      Independent root-cause analysis stands (PR #731 + this run). Residual
-      recorded; gate NOT relaxed (still 0.9628 < 0.97 → status open).
+- [x] GPU lock held (job pkg237); single worktree; regression tests run.
+      2026-09-08: gate closed with the per-channel mean-ratio metric (SSIM kept
+      as a diagnostic print, 0.97 pin retired per owner decision). Measured
+      R=1.0253 (2.53%), G=1.0400 (4.00%), B=0.9783 (2.17%) — all within the
+      +-5% band, test PASSES. CPU two-stream proxy (seeds 1234 vs 5678, same
+      scene/spp, both CPU) measured |ratio-1| = 0.02% (R), 0.14% (G), 0.04% (B)
+      — i.e. CPU-vs-GPU deviates ~15-200x more than the CPU-vs-CPU RNG-noise
+      floor on every channel, far past the ~3x flag in the lane brief. This is
+      reported as an OPEN FINDING below (not fixed in this PR — out of scope,
+      no engine changes): the mean-level CPU/GPU gap looks larger than pure
+      independent-stream noise would predict, though it stays inside the +-5%
+      band the north-star gate (c) already accepts.
 
 ---
 
@@ -140,6 +151,51 @@ None.
 ---
 
 ## Progress
+
+- [x] 2026-09-08 afternoon — Sonnet lane (`fix/pkg237-mean-ratio-gate`): reworked
+      `test_gpu_cpu_ssim_hdri` -> `test_gpu_cpu_mean_ratio_hdri` in
+      `tests/test_world_hdri_parity.py`. Kept setup identical (env-only scene,
+      64x64, 8192 spp, `set_adaptive_sampling(False)` both legs, linear output
+      `apply_gamma=False`, same HDRI fixture/rotation/tint). New assertion: for
+      each of R/G/B, `abs(gpu[...,c].mean()/cpu[...,c].mean() - 1) <= 0.05`.
+      SSIM (shared-exposure normalisation, unchanged) is computed and printed
+      as `[pkg237] SSIM diagnostic ...`, printing "n/a" if scikit-image is
+      missing so the mean-ratio gate always runs. Removed the
+      `xfail(strict=True)` marker pkg258 had added. Grepped the repo for the
+      old name `test_gpu_cpu_ssim_hdri`: no hits in `.github/`, `scripts/`, or
+      any CI selection list; the remaining hits are dated historical evidence
+      records (pkg85-D "done" 2026-05-14, pkg55, pkg230b delivery evidence,
+      pkg85 test-harness notes) describing past runs under the old name, left
+      untouched as historical record; `next-session-prompt-2026-09-08.md`
+      (this task's own handoff prompt) also left untouched.
+      MEASURED on RTX 5070 Ti, `build_cuda/astroray.cp313-win_amd64.pyd` built
+      2026-09-08 07:54 from main HEAD `32c39836` (verified no `.cpp/.cu/.h`
+      commits landed after that build time, so it is current; branch itself
+      changes zero C++/CUDA — `git diff origin/main --stat` shows only the
+      test file):
+      `python scripts/dev/run_tests.py --build-dir .../build_cuda tests/test_world_hdri_parity.py -k mean_ratio -s -v`
+      -> 1 passed. `[pkg237] SSIM diagnostic 0.9622-0.9637` across two runs
+      (not asserted). Per-channel mean ratios: R 1.0253 (cpu 0.457456, gpu
+      0.469012), G 1.0400 (cpu 0.014391, gpu 0.014967), B 0.9783 (cpu
+      0.475410, gpu 0.465085) — all within +-5%. Full file
+      `tests/test_world_hdri_parity.py` (all 3 tests): 3 passed both times.
+      CPU two-stream proxy (seeds 1234 vs 5678, identical scene/spp, both
+      CPU): R ratio 1.0002 (|.-1|=0.02%), G ratio 0.9986 (0.14%), B ratio
+      1.0004 (0.04%) — i.e. two independent CPU RNG streams agree on the mean
+      to <=0.14%, while CPU-vs-GPU disagrees by 2.17-4.00% — roughly 15-200x
+      larger than the RNG-noise floor on every channel. Per the lane brief's
+      ~3x flag this is reported as an OPEN FINDING (see acceptance criteria):
+      the gap still clears the +-5% band so the assertion is NOT tightened or
+      pinned further in this PR, but the size of the gap relative to the
+      noise floor suggests it may be more than pure independent-stream
+      variance (e.g. a small systematic CPU/GPU env-sampling bias) and is
+      worth a follow-up look — no engine changes were made here, scope was
+      test-method only per the brief's "Do not" list.
+      Evidence logs: `test_results/2026-09-08-pkg237/gpu_gate_run_with_ratios.log`,
+      `test_results/2026-09-08-pkg237/gpu_gate_final.log`,
+      `test_results/2026-09-08-pkg237/cpu_two_stream_proxy.log` (all
+      gitignored, not committed).
+      `python scripts/project_index.py lint .astroray_plan/packages/pkg237-hdri-cpu-gpu-ssim-diagnosis.md` — TBD, run before PR.
 
 - [ ] 2026-09-08 morning — OWNER DECISION: close the gate with the converged per-channel
       mean-ratio (the metric `benchmarks/blender_parity` already uses); keep SSIM as a
@@ -236,4 +292,11 @@ None.
 
 ## Lessons
 
-- (none yet)
+- SSIM is the wrong gate for two independently-seeded MC renderers: its
+  windowed local-structure comparison floors at ~0.96 on decorrelated-but-
+  converged noise even when the underlying per-channel means agree. The
+  per-channel mean ratio (already used in `benchmarks/blender_parity` and the
+  cycles-parity thin-film sweep) is the metric that actually reflects
+  converged CPU/GPU agreement for an unbiased MC estimator and is not
+  confounded by independent RNG streams (memory
+  `ssim-wrong-gate-for-independent-rng`).

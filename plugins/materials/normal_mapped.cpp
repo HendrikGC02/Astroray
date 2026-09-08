@@ -59,8 +59,18 @@ class NormalMappedPlugin : public Material {
             }
             Vec3 T = rec.uvTangent;
             Vec3 Bt = rec.normal.cross(T) * rec.uvBitangentSign;
-            Vec3 dPdx = T * eps;
-            Vec3 dPdy = Bt * eps;
+            // #753 — dPdx/dPdy must be WORLD-space position differentials, not
+            // UV-space ones: Cycles' svm_node_set_bump (src/kernel/svm/displace.h)
+            // sources dP.dx/dP.dy from differential_from_compact(sd->Ng, sd->dP),
+            // a world-space ray-differential position derivative (see
+            // .astroray_plan/docs/pkg223b-bump-cycles-citation.md lines 19-24).
+            // T/Bt above are UNIT vectors, so `eps` (a UV-space step) alone gives
+            // a UV-space differential; rec.uvScaleU/V (manifold::uvAlignedTangent,
+            // world length per UV unit) restores the missing world scale — without
+            // them the surfgrad slope was overestimated by |dP/dU_tex| (e.g. 2x on
+            // a UV 0..1 / world-size-2 quad), independent of actual world size.
+            Vec3 dPdx = T * (eps * rec.uvScaleU);
+            Vec3 dPdy = Bt * (eps * rec.uvScaleV);
             float h_c = heightValue(bumpTexture_->value(rec, Vec3(0)));
             float h_x = heightValue(bumpTexture_->valueOffset(rec, Vec3(0), eps, 0.0f));
             float h_y = heightValue(bumpTexture_->valueOffset(rec, Vec3(0), 0.0f, eps));

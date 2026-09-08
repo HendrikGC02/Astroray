@@ -2,11 +2,88 @@
 
 Architect pass (Opus 4.8). This is a **design document only**: no engine/addon
 code, no new spec. Phase 2 is NOT authorised by this doc — the lead runs Codex
-Terra on it first (see §5). Grounded in the merged Phase 1b code (PR #748),
+Terra on it first. Grounded in the merged Phase 1b code (PR #748),
 Phase 1a (PR #739), the Phase-0 design
 (`pkg241-cancellation-design-2026-09-07.md`), and the Cycles viewport session
 model (`intern/cycles/blender/session.cpp`, Apache-2.0, read via the Blender
-`main` mirror — method names cited in §3a/§2 are from that file).
+`main` mirror — method names cited below are from that file).
+
+> **Revision 2 (2026-09-08).** §1, §2 (the measured problem and the
+> blocked call path) and the review record §6/§7/§8 are unchanged. §3–§5 are
+> replaced by the implementation-ready design (§3 design, §4 forks + bounded
+> plan, §5 test matrix), and a new §9 pins the A2 spike protocol. **Every
+> file:line below was re-verified against this worktree's HEAD (32c39836); the
+> line numbers differ from Revision 1 and from the §6/§7 review text, which
+> were taken against an older tree — cite the numbers in §3–§5/§9, not the
+> historical ones in §6/§7.**
+>
+> **Revision 3 (2026-09-08, this doc).** Codex Terra reviewed Revision 2 and
+> returned **BLOCK** with seven ordered corrections (the verbatim review is §10).
+> §3.2/§3.3/§3.4/§3.5/§3.6/§3.7/§3.8 and §9 are revised in place to resolve them;
+> §1/§2/§6/§7/§8 are intact. **Every file:line in the revised sections was
+> re-verified against this worktree HEAD (3fae3db7 — the source files are
+> unchanged since 32c39836, both intervening commits are docs-only).** The
+> Terra-item → section map is the Revision 3 changelog block below.
+>
+> **Revision 4 (2026-09-08, this doc).** Codex Terra reviewed Revision 3 (call
+> 2/4) and returned **BLOCK** with seven ordered items (the verbatim review is
+> **§11**). This is the LAST design round: the lead verifies Revision 4 against
+> the seven items and dispatches the §9 spike without another Terra call. §3.1/
+> §3.2/§3.3/§3.4/§3.5/§3.6/§3.8, §5 and §9 are revised in place with
+> **"Terra review 3 → Revision 4"** resolution blocks; §1/§2/§3.7/§3.9/§6/§7/§8/
+> §10 are intact. **Every file:line introduced by Revision 4 was re-verified
+> against this worktree HEAD (ede966af — the source files are unchanged since
+> 32c39836, all intervening commits are docs-only): `gpu_wavefront_snapshot.cu`
+> :1482-1502 / :1669-1750 / :1843-2050, `blender_module.cpp` :2098-2101 /
+> :2102-2107 / :2214-2221 / :2252-2264, `exporter.py` :624-632 / :670-723 /
+> :701-707 / :709-723, `__init__.py` :1193-1199 / :6674-6694,
+> `blender_recorder.py` :391-417 / :449-453, `blender_driver.py` :678-702.** The
+> Terra-3-item → section map is the Revision 4 changelog block below.
+
+## Revision 2 changelog — every Terra/lead/owner item → the section that resolves it
+
+| Source | Item | Resolved in |
+|---|---|---|
+| Terra §6.1 | Diagnosis (both hooks render inline; GIL held on GPU) is correct | §1, §2 (kept) |
+| Terra §6.2 | `skip_upload` premise wrong — it only skips `buildAcceleration()`; wavefront re-uploads scene arrays + rewrites process-global `__constant__` bindings every render; `WfContext` is a single-render-thread global | §3.1 |
+| Terra §6.3 | A timeout join blocks the UI for its timeout → cannot establish p95 ≤ 33 ms; use non-blocking generation handoff | §3.4 |
+| Terra §6.4 | Reference swap safe only if the published buffer is immutable; buffer costs wrong (RGBA f32 = 26.7 MiB, beauty RGB = 20.0 MiB); texture tail (`flat.tolist()`) not sub-ms | §3.3 |
+| Terra §6.5 | Worker cannot call `render_viewport_frame` (it touches `bpy`, `GPUTexture`, `update_stats`, `tag_redraw`, `report`); use a main-thread-pumped `bpy.app.timers` queue; add an explicit shutdown owner | §3.2, §3.3, §3.6 |
+| Terra §6.6 | One worker restores CPU UI responsiveness but not refinement cadence — report chunk/publish latency + frame age | §3.1, §3.4 |
+| Terra §6.7 | Missing: widen GIL to the copy-back/`applyPasses` tail; a main-thread render-request snapshot; a process-wide render arbiter; monotonic generation tags; denoise as a latency concern; worker-exception storage/reporting; an expanded test matrix | §3.7, §3.2, §3.5, §3.4, §3.8, §3.9, §5 |
+| Terra §6.8 | BLOCK — ordered pre-implementation list (1)–(6) + a minimal real-Blender A2 spike first | §3 (all), §9 |
+| Lead §7.1 | Corrected device-state model; ONE process-wide GPU/session arbiter that F12 and every 3D view share | §3.1, §3.5 |
+| Lead §7.2 | Main-thread-only render-request snapshot (plain data); results via a queue pumped by a main-thread `bpy.app.timers` timer | §3.2, §3.3 |
+| Lead §7.3 | Generation-tagged non-blocking handoff (cancel, keep last frame, defer restart until worker idle); timed join is never the serialisation; immutable buffer + reference swap; texture tail measured | §3.3, §3.4 |
+| Lead §7.4 | Shutdown = acknowledged worker exit before renderer/context release; explicit main-thread lifecycle owner | §3.6 |
+| Lead §7.5 | Widen GIL release to the GPU copy-back / `applyPasses` tail; viewport denoise a settled generation | §3.7, §3.8 |
+| Lead §7.6 | Pre-implementation A2 spike; go/no-go decides A2 vs a native session (A1) | §9 |
+| Owner §8 | Viewport denoise **settled-only** (interactive loop presents raw progressive chunks) | §3.8 |
+| Owner §8 | **F12 PAUSES the viewport session** (pause/resume handshake) — no shared-GPU arbiter between F12 and the viewport; the arbiter is only for multiple 3D viewports of one session | §3.5 |
+
+## Revision 3 changelog — Terra review 2 (§10) → the section that resolves it
+
+| Terra 2 item | Correction | Resolved in |
+|---|---|---|
+| 1 | ONE global non-blocking admission token over EVERY `PyRenderer` mutation (backend/world/materials/lights/transforms/camera/passes/integrator), not only `upload_geometry`; define the scheduler (who acquires, try-acquire admission, queue-newest-generation-on-failure, release points) | §3.5 (token defined), §3.2 (acquired around the commit) |
+| 2 | Snapshot commit point + complete fields: `render()` consumes the renderer's EXISTING `Camera`, so the main thread commits camera+settings+upload under the token then hands the token to the worker for the render only; snapshot gains `skip_upload`, full camera inputs, effective device/backend, every renderer-setting mutation; discard rules gain session/backend/device epoch + disposed-engine | §3.2 (commit point + fields + tradeoff), §3.3 (epoch discard rules) |
+| 3 | State machine submits only the latest `desired_generation` (never N+1 when N+2 already arrived); every queued notification generation-tagged + validated against desired generation and session epoch; correct "main thread never blocks" — F12 pause and teardown DO wait, bounded, pumping the queue | §3.4 |
+| 4 | F12 = process-wide pause gate over ALL viewport sessions: block admissions, cancel/drain every active viewport render, verify the global token is unowned, then start F12; release on every exit path | §3.5 |
+| 5 | One central `stop_all()` invoked from `unregister`/`load_pre`/engine disposal (best-effort `__del__`) + a concrete hard-exit hook (`atexit`); process-global quarantine retains STRONG refs so Python finalisation cannot destroy a leaked renderer; never `engine.report` through a disposing engine | §3.6 |
+| 6 | Settled-only denoise must operate on the ACCUMULATED image (Python running mean), not a fresh chunk; two options with a recommendation; add the missing tests | §3.8 (fork + recommendation), §5 (tests 11–15) |
+| 7 | GIL region ends BEFORE the NumPy packaging (`:2374-2394` stays on the GIL); null-callback byte-identity test defined; §9 spike gains snapshot/token proof, same-device + per-generation CUDA error capture, end-to-end present-latency chain, and a defined correctness comparator | §3.7 (bounded range + identity test), §9 (spike additions) |
+
+## Revision 4 changelog — Terra review 3 (§11) → the section that resolves it
+
+| Terra 3 item | Correction | Resolved in |
+|---|---|---|
+| 1 | Complete device-state inventory (caustic/sampler/hair/guide/miss-coverage/light-pass/spectral-table rewrites + host per-type bounce mutation) + token scope: the global token is held from the main-thread commit through the completed `render()` **and** the worker's post-render pass extraction, and F12 acquires it before ANY F12-side preparation (renderer construction, configuration, scene conversion), not just before its final `render()` | §3.1 (full inventory + token-span statement), §3.2 (worker holds through pass extraction), §3.5 (F12 acquires before all prep) |
+| 2 | Snapshot gains `reset_accumulation`, current/target spp, chunk sizing, and the transfer/reset semantics of the worker's private accumulator; worker-side pass extraction under the token (worker calls render + `get_render_pass_buffer` and nothing else); replace the unbounded `queue.Queue` with a **bounded latest-frame mailbox** (depth 1 per session; control/error on a separate small queue) with a stated memory bound | §3.2 (accumulation fields + pass ownership), §3.3 (bounded mailbox + memory bound) |
+| 3 | Notification validation by class — data-plane frames require the current desired generation; control-plane idle/exited require the current in-flight generation + epochs (so a late `idle(N)` after desired N+2 advances the machine); errors are processed for the current session/epoch even when superseded; F12/teardown waits get an explicit timeout (5 s, with rationale) that yields the GIL so the worker's cancel callback can run | §3.4 (three validation classes + §3.4 contradiction fix + timeout/GIL-yield) |
+| 4 | F12/teardown no-ack behaviour: F12 must NOT start if any viewport fails to drain within the timeout; that session is quarantined/terminal and the user gets one report from the module-level owner; timeout/failure behaviour for `load_pre` and `atexit` too | §3.5 (F12 no-ack), §3.6 (`load_pre`/`atexit` timeout/failure) |
+| 5 | Session-scoped, idempotent lifecycle: split `stop_session(session)` from `stop_all()`; both idempotent and safe during disposal/finalisation; one engine's `__del__` never stops unrelated viewports; `engine.report` prohibited once disposal begins; fix the §3.6 "stop every live session" vs "stop_all for this session" wording | §3.6 (split + idempotence + wording fix) |
+| 6 | Settled denoise on the accumulated image must define accumulation of the guide AOVs (albedo/normal) alongside beauty (same running mean, reset behaviour, immutable publication); settled denoise runs on the worker as its own token-holding job and yields/discards on a new edit; add the missing tests | §3.8 (guide-AOV accumulation + worker scheduling + discard), §5 (tests 18–23) |
+| 7 | Spike gains a generation-tagged event schema (request, commit/token acquire+release, render start/end, cancel/idle ack, mailbox enqueue/dequeue + depth, texture-upload end, first blit); recorder + driver listed in touched files; pinned comparator (nonzero fixed seed, resolution+divisor, spp, linear output, per-channel mean-ratio ±5 % AND a max-abs-diff bound with derivation), a present-rate rule (presents ≥ 0.9 × completed generations), a mailbox-depth bound, and the texture-tail p95 rule (alternate `gpu.types.Buffer`-from-numpy path + passing rerun before GO) | §9 (event schema + touched files + pinned thresholds) |
 
 ---
 
@@ -48,7 +125,7 @@ the Blender main thread** (§2).
 - **Cancel-ack p95 ≤ 200 ms** (Phase-0 budget); the Phase 1b host cancel hook is
   the stop signal. In-process cancel-ack is already ~4–9 ms p95 (spec Progress
   block), so this is comfortably met — but Phase 2 promotes cancel from an F12/
-  edit-boundary event to the **scene-sync handshake** (§3d).
+  edit-boundary event to the **scene-sync handshake** (§3.4).
 
 ---
 
@@ -83,251 +160,858 @@ main thread is *inside* the synchronous `render()` C++ call, so it never returns
 to Blender's event loop until the chunk finishes — there is no other thread to
 run. Decoupling requires the render to execute on a **different thread than the
 Blender main thread**, with `view_draw` reduced to a blit. This is exactly the
-Cycles structure (§3a).
+Cycles structure (§3.1/§3.4).
 
 ---
 
-## 3. Design axes (concrete to this codebase)
+## 3. Revised design (Revision 2, implementation-ready)
 
-### (a) Which thread owns the CUDA context / wavefront state
+Direction unchanged from Revision 1: **A2** — an addon-owned Python worker
+thread drives the existing (GIL-released) binding; `bpy` never leaves the main
+thread. Terra confirmed A2 is viable and that CUDA primary-context sharing does
+not force a native session (§6.2). What follows corrects every premise Terra
+flagged and makes the ownership, serialisation, lifecycle, and measurement
+concrete against this HEAD.
 
-Two candidates:
+### 3.1 Corrected device-state model — what `render()` actually touches
 
-- **A1 — native worker thread inside the `.pyd`.** A C++ `std::thread` owns the
-  CUDA context and the wavefront device state; the binding grows a session API
-  (`start_viewport_session` / `submit` / `poll_frame` / `request_cancel` /
-  `stop`). Faithful to Cycles (`session->start()` spawns `Session::run`). Cost:
-  large new native ABI surface, duplicates the accumulation/divisor logic that
-  already lives in Python (`render_viewport_frame`), and every session call is a
-  new cross-TU symbol needing `cpp-abi-guard`.
-- **A2 — Python `threading.Thread` driving the existing (GIL-released) binding.**
-  The addon owns a daemon worker that loops: wait for work → call
-  `renderer.render(..., skip_upload=True)` (which releases the GIL) → publish the
-  result → request a redraw. Native change is **one line of intent**: add
-  `gil_scoped_release` around the GPU `cuda_wavefront_render`
-  (`blender_module.cpp:2267`) so the GPU path matches the CPU path. Reuses the
-  persistent renderer, the accumulation math, the divisor budget, and the
-  Phase 1b cancel flag.
+Revision 1 wrongly claimed `skip_upload=True` renders "from already-uploaded
+device state" so the worker only reads. **That is false for the wavefront GPU
+path.** Verified against HEAD:
 
-CUDA context constraint: the renderer uses the CUDA **Runtime API** (primary
-context, shared per-process across threads that call `cudaSetDevice`). In A2,
-`upload_geometry` runs on the **main thread** (it reads `bpy`/depsgraph — see
-(c)) while `render` runs on the **worker**. Both touch the same primary
-context. This is legal only if (i) the two never run concurrently (single-writer
-handshake, (d)) and (ii) the worker's first device touch selects the same device
-(`cudaSetDevice`). This cross-thread primary-context sharing is the single
-biggest correctness risk (§5, Terra Q1) and must be verified, not assumed.
+- `skip_upload=True` only skips the CPU-side `renderer.buildAcceleration()`
+  (`module/blender_module.cpp:2071-2072`). It does **not** skip the GPU upload.
+- The wavefront driver `cuda_wavefront_render` (`src/gpu/wavefront/gpu_wavefront_snapshot.cu:1366`,
+  cancel-hook parameter at `:1384`) calls `buildSceneArrays(renderer, &cam)` and
+  uploads the scene slices on **every** render (`:1411`), then rewrites a set of
+  process-global `__constant__` device bindings **every frame** via the host
+  `setWavefront*Binding` calls: texture/normal/bump binding
+  (`setWavefrontTextureBinding`, `:1447`), op-VM program binding
+  (`setWavefrontProgramBinding`, `:1462`), world-volume + pixel-filter + bounce
+  limits (`:1465-1499`), env-NEE binding (`setWavefrontEnvNeeBinding`, `:1618`),
+  guide-AOV binding (`setWavefrontGuideBinding`, `:1693`), light-path-pass binding
+  (`setWavefrontLightPassBinding`, `:1742`), and the adaptive-sampling binding
+  republished **per round** inside the pass loop (`setWavefrontAdaptiveBinding`,
+  `:1843`).
+- All of this lives in one process-global `struct WfContext`
+  (`gpu_wavefront_snapshot.cu:1026-1087`) reached through the function-local
+  `static WfContext ctx` singleton (`wfCtx()`, `:1089-1092`). The file states the
+  contract in a comment: **"Single render thread assumed"** (`:988`). The context
+  caches grow-only device allocations, the ReSTIR reservoir SoA, and the
+  cryptomatte/guide buffers — all mutated in place per render.
+- The host cancel poll is checked only *between* wavefront passes
+  (`if (cancelRequested && cancelRequested()) { ... break; }`, `:1883`), and the
+  render ends on a `cudaDeviceSynchronize()` (`:1992`).
 
-**Recommendation: A2.** It achieves the same decoupling as Cycles with a minimal
-native footprint, keeps the mature Python accumulation/divisor/present-first
-logic, and confines `bpy` to the main thread. A1 is only justified if the
-cross-thread primary-context sharing proves unsafe — in that case escalate to a
-native session that owns *both* upload and render (a much larger change).
+**Therefore the worker's `render()` call is a writer of process-global device
+and `__constant__` state, not a reader.** The serialisation obligation is
+absolute: a worker `render()` must never overlap (a) a main-thread
+`upload_geometry` / `buildAcceleration` (which mutate the same host renderer and
+BVH the worker's `buildSceneArrays` reads), or (b) any *other* `render()` — a
+second viewport's worker, or an F12 final render, which reaches the same
+`WfContext` and `__constant__` bindings even though F12 constructs its own
+`astroray.Renderer()` object (`blender_addon/__init__.py:1193`). This is the
+single load-bearing correctness fact and it forces one process-wide render
+arbiter (§3.5). CPU is analogous but cheaper: the OpenMP-off addon render is one
+serial tile loop over the same host renderer, so the same non-overlap rule
+applies without any device global.
 
-### (b) `view_draw` becomes a non-blocking blit + `tag_redraw`
+The consequence for the CUDA context (Terra §6.2): the Runtime primary context
+is shared per process, made current per host thread by `cudaSetDevice`. The
+worker's first device call must therefore `cudaSetDevice(dev)` to the same
+device the main thread uploaded on; the spike proves this before any production
+worker (§9).
 
-Today `view_draw` renders then blits. Under A2 it must only: read the latest
-**published** accumulation buffer, upload it to the `GPUTexture`, `draw_texture_2d`
-(`exporter.py:998`), and `request_viewport_redraw` while the worker is still
-refining. Publication is a numpy-array **reference swap** under the GIL: the
-worker assigns `self._viewport_presented = new_accum` (atomic ref rebind in
-CPython), `view_draw` reads that reference. No explicit lock, no copy on the hot
-path. Buffer cost at 2112×829 float RGBA is ~7 MB; the *upload* to `GPUTexture`
-(main thread) is the only per-frame cost and is sub-ms. The worker builds each
-new accum array off-thread, so `view_draw` never touches a half-written buffer.
+> **Terra review 3 → Revision 4 (item 1) — complete device-state inventory + the
+> token span.** The bindings enumerated above are the *complete* set of
+> process-global state `render()` rewrites on every frame, re-verified against
+> HEAD: pixel-filter + per-type **bounce** limits + **caustic** gate + progressive
+> **sampler** mode + **hair** enable (`gpu_wavefront_snapshot.cu:1482-1502`),
+> **guide**-AOV binding + **miss-coverage** + **light-path-pass** binding +
+> **spectral**-table upload (`:1669-1750`), and the **adaptive**-sampling binding
+> republished **per pass round** in the render loop (`:1843-2050`). Terra adds one
+> more writer the earlier text missed: the GPU branch also **mutates per-type
+> bounce state on the host renderer before dispatch** — `renderer.setPerTypeBounces(...)`
+> at `blender_module.cpp:2102-2107`, executed on whatever thread calls the binding.
+> The token span is therefore stated explicitly and is load-bearing:
+>
+> - **the global admission token is held continuously from the main-thread commit
+>   (§3.2 — `setupCamera` + the `set_*`/`add_pass`/`upload_*` mutators, and the
+>   `setPerTypeBounces` host mutation that the GPU path performs) through the
+>   completed `render()` AND the worker's post-render pass extraction** (the
+>   `get_render_pass_buffer` calls for non-combined passes, §3.2/§3.3). "Worker
+>   idle" alone is never the safety mechanism; the retained token is. Only when the
+>   worker enqueues "idle" — *after* it has finished render + pass extraction — is
+>   the token released.
+> - **F12 acquires the token before ANY F12-side preparation**, not merely before
+>   its final `render()`: F12 constructs a fresh `astroray.Renderer()`, configures
+>   it, and converts the scene at `__init__.py:1193-1199`, and every one of those
+>   steps reaches the same host renderer BVH / device `WfContext` / `__constant__`
+>   bindings. The F12 gate (§3.5) therefore raises before renderer construction, not
+>   at the render call.
 
-### (c) `view_update` hands scene edits to the worker
+### 3.2 Main-thread render-request snapshot + commit point (the main thread commits; the worker only renders)
 
-**Hard constraint: `bpy` must never be touched off the main thread.** The scene
-export (`sync_viewport_scene` / `apply_depsgraph_updates`, reached from
-`view_update` at `exporter.py:751-767`) reads the depsgraph and calls
-`renderer.upload_geometry` — this stays **entirely on the main thread**. The
-handoff to the worker is therefore *not* a `bpy` snapshot but a device-state
-transition: view_update (main thread) exports bpy → native device state via
-`upload_geometry`, then signals the worker "state N is ready, (re)start". The
-worker only ever calls `render(skip_upload=True)` against already-uploaded
-device state. This mirrors Cycles' split: `sync_recalc`/`sync_data` run on the
-main thread under `scene->mutex`; `Session::run` renders.
+Terra §6.5 is correct that the worker **cannot** call `render_viewport_frame`
+(`blender_addon/exporter.py:599`): that method reads Blender context through
+`setup_viewport_camera` (`:634` → `_setup_viewport_camera`,
+`blender_addon/__init__.py:1733`, which reads `context.region_data` /
+`space_data` / the scene camera), creates a `GPUTexture`
+(`update_viewport_texture` → `_update_viewport_texture`, `__init__.py:1801-1813`),
+updates RenderEngine stats (`update_viewport_status` → `_update_viewport_status`
+→ `self.update_stats`, `__init__.py:1393-1400`), and `tag_redraw`
+(`_request_viewport_redraw`, `__init__.py:1387-1391`) is an engine call. None of
+those may run off the main thread ([Blender threading
+guidance](https://docs.blender.org/api/main/info_gotchas_threading.html)).
 
-### (d) Cancellation / restart / no mixed accumulation
+The fix is a **plain-data render-request snapshot** built entirely on the main
+thread. **Corrected commit model (Terra 2, item 2).** Revision 2 implied the
+worker consumes the snapshot and calls `render()` to apply it. That is wrong:
+`render()` (`blender_module.cpp:2025`, `if (!camera) throw` at `:2029`) **consumes
+the renderer's already-committed `Camera` member** — it does not take camera
+inputs as arguments. A new camera reaches the engine only through `setupCamera`
+(`blender_module.cpp:1543-1569`, which rebuilds `renderer.camera` in place), and
+every viewport setting reaches it only through the `set_*`/`add_pass`/`upload_*`
+mutators (`exporter.py:544-568` in `sync_viewport_scene`; `:634-668` in
+`render_viewport_frame`). A worker that "only calls `render()`" therefore cannot
+apply any edit. **So the snapshot must be *committed* into `PyRenderer` by
+someone holding the admission token before the render runs.**
 
-The unavoidable hazard: while the worker is mid-render (reading device state),
-the next `view_update` wants to `upload_geometry` (mutating device state) — a
-data race on the BVH/device buffers. Cycles serialises this with `scene->mutex`
-+ `session->reset()`. Astroray's equivalent, reusing Phase 1b:
+**Who commits, and when — the recommended split (main-thread commit).** The
+**main thread** acquires the admission token (§3.5) and commits the whole
+snapshot into the persistent `PyRenderer` — `setupCamera`, the `set_*` /
+`clear_passes` / `add_pass` / `set_wavelength_range` / `set_integrator` mutators,
+and `upload_geometry`/`upload_materials`/… — exactly the calls
+`sync_viewport_scene` + `render_viewport_frame` make today, **still on the main
+thread**. It then **hands the token to the worker for the `render()` call only**.
+The worker does no `PyRenderer` mutation; it calls `render(..., skip_upload=True)`
+against the now-committed state, accumulates into its private buffer, and releases
+the token on idle.
 
-1. view_update sets `_request_viewport_cancel()` (`exporter.py:361`).
-2. The worker's `render` polls the cancel hook between passes
-   (`blender_module.cpp:2255` GPU hook; CPU tile loop) and returns within one
-   pass (~4–9 ms p95, in-process).
-3. view_update **waits for the worker to reach idle** (a bounded join, ≤ the
-   cancel-ack budget), then `_consume_viewport_cancel` drops the partial accum
-   (`exporter.py:372`, keyed on `render_key`), does `upload_geometry`, and
-   releases the worker on the new state.
+> **Design fork — main-thread commit vs worker commit.** Two real placements for
+> the mutator calls: **(a) main-thread commit** (recommended) — every `bpy`-derived
+> write (`setupCamera` reads the resolved camera, the `set_*` reads `settings`, and
+> `upload_geometry` reads the depsgraph) stays on the main thread; the worker only
+> owns the pure-native `render()`. **(b) worker commit** — the snapshot carries
+> *plain data only* (floats/ints/lists, never `bpy`), and the worker replays the
+> plain-data mutators (`setupCamera(floats…)`, `set_integrator(name)`, …) before
+> `render()`, keeping the main thread cheaper by moving the mutator loop off it.
+> Tradeoff axes: (a) keeps 100 % of `bpy`-touching code on the main thread and
+> makes the token hand-off trivially "commit done, render only" — but the main
+> thread pays the mutator cost every generation; (b) shaves that cost off the UI
+> thread but requires proving every mutator on the worker path is pure-native
+> (no `bpy`, no `GPUTexture`) and lengthens the worker's token hold to include the
+> uploads, widening the window a second viewport waits. **Recommend (a):** the
+> mutator cost is small relative to `render()`, the depsgraph read
+> (`upload_geometry`) is inherently `bpy` and cannot move to the worker anyway, and
+> a "commit then render-only" hand-off is the simplest correct token protocol.
 
-So the main thread blocks only for the ~9 ms cancel-ack, not a full render —
-this is what keeps the §1 tick-gap ≤ 33 ms. `render_key` is the single writer of
-"which state is live"; a cancelled chunk is never blended (no mixed
-accumulation), reusing the existing Phase 1b guard.
+The snapshot the main thread commits from carries the **complete** set (Terra 2,
+item 2 — Revision 2's list omitted these):
 
-### (e) Shutdown / GC ordering
+- **resolved camera, full inputs**: `look_from`/`look_at`/`vup`/`vfov`/`aspect`
+  plus `aperture`, `focus_distance`, `shift_x`/`shift_y`, sensor/lens and ortho
+  scale — every argument `setupCamera` (`blender_module.cpp:1543-1546`) and the
+  perspective/ortho branch of `_setup_viewport_camera` (`__init__.py:1733`) take,
+  computed on the main thread and stored as floats, never `rv3d`;
+- **`skip_upload`** (the pkg114 `_viewport_skip_upload_next` flag, `exporter.py:524`)
+  — whether this generation refits transforms only or does a full upload;
+- `width`, `height`, and the `res_divisor` (the pkg196/pkg241 budget divisor from
+  `_budget_start_divisor()`, `exporter.py:378`);
+- `spp_chunk` and the per-type bounce limits (already plain ints);
+- **effective device/backend** (the `device_mode`/`configure_backend` result,
+  `exporter.py:502-505`) so the worker's `cudaSetDevice` and the arbiter agree on
+  the target device;
+- **every renderer-setting mutation** `sync_viewport_scene` + `render_viewport_frame`
+  perform today: adaptive/clamp/filter-glossy/caustics/light-sampler
+  (`exporter.py:544-568`), wavelength range + output mode + integrator + the AOV
+  pass selectors and denoise toggle (`:634-668`);
+- `generation` (a monotonically increasing int, §3.4), `session_epoch` and
+  `device_epoch` (§3.3 discard rules), and `render_key` (`exporter.py:616`, the
+  existing accumulation key);
+- `denoise = False` for interactive frames (§3.8).
 
-The worker holds a reference to the persistent renderer. If the renderer is GC'd
-or the CUDA context torn down while the worker renders → use-after-free / CUDA
-crash. Ordering contract, enforced in the engine's stop path
-(`RenderEngine.__del__` / view-layer teardown): (1) set a `stop` flag, (2)
-request cancel (Phase 1b hook), (3) `join` the worker with a timeout, (4) only
-then release the renderer. The worker must be a **daemon** thread that checks
-`stop` every pass so a hard Blender exit (which may skip `__del__`) cannot hang.
-Never destroy the renderer before the join returns.
+The worker's loop is: wait for the token hand-off on a committed generation →
+`cudaSetDevice(dev)` (first call, §3.1) → `renderer.render(..., skip_upload=…)`
+against the persistent renderer handle (the one native object it touches) →
+accumulate into its **private** buffer → enqueue a "frame ready(generation)"
+notification → release the token. Everything `render_viewport_frame` does today
+that is Blender-facing — `setup_viewport_camera`, `GPUTexture` creation,
+`update_stats`, `tag_redraw`, `report`, and the depsgraph-driven `upload_geometry`
+— **stays on the main thread**: the main thread runs `upload_geometry` (still
+inside `view_update`, reading the depsgraph) and the commit, and, when a
+frame-ready notification arrives, does the `GPUTexture` upload + `tag_redraw` +
+stats.
 
-### (f) CPU backend (OpenMP-OFF ⇒ single-threaded render)
+> **Terra review 3 → Revision 4 (item 2) — accumulation/reset fields in the
+> snapshot, and worker-side pass extraction under the token.** The snapshot the
+> main thread commits from is extended with the **operational accumulation state**
+> the render loop already keeps today, so the worker owns a self-contained
+> accumulate step:
+>
+> - **`reset_accumulation`** — the boolean the loop computes at `exporter.py:624-626`
+>   (`reset_accumulation or render_key != self._viewport_accum_key or res_divisor !=
+>   self._viewport_render_divisor`). When set, the worker's private accumulator is
+>   dropped and re-seeded with the next chunk's `chunk.copy()` (the existing
+>   first-chunk path, `exporter.py:711-713`);
+> - **current spp / target spp** — `self._viewport_current_spp` and
+>   `self._viewport_target_spp` (`exporter.py:630-632`); a generation whose current
+>   already `>= target` renders nothing (the existing early-out at `:631`), so no
+>   worker job is submitted;
+> - **chunk sizing** — `spp_chunk` from `viewport_chunk_samples(settings, current_spp)`
+>   (`exporter.py:670`) and the `res_divisor` (§3.2 list), which together fix the
+>   per-chunk cost;
+> - **accumulator transfer/reset semantics** — the worker's private accumulator IS
+>   `self._viewport_accum_pixels`'s running mean (`exporter.py:709-721`): first chunk
+>   `= chunk.copy()`; subsequent `= (accum*old_spp + chunk*samples)/new_spp`. This
+>   accumulator is **private to the worker**; it is only ever *published* by writing
+>   a fresh immutable reference (§3.3), never handed out and then mutated. On
+>   `reset_accumulation` it is discarded, not carried across generations.
+>
+> **Worker-side pass extraction under the token (recommended over a native result
+> API).** Terra is right that "the worker only calls `render()`" is untrue while the
+> loop preserves non-combined viewport passes: after `render()` the loop calls
+> `renderer.get_render_pass_buffer(viewport_display_pass)` for any pass other than
+> combined/albedo/normal/depth (`exporter.py:701-707`). Rather than add a native
+> result API, **the worker performs exactly `render()` + the `get_render_pass_buffer`
+> extraction and nothing else**, both under the retained token (§3.1): the extraction
+> reads the same `PyRenderer`/`Camera` the render just wrote, so it must be inside the
+> token span and before "idle" is enqueued. This is the minimal change (it reuses the
+> existing binding) and keeps every `bpy`-facing step on the main thread. A native
+> "render-and-return-all-passes" API is the fallback only if a future pass type cannot
+> be read back through `get_render_pass_buffer`.
 
-The addon `.pyd` is built `-DASTRORAY_DISABLE_OPENMP=ON`
-(`mingw_openmp_blender_deadlock`: libgomp deadlocks at module init in Blender's
-MSVC host — the reason is *init*, not threading, so this stays OFF in Phase 2).
-Consequence: the CPU render is **single-threaded**. Moving it to the worker
-thread **does** recover UI responsiveness (the main thread is free while the one
-worker thread renders) — that is the entire point and it works for CPU too. What
-it does **not** do is make CPU faster: per-frame CPU cost is unchanged
-(Phase-0: ~1.7 s big-camera to ~23 s metal-material), so the CPU viewport
-presents rarely but the UI stays interactive — exactly Cycles' CPU-viewport
-behaviour. A single background `threading.Thread` reintroduces no libgomp, so the
-deadlock memory does not regress. Do **not** re-enable OpenMP to speed CPU up.
+### 3.3 Result publication — immutable buffer per generation, pumped by a main-thread timer
 
-### (g) Failure modes
+**Publication model (corrects Terra §6.4).** The worker accumulates each chunk
+into a *private* numpy array (its own running-mean accumulator, the same math as
+`exporter.py:709-721`, seeded with `chunk.copy()` on the first chunk as today at
+`:711-713`). When a chunk completes it publishes by writing a **new** array
+reference tagged with its `generation`; it never mutates a previously published
+array. CPython's reference rebind is atomic under the GIL, so the reader sees
+either the old or the new whole array, never a torn one — but this is only safe
+*because the published array is immutable after publication*. The next chunk
+accumulates into a fresh array (or into the private accumulator that is only
+swapped in, never handed out and then mutated).
 
-- **Worker exception** (Python or a C++ exception surfaced through pybind): must
-  be caught in the worker loop, stored, and re-raised/reported on the next
-  main-thread poll — exceptions cannot cross the thread boundary implicitly.
-- **CUDA error on the worker**: the primary context may be left invalid; mark
-  the session dead, stop the worker, report via `self.engine.report`, and fall
-  back to a clear error rather than spinning on a broken context.
-- **Partial CUDA state at cancel**: the Phase 1b hook returns the last
-  *complete* host-accumulated frame; a partial pass is dropped, never published.
-  No device-side preemption (Non-goal).
+**Buffer costs (corrected).** At the pinned viewport region 2112×829 the beauty
+buffer is RGB float32 = 2112·829·3·4 = **20.0 MiB**; the display RGBA float32 the
+texture path builds is 2112·829·4·4 = **26.7 MiB** (Revision 1's "~7 MB" was
+wrong). The texture path (`_update_viewport_texture`, `__init__.py:1801-1813`)
+allocates the RGBA array, flips it (`rgba[::-1]`), then does
+`gpu.types.Buffer('FLOAT', n, flat.tolist())` and builds a `RGBA16F` `GPUTexture`.
+`flat.tolist()` converts ~5.8 M floats to a Python list every present — this is
+**not** demonstrably sub-ms and is measured in the spike (§9). If it exceeds the
+frame budget it is replaced by a `gpu.types.Buffer`-from-numpy path (pass the
+contiguous float32 array's buffer directly instead of `tolist()`); that swap is
+still main-thread-only.
 
-### (h) What pkg147's safeguards give and forbid
+**Transport (corrects Terra §6.5 / Lead §7.2; bounded per Terra 3 item 2).** The
+worker never touches Blender. It publishes each completed frame into a **bounded
+latest-frame mailbox** (below) and pushes a small **control/error notification**
+onto a separate queue. A main-thread `bpy.app.timers` timer, **registered from the
+main thread** at engine start, drains both each tick: it validates the generation
+(§3.4), reads the mailbox's current frame, does the `GPUTexture` upload,
+`update_stats`, and `tag_redraw`. This is Blender's documented cross-thread pattern
+([timer queue pattern](https://docs.blender.org/api/main/bpy.app.timers.html)).
+`view_draw` additionally polls the latest published buffer and blits it
+(`draw_texture_2d`, `exporter.py:998`), so a redraw triggered by any cause still
+shows the freshest frame — the timer guarantees a redraw is *requested* even when
+Blender is otherwise idle.
 
-pkg147 (PR #520) established: **any `.pyd` in Blender must be OpenMP-OFF**
-(structural in `build_blender_addon.py`). It *gives* a single-threaded,
-libgomp-free CPU engine that a worker thread can drive safely. It *forbids*
-re-enabling OpenMP for the addon under any threading scheme. The Phase 1b GIL
-release (`blender_module.cpp:2358`) is the companion: `render()` no longer holds
-the GIL for the CPU path, which is the precondition that lets a Python worker
-thread run `render` while the main thread services the UI.
+> **Terra review 3 → Revision 4 (item 2) — bounded latest-frame mailbox and its
+> memory bound.** An unbounded `queue.Queue` for frames can retain many immutable
+> 20–27 MiB frames when the main-thread texture upload lags the worker's render
+> rate (a slow `flat.tolist()` tail, §9), growing without limit. Replace it with a
+> **bounded latest-frame mailbox, depth 1 per session**: the worker's "publish"
+> overwrites the single mailbox slot with the newest immutable frame reference; a
+> newer frame **replaces an unconsumed older one** (the older frame is simply
+> superseded — a viewport only ever wants the freshest completed chunk). The
+> reference rebind is atomic under the GIL, so the timer reads either the old or the
+> new whole frame, never a torn one. **Control-plane and error notifications keep a
+> separate small queue** (idle/exited/error/exception — never dropped, unlike stale
+> frames; see §3.4 for the by-class validation). **Memory bound (per session):** the
+> mailbox holds ≤ 1 published frame (≤ 26.7 MiB RGBA / 20.0 MiB RGB) at any instant,
+> plus the worker's one private accumulator (≤ 20.0 MiB RGB) and, transiently, the
+> main thread's one display RGBA under construction (≤ 26.7 MiB) — a hard ceiling of
+> **≈ 3 frame-sized buffers ≈ 60–80 MiB per session, independent of texture-upload
+> lag**, versus the unbounded old design. The control/error queue is
+> notification-sized (kilobytes) and bounded at a small depth (e.g. 16); an error
+> notification is never discarded to stay under it.
 
-**Only one option is viable for the `bpy` axis (c):** scene export must stay on
-the main thread. There is no safe alternative. Everything else (A1 vs A2) is a
-genuine tradeoff, and A2 is recommended.
+> **Design fork — how the redraw is pumped.** Two real options: (i) a
+> main-thread `bpy.app.timers` timer that both drains the queue and calls
+> `tag_redraw`, with `view_draw` reduced to a pure blit; (ii) rely on
+> `view_draw` polling alone (no timer), pumping redraws from within the last
+> `view_draw`. Option (ii) stalls the moment Blender stops issuing draws (idle
+> viewport, no mouse-over), leaving a finished frame unpresented and the worker's
+> notification unconsumed — exactly the failure Blender's docs warn about.
+> **Recommend (i)** (timer as the liveness pump + `view_draw` as an opportunistic
+> blit); it is the documented pattern and does not depend on Blender choosing to
+> redraw. The timer interval is a settled ~16 ms (60 Hz) and unregisters with the
+> session (§3.6).
 
----
+**Discard rules — a published or in-flight frame is dropped when any of these
+fails to match the current session state (Terra 2, item 2 adds the epoch and
+disposed-engine checks; generation/resolution/scene/stopping are not enough):**
 
-## 4. Recommended design + bounded plan
+- its `generation` is older than the newest requested generation (superseded);
+- its render was cancelled (§3.4);
+- its `session_epoch` (or viewport/session identity) differs from the current
+  session — a different 3D viewport, or the same viewport after a disposal +
+  re-create, must not present a frame produced for the prior session;
+- its `device_epoch`/backend differs from the current effective device/backend —
+  a device or backend switch (`configure_backend`, `exporter.py:502-505`) bumps
+  the epoch and invalidates every in-flight generation, because the frame was
+  produced against a different `WfContext`/device state;
+- the region resolution changed since it was requested (`width`/`height` mismatch);
+- the scene was replaced (`load_pre`, §3.6);
+- the session is STOPPING (§3.4/§3.6), or **the owning `RenderEngine` is being
+  disposed** — a notification that arrives after `__del__`/`stop_all` began is
+  dropped and never routed through the (now-disposing) engine (§3.6 forbids
+  `engine.report` on a disposing engine).
 
-**Design (A2, five sentences).** Add a `gil_scoped_release` around the GPU
-`cuda_wavefront_render` so the GPU render path drops the GIL exactly as the CPU
-path already does. Introduce one addon-owned daemon worker thread that is the
-sole caller of `renderer.render(skip_upload=True)`, publishing each completed
-accumulation buffer by atomic numpy-reference swap. `view_draw` stops rendering
-and only blits the latest published buffer + `request_viewport_redraw`;
-`view_update` keeps doing the `bpy`→device `upload_geometry` on the main thread,
-then hands the new state to the worker through a cancel-then-restart handshake
-gated by the Phase 1b cancel hook (~9 ms). Cancellation, stale-frame guarding,
-and no-mixed-accumulation reuse the existing `_viewport_cancel_requested` /
-`render_key` / present-first machinery. CUDA context stays a single shared
-primary context, serialised so upload (main) and render (worker) never overlap.
+Every queued notification (frame / idle / error / exited) carries `generation`,
+`session_epoch`, and `device_epoch`; the main-thread timer validates all three on
+drain (§3.4). A stale-on-any-axis generation is discarded, never uploaded, which
+is what preserves the Phase 1a "no stale present after an edit" guarantee
+(`renders_before_present` recorder metric).
 
-**Phases:**
+### 3.4 Non-blocking generation handoff — the session state machine
 
-- **P2.0 — measurement in-tree (before any threading change).** Land the
-  `2026-09-08-phase2/` results and the tick-gap recorder in
-  `benchmarks/viewport_parity/blender_driver.py --mode interactive`
-  (`exporter.py`/`run.py` recorder extended, not forked — spec §Files). Verify
-  §1 baseline reproduces. *Verify: baseline p95 ≈ 179/274 ms recorded in tree.*
-- **P2.1 — native GIL release (GPU).** Wrap `cuda_wavefront_render`
-  (`blender_module.cpp:2267`) in `py::gil_scoped_release`. No signature change,
-  but it is GIL-semantics on a Blender-reachable path → `cpp-abi-guard` +
-  fresh sm_120 build identity. *Verify: GPU render byte-identical on a fixed
-  seed (null-callback path unchanged); in-process test that a second Python
-  thread makes progress during a GPU render.*
-- **P2.2 — worker session + view_draw blit + handshake** (`blender_addon/
-  exporter.py` only). Daemon worker, publish-by-reference, `view_draw` blit-only,
-  view_update cancel→join→upload→restart, shutdown join in `__del__`.
-  *Verify: in-process addon tests (bpy stubbed) — worker publishes a frame;
-  view_draw blits the published buffer without calling render; a mid-render
-  edit cancels+joins before upload (no overlap); shutdown joins before renderer
-  release; worker exception surfaces on the main thread.*
-- **P2.3 — acceptance gate (Blender bridge).** Re-run the §4/P2.0 recorder with
-  the worker live: **main-thread tick-gap p95 ≤ 33 ms** on both scenes, GPU and
-  CPU; frames still refine to target SPP; a mid-refine camera/material edit
-  produces the correct new frame with no stale present and no mixed accumulation;
-  cancel-ack p95 ≤ 200 ms. Save viewport PNGs (mid-orbit coarse + settled full)
-  for Astra/Claude visual sign-off. *This bridge re-run is the acceptance gate.*
+The main thread **does not block on the worker for ordinary edits** (corrects
+Terra §6.3 / Lead §7.3: a timed join blocks the UI for its timeout and so cannot
+itself establish p95 ≤ 33 ms). Serialisation is by generation + state, not by
+joining. **Precise claim (Terra 2, item 3): "the main thread never blocks" is
+true for ordinary edits only.** The F12 pause (§3.5) and teardown/`stop_all`
+(§3.6) DO wait — bounded, and by *pumping the queue* on the main thread until the
+"idle"/"exited" acknowledgement arrives, never a blind `thread.join()`. Those two
+paths are deliberate synchronisation points; every other edit is non-blocking.
 
-**Files:** `module/blender_module.cpp` (P2.1, one guard); `blender_addon/
-exporter.py` (P2.2, the worker + hooks); `benchmarks/viewport_parity/
-blender_driver.py` + recorder (P2.0/P2.3); `tests/test_pkg241_*` (new in-process
-worker tests). No new native symbols under A2.
+The session tracks a single **`desired_generation`** — the newest generation the
+user's edits have requested. It is bumped on every edit and is the *only*
+generation ever submitted; intermediate generations that were superseded before
+they could start are never submitted (Terra 2, item 3: after N is cancelled, if
+N+2 has already arrived the main thread submits N+2, **never N+1**).
 
-**ABI / GIL review points for `cpp-abi-guard`:**
-- The GPU `gil_scoped_release` (P2.1): confirm no Python object is touched inside
-  the released region (the cancel hook re-acquires with `gil_scoped_acquire` —
-  already the case at `blender_module.cpp:2255`), and that the null-callback path
-  is byte-identical.
-- Confirm `render` and `upload_geometry` called from **two different threads**
-  against one primary context is safe on this build (cross-thread CUDA Runtime
-  primary-context sharing) — the load-bearing assumption.
-- Fresh `.pyd` build identity (cuobjdump sm_120) after any native touch;
-  OpenMP stays OFF.
+**States (per viewport session):**
 
-**Explicitly NOT in scope:** multi-GPU / device migration; denoise-in-loop (OIDN/
-OptiX stays a settled-frame pass); a native session API (A1) unless A2's context
-sharing is proven unsafe; device-side render preemption; transport-math or
-backend-selection changes; making CPU faster (OpenMP stays OFF); F12 final-render
-threading (this is viewport-only).
+- **IDLE** — no render in flight; worker parked on its queue.
+- **RENDERING(gen N)** — worker is inside `render()` for generation N.
+- **CANCEL_REQUESTED(gen N)** — main thread asked N to stop; waiting for the
+  worker to report idle.
+- **STOPPING** — session tearing down (§3.6); worker must acknowledge exit before
+  any renderer/context release.
 
----
+**Transitions and who owns each:**
 
-## 5. Risks (ranked) and Terra questions
+- Main thread, on `view_update` (scene/material edit) or a substantive camera
+  change in `view_draw`: **bump `desired_generation`** (to N+1, then N+2, … on
+  each further edit), set `_request_viewport_cancel()` (`exporter.py:361`) → state
+  CANCEL_REQUESTED(N). It **keeps the last published frame on screen** and
+  **defers the commit + submit** until the worker reports idle. It does not join.
+- Worker: polls the cancel hook (GPU between passes,
+  `gpu_wavefront_snapshot.cu:1883`; CPU per tile), returns the partial/last
+  frame, drops it if its generation was cancelled, enqueues an
+  "idle(gen=N, session_epoch, device_epoch)" notification → the timer moves the
+  session to IDLE and **releases the token** (§3.5).
+- Main thread, on the next timer tick after a validated "idle": now that no render
+  is in flight, acquire the token, run the commit for **the current
+  `desired_generation`** (which may be N+2, not N+1 — the intermediate generations
+  are never submitted), i.e. `upload_geometry` + the mutators (§3.2, main thread,
+  safe — the worker is idle), hand the token to the worker, submit →
+  RENDERING(`desired_generation`).
 
-**Risks, highest first:**
+**Notification validation — by class (Terra 2 item 3, corrected by Terra 3 item 3).**
+Every queued notification — frame, idle, exited, error — is tagged with
+`(generation, session_epoch, device_epoch)`. Revision 3 said "every superseded
+notification is discarded" and then that a late `idle(N)` advances to IDLE — a
+self-contradiction Terra flagged. Revision 4 splits validation into **three classes
+with different rules**, which removes the contradiction:
 
-1. **Cross-thread CUDA primary-context sharing.** `upload_geometry` (main) and
-   `render` (worker) touch one primary context. If the Runtime API does not
-   share it cleanly across these threads (or needs an explicit `cudaSetDevice`
-   on the worker), renders corrupt or crash. Mitigation: verify with a targeted
-   in-process two-thread upload/render test *before* P2.2; fall back to A1
-   (native worker owning both upload and render) if it fails.
-2. **Handshake race / UI stall.** If view_update's cancel→join is not tightly
-   bounded (e.g. a pass that doesn't poll, or CPU where a "pass" is long), the
-   main thread blocks > 33 ms and the gate fails. Mitigation: ensure the CPU
-   tile loop polls the cancel flag frequently (Phase 1b sets it per-tile); cap
-   the join with a timeout and treat a timeout as "keep old state this frame".
-3. **Shutdown use-after-free.** Renderer GC'd or context torn down while the
-   worker renders (esp. hard Blender exit skipping `__del__`). Mitigation:
-   daemon worker + `stop` checked every pass + join-before-release contract (e).
+- **Data-plane frames** — validated against the **current desired generation**: a
+  frame whose `generation` is older than `desired_generation`, or whose epoch no
+  longer matches (§3.3), is **discarded** and never blitted. This is what preserves
+  "no stale present after an edit".
+- **Control-plane idle / exited** — validated against the **current in-flight
+  generation** (the generation actually running) plus the session/device epochs, not
+  against `desired_generation`. So a late `idle(N)` that arrives *after* the user has
+  already requested N+2 is **consumed as "the in-flight render N has finished"**: it
+  advances the machine to IDLE and releases the token, and the subsequent submit uses
+  `desired_generation` = N+2 (never N+1). It is **not** discarded as "superseded" —
+  discarding it would strand the state machine in RENDERING forever.
+- **Errors** — processed for the **current session/epoch even when their generation
+  is superseded**: a CUDA fault or worker exception is *never* dropped for being for
+  an old generation (a superseded render can still have corrupted the shared
+  `WfContext`/primary context). An error is discarded only if its session/device
+  epoch no longer matches (a fully torn-down session).
 
-**Lower:** worker exception surfacing (g); `request_viewport_redraw`/`tag_redraw`
-thread-safety — whether a redraw can be requested from the worker or must be
-pumped on the main thread (see Terra Q3).
+This closes the N→N+2 race exactly: the render *did* stop, the control-plane
+`idle(N)` advances the machine, and the next submit is `desired_generation` = N+2.
 
-**Questions for Codex Terra:**
+So a fresh edit while a chunk renders costs the main thread only the flag +
+generation-bump writes (sub-µs); the actual commit/restart happens one timer tick
+later, off the UI's critical path. `view_update` is thus reduced to: request
+cancel, bump `desired_generation`, return. This is the Cycles structure:
+`BlenderSession::view_draw`
+blits; scene sync runs under `scene->mutex`; `Session::reset` supersedes the
+in-flight sample set rather than joining the render thread.
 
-1. Is CUDA Runtime primary-context sharing between a main-thread
-   `upload_geometry` and a worker-thread `render` (serialised, never concurrent)
-   safe on this sm_120 build, or must the worker own the context (forcing A1)?
-2. Is the cancel→join handshake (main thread waits ≤ cancel-ack for the worker
-   to reach a safe point before `upload_geometry`) the right serialisation, or
-   should we adopt a Cycles-style `try_lock` on device state where view_update
-   skips the upload this frame if the worker is busy (never blocking the UI at
-   all, at the cost of one deferred edit)?
-3. Can the worker request a redraw off-thread (`RenderEngine.tag_redraw` /
-   `bpy.app.timers.register`), or must redraw requests be pumped from the main
-   thread — and if the latter, is a modal timer or an idle `view_draw` pump the
-   cleaner mechanism?
-4. Is A2 (Python worker + existing binding) the right call over A1 (native
-   session thread), given the cross-thread-context risk in Q1?
+> **Design fork — deferred-upload vs Cycles `try_lock`-skip.** Terra §6.3 raised
+> the Cycles `try_lock` alternative: `view_update` attempts the device lock and,
+> if the worker holds it, **skips the upload this frame entirely** (never blocks,
+> at the cost of one dropped edit that the next update re-applies). The
+> deferred-upload model above instead *always* applies the edit, one tick late.
+> Both keep the UI non-blocking. **Recommend deferred-upload**: an interactive
+> edit must not be silently dropped (a material tweak that "doesn't take" until
+> you nudge again is a worse UX than a one-tick delay), and the generation stamp
+> already guarantees no stale/mixed accumulation. `try_lock`-skip stays the
+> fallback if the deferred queue ever grows unbounded under a storm of edits
+> (bound it: collapse pending edits to the newest generation).
+
+**Worst-case UI-block budget per backend** (the cancel-ack the main thread would
+incur if it *did* wait — here it does not, but the worker must still reach idle
+promptly so the deferred upload is not perceptibly late). From Phase 1b
+in-process cancel-ack (spec Progress): **GPU** worst case is the currently
+executing wavefront pass plus its resolve/`cudaDeviceSynchronize`
+(`gpu_wavefront_snapshot.cu:1883` poll, `:1992` sync) — measured p95 4.1 ms
+(metal), 8.6 ms (big), but not a hard bound (a pass with no interior poll is the
+ceiling). **CPU (OpenMP-off addon)** worst case is one complete 16×16 tile at the
+requested spp/depth plus pre-loop BVH/integrator setup — seconds on the slow
+oracle. The design therefore reports **chunk/publish latency and frame age**, not
+a refinement-rate claim, on CPU (Terra §6.6): the CPU viewport stays interactive
+(UI free) but presents infrequently, exactly Cycles' CPU-viewport behaviour.
+
+> **Terra review 3 → Revision 4 (item 3) — the F12/teardown wait: bounded timeout
+> that yields the GIL.** "The main thread never blocks" is true **for ordinary edits
+> only**; the two deliberate synchronisation points — the F12 pause (§3.5) and
+> teardown/`stop_session`/`stop_all` (§3.6) — DO wait for the worker's
+> "idle"/"exited" acknowledgement. That wait is:
+>
+> - **bounded by an explicit timeout of 5 s per session.** Rationale: the worker
+>   reaches idle within one wavefront pass + `cudaDeviceSynchronize` on GPU (measured
+>   p95 4.1–8.6 ms) or one 16×16 CPU tile at viewport spp/divisor (sub-second to a few
+>   seconds on the slow oracle); 5 s comfortably exceeds the worst legitimate
+>   single-tile cancel-ack at interactive settings while still bounding a genuinely
+>   **hung** worker so F12/teardown cannot stall the UI indefinitely. On timeout the
+>   session is treated as **no-ack** — quarantined/terminal (§3.5 for F12, §3.6 for
+>   teardown), never force-released.
+> - **implemented by pumping the queue and yielding the GIL**, never a blind
+>   `thread.join()`. The main thread loops on `queue.get(timeout=…)` / short
+>   `time.sleep`, both of which **release the GIL**, so the worker's cancel callback
+>   — which **reacquires the GIL** at `blender_module.cpp:2252-2264` before touching
+>   `progressCallback` — can actually run and report idle. A busy-spin that held the
+>   GIL would deadlock the very acknowledgement the wait is for.
+
+### 3.5 The global admission token, multiple viewports, and F12 as a process-wide pause gate
+
+**One global non-blocking admission token (Terra 2, item 1).** Revision 2's
+"arbiter" guarded only `render()` (and mentioned `upload_geometry`). That is
+insufficient: **every** mutation of the persistent `PyRenderer` touches the same
+process-global state and must be mutually exclusive with every other viewport's
+render. The depsgraph apply mutates backend, world, materials, lights, and transforms
+(`exporter.py:502-533` in `apply_depsgraph_updates`), the scene sync mutates
+adaptive/clamp/filter-glossy/caustics/light-sampler + materials + geometry +
+lights + world (`:544-580` in `sync_viewport_scene`), the frame setup mutates
+camera + wavelength + integrator + passes (`:634-668`), and `setupCamera` rebuilds
+`renderer.camera`
+(`blender_module.cpp:1543-1569`) — all against one `PyRenderer` whose GPU render
+reads a single process-global `WfContext` (§3.1, "Single render thread assumed" at
+`gpu_wavefront_snapshot.cu:988`). So the token covers **all prepare / upload /
+configure / commit / render work**, not just `render()`. "This worker is idle" is
+insufficient to touch the renderer while *another* viewport owns the token.
+
+**The scheduler (module-level singleton, not per-engine):**
+
+- **Who acquires:** the *main thread* acquires the token before any commit
+  (§3.2 — `setupCamera`, the `set_*`/`add_pass` mutators, `upload_*`) and holds it
+  across the hand-off to the worker's `render()`; the worker holds the token only
+  for the `render()` call and releases it when it enqueues "idle".
+- **Non-blocking admission (try-acquire):** the main thread never *waits* on the
+  token during an ordinary edit. On a `view_update`/`view_draw` edit it bumps its
+  `desired_generation` (§3.4) and **try-acquires**. On success it commits + submits;
+  **on failure (another viewport holds the token) it does not block** — the edit is
+  recorded as that viewport's newest desired generation and retried on the next
+  main-thread timer tick (§3.3). Per viewport, only the newest desired generation is
+  ever pending; older queued generations collapse into it.
+- **Release points:** the worker releases on "idle"/"error"/"exited"; the main
+  thread releases immediately after a commit that is *not* followed by a render
+  (e.g. a settle with no new work), and after F12 (below). Exactly one holder at a
+  time, process-wide.
+
+This is what makes two 3D viewports of one session safe: each viewport's engine
+try-acquires the shared token; the loser retries next tick against its collapsed
+newest generation, so the two never call `render()` (or mutate the renderer)
+concurrently.
+
+**F12 = a process-wide pause gate over ALL viewport sessions (Terra 2, item 4;
+owner decision §8).** Revision 2 paused only "the viewport session", but the design
+permits multiple viewport sessions, so a *local* pause of one viewport leaves
+another free to enter `render()` between that local idle-ack and F12 — a race
+through the shared `WfContext`. F12 must instead raise a **process-wide pause
+gate**. The handshake, all on the main thread, on entry to `RenderEngine.render`
+(the F12 final-render path, `blender_addon/__init__.py:1161`, which builds its own
+`astroray.Renderer()` at `:1193`):
+
+1. **Raise the gate: block all new admissions.** Set a module-level
+   `f12_paused` flag the token scheduler checks — while it is set, *no* viewport
+   may acquire the token (every viewport's try-acquire fails and re-queues its
+   newest generation). This is what closes the "another viewport enters `render()`
+   between a local idle-ack and F12" window: once the gate is up, no viewport can
+   be admitted, so none can start a new render.
+2. **Cancel + drain every active viewport session.** For each session,
+   `_request_viewport_cancel()` and **pump the queue on the main thread until its
+   "idle" arrives** (bounded by the 5 s per-session timeout that yields the GIL —
+   §3.4). A session already idle is skipped.
+3. **Verify the global token is unowned, then acquire it — before ANY F12-side
+   preparation (Terra 3 item 1).** Because the gate blocks admissions and every
+   active render has drained to idle (releasing the token), the token is provably
+   free; **F12 acquires it now, and holds it across its own renderer construction,
+   configuration, and scene conversion** (`astroray.Renderer()` +
+   `set_adaptive_sampling` + `convert_scene` + `_configure_backend_for_context`,
+   `__init__.py:1193-1199`), not merely across its final `render()`. Those steps
+   mutate the same host renderer / device `WfContext` / `__constant__` bindings a
+   viewport render reads (§3.1), so the token must enclose them too.
+4. Run the F12 render on the main thread exactly as today (it already releases the
+   GIL on the CPU path and, after §3.7, on the GPU path too), then release the token.
+5. **Lower the gate on every F12 exit path — success, cancel, exception** (a
+   `finally`): clear `f12_paused`. Each viewport session resumes with a **new
+   generation** (forces a fresh commit + render; the pre-pause partial is discarded
+   by the generation bump).
+
+Because the gate blocks admissions process-wide and F12 holds the token only after
+every viewport has drained, F12 and any viewport never hold the token
+simultaneously — the gate + drain is the serialisation. The token scheduler (above)
+remains the serialisation between multiple 3D viewports of one running session.
+
+> **Terra review 3 → Revision 4 (item 4) — F12 no-ack behaviour.** "Verify the
+> token unowned" needs an enforceable failure path when a viewport does **not**
+> drain. Rule: **F12 must NOT start if any active viewport fails to reach "idle"
+> within the 5 s drain timeout (§3.4).** On such a timeout that session is treated as
+> **no-ack** and moved to the quarantine registry (§3.6) — marked **terminal**, its
+> renderer/thread retained by strong reference, never force-released — and F12
+> **still starts** only once *every remaining* session is either idle or quarantined,
+> so the token is provably unowned by any *live* worker. (A quarantined worker that
+> is genuinely hung inside `render()` is holding no releasable token from the
+> scheduler's view because it never acked; the strong-ref quarantine, not a forced
+> release, is what keeps it memory-safe.) The user gets **one** report of the
+> quarantined session **from the module-level lifecycle owner, not through the
+> engine** (§3.6 prohibits `engine.report` on a disposing/faulted engine). The gate
+> still lowers on every F12 exit path (step 5), and the quarantined session does not
+> resume.
+
+### 3.6 Shutdown / lifecycle — acknowledged worker exit before any release
+
+Terra §6.5 / Lead §7.4: daemon-plus-timeout is insufficient; a use-after-free is
+possible if the renderer or CUDA context is released while the worker is live.
+Today `unregister()` (`blender_addon/__init__.py:6674`) only unregisters classes
+and deletes props — there is **no** worker/session teardown, and there is **no**
+`RenderEngine.__del__` in the addon.
+
+Add an **explicit main-thread lifecycle owner** with a **session-scoped /
+process-scoped split (Terra 2 item 5, sharpened by Terra 3 item 5)**. Revision 3's
+single `stop_all()` was self-contradictory: it "stops every live session" yet the
+`__del__` bullet called it "for this session". Revision 4 defines **two idempotent
+functions**:
+
+- **`stop_session(session)`** — stops **exactly one** session: request cancel, **pump
+  the queue until that session's acknowledged "exited"** arrives (bounded by the 5 s
+  timeout, §3.4), then release *its* renderer handle and unregister *its* timer. It
+  never touches any other session. Callers: one viewport engine's `__del__` (dispose
+  just that engine's session) and the F12 pause of a single session.
+- **`stop_all()`** — stops **every** live session: raise the F12-style admission gate
+  (§3.5) so nothing new starts, then `stop_session(s)` for each live `s`. Callers:
+  addon `unregister`, `load_pre`, and `atexit`.
+
+Both are **idempotent and safe to call during disposal/finalisation**: a second call
+(a double `unregister`, or `__del__` firing after `unregister` already ran) is a
+no-op — the session is looked up in the live registry and, if absent or already
+STOPPING, the call returns immediately without raising and without unregistering a
+timer twice. **One engine's `__del__` must never stop unrelated viewports** — it
+calls `stop_session(self.session)`, never `stop_all()`. Triggers, their entry points,
+and Blender's guarantees:
+
+- **`RenderEngine` disposal — a new `__del__`** (there is none today; only
+  `unregister` at `__init__.py:6674-6694`): a *best-effort* **`stop_session(self.session)`**
+  (never `stop_all()`). Blender calls `__del__` when a view layer / viewport engine is
+  freed but **does not guarantee** it runs promptly, or at all on interpreter/hard
+  exit, so it is never the sole guarantee; and because it is scoped to this session it
+  cannot terminate another viewport that is still live.
+- **`bpy.app.handlers.load_pre` / file replacement** — the scene the renderer
+  references is about to vanish; `stop_all()` before the new file loads (register
+  a `load_pre` handler on the main thread).
+- **Addon `unregister`** — extend `unregister()` (`__init__.py:6674`) to call
+  `stop_all()` (cancel → await exit → release) and unregister the timer(s) and the
+  `load_pre`/`atexit` handlers.
+- **F12 transition** — the pause handshake (§3.5) is the same gate + await-idle path
+  (F12 pauses rather than tears down).
+- **Hard exit — a concrete `atexit` hook.** Register `stop_all()` via
+  `atexit.register` (module import time). It runs during normal interpreter
+  shutdown and is the one deterministic hook available (`bpy.app.handlers` has no
+  "quit" handler that fires before threads are torn down). **What it can guarantee:**
+  an ordered cancel + drain on a *clean* `bpy` quit. **What it cannot:** a
+  crash/`os._exit`/native-abort path skips `atexit` entirely — for that the worker
+  being a **daemon thread** is the only backstop (the process dies without the
+  daemon hanging it), and any in-flight CUDA work is abandoned to driver teardown.
+
+**Quarantine — if the worker does not acknowledge (Terra 2, item 5).** On a timeout
+waiting for "exited", the renderer/context is **leaked, not destroyed**: the session
+is marked dead and its renderer handle, session object, and thread are moved into a
+**process-global quarantine registry that holds STRONG references** to all three.
+This is load-bearing — without a strong ref, Python finalisation could later collect
+the "leaked" renderer while the unacknowledged worker is still inside `render()`,
+which is the exact use-after-free the acknowledgement gate exists to prevent. The
+strong ref keeps the renderer alive for the life of the process; no uncoordinated
+CUDA context reset is attempted (Terra §6.7: primary contexts are shared resources).
+The error is surfaced through the **module-level owner, not `engine.report`** — the
+engine that owned a quarantined session may itself be disposing, and calling
+`engine.report` on a disposing engine is unsafe (Terra 2, item 5). Daemon status
+makes hard-exit safe; it does **not** make release-while-live safe, so release is
+strictly gated on the acknowledgement.
+
+> **Terra review 3 → Revision 4 (items 4 & 5) — timeout/failure for `load_pre` and
+> `atexit`, and no `engine.report` during disposal.** The same 5 s no-ack rule
+> (§3.4/§3.5) applies to every teardown trigger:
+>
+> - **`load_pre`** — `stop_all()` before the new file loads. If a session does not
+>   ack "exited" within the timeout it is **quarantined (strong-ref), not released**:
+>   the old scene's file is torn down by Blender, but the leaked renderer/thread stay
+>   alive in the process-global registry so the still-running worker cannot touch a
+>   freed renderer. The load proceeds; the quarantined session never re-registers.
+> - **`atexit`** — `stop_all()` at interpreter shutdown. A per-session ack within the
+>   timeout gives an ordered cancel+release on a clean quit; a session that does not
+>   ack is left to daemon-thread teardown (the process is exiting anyway), and no
+>   forced CUDA reset is attempted. `atexit` cannot cover `os._exit`/native-abort —
+>   daemon status is the only backstop there (as above).
+> - **`engine.report` is prohibited once disposal begins.** From the moment
+>   `stop_session`/`stop_all`/`__del__` starts for a session, that session is
+>   disposing and its `RenderEngine` may already be half-freed; all user-facing
+>   messages (quarantine notices, worker exceptions, CUDA faults) route through the
+>   **module-level lifecycle owner**, never `engine.report`. This is why the error
+>   class in §3.4 is surfaced by the owner, not the engine.
+
+### 3.7 GIL — widen the release to the whole GPU render tail
+
+Verified: the GPU path holds the GIL across the entire render. `cuda_wavefront_render`
+is called at `module/blender_module.cpp:2267` with no surrounding
+`gil_scoped_release` (the comment at `:2249` states "render() holds the GIL for
+its whole duration (no gil_scoped_release)"), the host→Camera pixel copy-back loop
+runs at `:2277-2293`, and `renderer.applyPasses(*camera)` — the denoise/cryptomatte
+pass tail — runs at `:2305`, all under the GIL. The `render` binding
+(`:3446-3449`) has **no** `py::call_guard<py::gil_scoped_release>()` (contrast
+`upload_geometry`, `:3486`). The CPU path already releases the GIL inside the
+function (`py::gil_scoped_release release;`, `:2352`, around
+`renderer.render(...)` at `:2353`).
+
+**Change (P2.1) — the exact bounded release range (Terra 2, item 6/7).** Revision 2
+called `:2305` a "packaging tail". That is wrong: the NumPy packaging does **not**
+happen at `:2305`. `applyPasses(*camera)` at `:2305` is the last *native* step; the
+actual NumPy packaging — `py::array_t<float>(shape)` (`:2376`), `result.request()`
+(`:2378`), the pixel copy into `buf.ptr` (`:2380-2392`), and `return result`
+(`:2394`) — runs **later** and **must stay under the GIL** (it constructs and returns
+a Python object). So the release region is **exactly `:2267`–`:2305`** — the
+`cuda_wavefront_render` call, the host→Camera copy-back (`:2277-2282`), the
+light-path-pass scatter (`:2286-2297`), and `applyPasses` (`:2305`). The GIL is
+**re-acquired before `:2374`** so the packaging block (`:2374-2394`) and everything
+after it (the `lastRenderInfo*` writes, `:2362-2369`, which precede packaging and
+touch no Python) run with the GIL held, matching the CPU path. Objects touched
+inside the released region, and their handling:
+
+- `progressCallback` (the cancel hook, `:2252-2265`) — already re-acquires with
+  `py::gil_scoped_acquire acquire` at `:2255` before touching the Python object,
+  so it is safe inside a released region. **Null-callback byte-identity test
+  (Terra 2, item 6 — Revision 2's claim was not testable as written):** when
+  `progressCallback.is_none()` the hook is null (`:2252-2253`) and no Python is
+  touched. The test is a **fixed-seed GPU render with the callback argument
+  *omitted* vs passed explicit `None`**, asserting **byte-identical** output across
+  **representative pass/AOV configurations** (combined; albedo/normal/depth AOV;
+  cryptomatte; light-path passes; OIDN denoise), plus the **worker-disabled
+  regression** (the `ASTRORAY_VIEWPORT_WORKER` flag off path, §5 test 10). Both
+  the omitted and explicit-`None` paths must resolve to the same null hook and the
+  same fleet code, with or without the release region compiled in.
+- `camera->pixels`, `passesOut`, the AOV out-pointers, `renderer`, `camera` — all
+  C++ objects, no Python; safe to touch with the GIL released.
+- Explicit `cudaSetDevice(dev)` on the worker's first device call (§3.1/§9) so the
+  primary context is current on the worker thread.
+
+This is a GIL-semantics change on a Blender-reachable symbol → `cpp-abi-guard`
+review + a fresh sm_120 build identity (cuobjdump) are required; OpenMP stays OFF.
+
+### 3.8 Denoise — settled-only (owner §8)
+
+The interactive loop presents **raw progressive chunks**; denoise never runs
+inside a refinement chunk. Today `render_viewport_frame` adds the OIDN/OptiX pass
+per viewport chunk when `viewport_oidn` is set (`exporter.py:657-662`), and the
+GPU path runs `applyPasses` after every render (`blender_module.cpp:2305`).
+
+**Definition of "settled":** the target spp is reached
+(`self._viewport_current_spp >= self._viewport_target_spp`, the existing check at
+`exporter.py:631`) **or** an idle timeout elapses with no new generation requested.
+
+**Corrected mechanism (Terra 2, item 6 — VERDICT WRONG on "one additional
+generation").** Revision 2 said settling submits "one additional generation with
+`denoise = True`" and the worker runs it. That does **not** denoise the settled
+image. Viewport accumulation is a **Python-side running mean** over the private
+accumulator (`self._viewport_accum_pixels`, `exporter.py:709-721`), whereas the
+native `applyPasses(*camera)` (`blender_module.cpp:2305`) denoises the `Camera` of
+**one individual `render()`** — the freshly rendered chunk, not the accumulated
+buffer. So a "denoise generation" would denoise a brand-new single-chunk render and
+throw away the many-spp accumulation the user waited for. Two real options resolve
+this:
+
+> **Design fork — where the settled denoise runs.**
+> **(a) Native denoise entry point over the immutable accumulated buffer.** A new
+> binding — e.g. `denoise_buffer(np.ndarray beauty, np.ndarray albedo, np.ndarray
+> normal) -> np.ndarray` — that runs OIDN/OptiX over the *accumulated* beauty
+> (plus the accumulated guide AOVs) and returns a denoised copy, with **no**
+> `Renderer::render` involved. ABI surface: one new pybind symbol taking three
+> contiguous `float32` `py::array_t` and returning one; it wraps the existing OIDN
+> filter that `applyPasses` already drives, but on a caller-supplied buffer instead
+> of `camera->pixels`. **cpp-abi-guard scope:** a new Blender-reachable export →
+> guard review + fresh sm_120 identity, same as P2.1; it is **off the fleet path**
+> (only the addon's settled step calls it; F12/CLI/tests never do) so it cannot
+> regress fleet renders. Tradeoff: correct (denoises exactly the accumulated image),
+> cheap at settle (no extra path-trace), but adds native ABI and a second denoise
+> code path to keep parity with `applyPasses`.
+> **(b) Explicit full-target re-render at settle.** At settle, submit one normal
+> generation that renders the **full target spp in a single `render()` with denoise
+> on**, replacing the accumulated buffer with that denoised full render. No new ABI.
+> **Latency/quality contract:** the settle costs one full-target render (seconds on
+> CPU, a full GPU budget on GPU) during which the last raw accumulated frame stays
+> on screen; quality equals a fresh full-spp denoise, which can differ slightly from
+> the progressive mean (independent sample set). Tradeoff: zero ABI, reuses the
+> existing path, but pays a large latency spike at settle and briefly diverges from
+> the accumulated pixels the user was watching.
+>
+> **Recommend (a):** it denoises precisely the image the user accumulated, the
+> settle is near-instant (a filter pass, not a re-render), and the ABI cost is one
+> off-fleet binding that reuses the OIDN filter `applyPasses` already owns.
+> Option (b) is the fallback if the extra binding is judged not worth the ABI
+> surface — accept the settle-latency spike instead.
+
+In either option the denoise is **superseded like any other work**: a new edit that
+arrives while the settled denoise (the binding call in (a), or the full re-render in
+(b)) is pending or in flight bumps `desired_generation` (§3.4), and the denoise
+output is discarded. The interactive `denoise = False` snapshots (§3.2) never add
+the pass, so refinement chunks stay raw and cheap.
+
+> **Terra review 3 → Revision 4 (item 6) — accumulate the denoise guide AOVs, and
+> run the settled denoise on the worker.** Option (a) denoises the *accumulated*
+> beauty, so it needs the *accumulated* guide AOVs (albedo, normal) too — but today
+> viewport accumulation stores only the display beauty pixels (`exporter.py:709-723`),
+> while the GPU guides originate in the native `Camera` buffers each render
+> (`camera->albedoBuffer` / `normalBuffer` / `depthBuffer`, published to the driver at
+> `blender_module.cpp:2214-2221`). Revision 4 defines their handling:
+>
+> - **Accumulation.** When the settled path is active, the worker reads back the
+>   per-chunk guide AOVs (the same `get_render_pass_buffer`-style extraction, under the
+>   token, §3.2) and maintains **one running-mean accumulator per guide** —
+>   `_viewport_accum_albedo`, `_viewport_accum_normal` — with the **same weighting as
+>   beauty**: first chunk `= chunk.copy()`, subsequent `= (accum*old_spp +
+>   chunk*samples)/new_spp` (`exporter.py:709-721`). Depth is not a denoise guide and
+>   is not accumulated. (Averaging the normal buffer is the pragmatic choice OIDN's
+>   prefilter tolerates; the normals are re-normalised only inside OIDN's own
+>   prefilter, not by us.)
+> - **Reset.** The guide accumulators reset **together with beauty** on
+>   `reset_accumulation` (§3.2) — same key, same divisor, same generation — so a guide
+>   frame can never mismatch the beauty frame it denoises.
+> - **Immutable publication.** At settle, the accumulated beauty **and** both guide
+>   accumulators are frozen into immutable references and passed together to the
+>   option-(a) binding `denoise_buffer(beauty, albedo, normal)`; the denoised result is
+>   published as a new immutable frame (§3.3). The inputs are never mutated after the
+>   call begins.
+> - **Scheduling / discard.** The settled denoise **runs on the worker as its own
+>   token-holding job** (recommended): it acquires the token like a render, so it is
+>   serialised against every other renderer touch, and it **yields/discards on a new
+>   edit** — a `desired_generation` bump while it is pending or in flight cancels it
+>   (the worker checks the cancel flag before and, for option (b), during the
+>   re-render), the token is released, and the interactive loop resumes with the fresh
+>   generation. The half-computed denoise output is dropped, exactly like a superseded
+>   render frame.
+
+### 3.9 Failure modes
+
+- **Worker exception** (Python or a C++ exception surfaced through pybind): caught
+  in the worker loop, **stored** on the session, and **re-raised on the main
+  thread** through the timer (exceptions cannot cross the thread boundary
+  implicitly). The session is marked dead and `engine.report` (main thread)
+  surfaces it. This mirrors the existing Phase 1b stash-and-rethrow for the
+  callback exception path (`blender_module.cpp:2333-2337`, rethrow after metadata).
+- **CUDA error on the worker** (e.g. an illegal access leaving the primary context
+  invalid): **terminal for the session** — stop the worker, mark the session dead,
+  report, and do **not** attempt an uncoordinated `cudaDeviceReset` (a shared
+  primary context must not be reset out from under any other consumer, Terra §6.7).
+- **Device loss** (TDR / driver reset): treated as a CUDA error — terminal, session
+  dead, reported; recovery requires a fresh session, not an in-place reset.
+
+## 4. Recommendation + bounded plan
+
+**Recommendation: A2** (Python worker + the existing binding), with the
+corrections above. A1 (a native session thread owning both upload and render)
+remains the fallback and is chosen only if the §9 spike shows the cross-thread
+serialised primary-context model is unsafe; A1 is a much larger native ABI change
+and, per Terra §6.2, still cannot own Blender export (the main thread must
+populate host renderer state without `bpy` escaping).
+
+**Phases (implementation, gated on the §9 spike):**
+
+- **P2.0 — spike (§9).** Go/no-go decides A2 vs A1. No production worker before it.
+- **P2.1 — native GIL widening (GPU).** `py::gil_scoped_release` over
+  `blender_module.cpp:2267-2305` + `cudaSetDevice` on the worker entry. `cpp-abi-guard`
+  + fresh sm_120 identity. *Verify: GPU render byte-identical on a fixed seed with
+  a null callback; a second Python thread makes progress during a GPU render.*
+- **P2.2 — session owner + worker + timer pump + arbiter** (`blender_addon/exporter.py`
+  + `__init__.py`, main-thread only for all `bpy`). Snapshot (§3.2), immutable
+  publication + timer drain (§3.3), generation state machine (§3.4), process-wide
+  arbiter + F12 pause (§3.5), lifecycle owner (§3.6). *Verify: the §5 test matrix.*
+- **P2.3 — acceptance gate (Blender bridge).** Re-run `blender_driver.py --mode
+  ui_latency` with the worker live: **tick-gap p95 ≤ 33 ms** on both scenes, GPU
+  and CPU; frames still refine to target spp; a mid-refine edit produces the
+  correct new frame with no stale present and no mixed accumulation; cancel-ack
+  p95 ≤ 200 ms. Save viewport PNGs (mid-orbit coarse + settled) for Astra/Claude.
+
+**Files:** `module/blender_module.cpp` (P2.1, one GIL region); `blender_addon/exporter.py`
++ `blender_addon/__init__.py` (P2.2, worker + session owner + timer + snapshot +
+arbiter; all `bpy` stays main-thread); `benchmarks/viewport_parity/blender_driver.py`
++ recorder (P2.0/P2.3, the `--mode ui_latency` path already exists); `tests/test_pkg241_*`
+(P2.2 in-process worker tests). No new native symbols under A2.
+
+**Explicitly NOT in scope:** multi-GPU / device migration; denoise-in-loop (settled
+only, §3.8); a native session API (A1) unless the spike proves A2 unsafe;
+device-side render preemption; transport-math or backend-selection changes; making
+CPU faster (OpenMP stays OFF); F12 final-render *threading* (F12 stays a main-thread
+render, only paused/resumed against the viewport session).
+
+## 5. Test matrix (P2.2, in-process with `bpy` stubbed where possible + the bridge)
+
+Each row is an in-process addon test (stub `bpy`, `gpu`, and the timer where the
+logic is Python-side) unless it needs the real bridge:
+
+| # | Scenario | Assertion |
+|---|---|---|
+| 1 | Scene reload (`load_pre`) mid-render | worker cancels + acknowledges exit before the new file loads; no publish of a pre-reload generation |
+| 2 | Addon `unregister` mid-render | session owner stops (cancel → await exit → release); timer unregistered; no leaked thread |
+| 3 | Two viewports, overlapping edits | arbiter admits one render at a time; each viewport's newest generation wins; no concurrent `render()` |
+| 4 | GPU F12 while the viewport refines | viewport session PAUSES, worker reaches idle before F12 renders, resumes with a new generation (bridge, real Blender) |
+| 5 | Device loss / CUDA error on the worker | session marked dead, reported on the main thread, no `cudaDeviceReset`; renderer not released while worker live |
+| 6 | Worker exception | stored, re-raised on the main-thread timer, session dead, `engine.report` called |
+| 7 | Settled-only denoise | no denoise pass on interactive chunks; one denoise generation on settle; a new edit cancels a pending denoise |
+| 8 | Cancel that never acknowledges (timeout) | renderer/context leaked (not destroyed), session dead + reported; no use-after-free |
+| 9 | CPU backend | UI free while the single worker renders; chunk/publish latency + frame age reported (not a refinement-rate claim) |
+| 10 | Byte-identity of the synchronous path with the worker disabled | with the `ASTRORAY_VIEWPORT_WORKER` flag off, `render_viewport_frame` behaviour is unchanged vs origin/main on a fixed seed |
+| 11 | Rapid N→N+2 supersession (§3.4) | after N is cancelled and N+2 is requested before `idle(N)` drains, the main thread submits **N+2, never N+1**; an `idle(N)` that arrives late validates and advances state without submitting a stale generation |
+| 12 | Token ownership across every uploader (§3.5) | the global admission token serialises **all** `PyRenderer` mutations — `setupCamera`, each `set_*`/`add_pass`, and `upload_*` — not only `render()`; a second viewport's commit cannot interleave a first viewport's render (assert single-holder invariant across a mutation storm) |
+| 13 | F12 vs two viewports (§3.5) | with two viewport sessions active, F12 raises the process-wide gate, drains **both** to idle, verifies the token unowned, then renders; neither viewport can acquire the token between its local idle-ack and F12; the gate lowers on the exception path too |
+| 14 | Timer deregistration / idempotence (§3.3/§3.6) | the `bpy.app.timers` timer(s) are unregistered exactly once on `stop_all()`; a second `stop_all()` (double `unregister`, or `__del__` after `unregister`) is a no-op and does not raise; no orphan timer keeps firing after teardown |
+| 15 | Request-to-present latency + queue depth (§9) | the end-to-end request→idle→queue-drained→texture-uploaded→blit chain reports latency, frame age, queue depth, and successful-present count; a finished frame is never left unpresented (tick-gap passing while nothing reaches the screen is caught) |
+| 16 | Null-callback byte-identity (§3.7) | a fixed-seed GPU render with the callback **omitted** vs explicit **`None`** is byte-identical across representative pass/AOV configs (combined, albedo/normal/depth AOV, cryptomatte, light-path passes, OIDN) |
+| 17 | Settled-only denoise on the accumulated image (§3.8) | the settle denoises the **accumulated** buffer (option (a) binding over `self._viewport_accum_pixels`, or option (b) full re-render), not a fresh single chunk; interactive chunks carry no denoise pass; a new edit supersedes a pending denoise |
+| 18 | Bounded mailbox / backpressure (§3.3) | under a worker that publishes faster than the timer drains (a stalled `flat.tolist()` tail), the latest-frame mailbox stays at **depth 1** — a newer frame replaces the unconsumed older one; total frame-buffer memory stays ≤ the §3.3 per-session bound; no unbounded growth; the control/error queue is never dropped under the same storm |
+| 19 | Backend/device switch mid-render (§3.3) | a `configure_backend` device/backend change while a chunk is in flight **bumps `device_epoch`**; every in-flight generation for the old epoch is discarded on drain (never presented); the next generation renders against the new device with both threads on it |
+| 20 | Superseded terminal error (§3.4) | a CUDA fault / worker exception tagged with a generation the user has already superseded is **still processed** for the current session/epoch (not discarded as stale); the session is marked terminal and the module-level owner reports it |
+| 21 | AOV / non-combined pass presentation (§3.2) | with a non-combined `viewport_display_pass`, the worker extracts it via `get_render_pass_buffer` **under the token** after `render()` and publishes it; the presented buffer is that pass, not the beauty; no `bpy` call leaves the main thread |
+| 22 | F12 drain timeout / no-ack (§3.4/§3.5) | a viewport that does not reach idle within the 5 s drain timeout is **quarantined (strong-ref, terminal)** and F12 still starts once every remaining session is idle-or-quarantined; the token is provably unowned by any live worker; the user gets one report from the owner, not `engine.report` |
+| 23 | Denoise interrupted while running (§3.8) | a new edit that arrives while the settled denoise job (option (a) binding or (b) re-render) is pending/in-flight cancels it, releases the token, discards the half-computed output, and resumes the interactive loop at the fresh generation |
 
 ---
 
@@ -412,3 +1096,242 @@ serialises it; the alternative is pausing the viewport session on F12, as Cycles
 - **F12 pauses the viewport session** (Cycles behaviour): the revision replaces the process-wide
   GPU arbiter between F12 and the viewport with a pause/resume handshake (the arbiter is still
   needed between multiple 3D viewports of one session).
+
+## 9. A2 spike protocol — the go/no-go experiment (minimal, real Blender)
+
+The first implementation task. It proves the load-bearing assumptions of §3
+(cross-thread serialised primary-context sharing, a non-blocking generation
+handoff, and the tick-gap budget) on real hardware before any production worker
+is built. It is flag-gated and touches the minimum.
+
+**Code touched (all behind `ASTRORAY_VIEWPORT_WORKER=1`; default off = today's
+synchronous path, byte-identical):**
+
+- `module/blender_module.cpp` — the GPU `py::gil_scoped_release` over
+  `:2267-2305` (the render + copy-back + `applyPasses` tail, §3.7) and an explicit
+  `cudaSetDevice(dev)` on entry so the primary context is current on whatever host
+  thread calls `render()`.
+- `blender_addon/exporter.py` — a minimal spike worker implementing §3.2–§3.4 for
+  the **GPU path only**, camera + material generations: a main-thread snapshot that
+  the **main thread commits into the persistent renderer** (`setupCamera` + the
+  `set_*` mutators, §3.2) while holding a single spike-local token, a
+  `threading.Thread` that then calls only `renderer.render(...)` against the
+  now-committed renderer, publish-by-immutable-reference, a `queue.Queue` drained by
+  a main-thread `bpy.app.timers` timer, and the cancel→await-idle→**submit the
+  current `desired_generation`** handshake (§3.4 — the spike proves the commit
+  ordering and the non-blocking handoff, not N+1 specifically). No multi-viewport
+  arbiter, no F12 gate, no denoise, no full lifecycle owner yet — the spike is
+  single-viewport and measures feasibility, not the full session. It **does** carry
+  the minimal token so the "commit-under-token then render" ownership (§3.2/§3.5)
+  is exercised end-to-end.
+- `benchmarks/viewport_parity/blender_recorder.py` + `benchmarks/viewport_parity/blender_driver.py`
+  — **the spike must extend these (Terra 3 item 7).** Today `--mode ui_latency`
+  records only **untagged** ticks, whole `render_viewport_frame` spans, and POST_PIXEL
+  present timestamps (`blender_recorder.py:391-417`, `:449-453`;
+  `blender_driver.py:678-702`), which cannot produce most of the evidence below (a
+  passing tick-gap while nothing reaches the screen looks identical to success). The
+  spike adds the **generation-tagged event schema** (next block) to the recorder and
+  the reduction of those events to the pinned statistics to the driver.
+
+**Measurement:** `benchmarks/viewport_parity/blender_driver.py --mode ui_latency`
+(`--port 9877`, `--ui-engines astroray`, `--scenes metal_sweep big`, `--ui-reps 3`,
+`--duration-s 10`, `--tick-s 0.005`) on `metal_sweep` and `pkg241_grid_100k`
+(the `big` scene), in an **isolated Blender 5.2 profile on port 9877** (never the
+owner's live 9876), with an **OpenMP-OFF CUDA addon built from the spike branch**.
+Per config, 3 reps × 10 s post-warmup. Record (Terra 2, item 7/8 add the last
+four — the first three alone can pass while nothing reaches the screen):
+
+- main-thread **tick-gap p50/p95/p99/max** and `blocked_frac` (the existing
+  `--mode ui_latency` metrics — the same recorder that produced the §1 baseline);
+- **cancel-ack** (request → worker "idle" report) **p50/p95/p99** across the run;
+- **texture-upload tail** ms (`_update_viewport_texture` on the main thread — the
+  `flat.tolist()` → `GPUTexture` cost, §3.3);
+- **snapshot-commit / token-ownership proof**: assert that on **every** generation
+  the main thread committed the snapshot (`setupCamera` + mutators) under the token
+  **before** the worker's `render()` ran, and that exactly one holder owned the
+  token at any instant (a per-generation ownership trace) — without this the spike
+  cannot claim it safely configured the renderer before the worker-only `render()`;
+- **same-device verification + per-generation CUDA error capture**: assert both the
+  main thread and the worker resolved the **same CUDA device** (`cudaGetDevice`
+  after each thread's first `cudaSetDevice`), and capture a CUDA error check
+  **per generation** (not just a run total) over ≥ 100 generations (zero required);
+- **end-to-end present chain**: for each generation, the
+  request→idle→queue-drained→texture-uploaded→**actual blit** latency, the presented
+  **frame age**, the `queue.Queue` **depth** at drain, and a **successful-present
+  count** — proving refinement actually reaches the screen, not merely that the
+  tick-gap budget held;
+- **correctness (a defined comparator, not "within MC noise")**: the settled spike
+  frame vs the synchronous-path frame on a **fixed seed** (both scenes), compared by
+  the **pkg237 per-channel mean-ratio within ±5 %** *and* a **max-abs-diff** bound on
+  the fixed-seed GPU render; plus **no stale present after an edit** (the recorder's
+  `renders_before_present` / stale guard, Phase 1a).
+
+> **Terra review 3 → Revision 4 (item 7) — generation-tagged event schema + pinned
+> thresholds.**
+>
+> **Event schema (added to `blender_recorder.py`).** Every recorded event carries
+> `(generation, t_perf_counter, session_epoch)` so the driver can reconstruct the
+> per-generation lifeline. The events, in order per generation:
+> `request` (edit bumps `desired_generation`) → `commit_start` / `token_acquire` →
+> `commit_end` → `render_start` → `render_end` → (`cancel_request` / `idle_ack` when
+> superseded) → `mailbox_enqueue(depth_after)` → `mailbox_dequeue(depth_before)` →
+> `texture_upload_end` → `first_blit` (the first POST_PIXEL that presents *this*
+> generation). `token_release` is recorded whenever the holder releases. This lets
+> the driver compute, per generation: the request→first_blit end-to-end latency, the
+> presented **frame age** (`first_blit.t − render_end.t`), the mailbox **depth**, and
+> whether a completed generation ever reached a `first_blit` at all.
+>
+> **Pinned correctness comparator (fixed inputs, no free parameters):**
+> - **seed:** a **nonzero fixed seed** on both arms — viewport GPU seed 0 draws a
+>   fresh `std::random_device` seed per render (`blender_module.cpp:2098-2101`), so 0
+>   is unusable for a byte/threshold comparison; pin e.g. seed = 12345.
+> - **resolution + divisor:** the pinned viewport region 2112×829 at **`res_divisor`
+>   = 1** (no budget downscaling) so both arms rasterise identical pixel grids.
+> - **spp:** a fixed settled target (e.g. 64 spp) reached identically on both arms.
+> - **output space:** **linear** (no gamma/tonemap) — a gamma arm would clamp [0,1]
+>   and mask an energy divergence (memory `gamma-vs-linear-comparison-artifact`).
+> - **metric:** **per-channel mean-ratio within ±5 %** (pkg237) **AND**
+>   **max-abs-diff ≤ 2.0e-2** in linear output. *Derivation of 2.0e-2:* with the seed
+>   pinned, both arms draw the identical sample sequence, so the only residual is
+>   GPU **atomicAdd non-associativity** in the wavefront accumulation, empirically
+>   < 1e-3 absolute in linear [0,1] at these spp; a localized colour-space / transform
+>   / matrix bug (the failure this max-abs term exists to catch, which a per-channel
+>   *mean* ratio averages away) shifts affected pixels by ≥ 1e-1. **2.0e-2 sits one
+>   order of magnitude above the atomic-reorder noise floor and one below the bug
+>   signal.** The spike **reports the measured max-abs-diff** so the bound is tightened
+>   to the observed floor if it is lower; a measured value near 1e-1 is a NO-GO, not a
+>   threshold relaxation.
+> - **present-rate rule:** **successful presents ≥ 0.9 × completed generations** over
+>   the run (a completed generation is one that reached `render_end` without being
+>   superseded). This is the numerical form of "successful-present count tracks the
+>   render rate": ≥ 90 % of finished frames must reach a `first_blit`; a lower ratio
+>   means finished frames are being stranded unpresented despite a passing tick-gap.
+> - **mailbox-depth bound:** the frame mailbox **depth never exceeds 1** at any
+>   `mailbox_enqueue`/`mailbox_dequeue` (§3.3); a recorded depth > 1 fails the run.
+> - **texture-tail exemption rule:** a tick-gap **p95 failure attributed to the
+>   texture-upload tail** (`flat.tolist()` → `GPUTexture`, §3.3) is **not** a
+>   speculative pass. It requires implementing the alternate `gpu.types.Buffer`-from-
+>   numpy path (pass the contiguous float32 buffer directly, no `tolist()`) **and a
+>   passing rerun** with that path before GO — no exemption is granted on the argument
+>   alone.
+
+**Go / no-go:**
+
+- **GO → A2 proceeds (P2.1–P2.3):** tick-gap **p95 ≤ 33 ms on both scenes**,
+  cancel **p99 ≤ 300 ms**, **zero per-generation CUDA errors**, both threads on the
+  **same device**, **no stale frame**, **presents ≥ 0.9 × completed generations**
+  (frames actually reach the screen), **mailbox depth ≤ 1** throughout, and settled
+  correctness within the pinned comparator (**±5 % per-channel mean-ratio AND
+  max-abs-diff ≤ 2.0e-2** linear).
+- **NO-GO → native session (A1) design task:** any of — tick-gap p95 > 33 ms that
+  is not attributable to the texture tail (and only after the alternate
+  `gpu.types.Buffer`-from-numpy path has been implemented and rerun, §3.3 / the
+  texture-tail exemption rule above), a nonzero per-generation CUDA error count, a
+  device mismatch between threads, a stale present, a present rate below 0.9 ×
+  completed generations (finished frames stranded despite a passing tick-gap), a
+  recorded mailbox depth > 1, or a correctness divergence beyond the pinned
+  comparator (mean-ratio outside ±5 % or max-abs-diff > 2.0e-2) — means the
+  serialised cross-thread primary-context model is not viable as A2 and the fallback
+  native session (a C++ thread owning the render, main thread still owning `bpy`
+  export) is designed instead.
+
+---
+
+## 10. Codex Terra review 2 (2026-09-08 ~10:45, lead-run, call 1/4) — VERDICT: BLOCK
+
+Verbatim, with mojibake dashes/quotes normalised to ASCII. This review was taken
+against Revision 2; Revision 3 (§3/§5/§9 above) resolves items 1-7 per the
+Revision 3 changelog table.
+
+1. VERDICT CHANGE -- The `WfContext`/upload/`__constant__` diagnosis is now correct (`gpu_wavefront_snapshot.cu:988-1090`, `:1408-1463`, `:1832-1843`). But serialization is incomplete: it must cover every mutation of the persistent `PyRenderer`, not only `upload_geometry`. Current sync mutates backend, world, materials, lights, transforms, camera, passes, and integrator state (`exporter.py:500-535`, `:540-580`, `:634-668`; `blender_module.cpp:1543-1569`). A global, non-blocking admission scheduler must own all prepare/upload/configure/render work; "this worker is idle" is insufficient while another viewport owns the token.
+
+2. VERDICT CHANGE -- A main-thread timer draining a plain-data queue is the right mechanism. The snapshot is not yet complete or operationally defined: it omits `skip_upload`, full camera inputs (aperture, focus distance, shifts), effective device/backend and all renderer-setting mutations. More importantly, the doc never says whether the main thread commits that snapshot to `PyRenderer` while holding the token, or the worker does so. The spike's "worker calls only `renderer.render`" cannot apply a new camera by itself. `render()` consumes the renderer's existing `Camera` (`blender_module.cpp:1366-1411`). Discard rules also need viewport/session identity or epoch, backend/device epoch, and disposed-engine handling--not only generation, resolution, scene replacement, and stopping.
+
+3. VERDICT CHANGE -- Ordinary edit handoff is non-blocking and the backend latency analysis is accurate: GPU cancellation is between wavefront passes then synchronizes (`gpu_wavefront_snapshot.cu:1878-1996`); CPU observes cancellation at tile boundaries (`raytracer.h:4192-4195`, `:4421-4426`). Neither has a hard latency bound. However, "the main thread never blocks" is false for the specified F12 and teardown waits. Also, after N is cancelled, a later N+2 edit can arrive before `idle(N)`; the design says to submit N+1 (`pkg241...md:303-305`). It must submit the current `desired_generation`, with every frame/idle/error notification generation-tagged and validated.
+
+4. VERDICT CHANGE -- The multi-viewport arbiter is directionally sound, but F12 is unsafe as written. F12 pauses "the viewport session" (`pkg241...md:352-370`), while the document otherwise permits multiple viewport sessions. F12 needs a process-wide pause gate: block all new viewport admissions, cancel/drain every active viewport render, verify the global token is unowned, then start F12. Release that gate on every F12 success/error path. Otherwise another viewport can enter `render()` between the local idle acknowledgement and F12.
+
+5. VERDICT CHANGE -- The required paths are named, but not fully specified. `__del__` is explicitly best-effort; hard exit has no concrete owner/hook; and `unregister`/`load_pre` need one central `stop_all()` protocol before timers, classes, or engine references disappear. The "ack never arrives -> never destroy" rule is correct, but only if a process-global quarantine retains strong references to the renderer/session/thread so Python finalization cannot destroy the supposedly leaked renderer. Do not call `engine.report` through an engine already being disposed.
+
+6. VERDICT CHANGE -- No additional Python object is touched inside the actual proposed GPU region beyond `progressCallback`, which is correctly reacquired under the GIL (`blender_module.cpp:2252-2265`). But the design calls this a "packaging tail" while its stated range ends at `:2305`; real NumPy packaging occurs later at `:2373-2394` and must remain after GIL reacquisition (`py::array_t`, `request()`, and the returned Python object). The null-callback byte-identity claim is not testable as written. Add a fixed-seed GPU test comparing omitted callback versus explicit `None`, over representative pass/AOV configurations, plus the existing worker-disabled regression.
+
+7. VERDICT WRONG -- Settled-only denoise is not implementable by "one additional generation" as specified. Viewport accumulation is a Python-side running mean (`exporter.py:709-721`), while `applyPasses()` denoises the native `Camera` produced by that individual render (`blender_module.cpp:2295-2305`). A new denoise render would denoise a fresh chunk, not the settled accumulated image. Define either a native pass over the immutable accumulated buffer or an explicit full-target re-render, including its latency/quality contract. Add tests for rapid N->N+2 supersession, token ownership across every uploader, F12 versus two viewports, timer deregistration/idempotence, and request-to-present latency/queue depth.
+
+8. VERDICT CHANGE -- §9 is appropriately small, real-Blender, and uses the right primary UI metric. It is missing:
+
+- Snapshot-commit/token-ownership proof; otherwise the spike cannot safely configure the existing renderer before its worker-only `render()` call.
+- Verification that both threads selected the same CUDA device, plus per-generation CUDA error capture.
+- Request->idle->queue-drained->texture-uploaded->actual-blit latency, frame age, queue depth, and successful-present count. Tick-gap can pass while refinement never reaches the screen.
+- A defined correctness comparator: fixed seed where possible, scene/metric/threshold, rather than "within MC noise."
+
+9. VERDICT BLOCK -- Do not dispatch the spike until the document makes these ordered corrections:
+
+1. Define one global non-blocking admission token covering every renderer mutation, upload, camera/pass/integrator configuration, and render.
+2. Define the snapshot commit point and complete its fields, including `skip_upload`, full camera parameters, and session/device epochs.
+3. Correct the state machine to submit only the latest desired generation and validate every queued notification.
+4. Make F12 a process-wide pause gate covering all viewport sessions.
+5. Specify quarantined ownership for unacknowledged workers and concrete lifecycle entry points.
+6. Replace the invalid settled-denoise mechanism with one that operates on the actual accumulated image.
+7. Bound the GIL-release region before NumPy packaging, add the null-callback identity test, and expand §9 with end-to-end presentation/device measurements.
+
+---
+
+## 11. Codex Terra review 3 (2026-09-08 ~11:00, lead-run, call 2/4) — VERDICT: BLOCK
+
+Verbatim, with mojibake dashes/quotes normalised to ASCII. This review was taken
+against Revision 3; Revision 4 (§3.1/§3.2/§3.3/§3.4/§3.5/§3.6/§3.8, §5, §9 above)
+resolves items 1-7 per the Revision 4 changelog table. Items 1-8 below are the
+per-section verdicts; item 9 is the BLOCK summary with the seven ordered
+pre-dispatch corrections.
+
+1. **VERDICT CHANGE** -- The singleton/write diagnosis is correct, but not complete. `render()` also rewrites caustic, sampler, hair, guide, miss-coverage, light-pass, and spectral-table state -- not just the bindings enumerated in §3.1. See `gpu_wavefront_snapshot.cu:1482-1502`, `:1669-1750`, `:1843-2050`. It also mutates per-type bounce state on the host renderer before dispatch (`blender_module.cpp:2102-2107`).
+
+   The token protocol is sufficient only if it encloses every such renderer operation, including F12 preparation and any post-render pass extraction. "Worker idle" alone is not the safety mechanism; retaining the global token from main-thread commit through completed `render()` is.
+
+2. **VERDICT CHANGE** -- A main-thread timer pump is right. The snapshot still lacks operational accumulation state: `reset_accumulation`, current/target spp, and transfer/reset semantics for the private accumulator. These affect chunk sizing and the running mean today (`exporter.py:624-632`, `:670-723`).
+
+   It also does not specify how non-combined viewport passes are returned: current code calls `renderer.get_render_pass_buffer()` after `render()` (`exporter.py:701-707`). The worker cannot truthfully "only call render" while preserving that behavior. Specify worker-side pass extraction under the token, or a native result API.
+
+   Add a bounded latest-frame mailbox. An unbounded `queue.Queue` can retain many 20-27 MiB immutable frames when texture upload lags.
+
+3. **VERDICT CHANGE** -- The backend latency description is accurate: GPU checks cancellation between passes then synchronizes (`gpu_wavefront_snapshot.cu:1878-1883`, `:1992-1996`); CPU observes it at tile boundaries (`raytracer.h:4192-4195`, `:4421-4426`). Neither is a hard bound.
+
+   But §3.4 contradicts itself: it says every superseded notification is discarded, then says late `idle(N)` after desired `N+2` advances to IDLE. Split notifications into:
+
+   - data-plane frames: require current desired generation;
+   - control-plane idle/exited: require current in-flight generation and epochs;
+   - errors: process for the current session/epoch even if their generation is superseded, since a CUDA fault must not be discarded.
+
+   F12 and teardown deliberately wait, so "main thread never blocks" must remain limited to ordinary edits. Define their timeout and ensure the wait yields the GIL sufficiently for the worker's cancel callback, which reacquires it (`blender_module.cpp:2252-2264`).
+
+4. **VERDICT CHANGE** -- The process-wide pause gate closes the multi-viewport admission race in principle. However, F12 must acquire the token before all F12-side renderer preparation, not merely before its final `render()`: F12 constructs and configures a new renderer and converts the scene (`__init__.py:1193-1199`).
+
+   Also define the no-ack path: F12 must not start if any viewport fails to drain, and the failed session must be quarantined/terminal. Otherwise "verify token unowned" has no enforceable failure behavior.
+
+5. **VERDICT CHANGE** -- Strong-reference quarantine is the right response to an unacknowledged worker. The lifecycle coverage is close, but needs a precise, idempotent split between `stop_session(session)` and global `stop_all()`; §3.6 currently says both "stop every live session" and "stop_all for this session." One viewport engine's `__del__` should not accidentally terminate unrelated viewports.
+
+   Also specify the timeout/failure behavior for F12, `load_pre`, and `atexit`, and prohibit `engine.report` once disposal begins. This matters because current `unregister()` only removes properties/classes (`__init__.py:6674-6694`).
+
+6. **VERDICT OK** -- For the exact proposed released range, the document identifies the relevant Python object. `progressCallback` is reacquired before invocation; the render/copy/pass tail otherwise touches C++ objects only (`blender_module.cpp:2244-2305`). NumPy packaging remains correctly outside that range (`:2373-2394`).
+
+   The omitted-vs-`None` fixed-seed test is testable. It should compare the returned beauty and any requested pass buffers, with fresh equivalent renderer setup per arm.
+
+7. **VERDICT CHANGE** -- The correction that a fresh denoise chunk is wrong is valid. But option (a) must also define accumulation of denoise guide AOVs, not only beauty: current viewport accumulation stores only display pixels (`exporter.py:709-723`), while GPU guides originate in Camera buffers (`blender_module.cpp:2214-2221`). Define their weighting, reset behavior, and immutable publication.
+
+   Add tests for bounded queue/backpressure, backend/device switch mid-render, superseded terminal errors, AOV presentation, F12 drain timeout, and denoise interrupted while running. Specify whether settled denoise runs on the worker and how it yields/discards on a new edit.
+
+8. **VERDICT CHANGE** -- The spike is appropriately real-Blender and narrowly scoped, but the existing measurement path cannot yet produce most claimed evidence. `ui_latency` currently records only untagged ticks, whole `render_viewport_frame` spans, and POST_PIXEL timestamps (`blender_recorder.py:391-417`, `:449-453`; `blender_driver.py:678-702`).
+
+   Add a generation-tagged event schema covering request, commit/token ownership, render start/end, cancel request/idle acknowledgement, enqueue/dequeue depth, texture-upload end, and first actual blit of that generation. Include the recorder/driver in the spike's touched files.
+
+   The correctness gate remains underspecified: the max-absolute-difference limit is absent, and viewport GPU seed zero intentionally produces a fresh random seed per render (`blender_module.cpp:2098-2101`). Pin a nonzero seed, resolution/divisor, spp, output space, and exact max-abs threshold. "Successful-present count tracks render rate" also needs a numerical rule. A texture-tail-attributed p95 failure should require the alternate buffer path plus a passing rerun before GO -- not a speculative exemption.
+
+9. **VERDICT BLOCK** -- Revision 3 resolves the GIL/null-callback correction and materially improves the other six, but the following must land in the design before dispatching the spike:
+
+   1. Complete the device-state inventory and state that the token covers F12 conversion/configuration, worker pass extraction, and all renderer mutations.
+   2. Define snapshot accumulation/reset/pass-result ownership and a bounded latest-result mailbox.
+   3. Correct notification validation into frame versus idle/exited/error rules, including the late-`idle(N)` case.
+   4. Define F12/teardown timeout, GIL-yield, and no-ack behavior; do not start F12 after an undrained viewport.
+   5. Make lifecycle shutdown session-scoped, idempotent, and safe during disposal/finalization.
+   6. Specify accumulated denoise guide AOVs, scheduling, and cancellation/discard behavior.
+   7. Make the spike instrumentable with generation-tagged events and pin all comparator, presentation, and queue-depth acceptance thresholds.

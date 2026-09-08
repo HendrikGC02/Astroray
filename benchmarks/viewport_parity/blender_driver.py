@@ -1011,6 +1011,79 @@ def _write_summary_md(doc, path):
 _ENGINE_NAME = {"astroray": "CUSTOM_RAYTRACER", "cycles": "CYCLES"}
 
 
+def _run_present_check(host, port, duration_s, warmup_s, tick_s):
+    """pkg241 P2.2 item 1 bridge test (one scene): install the present-check
+    recorder, poll to done, fetch the read-back evidence for a settled worker
+    frame."""
+    cfg = {"event_class": "present_check", "duration_s": duration_s,
+           "warmup_s": warmup_s, "tick_s": tick_s}
+    setup = "_PKG241_CONFIG = " + json.dumps(cfg) + "\n" + _recorder_src()
+    info = _bridge(setup, host, port)
+    if info.get("setup") != "ok":
+        raise RuntimeError(f"present_check recorder setup failed: {info}")
+    deadline_s = warmup_s + duration_s + 30.0
+    t_start = time.time()
+    while True:
+        time.sleep(0.5)
+        st = _bridge(_STATUS, host, port)
+        if st.get("error"):
+            raise RuntimeError("present_check recorder error:\n" + st["error"])
+        if st.get("done"):
+            break
+        if time.time() - t_start > deadline_s:
+            _bridge(_STOP, host, port)
+            break
+    res = _bridge(_RESULTS, host, port)
+    _bridge(_TEARDOWN, host, port)
+    return res
+
+
+def run_present_check(args) -> dict:
+    """pkg241 P2.2 item 1: verify a settled off-thread worker frame actually
+    reaches the screen (the spike's presented=0 / grid), per scene, with pixel
+    read-back through the isolated Blender. PASS requires, on every scene:
+    Exporter._worker_present was called >= 1 time for the settled generation
+    (present-wiring restored) with a presented-buffer std above a rendered-content
+    floor (not a uniform clear)."""
+    host, port = args.host, args.port
+    # A near-uniform clear/grid buffer has std ~ 0; any rendered scene at these
+    # settings has clear spatial variation. 1e-4 is well above float noise and
+    # far below a real render's std.
+    MIN_STD = 1e-4
+    scenes = []
+    all_pass = True
+    # present_check is astroray-only (the worker path); ignore --ui-engines.
+    for scene in args.scenes:
+        sinfo = _open_scene(host, port, scene)
+        einfo = _switch_engine(host, port, _ENGINE_NAME["astroray"])
+        print(f"[pkg241-p2] present_check scene={scene} "
+              f"tris={sinfo.get('tris')} region={einfo.get('region')}")
+        res = _run_present_check(host, port, args.duration_s, args.warmup_s,
+                                 args.tick_s)
+        std = res.get("max_present_std")
+        n_calls = res.get("n_present_calls", 0)
+        fb_std = res.get("fb_std_max")
+        passed = (bool(res.get("engine_has_hooks")) and n_calls >= 1
+                  and std is not None and std > MIN_STD)
+        all_pass = all_pass and passed
+        print(f"[pkg241-p2]   n_present_calls={n_calls} max_present_std={std} "
+              f"fb_std_max={fb_std} -> {'PASS' if passed else 'FAIL'}")
+        scenes.append({"scene": scene, "tris": sinfo.get("tris"),
+                       "region": einfo.get("region"),
+                       "n_present_calls": n_calls, "max_present_std": std,
+                       "fb_std_max": fb_std, "passed": passed,
+                       "sample_buffers": res.get("present_buffers"),
+                       "n_fb_reads": res.get("n_fb_reads")})
+    return {
+        "schema": "astroray.viewport_parity.pkg241_p22_present_check.v1",
+        "package": "pkg241", "phase": "P2.2 item 1 (present-wiring bridge test)",
+        "generated_utc": _dt.datetime.now(_dt.timezone.utc)
+            .isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "host": f"{host}:{port}", "min_std_floor": MIN_STD,
+        "passed": all_pass, "scenes": scenes,
+    }
+
+
 def run_ui_latency(args) -> dict:
     host, port = args.host, args.port
     configs = []
@@ -1233,7 +1306,8 @@ def main():
     p.add_argument("--engine", default="CYCLES",
                    choices=["CYCLES", "CUSTOM_RAYTRACER"])
     p.add_argument("--mode", default="offline",
-                   choices=["offline", "interactive", "ui_latency"])
+                   choices=["offline", "interactive", "ui_latency",
+                            "present_check"])
     p.add_argument("--frames", type=int, default=30)
     p.add_argument("--width", type=int, default=512)
     p.add_argument("--height", type=int, default=512)
@@ -1316,6 +1390,15 @@ def main():
         _write_summary_md(doc, args.out / f"{tag}-{args.label}-summary.md")
         print(f"[pkg241] wrote {json_path}")
         return
+
+    if args.mode == "present_check":
+        doc = run_present_check(args)
+        args.out.mkdir(parents=True, exist_ok=True)
+        tag = args.tag or _dt.date.today().isoformat()
+        json_path = args.out / f"{tag}-{args.label}.json"
+        json_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        print(f"[pkg241-p2] wrote {json_path}")
+        sys.exit(0 if doc.get("passed") else 1)
 
     if args.mode == "ui_latency":
         doc = run_ui_latency(args)

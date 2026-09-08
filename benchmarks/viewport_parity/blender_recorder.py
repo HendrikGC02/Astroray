@@ -610,4 +610,191 @@ def _install_ui_latency():
             "engine_has_hooks": S["engine_has_hooks"]}
 
 
-result = (_install_ui_latency() if EVENT_CLASS == "ui_latency" else _install())
+def _install_present_check():
+    """pkg241 P2.2 item 1 bridge test: prove a SETTLED off-thread worker frame
+    actually reaches the screen (the spike's presented=0 / grid).
+
+    Enables the worker (ASTRORAY_VIEWPORT_WORKER=1), makes ONE material edit to
+    spawn a worker generation, then lets the scene SETTLE (no further edits) so the
+    generation becomes the latest desired and can complete + present. Two pieces of
+    read-back evidence are collected:
+
+      - buffer read-back: Exporter._worker_present is wrapped to capture per-call
+        (generation, min, max, std) of the presented pixel buffer. _worker_present
+        being called at all is exactly the present-wiring the item-1 fix restores
+        (the timer no longer eats the frame off a draw context); a std well above 0
+        confirms the buffer carries rendered content, not a uniform clear.
+      - framebuffer read-back (best-effort): a POST_PIXEL handler reads a patch of
+        the live viewport framebuffer after the blit and records its std, i.e. what
+        is actually on screen.
+    """
+    import os
+    import sys
+    os.environ["ASTRORAY_VIEWPORT_WORKER"] = "1"
+    try:
+        import numpy as _np
+    except Exception:
+        _np = None
+
+    addon = (sys.modules.get("bl_ext.user_default.astroray")
+             or sys.modules.get("blender_addon"))
+    exporter_cls = addon.exporter.Exporter if addon is not None else None
+    dns = bpy.app.driver_namespace
+    prev = dns.get("_pkg241")
+    if prev is not None and prev.get("teardown"):
+        try:
+            prev["teardown"]()
+        except Exception as exc:  # pragma: no cover - defensive
+            print("[pkg241] prior teardown warn:", exc)
+
+    area, rv3d = _find_v3d()
+    if rv3d is not None:
+        rv3d.view_perspective = 'PERSP'
+        try:
+            rv3d.update()
+        except Exception:
+            pass
+    mat, bsdf = _pick_material()
+    duration_s = float(_CFG.get("duration_s", 8.0))
+    warmup_s = float(_CFG.get("warmup_s", 2.0))
+    tick_s = float(_CFG.get("tick_s", 0.05))
+
+    S = {
+        "cfg": {"event_class": "present_check", "duration_s": duration_s,
+                "warmup_s": warmup_s, "tick_s": tick_s},
+        "present_buffers": [],   # (generation, min, max, std) from _worker_present
+        "fb_std": [],            # framebuffer patch std after each present
+        "phase": "warmup", "t_phase_start": None, "edited": False,
+        "done": False, "error": None, "orig": {}, "handler": None,
+        "material": mat.name if mat else None,
+        "engine_has_hooks": exporter_cls is not None,
+    }
+    dns["_pkg241"] = S
+
+    if exporter_cls is not None:
+        o_present = exporter_cls._worker_present
+        S["orig"]["_worker_present"] = o_present
+
+        def w_present(self, buffer, width, height, generation):
+            try:
+                if _np is not None:
+                    a = _np.asarray(buffer, dtype=_np.float32)
+                    S["present_buffers"].append(
+                        (int(generation), float(a.min()), float(a.max()),
+                         float(a.std())))
+            except Exception:
+                pass
+            return o_present(self, buffer, width, height, generation)
+
+        exporter_cls._worker_present = w_present
+
+    def present_cb():
+        # Best-effort framebuffer read-back of a central patch (what's on screen).
+        try:
+            import gpu
+            _a, _rv = _find_v3d()
+            reg = None
+            if _a is not None:
+                for r in _a.regions:
+                    if r.type == 'WINDOW':
+                        reg = r
+            if reg is None or _np is None:
+                return
+            w = min(64, int(reg.width)); h = min(64, int(reg.height))
+            x = int(reg.width) // 2 - w // 2
+            y = int(reg.height) // 2 - h // 2
+            fb = gpu.state.active_framebuffer_get()
+            buf = fb.read_color(x, y, w, h, 3, 0, 'FLOAT')
+            buf.dimensions = w * h * 3
+            arr = _np.array(buf, dtype=_np.float32)
+            S["fb_std"].append(float(arr.std()))
+        except Exception:
+            pass
+
+    S["handler"] = bpy.types.SpaceView3D.draw_handler_add(
+        present_cb, (), "WINDOW", "POST_PIXEL")
+
+    def teardown():
+        if exporter_cls is not None and "_worker_present" in S["orig"]:
+            try:
+                exporter_cls._worker_present = S["orig"]["_worker_present"]
+            except Exception:
+                pass
+        if S.get("handler") is not None:
+            try:
+                bpy.types.SpaceView3D.draw_handler_remove(S["handler"], "WINDOW")
+            except Exception:
+                pass
+            S["handler"] = None
+    S["teardown"] = teardown
+
+    def status():
+        return {"done": S["done"], "error": S["error"], "phase": S["phase"],
+                "n_present_buffers": len(S["present_buffers"]),
+                "n_fb": len(S["fb_std"])}
+    S["status"] = status
+
+    def _std(gen_min=1):
+        vals = [s for (_g, _mn, _mx, s) in S["present_buffers"] if _g >= gen_min]
+        return max(vals) if vals else None
+
+    def results():
+        return {"cfg": S["cfg"], "material": S["material"],
+                "engine_has_hooks": S["engine_has_hooks"],
+                "n_present_calls": len(S["present_buffers"]),
+                "present_buffers": S["present_buffers"][-8:],
+                "max_present_std": _std(),
+                "fb_std_max": max(S["fb_std"]) if S["fb_std"] else None,
+                "n_fb_reads": len(S["fb_std"]),
+                "done": S["done"], "error": S["error"]}
+    S["results"] = results
+
+    def _apply_edit():
+        if bsdf is None:
+            return
+        col = list(bsdf.inputs["Base Color"].default_value)
+        col[0] = 0.85 if col[0] < 0.5 else 0.15
+        bsdf.inputs["Base Color"].default_value = col
+
+    def timer():
+        if S["done"]:
+            return None
+        now = time.perf_counter()
+        try:
+            if S["t_phase_start"] is None:
+                S["t_phase_start"] = now
+            if S["phase"] == "warmup":
+                if now - S["t_phase_start"] >= warmup_s:
+                    S["phase"] = "run"
+                    S["t_phase_start"] = now
+                _tag_redraw()
+                return tick_s
+            # run phase: one edit at the start, then settle (only tag_redraw).
+            if not S["edited"]:
+                _apply_edit()
+                S["edited"] = True
+            _tag_redraw()
+            if now - S["t_phase_start"] >= duration_s:
+                S["done"] = True
+                S["phase"] = "done"
+                return None
+            return tick_s
+        except Exception:
+            import traceback
+            S["error"] = traceback.format_exc()
+            S["done"] = True
+            return None
+    S["timer"] = timer
+    bpy.app.timers.register(timer, first_interval=0.05)
+    return {"setup": "ok", "event_class": "present_check",
+            "duration_s": duration_s, "warmup_s": warmup_s, "tick_s": tick_s,
+            "material": S["material"], "v3d": area is not None,
+            "engine_has_hooks": S["engine_has_hooks"]}
+
+
+if EVENT_CLASS == "ui_latency":
+    result = _install_ui_latency()
+elif EVENT_CLASS == "present_check":
+    result = _install_present_check()
+else:
+    result = _install()

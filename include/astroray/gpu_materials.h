@@ -2758,9 +2758,16 @@ __device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GHitRecord& rec
             ds.ok = gpu_pr_refractMicro(wo, wm, eta, ds.wi);
         }
         ds.isDelta = false;
-        return ds;
+        if (ds.ok) return ds;
+        // pkg264: dead rough microfacet sample (grazing wm fails both reflect and
+        // refract — common on the solid sphere's EXIT interface near the critical
+        // angle, rising with roughness). Returning the absorbing dead sample dropped
+        // that energy (measured GPU furnace 0.642@r0.85 / 0.526@r1.0). Fall through
+        // to a smooth delta glass event — CPU twin principled.cpp chooseAndSampleDir
+        // (pkg264) and the same fallback gpu_disney_sample already uses. Keeps the
+        // energy in the path (radiance-invariant clear glass ⇒ furnace 1.0).
     }
-    // delta (smooth) glass
+    // delta (smooth) glass  (also the pkg264 rough dead-sample fallback)
     float f0 = (etaI - etaT) / (etaI + etaT);
     f0 = f0 * f0;
     float fresnel = f0 + (1.f - f0) * powf(fminf(fmaxf(1.f - cosTheta, 0.f), 1.f), 5.f);

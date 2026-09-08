@@ -109,6 +109,7 @@ new reusable script, register it here in the same commit.
 | Viewport-interactivity Cycles A/B driver (runs inside Blender) | `benchmarks/viewport_parity/blender_driver.py` (pkg81 companion to `run.py`) |
 | Blender parity coverage-matrix generator (AST-scanned SUPPORTED/APPROXIMATED/DROPPED-SILENT/UNKNOWN) | `scripts/generate_blender_parity_matrix.py` (pkg119 Phase A; run inside Blender) |
 | Rough-metal/rough-glass live-Cycles A/B driver (CPU/GPU vs Cycles oracle; `--material metal\|glass`) | `benchmarks/cycles-parity/metal_ab/harness.py` (pkg129 metal preset; pkg263 added the glass preset — limb/centre/background ROI ratios) |
+| Cycles feature-coverage reference-corpus builder (pkg259; builds `.blend` + manifest per family, cross-checks builder coverage against `coverage_matrix.json`) | `benchmarks/reference_corpus/build_corpus.py` (run inside Blender; families: `materials_hall`, `textures_mapping` as of Phase 1) |
 | Thin-film iridescence A/B driver vs Cycles-5.2 oracle | `benchmarks/cycles-parity/thin_film/harness.py` (pkg178 Stage-4 acceptance) |
 | Blender dev-loop guard functions (stale-.pyd, OpenMP-off, addon-files-drift, sentinel-pass) used by `dev_addon.ps1` | `scripts/dev_loop_guards.py` (pkg175) |
 | Wavefront SoA baseline measurement harness | `benchmarks/wavefront_baseline.py` (pkg55 Phase A) |
@@ -188,6 +189,7 @@ new reusable script, register it here in the same commit.
 | Viewport-interactivity Cycles A/B driver (runs inside Blender) | `benchmarks/viewport_parity/blender_driver.py` (pkg81 companion to `run.py`) |
 | Blender parity coverage-matrix generator (AST-scanned SUPPORTED/APPROXIMATED/DROPPED-SILENT/UNKNOWN) | `scripts/generate_blender_parity_matrix.py` (pkg119 Phase A; run inside Blender) |
 | Rough-metal/rough-glass live-Cycles A/B driver (CPU/GPU vs Cycles oracle; `--material metal\|glass`) | `benchmarks/cycles-parity/metal_ab/harness.py` (pkg129 metal preset; pkg263 added the glass preset — limb/centre/background ROI ratios) |
+| Cycles feature-coverage reference-corpus builder (pkg259; builds `.blend` + manifest per family, cross-checks builder coverage against `coverage_matrix.json`) | `benchmarks/reference_corpus/build_corpus.py` (run inside Blender; families: `materials_hall`, `textures_mapping` as of Phase 1) |
 | Thin-film iridescence A/B driver vs Cycles-5.2 oracle | `benchmarks/cycles-parity/thin_film/harness.py` (pkg178 Stage-4 acceptance) |
 | Blender dev-loop guard functions (stale-.pyd, OpenMP-off, addon-files-drift, sentinel-pass) used by `dev_addon.ps1` | `scripts/dev_loop_guards.py` (pkg175) |
 | Wavefront SoA baseline measurement harness | `benchmarks/wavefront_baseline.py` (pkg55 Phase A) |

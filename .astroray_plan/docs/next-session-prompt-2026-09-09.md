@@ -59,10 +59,10 @@ leave a morning-readable record.
 
 ## State you inherit (verified 2026-09-08 ~16:30)
 
-- main at the closeout commit; merged today #754 #756 #758 #760 #761 #764 #766 #768 (numbers in STATUS).
-- **pkg264 in flight** on `fix/pkg264-rough-glass-energy` (worktree `../Astroray-pkg264`): see STATUS
-  for where it stopped; if the render A/B isolated the mechanism, finish CPU + GPU in one PR gated by
-  `tests/test_pkg264_glass_cycles_parity.py` and the pkg263 harness re-run.
+- main at the closeout commit; merged today #754 #756 #758 #760 #761 #764 #766 #768 #771 (numbers in STATUS; run report `reports/2026-09-08-day-lead-session.html`).
+- **pkg264 done (#771)** but the ±5 % rough-glass parity criterion is NOT met: residual re-scoped to **#770**
+  (reject + correct `energy_scale` instead of the delta reroute, why `ggxGlassComp` alone leaves 0.645, a glass
+  scene in `scripts/run_parity.py`). No worktrees remain.
 - Viewport: Phase 2 design Rev 4 lead-verified; A2 spike merged flag-gated (#768) with the A2
   decision in design §12; **P2.2 scope = §12 items 1–5** (present wiring, bounded incremental commit,
   cancel-ack through the pump, settle-window instrument, `gpu.types.Buffer` upload for the
@@ -75,8 +75,9 @@ leave a morning-readable record.
 
 ## Dispatch order (lead's choice; owner delegated it)
 
-1. **pkg264 finish** (Opus 4.8): the mechanism from the A/B, CPU + GPU, furnace gates green, pkg263
-   harness before/after, contact sheets inspected. This is the owner's named complaint.
+1. **#770 rough-glass residual** (Opus 4.8, cite-algorithm; file it as pkg265 first): the Cycles-faithful
+   reject + `microfacet_ggx_preserve_energy` mechanism replacing the delta reroute on both lobes, gated by a
+   directional test + the pkg263 harness (target ±5 %); add the run_parity glass scene. The owner's named complaint.
 2. **pkg241 P2.2** (Opus 4.8, design §12 items 1–5; Terra 1 call on the P2.2 diff is worth it): first
    the present-wiring bug + `gpu.types.Buffer` for the synchronous path (both quick, both visible),
    then the bounded incremental commit and the settle-window gate; measure with `--mode ui_latency`.

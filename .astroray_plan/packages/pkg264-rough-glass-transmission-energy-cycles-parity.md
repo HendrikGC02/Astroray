@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — PR #771 open (2026-09-08): native-`principled` rough-glass energy loss fixed CPU+GPU (furnace 0.645→0.958 @r0.85 = disney; harness r0.85 centre 0.525→0.742, limb 0.342→0.556; 289 regression pass, REG 254 held). Full ±5 % Cycles parity NOT reached — the residual is an engine-wide rough-glass angular gap that affects `disney` equally (follow-up filed); pkg264's principled=disney scope is delivered.
+**Status:** done — PR #771 merged 2026-09-08 (scoped fix delivered; the ±5 % Cycles-parity criterion is NOT met and is re-scoped to #770): the native Principled transmission sampler returned absorbing dead microfacet samples (no delta fallback, unlike disney.cpp); rerouted to the delta glass event CPU+GPU. White furnace r0.85 0.645 → 0.958 (= Disney); pkg263 harness r0.85 centre 0.525 → 0.742, limb 0.342 → 0.556 of Cycles; 289 regression pass; REG 254; cycles-parity-reviewer MERGE ("pragmatic patch, not the Cycles reject + energy_scale mechanism") + cpp-abi-guard MERGE. Residual (both lobes, engine-wide) + the run_parity glass scene → #770
 **Estimated effort:** 2–3 sessions (~8 h; CPU fix + GPU closure-graph mirror under the GPU lock; gated by the pkg263 harness)
 **Depends on:** pkg263, pkg179, pkg169, pkg118
 

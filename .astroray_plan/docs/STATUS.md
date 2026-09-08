@@ -51,7 +51,7 @@ worktree `../Astroray-pkg264`, Opus 4.8): research note + MC oracle committed (p
 77–100 % efficient before compensation → the 2× deficit is not a single-interface formula error);
 lead redirected the target to `principled.cpp`'s transmission lobe (the addon routes Glass BSDF to
 native Principled) and authorised the render-level A/B first (transmission-bounce cap / TIR
-classification, RR, compensation-table loading, thin-wall vs solid). Lane still running at closeout write time (16:35); its result is appended below when it lands.
+classification, RR, compensation-table loading, thin-wall vs solid). **Landed 21:10 as #771 (pkg264 → done, parity criterion re-scoped to #770):** the lane's render A/B refuted the bounce-cap/RR hypotheses byte-identically; the white furnace isolated the native Principled transmission lobe (0.645 at r 0.85 vs Disney 0.96): its sampler returned absorbing dead microfacet samples with no delta fallback. Reroute to the delta glass event (CPU+GPU): furnace 0.958, harness r 0.85 centre 0.525 → 0.742, limb 0.342 → 0.556 (sphere bright frosted again, lead-inspected). Both reviewers MERGE; the parity reviewer's verdict — a pragmatic patch matching the accepted Disney fallback, directionally biased, not Cycles' reject + energy_scale — is recorded on #770 together with the lead that the ported glass compensation under-scales. Run report: `reports/2026-09-08-day-lead-session.html`.
 
 **Owner decisions taken today (11:50):** (a) pkg262 filed — flip the progressive sampler + light tree
 on by default with A/B evidence, add a GPU adaptive output-effect test, stop exporting GPU adaptive
@@ -65,7 +65,7 @@ data-table packaging is a gate (f) blocker — schedule before the next release 
 pkg264 finish → P2.2 → pkg262; pkg259 Phase 1 polish + Phase 2 in parallel on CPU).
 
 **Manual/owner:** none new. Three Blender-side processes from earlier are gone; only the owner's live
-Blender (PID 1676) remains. Worktrees: `../Astroray-pkg264` only.
+Blender (PID 1676) remains. Worktrees: none (all lanes merged).
 
 ---
 

@@ -20,6 +20,7 @@ __device__ const float* g_ggxE       = nullptr;
 __device__ const float* g_ggxEavg    = nullptr;
 __device__ const float* g_sheenE     = nullptr;
 __device__ const float* g_clearcoatE = nullptr;
+__device__ const float* g_ggxGenSchlickIorS = nullptr;  // pkg261 [16*16*16]
 
 // Host-side ownership of the device allocations; freed only on process exit
 // (read-only tables, re-uploading would be wasteful) — same lifetime policy
@@ -28,6 +29,7 @@ static float* s_ggxEDev       = nullptr;
 static float* s_ggxEavgDev    = nullptr;
 static float* s_sheenEDev     = nullptr;
 static float* s_clearcoatEDev = nullptr;
+static float* s_ggxGenSchlickIorSDev = nullptr;  // pkg261
 
 static void uploadOneTable(const float* host, int count, float** devPtr,
                             const float** symbolPtr, const char* name) {
@@ -72,6 +74,10 @@ void uploadGgxTables() {
                    &g_sheenE, "sheenE");
     uploadOneTable(tables.clearcoatEData(), kClearcoatSize1D, &s_clearcoatEDev,
                    &g_clearcoatE, "clearcoatE");
+    // pkg261: generalized-Schlick specular-layer albedo table (16^3).
+    constexpr int kGenSchlick3D = G_GEN_SCHLICK_SIZE * G_GEN_SCHLICK_SIZE * G_GEN_SCHLICK_SIZE;
+    uploadOneTable(tables.ggxGenSchlickIorSData(), kGenSchlick3D, &s_ggxGenSchlickIorSDev,
+                   &g_ggxGenSchlickIorS, "ggxGenSchlickIorS");
 
     uploaded = true;
 }

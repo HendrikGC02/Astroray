@@ -698,10 +698,15 @@ def main(argv: list[str] | None = None) -> int:
     for row in rows:
         if not row["engine"].startswith("astroray") or row["skip_reason"] or not row["ssim_to_cycles"]:
             continue
-        # pkg265 — glass_sphere is a RECORDED cross-check, not gated: the
-        # multi-scatter dielectric walk's angular shape is expected to diverge
-        # from Cycles' 1/E single-scatter compensation (research note
-        # pkg265-multiscatter-microfacet-research.md Phase 4); the row is
+        # pkg265 — glass_sphere is a RECORDED cross-check, not gated, but NOT
+        # because of any glass-physics divergence (issue #779): this scene's
+        # astroray-cpu leg goes through tools/blend_import (pkg76), which maps
+        # Base Color ONLY — Transmission/IOR/Roughness are dropped, so the
+        # Astroray side renders as a DIFFUSE PROXY, not the multi-scatter
+        # dielectric walk. The real glass oracle is
+        # benchmarks/cycles-parity/metal_ab/harness.py --material glass
+        # (pkg263), which renders through the real addon translation; see
+        # pkg265-multiscatter-microfacet-research.md Phases 4/6. This row is
         # written to the CSV for inspection but does not fail the run.
         if row["scene"] == "glass_sphere":
             continue

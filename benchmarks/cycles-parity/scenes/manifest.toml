@@ -14,16 +14,25 @@
 # to download, no fetch_scenes.py entry needed) and committed directly at
 # scenes/glass_sphere.blend, not scenes/cache/ (run_parity.py's
 # _find_blend_path checks scenes/<id>.blend first). Its parity row is a
-# RECORDED cross-check, not a gate (see scripts/run_parity.py's SSIM-gate
-# loop and .astroray_plan/docs/pkg265-multiscatter-microfacet-research.md
-# Phase 4 for why: the multi-scatter dielectric walk's angular shape is
-# expected to diverge from Cycles' 1/E single-scatter compensation).
+# RECORDED cross-check, not a gate — but NOT a glass-physics cross-check
+# (issue #779): run_parity.py's astroray-cpu leg for .blend scenes goes
+# through tools/blend_import (pkg76), which maps Base Color ONLY —
+# Transmission/IOR/Roughness and every other Principled socket are dropped.
+# This row therefore compares Cycles' glass render against a DIFFUSE PROXY
+# on the Astroray side (SSIM ~0.77), not against the multi-scatter dielectric
+# walk. The real glass oracle is benchmarks/cycles-parity/metal_ab/harness.py
+# --material glass (pkg263), which renders through the real addon translation
+# inside Blender; see .astroray_plan/docs/pkg265-multiscatter-microfacet-research.md
+# Phases 4/6 for that measurement. This row stays as CI-visible infrastructure
+# completeness (scene loads, both engines render, report is produced) until
+# #779 is fixed (blend_import gains the relevant sockets, or run_parity grows
+# an addon-driven leg).
 
 [[scene]]
 id = "glass_sphere"
-name = "Glass Sphere (pkg265)"
+name = "Glass Sphere (pkg265, DIFFUSE PROXY — not a glass measurement, see #779)"
 author = "Astroray"
 license = "self-authored"
 reference_spp = 128
 resolution = [256, 256]
-attribution = "pkg265 native-Principled rough-glass IOR 1.45 sweep (roughness 0.5/0.85/1.0, three spheres); self-authored, no external asset."
+attribution = "pkg265 native-Principled rough-glass IOR 1.45 sweep (roughness 0.5/0.85/1.0, three spheres); self-authored, no external asset. DIFFUSE PROXY on the Astroray side (#779): tools/blend_import maps Base Color only, so this row does not exercise the glass BSDF. Real glass oracle: benchmarks/cycles-parity/metal_ab/harness.py --material glass (pkg263)."

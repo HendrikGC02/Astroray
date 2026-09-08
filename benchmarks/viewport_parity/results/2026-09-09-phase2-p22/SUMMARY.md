@@ -330,3 +330,207 @@ architectural gaps; the metal_sweep continuous cancel latency was a
 contention artifact and should be read as PASS; the metal_sweep realistic-
 settle tick-gap is a coin flip at this budget and needs more data before
 either verdict is trusted.
+
+---
+
+## Post-fix graded measurement (Terra-4 instrument, 2026-09-09, third pass)
+
+Same RTX 5070 Ti, isolated Blender 5.2 GUI on port **9877**, disposable profile
+(`BLENDER_USER_RESOURCES`/`EXTENSIONS`/`CONFIG`/`SCRIPTS`/`DATAFILES` redirected
+to a fresh temp dir; `mcp` extension copied verbatim from the default profile,
+`astroray` staged from this worktree's HEAD `d96a4597`). GPU lock held for the
+whole session via `locks.acquire_lock` (never written directly); `nvcc`/`cl`/
+`ninja`/`ptxas` confirmed absent before and between every run.
+
+**Addon staging note:** two native `.pyd` candidates were tried, both reproduce
+every finding below identically: (1) the main-tree canonical build
+`build_cuda/astroray.cp313-win_amd64.pyd` from the root `Astroray` checkout
+(OpenMP setting unknown, build-ID `dev`; its mtime, 2026-09-08 23:41, predates
+`origin/main` HEAD `015e3d30`'s commit timestamp by ~3 h, so it is missing the
+#762/#769/#772 native fixes those two commits added to `blender_module.cpp` —
+irrelevant to the emission/compensation-table behavior those commits touch, but
+flagged per the pyd-staleness build rule); (2) this worktree's own cached
+`build_blender_addon_cuda/astroray.cp313-win_amd64.pyd`
+(build-ID `2beed0d+20260908T134329Z`, confirmed `-DASTRORAY_DISABLE_OPENMP=ON`
+i.e. the correct Blender-specific flags) — but that build predates the
+branch's rebase onto `896d7f7c`, so it is *also* missing #769/#772. Since P2.2
+has zero native diff on this branch, neither gap should matter for viewport-
+worker behavior, and the identical crash below reproduces on both, ruling out
+the pyd choice as the cause (see "New finding" below). The graded numbers in
+this section use candidate (2), the correct Blender-specific OpenMP-OFF build.
+
+### NEW FINDING (blocking): the viewport worker corrupts the CUDA context on a scene switch
+
+**`ASTRORAY_VIEWPORT_WORKER=1` + switching the loaded `.blend` mid-session
+(metal_sweep -> big or big -> metal_sweep) reliably crashes the GPU wavefront
+pipeline**, reproduced 3/3 times across two different native `.pyd` builds:
+
+```
+[CUDA] light tree not uploadable (dedicated lights present) - GPU NEE falls back to power-CDF selection
+stage_env_shadow launch error: an illegal memory access was encountered
+allocateGPUWavefrontState: cudaMalloc failed for s.pixel_index
+stage_shade_bucketed launch error: an illegal memory access was encountered
+```
+(a second reproduction printed `stage_queue_iota launch error: invalid
+argument` twice before the same `illegal memory access`). Once the CUDA
+context is in this state every subsequent render in that process returns
+`n_present_calls=0` — including scenes that individually work fine (see
+below), because a CUDA illegal-access poisons the context for the rest of the
+process's lifetime.
+
+**Isolation (fresh Blender process per test, same disposable profile, same
+OpenMP-OFF `.pyd`):**
+
+| test | result |
+|---|---|
+| `big` scene alone, worker ON, fresh process | PASS (42 presents, std 1.06) |
+| `metal_sweep` alone, worker ON, fresh process, called twice in a row (same scene, no switch) | PASS both times (60, 47 presents) |
+| `metal_sweep` then switch to `big`, same worker-ON process | **FAIL** — `metal_sweep` itself now also reads 0 presents (context already poisoned by the switch) |
+| `metal_sweep` -> `big` switch, worker **OFF**, same OpenMP-OFF `.pyd`, via `--mode ui_latency` (5 s/scene) | PASS both scenes (732, 772 presents), **zero errors in stderr** |
+
+This isolates the defect to **the worker path specifically reacting to a full
+scene reload** (not to any single scene, not to the pyd build, not to scene
+switching in general — the synchronous/worker-OFF path handles the identical
+switch cleanly). The pre-terra4 clean pass (this file, "Clean re-measurement"
+section) switched scenes repeatedly within one live worker-ON session without
+a crash, so this is either a regression introduced by the Terra4 item-2/3/4
+`exporter.py` changes (commit-mode / pump / cancel-generation-pairing) meeting
+a full-scene-reload commit for the first time under the new code paths, or
+was exposed (not introduced) by them — root-causing which requires reading
+`_worker_commit_and_submit`'s handling of a `scene_full`-class commit arriving
+while the worker holds device buffers sized for the *previous* scene, which is
+implementation work out of scope for this measurement lane. **Filed as a
+P2.3-blocking finding, not merely a residual latency gap** — this is a
+correctness/stability regression against the design doc §9 "same device / 0
+CUDA errors" gate under completely ordinary usage (the owner switching which
+scene the viewport is showing while Astroray is the active engine).
+
+**Diagnosis of the previously-flagged `big`-scene `max_present_std=inf`
+outlier (pre-terra4 clean pass, this file above):** that run's `present_check`
+called `--scenes metal_sweep big` in one live worker-ON session, i.e. it hit
+the exact same scene-transition path implicated above. Re-running `big` in
+total isolation (fresh process, never touched `metal_sweep`) on this build
+gives clean, finite sample buffers (max value ~9.8, std 1.06 — see
+`2026-09-09-present_check_big-terra4.json`), not `inf`. The most likely
+explanation: the pre-terra4 build's scene-transition path had the *same*
+underlying device-memory hazard, but it manifested there as a stale/
+uninitialized buffer read (a huge finite-or-`inf` sentinel value in one pixel)
+rather than an outright CUDA context poison — i.e. `inf` then and the crash
+now look like two severities of the same latent bug, not two unrelated
+issues. Not proven (would need instrumented device-memory tracing to
+confirm), but offered as the leading hypothesis for whoever picks up the
+P2.3 fix.
+
+**Methodology consequence for the graded numbers below:** every worker-ON
+measurement was taken from its own freshly-launched, single-scene Blender
+process (never switching `.blend` files mid-session) to avoid the corruption
+above contaminating the timing/instrument numbers. `present_check` was also
+run once as the original combined `--scenes metal_sweep big` call, kept as
+`2026-09-09-present_check-terra4.json` for the record — it shows exactly the
+failure above (metal_sweep PASS n=44 std=1.01, big FAIL n=0) and is *not* used
+for any gate number. Worker-OFF baseline does not need this workaround (both
+scenes measured in one process, per the isolation test above).
+
+### Item 1 — present-wiring bridge test (`--mode present_check`, worker ON), post-fix, per-scene isolated
+
+| scene | n_present_calls | max_present_std | floor | verdict |
+|---|---|---|---|---|
+| metal_sweep | 59 | 1.05 | 1e-4 | PASS |
+| big (100k)  | 44 | 1.06 | 1e-4 | PASS |
+
+Both PASS cleanly in isolation (no `inf`, see diagnosis above). Item 5 buffer
+upload: `--mode buffer_identity` — `equal=True roundtrips=True n_floats=36636
+n_diff=0` -> **PASS**.
+
+### Decoupling + worker lifeline, post-fix, per-scene isolated
+
+`--mode ui_latency`, astroray GPU, tick 5 ms, 2112x829 / 2100x1221. `continuous`
+= 3 reps x 10 s; `settle 0.3/6.0` (realistic) = 2 reps x 20 s, run twice per
+scene for spread (matching the prior pass's methodology).
+
+| config | scene | gap p50 | gap p95 | gap p99 | gap max | presents |
+|---|---|---|---|---|---|---|
+| worker OFF (sync baseline) | metal_sweep | 148.31 | 160.13 | 171.64 | 178.16 | 359 |
+| worker OFF (sync baseline) | big | 212.15 | 228.47 | 252.50 | 277.19 | 232 |
+| worker ON, continuous (stress) | metal_sweep | 7.50 | 230.45 | 285.32 | 300.21 | 1349 |
+| worker ON, continuous (stress) | big | 7.03 | 31.34 | 319.60 | 366.73 | 1859 |
+| worker ON, settle 0.3/6.0 rep 1 | metal_sweep | 7.03 | 40.03 | 96.63 | 309.62 | 3288 |
+| worker ON, settle 0.3/6.0 rep 2 | metal_sweep | 7.03 | 37.95 | 93.73 | 326.30 | 3352 |
+| worker ON, settle 0.3/6.0 rep 1 | big | 7.01 | 15.80 | 61.97 | 397.64 | 4315 |
+| worker ON, settle 0.3/6.0 rep 2 | big | 7.01 | 19.79 | 67.29 | 531.08 | 4233 |
+
+| config | scene | commit p95 | cancel_ack_pump p99 | tex_tail p95 | frame_age p50 (>=0) | frame_age p95 | completed | mailbox_max | devices | cuda_err |
+|---|---|---|---|---|---|---|---|---|---|---|
+| continuous | metal_sweep | 249.39 | 390.71 | 71.47 | 24092.57 | 36052.62 | 0 | 1 | [0] | 0 |
+| continuous | big | 259.94 | 470.85 | 26.44 | 25977.48 | 38857.84 | 0 | 1 | [0] | 0 |
+| settle 0.3/6.0 rep 1 | metal_sweep | 251.56 | 303.41 | 54.44 | 2092.35 | 34578.23 | 0 | 1 | [0] | 0 |
+| settle 0.3/6.0 rep 2 | metal_sweep | 244.89 | 333.38 | 54.81 | 3804.36 | 9676.42 | 0 | 1 | [0] | 0 |
+| settle 0.3/6.0 rep 1 | big | 263.09 | 407.99 | 33.79 | 4829.63 | 41045.13 | 0 | 1 | [0] | 0 |
+| settle 0.3/6.0 rep 2 | big | 394.53 | 1059.37 | 36.57 | 5858.65 | 8931.93 | 0 | 1 | [0] | 0 |
+
+**Frame-age instrument fix confirmed working (Terra item 3):** every
+`frame_age` sample this pass is non-negative (was structurally negative
+pre-terra4, e.g. p50 -5628 ms). `present_rate` is **UNGRADEABLE** in every
+cell this pass (`completed_generations=0` throughout — no run produced an
+eligible terminal generation in its window); the pre-terra4 clean pass had one
+non-UNGRADEABLE cell (`settle 0.3/6.0` rep 1, big: `completed=1`). Both are
+consistent with the design's documented behavior (UNGRADEABLE when zero
+eligible terminal generations exist) — the difference is sampling variance of
+a rare event, not a regression.
+
+### Section 9 go/no-go checklist, post-fix (Terra-4 instrument), vs clean pre-fix
+
+| criterion | budget | measured (post-fix) | verdict | vs clean pre-fix |
+|---|---|---|---|---|
+| same device, 0 CUDA errors, no scene switch | required | [0], 0 errors in every isolated per-scene run | PASS (isolated) | unchanged when isolated |
+| **same device / 0 CUDA errors across a scene switch** | required | **illegal memory access, cudaMalloc failure, 0 presents** | **FAIL — NEW regression, not present pre-terra4** | pre-terra4 clean switched scenes in one session with 0 CUDA errors (but produced the `inf` present_check outlier on big — see diagnosis) |
+| present-wiring (`present_check`), per scene | required | metal 59/1.05, big 44/1.06, both PASS | PASS | pre-terra4 big showed `inf` (diagnosed above); this pass clean when isolated |
+| buffer upload (`--mode buffer_identity`) | required | equal=True, roundtrips=True, n_diff=0 | PASS | new test this pass (Terra buffer-identity note); no prior comparison |
+| progressive frame age >= 0 | required | all cells non-negative | PASS | pre-terra4 was structurally negative — **instrument bug fixed** |
+| present rate >= 0.9 x completed | — | completed=0 every cell | UNGRADEABLE | pre-terra4 had 1 non-UNGRADEABLE cell (sampling variance, not a regression) |
+| mailbox depth | <= 1 | 1 throughout | PASS | unchanged |
+| tick-gap p95, realistic settle 0.3/6.0, metal_sweep | <= 33 ms | 40.03 / 37.95 (2 reps) | **FAIL both reps** | pre-terra4: 39.5 FAIL / 32.4 PASS (borderline both passes; this pass reads worse) |
+| tick-gap p95, realistic settle 0.3/6.0, big | <= 33 ms | 15.80 / 19.79 (2 reps) | PASS both, wide margin | pre-terra4: 30.86 / 30.88 PASS (tight); this pass has more headroom (isolated process, no cross-scene overhead in the window) |
+| tick-gap p95, continuous storm, metal_sweep | <= 33 ms | 230.45 | FAIL | pre-terra4: 206.0 FAIL — unchanged, real |
+| tick-gap p95, continuous storm, big | <= 33 ms | 31.34 (p99 319.6, max 366.7) | PASS on p95, but p99/max blow up | pre-terra4: 70.3 FAIL — **this pass reads better on p95 specifically; not trusted as a verdict flip** (single rep, no spread check was run for continuous, unlike settle; the p99/max tail says the underlying behavior is unchanged) |
+| cancel p99 (`cancel_ack_pump`), continuous, metal_sweep | <= 300 ms | 390.71 | FAIL | pre-terra4: 261.9 PASS — **reads worse, but the metric itself changed** (Terra item 4 redefined cancel pairing to be generation-correct; the two numbers are not the same measurement, see note below) |
+| cancel p99 (`cancel_ack_pump`), continuous, big | <= 300 ms | 470.85 | FAIL | pre-terra4: 485.4 FAIL — unchanged verdict, comparable magnitude despite the metric redefinition |
+| cancel p99, settle | <= 300 ms | 303.41 / 333.38 (metal), 407.99 / 1059.37 (big) | mixed, near/over budget | pre-terra4 diagnosed this as an idle-worker-cancel instrument artifact; Terra item 4 tightened the pairing (`cancel_request(in-flight g) -> idle_drain(g)`) so these numbers are more trustworthy than before, and still mostly over budget — read as a genuine (if noisy) settle-mode cancel cost, not purely an artifact anymore |
+
+**On the cancel-p99 metric change (Terra item 4):** pre-terra4, every edit
+request was recorded as a cancel and paired with *any* next idle event
+regardless of generation, so the old `cancel_ack_pump` numbers (261.9/485.4
+continuous) measure a different, looser quantity than the post-fix numbers
+(390.71/470.85), which pair `cancel_request(in-flight g)` only with
+`idle_drain(g)` of the *same* generation. The post-fix numbers are the
+trustworthy ones going forward; the apparent "regression" for metal_sweep
+(261.9 PASS -> 390.71 FAIL) is at least partly the old metric under-counting
+real cancel latency, not the worker getting slower. No apples-to-apples re-run
+of the *old* metric on the *new* code was done (out of scope — the old metric
+is retired by design), so the magnitude of "instrument vs real" cannot be
+split further here.
+
+### Updated overall verdict (supersedes both sections above for anything the new instrument or the scene-switch finding touches)
+
+- **NEW BLOCKING FINDING:** the viewport worker corrupts the CUDA context on
+  an ordinary scene switch (illegal memory access -> 0 presents for the rest
+  of the process). Reproduced 3/3 across two native builds; absent when the
+  worker is OFF. This must be fixed before P2.3's other work is graded on a
+  multi-scene session, and likely explains the pre-terra4 `big`-scene
+  `present_check` `inf` outlier as a milder version of the same hazard.
+- PASS, confirmed post-fix when isolated per scene: present-wiring, buffer
+  upload (new), mailbox <= 1, same device, 0 CUDA errors (single-scene
+  sessions only), frame-age non-negativity (instrument fix), tick-gap p95
+  under realistic settle for **big**.
+- FAIL, confirmed real: tick-gap p95 under continuous stress (both scenes,
+  metal_sweep unambiguous, big p95-passes-but-p99/max-fails); cancel p99
+  under continuous (both scenes, though the metric changed — see note);
+  tick-gap p95 under realistic settle for **metal_sweep** (worse than the
+  pre-terra4 borderline read, 2/2 reps over budget this time).
+- UNGRADEABLE: present rate (0 eligible terminal generations this pass,
+  consistent with pre-terra4's near-zero rate).
+
+Raw per-run JSON/summary files for this pass: every `*-terra4.json` /
+`*-terra4-summary.md` file in this directory, plus the combined-scene
+`2026-09-09-present_check-terra4.json` kept as crash evidence (not used for
+gate numbers).

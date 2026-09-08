@@ -302,6 +302,43 @@ All implementation gates UNRUN:
 
 ## Progress
 
+- [ ] 2026-09-09 — **P2.2 Post-fix graded measurement (Terra-4 instrument), third pass
+      (RTX 5070 Ti, isolated Blender 9877, disposable profile, GPU lock held correctly
+      for the whole session; PR #777; tables in
+      `benchmarks/viewport_parity/results/2026-09-09-phase2-p22/SUMMARY.md`
+      "Post-fix graded measurement" section):** the still-open "Post-fix GUI re-measure —
+      PENDING" item from the entry below is now DONE, against the current (Terra4-fixed)
+      build. **NEW BLOCKING FINDING surfaced by this pass:** `ASTRORAY_VIEWPORT_WORKER=1`
+      corrupts the CUDA context on an ordinary scene switch (metal_sweep <-> big)
+      mid-session — `stage_env_shadow`/`stage_shade_bucketed`/`stage_queue_iota` "illegal
+      memory access" + `allocateGPUWavefrontState: cudaMalloc failed`, reproduced 3/3
+      across two native `.pyd` candidates (this worktree's correct OpenMP-OFF Blender
+      build included), 0/1 with the worker OFF on the identical `.pyd` (clean switch, 0
+      errors). Isolated to the worker path specifically reacting to a full-scene-reload
+      commit, not to either scene alone, not to the pyd build. Leading hypothesis: the
+      same hazard explains the pre-terra4 `big`-scene `present_check`
+      `max_present_std=inf` outlier (milder manifestation, stale-buffer read instead of
+      a hard context poison) — re-running `big` in total isolation this pass gives clean
+      finite values (max ~9.8, std 1.06). **Methodology consequence:** every worker-ON
+      number this pass came from a freshly-launched, single-scene Blender process (never
+      switching `.blend` mid-session); the original combined `--scenes metal_sweep big`
+      `present_check` call was also run once and kept as crash evidence, not used for
+      gate numbers. **Confirmed working (Terra4 items 2/3/4):** progressive frame age is
+      non-negative in every sampled cell (was structurally negative pre-terra4, e.g. p50
+      -5628 ms); `--mode buffer_identity` (new) PASSES (equal=True, roundtrips=True,
+      n_diff=0); present-wiring PASSES both scenes in isolation (no `inf`); present_rate
+      correctly reports UNGRADEABLE (0 eligible terminal generations this pass, matching
+      pre-terra4's near-zero rate, not a regression). **Gate deltas vs the clean pre-fix
+      pass:** tick-gap p95 realistic-settle metal_sweep now FAILS both reps (40.03/37.95,
+      was a 39.5-FAIL/32.4-PASS coin flip); big stays PASS with a wider margin
+      (15.80/19.79 vs 30.86/30.88). cancel p99 continuous FAILS both scenes now
+      (390.71/470.85 vs pre-terra4 261.9-PASS/485.4-FAIL) — metal_sweep's read is not a
+      straight regression: Terra item 4 redefined cancel pairing to be generation-correct
+      (`cancel_request(in-flight g) -> idle_drain(g)`), so the two numbers measure
+      different things; big's FAIL verdict is unchanged. tick-gap p95 continuous-storm
+      unchanged (both FAIL, real). PR #777 body updated (replaced the "PENDING" section)
+      with the full gate table; **do not merge** — pending a decision on whether the
+      scene-switch CUDA-corruption fix must land before or alongside P2.3.
 - [ ] 2026-09-09 — **P2.2 CPU-contention correction, pre-terra4 build (RTX 5070 Ti,
       isolated Blender 9877, GPU lock held correctly for the whole session via
       `locks.acquire_lock` — never written directly; tables in

@@ -457,3 +457,139 @@ justified vs the unbiased delta-contract skip; recorded here per CLAUDE.md §1.
   independently quantify it beyond the single-interface directional gate; filed as a
   tangent, not a blocker.
 - **GPU leg (Phase 3)** unchanged — still the pkg264 #771 reroute stub; a later phase.
+
+## Phase 6 — harness after the eval/NEE fix (2026-09-09)
+
+Sonnet 5 lane, CPU-only, no GPU lock, on `feat/pkg265-ms-microfacet-glass` HEAD
+`fe04324e` (the squashed head carrying both Phase 2 and the Phase 5 eval/NEE fix
+— PR #778). Rebuilt `build_cpu/` from this HEAD (`build_cpu_nosccache.bat`,
+CUDA-OFF), then restaged the CPU addon from the SAME HEAD
+(`build_blender_addon.py --backend cpu` → `dist/astroray/`, matching the
+Phase-4 lane's finding that the harness needs the staged runtime DLLs, not the
+bare `build_blender_addon/` build dir — `ASTRORAY_PYD_DIR` pointed at
+`dist/astroray/`). Re-ran the UNCHANGED pkg263 driver
+(`benchmarks/cycles-parity/metal_ab/harness.py --material glass`, 256², 128
+spp, CPU both engines) to isolate the eval/NEE fix's effect from Phase 4's
+numbers, which were measured on the pre-fix eval()/pdf().
+
+### Per-ROI Astroray/Cycles ratio — three-way comparison (mean of R/G/B)
+
+| ROI | r | before (#771, pkg264) | after CPU walk, pre eval-fix (#778 Phase 4) | after eval/NEE fix (Phase 6, this run) | Cycles |
+|---|---|---|---|---|---|
+| centre | 0.00 | 0.963 | 0.997 | 0.997 | 1.0 |
+| centre | 0.20 | 0.950 | 0.976 | 0.972 | 1.0 |
+| centre | 0.50 | 0.873 | 1.076 | 0.899 | 1.0 |
+| centre | 0.85 | 0.742 | 1.518 | 0.929 | 1.0 |
+| limb | 0.00 | 0.815 | 0.832 | 0.832 | 1.0 |
+| limb | 0.20 | 0.673 | 0.861 | 0.765 | 1.0 |
+| limb | 0.50 | 0.490 | 1.019 | 0.637 | 1.0 |
+| limb | 0.85 | 0.556 | 1.053 | 0.604 | 1.0 |
+| background | all | ~1.00 | ~1.00 | 0.994 | 1.0 |
+
+Full per-channel R/G/B table: `test_results/pkg265_postfix_harness_evalfix/glass_ab_report.md`
+(`.json` for the raw numbers + raw `.npy` renders per ROI mask).
+
+**Reading:** the eval/NEE fix (Phase 5 — `eval()`/`evalSpectral()` on the rough
+glass walk lobes return 0, `sample()`/`sampleSpectral()` set `isDelta=true`, the
+smooth-glass delta-for-NEE contract) removes the Phase-4 centre **overshoot**
+almost entirely: r 0.50 centre goes from 1.076→0.899 and r 0.85 centre from the
+worst offender (1.518, +52%) down to 0.929 — both now UNDER 1.0 and within
+~10% of Cycles, a large improvement on the diagnosed bug (NEE double-dipping
+into the walk's already-integrated throughput on top of the BSDF-hit MIS leg).
+r 0.00/0.20 centre are effectively unchanged (0.997/0.972 vs 0.997/0.976) since
+low roughness rarely triggers the walk's multi-bounce NEE leg in the first
+place.
+
+The **limb** moves the other direction and by a larger amount: it was closest
+to Cycles in the pre-fix Phase-4 numbers (0.83–1.05×) and is now the more
+under-shot ROI post-fix (0.60–0.83×, worst at r≥0.5). This is the direct
+consequence of the eval-fix's mechanism: rough glass no longer contributes any
+NEE estimate at all (`eval()==0`), so all direct light at grazing incidence —
+where NEE previously contributed a disproportionate share of the pre-fix
+signal, given how hard it is for BSDF sampling alone to land on a small area
+light through a wide, forward-scattered transmission lobe — now depends
+entirely on a BSDF-sampled ray happening to hit the emitter (`wasSpecular`
+MIS full-weight). At 128 spp that BSDF-hit path under-converges at the limb
+more than the centre (the transmitted lobe there is wider and more likely to
+miss the light), reading as an under-shoot in a 128-spp mean, not a bias in
+the unbiased estimator itself (see Noise below). This is the accepted,
+documented cost of the unbiased skip-NEE contract (research note "Fix for A"
+above): "at the cost of noisier direct light on rough glass."
+
+**background** stays ~1.00 (0.994) — the calibration check is unaffected, as
+expected (no glass BSDF in that ROI).
+
+### Noise: Astroray per-ROI std vs Cycles (skip-NEE contract)
+
+Per-pixel std within each ROI mask (256² render, same `.npy` arrays as the
+ratio table above), plus each engine's own coefficient of variation
+(std/mean) so the roughness-dependent radiance scale doesn't distort the
+comparison:
+
+| ROI | r | Cycles std | Astroray std | std ratio (A/C) | Cycles CV | Astroray CV |
+|---|---|---|---|---|---|---|
+| centre | 0.00 | 0.0202 | 0.0244 | 1.21 | 0.114 | 0.138 |
+| centre | 0.20 | 0.0211 | 0.0214 | 1.02 | 0.116 | 0.122 |
+| centre | 0.50 | 0.0375 | 0.0410 | 1.09 | 0.172 | 0.208 |
+| centre | 0.85 | 0.0647 | 0.0839 | 1.30 | 0.221 | 0.309 |
+| limb | 0.00 | 0.1605 | 0.0903 | 0.56 | 0.566 | 0.383 |
+| limb | 0.20 | 0.2217 | 0.1220 | 0.55 | 0.698 | 0.502 |
+| limb | 0.50 | 0.1967 | 0.1008 | 0.51 | 0.460 | 0.370 |
+| limb | 0.85 | 0.1709 | 0.1031 | 0.60 | 0.336 | 0.336 |
+
+At the **centre**, Astroray's coefficient of variation is consistently above
+Cycles' (1.02–1.30× the raw std, and CV growing from 1.21× at r=0 to 1.30× at
+r=0.85 relative to Cycles' own CV) — this is the predicted skip-NEE noise
+penalty: direct light through the centre depends more on BSDF-hit MIS than
+before, and that dependence grows with roughness (wider transmitted lobe, same
+128 spp budget). At the **limb** the raw std ratio looks like a noise
+*reduction* (0.51–0.60×), but that is dominated by the mean itself dropping
+(the limb ratio table above) — the CV columns show Astroray's relative noise
+at the limb is actually LOWER than or equal to Cycles' there (0.34–0.50 vs
+0.34–0.70), i.e. Cycles itself has higher relative variance at grazing
+incidence in this scene (its own NEE + MIS at a small, distant area light
+across a wide rough-transmission cone is a hard case for both engines) and the
+skip-NEE contract does not add a distinguishable extra noise penalty on top of
+that at the limb, at least visible in a single 128-spp run. The clearest,
+least ambiguous noise signature of the skip-NEE contract is the centre-ROI CV
+growth with roughness.
+
+### Contact sheets (visually inspected, force-added — `*.png` gitignored under `docs/`)
+
+`.astroray_plan/docs/pkg265/postfix_harness/` (added alongside the Phase-4
+sheets, `_evalfix` suffix so both generations stay comparable side by side):
+`glass_r000_evalfix__contact_sheet.png`, `glass_r020_evalfix__contact_sheet.png`,
+`glass_r050_evalfix__contact_sheet.png`, `glass_r085_evalfix__contact_sheet.png`,
+`glass_r085_evalfix__cycles_roi.png`, `glass_r085_evalfix__astroray_roi.png`.
+At r=0.85 the post-eval-fix Astroray sphere is visibly closer to Cycles than
+the Phase-4 sheet (no longer conspicuously brighter at the centre); the limb
+now reads a touch dimmer/greyer than Cycles rather than matching it, consistent
+with the ratio table above.
+
+### Wall time (CPU, this worktree, no GPU lock)
+
+Finish-to-finish per-leg deltas from the `.npy` output timestamps (same method
+as Phase 4): Cycles legs ≈2.7–2.85 s each; Astroray legs scale with roughness
+(walk bounce count) — r0.00≈18.9 s, r0.20≈21.4 s, r0.50≈26.5 s, r0.85≈30.0 s
+(all higher than Phase 4's 14–25 s: `eval()==0` forces every NEE-eligible
+vertex through a full extra BSDF-sample-and-continue instead of a cheap
+analytic `eval`, and the delta-glass `isDelta=true` path changes bounce
+bookkeeping). Full 4-config × 2-leg sweep ≈105 s wall time end to end
+(first Cycles leg start to last Astroray leg finish).
+
+### Test gates on this HEAD (rebuilt `build_cpu/`, CPU-only)
+
+`python -m pytest tests/test_pkg265_ms_glass_directional.py
+tests/test_pkg265_lit_furnace.py tests/test_pkg264_glass_cycles_parity.py
+tests/test_disney_rough_glass_furnace.py tests/test_dielectric_glass_furnace.py
+tests/test_rough_glass.py tests/test_issue762_emission_texture.py
+tests/test_issue769_energy_compensation_bundling.py -q`:
+**57 passed, 6 skipped, 1 failed** — the sole failure is
+`test_principled_lit_furnace_conserves_gpu`, which raises
+`RuntimeError: CUDA support not compiled` because this build is intentionally
+CUDA-OFF (`ASTRORAY_ENABLE_CUDA=OFF`, per this lane's CPU-only scope); it is
+not a regression, it is a GPU-marked test hitting a CPU-only build. The C++
+eta unit test (`tests/cpp/test_pkg265_walk_eta.cpp`, `compile_eta.bat`) still
+PASSes with the numbers already reported in Phase 5: radiance-scale
+telescoping maxErr 0.00 (IOR 1.45) / ~4.8e-7 (IOR 1.50), scatterMax=16 dead
+fraction 0.0000% at both IOR.

@@ -106,16 +106,24 @@ def _build_scene(checker):
     scene.view_settings.view_transform = "Standard"
     scene.view_settings.exposure = 0.0
     scene.view_settings.gamma = 1.0
+    # 512, not 4: Astroray is a spectral (hero-wavelength) renderer -- a flat
+    # RGB emission color still goes through RGBIlluminantSpectrum::sample()
+    # per pixel (same math as the baseline DiffuseLightPlugin::emittedSpectral,
+    # plugins/materials/diffuse_light.cpp), and at very low sample counts that
+    # shows as strong per-pixel chromatic noise (confirmed empirically: 4 spp
+    # gave a "constant" plane std of ~0.15, misread as non-uniform; 512 spp
+    # settles to ~0.014, comfortably under the 0.02 gate below). This is
+    # inherent MC noise, not a #762 regression -- unrelated to the actual fix.
     if hasattr(scene, "cycles"):
-        scene.cycles.samples = 4
+        scene.cycles.samples = 512
         scene.cycles.use_denoising = False
         scene.cycles.use_adaptive_sampling = False
         scene.cycles.seed = 7
     if hasattr(scene, "custom_raytracer"):
         cr = scene.custom_raytracer
-        cr.samples = 4
+        cr.samples = 512
         if hasattr(cr, "preview_samples"):
-            cr.preview_samples = 4
+            cr.preview_samples = 512
         if hasattr(cr, "device_mode"):
             cr.device_mode = "cpu"
         if hasattr(cr, "use_adaptive_sampling"):

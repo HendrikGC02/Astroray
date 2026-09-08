@@ -290,3 +290,44 @@ same math and conserves) — they were never the defect.
 **Spec scope correction:** the fix is `principled.cpp` (+ GPU twin), NOT `disney.cpp`
 as the spec's Files-to-modify originally listed; the acceptance render (pkg263
 harness) renders native-principled by default. Recorded per the lead's Q1 decision.
+
+### 7.5 Verification — furnace fixed, harness before/after, residual is engine-wide
+
+**White furnace (IOR 1.45, target 1.0), worktree build (sha 459ab63, sm_120):**
+
+| r | principled CPU before → after | GPU after | disney (guard) |
+|---|---|---|---|
+| 0.5 | 0.909 → 0.968 | 0.968 | 0.967 |
+| 0.85 | 0.645 → 0.958 | 0.956 | 0.962 |
+| 1.0 | 0.524 → 0.955 | 0.955 | 0.957 |
+
+`tests/test_pkg264_glass_cycles_parity.py`: 3 passed (CPU+GPU). Regression suite
+(furnace/caustic/energy/pkg178 GPU furnace/rough-glass): **289 passed**.
+`stageShadeBucketedKernel` **REG:254** held (STACK 7968–8672); the delta fallback
+reuses existing code, register-neutral.
+
+**pkg263 Blender harness re-run (256², 128 spp, CPU addon from this branch,
+native-principled), Astroray/Cycles per-ROI (before = pkg263 PR #764):**
+
+| ROI | r | before | after | Cycles |
+|---|---|---|---|---|
+| centre | 0.5 | 0.809 | 0.873 | 1.0 |
+| centre | 0.85 | 0.525 | 0.742 | 1.0 |
+| limb | 0.5 | 0.443 | 0.490 | 1.0 |
+| limb | 0.85 | 0.342 | 0.556 | 1.0 |
+
+r=0/0.2 unchanged (delta/near-delta, no dead samples). Contact sheets
+`.astroray_plan/docs/pkg264/postfix_harness/glass_r085__contact_sheet.png`:
+the r=0.85 Astroray sphere is now a **bright frosted glass**, not the pkg263
+dark-grey ball (visually inspected).
+
+**Residual (NOT the pkg264 defect).** After the fix, `principled` in the same
+in-process lit scene equals the trusted `disney` sibling (r=0.85 centre 0.767 vs
+disney 0.751; limb 0.650 vs 0.565 — principled now ≥ disney). The remaining gap to
+Cycles (centre ~0.74×, limb ~0.56× at r=0.85, growing with roughness) is present in
+**disney too**, and the furnace conserves for both (~0.96). So it is an
+**engine-wide rough-glass angular-appearance gap vs Cycles** (multiscatter angular
+lobe / VNDF distribution / reflection-lobe roughness response — Cycles adds a
+diffuse-like multiscatter lobe, Astroray applies a scalar comp boost), NOT the
+principled-specific energy loss pkg264 scoped. Recommend a follow-up package for the
+engine-wide gap; pkg264 delivers the principled=disney energy fix (CPU+GPU).

@@ -27,6 +27,7 @@
 #include "astroray/pass.h"
 #include "astroray/spectrum.h"
 #include "astroray/spectral_profile.h"
+#include "astroray/energy_compensation.h"  // #769: staged-addon load status binding
 #include "astroray/manifold/half_vector_constraint.h"  // pkg106 Chunk A test helper
 #include "astroray/manifold/surface_partials.h"         // pkg106 Chunk B test helper
 #include "astroray/manifold/newton_iterate.h"           // pkg106 Chunk B test helper
@@ -4403,6 +4404,20 @@ PYBIND11_MODULE(astroray, m) {
 #endif
     }, "Return True when the OptiX denoiser plugin is built in and a CUDA "
        "device is visible at runtime.");
+
+    // #769: report whether the Disney/Principled energy-compensation tables
+    // (data/disney_compensation/*.bin) loaded, and from where. Lets the addon
+    // (and tests) verify the staged/bundled data dir actually satisfied
+    // DisneyEnergyCompensationTables::load() instead of silently disabling
+    // all multi-scatter compensation on a redistributed install.
+    m.def("energy_compensation_status", []() {
+        const auto& tables = astroray::DisneyEnergyCompensationTables::instance();
+        py::dict status;
+        status["loaded"] = tables.loaded();
+        status["data_directory"] = tables.dataDirectory();
+        return status;
+    }, "Return {'loaded': bool, 'data_directory': str} for the Disney energy "
+       "compensation tables singleton.");
 
     // pkg39: spectral profile database
     m.def("load_spectral_profiles", [](const std::string& path) {

@@ -111,6 +111,89 @@ def test_gpu_bump_visible_relief():
     assert d > 0.02, f"bump produced no visible relief on GPU (mean|d|={d:.4f})"
 
 
+def _tilt_from_ratio(ratio, elev_deg):
+    """Fit the effective normal tilt (about the UV-U axis) from the bump/flat
+    N.L ratio for a Lambertian surface under one directional light: a flat
+    quad reads N.L = sin(elev); tilting the normal toward the light by theta
+    gives N.L = sin(elev+theta). Same construction as the #753 probe
+    (`scratchpad/probe_bump_scale.py`, see .astroray_plan/docs/issue753/)."""
+    e = math.radians(elev_deg)
+    v = max(-1.0, min(1.0, ratio * math.sin(e)))
+    return math.asin(v) - e  # radians
+
+
+def _build_world_size(r, half, distance, strength, elev_deg=60.0):
+    """Same UV/ramp/material shape as `_build`, but the quad spans
+    [-half,half]^2 (world size = 2*half) instead of a fixed [-1,1], and the
+    camera framing scales with `half` so the same pixel patch is measured
+    regardless of world size. #753-only: isolates whether the bump tilt is a
+    function of the quad's WORLD size (correct, per Cycles svm_node_set_bump)
+    or only of the UV-space height gradient (the bug)."""
+    r.set_background_color([0.0, 0.0, 0.0])
+    params = {}
+    if distance > 0.0:
+        r.load_texture("pkg753_h", _ramp_height(32), 32, 32, "UV")
+        params["bump_map_texture"] = "pkg753_h"
+        params["bump_distance"] = float(distance)
+        params["bump_strength"] = float(strength)
+    mat = r.create_material("lambertian", [0.8, 0.8, 0.8], params)
+    A, B = [-half, -half, 0], [half, -half, 0]
+    C, D = [half, half, 0], [-half, half, 0]
+    n = [0, 0, 1]
+    r.add_triangle_layers(A, B, C, mat, {"UVMap": [[0, 0], [1, 0], [1, 1]]}, n, n, n)
+    r.add_triangle_layers(A, C, D, mat, {"UVMap": [[0, 0], [1, 1], [0, 1]]}, n, n, n)
+    e = math.radians(elev_deg)
+    light_dir = _norm([-math.cos(e), 0.0, -math.sin(e)])
+    r.add_sun_light_dedicated(light_dir, 0.02, {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 3.0)
+    setup_camera(r, look_from=[0, 0, 3 * half], look_at=[0, 0, 0], vup=[0, 1, 0],
+                 vfov=45, width=48, height=48)
+
+
+def _render_world_size(half, distance, strength, samples=160):
+    r = create_renderer()
+    _build_world_size(r, half, distance, strength)
+    img = np.asarray(render_image(r, samples=samples, max_depth=1, apply_gamma=False),
+                      dtype=np.float32)
+    return float(img[12:36, 12:36].mean())
+
+
+def test_bump_tilt_scales_with_world_size():
+    """#753 -- the fitted bump tilt must reflect the WORLD-space height slope
+    (Distance * dh/dx_world), not the UV-space slope alone. At a fixed UV
+    ramp (dHeight/dU = 1 across the unit UV square) and fixed Distance, a
+    quad twice as large in world space must show HALF the tilt (world size 1
+    vs world size 2 -> tan(tilt) ratio 2:1), and the world-size-2 tilt must
+    match tan(tilt) ~= Distance / world_size -- exactly Cycles'
+    svm_node_set_bump construction (dP.dx/dP.dy are world-space position
+    differentials), not Astroray's pre-fix dP.dx/dP.dy = unit-tangent * eps
+    (UV-space only). See probe_bump_scale.py / .astroray_plan/docs/issue753/."""
+    distance = 0.3
+    flat1 = _render_world_size(0.5, 0.0, 1.0)
+    bump1 = _render_world_size(0.5, distance, 1.0)
+    flat2 = _render_world_size(1.0, 0.0, 1.0)
+    bump2 = _render_world_size(1.0, distance, 1.0)
+    assert flat1 > 0.02 and flat2 > 0.02, (
+        f"unbumped renders too dark to gate (flat1={flat1:.4f} flat2={flat2:.4f})")
+    ratio1 = bump1 / flat1
+    ratio2 = bump2 / flat2
+    tilt1 = _tilt_from_ratio(ratio1, 60.0)
+    tilt2 = _tilt_from_ratio(ratio2, 60.0)
+    tan1, tan2 = math.tan(tilt1), math.tan(tilt2)
+    world_size2 = 2.0 * 1.0  # half=1.0
+    expected_tan2 = distance / world_size2
+    assert tan2 > 1e-6, (
+        f"world-size-2 tilt too small to gate (tan={tan2:.5f}) "
+        f"flat1={flat1:.4f} bump1={bump1:.4f} flat2={flat2:.4f} bump2={bump2:.4f}")
+    assert abs(tan2 - expected_tan2) / expected_tan2 < 0.10, (
+        f"world-size-2 tilt does not match Distance/world_size (#753): "
+        f"tan(tilt)={tan2:.5f} expected~={expected_tan2:.5f} "
+        f"(ratio2={ratio2:.4f})")
+    assert abs(tan1 - 2.0 * tan2) / (2.0 * tan2) < 0.10, (
+        f"bump tilt is not inversely proportional to world size (#753 bug): "
+        f"tan(tilt@size1)={tan1:.5f} expected~=2x tan(tilt@size2)={2 * tan2:.5f} "
+        f"(ratio1={ratio1:.4f} ratio2={ratio2:.4f})")
+
+
 @pytest.mark.skipif(not bool(astroray.__features__.get("cuda", False)),
                     reason="needs CUDA build")
 def test_cpu_gpu_bump_parity():

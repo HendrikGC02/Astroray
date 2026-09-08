@@ -21,6 +21,7 @@ Design:
   - Datablock-grained granularity (no per-property minimal diffs — RH4 non-goal).
 """
 
+import atexit
 import os
 import queue
 import threading
@@ -52,6 +53,97 @@ _spike_event_sink = None
 # the leaked renderer alive so Python finalisation cannot destroy it out from
 # under a still-running worker thread (never a use-after-free). Terminal.
 _WORKER_QUARANTINE = []
+
+# pkg241 Phase 2.2 (§3.6 lifecycle owner): the process-global live-session
+# registry + stop_all. WHY THIS EXISTS (PR #777 scene-switch CUDA corruption):
+# the wavefront GPU render reaches one process-global WfContext singleton whose
+# contract is "Single render thread assumed" (gpu_wavefront_snapshot.cu:988).
+# Each viewport session owns its OWN worker daemon thread with its OWN per-worker
+# token (a threading.Lock), so the token serialises render() only WITHIN a
+# session, never ACROSS sessions. When the open .blend is switched mid-session,
+# Blender frees the old RenderEngine but does NOT guarantee Exporter.__del__ runs
+# before the new file's engine constructs a fresh worker; the old worker daemon
+# survives the load and its render() races the new worker's render() into the
+# shared WfContext -> "illegal memory access" in stage_env_shadow /
+# stage_shade_bucketed and "cudaMalloc failed for s.pixel_index". stop_all,
+# invoked from a bpy load_pre handler and atexit (registered in __init__.py),
+# drains EVERY live session to acknowledged exit (or quarantine) on the main
+# thread BEFORE the new .blend replaces the scene, so no two workers ever touch
+# the WfContext at once. The registry holds Exporter instances (strong refs only
+# while live; stop_worker removes them).
+_LIVE_VIEWPORT_SESSIONS = []
+
+
+def _register_viewport_session(exporter):
+    """Record a live viewport session (Exporter with a running worker) so
+    stop_all can drain it before a file switch (§3.6). Idempotent."""
+    if exporter not in _LIVE_VIEWPORT_SESSIONS:
+        _LIVE_VIEWPORT_SESSIONS.append(exporter)
+
+
+def _unregister_viewport_session(exporter):
+    """Drop a session from the live registry once its worker has been drained."""
+    try:
+        _LIVE_VIEWPORT_SESSIONS.remove(exporter)
+    except ValueError:
+        pass
+
+
+def stop_all_viewport_sessions():
+    """§3.6 stop_all — drain EVERY live viewport worker to acknowledged exit (or
+    quarantine) BEFORE a new .blend replaces the scene. Registered as the bpy
+    load_pre handler and the atexit hook in __init__.py. This is the fix for the
+    scene-switch CUDA corruption (PR #777): without it the previous session's
+    worker daemon thread survives the file load and races the process-global
+    wavefront WfContext against the incoming session's worker. Runs on the main
+    thread; each stop_worker cancels + pumps until the worker acks (bounded 5 s),
+    quarantining a no-ack worker rather than freeing its renderer. Idempotent."""
+    for exporter in list(_LIVE_VIEWPORT_SESSIONS):
+        try:
+            exporter.stop_worker()
+        except Exception:
+            pass
+    _LIVE_VIEWPORT_SESSIONS.clear()
+
+
+def _load_pre_drain(*_args):
+    """bpy load_pre handler body (§3.6): fires BEFORE the incoming .blend replaces
+    the scene, draining every live viewport worker so the old session's daemon
+    thread cannot race the new session's render() through the shared WfContext."""
+    stop_all_viewport_sessions()
+
+
+_LIFECYCLE_HOOKS_INSTALLED = False
+
+
+def _install_lifecycle_hooks():
+    """Register the §3.6 drain hooks exactly once, lazily, from the first worker
+    start (which only happens inside a real Blender session). Kept out of
+    module import + out of __init__.py so the bpy-free unit tests never touch bpy
+    and the __init__.py diff stays at the Buffer-only lines. Idempotent:
+
+      - a persistent bpy `load_pre` handler — drains before every file switch
+        (PR #777 scene-switch CUDA corruption fix);
+      - an `atexit` hook — ordered cancel + drain on a clean interpreter quit.
+
+    Both are guarded: if bpy is absent (headless stub) only atexit is installed."""
+    global _LIFECYCLE_HOOKS_INSTALLED
+    if _LIFECYCLE_HOOKS_INSTALLED:
+        return
+    _LIFECYCLE_HOOKS_INSTALLED = True
+    try:
+        atexit.register(stop_all_viewport_sessions)
+    except Exception:
+        pass
+    try:
+        import bpy
+        # Mark persistent so the handler survives across file loads, then append
+        # once (identity membership check avoids a duplicate on re-register).
+        bpy.app.handlers.persistent(_load_pre_drain)
+        if _load_pre_drain not in bpy.app.handlers.load_pre:
+            bpy.app.handlers.load_pre.append(_load_pre_drain)
+    except Exception:
+        pass
 
 
 def _emit_spike_event(name, generation, session_epoch, **extra):
@@ -1506,6 +1598,11 @@ class Exporter:
             report_fn=_report)
         self._worker.start()
         self._register_worker_timer()
+        # §3.6: install the process-wide drain hooks (load_pre + atexit) once, and
+        # enroll this session so a file switch / atexit drains it before a new
+        # session's worker can race the shared WfContext (PR #777).
+        _install_lifecycle_hooks()
+        _register_viewport_session(self)
         return self._worker
 
     def _register_worker_timer(self):
@@ -1745,6 +1842,7 @@ class Exporter:
         releasing the renderer. Idempotent."""
         worker = self._worker
         if worker is None:
+            _unregister_viewport_session(self)
             return
         acked = worker.stop(timeout=5.0)
         bpy = getattr(self, "bpy", None)
@@ -1759,6 +1857,9 @@ class Exporter:
         if not acked:
             _WORKER_QUARANTINE.append(worker)  # no-ack: never destroy
         self._worker = None
+        # §3.6: this session no longer owns a live worker — drop it from the
+        # registry so a later stop_all does not double-drain (idempotent).
+        _unregister_viewport_session(self)
 
     def __del__(self):
         # pkg241 Phase 2 A2 spike: best-effort worker teardown so an engine

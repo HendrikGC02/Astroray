@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — PR #766 open (2026-09-08). CPU+GPU fix verified: sweep +-2.2-2.7% vs Cycles both backends, REG:254 held, furnace floors re-derived 0.85->0.97; ground strip 0.926->0.962 (out-of-scope blue skew leaves ~0.8pp to the 0.97 target)
+**Status:** done — PR #766 merged 2026-09-08: Cycles' lobe-averaged `ggx_gen_schlick_ior_s` table ported (extractor + .bin + CPU/GPU lookup), specular + coat layering albedo = mix(f0, 1, s); roughness sweep within 2.2–2.7 % of Cycles on CPU and GPU, furnace floors re-derived 0.85 → 0.97 (measured 0.998), REG 254; HDRI ground strip 0.926 → 0.962 (residual blue skew tracked as #767); cycles-parity-reviewer + cpp-abi-guard MERGE
 **Estimated effort:** 1–2 sessions (~4–6 h; CPU fix + GPU closure-graph mirror under the GPU lock)
 **Depends on:** pkg178, pkg253, pkg258
 

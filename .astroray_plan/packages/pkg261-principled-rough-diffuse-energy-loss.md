@@ -1,0 +1,165 @@
+# pkg261 — Principled diffuse energy loss at high specular roughness (Cycles parity)
+
+**Pillar:** 5
+**Track:** A
+**Status:** open — filed 2026-09-08 from the pkg258 ground-residual diagnosis (#756)
+**Estimated effort:** 1–2 sessions (~4–6 h; CPU fix + GPU closure-graph mirror under the GPU lock)
+**Depends on:** pkg178, pkg253, pkg258
+
+---
+
+## Goal
+
+Before: a Principled dielectric (metallic 0, transmission 0) loses ~6–7 % of
+its diffuse energy at specular roughness 0.85 relative to Cycles under the same
+light (sun lamp or HDRI), while roughness 0 matches Cycles to 1 %; every
+diffuse-dominant Blender surface with a rough specular layer therefore renders
+darker than Cycles, and the pkg178 furnace tests tolerate a 15 % diffuse loss
+at roughness 0.5 against an Astroray-internal reference. After: the Principled
+diffuse/specular layering reproduces Cycles' `closure_layering_weight` +
+microfacet albedo estimate numerically across roughness 0…1 on CPU and GPU, the
+`hdri_exterior_hair` ground strip and the `metal_sweep` floor blocks land
+within the ±5 % gate-(c) band, and the furnace floors are re-derived against
+Cycles rather than against Astroray itself.
+
+---
+
+## Context
+
+The pkg258 residual (Astroray ground rows 7–17 % under Cycles with env NEE on)
+was diagnosed on 2026-09-08 (`pkg258-ground-residual-diagnosis-2026-09-08.md`,
+#756): not env NEE, not the firefly clamp, not occlusion — the deficit is gated
+by Principled specular roughness alone and reproduces under a plain Sun lamp.
+This is a Pillar 5 BSDF-parity defect on the most common Blender material and a
+direct gate-(c) blocker (material zoo floor blocks 1.06, HDRI ground 0.925).
+`cite-algorithm` applies: the layering is Cycles' `closure_layering_weight`
+(`bsdf_util.h`) fed by `bsdf_microfacet_estimate_albedo` (`bsdf_microfacet.h`);
+nothing is invented.
+
+---
+
+## Evidence
+
+- 2026-09-08: ground-only `hdri_exterior_hair` variants, 160×90, 32 spp, CPU,
+  Astroray/Cycles ground-strip ratio (R/G/B): Principled roughness 0 → 0.989
+  (1.006/0.984/0.975); roughness 0.85 → 0.926 (0.946/0.919/0.913); Sun lamp
+  only, no HDRI: roughness 0 → 1.000, roughness 0.85 → 0.936 (0.952/0.936/0.921);
+  grey albedo, roughness 0.85 → 0.936 (channel spread narrows to 1.5 pp).
+- 2026-09-08: firefly clamp forced 0 → 0.925 (no change); Hair hidden → 0.921;
+  all other objects hidden → 0.926 (no change).
+- 2026-09-08: `tests/test_principled_bsdf.py:83-86` and
+  `tests/test_pkg178_principled_gpu_furnace.py:70` assert only `floor=0.85`
+  (15 % loss tolerated) for Principled diffuse at roughness 0.5 vs a white
+  Lambertian — a self-referential tolerance never checked against Cycles.
+- 2026-09-08: the addon maps `BSDF_DIFFUSE` to Principled (`blender_addon/__init__.py:4059-4064`)
+  with the default specular layer, so the "plain Diffuse" control in the
+  diagnosis carried a 4 % dielectric specular Cycles' Diffuse BSDF lacks
+  (+11 % overshoot on a sky-lit ground) — tracked separately as an addon issue,
+  not part of this package.
+
+---
+
+## Reference
+
+- Diagnosis: `.astroray_plan/docs/pkg258-ground-residual-diagnosis-2026-09-08.md`
+  (experiment table E0–E5, evidence PNGs under `pkg258-ground-residual/`).
+- Astroray: `plugins/materials/principled.cpp` — `ggxCompFactor` (~L625),
+  `ggxDirectionalAlbedo` (~L638), `layeringWeightAfter` (~L663), the specular
+  layer site (~L965-966), coat (~L865-866), sheen (~L846);
+  `include/astroray/energy_compensation.h` (`DisneyEnergyCompensationTables`,
+  `ggxDarkeningChannel`); GPU closure-graph mirror in
+  `include/astroray/gpu_materials.h` (Principled lowering) and the
+  `HasPrincipled` shade path in `src/gpu/wavefront/stage_advance.cu`.
+- Cycles (Apache-2.0): `intern/cycles/kernel/closure/bsdf_util.h`
+  (`closure_layering_weight`), `bsdf_microfacet.h`
+  (`bsdf_microfacet_estimate_albedo`, `microfacet_ggx_preserve_energy`,
+  the `ggx_E`/`ggx_Eavg` tables in `kernel/tables.h`),
+  `svm/closure.h` (Principled specular layer placement and `bsdf_albedo` use),
+  `bsdf.h` (`bsdf_albedo`).
+- Memories: `spectral-upsample-nonlinearity-scaled-bsdf` (the secondary blue
+  skew), `rough-glass-residual-is-multiscatter` (a previous albedo-LUT clamp bug
+  in the same table family), `closure-graph-lobe-count-spills-fused-kernel`.
+
+---
+
+## Prerequisites
+
+- [x] #756 merged (diagnosis + evidence).
+- [ ] Build passes on main; `.pyd` newer than HEAD before any GPU number.
+- [ ] GPU lock held for the CUDA build and the GPU furnace/parity runs.
+
+---
+
+## Specification
+
+### Files to create
+
+| File | Purpose |
+|---|---|
+| `tests/test_pkg261_principled_rough_diffuse.py` | Roughness sweep (0, 0.3, 0.5, 0.85, 1.0) of a Principled dielectric under a sun lamp on CPU and GPU: per-roughness mean vs a pinned Cycles reference (rendered headless, numbers + provenance in the test docstring) within ±3 %; directional-albedo unit check — `ggxDirectionalAlbedo(F, r, mu)` vs an independent Monte-Carlo estimate of the GGX+dielectric-Fresnel albedo at the same (r, mu) within 2 % over a grid. |
+| `.astroray_plan/docs/pkg261-principled-layering-research.md` | `cite-algorithm` note: Cycles' layering formula, albedo estimate, table lookup and clamps, with line pointers; what Astroray computes today; the numeric diff per (roughness, mu). |
+
+### Files to modify
+
+| File | What changes |
+|---|---|
+| `plugins/materials/principled.cpp` | Make the specular-layer albedo used by `layeringWeightAfter` match Cycles' `bsdf_microfacet_estimate_albedo` for the dielectric GGX (single-scatter E·F with Cycles' compensation, not the current `E·F·darkening` product if that is the error); apply the same correction to the coat and sheen layering sites if the research note shows they share it; cite lines. |
+| `include/astroray/gpu_materials.h` | Mirror the corrected albedo in the GPU Principled lowering so CPU/GPU stay at parity (REG on `stageShadeBucketedKernel` must stay 254; report STACK). |
+| `include/astroray/energy_compensation.h` | Only if the table lookup itself (clamps, interpolation, `ggxDarkeningChannel`) is the error; otherwise untouched. |
+| `tests/test_principled_bsdf.py` | Re-derive the diffuse-energy `floor` from the Cycles reference (expect ≈ 0.97 at roughness 0.5, not 0.85); keep the energy-GAIN ceiling. |
+| `tests/test_pkg178_principled_gpu_furnace.py` | Same floor re-derivation for the GPU twin. |
+| `.astroray_plan/packages/pkg258-hdri-environment-nee-importance-sampling.md` | Lessons: the ground residual is owned here. |
+
+### Key design decisions
+
+- **Find the number before the formula.** Step 1 is the research note with a
+  per-(roughness, mu) table: Astroray's `ggxDirectionalAlbedo` vs Cycles'
+  estimate vs an independent MC albedo. The fix targets whichever term
+  disagrees; no re-tuning of tolerances to make a gate pass.
+- **Layering stays Cycles-shaped.** `closure_layering_weight` is
+  `weight * (1 - saturate(max_channel(albedo)))`-style; keep the existing
+  per-channel form only if the note shows it is equivalent for the tested cases.
+- **CPU first, GPU mirror second**, both gated by the same sweep test; the
+  closure-graph lowering must not add lobes (memory
+  `closure-graph-lobe-count-spills-fused-kernel`).
+- **Secondary blue skew is out of scope** unless the corrected layering removes
+  it; otherwise record the residual per channel in Lessons.
+
+---
+
+## Acceptance criteria
+
+- [ ] `tests/test_pkg261_principled_rough_diffuse.py` green on CPU and GPU:
+      every roughness in the sweep within ±3 % of the pinned Cycles reference;
+      albedo unit check within 2 %.
+- [ ] `hdri_exterior_hair` ground-strip ratio (harness ROI, 160×90, 32 spp,
+      CPU) rises from 0.926 to ≥ 0.97 at roughness 0.85 with no change to the
+      sky strip (1.00) — before/after PNGs saved and inspected.
+- [ ] `metal_sweep` floor-reflection blocks CPU/GPU/Cycles ratios re-measured
+      and recorded (gate (c) input), whatever they turn out to be.
+- [ ] Furnace floors re-derived from Cycles with the derivation next to the
+      constant; pkg178/pkg253 Principled suites green; REG 254 unchanged.
+- [ ] `cycles-parity-reviewer` pass on the diff; call-site sweep for any changed
+      signature.
+
+---
+
+## Non-goals
+
+- Do not touch the addon's `BSDF_DIFFUSE` → Principled mapping (separate issue).
+- Do not change the GGX sampling, Fresnel, or the multiscatter tables' data.
+- Do not relax any parity band to make the sweep pass.
+- No Pillar 4 work; no metallic/transmission layering changes unless the note
+  proves they share the defect.
+
+---
+
+## Progress
+
+- [ ] 2026-09-08 — filed by the lead from #756; not started.
+
+---
+
+## Lessons
+
+- (none yet)

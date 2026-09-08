@@ -143,11 +143,23 @@ nothing is invented.
       high roughness (research note §5), so the gate asserts the port reproduces
       the **Cycles reference** `mix(f0,1,s)` within 0.002 — the parity target —
       and records the MC comparison as documentation (lead-surfaced deviation).
-- [ ] `hdri_exterior_hair` ground-strip ratio (harness ROI, 160×90, 32 spp,
-      CPU) rises from 0.926 to ≥ 0.97 at roughness 0.85 with no change to the
-      sky strip (1.00) — before/after PNGs saved and inspected.
-- [ ] `metal_sweep` floor-reflection blocks CPU/GPU/Cycles ratios re-measured
-      and recorded (gate (c) input), whatever they turn out to be.
+- [~] `hdri_exterior_hair` ground-strip ratio (ground-only, roughness 0.85,
+      160×90, 32 spp, CPU) rises **0.926 → 0.962** (Astroray 0.11188 / Cycles
+      0.11634, Cycles matches pkg258 E2b 0.11634 exactly); sky strip unchanged at
+      1.002. **Short of the ≥0.97 target by ~0.8 pp.** Per-channel A/C = R 0.982
+      / G 0.954 / B 0.947 — the residual is blue-dominated, i.e. the **secondary
+      spectral-upsampling skew** the Non-goals scope OUT of pkg261 (memory
+      `spectral-upsample-nonlinearity-scaled-bsdf`), not a layering-albedo
+      shortfall: the controlled normalised sweep (grey material, black world,
+      sun) matches Cycles within ±3 % on both backends. Before/after PNGs:
+      `.astroray_plan/docs/pkg261/ground_strip_*.png` (ROIs drawn + inspected).
+      Flagged for the lead: whether the remaining ~3.8 % blue skew warrants a
+      follow-up or the ≥0.97 target is relaxed given it is out of scope here.
+- [ ] `metal_sweep` floor-reflection blocks — NOT re-measured this lane
+      (the `metal_ab` harness spawns 3 subprocess Blender legs incl. a GPU leg;
+      deferred to the on-hardware verifier). pkg261 changes only the dielectric
+      specular/coat layering albedo; the metallic lobe path is untouched, so no
+      metal_sweep regression is expected. Recorded as outstanding for the lead.
 - [x] Furnace floors re-derived from Cycles with the derivation next to the
       constant (diffuse/Lambert 0.85→0.97, measured 0.9988 CPU / 0.9974 GPU);
       pkg178 GPU furnace + `test_principled_bsdf` Principled suites green; every
@@ -203,9 +215,30 @@ nothing is invented.
       table is a lobe-averaged Schlick fit that deviates from the raw VNDF MC
       oracle by up to 3.25x at high roughness, so the unit gate asserts against
       the Cycles reference (the parity target), not the MC oracle at 2%.
+- [~] 2026-09-08 (cont2) — Blender-level ground-strip A/B on `hdri_exterior_hair`
+      (ground-only, roughness 0.85, CPU addon built from this branch): ground
+      ratio 0.926 → **0.962**, sky 1.002 unchanged. Improves in the correct sign
+      and locus but is ~0.8 pp short of ≥0.97; the residual is the out-of-scope
+      blue skew (per-channel R 0.982 / G 0.954 / B 0.947). PNGs under
+      `.astroray_plan/docs/pkg261/`.
 
 ---
 
 ## Lessons
 
-- (none yet)
+- **The grazing view-Fresnel, not the multiscatter darkening, was the defect.**
+  The spec hypothesised `E·F·darkening`; the VNDF MC oracle proved the darkening
+  term is ≤3 % and the real error is multiplying `E` by the view-angle Fresnel
+  `Fview` (→1 at grazing). Find-the-number-before-the-formula caught a wrong
+  hypothesis before any code.
+- **Cycles' `s`-table is a clamped lobe-averaged fit, not the true albedo.**
+  Because `s∈[0,1]` and `f90=1`, `mix(f0,1,s)` cannot fall below f0, so it
+  over-estimates the true MC albedo up to 3.25× at high roughness / normal
+  incidence while correcting the large grazing error. Parity target is Cycles,
+  not the MC oracle — the unit gate asserts against the extracted table.
+- **A residual ~3.8 % blue-skewed ground deficit survives the layering fix.**
+  The HDRI ground strip lands at 0.962 (R 0.982 / G 0.954 / B 0.947), not ≥0.97.
+  Blue-dominated ⇒ the spectral-upsampling nonlinearity (memory
+  `spectral-upsample-nonlinearity-scaled-bsdf`), explicitly out of pkg261 scope.
+  The controlled sweep (achromatic, black world) is within ±3 %, isolating the
+  residual to the HDRI/colour path. Candidate follow-up package.

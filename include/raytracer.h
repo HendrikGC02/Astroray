@@ -341,6 +341,13 @@ struct HitRecord {
     // it is gated behind the anisotropy path so non-aniso scenes pay nothing.
     Vec3 uvTangent;
     float uvBitangentSign = 1.0f;
+    // pkg753 (#753) — world length per UV unit along uvTangent / its
+    // bitangent (manifold::uvAlignedTangent's outScaleU/outScaleV). The Bump
+    // node's UV-space finite-difference step must be scaled by this to become
+    // a world-space step (Cycles' svm_node_set_bump dP.dx/dP.dy are
+    // world-space position differentials, not unit vectors). Default 1.0
+    // keeps UV-less/sphere fallbacks (which never set these) byte-identical.
+    float uvScaleU = 1.0f, uvScaleV = 1.0f;
     Vec3 objectPoint, incomingDirection;
     Vec3 cameraOrigin, cameraU, cameraV, cameraW;
     float t;

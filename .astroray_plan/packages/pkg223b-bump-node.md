@@ -367,7 +367,7 @@ ledger's established escalation pattern — do not pre-emptively build Option B.
   the bump branch at the same 254/3368/1716 as `<…,false>`. Option B (new axis) was
   correctly not needed.
 - **The Distance/Strength magnitude itself was still ~1.8-2x too strong vs Cycles
-  (#753, fixed by #<PR>).** `dPdx = T*eps`, `dPdy = Bt*eps` used the UV-aligned
+  (#753, fixed by #760).** `dPdx = T*eps`, `dPdy = Bt*eps` used the UV-aligned
   frame's UNIT tangent/bitangent, so `eps` (a UV-space step) was fed into the
   surfgrad formula AS IF it were a world-space step (Cycles' `svm_node_set_bump`,
   `src/kernel/svm/displace.h`, sources `dP.dx`/`dP.dy` from

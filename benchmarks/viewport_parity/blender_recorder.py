@@ -402,8 +402,31 @@ def _install_ui_latency():
         "handler": None,
         "material": mat.name if mat else None,
         "engine_has_hooks": exporter_cls is not None,
+        # pkg241 Phase 2 A2 spike (§9): generation-tagged lifeline events, filled
+        # by the exporter's _spike_event_sink (worker + main thread) when
+        # ASTRORAY_VIEWPORT_WORKER=1. Empty on the synchronous path.
+        "events": [],           # (name, generation, t_perf_counter, epoch, extra)
+        "blitted_gens": set(),  # generations that already produced a first_blit
+        "pending_blit_gen": None,
     }
     dns["_pkg241"] = S
+
+    # pkg241 Phase 2 A2 spike (§9 event schema): install the exporter event sink
+    # so the off-thread worker's generation-tagged events are captured. list
+    # .append is atomic under the GIL, so worker-thread and main-thread appends
+    # are safe. The sink also derives the per-generation `first_blit`: the first
+    # POST_PIXEL present after a `texture_upload_end` presents that generation.
+    exporter_mod = getattr(addon, "exporter", None) if addon is not None else None
+    S["exporter_mod"] = exporter_mod
+    if exporter_mod is not None:
+        S["orig_event_sink"] = getattr(exporter_mod, "_spike_event_sink", None)
+
+        def _event_sink(name, generation, t, epoch, extra):
+            S["events"].append((name, generation, t, epoch, dict(extra)))
+            if name == "texture_upload_end":
+                S["pending_blit_gen"] = generation
+
+        exporter_mod._spike_event_sink = _event_sink
 
     if exporter_cls is not None:
         o_render = exporter_cls.render_viewport_frame
@@ -419,7 +442,15 @@ def _install_ui_latency():
         exporter_cls.render_viewport_frame = w_render
 
     def present_cb():
-        S["presents"].append(time.perf_counter())
+        now = time.perf_counter()
+        S["presents"].append(now)
+        # pkg241 Phase 2 A2 spike (§9): the first present after a texture upload is
+        # the first_blit for that generation — the end of the request->blit chain.
+        g = S.get("pending_blit_gen")
+        if g is not None and g not in S["blitted_gens"]:
+            S["blitted_gens"].add(g)
+            S["pending_blit_gen"] = None
+            S["events"].append(("first_blit", g, now, 0, {}))
 
     S["handler"] = bpy.types.SpaceView3D.draw_handler_add(
         present_cb, (), "WINDOW", "POST_PIXEL")
@@ -428,6 +459,13 @@ def _install_ui_latency():
         if exporter_cls is not None and "render_viewport_frame" in S["orig"]:
             try:
                 exporter_cls.render_viewport_frame = S["orig"]["render_viewport_frame"]
+            except Exception:
+                pass
+        # pkg241 Phase 2 A2 spike: restore the exporter event sink.
+        em = S.get("exporter_mod")
+        if em is not None:
+            try:
+                em._spike_event_sink = S.get("orig_event_sink")
             except Exception:
                 pass
         if S.get("handler") is not None:
@@ -450,7 +488,9 @@ def _install_ui_latency():
         return {"cfg": S["cfg"], "material": S["material"],
                 "ticks": S["ticks"], "renders": S["renders"],
                 "presents": S["presents"], "done": S["done"],
-                "error": S["error"], "engine_has_hooks": S["engine_has_hooks"]}
+                "error": S["error"], "engine_has_hooks": S["engine_has_hooks"],
+                # pkg241 Phase 2 A2 spike (§9): generation-tagged lifeline events.
+                "events": S["events"]}
 
     S["results"] = results
 
@@ -513,6 +553,10 @@ def _install_ui_latency():
                     S["ticks"] = []
                     S["renders"] = []
                     S["presents"] = []
+                    # pkg241 Phase 2 A2 spike: drop warmup lifeline events too.
+                    S["events"] = []
+                    S["blitted_gens"] = set()
+                    S["pending_blit_gen"] = None
                 _drive_edit()
                 return tick_s
             # phase == "run"

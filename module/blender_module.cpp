@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cmath>
 #include <mutex>
+#include <optional>  // pkg241 Phase 2 A2 spike: scoped GIL release around the GPU render tail (§3.7)
 #include <random>  // pkg191: std::random_device for the GPU seed-0 contract
 #include <tuple>    // pkg258: sample_environment_map returns a 3-tuple
 #include <cstdint>  // pkg258: uint32_t seed
@@ -48,6 +49,7 @@
 #include "astroray/lights/distant_light.h"
 #include "astroray/lights/area_light.h"
 #ifdef ASTRORAY_CUDA_ENABLED
+#  include <cuda_runtime.h>  // pkg241 Phase 2 A2 spike: cudaSetDevice/cudaGetDevice for cross-thread primary-context sharing (§3.1/§9)
 #  include "astroray/gpu_renderer.h"
 #  include "astroray/gpu_photon_store.h"   // pkg113 Phase 1 — GPU photon store query
 #  include "astroray/gpu_photon_emit.h"    // pkg113 Phase 2 — GPU photon emission/bounce
@@ -464,6 +466,12 @@ class PyRenderer {
     bool lastRenderInfoCancelled_ = false;
     int lastRenderInfoTilesCompleted_ = 0;
     int lastRenderInfoTotalTiles_ = 0;
+    // pkg241 Phase 2 A2 spike: the CUDA device the most recent GPU render()
+    // resolved after cudaSetDevice(dev), read back via cudaGetDevice (§3.1/§9).
+    // -1 until a GPU render runs (CPU renders leave it -1). The off-thread
+    // viewport worker asserts the worker thread and the main thread resolve the
+    // SAME device (§9 same-device verification).
+    int lastRenderInfoDevice_ = -1;
     // pkg89 Phase B: IES profile cache (shared_ptr keeps profiles alive).
     std::unordered_map<std::string, std::shared_ptr<IESProfile>> iesProfiles_;
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -2041,6 +2049,23 @@ public:
 
 #ifdef ASTRORAY_CUDA_ENABLED
         if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
+            // pkg241 Phase 2 A2 spike (§3.1/§9): the CUDA Runtime primary context
+            // is made current PER HOST THREAD by cudaSetDevice. The off-thread
+            // viewport worker calls render() on a non-main thread, so make the
+            // renderer's device current here on whatever thread runs the render,
+            // then read the resolved device back for the §9 same-device assertion.
+            // This codebase renders exclusively on device 0 (cuda_renderer.cu:172
+            // selects device 0 unconditionally), so dev = 0. Harmless (a no-op
+            // re-selection) on the synchronous main-thread path; output is
+            // unaffected (parity-neutral), matching the CPU path's unconditional
+            // gil_scoped_release below.
+            {
+                const int dev = 0;
+                cudaSetDevice(dev);
+                int resolvedDev = -1;
+                cudaGetDevice(&resolvedDev);
+                lastRenderInfoDevice_ = resolvedDev;
+            }
             // pkg171: a CPU-only integrator (no GPU kernel) would otherwise fall
             // through to the generic wavefront route below, which renders it as if
             // it were a plain path tracer — silently producing a NEAR-BLACK frame
@@ -2105,6 +2130,19 @@ public:
             // (getMaxDiffuse/Glossy/TransmissionBounces) and publishes the
             // shade-kernel __constant__. -1 (the default) = unlimited.
             renderer.setPerTypeBounces(diffuseBounces, glossyBounces, transmissionBounces);
+            // pkg241 Phase 2 A2 spike (§3.7): widen the GIL release to the whole
+            // GPU render tail. Declared empty here (GIL still held for the CPU-side
+            // buildAcceleration / scene-array prep); emplaced immediately before
+            // cuda_wavefront_render and reset() right after applyPasses, so the GIL
+            // is released only across the pure-native GPU dispatch + copy-back +
+            // pass application, and re-acquired before the NumPy packaging tail
+            // (which constructs a Python object and MUST hold the GIL). The cancel
+            // hook re-acquires the GIL (py::gil_scoped_acquire) before touching the
+            // Python callback, so a released outer region is safe. Output is
+            // unchanged (parity-neutral) — this mirrors the CPU path's existing
+            // unconditional release below. Not emplaced on the restir/smsProbe
+            // branches, which keep today's GIL-held behaviour (byte-identical).
+            std::optional<py::gil_scoped_release> gpuGilRelease;
             bool smsProbeRan = false;
             {
                 const char* probe_env = std::getenv("ASTRORAY_PKG64_GPU_SMS_PROBE");
@@ -2264,6 +2302,10 @@ public:
                     };
                 }
                 gpuPathRan = true;
+                // pkg241 Phase 2 A2 spike (§3.7): release the GIL across the GPU
+                // dispatch + copy-back + applyPasses. Re-acquired by gpuGilRelease
+                // .reset() after applyPasses, before the NumPy packaging tail.
+                gpuGilRelease.emplace();
                 auto rgb = astroray::wavefront::cuda_wavefront_render(
                     renderer, *camera, camera->width, camera->height,
                     samplesPerPixel, maxDepth, effectiveSeed,
@@ -2303,6 +2345,10 @@ public:
             // re-running the CryptomattePass over them is idempotent (see the
             // copy-back note in gpu_wavefront_snapshot.cu).
             renderer.applyPasses(*camera);
+            // pkg241 Phase 2 A2 spike (§3.7): end of the released region — re-acquire
+            // the GIL before the NumPy packaging tail (:2374-2394). No-op if the
+            // release was never emplaced (restir / smsProbe branches).
+            gpuGilRelease.reset();
 #else
             // pkg55-C7: the megakernels are deleted; a CUDA build without the
             // wavefront has no GPU render path.
@@ -2405,6 +2451,11 @@ public:
         d["cancelled"] = lastRenderInfoCancelled_;
         d["tiles_completed"] = lastRenderInfoTilesCompleted_;
         d["total_tiles"] = lastRenderInfoTotalTiles_;
+        // pkg241 Phase 2 A2 spike (§3.1/§9): the CUDA device the most recent GPU
+        // render() resolved on the calling thread (cudaGetDevice after
+        // cudaSetDevice), -1 if no GPU render has run. The off-thread viewport
+        // worker asserts the worker and main thread resolve the same device.
+        d["device"] = lastRenderInfoDevice_;
         return d;
     }
 
@@ -3448,8 +3499,11 @@ PYBIND11_MODULE(astroray, m) {
              "diffuse_bounces"_a = -1, "glossy_bounces"_a = -1, "transmission_bounces"_a = -1,
              "volume_bounces"_a = -1, "transparent_bounces"_a = -1, "skip_upload"_a = false)
         .def("last_render_info", &PyRenderer::lastRenderInfo,
-             "pkg241 Phase 1b: dict {cancelled, tiles_completed, total_tiles} "
-             "describing whether the last render() completed or was cancelled.")
+             "pkg241 Phase 1b/2: dict {cancelled, tiles_completed, total_tiles, "
+             "device} describing whether the last render() completed or was "
+             "cancelled; 'device' is the CUDA device the last GPU render resolved "
+             "on the calling thread (-1 if no GPU render has run) — the Phase 2 "
+             "off-thread worker asserts main and worker threads share it.")
         .def("get_albedo_buffer", &PyRenderer::getAlbedoBuffer)
         .def("get_normal_buffer", &PyRenderer::getNormalBuffer)
         .def("get_motion_buffer", &PyRenderer::getMotionBuffer)

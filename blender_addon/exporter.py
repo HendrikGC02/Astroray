@@ -98,7 +98,9 @@ def stop_all_viewport_sessions():
     wavefront WfContext against the incoming session's worker. Runs on the main
     thread; each stop_worker cancels + pumps until the worker acks (bounded 5 s),
     quarantining a no-ack worker rather than freeing its renderer. Idempotent."""
-    for exporter in list(_LIVE_VIEWPORT_SESSIONS):
+    # Iterate a snapshot: stop_worker mutates the registry via
+    # _unregister_viewport_session during the loop.
+    for exporter in _LIVE_VIEWPORT_SESSIONS[:]:
         try:
             exporter.stop_worker()
         except Exception:

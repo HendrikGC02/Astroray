@@ -29,7 +29,6 @@ import time
 
 import numpy as np
 
-
 _EXPORTER_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "blender_addon", "exporter.py")
@@ -58,8 +57,7 @@ class _Device:
     def enter(self):
         with self._lock:
             self._active += 1
-            if self._active > self.max_active:
-                self.max_active = self._active
+            self.max_active = max(self.max_active, self._active)
 
     def exit(self):
         with self._lock:

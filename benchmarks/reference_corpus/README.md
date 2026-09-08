@@ -14,6 +14,13 @@ found by a test, not by someone happening to wire it. Design record:
 `render_settings`, the harness/bench integration, and `coverage_report.py`
 are later phases -- see the spec's Progress log.
 
+**Phase-1 polish** (this session): `materials_hall`'s establishing camera
+was reframed (owner feedback on PR #761's contact sheet: the alcove content
+was a thin strip lost in a 16:9 frame) to a wide "frieze" aspect ratio sized
+to the actual content height, and its per-alcove `crops` are now rendered as
+first-class outputs (`report_tools.py`) rather than left as unrendered
+manifest rectangles -- see "Naming and files" and "How to regenerate" below.
+
 ## Families
 
 | Family | Concept | Status |
@@ -41,9 +48,13 @@ are later phases -- see the spec's Progress log.
   row a family owns that is *not* given an in-scene gap card; the Markdown
   version is the "Gap registry" section below. Regenerated every
   `build_corpus.py` run (`--print-gap-registry` to reprint it to stdout).
-- `refs/` -- rendered PNGs (`<family>_<engine>_cpu.png`) and a side-by-side
-  contact sheet per scene. **Gitignored globally** (`*.png`); committed
-  copies use `git add -f`.
+- `refs/` -- rendered PNGs (`<family>_<engine>_cpu.png`), a side-by-side
+  full-shot contact sheet (`<family>_contact_sheet.png`), and (Phase-1-polish)
+  the per-alcove/per-proof crop outputs generated from `manifest.json`'s
+  `crops` rects by `report_tools.py`: `<family>_crops/<name>_<engine>.png`
+  per crop, plus a `<family>_crops_contact_sheet.png` grid (both engines
+  stacked per crop). **Gitignored globally** (`*.png`); committed copies use
+  `git add -f`.
 
 ## Manifest schema (`feature_tags` entries)
 
@@ -138,19 +149,43 @@ OpenMP-off CPU addon module for the Astroray leg). `render_leg.py` writes a
 linear `.npy`; convert to a display PNG with any sRGB-encode helper (Blender's
 own Python often lacks Pillow -- the repo's normal Python environment does not).
 
+Then turn the two `.npy` renders into the full contact sheet and per-alcove
+crops (`report_tools.py`, run in the repo's normal Python env, not Blender):
+
+```
+python benchmarks/reference_corpus/report_tools.py \
+    --family materials_hall \
+    --cycles-npy <out>/materials_hall_cycles_cpu.npy \
+    --astroray-npy <out>/materials_hall_astroray_cpu.npy \
+    --manifest benchmarks/reference_corpus/scenes/manifest.json \
+    --out-dir benchmarks/reference_corpus/refs
+```
+
+This writes `refs/<family>_{cycles,astroray}_cpu.png`,
+`refs/<family>_contact_sheet.png`, `refs/<family>_crops/<name>_<engine>.png`
+per `manifest.json` `crops` entry, and `refs/<family>_crops_contact_sheet.png`.
+
 ## Asset licences
 
-None yet. Phase 1 uses only procedural geometry/textures (per the design
-doc's "procedural builders over hand-authored files" decision) plus
-Blender's bundled Suzanne monkey mesh (`materials_hall` Alcove D bust --
-ships with every Blender install, no licence needed). The one deferred item:
-a real CC0 file-based image for the `TEX_IMAGE` file-loading proof (the
-Phase-1 `TEX_IMAGE` row is instead covered by a procedural stripe pixel
-buffer, which proves the `Vector` input row but not file I/O) -- tracked as
-a Phase 1 gap, see "Known Phase-1 gaps" below. When added, its exact
-filename, resolution, source URL, licence and sha256 go in a table here
-(matching `.astroray_plan/docs/reference-corpus-design-2026-09.md` Sec 3's
-format) before the asset is committed.
+Phase 1 itself uses only procedural geometry/textures (per the design doc's
+"procedural builders over hand-authored files" decision) plus Blender's
+bundled Suzanne monkey mesh (`materials_hall` Alcove D bust -- ships with
+every Blender install, no licence needed). The one deferred item: a real
+CC0 file-based image for the `TEX_IMAGE` file-loading proof (the Phase-1
+`TEX_IMAGE` row is instead covered by a procedural stripe pixel buffer,
+which proves the `Vector` input row but not file I/O) -- tracked as a
+Phase 1 gap, see "Known Phase-1 gaps" below.
+
+One asset was pulled forward from Phase 2 (`world_sky`) during the Phase-1
+polish session and committed now so it does not need re-downloading later:
+
+| File | Resolution | Source | Licence | sha256 |
+|---|---|---|---|---|
+| `assets/syferfontein_18d_clear_1k.hdr` | 1k | https://polyhaven.com/a/syferfontein_18d_clear | CC0 1.0 | `6f81c4b48dcb79555d7e8a8839e59e75d76fd34f1e07e070f6dd923df5c119a0` |
+
+Not yet wired into any scene or manifest -- `world_sky` (Phase 2) is where
+it gets used and licence-recorded in that family's own `assets` manifest
+entry too.
 
 ## Known Phase-1 gaps (deliberate, not oversights)
 

@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** B
-**Status:** in-progress — Phase 0 design merged (#743, 2026-09-08); owner answers to §7 recorded 2026-09-08 morning; scanner extension split out as pkg260; Phase 1 (`materials_hall` + `textures_mapping`) may start
+**Status:** in-progress — Phase 1 PR #761 open (materials_hall + textures_mapping builders, manifest, build_corpus.py CLI, tests, README, both-engine renders)
 **Estimated effort:** 1 week (~20 h across sessions; Phase 0 one session, then one scene family per session)
 **Depends on:** pkg229, pkg249, pkg253
 
@@ -169,6 +169,53 @@ gate (b)'s frequency-weighted coverage measurement. It serves Pillar 5.
 
 ## Progress
 
+- [x] 2026-09-08 — **Phase 1 MERGED (#761):** `materials_hall.blend` + `textures_mapping.blend`, `build_corpus.py`, manifest (§4.1 schema), corpus README + gap registry, `tests/test_reference_corpus_manifest.py` 7/7; 56/56 and 72/72 allocated rows tagged; both scenes render in both engines headless (CPU). Lead inspection of the contact sheets: layout/colours match Cycles; the hall establishing shot is too wide to read at report size (alcoves are a thin strip) — **Phase 1 polish (next builder session): reframe the hall camera and render the per-alcove crops the design doc §1.1 calls for**; Astroray leg far noisier than Cycles at equal 128 spp (#763); procedural textures feeding Emission render blank (#762). Phase 2 (`lighting_studio` + `world_sky`) next.
+- [x] 2026-09-08 evening — continuation lane closed out PR #761: restored
+      `textures_mapping_astroray_cpu.png` (regenerated from the render's
+      linear `.npy` with `render_leg.py`'s own sRGB tonemap after the prior
+      lane's working tree had it deleted) and rebuilt its contact sheet;
+      merged `origin/main` (5dea6e37, incl. pkg260 #758) — one conflict
+      (`allocation_table.md`) resolved by taking main's script then
+      regenerating against the merged 586-row `coverage_matrix.json`.
+      pkg260 added 42 rows to `textures_mapping` (`image_property`,
+      `input_node`: NEW_GEOMETRY/OBJECT_INFO/ATTRIBUTE/VERTEX_COLOR/
+      LIGHT_PATH), all DROPPED-SILENT; 10 already covered by existing
+      README text, the other 32 added to the README gap registry +
+      `gap_registry.json` (`textures_mapping` now 263 rows owned / 181 gap
+      registry, `materials_hall` unaffected). `test_reference_corpus_manifest.py`
+      (7/7) and `test_reference_scene_corpus.py` (19/19) re-run clean
+      post-merge. Visually inspected both contact sheets: `materials_hall`
+      alcove content/positions match Cycles but the Astroray leg is much
+      noisier at the same declared 128spp (1915.8s vs Cycles' ~1.2s,
+      reading as Cycles' adaptive sampling stopping early) with one addon
+      degradation notice (9 approximated BSDF paths, incl. `BSDF_METALLIC`
+      dropping Normal/Tangent/Weight and `MULTI_GGX`); `textures_mapping`
+      confirms the earlier-flagged defect — all 5 procedural-pattern-node
+      `-> Emission -> Output` proof cards render flat white/blank on
+      Astroray (Cycles shows each pattern), silently (no addon warning),
+      while the same nodes into Principled Base Color elsewhere are known
+      to work. Findings written into the PR body for the lead to triage;
+      no engine/addon fix attempted (spec non-goal). PR #761 mergeable:
+      MERGEABLE (mergeStateStatus UNSTABLE = CI pending re-run post-merge).
+- [x] 2026-09-08 afternoon — Phase 1 built: `build_materials_hall_scene` +
+      `build_textures_mapping_scene` added to `scene_library.py` (corridor
+      gallery / printmaker's workshop per the design doc, both reusing
+      existing helpers); `build_corpus.py` CLI (runs inside Blender, cross-
+      checks each builder's actively-wired sockets against
+      `coverage_matrix.json` via the Phase-0 allocation table, fails loudly
+      on a gap); `materials_hall.blend` (57 feature_tags incl. 1 gap card,
+      13734 tri) and `textures_mapping.blend` (72 feature_tags, 2926 tri)
+      committed with `manifest.json` + `gap_registry.json`; corpus
+      `README.md` (charter, gap registry, regenerate instructions);
+      `tests/test_reference_corpus_manifest.py` (7 tests, all green: 2
+      Blender-dependent skip cleanly without it). Both scenes render in both
+      engines (Cycles 128spp CPU; Astroray CPU via the staged OpenMP-off
+      `dist/astroray` module) without an addon exception. Along the way,
+      found and worked around a real Blender quirk: past a few hundred
+      node-trees created in one session, `bpy_prop_collection` string-keyed
+      socket lookup starts spuriously raising `KeyError` for sockets plainly
+      present under iteration (worked around via an identifier-match
+      helper, `scene_library._sock`).
 - [x] 2026-09-08 morning — owner answered the design doc §7: scanner extension filed as
       pkg260 (Phase 1 proceeds in parallel); gate (c) switches to the corpus trio when built;
       gate (b) weight = distinct scenes per socket capped at 3; `test_env.hdr` provenance
@@ -192,4 +239,21 @@ gate (b)'s frequency-weighted coverage measurement. It serves Pillar 5.
 
 ## Lessons
 
-- (none yet)
+- A session that builds hundreds of distinct node-trees (a materials/
+  textures corpus scene does exactly this) can hit a real Blender quirk:
+  `node.inputs["Name"]` / `"Name" in node.inputs` starts spuriously raising
+  `KeyError` / returning `False` for a socket that is plainly present in
+  `[s.name for s in node.inputs]`, once enough prior node-trees exist in the
+  session (reproduced in isolation with 400 dummy Principled materials
+  created first). Iterating and matching by `identifier` (falling back to
+  `name`) sidesteps it -- see `scene_library._sock`. Not yet root-caused
+  inside Blender itself; flag if another corpus-scale scene hits it.
+- `coverage_matrix.json` scanner enumerates node PROPERTIES and INPUT
+  sockets, not OUTPUT sockets or (category, feature) pairs with no property
+  at all -- several nodes allocated to a family in Phase 0's design doc
+  (TEX_COORD, UVMAP, MAPPING, VALTORGB/ColorRamp, MATH, VECT_MATH, MAP_RANGE,
+  CLAMP, Combine/Separate Color/XYZ, Curves) turned out to have ZERO
+  SUPPORTED/APPROXIMATED rows in the current (post-pkg253) matrix, so Phase 1
+  did not need to build dedicated proofs for them -- only the README gap
+  registry. Worth knowing before over-building Phase 2/3 content for a node
+  the matrix doesn't actually credit yet.

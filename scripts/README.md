@@ -113,6 +113,7 @@ new reusable script, register it here in the same commit.
 | Cycles feature-coverage reference-corpus report tooling (pkg259; npy->PNG, per-crop extraction from `manifest.json` `crops` rects, Cycles-vs-Astroray + per-crop contact sheets) | `benchmarks/reference_corpus/report_tools.py` (run in the repo's normal Python env, not Blender) |
 | Rough-metal/rough-glass live-Cycles A/B driver (CPU/GPU vs Cycles oracle; `--material metal\|glass`) | `benchmarks/cycles-parity/metal_ab/harness.py` (pkg129 metal preset; pkg263 added the glass preset + limb/centre/background ROIs) |
 | Thin-film iridescence A/B driver vs Cycles-5.2 oracle | `benchmarks/cycles-parity/thin_film/harness.py` (pkg178 Stage-4 acceptance) |
+| Heitz-2016 multiple-scattering dielectric random-walk oracle (numpy; MS vs single-scatter vs Cycles 1/E divergence table + directional histograms) | `benchmarks/cycles-parity/glass_ms_oracle/heitz_random_walk.py` (pkg265; clean-room from DOI 10.1145/2897824.2925943) |
 | Blender dev-loop guard functions (stale-.pyd, OpenMP-on, addon-files-drift, sentinel-pass) used by `dev_addon.ps1` | `scripts/dev_loop_guards.py` (pkg175; OpenMP guard inverted by #780) |
 | Wavefront SoA baseline measurement harness | `benchmarks/wavefront_baseline.py` (pkg55 Phase A) |
 | Caustic-integrator visual/stat validation (pkg74 may reuse its scene builders) | `scripts/benchmarks/benchmark_caustic_transport.py` (pkg29a) |
@@ -194,6 +195,7 @@ new reusable script, register it here in the same commit.
 | Cycles feature-coverage reference-corpus report tooling (pkg259; npy->PNG, per-crop extraction from `manifest.json` `crops` rects, Cycles-vs-Astroray + per-crop contact sheets) | `benchmarks/reference_corpus/report_tools.py` (run in the repo's normal Python env, not Blender) |
 | Rough-metal/rough-glass live-Cycles A/B driver (CPU/GPU vs Cycles oracle; `--material metal\|glass`) | `benchmarks/cycles-parity/metal_ab/harness.py` (pkg129 metal preset; pkg263 added the glass preset + limb/centre/background ROIs) |
 | Thin-film iridescence A/B driver vs Cycles-5.2 oracle | `benchmarks/cycles-parity/thin_film/harness.py` (pkg178 Stage-4 acceptance) |
+| Heitz-2016 multiple-scattering dielectric random-walk oracle (numpy; MS vs single-scatter vs Cycles 1/E divergence table + directional histograms) | `benchmarks/cycles-parity/glass_ms_oracle/heitz_random_walk.py` (pkg265; clean-room from DOI 10.1145/2897824.2925943) |
 | Blender dev-loop guard functions (stale-.pyd, OpenMP-on, addon-files-drift, sentinel-pass) used by `dev_addon.ps1` | `scripts/dev_loop_guards.py` (pkg175; OpenMP guard inverted by #780) |
 | Wavefront SoA baseline measurement harness | `benchmarks/wavefront_baseline.py` (pkg55 Phase A) |
 | Caustic-integrator visual/stat validation (pkg74 may reuse its scene builders) | `scripts/benchmarks/benchmark_caustic_transport.py` (pkg29a) |

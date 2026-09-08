@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — filed 2026-09-09 by the lead from #770 (owner: physics first, 2026-09-08 evening)
+**Status:** in-progress — Phase 2 (CPU) + Phase 4 (harness/run_parity) done, both on PR #778, 2026-09-09; Phase 3 GPU still pending the lead's call (CPU-lands / GPU-phase decision, spec §Progress)
 **Estimated effort:** 3 sessions (~10 h; Python oracle + directional gate, CPU BSDF on both lobes, GPU mirror under the lock, harness re-runs)
 **Depends on:** pkg264, pkg263, pkg179, pkg124
 
@@ -131,6 +131,49 @@ depend on this. `cite-algorithm` is mandatory before any code. Serves Pillar 5.
 ## Progress
 
 - [ ] 2026-09-09 — filed by the lead; dispatched to Opus 4.8 (`package-implementer`) as the first item of the session.
+- [!] 2026-09-09 — **cite-algorithm licence STOP raised** (research note §Reference/licence, committed on `feat/pkg265-ms-microfacet-glass`). No licence-compatible reference implementation of Heitz 2016 exists to port: the paper's supplemental `MicrosurfaceScattering.cpp` is licence-UNSTATED (skill: reject), the bundled Mitsuba plugin is GPLv3 (incompatible with MIT), and Mitsuba 3 (BSD) / pbrt-v4 (Apache) implement different/single-scatter models. Paper equations (§5–6) are freely readable for a clean-room implementation. Per the lane hard rule (STOP on licence mismatch, do not port), no algorithm code written; awaiting the lead's IP call on the recommended path (implement from the paper equations, cite Heitz 2016, copy no unstated/GPL code).
+- [x] 2026-09-09 — **lead resolved: Option A (clean-room from the paper equations).** Implement the Heitz 2016 random walk from the paper's published equations (§5–9), cite DOI 10.1145/2897824.2925943 in the note and every code header, copy zero lines from the unstated-licence supplemental or the GPL plugin. Standard CLAUDE.md §6 reading: formulae are cited provenance, reference code's expression is not used. A later BSD/MIT/Apache implementation of the same walk may be cross-checked/cited but the clean-room path does not wait. Recorded verbatim in the research note licence section.
+- [x] 2026-09-09 — **Phase 2 (CPU) complete** (pushed on `feat/pkg265-ms-microfacet-glass`,
+  PR #778). Both glass lobes (`principled` transmission + `disney` glass) sample the
+  clean-room Heitz-2016 walk (`include/astroray/microsurface_dielectric.h`, scatterMax=16,
+  0.00% dead); `sample()`/`sampleSpectral()` set f/pdf = throughput with the §9
+  first-bounce+diffuse-floor MIS pdf; #771 delta reroute + pkg138 delta fallback removed;
+  `ggxGlassComp`/`ggxGlassCompensationFactor` dropped from these lobes. **Directional gate
+  RED→GREEN (41/41)**; **furnace (linear, 256 spp) principled 0.992–0.996 / disney
+  0.980–0.993, all in [0.97,1.02]** (bands tightened, R=1.0 pkg167 carve-out folded back in
+  with no table). ~540 CPU regression tests green (furnace/caustic/energy/pkg178/chi2/rough-
+  glass), 0 new failures. Class-of-bug found+fixed: the render calls `sampleSpectral`, whose
+  base re-evaluates single-scatter `evalSpectral` for a non-delta sample — DisneyPlugin now
+  overrides it (research note §Finding).
+- [ ] 2026-09-09 — **Phase 3 (GPU): DECISION FOR THE LEAD.** GPU glass
+  lowers to `GMAT_CLOSURE_GRAPH` in the REG:254-pinned shade kernel and still carries the
+  pkg264 #771 reroute (a documented, energy-conserving stub — GPU furnace principled
+  0.958–0.996 / disney 1.00–1.03; all existing GPU furnace + CPU/GPU parity tests PASS, so
+  nothing is broken and the divergence is not silent). A device twin of the walk is a large,
+  register-sensitive port (erfinv/VNDF/height-sampling while-loop) into a saturated kernel,
+  with the same base-`sampleSpectral` re-eval trap on GPU and no directional hook to validate
+  it. Deferred pending the lead's call: attempt the GPU walk now (spill risk) vs land as-is
+  and file the GPU leg as its own phase.
+- [x] 2026-09-09 — **Phase 4 (harness + run_parity) complete** (Sonnet 5 lane, CPU-only, no
+  GPU lock; two commits on `feat/pkg265-ms-microfacet-glass`, PR #778). Restaged the CPU addon
+  from this worktree (`build_blender_addon.py --backend cpu`; `ASTRORAY_PYD_DIR` must point at
+  the staged `dist/astroray/`, not the bare `build_blender_addon/` — that dir is missing the
+  bundled MinGW/OIDN runtime DLLs the harness needs inside Blender). Re-ran the pkg263 glass A/B
+  harness (256², 128 spp, CPU both engines): limb moves from ~0.5× Cycles (pre-#778 dead-sample
+  loss) to ~1.0–1.05× (the walk lands on the oracle-predicted direction); centre overshoots to
+  1.08–1.52× at r≥0.5, growing with roughness — the oracle's single-interface divergence table
+  explains the *direction* but not the full magnitude (the render integrates two rough
+  interfaces, entry+exit, which the single-interface oracle doesn't model). Full before/after
+  table, direction check, contact sheets and wall times in the research note's new Phase 4
+  section. Registered `glass_sphere` (3 native-Principled spheres, IOR 1.45, r 0.5/0.85/1.0) in
+  `run_parity.py`/`manifest.toml` as a self-authored scene (no download), RECORDED not gated
+  (SSIM 0.774 — the pkg76 `.blend` importer is parity-scope, base-colour only, so this leg
+  renders diffuse spheres, not glass; the real physics divergence is the metal_ab harness
+  above). Found + worked around (not fixed — out of this package's authorized scope):
+  `tools/blend_import/reader.py`'s `BlendFile.by_old` silently overwrites on an "old"-pointer
+  collision across ≥2 mesh datablocks in one file; joined the scene's meshes into one datablock
+  to route around it and filed a follow-up task for the reader itself.
+- [x] 2026-09-09 — **Phase 1 complete** (WIP `fc083403`, pushed). Research note rewritten term by term; numpy oracle `benchmarks/cycles-parity/glass_ms_oracle/heitz_random_walk.py` (registered in scripts/README.md); divergence table produced. Headline: MS walk conserves energy EXACTLY (R+T=1.000, 0.0% dead over the 4×5 grid, IOR 1.45, M=2e5) — the built-in correctness check; single-scatter dead fraction reaches 68% (r0.85 μ0.1) / 85% (r1.0 μ0.1); Cycles' 1/E over-counts reflection 5.5× vs the walk at r1.0 μ0.1 (R:T 0.354:0.646 vs 0.064:0.936). Premise CONFIRMED. Directional gate `tests/test_pkg265_ms_glass_directional.py` written (histogram ±5%/bin, albedo ±2%, MIS pdf-coverage); RED shown on the entering grazing case; exit-interface RED needs the new `front_face` binding (builds in Phase 2). Optional `front_face` arg added to `debug_bsdf_sample_batch`/`_pdf_batch` (default true). Next: Phase 2 CPU (principled + disney transmission lobe → the walk; remove #771 reroute + pkg138 delta fallback; drop `ggxGlassComp` on these lobes; furnace ≤1.02 linear bound).
 
 ---
 

@@ -141,25 +141,28 @@ def test_disney_rough_glass_furnace_energy_gpu():
 # cosine |N.wi| (eval() folds it via *NdotL, but the transmission path returns
 # early with the PBRT per-steradian BTDF and the integrator adds no cosine), and
 # the delta fallthrough dropped the Fresnel factor (see the module docstring /
-# findings doc). R=0.1/0.3/0.6 -> 0.993/0.980/0.926, all in [0.92,1.03]. R=1.0 is
-# carved out below (multiscatter, pkg167).
-_ROUGH_CPU_CONSERVING = [0.1, 0.3, 0.6]
+# findings doc). pkg265: the disney glass lobe is now the Heitz-2016 multiple-
+# scattering walk (conserves R+T==1 by construction), which recovers the whole
+# roughness range INCLUDING R=1.0 that pkg167 previously carved out. Band tightened
+# to [0.97, 1.02] linear (render applyGamma=False). Measured after pkg265 (256 spp,
+# seed 7, ior 1.5): R=0.1/0.3/0.6/1.0 -> 0.992/0.993/0.990/0.980.
+_ROUGH_CPU_CONSERVING = [0.1, 0.3, 0.6, 1.0]
 
 
 def test_disney_rough_glass_furnace_energy_cpu():
     vals = {R: _furnace(R, spp=256) for R in _ROUGH_CPU_CONSERVING}
-    bad = {R: v for R, v in vals.items() if not (0.92 <= v <= 1.03)}
+    bad = {R: v for R, v in vals.items() if not (0.97 <= v <= 1.02)}
     assert not bad, f"rough disney glass furnace not energy-conserving at roughness {bad}; all={vals}"
 
 
 def test_disney_rough_glass_furnace_energy_cpu_r1_ior15():
-    # pkg167 Part 1 (2026-08-08) retired the pkg169 xfail on this cell. The
-    # reflection-lobe glass multi-scatter compensation (roughReflectionEval)
-    # recovers CPU rough Disney glass at ior=1.5, R=1.0 to 0.926 (1024spp 0.928),
-    # inside [0.92,1.03]. Kept as a dedicated cell so the worst-case near-TIR
-    # high-roughness corner stays MEASURED every run. No band widening.
+    # pkg167 recovered this near-TIR corner to 0.926 via a single-scatter
+    # compensation table. pkg265 replaces that with the Heitz-2016 multiple-
+    # scattering walk (no table), which recovers it to 0.980 (256 spp, ior 1.5) —
+    # energy-conserving by construction. Band tightened to [0.97, 1.02]; kept as a
+    # dedicated cell so the worst-case corner stays MEASURED every run.
     v = _furnace(1.0, spp=256)  # ior 1.5 (default)
-    assert 0.92 <= v <= 1.03, f"CPU rough disney glass R=1.0 ior1.5 furnace = {v:.4f}"
+    assert 0.97 <= v <= 1.02, f"CPU rough disney glass R=1.0 ior1.5 furnace = {v:.4f}"
 
 
 @pytest.mark.skipif(

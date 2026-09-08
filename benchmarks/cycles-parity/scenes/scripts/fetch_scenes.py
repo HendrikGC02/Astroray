@@ -128,6 +128,11 @@ def main(argv: list[str] | None = None) -> int:
 
     fetched = []
     for scene in scenes:
+        if "url" not in scene:
+            # pkg265 — self-authored scenes (e.g. glass_sphere) are committed
+            # directly under scenes/, not downloaded.
+            print(f"{scene['id']}: self-authored, nothing to fetch")
+            continue
         scene_id, message = fetch_scene(scene, dry_run=args.dry_run, allow_unpinned=args.allow_unpinned)
         fetched.append(scene)
         print(f"{scene_id}: {message}")

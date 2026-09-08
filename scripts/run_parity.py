@@ -110,7 +110,7 @@ def _load_scenes() -> dict[str, Scene]:
         with MANIFEST.open("rb") as fh:
             for item in tomllib.load(fh).get("scene", []):
                 width, height = item["resolution"]
-                blend_path = _find_blend_path(item["id"], item["archive"])
+                blend_path = _find_blend_path(item["id"], item.get("archive", ""))
                 scenes[item["id"]] = Scene(
                     item["id"],
                     samples=int(item["reference_spp"]),
@@ -122,6 +122,11 @@ def _load_scenes() -> dict[str, Scene]:
 
 
 def _find_blend_path(scene_id: str, archive_name: str) -> Path | None:
+    # pkg265 — a self-authored scene (no "archive"/download) is committed
+    # directly at scenes/<id>.blend rather than the gitignored cache/.
+    direct = SCENE_ROOT / f"{scene_id}.blend"
+    if direct.exists():
+        return direct
     candidates = [
         SCENE_ROOT / "cache" / scene_id,
         SCENE_ROOT / "cache" / Path(archive_name).stem,
@@ -692,6 +697,13 @@ def main(argv: list[str] | None = None) -> int:
     failed = []
     for row in rows:
         if not row["engine"].startswith("astroray") or row["skip_reason"] or not row["ssim_to_cycles"]:
+            continue
+        # pkg265 — glass_sphere is a RECORDED cross-check, not gated: the
+        # multi-scatter dielectric walk's angular shape is expected to diverge
+        # from Cycles' 1/E single-scatter compensation (research note
+        # pkg265-multiscatter-microfacet-research.md Phase 4); the row is
+        # written to the CSV for inspection but does not fail the run.
+        if row["scene"] == "glass_sphere":
             continue
         gate = 0.95 if row["scene"] == "cornell" else 0.85
         if float(row["ssim_to_cycles"]) < gate:

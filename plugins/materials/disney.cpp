@@ -1,5 +1,6 @@
 ﻿#include "astroray/register.h"
 #include "astroray/energy_compensation.h"
+#include "astroray/microsurface_dielectric.h"  // pkg265 Heitz-2016 dielectric walk
 #include "advanced_features.h"
 
 class DisneyPlugin : public Material {
@@ -369,9 +370,10 @@ class DisneyPlugin : public Material {
         // applied to `spec` at eval() (F0=Cspec0~=0.04) is ~identity, so the two
         // do not meaningfully double-compensate -- see
         // .astroray_plan/docs/pkg167-dielectric-reflection-multiscatter-research.md.
-        const float etap = rec.frontFace ? ior_ : (1.0f / ior_);
-        fr *= ggxGlassCompensationFactor(etap, std::abs(cosO));
-
+        // pkg265: the Heitz-2016 random walk (sample()) carries the multiple-
+        // scattering reflection energy; the single-scatter ggxGlassCompensationFactor
+        // (pkg167) is NO LONGER applied to this lobe. roughReflectionEval now feeds
+        // NEE/MIS only as the bare first-bounce dielectric reflection BRDF.
         return Vec3(fr);
     }
 
@@ -444,10 +446,11 @@ class DisneyPlugin : public Material {
         float scale = (1.0f - metallic_) * transmission_ * ft * std::abs(cosI);
         Vec3 result = baseColor_ * scale;
 
-        // pkg151: rough-transmission multi-scatter compensation (Cycles glass
-        // tables, see ggxGlassCompensationFactor above). Scales throughput
-        // magnitude only; roughTransmissionPdf/sampleGgxVNDF are untouched.
-        result *= ggxGlassCompensationFactor(etap, std::abs(cosO));
+        // pkg265: the Heitz-2016 random walk (sample()) conserves energy by
+        // construction, so the single-scatter ggxGlassCompensationFactor is NO
+        // LONGER applied to this lobe. roughTransmissionEval now feeds NEE/MIS
+        // only (the pure single-scatter first-bounce BTDF); the multiple-
+        // scattering energy is carried by the walk sampler's throughput.
 
         // pkg154: removed the closure-level `clamp(0,4)` this function used to
         // apply here. GGX D(wm) grows without bound as alpha -> 0 for
@@ -613,7 +616,14 @@ public:
         float NdotL = N.dot(wi);
         float NdotV = N.dot(wo);
         if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness && NdotL * NdotV < 0.0f) {
-            return roughTransmissionEval(rec, wo, wi);
+            // pkg265 (eval/NEE consistency): the rough glass lobe is the Heitz-2016
+            // multiple-scattering walk (sample()), whose f/pdf is set directly.
+            // A single-scatter eval here is not an unbiased estimate of the walk's
+            // f, so NEE/MIS with it is inconsistent (the cycles-parity-reviewer
+            // CRITICAL). Join the smooth-glass delta contract instead: eval==0 ⇒ NEE
+            // skipped; sample() sets isDelta=true so the emitter hit is full weight.
+            // Unbiased (BSDF sampling), noisier direct light. See research note §5.
+            return Vec3(0);
         }
         if (NdotL <= 0 || NdotV <= 0) return Vec3(0);
 
@@ -681,9 +691,14 @@ public:
         // transmit). Smooth glass (roughness_<=kDeltaTransmissionRoughness)
         // is unaffected -- boundary preserved per spec.
         if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {
+            // pkg265 (eval/NEE consistency): the walk covers the dielectric REFLECTION
+            // lobe too (ds.walkReflected), so its reflection is likewise sampled, not
+            // eval'd for NEE. Drop the single-scatter roughReflectionEval blend so the
+            // whole glass lobe honours the delta-for-NEE contract (eval==0). For pure
+            // glass (dielectricWeight→1) this zeroes `spec`; mixed materials keep only
+            // their non-dielectric specular. See transmission branch above + note §5.
             float dielectricWeight = (1.0f - metallic_) * transmission_;
-            spec = spec * (1.0f - dielectricWeight) +
-                   dielectricWeight * roughReflectionEval(rec, wo, wi);
+            spec = spec * (1.0f - dielectricWeight);
         }
 
         Vec3 Csheen = Vec3(1) * (1 - sheenTint_) + Ctint * sheenTint_;
@@ -820,54 +835,46 @@ public:
             float fresnel = f0 + (1 - f0) * std::pow(1 - cosTheta, 5);
 
             if (roughness_ > kDeltaTransmissionRoughness) {
-                // Sample VNDF microfacet normal (Heitz 2018, PBRT-v4)
-                Vec3 wm = sampleGgxVNDF(rec, wo, gen);
-                float HdotO = wo.dot(wm);
-                float F = fresnelDielectric(std::abs(HdotO), etaI, etaT);
-
-                // Sample reflection or transmission based on Fresnel
-                float R = F, T = 1.0f - F;
-                bool sampleReflection = cannotRefract || dist(gen) < R / (R + T);
-
-                if (sampleReflection) {
-                    // Reflect off microfacet
-                    s.wi = (wm * (2.0f * HdotO) - wo).normalized();
-                    if (s.wi.dot(rec.normal) * wo.dot(rec.normal) > 0.0f) {
-                        // Evaluate reflection (specular lobe contribution)
-                        s.f = eval(rec, wo, s.wi);
-                        // PDF = VNDF_PDF / (4 * |HdotO|) * R / (R + T)
-                        float vndfPdfVal = vndfPdf(rec.normal, wo, wm);
-                        s.pdf = transmission_ * vndfPdfVal / (4.0f * std::abs(HdotO) + 1e-10f) * R / (R + T + 1e-10f);
-                    }
-                } else {
-                    // Refract through microfacet
-                    if (refractThroughMicroNormal(wo, wm, eta, s.wi)) {
-                        s.f = roughTransmissionEval(rec, wo, s.wi);
-                        s.pdf = roughTransmissionPdf(rec, wo, s.wi);
-                    }
-                }
-
-                if (s.pdf > 0.0f && s.f.length2() > 0.0f) {
-                    s.isDelta = false;
-                    const_cast<HitRecord&>(rec).isDelta = false;
+                // pkg265: multiple-scattering microfacet DIELECTRIC (Heitz et al.
+                // 2016) random walk, clean-room from the paper
+                // (DOI 10.1145/2897824.2925943; include/astroray/microsurface_dielectric.h).
+                // Replaces the single-scatter VNDF reflect/refract AND the pkg138
+                // dead-sample delta fallback below: the walk is a perfect importance
+                // sampler for the lossless dielectric (phase weight == 1, zero dead
+                // samples), returning reflection and transmission from one energy-
+                // conserving model (validated R+T==1 / directional histograms vs the
+                // numpy oracle, research note §Divergence). f/pdf is set directly to
+                // the lobe throughput (1-metallic)*tint*radiance, so no eval() call
+                // and no smooth-mirror fallback are needed.
+                float alpha = std::max(roughness_ * roughness_, 0.0064f);
+                Vec3 woL(wo.dot(rec.tangent), wo.dot(rec.bitangent), wo.dot(n));
+                auto rng = [&]() { return dist(gen); };
+                astroray::msdiel::WalkSample w = astroray::msdiel::sampleWalk(
+                    woL, alpha, ior_, rec.frontFace, rng, /*scatterMax=*/16);
+                if (w.escaped) {
+                    s.wi = (rec.tangent * w.wi.x + rec.bitangent * w.wi.y + n * w.wi.z)
+                               .normalized();
+                    Vec3 wiLocal(s.wi.dot(rec.tangent), s.wi.dot(rec.bitangent),
+                                       s.wi.dot(n));
+                    // §9 MIS pdf: first-bounce VNDF density + diffuse floor (> 0), so
+                    // the walk direction is never dropped as a dead (pdf==0) sample.
+                    float pj = astroray::msdiel::firstBouncePdf(
+                        woL, wiLocal, alpha, ior_, rec.frontFace);
+                    Vec3 tint = w.reflected ? Vec3(1.0f) : baseColor_;
+                    Vec3 through = (1.0f - metallic_) * tint * w.radianceScale;
+                    s.pdf = transmission_ * pj;
+                    s.f = through * (transmission_ * pj);  // f/pdf = through
+                    // pkg265 (eval/NEE consistency): delta-for-NEE. eval() returns 0
+                    // for this lobe, so NEE is skipped and the emitter hit is taken at
+                    // full MIS weight (wasSpecular) — the smooth-glass delta contract.
+                    // Unbiased; see eval() + research note §5.
+                    s.isDelta = true;
+                    const_cast<HitRecord&>(rec).isDelta = true;
                     return s;
                 }
-                // Extremely grazing sampled microfacets can fail both reflection
-                // and refraction. Fall through to the smooth event instead of
-                // treating that as absorption.
-                //
-                // pkg138 investigation note: a PBRT-v4-faithful "return a dead
-                // (pdf=0) sample instead of this delta fallback" was tried and
-                // MEASURED to regress energy conservation severely (white-furnace
-                // collapsed from ~0.9-1.0 to ~0.0 at roughness in {0.1,0.3,0.6}
-                // both CPU and GPU) -- the masked-VNDF-reflection dead-sample rate
-                // measured here (100% at moderate roughness/incidence, not a rare
-                // tail -- see the pkg138 research note) is NOT balanced by a
-                // corresponding discount in this file's pdf()/microfacetReflectionPdf
-                // (a full Smith joint-masking term or Turquin-style multiscatter
-                // compensation would be needed first). Reverted; kept as the
-                // pre-existing (if imperfect) energy-conserving behavior. See
-                // .astroray_plan/docs/pkg138-disney-dielectric-rough-reflection-research.md.
+                // scatterMax=16 -> measured 0.00% dead over the grid; a truncated
+                // walk is dropped (returns the zero sample) rather than rerouted.
+                return s;
             }
 
             if (cannotRefract || dist(gen) < fresnel) {
@@ -940,12 +947,38 @@ public:
         return s;
     }
 
+    // pkg265: DisneyPlugin previously used the base Material::sampleSpectral, whose
+    // non-delta branch RE-EVALUATES evalSpectral(bs.wi) (single-scatter) instead of
+    // using sample()'s bs.f whenever |bs.f| <= 1. For the Heitz-2016 walk that threw
+    // away the multiple-scattering energy (white furnace collapsed to 0.40 @ r1.0
+    // while the sampler's f/pdf was byte-identical to the conserving principled lobe).
+    // sample() now sets a valid f/pdf for BOTH the walk and the delta glass event, so
+    // upsample bs.f directly — magnitude-factored to dodge the Jakob-Hanika albedo LUT
+    // clamp on the >1 exit-refraction radiance (same guard the base uses / #404). For
+    // the non-walk lobes this is identical to the base path because DisneyPlugin's
+    // evalSpectral is itself upsample(eval()) and bs.f == eval(bs.wi) there.
+    BSDFSampleSpectral sampleSpectral(
+            const HitRecord& rec, const Vec3& wo, std::mt19937& gen,
+            astroray::SampledWavelengths& lambdas) const override {
+        if (hasScalarProgram())
+            return substituted(rec, wo).sampleSpectral(rec, wo, gen, lambdas);
+        BSDFSample bs = sample(rec, wo, gen);
+        BSDFSampleSpectral bss;
+        bss.wi = bs.wi;
+        bss.pdf = bs.pdf;
+        bss.isDelta = bs.isDelta;
+        float maxc = std::max(std::max(bs.f.x, bs.f.y), std::max(bs.f.z, 1.0f));
+        Vec3 tint = bs.f * (1.0f / maxc);
+        bss.f_spectral = astroray::RGBAlbedoSpectrum(
+            {tint.x, tint.y, tint.z}).sample(lambdas) * maxc;
+        return bss;
+    }
+
     float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
         if (hasScalarProgram()) return substituted(rec, wo).pdf(rec, wo, wi);
-        if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness &&
-            rec.normal.dot(wo) * rec.normal.dot(wi) < 0.0f) {
-            return roughTransmissionPdf(rec, wo, wi);
-        }
+        // pkg265: the rough-glass transmission pdf is no longer the single-scatter
+        // roughTransmissionPdf early-return; the Heitz-2016 walk's §9 MIS pdf (added
+        // in the tail block below) covers BOTH reflected and transmitted directions.
 
         Vec3 H = (wo + wi).normalized();
         float diffWeight = (1 - metallic_) * (1 - transmission_);
@@ -978,30 +1011,19 @@ public:
             }
         }
         if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {
-            // pkg169: entering MUST come from rec.frontFace, not sign(rec.normal.dot(wo))
-            // (always > 0 -- rec.normal is the front-facing normal). For an EXIT event
-            // this computed the air->glass Fresnel (small) instead of glass->air (~1
-            // near TIR), so the reflection-branch pdf was far too small for internal
-            // reflections. Mirrors the pkg154 frontFace fix in roughTransmission{Eval,
-            // Pdf} and sample()'s own etaI/etaT. The CPU furnace uses sample()'s inline
-            // pdf directly (no closure-graph overwrite) so this did not affect it, but
-            // it is wrong for NEE/MIS and must match the GPU twin (gpu_disney_pdf).
-            bool entering = rec.frontFace;
-            float etaI = entering ? 1.0f : ior_;
-            float etaT = entering ? ior_ : 1.0f;
-            // std::abs() matches sample()'s inline computation (disney.cpp ~431:
-            // `fresnelDielectric(std::abs(HdotO), etaI, etaT)`) and is defensive
-            // hardening against out-of-domain `wo.dot(H)` signs when `H` is
-            // reconstructed from an arbitrary query wi (tabulate_pdf's quadrature
-            // sweeps the full domain, not just plausible reflections). NOTE
-            // (Opus re-review, 2026-07-20, measured on hardware): this is NOT the
-            // root cause of the glass chi² residual (chi^2=143M/dof=1025 with the
-            // fix present). The actual mechanism is a delta-vs-continuous
-            // sample/pdf type mismatch -- see pkg121-disney-pdf-finding.md
-            // "Round 2d" and the xfail reason on test_chi2_disney_glass. Kept as
-            // harmless hardening, not claimed as a fix.
-            float F = fresnelDielectric(std::abs(wo.dot(H)), etaI, etaT);
-            p += transmission_ * F * microfacetReflectionPdf(rec, wo, wi);
+            // pkg265: the glass lobe is sampled by the Heitz-2016 walk; add its §9
+            // MIS pdf (closed-form first-bounce VNDF density + a small diffuse floor,
+            // always > 0) for BOTH the reflected and transmitted directions, exactly
+            // matching sample(). transmission_ is the branch-selection probability.
+            // Supersedes the single-scatter transmission_*F*microfacetReflectionPdf
+            // reflection term AND the roughTransmissionPdf transmission early-return.
+            Vec3 ng = rec.normal;
+            if (wo.dot(ng) < 0.0f) ng = -ng;
+            Vec3 woL(wo.dot(rec.tangent), wo.dot(rec.bitangent), wo.dot(ng));
+            Vec3 wiLocal(wi.dot(rec.tangent), wi.dot(rec.bitangent), wi.dot(ng));
+            float alpha = std::max(roughness_ * roughness_, 0.0064f);
+            p += transmission_ * astroray::msdiel::firstBouncePdf(
+                                     woL, wiLocal, alpha, ior_, rec.frontFace);
         }
         return p;
     }

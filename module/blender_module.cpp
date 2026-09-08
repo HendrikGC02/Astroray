@@ -691,14 +691,18 @@ public:
         return r;
     }
 
-    HitRecord makeMaterialTestRecord(const std::vector<float>& normalInput) const {
+    HitRecord makeMaterialTestRecord(const std::vector<float>& normalInput,
+                                     bool frontFace = true) const {
         Vec3 n(0.0f, 1.0f, 0.0f);
         if (normalInput.size() == 3) {
             n = Vec3(normalInput[0], normalInput[1], normalInput[2]).normalized();
         }
         HitRecord rec;
         rec.normal = n;
-        rec.frontFace = true;
+        // pkg265: expose frontFace so BSDF-level tests can probe the EXIT interface
+        // (dense->rare, eta = 1/ior) of a dielectric, where the rough-glass dead-
+        // sample reroute lives. Default true keeps every existing caller identical.
+        rec.frontFace = frontFace;
         buildOrthonormalBasis(rec.normal, rec.tangent, rec.bitangent);
         // pkg178 PR-4b: give the aniso path a well-defined UV tangent (= the
         // arbitrary frame, exactly what a sphere hit carries). Isotropic materials
@@ -830,7 +834,8 @@ public:
     // u2_array is (2, N) uniform random samples in [0,1]² (currently unused, RNG advances internally).
     py::tuple debug_bsdf_sample_batch(int materialId,
                                       const std::vector<float>& woInput,
-                                      py::array_t<float, py::array::c_style | py::array::forcecast> u2_array) {
+                                      py::array_t<float, py::array::c_style | py::array::forcecast> u2_array,
+                                      bool frontFace = true) {
         auto it = materials.find(materialId);
         if (it == materials.end() || !it->second) {
             throw std::runtime_error("Unknown material id");
@@ -845,7 +850,7 @@ public:
         }
         const size_t N = static_cast<size_t>(u2_buf.shape[1]);
 
-        HitRecord rec = makeMaterialTestRecord({0.0f, 1.0f, 0.0f});
+        HitRecord rec = makeMaterialTestRecord({0.0f, 1.0f, 0.0f}, frontFace);
         Vec3 wo(woInput[0], woInput[1], woInput[2]);
         wo = wo.normalized();
 
@@ -879,7 +884,8 @@ public:
     // wi_array is (N, 3), returns pdf_array (N,).
     py::array_t<float> debug_bsdf_pdf_batch(int materialId,
                                             const std::vector<float>& woInput,
-                                            py::array_t<float, py::array::c_style | py::array::forcecast> wi_array) {
+                                            py::array_t<float, py::array::c_style | py::array::forcecast> wi_array,
+                                            bool frontFace = true) {
         auto it = materials.find(materialId);
         if (it == materials.end() || !it->second) {
             throw std::runtime_error("Unknown material id");
@@ -895,7 +901,7 @@ public:
         const size_t N = static_cast<size_t>(wi_buf.shape[0]);
         const float* wi_ptr = static_cast<const float*>(wi_buf.ptr);
 
-        HitRecord rec = makeMaterialTestRecord({0.0f, 1.0f, 0.0f});
+        HitRecord rec = makeMaterialTestRecord({0.0f, 1.0f, 0.0f}, frontFace);
         Vec3 wo(woInput[0], woInput[1], woInput[2]);
         wo = wo.normalized();
 
@@ -3304,14 +3310,16 @@ PYBIND11_MODULE(astroray, m) {
              "pkg225-S2: FULL-SPHERE directional reflectance rho=(1/N)sum f/pdf via "
              "sample() (no normal-hemisphere cull — hair transmits). Energy gate: rho<=1.")
         .def("debug_bsdf_sample_batch", &PyRenderer::debug_bsdf_sample_batch,
-             "material_id"_a, "wo"_a, "u2_array"_a,
+             "material_id"_a, "wo"_a, "u2_array"_a, "front_face"_a = true,
              "pkg121: batched BSDF sample for chi² tests (CPU-only). "
              "wo = outgoing to viewer (fixed), u2_array is (2, N) uniform samples, "
+             "front_face (pkg265) selects the entry (true) vs exit (false) interface, "
              "returns (wi_array (N,3) sampled incident directions, pdf_array (N,)).")
         .def("debug_bsdf_pdf_batch", &PyRenderer::debug_bsdf_pdf_batch,
-             "material_id"_a, "wo"_a, "wi_array"_a,
+             "material_id"_a, "wo"_a, "wi_array"_a, "front_face"_a = true,
              "pkg121: batched BSDF PDF eval for chi² tests (CPU-only). "
              "wo = outgoing to viewer (fixed), wi_array is (N,3) incident directions, "
+             "front_face (pkg265) selects the entry (true) vs exit (false) interface, "
              "returns pdf_array (N,).")
         .def("add_sphere", &PyRenderer::addSphere, "center"_a, "radius"_a, "material_id"_a,
             "ies_direction"_a = std::vector<float>(), "ies_file"_a = std::string(),

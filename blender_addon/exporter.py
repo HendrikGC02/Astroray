@@ -1626,7 +1626,13 @@ class Exporter:
             region = context.region
             worker = self._ensure_worker(engine_methods, request_viewport_redraw_fn)
             worker.request()
-            worker.pump()
+            # pkg241 P2.2 item 2 (Terra review 4): view_update is NOT a GPU draw
+            # context, so pump here must be control-plane only (present=False). The
+            # spike's default pump(present=True) built a GPUTexture off a draw
+            # context: the upload raised (swallowed), but _drain_mailbox had already
+            # cleared the depth-1 mailbox, losing the queued frame before view_draw
+            # could present it. Only view_draw (below) pumps with present=True.
+            worker.pump(present=False)
             submitted = self._worker_commit_and_submit(
                 context, depsgraph, settings, region, configure_backend_fn,
                 viewport_perf_record_fn, effective_integrator_name_fn,

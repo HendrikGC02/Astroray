@@ -319,3 +319,56 @@ def test_stop_pumps_control_queue_before_release():
     assert released is True                       # acknowledged before release
     assert h.worker.in_flight_generation is None  # idle was pumped
     assert not h.worker.is_alive()                # thread joined, not leaked
+
+
+def test_worker_view_update_pumps_control_only_preserving_the_frame():
+    """pkg241 P2.2 item 2 (Terra review 4) — CALL-SITE test: Exporter._worker_
+    view_update must pump the worker with present=False (it is not a GPU draw
+    context). If it pumped with the default present=True, _drain_mailbox would
+    clear the depth-1 mailbox off a draw context and lose the queued frame before
+    view_draw could present it — exactly the spike's presented=0 grid. This spies
+    the actual view_update call site rather than the worker's pump() in isolation
+    (which test_control_only_pump_does_not_present_but_preserves_the_frame covers).
+    """
+    import types
+
+    pump_calls = []
+
+    class _FakeWorker:
+        def request(self):
+            pass
+
+        def pump(self, present=True):
+            pump_calls.append(present)
+
+    fake_worker = _FakeWorker()
+
+    # Minimal fake Exporter self: only the attributes _worker_view_update touches.
+    fake_self = types.SimpleNamespace()
+    fake_self.engine = types.SimpleNamespace(report=lambda *a, **k: None)
+    fake_self._ensure_worker = lambda em, redraw: fake_worker
+    fake_self._worker_deferred_scene = False
+    fake_self._viewport_camera_hash = None
+    fake_self._viewport_camera_substantive_hash = None
+    # commit succeeds (worker idle) so the deferred-scene branch is not taken.
+    fake_self._worker_commit_and_submit = lambda *a, **k: True
+
+    settings = object()
+    region = types.SimpleNamespace(width=64, height=64)
+    context = types.SimpleNamespace(region=region)
+    scene = types.SimpleNamespace(custom_raytracer=settings)
+    depsgraph = types.SimpleNamespace(scene=scene)
+    engine_methods = {"resolve_settings": lambda sc, rep: settings}
+
+    exporter.Exporter._worker_view_update(
+        fake_self, context, depsgraph,
+        configure_backend_fn=lambda *a, **k: None,
+        effective_integrator_name_fn=lambda *a, **k: "path",
+        viewport_perf_record_fn=lambda *a, **k: None,
+        camera_state_hash_fn=lambda ctx, reg: 1,
+        camera_substantive_state_hash_fn=lambda ctx, reg: 1,
+        request_viewport_redraw_fn=lambda: None,
+        engine_methods=engine_methods)
+
+    # The single pump in view_update must be control-plane only (present=False).
+    assert pump_calls == [False]

@@ -1,0 +1,23 @@
+{
+  "seed": 12345,
+  "res": [
+    2112,
+    829
+  ],
+  "spp": 64,
+  "depth": 6,
+  "sync_device": 0,
+  "worker_device": 0,
+  "same_device": true,
+  "sync_render_s": 3.189,
+  "worker_render_s": 2.986,
+  "per_channel_mean_ratio": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "max_abs_diff": 9.5367431640625e-07,
+  "ratio_within_5pct": true,
+  "max_abs_within_2e-2": true,
+  "PASS": true
+}

@@ -71,7 +71,7 @@ leave a morning-readable record.
 - Corpus: Phase 1 merged (#761); Phase 1 polish (hall reframe + per-alcove crops) and Phase 2
   (`lighting_studio` + `world_sky`) are CPU-only builder work.
 - Open P1 issues: #759 (GPU adaptive inert), #762 (texture → Emission blank), #769 (addon zip lacks
-  the compensation tables — gate (f)); P2: #755, #757, #763, #767; P3: #765.
+  the compensation tables — gate (f), owner: P1); P2: #755, #757, #763, #767, #772; P3: #765.
 - Codex Terra calls remaining today's budget resets per session (4).
 
 ## Dispatch order (lead's recommendation, **owner-confirmed 2026-09-08 evening**)
@@ -93,7 +93,17 @@ leave a morning-readable record.
    **#762 Emission texture** (Sonnet 5, addon + closure-graph lowering) — independent of the GPU
    lock except the GPU parity test.
 5. **pkg259 Phase 1 polish + Phase 2** (Sonnet 5 builders, CPU) in parallel with the above.
-6. Fill: pkg256 Sky (cite-algorithm), pkg242 Phase 2, pkg245, pkg254; #757, #765.
+6. Fill: pkg256 Sky (cite-algorithm), pkg242 Phase 2, pkg245, pkg254; #757.
+7. **Rolled-in chips (owner 2026-09-08 evening; small Sonnet 5 lanes, CPU-only, batch into one or two PRs):**
+   - **#772** addon `setup_world` falls back to a nonzero (~0.15) background when the World has no
+     recognised shader node; Cycles renders 0.0. Resolve "no shader" to black + a headless regression test.
+   - **#765** `benchmarks/cycles-parity/thin_film/render_leg.py:82-88` still gates samples / denoise /
+     adaptive / seed on `engine == "CYCLES"` (metal_ab fixed in #764; `blender_parity/render_leg.py` already
+     unconditional). Remove the guard, then re-run the pkg178 thin-film sweep and record whether the
+     Stage-4 numbers move.
+   - settings_map rows for pkg260's camera/world matrix rows: **already landed** in #758
+     (`blender_addon/settings_map.py` L219/L251-258); nothing to do.
+
 
 ## Per-PR flow (unchanged)
 

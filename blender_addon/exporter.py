@@ -1376,6 +1376,16 @@ class Exporter:
                 pixels = renderer.render(
                     samples, depth, progress, False,
                     b[0], b[1], b[2], b[3], b[4], skip_upload)
+                # pkg241 Phase 2 A2 spike (§9): per-generation device readback for
+                # the same-device assertion (last_render_info()['device'] is the
+                # CUDA device this worker-thread render resolved).
+                try:
+                    _info = renderer.last_render_info()
+                    _emit_spike_event("render_device", job["generation"],
+                                      job.get("session_epoch", 0),
+                                      device=_info.get("device", -1))
+                except Exception:
+                    pass
                 if cancel_check() or pixels is None:
                     break
                 disp = pixels
@@ -1504,6 +1514,7 @@ class Exporter:
             chunk = int(engine_methods['viewport_chunk_samples'](settings, 0))
             return {
                 "generation": gen, "renderer": renderer,
+                "session_epoch": self._worker.session_epoch,
                 "width": width, "height": height, "depth": depth,
                 "target_spp": target, "chunk": max(1, chunk),
                 "display_pass": display_pass,

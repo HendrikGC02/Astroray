@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** B
-**Status:** in-progress — Phase 1 PR #N open (materials_hall + textures_mapping builders, manifest, build_corpus.py CLI, tests, README, both-engine renders)
+**Status:** in-progress — Phase 1 PR #761 open (materials_hall + textures_mapping builders, manifest, build_corpus.py CLI, tests, README, both-engine renders)
 **Estimated effort:** 1 week (~20 h across sessions; Phase 0 one session, then one scene family per session)
 **Depends on:** pkg229, pkg249, pkg253
 

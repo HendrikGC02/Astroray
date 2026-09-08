@@ -69,6 +69,7 @@ class Block:
     sdna_index: int
     count: int
     payload_offset: int  # absolute offset into the decompressed buffer
+    owner: int  # index into BlendFile.blocks of the owning ID block (self for non-DATA)
 
     def payload(self, buf: bytes) -> memoryview:
         return memoryview(buf)[self.payload_offset:self.payload_offset + self.size]
@@ -97,7 +98,12 @@ class BlendFile:
         self.path: str | None = str(path) if path is not None else None
         self.header: FileHeader = decode_header(self.buf[:17])
         self.blocks: list[Block] = []
+        # ID-level (non-DATA) blocks by old address — Blender's `libmap`.
         self.by_old: dict[int, Block] = {}
+        # DATA blocks by old address — one list per address because the
+        # address is only unique *within the owning ID's trailing DATA span*
+        # (Blender's per-ID `datamap`, see `follow`).
+        self._data_by_old: dict[int, list[Block]] = {}
         self.by_code: dict[str, list[Block]] = {}
         self._scan_blocks()
         # Locate DNA1 and decode SDNA.
@@ -113,20 +119,26 @@ class BlendFile:
         fmt, hsize, is_ext = _block_header_fmt(self.header)
         pos = self.header.header_size
         end = len(self.buf)
+        owner = 0
         while pos + hsize <= end:
             if is_ext:
                 code, sdna_idx, old, size, count, _pad = _struct.unpack_from(fmt, self.buf, pos)
             else:
                 code, size, old, sdna_idx, count = _struct.unpack_from(fmt, self.buf, pos)
             code_s = code.rstrip(b"\x00").decode("ascii", errors="replace")
+            if code_s != "DATA":
+                owner = len(self.blocks)
             block = Block(
                 code=code_s, size=size, old=old,
                 sdna_index=sdna_idx, count=count,
-                payload_offset=pos + hsize,
+                payload_offset=pos + hsize, owner=owner,
             )
             self.blocks.append(block)
             if old != 0:
-                self.by_old[old] = block
+                if code_s == "DATA":
+                    self._data_by_old.setdefault(old, []).append(block)
+                else:
+                    self.by_old[old] = block
             self.by_code.setdefault(code_s, []).append(block)
             pos = block.payload_offset + size
             if code_s == "ENDB":
@@ -145,8 +157,35 @@ class BlendFile:
     def struct_of(self, block: Block) -> StructDecl:
         return self.sdna.structs[block.sdna_index]
 
-    def follow(self, ptr: int) -> Block | None:
-        return self.by_old.get(ptr)
+    def follow(self, ptr: int, scope: Block | None = None) -> Block | None:
+        """Resolve an old-address pointer to its Block.
+
+        *scope* is the block the pointer was read from. ID pointers resolve
+        globally; DATA pointers resolve within the DATA span trailing the
+        ID block that owns *scope*. This mirrors readfile.cc, where
+        `read_libblock` reads an ID's DATA blocks into `fd->datamap` and
+        clears it before the next ID — so Blender legitimately reuses DATA
+        addresses across IDs (e.g. every mesh's `Attribute[]` is written
+        from a temporary at the same address). Without *scope* an address
+        shared by several DATA blocks is ambiguous and raises rather than
+        silently returning the wrong ID's data.
+        """
+        blk = self.by_old.get(ptr)
+        if blk is not None:
+            return blk
+        cands = self._data_by_old.get(ptr)
+        if not cands:
+            return None
+        if scope is not None:
+            for c in cands:
+                if c.owner == scope.owner:
+                    return c
+            return None
+        if len(cands) > 1:
+            raise ValueError(
+                f"old pointer {ptr:#x} is ambiguous ({len(cands)} DATA blocks); "
+                "pass scope=<block the pointer was read from>")
+        return cands[0]
 
     def field_bytes(self, block: Block, struct: StructDecl, name: str,
                     *, instance_index: int = 0) -> memoryview:
@@ -204,12 +243,12 @@ class BlendFile:
     # at pointer P referenced by the listbase, follow P to a Block, then read
     # the *next pointer at offset 0 of the block's struct (the embedded Link
     # is always the first field on listed datablocks).
-    def walk_listbase(self, first_ptr: int) -> Iterator[Block]:
+    def walk_listbase(self, first_ptr: int, scope: Block | None = None) -> Iterator[Block]:
         ptr = first_ptr
         seen: set[int] = set()
         while ptr and ptr not in seen:
             seen.add(ptr)
-            blk = self.by_old.get(ptr)
+            blk = self.follow(ptr, scope)
             if blk is None:
                 return
             yield blk

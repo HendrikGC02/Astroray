@@ -154,3 +154,114 @@ def test_mesh_poly_offset_indices_fallback():
     # Offsets must be monotonic non-decreasing.
     for i in range(totpoly):
         assert offsets[i] <= offsets[i + 1], f"non-monotonic offsets at poly {i}"
+
+
+# ---------------------------------------------------------------------------
+# Two-mesh fixture: DATA-block "old" addresses are only unique per owning ID.
+#
+# Blender writes each mesh's Attribute/AttributeArray/AttributeSingle DNA
+# records from ResourceScope temporaries (attribute_storage.cc,
+# attribute_storage_blend_write_prepare), so separate meshes in one file get
+# DATA blocks with identical "old" addresses. readfile.cc scopes the DATA map
+# per ID block (read_libblock → read_data_into_datamap → oldnewmap_clear).
+# A file-global last-write-wins map handed the plane the sphere's topology.
+
+TWO_MESH = Path(__file__).parent / "fixtures" / "two_mesh.blend"
+
+two_mesh_only = pytest.mark.skipif(not TWO_MESH.exists(),
+                                   reason="two_mesh.blend fixture not committed")
+
+
+def _mesh_attrs_ptr(bf: BlendFile, me):
+    """Raw Mesh.attribute_storage.dna_attributes pointer of *me*."""
+    import struct as _struct
+    me_struct = bf.struct_of(me)
+    ast = bf.sdna.struct_for("AttributeStorage")
+    base = me.payload_offset + me_struct.by_name["attribute_storage"].offset
+    fmt = bf.header.endian_char + bf.header.ptr_fmt
+    (ptr,) = _struct.unpack_from(fmt, bf.buf, base + ast.by_name["dna_attributes"].offset)
+    return ptr
+
+
+@two_mesh_only
+def test_two_mesh_fixture_has_cross_id_old_collisions():
+    """Premise check: the fixture really does contain duplicate DATA 'old'
+    addresses, and every duplicate straddles two different ID blocks."""
+    bf = BlendFile.from_path(TWO_MESH)
+    assert len(bf.by_code["ME"]) == 2
+    owner = None
+    owners = []
+    for b in bf.blocks:
+        if b.code != "DATA":
+            owner = b
+        owners.append(owner)
+    by_old: dict[int, list] = {}
+    for b, o in zip(bf.blocks, owners):
+        if b.code == "DATA" and b.old:
+            by_old.setdefault(b.old, []).append(o)
+    dups = {k: v for k, v in by_old.items() if len(v) > 1}
+    assert dups, "fixture no longer exhibits the collision — regenerate it"
+    for old, blk_owners in dups.items():
+        assert len({id(o) for o in blk_owners}) == len(blk_owners), \
+            f"same-ID collision at {old:#x} (Blender treats this as corruption)"
+
+
+@two_mesh_only
+def test_follow_scoped_to_owning_id():
+    bf = BlendFile.from_path(TWO_MESH)
+    me_a, me_b = bf.by_code["ME"]
+    ptr_a, ptr_b = _mesh_attrs_ptr(bf, me_a), _mesh_attrs_ptr(bf, me_b)
+    assert ptr_a == ptr_b, "fixture premise: both meshes share the Attribute[] address"
+    blk_a = bf.follow(ptr_a, scope=me_a)
+    blk_b = bf.follow(ptr_b, scope=me_b)
+    assert blk_a is not None and blk_b is not None
+    assert blk_a is not blk_b
+    ia, ib = bf.blocks.index(me_a), bf.blocks.index(me_b)
+    ja, jb = bf.blocks.index(blk_a), bf.blocks.index(blk_b)
+    # Each resolved DATA block lies in its own mesh's trailing DATA span.
+    assert ia < ja < ib < jb
+    # ID pointers still resolve without a scope.
+    glob = bf.by_code["GLOB"][0]
+    fg = bf.sdna.struct_for("FileGlobal")
+    assert bf.follow(bf.read_pointer(glob, fg, "curscene")).code == "SC"
+    # An unscoped lookup of an ambiguous DATA address must fail loudly.
+    with pytest.raises(ValueError, match="ambiguous"):
+        bf.follow(ptr_a)
+
+
+class _CountingRenderer:
+    def __init__(self):
+        self.triangles = []
+        self.materials = []
+
+    def create_material(self, kind, color, params):
+        self.materials.append((kind, list(color), dict(params)))
+        return len(self.materials) - 1
+
+    def add_triangle(self, v0, v1, v2, mat_id):
+        self.triangles.append((tuple(v0), tuple(v1), tuple(v2), mat_id))
+
+    def set_background_color(self, c):
+        pass
+
+    def setup_camera(self, *a, **k):
+        pass
+
+
+@two_mesh_only
+def test_build_scene_two_separate_meshes():
+    """Plane (1 quad) + UV sphere (8 segments × 4 rings) as separate mesh
+    datablocks import without the plane reading the sphere's corner_verts."""
+    from tools.blend_import.scene_builder import build_scene
+    bf = BlendFile.from_path(TWO_MESH)
+    r = _CountingRenderer()
+    stats = build_scene(bf, r, on_warning=lambda m: None)
+    # plane: 2 tris; sphere: 8 top tris + 8 bottom tris + 16 quads → 48 tris.
+    assert stats["triangles"] == 2 + 48
+    assert len(r.triangles) == 50
+    # Plane at z=0 spans ±2; every sphere vertex sits within radius 1 of (0,0,1).
+    plane = [t for t in r.triangles if all(abs(v[2]) < 1e-6 for v in t[:3])]
+    assert len(plane) == 2
+    for t in r.triangles:
+        for v in t[:3]:
+            assert abs(v[0]) <= 2.0 + 1e-6 and abs(v[1]) <= 2.0 + 1e-6

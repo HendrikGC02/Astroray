@@ -116,7 +116,7 @@ def _active_scene_block(blend: BlendFile) -> Block | None:
     if fg is None:
         return None
     ptr = blend.read_pointer(glob[0], fg, "curscene")
-    return blend.follow(ptr)
+    return blend.follow(ptr, scope=glob[0])
 
 
 def _import_active_camera(ctx: _ImportContext) -> dict | None:
@@ -128,13 +128,13 @@ def _import_active_camera(ctx: _ImportContext) -> dict | None:
         return None
     sc_struct = blend.struct_of(scene)
     cam_obj_ptr = blend.read_pointer(scene, sc_struct, "camera")
-    cam_obj_blk = blend.follow(cam_obj_ptr)
+    cam_obj_blk = blend.follow(cam_obj_ptr, scope=scene)
     if cam_obj_blk is None:
         ctx.warn("scene has no camera object")
         return None
     ob_struct = blend.struct_of(cam_obj_blk)
     cam_data_ptr = blend.read_pointer(cam_obj_blk, ob_struct, "data")
-    cam_data_blk = blend.follow(cam_data_ptr)
+    cam_data_blk = blend.follow(cam_data_ptr, scope=cam_obj_blk)
     if cam_data_blk is None or cam_data_blk.code != "CA":
         ctx.warn("camera object data does not point at a CA block")
         return None
@@ -284,7 +284,7 @@ def _material_base_color(ctx: _ImportContext, mat_blk: Block) -> list[float]:
     use_nodes = bool(s.by_name.get("use_nodes")) and blend.read_int(mat_blk, s, "use_nodes")
     if use_nodes:
         nt_ptr = blend.read_pointer(mat_blk, s, "nodetree")
-        nt_blk = blend.follow(nt_ptr)
+        nt_blk = blend.follow(nt_ptr, scope=mat_blk)
         if nt_blk is not None:
             rgb = _nodetree_principled_or_diffuse_color(ctx, nt_blk)
             if rgb is not None:
@@ -330,7 +330,7 @@ def _iter_listbase(blend: BlendFile, blk: Block, struct: StructDecl,
     base = blk.payload_offset + fd.offset
     fmt = blend.header.endian_char + blend.header.ptr_fmt
     (first_ptr,) = _struct.unpack_from(fmt, blend.buf, base)
-    yield from blend.walk_listbase(first_ptr)
+    yield from blend.walk_listbase(first_ptr, scope=blk)
 
 
 def _nodetree_principled_or_diffuse_color(ctx: _ImportContext,
@@ -507,7 +507,7 @@ def _mix_shader_fallback_color(ctx: _ImportContext, nt_blk: Block,
         name = blend.read_string(sock_blk, sock_struct, "name")
         if name == "Fac":
             val_ptr = blend.read_pointer(sock_blk, sock_struct, "default_value")
-            val_blk = blend.follow(val_ptr)
+            val_blk = blend.follow(val_ptr, scope=sock_blk)
             if val_blk is not None:
                 # bNodeSocketValueFloat is `float value;` at offset 0
                 (fac,) = blend.read_float(val_blk, blend.struct_of(val_blk), "value")
@@ -531,7 +531,7 @@ def _mix_shader_fallback_color(ctx: _ImportContext, nt_blk: Block,
             if tosock_ptr != sock_blk.old:
                 continue
             fromnode_ptr = blend.read_pointer(link_blk, link_struct, "fromnode")
-            fromnode_blk = blend.follow(fromnode_ptr)
+            fromnode_blk = blend.follow(fromnode_ptr, scope=link_blk)
             if fromnode_blk is None:
                 continue
             # Recursively extract color from the connected shader node
@@ -575,7 +575,7 @@ def _add_shader_fallback_color(ctx: _ImportContext, nt_blk: Block,
                 if tosock_ptr != sock_blk.old:
                     continue
                 fromnode_ptr = blend.read_pointer(link_blk, link_struct, "fromnode")
-                fromnode_blk = blend.follow(fromnode_ptr)
+                fromnode_blk = blend.follow(fromnode_ptr, scope=link_blk)
                 if fromnode_blk is None:
                     continue
                 # Recursively extract color from the connected shader node
@@ -664,7 +664,7 @@ def _node_texture_color(ctx: _ImportContext, nt_blk: Block, bsdf_node_blk: Block
             continue
         # Found a link to our target socket; check if fromnode is TEX_IMAGE
         fromnode_ptr = blend.read_pointer(link_blk, link_struct, "fromnode")
-        fromnode_blk = blend.follow(fromnode_ptr)
+        fromnode_blk = blend.follow(fromnode_ptr, scope=link_blk)
         if fromnode_blk is None:
             continue
         idname = blend.read_string(fromnode_blk, bnode_struct, "idname")
@@ -690,7 +690,7 @@ def _load_image_texture_color(ctx: _ImportContext, tex_node_blk: Block) -> list[
     tex_node_struct = blend.struct_of(tex_node_blk)
     # bNode.id points at the Image block
     img_ptr = blend.read_pointer(tex_node_blk, tex_node_struct, "id")
-    img_blk = blend.follow(img_ptr)
+    img_blk = blend.follow(img_ptr, scope=tex_node_blk)
     if img_blk is None or img_blk.code != "IM":
         return None
 
@@ -765,7 +765,7 @@ def _node_socket_default_rgba(ctx: _ImportContext, node_blk: Block,
         if name != socket_name:
             continue
         dv_ptr = blend.read_pointer(sock_blk, sock_struct, "default_value")
-        dv_blk = blend.follow(dv_ptr)
+        dv_blk = blend.follow(dv_ptr, scope=sock_blk)
         if dv_blk is None:
             return None
         # bNodeSocketValueRGBA is `float value[4]`. The block payload is
@@ -788,7 +788,7 @@ def _node_socket_default_float(ctx: _ImportContext, node_blk: Block,
         if name != socket_name:
             continue
         dv_ptr = blend.read_pointer(sock_blk, sock_struct, "default_value")
-        dv_blk = blend.follow(dv_ptr)
+        dv_blk = blend.follow(dv_ptr, scope=sock_blk)
         if dv_blk is None:
             return None
         # bNodeSocketValueFloat: int subtype, float value, ...
@@ -808,7 +808,7 @@ def _import_world(ctx: _ImportContext) -> None:
         return
     sc_struct = blend.struct_of(scene)
     world_ptr = blend.read_pointer(scene, sc_struct, "world")
-    world_blk = blend.follow(world_ptr)
+    world_blk = blend.follow(world_ptr, scope=scene)
     if world_blk is None:
         return
 
@@ -818,7 +818,7 @@ def _import_world(ctx: _ImportContext) -> None:
     strength = 1.0
     if use_nodes:
         nt_ptr = blend.read_pointer(world_blk, w_struct, "nodetree")
-        nt_blk = blend.follow(nt_ptr)
+        nt_blk = blend.follow(nt_ptr, scope=world_blk)
         if nt_blk is not None:
             bg = _world_background_node(ctx, nt_blk)
             if bg is not None:
@@ -870,7 +870,7 @@ def _import_objects(ctx: _ImportContext) -> tuple[int, int, int]:
         ob_struct = blend.struct_of(ob_blk)
         ob_type = blend.read_int(ob_blk, ob_struct, "type")
         data_ptr = blend.read_pointer(ob_blk, ob_struct, "data")
-        data_blk = blend.follow(data_ptr)
+        data_blk = blend.follow(data_ptr, scope=ob_blk)
         n_obj += 1
         if ob_type == OB_MESH and data_blk is not None and data_blk.code == "ME":
             n_tri += _emit_mesh(ctx, ob_blk, data_blk)
@@ -1016,7 +1016,7 @@ def _object_material_slots(ctx: _ImportContext, ob_blk: Block) -> dict[int, int]
     slots: dict[int, int] = {}
     if mat_arr_ptr == 0 or totcol == 0:
         return slots
-    arr_blk = blend.follow(mat_arr_ptr)
+    arr_blk = blend.follow(mat_arr_ptr, scope=ob_blk)
     if arr_blk is None:
         return slots
     fmt = blend.header.endian_char + blend.header.ptr_fmt
@@ -1072,7 +1072,7 @@ def _attribute_data_block(blend: BlendFile, me_blk: Block,
                                      base + ast.by_name["dna_attributes_num"].offset)
     if attrs_ptr == 0 or n_attrs == 0:
         return None
-    attrs_blk = blend.follow(attrs_ptr)
+    attrs_blk = blend.follow(attrs_ptr, scope=me_blk)
     if attrs_blk is None:
         return None
     name_off = attr_struct.by_name["name"].offset
@@ -1081,7 +1081,7 @@ def _attribute_data_block(blend: BlendFile, me_blk: Block,
     for i in range(n_attrs):
         b = attrs_blk.payload_offset + i * attr_struct.size
         (name_ptr,) = _struct.unpack_from(fmt_q, blend.buf, b + name_off)
-        name_blk = blend.follow(name_ptr)
+        name_blk = blend.follow(name_ptr, scope=attrs_blk)
         if name_blk is None:
             continue
         nm = bytes(blend.buf[name_blk.payload_offset:
@@ -1090,12 +1090,12 @@ def _attribute_data_block(blend: BlendFile, me_blk: Block,
         if nm != name_match:
             continue
         (arr_ptr,) = _struct.unpack_from(fmt_q, blend.buf, b + data_off)
-        arr_blk = blend.follow(arr_ptr)
+        arr_blk = blend.follow(arr_ptr, scope=attrs_blk)
         if arr_blk is None:
             return None
         (raw_ptr,) = _struct.unpack_from(fmt_q, blend.buf,
                                          arr_blk.payload_offset + arr_data_off)
-        return blend.follow(raw_ptr)
+        return blend.follow(raw_ptr, scope=arr_blk)
     return None
 
 
@@ -1120,7 +1120,7 @@ def _customdata_layer(blend: BlendFile, me_blk: Block, customdata_field: str,
                                       cd_base + cd_struct.by_name["totlayer"].offset)
     if layers_ptr == 0 or totlayer == 0:
         return None
-    layers_blk = blend.follow(layers_ptr)
+    layers_blk = blend.follow(layers_ptr, scope=me_blk)
     if layers_blk is None:
         return None
     layer_size = layer_struct.size
@@ -1136,7 +1136,7 @@ def _customdata_layer(blend: BlendFile, me_blk: Block, customdata_field: str,
         if type_match is not None and ltype != type_match:
             continue
         (data_ptr,) = _struct.unpack_from(fmt_q, blend.buf, base + data_offset)
-        return blend.follow(data_ptr)
+        return blend.follow(data_ptr, scope=layers_blk)
     return None
 
 
@@ -1151,7 +1151,7 @@ def _mesh_positions(ctx, me_blk: Block, totvert: int) -> list[tuple[float, float
         me_struct = blend.struct_of(me_blk)
         if me_struct.by_name.get("mvert") is not None:
             mvert_ptr = blend.read_pointer(me_blk, me_struct, "mvert")
-            mvert_blk = blend.follow(mvert_ptr)
+            mvert_blk = blend.follow(mvert_ptr, scope=me_blk)
             if mvert_blk is not None:
                 mvert_struct = blend.sdna.struct_for("MVert")
                 if mvert_struct is not None and mvert_struct.by_name.get("co"):
@@ -1181,7 +1181,7 @@ def _mesh_corner_verts(ctx, me_blk: Block, totloop: int) -> list[int] | None:
         me_struct = blend.struct_of(me_blk)
         if me_struct.by_name.get("mloop") is not None:
             mloop_ptr = blend.read_pointer(me_blk, me_struct, "mloop")
-            mloop_blk = blend.follow(mloop_ptr)
+            mloop_blk = blend.follow(mloop_ptr, scope=me_blk)
             if mloop_blk is not None:
                 mloop_struct = blend.sdna.struct_for("MLoop")
                 if mloop_struct is not None and mloop_struct.by_name.get("v"):
@@ -1226,7 +1226,7 @@ def _mesh_face_offsets(ctx, me_blk: Block, totpoly: int) -> list[int] | None:
     # Older Blender (or 4.x with direct pointer): Mesh.poly_offset_indices field.
     if me_struct.by_name.get("poly_offset_indices") is not None:
         ptr = blend.read_pointer(me_blk, me_struct, "poly_offset_indices")
-        blk = blend.follow(ptr)
+        blk = blend.follow(ptr, scope=me_blk)
         if blk is not None:
             offsets = list(_struct.unpack_from(blend.header.endian_char + "i" * (totpoly + 1),
                                                blend.buf, blk.payload_offset))
@@ -1235,7 +1235,7 @@ def _mesh_face_offsets(ctx, me_blk: Block, totpoly: int) -> list[int] | None:
     # Legacy fallback: MPoly.loopstart + MPoly.totloop synthesized to offsets.
     if me_struct.by_name.get("mpoly") is not None:
         mp_ptr = blend.read_pointer(me_blk, me_struct, "mpoly")
-        mp_blk = blend.follow(mp_ptr)
+        mp_blk = blend.follow(mp_ptr, scope=me_blk)
         if mp_blk is not None:
             mp_struct = blend.sdna.struct_for("MPoly")
             if mp_struct is not None and mp_struct.by_name.get("loopstart"):

@@ -1612,9 +1612,22 @@ class PrincipledPlugin : public Material {
                 ds.ok = refractMicro(wo, wm, eta, ds.wi);
             }
             ds.isDelta = false;
-            return ds;
+            if (ds.ok) return ds;
+            // pkg264: a grazing sampled microfacet can fail BOTH reflection (wi
+            // ends below the surface) and refraction (below-horizon / micro-TIR).
+            // This is common on the solid sphere's EXIT interface (dense→rare,
+            // near the critical angle) and rises with roughness. Returning the
+            // absorbing dead sample (the shipped behaviour) drops that energy:
+            // measured white-furnace 0.645@r0.85 / 0.524@r1.0. Fall through to a
+            // smooth delta glass event instead — the same dead-sample fallback
+            // disney.cpp:844-912 uses (pkg138/pkg169), whose comment records that
+            // dropping it "collapsed the white-furnace ~0.9→~0.0". The delta
+            // block below sets ds.isDelta=true and a Fresnel-cancelling f/pdf, so
+            // the energy stays in the path (radiance-invariant clear glass ⇒
+            // furnace 1.0). Mechanism:
+            // .astroray_plan/docs/pkg264-glass-energy-research.md §7.
         }
-        // delta (smooth) glass
+        // delta (smooth) glass  (also the pkg264 rough dead-sample fallback)
         float f0 = (etaI - etaT) / (etaI + etaT);
         f0 = f0 * f0;
         float fresnel = f0 + (1.0f - f0) * std::pow(std::clamp(1.0f - cosTheta, 0.0f, 1.0f), 5.0f);

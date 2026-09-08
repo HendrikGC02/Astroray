@@ -206,6 +206,13 @@ pkg123. Depends on pkg123 landing first.
 - [ ] C — GPU spec lobe mirror; CPU↔GPU parity green.
 - [ ] D — chi² re-pass + dead-sample before/after + equal-time noise A/B.
 
+- [i] 2026-09-08 (pkg264) — evidence on the glass sampler: the native
+  `principled` rough transmission lobe lost energy not through the VNDF
+  reflection pdf but by returning ABSORBING dead samples on grazing microfacets
+  (both reflect and refract invalid) with no smooth-delta fallback. Furnace
+  0.645@r0.85; fixed by rerouting to the delta glass event (pkg264). The VNDF
+  reflection lobe itself was not the defect. See pkg264 §7.
+
 ---
 
 ## Lessons

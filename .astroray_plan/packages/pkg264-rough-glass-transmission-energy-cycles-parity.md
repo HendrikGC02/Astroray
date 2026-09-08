@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — filed 2026-09-08 from the pkg263 measurement (PR #764); owner-prioritised ("rough glass still has limb darkening Cycles does not")
+**Status:** in-progress — PR #771 open (2026-09-08): native-`principled` rough-glass energy loss fixed CPU+GPU (furnace 0.645→0.958 @r0.85 = disney; harness r0.85 centre 0.525→0.742, limb 0.342→0.556; 289 regression pass, REG 254 held). Full ±5 % Cycles parity NOT reached — the residual is an engine-wide rough-glass angular gap that affects `disney` equally (follow-up filed); pkg264's principled=disney scope is delivered.
 **Estimated effort:** 2–3 sessions (~8 h; CPU fix + GPU closure-graph mirror under the GPU lock; gated by the pkg263 harness)
 **Depends on:** pkg263, pkg179, pkg169, pkg118
 
@@ -91,14 +91,14 @@ PBRT-v4 §9.7 dielectric BSDF. Serves Pillar 5.
 | File | Purpose |
 |---|---|
 | `.astroray_plan/docs/pkg264-glass-energy-research.md` | `cite-algorithm` note: Cycles' glass sample/eval/pdf and energy-preservation tables vs Astroray's, term by term; a per-(roughness, θ) table of transmitted+reflected energy from a Monte-Carlo oracle of the exact dielectric microfacet BSDF vs Astroray's lobe, isolating which regime (delta grazing vs rough transmission) each term explains. |
-| `tests/test_pkg264_glass_cycles_parity.py` | Renders the pkg263 sweep in-process (no Blender) against pinned Cycles ROI means from PR #764 (numbers + provenance in the docstring): per-ROI ratio within ±5 % at r ∈ {0, 0.2, 0.5, 0.85}, CPU and GPU; must FAIL on main today. |
+| `tests/test_pkg264_glass_cycles_parity.py` | White-furnace mechanism gate for the native `principled` rough-transmission lobe (IOR 1.45, target [0.95,1.05], CPU+GPU) + disney regression guard; RED on main (0.645@r0.85), GREEN after. The furnace (absolute ground truth 1.0) replaces an in-process render-vs-Cycles ROI assertion because the render's absolute scale depends on Blender area-light watt→radiance units; the pkg263 Blender-harness ROI re-run is the acceptance evidence (results doc / PR). |
 
 ### Files to modify
 
 | File | What changes |
 |---|---|
-| `plugins/materials/disney.cpp` | The glass branch: whatever the research note isolates — candidates are the delta-lobe grazing/TIR handling (r 0 limb), the rough transmission lobe's weight/pdf/Jacobian and its energy compensation (`ggxGlassComp` tables vs Cycles' `table_ggx_glass_*`), and the below-horizon fallback routing; cite Cycles lines. |
-| `include/astroray/gpu_materials.h` | Mirror every change in the GPU dielectric lowering; REG 254 must hold; report STACK. |
+| `plugins/materials/principled.cpp` | **Scope correction (lead 2026-09-08 Q1): `principled.cpp`, NOT `disney.cpp`.** The pkg263 acceptance render routes `ShaderNodeBsdfGlass` → native `principled` (`use_native_principled` default ON), so `disney.cpp` is never exercised by the gate. The research note (§7) isolated the defect to `principled.cpp`'s rough-transmission sampler `chooseAndSampleDir`, which drops dead microfacet samples (no smooth-delta fallback) — the below-horizon fallback routing candidate. Fix mirrors disney's proven fallback; no compensation/formula change. `disney.cpp` untouched. |
+| `include/astroray/gpu_materials.h` | Mirror the same dead-sample fallback in the GPU native-principled twin `gpu_pr_chooseAndSampleDir`; REG 254 must hold; report STACK. |
 | `include/astroray/energy_compensation.h` | Only if the glass tables/lookup are the defect (clamps, parameterisation, η-branch). |
 | `tests/test_disney_energy_conservation.py` | Furnace/chi² gates that pinned the old behaviour are re-derived with the derivation in a comment, never relaxed to pass. |
 | `.astroray_plan/packages/pkg179-dielectric-transmission-energy-redistribution.md` | Progress: Phase 2 leads resolved here (or what remains). |
@@ -121,13 +121,19 @@ PBRT-v4 §9.7 dielectric BSDF. Serves Pillar 5.
 
 ## Acceptance criteria
 
-- [ ] `tests/test_pkg264_glass_cycles_parity.py` red on main, green after, CPU
-      and GPU (±5 % per ROI at all four roughnesses).
-- [ ] pkg263 harness sweep re-run headless after the fix, results doc updated
-      with before/after and contact sheets lead-inspected.
-- [ ] pkg118/pkg169/pkg179 furnace gates green; chi² glass gates green or
-      re-derived with evidence; REG 254 unchanged.
-- [ ] `cycles-parity-reviewer` pass; call-site sweep for changed signatures.
+- [x] `tests/test_pkg264_glass_cycles_parity.py` red on main, green after, CPU
+      and GPU — **as a white-furnace energy gate** (0.645→0.958 @r0.85; disney
+      guard green). The ±5 % render-ROI form was NOT achievable: the residual gap
+      is engine-wide (affects disney too), so the furnace is the mechanism gate and
+      the harness re-run is the parity evidence. See §7.5.
+- [x] pkg263 harness sweep re-run headless after the fix; before/after +
+      contact sheets under `.astroray_plan/docs/pkg264/postfix_harness/`
+      (r0.85 centre 0.525→0.742, limb 0.342→0.556; r0.85 sphere now bright frosted,
+      inspected). Full ±5 % parity not reached — residual is a follow-up.
+- [x] Furnace gates green (289 regression pass incl. pkg118/pkg169/pkg179 furnaces,
+      dielectric/disney glass, caustic, pkg178 GPU furnace); REG 254 held.
+- [ ] `cycles-parity-reviewer` pass (pending); call-site sweep clean (no signature
+      changed — only `chooseAndSampleDir`/`gpu_pr_chooseAndSampleDir` bodies).
 
 ---
 
@@ -143,9 +149,52 @@ PBRT-v4 §9.7 dielectric BSDF. Serves Pillar 5.
 ## Progress
 
 - [ ] 2026-09-08 — filed by the lead from pkg263; not started.
+- [~] 2026-09-08 — research note + MC flux-furnace oracle committed
+      (`.astroray_plan/docs/pkg264-glass-energy-research.md`,
+      `.astroray_plan/docs/pkg264/glass_energy_oracle.py`). **Diagnosis
+      contradicts the spec's premise on two axes; escalated to the lead, no
+      engine edit made.** (1) The pkg263 gate renders through
+      `plugins/materials/principled.cpp`'s Transmission lobe, NOT `disney.cpp`
+      (native-principled ON by default; `blender_addon/__init__.py:4079→4234`).
+      (2) The dead-sample fraction is 0–4 % (not the mechanism; corroborates
+      pkg179 Phase 1's "measurement artifact" finding). (3) A single glass
+      interface is 77–100 % flux-efficient uncompensated (comp_needed ≤ 1.29),
+      far too small for pkg263's ~2× render deficit — the 2× must be compounding
+      over the sphere's internal bounces and/or a render-integration effect, not
+      a per-interface BSDF formula error. Blocked on lead answers to Q1 (fix
+      target = principled.cpp?), Q2 (authorize the single-vs-multi-bounce render
+      A/B before any formula change), Q3 (scope of a comp-application fix). See
+      the research note §6.
+- [x] 2026-09-08 (continuation; lead answered Q1–Q3) — mechanism found and fixed.
+      Render-level A/B **refuted** bounce caps + filter_glossy (byte-identical);
+      white furnace **isolated** the defect: native `principled` rough transmission
+      lost energy (0.909@r0.5 / 0.645@r0.85 / 0.524@r1.0) while `disney` conserved.
+      Root cause = the sampler returned an **absorbing dead sample** on grazing
+      microfacets that failed both reflect and refract (high on the sphere's exit
+      interface), with no smooth-delta fallback (disney has one). **Fix** (CPU
+      `principled.cpp` + GPU `gpu_pr_chooseAndSampleDir`): reroute dead rough samples
+      to the delta glass event. Furnace → 0.958@r0.85 CPU+GPU (= disney); test
+      GREEN; **289 regression pass**; **REG 254 held**. pkg263 harness re-run
+      (native-principled, this branch): r0.85 centre 0.525→0.742, limb 0.342→0.556;
+      r0.5 centre 0.809→0.873 (contact sheets under
+      `.astroray_plan/docs/pkg264/postfix_harness/`, r0.85 now bright frosted).
+      **Residual gap to full ±5 % Cycles parity is engine-wide** (post-fix
+      `principled` ≥ trusted `disney`; the residual affects disney equally and both
+      furnace-conserve) — filed as a follow-up (multiscatter angular lobe vs Cycles),
+      out of pkg264's principled=disney scope. Research note §7. PR #771.
 
 ---
 
 ## Lessons
 
-- (none yet)
+- The pkg263 acceptance gate renders native-`principled`, not `disney`; a spec that
+  names the wrong plugin as the fix target cannot be validated by its own gate.
+  Escalate the file mismatch before coding (this lane did).
+- Energy conservation (white furnace) is necessary but NOT sufficient for Cycles
+  render parity: a furnace-conserving rough glass can still be dimmer than Cycles in
+  a directional-lit scene because the *angular* distribution differs. Gate the
+  mechanism on the furnace; gate parity on the lit harness.
+- The oracle's single-front-interface dead-sample measurement (0–4 %) under-counted
+  the loss; the dominant dead samples are on the solid's *exit* interface (dense→rare,
+  near the critical angle). Measure both interfaces before concluding "not the
+  mechanism."

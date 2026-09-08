@@ -863,6 +863,17 @@ def stage_and_zip(module_path: Path, backend: str = "cpu", build_id: str | None 
         profiles_dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(profiles_src, profiles_dst)
 
+    # #769: ship the Disney/Principled energy-compensation tables. Without
+    # these the .pyd falls back to the compile-time ASTRORAY_DATA_DIR (a path
+    # into the dev source tree) and DisneyEnergyCompensationTables::load()
+    # fails silently on a redistributed install — see energy_compensation.cpp.
+    compensation_src_dir = REPO_ROOT / "data" / "disney_compensation"
+    if compensation_src_dir.is_dir():
+        compensation_dst_dir = STAGE_DIR / "data" / "disney_compensation"
+        compensation_dst_dir.mkdir(parents=True, exist_ok=True)
+        for bin_src in compensation_src_dir.glob("*.bin"):
+            shutil.copy2(bin_src, compensation_dst_dir / bin_src.name)
+
     # Copy the built native module
     shutil.copy2(module_path, STAGE_DIR / module_path.name)
 

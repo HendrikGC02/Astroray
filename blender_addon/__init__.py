@@ -129,6 +129,18 @@ if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
             except (FileNotFoundError, OSError):
                 pass
 
+# #769: on a redistributed install (no source tree on this machine) the .pyd's
+# compile-time ASTRORAY_DATA_DIR points into the dev checkout and can't find
+# data/disney_compensation/*.bin, silently disabling all energy-compensation
+# terms (DisneyEnergyCompensationTables::load(), src/energy_compensation.cpp).
+# Point the engine at the addon's own bundled data/ dir via the env override
+# it already reads, unless the user set one explicitly. Must run before
+# `import astroray` triggers the first DisneyEnergyCompensationTables use.
+if "ASTRORAY_DATA_DIR" not in os.environ:
+    _bundled_data_dir = os.path.join(addon_dir, "data")
+    if os.path.isdir(os.path.join(_bundled_data_dir, "disney_compensation")):
+        os.environ["ASTRORAY_DATA_DIR"] = _bundled_data_dir
+
 try:
     import astroray
     RAYTRACER_AVAILABLE = True
@@ -156,6 +168,28 @@ def _try_load_spectral_profiles() -> None:
 
 
 _try_load_spectral_profiles()
+
+
+def _check_energy_compensation_tables() -> None:
+    """#769: warn once, loudly, if data/disney_compensation/*.bin failed to
+    load — every Disney/Principled multi-scatter compensation term silently
+    disables at once when this happens (see energy_compensation.cpp)."""
+    if not RAYTRACER_AVAILABLE or not hasattr(astroray, "energy_compensation_status"):
+        return
+    try:
+        status = astroray.energy_compensation_status()
+    except Exception:
+        return
+    if not status.get("loaded", True):
+        print(
+            "Astroray WARNING: Disney energy-compensation tables failed to "
+            f"load from {status.get('data_directory')!r} — rough metals/"
+            "glass/sheen/clearcoat will render without multi-scatter "
+            "compensation. Expected files under <data_dir>/disney_compensation/."
+        )
+
+
+_check_energy_compensation_tables()
 
 
 # pkg56 Phase A: viewport-sync per-stage timing helpers. These call into
@@ -5464,6 +5498,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
             scaled_color = [c * strength for c in bg_color]
             renderer.set_background_color(scaled_color)
             print(f"Set background color: {scaled_color}")
+        else:
+            # #772: no HDRI and no recognised BACKGROUND node wired into the
+            # tree (e.g. World Output.Surface unconnected) -- Cycles renders
+            # this black. Leaving set_background_color uncalled falls through
+            # to the engine's built-in default sky gradient (backgroundColor
+            # stays the Vec3(-1) sentinel, ~0.15 observed), NOT black.
+            renderer.set_background_color([0.0, 0.0, 0.0])
+            print("No recognised world shader: set background color to black")
 
     def write_pixels(self, pixels, width, height, alpha=None, renderer=None, view_layer=None, scene=None, layer_name=None):
         # The raytracer returns pixels with y=0 at the TOP of the image (standard

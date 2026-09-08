@@ -1459,6 +1459,31 @@ class PrincipledPlugin : public Material {
         float cosO = rec.normal.dot(wo), cosI = rec.normal.dot(wi);
         bool entering = rec.frontFace;
         float etaI = entering ? 1.0f : L.ior, etaT = entering ? L.ior : 1.0f;
+        if (filmActive()) {
+            // pkg265 (PR #778 review 2): thin-film rough glass uses the origin/main
+            // single-scatter sampler (see chooseAndSampleDir filmActive branch), not
+            // the walk, so its pdf is the exact single-scatter VNDF density (no §9
+            // diffuse floor). sample == eval == pdf single-scatter, as on main.
+            if (cosO > 0.0f && cosI > 0.0f) {  // reflection
+                Vec3 wm = (wo + wi).normalized();
+                if (wm.dot(rec.normal) < 0.0f) wm = -wm;
+                float HdotO = std::abs(wo.dot(wm));
+                if (HdotO <= 1e-10f) return 0.0f;
+                float F = fresnelDielectric(HdotO, etaI, etaT);
+                return F * vndfPdf(rec.normal, wo, wm, L.roughness) / (4.0f * HdotO);
+            }
+            if (cosO * cosI >= 0.0f) return 0.0f;  // transmission
+            float etap = entering ? L.ior : (1.0f / L.ior);
+            Vec3 wm = (wi * etap + wo).normalized();
+            if (wm.dot(rec.normal) < 0.0f) wm = -wm;
+            float HdotO = wo.dot(wm), HdotI = wi.dot(wm);
+            if (HdotO * HdotI >= 0.0f) return 0.0f;
+            float d = HdotI + HdotO / etap;
+            float d2 = d * d;
+            if (d2 <= 1e-10f) return 0.0f;
+            float F = fresnelDielectric(std::abs(HdotO), etaI, etaT);
+            return (1.0f - F) * vndfPdf(rec.normal, wo, wm, L.roughness) * std::abs(HdotI) / d2;
+        }
         // pkg265: the multiple-scattering walk (chooseAndSampleDir) is importance-
         // sampled, but its true PDF is intractable. Per Heitz 2016 §9 we return the
         // closed-form FIRST-bounce VNDF pdf plus a small diffuse floor — a valid
@@ -1635,30 +1660,65 @@ class PrincipledPlugin : public Material {
         float sinT = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
         bool cannotRefract = eta * sinT > 1.0f;
         if (!L.isDelta) {
-            // pkg265: multiple-scattering microfacet DIELECTRIC (Heitz et al. 2016)
-            // random walk, clean-room from the paper (DOI 10.1145/2897824.2925943;
-            // include/astroray/microsurface_dielectric.h). Replaces the shipped
-            // single-scatter sampler AND the #771 dead-sample delta reroute above:
-            // the walk is a perfect importance sampler for the lossless dielectric
-            // (phase weight == 1, zero dead samples), returning reflection and
-            // transmission from one physically correct model. sample() sets
-            // f/pdf = tint*radiance directly (below), so no eval() call is needed
-            // and no energy is lost. Validated R+T==1 / directional histograms
-            // against the numpy oracle (research note §Divergence).
-            float alpha = std::max(L.roughness * L.roughness, 0.0064f);
-            // Local frame: z = n (already oriented toward wo, so woL.z>0); the GGX
-            // walk is isotropic so any tangent frame works. entering = frontFace.
-            Vec3 woL(wo.dot(rec.tangent), wo.dot(rec.bitangent), wo.dot(n));
-            auto rng = [&]() { return dist(gen); };
-            astroray::msdiel::WalkSample w = astroray::msdiel::sampleWalk(
-                woL, alpha, L.ior, rec.frontFace, rng, /*scatterMax=*/16);
-            ds.wi = (rec.tangent * w.wi.x + rec.bitangent * w.wi.y + n * w.wi.z).normalized();
-            ds.isDelta = false;
-            ds.isWalk = true;
-            ds.walkReflected = w.reflected;
-            ds.walkRadiance = w.radianceScale;
-            ds.ok = w.escaped;   // scatterMax=16 -> measured 0.00% dead over the grid
-            return ds;
+            if (filmActive()) {
+                // pkg265 (PR #778 review 2, cycles-parity-reviewer CRITICAL #2):
+                // thin-film rough glass is OUT of the multiple-scattering walk. The
+                // walk sets isDelta=true (skip-NEE contract) and carries plain-
+                // dielectric Fresnel throughput, which would (a) double-count direct
+                // light — NEE runs with the still-nonzero thin-film eval() f before
+                // sample() flips isDelta, then the emitter hit is taken at full
+                // wasSpecular weight — and (b) drop the iridescence colour on the
+                // sampled path. So for a thin-film glass we restore, verbatim, the
+                // origin/main single-scatter rough-transmission sampler (incl. the
+                // pkg264 #771 dead-sample -> delta-glass reroute below): isDelta stays
+                // false, sample() takes the eval()/pdf() path, and sample == eval ==
+                // pdf are all single-scatter thin-film -- exactly as on main. A future
+                // thin-film-aware walk (the Heitz dielectric phase function with a
+                // thin-film Fresnel/transmission coefficient instead of plain Fresnel)
+                // is filed as follow-up issue #783.
+                Vec3 wm = sampleGgxVNDF(rec, wo, L.roughness, gen);
+                float HdotO = wo.dot(wm);
+                float F = fresnelDielectric(std::abs(HdotO), etaI, etaT);
+                bool refl = cannotRefract || dist(gen) < F;
+                if (refl) {
+                    ds.wi = (wm * (2.0f * HdotO) - wo).normalized();
+                    ds.ok = ds.wi.dot(rec.normal) * wo.dot(rec.normal) > 0.0f;
+                } else {
+                    ds.ok = refractMicro(wo, wm, eta, ds.wi);
+                }
+                ds.isDelta = false;
+                if (ds.ok) return ds;
+                // Dead microfacet sample (pkg264 #771): fall through to the delta
+                // glass block below (ds.isDelta set there), keeping the energy in
+                // the path exactly as origin/main did for rough glass.
+            } else {
+                // pkg265: multiple-scattering microfacet DIELECTRIC (Heitz et al.
+                // 2016) random walk, clean-room from the paper (DOI
+                // 10.1145/2897824.2925943; include/astroray/microsurface_dielectric.h).
+                // Replaces the shipped single-scatter sampler AND the #771 dead-sample
+                // delta reroute above: the walk is a perfect importance sampler for
+                // the lossless dielectric (phase weight == 1, zero dead samples),
+                // returning reflection and transmission from one physically correct
+                // model. sample() sets f/pdf = tint*radiance directly (below), so no
+                // eval() call is needed and no energy is lost. Validated R+T==1 /
+                // directional histograms against the numpy oracle (research note
+                // §Divergence). NON-film glass only (thin-film glass takes the branch
+                // above).
+                float alpha = std::max(L.roughness * L.roughness, 0.0064f);
+                // Local frame: z = n (already oriented toward wo, so woL.z>0); the GGX
+                // walk is isotropic so any tangent frame works. entering = frontFace.
+                Vec3 woL(wo.dot(rec.tangent), wo.dot(rec.bitangent), wo.dot(n));
+                auto rng = [&]() { return dist(gen); };
+                astroray::msdiel::WalkSample w = astroray::msdiel::sampleWalk(
+                    woL, alpha, L.ior, rec.frontFace, rng, /*scatterMax=*/16);
+                ds.wi = (rec.tangent * w.wi.x + rec.bitangent * w.wi.y + n * w.wi.z).normalized();
+                ds.isDelta = false;
+                ds.isWalk = true;
+                ds.walkReflected = w.reflected;
+                ds.walkRadiance = w.radianceScale;
+                ds.ok = w.escaped;   // scatterMax=16 -> measured 0.00% dead over the grid
+                return ds;
+            }
         }
         // delta (smooth) glass  (also the pkg264 rough dead-sample fallback)
         float f0 = (etaI - etaT) / (etaI + etaT);

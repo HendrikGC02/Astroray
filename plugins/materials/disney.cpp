@@ -835,6 +835,14 @@ public:
             float fresnel = f0 + (1 - f0) * std::pow(1 - cosTheta, 5);
 
             if (roughness_ > kDeltaTransmissionRoughness) {
+                // pkg265 (PR #778 review 2): unlike the native Principled material,
+                // the Disney glass lobe has NO thin-film / iridescence path (no
+                // filmActive / thin_film_thickness socket anywhere in this file), so
+                // the thin-film double-count hazard fixed on principled.cpp cannot
+                // occur here — every Disney glass surface is a plain dielectric and
+                // correctly takes the walk. If a thin-film Disney lobe is ever added,
+                // it must be gated out of this walk the same way (future thin-film-
+                // aware walk tracked in issue #783).
                 // pkg265: multiple-scattering microfacet DIELECTRIC (Heitz et al.
                 // 2016) random walk, clean-room from the paper
                 // (DOI 10.1145/2897824.2925943; include/astroray/microsurface_dielectric.h).

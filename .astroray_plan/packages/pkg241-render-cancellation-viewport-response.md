@@ -302,6 +302,48 @@ All implementation gates UNRUN:
 
 ## Progress
 
+- [ ] 2026-09-09 — **P2.2 CPU-contention correction, pre-terra4 build (RTX 5070 Ti,
+      isolated Blender 9877, GPU lock held correctly for the whole session via
+      `locks.acquire_lock` — never written directly; tables in
+      `benchmarks/viewport_parity/results/2026-09-09-phase2-p22/SUMMARY.md`
+      "Clean re-measurement" section, PR #777):** re-ran the original
+      2026-09-09 first-pass `ui_latency` measurements (below, "P2.2 code
+      delivered" entry) — this run is against the **pre-terra4** build
+      (`build_id 2beed0d+20260908T134329Z`, i.e. before the Terra review 4
+      item 2/3/4 instrument rewrite in the entry directly below), not the
+      Terra4 "Post-fix GUI re-measure" that entry still marks pending (P2.3
+      item 3) — because the branch was rebased and advanced by another lane
+      mid-session; do not read this entry as satisfying that pending item.
+      Purpose: the original first-pass tables ran 01:54-02:07 while an
+      unrelated worktree's CUDA build (nvcc/cl/ptxas, all cores) was compiling
+      01:38-02:08:27 — that lane overwrote the GPU lock file at 02:00 instead
+      of waiting, confounding its four `ui_latency` tables and the PR #777
+      body (`present_check` is a correctness check, not materially affected).
+      This pass isolates that variable: same code, no build running, lock held
+      correctly, plus one extra repetition of the realistic settle (0.3/6.0)
+      run per scene for spread. **Finding: the confound was real and it moved
+      one gate verdict** — cancel p99 under continuous stress for metal_sweep
+      (`cancel_ack_pump` p99) reads 261.9 ms clean vs 442.7 ms contended (PASS,
+      not FAIL); big stays a real FAIL (485.4 clean vs 785.2 contended, both
+      over the 300 ms budget). The realistic-settle tick-gap p95 for
+      metal_sweep is **not robust even clean**: two reps of the identical
+      config gave 39.5 ms (FAIL) then 32.4 ms (PASS), straddling the 33 ms
+      budget — report as borderline (big stayed a solid PASS both times,
+      30.9/30.9). The continuous-storm tick-gap p95 FAIL is confirmed real on
+      both scenes clean (206.0/70.3 vs contended 259/92, same verdict, lower
+      absolute numbers — not contention-driven). Present-wiring, buffer
+      upload, mailbox<=1, same device, 0 CUDA errors, and decoupling magnitude
+      all reproduce the same verdict clean as contended. Also noted: the
+      "big" scene's present_check `max_present_std` came back `inf` (a
+      ~1e30-scale outlier pixel value in the present buffer), reproducibly, in
+      both clean present_check runs — does not affect the PASS verdict but is
+      flagged for whoever does the Terra4/P2.3 post-fix re-measure next, since
+      it reproduces on the current code path too (present-wiring mechanism is
+      unchanged by the Terra4 items). **Net effect on the still-open Terra4
+      "Post-fix GUI re-measure — PENDING" item: unchanged** — it still needs a
+      fresh clean run against the current (Terra4) build; this entry only
+      retires the CPU-contention question for the pre-terra4 numbers so no one
+      re-litigates whether that confound mattered.
 - [ ] 2026-09-09 — **P2.2 Codex Terra review 4 (PR #777, call 3/4) — BLOCK, four items resolved**
       (`feat/pkg241-phase2-p22-terra4` rebased onto origin/main 896d7f7c, fast-forwarded into
       `feat/pkg241-phase2-p22`; full verdict + per-item resolutions in design doc §13). **Item 1

@@ -619,14 +619,13 @@ def _install_present_check():
     generation becomes the latest desired and can complete + present. Two pieces of
     read-back evidence are collected:
 
-      - buffer read-back: Exporter._worker_present is wrapped to capture per-call
-        (generation, min, max, std) of the presented pixel buffer. _worker_present
-        being called at all is exactly the present-wiring the item-1 fix restores
-        (the timer no longer eats the frame off a draw context); a std well above 0
-        confirms the buffer carries rendered content, not a uniform clear.
-      - framebuffer read-back (best-effort): a POST_PIXEL handler reads a patch of
-        the live viewport framebuffer after the blit and records its std, i.e. what
-        is actually on screen.
+      - buffer read-back: _ViewportSpikeWorker._drain_mailbox is wrapped (class
+        level, so it applies to a worker created before this recorder installs) to
+        capture per-present (generation, min, max, std) of the buffer it blits.
+        _drain_mailbox blitting the desired generation at all is exactly the
+        present-wiring the item-1 fix restores (the timer no longer eats the frame
+        off a draw context); a std well above 0 confirms the buffer carries
+        rendered content, not a uniform clear.
     """
     import os
     import sys
@@ -671,53 +670,63 @@ def _install_present_check():
     }
     dns["_pkg241"] = S
 
-    if exporter_cls is not None:
-        o_present = exporter_cls._worker_present
-        S["orig"]["_worker_present"] = o_present
+    # pkg241 P2.2 measurement (2026-09-09): instrument the ACTUAL present at
+    # _ViewportSpikeWorker._drain_mailbox, NOT Exporter._worker_present. The worker
+    # captures `present_fn=self._worker_present` as a bound method ONCE at creation
+    # (_ensure_worker), which happens during the engine-switch RENDERED toggle,
+    # BEFORE this recorder installs. Wrapping the Exporter class attribute here
+    # would therefore never fire (the worker's stored bound reference is stale) and
+    # report a false present-wiring FAIL even while frames present correctly.
+    # _drain_mailbox is a *class method looked up per call* on the live worker, so
+    # wrapping it catches presents regardless of when the worker was created. It
+    # increments self.presents only when it actually blits the desired generation,
+    # so `presents > before` is an exact present count; we snapshot the frame it is
+    # about to present to record the buffer std (the on-screen content proof).
+    worker_cls = getattr(addon.exporter, "_ViewportSpikeWorker", None)         if addon is not None else None
+    if worker_cls is not None:
+        o_drain = worker_cls._drain_mailbox
+        S["orig"]["_drain_mailbox"] = (worker_cls, o_drain)
 
-        def w_present(self, buffer, width, height, generation):
+        def w_drain(self):
+            frame = None
             try:
-                if _np is not None:
+                with self._mailbox_lock:
+                    frame = self._mailbox
+            except Exception:
+                frame = None
+            before = getattr(self, "presents", 0)
+            o_drain(self)
+            after = getattr(self, "presents", 0)
+            if after > before and frame is not None and _np is not None:
+                try:
+                    gen, buffer, width, height = frame
                     a = _np.asarray(buffer, dtype=_np.float32)
                     S["present_buffers"].append(
-                        (int(generation), float(a.min()), float(a.max()),
+                        (int(gen), float(a.min()), float(a.max()),
                          float(a.std())))
-            except Exception:
-                pass
-            return o_present(self, buffer, width, height, generation)
+                except Exception:
+                    pass
 
-        exporter_cls._worker_present = w_present
+        worker_cls._drain_mailbox = w_drain
 
-    def present_cb():
-        # Best-effort framebuffer read-back of a central patch (what's on screen).
-        try:
-            import gpu
-            _a, _rv = _find_v3d()
-            reg = None
-            if _a is not None:
-                for r in _a.regions:
-                    if r.type == 'WINDOW':
-                        reg = r
-            if reg is None or _np is None:
-                return
-            w = min(64, int(reg.width)); h = min(64, int(reg.height))
-            x = int(reg.width) // 2 - w // 2
-            y = int(reg.height) // 2 - h // 2
-            fb = gpu.state.active_framebuffer_get()
-            buf = fb.read_color(x, y, w, h, 3, 0, 'FLOAT')
-            buf.dimensions = w * h * 3
-            arr = _np.array(buf, dtype=_np.float32)
-            S["fb_std"].append(float(arr.std()))
-        except Exception:
-            pass
-
-    S["handler"] = bpy.types.SpaceView3D.draw_handler_add(
-        present_cb, (), "WINDOW", "POST_PIXEL")
+    # NOTE (pkg241 P2.2 measurement, 2026-09-09): a prior "best-effort" POST_PIXEL
+    # framebuffer read-back here (gpu framebuffer read_color of a central patch,
+    # then a `buf.dimensions` reassignment) crashed Blender with a C-level
+    # EXCEPTION_ACCESS_VIOLATION in tbbmalloc (heap corruption) that the
+    # surrounding try/except could NOT catch -- a Python handler cannot trap a
+    # hardware access violation. It was never load-bearing: the gate reads the
+    # _drain_mailbox wrap above, which snapshots the exact float buffer blitted to
+    # the GPUTexture (the pixels that reach the screen), so fb_std is left empty
+    # (reported as None) rather than risk crashing the instrument. The presented
+    # buffer std > floor IS the on-screen proof: _drain_mailbox blits only the
+    # desired generation from a valid draw context (P2.2 item-1 pump(present=True)).
+    S["handler"] = None
 
     def teardown():
-        if exporter_cls is not None and "_worker_present" in S["orig"]:
+        if "_drain_mailbox" in S["orig"]:
             try:
-                exporter_cls._worker_present = S["orig"]["_worker_present"]
+                wc, ofn = S["orig"]["_drain_mailbox"]
+                wc._drain_mailbox = ofn
             except Exception:
                 pass
         if S.get("handler") is not None:

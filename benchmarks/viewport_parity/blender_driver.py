@@ -675,6 +675,111 @@ def _run_ui_latency(host, port, duration_s, warmup_s, tick_s, _retries=1):
     return res
 
 
+def _reduce_spike_events(events):
+    """pkg241 Phase 2 A2 spike (§9): reduce the generation-tagged lifeline events
+    to the pinned statistics. `events` is a list of
+    (name, generation, t_perf_counter, epoch, extra), from the off-thread worker
+    (ASTRORAY_VIEWPORT_WORKER=1). Returns None if no events (synchronous path)."""
+    if not events:
+        return None
+    ev = sorted(events, key=lambda e: e[2])
+
+    # request generation timeline (for supersession) + per-name index by gen.
+    request_ts = sorted((g, t) for (n, g, t, _e, _x) in ev if n == "request")
+    by_gen = {}
+    for (n, g, t, _e, x) in ev:
+        by_gen.setdefault(g, {}).setdefault(n, []).append((t, x))
+
+    def _first(g, name):
+        lst = by_gen.get(g, {}).get(name)
+        return lst[0][0] if lst else None
+
+    def _max_desired_before(t_end):
+        m = 0
+        for (g, t) in request_ts:
+            if t <= t_end and g > m:
+                m = g
+        return m
+
+    request_to_blit_ms, frame_age_ms = [], []
+    completed = superseded = presented_completed = 0
+    for g, names in by_gen.items():
+        r_end = _first(g, "render_end")
+        f_blit = _first(g, "first_blit")
+        r_req = _first(g, "request")
+        if f_blit is not None and r_req is not None:
+            request_to_blit_ms.append((f_blit - r_req) * 1000.0)
+        if f_blit is not None and r_end is not None:
+            frame_age_ms.append((f_blit - r_end) * 1000.0)
+        if r_end is not None:
+            if _max_desired_before(r_end) > g:
+                superseded += 1
+            else:
+                completed += 1
+                if f_blit is not None:
+                    presented_completed += 1
+
+    # cancel-ack: each cancel_request -> the next idle_ack after it (ms).
+    cancel_ts = sorted(t for (n, _g, t, _e, _x) in ev if n == "cancel_request")
+    idle_ts = sorted(t for (n, _g, t, _e, _x) in ev if n == "idle_ack")
+    cancel_ack_ms = []
+    for tc in cancel_ts:
+        nxt = next((ti for ti in idle_ts if ti > tc), None)
+        if nxt is not None:
+            cancel_ack_ms.append((nxt - tc) * 1000.0)
+
+    # texture-upload tail: mailbox_dequeue -> the next texture_upload_end (ms).
+    tex_tail_ms = []
+    pending_dq = None
+    for (n, _g, t, _e, _x) in ev:
+        if n == "mailbox_dequeue":
+            pending_dq = t
+        elif n == "texture_upload_end" and pending_dq is not None:
+            tex_tail_ms.append((t - pending_dq) * 1000.0)
+            pending_dq = None
+
+    # mailbox depth (never > 1) from enqueue depth_after / dequeue depth_before.
+    depths = []
+    for (n, _g, _t, _e, x) in ev:
+        if n == "mailbox_enqueue" and "depth_after" in x:
+            depths.append(int(x["depth_after"]))
+        elif n == "mailbox_dequeue" and "depth_before" in x:
+            depths.append(int(x["depth_before"]))
+    mailbox_depth_max = max(depths) if depths else 0
+
+    # per-generation device + CUDA error capture.
+    devices = sorted({int(x["device"]) for (n, _g, _t, _e, x) in ev
+                      if n == "render_device" and "device" in x})
+    n_render_device = sum(1 for (n, *_r) in ev if n == "render_device")
+    n_errors = sum(1 for (n, *_r) in ev if n == "error")
+
+    def _pct(xs):
+        if not xs:
+            return None
+        s = sorted(xs)
+        return {"n": len(s), "p50_ms": round(_percentile(s, 50), 2),
+                "p95_ms": round(_percentile(s, 95), 2),
+                "p99_ms": round(_percentile(s, 99), 2),
+                "max_ms": round(max(s), 2)}
+
+    present_rate = (presented_completed / completed) if completed else None
+    return {
+        "n_events": len(ev),
+        "request_to_first_blit": _pct(request_to_blit_ms),
+        "frame_age": _pct(frame_age_ms),
+        "cancel_ack": _pct(cancel_ack_ms),
+        "texture_upload_tail": _pct(tex_tail_ms),
+        "mailbox_depth_max": mailbox_depth_max,
+        "completed_generations": completed,
+        "superseded_generations": superseded,
+        "presented_completed": presented_completed,
+        "present_rate": round(present_rate, 4) if present_rate is not None else None,
+        "devices_seen": devices,
+        "n_render_device": n_render_device,
+        "cuda_errors": n_errors,
+    }
+
+
 def _summarize_ui_latency(res):
     """Reduce one rep's raw tick/render/present streams to the reported
     statistics: tick-gap percentiles (the UI-latency proxy, works for any
@@ -699,6 +804,9 @@ def _summarize_ui_latency(res):
         "blocked_excess_ms": round(blocked_excess_ms, 1),
         "truncated": bool(res.get("truncated")),
         "engine_has_hooks": res.get("engine_has_hooks"),
+        # pkg241 Phase 2 A2 spike (§9): raw generation-tagged events for this rep,
+        # concatenated + reduced across reps in run_ui_latency.
+        "events": res.get("events") or [],
     }
 
 
@@ -919,6 +1027,9 @@ def run_ui_latency(args) -> dict:
                                 if total_wall_ms > 0 else None)
             n_renders = sum(r["n_renders"] for r in reps)
             n_presents = sum(r["n_presents"] for r in reps)
+            # pkg241 Phase 2 A2 spike (§9): reduce the concatenated lifeline events.
+            all_events = [e for r in reps for e in (r.get("events") or [])]
+            spike = _reduce_spike_events(all_events)
             configs.append({
                 "scene": scene, "tris": sinfo.get("tris"),
                 "region": einfo.get("region"), "engine": engine,
@@ -940,6 +1051,9 @@ def run_ui_latency(args) -> dict:
                 "engine_has_render_hooks": reps[0]["engine_has_hooks"]
                     if reps else None,
                 "truncated": any(r["truncated"] for r in reps),
+                # pkg241 Phase 2 A2 spike (§9): the generation-tagged reduction
+                # (None on the synchronous path / when the worker flag is off).
+                "spike": spike,
             })
             p95 = (gap_agg or {}).get("p95_ms")
             print(f"[pkg241-p2]   gap p50={_or(gap_agg, 'p50_ms')} "
@@ -948,6 +1062,18 @@ def run_ui_latency(args) -> dict:
                   f"blocked_frac={blocked_fraction_ticks} "
                   f"render_frac={render_fraction} "
                   f"budget<=33ms: {'PASS' if p95 is not None and p95 <= 33.0 else 'FAIL/NA'}")
+            if spike is not None:
+                ca = spike.get("cancel_ack") or {}
+                tt = spike.get("texture_upload_tail") or {}
+                print(f"[pkg241-p2]   spike: completed={spike['completed_generations']} "
+                      f"presented={spike['presented_completed']} "
+                      f"present_rate={spike['present_rate']} "
+                      f"mailbox_depth_max={spike['mailbox_depth_max']} "
+                      f"cancel_ack p99={ca.get('p99_ms')} "
+                      f"tex_tail p95={tt.get('p95_ms')} "
+                      f"devices={spike['devices_seen']} "
+                      f"cuda_errors={spike['cuda_errors']} "
+                      f"n_render_device={spike['n_render_device']}")
 
     return {
         "schema": "astroray.viewport_parity.pkg241_phase2_ui_latency.v1",

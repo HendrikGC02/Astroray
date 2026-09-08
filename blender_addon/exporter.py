@@ -21,9 +21,47 @@ Design:
   - Datablock-grained granularity (no per-property minimal diffs — RH4 non-goal).
 """
 
+import os
+import queue
+import threading
 import time
 import numpy as np
 from enum import IntFlag
+
+
+# pkg241 Phase 2 A2 spike: the off-thread viewport worker is gated on this env
+# var, read once at engine start (design §9 "code touched"). With it unset the
+# synchronous path (view_update/view_draw -> render_viewport_frame) is unchanged
+# and byte-identical to origin/main (design test 10). Read via a helper so tests
+# can monkeypatch the module global directly.
+def viewport_worker_enabled():
+    """True when ASTRORAY_VIEWPORT_WORKER is set to a truthy value (1/true/on)."""
+    v = os.environ.get("ASTRORAY_VIEWPORT_WORKER", "")
+    return v.strip().lower() in ("1", "true", "on", "yes")
+
+
+# pkg241 Phase 2 A2 spike (§9 event schema): an optional module-level sink for
+# the generation-tagged lifeline events. The benchmark recorder installs a
+# callback here; the worker/main-thread commit emit through it. None in
+# production (zero overhead beyond the None check). Signature:
+#   sink(name, generation, t_perf_counter, session_epoch, extra_dict)
+_spike_event_sink = None
+
+# pkg241 Phase 2 A2 spike (§3.6): process-global quarantine for workers that did
+# not acknowledge exit within the teardown timeout. Retaining a STRONG ref keeps
+# the leaked renderer alive so Python finalisation cannot destroy it out from
+# under a still-running worker thread (never a use-after-free). Terminal.
+_WORKER_QUARANTINE = []
+
+
+def _emit_spike_event(name, generation, session_epoch, **extra):
+    """Emit a §9 lifeline event if a sink is installed (recorder-only)."""
+    sink = _spike_event_sink
+    if sink is not None:
+        try:
+            sink(name, generation, time.perf_counter(), session_epoch, extra)
+        except Exception:
+            pass  # a broken recorder sink must never perturb the render path
 
 
 # pkg196: reduced-resolution viewport navigation.
@@ -274,6 +312,271 @@ class ConfigCache:
         return backend_config, accumulation_only
 
 
+class _ViewportSpikeWorker:
+    """pkg241 Phase 2 A2 spike — the off-thread viewport render worker (design
+    §3.2-§3.4). Single-viewport, GPU-only, camera + material generations. NOT the
+    production worker: no multi-viewport arbiter, no F12 gate, no denoise, no full
+    lifecycle owner (those are P2.2, after GO).
+
+    Threading contract (§3.1/§3.2/§3.5):
+      - A single spike-local token (a threading.Lock). The MAIN thread acquires it,
+        commits the snapshot into the persistent renderer (setupCamera + set_* +
+        upload_*, via the injected commit_fn), then hands the token to the worker
+        for the render() call only. The WORKER releases the token when it reaches
+        idle (after render + pass extraction). threading.Lock permits release by a
+        different thread than acquired it, which is exactly the hand-off we need.
+        At any instant exactly one holder owns the token (main during commit,
+        worker during render, or nobody while IDLE) — the §9 single-holder proof.
+      - The worker never touches bpy/GPUTexture/tag_redraw. It calls only the
+        injected render_fn (renderer.render + get_render_pass_buffer + numpy
+        accumulate) on its own daemon thread, publishes each completed chunk into a
+        depth-1 latest-frame mailbox, and pushes idle/error onto a separate control
+        queue. A main-thread pump (present_fn + the state machine) drains both.
+
+    This class is bpy-free so it is unit-testable with stubbed render/present/report
+    callables (tests/test_pkg241_spike_worker.py)."""
+
+    IDLE = "IDLE"
+    RENDERING = "RENDERING"
+    STOPPING = "STOPPING"
+    DEAD = "DEAD"
+
+    def __init__(self, render_fn, present_fn, report_fn=None, session_epoch=0):
+        # render_fn(job, cancel_check, publish) -> None  [WORKER thread, under token]
+        #   job: the committed snapshot dict; cancel_check() -> bool (True = stop);
+        #   publish(buffer, width, height) -> None publishes a chunk for this gen.
+        self._render_fn = render_fn
+        # present_fn(buffer, width, height, generation) -> None  [MAIN thread]
+        self._present_fn = present_fn
+        # report_fn(message) -> None  [MAIN thread] — surfaces worker errors.
+        self._report_fn = report_fn
+        self.session_epoch = session_epoch
+
+        self._token = threading.Lock()
+        self._token_holder = None  # 'main' | 'worker' | None (ownership trace)
+
+        # depth-1 latest-frame mailbox (§3.3): a newer frame REPLACES an unconsumed
+        # older one; depth never exceeds 1. Protected by _mailbox_lock.
+        self._mailbox = None       # (generation, buffer, width, height) or None
+        self._mailbox_lock = threading.Lock()
+        self.mailbox_depth = 0
+        self.mailbox_depth_max = 0
+
+        # control/error queue (§3.3) — never dropped, unlike stale frames.
+        self._control = queue.Queue(maxsize=64)
+
+        self.desired_generation = 0     # newest generation the edits have requested
+        self.in_flight_generation = None
+        self.submitted_generation = None
+        self.state = self.IDLE
+
+        # present accounting (§9 present-rate rule)
+        self.completed_generations = 0  # generations that reached render_end unsuperseded
+        self.presents = 0               # frames actually presented
+
+        self._cancel_event = threading.Event()
+        self._current_job = None
+        self._job_ready = threading.Event()
+        self._stop_worker = False
+        self._thread = threading.Thread(
+            target=self._worker_loop, name="astroray-viewport-spike", daemon=True)
+
+    # -- lifecycle ---------------------------------------------------------
+    def start(self):
+        self._thread.start()
+
+    def is_alive(self):
+        return self._thread.is_alive()
+
+    # -- main-thread API ---------------------------------------------------
+    def request(self):
+        """Main thread, on an edit (view_update material / view_draw camera):
+        bump desired_generation and request cancel of any in-flight chunk (§3.4).
+        Non-blocking: does NOT commit or join. Returns the new desired generation."""
+        self.desired_generation += 1
+        self._cancel_event.set()
+        _emit_spike_event("request", self.desired_generation, self.session_epoch)
+        _emit_spike_event("cancel_request", self.desired_generation, self.session_epoch)
+        return self.desired_generation
+
+    def maybe_submit(self, commit_fn):
+        """Main thread (has bpy context): if the worker is IDLE and a newer
+        generation is desired, acquire the token, commit the snapshot for
+        desired_generation via commit_fn (setupCamera + set_* + upload_*), and
+        hand the token to the worker for render() only (§3.2). Returns True if a
+        job was submitted. commit_fn() -> job(dict) for this generation."""
+        if self.state != self.IDLE:
+            return False
+        if self.desired_generation == self.submitted_generation:
+            return False
+        gen = self.desired_generation
+        # Acquire the token on behalf of the worker (single-holder handoff, §3.5).
+        if not self._token.acquire(blocking=False):
+            return False  # a stale hold (should not happen while IDLE) — defer
+        self._token_holder = "main"
+        _emit_spike_event("token_acquire", gen, self.session_epoch, holder="main")
+        _emit_spike_event("commit_start", gen, self.session_epoch)
+        try:
+            job = commit_fn(gen)
+        except Exception as exc:
+            self._token_holder = None
+            self._token.release()
+            self._fail(gen, exc)
+            return False
+        _emit_spike_event("commit_end", gen, self.session_epoch)
+        # Hand the token to the worker; it releases at idle.
+        self._token_holder = "worker"
+        self._cancel_event.clear()
+        self._current_job = job
+        self.in_flight_generation = gen
+        self.submitted_generation = gen
+        self.state = self.RENDERING
+        self._job_ready.set()
+        return True
+
+    def pump(self):
+        """Main thread timer tick / every view_draw: drain the control queue and
+        the mailbox, present the freshest valid frame, and advance the state
+        machine (§3.4). bpy-free — present_fn does the GPUTexture work."""
+        self._drain_control()
+        self._drain_mailbox()
+
+    def stop(self, timeout=5.0):
+        """Main thread teardown (§3.4/§3.6): request cancel and PUMP the control
+        queue (yielding the GIL via queue.get timeout so the worker's cancel
+        callback can run) until the worker acknowledges exit, bounded by `timeout`.
+        Returns True if the worker acknowledged and the thread joined (safe to
+        release the renderer); False on timeout (no-ack: quarantine — the caller
+        must keep a STRONG ref and never destroy the renderer, §3.6)."""
+        self.state = self.STOPPING
+        self._cancel_event.set()
+        self._stop_worker = True
+        self._job_ready.set()  # wake a parked worker
+        deadline = time.monotonic() + float(timeout)
+        acked = self.in_flight_generation is None
+        while not acked and time.monotonic() < deadline:
+            try:
+                kind, gen, epoch, payload = self._control.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            if kind == "idle" and gen == self.in_flight_generation:
+                self.in_flight_generation = None
+                acked = True
+            elif kind == "error":
+                acked = True  # a dead worker is also "not rendering"
+        if self._thread.is_alive():
+            self._thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        return not self._thread.is_alive()
+
+    # -- internals ---------------------------------------------------------
+    def _fail(self, generation, exc):
+        self.state = self.DEAD
+        if self._report_fn is not None:
+            try:
+                self._report_fn(f"Astroray viewport worker error (gen {generation}): {exc}")
+            except Exception:
+                pass
+
+    def _drain_control(self):
+        """Validate control-plane notifications by class (§3.4): idle/exited
+        against the IN-FLIGHT generation (so a late idle(N) after desired N+2
+        still advances the machine); errors for the current session/epoch even
+        when their generation is superseded."""
+        while True:
+            try:
+                kind, gen, epoch, payload = self._control.get_nowait()
+            except queue.Empty:
+                return
+            if kind == "idle":
+                if epoch != self.session_epoch:
+                    continue  # a fully torn-down session — drop
+                if gen == self.in_flight_generation:
+                    self.in_flight_generation = None
+                    if self.state == self.RENDERING:
+                        self.state = self.IDLE
+            elif kind == "error":
+                # Errors are never dropped for a superseded generation (a
+                # superseded render can still corrupt the shared WfContext); only
+                # a session/epoch mismatch discards them.
+                if epoch == self.session_epoch:
+                    self._fail(gen, payload)
+
+    def _drain_mailbox(self):
+        """Present the mailbox's frame iff it is the current desired generation
+        and epoch (data-plane validation, §3.4) — this preserves 'no stale present
+        after an edit'. A superseded frame is discarded, never blitted."""
+        with self._mailbox_lock:
+            frame = self._mailbox
+            self._mailbox = None
+            depth_before = self.mailbox_depth
+            self.mailbox_depth = 0
+        if frame is None:
+            return
+        gen, buffer, width, height = frame
+        _emit_spike_event("mailbox_dequeue", gen, self.session_epoch,
+                          depth_before=depth_before)
+        if gen == self.desired_generation and self.state != self.DEAD:
+            self._present_fn(buffer, width, height, gen)
+            self.presents += 1
+            _emit_spike_event("texture_upload_end", gen, self.session_epoch)
+        # else: superseded — discarded (no stale present).
+
+    def _publish_frame(self, generation, buffer, width, height):
+        """Worker thread: publish a completed chunk into the depth-1 mailbox,
+        REPLACING any unconsumed older frame (§3.3). Depth never exceeds 1."""
+        with self._mailbox_lock:
+            self._mailbox = (generation, buffer, width, height)
+            self.mailbox_depth = 1
+            if self.mailbox_depth > self.mailbox_depth_max:
+                self.mailbox_depth_max = self.mailbox_depth
+        _emit_spike_event("mailbox_enqueue", generation, self.session_epoch,
+                          depth_after=1)
+
+    def _worker_loop(self):
+        """Worker daemon thread: wait for a committed job, render it (holding the
+        token the main thread handed over), publish chunks, then release the token
+        and enqueue idle. Only render_fn touches native code; no bpy here."""
+        while not self._stop_worker:
+            if not self._job_ready.wait(timeout=0.1):
+                continue
+            self._job_ready.clear()
+            job = self._current_job
+            self._current_job = None
+            if job is None:
+                continue
+            gen = job.get("generation")
+            _emit_spike_event("render_start", gen, self.session_epoch)
+            superseded_or_error = False
+            try:
+                def cancel_check():
+                    return self._cancel_event.is_set()
+
+                def publish(buffer, width, height):
+                    self._publish_frame(gen, buffer, width, height)
+
+                self._render_fn(job, cancel_check, publish)
+                _emit_spike_event("render_end", gen, self.session_epoch)
+                if not self._cancel_event.is_set():
+                    self.completed_generations += 1
+            except Exception as exc:  # worker exception (§3.9): store + report
+                superseded_or_error = True
+                self._control.put(("error", gen, self.session_epoch, exc))
+                _emit_spike_event("error", gen, self.session_epoch)
+            finally:
+                # Release the token (worker-side, §3.1/§3.5) and report idle so the
+                # main-thread pump can advance the machine.
+                self._control.put(("idle", gen, self.session_epoch, None))
+                _emit_spike_event("idle_ack", gen, self.session_epoch)
+                if self._token_holder == "worker":
+                    self._token_holder = None
+                    _emit_spike_event("token_release", gen, self.session_epoch)
+                    try:
+                        self._token.release()
+                    except RuntimeError:
+                        pass  # already released (defensive)
+            del superseded_or_error
+
+
 class Exporter:
     """Viewport scene exporter. Owns the persistent viewport renderer, tracks
     per-domain state via cache objects, and dispatches incremental updates.
@@ -336,6 +639,17 @@ class Exporter:
         # chunk is atomic, so this is the plumbing the Phase 2 off-thread
         # render will flip; today it guarantees no mixed accumulation.
         self._viewport_cancel_requested = False
+
+        # pkg241 Phase 2 A2 spike: the off-thread render worker + its liveness
+        # timer. Created lazily on the first worker-path view_update/view_draw
+        # (only when ASTRORAY_VIEWPORT_WORKER is set); None on the synchronous
+        # path, so the default behaviour is unchanged. _worker_engine_methods /
+        # _worker_redraw_fn cache the main-thread callables the pump needs.
+        self._worker = None
+        self._worker_timer = None
+        self._worker_engine_methods = None
+        self._worker_redraw_fn = None
+        self._worker_pending_full_sync = False
 
         # Per-domain caches
         self._camera_cache = CameraCache(bpy_module)
@@ -740,6 +1054,17 @@ class Exporter:
         if not raytracer_available:
             return
 
+        # pkg241 Phase 2 A2 spike: route material/scene edits through the
+        # off-thread worker when the flag is set (§9). Synchronous path unchanged
+        # when unset.
+        if viewport_worker_enabled():
+            self._worker_view_update(
+                context, depsgraph, configure_backend_fn,
+                effective_integrator_name_fn, viewport_perf_record_fn,
+                camera_state_hash_fn, camera_substantive_state_hash_fn,
+                request_viewport_redraw_fn, engine_methods)
+            return
+
         scene = depsgraph.scene
         settings = scene.custom_raytracer
         # pkg176 Stage 1: resolve native Blender/Cycles settings for the
@@ -823,6 +1148,18 @@ class Exporter:
         and re-renders without touching scene state. Otherwise blits cached texture."""
         import traceback
         if not raytracer_available:
+            return
+
+        # pkg241 Phase 2 A2 spike: off-thread worker path (§9). view_draw is
+        # reduced to: detect a camera edit -> bump generation + request cancel;
+        # pump the worker (present the freshest published frame); commit + submit
+        # the desired generation when the worker is idle; blit the latest frame.
+        if viewport_worker_enabled():
+            self._worker_view_draw(
+                context, depsgraph, configure_backend_fn,
+                effective_integrator_name_fn, viewport_perf_record_fn,
+                camera_state_hash_fn, camera_substantive_state_hash_fn,
+                request_viewport_redraw_fn, engine_methods)
             return
 
         try:
@@ -1001,3 +1338,314 @@ class Exporter:
         except Exception as e:
             print(f"Astroray view_draw error: {e}")
             traceback.print_exc()
+
+    # -----------------------------------------------------------------------
+    # pkg241 Phase 2 A2 spike — off-thread worker path (design §3.2-§3.4, §9).
+    # Flag-gated (ASTRORAY_VIEWPORT_WORKER=1). GPU-only, single viewport, camera
+    # + material generations. All bpy/GPUTexture/tag_redraw stays on the main
+    # thread; only renderer.render + pass extraction + numpy accumulate run on the
+    # worker thread. Not the production worker (no arbiter/F12/denoise/lifecycle).
+    # -----------------------------------------------------------------------
+    def _make_worker_render_fn(self):
+        """Build the bpy-free render_fn the worker thread runs under the token.
+        It renders progressive chunks to the target spp, accumulating into a
+        PRIVATE running-mean buffer (same math as render_viewport_frame, but
+        worker-owned), publishing each chunk into the depth-1 mailbox. Cancel is
+        cooperative (the progress callback returns not cancel_check())."""
+        def render_fn(job, cancel_check, publish):
+            renderer = job["renderer"]
+            target = int(job["target_spp"])
+            depth = int(job["depth"])
+            chunk = max(1, int(job["chunk"]))
+            width = int(job["width"])
+            height = int(job["height"])
+            display_pass = job["display_pass"]
+            b = (job["diffuse"], job["glossy"], job["transmission"],
+                 job["volume"], job["transparent"])
+            skip_upload = bool(job["skip_upload"])
+            accum = None
+            accum_spp = 0
+
+            def progress(_frac):
+                return not cancel_check()  # True = continue, False = cancel
+
+            while accum_spp < target and not cancel_check():
+                samples = min(chunk, target - accum_spp)
+                if samples <= 0:
+                    break
+                pixels = renderer.render(
+                    samples, depth, progress, False,
+                    b[0], b[1], b[2], b[3], b[4], skip_upload)
+                # pkg241 Phase 2 A2 spike (§9): per-generation device readback for
+                # the same-device assertion (last_render_info()['device'] is the
+                # CUDA device this worker-thread render resolved).
+                try:
+                    _info = renderer.last_render_info()
+                    _emit_spike_event("render_device", job["generation"],
+                                      job.get("session_epoch", 0),
+                                      device=_info.get("device", -1))
+                except Exception:
+                    pass
+                if cancel_check() or pixels is None:
+                    break
+                disp = pixels
+                if display_pass not in ("combined", "albedo", "normal", "depth"):
+                    try:
+                        disp = renderer.get_render_pass_buffer(display_pass)
+                    except Exception:
+                        disp = pixels
+                chunk_arr = np.asarray(disp, dtype=np.float32)
+                if accum is None or accum_spp <= 0:
+                    accum = chunk_arr.copy()
+                    accum_spp = int(samples)
+                else:
+                    new_spp = accum_spp + int(samples)
+                    accum = ((accum * accum_spp + chunk_arr * int(samples))
+                             / float(new_spp))
+                    accum_spp = new_spp
+                # Publish an IMMUTABLE snapshot of the accumulator (§3.3): the
+                # worker keeps mutating `accum`, so hand out a copy, never the
+                # live array.
+                publish(np.ascontiguousarray(accum), width, height)
+                skip_upload = True  # subsequent chunks reuse device state
+        return render_fn
+
+    def _worker_present(self, buffer, width, height, generation):
+        """Main-thread present (§3.3): upload the published buffer to a GPUTexture
+        and request a redraw. This is where the `flat.tolist()` texture tail the
+        §9 measurement watches is paid."""
+        em = self._worker_engine_methods
+        if em is None:
+            return
+        self._viewport_width = width
+        self._viewport_height = height
+        em["update_viewport_texture"](buffer, width, height)
+        if self._worker_redraw_fn is not None:
+            try:
+                self._worker_redraw_fn()
+            except Exception:
+                pass
+
+    def _ensure_worker(self, engine_methods, request_viewport_redraw_fn):
+        if self._worker is not None:
+            return self._worker
+        self._worker_engine_methods = engine_methods
+        self._worker_redraw_fn = request_viewport_redraw_fn
+
+        def _report(msg):
+            try:
+                self.engine.report({'ERROR'}, msg)
+            except Exception:
+                pass
+
+        self._worker = _ViewportSpikeWorker(
+            render_fn=self._make_worker_render_fn(),
+            present_fn=self._worker_present,
+            report_fn=_report)
+        self._worker.start()
+        self._register_worker_timer()
+        return self._worker
+
+    def _register_worker_timer(self):
+        """Register the §3.3 liveness pump (bpy.app.timers, ~60 Hz): drain the
+        mailbox/control queue and request a redraw even when Blender is otherwise
+        idle, so a finished frame always reaches the screen. No-op if bpy.app is
+        unavailable (headless/stub)."""
+        bpy = getattr(self, "bpy", None)
+        if bpy is None or not hasattr(bpy, "app") or not hasattr(bpy.app, "timers"):
+            return
+
+        def _pump_timer():
+            w = self._worker
+            if w is None or w.state == _ViewportSpikeWorker.DEAD:
+                return None  # unregister
+            try:
+                w.pump()
+                if self._worker_redraw_fn is not None:
+                    self._worker_redraw_fn()
+            except Exception:
+                pass
+            return 0.016
+
+        try:
+            bpy.app.timers.register(_pump_timer, first_interval=0.016)
+            self._worker_timer = _pump_timer
+        except Exception:
+            self._worker_timer = None
+
+    def _worker_commit_and_submit(self, context, depsgraph, settings, region,
+                                  configure_backend_fn, viewport_perf_record_fn,
+                                  effective_integrator_name_fn, engine_methods,
+                                  full_sync):
+        """Main thread: if the worker is IDLE and a newer generation is desired,
+        commit the snapshot (scene sync when full_sync, then camera + wavelength +
+        integrator + passes) into the persistent renderer under the token and
+        submit render() to the worker (§3.2). The commit reads bpy here, on the
+        main thread; the worker only renders."""
+        def commit_fn(gen):
+            renderer = self._get_viewport_renderer()
+            do_full = full_sync or not self._viewport_full_synced
+            if do_full:
+                self.sync_viewport_scene(
+                    renderer, depsgraph, settings, configure_backend_fn,
+                    viewport_perf_record_fn, effective_integrator_name_fn)
+                self._viewport_full_synced = True
+            width = max(1, int(region.width))
+            height = max(1, int(region.height))
+            engine_methods['setup_viewport_camera'](renderer, context, width, height)
+            lmin, lmax = engine_methods['wavelength_range_from_settings'](settings)
+            renderer.set_wavelength_range(lmin, lmax)
+            if lmax > 780.0 or lmin < 380.0:
+                renderer.set_output_mode("luminance")
+            renderer.set_integrator(engine_methods['effective_integrator_name'](settings))
+            try:
+                renderer.clear_passes()
+            except AttributeError:
+                pass
+            display_pass = getattr(settings, "viewport_display_pass", "combined")
+            if display_pass == "albedo":
+                renderer.add_pass("albedo_aov")
+            elif display_pass == "normal":
+                renderer.add_pass("normal_aov")
+            elif display_pass == "depth":
+                renderer.add_pass("depth_aov")
+            depth = max(2, settings.max_bounces // 2)
+            target = int(engine_methods['viewport_target_samples'](settings))
+            chunk = int(engine_methods['viewport_chunk_samples'](settings, 0))
+            return {
+                "generation": gen, "renderer": renderer,
+                "session_epoch": self._worker.session_epoch,
+                "width": width, "height": height, "depth": depth,
+                "target_spp": target, "chunk": max(1, chunk),
+                "display_pass": display_pass,
+                # First render of a full-sync generation must upload + build the
+                # BVH; a camera-only generation reuses device state.
+                "skip_upload": (not do_full),
+                "diffuse": min(settings.diffuse_bounces, depth),
+                "glossy": min(settings.glossy_bounces, depth),
+                "transmission": min(settings.transmission_bounces, depth),
+                "volume": min(settings.volume_bounces, depth),
+                "transparent": min(settings.transparent_bounces, depth),
+            }
+
+        submitted = self._worker.maybe_submit(commit_fn)
+        if submitted:
+            self._worker_pending_full_sync = False
+
+    def _worker_view_update(self, context, depsgraph, configure_backend_fn,
+                            effective_integrator_name_fn, viewport_perf_record_fn,
+                            camera_state_hash_fn, camera_substantive_state_hash_fn,
+                            request_viewport_redraw_fn, engine_methods):
+        """Worker-path view_update (§3.4): a scene/material edit bumps the desired
+        generation, requests cancel, and — if the worker is idle — commits (with a
+        full scene sync) and submits. If the worker is busy, the edit is deferred:
+        the next view_draw retries the commit with its own depsgraph."""
+        import traceback
+        try:
+            scene = depsgraph.scene
+            settings = scene.custom_raytracer
+            resolve_fn = engine_methods.get('resolve_settings')
+            if resolve_fn is not None:
+                settings = resolve_fn(scene, self.engine.report)
+            region = context.region
+            worker = self._ensure_worker(engine_methods, request_viewport_redraw_fn)
+            worker.request()
+            self._worker_pending_full_sync = True
+            worker.pump()
+            self._worker_commit_and_submit(
+                context, depsgraph, settings, region, configure_backend_fn,
+                viewport_perf_record_fn, effective_integrator_name_fn,
+                engine_methods, full_sync=True)
+            self._viewport_camera_hash = camera_state_hash_fn(context, region)
+            self._viewport_camera_substantive_hash = \
+                camera_substantive_state_hash_fn(context, region)
+            request_viewport_redraw_fn()
+        except Exception as e:
+            print(f"Astroray viewport worker view_update error: {e}")
+            traceback.print_exc()
+
+    def _worker_view_draw(self, context, depsgraph, configure_backend_fn,
+                          effective_integrator_name_fn, viewport_perf_record_fn,
+                          camera_state_hash_fn, camera_substantive_state_hash_fn,
+                          request_viewport_redraw_fn, engine_methods):
+        """Worker-path view_draw (§3.3/§3.4): detect a camera edit (bump + cancel),
+        pump the worker (present the freshest published frame), commit+submit the
+        desired generation when idle, then blit the latest texture. Never renders
+        on the main thread — that is the whole point of the spike."""
+        import traceback
+        try:
+            region = context.region
+            scene = depsgraph.scene
+            settings = scene.custom_raytracer
+            resolve_fn = engine_methods.get('resolve_settings')
+            if resolve_fn is not None:
+                settings = resolve_fn(scene, None)
+            worker = self._ensure_worker(engine_methods, request_viewport_redraw_fn)
+
+            new_hash = camera_state_hash_fn(context, region)
+            camera_changed = (new_hash is not None
+                              and new_hash != self._viewport_camera_hash)
+            if camera_changed:
+                worker.request()
+                self._worker_pending_full_sync = False
+                self._viewport_camera_hash = new_hash
+                self._viewport_camera_substantive_hash = \
+                    camera_substantive_state_hash_fn(context, region)
+
+            # Pump: present the freshest valid published frame + advance state.
+            worker.pump()
+            # Commit + submit the desired generation if the worker is now idle.
+            self._worker_commit_and_submit(
+                context, depsgraph, settings, region, configure_backend_fn,
+                viewport_perf_record_fn, effective_integrator_name_fn,
+                engine_methods, full_sync=self._worker_pending_full_sync)
+
+            # Keep the loop alive while a render is in flight or a frame is queued.
+            if worker.state != _ViewportSpikeWorker.IDLE:
+                request_viewport_redraw_fn()
+
+            # Blit the latest published buffer (pure blit — no render, §3.3).
+            if self._viewport_texture is None:
+                return
+            import gpu  # noqa: F401 — needed by draw_texture_2d
+            from gpu_extras.presets import draw_texture_2d
+            self.engine.bind_display_space_shader(scene)
+            draw_texture_2d(self._viewport_texture, (0, 0),
+                            region.width, region.height)
+            self.engine.unbind_display_space_shader()
+        except Exception as e:
+            print(f"Astroray worker view_draw error: {e}")
+            traceback.print_exc()
+
+    def stop_worker(self):
+        """Main-thread teardown (§3.6): request cancel and pump until the worker
+        acknowledges exit (bounded 5 s), unregister the timer, and — on a no-ack
+        timeout — quarantine the worker (strong ref, never destroyed) instead of
+        releasing the renderer. Idempotent."""
+        worker = self._worker
+        if worker is None:
+            return
+        acked = worker.stop(timeout=5.0)
+        bpy = getattr(self, "bpy", None)
+        if (self._worker_timer is not None and bpy is not None
+                and hasattr(bpy, "app") and hasattr(bpy.app, "timers")):
+            try:
+                if bpy.app.timers.is_registered(self._worker_timer):
+                    bpy.app.timers.unregister(self._worker_timer)
+            except Exception:
+                pass
+        self._worker_timer = None
+        if not acked:
+            _WORKER_QUARANTINE.append(worker)  # no-ack: never destroy
+        self._worker = None
+
+    def __del__(self):
+        # pkg241 Phase 2 A2 spike: best-effort worker teardown so an engine
+        # re-create does not leak a live render thread (not the production
+        # lifecycle owner — that is P2.2). Short bounded stop; a no-ack worker is
+        # quarantined by stop_worker, never destroyed.
+        try:
+            if getattr(self, "_worker", None) is not None:
+                self.stop_worker()
+        except Exception:
+            pass

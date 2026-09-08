@@ -1805,7 +1805,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         rgba[:, :, :3] = pixels
         rgba = np.ascontiguousarray(rgba[::-1])
         flat = rgba.reshape(-1)
-        buf = gpu.types.Buffer('FLOAT', flat.shape[0], flat.tolist())
+        # pkg241 Phase 2 A2 spike (§3.3 / §9 texture-tail fix): under the worker
+        # flag, hand the contiguous float32 array straight to gpu.types.Buffer via
+        # the buffer protocol — ~0 ms vs ~195 ms for flat.tolist() at 2112x829
+        # (measured, RTX 5070 Ti), producing a byte-identical texture. The
+        # synchronous path keeps the original tolist() behaviour unchanged.
+        _worker_fast = os.environ.get("ASTRORAY_VIEWPORT_WORKER", "").strip().lower() in ("1", "true", "on", "yes")
+        buf = gpu.types.Buffer('FLOAT', flat.shape[0], flat if _worker_fast else flat.tolist())
         # Update via properties (which proxy to exporter)
         self._viewport_texture = gpu.types.GPUTexture(
             (width, height), format='RGBA16F', data=buf)

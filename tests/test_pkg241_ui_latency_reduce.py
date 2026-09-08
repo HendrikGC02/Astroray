@@ -44,11 +44,14 @@ def test_reduce_reports_commit_and_pump_cancel_metrics():
         _ev("commit_start", 2, 0.080),
         _ev("commit_end", 2, 0.082),          # commit 2 ms
         _ev("render_start", 2, 0.083),
+        # gen 2 publishes its terminal chunk (pub 5), reaches render_end without
+        # cancellation, and its terminal publication is marked + blitted.
+        _ev("mailbox_enqueue", 2, 0.118, {"depth_after": 1, "pub_id": 5}),
         _ev("render_end", 2, 0.120),
-        _ev("mailbox_enqueue", 2, 0.120, {"depth_after": 1}),
-        _ev("mailbox_dequeue", 2, 0.130, {"depth_before": 1}),
-        _ev("texture_upload_end", 2, 0.132),
-        _ev("first_blit", 2, 0.133),
+        _ev("terminal_publication", 2, 0.120, {"pub_id": 5}),
+        _ev("mailbox_dequeue", 2, 0.130, {"depth_before": 1, "pub_id": 5}),
+        _ev("texture_upload_end", 2, 0.132, {"pub_id": 5}),
+        _ev("first_blit", 2, 0.133, {"pub_id": 5}),
     ]
     out = driver._reduce_spike_events(events)
     assert out is not None
@@ -68,10 +71,19 @@ def test_reduce_reports_commit_and_pump_cancel_metrics():
     # the pump ack is strictly >= the worker-side ack (it includes the drain wait).
     assert cap["p50_ms"] >= ca["p50_ms"]
 
-    # gen 2 completed and reached a first_blit -> present rate defined and 1.0.
+    # gen 2 is a terminal completed generation whose final publication blitted ->
+    # present rate gradeable and 1.0 (item 3).
     assert out["completed_generations"] == 1
+    assert out["present_rate_gradeable"] is True
     assert out["present_rate"] == 1.0
     assert out["mailbox_depth_max"] == 1
+
+    # progressive frame age = first_blit(pub 5) 0.133 - mailbox_enqueue(pub 5)
+    # 0.118 = 15 ms, and is non-negative (the old render_end -> first_blit was
+    # negative because first_blit precedes the terminal render_end).
+    fa = out["frame_age"]
+    assert fa is not None and abs(fa["p50_ms"] - 15.0) < 0.5
+    assert fa["p50_ms"] >= 0.0
 
 
 def test_cancel_ack_pairs_by_generation_not_by_timestamp():
@@ -99,6 +111,62 @@ def test_cancel_ack_pairs_by_generation_not_by_timestamp():
     assert abs(out["cancel_ack"]["p50_ms"] - 170.0) < 1.0
     # cancel_ack_pump (the gate) must pair with idle_drain(1), not idle_drain(2).
     assert abs(out["cancel_ack_pump"]["p50_ms"] - 200.0) < 1.0
+
+
+def test_present_rate_ungradeable_when_no_terminal_generation():
+    """pkg241 P2.2 item 3 (Terra review 4): the continuous edit storm never lets a
+    render reach its terminal publication while still desired — every render is
+    cancelled/superseded, so NO terminal_publication is ever emitted. The reducer
+    must report present_rate UNGRADEABLE (present_rate_gradeable False, completed 0),
+    not a definitional 0 that looks like a rendering failure."""
+    events = []
+    t = 0.0
+    for g in range(1, 6):
+        events.append(_ev("request", g, t))
+        events.append(_ev("render_start", g, t + 0.001))
+        # a progressive chunk publishes, but the next edit supersedes it before the
+        # render reaches its terminal (uncancelled) publication:
+        events.append(_ev("mailbox_enqueue", g, t + 0.002, {"pub_id": g, "depth_after": 1}))
+        events.append(_ev("cancel_request", g, t + 0.003))
+        events.append(_ev("render_end", g, t + 0.004))  # cancelled -> no terminal marker
+        events.append(_ev("idle_ack", g, t + 0.005))
+        events.append(_ev("idle_drain", g, t + 0.006))
+        t += 0.010
+    out = driver._reduce_spike_events(events)
+    assert out is not None
+    assert out["completed_generations"] == 0
+    assert out["present_rate_gradeable"] is False
+    assert out["present_rate"] is None
+
+
+def test_terminal_generation_superseded_before_blit_is_excluded():
+    """pkg241 P2.2 item 3 (Terra review 4): a terminal generation whose final
+    publication was deliberately superseded (a later edit arrived) before it could
+    blit is EXCLUDED from the present-rate denominator, not counted as a miss."""
+    events = [
+        # gen 1 reaches its terminal publication (pub 1) uncancelled...
+        _ev("request", 1, 0.000),
+        _ev("render_start", 1, 0.001),
+        _ev("mailbox_enqueue", 1, 0.002, {"pub_id": 1, "depth_after": 1}),
+        _ev("render_end", 1, 0.003),
+        _ev("terminal_publication", 1, 0.003, {"pub_id": 1}),
+        # ...but a later edit (gen 2) arrives and gen 1's terminal frame never blits.
+        _ev("request", 2, 0.004),
+        # gen 2 then terminates and blits (the eligible, presented generation).
+        _ev("render_start", 2, 0.005),
+        _ev("mailbox_enqueue", 2, 0.006, {"pub_id": 2, "depth_after": 1}),
+        _ev("render_end", 2, 0.007),
+        _ev("terminal_publication", 2, 0.007, {"pub_id": 2}),
+        _ev("first_blit", 2, 0.009, {"pub_id": 2}),
+    ]
+    out = driver._reduce_spike_events(events)
+    assert out is not None
+    # gen 1 excluded (superseded before blit); gen 2 eligible + presented.
+    assert out["completed_generations"] == 1
+    assert out["superseded_generations"] == 1
+    assert out["presented_completed"] == 1
+    assert out["present_rate"] == 1.0
+    assert out["present_rate_gradeable"] is True
 
 
 def test_reduce_returns_none_on_synchronous_path():

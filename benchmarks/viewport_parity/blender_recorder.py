@@ -418,8 +418,11 @@ def _install_ui_latency():
         # by the exporter's _spike_event_sink (worker + main thread) when
         # ASTRORAY_VIEWPORT_WORKER=1. Empty on the synchronous path.
         "events": [],           # (name, generation, t_perf_counter, epoch, extra)
-        "blitted_gens": set(),  # generations that already produced a first_blit
+        # pkg241 P2.2 item 3 (Terra review 4): first_blit is per-PUBLICATION (pub_id)
+        # so progressive frame age = first_blit(pub) - mailbox_enqueue(pub) >= 0.
+        "blitted_pubs": set(),  # pub_ids that already produced a first_blit
         "pending_blit_gen": None,
+        "pending_blit_pubid": None,
     }
     dns["_pkg241"] = S
 
@@ -437,6 +440,7 @@ def _install_ui_latency():
             S["events"].append((name, generation, t, epoch, dict(extra)))
             if name == "texture_upload_end":
                 S["pending_blit_gen"] = generation
+                S["pending_blit_pubid"] = extra.get("pub_id")
 
         exporter_mod._spike_event_sink = _event_sink
 
@@ -456,13 +460,16 @@ def _install_ui_latency():
     def present_cb():
         now = time.perf_counter()
         S["presents"].append(now)
-        # pkg241 Phase 2 A2 spike (§9): the first present after a texture upload is
-        # the first_blit for that generation — the end of the request->blit chain.
+        # pkg241 P2.2 item 3 (Terra review 4): the first present after a texture
+        # upload is the first_blit for that PUBLICATION (pub_id) — the end of the
+        # enqueue->blit chain for that specific progressive frame.
         g = S.get("pending_blit_gen")
-        if g is not None and g not in S["blitted_gens"]:
-            S["blitted_gens"].add(g)
+        pub = S.get("pending_blit_pubid")
+        if pub is not None and pub not in S["blitted_pubs"]:
+            S["blitted_pubs"].add(pub)
             S["pending_blit_gen"] = None
-            S["events"].append(("first_blit", g, now, 0, {}))
+            S["pending_blit_pubid"] = None
+            S["events"].append(("first_blit", g, now, 0, {"pub_id": pub}))
 
     S["handler"] = bpy.types.SpaceView3D.draw_handler_add(
         present_cb, (), "WINDOW", "POST_PIXEL")
@@ -584,8 +591,9 @@ def _install_ui_latency():
                     S["presents"] = []
                     # pkg241 Phase 2 A2 spike: drop warmup lifeline events too.
                     S["events"] = []
-                    S["blitted_gens"] = set()
+                    S["blitted_pubs"] = set()
                     S["pending_blit_gen"] = None
+                    S["pending_blit_pubid"] = None
                 _drive_edit(_should_dispatch(now))
                 return tick_s
             # phase == "run"
@@ -699,7 +707,8 @@ def _install_present_check():
             after = getattr(self, "presents", 0)
             if after > before and frame is not None and _np is not None:
                 try:
-                    gen, buffer, _w, _h = frame
+                    # pkg241 P2.2 item 3: mailbox tuple gained a pub_id.
+                    gen, _pub_id, buffer, _w, _h = frame
                     a = _np.asarray(buffer, dtype=_np.float32)
                     S["present_buffers"].append(
                         (int(gen), float(a.min()), float(a.max()),

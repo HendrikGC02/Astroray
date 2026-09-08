@@ -697,35 +697,59 @@ def _reduce_spike_events(events):
         lst = by_gen.get(g, {}).get(name)
         return lst[0][0] if lst else None
 
-    def _max_desired_before(t_end):
-        m = 0
-        for (g, t) in request_ts:
-            if t <= t_end and g > m:
-                m = g
-        return m
+    # per-PUBLICATION enqueue/blit index (pkg241 P2.2 item 3, Terra review 4).
+    # Progressive frame age is measured per publication (mailbox_enqueue(pub) ->
+    # first_blit(pub)), which is necessarily >= 0. The spike's old definition
+    # (render_end -> first_blit) went NEGATIVE because the worker publishes
+    # progressive chunks BEFORE the terminal render_end, so it never established a
+    # rendering failure — it was a metric-definition bug.
+    enqueue_t, blit_t = {}, {}
+    for (n, g, t, _e, x) in ev:
+        if n == "mailbox_enqueue" and "pub_id" in x:
+            enqueue_t.setdefault(x["pub_id"], t)
+        elif n == "first_blit" and "pub_id" in x:
+            blit_t.setdefault(x["pub_id"], t)
+    frame_age_ms = []
+    for pub, tb in blit_t.items():
+        te = enqueue_t.get(pub)
+        if te is not None:
+            frame_age_ms.append(max(0.0, (tb - te) * 1000.0))
 
-    request_to_blit_ms, frame_age_ms = [], []
+    request_to_blit_ms = []
     commit_ms = []  # pkg241 P2.2 item 2: per-generation main-thread commit cost
-    completed = superseded = presented_completed = 0
-    for g, names in by_gen.items():
-        r_end = _first(g, "render_end")
-        f_blit = _first(g, "first_blit")
+    for g in by_gen:
         r_req = _first(g, "request")
+        f_blit = _first(g, "first_blit")
         c_start = _first(g, "commit_start")
         c_end = _first(g, "commit_end")
         if c_start is not None and c_end is not None:
             commit_ms.append((c_end - c_start) * 1000.0)
         if f_blit is not None and r_req is not None:
             request_to_blit_ms.append((f_blit - r_req) * 1000.0)
-        if f_blit is not None and r_end is not None:
-            frame_age_ms.append((f_blit - r_end) * 1000.0)
-        if r_end is not None:
-            if _max_desired_before(r_end) > g:
-                superseded += 1
-            else:
-                completed += 1
-                if f_blit is not None:
-                    presented_completed += 1
+
+    # terminal completion + present rate (pkg241 P2.2 item 3, Terra review 4).
+    # A terminal_publication(g, pub_id) is emitted by the worker ONLY when a render
+    # reached its target spp without cancellation, so its existence already encodes
+    # "reached its marked final publication without cancellation". A terminal gen is
+    # ELIGIBLE (present-rate denominator) when it remained current until its final
+    # publication blitted (a blitted terminal frame was current at blit — the drain
+    # discards superseded frames) or was never superseded through run end; a terminal
+    # gen deliberately superseded before its terminal frame blitted is excluded.
+    # Settle mode is UNGRADEABLE when no eligible terminal generation exists.
+    max_request_gen = max((g for (g, _t) in request_ts), default=0)
+    terminal = {}  # gen -> terminal pub_id
+    for (n, g, _t, _e, x) in ev:
+        if n == "terminal_publication" and "pub_id" in x:
+            terminal[g] = x["pub_id"]
+    completed = superseded = presented_completed = 0
+    for g, pub in terminal.items():
+        if pub in blit_t:
+            completed += 1
+            presented_completed += 1
+        elif g >= max_request_gen:
+            completed += 1          # never superseded, but its final frame missed
+        else:
+            superseded += 1         # deliberately superseded before blit — excluded
 
     # cancel-ack (pkg241 P2.2 item 3/4, Terra review 4): each cancel_request(g) is
     # now tagged with the actual IN-FLIGHT generation and emitted only on the
@@ -792,6 +816,10 @@ def _reduce_spike_events(events):
                 "p99_ms": round(_percentile(s, 99), 2),
                 "max_ms": round(max(s), 2)}
 
+    # present-rate is UNGRADEABLE when no eligible terminal generation exists
+    # (e.g. the continuous edit storm never lets a render reach its terminal
+    # publication while still desired). Report the flag rather than a fake 0.
+    present_rate_gradeable = completed > 0
     present_rate = (presented_completed / completed) if completed else None
     return {
         "n_events": len(ev),
@@ -806,6 +834,7 @@ def _reduce_spike_events(events):
         "superseded_generations": superseded,
         "presented_completed": presented_completed,
         "present_rate": round(present_rate, 4) if present_rate is not None else None,
+        "present_rate_gradeable": present_rate_gradeable,
         "devices_seen": devices,
         "n_render_device": n_render_device,
         "cuda_errors": n_errors,
@@ -1175,9 +1204,11 @@ def run_ui_latency(args) -> dict:
                 cap = spike.get("cancel_ack_pump") or {}
                 tt = spike.get("texture_upload_tail") or {}
                 cc = spike.get("commit_cost") or {}
+                _pr = (spike['present_rate'] if spike.get('present_rate_gradeable')
+                       else "UNGRADEABLE")
                 print(f"[pkg241-p2]   spike: completed={spike['completed_generations']} "
                       f"presented={spike['presented_completed']} "
-                      f"present_rate={spike['present_rate']} "
+                      f"present_rate={_pr} "
                       f"mailbox_depth_max={spike['mailbox_depth_max']} "
                       f"commit p95={cc.get('p95_ms')} "
                       f"cancel_ack p99={ca.get('p99_ms')} "
@@ -1291,9 +1322,13 @@ def _write_ui_latency_summary_md(doc, path):
             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for c in spike_rows:
             s = c["spike"]
+            # pkg241 P2.2 item 3 (Terra review 4): present_rate is UNGRADEABLE when
+            # no eligible terminal generation exists (continuous storm), not a fake 0.
+            pr = (s["present_rate"] if s.get("present_rate_gradeable")
+                  else "UNGRADEABLE")
             lines.append(
                 f"| {c['scene']} | {c['engine']} | {s['completed_generations']} | "
-                f"{s['presented_completed']} | {s['present_rate']} | "
+                f"{s['presented_completed']} | {pr} | "
                 f"{_p(s, 'commit_cost')} | {_p(s, 'cancel_ack', 'p99_ms')} | "
                 f"{_p(s, 'cancel_ack_pump', 'p99_ms')} | {_p(s, 'frame_age')} | "
                 f"{_p(s, 'texture_upload_tail')} | {s['mailbox_depth_max']} | "
@@ -1302,10 +1337,13 @@ def _write_ui_latency_summary_md(doc, path):
             "",
             "`commit p95` (P2.2 item 2) is the per-generation main-thread commit "
             "cost; a bounded commit is what lets `cancel_ack_pump p99` (P2.2 item "
-            "3 -- cancel_request to the pump draining the worker's idle) meet the "
-            "<= 300 ms gate. `present_rate`/`frame_age` are only defined under "
-            "`--ui-pattern settle` (item 4); the continuous stress ticker leaves "
-            "`completed=0`.", ""]
+            "3/4 -- cancel_request(in-flight g) to the pump draining that gen's "
+            "idle_drain(g)) meet the <= 300 ms gate. `present_rate` (terminal "
+            "generations whose final publication blitted / eligible terminal "
+            "generations) and `frame_age` (per-publication mailbox_enqueue -> "
+            "first_blit, >= 0) are defined under `--ui-pattern settle`; when no "
+            "eligible terminal generation exists (the continuous stress storm) "
+            "`present_rate` is reported UNGRADEABLE, not 0.", ""]
     path.write_text("\n".join(lines), encoding="utf-8")
 
 

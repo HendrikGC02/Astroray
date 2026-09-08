@@ -357,10 +357,15 @@ class _ViewportSpikeWorker:
 
         # depth-1 latest-frame mailbox (§3.3): a newer frame REPLACES an unconsumed
         # older one; depth never exceeds 1. Protected by _mailbox_lock.
-        self._mailbox = None       # (generation, buffer, width, height) or None
+        self._mailbox = None       # (generation, pub_id, buffer, width, height) or None
         self._mailbox_lock = threading.Lock()
         self.mailbox_depth = 0
         self.mailbox_depth_max = 0
+        # pkg241 P2.2 item 3 (Terra review 4): a monotonic publication id per chunk
+        # so frame age is measured per PUBLICATION (enqueue -> first_blit, >= 0) and
+        # a generation's terminal (final, uncancelled) publication can be marked.
+        self._pub_seq = 0
+        self._last_pub_id = None
 
         # control/error queue (§3.3) — never dropped, unlike stale frames.
         self._control = queue.Queue(maxsize=64)
@@ -544,25 +549,29 @@ class _ViewportSpikeWorker:
             self.mailbox_depth = 0
         if frame is None:
             return
-        gen, buffer, width, height = frame
+        gen, pub_id, buffer, width, height = frame
         _emit_spike_event("mailbox_dequeue", gen, self.session_epoch,
-                          depth_before=depth_before)
+                          pub_id=pub_id, depth_before=depth_before)
         if gen == self.desired_generation and self.state != self.DEAD:
             self._present_fn(buffer, width, height, gen)
             self.presents += 1
-            _emit_spike_event("texture_upload_end", gen, self.session_epoch)
+            _emit_spike_event("texture_upload_end", gen, self.session_epoch,
+                              pub_id=pub_id)
         # else: superseded — discarded (no stale present).
 
     def _publish_frame(self, generation, buffer, width, height):
         """Worker thread: publish a completed chunk into the depth-1 mailbox,
         REPLACING any unconsumed older frame (§3.3). Depth never exceeds 1."""
         with self._mailbox_lock:
-            self._mailbox = (generation, buffer, width, height)
+            self._pub_seq += 1
+            pub_id = self._pub_seq
+            self._mailbox = (generation, pub_id, buffer, width, height)
             self.mailbox_depth = 1
             if self.mailbox_depth > self.mailbox_depth_max:
                 self.mailbox_depth_max = self.mailbox_depth
+        self._last_pub_id = pub_id
         _emit_spike_event("mailbox_enqueue", generation, self.session_epoch,
-                          depth_after=1)
+                          pub_id=pub_id, depth_after=1)
 
     def _worker_loop(self):
         """Worker daemon thread: wait for a committed job, render it (holding the
@@ -577,6 +586,7 @@ class _ViewportSpikeWorker:
             if job is None:
                 continue
             gen = job.get("generation")
+            self._last_pub_id = None
             _emit_spike_event("render_start", gen, self.session_epoch)
             superseded_or_error = False
             try:
@@ -590,6 +600,16 @@ class _ViewportSpikeWorker:
                 _emit_spike_event("render_end", gen, self.session_epoch)
                 if not self._cancel_event.is_set():
                     self.completed_generations += 1
+                    # pkg241 P2.2 item 3 (Terra review 4): the render reached its
+                    # target spp WITHOUT cancellation, so this generation's last
+                    # publication is its TERMINAL publication. Mark it (by pub_id)
+                    # so the reducer scores terminal completion + present-rate on
+                    # the final frame — not on render_end, which is later than the
+                    # progressive first_blit and made the old frame_age negative.
+                    if self._last_pub_id is not None:
+                        _emit_spike_event("terminal_publication", gen,
+                                          self.session_epoch,
+                                          pub_id=self._last_pub_id)
             except Exception as exc:  # worker exception (§3.9): store + report
                 superseded_or_error = True
                 self._control.put(("error", gen, self.session_epoch, exc))

@@ -169,6 +169,33 @@ gate (b)'s frequency-weighted coverage measurement. It serves Pillar 5.
 
 ## Progress
 
+- [x] 2026-09-08 evening — continuation lane closed out PR #761: restored
+      `textures_mapping_astroray_cpu.png` (regenerated from the render's
+      linear `.npy` with `render_leg.py`'s own sRGB tonemap after the prior
+      lane's working tree had it deleted) and rebuilt its contact sheet;
+      merged `origin/main` (5dea6e37, incl. pkg260 #758) — one conflict
+      (`allocation_table.md`) resolved by taking main's script then
+      regenerating against the merged 586-row `coverage_matrix.json`.
+      pkg260 added 42 rows to `textures_mapping` (`image_property`,
+      `input_node`: NEW_GEOMETRY/OBJECT_INFO/ATTRIBUTE/VERTEX_COLOR/
+      LIGHT_PATH), all DROPPED-SILENT; 10 already covered by existing
+      README text, the other 32 added to the README gap registry +
+      `gap_registry.json` (`textures_mapping` now 263 rows owned / 181 gap
+      registry, `materials_hall` unaffected). `test_reference_corpus_manifest.py`
+      (7/7) and `test_reference_scene_corpus.py` (19/19) re-run clean
+      post-merge. Visually inspected both contact sheets: `materials_hall`
+      alcove content/positions match Cycles but the Astroray leg is much
+      noisier at the same declared 128spp (1915.8s vs Cycles' ~1.2s,
+      reading as Cycles' adaptive sampling stopping early) with one addon
+      degradation notice (9 approximated BSDF paths, incl. `BSDF_METALLIC`
+      dropping Normal/Tangent/Weight and `MULTI_GGX`); `textures_mapping`
+      confirms the earlier-flagged defect — all 5 procedural-pattern-node
+      `-> Emission -> Output` proof cards render flat white/blank on
+      Astroray (Cycles shows each pattern), silently (no addon warning),
+      while the same nodes into Principled Base Color elsewhere are known
+      to work. Findings written into the PR body for the lead to triage;
+      no engine/addon fix attempted (spec non-goal). PR #761 mergeable:
+      MERGEABLE (mergeStateStatus UNSTABLE = CI pending re-run post-merge).
 - [x] 2026-09-08 afternoon — Phase 1 built: `build_materials_hall_scene` +
       `build_textures_mapping_scene` added to `scene_library.py` (corridor
       gallery / printmaker's workshop per the design doc, both reusing

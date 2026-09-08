@@ -39,9 +39,15 @@ from typing import Any
 # repo root = .../Astroray ; metal_ab is at benchmarks/cycles-parity/metal_ab
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT))  # for `benchmarks.reference_bank`
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # for sibling `scenes`
-
-import scenes as _scenes  # noqa: E402
+# Sibling `scenes.py` is loaded under a UNIQUE module name: the thin_film harness has
+# its own `scenes.py` and a bare `import scenes` is whichever loaded first in a full
+# pytest run (pkg263 CI failure: `module 'scenes' has no attribute 'GLASS_CAM_FOV_DEG'`).
+import importlib.util as _ilu  # noqa: E402
+_scenes_spec = _ilu.spec_from_file_location(
+    "metal_ab_scenes", Path(__file__).resolve().parent / "scenes.py")
+_scenes = _ilu.module_from_spec(_scenes_spec)
+sys.modules["metal_ab_scenes"] = _scenes
+_scenes_spec.loader.exec_module(_scenes)
 
 SENTINEL = "PKG129_LEG"
 _RENDER_LEG = Path(__file__).resolve().parent / "render_leg.py"

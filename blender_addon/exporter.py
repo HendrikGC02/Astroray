@@ -510,6 +510,13 @@ class _ViewportSpikeWorker:
                     self.in_flight_generation = None
                     if self.state == self.RENDERING:
                         self.state = self.IDLE
+                    # pkg241 P2.2 item 3: the idle notification is DRAINED here, on
+                    # the main thread. idle_ack was emitted worker-side at enqueue;
+                    # idle_drain marks when the main-thread pump actually consumed
+                    # it (which waits behind any in-progress commit — bounded by
+                    # item 2). cancel_request -> idle_drain is the true end-to-end
+                    # cancel-ack the p99 <= 300 ms gate is measured against.
+                    _emit_spike_event("idle_drain", gen, self.session_epoch)
             elif kind == "error":
                 # Errors are never dropped for a superseded generation (a
                 # superseded render can still corrupt the shared WfContext); only
@@ -665,7 +672,13 @@ class Exporter:
         self._worker_timer = None
         self._worker_engine_methods = None
         self._worker_redraw_fn = None
-        self._worker_pending_full_sync = False
+        # pkg241 P2.2 item 2 (bounded commit): True when a scene/material edit
+        # arrived while the worker was busy (token held) and therefore could not
+        # be committed incrementally with its live depsgraph. The deferred commit
+        # (next idle view_draw) falls back to a full sync_viewport_scene; an
+        # edit committed immediately while the worker is idle uses the cheaper
+        # incremental apply_depsgraph_updates dispatch instead.
+        self._worker_deferred_scene = False
 
         # Per-domain caches
         self._camera_cache = CameraCache(bpy_module)
@@ -1496,16 +1509,53 @@ class Exporter:
     def _worker_commit_and_submit(self, context, depsgraph, settings, region,
                                   configure_backend_fn, viewport_perf_record_fn,
                                   effective_integrator_name_fn, engine_methods,
-                                  full_sync):
+                                  commit_mode):
         """Main thread: if the worker is IDLE and a newer generation is desired,
-        commit the snapshot (scene sync when full_sync, then camera + wavelength +
-        integrator + passes) into the persistent renderer under the token and
-        submit render() to the worker (§3.2). The commit reads bpy here, on the
-        main thread; the worker only renders."""
+        commit the snapshot into the persistent renderer under the token and submit
+        render() to the worker (§3.2). The commit reads bpy here, on the main
+        thread; the worker only renders.
+
+        pkg241 P2.2 item 2 (bounded commit) — `commit_mode` selects only what
+        changed, so the main thread no longer runs a full scene upload for every
+        generation (the residual tick-gap p95 in the spike):
+
+          - 'camera'          : camera/settings only, no scene sync, skip_upload=True
+                                (a pan/zoom/orbit re-renders from device state).
+          - 'scene'           : a scene/material edit committed immediately while the
+                                worker is idle, with its LIVE depsgraph — uses the
+                                incremental pkg56 dispatch (apply_depsgraph_updates),
+                                falling back to a full sync only on first sync or an
+                                unrecognised update.
+          - 'scene_full'      : a scene edit that was deferred while the worker was
+                                busy (its depsgraph is now stale) — full sync.
+
+        In all modes the cheap per-frame config (camera, wavelength, integrator,
+        passes) is committed. The commit_start/commit_end lifeline events emitted by
+        maybe_submit bracket this so the driver can attribute the per-generation
+        commit cost."""
         def commit_fn(gen):
             renderer = self._get_viewport_renderer()
-            do_full = full_sync or not self._viewport_full_synced
-            if do_full:
+            skip_upload = False
+            if commit_mode == 'camera' and self._viewport_full_synced:
+                # No scene mutation: refit/render from already-uploaded device state.
+                skip_upload = True
+            elif commit_mode == 'scene' and self._viewport_full_synced:
+                # Incremental dispatch with the live depsgraph (pkg56). 'fallback'
+                # => an unrecognised update, so do a full sync; 'idle'/'dispatched'
+                # => the matching uploader(s) ran, and skip_upload was set by
+                # apply_depsgraph_updates for a refit-only (transform) edit.
+                dispatch = self.apply_depsgraph_updates(
+                    renderer, depsgraph, settings, configure_backend_fn,
+                    self.engine.report)
+                if dispatch == 'fallback':
+                    self.sync_viewport_scene(
+                        renderer, depsgraph, settings, configure_backend_fn,
+                        viewport_perf_record_fn, effective_integrator_name_fn)
+                else:
+                    skip_upload = self._viewport_skip_upload_next
+                self._viewport_skip_upload_next = False
+            else:
+                # 'scene_full', or the first sync in any mode: full scene upload.
                 self.sync_viewport_scene(
                     renderer, depsgraph, settings, configure_backend_fn,
                     viewport_perf_record_fn, effective_integrator_name_fn)
@@ -1538,9 +1588,10 @@ class Exporter:
                 "width": width, "height": height, "depth": depth,
                 "target_spp": target, "chunk": max(1, chunk),
                 "display_pass": display_pass,
-                # First render of a full-sync generation must upload + build the
-                # BVH; a camera-only generation reuses device state.
-                "skip_upload": (not do_full),
+                # skip_upload was resolved above per commit_mode: True only for a
+                # camera/refit generation (or a refit-only incremental dispatch);
+                # a full or material sync must upload + rebuild device state.
+                "skip_upload": bool(skip_upload),
                 "diffuse": min(settings.diffuse_bounces, depth),
                 "glossy": min(settings.glossy_bounces, depth),
                 "transmission": min(settings.transmission_bounces, depth),
@@ -1549,17 +1600,22 @@ class Exporter:
             }
 
         submitted = self._worker.maybe_submit(commit_fn)
-        if submitted:
-            self._worker_pending_full_sync = False
+        if submitted and commit_mode in ('scene', 'scene_full'):
+            # A committed scene edit clears the deferred-scene debt (item 2).
+            self._worker_deferred_scene = False
+        return submitted
 
     def _worker_view_update(self, context, depsgraph, configure_backend_fn,
                             effective_integrator_name_fn, viewport_perf_record_fn,
                             camera_state_hash_fn, camera_substantive_state_hash_fn,
                             request_viewport_redraw_fn, engine_methods):
         """Worker-path view_update (§3.4): a scene/material edit bumps the desired
-        generation, requests cancel, and — if the worker is idle — commits (with a
-        full scene sync) and submits. If the worker is busy, the edit is deferred:
-        the next view_draw retries the commit with its own depsgraph."""
+        generation and requests cancel. pkg241 P2.2 item 2 (bounded commit): if the
+        worker is idle the edit is committed immediately with its LIVE depsgraph via
+        the incremental pkg56 dispatch (commit_mode='scene'); if the worker is busy
+        (token held) the edit is DEFERRED and the next idle view_draw re-commits it
+        as a full sync (commit_mode='scene_full'), because the depsgraph.updates it
+        would need are only valid during this call."""
         import traceback
         try:
             scene = depsgraph.scene
@@ -1570,12 +1626,15 @@ class Exporter:
             region = context.region
             worker = self._ensure_worker(engine_methods, request_viewport_redraw_fn)
             worker.request()
-            self._worker_pending_full_sync = True
             worker.pump()
-            self._worker_commit_and_submit(
+            submitted = self._worker_commit_and_submit(
                 context, depsgraph, settings, region, configure_backend_fn,
                 viewport_perf_record_fn, effective_integrator_name_fn,
-                engine_methods, full_sync=True)
+                engine_methods, commit_mode='scene')
+            if not submitted:
+                # Worker busy: defer. The live depsgraph is gone by the next tick,
+                # so the deferred commit falls back to a full sync.
+                self._worker_deferred_scene = True
             self._viewport_camera_hash = camera_state_hash_fn(context, region)
             self._viewport_camera_substantive_hash = \
                 camera_substantive_state_hash_fn(context, region)
@@ -1607,7 +1666,6 @@ class Exporter:
                               and new_hash != self._viewport_camera_hash)
             if camera_changed:
                 worker.request()
-                self._worker_pending_full_sync = False
                 self._viewport_camera_hash = new_hash
                 self._viewport_camera_substantive_hash = \
                     camera_substantive_state_hash_fn(context, region)
@@ -1615,10 +1673,14 @@ class Exporter:
             # Pump: present the freshest valid published frame + advance state.
             worker.pump()
             # Commit + submit the desired generation if the worker is now idle.
+            # pkg241 P2.2 item 2: a scene edit deferred while the worker was busy is
+            # re-committed here as a full sync (its live depsgraph is gone); an
+            # ordinary camera move commits camera-only with skip_upload.
+            commit_mode = 'scene_full' if self._worker_deferred_scene else 'camera'
             self._worker_commit_and_submit(
                 context, depsgraph, settings, region, configure_backend_fn,
                 viewport_perf_record_fn, effective_integrator_name_fn,
-                engine_methods, full_sync=self._worker_pending_full_sync)
+                engine_methods, commit_mode=commit_mode)
 
             # Keep the loop alive while a render is in flight or a frame is queued.
             if worker.state != _ViewportSpikeWorker.IDLE:

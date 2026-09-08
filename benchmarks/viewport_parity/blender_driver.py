@@ -632,7 +632,8 @@ def _run_cancel(host, port, samples):
     return _bridge(src, host, port, timeout=600.0)
 
 
-def _run_ui_latency(host, port, duration_s, warmup_s, tick_s, _retries=1):
+def _run_ui_latency(host, port, duration_s, warmup_s, tick_s,
+                    pattern="continuous", burst_s=0.4, settle_s=2.0, _retries=1):
     """pkg241 Phase 2: install the fine-ticker recorder, poll to completion,
     fetch the raw tick/render/present streams for one (scene, engine) rep.
 
@@ -642,7 +643,8 @@ def _run_ui_latency(host, port, duration_s, warmup_s, tick_s, _retries=1):
     harmless to retry since the whole recorder state is freshly reinstalled
     by the setup call below and no partial results are banked on failure)."""
     cfg = {"event_class": "ui_latency", "duration_s": duration_s,
-           "warmup_s": warmup_s, "tick_s": tick_s}
+           "warmup_s": warmup_s, "tick_s": tick_s,
+           "pattern": pattern, "burst_s": burst_s, "settle_s": settle_s}
     setup = "_PKG241_CONFIG = " + json.dumps(cfg) + "\n" + _recorder_src()
     info = _bridge(setup, host, port)
     if info.get("setup") != "ok":
@@ -667,7 +669,8 @@ def _run_ui_latency(host, port, duration_s, warmup_s, tick_s, _retries=1):
             print(f"[pkg241-p2]     recorder state lost mid-rep "
                   f"({exc}); retrying once")
             return _run_ui_latency(host, port, duration_s, warmup_s, tick_s,
-                                    _retries=_retries - 1)
+                                    pattern=pattern, burst_s=burst_s,
+                                    settle_s=settle_s, _retries=_retries - 1)
         raise
     res = _bridge(_RESULTS, host, port)
     _bridge(_TEARDOWN, host, port)
@@ -702,11 +705,16 @@ def _reduce_spike_events(events):
         return m
 
     request_to_blit_ms, frame_age_ms = [], []
+    commit_ms = []  # pkg241 P2.2 item 2: per-generation main-thread commit cost
     completed = superseded = presented_completed = 0
     for g, names in by_gen.items():
         r_end = _first(g, "render_end")
         f_blit = _first(g, "first_blit")
         r_req = _first(g, "request")
+        c_start = _first(g, "commit_start")
+        c_end = _first(g, "commit_end")
+        if c_start is not None and c_end is not None:
+            commit_ms.append((c_end - c_start) * 1000.0)
         if f_blit is not None and r_req is not None:
             request_to_blit_ms.append((f_blit - r_req) * 1000.0)
         if f_blit is not None and r_end is not None:
@@ -719,14 +727,23 @@ def _reduce_spike_events(events):
                 if f_blit is not None:
                     presented_completed += 1
 
-    # cancel-ack: each cancel_request -> the next idle_ack after it (ms).
+    # cancel-ack (pkg241 P2.2 item 3): measured two ways per cancel_request.
+    #  - worker-side (cancel_request -> next idle_ack): how fast the worker stops
+    #    its in-flight chunk and enqueues idle.
+    #  - end-to-end through the pump (cancel_request -> next idle_drain): adds the
+    #    time the idle notification waits on the busy main thread before the pump
+    #    consumes it. This is the number the p99 <= 300 ms gate is graded against.
     cancel_ts = sorted(t for (n, _g, t, _e, _x) in ev if n == "cancel_request")
     idle_ts = sorted(t for (n, _g, t, _e, _x) in ev if n == "idle_ack")
-    cancel_ack_ms = []
+    drain_ts = sorted(t for (n, _g, t, _e, _x) in ev if n == "idle_drain")
+    cancel_ack_ms, cancel_ack_pump_ms = [], []
     for tc in cancel_ts:
         nxt = next((ti for ti in idle_ts if ti > tc), None)
         if nxt is not None:
             cancel_ack_ms.append((nxt - tc) * 1000.0)
+        nxt_d = next((ti for ti in drain_ts if ti > tc), None)
+        if nxt_d is not None:
+            cancel_ack_pump_ms.append((nxt_d - tc) * 1000.0)
 
     # texture-upload tail: mailbox_dequeue -> the next texture_upload_end (ms).
     tex_tail_ms = []
@@ -767,7 +784,9 @@ def _reduce_spike_events(events):
         "n_events": len(ev),
         "request_to_first_blit": _pct(request_to_blit_ms),
         "frame_age": _pct(frame_age_ms),
+        "commit_cost": _pct(commit_ms),
         "cancel_ack": _pct(cancel_ack_ms),
+        "cancel_ack_pump": _pct(cancel_ack_pump_ms),
         "texture_upload_tail": _pct(tex_tail_ms),
         "mailbox_depth_max": mailbox_depth_max,
         "completed_generations": completed,
@@ -1006,7 +1025,10 @@ def run_ui_latency(args) -> dict:
             reps = []
             for rep in range(args.ui_reps):
                 res = _run_ui_latency(host, port, args.duration_s,
-                                       args.warmup_s, args.tick_s)
+                                       args.warmup_s, args.tick_s,
+                                       pattern=args.ui_pattern,
+                                       burst_s=args.ui_burst_s,
+                                       settle_s=args.ui_settle_s)
                 summ = _summarize_ui_latency(res)
                 reps.append(summ)
                 print(f"[pkg241-p2]     rep {rep + 1}/{args.ui_reps}: "
@@ -1064,12 +1086,16 @@ def run_ui_latency(args) -> dict:
                   f"budget<=33ms: {'PASS' if p95 is not None and p95 <= 33.0 else 'FAIL/NA'}")
             if spike is not None:
                 ca = spike.get("cancel_ack") or {}
+                cap = spike.get("cancel_ack_pump") or {}
                 tt = spike.get("texture_upload_tail") or {}
+                cc = spike.get("commit_cost") or {}
                 print(f"[pkg241-p2]   spike: completed={spike['completed_generations']} "
                       f"presented={spike['presented_completed']} "
                       f"present_rate={spike['present_rate']} "
                       f"mailbox_depth_max={spike['mailbox_depth_max']} "
+                      f"commit p95={cc.get('p95_ms')} "
                       f"cancel_ack p99={ca.get('p99_ms')} "
+                      f"cancel_ack_pump p99={cap.get('p99_ms')} "
                       f"tex_tail p95={tt.get('p95_ms')} "
                       f"devices={spike['devices_seen']} "
                       f"cuda_errors={spike['cuda_errors']} "
@@ -1162,6 +1188,38 @@ def _write_ui_latency_summary_md(doc, path):
         "viewport kept refining, not merely idling), demonstrating the "
         "decoupled reference the owner described.")
     lines.append("")
+
+    # pkg241 P2.2 (§9 + items 2/3): the generation-tagged worker reduction, when
+    # present (ASTRORAY_VIEWPORT_WORKER=1). Empty on the synchronous path.
+    spike_rows = [c for c in doc["configs"] if c.get("spike")]
+    if spike_rows:
+        def _p(d, k, s="p95_ms"):
+            v = (d or {}).get(k) or {}
+            return v.get(s)
+        lines += [
+            "## worker lifeline (ASTRORAY_VIEWPORT_WORKER=1) -- generation-tagged",
+            "",
+            "| scene | engine | completed | presented | present_rate | commit p95 | "
+            "cancel_ack p99 | cancel_ack_pump p99 | frame_age p95 | tex_tail p95 | "
+            "mailbox_max | devices | cuda_err |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        for c in spike_rows:
+            s = c["spike"]
+            lines.append(
+                f"| {c['scene']} | {c['engine']} | {s['completed_generations']} | "
+                f"{s['presented_completed']} | {s['present_rate']} | "
+                f"{_p(s, 'commit_cost')} | {_p(s, 'cancel_ack', 'p99_ms')} | "
+                f"{_p(s, 'cancel_ack_pump', 'p99_ms')} | {_p(s, 'frame_age')} | "
+                f"{_p(s, 'texture_upload_tail')} | {s['mailbox_depth_max']} | "
+                f"{s['devices_seen']} | {s['cuda_errors']} |")
+        lines += [
+            "",
+            "`commit p95` (P2.2 item 2) is the per-generation main-thread commit "
+            "cost; a bounded commit is what lets `cancel_ack_pump p99` (P2.2 item "
+            "3 -- cancel_request to the pump draining the worker's idle) meet the "
+            "<= 300 ms gate. `present_rate`/`frame_age` are only defined under "
+            "`--ui-pattern settle` (item 4); the continuous stress ticker leaves "
+            "`completed=0`.", ""]
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -1232,6 +1290,17 @@ def main():
     p.add_argument("--warmup-s", dest="warmup_s", type=float, default=2.0)
     p.add_argument("--tick-s", dest="tick_s", type=float, default=0.005,
                    help="fine ticker interval (default 5 ms)")
+    # pkg241 P2.2 item 4: edit-dispatch pattern for --mode ui_latency.
+    p.add_argument("--ui-pattern", dest="ui_pattern", default="continuous",
+                   choices=["continuous", "settle"],
+                   help="continuous = an edit every tick (stress; present-rate "
+                        "undefined); settle = edit bursts + idle spans so "
+                        "completed/present-rate/frame-age are defined")
+    p.add_argument("--ui-burst-s", dest="ui_burst_s", type=float, default=0.4,
+                   help="settle pattern: seconds of edits per cycle")
+    p.add_argument("--ui-settle-s", dest="ui_settle_s", type=float, default=2.0,
+                   help="settle pattern: idle seconds per cycle (worker "
+                        "completes + presents the settling generation)")
     args = p.parse_args(argv)
     if args.cpu_events is None:
         args.cpu_events = args.events

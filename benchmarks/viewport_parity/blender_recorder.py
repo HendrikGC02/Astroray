@@ -387,10 +387,22 @@ def _install_ui_latency():
     duration_s = float(_CFG.get("duration_s", 10.0))
     warmup_s = float(_CFG.get("warmup_s", 2.0))
     tick_s = float(_CFG.get("tick_s", 0.005))
+    # pkg241 P2.2 item 4: edit-dispatch pattern.
+    #  - "continuous" (default): an edit every tick — the stress variant. The
+    #    worker never settles, so no generation is ever the latest desired at its
+    #    own render_end and completed/present-rate/frame-age are undefined (the
+    #    spike's measurement confound).
+    #  - "settle": bursts of edits (burst_s) followed by idle spans (settle_s) so
+    #    a generation becomes the latest desired and can complete + present; this
+    #    is what makes completed, present-rate and frame age well defined.
+    pattern = str(_CFG.get("pattern", "continuous"))
+    burst_s = float(_CFG.get("burst_s", 0.4))
+    settle_s = float(_CFG.get("settle_s", 2.0))
 
     S = {
         "cfg": {"event_class": "ui_latency", "duration_s": duration_s,
-                "warmup_s": warmup_s, "tick_s": tick_s},
+                "warmup_s": warmup_s, "tick_s": tick_s,
+                "pattern": pattern, "burst_s": burst_s, "settle_s": settle_s},
         "ticks": [],       # perf_counter() at every timer invocation (post-warmup)
         "renders": [],     # (start, end) render_viewport_frame calls (astroray only)
         "presents": [],    # POST_PIXEL draw-handler timestamps
@@ -506,13 +518,18 @@ def _install_ui_latency():
     # (unblocked) ticker can reach, closer to a real user's input rate.
     _MIN_EDIT_INTERVAL_S = 0.02
 
-    def _drive_edit():
+    def _drive_edit(dispatch=True):
         # Alternate camera / material edits so both event classes contribute
         # continuous chunk-render pressure (Phase 0/1: a material edit costs
         # ~2x a camera edit) — the owner's complaint is not class-specific.
+        # pkg241 P2.2 item 4: when `dispatch` is False (a settle span) no edit is
+        # made, but the viewport is still tag_redraw'd so it keeps presenting the
+        # settling generation and the pump keeps advancing.
         now = time.perf_counter()
-        if (_last_edit["t"] is not None
-                and now - _last_edit["t"] < _MIN_EDIT_INTERVAL_S):
+        rate_capped = (_last_edit["t"] is not None
+                       and now - _last_edit["t"] < _MIN_EDIT_INTERVAL_S)
+        if not dispatch or rate_capped:
+            _tag_redraw()
             return
         _last_edit["t"] = now
         _drive_idx["n"] += 1
@@ -534,6 +551,18 @@ def _install_ui_latency():
                 except Exception:
                     pass
         _tag_redraw()
+
+    def _should_dispatch(now):
+        # pkg241 P2.2 item 4: in "settle" mode, dispatch edits only during the
+        # burst_s window of each (burst_s + settle_s) cycle, measured from the run
+        # phase start; the settle_s span lets the worker complete + present a
+        # generation. "continuous" always dispatches (the stress variant).
+        if pattern != "settle" or S["t_phase_start"] is None:
+            return True
+        cycle = burst_s + settle_s
+        if cycle <= 0:
+            return True
+        return ((now - S["t_phase_start"]) % cycle) < burst_s
 
     def timer():
         if S["done"]:
@@ -557,7 +586,7 @@ def _install_ui_latency():
                     S["events"] = []
                     S["blitted_gens"] = set()
                     S["pending_blit_gen"] = None
-                _drive_edit()
+                _drive_edit(_should_dispatch(now))
                 return tick_s
             # phase == "run"
             S["ticks"].append(now)
@@ -565,7 +594,7 @@ def _install_ui_latency():
                 S["done"] = True
                 S["phase"] = "done"
                 return None
-            _drive_edit()
+            _drive_edit(_should_dispatch(now))
             return tick_s
         except Exception:
             import traceback

@@ -143,6 +143,22 @@ PBRT-v4 §9.7 dielectric BSDF. Serves Pillar 5.
 ## Progress
 
 - [ ] 2026-09-08 — filed by the lead from pkg263; not started.
+- [~] 2026-09-08 — research note + MC flux-furnace oracle committed
+      (`.astroray_plan/docs/pkg264-glass-energy-research.md`,
+      `.astroray_plan/docs/pkg264/glass_energy_oracle.py`). **Diagnosis
+      contradicts the spec's premise on two axes; escalated to the lead, no
+      engine edit made.** (1) The pkg263 gate renders through
+      `plugins/materials/principled.cpp`'s Transmission lobe, NOT `disney.cpp`
+      (native-principled ON by default; `blender_addon/__init__.py:4079→4234`).
+      (2) The dead-sample fraction is 0–4 % (not the mechanism; corroborates
+      pkg179 Phase 1's "measurement artifact" finding). (3) A single glass
+      interface is 77–100 % flux-efficient uncompensated (comp_needed ≤ 1.29),
+      far too small for pkg263's ~2× render deficit — the 2× must be compounding
+      over the sphere's internal bounces and/or a render-integration effect, not
+      a per-interface BSDF formula error. Blocked on lead answers to Q1 (fix
+      target = principled.cpp?), Q2 (authorize the single-vs-multi-bounce render
+      A/B before any formula change), Q3 (scope of a comp-application fix). See
+      the research note §6.
 
 ---
 

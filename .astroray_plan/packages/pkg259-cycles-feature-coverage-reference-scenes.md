@@ -169,6 +169,7 @@ gate (b)'s frequency-weighted coverage measurement. It serves Pillar 5.
 
 ## Progress
 
+- [x] 2026-09-08 — **Phase 1 MERGED (#761):** `materials_hall.blend` + `textures_mapping.blend`, `build_corpus.py`, manifest (§4.1 schema), corpus README + gap registry, `tests/test_reference_corpus_manifest.py` 7/7; 56/56 and 72/72 allocated rows tagged; both scenes render in both engines headless (CPU). Lead inspection of the contact sheets: layout/colours match Cycles; the hall establishing shot is too wide to read at report size (alcoves are a thin strip) — **Phase 1 polish (next builder session): reframe the hall camera and render the per-alcove crops the design doc §1.1 calls for**; Astroray leg far noisier than Cycles at equal 128 spp (#763); procedural textures feeding Emission render blank (#762). Phase 2 (`lighting_studio` + `world_sky`) next.
 - [x] 2026-09-08 evening — continuation lane closed out PR #761: restored
       `textures_mapping_astroray_cpu.png` (regenerated from the render's
       linear `.npy` with `render_leg.py`'s own sRGB tonemap after the prior

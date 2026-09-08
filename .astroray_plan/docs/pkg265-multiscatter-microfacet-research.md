@@ -593,3 +593,104 @@ eta unit test (`tests/cpp/test_pkg265_walk_eta.cpp`, `compile_eta.bat`) still
 PASSes with the numbers already reported in Phase 5: radiance-scale
 telescoping maxErr 0.00 (IOR 1.45) / ~4.8e-7 (IOR 1.50), scatterMax=16 dead
 fraction 0.0000% at both IOR.
+## Phase 7 — thin-film rough glass stays single-scatter (2026-09-09)
+
+Thin-film-fix lane (`feat/pkg265-thinfilm-fix`) after the SECOND cycles-parity
+review of PR #778 (CRITICAL #2). Verified with file:line by the reviewer.
+
+### The defect
+
+The walk branch in `principled.cpp` `chooseAndSampleDir` (`if (!L.isDelta)`) had
+NO `filmActive()` guard, so a thin-film Principled glass with roughness >
+`kDeltaGlassRoughness` (0.03) was routed through the Heitz walk, which
+`sample()`/`sampleSpectral()` mark `isDelta=true`. But `eval()`/`evalSpectral()`
+return the nonzero single-scatter thin-film f when `filmActive()` (they only
+early-out to 0 for a NON-film glass). Two bugs:
+
+1. **Double-counted direct light.** Every integrator does NEE (with `rec.isDelta`
+   still false) using the nonzero thin-film `eval()`, then `sample()` flips
+   `isDelta` and the emitter hit is taken at full `wasSpecular` MIS weight → the
+   light is counted twice.
+2. **Iridescence dropped on the sampled path.** The walk uses plain-dielectric
+   Fresnel, so the thin film has NO effect on the BSDF-sampled render.
+
+On origin/main this configuration was consistent (single-scatter sample,
+`isDelta=false`).
+
+### Fix (lead decision, option 2 — no regression, preserve iridescence)
+
+The walk applies to NON-film rough glass only. Behind `filmActive()`,
+`chooseAndSampleDir` restores VERBATIM the origin/main single-scatter rough-
+transmission sampler (VNDF reflect/refract + the pkg264 #771 dead-sample →
+delta-glass reroute), with `isDelta=false`; `transmissionPdf` returns the exact
+single-scatter VNDF density (no §9 diffuse floor) when `filmActive()`. So for a
+thin-film rough glass `sample()` takes the `eval()`/`pdf()` path and
+sample == eval == pdf are all single-scatter thin-film — exactly as on main.
+`eval()`/`pdf()` already routed film → thin-film single-scatter, non-film → 0/§9,
+so only the sampler and the pdf floor needed the guard. Non-film glass keeps the
+walk + skip-NEE delta contract unchanged.
+
+**Disney glass needs no fix.** `disney.cpp` has NO thin-film / iridescence path
+(no `filmActive`/`thin_film_thickness` anywhere in the file), so a Disney glass is
+always a plain dielectric and correctly takes the walk. Documented inline.
+
+A thin-film-AWARE walk (the Heitz dielectric phase function with a thin-film
+Fresnel/transmittance instead of plain Fresnel) is filed as follow-up **issue
+#783**; once it lands the `filmActive()` single-scatter fallback can be removed
+and thin-film rough glass gets the multiple-scattering treatment too.
+
+### Measurements (CPU build, this worktree, seed 7)
+
+*Root-cause signal — thin-film glass vs plain glass, world-lit only (no NEE),
+r0.85, `test_thinfilm_rough_glass_not_ignored_by_walk_cpu`:*
+
+| build | thin-film RGB | plain RGB | reldiff |
+|---|---|---|---|
+| pre-fix (walk) | [0.9998, 1.0013, 0.9846] | [0.9998, 1.0013, 0.9846] | **0.0000 (RED)** — walk byte-ignores the film |
+| post-fix (single-scatter) | [0.8413, 0.8365, 0.8352] | [0.9998, 1.0013, 0.9846] | **0.158 (GREEN)** — film honoured |
+
+*Double-count evidence — emissive quad behind a glass sphere (hittable + NEE),
+black world, thin-film/plain ratio (plain = walk single-count reference):*
+
+| roughness | pre-fix film/plain | note |
+|---|---|---|
+| 0.3 | 1.049 | +5% double-count excess |
+| 0.5 | 1.127 | +13% |
+| 0.85 | 1.313 | +31% |
+
+The double count grows with roughness (more NEE mass). Post-fix the ratio is not a
+clean metric because plain glass uses the walk while the fixed thin-film glass
+uses single-scatter (different directional distributions confound a same-scene
+film/plain comparison) — hence the reliable gate is the byte-identical-pre-fix /
+different-post-fix signal above, which catches the root cause (routing a thin-film
+glass through the plain-Fresnel walk) of BOTH bugs.
+
+*Linear white furnace (no NEE), thin-film single-scatter, no energy gain:* r0.2
+0.992, r0.5 0.961, r0.85 0.836, r1.0 0.794 — all ≤ 1.02 (no double-count energy
+gain). The high-roughness values below 1.0 are the accepted single-scatter energy
+deficit (identical to origin/main thin-film glass; recovered by the #783 walk),
+NOT a regression. A naive "uniform furnace ∈ [0.97, 1.02]" gate does NOT go RED
+pre-fix (the walk conserves energy in a uniform field), so it is not used as the
+discriminator.
+
+### Verification
+
+- `tests/test_pkg265_thinfilm_rough_consistency.py`: 3/3 GREEN post-fix;
+  `not_ignored_by_walk` RED pre-fix (reldiff 0.0000).
+- Existing suites GREEN (CPU): `test_pkg265_lit_furnace` (14 non-GPU),
+  `test_pkg265_ms_glass_directional` (non-film walk unchanged),
+  `test_pkg264_glass_cycles_parity`, `test_disney_rough_glass_furnace`,
+  `test_dielectric_glass_furnace`, `test_rough_glass`, `test_pkg178_*`,
+  `test_thin_film_pr1/pr2/ab_harness`, `test_pkg182_conductor_spectral_native`,
+  `test_pkg255_metallic_f82`, `test_chi2_principled` (incl. thin-film specular/
+  metallic), `test_chi2_bsdf` — 180+ passed, 0 failed (glass chi² is xfail'd,
+  quadrature-dominated, memory `chi2-glass-gate-quadrature-dominated`).
+
+### Still open
+
+- **GPU thin-film rough glass parity.** `test_pkg178_thinfilm_gpu_cpu_parity`
+  `glass_r0.2` compares CPU vs GPU thin-film glass; CPU is CPU-only here so it is
+  not run in this lane. The fix makes the CPU thin-film rough-glass path single-
+  scatter (closer to the GPU #771 reroute stub than the walk was), so parity is
+  expected to hold or improve — flagged for the hardware-verifier as a GPU
+  backstop (memory `ci_has_no_gpu_runtime_blindspot`).

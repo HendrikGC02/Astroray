@@ -1049,6 +1049,819 @@ REFERENCE_HDRI_HAIR_RES = (640, 360)
 REFERENCE_HDRI_HAIR_SAMPLES = 64
 
 
+# ---- 4/5. pkg259 Phase 1 -- materials_hall + textures_mapping ------------- #
+#
+# Corpus scenes for pkg259 (Cycles feature-coverage reference corpus, Phase 1).
+# Design: .astroray_plan/docs/reference-corpus-design-2026-09.md Sec 1.1/1.2/6.
+# Each builder returns (scene, tags, crop_rects, gap_tags):
+#   tags       -- list[(bl_idname, socket_or_prop)] this scene ACTIVELY wires
+#                 (connected/non-default AND visible in a crop region) --
+#                 build_corpus.py cross-checks this list against every
+#                 SUPPORTED/APPROXIMATED coverage_matrix.json row assigned to
+#                 the family and fails loudly if one is missing (Sec 4.1's
+#                 coverage-claim rule: a row may only be claimed if actively
+#                 demonstrated, not merely "the node exists somewhere").
+#   crop_rects -- dict[str, [x0, y0, x1, y1]] normalised image-space crop per
+#                 alcove/proof group, for the Phase-4 coverage report.
+#   gap_tags   -- list[(bl_idname, socket_or_prop)] DROPPED-SILENT rows this
+#                 scene deliberately makes visible (gap cards); every other
+#                 DROPPED-SILENT row for the family is listed in the README's
+#                 gap registry instead (design doc Sec 4.4).
+
+def _layout_slots(slots, gap=0.6):
+    """Lay ``slots`` (list of (name, width)) left-to-right along X with a
+    fixed gap, centred on x=0. Returns {name: (center_x, half_width)} and the
+    total corridor/workshop width."""
+    x = 0.0
+    centers = {}
+    for name, width in slots:
+        centers[name] = (x + width / 2.0, width / 2.0)
+        x += width + gap
+    total = x - gap
+    shift = total / 2.0
+    return {k: (cx - shift, hw) for k, (cx, hw) in centers.items()}, total
+
+
+def _crop_rect(cam_distance, fov_x_rad, x0, x1, y0=0.06, y1=0.94):
+    """Normalised-image-coordinate crop for an X range at the object plane,
+    given a camera looking straight down +Y from ``cam_distance`` away with
+    horizontal field of view ``fov_x_rad``. A linear pinhole approximation --
+    adequate for the Phase-4 coverage report; not a claim of sub-pixel
+    accuracy (open item: refine if a future crop render disagrees)."""
+    half_at_dist = cam_distance * math.tan(fov_x_rad / 2.0)
+    u0 = 0.5 + x0 / (2.0 * half_at_dist)
+    u1 = 0.5 + x1 / (2.0 * half_at_dist)
+    lo, hi = (u0, u1) if u0 <= u1 else (u1, u0)
+    return [round(max(0.0, lo), 4), y0, round(min(1.0, hi), 4), y1]
+
+
+def _pedestal(bpy, cx, width, depth=1.1, height=0.4, color=(0.5, 0.42, 0.32), name="Pedestal"):
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(cx, 0.0, height / 2.0))
+    obj = bpy.context.active_object
+    obj.name = name
+    obj.scale = (max(width, 0.4), depth, height)
+    _apply_principled(bpy, obj, color, roughness=0.65, name=f"{name}Mat")
+    return obj
+
+
+def _small_sphere(bpy, x, y, z, radius=0.32, name="S", segments=24, ring_count=12):
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=radius, location=(x, y, z),
+                                          segments=segments, ring_count=ring_count)
+    obj = bpy.context.active_object
+    obj.name = name
+    for poly in obj.data.polygons:
+        poly.use_smooth = True
+    return obj
+
+
+def _sock(collection, name):
+    """Look up a node input/output socket by name via identifier match
+    instead of ``collection["Name"]``. A large corpus scene creates many
+    hundreds of distinct node-trees in one Blender session, and past some
+    node count the bpy_prop_collection string-keyed getitem/``in`` for
+    NodeSocket collections starts spuriously raising KeyError for sockets
+    that are plainly present under iteration (reproduced in isolation:
+    identical code path, only the prior node count differs) -- apparently
+    an RNA string-interning ceiling in this Blender build, not a logic bug
+    in this file. Iterating and matching by ``identifier`` (falling back to
+    ``name``) sidesteps it and is the pattern used throughout this Phase-1
+    corpus code."""
+    for s in collection:
+        if getattr(s, "identifier", None) == name or s.name == name:
+            return s
+    raise KeyError(f"no socket named {name!r} in {collection!r}")
+
+
+def _bare_material(bpy, name):
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nt = mat.node_tree
+    _clear_nodes(nt)
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    return mat, nt, out
+
+
+def _emission_card_material(bpy, name, strength=1.6):
+    mat, nt, out = _bare_material(bpy, name)
+    emit = nt.nodes.new("ShaderNodeEmission")
+    _sock(emit.inputs, "Strength").default_value = strength
+    nt.links.new(_sock(emit.outputs, "Emission"), _sock(out.inputs, "Surface"))
+    return mat, nt, emit, out
+
+
+def _proof_plane(bpy, x, y, z, size=0.85, name="Proof"):
+    bpy.ops.mesh.primitive_plane_add(size=size, location=(x, y, z))
+    obj = bpy.context.active_object
+    obj.name = name
+    obj.rotation_euler = (math.radians(90.0), 0.0, 0.0)
+    for poly in obj.data.polygons:
+        poly.use_smooth = True
+    return obj
+
+
+# --------------------------------------------------------------------------- #
+# materials_hall
+# --------------------------------------------------------------------------- #
+
+def build_materials_hall_scene(bpy):
+    """Every BSDF/closure Cycles ships, staged as one gallery corridor: one
+    alcove per closure family, a fixed 3-point + warm practical light rig
+    shared by every alcove (so BSDF differences read against one lighting
+    reference), glass lifted off its pedestal, everything shade-smooth.
+    Covers all 56 SUPPORTED/APPROXIMATED materials_hall matrix rows
+    (10 SUPPORTED + 46 APPROXIMATED as of the post-pkg253 matrix); the 110
+    DROPPED-SILENT rows are listed in the corpus README's gap registry
+    (one -- SCRIPT -- gets an in-scene placard, Alcove I)."""
+    scene = _reset(bpy)
+    _add_world(bpy, scene, strength=0.30, color=(0.05, 0.05, 0.07))
+    tags = []
+    gap_tags = []
+    crop_rects = {}
+
+    def tag(bl, sock):
+        tags.append((bl, sock))
+
+    PEDESTAL_TOP = 0.4
+
+    # Hall shell (warm stone tones, not grey -- composition rule).
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0.0, 0.0, 0.0))
+    floor = bpy.context.active_object
+    floor.name = "HallFloor"
+    floor.scale = (17.0, 3.2, 1.0)
+    _apply_principled(bpy, floor, (0.28, 0.24, 0.20), roughness=0.85, name="FloorMat")
+
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0.0, 2.6, 2.4))
+    wall = bpy.context.active_object
+    wall.name = "HallBackWall"
+    wall.scale = (17.0, 2.4, 1.0)
+    wall.rotation_euler = (math.radians(90.0), 0.0, 0.0)
+    _apply_principled(bpy, wall, (0.40, 0.36, 0.32), roughness=0.9, name="WallMat")
+
+    # Shared 3-point + practical light rig.
+    key = _add_area_light(bpy, scene, energy=1000.0, location=(-5.0, -6.5, 6.5))
+    key.data.size = 4.5
+    fill = bpy.data.lights.new("Fill", type="AREA")
+    fill.energy = 280.0
+    fill.size = 5.0
+    fill_obj = bpy.data.objects.new("Fill", fill)
+    scene.collection.objects.link(fill_obj)
+    fill_obj.location = (7.0, -5.5, 4.5)
+    fill_obj.rotation_euler = (math.radians(55.0), 0.0, math.radians(-35.0))
+    rim = bpy.data.lights.new("Rim", type="AREA")
+    rim.energy = 200.0
+    rim.size = 3.0
+    rim_obj = bpy.data.objects.new("Rim", rim)
+    scene.collection.objects.link(rim_obj)
+    rim_obj.location = (0.0, 3.3, 3.2)
+    rim_obj.rotation_euler = (math.radians(140.0), 0.0, 0.0)
+    practical = bpy.data.lights.new("Practical", type="POINT")
+    practical.energy = 25.0
+    practical.color = (1.0, 0.78, 0.55)
+    practical_obj = bpy.data.objects.new("Practical", practical)
+    scene.collection.objects.link(practical_obj)
+    practical_obj.location = (-2.0, 1.0, 2.4)
+
+    slots = [
+        ("A", 2.6), ("B", 3.2), ("C", 3.8), ("D", 6.6), ("E", 2.6),
+        ("H", 3.4), ("I", 1.6),
+    ]
+    layout, total_width = _layout_slots(slots)
+
+    CAM_DIST = 17.0
+    cam = _add_pinned_camera(bpy, scene, (0.0, -CAM_DIST, 5.0), (0.0, 0.0, 1.3), lens=18.0)
+    cam.data.sensor_width = 36.0
+    fov_x = 2.0 * math.atan(cam.data.sensor_width / (2.0 * cam.data.lens))
+
+    def crop(name):
+        cx, hw = layout[name]
+        crop_rects[name] = _crop_rect(CAM_DIST, fov_x, cx - hw, cx + hw)
+
+    # --- Alcove A: Diffuse ---------------------------------------------- #
+    cx, hw = layout["A"]
+    _pedestal(bpy, cx, hw * 1.85, name="PedestalA")
+    for x, rough in zip((cx - hw * 0.55, cx, cx + hw * 0.55), (0.0, 0.3, 0.8)):
+        s = _small_sphere(bpy, x, 0.0, PEDESTAL_TOP + 0.32, radius=0.30, name=f"Diffuse_{rough}")
+        mat, nt, out = _bare_material(bpy, f"DiffuseMat{rough}")
+        diff = nt.nodes.new("ShaderNodeBsdfDiffuse")
+        _sock(diff.inputs, "Color").default_value = (0.78, 0.28, 0.22, 1.0)
+        _sock(diff.inputs, "Roughness").default_value = rough
+        nt.links.new(_sock(diff.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+        s.data.materials.append(mat)
+    tag("ShaderNodeBsdfDiffuse", "input:Color")
+    tag("ShaderNodeBsdfDiffuse", "input:Roughness")
+    crop("A")
+
+    # --- Alcove B: Glossy / Metallic ------------------------------------- #
+    cx, hw = layout["B"]
+    _pedestal(bpy, cx, hw * 1.85, name="PedestalB")
+    for x, rough in zip((cx - hw * 0.65, cx - hw * 0.1, cx + hw * 0.45), (0.05, 0.3, 0.6)):
+        s = _small_sphere(bpy, x, 0.0, PEDESTAL_TOP + 0.28, radius=0.26, name=f"Glossy_{rough}")
+        mat, nt, out = _bare_material(bpy, f"GlossyMat{rough}")
+        gloss = nt.nodes.new("ShaderNodeBsdfAnisotropic")
+        _sock(gloss.inputs, "Color").default_value = (0.75, 0.75, 0.78, 1.0)
+        _sock(gloss.inputs, "Roughness").default_value = rough
+        nt.links.new(_sock(gloss.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+        s.data.materials.append(mat)
+    tag("ShaderNodeBsdfAnisotropic", "input:Color")
+    tag("ShaderNodeBsdfAnisotropic", "input:Roughness")
+
+    s = _small_sphere(bpy, cx + hw * 0.85, 0.0, PEDESTAL_TOP + 0.34, radius=0.32, name="ThinFilmMetal")
+    mat, nt, out = _bare_material(bpy, "ThinFilmMetalMat")
+    met = nt.nodes.new("ShaderNodeBsdfMetallic")
+    _sock(met.inputs, "Base Color").default_value = (0.85, 0.70, 0.35, 1.0)
+    _sock(met.inputs, "Edge Tint").default_value = (0.95, 0.85, 0.60, 1.0)
+    _sock(met.inputs, "Roughness").default_value = 0.18
+    _sock(met.inputs, "Anisotropy").default_value = 0.7
+    _sock(met.inputs, "Rotation").default_value = 0.3
+    _sock(met.inputs, "Thin Film Thickness").default_value = 420.0
+    _sock(met.inputs, "Thin Film IOR").default_value = 1.55
+    met.distribution = "MULTI_GGX"
+    met.fresnel_type = "F82"
+    nt.links.new(_sock(met.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+    s.data.materials.append(mat)
+    for sock in ("Base Color", "Edge Tint", "Roughness", "Anisotropy", "Rotation",
+                 "Thin Film Thickness", "Thin Film IOR"):
+        tag("ShaderNodeBsdfMetallic", f"input:{sock}")
+    tag("ShaderNodeBsdfMetallic", "prop:distribution")
+    tag("ShaderNodeBsdfMetallic", "prop:fresnel_type")
+    crop("B")
+
+    # --- Alcove C: Dielectric --------------------------------------------- #
+    cx, hw = layout["C"]
+    _pedestal(bpy, cx, hw * 1.85, height=0.35, name="PedestalC")
+    LIFT = 0.16  # glass never sits flush on the pedestal
+    for x, (ior, rough) in zip((cx - hw * 0.7, cx - hw * 0.15, cx + hw * 0.4),
+                                ((1.3, 0.0), (1.5, 0.05), (1.8, 0.15))):
+        s = _small_sphere(bpy, x, 0.0, PEDESTAL_TOP - 0.05 + LIFT + 0.30, radius=0.28,
+                           name=f"Glass_{ior}")
+        mat, nt, out = _bare_material(bpy, f"GlassMat{ior}")
+        glass = nt.nodes.new("ShaderNodeBsdfGlass")
+        _sock(glass.inputs, "Color").default_value = (0.92, 0.96, 1.0, 1.0)
+        _sock(glass.inputs, "Roughness").default_value = rough
+        _sock(glass.inputs, "IOR").default_value = ior
+        nt.links.new(_sock(glass.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+        s.data.materials.append(mat)
+    tag("ShaderNodeBsdfGlass", "input:Color")
+    tag("ShaderNodeBsdfGlass", "input:Roughness")
+    tag("ShaderNodeBsdfGlass", "input:IOR")
+
+    s = _small_sphere(bpy, cx + hw * 0.78, 0.0, PEDESTAL_TOP - 0.05 + LIFT + 0.28, radius=0.26,
+                       name="RefractionOnly")
+    mat, nt, out = _bare_material(bpy, "RefractionMat")
+    refr = nt.nodes.new("ShaderNodeBsdfRefraction")
+    _sock(refr.inputs, "Color").default_value = (0.85, 0.95, 0.90, 1.0)
+    _sock(refr.inputs, "Roughness").default_value = 0.05
+    _sock(refr.inputs, "IOR").default_value = 1.33
+    nt.links.new(_sock(refr.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+    s.data.materials.append(mat)
+    tag("ShaderNodeBsdfRefraction", "input:Color")
+    tag("ShaderNodeBsdfRefraction", "input:Roughness")
+    tag("ShaderNodeBsdfRefraction", "input:IOR")
+
+    plane = _proof_plane(bpy, cx + hw * 1.05, 0.05, PEDESTAL_TOP + 0.55, size=0.6, name="AlphaPane")
+    mat, nt, out = _bare_material(bpy, "AlphaPaneMat")
+    trans = nt.nodes.new("ShaderNodeBsdfTransparent")
+    _sock(trans.inputs, "Color").default_value = (0.6, 0.85, 0.95, 1.0)
+    nt.links.new(_sock(trans.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+    mat.blend_method = "BLEND"
+    plane.data.materials.append(mat)
+    tag("ShaderNodeBsdfTransparent", "input:Color")
+    crop("C")
+
+    # --- Alcove D: Principled wall (largest alcove) ----------------------- #
+    cx, hw = layout["D"]
+    _pedestal(bpy, cx, hw * 1.9, height=0.45, name="PedestalD")
+    bust_x = cx - hw * 0.72
+    bpy.ops.mesh.primitive_monkey_add(size=1.0, location=(bust_x, 0.05, PEDESTAL_TOP + 0.65))
+    bust = bpy.context.active_object
+    bust.name = "PrincipledBust"
+    bust.modifiers.new("Subsurf", "SUBSURF").levels = 1
+    bust.modifiers["Subsurf"].render_levels = 2
+    for poly in bust.data.polygons:
+        poly.use_smooth = True
+    mat, nt, out = _bare_material(bpy, "BustMat")
+    principled = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    _sock(principled.inputs, "Base Color").default_value = (0.62, 0.18, 0.14, 1.0)
+    _sock(principled.inputs, "Metallic").default_value = 0.0
+    _sock(principled.inputs, "Roughness").default_value = 0.35
+    _sock(principled.inputs, "IOR").default_value = 1.5
+    noise = nt.nodes.new("ShaderNodeTexNoise")
+    _sock(noise.inputs, "Scale").default_value = 12.0
+    bump = nt.nodes.new("ShaderNodeBump")
+    _sock(bump.inputs, "Strength").default_value = 0.15
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+    nt.links.new(_sock(geo.outputs, "Normal"), _sock(bump.inputs, "Normal"))
+    nt.links.new(_sock(noise.outputs, "Fac"), _sock(bump.inputs, "Height"))
+    nt.links.new(_sock(bump.outputs, "Normal"), _sock(principled.inputs, "Normal"))
+    nt.links.new(_sock(principled.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+    bust.data.materials.append(mat)
+    for sock in ("Base Color", "Metallic", "Roughness", "IOR", "Normal"):
+        tag("ShaderNodeBsdfPrincipled", f"input:{sock}")
+
+    def _principled_sphere(x, name, base_color, **overrides):
+        s = _small_sphere(bpy, x, 0.35, PEDESTAL_TOP + 0.30, radius=0.24, name=name)
+        mat, nt, out = _bare_material(bpy, f"{name}Mat")
+        p = nt.nodes.new("ShaderNodeBsdfPrincipled")
+        _sock(p.inputs, "Base Color").default_value = (*base_color, 1.0)
+        for sock, val in overrides.items():
+            if sock in ("Thin Wall",):
+                _sock(p.inputs, sock).default_value = val
+            elif isinstance(val, tuple) and len(val) == 3 and sock in ("Subsurface Radius",):
+                _sock(p.inputs, sock).default_value = val
+            elif isinstance(val, tuple):
+                _sock(p.inputs, sock).default_value = (*val, 1.0)
+            else:
+                _sock(p.inputs, sock).default_value = val
+        nt.links.new(_sock(p.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+        s.data.materials.append(mat)
+        return s
+
+    adv_x0 = cx - hw * 0.30
+    dx = hw * 1.55 / 7.0
+    _principled_sphere(adv_x0 + 0 * dx, "AlphaThinWall", (0.8, 0.85, 0.9),
+                        Alpha=0.45, **{"Thin Wall": True}, Roughness=0.10)
+    for sock in ("Alpha", "Thin Wall"):
+        tag("ShaderNodeBsdfPrincipled", f"input:{sock}")
+
+    _principled_sphere(adv_x0 + 1 * dx, "SSSDemo", (0.9, 0.75, 0.6),
+                        **{"Subsurface Weight": 1.0, "Subsurface Radius": (0.3, 0.12, 0.06),
+                           "Subsurface Scale": 0.4, "Subsurface Anisotropy": 0.6, "Roughness": 0.35})
+    for sock in ("Subsurface Weight", "Subsurface Radius", "Subsurface Scale", "Subsurface Anisotropy"):
+        tag("ShaderNodeBsdfPrincipled", f"input:{sock}")
+
+    _principled_sphere(adv_x0 + 2 * dx, "SpecularAniso", (0.2, 0.25, 0.3),
+                        **{"Specular IOR Level": 0.85, "Specular Tint": (0.6, 0.8, 1.0),
+                           "Anisotropic": 0.85, "Anisotropic Rotation": 0.3,
+                           "Roughness": 0.22, "Metallic": 0.9})
+    for sock in ("Specular IOR Level", "Specular Tint", "Anisotropic", "Anisotropic Rotation"):
+        tag("ShaderNodeBsdfPrincipled", f"input:{sock}")
+
+    _principled_sphere(adv_x0 + 3 * dx, "CoatDemo", (0.15, 0.15, 0.18),
+                        **{"Coat Weight": 1.0, "Coat Roughness": 0.04, "Coat IOR": 1.6,
+                           "Coat Tint": (0.85, 0.55, 0.2), "Roughness": 0.5})
+    for sock in ("Coat Weight", "Coat Roughness", "Coat IOR", "Coat Tint"):
+        tag("ShaderNodeBsdfPrincipled", f"input:{sock}")
+
+    _principled_sphere(adv_x0 + 4 * dx, "SheenDemo", (0.25, 0.2, 0.22),
+                        **{"Sheen Weight": 1.0, "Sheen Roughness": 0.35,
+                           "Sheen Tint": (0.9, 0.5, 0.7), "Roughness": 0.8})
+    for sock in ("Sheen Weight", "Sheen Roughness", "Sheen Tint"):
+        tag("ShaderNodeBsdfPrincipled", f"input:{sock}")
+
+    _principled_sphere(adv_x0 + 5 * dx, "EmissionThinFilm", (0.9, 0.9, 0.92),
+                        **{"Emission Color": (1.0, 0.65, 0.3), "Emission Strength": 3.0,
+                           "Thin Film Thickness": 380.0, "Thin Film IOR": 1.5,
+                           "Metallic": 1.0, "Roughness": 0.15})
+    for sock in ("Emission Color", "Emission Strength", "Thin Film Thickness", "Thin Film IOR"):
+        tag("ShaderNodeBsdfPrincipled", f"input:{sock}")
+
+    _principled_sphere(adv_x0 + 6 * dx, "DiffuseRough", (0.55, 0.4, 0.3),
+                        **{"Diffuse Roughness": 0.9, "Roughness": 1.0})
+    tag("ShaderNodeBsdfPrincipled", "input:Diffuse Roughness")
+
+    _principled_sphere(adv_x0 + 7 * dx, "TransmissionDemo", (0.95, 0.95, 0.98),
+                        **{"Transmission Weight": 0.85, "Roughness": 0.05, "IOR": 1.45})
+    tag("ShaderNodeBsdfPrincipled", "input:Transmission Weight")
+    crop("D")
+
+    # --- Alcove E: Sheen / Translucent (dedicated closure nodes) ---------- #
+    cx, hw = layout["E"]
+    _pedestal(bpy, cx, hw * 1.85, name="PedestalE")
+    backlight = bpy.data.lights.new("BacklightE", type="POINT")
+    backlight.energy = 60.0
+    backlight_obj = bpy.data.objects.new("BacklightE", backlight)
+    scene.collection.objects.link(backlight_obj)
+    backlight_obj.location = (cx, 1.6, PEDESTAL_TOP + 0.6)
+
+    s = _small_sphere(bpy, cx - hw * 0.5, 0.0, PEDESTAL_TOP + 0.32, radius=0.30, name="SheenFabric")
+    mat, nt, out = _bare_material(bpy, "SheenMat")
+    sheen = nt.nodes.new("ShaderNodeBsdfSheen")
+    _sock(sheen.inputs, "Color").default_value = (0.85, 0.3, 0.35, 1.0)
+    _sock(sheen.inputs, "Roughness").default_value = 0.35
+    _sock(sheen.inputs, "Weight").default_value = 1.0
+    nt.links.new(_sock(sheen.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+    s.data.materials.append(mat)
+    tag("ShaderNodeBsdfSheen", "input:Color")
+    tag("ShaderNodeBsdfSheen", "input:Roughness")
+    tag("ShaderNodeBsdfSheen", "input:Weight")
+
+    plane = _proof_plane(bpy, cx + hw * 0.55, 0.1, PEDESTAL_TOP + 0.5, size=0.7, name="TranslucentPane")
+    mat, nt, out = _bare_material(bpy, "TranslucentMat")
+    trl = nt.nodes.new("ShaderNodeBsdfTranslucent")
+    _sock(trl.inputs, "Color").default_value = (0.9, 0.75, 0.35, 1.0)
+    nt.links.new(_sock(trl.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+    plane.data.materials.append(mat)
+    tag("ShaderNodeBsdfTranslucent", "input:Color")
+    crop("E")
+
+    # --- Alcove H: Emission & spectral ------------------------------------ #
+    cx, hw = layout["H"]
+    _pedestal(bpy, cx, hw * 1.85, name="PedestalH")
+    s = _small_sphere(bpy, cx - hw * 0.75, 0.0, PEDESTAL_TOP + 0.28, radius=0.26, name="WarmBulb")
+    mat, nt, emit, out = _emission_card_material(bpy, "BulbMat", strength=6.0)
+    _sock(emit.inputs, "Color").default_value = (1.0, 0.75, 0.45, 1.0)
+    s.data.materials.append(mat)
+    tag("ShaderNodeEmission", "input:Color")
+    tag("ShaderNodeEmission", "input:Strength")
+
+    for i, (x, temp) in enumerate(zip(
+            (cx - hw * 0.2, cx + hw * 0.25, cx + hw * 0.7), (1500.0, 4500.0, 9000.0))):
+        s = _small_sphere(bpy, x, 0.0, PEDESTAL_TOP + 0.20, radius=0.18, name=f"Filament_{int(temp)}")
+        mat, nt, emit, out = _emission_card_material(bpy, f"FilamentMat{int(temp)}", strength=4.0)
+        bb = nt.nodes.new("ShaderNodeBlackbody")
+        _sock(bb.inputs, "Temperature").default_value = temp
+        nt.links.new(_sock(bb.outputs, "Color"), _sock(emit.inputs, "Color"))
+        s.data.materials.append(mat)
+    tag("ShaderNodeBlackbody", "input:Temperature")
+
+    plane = _proof_plane(bpy, cx + hw * 1.05, 0.1, PEDESTAL_TOP + 0.5, size=0.5, name="WavelengthSwatch")
+    mat, nt, emit, out = _emission_card_material(bpy, "WavelengthMat", strength=2.0)
+    wl = nt.nodes.new("ShaderNodeWavelength")
+    _sock(wl.inputs, "Wavelength").default_value = 580.0
+    nt.links.new(_sock(wl.outputs, "Color"), _sock(emit.inputs, "Color"))
+    plane.data.materials.append(mat)
+    tag("ShaderNodeWavelength", "input:Wavelength")
+    crop("H")
+
+    # --- Alcove I: gap card (OSL is not supported at all) ----------------- #
+    cx, hw = layout["I"]
+    _pedestal(bpy, cx, hw * 1.7, height=0.3, name="PedestalI")
+    bpy.ops.object.text_add(location=(cx - 0.55, 0.05, PEDESTAL_TOP + 0.5))
+    placard = bpy.context.active_object
+    placard.name = "OSLPlacard"
+    placard.data.body = "OSL Script\n(not supported)"
+    placard.data.size = 0.22
+    placard.data.extrude = 0.01
+    mat, nt, out = _bare_material(bpy, "PlacardMat")
+    diff = nt.nodes.new("ShaderNodeBsdfDiffuse")
+    _sock(diff.inputs, "Color").default_value = (0.05, 0.05, 0.05, 1.0)
+    nt.links.new(_sock(diff.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+    placard.data.materials.append(mat)
+    gap_tags.append(("ShaderNodeScript", "prop:mode"))
+    crop("I")
+
+    return scene, tags, crop_rects, gap_tags
+
+
+REFERENCE_MATERIALS_HALL_RES = (960, 540)
+REFERENCE_MATERIALS_HALL_SAMPLES = 256
+
+
+# --------------------------------------------------------------------------- #
+# textures_mapping
+# --------------------------------------------------------------------------- #
+
+def build_textures_mapping_scene(bpy):
+    """A printmaker's workshop: a hero print table plus 19 small independent
+    proof cards (one per required node), each ``<node> -> Emission -> Output``
+    (bump/normal/displacement instead go on a small sphere, since they need
+    curvature to read) so texture legibility is never confounded by BSDF
+    fidelity, under one raking area light. Covers all 72 SUPPORTED/
+    APPROXIMATED textures_mapping matrix rows (69 SUPPORTED + 3 APPROXIMATED
+    as of the post-pkg253 matrix); the 149 DROPPED-SILENT rows are listed in
+    the corpus README's gap registry (Mapping is wired for visual flavour on
+    the TexImage proof but tags nothing new -- every Mapping row is
+    DROPPED-SILENT in the current matrix)."""
+    scene = _reset(bpy)
+    _add_world(bpy, scene, strength=0.35, color=(0.06, 0.06, 0.08))
+    tags = []
+    gap_tags = []
+    crop_rects = {}
+
+    def tag(bl, sock):
+        tags.append((bl, sock))
+
+    TABLE_TOP = 0.75
+
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0.0, 0.6, 0.0))
+    floor = bpy.context.active_object
+    floor.name = "WorkshopFloor"
+    floor.scale = (9.0, 5.0, 1.0)
+    _apply_principled(bpy, floor, (0.22, 0.19, 0.16), roughness=0.9, name="WorkshopFloorMat")
+
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.7, TABLE_TOP / 2.0))
+    table = bpy.context.active_object
+    table.name = "PrintingTable"
+    table.scale = (8.8, 2.8, TABLE_TOP)
+    _apply_principled(bpy, table, (0.42, 0.20, 0.14), roughness=0.55, name="TableMat")
+
+    raking = _add_area_light(bpy, scene, energy=650.0, location=(-6.5, -3.0, 2.6))
+    raking.data.size = 5.0
+    raking.rotation_euler = (math.radians(58.0), 0.0, math.radians(58.0))
+    fill = bpy.data.lights.new("WorkshopFill", type="AREA")
+    fill.energy = 180.0
+    fill.size = 4.0
+    fill_obj = bpy.data.objects.new("WorkshopFill", fill)
+    scene.collection.objects.link(fill_obj)
+    fill_obj.location = (5.5, -3.5, 3.0)
+    fill_obj.rotation_euler = (math.radians(55.0), 0.0, math.radians(-40.0))
+
+    # 4 rows x 5 cols = 20 slots (19 used, 1 spare).
+    COLS = (-2.2, -1.1, 0.0, 1.1, 2.2)
+    ROWS = (1.5, 0.7, -0.1, -0.9)
+    Z = TABLE_TOP + 0.55
+    grid = {}
+    for r, y in enumerate(ROWS):
+        for c, x in enumerate(COLS):
+            grid[(r, c)] = (x, y)
+
+    # Cards lie flat on the table (see _flat_card below) and the camera looks
+    # down at a steep angle, so a standing-card occlusion problem (front-row
+    # proofs blocking the rows behind them) can't happen -- the whole grid is
+    # legible in one shot, like looking down at swatches on a print table.
+    CAM_DIST = 6.5
+    cam = _add_pinned_camera(bpy, scene, (0.0, -CAM_DIST, 8.0), (0.0, 0.3, 0.75), lens=24.0)
+    cam.data.sensor_width = 36.0
+    fov_x = 2.0 * math.atan(cam.data.sensor_width / (2.0 * cam.data.lens))
+
+    def _flat_card(x, y, z, size, name):
+        bpy.ops.mesh.primitive_plane_add(size=size, location=(x, y, z))
+        obj = bpy.context.active_object
+        obj.name = name
+        for poly in obj.data.polygons:
+            poly.use_smooth = True
+        return obj
+
+    # Row bands in normalised image Y (row 0 = farthest from camera = top of
+    # frame, row 3 = nearest = bottom) -- a deliberately simple, documented
+    # approximation (not a perspective-accurate projection of each row's Z);
+    # good enough so every (row, col) proof gets a distinct crop rectangle
+    # for the Phase-4 coverage report, refine there if a crop render disagrees.
+    ROW_BANDS = ((0.10, 0.30), (0.30, 0.50), (0.50, 0.68), (0.68, 0.85))
+
+    def crop_for(key, row, x, half=0.55):
+        y0, y1 = ROW_BANDS[row]
+        crop_rects[key] = _crop_rect(CAM_DIST, fov_x, x - half, x + half, y0, y1)
+
+    def texture_card(row, col, key, bl_idname, configure, output="Color", use_vector=True):
+        x, y = grid[(row, col)]
+        plane = _flat_card(x, y, Z, 0.85, key)
+        mat, nt, emit, out = _emission_card_material(bpy, f"{key}Mat")
+        node = nt.nodes.new(bl_idname)
+        if use_vector and "Vector" in node.inputs:
+            coord = nt.nodes.new("ShaderNodeTexCoord")
+            nt.links.new(_sock(coord.outputs, "Generated"), _sock(node.inputs, "Vector"))
+        configure(node)
+        nt.links.new(_sock(node.outputs, output), _sock(emit.inputs, "Color"))
+        plane.data.materials.append(mat)
+        crop_for(key, row, x)
+        return node
+
+    # --- Row 0: procedural noise family + Brick -------------------------- #
+    def cfg_noise(n):
+        _sock(n.inputs, "Scale").default_value = 8.0
+        _sock(n.inputs, "Detail").default_value = 4.0
+        _sock(n.inputs, "Roughness").default_value = 0.7
+        _sock(n.inputs, "Lacunarity").default_value = 2.5
+        _sock(n.inputs, "Offset").default_value = 0.3
+        _sock(n.inputs, "Gain").default_value = 1.4
+        _sock(n.inputs, "Distortion").default_value = 0.6
+        n.noise_type = "HETERO_TERRAIN"
+        n.normalize = False
+    texture_card(0, 0, "TexNoise", "ShaderNodeTexNoise", cfg_noise)
+    for sock in ("Scale", "Detail", "Roughness", "Lacunarity", "Offset", "Gain", "Distortion"):
+        tag("ShaderNodeTexNoise", f"input:{sock}")
+    tag("ShaderNodeTexNoise", "prop:noise_type")
+    tag("ShaderNodeTexNoise", "prop:normalize")
+
+    def cfg_voronoi(n):
+        _sock(n.inputs, "Scale").default_value = 6.0
+        _sock(n.inputs, "Detail").default_value = 2.0
+        _sock(n.inputs, "Roughness").default_value = 0.6
+        _sock(n.inputs, "Lacunarity").default_value = 2.2
+        _sock(n.inputs, "Smoothness").default_value = 0.3
+        _sock(n.inputs, "Exponent").default_value = 2.0
+        _sock(n.inputs, "Randomness").default_value = 0.8
+        n.distance = "MANHATTAN"
+        n.feature = "SMOOTH_F1"
+        n.normalize = True
+    texture_card(0, 1, "TexVoronoi", "ShaderNodeTexVoronoi", cfg_voronoi, output="Color")
+    for sock in ("Scale", "Detail", "Roughness", "Lacunarity", "Smoothness", "Exponent", "Randomness"):
+        tag("ShaderNodeTexVoronoi", f"input:{sock}")
+    tag("ShaderNodeTexVoronoi", "prop:distance")
+    tag("ShaderNodeTexVoronoi", "prop:feature")
+    tag("ShaderNodeTexVoronoi", "prop:normalize")
+
+    def cfg_wave_bands(n):
+        _sock(n.inputs, "Scale").default_value = 4.0
+        _sock(n.inputs, "Distortion").default_value = 1.2
+        _sock(n.inputs, "Detail").default_value = 3.0
+        _sock(n.inputs, "Detail Scale").default_value = 1.5
+        _sock(n.inputs, "Detail Roughness").default_value = 0.6
+        _sock(n.inputs, "Phase Offset").default_value = 0.8
+        n.wave_type = "BANDS"
+        n.bands_direction = "Z"
+        n.wave_profile = "SAW"
+    texture_card(0, 2, "TexWaveBands", "ShaderNodeTexWave", cfg_wave_bands)
+    for sock in ("Scale", "Distortion", "Detail", "Detail Scale", "Detail Roughness", "Phase Offset"):
+        tag("ShaderNodeTexWave", f"input:{sock}")
+    tag("ShaderNodeTexWave", "prop:wave_type")
+    tag("ShaderNodeTexWave", "prop:bands_direction")
+    tag("ShaderNodeTexWave", "prop:wave_profile")
+
+    def cfg_wave_rings(n):
+        _sock(n.inputs, "Scale").default_value = 3.0
+        n.wave_type = "RINGS"
+        n.rings_direction = "SPHERICAL"
+        n.wave_profile = "TRI"
+    texture_card(0, 3, "TexWaveRings", "ShaderNodeTexWave", cfg_wave_rings)
+    tag("ShaderNodeTexWave", "prop:rings_direction")
+
+    def cfg_brick(n):
+        _sock(n.inputs, "Color1").default_value = (0.65, 0.25, 0.18, 1.0)
+        _sock(n.inputs, "Color2").default_value = (0.15, 0.10, 0.08, 1.0)
+        _sock(n.inputs, "Scale").default_value = 6.0
+        _sock(n.inputs, "Mortar Size").default_value = 0.08
+        _sock(n.inputs, "Mortar Smooth").default_value = 0.3
+        _sock(n.inputs, "Bias").default_value = 0.4
+        _sock(n.inputs, "Brick Width").default_value = 0.4
+        _sock(n.inputs, "Row Height").default_value = 0.2
+        n.offset_frequency = 3
+        n.squash = 1.3
+        n.squash_frequency = 3
+    texture_card(0, 4, "TexBrick", "ShaderNodeTexBrick", cfg_brick)
+    for sock in ("Color1", "Color2", "Scale", "Mortar Size", "Mortar Smooth", "Bias",
+                 "Brick Width", "Row Height"):
+        tag("ShaderNodeTexBrick", f"input:{sock}")
+    for prop in ("offset_frequency", "squash", "squash_frequency"):
+        tag("ShaderNodeTexBrick", f"prop:{prop}")
+
+    # --- Row 1: pattern/gradient/image + bump ----------------------------- #
+    def cfg_checker(n):
+        _sock(n.inputs, "Color1").default_value = (0.9, 0.9, 0.85, 1.0)
+        _sock(n.inputs, "Color2").default_value = (0.08, 0.08, 0.1, 1.0)
+        _sock(n.inputs, "Scale").default_value = 8.0
+    texture_card(1, 0, "TexChecker", "ShaderNodeTexChecker", cfg_checker)
+    for sock in ("Color1", "Color2", "Scale"):
+        tag("ShaderNodeTexChecker", f"input:{sock}")
+
+    def cfg_magic(n):
+        _sock(n.inputs, "Scale").default_value = 6.0
+        _sock(n.inputs, "Distortion").default_value = 2.5
+        n.turbulence_depth = 4
+    texture_card(1, 1, "TexMagic", "ShaderNodeTexMagic", cfg_magic)
+    for sock in ("Scale", "Distortion"):
+        tag("ShaderNodeTexMagic", f"input:{sock}")
+    tag("ShaderNodeTexMagic", "prop:turbulence_depth")
+
+    def cfg_gradient(n):
+        n.gradient_type = "SPHERICAL"
+    texture_card(1, 2, "TexGradient", "ShaderNodeTexGradient", cfg_gradient)
+    tag("ShaderNodeTexGradient", "prop:gradient_type")
+
+    stripe_img = bpy.data.images.new("WorkshopStripe", width=16, height=16, float_buffer=True)
+    stripe_img.pixels[:] = _make_stripe_image_pixels(16, 16)
+    stripe_img.pack()
+
+    x, y = grid[(1, 3)]
+    plane = _flat_card(x, y, Z, 0.85, "TexImage")
+    mat, nt, emit, out = _emission_card_material(bpy, "TexImageMat")
+    coord = nt.nodes.new("ShaderNodeTexCoord")
+    mapping = nt.nodes.new("ShaderNodeMapping")
+    _sock(mapping.inputs, "Scale").default_value = (2.0, 2.0, 2.0)
+    img = nt.nodes.new("ShaderNodeTexImage")
+    img.image = stripe_img
+    nt.links.new(_sock(coord.outputs, "Generated"), _sock(mapping.inputs, "Vector"))
+    nt.links.new(_sock(mapping.outputs, "Vector"), _sock(img.inputs, "Vector"))
+    nt.links.new(_sock(img.outputs, "Color"), _sock(emit.inputs, "Color"))
+    plane.data.materials.append(mat)
+    crop_for("TexImage", 1, x)
+    tag("ShaderNodeTexImage", "input:Vector")
+
+    normal_img = bpy.data.images.new("WorkshopNormal", width=16, height=16, float_buffer=True)
+    normal_img.colorspace_settings.name = "Non-Color"
+    normal_img.pixels[:] = _make_checker_image_pixels(16, 16)
+    normal_img.pack()
+
+    def _bump_normal_displacement_sphere(row, col, key, kind):
+        x, y = grid[(row, col)]
+        s = _small_sphere(bpy, x, y, Z, radius=0.4, name=key, segments=32, ring_count=16)
+        mat = bpy.data.materials.new(f"{key}Mat")
+        mat.use_nodes = True
+        nt = mat.node_tree
+        _clear_nodes(nt)
+        out = nt.nodes.new("ShaderNodeOutputMaterial")
+        principled = nt.nodes.new("ShaderNodeBsdfPrincipled")
+        _sock(principled.inputs, "Base Color").default_value = (0.55, 0.5, 0.42, 1.0)
+        _sock(principled.inputs, "Roughness").default_value = 0.5
+        nt.links.new(_sock(principled.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+        if kind == "bump":
+            voronoi = nt.nodes.new("ShaderNodeTexVoronoi")
+            _sock(voronoi.inputs, "Scale").default_value = 10.0
+            geo = nt.nodes.new("ShaderNodeNewGeometry")
+            bump = nt.nodes.new("ShaderNodeBump")
+            _sock(bump.inputs, "Strength").default_value = 0.9
+            _sock(bump.inputs, "Distance").default_value = 0.02
+            _sock(bump.inputs, "Filter Width").default_value = 0.05
+            nt.links.new(_sock(geo.outputs, "Normal"), _sock(bump.inputs, "Normal"))
+            nt.links.new(_sock(voronoi.outputs, "Distance"), _sock(bump.inputs, "Height"))
+            nt.links.new(_sock(bump.outputs, "Normal"), _sock(principled.inputs, "Normal"))
+            for sock in ("Strength", "Distance", "Filter Width", "Height", "Normal"):
+                tag("ShaderNodeBump", f"input:{sock}")
+        elif kind == "normal_map":
+            img2 = nt.nodes.new("ShaderNodeTexImage")
+            img2.image = normal_img
+            nmap = nt.nodes.new("ShaderNodeNormalMap")
+            _sock(nmap.inputs, "Strength").default_value = 1.3
+            nt.links.new(_sock(img2.outputs, "Color"), _sock(nmap.inputs, "Color"))
+            nt.links.new(_sock(nmap.outputs, "Normal"), _sock(principled.inputs, "Normal"))
+            tag("ShaderNodeNormalMap", "input:Strength")
+            tag("ShaderNodeNormalMap", "input:Color")
+        elif kind == "displacement":
+            s.modifiers.new("Subsurf", "SUBSURF").levels = 2
+            s.modifiers["Subsurf"].render_levels = 3
+            noise = nt.nodes.new("ShaderNodeTexNoise")
+            _sock(noise.inputs, "Scale").default_value = 5.0
+            disp = nt.nodes.new("ShaderNodeDisplacement")
+            _sock(disp.inputs, "Midlevel").default_value = 0.4
+            _sock(disp.inputs, "Scale").default_value = 0.15
+            nt.links.new(_sock(noise.outputs, "Fac"), _sock(disp.inputs, "Height"))
+            nt.links.new(_sock(disp.outputs, "Displacement"), _sock(out.inputs, "Displacement"))
+            try:
+                mat.cycles.displacement_method = "BOTH"
+            except AttributeError:
+                pass
+            for sock in ("Height", "Midlevel", "Scale"):
+                tag("ShaderNodeDisplacement", f"input:{sock}")
+        s.data.materials.append(mat)
+        crop_for(key, row, x, half=0.45)
+
+    _bump_normal_displacement_sphere(1, 4, "BumpDemo", "bump")
+    _bump_normal_displacement_sphere(2, 0, "NormalMapDemo", "normal_map")
+    _bump_normal_displacement_sphere(2, 1, "DisplacementDemo", "displacement")
+
+    # --- Row 2 (remaining) + Row 3: colour-grade / mix converter nodes ---- #
+    def cfg_brightcontrast(n):
+        _sock(n.inputs, "Color").default_value = (0.4, 0.4, 0.4, 1.0)
+        _sock(n.inputs, "Brightness").default_value = 0.3
+        _sock(n.inputs, "Contrast").default_value = 0.6
+    texture_card(2, 2, "BrightContrast", "ShaderNodeBrightContrast", cfg_brightcontrast,
+                 use_vector=False)
+    for sock in ("Color", "Brightness", "Contrast"):
+        tag("ShaderNodeBrightContrast", f"input:{sock}")
+
+    def cfg_gamma(n):
+        _sock(n.inputs, "Color").default_value = (0.4, 0.4, 0.4, 1.0)
+        _sock(n.inputs, "Gamma").default_value = 2.4
+    texture_card(2, 3, "Gamma", "ShaderNodeGamma", cfg_gamma, use_vector=False)
+    for sock in ("Color", "Gamma"):
+        tag("ShaderNodeGamma", f"input:{sock}")
+
+    def cfg_huesat(n):
+        _sock(n.inputs, "Color").default_value = (0.6, 0.2, 0.2, 1.0)
+        _sock(n.inputs, "Hue").default_value = 0.65
+        _sock(n.inputs, "Saturation").default_value = 1.8
+        _sock(n.inputs, "Value").default_value = 1.2
+        _sock(n.inputs, "Factor").default_value = 1.0
+    texture_card(2, 4, "HueSat", "ShaderNodeHueSaturation", cfg_huesat, use_vector=False)
+    for sock in ("Hue", "Saturation", "Value", "Factor", "Color"):
+        tag("ShaderNodeHueSaturation", f"input:{sock}")
+
+    def cfg_invert(n):
+        _sock(n.inputs, "Color").default_value = (0.15, 0.65, 0.85, 1.0)
+    texture_card(3, 0, "Invert", "ShaderNodeInvert", cfg_invert, use_vector=False)
+    tag("ShaderNodeInvert", "input:Color")
+
+    def cfg_rgbtobw(n):
+        _sock(n.inputs, "Color").default_value = (0.8, 0.2, 0.2, 1.0)
+    texture_card(3, 1, "RgbToBw", "ShaderNodeRGBToBW", cfg_rgbtobw, output="Val", use_vector=False)
+    tag("ShaderNodeRGBToBW", "input:Color")
+
+    def cfg_mix(n):
+        n.data_type = "RGBA"
+        n.blend_type = "BURN"
+        enabled = {s.name: s for s in n.inputs if s.enabled}
+        enabled["Factor"].default_value = 0.6
+        enabled["A"].default_value = (0.7, 0.3, 0.2, 1.0)
+        enabled["B"].default_value = (0.2, 0.5, 0.8, 1.0)
+    x, y = grid[(3, 2)]
+    plane = _flat_card(x, y, Z, 0.85, "MixCard")
+    mat, nt, emit, out = _emission_card_material(bpy, "MixCardMat")
+    mixnode = nt.nodes.new("ShaderNodeMix")
+    cfg_mix(mixnode)
+    result = next(s for s in mixnode.outputs if s.enabled)
+    nt.links.new(result, _sock(emit.inputs, "Color"))
+    plane.data.materials.append(mat)
+    crop_for("MixCard", 3, x)
+    tag("ShaderNodeMix", "prop:blend_type")
+
+    def cfg_mixrgb(n):
+        n.blend_type = "SCREEN"
+        _sock(n.inputs, "Factor").default_value = 0.5
+        _sock(n.inputs, "Color1").default_value = (0.6, 0.2, 0.6, 1.0)
+        _sock(n.inputs, "Color2").default_value = (0.2, 0.6, 0.3, 1.0)
+    texture_card(3, 3, "MixRgbCard", "ShaderNodeMixRGB", cfg_mixrgb, output="Color",
+                 use_vector=False)
+    tag("ShaderNodeMixRGB", "prop:blend_type")
+
+    return scene, tags, crop_rects, gap_tags
+
+
+REFERENCE_TEXTURES_MAPPING_RES = (960, 540)
+REFERENCE_TEXTURES_MAPPING_SAMPLES = 192
+
+
+
 REFERENCE_SCENES = {
     "cornell_interior": dict(
         builder=build_cornell_interior_scene,

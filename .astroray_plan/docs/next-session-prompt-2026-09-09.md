@@ -15,7 +15,8 @@ leave a morning-readable record.
 ## Read first (in this order, then start)
 
 1. `CLAUDE.md`, `AGENTS.md`.
-2. `.astroray_plan/docs/north-star-and-integration-gate-2026-09-07.md` (north star, gate (a)–(f), §7).
+2. `.astroray_plan/docs/north-star-and-integration-gate-2026-09-07.md` (north star, gate (a)–(f), §7 —
+   the 2026-09-08 evening block carries the **physics-first engine-wide rule**).
 3. `.astroray_plan/docs/STATUS.md` top block (2026-09-08 closeout) — what merged with numbers, what is
    in flight, the decisions pending.
 4. Specs: pkg264, pkg241 (+ design doc §9/§12), pkg262, pkg259, pkg242, pkg245, pkg256, pkg254
@@ -73,18 +74,24 @@ leave a morning-readable record.
   the compensation tables — gate (f)); P2: #755, #757, #763, #767; P3: #765.
 - Codex Terra calls remaining today's budget resets per session (4).
 
-## Dispatch order (lead's choice; owner delegated it)
+## Dispatch order (lead's recommendation, **owner-confirmed 2026-09-08 evening**)
 
-1. **#770 rough-glass residual** (Opus 4.8, cite-algorithm; file it as pkg265 first): the Cycles-faithful
-   reject + `microfacet_ggx_preserve_energy` mechanism replacing the delta reroute on both lobes, gated by a
-   directional test + the pkg263 harness (target ±5 %); add the run_parity glass scene. The owner's named complaint.
+1. **#770 rough-glass residual → file as pkg265 first** (Opus 4.8, `cite-algorithm` mandatory).
+   Owner rule (2026-09-08 evening, north-star §7): **physics first** — the reference is a
+   multiple-scattering microfacet model (Heitz et al. 2016 "Multiple-Scattering Microfacet BSDFs
+   with the Smith Model", random-walk oracle), replacing the pkg264 delta reroute on both lobes;
+   Cycles' `energy_scale` is itself an approximation and is NOT the target. Gates: directional
+   furnace vs the Heitz oracle + the white furnace; the pkg263 Cycles harness is a cross-check band
+   (record the ratio, explain the divergence); add the run_parity glass scene. The owner's named complaint.
 2. **pkg241 P2.2** (Opus 4.8, design §12 items 1–5; Terra 1 call on the P2.2 diff is worth it): first
    the present-wiring bug + `gpu.types.Buffer` for the synchronous path (both quick, both visible),
    then the bounded incremental commit and the settle-window gate; measure with `--mode ui_latency`.
-3. **pkg262** (Sonnet 5 → Opus 4.8 if the A/B gets subtle): the GPU adaptive effect test first (red on
-   main), then the flips with the pkg81 bench + parity sweeps.
-4. **#769 addon data-table packaging** (Sonnet 5, small, gate (f)) and **#762 Emission texture**
-   (Sonnet 5, addon + closure-graph lowering) — independent of the GPU lock except the GPU parity test.
+3. **pkg262** (owner: proceed as filed; Sonnet 5 → Opus 4.8 if the A/B gets subtle): the GPU adaptive effect test first (red on
+   main), then the flips with the pkg81 bench + parity sweeps; the A/B doc also records the equal-spp
+   RMSE ratio vs Cycles per corpus scene (#763, owner: track, no gate yet).
+4. **#769 addon data-table packaging** (Sonnet 5, small, gate (f), **owner: P1 next session**) and
+   **#762 Emission texture** (Sonnet 5, addon + closure-graph lowering) — independent of the GPU
+   lock except the GPU parity test.
 5. **pkg259 Phase 1 polish + Phase 2** (Sonnet 5 builders, CPU) in parallel with the above.
 6. Fill: pkg256 Sky (cite-algorithm), pkg242 Phase 2, pkg245, pkg254; #757, #765.
 

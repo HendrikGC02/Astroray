@@ -205,3 +205,23 @@ interactive viewport loop, which decides an entire responsiveness work lane.)
   capped at 3**. `samples/test_env.hdr` provenance waits for the corpus HDRI (Phase 2).
 - **Manual items done:** the Apps Script dashboard is installed; the new addon
   (`dist/astroray-4.0.0-cuda.zip`) is installed in the live profile.
+
+### Owner decisions — 2026-09-08 evening (after the day lead session)
+
+- **Physics first, engine-wide rule:** where Cycles is known to be approximate, Astroray
+  implements the physically correct model (published, via `cite-algorithm`), records the
+  divergence with oracle evidence, and the Cycles A/B becomes a **cross-check band**, not the
+  acceptance criterion. Cycles parity stays the target only where Cycles is physically right or
+  where an artist-facing look must match. This refines the north-star phrase
+  "Cycles-compatible where Cycles is right".
+- **#770 rough-glass residual:** apply the rule above — the reference is a multiple-scattering
+  microfacet model (Heitz et al. 2016 random-walk oracle), not Cycles' `energy_scale`
+  approximation and not the pkg264 delta reroute; the pkg263 Cycles harness remains a
+  cross-check. File it as pkg265.
+- **pkg262 default flips:** proceed as filed (progressive Sobol sampler + light tree on by
+  default gated by their A/B rows; GPU adaptive effect test; honest degradation report, #759).
+- **#769 addon zip lacks the compensation tables:** fix next session as P1 (gate (f)).
+- **#763 equal-spp noise gap vs Cycles:** tracked in the pkg262 A/B doc (equal-spp RMSE ratio
+  per corpus scene), no gate yet; a dedicated package follows with the measured causes.
+- **Dispatch order for 2026-09-09:** as the lead recommended — #770/pkg265 → pkg241 P2.2 →
+  pkg262, with pkg259 polish/Phase 2 and #769/#762 in parallel on CPU-only lanes.

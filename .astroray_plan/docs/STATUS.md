@@ -59,10 +59,13 @@ as honoured until then (#759); (b) pkg263 filed and done (above). Owner audit an
 sampling and pkg178 native Principled are ON; pkg224 sampler, pkg86 light tree, pkg136 guiding,
 pkg127 poly-SMS are OFF in Blender (memory `landed-features-off-by-default-audit`).
 
-**Decisions the owner should make next:** (1) pkg262 default flips — proceed as filed? (2) #769 addon
-data-table packaging is a gate (f) blocker — schedule before the next release zip. (3) pkg241 P2.2
-(design §12 items 1–5) vs pkg264 vs pkg262 — dispatch order for the next session (lead recommends
-pkg264 finish → P2.2 → pkg262; pkg259 Phase 1 polish + Phase 2 in parallel on CPU).
+**Owner decisions (2026-09-08 evening, recorded in the north-star doc §7):** (1) pkg262 proceeds
+as filed. (2) #769 is next-session P1 (gate (f)). (3) Dispatch order as recommended: #770/pkg265 →
+pkg241 P2.2 → pkg262; corpus + addon fixes in parallel. (4) **Physics first, engine-wide:** where
+Cycles is approximate, Astroray implements the physically correct published model and the Cycles
+A/B is a cross-check band, not the criterion — #770 therefore targets a multiple-scattering
+microfacet reference (Heitz 2016 oracle), not Cycles' `energy_scale`. (5) #763 noise gap tracked in
+the pkg262 A/B doc, no gate yet.
 
 **Manual/owner:** none new. Three Blender-side processes from earlier are gone; only the owner's live
 Blender (PID 1676) remains. Worktrees: none (all lanes merged).

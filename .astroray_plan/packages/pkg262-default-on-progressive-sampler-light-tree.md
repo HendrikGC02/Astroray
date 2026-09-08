@@ -77,7 +77,7 @@ progressive sampler changes. Serves Pillar 5.
 | File | Purpose |
 |---|---|
 | `tests/test_pkg262_gpu_adaptive_effect.py` | Output-effect gate for gate (d): on GPU, with the native adaptive toggle on vs off at equal max spp, the per-pixel sample-count buffer differs and flat-region variance falls; skips without CUDA; must FAIL on main today (#759). |
-| `.astroray_plan/docs/pkg262-default-flip-ab-2026-09.md` | The A/B evidence: per-scene noise (RMSE vs a high-spp reference) at equal spp, frame time on the pkg81 bench, parity-suite results, with the progressive sampler and light tree off vs on, CPU and GPU. |
+| `.astroray_plan/docs/pkg262-default-flip-ab-2026-09.md` | The A/B evidence: per-scene noise (RMSE vs a high-spp reference) at equal spp, frame time on the pkg81 bench, parity-suite results, with the progressive sampler and light tree off vs on, CPU and GPU; plus the equal-spp RMSE ratio Astroray/Cycles per pkg259 corpus scene (#763 — tracked, no gate; owner 2026-09-08). |
 
 ### Files to modify
 
@@ -128,6 +128,7 @@ progressive sampler changes. Serves Pillar 5.
 ## Progress
 
 - [ ] 2026-09-08 — filed by the lead; owner approved the direction; not started.
+- [ ] 2026-09-08 evening — owner: proceed as filed; #763 equal-spp noise ratio added to the A/B doc (no gate).
 
 ---
 

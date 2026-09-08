@@ -1384,3 +1384,149 @@ residual failures are owned by P2.2, whose scope is now concrete:
 Owner input not required for this decision (A2 vs A1 was delegated to the spike's evidence); the
 owner's S8 decisions (denoise settled-only, F12 pauses) are unchanged. Codex Terra was not spent on
 the spike result (calls remaining: 2 of 4).
+
+## 13. Codex Terra review 4 (2026-09-09, PR #777) — VERDICT: BLOCK
+
+Terra reviewed the P2.2 code + first GUI measurement on PR #777 (call 3/4) and
+returned **BLOCK** with four ordered items plus answers (b)/(c). The verbatim
+review is `test_results/2026-09-09-terra/terra_777_verdict.md`; the load-bearing
+lines and their resolutions follow.
+
+**Verbatim verdict:**
+
+> VERDICT: BLOCK
+>
+> 1. `blender_addon/__init__.py:132`, `:5457`; `module/blender_module.cpp:4407`;
+> deleted `tests/test_issue769_energy_compensation_bundling.py` and
+> `tests/test_issue772_shaderless_world_black.py` — this PR unintentionally
+> removes two unrelated, worker-OFF behaviors: staged Disney compensation-table
+> discovery/status and explicit black for shaderless worlds. That violates the
+> required origin/main-equivalent synchronous path, beyond the intended Buffer
+> upload. Minimal fix: restore those hunks, their binding, and both tests (or
+> rebase/cherry-pick P2.2 without the reversions).
+>
+> 2. `blender_addon/exporter.py:1629` — `_worker_view_update()` calls
+> `worker.pump()` with its default `present=True`. `view_update` is not a GPU
+> draw context, so this repeats the exact failure fixed for the timer:
+> `_drain_mailbox()` clears the one-slot mailbox before `_worker_present()` can
+> fail, losing the frame before `view_draw`. The timer fix at `:1496` is correct,
+> but incomplete. Minimal fix: `worker.pump(present=False)` here, plus a test that
+> an update-context pump preserves a queued frame for `view_draw`.
+>
+> 3. `benchmarks/viewport_parity/blender_driver.py:711-728` — the settle
+> instrument still defines a "completed generation" at terminal `render_end`,
+> while the worker deliberately publishes progressive chunks before that terminal
+> event. Thus `first_blit - render_end` is necessarily negative for valid
+> progressive presents, and `completed=0` does not establish a rendering failure.
+> Minimal fix: emit a publication/chunk sequence ID and terminal-publication
+> marker; compute progressive frame age from `mailbox_enqueue` to that
+> publication's `first_blit`, and separately score terminal completion/final
+> presentation.
+>
+> 4. `blender_addon/exporter.py:392-400`, `:591-597`;
+> `benchmarks/viewport_parity/blender_driver.py:736-746` — every request is
+> recorded as a cancel, including requests while IDLE and repeated requests for an
+> already-cancelling render; the reducer then pairs each with any next idle event,
+> regardless of generation. This makes the settle cancel p99 invalid and can make
+> pump p99 appear lower than worker p99. Minimal fix: emit one `cancel_request`
+> only for the actual in-flight generation when cancellation transitions
+> false->true; release the token before enqueueing its idle notification; pair
+> `cancel_request(g)` only with `idle_ack(g)` / `idle_drain(g)`.
+>
+> For (b): metric-definition bug, not broken progressive presentation. Progressive
+> frame age = `first_blit(publication_id) - mailbox_enqueue(publication_id)` (>= 0).
+> A terminal completed generation reaches its marked final publication without
+> cancellation while still desired; present-rate denominator = terminal
+> generations still current until final blit or run end; require >= 1 eligible
+> terminal generation, else UNGRADEABLE. Usable cancel gate =
+> `cancel_request(in_flight g) -> idle_drain(g)`; `idle_ack(g)` stays the
+> worker-only diagnostic.
+>
+> For (c): latency thresholds untrustworthy while the CUDA build contended for
+> CPU; structural evidence (mailbox depth <= 1, same device, zero CUDA errors,
+> present-check content, fixed-seed correctness) trustworthy regardless. Bounded
+> continuous-commit fix: replace the deferred `scene_full` path at
+> `exporter.py:1679` with a coalesced main-thread-recorded dirty-domain mask,
+> replayed as safe material/light/transform upload operations under the token
+> after idle; retain full sync only for unknown/geometry changes. The cancel p99
+> is architectural: a smaller Python `chunk` does not bound a long wavefront pass.
+> P2.3 needs a cancellation-bounded wavefront dispatch at
+> `gpu_wavefront_snapshot.cu`'s between-pass poll — interactive-resolution or
+> tiled/sub-pass launches with a cancel poll between bounded GPU work units.
+
+**Resolutions (PR #777, terra4 fix lane):**
+
+- **Item 1 — resolved by rebase.** The branch predated PR #774 (#769/#772);
+  the deleted tests + `__init__.py`/`blender_module.cpp` hunks were a
+  rebase-artifact reversion, not intended P2.2 scope. Rebased onto origin/main
+  (896d7f7c): `git diff origin/main --stat` shows no `test_issue769_*`/
+  `test_issue772_*` deletions and no `blender_module.cpp` change; `__init__.py`
+  is down to the 15 genuine P2.2 Buffer lines with plain `--stat` ==
+  `--ignore-space-at-eol --stat` (no line-ending damage). The only remaining
+  worker-OFF change is item 5 (unconditional `gpu.types.Buffer` upload), which is
+  byte-identity-guarded.
+- **Item 2 — fixed.** `exporter.py::_worker_view_update` now pumps
+  `present=False` (control-plane only, off the draw context). Guarded by a
+  call-site test that spies the pump `present` kwarg
+  (`test_worker_view_update_pumps_control_only_preserving_the_frame`) plus the
+  existing worker-level frame-preservation test.
+- **Item 3 — fixed (Terra (b) implemented exactly).** The worker emits a
+  monotonic publication id per chunk and a `terminal_publication(gen, pub_id)`
+  marker only when a render reaches target spp without cancellation; the recorder
+  derives `first_blit` per publication; the reducer computes progressive frame
+  age = `first_blit(pub) - mailbox_enqueue(pub)` (>= 0), scores terminal completed
+  generations (reached marked final publication, uncancelled, still current),
+  bounds the present-rate denominator to eligible terminal generations
+  (superseded-before-blit excluded), and reports **UNGRADEABLE** when none exist.
+  New reducer tests: frame-age non-negativity, UNGRADEABLE, superseded-terminal
+  exclusion.
+- **Item 4 — fixed.** `request()` emits `cancel_request` only for the actual
+  in-flight generation on the false->true cancel transition (never while IDLE,
+  never repeated); the worker releases the token before enqueueing idle; the
+  reducer pairs `cancel_request(g)` only with `idle_ack(g)`/`idle_drain(g)` of
+  the same generation, and the usable gate is
+  `cancel_request(in-flight g) -> idle_drain(g)`. New tests: exporter emission
+  guard + reducer generation-pairing.
+- **Buffer byte-identity (Terra note) — added.** An automated in-Blender
+  regression: `blender_driver.py --mode buffer_identity` compares
+  `bytes(Buffer(np))` vs `bytes(Buffer(flat.tolist()))` over the addon's exact
+  array pipeline inside the isolated GUI Blender (a live GPU context;
+  `gpu.types.Buffer` cannot be constructed under `blender -b` on Windows). A
+  companion pytest attempts the headless path and skips cleanly when no GPU
+  context exists.
+- **Terra (c) — DEFERRED to P2.3 (bounded-budget escape).** The coalesced
+  dirty-domain replay requires computing the domain change-set at `view_update`
+  (the only time `depsgraph.updates` is live) and threading that recorded mask +
+  its transform matrices into the idle-time commit, replacing the `scene_full`
+  full sync. That restructures the correctness-sensitive incremental-sync path
+  (`apply_depsgraph_updates` / `sync_viewport_scene`), and its interactive
+  material/transform correctness cannot be verified in this lane (no headless way
+  to drive live-viewport edits and read back device state). The current behavior
+  is already correct — N scene edits deferred while the worker is busy coalesce to
+  a **single** full sync at the next idle (`_worker_deferred_scene` is one bool),
+  so nothing is hidden behind the settle metric; it is a commit-cost optimization,
+  not a correctness gap. Per the lead's explicit <= 2 h budget clause, the
+  deferred-replay-under-token (materials/lights/environment first, then the
+  transform-recording + instancing-refit subtlety) moves to P2.3, where it can be
+  HW-verified alongside the GPU work below.
+
+**P2.3 must contain:**
+
+1. **Cancellation-bounded wavefront dispatch (architectural — Terra (c)).** The
+   cancel p99 over budget under the continuous storm is not fixable by a smaller
+   Python `chunk`: a single long wavefront pass is unbounded. P2.3 adds a cancel
+   poll between **bounded GPU work units** at `gpu_wavefront_snapshot.cu`'s
+   between-pass poll — interactive-resolution and/or tiled/sub-pass launches — so
+   the worker reaches idle within a bounded GPU interval regardless of the full
+   pass length.
+2. **Coalesced dirty-domain commit (Terra (c), deferred here).** Replace the
+   `scene_full` deferred path with a main-thread-recorded, coalesced dirty-domain
+   mask (recorded at `view_update` from the live `depsgraph.updates`) replayed as
+   safe material/light/transform upload operations under the token after idle;
+   retain full sync only for unknown/geometry changes. Measure per-generation
+   commit cost as its own event and re-confirm the tick-gap p95 under the
+   continuous storm on an uncontended GPU.
+3. **Clean re-measure on an uncontended GPU.** Repair-then-remeasure: the
+   generation/publication and cancel-correlation instrumentation is now correct
+   (this PR); P2.3 re-measures latency thresholds with no concurrent CUDA build
+   contending for CPU (the confound Terra flagged for (c)).

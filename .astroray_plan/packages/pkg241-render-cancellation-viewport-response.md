@@ -302,6 +302,29 @@ All implementation gates UNRUN:
 
 ## Progress
 
+- [ ] 2026-09-09 — **P2.2 Codex Terra review 4 (PR #777, call 3/4) — BLOCK, four items resolved**
+      (`feat/pkg241-phase2-p22-terra4` rebased onto origin/main 896d7f7c, fast-forwarded into
+      `feat/pkg241-phase2-p22`; full verdict + per-item resolutions in design doc §13). **Item 1
+      (unrelated #769/#772 reversions)**: rebase artifact — the branch predated PR #774; the rebase
+      dropped the deleted `test_issue769_*`/`test_issue772_*` tests and the `blender_module.cpp` /
+      `__init__.py` reversions (`git diff origin/main` clean, `__init__.py` plain `--stat` ==
+      `--ignore-space-at-eol`). **Item 2 (real defect)**: `_worker_view_update` pumped `present=True`
+      off the draw context, losing the queued frame; now `pump(present=False)` + a call-site test.
+      **Item 3 (settle instrument)**: implemented Terra (b) — publication-id + `terminal_publication`
+      marker, per-publication frame age (`first_blit(pub) - mailbox_enqueue(pub)` >= 0), terminal
+      completed-generation present-rate with UNGRADEABLE when no eligible terminal generation.
+      **Item 4 (cancel correlation)**: `cancel_request` only for the in-flight gen on false->true,
+      token released before idle enqueue, reducer pairs by generation (`cancel_request(g) ->
+      idle_drain(g)`). **Buffer byte-identity (Terra note)**: `--mode buffer_identity` GUI-bridge
+      test + a headless pytest that skips without a GPU context. **Terra (c) DEFERRED to P2.3**: the
+      coalesced dirty-domain deferred-replay restructures the incremental-sync path and is not
+      HW-verifiable in this lane; current behavior already coalesces N deferred edits to one full
+      sync per settle (not hidden behind the settle metric). pkg241 non-GPU suite 29 passed / 1
+      skipped; lint clean. Post-fix GUI re-measure (isolated Blender 9877, GPU lock held) tables in
+      `benchmarks/viewport_parity/results/2026-09-09-phase2-p22/SUMMARY.md` (-terra4 suffix).
+      **P2.3**: cancellation-bounded wavefront dispatch (`gpu_wavefront_snapshot.cu` between-pass
+      poll, interactive-resolution / sub-pass launches) + the coalesced commit + a clean re-measure
+      on an uncontended GPU.
 - [ ] 2026-09-08 — **P2.2 (design §12 items 1–5) code delivered** (`feat/pkg241-phase2-p22`,
       branched from origin/main e18ba1a8; PR pending). All five items implemented as addon-Python
       + benchmark code (no native change — the #768 GPU GIL-release native code is reused):

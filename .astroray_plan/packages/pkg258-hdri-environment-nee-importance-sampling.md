@@ -251,6 +251,10 @@ compares an NEE-lit Cycles image against a BSDF-miss-lit Astroray image.
       `path_kernel.cpp` + MW env legs; MW env-NEE `worldMaxBounces` gate removed
       to match the ungated MW miss leg. Contract test tightened + within-texel
       KS uniformity; near-delta-metal no-double-count regression added.
+- [x] 2026-09-08 — ground-row residual diagnosis (diag/pkg258-ground-residual,
+      Sonnet 5 diagnosis lane). Root-caused: NOT env NEE. See Lessons and
+      `.astroray_plan/docs/pkg258-ground-residual-diagnosis-2026-09-08.md`.
+      No code changed; recommends a new materials/BSDF follow-up package.
 
 ---
 
@@ -275,3 +279,16 @@ compares an NEE-lit Cycles image against a BSDF-miss-lit Astroray image.
   delivered by the unweighted miss leg), but `L/pdf` can still spike at a
   dim/bright texel boundary — a variance (firefly) concern, not bias. Follow-up
   only if the `hdri_exterior_hair` re-run shows fireflies.
+- **Ground-row residual (2026-09-08, diag/pkg258-ground-residual) is NOT an
+  env-NEE bug.** Full diagnosis:
+  `.astroray_plan/docs/pkg258-ground-residual-diagnosis-2026-09-08.md`.
+  Firefly clamp, hair/scalp/glass occlusion, and the env-NEE estimator itself
+  are all cleared by direct experiment (clamp A/B no-op; Ground-only isolation
+  unchanged; the same ~6-7% deficit reproduces under a plain Sun lamp with the
+  HDRI removed and no `EnvironmentMap` loaded at all). Root cause is isolated
+  to Astroray's Principled BSDF losing diffuse energy at high specular
+  roughness (0.85 reproduces the deficit, 0 does not, at the same albedo and
+  light source) — most likely in `ggxDirectionalAlbedo`/`layeringWeightAfter`
+  (`plugins/materials/principled.cpp:638-668`), the GGX multiscatter
+  energy-compensation layering between the specular and diffuse lobes. Belongs
+  to a new materials/BSDF follow-up package, not pkg258; no code changed here.

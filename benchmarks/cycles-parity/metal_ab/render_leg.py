@@ -87,7 +87,7 @@ def _to_top_down(px):
     return np.ascontiguousarray(px[::-1, :, :])
 
 
-def _configure_render(scene, engine, device, res, samples):
+def _configure_render(scene, engine, device, res, samples, seed=7):
     scene.render.resolution_x = res
     scene.render.resolution_y = res
     scene.render.resolution_percentage = 100
@@ -113,7 +113,7 @@ def _configure_render(scene, engine, device, res, samples):
     scene.cycles.samples = samples
     scene.cycles.use_denoising = False
     scene.cycles.use_adaptive_sampling = False
-    scene.cycles.seed = 7
+    scene.cycles.seed = seed
     # pkg263: denoise off on the scene AND the view layer (a view layer's own
     # Cycles override can re-enable denoising independent of the scene flag).
     for vl in scene.view_layers:
@@ -174,6 +174,10 @@ def main():
     p.add_argument("--out", required=True, help="output stem (no extension)")
     p.add_argument("--res", type=int, default=128)
     p.add_argument("--samples", type=int, default=256)
+    p.add_argument("--seed", type=int, default=7,
+                   help="Cycles/Astroray RNG seed (0 is the engine's random "
+                        "sentinel, not a pin; pkg263 uses a second fixed seed "
+                        "to measure the Cycles MC noise floor)")
     args = p.parse_args(argv)
 
     repo_root = Path(__file__).resolve().parents[3]
@@ -192,7 +196,8 @@ def main():
         else:
             cfg = scenes.config_by_name(args.config)
             scene = scenes.build_metal_scene(bpy, cfg)
-        _configure_render(scene, args.engine, args.device, args.res, args.samples)
+        _configure_render(scene, args.engine, args.device, args.res, args.samples,
+                         seed=args.seed)
         out_stem = Path(args.out)
         out_stem.parent.mkdir(parents=True, exist_ok=True)
         npy = _render_to_npy(bpy, scene, out_stem, top_down=(args.material == "glass"))

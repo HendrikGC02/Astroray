@@ -1398,9 +1398,17 @@ __device__ inline float gpu_pr_ggxAnisoD(const GVec3& H, float ax, float ay, flo
 // 2001). Uses only the triangle's world-space verts + active-layer UVs + N (no
 // barycentric); returns false + leaves outT/outSign untouched on a degenerate
 // UV/projection so the caller keeps its arbitrary-frame fallback.
+// pkg753 (#753) — optional outScaleU/outScaleV mirror the CPU twin
+// (manifold::uvAlignedTangent): world length per UV unit along outT / the
+// reconstructed bitangent, needed to convert the Bump node's UV-space
+// finite-difference step into a world-space one (Cycles' svm_node_set_bump
+// dP.dx/dP.dy are world-space position differentials — see
+// .astroray_plan/docs/pkg223b-bump-cycles-citation.md). Defaulted to nullptr
+// so the pkg178/pkg223 (aniso tangent, Normal Map) call sites are unaffected.
 __device__ inline bool gpu_pr_uvAlignedTangent(const GVec3& p0, const GVec3& p1, const GVec3& p2,
                                                const GVec2& w0, const GVec2& w1, const GVec2& w2,
-                                               const GVec3& N, GVec3& outT, float& outSign) {
+                                               const GVec3& N, GVec3& outT, float& outSign,
+                                               float* outScaleU = nullptr, float* outScaleV = nullptr) {
     GVec3 dp_du = p1 - p0, dp_dv = p2 - p0;
     float du1 = w1.x - w0.x, dv1 = w1.y - w0.y;
     float du2 = w2.x - w0.x, dv2 = w2.y - w0.y;
@@ -1412,8 +1420,11 @@ __device__ inline bool gpu_pr_uvAlignedTangent(const GVec3& p0, const GVec3& p1,
     GVec3 Tortho = T - N * N.dot(T);
     float tlen2 = Tortho.length2();
     if (tlen2 <= 1e-12f) return false;
-    outT = Tortho * (1.f / sqrtf(tlen2));
+    float tlen = sqrtf(tlen2);
+    outT = Tortho * (1.f / tlen);
     outSign = (N.cross(outT).dot(Bt) < 0.f) ? -1.f : 1.f;
+    if (outScaleU) *outScaleU = tlen;
+    if (outScaleV) *outScaleV = sqrtf(Bt.length2());
     return true;
 }
 __device__ inline float gpu_pr_F0_from_ior(float ior) {

@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** done — 2026-09-09, PR #TBD. GPU adaptive sampling now actually engages: fixed a dead `adaptiveOn` gate in `gpu_wavefront_snapshot.cu` that required `alphaOut == nullptr`, unconditionally false at the real call site since pkg201; addon enables the pkg224 progressive sampler only when GPU adaptive sampling is requested (fork (b) — the engine-default fork (a) was tried and reverted after measuring a wavefront perf-ceiling and CPU/GPU snapshot-parity regression, see the A/B doc); `light_sampler` fallback default flipped to `'light_tree'`; degradation report now flags GPU-ignored adaptive cases. A/B: `.astroray_plan/docs/pkg262-default-flip-ab-2026-09.md`.
+**Status:** done — 2026-09-09, PR #788 (merged dedd4853). GPU adaptive sampling now actually engages: fixed a dead `adaptiveOn` gate in `gpu_wavefront_snapshot.cu` that required `alphaOut == nullptr`, unconditionally false at the real call site since pkg201; addon enables the pkg224 progressive sampler only when GPU adaptive sampling is requested (fork (b) — the engine-default fork (a) was tried and reverted after measuring a wavefront perf-ceiling and CPU/GPU snapshot-parity regression, see the A/B doc); `light_sampler` fallback default flipped to `'light_tree'`; degradation report now flags GPU-ignored adaptive cases. A/B: `.astroray_plan/docs/pkg262-default-flip-ab-2026-09.md`.
 **Estimated effort:** 2 sessions (~6 h; A/B measurement on the RTX + parity sweeps + addon change)
 **Depends on:** pkg224, pkg131, pkg86, pkg81
 

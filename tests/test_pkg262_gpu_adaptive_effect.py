@@ -11,19 +11,21 @@ convergence). The Blender addon (`blender_addon/__init__.py` `render()`,
 `blender_addon/`. Result: turning the native "Adaptive Sampling" toggle on
 changes nothing on a GPU render; the flat uniform work pool runs regardless.
 
-This test drives the renderer EXACTLY the way the addon does today — only
-`set_adaptive_sampling`, never `set_use_progressive_sampler` — so it exercises
-the real bug (and, after the pkg262 fix, the real fix) rather than a synthetic
-repro. It intentionally reuses the raw `astroray.Renderer()` binding (not the
-`bpy`/`RenderEngine` layer) because pkg262's design decision prefers an ENGINE
-DEFAULT fix (`include/raytracer.h` `useProgressiveSampler = true`) over an
-addon-side auto-enable — see `.astroray_plan/packages/
-pkg262-default-on-progressive-sampler-light-tree.md` "Key design decisions".
-If the A/B in that spec instead forces the addon-side fallback (fork b:
-"addon enables the progressive sampler whenever adaptive is requested on
-GPU"), this test must move the render call through `blender_addon` so it
-still exercises the fix; note left here deliberately so that fork switch does
-not silently go untested.
+pkg262's A/B (.astroray_plan/docs/pkg262-default-flip-ab-2026-09.md) tried the
+ENGINE-DEFAULT fix first (`include/raytracer.h` `useProgressiveSampler = true`,
+fork (a)) and measured a real regression: the wavefront perf ceiling and the
+CPU/GPU snapshot-parity gate both broke, because flipping the default makes
+EVERY GPU render pay the Sobol'+Owen-scramble cost and diverge from the CPU's
+PCG32 reference, not just adaptive ones. The fix instead lives in the addon
+(fork (b), the spec's documented fallback): `blender_addon/__init__.py`
+`render()` and `blender_addon/exporter.py` `sync_viewport_scene()` now call
+`renderer.set_use_progressive_sampler(active_device == "gpu" and
+settings.use_adaptive_sampling)` right after the device is resolved. The
+engine default stays `false`.
+
+`_render_addon_style` below therefore mirrors that exact addon expression
+(not just `set_adaptive_sampling` alone) so this test exercises the real fix
+rather than a fork the code no longer takes.
 
 Gates:
   * test_adaptive_toggle_changes_gpu_output_759 — PRIMARY gate. At equal max
@@ -74,14 +76,17 @@ def _build_scene(renderer):
 
 
 def _render_addon_style(adaptive, samples, seed=1234):
-    """Render exactly the way `blender_addon/__init__.py::render()` does: only
-    `set_adaptive_sampling` is called. `set_use_progressive_sampler` is NEVER
-    called here — that is the point of this helper (see module docstring)."""
+    """Render exactly the way `blender_addon/__init__.py::render()` (and
+    `exporter.py::sync_viewport_scene()`) do post-pkg262: `set_adaptive_sampling`
+    plus `set_use_progressive_sampler(active_device == "gpu" and adaptive)` —
+    the addon-side fork (b) enable, not a bare `set_adaptive_sampling` call."""
     r = create_renderer()
     if not _has_cuda_gpu(r):
         pytest.skip("No CUDA GPU — pkg262 GPU adaptive-effect gate runs on the RTX box.")
     r.set_use_gpu(True)
     r.set_adaptive_sampling(adaptive)
+    if hasattr(r, "set_use_progressive_sampler"):
+        r.set_use_progressive_sampler(bool(adaptive))  # active_device == "gpu" always here
     _build_scene(r)
     try:
         r.set_seed(seed)

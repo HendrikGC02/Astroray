@@ -1053,6 +1053,15 @@ class Exporter:
         active_mode = configure_backend_fn(renderer, settings, self.engine.report,
                                           effective_integrator_name_fn(settings))
 
+        # pkg262 (#759): mirrors CustomRaytracerRenderEngine.render()'s wiring
+        # (blender_addon/__init__.py) -- enable the pkg224 progressive sampler
+        # only when GPU adaptive sampling is actually requested this viewport
+        # sync, so the byte-identical/faster PCG32 default is preserved for
+        # every other viewport render.
+        if hasattr(renderer, "set_use_progressive_sampler"):
+            renderer.set_use_progressive_sampler(
+                active_mode == "gpu" and bool(settings.use_adaptive_sampling))
+
         # pkg84: CUDA kernel pre-warm
         if active_mode == 'gpu' and self._viewport_prewarmed_for_mode != 'gpu':
             try:

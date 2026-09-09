@@ -1275,6 +1275,19 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 except Exception:
                     pass
 
+            # pkg262 (#759): the pkg224 progressive (Sobol'/Owen) sampler is
+            # GPU-only and opt-in (include/raytracer.h useProgressiveSampler
+            # defaults false -- measured A/B: as the engine default it blew
+            # the wavefront perf ceiling and the CPU/GPU snapshot-parity gate,
+            # see .astroray_plan/docs/pkg262-default-flip-ab-2026-09.md). The
+            # GPU adaptive-sampling round loop REQUIRES it (the prefix property
+            # -- gpu_wavefront_snapshot.cu adaptiveOn), so enable it exactly
+            # when adaptive sampling is actually requested on GPU: every other
+            # render stays on the byte-identical, faster PCG32 default.
+            if hasattr(renderer, "set_use_progressive_sampler"):
+                renderer.set_use_progressive_sampler(
+                    active_device == "gpu" and bool(settings.use_adaptive_sampling))
+
             # pkg241 Phase 1b: the False return on test_break() now actually
             # cancels the render (the native progress callback returns bool and
             # the tile loop / GPU wavefront stop cooperatively). renderer.render

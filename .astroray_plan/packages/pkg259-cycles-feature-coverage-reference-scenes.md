@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** B
-**Status:** in-progress — Phase 1 MERGED (#761, polish #781); Phase 2 (`lighting_studio` + `world_sky`) built, both-engine renders, tests green -- PR pending
+**Status:** in-progress — Phase 1 MERGED (#761, polish #781); Phase 2 (`lighting_studio` + `world_sky`) built, both-engine renders, tests green -- PR #785 open
 **Estimated effort:** 1 week (~20 h across sessions; Phase 0 one session, then one scene family per session)
 **Depends on:** pkg229, pkg249, pkg253
 
@@ -169,7 +169,7 @@ gate (b)'s frequency-weighted coverage measurement. It serves Pillar 5.
 
 ## Progress
 
-- [x] 2026-09-09 — **Phase 2 built (PR pending):** `lighting_studio.blend`
+- [x] 2026-09-09 — **Phase 2 built (PR #785 open):** `lighting_studio.blend`
       (four walled booths — POINT/SUN/SPOT/AREA — under one fixed camera in
       one establishing shot, reusing the single-render+crop pattern instead
       of four separate re-renders; SPOT carries a synthetic asymmetric

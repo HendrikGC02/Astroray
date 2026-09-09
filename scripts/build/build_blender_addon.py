@@ -306,11 +306,15 @@ def _backend_config(backend: str) -> tuple[Path, list[str]]:
 
     backend — one of: cuda (CLI default), tcnn, cpu, auto
     """
-    # libgomp (MinGW OpenMP) deadlocks inside Blender's MSVC host Python —
-    # always keep OpenMP off for Blender builds regardless of backend.
+    # OpenMP is ON for Blender addon builds (issue #780, 2026-09-09). The
+    # historical hang was never a libgomp/vcomp defect: PyRenderer::render()
+    # held the GIL across the entire CPU tile loop while the OpenMP worker
+    # that finished a tile blocked re-acquiring it for the progress callback.
+    # pkg241 (#748) added the py::gil_scoped_release around the CPU render,
+    # which removes the deadlock; the addon's CPU leg is multi-threaded again.
     # All other optimizations (native arch, fast math, OIDN) are explicit ON.
     common_opts = [
-        "-DASTRORAY_DISABLE_OPENMP=ON",
+        "-DASTRORAY_DISABLE_OPENMP=OFF",
         "-DUSE_NATIVE_ARCH=ON",
         "-DUSE_FAST_MATH=ON",
         "-DASTRORAY_ENABLE_OIDN=ON",

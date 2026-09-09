@@ -156,9 +156,34 @@ add one.
       green. (2026-08-31)
 - [ ] Sample-count AOV (report measured speedup) + addon UI: remove the `samples=N`
       knob, expose `max_samples` + optional auto-defaulted noise-threshold override.
+- [x] **Dead-gate bug found and fixed by pkg262 (2026-09-09).** The GPU
+      `adaptiveOn` gate this package introduced (`src/gpu/wavefront/
+      gpu_wavefront_snapshot.cu`) required `alphaOut == nullptr`, but every
+      real call site (`module/blender_module.cpp`'s default GPU route,
+      pkg201 Stage 2 Finding F, PR #623 — which predates this package's PR
+      #665) always passes a non-null `camera->alphaBuffer.data()`. Adaptive
+      sampling was therefore **permanently inert on the real render() path
+      regardless of every flag** — the "HW-verified" claim above was true
+      only for whatever lower-level call path was used to measure it, not
+      for a normal `renderer.render(...)` call. Fixed to
+      `!renderer.getUseTransparentFilm()`, matching the sibling `coverageOn`
+      check two lines above. See
+      `.astroray_plan/docs/pkg262-default-flip-ab-2026-09.md` §1.3.
 
 ---
 
 ## Lessons
 
 *(Fill in after the package is done.)*
+
+- pkg262 found that this package's GPU `adaptiveOn` gate never actually
+  activated via `Renderer::render()` (the real render entry point) because
+  of a stale `alphaOut == nullptr` check — see the Progress entry above.
+  Byte-identity/mean-closeness style GPU tests (`np.allclose` on means,
+  `not np.array_equal`) are too weak to catch "the feature never engages":
+  GPU wavefront atomicAdd order is non-deterministic run-to-run (~5e-7
+  max|diff| floor even for two renders of the IDENTICAL config), so those
+  assertions pass unconditionally regardless of whether the feature under
+  test did anything. A magnitude threshold well above the empirical noise
+  floor (pkg262 used 1e-3, ~2000x the floor) is required to prove a real
+  code-path change occurred.

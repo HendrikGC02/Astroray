@@ -193,6 +193,14 @@ will hit this gap.
       across all 128 specializations (REG:254 / STACK / CONSTANT unchanged) — the
       `__noinline__` + runtime-`__constant__`-flag design paid zero off-path cost.
       Merged as PR #657 (2026-08-30); CI green (build-and-test + cuda-syntax-check).
+- [x] Default flip decided by pkg262 (2026-09-09): the ENGINE default (this
+      spec's opt-in flag flipped to `true` in `include/raytracer.h`) was tried
+      and MEASURED to regress the wavefront perf ceiling (0.57-0.71s → 1.629s,
+      >1.5s pin) and the CPU/GPU snapshot-parity gate (PostInit ULP 4 → 2.1B) —
+      reverted. The engine default stays `false`; `blender_addon/__init__.py`
+      and `exporter.py` instead enable it only when GPU adaptive sampling
+      (pkg131) is actually requested. Full A/B:
+      `.astroray_plan/docs/pkg262-default-flip-ab-2026-09.md`.
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — filed 2026-09-08 from the owner's "off for now" audit (owner approved the direction 11:50)
+**Status:** done — 2026-09-09, PR #TBD. GPU adaptive sampling now actually engages: fixed a dead `adaptiveOn` gate in `gpu_wavefront_snapshot.cu` that required `alphaOut == nullptr`, unconditionally false at the real call site since pkg201; addon enables the pkg224 progressive sampler only when GPU adaptive sampling is requested (fork (b) — the engine-default fork (a) was tried and reverted after measuring a wavefront perf-ceiling and CPU/GPU snapshot-parity regression, see the A/B doc); `light_sampler` fallback default flipped to `'light_tree'`; degradation report now flags GPU-ignored adaptive cases. A/B: `.astroray_plan/docs/pkg262-default-flip-ab-2026-09.md`.
 **Estimated effort:** 2 sessions (~6 h; A/B measurement on the RTX + parity sweeps + addon change)
 **Depends on:** pkg224, pkg131, pkg86, pkg81
 
@@ -107,12 +107,14 @@ progressive sampler changes. Serves Pillar 5.
 
 ## Acceptance criteria
 
-- [ ] `tests/test_pkg262_gpu_adaptive_effect.py` red on main, green after; runs
+- [x] `tests/test_pkg262_gpu_adaptive_effect.py` red on main, green after; runs
       on the RTX under the lock.
-- [ ] A/B doc complete for both flips, CPU and GPU, with the pkg81 bench numbers.
-- [ ] Full pytest suite + `benchmarks/blender_parity` smoke green with the new
-      defaults; byte-identity tests updated, not deleted.
-- [ ] Addon degradation report correct for the ignored-adaptive cases; #759
+- [x] A/B doc complete for both flips, CPU and GPU, with the pkg81 bench numbers.
+- [x] Full pytest suite + `benchmarks/blender_parity` smoke green with the new
+      defaults; byte-identity tests updated, not deleted. (CPU: 1864 passed/0
+      failed; GPU: 766 passed/0 failed, `tests/test_blender_parity_harness.py`
+      included in both runs.)
+- [x] Addon degradation report correct for the ignored-adaptive cases; #759
       closed by the PR.
 
 ---
@@ -127,11 +129,39 @@ progressive sampler changes. Serves Pillar 5.
 
 ## Progress
 
-- [ ] 2026-09-08 — filed by the lead; owner approved the direction; not started.
-- [ ] 2026-09-08 evening — owner: proceed as filed; #763 equal-spp noise ratio added to the A/B doc (no gate).
+- [x] 2026-09-08 — filed by the lead; owner approved the direction; not started.
+- [x] 2026-09-08 evening — owner: proceed as filed; #763 equal-spp noise ratio added to the A/B doc (no gate).
+- [x] 2026-09-09 — implemented. Red test written and confirmed red on main
+      (build_cuda @ SHA 1108b918). Fork (a) (engine default) tried, built,
+      measured, and REVERTED after breaking the wavefront perf ceiling
+      (1.629s > 1.5s) and the CPU/GPU snapshot-parity gate (PostInit ULP
+      2.1B > 4). Fork (b) shipped instead: addon enables the progressive
+      sampler only when GPU adaptive sampling is requested. Found and fixed
+      an independent pkg131-introduced bug (`adaptiveOn` gated on
+      `alphaOut == nullptr`, unconditionally false at the real call site
+      since pkg201, so GPU adaptive sampling never engaged under ANY flag
+      combination before this fix). `light_sampler` fallback default
+      flipped to `'light_tree'`. Full A/B in
+      `.astroray_plan/docs/pkg262-default-flip-ab-2026-09.md`. CPU suite:
+      1864 passed/0 failed. GPU suite: 766 passed/0 failed (was 758/9-failed
+      under fork (a), confirming the revert fixed every regression).
 
 ---
 
 ## Lessons
 
-- (none yet)
+- **Measure the fork before committing to the spec's stated preference.**
+  The spec preferred the engine default (fork (a)) as "one behaviour
+  everywhere", but it silently assumed the CPU/GPU snapshot-parity harness
+  and the wavefront perf-gate would tolerate a default RNG algorithm change.
+  They didn't (ULP gate blew from 4 to 2.1 billion; perf ceiling blew by
+  2.3x). The spec's own "a flip that fails its row stays off" rule caught
+  this cleanly once actually measured — don't skip the A/B because a fork
+  has a stated preference.
+- **A gate's `alphaOut == nullptr` check can be dead code without anyone
+  noticing** when every real call site always passes a non-null pointer
+  (the pointer's nullity stopped being a useful proxy for "transparent film
+  requested" once pkg201 made the buffer unconditional). Prefer the
+  semantic flag (`getUseTransparentFilm()`) the sibling `coverageOn` check
+  two lines above already used, over a raw pointer check, when both exist
+  in the same function.

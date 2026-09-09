@@ -1,6 +1,20 @@
 # Astroray Status
 
-## 2026-09-09 CURRENT — overnight lead session closeout (00:30 → ~07:50; usage-limit kills at ~00:40 and ~04:35, every lane resumed from pushed WIP)
+## 2026-09-09 CURRENT — day lead session (in progress, ~09:50 →; live block, closeout replaces it)
+
+Lead: Claude Fable 5.1, autonomous continuation of the overnight session (same prompt). Lanes: Opus 4.8 (pkg265 stochastic-eval round 2 + wiring, #780 root-cause), Sonnet 5 (pkg262 ×2, pkg259 Phase 2). Codex Terra: 1 of 4 used.
+
+**Merged (squash, CI green):**
+- **#785 pkg259 Phase 2** — `lighting_studio` (four walled booths POINT/SUN/SPOT/AREA in one 640×160 shot, synthetic LM-63 IES from code) + `world_sky_hdri` / `world_sky_sky` (480×270; two files sharing the family tag), 36 + 25 rows accounted for, manifest tests 22/22, both engines rendered; two latent Phase 1 bugs fixed (SOCKET_OVERRIDE ignored in the family check; light node-trees missing from `node_ids`). Lead inspection: booths match Cycles (SPOT dimmer = the registered IES drop); **HDRI rolled ~90° vs Cycles** (Mapping (0,0,115°) yaw becomes a roll) → **#786**; diffuse ground gets almost no sky light → **#787**; Sky texture black = designed drop (pkg256). Renders now seconds, not hours (simple geometry).
+
+**PR #778 pkg265 (HELD → wiring):** stochastic-eval round 1 claimed “fundamentally non-convergent (4.6e11)”; the lead derived the refraction-Jacobian bound (|n_i ω_r + n_t ω_o| ≥ |n_t − n_i| ⇒ 1/d² ≤ 4.9 at IOR 1.45) and relaunched. Round 2 (73797ed7): the blow-up was `|cos_i|` in the Eq 32 VNDF denominator (signed cos_i is required for upward-going rays, §6.1) plus the R/T connection evaluated outside the walk’s flip frame; fixed in the header and the oracle; sphere-integrated eval R within ±5 % / T within ±6 % of the walk at r ≥ 0.85, per-sample max 4–19. No hybrid. Lane 3 is wiring `stochasticEval` into both glass lobes (hash-seeded RNG, `isDelta=false`, §9 pdf proxy) with the NEE-on/off invariance gates, CUDA build + GPU suites under the lock, Phase 8/10 harness. Memory: `lane-divergence-claims-need-analytic-bound-first`.
+
+**In flight:** pkg262 — red adaptive-effect test (#759) then flips; the engine-default progressive-sampler flip was **reverted after a measured regression** (b5273c02) in favour of the spec’s addon-enable fork; A/B doc + PR pending (continuation lane). #780 — root-cause lane: the 2026-06-12 memory shows MSVC/vcomp also deadlocked, so the target is the Python-touch inside the parallel region (the CPU render binding holds the GIL for its duration; progress callback threaded through the tile loops), not the toolchain.
+
+**Lesson (fixed):** a lane built under the lead’s `gpu_locked_build.py` with its worktree as the repo argument, so the lock landed in `Astroray-pkg262/.astroray_plan/` — invisible to every other lane while nvcc ran. Wrapper now always locks the main checkout’s path; memory `gpu-lock-lanes-overwrite-lock-file` addendum.
+
+---
+## 2026-09-09 — overnight lead session closeout (00:30 → ~07:50; usage-limit kills at ~00:40 and ~04:35, every lane resumed from pushed WIP)
 
 Lead: Claude Fable 5.1, autonomous from `next-session-prompt-2026-09-09.md`; dispatch order as the owner confirmed. Lanes: Opus 4.8 (pkg265 ×3 instances + eval-fix + thin-film fix, pkg241 P2.2 + Terra-fix + scene-switch), Sonnet 5 (addon chips, #762, pkg259 polish ×2, pkg241 measurement ×3, pkg265 harness ×2), reviewers (cycles-parity ×2 + cpp-abi-guard on #778). Codex Terra: 1 of 4 (PR #777). Run report: `reports/2026-09-09-overnight-lead-session.html`. Next prompt: `next-session-prompt-2026-09-10.md`.
 

@@ -389,10 +389,10 @@ class DisneyPlugin : public Material {
         if (cosO < 0.0f) { n = -n; cosO = -cosO; cosI = -cosI; }
         if (cosO <= 1e-6f || std::abs(cosI) <= 1e-6f) return 0.0f;
         float alpha = std::max(roughness_ * roughness_, 0.0064f);
-        Vec3 woL(wo.dot(rec.tangent), wo.dot(rec.bitangent), cosO);
-        Vec3 wiL(wi.dot(rec.tangent), wi.dot(rec.bitangent), cosI);
-        return astroray::msdiel::stochasticEvalHashed(woL, wiL, alpha, ior_,
-                                                      rec.frontFace);
+        Vec3 woLocal(wo.dot(rec.tangent), wo.dot(rec.bitangent), cosO);
+        Vec3 wiLocal(wi.dot(rec.tangent), wi.dot(rec.bitangent), cosI);
+        return astroray::msdiel::stochasticEvalHashed(woLocal, wiLocal, alpha,
+                                                      ior_, rec.frontFace);
     }
 
     // PBRT-v4 DielectricBxDF::f transmission (BSD-3-Clause).

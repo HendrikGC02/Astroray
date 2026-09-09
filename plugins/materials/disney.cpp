@@ -377,6 +377,24 @@ class DisneyPlugin : public Material {
         return Vec3(fr);
     }
 
+    // pkg265 Phase 10 — STOCHASTIC EVAL of the multiple-scattering dielectric
+    // (Heitz et al. 2016 §8.1, Eq 42; msdiel::stochasticEvalHashed). Returns the
+    // achromatic f(wo,wi)·|cos wi| of the glass lobe's walk, unbiased and
+    // deterministic (hash-seeded RNG, the pbrt-v4 LayeredBxDF::f pattern — see
+    // include/astroray/microsurface_dielectric.h). Callers apply the lobe weight
+    // and the tint, matching sample()'s `through`.
+    float glassWalkScalar(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+        Vec3 n = rec.normal;
+        float cosO = n.dot(wo), cosI = n.dot(wi);
+        if (cosO < 0.0f) { n = -n; cosO = -cosO; cosI = -cosI; }
+        if (cosO <= 1e-6f || std::abs(cosI) <= 1e-6f) return 0.0f;
+        float alpha = std::max(roughness_ * roughness_, 0.0064f);
+        Vec3 woL(wo.dot(rec.tangent), wo.dot(rec.bitangent), cosO);
+        Vec3 wiL(wi.dot(rec.tangent), wi.dot(rec.bitangent), cosI);
+        return astroray::msdiel::stochasticEvalHashed(woL, wiL, alpha, ior_,
+                                                      rec.frontFace);
+    }
+
     // PBRT-v4 DielectricBxDF::f transmission (BSD-3-Clause).
     // Walter 2007 "Microfacet Models for Refraction through Rough Surfaces" Eq. 21.
     Vec3 roughTransmissionEval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
@@ -616,14 +634,18 @@ public:
         float NdotL = N.dot(wi);
         float NdotV = N.dot(wo);
         if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness && NdotL * NdotV < 0.0f) {
-            // pkg265 (eval/NEE consistency): the rough glass lobe is the Heitz-2016
-            // multiple-scattering walk (sample()), whose f/pdf is set directly.
-            // A single-scatter eval here is not an unbiased estimate of the walk's
-            // f, so NEE/MIS with it is inconsistent (the cycles-parity-reviewer
-            // CRITICAL). Join the smooth-glass delta contract instead: eval==0 ⇒ NEE
-            // skipped; sample() sets isDelta=true so the emitter hit is full weight.
-            // Unbiased (BSDF sampling), noisier direct light. See research note §5.
-            return Vec3(0);
+            // pkg265 Phase 10 (lead decision on PR #778, 2026-09-09): the rough
+            // glass lobe is the Heitz-2016 multiple-scattering walk (sample()), so
+            // eval() is the paper's own STOCHASTIC EVALUATION of that BSDF (§8.1,
+            // Eq 42) — unbiased, hash-seeded, deterministic. It replaces both the
+            // single-scatter eval (inconsistent with the walk: the cycles-parity
+            // CRITICAL) and the interim eval==0 skip-NEE delta contract (unbiased
+            // but it moved the pkg263 harness limb to 0.60 of Cycles). transmission_
+            // is this lobe's mixture weight (pdf() weights its density by the same
+            // factor); (1-metallic_) mirrors sample()'s `through`.
+            float s = glassWalkScalar(rec, wo, wi);
+            if (s <= 0.0f) return Vec3(0);
+            return baseColor_ * ((1.0f - metallic_) * transmission_ * s);
         }
         if (NdotL <= 0 || NdotV <= 0) return Vec3(0);
 
@@ -691,12 +713,12 @@ public:
         // transmit). Smooth glass (roughness_<=kDeltaTransmissionRoughness)
         // is unaffected -- boundary preserved per spec.
         if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {
-            // pkg265 (eval/NEE consistency): the walk covers the dielectric REFLECTION
-            // lobe too (ds.walkReflected), so its reflection is likewise sampled, not
-            // eval'd for NEE. Drop the single-scatter roughReflectionEval blend so the
-            // whole glass lobe honours the delta-for-NEE contract (eval==0). For pure
-            // glass (dielectricWeight→1) this zeroes `spec`; mixed materials keep only
-            // their non-dielectric specular. See transmission branch above + note §5.
+            // pkg265: the walk covers the dielectric REFLECTION lobe too
+            // (ds.walkReflected), so the single-scatter roughReflectionEval blend is
+            // dropped here and the stochastic Eq-42 estimate is added to `result`
+            // below (after the `* NdotL`, since it already carries |cos wi|). For
+            // pure glass (dielectricWeight→1) this zeroes `spec`; mixed materials
+            // keep only their non-dielectric specular.
             float dielectricWeight = (1.0f - metallic_) * transmission_;
             spec = spec * (1.0f - dielectricWeight);
         }
@@ -797,6 +819,15 @@ public:
                          spec * lowerLayerWeight;
         Vec3 result = (baseLayer + (1 - metallic_) * Fsheen + clearcoatTerm) * NdotL;
 
+        // pkg265 Phase 10: the glass lobe's REFLECTION half, from the same
+        // stochastic Eq-42 estimate as the transmission branch above (tint = white,
+        // matching sample()'s `tint = w.reflected ? Vec3(1) : baseColor_`). Added
+        // after the `* NdotL` because stochasticEvalHashed already returns f·|cos wi|.
+        if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {
+            float sWalk = glassWalkScalar(rec, wo, wi);
+            if (sWalk > 0.0f)
+                result += Vec3((1.0f - metallic_) * transmission_ * sWalk);
+        }
         return clampColor(result);
     }
 
@@ -862,22 +893,21 @@ public:
                 if (w.escaped) {
                     s.wi = (rec.tangent * w.wi.x + rec.bitangent * w.wi.y + n * w.wi.z)
                                .normalized();
-                    Vec3 wiLocal(s.wi.dot(rec.tangent), s.wi.dot(rec.bitangent),
-                                       s.wi.dot(n));
-                    // §9 MIS pdf: first-bounce VNDF density + diffuse floor (> 0), so
-                    // the walk direction is never dropped as a dead (pdf==0) sample.
-                    float pj = astroray::msdiel::firstBouncePdf(
-                        woL, wiLocal, alpha, ior_, rec.frontFace);
+                    // pkg265 Phase 10: NOT delta any more — eval() is the stochastic
+                    // Eq-42 estimate of this same walk, so NEE runs at glass vertices
+                    // again. The reported pdf is the FULL mixture density pdf()
+                    // returns to the NEE leg at this direction (§9 first-bounce VNDF
+                    // + diffuse floor, always > 0, so a walk direction is never a dead
+                    // pdf==0 sample), which makes the two MIS weights complementary
+                    // (w_L + w_B = 1) and the estimator invariant to NEE on/off.
+                    // f is scaled to keep f/pdf = through, unchanged.
                     Vec3 tint = w.reflected ? Vec3(1.0f) : baseColor_;
                     Vec3 through = (1.0f - metallic_) * tint * w.radianceScale;
-                    s.pdf = transmission_ * pj;
-                    s.f = through * (transmission_ * pj);  // f/pdf = through
-                    // pkg265 (eval/NEE consistency): delta-for-NEE. eval() returns 0
-                    // for this lobe, so NEE is skipped and the emitter hit is taken at
-                    // full MIS weight (wasSpecular) — the smooth-glass delta contract.
-                    // Unbiased; see eval() + research note §5.
-                    s.isDelta = true;
-                    const_cast<HitRecord&>(rec).isDelta = true;
+                    float pMix = pdf(rec, wo, s.wi);
+                    if (pMix <= 0.0f) return s;
+                    s.pdf = pMix;
+                    s.f = through * pMix;   // f/pdf = through
+                    s.isDelta = false;
                     return s;
                 }
                 // scatterMax=16 -> measured 0.00% dead over the grid; a truncated

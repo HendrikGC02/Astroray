@@ -2397,6 +2397,15 @@ class Renderer {
     // set_env_nee(false) to measure the variance win. No-op when no env map / CDF
     // is loaded, so scenes without an HDRI are byte-identical to pre-pkg258.
     bool envNeeEnabled = true;
+    // pkg265 — area/dedicated-light next-event estimation, the same kind of
+    // estimator switch envNeeEnabled is (pkg258). When false, pathTraceSpectral
+    // drops the light-sampling leg AND takes every emitter/lamp hit at full
+    // weight (w_B = 1) instead of the power heuristic, i.e. pure BSDF sampling —
+    // still an unbiased estimator of the SAME image, just noisier. Used by
+    // tests/test_pkg265_nee_invariance.py: an unbiased strategy switch must not
+    // move a converged mean, which is how the multiple-scattering glass eval is
+    // held honest ([[unbiased-strategy-switch-moving-a-mean-is-a-bug-signal]]).
+    bool lightNeeEnabled = true;
     bool hasWorldVolume = false;
     float worldVolumeDensity = 0.0f;
     Vec3 worldVolumeColor = Vec3(1.0f);
@@ -2723,6 +2732,8 @@ public:
     void setWorldMaxBounces(int maxB) { worldMaxBounces = std::max(0, maxB); }
     void setEnvNee(bool enable) { envNeeEnabled = enable; }   // pkg258
     bool getEnvNee() const { return envNeeEnabled; }          // pkg258
+    void setLightNee(bool enable) { lightNeeEnabled = enable; }  // pkg265
+    bool getLightNee() const { return lightNeeEnabled; }         // pkg265
     // pkg201 Stage 3 (Finding A) — set the Cycles per-type bounce limits. -1 (or
     // any negative) = unlimited. Called by Renderer::render() and by the GPU
     // dispatch (blender_module.cpp) before cuda_wavefront_render so both backends
@@ -3180,7 +3191,7 @@ public:
                         // (bounce > 0), folded into the first-bounce category's INDIRECT
                         // pass (Cycles film_write_indirect_light).
                         int lampPass = (firstCat < 0 ? 0 : firstCat) * 3 + 1;
-                        if (wasSpecular) {
+                        if (wasSpecular || !lightNeeEnabled) {  // pkg265: NEE off -> w_B = 1
                             astroray::SampledSpectrum c =
                                 clampContribSpectral(throughput * lampEmission, lambdas, bounce);
                             color += c; addPass(lampPass, c);
@@ -3302,7 +3313,7 @@ public:
                 // reached after a non-specular bounce → <firstCat>_INDIRECT (Cycles
                 // film_write_emission_or_background_pass).
                 int emitPass = (firstCat < 0) ? PASS_EMISSION : (firstCat * 3 + 1);
-                if (bounce == 0 || wasSpecular) {
+                if (bounce == 0 || wasSpecular || !lightNeeEnabled) {  // pkg265: NEE off -> w_B = 1
                     // Camera / post-specular ray: no NEE leg competes for this
                     // direction, so the whole emission is taken (w_B = 1).
                     astroray::SampledSpectrum c =
@@ -3343,7 +3354,7 @@ public:
             // delta-light NEE) is clamped by clampDirect (default 0/off) — this
             // is the fix for the delta-sun energy-linearity bug this package
             // exists to close (never silently cap deterministic delta-light NEE).
-            if (!rec.isDelta && !lights.empty()) {
+            if (lightNeeEnabled && !rec.isDelta && !lights.empty()) {  // pkg265 toggle
                 LightSample ls;
                 lights.sample(ls, rec.point, rec.normal, lambdas, gen);
                 if (ls.pdf > 0) {

@@ -31,10 +31,86 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include "raytracer.h"   // astroray::Vec3, M_PI
 
 namespace astroray {
 namespace msdiel {
+
+// ---------------------------------------------------------------------------
+// Deterministic RNG for the STOCHASTIC EVAL (Sec 8.1, Eq 42).
+//
+// Material::eval()/pdf() are const, re-entrant across OpenMP workers and must be
+// a PURE function of their arguments (the same direction pair is evaluated more
+// than once per path — NEE, MIS, guiding, chi² gates). pbrt-v4 solves exactly
+// this for its own stochastic evaluation, `LayeredBxDF::f` / `LayeredBxDF::PDF`
+// (src/pbrt/bxdfs.h, Apache-2.0), by seeding a local RNG from hashes of the
+// query directions — `RNG rng(Hash(wo), Hash(wi))` — rather than threading a
+// generator through the signature. The construction (not pbrt's code) is
+// reproduced here with:
+//   * splitmix64 as the bit mixer (Steele/Lea/Flood 2014, "Fast splittable
+//     pseudorandom number generators"; Vigna's reference is public domain),
+//   * PCG32-XSH-RR as the stream (M. E. O'Neill, "PCG: A Family of Better
+//     Random Number Generators", 2014, pcg-random.org, Apache-2.0).
+// Both are permissively licensed / public domain (CLAUDE.md §6).
+inline uint64_t mix64(uint64_t z) {
+    z += 0x9E3779B97F4A7C15ull;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+    return z ^ (z >> 31);
+}
+inline uint64_t hashFloat(float f, uint64_t h) {
+    uint32_t bits;
+    std::memcpy(&bits, &f, sizeof(bits));
+    return mix64(h ^ uint64_t(bits));
+}
+
+struct HashRng {
+    uint64_t state = 0, inc = 1;
+    HashRng(uint64_t seq, uint64_t seed) {
+        state = 0u;
+        inc = (seq << 1u) | 1u;
+        nextUInt();
+        state += seed;
+        nextUInt();
+    }
+    // PCG32-XSH-RR output permutation (O'Neill 2014).
+    uint32_t nextUInt() {
+        uint64_t old = state;
+        state = old * 6364136223846793005ull + inc;
+        uint32_t xorshifted = uint32_t(((old >> 18u) ^ old) >> 27u);
+        uint32_t rot = uint32_t(old >> 59u);
+        return (xorshifted >> rot) | (xorshifted << ((~rot + 1u) & 31u));
+    }
+    float operator()() {
+        return std::min(nextUInt() * 2.3283064365386963e-10f, 0.99999994f);
+    }
+};
+
+// pbrt-v4's RNG(Hash(wo), Hash(wi)): the two seeds are independent hashes of the
+// two directions; the lobe parameters join them so two materials at the same
+// geometry do not share a stream.
+inline HashRng hashRngFor(const Vec3& woLocal, const Vec3& wiLocal, float alpha,
+                          float ior, bool entering) {
+    uint64_t a = hashFloat(woLocal.x, 0x1234567u);
+    a = hashFloat(woLocal.y, a);
+    a = hashFloat(woLocal.z, a);
+    a = hashFloat(alpha, a);
+    uint64_t b = hashFloat(wiLocal.x, 0x89abcdefu);
+    b = hashFloat(wiLocal.y, b);
+    b = hashFloat(wiLocal.z, b);
+    b = hashFloat(ior, b);
+    b = mix64(b ^ (entering ? 0x9E37u : 0x0u));
+    return HashRng(a, b);
+}
+
+// Number of independent walks averaged per stochastic eval. Eq 42 is unbiased
+// for N=1; N>1 only trades time for variance (pkg265 Phase 10 measured the
+// tradeoff — see the research note).
+inline constexpr int kMsEvalWalks = 1;
+// Same truncation bound the sampler uses (measured 0.00% dead over the grid).
+inline constexpr int kMsScatterMax = 16;
 
 // Giles single-precision erf^-1 approximation (M. Giles, "Approximating the
 // erfinv function", GPU Computing Gems Jade Edition, 2011 — freely published,
@@ -353,6 +429,35 @@ inline float stochasticEval(const Vec3& woLocal, const Vec3& wiLocal, float alph
         ++order;
     }
     return acc;
+}
+
+// pkg265 Phase 10 — the material-facing entry point: one hash-seeded, unbiased
+// estimate of f(wo,wi)·|cos wi| for the multiple-scattering dielectric, in the
+// LOCAL frame whose +z is the shading normal oriented so woLocal.z > 0
+// (wiLocal.z < 0 ⇒ macroscopic transmission).
+//
+// `stochasticEval` estimates the walk's own escape DENSITY p(wi) — the paper's
+// phase functions are normalised in direction space (∫p dω = 1) and carry no
+// radiance compression. The sampler folds that in per micro-refraction as
+// WalkSample::radianceScale; the product telescopes, so after a walk it depends
+// only on the NET number of side changes, which for a fixed query direction is
+// fixed by sign(wiLocal.z): 1 for reflection, (n_i/n_t)² for transmission.
+// Applying it in closed form here keeps eval() and sample() on the same units
+// (sample(): f/pdf = weight·tint·radianceScale).
+inline float stochasticEvalHashed(const Vec3& woLocal, const Vec3& wiLocal,
+                                  float alpha, float ior, bool entering,
+                                  int walks = kMsEvalWalks,
+                                  int scatterMax = kMsScatterMax) {
+    if (woLocal.z <= 1e-6f || walks <= 0) return 0.0f;
+    HashRng rng = hashRngFor(woLocal, wiLocal, alpha, ior, entering);
+    float acc = 0.0f;
+    for (int k = 0; k < walks; ++k)
+        acc += stochasticEval(woLocal, wiLocal, alpha, ior, entering, rng, scatterMax);
+    acc /= float(walks);
+    if (!(acc > 0.0f)) return 0.0f;                       // NaN-safe
+    float radScale = (wiLocal.z > 0.0f) ? 1.0f
+                                        : (entering ? 1.0f / (ior * ior) : ior * ior);
+    return radScale * acc;
 }
 
 }  // namespace msdiel

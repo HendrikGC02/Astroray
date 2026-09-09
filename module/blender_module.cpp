@@ -1821,6 +1821,12 @@ public:
     void setEnvNee(bool enable) { renderer.setEnvNee(enable); }
     bool getEnvNee() const { return renderer.getEnvNee(); }
 
+    // pkg265 — toggle area/dedicated-light next-event estimation on the CPU
+    // spectral path tracer (default ON). The estimator-invariance gate flips it
+    // to prove the multiple-scattering glass eval does not move the mean.
+    void setLightNee(bool enable) { renderer.setLightNee(enable); }
+    bool getLightNee() const { return renderer.getLightNee(); }
+
     void setBackgroundColor(const std::vector<float>& color) {
         renderer.setBackgroundColor(Vec3(color[0], color[1], color[2]));
     }
@@ -3511,6 +3517,11 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_env_nee", &PyRenderer::setEnvNee, "enable"_a,
              "pkg258 — toggle environment next-event estimation (default ON).")
         .def("get_env_nee", &PyRenderer::getEnvNee)
+        .def("set_light_nee", &PyRenderer::setLightNee, "enable"_a,
+             "pkg265 — toggle area/lamp next-event estimation (default ON). With "
+             "NEE off the CPU path tracer is pure BSDF sampling with unweighted "
+             "emitter hits — the same image, more noise (estimator-invariance gate).")
+        .def("get_light_nee", &PyRenderer::getLightNee)
         .def("set_background_color", &PyRenderer::setBackgroundColor, "color"_a)
         .def("set_film_exposure", &PyRenderer::setFilmExposure, "exposure"_a)
         .def("set_use_transparent_film", &PyRenderer::setUseTransparentFilm, "use"_a)

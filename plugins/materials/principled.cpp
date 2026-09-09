@@ -1148,20 +1148,26 @@ class PrincipledPlugin : public Material {
                 return L.weight * ggxReflectRGB(F, L.color, L.roughness,
                                                 L.anisotropic, L.anisoRotation, rec, wo, wi);
             }
-            case LobeKind::Transmission:
-                // pkg265 (eval/NEE consistency): the rough dielectric is the Heitz-2016
-                // multiple-scattering walk, importance-sampled in chooseAndSampleDir
-                // (f/pdf = throughput). A single-scatter eval() here is NOT an unbiased
-                // estimate of that walk's f, so NEE/MIS with it drops ∫ w_light·f_ms
-                // (cycles-parity-reviewer CRITICAL on #778). Join the smooth-glass delta
-                // contract: eval==0 ⇒ NEE skipped; sample() sets isDelta=true so the
-                // emitter-hit is full MIS weight. Unbiased (BSDF sampling), noisier
-                // direct light on rough glass. Stochastic eval (Eq 42) rejected: eval()/
-                // pdf() carry no RNG (needs a non-deterministic eval, breaking chi²/
-                // guiding purity) + a walk per NEE sample, for a <1% correction (lit
-                // furnace 0.993 with the single-scatter eval). Thin-film glass is out of
-                // scope (spec Non-goals) and keeps its per-λ eval. See research note §5.
-                return filmActive() ? transmissionEvalRGB(L, rec, wo, wi) : Vec3(0);
+            case LobeKind::Transmission: {
+                // pkg265 Phase 10 (lead decision on PR #778, 2026-09-09): the rough
+                // dielectric is the Heitz-2016 multiple-scattering walk, so eval()
+                // must be an unbiased estimate of THAT f — a single-scatter eval is
+                // not (cycles-parity-reviewer CRITICAL), and the interim "eval==0 ⇒
+                // skip NEE" delta contract, while unbiased, moved the pkg263 harness
+                // limb to 0.60 of Cycles. Both are replaced by the paper's stochastic
+                // evaluation (§8.1 Eq 42), hash-seeded so eval() stays a pure const
+                // function (pbrt-v4 LayeredBxDF::f). isDelta is false again, so NEE +
+                // MIS run against this f and the §9 proxy pdf (transmissionPdf) —
+                // w_L + w_B = 1 pointwise, hence unbiased with either strategy set
+                // (tests/test_pkg265_nee_invariance.py). Thin-film glass keeps its
+                // single-scatter eval (Phase 7 / issue #783).
+                if (filmActive()) return transmissionEvalRGB(L, rec, wo, wi);
+                float s = transmissionWalkScalar(L, rec, wo, wi);
+                if (s <= 0.0f) return Vec3(0);
+                bool refl = nl * nv > 0.0f;
+                Vec3 tint = refl ? specularTint_ : sqrtColor(baseColor_);
+                return L.weight * tint * s;
+            }
             case LobeKind::ThinGlassReflect: {  // GGX reflection, ior=1, constant F=R' (in weight)
                 if (nl <= 0.0f || nv <= 0.0f) return Vec3(0);
                 return L.weight * ggxReflectConsistent(Vec3(1.0f), L.color, L.roughness, rec, wo, wi);
@@ -1256,6 +1262,28 @@ class PrincipledPlugin : public Material {
         for (int i = 0; i < astroray::kSpectrumSamples; ++i)
             out[i] *= astroray::ggxDarkeningChannel(compFss[i], E, Eavg);
         return out;
+    }
+
+    // pkg265 Phase 10 — STOCHASTIC EVAL of the multiple-scattering dielectric
+    // (Heitz et al. 2016 §8.1, Eq 42; msdiel::stochasticEvalHashed). Returns the
+    // achromatic f(wo,wi)·|cos wi| of the Transmission lobe's walk, unbiased and
+    // deterministic (the RNG is hash-seeded from the two local directions, the
+    // pbrt-v4 LayeredBxDF::f pattern — see the header). The chromatic tint
+    // (specular_tint on reflection, sqrt(base_color) on transmission) and the
+    // lobe weight are applied by the callers, so the spectral path can upsample
+    // the COLOUR at its natural magnitude and multiply this SCALAR afterwards
+    // (pkg188 Finding A / [[spectral-upsample-nonlinearity-scaled-bsdf]]).
+    float transmissionWalkScalar(const Lobe& L, const HitRecord& rec, const Vec3& wo,
+                                 const Vec3& wi) const {
+        Vec3 n = rec.normal;
+        float cosO = n.dot(wo), cosI = n.dot(wi);
+        if (cosO < 0.0f) { n = -n; cosO = -cosO; cosI = -cosI; }
+        if (cosO <= 1e-6f || std::abs(cosI) <= 1e-6f) return 0.0f;
+        float alpha = std::max(L.roughness * L.roughness, 0.0064f);
+        Vec3 woL(wo.dot(rec.tangent), wo.dot(rec.bitangent), cosO);
+        Vec3 wiL(wi.dot(rec.tangent), wi.dot(rec.bitangent), cosI);
+        return astroray::msdiel::stochasticEvalHashed(woL, wiL, alpha, L.ior,
+                                                      rec.frontFace);
     }
 
     // Transmission rough glass (Walter 2007 / pbrt-v4, disney.cpp) — reflection
@@ -1988,14 +2016,16 @@ public:
             case LobeKind::Transmission: {
                 // pkg178 Stage 4 PR-1: with the film ON, evaluate F per-λ natively.
                 if (filmActive()) return transmissionEvalSpectral(L, rec, wo, wi, lam);
-                // pkg265 (eval/NEE consistency): the non-film rough dielectric is the
-                // Heitz-2016 multiple-scattering walk, importance-sampled in sample()
-                // (f/pdf = throughput). A single-scatter eval() here is not an unbiased
-                // estimate of that walk's f, so it joins the smooth-glass delta contract:
-                // eval==0 ⇒ NEE skipped; sample() sets isDelta=true so the emitter hit is
-                // full MIS weight. Unbiased (BSDF sampling). Mirrors the RGB Transmission
-                // case; supersedes the pkg188 single-scatter upsample. See note §5.
-                return astroray::SampledSpectrum(0.0f);
+                // pkg265 Phase 10: stochastic eval of the walk (see the RGB twin).
+                // pkg188 Finding A split: the achromatic Eq-42 scalar multiplies the
+                // per-λ layering weight and the SEPARATELY upsampled tint, so the
+                // walk's η² magnitude never enters the Jakob-Hanika upsample argument.
+                float s = transmissionWalkScalar(L, rec, wo, wi);
+                if (s <= 0.0f) return astroray::SampledSpectrum(0.0f);
+                bool refl = nl * nv > 0.0f;
+                astroray::SampledSpectrum tintS =
+                    upsample(refl ? specularTint_ : sqrtColor(baseColor_), lam);
+                return wSpec * tintS * s;
             }
             case LobeKind::ThinGlassReflect: {  // GGX reflection, constant F=R' (in weight)
                 if (nl <= 0.0f || nv <= 0.0f) return astroray::SampledSpectrum(0.0f);
@@ -2093,23 +2123,25 @@ public:
         if (ds.isWalk) {
             // pkg265: the Heitz-2016 dielectric walk is a perfect importance
             // sampler (phase weight == 1). The MC estimator of the full BSDF is
-            // lobe_throughput / q_j, so we set f/pdf = through/q_j with a valid §9
-            // MIS pdf (first-bounce + diffuse floor, always > 0). Mirrors the delta
-            // pattern below (f = weight·tint·…, pdf = q_j·pdfInternal).
+            // lobe_throughput / q_j, so we set f/pdf = through/q_j.
+            // pkg265 Phase 10: NOT delta any more (eval() is the stochastic Eq-42
+            // estimate, so NEE runs here). The reported pdf is the FULL mixture
+            // density — the same value pdf() returns to the NEE leg at this
+            // direction — so the two MIS weights are complementary (w_L + w_B = 1)
+            // and the estimator is unbiased with NEE on or off. f is scaled to keep
+            // f/pdf = through/q_j exactly as before (pure glass: q_j = 1 and the
+            // mixture is the single lobe, so this is numerically unchanged).
             const Lobe& L = lobes[ds.lobe];
             float qj = L.sel / W;
             Vec3 tint = ds.walkReflected ? specularTint_ : sqrtColor(baseColor_);
             Vec3 through = L.weight * tint * ds.walkRadiance;
-            float pj = transmissionPdf(L, rec, wo, s.wi);  // §9 first-bounce + floor
-            s.pdf = qj * pj;
-            s.f = through * pj;   // f/pdf = through / qj
-            // pkg265 (eval/NEE consistency): mark the walk vertex delta-for-NEE. The
-            // walk is importance-sampled (f/pdf set here), and eval()/pdf() return 0
-            // for this lobe, so light-sampling NEE is skipped and the next emitter
-            // hit is taken at full MIS weight (wasSpecular) — the same delta contract
-            // smooth glass uses. Unbiased; see transmissionEvalRGB + research note §5.
-            s.isDelta = true;
-            const_cast<HitRecord&>(rec).isDelta = true;
+            float pMix = 0.0f;
+            for (const auto& Lk : lobes)
+                if (!Lk.isDelta) pMix += (Lk.sel / W) * pdfLobe(Lk, rec, wo, s.wi);
+            if (pMix <= 0.0f) return s;   // §9 floor keeps this unreachable
+            s.pdf = pMix;
+            s.f = through * (pMix / qj);  // f/pdf = through / qj
+            s.isDelta = false;
             return s;
         }
         if (ds.isDelta) {
@@ -2173,18 +2205,19 @@ public:
             // pkg265: dielectric walk (see RGB sample()). Spectral f = upsampled
             // throughput × pdf; f/pdf = through/qj. eta²-clamp guard: upsample the
             // normalised tint × magnitude, matching the delta spectral branch.
+            // pkg265 Phase 10: non-delta, full-mixture pdf (see the RGB twin).
             const Lobe& L = lobes[ds.lobe];
             float qj = L.sel / W;
             Vec3 tint = ds.walkReflected ? specularTint_ : sqrtColor(baseColor_);
             Vec3 rgb = L.weight * tint * ds.walkRadiance;
-            float pj = transmissionPdf(L, rec, wo, ds.wi);
+            float pMix = 0.0f;
+            for (const auto& Lk : lobes)
+                if (!Lk.isDelta) pMix += (Lk.sel / W) * pdfLobe(Lk, rec, wo, ds.wi);
+            if (pMix <= 0.0f) return bss;
             float maxc = std::max({rgb.x, rgb.y, rgb.z, 1.0f});
-            bss.f_spectral = upsample(rgb * (1.0f / maxc), lambdas) * (maxc * pj);
-            bss.pdf = qj * pj;
-            // pkg265 (eval/NEE consistency): delta-for-NEE — see the RGB sample()
-            // branch and transmissionEvalRGB. NEE skipped, emitter-hit full weight.
-            bss.isDelta = true;
-            const_cast<HitRecord&>(rec).isDelta = true;
+            bss.f_spectral = upsample(rgb * (1.0f / maxc), lambdas) * (maxc * pMix / qj);
+            bss.pdf = pMix;
+            bss.isDelta = false;
             return bss;
         }
         if (ds.isDelta) {

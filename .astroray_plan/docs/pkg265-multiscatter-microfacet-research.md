@@ -925,3 +925,106 @@ N = 4 buys at most a 0.17-point drop in relative sigma (refl-probe r0.85) for
 averages the per-eval variance away, so the extra walks are largely wasted.
 **Shipped N = 1**; `kMsEvalWalks` is a one-line compile-time constant if a
 future gate needs more.
+
+### Phase 8 — the pkg263 Cycles cross-check band after the stochastic eval
+
+Unchanged pkg263 driver (`benchmarks/cycles-parity/metal_ab/harness.py --material
+glass`, 256², 128 spp, CPU both engines), CPU addon restaged from this HEAD
+(`build_blender_addon.py --backend cpu` → `dist/astroray/`, `ASTRORAY_PYD_DIR`
+pointed there — the bare `build_blender_addon/` dir lacks the bundled runtime
+DLLs). Report:
+`test_results/pkg265_phase10_harness/glass_ab_report.md` (+`.json`, raw `.npy`).
+
+Astroray/Cycles per-ROI ratio (mean of R/G/B):
+
+| ROI | r | before (#771) | Phase 4 (walk, inconsistent eval) | Phase 6 (skip-NEE) | **Phase 10 (stochastic eval)** |
+|---|---|---|---|---|---|
+| centre | 0.00 | 0.963 | 0.997 | 0.997 | **0.997** |
+| centre | 0.20 | 0.950 | 0.976 | 0.972 | **0.977** |
+| centre | 0.50 | 0.873 | 1.076 | 0.899 | **1.089** |
+| centre | 0.85 | 0.742 | 1.518 | 0.929 | **1.610** |
+| limb | 0.00 | 0.815 | 0.832 | 0.832 | **0.832** |
+| limb | 0.20 | 0.673 | 0.861 | 0.765 | **0.863** |
+| limb | 0.50 | 0.490 | 1.019 | 0.637 | **1.041** |
+| limb | 0.85 | 0.556 | 1.053 | 0.604 | **1.131** |
+| background | all | ~1.00 | ~1.00 | 0.994 | **0.994** |
+
+**The limb — the owner's named complaint — is fixed and stays fixed.** It was
+0.49–0.56 of Cycles before pkg265, 0.60–0.64 under the skip-NEE contract, and is
+now 1.04–1.13 at r ≥ 0.5 (and unchanged at r 0/0.2, which barely engage the
+walk). The background ROI is 0.994 at every roughness — the calibration check.
+
+**The centre over-shoots at high roughness (1.089 at r0.5, 1.610 at r0.85).**
+This is the same signal the lead flagged on Phase 4 (1.518), now measured with a
+consistent estimator. Three of the four hypotheses on the table are refuted by
+direct measurement:
+
+* *η² applied per micro-refraction / doubled between walk and kernel* — refuted.
+  `tests/cpp/test_pkg265_walk_eta.cpp` proves the product telescopes exactly
+  (maxErr 0.00e+00 over 1.6 M walks, both IOR 1.45 and 1.5), and the eval uses
+  the same factor in closed form.
+* *NEE double-counting on top of the walk's throughput* — refuted. The NEE
+  on/off invariance gate agrees to ≤ 2.43% on 21 cells including this very
+  geometry (a double count would show as a large positive NEE-on delta).
+* *energy gain in the BSDF* — refuted. The lit furnace is 0.9819–0.9964 linear
+  on both legs, and the eval integrates to R+T = 0.996–1.003.
+
+What remains is a genuine **model-vs-model** divergence, and the oracle locates
+it at the **exit interface**, which the Phase-1 divergence table (entry
+interface only) could not see. Running the same oracle with `entering=False`
+(n₁ = ior → n₂ = 1), IOR 1.45, M = 2·10⁵:
+
+| r | μ | MS_R | MS_T | SS_R | SS_T | SS dead% | 1/E | Cycles_R | Cycles_T |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.50 | 0.10 | 0.972 | 0.028 | 0.780 | 0.011 | 20.9 | 1.264 | 0.986 | 0.014 |
+| 0.50 | 0.90 | 0.172 | 0.828 | 0.104 | 0.815 | 8.2 | 1.089 | 0.113 | 0.887 |
+| 0.50 | 0.97 | 0.108 | 0.892 | 0.052 | 0.877 | 7.1 | 1.077 | 0.056 | 0.944 |
+| 0.85 | 0.10 | 0.978 | 0.022 | 0.510 | 0.002 | 48.7 | 1.950 | 0.995 | 0.005 |
+| 0.85 | 0.50 | 0.668 | 0.332 | 0.263 | 0.275 | 46.2 | 1.860 | 0.489 | 0.511 |
+| 0.85 | 0.90 | 0.357 | 0.643 | 0.074 | 0.524 | 40.2 | 1.672 | 0.124 | 0.876 |
+| 0.85 | 0.97 | 0.310 | 0.690 | 0.041 | 0.565 | 39.4 | 1.650 | 0.068 | 0.932 |
+
+At the ENTRY interface and near-normal incidence — what the centre of the sphere
+sees first — the two models agree to ~0.1% (Phase-1 table, r0.85/μ0.9: MS_T
+0.980 vs Cycles_T 0.981), which is why the entry table alone predicts no centre
+shift. At the EXIT interface the same cell reads MS_R **0.310** against Cycles'
+**0.068** — a **4.6× internal-reflection difference** — because the exit
+interface is where single scatter loses the most (dead 39–49% at r0.85, against
+7–8% at r0.5) and a uniform `1/E` rescale is therefore furthest from the truth.
+A solid glass sphere is entry + an arbitrary number of internal bounces + exit,
+so the render-level ratio is a product of that divergence, not of the entry
+table. The direction is consistent: the multiple-scattering model keeps ~4.6×
+more light inside the sphere for another pass, and in this scene (bright key
+light + bright ground under the sphere) that light is redistributed broadly and
+a larger share of it reaches the camera through the disc.
+
+Per the owner's 2026-09-08 physics-first rule this is **recorded as a
+cross-check band, not a gate**: Astroray implements the published
+multiple-scattering model, Cycles implements a `1/E` energy patch, and the
+divergence is largest exactly where the patch is weakest. Settling which is
+closer to ground truth needs the independent oracle of **#782** — the clean-room
+oracle and the engine share the same equations, so their agreement proves
+implementation fidelity, not physical truth
+(memory `clean-room-oracle-is-self-consistency-not-ground-truth`).
+
+Limb/centre ratio per engine (self-referential shape check): Cycles
+1.602/1.754/1.956/1.736 at r 0/0.2/0.5/0.85, Astroray
+1.337/1.550/1.872/1.221 — Astroray tracks Cycles' shape to within 6% up to
+r 0.5 and then flattens, the shape signature of the over-bright centre.
+
+**Contact sheets** (`_stoch` suffix, alongside the Phase-4 and `_evalfix`
+sheets, force-added — `*.png` is gitignored under `docs/`), in
+`.astroray_plan/docs/pkg265/postfix_harness/`:
+`glass_r000_stoch__contact_sheet.png`, `glass_r020_stoch__contact_sheet.png`,
+`glass_r050_stoch__contact_sheet.png`, `glass_r085_stoch__contact_sheet.png`,
+`glass_r085_stoch__cycles_roi.png`, `glass_r085_stoch__astroray_roi.png`.
+
+Inspected (Cycles | Astroray | |Δ|×3): at r 0.85 both read as frosted glass, but
+Cycles keeps a visible lower-left/upper-right shading gradient across the disc
+while Astroray is flatter and brighter, and Astroray's transmitted caustic on
+the ground is brighter and wider — the same signature as the 1.61 centre ratio,
+i.e. excess *transmitted/redistributed* light, not a reflection difference. At
+r 0.5 the two are close, with Astroray marginally brighter. Astroray remains
+visibly noisier at equal 128 spp with chromatic (green/purple) speckle on the
+sphere and the caustic: the stochastic walk inside the 4-wavelength hero
+pipeline. r 0 matches (0.997 centre).

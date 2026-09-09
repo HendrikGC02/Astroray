@@ -629,7 +629,19 @@ public:
     float getAnisotropicRotation() const override { return anisotropicRotation_; }
 
     Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        if (hasScalarProgram()) return substituted(rec, wo).eval(rec, wo, wi);
+        return evalSplit(rec, wo, wi, nullptr, nullptr);
+    }
+
+    // pkg265 Phase 10: eval() with the Heitz-walk contribution reported separately
+    // (tint + achromatic scalar). evalSpectral needs the split so it can upsample the
+    // walk's tint at its natural magnitude and apply the (possibly >1) scalar AFTER
+    // the Jakob-Hanika lookup, WITHOUT changing how any other lobe is upsampled.
+    // outWalkTint/outWalkScalar may be null (the RGB path).
+    Vec3 evalSplit(const HitRecord& rec, const Vec3& wo, const Vec3& wi,
+                   Vec3* outWalkTint, float* outWalkScalar) const {
+        if (outWalkScalar) { *outWalkScalar = 0.0f; *outWalkTint = Vec3(0.0f); }
+        if (hasScalarProgram())
+            return substituted(rec, wo).evalSplit(rec, wo, wi, outWalkTint, outWalkScalar);
         Vec3 N = rec.normal;
         float NdotL = N.dot(wi);
         float NdotV = N.dot(wo);
@@ -645,7 +657,9 @@ public:
             // factor); (1-metallic_) mirrors sample()'s `through`.
             float s = glassWalkScalar(rec, wo, wi);
             if (s <= 0.0f) return Vec3(0);
-            return baseColor_ * ((1.0f - metallic_) * transmission_ * s);
+            float scale = (1.0f - metallic_) * transmission_ * s;
+            if (outWalkScalar) { *outWalkTint = baseColor_; *outWalkScalar = scale; }
+            return baseColor_ * scale;
         }
         if (NdotL <= 0 || NdotV <= 0) return Vec3(0);
 
@@ -825,8 +839,11 @@ public:
         // after the `* NdotL` because stochasticEvalHashed already returns f·|cos wi|.
         if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {
             float sWalk = glassWalkScalar(rec, wo, wi);
-            if (sWalk > 0.0f)
-                result += Vec3((1.0f - metallic_) * transmission_ * sWalk);
+            if (sWalk > 0.0f) {
+                float scale = (1.0f - metallic_) * transmission_ * sWalk;
+                if (outWalkScalar) { *outWalkTint = Vec3(1.0f); *outWalkScalar = scale; }
+                result += Vec3(scale);
+            }
         }
         return clampColor(result);
     }
@@ -837,17 +854,27 @@ public:
         if (hasScalarProgram())
             return substituted(rec, wo).evalSpectral(rec, wo, wi, lambdas);
         // pkg13 fallback: upsample final RGB Disney eval to stay within the pkg14 1.5x perf budget.
-        // pkg265 Phase 10: factor the magnitude out before the upsample — the SAME
-        // Jakob-Hanika ALBEDO-LUT guard sampleSpectral() below already applies (#404,
-        // memory [[gpu-dielectric-lowers-to-closure-graph]]). RGBAlbedoSpectrum clamps
-        // its argument to [0,1]^3, so any eval > 1 was silently truncated; with the
-        // Heitz-2016 stochastic eval that clipped the walk's heavy tail and read 28%
-        // DARK against the same scene rendered NEE-off (reflection probe, r0.5).
-        // Identical for every eval <= 1, i.e. for all previously-correct lobes.
-        Vec3 rgb = eval(rec, wo, wi);
-        float maxc = std::max(std::max(rgb.x, rgb.y), std::max(rgb.z, 1.0f));
-        Vec3 tint = rgb * (1.0f / maxc);
-        return astroray::RGBAlbedoSpectrum({tint.x, tint.y, tint.z}).sample(lambdas) * maxc;
+        // pkg265 Phase 10: RGBAlbedoSpectrum CLAMPS its argument to [0,1]^3, so an eval
+        // above 1 is silently truncated. The Heitz-2016 stochastic eval is heavy-tailed
+        // (per-sample values to ~40), so that clipped the walk's tail and the Disney
+        // reflection probe read 28% DARK with NEE on vs off at r0.5. Fix: split the
+        // walk term out and give it the SAME magnitude-factoring guard sampleSpectral()
+        // below already applies (#404, [[gpu-dielectric-lowers-to-closure-graph]]) — a
+        // per-lobe upsample, exactly what PrincipledPlugin::evalLobeSpectral does.
+        // The rest of the material keeps the ORIGINAL clamped upsample byte-for-byte,
+        // so no non-glass Disney lobe changes: a blanket factoring was tried first and
+        // measured to break test_pkg219d_scalar_param_textures' metallic CPU/GPU
+        // roughness parity on hardware (CPU 0.0623 vs GPU 0.0425, ratio 0.682).
+        Vec3 walkTint(0.0f);
+        float walkScalar = 0.0f;
+        Vec3 rgb = evalSplit(rec, wo, wi, &walkTint, &walkScalar);
+        if (walkScalar > 0.0f) {
+            Vec3 rest = Vec3::max(rgb - walkTint * walkScalar, Vec3(0.0f));
+            return astroray::RGBAlbedoSpectrum({rest.x, rest.y, rest.z}).sample(lambdas) +
+                   astroray::RGBAlbedoSpectrum(
+                       {walkTint.x, walkTint.y, walkTint.z}).sample(lambdas) * walkScalar;
+        }
+        return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
     }
 
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {

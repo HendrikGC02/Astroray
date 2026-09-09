@@ -22,7 +22,13 @@ Fix (lead decision, option 2): thin-film rough glass falls back to the origin/ma
 single-scatter rough-transmission sampler (isDelta=false), so sample == eval == pdf
 are all single-scatter thin-film — no double count, iridescence preserved via
 eval() on the sampled path. Non-film glass keeps the walk. Disney glass has no
-thin-film path (no change). A thin-film-AWARE walk is filed as #783. See
+thin-film path (no change). A thin-film-AWARE walk is filed as #783.
+
+pkg265 Phase 10 update: the non-film walk is no longer delta-for-NEE (eval() is
+now the stochastic Eq-42 estimate, isDelta=false), so bug (1)'s specific
+double-count mechanism above is historical. Bug (2) is NOT: the walk still uses
+plain-dielectric Fresnel, so routing a thin-film glass through it would still
+erase the iridescence. This gate and the fix it guards stand unchanged. See
 .astroray_plan/docs/pkg265-multiscatter-microfacet-research.md §7.
 
 Note on the gate choice: a naive "uniform furnace stays ~1.0" gate does NOT go RED

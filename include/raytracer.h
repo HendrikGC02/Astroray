@@ -2308,12 +2308,43 @@ class Renderer {
     float filterGlossy = 0.0f;
     bool useReflectiveCaustics = true;
     bool useRefractiveCaustics = true;
-    // pkg224 — opt-in progressive (hash-Owen Sobol') sampler for the GPU
-    // wavefront. false = PCG32 white noise (the default, byte-identical to
-    // pre-pkg224). true = low-discrepancy progressive sampling (any per-pixel
-    // sample prefix is well-distributed) — the prerequisite for pkg131 adaptive
-    // sampling. GPU-only (the CPU oracle keeps std::mt19937); published into the
-    // __constant__ c_wfSamplerMode by cuda_wavefront_render.
+    // pkg224 — progressive (hash-Owen Sobol') sampler for the GPU wavefront.
+    // false = PCG32 white noise (pre-pkg224 behaviour). true = low-discrepancy
+    // progressive sampling (any per-pixel sample prefix is well-distributed) —
+    // the prerequisite for pkg131 adaptive sampling. GPU-only (the CPU oracle
+    // keeps std::mt19937); published into the __constant__ c_wfSamplerMode by
+    // cuda_wavefront_render.
+    // pkg262 (2026-09): TRIED flipping this default to true (one behaviour
+    // everywhere, fork (a) in the pkg262 spec) to fix issue #759 (the addon
+    // never enables the pkg224 progressive sampler pkg131's GPU adaptive
+    // leg requires). MEASURED and REVERTED to false — see the pkg262 A/B
+    // (.astroray_plan/docs/pkg262-default-flip-ab-2026-09.md):
+    //   * tests/wavefront_diff/test_pkg55_perf_gate.py — wavefront median
+    //     went 0.57-0.71s -> 1.629s, blowing the pinned 1.5s ceiling
+    //     (wavefront-perf-ceiling-owner-decision): Sobol'+Owen-scramble is
+    //     materially more expensive per draw than PCG32, and with this as
+    //     the default EVERY GPU render pays it, not just adaptive ones.
+    //   * tests/wavefront_diff/test_pkg55_cuda_threshold_gate.py — CPU
+    //     wavefront (always PCG32) vs GPU PostInit ULP gate blew from a
+    //     threshold of 4 to a measured 2147475505: the CPU/GPU
+    //     snapshot-parity harness assumes byte-identical default RNG, which
+    //     an engine-default flip breaks by construction (pkg224 flagged
+    //     exactly this risk: GPU-only divergence must be excluded from that
+    //     gate as an explicit decision, not silently absorbed).
+    //   * Six further GPU tests pinned to byte-identical/near-identical
+    //     baselines under the untouched default also broke the same way
+    //     (test_pkg64_gpu_phase{2,3}_no_regression, test_pkg198_gpu_
+    //     lightpath_passes, test_pkg258_env_nee_gpu_byte_identity,
+    //     test_gpu_caustic_parity, test_pkg189_gpu_wavefront_dispersion).
+    // Per the spec's own rule ("a flip that fails its row stays off"), the
+    // fix instead lives in blender_addon/__init__.py (render()) and
+    // blender_addon/exporter.py (sync_viewport_scene): the addon enables
+    // this flag ONLY when GPU adaptive sampling is actually requested, so
+    // the byte-identical/perf-neutral default is preserved for every
+    // ordinary render and the Sobol' cost is paid only when the user opted
+    // into adaptive sampling on GPU (fork (b) — the pkg262 spec's documented
+    // fallback). CPU is unaffected either way (this flag is never read
+    // outside src/gpu/wavefront/gpu_wavefront_snapshot.cu).
     bool useProgressiveSampler = false;
     // pkg225 Stage 3 — GPU curve shading mode. false = ribbon (camera-facing
     // flat strip, cheap 2D — the viewport default); true = thick swept-circle

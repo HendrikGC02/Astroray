@@ -1775,9 +1775,22 @@ std::vector<float> cuda_wavefront_render(
     // well-distributed), and gating on it keeps the default GPU render (progressive
     // off) byte-identical to the pre-pkg131 flat pool. So adaptive activates only
     // when BOTH adaptive sampling and the progressive sampler are enabled.
+    //
+    // pkg262 fix (2026-09): the transparent-film condition below used to read
+    // `alphaOut == nullptr`. That pointer is `camera->alphaBuffer.data()` from
+    // every real call site (module/blender_module.cpp's default GPU route,
+    // pkg201 Stage 2 Finding F, PR #623) — a std::vector already sized to
+    // width*height, so it is NEVER null in production. The intended semantic
+    // gate is the same one `coverageOn` above already uses two lines up:
+    // whether transparent film is actually requested. With the stale pointer
+    // check, `adaptiveOn` was permanently false on the real render() path
+    // regardless of every flag — a dead gate discovered while fixing #759
+    // (pkg262), confirmed empirically: adaptive=True vs adaptive=False with
+    // BOTH progressive AND adaptive explicitly enabled differed only within
+    // the ~3e-7 GPU atomic-noise floor (i.e. not at all) before this fix.
     bool adaptiveOn = renderer.getUseAdaptiveSampling()
                       && renderer.getUseProgressiveSampler()
-                      && !passesOn && !cryptoOn && alphaOut == nullptr;
+                      && !passesOn && !cryptoOn && !renderer.getUseTransparentFilm();
     std::vector<int> h_pixelSamples;
     {
         const astroray::adaptive::AdaptiveParams ap =

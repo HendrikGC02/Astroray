@@ -7,6 +7,17 @@ WavefrontRNG::Uniform() on the device. With it OFF (the default) the GPU render
 is unchanged (the byte-identical-default codegen is separately pinned by the
 cuobjdump register probe in the pkg224 PR; here we pin the runtime determinism).
 
+pkg262 (2026-09) tried flipping the engine default to true (issue #759 — GPU
+adaptive sampling requires this sampler, and the addon never enabled it) and
+MEASURED A REGRESSION: the wavefront perf ceiling and the CPU/GPU
+snapshot-parity gate both broke because every GPU render started paying the
+Sobol'+Owen-scramble cost and diverging from the CPU's PCG32 reference (see
+.astroray_plan/docs/pkg262-default-flip-ab-2026-09.md). The fix instead lives
+in blender_addon/__init__.py + exporter.py: the addon enables this flag only
+when GPU adaptive sampling is actually requested. The engine default stays
+false, so this file's original "untouched default == explicit off" contract
+is unchanged.
+
 Gates:
   * test_default_off_matches_untouched — the sampler explicitly OFF renders the
     same (within GPU float-atomic tolerance) as never touching the flag: the

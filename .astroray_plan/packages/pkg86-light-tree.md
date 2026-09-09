@@ -296,6 +296,14 @@ gate.
         numbers in a Lessons section below.
   - [ ] Flip Blender-addon default to `Tree` once gates clear.
 - [ ] STATUS.md + CHANGELOG.md updated; PR opened.
+- [x] **Default flip (pkg262, 2026-09-09).** `blender_addon/__init__.py`
+      `custom_raytracer.light_sampler` fallback default flipped `'power'` ->
+      `'light_tree'` — the Phase 3 gates referenced above cleared 2026-06-11
+      (PRs #434/#436/#438, tracked in pkg86-B) but the addon default was never
+      flipped (issue #759 audit). Only affects the non-Cycles-scene fallback;
+      `native_settings.resolve_light_sampler` treats the native
+      `cycles.use_light_tree` bool as authoritative whenever present. A/B:
+      `.astroray_plan/docs/pkg262-default-flip-ab-2026-09.md` §2.
 
 ---
 

@@ -1028,3 +1028,40 @@ r 0.5 the two are close, with Astroray marginally brighter. Astroray remains
 visibly noisier at equal 128 spp with chromatic (green/purple) speckle on the
 sphere and the caustic: the stochastic walk inside the 4-wavelength hero
 pipeline. r 0 matches (0.997 centre).
+
+### GPU verification (Phase 3 is still deferred; this is a "did the CPU wiring break it" check)
+
+`include/astroray/gpu_materials.h`, `src/gpu/` and `src/cpu/` are byte-identical
+to `origin/main` on this branch, so the GPU glass lobe is still the pkg264 #771
+reroute stub. CUDA build (`build_nosccache.bat` in the worktree, under the
+orchestrator GPU lock) **exit 0**; build stamp `sha=1c76af36ee2d` == HEAD,
+`arch-verify OK ... embeds sm_120`, canary caps read back.
+
+`pytest tests -q -m gpu --ignore=tests/wavefront_diff` on the RTX 5070 Ti:
+**2 failed, 737 passed, 24 skipped, 11 xfailed, 1 xpassed, 1978 deselected.**
+The first pass (before the Disney narrowing and the xfail) read 4 failed / 736
+passed / 10 xfailed. Attribution of all four:
+
+| test | verdict |
+|---|---|
+| `test_pkg219d_scalar_param_textures::test_cpu_gpu_roughness_parity` | **was ours, fixed.** The first Disney JH fix factored the magnitude for EVERY lobe, un-clamping a metallic (transmission = 0) specular eval: CPU 0.0623 vs GPU 0.0425, ratio 0.682 in a [0.80, 1.25] band. Narrowed to the walk term only (`evalSplit`), passes again. |
+| `test_pkg265_lit_furnace::test_principled_lit_furnace_conserves_gpu` | **ours, xfail(strict=True).** The GPU stub conserves to r0.2 0.9958 / r0.5 0.9688 / r0.85 0.9612 / r1.0 0.9570, outside the [0.97, 1.02] band the CPU walk meets (0.9936–0.9964). The GPU-walk PR must delete the marker. |
+| `test_pkg188_transmission_colour_upsample_parity[coat_over_tinted_glass]` | **branch-level, pre-dates Phase 10** (table below). |
+| `test_blender_parity_harness::test_backdrop_is_parity_safe` | **environment.** `H._pyd_dir()` picks `build_blender_addon/` and ignores `ASTRORAY_PYD_DIR`; the Phase-8 harness needs a CPU (OpenMP-OFF) addon there, and this test then asks it for GPU → "GPU requested but no CUDA GPU is available". Restored by re-running `build_blender_addon.py --backend cuda` after the harness. |
+
+**pkg188 attribution** ([[verify-attribution-with-a-baseline-build]] — three CPU
+builds, the GPU value being invariant across the branch at R mean 0.06230):
+
+| source | CPU R mean | GPU/CPU R | band [0.95, 1.05] |
+|---|---|---|---|
+| `origin/main` | 0.06217 | 1.0022 | PASS |
+| `73797ed7` (branch, pre-Phase-10, skip-NEE) | 0.04782 | 1.3027 | FAIL |
+| this HEAD (Phase 10) | 0.04951 | 1.2583 | FAIL, 4.4 points closer |
+
+So the failure is the Phase-2 CPU/GPU divergence (CPU multiple-scattering walk vs
+GPU single-scatter + reroute) and cannot close before Phase 3. It is left
+**failing rather than silently xfail'd**. One observation for the reviewer: this
+mixed case (`transmission_weight` 0.8 + coat) is the only row of that test whose
+CPU value moved far from main (−20%); the two pure-glass rows moved +1…+4% and
+still pass. Worth a look when Phase 3 lands, in case the mixture weighting on a
+partly-transmissive Principled hides a second effect.

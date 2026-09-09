@@ -229,6 +229,21 @@ depend on this. `cite-algorithm` is mandatory before any code. Serves Pillar 5.
   colour-blind, spp-dependent stop metric (pkg237) and made NEE-off read 4–11% dark —
   every pkg265 A/B now pins it off. N=1 vs N=4 walks per eval measured: N=4 costs 8–21%
   more time for ≤ 0.17 pp of relative σ — **shipped N=1**. Research note §Phase 10.
+- [x] 2026-09-09 — **Phase 10 GPU check + attribution** (PR #778). CUDA build under the
+  orchestrator lock: exit 0, stamp `sha=1c76af36ee2d` == HEAD, `arch-verify` sm_120,
+  canary OK. `pytest -m gpu`: **2 failed, 737 passed, 24 skipped, 11 xfailed, 1
+  xpassed**. Of the four failures in the first pass: `pkg219d` CPU/GPU roughness
+  parity **was ours and is fixed** (the Disney JH magnitude-factoring was too broad
+  and un-clamped a metallic specular eval — CPU 0.0623 vs GPU 0.0425; narrowed to the
+  walk term via `evalSplit`); `test_principled_lit_furnace_conserves_gpu` is
+  `xfail(strict=True)` because the GPU is still the #771 stub (0.9570–0.9958 vs the
+  [0.97,1.02] band) — **the GPU-walk PR must delete the marker**;
+  `test_pkg188[coat_over_tinted_glass]` is **branch-level and pre-dates Phase 10**
+  (three CPU builds against the invariant GPU value: origin/main 1.0022 PASS,
+  73797ed7 1.3027 FAIL, HEAD 1.2583 FAIL — Phase 10 moves it 4.4 points toward
+  parity) and needs Phase 3; `test_backdrop_is_parity_safe` is an environment
+  artifact (`_pyd_dir` picks `build_blender_addon/`, which the Phase-8 harness needs
+  as a CPU addon, then asks it for GPU). Research note §Phase 10 GPU verification.
 
 ## Lessons
 

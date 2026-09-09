@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — Phase 2 (CPU) + Phase 4 (harness/run_parity) + Phase 5 (eval/NEE consistency fix, lead HOLD response) + Phase 6 (post-fix harness re-run) + Phase 7 (thin-film rough glass stays single-scatter, cycles-parity review 2 CRITICAL #2 fix) + #779 run_parity honesty fix done, all on PR #778, 2026-09-09; Phase 3 GPU still pending the lead's call (CPU-lands / GPU-phase decision, spec §Progress)
+**Status:** in-progress — Phases 2/4/5/6/7 + **Phase 10 (stochastic eval wired, the lead's 2026-09-09 decision)** done on PR #778, 2026-09-09. Phase 10 headline: `eval()`/`evalSpectral()` on both glass lobes are the Heitz §8.1 Eq-42 stochastic evaluation with a hash-seeded RNG (pbrt-v4 `LayeredBxDF::f` pattern), `isDelta=false`, the skip-NEE contract removed; NEE on/off invariance 15/15 (max |Δ| 2.43%, lit furnace 0.9819–0.9964 on BOTH legs); engine eval-vs-walk R/T ±1.2%/±0.3%; CPU suite 1907 passed / 0 failed. Phase 3 GPU still pending the lead's call (spec §Progress)
 **Estimated effort:** 3 sessions (~10 h; Python oracle + directional gate, CPU BSDF on both lobes, GPU mirror under the lock, harness re-runs)
 **Depends on:** pkg264, pkg263, pkg179, pkg124
 
@@ -205,6 +205,30 @@ depend on this. `cite-algorithm` is mandatory before any code. Serves Pillar 5.
   the lead's HOLD items marked addressed, and the rebuilt test-gate results.
 
 ---
+- [x] 2026-09-09 — **Phase 10 (stochastic eval wired) complete** on PR #778
+  (`feat/pkg265-ms-microfacet-glass`). Implements the lead's decision
+  (issuecomment-5593645050): the Phase 5 skip-NEE delta contract — unbiased but it
+  moved the pkg263 limb to 0.60× Cycles — is replaced by the paper's own stochastic
+  evaluation (§8.1, Eq 42) on `eval()`/`evalSpectral()` for both glass lobes, with a
+  **hash-seeded RNG** (pbrt-v4 `LayeredBxDF::f`/`PDF` pattern, Apache-2.0: splitmix64
+  mixer + PCG32-XSH-RR, both permissive) so `eval()` stays a pure const function;
+  `isDelta=false`, no `const_cast`, `pdf()` = the §9 proxy (unchanged), `kMsEvalWalks=1`.
+  `sample()`/`sampleSpectral()` now report the FULL lobe-mixture pdf so w_L + w_B = 1
+  (bit-unchanged for pure glass). New lever `set_light_nee(bool)` (the lamp twin of
+  pkg258's `set_env_nee`) makes the A/B possible.
+  **Gates:** `tests/test_pkg265_nee_invariance.py` 15/15 (reflection probe, lit furnace,
+  in-process pkg263 geometry — max |Δ| 2.43%, all within max(2σ, 2%); lit furnace
+  0.9819–0.9964 in [0.97,1.02] on both legs); `tests/cpp/test_pkg265_eval_vs_walk.cpp`
+  ∫eval = walk R/T to **±1.2% (R) / ±0.3% (T)**, R+T 0.996–1.003, per-sample max
+  8.9–42.6; directional gate 41/41; CPU suite **1907 passed, 90 skipped, 9 xfailed,
+  0 failed**.
+  **Two defects found by the gates:** (a) `DisneyPlugin::evalSpectral` upsampled through
+  `RGBAlbedoSpectrum`, which clamps to [0,1]³ — it truncated the eval's heavy tail and
+  read 28% DARK vs the NEE-off leg; fixed with the same magnitude-factoring guard
+  `sampleSpectral()` already used (#404). (b) adaptive sampling (ON by default) is a
+  colour-blind, spp-dependent stop metric (pkg237) and made NEE-off read 4–11% dark —
+  every pkg265 A/B now pins it off. N=1 vs N=4 walks per eval measured: N=4 costs 8–21%
+  more time for ≤ 0.17 pp of relative σ — **shipped N=1**. Research note §Phase 10.
 
 ## Lessons
 

@@ -763,3 +763,165 @@ correct by (a) order-0 = single-scatter walk exactly, (b) ∫p dω = 1, and (c) 
 per-direction hemisphere split matching the sampler. A ±2% low-roughness gate
 needs an importance-sampled integrator (sample ω near the refraction direction);
 uniform-sphere MC cannot reach ±2% there at feasible sample counts.
+
+## Phase 10 — the stochastic eval is wired into both glass lobes (2026-09-09)
+
+The lead's decision on PR #778 (issuecomment-5593645050): replace the Phase 5
+skip-NEE delta contract — unbiased, but it moved the pkg263 harness limb from
+1.05× to 0.60× of Cycles — with the paper's own stochastic evaluation on
+`eval()`/`evalSpectral()`, `isDelta=false`, `pdf()` = the §9 proxy.
+
+### What was wired
+
+| File | Change |
+|---|---|
+| `include/astroray/microsurface_dielectric.h` | `mix64`/`hashFloat`/`HashRng`/`hashRngFor` (the deterministic RNG) and `stochasticEvalHashed` (the material-facing entry point); `kMsEvalWalks = 1`, `kMsScatterMax = 16`. |
+| `plugins/materials/principled.cpp` | `transmissionWalkScalar()`; `evalLobeRGB`/`evalLobeSpectral` `LobeKind::Transmission` (film-off) call it for BOTH the reflection and the transmission half; `sample()`/`sampleSpectral()` walk branch: `isDelta=false`, no `const_cast<HitRecord&>`, pdf = the full lobe-mixture density. |
+| `plugins/materials/disney.cpp` | `glassWalkScalar()`; `eval()` transmission branch + the reflection term added after the `* NdotL`; `sample()` walk branch un-delta'd, pdf = `pdf(rec,wo,wi)`; `evalSpectral()` magnitude-factored (see the bug below). |
+| `include/raytracer.h`, `module/blender_module.cpp` | `set_light_nee(bool)` — the lamp twin of pkg258's `set_env_nee`, so the same scene can be rendered with and without the light-sampling strategy. |
+| `tests/test_pkg265_nee_invariance.py` | The three NEE on/off gates (15 tests). |
+| `tests/cpp/test_pkg265_eval_vs_walk.cpp` | Engine-side integral(eval) = walk R/T cross-check. |
+
+`pdf()` needed no change: `transmissionPdf` (principled) and the
+`transmission_ * firstBouncePdf` term (disney) were already the §9 proxy.
+
+### The RNG — pbrt-v4's `LayeredBxDF` pattern (CLAUDE.md §6)
+
+`Material::eval()` is `const`, called from OpenMP workers, and may be asked for
+the same direction pair more than once, so a stochastic eval must be a PURE
+function of its arguments. pbrt-v4 solves exactly this for its own stochastic
+evaluation, `LayeredBxDF::f` / `LayeredBxDF::PDF` (`src/pbrt/bxdfs.h`,
+**Apache-2.0**): `RNG rng(Hash(wo), Hash(wi))`. We reproduce the *construction*,
+not pbrt's code:
+
+* bit mixer — **splitmix64** (Steele/Lea/Flood, "Fast splittable pseudorandom
+  number generators", OOPSLA 2014; Vigna's reference implementation is public
+  domain), over the raw float bits of (wo, wi, alpha, ior, side);
+* stream — **PCG32-XSH-RR** (M. E. O'Neill, "PCG: A Family of Better Random
+  Number Generators", 2014, pcg-random.org, **Apache-2.0**).
+
+Both are licence-compatible with MIT. No `STOP` was required.
+
+### The eta² radiance factor in closed form
+
+`stochasticEval` estimates the walk's escape DENSITY p(wi): the paper's phase
+functions are normalised in direction space (integral of p over the sphere = 1)
+and carry no radiance compression, which the sampler instead accumulates per
+micro-refraction as `WalkSample::radianceScale`. That product telescopes (proved
+in `tests/cpp/test_pkg265_walk_eta.cpp`: reflected 1.0, entering 1/ior² =
+0.47562, exiting ior² = 2.10250, maxErr 0.00e+00 over 1.6 M walks), so for a
+FIXED query direction it is fully determined by `sign(wiLocal.z)`.
+`stochasticEvalHashed` applies it analytically, which keeps `eval()` and
+`sample()` on the same units (`sample()`: f/pdf = weight·tint·radianceScale).
+
+### MIS-weight consistency (the reason `sample()` changed too)
+
+With `isDelta=false` the emitter-hit leg is weighted by `w_B(bsdfPdfPrev)` and
+the NEE leg by `w_L(pdf(rec,wo,wi))`. These sum to 1 pointwise only if BOTH read
+the same density at the same direction. `sample()` previously reported the
+single-lobe density `q_j·p_j`, while `pdf()` returns the full mixture — harmless
+under the delta contract (NEE was skipped), a dark bias once NEE runs on a MIXED
+material. `sample()`/`sampleSpectral()` now report the mixture and rescale `f`
+so `f/pdf = through/q_j` is bit-unchanged. For pure glass (q_j = 1, one non-delta
+lobe) the two forms are numerically identical, so no furnace number moved.
+
+### Bug found by the gate: the Disney Jakob–Hanika albedo clamp
+
+`DisneyPlugin::evalSpectral` upsampled the RGB eval through
+`RGBAlbedoSpectrum`, whose argument is **clamped to [0,1]³**. The Heitz eval is
+a heavy-tailed estimator with per-sample values up to ~40, so its tail was
+silently truncated: the Disney reflection probe read **28% DARK** with NEE on
+versus the same scene NEE off (r0.5). Fixed by factoring the magnitude out
+before the upsample — the identical guard `sampleSpectral()` twenty lines below
+already applies (#404, memory `gpu-dielectric-lowers-to-closure-graph`). It is
+a no-op for any eval <= 1, i.e. for every previously-correct lobe.
+
+### Confound that had to be ruled out first: adaptive sampling
+
+Adaptive sampling is **ON by default** (`useAdaptiveSampling = true` in
+`blender_module.cpp`). Its stop metric is colour-blind and sample-count
+dependent (pkg237), so it stops the noisier NEE-off leg early: with adaptive ON
+the pkg263 repro read NEE-off **4–11% darker** at 512 spp; with it OFF the same
+cells agree to <= 1.24%. Every A/B in this phase pins
+`set_adaptive_sampling(False)` and renders linear.
+
+### NEE ON/OFF invariance (`tests/test_pkg265_nee_invariance.py`, 15/15 green)
+
+CPU, 6 seeds per leg, adaptive off, linear. Tolerance max(2 sigma, 2% of the mean).
+
+| gate | NEE-on | sem | NEE-off | sem | delta | tol |
+|---|---|---|---|---|---|---|
+| refl-probe principled r0.3 | 0.00668 | 0.00006 | 0.00656 | 0.00015 | +1.84% | 4.81% |
+| refl-probe principled r0.5 | 0.01156 | 0.00009 | 0.01184 | 0.00013 | −2.43% | 2.70% |
+| refl-probe principled r0.85 | 0.02147 | 0.00022 | 0.02139 | 0.00018 | +0.36% | 2.65% |
+| refl-probe disney r0.3 | 0.00667 | 0.00005 | 0.00653 | 0.00015 | +2.14% | 4.69% |
+| refl-probe disney r0.5 | 0.01141 | 0.00008 | 0.01169 | 0.00013 | −2.37% | 2.67% |
+| refl-probe disney r0.85 | 0.02104 | 0.00020 | 0.02092 | 0.00017 | +0.59% | 2.53% |
+| lit-furnace principled r0.3 | 0.99435 | 0.00049 | 0.99450 | 0.00018 | −0.02% | 2.00% |
+| lit-furnace principled r0.5 | 0.99467 | 0.00074 | 0.99499 | 0.00047 | −0.03% | 2.00% |
+| lit-furnace principled r0.85 | 0.99452 | 0.00028 | 0.99447 | 0.00053 | +0.00% | 2.00% |
+| lit-furnace disney r0.3 | 0.99330 | 0.00049 | 0.99345 | 0.00018 | −0.01% | 2.00% |
+| lit-furnace disney r0.5 | 0.99159 | 0.00074 | 0.99189 | 0.00047 | −0.03% | 2.00% |
+| lit-furnace disney r0.85 | 0.98387 | 0.00030 | 0.98374 | 0.00051 | +0.01% | 2.00% |
+| pkg263 r0.3 centre | 0.18737 | 0.00076 | 0.18656 | 0.00116 | +0.43% | 2.00% |
+| pkg263 r0.3 limb | 0.45053 | 0.00312 | 0.44010 | 0.00552 | +2.32% | 2.81% |
+| pkg263 r0.5 centre | 0.27353 | 0.00190 | 0.27101 | 0.00325 | +0.92% | 2.76% |
+| pkg263 r0.5 limb | 0.61338 | 0.00253 | 0.60810 | 0.00565 | +0.86% | 2.02% |
+| pkg263 r0.85 centre | 0.54374 | 0.00273 | 0.54228 | 0.01097 | +0.27% | 4.16% |
+| pkg263 r0.85 limb | 0.68580 | 0.00192 | 0.68193 | 0.00550 | +0.56% | 2.00% |
+| pkg263 background (every r) | 0.17890 | 0.00014 | 0.17890 | 0.00014 | +0.00% | 2.00% |
+
+Every lit-furnace value is in [0.97, 1.02] on BOTH legs. The pkg263 leg is the
+metal_ab glass geometry rebuilt in-process; its calibration check is roughness 0,
+where it reads centre 0.175 / limb 0.286 against the pkg263 Cycles reference's
+0.1773 / 0.2842 (< 1.5%) — the light conversion that lands there is
+radiance = P/A (150 W over a 1 m² area light). It runs at 128 spp rather than
+the harness's 64 because the NEE-off leg finds a 1×1 radiance-150 light only by
+BSDF sampling and is heavy-tailed: the r0.5 centre delta measures +3.44% at
+64 spp, +0.42% at 128, +0.37% at 256, −0.01% at 512 (8 seeds each) —
+under-convergence, not bias. A separate 16-seed 512-spp run reads r0.5 centre
++0.05% and r0.5 limb +0.96% (2.9 sigma), the residual being the eval's
+grazing-angle error.
+
+### Eval vs walk in the engine (`tests/cpp/test_pkg265_eval_vs_walk.cpp`)
+
+Integral of `stochasticEval` over each hemisphere (900×900 stratified
+directions, one hash-seeded walk each) against `sampleWalk`'s own R/T split
+(200 k walks), IOR 1.45, entering:
+
+| r | mu | walk R | walk T | eval R | eval T | errR | errT | R+T | max sample |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.85 | 0.1 | 0.0775 | 0.9225 | 0.0775 | 0.9254 | +0.0% | +0.3% | 1.003 | 14.53 |
+| 0.85 | 0.5 | 0.0321 | 0.9679 | 0.0323 | 0.9648 | +0.7% | −0.3% | 0.997 | 8.94 |
+| 0.85 | 0.9 | 0.0203 | 0.9797 | 0.0203 | 0.9808 | +0.4% | +0.1% | 1.001 | 16.27 |
+| 1.00 | 0.1 | 0.0641 | 0.9359 | 0.0633 | 0.9329 | −1.2% | −0.3% | 0.996 | 18.43 |
+| 1.00 | 0.9 | 0.0141 | 0.9859 | 0.0141 | 0.9874 | +0.2% | +0.1% | 1.001 | 12.05 |
+| 0.50 | 0.5 | 0.0643 | 0.9357 | 0.0645 | 0.9371 | +0.3% | +0.1% | 1.002 | 24.92 |
+| 0.50 | 0.9 | 0.0333 | 0.9667 | 0.0334 | 0.9667 | +0.2% | −0.0% | 1.000 | 42.57 |
+
+This supersedes the Phase 9 oracle table's ±5%/±6%: those errors were the plain
+uniform-sphere estimator's variance, exactly as Phase 9 suspected; stratifying
+brings the engine's own eval to within **±1.2% on R and ±0.3% on T** at every
+grid point, with R+T = 0.996–1.003 (the lossless identity). Per-sample maxima
+8.9–42.6 confirm the lead's 1/d² <= 1/(n_t−n_i)² bound. The scatterMax = 16 dead
+fraction peaks at 0.0005% (1 walk in 200 000) at r1.0/mu0.1.
+
+### Cost: N = 1 vs N = 4 walks per eval (`kMsEvalWalks`)
+
+CPU, 6 seeds, same scenes as the gates; `rel sigma` is the seed-to-seed standard
+error of the ROI mean.
+
+| scene | N=1 mean | N=1 rel sigma | N=1 s/render | N=4 mean | N=4 rel sigma | N=4 s/render |
+|---|---|---|---|---|---|---|
+| refl-probe r0.5 | 0.01156 | 0.75% | 0.52 | 0.01154 | 0.78% | 0.60 (+15%) |
+| refl-probe r0.85 | 0.02147 | 1.04% | 0.58 | 0.02152 | 0.87% | 0.70 (+21%) |
+| lit-furnace r0.5 | 0.99467 | 0.074% | 0.69 | 0.99467 | 0.074% | 0.67 (−3%) |
+| lit-furnace r0.85 | 0.99452 | 0.028% | 0.72 | 0.99452 | 0.028% | 0.75 (+4%) |
+| pkg263 r0.85 centre | 0.54374 | 0.50% | 1.10 | 0.54097 | 0.53% | 1.19 (+8%) |
+| pkg263 r0.85 limb | 0.68580 | 0.28% | 1.10 | 0.68619 | 0.24% | 1.19 (+8%) |
+
+N = 4 buys at most a 0.17-point drop in relative sigma (refl-probe r0.85) for
+8–21% more time, and moves no mean outside 1 sigma. The path-level MC already
+averages the per-eval variance away, so the extra walks are largely wasted.
+**Shipped N = 1**; `kMsEvalWalks` is a one-line compile-time constant if a
+future gate needs more.

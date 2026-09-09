@@ -694,3 +694,72 @@ discriminator.
   scatter (closer to the GPU #771 reroute stub than the walk was), so parity is
   expected to hold or improve — flagged for the hardware-verifier as a GPU
   backstop (memory `ci_has_no_gpu_runtime_blindspot`).
+
+## Phase 9 — stochastic eval (Eq 42) correctness: the 1e11 firefly and the flip-frame two-branch connection (2026-09-09)
+
+Lead question: is the ~1e11 per-sample value of `stochastic_eval`'s transmission
+connection a physical non-convergence (unbounded refractive Jacobian) or a bug?
+**Answer: a bug.** Two independent defects, both now fixed in the numpy oracle
+(`_vndf_D`, `_refl_lobe`, `_refr_lobe`, `stochastic_eval`) and the C++ twin
+(`vndfDwi`, `reflLobe`, `refrLobe`, `stochasticEval` in
+`include/astroray/microsurface_dielectric.h`).
+
+### The divergent factor (proven by instrumentation)
+Dumping the top-20 per-bounce contributions at r0.85/μ0.3 showed every factor
+bounded except `Dwi` (the VNDF value), which reached 1.6e11. Root cause in
+`_vndf_D`: the denominator was `|cos_i|·(1+Λ(wi))`. Paper Eq 32,
+`Dwi = <wi,wm> D(wm) / (cos_i (1+Λ(wi)))`, is valid for wi in **either**
+hemisphere (Sec 6.1); for an upward-going ray (wi.z<0) cos_i<0 **and** (1+Λ)<0,
+so the product (the projected area) is positive. Using `|cos_i|` makes it
+negative; `max(·,1e-12)` then floors it and Dwi ~ idot·D/1e-12 → 1e11. With
+**signed** cos_i the denom → 0.5·alpha as wi.z→0 from either side and stays
+positive. This alone caps the per-sample value.
+
+### The lead's bound, confirmed
+With `wm = -(n_i ω_r + n_t ω_o)/|·|`, d = n_i(ω_r·wm)+n_t(ω_o·wm) = ±|n_i ω_r+n_t ω_o|,
+and |n_i ω_r+n_t ω_o|² = n_i²+n_t²+2 n_i n_t(ω_r·ω_o) ≥ (n_t−n_i)² ≈ 0.2 at IOR 1.45,
+so 1/d² ≤ 4.9. D ≤ 1/(πα²), G1 ≤ 1, F ≤ 1, n_t² ≤ 2.1. The single transmission
+connection is O(10). **Measured after the fix:** at r≥0.5 max per-sample 4–19,
+99.9-pct 2–20; at r=0.3 (near-specular BTDF lobe) max 130–294 — a legitimately
+peaked but finite value, not a divergence.
+
+### The R/T split: flip-frame two-branch connection
+After the Dwi fix, energy conserved (∫f cosθ dω = R+T ≈ 1) but the reflection/
+transmission split was wrong at grazing high roughness. Diagnosis chain:
+1. phase-function normalization ∫p dω must be 1 (Eq 40) — it wasn't for wi.z<0 /
+   inside. Fixed by computing the phase as the **exact sampler density**: for a
+   query direction compute BOTH the reflection half-vector `normalize(wi+ω)` and
+   the refraction half-vector `normalize(-(ni wi+nt ω))`, keep each only if it is
+   a genuine **upper-hemisphere** microfacet (wm.z>0) that actually reaches ω
+   (reflection auto-valid; refraction: orient for visibility, then refract and
+   check `dot(refract(wi,wm),ω)>0.999`). Verified ∫p dω = 1.000 for both media
+   and both hemispheres.
+2. Per-vertex escape must equal the walk's one-step escape probability. Measuring
+   it isolated the leak to **inside** vertices: physically the micronormals point
+   *down* there (wm.z<0), which the wm.z>0 branches reject. The fix is to evaluate
+   the connection in the **same flip frame the walk runs in** (canonical wm.z>0),
+   mapping the fixed macro dir to `wifR = flip^nflip(ω)`. The walk only ever
+   escapes flip-frame-up, so exactly ONE lobe contributes per vertex:
+   - `wifR.z>0`: reflection toward wifR, shadow `C1(hr)^Λ(wifR)`;
+   - `wifR.z<0`: refraction whose pre-flip output is wifR; the walk flips it to
+     `flip(wifR)` (z>0), shadow `C1(-hr)^Λ(flip(wifR))`.
+   This makes R come only from outside-escapes and T only from inside-escapes —
+   physical, and it conserves per-vertex energy by construction.
+
+### Sphere-integrated cross-check (oracle, uniform-sphere MC vs the walk R/T)
+| r | μ | walk R/T | eval R/T | errR/errT | 99.9-pct | max |
+|---|---|----------|----------|-----------|----------|-----|
+|0.85|0.1|0.078/0.922|0.079/0.965|+1%/+5%|2.5|4.7|
+|0.85|0.5|0.033/0.967|0.032/1.024|−1%/+6%|3.4|5.3|
+|0.85|0.9|0.021/0.979|0.020/1.015|−2%/+4%|5.3|6.1|
+|1.00|0.1|0.064/0.936|0.064/0.964|−1%/+3%|2.1|4.2|
+|1.00|0.9|0.014/0.986|0.014/1.026|+0%/+4%|3.1|4.8|
+
+Reflection matches to ±5% at every grid point; transmission to ±6% at r≥0.85.
+The larger errT at r≤0.5, high μ (e.g. r0.5/μ0.9 +22%) is **uniform-sphere
+integration variance** on the near-specular BTDF lobe (stderr ~0.1–0.3, R+T
+consistent with 1 within 1–1.4σ), not eval bias — the eval value is confirmed
+correct by (a) order-0 = single-scatter walk exactly, (b) ∫p dω = 1, and (c) the
+per-direction hemisphere split matching the sampler. A ±2% low-roughness gate
+needs an importance-sampled integrator (sample ω near the refraction direction);
+uniform-sphere MC cannot reach ±2% there at feasible sample counts.

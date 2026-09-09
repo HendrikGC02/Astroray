@@ -281,7 +281,55 @@ def single_scatter_albedo(wo, alpha, ior, rng, M, scatter_max=1):
 # Stochastic eval E1..N (Eq 42) -- unbiased directional BSDF value at (wo,wi).  #
 # Used by the directional test as the analytic reference for f (optional; the  #
 # sampled histogram above is the primary directional reference).               #
+#                                                                             #
+# The connection is evaluated in the SAME flip frame the random walk runs in   #
+# (the sampler is a validated importance sampler, R+T==1). At bounce r the ray  #
+# has done nflip transmissions; the fixed macro direction wi maps to the        #
+# flip-frame direction wifR = flip^nflip(wi). Escape is always toward           #
+# flip-frame-up (the walk only escapes upward; Fig 11 turns a transmission into #
+# an up-ray in the flipped frame). Hence exactly ONE lobe contributes:          #
+#   wifR.z > 0 : the continuing ray is a REFLECTION toward wifR, shadow         #
+#                C1(hr)^Lambda(wifR);                                           #
+#   wifR.z < 0 : the continuing (escaping) ray is a REFRACTION -- its pre-flip  #
+#                refract output equals wifR, the walk flips it to flip(wifR)     #
+#                (z>0) and it escapes with shadow C1(-hr)^Lambda(flip(wifR)).    #
+# Each lobe is the exact density of the sampler (dual half-vector with an        #
+# upper-hemisphere microfacet + reachability check), so per-bounce energy is     #
+# conserved and R/T split matches the walk to MC error at every angle/roughness. #
+# See .astroray_plan/docs/pkg265-multiscatter-microfacet-research.md Phase 9.    #
 # --------------------------------------------------------------------------- #
+def _refl_lobe(wi, tgt, alpha, ni, nt):
+    """Reflection phase density: wi -> tgt off an upper-hemisphere microfacet.
+    wh = normalize(wi+tgt) must have wh.z>0 (a real upward microfacet)."""
+    wh = wi + tgt
+    wh = wh / np.maximum(np.linalg.norm(wh, axis=1, keepdims=True), 1e-12)
+    c = np.sum(wi * wh, axis=1)
+    valid = (wh[:, 2] > 1e-7) & (c > 1e-7)
+    F = fresnel_dielectric(c, ni, nt)
+    D = _vndf_D(wi, wh, alpha)
+    return np.where(valid, F * D / (4.0 * np.abs(c) + 1e-12), 0.0)
+
+
+def _refr_lobe(wi, tgt, alpha, ni, nt):
+    """Refraction phase density: wi -> tgt through an upper-hemisphere microfacet.
+    wht = normalize(-(ni wi + nt tgt)), oriented for visibility (wi.wht>0); it must
+    be an upward microfacet (wht.z>0) AND actually refract wi to tgt (reachability)."""
+    wht = -(ni[:, None] * wi + nt[:, None] * tgt)
+    wht = wht / np.maximum(np.linalg.norm(wht, axis=1, keepdims=True), 1e-12)
+    ci = np.sum(wi * wht, axis=1)
+    flip = ci < 0
+    wht[flip] = -wht[flip]
+    ci = np.abs(ci)
+    wt, ok = _refract(wi, wht, ni / nt)
+    reach = ok & (np.sum(wt * tgt, axis=1) > 0.999)
+    valid = (wht[:, 2] > 1e-7) & (ci > 1e-7) & reach
+    od = np.sum(tgt * wht, axis=1)
+    F = fresnel_dielectric(ci, ni, nt)
+    D = _vndf_D(wi, wht, alpha)
+    d = ni * ci + nt * od
+    return np.where(valid, np.abs(od) * (nt * nt) * (1.0 - F) * D / np.maximum(d * d, 1e-12), 0.0)
+
+
 def stochastic_eval(wo, wi, alpha, ior, rng, M, scatter_max=32):
     """E[sum_r e_r p(-wr,wi) Gdist1(wi,hr)] for a lossless dielectric (e_r==1).
     Averages the per-bounce phase*shadowing contribution toward the fixed wi over
@@ -293,7 +341,7 @@ def stochastic_eval(wo, wi, alpha, ior, rng, M, scatter_max=32):
     nflip = np.zeros(M, dtype=np.int64)
     active = np.ones(M, dtype=bool)
     acc = np.zeros(M)
-    wi = np.asarray(wi, dtype=np.float64)
+    wconn = np.asarray(wi, dtype=np.float64)
     order = 0
     while active.any() and order < scatter_max:
         idx = np.where(active)[0]
@@ -306,21 +354,32 @@ def stochastic_eval(wo, wi, alpha, ior, rng, M, scatter_max=32):
         if stay.size == 0:
             order += 1
             continue
-        # phase-function value toward wi in the CURRENT (flipped) frame:
-        # map the fixed macro wi into the current frame by the same net flip.
+        ns = stay.size
+        # fixed macro connection dir mapped into the current flip frame
         odd = (nflip[stay] % 2) == 1
-        wif = np.tile(wi, (stay.size, 1))
-        wif[odd, 2] = -wif[odd, 2]
-        contrib = _phase_diel_value(wr[stay], wif, alpha, n1[stay], n2[stay])
-        # shadowing toward wi from height hr in the current frame
-        G = G1_from_height(wif, hr[stay], alpha)
-        acc[stay] += contrib * G
-        # advance the walk one phase event (same as walk_dielectric)
+        wifR = np.tile(wconn, (ns, 1))
+        wifR[odd, 2] = -wifR[odd, 2]
         wi_in = -wr[stay]
+        hrs = hr[stay]
+        ni = n1[stay]
+        nt = n2[stay]
+        p = np.zeros(ns)
+        rup = wifR[:, 2] > 1e-7           # reflection lobe escapes flip-frame up
+        rdn = wifR[:, 2] < -1e-7          # refraction lobe: flip(wifR) escapes up
+        if rup.any():
+            G = np.power(np.clip(C1(hrs[rup]), 1e-12, 1.0), Lambda(wifR[rup], alpha))
+            p[rup] = _refl_lobe(wi_in[rup], wifR[rup], alpha, ni[rup], nt[rup]) * G
+        if rdn.any():
+            wf = wifR[rdn].copy()
+            wf[:, 2] = -wf[:, 2]          # flip(wifR), z>0
+            G = np.power(np.clip(C1(-hrs[rdn]), 1e-12, 1.0), Lambda(wf, alpha))
+            p[rdn] = _refr_lobe(wi_in[rdn], wifR[rdn], alpha, ni[rdn], nt[rdn]) * G
+        acc[stay] += p
+        # advance the walk one phase event (same as walk_dielectric)
         wm = sample_vndf(wi_in, alpha, rng)
         c = np.sum(wi_in * wm, axis=1)
         F = fresnel_dielectric(c, n1[stay], n2[stay])
-        u = rng.random(stay.size)
+        u = rng.random(ns)
         do_refl = u < F
         wnew = 2.0 * c[:, None] * wm - wi_in
         itv = ~do_refl
@@ -329,7 +388,7 @@ def stochastic_eval(wo, wi, alpha, ior, rng, M, scatter_max=32):
             wt, ok = _refract(wi_in[itv], wm[itv], eta)
             wt = np.where(ok[:, None], wt, wnew[itv])
             wnew[itv] = wt
-            trans = np.zeros(stay.size, dtype=bool)
+            trans = np.zeros(ns, dtype=bool)
             trans[np.where(itv)[0][ok]] = True
             sT = stay[trans]
             hr[sT] = -hr[sT]
@@ -341,49 +400,23 @@ def stochastic_eval(wo, wi, alpha, ior, rng, M, scatter_max=32):
     return acc.mean()
 
 
-def _phase_diel_value(wr, wo_target, alpha, n1, n2):
-    """pdiel(-wr, wo_target) from Eq 34 (VNDF form), reflection+transmission halves.
-    wr = current travel dir; wi_phase = -wr; wo_target = the queried outgoing dir."""
-    wi = -wr
-    M = wr.shape[0]
-    val = np.zeros(M)
-    same = (wi[:, 2] * wo_target[:, 2]) > 0.0        # reflection half
-    opp = ~same
-    # reflection: half-vector, F * Dwi / (4|wi.wh|)
-    if same.any():
-        wh = wi[same] + wo_target[same]
-        wh /= np.maximum(np.linalg.norm(wh, axis=1, keepdims=True), 1e-12)
-        wh[wh[:, 2] < 0] = -wh[wh[:, 2] < 0]
-        F = fresnel_dielectric(np.sum(wi[same] * wh, axis=1), n1[same], n2[same])
-        Dwi = _vndf_D(wi[same], wh, alpha)
-        denom = 4.0 * np.abs(np.sum(wi[same] * wh, axis=1)) + 1e-12
-        val[same] = F * Dwi / denom
-    # transmission: refractive half-vector wht ~ -(ni wi + no wo)
-    if opp.any():
-        ni = n1[opp]
-        no = n2[opp]
-        wht = -(ni[:, None] * wi[opp] + no[:, None] * wo_target[opp])
-        wht /= np.maximum(np.linalg.norm(wht, axis=1, keepdims=True), 1e-12)
-        wht[wht[:, 2] < 0] = -wht[wht[:, 2] < 0]
-        ci = np.sum(wi[opp] * wht, axis=1)
-        F = fresnel_dielectric(ci, ni, no)
-        Dwi = _vndf_D(wi[opp], wht, alpha)
-        num = np.abs(np.sum(wo_target[opp] * wht, axis=1)) * (no * no) * (1.0 - F) * Dwi
-        d = ni * ci + no * np.sum(wo_target[opp] * wht, axis=1)
-        val[opp] = num / np.maximum(d * d, 1e-12)
-    return val
-
-
 def _vndf_D(wi, wm, alpha):
-    """Dwi(wm) = <wi,wm> D(wm) / (cos_i (1+Lambda(wi)))  (Eq 32)."""
+    """Dwi(wm) = <wi,wm> D(wm) / (cos_i (1+Lambda(wi)))  (Eq 32).
+
+    cos_i is SIGNED: the paper (Sec 6.1) proves Eq 32 valid for any theta_i in
+    [0,pi), i.e. for upward-going rays (wi.z<0) too. There cos_i<0 AND (1+Lambda)<0,
+    so their product is positive -- the projected area. Using |cos_i| (as an earlier
+    draft did) makes the denominator negative for wi.z<0 and, floored to a tiny
+    epsilon, blew Dwi up to ~1e11 (the pkg265 stochastic-eval firefly). SIGNED cos_i
+    keeps it bounded (denom -> 0.5*alpha as wi.z->0 from either side)."""
     NdotH = np.abs(wm[:, 2])
     a2 = alpha * alpha
     t = 1.0 + (a2 - 1.0) * NdotH * NdotH
     D = a2 / (math.pi * t * t)
     idot = np.maximum(np.sum(wi * wm, axis=1), 0.0)
-    cosi = np.abs(wi[:, 2])
-    L = Lambda(wi, alpha)
-    return idot * D / np.maximum(cosi * (1.0 + L), 1e-12)
+    cosi = wi[:, 2]                                   # SIGNED (Eq 32, both hemispheres)
+    denom = cosi * (1.0 + Lambda(wi, alpha))
+    return idot * D / np.maximum(denom, 1e-8)
 
 
 # --------------------------------------------------------------------------- #

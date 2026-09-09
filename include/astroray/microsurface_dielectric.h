@@ -250,9 +250,65 @@ inline float firstBouncePdf(const Vec3& woLocal, const Vec3& wiLocal, float alph
     return p + diffuse;
 }
 
-// Sec 8.1 / Eq 42 stochastic eval: f(wo,wi)*|cos wi|, an unbiased estimate from
-// a fresh walk started at wo, summing per-bounce phase*shadowing toward wiLocal.
+// Signed-cos_i VNDF value Dwi(wm) = <wi,wm> D(wm) / (cos_i (1+Lambda(wi)))  (Eq 32).
+// cos_i is SIGNED: Eq 32 is valid for wi in EITHER hemisphere (paper Sec 6.1). For an
+// upward-going ray (wi.z<0) cos_i<0 AND (1+Lambda)<0, so their product (the projected
+// area) is positive; using |cos_i| makes it negative and, floored, blows Dwi up to
+// ~1e11 (the pkg265 stochastic-eval firefly). Signed cos_i keeps it bounded.
+inline float vndfDwi(const Vec3& wi, const Vec3& wm, float alpha) {
+    float NdotH = std::abs(wm.z);
+    float a2 = alpha * alpha;
+    float t = 1.0f + (a2 - 1.0f) * NdotH * NdotH;
+    float D = a2 / (float(M_PI) * t * t);
+    float idot = std::max(wi.dot(wm), 0.0f);
+    float denom = wi.z * (1.0f + lambdaGGX(wi.z, alpha));   // SIGNED, both hemispheres
+    return idot * D / std::max(denom, 1e-8f);
+}
+
+// Reflection phase-lobe density wi->tgt off an UPPER-hemisphere microfacet
+// wh=normalize(wi+tgt) (must have wh.z>0, a real upward microfacet).
+inline float reflLobe(const Vec3& wi, const Vec3& tgt, float alpha, float ni, float nt) {
+    Vec3 whv = wi + tgt;
+    if (whv.length2() < 1e-24f) return 0.0f;
+    Vec3 wh = whv.normalized();
+    float c = wi.dot(wh);
+    if (wh.z <= 1e-7f || c <= 1e-7f) return 0.0f;
+    float F = fresnelDielectric(c, ni, nt);
+    return F * vndfDwi(wi, wh, alpha) / (4.0f * std::abs(c) + 1e-12f);
+}
+
+// Refraction phase-lobe density wi->tgt through an UPPER-hemisphere microfacet
+// wht=normalize(-(ni wi + nt tgt)) oriented for visibility (wi.wht>0); must be an
+// upward microfacet AND actually refract wi onto tgt (reachability check).
+inline float refrLobe(const Vec3& wi, const Vec3& tgt, float alpha, float ni, float nt) {
+    Vec3 whv = -(wi * ni + tgt * nt);
+    if (whv.length2() < 1e-24f) return 0.0f;
+    Vec3 wht = whv.normalized();
+    float ci = wi.dot(wht);
+    if (ci < 0.0f) { wht = -wht; ci = -ci; }
+    if (wht.z <= 1e-7f || ci <= 1e-7f) return 0.0f;
+    Vec3 wt;
+    if (!refractMicro(wi, wht, ni / nt, wt)) return 0.0f;
+    if (wt.dot(tgt) <= 0.999f) return 0.0f;             // reachability
+    float od = tgt.dot(wht);
+    float F = fresnelDielectric(ci, ni, nt);
+    float d = ni * ci + nt * od;
+    return std::abs(od) * (nt * nt) * (1.0f - F) * vndfDwi(wi, wht, alpha)
+           / std::max(d * d, 1e-12f);
+}
+
+// Sec 8.1 / Eq 42 stochastic eval: f(wo,wi)*|cos wi|, an unbiased estimate from a
+// fresh walk started at wo, summing per-bounce phase*shadowing toward wiLocal.
 // Reserved for NEE/MIS legs; the sampler above is used for path continuation.
+//
+// The connection runs in the SAME flip frame as the validated walk (R+T==1). At a
+// vertex the fixed macro dir wiLocal maps to wifR=flip^nflip(wiLocal); the walk only
+// escapes flip-frame-up, so exactly one lobe contributes:
+//   wifR.z>0 : the escaping ray is a REFLECTION toward wifR, shadow C1(hr)^Lambda(wifR);
+//   wifR.z<0 : the escaping ray is a REFRACTION whose pre-flip output is wifR; the walk
+//              flips it to flip(wifR) (z>0) with shadow C1(-hr)^Lambda(flip(wifR)).
+// Each lobe is the exact sampler density (upper-hemisphere microfacet + reachability),
+// so per-bounce energy conserves and the R/T split matches the walk to MC error.
 template <class Rng>
 inline float stochasticEval(const Vec3& woLocal, const Vec3& wiLocal, float alpha,
                             float ior, bool entering, Rng& rng, int scatterMax) {
@@ -267,45 +323,17 @@ inline float stochasticEval(const Vec3& woLocal, const Vec3& wiLocal, float alph
         hr = sampleHeight(wr, hr, alpha, rng());
         if (hr >= 1e9f) break;
         if (order >= scatterMax) break;
-        // phase value toward wi mapped into the current (flipped) frame
-        Vec3 wif = (nflip & 1) ? Vec3(wiLocal.x, wiLocal.y, -wiLocal.z) : wiLocal;
+        Vec3 wifR = (nflip & 1) ? Vec3(wiLocal.x, wiLocal.y, -wiLocal.z) : wiLocal;
         Vec3 wi = -wr;
-        // pdiel(-wr, wif) (Eq 34) via the VNDF form
-        {
-            float ni = n1, nt = n2;
-            bool same = (wi.z * wif.z) > 0.0f;
-            float NdotH, idot, D, Dwi, val = 0.0f;
-            if (same) {
-                Vec3 wh = (wi + wif).normalized();
-                if (wh.z < 0.0f) wh = -wh;
-                NdotH = std::abs(wh.z);
-                float a2 = alpha * alpha;
-                float t = 1.0f + (a2 - 1.0f) * NdotH * NdotH;
-                D = a2 / (float(M_PI) * t * t);
-                idot = std::max(wi.dot(wh), 0.0f);
-                Dwi = idot * D / std::max(std::abs(wi.z) * (1.0f + lambdaGGX(std::abs(wi.z), alpha)), 1e-8f);
-                float F = fresnelDielectric(wi.dot(wh), ni, nt);
-                float denom = 4.0f * std::abs(wi.dot(wh)) + 1e-8f;
-                val = F * Dwi / denom;
-            } else {
-                Vec3 wht = -(wi * ni + wif * nt);
-                wht = wht.normalized();
-                if (wht.z < 0.0f) wht = -wht;
-                float ci = wi.dot(wht);
-                float a2 = alpha * alpha;
-                NdotH = std::abs(wht.z);
-                float t = 1.0f + (a2 - 1.0f) * NdotH * NdotH;
-                D = a2 / (float(M_PI) * t * t);
-                idot = std::max(wi.dot(wht), 0.0f);
-                Dwi = idot * D / std::max(std::abs(wi.z) * (1.0f + lambdaGGX(std::abs(wi.z), alpha)), 1e-8f);
-                float F = fresnelDielectric(ci, ni, nt);
-                float od = wif.dot(wht);
-                float dnm = ni * ci + nt * od;
-                val = std::abs(od) * (nt * nt) * (1.0f - F) * Dwi / std::max(dnm * dnm, 1e-8f);
-            }
-            // shadowing toward wi (Gdist1(wif,hr))
-            float G = std::pow(std::min(std::max(C1(hr), 1e-7f), 1.0f), lambdaGGX(wif.z, alpha));
-            acc += val * G;
+        if (wifR.z > 1e-7f) {                            // reflection lobe, escape up
+            float G = std::pow(std::min(std::max(C1(hr), 1e-7f), 1.0f),
+                               lambdaGGX(wifR.z, alpha));
+            acc += reflLobe(wi, wifR, alpha, n1, n2) * G;
+        } else if (wifR.z < -1e-7f) {                    // refraction lobe, flip escapes up
+            Vec3 wf = Vec3(wifR.x, wifR.y, -wifR.z);
+            float G = std::pow(std::min(std::max(C1(-hr), 1e-7f), 1.0f),
+                               lambdaGGX(wf.z, alpha));
+            acc += refrLobe(wi, wifR, alpha, n1, n2) * G;
         }
         // advance the walk one phase event
         Vec3 wm = sampleVNDF(wi, alpha, rng(), rng());

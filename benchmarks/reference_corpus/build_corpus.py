@@ -40,10 +40,34 @@ SCENE_LIBRARY_DIR = REPO_ROOT / "benchmarks" / "blender_parity"
 BUILDERS = {
     "materials_hall": "build_materials_hall_scene",
     "textures_mapping": "build_textures_mapping_scene",
+    "lighting_studio": "build_lighting_studio_scene",
+    "world_sky_hdri": "build_world_sky_hdri_scene",
+    "world_sky_sky": "build_world_sky_sky_scene",
 }
 RESOLUTIONS = {
     "materials_hall": ("REFERENCE_MATERIALS_HALL_RES", "REFERENCE_MATERIALS_HALL_SAMPLES"),
     "textures_mapping": ("REFERENCE_TEXTURES_MAPPING_RES", "REFERENCE_TEXTURES_MAPPING_SAMPLES"),
+    "lighting_studio": ("REFERENCE_LIGHTING_STUDIO_RES", "REFERENCE_LIGHTING_STUDIO_SAMPLES"),
+    "world_sky_hdri": ("REFERENCE_WORLD_SKY_RES", "REFERENCE_WORLD_SKY_SAMPLES"),
+    "world_sky_sky": ("REFERENCE_WORLD_SKY_RES", "REFERENCE_WORLD_SKY_SAMPLES"),
+}
+# pkg259 Phase 2: world_sky splits into two .blend files sharing one family
+# tag (README "Naming and files" -- <family>_<part>.blend, allowed since
+# design doc Sec 6.2 item 8) because a Blender scene has exactly one World,
+# so "HDRI vs Sky, each against its own Cycles reference" cannot be one
+# scene the way lighting_studio's four simultaneous light booths can.
+# Scene ids not listed here use their own name as the family (1:1).
+FAMILY_OF = {
+    "world_sky_hdri": "world_sky",
+    "world_sky_sky": "world_sky",
+}
+# The one non-procedural asset Phase 2 uses (design doc Sec 3.2/README asset
+# table) -- recorded here so build_corpus.py's manifest carries the same
+# licence data as the README instead of a second, driftable copy.
+WORLD_SKY_HDRI_ASSET = {
+    "path": "benchmarks/reference_corpus/assets/syferfontein_18d_clear_1k.hdr",
+    "license": "CC0 1.0",
+    "source_url": "https://polyhaven.com/a/syferfontein_18d_clear",
 }
 
 
@@ -57,32 +81,55 @@ def _load_assign_map():
     spec = importlib.util.spec_from_file_location("pkg259_allocation", ALLOCATION_SCRIPT)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.ASSIGN
+    # pkg259 Phase 2: SOCKET_OVERRIDE (added by pkg260) reassigns a small
+    # number of individual ROWS to a family other than their (category,
+    # feature) pair's default -- e.g. World's light_linking_shadow_linking
+    # gap-card row belongs to lighting_studio, not world_sky, even though
+    # every other World row stays world_sky. Returned alongside ASSIGN so
+    # the family-membership check below matches the allocation script's own
+    # resolution order exactly instead of silently ignoring per-row overrides.
+    return module.ASSIGN, getattr(module, "SOCKET_OVERRIDE", {})
+
+
+def _primary_family(assign, overrides, row):
+    override = overrides.get((row["category"], row["feature"], row["socket_or_prop"]))
+    if override is not None:
+        return override[0]
+    return assign[(row["category"], row["feature"])][0]
 
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _build_one(bpy, family: str, out_dir: Path, assign, matrix_rows):
+def _build_one(bpy, scene_id: str, out_dir: Path, assign, overrides, matrix_rows):
+    """Build one manifest entry keyed by ``scene_id``. ``scene_id`` is almost
+    always the family name itself (materials_hall, textures_mapping,
+    lighting_studio); ``world_sky_hdri``/``world_sky_sky`` are the one
+    exception (pkg259 Phase 2) -- two ``.blend`` files sharing the
+    ``world_sky`` family tag via ``FAMILY_OF``, because a Blender scene has
+    exactly one World and "HDRI vs Sky, each against its own Cycles
+    reference" cannot be one scene the way lighting_studio's four
+    simultaneous light booths can."""
     sys.path.insert(0, str(SCENE_LIBRARY_DIR))
     import scene_library  # noqa: E402
 
-    builder_name = BUILDERS[family]
+    family = FAMILY_OF.get(scene_id, scene_id)
+    builder_name = BUILDERS[scene_id]
     builder = getattr(scene_library, builder_name)
     scene, tags, crops, gap_tags = builder(bpy)
 
-    res_name, samples_name = RESOLUTIONS[family]
+    res_name, samples_name = RESOLUTIONS[scene_id]
     res_x, res_y = getattr(scene_library, res_name)
     samples = getattr(scene_library, samples_name)
 
     tags_set = set(tags)
     gap_set = set(gap_tags)
 
-    # Every (category, feature) row this family owns (primary assignment
-    # only -- secondary/cross-tag families are bonus, not a requirement).
-    family_rows = [r for r in matrix_rows
-                   if assign[(r["category"], r["feature"])][0] == family]
+    # Every row this family owns as PRIMARY assignment (secondary/cross-tag
+    # families are bonus, not a requirement) -- SOCKET_OVERRIDE-resolved, see
+    # _primary_family.
+    family_rows = [r for r in matrix_rows if _primary_family(assign, overrides, r) == family]
 
     feature_tags = []
     missing = []
@@ -110,7 +157,7 @@ def _build_one(bpy, family: str, out_dir: Path, assign, matrix_rows):
         lines = "\n".join(f"  {r['bl_idname']} {r['socket_or_prop']} ({r['classification']})"
                            for r in missing)
         raise SystemExit(
-            f"[pkg259] {family}: builder does not actively wire "
+            f"[pkg259] {scene_id}: builder does not actively wire "
             f"{len(missing)} required SUPPORTED/APPROXIMATED row(s):\n{lines}\n"
             f"Fix the builder in scene_library.py (wire it, or if it truly "
             f"cannot be demonstrated, this is a design-doc question, not a "
@@ -119,7 +166,7 @@ def _build_one(bpy, family: str, out_dir: Path, assign, matrix_rows):
     stray = tags_set - {(r["bl_idname"], r["socket_or_prop"]) for r in family_rows}
     if stray:
         raise SystemExit(
-            f"[pkg259] {family}: builder tags {len(stray)} (bl_idname, socket) "
+            f"[pkg259] {scene_id}: builder tags {len(stray)} (bl_idname, socket) "
             f"pair(s) that are not a matrix row assigned to this family "
             f"(typo, or the allocation table needs updating): {sorted(stray)}")
 
@@ -135,8 +182,23 @@ def _build_one(bpy, family: str, out_dir: Path, assign, matrix_rows):
     scene.render.resolution_percentage = 100
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    blend_path = out_dir / f"{family}.blend"
+    blend_path = out_dir / f"{scene_id}.blend"
     bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
+
+    # HDRI world halves (pkg259 Phase 2) load their image via an absolute
+    # path so the build can read real pixels; now that bpy.data.filepath is
+    # the final saved location, rewrite it to the repo-relative "//..." form
+    # and re-save so a fresh checkout on another machine resolves it from
+    # THIS file's directory -- same pattern render_leg.py's --export-blend
+    # path already uses for hdri_exterior_hair (Sec 4.1/README asset table).
+    hdri_relpath = scene.get("hdri_relpath")
+    assets = []
+    if hdri_relpath:
+        for img in bpy.data.images:
+            if img.source == "FILE":
+                img.filepath_raw = hdri_relpath
+        bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
+        assets = [{**WORLD_SKY_HDRI_ASSET, "sha256": _sha256(REPO_ROOT / WORLD_SKY_HDRI_ASSET["path"])}]
 
     # Reopen-verify (mirrors #729's manifest contract) + collect the census
     # from the REOPENED file, not the in-memory scene, so the manifest
@@ -152,6 +214,12 @@ def _build_one(bpy, family: str, out_dir: Path, assign, matrix_rows):
             node_ids.update(n.bl_idname for n in mat.node_tree.nodes)
     if reopened_scene.world and reopened_scene.world.use_nodes and reopened_scene.world.node_tree:
         node_ids.update(n.bl_idname for n in reopened_scene.world.node_tree.nodes)
+    # pkg259 Phase 2: lighting_studio's SPOT booth carries a light node-tree
+    # (ShaderNodeTexIES -> ShaderNodeEmission -> ShaderNodeOutputLight) --
+    # Phase 1 never needed light node trees, so this loop is new.
+    for light in bpy.data.lights:
+        if getattr(light, "use_nodes", False) and light.node_tree:
+            node_ids.update(n.bl_idname for n in light.node_tree.nodes)
     tri_count = 0
     for obj in reopened_scene.objects:
         if obj.type != "MESH":
@@ -176,7 +244,7 @@ def _build_one(bpy, family: str, out_dir: Path, assign, matrix_rows):
         "object_counts": obj_counts,
         "node_ids": sorted(node_ids),
         "feature_tags": feature_tags,
-        "assets": [],
+        "assets": assets,
         "crops": crops,
     }
     return manifest_entry, uncovered_dropped
@@ -194,7 +262,7 @@ def main():
 
     import bpy  # noqa: E402  (only valid inside Blender)
 
-    assign = _load_assign_map()
+    assign, overrides = _load_assign_map()
     matrix_rows = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
 
     out_dir = Path(args.out_dir).resolve()
@@ -204,11 +272,11 @@ def main():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     gap_registry: dict[str, list] = {}
-    for family in args.families:
-        entry, uncovered = _build_one(bpy, family, out_dir, assign, matrix_rows)
-        manifest["scenes"][family] = entry
-        gap_registry[family] = uncovered
-        print(f"[pkg259] {family}: {len(entry['feature_tags'])} feature_tags, "
+    for scene_id in args.families:
+        entry, uncovered = _build_one(bpy, scene_id, out_dir, assign, overrides, matrix_rows)
+        manifest["scenes"][scene_id] = entry
+        gap_registry[scene_id] = uncovered
+        print(f"[pkg259] {scene_id}: {len(entry['feature_tags'])} feature_tags, "
               f"{len(uncovered)} gap-registry rows, "
               f"triangle_count={entry['triangle_count']}, "
               f"reopen_verified={entry['reopen_verified']}")

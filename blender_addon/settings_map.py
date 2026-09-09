@@ -87,7 +87,7 @@ _RENDER_SAMPLING = [
                  "knob-based min/max-samples + noise-threshold model has no equivalent; "
                  "Astroray auto-derives its threshold from the sample budget, Dammertz 2010). "
                  "GPU-only takes effect when the pkg224 progressive sampler is also active "
-                 "(engine default on since pkg262) AND no light-path pass / Cryptomatte / "
+                 "(the addon enables it exactly when GPU adaptive sampling is requested, pkg262 fork (b)) AND no light-path pass / Cryptomatte / "
                  "transparent film is requested this render (gpu_wavefront_snapshot.cu "
                  "adaptiveOn); the addon degradation report flags the ignored case "
                  "(pkg200 rule, see _gpu_adaptive_ignored_reason)."),

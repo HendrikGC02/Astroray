@@ -675,8 +675,12 @@ def _force_remove(path: Path, retries: int = 5):
             time.sleep(0.5 * (attempt + 1))
 
 
-def _objdump_deps(binary: Path) -> list[str]:
-    """Return the lib*.dll names a PE binary depends on."""
+def _objdump_deps(binary: Path, pattern: str = r"(lib\S+\.dll)") -> list[str]:
+    """Return the DLL names a PE binary depends on that match ``pattern``.
+
+    Defaults to the MinGW ``lib*.dll`` family; issue #780 also queries it for
+    the MSVC OpenMP runtime (``vcomp*.dll``), hence the case-insensitive match.
+    """
     try:
         out = subprocess.check_output(
             ["objdump", "-p", str(binary)],
@@ -686,10 +690,53 @@ def _objdump_deps(binary: Path) -> list[str]:
         return []
     deps = []
     for line in out.splitlines():
-        m = re.search(r"DLL Name:\s*(lib\S+\.dll)", line)
+        m = re.search(r"DLL Name:\s*" + pattern, line, re.IGNORECASE)
         if m:
             deps.append(m.group(1))
     return deps
+
+
+def _bundle_msvc_openmp_dll(module_path: Path) -> list[str]:
+    """Copy the MSVC OpenMP runtime (vcomp140.dll) into STAGE_DIR.
+
+    issue #780 turned /openmp back on for addon builds, so the MSVC-built .pyd
+    (the cuda/tcnn backends configure Ninja + cl.exe) hard-imports VCOMP140.DLL.
+    Blender ships its own CRT in ``blender.crt/`` but NOT vcomp140, so on a host
+    without the VC++ redistributable the addon would fail to import with
+    "DLL load failed". MinGW builds get libgomp-1.dll from
+    _bundle_mingw_runtime_dlls; this is the cl.exe counterpart. vcomp140.dll is
+    on Microsoft's VS redistributable list, so shipping it in the addon zip is
+    permitted.
+    """
+    if platform.system() != "Windows":
+        return []
+    names = {n.lower() for n in _objdump_deps(module_path, r"(vcomp\S*\.dll)")}
+    if not names and b"VCOMP140.DLL" in module_path.read_bytes():
+        # objdump (binutils) may not be on PATH on an MSVC-only machine; the PE
+        # import-name table stores the name as plain ASCII, so scan for it.
+        names = {"vcomp140.dll"}
+    if not names:
+        return []
+
+    search: list[Path] = []
+    vs = _find_vs_install()
+    if vs:
+        search += sorted((vs / "VC" / "Redist" / "MSVC").glob("*/x64/Microsoft.VC*.OpenMP"),
+                         reverse=True)
+    search.append(Path(r"C:\Windows\System32"))
+
+    bundled: list[str] = []
+    for name in sorted(names):
+        for directory in search:
+            src = directory / name
+            if src.exists():
+                shutil.copy2(src, STAGE_DIR / src.name)
+                bundled.append(src.name)
+                break
+        else:
+            print(f"warning: {name} not found — the addon will require the "
+                  f"Microsoft VC++ redistributable on the target machine")
+    return bundled
 
 
 def _bundle_mingw_runtime_dlls(module_path: Path) -> list[str]:
@@ -883,6 +930,8 @@ def stage_and_zip(module_path: Path, backend: str = "cpu", build_id: str | None 
 
     # Bundle MinGW runtime DLLs the .pyd depends on (Windows only)
     bundled = _bundle_mingw_runtime_dlls(module_path)
+    # issue #780: and the MSVC OpenMP runtime for cl.exe-built modules
+    bundled += _bundle_msvc_openmp_dll(module_path)
     if bundled:
         print(f"bundled runtime DLLs: {', '.join(bundled)}")
 

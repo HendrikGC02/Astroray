@@ -2308,13 +2308,23 @@ class Renderer {
     float filterGlossy = 0.0f;
     bool useReflectiveCaustics = true;
     bool useRefractiveCaustics = true;
-    // pkg224 — opt-in progressive (hash-Owen Sobol') sampler for the GPU
-    // wavefront. false = PCG32 white noise (the default, byte-identical to
-    // pre-pkg224). true = low-discrepancy progressive sampling (any per-pixel
-    // sample prefix is well-distributed) — the prerequisite for pkg131 adaptive
-    // sampling. GPU-only (the CPU oracle keeps std::mt19937); published into the
-    // __constant__ c_wfSamplerMode by cuda_wavefront_render.
-    bool useProgressiveSampler = false;
+    // pkg224 — progressive (hash-Owen Sobol') sampler for the GPU wavefront.
+    // false = PCG32 white noise (pre-pkg224 behaviour). true = low-discrepancy
+    // progressive sampling (any per-pixel sample prefix is well-distributed) —
+    // the prerequisite for pkg131 adaptive sampling. GPU-only (the CPU oracle
+    // keeps std::mt19937); published into the __constant__ c_wfSamplerMode by
+    // cuda_wavefront_render.
+    // pkg262 (2026-09): default flipped false -> true. pkg224 shipped opt-in
+    // with no written flip condition (owner fork decision 2026-08-29) and
+    // pkg131's GPU leg gates adaptive sampling on this flag, so the addon
+    // never enabling it made the native "Adaptive Sampling" toggle a silent
+    // GPU no-op (issue #759). Flipped as the engine default (one behaviour
+    // everywhere) rather than an addon-side conditional enable, per the
+    // pkg262 A/B (.astroray_plan/docs/pkg262-default-flip-ab-2026-09.md):
+    // in-band frame time (pkg81 bench) and equal-or-better noise at matched
+    // spp, no parity-suite regression. CPU is unaffected (this flag is never
+    // read outside src/gpu/wavefront/gpu_wavefront_snapshot.cu).
+    bool useProgressiveSampler = true;
     // pkg225 Stage 3 — GPU curve shading mode. false = ribbon (camera-facing
     // flat strip, cheap 2D — the viewport default); true = thick swept-circle
     // (full CPU-parity Cylinder mode). Read by scene_upload when building

@@ -79,11 +79,23 @@ _RENDER_SAMPLING = [
                  "custom_raytracer.preview_samples", "render(samples=...) [viewport]",
                  "direct", "n/a", "Viewport spp; native Cycles preview_samples is the counterpart."),
     MappingEntry("sampling", "use_adaptive_sampling", "scene.cycles.use_adaptive_sampling",
-                 "custom_raytracer.use_adaptive_sampling", "(none)", "dropped", "DROPPED-SILENT",
-                 "Custom toggle exists but is not plumbed to the engine; no adaptive-sampling session arg yet."),
+                 "custom_raytracer.use_adaptive_sampling", "renderer.set_adaptive_sampling",
+                 "approximated", "DROPPED-SILENT",
+                 "pkg131 wired this to the engine's zero-knob adaptive sampler; pkg262 made it "
+                 "actually take effect on GPU. Reads the CUSTOM prop, not the native "
+                 "scene.cycles.use_adaptive_sampling bool -- stays APPROXIMATED (Cycles' "
+                 "knob-based min/max-samples + noise-threshold model has no equivalent; "
+                 "Astroray auto-derives its threshold from the sample budget, Dammertz 2010). "
+                 "GPU-only takes effect when the pkg224 progressive sampler is also active "
+                 "(engine default on since pkg262) AND no light-path pass / Cryptomatte / "
+                 "transparent film is requested this render (gpu_wavefront_snapshot.cu "
+                 "adaptiveOn); the addon degradation report flags the ignored case "
+                 "(pkg200 rule, see _gpu_adaptive_ignored_reason)."),
     MappingEntry("sampling", "adaptive_threshold", "scene.cycles.adaptive_threshold",
                  "custom_raytracer.adaptive_threshold", "(none)", "dropped", "DROPPED-SILENT",
-                 "Noise threshold; no engine target (adaptive sampling not wired)."),
+                 "Vestigial: the engine's adaptive sampler is zero-knob (auto-derives its "
+                 "threshold from the sample budget, mirroring Cycles' threshold=0 semantics, "
+                 "pkg131); this custom noise-threshold UI field has no engine target."),
     MappingEntry("sampling", "adaptive_min_samples", "scene.cycles.adaptive_min_samples", "",
                  "(none)", "dropped", "DROPPED-SILENT", "No custom prop and no engine target."),
     MappingEntry("sampling", "seed", "scene.cycles.seed", "",
@@ -104,7 +116,10 @@ _RENDER_SAMPLING = [
                  "a use_light_tree bool, and the ENGINE's set_light_sampler accepts only 'power'/'tree' (no uniform "
                  "sampler). pkg201 Stage 1 reconciles in native_settings.resolve_light_sampler: native True -> "
                  "'tree', native False -> 'power'. Stays APPROXIMATED (neither Cycles nor the engine can express "
-                 "uniform vs power)."),
+                 "uniform vs power). pkg262 (2026-09): flipped custom_raytracer.light_sampler's own default "
+                 "'power' -> 'light_tree' (pkg86-B's Phase 3 gates cleared 2026-06-11, never flipped on -- "
+                 "issue #759 audit); only affects the non-Cycles-scene fallback since the native bool above "
+                 "is authoritative whenever present."),
 ]
 
 # ---------------------------------------------------------------------------

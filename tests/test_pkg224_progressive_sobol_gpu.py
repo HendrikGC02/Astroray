@@ -8,13 +8,20 @@ is unchanged (the byte-identical-default codegen is separately pinned by the
 cuobjdump register probe in the pkg224 PR; here we pin the runtime determinism).
 
 Gates:
-  * test_default_off_matches_untouched — the sampler explicitly OFF renders the
-    same (within GPU float-atomic tolerance) as never touching the flag: the
-    unchanged PCG32 path. (Bitwise codegen identity of the OFF path is pinned
-    separately by the cuobjdump register probe in the PR; the GPU renderer's
-    per-pixel accumulation is ~1 ULP non-deterministic run-to-run regardless.)
-  * test_progressive_changes_output — ON vs OFF differ, proving the flag reaches
-    the device draw sites.
+  * test_explicit_off_is_deterministic — the sampler explicitly OFF renders the
+    same (within GPU float-atomic tolerance) across two independent runs: the
+    unchanged PCG32 path is internally deterministic. (Bitwise codegen identity
+    of the OFF path is pinned separately by the cuobjdump register probe in the
+    PR; the GPU renderer's per-pixel accumulation is ~1 ULP non-deterministic
+    run-to-run regardless.)
+  * test_default_now_matches_progressive_on — pkg262 (2026-09) flipped the
+    engine default (`include/raytracer.h` `useProgressiveSampler`) from false to
+    true, so the UNTOUCHED default now matches explicit ON, not explicit OFF.
+    Byte-identity tests that need the OFF path must pin `progressive=False`
+    explicitly (this file no longer relies on the untouched default meaning
+    "off" — see `_render`'s callers below).
+  * test_progressive_changes_output — ON vs OFF (both pinned explicitly) differ,
+    proving the flag reaches the device draw sites.
   * test_progressive_lowers_noise — on a flat, uniformly-lit region at matched
     low spp, the progressive render has lower per-pixel variance than the PCG32
     white-noise render (the convergence benefit that unblocks pkg131 adaptive
@@ -65,11 +72,26 @@ def _render(progressive, samples, seed=1234):
     return render_image(r, samples=samples, max_depth=3, apply_gamma=False)
 
 
-def test_default_off_matches_untouched():
-    """Explicit sampler OFF == the default (flag never set): the unchanged PCG32
-    path. Compared within GPU float-atomic tolerance (the accumulation is ~1 ULP
+def test_explicit_off_is_deterministic():
+    """Explicit sampler OFF (pinned) is internally consistent across two
+    independent runs — pinned explicitly per pkg262 (the engine default is no
+    longer OFF, see test_default_now_matches_progressive_on below). Compared
+    within GPU float-atomic tolerance (the accumulation is ~1 ULP
     non-deterministic run-to-run even with no pkg224 code involved)."""
-    off = _render(progressive=False, samples=48, seed=7)
+    off1 = _render(progressive=False, samples=48, seed=7)
+    off2 = _render(progressive=False, samples=48, seed=7)
+    assert np.allclose(off1, off2, atol=1e-4), (
+        "two explicit progressive=False renders of the identical config diverge "
+        f"beyond the GPU float-atomic floor (max|diff|={np.abs(off1 - off2).max():.2e})")
+
+
+def test_default_now_matches_progressive_on():
+    """pkg262 (2026-09) flipped the engine default (`include/raytracer.h`
+    `useProgressiveSampler`) false -> true (issue #759 — GPU adaptive sampling,
+    which requires this sampler, was otherwise never enabled by the addon). The
+    UNTOUCHED default must now match explicit ON, compared within GPU
+    float-atomic tolerance."""
+    on = _render(progressive=True, samples=48, seed=7)
     # Untouched default: same scene/seed, never calling set_use_progressive_sampler.
     r = create_renderer()
     if not _has_cuda_gpu(r):
@@ -78,10 +100,10 @@ def test_default_off_matches_untouched():
     _build_scene(r)
     r.set_seed(7)
     default = render_image(r, samples=48, max_depth=3, apply_gamma=False)
-    assert np.allclose(off, default, atol=1e-4), (
-        "explicit progressive=False diverges from the untouched default — the OFF "
-        "path is not the unchanged PCG32 behaviour "
-        f"(max|diff|={np.abs(off - default).max():.2e})")
+    assert np.allclose(on, default, atol=1e-4), (
+        "the untouched default diverges from explicit progressive=True — pkg262's "
+        "engine-default flip is not taking effect "
+        f"(max|diff|={np.abs(on - default).max():.2e})")
 
 
 def test_progressive_changes_output():

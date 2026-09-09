@@ -290,10 +290,17 @@ class CustomRaytracerRenderSettings(PropertyGroup):
         description="Strategy for sampling lights in Next Event Estimation (Conty et al. 2018 Light Tree)",
         items=[
             ('uniform', "Uniform", "Sample all lights uniformly (unbiased baseline, lowest variance for few lights)"),
-            ('power', "Power", "Sample lights by total emitted power (default, good for moderate light counts)"),
-            ('light_tree', "Light Tree", "Importance sampling via hierarchical tree (best for many lights, pkg86/pkg86-B)"),
+            ('power', "Power", "Sample lights by total emitted power (good for moderate light counts)"),
+            ('light_tree', "Light Tree", "Importance sampling via hierarchical tree (default, best for many lights, pkg86/pkg86-B)"),
         ],
-        default='power',
+        # pkg262 (2026-09): default flipped 'power' -> 'light_tree'. pkg86-B's
+        # Phase 3 acceptance gates cleared 2026-06-11 (PRs #434/#436/#438) and
+        # this was never flipped to on (issue #759 audit); Cycles itself
+        # defaults to its light tree. Only takes effect when the scene has no
+        # native `cycles.use_light_tree` bool to read (non-Cycles scene / unit
+        # test stub) -- see native_settings.resolve_light_sampler, which treats
+        # the native bool as authoritative when present.
+        default='light_tree',
     )
     device_mode: EnumProperty(
         name="Device",
@@ -573,6 +580,34 @@ def _check_gpu_limitations_and_report(renderer, settings, reporter=None, has_pas
         return True
 
     return False
+
+
+def _gpu_adaptive_ignored_reason(active_device, adaptive_requested, cryptomatte_on,
+                                  transparent_film_on, light_path_passes_on):
+    """pkg262 (#759): mirrors the wavefront's actual adaptiveOn gate in
+    src/gpu/wavefront/gpu_wavefront_snapshot.cu -- adaptive sampling only takes
+    effect on GPU when NONE of light-path passes / Cryptomatte / transparent
+    film are requested (those all divide the accumulated beauty by a uniform
+    sample count, which is incompatible with the per-pixel adaptive sample
+    counts the round loop produces). Never claim the native toggle is honoured
+    when it is not (pkg200 rule). Returns the ignored-reason string for the
+    degradation report, or None when adaptive sampling (if requested) actually
+    takes effect."""
+    if active_device != "gpu" or not adaptive_requested:
+        return None
+    reasons = []
+    if light_path_passes_on:
+        reasons.append("light-path AOV passes")
+    if cryptomatte_on:
+        reasons.append("Cryptomatte")
+    if transparent_film_on:
+        reasons.append("transparent film")
+    if not reasons:
+        return None
+    return (
+        "requested but ignored this GPU render (" + " / ".join(reasons) +
+        " forces the uniform sample-count divide -- disable to get the "
+        "adaptive-sampling GPU speedup)")
 
 
 def configure_backend(renderer, settings, reporter=None, integrator_name=None) -> str:
@@ -1304,6 +1339,23 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 if hasattr(renderer, "set_cryptomatte_enabled"):
                     renderer.set_cryptomatte_enabled(True)
                 renderer.add_pass("cryptomatte")
+
+            # pkg262: never claim the native Adaptive Sampling toggle is
+            # honoured when the GPU wavefront will actually ignore it (see
+            # adaptiveOn in src/gpu/wavefront/gpu_wavefront_snapshot.cu --
+            # light-path passes / Cryptomatte / transparent film all force
+            # the uniform-sample-count divide, which is incompatible with
+            # per-pixel adaptive sample counts).
+            _cryptomatte_on = bool(
+                getattr(view_layer, "use_pass_cryptomatte_object", False) or
+                getattr(view_layer, "use_pass_cryptomatte_material", False))
+            _transparent_film_on = bool(getattr(scene.render, "film_transparent", False))
+            _gpu_light_path_passes_on = bool(getattr(renderer, "get_gpu_light_path_passes", lambda: False)())
+            _adaptive_ignored = _gpu_adaptive_ignored_reason(
+                active_device, settings.use_adaptive_sampling,
+                _cryptomatte_on, _transparent_film_on, _gpu_light_path_passes_on)
+            if _adaptive_ignored:
+                self._degradation_report().ignore("GPU Adaptive Sampling", _adaptive_ignored)
 
             # pkg96 P5 guard: detect GPU + CPU-only features
             # (Final render doesn't have AOV selector, but denoise applies)

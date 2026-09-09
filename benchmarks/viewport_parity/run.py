@@ -221,7 +221,9 @@ class CountingRenderer:
 # ---------------------------------------------------------------------------
 
 def _build_renderer(target_tris: int, use_gpu: bool, *, width: int = 256,
-                    height: int = 256, integrator: str = "path_tracer"):
+                    height: int = 256, integrator: str = "path_tracer",
+                    progressive_sampler: str = "default",
+                    adaptive_sampling: str = "default"):
     r = astroray.Renderer()
     r.set_integrator(integrator)
     try:
@@ -229,6 +231,15 @@ def _build_renderer(target_tris: int, use_gpu: bool, *, width: int = 256,
     except Exception:
         # CPU-only build — set_use_gpu may exist but be a no-op.
         pass
+    # pkg262: A/B lever for the engine-default flip of `useProgressiveSampler`
+    # (include/raytracer.h) and the native adaptive-sampling toggle. "default"
+    # (the pre-existing behaviour of this harness) never touches either flag,
+    # so old callers/JSON are unaffected; "on"/"off" pin them explicitly for a
+    # same-build before/after comparison without a second build.
+    if progressive_sampler != "default" and hasattr(r, "set_use_progressive_sampler"):
+        r.set_use_progressive_sampler(progressive_sampler == "on")
+    if adaptive_sampling != "default" and hasattr(r, "set_adaptive_sampling"):
+        r.set_adaptive_sampling(adaptive_sampling == "on")
     r.setup_camera(
         look_from=[5, 5, 5], look_at=[0, 0, 0], vup=[0, 1, 0],
         vfov=40, aspect_ratio=width / max(1, height),
@@ -503,7 +514,9 @@ def run(args) -> dict:
                     print(f"[pkg81] {cfg_label}")
                     renderer, n_tris = _build_renderer(
                         tris, use_gpu, width=args.width, height=args.height,
-                        integrator=args.integrator)
+                        integrator=args.integrator,
+                        progressive_sampler=args.progressive_sampler,
+                        adaptive_sampling=args.adaptive_sampling)
                     proxy = CountingRenderer(renderer)
                     result = _drive_pan_zoom_orbit(
                         eng, proxy,
@@ -530,6 +543,8 @@ def run(args) -> dict:
                         "path": path,
                         "camera_skip_upload": args.camera_skip_upload,
                         "nav_res_divisor": args.nav_res_divisor,
+                        "progressive_sampler": args.progressive_sampler,
+                        "adaptive_sampling": args.adaptive_sampling,
                     }
                     out["configs"].append(result)
 
@@ -609,6 +624,16 @@ def main(argv=None) -> int:
                    help="Optional filename tag (default: today's date).")
     p.add_argument("--smoke", action="store_true",
                    help="Tiny scene + few frames; for the smoke test.")
+    p.add_argument("--progressive-sampler", dest="progressive_sampler",
+                   choices=("default", "on", "off"), default="default",
+                   help="pkg262 A/B lever: pin renderer.set_use_progressive_sampler "
+                        "explicitly (on/off) instead of leaving the engine default "
+                        "untouched (default).")
+    p.add_argument("--adaptive-sampling", dest="adaptive_sampling",
+                   choices=("default", "on", "off"), default="default",
+                   help="pkg262 A/B lever: pin renderer.set_adaptive_sampling "
+                        "explicitly (on/off) instead of leaving the engine default "
+                        "untouched (default).")
     args = p.parse_args(argv)
 
     if args.smoke:

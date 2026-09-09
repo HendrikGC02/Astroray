@@ -7,14 +7,16 @@ background AND the area light both emitting radiance ~1.0, the whole hemisphere
 above the glass reads 1.0, so the sphere must render ~1.0 for every roughness —
 regardless of whether NEE, BSDF sampling, or emitter-hit MIS carries the light.
 
-pkg265 routes rough-glass vertices through the Heitz walk and skips light-sampling
-NEE (eval()==0, isDelta=true — the same delta contract smooth glass uses), so all
-light transport is BSDF sampling + emitter-hit MIS. This test proves that is
-unbiased: an inconsistent NEE eval (the bug the reviewer flagged) or a broken
-eta/energy accounting would pull the lit furnace out of [0.97, 1.02].
+pkg265 routes rough-glass vertices through the Heitz walk, and (Phase 10) NEE
+now fires there against the paper's stochastic evaluation (§8.1, Eq 42) with the
+§9 proxy pdf — isDelta is false again. This test proves the pair is consistent:
+an eval that is not an unbiased estimate of the walk's f, a mis-scaled eval, or
+broken eta/energy accounting pulls the lit furnace out of [0.97, 1.02].
+tests/test_pkg265_nee_invariance.py additionally renders this same furnace with
+NEE OFF and requires the two means to agree.
 
-Measured after the fix (CPU, 256 spp, seed 7): principled 0.992-0.996, disney
-0.986-0.995 — all in band; NOT relaxed to pass.
+Measured after Phase 10 (CPU, 256 spp, seed 7, adaptive off): principled
+0.9936-0.9964, disney 0.9819-0.9934 — all in band; NOT relaxed to pass.
 """
 import numpy as np
 import pytest
@@ -54,6 +56,9 @@ def _lit_furnace(kind: str, roughness: float, *, use_gpu: bool = False,
         [0.0, 0.0, 8.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], 10.0, 10.0,
         "RECTANGLE", {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 1.0)
     r.set_integrator("path_tracer")
+    # pkg237: the adaptive stop metric is colour-blind and spp-dependent; a
+    # furnace band must be measured on the full sample budget.
+    r.set_adaptive_sampling(False)
     if use_gpu:
         r.set_use_gpu(True)
     r.setup_camera([0, 0, 4], [0, 0, 0], [0, 1, 0], 40.0, 1.0, 0.0, 4.0, 80, 80)

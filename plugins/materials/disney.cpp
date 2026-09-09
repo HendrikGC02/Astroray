@@ -837,8 +837,17 @@ public:
         if (hasScalarProgram())
             return substituted(rec, wo).evalSpectral(rec, wo, wi, lambdas);
         // pkg13 fallback: upsample final RGB Disney eval to stay within the pkg14 1.5x perf budget.
+        // pkg265 Phase 10: factor the magnitude out before the upsample — the SAME
+        // Jakob-Hanika ALBEDO-LUT guard sampleSpectral() below already applies (#404,
+        // memory [[gpu-dielectric-lowers-to-closure-graph]]). RGBAlbedoSpectrum clamps
+        // its argument to [0,1]^3, so any eval > 1 was silently truncated; with the
+        // Heitz-2016 stochastic eval that clipped the walk's heavy tail and read 28%
+        // DARK against the same scene rendered NEE-off (reflection probe, r0.5).
+        // Identical for every eval <= 1, i.e. for all previously-correct lobes.
         Vec3 rgb = eval(rec, wo, wi);
-        return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
+        float maxc = std::max(std::max(rgb.x, rgb.y), std::max(rgb.z, 1.0f));
+        Vec3 tint = rgb * (1.0f / maxc);
+        return astroray::RGBAlbedoSpectrum({tint.x, tint.y, tint.z}).sample(lambdas) * maxc;
     }
 
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {

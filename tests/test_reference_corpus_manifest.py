@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
-"""pkg259 Phase 1 - reference-corpus manifest integrity (design doc Sec 4.4).
+"""pkg259 Phase 1+2 - reference-corpus manifest integrity (design doc Sec 4.4).
 
-Covers the two scenes that exist this phase (``materials_hall``,
-``textures_mapping``). The Blender-dependent tests skip cleanly when Blender
-5.2 is absent (mirrors ``tests/test_dev_loop_smoke.py``'s local-host-gate
-pattern) so CI, which has no Blender, stays green; the pure tests always run.
+Phase 1 built ``materials_hall``/``textures_mapping``; Phase 2 adds
+``lighting_studio`` and ``world_sky`` (the latter split into two ``.blend``
+files, ``world_sky_hdri``/``world_sky_sky``, sharing one family tag -- a
+Blender scene has exactly one World, so "HDRI vs Sky, each against its own
+Cycles reference" cannot be a single scene). The Blender-dependent tests skip
+cleanly when Blender 5.2 is absent (mirrors ``tests/test_dev_loop_smoke.py``'s
+local-host-gate pattern) so CI, which has no Blender, stays green; the pure
+tests always run.
 
 The full-corpus ``test_zero_uncovered_supported_or_approximated`` (every
 matrix row proven, across all seven families) is Phase 4 -- deliberately not
-added here, per the pkg259p1 lane brief.
+added here, per the pkg259p1/p2 lane briefs.
 """
 from __future__ import annotations
 
@@ -28,6 +32,13 @@ MATRIX_PATH = REPO_ROOT / "docs" / "blender_parity" / "coverage_matrix.json"
 ALLOCATION_SCRIPT = REPO_ROOT / ".astroray_plan" / "docs" / "pkg259-phase0" / "build_allocation_table.py"
 
 PHASE1_FAMILIES = ("materials_hall", "textures_mapping")
+# pkg259 Phase 2: world_sky is two scene ids (world_sky_hdri/world_sky_sky)
+# sharing the "world_sky" family tag; lighting_studio is a plain 1:1 scene id.
+PHASE2_SCENE_IDS = ("lighting_studio", "world_sky_hdri", "world_sky_sky")
+ALL_SCENE_IDS = PHASE1_FAMILIES + PHASE2_SCENE_IDS
+# The real families (used for the matrix-coverage join, which is keyed on
+# family, not scene id).
+FAMILIES = ("materials_hall", "textures_mapping", "lighting_studio", "world_sky")
 
 BLENDER = Path("C:/Program Files/Blender Foundation/Blender 5.2/blender.exe")
 
@@ -57,21 +68,43 @@ def assign_map():
     return module.ASSIGN
 
 
+@pytest.fixture(scope="module")
+def socket_overrides():
+    # pkg259 Phase 2: a handful of individual ROWS (not (category, feature)
+    # pairs) are reassigned to a family other than their pair's default --
+    # e.g. World's light_linking_shadow_linking gap-card row belongs to
+    # lighting_studio, not world_sky. Loaded separately from assign_map so a
+    # module lacking it (pre-pkg260 checkout) degrades to "no overrides"
+    # instead of failing collection.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("pkg259_allocation_test2", ALLOCATION_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return getattr(module, "SOCKET_OVERRIDE", {})
+
+
+def _primary_family(assign_map, socket_overrides, row):
+    override = socket_overrides.get((row["category"], row["feature"], row["socket_or_prop"]))
+    if override is not None:
+        return override[0]
+    return assign_map[(row["category"], row["feature"])][0]
+
+
 # --------------------------------------------------------------------------- #
 # Blender-dependent (skip cleanly without Blender 5.2)
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.parametrize("family", PHASE1_FAMILIES)
-def test_every_blend_reopens_and_sha_matches(manifest, family):
+@pytest.mark.parametrize("scene_id", ALL_SCENE_IDS)
+def test_every_blend_reopens_and_sha_matches(manifest, scene_id):
     if not BLENDER.exists():
         pytest.skip("Blender 5.2 not installed - local-host gate")
-    entry = manifest["scenes"].get(family)
+    entry = manifest["scenes"].get(scene_id)
     if entry is None:
-        pytest.skip(f"{family} not yet in manifest")
+        pytest.skip(f"{scene_id} not yet in manifest")
     blend_path = REPO_ROOT / entry["blend_path"]
     assert blend_path.is_file(), f"manifest references missing file {blend_path}"
     assert _sha256(blend_path) == entry["sha256"], (
-        f"{family}.blend on disk does not match the SHA-256 pinned in "
+        f"{scene_id}.blend on disk does not match the SHA-256 pinned in "
         f"manifest.json - re-run build_corpus.py and re-commit both together")
     assert entry["reopen_verified"] is True
 
@@ -87,16 +120,16 @@ print("PKG259_REOPEN_OK")
         capture_output=True, text=True, timeout=120,
     )
     assert "PKG259_REOPEN_OK" in proc.stdout, (
-        f"reopen failed for {family}:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+        f"reopen failed for {scene_id}:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
 
 
-@pytest.mark.parametrize("family", PHASE1_FAMILIES)
-def test_manifest_node_ids_match_file(manifest, family):
+@pytest.mark.parametrize("scene_id", ALL_SCENE_IDS)
+def test_manifest_node_ids_match_file(manifest, scene_id):
     if not BLENDER.exists():
         pytest.skip("Blender 5.2 not installed - local-host gate")
-    entry = manifest["scenes"].get(family)
+    entry = manifest["scenes"].get(scene_id)
     if entry is None:
-        pytest.skip(f"{family} not yet in manifest")
+        pytest.skip(f"{scene_id} not yet in manifest")
     blend_path = REPO_ROOT / entry["blend_path"]
 
     script = f"""
@@ -109,6 +142,9 @@ for mat in bpy.data.materials:
         node_ids.update(n.bl_idname for n in mat.node_tree.nodes)
 if scene.world and scene.world.use_nodes and scene.world.node_tree:
     node_ids.update(n.bl_idname for n in scene.world.node_tree.nodes)
+for light in bpy.data.lights:
+    if getattr(light, "use_nodes", False) and light.node_tree:
+        node_ids.update(n.bl_idname for n in light.node_tree.nodes)
 print("PKG259_NODE_IDS " + json.dumps(sorted(node_ids)))
 """
     proc = subprocess.run(
@@ -117,10 +153,10 @@ print("PKG259_NODE_IDS " + json.dumps(sorted(node_ids)))
     )
     marker = "PKG259_NODE_IDS "
     line = next((l for l in proc.stdout.splitlines() if l.startswith(marker)), None)
-    assert line is not None, f"no node-id report for {family}:\n{proc.stdout}\n{proc.stderr}"
+    assert line is not None, f"no node-id report for {scene_id}:\n{proc.stdout}\n{proc.stderr}"
     actual = set(json.loads(line[len(marker):]))
     assert actual == set(entry["node_ids"]), (
-        f"{family} manifest node_ids drifted from the committed .blend "
+        f"{scene_id} manifest node_ids drifted from the committed .blend "
         f"(missing from manifest: {actual - set(entry['node_ids'])}, "
         f"stale in manifest: {set(entry['node_ids']) - actual})")
 
@@ -129,41 +165,54 @@ print("PKG259_NODE_IDS " + json.dumps(sorted(node_ids)))
 # Pure tests (no Blender needed)
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.parametrize("family", PHASE1_FAMILIES)
-def test_family_declared_features_present_in_scene(manifest, family):
-    entry = manifest["scenes"].get(family)
+@pytest.mark.parametrize("scene_id", ALL_SCENE_IDS)
+def test_family_declared_features_present_in_scene(manifest, scene_id):
+    entry = manifest["scenes"].get(scene_id)
     if entry is None:
-        pytest.skip(f"{family} not yet in manifest")
+        pytest.skip(f"{scene_id} not yet in manifest")
     node_ids = set(entry["node_ids"])
     for tag in entry["feature_tags"]:
+        if not tag["bl_idname"]:
+            # light/world category rows (pkg259 Phase 2) are Light/World
+            # datablock PROPERTIES, not shader-graph nodes -- coverage_matrix.json
+            # gives them an empty bl_idname (see docs/blender_parity/
+            # coverage_matrix.json's "light"/"world" rows), so there is no
+            # node_ids entry to check against.
+            continue
         assert tag["bl_idname"] in node_ids, (
-            f"{family} claims coverage for {tag['bl_idname']}/{tag['socket_or_prop']} "
+            f"{scene_id} claims coverage for {tag['bl_idname']}/{tag['socket_or_prop']} "
             f"but that node type never appears in the scene's node_ids")
 
 
-def test_phase1_families_cover_their_allocated_rows(manifest, matrix_rows, assign_map):
+def test_families_cover_their_allocated_rows(manifest, matrix_rows, assign_map, socket_overrides):
     """Every SUPPORTED/APPROXIMATED row the allocation table assigns to a
-    Phase-1 family appears in that scene's feature_tags; every DROPPED-SILENT
+    built family appears in that family's feature_tags; every DROPPED-SILENT
     row is either gap-carded in feature_tags or listed in the README's gap
-    registry (docs/... Sec 4.4's acceptance test, Phase-1-scoped per the lane
-    brief: only the two families that exist this phase)."""
+    registry (design doc Sec 4.4's acceptance test). ``world_sky`` is two
+    manifest entries (``world_sky_hdri``/``world_sky_sky``) sharing one
+    family tag -- their feature_tags/gap_registry rows are UNIONed before
+    checking, since neither half alone is expected to carry every row the
+    OTHER half demonstrates (e.g. only the HDRI half gap-cards
+    TEX_ENVIRONMENT). pkg259 Phase 1 built materials_hall/textures_mapping;
+    Phase 2 adds lighting_studio/world_sky; geometry_zoo/camera_lens/
+    render_settings (Phase 3) are not built yet and skip cleanly."""
     readme_text = (CORPUS_DIR / "README.md").read_text(encoding="utf-8")
     gap_registry_path = SCENES_DIR / "gap_registry.json"
     gap_registry = {}
     if gap_registry_path.is_file():
         gap_registry = json.loads(gap_registry_path.read_text(encoding="utf-8"))
 
-    for family in PHASE1_FAMILIES:
-        entry = manifest["scenes"].get(family)
-        if entry is None:
+    for family in FAMILIES:
+        entries = [e for e in manifest["scenes"].values() if e.get("family") == family]
+        if not entries:
             pytest.skip(f"{family} not yet in manifest")
-        tagged = {(t["bl_idname"], t["socket_or_prop"]) for t in entry["feature_tags"]
-                  if not t["gap_card"]}
-        gap_carded = {(t["bl_idname"], t["socket_or_prop"]) for t in entry["feature_tags"]
-                      if t["gap_card"]}
+        tagged = {(t["bl_idname"], t["socket_or_prop"])
+                  for e in entries for t in e["feature_tags"] if not t["gap_card"]}
+        gap_carded = {(t["bl_idname"], t["socket_or_prop"])
+                      for e in entries for t in e["feature_tags"] if t["gap_card"]}
 
         family_rows = [r for r in matrix_rows
-                       if assign_map[(r["category"], r["feature"])][0] == family]
+                       if _primary_family(assign_map, socket_overrides, r) == family]
         missing_required = [
             r for r in family_rows
             if r["classification"] in ("SUPPORTED", "APPROXIMATED")
@@ -175,7 +224,9 @@ def test_phase1_families_cover_their_allocated_rows(manifest, matrix_rows, assig
 
         dropped_rows = [r for r in family_rows if r["classification"] == "DROPPED-SILENT"]
         family_gap_pairs = {(r["bl_idname"], r["socket_or_prop"])
-                             for r in gap_registry.get(family, [])}
+                             for scene_id, rows in gap_registry.items()
+                             for r in rows
+                             if manifest["scenes"].get(scene_id, {}).get("family", scene_id) == family}
         uncovered_dropped = [
             r for r in dropped_rows
             if (r["bl_idname"], r["socket_or_prop"]) not in gap_carded
@@ -191,25 +242,25 @@ def test_phase1_families_cover_their_allocated_rows(manifest, matrix_rows, assig
                 f"is neither gap-carded nor in the README gap registry")
 
 
-@pytest.mark.parametrize("family", PHASE1_FAMILIES)
-def test_crops_are_valid_normalised_rects(manifest, family):
+@pytest.mark.parametrize("scene_id", ALL_SCENE_IDS)
+def test_crops_are_valid_normalised_rects(manifest, scene_id):
     """``crops`` (Phase-1-polish, design doc Sec 1.1) is generated by each
     scene builder's own camera/FOV math (``scene_library._crop_rect``) and
     cross-checked here for the shape ``report_tools.py`` and a future
     ``coverage_report.py`` rely on: every entry a 4-tuple
     ``[x0, y0, x1, y1]`` inside [0, 1] with x0 < x1 and y0 < y1."""
-    entry = manifest["scenes"].get(family)
+    entry = manifest["scenes"].get(scene_id)
     if entry is None:
-        pytest.skip(f"{family} not yet in manifest")
+        pytest.skip(f"{scene_id} not yet in manifest")
     crops = entry.get("crops", {})
-    assert crops, f"{family}: manifest has no crops entries"
+    assert crops, f"{scene_id}: manifest has no crops entries"
     for name, rect in crops.items():
-        assert len(rect) == 4, f"{family}/{name}: crop rect must be [x0, y0, x1, y1], got {rect}"
+        assert len(rect) == 4, f"{scene_id}/{name}: crop rect must be [x0, y0, x1, y1], got {rect}"
         x0, y0, x1, y1 = rect
         for v in (x0, y0, x1, y1):
-            assert 0.0 <= v <= 1.0, f"{family}/{name}: crop coordinate {v} outside [0, 1]"
-        assert x0 < x1, f"{family}/{name}: crop x0 >= x1 ({rect})"
-        assert y0 < y1, f"{family}/{name}: crop y0 >= y1 ({rect})"
+            assert 0.0 <= v <= 1.0, f"{scene_id}/{name}: crop coordinate {v} outside [0, 1]"
+        assert x0 < x1, f"{scene_id}/{name}: crop x0 >= x1 ({rect})"
+        assert y0 < y1, f"{scene_id}/{name}: crop y0 >= y1 ({rect})"
 
 
 def test_report_tools_crops_match_manifest_alcoves():

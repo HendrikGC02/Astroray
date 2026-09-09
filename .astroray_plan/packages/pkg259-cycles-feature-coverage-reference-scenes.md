@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** B
-**Status:** in-progress — Phase 1 PR #761 open (materials_hall + textures_mapping builders, manifest, build_corpus.py CLI, tests, README, both-engine renders)
+**Status:** in-progress — Phase 1 MERGED (#761, polish #781); Phase 2 (`lighting_studio` + `world_sky`) built, both-engine renders, tests green -- PR pending
 **Estimated effort:** 1 week (~20 h across sessions; Phase 0 one session, then one scene family per session)
 **Depends on:** pkg229, pkg249, pkg253
 
@@ -169,6 +169,52 @@ gate (b)'s frequency-weighted coverage measurement. It serves Pillar 5.
 
 ## Progress
 
+- [x] 2026-09-09 — **Phase 2 built (PR pending):** `lighting_studio.blend`
+      (four walled booths — POINT/SUN/SPOT/AREA — under one fixed camera in
+      one establishing shot, reusing the single-render+crop pattern instead
+      of four separate re-renders; SPOT carries a synthetic asymmetric
+      wall-washer IES profile, `scene_library._ies_wall_washer_lm63`,
+      INTERNAL Text data-block, LM-63-2002 format research:
+      `.astroray_plan/docs/pkg259-phase2-ies-format-research.md`) covers all
+      24 SUPPORTED rows, 4 gap-carded, 8 gap-registry. `world_sky_hdri.blend`
+      + `world_sky_sky.blend` (two files sharing the `world_sky` family tag —
+      a Blender scene has exactly one World) cover the family's 1 SUPPORTED
+      row each; together gap-card 13 and gap-register 21 of the 24
+      DROPPED-SILENT rows (verified: every row is gap-carded and/or
+      registered by at least one half). Resolutions/samples chosen from a
+      measured calibration (lighting_studio/world_sky's simple geometry
+      renders ~2 orders of magnitude faster per-sample than materials_hall's
+      alcove corridor): `lighting_studio` 640x160 @256spp (Astroray CPU
+      ~29-40s), `world_sky_hdri`/`world_sky_sky` 480x270 @128spp (Astroray
+      CPU ~17-42s) — all far under the ~40 min/render budget #780 flagged.
+      Both engines rendered headless CPU; contact sheets + crops via
+      `report_tools.py` (no code changes needed — already generic over scene
+      id). `tests/test_reference_corpus_manifest.py` extended from 2 to 5
+      scene ids (22/22 green, incl. a new `test_families_cover_their_allocated_rows`
+      that unions `world_sky_hdri`/`world_sky_sky`'s feature_tags before
+      checking); fixed two pre-existing, previously-latent test/tool gaps
+      this phase's first light/world-category rows surfaced: (1)
+      `build_corpus.py`/the allocation script's `SOCKET_OVERRIDE` map
+      (`light_linking_shadow_linking` → `lighting_studio`) was never applied
+      by `_build_one`'s family-membership check; (2) Blender 5.2 gives every
+      Light an auto node-tree (`ShaderNodeOutputLight`) that Phase 1's
+      node_ids collection never looked at, so `materials_hall`/
+      `textures_mapping`'s existing manifest entries were silently missing
+      that node id — backfilled (sha256 unaffected, only the node_ids field
+      corrected to match the already-committed `.blend`s). **Finding, not
+      fixed here (addon-gap candidate):** `world_sky_hdri`'s "three
+      independent opportunities" test cleanly shows the HDRI background and
+      hero-sphere reflection both correct in the Astroray CPU leg, but the
+      diffuse ground/recess — lit only by indirect environment light in
+      Cycles — renders essentially unlit/black in Astroray, despite CPU env
+      NEE landing engine-side (#747/#751); root cause not investigated
+      (non-goal). `world_sky_sky` (Sky Texture) is a clean total drop as
+      expected (`No recognised world shader: set background color to black`
+      logged by the addon) — the spec's textbook "visible drop" example.
+      Deferred for render-budget/scope reasons (documented in the README's
+      "Known Phase-2 gaps"): the world-rotation/strength inset-thumbnail
+      strip and the low/high-turbidity Sky pair. Phase 3 (`geometry_zoo` +
+      `camera_lens` + `render_settings`) next.
 - [x] 2026-09-09 — **Phase 1 polish MERGED (#781):** `materials_hall` reframed to a 960×176 frieze (alcoves fill the frame at report size), 14 per-alcove crops cut from the same establishing render by `benchmarks/reference_corpus/report_tools.py` (crop rects in the manifest, both engines), contact sheets committed with `git add -f`; manifest tests 10/10; Phase-2 HDRI `assets/syferfontein_18d_clear_1k.hdr` (Poly Haven CC0, sha256 in the README) carried forward. Lead inspection: reframe reads well; Astroray still far noisier at 128 spp (#763, and the addon CPU leg is single-threaded → #780: the 960×176 render took ~2 h 20 min); alcove E Translucent pane renders black (registered gap card). Phase 2 (`lighting_studio` + `world_sky`) not started.
 - [x] 2026-09-08 — **Phase 1 MERGED (#761):** `materials_hall.blend` + `textures_mapping.blend`, `build_corpus.py`, manifest (§4.1 schema), corpus README + gap registry, `tests/test_reference_corpus_manifest.py` 7/7; 56/56 and 72/72 allocated rows tagged; both scenes render in both engines headless (CPU). Lead inspection of the contact sheets: layout/colours match Cycles; the hall establishing shot is too wide to read at report size (alcoves are a thin strip) — **Phase 1 polish (next builder session): reframe the hall camera and render the per-alcove crops the design doc §1.1 calls for**; Astroray leg far noisier than Cycles at equal 128 spp (#763); procedural textures feeding Emission render blank (#762). Phase 2 (`lighting_studio` + `world_sky`) next.
 - [x] 2026-09-08 evening — continuation lane closed out PR #761: restored

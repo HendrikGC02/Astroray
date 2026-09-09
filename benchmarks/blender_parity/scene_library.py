@@ -1883,6 +1883,443 @@ REFERENCE_TEXTURES_MAPPING_RES = (960, 540)
 REFERENCE_TEXTURES_MAPPING_SAMPLES = 192
 
 
+# --------------------------------------------------------------------------- #
+# pkg259 Phase 2 -- lighting_studio + world_sky
+# Design: .astroray_plan/docs/reference-corpus-design-2026-09.md Sec 1.3/1.4.
+# Same (scene, tags, crop_rects, gap_tags) contract as Phase 1 (see the
+# comment above build_materials_hall_scene).
+# --------------------------------------------------------------------------- #
+
+def _studio_still_life(bpy, cx, y0, prefix):
+    """One photography-studio still life: a curved reflective (metal) sphere,
+    a matte cube, a fabric-draped roll, a small triangular prism, and a
+    narrow upright post (the shadow-caster) -- design doc Sec 1.3's "source
+    shape, illumination footprint, and penumbra all legible together" list,
+    IDENTICAL across every booth so the only variable across booths is the
+    light rig."""
+    s = _small_sphere(bpy, cx - 0.85, y0 + 0.25, 0.35, radius=0.35, name=f"{prefix}_MetalSphere")
+    _apply_principled(bpy, s, (0.88, 0.88, 0.90), roughness=0.12, metallic=1.0,
+                       name=f"{prefix}_MetalSphereMat")
+
+    bpy.ops.mesh.primitive_cube_add(size=0.55, location=(cx - 0.05, y0 - 0.15, 0.275))
+    cube = bpy.context.active_object
+    cube.name = f"{prefix}_MatteCube"
+    _apply_principled(bpy, cube, (0.55, 0.55, 0.56), roughness=0.92, name=f"{prefix}_MatteCubeMat")
+
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.22, depth=0.75,
+                                         location=(cx + 0.55, y0 + 0.30, 0.30))
+    drape = bpy.context.active_object
+    drape.name = f"{prefix}_Drape"
+    drape.scale = (1.35, 0.8, 1.0)
+    drape.rotation_euler = (math.radians(78.0), 0.0, math.radians(18.0))
+    for poly in drape.data.polygons:
+        poly.use_smooth = True
+    _apply_principled(bpy, drape, (0.86, 0.79, 0.66), roughness=0.82, name=f"{prefix}_DrapeMat")
+
+    bpy.ops.mesh.primitive_cylinder_add(vertices=3, radius=0.22, depth=0.5,
+                                         location=(cx + 0.10, y0 - 0.35, 0.25))
+    prism = bpy.context.active_object
+    prism.name = f"{prefix}_Prism"
+    _apply_principled(bpy, prism, (0.26, 0.35, 0.55), roughness=0.4, name=f"{prefix}_PrismMat")
+
+    bpy.ops.mesh.primitive_cylinder_add(vertices=14, radius=0.045, depth=1.0,
+                                         location=(cx - 0.65, y0 - 0.10, 0.5))
+    post = bpy.context.active_object
+    post.name = f"{prefix}_Post"
+    _apply_principled(bpy, post, (0.10, 0.10, 0.11), roughness=0.6, name=f"{prefix}_PostMat")
+
+
+def _studio_booth_walls(bpy, cx, hw, depth, name, color=(0.45, 0.45, 0.47), height=2.3):
+    """Back wall + two side walls containing one booth's light so it does not
+    spill into its neighbours -- the only way a single fixed-camera
+    establishing shot can isolate four different light rigs (materials_hall's
+    alcove pattern, applied to light instead of material). Adjacent booths'
+    walls overlap slightly at the shared boundary by design (simpler than
+    computing a single shared partition, and invisible in the render)."""
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(cx, depth, height / 2.0))
+    back = bpy.context.active_object
+    back.name = f"{name}Back"
+    back.scale = (hw * 1.05, 0.05, height / 2.0)
+    _apply_principled(bpy, back, color, roughness=0.88, name=f"{name}BackMat")
+
+    for side, x in (("L", cx - hw), ("R", cx + hw)):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(x, depth / 2.0, height / 2.0))
+        wall = bpy.context.active_object
+        wall.name = f"{name}{side}"
+        wall.scale = (0.05, depth / 2.0, height / 2.0)
+        _apply_principled(bpy, wall, color, roughness=0.88, name=f"{name}{side}Mat")
+
+
+def _ies_wall_washer_lm63() -> str:
+    """A SYNTHETIC IESNA LM-63-2002 photometric file: an asymmetric,
+    multi-lobed wall-washer distribution built from a formula, not a copy of
+    any real manufacturer fixture (design doc Sec 3.2: "synthesize
+    procedurally... sidesteps IES licensing entirely"). Format/field order
+    per the LM-63-2002 ANSI standard -- see
+    .astroray_plan/docs/pkg259-phase2-ies-format-research.md for the sourced
+    line-by-line structure and the reasoning for INTERNAL (Text data-block)
+    delivery instead of an external asset file.
+
+    Vertical lobe peaks off-nadir (a wall-washer aims sideways, not straight
+    down); the horizontal/azimuth lobe is a 2-term cosine series with
+    unequal amplitude/phase so the distribution is visibly asymmetric
+    (one strong lobe, one weaker secondary lobe) rather than a symmetric
+    cone -- the dropped-vs-working tell the design doc calls for is "plain
+    uniform cone" (Astroray) next to this asymmetric shape (Cycles).
+    """
+    v_angles = list(range(0, 181, 10))         # 19 values, 0..180 deg
+    h_angles = [i * 45 for i in range(8)]      # 8 values, 0..315 deg
+    BASE = 1400.0
+
+    def vertical_lobe(v_deg):
+        v0, sigma = 65.0, 35.0
+        return math.exp(-((v_deg - v0) / sigma) ** 2)
+
+    def azimuth_lobe(h_deg):
+        h = math.radians(h_deg)
+        val = 1.0 + 0.75 * math.cos(h) + 0.35 * math.cos(2.0 * h - math.radians(60.0))
+        return max(0.08, val)  # floor keeps every candela value positive
+
+    rows = []
+    for h_deg in h_angles:
+        row = [BASE * vertical_lobe(v_deg) * azimuth_lobe(h_deg) for v_deg in v_angles]
+        rows.append(" ".join(f"{c:.2f}" for c in row))
+
+    lines = [
+        "IESNA:LM-63-2002",
+        "[MANUFAC] Astroray reference corpus (pkg259, synthetic)",
+        "[LUMCAT] pkg259-wall-washer",
+        "[LUMINAIRE] Synthetic asymmetric wall-washer (not a real fixture)",
+        "TILT=NONE",
+        f"1 -1 1.0 {len(v_angles)} {len(h_angles)} 1 2 0.10 0.10 0.0",
+        "1.0 1.0 100.0",
+        " ".join(str(v) for v in v_angles),
+        " ".join(str(h) for h in h_angles),
+        *rows,
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def build_lighting_studio_scene(bpy):
+    """Photography-studio still life shot four ways -- one enclosed booth per
+    light type (POINT/SUN/SPOT/AREA), the SAME still life and a SINGLE fixed
+    camera in every booth so the only variable is the light rig (design doc
+    Sec 1.3). Booths are walled left/right/back (_studio_booth_walls) so each
+    light stays contained -- physically realising the design doc's "2x2
+    contact sheet" as ONE establishing shot with per-booth crops, following
+    materials_hall/textures_mapping's established single-render+crop pattern
+    (same still-life layout rule as Phase 1) instead of four separate
+    per-light re-renders.
+
+    Covers all 24 SUPPORTED lighting_studio matrix rows (light.{POINT,SUN,
+    SPOT,AREA}.{energy,color,use_temperature,temperature} + each type's own
+    extra prop(s): shadow_soft_size/angle/spot_size+spot_blend/shape+size+
+    size_y+spread). The SPOT booth also carries a synthetic asymmetric
+    wall-washer IES profile (ShaderNodeTexIES, INTERNAL text mode, see
+    _ies_wall_washer_lm63) on a light node-tree -- every TEX_IES/OUTPUT_LIGHT
+    row is DROPPED-SILENT so this is a gap card, not a required row; per the
+    design doc a dropped IES should show as a plain uniform cone next to its
+    three working siblings."""
+    scene = _reset(bpy)
+    _add_world(bpy, scene, strength=0.04, color=(0.02, 0.02, 0.025))
+    tags = []
+    gap_tags = []
+    crop_rects = {}
+
+    def tag(bl, sock):
+        tags.append((bl, sock))
+
+    BOOTH_W = 3.0
+    BOOTH_DEPTH = 1.7
+    layout, total_width = _layout_slots(
+        [("POINT", BOOTH_W), ("SUN", BOOTH_W), ("SPOT", BOOTH_W), ("AREA", BOOTH_W)], gap=0.5)
+
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0.0, BOOTH_DEPTH / 2.0, 0.0))
+    floor = bpy.context.active_object
+    floor.name = "StudioFloor"
+    floor.scale = (total_width / 2.0 + 1.0, BOOTH_DEPTH / 2.0 + 0.3, 1.0)
+    _apply_principled(bpy, floor, (0.30, 0.30, 0.32), roughness=0.85, name="StudioFloorMat")
+
+    CAM_DIST = 8.6
+    cam = _add_pinned_camera(bpy, scene, (0.0, -CAM_DIST, 2.35), (0.0, 0.4, 0.85), lens=18.0)
+    cam.data.sensor_width = 36.0
+    fov_x = 2.0 * math.atan(cam.data.sensor_width / (2.0 * cam.data.lens))
+
+    def crop(name):
+        cx, hw = layout[name]
+        crop_rects[name] = _crop_rect(CAM_DIST, fov_x, cx - hw, cx + hw, y0=0.05, y1=0.92)
+
+    # --- POINT booth -------------------------------------------------------#
+    cx, hw = layout["POINT"]
+    _studio_booth_walls(bpy, cx, hw, BOOTH_DEPTH, "BoothPoint")
+    _studio_still_life(bpy, cx, 0.35, "Point")
+    ld = bpy.data.lights.new("PointLight", type="POINT")
+    ld.energy = 320.0
+    ld.color = (1.0, 1.0, 1.0)
+    ld.use_temperature = True
+    ld.temperature = 2700.0
+    ld.shadow_soft_size = 0.35
+    obj = bpy.data.objects.new("PointLight", ld)
+    scene.collection.objects.link(obj)
+    obj.location = (cx - 0.3, 0.9, 1.9)
+    tag("", "energy")
+    tag("", "color")
+    tag("", "use_temperature")
+    tag("", "temperature")
+    tag("", "shadow_soft_size")
+    crop("POINT")
+
+    # --- SUN booth -----------------------------------------------------------#
+    cx, hw = layout["SUN"]
+    _studio_booth_walls(bpy, cx, hw, BOOTH_DEPTH, "BoothSun")
+    _studio_still_life(bpy, cx, 0.35, "Sun")
+    ld = bpy.data.lights.new("SunLight", type="SUN")
+    ld.energy = 2.2
+    ld.color = (1.0, 1.0, 1.0)
+    ld.use_temperature = True
+    ld.temperature = 5600.0
+    ld.angle = math.radians(8.0)
+    obj = bpy.data.objects.new("SunLight", ld)
+    scene.collection.objects.link(obj)
+    obj.location = (cx, 0.6, 2.2)
+    obj.rotation_euler = (math.radians(35.0), math.radians(15.0), 0.0)
+    tag("", "angle")
+    crop("SUN")
+
+    # --- SPOT booth (carries the IES profile) -------------------------------#
+    cx, hw = layout["SPOT"]
+    _studio_booth_walls(bpy, cx, hw, BOOTH_DEPTH, "BoothSpot")
+    _studio_still_life(bpy, cx, 0.35, "Spot")
+    ld = bpy.data.lights.new("SpotLight", type="SPOT")
+    ld.energy = 550.0
+    ld.color = (1.0, 1.0, 1.0)
+    ld.spot_size = math.radians(75.0)
+    ld.spot_blend = 0.55
+    ld.use_nodes = True
+    nt = ld.node_tree
+    emission = next(n for n in nt.nodes if n.bl_idname == "ShaderNodeEmission")
+    ies_text = bpy.data.texts.new("wall_washer.ies")
+    ies_text.write(_ies_wall_washer_lm63())
+    ies = nt.nodes.new("ShaderNodeTexIES")
+    ies.mode = "INTERNAL"
+    ies.ies = ies_text
+    mul = nt.nodes.new("ShaderNodeMath")
+    mul.operation = "MULTIPLY"
+    _sock(mul.inputs, "Value_001").default_value = 180.0
+    nt.links.new(_first_output(ies), _sock(mul.inputs, "Value"))
+    nt.links.new(_first_output(mul), _sock(emission.inputs, "Strength"))
+    _sock(emission.inputs, "Color").default_value = (0.95, 0.87, 0.72, 1.0)
+    obj = bpy.data.objects.new("SpotLight", ld)
+    scene.collection.objects.link(obj)
+    obj.location = (cx - 0.2, 0.5, 2.1)
+    _look_at(obj, (cx + 0.3, 0.3, 0.3))
+    tag("", "spot_size")
+    tag("", "spot_blend")
+    gap_tags.append(("ShaderNodeTexIES", "input:Vector"))
+    gap_tags.append(("ShaderNodeTexIES", "input:Strength"))
+    gap_tags.append(("ShaderNodeTexIES", "prop:mode"))
+    gap_tags.append(("ShaderNodeOutputLight", "input:Surface"))
+    crop("SPOT")
+
+    # --- AREA booth ----------------------------------------------------------#
+    cx, hw = layout["AREA"]
+    _studio_booth_walls(bpy, cx, hw, BOOTH_DEPTH, "BoothArea")
+    _studio_still_life(bpy, cx, 0.35, "Area")
+    ld = bpy.data.lights.new("AreaLight", type="AREA")
+    ld.energy = 140.0
+    ld.color = (1.0, 1.0, 1.0)
+    ld.use_temperature = True
+    ld.temperature = 6500.0
+    ld.shape = "RECTANGLE"
+    ld.size = 1.3
+    ld.size_y = 0.32
+    ld.spread = math.radians(45.0)
+    obj = bpy.data.objects.new("AreaLight", ld)
+    scene.collection.objects.link(obj)
+    obj.location = (cx, 0.7, 2.0)
+    obj.rotation_euler = (math.radians(50.0), 0.0, 0.0)
+    tag("", "shape")
+    tag("", "size")
+    tag("", "size_y")
+    tag("", "spread")
+    crop("AREA")
+
+    return scene, tags, crop_rects, gap_tags
+
+
+REFERENCE_LIGHTING_STUDIO_RES = (640, 160)
+REFERENCE_LIGHTING_STUDIO_SAMPLES = 256
+
+
+# --------------------------------------------------------------------------- #
+# world_sky
+# --------------------------------------------------------------------------- #
+
+def _world_sky_geometry(bpy):
+    """Shared geometry for both world_sky halves (HDRI/Sky) -- an identical
+    hero framing so the HDRI-vs-Sky comparison is a true A/B (design doc
+    Sec 1.4): a chrome hero sphere (the "reflection" opportunity), a
+    slender post that casts a sun-direction "compass" shadow, and a shaded
+    recess with no direct line of sight to the sky (the "indirect
+    illumination" opportunity) -- the "three independent opportunities" a
+    world must pass (background/reflection/indirect), not a correct-looking
+    background alone. The recess's roof+3-walls-enclosure is an
+    approximation, not a rigorous occlusion proof (documented in the corpus
+    README's Known Phase-2 gaps)."""
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0.0, 0.0, 0.0))
+    ground = bpy.context.active_object
+    ground.name = "DeckGround"
+    ground.scale = (5.0, 5.0, 1.0)
+    _apply_principled(bpy, ground, (0.32, 0.34, 0.30), roughness=0.75, name="DeckGroundMat")
+
+    hero = _small_sphere(bpy, 0.0, 0.0, 0.75, radius=0.75, name="HeroSphere",
+                          segments=48, ring_count=24)
+    _apply_principled(bpy, hero, (0.9, 0.9, 0.92), roughness=0.05, metallic=1.0,
+                       name="HeroSphereMat")
+
+    bpy.ops.mesh.primitive_cylinder_add(vertices=14, radius=0.06, depth=1.6,
+                                         location=(-1.9, -0.7, 0.8))
+    post = bpy.context.active_object
+    post.name = "CompassPost"
+    _apply_principled(bpy, post, (0.15, 0.14, 0.13), roughness=0.6, name="CompassPostMat")
+
+    rx, ry = 1.9, 0.3
+
+    def _recess_panel(name, loc, scale):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=loc)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = scale
+        _apply_principled(bpy, obj, (0.55, 0.52, 0.48), roughness=0.85, name=f"{name}Mat")
+
+    _recess_panel("RecessFloor", (rx, ry, 0.02), (0.55, 0.55, 0.02))
+    _recess_panel("RecessBack", (rx, ry + 0.5, 0.35), (0.55, 0.03, 0.35))
+    _recess_panel("RecessLeft", (rx - 0.5, ry, 0.35), (0.03, 0.55, 0.35))
+    _recess_panel("RecessRight", (rx + 0.5, ry, 0.35), (0.03, 0.55, 0.35))
+    _recess_panel("RecessRoof", (rx, ry + 0.1, 0.71), (0.55, 0.65, 0.02))
+
+
+def _world_sky_camera_and_crops(bpy, scene):
+    CAM_DIST = 5.5
+    cam = _add_pinned_camera(bpy, scene, (0.0, -CAM_DIST, 1.6), (0.0, 0.2, 0.75), lens=30.0)
+    cam.data.sensor_width = 36.0
+    fov_x = 2.0 * math.atan(cam.data.sensor_width / (2.0 * cam.data.lens))
+    return {
+        "background": _crop_rect(CAM_DIST, fov_x, -2.6, 2.6, y0=0.0, y1=0.30),
+        "reflection": _crop_rect(CAM_DIST, fov_x, -0.9, 0.9, y0=0.20, y1=0.62),
+        "indirect": _crop_rect(CAM_DIST, fov_x, 1.2, 2.6, y0=0.45, y1=0.85),
+    }
+
+
+def build_world_sky_hdri_scene(bpy):
+    """world_sky, HDRI half: an "observation deck" exterior lit purely by a
+    golden-hour Poly Haven HDRI (design doc Sec 1.4; asset licence in the
+    corpus README: assets/syferfontein_18d_clear_1k.hdr, CC0 1.0). Covers
+    world_sky's one SUPPORTED row (World.use_nodes); TEX_ENVIRONMENT/
+    BACKGROUND/OUTPUT_WORLD are entirely DROPPED-SILENT in the current
+    matrix -- gap-carded here since the scene actively demonstrates them
+    (a working HDRI is the "visible drop" reference the Sky half is
+    compared against); the rest are the corpus README's gap registry."""
+    import os
+    scene = _reset(bpy)
+    tags = [("", "use_nodes")]
+    gap_tags = [
+        ("ShaderNodeTexEnvironment", "input:Vector"),
+        ("ShaderNodeTexEnvironment", "prop:interpolation"),
+        ("ShaderNodeBackground", "input:Color"),
+        ("ShaderNodeBackground", "input:Strength"),
+        ("ShaderNodeOutputWorld", "input:Surface"),
+    ]
+
+    _world_sky_geometry(bpy)
+
+    world = bpy.data.worlds.new("W")
+    scene.world = world
+    world.use_nodes = True
+    wnt = world.node_tree
+    _clear_nodes(wnt)
+    wout = wnt.nodes.new("ShaderNodeOutputWorld")
+    bg = wnt.nodes.new("ShaderNodeBackground")
+    env = wnt.nodes.new("ShaderNodeTexEnvironment")
+    mapping = wnt.nodes.new("ShaderNodeMapping")
+    texcoord = wnt.nodes.new("ShaderNodeTexCoord")
+
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    hdr_abs = os.path.join(repo_root, "benchmarks", "reference_corpus", "assets",
+                            "syferfontein_18d_clear_1k.hdr")
+    img = bpy.data.images.load(hdr_abs)
+    env.image = img
+    _sock(mapping.inputs, "Rotation").default_value = (0.0, 0.0, math.radians(115.0))
+    wnt.links.new(_sock(texcoord.outputs, "Generated"), _sock(mapping.inputs, "Vector"))
+    wnt.links.new(_sock(mapping.outputs, "Vector"), _sock(env.inputs, "Vector"))
+    wnt.links.new(_sock(env.outputs, "Color"), _sock(bg.inputs, "Color"))
+    _sock(bg.inputs, "Strength").default_value = 1.15
+    wnt.links.new(_sock(bg.outputs, "Background"), _sock(wout.inputs, "Surface"))
+    # scenes/ -> reference_corpus is 1 up; assets/ is a sibling of scenes/.
+    scene["hdri_relpath"] = "//../assets/syferfontein_18d_clear_1k.hdr"
+
+    crop_rects = _world_sky_camera_and_crops(bpy, scene)
+    return scene, tags, crop_rects, gap_tags
+
+
+def build_world_sky_sky_scene(bpy):
+    """world_sky, Sky half: the SAME hero framing lit by Blender's procedural
+    Sky Texture (Multiple Scattering / Nishita, sun disc on) instead of an
+    HDRI, so the comparison is HDRI-vs-Sky each against its OWN Cycles
+    reference (design doc Sec 1.4: never against each other). TEX_SKY is
+    entirely DROPPED-SILENT -- gap-carded here (the visible drop this family
+    exists to demonstrate: a plausible-vs-actually-dropped sky, not just
+    "is it black")."""
+    scene = _reset(bpy)
+    tags = [("", "use_nodes")]
+    gap_tags = [
+        ("ShaderNodeTexSky", "prop:sky_type"),
+        ("ShaderNodeTexSky", "prop:sun_disc"),
+        ("ShaderNodeTexSky", "prop:sun_size"),
+        ("ShaderNodeTexSky", "prop:sun_intensity"),
+        ("ShaderNodeTexSky", "prop:sun_elevation"),
+        ("ShaderNodeTexSky", "prop:sun_rotation"),
+        ("ShaderNodeTexSky", "prop:turbidity"),
+        ("ShaderNodeTexSky", "prop:ground_albedo"),
+        ("ShaderNodeBackground", "input:Color"),
+        ("ShaderNodeBackground", "input:Strength"),
+        ("ShaderNodeOutputWorld", "input:Surface"),
+    ]
+
+    _world_sky_geometry(bpy)
+
+    world = bpy.data.worlds.new("W")
+    scene.world = world
+    world.use_nodes = True
+    wnt = world.node_tree
+    _clear_nodes(wnt)
+    wout = wnt.nodes.new("ShaderNodeOutputWorld")
+    bg = wnt.nodes.new("ShaderNodeBackground")
+    sky = wnt.nodes.new("ShaderNodeTexSky")
+    sky.sky_type = "MULTIPLE_SCATTERING"
+    sky.sun_disc = True
+    sky.sun_size = math.radians(2.2)
+    sky.sun_intensity = 1.3
+    sky.sun_elevation = math.radians(28.0)
+    sky.sun_rotation = math.radians(115.0)
+    sky.turbidity = 2.6
+    sky.ground_albedo = 0.35
+    wnt.links.new(_sock(sky.outputs, "Color"), _sock(bg.inputs, "Color"))
+    # Nishita/Multiple-Scattering sky radiance is physically-scaled (real sky
+    # luminance is far above 1.0) and this harness's render_leg.py uses a
+    # plain sRGB encode with no filmic tone-mapping (Standard view transform,
+    # exposure 0) -- Strength=1.0 blows every pixel to white. 0.06 keeps the
+    # comparison legible; still the SAME node graph/props Astroray drops.
+    _sock(bg.inputs, "Strength").default_value = 0.06
+    wnt.links.new(_sock(bg.outputs, "Background"), _sock(wout.inputs, "Surface"))
+
+    crop_rects = _world_sky_camera_and_crops(bpy, scene)
+    return scene, tags, crop_rects, gap_tags
+
+
+REFERENCE_WORLD_SKY_RES = (480, 270)
+REFERENCE_WORLD_SKY_SAMPLES = 128
+
 
 REFERENCE_SCENES = {
     "cornell_interior": dict(

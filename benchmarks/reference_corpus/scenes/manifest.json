@@ -36,6 +36,7 @@
         "ShaderNodeBump",
         "ShaderNodeEmission",
         "ShaderNodeNewGeometry",
+        "ShaderNodeOutputLight",
         "ShaderNodeOutputMaterial",
         "ShaderNodeOutputWorld",
         "ShaderNodeScript",
@@ -581,6 +582,7 @@
         "ShaderNodeMixRGB",
         "ShaderNodeNewGeometry",
         "ShaderNodeNormalMap",
+        "ShaderNodeOutputLight",
         "ShaderNodeOutputMaterial",
         "ShaderNodeOutputWorld",
         "ShaderNodeRGBToBW",
@@ -1286,6 +1288,543 @@
           0.5564,
           0.68,
           0.6692,
+          0.85
+        ]
+      }
+    },
+    "lighting_studio": {
+      "family": "lighting_studio",
+      "builder_fn": "build_lighting_studio_scene",
+      "blend_path": "benchmarks/reference_corpus/scenes/lighting_studio.blend",
+      "sha256": "9e3184ae2b423e93717085add2b3b741e37d6e1100d818cd2ee208137baadf5e",
+      "settings": {
+        "res_x": 640,
+        "res_y": 160,
+        "samples": 256,
+        "saved_default_engine": "CYCLES"
+      },
+      "reopen_verified": true,
+      "triangle_count": 3042,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "MESH": 33,
+        "CAMERA": 1,
+        "LIGHT": 4
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeEmission",
+        "ShaderNodeMath",
+        "ShaderNodeOutputLight",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeTexIES"
+      ],
+      "feature_tags": [
+        {
+          "category": "shader_node",
+          "feature": "OUTPUT_LIGHT",
+          "bl_idname": "ShaderNodeOutputLight",
+          "socket_or_prop": "input:Surface",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_IES",
+          "bl_idname": "ShaderNodeTexIES",
+          "socket_or_prop": "input:Vector",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_IES",
+          "bl_idname": "ShaderNodeTexIES",
+          "socket_or_prop": "input:Strength",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_IES",
+          "bl_idname": "ShaderNodeTexIES",
+          "socket_or_prop": "prop:mode",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "light",
+          "feature": "POINT",
+          "bl_idname": "",
+          "socket_or_prop": "energy",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "POINT",
+          "bl_idname": "",
+          "socket_or_prop": "color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "POINT",
+          "bl_idname": "",
+          "socket_or_prop": "use_temperature",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "POINT",
+          "bl_idname": "",
+          "socket_or_prop": "temperature",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "POINT",
+          "bl_idname": "",
+          "socket_or_prop": "shadow_soft_size",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "SUN",
+          "bl_idname": "",
+          "socket_or_prop": "energy",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "SUN",
+          "bl_idname": "",
+          "socket_or_prop": "color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "SUN",
+          "bl_idname": "",
+          "socket_or_prop": "use_temperature",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "SUN",
+          "bl_idname": "",
+          "socket_or_prop": "temperature",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "SUN",
+          "bl_idname": "",
+          "socket_or_prop": "angle",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "SPOT",
+          "bl_idname": "",
+          "socket_or_prop": "energy",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "SPOT",
+          "bl_idname": "",
+          "socket_or_prop": "color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "SPOT",
+          "bl_idname": "",
+          "socket_or_prop": "use_temperature",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "SPOT",
+          "bl_idname": "",
+          "socket_or_prop": "temperature",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "SPOT",
+          "bl_idname": "",
+          "socket_or_prop": "spot_size",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "SPOT",
+          "bl_idname": "",
+          "socket_or_prop": "spot_blend",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "AREA",
+          "bl_idname": "",
+          "socket_or_prop": "energy",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "AREA",
+          "bl_idname": "",
+          "socket_or_prop": "color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "AREA",
+          "bl_idname": "",
+          "socket_or_prop": "use_temperature",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "AREA",
+          "bl_idname": "",
+          "socket_or_prop": "temperature",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "AREA",
+          "bl_idname": "",
+          "socket_or_prop": "shape",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "AREA",
+          "bl_idname": "",
+          "socket_or_prop": "size",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "AREA",
+          "bl_idname": "",
+          "socket_or_prop": "size_y",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "light",
+          "feature": "AREA",
+          "bl_idname": "",
+          "socket_or_prop": "spread",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        }
+      ],
+      "assets": [],
+      "crops": {
+        "POINT": [
+          0.1076,
+          0.05,
+          0.282,
+          0.92
+        ],
+        "SUN": [
+          0.311,
+          0.05,
+          0.4855,
+          0.92
+        ],
+        "SPOT": [
+          0.5145,
+          0.05,
+          0.689,
+          0.92
+        ],
+        "AREA": [
+          0.718,
+          0.05,
+          0.8924,
+          0.92
+        ]
+      }
+    },
+    "world_sky_hdri": {
+      "family": "world_sky",
+      "builder_fn": "build_world_sky_hdri_scene",
+      "blend_path": "benchmarks/reference_corpus/scenes/world_sky_hdri.blend",
+      "sha256": "231c8aa2d3a4caed89d60a9ef4f841ea0691e61dc6a8e44b685b8535b022f7b1",
+      "settings": {
+        "res_x": 480,
+        "res_y": 270,
+        "samples": 128,
+        "saved_default_engine": "CYCLES"
+      },
+      "reopen_verified": true,
+      "triangle_count": 2322,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "MESH": 8,
+        "CAMERA": 1
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeMapping",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeTexCoord",
+        "ShaderNodeTexEnvironment"
+      ],
+      "feature_tags": [
+        {
+          "category": "shader_node",
+          "feature": "BACKGROUND",
+          "bl_idname": "ShaderNodeBackground",
+          "socket_or_prop": "input:Color",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "BACKGROUND",
+          "bl_idname": "ShaderNodeBackground",
+          "socket_or_prop": "input:Strength",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "OUTPUT_WORLD",
+          "bl_idname": "ShaderNodeOutputWorld",
+          "socket_or_prop": "input:Surface",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_ENVIRONMENT",
+          "bl_idname": "ShaderNodeTexEnvironment",
+          "socket_or_prop": "input:Vector",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_ENVIRONMENT",
+          "bl_idname": "ShaderNodeTexEnvironment",
+          "socket_or_prop": "prop:interpolation",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "world",
+          "feature": "World",
+          "bl_idname": "",
+          "socket_or_prop": "use_nodes",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        }
+      ],
+      "assets": [
+        {
+          "path": "benchmarks/reference_corpus/assets/syferfontein_18d_clear_1k.hdr",
+          "license": "CC0 1.0",
+          "source_url": "https://polyhaven.com/a/syferfontein_18d_clear",
+          "sha256": "6f81c4b48dcb79555d7e8a8839e59e75d76fd34f1e07e070f6dd923df5c119a0"
+        }
+      ],
+      "crops": {
+        "background": [
+          0.1061,
+          0.0,
+          0.8939,
+          0.3
+        ],
+        "reflection": [
+          0.3636,
+          0.2,
+          0.6364,
+          0.62
+        ],
+        "indirect": [
+          0.6818,
+          0.45,
+          0.8939,
+          0.85
+        ]
+      }
+    },
+    "world_sky_sky": {
+      "family": "world_sky",
+      "builder_fn": "build_world_sky_sky_scene",
+      "blend_path": "benchmarks/reference_corpus/scenes/world_sky_sky.blend",
+      "sha256": "7c5044669355da35534359507fd83c7fd67dba477a90bafeea3d305373ff265e",
+      "settings": {
+        "res_x": 480,
+        "res_y": 270,
+        "samples": 128,
+        "saved_default_engine": "CYCLES"
+      },
+      "reopen_verified": true,
+      "triangle_count": 2322,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "MESH": 8,
+        "CAMERA": 1
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeTexSky"
+      ],
+      "feature_tags": [
+        {
+          "category": "shader_node",
+          "feature": "BACKGROUND",
+          "bl_idname": "ShaderNodeBackground",
+          "socket_or_prop": "input:Color",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "BACKGROUND",
+          "bl_idname": "ShaderNodeBackground",
+          "socket_or_prop": "input:Strength",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "OUTPUT_WORLD",
+          "bl_idname": "ShaderNodeOutputWorld",
+          "socket_or_prop": "input:Surface",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_SKY",
+          "bl_idname": "ShaderNodeTexSky",
+          "socket_or_prop": "prop:ground_albedo",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_SKY",
+          "bl_idname": "ShaderNodeTexSky",
+          "socket_or_prop": "prop:sky_type",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_SKY",
+          "bl_idname": "ShaderNodeTexSky",
+          "socket_or_prop": "prop:sun_disc",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_SKY",
+          "bl_idname": "ShaderNodeTexSky",
+          "socket_or_prop": "prop:sun_elevation",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_SKY",
+          "bl_idname": "ShaderNodeTexSky",
+          "socket_or_prop": "prop:sun_intensity",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_SKY",
+          "bl_idname": "ShaderNodeTexSky",
+          "socket_or_prop": "prop:sun_rotation",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_SKY",
+          "bl_idname": "ShaderNodeTexSky",
+          "socket_or_prop": "prop:sun_size",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_SKY",
+          "bl_idname": "ShaderNodeTexSky",
+          "socket_or_prop": "prop:turbidity",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "world",
+          "feature": "World",
+          "bl_idname": "",
+          "socket_or_prop": "use_nodes",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        }
+      ],
+      "assets": [],
+      "crops": {
+        "background": [
+          0.1061,
+          0.0,
+          0.8939,
+          0.3
+        ],
+        "reflection": [
+          0.3636,
+          0.2,
+          0.6364,
+          0.62
+        ],
+        "indirect": [
+          0.6818,
+          0.45,
+          0.8939,
           0.85
         ]
       }

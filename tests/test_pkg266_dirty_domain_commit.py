@@ -624,7 +624,7 @@ def test_worker_view_draw_schedules_fullres_refinement():
     def _commit(context, depsgraph, settings, region, cfg, perf, integ, em,
                 commit_mode):
         calls.append((commit_mode, fake_self._worker_fullres_next))
-        return False
+        return True   # a successful submit (a failed one keeps the refinement owed)
     fake_self._worker_commit_and_submit = _commit
 
     region = types.SimpleNamespace(width=64, height=64)

@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — filed 2026-09-09 by the lead from the pkg241 P2.2 closeout (PR #777, Codex Terra review 4, design doc §12/§13/§13a)
+**Status:** in-progress — native bounded dispatch + global admission token + coalesced dirty-domain commit landed on `feat/pkg266-viewport-p23-bounded-dispatch` (2026-09-10); GPU build + Terra-4 GUI re-measure in the same lane (lead flips to done on the gate table)
 **Estimated effort:** 3 sessions (~10 h; one native change in the wavefront dispatch under the GPU lock, addon commit restructure, GUI re-measure on port 9877)
 **Depends on:** pkg241, pkg131, pkg56
 
@@ -118,6 +118,33 @@ the same P2.3 list. Serves Pillar 5.
 ## Progress
 
 - [ ] 2026-09-09 — filed by the lead at the P2.2 closeout; not started.
+- [~] 2026-09-10 — implementation landed on `feat/pkg266-viewport-p23-bounded-dispatch`:
+  - **Native bounded dispatch** (`gpu_wavefront_snapshot.{h,cu}`, `blender_module.cpp`):
+    `sub_pass_budget` on `render()` — the GPU driver calls `cudaDeviceSynchronize()`
+    + polls the cancel hook every N wavefront passes, so an in-flight chunk stops
+    within one bounded unit instead of after the whole async launch backlog drains
+    (P2.2 cancel-p99 root cause). A host sync does not change device execution, so
+    `budget>0` is numerically identical to `budget=0` (byte-identical fleet path
+    when the callback is null / budget 0). `last_render_info()` reports
+    `units_launched` / `cancelled_at_unit`.
+  - **Process-global admission token + F12 gate** (`exporter.py`, `__init__.py`):
+    the per-worker `threading.Lock` is replaced by one module-level
+    `_GLOBAL_ADMISSION_TOKEN` shared by every viewport worker; F12 raises a
+    process-wide pause gate, drains all viewports, and owns the token across its
+    own renderer construction/render (§3.5).
+  - **Coalesced dirty-domain commit** (`exporter.py`): `apply_depsgraph_updates`
+    split into a pure classifier + dispatch; edits arriving while the worker is
+    busy record a coalesced dirty-domain mask from the live depsgraph and replay
+    the safe material/light/env/transform uploaders under the token at idle —
+    geometry/instancing/unknown still full-sync (§13 item 2).
+  - **Terra-4 instrument** (`blender_driver.py`, `blender_recorder.py`): adaptive
+    settle (idle span waits for a terminal publication → present-rate gradeable)
+    + cancelled-at-unit reporting.
+  - Tests: `test_pkg266_bounded_dispatch.py` (GPU), `test_pkg266_dirty_domain_commit.py`
+    (bpy-free, 9 passed); pkg241/pkg56/pkg114/pkg116/pkg96 bpy-free suites 86 passed.
+  - GPU build + Terra-4 GUI re-measure (both scenes, worker ON/OFF, settle+storm)
+    in progress under the GPU lock; §9 gate table + worker-default decision to
+    land in the SUMMARY before the lead flips this to done.
 
 ---
 

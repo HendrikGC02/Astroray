@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — Preetham/Perez bake landed (PR pending, 2026-09-10); Cycles sky-band A/B upper 1.00 / horizon 0.90 lum ratio; world_sky_sky renders sky (no longer black); lead flips to done after contact-sheet inspection
+**Status:** in-progress — Preetham/Perez bake landed (PR #793, 2026-09-10); Cycles sky-band A/B upper 1.00 / horizon 0.90 lum ratio; world_sky_sky renders sky (no longer black); lead flips to done after contact-sheet inspection
 **Estimated effort:** 1 week
 **Depends on:** pkg63, pkg229
 
@@ -172,7 +172,7 @@ bake-to-image step, which is genuinely new physics and therefore requires
 ## Progress
 
 - [ ] 2026-09-07 — filed per owner gate-(b) decision.
-- [x] 2026-09-10 — cite-algorithm note `.astroray_plan/docs/pkg256-sky-model-research.md`:
+- [x] 2026-09-10 (PR #793) — cite-algorithm note `.astroray_plan/docs/pkg256-sky-model-research.md`:
       **Preetham/Perez (1999)** implemented, constants verified vs MIT appleseed
       ref; Blender GPL sky code not used; Hosek-Wilkie BSD-3 licence recorded
       (considered, deferred — large fitted dataset). All four `sky_type` routed

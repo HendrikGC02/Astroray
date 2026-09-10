@@ -1251,7 +1251,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         print(f"Rendering {width}x{height}, {settings.samples} samples")
         renderer = None
+        # pkg266 (§3.5): F12 is a process-wide pause gate over ALL viewport
+        # sessions. Raise the gate (block new viewport admissions), drain every
+        # live viewport worker to idle, then own the ONE global admission token
+        # across F12's own renderer construction / configuration / scene
+        # conversion / render, so F12 and any viewport never touch the shared
+        # WfContext / __constant__ bindings at once. Released + gate lowered in the
+        # finally below on every exit path. With the viewport worker off there are
+        # no live sessions and the token is uncontended, so this is a cheap no-op.
+        from . import exporter as _exp_f12
         try:
+            _exp_f12.acquire_f12_admission()
             renderer = astroray.Renderer()
             renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
             self.convert_scene(depsgraph, renderer, width, height, resolved=settings)
@@ -1407,6 +1417,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 try: renderer.clear()
                 except: pass
             del renderer
+            # pkg266 (§3.5 step 5): release the global admission token and lower
+            # the F12 pause gate on every exit path (success / cancel / error).
+            try:
+                _exp_f12.release_f12_admission()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------ #
     # Viewport preview (rendered shading mode in 3D View)

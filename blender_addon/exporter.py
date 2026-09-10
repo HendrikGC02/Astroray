@@ -73,6 +73,77 @@ _WORKER_QUARANTINE = []
 # while live; stop_worker removes them).
 _LIVE_VIEWPORT_SESSIONS = []
 
+# pkg266 (design §3.5): the ONE process-global admission token. Every renderer
+# mutation — the main-thread commit (setupCamera + set_* + upload_*), the worker
+# render(), and F12's own renderer construction/config/render — runs only while
+# its holder owns this single Lock, so no two viewport workers (nor F12 and a
+# viewport) ever touch the process-global WfContext / __constant__ bindings at
+# once. It REPLACES the pkg241-spike per-worker token, which serialised render()
+# only WITHIN a session and was the scene-switch CUDA-corruption class (§13a).
+# threading.Lock permits release by a thread other than the one that acquired it
+# — exactly the main-commits-then-hands-to-worker hand-off (§3.2).
+_GLOBAL_ADMISSION_TOKEN = threading.Lock()
+
+# pkg266 (design §3.5): the F12 process-wide pause gate. While set, NO viewport
+# worker may be admitted (every maybe_submit try-acquire fails and re-queues its
+# newest generation), so F12 can drain every viewport to idle and then own the
+# global token across its own renderer work. Lowered on every F12 exit path.
+_F12_PAUSE_GATE = threading.Event()
+# pkg266: whether the current F12 render actually acquired the global token (so
+# release only releases what it holds — a genuinely hung worker that never
+# drained is quarantined and F12 proceeds WITHOUT the token, §3.5 item 4).
+_F12_HOLDS_TOKEN = False
+
+
+def _admission_gate_raised():
+    """True while F12 holds the process-wide pause gate (§3.5): viewport workers
+    must not be admitted."""
+    return _F12_PAUSE_GATE.is_set()
+
+
+def acquire_f12_admission(timeout=5.0):
+    """§3.5 F12 pause handshake (main thread). Raise the process-wide gate so no
+    new viewport render is admitted, cancel + drain every live viewport session
+    to idle so the global token is provably free, then acquire the global
+    admission token and hold it across F12's renderer construction / configuration
+    / scene conversion / render. The token acquire is BOUNDED by `timeout`: a
+    genuinely hung worker that never drained is quarantined (its session stopped)
+    and F12 proceeds without the token — the gate still blocks any new admission,
+    so no *new* render can start (§3.5 item 4 no-ack path). Returns True if F12
+    holds the token. Pair with release_f12_admission() in a finally so the gate is
+    lowered (and any held token released) on EVERY exit path."""
+    global _F12_HOLDS_TOKEN
+    _F12_PAUSE_GATE.set()
+    for exporter in _LIVE_VIEWPORT_SESSIONS[:]:
+        try:
+            exporter.pause_worker_for_f12(timeout=timeout)
+        except Exception:
+            pass
+    _F12_HOLDS_TOKEN = _GLOBAL_ADMISSION_TOKEN.acquire(timeout=float(timeout))
+    if not _F12_HOLDS_TOKEN:
+        # A worker did not release the token within the drain timeout — quarantine
+        # every still-live session (strong ref, never freed) so it cannot race
+        # F12's renderer; F12 proceeds under the raised gate.
+        for exporter in _LIVE_VIEWPORT_SESSIONS[:]:
+            try:
+                exporter.stop_worker()
+            except Exception:
+                pass
+    return _F12_HOLDS_TOKEN
+
+
+def release_f12_admission():
+    """§3.5 step 5: release the global token (if F12 held it) and lower the pause
+    gate on EVERY F12 exit path (success / cancel / exception). Idempotent."""
+    global _F12_HOLDS_TOKEN
+    if _F12_HOLDS_TOKEN:
+        try:
+            _GLOBAL_ADMISSION_TOKEN.release()
+        except RuntimeError:
+            pass
+        _F12_HOLDS_TOKEN = False
+    _F12_PAUSE_GATE.clear()
+
 
 def _register_viewport_session(exporter):
     """Record a live viewport session (Exporter with a running worker) so
@@ -435,7 +506,8 @@ class _ViewportSpikeWorker:
     STOPPING = "STOPPING"
     DEAD = "DEAD"
 
-    def __init__(self, render_fn, present_fn, report_fn=None, session_epoch=0):
+    def __init__(self, render_fn, present_fn, report_fn=None, session_epoch=0,
+                 token=None, admission_gate=None):
         # render_fn(job, cancel_check, publish) -> None  [WORKER thread, under token]
         #   job: the committed snapshot dict; cancel_check() -> bool (True = stop);
         #   publish(buffer, width, height) -> None publishes a chunk for this gen.
@@ -446,7 +518,16 @@ class _ViewportSpikeWorker:
         self._report_fn = report_fn
         self.session_epoch = session_epoch
 
-        self._token = threading.Lock()
+        # pkg266 (§3.5): the admission token is INJECTED. Production passes the
+        # ONE process-global _GLOBAL_ADMISSION_TOKEN so every viewport worker (and
+        # F12) serialises through it; bpy-free unit tests may inject a private lock
+        # for isolation, or omit it (a fresh per-worker lock, the pre-pkg266
+        # spike behaviour) when cross-session serialisation is not under test.
+        self._token = token if token is not None else threading.Lock()
+        # pkg266 (§3.5): the process-wide F12 pause gate predicate. When it returns
+        # True no viewport may be admitted (maybe_submit re-queues its newest
+        # generation). None = never gated (unit-test / worker-off default).
+        self._admission_gate = admission_gate
         self._token_holder = None  # 'main' | 'worker' | None (ownership trace)
 
         # depth-1 latest-frame mailbox (§3.3): a newer frame REPLACES an unconsumed
@@ -517,10 +598,18 @@ class _ViewportSpikeWorker:
             return False
         if self.desired_generation == self.submitted_generation:
             return False
+        # pkg266 (§3.5): honour the F12 process-wide pause gate — while it is up,
+        # no viewport is admitted; the newest desired generation stays pending and
+        # is retried on the next tick after F12 lowers the gate.
+        if self._admission_gate is not None and self._admission_gate():
+            return False
         gen = self.desired_generation
-        # Acquire the token on behalf of the worker (single-holder handoff, §3.5).
+        # Acquire the ONE process-global admission token on behalf of the worker
+        # (single-holder hand-off, §3.5). A non-blocking try-acquire: if another
+        # viewport session (or F12) holds it, this edit stays pending and retries
+        # next tick — the main thread never blocks on an ordinary edit.
         if not self._token.acquire(blocking=False):
-            return False  # a stale hold (should not happen while IDLE) — defer
+            return False  # another holder owns the global token — defer
         self._token_holder = "main"
         _emit_spike_event("token_acquire", gen, self.session_epoch, holder="main")
         _emit_spike_event("commit_start", gen, self.session_epoch)
@@ -806,6 +895,18 @@ class Exporter:
         # edit committed immediately while the worker is idle uses the cheaper
         # incremental apply_depsgraph_updates dispatch instead.
         self._worker_deferred_scene = False
+        # pkg266 (§13 item 2 / Terra (c)): the coalesced dirty-domain mask
+        # recorded on the main thread at view_update WHILE THE WORKER IS BUSY (the
+        # only time depsgraph.updates is live), replayed as the safe
+        # material/light/transform upload ops under the token when the worker next
+        # goes idle — instead of the pkg241 P2.2 fallback of a full
+        # sync_viewport_scene for every deferred edit (the continuous-storm
+        # tick-gap p95 root cause). GEOMETRY / instancing / any unrecognised
+        # (fallback) edit sets _deferred_full_sync so the replay defers to a full
+        # sync (never guess a domain, §13 item 2).
+        self._deferred_dirty_mask = Change.NONE   # OR of coalesced safe domains
+        self._deferred_transforms = {}            # obj_id -> mat16 (newest wins)
+        self._deferred_full_sync = False          # a geometry/instancing/unknown edit
 
         # Per-domain caches
         self._camera_cache = CameraCache(bpy_module)
@@ -882,9 +983,45 @@ class Exporter:
         result is order-independent of Blender's iteration order over
         depsgraph.updates.
         """
+        status, changes, flat_transforms, do_refit = \
+            self._classify_depsgraph_domains(depsgraph, settings)
+        if status == 'fallback':
+            return 'fallback'
+        if status == 'idle':
+            if changes & Change.ACCUMULATION_ONLY:
+                # Frame/Scene tick — image unchanged but user may want fresh
+                # accumulation. Reset and skip render.
+                self._reset_viewport_accumulation()
+            return 'idle'
+        self._dispatch_dirty_domains(renderer, depsgraph, settings,
+                                     configure_backend_fn, report_fn,
+                                     changes, flat_transforms, do_refit)
+        return 'dispatched'
+
+    def _classify_depsgraph_domains(self, depsgraph, settings):
+        """pkg266 (§13 item 2 / Terra (c)): classify `depsgraph.updates` into a
+        dirty-domain Change mask WITHOUT dispatching any uploader (no renderer
+        mutation). Shared by apply_depsgraph_updates (idle-time incremental
+        dispatch) and _record_deferred_dirty (the worker-busy record path), so
+        both agree on what changed and the tested bucketing lives in one place.
+
+        `diff()` is stateful (it advances each domain cache), so this is called
+        EXACTLY ONCE per edit — either here from the idle dispatch or from the
+        recorder while the worker is busy, never both for the same edit.
+
+        Returns `(status, changes, flat_transforms, do_refit)`:
+          - status 'fallback'   : unrecognised update / .updates absent / an
+            instancing-related edit that cannot be kept consistent by a partial
+            update → the caller must run a full sync_viewport_scene.
+          - status 'idle'       : no image-changing domain (selection-only, or
+            accumulation-only — `changes` still carries ACCUMULATION_ONLY).
+          - status 'dispatched' : `changes` is the final mask, `flat_transforms`
+            the captured [(obj_id, mat16), ...] for the TRANSFORMS domain, and
+            `do_refit` True for the instanced TLAS-only refit fast path.
+        """
         updates = getattr(depsgraph, 'updates', None)
         if updates is None:
-            return 'fallback'
+            return 'fallback', Change.NONE, [], False
 
         # Query all caches; OR their results into a Change bitset (the
         # aggregator contract from the spec — dispatch below tests flags).
@@ -930,7 +1067,7 @@ class Exporter:
                 # Unrecognised id type (skin modifier, particle system,
                 # grease pencil, …). Fall back to full sync rather than
                 # guess. Mirrors Cycles' has_updates_=true default.
-                return 'fallback'
+                return 'fallback', Change.NONE, [], False
             # Also check for Object updates with no geometry/shading/transform bits
             # (selection-only) — these should be ignored, not trigger fallback
             if type_name == 'Object':
@@ -946,11 +1083,7 @@ class Exporter:
             changes |= Change.BACKEND_CONFIG
 
         if not (changes & ~Change.ACCUMULATION_ONLY):
-            if changes & Change.ACCUMULATION_ONLY:
-                # Frame/Scene tick — image unchanged but user may want fresh
-                # accumulation. Reset and skip render.
-                self._reset_viewport_accumulation()
-            return 'idle'
+            return 'idle', changes, [], False
 
         # pkg114 inc 3d — instanced transform-only dispatch decision. A PURE
         # transform batch (no other image-changing domain) where every changed
@@ -963,12 +1096,20 @@ class Exporter:
         do_refit = (transform_only and bool(xform_names) and not flat_transforms
                     and all(_fast_ok(nm) for nm in xform_names))
         if not do_refit and instancing_related:
-            return 'fallback'
+            return 'fallback', Change.NONE, [], False
         if not do_refit and any(not _fast_ok(nm) for nm in xform_names):
             changes |= Change.GEOMETRY
 
-        # pkg96 P2: reconcile-then-upload contract. Each domain re-derives
-        # its state from Blender before pushing device buffers.
+        return 'dispatched', changes, flat_transforms, do_refit
+
+    def _dispatch_dirty_domains(self, renderer, depsgraph, settings,
+                                configure_backend_fn, report_fn,
+                                changes, flat_transforms, do_refit):
+        """Run the Phase B uploader(s) for a classified dirty-domain mask and reset
+        viewport accumulation. Shared by apply_depsgraph_updates (idle dispatch)
+        and the coalesced deferred replay (_replay_deferred_dirty). pkg96 P2
+        reconcile-then-upload: each domain re-derives its state from Blender before
+        pushing device buffers."""
         if changes & Change.BACKEND_CONFIG:
             # Backend-affecting Scene props (device_mode) — reconfigure
             # before any render.
@@ -1005,7 +1146,65 @@ class Exporter:
 
         # Any image-changing dispatch resets accumulation
         self._reset_viewport_accumulation()
-        return 'dispatched'
+
+    # -- pkg266 coalesced deferred dirty-domain commit (§13 item 2) ---------
+    def _record_deferred_dirty(self, depsgraph, settings):
+        """Worker busy at view_update: classify the LIVE depsgraph.updates NOW
+        (they are gone by the next tick) and coalesce the safe dirty-domain mask
+        so the idle-time commit can replay the uploaders under the token instead
+        of a full sync (§13 item 2). GEOMETRY / the instanced refit / any
+        fallback forces a full sync — never guess a domain."""
+        try:
+            status, changes, flat_transforms, do_refit = \
+                self._classify_depsgraph_domains(depsgraph, settings)
+        except Exception:
+            # Any classification error is treated conservatively as a full sync.
+            self._deferred_full_sync = True
+            return
+        if status == 'fallback':
+            self._deferred_full_sync = True
+            return
+        if status == 'idle':
+            if changes & Change.ACCUMULATION_ONLY:
+                self._deferred_dirty_mask |= Change.ACCUMULATION_ONLY
+            return
+        # GEOMETRY or the instanced TLAS-refit fast path both need a live
+        # depsgraph / a device rebuild we will not replay piecemeal → full sync.
+        if (changes & Change.GEOMETRY) or do_refit:
+            self._deferred_full_sync = True
+            return
+        # Safe domains only (env / materials / lights / flat transforms /
+        # backend): coalesce the mask and capture the transform matrices now
+        # (newest wins — a later edit of the same object supersedes the earlier).
+        self._deferred_dirty_mask |= changes
+        for obj_id, mat16 in flat_transforms:
+            self._deferred_transforms[obj_id] = mat16
+
+    def _replay_deferred_dirty(self, renderer, depsgraph, settings,
+                               configure_backend_fn, report_fn):
+        """At the idle commit, replay the coalesced safe dirty-domain mask under
+        the token (§13 item 2). Returns True if the safe replay covered the edit
+        (the caller renders from the incremental result), False if a full sync is
+        required (a recorded geometry/instancing/unknown edit, or nothing safe to
+        replay). Behaviourally identical to running apply_depsgraph_updates'
+        idle-time dispatch for the same domains — just deferred to idle."""
+        if self._deferred_full_sync:
+            return False
+        mask = self._deferred_dirty_mask
+        if not (mask & ~Change.ACCUMULATION_ONLY):
+            return False  # nothing image-changing to replay → caller full-syncs
+        flat = list(self._deferred_transforms.items())
+        self._dispatch_dirty_domains(renderer, depsgraph, settings,
+                                     configure_backend_fn, report_fn,
+                                     mask, flat, do_refit=False)
+        return True
+
+    def _clear_deferred_dirty(self):
+        """Reset the coalesced deferred dirty-domain state after a commit consumed
+        it (a replay or a full sync)."""
+        self._deferred_dirty_mask = Change.NONE
+        self._deferred_transforms = {}
+        self._deferred_full_sync = False
 
     def sync_viewport_scene(self, renderer, depsgraph, settings,
                            configure_backend_fn, viewport_perf_record_fn,
@@ -1606,7 +1805,13 @@ class Exporter:
         self._worker = _ViewportSpikeWorker(
             render_fn=self._make_worker_render_fn(),
             present_fn=self._worker_present,
-            report_fn=_report)
+            report_fn=_report,
+            # pkg266 (§3.5): every live session shares the ONE process-global
+            # admission token + the F12 pause gate, so two viewports of one
+            # session (or a viewport and F12) never mutate the shared WfContext
+            # concurrently.
+            token=_GLOBAL_ADMISSION_TOKEN,
+            admission_gate=_admission_gate_raised)
         self._worker.start()
         self._register_worker_timer()
         # §3.6: install the process-wide drain hooks (load_pre + atexit) once, and
@@ -1668,7 +1873,12 @@ class Exporter:
                                 falling back to a full sync only on first sync or an
                                 unrecognised update.
           - 'scene_full'      : a scene edit that was deferred while the worker was
-                                busy (its depsgraph is now stale) — full sync.
+                                busy. pkg266 (§13 item 2): its coalesced dirty-domain
+                                mask (recorded from the LIVE depsgraph at
+                                view_update) is replayed as the safe
+                                material/light/transform upload ops under the token;
+                                only a recorded geometry/instancing/unknown edit (or
+                                the first sync) falls back to a full sync.
 
         In all modes the cheap per-frame config (camera, wavelength, integrator,
         passes) is committed. The commit_start/commit_end lifeline events emitted by
@@ -1696,11 +1906,23 @@ class Exporter:
                     skip_upload = self._viewport_skip_upload_next
                 self._viewport_skip_upload_next = False
             else:
-                # 'scene_full', or the first sync in any mode: full scene upload.
-                self.sync_viewport_scene(
-                    renderer, depsgraph, settings, configure_backend_fn,
-                    viewport_perf_record_fn, effective_integrator_name_fn)
-                self._viewport_full_synced = True
+                # pkg266 (§13 item 2): a deferred scene edit ('scene_full') replays
+                # its coalesced safe dirty-domain mask under the token. Only a
+                # recorded geometry/instancing/unknown edit (or the first sync in
+                # any mode) does a full sync.
+                replayed = False
+                if commit_mode == 'scene_full' and self._viewport_full_synced:
+                    replayed = self._replay_deferred_dirty(
+                        renderer, depsgraph, settings, configure_backend_fn,
+                        self.engine.report)
+                    if replayed:
+                        skip_upload = self._viewport_skip_upload_next
+                        self._viewport_skip_upload_next = False
+                if not replayed:
+                    self.sync_viewport_scene(
+                        renderer, depsgraph, settings, configure_backend_fn,
+                        viewport_perf_record_fn, effective_integrator_name_fn)
+                    self._viewport_full_synced = True
             width = max(1, int(region.width))
             height = max(1, int(region.height))
             engine_methods['setup_viewport_camera'](renderer, context, width, height)
@@ -1742,8 +1964,10 @@ class Exporter:
 
         submitted = self._worker.maybe_submit(commit_fn)
         if submitted and commit_mode in ('scene', 'scene_full'):
-            # A committed scene edit clears the deferred-scene debt (item 2).
+            # A committed scene edit clears the deferred-scene debt (item 2) and
+            # the coalesced deferred dirty-domain state it just consumed (pkg266).
             self._worker_deferred_scene = False
+            self._clear_deferred_dirty()
         return submitted
 
     def _worker_view_update(self, context, depsgraph, configure_backend_fn,
@@ -1754,9 +1978,10 @@ class Exporter:
         generation and requests cancel. pkg241 P2.2 item 2 (bounded commit): if the
         worker is idle the edit is committed immediately with its LIVE depsgraph via
         the incremental pkg56 dispatch (commit_mode='scene'); if the worker is busy
-        (token held) the edit is DEFERRED and the next idle view_draw re-commits it
-        as a full sync (commit_mode='scene_full'), because the depsgraph.updates it
-        would need are only valid during this call."""
+        (token held) the edit is DEFERRED: pkg266 (§13 item 2) records its coalesced
+        dirty-domain mask from the live depsgraph now, and the next idle view_draw
+        replays the safe uploaders under the token (commit_mode='scene_full'),
+        falling back to a full sync only for geometry/instancing/unknown edits."""
         import traceback
         try:
             scene = depsgraph.scene
@@ -1779,8 +2004,12 @@ class Exporter:
                 viewport_perf_record_fn, effective_integrator_name_fn,
                 engine_methods, commit_mode='scene')
             if not submitted:
-                # Worker busy: defer. The live depsgraph is gone by the next tick,
-                # so the deferred commit falls back to a full sync.
+                # Worker busy: defer. pkg266 (§13 item 2) — record the coalesced
+                # dirty-domain mask from the LIVE depsgraph NOW (it is gone by the
+                # next tick) so the idle commit replays the safe uploaders under
+                # the token instead of a full sync. GEOMETRY / instancing /
+                # unknown edits set _deferred_full_sync inside the recorder.
+                self._record_deferred_dirty(depsgraph, settings)
                 self._worker_deferred_scene = True
             self._viewport_camera_hash = camera_state_hash_fn(context, region)
             self._viewport_camera_substantive_hash = \
@@ -1845,6 +2074,28 @@ class Exporter:
         except Exception as e:
             print(f"Astroray worker view_draw error: {e}")
             traceback.print_exc()
+
+    def pause_worker_for_f12(self, timeout=5.0):
+        """§3.5 step 2 (F12 pause handshake): cancel this session's in-flight
+        render and pump the control queue on the main thread until the worker
+        reports idle (releasing the global token), bounded by `timeout`. Unlike
+        stop_worker this does NOT tear the worker down — F12 pauses the viewport
+        and the session resumes with a fresh generation after F12 lowers the gate
+        (§3.5 step 5). Returns True if the worker drained to idle within the
+        timeout, False on a no-ack (the caller still proceeds: the gate blocks
+        re-admission, so a no-ack worker holds no releasable token from the
+        scheduler's view). Yields the GIL via time.sleep so the worker's cancel
+        callback can run."""
+        worker = self._worker
+        if worker is None:
+            return True
+        worker.request()  # bump desired generation + cancel any in-flight chunk
+        deadline = time.monotonic() + float(timeout)
+        while (worker.in_flight_generation is not None
+               and time.monotonic() < deadline):
+            worker.pump(present=False)  # drain idle/error control-plane only
+            time.sleep(0.01)           # yield the GIL for the worker's callback
+        return worker.in_flight_generation is None
 
     def stop_worker(self):
         """Main-thread teardown (§3.6): request cancel and pump until the worker

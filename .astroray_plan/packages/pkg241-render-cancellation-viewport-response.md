@@ -302,6 +302,16 @@ All implementation gates UNRUN:
 
 ## Progress
 
+- [~] 2026-09-10 — **P2.3 residual gates owned by pkg266** (branch
+  `feat/pkg266-viewport-p23-bounded-dispatch`): the three §13 items land there —
+  (1) cancellation-bounded GPU dispatch (`sub_pass_budget`: the native driver syncs
+  + polls the cancel hook every N wavefront passes so an in-flight chunk stops
+  within one bounded unit, numerically inert vs the async path), (2) one
+  process-global admission token + F12 pause gate (replacing the per-worker lock),
+  (3) coalesced dirty-domain commit (replay the safe material/light/transform
+  uploaders under the token at idle instead of a full sync for every deferred edit)
+  + the adaptive-settle Terra-4 instrument. GPU build + GUI re-measure under the
+  lock in that lane; see pkg266 for the §9 gate table and worker-default decision.
 - [x] 2026-09-09 — **P2.2 MERGED (#777).** Design §12 items 1–5 delivered + Codex Terra review 4 (BLOCK → all items fixed, design §13) + the scene-switch CUDA-corruption root cause and fix (§13a: per-worker token never serialised across sessions; `stop_all_viewport_sessions()` on `load_pre`/`atexit`; RTX-verified 5 switches, 0 CUDA errors). Present wiring PASS both scenes; `gpu.types.Buffer` upload unconditional (byte-identity PASS); realistic-settle tick-gap p95 25–40 ms (metal_sweep straddles the 33 ms line, big passes); continuous-storm p95 70–206 ms FAIL; cancel p99 262 ms metal / 485 ms big (architectural). Residual gates → **pkg266** (cancellation-bounded wavefront dispatch, coalesced dirty-domain commit, global admission token, clean re-measure). Worker stays opt-in (`ASTRORAY_VIEWPORT_WORKER=1`).
 - [x] 2026-09-09 — **P2.2 scene-switch CUDA-corruption FIX — RTX VERIFIED (PR #777).**
       Sonnet verification lane re-ran the exact `--mode present_check --scenes

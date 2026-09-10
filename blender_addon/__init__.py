@@ -1251,7 +1251,32 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         print(f"Rendering {width}x{height}, {settings.samples} samples")
         renderer = None
+        # pkg266 (§3.5): F12 is a process-wide pause gate over ALL viewport
+        # sessions. Raise the gate (block new viewport admissions), drain every
+        # live viewport worker to idle, then own the ONE global admission token
+        # across F12's own renderer construction / configuration / scene
+        # conversion / render, so F12 and any viewport never touch the shared
+        # WfContext / __constant__ bindings at once. Released + gate lowered in the
+        # finally below on every exit path. With the viewport worker off there are
+        # no live sessions and the token is uncontended, so this is a cheap no-op.
+        from . import exporter as _exp_f12
         try:
+            # pkg266 (Terra review, item 1): F12 must NEVER render token-less. If
+            # a viewport worker fails to drain within the timeout the global
+            # admission token could still be owned by a live worker touching the
+            # shared WfContext / __constant__ bindings (the §13a scene-switch race
+            # the token exists to prevent). On that no-ack path acquire_f12_admission
+            # returns False AND keeps the pause gate raised; abort the F12 render
+            # here (never construct/convert/render) with a user-visible error. The
+            # finally below lowers the gate on this exit path too.
+            if not _exp_f12.acquire_f12_admission():
+                self.report(
+                    {'ERROR'},
+                    "Astroray: a viewport render worker did not release the GPU "
+                    "within the drain timeout; F12 render aborted to avoid a "
+                    "GPU-context race (pkg266 §3.5). Switch the 3D viewport out "
+                    "of 'Rendered' shading and retry.")
+                return
             renderer = astroray.Renderer()
             renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
             self.convert_scene(depsgraph, renderer, width, height, resolved=settings)
@@ -1407,6 +1432,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 try: renderer.clear()
                 except: pass
             del renderer
+            # pkg266 (§3.5 step 5): release the global admission token and lower
+            # the F12 pause gate on every exit path (success / cancel / error).
+            try:
+                _exp_f12.release_f12_admission()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------ #
     # Viewport preview (rendered shading mode in 3D View)

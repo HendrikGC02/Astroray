@@ -1578,3 +1578,120 @@ slice of §3.5/§3.6. The full process-global admission token that makes *two li
 wide pause gate, `stop_session` vs `stop_all` split, and the strong-ref
 quarantine registry beyond the current `_WORKER_QUARANTINE` list are still P2.3.
 Multi-viewport concurrent render() remains unserialised until that token lands.
+
+## 14. Phase 2.3 — bounded cancel + coalesced commit + global token (pkg266, 2026-09-10)
+
+Branch `feat/pkg266-viewport-p23-bounded-dispatch`. Implements the three P2.3
+items §13 left open (Terra review 4 (c)).
+
+### 14.1 Cancellation-bounded GPU dispatch (Terra (c), architectural)
+
+The pkg241 Phase 1b between-pass cancel poll (`gpu_wavefront_snapshot.cu`) already
+sat between wavefront passes, but it was ineffective for a busy chunk: the host
+launches passes ASYNC and races ahead of the GPU (a single-wave 1-spp chunk has no
+interior readback at all, `waves==1 continue`), so a detected cancel could not take
+effect until the whole queued backlog + the final regen + `cudaDeviceSynchronize`
+drained — the P2.2 cancel-p99 485 ms on `big`. A smaller Python `chunk` cannot fix
+this (Terra (c)): the backlog is inside one native `render()`.
+
+**Fix.** `cuda_wavefront_render` takes a `subPassBudget` (passes per bounded work
+unit). When it is > 0 and a cancel hook is set (the viewport interruptible path),
+the host calls `cudaDeviceSynchronize()` + polls the cancel hook every
+`subPassBudget` passes. The host can then be at most one unit ahead of the GPU, so
+on cancel the drained backlog is bounded to one unit's passes regardless of the
+full pass count. Crucially a host-side sync does **not** change device execution
+order, so `subPassBudget > 0` is **numerically identical** to `== 0`: it bounds
+latency without touching the image (the acceptance "byte-identity on vs off" — the
+GPU's own run-to-run atomicAdd reorder is the only residual, which the on-vs-off
+test bounds against the off-vs-off floor). The fleet render (null hook / budget 0)
+is byte-identical and perf-neutral: no extra syncs are issued. `last_render_info()`
+gains `units_launched` / `cancelled_at_unit`; the addon passes the budget via
+`renderer.render(sub_pass_budget=…)` (`viewport_subpass_budget()`, env
+`ASTRORAY_VIEWPORT_SUBPASS_BUDGET`, default 4).
+
+### 14.2 One process-global admission token + F12 pause gate (§3.5)
+
+The pkg241-spike per-worker `threading.Lock` serialised `render()` only WITHIN a
+session (the scene-switch corruption class, §13a). P2.3 replaces it with one
+module-level `_GLOBAL_ADMISSION_TOKEN` injected into every `_ViewportSpikeWorker`,
+plus a process-wide `_F12_PAUSE_GATE`. `maybe_submit` honours the gate and
+try-acquires the shared token non-blocking (defers on contention). F12
+(`RenderEngine.render`) calls `acquire_f12_admission()` — raise the gate, drain
+every live viewport worker to idle (`pause_worker_for_f12`, bounded, yields the
+GIL), then own the token across F12's renderer construction/config/scene
+conversion/render — and `release_f12_admission()` in a `finally` on every exit
+path (success/cancel/exception). A genuinely hung worker that never drains is
+quarantined; **F12 does NOT proceed** — see §14.6 item 1, which supersedes the
+earlier §3.5 item-4 "proceed under the raised gate" degraded path.
+
+### 14.3 Coalesced dirty-domain commit (§13 item 2, deferred from P2.2)
+
+`apply_depsgraph_updates` is split into a pure `_classify_depsgraph_domains`
+(diff()-based domain bucketing, called exactly once per edit) + `_dispatch_dirty_domains`
+(the Phase B uploaders). When the worker is busy, `view_update` records the
+coalesced dirty-domain mask from the LIVE `depsgraph.updates`
+(`_record_deferred_dirty`) — capturing the transform matrices now — and the next
+idle commit replays the safe material/light/environment/transform uploaders under
+the token (`_replay_deferred_dirty`) instead of a full `sync_viewport_scene` for
+every deferred edit (the continuous-storm tick-gap p95 root cause). GEOMETRY, the
+instanced TLAS-refit, and any unrecognised (fallback) edit set a full-sync flag —
+never guess a domain. Behaviourally the replay is identical to running the tested
+idle-time incremental dispatch for the same domains, just deferred.
+
+### 14.4 Terra-4 instrument (§13 item 3)
+
+`blender_recorder.py`'s settle pattern is now ADAPTIVE: after each edit burst it
+stays idle until a `terminal_publication` is observed in that idle span (and
+`>= settle_s` elapsed), so every idle span yields >= 1 eligible terminal
+generation and present-rate is gradeable (the P2.2 `completed=0` root cause). A
+5x settle_s cap bounds the wait. `blender_driver.py`'s reducer reports the
+bounded-dispatch accounting (`units_launched`, `cancelled_at_unit`).
+
+### 14.5 Results
+
+See `benchmarks/viewport_parity/results/2026-09-10-phase2-p23/SUMMARY.md` for the
+re-measured §9 gate table (idle GPU, Terra-4 instrument, both scenes, worker
+ON/OFF, settle + storm) and the `ASTRORAY_VIEWPORT_WORKER` default decision.
+
+### 14.6 Terra review (call 2/4, 2026-09-10) — BLOCK fixes
+
+Six items the lead agreed with; all fixed on this branch (PR #791):
+
+1. **F12 must never render token-less.** On a drain timeout `acquire_f12_admission`
+   returns False and keeps the pause gate raised; `RenderEngine.render` (F12) now
+   reports a user-visible ERROR and returns without constructing/converting/
+   rendering, instead of proceeding while a hung worker may still own the CUDA
+   context (the §13a race the token exists to prevent). This supersedes the §3.5
+   item-4 "F12 proceeds under the raised gate" degraded path. Closes issue #792.
+   Test: `test_f12_no_ack_worker_never_renders`.
+2. **Reduced-resolution first unit on the worker path.** The Phase-1a
+   `_budget_start_divisor()` divisor was only applied on the synchronous
+   `render_viewport_frame`; the worker submitted full `region.width/height` for
+   every generation, so P2.3 had no reduced first unit and the cancel unit was
+   four full-resolution passes. `_worker_commit_and_submit` now submits the FIRST
+   job at the divided dimensions and `_worker_view_draw` schedules the
+   full-resolution refinement as the next generation once the reduced unit
+   completes unsuperseded (Cycles start_resolution). The worker render loop records
+   the first chunk's full-res cost estimate so the budget engages on the worker
+   path. Present/upscale is unchanged (`draw_texture_2d` blits the smaller texture
+   at `region.width/height`). Tests: `test_worker_first_unit_reduced_then_refinement_full_res`,
+   `test_worker_cheap_scene_renders_full_res_first`,
+   `test_worker_view_draw_schedules_fullres_refinement`.
+3. **World node-tree classification.** A World shader-tree edit reaches the
+   depsgraph as a NodeTree/ShaderNodeTree update whose id is
+   `scene.world.node_tree`, not a World update, so it was bucketed MATERIALS and
+   the environment went stale. `WorldCache` now matches that node tree → ENVIRONMENT
+   (replay re-runs `setup_world`/`upload_environment`) and `MaterialsCache`
+   excludes it — never guess a domain. Tests:
+   `test_world_node_tree_edit_replays_environment_not_materials_only`,
+   `test_material_node_tree_edit_still_materials`.
+4. **Cancellation test runs through the first unit boundary.** The test now
+   continues past the first bounded-unit `cudaDeviceSynchronize()` and cancels on
+   the poll that follows it, asserting `units_launched >= 1` and that the cancel is
+   attributed to that completed unit — it FAILS against the old per-pass hook
+   (no unit sync → `units_launched == 0`).
+5. **Bounded-unit sync error check.** The intermediate `cudaDeviceSynchronize()`
+   now checks its status and throws (like the final sync) so a device fault
+   surfaces at the unit boundary instead of being swallowed.
+6. **Rebased onto post-#790 main** (addon builds OpenMP ON; the pkg147 guards are
+   gone), so the diff no longer carries the OpenMP-guard hunk.

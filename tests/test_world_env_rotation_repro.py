@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 #786 / #787 — World Mapping rotation + diffuse env illumination repro.
 
@@ -44,7 +43,6 @@ try:
 except ImportError:
     AVAILABLE = False
 
-from base_helpers import setup_camera  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 

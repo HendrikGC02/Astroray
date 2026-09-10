@@ -1448,8 +1448,8 @@ class EnvironmentMap {
 
     // Compute and store the baked rotation matrix.
     // Cycles cycles/blender/shader.cpp: XYZ extrinsic Euler order (Apache-2.0).
-    // When blender_conv=true, right-multiplies by R_cswap that maps Astroray
-    // world dir to the equirectangular env-map's Y-polar-axis space.
+    // When blender_conv=true, LEFT-multiplies by R_cswap that maps the Blender
+    // Z-up world dir into the equirectangular env-map's Y-polar-axis space.
     static void buildRotMat(float* M, float rx, float ry, float rz, bool blender_conv) {
         float cx = std::cos(rx), sx = std::sin(rx);
         float cy = std::cos(ry), sy = std::sin(ry);
@@ -1459,13 +1459,19 @@ class EnvironmentMap {
         M[3] = sz*cy;               M[4] = sz*sy*sx + cz*cx;  M[5] = sz*sy*cx - cz*sx;
         M[6] = -sy;                 M[7] = cy*sx;              M[8] = cy*cx;
         if (blender_conv) {
-            // Right-multiply by R_cswap [[1,0,0],[0,0,1],[0,-1,0]].
-            // New col1 = -old col2, new col2 = old col1.
-            for (int row = 0; row < 3; ++row) {
-                float c1 = M[row*3 + 1];
-                float c2 = M[row*3 + 2];
-                M[row*3 + 1] = -c2;
-                M[row*3 + 2] =  c1;
+            // #786 fix: LEFT-multiply by R_cswap [[1,0,0],[0,0,1],[0,-1,0]] so
+            // the Mapping Euler (R above) is applied in Blender WORLD space
+            // BEFORE the Z-up->env-Y-polar basis change, matching Cycles
+            // (MappingNode rotates the world vector, THEN direction_to_equi-
+            // rectangular). Right-multiplying (the pre-#786 code) applied the
+            // Euler in env space AFTER the swap, turning a Blender Z-yaw into a
+            // roll about a horizontal axis (horizon ran vertical ~90deg off).
+            // For M = R_cswap * M: new row1 = old row2, new row2 = -old row1.
+            for (int col = 0; col < 3; ++col) {
+                float r1 = M[3 + col];  // old row1
+                float r2 = M[6 + col];  // old row2
+                M[3 + col] =  r2;
+                M[6 + col] = -r1;
             }
         }
     }

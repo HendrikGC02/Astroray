@@ -998,19 +998,19 @@ These features are silently ignored by the addon with no warning:
 | TEX_NOISE | prop:noise_type | SUPPORTED |  |
 | TEX_NOISE | prop:normalize | SUPPORTED |  |
 | TEX_SKY | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
-| TEX_SKY | prop:aerosol_density | DROPPED-SILENT | property FLOAT |
-| TEX_SKY | prop:air_density | DROPPED-SILENT | property FLOAT |
+| TEX_SKY | prop:aerosol_density | APPROXIMATED | folded into effective Perez turbidity for the Nishita family (pkg256, approx) |
+| TEX_SKY | prop:air_density | APPROXIMATED | folded into effective Perez turbidity for the Nishita family (pkg256, approx) |
 | TEX_SKY | prop:altitude | DROPPED-SILENT | property FLOAT |
 | TEX_SKY | prop:ground_albedo | DROPPED-SILENT | property FLOAT |
 | TEX_SKY | prop:ozone_density | DROPPED-SILENT | property FLOAT |
-| TEX_SKY | prop:sky_type | DROPPED-SILENT | property ENUM |
+| TEX_SKY | prop:sky_type | APPROXIMATED | sky_type -> Preetham turbidity source (pkg256, Preetham/Perez bake) |
 | TEX_SKY | prop:sun_direction | DROPPED-SILENT | property FLOAT |
 | TEX_SKY | prop:sun_disc | DROPPED-SILENT | property BOOLEAN |
-| TEX_SKY | prop:sun_elevation | DROPPED-SILENT | property FLOAT |
+| TEX_SKY | prop:sun_elevation | APPROXIMATED | drives baked sun elevation in the equirect image (pkg256) |
 | TEX_SKY | prop:sun_intensity | DROPPED-SILENT | property FLOAT |
-| TEX_SKY | prop:sun_rotation | DROPPED-SILENT | property FLOAT |
+| TEX_SKY | prop:sun_rotation | APPROXIMATED | drives baked sun azimuth in the equirect image (pkg256) |
 | TEX_SKY | prop:sun_size | DROPPED-SILENT | property FLOAT |
-| TEX_SKY | prop:turbidity | DROPPED-SILENT | property FLOAT |
+| TEX_SKY | prop:turbidity | APPROXIMATED | Perez turbidity for PREETHAM/HOSEK_WILKIE sky_type (pkg256) |
 | TEX_VORONOI | input:Vector | DROPPED-SILENT |  |
 | TEX_VORONOI | input:W | DROPPED-SILENT |  |
 | TEX_VORONOI | input:Scale | SUPPORTED |  |

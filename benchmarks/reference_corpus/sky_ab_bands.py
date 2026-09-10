@@ -21,7 +21,7 @@ import numpy as np
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "blender_addon"))
-import sky_bake  # noqa: E402
+import sky_bake
 
 BLEND = os.path.join(REPO, "benchmarks", "reference_corpus", "scenes", "world_sky_sky.blend")
 RES_X, RES_Y, SAMPLES = 240, 135, 48
@@ -29,10 +29,8 @@ RES_X, RES_Y, SAMPLES = 240, 135, 48
 bpy.ops.wm.open_mainfile(filepath=BLEND)
 scene = bpy.context.scene
 scene.render.engine = "CYCLES"
-try:
+if hasattr(scene, "cycles"):
     scene.cycles.device = "CPU"
-except Exception:
-    pass
 scene.cycles.samples = SAMPLES
 scene.render.resolution_x = RES_X
 scene.render.resolution_y = RES_Y

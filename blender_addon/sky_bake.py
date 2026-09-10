@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """pkg256 — Sky-texture (`ShaderNodeTexSky`) bake to an equirectangular HDRI.
 
 Standalone (no bpy calls; image I/O is a self-contained Radiance-RGBE writer)
@@ -219,8 +218,8 @@ def write_hdr(path, rgb):
     rgb = np.asarray(rgb, dtype=np.float32)
     height, width = rgb.shape[0], rgb.shape[1]
     rgbe = _to_rgbe(rgb)
-    header = ("#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y %d +X %d\n"
-              % (height, width)).encode("ascii")
+    header = (f"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y {height} +X {width}\n"
+              ).encode("ascii")
     with open(path, "wb") as fh:
         fh.write(header)
         fh.write(rgbe.tobytes())

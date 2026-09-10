@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """pkg256 — Sky-texture (`ShaderNodeTexSky`) bake tests (CPU, no Blender).
 
 Verifies the Preetham/Perez equirect bake in `blender_addon/sky_bake.py`:
@@ -25,7 +24,7 @@ _ADDON_DIR = os.path.join(
 if _ADDON_DIR not in sys.path:
     sys.path.insert(0, _ADDON_DIR)
 
-import sky_bake  # noqa: E402
+import sky_bake
 
 pytestmark = pytest.mark.cpu
 
@@ -49,7 +48,7 @@ def _expected_sun_pixel(elevation, rotation, width=W, height=H):
     """Row/col the sun should land on, per research note §4."""
     row = (0.5 * math.pi - elevation) / math.pi * height
     col = ((0.5 - rotation / (2.0 * math.pi)) % 1.0) * width
-    return int(round(row)) % height, int(round(col)) % width
+    return round(row) % height, round(col) % width
 
 
 def test_bake_finite_and_nonuniform():
@@ -160,7 +159,7 @@ def astroray_mod():
         import astroray
         return astroray
     except ImportError as e:
-        pytest.skip("astroray module not available: %s" % e)
+        pytest.skip(f"astroray module not available: {e}")
 
 
 def test_temp_file_loads_and_orientation_matches_engine(astroray_mod):
@@ -223,9 +222,9 @@ def test_sky_band_luminance_within_25pct_of_cycles():
     if not os.path.exists(_BLENDER):
         pytest.skip("Blender 5.2 not installed - local-host gate")
     proc = subprocess.run([_BLENDER, "-b", "--factory-startup", "--python", _AB_SCRIPT],
-                          capture_output=True, text=True, timeout=300)
-    line = next((l for l in proc.stdout.splitlines() if l.startswith("PKG256_AB ")), None)
-    assert line is not None, "no A/B result:\n%s\n%s" % (proc.stdout[-2000:], proc.stderr[-1000:])
+                          capture_output=True, text=True, timeout=300, check=False)
+    line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("PKG256_AB ")), None)
+    assert line is not None, f"no A/B result:\n{proc.stdout[-2000:]}\n{proc.stderr[-1000:]}"
     res = json.loads(line[len("PKG256_AB "):])
     for band, data in res.items():
         assert abs(data["ratio_lum"] - 1.0) <= 0.25, (band, data)

@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** in-progress — Preetham/Perez bake landed (PR pending, 2026-09-10); Cycles sky-band A/B upper 1.00 / horizon 0.90 lum ratio; world_sky_sky renders sky (no longer black); lead flips to done after contact-sheet inspection
 **Estimated effort:** 1 week
 **Depends on:** pkg63, pkg229
 
@@ -172,6 +172,35 @@ bake-to-image step, which is genuinely new physics and therefore requires
 ## Progress
 
 - [ ] 2026-09-07 — filed per owner gate-(b) decision.
+- [x] 2026-09-10 — cite-algorithm note `.astroray_plan/docs/pkg256-sky-model-research.md`:
+      **Preetham/Perez (1999)** implemented, constants verified vs MIT appleseed
+      ref; Blender GPL sky code not used; Hosek-Wilkie BSD-3 licence recorded
+      (considered, deferred — large fitted dataset). All four `sky_type` routed
+      through the one licence-clean model (spec decision 2): Nishita family
+      (SINGLE/MULTIPLE_SCATTERING) derives effective turbidity from
+      air/aerosol density; PREETHAM/HOSEK_WILKIE use the `turbidity` prop.
+- [x] 2026-09-10 — `blender_addon/sky_bake.py` (pure-numpy equirect bake +
+      Radiance-RGBE writer, ~0.06 s per 1024×512 bake) + `setup_world` TEX_SKY
+      branch (bake → temp .hdr → `load_environment_map` → cleanup; no engine
+      change). Sun position from `sun_elevation`/`sun_rotation` baked into the
+      image (not a Mapping rotation) — orientation gate to re-run after #786.
+- [x] 2026-09-10 — coverage matrix: 6 props consumed by the bake (sky_type,
+      sun_elevation, sun_rotation, turbidity, air_density, aerosol_density)
+      DROPPED-SILENT → APPROXIMATED; the other 8 stay DROPPED-SILENT and are
+      named verbatim in the runtime degradation warning (sun_disc, sun_size,
+      sun_intensity, sun_direction, altitude, ozone_density, ground_albedo,
+      Vector). world_sky_sky builder + manifest gap cards updated;
+      `test_reference_corpus_manifest` 22 passed.
+- [x] 2026-09-10 — tests `tests/test_pkg256_sky_bake.py` 14 passed (12 numpy +
+      engine load/orientation round-trip via `eval_env_rgb_upsample` +
+      Blender-gated Cycles sky-band A/B). Cycles A/B per-band luminance ratio:
+      upper_sky 1.00, horizon 0.90 (within ±25%); per-channel colour differs
+      (Preetham warm horizon vs Nishita blue). Radiance scale calibrated
+      1/120 → 1/1766.
+- [x] 2026-09-10 — rendered world_sky_sky through the CPU-staged addon; sky
+      renders (top-strip mean [0.20,0.24,0.32], blue) — no longer black.
+      Contact sheet `benchmarks/reference_corpus/refs/world_sky_sky_pkg256_contact_sheet.png`.
+      Ground stays dark pending #787; sky shows fixed-resolution-bake banding.
 
 ---
 

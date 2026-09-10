@@ -21,12 +21,12 @@ set(ASTRORAY_ENABLE_OPTIX "AUTO" CACHE STRING
 set_property(CACHE ASTRORAY_ENABLE_OPTIX PROPERTY STRINGS "AUTO" "ON" "OFF")
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 option(ASTRORAY_ENABLE_PYTEST_TARGET "Add an astroray_pytest convenience target" ON)
-# Disable OpenMP entirely. Needed when building the Python module (.pyd) for
-# distribution as a Blender addon: MinGW's libgomp deadlocks during module
-# init when loaded into Blender's MSVC-built Python host. Standalone pytest
-# usage is unaffected because we always build a fresh target; the addon
-# packager sets this to ON.
-option(ASTRORAY_DISABLE_OPENMP "Disable OpenMP (needed for MinGW .pyd in Blender)" OFF)
+# Disable OpenMP entirely. Kept as an escape hatch for hosts where an OpenMP
+# runtime cannot be loaded; it is NOT set by the Blender addon packager any
+# more (issue #780, 2026-09-09). The historical "OpenMP hangs inside Blender"
+# rule was a GIL deadlock, not a libgomp/vcomp defect — see the render()
+# binding note in module/blender_module.cpp (pkg241 py::gil_scoped_release).
+option(ASTRORAY_DISABLE_OPENMP "Disable OpenMP (escape hatch; see issue #780)" OFF)
 
 # ---------------------------------------------------------------------------
 # Python hint bridge: -DPYTHON_EXECUTABLE (legacy/CI) → Python3_EXECUTABLE
@@ -299,8 +299,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     endif()
     add_compile_options(-fno-finite-math-only)
 
-    # OpenMP for parallel rendering (suppressed for the Blender .pyd build —
-    # libgomp deadlocks inside Blender's host Python on Windows/MinGW)
+    # OpenMP for parallel rendering. The Blender .pyd build enables it too
+    # (issue #780); the old suppression was a workaround for the CPU-render
+    # GIL deadlock that pkg241's py::gil_scoped_release removed.
     if(NOT ASTRORAY_DISABLE_OPENMP)
         find_package(OpenMP REQUIRED)
         if(OpenMP_CXX_FOUND)
@@ -662,13 +663,13 @@ if(BUILD_PYTHON_MODULE)
         target_link_libraries(astroray PRIVATE OpenMP::OpenMP_CXX)
     endif()
 
-    # pkg147: surface OpenMP-enabled status to Python via __features__ so
-    # blender_addon's _check_build_integrity() can refuse to register an
-    # OpenMP-enabled .pyd — Renderer::render()'s progress callback (called
-    # from whichever OpenMP worker thread finishes a tile, raytracer.h's
-    # `#pragma omp parallel for` render loop) deadlocks against the GIL held
-    # by the calling thread for the whole render() call (no
-    # gil_scoped_release on PyRenderer::render in module/blender_module.cpp).
+    # pkg147 / issue #780: surface OpenMP-enabled status to Python via
+    # __features__ so tooling can report whether the loaded .pyd is threaded.
+    # The pkg147 addon-side refusal this originally fed is gone — the CPU
+    # render no longer deadlocks (pkg241 added the py::gil_scoped_release
+    # around Renderer::render in module/blender_module.cpp, so the OpenMP
+    # worker that finishes a tile can re-acquire the GIL for the progress
+    # callback) — and the addon packager now builds with OpenMP ON.
     # Gated on ASTRORAY_DISABLE_OPENMP directly (not OpenMP_CXX_FOUND): that
     # variable is only ever set via find_package(OpenMP) in the GNU/Clang
     # branch above — the MSVC branch adds /openmp without touching it, so
@@ -676,9 +677,6 @@ if(BUILD_PYTHON_MODULE)
     # VCOMP140.DLL) are actually linked in. ASTRORAY_DISABLE_OPENMP is the
     # single option both compiler branches gate their real /openmp / -fopenmp
     # application on, so it's the correct compiler-agnostic predicate here.
-    # build_blender_addon.py always passes -DASTRORAY_DISABLE_OPENMP=ON so the
-    # shipped addon never hits this; this guards ad-hoc/dev builds (e.g. a raw
-    # cmake configure or configure_and_build.bat run) that bypass that script.
     if(NOT ASTRORAY_DISABLE_OPENMP)
         target_compile_definitions(astroray PRIVATE ASTRORAY_OPENMP_ENABLED)
     endif()

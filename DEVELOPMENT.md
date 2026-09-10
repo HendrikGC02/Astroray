@@ -31,8 +31,10 @@ Each guard encodes a failure mode this repo has actually shipped
 
 - **Stale `.pyd`** - rejects a compiled module older than `HEAD` after a full build
   (you would otherwise test old code).
-- **OpenMP left on** - refuses an addon build not configured with
-  `-DASTRORAY_DISABLE_OPENMP=ON` (MinGW libgomp deadlocks inside Blender).
+- **OpenMP left off** - refuses an addon build not configured with
+  `-DASTRORAY_DISABLE_OPENMP=OFF` (issue #780: the addon CPU leg would render
+  single-threaded). Inverted from the old "OpenMP must be off" guard once
+  pkg241's `py::gil_scoped_release` removed the CPU-render GIL deadlock.
 - **Allow-list drift** - every `blender_addon/*.py` must be in `ADDON_FILES`
   (in `scripts/build/build_blender_addon.py`) or explicitly excluded, so a new
   module cannot silently fail to ship.

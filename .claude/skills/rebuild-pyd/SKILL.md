@@ -16,9 +16,9 @@ This skill does the canonical clean rebuild for one of three variants. The user 
 |-------------|----------------------------------------------|----------|-------|-------------------------|
 | `standalone`| `cmake --preset windows-cpu-vs` + build      | ON       | OFF   | pytest, CLI raytracer   |
 | `cuda`      | `cmake --preset windows-cuda-vs` + build     | ON       | ON    | pytest with GPU         |
-| `blender`   | `python scripts/build/build_blender_addon.py`| **OFF**  | OFF   | Blender's MSVC Python   |
+| `blender`   | `python scripts/build/build_blender_addon.py`| **ON**   | OFF   | Blender's MSVC Python   |
 
-**Hard rule**: the `blender` variant MUST build with `-DASTRORAY_DISABLE_OPENMP=ON`. MinGW `libgomp-1.dll` deadlocks silently inside Blender's MSVC-built host Python. The `build_blender_addon.py` path already sets this; do not override it. (See `memory/mingw_openmp_blender_deadlock.md`.)
+**Note (issue #780, 2026-09-09)**: the `blender` variant now builds with OpenMP **ON**. The historic "OpenMP hangs the Blender addon" rule was a GIL/OpenMP circular wait, not a `libgomp`/`vcomp` toolchain defect: OpenMP workers acquired the GIL for the progress callback while the master held it at the end-of-parallel-region barrier. pkg241 (#748) released the GIL across the CPU render (`py::gil_scoped_release`), so the deadlock can no longer occur, and forcing OpenMP OFF cost the addon CPU leg every core but one. `build_blender_addon.py` sets `-DASTRORAY_DISABLE_OPENMP=OFF` and bundles `vcomp140.dll` next to the `.pyd`; do not override it back to ON. (See `.astroray_plan/docs/780-addon-openmp-deadlock-root-cause-2026-09.md`; `memory/mingw_openmp_blender_deadlock.md` is superseded.)
 
 ## Procedure
 
@@ -43,7 +43,7 @@ This skill does the canonical clean rebuild for one of three variants. The user 
 3. **Rebuild the chosen variant:**
    - `standalone`: `cmake --preset windows-cpu-vs` then `cmake --build --preset windows-cpu-vs-release`
    - `cuda`: `cmake --preset windows-cuda-vs` then `cmake --build --preset windows-cuda-vs-release`
-   - `blender`: `python scripts/build/build_blender_addon.py` — do not pass extra CMake flags; the script owns `ASTRORAY_DISABLE_OPENMP=ON` and `PYBIND11_FINDPYTHON=ON`.
+   - `blender`: `python scripts/build/build_blender_addon.py` — do not pass extra CMake flags; the script owns `ASTRORAY_DISABLE_OPENMP=OFF` (OpenMP ON since issue #780) and `PYBIND11_FINDPYTHON=ON`, and bundles `vcomp140.dll`.
 
 4. **Verify the fresh artifact.** Re-run the `Get-ChildItem` from step 1 and confirm the timestamp on the expected output (e.g. `build/astroray.cp312-win_amd64.pyd`) is newer than 60 seconds ago. If any shadow reappeared (e.g. a post-build copy step you forgot about), surface that path rather than silently moving on.
 

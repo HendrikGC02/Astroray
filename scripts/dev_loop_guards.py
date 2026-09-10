@@ -7,10 +7,10 @@ failure mode this repo has actually shipped:
 
   (a) pyd_is_stale            — stale-.pyd (memory: stale_pyd_locations). Refuse
                                 to package a ``.pyd`` older than HEAD.
-  (b) openmp_disabled_*       — MinGW libgomp deadlocks inside Blender
-                                (memory: mingw_openmp_blender_deadlock). Refuse
-                                an addon build that was not configured with
-                                ``-DASTRORAY_DISABLE_OPENMP=ON``.
+  (b) openmp_enabled_*        — issue #780: the addon CPU leg renders
+                                single-threaded when OpenMP is compiled out.
+                                Refuse an addon build that was not configured
+                                with ``-DASTRORAY_DISABLE_OPENMP=OFF``.
   (c) addon_files_drift       — the packaging allow-list drift trap
                                 (memory: addon-packaging-file-list). Every
                                 ``blender_addon/*.py`` on disk must be in
@@ -81,26 +81,33 @@ def find_built_pyd(build_dir: Path | str) -> Path | None:
 
 
 # --------------------------------------------------------------------------- #
-# (b) OpenMP-disabled guard
+# (b) OpenMP-enabled guard (issue #780)
 # --------------------------------------------------------------------------- #
 
-def openmp_disabled_in_flags(cmake_flags: list[str]) -> bool:
-    """True iff the flag list carries ``-DASTRORAY_DISABLE_OPENMP=ON``."""
+def openmp_enabled_in_flags(cmake_flags: list[str]) -> bool:
+    """True iff the flag list carries ``-DASTRORAY_DISABLE_OPENMP=OFF``.
+
+    Inverted from the pkg147 "OpenMP must be off" guard by issue #780. The old
+    hang was a GIL deadlock (PyRenderer::render held the GIL across the OpenMP
+    tile loop while workers blocked re-acquiring it for the progress callback),
+    fixed by pkg241's py::gil_scoped_release. Leaving OpenMP off now costs the
+    addon every core it has, so the guard defends the opposite invariant.
+    """
     for flag in cmake_flags:
         norm = flag.replace(" ", "").upper()
-        if norm == "-DASTRORAY_DISABLE_OPENMP=ON":
+        if norm == "-DASTRORAY_DISABLE_OPENMP=OFF":
             return True
     return False
 
 
-def openmp_disabled_in_build_report(staged_dir: Path | str) -> bool:
+def openmp_enabled_in_build_report(staged_dir: Path | str) -> bool:
     """Read ``build_report.json`` written by build_blender_addon.py and confirm
-    the build was configured with OpenMP off."""
+    the build was configured with OpenMP on."""
     report = Path(staged_dir) / "build_report.json"
     if not report.exists():
         raise FileNotFoundError(f"no build_report.json in {staged_dir}")
     flags = json.loads(report.read_text()).get("cmake_flags", [])
-    return openmp_disabled_in_flags(flags)
+    return openmp_enabled_in_flags(flags)
 
 
 # --------------------------------------------------------------------------- #
@@ -165,15 +172,16 @@ def _cmd_pyd_fresh(args) -> int:
 
 def _cmd_openmp(args) -> int:
     try:
-        ok = openmp_disabled_in_build_report(args.staged)
+        ok = openmp_enabled_in_build_report(args.staged)
     except FileNotFoundError as exc:
         print(f"[guard:openmp] FAIL - {exc}")
         return 1
     if not ok:
         print("[guard:openmp] FAIL - build was NOT configured with "
-              "-DASTRORAY_DISABLE_OPENMP=ON (libgomp deadlocks in Blender)")
+              "-DASTRORAY_DISABLE_OPENMP=OFF (issue #780: the addon CPU leg "
+              "would render single-threaded)")
         return 1
-    print("[guard:openmp] PASS - -DASTRORAY_DISABLE_OPENMP=ON")
+    print("[guard:openmp] PASS - -DASTRORAY_DISABLE_OPENMP=OFF")
     return 0
 
 
@@ -202,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--repo", default=str(REPO_ROOT))
     p.set_defaults(func=_cmd_pyd_fresh)
 
-    p = sub.add_parser("openmp", help="(b) refuse a build without OpenMP off")
+    p = sub.add_parser("openmp", help="(b) refuse a build without OpenMP on")
     p.add_argument("--staged", required=True, help="staged addon dir (has build_report.json)")
     p.set_defaults(func=_cmd_openmp)
 

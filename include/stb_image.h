@@ -7218,7 +7218,6 @@ static float *stbi__hdr_load(stbi__context *s, int *x, int *y, int *comp, int re
       for (j=0; j < height; ++j) {
          for (i=0; i < width; ++i) {
             stbi_uc rgbe[4];
-           main_decode_loop:
             stbi__getn(s, rgbe, 4);
             stbi__hdr_convert(hdr_data + j * width * req_comp + i * req_comp, rgbe, req_comp);
          }
@@ -7240,10 +7239,22 @@ static float *stbi__hdr_load(stbi__context *s, int *x, int *y, int *comp, int re
             rgbe[2] = (stbi_uc) len;
             rgbe[3] = (stbi_uc) stbi__get8(s);
             stbi__hdr_convert(hdr_data, rgbe, req_comp);
-            i = 1;
-            j = 0;
             STBI_FREE(scanline);
-            goto main_decode_loop; // yes, this makes no sense
+            // Astroray local patch (issue #797): upstream jumps back into the
+            // nested flat-read loop above (`goto main_decode_loop` with i=1,
+            // j=0). GCC 15.2 (MinGW-Builds, x86_64-mcf-seh) at -O2/-O3
+            // miscompiles that abnormal edge: flat (non-RLE) .hdr files with
+            // 8 <= width < 32768 decode with every other row garbage. Read the
+            // remaining pixels in a structured loop instead; same bytes, same
+            // output, no jump into a loop body.
+            {
+               int k;
+               for (k = 1; k < width * height; ++k) {
+                  stbi__getn(s, rgbe, 4);
+                  stbi__hdr_convert(hdr_data + k * req_comp, rgbe, req_comp);
+               }
+            }
+            return hdr_data;
          }
          len <<= 8;
          len |= stbi__get8(s);

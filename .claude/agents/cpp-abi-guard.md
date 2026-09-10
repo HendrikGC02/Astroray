@@ -29,14 +29,27 @@ Check:
 
 ### 2. OpenMP in code reachable from the Blender addon
 
-MinGW `libgomp-1.dll` deadlocks silently in Blender's MSVC-built host Python at module init. The Blender addon build uses `-DASTRORAY_DISABLE_OPENMP=ON`; any `#pragma omp` in code that ends up in the addon `.pyd` is a latent hang.
+Since issue #780 / PR #790 (2026-09-10) the Blender addon `.pyd` is built with
+OpenMP **ON** (MinGW `libgomp-1.dll` or MSVC `vcomp140.dll` bundled by
+`scripts/build/build_blender_addon.py`). The historical "OpenMP hangs inside
+Blender" rule was a GIL circular wait, not a toolchain defect: an OpenMP worker
+called the Python progress callback under `py::gil_scoped_acquire` while the
+master thread held the GIL at the parallel-region barrier (root cause note
+`.astroray_plan/docs/780-addon-openmp-deadlock-root-cause-2026-09.md`). pkg241's
+`py::gil_scoped_release` around the CPU render removed the hold. That discipline
+is now load-bearing:
 
-Check:
-- `grep -rn "#pragma omp\|omp_get\|omp_set\|<omp.h>" src/`
-- For each hit, trace whether the file is compiled into the Blender addon target. Read `CMakeLists.txt` and `scripts/build/build_blender_addon.py` to see which sources are in the addon target vs CLI-only.
-- A new OpenMP pragma is OK only if (a) the file is excluded from the addon target, or (b) the pragma is wrapped in `#ifndef ASTRORAY_DISABLE_OPENMP`.
-- Flag any pybind11 binding code (`PYBIND11_MODULE`, `.def(...)`) that transitively reaches an OpenMP region without that guard — that's the deadlock path.
-
+- `grep -rn "#pragma omp\|omp_get\|omp_set\|<omp.h>" include/ src/ plugins/ module/`
+- For each region compiled into the addon target, enumerate every path to a
+  Python object (progress/cancel callbacks, `py::object` captured in lambdas,
+  `py::print`, logging hooks, viewport-session hooks). The thread that ENTERS the
+  region must have released the GIL (`py::gil_scoped_release` / `call_guard`),
+  and Python may only be touched under a fresh `py::gil_scoped_acquire` that can
+  never wait on a thread parked at the OpenMP barrier.
+- Flag any new pybind11 binding that reaches an OpenMP region while still holding
+  the GIL, and any new Python touch added inside a region — that is the deadlock path.
+- `-DASTRORAY_DISABLE_OPENMP=ON` remains an escape hatch only; a change that
+  re-introduces it for the addon build needs the root-cause note updated.
 ### 3. pybind11 / Python ABI mismatch
 
 `PYBIND11_FINDPYTHON=ON` is required; without it, pybind11's legacy `FindPythonInterp` picks the wrong Python from `PATH`, producing a cp312 `.pyd` built against Python 3.13 headers that Blender refuses to load.

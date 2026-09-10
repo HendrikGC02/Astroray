@@ -118,7 +118,7 @@ the same P2.3 list. Serves Pillar 5.
 ## Progress
 
 - [ ] 2026-09-09 — filed by the lead at the P2.2 closeout; not started.
-- [~] 2026-09-10 — implementation landed on `feat/pkg266-viewport-p23-bounded-dispatch`:
+- [~] 2026-09-10 — **PR #791** (`feat/pkg266-viewport-p23-bounded-dispatch`):
   - **Native bounded dispatch** (`gpu_wavefront_snapshot.{h,cu}`, `blender_module.cpp`):
     `sub_pass_budget` on `render()` — the GPU driver calls `cudaDeviceSynchronize()`
     + polls the cancel hook every N wavefront passes, so an in-flight chunk stops

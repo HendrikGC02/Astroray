@@ -201,3 +201,31 @@ def test_temp_file_loads_and_orientation_matches_engine(astroray_mod):
         assert sun_lum >= np.quantile(others, 0.95), (sun_lum, np.quantile(others, 0.95))
     finally:
         os.unlink(path)
+
+
+# --- Cycles A/B: sky-band luminance within 25% (Blender-gated, serial) --------
+_BLENDER = os.environ.get(
+    "ASTRORAY_BLENDER",
+    r"C:/Program Files/Blender Foundation/Blender 5.2/blender.exe")
+_AB_SCRIPT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "benchmarks", "reference_corpus", "sky_ab_bands.py")
+
+
+@pytest.mark.serial
+def test_sky_band_luminance_within_25pct_of_cycles():
+    """Render the corpus world_sky_sky scene in Cycles at low res, bake the same
+    sky, project it into the camera, and compare the per-band MEAN LUMINANCE.
+    Gated loosely (±25% per band) — the per-channel colour differs by design
+    (Preetham warm horizon vs Cycles' Nishita blue). Requires Blender 5.2."""
+    import json
+    import subprocess
+    if not os.path.exists(_BLENDER):
+        pytest.skip("Blender 5.2 not installed - local-host gate")
+    proc = subprocess.run([_BLENDER, "-b", "--factory-startup", "--python", _AB_SCRIPT],
+                          capture_output=True, text=True, timeout=300)
+    line = next((l for l in proc.stdout.splitlines() if l.startswith("PKG256_AB ")), None)
+    assert line is not None, "no A/B result:\n%s\n%s" % (proc.stdout[-2000:], proc.stderr[-1000:])
+    res = json.loads(line[len("PKG256_AB "):])
+    for band, data in res.items():
+        assert abs(data["ratio_lum"] - 1.0) <= 0.25, (band, data)

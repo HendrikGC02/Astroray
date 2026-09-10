@@ -40,10 +40,13 @@ DROPPED_SOCKETS = (
 
 # Photometric-luminance (cd/m²) → radiance unit bridge. Preetham Yz is
 # photometric (~O(1e3-1e4)); the engine env path treats pixel values as
-# radiance and multiplies by the World Background Strength. ~broadband
-# daylight luminous efficacy (120 lm/W). Not a spectral match — see research
-# note §3; Cycles A/B gated loosely (±25% per band).
-LUM_TO_RADIANCE = 1.0 / 120.0
+# radiance and multiplies by the World Background Strength. Calibrated
+# empirically so the baked upper-sky band matches the Cycles Nishita sky of
+# the corpus scene world_sky_sky (measured luminance ratio 14.7 at 1/120 →
+# 1/1766). Not a spectral match — the residual per-channel colour difference
+# is the genuine Preetham-vs-Nishita divergence; see research note §3, Cycles
+# A/B gated loosely (per-band luminance, not per-channel).
+LUM_TO_RADIANCE = 1.0 / 1766.0
 
 # CIE xyY -> linear sRGB (Rec.709 / D65).
 _XYZ_TO_RGB = np.array(

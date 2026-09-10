@@ -40,7 +40,8 @@ permits the narrower floor). Output still varies with `sky_type`:
 
 - `SINGLE_SCATTERING` / `MULTIPLE_SCATTERING` (Nishita family): effective
   turbidity derived from `air_density` + `aerosol_density`
-  (`T_eff = 2.0 + 2.0*air_density + 8.0*aerosol_density`, clamped [1.7, 10]).
+  (`T_eff = 2.0 + 2.0*aerosol_density + 0.5*air_density`, clamped [1.7, 10];
+  Blender defaults air=aerosol=1 → T=4.5, a moderate clear sky).
   This is an **approximation** — Blender's Nishita is a physical
   single-/multiple-scattering atmosphere with ozone/altitude; Perez is a
   fitted luminance distribution. Error is largest at low sun and in the

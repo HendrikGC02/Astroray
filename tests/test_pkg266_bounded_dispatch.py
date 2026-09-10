@@ -104,32 +104,55 @@ def test_subpass_dispatch_counts_units():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.gpu
-def test_cancel_acknowledged_within_one_unit():
-    """A callback that cancels after the first poll stops the render at the first
-    bounded unit and returns a valid partial frame; cancelled_at_unit records the
-    unit boundary the cancel was seen at (bounded by the sub-pass budget, not by
-    the full pass count)."""
+def test_cancel_acknowledged_at_the_first_completed_unit():
+    """Terra review (item 4): run THROUGH the first bounded-unit boundary, then
+    cancel at the poll that follows a completed unit's cudaDeviceSynchronize().
+
+    The old pkg241 hook polled the cancel callback EVERY pass with no bounded
+    sync, so it had no notion of a 'unit' — `units_launched` stays 0 and
+    `cancelled_at_unit` cannot record a completed unit. This test therefore FAILS
+    against a build with the old per-pass hook only (units_launched == 0 /
+    cancelled_at_unit == 0 before any unit synced) and passes only with the
+    bounded-dispatch driver: it asserts at least one unit COMPLETED before the
+    cancel and that the cancel was attributed to that completed unit.
+
+    The driver polls the cancel hook every pass but only SYNCS + counts a unit at
+    each `budget`-pass boundary (pass % budget == 0), before that poll. With
+    budget == 2 the poll sequence is: pass 0 (no unit), pass 1 (no unit), pass 2
+    (unit 1 just synced), … so cancelling on the third poll lands immediately
+    after the first bounded unit completed — units_launched >= 1 and
+    cancelled_at_unit == 1. The live unit count is not exposed to the callback
+    (last_render_info() publishes only after the render returns), so the test
+    drives the boundary by counting polls, which is deterministic given the fixed
+    budget."""
     _skip_if_no_gpu()
     r = _cornell(96, 96)
 
+    # Continue through the first two polls (passes 0,1 — no unit synced yet) and
+    # cancel on the third (pass 2), which lands right after the first unit's
+    # cudaDeviceSynchronize(). budget=2 makes this deterministic.
     state = {"calls": 0}
 
-    def cancel_first(_frac):
+    def cancel_after_first_unit(_frac):
         state["calls"] += 1
-        # Continue on the very first poll (so at least one unit runs), cancel
-        # thereafter.
-        return state["calls"] < 2
+        return state["calls"] < 3   # cancel on the 3rd poll (post first-unit sync)
 
-    pixels = np.asarray(r.render(32, 6, cancel_first, False, sub_pass_budget=2),
-                        dtype=np.float32)
+    pixels = np.asarray(
+        r.render(32, 6, cancel_after_first_unit, False, sub_pass_budget=2),
+        dtype=np.float32)
     info = r.last_render_info()
 
     assert info["cancelled"] is True
-    # The cancel was observed at an early unit — not after every pass of the
-    # whole 32-spp chunk drained.
-    assert info["cancelled_at_unit"] >= 0
+    # A bounded unit COMPLETED before the cancel — the old per-pass hook could not
+    # produce this (it never synced a unit; units_launched would be 0).
+    assert info["units_launched"] >= 1, (
+        f"no bounded unit completed before cancel (units_launched="
+        f"{info['units_launched']}) — bounded dispatch inactive / old hook")
+    # The cancel was attributed to the completed unit it followed, and remains
+    # bounded to an early unit (not the full 32-spp / depth-6 pass backlog).
+    assert info["cancelled_at_unit"] >= 1
     assert info["cancelled_at_unit"] <= 4, (
-        f"cancel took {info['cancelled_at_unit']} units — not bounded to one")
+        f"cancel took {info['cancelled_at_unit']} units — not bounded")
     assert pixels.shape == (96, 96, 3)
     assert np.all(np.isfinite(pixels))
     assert np.all(pixels >= 0.0)

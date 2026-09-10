@@ -1910,7 +1910,15 @@ std::vector<float> cuda_wavefront_render(
             // the fleet render (null hook) is unchanged and perf-neutral.
             if (cancelRequested && subPassBudget > 0 && pass > 0
                     && (pass % subPassBudget == 0)) {
-                cudaDeviceSynchronize();
+                // pkg266 (Terra review, item 5): check the bounded-unit sync
+                // error and throw like the final sync (line ~2033) does, so a
+                // device fault surfaces at the unit boundary instead of being
+                // swallowed and mis-attributed to a later launch.
+                cudaError_t unitErr = cudaDeviceSynchronize();
+                if (unitErr != cudaSuccess)
+                    throw std::runtime_error(
+                        std::string("cuda_wavefront_render bounded-unit sync: ") +
+                        cudaGetErrorString(unitErr));
                 ++cwfUnitsLaunched;
             }
             // pkg241 Phase 1b: cooperative cancellation checkpoint (host,

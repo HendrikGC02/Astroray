@@ -1261,7 +1261,22 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # no live sessions and the token is uncontended, so this is a cheap no-op.
         from . import exporter as _exp_f12
         try:
-            _exp_f12.acquire_f12_admission()
+            # pkg266 (Terra review, item 1): F12 must NEVER render token-less. If
+            # a viewport worker fails to drain within the timeout the global
+            # admission token could still be owned by a live worker touching the
+            # shared WfContext / __constant__ bindings (the §13a scene-switch race
+            # the token exists to prevent). On that no-ack path acquire_f12_admission
+            # returns False AND keeps the pause gate raised; abort the F12 render
+            # here (never construct/convert/render) with a user-visible error. The
+            # finally below lowers the gate on this exit path too.
+            if not _exp_f12.acquire_f12_admission():
+                self.report(
+                    {'ERROR'},
+                    "Astroray: a viewport render worker did not release the GPU "
+                    "within the drain timeout; F12 render aborted to avoid a "
+                    "GPU-context race (pkg266 §3.5). Switch the 3D viewport out "
+                    "of 'Rendered' shading and retry.")
+                return
             renderer = astroray.Renderer()
             renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
             self.convert_scene(depsgraph, renderer, width, height, resolved=settings)

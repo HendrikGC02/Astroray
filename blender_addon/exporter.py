@@ -124,11 +124,15 @@ def acquire_f12_admission(timeout=5.0):
     to idle so the global token is provably free, then acquire the global
     admission token and hold it across F12's renderer construction / configuration
     / scene conversion / render. The token acquire is BOUNDED by `timeout`: a
-    genuinely hung worker that never drained is quarantined (its session stopped)
-    and F12 proceeds without the token — the gate still blocks any new admission,
-    so no *new* render can start (§3.5 item 4 no-ack path). Returns True if F12
-    holds the token. Pair with release_f12_admission() in a finally so the gate is
-    lowered (and any held token released) on EVERY exit path."""
+    genuinely hung worker that never drained is quarantined (its session stopped).
+    Returns True iff F12 acquired the token. On False (the no-ack path) the gate
+    stays RAISED and the caller MUST abort the F12 render — pkg266 (Terra review,
+    item 1) supersedes the earlier §3.5 item-4 "proceed without the token" degraded
+    path: F12 rendering while a live worker may still own the CUDA context is
+    exactly the §13a race the token exists to prevent, so the caller reports an
+    error and never enters conversion/render. Pair with release_f12_admission() in
+    a finally so the gate is lowered (and any held token released) on EVERY exit
+    path (including the aborted no-ack render)."""
     global _F12_HOLDS_TOKEN
     _F12_PAUSE_GATE.set()
     for exporter in _LIVE_VIEWPORT_SESSIONS[:]:
@@ -316,6 +320,18 @@ def _depsgraph_id_type_name(upd_id, bpy_module):
     return None
 
 
+def _active_world_node_tree(depsgraph):
+    """pkg266 (Terra review, item 3): the active World's shader node tree, or
+    None. A World node-tree edit reaches the depsgraph as a NodeTree/ShaderNodeTree
+    update (NOT a World update), so the world-domain classification must match the
+    update id against `scene.world.node_tree` to avoid the stale-world bug where
+    such an edit was silently bucketed MATERIALS and the environment never
+    re-uploaded. Guarded for stub bpy / a worldless scene (returns None)."""
+    scene = getattr(depsgraph, 'scene', None)
+    world = getattr(scene, 'world', None) if scene is not None else None
+    return getattr(world, 'node_tree', None) if world is not None else None
+
+
 class CameraCache:
     """Tracks camera state and detects changes via depsgraph updates."""
     def __init__(self, bpy_module):
@@ -405,8 +421,15 @@ class MaterialsCache:
         if updates is None:
             return False
 
+        # pkg266 (Terra review, item 3): the active World's node tree arrives as a
+        # NodeTree/ShaderNodeTree update but is an ENVIRONMENT edit, not a material
+        # one — exclude it here so WorldCache owns it and the replay re-runs
+        # setup_world/upload_environment (never leave the world stale).
+        world_tree = _active_world_node_tree(depsgraph)
         for upd in updates:
             upd_id = getattr(upd, 'id', None)
+            if world_tree is not None and upd_id is world_tree:
+                continue
             type_name = _depsgraph_id_type_name(upd_id, self.bpy)
             if type_name in ('Material', 'NodeTree', 'ShaderNodeTree', 'Image'):
                 return True
@@ -455,8 +478,15 @@ class WorldCache:
         if updates is None:
             return False
 
+        # pkg266 (Terra review, item 3): a World shader-tree edit reaches the
+        # depsgraph as its NodeTree/ShaderNodeTree id, not as a World update, so
+        # match that node tree explicitly (in addition to a direct World update)
+        # or the environment would go stale on a world-node edit.
+        world_tree = _active_world_node_tree(depsgraph)
         for upd in updates:
             upd_id = getattr(upd, 'id', None)
+            if world_tree is not None and upd_id is world_tree:
+                return True
             type_name = _depsgraph_id_type_name(upd_id, self.bpy)
             if type_name == 'World':
                 return True
@@ -924,6 +954,18 @@ class Exporter:
         self._deferred_dirty_mask = Change.NONE   # OR of coalesced safe domains
         self._deferred_transforms = {}            # obj_id -> mat16 (newest wins)
         self._deferred_full_sync = False          # a geometry/instancing/unknown edit
+        # pkg266 (Terra review, item 2): reduced-resolution first unit on the
+        # worker path. A fresh generation whose measured full-res cost exceeds the
+        # interactive budget (_budget_start_divisor() > 1) submits its FIRST job at
+        # the divided dimensions (Cycles start_resolution analogue, mirroring the
+        # synchronous view_draw path); once that reduced unit completes
+        # unsuperseded, a full-resolution refinement is scheduled as the next
+        # generation. Present/upscale is unchanged — draw_texture_2d blits the
+        # smaller texture at region.width/height.
+        self._worker_refine_pending = False       # a full-res refinement is owed
+        self._worker_refine_gen = None            # the reduced gen it refines
+        self._worker_fullres_next = False         # force divisor 1 on the next commit
+        self._worker_committed_divisor = 1        # divisor of the last submitted job
 
         # Per-domain caches
         self._camera_cache = CameraCache(bpy_module)
@@ -1748,6 +1790,11 @@ class Exporter:
             # generation's chunks (fixed at submit time so a mid-render env change
             # cannot perturb it).
             sub_pass_budget = int(job.get("sub_pass_budget", 0))
+            # pkg266 (Terra review, item 2): the divisor this unit rendered at, so
+            # the FIRST chunk's wall time can seed _budget_start_divisor() on the
+            # worker path (render_viewport_frame, which records it on the
+            # synchronous path, is never called here).
+            res_divisor = max(1, int(job.get("res_divisor", 1)))
             accum = None
             accum_spp = 0
 
@@ -1758,10 +1805,21 @@ class Exporter:
                 samples = min(chunk, target - accum_spp)
                 if samples <= 0:
                     break
+                _chunk_t0 = time.perf_counter()
                 pixels = renderer.render(
                     samples, depth, progress, False,
                     b[0], b[1], b[2], b[3], b[4], skip_upload,
                     sub_pass_budget)
+                # pkg266 (Terra review, item 2): record the first chunk's cost
+                # scaled to full resolution (t * divisor^2), mirroring
+                # render_viewport_frame line ~1436, so _budget_start_divisor()
+                # engages the reduced first unit on expensive worker scenes.
+                # Plain float write from the worker thread (GIL-atomic; a stale
+                # read on the main thread only mis-sizes the next first unit).
+                if accum is None:
+                    _chunk_ms = (time.perf_counter() - _chunk_t0) * 1000.0
+                    self._viewport_last_full_render_ms = (
+                        _chunk_ms * res_divisor * res_divisor)
                 # pkg241 Phase 2 A2 spike (§9): per-generation device readback for
                 # the same-device assertion (last_render_info()['device'] is the
                 # CUDA device this worker-thread render resolved).
@@ -1913,6 +1971,18 @@ class Exporter:
         passes) is committed. The commit_start/commit_end lifeline events emitted by
         maybe_submit bracket this so the driver can attribute the per-generation
         commit cost."""
+        # pkg266 (Terra review, item 2): pick the resolution divisor for THIS
+        # submission. A full-res refinement scheduled after a reduced first unit
+        # forces divisor 1; otherwise a fresh generation whose measured full-res
+        # cost exceeds the interactive budget starts coarse (the same
+        # _budget_start_divisor() the synchronous view_draw path uses). Fixed
+        # before commit_fn so the follow-up refinement scheduling below is exact.
+        if self._worker_fullres_next:
+            res_divisor = 1
+            self._worker_fullres_next = False
+        else:
+            res_divisor = self._budget_start_divisor()
+
         def commit_fn(gen):
             renderer = self._get_viewport_renderer()
             skip_upload = False
@@ -1952,8 +2022,12 @@ class Exporter:
                         renderer, depsgraph, settings, configure_backend_fn,
                         viewport_perf_record_fn, effective_integrator_name_fn)
                     self._viewport_full_synced = True
-            width = max(1, int(region.width))
-            height = max(1, int(region.height))
+            # pkg266 (Terra review, item 2): render this unit at the divided
+            # dimensions (res_divisor == 1 is full res). The reduced buffer is
+            # published/uploaded through the same mailbox path and upscaled on
+            # present by draw_texture_2d(region.width, region.height).
+            width = max(1, int(region.width) // res_divisor)
+            height = max(1, int(region.height) // res_divisor)
             engine_methods['setup_viewport_camera'](renderer, context, width, height)
             lmin, lmax = engine_methods['wavelength_range_from_settings'](settings)
             renderer.set_wavelength_range(lmin, lmax)
@@ -1978,6 +2052,11 @@ class Exporter:
                 "generation": gen, "renderer": renderer,
                 "session_epoch": self._worker.session_epoch,
                 "width": width, "height": height, "depth": depth,
+                # pkg266 (Terra review, item 2): the divisor this unit was
+                # rendered at, so the worker can record a full-resolution cost
+                # estimate that drives _budget_start_divisor() on the worker path
+                # (the synchronous render_viewport_frame is not called there).
+                "res_divisor": res_divisor,
                 "target_spp": target, "chunk": max(1, chunk),
                 "display_pass": display_pass,
                 # skip_upload was resolved above per commit_mode: True only for a
@@ -1999,6 +2078,18 @@ class Exporter:
             # the coalesced deferred dirty-domain state it just consumed (pkg266).
             self._worker_deferred_scene = False
             self._clear_deferred_dirty()
+        if submitted:
+            # pkg266 (Terra review, item 2): if this unit went out at a reduced
+            # divisor, remember it so the next idle view_draw schedules the
+            # full-resolution refinement of the SAME visual state; a full-res
+            # submission clears any pending refinement.
+            self._worker_committed_divisor = res_divisor
+            if res_divisor > 1:
+                self._worker_refine_pending = True
+                self._worker_refine_gen = self._worker.submitted_generation
+            else:
+                self._worker_refine_pending = False
+                self._worker_refine_gen = None
         return submitted
 
     def _worker_view_update(self, context, depsgraph, configure_backend_fn,
@@ -2088,6 +2179,27 @@ class Exporter:
                 context, depsgraph, settings, region, configure_backend_fn,
                 viewport_perf_record_fn, effective_integrator_name_fn,
                 engine_methods, commit_mode=commit_mode)
+
+            # pkg266 (Terra review, item 2): once the reduced-resolution first
+            # unit completed unsuperseded (worker idle, its generation still the
+            # newest — no user edit cancelled it), schedule the full-resolution
+            # refinement of the same visual state as the NEXT generation
+            # (skip_upload camera commit — geometry/materials are already on the
+            # device; only the film resolution changes). A user edit that arrived
+            # meanwhile would have bumped desired_generation and is committed by
+            # the block above instead, so a stale state is never refined.
+            if (self._worker_refine_pending
+                    and worker.state == _ViewportSpikeWorker.IDLE
+                    and worker.submitted_generation == self._worker_refine_gen
+                    and worker.desired_generation == worker.submitted_generation):
+                self._worker_refine_pending = False
+                self._worker_fullres_next = True
+                worker.request()
+                self._worker_commit_and_submit(
+                    context, depsgraph, settings, region, configure_backend_fn,
+                    viewport_perf_record_fn, effective_integrator_name_fn,
+                    engine_methods, commit_mode='camera')
+                request_viewport_redraw_fn()
 
             # Keep the loop alive while a render is in flight or a frame is queued.
             if worker.state != _ViewportSpikeWorker.IDLE:

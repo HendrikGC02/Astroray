@@ -145,6 +145,22 @@ the same P2.3 list. Serves Pillar 5.
   - GPU build + Terra-4 GUI re-measure (both scenes, worker ON/OFF, settle+storm)
     in progress under the GPU lock; §9 gate table + worker-default decision to
     land in the SUMMARY before the lead flips this to done.
+- [~] 2026-09-10 — **Terra review (call 2/4) BLOCK → six fixes** (design §14.6):
+  (1) F12 never renders token-less — on a no-ack drain `acquire_f12_admission`
+  returns False, keeps the gate raised, and `RenderEngine.render` reports an ERROR
+  and returns without constructing/rendering (Closes #792);
+  (2) reduced-resolution first unit on the worker path (`_worker_commit_and_submit`
+  submits the first job at `_budget_start_divisor()` dims, `_worker_view_draw`
+  schedules the full-res refinement; worker loop records the full-res cost estimate);
+  (3) World node-tree edits classify ENVIRONMENT (match `scene.world.node_tree`),
+  not materials-only → no stale world;
+  (4) the cancellation GPU test runs through the first unit boundary and asserts
+  `units_launched ≥ 1` (fails the old per-pass hook);
+  (5) the intermediate `cudaDeviceSynchronize()` checks + throws like the final sync;
+  (6) rebased onto post-#790 main (OpenMP-ON addon; pkg147 guards gone).
+  New bpy-free tests green (15/15 in `test_pkg266_dirty_domain_commit.py`);
+  `__init__.py` EOL restored to CRLF (31/0 diff both ways). GPU re-verify under the
+  lock in the SUMMARY.
 
 ---
 

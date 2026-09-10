@@ -41,6 +41,23 @@ def viewport_worker_enabled():
     return v.strip().lower() in ("1", "true", "on", "yes")
 
 
+# pkg266 (§13 item 1 / Terra (c)): the cancellation-bounded GPU dispatch budget —
+# the number of wavefront passes per bounded work unit. The worker passes it to
+# renderer.render(sub_pass_budget=...); the native driver then syncs + polls the
+# cancel hook every N passes so an in-flight chunk stops within one bounded unit
+# instead of after the whole async launch backlog drains. 0 = the fully-async
+# fleet path (byte-identical). Tunable via ASTRORAY_VIEWPORT_SUBPASS_BUDGET so the
+# §9 GUI measurement can trade cancel latency vs throughput (the +5% pkg81 bench
+# ceiling). Default 4: small enough to bound cancel p99 under budget on the slow
+# `big` scene, large enough that the per-unit sync overhead stays negligible.
+def viewport_subpass_budget():
+    v = os.environ.get("ASTRORAY_VIEWPORT_SUBPASS_BUDGET", "")
+    try:
+        return max(0, int(v))
+    except (TypeError, ValueError):
+        return 4
+
+
 # pkg241 Phase 2 A2 spike (§9 event schema): an optional module-level sink for
 # the generation-tagged lifeline events. The benchmark recorder installs a
 # callback here; the worker/main-thread commit emit through it. None in
@@ -1727,6 +1744,10 @@ class Exporter:
             b = (job["diffuse"], job["glossy"], job["transmission"],
                  job["volume"], job["transparent"])
             skip_upload = bool(job["skip_upload"])
+            # pkg266 (§13 item 1): cancellation-bounded dispatch budget for this
+            # generation's chunks (fixed at submit time so a mid-render env change
+            # cannot perturb it).
+            sub_pass_budget = int(job.get("sub_pass_budget", 0))
             accum = None
             accum_spp = 0
 
@@ -1739,7 +1760,8 @@ class Exporter:
                     break
                 pixels = renderer.render(
                     samples, depth, progress, False,
-                    b[0], b[1], b[2], b[3], b[4], skip_upload)
+                    b[0], b[1], b[2], b[3], b[4], skip_upload,
+                    sub_pass_budget)
                 # pkg241 Phase 2 A2 spike (§9): per-generation device readback for
                 # the same-device assertion (last_render_info()['device'] is the
                 # CUDA device this worker-thread render resolved).
@@ -1748,6 +1770,13 @@ class Exporter:
                     _emit_spike_event("render_device", job["generation"],
                                       job.get("session_epoch", 0),
                                       device=_info.get("device", -1))
+                    # pkg266 (§13 item 1): record the bounded-dispatch accounting
+                    # so the driver can report cancelled-at-unit / units-launched.
+                    _emit_spike_event("bounded_units", job["generation"],
+                                      job.get("session_epoch", 0),
+                                      units_launched=_info.get("units_launched", 0),
+                                      cancelled_at_unit=_info.get(
+                                          "cancelled_at_unit", -1))
                 except Exception:
                     pass
                 if cancel_check() or pixels is None:
@@ -1955,6 +1984,8 @@ class Exporter:
                 # camera/refit generation (or a refit-only incremental dispatch);
                 # a full or material sync must upload + rebuild device state.
                 "skip_upload": bool(skip_upload),
+                # pkg266 (§13 item 1): cancellation-bounded GPU dispatch budget.
+                "sub_pass_budget": viewport_subpass_budget(),
                 "diffuse": min(settings.diffuse_bounces, depth),
                 "glossy": min(settings.glossy_bounces, depth),
                 "transmission": min(settings.transmission_bounces, depth),

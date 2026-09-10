@@ -4,11 +4,13 @@
 **Track:** A
 **Codex-paste-ready:** no (Blender-in-the-loop debugging; needs headless Blender 5.1 + build access)
 **Status:** done (PR #520, merged 2026-07-25 squash 0c3b1a3 — root cause confirmed as the suspected OpenMP/GIL precedent; structural guard added; 32px and 256px CPU addon renders both 0.01-0.05s on the currently-deployed build, which was already unaffected). See "Findings (2026-07-25)" below.
-**Superseded in part (issue #780, 2026-09-09):** the diagnosis below is correct, but the
+**Superseded in part (issue #780, PR #790, 2026-09-10):** the diagnosis below is correct, but the
 structural guard (`_check_openmp_disabled()`) and the `-DASTRORAY_DISABLE_OPENMP=ON`
 addon build flag have been removed. pkg241 (#748) released the GIL across the CPU
 render, so the deadlock this package guarded against can no longer occur, and the
-flag was costing the addon every core but one. See
+flag was costing the addon every core but one. The addon now builds OpenMP ON;
+headless canary shows CPU/wall ~5.9x (Blender 5.1) / ~2.2x (5.2) and
+`lighting_studio` 640x160/256spp drops 409.5 s -> 49.6 s. See
 `.astroray_plan/docs/780-addon-openmp-deadlock-root-cause-2026-09.md`.
 
 <details><summary>Original 2026-07-24 dispatch note</summary>

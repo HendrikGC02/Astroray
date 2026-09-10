@@ -473,6 +473,12 @@ class PyRenderer {
     // viewport worker asserts the worker thread and the main thread resolve the
     // SAME device (§9 same-device verification).
     int lastRenderInfoDevice_ = -1;
+    // pkg266: cancellation-bounded dispatch accounting from the last GPU render.
+    // units_launched = bounded sync-units completed; cancelled_at_unit = the
+    // unit index the cancel was observed at (-1 if not cancelled or sub-pass
+    // dispatch disabled). Surfaced through last_render_info().
+    int lastRenderInfoUnitsLaunched_ = 0;
+    int lastRenderInfoCancelledAtUnit_ = -1;
     // pkg89 Phase B: IES profile cache (shared_ptr keeps profiles alive).
     std::unordered_map<std::string, std::shared_ptr<IESProfile>> iesProfiles_;
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -2048,7 +2054,16 @@ public:
     py::array_t<float> render(int samplesPerPixel, int maxDepth, py::object progressCallback = py::none(), bool applyGamma = true,
                               int diffuseBounces = -1, int glossyBounces = -1, int transmissionBounces = -1,
                               int volumeBounces = -1, int transparentBounces = -1,
-                              bool skipUpload = false) {
+                              bool skipUpload = false,
+                              // pkg266: cancellation-bounded GPU dispatch budget.
+                              // Number of wavefront passes per bounded work unit;
+                              // > 0 (with a progress/cancel callback set) makes the
+                              // GPU worker sync + poll cancellation every N passes so
+                              // the in-flight chunk stops within one unit instead of
+                              // draining the whole async backlog. 0 (default) = the
+                              // pre-pkg266 fully-async path (byte-identical). Only the
+                              // GPU wavefront route reads it.
+                              int subPassBudget = 0) {
         if (!camera) throw std::runtime_error("Camera not set up");
 
         // pkg241 Phase 1b: track which backend ran and whether it was
@@ -2317,6 +2332,10 @@ public:
                     };
                 }
                 gpuPathRan = true;
+                // pkg266: bounded-dispatch counters, filled by the driver and
+                // surfaced through last_render_info().
+                int gpuUnitsLaunched = 0;
+                int gpuCancelledAtUnit = -1;
                 // pkg241 Phase 2 A2 spike (§3.7): release the GIL across the GPU
                 // dispatch + copy-back + applyPasses. Re-acquired by gpuGilRelease
                 // .reset() after applyPasses, before the NumPy packaging tail.
@@ -2329,7 +2348,11 @@ public:
                     albedoOut, normalOut, depthOut,           // pkg197
                     passesOut,                                 // pkg198
                     alphaOut,                                  // pkg201
-                    gpuCancelHook);                            // pkg241 Phase 1b
+                    gpuCancelHook,                             // pkg241 Phase 1b
+                    subPassBudget,                             // pkg266
+                    &gpuUnitsLaunched, &gpuCancelledAtUnit);   // pkg266
+                lastRenderInfoUnitsLaunched_ = gpuUnitsLaunched;
+                lastRenderInfoCancelledAtUnit_ = gpuCancelledAtUnit;
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],
@@ -2428,6 +2451,10 @@ public:
             lastRenderInfoCancelled_ = renderer.getLastRenderCancelled();
             lastRenderInfoTilesCompleted_ = renderer.getLastRenderTilesCompleted();
             lastRenderInfoTotalTiles_ = renderer.getLastRenderTotalTiles();
+            // pkg266: the CPU path has no bounded-unit dispatch; clear stale GPU
+            // counters so last_render_info() never reports a prior GPU render's.
+            lastRenderInfoUnitsLaunched_ = 0;
+            lastRenderInfoCancelledAtUnit_ = -1;
         }
         if (callbackError) std::rethrow_exception(callbackError);
 
@@ -2471,6 +2498,13 @@ public:
         // cudaSetDevice), -1 if no GPU render has run. The off-thread viewport
         // worker asserts the worker and main thread resolve the same device.
         d["device"] = lastRenderInfoDevice_;
+        // pkg266: cancellation-bounded dispatch accounting. units_launched =
+        // bounded sync-units completed on the last GPU render; cancelled_at_unit
+        // = the unit index the cancel was observed at (-1 = not cancelled or
+        // sub-pass dispatch off). The off-thread viewport worker reads these to
+        // report how promptly a cancel took effect.
+        d["units_launched"] = lastRenderInfoUnitsLaunched_;
+        d["cancelled_at_unit"] = lastRenderInfoCancelledAtUnit_;
         return d;
     }
 
@@ -3512,7 +3546,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("render", &PyRenderer::render, "samples_per_pixel"_a, "max_depth"_a,
              "progress_callback"_a = py::none(), "apply_gamma"_a = true,
              "diffuse_bounces"_a = -1, "glossy_bounces"_a = -1, "transmission_bounces"_a = -1,
-             "volume_bounces"_a = -1, "transparent_bounces"_a = -1, "skip_upload"_a = false)
+             "volume_bounces"_a = -1, "transparent_bounces"_a = -1, "skip_upload"_a = false,
+             "sub_pass_budget"_a = 0)
         .def("last_render_info", &PyRenderer::lastRenderInfo,
              "pkg241 Phase 1b/2: dict {cancelled, tiles_completed, total_tiles, "
              "device} describing whether the last render() completed or was "

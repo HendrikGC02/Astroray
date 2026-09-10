@@ -203,7 +203,24 @@ std::vector<float> cuda_wavefront_render(
     // last host-accumulated (partial) frame. No device-side preemption.
     // Null (the default) => never polled => byte-identical to the
     // pre-pkg241 GPU path.
-    std::function<bool()> cancelRequested = nullptr);
+    std::function<bool()> cancelRequested = nullptr,
+    // pkg266: cancellation-bounded dispatch. `subPassBudget` is the number of
+    // wavefront passes per bounded work unit: when > 0 (and cancelRequested is
+    // set) the host calls cudaDeviceSynchronize() + polls the cancel hook every
+    // `subPassBudget` passes, so (a) the between-pass poll reflects real GPU
+    // progress instead of racing ahead of the async launch queue, and (b) the
+    // queued backlog drained on cancel is bounded to one unit. A host-side sync
+    // does NOT change device execution order, so subPassBudget > 0 is
+    // numerically identical to subPassBudget == 0 — it only bounds latency. 0
+    // (the default) = the pre-pkg266 fully-async fleet path. Ignored when
+    // cancelRequested is null (the non-interruptible fleet render pays nothing).
+    int subPassBudget = 0,
+    // pkg266: optional out-params for last_render_info(). *unitsLaunchedOut =
+    // the number of bounded units whose sync completed; *cancelledAtUnitOut =
+    // the unit index the cancel was observed at (-1 if not cancelled). Either
+    // may be null.
+    int* unitsLaunchedOut = nullptr,
+    int* cancelledAtUnitOut = nullptr);
 
 // pkg55-C6b / pkg24: GPU ReSTIR-DI wavefront render. Direct-illumination
 // driver with double-buffered per-pixel reservoirs persisted across frames

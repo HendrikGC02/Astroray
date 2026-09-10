@@ -1381,8 +1381,14 @@ std::vector<float> cuda_wavefront_render(
     float* passesOut,          // pkg198 Stage 2: light-path passes, pass-major
                                // [p*numPixels*3 + pixel*3 + c] linear sRGB, or null
     float* alphaOut,           // pkg201 Stage 2 (Finding F)
-    std::function<bool()> cancelRequested)  // pkg241 Phase 1b
+    std::function<bool()> cancelRequested,  // pkg241 Phase 1b
+    int subPassBudget,         // pkg266 cancellation-bounded dispatch
+    int* unitsLaunchedOut,     // pkg266
+    int* cancelledAtUnitOut)   // pkg266
 {
+    // pkg266: bounded-unit accounting, reported through last_render_info().
+    int cwfUnitsLaunched = 0;
+    int cwfCancelledAtUnit = -1;
     int total_paths = width * height;
     if (total_paths <= 0 || samples <= 0) {
         throw std::runtime_error("cuda_wavefront_render: invalid dimensions");
@@ -1889,11 +1895,33 @@ std::vector<float> cuda_wavefront_render(
         bool workExhausted = false;
         int drainLeft = max_depth;
         for (long long pass = 0; pass < kMaxPasses; ++pass) {
+            // pkg266: cancellation-bounded dispatch. When a sub-pass budget is
+            // set (the viewport interruptible path), synchronize + count a
+            // bounded unit every `subPassBudget` passes so the host cancel poll
+            // below cannot race arbitrarily far ahead of the async launch queue.
+            // Without this the host launches the whole chunk's passes async and
+            // the cancel only takes effect after the entire queued backlog drains
+            // (the P2.2 cancel-p99-over-budget root cause, Terra review 4). With
+            // it, the backlog on cancel is bounded to one unit's passes. A
+            // host-side cudaDeviceSynchronize() does NOT change device execution
+            // order, so this is numerically inert: subPassBudget > 0 is
+            // byte-identical to == 0 (verified by test_pkg266_bounded_dispatch).
+            // Only the interruptible path (cancelRequested set) pays the syncs;
+            // the fleet render (null hook) is unchanged and perf-neutral.
+            if (cancelRequested && subPassBudget > 0 && pass > 0
+                    && (pass % subPassBudget == 0)) {
+                cudaDeviceSynchronize();
+                ++cwfUnitsLaunched;
+            }
             // pkg241 Phase 1b: cooperative cancellation checkpoint (host,
             // between wavefront passes). Breaks out of the pass loop; the
             // final accumulating regen + download below still run, so the
             // returned image is a well-formed partial frame.
-            if (cancelRequested && cancelRequested()) { cwfCancelled = true; break; }
+            if (cancelRequested && cancelRequested()) {
+                cwfCancelled = true;
+                cwfCancelledAtUnit = cwfUnitsLaunched;  // pkg266
+                break;
+            }
             // pkg55-C7 perf: the per-pass counter zeroing (cout/shadeCounts/
             // shadowCount) is fused into stageRegenKernel thread 0 — same
             // same-stream ordering as the 3 cudaMemsetAsync launches it
@@ -2214,6 +2242,9 @@ std::vector<float> cuda_wavefront_render(
         rgb[i * 3 + 1] = std::max(Renderer::finiteOrZero(colorSRGB.y), 0.0f);
         rgb[i * 3 + 2] = std::max(Renderer::finiteOrZero(colorSRGB.z), 0.0f);
     }
+    // pkg266: publish bounded-unit accounting for last_render_info().
+    if (unitsLaunchedOut) *unitsLaunchedOut = cwfUnitsLaunched;
+    if (cancelledAtUnitOut) *cancelledAtUnitOut = cwfCancelledAtUnit;
     return rgb;
 }
 

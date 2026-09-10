@@ -1,25 +1,26 @@
 # pkg266 Viewport Phase 2.3 — bounded cancel + coalesced commit + global token
 
 RTX 5070 Ti, CUDA 12.8, branch `feat/pkg266-viewport-p23-bounded-dispatch`
-(HEAD `b2fb8b9a`). GPU build + every RTX number below taken under the project GPU
-lock (`.astroray_plan/.orchestrator.gpu.lock`, acquired via `locks.acquire_lock`,
-never written directly; `release_lock` in a `finally`). No concurrent nvcc/ninja/
-Blender during the timing runs.
+(HEAD `3884114c`, re-measured 2026-09-10 after the Terra call-2 fixes — §14.6).
+GPU build + every RTX number below taken under the project GPU lock
+(`.astroray_plan/.orchestrator.gpu.lock`, acquired via `locks.acquire_lock`, never
+written directly; `release_lock` in a `finally`). No concurrent nvcc/ninja/Blender
+during the timing runs.
 
 ## Build (empirical, non-negotiable)
 
 Fresh full CUDA build of this worktree (`build_nosccache.bat`, Ninja + nvcc, no
-sccache), last 5 lines:
+sccache) after the Terra fixes (`gpu_wavefront_snapshot.cu` item-5 sync-error
+check recompiled + relinked), last lines:
 
 ```
-[pkg183] build stamp written: sha=b2fb8b9a546f header_hash=5a3a3b203454
 [pkg183] arch-verify OK: astroray.cp313-win_amd64.pyd embeds sm_120 (embedded=[sm_120])
 [pkg183] canary caps: {'cpu': True, 'spectral': True, 'gpu': True, 'gpu_spectral': True, 'gpu_approximate': False, 'closure_graph': True, 'closure_count': 1, 'gpu_type': 'closure_graph', 'notes': 'spectral closure-graph GPU lowering'}
 BUILD OK
-[lock_build] BUILD EXITCODE 0
+[build] EXITCODE 0
 ```
 
-- `.pyd` mtime **2026-09-10 20:43** > HEAD commit time **2026-09-10 20:22** — fresh.
+- `.pyd` mtime **2026-09-10 21:26:55** > HEAD commit time **21:26:43** (+12 s) — fresh.
 - `cuobjdump --list-elf` -> `astroray.cp313-win_amd64.1.sm_120.cubin` (sm_120).
 
 ## REG-254 (stageShadeBucketedKernel must not spill)
@@ -28,14 +29,13 @@ BUILD OK
 `stageShadeBucketedKernel<...>` specialization:
 
 ```
-stageShadeBucketedKernel<1,1,1,1,0,0,0>  REG:254 STACK:7968 SHARED:0 LOCAL:0
-stageShadeBucketedKernel<1,1,1,1,0,1,0>  REG:254 STACK:8672 SHARED:0 LOCAL:0
-stageShadeBucketedKernel<1,1,1,1,1,0,0>  REG:254 ...
+stageShadeBucketedKernel<...>  x128 specializations, all REG:254
 ```
 
-**REG:254 held** — the bounded-dispatch change is host-side only (a periodic
-`cudaDeviceSynchronize` + cancel poll in the pass loop); it touches no kernel, so
-the register-saturated shade kernel is unchanged. PASS.
+**REG:254 held** across all **128** `stageShadeBucketedKernel` specializations —
+the bounded-dispatch change (and the item-5 sync-error check) are host-side only
+(a periodic `cudaDeviceSynchronize` + cancel poll + throw in the pass loop); they
+touch no kernel, so the register-saturated shade kernel is unchanged. PASS.
 
 ## Cancellation-bounded dispatch — in-process GPU verification
 
@@ -45,17 +45,17 @@ the register-saturated shade kernel is unchanged. PASS.
 |---|---|---|
 | `test_last_render_info_has_bounded_unit_fields` | PASS | budget 0 -> `units_launched=0`, `cancelled_at_unit=-1`, not cancelled |
 | `test_subpass_dispatch_counts_units` | PASS | budget 2 -> the driver syncs several bounded units and finishes |
-| `test_cancel_acknowledged_within_one_unit` | PASS | a cancel after the first poll stops at `cancelled_at_unit <= 4` (bounded by the sub-pass budget, **not** the full chunk) |
+| `test_cancel_acknowledged_at_the_first_completed_unit` | PASS | Terra item 4: runs THROUGH the first bounded-unit `cudaDeviceSynchronize()`, then cancels — asserts `units_launched >= 1` and the cancel is attributed to that completed unit (`cancelled_at_unit` bounded, **not** the full chunk). FAILS the old per-pass hook (no unit sync → `units_launched == 0`). |
 | `test_subpass_on_matches_off_within_atomic_noise` | PASS | budget 4 result == budget 0 result within the GPU's own run-to-run atomicAdd floor (a host sync is numerically inert) |
 
 pkg241 cancellation regression (`test_pkg241_cancellation.py`, `-m gpu`+cpu): **9
 passed** (no regression from the native signature change). Combined GPU run:
 **13 passed** (RC 0).
 
-`test_cancel_acknowledged_within_one_unit` is the in-process proof that the P2.2
-cancel-p99 root cause is fixed at the dispatch: the in-flight chunk now stops
-within one bounded unit instead of after the whole async launch backlog +
-`cudaDeviceSynchronize` drains.
+`test_cancel_acknowledged_at_the_first_completed_unit` is the in-process proof
+that the P2.2 cancel-p99 root cause is fixed at the dispatch: a bounded unit
+completes and the in-flight chunk stops at that unit instead of after the whole
+async launch backlog + `cudaDeviceSynchronize` drains.
 
 ## Perf A/B — sub-pass dispatch OFF vs ON (the +5% ceiling)
 
@@ -65,25 +65,27 @@ callback (the viewport interruptible path), burn-in + min-of-5 (memory
 
 | arm | min frame time | samples (s) |
 |---|---|---|
-| `sub_pass_budget=0` (async, current fleet cancel path) | 0.9606 s | 0.961/0.962/0.962/0.961/0.961 |
-| `sub_pass_budget=4` (bounded, sync every 4 passes) | 0.9617 s | 0.962 x5 |
+| `sub_pass_budget=0` (async, current fleet cancel path) | 0.9579 s | 0.958/0.991/0.967/0.958/0.980 |
+| `sub_pass_budget=4` (bounded, sync every 4 passes) | 0.9583 s | 0.980/0.959/0.958/0.959/0.963 |
 
-**ratio on/off = 1.0012 -> +0.12%**, well within the +5% ceiling. The per-unit
-`cudaDeviceSynchronize` is negligible at a viewport chunk's pass count. (The
-fleet render -- null cancel hook, budget 0 -- is byte-identical and pays nothing:
-the sync branch is gated on `cancelRequested && subPassBudget > 0`.)
+**ratio on/off = 1.0004 -> +0.04%**, well within the +5% ceiling. The per-unit
+`cudaDeviceSynchronize` (now also error-checked, item 5) is negligible at a
+viewport chunk's pass count. (The fleet render -- null cancel hook, budget 0 -- is
+byte-identical and pays nothing: the sync branch is gated on
+`cancelRequested && subPassBudget > 0`.)
 
 ## Section 9 gate table
 
 | criterion | budget | status | evidence |
 |---|---|---|---|
-| REG stageShadeBucketed | 254 | **PASS** | cuobjdump, all variants REG:254 |
-| perf (sub-pass dispatch on) | <= +5% | **PASS** | +0.12% (min-of-5) |
-| cancel bounded to one unit | -- | **PASS (in-process)** | `test_cancel_acknowledged_within_one_unit`, `cancelled_at_unit <= 4` |
+| REG stageShadeBucketed | 254 | **PASS** | cuobjdump, all 128 specializations REG:254 |
+| perf (sub-pass dispatch on) | <= +5% | **PASS** | +0.04% (min-of-5) |
+| cancel bounded to one unit | -- | **PASS (in-process)** | `test_cancel_acknowledged_at_the_first_completed_unit`: `units_launched >= 1`, cancel attributed to that unit |
 | on-vs-off result identity | max-abs <= 2e-2 | **PASS** | `test_subpass_on_matches_off_within_atomic_noise` (within atomic floor) |
 | same device / 0 CUDA errors | required | **PASS** | 13 GPU/CPU tests, 0 CUDA errors |
-| coalesced dirty-domain commit | correctness | **PASS (unit)** | `test_pkg266_dirty_domain_commit.py` 9/9 -- N material edits -> 1 materials replay; geometry/unknown -> full sync |
-| global token / F12 gate | correctness | **PASS (unit)** | same file -- token contention + F12 gate block admission; no commit while busy |
+| coalesced dirty-domain commit | correctness | **PASS (unit)** | `test_pkg266_dirty_domain_commit.py` 15/15 -- N material edits -> 1 materials replay; world node-tree edit -> ENVIRONMENT (item 3); geometry/unknown -> full sync |
+| global token / F12 gate | correctness | **PASS (unit)** | same file -- token contention + F12 gate block admission; F12 no-ack never renders token-less (item 1); no commit while busy |
+| reduced-res first unit (worker) | correctness | **PASS (unit)** | item 2: first worker job at `_budget_start_divisor()` dims, full-res refinement scheduled next (`test_worker_first_unit_reduced_then_refinement_full_res`, `test_worker_view_draw_schedules_fullres_refinement`) |
 | tick-gap p95 <= 33 ms (settle) both scenes | <= 33 ms | **NOT RE-MEASURED** | GUI Terra-4 re-measure pending (see below) |
 | tick-gap p95 (storm) | <= 33 ms or explained | **NOT RE-MEASURED** | GUI pending |
 | cancel p99 <= 300 ms both scenes | <= 300 ms | **NOT RE-MEASURED** (in-process bound proven) | GUI pending |

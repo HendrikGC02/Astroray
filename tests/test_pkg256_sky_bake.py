@@ -118,8 +118,8 @@ def test_sky_type_changes_output():
 def test_dropped_sockets_named():
     """pkg200: sockets/props the bake does not honour are enumerated verbatim."""
     assert sky_bake.DROPPED_SOCKETS == (
-        "sun_disc", "sun_size", "sun_intensity", "altitude",
-        "ozone_density", "ground_albedo", "Vector",
+        "sun_disc", "sun_size", "sun_intensity", "sun_direction",
+        "altitude", "ozone_density", "ground_albedo", "Vector",
     )
 
 

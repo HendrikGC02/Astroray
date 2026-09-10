@@ -31,6 +31,7 @@ DROPPED_SOCKETS = (
     "sun_disc",
     "sun_size",
     "sun_intensity",
+    "sun_direction",  # sun position taken from sun_elevation/sun_rotation instead
     "altitude",
     "ozone_density",
     "ground_albedo",

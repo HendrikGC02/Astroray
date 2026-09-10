@@ -1738,6 +1738,22 @@
           "category": "shader_node",
           "feature": "TEX_SKY",
           "bl_idname": "ShaderNodeTexSky",
+          "socket_or_prop": "prop:aerosol_density",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_SKY",
+          "bl_idname": "ShaderNodeTexSky",
+          "socket_or_prop": "prop:air_density",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_SKY",
+          "bl_idname": "ShaderNodeTexSky",
           "socket_or_prop": "prop:ground_albedo",
           "classification": "DROPPED-SILENT",
           "gap_card": true
@@ -1747,8 +1763,8 @@
           "feature": "TEX_SKY",
           "bl_idname": "ShaderNodeTexSky",
           "socket_or_prop": "prop:sky_type",
-          "classification": "DROPPED-SILENT",
-          "gap_card": true
+          "classification": "APPROXIMATED",
+          "gap_card": false
         },
         {
           "category": "shader_node",
@@ -1763,8 +1779,8 @@
           "feature": "TEX_SKY",
           "bl_idname": "ShaderNodeTexSky",
           "socket_or_prop": "prop:sun_elevation",
-          "classification": "DROPPED-SILENT",
-          "gap_card": true
+          "classification": "APPROXIMATED",
+          "gap_card": false
         },
         {
           "category": "shader_node",
@@ -1779,8 +1795,8 @@
           "feature": "TEX_SKY",
           "bl_idname": "ShaderNodeTexSky",
           "socket_or_prop": "prop:sun_rotation",
-          "classification": "DROPPED-SILENT",
-          "gap_card": true
+          "classification": "APPROXIMATED",
+          "gap_card": false
         },
         {
           "category": "shader_node",
@@ -1795,8 +1811,8 @@
           "feature": "TEX_SKY",
           "bl_idname": "ShaderNodeTexSky",
           "socket_or_prop": "prop:turbidity",
-          "classification": "DROPPED-SILENT",
-          "gap_card": true
+          "classification": "APPROXIMATED",
+          "gap_card": false
         },
         {
           "category": "world",

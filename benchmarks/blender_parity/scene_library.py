@@ -2271,15 +2271,24 @@ def build_world_sky_sky_scene(bpy):
     exists to demonstrate: a plausible-vs-actually-dropped sky, not just
     "is it black")."""
     scene = _reset(bpy)
-    tags = [("", "use_nodes")]
-    gap_tags = [
+    # pkg256: TEX_SKY is now APPROXIMATED via a Preetham/Perez equirect bake
+    # (blender_addon/sky_bake.py). The props the bake consumes move from
+    # gap-cards to active feature tags; the sun disc / atmosphere-detail props
+    # the analytic model cannot honour stay gap-carded (named in the runtime
+    # degradation warning).
+    tags = [
+        ("", "use_nodes"),
         ("ShaderNodeTexSky", "prop:sky_type"),
-        ("ShaderNodeTexSky", "prop:sun_disc"),
-        ("ShaderNodeTexSky", "prop:sun_size"),
-        ("ShaderNodeTexSky", "prop:sun_intensity"),
         ("ShaderNodeTexSky", "prop:sun_elevation"),
         ("ShaderNodeTexSky", "prop:sun_rotation"),
         ("ShaderNodeTexSky", "prop:turbidity"),
+        ("ShaderNodeTexSky", "prop:air_density"),
+        ("ShaderNodeTexSky", "prop:aerosol_density"),
+    ]
+    gap_tags = [
+        ("ShaderNodeTexSky", "prop:sun_disc"),
+        ("ShaderNodeTexSky", "prop:sun_size"),
+        ("ShaderNodeTexSky", "prop:sun_intensity"),
         ("ShaderNodeTexSky", "prop:ground_albedo"),
         ("ShaderNodeBackground", "input:Color"),
         ("ShaderNodeBackground", "input:Strength"),

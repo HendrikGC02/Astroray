@@ -2892,16 +2892,16 @@
     "feature": "TEX_SKY",
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "prop:aerosol_density",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
+    "classification": "APPROXIMATED",
+    "notes": "folded into effective Perez turbidity for the Nishita family (pkg256, approx)"
   },
   {
     "category": "shader_node",
     "feature": "TEX_SKY",
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "prop:air_density",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
+    "classification": "APPROXIMATED",
+    "notes": "folded into effective Perez turbidity for the Nishita family (pkg256, approx)"
   },
   {
     "category": "shader_node",
@@ -2932,8 +2932,8 @@
     "feature": "TEX_SKY",
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "prop:sky_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "APPROXIMATED",
+    "notes": "sky_type -> Preetham turbidity source (pkg256, Preetham/Perez bake)"
   },
   {
     "category": "shader_node",
@@ -2956,8 +2956,8 @@
     "feature": "TEX_SKY",
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "prop:sun_elevation",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
+    "classification": "APPROXIMATED",
+    "notes": "drives baked sun elevation in the equirect image (pkg256)"
   },
   {
     "category": "shader_node",
@@ -2972,8 +2972,8 @@
     "feature": "TEX_SKY",
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "prop:sun_rotation",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
+    "classification": "APPROXIMATED",
+    "notes": "drives baked sun azimuth in the equirect image (pkg256)"
   },
   {
     "category": "shader_node",
@@ -2988,8 +2988,8 @@
     "feature": "TEX_SKY",
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "prop:turbidity",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
+    "classification": "APPROXIMATED",
+    "notes": "Perez turbidity for PREETHAM/HOSEK_WILKIE sky_type (pkg256)"
   },
   {
     "category": "shader_node",

@@ -13,7 +13,7 @@ bl_info = {
 import bpy
 from bpy.types import Panel, Operator, AddonPreferences, PropertyGroup, RenderEngine
 from bpy.props import BoolProperty, IntProperty, FloatProperty, StringProperty, PointerProperty, FloatVectorProperty, EnumProperty
-import mathutils, math, numpy as np, traceback, sys, os, time, inspect
+import mathutils, math, numpy as np, traceback, sys, os, time, inspect, tempfile
 from pathlib import Path
 
 # pkg112: gate the batched geometry-upload path. Default on; a parity/benchmark
@@ -5543,10 +5543,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         rz = 0.0
         tint = [1.0, 1.0, 1.0]    # multiplicative Background.Color tint (default white)
         bg_color = None           # solid background fallback when no HDRI
+        sky_node = None           # pkg256: ShaderNodeTexSky, baked to a temp HDRI
 
         for node in node_tree.nodes:
             if node.type == 'TEX_ENVIRONMENT' and node.image:
                 hdri_path = bpy.path.abspath(node.image.filepath)
+            elif node.type == 'TEX_SKY':
+                sky_node = node
             elif node.type == 'BACKGROUND':
                 strength = float(node.inputs['Strength'].default_value)
                 color_input = node.inputs.get('Color')
@@ -5596,6 +5599,36 @@ class CustomRaytracerRenderEngine(RenderEngine):
         world_max_bounces = int(getattr(world_cycles, 'max_bounces', 1024)) if world_cycles else 1024
         renderer.set_world_max_bounces(world_max_bounces)
 
+        # pkg256: a Sky Texture (ShaderNodeTexSky) feeding the World bakes a
+        # Preetham/Perez analytic sky to a temp equirect HDRI, then loads
+        # through the SAME load_environment_map path below (no engine change).
+        # An explicit TEX_ENVIRONMENT HDRI always wins. Sun position is baked
+        # into the image (azimuth/elevation), NOT expressed via a Mapping
+        # rotation — the sky orientation gate must be re-run after #786
+        # (world Mapping rotation about the wrong axis) lands.
+        sky_temp_path = None
+        if sky_node is not None and hdri_path is None:
+            try:
+                import sky_bake
+                sky_img = sky_bake.bake_to_equirect(sky_node, width=1024, height=512)
+                fd, sky_temp_path = tempfile.mkstemp(prefix="astroray_sky_", suffix=".hdr")
+                os.close(fd)
+                sky_bake.write_hdr(sky_temp_path, sky_img)
+                hdri_path = sky_temp_path
+                # pkg200: every socket/prop the Preetham bake does not honour is
+                # named verbatim (never silently dropped).
+                self._warn_shader_fallback(
+                    'TEX_SKY',
+                    "sky_type '%s' approximated with the Preetham/Perez analytic "
+                    "model (single licence-clean bake); these are NOT honoured "
+                    "and are dropped: %s"
+                    % (getattr(sky_node, 'sky_type', '?'),
+                       ", ".join(sky_bake.DROPPED_SOCKETS)))
+            except Exception as e:  # noqa: BLE001 - bake must never break render
+                self._warn_shader_fallback('TEX_SKY', 'sky bake failed (%s)' % e)
+                sky_temp_path = None
+                hdri_path = None
+
         # Try loading HDRI first.
         # pkg63: pass full XYZ rotation + RGB color tint; blender_convention=True
         # bakes the Astroray->Blender coord-swap into the rotation matrix.
@@ -5606,6 +5639,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 tint[0], tint[1], tint[2],
                 True,  # blender_convention
             )
+            # pkg256: no persistent artifact — remove the baked temp sky HDRI
+            # once the loader has consumed it (Key design decision 4).
+            if sky_temp_path is not None:
+                try:
+                    os.unlink(sky_temp_path)
+                except OSError:
+                    pass
             if success:
                 print(f"Loaded HDRI: {hdri_path} "
                       f"(strength={strength}, rot=({rx:.2f},{ry:.2f},{rz:.2f}), "

@@ -69,30 +69,30 @@ def test_find_built_pyd_none_when_absent(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# (b) OpenMP-disabled guard
+# (b) OpenMP-enabled guard (inverted by issue #780)
 # --------------------------------------------------------------------------- #
 
-def test_openmp_disabled_positive():
-    assert g.openmp_disabled_in_flags(
-        ["-DUSE_FAST_MATH=ON", "-DASTRORAY_DISABLE_OPENMP=ON"]) is True
+def test_openmp_enabled_positive():
+    assert g.openmp_enabled_in_flags(
+        ["-DUSE_FAST_MATH=ON", "-DASTRORAY_DISABLE_OPENMP=OFF"]) is True
 
 
-def test_openmp_disabled_negative():
-    assert g.openmp_disabled_in_flags(["-DUSE_FAST_MATH=ON"]) is False
-    assert g.openmp_disabled_in_flags(
-        ["-DASTRORAY_DISABLE_OPENMP=OFF"]) is False
+def test_openmp_enabled_negative():
+    assert g.openmp_enabled_in_flags(["-DUSE_FAST_MATH=ON"]) is False
+    assert g.openmp_enabled_in_flags(
+        ["-DASTRORAY_DISABLE_OPENMP=ON"]) is False
 
 
-def test_openmp_disabled_in_build_report(tmp_path):
+def test_openmp_enabled_in_build_report(tmp_path):
     (tmp_path / "build_report.json").write_text(
-        '{"cmake_flags": ["-DASTRORAY_DISABLE_OPENMP=ON"]}')
-    assert g.openmp_disabled_in_build_report(tmp_path) is True
+        '{"cmake_flags": ["-DASTRORAY_DISABLE_OPENMP=OFF"]}')
+    assert g.openmp_enabled_in_build_report(tmp_path) is True
 
     (tmp_path / "build_report.json").write_text('{"cmake_flags": []}')
-    assert g.openmp_disabled_in_build_report(tmp_path) is False
+    assert g.openmp_enabled_in_build_report(tmp_path) is False
 
     with pytest.raises(FileNotFoundError):
-        g.openmp_disabled_in_build_report(tmp_path / "missing")
+        g.openmp_enabled_in_build_report(tmp_path / "missing")
 
 
 # --------------------------------------------------------------------------- #
@@ -221,7 +221,7 @@ def _run_profile_flow(tmp_path, failure, preset_environment, pwsh, mode="smoke",
     stage = repo / "dist" / "astroray"
     stage.mkdir(parents=True)
     (stage / "build_report.json").write_text(
-        '{"cmake_flags": ["-DASTRORAY_DISABLE_OPENMP=ON"]}')
+        '{"cmake_flags": ["-DASTRORAY_DISABLE_OPENMP=OFF"]}')
     (stage / "astroray.pyd").write_bytes(b"test native artifact")
     # This replaces discovery at the external Blender boundary only. The
     # production installer and its validation/transaction remain unchanged.

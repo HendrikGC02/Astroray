@@ -36,7 +36,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import types
 from pathlib import Path
 from unittest.mock import patch

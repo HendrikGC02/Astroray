@@ -21,7 +21,6 @@ import threading
 import types
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # bpy stub (matches test_pkg116_exporter_caches.py)
 # ---------------------------------------------------------------------------
@@ -103,11 +102,14 @@ def _make_exporter(exp):
     bpy = _stub_bpy()
 
     class _StubEngine:
+        def __init__(self):
+            # empty instance maps → non-instanced classification
+            self._renderer_instance_id_map = {}
+            self._renderer_instancer_eligible = {}
+
         def setup_world(self, scene, renderer):
             renderer._rec("setup_world")
-        # empty instance maps → non-instanced classification
-        _renderer_instance_id_map = {}
-        _renderer_instancer_eligible = {}
+
         def report(self, *_a, **_k):
             return None
 

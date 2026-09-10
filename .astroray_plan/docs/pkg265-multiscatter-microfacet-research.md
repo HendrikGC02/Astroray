@@ -987,13 +987,13 @@ interface only) could not see. Running the same oracle with `entering=False`
 At the ENTRY interface and near-normal incidence — what the centre of the sphere
 sees first — the two models agree to ~0.1% (Phase-1 table, r0.85/μ0.9: MS_T
 0.980 vs Cycles_T 0.981), which is why the entry table alone predicts no centre
-shift. At the EXIT interface the same cell reads MS_R **0.310** against Cycles'
-**0.068** — a **4.6× internal-reflection difference** — because the exit
+shift. At the EXIT interface the μ0.9 row reads MS_R **0.357** against Cycles' **0.124** (2.9×) and the μ0.97 row MS_R **0.310** against Cycles'
+**0.068** — a **2.9–4.6× internal-reflection difference** (parity review 3 corrected the row reference) — because the exit
 interface is where single scatter loses the most (dead 39–49% at r0.85, against
 7–8% at r0.5) and a uniform `1/E` rescale is therefore furthest from the truth.
 A solid glass sphere is entry + an arbitrary number of internal bounces + exit,
 so the render-level ratio is a product of that divergence, not of the entry
-table. The direction is consistent: the multiple-scattering model keeps ~4.6×
+table. The direction is consistent: the multiple-scattering model keeps ~3–4.6×
 more light inside the sphere for another pass, and in this scene (bright key
 light + bright ground under the sphere) that light is redistributed broadly and
 a larger share of it reaches the camera through the disc.

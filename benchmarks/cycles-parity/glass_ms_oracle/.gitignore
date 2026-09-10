@@ -1,0 +1,3 @@
+# oracle run artifacts (regenerate with heitz_random_walk.py)
+*.npy
+table_full.txt

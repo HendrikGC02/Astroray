@@ -1,0 +1,7 @@
+scene,engine,samples,time_ms,peak_mem_mb,ssim_to_cycles,mean_ratio_cpu_gpu,skip_reason
+cornell,cycles-cpu,64,8246.580,596.9,1.000000,,
+cornell,astroray-cpu,64,10655.142,151.8,0.953844,,
+textured_plane,cycles-cpu,64,,,,,textured_plane oracle is CPU/GPU mean-ratio (no Cycles leg)
+textured_plane,astroray-cpu,64,1691.522,76.9,,,
+glass_sphere,cycles-cpu,128,3021.913,446.8,1.000000,,
+glass_sphere,astroray-cpu,128,2500.484,84.0,0.774145,,

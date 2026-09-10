@@ -57,8 +57,12 @@ def _furnace(ior: float, *, use_gpu: bool = False, spp: int = 64, depth: int = 3
 
 
 def test_dielectric_glass_furnace_cpu():
+    # pkg265: tighten the linear UPPER bound to 1.02 (was 1.05) — the smooth
+    # `dielectric` plugin is a delta glass NOT touched by the pkg265 walk, but the
+    # spec applies the same ≤1.02 energy-gain ceiling to every glass furnace.
+    # Measured (64 spp, seed 7, linear): ior 1.0/1.1/1.5/2.0 = 0.992/0.992/0.994/0.994.
     vals = {ior: _furnace(ior) for ior in _IORS}
-    bad = {ior: v for ior, v in vals.items() if not (0.95 <= v <= 1.05)}
+    bad = {ior: v for ior, v in vals.items() if not (0.95 <= v <= 1.02)}
     assert not bad, f"clear glass furnace not energy-conserving at ior {bad}; all={vals}"
 
 

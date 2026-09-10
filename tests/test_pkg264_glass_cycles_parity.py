@@ -82,20 +82,24 @@ def _furnace(kind: str, roughness: float, *, use_gpu: bool = False,
 
 def test_principled_rough_glass_furnace_conserves_cpu():
     """The native 'principled' rough-transmission lobe must conserve energy.
-    RED on main (0.909 @ r0.5, 0.645 @ r0.85, 0.524 @ r1.0). Band [0.95, 1.05]
-    matches the disney rough-glass furnace gate (test_disney_rough_glass_furnace);
-    it is NOT relaxed to accommodate the shipped loss."""
+    RED on main (0.909 @ r0.5, 0.645 @ r0.85, 0.524 @ r1.0). pkg265: the lobe is now
+    the Heitz-2016 multiple-scattering walk, which conserves energy by construction
+    (R+T==1); the band is TIGHTENED to [0.97, 1.02] linear (render applyGamma=False,
+    memory gamma-furnace-cannot-detect-energy-gain — a >1.02 upper bound would catch
+    a walk that gains energy). Measured after pkg265 (256 spp, seed 7, CPU):
+    r0.2/0.5/0.85/1.0 = 0.992/0.996/0.995/0.996. NOT relaxed to accommodate loss."""
     vals = {R: _furnace("principled", R) for R in _ROUGH}
-    bad = {R: v for R, v in vals.items() if not (0.95 <= v <= 1.05)}
+    bad = {R: v for R, v in vals.items() if not (0.97 <= v <= 1.02)}
     assert not bad, (f"principled rough glass furnace not energy-conserving at "
                      f"roughness {bad}; all={vals}")
 
 
 def test_disney_rough_glass_furnace_still_conserves_cpu():
-    """Regression guard: the disney glass path (the proven-conserving sibling the
-    fix borrows from) must stay conserving — the pkg264 change is principled-only."""
+    """pkg265: the disney glass lobe is now the same Heitz-2016 walk; it must
+    conserve in the same [0.97, 1.02] linear band. Measured after pkg265 (256 spp,
+    seed 7, CPU): r0.2/0.5/0.85/1.0 = 0.992/0.993/0.986/0.981."""
     vals = {R: _furnace("disney", R) for R in _ROUGH}
-    bad = {R: v for R, v in vals.items() if not (0.95 <= v <= 1.05)}
+    bad = {R: v for R, v in vals.items() if not (0.97 <= v <= 1.02)}
     assert not bad, f"disney rough glass furnace regressed at roughness {bad}; all={vals}"
 
 

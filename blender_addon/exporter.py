@@ -1979,7 +1979,8 @@ class Exporter:
         # before commit_fn so the follow-up refinement scheduling below is exact.
         if self._worker_fullres_next:
             res_divisor = 1
-            self._worker_fullres_next = False
+            # NOT cleared here: the owed refinement must survive a failed
+            # submit (token contended) -- cleared below on success (Luna re-review).
         else:
             res_divisor = self._budget_start_divisor()
 
@@ -2090,6 +2091,7 @@ class Exporter:
             else:
                 self._worker_refine_pending = False
                 self._worker_refine_gen = None
+                self._worker_fullres_next = False   # the owed refinement went out
         return submitted
 
     def _worker_view_update(self, context, depsgraph, configure_backend_fn,
@@ -2192,13 +2194,15 @@ class Exporter:
                     and worker.state == _ViewportSpikeWorker.IDLE
                     and worker.submitted_generation == self._worker_refine_gen
                     and worker.desired_generation == worker.submitted_generation):
-                self._worker_refine_pending = False
                 self._worker_fullres_next = True
                 worker.request()
-                self._worker_commit_and_submit(
-                    context, depsgraph, settings, region, configure_backend_fn,
-                    viewport_perf_record_fn, effective_integrator_name_fn,
-                    engine_methods, commit_mode='camera')
+                # pending is cleared only when the refinement actually went out;
+                # a failed submit (token contended) keeps it owed (Luna re-review).
+                if self._worker_commit_and_submit(
+                        context, depsgraph, settings, region, configure_backend_fn,
+                        viewport_perf_record_fn, effective_integrator_name_fn,
+                        engine_methods, commit_mode='camera'):
+                    self._worker_refine_pending = False
                 request_viewport_redraw_fn()
 
             # Keep the loop alive while a render is in flight or a frame is queued.

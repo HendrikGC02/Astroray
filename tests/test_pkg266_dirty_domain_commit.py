@@ -521,6 +521,49 @@ def test_worker_first_unit_reduced_then_refinement_full_res():
     assert exporter._worker_refine_pending is False
 
 
+def test_worker_refinement_survives_failed_submit():
+    """Luna re-review of PR #791: the owed full-resolution refinement must not be
+    lost when its submit fails (global token contended). _worker_fullres_next is
+    cleared only once a full-res submission actually went out; a failed submit
+    leaves it set so the next commit still renders full resolution."""
+    exp = _load_exporter_module()
+    exporter = _make_exporter(exp)
+    exporter._worker = _idle_worker(exp)
+    region = types.SimpleNamespace(width=256, height=256)
+    context = types.SimpleNamespace(region=region)
+    settings = _worker_settings()
+    em = _worker_engine_methods({})
+    exporter._viewport_last_full_render_ms = exp.VIEWPORT_INTERACTIVE_BUDGET_MS * 10
+
+    exporter._worker.desired_generation = 1
+    assert exporter._worker_commit_and_submit(
+        context, None, settings, region, lambda *a: None, lambda *a: None,
+        lambda *a: "path", em, commit_mode='camera') is True
+    assert exporter._worker_refine_pending is True
+
+    # Refinement owed; the submit fails (token contended) -> nothing consumed.
+    exporter._worker.state = exp._ViewportSpikeWorker.IDLE
+    exporter._worker._token.release()
+    exporter._worker._token_holder = None
+    exporter._worker_fullres_next = True
+    real_submit = exporter._worker.maybe_submit
+    exporter._worker.maybe_submit = lambda commit_fn: False
+    exporter._worker.request()
+    assert exporter._worker_commit_and_submit(
+        context, None, settings, region, lambda *a: None, lambda *a: None,
+        lambda *a: "path", em, commit_mode='camera') is False
+    assert exporter._worker_fullres_next is True, "owed refinement was lost"
+
+    # Next successful commit goes out at full resolution and clears the debt.
+    exporter._worker.maybe_submit = real_submit
+    assert exporter._worker_commit_and_submit(
+        context, None, settings, region, lambda *a: None, lambda *a: None,
+        lambda *a: "path", em, commit_mode='camera') is True
+    assert exporter._worker._current_job["res_divisor"] == 1
+    assert exporter._worker_fullres_next is False
+    assert exporter._worker_refine_pending is False
+
+
 def test_worker_cheap_scene_renders_full_res_first():
     """A cheap scene (measured full-res cost under the budget) submits its first
     unit at full resolution — the reduced-first-unit engages only above the

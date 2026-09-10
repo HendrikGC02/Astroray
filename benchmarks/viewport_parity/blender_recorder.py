@@ -423,6 +423,14 @@ def _install_ui_latency():
         "blitted_pubs": set(),  # pub_ids that already produced a first_blit
         "pending_blit_gen": None,
         "pending_blit_pubid": None,
+        # pkg266 (§13 item 3 / Terra (b)): adaptive settle — the next burst waits
+        # until a terminal_publication is observed in the current idle span, so
+        # every idle span yields >= 1 eligible terminal generation (present-rate
+        # is gradeable). See _should_dispatch.
+        "settle_state": "burst",
+        "burst_started_at": None,
+        "settle_started_at": None,
+        "terminal_seen_since_burst": False,
     }
     dns["_pkg241"] = S
 
@@ -441,6 +449,11 @@ def _install_ui_latency():
             if name == "texture_upload_end":
                 S["pending_blit_gen"] = generation
                 S["pending_blit_pubid"] = extra.get("pub_id")
+            elif name == "terminal_publication":
+                # pkg266 (§13 item 3): a generation reached its terminal (final,
+                # uncancelled) publication — the current idle span now has an
+                # eligible terminal generation, so the adaptive settle may end.
+                S["terminal_seen_since_burst"] = True
 
         exporter_mod._spike_event_sink = _event_sink
 
@@ -559,17 +572,44 @@ def _install_ui_latency():
                     pass
         _tag_redraw()
 
+    # pkg266 (§13 item 3): cap the adaptive idle wait so a scene whose target spp
+    # is unreachable within a settle span cannot stall the run forever — after
+    # this multiple of settle_s the next burst resumes anyway (present-rate then
+    # reports UNGRADEABLE, honestly, rather than hanging).
+    _SETTLE_CAP_MULT = 5.0
+
     def _should_dispatch(now):
-        # pkg241 P2.2 item 4: in "settle" mode, dispatch edits only during the
-        # burst_s window of each (burst_s + settle_s) cycle, measured from the run
-        # phase start; the settle_s span lets the worker complete + present a
-        # generation. "continuous" always dispatches (the stress variant).
+        # pkg241 P2.2 item 4 / pkg266 §13 item 3 (Terra (b)): ADAPTIVE settle. In
+        # "settle" mode, dispatch a burst for burst_s, then go idle and DO NOT
+        # start the next burst until a terminal_publication is observed in this
+        # idle span (guaranteeing >= 1 eligible terminal generation so present-rate
+        # is gradeable) AND at least settle_s has elapsed. A hard cap bounds the
+        # wait. "continuous" always dispatches (the stress variant).
         if pattern != "settle" or S["t_phase_start"] is None:
             return True
         cycle = burst_s + settle_s
         if cycle <= 0:
             return True
-        return ((now - S["t_phase_start"]) % cycle) < burst_s
+        state = S.get("settle_state", "burst")
+        if state == "burst":
+            if S.get("burst_started_at") is None:
+                S["burst_started_at"] = now
+            if now - S["burst_started_at"] < burst_s:
+                return True  # dispatch edits
+            # Burst window done → enter the idle/settle span, awaiting a terminal.
+            S["settle_state"] = "settle"
+            S["settle_started_at"] = now
+            S["terminal_seen_since_burst"] = False
+            return False
+        # state == "settle": stay idle until a terminal generation completes in
+        # this span (>= settle_s elapsed), or the safety cap fires.
+        elapsed = now - (S.get("settle_started_at") or now)
+        terminal_done = S.get("terminal_seen_since_burst") and elapsed >= settle_s
+        if terminal_done or elapsed >= settle_s * _SETTLE_CAP_MULT:
+            S["settle_state"] = "burst"
+            S["burst_started_at"] = now
+            return True
+        return False
 
     def timer():
         if S["done"]:
@@ -594,6 +634,12 @@ def _install_ui_latency():
                     S["blitted_pubs"] = set()
                     S["pending_blit_gen"] = None
                     S["pending_blit_pubid"] = None
+                    # pkg266 (§13 item 3): restart the adaptive settle machine at
+                    # the fresh run-phase start.
+                    S["settle_state"] = "burst"
+                    S["burst_started_at"] = now
+                    S["settle_started_at"] = None
+                    S["terminal_seen_since_burst"] = False
                 _drive_edit(_should_dispatch(now))
                 return tick_s
             # phase == "run"

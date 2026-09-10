@@ -807,6 +807,17 @@ def _reduce_spike_events(events):
     n_render_device = sum(1 for (n, *_r) in ev if n == "render_device")
     n_errors = sum(1 for (n, *_r) in ev if n == "error")
 
+    # pkg266 (§13 item 1): cancellation-bounded dispatch accounting. Each
+    # `bounded_units` event carries the native last_render_info units_launched /
+    # cancelled_at_unit for one chunk. Report the units-launched distribution and
+    # the cancelled-at-unit values (a cancel bounded to an early unit is the whole
+    # point — a low cancelled_at_unit means the in-flight chunk stopped promptly).
+    units_launched = [int(x["units_launched"]) for (n, _g, _t, _e, x) in ev
+                      if n == "bounded_units" and "units_launched" in x]
+    cancelled_at_unit = [int(x["cancelled_at_unit"]) for (n, _g, _t, _e, x) in ev
+                         if n == "bounded_units"
+                         and int(x.get("cancelled_at_unit", -1)) >= 0]
+
     def _pct(xs):
         if not xs:
             return None
@@ -838,6 +849,12 @@ def _reduce_spike_events(events):
         "devices_seen": devices,
         "n_render_device": n_render_device,
         "cuda_errors": n_errors,
+        # pkg266 bounded dispatch (§13 item 1)
+        "units_launched": _pct([float(u) for u in units_launched]) if units_launched else None,
+        "cancelled_at_unit_n": len(cancelled_at_unit),
+        "cancelled_at_unit_max": max(cancelled_at_unit) if cancelled_at_unit else None,
+        "cancelled_at_unit_p95": (round(_percentile(sorted(cancelled_at_unit), 95), 2)
+                                  if cancelled_at_unit else None),
     }
 
 

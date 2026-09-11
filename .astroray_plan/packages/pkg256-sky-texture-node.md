@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — Preetham/Perez bake landed (PR #793, 2026-09-10); Cycles sky-band A/B upper 1.00 / horizon 0.90 lum ratio; world_sky_sky renders sky (no longer black); lead flips to done after contact-sheet inspection
+**Status:** done — 2026-09-11, PR #793 (merged 54299766). Preetham/Perez 1999 sky bake (appleseed MIT constants) to a 1024×512 flat-RGBE equirect (55 ms) fed through the HDRI path; Cycles A/B on world_sky_sky: sky-band luminance ratio upper 1.005 / horizon 0.898 (±25 % gate), sun column 41 vs 26 of 240 px (≤ 15 % gate); the striped render was MinGW GCC 15.2 miscompiling stb_image's flat-.hdr fallback (#797 → #798), not the bake; review items: air_density dropped from the turbidity map (wrong sense, now DROPPED+warned), 1/1766 documented as gradient-shape parity only (absolute exposure + sun disc = #799), Cycles sun-column azimuth A/B added. Lead inspected the regenerated contact sheet (smooth, no banding; warm Preetham horizon vs Nishita blue and soft shadows are the disclosed divergences).
 **Estimated effort:** 1 week
 **Depends on:** pkg63, pkg229
 

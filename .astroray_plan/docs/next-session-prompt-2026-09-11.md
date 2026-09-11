@@ -101,37 +101,49 @@ leave a morning-readable record.
 - Codex Terra: 4 calls available this session.
 
 
-## Owner questions raised 2026-09-11 evening (answers pending — read STATUS "Owner decisions pending" for the outcome)
+## Owner decisions 2026-09-11 evening (verbatim log in `north-star-and-integration-gate-2026-09-07.md` §7)
 
-1. **Sky look (pkg256 / #799):** accept the Preetham bake as APPROXIMATED (no sun disc, warm horizon, RGB-upsampled spectrum) or
-   prioritise #799 — a sun disc + absolute exposure + a per-wavelength sky model (owner asked about IR/UV content).
-2. **CPU final-render sampler (#763):** the pkg262 fork (b) leaves CPU F12 renders on the plain random sampler (Sobol' only with GPU
-   adaptive); the corpus noise gap vs Cycles at equal spp is partly this. Owner may authorise Sobol' for CPU renders regardless.
-3. **Spot IES (corpus SPOT dimmer):** engine has IES (pkg89 B); the addon never reads `ShaderNodeTexIES` (INTERNAL text mode) — a
-   small addon package; owner asked whether it is the simple fix (yes, plus matching Cycles' IES normalisation).
-4. **Rough glass (pkg265):** owner likes Cycles' broad highlight; Astroray's r 0.85 render reads flatter/noisier (128 spp, stochastic
-   eval). Needs a high-spp A/B before calling it a shape difference; #782 oracle decides the 1.61× centre band. Owner to say whether
-   the GPU walk (Phase 3) or the oracle comes first.
-5. **Volumes:** engine has only a homogeneous world medium; VDB/heterogeneous media/Principled Volume are unstarted (4–6 packages).
-   Owner to say whether a volume track opens now (science-foundational) or after the Pillar 4 exit gate.
-6. **Priority weighting** across corpus-parity gaps (#757 #776 #795 #796 IES), viewport (pkg266 #721), glass physics (pkg265 P3, #782),
-   volumes (new) — owner to confirm or reorder the dispatch list below.
+1. **Sky:** sun disc + absolute exposure (#799 part 1) sooner than later, not top priority; per-wavelength sky = stretch goal.
+2. **Noise/speed:** noise is the main visual distractor, but Sobol' on CPU is too expensive to just switch on — an
+   **optimisation session** comes first, in which you **collaborate with and delegate to GPT-6 Astra** (Codex `gpt-6-astra`;
+   owner directive, that session only — memory `codex-reviewer-only`). Targets: the #763 per-sample variance gap, the cost of
+   the Sobol'/light-tree path, viewport throughput and the suspected per-frame scene re-upload (#801), Render Region (#802).
+3. **Spot IES export:** approved (addon reads `ShaderNodeTexIES`, INTERNAL text -> temp file -> engine IES hook; match Cycles' normalisation).
+4. **Glass:** #782 oracle first, then pkg265 Phase 3 GPU walk.
+5. **Volumes:** the heterogeneous-volume / VDB track opens NOW (core Cycles parity, not Pillar 4). Architect a spec set:
+   Blender Volume object + VDB/NanoVDB grids -> engine grid; delta/ratio tracking on CPU + a wavefront volume stage on GPU;
+   Principled Volume shader; volume NEE with transmittance shadow rays; passes. Cite-algorithm first (pbrt-v4 ch. 11/14, Cycles
+   `volume.h`, NanoVDB). Expect 4-6 packages.
+6. **Batching directive (how every session now runs):** bundle several independent items into ONE worktree per build+sweep+CI
+   cycle; one PR per batch with a per-item section and per-item tests; reviewers once per batch; bisect inside the worktree if a
+   batch goes red. Docs/spec flips still go straight to main. Memory `batched-lanes-directive-2026-09-11`.
+7. **Half-implemented packages** — do not let them rot. Audit (statuses from the specs, 2026-09-11):
+   pkg88 motion blur (Phases A + C.0; Phase B camera/object blur in real Blender unfinished), pkg136 path guiding (Stage 1A/1B CPU;
+   GPU wavefront leg not started), pkg241 (Phase 1b delivered; Phase 2 off-thread design §14 pending), pkg253 Principled advanced
+   inputs (in-progress, no progress line), pkg127/pkg227 specular polynomials (Phase 1 / 2a-2b landed, 2c deferred, default OFF),
+   pkg201 settings-honour (2 of 6 rows; item C filter_glossy parked), pkg179 (Phase 1 diagnosis only), pkg121 chi² gates
+   (Phase B campaign open), pkg119 (Phase C degradation UX?), pkg126 mesh-emitter unification (never implemented, unblocked),
+   pkg130 light groups / pkg133 SRF sensors / pkg134 LPEs (never implemented), pkg242 Phase 2, pkg245 (architect review),
+   pkg254 (open). Triage each into: finish in a batch / re-scope / close as superseded — record the verdict in the spec.
 
-## Dispatch order (lead's recommendation)
+## Dispatch order (lead's recommendation, batched)
 
-1. **Re-baseline `world_sky_hdri` ROIs and #795** on the post-#798 build (Sonnet 5, CPU; both the MSVC
-   `build_cuda` and a fresh `--backend cpu` MinGW stage must agree now — that agreement is itself the #798 gate).
-2. **pkg266 GUI §9 re-measure** (Sonnet 5 measurement lane; the Terra-4 instrument is ready): both
-   scenes ON/OFF settle + storm; if every gate passes on both scenes, the default flip is its own
-   Progress line with the table — owner-visible.
-3. **pkg265 Phase 3 GPU walk** (Opus 4.8, cite-algorithm: same header, device twin; REG 254 held;
-   deletes the two strict xfails; GPU/CPU glass parity within ±5 %).
-4. **pkg259 Phase 3** corpus families (Sonnet 5, CPU; renders are fast now).
-5. Fill: pkg254, pkg242 Phase 2, pkg245; #795 (after re-baseline), #796, #757, #776, #779, #773.
+Batch A — **addon parity fixes** (Sonnet 5 or Opus 4.8, CPU, one worktree): spot IES export (decision 3) + #757 Diffuse BSDF
+  export + #796 World Mapping sockets + #802 Render Region (addon half; engine rect if small) + re-baseline `world_sky_hdri`/#795
+  on the post-#798 build. One restage, one headless test run, one CI.
+Batch B — **speed & noise (the Astra session)**: instrument #801 in a real Blender 5.2 session (port 9877) + pkg266 GUI §9 table;
+  #763 four-way variance test; then the optimisation lanes with Astra (sampler cost, light tree, upload caching, present path).
+  Deliverable: Sobol'/light-tree affordable on CPU F12 and a viewport that does not re-upload; the pkg266 default flip if the table passes.
+Batch C — **glass physics**: #782 oracle (Opus 4.8, cite-algorithm) -> pkg265 Phase 3 GPU walk (deletes the two strict xfails) ->
+  #773 addon-path deficit; #789/#783 after.
+Batch D — **volumes** (architect first, then packages; owner decision 5): spec set + the first two packages (grid import + CPU
+  heterogeneous transport with Principled Volume basics).
+Batch E — **sky part 1** (#799: sun disc + absolute exposure) + pkg259 Phase 3 corpus families + #776 textured emitters.
+Fill: pkg254, pkg242 Phase 2, pkg245, #779, #767, #721, and the half-implemented triage (item 7).
 
-## Per-PR flow (unchanged)
+## Per-batch flow
 
-worktree → implement with tests → build + focused pytest → `/lint` → `delegate --tier verify`
+One worktree per batch → implement each item with its own tests → build + focused pytest → `/lint` → `delegate --tier verify`
 critique → PR → CI → CUDA build under the GPU lock → GPU tests + saved render → you inspect the
 render → `cpp-abi-guard` / `cycles-parity-reviewer` where headers/physics changed → call-site sweep →
 squash-merge (verify) → spec Status flip → STATUS.md line.

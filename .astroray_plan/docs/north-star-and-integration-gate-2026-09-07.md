@@ -225,3 +225,25 @@ interactive viewport loop, which decides an entire responsiveness work lane.)
   per corpus scene), no gate yet; a dedicated package follows with the measured causes.
 - **Dispatch order for 2026-09-09:** as the lead recommended — #770/pkg265 → pkg241 P2.2 →
   pkg262, with pkg259 polish/Phase 2 and #769/#762 in parallel on CPU-only lanes.
+
+### Owner decisions — 2026-09-11 evening (after the striped-sky closeout)
+
+Asked by the lead with the state of HDRI noise, rough glass, the dim corpus spot, the sky model and volumes laid out.
+
+1. **Sky (pkg256 / #799):** "not a priority but sun disc and absolute exposure should probably be done sooner than later. The
+   per-wavelength sky will be needed in the future for truly scientifically accurate rendering of spectral data, but that is more
+   of a stretch goal."
+2. **Noise / speed:** "The excessive noise right now is a major visual distractor from otherwise pretty good renders. But the render
+   time cost is too much to just enable it on its own now, instead some optimization work and speeding up needs to be done as soon
+   as possible ... This is a big ask so you will have to collaborate and delegate to GPT 6 Astra to work with you on this (not in
+   this session, the one where this optimization work will be done)." Also: the viewport render is "much much slower than Cycles",
+   "it seems like the scene gets re-uploaded to the GPU for each frame" (#801), and "the 'render region' option doesn't work" (#802).
+3. **Spot IES export:** yes.
+4. **Glass ordering:** "whatever you recommend" -> #782 independent oracle before the pkg265 Phase 3 GPU walk.
+5. **Volumes:** "Absolutely, volume rendering is not intended to be a Pillar 4 exclusive, since it is required to meet Cycles parity.
+   It is a core part of any rendering engine and not some niche scientific addon." -> the heterogeneous-volume / VDB track opens now.
+6. **Priorities:** no gripe with the list, but "I want more things to be worked on together in parallel so that building and running
+   tests isn't repeated for every single item ... multiple features and fixes ... included in a single rebuild and test run. It does
+   run the risk of obscuring some issues ... but I have confidence in ... Fable and Astra ... The biggest time waster now are the
+   builds, tests and CI." -> batched lanes (memory `batched-lanes-directive-2026-09-11`).
+7. "Don't forget about older packages that were half implemented but dropped along the way." -> audit list in the 2026-09-11 handoff.

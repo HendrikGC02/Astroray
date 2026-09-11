@@ -1259,7 +1259,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # WfContext / __constant__ bindings at once. Released + gate lowered in the
         # finally below on every exit path. With the viewport worker off there are
         # no live sessions and the token is uncontended, so this is a cheap no-op.
-        from . import exporter as _exp_f12
+        # Defensive import (same as the module-level exporter): Blender loads us as a
+        # package, test harnesses load this file standalone (issue #772 headless
+        # check) where a bare relative import raises ModuleNotFoundError.
+        _exp_f12 = _import_exporter()
+        if _exp_f12 is None:
+            self.report({'ERROR'}, "Astroray: exporter module missing; cannot render")
+            return
         try:
             # pkg266 (Terra review, item 1): F12 must NEVER render token-less. If
             # a viewport worker fails to drain within the timeout the global

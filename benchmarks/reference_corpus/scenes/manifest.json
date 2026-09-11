@@ -1747,8 +1747,8 @@
           "feature": "TEX_SKY",
           "bl_idname": "ShaderNodeTexSky",
           "socket_or_prop": "prop:air_density",
-          "classification": "APPROXIMATED",
-          "gap_card": false
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
         },
         {
           "category": "shader_node",

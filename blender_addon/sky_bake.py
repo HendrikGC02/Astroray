@@ -16,8 +16,17 @@ orientation proof: `.astroray_plan/docs/pkg256-sky-model-research.md`.
 
 All four Blender `sky_type` values are APPROXIMATED with this one model (spec
 pkg256 Key design decision 2). `sun_disc`, `sun_size`, `sun_intensity`,
-`altitude`, `ozone_density`, `ground_albedo`, and the `Vector` input are NOT
-honoured — the caller names them verbatim in a runtime degradation warning.
+`altitude`, `air_density`, `ozone_density`, `ground_albedo`, and the `Vector`
+input are NOT honoured — the caller names them verbatim in a runtime
+degradation warning.
+
+`air_density` is deliberately DROPPED, not folded into turbidity: Blender's
+Nishita `air_density` scales Rayleigh scattering (more air ⇒ *bluer*/more
+saturated), whereas Perez `turbidity` is a haziness axis (more turbidity ⇒
+*whiter*/desaturated). Mapping air_density onto turbidity therefore inverts
+its perceptual direction, so it is left unconsumed and warned instead (PR #793
+cycles-parity review item 1, 2026-09-10; matches spec Non-goals). Only
+`aerosol_density` (haze ⇒ turbidity, same direction) is still folded in.
 """
 
 import math
@@ -32,6 +41,7 @@ DROPPED_SOCKETS = (
     "sun_intensity",
     "sun_direction",  # sun position taken from sun_elevation/sun_rotation instead
     "altitude",
+    "air_density",    # Rayleigh axis; folding onto turbidity inverts its sense
     "ozone_density",
     "ground_albedo",
     "Vector",
@@ -39,12 +49,24 @@ DROPPED_SOCKETS = (
 
 # Photometric-luminance (cd/m²) → radiance unit bridge. Preetham Yz is
 # photometric (~O(1e3-1e4)); the engine env path treats pixel values as
-# radiance and multiplies by the World Background Strength. Calibrated
-# empirically so the baked upper-sky band matches the Cycles Nishita sky of
-# the corpus scene world_sky_sky (measured luminance ratio 14.7 at 1/120 →
-# 1/1766). Not a spectral match — the residual per-channel colour difference
-# is the genuine Preetham-vs-Nishita divergence; see research note §3, Cycles
-# A/B gated loosely (per-band luminance, not per-channel).
+# radiance and multiplies by the World Background Strength.
+#
+# GRADIENT-SHAPE PARITY ONLY — NOT an exposure/absolute-radiance match.
+# This single scalar was fit against ONE scene (corpus world_sky_sky:
+# MULTIPLE_SCATTERING, turbidity 2.6, sun elevation 28°) so the baked
+# upper-sky band lands within the ±25% luminance A/B (measured ratio 14.7 at
+# 1/120 ⇒ 1/1766). It is NOT a global exposure calibration: because Preetham
+# Yz scales with turbidity and sun elevation (χ = (4/9 − T/120)(π − 2θs)),
+# any bake with different turbidity or sun elevation will land at a different
+# absolute exposure relative to Cycles' physical Nishita atmosphere — those
+# two parameters are exactly what move the fitted ratio off 1.0. The residual
+# per-channel colour difference is the genuine Preetham-vs-Nishita divergence.
+# See research note §3. A per-bake Yz normalisation was considered and
+# rejected (it would flatten the physical brighter-sky-when-hazier/higher-sun
+# variation and still not reach Cycles-absolute exposure); the true fix is
+# engine-side spectral sky evaluation, tracked as the Phase-2 follow-up
+# issue #799. Cycles A/B is therefore gated loosely (per-band luminance, not
+# per-channel, not absolute).
 LUM_TO_RADIANCE = 1.0 / 1766.0
 
 # CIE xyY -> linear sRGB (Rec.709 / D65).
@@ -64,15 +86,19 @@ def _sun_direction(elevation, rotation):
                     dtype=np.float64)
 
 
-def _effective_turbidity(sky_type, turbidity, air_density, aerosol_density):
+def _effective_turbidity(sky_type, turbidity, aerosol_density):
     """Map a Blender sky_type + its native params to a Perez turbidity.
 
     NISHITA family (SINGLE/MULTIPLE_SCATTERING) has no turbidity input, so we
-    derive an effective one from air/aerosol density (approximation — see
-    research note §3). PREETHAM/HOSEK_WILKIE use the native `turbidity` prop.
+    derive an effective one from `aerosol_density` only (haze ⇒ turbidity, same
+    perceptual direction — approximation, see research note §3).
+    `air_density` (Rayleigh) is intentionally NOT folded in: it is a bluer/more-
+    saturated axis and mapping it onto turbidity (a whiter/hazier axis) would
+    invert its direction, so it is DROPPED + warned instead (PR #793 review
+    item 1). PREETHAM/HOSEK_WILKIE use the native `turbidity` prop.
     """
     if sky_type in ("SINGLE_SCATTERING", "MULTIPLE_SCATTERING", "NISHITA"):
-        t = 2.0 + 2.0 * float(aerosol_density) + 0.5 * float(air_density)
+        t = 2.0 + 2.0 * float(aerosol_density)
     else:  # PREETHAM, HOSEK_WILKIE
         t = float(turbidity)
     return float(min(max(t, 1.7), 10.0))
@@ -122,11 +148,11 @@ def _zenith_xyY(turbidity, sun_theta):
 
 
 def bake_params(sky_type, sun_elevation, sun_rotation, turbidity=2.0,
-                air_density=1.0, aerosol_density=1.0, width=1024, height=512):
+                aerosol_density=1.0, width=1024, height=512):
     """Bake a Preetham/Perez equirect sky to a (height, width, 3) float32 RGB
     array (linear, radiance-scaled). Deterministic. Row 0 = zenith (+Z),
     row H-1 = nadir; column c ↦ φ=((c+0.5)/W-0.5)·2π (see research note §4)."""
-    t = _effective_turbidity(sky_type, turbidity, air_density, aerosol_density)
+    t = _effective_turbidity(sky_type, turbidity, aerosol_density)
     sun = _sun_direction(sun_elevation, sun_rotation)
     sun_theta = math.acos(min(max(float(sun[2]), -1.0), 1.0))  # from +Z
 
@@ -189,7 +215,6 @@ def bake_to_equirect(node, width=1024, height=512):
         _node_prop(node, "sun_elevation", 0.26),
         _node_prop(node, "sun_rotation", 0.0),
         turbidity=_node_prop(node, "turbidity", 2.0),
-        air_density=_node_prop(node, "air_density", 1.0),
         aerosol_density=_node_prop(node, "aerosol_density", 1.0),
         width=width, height=height,
     )

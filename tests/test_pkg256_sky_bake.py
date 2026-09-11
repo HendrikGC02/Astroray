@@ -107,7 +107,7 @@ def test_radiance_ordering_near_sun_vs_antisolar():
 def test_sky_type_changes_output():
     E, A = math.radians(20.0), math.radians(60.0)
     nishita = sky_bake.bake_params("SINGLE_SCATTERING", E, A,
-                                   air_density=1.0, aerosol_density=1.0,
+                                   aerosol_density=1.0,
                                    width=W, height=H)
     preetham = sky_bake.bake_params("PREETHAM", E, A, turbidity=6.0,
                                     width=W, height=H)
@@ -118,7 +118,7 @@ def test_dropped_sockets_named():
     """pkg200: sockets/props the bake does not honour are enumerated verbatim."""
     assert sky_bake.DROPPED_SOCKETS == (
         "sun_disc", "sun_size", "sun_intensity", "sun_direction",
-        "altitude", "ozone_density", "ground_albedo", "Vector",
+        "altitude", "air_density", "ozone_density", "ground_albedo", "Vector",
     )
 
 

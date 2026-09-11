@@ -2900,8 +2900,8 @@
     "feature": "TEX_SKY",
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "prop:air_density",
-    "classification": "APPROXIMATED",
-    "notes": "folded into effective Perez turbidity for the Nishita family (pkg256, approx)"
+    "classification": "DROPPED-SILENT",
+    "notes": "Rayleigh axis (more air -> bluer); folding onto Perez turbidity (a haziness axis) would invert its direction, so dropped + named in the runtime degradation warning (pkg256, PR #793 review)"
   },
   {
     "category": "shader_node",

@@ -999,7 +999,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_NOISE | prop:normalize | SUPPORTED |  |
 | TEX_SKY | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
 | TEX_SKY | prop:aerosol_density | APPROXIMATED | folded into effective Perez turbidity for the Nishita family (pkg256, approx) |
-| TEX_SKY | prop:air_density | APPROXIMATED | folded into effective Perez turbidity for the Nishita family (pkg256, approx) |
+| TEX_SKY | prop:air_density | DROPPED-SILENT | Rayleigh axis (more air -> bluer); folding onto Perez turbidity (a haziness axis) would invert its direction, so dropped + named in the runtime degradation warning (pkg256, PR #793 review) |
 | TEX_SKY | prop:altitude | DROPPED-SILENT | property FLOAT |
 | TEX_SKY | prop:ground_albedo | DROPPED-SILENT | property FLOAT |
 | TEX_SKY | prop:ozone_density | DROPPED-SILENT | property FLOAT |

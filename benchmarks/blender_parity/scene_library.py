@@ -2282,13 +2282,13 @@ def build_world_sky_sky_scene(bpy):
         ("ShaderNodeTexSky", "prop:sun_elevation"),
         ("ShaderNodeTexSky", "prop:sun_rotation"),
         ("ShaderNodeTexSky", "prop:turbidity"),
-        ("ShaderNodeTexSky", "prop:air_density"),
         ("ShaderNodeTexSky", "prop:aerosol_density"),
     ]
     gap_tags = [
         ("ShaderNodeTexSky", "prop:sun_disc"),
         ("ShaderNodeTexSky", "prop:sun_size"),
         ("ShaderNodeTexSky", "prop:sun_intensity"),
+        ("ShaderNodeTexSky", "prop:air_density"),
         ("ShaderNodeTexSky", "prop:ground_albedo"),
         ("ShaderNodeBackground", "input:Color"),
         ("ShaderNodeBackground", "input:Strength"),

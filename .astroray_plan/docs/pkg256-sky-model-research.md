@@ -39,10 +39,18 @@ and routes every `sky_type` through it (spec Key design decision 2 explicitly
 permits the narrower floor). Output still varies with `sky_type`:
 
 - `SINGLE_SCATTERING` / `MULTIPLE_SCATTERING` (Nishita family): effective
-  turbidity derived from `air_density` + `aerosol_density`
-  (`T_eff = 2.0 + 2.0*aerosol_density + 0.5*air_density`, clamped [1.7, 10];
-  Blender defaults air=aerosol=1 → T=4.5, a moderate clear sky).
-  This is an **approximation** — Blender's Nishita is a physical
+  turbidity derived from `aerosol_density` only
+  (`T_eff = 2.0 + 2.0*aerosol_density`, clamped [1.7, 10]; Blender default
+  aerosol=1 → T=4.0, a moderate clear sky).
+  `air_density` is **deliberately NOT folded in** (PR #793 cycles-parity
+  review item 1, 2026-09-10): Blender's Nishita `air_density` scales Rayleigh
+  scattering, so more air ⇒ *bluer*/more saturated, whereas Perez `turbidity`
+  is a haziness axis (more ⇒ *whiter*/desaturated). Mapping air_density onto
+  turbidity would invert its perceptual direction, so it is left unconsumed
+  and named in the runtime degradation warning (`DROPPED_SOCKETS`), matching
+  the pkg256 spec Non-goals. Only `aerosol_density` (haze ⇒ turbidity, same
+  direction) is folded in.
+  This is still an **approximation** — Blender's Nishita is a physical
   single-/multiple-scattering atmosphere with ozone/altitude; Perez is a
   fitted luminance distribution. Error is largest at low sun and in the
   circumsolar region; the sky gradient and sun azimuth/elevation are
@@ -81,16 +89,30 @@ Then xyY → CIE XYZ → linear sRGB (Rec.709). `cos θ` clamped to ≥ 1e-3 to 
 the horizon finite; below the horizon (θ > 90°) the sky is clamped to the
 horizon value (ground band; #787 keeps it dark in-render regardless).
 
-### Absolute scale
+### Absolute scale — GRADIENT-SHAPE PARITY ONLY, not exposure parity
 
 Preetham Yz is **photometric** (cd/m²), ~O(1e3–1e4). The engine env-map path
-treats pixel values as radiance and multiplies by Background `Strength`. We
-divide luminance by a fixed daylight luminous-efficacy constant
-`LUM_TO_RADIANCE = 1.0/120.0` (≈ broadband daylight efficacy 120 lm/W) so a
-clear zenith lands at radiance O(10) before the World `Strength` multiply.
-This is a unit-bridge, not a physical spectral match — the Cycles A/B is
-therefore gated loosely (±25% per sky band); measured ratios recorded in the
-PR.
+treats pixel values as radiance and multiplies by Background `Strength`. The
+physical starting point is to divide luminance by the broadband daylight
+luminous-efficacy constant ≈120 lm/W (`1/120`), but a `1/120` bake does not
+match the corpus scene's Cycles Nishita exposure — the measured upper-sky
+luminance ratio at `1/120` was **14.7×** too bright, so the constant was
+empirically re-fit to `LUM_TO_RADIANCE = 1.0/1766.0` for that one scene
+(`world_sky_sky`: `MULTIPLE_SCATTERING`, turbidity 2.6, sun elevation 28°).
+
+**This is a single-scene gradient-shape fit, NOT a global exposure
+calibration.** Preetham zenith luminance scales with turbidity and sun
+elevation via χ = (4/9 − T/120)(π − 2θs), so a bake at a *different* turbidity
+or sun elevation lands at a *different* absolute exposure relative to Cycles'
+physical atmosphere — those two parameters are exactly what move the fitted
+ratio off 1.0. A **per-bake `Yz` normalisation was considered and rejected**:
+it would flatten the physically-correct "hazier/higher sun ⇒ brighter sky"
+variation and still not reach Cycles-absolute exposure (it only relocates the
+single-scene fit). The true fix is engine-side spectral sky evaluation
+(spec Key design decision 1 ceiling), tracked as Phase-2 follow-up
+**issue #799**. Until then the Cycles A/B is gated loosely (±25% per sky band,
+per-band luminance not per-channel, not absolute); measured ratios recorded
+in the PR.
 
 ## 4. Sun direction (Blender Z-up world frame)
 

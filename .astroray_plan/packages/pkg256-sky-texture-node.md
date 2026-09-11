@@ -201,6 +201,26 @@ bake-to-image step, which is genuinely new physics and therefore requires
       renders (top-strip mean [0.20,0.24,0.32], blue) — no longer black.
       Contact sheet `benchmarks/reference_corpus/refs/world_sky_sky_pkg256_contact_sheet.png`.
       Ground stays dark pending #787; sky shows fixed-resolution-bake banding.
+- [x] 2026-09-11 — cycles-parity review items (PR #793) folded in:
+      **(1)** `air_density` folding inverted its perceptual sense (Rayleigh =
+      bluer vs Perez turbidity = whiter), so it is now DROPPED from the
+      turbidity map (`T_eff = 2 + 2·aerosol`) and named in the degradation
+      warning; matrix + report.md + manifest + scene_library gap-tags flipped
+      consistently (`test_reference_corpus_manifest` 22 passed). **(2)**
+      `LUM_TO_RADIANCE = 1/1766` documented in code + research note §3 as a
+      single-scene gradient-shape fit (turbidity/sun-elevation move it), NOT
+      exposure parity; per-bake Yz normalisation rejected; engine-side spectral
+      sky follow-up filed as **#799**. **(3)** azimuth zero-reference proven vs
+      Cycles — `sky_ab_bands.py` now emits the brightest sky column of the
+      Cycles render vs the bake column (cycles_col 41 / bake_col 26, dcol 15px
+      = 6.25%), gated `test_sun_column_matches_cycles` dcol_frac ≤ 0.15.
+- [x] 2026-09-11 — striped-sky root cause SOLVED + MERGED (not this branch):
+      MinGW GCC 15.2 miscompiles stb_image's flat-scanline `.hdr` fallback at
+      -O2/-O3 (#797), fixed by PR #798 (`39bebe36`). Rebased onto it; re-rendered
+      world_sky_sky through the staged CPU addon (build_id 300b7b1): sky now
+      SMOOTH — stripe metric mean|Δrow| 0.071→0.0045, autocorr lag2 −0.47→+0.909
+      (period-2 signature gone). Cycles A/B luminance upper 1.005 / horizon 0.898.
+      MinGW CPU addon build clean; sky suite 19 passed / 1 skipped (GPU-only).
 
 ---
 

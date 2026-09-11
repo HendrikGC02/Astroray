@@ -100,6 +100,23 @@ leave a morning-readable record.
   `render_settings`) not started.
 - Codex Terra: 4 calls available this session.
 
+
+## Owner questions raised 2026-09-11 evening (answers pending — read STATUS "Owner decisions pending" for the outcome)
+
+1. **Sky look (pkg256 / #799):** accept the Preetham bake as APPROXIMATED (no sun disc, warm horizon, RGB-upsampled spectrum) or
+   prioritise #799 — a sun disc + absolute exposure + a per-wavelength sky model (owner asked about IR/UV content).
+2. **CPU final-render sampler (#763):** the pkg262 fork (b) leaves CPU F12 renders on the plain random sampler (Sobol' only with GPU
+   adaptive); the corpus noise gap vs Cycles at equal spp is partly this. Owner may authorise Sobol' for CPU renders regardless.
+3. **Spot IES (corpus SPOT dimmer):** engine has IES (pkg89 B); the addon never reads `ShaderNodeTexIES` (INTERNAL text mode) — a
+   small addon package; owner asked whether it is the simple fix (yes, plus matching Cycles' IES normalisation).
+4. **Rough glass (pkg265):** owner likes Cycles' broad highlight; Astroray's r 0.85 render reads flatter/noisier (128 spp, stochastic
+   eval). Needs a high-spp A/B before calling it a shape difference; #782 oracle decides the 1.61× centre band. Owner to say whether
+   the GPU walk (Phase 3) or the oracle comes first.
+5. **Volumes:** engine has only a homogeneous world medium; VDB/heterogeneous media/Principled Volume are unstarted (4–6 packages).
+   Owner to say whether a volume track opens now (science-foundational) or after the Pillar 4 exit gate.
+6. **Priority weighting** across corpus-parity gaps (#757 #776 #795 #796 IES), viewport (pkg266 #721), glass physics (pkg265 P3, #782),
+   volumes (new) — owner to confirm or reorder the dispatch list below.
+
 ## Dispatch order (lead's recommendation)
 
 1. **Re-baseline `world_sky_hdri` ROIs and #795** on the post-#798 build (Sonnet 5, CPU; both the MSVC

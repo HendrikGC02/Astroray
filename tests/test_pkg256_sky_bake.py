@@ -211,20 +211,51 @@ _AB_SCRIPT = os.path.join(
     "benchmarks", "reference_corpus", "sky_ab_bands.py")
 
 
-@pytest.mark.serial
-def test_sky_band_luminance_within_25pct_of_cycles():
-    """Render the corpus world_sky_sky scene in Cycles at low res, bake the same
-    sky, project it into the camera, and compare the per-band MEAN LUMINANCE.
-    Gated loosely (±25% per band) — the per-channel colour differs by design
-    (Preetham warm horizon vs Cycles' Nishita blue). Requires Blender 5.2."""
-    import json
+@pytest.fixture(scope="module")
+def blender_ab_stdout():
+    """Run the Cycles-vs-bake A/B script inside Blender ONCE and hand its stdout
+    to every A/B test (band luminance + sun column), so Blender launches a
+    single time. Skips cleanly when Blender 5.2 is not installed."""
     import subprocess
     if not os.path.exists(_BLENDER):
         pytest.skip("Blender 5.2 not installed - local-host gate")
     proc = subprocess.run([_BLENDER, "-b", "--factory-startup", "--python", _AB_SCRIPT],
                           capture_output=True, text=True, timeout=300, check=False)
-    line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("PKG256_AB ")), None)
-    assert line is not None, f"no A/B result:\n{proc.stdout[-2000:]}\n{proc.stderr[-1000:]}"
+    return proc.stdout, proc.stderr
+
+
+def _ab_line(stdout, tag):
+    return next((ln for ln in stdout.splitlines() if ln.startswith(tag + " ")), None)
+
+
+@pytest.mark.serial
+def test_sky_band_luminance_within_25pct_of_cycles(blender_ab_stdout):
+    """Render the corpus world_sky_sky scene in Cycles at low res, bake the same
+    sky, project it into the camera, and compare the per-band MEAN LUMINANCE.
+    Gated loosely (±25% per band) — the per-channel colour differs by design
+    (Preetham warm horizon vs Cycles' Nishita blue). Requires Blender 5.2."""
+    import json
+    stdout, stderr = blender_ab_stdout
+    line = _ab_line(stdout, "PKG256_AB")
+    assert line is not None, f"no A/B result:\n{stdout[-2000:]}\n{stderr[-1000:]}"
     res = json.loads(line[len("PKG256_AB "):])
     for band, data in res.items():
         assert abs(data["ratio_lum"] - 1.0) <= 0.25, (band, data)
+
+
+@pytest.mark.serial
+def test_sun_column_matches_cycles(blender_ab_stdout):
+    """Azimuth zero-reference gate (PR #793 review item 3). The per-band A/B is
+    azimuth-insensitive, so a +X/+Y sun-axis swap or a 90° azimuth error would
+    pass it silently. Here the brightest sky COLUMN of the Cycles render and of
+    the baked sky projected through the SAME camera must land on the same side
+    of the frame. Measured (240px wide, sun az 115°, elev 28°): cycles_col 41,
+    bake_col 26 -> dcol 15px (6.25%). Gate at 15% of width: comfortably passes
+    the real broad-peak offset yet fails a 90° swap (which moves the peak >25%
+    of the frame or off-screen entirely)."""
+    import json
+    stdout, stderr = blender_ab_stdout
+    line = _ab_line(stdout, "PKG256_SUNCOL")
+    assert line is not None, f"no sun-column result:\n{stdout[-2000:]}\n{stderr[-1000:]}"
+    res = json.loads(line[len("PKG256_SUNCOL "):])
+    assert res["dcol_frac"] <= 0.15, res

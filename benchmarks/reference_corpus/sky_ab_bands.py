@@ -97,3 +97,32 @@ for name, (a, b) in {"upper_sky": (0.02, 0.12), "horizon": (0.22, 0.32)}.items()
                  "ratio_rgb": [round(float(x), 3) for x in bk / (cyc + 1e-6)],
                  "ratio_lum": round(float(bk.mean() / (cyc.mean() + 1e-6)), 3)}
 print("PKG256_AB " + json.dumps(res))
+
+
+# --- Azimuth zero-reference A/B: brightest sky COLUMN, Cycles vs bake --------
+# The per-band A/B above is azimuth-insensitive (it averages whole horizontal
+# strips), so a +X/+Y sun-axis swap or a 90-degree azimuth error in the bake
+# would pass it silently (PR #793 cycles-parity review item 3). Compare the
+# brightest sky column of the Cycles render against the brightest column of
+# the baked sky projected through the SAME camera: both must land on the same
+# side of the frame (toward the sun). Restricted to the upper-sky rows to
+# avoid the ground/horizon geometry. This proves the bake's azimuth
+# zero-reference matches Cycles, not just its vertical gradient.
+sky_r0, sky_r1 = 0, int(0.35 * h)
+cyc_cols = px[sky_r0:sky_r1].mean(axis=2).mean(axis=0)   # (w,) column-mean lum
+bake_cols = np.zeros(w)
+for xx in range(w):
+    xnd = ((xx + 0.5) / w * 2 - 1) * tan_hx
+    acc = 0.0
+    n = 0
+    for yy in range(sky_r0, sky_r1, 2):
+        ynd = (1 - (yy + 0.5) / h * 2) * tan_hy
+        acc += float(bake_dir(R @ np.array([xnd, ynd, -1.0])).mean())
+        n += 1
+    bake_cols[xx] = acc / max(n, 1)
+cyc_col = int(np.argmax(cyc_cols))
+bake_col = int(np.argmax(bake_cols))
+dcol = min(abs(cyc_col - bake_col), w - abs(cyc_col - bake_col))
+print("PKG256_SUNCOL " + json.dumps({
+    "cycles_col": cyc_col, "bake_col": bake_col, "width": w,
+    "dcol": dcol, "dcol_frac": round(dcol / w, 4)}))

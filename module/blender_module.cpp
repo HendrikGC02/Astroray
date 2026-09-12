@@ -44,6 +44,7 @@
 #include "../src/cpu/wavefront/snapshot_diff.h"
 #include "astroray/sampling/wavefront_rng.h"
 #include "astroray/emission_spectrum.h"
+#include "astroray/volume/grid_medium.h"  // pkg267 — heterogeneous volume grid
 #include "astroray/light.h"
 #include "astroray/light_tree.h"  // pkg86-B: debug pick probe
 #include "astroray/lights/point_light.h"
@@ -5455,4 +5456,86 @@ PYBIND11_MODULE(astroray, m) {
     // pkg87d — Cryptomatte hash function (for test verification)
     m.def("crypto_hash_name", &crypto_hash_name, "name"_a,
           "Hash a name string to a Cryptomatte float ID (MurmurHash3 + uint32_to_float32)");
+
+    // -----------------------------------------------------------------------
+    // pkg267 — heterogeneous-volume GridMedium (NanoVDB-backed) + majorant grid.
+    // Representation + import + point/majorant queries only; no transport here
+    // (pkg268). The Blender addon decodes .vdb grids via Blender's bundled
+    // openvdb and hands the engine dense numpy arrays + transforms.
+    // -----------------------------------------------------------------------
+    {
+        using astroray::volume::GridMedium;
+        using astroray::volume::DenseGrid;
+        auto toDense = [](py::array_t<float, py::array::c_style | py::array::forcecast> arr,
+                          std::array<int, 3> bbox_min) {
+            auto buf = arr.request();
+            if (buf.ndim != 3)
+                throw std::runtime_error("volume grid must be a 3D array (nz, ny, nx)");
+            int nz = int(buf.shape[0]), ny = int(buf.shape[1]), nx = int(buf.shape[2]);
+            DenseGrid g;
+            g.dim[0] = nx; g.dim[1] = ny; g.dim[2] = nz;
+            g.bboxMin[0] = bbox_min[0]; g.bboxMin[1] = bbox_min[1]; g.bboxMin[2] = bbox_min[2];
+            const float* p = static_cast<const float*>(buf.ptr);
+            g.data.assign(p, p + size_t(nx) * ny * nz);
+            return g;
+        };
+        py::class_<GridMedium>(m, "GridMedium",
+            "pkg267 heterogeneous-volume grid: NanoVDB-backed density grid + "
+            "coarse majorant grid for delta/ratio tracking. Point and majorant "
+            "queries for tests; transport lands in pkg268.")
+            .def(py::init<>())
+            .def("set_density",
+                 [toDense](GridMedium& self,
+                           py::array_t<float, py::array::c_style | py::array::forcecast> arr,
+                           std::array<int, 3> bbox_min,
+                           std::array<float, 16> index_to_object,
+                           std::array<float, 16> object_to_world,
+                           int supervoxel) {
+                     DenseGrid g = toDense(arr, bbox_min);
+                     self.setDensity(g, index_to_object, object_to_world, supervoxel);
+                 },
+                 "density"_a, "bbox_min"_a,
+                 "index_to_object"_a, "object_to_world"_a, "supervoxel"_a = 0,
+                 "Build the density NanoVDB grid + majorant. `density` is a 3D "
+                 "array (nz, ny, nx), C-order. Transforms are row-major 4x4 "
+                 "(length-16). `supervoxel` is the majorant supervoxel edge in "
+                 "voxels (<=0 => default 16).")
+            .def("set_temperature",
+                 [toDense](GridMedium& self,
+                           py::array_t<float, py::array::c_style | py::array::forcecast> arr,
+                           std::array<int, 3> bbox_min) {
+                     self.setTemperature(toDense(arr, bbox_min));
+                 },
+                 "temperature"_a, "bbox_min"_a,
+                 "Store a temperature grid as a passthrough handle (pkg270).")
+            .def("valid", &GridMedium::valid)
+            .def("dims", [](const GridMedium& s) { auto d = s.dims(); return py::make_tuple(d[0], d[1], d[2]); })
+            .def("bbox_min", [](const GridMedium& s) { auto d = s.bboxMin(); return py::make_tuple(d[0], d[1], d[2]); })
+            .def("world_aabb", [](const GridMedium& s) {
+                auto b = s.worldAABB();
+                return py::make_tuple(b[0], b[1], b[2], b[3], b[4], b[5]);
+            }, "World-space AABB of the active voxel block: (minx,miny,minz,maxx,maxy,maxz).")
+            .def("index_to_world", [](const GridMedium& s) {
+                auto m16 = s.indexToWorld();
+                return std::vector<float>(m16.begin(), m16.end());
+            })
+            .def("world_to_index", [](const GridMedium& s) {
+                auto m16 = s.worldToIndex();
+                return std::vector<float>(m16.begin(), m16.end());
+            })
+            .def("density_index", &GridMedium::densityIndex, "ix"_a, "iy"_a, "iz"_a,
+                 "Nearest-voxel density at an ABSOLUTE index-space coordinate.")
+            .def("density_world", &GridMedium::densityWorld, "x"_a, "y"_a, "z"_a)
+            .def("majorant_res", [](const GridMedium& s) {
+                return py::make_tuple(s.supervoxelRes(0), s.supervoxelRes(1), s.supervoxelRes(2));
+            })
+            .def("majorant_density_world", &GridMedium::majorantDensityWorld, "x"_a, "y"_a, "z"_a,
+                 "Max density within the supervoxel covering a world point.")
+            .def("world_point_to_index", [](const GridMedium& s, float x, float y, float z) {
+                auto p = s.worldPointToIndex(x, y, z);
+                return py::make_tuple(p[0], p[1], p[2]);
+            }, "x"_a, "y"_a, "z"_a)
+            .def("has_temperature", &GridMedium::hasTemperature)
+            .def("temperature_index", &GridMedium::temperatureIndex, "ix"_a, "iy"_a, "iz"_a);
+    }
 }

@@ -434,7 +434,16 @@ add_library(astroray_core_impl STATIC
     src/light_tree.cpp
     src/light_sampler.cpp
     src/light_list.cpp
+    # pkg267 — heterogeneous-volume grid (NanoVDB-backed GridMedium + majorant)
+    src/volume/grid_medium.cpp
 )
+
+# pkg267 — vendored NanoVDB (Apache-2.0, external/nanovdb, tag v12.0.0) is
+# included ONLY by src/volume/grid_medium.cpp. Scope the include path to that TU
+# so NanoVDB.h never leaks into other translation units (and never into the
+# widely-included raytracer.h, which sees only the opaque GridMedium PIMPL).
+set_source_files_properties(src/volume/grid_medium.cpp PROPERTIES
+    INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/external/nanovdb")
 
 # pkg55 Phase B' — CPU wavefront reference oracle + driver (Session 2b/2c).
 # Glob auto-picks up files as 2b/2c lands them. Session 2a only ships the

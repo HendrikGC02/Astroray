@@ -185,6 +185,15 @@ protected:
 public:
     virtual ~Texture() = default;
     virtual Vec3 value(const Vec2& uv, const Vec3& p) const = 0;
+    // #776 — a single representative colour for this texture, used where a
+    // per-hit UV is unavailable (textured mesh-light NEE power importance in
+    // src/light_tree.cpp and the flat GPU emitter upload in scene_upload.cu).
+    // The default is one sample at the texture centre; ImageTexture/SolidColor
+    // override with an exact mean. This is an importance/degradation estimate,
+    // NOT the per-hit radiance (that stays textured via value(rec,...)).
+    virtual Vec3 average() const {
+        return value(Vec2(0.5f, 0.5f), Vec3(0.5f, 0.5f, 0.5f));
+    }
     Vec3 value(const HitRecord& rec, const Vec3& wo) const {
         auto [uv, p] = textureCoordinates(rec, wo);
         // pkg242 — one transformed-coordinate contract: the 3-D Mapping applies
@@ -293,6 +302,7 @@ class SolidColor : public Texture {
 public:
     SolidColor(const Vec3& c) : color(c) {}
     Vec3 value(const Vec2&, const Vec3&) const override { return color; }
+    Vec3 average() const override { return color; }  // #776 — exact mean
 };
 
 class CheckerTexture : public Texture {
@@ -335,17 +345,22 @@ public:
 class ImageTexture : public Texture {
     std::vector<Vec3> data;
     int width = 0, height = 0;
+    Vec3 mean_{1, 0, 1};  // #776 — cached pixel mean for average()
     // Spectral cache: one RGBAlbedoSpectrum per texel, built eagerly in setData().
     std::vector<astroray::RGBAlbedoSpectrum> spectral_cache_;
 public:
     void setData(const std::vector<Vec3>& d, int w, int h) {
         data = d; width = w; height = h;
         spectral_cache_.resize(data.size());
+        Vec3 sum(0);
         for (size_t i = 0; i < data.size(); ++i) {
             const Vec3& c = data[i];
             spectral_cache_[i] = astroray::RGBAlbedoSpectrum({c.x, c.y, c.z});
+            sum += c;
         }
+        if (!data.empty()) mean_ = sum * (1.0f / static_cast<float>(data.size()));
     }
+    Vec3 average() const override { return mean_; }  // #776 — exact pixel mean
     // pkg186 — read-only accessors so the GPU scene-upload (scene_upload.cu) can
     // bake this image into a device buffer. The device sampler mirrors value()'s
     // nearest-neighbour clamp+v-flip exactly (see gpu_sampleImageTexture).
@@ -1674,16 +1689,21 @@ public:
     // scene-upload path; the GPU wavefront leg still renders a flat colour
     // (see backendCapabilities() below).
     std::shared_ptr<Texture> getTexture() const { return emission; }
-    // No HitRecord available here (used only for the mesh-light NEE power
-    // estimate, not per-hit radiance) — a representative flat value, same
-    // compromise TexturedLambertian::getAlbedo() makes with its flat 0.5.
-    Vec3 getEmission() const override { return Vec3(intensity_); }
+    // No HitRecord available here (used for the mesh-light NEE power importance
+    // in light_tree.cpp and the flat GPU emitter upload in scene_upload.cu).
+    // #776: return the texture MEAN × intensity (not flat white × intensity) so
+    // both the light-tree power estimate and the GPU upload carry the emitter's
+    // actual average colour. Per-hit radiance stays textured via emitted()/
+    // emittedSpectral() below.
+    Vec3 getEmission() const override {
+        return (emission ? emission->average() : Vec3(1.0f)) * intensity_;
+    }
     bool isEmissive() const override { return true; }
     std::string getGPUTypeName() const override { return "diffuse_light"; }
     MaterialBackendCapabilities backendCapabilities() const override {
         MaterialBackendCapabilities caps = Material::backendCapabilities();
         caps.gpuApproximate = true;
-        caps.notes = "GPU: textured Emission Color not sampled; renders a flat colour (#762)";
+        caps.notes = "GPU: textured Emission Color not per-hit sampled; renders the texture MEAN colour (#776)";
         return caps;
     }
     Vec3 emitted(const HitRecord& rec) const override {

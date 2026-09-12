@@ -329,6 +329,9 @@ public:
         // return the c1/'odd' member for Blender-identical cell colors.
         return checker ? odd->value(uv, p) : even->value(uv, p);
     }
+    Vec3 average() const override {  // #776 — 50/50 cell mean
+        return (odd->average() + even->average()) * 0.5f;
+    }
 };
 
 class NoiseTexture : public Texture {

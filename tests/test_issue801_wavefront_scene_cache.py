@@ -112,6 +112,23 @@ def test_domain_uploader_invalidates_the_cache():
     np.testing.assert_array_equal(after_reuse, after_upload)
 
 
+def test_upload_geometry_invalidates_the_cache():
+    """upload_geometry() (the pkg56 geometry-domain push) bypasses render(); a
+    following skip_upload render must rebuild from the mutated host scene."""
+    _gpu_or_skip()
+    r = _scene(500)
+    base = _render(r, skip_upload=False)
+    # Add geometry through the host API, then the domain uploader.
+    big = np.array([[[-3, -3, -0.5], [3, -3, -0.5], [0, 3, -0.5]]], np.float32)
+    r.add_triangles_bulk(big, np.zeros(1, np.int32), np.zeros(1, np.int32), 0,
+                         np.zeros((0, 1, 3, 2), np.float32), [], np.zeros((0, 3, 3), np.float32))
+    r.upload_geometry()
+    after_reuse = _render(r, skip_upload=True)
+    after_upload = _render(r, skip_upload=False)
+    assert not np.array_equal(base, after_reuse), "stale cached BVH after upload_geometry()"
+    np.testing.assert_array_equal(after_reuse, after_upload)
+
+
 def test_reuse_is_cheaper_than_upload_on_a_large_scene():
     """Informational bound: at 200k triangles the reuse path skips the host
     conversion + memcpy (~45 ms at 100k tris measured 2026-09-12), so a 1-spp

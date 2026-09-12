@@ -3081,6 +3081,7 @@ public:
             cudaRenderer->uploadGeometry(renderer, *camera);
         }
 #endif
+        invalidateWavefrontScene();  // #801 (ABI review: the one uploader that missed it)
     }
 
     // pkg114 inc 3d — update one instance's object->world transform on the CPU
@@ -3092,6 +3093,7 @@ public:
         std::array<float, 16> m;
         for (int i = 0; i < 16; ++i) m[i] = transform[i];
         renderer.updateInstanceTransform(instanceId, m);
+        invalidateWavefrontScene();  // #801: CPU-side mutation read by buildSceneArrays
     }
 
     // pkg114 inc 3d — TLAS-only re-upload: re-push d_instances + d_tlas from the
@@ -3209,6 +3211,7 @@ public:
             throw std::runtime_error(
                 "update_object_transform: transform_matrix must have 16 floats");
         }
+        invalidateWavefrontScene();  // #801: geometry mutation read by buildSceneArrays
         const float* m = transformMatrix.data();
         auto applyAffine = [&](const Vec3& p) {
             // Row-major: m[r*4+c]. Result = M * (p; 1).

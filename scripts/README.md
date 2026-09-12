@@ -12,6 +12,7 @@ new reusable script, register it here in the same commit.
 | ---- | ---------------- |
 | Build engine `.pyd` (dev, Ninja + sccache) | `scripts/build/build_cuda.bat` |
 | Build engine in an agent worktree (Ninja) | `scripts/build/build_cuda_worktree.bat` |
+| CUDA build under the shared GPU lock (main-checkout lock path, launcher-free/no sccache; the lead-session pattern) | `python scripts/build/gpu_locked_build.py <tree> scripts/build/build_cuda_nosccache.bat <who>` |
 | Build engine in an agent worktree (VS generator; what `hardware-verifier` / `package-implementer` / `tests/test_hw_verifier_buildenv.py` invoke) | repo-root `build_cuda_worktree.bat` |
 | Build-integrity guard (header-hash stamp, <5 s host-only ABI canary, cuobjdump CUDA-arch gate) invoked by all three build wrappers | `scripts/build/build_guard.py` (pkg183) |
 | Build/package/install the Blender addon | `scripts/build/build_blender_addon.py` (default backend: `cuda`) |

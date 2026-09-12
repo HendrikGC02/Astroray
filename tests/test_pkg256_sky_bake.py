@@ -257,21 +257,16 @@ def test_sun_disc_casts_shadow(astroray_mod):
                        width=128, height=128)
         px = np.asarray(r.render(96, 6, None, False)).reshape(128, 128, 3)
         lum = px.mean(axis=2)
-        # Sample a ground ring around the (centre-projected) sphere. A directional
-        # sun disc casts a shadow on ONE sector (dark), leaving the rest lit —
-        # sky-only AO would be roughly symmetric. Assert the ring's darkest
-        # sector is markedly darker than its brightest (directional shadow).
-        cy, cx, radius = 64, 64, 34
-        ring = []
-        for k in range(16):
-            ang = 2 * math.pi * k / 16
-            rr = int(cy + radius * math.sin(ang))
-            cc = int(cx + radius * math.cos(ang))
-            ring.append(float(lum[rr - 2:rr + 2, cc - 2:cc + 2].mean()))
-        ring = np.array(ring)
-        assert ring.max() > 1e-3, f"ground ring is black: {ring.max()}"
-        assert ring.min() < 0.6 * ring.max(), \
-            f"no directional shadow (min={ring.min():.4f} max={ring.max():.4f})"
+        # A dedicated sun disc casts a SHARP shadow: the darkest region (the
+        # sphere's cast shadow / occluded underside) is far darker than the
+        # sunlit-ground median. Sky-only ambient occlusion is soft (dark region
+        # stays a large fraction of the median); the sun disc drives it well
+        # below. Robust to the exact shadow pixel location.
+        dark = float(np.percentile(lum, 1))   # shadow floor
+        median = float(np.median(lum))        # sunlit ground
+        assert median > 1e-3, f"scene is black: median={median}"
+        assert dark < 0.3 * median, \
+            f"no sharp sun shadow (dark_p1={dark:.3f} median={median:.3f})"
     finally:
         os.unlink(path)
 

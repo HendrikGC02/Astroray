@@ -272,8 +272,12 @@ VIEWPORT_NAV_SETTLE_S = 0.25   # snap back to full res after this quiet window.
 # rendering full res immediately.
 VIEWPORT_START_RES_DIVISOR = 4       # coarse first present on the expensive profile.
 VIEWPORT_INTERACTIVE_BUDGET_MS = 100.0  # pinned edit->present p95 budget (GPU).
-# #801: refinement-chunk time budget (Cycles viewport update interval ~0.1 s)
-VIEWPORT_REFINE_CHUNK_MS = 100.0
+# #801: refinement-chunk time budget. Cycles targets ~0.1 s per viewport update
+# but renders on its own thread; our default path renders synchronously inside
+# view_draw, so the chunk IS the UI stall. 50 ms keeps the UI at ~15 Hz while
+# refining (measured 2026-09-13: 100 ms gave tick-gap p50 140 ms) and, with the
+# per-chunk fixed cost now ~5 ms, costs < 10 % throughput vs 100 ms.
+VIEWPORT_REFINE_CHUNK_MS = 50.0
 VIEWPORT_REFINE_CHUNK_MAX_SPP = 32
 
 

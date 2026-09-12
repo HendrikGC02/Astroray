@@ -13,9 +13,7 @@ import types
 
 import numpy as np
 import pytest
-
-from _batch_a_stub import load_addon, RecordingRenderer
-
+from _batch_a_stub import RecordingRenderer, load_addon
 
 
 def _scene(width, height, seed=777, gpu=False):

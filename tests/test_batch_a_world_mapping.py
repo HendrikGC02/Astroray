@@ -6,13 +6,10 @@ Stub-bpy tests of setup_world's MAPPING walk. A minimal numpy mathutils.Euler
 exercised for real.
 """
 import math
-import os
-import tempfile
 import types
 
 import pytest
-
-from _batch_a_stub import load_addon, RecordingRenderer
+from _batch_a_stub import RecordingRenderer, load_addon
 
 
 def _socket(value, linked=False):

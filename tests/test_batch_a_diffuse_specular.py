@@ -13,9 +13,7 @@ import types
 
 import numpy as np
 import pytest
-
 from _batch_a_stub import load_addon
-
 
 
 # --------------------------------------------------------------------------- #

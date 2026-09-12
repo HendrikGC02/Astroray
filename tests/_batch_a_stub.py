@@ -106,7 +106,7 @@ def load_addon(monkeypatch, module_suffix="batch_a"):
     astroray_module.__file__ = "/fake/astroray.pyd"
     astroray_module.integrator_registry_names = lambda: ["path_tracer"]
     astroray_module.material_registry_names = lambda: ["lambertian", "principled", "disney"]
-    astroray_module.pass_registry_names = lambda: []
+    astroray_module.pass_registry_names = list
 
     monkeypatch.setitem(sys.modules, "bpy", bpy_module)
     monkeypatch.setitem(sys.modules, "bpy.types", bpy_types_module)

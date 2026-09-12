@@ -19,9 +19,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from _batch_a_stub import load_addon
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _BP = REPO_ROOT / "benchmarks" / "blender_parity"

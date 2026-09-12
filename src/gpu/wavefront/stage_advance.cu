@@ -2011,7 +2011,11 @@ __device__ bool shadePathSlot(
 // original ran post-trace. Contribution adds into color (one entry per
 // slot per pass: non-atomic).
 // ---------------------------------------------------------------------------
-template<bool HasCurves = false>  // pkg225 Stage 3 — curve shadow-occlusion isolation
+// pkg253 HasAlphaShadow — transparent-shadow (Principled alpha) isolation. The
+// <*, false> specialisation keeps the binary gpu_nee_occlude (fleet byte-
+// identical); <*, true> walks transparent occluders and attenuates the NEE
+// contribution by the accumulated transmittance.
+template<bool HasCurves = false, bool HasAlphaShadow = false>
 __global__ void stageShadowKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -2056,10 +2060,33 @@ __global__ void stageShadowKernel(
 
     // pkg55-C4: thread TLAS + path time + motionVerts to shadow rays.
     float time = state.path_time[idx];
-    GNEEOcclusion occ = gpu_nee_occlude<HasCurves>(
-        s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
-        time, motionVerts, curves);
-    if (occ.occluded) return;
+    // pkg253: transparent-shadow transmittance. In the <*, true> specialisation
+    // a triangle-emitter shadow ray walks its occluders so a Principled alpha<1
+    // surface lets (1-alpha) through (gpu_shadow_transmittance); sphere and
+    // dedicated sources keep the binary reach-the-light semantics (their single
+    // -occluder attenuation is a documented follow-up). The <*, false> fleet
+    // path is exactly the original binary gpu_nee_occlude.
+    GNEEOcclusion occ{};
+    occ.frontFace = 1;
+    float shadowTr = 1.0f;
+    if constexpr (HasAlphaShadow) {
+        if (s.isSphere || s.isDedicated) {
+            occ = gpu_nee_occlude<HasCurves>(
+                s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
+                time, motionVerts, curves);
+            if (occ.occluded) return;
+        } else {
+            shadowTr = gpu_shadow_transmittance<HasCurves>(
+                s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
+                materials, time, motionVerts, curves);
+            if (shadowTr <= 0.0f) return;
+        }
+    } else {
+        occ = gpu_nee_occlude<HasCurves>(
+            s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
+            time, motionVerts, curves);
+        if (occ.occluded) return;
+    }
 
     // Emission upsample only (the BSDF/MIS parts were pre-resolved in the
     // shade stage); lambdas from the slot's live spectral state.
@@ -2105,6 +2132,15 @@ __global__ void stageShadowKernel(
     contrib.v[1] = nee_f[ 8 * nee_capacity + idx] * L_spec.v[1];
     contrib.v[2] = nee_f[ 9 * nee_capacity + idx] * L_spec.v[2];
     contrib.v[3] = nee_f[10 * nee_capacity + idx] * L_spec.v[3];
+    // pkg253: attenuate by the transparent-shadow transmittance (1.0 for sphere/
+    // dedicated sources and every opaque occluder). Compiled out of the <*,false>
+    // fleet kernel so its generated code is byte-identical.
+    if constexpr (HasAlphaShadow) {
+        contrib.v[0] *= shadowTr;
+        contrib.v[1] *= shadowTr;
+        contrib.v[2] *= shadowTr;
+        contrib.v[3] *= shadowTr;
+    }
     // pkg199 Stage 1 (role 2): attenuate the NEE contribution over the shadow-ray
     // segment (vertex→lamp). Uses the TRUE geometric vertex→light distance parked
     // in lane 14 (geomDist), NOT lane 6 (maxDist) — maxDist is a 1e30 OCCLUSION
@@ -3297,28 +3333,40 @@ void launchStageShadow(
     const ::GMaterial* d_materials,
     bool              useLuminanceOutput,   // pkg157
     float             clampDirect, float clampIndirect,  // pkg157
-    const GCurveSegment* d_curveSegments)  // pkg225 Stage 3 (nullptr = no curves)
+    const GCurveSegment* d_curveSegments,  // pkg225 Stage 3 (nullptr = no curves)
+    bool              hasAlphaShadow)  // pkg253 (scene has a Principled alpha<1)
 {
     if (state.num_active <= 0) return;
     int threads = 256;
     int blocks  = (state.num_active + threads - 1) / threads;
     {
         // pkg225 Stage 3: curve shadow-occlusion axis. Non-curve scenes launch
-        // stageShadowKernel<false> (curve leaf DCE'd, byte-identical); only curve
-        // scenes launch <true>. Both referenced so they land in the cubin.
+        // stageShadowKernel<false,…> (curve leaf DCE'd, byte-identical); only curve
+        // scenes launch <true,…>. pkg253: HasAlphaShadow axis — only scenes with a
+        // Principled alpha<1 launch <…,true> (the transparent-shadow walk); the
+        // fleet path stays <…,false> (binary occlusion, byte-identical). All four
+        // specialisations are referenced so they land in the cubin.
         const bool hc = (d_curveSegments != nullptr);
+        const void* kfn =
+            hc ? (hasAlphaShadow ? (const void*)stageShadowKernel<true,  true>
+                                 : (const void*)stageShadowKernel<true,  false>)
+               : (hasAlphaShadow ? (const void*)stageShadowKernel<false, true>
+                                 : (const void*)stageShadowKernel<false, false>);
         astroray::gpu_profile::ScopedTimer _t(
-            "wavefront_stage_shadow_n7",
-            hc ? (const void*)stageShadowKernel<true> : (const void*)stageShadowKernel<false>,
-            blocks, threads);
+            "wavefront_stage_shadow_n7", kfn, blocks, threads);
         #define ASTRORAY_PKG225_SHADOW_ARGS \
             state, hitBufs, d_nee_f, d_nee_i, \
             d_shadow_queue, d_shadow_count, nee_capacity, \
             d_tlas, d_instances, d_blas, \
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials, \
             useLuminanceOutput, clampDirect, clampIndirect, d_curveSegments
-        if (hc) stageShadowKernel<true> <<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS);
-        else    stageShadowKernel<false><<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS);
+        if (hc) {
+            if (hasAlphaShadow) stageShadowKernel<true,  true> <<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS);
+            else                stageShadowKernel<true,  false><<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS);
+        } else {
+            if (hasAlphaShadow) stageShadowKernel<false, true> <<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS);
+            else                stageShadowKernel<false, false><<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS);
+        }
         #undef ASTRORAY_PKG225_SHADOW_ARGS
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {

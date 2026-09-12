@@ -2080,7 +2080,8 @@ std::vector<float> cuda_wavefront_render(
                               d_motionVerts, d_materials,  // pkg55-C4
                               useLuminanceOutput,
                               clampDirect, clampIndirect,  // pkg157
-                              d_curveSegments);  // pkg225 Stage 3 — curve shadows
+                              d_curveSegments,  // pkg225 Stage 3 — curve shadows
+                              res.hasAlphaShadow);  // pkg253 — transparent shadows
             // pkg258: resolve env NEE records parked by the shade stage this pass
             // (independent additive strategy; no-op when env NEE off / no HDRI).
             if (envNeeOn)

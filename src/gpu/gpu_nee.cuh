@@ -571,6 +571,62 @@ __device__ inline GNEEOcclusion gpu_nee_occlude(
     return occ;
 }
 
+// pkg253 — shadow-ray alpha for a device material. A Principled material uploads
+// as GMAT_CLOSURE_GRAPH with closures[0].type == GCLOSURE_PRINCIPLED (pkg178);
+// its transparent `alpha` is the shadow-transmittance knob (device twin of
+// PrincipledMaterial::shadowAlpha). Every other material is opaque to shadow
+// rays (Material::shadowAlpha default 1.0), so this returns 1.0 for them.
+__device__ inline float gpu_shadowAlpha(const GMaterial& m) {
+    if (m.closureCount >= 1 && m.closures[0].type == GCLOSURE_PRINCIPLED)
+        return m.principled.alpha;
+    return 1.0f;
+}
+
+// pkg253 — GPU shadow-ray transmittance for Principled `alpha` (Cycles
+// Transparent Shadows). Device twin of CPU shadowTransmittance (raytracer.h):
+// walks up to maxHops closest-hit occluders toward a triangle emitter,
+// accumulating Tr *= (1 - shadowAlpha(hit material)), so a fully transparent
+// (alpha==0) surface casts no shadow and a transparent surface in front of an
+// opaque one still ends fully shadowed (the walk continues past it). Returns the
+// fraction of the light that reaches the shading point. Only instantiated inside
+// the stageShadowKernel<*, true> specialisation (scenes carrying an alpha<1
+// material), so the fleet shadow kernel stays byte-identical.
+template<bool HasCurves = false>
+__device__ inline float gpu_shadow_transmittance(
+    const GNEESample& s,
+    const GTLASNode*  tlas,
+    const GInstance*  instances,
+    const GBLAS*      blas,
+    const GBVHNode*   bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const GMaterial*  materials,
+    float             time,
+    const GVec3*      motionVerts,
+    const GCurveSegment* curves = nullptr)
+{
+    const int maxHops = 8;  // Cycles transparent_max_bounce default (matches CPU)
+    float Tr = 1.0f;
+    GVec3 origin = s.origin;
+    const GVec3 dir = s.wi;
+    float remaining = s.maxDist;
+    for (int hop = 0; hop < maxHops; ++hop) {
+        GHitRecord sh;
+        if (!gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris,
+                          spheres, GRay(origin, dir, time), 0.001f,
+                          remaining - 0.001f, sh, motionVerts, curves))
+            return Tr;  // unobstructed to the light
+        Tr *= (1.0f - gpu_shadowAlpha(materials[sh.materialId]));
+        if (Tr < 1e-3f) return 0.0f;  // opaque enough to fully block
+        float advance = sh.t + 1e-3f;
+        origin = origin + dir * advance;
+        remaining -= advance;
+        if (remaining <= 0.001f) return Tr;
+    }
+    return Tr;  // exhausted transparent-shadow bounce budget
+}
+
 // pkg178 Stage-3b D4: HasPrincipled threads through to the material dispatch so
 // the immediate-NEE (dense/flat) shade path also compiles principled code out of
 // its <false> instantiation. Default = true keeps every other caller unchanged.

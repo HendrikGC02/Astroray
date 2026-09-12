@@ -836,8 +836,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         // (gpu_materials.h) exactly.
         const GMaterial& g = r.materials.back();
         if (g.type == GMAT_CLOSURE_GRAPH && g.closureCount >= 1 &&
-            g.closures[0].type == GCLOSURE_PRINCIPLED)
+            g.closures[0].type == GCLOSURE_PRINCIPLED) {
             r.hasPrincipled = true;
+            // pkg253: a Principled material with alpha < 1 casts a
+            // partially-transparent shadow — select the alpha-aware shadow
+            // kernel. alpha == 1 leaves the fleet binary-occlusion path.
+            if (g.principled.alpha < 1.0f)
+                r.hasAlphaShadow = true;
+        }
         // pkg225 Stage 4: flag scenes carrying any principled_hair material so the
         // driver publishes c_hasHair (setWavefrontHairEnabled), which gates the
         // shade kernel's hair uvTangent/hairV SoA restore. Non-hair scenes leave it

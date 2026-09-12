@@ -616,7 +616,8 @@ void launchStageShadow(
     const ::GMaterial* d_materials,
     bool              useLuminanceOutput,   // pkg157
     float             clampDirect, float clampIndirect,  // pkg157
-    const GCurveSegment* d_curveSegments = nullptr);  // pkg225 Stage 3
+    const GCurveSegment* d_curveSegments = nullptr,  // pkg225 Stage 3
+    bool              hasAlphaShadow = false);  // pkg253 (Principled alpha<1 scene)
 
 // Session N+7 part 4: path regeneration -- dense pass accumulating dead
 // paths' radiance (atomic, per-pixel) then refilling slots from a global

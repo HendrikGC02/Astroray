@@ -79,7 +79,8 @@ ADDON_FILES = ["__init__.py", "blender_manifest.toml", "shader_blending.py",
                "native_settings.py",  # pkg176 Stage 1 native-settings translator
                "degradation.py",      # pkg119 Phase C graceful-degradation policy
                "shader_vm_compiler.py",  # pkg219b per-texel op-VM bytecode compiler
-               "sky_bake.py"]         # pkg256 ShaderNodeTexSky Preetham/Perez bake
+               "sky_bake.py",         # pkg256 ShaderNodeTexSky Preetham/Perez bake
+               "volume_export.py"]    # pkg267 bpy.types.Volume / OpenVDB import
 
 
 # --------------------------------------------------------------------------- #

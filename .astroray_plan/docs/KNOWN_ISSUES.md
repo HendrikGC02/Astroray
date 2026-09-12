@@ -1,6 +1,6 @@
 # Known issues — Blender addon
 
-Generated 2026-09-11 09:42 UTC by `scripts/dev/known_issues_report.py` from GitHub issues labelled `addon-bug` / `addon-gap`. Do not edit by hand; file or close issues instead.
+Generated 2026-09-12 17:33 UTC by `scripts/dev/known_issues_report.py` from GitHub issues labelled `addon-bug` / `addon-gap`. Do not edit by hand; file or close issues instead.
 
 Pillar-4 exit-gate (e): open `addon-bug` at P0/P1 = **1** (target 0).
 
@@ -17,7 +17,6 @@ Pillar-4 exit-gate (e): open `addon-bug` at P0/P1 = **1** (target 0).
 |---|---|---|---|
 | [722](https://github.com/HendrikGC02/Astroray/issues/722) | P2-medium | Native Cycles Device (scene.cycles.device) is ignored; device only via custom_raytracer.device_mode | 2026-09-06 |
 | [723](https://github.com/HendrikGC02/Astroray/issues/723) | P2-medium | Missing environment/image texture file is dropped silently (no degradation warning) | 2026-09-06 |
-| [757](https://github.com/HendrikGC02/Astroray/issues/757) | P2-medium | Diffuse BSDF is exported as Principled with the default dielectric specular layer (Cycles' Diffuse BSDF has none) | 2026-09-08 |
 | [724](https://github.com/HendrikGC02/Astroray/issues/724) | P3-low | Camera clip_start/clip_end are ignored (documented degradation) | 2026-09-06 |
 
 ## Recently closed
@@ -29,5 +28,6 @@ Pillar-4 exit-gate (e): open `addon-bug` at P0/P1 = **1** (target 0).
 | [762](https://github.com/HendrikGC02/Astroray/issues/762) | P1-high | Procedural texture nodes wired directly into Emission render flat white on Astroray (Cycles shows the pattern); no degradation warning | 2026-09-08 |
 | [769](https://github.com/HendrikGC02/Astroray/issues/769) | P1-high | Addon zip never ships data/disney_compensation/*.bin â€” a redistributed addon silently runs with ALL energy compensation disabled | 2026-09-08 |
 | [753](https://github.com/HendrikGC02/Astroray/issues/753) | P2-medium | Bump relief ~1.8-2x stronger than Cycles at equal Distance, with faint ring banding (pkg223b normal_mapped.cpp calibration) | 2026-09-08 |
+| [757](https://github.com/HendrikGC02/Astroray/issues/757) | P2-medium | Diffuse BSDF is exported as Principled with the default dielectric specular layer (Cycles' Diffuse BSDF has none) | 2026-09-12 |
 | [772](https://github.com/HendrikGC02/Astroray/issues/772) | P2-medium | Addon setup_world falls back to a nonzero background for a shader-less World (Cycles renders black) | 2026-09-08 |
 | [780](https://github.com/HendrikGC02/Astroray/issues/780) | P2-medium | Blender addon CPU renders are single-threaded: build_blender_addon.py always passes ASTRORAY_DISABLE_OPENMP=ON (MinGW libgomp deadlock) â€” re-evaluate under the MSVC toolchain (vcomp) or add a std::thread tile pool | 2026-09-10 |

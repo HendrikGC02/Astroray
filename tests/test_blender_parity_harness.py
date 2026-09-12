@@ -489,7 +489,15 @@ def test_backdrop_is_parity_safe(tmp_path):
     norm_ssim, _, _ = H._metrics(
         _normalize_uniform_offset(arrays["CUSTOM_RAYTRACER"], ratio),
         arrays["CYCLES"])
-    assert norm_ssim >= 0.90, (
+    # PR #805 item 2 (#757): the 0.9141 baseline was taken while Diffuse BSDF
+    # exported WITH the default Principled specular layer - the area light's
+    # highlight on the green band inflated the structure term. Diffuse-only
+    # export renders the bands flat like Cycles (per-16-row mean|d| vs Cycles
+    # 0.0162/0.0163/0.0159/0.0171, was 0.0387/0.0169/0.0166/0.0188; ratio
+    # 0.996/0.994/0.979, was 1.019) and the offset-normalised SSIM of a flat,
+    # noise-limited scene settles at 0.858 at 256 spp. Threshold re-baselined;
+    # the chromatic-uniformity assert above remains the contamination guard.
+    assert norm_ssim >= 0.84, (
         f"backdrop structure diverges after removing the uniform dim "
         f"(offset-normalized SSIM {norm_ssim:.4f}, dE {delta_e:.2f}); real "
         f"backdrop contamination")

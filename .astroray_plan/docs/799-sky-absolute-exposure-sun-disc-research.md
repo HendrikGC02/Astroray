@@ -143,13 +143,17 @@ surface; radiance `L = S/Ω`, `distant_light.cpp` sampleLi).
 - Converting through the **same** `LUM_TO_RADIANCE` as the sky keeps the sun and
   sky in one exposure system; the sun's absolute level inherits the sky's
   single-point Nishita calibration (documented, same status as the sky fit).
-- **Known Phase-1 residual (measured 2026-09-13).** With the physical `E_sun`
-  the corpus deck's direct:diffuse is ~1.8:1 vs Cycles' measured 6.4:1. The
-  disc is physically correct; the gap is the Preetham bake being **over-bright
+- **Owner-visible divergence (owner decision 2026-09-13, option A).** With the
+  physical `E_sun` the corpus deck's direct:diffuse is **~1.8:1 vs Cycles'
+  measured 6.4:1**, and the disc irradiance is **invariant to `sun_size`**
+  (matching Cycles' measured 1.001 sun_size ratio). The disc is physically
+  correct; the softer ground contrast is the Preetham bake being **over-bright
   at the ground** in absolute terms (the same "1/1766 is gradient-shape, not
-  absolute" limitation), which dilutes the ratio. A Cycles-matching ground
-  requires either a second single-point disc-vs-sky calibration DOF or the
-  engine-side spectral sky (#799 Phase 2). Left as an owner decision.
+  absolute" limitation), which dilutes the ratio. The owner chose the
+  physics-first path: keep the physical, sun_size-invariant disc and add **no
+  second fitted calibration constant**; the ~1.8:1-vs-6.4:1 ground contrast is a
+  documented divergence owned by **#799 Phase 2** (engine-side spectral sky),
+  alongside the warm-Preetham-vs-blue-Nishita sky colour.
 
 **Sun colour:** the direct beam reddens at low sun (Chappuis/Rayleigh). We take
 the disc colour from the baked sky value at the sun direction (warm near the

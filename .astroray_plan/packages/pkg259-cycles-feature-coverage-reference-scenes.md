@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** B
-**Status:** in-progress — Phase 1 MERGED (#761, polish #781); Phase 2 (`lighting_studio` + `world_sky`) built, both-engine renders, tests green (PR #785); Phase 3 (`geometry_zoo` + `camera_lens` + `render_settings`) built, both-engine renders, tests green — PR TBD (batch E2)
+**Status:** done — 2026-09-13: all five families landed (Phase 1 #761/#781, Phase 2 #785, Phase 3 #806 fb0932a3: geometry_zoo 17 rows, camera_lens 9, render_settings 4; manifest tests 34/34; lead-inspected contact sheets — volume cabinet divergence filed as #807, noise gap #763, clip_end #724). Was: in-progress — Phase 1 MERGED (#761, polish #781); Phase 2 (`lighting_studio` + `world_sky`) built, both-engine renders, tests green (PR #785); Phase 3 (`geometry_zoo` + `camera_lens` + `render_settings`) built, both-engine renders, tests green — PR TBD (batch E2)
 **Estimated effort:** 1 week (~20 h across sessions; Phase 0 one session, then one scene family per session)
 **Depends on:** pkg229, pkg249, pkg253
 

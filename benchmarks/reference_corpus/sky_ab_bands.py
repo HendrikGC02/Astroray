@@ -168,6 +168,14 @@ print("PKG256_SUNCOL " + json.dumps({
 # these points is the #799 drift metric.
 if os.environ.get("PKG256_AB_MULTI") == "1":
     POINTS = [
+        # Calibrated model (Nishita = MULTIPLE_SCATTERING): elevation drift with
+        # the fixed constant. Turbidity is not a native Nishita input, so vary
+        # elevation only (the constant was fit at elev 28°).
+        {"sky_type": "MULTIPLE_SCATTERING", "turbidity": 2.6, "elevation": 10.0, "rotation": 115.0},
+        {"sky_type": "MULTIPLE_SCATTERING", "turbidity": 2.6, "elevation": 28.0, "rotation": 115.0},
+        {"sky_type": "MULTIPLE_SCATTERING", "turbidity": 2.6, "elevation": 60.0, "rotation": 115.0},
+        # Cross-model: Cycles' legacy PREETHAM sky carries a different absolute
+        # scale entirely (native turbidity input for both sides).
         {"sky_type": "PREETHAM", "turbidity": 2.6, "elevation": 28.0, "rotation": 115.0},
         {"sky_type": "PREETHAM", "turbidity": 5.0, "elevation": 10.0, "rotation": 115.0},
         {"sky_type": "PREETHAM", "turbidity": 2.0, "elevation": 60.0, "rotation": 115.0},

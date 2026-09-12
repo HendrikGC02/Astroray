@@ -59,17 +59,21 @@ cases. Measured on `world_sky_sky` (Blender 5.2 Cycles CPU, 240×135×48,
 
 | sky_type            | turbidity | sun elev | upper ratio_lum | horizon ratio_lum |
 |---------------------|-----------|----------|-----------------|-------------------|
+| MULTIPLE_SCATTERING | (aerosol) | 10°      | 1.145           | 1.222             |
 | MULTIPLE_SCATTERING | (aerosol) | 28°      | **1.005**       | **0.898**         |
+| MULTIPLE_SCATTERING | (aerosol) | 60°      | 0.665           | 0.561             |
 | PREETHAM            | 2.6       | 28°      | 14.969          | 13.966            |
 | PREETHAM            | 5.0       | 10°      | 7.688           | 7.540             |
 | PREETHAM            | 2.0       | 60°      | 11.117          | 10.664            |
 
-The constant is calibrated for Cycles' **Nishita** (`MULTIPLE_SCATTERING`,
-ratio ≈ 1.0); Cycles' **legacy Preetham** sky_type carries a completely
-different absolute scale (ratio 7.7–15). Even within one model the ratio drifts
-with (turbidity, elevation). This confirms issue #799's prediction: **absolute
-parity across models/conditions requires an engine-side spectral/analytic sky
-lookup** (evaluate the model per-ray in the world lookup instead of a fixed bake
+**Within the calibrated Nishita model the ratio drifts monotonically with sun
+elevation: 1.22 (10°) → 0.90 (28°, calibrated) → 0.56 (60°)** — a 2.2× spread
+that *fails* the ±25% band at high sun. No constant can flatten it: scaling the
+constant multiplies every row by a common factor (algebra), so the 2.2× spread
+is invariant. Cycles' **legacy Preetham** sky_type carries a completely
+different absolute scale again (ratio 7.7–15). This confirms issue #799's
+prediction: **absolute parity across models/conditions requires an engine-side
+spectral/analytic sky lookup** (evaluate the model per-ray in the world lookup instead of a fixed bake
 + constant), which is #799's stated Phase-2 "real fix" and needs its own
 architecture pass. Per the owner's 2026-09-08 physics-first rule, the bake's
 absolute radiance (`Y/K`) is the physically-meaningful quantity and the Cycles

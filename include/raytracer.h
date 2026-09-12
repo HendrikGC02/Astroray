@@ -4096,6 +4096,40 @@ public:
     float getPixelFilterWidth() const { return pixelFilterWidth; }
     int getWorldMaxBounces() const { return worldMaxBounces; }
 
+    // pkg254: transparent-film alpha coverage for the spectral render path. Ports
+    // the per-sample coverage boolean from the deleted RGB pathTrace (commit
+    // e763cd7f, `alphaCovered`): a sample is "covered" (alpha 1) once its primary
+    // ray hits any surface that the transparent-glass film option does NOT pass
+    // through; a ray that reaches the background while still uncovered yields
+    // alpha 0, so the background shows through. Returns 1.0 immediately when
+    // transparent film is off — the default render path is byte-identical and
+    // consumes no RNG; only the transparentGlass walk samples a BSDF (to follow
+    // the refraction), matching the original. The cap mirrors the old loop's
+    // `bounce < maxDepth`.
+    float coverageAlpha(const Ray& primary, std::mt19937& gen, int maxDepth) const {
+        if (!useTransparentFilm) return 1.0f;
+        if (!bvh) return 0.0f;
+        Ray ray = primary;
+        const int cap = std::max(1, maxDepth);
+        for (int bounce = 0; bounce < cap; ++bounce) {
+            HitRecord rec;
+            if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec))
+                return 0.0f;  // reached the background uncovered
+            if (rec.hitObject && rec.hitObject->isGRObject())
+                return 1.0f;  // a GR object covers the film
+            if (!rec.material) return 0.0f;
+            if (!(transparentGlass && rec.material->isTransmissive()))
+                return 1.0f;  // an opaque / non-glass surface covers the film
+            // Transparent glass: follow the sampled (refracted/reflected) ray and
+            // keep looking for an opaque surface or the background.
+            Vec3 wo = (ray.direction * -1.0f).normalized();
+            BSDFSample bs = rec.material->sample(rec, wo, gen);
+            if (bs.pdf <= 0.0f) return 0.0f;
+            ray = Ray(rec.point, bs.wi, ray.time);
+        }
+        return 0.0f;  // exhausted the glass-chain budget → treat as uncovered
+    }
+
 void render(Camera& cam, int maxSamples, int maxDepth,
             std::function<bool(float)> progress = nullptr, bool adaptive = true, bool applyGamma = false,
             int argDiffuseBounces = -1, int argGlossyBounces = -1, int argTransmissionBounces = -1,
@@ -4227,6 +4261,11 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                     // is owned by exactly one tile/thread, so the
                                     // per-pixel accumulator writes are race-free.
                                     SampleResult ir = integrator_->sampleFull(pr, tgen);
+                                    // pkg254: transparent-film alpha coverage
+                                    // (integrator-agnostic; no-op when the film
+                                    // is opaque → default byte-identical).
+                                    if (useTransparentFilm)
+                                        ir.alpha = coverageAlpha(pr, tgen, maxDepth);
                                     int gidx = y * cam.width + x;
                                     gAccCol[gidx] += finiteVecOrZero(ir.color);
                                     for (int pI = 0; pI < PASS_COUNT; ++pI)
@@ -4386,7 +4425,12 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                 sCol = ir.color;
                                 sAlb = ir.albedo;
                                 sNorm = ir.normal;
-                                sAlpha = ir.alpha;
+                                // pkg254: transparent-film alpha coverage
+                                // (integrator-agnostic; no-op + no RNG when the
+                                // film is opaque → default byte-identical).
+                                sAlpha = useTransparentFilm
+                                    ? coverageAlpha(primaryRay, gen, maxDepth)
+                                    : ir.alpha;
                                 sDepth = ir.depth;
                                 sBounceCount = ir.bounceCount;
                                 sSampleWeight = ir.sampleWeight;

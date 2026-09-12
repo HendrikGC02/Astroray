@@ -4107,6 +4107,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         'anisotropic': 'anisotropic',
         'sheen': 'sheen_weight',
         'subsurface': 'subsurface_weight',
+        'specular_ior_level': 'specular_ior_level',  # #757 Diffuse-BSDF specular-0
     }
 
     def _disney_params_to_native(self, params):
@@ -4197,7 +4198,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
             rough = self.get_float_input(node, 'Roughness', 0.0)
             if rough > 1e-4:
                 self._warn_shader_fallback('BSDF_DIFFUSE', 'Oren-Nayar diffuse is approximated with Disney rough diffuse')
-            return {'kind': 'principled', 'base_color': color, 'params': {'metallic': 0.0, 'roughness': rough}}
+            # #757: Cycles' Diffuse BSDF has NO dielectric specular layer. The
+            # native Principled defaults specular_ior_level=0.5 (F0 = 4% + grazing
+            # Fresnel), adding a mirror-like reflection Cycles' Diffuse does not
+            # have (measured ground-strip ratio 1.108 vs 0.989 with specular 0,
+            # #757). Export the closure as diffuse-only. The engine reads
+            # 'specular_ior_level' (plugins/materials/principled.cpp:1779:
+            # F0 = F0_from_ior(ior)*2*specular_ior_level -> 0).
+            return {'kind': 'principled', 'base_color': color,
+                    'params': {'metallic': 0.0, 'roughness': rough,
+                               'specular_ior_level': 0.0,  # native principled path
+                               'specular': 0.0}}           # Disney fallback path
         if ntype in ('BSDF_GLOSSY', 'BSDF_ANISOTROPIC'):
             color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
             rough = self.get_float_input(node, 'Roughness', 0.5)

@@ -22,9 +22,6 @@ import pytest
 from _batch_a_stub import load_addon
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-_BP = REPO_ROOT / "benchmarks" / "blender_parity"
-if str(_BP) not in sys.path:
-    sys.path.insert(0, str(_BP))
 
 
 def _out_socket(linked):
@@ -111,6 +108,9 @@ def _spot_floor_mean(ies_file):
 
 @pytest.mark.serial
 def test_ies_changes_spot_floor_pattern(tmp_path):
+    _bp = str(REPO_ROOT / "benchmarks" / "blender_parity")
+    if _bp not in sys.path:
+        sys.path.insert(0, _bp)
     from scene_library import _ies_wall_washer_lm63
     ies_path = tmp_path / "wall_washer.ies"
     ies_path.write_text(_ies_wall_washer_lm63(), encoding="utf-8")

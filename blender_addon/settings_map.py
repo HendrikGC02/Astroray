@@ -121,10 +121,11 @@ _RENDER_SAMPLING = [
                  "#802: normalized [0,1] left edge of the render region (also border_max_x, "
                  "border_min_y, border_max_y). Blender border coords are bottom-up in Y."),
     MappingEntry("render", "use_crop_to_border", "scene.render.use_crop_to_border", "",
-                 "(none)", "approximated", "DROPPED-SILENT",
-                 "#802: Cycles crop-to-border returns a cropped image. Astroray always returns "
-                 "the full-size film with the outside left black/transparent (crop off "
-                 "semantics); crop-on is APPROXIMATED as crop-off + a warning."),
+                 "(none)", "dropped", "DROPPED-SILENT",
+                 "#802: Cycles crop-to-border returns a CROPPED image. Astroray always returns "
+                 "the full-size film with the outside left black/transparent (crop-off "
+                 "semantics); the cropped-image output is DROPPED (a warning is emitted when "
+                 "crop-to-border is on). The render region itself (use_border) is honoured."),
     MappingEntry("sampling", "light_sampling", "scene.cycles.use_light_tree",
                  "custom_raytracer.light_sampler", "renderer.set_light_sampler", "approximated", "n/a",
                  "SEMANTIC MISMATCH: Astroray's UI has a uniform/power/light_tree tri-state; Cycles exposes only "

@@ -505,11 +505,16 @@ def test_backdrop_is_parity_safe(tmp_path):
 # --------------------------------------------------------------------------- #
 
 def test_to_top_down_flips_native_bottom_up_buffer():
-    import sys as _sys
-    render_leg_dir = str(REPO_ROOT / "benchmarks" / "blender_parity")
-    if render_leg_dir not in _sys.path:
-        _sys.path.insert(0, render_leg_dir)
-    import render_leg  # noqa: E402 - Blender-free helper only, no bpy import needed
+    # Load THIS render_leg.py by explicit path. The repo has three modules named
+    # `render_leg` (blender_parity, cycles-parity/metal_ab, cycles-parity/thin_film);
+    # a bare `import render_leg` returns whichever the full suite cached first in
+    # sys.modules, and the thin_film one has no _to_top_down -> AttributeError
+    # (a pre-existing test-isolation hazard surfaced by Batch A's added test files).
+    import importlib.util as _ilu
+    _rl_path = REPO_ROOT / "benchmarks" / "blender_parity" / "render_leg.py"
+    _spec = _ilu.spec_from_file_location("render_leg_blender_parity", _rl_path)
+    render_leg = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(render_leg)
 
     # Native Blender buffer: row 0 = bottom of the picture (dark), last row =
     # top of the picture (bright) - the orientation render_leg.py must flip.

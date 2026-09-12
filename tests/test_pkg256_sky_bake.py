@@ -115,11 +115,76 @@ def test_sky_type_changes_output():
 
 
 def test_dropped_sockets_named():
-    """pkg200: sockets/props the bake does not honour are enumerated verbatim."""
+    """pkg200: sockets/props the bake does not honour are enumerated verbatim.
+    #799: sun_disc/sun_size/sun_intensity are now HONOURED (dedicated sun light)
+    and must NOT appear; sun_limb_darkening is the remaining sun non-goal."""
     assert sky_bake.DROPPED_SOCKETS == (
-        "sun_disc", "sun_size", "sun_intensity", "sun_direction",
-        "altitude", "air_density", "ozone_density", "ground_albedo", "Vector",
+        "sun_direction", "altitude", "air_density", "ozone_density",
+        "ground_albedo", "sun_limb_darkening", "Vector",
     )
+    for honoured in ("sun_disc", "sun_size", "sun_intensity"):
+        assert honoured not in sky_bake.DROPPED_SOCKETS
+
+
+def test_exposure_constant_is_derived_decomposition():
+    """#799: LUM_TO_RADIANCE = (1/K_m photopic) x (Cycles-Nishita exposure),
+    not an opaque magic number. K_m = 683 lm/W; the product is exactly 1/1766
+    (corpus Nishita gate unchanged)."""
+    assert sky_bake.PHOTOPIC_LUMINOUS_EFFICACY == 683.0
+    expected = sky_bake.CYCLES_NISHITA_EXPOSURE / sky_bake.PHOTOPIC_LUMINOUS_EFFICACY
+    assert sky_bake.LUM_TO_RADIANCE == expected
+    assert abs(sky_bake.LUM_TO_RADIANCE - 1.0 / 1766.0) < 1e-15
+
+
+def test_sun_disc_params_disabled_returns_none():
+    node = SkyNode(sun_disc=False)
+    assert sky_bake.sun_disc_params_from_node(node) is None
+
+
+def test_sun_disc_params_enabled_shape_and_direction():
+    E, A = math.radians(28.0), math.radians(115.0)
+    node = SkyNode(sky_type="MULTIPLE_SCATTERING", sun_disc=True,
+                   sun_elevation=E, sun_rotation=A, sun_size=0.009512,
+                   sun_intensity=1.0)
+    p = sky_bake.sun_disc_params_from_node(node)
+    assert p is not None
+    # travel direction == -sun (sun points toward the sun, light travels away).
+    ce, se = math.cos(E), math.sin(E)
+    sun = (ce * math.cos(A), ce * math.sin(A), se)
+    assert p["direction"] == pytest.approx([-sun[0], -sun[1], -sun[2]], abs=1e-9)
+    assert p["angular_diameter"] == pytest.approx(0.009512)
+    assert p["intensity"] > 0.0
+    # unit-luminance disc colour
+    c = p["color"]
+    lum = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    assert lum == pytest.approx(1.0, abs=1e-6)
+
+
+def test_sun_disc_irradiance_integral():
+    """E_sun = L_sun . Omega_disc . sun_intensity . LUM_TO_RADIANCE — the
+    returned intensity must equal that closed form (Beer-Lambert direct beam)."""
+    E = math.radians(28.0)
+    t = sky_bake._effective_turbidity("MULTIPLE_SCATTERING", 2.0, 1.0)
+    air_mass = 1.0 / math.sin(E)
+    tau = sky_bake._optical_depth(t)
+    l_sun = sky_bake.SOLAR_DISC_LUMINANCE * math.exp(-tau * air_mass)
+    omega = 2.0 * math.pi * (1.0 - math.cos(0.5 * sky_bake.DEFAULT_SUN_SIZE))
+    expected = l_sun * omega * 1.0 * sky_bake.LUM_TO_RADIANCE
+    p = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", E, 0.0,
+                                 aerosol_density=1.0,
+                                 sun_size=sky_bake.DEFAULT_SUN_SIZE,
+                                 sun_intensity=1.0)
+    assert p["intensity"] == pytest.approx(expected, rel=1e-9)
+
+
+def test_sun_disc_intensity_scales_and_dims_with_air_mass():
+    """sun_intensity is linear; a lower sun (more air mass) is dimmer."""
+    hi = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", math.radians(60), 0.0)
+    lo = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", math.radians(10), 0.0)
+    assert lo["intensity"] < hi["intensity"]  # Beer-Lambert: low sun attenuated
+    x2 = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", math.radians(60), 0.0,
+                                  sun_intensity=2.0)
+    assert x2["intensity"] == pytest.approx(2.0 * hi["intensity"], rel=1e-9)
 
 
 def test_write_hdr_roundtrip_numpy():

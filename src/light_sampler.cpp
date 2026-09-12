@@ -87,6 +87,9 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
             // lights stay byte-identical (falloff outside == inside).
             float falloff = lights[idx]->directionFalloff(toPoint);
             Vec3 flat = lights[idx]->emittedRadiance(lightNormal, toPoint) * falloff;
+            // RGB out.emission carries the texture MEAN (getEmission()==mean×intensity,
+            // #776); out.emission_spec below is the per-hit textured value and is the
+            // production path — the spectral tracer consumes emission_spec.
             out.emission = flat;
             out.distance = rec.t;
             out.pdf = lights[idx]->pdfValue(point, dir) * selPdf;
@@ -204,6 +207,9 @@ void TreeLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& n
             // the matching comment in the uniform-sampler path above).
             float falloff = lights[pick.lightIndex]->directionFalloff(toPoint);
             Vec3 flat = lights[pick.lightIndex]->emittedRadiance(lightNormal, toPoint) * falloff;
+            // RGB out.emission carries the texture MEAN (getEmission()==mean×intensity,
+            // #776); out.emission_spec below is the per-hit textured value and is the
+            // production path — the spectral tracer consumes emission_spec.
             out.emission = flat;
             out.distance = rec.t;
             out.pdf = lights[pick.lightIndex]->pdfValue(point, dir) * treePdf;

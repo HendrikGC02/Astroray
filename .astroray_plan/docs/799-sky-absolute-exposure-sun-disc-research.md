@@ -107,24 +107,49 @@ surface; radiance `L = S/Ω`, `distant_light.cpp` sampleLi).
 **Sun irradiance (Beer-Lambert clear-sky):**
 
     L_sun(m) = L_sun0 · exp(-τ · m)            solar-disc luminance [cd/m²]
-    E_sun    = L_sun · Ω_disc · sun_intensity  direct normal illuminance [·efficacy]
+    E_sun    = L_sun · Ω_ref · sun_intensity   direct normal illuminance [·efficacy]
     intensity[bake units] = E_sun · LUM_TO_RADIANCE
 
 - `L_sun0 ≈ 1.6e9 cd/m²` — extra-atmospheric solar-disc luminance (measured
   solar constant; textbook, e.g. IES Lighting Handbook; ≈1.6–2.0×10⁹ cd/m² at
   the surface for a high clear sun).
-- `Ω_disc = 2π(1 − cos(sun_size/2))` — disc solid angle (≈ 6.8e-5 sr for 0.53°).
+- `Ω_ref = 2π(1 − cos(DEFAULT_SUN_SIZE/2))` ≈ 6.8e-5 sr — the **physical** sun's
+  solid angle (0.545°), used for the irradiance magnitude **independent of the
+  artist `sun_size`**. Blender/Cycles Nishita keeps ground irradiance INVARIANT
+  to `sun_size` (measured 2026-09-13: Cycles deck luminance identical at 0.545°
+  and 2.2°, ratio 1.001 — `sun_size` sets only the disc's angular size / shadow
+  penumbra). An earlier revision scaled `E_sun` by `Ω(sun_size)`, which
+  over-brightened a large artistic disc (the corpus 2.2° sun gave 61:1
+  direct:diffuse vs Cycles' measured 6.4:1). `sun_size` still flows to the
+  `DistantLight` `angular_diameter` so the shadow softness tracks the artist.
 - `m = 1/max(sin(elevation), ε)` — relative optical air mass (plane-parallel;
   Kasten-Young is the refinement, not needed for a floor).
-- `τ` — broadband optical depth, turbidity-scaled: `τ = 0.10 + 0.045·(T−2)`
-  (clear T≈2 → τ≈0.10; hazy T≈6 → τ≈0.28). Beer-Lambert attenuation is the
-  standard clear-sky direct-beam model (Preetham 1999 §A.3 uses the same
-  `exp(-optical_depth · m)` form for the attenuated solar spectrum; Bird &
-  Riordan 1986 SPCTRAL2).
+- `τ` — broadband optical depth, turbidity-scaled: `τ = 0.10 + 0.045·(T−2)`.
+  The Beer-Lambert *form* `exp(−τ·m)` is the standard clear-sky direct-beam
+  model (Preetham 1999 §A.3 uses the same `exp(−optical_depth·m)` for the
+  attenuated solar spectrum; Bird & Riordan 1986 SPCTRAL2). The **linear
+  turbidity map** `0.10 + 0.045·(T−2)` (clear T≈2 → 0.10, hazy T≈6 → 0.28) is
+  **NOT from either paper — it is a fitted constant** (same status as
+  `LUM_TO_RADIANCE`), a plausible interpolation that only sets the disc's
+  magnitude, which rides the sky's single-point calibration anyway.
+- **Circumsolar overlap (not a double count).** The Preetham/Perez bake already
+  contains the smooth circumsolar aureole (the Perez `f(θ,γ)` peak toward the
+  sun) inside the ~`sun_size` cone; the dedicated `DistantLight` adds the
+  collimated direct beam on top. These are the two physical components of the
+  solar contribution (diffuse aureole + direct beam), and the direct beam
+  dominates the aureole by orders of magnitude (E_sun ~1e5 lux vs the aureole's
+  handful of bake units per steradian), so the sum is aureole + beam, not a
+  strict double count of the beam.
 - Converting through the **same** `LUM_TO_RADIANCE` as the sky keeps the sun and
-  sky in one exposure system; the sun's absolute level therefore inherits the
-  sky's single-point Nishita calibration (documented, same status as the sky
-  fit).
+  sky in one exposure system; the sun's absolute level inherits the sky's
+  single-point Nishita calibration (documented, same status as the sky fit).
+- **Known Phase-1 residual (measured 2026-09-13).** With the physical `E_sun`
+  the corpus deck's direct:diffuse is ~1.8:1 vs Cycles' measured 6.4:1. The
+  disc is physically correct; the gap is the Preetham bake being **over-bright
+  at the ground** in absolute terms (the same "1/1766 is gradient-shape, not
+  absolute" limitation), which dilutes the ratio. A Cycles-matching ground
+  requires either a second single-point disc-vs-sky calibration DOF or the
+  engine-side spectral sky (#799 Phase 2). Left as an owner decision.
 
 **Sun colour:** the direct beam reddens at low sun (Chappuis/Rayleigh). We take
 the disc colour from the baked sky value at the sun direction (warm near the

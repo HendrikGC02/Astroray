@@ -9,7 +9,9 @@ emissive plane over a white diffuse floor and asserts:
 
 1. NEE-on lights the floor with the emitter's colour (R >> B), not flat white
    (the exact bug — flat white would give R ≈ B on a neutral floor).
-2. NEE-on and NEE-off (BSDF-only) agree within noise (MIS consistency).
+2. Under NEE a red-*textured* emitter lights the floor the same colour as an
+   equivalent plain red light (base red, no texture) — #776 makes the NEE path
+   evaluate the emission texture at the sampled point (was flat white).
 3. GPU: the emitter's texture MEAN (red), not white, is uploaded
    (scene_upload.cu getEmission()); the GPU floor is red-tinted too.
 
@@ -92,10 +94,12 @@ def test_textured_emitter_matches_flat_colour_under_nee(astroray_mod):
     NEE now evaluates the emission texture at the sampled light point. Pre-#776
     the textured emitter's NEE path saw a flat getEmission() == white x intensity,
     so it lit the floor WHITE while the plain red light lit it RED -- the two
-    diverged. (NEE-off is not a valid cross-check here: this engine's
-    multiwavelength tracer collects mesh-emitter direct lighting only through the
-    NEE path, so enable_nee=0 drops the emitter entirely -- pre-existing, not
-    #776. Verified 2026-09-13.)"""
+    diverged. (NEE-off is not a valid cross-check here: the
+    multiwavelength tracer's naive mode is the pkg156 naive oracle
+    (multiwavelength_path_tracer.cpp ~266-286) — emission is taken only on a
+    camera / post-specular ray and intentionally dropped on a non-specular
+    diffuse hit, so with enable_nee=0 the mesh emitter contributes nothing. That
+    is the intended oracle contract, not a bug and unrelated to #776.)"""
     tex = _render_floor_mean(astroray_mod, enable_nee=True, samples=256)
     flat = _render_floor_mean(astroray_mod, enable_nee=True, samples=256,
                               flat_colour=True)

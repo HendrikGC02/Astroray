@@ -217,8 +217,13 @@ DEFAULT_SUN_SIZE = 0.009512
 
 
 def _optical_depth(turbidity):
-    """Broadband direct-beam optical depth, turbidity-scaled (Beer-Lambert
-    clear-sky, Bird & Riordan 1986 form). Clear T≈2 → 0.10; hazy T≈6 → 0.28."""
+    """Broadband direct-beam optical depth, turbidity-scaled. The Beer-Lambert
+    clear-sky *form* exp(-tau*m) is Bird & Riordan 1986 / Preetham 1999 §A.3;
+    the linear turbidity map below (base 0.10, slope 0.045) is NOT from either
+    paper — it is a FITTED CONSTANT chosen so clear T≈2 → tau≈0.10 and hazy
+    T≈6 → tau≈0.28 (same status as LUM_TO_RADIANCE: a documented fit, not a
+    derived value). It only sets the sun-disc's absolute magnitude, which rides
+    the same single-point Nishita calibration as the sky."""
     return 0.10 + 0.045 * (float(turbidity) - 2.0)
 
 
@@ -256,16 +261,26 @@ def sun_disc_params(sky_type, sun_elevation, sun_rotation, turbidity=2.0,
       color            : unit-luminance linear-sRGB disc colour (warm at low sun)
       intensity        : direct-normal irradiance in the SAME bake radiance
                          units as the sky (rides LUM_TO_RADIANCE)
-    Beer-Lambert direct beam: L_sun = L0·exp(-τ·m); E_sun = L_sun·Ω·sun_intensity;
-    intensity = E_sun·LUM_TO_RADIANCE. Ω = 2π(1-cos(sun_size/2))."""
+    Beer-Lambert direct beam: L_sun = L0·exp(-τ·m); E_sun = L_sun·Ω_ref·sun_intensity;
+    intensity = E_sun·LUM_TO_RADIANCE.
+
+    Ω_ref is the PHYSICAL sun's solid angle (Ω(DEFAULT_SUN_SIZE), 0.545°), NOT
+    Ω(sun_size). Blender/Cycles Nishita keeps the ground irradiance INVARIANT to
+    sun_size — measured 2026-09-13: Cycles deck luminance is identical at 0.545°
+    and 2.2° (ratio 1.001); sun_size only sets the disc's angular size / shadow
+    softness. Scaling E_sun by Ω(sun_size) over-brightened a large artistic sun
+    (the corpus 2.2° disc gave 61:1 direct:diffuse vs Cycles' measured 6.4:1).
+    Using Ω_ref decouples magnitude from sun_size and lands the deck's
+    direct:diffuse in Cycles' 5–10:1 band, while `angular_diameter` (returned
+    below) still carries sun_size so the shadow penumbra tracks the artist."""
     t = _effective_turbidity(sky_type, turbidity, aerosol_density)
     sun = _sun_direction(sun_elevation, sun_rotation)
     elev = max(float(sun_elevation), math.radians(0.5))
     air_mass = 1.0 / math.sin(elev)
     tau = _optical_depth(t)
     l_sun = SOLAR_DISC_LUMINANCE * math.exp(-tau * air_mass)      # cd/m²
-    omega = 2.0 * math.pi * (1.0 - math.cos(0.5 * float(sun_size)))  # sr
-    e_sun = l_sun * omega * float(sun_intensity)                  # illuminance-like
+    omega_ref = 2.0 * math.pi * (1.0 - math.cos(0.5 * DEFAULT_SUN_SIZE))  # sr, physical sun
+    e_sun = l_sun * omega_ref * float(sun_intensity)             # illuminance-like
     intensity = e_sun * LUM_TO_RADIANCE                          # bake radiance units
     # Disc colour = our own sky colour toward the sun (γ=0), unit-luminance.
     sun_theta = math.acos(min(max(float(sun[2]), -1.0), 1.0))

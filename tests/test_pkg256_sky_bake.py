@@ -177,6 +177,21 @@ def test_sun_disc_irradiance_integral():
     assert p["intensity"] == pytest.approx(expected, rel=1e-9)
 
 
+def test_sun_disc_intensity_invariant_to_sun_size():
+    """#799 (2026-09-13): the disc's direct-normal irradiance must NOT scale with
+    the artist sun_size -- Blender/Cycles Nishita keeps ground irradiance
+    invariant to sun_size (measured: Cycles deck luminance identical at 0.545 deg
+    and 2.2 deg). sun_size only sets the disc angular_diameter (shadow softness).
+    A prior revision used Omega(sun_size), which over-brightened a large disc."""
+    E = math.radians(28.0)
+    small = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", E, 0.0, sun_size=0.009512)
+    big = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", E, 0.0, sun_size=0.0384)
+    assert big["intensity"] == pytest.approx(small["intensity"], rel=1e-9)
+    # ...but the disc angular size still follows sun_size (shadow penumbra).
+    assert big["angular_diameter"] == pytest.approx(0.0384)
+    assert small["angular_diameter"] == pytest.approx(0.009512)
+
+
 def test_sun_disc_intensity_scales_and_dims_with_air_mass():
     """sun_intensity is linear; a lower sun (more air mass) is dimmer."""
     hi = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", math.radians(60), 0.0)
@@ -242,9 +257,14 @@ def test_sun_disc_casts_shadow(astroray_mod):
         r = astroray_mod.Renderer()
         r.set_integrator("path_tracer")
         assert r.load_environment_map(path, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, True)
+        # sun_intensity is the artist multiplier (bright clear-day sun). The
+        # disc's irradiance is sun_size-independent now (matches Cycles' measured
+        # sun_size-invariant ground), so a sun-dominant scene needs the multiplier
+        # rather than an inflated sun_size; 4.0 keeps the sun the dominant light so
+        # the cast shadow is unambiguous over the (over-bright Preetham) sky fill.
         sun = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", E, A,
                                        aerosol_density=1.0, sun_size=0.02,
-                                       sun_intensity=1.0)
+                                       sun_intensity=4.0)
         r.add_sun_light_dedicated(sun["direction"], sun["angular_diameter"],
                                   {"mode": "rgb", "color": sun["color"]},
                                   sun["intensity"])

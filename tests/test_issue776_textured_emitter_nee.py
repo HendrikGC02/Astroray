@@ -31,7 +31,7 @@ def astroray_mod():
 def _floor_scene(r):
     white = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
     red_img = np.tile(np.array([1.0, 0.0, 0.0], dtype=np.float32), (4, 4, 1))
-    r.load_image_texture("emit_red", red_img, 4, 4, "UV")
+    r.load_texture("emit_red", red_img, 4, 4, "UV")
     red_light = r.create_material("light", [1.0, 1.0, 1.0],
                                   {"intensity": 15.0, "texture": "emit_red"})
     e = 4.0

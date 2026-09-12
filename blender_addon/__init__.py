@@ -13,7 +13,7 @@ bl_info = {
 import bpy
 from bpy.types import Panel, Operator, AddonPreferences, PropertyGroup, RenderEngine
 from bpy.props import BoolProperty, IntProperty, FloatProperty, StringProperty, PointerProperty, FloatVectorProperty, EnumProperty
-import mathutils, math, numpy as np, traceback, sys, os, time, inspect, tempfile
+import mathutils, math, numpy as np, traceback, sys, os, time, inspect, tempfile, hashlib
 from pathlib import Path
 
 # pkg112: gate the batched geometry-upload path. Default on; a parity/benchmark
@@ -5395,21 +5395,77 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
     def convert_lights(self, depsgraph, renderer):
         def _resolve_ies_path(light_data):
-            cycles_settings = getattr(light_data, 'cycles', None)
-            candidates = []
-            for source in (cycles_settings, light_data):
-                if source is None:
+            # Item 1 (owner-approved 2026-09-11): Blender/Cycles express IES
+            # through a ShaderNodeTexIES node in the light node tree, feeding
+            # Emission Strength -- NOT via a light.ies/ies_file property (which
+            # no shipped Blender exposes). Mirror Cycles
+            # (intern/cycles/blender/shader.cpp add_nodes -> ShaderNodeTexIES):
+            # EXTERNAL -> storage.filepath (abspath); INTERNAL -> the text
+            # datablock content. Cycles only uses a TexIES node that reaches the
+            # output (its Fac is wired into the graph); a disconnected node is
+            # ignored. We use the same rule: consider only TexIES nodes whose
+            # output socket is linked. The engine consumes the resolved file as a
+            # directional profile (IESProfile, raytracer.h); see
+            # .astroray_plan/docs/ies-normalization-research.md for the
+            # peak-normalization vs Cycles 4*pi/177.83 magnitude difference.
+            node_tree = getattr(light_data, 'node_tree', None)
+            if node_tree is None:
+                return ""
+            ies_nodes = []
+            for node in node_tree.nodes:
+                if getattr(node, 'type', '') != 'TEX_IES':
                     continue
-                for name in ('ies', 'ies_file', 'ies_profile'):
-                    value = getattr(source, name, None)
-                    if value:
-                        candidates.append(value)
-            for value in candidates:
-                if hasattr(value, 'filepath') and value.filepath:
-                    return bpy.path.abspath(value.filepath)
-                if isinstance(value, str) and value:
-                    return bpy.path.abspath(value)
-            return ""
+                # Cycles ignores a disconnected TexIES node; require a linked
+                # output so a stray node in the tree does not silently apply.
+                out_linked = any(o.is_linked for o in node.outputs)
+                if out_linked:
+                    ies_nodes.append(node)
+            if not ies_nodes:
+                return ""
+            if len(ies_nodes) > 1:
+                self._warn_shader_fallback(
+                    'TEX_IES',
+                    'multiple IES nodes are wired into one light; only the first is honoured (the engine applies a single directional profile per light)')
+            node = ies_nodes[0]
+            mode = str(getattr(node, 'mode', 'INTERNAL')).upper()
+            if mode == 'EXTERNAL':
+                filepath = getattr(node, 'filepath', '')
+                if filepath:
+                    return bpy.path.abspath(filepath)
+                self._warn_shader_fallback(
+                    'TEX_IES', 'EXTERNAL IES node has no filepath; light rendered without IES')
+                return ""
+            # INTERNAL: the profile lives in a bpy.types.Text datablock. The
+            # engine IES loader (IESProfile::loadFromFile) reads from a path, so
+            # materialise the text to a stable temp file keyed by the datablock
+            # name + a content hash (so edits produce a new file and the cache in
+            # getOrLoadIESProfile stays correct across renders).
+            text_db = getattr(node, 'ies', None)
+            if text_db is None:
+                self._warn_shader_fallback(
+                    'TEX_IES', 'INTERNAL IES node has no text datablock; light rendered without IES')
+                return ""
+            try:
+                content = text_db.as_string()
+            except Exception:
+                content = ""
+            if not content.strip():
+                self._warn_shader_fallback(
+                    'TEX_IES', 'INTERNAL IES text is empty; light rendered without IES')
+                return ""
+            digest = hashlib.sha1(content.encode('utf-8', 'replace')).hexdigest()[:12]
+            safe_name = ''.join(c if c.isalnum() else '_' for c in getattr(text_db, 'name', 'ies'))[:40]
+            temp_path = os.path.join(
+                tempfile.gettempdir(), 'astroray_ies_%s_%s.ies' % (safe_name, digest))
+            if not os.path.exists(temp_path):
+                try:
+                    with open(temp_path, 'w', encoding='utf-8') as fh:
+                        fh.write(content)
+                except OSError as exc:
+                    self._warn_shader_fallback(
+                        'TEX_IES', 'could not write INTERNAL IES temp file (%s)' % exc)
+                    return ""
+            return temp_path
 
         def _build_emission_dict(light):
             # pkg89 Phase B: construct EmissionSpectrum dict from Blender light properties.
@@ -5583,12 +5639,46 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         if evaluated is not None:
                             tint = list(evaluated)
             elif node.type == 'MAPPING':
+                # #796 Batch A item 3: honour vector_type (POINT vs TEXTURE),
+                # warn-and-drop Scale/Location, warn on a linked Rotation.
+                # Cycles MappingNode: TEXTURE applies the INVERSE of the
+                # rotation that POINT applies (intern/cycles/kernel/svm/mapping_util.h
+                # svm_mapping NODE_MAPPING_TYPE_TEXTURE transposes the matrix).
+                vector_type = str(getattr(node, 'vector_type', 'POINT')).upper()
                 rot_input = node.inputs.get('Rotation')
                 if rot_input:
+                    if rot_input.is_linked:
+                        # We can only read the static default_value; a driven /
+                        # node-linked Rotation is not evaluated (pkg200 rule).
+                        self._warn_shader_fallback(
+                            'MAPPING', 'world Mapping Rotation is linked to a node; only its static default_value is honoured')
                     # Blender Mapping uses XYZ Euler order (matches Cycles MappingNode).
                     rx = float(rot_input.default_value[0])
                     ry = float(rot_input.default_value[1])
                     rz = float(rot_input.default_value[2])
+                    if vector_type == 'TEXTURE':
+                        # Apply the inverse rotation. R is orthonormal so R^-1 =
+                        # R^T; re-extract the XYZ Euler of the transpose and feed
+                        # the engine (no engine change -- load_environment_map
+                        # bakes rx,ry,rz -> R_cswap * R, and here R := R^-1).
+                        inv = mathutils.Euler((rx, ry, rz), 'XYZ').to_matrix().transposed()
+                        inv_eul = inv.to_euler('XYZ')
+                        rx, ry, rz = float(inv_eul.x), float(inv_eul.y), float(inv_eul.z)
+                    elif vector_type not in ('POINT', 'VECTOR'):
+                        # NORMAL: Cycles normalizes+rotates a normal; the env
+                        # lookup only needs the (forward) rotation direction.
+                        self._warn_shader_fallback(
+                            'MAPPING', "vector_type '%s' is approximated as POINT (forward rotation)" % vector_type)
+                scale_input = node.inputs.get('Scale')
+                if scale_input is not None and (scale_input.is_linked or any(
+                        abs(float(scale_input.default_value[k]) - 1.0) > 1e-4 for k in range(3))):
+                    self._warn_shader_fallback(
+                        'MAPPING', 'world Mapping Scale is not honoured (the equirect env loader has no scale); dropped')
+                loc_input = node.inputs.get('Location')
+                if loc_input is not None and (loc_input.is_linked or any(
+                        abs(float(loc_input.default_value[k])) > 1e-4 for k in range(3))):
+                    self._warn_shader_fallback(
+                        'MAPPING', 'world Mapping Location is not honoured (a directional env map has no translation); dropped')
 
         output = next((n for n in node_tree.nodes if n.type == 'OUTPUT_WORLD'), None)
         volume_spec = None

@@ -110,6 +110,21 @@ _RENDER_SAMPLING = [
     MappingEntry("sampling", "filter_width", "scene.cycles.filter_width", "",
                  "renderer.set_pixel_filter", "direct", "DROPPED-SILENT",
                  "pkg119-A marked DROPPED; addon NOW reads scene.cycles.filter_width natively."),
+    MappingEntry("render", "use_border", "scene.render.use_border", "",
+                 "render(region=...)", "direct", "DROPPED-SILENT",
+                 "#802 Batch A item 4: Render Region. When set, only pixels inside "
+                 "border_min/max_x/y are path-traced; outside pixels are left 0/alpha 0 (F12) "
+                 "or keep the prior accumulation (viewport). Honoured by the CPU tile loop and "
+                 "the GPU wavefront ray-generation stage."),
+    MappingEntry("render", "border_min_x", "scene.render.border_min_x", "",
+                 "render(region=...)", "direct", "DROPPED-SILENT",
+                 "#802: normalized [0,1] left edge of the render region (also border_max_x, "
+                 "border_min_y, border_max_y). Blender border coords are bottom-up in Y."),
+    MappingEntry("render", "use_crop_to_border", "scene.render.use_crop_to_border", "",
+                 "(none)", "approximated", "DROPPED-SILENT",
+                 "#802: Cycles crop-to-border returns a cropped image. Astroray always returns "
+                 "the full-size film with the outside left black/transparent (crop off "
+                 "semantics); crop-on is APPROXIMATED as crop-off + a warning."),
     MappingEntry("sampling", "light_sampling", "scene.cycles.use_light_tree",
                  "custom_raytracer.light_sampler", "renderer.set_light_sampler", "approximated", "n/a",
                  "SEMANTIC MISMATCH: Astroray's UI has a uniform/power/light_tree tri-state; Cycles exposes only "
@@ -229,6 +244,20 @@ _WORLD = [
     MappingEntry("world", "mapping_rotation", "world MAPPING node Rotation", "",
                  "load_environment_map (baked rotation)", "direct", "n/a",
                  "XYZ Euler baked into HDRI rotation matrix."),
+    MappingEntry("world", "mapping_vector_type", "world MAPPING node vector_type", "",
+                 "load_environment_map (rotation, inverted for TEXTURE)", "approximated", "DROPPED-SILENT",
+                 "#796 Batch A item 3: POINT applies the rotation forward; TEXTURE applies the "
+                 "INVERSE (Cycles MappingNode). Now honoured by transposing the baked rotation "
+                 "for TEXTURE. NORMAL type falls back to POINT with a warning."),
+    MappingEntry("world", "mapping_scale", "world MAPPING node Scale", "",
+                 "(none)", "dropped", "DROPPED-SILENT",
+                 "#796 Batch A item 3: the equirect env loader has no non-uniform scale; a "
+                 "non-default Scale is now warned (was silently dropped)."),
+    MappingEntry("world", "mapping_location", "world MAPPING node Location", "",
+                 "(none)", "dropped", "DROPPED-SILENT",
+                 "#796 Batch A item 3: a directional env map has no translation; a non-default "
+                 "Location is now warned (was silently dropped). A linked Rotation socket is "
+                 "also warned (only default_value is read)."),
     # pkg260 — single gap card for per-object light/shadow linking (owner 2026-09-08:
     # out of scope for Astroray; recorded so the coverage matrix has a row).
     MappingEntry("world", "light_linking_shadow_linking", "object.light_linking.*", "",
@@ -299,6 +328,16 @@ _LIGHT = [
     MappingEntry("light", "specular_factor", "light.data.specular_factor", "",
                  "(none)", "dropped", "DROPPED-SILENT",
                  "Per-light specular multiplier ignored; all light types (POINT/SUN/SPOT/AREA)."),
+    MappingEntry("light", "ies_profile", "light.data.node_tree ShaderNodeTexIES node", "",
+                 "add_point_light/add_spot_light (ies_file)", "approximated", "DROPPED-SILENT",
+                 "Batch A item 1: addon finds the ShaderNodeTexIES node wired into Emission "
+                 "Strength (INTERNAL text -> temp .ies file, EXTERNAL -> abspath) and passes "
+                 "it to the engine IES hook (getOrLoadIESProfile). APPROXIMATED: the engine "
+                 "peak-normalizes the candela table and applies it as a directional profile "
+                 "times light.energy, whereas Cycles carries absolute candela->Watt magnitude "
+                 "(util/ies.cpp factor 4*pi/177.83) multiplied by node Strength; the relative "
+                 "directional shape matches, the absolute magnitude does not "
+                 "(ies-normalization-research.md)."),
     MappingEntry("light", "show_cone", "light.data.show_cone", "",
                  "(none)", "dropped", "DROPPED-SILENT", "SPOT viewport-only gizmo; not render-relevant."),
 ]

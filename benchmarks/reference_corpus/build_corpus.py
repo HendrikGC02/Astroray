@@ -43,6 +43,9 @@ BUILDERS = {
     "lighting_studio": "build_lighting_studio_scene",
     "world_sky_hdri": "build_world_sky_hdri_scene",
     "world_sky_sky": "build_world_sky_sky_scene",
+    "geometry_zoo": "build_geometry_zoo_scene",
+    "camera_lens": "build_camera_lens_scene",
+    "render_settings": "build_render_settings_scene",
 }
 RESOLUTIONS = {
     "materials_hall": ("REFERENCE_MATERIALS_HALL_RES", "REFERENCE_MATERIALS_HALL_SAMPLES"),
@@ -50,6 +53,9 @@ RESOLUTIONS = {
     "lighting_studio": ("REFERENCE_LIGHTING_STUDIO_RES", "REFERENCE_LIGHTING_STUDIO_SAMPLES"),
     "world_sky_hdri": ("REFERENCE_WORLD_SKY_RES", "REFERENCE_WORLD_SKY_SAMPLES"),
     "world_sky_sky": ("REFERENCE_WORLD_SKY_RES", "REFERENCE_WORLD_SKY_SAMPLES"),
+    "geometry_zoo": ("REFERENCE_GEOMETRY_ZOO_RES", "REFERENCE_GEOMETRY_ZOO_SAMPLES"),
+    "camera_lens": ("REFERENCE_CAMERA_LENS_RES", "REFERENCE_CAMERA_LENS_SAMPLES"),
+    "render_settings": ("REFERENCE_RENDER_SETTINGS_RES", "REFERENCE_RENDER_SETTINGS_SAMPLES"),
 }
 # pkg259 Phase 2: world_sky splits into two .blend files sharing one family
 # tag (README "Naming and files" -- <family>_<part>.blend, allowed since
@@ -221,11 +227,18 @@ def _build_one(bpy, scene_id: str, out_dir: Path, assign, overrides, matrix_rows
         if getattr(light, "use_nodes", False) and light.node_tree:
             node_ids.update(n.bl_idname for n in light.node_tree.nodes)
     tri_count = 0
+    curve_count = 0
+    curve_point_count = 0
     for obj in reopened_scene.objects:
-        if obj.type != "MESH":
-            continue
-        for poly in obj.data.polygons:
-            tri_count += max(0, len(poly.vertices) - 2)
+        if obj.type == "MESH":
+            for poly in obj.data.polygons:
+                tri_count += max(0, len(poly.vertices) - 2)
+        elif obj.type == "CURVES":
+            # pkg259 Phase 3: geometry_zoo is the first family after
+            # hdri_exterior_hair (#729) to carry real Curves geometry --
+            # Phase 1/2 hardcoded these fields to 0 since no family had any.
+            curve_count += len(obj.data.curves)
+            curve_point_count += len(obj.data.points)
     reopen_verified = bool(node_ids) and reopened_scene.camera is not None
 
     manifest_entry = {
@@ -239,8 +252,8 @@ def _build_one(bpy, scene_id: str, out_dir: Path, assign, overrides, matrix_rows
         },
         "reopen_verified": reopen_verified,
         "triangle_count": tri_count,
-        "curve_count": 0,
-        "curve_point_count": 0,
+        "curve_count": curve_count,
+        "curve_point_count": curve_point_count,
         "object_counts": obj_counts,
         "node_ids": sorted(node_ids),
         "feature_tags": feature_tags,

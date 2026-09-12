@@ -1,3 +1,4 @@
-# oracle run artifacts (regenerate with heitz_random_walk.py)
+# oracle run artifacts (regenerate with the scripts)
 *.npy
 table_full.txt
+table_*.txt

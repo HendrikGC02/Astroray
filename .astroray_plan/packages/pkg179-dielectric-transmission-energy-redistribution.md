@@ -2,7 +2,7 @@
 
 **Pillar:** 2 (materials / BSDF energy correctness)
 **Track:** A (CPU furnace gates on CI; GPU twin RTX-verified)
-**Status:** Phase 1 DONE (2026-08-09, branch `pkg179-diag`; research note
+**Status:** done — Triage 2026-09-12 (half-implemented audit, `half-implemented-triage-2026-09-12.md`): closed by diagnosis (owner OPTION 2, 2026-08-09); no Phase 2. Was: Phase 1 DONE (2026-08-09, branch `pkg179-diag`; research note
 `.astroray_plan/docs/pkg179-dielectric-transmission-redistribution-research.md`).
 **Verdict: the 3× dead-sample rate was a MEASUREMENT-METHODOLOGY / definition
 artifact — NOT a sampler bug, NOT new physics.** pkg150's 7.1% @ r=1.0,θ0 is

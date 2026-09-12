@@ -50,6 +50,9 @@ second source of truth.
   pkg242; R2 pkg253 + pkg245 + pkg234/233; R3 pkg241 behavior + pkg251 +
   pkg243; R4 pkg133 + pkg130 + pkg136 GPU. Full ranking and dependencies in the
   north-star doc §4.
+- **Volumes track (core Cycles parity, opened by owner 2026-09-11 §7 item 5; NOT Pillar 4):**
+  pkg267→pkg268→{pkg269,pkg270}→pkg271 (+optional pkg272); dispatch pkg267+pkg268 first.
+  Research + DAG: `volumes-track-research-2026-09-12.md`.
 
 **Explicitly de-prioritized (owner-endorsed):** the sub-percent GPU/CPU parity
 tail — pkg172 effect (B) / pkg173 and the pkg153 remainder — sits below the

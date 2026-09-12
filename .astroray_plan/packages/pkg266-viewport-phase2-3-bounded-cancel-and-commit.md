@@ -117,6 +117,7 @@ the same P2.3 list. Serves Pillar 5.
 
 ## Progress
 
+- [~] 2026-09-13 — **first §9 GUI data point (lead, Batch B PR #804 measurement, isolated Blender 5.2 on 9877, OpenMP-ON MSVC addon, idle GPU under the lock, 2×10 s reps):** worker ON tick-gap p95 **8.4 ms (metal_sweep) / 7.8 ms (big)** settle, 7.7 / 7.1 ms storm — PASS the ≤ 33 ms gate on both scenes (Cycles 6.6 ms); worker OFF 106 / 182 ms p95 (synchronous path bounded by one full-res spp per redraw). **Present-rate UNGRADEABLE: completed = 0 / presented = 0 in every worker-ON rep while `n_render_device` = 285 / 248** — the worker renders continuously but no terminal generation is observed in a 10 s idle span (owed-refinement loop or lifeline terminal event after #791) → the next pkg266 lane must root-cause this before the cancel p99 / present-rate rows can be graded. Table: `benchmarks/viewport_parity/results/2026-09-12-batchB/` (on the #804 branch) and the #804 comment. Worker stays opt-in.
 - [ ] 2026-09-09 — filed by the lead at the P2.2 closeout; not started.
 - [~] 2026-09-10 — **PR #791** (`feat/pkg266-viewport-p23-bounded-dispatch`):
   - **Native bounded dispatch** (`gpu_wavefront_snapshot.{h,cu}`, `blender_module.cpp`):

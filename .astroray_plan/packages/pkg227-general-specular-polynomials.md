@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** in-progress — owner-approved 2026-09-04; Phase 2a (#688), 2b-flat (#689), 2b-smooth (#691) landed; 2c deferred
+**Status:** in-progress — Triage 2026-09-12 (half-implemented audit, `half-implemented-triage-2026-09-12.md`): 2a/2b landed (#688 #689 #691); 2c/2d wait on owner Open Decision #1 and Phase 3 is a future greenfield GPU caustic package — no dispatch until the owner decides. Was: in-progress — owner-approved 2026-09-04; Phase 2a (#688), 2b-flat (#689), 2b-smooth (#691) landed; 2c deferred
 **Estimated effort:** XL — spans a cheap exact win (sphere multi-bounce), a research-grade approximate mesh solver, a whole candidate-generation subsystem (triangle-tuple pruning), and a GPU mirror. Phased so the first payoff ships independently.
 **Depends on:** **pkg127** (exact single-vertex SPHERE specular-polynomial solver — LANDED #685; this generalizes it), **pkg106** (multi-vertex MNEE manifold chain `manifold_chain.h`, `chainGeometryTerm` — the shared deterministic weight), **pkg64** (SMS folded into the default spectral path). Soft-coupled to **pkg226** (the Newton sphere-path weight bug) — independent, but both converge the two SMS weighting schemes onto the single MNEE term.
 

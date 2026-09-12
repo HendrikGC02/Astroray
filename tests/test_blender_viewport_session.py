@@ -587,3 +587,83 @@ def test_camera_view_offset_is_passed_as_camera_shift(monkeypatch):
     assert len(args) == 11
     assert abs(args[9] - 0.35) < 1e-6, "shiftX must equal window_matrix[0][2]/2"
     assert abs(args[10] - (-0.7)) < 1e-6, "shiftY must equal window_matrix[1][2]/2"
+
+def _stub_engine_conversions(engine, monkeypatch):
+    monkeypatch.setattr(engine, 'convert_materials', lambda dg, r: {})
+    monkeypatch.setattr(engine, 'convert_objects', lambda dg, r, mm: None)
+    monkeypatch.setattr(engine, 'convert_lights', lambda dg, r: None)
+    monkeypatch.setattr(engine, 'setup_world', lambda scene, r: None)
+    monkeypatch.setattr(engine, '_setup_viewport_camera',
+                        lambda r, ctx, w, h: r.setup_camera())
+    monkeypatch.setattr(engine, 'bind_display_space_shader', lambda s: None)
+    monkeypatch.setattr(engine, 'unbind_display_space_shader', lambda: None)
+
+
+def test_still_frame_refinement_chunks_reuse_the_device_scene(monkeypatch):
+    """#801: a still-frame progressive refinement chunk (camera unchanged, no
+    scene sync since the last upload) must render with skip_upload=True so the
+    GPU wavefront serves its device scene cache instead of re-converting and
+    re-uploading the whole scene per chunk; a full sync makes the next render
+    upload again (skip_upload=False)."""
+    _SkipUploadRecordingRenderer.construction_count = 0
+    addon = _load_blender_addon(monkeypatch,
+                                renderer_cls=_SkipUploadRecordingRenderer)
+    engine = addon.CustomRaytracerRenderEngine()
+    _patch_out_gpu_calls(addon, monkeypatch, engine)
+    _stub_engine_conversions(engine, monkeypatch)
+
+    ctx = _make_context(IDENTITY)
+    ctx.scene.custom_raytracer.preview_samples = 4
+    depsgraph = types.SimpleNamespace(scene=ctx.scene)
+
+    engine.view_update(ctx, depsgraph)          # full sync -> upload render
+    r = engine._viewport_renderer
+    assert r.skip_upload_flags == [False]
+    engine.view_draw(ctx, depsgraph)            # present-first (no render)
+    engine.view_draw(ctx, depsgraph)            # refinement chunk #2
+    engine.view_draw(ctx, depsgraph)            # refinement chunk #3
+    assert r.skip_upload_flags == [False, True, True], r.skip_upload_flags
+
+    # A scene edit that falls back to a full sync must upload again.
+    exp = engine._get_exporter()
+    monkeypatch.setattr(exp, 'apply_depsgraph_updates',
+                        lambda *a, **k: 'fallback')
+    engine.view_update(ctx, depsgraph)
+    assert r.skip_upload_flags[-1] is False, r.skip_upload_flags
+
+
+def test_refinement_chunk_grows_to_the_time_budget(monkeypatch):
+    """#801: after the first chunk, the chunk size grows to fill the
+    VIEWPORT_REFINE_CHUNK_MS budget from the measured per-sample cost (Cycles
+    RenderScheduler::calculate_num_samples_per_update), capped by the target
+    and VIEWPORT_REFINE_CHUNK_MAX_SPP; an instant (stub) render never engages
+    (test_view_draw_progresses_until_preview_sample_target keeps 1-spp chunks)."""
+    import time as _time
+
+    class _SlowRenderer(_RecordingRenderer):
+        def __init__(self):
+            super().__init__()
+            self.chunk_spp = []
+
+        def render(self, spp, *_a, **_k):
+            self.chunk_spp.append(int(spp))
+            _time.sleep(0.004 * int(spp))   # 4 ms per sample
+            return super().render(spp, *_a, **_k)
+
+    _SlowRenderer.construction_count = 0
+    addon = _load_blender_addon(monkeypatch, renderer_cls=_SlowRenderer)
+    engine = addon.CustomRaytracerRenderEngine()
+    _patch_out_gpu_calls(addon, monkeypatch, engine)
+    _stub_engine_conversions(engine, monkeypatch)
+
+    ctx = _make_context(IDENTITY)
+    ctx.scene.custom_raytracer.preview_samples = 64
+    depsgraph = types.SimpleNamespace(scene=ctx.scene)
+    engine.view_update(ctx, depsgraph)
+    r = engine._viewport_renderer
+    assert r.chunk_spp == [1]                   # first chunk = the floor
+    engine.view_draw(ctx, depsgraph)            # present-first
+    engine.view_draw(ctx, depsgraph)            # budgeted chunk
+    assert 1 < r.chunk_spp[-1] <= 32, r.chunk_spp   # ~100 ms / 4 ms = 25 spp
+    assert engine._viewport_current_spp == sum(r.chunk_spp)
+

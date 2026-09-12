@@ -993,6 +993,7 @@ namespace {
 struct WfDeviceBuf {
     void*  ptr = nullptr;
     size_t bytes = 0;
+    size_t count = 0;   // #801: logical element count of the LAST upload (0 = empty slice)
 };
 
 // Grow-only ensure. Returns the typed pointer.
@@ -1014,6 +1015,7 @@ T* wfEnsure(WfDeviceBuf& b, size_t count) {
 
 template <typename T>
 T* wfUpload(WfDeviceBuf& b, const std::vector<T>& src) {
+    b.count = src.size();
     if (src.empty()) return nullptr;
     T* p = wfEnsure<T>(b, src.size());
     cudaError_t e = cudaMemcpy(p, src.data(), src.size() * sizeof(T),
@@ -1021,6 +1023,16 @@ T* wfUpload(WfDeviceBuf& b, const std::vector<T>& src) {
     if (e != cudaSuccess)
         throw std::runtime_error(cudaGetErrorString(e));
     return p;
+}
+
+// #801: upload-or-reuse. When `reuse` is set the slice already holds the
+// scene from the previous cuda_wavefront_render (device scene cache) and the
+// typed pointer is returned without a memcpy; an empty slice stays nullptr so
+// the kernel gating (null-TLAS, no-curve, untextured, ...) is unchanged.
+template <typename T>
+T* wfSync(bool reuse, WfDeviceBuf& b, const std::vector<T>& src) {
+    if (!reuse) return wfUpload(b, src);
+    return b.count ? reinterpret_cast<T*>(b.ptr) : nullptr;
 }
 
 struct WfContext {
@@ -1037,6 +1049,17 @@ struct WfContext {
     WfDeviceBuf motionVertices;               // pkg55-C4 / pkg88-C.0
     WfDeviceBuf treeNodes, treeEmitters, lightToEmitter;
     WfDeviceBuf envData, envCondCdf, envCondFunc, envMargCdf, envMargFunc;
+    // #801 device scene cache. cuda_wavefront_render(reuseDeviceScene=true) skips
+    // buildSceneArrays + every scene memcpy above and renders from the slices as
+    // uploaded by the previous call. cachedScene keeps the SMALL host-side
+    // metadata of that upload (flags, counts, env params, spectral tables); the
+    // bulk arrays (BVH, triangles, texels, env map) are released after upload.
+    // Any host-side scene mutation that bypasses render() (the pkg56 per-domain
+    // uploaders, the pkg114 TLAS refit) calls cuda_wavefront_invalidate_scene().
+    SceneUploadResult cachedScene;
+    bool sceneCached = false;
+    bool sceneInvalidated = false;
+    uint64_t cachedOwner = 0;   // sceneOwnerId of the renderer that uploaded it
     // Per-path state (grow-only via the existing allocators).
     GPUWavefrontState state{};
     GPUWavefrontHitBuffers hitBufs{};
@@ -1091,6 +1114,11 @@ WfContext& wfCtx() {
 }
 
 }  // namespace
+
+// #801: exported (outside the anonymous namespace).
+void cuda_wavefront_invalidate_scene() {
+    wfCtx().sceneInvalidated = true;
+}
 
 // pkg55-C2 MIS audit: run stage_init + the PRODUCTION intersect+shade (deferred
 // NEE parking) for one bounce and download the shade-time MIS pdfs the wavefront
@@ -1384,7 +1412,9 @@ std::vector<float> cuda_wavefront_render(
     std::function<bool()> cancelRequested,  // pkg241 Phase 1b
     int subPassBudget,         // pkg266 cancellation-bounded dispatch
     int* unitsLaunchedOut,     // pkg266
-    int* cancelledAtUnitOut)   // pkg266
+    int* cancelledAtUnitOut,   // pkg266
+    bool reuseDeviceScene,     // #801
+    uint64_t sceneOwnerId)     // #801
 {
     // pkg266: bounded-unit accounting, reported through last_render_info().
     int cwfUnitsLaunched = 0;
@@ -1411,44 +1441,60 @@ std::vector<float> cuda_wavefront_render(
     }
     gcam.focusDist = cam.getFocusDist();
 
-    // Persistent context: scene DATA re-uploaded every call into grow-only
-    // device buffers (megakernel-parity policy); per-path state reused.
+    // Persistent context: per-path state reused across calls. Scene DATA was
+    // re-converted (buildSceneArrays) and re-uploaded on EVERY call (megakernel-
+    // parity policy) — at 100k triangles that fixed cost was ~45 ms per call,
+    // i.e. 3-8x the actual 1-spp path-trace time of a viewport refinement chunk
+    // (#801). With reuseDeviceScene (render(skip_upload=True): the caller
+    // asserts the scene is unchanged since the last upload) and a valid cache,
+    // skip the conversion and every scene memcpy; the camera is rebuilt from
+    // `cam` above on every call, so camera moves stay correct.
     WfContext& C = wfCtx();
-    SceneUploadResult res = buildSceneArrays(renderer, &cam);
-    GBVHNode*   d_bvhNodes  = wfUpload(C.nodes, res.nodes);
-    GPrimitive* d_prims     = wfUpload(C.prims, res.prims);
-    GTriangle*  d_tris      = wfUpload(C.tris, res.triangles);
-    GSphere*    d_spheres   = wfUpload(C.spheres, res.spheres);
+    // The context is process-global while PyRenderer objects are many (the
+    // Blender viewport and F12 use separate renderers), so the cache is keyed on
+    // the owning renderer's id: another renderer's upload never serves a reuse.
+    const bool reuse = reuseDeviceScene && C.sceneCached && !C.sceneInvalidated
+                       && C.cachedOwner == sceneOwnerId;
+    if (!reuse) {
+        C.sceneCached = false;
+        C.cachedScene = buildSceneArrays(renderer, &cam);
+        C.cachedOwner = sceneOwnerId;
+    }
+    SceneUploadResult& res = C.cachedScene;
+    GBVHNode*   d_bvhNodes  = wfSync(reuse, C.nodes, res.nodes);
+    GPrimitive* d_prims     = wfSync(reuse, C.prims, res.prims);
+    GTriangle*  d_tris      = wfSync(reuse, C.tris, res.triangles);
+    GSphere*    d_spheres   = wfSync(reuse, C.spheres, res.spheres);
     // pkg225 Stage 3 — GPU curve segments (nullptr for non-curve scenes; the
     // gpu_bvh_hit/occluded curve leaf is guarded on this pointer, so passing
     // nullptr keeps non-curve renders byte-identical).
-    GCurveSegment* d_curveSegments = wfUpload(C.curveSegments, res.curveSegments);
+    GCurveSegment* d_curveSegments = wfSync(reuse, C.curveSegments, res.curveSegments);
     // pkg55-C4 / pkg114: TLAS/instances/blas for instancing support (empty unless
     // scene has instances; null-TLAS path in gpu_tlas_hit falls back to single-level).
-    GTLASNode*  d_tlas      = wfUpload(C.tlas, res.tlas);
-    GInstance*  d_instances = wfUpload(C.instances, res.instances);
-    GBLAS*      d_blas      = wfUpload(C.blas, res.blas);
+    GTLASNode*  d_tlas      = wfSync(reuse, C.tlas, res.tlas);
+    GInstance*  d_instances = wfSync(reuse, C.instances, res.instances);
+    GBLAS*      d_blas      = wfSync(reuse, C.blas, res.blas);
     // pkg55-C4 / pkg88-C.0: deformation-motion vertices (nullptr for static scenes).
-    GVec3*      d_motionVerts = wfUpload(C.motionVertices, res.motionVertices);
-    ::GMaterial* d_materials = wfUpload(C.materials, res.materials);
+    GVec3*      d_motionVerts = wfSync(reuse, C.motionVertices, res.motionVertices);
+    ::GMaterial* d_materials = wfSync(reuse, C.materials, res.materials);
     // pkg186 — image-texture device arrays. All null for untextured scenes
     // (wfUpload returns nullptr on empty), and res.hasTexture=false then selects
     // the <*,false> shade kernel, so untextured renders pay nothing. The three
     // pointers are published ONCE per frame into the shade kernel's __constant__
     // binding (setWavefrontTextureBinding) — NOT threaded through the per-launch
     // signature — so the untextured fleet kernel keeps its pre-pkg186 footprint.
-    GImageTexture* d_textures  = wfUpload(C.textures, res.textures);
-    GVec3*         d_texelBuf  = wfUpload(C.textureTexels, res.textureTexels);
-    int*           d_matTexId  = wfUpload(C.materialTextureId, res.materialTextureId);
+    GImageTexture* d_textures  = wfSync(reuse, C.textures, res.textures);
+    GVec3*         d_texelBuf  = wfSync(reuse, C.textureTexels, res.textureTexels);
+    int*           d_matTexId  = wfSync(reuse, C.materialTextureId, res.materialTextureId);
     // pkg223 — normal-map side arrays, published on the SAME binding. Set the
     // binding when EITHER a base-colour texture OR a normal map is present (a
     // normal map on a non-textured Principled/Disney BSDF has hasTexture=false).
-    int*   d_matNormalTexId   = wfUpload(C.materialNormalTexId, res.materialNormalTexId);
-    float* d_matNormalStrength = wfUpload(C.materialNormalStrength, res.materialNormalStrength);
+    int*   d_matNormalTexId   = wfSync(reuse, C.materialNormalTexId, res.materialNormalTexId);
+    float* d_matNormalStrength = wfSync(reuse, C.materialNormalStrength, res.materialNormalStrength);
     // pkg223b — bump side arrays (same axis as normal maps).
-    int*   d_matBumpTexId    = wfUpload(C.materialBumpTexId, res.materialBumpTexId);
-    float* d_matBumpStrength = wfUpload(C.materialBumpStrength, res.materialBumpStrength);
-    float* d_matBumpDistance = wfUpload(C.materialBumpDistance, res.materialBumpDistance);
+    int*   d_matBumpTexId    = wfSync(reuse, C.materialBumpTexId, res.materialBumpTexId);
+    float* d_matBumpStrength = wfSync(reuse, C.materialBumpStrength, res.materialBumpStrength);
+    float* d_matBumpDistance = wfSync(reuse, C.materialBumpDistance, res.materialBumpDistance);
     if (res.hasTexture || res.hasNormalPerturb)
         setWavefrontTextureBinding(GWavefrontTextureBinding{
             d_textures, d_texelBuf, d_matTexId, d_matNormalTexId, d_matNormalStrength,
@@ -1456,14 +1502,14 @@ std::vector<float> cuda_wavefront_render(
     // pkg219b — op-VM program device arrays (all null when no material carries a
     // program; res.hasProgram=false then selects the <…,false> shade kernel).
     astroray::svm::ShaderVMProgram* d_programs =
-        wfUpload(C.programs, res.programs);
-    int* d_matProgId = wfUpload(C.materialProgramId, res.materialProgramId);
+        wfSync(reuse, C.programs, res.programs);
+    int* d_matProgId = wfSync(reuse, C.materialProgramId, res.materialProgramId);
     // pkg219d — scalar BSDF-param side arrays ([mat*VM_SCALAR_SLOTS+slot]). Null
     // when no material carries a scalar program; the <…,false> shade kernel never
     // reads them. Their source images ride the SAME c_wfTexBinding texture arrays
     // uploaded above (res.hasTexture is set for a scalar-program material).
-    int* d_matScalarProgId = wfUpload(C.materialScalarProgId, res.materialScalarProgId);
-    int* d_matScalarTexId  = wfUpload(C.materialScalarTexId,  res.materialScalarTexId);
+    int* d_matScalarProgId = wfSync(reuse, C.materialScalarProgId, res.materialScalarProgId);
+    int* d_matScalarTexId  = wfSync(reuse, C.materialScalarTexId,  res.materialScalarTexId);
     if (res.hasProgram)
         setWavefrontProgramBinding(GWavefrontProgramBinding{
             d_programs, d_matProgId, d_matScalarProgId, d_matScalarTexId});
@@ -1506,13 +1552,13 @@ std::vector<float> cuda_wavefront_render(
     // false (non-hair scenes) gates off the shade kernel's hair SoA restore →
     // fleet render byte-identical.
     setWavefrontHairEnabled(res.hasHair);
-    ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
+    ::GLight*   d_lights    = wfSync(reuse, C.lights, res.lights);
     // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
     // power CDF continues past the GLight entries; see gpu_nee.cuh).
-    GDedicatedLight* d_dedLights = wfUpload(C.dedLights, res.dedicatedLights);
-    GLightTreeNode* d_treeNodes = wfUpload(C.treeNodes, res.lightTreeNodes);
-    GLightTreeEmitter* d_treeEmitters = wfUpload(C.treeEmitters, res.lightTreeEmitters);
-    int* d_lightToEmitter = wfUpload(C.lightToEmitter, res.lightToEmitter);
+    GDedicatedLight* d_dedLights = wfSync(reuse, C.dedLights, res.dedicatedLights);
+    GLightTreeNode* d_treeNodes = wfSync(reuse, C.treeNodes, res.lightTreeNodes);
+    GLightTreeEmitter* d_treeEmitters = wfSync(reuse, C.treeEmitters, res.lightTreeEmitters);
+    int* d_lightToEmitter = wfSync(reuse, C.lightToEmitter, res.lightToEmitter);
 
     GLightTreeView treeView{d_treeNodes, d_treeEmitters, d_lightToEmitter,
                             (int)res.lightTreeNodes.size(),
@@ -1520,11 +1566,11 @@ std::vector<float> cuda_wavefront_render(
 
     GEnvMap envMap{};
     if (res.envLoaded) {
-        envMap.data            = wfUpload(C.envData, res.envData);
-        envMap.conditionalCdf  = wfUpload(C.envCondCdf, res.envCondCdf);
-        envMap.conditionalFunc = wfUpload(C.envCondFunc, res.envCondFunc);
-        envMap.marginalCdf     = wfUpload(C.envMargCdf, res.envMargCdf);
-        envMap.marginalFunc    = wfUpload(C.envMargFunc, res.envMargFunc);
+        envMap.data            = wfSync(reuse, C.envData, res.envData);
+        envMap.conditionalCdf  = wfSync(reuse, C.envCondCdf, res.envCondCdf);
+        envMap.conditionalFunc = wfSync(reuse, C.envCondFunc, res.envCondFunc);
+        envMap.marginalCdf     = wfSync(reuse, C.envMargCdf, res.envMargCdf);
+        envMap.marginalFunc    = wfSync(reuse, C.envMargFunc, res.envMargFunc);
         envMap.width           = res.envWidth;
         envMap.height          = res.envHeight;
         envMap.strength        = res.envStrength;
@@ -1532,6 +1578,21 @@ std::vector<float> cuda_wavefront_render(
         std::memcpy(envMap.colorTint, res.envColorTint, 3 * sizeof(float));
         envMap.totalPower      = res.envTotalPower;
         envMap.loaded          = true;
+    }
+    if (!reuse) {
+        // #801: the device slices now hold this scene. Release the bulk host
+        // arrays (they are rebuilt by the next non-reuse call); keep the small
+        // vectors — res.lights/dedicatedLights/lightTreeNodes sizes and the
+        // spectral profile tables are read below on every call.
+        auto release = [](auto& v) { v.clear(); v.shrink_to_fit(); };
+        release(res.nodes); release(res.prims); release(res.triangles);
+        release(res.spheres); release(res.curveSegments); release(res.tlas);
+        release(res.instances); release(res.blas); release(res.motionVertices);
+        release(res.textures); release(res.textureTexels);
+        release(res.envData); release(res.envCondCdf); release(res.envCondFunc);
+        release(res.envMargCdf); release(res.envMargFunc);
+        C.sceneCached = true;
+        C.sceneInvalidated = false;
     }
 
     Vec3 bg = renderer.getBackgroundColor();

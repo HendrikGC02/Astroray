@@ -264,6 +264,19 @@ depend on this. `cite-algorithm` is mandatory before any code. Serves Pillar 5.
   GGX heightfields are not obtainable from linear spectral synthesis, so the mechanism
   is validated at Beckmann and the GGX NDF leg stays on the pkg265 directional gate.
 
+- [ ] 2026-09-12 — **Phase 3 (GPU walk) — designed, deferred to its own lane** (batch
+  C decision). Part 1 (#782 oracle) is the owner's stated priority ("oracle first,
+  then Phase 3") and is complete + verified. The GPU walk is NOT started here: beyond
+  the REG:254 register budget it additionally requires a device stochastic-eval twin
+  wired into `gpu_closure_graph_eval_spectral` (the same sample/eval re-eval trap the
+  CPU Phase-10 hit — research note GPU §status lines ~249), so it is a large, multi-
+  build, register-sensitive port that cannot reach a verified all-gates-green state in
+  one build-constrained session without risking a half-ported `gpu_materials.h`. The
+  concrete port plan (device `gpu_msd_sampleWalk` via `erfinvf`; the eval twin; the
+  `__noinline__` + runtime `__constant__` REG-safe pattern; the four gates + xfail
+  deletions) is written in the research note §"Phase 3 (GPU walk) — port design".
+  Next lane picks it up under the GPU lock.
+
 ## Lessons
 
 - (none yet)

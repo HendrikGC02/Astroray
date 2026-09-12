@@ -1172,3 +1172,61 @@ recorded cross-check band, not a gate. No CPU-lobe bug was found; no fix to
 Gate: `tests/test_pkg265_heightfield_oracle.py` (pure numpy, cpu-marked, <15 s; the
 full grid via `heightfield_oracle.py --full` and `--sphere --full`). Registered in
 `scripts/README.md`.
+
+## Phase 3 (GPU walk) — port design + why it is deferred out of batch C (2026-09-12)
+
+Batch C delivered Part 1 (the #782 independent oracle + verdict). Part 2 (the GPU
+walk) is scoped here but NOT implemented in this PR; it is a large, register-
+sensitive port that cannot be brought to a verified all-gates-green state within one
+build-constrained session, and starting it risks a half-ported `gpu_materials.h`.
+Concrete plan for the next lane:
+
+1. **Device walk (sampling).** Mirror `msdiel::sampleWalk` as a `__device__
+   __noinline__ gpu_msd_sampleWalk(woLocal, alpha, ior, entering, rng, scatterMax)`
+   in `gpu_materials.h`, using the device intrinsics `erff`/`erfinvf` for C1/invC1
+   (the CPU header uses Giles's erfinv approximation *because the host lacks
+   erfinvf*; the device has it built in — header comment line ~118). Reuse
+   `gpu_pr_fresnelDielectric` and `gpu_pr_refractMicro` (both frame-agnostic); write
+   a local-frame `gpu_msd_sampleVNDF` mirroring the numpy/CPU `sampleVNDF`. Build a
+   local frame at the hit oriented so `woLocal.z>0` (t = normalize(rec.tangent −
+   nOr·(rec.tangent·nOr)), b = nOr×t) since alpha is isotropic. Replace the #771
+   dead-sample delta reroute in `gpu_pr_chooseAndSampleDir`'s transmission branch
+   (gpu_materials.h ~2749-2785) with the walk; keep the delta branch for the smooth
+   (α→0) case and as the rare dead-sample fallback.
+
+2. **Device stochastic eval (the consistency trap — do NOT skip).** The CPU leg's
+   Phase-10 finding applies verbatim on GPU: `gpu_closure_graph_sample`'s non-delta
+   branch re-evaluates `gpu_closure_graph_eval`, so a walk `sample()` whose f/pdf is
+   the walk throughput will be silently overwritten by a single-scatter analytic
+   eval unless the eval path ALSO runs the walk. Port `msdiel::stochasticEval` +
+   `stochasticEvalHashed` (the splitmix64 + PCG32 hash RNG is already trivially
+   device-portable — no host STL) to `gpu_msd_stochasticEvalHashed`, and route the
+   transmission lobe of `gpu_closure_graph_eval` / `gpu_closure_graph_eval_spectral`
+   through it (magnitude-factored for the JH albedo clamp, as the CPU
+   `DisneyPlugin::evalSpectral` does). `pdf()` stays the §9 `firstBouncePdf` proxy
+   (already present as the GPU transmission pdf).
+
+3. **Register budget (REG 254).** `stageShadeBucketedKernel` is pinned REG:254 with
+   0 spill on all 128 shade specialisations. The walk's while-loop + erfinvf + VNDF
+   local state is the classic spill risk. Apply the zero-fleet-cost pattern
+   (memories `noinline-runtime-flag-avoids-shade-spill`, `shade-axis-side-table-
+   avoids-spill`): `__noinline__` walk/eval bodies behind a runtime `__constant__`
+   flag (e.g. `c_gpuGlassWalk`, the twin of `c_wfSamplerMode`), so the walk is a
+   called-out subroutine that does not inflate the caller's live-register set.
+   **Probe with `cuobjdump --dump-resource-usage` post-link and require REG==254,
+   spill==0 on every specialisation before trusting any number** (as pkg262/pkg266
+   did) — put the before/after REG/STACK table in the PR.
+
+4. **Gates (all under the GPU lock, min-of-N for perf).** Delete the two strict
+   xfails `test_principled_lit_furnace_conserves_gpu` and
+   `test_pkg188[coat_over_tinted_glass]` (memory `xfail-gated-features-must-unxfail`;
+   the latter is the CPU/GPU divergence that only closes when GPU walks too, per the
+   Phase-10 GPU table). GPU furnace ≤1.02 linear (principled+disney, r0.5/0.85/1.0);
+   CPU/GPU parity on the pkg263 glass sphere via per-channel mean-ratio ±5%
+   (memory `ssim-wrong-gate-for-independent-rng`); pkg81 wavefront perf within noise
+   (memory `gpu-perf-ab-clock-drift`). Save a CPU-vs-GPU contact sheet under
+   `test_results/pkg265_phase3/`.
+
+The design is straightforward (the CPU header is a faithful reference and the RNG is
+already device-clean); the cost is the register verification and the multi-build gate
+sweep, which is why it is its own lane rather than bundled into the oracle PR.

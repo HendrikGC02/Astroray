@@ -4257,7 +4257,9 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         // #802 Batch A item 4 - Render Region: clear pixels outside the rect to
         // 0 / alpha 0 (Cycles crop-off semantics) BEFORE the trace loop, which
         // then skips them. Only runs when a region is active, so the default
-        // render path is byte-identical.
+        // render path is byte-identical. Not cleared (zero on a fresh Camera,
+        // stale only if a populated Camera is reused for a region render):
+        // bounceCount/sampleWeight/motion/crypto buffers (cpp-abi-guard note).
         if (renderRegionActive_) {
             const int rx0 = std::max(0, renderRegionX0_);
             const int ry0 = std::max(0, renderRegionY0_);

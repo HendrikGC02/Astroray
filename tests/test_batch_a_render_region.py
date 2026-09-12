@@ -182,3 +182,48 @@ def test_addon_crop_to_border_warns(monkeypatch):
     assert r.render_region_calls == [(25, 25, 75, 75)]
     details = " || ".join(d for (_f, d) in engine._degradation_report().approximated)
     assert 'Crop to Render Region' in details
+
+# --------------------------------------------------------------------------- #
+# Transparent film: outside-region alpha must be 0 on BOTH backends
+# (cpp-abi-guard finding on PR #805: GPU killed paths never reach the miss-
+# coverage atomicAdd, so cov read 1.0 = opaque until the driver clamp).
+# --------------------------------------------------------------------------- #
+def _alpha_image(r, W, H, samples=8):
+    import base_helpers as bh
+    r.set_use_transparent_film(True)
+    bh.render_image(r, samples=samples, max_depth=4, apply_gamma=False)
+    a = np.asarray(r.get_alpha_buffer(), dtype=np.float32).reshape(H, W)
+    return a
+
+
+@pytest.mark.serial
+def test_cpu_region_outside_alpha_zero_with_transparent_film():
+    W = H = 64
+    x0, y0, x1, y1 = 16, 16, 48, 48
+    r = _scene(W, H, seed=5)
+    r.set_render_region(x0, y0, x1, y1)
+    a = _alpha_image(r, W, H)
+    mask = np.ones((H, W), dtype=bool)
+    mask[y0:y1, x0:x1] = False
+    assert float(np.max(a[mask])) == 0.0, float(np.max(a[mask]))
+    assert float(np.max(a[y0:y1, x0:x1])) > 0.0
+
+
+@pytest.mark.gpu
+@pytest.mark.serial
+def test_gpu_region_outside_alpha_zero_with_transparent_film():
+    W = H = 64
+    x0, y0, x1, y1 = 16, 16, 48, 48
+    try:
+        r = _scene(W, H, seed=5, gpu=True)
+    except Exception as e:  # noqa: BLE001
+        pytest.skip("GPU unavailable: %s" % e)
+    if not getattr(r, "gpu_available", False):
+        pytest.skip("gpu_available is False")
+    r.set_render_region(x0, y0, x1, y1)
+    a = _alpha_image(r, W, H)
+    mask = np.ones((H, W), dtype=bool)
+    mask[y0:y1, x0:x1] = False
+    assert float(np.max(a[mask])) == 0.0, (
+        "GPU outside-region alpha not 0 with transparent film: max %g" % float(np.max(a[mask])))
+    assert float(np.max(a[y0:y1, x0:x1])) > 0.0

@@ -2194,7 +2194,21 @@ std::vector<float> cuda_wavefront_render(
                                         cudaMemcpyDeviceToHost);
             if (ae != cudaSuccess)
                 throw std::runtime_error(cudaGetErrorString(ae));
+            // #802 Render Region: paths outside the rect are killed at init and
+            // never reach the bounce-0 miss-coverage atomicAdd, so h_miss stays 0
+            // and cov would read 1.0 (opaque). The CPU pre-clear sets alpha 0
+            // outside the rect (crop-off semantics); mirror it here.
+            const bool regionOn = renderer.renderRegionActive();
+            const int rx0 = renderer.renderRegionX0(), ry0 = renderer.renderRegionY0();
+            const int rx1 = renderer.renderRegionX1(), ry1 = renderer.renderRegionY1();
             for (int i = 0; i < total_paths; ++i) {
+                if (regionOn) {
+                    const int px = i % width, py = i / width;
+                    if (px < rx0 || px >= rx1 || py < ry0 || py >= ry1) {
+                        alphaOut[i] = 0.0f;
+                        continue;
+                    }
+                }
                 float cov = 1.0f - h_miss[i] / float(samples);
                 alphaOut[i] = std::clamp(cov, 0.0f, 1.0f);
             }

@@ -129,11 +129,18 @@ for delta/ratio tracking to sample. Research: `docs/volumes-track-research-2026-
 
 ## Progress
 
-- [ ] Run cite-algorithm for majorant construction + NanoVDB access.
-- [ ] Vendor `NanoVDB.h`; wire the include path in both targets.
-- [ ] Implement `GridMedium` + `MajorantGrid` + point/majorant queries.
-- [ ] Implement the Blender `bpy.types.Volume` export path.
-- [ ] Write and pass both test files; run full CPU + GPU suites.
+- [x] Run cite-algorithm for majorant construction + NanoVDB access
+      (`.astroray_plan/docs/pkg267-nanovdb-majorant-research.md`).
+- [x] Vendor NanoVDB v12.0.0 header subset (21 headers, Apache-2.0) into
+      `external/nanovdb`; scope the include path to `src/volume/grid_medium.cpp`
+      so NanoVDB.h never leaks into `raytracer.h` (opaque PIMPL).
+- [x] Implement `GridMedium` (NanoVDB density grid) + `MajorantGrid` + DDA
+      (clean-room pbrt-v4 §11.4.2) + point/majorant/world-transform queries.
+- [x] Implement the Blender `bpy.types.Volume` export path
+      (`blender_addon/volume_export.py`, Blender-native openvdb; owner decision).
+- [x] Tests: `test_pkg267_grid_import.py` (synthetic grids) +
+      `test_pkg267_blender_volume_export.py` (headless end-to-end + unit). See the
+      batch-F PR for measured numbers.
 
 ---
 

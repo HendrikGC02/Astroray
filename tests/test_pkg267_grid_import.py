@@ -129,8 +129,9 @@ def test_majorant_is_true_upper_bound():
     assert ry == (ny + S - 1) // S
     assert rz == (nz + S - 1) // S
 
-    # numpy per-supervoxel max (replicate the engine's supervoxelOf mapping:
-    # rel = local / dim, s = int(rel * res), clamped).
+    # numpy per-supervoxel max over the voxel CENTERS in each supervoxel
+    # (the lower bound the majorant must meet; the engine adds a 1-voxel halo so
+    # its majorant is a true upper bound at every point, hence >= this).
     ref = np.zeros((rx, ry, rz), dtype=np.float32)
     i2w = gm.index_to_world()
     for z in range(nz):
@@ -141,14 +142,21 @@ def test_majorant_is_true_upper_bound():
                 sz = min(int((z + 0.5) / nz * rz), rz - 1)
                 ref[sx, sy, sz] = max(ref[sx, sy, sz], float(dens[z, y, x]))
 
-    # every fine voxel: covering supervoxel majorant >= its density.
+    # TRUE upper bound: for every fine voxel, the covering supervoxel majorant
+    # (queried at the voxel CENTER and at a boundary CORNER) must be >= that
+    # voxel's density — the unbiasedness precondition for delta tracking.
     for z in range(nz):
         for y in range(ny):
             for x in range(nx):
-                w = _matvec(i2w, (x, y, z))
-                maj = gm.majorant_density_world(*w)
-                assert maj >= float(dens[z, y, x]) - 1e-6
+                for off in ((0.5, 0.5, 0.5), (0.02, 0.02, 0.02), (0.98, 0.98, 0.98)):
+                    w = _matvec(i2w, (x + off[0], y + off[1], z + off[2]))
+                    maj = gm.majorant_density_world(*w)
+                    assert maj >= float(dens[z, y, x]) - 1e-6, (
+                        f"majorant {maj} < voxel density {dens[z, y, x]} at "
+                        f"({x},{y},{z}) off {off}")
+                # and the supervoxel majorant bounds the numpy center-max.
                 sx = min(int((x + 0.5) / nx * rx), rx - 1)
                 sy = min(int((y + 0.5) / ny * ry), ry - 1)
                 sz = min(int((z + 0.5) / nz * rz), rz - 1)
-                assert maj == pytest.approx(float(ref[sx, sy, sz]), abs=1e-6)
+                cw = _matvec(i2w, (x + 0.5, y + 0.5, z + 0.5))
+                assert gm.majorant_density_world(*cw) >= float(ref[sx, sy, sz]) - 1e-6

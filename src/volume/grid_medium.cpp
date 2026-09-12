@@ -130,16 +130,28 @@ void GridMedium::setDensity(const DenseGrid& d, const Mat4& indexToObject,
         res[a] = std::clamp(r, 1, 128);
     }
     im.majorant = MajorantGrid(d.dim, d.bboxMin, res);
+    // A voxel at absolute index i is the NEAREST voxel for any point in
+    // [i-0.5, i+0.5]. For the majorant to be a TRUE upper bound on the
+    // nearest-voxel σ_t at EVERY point of a supervoxel (the precondition for
+    // unbiased delta tracking via the pkg269 DDA), accumulate each voxel's
+    // density into every supervoxel its [i-0.5, i+0.5] footprint touches (a
+    // 1-voxel halo; usually one supervoxel, two per axis at boundaries).
     for (int z = 0; z < nz; ++z)
         for (int y = 0; y < ny; ++y)
             for (int x = 0; x < nx; ++x) {
                 float v = d.data[size_t((z * ny + y) * nx + x)];
                 if (v <= 0.0f) continue;
-                int sv[3];
+                int lo[3], hi[3];
+                im.majorant.supervoxelOf(float(im.bboxMin[0] + x) - 0.5f,
+                                         float(im.bboxMin[1] + y) - 0.5f,
+                                         float(im.bboxMin[2] + z) - 0.5f, lo);
                 im.majorant.supervoxelOf(float(im.bboxMin[0] + x) + 0.5f,
                                          float(im.bboxMin[1] + y) + 0.5f,
-                                         float(im.bboxMin[2] + z) + 0.5f, sv);
-                im.majorant.accumulateMax(sv[0], sv[1], sv[2], v);
+                                         float(im.bboxMin[2] + z) + 0.5f, hi);
+                for (int sz = lo[2]; sz <= hi[2]; ++sz)
+                    for (int sy = lo[1]; sy <= hi[1]; ++sy)
+                        for (int sx = lo[0]; sx <= hi[0]; ++sx)
+                            im.majorant.accumulateMax(sx, sy, sz, v);
             }
     im.valid = true;
 }

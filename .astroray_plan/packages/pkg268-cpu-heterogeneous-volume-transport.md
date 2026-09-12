@@ -129,11 +129,19 @@ not an open-weight lane, despite Track A. Research:
 
 ## Progress
 
-- [ ] cite-algorithm for delta/ratio tracking + equiangular.
-- [ ] numpy brute-force reference + `phase.h` + `volume_transport.h`.
-- [ ] Principled Volume basics lowering (exporter + `principled_volume.h`).
-- [ ] Integrator routing for bounded grid media + NEE-through-medium.
-- [ ] Pass all three test files; CPU suite; visual inspection of a VDB smoke.
+- [x] cite-algorithm for delta/ratio tracking + equiangular + HG
+      (`.astroray_plan/docs/pkg268-volume-transport-research.md`).
+- [x] numpy brute-force reference (`tests/volume_reference.py`) + `phase.h` +
+      `volume_transport.h` (delta/Woodcock, ratio tracking, equiangular MIS).
+- [x] Principled Volume basics lowering (`principled_volume.h` + exporter
+      `_try_export_volume`). SCOPE NOTE: scalar σ_t + spectral scattering albedo;
+      chromatic absorption (per-λ σ) deferred to pkg270 with a degradation note.
+- [x] Integrator routing (`raytracer.h`): loop-top bounded-medium free flight +
+      medium NEE (ratio-tracking transmittance) + surface-NEE attenuation through
+      media. Byte-identical when no media are registered.
+- [x] Tests: slab furnace vs Beer–Lambert, heterogeneous delta/ratio vs numpy,
+      NEE unbiasedness + determinism, red-scatter-cube visual. Numbers in the
+      batch-F PR.
 
 ---
 

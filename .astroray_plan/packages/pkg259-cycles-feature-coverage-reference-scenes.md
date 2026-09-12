@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** B
-**Status:** in-progress — Phase 1 MERGED (#761, polish #781); Phase 2 (`lighting_studio` + `world_sky`) built, both-engine renders, tests green -- PR #785 open
+**Status:** in-progress — Phase 1 MERGED (#761, polish #781); Phase 2 (`lighting_studio` + `world_sky`) built, both-engine renders, tests green (PR #785); Phase 3 (`geometry_zoo` + `camera_lens` + `render_settings`) built, both-engine renders, tests green — PR TBD (batch E2)
 **Estimated effort:** 1 week (~20 h across sessions; Phase 0 one session, then one scene family per session)
 **Depends on:** pkg229, pkg249, pkg253
 
@@ -169,6 +169,54 @@ gate (b)'s frequency-weighted coverage measurement. It serves Pillar 5.
 
 ## Progress
 
+- [x] 2026-09-12 — **Phase 3 built (batch E2, PR TBD):** `geometry_zoo.blend`
+      (a "cabinet of curiosities" -- one establishing shot with six specimen
+      groups: collection instancing incl. one negative-scale copy, a live
+      Subdivision+Bevel modifier stack, a flat/smooth/auto-smooth shading
+      trio, a small Curves/hair object reusing `_build_hair_curves`, a
+      blurred-vs-explicitly-disabled `cycles.use_motion_blur` vane pair, and
+      a backlit volume cabinet -- Principled Volume / Volume Absorption /
+      Volume Scatter, one cube each), `camera_lens.blend` (one perspective
+      hero shot proving all 9 SUPPORTED rows: lens/sensor_width/
+      sensor_height/shift_x/shift_y/aperture_fstop/focus_distance/
+      focus_object/sensor_fit, plus in-scene aperture_blades/clip_start/
+      clip_end gap cards -- `type`/`ortho_scale` scope-cut to the gap
+      registry since a render has exactly one active camera), and
+      `render_settings.blend` (a small hero shot authoring the 4 SUPPORTED
+      rows -- samples/film_transparent/use_denoising/denoiser -- plus an
+      opposed-mirror `max_bounces` gap card, the one render_settings row
+      `render_leg.py`'s engine-parity normalisation does not touch). All 17
+      geometry_zoo / 9 camera_lens / 4 render_settings SUPPORTED/
+      APPROXIMATED rows tagged (`build_corpus.py`'s manifest-vs-matrix
+      cross-check passes for all three); `build_corpus.py` extended with a
+      real `curve_count`/`curve_point_count` computation (previously
+      hardcoded 0 in Phase 1/2 since no earlier family had Curves geometry
+      -- `geometry_zoo` is the first). Both engines rendered headless CPU
+      (OpenMP-ON `dist/astroray` staged from this worktree); contact sheets
+      + crops via `report_tools.py` (no code changes needed). One real bug
+      hit and fixed along the way: `Object.use_motion_blur` does not exist
+      on the bpy Object type -- the actual attribute is
+      `obj.cycles.use_motion_blur` (the matrix scanner records it under the
+      bare `object`/`Object` category anyway, matching the existing
+      light/camera/render_settings bare-name convention). `tests/
+      test_reference_corpus_manifest.py` extended from 5 to 8 scene ids (34
+      tests green); `tests/test_reference_scene_corpus.py` (the separate
+      #729 north-star-gate file) untouched and still 19/19 green.
+      Lead inspection (contact sheets under `benchmarks/reference_corpus/
+      refs/`): instancing/modifier/shading/curves groups match between
+      engines; `camera_lens`'s `clip_far` crop is a clean textbook visible
+      drop (Cycles culls the far backdrop past `clip_end`, Astroray does
+      not -- confirmed by the addon's own degradation log: "ignored camera
+      clip_start/clip_end... ignored camera aperture_blades/
+      aperture_rotation"); `geometry_zoo`'s volume cabinet diverges
+      significantly between engines (Astroray reads much brighter/more
+      saturated -- filed as a finding, not investigated, per spec
+      non-goals); the motion-blur pair and `max_bounces` mirror gap card
+      are both authored correctly but visually subtle at this render
+      scale/exposure (documented in the corpus README's "Known Phase-3
+      gaps" rather than re-built). No engine/addon fixes attempted.
+      Phase 4 (harness/bench integration + `coverage_report.py` + absorbing
+      the #729 scenes) next.
 - [x] 2026-09-09 — **Phase 2 built (PR #785 open):** `lighting_studio.blend`
       (four walled booths — POINT/SUN/SPOT/AREA — under one fixed camera in
       one establishing shot, reusing the single-render+crop pattern instead

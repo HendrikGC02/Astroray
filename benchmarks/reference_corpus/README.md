@@ -9,10 +9,29 @@ found by a test, not by someone happening to wire it. Design record:
 `.astroray_plan/docs/reference-corpus-design-2026-09.md`. Spec:
 `.astroray_plan/packages/pkg259-cycles-feature-coverage-reference-scenes.md`.
 
-**Phase 2 of 4** (this state): `materials_hall`, `textures_mapping`,
-`lighting_studio`, and `world_sky` are built. `geometry_zoo`, `camera_lens`,
-`render_settings`, the harness/bench integration, and `coverage_report.py`
-are later phases -- see the spec's Progress log.
+**Phase 3 of 4** (this state): `materials_hall`, `textures_mapping`,
+`lighting_studio`, `world_sky`, `geometry_zoo`, `camera_lens`, and
+`render_settings` are all built. The harness/bench integration and
+`coverage_report.py` are Phase 4 -- see the spec's Progress log.
+
+**Phase 3** (this session): `geometry_zoo` realises the design doc's
+"cabinet of curiosities" as ONE establishing shot with six specimen groups
+(collection instancing incl. one negative-scale copy, a live modifier
+stack, a flat/smooth/auto-smooth shading trio, a small Curves/hair object,
+a blurred-vs-explicitly-disabled motion-blur vane pair, and a backlit
+volume cabinet), same single-render+crop pattern as every earlier family.
+`camera_lens` and `render_settings` scale the design doc's more elaborate
+"2x2 camera contact sheet" / "six-panel pass sheet" concepts down to what
+the allocation table actually requires (9 and 4 SUPPORTED rows
+respectively): `camera_lens` is a single perspective hero shot (a Blender
+render has exactly one active camera, so a genuinely different camera
+`type` needs a second file the way `world_sky` needed one for its World --
+not required here since `type`/`ortho_scale` are DROPPED-SILENT, not
+required rows); `render_settings` authors its 4 SUPPORTED render-process
+rows on a small hero shot (their effect is normalised away by
+`render_leg.py`'s own engine-parity settings, exactly like every other
+scene's `cycles.use_denoising`/`use_adaptive_sampling` already are) plus one
+cheap, NOT-normalised-away `max_bounces` mirror-pair gap card.
 
 **Phase-1 polish** (earlier session): `materials_hall`'s establishing camera
 was reframed (owner feedback on PR #761's contact sheet: the alcove content
@@ -40,9 +59,9 @@ against its own Cycles reference" cannot be a single scene.
 | `textures_mapping` | A printmaker's workshop: a print table plus small independent proof cards (one `<node> -> Emission -> Output` per required node) for the procedural-texture, pattern, image/coordinate, bump/normal/displacement, and colour-grade/converter node families. | Phase 1 (built) |
 | `lighting_studio` | Photography-studio still life in four walled booths (POINT/SUN/SPOT/AREA), one fixed camera, one establishing shot; the SPOT booth carries a synthetic asymmetric-wall-washer IES profile. | Phase 2 (built) |
 | `world_sky` | HDRI vs Sky-texture exterior, "three independent opportunities" (background/reflection/indirect), two `.blend` files (`world_sky_hdri`/`world_sky_sky`) sharing the family tag. | Phase 2 (built) |
-| `geometry_zoo` | Instancing, hair, modifiers, motion blur, volumes (solid + volume cabinets). | Phase 3 |
-| `camera_lens` | DoF/orthographic/panoramic/clip 2x2 contact sheet. | Phase 3 |
-| `render_settings` | Six-panel pass sheet, convergence/denoise, bounce-limit rig. | Phase 3 |
+| `geometry_zoo` | A "cabinet of curiosities": collection instancing, a live modifier stack, a flat/smooth/auto-smooth shading trio, a small Curves (hair) object, a blurred-vs-disabled motion-blur pair, and a backlit volume cabinet (Principled Volume / Volume Absorption / Volume Scatter). | Phase 3 (built) |
+| `camera_lens` | One perspective hero shot: DoF (aperture_fstop + focus_object/focus_distance), lens shift, explicit sensor_fit, plus in-scene aperture-blades/clip gap cards. | Phase 3 (built) |
+| `render_settings` | A small hero shot proving samples/film_transparent/use_denoising/denoiser by scene authorship, plus an opposed-mirror `max_bounces` gap card. | Phase 3 (built) |
 
 ## Naming and files
 
@@ -102,7 +121,7 @@ required row is missing, or if a builder claims a row that isn't actually
 assigned to that family. This is why building the corpus is called
 "proving" coverage rather than "asserting" it.
 
-## Coverage totals (Phase 1+2, post-pkg253/pkg260 matrix)
+## Coverage totals (Phase 1+2+3, post-pkg253/pkg260 matrix)
 
 | Scene id | Family | Rows owned | SUPPORTED | APPROXIMATED | tagged (feature_tags) | gap-carded | gap registry |
 |---|---|---|---|---|---|---|---|
@@ -111,6 +130,9 @@ assigned to that family. This is why building the corpus is called
 | `lighting_studio` | `lighting_studio` | 36 | 24 | 0 | 24 | 4 | 8 |
 | `world_sky_hdri` | `world_sky` | 25 | 1 | 0 | 1 | 5 | 19 |
 | `world_sky_sky` | `world_sky` | 25 | 1 | 0 | 1 | 11 | 13 |
+| `geometry_zoo` | `geometry_zoo` | 47 | 5 | 12 | 18 | 1 (`instance_collection`) | 29 |
+| `camera_lens` | `camera_lens` | 16 | 9 | 0 | 12 | 3 (`aperture_blades`, `clip_start`, `clip_end`) | 4 |
+| `render_settings` | `render_settings` | 33 | 4 | 0 | 5 | 1 (`max_bounces`) | 28 |
 
 ("Rows owned" = every matrix row the Phase-0 allocation table assigns to
 that FAMILY as primary owner (`SOCKET_OVERRIDE`-resolved, e.g. World's
@@ -159,11 +181,14 @@ unaffected by the pkg260 merge -- no new rows were assigned to it.)
 "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup \
     --python benchmarks/reference_corpus/build_corpus.py -- \
     --families materials_hall textures_mapping lighting_studio world_sky_hdri world_sky_sky \
+               geometry_zoo camera_lens render_settings \
     --out-dir benchmarks/reference_corpus/scenes
 ```
 
 (`world_sky_hdri`/`world_sky_sky` are the two `.blend` files for the
-`world_sky` family -- there is no bare `world_sky` scene id.)
+`world_sky` family -- there is no bare `world_sky` scene id. `geometry_zoo`/
+`camera_lens`/`render_settings` are plain 1:1 scene ids like
+`materials_hall`/`textures_mapping`/`lighting_studio`.)
 
 Then render both engines per scene via `render_leg.py --load-blend` (absolute
 paths for `--load-blend`/`--out` -- Blender's relative-path resolution after
@@ -171,8 +196,9 @@ paths for `--load-blend`/`--out` -- Blender's relative-path resolution after
 working directory). Per-scene resolution/samples come from `manifest.json`'s
 `settings` (`materials_hall` 960x176 @256spp, `textures_mapping` 960x540
 @192spp, `lighting_studio` 640x160 @256spp, `world_sky_hdri`/`world_sky_sky`
-480x270 @128spp -- all comfortably under the addon's single-threaded CPU
-render budget, see "Render times" below):
+480x270 @128spp, `geometry_zoo` 960x220 @96spp, `camera_lens` 640x400
+@192spp, `render_settings` 640x360 @128spp -- all comfortably under the
+addon's CPU render budget, see "Render times" below):
 
 ```
 blender.exe -b --factory-startup --python benchmarks/blender_parity/render_leg.py -- \
@@ -211,12 +237,19 @@ per `manifest.json` `crops` entry, and `refs/<scene_id>_crops_contact_sheet.png`
 | `lighting_studio` | 640x160 | 256 | ~4s | ~29-40s |
 | `world_sky_hdri` | 480x270 | 128 | ~7s | ~37-42s |
 | `world_sky_sky` | 480x270 | 128 | ~7s | ~17-19s |
+| `geometry_zoo` | 960x220 | 96 | ~3s | ~22-23s |
+| `camera_lens` | 640x400 | 192 | ~9-10s | ~123-126s |
+| `render_settings` | 640x360 | 128 | ~4-7s | ~6s |
 
-All three stay far under the ~40 min/render budget the addon's
-single-threaded CPU leg needs for `materials_hall`-scale scenes (#780) --
-`lighting_studio`/`world_sky`'s geometry is simple (no thin-film/subsurface/
-hair closures), so per-sample cost is roughly two orders of magnitude
-cheaper than `materials_hall`'s alcove corridor at comparable sample counts.
+All stay far under the ~40 min/render budget the addon's CPU leg needs for
+`materials_hall`-scale scenes (#780) -- most Phase 2/3 scenes are simple
+enough (no thin-film/subsurface/hair closures) that per-sample cost is
+roughly two orders of magnitude cheaper than `materials_hall`'s alcove
+corridor at comparable sample counts. `camera_lens` is the one Phase-3
+outlier (~126s, still 19x under budget): its shallow-DoF hero shot needs a
+full 192spp for the bokeh disks to read cleanly rather than as noise, and
+its 9-object scene (spheres + bokeh specks + clip props) costs more per
+sample than the other Phase-3 scenes.
 
 ## Asset licences
 
@@ -329,6 +362,75 @@ No external asset, no licence question, no relative-path bookkeeping.
   the one `SOCKET_OVERRIDE` row) is a doc-only gap-registry entry, per the
   owner's 2026-09-08 decision (design doc Sec "Owner answers", Q7: "out of
   scope for the corpus").
+
+## Known Phase-3 gaps and findings (deliberate scope cuts, and inspection notes)
+
+- **`geometry_zoo`'s non-volume content (instancing, modifiers, shading,
+  motion blur) is proven by the six Object-category matrix rows only, not by
+  a per-node manifest join.** Design doc Sec 1.5's "known matrix gap": there
+  is no `Modifier`/scene-graph scanner category beyond `object`'s six rows
+  (all allocated here and all tagged), so the visual richness beyond those
+  six rows is inspected, not mechanically proven -- an open owner question
+  the design doc already recorded (Sec "Owner answers" Q1), not
+  re-litigated in this phase.
+- **`geometry_zoo`'s volume cabinet renders very differently between
+  engines (finding, not fixed here per spec non-goals).** Cycles shows the
+  striped backdrop attenuated/scattered through three visually distinct
+  cubes (Principled Volume glowing warm, Absorption tinting red, Scatter
+  softening to white); Astroray's leg (`refs/geometry_zoo_crops/
+  volume_astroray_cpu.png` vs `volume_cycles_cpu.png`) shows a much brighter,
+  more saturated result (a solid yellow-orange disk where Cycles shows a
+  soft red patch) -- consistent with a coarser/differently-normalised
+  homogeneous-volume implementation, not investigated further here.
+- **`geometry_zoo`'s motion-blur pair is a weak visual tell at this crop
+  scale/sample count.** The VaneBlur/VaneSharp vanes are both authored
+  correctly (`cycles.use_motion_blur` True/False, keyframed rotation
+  either side of the current frame, `scene.render.use_motion_blur = True`)
+  and the addon does receive the property, but neither vane shows an
+  obvious blur streak at 96spp/960x220 in either engine -- the ±25 degree
+  in-plane rotation of a thin blade does not displace enough screen-space
+  pixels at this scale to read clearly. The matrix row is proven by
+  authorship (build_corpus.py's cross-check), not by this observation.
+- **`camera_lens`'s "near" DoF sphere and near-clip prop both under-read.**
+  `LensNear` (placed close to the camera and off-axis for the original
+  three-sphere DoF trio) falls outside the rendered frame's field of view at
+  this camera placement -- only the focus/far pair is visible, which is
+  still enough to prove the DoF row (sharp focus subject vs. a visibly
+  softer far sphere in both engines). `NearClipProp` (a tiny 0.08-unit cube
+  just inside `clip_start`) is only a few pixels at this resolution and is
+  not clearly distinguishable in the contact sheet; the row's actual
+  DROPPED-SILENT status is instead confirmed by the addon's own console
+  degradation message (`ignored camera clip_start/clip_end`), and the
+  `clip_far` crop is a strong, clean visible-drop demonstration (Cycles
+  shows only three bokeh discs on black; Astroray shows the same three
+  discs in front of the magenta backdrop plane that should have been culled
+  by `clip_end`).
+- **`camera_lens` builds no orthographic/panoramic camera in-scene.** A
+  Blender render has exactly one active camera, so demonstrating a second
+  camera `type` needs either a second `.blend` (the `world_sky` pattern) or
+  a second render pass; `type`/`ortho_scale` are DROPPED-SILENT, not
+  required rows, so this is scope-cut to a gap-registry entry rather than
+  built, the same simplification precedent as materials_hall's un-built
+  Alcoves F/G (Known Phase-1 gaps above).
+- **`render_settings`'s four SUPPORTED rows are proven by scene authorship,
+  not by a visible pixel difference in this corpus's own contact sheet.**
+  `render_leg.py`'s `_configure_render` normalises samples/denoising for a
+  fair per-engine comparison across every scene in the corpus (it already
+  force-disables `cycles.use_denoising`/`use_adaptive_sampling` for every
+  OTHER family too) -- `film_transparent`/`use_denoising`/`denoiser`/
+  `samples` are genuinely written to non-default values in the committed
+  `.blend` (checked by `build_corpus.py`'s manifest-vs-matrix join) but are
+  not expected to visibly differ in `render_settings_contact_sheet.png`.
+  Building a bespoke renderer that respects them would be a new comparison
+  driver, out of scope per the spec's non-goals.
+- **`render_settings`'s `max_bounces` mirror gap card is a subtle tell at
+  this exposure/scale.** Both opposed mirrors read mostly dark in both
+  engines (a 2-bounce cap on a facing-mirror pair mostly resolves to black
+  beyond the second reflection at this scene's modest lighting), so the
+  Cycles-correct-vs-Astroray-ignores-the-cap difference is present in the
+  render but not a dramatic visual -- a stronger version would need a
+  brighter mirror-facing scene, deferred as a nice-to-have polish item
+  rather than re-built now.
 
 ## Gap registry
 
@@ -449,3 +551,31 @@ Sky Texture node at all; see `world_sky_sky` below for its gap-carded rows.)
 
 (`TEX_ENVIRONMENT` has no node to gap-card in this half -- `world_sky_sky`
 has no Environment Texture node at all; see `world_sky_hdri` above.)
+
+### `geometry_zoo` (29 rows)
+
+- `HAIR_INFO` (`ShaderNodeHairInfo`): output:Is Strand, output:Intercept, output:Length, output:Thickness, output:Tangent Normal, output:Random
+- `PRINCIPLED_VOLUME` (`ShaderNodeVolumePrincipled`): input:Color Attribute, input:Density Attribute, input:Absorption Color, input:Blackbody Tint, input:Temperature Attribute, input:Weight
+- `VOLUME_ABSORPTION` (`ShaderNodeVolumeAbsorption`): input:Weight
+- `VOLUME_COEFFICIENTS` (`ShaderNodeVolumeCoefficients`): input:Weight, input:Absorption Coefficients, input:Scatter Coefficients, input:Anisotropy, input:IOR, input:Backscatter, input:Alpha, input:Diameter, input:Emission Coefficients, prop:phase
+- `VOLUME_SCATTER` (`ShaderNodeVolumeScatter`): input:IOR, input:Backscatter, input:Alpha, input:Diameter, input:Weight, prop:phase
+
+(`Object.instance_collection` is gap-carded in-scene instead -- the RockProto
+collection-instancing content demonstrates it directly at no extra cost.)
+
+### `camera_lens` (4 rows)
+
+- `Camera` (``): aperture_rotation, aperture_ratio, type, ortho_scale
+
+(`aperture_blades`, `clip_start`, and `clip_end` are gap-carded in-scene
+instead -- see "Known Phase-3 gaps and findings" above.)
+
+### `render_settings` (28 rows)
+
+- `OUTPUT_AOV` (`ShaderNodeOutputAOV`): input:Color, input:Value
+- `OUTPUT_LINESTYLE` (`ShaderNodeOutputLineStyle`): input:Color, input:Color Fac, input:Alpha, input:Alpha Fac, prop:blend_type, prop:is_active_output, prop:target, prop:use_alpha, prop:use_clamp
+- `RenderSettings` (``): use_adaptive_sampling, adaptive_threshold, adaptive_min_samples, seed, sample_offset, film_exposure, filter_width, diffuse_bounces, glossy_bounces, transparent_max_bounces, transmission_bounces, volume_bounces, caustics_reflective, caustics_refractive, use_fast_gi, denoising_input_passes
+- `UVALONGSTROKE` (`ShaderNodeUVAlongStroke`): prop:use_tips
+
+(`max_bounces` is gap-carded in-scene instead -- the opposed-mirror pair,
+see "Known Phase-3 gaps and findings" above.)

@@ -113,14 +113,14 @@ SUPPORTED 24 / APPROXIMATED 0 / DROPPED-SILENT 12
 
 ## world_sky  (25 rows)
 
-SUPPORTED 1 / APPROXIMATED 0 / DROPPED-SILENT 24
+SUPPORTED 1 / APPROXIMATED 5 / DROPPED-SILENT 19
 
 | Node / category | bl_idname | sockets/props (status) |
 |---|---|---|
 | BACKGROUND | ShaderNodeBackground | input:Color [DROPPED-SILENT]; input:Strength [DROPPED-SILENT]; input:Weight [DROPPED-SILENT] |
 | OUTPUT_WORLD | ShaderNodeOutputWorld | input:Surface [DROPPED-SILENT]; input:Volume [DROPPED-SILENT]; prop:is_active_output [DROPPED-SILENT]; prop:target [DROPPED-SILENT] |
 | TEX_ENVIRONMENT | ShaderNodeTexEnvironment | input:Vector [DROPPED-SILENT]; prop:interpolation [DROPPED-SILENT]; prop:projection [DROPPED-SILENT] |
-| TEX_SKY | ShaderNodeTexSky | input:Vector [DROPPED-SILENT]; prop:aerosol_density [DROPPED-SILENT]; prop:air_density [DROPPED-SILENT]; prop:altitude [DROPPED-SILENT]; prop:ground_albedo [DROPPED-SILENT]; prop:ozone_density [DROPPED-SILENT]; prop:sky_type [DROPPED-SILENT]; prop:sun_direction [DROPPED-SILENT]; prop:sun_disc [DROPPED-SILENT]; prop:sun_elevation [DROPPED-SILENT]; prop:sun_intensity [DROPPED-SILENT]; prop:sun_rotation [DROPPED-SILENT]; prop:sun_size [DROPPED-SILENT]; prop:turbidity [DROPPED-SILENT] |
+| TEX_SKY | ShaderNodeTexSky | input:Vector [DROPPED-SILENT]; prop:aerosol_density [APPROXIMATED]; prop:air_density [DROPPED-SILENT]; prop:altitude [DROPPED-SILENT]; prop:ground_albedo [DROPPED-SILENT]; prop:ozone_density [DROPPED-SILENT]; prop:sky_type [APPROXIMATED]; prop:sun_direction [DROPPED-SILENT]; prop:sun_disc [DROPPED-SILENT]; prop:sun_elevation [APPROXIMATED]; prop:sun_intensity [DROPPED-SILENT]; prop:sun_rotation [APPROXIMATED]; prop:sun_size [DROPPED-SILENT]; prop:turbidity [APPROXIMATED] |
 | World |  | use_nodes [SUPPORTED] |
 
 ## geometry_zoo  (47 rows)
@@ -158,14 +158,14 @@ SUPPORTED 4 / APPROXIMATED 0 / DROPPED-SILENT 29
 ## Totals
 
 Grand total rows: 586 (matrix has 586)
-SUPPORTED 122 / APPROXIMATED 61 / DROPPED-SILENT 403
+SUPPORTED 122 / APPROXIMATED 66 / DROPPED-SILENT 398
 
 | family | rows | SUPPORTED | APPROXIMATED | DROPPED-SILENT |
 |---|---|---|---|---|
 | materials_hall | 166 | 10 | 46 | 110 |
 | textures_mapping | 263 | 69 | 3 | 191 |
 | lighting_studio | 36 | 24 | 0 | 12 |
-| world_sky | 25 | 1 | 0 | 24 |
+| world_sky | 25 | 1 | 5 | 19 |
 | geometry_zoo | 47 | 5 | 12 | 30 |
 | camera_lens | 16 | 9 | 0 | 7 |
 | render_settings | 33 | 4 | 0 | 29 |

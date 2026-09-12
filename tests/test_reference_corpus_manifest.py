@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
-"""pkg259 Phase 1+2 - reference-corpus manifest integrity (design doc Sec 4.4).
+"""pkg259 Phase 1+2+3 - reference-corpus manifest integrity (design doc Sec 4.4).
 
-Phase 1 built ``materials_hall``/``textures_mapping``; Phase 2 adds
+Phase 1 built ``materials_hall``/``textures_mapping``; Phase 2 added
 ``lighting_studio`` and ``world_sky`` (the latter split into two ``.blend``
 files, ``world_sky_hdri``/``world_sky_sky``, sharing one family tag -- a
 Blender scene has exactly one World, so "HDRI vs Sky, each against its own
-Cycles reference" cannot be a single scene). The Blender-dependent tests skip
-cleanly when Blender 5.2 is absent (mirrors ``tests/test_dev_loop_smoke.py``'s
-local-host-gate pattern) so CI, which has no Blender, stays green; the pure
-tests always run.
+Cycles reference" cannot be a single scene). Phase 3 adds ``geometry_zoo``,
+``camera_lens``, and ``render_settings`` (all plain 1:1 scene-id/family, like
+``materials_hall``/``textures_mapping``/``lighting_studio``). The
+Blender-dependent tests skip cleanly when Blender 5.2 is absent (mirrors
+``tests/test_dev_loop_smoke.py``'s local-host-gate pattern) so CI, which has
+no Blender, stays green; the pure tests always run.
 
 The full-corpus ``test_zero_uncovered_supported_or_approximated`` (every
 matrix row proven, across all seven families) is Phase 4 -- deliberately not
-added here, per the pkg259p1/p2 lane briefs.
+added here, per the pkg259p1/p2/p3 lane briefs.
 """
 from __future__ import annotations
 
@@ -35,10 +37,14 @@ PHASE1_FAMILIES = ("materials_hall", "textures_mapping")
 # pkg259 Phase 2: world_sky is two scene ids (world_sky_hdri/world_sky_sky)
 # sharing the "world_sky" family tag; lighting_studio is a plain 1:1 scene id.
 PHASE2_SCENE_IDS = ("lighting_studio", "world_sky_hdri", "world_sky_sky")
-ALL_SCENE_IDS = PHASE1_FAMILIES + PHASE2_SCENE_IDS
+# pkg259 Phase 3: geometry_zoo/camera_lens/render_settings are all plain 1:1
+# scene ids (no split, like lighting_studio).
+PHASE3_SCENE_IDS = ("geometry_zoo", "camera_lens", "render_settings")
+ALL_SCENE_IDS = PHASE1_FAMILIES + PHASE2_SCENE_IDS + PHASE3_SCENE_IDS
 # The real families (used for the matrix-coverage join, which is keyed on
 # family, not scene id).
-FAMILIES = ("materials_hall", "textures_mapping", "lighting_studio", "world_sky")
+FAMILIES = ("materials_hall", "textures_mapping", "lighting_studio", "world_sky",
+            "geometry_zoo", "camera_lens", "render_settings")
 
 BLENDER = Path("C:/Program Files/Blender Foundation/Blender 5.2/blender.exe")
 
@@ -194,8 +200,8 @@ def test_families_cover_their_allocated_rows(manifest, matrix_rows, assign_map, 
     checking, since neither half alone is expected to carry every row the
     OTHER half demonstrates (e.g. only the HDRI half gap-cards
     TEX_ENVIRONMENT). pkg259 Phase 1 built materials_hall/textures_mapping;
-    Phase 2 adds lighting_studio/world_sky; geometry_zoo/camera_lens/
-    render_settings (Phase 3) are not built yet and skip cleanly."""
+    Phase 2 added lighting_studio/world_sky; Phase 3 adds geometry_zoo/
+    camera_lens/render_settings (all plain 1:1 scene ids, no split)."""
     readme_text = (CORPUS_DIR / "README.md").read_text(encoding="utf-8")
     gap_registry_path = SCENES_DIR / "gap_registry.json"
     gap_registry = {}

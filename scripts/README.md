@@ -116,6 +116,7 @@ new reusable script, register it here in the same commit.
 | Rough-metal/rough-glass live-Cycles A/B driver (CPU/GPU vs Cycles oracle; `--material metal\|glass`) | `benchmarks/cycles-parity/metal_ab/harness.py` (pkg129 metal preset; pkg263 added the glass preset + limb/centre/background ROIs) |
 | Thin-film iridescence A/B driver vs Cycles-5.2 oracle | `benchmarks/cycles-parity/thin_film/harness.py` (pkg178 Stage-4 acceptance) |
 | Heitz-2016 multiple-scattering dielectric random-walk oracle (numpy; MS vs single-scatter vs Cycles 1/E divergence table + directional histograms) | `benchmarks/cycles-parity/glass_ms_oracle/heitz_random_walk.py` (pkg265; clean-room from DOI 10.1145/2897824.2925943) |
+| Heitz-2016 **independent** oracle: explicit Gaussian(Beckmann) heightfield ray tracer (geometric, no Smith abstraction) + numpy glass-sphere path tracer — validates the multiple-scattering exit-interface redistribution vs Cycles 1/E (issue #782) | `benchmarks/cycles-parity/glass_ms_oracle/heightfield_oracle.py` (pkg265; Heitz 2016 §Validation, explicit random Beckmann surfaces) |
 | Blender dev-loop guard functions (stale-.pyd, OpenMP-on, addon-files-drift, sentinel-pass) used by `dev_addon.ps1` | `scripts/dev_loop_guards.py` (pkg175; OpenMP guard inverted by #780) |
 | Wavefront SoA baseline measurement harness | `benchmarks/wavefront_baseline.py` (pkg55 Phase A) |
 | Caustic-integrator visual/stat validation (pkg74 may reuse its scene builders) | `scripts/benchmarks/benchmark_caustic_transport.py` (pkg29a) |
@@ -198,6 +199,7 @@ new reusable script, register it here in the same commit.
 | Rough-metal/rough-glass live-Cycles A/B driver (CPU/GPU vs Cycles oracle; `--material metal\|glass`) | `benchmarks/cycles-parity/metal_ab/harness.py` (pkg129 metal preset; pkg263 added the glass preset + limb/centre/background ROIs) |
 | Thin-film iridescence A/B driver vs Cycles-5.2 oracle | `benchmarks/cycles-parity/thin_film/harness.py` (pkg178 Stage-4 acceptance) |
 | Heitz-2016 multiple-scattering dielectric random-walk oracle (numpy; MS vs single-scatter vs Cycles 1/E divergence table + directional histograms) | `benchmarks/cycles-parity/glass_ms_oracle/heitz_random_walk.py` (pkg265; clean-room from DOI 10.1145/2897824.2925943) |
+| Heitz-2016 **independent** oracle: explicit Gaussian(Beckmann) heightfield ray tracer (geometric, no Smith abstraction) + numpy glass-sphere path tracer — validates the multiple-scattering exit-interface redistribution vs Cycles 1/E (issue #782) | `benchmarks/cycles-parity/glass_ms_oracle/heightfield_oracle.py` (pkg265; Heitz 2016 §Validation, explicit random Beckmann surfaces) |
 | Blender dev-loop guard functions (stale-.pyd, OpenMP-on, addon-files-drift, sentinel-pass) used by `dev_addon.ps1` | `scripts/dev_loop_guards.py` (pkg175; OpenMP guard inverted by #780) |
 | Wavefront SoA baseline measurement harness | `benchmarks/wavefront_baseline.py` (pkg55 Phase A) |
 | Caustic-integrator visual/stat validation (pkg74 may reuse its scene builders) | `scripts/benchmarks/benchmark_caustic_transport.py` (pkg29a) |

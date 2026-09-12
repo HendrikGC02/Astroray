@@ -247,3 +247,21 @@ Asked by the lead with the state of HDRI noise, rough glass, the dim corpus spot
    run the risk of obscuring some issues ... but I have confidence in ... Fable and Astra ... The biggest time waster now are the
    builds, tests and CI." -> batched lanes (memory `batched-lanes-directive-2026-09-11`).
 7. "Don't forget about older packages that were half implemented but dropped along the way." -> audit list in the 2026-09-11 handoff.
+
+### Owner decisions — 2026-09-13 (answers to the 2026-09-13 handoff questions)
+
+1. **Volumes, VDB import path:** use Blender's native OpenVDB "for now" -> the addon reads `.vdb`
+   grids through Blender 5.2's bundled `openvdb` Python module (verified present; `pyopenvdb` is
+   not; `bpy.types.VolumeGrid` exposes no voxels) and hands the engine arrays; no engine-side
+   `.vdb`/`.nvdb` reader in pkg267. (pkg267/pkg268 dispatched as Batch F.)
+2. **Blackbody emission:** "make own spectral Planck" -> pkg270 evaluates Planck spectrally; Cycles'
+   RGB LUT is the cross-check band.
+3. **IES normalisation:** "do whichever is best and physically accurate" -> adopt the absolute
+   candela model (Cycles `4*pi/177.83`, node Strength honoured). The 2026-09-12 note's reason for
+   keeping peak-normalisation ("energy already ~3x off") is stale since pkg122 (#500). Batch J.
+4. **Sun disc (#808 option A):** owner delegated the verdict to the lead's own inspection. Lead
+   verdict: the disc is right (sharp, correctly oriented shadows, direct beam) but the look is not
+   acceptable — warm Preetham sky vs Nishita blue and a flat ground direct:diffuse (1.8:1 vs 6.4:1,
+   sky diffuse ~2x too bright vs the sun). No constant fixes it; #799 Phase 2 = engine-side port of
+   Blender's `intern/sky` Nishita sources (single scattering Apache-2.0, multiple scattering MIT —
+   verified 2026-09-13; only the two small headers are GPL) with the sun from the same model. Batch J.

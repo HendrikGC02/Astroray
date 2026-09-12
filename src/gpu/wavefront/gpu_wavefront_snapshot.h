@@ -220,7 +220,20 @@ std::vector<float> cuda_wavefront_render(
     // the unit index the cancel was observed at (-1 if not cancelled). Either
     // may be null.
     int* unitsLaunchedOut = nullptr,
-    int* cancelledAtUnitOut = nullptr);
+    int* cancelledAtUnitOut = nullptr,
+    // #801: render from the device scene cache left by the previous call
+    // (no buildSceneArrays, no scene memcpy). The caller asserts the scene is
+    // unchanged since the last upload (render(skip_upload=True)); ignored when
+    // no cache exists or cuda_wavefront_invalidate_scene() ran since.
+    bool reuseDeviceScene = false,
+    // #801: identity of the renderer whose scene is on the device; the cache
+    // serves a reuse only to the same owner (viewport vs F12 renderers).
+    uint64_t sceneOwnerId = 0);
+
+// #801: mark the wavefront device scene cache stale. Called by every host-side
+// scene mutation that bypasses render() (pkg56 per-domain uploaders, the pkg114
+// TLAS refit, upload_scene) so a following render(skip_upload=True) re-uploads.
+void cuda_wavefront_invalidate_scene();
 
 // pkg55-C6b / pkg24: GPU ReSTIR-DI wavefront render. Direct-illumination
 // driver with double-buffered per-pixel reservoirs persisted across frames

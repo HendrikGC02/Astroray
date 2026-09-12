@@ -272,6 +272,9 @@ VIEWPORT_NAV_SETTLE_S = 0.25   # snap back to full res after this quiet window.
 # rendering full res immediately.
 VIEWPORT_START_RES_DIVISOR = 4       # coarse first present on the expensive profile.
 VIEWPORT_INTERACTIVE_BUDGET_MS = 100.0  # pinned edit->present p95 budget (GPU).
+# #801: refinement-chunk time budget (Cycles viewport update interval ~0.1 s)
+VIEWPORT_REFINE_CHUNK_MS = 100.0
+VIEWPORT_REFINE_CHUNK_MAX_SPP = 32
 
 
 def _nav_clock():
@@ -900,6 +903,18 @@ class Exporter:
         self._viewport_skip_upload_next = False  # pkg114 inc 3d: next render is a
         # TLAS-only refit → render(skip_upload=True); set by apply_depsgraph_updates,
         # consumed by view_update.
+        # #801: True while the device scene may differ from the renderer's host
+        # scene — set by every sync / dirty-domain dispatch, cleared by a render
+        # that uploaded. render_viewport_frame passes skip_upload=True whenever
+        # it is False (still-frame refinement chunks, camera moves), so the GPU
+        # wavefront renders from its device scene cache instead of re-converting
+        # and re-uploading the whole scene per 1-spp chunk (the owner's
+        # "re-uploaded every frame" observation).
+        self._device_scene_dirty = True
+        # #801: last refinement chunk (spp, wall ms) at the current accumulation,
+        # for the Cycles-style time-budgeted chunk size (render_viewport_frame).
+        self._viewport_last_chunk_spp = 0
+        self._viewport_last_chunk_ms = 0.0
         # pkg196: reduced-resolution navigation state. _viewport_render_divisor is
         # the resolution divisor of the LAST rendered frame (1 = full res);
         # _viewport_nav_last_change_time is the _nav_clock() timestamp of the most
@@ -1169,6 +1184,7 @@ class Exporter:
         and the coalesced deferred replay (_replay_deferred_dirty). pkg96 P2
         reconcile-then-upload: each domain re-derives its state from Blender before
         pushing device buffers."""
+        self._device_scene_dirty = True  # #801: uploaders bypass render()
         if changes & Change.BACKEND_CONFIG:
             # Backend-affecting Scene props (device_mode) — reconfigure
             # before any render.
@@ -1270,6 +1286,7 @@ class Exporter:
                            effective_integrator_name_fn):
         """Push the depsgraph state into the renderer. Called from view_update
         only — view_draw skips this and just re-renders with a new camera."""
+        self._device_scene_dirty = True  # #801
         renderer.set_adaptive_sampling(settings.use_adaptive_sampling)
         renderer.clear()
         renderer.set_clamp_direct(settings.clamp_direct)
@@ -1362,6 +1379,8 @@ class Exporter:
                 or res_divisor != self._viewport_render_divisor):
             self._reset_viewport_accumulation()
             self._viewport_accum_key = render_key
+            self._viewport_last_chunk_spp = 0  # #801: chunk cost is per accumulation
+            self._viewport_last_chunk_ms = 0.0
         self._viewport_render_divisor = res_divisor
 
         self._viewport_target_spp = engine_methods['viewport_target_samples'](settings)
@@ -1407,6 +1426,26 @@ class Exporter:
         samples = engine_methods['viewport_chunk_samples'](settings, self._viewport_current_spp)
         if samples <= 0:
             return False
+        # #801: Cycles-style time-budgeted refinement chunk. Each render() call
+        # carries a fixed cost (launch, copy-back, Python accumulate), so after
+        # the first fast present the chunk grows to fill ~VIEWPORT_REFINE_CHUNK_MS
+        # of measured path-trace time (Cycles RenderScheduler::
+        # calculate_num_samples_per_update, session/render_scheduler.cpp,
+        # Apache-2.0: samples per update = update interval / time per sample).
+        # The user's viewport_chunk_spp stays the floor; a stubbed/instant render
+        # (last_ms < 1) never engages, so the first chunk is always the floor.
+        if (self._viewport_current_spp > 0 and self._viewport_last_chunk_spp > 0
+                and self._viewport_last_chunk_ms >= 1.0):
+            per_spp_ms = self._viewport_last_chunk_ms / self._viewport_last_chunk_spp
+            budget = int(VIEWPORT_REFINE_CHUNK_MS / max(per_spp_ms, 1e-3))
+            remaining = max(0, self._viewport_target_spp - self._viewport_current_spp)
+            samples = max(samples, min(remaining, budget, VIEWPORT_REFINE_CHUNK_MAX_SPP))
+        # #801: the device scene is only stale after a sync / dirty-domain
+        # dispatch; every other render (still-frame refinement, camera move, the
+        # pkg114 refit whose uploader invalidates the engine cache itself) renders
+        # from the wavefront's device scene cache.
+        if not self._device_scene_dirty:
+            skip_upload = True
 
         depth = max(2, settings.max_bounces // 2)
         # pkg241 Phase 1b: pass a real cooperative-cancellation callback
@@ -1428,6 +1467,10 @@ class Exporter:
         )
         if pixels is None:
             return
+        if not skip_upload:
+            self._device_scene_dirty = False  # #801: device scene == host scene now
+        self._viewport_last_chunk_spp = samples
+        self._viewport_last_chunk_ms = (time.perf_counter() - _render_t0) * 1000.0
         # pkg241 Phase 1: record the render cost scaled to full resolution so the
         # interactive-resolution budget can engage the coarse starting divisor on
         # expensive edits. render() cost is roughly pixel-count bound, so a

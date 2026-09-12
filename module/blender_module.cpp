@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cmath>
 #include <mutex>
+#include <atomic>
 #include <optional>  // pkg241 Phase 2 A2 spike: scoped GIL release around the GPU render tail (§3.7)
 #include <random>  // pkg191: std::random_device for the GPU seed-0 contract
 #include <tuple>    // pkg258: sample_environment_map returns a 3-tuple
@@ -437,6 +438,14 @@ public:
 class PyRenderer {
     Renderer renderer;
     std::shared_ptr<Camera> camera;
+    // #801: process-unique id of this renderer, keying the wavefront device
+    // scene cache (a viewport renderer's render(skip_upload=True) must never
+    // reuse the scene an F12 renderer uploaded last).
+    static uint64_t nextSceneOwnerId() {
+        static std::atomic<uint64_t> counter{0};
+        return ++counter;
+    }
+    const uint64_t sceneOwnerId_ = nextSceneOwnerId();
     TextureManager textureManager;
     std::unordered_map<int, std::shared_ptr<Material>> materials;
     int nextMaterialId = 0;
@@ -2362,7 +2371,8 @@ public:
                     alphaOut,                                  // pkg201
                     gpuCancelHook,                             // pkg241 Phase 1b
                     subPassBudget,                             // pkg266
-                    &gpuUnitsLaunched, &gpuCancelledAtUnit);   // pkg266
+                    &gpuUnitsLaunched, &gpuCancelledAtUnit,    // pkg266
+                    skipUpload, sceneOwnerId_);                // #801 device scene cache
                 lastRenderInfoUnitsLaunched_ = gpuUnitsLaunched;
                 lastRenderInfoCancelledAtUnit_ = gpuCancelledAtUnit;
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
@@ -3093,6 +3103,16 @@ public:
             cudaRenderer->uploadInstanceTransforms(renderer);
         }
 #endif
+        invalidateWavefrontScene();  // #801
+    }
+
+    // #801: the wavefront driver caches the device scene across
+    // render(skip_upload=True) calls; every host-side scene mutation that
+    // bypasses render() must mark it stale so the next render re-uploads.
+    void invalidateWavefrontScene() {
+#if defined(ASTRORAY_CUDA_ENABLED) && defined(ASTRORAY_WAVEFRONT_CUDA_N3)
+        astroray::wavefront::cuda_wavefront_invalidate_scene();
+#endif
     }
 
     // Push only material payloads (GMaterial flat array + spectral profile
@@ -3104,6 +3124,7 @@ public:
             cudaRenderer->uploadMaterials(renderer);
         }
 #endif
+        invalidateWavefrontScene();  // #801
     }
 
     // Push only light buffer + power CDF to the GPU. Geometry / materials /
@@ -3114,6 +3135,7 @@ public:
             cudaRenderer->uploadLights(renderer);
         }
 #endif
+        invalidateWavefrontScene();  // #801
         // CPU path: light data lives inside Renderer::lights, which the
         // path tracer reads on the fly from buildAcceleration()'s output.
         // No CPU-side action needed — the addition itself was via addObject.
@@ -3131,6 +3153,7 @@ public:
             cudaRenderer->uploadEnvironment(renderer);
         }
 #endif
+        invalidateWavefrontScene();  // #801
     }
 
     // Sequenced full upload — calls all four domain uploaders + builds the
@@ -3139,6 +3162,7 @@ public:
     // unaffected. Phase C will _stop_ calling this in favour of selective
     // dispatch on bpy.types.Depsgraph.updates.
     void uploadScene() {
+        invalidateWavefrontScene();  // #801
         renderer.buildAcceleration();
         if (envMap) renderer.setEnvironmentMap(envMap);
 #ifdef ASTRORAY_CUDA_ENABLED

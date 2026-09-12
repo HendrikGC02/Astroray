@@ -573,6 +573,33 @@ public:
         return {r.x, r.y, r.z};
     }
 
+    // pkg242 follow-up (#737) test helper — exercise the REAL HitRecord
+    // value()/valueOffset() UV-mode path (incl. any Mapping) and return
+    // [base.xyz, offset.xyz]. Used to assert that a p-reading procedural gets a
+    // NONZERO bump gradient under a Mapping (previously valueOffset moved only
+    // the 2-D sample coord and left the 3-D point fixed → zero gradient).
+    std::vector<float> textureValueAndOffset(const std::string& name, float u, float v,
+                                             float du, float dv) {
+        auto tex = textureManager.getTexture(name);
+        if (!tex) throw std::runtime_error("texture_value_and_offset: unknown texture " + name);
+        HitRecord rec;
+        rec.uv = Vec2(u, v);
+        const Vec3 wo(0.0f, 0.0f, 1.0f);
+        Vec3 base = tex->value(rec, wo);
+        Vec3 off  = tex->valueOffset(rec, wo, du, dv);
+        return {base.x, base.y, base.z, off.x, off.y, off.z};
+    }
+
+    // pkg242 follow-up (#737) test helper — the SCALE-RELATIVE singular verdict
+    // for a registered texture's Mapping matrix (true iff rank-deficient, NOT
+    // merely small-scaled). Lets the test assert a tiny uniform scale is not
+    // mis-flagged without capturing C-level stderr.
+    bool namedTextureMappingSingular(const std::string& name) {
+        auto tex = textureManager.getTexture(name);
+        if (!tex) throw std::runtime_error("named_texture_mapping_singular: unknown texture " + name);
+        return tex->mappingIsSingular();
+    }
+
     std::vector<float> sampleTexture(const std::string& type, py::dict params, float u, float v) {
         astroray::ParamDict p;
         for (auto& item : params) {
@@ -3733,6 +3760,14 @@ PYBIND11_MODULE(astroray, m) {
              "name"_a, "u"_a = 0.5f, "v"_a = 0.5f,
              "pkg242: sample a registered texture through the transformed-coordinate "
              "contract (mappedPoint((u,v,0)) then value(mp.xy, mp)).")
+        .def("texture_value_and_offset", &PyRenderer::textureValueAndOffset,
+             "name"_a, "u"_a = 0.5f, "v"_a = 0.5f, "du"_a = 0.0f, "dv"_a = 0.0f,
+             "pkg242: real HitRecord value()/valueOffset() UV-mode path; returns "
+             "[base.xyz, offset.xyz] (bump finite-difference taps).")
+        .def("named_texture_mapping_singular", &PyRenderer::namedTextureMappingSingular,
+             "name"_a,
+             "pkg242: scale-relative singular verdict for a registered texture's "
+             "Mapping matrix (true iff rank-deficient).")
         .def("eval_texture_at_3d", &PyRenderer::evalTextureAt3D,
              "type"_a, "params"_a, "x"_a, "y"_a, "z"_a,
              "pkg115 debug helper: evaluate texture at explicit (x,y,z) point")

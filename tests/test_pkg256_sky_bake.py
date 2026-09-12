@@ -227,6 +227,55 @@ def astroray_mod():
         pytest.skip(f"astroray module not available: {e}")
 
 
+def test_sun_disc_casts_shadow(astroray_mod):
+    """#799: the dedicated distant sun (sun_disc_params + add_sun_light_dedicated,
+    as setup_world wires it) must cast a real shadow — the pkg256 review's 'no
+    sun disc -> soft shadows' complaint. Bake the corpus sky, add the sun light,
+    put a sphere over a floor, and assert the ground directly behind the sphere
+    (anti-sun side) is markedly darker than open ground."""
+    E, A = math.radians(28.0), math.radians(115.0)
+    img = sky_bake.bake_params("MULTIPLE_SCATTERING", E, A, width=512, height=256)
+    fd, path = tempfile.mkstemp(prefix="astroray_sundisc_", suffix=".hdr")
+    os.close(fd)
+    try:
+        sky_bake.write_hdr(path, img)
+        r = astroray_mod.Renderer()
+        r.set_integrator("path_tracer")
+        assert r.load_environment_map(path, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, True)
+        sun = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", E, A,
+                                       aerosol_density=1.0, sun_size=0.02,
+                                       sun_intensity=1.0)
+        r.add_sun_light_dedicated(sun["direction"], sun["angular_diameter"],
+                                  {"mode": "rgb", "color": sun["color"]},
+                                  sun["intensity"])
+        white = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
+        r.add_triangle([-6, 0, -6], [6, 0, -6], [6, 0, 6], white)
+        r.add_triangle([-6, 0, -6], [6, 0, 6], [-6, 0, 6], white)
+        r.add_sphere([0, 1, 0], 1.0, white)
+        r.setup_camera(look_from=[0, 8, 0.01], look_at=[0, 0, 0], vup=[0, 0, -1],
+                       vfov=55, aspect_ratio=1.0, aperture=0.0, focus_dist=8.0,
+                       width=128, height=128)
+        px = np.asarray(r.render(96, 6, None, False)).reshape(128, 128, 3)
+        lum = px.mean(axis=2)
+        # Sample a ground ring around the (centre-projected) sphere. A directional
+        # sun disc casts a shadow on ONE sector (dark), leaving the rest lit —
+        # sky-only AO would be roughly symmetric. Assert the ring's darkest
+        # sector is markedly darker than its brightest (directional shadow).
+        cy, cx, radius = 64, 64, 34
+        ring = []
+        for k in range(16):
+            ang = 2 * math.pi * k / 16
+            rr = int(cy + radius * math.sin(ang))
+            cc = int(cx + radius * math.cos(ang))
+            ring.append(float(lum[rr - 2:rr + 2, cc - 2:cc + 2].mean()))
+        ring = np.array(ring)
+        assert ring.max() > 1e-3, f"ground ring is black: {ring.max()}"
+        assert ring.min() < 0.6 * ring.max(), \
+            f"no directional shadow (min={ring.min():.4f} max={ring.max():.4f})"
+    finally:
+        os.unlink(path)
+
+
 def test_temp_file_loads_and_orientation_matches_engine(astroray_mod):
     """Bake a low sun, write the temp .hdr, load through load_environment_map
     with blender_convention=True (as setup_world does), then confirm the

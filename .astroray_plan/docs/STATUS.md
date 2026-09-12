@@ -1,6 +1,10 @@
 # Astroray Status
 
-## 2026-09-12 INTERIM — lead session (started ~10:30 AEST; Astra/Codex unavailable this session — usage cap; Claude + opencode substitutes)
+## 2026-09-13 CURRENT — lead session closeout (2026-09-12 ~10:30 → 2026-09-13 ~05:45 AEST; Astra/Codex unavailable — usage cap; one usage-limit kill ~01:30)
+
+**Closeout (final main 48b352fc):** main `build_cuda` `.pyd` rebuilt 05:00 (arch gate + canary OK); addon restaged `--backend cuda` (MSVC, OpenMP ON, build id `998c72f+20260912T190035Z`) and **installed** into `extensions/user_default/astroray`; headless Blender 5.2 enable OK (`gpu_available=True`, `set_render_region` present). **Final RTX sweep `pytest -m gpu -rXf`: 802 passed, 0 failed, 8 skipped, 12 xfailed, 1 xpassed (legacy pkg64 gate), 5:31.** Docs: pkg259 done, pkg266 §9 data point, 17 triage Status flips, KNOWN_ISSUES regen, index + graph, `lint --all` clean (234 baselined), run report `reports/2026-09-12-lead-session.html`, next prompt `next-session-prompt-2026-09-13.md`. Worktrees: main only (A, B, C, E1, E2, volarch removed after MERGED + clean). Open PRs: none. GPU lock free.
+
+**Manual actions:** restart Blender to load the newly installed addon (build `998c72f+…`, includes #801 viewport cache, Render Region, IES export, sun disc). Owner decisions pending: (1) volumes — VDB import via Blender Python API vs an engine `.nvdb` reader; blackbody spectral Planck vs Cycles-match RGB; pkg272 scope; (2) IES normalisation — keep peak-normalised (shipped) or adopt Cycles' absolute 4π/177.83 scale; (3) sun disc option A accepted by the lead on the physics-first rule (ground direct:diffuse 1.8:1 vs Cycles 6.4:1 until #799 Phase 2) — veto if the look matters more.
 
 **Merged after the interim block (2026-09-13 early hours; usage-limit kill at ~01:30 killed the Batch A and E1 lanes, both resumed by the lead / a continuation lane):**
 - **#806 pkg259 Phase 3** (fb0932a3) — `geometry_zoo` (17 rows), `camera_lens` (9), `render_settings` (4) corpus families, both engines rendered, manifest tests 34/34. Lead inspection: instancing/modifiers/shading/curves/DOF match; Astroray noisier at equal spp (#763); clip_end backdrop = #724; **volume cabinet diverges (Principled Volume → solid yellow disc, absorption/scatter cubes flat white) → #807**, the first pkg268 acceptance scene.

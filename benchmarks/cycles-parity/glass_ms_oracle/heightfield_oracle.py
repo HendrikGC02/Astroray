@@ -292,12 +292,217 @@ def alpha_from_roughness(r):
     return max(r * r, ALPHA_FLOOR)
 
 
+# --------------------------------------------------------------------------- #
+# DELIVERABLE 2 — two-interface glass SPHERE, brute-force numpy path tracer.    #
+#                                                                             #
+# This is a fully independent renderer (no engine C++, no Cycles): it composes  #
+# the single-interface GGX Smith walk (the engine's model) through the sphere's #
+# entry AND exit interfaces with explicit sphere geometry, so the pkg263        #
+# whole-sphere +52% centre band gets a reference that is neither Cycles nor the #
+# engine. Comparing the multiple-scattering walk BSDF against a single-scatter  #
+# BSDF in the SAME tracer isolates whether the bright centre is the physical    #
+# consequence of composing two conserving multiple-scattering interfaces (the   #
+# Phase-4/Phase-10 hypothesis) or an engine wiring artefact.                    #
+# --------------------------------------------------------------------------- #
+def walk_batch(woLocal, alpha, ior, entering, rng, scatter_max=32,
+               single_scatter=False):
+    """Per-ray single-sample Smith walk. woLocal (M,3) local dirs (z>0), entering
+    (M,) bool. Returns wiLocal (M,3), reflected (M,) bool, escaped (M,) bool,
+    radScale (M,). GGX NDF (== engine). single_scatter: cap at one phase event
+    (a ray still inside after it = dead, escaped False)."""
+    M = woLocal.shape[0]
+    wr = -woLocal.astype(np.float64).copy()
+    hr = np.full(M, hrw.invC1(np.array([0.999999]))[0])
+    n1 = np.where(entering, 1.0, ior).astype(np.float64)
+    n2 = np.where(entering, ior, 1.0).astype(np.float64)
+    nflip = np.zeros(M, dtype=np.int64)
+    radiance = np.ones(M)
+    active = np.ones(M, dtype=bool)
+    escaped = np.zeros(M, dtype=bool)
+    order = 0
+    cap = 1 if single_scatter else scatter_max
+    while active.any():
+        idx = np.where(active)[0]
+        U = rng.random(idx.size)
+        hnew = hrw.sample_height(wr[idx], hr[idx], U, alpha)
+        hr[idx] = hnew
+        left = np.isinf(hnew)
+        gone = idx[left]
+        escaped[gone] = True
+        active[gone] = False
+        stay = idx[~left]
+        if order >= cap:
+            break                       # remaining rays are dead (escaped stays 0)
+        if stay.size == 0:
+            order += 1
+            continue
+        wi = -wr[stay]
+        wm = hrw.sample_vndf(wi, alpha, rng)
+        c = np.sum(wi * wm, axis=1)
+        F = hrw.fresnel_dielectric(c, n1[stay], n2[stay])
+        u = rng.random(stay.size)
+        do_refl = u < F
+        wnew = 2.0 * c[:, None] * wm - wi
+        it = ~do_refl
+        if it.any():
+            eta = (n1[stay] / n2[stay])[it]
+            wt, ok = hrw._refract(wi[it], wm[it], eta)
+            wt = np.where(ok[:, None], wt, wnew[it])
+            wnew[it] = wt
+            trans = np.zeros(stay.size, dtype=bool)
+            trans[np.where(it)[0][ok]] = True
+            sT = stay[trans]
+            hr[sT] = -hr[sT]
+            wnew[trans, 2] = -wnew[trans, 2]
+            n1[sT], n2[sT] = n2[sT].copy(), n1[sT].copy()
+            radiance[sT] *= (eta[ok] * eta[ok])
+            nflip[sT] += 1
+        wr[stay] = wnew
+        order += 1
+    wout = wr.copy()
+    odd = (nflip % 2) == 1
+    wout[odd, 2] = -wout[odd, 2]
+    reflected = (nflip % 2) == 0
+    n = np.linalg.norm(wout, axis=1, keepdims=True)
+    wout = wout / np.maximum(n, 1e-12)
+    return wout, reflected, escaped, radiance
+
+
+def _env_radiance(dirs, emit_dir, emit_cos, emit_L, ground_L, sky_L):
+    """Environment radiance seen by rays escaping the sphere along `dirs` (M,3):
+    a uniform sky, a brighter lower hemisphere (ground under the sphere), and one
+    small bright emitter cone (pkg263-style key light + bright ground)."""
+    L = np.full(dirs.shape[0], sky_L)
+    L = np.where(dirs[:, 2] < 0.0, ground_L, L)     # downward -> bright ground
+    cone = dirs @ emit_dir >= emit_cos
+    L = np.where(cone, emit_L, L)
+    return L
+
+
+def render_sphere(alpha, ior, rng, n_rays, b_lo, b_hi, single_scatter=False,
+                  max_depth=24, emit_dir=(0.4, 0.4, 0.82), emit_deg=8.0,
+                  emit_L=30.0, ground_L=2.0, sky_L=0.4):
+    """Mean radiance of an annulus of impact parameters [b_lo,b_hi) on a unit glass
+    sphere, path-traced with the (multiple-scattering or single-scatter) walk BSDF
+    at every interface. Camera: orthographic along -z from +z."""
+    emit_dir = np.array(emit_dir, dtype=np.float64)
+    emit_dir /= np.linalg.norm(emit_dir)
+    emit_cos = math.cos(math.radians(emit_deg))
+    # stratified impact params in the annulus (area-uniform in b^2)
+    u = rng.random(n_rays)
+    b = np.sqrt(b_lo * b_lo + u * (b_hi * b_hi - b_lo * b_lo))
+    phi = rng.random(n_rays) * 2.0 * math.pi
+    x = b * np.cos(phi)
+    y = b * np.sin(phi)
+    o = np.stack([x, y, np.full(n_rays, 3.0)], axis=1)
+    d = np.tile(np.array([0.0, 0.0, -1.0]), (n_rays, 1))
+    inside = np.zeros(n_rays, dtype=bool)
+    throughput = np.ones(n_rays)
+    radiance = np.zeros(n_rays)
+    active = np.ones(n_rays, dtype=bool)
+
+    def sphere_hit(o, d):
+        # unit sphere at origin; return t of nearest positive hit (or inf)
+        b2 = np.sum(o * d, axis=1)
+        c2 = np.sum(o * o, axis=1) - 1.0
+        disc = b2 * b2 - c2
+        hit = disc >= 0.0
+        sq = np.sqrt(np.maximum(disc, 0.0))
+        t0 = -b2 - sq
+        t1 = -b2 + sq
+        t = np.where(t0 > 1e-4, t0, t1)
+        t = np.where((t > 1e-4) & hit, t, np.inf)
+        return t
+
+    for _depth in range(max_depth):
+        if not active.any():
+            break
+        idx = np.where(active)[0]
+        oi = o[idx]
+        di = d[idx]
+        t = sphere_hit(oi, di)
+        miss = np.isinf(t)
+        # rays that miss the sphere escape to the environment
+        esc = idx[miss]
+        if esc.size:
+            radiance[esc] += throughput[esc] * _env_radiance(
+                d[esc], emit_dir, emit_cos, emit_L, ground_L, sky_L)
+            active[esc] = False
+        hitm = idx[~miss]
+        if hitm.size == 0:
+            continue
+        th = t[~miss]
+        ph = o[hitm] + d[hitm] * th[:, None]
+        nrm = ph / np.linalg.norm(ph, axis=1, keepdims=True)  # outward
+        dw = d[hitm]
+        woW = -dw
+        # orient local +z toward the incident side
+        sgn = np.sign(np.sum(nrm * woW, axis=1))
+        sgn = np.where(sgn == 0.0, 1.0, sgn)
+        nz = nrm * sgn[:, None]
+        # tangent frame
+        helper = np.tile(np.array([1.0, 0.0, 0.0]), (hitm.size, 1))
+        alt = np.abs(nz[:, 0]) > 0.9
+        helper[alt] = np.array([0.0, 1.0, 0.0])
+        t1 = np.cross(helper, nz)
+        t1 /= np.linalg.norm(t1, axis=1, keepdims=True)
+        t2 = np.cross(nz, t1)
+        woL = np.stack([np.sum(woW * t1, axis=1), np.sum(woW * t2, axis=1),
+                        np.sum(woW * nz, axis=1)], axis=1)
+        ent = ~inside[hitm]              # entering iff currently in air (outside)
+        wiL, refl, escaped, rad = walk_batch(woL, alpha, ior, ent, rng,
+                                             single_scatter=single_scatter)
+        wiW = (wiL[:, 0:1] * t1 + wiL[:, 1:2] * t2 + wiL[:, 2:3] * nz)
+        wiW /= np.linalg.norm(wiW, axis=1, keepdims=True)
+        transmit = ~refl
+        # dead sample (never escaped the microsurface): absorb (physical loss the
+        # single-scatter model incurs; the MS walk has ~0 dead).
+        dead = ~escaped
+        if dead.any():
+            active[hitm[dead]] = False
+        good = ~dead
+        gi = hitm[good]
+        inside[gi] = np.where(transmit[good], ~inside[gi], inside[gi])
+        throughput[gi] *= rad[good]
+        o[gi] = ph[good] + wiW[good] * 1e-4
+        d[gi] = wiW[good]
+        # Russian roulette on low throughput
+        if _depth > 6:
+            q = np.clip(throughput[gi], 0.05, 1.0)
+            kill = rng.random(gi.size) > q
+            throughput[gi] /= q
+            active[gi[kill]] = False
+    return float(np.mean(radiance))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--full", action="store_true", help="large surface + ray count")
     ap.add_argument("--rays", type=int, default=0)
     ap.add_argument("--seed", type=int, default=2026)
+    ap.add_argument("--sphere", action="store_true",
+                    help="deliverable 2: glass-sphere centre/limb walk-vs-single-scatter")
     args = ap.parse_args()
+
+    if args.sphere:
+        M = args.rays or (200_000 if args.full else 40_000)
+        print(f"# pkg265 #782 independent numpy glass-sphere path tracer  IOR={IOR}"
+              f"  rays/region={M}")
+        print("# MS = multiple-scattering walk BSDF; SS = single-scatter (dead=absorbed)")
+        print("# both interfaces of a unit glass sphere, uniform sky + bright ground + key light")
+        print()
+        print("rough alpha | region | MS_L    SS_L    MS/SS")
+        print("-" * 46)
+        for r in [0.0, 0.2, 0.5, 0.85]:
+            a = alpha_from_roughness(r)
+            for name, lo, hi in [("centre", 0.0, 0.15), ("limb", 0.80, 0.92)]:
+                ms = render_sphere(a, IOR, np.random.default_rng(100), M, lo, hi,
+                                   single_scatter=False)
+                ss = render_sphere(a, IOR, np.random.default_rng(100), M, lo, hi,
+                                   single_scatter=True)
+                print(f"{r:.2f}  {a:.4f} | {name:<6} | {ms:.4f}  {ss:.4f}  "
+                      f"{ms / max(ss, 1e-9):.3f}")
+        return
 
     if args.full:
         N, xi, M = 512, 8.0, 200_000

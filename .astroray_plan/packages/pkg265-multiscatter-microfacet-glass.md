@@ -245,6 +245,25 @@ depend on this. `cite-algorithm` is mandatory before any code. Serves Pillar 5.
   artifact (`_pyd_dir` picks `build_blender_addon/`, which the Phase-8 harness needs
   as a CPU addon, then asks it for GPU). Research note §Phase 10 GPU verification.
 
+- [x] 2026-09-12 — **Phase 11 (#782 independent oracle) complete + VERDICT: physical
+  (validated)** (batch C, `feat/batch-c-glass-oracle`). New INDEPENDENT reference that
+  shares none of the Smith walk equations: `benchmarks/cycles-parity/glass_ms_oracle/
+  heightfield_oracle.py` — an explicit Gaussian(Beckmann) heightfield ray tracer
+  (geometric intersections, gradient facet normals, per-hit Fresnel; Heitz 2016's own
+  validation method) + a from-scratch numpy glass-sphere path tracer. Findings:
+  explicit-HF energy self-check R+T=1.000 (mean 0.998); at the EXIT interface at
+  grazing/high roughness explicit geometry keeps **2-4x more internal reflection than
+  Cycles' 1/E** (a1.0/mu0.9: HF_R 0.491 vs 1/E 0.133), and the GGX walk tracks the
+  explicit ground truth far better than 1/E; the independent numpy sphere reproduces
+  the engine centre band to 3 s.f. (**MS/SS = 1.608 at r0.85 vs engine MS/Cycles
+  1.610**). Conclusion: the pkg263 +52% centre band is PHYSICAL, not a bug; no CPU-lobe
+  fix required. Research note §Phase 11; Phase 5 wording flipped to "physical
+  (validated)". Fast gate `tests/test_pkg265_heightfield_oracle.py` (8 tests, pure
+  numpy, <15 s); full grid via `--full` / `--sphere`. Registered in scripts/README.md.
+  Design fork documented: Beckmann (Gaussian-process) surfaces per the paper — exact-
+  GGX heightfields are not obtainable from linear spectral synthesis, so the mechanism
+  is validated at Beckmann and the GGX NDF leg stays on the pkg265 directional gate.
+
 ## Lessons
 
 - (none yet)

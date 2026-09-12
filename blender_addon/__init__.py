@@ -1735,6 +1735,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # engine rect is TOP-DOWN pixel coords [x0,x1) x [y0,y1). use_crop_to_border
         # (Cycles: return a cropped image) is APPROXIMATED as crop-off (full-size
         # film, outside left black) + a warning. A linked/absent border clears it.
+        if not hasattr(renderer, 'set_render_region'):
+            return  # host/stub without region support -> full frame
         render = scene.render
         if not getattr(render, 'use_border', False):
             renderer.clear_render_region()

@@ -1335,6 +1335,8 @@ class Exporter:
 
     def _apply_viewport_render_region(self, renderer, context, width, height):
         # #802 Batch A item 4 - map the viewport render border to the engine rect.
+        if not hasattr(renderer, 'set_render_region'):
+            return  # host/stub without region support -> full frame
         try:
             space = context.space_data
             region_3d = getattr(space, 'region_3d', None)

@@ -28,22 +28,36 @@ def astroray_mod():
         pytest.skip(f"astroray module not available: {e}")
 
 
-def _floor_scene(r):
+def _floor_scene(r, flat_colour=False):
+    """White floor lit only by a downward-facing RED mesh emitter.
+
+    flat_colour=False: emitter is a RED *texture* on a white-base light material
+    (the #776 subject). flat_colour=True: an equivalent plain RED light material
+    (base colour red, no texture) -- the reference the textured emitter must now
+    match under NEE (pre-#776 the textured one lit flat white).
+    """
     white = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
-    red_img = np.tile(np.array([1.0, 0.0, 0.0], dtype=np.float32), (4, 4, 1))
-    r.load_texture("emit_red", red_img, 4, 4, "UV")
-    red_light = r.create_material("light", [1.0, 1.0, 1.0],
-                                  {"intensity": 15.0, "texture": "emit_red"})
+    if flat_colour:
+        red_light = r.create_material("light", [1.0, 0.0, 0.0],
+                                      {"intensity": 15.0})
+    else:
+        red_img = np.tile(np.array([1.0, 0.0, 0.0], dtype=np.float32), (4, 4, 1))
+        r.load_texture("emit_red", red_img, 4, 4, "UV")
+        red_light = r.create_material("light", [1.0, 1.0, 1.0],
+                                      {"intensity": 15.0, "texture": "emit_red"})
     e = 4.0
     r.add_triangle([-e, -1, -e], [e, -1, -e], [e, -1, e], white)
     r.add_triangle([-e, -1, -e], [e, -1, e], [-e, -1, e], white)
-    # Emitter quad at y=+1.5, normal -y (facing down): CW from above.
+    # Emitter quad at y=+1.5 facing DOWN (geometric normal -y) so its front
+    # face illuminates the floor below. emitted()/emittedSpectral() return 0 on
+    # the back face, so the opposite winding leaves the floor lit only by
+    # ambient (verified 2026-09-13: this winding -> R=2.5, that one -> R=0.07).
     le = 1.2
-    r.add_triangle([-le, 1.5, -le], [le, 1.5, le], [le, 1.5, -le], red_light)
-    r.add_triangle([-le, 1.5, -le], [-le, 1.5, le], [le, 1.5, le], red_light)
+    r.add_triangle([-le, 1.5, -le], [le, 1.5, -le], [le, 1.5, le], red_light)
+    r.add_triangle([-le, 1.5, -le], [le, 1.5, le], [-le, 1.5, le], red_light)
 
 
-def _render_floor_mean(mod, enable_nee, samples=64, gpu=False):
+def _render_floor_mean(mod, enable_nee, samples=64, gpu=False, flat_colour=False):
     r = mod.Renderer()
     if gpu:
         r.set_integrator("path_tracer")
@@ -51,7 +65,7 @@ def _render_floor_mean(mod, enable_nee, samples=64, gpu=False):
     else:
         r.set_integrator_param("enable_nee", 1 if enable_nee else 0)
         r.set_integrator("multiwavelength_path_tracer")
-    _floor_scene(r)
+    _floor_scene(r, flat_colour=flat_colour)
     r.setup_camera(look_from=[0, 0.5, 0.01], look_at=[0, -1, 0], vup=[0, 0, -1],
                    vfov=50, aspect_ratio=1.0, aperture=0.0, focus_dist=2.0,
                    width=96, height=96)
@@ -72,15 +86,25 @@ def test_nee_uses_emitter_texture_colour(astroray_mod):
 
 
 @pytest.mark.cpu
-def test_nee_on_off_mis_consistency(astroray_mod):
-    """NEE-on and NEE-off (BSDF-only) integrate the SAME emitter now, so the lit
-    floor colour agrees within Monte-Carlo noise (was flat-white vs red)."""
-    on = _render_floor_mean(astroray_mod, enable_nee=True, samples=192)
-    off = _render_floor_mean(astroray_mod, enable_nee=False, samples=192)
-    # per-channel relative agreement; both are red-dominated
+def test_textured_emitter_matches_flat_colour_under_nee(astroray_mod):
+    """#776: under NEE a RED-*textured* emitter (white base) must light the floor
+    identically to an equivalent plain RED light (base red, no texture), because
+    NEE now evaluates the emission texture at the sampled light point. Pre-#776
+    the textured emitter's NEE path saw a flat getEmission() == white x intensity,
+    so it lit the floor WHITE while the plain red light lit it RED -- the two
+    diverged. (NEE-off is not a valid cross-check here: this engine's
+    multiwavelength tracer collects mesh-emitter direct lighting only through the
+    NEE path, so enable_nee=0 drops the emitter entirely -- pre-existing, not
+    #776. Verified 2026-09-13.)"""
+    tex = _render_floor_mean(astroray_mod, enable_nee=True, samples=256)
+    flat = _render_floor_mean(astroray_mod, enable_nee=True, samples=256,
+                              flat_colour=True)
+    # both must be strongly red-dominated (the emitter, not ambient)
+    assert tex[0] > 3.0 * tex[2] and flat[0] > 3.0 * flat[2], (tex, flat)
+    # per-channel agreement within Monte-Carlo noise
     for ch in range(3):
-        denom = max(on[ch], off[ch], 1e-3)
-        assert abs(on[ch] - off[ch]) / denom < 0.20, (ch, on, off)
+        denom = max(tex[ch], flat[ch], 1e-3)
+        assert abs(tex[ch] - flat[ch]) / denom < 0.20, (ch, tex, flat)
 
 
 @pytest.mark.gpu

@@ -115,6 +115,8 @@ def test_textured_emitter_matches_flat_colour_under_nee(astroray_mod):
 def test_gpu_uploads_texture_mean_not_white(astroray_mod):
     """scene_upload.cu uploads getEmission() == texture MEAN (red), not flat
     white (#776). The GPU floor must be red-tinted."""
+    if not getattr(astroray_mod.Renderer(), "gpu_available", False):
+        pytest.skip("CUDA not compiled / no GPU (CI has no GPU)")
     m = _render_floor_mean(astroray_mod, enable_nee=True, samples=64, gpu=True)
     assert m[0] > 1e-4, f"GPU floor black: {m}"
     assert m[0] > 3.0 * (m[2] + 1e-6), f"GPU floor not red (white mean uploaded?): {m}"

@@ -1,4 +1,206 @@
 {
+  "camera_lens": [
+    {
+      "bl_idname": "",
+      "category": "camera",
+      "feature": "Camera",
+      "socket_or_prop": "aperture_rotation"
+    },
+    {
+      "bl_idname": "",
+      "category": "camera",
+      "feature": "Camera",
+      "socket_or_prop": "aperture_ratio"
+    },
+    {
+      "bl_idname": "",
+      "category": "camera",
+      "feature": "Camera",
+      "socket_or_prop": "type"
+    },
+    {
+      "bl_idname": "",
+      "category": "camera",
+      "feature": "Camera",
+      "socket_or_prop": "ortho_scale"
+    }
+  ],
+  "geometry_zoo": [
+    {
+      "bl_idname": "ShaderNodeVolumeAbsorption",
+      "category": "shader_node",
+      "feature": "VOLUME_ABSORPTION",
+      "socket_or_prop": "input:Weight"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeCoefficients",
+      "category": "shader_node",
+      "feature": "VOLUME_COEFFICIENTS",
+      "socket_or_prop": "input:Weight"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeCoefficients",
+      "category": "shader_node",
+      "feature": "VOLUME_COEFFICIENTS",
+      "socket_or_prop": "input:Absorption Coefficients"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeCoefficients",
+      "category": "shader_node",
+      "feature": "VOLUME_COEFFICIENTS",
+      "socket_or_prop": "input:Scatter Coefficients"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeCoefficients",
+      "category": "shader_node",
+      "feature": "VOLUME_COEFFICIENTS",
+      "socket_or_prop": "input:Anisotropy"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeCoefficients",
+      "category": "shader_node",
+      "feature": "VOLUME_COEFFICIENTS",
+      "socket_or_prop": "input:IOR"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeCoefficients",
+      "category": "shader_node",
+      "feature": "VOLUME_COEFFICIENTS",
+      "socket_or_prop": "input:Backscatter"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeCoefficients",
+      "category": "shader_node",
+      "feature": "VOLUME_COEFFICIENTS",
+      "socket_or_prop": "input:Alpha"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeCoefficients",
+      "category": "shader_node",
+      "feature": "VOLUME_COEFFICIENTS",
+      "socket_or_prop": "input:Diameter"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeCoefficients",
+      "category": "shader_node",
+      "feature": "VOLUME_COEFFICIENTS",
+      "socket_or_prop": "input:Emission Coefficients"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeCoefficients",
+      "category": "shader_node",
+      "feature": "VOLUME_COEFFICIENTS",
+      "socket_or_prop": "prop:phase"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumePrincipled",
+      "category": "shader_node",
+      "feature": "PRINCIPLED_VOLUME",
+      "socket_or_prop": "input:Color Attribute"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumePrincipled",
+      "category": "shader_node",
+      "feature": "PRINCIPLED_VOLUME",
+      "socket_or_prop": "input:Density Attribute"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumePrincipled",
+      "category": "shader_node",
+      "feature": "PRINCIPLED_VOLUME",
+      "socket_or_prop": "input:Absorption Color"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumePrincipled",
+      "category": "shader_node",
+      "feature": "PRINCIPLED_VOLUME",
+      "socket_or_prop": "input:Blackbody Tint"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumePrincipled",
+      "category": "shader_node",
+      "feature": "PRINCIPLED_VOLUME",
+      "socket_or_prop": "input:Temperature Attribute"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumePrincipled",
+      "category": "shader_node",
+      "feature": "PRINCIPLED_VOLUME",
+      "socket_or_prop": "input:Weight"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeScatter",
+      "category": "shader_node",
+      "feature": "VOLUME_SCATTER",
+      "socket_or_prop": "input:IOR"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeScatter",
+      "category": "shader_node",
+      "feature": "VOLUME_SCATTER",
+      "socket_or_prop": "input:Backscatter"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeScatter",
+      "category": "shader_node",
+      "feature": "VOLUME_SCATTER",
+      "socket_or_prop": "input:Alpha"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeScatter",
+      "category": "shader_node",
+      "feature": "VOLUME_SCATTER",
+      "socket_or_prop": "input:Diameter"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeScatter",
+      "category": "shader_node",
+      "feature": "VOLUME_SCATTER",
+      "socket_or_prop": "input:Weight"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumeScatter",
+      "category": "shader_node",
+      "feature": "VOLUME_SCATTER",
+      "socket_or_prop": "prop:phase"
+    },
+    {
+      "bl_idname": "ShaderNodeHairInfo",
+      "category": "input_node",
+      "feature": "HAIR_INFO",
+      "socket_or_prop": "output:Is Strand"
+    },
+    {
+      "bl_idname": "ShaderNodeHairInfo",
+      "category": "input_node",
+      "feature": "HAIR_INFO",
+      "socket_or_prop": "output:Intercept"
+    },
+    {
+      "bl_idname": "ShaderNodeHairInfo",
+      "category": "input_node",
+      "feature": "HAIR_INFO",
+      "socket_or_prop": "output:Length"
+    },
+    {
+      "bl_idname": "ShaderNodeHairInfo",
+      "category": "input_node",
+      "feature": "HAIR_INFO",
+      "socket_or_prop": "output:Thickness"
+    },
+    {
+      "bl_idname": "ShaderNodeHairInfo",
+      "category": "input_node",
+      "feature": "HAIR_INFO",
+      "socket_or_prop": "output:Tangent Normal"
+    },
+    {
+      "bl_idname": "ShaderNodeHairInfo",
+      "category": "input_node",
+      "feature": "HAIR_INFO",
+      "socket_or_prop": "output:Random"
+    }
+  ],
   "lighting_studio": [
     {
       "bl_idname": "ShaderNodeOutputLight",
@@ -703,6 +905,176 @@
       "category": "shader_node",
       "feature": "SUBSURFACE_SCATTERING",
       "socket_or_prop": "prop:falloff"
+    }
+  ],
+  "render_settings": [
+    {
+      "bl_idname": "ShaderNodeOutputAOV",
+      "category": "shader_node",
+      "feature": "OUTPUT_AOV",
+      "socket_or_prop": "input:Color"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputAOV",
+      "category": "shader_node",
+      "feature": "OUTPUT_AOV",
+      "socket_or_prop": "input:Value"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputLineStyle",
+      "category": "shader_node",
+      "feature": "OUTPUT_LINESTYLE",
+      "socket_or_prop": "input:Color"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputLineStyle",
+      "category": "shader_node",
+      "feature": "OUTPUT_LINESTYLE",
+      "socket_or_prop": "input:Color Fac"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputLineStyle",
+      "category": "shader_node",
+      "feature": "OUTPUT_LINESTYLE",
+      "socket_or_prop": "input:Alpha"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputLineStyle",
+      "category": "shader_node",
+      "feature": "OUTPUT_LINESTYLE",
+      "socket_or_prop": "input:Alpha Fac"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputLineStyle",
+      "category": "shader_node",
+      "feature": "OUTPUT_LINESTYLE",
+      "socket_or_prop": "prop:blend_type"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputLineStyle",
+      "category": "shader_node",
+      "feature": "OUTPUT_LINESTYLE",
+      "socket_or_prop": "prop:is_active_output"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputLineStyle",
+      "category": "shader_node",
+      "feature": "OUTPUT_LINESTYLE",
+      "socket_or_prop": "prop:target"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputLineStyle",
+      "category": "shader_node",
+      "feature": "OUTPUT_LINESTYLE",
+      "socket_or_prop": "prop:use_alpha"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputLineStyle",
+      "category": "shader_node",
+      "feature": "OUTPUT_LINESTYLE",
+      "socket_or_prop": "prop:use_clamp"
+    },
+    {
+      "bl_idname": "ShaderNodeUVAlongStroke",
+      "category": "shader_node",
+      "feature": "UVALONGSTROKE",
+      "socket_or_prop": "prop:use_tips"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "use_adaptive_sampling"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "adaptive_threshold"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "adaptive_min_samples"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "seed"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "sample_offset"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "film_exposure"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "filter_width"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "diffuse_bounces"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "glossy_bounces"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "transparent_max_bounces"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "transmission_bounces"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "volume_bounces"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "caustics_reflective"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "caustics_refractive"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "use_fast_gi"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
+      "socket_or_prop": "denoising_input_passes"
     }
   ],
   "textures_mapping": [

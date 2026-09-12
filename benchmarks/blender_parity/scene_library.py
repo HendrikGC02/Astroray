@@ -2330,6 +2330,443 @@ REFERENCE_WORLD_SKY_RES = (480, 270)
 REFERENCE_WORLD_SKY_SAMPLES = 128
 
 
+# --------------------------------------------------------------------------- #
+# pkg259 Phase 3 -- geometry_zoo + camera_lens + render_settings
+# --------------------------------------------------------------------------- #
+
+def build_geometry_zoo_scene(bpy):
+    """A "cabinet of curiosities" -- one establishing shot, six specimen
+    groups laid out left-to-right (the same single-render+crop pattern every
+    other family uses): collection instancing (incl. one negative-scale
+    copy), a live modifier stack, a smooth/flat/auto-smooth shading trio, a
+    small Curves (hair) object, a rigid motion-blur pair (blurred vs.
+    explicitly disabled -- single frame, sub-frame motion per the spec's
+    no-animation-sequences non-goal), and a volume cabinet (Principled
+    Volume / Volume Absorption / Volume Scatter, one cube each, backlit by a
+    plain wall so absorption/scattering/emission are independently legible).
+    Covers all 17 SUPPORTED/APPROXIMATED geometry_zoo matrix rows (5 Object
+    properties + 12 volume-node sockets); the other 30 DROPPED-SILENT rows
+    are the corpus README's gap registry -- one (Object.instance_collection)
+    gets a free in-scene gap card since the instancing content demonstrates
+    it directly at no extra cost.
+
+    Design doc Sec 1.5 "known matrix gap": ``coverage_matrix.json`` has no
+    scene-graph/object-property scanner category beyond the six Object rows
+    already allocated here, so this scene's non-volume content (instancing,
+    modifiers, shading, motion blur) is proven by the six rows the matrix
+    DOES track and is otherwise visual-only verification -- an open owner
+    question the design doc already recorded (Sec "Owner answers" Q1), not
+    re-litigated here."""
+    scene = _reset(bpy)
+    _add_world(bpy, scene, strength=0.12, color=(0.03, 0.03, 0.035))
+    tags = []
+    gap_tags = []
+    crop_rects = {}
+
+    def tag(bl, sock):
+        tags.append((bl, sock))
+
+    slots = [("INSTANCE", 2.6), ("MODIFIER", 2.2), ("SHADING", 3.4),
+             ("CURVES", 2.0), ("MOTION", 2.8), ("VOLUME", 3.2)]
+    layout, total_width = _layout_slots(slots, gap=0.5)
+
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0.0, 0.6, 0.0))
+    floor = bpy.context.active_object
+    floor.name = "ZooFloor"
+    floor.scale = (total_width / 2.0 + 1.0, 2.6, 1.0)
+    _apply_principled(bpy, floor, (0.30, 0.29, 0.27), roughness=0.85, name="ZooFloorMat")
+
+    key = _add_area_light(bpy, scene, energy=650.0, location=(-3.0, -3.5, 5.0))
+    key.data.size = 3.5
+    fill = bpy.data.lights.new("ZooFill", type="AREA")
+    fill.energy = 220.0
+    fill.size = 4.0
+    fill_obj = bpy.data.objects.new("ZooFill", fill)
+    scene.collection.objects.link(fill_obj)
+    fill_obj.location = (5.0, -3.0, 3.5)
+    fill_obj.rotation_euler = (math.radians(55.0), 0.0, math.radians(-30.0))
+
+    CAM_DIST = 13.5
+    cam = _add_pinned_camera(bpy, scene, (0.0, -CAM_DIST, 2.9), (0.0, 0.4, 0.85), lens=18.0)
+    cam.data.sensor_width = 36.0
+    fov_x = 2.0 * math.atan(cam.data.sensor_width / (2.0 * cam.data.lens))
+
+    def crop(name):
+        cx, hw = layout[name]
+        crop_rects[name] = _crop_rect(CAM_DIST, fov_x, cx - hw, cx + hw, y0=0.05, y1=0.85)
+
+    # --- INSTANCE: collection instancing, incl. one negative-scale copy --- #
+    cx, hw = layout["INSTANCE"]
+    proto_coll = bpy.data.collections.new("RockProto")
+    bpy.ops.mesh.primitive_ico_sphere_add(radius=0.22, subdivisions=2, location=(0.0, 0.0, 0.0))
+    proto = bpy.context.active_object
+    proto.name = "RockPrototype"
+    scene.collection.objects.unlink(proto)
+    proto_coll.objects.link(proto)
+    import random as _random
+    rng = _random.Random(2026)
+    for v in proto.data.vertices:
+        v.co.x += rng.uniform(-0.03, 0.03)
+        v.co.y += rng.uniform(-0.03, 0.03)
+        v.co.z += rng.uniform(-0.02, 0.05)
+    for poly in proto.data.polygons:
+        poly.use_smooth = False
+    _apply_principled(bpy, proto, (0.42, 0.40, 0.37), roughness=0.9, name="RockProtoMat")
+
+    n_inst = 5
+    for i in range(n_inst):
+        t = i / (n_inst - 1)
+        empty = bpy.data.objects.new(f"RockInst{i}", None)
+        empty.instance_type = "COLLECTION"
+        empty.instance_collection = proto_coll
+        empty.location = (cx - hw * 0.75 + t * hw * 1.5, 0.15 * math.sin(t * math.pi), 0.22)
+        empty.rotation_euler = (0.0, 0.0, t * 2.4)
+        scale = 0.8 + 0.5 * (1.0 - abs(t - 0.5) * 2.0)
+        empty.scale = (-scale, scale, scale) if i == n_inst - 1 else (scale, scale, scale)
+        scene.collection.objects.link(empty)
+    tag("", "instance_type")
+    gap_tags.append(("", "instance_collection"))
+    crop("INSTANCE")
+
+    # --- MODIFIER: live Subdivision + Bevel stack, not applied ------------ #
+    cx, hw = layout["MODIFIER"]
+    bpy.ops.mesh.primitive_cube_add(size=0.6, location=(cx, 0.0, 0.30))
+    mod_obj = bpy.context.active_object
+    mod_obj.name = "ModifierCube"
+    subsurf = mod_obj.modifiers.new("Subsurf", "SUBSURF")
+    subsurf.levels = 2
+    subsurf.render_levels = 2
+    bevel = mod_obj.modifiers.new("Bevel", "BEVEL")
+    bevel.width = 0.05
+    bevel.segments = 3
+    _apply_principled(bpy, mod_obj, (0.55, 0.58, 0.62), roughness=0.35, metallic=0.4,
+                       name="ModifierCubeMat")
+    tag("", "modifiers")
+    crop("MODIFIER")
+
+    # --- SHADING: flat / smooth / auto-smooth trio ------------------------ #
+    cx, hw = layout["SHADING"]
+    for mode, dx in (("FLAT", -1.0), ("SMOOTH", 0.0), ("AUTO", 1.0)):
+        x = cx + dx * hw * 0.55
+        bpy.ops.mesh.primitive_cylinder_add(vertices=8, radius=0.28, depth=0.55,
+                                             location=(x, 0.0, 0.30))
+        obj = bpy.context.active_object
+        obj.name = f"Shade{mode}"
+        if mode == "FLAT":
+            for poly in obj.data.polygons:
+                poly.use_smooth = False
+        elif mode == "SMOOTH":
+            for poly in obj.data.polygons:
+                poly.use_smooth = True
+        else:
+            bpy.ops.object.shade_auto_smooth(angle=math.radians(30.0))
+        _apply_principled(bpy, obj, (0.68, 0.42, 0.20), roughness=0.4, name=f"Shade{mode}Mat")
+    tag("", "split_normals")
+    crop("SHADING")
+
+    # --- CURVES: small hair patch on a scalp ball (Object.type == CURVES) - #
+    cx, hw = layout["CURVES"]
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.30, location=(cx, 0.0, 0.42),
+                                          segments=24, ring_count=12)
+    scalp = bpy.context.active_object
+    scalp.name = "ZooScalp"
+    for poly in scalp.data.polygons:
+        poly.use_smooth = True
+    _apply_principled(bpy, scalp, (0.58, 0.46, 0.38), roughness=0.6, name="ZooScalpMat")
+    curves_data = _build_hair_curves(bpy, scalp, scalp_radius=0.30, n_strands=180,
+                                      points_per_strand=6, seed=77)
+    hair_obj = bpy.data.objects.new("ZooHair", curves_data)
+    scene.collection.objects.link(hair_obj)
+    hmat = bpy.data.materials.new("ZooHairMat")
+    hmat.use_nodes = True
+    hnt = hmat.node_tree
+    _clear_nodes(hnt)
+    hout = hnt.nodes.new("ShaderNodeOutputMaterial")
+    hair_bsdf = hnt.nodes.new("ShaderNodeBsdfHairPrincipled")
+    _sock(hair_bsdf.inputs, "Color").default_value = (0.15, 0.09, 0.05, 1.0)
+    _sock(hair_bsdf.inputs, "Roughness").default_value = 0.3
+    hnt.links.new(_sock(hair_bsdf.outputs, "BSDF"), _sock(hout.inputs, "Surface"))
+    hair_obj.data.materials.append(hmat)
+    tag("", "type:CURVES")
+    crop("CURVES")
+
+    # --- MOTION: blurred vs. explicitly-disabled rotating vane ------------ #
+    cx, hw = layout["MOTION"]
+    scene.render.use_motion_blur = True
+    scene.render.motion_blur_shutter = 0.6
+    for name, dx, blur in (("VaneBlur", -0.6, True), ("VaneSharp", 0.6, False)):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(cx + dx * hw * 0.9, 0.0, 0.55))
+        vane = bpy.context.active_object
+        vane.name = name
+        vane.scale = (0.05, 0.55, 0.55)
+        vane.cycles.use_motion_blur = blur
+        vane.rotation_euler = (0.0, 0.0, math.radians(-25.0))
+        vane.keyframe_insert(data_path="rotation_euler", index=2, frame=0)
+        vane.rotation_euler = (0.0, 0.0, math.radians(25.0))
+        vane.keyframe_insert(data_path="rotation_euler", index=2, frame=2)
+        _apply_principled(bpy, vane, (0.75, 0.15, 0.12), roughness=0.4, name=f"{name}Mat")
+    scene.frame_set(1)
+    tag("", "use_motion_blur")
+    crop("MOTION")
+
+    # --- VOLUME: Principled / Absorption / Scatter, backlit --------------- #
+    cx, hw = layout["VOLUME"]
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(cx, 1.1, 0.9))
+    backdrop = bpy.context.active_object
+    backdrop.name = "VolumeBackdrop"
+    backdrop.rotation_euler = (math.radians(90.0), 0.0, 0.0)
+    backdrop.scale = (hw * 1.8, 1.0, 1.1)
+    _apply_solid_diffuse(bpy, backdrop, (0.85, 0.82, 0.72))
+    backlight = bpy.data.lights.new("VolumeBacklight", type="AREA")
+    backlight.energy = 900.0
+    backlight.size = hw * 2.0
+    backlight_obj = bpy.data.objects.new("VolumeBacklight", backlight)
+    scene.collection.objects.link(backlight_obj)
+    backlight_obj.location = (cx, 1.6, 0.9)
+    backlight_obj.rotation_euler = (math.radians(-90.0), 0.0, 0.0)
+
+    def volume_cube(name, dx, builder_fn):
+        bpy.ops.mesh.primitive_cube_add(size=0.55, location=(cx + dx * hw * 0.62, 0.35, 0.5))
+        obj = bpy.context.active_object
+        obj.name = name
+        mat, nt, out = _bare_material(bpy, f"{name}Mat")
+        builder_fn(nt, out)
+        obj.data.materials.append(mat)
+        return obj
+
+    def _principled_volume(nt, out):
+        node = nt.nodes.new("ShaderNodeVolumePrincipled")
+        _sock(node.inputs, "Color").default_value = (0.55, 0.70, 0.95, 1.0)
+        _sock(node.inputs, "Density").default_value = 3.0
+        _sock(node.inputs, "Anisotropy").default_value = 0.35
+        _sock(node.inputs, "Emission Strength").default_value = 1.4
+        _sock(node.inputs, "Emission Color").default_value = (1.0, 0.45, 0.10, 1.0)
+        _sock(node.inputs, "Blackbody Intensity").default_value = 0.8
+        _sock(node.inputs, "Temperature").default_value = 1400.0
+        nt.links.new(_sock(node.outputs, "Volume"), _sock(out.inputs, "Volume"))
+
+    def _absorption_volume(nt, out):
+        node = nt.nodes.new("ShaderNodeVolumeAbsorption")
+        _sock(node.inputs, "Color").default_value = (0.85, 0.25, 0.20, 1.0)
+        _sock(node.inputs, "Density").default_value = 5.0
+        nt.links.new(_sock(node.outputs, "Volume"), _sock(out.inputs, "Volume"))
+
+    def _scatter_volume(nt, out):
+        node = nt.nodes.new("ShaderNodeVolumeScatter")
+        _sock(node.inputs, "Color").default_value = (0.95, 0.96, 1.0, 1.0)
+        _sock(node.inputs, "Density").default_value = 4.0
+        _sock(node.inputs, "Anisotropy").default_value = 0.55
+        nt.links.new(_sock(node.outputs, "Volume"), _sock(out.inputs, "Volume"))
+
+    volume_cube("VolPrincipled", -1.0, _principled_volume)
+    volume_cube("VolAbsorption", 0.0, _absorption_volume)
+    volume_cube("VolScatter", 1.0, _scatter_volume)
+    for sock in ("Color", "Density", "Anisotropy", "Emission Strength", "Emission Color",
+                 "Blackbody Intensity", "Temperature"):
+        tag("ShaderNodeVolumePrincipled", f"input:{sock}")
+    for sock in ("Color", "Density"):
+        tag("ShaderNodeVolumeAbsorption", f"input:{sock}")
+    for sock in ("Color", "Density", "Anisotropy"):
+        tag("ShaderNodeVolumeScatter", f"input:{sock}")
+    crop("VOLUME")
+
+    return scene, tags, crop_rects, gap_tags
+
+
+REFERENCE_GEOMETRY_ZOO_RES = (960, 220)
+REFERENCE_GEOMETRY_ZOO_SAMPLES = 96
+
+
+def build_camera_lens_scene(bpy):
+    """One hero shot proving all 9 SUPPORTED camera_lens matrix rows: lens
+    length, sensor_width/height + an explicit sensor_fit, lens shift, and a
+    shallow-DoF sphere trio (aperture_fstop + focus_distance/focus_object --
+    focus_object takes precedence at Cycles render time, but focus_distance
+    is also written to a genuine non-default value since the two properties
+    co-exist independently on the datablock). Two cheap in-scene gap cards
+    for DROPPED-SILENT rows that need no extra render budget: a pentagonal
+    aperture_blades bokeh tell (small backlit specks well behind the focus
+    plane) and a near/far clip pair (a tiny prop inside clip_start, a
+    backdrop plane beyond clip_end) -- both should vanish in Cycles and, if
+    dropped, persist in Astroray.
+
+    camera `type` (orthographic/panoramic) and `ortho_scale` are NOT built
+    in-scene: a render has exactly one active camera, so demonstrating a
+    second camera TYPE needs either a second .blend (the `world_sky`
+    pattern) or a second render pass, and neither is required here since
+    `type`/`ortho_scale` are DROPPED-SILENT, not required rows --
+    registry-only, the same simplification precedent as materials_hall's
+    un-built Alcoves F/G."""
+    scene = _reset(bpy)
+    _add_world(bpy, scene, strength=0.05, color=(0.02, 0.02, 0.03))
+    tags = []
+    gap_tags = []
+
+    def tag(bl, sock):
+        tags.append((bl, sock))
+
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0.0, 1.0, 0.0))
+    floor = bpy.context.active_object
+    floor.name = "LensFloor"
+    floor.scale = (6.0, 8.0, 1.0)
+    _apply_principled(bpy, floor, (0.30, 0.30, 0.32), roughness=0.85, name="LensFloorMat")
+
+    # DoF trio: near / focus / far, spaced along the camera's view axis.
+    near = _small_sphere(bpy, -0.9, -0.4, 0.35, radius=0.32, name="LensNear")
+    _apply_principled(bpy, near, (0.75, 0.30, 0.20), roughness=0.5, name="LensNearMat")
+    focus_sphere = _small_sphere(bpy, 0.0, 1.2, 0.35, radius=0.32, name="LensFocus")
+    _apply_principled(bpy, focus_sphere, (0.30, 0.55, 0.75), roughness=0.5, name="LensFocusMat")
+    far = _small_sphere(bpy, 0.9, 2.8, 0.35, radius=0.32, name="LensFar")
+    _apply_principled(bpy, far, (0.35, 0.70, 0.35), roughness=0.5, name="LensFarMat")
+
+    # Bokeh specks: small bright emitters well behind the focus plane so a
+    # non-circular aperture shows as a visibly pentagonal (not round) blur.
+    for i, x in enumerate((-0.6, 0.0, 0.6)):
+        bpy.ops.mesh.primitive_uv_sphere_add(radius=0.06, location=(x, 4.2, 1.1),
+                                              segments=12, ring_count=8)
+        speck = bpy.context.active_object
+        speck.name = f"BokehSpeck{i}"
+        _emission_card_material(bpy, f"BokehSpeck{i}Mat", strength=25.0)
+        speck.data.materials.append(bpy.data.materials[f"BokehSpeck{i}Mat"])
+
+    # Near-clip prop (inside clip_start) and far-clip backdrop (beyond clip_end).
+    # Centred on the camera's view axis (x=0) rather than off to the side --
+    # this close to the lens (well inside clip_start), _crop_rect's single
+    # fixed-plane-distance pinhole approximation cannot place an off-axis
+    # object's screen X reliably, so keep it on-axis and use a generous
+    # centred crop band instead of a tight one.
+    bpy.ops.mesh.primitive_cube_add(size=0.08, location=(0.0, -1.85, 0.6))
+    near_clip_prop = bpy.context.active_object
+    near_clip_prop.name = "NearClipProp"
+    _apply_principled(bpy, near_clip_prop, (0.9, 0.9, 0.2), roughness=0.5, name="NearClipMat")
+
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0.0, 9.0, 1.5))
+    far_backdrop = bpy.context.active_object
+    far_backdrop.name = "FarClipBackdrop"
+    far_backdrop.rotation_euler = (math.radians(90.0), 0.0, 0.0)
+    far_backdrop.scale = (4.0, 1.0, 3.0)
+    _apply_principled(bpy, far_backdrop, (0.9, 0.35, 0.75), roughness=0.7, name="FarClipMat")
+
+    key = _add_area_light(bpy, scene, energy=500.0, location=(-2.0, -2.0, 4.0))
+    key.data.size = 3.0
+
+    CAM_DIST = 2.0
+    cam = _add_pinned_camera(bpy, scene, (0.0, -CAM_DIST, 0.9), (0.0, 1.2, 0.5), lens=50.0)
+    cam.data.sensor_width = 36.0
+    cam.data.sensor_height = 20.0
+    cam.data.sensor_fit = "HORIZONTAL"
+    cam.data.shift_x = 0.05
+    cam.data.shift_y = -0.03
+    cam.data.clip_start = 0.5
+    cam.data.clip_end = 8.0
+    cam.data.dof.use_dof = True
+    cam.data.dof.aperture_fstop = 1.2
+    cam.data.dof.aperture_blades = 5
+    cam.data.dof.focus_distance = 4.0
+    cam.data.dof.focus_object = focus_sphere
+
+    for sock in ("lens", "sensor_width", "sensor_height", "shift_x", "shift_y", "sensor_fit"):
+        tag("", sock)
+    tag("", "aperture_fstop")
+    tag("", "focus_distance")
+    tag("", "focus_object")
+    gap_tags.append(("", "aperture_blades"))
+    gap_tags.append(("", "clip_start"))
+    gap_tags.append(("", "clip_end"))
+
+    fov_x = 2.0 * math.atan(cam.data.sensor_width / (2.0 * cam.data.lens))
+    crop_rects = {
+        "subject": _crop_rect(CAM_DIST, fov_x, -1.4, 1.4, y0=0.15, y1=0.95),
+        "clip_near": _crop_rect(CAM_DIST, fov_x, -0.9, 0.9, y0=0.55, y1=0.90),
+        "clip_far": _crop_rect(CAM_DIST, fov_x, -1.8, 1.8, y0=0.0, y1=0.35),
+    }
+    return scene, tags, crop_rects, gap_tags
+
+
+REFERENCE_CAMERA_LENS_RES = (640, 400)
+REFERENCE_CAMERA_LENS_SAMPLES = 192
+
+
+def build_render_settings_scene(bpy):
+    """A small hero shot proving all 4 SUPPORTED render_settings matrix rows
+    (RenderSettings.samples/film_transparent/use_denoising/denoiser) by
+    authoring non-default scene state. ``render_leg.py``'s
+    ``_configure_render`` (used for this corpus's own Cycles-vs-Astroray
+    comparison renders) normalises samples/denoising/adaptive-sampling for a
+    fair per-engine comparison -- exactly the same normalisation it already
+    applies to every OTHER corpus scene's ``cycles.use_denoising``/
+    ``use_adaptive_sampling``, so these 4 rows are proven by scene authorship
+    (checked by ``build_corpus.py``'s manifest-vs-matrix join) rather than by
+    a visible pixel difference in this corpus's own contact sheet -- not a
+    new limitation. One cheap gap card IS visible there: an opposed-mirror
+    pair with ``cycles.max_bounces`` capped low enough that Cycles shows only
+    a couple of reflections; if Astroray ignores the cap the same mirrors
+    show visibly more (or effectively infinite) reflections --
+    ``render_leg.py`` never touches bounce-count settings, so this one is not
+    normalised away."""
+    scene = _reset(bpy)
+    _add_world(bpy, scene, strength=0.08, color=(0.03, 0.03, 0.04))
+    tags = []
+    gap_tags = []
+
+    def tag(bl, sock):
+        tags.append((bl, sock))
+
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0.0, 0.6, 0.0))
+    floor = bpy.context.active_object
+    floor.name = "SettingsFloor"
+    floor.scale = (4.0, 3.0, 1.0)
+    _apply_principled(bpy, floor, (0.28, 0.28, 0.30), roughness=0.8, name="SettingsFloorMat")
+
+    hero = _small_sphere(bpy, -0.6, 0.4, 0.4, radius=0.4, name="SettingsHero")
+    _apply_principled(bpy, hero, (0.75, 0.25, 0.20), roughness=0.35, name="SettingsHeroMat")
+    bpy.ops.mesh.primitive_cube_add(size=0.55, location=(0.5, 0.7, 0.275))
+    cube = bpy.context.active_object
+    cube.name = "SettingsCube"
+    _apply_principled(bpy, cube, (0.30, 0.55, 0.30), roughness=0.5, name="SettingsCubeMat")
+
+    key = _add_area_light(bpy, scene, energy=350.0, location=(-1.5, -1.5, 3.0))
+    key.data.size = 2.5
+
+    # Bounce-limit gap card: two facing mirrors near the hero shot.
+    for x, rot in ((-2.2, 0.0), (2.2, 180.0)):
+        bpy.ops.mesh.primitive_plane_add(size=1.4, location=(x, 0.5, 0.7))
+        mirror = bpy.context.active_object
+        mirror.name = f"Mirror{'L' if x < 0 else 'R'}"
+        mirror.rotation_euler = (math.radians(90.0), 0.0, math.radians(rot))
+        mat, nt, out = _bare_material(bpy, f"{mirror.name}Mat")
+        glossy = nt.nodes.new("ShaderNodeBsdfAnisotropic")
+        _sock(glossy.inputs, "Color").default_value = (0.92, 0.92, 0.94, 1.0)
+        _sock(glossy.inputs, "Roughness").default_value = 0.02
+        nt.links.new(_sock(glossy.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+        mirror.data.materials.append(mat)
+
+    scene.cycles.samples = 128
+    scene.render.film_transparent = True
+    scene.cycles.use_denoising = True
+    scene.cycles.denoiser = "OPENIMAGEDENOISE"
+    scene.cycles.max_bounces = 2
+
+    tag("", "samples")
+    tag("", "film_transparent")
+    tag("", "use_denoising")
+    tag("", "denoiser")
+    gap_tags.append(("", "max_bounces"))
+
+    CAM_DIST = 4.5
+    cam = _add_pinned_camera(bpy, scene, (0.0, -CAM_DIST, 1.4), (0.0, 0.5, 0.5), lens=35.0)
+    cam.data.sensor_width = 36.0
+    fov_x = 2.0 * math.atan(cam.data.sensor_width / (2.0 * cam.data.lens))
+    crop_rects = {
+        "hero": _crop_rect(CAM_DIST, fov_x, -1.3, 1.3, y0=0.10, y1=0.95),
+    }
+    return scene, tags, crop_rects, gap_tags
+
+
+REFERENCE_RENDER_SETTINGS_RES = (640, 360)
+REFERENCE_RENDER_SETTINGS_SAMPLES = 128
+
+
 REFERENCE_SCENES = {
     "cornell_interior": dict(
         builder=build_cornell_interior_scene,

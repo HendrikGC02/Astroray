@@ -1844,6 +1844,456 @@
           0.85
         ]
       }
+    },
+    "geometry_zoo": {
+      "family": "geometry_zoo",
+      "builder_fn": "build_geometry_zoo_scene",
+      "blend_path": "benchmarks/reference_corpus/scenes/geometry_zoo.blend",
+      "sha256": "84fe99a5ad2af0055d904c3a42d52b3b96072ae8e167817c9f2df1659968d7f5",
+      "settings": {
+        "res_x": 960,
+        "res_y": 220,
+        "samples": 96,
+        "saved_default_engine": "CYCLES"
+      },
+      "reopen_verified": true,
+      "triangle_count": 688,
+      "curve_count": 180,
+      "curve_point_count": 1080,
+      "object_counts": {
+        "MESH": 12,
+        "LIGHT": 3,
+        "CAMERA": 1,
+        "EMPTY": 5,
+        "CURVES": 1
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfDiffuse",
+        "ShaderNodeBsdfHairPrincipled",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeEmission",
+        "ShaderNodeOutputLight",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeVolumeAbsorption",
+        "ShaderNodeVolumePrincipled",
+        "ShaderNodeVolumeScatter"
+      ],
+      "feature_tags": [
+        {
+          "category": "shader_node",
+          "feature": "VOLUME_ABSORPTION",
+          "bl_idname": "ShaderNodeVolumeAbsorption",
+          "socket_or_prop": "input:Color",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "VOLUME_ABSORPTION",
+          "bl_idname": "ShaderNodeVolumeAbsorption",
+          "socket_or_prop": "input:Density",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "PRINCIPLED_VOLUME",
+          "bl_idname": "ShaderNodeVolumePrincipled",
+          "socket_or_prop": "input:Color",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "PRINCIPLED_VOLUME",
+          "bl_idname": "ShaderNodeVolumePrincipled",
+          "socket_or_prop": "input:Density",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "PRINCIPLED_VOLUME",
+          "bl_idname": "ShaderNodeVolumePrincipled",
+          "socket_or_prop": "input:Anisotropy",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "PRINCIPLED_VOLUME",
+          "bl_idname": "ShaderNodeVolumePrincipled",
+          "socket_or_prop": "input:Emission Strength",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "PRINCIPLED_VOLUME",
+          "bl_idname": "ShaderNodeVolumePrincipled",
+          "socket_or_prop": "input:Emission Color",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "PRINCIPLED_VOLUME",
+          "bl_idname": "ShaderNodeVolumePrincipled",
+          "socket_or_prop": "input:Blackbody Intensity",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "PRINCIPLED_VOLUME",
+          "bl_idname": "ShaderNodeVolumePrincipled",
+          "socket_or_prop": "input:Temperature",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "VOLUME_SCATTER",
+          "bl_idname": "ShaderNodeVolumeScatter",
+          "socket_or_prop": "input:Color",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "VOLUME_SCATTER",
+          "bl_idname": "ShaderNodeVolumeScatter",
+          "socket_or_prop": "input:Density",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "VOLUME_SCATTER",
+          "bl_idname": "ShaderNodeVolumeScatter",
+          "socket_or_prop": "input:Anisotropy",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "object",
+          "feature": "Object",
+          "bl_idname": "",
+          "socket_or_prop": "instance_type",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "object",
+          "feature": "Object",
+          "bl_idname": "",
+          "socket_or_prop": "instance_collection",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "object",
+          "feature": "Object",
+          "bl_idname": "",
+          "socket_or_prop": "modifiers",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "object",
+          "feature": "Object",
+          "bl_idname": "",
+          "socket_or_prop": "use_motion_blur",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "object",
+          "feature": "Object",
+          "bl_idname": "",
+          "socket_or_prop": "split_normals",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "object",
+          "feature": "Object",
+          "bl_idname": "",
+          "socket_or_prop": "type:CURVES",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        }
+      ],
+      "assets": [],
+      "crops": {
+        "INSTANCE": [
+          0.1537,
+          0.05,
+          0.25,
+          0.85
+        ],
+        "MODIFIER": [
+          0.2685,
+          0.05,
+          0.35,
+          0.85
+        ],
+        "SHADING": [
+          0.3685,
+          0.05,
+          0.4944,
+          0.85
+        ],
+        "CURVES": [
+          0.513,
+          0.05,
+          0.587,
+          0.85
+        ],
+        "MOTION": [
+          0.6056,
+          0.05,
+          0.7093,
+          0.85
+        ],
+        "VOLUME": [
+          0.7278,
+          0.05,
+          0.8463,
+          0.85
+        ]
+      }
+    },
+    "camera_lens": {
+      "family": "camera_lens",
+      "builder_fn": "build_camera_lens_scene",
+      "blend_path": "benchmarks/reference_corpus/scenes/camera_lens.blend",
+      "sha256": "0e07530e70fdbc813a0e69e7ea59ed29fd163721813de63e6c5775ed3a074a7b",
+      "settings": {
+        "res_x": 640,
+        "res_y": 400,
+        "samples": 192,
+        "saved_default_engine": "CYCLES"
+      },
+      "reopen_verified": true,
+      "triangle_count": 2104,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "MESH": 9,
+        "LIGHT": 1,
+        "CAMERA": 1
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeEmission",
+        "ShaderNodeOutputLight",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld"
+      ],
+      "feature_tags": [
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "lens",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "sensor_width",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "sensor_height",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "shift_x",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "shift_y",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "aperture_fstop",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "aperture_blades",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "clip_start",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "clip_end",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "focus_distance",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "focus_object",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "sensor_fit",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        }
+      ],
+      "assets": [],
+      "crops": {
+        "subject": [
+          0.0,
+          0.15,
+          1.0,
+          0.95
+        ],
+        "clip_near": [
+          0.0,
+          0.55,
+          1.0,
+          0.9
+        ],
+        "clip_far": [
+          0.0,
+          0.0,
+          1.0,
+          0.35
+        ]
+      }
+    },
+    "render_settings": {
+      "family": "render_settings",
+      "builder_fn": "build_render_settings_scene",
+      "blend_path": "benchmarks/reference_corpus/scenes/render_settings.blend",
+      "sha256": "dad996d592af4d29229cbe8a0f1921fd8c2f09d5a2810b3a84177836dab7fd82",
+      "settings": {
+        "res_x": 640,
+        "res_y": 360,
+        "samples": 128,
+        "saved_default_engine": "CYCLES"
+      },
+      "reopen_verified": true,
+      "triangle_count": 546,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "MESH": 5,
+        "LIGHT": 1,
+        "CAMERA": 1
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfAnisotropic",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeEmission",
+        "ShaderNodeOutputLight",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld"
+      ],
+      "feature_tags": [
+        {
+          "category": "render_settings",
+          "feature": "RenderSettings",
+          "bl_idname": "",
+          "socket_or_prop": "samples",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "render_settings",
+          "feature": "RenderSettings",
+          "bl_idname": "",
+          "socket_or_prop": "film_transparent",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "render_settings",
+          "feature": "RenderSettings",
+          "bl_idname": "",
+          "socket_or_prop": "max_bounces",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "render_settings",
+          "feature": "RenderSettings",
+          "bl_idname": "",
+          "socket_or_prop": "use_denoising",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "render_settings",
+          "feature": "RenderSettings",
+          "bl_idname": "",
+          "socket_or_prop": "denoiser",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        }
+      ],
+      "assets": [],
+      "crops": {
+        "hero": [
+          0.2191,
+          0.1,
+          0.7809,
+          0.95
+        ]
+      }
     }
   }
 }

@@ -1962,6 +1962,62 @@ public:
         renderer.setWorldVolume(density, Vec3(color[0], color[1], color[2]), anisotropy, scatter);
     }
 
+    // pkg268 — bounded object media registration (exporter / tests).
+    void clearGridMedia() { renderer.clearGridMedia(); }
+
+    // Heterogeneous grid medium from a dense numpy density + transforms +
+    // Principled Volume basics.
+    void setVolumeGrid(const std::string& /*name*/,
+                       py::array_t<float, py::array::c_style | py::array::forcecast> density,
+                       std::array<int, 3> bbox_min,
+                       std::array<float, 16> index_to_object,
+                       std::array<float, 16> object_to_world,
+                       float density_scale, std::array<float, 3> color,
+                       std::array<float, 3> absorption_color, float anisotropy,
+                       py::object temperature) {
+        auto buf = density.request();
+        if (buf.ndim != 3)
+            throw std::runtime_error("density must be a 3D array (nz, ny, nx)");
+        astroray::volume::DenseGrid g;
+        g.dim[0] = int(buf.shape[2]); g.dim[1] = int(buf.shape[1]); g.dim[2] = int(buf.shape[0]);
+        g.bboxMin[0] = bbox_min[0]; g.bboxMin[1] = bbox_min[1]; g.bboxMin[2] = bbox_min[2];
+        const float* p = static_cast<const float*>(buf.ptr);
+        g.data.assign(p, p + size_t(g.dim[0]) * g.dim[1] * g.dim[2]);
+        auto gm = std::make_unique<astroray::volume::GridMedium>();
+        gm->setDensity(g, index_to_object, object_to_world);
+        if (!temperature.is_none()) {
+            auto tarr = temperature.cast<py::array_t<float, py::array::c_style | py::array::forcecast>>();
+            auto tb = tarr.request();
+            if (tb.ndim == 3) {
+                astroray::volume::DenseGrid tg;
+                tg.dim[0] = int(tb.shape[2]); tg.dim[1] = int(tb.shape[1]); tg.dim[2] = int(tb.shape[0]);
+                tg.bboxMin[0] = bbox_min[0]; tg.bboxMin[1] = bbox_min[1]; tg.bboxMin[2] = bbox_min[2];
+                const float* tp = static_cast<const float*>(tb.ptr);
+                tg.data.assign(tp, tp + size_t(tg.dim[0]) * tg.dim[1] * tg.dim[2]);
+                gm->setTemperature(tg);
+            }
+        }
+        astroray::volume::PrincipledVolume pv;
+        pv.density = density_scale;
+        pv.color = color;
+        pv.absorptionColor = absorption_color;
+        pv.anisotropy = anisotropy;
+        renderer.addGridMedium(std::move(gm), pv);
+    }
+
+    // Homogeneous bounded medium (the #807 cabinet cubes, the slab furnace).
+    void addHomogeneousMedium(std::array<float, 3> aabb_min, std::array<float, 3> aabb_max,
+                              float density_scale, std::array<float, 3> color,
+                              std::array<float, 3> absorption_color, float anisotropy) {
+        astroray::volume::PrincipledVolume pv;
+        pv.density = density_scale;
+        pv.color = color;
+        pv.absorptionColor = absorption_color;
+        pv.anisotropy = anisotropy;
+        renderer.addHomogeneousMedium(Vec3(aabb_min[0], aabb_min[1], aabb_min[2]),
+                                      Vec3(aabb_max[0], aabb_max[1], aabb_max[2]), pv);
+    }
+
     void setGuiding(bool use) {
         renderer.setGuiding(use);
     }
@@ -3515,6 +3571,23 @@ PYBIND11_MODULE(astroray, m) {
         .def("clear_render_region", &PyRenderer::clearRenderRegion)
         .def("set_world_volume", &PyRenderer::setWorldVolume,
              "density"_a, "color"_a, "anisotropy"_a = 0.0f, "scatter"_a = 0.0f)
+        // pkg268 — bounded object media.
+        .def("clear_grid_media", &PyRenderer::clearGridMedia,
+             "pkg268 — drop all registered bounded media (call before re-export).")
+        .def("set_volume_grid", &PyRenderer::setVolumeGrid,
+             "name"_a, "density"_a, "bbox_min"_a, "index_to_object"_a,
+             "object_to_world"_a, "density_scale"_a = 1.0f,
+             "color"_a = std::array<float, 3>{0.8f, 0.8f, 0.8f},
+             "absorption_color"_a = std::array<float, 3>{1.0f, 1.0f, 1.0f},
+             "anisotropy"_a = 0.0f, "temperature"_a = py::none(),
+             "pkg268 — register a heterogeneous GridMedium (NanoVDB) with "
+             "Principled Volume basics for the spectral integrator.")
+        .def("add_homogeneous_medium", &PyRenderer::addHomogeneousMedium,
+             "aabb_min"_a, "aabb_max"_a, "density_scale"_a = 1.0f,
+             "color"_a = std::array<float, 3>{0.8f, 0.8f, 0.8f},
+             "absorption_color"_a = std::array<float, 3>{1.0f, 1.0f, 1.0f},
+             "anisotropy"_a = 0.0f,
+             "pkg268 — register a bounded homogeneous medium (constant σ_t).")
         .def("set_guiding", &PyRenderer::setGuiding, "use"_a,
              "pkg136 — enable CPU SD-tree path guiding (off = byte-identical).")
         .def("set_guiding_params", &PyRenderer::setGuidingParams,
@@ -5537,5 +5610,111 @@ PYBIND11_MODULE(astroray, m) {
             }, "x"_a, "y"_a, "z"_a)
             .def("has_temperature", &GridMedium::hasTemperature)
             .def("temperature_index", &GridMedium::temperatureIndex, "ix"_a, "iy"_a, "iz"_a);
+    }
+
+    // -----------------------------------------------------------------------
+    // pkg268 — test-facing Monte-Carlo estimators over a GridMedium, gating the
+    // delta/ratio-tracking + equiangular primitives in volume_transport.h
+    // against the numpy brute-force reference (tests/volume_reference.py).
+    // Scalar σ_t (pkg268 scope); single-scatter returns RGB directly.
+    // -----------------------------------------------------------------------
+    {
+        using astroray::volume::GridMedium;
+        using astroray::volume::BoundedMedium;
+        auto makeMedium = [](GridMedium& g, float extinction) {
+            BoundedMedium m;
+            m.heterogeneous = true;
+            m.grid = &g;
+            auto aabb = g.worldAABB();
+            for (int a = 0; a < 3; ++a) { m.aabbMin[a] = aabb[a]; m.aabbMax[a] = aabb[3 + a]; }
+            m.extinction = extinction;
+            m.maxDensity = std::max(1e-6f, g.majorant().globalMax());
+            return m;
+        };
+
+        m.def("volume_transmittance_estimate",
+              [makeMedium](GridMedium& g, std::array<float, 3> o, std::array<float, 3> d,
+                           float extinction, int n_samples, uint32_t seed) {
+                  BoundedMedium med = makeMedium(g, extinction);
+                  Vec3 O(o[0], o[1], o[2]);
+                  Vec3 D = Vec3(d[0], d[1], d[2]).normalized();
+                  float t0, t1;
+                  if (!astroray::volume::intersectAABB(O, D, med.aabbMin, med.aabbMax,
+                                                       1e-4f, 1e9f, t0, t1))
+                      return 1.0;
+                  std::mt19937 gen(seed);
+                  double acc = 0.0;
+                  for (int i = 0; i < n_samples; ++i)
+                      acc += astroray::volume::ratioTrackingTransmittance(med, O, D, t0, t1, gen);
+                  return acc / std::max(1, n_samples);
+              },
+              "grid"_a, "origin"_a, "direction"_a, "extinction"_a,
+              "n_samples"_a, "seed"_a,
+              "pkg268 — mean ratio-tracking transmittance through a GridMedium "
+              "along a world ray (Novák 2014). Seed-deterministic.");
+
+        m.def("volume_single_scatter_estimate",
+              [makeMedium](GridMedium& g, std::array<float, 3> o, std::array<float, 3> d,
+                           float extinction, std::array<float, 3> albedo,
+                           float gHG, std::array<float, 3> light_pos,
+                           std::array<float, 3> light_rgb, int n_samples, uint32_t seed) {
+                  BoundedMedium med = makeMedium(g, extinction);
+                  Vec3 O(o[0], o[1], o[2]);
+                  Vec3 D = Vec3(d[0], d[1], d[2]).normalized();
+                  Vec3 L(light_pos[0], light_pos[1], light_pos[2]);
+                  float t0, t1;
+                  if (!astroray::volume::intersectAABB(O, D, med.aabbMin, med.aabbMax,
+                                                       1e-4f, 1e9f, t0, t1))
+                      return py::make_tuple(0.0, 0.0, 0.0);
+                  std::mt19937 gen(seed);
+                  std::uniform_real_distribution<float> u(0.0f, 1.0f);
+                  float sigBar = med.majorant();
+                  double out[3] = {0, 0, 0};
+                  // integrand: Tr(0->t)·σ_s·phase·Tr(t->L)·L/dist²  (RGB)
+                  auto fEval = [&](float t, double* f) {
+                      Vec3 x = O + D * t;
+                      float sigt = med.sigmaT(x);
+                      float trCam = astroray::volume::ratioTrackingTransmittance(med, O, D, t0, t, gen);
+                      Vec3 toL = L - x;
+                      float dist = toL.length();
+                      Vec3 wl = toL / std::max(dist, 1e-6f);
+                      float s0, s1, trL = 1.0f;
+                      if (astroray::volume::intersectAABB(x, wl, med.aabbMin, med.aabbMax,
+                                                          1e-3f, dist, s0, s1))
+                          trL = astroray::volume::ratioTrackingTransmittance(med, x, wl, s0, s1, gen);
+                      float ph = astroray::volume::phaseHG((-D).dot(wl), gHG);
+                      float geom = 1.0f / std::max(dist * dist, 1e-8f);
+                      for (int c = 0; c < 3; ++c)
+                          f[c] = trCam * (sigt * albedo[c]) * ph * trL * light_rgb[c] * geom;
+                  };
+                  for (int i = 0; i < n_samples; ++i) {
+                      // --- equiangular strategy (Kulla & Fajardo 2012) ---
+                      astroray::volume::EquiangularSample eq =
+                          astroray::volume::equiangularSample(O, D, L, t0, t1, u(gen));
+                      if (eq.pdf > 0.0f && eq.t > t0 && eq.t < t1) {
+                          double f[3]; fEval(eq.t, f);
+                          float pdfDist = sigBar * std::exp(-sigBar * (eq.t - t0));
+                          float w = eq.pdf / (eq.pdf + pdfDist + 1e-20f);
+                          for (int c = 0; c < 3; ++c) out[c] += f[c] / eq.pdf * w;
+                      }
+                      // --- distance strategy (majorant exponential) + MIS ---
+                      float ud = u(gen);
+                      float td = t0 - std::log(std::max(1e-20f, 1.0f - ud)) / sigBar;
+                      if (td < t1) {
+                          double f[3]; fEval(td, f);
+                          float pdfDist = sigBar * std::exp(-sigBar * (td - t0));
+                          float pdfEq = astroray::volume::equiangularPdf(O, D, L, t0, t1, td);
+                          float w = pdfDist / (pdfDist + pdfEq + 1e-20f);
+                          for (int c = 0; c < 3; ++c) out[c] += f[c] / pdfDist * w;
+                      }
+                  }
+                  double inv = 1.0 / std::max(1, n_samples);
+                  return py::make_tuple(out[0] * inv, out[1] * inv, out[2] * inv);
+              },
+              "grid"_a, "origin"_a, "direction"_a, "extinction"_a, "albedo"_a,
+              "anisotropy"_a, "light_pos"_a, "light_rgb"_a, "n_samples"_a, "seed"_a,
+              "pkg268 — single-scatter in-scatter radiance (RGB) for a point light, "
+              "equiangular+distance MIS (Kulla & Fajardo 2012) with ratio-tracking "
+              "transmittance. Seed-deterministic. Gated vs the numpy ray-march.");
     }
 }

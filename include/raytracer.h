@@ -430,6 +430,11 @@ public:
     Vec3 centroid() const { return (min + max) * 0.5f; }
 };
 
+// pkg268 — bounded volume transport (needs Vec3/AABB above + spectrum.h).
+// phase.h / volume_transport.h assume Vec3 is defined; include them here.
+#include "astroray/volume/principled_volume.h"
+#include "astroray/volume/volume_transport.h"
+
 // Include EmissionSpectrum BEFORE Light to resolve circular dependency (pkg89).
 // emission_spectrum.h needs Vec3 (defined above), and light.h needs EmissionSpectrum.
 #include "astroray/emission_spectrum.h"
@@ -2427,6 +2432,13 @@ class Renderer {
     // Stage-1 Beer-Lambert absorption path, byte-identical, same RNG stream).
     // α>0 turns on HG in-scatter / god-rays and makes worldVolumeAnisotropy live.
     float worldVolumeScatter = 0.0f;
+    // pkg268 — bounded object media (heterogeneous GridMedium or homogeneous
+    // constant). gridStore_ owns the GridMedium objects; gridMedia_ holds the
+    // BoundedMedium views the integrator reads (pointing into gridStore_). These
+    // supersede the legacy ConstantMedium in the spectral path (ConstantMedium is
+    // deprecated but not deleted — research note §1b).
+    std::vector<std::unique_ptr<astroray::volume::GridMedium>> gridStore_;
+    std::vector<astroray::volume::BoundedMedium> gridMedia_;
     // pkg136 — SD-tree path guiding (CPU Stage 1). Off by default → the render
     // path is byte-identical to pre-pkg136. When enabled, Renderer::render()
     // prepends learn-then-sample training passes that build `guideSampling_`, then
@@ -2774,6 +2786,42 @@ public:
     int getMaxDiffuseBounces() const { return maxDiffuseBounces; }
     int getMaxGlossyBounces() const { return maxGlossyBounces; }
     int getMaxTransmissionBounces() const { return maxTransmissionBounces; }
+    // pkg268 — register bounded object media. Clear before a re-export.
+    void clearGridMedia() { gridMedia_.clear(); gridStore_.clear(); }
+    // Heterogeneous: takes ownership of a built GridMedium + Principled Volume
+    // basics. AABB / density majorant are read from the grid.
+    void addGridMedium(std::unique_ptr<astroray::volume::GridMedium> g,
+                       const astroray::volume::PrincipledVolume& pv) {
+        if (!g || !g->valid()) return;
+        astroray::volume::BoundedMedium m;
+        m.heterogeneous = true;
+        auto aabb = g->worldAABB();
+        for (int a = 0; a < 3; ++a) { m.aabbMin[a] = aabb[a]; m.aabbMax[a] = aabb[3 + a]; }
+        m.extinction = std::max(0.0f, pv.density);
+        m.maxDensity = std::max(1e-6f, g->majorant().globalMax());
+        m.g = std::clamp(pv.anisotropy, -0.99f, 0.99f);
+        m.albedo = pv.scatteringAlbedo();
+        m.grid = g.get();
+        gridStore_.push_back(std::move(g));
+        gridMedia_.push_back(m);
+    }
+    // Homogeneous: a bounded AABB of constant σ_t = density (the #807 cabinet's
+    // Principled/Absorption/Scatter cubes, and the slab furnace).
+    void addHomogeneousMedium(const Vec3& aabbMin, const Vec3& aabbMax,
+                              const astroray::volume::PrincipledVolume& pv) {
+        astroray::volume::BoundedMedium m;
+        m.heterogeneous = false;
+        m.grid = nullptr;
+        m.aabbMin[0] = aabbMin.x; m.aabbMin[1] = aabbMin.y; m.aabbMin[2] = aabbMin.z;
+        m.aabbMax[0] = aabbMax.x; m.aabbMax[1] = aabbMax.y; m.aabbMax[2] = aabbMax.z;
+        m.extinction = std::max(0.0f, pv.density);
+        m.maxDensity = 1.0f;
+        m.g = std::clamp(pv.anisotropy, -0.99f, 0.99f);
+        m.albedo = pv.scatteringAlbedo();
+        gridMedia_.push_back(m);
+    }
+    const std::vector<astroray::volume::BoundedMedium>& gridMedia() const { return gridMedia_; }
+
     void setWorldVolume(float density, const Vec3& color, float anisotropy = 0.0f,
                         float scatter = 0.0f) {
         worldVolumeDensity = std::max(0.0f, density);
@@ -3064,6 +3112,97 @@ public:
             lastBounce = bounce;
             HitRecord rec;
             bool didHit = bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec);
+
+            // pkg268 — bounded grid/homogeneous medium free flight (delta/Woodcock
+            // tracking). Mirrors the world-volume mediumScatters block below but for
+            // object-bounded media registered via addGridMedium/addHomogeneousMedium.
+            // Scalar σ_t (pkg268 scope — colour is the scattering albedo); free
+            // flight + ratio-tracking NEE from volume_transport.h (Woodcock 1965 /
+            // Novák 2014, cited). A real collision with albedo→0 kills the path =
+            // pure absorption (Beer–Lambert transmittance in expectation); a
+            // pass-through applies no Tr multiply (delta-track survival IS the
+            // transmittance).
+            if (!gridMedia_.empty()) {
+                Vec3 dUnit = ray.direction.normalized();
+                float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
+                int mi = -1;
+                float mEnter = surfaceT, mExit = surfaceT, bestEnter = surfaceT;
+                for (size_t k = 0; k < gridMedia_.size(); ++k) {
+                    float t0, t1;
+                    if (astroray::volume::intersectAABB(ray.origin, dUnit,
+                            gridMedia_[k].aabbMin, gridMedia_[k].aabbMax,
+                            0.001f, surfaceT, t0, t1)) {
+                        if (t0 < bestEnter) { bestEnter = t0; mi = (int)k; mEnter = t0; mExit = t1; }
+                    }
+                }
+                if (mi >= 0) {
+                    const astroray::volume::BoundedMedium& med = gridMedia_[mi];
+                    astroray::volume::FreeFlight ff =
+                        astroray::volume::deltaTrack(med, ray.origin, dUnit, mEnter, mExit, gen);
+                    if (ff.scattered) {
+                        Vec3 P = ray.origin + dUnit * ff.t;
+                        Vec3 woMedium = -dUnit;
+                        // throughput *= single-scattering albedo (σ_s/σ_t).
+                        throughput *= med.albedo.sample(lambdas);
+                        bool firstInteraction = (firstCat < 0);
+                        int volPass = firstInteraction ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT;
+                        if (firstInteraction) firstCat = 3;
+                        // --- Medium NEE: light/phase MIS, ratio-tracking transmittance
+                        //     through every medium on the shadow segment (Novák 2014) ---
+                        if (!lights.empty()) {
+                            LightSample ls;
+                            lights.sample(ls, P, Vec3(0.0f), lambdas, gen);
+                            if (ls.pdf > 0.0f) {
+                                Vec3 wi = (ls.position - P).normalized();
+                                float shadowTr = shadowTransmittance(*bvh, Ray(P, wi, ray.time),
+                                                                     ls.distance);
+                                if (shadowTr > 0.0f) {
+                                    float ph = astroray::volume::phaseHG(woMedium.dot(wi), med.g);
+                                    float a = ls.pdf, b = ph;
+                                    float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
+                                    float medTr = 1.0f;
+                                    for (const auto& mm : gridMedia_) {
+                                        float s0, s1;
+                                        if (astroray::volume::intersectAABB(P, wi, mm.aabbMin,
+                                                mm.aabbMax, 1e-3f, ls.distance, s0, s1))
+                                            medTr *= astroray::volume::ratioTrackingTransmittance(
+                                                mm, P, wi, s0, s1, gen);
+                                    }
+                                    astroray::SampledSpectrum neeContrib =
+                                        throughput * ls.emission_spec * ph *
+                                        (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f) * shadowTr * medTr;
+                                    astroray::SampledSpectrum c =
+                                        clampContribSpectral(neeContrib, lambdas, bounce);
+                                    color += c; addPass(volPass, c);
+                                }
+                            }
+                        }
+                        // --- HG phase-sampled continuation from P ---
+                        float phasePdf;
+                        Vec3 wiCont = astroray::volume::sampleHG(woMedium, med.g,
+                                                                dist01(gen), dist01(gen), phasePdf);
+                        Ray next(P, wiCont, ray.time, ray.screenU, ray.screenV);
+                        next.hasCameraFrame = ray.hasCameraFrame;
+                        next.cameraOrigin = ray.cameraOrigin;
+                        next.cameraU = ray.cameraU;
+                        next.cameraV = ray.cameraV;
+                        next.cameraW = ray.cameraW;
+                        ray = next;
+                        wasSpecular = false;
+                        bsdfPdfPrev = phasePdf;
+                        envNeeSampledPrev = false;
+                        if (bounce > rrDepth) {
+                            astroray::XYZ thrXYZ = throughput.toXYZ(lambdas);
+                            float p = std::min(0.95f, std::max(0.0f, thrXYZ.Y));
+                            if (dist01(gen) > p) break;
+                            if (p > 0.0f) throughput = throughput * (1.0f / p);
+                        }
+                        weightSum += throughput.maxValue();
+                        continue;
+                    }
+                    // not scattered: fall through (delta-track survival = transmittance).
+                }
+            }
 
             // pkg199 Stage 2 — homogeneous medium free-flight sampling. Engaged
             // ONLY when mediumScatters; otherwise the Stage-1 absorption path below
@@ -3439,6 +3578,22 @@ public:
                         // multiplies the parked NEE lanes by Tr(s.maxDist).
                         if (hasWorldVolume && worldVolumeDensity > 0.0f) {
                             neeContrib *= worldTransmittanceSpectral(ls.distance, lambdas);
+                        }
+                        // pkg268 — attenuate the surface NEE over any bounded grid
+                        // medium the shadow ray crosses (ratio tracking, Novák 2014;
+                        // grey so a single scalar multiplies the spectrum). Empty =>
+                        // no-op, so non-volume scenes are byte-identical.
+                        if (!gridMedia_.empty()) {
+                            Vec3 sp = rec.point;
+                            Vec3 swi = (ls.position - sp).normalized();
+                            for (const auto& mm : gridMedia_) {
+                                float s0, s1;
+                                if (astroray::volume::intersectAABB(sp, swi, mm.aabbMin,
+                                        mm.aabbMax, 1e-3f, ls.distance, s0, s1))
+                                    neeContrib = neeContrib *
+                                        astroray::volume::ratioTrackingTransmittance(
+                                            mm, sp, swi, s0, s1, gen);
+                            }
                         }
                         // pkg198: NEE at the first (camera-visible) surface is DIRECT
                         // light, tagged by that surface's reflect lobe (diffuse/glossy);

@@ -5023,6 +5023,70 @@ class CustomRaytracerRenderEngine(RenderEngine):
             renderer.update_instance_transform(ids[k], [v for row in mw for v in row])
             cursor[obj.name] = k + 1
 
+    def _try_export_volume(self, obj, obj_instance, renderer):
+        """pkg268 - lower a volume object/material onto a bounded engine medium.
+
+        * obj.type == 'VOLUME': read its .vdb grids (Blender openvdb) and
+          register a heterogeneous GridMedium via renderer.set_volume_grid.
+        * a mesh whose material has a connected Volume output: register a bounded
+          HOMOGENEOUS medium over the mesh world-AABB (the #807 cabinet).
+
+        Returns True iff the object was consumed as a volume AND has no surface
+        shader (so its geometry is skipped). Emits degradation warnings for any
+        socket not honoured. Silent no-op (returns False) for non-volume objects
+        or when the renderer lacks the volume API (older builds)."""
+        if not hasattr(renderer, "set_volume_grid"):
+            return False
+        try:
+            from . import volume_export as _vol
+        except Exception:  # pragma: no cover
+            import volume_export as _vol
+        try:
+            if obj.type == 'VOLUME':
+                import bpy as _bpy
+                filepath = _vol.resolve_vdb_filepath(obj.data, _bpy)
+                if not filepath:
+                    return False
+                o2w = _vol.flatten_matrix_world(obj_instance.matrix_world)
+                payload = _vol.payload_from_vdb(filepath, o2w, report=self._vol_report)
+                mat = obj.data.materials[0] if getattr(obj.data, 'materials', None) else None
+                pv = _vol.principled_volume_from_material(mat) if mat else None
+                kwargs = dict(
+                    density=payload["density"], bbox_min=payload["bbox_min"],
+                    index_to_object=payload["index_to_object"],
+                    object_to_world=payload["object_to_world"],
+                )
+                if "temperature" in payload:
+                    kwargs["temperature"] = payload["temperature"]
+                if pv is not None:
+                    kwargs.update(density_scale=pv["density"], color=pv["color"],
+                                  absorption_color=pv["absorption_color"],
+                                  anisotropy=pv["anisotropy"])
+                renderer.set_volume_grid(obj.name, **kwargs)
+                return True  # a Volume object has no surface geometry
+            if obj.type == 'MESH':
+                mats = [m for m in getattr(obj.data, 'materials', []) if m is not None]
+                for mat in mats:
+                    pv = _vol.principled_volume_from_material(mat)
+                    if pv is None:
+                        continue
+                    mn, mx = _vol.mesh_world_aabb(obj, obj_instance.matrix_world)
+                    renderer.add_homogeneous_medium(
+                        mn, mx, pv["density"], pv["color"],
+                        pv["absorption_color"], pv["anisotropy"])
+                    for d in pv.get("degradations", []):
+                        self._vol_report(d)
+                    # a mesh that is ONLY a volume (no surface shader) is an
+                    # invisible boundary -> skip its triangles; a mesh with both
+                    # keeps its surface geometry.
+                    return not pv["has_surface"]
+        except Exception as exc:  # pragma: no cover - defensive, report + fall back
+            self._vol_report("volume export failed for '%s': %s" % (obj.name, exc))
+        return False
+
+    def _vol_report(self, msg):
+        print("[astroray volume] %s" % msg)
+
     def convert_objects(self, depsgraph, renderer, material_map,
                         motion_start_matrices=None, motion_end_matrices=None):
         """`motion_start_matrices` / `motion_end_matrices` (pkg88-B, optional):
@@ -5087,6 +5151,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
             else:
                 if getattr(obj, 'hide_viewport', False):
                     continue
+
+            # pkg268 - bounded volume media: a VOLUME object (OpenVDB grid) or a
+            # mesh whose material has a volume shader (the #807 cabinet cubes).
+            # Returns True when the object was consumed as a volume and its
+            # geometry must NOT be added as opaque triangles.
+            if self._try_export_volume(obj, obj_instance, renderer):
+                continue
 
             # Black hole empties
             if obj.type == 'EMPTY' and hasattr(obj, 'astroray_black_hole'):

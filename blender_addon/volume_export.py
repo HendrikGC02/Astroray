@@ -158,6 +158,95 @@ def flatten_matrix_world(matrix_world):
     return [float(c) for row in matrix_world for c in row]
 
 
+def _socket_rgb(node, name, default=(0.8, 0.8, 0.8)):
+    s = node.inputs.get(name) if hasattr(node.inputs, "get") else None
+    if s is None:
+        return list(default)
+    v = s.default_value
+    try:
+        return [float(v[0]), float(v[1]), float(v[2])]
+    except (TypeError, IndexError):
+        return [float(v)] * 3
+
+
+def _socket_float(node, name, default=0.0):
+    s = node.inputs.get(name) if hasattr(node.inputs, "get") else None
+    if s is None:
+        return float(default)
+    try:
+        return float(s.default_value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def principled_volume_from_material(material):
+    """Extract Principled-Volume-basics params from a material's node tree.
+
+    Returns a dict ``{density, color, absorption_color, anisotropy, has_surface,
+    degradations}`` when the Material Output has a Volume input connected, else
+    ``None``. Supports ``ShaderNodeVolumePrincipled`` / ``ShaderNodeVolumeScatter``
+    / ``ShaderNodeVolumeAbsorption`` (Cycles socket semantics). Honours only the
+    basics (density/color/absorption/anisotropy); every other socket or node is
+    reported as a degradation (pkg200 rule).
+    """
+    nt = getattr(material, "node_tree", None)
+    if nt is None:
+        return None
+    out = None
+    for n in nt.nodes:
+        if n.type == "OUTPUT_MATERIAL" and getattr(n, "is_active_output", True):
+            out = n
+            break
+    if out is None:
+        return None
+    vol_in = out.inputs.get("Volume")
+    if vol_in is None or not vol_in.is_linked:
+        return None
+    node = vol_in.links[0].from_node
+    has_surface = bool(out.inputs.get("Surface") and out.inputs["Surface"].is_linked)
+    degr = []
+    info = {"has_surface": has_surface, "anisotropy": 0.0,
+            "absorption_color": [1.0, 1.0, 1.0], "degradations": degr}
+    ntype = node.type
+    if ntype == "VOLUME_PRINCIPLED" or "Principled" in node.bl_idname:
+        info["density"] = _socket_float(node, "Density", 1.0)
+        info["color"] = _socket_rgb(node, "Color", (0.8, 0.8, 0.8))
+        info["absorption_color"] = _socket_rgb(node, "Absorption Color", (1.0, 1.0, 1.0))
+        info["anisotropy"] = _socket_float(node, "Anisotropy", 0.0)
+        if _socket_float(node, "Emission Strength", 0.0) > 0.0:
+            degr.append("Principled Volume emission not honoured (pkg270)")
+    elif ntype == "VOLUME_SCATTER" or "Scatter" in node.bl_idname:
+        info["density"] = _socket_float(node, "Density", 1.0)
+        info["color"] = _socket_rgb(node, "Color", (0.8, 0.8, 0.8))  # scattering albedo
+        info["anisotropy"] = _socket_float(node, "Anisotropy", 0.0)
+    elif ntype == "VOLUME_ABSORPTION" or "Absorption" in node.bl_idname:
+        info["density"] = _socket_float(node, "Density", 1.0)
+        info["color"] = [0.0, 0.0, 0.0]  # pure absorption: albedo 0
+        info["absorption_color"] = _socket_rgb(node, "Color", (1.0, 1.0, 1.0))
+    else:
+        degr.append("unsupported volume node '%s' (pkg270/pkg272)" % node.bl_idname)
+        return None
+    # colored absorption is a chromatic-extinction effect -> pkg270 (grey here).
+    ac = info.get("absorption_color", [1, 1, 1])
+    if abs(ac[0] - ac[1]) > 1e-3 or abs(ac[0] - ac[2]) > 1e-3:
+        degr.append("chromatic absorption colour approximated grey (pkg270)")
+    return info
+
+
+def mesh_world_aabb(obj, matrix_world):
+    """World-space AABB of a mesh object's local bound box under matrix_world."""
+    import numpy as _np
+    corners = [_np.array(matrix_world @ _cornerv(c)) for c in obj.bound_box]
+    arr = _np.array(corners)
+    return arr.min(axis=0).tolist(), arr.max(axis=0).tolist()
+
+
+def _cornerv(c):
+    # obj.bound_box yields length-3 sequences; build a mathutils-compatible vec4.
+    import mathutils  # Blender only
+    return mathutils.Vector((c[0], c[1], c[2]))
+
+
 def export_volume_objects(depsgraph, renderer, bpy_module=None, report=None):
     """Walk the depsgraph, export every `VOLUME` object to ``renderer``.
 

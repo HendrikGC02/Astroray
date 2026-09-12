@@ -1113,11 +1113,12 @@ WfContext& wfCtx() {
     return ctx;
 }
 
+}  // namespace
+
+// #801: exported (outside the anonymous namespace).
 void cuda_wavefront_invalidate_scene() {
     wfCtx().sceneInvalidated = true;
 }
-
-}  // namespace
 
 // pkg55-C2 MIS audit: run stage_init + the PRODUCTION intersect+shade (deferred
 // NEE parking) for one bounce and download the shade-time MIS pdfs the wavefront

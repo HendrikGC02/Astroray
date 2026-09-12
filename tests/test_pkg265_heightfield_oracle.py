@@ -32,8 +32,8 @@ _ORACLE_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "benchmarks", "cycles-parity", "glass_ms_oracle")
 sys.path.insert(0, _ORACLE_DIR)
-import heightfield_oracle as hfo  # noqa: E402
-import heitz_random_walk as hrw   # noqa: E402
+import heightfield_oracle as hfo
+import heitz_random_walk as hrw
 
 IOR = 1.45
 # fast config: small surface + ray count. Loose bands absorb the extra MC noise.

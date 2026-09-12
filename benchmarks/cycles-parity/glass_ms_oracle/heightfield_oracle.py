@@ -92,7 +92,7 @@ def make_heightfield(alpha_b, N, xi_cells, rng):
         H *= target / realized
     dHdx = 0.5 * (np.roll(H, -1, axis=0) - np.roll(H, 1, axis=0))
     dHdy = 0.5 * (np.roll(H, -1, axis=1) - np.roll(H, 1, axis=1))
-    return H, dHdx, dHdy, 1.0
+    return H, dHdx, dHdy
 
 
 def _bilerp(F, x, y, N):
@@ -125,7 +125,7 @@ def trace_interface(alpha_b, mu, ior, rng, n_rays, entering=True,
     refracts (cross) with the gradient facet normal. Escape UP (far above, dir.z>0)
     counts as the reflected hemisphere; escape DOWN (far below, dir.z<0) as the
     transmitted hemisphere. Multiple scattering is repeated crossings."""
-    H, dHdx, dHdy, dx = make_heightfield(alpha_b, N, xi_cells, rng)
+    H, dHdx, dHdy = make_heightfield(alpha_b, N, xi_cells, rng)
     Hmax = float(H.max())
     Hmin = float(H.min())
     top = Hmax + 0.5     # start/escape plane just clear of the roughness zone
@@ -216,7 +216,6 @@ def trace_interface(alpha_b, mu, ior, rng, n_rays, entering=True,
             t = t_next
             gp = g
         # process the found crossings: Fresnel event
-        hit_local = found & ~np.isin(idx, np.where(~active)[0])
         hidx_mask = found & active[idx]
         hi_local = np.where(hidx_mask)[0]
         if single_scatter and hi_local.size:
@@ -285,7 +284,8 @@ def trace_interface(alpha_b, mu, ior, rng, n_rays, entering=True,
     edges = np.linspace(0.0, 90.0, nbins + 1)
     hist_R = np.histogram(theta[reflected], bins=edges)[0] / max(M, 1)
     hist_T = np.histogram(theta[transmitted], bins=edges)[0] / max(M, 1)
-    return dict(R=R, T=T, dead=dead, edges=edges, hist_R=hist_R, hist_T=hist_T)
+    return {"R": R, "T": T, "dead": dead, "edges": edges,
+            "hist_R": hist_R, "hist_T": hist_T}
 
 
 def alpha_from_roughness(r):
@@ -450,9 +450,9 @@ def render_sphere(alpha, ior, rng, n_rays, b_lo, b_hi, single_scatter=False,
         woL = np.stack([np.sum(woW * t1, axis=1), np.sum(woW * t2, axis=1),
                         np.sum(woW * nz, axis=1)], axis=1)
         ent = ~inside[hitm]              # entering iff currently in air (outside)
-        wiL, refl, escaped, rad = walk_batch(woL, alpha, ior, ent, rng,
+        wiLoc, refl, escaped, rad = walk_batch(woL, alpha, ior, ent, rng,
                                              single_scatter=single_scatter)
-        wiW = (wiL[:, 0:1] * t1 + wiL[:, 1:2] * t2 + wiL[:, 2:3] * nz)
+        wiW = (wiLoc[:, 0:1] * t1 + wiLoc[:, 1:2] * t2 + wiLoc[:, 2:3] * nz)
         wiW /= np.linalg.norm(wiW, axis=1, keepdims=True)
         transmit = ~refl
         # dead sample (never escaped the microsurface): absorb (physical loss the

@@ -15,14 +15,8 @@ emissive plane over a white diffuse floor and asserts:
 
 Uses the CPU MultiwavelengthPathTracer, whose `enable_nee` param toggles NEE.
 """
-import os
-import sys
-
 import numpy as np
 import pytest
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import base_helpers  # noqa: E402
 
 
 @pytest.fixture(scope="module")

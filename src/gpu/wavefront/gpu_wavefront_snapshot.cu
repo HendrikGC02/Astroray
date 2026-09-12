@@ -1487,6 +1487,13 @@ std::vector<float> cuda_wavefront_render(
     // offset over the full filter width (stage_init.cu::filterSample).
     setWavefrontPixelFilter(renderer.getPixelFilterType(),
                             renderer.getPixelFilterWidth());
+    // #802 Batch A item 4 - publish the Render Region every frame. Inactive
+    // (renderRegionActive()==false) is the byte-identical fleet default; when a
+    // border is set the init stage kills outside-pixel paths so wavefront work
+    // (and the outside pixel colour) is confined to the rect.
+    setWavefrontRenderRegion(renderer.renderRegionActive() ? 1 : 0,
+                             renderer.renderRegionX0(), renderer.renderRegionY0(),
+                             renderer.renderRegionX1(), renderer.renderRegionY1());
     // pkg201 Stage 3 (Finding A) — Cycles per-type bounce limits. Published from
     // the Renderer's stored limits (set by Renderer::render()/setPerTypeBounces);
     // all-unlimited (-1) is the byte-identical fleet default. shadePathSlot reads

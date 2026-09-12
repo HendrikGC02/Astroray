@@ -502,6 +502,8 @@ void setWavefrontMissCoverage(float* coverage);
 // Gaussian/Blackman-Harris honour width (offsets cross pixel boundaries for
 // width>1). Read by stage_init.cu::filterSample at primary-ray generation.
 void setWavefrontPixelFilter(int type, float width);
+// #802 Batch A item 4 - publish the Render Region rect to the wavefront init.
+void setWavefrontRenderRegion(int active, int x0, int y0, int x1, int y1);
 
 // pkg201 Stage 3 (Finding A) — publish the Cycles per-type bounce limits into the
 // shade kernel's __constant__ c_wfBounceLimit[3] (index 0=diffuse, 1=glossy,

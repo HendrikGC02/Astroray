@@ -1402,6 +1402,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 has_denoise=has_denoise_pass
             )
 
+            # #802 Batch A item 4 - Render Region (scene.render.use_border).
+            self._apply_render_region(scene, renderer, width, height)
+
             pixels = renderer.render(
                 settings.samples, settings.max_bounces, progress_callback, False,
                 settings.diffuse_bounces, settings.glossy_bounces,
@@ -1725,6 +1728,36 @@ class CustomRaytracerRenderEngine(RenderEngine):
         return exporter.apply_depsgraph_updates(
             renderer, depsgraph, settings,
             _configure_backend_for_context, report_fn)
+
+    def _apply_render_region(self, scene, renderer, width, height):
+        # #802 Batch A item 4 - map Blender's Render Region to the engine rect.
+        # Blender border_min/max_x/y are normalized [0,1] with Y BOTTOM-UP; the
+        # engine rect is TOP-DOWN pixel coords [x0,x1) x [y0,y1). use_crop_to_border
+        # (Cycles: return a cropped image) is APPROXIMATED as crop-off (full-size
+        # film, outside left black) + a warning. A linked/absent border clears it.
+        render = scene.render
+        if not getattr(render, 'use_border', False):
+            renderer.clear_render_region()
+            return
+        bx0 = float(getattr(render, 'border_min_x', 0.0))
+        bx1 = float(getattr(render, 'border_max_x', 1.0))
+        by0 = float(getattr(render, 'border_min_y', 0.0))
+        by1 = float(getattr(render, 'border_max_y', 1.0))
+        x0 = max(0, min(width, int(round(bx0 * width))))
+        x1 = max(0, min(width, int(round(bx1 * width))))
+        # Y flip: Blender bottom-up -> engine top-down.
+        y0 = max(0, min(height, int(round((1.0 - by1) * height))))
+        y1 = max(0, min(height, int(round((1.0 - by0) * height))))
+        if x1 <= x0 or y1 <= y0:
+            renderer.clear_render_region()
+            return
+        if getattr(render, 'use_crop_to_border', False):
+            self._degradation_report().approximate(
+                'Render Region',
+                'Crop to Render Region returns a full-size image with the outside '
+                'left black/transparent (crop-off semantics); the cropped-image '
+                'output is not produced')
+        renderer.set_render_region(x0, y0, x1, y1)
 
     def _renderer_object_id_for(self, blender_id):
         """Resolve a Blender Object → renderer primitive insertion id.

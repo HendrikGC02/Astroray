@@ -1333,6 +1333,38 @@ class Exporter:
         # Mark that renderer holds a coherent full snapshot
         self._viewport_full_synced = True
 
+    def _apply_viewport_render_region(self, renderer, context, width, height):
+        # #802 Batch A item 4 - map the viewport render border to the engine rect.
+        try:
+            space = context.space_data
+            region_3d = getattr(space, 'region_3d', None)
+            use_cam = (getattr(region_3d, 'view_perspective', '') == 'CAMERA')
+            if use_cam:
+                render = context.scene.render
+                on = bool(getattr(render, 'use_border', False))
+                bx0, bx1 = float(render.border_min_x), float(render.border_max_x)
+                by0, by1 = float(render.border_min_y), float(render.border_max_y)
+            else:
+                on = bool(getattr(space, 'use_render_border', False))
+                bx0 = float(getattr(space, 'render_border_min_x', 0.0))
+                bx1 = float(getattr(space, 'render_border_max_x', 1.0))
+                by0 = float(getattr(space, 'render_border_min_y', 0.0))
+                by1 = float(getattr(space, 'render_border_max_y', 1.0))
+        except (AttributeError, TypeError):
+            renderer.clear_render_region()
+            return
+        if not on:
+            renderer.clear_render_region()
+            return
+        x0 = max(0, min(width, int(round(bx0 * width))))
+        x1 = max(0, min(width, int(round(bx1 * width))))
+        y0 = max(0, min(height, int(round((1.0 - by1) * height))))
+        y1 = max(0, min(height, int(round((1.0 - by0) * height))))
+        if x1 <= x0 or y1 <= y0:
+            renderer.clear_render_region()
+        else:
+            renderer.set_render_region(x0, y0, x1, y1)
+
     def render_viewport_frame(self, renderer, context, settings, region,
                              reset_accumulation, engine_methods, skip_upload=False,
                              res_divisor=1):
@@ -1369,6 +1401,14 @@ class Exporter:
             return False
 
         engine_methods['setup_viewport_camera'](renderer, context, width, height)
+
+        # #802 Batch A item 4 - viewport Render Region (Ctrl+B). The 3D-view
+        # border lives on context.space_data (use_render_border +
+        # render_border_min/max_x/y, normalized [0,1], Y bottom-up); when the
+        # viewport is looking through the camera Blender uses the scene border
+        # instead. Defensive: any missing attr / non-border view clears the rect
+        # (byte-identical full-frame render).
+        self._apply_viewport_render_region(renderer, context, width, height)
 
         # Wavelength + integrator policy
         lmin, lmax = engine_methods['wavelength_range_from_settings'](settings)

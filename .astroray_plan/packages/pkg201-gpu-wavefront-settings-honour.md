@@ -159,3 +159,19 @@ Every measured number is byte-identical between Blender 5.1 and 5.2, and identic
 **Full pytest sweep (`pytest tests/ -v -s --tb=short`):** `3 failed, 2017 passed, 69 skipped, 20 xfailed, 2 xpassed` in 700.00s. All 3 failures are the documented pre-existing `UnicodeEncodeError`/`UnicodeDecodeError` console-encoding artifacts (cp1252 codec choking on `✓`/`λ`/`π` in `print()` calls under Windows Git-Bash/pytest capture — `tests/statistical/test_disney_diffuse_pdf.py::test_disney_diffuse_pdf_vs_lambertian`, `tests/test_blender_parity_matrix.py::test_blender_parity_matrix_generation`, `tests/test_pkg182_conductor_spectral_native.py::test_conductor_spectral_stays_chromatic`) — reproduced exactly as expected, none touch `film_transparent`/`filter_width`/`pixel_filter_type`/alpha/filter code paths. No new failures attributable to this PR.
 
 **Verdict: PASS.** Both shipped rows (`film_transparent`, `filter_width`) flip HONEST-FAIL → PASS exactly as claimed, measured identically on Blender 5.1 and 5.2. The `pixel_filter_type` HONEST-FAIL is genuinely sub-threshold (correct direction, ratio 1.0083 < 1.01 bar) — not hidden or misreported. Fleet register gates unchanged (byte-identical REG/STACK/CONSTANT on the default specializations). Full regression sweep clean modulo the 3 pre-documented console-encoding artifacts. The reclassified/parked rows (`film_transparent_glass`, `caustics_reflective`, `caustics_refractive`, per-type bounce counters, `filter_glossy`) are correctly out of scope for this closeout and are not evaluated as failures of this PR.
+
+## Driver closeout — verbatim re-run on Blender 5.2 (2026-09-13, batch-I)
+
+Ran `scripts/verify_pkg200_honour_matrix_run.py` VERBATIM on Blender 5.2 with the **CPU-backend** staged addon (`--backend cpu`, cuda=False; the GPU-wavefront rerun is gated on the lead's CUDA build). 27 rows. Full table + EXR/JSON evidence: `test_results/batch-i/pkg200_honour/results.{md,json}`.
+
+**Verdict tally (CPU path, bl5.2):** `PASS 12, HONEST-FAIL 10, NEEDS-VISUAL 3, LIMITATION 2`.
+
+PASS (12): resolution, glossy_bounces (10.4x), max_bounces (12.2x), transmission_bounces (1.18x), world_max_bounces (5.30x — Stage-1 flip holds on CPU), sample_clamp_direct (fireflies clipped 27.83→0.508), film_exposure (B/A 2.0), samples (~1/√N), seed_distinct, seed_repeat (|dLum|=0), filter_width, use_denoising (var 0.787).
+
+NEEDS-VISUAL (3): use_light_tree (|dLum| mean 0.50), sample_clamp_indirect (fireflies NEE-classified DIRECT, shares clampDirect param), denoiser.
+
+LIMITATION (2): preview_samples, use_preview_denoising (viewport-only).
+
+HONEST-FAIL (10): diffuse_bounces (closed box saturates), transparent_max_bounces + volume_bounces (no indirect energy — parked → pkg268), blur_glossy, render_region, pixel_filter_type (sub-threshold — σ follow-up pkg203), film_transparent_glass (reclassified feature), and **film_transparent / caustics_reflective / caustics_refractive — HONEST-FAIL on the CPU path because the pkg201 flips for these are GPU-wavefront-only (F-alpha coverage buffer, item-E caustic toggles); the CPU backend does not carry them (CPU SampleResult.alpha is const 1.0).**
+
+**Reading:** all CPU-path-honoured controls PASS; parked rows stay parked with this evidence. The GPU-backend verbatim rerun that verifies the pkg201 wavefront flips (film_transparent, caustic toggles, per-type bounce) needs the CUDA build and is the remaining closeout step. Flipped nothing else.

@@ -5426,80 +5426,81 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         print(f"Astroray: converted {obj_count} meshes, {tri_count} triangles")
 
-    def convert_lights(self, depsgraph, renderer):
-        def _resolve_ies_path(light_data):
-            # Item 1 (owner-approved 2026-09-11): Blender/Cycles express IES
-            # through a ShaderNodeTexIES node in the light node tree, feeding
-            # Emission Strength -- NOT via a light.ies/ies_file property (which
-            # no shipped Blender exposes). Mirror Cycles
-            # (intern/cycles/blender/shader.cpp add_nodes -> ShaderNodeTexIES):
-            # EXTERNAL -> storage.filepath (abspath); INTERNAL -> the text
-            # datablock content. Cycles only uses a TexIES node that reaches the
-            # output (its Fac is wired into the graph); a disconnected node is
-            # ignored. We use the same rule: consider only TexIES nodes whose
-            # output socket is linked. The engine consumes the resolved file as a
-            # directional profile (IESProfile, raytracer.h); see
-            # .astroray_plan/docs/ies-normalization-research.md for the
-            # peak-normalization vs Cycles 4*pi/177.83 magnitude difference.
-            node_tree = getattr(light_data, 'node_tree', None)
-            if node_tree is None:
-                return ""
-            ies_nodes = []
-            for node in node_tree.nodes:
-                if getattr(node, 'type', '') != 'TEX_IES':
-                    continue
-                # Cycles ignores a disconnected TexIES node; require a linked
-                # output so a stray node in the tree does not silently apply.
-                out_linked = any(o.is_linked for o in node.outputs)
-                if out_linked:
-                    ies_nodes.append(node)
-            if not ies_nodes:
-                return ""
-            if len(ies_nodes) > 1:
-                self._warn_shader_fallback(
-                    'TEX_IES',
-                    'multiple IES nodes are wired into one light; only the first is honoured (the engine applies a single directional profile per light)')
-            node = ies_nodes[0]
-            mode = str(getattr(node, 'mode', 'INTERNAL')).upper()
-            if mode == 'EXTERNAL':
-                filepath = getattr(node, 'filepath', '')
-                if filepath:
-                    return bpy.path.abspath(filepath)
-                self._warn_shader_fallback(
-                    'TEX_IES', 'EXTERNAL IES node has no filepath; light rendered without IES')
-                return ""
-            # INTERNAL: the profile lives in a bpy.types.Text datablock. The
-            # engine IES loader (IESProfile::loadFromFile) reads from a path, so
-            # materialise the text to a stable temp file keyed by the datablock
-            # name + a content hash (so edits produce a new file and the cache in
-            # getOrLoadIESProfile stays correct across renders).
-            text_db = getattr(node, 'ies', None)
-            if text_db is None:
-                self._warn_shader_fallback(
-                    'TEX_IES', 'INTERNAL IES node has no text datablock; light rendered without IES')
-                return ""
+    def _resolve_ies_path(self, light_data):
+        # Item 1 (owner-approved 2026-09-11): Blender/Cycles express IES
+        # through a ShaderNodeTexIES node in the light node tree, feeding
+        # Emission Strength -- NOT via a light.ies/ies_file property (which
+        # no shipped Blender exposes). Mirror Cycles
+        # (intern/cycles/blender/shader.cpp add_nodes -> ShaderNodeTexIES):
+        # EXTERNAL -> storage.filepath (abspath); INTERNAL -> the text
+        # datablock content. Cycles only uses a TexIES node that reaches the
+        # output (its Fac is wired into the graph); a disconnected node is
+        # ignored. We use the same rule: consider only TexIES nodes whose
+        # output socket is linked. The engine consumes the resolved file as a
+        # directional profile (IESProfile, raytracer.h); see
+        # .astroray_plan/docs/ies-normalization-research.md for the
+        # peak-normalization vs Cycles 4*pi/177.83 magnitude difference.
+        node_tree = getattr(light_data, 'node_tree', None)
+        if node_tree is None:
+            return ""
+        ies_nodes = []
+        for node in node_tree.nodes:
+            if getattr(node, 'type', '') != 'TEX_IES':
+                continue
+            # Cycles ignores a disconnected TexIES node; require a linked
+            # output so a stray node in the tree does not silently apply.
+            out_linked = any(o.is_linked for o in node.outputs)
+            if out_linked:
+                ies_nodes.append(node)
+        if not ies_nodes:
+            return ""
+        if len(ies_nodes) > 1:
+            self._warn_shader_fallback(
+                'TEX_IES',
+                'multiple IES nodes are wired into one light; only the first is honoured (the engine applies a single directional profile per light)')
+        node = ies_nodes[0]
+        mode = str(getattr(node, 'mode', 'INTERNAL')).upper()
+        if mode == 'EXTERNAL':
+            filepath = getattr(node, 'filepath', '')
+            if filepath:
+                return bpy.path.abspath(filepath)
+            self._warn_shader_fallback(
+                'TEX_IES', 'EXTERNAL IES node has no filepath; light rendered without IES')
+            return ""
+        # INTERNAL: the profile lives in a bpy.types.Text datablock. The
+        # engine IES loader (IESProfile::loadFromFile) reads from a path, so
+        # materialise the text to a stable temp file keyed by the datablock
+        # name + a content hash (so edits produce a new file and the cache in
+        # getOrLoadIESProfile stays correct across renders).
+        text_db = getattr(node, 'ies', None)
+        if text_db is None:
+            self._warn_shader_fallback(
+                'TEX_IES', 'INTERNAL IES node has no text datablock; light rendered without IES')
+            return ""
+        try:
+            content = text_db.as_string()
+        except Exception:
+            content = ""
+        if not content.strip():
+            self._warn_shader_fallback(
+                'TEX_IES', 'INTERNAL IES text is empty; light rendered without IES')
+            return ""
+        digest = hashlib.sha1(content.encode('utf-8', 'replace')).hexdigest()[:12]
+        safe_name = ''.join(c if c.isalnum() else '_' for c in getattr(text_db, 'name', 'ies'))[:40]
+        temp_path = os.path.join(
+            tempfile.gettempdir(), 'astroray_ies_%s_%s.ies' % (safe_name, digest))
+        if not os.path.exists(temp_path):
             try:
-                content = text_db.as_string()
-            except Exception:
-                content = ""
-            if not content.strip():
+                with open(temp_path, 'w', encoding='utf-8') as fh:
+                    fh.write(content)
+            except OSError as exc:
                 self._warn_shader_fallback(
-                    'TEX_IES', 'INTERNAL IES text is empty; light rendered without IES')
+                    'TEX_IES', 'could not write INTERNAL IES temp file (%s)' % exc)
                 return ""
-            digest = hashlib.sha1(content.encode('utf-8', 'replace')).hexdigest()[:12]
-            safe_name = ''.join(c if c.isalnum() else '_' for c in getattr(text_db, 'name', 'ies'))[:40]
-            temp_path = os.path.join(
-                tempfile.gettempdir(), 'astroray_ies_%s_%s.ies' % (safe_name, digest))
-            if not os.path.exists(temp_path):
-                try:
-                    with open(temp_path, 'w', encoding='utf-8') as fh:
-                        fh.write(content)
-                except OSError as exc:
-                    self._warn_shader_fallback(
-                        'TEX_IES', 'could not write INTERNAL IES temp file (%s)' % exc)
-                    return ""
-            return temp_path
+        return temp_path
 
+
+    def convert_lights(self, depsgraph, renderer):
         def _build_emission_dict(light):
             # pkg89 Phase B: construct EmissionSpectrum dict from Blender light properties.
             # Q-Owner-1 resolution: default to blackbody (D65 6500K) with color as tint filter.
@@ -5549,7 +5550,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             light = obj.data
             matrix = obj_instance.matrix_world
             position = list(matrix.translation)
-            ies_path = _resolve_ies_path(light)
+            ies_path = self._resolve_ies_path(light)
             emission_dict = _build_emission_dict(light)
             intensity = float(light.energy)
             pass_idx = int(getattr(obj, "pass_index", 0))

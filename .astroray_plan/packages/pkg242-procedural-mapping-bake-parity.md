@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — Phase 1 in review (PR #737, 2026-09-07; CPU analytic oracles green, GPU parity pending lead build); Phase 2 real-Blender parity still open
+**Status:** in-progress — Triage 2026-09-12 (half-implemented audit, `half-implemented-triage-2026-09-12.md`): finish in a batch — Phase 2 real-Blender parity plus the two #737 follow-ups. Was: in-progress — Phase 1 in review (PR #737, 2026-09-07; CPU analytic oracles green, GPU parity pending lead build); Phase 2 real-Blender parity still open
 **Estimated effort:** TBD
 **Depends on:** pkg115, pkg190, pkg219, pkg230b
 

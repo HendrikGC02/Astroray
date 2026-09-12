@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** in-progress — Triage 2026-09-12 (half-implemented audit, `half-implemented-triage-2026-09-12.md`): finish in a batch after the pkg253 GPU alpha item — six xfails in `tests/test_python_bindings.py`. Was: open
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg14, pkg87, pkg195
 

@@ -2,7 +2,7 @@
 
 **Pillar:** 3 (light transport / variance reduction)
 **Track:** A (Stage 1 is a CPU-verifiable SD-tree build + guided-sampling gate on CI; Stage 2 wavefront leg verified on RTX)
-**Status:** Stage 1A/1B LANDED (PRs #693/#694, merged 2026-09-04/05). The CPU
+**Status:** paused — Triage 2026-09-12 (half-implemented audit, `half-implemented-triage-2026-09-12.md`): Stage 1A/1B landed (#693/#694, ~1.3x equal-cost win); Stage 2 GPU leg parked until the optimisation session (owner 2026-09-11) ranks it against the sampler / light-tree / adaptive wins. Was: Stage 1A/1B LANDED (PRs #693/#694, merged 2026-09-04/05). The CPU
 SD-tree structures and path-tracer integration are in `origin/main`. **The ≥2×
 variance-win acceptance gate is CONCLUDED as a scene-physics ceiling, not a bug**
 (the de-risked 110× prototype had no NEE; a real NEE integrator caps the residual-

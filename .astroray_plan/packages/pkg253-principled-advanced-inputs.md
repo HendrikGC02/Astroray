@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress
+**Status:** in-progress — Triage 2026-09-12 (half-implemented audit, `half-implemented-triage-2026-09-12.md`): finish in a batch — one item left: GPU alpha shadows in the deferred shadow stage (strict xfail `test_alpha0_casts_no_shadow_gpu`); Step 3 needs no code. Was: in-progress
 **Estimated effort:** 3 sessions (~9 h)
 **Depends on:** pkg229, pkg178
 

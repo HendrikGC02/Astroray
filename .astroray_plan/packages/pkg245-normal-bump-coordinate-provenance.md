@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open — detailed architect review required before implementation
+**Status:** open — Triage 2026-09-12 (half-implemented audit, `half-implemented-triage-2026-09-12.md`): architect review first (fill), then a batch. Was: open — detailed architect review required before implementation
 **Estimated effort:** TBD
 **Depends on:** pkg219
 

@@ -1,0 +1,8 @@
+PKG256_AB_PT {"sky_type": "MULTIPLE_SCATTERING", "turbidity": 2.6, "elevation": 10.0, "upper_ratio_lum": 1.145, "horizon_ratio_lum": 1.222}
+PKG256_AB_PT {"sky_type": "MULTIPLE_SCATTERING", "turbidity": 2.6, "elevation": 28.0, "upper_ratio_lum": 1.005, "horizon_ratio_lum": 0.898}
+PKG256_AB_PT {"sky_type": "MULTIPLE_SCATTERING", "turbidity": 2.6, "elevation": 60.0, "upper_ratio_lum": 0.665, "horizon_ratio_lum": 0.561}
+PKG256_AB_PT {"sky_type": "PREETHAM", "turbidity": 2.6, "elevation": 28.0, "upper_ratio_lum": 14.969, "horizon_ratio_lum": 13.966}
+PKG256_AB_PT {"sky_type": "PREETHAM", "turbidity": 5.0, "elevation": 10.0, "upper_ratio_lum": 7.688, "horizon_ratio_lum": 7.54}
+PKG256_AB_PT {"sky_type": "PREETHAM", "turbidity": 2.0, "elevation": 60.0, "upper_ratio_lum": 11.117, "horizon_ratio_lum": 10.664}
+
+[exited with code 0]

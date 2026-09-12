@@ -76,13 +76,26 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
             out.normal = rec.normal;
             Vec3 toPoint = (point - rec.point).normalized();
             Vec3 lightNormal = rec.frontFace ? rec.normal : -rec.normal;
-            out.emission = lights[idx]->emittedRadiance(lightNormal, toPoint) *
-                          lights[idx]->directionFalloff(toPoint);
+            // #776: evaluate the emission at the SAMPLED light point so NEE and
+            // BSDF-sampled hits integrate the SAME emitter (previously NEE saw a
+            // flat getEmission()). `flat` keeps the mesh-light spread cone
+            // (emittedRadiance(lightNormal,toPoint) is base-or-0) and the
+            // spot/IES directionFalloff; when it is non-zero (inside cone) we
+            // use the material's per-hit emittedSpectral — the same function the
+            // BSDF-sampled emission add uses — so MIS combines matching
+            // integrands. Illuminant upsampling is scale-linear, so untextured
+            // lights stay byte-identical (falloff outside == inside).
+            float falloff = lights[idx]->directionFalloff(toPoint);
+            Vec3 flat = lights[idx]->emittedRadiance(lightNormal, toPoint) * falloff;
+            // RGB out.emission carries the texture MEAN (getEmission()==mean×intensity,
+            // #776); out.emission_spec below is the per-hit textured value and is the
+            // production path — the spectral tracer consumes emission_spec.
+            out.emission = flat;
             out.distance = rec.t;
             out.pdf = lights[idx]->pdfValue(point, dir) * selPdf;
-
-            // Spectral emission: upsample RGB via RGBIlluminantSpectrum (temporary).
-            out.emission_spec = RGBIlluminantSpectrum({out.emission.x, out.emission.y, out.emission.z}).sample(lambdas);
+            out.emission_spec = (rec.material && flat != Vec3(0))
+                ? rec.material->emittedSpectral(rec, lambdas) * falloff
+                : RGBIlluminantSpectrum({flat.x, flat.y, flat.z}).sample(lambdas);
         }
     } else {
         // Dedicated Light path (pkg89 Phase A).
@@ -190,13 +203,19 @@ void TreeLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& n
             out.normal = rec.normal;
             Vec3 toPoint = (point - rec.point).normalized();
             Vec3 lightNormal = rec.frontFace ? rec.normal : -rec.normal;
-            out.emission = lights[pick.lightIndex]->emittedRadiance(lightNormal, toPoint) *
-                          lights[pick.lightIndex]->directionFalloff(toPoint);
+            // #776: texture-aware NEE emission at the sampled light point (see
+            // the matching comment in the uniform-sampler path above).
+            float falloff = lights[pick.lightIndex]->directionFalloff(toPoint);
+            Vec3 flat = lights[pick.lightIndex]->emittedRadiance(lightNormal, toPoint) * falloff;
+            // RGB out.emission carries the texture MEAN (getEmission()==mean×intensity,
+            // #776); out.emission_spec below is the per-hit textured value and is the
+            // production path — the spectral tracer consumes emission_spec.
+            out.emission = flat;
             out.distance = rec.t;
             out.pdf = lights[pick.lightIndex]->pdfValue(point, dir) * treePdf;
-
-            // Spectral emission: upsample RGB via RGBIlluminantSpectrum.
-            out.emission_spec = RGBIlluminantSpectrum({out.emission.x, out.emission.y, out.emission.z}).sample(lambdas);
+            out.emission_spec = (rec.material && flat != Vec3(0))
+                ? rec.material->emittedSpectral(rec, lambdas) * falloff
+                : RGBIlluminantSpectrum({flat.x, flat.y, flat.z}).sample(lambdas);
         }
     } else {
         // Dedicated Light path.

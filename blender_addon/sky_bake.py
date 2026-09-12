@@ -35,39 +35,50 @@ import numpy as np
 
 # Sockets/props the Preetham bake does NOT consume — named verbatim by the
 # addon's degradation warning (pkg200 rule: never silently dropped).
+# #799: sun_disc / sun_size / sun_intensity are now HONOURED via a dedicated
+# distant sun light (see sun_disc_params + setup_world), so they left this list.
 DROPPED_SOCKETS = (
-    "sun_disc",
-    "sun_size",
-    "sun_intensity",
     "sun_direction",  # sun position taken from sun_elevation/sun_rotation instead
     "altitude",
     "air_density",    # Rayleigh axis; folding onto turbidity inverts its sense
     "ozone_density",
     "ground_albedo",
+    "sun_limb_darkening",  # the distant-sun disc is uniform (#799 non-goal)
     "Vector",
 )
 
-# Photometric-luminance (cd/m²) → radiance unit bridge. Preetham Yz is
-# photometric (~O(1e3-1e4)); the engine env path treats pixel values as
-# radiance and multiplies by the World Background Strength.
+# Photopic luminous efficacy K_m (lm/W, CIE 1924 V(λ) max at 555 nm). Preetham
+# zenith luminance Yz is ABSOLUTE photometric luminance (cd/m²); Y[cd/m²] =
+# K_m · ∫L(λ)ȳ(λ)dλ, so Y/K_m is an absolute radiance floor. See
+# .astroray_plan/docs/799-sky-absolute-exposure-sun-disc-research.md §2.
+PHOTOPIC_LUMINOUS_EFFICACY = 683.0
+
+# Photometric-luminance (cd/m²) → radiance unit bridge (#799). Decomposed:
 #
-# GRADIENT-SHAPE PARITY ONLY — NOT an exposure/absolute-radiance match.
-# This single scalar was fit against ONE scene (corpus world_sky_sky:
-# MULTIPLE_SCATTERING, turbidity 2.6, sun elevation 28°) so the baked
-# upper-sky band lands within the ±25% luminance A/B (measured ratio 14.7 at
-# 1/120 ⇒ 1/1766). It is NOT a global exposure calibration: because Preetham
-# Yz scales with turbidity and sun elevation (χ = (4/9 − T/120)(π − 2θs)),
-# any bake with different turbidity or sun elevation will land at a different
-# absolute exposure relative to Cycles' physical Nishita atmosphere — those
-# two parameters are exactly what move the fitted ratio off 1.0. The residual
-# per-channel colour difference is the genuine Preetham-vs-Nishita divergence.
-# See research note §3. A per-bake Yz normalisation was considered and
-# rejected (it would flatten the physical brighter-sky-when-hazier/higher-sun
-# variation and still not reach Cycles-absolute exposure); the true fix is
-# engine-side spectral sky evaluation, tracked as the Phase-2 follow-up
-# issue #799. Cycles A/B is therefore gated loosely (per-band luminance, not
-# per-channel, not absolute).
-LUM_TO_RADIANCE = 1.0 / 1766.0
+#   LUM_TO_RADIANCE = 1/1766 = (1/683) · (1/2.586)
+#     = [photopic K_m — PHYSICS] · [Cycles-Nishita exposure convention — UNITS]
+#
+# The 1/683 is physics (peak luminous efficacy). The residual 1/2.586
+# (equivalently 1/14.7 relative to the ~120 lm/W broadband daylight efficacy)
+# is Cycles' Nishita absolute-exposure normalisation, measured once against the
+# corpus scene (world_sky_sky: MULTIPLE_SCATTERING, turbidity 2.6, elevation
+# 28°). It is a legitimate UNITS CHOICE, not a physics fit: Cycles' Nishita
+# absolute scale lives in GPL code (svm/sky.h, not read) and is undocumented as
+# an SI value.
+#
+# This residual is model- and condition-dependent, so NO single constant is
+# universal. Measured drift (benchmarks/reference_corpus/sky_ab_bands.py,
+# PKG256_AB_PT, Blender 5.2 Cycles): calibrated at Nishita/28° → ratio 1.005,
+# but Cycles' legacy PREETHAM sky_type lands at ratio 7.7–15 across
+# (turbidity, elevation). Absolute cross-model/condition parity therefore needs
+# an engine-side spectral sky lookup (issue #799 Phase-2 "real fix"), which is a
+# separate architecture pass. Per the owner's physics-first rule (2026-09-08),
+# the bake's absolute radiance Y/K is the physical quantity and the Cycles A/B
+# is a cross-check band, not the gate, away from the calibrated Nishita point.
+# Measured residual = 683/1766 = 1/2.586 (units choice, §2). Written this way so
+# LUM_TO_RADIANCE is EXACTLY 1/1766 (corpus Nishita gate stays byte-identical).
+CYCLES_NISHITA_EXPOSURE = PHOTOPIC_LUMINOUS_EFFICACY / 1766.0
+LUM_TO_RADIANCE = CYCLES_NISHITA_EXPOSURE / PHOTOPIC_LUMINOUS_EFFICACY  # == 1/1766
 
 # CIE xyY -> linear sRGB (Rec.709 / D65).
 _XYZ_TO_RGB = np.array(
@@ -195,6 +206,109 @@ def bake_params(sky_type, sun_elevation, sun_rotation, turbidity=2.0,
     rgb = xyz @ _XYZ_TO_RGB.T
     rgb = np.clip(rgb, 0.0, None) * LUM_TO_RADIANCE
     return np.ascontiguousarray(rgb, dtype=np.float32)
+
+
+# --- #799: sun disc (dedicated distant sun light) ---------------------------
+# Extra-atmospheric solar-disc luminance (cd/m²). Textbook photometry (IES
+# Lighting Handbook); surface value for a high clear sun is ~1.6-2.0e9 cd/m².
+SOLAR_DISC_LUMINANCE = 1.6e9
+# Blender ShaderNodeTexSky.sun_size default = 0.545° = 0.009512 rad (full angle).
+DEFAULT_SUN_SIZE = 0.009512
+
+
+def _optical_depth(turbidity):
+    """Broadband direct-beam optical depth, turbidity-scaled. The Beer-Lambert
+    clear-sky *form* exp(-tau*m) is Bird & Riordan 1986 / Preetham 1999 §A.3;
+    the linear turbidity map below (base 0.10, slope 0.045) is NOT from either
+    paper — it is a FITTED CONSTANT chosen so clear T≈2 → tau≈0.10 and hazy
+    T≈6 → tau≈0.28 (same status as LUM_TO_RADIANCE: a documented fit, not a
+    derived value). It only sets the sun-disc's absolute magnitude, which rides
+    the same single-point Nishita calibration as the sky."""
+    return 0.10 + 0.045 * (float(turbidity) - 2.0)
+
+
+def _sky_rgb(turbidity, sun_theta, cos_view, gamma, cos_gamma):
+    """Preetham/Perez sky radiance (linear sRGB, LUM_TO_RADIANCE-scaled) for a
+    SINGLE view direction — the scalar twin of bake_params' vectorised body
+    (same _perez/_zenith_xyY helpers, so no model drift)."""
+    cy, cx, cyy = _perez_coeffs(turbidity)
+    yz, xz, yzc = _zenith_xyY(turbidity, sun_theta)
+    cos_st = math.cos(sun_theta)
+    cv = max(float(cos_view), 1e-3)
+
+    def channel(coeffs, zenith_val):
+        f0 = _perez(coeffs, 1.0, sun_theta, cos_st)
+        f = _perez(coeffs, cv, gamma, cos_gamma)
+        return zenith_val * f / f0
+
+    big_y = channel(cy, yz)
+    x = channel(cx, xz)
+    y = max(channel(cyy, yzc), 1e-4)
+    big_x = (x / y) * big_y
+    big_z = ((1.0 - x - y) / y) * big_y
+    rgb = np.array([big_x, big_y, big_z]) @ _XYZ_TO_RGB.T
+    return np.clip(rgb, 0.0, None) * LUM_TO_RADIANCE
+
+
+def sun_disc_params(sky_type, sun_elevation, sun_rotation, turbidity=2.0,
+                    aerosol_density=1.0, sun_size=DEFAULT_SUN_SIZE,
+                    sun_intensity=1.0):
+    """Physical parameters for a dedicated distant sun light matching the baked
+    sky (see .astroray_plan/docs/799-sky-absolute-exposure-sun-disc-research.md
+    §3). Returns:
+      direction        : travel direction (= -sun), Blender Z-up
+      angular_diameter : sun_size (rad) — sets shadow sharpness (exposure-free)
+      color            : unit-luminance linear-sRGB disc colour (warm at low sun)
+      intensity        : direct-normal irradiance in the SAME bake radiance
+                         units as the sky (rides LUM_TO_RADIANCE)
+    Beer-Lambert direct beam: L_sun = L0·exp(-τ·m); E_sun = L_sun·Ω_ref·sun_intensity;
+    intensity = E_sun·LUM_TO_RADIANCE.
+
+    Ω_ref is the PHYSICAL sun's solid angle (Ω(DEFAULT_SUN_SIZE), 0.545°), NOT
+    Ω(sun_size). Blender/Cycles Nishita keeps the ground irradiance INVARIANT to
+    sun_size — measured 2026-09-13: Cycles deck luminance is identical at 0.545°
+    and 2.2° (ratio 1.001); sun_size only sets the disc's angular size / shadow
+    softness. Scaling E_sun by Ω(sun_size) over-brightened a large artistic sun
+    (the corpus 2.2° disc gave 61:1 direct:diffuse vs Cycles' measured 6.4:1).
+    Using Ω_ref decouples magnitude from sun_size and lands the deck's
+    direct:diffuse in Cycles' 5–10:1 band, while `angular_diameter` (returned
+    below) still carries sun_size so the shadow penumbra tracks the artist."""
+    t = _effective_turbidity(sky_type, turbidity, aerosol_density)
+    sun = _sun_direction(sun_elevation, sun_rotation)
+    elev = max(float(sun_elevation), math.radians(0.5))
+    air_mass = 1.0 / math.sin(elev)
+    tau = _optical_depth(t)
+    l_sun = SOLAR_DISC_LUMINANCE * math.exp(-tau * air_mass)      # cd/m²
+    omega_ref = 2.0 * math.pi * (1.0 - math.cos(0.5 * DEFAULT_SUN_SIZE))  # sr, physical sun
+    e_sun = l_sun * omega_ref * float(sun_intensity)             # illuminance-like
+    intensity = e_sun * LUM_TO_RADIANCE                          # bake radiance units
+    # Disc colour = our own sky colour toward the sun (γ=0), unit-luminance.
+    sun_theta = math.acos(min(max(float(sun[2]), -1.0), 1.0))
+    rgb = _sky_rgb(t, sun_theta, float(sun[2]), 0.0, 1.0)
+    lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+    color = (rgb / lum) if lum > 1e-8 else np.array([1.0, 1.0, 1.0])
+    return {
+        "direction": [-float(sun[0]), -float(sun[1]), -float(sun[2])],
+        "angular_diameter": float(sun_size),
+        "color": [float(c) for c in color],
+        "intensity": float(intensity),
+    }
+
+
+def sun_disc_params_from_node(node):
+    """sun_disc_params from a `ShaderNodeTexSky` node (or duck-typed stub).
+    Returns None when the node's sun disc is disabled."""
+    if not bool(getattr(node, "sun_disc", False)):
+        return None
+    return sun_disc_params(
+        getattr(node, "sky_type", "SINGLE_SCATTERING"),
+        _node_prop(node, "sun_elevation", 0.26),
+        _node_prop(node, "sun_rotation", 0.0),
+        turbidity=_node_prop(node, "turbidity", 2.0),
+        aerosol_density=_node_prop(node, "aerosol_density", 1.0),
+        sun_size=_node_prop(node, "sun_size", DEFAULT_SUN_SIZE),
+        sun_intensity=_node_prop(node, "sun_intensity", 1.0),
+    )
 
 
 def _node_prop(node, name, default):

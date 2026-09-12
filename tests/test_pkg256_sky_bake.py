@@ -115,11 +115,91 @@ def test_sky_type_changes_output():
 
 
 def test_dropped_sockets_named():
-    """pkg200: sockets/props the bake does not honour are enumerated verbatim."""
+    """pkg200: sockets/props the bake does not honour are enumerated verbatim.
+    #799: sun_disc/sun_size/sun_intensity are now HONOURED (dedicated sun light)
+    and must NOT appear; sun_limb_darkening is the remaining sun non-goal."""
     assert sky_bake.DROPPED_SOCKETS == (
-        "sun_disc", "sun_size", "sun_intensity", "sun_direction",
-        "altitude", "air_density", "ozone_density", "ground_albedo", "Vector",
+        "sun_direction", "altitude", "air_density", "ozone_density",
+        "ground_albedo", "sun_limb_darkening", "Vector",
     )
+    for honoured in ("sun_disc", "sun_size", "sun_intensity"):
+        assert honoured not in sky_bake.DROPPED_SOCKETS
+
+
+def test_exposure_constant_is_derived_decomposition():
+    """#799: LUM_TO_RADIANCE = (1/K_m photopic) x (Cycles-Nishita exposure),
+    not an opaque magic number. K_m = 683 lm/W; the product is exactly 1/1766
+    (corpus Nishita gate unchanged)."""
+    assert sky_bake.PHOTOPIC_LUMINOUS_EFFICACY == 683.0
+    expected = sky_bake.CYCLES_NISHITA_EXPOSURE / sky_bake.PHOTOPIC_LUMINOUS_EFFICACY
+    assert sky_bake.LUM_TO_RADIANCE == expected
+    assert abs(sky_bake.LUM_TO_RADIANCE - 1.0 / 1766.0) < 1e-15
+
+
+def test_sun_disc_params_disabled_returns_none():
+    node = SkyNode(sun_disc=False)
+    assert sky_bake.sun_disc_params_from_node(node) is None
+
+
+def test_sun_disc_params_enabled_shape_and_direction():
+    E, A = math.radians(28.0), math.radians(115.0)
+    node = SkyNode(sky_type="MULTIPLE_SCATTERING", sun_disc=True,
+                   sun_elevation=E, sun_rotation=A, sun_size=0.009512,
+                   sun_intensity=1.0)
+    p = sky_bake.sun_disc_params_from_node(node)
+    assert p is not None
+    # travel direction == -sun (sun points toward the sun, light travels away).
+    ce, se = math.cos(E), math.sin(E)
+    sun = (ce * math.cos(A), ce * math.sin(A), se)
+    assert p["direction"] == pytest.approx([-sun[0], -sun[1], -sun[2]], abs=1e-9)
+    assert p["angular_diameter"] == pytest.approx(0.009512)
+    assert p["intensity"] > 0.0
+    # unit-luminance disc colour
+    c = p["color"]
+    lum = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    assert lum == pytest.approx(1.0, abs=1e-6)
+
+
+def test_sun_disc_irradiance_integral():
+    """E_sun = L_sun . Omega_disc . sun_intensity . LUM_TO_RADIANCE — the
+    returned intensity must equal that closed form (Beer-Lambert direct beam)."""
+    E = math.radians(28.0)
+    t = sky_bake._effective_turbidity("MULTIPLE_SCATTERING", 2.0, 1.0)
+    air_mass = 1.0 / math.sin(E)
+    tau = sky_bake._optical_depth(t)
+    l_sun = sky_bake.SOLAR_DISC_LUMINANCE * math.exp(-tau * air_mass)
+    omega = 2.0 * math.pi * (1.0 - math.cos(0.5 * sky_bake.DEFAULT_SUN_SIZE))
+    expected = l_sun * omega * 1.0 * sky_bake.LUM_TO_RADIANCE
+    p = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", E, 0.0,
+                                 aerosol_density=1.0,
+                                 sun_size=sky_bake.DEFAULT_SUN_SIZE,
+                                 sun_intensity=1.0)
+    assert p["intensity"] == pytest.approx(expected, rel=1e-9)
+
+
+def test_sun_disc_intensity_invariant_to_sun_size():
+    """#799 (2026-09-13): the disc's direct-normal irradiance must NOT scale with
+    the artist sun_size -- Blender/Cycles Nishita keeps ground irradiance
+    invariant to sun_size (measured: Cycles deck luminance identical at 0.545 deg
+    and 2.2 deg). sun_size only sets the disc angular_diameter (shadow softness).
+    A prior revision used Omega(sun_size), which over-brightened a large disc."""
+    E = math.radians(28.0)
+    small = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", E, 0.0, sun_size=0.009512)
+    big = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", E, 0.0, sun_size=0.0384)
+    assert big["intensity"] == pytest.approx(small["intensity"], rel=1e-9)
+    # ...but the disc angular size still follows sun_size (shadow penumbra).
+    assert big["angular_diameter"] == pytest.approx(0.0384)
+    assert small["angular_diameter"] == pytest.approx(0.009512)
+
+
+def test_sun_disc_intensity_scales_and_dims_with_air_mass():
+    """sun_intensity is linear; a lower sun (more air mass) is dimmer."""
+    hi = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", math.radians(60), 0.0)
+    lo = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", math.radians(10), 0.0)
+    assert lo["intensity"] < hi["intensity"]  # Beer-Lambert: low sun attenuated
+    x2 = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", math.radians(60), 0.0,
+                                  sun_intensity=2.0)
+    assert x2["intensity"] == pytest.approx(2.0 * hi["intensity"], rel=1e-9)
 
 
 def test_write_hdr_roundtrip_numpy():
@@ -160,6 +240,55 @@ def astroray_mod():
         return astroray
     except ImportError as e:
         pytest.skip(f"astroray module not available: {e}")
+
+
+def test_sun_disc_casts_shadow(astroray_mod):
+    """#799: the dedicated distant sun (sun_disc_params + add_sun_light_dedicated,
+    as setup_world wires it) must cast a real shadow — the pkg256 review's 'no
+    sun disc -> soft shadows' complaint. Bake the corpus sky, add the sun light,
+    put a sphere over a floor, and assert the ground directly behind the sphere
+    (anti-sun side) is markedly darker than open ground."""
+    E, A = math.radians(28.0), math.radians(115.0)
+    img = sky_bake.bake_params("MULTIPLE_SCATTERING", E, A, width=512, height=256)
+    fd, path = tempfile.mkstemp(prefix="astroray_sundisc_", suffix=".hdr")
+    os.close(fd)
+    try:
+        sky_bake.write_hdr(path, img)
+        r = astroray_mod.Renderer()
+        r.set_integrator("path_tracer")
+        assert r.load_environment_map(path, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, True)
+        # sun_intensity is the artist multiplier (bright clear-day sun). The
+        # disc's irradiance is sun_size-independent now (matches Cycles' measured
+        # sun_size-invariant ground), so a sun-dominant scene needs the multiplier
+        # rather than an inflated sun_size; 4.0 keeps the sun the dominant light so
+        # the cast shadow is unambiguous over the (over-bright Preetham) sky fill.
+        sun = sky_bake.sun_disc_params("MULTIPLE_SCATTERING", E, A,
+                                       aerosol_density=1.0, sun_size=0.02,
+                                       sun_intensity=4.0)
+        r.add_sun_light_dedicated(sun["direction"], sun["angular_diameter"],
+                                  {"mode": "rgb", "color": sun["color"]},
+                                  sun["intensity"])
+        white = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
+        r.add_triangle([-6, 0, -6], [6, 0, -6], [6, 0, 6], white)
+        r.add_triangle([-6, 0, -6], [6, 0, 6], [-6, 0, 6], white)
+        r.add_sphere([0, 1, 0], 1.0, white)
+        r.setup_camera(look_from=[0, 8, 0.01], look_at=[0, 0, 0], vup=[0, 0, -1],
+                       vfov=55, aspect_ratio=1.0, aperture=0.0, focus_dist=8.0,
+                       width=128, height=128)
+        px = np.asarray(r.render(96, 6, None, False)).reshape(128, 128, 3)
+        lum = px.mean(axis=2)
+        # A dedicated sun disc casts a SHARP shadow: the darkest region (the
+        # sphere's cast shadow / occluded underside) is far darker than the
+        # sunlit-ground median. Sky-only ambient occlusion is soft (dark region
+        # stays a large fraction of the median); the sun disc drives it well
+        # below. Robust to the exact shadow pixel location.
+        dark = float(np.percentile(lum, 1))   # shadow floor
+        median = float(np.median(lum))        # sunlit ground
+        assert median > 1e-3, f"scene is black: median={median}"
+        assert dark < 0.3 * median, \
+            f"no sharp sun shadow (dark_p1={dark:.3f} median={median:.3f})"
+    finally:
+        os.unlink(path)
 
 
 def test_temp_file_loads_and_orientation_matches_engine(astroray_mod):

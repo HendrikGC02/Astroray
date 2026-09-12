@@ -5767,6 +5767,19 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     "and are dropped: %s"
                     % (getattr(sky_node, 'sky_type', '?'),
                        ", ".join(sky_bake.DROPPED_SOCKETS)))
+                # #799: sun disc. Preetham/Perez has no disc (soft shadows, cool
+                # ground). When the node's sun_disc is on, add a dedicated
+                # distant sun (DistantLight, angular diameter = sun_size) whose
+                # direct-beam irradiance rides the SAME exposure as the baked
+                # sky (sky_bake.LUM_TO_RADIANCE) - sharp shadows + warm ground.
+                # Intensity is scaled by the Background Strength so it tracks the
+                # sky env (which the engine multiplies by strength).
+                sun = sky_bake.sun_disc_params_from_node(sky_node)
+                if sun is not None:
+                    renderer.add_sun_light_dedicated(
+                        sun['direction'], sun['angular_diameter'],
+                        {'mode': 'rgb', 'color': sun['color']},
+                        sun['intensity'] * strength, 0, 0)
             except Exception as e:  # noqa: BLE001 - bake must never break render
                 self._warn_shader_fallback('TEX_SKY', 'sky bake failed (%s)' % e)
                 sky_temp_path = None

@@ -47,6 +47,19 @@ void setWavefrontPixelFilter(int type, float width) {
     cudaMemcpyToSymbol(c_wfPixelFilter, &p, sizeof(GPixelFilterParams));
 }
 
+// #802 Batch A item 4 - Render Region, published ONCE per frame into this
+// __constant__ symbol (same binding pattern as c_wfPixelFilter so no kernel
+// signature grows and both the init and the stage_advance regen path see it).
+// active==0 (the default) => every pixel is inside => byte-identical to the
+// pre-item-4 fleet render. Bounds are TOP-DOWN pixel coords [x0,x1) x [y0,y1).
+struct GRenderRegion { int active; int x0; int y0; int x1; int y1; };
+__constant__ GRenderRegion c_wfRegion = {0, 0, 0, 0, 0};
+
+void setWavefrontRenderRegion(int active, int x0, int y0, int x1, int y1) {
+    GRenderRegion r{active, x0, y0, x1, y1};
+    cudaMemcpyToSymbol(c_wfRegion, &r, sizeof(GRenderRegion));
+}
+
 namespace {
 
 // pkg201 Stage 2 (Finding D) — filter importance sampling of the primary-ray
@@ -370,6 +383,21 @@ __device__ void initPathSlot(
     state.was_specular[idx] = 1;  // true
     state.env_nee_sampled_prev[idx] = 0;  // pkg258: no env NEE ran before the camera ray
     state.path_alive[idx]   = 1;  // true
+
+    // #802 Batch A item 4 - Render Region: kill paths whose pixel is outside the
+    // rect at the ray-generation stage (never touches the REG:254 shade kernels).
+    // A dead path with zero throughput skips intersect/shade and contributes 0,
+    // so the outside pixel stays at its init colour (0). Regeneration (stage_advance)
+    // also calls this, so later samples of outside pixels stay dead too.
+    if (c_wfRegion.active &&
+        (px < c_wfRegion.x0 || px >= c_wfRegion.x1 ||
+         py < c_wfRegion.y0 || py >= c_wfRegion.y1)) {
+        state.path_alive[idx]   = 0;
+        state.throughput_0[idx] = 0.0f;
+        state.throughput_1[idx] = 0.0f;
+        state.throughput_2[idx] = 0.0f;
+        state.throughput_3[idx] = 0.0f;
+    }
 }
 
 __global__ void stageInitKernel(

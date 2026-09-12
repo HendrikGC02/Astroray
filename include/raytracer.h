@@ -2382,6 +2382,10 @@ class Renderer {
     // pre-pass + gather only runs when a caller explicitly opts in (set_use_photon_caustics).
     bool usePhotonCaustics = false;
     int renderSeed = 0;  // 0 = random (non-deterministic), non-zero = deterministic seed
+    // #802 Batch A item 4 - Render Region pixel rect (top-down). Inactive by
+    // default so every render is byte-identical unless the addon sets a border.
+    int renderRegionX0_ = 0, renderRegionY0_ = 0, renderRegionX1_ = 0, renderRegionY1_ = 0;
+    bool renderRegionActive_ = false;
     // pkg241 Phase 1b - cooperative-cancellation completion metadata. Written
     // at the end of render(); read via the getters below and surfaced to
     // Python as Renderer.last_render_info(). Ordinary completion leaves
@@ -2736,6 +2740,23 @@ public:
         pixelFilterWidth = std::max(0.01f, width);
     }
     void setWorldMaxBounces(int maxB) { worldMaxBounces = std::max(0, maxB); }
+    // #802 Batch A item 4 - Render Region. A pixel sub-rectangle [x0,x1) x [y0,y1)
+    // in TOP-DOWN raster coords (y grows downward, matching the render loop). When
+    // active, only pixels inside the rect are path-traced; pixels outside are set
+    // to 0 / alpha 0 (Cycles crop-off semantics). A rect equal to the full film,
+    // or an inactive region, leaves every backend byte-identical. The addon
+    // converts Blender's bottom-up normalized border to this top-down pixel rect.
+    void setRenderRegion(int x0, int y0, int x1, int y1) {
+        renderRegionX0_ = x0; renderRegionY0_ = y0;
+        renderRegionX1_ = x1; renderRegionY1_ = y1;
+        renderRegionActive_ = (x1 > x0) && (y1 > y0);
+    }
+    void clearRenderRegion() { renderRegionActive_ = false; }
+    bool renderRegionActive() const { return renderRegionActive_; }
+    int renderRegionX0() const { return renderRegionX0_; }
+    int renderRegionY0() const { return renderRegionY0_; }
+    int renderRegionX1() const { return renderRegionX1_; }
+    int renderRegionY1() const { return renderRegionY1_; }
     void setEnvNee(bool enable) { envNeeEnabled = enable; }   // pkg258
     bool getEnvNee() const { return envNeeEnabled; }          // pkg258
     void setLightNee(bool enable) { lightNeeEnabled = enable; }  // pkg265
@@ -4233,6 +4254,37 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
             guideRecordBufs_ = nullptr;  // final render samples the guide, no learning
         }
 
+        // #802 Batch A item 4 - Render Region: clear pixels outside the rect to
+        // 0 / alpha 0 (Cycles crop-off semantics) BEFORE the trace loop, which
+        // then skips them. Only runs when a region is active, so the default
+        // render path is byte-identical. Not cleared (zero on a fresh Camera,
+        // stale only if a populated Camera is reused for a region render):
+        // bounceCount/sampleWeight/motion/crypto buffers (cpp-abi-guard note).
+        if (renderRegionActive_) {
+            const int rx0 = std::max(0, renderRegionX0_);
+            const int ry0 = std::max(0, renderRegionY0_);
+            const int rx1 = std::min(cam.width, renderRegionX1_);
+            const int ry1 = std::min(cam.height, renderRegionY1_);
+            #pragma omp parallel for schedule(static)
+            for (int y = 0; y < cam.height; ++y) {
+                for (int x = 0; x < cam.width; ++x) {
+                    if (x >= rx0 && x < rx1 && y >= ry0 && y < ry1) continue;
+                    int idx = y * cam.width + x;
+                    cam.pixels[idx] = Vec3(0);
+                    cam.alphaBuffer[idx] = 0.0f;
+                    cam.albedoBuffer[idx] = Vec3(0);
+                    cam.normalBuffer[idx] = Vec3(0);
+                    cam.depthBuffer[idx] = 0.0f;
+                    cam.positionBuffer[idx] = Vec3(0);
+                    cam.uvBuffer[idx] = Vec3(0);
+                    cam.objectIndexBuffer[idx] = 0.0f;
+                    cam.materialIndexBuffer[idx] = 0.0f;
+                    for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex)
+                        cam.renderPassBuffers[passIndex][idx] = Vec3(0);
+                }
+            }
+        }
+
         #pragma omp parallel for schedule(dynamic) collapse(2)
         for (int tileY = 0; tileY < tilesY; ++tileY) {
             for (int tileX = 0; tileX < tilesX; ++tileX) {
@@ -4244,6 +4296,16 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                 int x0 = tileX * tileSize, x1 = std::min(x0 + tileSize, cam.width);
                 int y0 = tileY * tileSize, y1 = std::min(y0 + tileSize, cam.height);
 
+                // #802 Batch A item 4 - Render Region: skip whole tiles that do
+                // not intersect the rect (this is what makes wall time scale ~
+                // with the region area). Partial tiles are clipped per-pixel
+                // below. Inactive region => never skips (byte-identical).
+                if (renderRegionActive_ &&
+                    (x0 >= renderRegionX1_ || x1 <= renderRegionX0_ ||
+                     y0 >= renderRegionY1_ || y1 <= renderRegionY0_)) {
+                    continue;
+                }
+
                 // pkg241 Phase 1b: skip remaining tiles once a cancel was
                 // requested (the earliest safe point that avoids partial-tile
                 // pixels in the returned buffer).
@@ -4251,6 +4313,12 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
 
                 for (int y = y0; y < y1; ++y) {
                     for (int x = x0; x < x1; ++x) {
+                        // #802 item 4: clip partial edge tiles to the region.
+                        if (renderRegionActive_ &&
+                            (x < renderRegionX0_ || x >= renderRegionX1_ ||
+                             y < renderRegionY0_ || y >= renderRegionY1_)) {
+                            continue;
+                        }
                         int idx = y * cam.width + x;
                         Vec3 color(0), albedo(0), normal(0), position(0), uv(0);
                         std::array<Vec3, PASS_COUNT> passColor;

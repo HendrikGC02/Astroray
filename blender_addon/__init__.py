@@ -13,7 +13,7 @@ bl_info = {
 import bpy
 from bpy.types import Panel, Operator, AddonPreferences, PropertyGroup, RenderEngine
 from bpy.props import BoolProperty, IntProperty, FloatProperty, StringProperty, PointerProperty, FloatVectorProperty, EnumProperty
-import mathutils, math, numpy as np, traceback, sys, os, time, inspect, tempfile
+import mathutils, math, numpy as np, traceback, sys, os, time, inspect, tempfile, hashlib
 from pathlib import Path
 
 # pkg112: gate the batched geometry-upload path. Default on; a parity/benchmark
@@ -1402,6 +1402,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 has_denoise=has_denoise_pass
             )
 
+            # #802 Batch A item 4 - Render Region (scene.render.use_border).
+            self._apply_render_region(scene, renderer, width, height)
+
             pixels = renderer.render(
                 settings.samples, settings.max_bounces, progress_callback, False,
                 settings.diffuse_bounces, settings.glossy_bounces,
@@ -1725,6 +1728,38 @@ class CustomRaytracerRenderEngine(RenderEngine):
         return exporter.apply_depsgraph_updates(
             renderer, depsgraph, settings,
             _configure_backend_for_context, report_fn)
+
+    def _apply_render_region(self, scene, renderer, width, height):
+        # #802 Batch A item 4 - map Blender's Render Region to the engine rect.
+        # Blender border_min/max_x/y are normalized [0,1] with Y BOTTOM-UP; the
+        # engine rect is TOP-DOWN pixel coords [x0,x1) x [y0,y1). use_crop_to_border
+        # (Cycles: return a cropped image) is APPROXIMATED as crop-off (full-size
+        # film, outside left black) + a warning. A linked/absent border clears it.
+        if not hasattr(renderer, 'set_render_region'):
+            return  # host/stub without region support -> full frame
+        render = scene.render
+        if not getattr(render, 'use_border', False):
+            renderer.clear_render_region()
+            return
+        bx0 = float(getattr(render, 'border_min_x', 0.0))
+        bx1 = float(getattr(render, 'border_max_x', 1.0))
+        by0 = float(getattr(render, 'border_min_y', 0.0))
+        by1 = float(getattr(render, 'border_max_y', 1.0))
+        x0 = max(0, min(width, int(round(bx0 * width))))
+        x1 = max(0, min(width, int(round(bx1 * width))))
+        # Y flip: Blender bottom-up -> engine top-down.
+        y0 = max(0, min(height, int(round((1.0 - by1) * height))))
+        y1 = max(0, min(height, int(round((1.0 - by0) * height))))
+        if x1 <= x0 or y1 <= y0:
+            renderer.clear_render_region()
+            return
+        if getattr(render, 'use_crop_to_border', False):
+            self._degradation_report().approximate(
+                'Render Region',
+                'Crop to Render Region returns a full-size image with the outside '
+                'left black/transparent (crop-off semantics); the cropped-image '
+                'output is not produced')
+        renderer.set_render_region(x0, y0, x1, y1)
 
     def _renderer_object_id_for(self, blender_id):
         """Resolve a Blender Object → renderer primitive insertion id.
@@ -4107,6 +4142,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         'anisotropic': 'anisotropic',
         'sheen': 'sheen_weight',
         'subsurface': 'subsurface_weight',
+        'specular_ior_level': 'specular_ior_level',  # #757 Diffuse-BSDF specular-0
     }
 
     def _disney_params_to_native(self, params):
@@ -4197,7 +4233,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
             rough = self.get_float_input(node, 'Roughness', 0.0)
             if rough > 1e-4:
                 self._warn_shader_fallback('BSDF_DIFFUSE', 'Oren-Nayar diffuse is approximated with Disney rough diffuse')
-            return {'kind': 'principled', 'base_color': color, 'params': {'metallic': 0.0, 'roughness': rough}}
+            # #757: Cycles' Diffuse BSDF has NO dielectric specular layer. The
+            # native Principled defaults specular_ior_level=0.5 (F0 = 4% + grazing
+            # Fresnel), adding a mirror-like reflection Cycles' Diffuse does not
+            # have (measured ground-strip ratio 1.108 vs 0.989 with specular 0,
+            # #757). Export the closure as diffuse-only. The engine reads
+            # 'specular_ior_level' (plugins/materials/principled.cpp:1779:
+            # F0 = F0_from_ior(ior)*2*specular_ior_level -> 0).
+            return {'kind': 'principled', 'base_color': color,
+                    'params': {'metallic': 0.0, 'roughness': rough,
+                               'specular_ior_level': 0.0,  # native principled path
+                               'specular': 0.0}}           # Disney fallback path
         if ntype in ('BSDF_GLOSSY', 'BSDF_ANISOTROPIC'):
             color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
             rough = self.get_float_input(node, 'Roughness', 0.5)
@@ -5382,24 +5428,81 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         print(f"Astroray: converted {obj_count} meshes, {tri_count} triangles")
 
-    def convert_lights(self, depsgraph, renderer):
-        def _resolve_ies_path(light_data):
-            cycles_settings = getattr(light_data, 'cycles', None)
-            candidates = []
-            for source in (cycles_settings, light_data):
-                if source is None:
-                    continue
-                for name in ('ies', 'ies_file', 'ies_profile'):
-                    value = getattr(source, name, None)
-                    if value:
-                        candidates.append(value)
-            for value in candidates:
-                if hasattr(value, 'filepath') and value.filepath:
-                    return bpy.path.abspath(value.filepath)
-                if isinstance(value, str) and value:
-                    return bpy.path.abspath(value)
+    def _resolve_ies_path(self, light_data):
+        # Item 1 (owner-approved 2026-09-11): Blender/Cycles express IES
+        # through a ShaderNodeTexIES node in the light node tree, feeding
+        # Emission Strength -- NOT via a light.ies/ies_file property (which
+        # no shipped Blender exposes). Mirror Cycles
+        # (intern/cycles/blender/shader.cpp add_nodes -> ShaderNodeTexIES):
+        # EXTERNAL -> storage.filepath (abspath); INTERNAL -> the text
+        # datablock content. Cycles only uses a TexIES node that reaches the
+        # output (its Fac is wired into the graph); a disconnected node is
+        # ignored. We use the same rule: consider only TexIES nodes whose
+        # output socket is linked. The engine consumes the resolved file as a
+        # directional profile (IESProfile, raytracer.h); see
+        # .astroray_plan/docs/ies-normalization-research.md for the
+        # peak-normalization vs Cycles 4*pi/177.83 magnitude difference.
+        node_tree = getattr(light_data, 'node_tree', None)
+        if node_tree is None:
             return ""
+        ies_nodes = []
+        for node in node_tree.nodes:
+            if getattr(node, 'type', '') != 'TEX_IES':
+                continue
+            # Cycles ignores a disconnected TexIES node; require a linked
+            # output so a stray node in the tree does not silently apply.
+            out_linked = any(o.is_linked for o in node.outputs)
+            if out_linked:
+                ies_nodes.append(node)
+        if not ies_nodes:
+            return ""
+        if len(ies_nodes) > 1:
+            self._warn_shader_fallback(
+                'TEX_IES',
+                'multiple IES nodes are wired into one light; only the first is honoured (the engine applies a single directional profile per light)')
+        node = ies_nodes[0]
+        mode = str(getattr(node, 'mode', 'INTERNAL')).upper()
+        if mode == 'EXTERNAL':
+            filepath = getattr(node, 'filepath', '')
+            if filepath:
+                return bpy.path.abspath(filepath)
+            self._warn_shader_fallback(
+                'TEX_IES', 'EXTERNAL IES node has no filepath; light rendered without IES')
+            return ""
+        # INTERNAL: the profile lives in a bpy.types.Text datablock. The
+        # engine IES loader (IESProfile::loadFromFile) reads from a path, so
+        # materialise the text to a stable temp file keyed by the datablock
+        # name + a content hash (so edits produce a new file and the cache in
+        # getOrLoadIESProfile stays correct across renders).
+        text_db = getattr(node, 'ies', None)
+        if text_db is None:
+            self._warn_shader_fallback(
+                'TEX_IES', 'INTERNAL IES node has no text datablock; light rendered without IES')
+            return ""
+        try:
+            content = text_db.as_string()
+        except Exception:
+            content = ""
+        if not content.strip():
+            self._warn_shader_fallback(
+                'TEX_IES', 'INTERNAL IES text is empty; light rendered without IES')
+            return ""
+        digest = hashlib.sha1(content.encode('utf-8', 'replace')).hexdigest()[:12]
+        safe_name = ''.join(c if c.isalnum() else '_' for c in getattr(text_db, 'name', 'ies'))[:40]
+        temp_path = os.path.join(
+            tempfile.gettempdir(), 'astroray_ies_%s_%s.ies' % (safe_name, digest))
+        if not os.path.exists(temp_path):
+            try:
+                with open(temp_path, 'w', encoding='utf-8') as fh:
+                    fh.write(content)
+            except OSError as exc:
+                self._warn_shader_fallback(
+                    'TEX_IES', 'could not write INTERNAL IES temp file (%s)' % exc)
+                return ""
+        return temp_path
 
+
+    def convert_lights(self, depsgraph, renderer):
         def _build_emission_dict(light):
             # pkg89 Phase B: construct EmissionSpectrum dict from Blender light properties.
             # Q-Owner-1 resolution: default to blackbody (D65 6500K) with color as tint filter.
@@ -5449,7 +5552,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             light = obj.data
             matrix = obj_instance.matrix_world
             position = list(matrix.translation)
-            ies_path = _resolve_ies_path(light)
+            ies_path = self._resolve_ies_path(light)
             emission_dict = _build_emission_dict(light)
             intensity = float(light.energy)
             pass_idx = int(getattr(obj, "pass_index", 0))
@@ -5572,12 +5675,46 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         if evaluated is not None:
                             tint = list(evaluated)
             elif node.type == 'MAPPING':
+                # #796 Batch A item 3: honour vector_type (POINT vs TEXTURE),
+                # warn-and-drop Scale/Location, warn on a linked Rotation.
+                # Cycles MappingNode: TEXTURE applies the INVERSE of the
+                # rotation that POINT applies (intern/cycles/kernel/svm/mapping_util.h
+                # svm_mapping NODE_MAPPING_TYPE_TEXTURE transposes the matrix).
+                vector_type = str(getattr(node, 'vector_type', 'POINT')).upper()
                 rot_input = node.inputs.get('Rotation')
                 if rot_input:
+                    if rot_input.is_linked:
+                        # We can only read the static default_value; a driven /
+                        # node-linked Rotation is not evaluated (pkg200 rule).
+                        self._warn_shader_fallback(
+                            'MAPPING', 'world Mapping Rotation is linked to a node; only its static default_value is honoured')
                     # Blender Mapping uses XYZ Euler order (matches Cycles MappingNode).
                     rx = float(rot_input.default_value[0])
                     ry = float(rot_input.default_value[1])
                     rz = float(rot_input.default_value[2])
+                    if vector_type == 'TEXTURE':
+                        # Apply the inverse rotation. R is orthonormal so R^-1 =
+                        # R^T; re-extract the XYZ Euler of the transpose and feed
+                        # the engine (no engine change -- load_environment_map
+                        # bakes rx,ry,rz -> R_cswap * R, and here R := R^-1).
+                        inv = mathutils.Euler((rx, ry, rz), 'XYZ').to_matrix().transposed()
+                        inv_eul = inv.to_euler('XYZ')
+                        rx, ry, rz = float(inv_eul.x), float(inv_eul.y), float(inv_eul.z)
+                    elif vector_type not in ('POINT', 'VECTOR'):
+                        # NORMAL: Cycles normalizes+rotates a normal; the env
+                        # lookup only needs the (forward) rotation direction.
+                        self._warn_shader_fallback(
+                            'MAPPING', "vector_type '%s' is approximated as POINT (forward rotation)" % vector_type)
+                scale_input = node.inputs.get('Scale')
+                if scale_input is not None and (scale_input.is_linked or any(
+                        abs(float(scale_input.default_value[k]) - 1.0) > 1e-4 for k in range(3))):
+                    self._warn_shader_fallback(
+                        'MAPPING', 'world Mapping Scale is not honoured (the equirect env loader has no scale); dropped')
+                loc_input = node.inputs.get('Location')
+                if loc_input is not None and (loc_input.is_linked or any(
+                        abs(float(loc_input.default_value[k])) > 1e-4 for k in range(3))):
+                    self._warn_shader_fallback(
+                        'MAPPING', 'world Mapping Location is not honoured (a directional env map has no translation); dropped')
 
         output = next((n for n in node_tree.nodes if n.type == 'OUTPUT_WORLD'), None)
         volume_spec = None

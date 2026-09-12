@@ -151,6 +151,16 @@ def p_exposure_scale(a: LegStats, b: LegStats, _c) -> tuple[str, str]:
     return (PASS if ok else HONEST_FAIL), detail + f" (target {band})"
 
 
+def p_border(a: LegStats, b: LegStats, _c) -> tuple[str, str]:
+    """#802 Render Region: turning use_border on with a 0.25-0.75 rect keeps only
+    ~1/4 of the film (outside pixels 0), so B's linear mean luminance must drop
+    well below A's. Target ratio ~0.25 (the kept area fraction)."""
+    ratio = b.lum_mean / a.lum_mean if a.lum_mean > 1e-9 else float("inf")
+    detail = f"lum_mean A(no border)={a.lum_mean:.5g} B(border)={b.lum_mean:.5g} ratio={ratio:.3f}"
+    ok = 0.10 <= ratio <= 0.45
+    return (PASS if ok else HONEST_FAIL), detail + " (target ~0.25 = kept area)"
+
+
 def p_clamp(a: LegStats, b: LegStats, _c) -> tuple[str, str]:
     """B (clamp on) high-percentile luminance well below A (clamp off)."""
     detail = f"hi_pct A={a.hi_pct:.4g} B={b.hi_pct:.4g}; lum_max A={a.lum_max:.4g} B={b.lum_max:.4g}"
@@ -399,6 +409,17 @@ MATRIX: list[Row] = [
         variant_a=(("cycles.film_exposure", 1.0),),
         variant_b=(("cycles.film_exposure", 2.0),),
         note="cleanest quantitative honour: linear mean must ~double"),
+    # #802 Batch A item 4 — Render Region. use_border on with a centred 0.25-0.75
+    # rect blacks out ~3/4 of the film, so linear mean luminance drops to ~1/4.
+    # Covers use_border + border_min_x (the two DIRECT honour-surface props; the
+    # max_x/min_y/max_y edges ride the same feature). Bit-exact inside + zero
+    # outside is proven by tests/test_batch_a_render_region.py.
+    Row("render_region", ("use_border", "border_min_x"), "closed_box", "3", p_border,
+        variant_a=(("render.use_border", False),),
+        variant_b=(("render.use_border", True),
+                   ("render.border_min_x", 0.25), ("render.border_max_x", 0.75),
+                   ("render.border_min_y", 0.25), ("render.border_max_y", 0.75)),
+        note="border off vs a centred quarter-area region; linear mean must fall to ~1/4"),
     Row("film_transparent", ("render.film_transparent",), "open_object", "3", p_alpha_transparent,
         variant_a=(("render.film_transparent", True),),
         variant_b=(("render.film_transparent", False),),

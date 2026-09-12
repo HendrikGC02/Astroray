@@ -1946,6 +1946,16 @@ public:
         renderer.setWorldMaxBounces(maxB);
     }
 
+    // #802 Batch A item 4 - Render Region. x0,y0,x1,y1 are TOP-DOWN pixel rect
+    // bounds ([x0,x1) x [y0,y1)); the addon converts Blender's bottom-up
+    // normalized border. A degenerate/empty rect clears the region.
+    void setRenderRegion(int x0, int y0, int x1, int y1) {
+        renderer.setRenderRegion(x0, y0, x1, y1);
+    }
+    void clearRenderRegion() {
+        renderer.clearRenderRegion();
+    }
+
     void setWorldVolume(float density, const std::vector<float>& color,
                         float anisotropy = 0.0f, float scatter = 0.0f) {
         renderer.setWorldVolume(density, Vec3(color[0], color[1], color[2]), anisotropy, scatter);
@@ -3499,6 +3509,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("get_light_tree_upload_ms", &PyRenderer::getLightTreeUploadMs,
              "pkg86-B: wall-clock ms of the most recent GPU light-tree upload (0 = none).")
         .def("set_world_max_bounces", &PyRenderer::setWorldMaxBounces, "max_bounces"_a)
+        .def("set_render_region", &PyRenderer::setRenderRegion,
+             "x0"_a, "y0"_a, "x1"_a, "y1"_a)
+        .def("clear_render_region", &PyRenderer::clearRenderRegion)
         .def("set_world_volume", &PyRenderer::setWorldVolume,
              "density"_a, "color"_a, "anisotropy"_a = 0.0f, "scatter"_a = 0.0f)
         .def("set_guiding", &PyRenderer::setGuiding, "use"_a,

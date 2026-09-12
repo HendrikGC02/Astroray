@@ -1,5 +1,20 @@
 # Astroray Status
 
+## 2026-09-12 INTERIM — lead session (started ~10:30 AEST; Astra/Codex unavailable this session — usage cap; Claude + opencode substitutes)
+
+Lead: Claude Fable 5.1 from `next-session-prompt-2026-09-11.md`, batched lanes per the owner directive. Lanes: Opus 4.8 (Batch A addon parity, Batch C glass oracle, Batch E1 sky+emitters), Sonnet 5 (Batch E2 corpus Phase 3), architect (volumes), glm-5.3-flash grunt (audit fact sheet). Lead's own lane: Batch B (#801).
+
+**Merged so far:**
+- **Volumes track opened (owner decision 5)** — architect spec set fast-forwarded to main (ce93bc9b): research note `volumes-track-research-2026-09-12.md` + **pkg267** grid/VDB import + majorant, **pkg268** CPU heterogeneous transport (delta/ratio tracking, Principled Volume basics, NEE), **pkg269** GPU wavefront heterogeneous stage (NanoVDB), **pkg270** emission/blackbody + spectral σ, **pkg271** passes + corpus family + Blender integration, **pkg272** optional. DAG pkg267 → pkg268 → {269, 270} → 271; dispatch pkg267 + pkg268 first. Owner questions: VDB via Blender Python API vs an engine `.nvdb` reader; spectral Planck vs Cycles-match RGB for fire; pkg272 scope.
+- **Half-implemented triage (owner item 7)** — `half-implemented-triage-2026-09-12.md` + fact sheet; 17 spec Status lines carry the verdict: close pkg88/pkg241/pkg127/pkg179 (done), pkg119 (superseded); park pkg136/pkg126/pkg130/pkg133/pkg134; finish-in-a-batch pkg253/pkg201/pkg242/pkg254; fill pkg227/pkg121/pkg245.
+- **#803 Batch C → #782 closed** (0dfb3c97) — explicit Beckmann-heightfield oracle (no Smith equations): GGX walk tracks explicit geometry where Cycles' 1/E is 2.3–3.7× low at the exit interface; independent numpy sphere reproduces the 1.61 centre band (MS/SS 1.608). Verdict physical (validated), caveats on the issue. pkg265 Phase 3 GPU walk: designed in the research note, deferred to its own lane (two strict xfails remain).
+- Tooling to main: `scripts/build/gpu_locked_build.py` + `build_cuda_nosccache.bat` (the lead build wrapper), `scripts/dev/launch_isolated_blender.ps1` + `blender_mcp_isolated.py` (port-9877 GUI launcher every measurement lane had re-created).
+
+**Open PR #804 — Batch B part 1, #801 root cause found and fixed** (lead, `feat/batch-b-viewport-reupload`): `cuda_wavefront_render` re-ran `buildSceneArrays` + memcpy'd every scene array on EVERY `render()` call (`skip_upload` only skipped the CPU BVH); the viewport's 1-spp refinement chunks passed `skip_upload=False`. Measured 100k tris 640×360 1 spp: 138 ms with upload / 57 ms skip (≈46 ms fixed + 13.6 ms per spp). Fix: device scene cache keyed on the owning PyRenderer + `cuda_wavefront_invalidate_scene()` from every bypass uploader + exporter `_device_scene_dirty` + Cycles-style time-budgeted chunks. Gate: 200k tris 1 spp **242 ms → 4.5 ms**; GPU suite 777/0. Pending: GUI §9 re-measure on the isolated 9877 Blender with the Batch B addon, then merge.
+
+**In flight:** Batch A (spot IES export, #757, #796, #802 Render Region CPU+GPU, HDRI re-baseline/#795) — branch pushed, staging its addon; Batch E1 (#799 part 1 sun disc + absolute exposure, #776 textured emitters in NEE); Batch E2 (pkg259 Phase 3 corpus families).
+
+---
 ## 2026-09-11 CURRENT — lead session closeout (2026-09-09 09:50 → 2026-09-10 00:50, weekly-limit kill ~13:55; 2026-09-11 18:40 → ~20:45 after a session-limit freeze)
 
 Lead: Claude Fable 5.1, autonomous continuation of the overnight session (same prompt). Lanes: Opus 4.8 (pkg265 stochastic-eval round 2 + wiring, #780 root-cause), Sonnet 5 (pkg262 ×2, pkg259 Phase 2); 2026-09-11: Opus 4.8 (pkg256 parity/re-render). Codex Terra: 2 of 4 used (#791), Luna 1. Run report: `reports/2026-09-10-lead-session.html`. Next prompt: `next-session-prompt-2026-09-11.md`.

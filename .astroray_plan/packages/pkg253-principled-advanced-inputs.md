@@ -220,15 +220,16 @@ still missing, instead of re-implementing sockets that already work.
       `<*,false>` fleet path is byte-identical (REG 108, 0 spill) and
       `stageShadeBucketedKernel` is untouched (all 128 specialisations REG 254,
       0 spill). Measured (mesh emitter): unoccluded 0.4736, alpha 0 → 0.4736 (no
-      shadow). Dedicated POINT lamp: GPU alpha None/0.5/1.0 → 0.5462/0.4328/0.3194,
-      CPU 0.5461/0.4329/0.3197 (CPU/GPU ROI mean ratio <0.1%). Emissive sphere:
-      GPU/CPU <1%. `test_alpha0_casts_no_shadow_gpu` xfail removed; new
-      `test_alpha_shadow_dedicated_point_lamp_gpu` added (10/10 pkg253 pass).
-      A/B renders under `test_results/batch-h/`. NOTE: dedicated AREA lights
-      render black on the GPU wavefront at every depth (a separate, pre-existing
-      NEE gap, measured 0.0 vs CPU 0.47 — memory
-      gpu-wavefront-nee-occlusion-deferred-stage); the alpha walk covers them in
-      code and activates for free once that gap is closed.
+      shadow). Dedicated AREA lamp (`add_area_light_dedicated`, the Blender AREA
+      path): GPU alpha None/0.5/1.0 → 0.5140/0.3911/0.2682, CPU 0.5124/0.3904/
+      0.2685 (CPU/GPU ROI mean ratio <0.4%). Dedicated POINT lamp: GPU 0.5462/
+      0.4328/0.3194, CPU 0.5461/0.4329/0.3197 (<0.1%). Emissive sphere: GPU/CPU
+      <1%. `test_alpha0_casts_no_shadow_gpu` xfail removed; new
+      `test_alpha_shadow_dedicated_area_lamp_gpu` added (10/10 pkg253 pass).
+      A/B renders under `test_results/batch-h/`. NOTE: the UNRELATED geometry
+      helper `add_area_light` (an `AreaLightShape` added via `addObject`, NOT a
+      dedicated light) is not GPU-NEE-supported and renders black — a separate
+      pre-existing gap for that non-dedicated API, not the Blender lamp path.
 - [x] Step 1 — spec written, grounded in reading pkg178's status, the
       addon's native-param plumbing, and both engine backends first.
 - [x] Step 2 — G1 Alpha: found the real gap (shadow rays, not BSDF

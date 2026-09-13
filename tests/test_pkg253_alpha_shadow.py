@@ -297,29 +297,31 @@ def test_alpha0_casts_no_shadow_gpu():
 
 # ---------------------------------------------------------------------------
 # 8. GPU twin for a DEDICATED light (Blender lamp path). Every Blender
-#    POINT/SUN/SPOT lamp is a dedicated light on the wavefront NEE path
-#    (pkg89-wavefront), NOT a mesh emitter -- so the transparent-shadow walk must
-#    cover dedicated sources too, or an alpha<1 Principled surface would still
-#    cast a hard GPU shadow under a Blender point/sun lamp. Uses a POINT lamp
-#    (add_point_light): dedicated AREA lights render black on the GPU wavefront
-#    at every depth (a separate, pre-existing NEE gap, measured 0.0 vs CPU 0.47 --
-#    memory gpu-wavefront-nee-occlusion-deferred-stage), but point lamps
-#    illuminate correctly (cf. test_gpu_emission_colour_parity). In the walk,
+#    POINT/SUN/SPOT/AREA lamp is a dedicated light on the wavefront NEE path
+#    (pkg89-wavefront; gpu_dedicated_sample handles GDED_POINT/SPOT/DISTANT/AREA),
+#    NOT a mesh emitter -- so the transparent-shadow walk must cover dedicated
+#    sources too, or an alpha<1 Principled surface would still cast a hard GPU
+#    shadow under a Blender lamp. This uses the Blender AREA lamp path
+#    (add_area_light_dedicated -> astroray::AreaLight -> addDedicatedLight);
+#    point/spot/sun lamps behave identically in the walk. (The UNRELATED geometry
+#    helper add_area_light -- an AreaLightShape added via addObject, not a
+#    dedicated light -- is a different, non-dedicated API that is not GPU-NEE
+#    supported and renders black; that is not this Blender lamp path.) In the walk
 #    dedicated and triangle sources share the SAME branch (reachLight=false, cap
-#    at the true vertex->light geomDist), so this also exercises the code path
-#    the mesh-emitter test uses. Asserts alpha 0 => no shadow, monotone in alpha,
-#    and CPU/GPU parity on the transparent case within 5% (memory
+#    at the true vertex->light geomDist). Asserts alpha 0 => no shadow, monotone
+#    in alpha, and CPU/GPU parity on the transparent case within 5% (memory
 #    ssim-wrong-gate-for-independent-rng: ROI mean ratio, not SSIM).
 # ---------------------------------------------------------------------------
 
-def _render_point_lamp_scene(occluder_alpha, *, use_gpu, seed=17, size=48):
+def _render_dedicated_lamp_scene(occluder_alpha, *, use_gpu, seed=17, size=48):
     r = astroray.Renderer()
     r.set_background_color([0.0, 0.0, 0.0])
     r.set_integrator("path_tracer")
     r.set_use_gpu(use_gpu)
-    # Dedicated point lamp straight above the receiver (Blender POINT lamp path).
-    r.add_point_light(position=[0, 4, 0], emission={"color": [1.0, 1.0, 1.0]},
-                      intensity=1500.0, radius=0.0)
+    # Blender AREA lamp (dedicated light): normal = right x up = (0,-1,0), emits
+    # straight down onto the receiver.
+    r.add_area_light_dedicated([0, 4, 0], [1, 0, 0], [0, 0, 1], 1.0, 1.0,
+                               "RECTANGLE", {"color": [1.0, 1.0, 1.0]}, 400.0, 1.0)
     receiver = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
     e = 6.0
     r.add_triangle([-e, 0, -e], [e, 0, e], [e, 0, -e], receiver)
@@ -337,27 +339,27 @@ def _render_point_lamp_scene(occluder_alpha, *, use_gpu, seed=17, size=48):
 
 
 @pytest.mark.gpu
-def test_alpha_shadow_dedicated_point_lamp_gpu():
+def test_alpha_shadow_dedicated_area_lamp_gpu():
     probe = astroray.Renderer()
     if not probe.gpu_available:
         pytest.skip("CUDA GPU not available")
-    no_occ = _render_point_lamp_scene(None, use_gpu=True)
-    a0  = _render_point_lamp_scene(0.0, use_gpu=True)
-    a05 = _render_point_lamp_scene(0.5, use_gpu=True)
-    a1  = _render_point_lamp_scene(1.0, use_gpu=True)
-    # The dedicated point lamp must illuminate the receiver (pkg89 NEE).
+    no_occ = _render_dedicated_lamp_scene(None, use_gpu=True)
+    a0  = _render_dedicated_lamp_scene(0.0, use_gpu=True)
+    a05 = _render_dedicated_lamp_scene(0.5, use_gpu=True)
+    a1  = _render_dedicated_lamp_scene(1.0, use_gpu=True)
+    # The dedicated area lamp must illuminate the receiver (pkg89 NEE).
     assert no_occ > 0.05, (
-        f"[gpu] dedicated point lamp did not illuminate the receiver "
+        f"[gpu] dedicated area lamp did not illuminate the receiver "
         f"({no_occ:.4f}) -- wavefront dedicated-light NEE regressed")
     # alpha 0 casts no shadow; monotone darker with alpha; alpha 1 full shadow.
     assert a0 > no_occ * 0.90, (
-        f"[gpu] alpha=0 point-lamp occluder ({a0:.4f}) should match the "
+        f"[gpu] alpha=0 area-lamp occluder ({a0:.4f}) should match the "
         f"unoccluded control ({no_occ:.4f})")
     assert a0 > a05 > a1, (
-        f"[gpu] point-lamp shadow not monotone in alpha: "
+        f"[gpu] area-lamp shadow not monotone in alpha: "
         f"a0={a0:.4f} a05={a05:.4f} a1={a1:.4f}")
     # CPU/GPU parity on the transparent case (independent RNG -> ROI mean ratio).
-    a0_cpu = _render_point_lamp_scene(0.0, use_gpu=False)
+    a0_cpu = _render_dedicated_lamp_scene(0.0, use_gpu=False)
     assert abs(a0 - a0_cpu) / max(a0_cpu, 1e-6) < 0.05, (
-        f"[gpu] alpha=0 point-lamp CPU/GPU ROI mean ratio out of band: "
+        f"[gpu] alpha=0 area-lamp CPU/GPU ROI mean ratio out of band: "
         f"gpu={a0:.4f} cpu={a0_cpu:.4f}")

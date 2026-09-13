@@ -205,6 +205,22 @@ def test_depsgraph_has_image_changing_update_classification():
     assert exporter._depsgraph_has_image_changing_update(unknown) is True
 
 
+def test_viewport_worker_default_on(monkeypatch):
+    """pkg266 (Batch G, lead 2026-09-13): the off-thread worker is DEFAULT ON — an
+    unset/empty ASTRORAY_VIEWPORT_WORKER enables it; the env still forces OFF."""
+    exp = _load_exporter_module()
+    monkeypatch.delenv("ASTRORAY_VIEWPORT_WORKER", raising=False)
+    assert exp.viewport_worker_enabled() is True
+    monkeypatch.setenv("ASTRORAY_VIEWPORT_WORKER", "")
+    assert exp.viewport_worker_enabled() is True
+    for off in ("0", "false", "off", "no"):
+        monkeypatch.setenv("ASTRORAY_VIEWPORT_WORKER", off)
+        assert exp.viewport_worker_enabled() is False, off
+    for on in ("1", "true", "on", "yes"):
+        monkeypatch.setenv("ASTRORAY_VIEWPORT_WORKER", on)
+        assert exp.viewport_worker_enabled() is True, on
+
+
 def test_reaper_drains_freed_engine_session_keeps_live_and_current():
     """pkg266 (Batch G): _reap_dead_viewport_sessions drains a registered session
     whose RenderEngine Blender has FREED (as_pointer() raises ReferenceError,

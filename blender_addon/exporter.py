@@ -36,8 +36,17 @@ from enum import IntFlag
 # and byte-identical to origin/main (design test 10). Read via a helper so tests
 # can monkeypatch the module global directly.
 def viewport_worker_enabled():
-    """True when ASTRORAY_VIEWPORT_WORKER is set to a truthy value (1/true/on)."""
-    v = os.environ.get("ASTRORAY_VIEWPORT_WORKER", "")
+    """Whether the off-thread viewport worker (§9 A2) is active.
+
+    pkg266 (Batch G, lead decision 2026-09-13): DEFAULT ON. The worker beats the
+    synchronous path on every §9 row on both scenes (settle tick-gap 13.5 / 15.0 ms
+    vs 92.3 / 140.2 ms; storm 159 / 175 ms vs 230 / 211 ms) and serves owner
+    priority #721 (UI must not run at the render's frame rate). The env var still
+    forces it OFF for the synchronous fallback / debugging: set
+    ASTRORAY_VIEWPORT_WORKER to 0/false/off/no (unset or empty = default ON)."""
+    v = os.environ.get("ASTRORAY_VIEWPORT_WORKER")
+    if v is None or v.strip() == "":
+        return True  # default ON
     return v.strip().lower() in ("1", "true", "on", "yes")
 
 

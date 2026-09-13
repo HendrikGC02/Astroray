@@ -1674,8 +1674,16 @@ independent bugs and re-measured after fixing them:
 worker-ON SETTLE passes every §9 gate on both scenes — tick-gap p95 13.5 / 15.0 ms
 (vs 92 / 140 ms synchronous), present-rate 1.0 (gradeable), cancel p99 47 / 71 ms,
 mailbox ≤ 1, 0 CUDA errors. Continuous STORM tick-gap p95 159 / 175 ms fails the
-33 ms budget (explained residual: main-thread commit ~150 ms/edit). `ASTRORAY_
-VIEWPORT_WORKER` default stays opt-in (storm residual); settle passes decisively.
+33 ms budget (explained residual: main-thread commit ~150 ms/edit).
+
+**`ASTRORAY_VIEWPORT_WORKER` default flipped ON (lead decision, 2026-09-13).** The
+worker beats the synchronous path on every §9 row on both scenes (settle 13.5 /
+15.0 ms vs 92.3 / 140.2 ms; storm 159 / 175 ms vs 230 / 211 ms), and the spec's
+storm criterion is "≤ 33 ms OR an explained residual" — the ~150 ms/edit main-thread
+commit is that residual. Owner priority #721 (UI must not run at the render's frame
+rate) is served by shipping the better path on by default; the env var still forces
+the synchronous fallback OFF (0/false/off/no). Commit-cost reduction = pkg266
+follow-up, not a blocker.
 
 ### 14.6 Terra review (call 2/4, 2026-09-10) — BLOCK fixes
 

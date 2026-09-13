@@ -5502,6 +5502,34 @@ class CustomRaytracerRenderEngine(RenderEngine):
         return temp_path
 
 
+    def _resolve_ies_strength(self, light_data):
+        # Batch J item 2 (owner 2026-09-13): Cycles evaluates the TexIES node
+        # as `fac = strength * table(dir)` (kernel/svm/ies.h). The node Strength
+        # input (default 1.0) scales the absolute candela table. We read the
+        # constant default_value of the linked TexIES node Strength input and
+        # fold it into the light intensity (equivalent: the engine applies
+        # intensity * 1/(4pi) * iesValue). A Strength driven by another node is
+        # not evaluated here; the constant default is honoured.
+        node_tree = getattr(light_data, "node_tree", None)
+        if node_tree is None:
+            return 1.0
+        for node in node_tree.nodes:
+            if getattr(node, "type", "") != "TEX_IES":
+                continue
+            if not any(o.is_linked for o in node.outputs):
+                continue
+            inputs = getattr(node, "inputs", None)
+            if inputs is None:
+                return 1.0
+            try:
+                strength_in = inputs["Strength"]
+            except (KeyError, TypeError):
+                return 1.0
+            if getattr(strength_in, "is_linked", False):
+                return 1.0
+            return float(getattr(strength_in, "default_value", 1.0))
+        return 1.0
+
     def convert_lights(self, depsgraph, renderer):
         def _build_emission_dict(light):
             # pkg89 Phase B: construct EmissionSpectrum dict from Blender light properties.
@@ -5555,6 +5583,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
             ies_path = self._resolve_ies_path(light)
             emission_dict = _build_emission_dict(light)
             intensity = float(light.energy)
+            # Batch J item 2: honour the TexIES node Strength (Cycles fac =
+            # strength * table); folds into intensity for IES POINT/SPOT lights.
+            if ies_path:
+                intensity *= self._resolve_ies_strength(light)
             pass_idx = int(getattr(obj, "pass_index", 0))
 
             if light.type == 'POINT':

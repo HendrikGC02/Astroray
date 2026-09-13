@@ -125,4 +125,11 @@
 <li><strong>Volumes track next</strong>: pkg270 (blackbody spectral Planck — owner decision), pkg269 (GPU wavefront stage, NanoVDB device grid, REG 254), then pkg271 passes/corpus.</li>
 <li><strong>Codex</strong> unavailable until 2026-09-20; Astra reserved for the optimisation session.</li>
 </ul></section>
+<section><h2>6 Owner review addendum (2026-09-14)</h2>
+<ul>
+<li><strong>Viewport worker reverted to opt-in (#816).</strong> With the #812 default ON, the Rendered viewport did not update while orbiting and refinement stuck at the reduced first-unit resolution; <code>ASTRORAY_VIEWPORT_WORKER=0</code> restored the previous behaviour. The §9 driver measures camera edits through object transforms, never real viewport navigation, so its PASS table did not cover this. Tracked as #817 (P1); the default is not re-proposed until #817 and the storm row are fixed and measured through navigation.</li>
+<li><strong>Sun disc "1.48× over" withdrawn.</strong> The gate-2 pair shows the sun still points differently from Cycles (cube shadows fall right in ours, left in Cycles), so the ROIs compared different patches. Owner: the two skies otherwise look almost identical; #814 is a sun-direction bug first, parity re-run after.</li>
+<li><strong>Procedural textures through math chains render flat (#818, P1).</strong> The op-VM accepts image-texture inputs only; a procedural feeding Math/Mix/Ramp is constant-folded. Coordinate-side Separate/Combine XYZ and scalar Math are also unsupported; the 2026-09-11 coverage matrix predates pkg230 and is stale.</li>
+<li><strong>Issue audit</strong> added to the next session: close issues completed by merged PRs, file specs for open issues nothing owns.</li>
+</ul></section>
 </div></body></html>

@@ -204,3 +204,39 @@ def test_depsgraph_has_image_changing_update_classification():
 
     unknown = types.SimpleNamespace(updates=None)
     assert exporter._depsgraph_has_image_changing_update(unknown) is True
+
+
+def test_reaper_drains_freed_engine_session_keeps_live_and_current():
+    """pkg266 (Batch G): _reap_dead_viewport_sessions drains a registered session
+    whose RenderEngine Blender has FREED (as_pointer() raises ReferenceError,
+    releasing its orphaned token) but keeps a live sibling (valid engine) and never
+    reaps the current session (`keep`)."""
+    exp = _load_exporter_module()
+
+    class _FreedEngine:
+        def as_pointer(self):
+            raise ReferenceError("StructRNA of type RenderEngine has been removed")
+
+    class _LiveEngine:
+        def as_pointer(self):
+            return 0x1234
+
+    def _session(engine):
+        s = types.SimpleNamespace(engine=engine, stopped=False)
+        s.stop_worker = lambda: (setattr(s, "stopped", True),
+                                 exp._unregister_viewport_session(s))
+        return s
+
+    orphan = _session(_FreedEngine())
+    live = _session(_LiveEngine())
+    current = _session(_LiveEngine())
+    exp._LIVE_VIEWPORT_SESSIONS[:] = [orphan, live, current]
+    try:
+        exp._reap_dead_viewport_sessions(keep=current)
+        assert orphan.stopped is True, "freed-engine orphan must be drained"
+        assert live.stopped is False, "live sibling viewport must be kept (§3.5)"
+        assert current.stopped is False, "current session (keep) is never reaped"
+        assert orphan not in exp._LIVE_VIEWPORT_SESSIONS
+        assert live in exp._LIVE_VIEWPORT_SESSIONS
+    finally:
+        exp._LIVE_VIEWPORT_SESSIONS[:] = []

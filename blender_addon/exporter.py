@@ -200,6 +200,43 @@ def stop_all_viewport_sessions():
     _LIVE_VIEWPORT_SESSIONS.clear()
 
 
+def _reap_dead_viewport_sessions(keep=None):
+    """pkg266 (Batch G): drain registered viewport sessions whose RenderEngine has
+    been FREED by Blender (a superseded viewport engine), releasing the orphan's
+    process-global admission token.
+
+    Root cause of the residual present-rate=0: the Exporter holds a STRONG ref to
+    its engine (`self.engine`) and `_LIVE_VIEWPORT_SESSIONS` holds a strong ref to
+    the Exporter, so a superseded engine is pinned alive — `engine.__del__` /
+    `Exporter.__del__` never fire and the orphaned worker keeps rendering and
+    HOLDS the token, starving the live session (measured: two distinct worker
+    instances; the orphan's worker rendered 300+ chunks holding the token while the
+    live worker stayed IDLE and never committed → no terminal → UNGRADEABLE).
+
+    Blender invalidates a freed engine's Python wrapper: touching the C struct
+    (`as_pointer()`) raises `ReferenceError`. A LIVE sibling viewport's engine is
+    still valid and is NOT reaped (`keep` is the current session, always skipped) —
+    §3.5 shared-token multi-viewport is preserved. Any non-ReferenceError is treated
+    conservatively as "alive" (never reap on an unknown error)."""
+    for exporter in _LIVE_VIEWPORT_SESSIONS[:]:
+        if exporter is keep:
+            continue
+        eng = getattr(exporter, "engine", None)
+        dead = eng is None
+        if eng is not None:
+            try:
+                eng.as_pointer()  # freed RenderEngine -> ReferenceError
+            except ReferenceError:
+                dead = True
+            except Exception:
+                dead = False  # unknown — conservative, do not reap
+        if dead:
+            try:
+                exporter.stop_worker()
+            except Exception:
+                pass
+
+
 def _load_pre_drain(*_args):
     """bpy load_pre handler body (§3.6): fires BEFORE the incoming .blend replaces
     the scene, draining every live viewport worker so the old session's daemon
@@ -2005,6 +2042,12 @@ class Exporter:
     def _ensure_worker(self, engine_methods, request_viewport_redraw_fn):
         if self._worker is not None:
             return self._worker
+        # pkg266 (Batch G): before spinning up this session's worker, reap any
+        # orphaned session whose RenderEngine Blender has already freed — it would
+        # otherwise hold the process-global admission token forever and this worker
+        # could never commit a generation (present-rate UNGRADEABLE). Skips live
+        # sibling viewports (valid engines).
+        _reap_dead_viewport_sessions(keep=self)
         self._worker_engine_methods = engine_methods
         self._worker_redraw_fn = request_viewport_redraw_fn
 
@@ -2301,6 +2344,10 @@ class Exporter:
             if resolve_fn is not None:
                 settings = resolve_fn(scene, None)
             worker = self._ensure_worker(engine_methods, request_viewport_redraw_fn)
+            # pkg266 (Batch G): the live session reaps orphaned (freed-engine)
+            # sessions each draw, so a worker orphaned mid-session promptly releases
+            # the process-global token instead of starving this viewport.
+            _reap_dead_viewport_sessions(keep=self)
 
             new_hash = camera_state_hash_fn(context, region)
             camera_changed = (new_hash is not None

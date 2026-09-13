@@ -89,15 +89,18 @@ replay reduces but does not eliminate the full-sync path); it is NOT the render
 blocking the UI (render_frac = 0 on the worker rows). The storm is the
 pathological stress variant; the realistic settle cadence passes.
 
-## Worker-default decision: stays opt-in
+## Worker-default decision: flipped ON (lead, 2026-09-13, commit 8daa6797)
 
-Per the acceptance rule (flip `ASTRORAY_VIEWPORT_WORKER` ON only if every S9 gate
-passes on both scenes), the continuous-storm tick-gap p95 (159 / 175 ms) fails the
-33 ms budget, so the default stays opt-in. Failing rows = the storm rows above
-(main-thread commit ~150 ms/edit). The realistic settle cadence passes all gates
-decisively (present-rate gradeable 1.0, tick-gap 13-15 ms). Recommendation: flip
-ON in a follow-up once the commit-cost residual is reduced, or accept the storm as
-pathological and flip now -- an owner/lead call.
+The lane's initial reading of the acceptance rule kept the worker opt-in because
+the continuous-storm tick-gap p95 (159 / 175 ms) misses the 33 ms budget. The lead
+flipped the default ON on the spec's own storm criterion ("<= 33 ms OR an explained
+residual for the storm"): the residual is the ~150 ms/edit main-thread commit cost
+(render_frac = 0), and worker ON beats the synchronous path in EVERY row on both
+scenes -- settle 13.5 / 15.0 ms vs 92.3 / 140.2 ms, storm 159.2 / 175.4 ms vs
+229.8 / 211.5 ms. Owner priority #721 is UI responsiveness; leaving the better path
+opt-in serves nobody. `ASTRORAY_VIEWPORT_WORKER=0` still forces the synchronous
+fallback. Follow-up (non-blocking): reduce the coalesced-commit cost so the storm
+row also meets 33 ms. Owner may veto the flip in STATUS.
 
 ## Artifacts
 

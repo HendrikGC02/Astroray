@@ -43,7 +43,7 @@ worktree / build / sweep / CI cycle, one PR per batch with per-item sections and
   waiting on a background build (poll in bounded foreground chunks).
 - **Blender.** 9876 = owner's live instance — never touch. Isolated GUI: `scripts/dev/launch_isolated_blender.ps1
   -Port 9877 -Worker 0|1 -StateDir <dir>`. Headless `blender -b`. The staged + installed addon at closeout is
-  from main 98dfb48e (`--backend cuda`). Lanes that `--install` a worktree addon must say so; restage main at closeout.
+  from main b81cbe7a (`--backend cuda`; #815 `__del__` fix included). Lanes that `--install` a worktree addon must say so; restage main at closeout.
 - **GPU.** One CUDA build / GPU verifier at a time under `.astroray_plan/.orchestrator.gpu.lock` (MAIN path):
   builds via `python scripts/build/gpu_locked_build.py <tree> scripts\build\build_cuda_nosccache.bat <who>`;
   test runs via an `acquire_lock(<MAIN lock>, 5400, meta)` loop, release in `finally`, never write the lock
@@ -61,7 +61,7 @@ worktree / build / sweep / CI cycle, one PR per batch with per-item sections and
 
 ## State you inherit (verified 2026-09-13 ~22:30)
 
-- Merged this session: **#809 #810 #811 #812 #813** (numbers in STATUS). Filed **#814**. Specs flipped: pkg267,
+- Merged this session: **#809 #810 #811 #812 #813** + **#815** (addon `__del__` shutdown noise fix, after a PC restart). Filed **#814**. Specs flipped: pkg267,
   pkg268, pkg201, pkg253, pkg266 → done; pkg242, pkg254 → in-progress with the remaining items named.
 - **Volumes**: CPU heterogeneous transport is live from Blender (OpenVDB via the bundled `openvdb` module;
   Principled Volume / Absorption / Scatter with Cycles coefficient semantics; scalar σ_t, spectral albedo).

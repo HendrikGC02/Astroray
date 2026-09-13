@@ -459,11 +459,30 @@ void SKY_single_scattering_eval_xyz(const float ray_dir[3],
                                     float ozone_density,
                                     float r_xyz[3])
 {
+  /* Below the horizon the primary ray dives into the Earth, so density_rayleigh
+   * / density_mie see a large NEGATIVE height and expf(-h/scale) explodes.
+   * SKY_single_scattering_precompute_texture never calls single_scattering for
+   * the lower hemisphere; it fades the horizon value out instead
+   * (sky_single_scattering.cpp lower-hemisphere fill). Reproduce that here for
+   * the per-direction path: clamp the evaluation to the horizon (same azimuth,
+   * z = 0) and fade toward 0 with the same 1 - 2.5*z, cubed, shape. */
+  float dir[3] = {ray_dir[0], ray_dir[1], ray_dir[2]};
+  float fade = 1.0f;
+  if (dir[2] < 0.0f) {
+    const float f = 1.0f - (-dir[2]) * 2.5f;
+    fade = (f > 0.0f) ? (f * f * f) : 0.0f;
+    const float len = sqrtf(dir[0] * dir[0] + dir[1] * dir[1]);
+    if (len > 1e-8f) {
+      dir[0] /= len;
+      dir[1] /= len;
+    }
+    dir[2] = 0.0f;
+  }
   float spectrum[NUM_WAVELENGTHS];
   SKY_single_scattering_spectrum(
-      ray_dir, sun_elevation, altitude, air_density, aerosol_density, ozone_density, spectrum);
+      dir, sun_elevation, altitude, air_density, aerosol_density, ozone_density, spectrum);
   const float3 xyz = spec_to_xyz(spectrum);
-  r_xyz[0] = xyz.x;
-  r_xyz[1] = xyz.y;
-  r_xyz[2] = xyz.z;
+  r_xyz[0] = xyz.x * fade;
+  r_xyz[1] = xyz.y * fade;
+  r_xyz[2] = xyz.z * fade;
 }

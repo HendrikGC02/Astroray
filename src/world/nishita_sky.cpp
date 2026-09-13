@@ -57,17 +57,24 @@ void sky_equirect(Mode mode,
   }
   const float two_pi = 6.28318530717958647692f;
   const float pi = 3.14159265358979323846f;
-  // Rotate the view azimuth by `alpha` about +Z so the model's sun (evaluated
-  // at its own azimuth-0) lands at Astroray-world azimuth sun_rotation. The two
-  // vendored models put their azimuth-0 sun at OPPOSITE X: single-scattering
-  // geographical_to_direction(elev, 0) -> +X; multiple-scattering
-  // sun_direction(sin elev) -> -X (azimuth pi). So MS needs an extra pi offset.
-  // (Verified against the bake's brightest-column azimuth; see
-  // test_batch_j_nishita_sky.py::test_sun_azimuth_orientation.)
-  const float alpha =
+  // Orientation. Astroray's env lookup maps a WORLD direction D to the equirect
+  // via phi_env = atan2(-D.y, D.x) (include/raytracer.h EnvironmentMap::lookup,
+  // after the Blender Z-up -> env-Y-polar swap). The validated Preetham bake
+  // (sky_bake.py) fills pixel (r,c) with world dir D = (sin t cos p,
+  // -sin t sin p, cos t), p = ((c+0.5)/W - 0.5)*2pi, which places a sun at
+  // WORLD azimuth A at column-phi -A. We MUST match that so the baked sky glow
+  // coincides with the dedicated distant sun (world azimuth +A) and its
+  // shadows. So for each pixel we take the same world dir D and evaluate the
+  // model at D rotated about +Z by beta = (model's azimuth-0 sun) - A, i.e. the
+  // model's sun lands at world azimuth A. The two models put their azimuth-0
+  // sun at OPPOSITE X: single-scattering geographical_to_direction(elev,0)->+X
+  // (model_sun_az 0); multiple-scattering sun_direction(sin elev)->-X
+  // (model_sun_az pi). Validated by rendering (sky glow coincides with the sun
+  // disc); see test_batch_j_nishita_sky.py::test_sky_glow_matches_distant_sun.
+  const float beta =
       (mode == Mode::MultipleScattering) ? (pi - sun_rotation) : (-sun_rotation);
-  const float cos_sr = std::cos(alpha);
-  const float sin_sr = std::sin(alpha);
+  const float cos_b = std::cos(beta);
+  const float sin_b = std::sin(beta);
 
   void *ms_ctx = nullptr;
   if (mode == Mode::MultipleScattering) {
@@ -85,10 +92,10 @@ void sky_equirect(Mode mode,
       const float dx = st * std::cos(phi);
       const float dy = -st * std::sin(phi);
       const float dz = ct;
-      // Rotate the view direction by -sun_rotation about +Z (sun -> azimuth 0).
+      // mdir = Rz(beta) * D  (rotate world dir azimuth by beta about +Z).
       float mdir[3];
-      mdir[0] = dx * cos_sr + dy * sin_sr;
-      mdir[1] = -dx * sin_sr + dy * cos_sr;
+      mdir[0] = dx * cos_b - dy * sin_b;
+      mdir[1] = dx * sin_b + dy * cos_b;
       mdir[2] = dz;
 
       float xyz[3];

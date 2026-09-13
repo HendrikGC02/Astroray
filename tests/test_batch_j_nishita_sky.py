@@ -49,20 +49,56 @@ def test_no_exposure_bridge_values_are_order_one():
     assert 0.1 < float(sky.mean()) < 100.0, float(sky.mean())
 
 
+def _sun_position(elev_deg, rot_deg):
+    """Astroray-world (Blender Z-up) direction TO the sun at elevation/azimuth
+    (what the dedicated DistantLight's axis_ points at, = -travel direction)."""
+    e, a = math.radians(elev_deg), math.radians(rot_deg)
+    ce, se = math.cos(e), math.sin(e)
+    return (ce * math.cos(a), ce * math.sin(a), se)
+
+
+def _env_phi(d):
+    """Astroray env-map azimuth of a world direction (EnvironmentMap::lookup:
+    phi = atan2(-D.y, D.x) after the Z-up -> env-Y-polar swap)."""
+    return math.degrees(math.atan2(-d[1], d[0]))
+
+
 @pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize("rot_deg", [0.0, 45.0, 115.0, 270.0])
-def test_sun_azimuth_orientation(mode, rot_deg):
-    """The baked sky's brightest column must sit at the requested sun_rotation
-    azimuth (both models, despite their opposite native sun-X convention)."""
+def test_sky_glow_matches_distant_sun(mode, rot_deg):
+    """The baked sky's brightest direction must coincide with the PHYSICAL sun
+    position (where the dedicated DistantLight's axis_ points), NOT its mirror.
+
+    Non-circular: `expected` comes from the sun position + Astroray's env-map
+    azimuth convention, independent of the bake's own column mapping. This is the
+    cycles-parity-reviewer's cross-check (PR #813) — the earlier column-only
+    assertion enshrined a mirrored convention. A same-scene render
+    (test_results/batch_j/sky_cycles_vs_astroray_samescene_e28.png) confirms the
+    sky glow + shadows agree with Cycles."""
+    elev = 20.0
     w, h = 720, 180
-    sky = astroray.nishita_sky(mode, w, h, math.radians(20.0), math.radians(rot_deg),
+    sky = astroray.nishita_sky(mode, w, h, math.radians(elev), math.radians(rot_deg),
                                100.0, 1.0, 1.0, 1.0)
     lum = 0.2126 * sky[:, :, 0] + 0.7152 * sky[:, :, 1] + 0.0722 * sky[:, :, 2]
     cmax = int(np.argmax(lum.sum(axis=0)))
-    az = ((cmax + 0.5) / w - 0.5) * 360.0
-    # Wrap the signed difference into [-180, 180].
-    diff = (az - rot_deg + 180.0) % 360.0 - 180.0
-    assert abs(diff) <= 1.5, (mode, rot_deg, az, diff)
+    # The engine reads column c as env-map azimuth phi = ((c+0.5)/w - 0.5)*360.
+    bright_phi = ((cmax + 0.5) / w - 0.5) * 360.0
+    expected = _env_phi(_sun_position(elev, rot_deg))
+    diff = (bright_phi - expected + 180.0) % 360.0 - 180.0
+    assert abs(diff) <= 1.5, (mode, rot_deg, bright_phi, expected, diff)
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_ss_below_horizon_is_finite(mode):
+    """SINGLE_SCATTERING must not explode below the horizon (density_rayleigh of
+    a negative height): reproduce the upstream horizon fade. MS integrates to the
+    ground hit and is inherently bounded."""
+    sky = astroray.nishita_sky(mode, 256, 128, math.radians(28.0), 0.0,
+                               100.0, 1.0, 1.0, 1.0)
+    assert np.all(np.isfinite(sky))
+    assert float(sky.max()) < 1e3  # no runaway; sky radiance is O(1-40)
+    # Bottom rows (straight down) faded toward black.
+    assert float(sky[-4:].max()) < 0.5, float(sky[-4:].max())
 
 
 # Pinned solar-disc radiance triples (linear RGB) from the vendored

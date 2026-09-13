@@ -753,8 +753,9 @@ def _install_present_check():
             after = getattr(self, "presents", 0)
             if after > before and frame is not None and _np is not None:
                 try:
-                    # pkg241 P2.2 item 3: mailbox tuple gained a pub_id.
-                    gen, _pub_id, buffer, _w, _h = frame
+                    # pkg241 P2.2 item 3: mailbox tuple gained a pub_id; pkg266
+                    # (Batch G): and the presented chunk's accumulated spp.
+                    gen, _pub_id, buffer, _w, _h, _spp = frame
                     a = _np.asarray(buffer, dtype=_np.float32)
                     S["present_buffers"].append(
                         (int(gen), float(a.min()), float(a.max()),

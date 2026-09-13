@@ -70,7 +70,7 @@ worktree / build / sweep / CI cycle, one PR per batch with per-item sections and
 - **Viewport**: off-main-thread worker is the DEFAULT (owner may veto with `ASTRORAY_VIEWPORT_WORKER=0`);
   settle gates all pass; the continuous edit storm is 159 / 175 ms (commit cost) — the pkg266 follow-up.
 - **Sky**: engine-side Nishita (Apache/MIT vendored) with a model-consistent sun disc; hue and shadow direction
-  match Cycles; disc irradiance ~1.48× over (#814). PREETHAM / HOSEK types still use the Preetham bake.
+  match each other; but the disc/sun DIRECTION still differs from Cycles (owner-spotted 2026-09-14: cube shadows fall right in ours, left in Cycles) so the "1.48× over" gate-2 number is invalid — #814 is a direction bug first. PREETHAM / HOSEK types still use the Preetham bake.
 - **IES**: absolute photometry (4π/177.83, Strength honoured), CPU-only on the wavefront (point_light.cpp v1 gap).
 - **GPU alpha shadows**: all light types; REG 254 held.
 - pkg265 Phase 3 GPU walk: device header ported, unwired, WIP branch pushed; `Astroray-batchH` worktree kept on it.
@@ -81,7 +81,7 @@ worktree / build / sweep / CI cycle, one PR per batch with per-item sections and
 Batch K — **volumes part 2** (Opus 4.8, cite-algorithm): pkg270 emission + blackbody spectral Planck +
   per-λ σ (spectral/decomposition tracking, Kutz 2017), then pkg269 GPU wavefront stage (NanoVDB device grid,
   `template<bool>` fleet isolation, REG 254 probe) — one lane, CPU first; #807 cabinet as the cross-check.
-Batch L — **lighting residuals**: #814 (analytic E_sun oracle for the disc; controlled single-spot IES A/B vs
+Batch L — **lighting residuals**: #814 (FIRST fix the dedicated-sun direction vs Cycles — pixel-measure a pole's shadow vector in both renders; THEN re-measure gate 2 with the ROI drawn on both images; analytic E_sun oracle for the disc; controlled single-spot IES A/B vs
   `kernel/light/spot.h`; wavefront IES modulation), Preetham/Hosek sky types → Nishita-or-warn decision,
   world_sky_sky corpus refs re-rendered with the Nishita sky.
 Batch M — **viewport storm row**: reduce the coalesced-commit cost (pkg266 follow-up, #721), re-measure §9 storm.

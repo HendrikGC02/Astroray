@@ -94,6 +94,33 @@ parity work (pkg86). Not compiled into any target.
 - **How used:** reference-only (license attribution + parity audits);
   deleting it would break the citation chain.
 
+### `external/nanovdb/`
+
+Vendored subset of NanoVDB, the GPU-friendly sparse-volume data structure
+from the OpenVDB project, used as the shared CPU/GPU heterogeneous-volume
+grid representation (pkg267+).
+
+- **Upstream:** [AcademySoftwareFoundation/openvdb](https://github.com/AcademySoftwareFoundation/openvdb)
+  at release tag **`v12.0.0`**, subtree `nanovdb/nanovdb/`.
+- **Paper:** Ken Museth, *NanoVDB: A GPU-Friendly and Portable VDB Data
+  Structure for Real-Time Rendering and Simulation*, SIGGRAPH 2021 Talks.
+- **License:** Apache-2.0 (`SPDX-License-Identifier: Apache-2.0`,
+  "Copyright Contributors to the OpenVDB Project"); full text at
+  `external/nanovdb/LICENSE`. Every vendored header keeps its SPDX header
+  intact and unmodified.
+- **Vendored files:** the include closure of `nanovdb/tools/CreateNanoGrid.h`
+  + `nanovdb/tools/GridBuilder.h` + `nanovdb/HostBuffer.h` (21 headers;
+  see `external/nanovdb/README.md` for the full list and the procedure).
+  The OpenVDB-file-reader path (`#include <openvdb/openvdb.h>` in
+  `CreateNanoGrid.h`) is gated behind `NANOVDB_USE_OPENVDB`, which Astroray
+  never defines, so no OpenVDB / Boost / TBB / Blosc dependency is pulled.
+- **How used:** included only by the single host TU
+  `src/volume/grid_medium.cpp`; the public header
+  `include/astroray/volume/grid_medium.h` keeps NanoVDB types opaque
+  (PIMPL) so the widely-included `raytracer.h` never sees NanoVDB.h. The
+  `external/nanovdb` directory is added to that TU's include path in
+  [CMakeLists.txt](CMakeLists.txt).
+
 ---
 
 ## Test-time dependencies (not redistributed)

@@ -57,8 +57,17 @@ void sky_equirect(Mode mode,
   }
   const float two_pi = 6.28318530717958647692f;
   const float pi = 3.14159265358979323846f;
-  const float cos_sr = std::cos(sun_rotation);
-  const float sin_sr = std::sin(sun_rotation);
+  // Rotate the view azimuth by `alpha` about +Z so the model's sun (evaluated
+  // at its own azimuth-0) lands at Astroray-world azimuth sun_rotation. The two
+  // vendored models put their azimuth-0 sun at OPPOSITE X: single-scattering
+  // geographical_to_direction(elev, 0) -> +X; multiple-scattering
+  // sun_direction(sin elev) -> -X (azimuth pi). So MS needs an extra pi offset.
+  // (Verified against the bake's brightest-column azimuth; see
+  // test_batch_j_nishita_sky.py::test_sun_azimuth_orientation.)
+  const float alpha =
+      (mode == Mode::MultipleScattering) ? (pi - sun_rotation) : (-sun_rotation);
+  const float cos_sr = std::cos(alpha);
+  const float sin_sr = std::sin(alpha);
 
   void *ms_ctx = nullptr;
   if (mode == Mode::MultipleScattering) {

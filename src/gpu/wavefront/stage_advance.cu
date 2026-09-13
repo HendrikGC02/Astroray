@@ -2056,31 +2056,28 @@ __global__ void stageShadowKernel(
                              nee_f[12 * nee_capacity + idx],
                              nee_f[13 * nee_capacity + idx]);
     s.dedEmissionProfileIndex = nee_i[5 * nee_capacity + idx];  // pkg218
+    // pkg253: true vertex->light distance (lane 14) bounds the transparent-shadow
+    // walk for finite sources (NOT the 1e30 maxDist occlusion sentinel — memory
+    // occlusion-sentinel-as-distance-class-of-bug). 0 for distant/infinite lights.
+    s.geomDist   = nee_f[14 * nee_capacity + idx];
     s.valid      = 1;
 
     // pkg55-C4: thread TLAS + path time + motionVerts to shadow rays.
     float time = state.path_time[idx];
     // pkg253: transparent-shadow transmittance. In the <*, true> specialisation
-    // a triangle-emitter shadow ray walks its occluders so a Principled alpha<1
-    // surface lets (1-alpha) through (gpu_shadow_transmittance); sphere and
-    // dedicated sources keep the binary reach-the-light semantics (their single
-    // -occluder attenuation is a documented follow-up). The <*, false> fleet
-    // path is exactly the original binary gpu_nee_occlude.
+    // EVERY light type (triangle / sphere / dedicated point-spot-area-distant)
+    // walks its occluders so a Principled alpha<1 surface lets (1-alpha) through
+    // (gpu_shadow_transmittance, device twin of CPU shadowTransmittance, which
+    // attenuates all light types). The <*, false> fleet path is exactly the
+    // original binary gpu_nee_occlude.
     GNEEOcclusion occ{};
     occ.frontFace = 1;
     float shadowTr = 1.0f;
     if constexpr (HasAlphaShadow) {
-        if (s.isSphere || s.isDedicated) {
-            occ = gpu_nee_occlude<HasCurves>(
-                s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                time, motionVerts, curves);
-            if (occ.occluded) return;
-        } else {
-            shadowTr = gpu_shadow_transmittance<HasCurves>(
-                s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                materials, time, motionVerts, curves);
-            if (shadowTr <= 0.0f) return;
-        }
+        shadowTr = gpu_shadow_transmittance<HasCurves>(
+            s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
+            materials, time, motionVerts, curves, &occ.frontFace);
+        if (shadowTr <= 0.0f) return;
     } else {
         occ = gpu_nee_occlude<HasCurves>(
             s, tlas, instances, blas, bvhNodes, prims, tris, spheres,

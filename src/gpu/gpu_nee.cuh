@@ -583,14 +583,24 @@ __device__ inline float gpu_shadowAlpha(const GMaterial& m) {
 }
 
 // pkg253 — GPU shadow-ray transmittance for Principled `alpha` (Cycles
-// Transparent Shadows). Device twin of CPU shadowTransmittance (raytracer.h):
-// walks up to maxHops closest-hit occluders toward a triangle emitter,
-// accumulating Tr *= (1 - shadowAlpha(hit material)), so a fully transparent
-// (alpha==0) surface casts no shadow and a transparent surface in front of an
-// opaque one still ends fully shadowed (the walk continues past it). Returns the
-// fraction of the light that reaches the shading point. Only instantiated inside
-// the stageShadowKernel<*, true> specialisation (scenes carrying an alpha<1
+// Transparent Shadows). Device twin of CPU shadowTransmittance (raytracer.h),
+// which attenuates the NEE shadow ray for EVERY light type. Walks up to maxHops
+// closest-hit occluders toward the light, accumulating Tr *= (1 -
+// shadowAlpha(hit material)), so a fully transparent (alpha==0) surface casts no
+// shadow and a transparent surface in front of an opaque one still ends fully
+// shadowed (the walk continues past it). Returns the fraction of the light that
+// reaches the shading point. Only instantiated inside the
+// stageShadowKernel<*, true> specialisation (scenes carrying an alpha<1
 // material), so the fleet shadow kernel stays byte-identical.
+//
+// Distance bound (memory occlusion-sentinel-as-distance-class-of-bug): finite
+// sources (triangle / point / spot / area) cap the walk at the TRUE vertex->light
+// distance s.geomDist, NEVER the 1e30 s.maxDist OCCLUSION sentinel. Distant/
+// infinite lights carry geomDist==0 and walk to maxDist (1e30), occluding on any
+// opaque surface like an env ray. Sphere sources are emissive GEOMETRY, so the
+// walk instead runs to the light and stops ON its material id (capturing the hit
+// frontFace for two-sided emission, exactly as the binary gpu_nee_occlude sphere
+// branch did); *frontFaceOut is written only on that path.
 template<bool HasCurves = false>
 __device__ inline float gpu_shadow_transmittance(
     const GNEESample& s,
@@ -604,19 +614,29 @@ __device__ inline float gpu_shadow_transmittance(
     const GMaterial*  materials,
     float             time,
     const GVec3*      motionVerts,
-    const GCurveSegment* curves = nullptr)
+    const GCurveSegment* curves = nullptr,
+    int*              frontFaceOut = nullptr)
 {
     const int maxHops = 8;  // Cycles transparent_max_bounce default (matches CPU)
+    const bool reachLight = (s.isSphere != 0);  // sphere light = reach its geometry
     float Tr = 1.0f;
     GVec3 origin = s.origin;
     const GVec3 dir = s.wi;
-    float remaining = s.maxDist;
+    // Sphere: walk to the light geometry (tMax = maxDist, stop on lightMatId).
+    // Others: cap at the true vertex->light distance (geomDist); distant lights
+    // (geomDist==0) walk to the 1e30 sentinel and occlude like an env ray.
+    float remaining = reachLight ? s.maxDist
+                                 : ((s.geomDist > 0.f) ? s.geomDist : s.maxDist);
     for (int hop = 0; hop < maxHops; ++hop) {
         GHitRecord sh;
         if (!gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris,
                           spheres, GRay(origin, dir, time), 0.001f,
                           remaining - 0.001f, sh, motionVerts, curves))
             return Tr;  // unobstructed to the light
+        if (reachLight && sh.materialId == s.lightMatId) {
+            if (frontFaceOut) *frontFaceOut = sh.frontFace ? 1 : 0;
+            return Tr;  // reached the emissive sphere light
+        }
         Tr *= (1.0f - gpu_shadowAlpha(materials[sh.materialId]));
         if (Tr < 1e-3f) return 0.0f;  // opaque enough to fully block
         float advance = sh.t + 1e-3f;

@@ -22,7 +22,6 @@ uncancelled terminal).
 """
 
 import importlib.util
-import threading
 import time
 import types
 from pathlib import Path

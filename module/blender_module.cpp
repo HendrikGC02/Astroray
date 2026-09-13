@@ -1970,8 +1970,8 @@ public:
     void setVolumeGrid(const std::string& /*name*/,
                        py::array_t<float, py::array::c_style | py::array::forcecast> density,
                        std::array<int, 3> bbox_min,
-                       std::array<float, 16> index_to_object,
-                       std::array<float, 16> object_to_world,
+                       const std::array<float, 16>& index_to_object,  // 64 B: const& (MinGW by-value >32 B footgun)
+                       const std::array<float, 16>& object_to_world,
                        float density_scale, std::array<float, 3> color,
                        std::array<float, 3> absorption_color, float anisotropy,
                        py::object temperature) {
@@ -5561,8 +5561,8 @@ PYBIND11_MODULE(astroray, m) {
                  [toDense](GridMedium& self,
                            py::array_t<float, py::array::c_style | py::array::forcecast> arr,
                            std::array<int, 3> bbox_min,
-                           std::array<float, 16> index_to_object,
-                           std::array<float, 16> object_to_world,
+                           const std::array<float, 16>& index_to_object,  // 64 B: const&
+                           const std::array<float, 16>& object_to_world,
                            int supervoxel) {
                      DenseGrid g = toDense(arr, bbox_min);
                      self.setDensity(g, index_to_object, object_to_world, supervoxel);

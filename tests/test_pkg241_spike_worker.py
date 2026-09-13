@@ -348,6 +348,14 @@ def test_worker_view_update_pumps_control_only_preserving_the_frame():
     fake_self.engine = types.SimpleNamespace(report=lambda *a, **k: None)
     fake_self._ensure_worker = lambda em, redraw: fake_worker
     fake_self._worker_deferred_scene = False
+    # pkg266: _worker_view_update now skips a SPURIOUS (no image-changing edit)
+    # view_update. This depsgraph has no `updates` attr → classified as a real
+    # edit (conservative), so the call takes the normal path (request + commit +
+    # one present=False pump). Bind the real classifier onto the fake self.
+    fake_self._viewport_full_synced = True
+    fake_self._depsgraph_has_image_changing_update = (
+        lambda dg: exporter.Exporter._depsgraph_has_image_changing_update(
+            fake_self, dg))
     fake_self._viewport_camera_hash = None
     fake_self._viewport_camera_substantive_hash = None
     # commit succeeds (worker idle) so the deferred-scene branch is not taken.

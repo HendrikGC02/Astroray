@@ -36,8 +36,17 @@ from enum import IntFlag
 # and byte-identical to origin/main (design test 10). Read via a helper so tests
 # can monkeypatch the module global directly.
 def viewport_worker_enabled():
-    """True when ASTRORAY_VIEWPORT_WORKER is set to a truthy value (1/true/on)."""
-    v = os.environ.get("ASTRORAY_VIEWPORT_WORKER", "")
+    """Whether the off-thread viewport worker (§9 A2) is active.
+
+    pkg266 (Batch G, lead decision 2026-09-13): DEFAULT ON. The worker beats the
+    synchronous path on every §9 row on both scenes (settle tick-gap 13.5 / 15.0 ms
+    vs 92.3 / 140.2 ms; storm 159 / 175 ms vs 230 / 211 ms) and serves owner
+    priority #721 (UI must not run at the render's frame rate). The env var still
+    forces it OFF for the synchronous fallback / debugging: set
+    ASTRORAY_VIEWPORT_WORKER to 0/false/off/no (unset or empty = default ON)."""
+    v = os.environ.get("ASTRORAY_VIEWPORT_WORKER")
+    if v is None or v.strip() == "":
+        return True  # default ON
     return v.strip().lower() in ("1", "true", "on", "yes")
 
 
@@ -198,6 +207,43 @@ def stop_all_viewport_sessions():
         except Exception:
             pass
     _LIVE_VIEWPORT_SESSIONS.clear()
+
+
+def _reap_dead_viewport_sessions(keep=None):
+    """pkg266 (Batch G): drain registered viewport sessions whose RenderEngine has
+    been FREED by Blender (a superseded viewport engine), releasing the orphan's
+    process-global admission token.
+
+    Root cause of the residual present-rate=0: the Exporter holds a STRONG ref to
+    its engine (`self.engine`) and `_LIVE_VIEWPORT_SESSIONS` holds a strong ref to
+    the Exporter, so a superseded engine is pinned alive — `engine.__del__` /
+    `Exporter.__del__` never fire and the orphaned worker keeps rendering and
+    HOLDS the token, starving the live session (measured: two distinct worker
+    instances; the orphan's worker rendered 300+ chunks holding the token while the
+    live worker stayed IDLE and never committed → no terminal → UNGRADEABLE).
+
+    Blender invalidates a freed engine's Python wrapper: touching the C struct
+    (`as_pointer()`) raises `ReferenceError`. A LIVE sibling viewport's engine is
+    still valid and is NOT reaped (`keep` is the current session, always skipped) —
+    §3.5 shared-token multi-viewport is preserved. Any non-ReferenceError is treated
+    conservatively as "alive" (never reap on an unknown error)."""
+    for exporter in _LIVE_VIEWPORT_SESSIONS[:]:
+        if exporter is keep:
+            continue
+        eng = getattr(exporter, "engine", None)
+        dead = eng is None
+        if eng is not None:
+            try:
+                eng.as_pointer()  # freed RenderEngine -> ReferenceError
+            except ReferenceError:
+                dead = True
+            except Exception:
+                dead = False  # unknown — conservative, do not reap
+        if dead:
+            try:
+                exporter.stop_worker()
+            except Exception:
+                pass
 
 
 def _load_pre_drain(*_args):
@@ -564,7 +610,7 @@ class _ViewportSpikeWorker:
                  token=None, admission_gate=None):
         # render_fn(job, cancel_check, publish) -> None  [WORKER thread, under token]
         #   job: the committed snapshot dict; cancel_check() -> bool (True = stop);
-        #   publish(buffer, width, height) -> None publishes a chunk for this gen.
+        #   publish(buffer, width, height, spp) -> None publishes a chunk for this gen.
         self._render_fn = render_fn
         # present_fn(buffer, width, height, generation) -> None  [MAIN thread]
         self._present_fn = present_fn
@@ -586,7 +632,7 @@ class _ViewportSpikeWorker:
 
         # depth-1 latest-frame mailbox (§3.3): a newer frame REPLACES an unconsumed
         # older one; depth never exceeds 1. Protected by _mailbox_lock.
-        self._mailbox = None       # (generation, pub_id, buffer, width, height) or None
+        self._mailbox = None       # (generation, pub_id, buffer, width, height, spp) or None
         self._mailbox_lock = threading.Lock()
         self.mailbox_depth = 0
         self.mailbox_depth_max = 0
@@ -786,29 +832,34 @@ class _ViewportSpikeWorker:
             self.mailbox_depth = 0
         if frame is None:
             return
-        gen, pub_id, buffer, width, height = frame
+        gen, pub_id, buffer, width, height, spp = frame
         _emit_spike_event("mailbox_dequeue", gen, self.session_epoch,
                           pub_id=pub_id, depth_before=depth_before)
         if gen == self.desired_generation and self.state != self.DEAD:
             self._present_fn(buffer, width, height, gen)
             self.presents += 1
+            # pkg266 (Batch G): carry the accumulated spp of the PRESENTED chunk so
+            # the driver measures samples/s from real presented work rather than
+            # inferring it from a fixed chunk size (§9 samples/s row).
             _emit_spike_event("texture_upload_end", gen, self.session_epoch,
-                              pub_id=pub_id)
+                              pub_id=pub_id, spp=int(spp))
         # else: superseded — discarded (no stale present).
 
-    def _publish_frame(self, generation, buffer, width, height):
+    def _publish_frame(self, generation, buffer, width, height, spp=0):
         """Worker thread: publish a completed chunk into the depth-1 mailbox,
-        REPLACING any unconsumed older frame (§3.3). Depth never exceeds 1."""
+        REPLACING any unconsumed older frame (§3.3). Depth never exceeds 1.
+        `spp` is the chunk's accumulated sample count (pkg266 Batch G: measured
+        samples/s)."""
         with self._mailbox_lock:
             self._pub_seq += 1
             pub_id = self._pub_seq
-            self._mailbox = (generation, pub_id, buffer, width, height)
+            self._mailbox = (generation, pub_id, buffer, width, height, int(spp))
             self.mailbox_depth = 1
             if self.mailbox_depth > self.mailbox_depth_max:
                 self.mailbox_depth_max = self.mailbox_depth
         self._last_pub_id = pub_id
         _emit_spike_event("mailbox_enqueue", generation, self.session_epoch,
-                          pub_id=pub_id, depth_after=1)
+                          pub_id=pub_id, depth_after=1, spp=int(spp))
 
     def _worker_loop(self):
         """Worker daemon thread: wait for a committed job, render it (holding the
@@ -830,8 +881,8 @@ class _ViewportSpikeWorker:
                 def cancel_check():
                     return self._cancel_event.is_set()
 
-                def publish(buffer, width, height):
-                    self._publish_frame(gen, buffer, width, height)
+                def publish(buffer, width, height, spp=0):
+                    self._publish_frame(gen, buffer, width, height, spp)
 
                 self._render_fn(job, cancel_check, publish)
                 _emit_spike_event("render_end", gen, self.session_epoch)
@@ -1045,6 +1096,37 @@ class Exporter:
             return m.get(blender_id.name)
         except AttributeError:
             return None
+
+    def _depsgraph_has_image_changing_update(self, depsgraph):
+        """pkg266: a NON-STATEFUL, cache-free peek at `depsgraph.updates` that
+        answers "does this view_update carry any edit that could change the
+        image?" — WITHOUT calling the stateful per-domain `diff()` (which must run
+        exactly once per edit, inside the commit). Used by the off-thread worker's
+        view_update to skip cancelling the in-flight render when Blender fires a
+        spurious view_update (empty `updates`, or a selection-only Object change)
+        during a settle span — the present-rate=0 root cause (the worker requested
+        a new generation on EVERY view_update, so no render ever reached its
+        uncancelled terminal). Mirrors the synchronous path, which returns early on
+        an 'idle' (no-domain) dispatch (view_update ~L1608).
+
+        Conservative: anything we cannot positively classify as selection-only
+        (an unrecognised id type, `updates` absent) counts as image-changing, so a
+        real edit is never dropped — only the provably inert calls are skipped.
+        """
+        updates = getattr(depsgraph, 'updates', None)
+        if updates is None:
+            return True  # unknown — treat as a real edit (first sync / fallback)
+        for upd in updates:
+            upd_id = getattr(upd, 'id', None)
+            type_name = _depsgraph_id_type_name(upd_id, self.bpy)
+            if type_name == 'Object':
+                is_geom = bool(getattr(upd, 'is_updated_geometry', False))
+                is_xform = bool(getattr(upd, 'is_updated_transform', False))
+                is_shading = bool(getattr(upd, 'is_updated_shading', False))
+                if not (is_geom or is_xform or is_shading):
+                    continue  # selection-only Object update — inert, mirror 'idle'
+            return True  # any non-selection-only update may change the image
+        return False
 
     def apply_depsgraph_updates(self, renderer, depsgraph, settings,
                                 configure_backend_fn, report_fn):
@@ -1946,7 +2028,7 @@ class Exporter:
                 # Publish an IMMUTABLE snapshot of the accumulator (§3.3): the
                 # worker keeps mutating `accum`, so hand out a copy, never the
                 # live array.
-                publish(np.ascontiguousarray(accum), width, height)
+                publish(np.ascontiguousarray(accum), width, height, accum_spp)
                 skip_upload = True  # subsequent chunks reuse device state
         return render_fn
 
@@ -1969,6 +2051,12 @@ class Exporter:
     def _ensure_worker(self, engine_methods, request_viewport_redraw_fn):
         if self._worker is not None:
             return self._worker
+        # pkg266 (Batch G): before spinning up this session's worker, reap any
+        # orphaned session whose RenderEngine Blender has already freed — it would
+        # otherwise hold the process-global admission token forever and this worker
+        # could never commit a generation (present-rate UNGRADEABLE). Skips live
+        # sibling viewports (valid engines).
+        _reap_dead_viewport_sessions(keep=self)
         self._worker_engine_methods = engine_methods
         self._worker_redraw_fn = request_viewport_redraw_fn
 
@@ -2204,6 +2292,22 @@ class Exporter:
                 settings = resolve_fn(scene, self.engine.report)
             region = context.region
             worker = self._ensure_worker(engine_methods, request_viewport_redraw_fn)
+            # pkg266 (present-rate=0 root cause): Blender fires view_update not only
+            # on genuine edits but also during a settle span (depsgraph re-eval on a
+            # tag_redraw), with an empty / selection-only `depsgraph.updates`. The
+            # spike requested a NEW generation on EVERY view_update, so the in-flight
+            # render was cancelled before it reached its uncancelled render_end — no
+            # terminal_publication ever fired and present-rate was UNGRADEABLE
+            # (completed=0) while the device kept rendering. The synchronous path
+            # returns early on a no-domain ('idle') dispatch (view_update ~L1620);
+            # mirror that here with a cache-free peek (the stateful diff() still runs
+            # exactly once, later, inside the commit). A spurious view_update now
+            # only pumps + requests a redraw; it does NOT cancel the settling render.
+            if (self._viewport_full_synced
+                    and not self._depsgraph_has_image_changing_update(depsgraph)):
+                worker.pump(present=False)
+                request_viewport_redraw_fn()
+                return
             worker.request()
             # pkg241 P2.2 item 2 (Terra review 4): view_update is NOT a GPU draw
             # context, so pump here must be control-plane only (present=False). The
@@ -2249,6 +2353,10 @@ class Exporter:
             if resolve_fn is not None:
                 settings = resolve_fn(scene, None)
             worker = self._ensure_worker(engine_methods, request_viewport_redraw_fn)
+            # pkg266 (Batch G): the live session reaps orphaned (freed-engine)
+            # sessions each draw, so a worker orphaned mid-session promptly releases
+            # the process-global token instead of starving this viewport.
+            _reap_dead_viewport_sessions(keep=self)
 
             new_hash = camera_state_hash_fn(context, region)
             camera_changed = (new_hash is not None

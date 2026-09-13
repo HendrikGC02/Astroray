@@ -1649,9 +1649,41 @@ bounded-dispatch accounting (`units_launched`, `cancelled_at_unit`).
 
 ### 14.5 Results
 
-See `benchmarks/viewport_parity/results/2026-09-10-phase2-p23/SUMMARY.md` for the
-re-measured §9 gate table (idle GPU, Terra-4 instrument, both scenes, worker
-ON/OFF, settle + storm) and the `ASTRORAY_VIEWPORT_WORKER` default decision.
+The 2026-09-10 stub pointed at a SUMMARY never produced; the first real §9 GUI
+data point (Batch B, 2026-09-12) showed worker-ON tick-gap PASS but an UNGRADEABLE
+present-rate (completed=0). Batch G (2026-09-13) root-caused that to two
+independent bugs and re-measured after fixing them:
+
+1. **Spurious-view_update over-cancel** — `_worker_view_update` requested a new
+   generation on every `view_update`, but Blender re-fires `view_update` during a
+   settle span (depsgraph re-eval on the worker's own `tag_redraw`) with empty /
+   selection-only `updates`, cancelling every in-flight render before `render_end`
+   → no terminal. Fixed by a cache-free `_depsgraph_has_image_changing_update`
+   guard mirroring the synchronous path's no-domain early return.
+2. **Orphaned worker holds the global token** — the Exporter strong-refs its engine
+   and `_LIVE_VIEWPORT_SESSIONS` strong-refs the Exporter, so a superseded
+   RenderEngine is pinned alive and `__del__` never fires; the orphan's worker
+   keeps rendering and holds the process-global admission token, so the live worker
+   never commits (confirmed in-GUI: two distinct worker instances). Fixed by
+   `_reap_dead_viewport_sessions()` (drains freed-engine sessions via
+   `ReferenceError` on `as_pointer()`; keeps live §3.5 siblings) + an engine
+   `__del__`. The §9 settled target is pinned to 64 spp in the recorder (scenes
+   ship preview_samples=1024, unreachable within the settle cap).
+
+**Result (`benchmarks/viewport_parity/results/2026-09-13-batchG/SUMMARY.md`):**
+worker-ON SETTLE passes every §9 gate on both scenes — tick-gap p95 13.5 / 15.0 ms
+(vs 92 / 140 ms synchronous), present-rate 1.0 (gradeable), cancel p99 47 / 71 ms,
+mailbox ≤ 1, 0 CUDA errors. Continuous STORM tick-gap p95 159 / 175 ms fails the
+33 ms budget (explained residual: main-thread commit ~150 ms/edit).
+
+**`ASTRORAY_VIEWPORT_WORKER` default flipped ON (lead decision, 2026-09-13).** The
+worker beats the synchronous path on every §9 row on both scenes (settle 13.5 /
+15.0 ms vs 92.3 / 140.2 ms; storm 159 / 175 ms vs 230 / 211 ms), and the spec's
+storm criterion is "≤ 33 ms OR an explained residual" — the ~150 ms/edit main-thread
+commit is that residual. Owner priority #721 (UI must not run at the render's frame
+rate) is served by shipping the better path on by default; the env var still forces
+the synchronous fallback OFF (0/false/off/no). Commit-cost reduction = pkg266
+follow-up, not a blocker.
 
 ### 14.6 Terra review (call 2/4, 2026-09-10) — BLOCK fixes
 

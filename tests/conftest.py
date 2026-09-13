@@ -87,6 +87,27 @@ def furnace_energy_linear_render_guard(request):
         yield
 
 
+@pytest.fixture(autouse=True)
+def _pin_synchronous_viewport_path():
+    """pkg266 (Batch G): the production default of ASTRORAY_VIEWPORT_WORKER is ON
+    (off-thread viewport worker). The bpy-free unit tests that drive
+    RenderEngine.view_update / view_draw assert the SYNCHRONOUS viewport path
+    (wavelength/pass/camera-rehash/session behaviour) deterministically — no GPU,
+    no worker thread. Pin the env to the synchronous fallback here so those tests
+    keep exercising that path; the worker path is covered directly by
+    test_pkg241_spike_worker / test_pkg266_* (which call the worker methods, not
+    the flag dispatch). A test that wants the worker path can still set the env."""
+    prev = os.environ.get("ASTRORAY_VIEWPORT_WORKER")
+    os.environ["ASTRORAY_VIEWPORT_WORKER"] = "0"
+    try:
+        yield
+    finally:
+        if prev is None:
+            os.environ.pop("ASTRORAY_VIEWPORT_WORKER", None)
+        else:
+            os.environ["ASTRORAY_VIEWPORT_WORKER"] = prev
+
+
 @pytest.fixture(scope="session")
 def test_results_dir():
     """Path to the test results directory"""

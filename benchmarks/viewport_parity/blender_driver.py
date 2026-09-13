@@ -827,6 +827,28 @@ def _reduce_spike_events(events):
                 "p99_ms": round(_percentile(s, 99), 2),
                 "max_ms": round(max(s), 2)}
 
+    # pkg266 (Batch G): MEASURED chunk spp + samples/s. Every texture_upload_end
+    # carries the accumulated spp of the PRESENTED chunk. Within a generation the
+    # progressive spp is monotonic, so that generation's largest presented spp is
+    # the samples it actually put on screen; summed across generations / the run
+    # wall gives a measured samples/s (no inference from a fixed chunk size).
+    presented_spp = [(g, int(x["spp"])) for (n, g, _t, _e, x) in ev
+                     if n == "texture_upload_end" and "spp" in x]
+    max_spp_by_gen = {}
+    for g, spp in presented_spp:
+        if spp > max_spp_by_gen.get(g, 0):
+            max_spp_by_gen[g] = spp
+    total_presented_spp = sum(max_spp_by_gen.values())
+    wall_s = (ev[-1][2] - ev[0][2]) if len(ev) >= 2 else 0.0
+    samples_per_s = (round(total_presented_spp / wall_s, 2)
+                     if wall_s > 0 else None)
+    chunk_spp_vals = sorted(spp for _g, spp in presented_spp)
+    chunk_spp = ({"n": len(chunk_spp_vals),
+                  "min": chunk_spp_vals[0], "max": chunk_spp_vals[-1],
+                  "p50": int(_percentile(chunk_spp_vals, 50)),
+                  "mean": round(sum(chunk_spp_vals) / len(chunk_spp_vals), 2)}
+                 if chunk_spp_vals else None)
+
     # present-rate is UNGRADEABLE when no eligible terminal generation exists
     # (e.g. the continuous edit storm never lets a render reach its terminal
     # publication while still desired). Report the flag rather than a fake 0.
@@ -849,6 +871,10 @@ def _reduce_spike_events(events):
         "devices_seen": devices,
         "n_render_device": n_render_device,
         "cuda_errors": n_errors,
+        # pkg266 (Batch G): measured chunk spp + samples/s from presented chunks.
+        "chunk_spp": chunk_spp,
+        "samples_per_s": samples_per_s,
+        "total_presented_spp": total_presented_spp,
         # pkg266 bounded dispatch (§13 item 1)
         "units_launched": _pct([float(u) for u in units_launched]) if units_launched else None,
         "cancelled_at_unit_n": len(cancelled_at_unit),
@@ -1293,7 +1319,9 @@ def run_ui_latency(args) -> dict:
                       f"tex_tail p95={tt.get('p95_ms')} "
                       f"devices={spike['devices_seen']} "
                       f"cuda_errors={spike['cuda_errors']} "
-                      f"n_render_device={spike['n_render_device']}")
+                      f"n_render_device={spike['n_render_device']} "
+                      f"samples/s={spike.get('samples_per_s')} "
+                      f"chunk_spp={spike.get('chunk_spp')}")
 
     return {
         "schema": "astroray.viewport_parity.pkg241_phase2_ui_latency.v1",
@@ -1395,20 +1423,23 @@ def _write_ui_latency_summary_md(doc, path):
             "",
             "| scene | engine | completed | presented | present_rate | commit p95 | "
             "cancel_ack p99 | cancel_ack_pump p99 | frame_age p95 | tex_tail p95 | "
-            "mailbox_max | devices | cuda_err |",
-            "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+            "mailbox_max | chunk_spp (p50/max) | samples/s | devices | cuda_err |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for c in spike_rows:
             s = c["spike"]
             # pkg241 P2.2 item 3 (Terra review 4): present_rate is UNGRADEABLE when
             # no eligible terminal generation exists (continuous storm), not a fake 0.
             pr = (s["present_rate"] if s.get("present_rate_gradeable")
                   else "UNGRADEABLE")
+            cspp = s.get("chunk_spp") or {}
+            cspp_txt = (f"{cspp.get('p50')}/{cspp.get('max')}" if cspp else "-")
             lines.append(
                 f"| {c['scene']} | {c['engine']} | {s['completed_generations']} | "
                 f"{s['presented_completed']} | {pr} | "
                 f"{_p(s, 'commit_cost')} | {_p(s, 'cancel_ack', 'p99_ms')} | "
                 f"{_p(s, 'cancel_ack_pump', 'p99_ms')} | {_p(s, 'frame_age')} | "
                 f"{_p(s, 'texture_upload_tail')} | {s['mailbox_depth_max']} | "
+                f"{cspp_txt} | {s.get('samples_per_s')} | "
                 f"{s['devices_seen']} | {s['cuda_errors']} |")
         lines += [
             "",
@@ -1420,7 +1451,11 @@ def _write_ui_latency_summary_md(doc, path):
             "generations) and `frame_age` (per-publication mailbox_enqueue -> "
             "first_blit, >= 0) are defined under `--ui-pattern settle`; when no "
             "eligible terminal generation exists (the continuous stress storm) "
-            "`present_rate` is reported UNGRADEABLE, not 0.", ""]
+            "`present_rate` is reported UNGRADEABLE, not 0. `chunk_spp` "
+            "(p50/max) and `samples/s` (Batch G) are MEASURED: every presented "
+            "chunk reports its accumulated spp, and `samples/s` is the sum of each "
+            "generation's largest presented spp over the run wall — not inferred "
+            "from a fixed chunk size.", ""]
     path.write_text("\n".join(lines), encoding="utf-8")
 
 

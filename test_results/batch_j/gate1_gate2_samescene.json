@@ -1,0 +1,18 @@
+{
+  "scene": "world_sky_sky MULTIPLE_SCATTERING e28 rot115 sun_disc=on, same camera",
+  "gate1_sky_hemispherical_illumination": {
+    "cycles_shadowed_ground": 0.067,
+    "astroray_shadowed_ground": 0.07,
+    "ratio": 1.04,
+    "note": "sky-only lit sphere umbra; sky illumination matches Cycles within 4%"
+  },
+  "gate2_ground_direct_diffuse": {
+    "cycles": "10.2:1",
+    "astroray": "17.4:1",
+    "cycles_lit": 0.683,
+    "astro_lit": 1.209,
+    "shadow_cyc": 0.067,
+    "shadow_astro": 0.07,
+    "finding": "sun disc ~1.85x too bright vs Cycles (overshot old 1.8:1 undershoot). Partly missing limb darkening (Cycles avg ~0.8x); remaining ~1.48x under investigation (mean vs interp, XYZ->RGB, disc irradiance derivation)."
+  }
+}

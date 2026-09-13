@@ -9,13 +9,23 @@ with `write_hdr`, and loads it through the existing
 Sky model: **Preetham/Perez** analytic daylight distribution (Preetham,
 Shirley, Smits, "A Practical Analytic Model for Daylight", SIGGRAPH 1999;
 Perez et al. 1993). Constants verified verbatim against the MIT-licensed
-appleseed reference `preethamenvironmentedf.cpp`. Blender's own
-Nishita/Hosek/Preetham implementations (intern/cycles/kernel/svm/sky*.h) are
-GPL and were NOT used. Full derivation, licence records, and the equirect
-orientation proof: `.astroray_plan/docs/pkg256-sky-model-research.md`.
+appleseed reference `preethamenvironmentedf.cpp`. Full derivation, licence
+records, and the equirect orientation proof:
+`.astroray_plan/docs/pkg256-sky-model-research.md`.
 
-All four Blender `sky_type` values are APPROXIMATED with this one model (spec
-pkg256 Key design decision 2). `sun_disc`, `sun_size`, `sun_intensity`,
+**Licence correction (#799 Phase 2, 2026-09-13):** the earlier claim that
+"Blender's Nishita/Hosek/Preetham implementations are GPL" is only true of
+`intern/sky/source/sky_math.h` and `intern/sky/include/sky_nishita.h`
+(GPL-2.0-or-later). The two model *sources* are Apache-2.0
+(`sky_single_scattering.cpp`) and MIT (`sky_multiple_scattering.cpp`), and
+`intern/cycles/kernel/svm/sky.h` is Apache-2.0 -- all vendorable. Astroray now
+uses the vendored Apache/MIT models (external/blender_sky/, with clean-room
+reimplementations of the two GPL headers) for the SINGLE_SCATTERING /
+MULTIPLE_SCATTERING sky types via `astroray.nishita_sky` / `nishita_sun`; this
+Preetham bake is retained only for the legacy PREETHAM / HOSEK_WILKIE types.
+
+The legacy PREETHAM / HOSEK_WILKIE `sky_type` values are APPROXIMATED with this
+one model (spec pkg256 Key design decision 2). `sun_disc`, `sun_size`, `sun_intensity`,
 `altitude`, `air_density`, `ozone_density`, `ground_albedo`, and the `Vector`
 input are NOT honoured — the caller names them verbatim in a runtime
 degradation warning.

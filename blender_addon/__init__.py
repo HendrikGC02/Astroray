@@ -5785,33 +5785,93 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if sky_node is not None and hdri_path is None:
             try:
                 import sky_bake
-                sky_img = sky_bake.bake_to_equirect(sky_node, width=1024, height=512)
-                fd, sky_temp_path = tempfile.mkstemp(prefix="astroray_sky_", suffix=".hdr")
-                os.close(fd)
-                sky_bake.write_hdr(sky_temp_path, sky_img)
-                hdri_path = sky_temp_path
-                # pkg200: every socket/prop the Preetham bake does not honour is
-                # named verbatim (never silently dropped).
-                self._warn_shader_fallback(
-                    'TEX_SKY',
-                    "sky_type '%s' approximated with the Preetham/Perez analytic "
-                    "model (single licence-clean bake); these are NOT honoured "
-                    "and are dropped: %s"
-                    % (getattr(sky_node, 'sky_type', '?'),
-                       ", ".join(sky_bake.DROPPED_SOCKETS)))
-                # #799: sun disc. Preetham/Perez has no disc (soft shadows, cool
-                # ground). When the node's sun_disc is on, add a dedicated
-                # distant sun (DistantLight, angular diameter = sun_size) whose
-                # direct-beam irradiance rides the SAME exposure as the baked
-                # sky (sky_bake.LUM_TO_RADIANCE) - sharp shadows + warm ground.
-                # Intensity is scaled by the Background Strength so it tracks the
-                # sky env (which the engine multiplies by strength).
-                sun = sky_bake.sun_disc_params_from_node(sky_node)
-                if sun is not None:
-                    renderer.add_sun_light_dedicated(
-                        sun['direction'], sun['angular_diameter'],
-                        {'mode': 'rgb', 'color': sun['color']},
-                        sun['intensity'] * strength, 0, 0)
+                sky_type = str(getattr(sky_node, 'sky_type', 'MULTIPLE_SCATTERING'))
+                if sky_type in ('SINGLE_SCATTERING', 'MULTIPLE_SCATTERING'):
+                    # #799 Phase 2: engine-side spectral Nishita sky
+                    # (vendored Blender Apache/MIT models,
+                    # external/blender_sky/). The sky AND the sun disc come
+                    # from ONE physical model, so the 1/1766 LUM_TO_RADIANCE
+                    # bridge is GONE (table is in Cycles' radiometric units).
+                    import math
+                    sun_elev = float(getattr(sky_node, 'sun_elevation', 0.26))
+                    sun_rot = float(getattr(sky_node, 'sun_rotation', 0.0))
+                    altitude = float(getattr(sky_node, 'altitude', 100.0))
+                    air = float(getattr(sky_node, 'air_density', 1.0))
+                    aero = float(getattr(sky_node, 'aerosol_density', 1.0))
+                    ozone = float(getattr(sky_node, 'ozone_density', 1.0))
+                    sky_img = astroray.nishita_sky(
+                        sky_type, 1024, 512, sun_elev, sun_rot,
+                        altitude, air, aero, ozone)
+                    fd, sky_temp_path = tempfile.mkstemp(prefix="astroray_sky_", suffix=".hdr")
+                    os.close(fd)
+                    sky_bake.write_hdr(sky_temp_path, sky_img)
+                    hdri_path = sky_temp_path
+                    # pkg200: name every socket/prop NOT honoured here.
+                    self._warn_shader_fallback(
+                        'TEX_SKY',
+                        "sky_type %r rendered with the engine-side Nishita "
+                        "sky (honours sun_elevation, sun_rotation, altitude, "
+                        "air_density, aerosol_density, ozone_density, "
+                        "sun_disc, sun_size, sun_intensity); NOT honoured: "
+                        "ground_albedo, sun_limb_darkening (uniform disc), "
+                        "Vector input." % sky_type)
+                    # Sun disc from the SAME model (nishita_sun). Disc
+                    # radiance L = mean(pixel_bottom, pixel_top) *
+                    # sun_intensity; direct-beam irradiance S = L *
+                    # Omega(sun_size) feeds a DistantLight (engine
+                    # reconstructs L = S/Omega, so the disc matches the model
+                    # and the ground beam is sun_size-invariant like Cycles).
+                    if bool(getattr(sky_node, 'sun_disc', True)):
+                        sun_size = float(getattr(sky_node, 'sun_size', 0.009512))
+                        sun_intensity = float(getattr(sky_node, 'sun_intensity', 1.0))
+                        bottom, top = astroray.nishita_sun(
+                            sky_type, sun_elev, sun_size, altitude, air, aero, ozone)
+                        l_disc = [0.5 * (bottom[k] + top[k]) * sun_intensity
+                                  for k in range(3)]
+                        omega = 2.0 * math.pi * (1.0 - math.cos(0.5 * sun_size))
+                        s_rgb = [l_disc[k] * omega for k in range(3)]
+                        lum_s = (0.2126 * s_rgb[0] + 0.7152 * s_rgb[1]
+                                 + 0.0722 * s_rgb[2])
+                        if lum_s > 1e-12:
+                            color = [s_rgb[0] / lum_s, s_rgb[1] / lum_s,
+                                     s_rgb[2] / lum_s]
+                            ce = math.cos(sun_elev)
+                            se = math.sin(sun_elev)
+                            direction = [-(ce * math.cos(sun_rot)),
+                                         -(ce * math.sin(sun_rot)),
+                                         -se]
+                            renderer.add_sun_light_dedicated(
+                                direction, sun_size,
+                                {'mode': 'rgb', 'color': color},
+                                lum_s * strength, 0, 0)
+                else:
+                    # PREETHAM / HOSEK_WILKIE: keep the licence-clean
+                    # Preetham/Perez analytic bake (sky_bake.py); these
+                    # legacy Cycles models are approximated with one model
+                    # plus a Preetham-derived distant sun disc.
+                    sky_img = sky_bake.bake_to_equirect(sky_node, width=1024, height=512)
+                    fd, sky_temp_path = tempfile.mkstemp(prefix="astroray_sky_", suffix=".hdr")
+                    os.close(fd)
+                    sky_bake.write_hdr(sky_temp_path, sky_img)
+                    hdri_path = sky_temp_path
+                    # pkg200: every socket/prop the Preetham bake does not
+                    # honour is named verbatim (never silently dropped).
+                    self._warn_shader_fallback(
+                        'TEX_SKY',
+                        "sky_type %r approximated with the Preetham/Perez "
+                        "analytic model (single licence-clean bake); these "
+                        "are NOT honoured and are dropped: %s"
+                        % (sky_type, ", ".join(sky_bake.DROPPED_SOCKETS)))
+                    # #799: sun disc. Preetham/Perez has no disc (soft
+                    # shadows, cool ground). When sun_disc is on, add a
+                    # dedicated distant sun (DistantLight, angular diameter
+                    # = sun_size) riding the same sky exposure.
+                    sun = sky_bake.sun_disc_params_from_node(sky_node)
+                    if sun is not None:
+                        renderer.add_sun_light_dedicated(
+                            sun['direction'], sun['angular_diameter'],
+                            {'mode': 'rgb', 'color': sun['color']},
+                            sun['intensity'] * strength, 0, 0)
             except Exception as e:  # noqa: BLE001 - bake must never break render
                 self._warn_shader_fallback('TEX_SKY', 'sky bake failed (%s)' % e)
                 sky_temp_path = None

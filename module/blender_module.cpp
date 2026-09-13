@@ -14,6 +14,7 @@
 #include <cstdint>  // pkg258: uint32_t seed
 #include "raytracer.h"
 #include "advanced_features.h"
+#include "astroray/nishita_sky.h"  // Batch J (#799 Phase 2): engine-side Nishita sky
 #include "astroray/shapes.h"
 #include "astroray/curves.h"  // pkg225 Stage 1 — CurveSegment / CurveStrip
 #include "astroray/black_hole.h"
@@ -3357,6 +3358,62 @@ int viewport_perf_stage_index(const std::string& name) {
 
 PYBIND11_MODULE(astroray, m) {
     m.doc() = "Astroray - Physically Based Path Tracer";
+
+    // Batch J (#799 Phase 2): engine-side spectral Nishita sky. Vendored Blender
+    // sky models (external/blender_sky/, Apache-2.0 + MIT) exposed as an
+    // equirect RGB bake + solar-disc radiance, both in Astroray's env-map
+    // convention/units (no extra exposure factor). mode = "SINGLE_SCATTERING"
+    // or "MULTIPLE_SCATTERING" (Blender 5.x default). Angles in radians.
+    auto parse_sky_mode = [](const std::string& mode) {
+        std::string m = mode;
+        for (char& ch : m) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+        if (m == "SINGLE_SCATTERING" || m == "SINGLE" || m == "NISHITA")
+            return astroray::nishita::Mode::SingleScattering;
+        return astroray::nishita::Mode::MultipleScattering;
+    };
+    m.def("nishita_sky",
+          [parse_sky_mode](const std::string& mode, int width, int height,
+                           float sun_elevation, float sun_rotation, float altitude,
+                           float air_density, float aerosol_density, float ozone_density) {
+              if (width <= 0 || height <= 0)
+                  throw std::invalid_argument("nishita_sky: width/height must be positive");
+              auto arr = py::array_t<float>({static_cast<py::ssize_t>(height),
+                                             static_cast<py::ssize_t>(width),
+                                             static_cast<py::ssize_t>(3)});
+              auto buf = arr.request();
+              {
+                  py::gil_scoped_release release;
+                  astroray::nishita::sky_equirect(parse_sky_mode(mode), width, height,
+                                                  sun_elevation, sun_rotation, altitude,
+                                                  air_density, aerosol_density, ozone_density,
+                                                  static_cast<float*>(buf.ptr));
+              }
+              return arr;
+          },
+          "mode"_a, "width"_a, "height"_a, "sun_elevation"_a, "sun_rotation"_a = 0.0f,
+          "altitude"_a = 100.0f, "air_density"_a = 1.0f, "aerosol_density"_a = 1.0f,
+          "ozone_density"_a = 1.0f,
+          "Bake the engine-side Nishita sky to a (height, width, 3) linear-RGB "
+          "equirect in Astroray's env-map convention. No extra exposure factor "
+          "(the table is already in Cycles' radiometric units).");
+    m.def("nishita_sun",
+          [parse_sky_mode](const std::string& mode, float sun_elevation, float angular_diameter,
+                           float altitude, float air_density, float aerosol_density,
+                           float ozone_density) {
+              float bottom[3] = {0.0f, 0.0f, 0.0f};
+              float top[3] = {0.0f, 0.0f, 0.0f};
+              astroray::nishita::sun_disc(parse_sky_mode(mode), sun_elevation, angular_diameter,
+                                          altitude, air_density, aerosol_density, ozone_density,
+                                          bottom, top);
+              return py::make_tuple(
+                  py::make_tuple(bottom[0], bottom[1], bottom[2]),
+                  py::make_tuple(top[0], top[1], top[2]));
+          },
+          "mode"_a, "sun_elevation"_a, "angular_diameter"_a, "altitude"_a = 100.0f,
+          "air_density"_a = 1.0f, "aerosol_density"_a = 1.0f, "ozone_density"_a = 1.0f,
+          "Solar-disc radiance (linear RGB) at the bottom and top of the disc "
+          "from the vendored precompute_sun; returns (bottom_rgb, top_rgb). "
+          "Multiply by the Sky node's sun_intensity externally.");
     py::class_<PyRenderer>(m, "Renderer")
         .def(py::init<>())
         .def("load_texture", &PyRenderer::loadTexture,

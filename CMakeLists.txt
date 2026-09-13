@@ -490,6 +490,27 @@ if(TARGET astroray_plugins)
     target_link_libraries(astroray_plugins PUBLIC astroray_core_impl)
 endif()
 
+# Batch J (#799 Phase 2) — engine-side Nishita sky. Vendored Blender sky models
+# (external/blender_sky/: sky_single_scattering.cpp Apache-2.0,
+# sky_multiple_scattering.cpp MIT; GPL sky_math.h/sky_nishita.h reimplemented
+# clean-room) + a thin host-C++ equirect/sun wrapper. The external/blender_sky
+# include dir is PRIVATE so its global float2/float3/float4 helpers stay
+# confined to these TUs; the public API lives in include/astroray/nishita_sky.h.
+add_library(astroray_blender_sky STATIC
+    external/blender_sky/sky_single_scattering.cpp
+    external/blender_sky/sky_multiple_scattering.cpp
+    src/world/nishita_sky.cpp
+)
+target_include_directories(astroray_blender_sky
+    PUBLIC  ${INCLUDE_DIR}
+    PRIVATE ${CMAKE_SOURCE_DIR}/external/blender_sky)
+set_target_properties(astroray_blender_sky PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON
+)
+target_link_libraries(astroray_core_impl PUBLIC astroray_blender_sky)
+
 # pkg87a: OpenEXR EXR writer conditionally included if OpenEXR found.
 # (Must come AFTER add_library(astroray_core_impl) — hygiene 2026-08-11: this
 # block previously ran before the target existed and would have hard-failed

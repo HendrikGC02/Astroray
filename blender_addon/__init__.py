@@ -1475,7 +1475,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
         multi-viewport shares the one token by hand-off, so a second live viewport
         must NOT be stopped here). Best-effort + bounded (stop_worker is 5 s and
         quarantines a genuinely hung worker rather than freeing its renderer)."""
-        exp = self.__dict__.get('_exporter') if hasattr(self, '__dict__') else None
+        # A freed StructRNA raises ReferenceError even from hasattr()/__dict__ at
+        # interpreter shutdown (seen as 'Exception ignored in __del__' after a
+        # headless render); __del__ must never raise.
+        try:
+            exp = self.__dict__.get('_exporter')
+        except Exception:
+            return
         if exp is not None:
             try:
                 exp.stop_worker()

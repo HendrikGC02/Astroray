@@ -182,3 +182,37 @@ floor); `sun_size`, `sun_intensity`, `sun_disc` are now **honoured** and leave
   `kernel/light/distant.h` + PBRT-v4 `lights.cpp::DistantLight` (Apache-2.0).
 - Cycles `sky_nishita.cpp` / `svm/sky.h` (GPL) — **node semantics only**
   (`sun_size`/`sun_intensity`/`sun_disc`), NOT read for algorithm content.
+
+---
+
+## Phase 2 update (Batch J, 2026-09-13) — engine-side spectral Nishita sky + licence correction
+
+**Licence correction.** §3 and the pkg256 notes claimed Cycles/Blender's
+Nishita implementation was GPL ("not read for algorithm content"). That is only
+true of the two GPL headers `intern/sky/source/sky_math.h` and
+`intern/sky/include/sky_nishita.h`. The **model sources are vendorable**:
+`intern/sky/source/sky_single_scattering.cpp` is **Apache-2.0**,
+`intern/sky/source/sky_multiple_scattering.cpp` is **MIT**, and
+`intern/cycles/kernel/svm/sky.h` (texture sampling + sun-disc) is **Apache-2.0**.
+
+**What shipped.** The two model sources are vendored under
+`external/blender_sky/` (GPL headers reimplemented clean-room), built into the
+engine, and exposed as `astroray.nishita_sky(...)` / `astroray.nishita_sun(...)`.
+The addon's `setup_world` uses them for the SINGLE_SCATTERING /
+MULTIPLE_SCATTERING sky types; PREETHAM / HOSEK_WILKIE keep the Preetham bake.
+
+**The 1/1766 LUM_TO_RADIANCE bridge is GONE for Nishita** — the table is already
+in Cycles' radiometric units, so both the sky and the model-consistent sun disc
+(irradiance S = L_disc · Ω(sun_size) → DistantLight) render with no extra
+exposure factor. This resolves the two owner-flagged divergences from §3 (warm
+Preetham vs blue Nishita; over-bright ground) by replacing the Preetham bake +
+fitted constant with the real physical model.
+
+**Measured (2026-09-13, sky-band luminance astroray/Cycles, MULTIPLE_SCATTERING,
+rot 115):** upper_sky 1.265 / 1.182 / 1.033, horizon 1.191 / 1.140 / 1.027 at
+elev 10° / 28° / 60°. Hue-matched (per-channel ratios within ~1% of one
+another), within ±5% at high sun; a near-uniform per-channel ~15-26% brightness
+residual remains at low sun (vs the Preetham baseline's 0.56-1.22, hue-wrong
+spread). Residual is flagged for the cycles-parity-reviewer — candidate causes:
+Cycles' internal sky-texture bake quantisation (non-linear elevation LUT +
+bilinear) vs the engine's exact per-direction eval, and XYZ→RGB matrix choice.

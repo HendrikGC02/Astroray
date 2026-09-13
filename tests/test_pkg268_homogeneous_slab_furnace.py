@@ -38,9 +38,12 @@ def _slab_scene(extinction, dist=6.0, slab_near=-4.0, slab_far=-2.0, w=24, h=24)
     r.add_triangle([-20, -20, -dist], [20, -20, -dist], [20, 20, -dist], wall)
     r.add_triangle([-20, -20, -dist], [20, 20, -dist], [-20, 20, -dist], wall)
     if extinction is not None:
-        # pure absorption: albedo 0 -> a real collision kills the path.
+        # pure absorption: color 0 (no scatter) + BLACK absorption_color so the
+        # Cycles factor max(1-sqrt(0),0)=1 gives sigma_a = density (albedo 0). A
+        # real collision then kills the path. (White absorption_color => sigma_a=0
+        # => transparent, per Cycles svm_node_principled_volume.)
         r.add_homogeneous_medium([-10.0, -10.0, slab_near], [10.0, 10.0, slab_far],
-                                 extinction, [0.0, 0.0, 0.0], [1.0, 1.0, 1.0], 0.0)
+                                 extinction, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0.0)
     r.setup_camera([0.0, 0.0, 0.001], [0.0, 0.0, -dist], [0.0, 1.0, 0.0],
                    20.0, w / h, 0.0, dist, w, h)
     r.set_integrator("path_tracer")

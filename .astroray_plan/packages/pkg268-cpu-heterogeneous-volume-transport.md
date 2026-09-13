@@ -140,8 +140,21 @@ not an open-weight lane, despite Track A. Research:
       medium NEE (ratio-tracking transmittance) + surface-NEE attenuation through
       media. Byte-identical when no media are registered.
 - [x] Tests: slab furnace vs Beer–Lambert, heterogeneous delta/ratio vs numpy,
-      NEE unbiasedness + determinism, red-scatter-cube visual. Numbers in the
-      batch-F PR.
+      NEE unbiasedness + determinism, red-scatter-cube visual, **Cycles
+      socket→coefficient mapping pin** (`test_pkg268_volume_mapping.py`). Numbers
+      in the batch-F PR.
+
+### Known limitations (documented for reviewers)
+
+- Socket→coefficient mapping is exact Cycles `svm_node_principled_volume`
+  (white absorption ⇒ σ_a=0, lossless); the tracker is **grey** (max-channel
+  extinction + spectral albedo) — true per-λ extinction is pkg270.
+- Equiangular sampling is validated in the test oracle / binding; the production
+  render NEE uses delta-track vertices + light↔phase power-heuristic MIS. Folding
+  equiangular into the render path is a pkg271-scope variance follow-up.
+- In-scatter runs against the nearest entered medium per segment; stacked/
+  overlapping bounded media are not composited (pkg272-scope; #807 cubes are
+  disjoint).
 
 ---
 

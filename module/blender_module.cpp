@@ -5716,5 +5716,27 @@ PYBIND11_MODULE(astroray, m) {
               "pkg268 — single-scatter in-scatter radiance (RGB) for a point light, "
               "equiangular+distance MIS (Kulla & Fajardo 2012) with ratio-tracking "
               "transmittance. Seed-deterministic. Gated vs the numpy ray-march.");
+
+        // pkg268 review-fix — numeric pin of the Cycles Principled Volume
+        // socket->coefficient mapping (svm_node_principled_volume). Returns
+        // (extinction_scale = D·max_c(σ_s+σ_a), albedo_rgb = σ_s/max_c(σ_s+σ_a)).
+        m.def("principled_volume_coefficients",
+              [](float density, std::array<float, 3> color,
+                 std::array<float, 3> absorption_color) {
+                  astroray::volume::PrincipledVolume pv;
+                  pv.density = density;
+                  pv.color = color;
+                  pv.absorptionColor = absorption_color;
+                  auto s = pv.sigmaSCoeff();
+                  float m2 = pv.maxExtinctionCoeff();
+                  std::array<float, 3> albedo = {0, 0, 0};
+                  if (m2 > 0.0f)
+                      for (int c = 0; c < 3; ++c) albedo[c] = std::min(1.0f, s[c] / m2);
+                  return py::make_tuple(pv.extinctionScale(),
+                                        py::make_tuple(albedo[0], albedo[1], albedo[2]));
+              },
+              "density"_a, "color"_a, "absorption_color"_a,
+              "pkg268 — Cycles Principled Volume coefficient mapping: returns "
+              "(extinction_scale, (albedo_r, albedo_g, albedo_b)).");
     }
 }

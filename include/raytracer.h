@@ -2797,7 +2797,7 @@ public:
         m.heterogeneous = true;
         auto aabb = g->worldAABB();
         for (int a = 0; a < 3; ++a) { m.aabbMin[a] = aabb[a]; m.aabbMax[a] = aabb[3 + a]; }
-        m.extinction = std::max(0.0f, pv.density);
+        m.extinction = pv.extinctionScale();  // pkg268 Cycles σ_t = D·max_c(σ_s+σ_a)
         m.maxDensity = std::max(1e-6f, g->majorant().globalMax());
         m.g = std::clamp(pv.anisotropy, -0.99f, 0.99f);
         m.albedo = pv.scatteringAlbedo();
@@ -2814,7 +2814,7 @@ public:
         m.grid = nullptr;
         m.aabbMin[0] = aabbMin.x; m.aabbMin[1] = aabbMin.y; m.aabbMin[2] = aabbMin.z;
         m.aabbMax[0] = aabbMax.x; m.aabbMax[1] = aabbMax.y; m.aabbMax[2] = aabbMax.z;
-        m.extinction = std::max(0.0f, pv.density);
+        m.extinction = pv.extinctionScale();  // pkg268 Cycles σ_t = D·max_c(σ_s+σ_a)
         m.maxDensity = 1.0f;
         m.g = std::clamp(pv.anisotropy, -0.99f, 0.99f);
         m.albedo = pv.scatteringAlbedo();

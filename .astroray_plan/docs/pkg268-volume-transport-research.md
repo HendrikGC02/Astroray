@@ -7,22 +7,59 @@ phase / MIS code. Companion to pkg267's NanoVDB+majorant note.
 
 The engine is spectral, but the volumes-track research note (§2 table, §4.1) and
 the pkg268 spec assign **per-λ chromatic extinction (spectral/decomposition
-tracking, Kutz 2017)** to **pkg270**. So pkg268 uses a **scalar σ_t** and a
-**spectral single-scattering albedo** (Principled Volume `color`):
+tracking, Kutz 2017)** to **pkg270**. pkg268 therefore uses the exact **Cycles
+`svm_node_principled_volume` per-channel coefficients** and then collapses them to
+a **scalar σ_t + spectral single-scattering albedo** for the grey tracker:
 
-* `σ_t(x)   = density(x) · extinctionScale`   (scalar, units 1/world-length),
-* `σ_s(x,λ) = σ_t(x) · albedo(λ)`, `σ_a = σ_t·(1-albedo)` (grey absorption).
+Cycles (per channel, `density` = the Density socket `D`):
 
-Consequence: transmittance is grey (achromatic). The #807 cabinet's red look
-comes from the colored **scattering albedo**, not colored absorption — sufficient
-for the "soft translucent red patch" cross-check bar. **Colored absorption
-(chromatic σ_t) is explicitly deferred to pkg270**, and the exporter emits a
-degradation note when a volume's absorption color is non-grey (pkg200 rule:
-never claim honour silently).
+* `σ_s(λ) = color(λ) · D`
+* `σ_a(λ) = max(1 − color(λ), 0) · max(1 − sqrt(absorption_color(λ)), 0) · D`
+* `σ_t(λ) = σ_s(λ) + σ_a(λ)`
+
+With the **default white `absorption_color`, σ_a = 0** — the medium is lossless
+(per-channel albedo 1), NOT the over-absorbing `σ_a = (1−color)·D` an earlier cut
+used (that was the cycles-parity-reviewer finding — the previous claim of grey
+parity was **wrong** and is corrected here).
+
+Scalar-σ_t collapse (grey tracker):
+
+* `extinction_scale = D · max_c(σ_s_c + σ_a_c)`  (one conservative grey majorant),
+* `albedo_c = σ_s_c / max_c(σ_s_c + σ_a_c) ∈ [0,1]`  (energy-safe: albedo ≤ 1 per
+  channel, so no per-channel energy gain).
+
+Consequence: **extinction is grey** (all channels attenuate at the max-channel
+rate); the colour lives entirely in the spectral scattering albedo. The max
+channel is exact vs Cycles; sub-max channels are over-extincted (the documented
+grey approximation). The #807 cabinet's red look comes from the red scattering
+albedo, sufficient for the "soft translucent red patch" cross-check bar. **True
+per-λ (chromatic) extinction is pkg270**; the exporter emits a degradation note
+whenever `color` OR `absorption_color` is chromatic (pkg200 rule).
+
+Volume Absorption node (Cycles `σ_a = (1 − Color)·D`, `σ_s = 0`) is exported by
+setting `color = 0`, `absorption_color = Color²`, which the formula above turns
+into `σ_a = (1 − Color)·D` exactly — so a default white-Color absorption cube is
+**transparent** (matching Cycles), where the first cut made it opaque.
 
 This keeps delta/ratio tracking SCALAR against the pkg267 majorant — the simplest
 provably-unbiased estimator — which is the right choice for the CPU correctness
 oracle (north star: correctness > fidelity > speed).
+
+### Known scope limitations (pkg268; follow-ups)
+
+* **Equiangular sampling is validated in the test oracle only.** The production
+  medium NEE (`raytracer.h`, the loop-top grid block) samples the scatter vertex
+  by delta tracking and does light↔phase MIS (power heuristic) — unbiased, matches
+  the world-volume scaffold. The equiangular+distance MIS estimator (Kulla &
+  Fajardo 2012) lives in `equiangularSample`/`equiangularPdf` and the
+  `volume_single_scatter_estimate` binding, where it is gated against the numpy
+  ray-march; folding it into the heterogeneous render-path NEE is a variance
+  follow-up (pkg271-scope). The oracle uses the **balance** heuristic; the
+  production path uses the **power** heuristic (both valid MIS weights).
+* **Nearest-medium in-scatter only.** Each escaping segment runs free flight
+  against the single nearest entered medium; overlapping/stacked bounded media are
+  not composited in one segment (the #807 cabinet cubes are disjoint, so this is
+  moot there). A medium stack is a pkg272-scope follow-up.
 
 ## Algorithms
 

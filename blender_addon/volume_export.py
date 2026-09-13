@@ -220,16 +220,29 @@ def principled_volume_from_material(material):
         info["color"] = _socket_rgb(node, "Color", (0.8, 0.8, 0.8))  # scattering albedo
         info["anisotropy"] = _socket_float(node, "Anisotropy", 0.0)
     elif ntype == "VOLUME_ABSORPTION" or "Absorption" in node.bl_idname:
+        # Cycles Volume Absorption: sigma_a = (1 - Color)*density, sigma_s = 0.
+        # We reuse the engine's Principled coefficient formula
+        #   sigma_a = (1 - color)*(1 - sqrt(absorption_color))*density
+        # by setting color = 0 and absorption_color = Color^2, so
+        #   sigma_a = (1 - sqrt(Color^2))*density = (1 - Color)*density. sigma_s = 0.
         info["density"] = _socket_float(node, "Density", 1.0)
-        info["color"] = [0.0, 0.0, 0.0]  # pure absorption: albedo 0
-        info["absorption_color"] = _socket_rgb(node, "Color", (1.0, 1.0, 1.0))
+        col = _socket_rgb(node, "Color", (1.0, 1.0, 1.0))
+        info["color"] = [0.0, 0.0, 0.0]  # pure absorption: no scattering
+        info["absorption_color"] = [max(c, 0.0) ** 2 for c in col]
+        if abs(col[0] - col[1]) > 1e-3 or abs(col[0] - col[2]) > 1e-3:
+            degr.append("chromatic Volume Absorption colour approximated grey (pkg270)")
     else:
         degr.append("unsupported volume node '%s' (pkg270/pkg272)" % node.bl_idname)
         return None
-    # colored absorption is a chromatic-extinction effect -> pkg270 (grey here).
+    # chromatic scattering colour / absorption -> grey-extinction approximation
+    # (true per-lambda extinction is pkg270). Report it (pkg200 rule).
     ac = info.get("absorption_color", [1, 1, 1])
     if abs(ac[0] - ac[1]) > 1e-3 or abs(ac[0] - ac[2]) > 1e-3:
         degr.append("chromatic absorption colour approximated grey (pkg270)")
+    cc = info.get("color", [0, 0, 0])
+    if abs(cc[0] - cc[1]) > 1e-3 or abs(cc[0] - cc[2]) > 1e-3:
+        degr.append("chromatic scatter colour: grey-extinction approximation "
+                    "(per-lambda extinction is pkg270)")
     return info
 
 

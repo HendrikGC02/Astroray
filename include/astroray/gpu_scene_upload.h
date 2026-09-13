@@ -25,6 +25,13 @@ struct SceneUploadResult {
     // this flag so non-principled scenes never compile in gpu_principled_* code.
     bool hasPrincipled = false;
 
+    // pkg253 — true if ANY uploaded material casts a partially-transparent
+    // shadow (a Principled material with alpha < 1). The driver publishes it so
+    // the shadow launcher selects stageShadowKernel<*, true>, which walks the
+    // transparent occluders (gpu_shadow_transmittance). False leaves the fleet
+    // shadow kernel byte-identical (binary gpu_nee_occlude).
+    bool hasAlphaShadow = false;
+
     // pkg225 Stage 4 — true if the scene carries any principled_hair
     // (GMAT_HAIR_PRINCIPLED) material. The driver publishes it via
     // setWavefrontHairEnabled(c_hasHair); false leaves the fleet shade kernel

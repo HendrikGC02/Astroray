@@ -92,6 +92,37 @@ None.
 ## Progress
 
 - [x] 2026-09-07 — filed; four XPASS markers removed in PR #720; six remain.
+- [x] 2026-09-13 (batch H) — transparent-film alpha PORTED to the spectral path
+      (`Renderer::coverageAlpha`, ported from the deleted RGB `pathTrace` commit
+      e763cd7f, applied integrator-agnostically in the render loop when
+      `useTransparentFilm`). Retires the two transparent-alpha strict xfails
+      (`test_transparent_film_alpha_masks_background`,
+      `test_transparent_glass_keeps_rgb_but_zeroes_alpha`) — both pass; opaque-film
+      default byte-identical (no extra RNG).
+- [ ] 2026-09-13 (batch H) — the OTHER FOUR remain xfail after investigation
+      (root-caused with `--runxfail` on the batch-H build, NOT stale markers):
+      - **HDR/linear output** (`test_linear_output_preserves_hdr_values`): the
+        solid background `[2.5,0.5,0.25]` round-trips through Jakob-Hanika spectral
+        upsampling; green comes back 0.61 vs 0.5 (>0.05 band). Needs an exact-RGB
+        (non-spectral) solid-background eval on the miss leg — a broad-impact
+        change to background spectral sampling, out of this batch's scope.
+      - **gamma toggle** (`test_render_apply_gamma_toggle`): gamma IS applied
+        (mean check passes) but the per-pixel `allclose(gamma, pow(linear,1/2.2))`
+        fails because the two renders use the seed-0 random sentinel (independent
+        spectral MC noise on the background). Deterministic only if the solid
+        background is noise-free (same fix as HDR above) — can't be met without
+        weakening the test.
+      - **cryptomatte** (`test_cryptomatte_buffers_exist_and_have_coverage`):
+        `get_cryptomatte_object_buffer()` returns `(H,W,12)` (depth-6, 6 id/coverage
+        pairs); the test asserts `(H,W,4)`. A buffer-format question (owner
+        decision on the intended default cryptomatte channel layout), not a
+        spectral port.
+      - **filter_glossy** (`test_filter_glossy_blurs_secondary_glossy_paths`,
+        non-strict): genuinely UNIMPLEMENTED — zero consumers of
+        `Renderer::filterGlossy` anywhere. A faithful port is Cycles'
+        `surface_shader_bsdf_blur` (min_ray_pdf tracking in `pathTraceSpectral`
+        + a per-bounce roughness floor threaded into every glossy material's
+        sample/eval), a large cross-material API change. Parked (owner-accepted).
 
 ---
 

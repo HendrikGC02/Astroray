@@ -2056,10 +2056,6 @@ __global__ void stageShadowKernel(
                              nee_f[12 * nee_capacity + idx],
                              nee_f[13 * nee_capacity + idx]);
     s.dedEmissionProfileIndex = nee_i[5 * nee_capacity + idx];  // pkg218
-    // pkg253: true vertex->light distance (lane 14) bounds the transparent-shadow
-    // walk for finite sources (NOT the 1e30 maxDist occlusion sentinel — memory
-    // occlusion-sentinel-as-distance-class-of-bug). 0 for distant/infinite lights.
-    s.geomDist   = nee_f[14 * nee_capacity + idx];
     s.valid      = 1;
 
     // pkg55-C4: thread TLAS + path time + motionVerts to shadow rays.
@@ -2069,11 +2065,16 @@ __global__ void stageShadowKernel(
     // walks its occluders so a Principled alpha<1 surface lets (1-alpha) through
     // (gpu_shadow_transmittance, device twin of CPU shadowTransmittance, which
     // attenuates all light types). The <*, false> fleet path is exactly the
-    // original binary gpu_nee_occlude.
+    // original binary gpu_nee_occlude — the geomDist read below lives inside the
+    // HasAlphaShadow branch so the fleet shadow kernel stays byte-identical.
     GNEEOcclusion occ{};
     occ.frontFace = 1;
     float shadowTr = 1.0f;
     if constexpr (HasAlphaShadow) {
+        // True vertex->light distance (lane 14) bounds the walk for finite sources
+        // (NOT the 1e30 maxDist occlusion sentinel — memory
+        // occlusion-sentinel-as-distance-class-of-bug). 0 for distant/infinite.
+        s.geomDist = nee_f[14 * nee_capacity + idx];
         shadowTr = gpu_shadow_transmittance<HasCurves>(
             s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
             materials, time, motionVerts, curves, &occ.frontFace);

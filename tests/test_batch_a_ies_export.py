@@ -8,8 +8,12 @@ Checks:
 2. Engine: an IES profile actually modulates a SPOT light's floor pattern — the
    asymmetric wall-washer (peaks off-nadir) dims the nadir vs a plain cone.
 3. Normalization constant: the Cycles candela->Watt factor (util/ies.cpp) is
-   4*pi/177.83; recorded here as the parity reference for our peak-normalized
-   IESProfile (see .astroray_plan/docs/ies-normalization-research.md).
+   4*pi/177.83; recorded here as the parity reference.
+4. Absolute-scale invariant (Batch J item 2, owner 2026-09-13): the engine now
+   honours the file's ABSOLUTE candela distribution (no peak-normalization), so
+   rendered brightness scales linearly with the candela multiplier, and a flat
+   1-candela IES equals a no-IES light times 4*pi/177.83. This REPLACES the
+   prior peak-normalization invariant (see ies-normalization-research.md).
 """
 import math
 import os
@@ -133,3 +137,70 @@ def test_cycles_ies_candela_to_watt_constant():
     # Cycles util/ies.cpp: factor *= 0.0706650768394 == 4*pi / 177.83
     # (D65 luminous efficacy 177.83 lm/W; the 4*pi converts Watt/sr -> Watt).
     assert 4.0 * math.pi / 177.83 == pytest.approx(0.0706650768394, abs=1e-12)
+
+
+# --------------------------------------------------------------------------- #
+# 4. Absolute-scale invariant (Batch J item 2, owner 2026-09-13).
+#    The engine now honours absolute candela (no peak-normalization), matching
+#    Cycles util/ies.cpp (candela * 4*pi/177.83). Two checks:
+#      (a) rendered brightness scales linearly with the candela values;
+#      (b) a flat 1-candela IES == a no-IES spot times 4*pi/177.83.
+# --------------------------------------------------------------------------- #
+def _flat_ies(candela):
+    # Minimal axially-symmetric LM-63: 3 vertical angles (0/90/180), 1 azimuth,
+    # a FLAT candela table == `candela` in every direction.
+    return (
+        "IESNA:LM-63-2002\nTILT=NONE\n"
+        "1 -1 1.0 3 1 1 2 0 0 0\n"
+        "1 1 1\n"
+        "0 90 180\n"
+        "0\n"
+        "%g %g %g\n" % (candela, candela, candela)
+    )
+
+
+def _flat_ies_spot_mean(ies_file):
+    import base_helpers as bh
+    r = bh.create_renderer()
+    r.set_seed(4242)
+    floor = r.create_material('lambertian', [0.8, 0.8, 0.8], {})
+    r.add_triangle([-2, -1, -2], [2, -1, -2], [2, -1, 2], floor)
+    r.add_triangle([-2, -1, -2], [2, -1, 2], [-2, -1, 2], floor)
+    emission = {'mode': 'rgb', 'color': [1.0, 1.0, 1.0]}
+    # Wide cone so the flat table fully illuminates the visible floor.
+    r.add_spot_light_dedicated([0, 2, 0], [0, -1, 0], 0.9, 1.2,
+                               emission, 60.0, 0.0, ies_file, 0, 0)
+    r.set_background_color([0.0, 0.0, 0.0])
+    bh.setup_camera(r, look_from=[0, 3, 0.001], look_at=[0, -1, 0],
+                    vup=[0, 0, -1], vfov=60, width=80, height=80)
+    img = bh.render_image(r, samples=64, max_depth=2, apply_gamma=False)
+    return float(np.mean(img))
+
+
+@pytest.mark.serial
+def test_ies_absolute_scale_tracks_candela(tmp_path):
+    """Under peak-norm both files would render identically; under the absolute
+    model the 10x-candela file is ~10x brighter."""
+    a = tmp_path / "flat_2.ies"
+    b = tmp_path / "flat_20.ies"
+    a.write_text(_flat_ies(2.0), encoding="utf-8")
+    b.write_text(_flat_ies(20.0), encoding="utf-8")
+    mean_a = _flat_ies_spot_mean(str(a))
+    mean_b = _flat_ies_spot_mean(str(b))
+    assert mean_a > 0, mean_a
+    ratio = mean_b / mean_a
+    assert abs(ratio - 10.0) < 0.3, ("candela 20 vs 2 should be ~10x", ratio)
+
+
+@pytest.mark.serial
+def test_flat_1cd_ies_equals_no_ies_times_constant(tmp_path):
+    """A flat 1-candela IES == a no-IES spot times 4*pi/177.83 (the engine
+    composition is intensity * 1/(4pi) * iesValue; iesValue = 1 * 4pi/177.83)."""
+    ies = tmp_path / "flat_1.ies"
+    ies.write_text(_flat_ies(1.0), encoding="utf-8")
+    mean_ies = _flat_ies_spot_mean(str(ies))
+    mean_plain = _flat_ies_spot_mean("")
+    assert mean_plain > 0, mean_plain
+    ratio = mean_ies / mean_plain
+    expected = 4.0 * math.pi / 177.83
+    assert abs(ratio - expected) / expected < 0.02, (ratio, expected)

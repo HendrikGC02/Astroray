@@ -149,13 +149,14 @@ def test_cycles_ies_candela_to_watt_constant():
 def _flat_ies(candela):
     # Minimal axially-symmetric LM-63: 3 vertical angles (0/90/180), 1 azimuth,
     # a FLAT candela table == `candela` in every direction.
+    row = "{0:g} {0:g} {0:g}".format(candela)
     return (
         "IESNA:LM-63-2002\nTILT=NONE\n"
         "1 -1 1.0 3 1 1 2 0 0 0\n"
         "1 1 1\n"
         "0 90 180\n"
         "0\n"
-        "%g %g %g\n" % (candela, candela, candela)
+        + row + "\n"
     )
 
 

@@ -17,10 +17,9 @@ not asserted here.
 """
 import math
 
+import astroray
 import numpy as np
 import pytest
-
-import astroray
 
 MODES = ("SINGLE_SCATTERING", "MULTIPLE_SCATTERING")
 

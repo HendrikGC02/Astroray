@@ -399,6 +399,29 @@ def _install_ui_latency():
     burst_s = float(_CFG.get("burst_s", 0.4))
     settle_s = float(_CFG.get("settle_s", 2.0))
 
+    # pkg266 (Batch G): pin the viewport SETTLED TARGET to the §9 protocol value
+    # (default 64 spp). The scenes ship cycles.preview_samples=1024, which the
+    # off-thread worker reads as its per-generation target via
+    # _viewport_target_samples; at the measured ~33 ms/chunk a 1024-spp generation
+    # needs ~30 s to reach render_end, far longer than the adaptive settle span
+    # (5 x settle_s cap), so NO generation ever terminalised and present-rate was
+    # UNGRADEABLE (the Batch B completed=0 — its SECOND cause, after the spurious-
+    # view_update fix). §9 pins "a fixed settled target (e.g. 64 spp)": a generation
+    # then reaches its terminal well within the settle span and present-rate is
+    # gradeable. This is the §9 measurement target, NOT a relaxation of the
+    # terminal predicate (the worker still marks terminal only at full target).
+    settled_spp = int(_CFG.get("settled_spp", 64))
+    _pinned = []
+    for _sc in list(getattr(bpy.data, "scenes", [])):
+        try:
+            cyc = getattr(_sc, "cycles", None)
+            if cyc is not None:
+                cyc.preview_samples = settled_spp
+                _pinned.append((_sc.name, int(cyc.preview_samples)))
+        except Exception as exc:  # pragma: no cover - defensive
+            print("[pkg241] settled_spp pin warn:", _sc.name, exc)
+    print(f"[pkg241] settled_spp pin -> {settled_spp}; scenes={_pinned}")
+
     S = {
         "cfg": {"event_class": "ui_latency", "duration_s": duration_s,
                 "warmup_s": warmup_s, "tick_s": tick_s,

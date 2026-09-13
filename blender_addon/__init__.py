@@ -1456,6 +1456,32 @@ class CustomRaytracerRenderEngine(RenderEngine):
     # pkg52: persistent viewport session (pkg116: delegated to Exporter)
     # ------------------------------------------------------------------ #
 
+    def __del__(self):
+        """pkg266 (Batch G): drain THIS engine's viewport worker when Blender frees
+        the engine (viewport close / engine re-instantiation).
+
+        Root cause of the residual present-rate=0: `_register_viewport_session`
+        keeps a module-level STRONG ref to the Exporter in
+        `_LIVE_VIEWPORT_SESSIONS`, so a superseded engine's Exporter is never
+        garbage-collected and its own `Exporter.__del__`/`stop_worker` never fires.
+        The orphaned worker keeps rendering and HOLDS the process-global admission
+        token, so the new engine's worker can never acquire it — it stays IDLE,
+        never commits a generation, no terminal_publication fires, present-rate is
+        UNGRADEABLE (measured: completed=0 while the device rendered 300+ chunks on
+        an orphan). Draining here releases the token (the worker's finally path)
+        and unregisters the session so the live engine's worker can proceed.
+
+        Only drains this engine's OWN Exporter (not sibling live viewports — §3.5
+        multi-viewport shares the one token by hand-off, so a second live viewport
+        must NOT be stopped here). Best-effort + bounded (stop_worker is 5 s and
+        quarantines a genuinely hung worker rather than freeing its renderer)."""
+        exp = self.__dict__.get('_exporter') if hasattr(self, '__dict__') else None
+        if exp is not None:
+            try:
+                exp.stop_worker()
+            except Exception:
+                pass
+
     def _get_exporter(self):
         """Lazy-init the Exporter. Reused across view_update and view_draw."""
         # Access the real _exporter attribute (not the property)

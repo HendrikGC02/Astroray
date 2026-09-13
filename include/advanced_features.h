@@ -213,7 +213,16 @@ public:
         auto [uv, p] = textureCoordinates(rec, wo);
         if (hasMapping_) {  // pkg242 — transform the procedural point too (see value())
             Vec3 mp = applyMappingPoint(p);
-            return value(Vec2(mp.x + du, mp.y + dv), mp);
+            // pkg242 follow-up (#737): perturb the mapped 3-D point by the same
+            // (du,dv) the 2-D sample coord moves. Previously only the 2-D image
+            // coord was offset while `mp` stayed fixed, so p-reading procedurals
+            // (Noise/Wave/Musgrave) read an identical point for the base and
+            // offset taps and produced a ZERO bump gradient under a Mapping.
+            // Moving mp by (du,dv,0) keeps the 2-D image/Checker step
+            // byte-identical to before AND gives the 3-D evaluators a finite
+            // in-plane gradient (z left unperturbed: du,dv are tangent-plane
+            // finite-difference steps).
+            return value(Vec2(mp.x + du, mp.y + dv), mp + Vec3(du, dv, 0.0f));
         }
         Vec2 t = applyUVTransform(uv);
         return value(Vec2(t.u + du, t.v + dv), p);
@@ -255,15 +264,16 @@ public:
     void setMappingMatrix(const float m12[12]) {
         for (int i = 0; i < 12; ++i) mapping_[i] = m12[i];
         hasMapping_ = true;
-        // pkg242 — a singular (zero-determinant) linear part collapses the
+        // pkg242 — a singular (rank-deficient) linear part collapses the
         // coordinate field, so the procedural degenerates to a constant. Report
-        // it visibly instead of silently shading a flat surface.
-        float det = mappingLinearDet();
-        if (std::fabs(det) < 1e-8f)
+        // it visibly instead of silently shading a flat surface. The test is
+        // SCALE-RELATIVE (see mappingIsSingular): a legitimate tiny uniform
+        // scale is no longer mis-flagged, only a genuinely rank-deficient frame.
+        if (mappingIsSingular())
             std::fprintf(stderr,
                 "[pkg242] warning: texture Mapping matrix is singular "
                 "(det=%.3g); the procedural coordinate field collapses to a "
-                "constant.\n", det);
+                "constant.\n", mappingLinearDet());
     }
     bool hasMapping() const { return hasMapping_; }
     const float* getMappingMatrix() const { return mapping_; }
@@ -271,6 +281,23 @@ public:
     // the 3-D Mapping matrix when set, else identity (byte-identical). The GPU
     // scene-upload folds this into the procedural bake so the device fetch stays
     // transform-agnostic and register-neutral (no new per-hit shade state).
+    // pkg242 follow-up (#737): SCALE-RELATIVE singular test. The old absolute
+    // |det| < 1e-8 flagged a legitimate uniform scale s below ~0.002 as
+    // singular (det = s^3 = 8e-9 < 1e-8), even though such a matrix is perfectly
+    // invertible — it just magnifies the field. Compare |det| against the
+    // product of the three column norms instead, i.e. the normalized determinant
+    // |det| / (||c0|| ||c1|| ||c2||) in [0,1] (1 for an orthogonal frame at any
+    // scale, ~0 when a column is near-zero or two are near-parallel, which is
+    // what actually collapses the coordinate field). A uniform scale s gives
+    // det=s^3 and norm-product=s^3 → ratio 1 at every scale.
+    bool mappingIsSingular() const {
+        const float n0 = std::sqrt(mapping_[0]*mapping_[0] + mapping_[4]*mapping_[4] + mapping_[8]*mapping_[8]);
+        const float n1 = std::sqrt(mapping_[1]*mapping_[1] + mapping_[5]*mapping_[5] + mapping_[9]*mapping_[9]);
+        const float n2 = std::sqrt(mapping_[2]*mapping_[2] + mapping_[6]*mapping_[6] + mapping_[10]*mapping_[10]);
+        const float vol = n0 * n1 * n2;
+        if (vol < 1e-20f) return true;  // a zero/near-zero column collapses it
+        return std::fabs(mappingLinearDet()) < 1e-6f * vol;  // rank-deficient
+    }
     Vec3 mappedPoint(const Vec3& p) const {
         return hasMapping_ ? applyMappingPoint(p) : p;
     }

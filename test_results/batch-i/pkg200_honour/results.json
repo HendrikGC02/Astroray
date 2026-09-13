@@ -1,0 +1,1626 @@
+[
+  {
+    "row": "max_bounces",
+    "stage": "1",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "closed_box",
+    "verdict": "PASS",
+    "detail": "lum_mean A=0.035237 B=0.42923 ratio=12.181",
+    "a": {
+      "mean": [
+        0.03504687181282505,
+        0.035461242160203826,
+        0.033577804517880616
+      ],
+      "maxv": [
+        2.2123281955718994,
+        2.111380100250244,
+        2.7354655265808105
+      ],
+      "var": [
+        0.030060377394776065,
+        0.030696837665587187,
+        0.030031663508583772
+      ],
+      "lum_mean": 0.03523716282657537,
+      "lum_max": 2.1396300046443937,
+      "lum_var": 0.030246039406934988,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.013351868172885247,
+      "hi_pct": 1.2953136184191663,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.44070320468947305,
+        0.4303118338869349,
+        0.38466050825238995
+      ],
+      "maxv": [
+        10.749176025390625,
+        10.655936241149902,
+        13.179637908935547
+      ],
+      "var": [
+        1.224476770167264,
+        1.2605159205635907,
+        1.2189913303138897
+      ],
+      "lum_mean": 0.4292250136087403,
+      "lum_max": 10.526188357734679,
+      "lum_var": 1.2374541175226639,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.2168942712747629,
+      "hi_pct": 8.822781336331355,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "closed diffuse box; total path depth 1 vs 12"
+  },
+  {
+    "row": "diffuse_bounces",
+    "stage": "1",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "closed_box",
+    "verdict": "HONEST-FAIL",
+    "detail": "lum_mean A=0.42923 B=0.42923 ratio=1.000 (< 1.03: setting does not add indirect energy)",
+    "a": {
+      "mean": [
+        0.44070320468947305,
+        0.4303118338869349,
+        0.38466050825238995
+      ],
+      "maxv": [
+        10.749176025390625,
+        10.655936241149902,
+        13.179637908935547
+      ],
+      "var": [
+        1.224476770167264,
+        1.2605159205635907,
+        1.2189913303138897
+      ],
+      "lum_mean": 0.4292250136087403,
+      "lum_max": 10.526188357734679,
+      "lum_var": 1.2374541175226639,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.2168942712747629,
+      "hi_pct": 8.822781336331355,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.44070320468947305,
+        0.4303118338869349,
+        0.38466050825238995
+      ],
+      "maxv": [
+        10.749176025390625,
+        10.655936241149902,
+        13.179637908935547
+      ],
+      "var": [
+        1.224476770167264,
+        1.2605159205635907,
+        1.2189913303138897
+      ],
+      "lum_mean": 0.4292250136087403,
+      "lum_max": 10.526188357734679,
+      "lum_var": 1.2374541175226639,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.2168942712747629,
+      "hi_pct": 8.822781336331355,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "diffuse interreflection depth 0 vs 8. NOTE: per-type bounces are NOT passed to cuda_wavefront_render (blender_module.cpp: GPU call omits the diffuse/glossy/transmission/volume/transparent args the CPU path at L1906 passes) \u2014 expected GPU HONEST-FAIL; CPU honours it."
+  },
+  {
+    "row": "glossy_bounces",
+    "stage": "1",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "closed_box_glossy",
+    "verdict": "PASS",
+    "detail": "lum_mean A=0.067017 B=0.69941 ratio=10.436",
+    "a": {
+      "mean": [
+        0.06661721726867446,
+        0.06745815832265221,
+        0.06382032746200103
+      ],
+      "maxv": [
+        4.424656391143799,
+        4.222760200500488,
+        5.470931053161621
+      ],
+      "var": [
+        0.11889433630519991,
+        0.12142404049862117,
+        0.11860118084425259
+      ],
+      "lum_mean": 0.06701672286643752,
+      "lum_max": 4.279260009288787,
+      "lum_var": 0.1196302012393501,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.025847170134116717,
+      "hi_pct": 2.5906272368383325,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.6972279763475753,
+        0.701507942999241,
+        0.6850143875376994
+      ],
+      "maxv": [
+        13.032951354980469,
+        12.683141708374023,
+        16.56255531311035
+      ],
+      "var": [
+        2.2969121606049026,
+        2.3351107776159155,
+        2.3368072527836166
+      ],
+      "lum_mean": 0.6994071873847736,
+      "lum_max": 12.302360550117491,
+      "lum_var": 2.306719968639754,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.290139861010301,
+      "hi_pct": 10.47935439465045,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "glossy interreflection depth 0 vs 8 (smooth-shaded walls)"
+  },
+  {
+    "row": "transmission_bounces",
+    "stage": "1",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "glass_sphere",
+    "verdict": "PASS",
+    "detail": "lum_mean A=0.42382 B=0.49861 ratio=1.176",
+    "a": {
+      "mean": [
+        0.432284642551527,
+        0.4270480352563588,
+        0.36694820186306576
+      ],
+      "maxv": [
+        12.32006549835205,
+        11.818425178527832,
+        15.601838111877441
+      ],
+      "var": [
+        1.3543658932017069,
+        1.3864979492593479,
+        1.3618122759888682
+      ],
+      "lum_mean": 0.4238221299963158,
+      "lum_max": 11.183945470428466,
+      "lum_var": 1.3594420831753276,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.22712272583477328,
+      "hi_pct": 9.177068564972874,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.5108991236184516,
+        0.5018467302158898,
+        0.4303747631617776
+      ],
+      "maxv": [
+        11.482234954833984,
+        11.376285552978516,
+        14.953407287597656
+      ],
+      "var": [
+        1.374714235082421,
+        1.4043001464056752,
+        1.3799303668060914
+      ],
+      "lum_mean": 0.4986109930319675,
+      "lum_max": 11.146881624412536,
+      "lum_var": 1.376294956857732,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.27230751280736276,
+      "hi_pct": 9.436310558073504,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "solid glass sphere; transmission depth 0 vs 12"
+  },
+  {
+    "row": "transparent_max_bounces",
+    "stage": "1",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "transparent_tower",
+    "verdict": "HONEST-FAIL",
+    "detail": "lum_mean A=0.33281 B=0.33281 ratio=1.000 (< 1.03: setting does not add indirect energy)",
+    "a": {
+      "mean": [
+        0.3379098812005547,
+        0.33472330315325394,
+        0.2988923920691228
+      ],
+      "maxv": [
+        11.240371704101562,
+        11.622899055480957,
+        12.690361022949219
+      ],
+      "var": [
+        1.2028534141715594,
+        1.2161563002282025,
+        1.2100602509491707
+      ],
+      "lum_mean": 0.33281377786583577,
+      "lum_max": 11.359852009010316,
+      "lum_var": 1.2021401959379947,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.17529515657871175,
+      "hi_pct": 9.247967716886992,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.3379098812005547,
+        0.33472330315325394,
+        0.2988923920691228
+      ],
+      "maxv": [
+        11.240371704101562,
+        11.622899055480957,
+        12.690361022949219
+      ],
+      "var": [
+        1.2028534141715594,
+        1.2161563002282025,
+        1.2100602509491707
+      ],
+      "lum_mean": 0.33281377786583577,
+      "lum_max": 11.359852009010316,
+      "lum_var": 1.2021401959379947,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.17529515657871175,
+      "hi_pct": 9.247967716886992,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "stacked alpha-transparent quads; alpha depth 0 vs 12"
+  },
+  {
+    "row": "world_max_bounces",
+    "stage": "1",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "hdri_box",
+    "verdict": "PASS",
+    "detail": "lum_mean A=0.20003 B=1.06 ratio=5.299",
+    "a": {
+      "mean": [
+        0.19815011018646247,
+        0.19993557968094441,
+        0.20648190064667915
+      ],
+      "maxv": [
+        2.0557291507720947,
+        1.9351788759231567,
+        3.0020298957824707
+      ],
+      "var": [
+        0.3081806915786077,
+        0.3131336881409993,
+        0.345353071999299
+      ],
+      "lum_mean": 0.20002863324014358,
+      "lum_max": 1.844797342610359,
+      "lum_var": 0.31323132258928954,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.021844701617660185,
+      "hi_pct": 1.8291000200778245,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        1.0503598351173826,
+        1.0590072358544502,
+        1.0978566788334219
+      ],
+      "maxv": [
+        2.0557291507720947,
+        1.9351788759231567,
+        3.0020298957824707
+      ],
+      "var": [
+        0.09227883917412788,
+        0.09174092920563774,
+        0.1467001282713026
+      ],
+      "lum_mean": 1.0599737282408315,
+      "lum_max": 1.844797342610359,
+      "lum_var": 0.09069316590636224,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.09088874815179543,
+      "hi_pct": 1.8291000200778245,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "world-lit box; world max bounces 0 vs 12. pkg201 Finding B: the addon now reads world.cycles.max_bounces (the real Cycles world light-path prop). The pre-pkg201 read used world.light_settings.max_bounces \u2014 the AO datablock, which has no max_bounces member, so the override was inert (pkg200 recorded HONEST-FAIL). This row now exercises the corrected attr."
+  },
+  {
+    "row": "volume_bounces",
+    "stage": "1",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "volume_box",
+    "verdict": "HONEST-FAIL",
+    "detail": "lum_mean A=0.021046 B=0.02101 ratio=0.998 (< 1.03: setting does not add indirect energy)",
+    "a": {
+      "mean": [
+        0.021066159098962898,
+        0.021067027607488045,
+        0.02078009583899782
+      ],
+      "maxv": [
+        0.058178193867206573,
+        0.05315137654542923,
+        0.07919140160083771
+      ],
+      "var": [
+        8.422453579179237e-05,
+        8.254190398729644e-05,
+        0.00010261096613285297
+      ],
+      "lum_mean": 0.021046126488890607,
+      "lum_max": 0.050953242243826385,
+      "lum_var": 8.21370228023122e-05,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.002230197594692532,
+      "hi_pct": 0.05037526487635448,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.021011651918949308,
+        0.02104207020344499,
+        0.020685054619485124
+      ],
+      "maxv": [
+        0.05657164752483368,
+        0.05355944111943245,
+        0.0748702734708786
+      ],
+      "var": [
+        8.446743338251023e-05,
+        8.31380430367368e-05,
+        0.00010250910944791987
+      ],
+      "lum_mean": 0.021009826750999303,
+      "lum_max": 0.050960872479528185,
+      "lum_var": 8.262610268715195e-05,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.0022568709220551156,
+      "hi_pct": 0.050402240856960406,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "KNOWN-PARTIAL candidate: volume transport only partly implemented (settings_map note). HONEST-FAIL if non-responsive \u2014 file, do not fix."
+  },
+  {
+    "row": "use_light_tree",
+    "stage": "1",
+    "kind": "visual",
+    "blender": "bl5.2",
+    "scene": "many_lights",
+    "verdict": "NEEDS-VISUAL",
+    "detail": "per-pixel |dLum| mean=0.5025 max=6.763 (setting changes pixels; confirm direction visually)",
+    "a": {
+      "mean": [
+        2.010966307852262,
+        2.024974777628409,
+        2.1048255254799084
+      ],
+      "maxv": [
+        54.335060119628906,
+        53.931026458740234,
+        62.463958740234375
+      ],
+      "var": [
+        8.267626620565743,
+        8.02365773413697,
+        9.078542225407535
+      ],
+      "lum_mean": 2.0277618009488783,
+      "lum_max": 52.35594774856567,
+      "lum_var": 8.076293967325753,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.5825710969385275,
+      "hi_pct": 22.440994529246684,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        2.1044270320594984,
+        2.1184259515592,
+        2.210396351724436
+      ],
+      "maxv": [
+        54.335060119628906,
+        53.931026458740234,
+        63.509918212890625
+      ],
+      "var": [
+        8.745108400082824,
+        8.509343506989795,
+        9.637897865684655
+      ],
+      "lum_mean": 2.1220900441654935,
+      "lum_max": 52.35594774856567,
+      "lum_var": 8.566542726499462,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.5636259142887263,
+      "hi_pct": 22.66299093819541,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "18 EMISSION-shader spheres in 3 clusters of widely varying power. They must be pure Emission-node materials (addon maps those to the hittable create_material('light',...) NEE emitter, __init__.py:3657); a Principled BSDF with emission takes the 'principled' path and is NOT an NEE light, so the scene stays unlit and no tree is built (AREA/POINT lamps are dedicated and likewise excluded from the pkg86-B GPU tree). pkg201 Stage 1 makes the addon forward native scene.cycles.use_light_tree to the engine token ('power'/'tree') via resolve_light_sampler \u2014 the pre-pkg201 raw-enum pass-through threw for 'uniform'/'light_tree'. False('power')/True('tree') select different NEE light subsets, so the GPU wavefront render changes measurably; p_changes_pixels -> NEEDS-VISUAL + a multimodal Read confirms both frames are valid lit renders differing only in the sampler noise field (not garbage), mirroring the caustics rows. Was a pkg200 KNOWN-GAP."
+  },
+  {
+    "row": "sample_clamp_direct",
+    "stage": "2",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "firefly",
+    "verdict": "PASS",
+    "detail": "hi_pct A=26.4 B=0.5071; lum_max A=27.83 B=0.5081 (fireflies clipped)",
+    "a": {
+      "mean": [
+        10.162115712130495,
+        2.1163119531077985,
+        2.045446144686783
+      ],
+      "maxv": [
+        78.80335235595703,
+        15.376384735107422,
+        21.466508865356445
+      ],
+      "var": [
+        351.4731394347717,
+        15.22269628878893,
+        14.941215260684203
+      ],
+      "lum_mean": 3.821733320908027,
+      "lum_max": 27.827335564041135,
+      "lum_var": 49.59631417413573,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.2532197897696373,
+      "hi_pct": 26.39602406767845,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.424007727147101,
+        0.09343033746641696,
+        0.08318761668845633
+      ],
+      "maxv": [
+        1.4836543798446655,
+        0.3511705994606018,
+        0.4894712269306183
+      ],
+      "var": [
+        0.35989284915382097,
+        0.017558370768067853,
+        0.014608641394666277
+      ],
+      "lum_mean": 0.16297156607236166,
+      "lum_max": 0.5080743802487849,
+      "lum_var": 0.053111490177907984,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.0061139258274784496,
+      "hi_pct": 0.5070506514355541,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "bright emitter + glossy floor; direct clamp off vs 0.5 (GPU honours clampDirect, pkg157)"
+  },
+  {
+    "row": "sample_clamp_indirect",
+    "stage": "2",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "firefly_indirect",
+    "verdict": "NEEDS-VISUAL",
+    "detail": "hi_pct A=1481 B=1481; lum_max A=1639 B=1639 (inconclusive: fireflies NEE-classified as DIRECT; clampIndirect shares the pkg157 kernel param with clampDirect, which PASSES)",
+    "a": {
+      "mean": [
+        107.33582950362728,
+        107.29282050441745,
+        105.96346202366476
+      ],
+      "maxv": [
+        1775.947265625,
+        1683.374755859375,
+        2309.04931640625
+      ],
+      "var": [
+        72592.99557425673,
+        72396.07005433115,
+        73150.09806565823
+      ],
+      "lum_mean": 107.20598453533911,
+      "lum_max": 1638.9113495117188,
+      "lum_var": 72215.21925786462,
+      "alpha_mean": 1.0,
+      "grad_mean": 11.645686690979446,
+      "hi_pct": 1481.133129721067,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        107.28986888113286,
+        107.23968483361588,
+        105.92542899576944
+      ],
+      "maxv": [
+        1775.947265625,
+        1683.374755859375,
+        2309.04931640625
+      ],
+      "var": [
+        72601.37113550119,
+        72405.09096048024,
+        73156.40699664359
+      ],
+      "lum_mean": 107.15546469062548,
+      "lum_max": 1638.9113495117188,
+      "lum_var": 72224.09128110363,
+      "alpha_mean": 1.0,
+      "grad_mean": 11.537653221661513,
+      "hi_pct": 1481.133129721067,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "indirect firefly (glossy reflection of a brightly-lit diffuse panel); indirect clamp off vs 0.5 (GPU honours clampIndirect, pkg157)"
+  },
+  {
+    "row": "blur_glossy",
+    "stage": "2",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "firefly",
+    "verdict": "HONEST-FAIL",
+    "detail": "lum_max A=27.83 B=27.83 (blur_glossy left the highlight peak unchanged)",
+    "a": {
+      "mean": [
+        10.162115712130495,
+        2.1163119531077985,
+        2.045446144686783
+      ],
+      "maxv": [
+        78.80335235595703,
+        15.376384735107422,
+        21.466508865356445
+      ],
+      "var": [
+        351.4731394347717,
+        15.22269628878893,
+        14.941215260684203
+      ],
+      "lum_mean": 3.821733320908027,
+      "lum_max": 27.827335564041135,
+      "lum_var": 49.59631417413573,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.2532197897696373,
+      "hi_pct": 26.39602406767845,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        10.162115712130495,
+        2.1163119531077985,
+        2.045446144686783
+      ],
+      "maxv": [
+        78.80335235595703,
+        15.376384735107422,
+        21.466508865356445
+      ],
+      "var": [
+        351.4731394347717,
+        15.22269628878893,
+        14.941215260684203
+      ],
+      "lum_mean": 3.821733320908027,
+      "lum_max": 27.827335564041135,
+      "lum_var": 49.59631417413573,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.2532197897696373,
+      "hi_pct": 26.39602406767845,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "sharp glossy highlight; filter-glossy 0 vs 10. NOTE: renderer.filterGlossy is stored but never read in src/gpu/ \u2014 expected GPU HONEST-FAIL."
+  },
+  {
+    "row": "film_exposure",
+    "stage": "3",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "closed_box",
+    "verdict": "PASS",
+    "detail": "per-ch mean-ratio B/A = 2.000, 2.000, 2.000 (target (1.7, 2.3))",
+    "a": {
+      "mean": [
+        0.44070320468947305,
+        0.4303118338869349,
+        0.38466050825238995
+      ],
+      "maxv": [
+        10.749176025390625,
+        10.655936241149902,
+        13.179637908935547
+      ],
+      "var": [
+        1.224476770167264,
+        1.2605159205635907,
+        1.2189913303138897
+      ],
+      "lum_mean": 0.4292250136087403,
+      "lum_max": 10.526188357734679,
+      "lum_var": 1.2374541175226639,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.2168942712747629,
+      "hi_pct": 8.822781336331355,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.8814064093789461,
+        0.8606236677738698,
+        0.7693210165047799
+      ],
+      "maxv": [
+        21.49835205078125,
+        21.311872482299805,
+        26.359275817871094
+      ],
+      "var": [
+        4.897907080669056,
+        5.042063682254363,
+        4.875965321255559
+      ],
+      "lum_mean": 0.8584500272174806,
+      "lum_max": 21.052376715469357,
+      "lum_var": 4.9498164700906555,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.4337885425495258,
+      "hi_pct": 17.64556267266271,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "cleanest quantitative honour: linear mean must ~double"
+  },
+  {
+    "row": "render_region",
+    "stage": "3",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "closed_box",
+    "verdict": "HONEST-FAIL",
+    "detail": "lum_mean A(no border)=0.42923 B(border)=0 ratio=0.000 (target ~0.25 = kept area)",
+    "a": {
+      "mean": [
+        0.44070320468947305,
+        0.4303118338869349,
+        0.38466050825238995
+      ],
+      "maxv": [
+        10.749176025390625,
+        10.655936241149902,
+        13.179637908935547
+      ],
+      "var": [
+        1.224476770167264,
+        1.2605159205635907,
+        1.2189913303138897
+      ],
+      "lum_mean": 0.4292250136087403,
+      "lum_max": 10.526188357734679,
+      "lum_var": 1.2374541175226639,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.2168942712747629,
+      "hi_pct": 8.822781336331355,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maxv": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "var": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "lum_mean": 0.0,
+      "lum_max": 0.0,
+      "lum_var": 0.0,
+      "alpha_mean": 0.0,
+      "grad_mean": 0.0,
+      "hi_pct": 0.0,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "border off vs a centred quarter-area region; linear mean must fall to ~1/4"
+  },
+  {
+    "row": "film_transparent",
+    "stage": "3",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "open_object",
+    "verdict": "HONEST-FAIL",
+    "detail": "alpha_mean transparent-A=1.000 opaque-B=1.000 (film_transparent did not open the background alpha)",
+    "a": {
+      "mean": [
+        0.2832052361271862,
+        0.36125815735108013,
+        0.4814709710570039
+      ],
+      "maxv": [
+        0.40798625349998474,
+        0.4621134102344513,
+        1.0942717790603638
+      ],
+      "var": [
+        0.0008656913659587732,
+        0.008692512984963112,
+        0.04731562985992889
+      ],
+      "lum_mean": 0.3533434714484479,
+      "lum_max": 0.4133775821745395,
+      "lum_var": 0.007177540839919521,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.007258350782118583,
+      "hi_pct": 0.41002581694319845,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.2832052360705954,
+        0.3612581573640152,
+        0.48147097108206555
+      ],
+      "maxv": [
+        0.40798625349998474,
+        0.4621134102344513,
+        1.0942717790603638
+      ],
+      "var": [
+        0.0008656913751141119,
+        0.008692512980340815,
+        0.04731562984655099
+      ],
+      "lum_mean": 0.35334347144747735,
+      "lum_max": 0.4133775821745395,
+      "lum_var": 0.00717754084071181,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.007258350797463005,
+      "hi_pct": 0.41002581694319845,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "single object against a VISIBLE world background; alpha transparent (A) vs opaque (B)"
+  },
+  {
+    "row": "film_transparent_glass",
+    "stage": "3",
+    "kind": "visual",
+    "blender": "bl5.2",
+    "scene": "open_glass",
+    "verdict": "HONEST-FAIL",
+    "detail": "per-pixel |dLum| mean=5.19e-11 max=6.828e-08 (setting produced no pixel change)",
+    "a": {
+      "mean": [
+        0.29504771888120257,
+        0.4143268012396422,
+        0.5952007604678834
+      ],
+      "maxv": [
+        0.40798625349998474,
+        0.46267229318618774,
+        1.0942717790603638
+      ],
+      "var": [
+        0.0005034899540498167,
+        0.00021372632447642196,
+        0.011440329105795162
+      ],
+      "lum_mean": 0.4020271681865169,
+      "lum_max": 0.4133775821745395,
+      "lum_var": 1.0657290172708137e-05,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.002877147719219471,
+      "hi_pct": 0.41022547478124494,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.2950477189103064,
+        0.4143268012299409,
+        0.5952007604840522
+      ],
+      "maxv": [
+        0.40798625349998474,
+        0.46267229318618774,
+        1.0942717790603638
+      ],
+      "var": [
+        0.0005034899539354196,
+        0.00021372632475406744,
+        0.011440329109615711
+      ],
+      "lum_mean": 0.4020271681869334,
+      "lum_max": 0.4133775821745395,
+      "lum_var": 1.065729027254171e-05,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.002877147722906508,
+      "hi_pct": 0.41022547478124494,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "glass sphere on transparent film; glass-alpha behaviour; confirm visually"
+  },
+  {
+    "row": "samples",
+    "stage": "3",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "open_object",
+    "verdict": "PASS",
+    "detail": "MC-noise(16spp)=0.00771 (64spp)=0.003903 ratio=0.506; mean ratio=1.000 (noise falls ~1/sqrt(N))",
+    "a": {
+      "mean": [
+        0.2830334380560089,
+        0.36132573266513646,
+        0.4823768938167632
+      ],
+      "maxv": [
+        0.41798141598701477,
+        0.4790496230125427,
+        1.2420035600662231
+      ],
+      "var": [
+        0.0013311689698280518,
+        0.008883172788455452,
+        0.056559003366610114
+      ],
+      "lum_mean": 0.3534206846663834,
+      "lum_max": 0.4180070622563362,
+      "lum_var": 0.00723802579824293,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.008786428406267387,
+      "hi_pct": 0.41271648454442617,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.28324580061922056,
+        0.36127168233765083,
+        0.48298557088613353
+      ],
+      "maxv": [
+        0.3528335988521576,
+        0.4509370028972626,
+        0.8578357696533203
+      ],
+      "var": [
+        0.0006576132849404909,
+        0.008572845391706448,
+        0.04342710624097417
+      ],
+      "lum_mean": 0.35347112263751296,
+      "lum_max": 0.41004139338135714,
+      "lum_var": 0.0071677187837539975,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.006155239494430773,
+      "hi_pct": 0.40742117981567977,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "4x spp on a smooth scene: MC NOISE (two-independent-seed per-pixel diff) must fall ~1/2 (1/sqrt(4)); spatial variance does not fall with spp so it is not used (memory mc-noise-vs-deterministic)"
+  },
+  {
+    "row": "seed_distinct",
+    "stage": "3",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "closed_box",
+    "verdict": "PASS",
+    "detail": "lum_mean ratio=1.010, per-pixel |dLum| mean=0.2259 (same mean, different noise)",
+    "a": {
+      "mean": [
+        0.44332517415733086,
+        0.4326843211389407,
+        0.3807825811687735
+      ],
+      "maxv": [
+        11.331597328186035,
+        10.483596801757812,
+        13.911103248596191
+      ],
+      "var": [
+        1.2317967845125457,
+        1.253380851554427,
+        1.2315631210524498
+      ],
+      "lum_mean": 0.43119926086480437,
+      "lum_max": 10.373382367897035,
+      "lum_var": 1.2332446429329553,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.22027426878066625,
+      "hi_pct": 8.644503544993398,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.4473349554643341,
+        0.43636234058882273,
+        0.3911391644385469
+      ],
+      "maxv": [
+        10.425301551818848,
+        10.843856811523438,
+        12.683327674865723
+      ],
+      "var": [
+        1.2552245612362425,
+        1.2597174274178002,
+        1.2861848016905948
+      ],
+      "lum_mean": 0.43543000519330655,
+      "lum_max": 10.42148558359146,
+      "lum_var": 1.2476169249182307,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.21925140603560045,
+      "hi_pct": 8.733046285066601,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "two distinct nonzero seeds: equal mean, different noise"
+  },
+  {
+    "row": "seed_repeat",
+    "stage": "3",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "closed_box",
+    "verdict": "PASS",
+    "detail": "per-pixel |dLum| max=0 (reproducible <=1e-5)",
+    "a": {
+      "mean": [
+        0.4397401554583414,
+        0.4298132601190143,
+        0.3807605452321094
+      ],
+      "maxv": [
+        10.590361595153809,
+        10.451098442077637,
+        12.57632827758789
+      ],
+      "var": [
+        1.2332287630016603,
+        1.251151544027244,
+        1.2470247335715385
+      ],
+      "lum_mean": 0.42838211205332066,
+      "lum_max": 10.331174871063233,
+      "lum_var": 1.2332259570055937,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.21898236228341025,
+      "hi_pct": 8.798234740471752,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.4397401554583414,
+        0.4298132601190143,
+        0.3807605452321094
+      ],
+      "maxv": [
+        10.590361595153809,
+        10.451098442077637,
+        12.57632827758789
+      ],
+      "var": [
+        1.2332287630016603,
+        1.251151544027244,
+        1.2470247335715385
+      ],
+      "lum_mean": 0.42838211205332066,
+      "lum_max": 10.331174871063233,
+      "lum_var": 1.2332259570055937,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.21898236228341025,
+      "hi_pct": 8.798234740471752,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "same fixed nonzero seed twice: reproducible <=1e-5"
+  },
+  {
+    "row": "caustics_reflective",
+    "stage": "4",
+    "kind": "visual",
+    "blender": "bl5.2",
+    "scene": "caustic",
+    "verdict": "HONEST-FAIL",
+    "detail": "per-pixel |dLum| mean=1.163e-11 max=7.489e-09 (setting produced no pixel change)",
+    "a": {
+      "mean": [
+        0.049262651435532864,
+        0.04934163583028647,
+        0.048367643631839506
+      ],
+      "maxv": [
+        0.06111874803900719,
+        0.05461389943957329,
+        0.08764384686946869
+      ],
+      "var": [
+        1.2062020451158998e-05,
+        8.139036018672778e-06,
+        8.097338553691611e-05
+      ],
+      "lum_mean": 0.04925452151123398,
+      "lum_max": 0.05108541871085763,
+      "lum_var": 6.553169048505227e-06,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.0004607040211628599,
+      "hi_pct": 0.0507934334660694,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.04926265144119194,
+        0.0493416358286696,
+        0.04836764363608381
+      ],
+      "maxv": [
+        0.06111874803900719,
+        0.05461389943957329,
+        0.08764384686946869
+      ],
+      "var": [
+        1.2062020362746637e-05,
+        8.13903603271267e-06,
+        8.097338549218144e-05
+      ],
+      "lum_mean": 0.04925452151158715,
+      "lum_max": 0.05108541871085763,
+      "lum_var": 6.553169026268333e-06,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.000460704019634051,
+      "hi_pct": 0.0507934334660694,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "reflective caustic on/off. NOTE: renderer.useReflectiveCaustics is not read in src/gpu/; GPU caustics gate on a SEPARATE usePhotonCaustics opt-in \u2014 expected GPU HONEST-FAIL (native toggle inert on GPU)."
+  },
+  {
+    "row": "caustics_refractive",
+    "stage": "4",
+    "kind": "visual",
+    "blender": "bl5.2",
+    "scene": "caustic",
+    "verdict": "HONEST-FAIL",
+    "detail": "per-pixel |dLum| mean=1.529e-11 max=7.489e-09 (setting produced no pixel change)",
+    "a": {
+      "mean": [
+        0.049262651442404604,
+        0.04934163582745694,
+        0.04836764363608381
+      ],
+      "maxv": [
+        0.06111874803900719,
+        0.05461389943957329,
+        0.08764384686946869
+      ],
+      "var": [
+        1.20620203398192e-05,
+        8.13903605674297e-06,
+        8.097338549218144e-05
+      ],
+      "lum_mean": 0.04925452151097767,
+      "lum_max": 0.05108541871085763,
+      "lum_var": 6.553169037266181e-06,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.0004607040204955297,
+      "hi_pct": 0.0507934334660694,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.04926265144119194,
+        0.049341635831903354,
+        0.04836764362921207
+      ],
+      "maxv": [
+        0.06111874803900719,
+        0.05461389943957329,
+        0.08764384686946869
+      ],
+      "var": [
+        1.2062020353285864e-05,
+        8.139036003992457e-06,
+        8.09733855756202e-05
+      ],
+      "lum_mean": 0.049254521513403794,
+      "lum_max": 0.05108541871085763,
+      "lum_var": 6.553169007699993e-06,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.0004607040195349711,
+      "hi_pct": 0.0507934334660694,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "refractive caustic on/off. NOTE: as caustics_reflective \u2014 GPU path does not read the native toggle (usePhotonCaustics is the GPU gate)."
+  },
+  {
+    "row": "pixel_filter_type",
+    "stage": "4",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "closed_box",
+    "verdict": "HONEST-FAIL",
+    "detail": "grad_mean A=0.21698 B=0.21807 (pixel filter did not change edge gradient)",
+    "a": {
+      "mean": [
+        0.43551238878694676,
+        0.42714629307381025,
+        0.3756580607922386
+      ],
+      "maxv": [
+        10.977251052856445,
+        9.907849311828613,
+        14.177711486816406
+      ],
+      "var": [
+        1.2147960545924645,
+        1.232449125333254,
+        1.249638669601473
+      ],
+      "lum_mean": 0.4252074746516936,
+      "lum_max": 10.015236424446105,
+      "lum_var": 1.216712584039062,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.21698229872726646,
+      "hi_pct": 8.646707433207027,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.44067947237772387,
+        0.4328806719906879,
+        0.37793904481300244
+      ],
+      "maxv": [
+        11.09787368774414,
+        10.69029712677002,
+        14.667283058166504
+      ],
+      "var": [
+        1.1663642497667253,
+        1.188032391708706,
+        1.1738940018338475
+      ],
+      "lum_mean": 0.4305719114707428,
+      "lum_max": 10.480247235298156,
+      "lum_var": 1.1683068998789645,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.21807316280978156,
+      "hi_pct": 8.473728134188649,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "BOX/narrow vs GAUSSIAN/wide. NOTE: pixelFilterType/Width are stored but never read in src/gpu/ \u2014 expected GPU HONEST-FAIL."
+  },
+  {
+    "row": "filter_width",
+    "stage": "4",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "closed_box",
+    "verdict": "PASS",
+    "detail": "grad_mean A=0.21953 B=0.21681 (filter changes edge sharpness)",
+    "a": {
+      "mean": [
+        0.4410643585167943,
+        0.4301080616096947,
+        0.3837246184000567
+      ],
+      "maxv": [
+        11.058241844177246,
+        11.022483825683594,
+        12.661434173583984
+      ],
+      "var": [
+        1.2693242229703545,
+        1.2580850813409108,
+        1.3321417116047987
+      ],
+      "lum_mean": 0.42908848573240826,
+      "lum_max": 10.902839278030395,
+      "lum_var": 1.2521801327745279,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.2195302443815832,
+      "hi_pct": 8.747391334981906,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.43760472474451084,
+        0.42962616200301795,
+        0.37326107830069727
+      ],
+      "maxv": [
+        10.792622566223145,
+        9.950800895690918,
+        14.883034706115723
+      ],
+      "var": [
+        1.113373707569516,
+        1.1450771947864755,
+        1.0977156540969353
+      ],
+      "lum_mean": 0.42725284539855185,
+      "lum_max": 9.86830459651947,
+      "lum_var": 1.1209865029689499,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.2168106248197145,
+      "hi_pct": 8.474758525972367,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "narrow vs wide gaussian. NOTE: pixel filter not applied on GPU (see pixel_filter_type) \u2014 expected GPU HONEST-FAIL."
+  },
+  {
+    "row": "use_denoising",
+    "stage": "4",
+    "kind": "visual",
+    "blender": "bl5.2",
+    "scene": "denoiser_scene",
+    "verdict": "PASS",
+    "detail": "lum_var ratio denoised/noisy=0.787 (variance reduced)",
+    "a": {
+      "mean": [
+        0.4876552650322357,
+        0.47797320060053455,
+        0.4209333794677132
+      ],
+      "maxv": [
+        13.868062019348145,
+        12.643310546875,
+        21.420711517333984
+      ],
+      "var": [
+        1.6144480685528166,
+        1.5750977095012813,
+        1.930254897428205
+      ],
+      "lum_mean": 0.4759133324129245,
+      "lum_max": 12.462307485771179,
+      "lum_var": 1.550105122247859,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.4012853226229471,
+      "hi_pct": 9.274136633539195,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.4918034602924308,
+        0.49087515153951244,
+        0.41731626498504837
+      ],
+      "maxv": [
+        9.665936470031738,
+        9.743131637573242,
+        9.551294326782227
+      ],
+      "var": [
+        1.238235818925805,
+        1.2189947555654128,
+        1.2070567663266607
+      ],
+      "lum_mean": 0.48576155837115054,
+      "lum_max": 9.666858146095276,
+      "lum_var": 1.2198987929550258,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.07201591287497856,
+      "hi_pct": 8.94584799420832,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "noisy scene: denoise variance collapse + visual not-garbage (GPU applyPasses runs the denoiser, pkg197)"
+  },
+  {
+    "row": "denoiser",
+    "stage": "4",
+    "kind": "visual",
+    "blender": "bl5.2",
+    "scene": "denoiser_scene",
+    "verdict": "NEEDS-VISUAL",
+    "detail": "both backends rendered (A mean=0.4858, B mean=0.4858; per-pixel |dLum| mean=0)",
+    "a": {
+      "mean": [
+        0.4918034602924308,
+        0.49087515153951244,
+        0.41731626498504837
+      ],
+      "maxv": [
+        9.665936470031738,
+        9.743131637573242,
+        9.551294326782227
+      ],
+      "var": [
+        1.238235818925805,
+        1.2189947555654128,
+        1.2070567663266607
+      ],
+      "lum_mean": 0.48576155837115054,
+      "lum_max": 9.666858146095276,
+      "lum_var": 1.2198987929550258,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.07201591287497856,
+      "hi_pct": 8.94584799420832,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "b": {
+      "mean": [
+        0.4918034602924308,
+        0.49087515153951244,
+        0.41731626498504837
+      ],
+      "maxv": [
+        9.665936470031738,
+        9.743131637573242,
+        9.551294326782227
+      ],
+      "var": [
+        1.238235818925805,
+        1.2189947555654128,
+        1.2070567663266607
+      ],
+      "lum_mean": 0.48576155837115054,
+      "lum_max": 9.666858146095276,
+      "lum_var": 1.2198987929550258,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.07201591287497856,
+      "hi_pct": 8.94584799420832,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "both denoiser backends must yield a valid denoised frame; confirm visually. Whether the two backends differ is not asserted."
+  },
+  {
+    "row": "resolution",
+    "stage": "0",
+    "kind": "automatable",
+    "blender": "bl5.2",
+    "scene": "closed_box",
+    "verdict": "PASS",
+    "detail": "shape A=(64, 64) B=(96, 96)",
+    "a": {
+      "mean": [
+        0.4461116667044962,
+        0.4312230215610384,
+        0.3951889576306904
+      ],
+      "maxv": [
+        10.328730583190918,
+        10.224851608276367,
+        12.717084884643555
+      ],
+      "var": [
+        1.235095634185138,
+        1.1721267720558914,
+        1.3788885719265074
+      ],
+      "lum_mean": 0.43178668810276644,
+      "lum_max": 10.136305569076537,
+      "lum_var": 1.1861154638760534,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.25176606446769045,
+      "hi_pct": 8.584268878116609,
+      "shape": [
+        64,
+        64
+      ]
+    },
+    "b": {
+      "mean": [
+        0.44070320468947305,
+        0.4303118338869349,
+        0.38466050825238995
+      ],
+      "maxv": [
+        10.749176025390625,
+        10.655936241149902,
+        13.179637908935547
+      ],
+      "var": [
+        1.224476770167264,
+        1.2605159205635907,
+        1.2189913303138897
+      ],
+      "lum_mean": 0.4292250136087403,
+      "lum_max": 10.526188357734679,
+      "lum_var": 1.2374541175226639,
+      "alpha_mean": 1.0,
+      "grad_mean": 0.2168942712747629,
+      "hi_pct": 8.822781336331355,
+      "shape": [
+        96,
+        96
+      ]
+    },
+    "note": "resolution override changes output pixel dims"
+  },
+  {
+    "row": "preview_samples",
+    "stage": "3",
+    "kind": "limitation",
+    "blender": "bl5.2",
+    "scene": "closed_box",
+    "verdict": "LIMITATION",
+    "detail": "viewport-only control \u2014 not exercisable via headless F12",
+    "a": null,
+    "b": null,
+    "note": "viewport spp; the interactive view_draw path is not exercisable via headless bpy.ops.render.render. Resolve-level read verified in unit test."
+  },
+  {
+    "row": "use_preview_denoising",
+    "stage": "4",
+    "kind": "limitation",
+    "blender": "bl5.2",
+    "scene": "closed_box",
+    "verdict": "LIMITATION",
+    "detail": "viewport-only control \u2014 not exercisable via headless F12",
+    "a": null,
+    "b": null,
+    "note": "viewport denoise toggle; viewport-only, not an F12 control."
+  }
+]

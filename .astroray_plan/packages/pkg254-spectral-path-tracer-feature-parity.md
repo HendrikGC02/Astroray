@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — Triage 2026-09-12 (half-implemented audit, `half-implemented-triage-2026-09-12.md`): finish in a batch after the pkg253 GPU alpha item — six xfails in `tests/test_python_bindings.py`. Was: open
+**Status:** in-progress — 2 of 6 xfails retired in PR #811 (2026-09-13, batch H): transparent-film alpha ported to the spectral path (`Renderer::coverageAlpha`). Remaining 4 stay xfail with root causes recorded in the PR/spec: HDR + gamma toggle (spectral-background round-trip + seed-0 sentinel noise), cryptomatte ((H,W,12) vs (H,W,4) buffer-format question), filter_glossy (unimplemented; Cycles bsdf_blur needs min_ray_pdf tracking + per-material roughness floor). Was: in-progress — Triage 2026-09-12 (half-implemented audit, `half-implemented-triage-2026-09-12.md`): finish in a batch after the pkg253 GPU alpha item — six xfails in `tests/test_python_bindings.py`. Was: open
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg14, pkg87, pkg195
 

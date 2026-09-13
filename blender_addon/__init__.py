@@ -5923,7 +5923,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         sun_intensity = float(getattr(sky_node, 'sun_intensity', 1.0))
                         bottom, top = astroray.nishita_sun(
                             sky_type, sun_elev, sun_size, altitude, air, aero, ozone)
-                        l_disc = [0.5 * (bottom[k] + top[k]) * sun_intensity
+                        # Cycles draws the disc with limb darkening
+                        # 1 - 0.6*(1 - sqrt(1 - (angle/half)^2)) (svm/sky.h). Our
+                        # DistantLight disc is uniform, so apply the area-average
+                        # limb factor: integral over the disc of that profile,
+                        # weight 2r dr on r in [0,1], = 1 - 0.6*(1 - 2/3) = 0.8.
+                        limb_avg = 0.8
+                        l_disc = [0.5 * (bottom[k] + top[k]) * sun_intensity * limb_avg
                                   for k in range(3)]
                         omega = 2.0 * math.pi * (1.0 - math.cos(0.5 * sun_size))
                         s_rgb = [l_disc[k] * omega for k in range(3)]

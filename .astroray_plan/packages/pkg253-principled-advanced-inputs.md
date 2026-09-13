@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-progress — Triage 2026-09-12 (half-implemented audit, `half-implemented-triage-2026-09-12.md`): finish in a batch — one item left: GPU alpha shadows in the deferred shadow stage (strict xfail `test_alpha0_casts_no_shadow_gpu`); Step 3 needs no code. Was: in-progress
+**Status:** done — 2026-09-13 (batch H): the last item, GPU alpha shadows in the deferred shadow stage, landed for all wavefront-NEE light types (triangle/sphere/dedicated point-spot-sun); `test_alpha0_casts_no_shadow_gpu` xfail retired + a dedicated point-lamp GPU twin added, 10/10 pkg253 pass, REG gate held (shade 254/0-spill, fleet shadow 108 byte-identical). Was: in-progress — Triage 2026-09-12 (half-implemented audit): one item left: GPU alpha shadows in the deferred shadow stage.
 **Estimated effort:** 3 sessions (~9 h)
 **Depends on:** pkg229, pkg178
 
@@ -210,7 +210,25 @@ still missing, instead of re-implementing sockets that already work.
 
 ## Progress
 
-- [ ] 2026-09-07 — GPU verification (RTX 5070 Ti, lead): CPU alpha shadows green (8 passed); GPU alpha NOT honoured — wavefront NEE occlusion is resolved in the deferred/bucketed shadow stage, not `stage_light_sample.cu::traceShadowRay` (alpha 1.0/0.5/0.0 occluder all 0.2467 vs 0.4736 unoccluded). `test_alpha0_casts_no_shadow_gpu` is a strict xfail; G1-GPU is a follow-up PR (deferred shadow stage + BSDF pass-through lobe, register-critical).
+- [x] 2026-09-13 — GPU alpha shadows LANDED (batch H, RTX 5070 Ti). The deferred
+      shadow stage (`stageShadowKernel<HasCurves, HasAlphaShadow>`) gains a
+      transparent-shadow walk (`gpu_shadow_transmittance`, device twin of CPU
+      `shadowTransmittance`) covering EVERY wavefront-NEE light type — triangle
+      mesh emitters, sphere emitters, and dedicated point/spot/sun lamps — bounded
+      by the true vertex→light distance (`geomDist`, not the 1e30 occlusion
+      sentinel). Gated per-scene via `SceneUploadResult::hasAlphaShadow`; the
+      `<*,false>` fleet path is byte-identical (REG 108, 0 spill) and
+      `stageShadeBucketedKernel` is untouched (all 128 specialisations REG 254,
+      0 spill). Measured (mesh emitter): unoccluded 0.4736, alpha 0 → 0.4736 (no
+      shadow). Dedicated POINT lamp: GPU alpha None/0.5/1.0 → 0.5462/0.4328/0.3194,
+      CPU 0.5461/0.4329/0.3197 (CPU/GPU ROI mean ratio <0.1%). Emissive sphere:
+      GPU/CPU <1%. `test_alpha0_casts_no_shadow_gpu` xfail removed; new
+      `test_alpha_shadow_dedicated_point_lamp_gpu` added (10/10 pkg253 pass).
+      A/B renders under `test_results/batch-h/`. NOTE: dedicated AREA lights
+      render black on the GPU wavefront at every depth (a separate, pre-existing
+      NEE gap, measured 0.0 vs CPU 0.47 — memory
+      gpu-wavefront-nee-occlusion-deferred-stage); the alpha walk covers them in
+      code and activates for free once that gap is closed.
 - [x] Step 1 — spec written, grounded in reading pkg178's status, the
       addon's native-param plumbing, and both engine backends first.
 - [x] Step 2 — G1 Alpha: found the real gap (shadow rays, not BSDF

@@ -2,7 +2,7 @@
 
 **Pillar:** 2
 **Track:** A
-**Status:** open
+**Status:** done — PR #810 merged 2026-09-13 (c231f27d): vendored NanoVDB (Apache-2.0) + GridMedium/majorant grid (pbrt-v4 DDA), Blender OpenVDB import via the bundled `openvdb` module (owner decision 2026-09-13), 8 tests incl. a headless .vdb round trip; cpp-abi-guard MERGE-WITH-FIXES applied (4x4 transforms by const&). Was: open
 **Estimated effort:** 3 sessions (~9 h)
 **Depends on:** none
 

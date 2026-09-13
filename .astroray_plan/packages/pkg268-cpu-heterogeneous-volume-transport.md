@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** open
+**Status:** done — PR #810 merged 2026-09-13 (c231f27d): delta tracking + ratio tracking + HG/isotropic phase + Principled Volume basics (Cycles svm_node_principled_volume coefficient mapping after the cycles-parity review; scalar σ_t = max-channel, spectral albedo) + volume NEE; 20 tests vs a numpy ray-march oracle; lead visual inspection (heterogeneous blobs / off-centre box, orientation + lit side correct). Limitations recorded: equiangular is oracle-only, nearest-medium-only in-scatter, per-λ σ → pkg270. #807 cabinet corpus A/B still to be regenerated on the restaged addon. Was: open
 **Estimated effort:** 1 week
 **Depends on:** pkg267
 

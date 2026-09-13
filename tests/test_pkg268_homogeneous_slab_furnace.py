@@ -32,6 +32,7 @@ def _render_cpu(r, spp, max_depth, w, h):
 def _slab_scene(extinction, dist=6.0, slab_near=-4.0, slab_far=-2.0, w=24, h=24):
     r = astroray.Renderer()
     r.set_seed(SEED)
+    r.set_use_gpu(False)  # pkg268 volume transport is CPU-only (GPU = pkg269)
     r.set_background_color([0.0, 0.0, 0.0])
     wall = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 1.0})
     r.add_triangle([-20, -20, -dist], [20, -20, -dist], [20, 20, -dist], wall)

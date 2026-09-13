@@ -36,6 +36,7 @@ def _render(r, spp, max_depth, w, h):
 def _scene(with_volume, w=96, h=96):
     r = astroray.Renderer()
     r.set_seed(SEED)
+    r.set_use_gpu(False)  # pkg268 volume transport is CPU-only (GPU = pkg269)
     r.set_background_color([0.15, 0.18, 0.22])  # cool grey backdrop
     r.add_point_light([3.0, 4.0, 3.0], {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 400.0)
     if with_volume:

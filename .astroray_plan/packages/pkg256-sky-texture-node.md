@@ -171,6 +171,21 @@ bake-to-image step, which is genuinely new physics and therefore requires
 
 ## Progress
 
+- [~] 2026-09-13 (PR #813, batch-J) — **#799 Phase 2: engine-side spectral Nishita sky.**
+      Vendored Blender sky models under `external/blender_sky/`
+      (`sky_single_scattering.cpp` Apache-2.0, `sky_multiple_scattering.cpp` MIT;
+      GPL `sky_math.h`/`sky_nishita.h` reimplemented clean-room), built into the
+      engine, exposed as `astroray.nishita_sky` / `nishita_sun`. Addon bakes
+      SINGLE/MULTIPLE_SCATTERING with the engine model + a model-consistent sun
+      disc (DistantLight, S = L_disc·Ω(sun_size)); PREETHAM/HOSEK keep the Preetham
+      bake. **The 1/1766 bridge is gone for Nishita** (table already in Cycles
+      units). Licence correction: only the two headers are GPL, the models are
+      Apache/MIT. Measured sky-band ratio vs Cycles (MS, rot 115): upper
+      1.265/1.182/1.033, horizon 1.191/1.140/1.027 at 10/28/60° — hue-matched,
+      ±5% at high sun, ~15-26% bright-at-low-sun residual (flagged for
+      cycles-parity-reviewer). Orientation A/B (<1.5°) + solar-disc pin landed.
+      NOT run in-lane: ground direct:diffuse (gate 2) and the lighting_studio
+      IES booth A/B (need cross-renderer / OpenMP-OFF addon renders).
 - [ ] 2026-09-07 — filed per owner gate-(b) decision.
 - [x] 2026-09-10 (PR #793) — cite-algorithm note `.astroray_plan/docs/pkg256-sky-model-research.md`:
       **Preetham/Perez (1999)** implemented, constants verified vs MIT appleseed

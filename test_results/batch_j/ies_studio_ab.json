@@ -1,0 +1,11 @@
+{
+  "scene": "lighting_studio.blend, POINT|SUN|SPOT|AREA booths, synthetic wall-washer IES on SPOT",
+  "measure": "backdrop-panel luminance, Astroray(build_cpu addon)/Cycles",
+  "ratios": {
+    "POINT": 0.524,
+    "SUN": 0.995,
+    "SPOT_ies": 0.024,
+    "AREA": 0.209
+  },
+  "verdict": "INCONCLUSIVE: POINT/SPOT/AREA all dimmer, SUN matches -> broad scene/measurement artifact, not a clean IES verdict. pkg122 controlled light-calibration tests pass. Needs a controlled single-spot IES A/B to isolate the absolute-IES factor and verify vs kernel/light/spot.h (Power x strength x table x cone). Item-2 self-consistent absolute change (flat-1cd == no-IES x 4pi/177.83, cited util/ies.cpp) stands; absolute Cycles-parity of IES NOT confirmed in this lane."
+}

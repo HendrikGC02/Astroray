@@ -223,18 +223,25 @@ public:
         offset += static_cast<size_t>(hCount);
 
         profile->candelaTable.resize(static_cast<size_t>(vCount) * static_cast<size_t>(hCount));
-        float maxCandela = 0.0f;
-        float scale = std::max(candelaMultiplier, 0.0f);
+        // Batch J item 2 (owner 2026-09-13): honour the IES file's ABSOLUTE
+        // candela distribution, matching Cycles util/ies.cpp (Apache-2.0):
+        //   factor = candela_multiplier * candela;  factor *= 4*pi/177.83;
+        // where 0.0706650768394 = 4*pi / 177.83 converts candela (lm/sr) ->
+        // radiometric W/sr (D65 luminous efficacy 177.83 lm/W) and the 4*pi
+        // lifts W/sr to the total-Watt convention the light Strength uses.
+        // The PRIOR peak-normalisation (table/=maxCandela, so max==1) treated
+        // IES as a pure directional SHAPE; that was dropped because pkg122
+        // (#500, 2026-07-21) re-derived every dedicated light's wattage->
+        // radiance against the Cycles kernel (GPU==CPU 0.997-0.998), so the
+        // stale "absolute energy already ~3x off" premise no longer holds and
+        // the physically accurate model is the absolute candela distribution.
+        // Invariant (within this engine): a flat 1-candela table now yields the
+        // same result as no IES node times 4*pi/177.83 (see composition in
+        // point_light.cpp / spot_light.cpp: intensity * 1/(4*pi) * iesValue).
+        constexpr float kCandelaToWatt = 0.0706650768394f;  // 4*pi / 177.83
+        float scale = std::max(candelaMultiplier, 0.0f) * kCandelaToWatt;
         for (size_t i = 0; i < profile->candelaTable.size(); ++i) {
-            float c = nums[offset + i] * scale;
-            profile->candelaTable[i] = c;
-            maxCandela = std::max(maxCandela, c);
-        }
-
-        if (maxCandela > 0.0f) {
-            for (float& c : profile->candelaTable) c /= maxCandela;
-        } else {
-            std::fill(profile->candelaTable.begin(), profile->candelaTable.end(), 1.0f);
+            profile->candelaTable[i] = nums[offset + i] * scale;
         }
         return profile;
     }

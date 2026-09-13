@@ -309,7 +309,9 @@ _CAMERA = [
 # ---------------------------------------------------------------------------
 _LIGHT = [
     MappingEntry("light", "energy", "light.data.energy", "", "add_*_light (power)", "direct", "SUPPORTED",
-                 "Applies to POINT/SUN/SPOT/AREA. Known ~3x energy-scale divergence vs Cycles (pkg89/pkg115)."),
+                 "Applies to POINT/SUN/SPOT/AREA. The ~3x energy-scale divergence premise is STALE: "
+                 "pkg122 (PR #500, 2026-07-21) re-derived every dedicated light type's wattage->radiance "
+                 "against the Cycles kernel (GPU==CPU 0.997-0.998), eliminating the 0.13x/3.6x/14x factors."),
     MappingEntry("light", "color", "light.data.color", "", "add_*_light", "direct", "SUPPORTED",
                  "All light types."),
     MappingEntry("light", "use_temperature", "light.data.use_temperature", "", "add_*_light", "direct", "SUPPORTED",
@@ -330,15 +332,15 @@ _LIGHT = [
                  "(none)", "dropped", "DROPPED-SILENT",
                  "Per-light specular multiplier ignored; all light types (POINT/SUN/SPOT/AREA)."),
     MappingEntry("light", "ies_profile", "light.data.node_tree ShaderNodeTexIES node", "",
-                 "add_point_light/add_spot_light (ies_file)", "approximated", "DROPPED-SILENT",
-                 "Batch A item 1: addon finds the ShaderNodeTexIES node wired into Emission "
-                 "Strength (INTERNAL text -> temp .ies file, EXTERNAL -> abspath) and passes "
-                 "it to the engine IES hook (getOrLoadIESProfile). APPROXIMATED: the engine "
-                 "peak-normalizes the candela table and applies it as a directional profile "
-                 "times light.energy, whereas Cycles carries absolute candela->Watt magnitude "
-                 "(util/ies.cpp factor 4*pi/177.83) multiplied by node Strength; the relative "
-                 "directional shape matches, the absolute magnitude does not "
-                 "(ies-normalization-research.md)."),
+                 "add_point_light/add_spot_light (ies_file)", "direct", "SUPPORTED",
+                 "Batch A item 1 + Batch J item 2: addon finds the ShaderNodeTexIES node wired into "
+                 "Emission Strength (INTERNAL text -> temp .ies file, EXTERNAL -> abspath) and passes "
+                 "it to the engine IES hook (getOrLoadIESProfile). The engine now honours the file's "
+                 "ABSOLUTE candela distribution: IESProfile::loadFromFile scales each candela by "
+                 "4*pi/177.83 (Cycles util/ies.cpp, Apache-2.0) instead of peak-normalizing, and the "
+                 "addon folds the TexIES node Strength into light intensity (Cycles fac = strength * "
+                 "table). GPU gap: IES is CPU-only (point_light.cpp v1 does not mirror to the "
+                 "wavefront) -- see ies-normalization-research.md."),
     MappingEntry("light", "show_cone", "light.data.show_cone", "",
                  "(none)", "dropped", "DROPPED-SILENT", "SPOT viewport-only gizmo; not render-relevant."),
 ]

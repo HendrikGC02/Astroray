@@ -513,7 +513,6 @@ def test_background_sky_present():
                        label='background_sky')
 
 
-@pytest.mark.xfail(reason="transparent alpha not ported to the spectral path_tracer — deferred (pkg254)", strict=True)
 def test_transparent_film_alpha_masks_background():
     r = create_renderer()
     r.set_use_transparent_film(True)
@@ -543,7 +542,6 @@ def test_transparent_film_default_alpha_is_opaque():
     assert float(np.min(alpha)) > 0.99
 
 
-@pytest.mark.xfail(reason="transparent alpha not ported to the spectral path_tracer — deferred (pkg254)", strict=True)
 def test_transparent_glass_keeps_rgb_but_zeroes_alpha():
     r = create_renderer()
     r.set_use_transparent_film(True)

@@ -205,14 +205,14 @@ def test_depsgraph_has_image_changing_update_classification():
     assert exporter._depsgraph_has_image_changing_update(unknown) is True
 
 
-def test_viewport_worker_default_on(monkeypatch):
-    """pkg266 (Batch G, lead 2026-09-13): the off-thread worker is DEFAULT ON — an
-    unset/empty ASTRORAY_VIEWPORT_WORKER enables it; the env still forces OFF."""
+def test_viewport_worker_default_opt_in(monkeypatch):
+    """pkg266 (owner 2026-09-14): the off-thread worker is OPT-IN — an unset/empty
+    ASTRORAY_VIEWPORT_WORKER leaves the synchronous path; the env turns it on."""
     exp = _load_exporter_module()
     monkeypatch.delenv("ASTRORAY_VIEWPORT_WORKER", raising=False)
-    assert exp.viewport_worker_enabled() is True
+    assert exp.viewport_worker_enabled() is False
     monkeypatch.setenv("ASTRORAY_VIEWPORT_WORKER", "")
-    assert exp.viewport_worker_enabled() is True
+    assert exp.viewport_worker_enabled() is False
     for off in ("0", "false", "off", "no"):
         monkeypatch.setenv("ASTRORAY_VIEWPORT_WORKER", off)
         assert exp.viewport_worker_enabled() is False, off

@@ -38,15 +38,16 @@ from enum import IntFlag
 def viewport_worker_enabled():
     """Whether the off-thread viewport worker (§9 A2) is active.
 
-    pkg266 (Batch G, lead decision 2026-09-13): DEFAULT ON. The worker beats the
-    synchronous path on every §9 row on both scenes (settle tick-gap 13.5 / 15.0 ms
-    vs 92.3 / 140.2 ms; storm 159 / 175 ms vs 230 / 211 ms) and serves owner
-    priority #721 (UI must not run at the render's frame rate). The env var still
-    forces it OFF for the synchronous fallback / debugging: set
-    ASTRORAY_VIEWPORT_WORKER to 0/false/off/no (unset or empty = default ON)."""
+    pkg266: OPT-IN (owner decision 2026-09-14). The worker passes the §9 settle
+    gates (tick-gap 13.5 / 15.0 ms vs 92.3 / 140.2 ms synchronous) but in the real
+    interactive viewport it does not present while the camera is being orbited and
+    can leave refinement stuck at the reduced first-unit resolution — the driver's
+    object-transform edits never exercised viewport navigation. Default OFF until
+    those are fixed and re-measured through real navigation; set
+    ASTRORAY_VIEWPORT_WORKER=1 (true/on/yes) to opt in."""
     v = os.environ.get("ASTRORAY_VIEWPORT_WORKER")
     if v is None or v.strip() == "":
-        return True  # default ON
+        return False  # default OFF (opt-in)
     return v.strip().lower() in ("1", "true", "on", "yes")
 
 

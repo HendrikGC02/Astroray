@@ -67,8 +67,9 @@ worktree / build / sweep / CI cycle, one PR per batch with per-item sections and
   Principled Volume / Absorption / Scatter with Cycles coefficient semantics; scalar σ_t, spectral albedo).
   Limitations recorded: equiangular sampling is oracle-only, nearest-medium-only in-scatter, no GPU (pkg269),
   no emission (pkg270). #807 cabinet A/B on the restaged addon: yellow disc gone, absorption/scatter cubes translucent, the Principled cube dark because Cycles' red patch is EMISSION (pkg270) — #807 open until pkg270.
-- **Viewport**: off-main-thread worker is the DEFAULT (owner may veto with `ASTRORAY_VIEWPORT_WORKER=0`);
-  settle gates all pass; the continuous edit storm is 159 / 175 ms (commit cost) — the pkg266 follow-up.
+- **Viewport**: off-main-thread worker is back to OPT-IN (owner 2026-09-14, PR #816): with it on, the image does not
+  present while orbiting and refinement sticks at the first-unit resolution (#817) — the §9 driver never exercised
+  viewport navigation. Settle gates pass; storm 159 / 175 ms (commit cost). Fix #817 + storm before re-proposing.
 - **Sky**: engine-side Nishita (Apache/MIT vendored) with a model-consistent sun disc; hue and shadow direction
   match each other; but the disc/sun DIRECTION still differs from Cycles (owner-spotted 2026-09-14: cube shadows fall right in ours, left in Cycles) so the "1.48× over" gate-2 number is invalid — #814 is a direction bug first. PREETHAM / HOSEK types still use the Preetham bake.
 - **IES**: absolute photometry (4π/177.83, Strength honoured), CPU-only on the wavefront (point_light.cpp v1 gap).
@@ -81,11 +82,14 @@ worktree / build / sweep / CI cycle, one PR per batch with per-item sections and
 Batch K — **volumes part 2** (Opus 4.8, cite-algorithm): pkg270 emission + blackbody spectral Planck +
   per-λ σ (spectral/decomposition tracking, Kutz 2017), then pkg269 GPU wavefront stage (NanoVDB device grid,
   `template<bool>` fleet isolation, REG 254 probe) — one lane, CPU first; #807 cabinet as the cross-check.
-Batch L — **lighting residuals**: #814 (FIRST fix the dedicated-sun direction vs Cycles — pixel-measure a pole's shadow vector in both renders; THEN re-measure gate 2 with the ROI drawn on both images; analytic E_sun oracle for the disc; controlled single-spot IES A/B vs
+Batch L — **lighting residuals** (owner: the two skies look almost identical; only the azimuth is borked): #814 (FIRST fix the dedicated-sun direction vs Cycles — pixel-measure a pole's shadow vector in both renders; THEN re-measure gate 2 with the ROI drawn on both images; analytic E_sun oracle for the disc; controlled single-spot IES A/B vs
   `kernel/light/spot.h`; wavefront IES modulation), Preetham/Hosek sky types → Nishita-or-warn decision,
   world_sky_sky corpus refs re-rendered with the Nishita sky.
-Batch M — **viewport storm row**: reduce the coalesced-commit cost (pkg266 follow-up, #721), re-measure §9 storm.
-Batch N — **parity fill**: #767 (three distinguishing tests), #763 four-way variance table, run_parity
+Batch M — **viewport worker**: #817 (present while orbiting; full-res refinement after the first unit; add real
+  viewport navigation to the driver on the isolated GUI), then the storm row (coalesced-commit cost, #721), re-measure §9,
+  then re-propose the default.
+Batch N — **shader-chain coverage (#818, owner-reported P1)**: procedural textures through Math/Mix/Ramp chains flatten to a constant because the op-VM only takes image inputs — add procedural inputs (bake-to-image at export or an OP_LOAD_PROC), Separate/Combine XYZ + scalar Math on the coordinate side, re-run the coverage generator (the 2026-09-11 matrix predates pkg230); acceptance = a `textures_mapping` corpus row Noise → Math → Color Ramp → Base Color renders on both backends.
+Batch O — **parity fill**: #767 (three distinguishing tests), #763 four-way variance table, run_parity
   `textured_emitter` + `sky_sun` with an addon-driven leg (#779 option b), pkg242 Phase 2 real-Blender parity,
   pkg254 remaining xfails (cryptomatte buffer format, HDR/gamma round-trip), pkg245 architect review.
 Then: pkg265 Phase 3 GPU walk (multi-build lane from the WIP STATE doc), pkg271 volume passes + corpus family.

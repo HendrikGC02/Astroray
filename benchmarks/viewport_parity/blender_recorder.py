@@ -576,15 +576,28 @@ def _install_ui_latency():
             return
         _last_edit["t"] = now
         _drive_idx["n"] += 1
-        if _drive_idx["n"] % 2 == 0 and bsdf is not None:
+        # pkg266 (#817): the "orbit" pattern drives ONLY continuous region-view
+        # rotations (view_draw path) — the real interactive-navigation case the
+        # alternating camera/material stress never produced. This is the scenario
+        # that froze the worker's presentation while orbiting; the orbit row grades
+        # present-rate + final-full-res over the sustained camera-only sweep.
+        orbit_only = (pattern == "orbit")
+        if not orbit_only and _drive_idx["n"] % 2 == 0 and bsdf is not None:
             _mat_state["toggle"] = not _mat_state["toggle"]
             v = 0.7 if _mat_state["toggle"] else 0.3
             col = list(bsdf.inputs["Base Color"].default_value)
             col[0] = v
             bsdf.inputs["Base Color"].default_value = col
         else:
-            _cam_state["toggle"] = not _cam_state["toggle"]
-            sign = 1.0 if _cam_state["toggle"] else -1.0
+            # pkg266 (#817): the orbit pattern accumulates rotation in ONE
+            # direction (a real drag sweeping the view), so every frame the view
+            # matrix is genuinely new; the alternating stress toggles the sign so
+            # the camera oscillates about a representative viewpoint.
+            if orbit_only:
+                sign = 1.0
+            else:
+                _cam_state["toggle"] = not _cam_state["toggle"]
+                sign = 1.0 if _cam_state["toggle"] else -1.0
             _, rv = _find_v3d()
             if rv is not None:
                 q = Quaternion((0.0, 0.0, 1.0), math.radians(sign * ROTATE_DEG))

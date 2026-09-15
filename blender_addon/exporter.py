@@ -875,9 +875,11 @@ class _ViewportSpikeWorker:
             self.presents += 1
             # pkg266 (Batch G): carry the accumulated spp of the PRESENTED chunk so
             # the driver measures samples/s from real presented work rather than
-            # inferring it from a fixed chunk size (§9 samples/s row).
+            # inferring it from a fixed chunk size (§9 samples/s row). pkg266 (#817):
+            # also carry the presented resolution for the orbit-row full-res check.
             _emit_spike_event("texture_upload_end", gen, self.session_epoch,
-                              pub_id=pub_id, spp=int(spp))
+                              pub_id=pub_id, spp=int(spp),
+                              width=int(width), height=int(height))
         # else: superseded — discarded (no stale present).
 
     def _publish_frame(self, generation, buffer, width, height, spp=0):
@@ -893,8 +895,12 @@ class _ViewportSpikeWorker:
             if self.mailbox_depth > self.mailbox_depth_max:
                 self.mailbox_depth_max = self.mailbox_depth
         self._last_pub_id = pub_id
+        # pkg266 (#817): carry the published buffer resolution so the §9 orbit-row
+        # reducer can score "final presented resolution == full" (a reduced first
+        # unit publishes W/N x H/N; the full-res refinement publishes region size).
         _emit_spike_event("mailbox_enqueue", generation, self.session_epoch,
-                          pub_id=pub_id, depth_after=1, spp=int(spp))
+                          pub_id=pub_id, depth_after=1, spp=int(spp),
+                          width=int(width), height=int(height))
 
     def _worker_loop(self):
         """Worker daemon thread: wait for a committed job, render it (holding the

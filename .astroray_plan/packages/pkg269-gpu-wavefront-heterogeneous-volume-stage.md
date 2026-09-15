@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** open
+**Status:** in-progress (batch K, feat/batch-k-volumes-2, after pkg270, 2026-09-15). Was: open
 **Estimated effort:** 1 week
 **Depends on:** pkg268
 

@@ -226,3 +226,4 @@ Astroray targets MIT (or Apache 2.0). Compatible:
 When in doubt, ask before adding a dependency.
 
 - Cycles Blender v5.1.0 vector math, Vector Rotate and Mix factor semantics (Apache-2.0), pinned at adfe2921d5f3: [pkg230 Phase 2 research](pkg230-phase2-vector-semantics-research.md).
+- Kutz/Habel/Li/Novak 2017 spectral & decomposition tracking (TOG 36(4), DOI 10.1145/3072959.3073665), pbrt-v4 VolPath hero-wavelength spectral MIS + Cycles svm_node_principled_volume / blackbody tables (Apache-2.0): [pkg270 research](pkg270-spectral-tracking-volume-emission-research.md).

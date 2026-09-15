@@ -647,6 +647,17 @@ class _ViewportSpikeWorker:
         self._control = queue.Queue(maxsize=64)
 
         self.desired_generation = 0     # newest generation the edits have requested
+        # pkg266 (#817): the oldest generation whose published frame is still valid
+        # to PRESENT. A camera-only move bumps desired_generation but leaves the
+        # image content unchanged, so a frame rendered one camera-step behind is a
+        # perfectly good preview to blit during an orbit (Cycles presents exactly
+        # this lagging frame). Only a SCENE / MATERIAL edit — which changes the
+        # image content — raises the floor to desired_generation (the main thread
+        # does this in _worker_view_update), so no stale-content frame is ever
+        # presented after an edit. Without this, a continuous orbit superseded
+        # every camera generation before its frame could pass the "== desired"
+        # present gate and NOTHING presented until the camera stopped (#817 bug 1).
+        self.present_floor_generation = 0
         self.in_flight_generation = None
         self.submitted_generation = None
         self.state = self.IDLE
@@ -670,12 +681,26 @@ class _ViewportSpikeWorker:
         return self._thread.is_alive()
 
     # -- main-thread API ---------------------------------------------------
-    def request(self):
+    def request(self, cancel_inflight=True):
         """Main thread, on an edit (view_update material / view_draw camera):
-        bump desired_generation and request cancel of any in-flight chunk (§3.4).
-        Non-blocking: does NOT commit or join. Returns the new desired generation."""
+        bump desired_generation and (by default) request cancel of any in-flight
+        chunk (§3.4). Non-blocking: does NOT commit or join. Returns the new
+        desired generation.
+
+        pkg266 (#817 bug 1): `cancel_inflight=False` bumps the generation WITHOUT
+        cancelling the render already running. A camera-only move uses this for a
+        cheap reduced-resolution preview in flight: cancelling it mid-chunk threw
+        away the only frame that could have presented during the orbit (nothing was
+        ever published), so the viewport froze until the camera stopped. Letting the
+        short reduced chunk finish and publish — then submitting the newest camera
+        generation when the worker next goes idle — gives continuous (one-step-lag)
+        presentation while orbiting. An expensive FULL-RES render in flight is still
+        cancelled (the caller passes cancel_inflight=True) so a new move does not
+        wait out a stale high-resolution pass."""
         self.desired_generation += 1
         _emit_spike_event("request", self.desired_generation, self.session_epoch)
+        if not cancel_inflight:
+            return self.desired_generation
         # pkg241 P2.2 item 4 (Terra review 4): emit cancel_request only for the
         # actual in-flight generation, and only on the false->true transition of
         # the cancel flag. A request while IDLE (nothing in flight) or a repeated
@@ -836,7 +861,16 @@ class _ViewportSpikeWorker:
         gen, pub_id, buffer, width, height, spp = frame
         _emit_spike_event("mailbox_dequeue", gen, self.session_epoch,
                           pub_id=pub_id, depth_before=depth_before)
-        if gen == self.desired_generation and self.state != self.DEAD:
+        # pkg266 (#817 bug 1): present the frame if its content is still current —
+        # i.e. it was rendered at or after the last image-changing (scene/material)
+        # edit (present_floor_generation) and is not a future generation. A camera
+        # move alone raises desired_generation but NOT the floor, so a frame that a
+        # newer camera generation has superseded is still blitted (a one-step-stale
+        # orbit preview, exactly as Cycles presents), giving continuous updates
+        # while orbiting. A scene edit raises the floor, so pre-edit frames are
+        # discarded (no stale-content present after an edit).
+        if (self.present_floor_generation <= gen <= self.desired_generation
+                and self.state != self.DEAD):
             self._present_fn(buffer, width, height, gen)
             self.presents += 1
             # pkg266 (Batch G): carry the accumulated spp of the PRESENTED chunk so
@@ -2227,6 +2261,17 @@ class Exporter:
             depth = max(2, settings.max_bounces // 2)
             target = int(engine_methods['viewport_target_samples'](settings))
             chunk = int(engine_methods['viewport_chunk_samples'](settings, 0))
+            # pkg266 (#817 bug 2): a reduced-resolution first unit is a COARSE
+            # PREVIEW, not the final image — render only one chunk of it and hand
+            # off to the full-resolution refinement immediately (Cycles renders its
+            # start_resolution navigation frames at low sample counts, not the full
+            # target). Rendering the whole target_spp at reduced res made the
+            # viewport sit at the reduced first-unit resolution for the entire
+            # sample sweep before ever scheduling full res ("refinement stuck at the
+            # reduced first-unit resolution"). The full-res refinement scheduled
+            # after this unit still renders to the real target progressively.
+            if res_divisor > 1:
+                target = max(1, min(target, chunk))
             return {
                 "generation": gen, "renderer": renderer,
                 "session_epoch": self._worker.session_epoch,
@@ -2310,6 +2355,12 @@ class Exporter:
                 request_viewport_redraw_fn()
                 return
             worker.request()
+            # pkg266 (#817 bug 1): a genuine scene/material edit CHANGES the image
+            # content, so every frame rendered before it is now stale to present.
+            # Raise the present floor to this generation — camera-only view_draw
+            # requests deliberately do NOT touch the floor, so orbit frames stay
+            # presentable while a real edit correctly discards pre-edit frames.
+            worker.present_floor_generation = worker.desired_generation
             # pkg241 P2.2 item 2 (Terra review 4): view_update is NOT a GPU draw
             # context, so pump here must be control-plane only (present=False). The
             # spike's default pump(present=True) built a GPUTexture off a draw
@@ -2363,7 +2414,16 @@ class Exporter:
             camera_changed = (new_hash is not None
                               and new_hash != self._viewport_camera_hash)
             if camera_changed:
-                worker.request()
+                # pkg266 (#817 bug 1): a cheap reduced-resolution preview in flight
+                # is allowed to finish and publish (cancel_inflight=False) so the
+                # orbit presents continuously; only an in-flight FULL-RES render
+                # (committed divisor 1) is cancelled to stay responsive during a
+                # move. present_floor_generation is left untouched — a camera move
+                # does not change image content, so the just-published (one-step
+                # stale) frame stays presentable.
+                cancel_inflight = (self._worker_committed_divisor == 1
+                                   and worker.in_flight_generation is not None)
+                worker.request(cancel_inflight=cancel_inflight)
                 self._viewport_camera_hash = new_hash
                 self._viewport_camera_substantive_hash = \
                     camera_substantive_state_hash_fn(context, region)

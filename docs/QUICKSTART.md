@@ -194,10 +194,12 @@ python scripts/build/build_blender_addon.py --clean
 ```
 
 The script's `--backend` default is `cuda` (CUDA ON); `cpu` is opt-in and
-`auto` probes for `nvcc` (CUDA if found, else CPU). It always passes
-`-DASTRORAY_DISABLE_OPENMP=ON` for Blender compatibility (OpenMP deadlocks
-inside Blender). On Windows, CUDA builds prefer the Ninja + MSVC generator;
-CPU builds can use MinGW Makefiles when gcc is on PATH.
+`auto` probes for `nvcc` (CUDA if found, else CPU). It passes
+`-DASTRORAY_DISABLE_OPENMP=OFF` (OpenMP ON since PR #790; the old Blender hang
+was a GIL circular wait, not a libgomp/vcomp defect) and bundles the matching
+runtime (`vcomp140.dll` for MSVC, `libgomp-1.dll` for MinGW). On Windows, CUDA
+builds prefer the Ninja + MSVC generator; CPU builds can use MinGW Makefiles
+when gcc is on PATH.
 
 ### Output
 

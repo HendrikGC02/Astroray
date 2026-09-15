@@ -117,15 +117,42 @@ implementation. Research: `docs/volumes-track-research-2026-09-12.md` §2, §4.
 
 ## Progress
 
-- [ ] cite-algorithm for spectral/decomposition tracking.
-- [ ] `volume_emission.h` (Planck spectral) + Principled emission/blackbody params.
-- [ ] Chromatic σ tracking in `volume_transport.h`.
-- [ ] Exporter socket lowering + bindings.
-- [ ] Blackbody furnace + spectral-extinction gates; visual inspection.
+- [x] cite-algorithm for spectral/decomposition tracking
+      (`docs/pkg270-spectral-tracking-volume-emission-research.md`): hero-wavelength
+      spectral MIS (pbrt-v4 VolPath, λ-independent majorant D·maxDensity, exact
+      because s(λ)+a(λ) ≤ 1) chosen over decomposition tracking; justification §1.
+- [x] `volume_emission.h/.cpp` (Planck via the lamp Blackbody path + Cycles
+      Stefan–Boltzmann magnitude) + Principled emission/blackbody/temperature params.
+- [x] Chromatic σ tracking in `volume_transport.h` (`spectralTrack`,
+      `ratioTrackingTransmittanceSpectral`), emission at null-collision vertices.
+- [x] Exporter socket lowering (Emission/Blackbody/Temperature + attribute
+      names, temperature-grid bbox) + bindings.
+- [x] Blackbody furnace + spectral-extinction gates; #807 cabinet A/B
+      (`test_results/batchK/VOLUME_cabinet_AB_pkg270.png`), grid-free Cornell
+      byte-identical vs main.
+
+### Known limitations (documented for reviewers)
+
+- Constant emission inside a GRID medium is gated on `density(p) > 0`
+  (approximating Cycles' bounds mesh around non-background voxels); blackbody
+  is gated by the temperature grid. Mesh-bounded media emit over the whole AABB.
+- Emission is CPU-only (pkg269's GPU stage does not accumulate emission — the
+  REG:254 gate; follow-up).
+- Cycles' `T < 800 K` colour clamp is not reproduced (Planck evaluated for any
+  T > 0; luminance follows Cycles' T⁴ intensity so cold bodies stay dim).
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- With a λ-independent majorant every pbrt-v4 `T_maj/T_maj[0]` factor is 1, so
+  the hero-wavelength loop collapses to ratios of σ; the only new path state is
+  one `SampledSpectrum r_u`. Do not thread `r_l` unless the NEE MIS changes.
+- Cycles' volume emission is independent of density and the Temperature socket
+  is an ABSOLUTE kelvin value on mesh-bounded media — read the raw
+  `svm_node_principled_volume`, not a summary (the summariser claimed a density
+  gate that does not exist).
+- A test that asserted absolute red-dominance of a scatter cube encoded the grey
+  approximation; per-λ extinction makes a lossless red scatterer red RELATIVE to
+  its backdrop. Behavioural sweeps must re-read what the old gate really pinned.
 </content>

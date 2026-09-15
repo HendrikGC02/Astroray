@@ -28,10 +28,9 @@ new reusable script, register it here in the same commit.
 | README gallery / hero renders | `scripts/diagnostics/render_readme_gallery.py`, `render_readme_hero.py` |
 | Render-output triage | `scripts/diagnostics/render_output_triage.py` |
 | Denoiser A/B | `scripts/diagnostics/oidn_comparison.py` |
-| Roadmap orchestrator tick | `scripts/orchestrator_tick.ps1` → `python -m roadmap_orchestrator.cli` |
 | Project knowledge index (search / owns / deps / node-tree graph) | `scripts/project_index.py` (SQLite; `build` / `query` / `owns <path>` / `script <task>` / `whatis <pkg>` / `deps` / `graph` / `gh-sync`; auto-rebuilds when a spec is newer than the DB). **Interactive 3D graph of the whole index (exactly what agents query — packages, docs, files + dependency/doc/file edges): [`.astroray_plan/project-index-graph.html`](../.astroray_plan/project-index-graph.html).** Regenerate with `python scripts/project_index.py build && python scripts/project_index.py graph --html .astroray_plan/project-index-graph.html`. |
 | Lint package specs against TEMPLATE v2 | `python scripts/project_index.py lint` (`[PATH...] \| --all`; baselined via `scripts/spec_lint_baseline.txt`) |
-| Open-weight model evaluation bench | `scripts/model_bench.py` (`--dry-run`, `--models`, `--timeout`; read-only, writes `docs/model-bench-results.json`) |
+| Open-weight model evaluation bench | `scripts/model_bench.py` (`--dry-run`, `--models`, `--timeout`; read-only, writes `.astroray_plan/docs/model-bench-results.json`) |
 | Native-settings F12 pixel-honour A/B matrix (does each adopted Blender/Cycles control actually change the render?) | `scripts/verify_pkg200_honour_matrix_run.py` (outer, cv2/per-channel mean-ratio) + `verify_pkg200_honour_matrix.py` (in-Blender A/B leg) + `pkg200_honour_matrix.py` (pure contract/predicate layer, enumerated from `settings_map.py`) |
 | Import a .blend without Blender | `tools/blend_import/blend_to_astroray.py` |
 | Spectral data/profile generation | `scripts/data/generate_spectrum_data.py`, `build_spectral_profiles.py` |
@@ -39,165 +38,15 @@ new reusable script, register it here in the same commit.
 | Hero-wavelength luminance-CDF fit (pkg206 importance-sampling constants) | `scripts/data/fit_hero_luminance_cdf.py` |
 | Extract a Cycles `shader.tables` LUT to `data/disney_compensation/*.bin` (pkg261 `ggx_gen_schlick_ior_s`) | `scripts/data/extract_ggx_gen_schlick_ior_s.py` (`--fetch` pins blender/blender@eaa5f63b; parses the C initializer, writes float32 LE) |
 | Launch GUI Blender 5.2 with the MCP bridge (watch/restart) | `pwsh scripts/dev/launch_blender_mcp.ps1 -Watch` (diagnostic: `scripts/dev/check_blender_mcp.ps1`) |
-
-Note on the two `build_cuda_worktree.bat` copies: they are intentionally
-different pipelines (root = VS multi-config, no configure step, SHA
-validation, pinned by agent configs and `tests/test_hw_verifier_buildenv.py`;
-`scripts/build/` = Ninja single-config + sccache full configure). Do not
-delete either; a future package may unify them.
-
-## Folders
-
-| Folder | Contents |
-| ------ | -------- |
-| [`build/`](build/README.md) | Blender addon packaging and CUDA build helpers. |
-| [`diagnostics/`](diagnostics/README.md) | Render triage, denoising comparisons, convergence checks, README render generators. |
-| [`benchmarks/`](benchmarks/README.md) | Caustic and light-transport benchmark runners (showcase lives in `benchmarks/showcase/`). |
-| [`data/`](data/README.md) | Spectral profile and spectrum data generation utilities. |
-| [`dev/`](dev/README.md) | Test runners and Blender smoke scripts. |
-| [`cuda/`](cuda/README.md) | CUDA smoke harness sources compiled by optional CMake targets (tcnn opt-in). |
-| [`test/`](test/) | Test-selection helpers (`run_split.py`, `select_impacted.py`) used by conftest/CI. |
-| [`prototypes/`](prototypes/) | Python-first algorithm validation prototypes (CLAUDE.md §6). |
-| [`roadmap_orchestrator/`](roadmap_orchestrator/) | The orchestrator subsystem behind `/roadmap-orchestrator`. |
-
-One-off package-verification scripts (`verify_pkgNNN_*.py`) are deleted once
-their package closes — the PR + STATUS.md hold the evidence. Exceptions that
-REMAIN because they are reusable harnesses (registered in the table above):
-`scripts/verify_pkg175_smoke_blender.py` (wired into `dev_addon.ps1`) and the
-`scripts/verify_pkg200_honour_matrix*.py` + `pkg200_honour_matrix.py` A/B
-honour driver. pkg201 extended that driver in place (not a fork): the
-`world_max_bounces` row was repointed to `world.cycles.max_bounces` (Finding B),
-and a `use_light_tree` row + its `many_lights` scene builder were added
-(promoting the former pkg200 known-gap) — no new script.
-# Scripts — canonical index
-
-**Agents: read this before writing a new script.** Every recurring task
-below already has ONE canonical script. Duplicating one of these (e.g. a
-new "material contact sheet" one-off) is a hygiene violation — extend the
-canonical script instead, or delete yours after use. If you add a genuinely
-new reusable script, register it here in the same commit.
-
-## Canonical script per task
-
-| Task | Canonical script |
-| ---- | ---------------- |
-| Build engine `.pyd` (dev, Ninja + sccache) | `scripts/build/build_cuda.bat` |
-| Build engine in an agent worktree (Ninja) | `scripts/build/build_cuda_worktree.bat` |
-| Build engine in an agent worktree (VS generator; what `hardware-verifier` / `package-implementer` / `tests/test_hw_verifier_buildenv.py` invoke) | repo-root `build_cuda_worktree.bat` |
-| Build-integrity guard (header-hash stamp, <5 s host-only ABI canary, cuobjdump CUDA-arch gate) invoked by all three build wrappers | `scripts/build/build_guard.py` (pkg183) |
-| Build/package/install the Blender addon | `scripts/build/build_blender_addon.py` (default backend: `cuda`) |
-| One-command Blender dev loop (build → install → smoke) | `scripts/dev_addon.ps1` |
-| Diagnose the local Blender MCP bridge without changing it | `scripts/dev/check_blender_mcp.ps1` |
-| Run the test suite against a build dir | `scripts/dev/run_tests.py` (default: `build_cuda/`) |
-| Material contact sheet / showcase renders / convergence + timing graphs | `benchmarks/showcase/runner.py` (curated presets: `config.MATERIAL_ZOO_VARIANTS`) |
-| Multi-scene SPP convergence sweep (diagnostic) | `scripts/diagnostics/convergence_tracker.py` |
-| Cycles↔Astroray parity table (CI) | `scripts/run_parity.py` + `scripts/summarize_parity.py` |
-| Blender differential parity harness | `benchmarks/blender_parity/harness.py` |
-| Visual reference-bank gates | `benchmarks/reference_bank/runner.py` |
-| README gallery / hero renders | `scripts/diagnostics/render_readme_gallery.py`, `render_readme_hero.py` |
-| Render-output triage | `scripts/diagnostics/render_output_triage.py` |
-| Denoiser A/B | `scripts/diagnostics/oidn_comparison.py` |
-| Roadmap orchestrator tick | `scripts/orchestrator_tick.ps1` → `python -m roadmap_orchestrator.cli` |
 | Roadmap orchestrator tick | `scripts/orchestrator_tick.ps1 -Driver claude\|opencode` → `python -m roadmap_orchestrator.cli` |
-| Project knowledge index (search / owns / deps / node-tree graph) | `scripts/project_index.py` (SQLite; `build` / `query` / `owns <path>` / `script <task>` / `whatis <pkg>` / `deps` / `graph` / `gh-sync`; auto-rebuilds when a spec is newer than the DB). **Interactive 3D graph of the whole index (exactly what agents query — packages, docs, files + dependency/doc/file edges): [`.astroray_plan/project-index-graph.html`](../.astroray_plan/project-index-graph.html).** Regenerate with `python scripts/project_index.py build && python scripts/project_index.py graph --html .astroray_plan/project-index-graph.html`. |
-| Open-weight model evaluation bench | `scripts/model_bench.py` (`--dry-run`, `--models`, `--timeout`; read-only, writes `docs/model-bench-results.json`) |
-| Native-settings F12 pixel-honour A/B matrix (does each adopted Blender/Cycles control actually change the render?) | `scripts/verify_pkg200_honour_matrix_run.py` (outer, cv2/per-channel mean-ratio) + `verify_pkg200_honour_matrix.py` (in-Blender A/B leg) + `pkg200_honour_matrix.py` (pure contract/predicate layer, enumerated from `settings_map.py`) |
-| Import a .blend without Blender | `tools/blend_import/blend_to_astroray.py` |
-| Spectral data/profile generation | `scripts/data/generate_spectrum_data.py`, `build_spectral_profiles.py` |
-| Sobol' direction-vector table (pkg224 progressive sampler) | `scripts/gen_sobol_matrices.py` → `include/astroray/sampling/sobol_matrices.h` (bakes SciPy's Joe-Kuo vectors; idempotent, commit header with any change) |
-| Hero-wavelength luminance-CDF fit (pkg206 importance-sampling constants) | `scripts/data/fit_hero_luminance_cdf.py` |
 | Regenerate the addon known-issues doc from GitHub issues (`addon-bug`/`addon-gap`) | `python scripts/dev/known_issues_report.py` (`--check` in CI) |
-| Launch GUI Blender 5.2 with the MCP bridge (watch/restart) | `pwsh scripts/dev/launch_blender_mcp.ps1 -Watch` (diagnostic: `scripts/dev/check_blender_mcp.ps1`) |
 | Viewport-interactivity parity harness (in-process pan/zoom/orbit timing) | `benchmarks/viewport_parity/run.py` (pkg81) |
 | Viewport-interactivity Cycles A/B driver (runs inside Blender) | `benchmarks/viewport_parity/blender_driver.py` (pkg81 companion to `run.py`) |
-| Isolated GUI Blender on a non-default MCP port (9877) for measurement lanes — never the owner's 9876 | `scripts/dev/launch_isolated_blender.ps1 -Port 9877 -Worker 0\|1 -StateDir <dir>` (startup `scripts/dev/blender_mcp_isolated.py` stops + rebinds the bridge synchronously) |
+| Isolated GUI Blender on a non-default MCP port (9877) for measurement lanes — never the owner's 9876 | `scripts/dev/launch_isolated_blender.ps1 -Port 9877 -Worker 0\|1 -StateDir <dir> [-StagedAddon <worktree>/dist/astroray]` (`-StagedAddon` loads a worktree build via `BLENDER_USER_EXTENSIONS` without installing into the user profile) (startup `scripts/dev/blender_mcp_isolated.py` stops + rebinds the bridge synchronously) |
 | Blender parity coverage-matrix generator (AST-scanned SUPPORTED/APPROXIMATED/DROPPED-SILENT/UNKNOWN) | `scripts/generate_blender_parity_matrix.py` (pkg119 Phase A; run inside Blender) |
 | Cycles feature-coverage reference-corpus builder (pkg259; builds `.blend` + manifest per family, cross-checks builder coverage against `coverage_matrix.json`) | `benchmarks/reference_corpus/build_corpus.py` (run inside Blender; scene ids: `materials_hall`, `textures_mapping` (Phase 1), `lighting_studio`, `world_sky_hdri`, `world_sky_sky` (Phase 2), `geometry_zoo`, `camera_lens`, `render_settings` (Phase 3)) |
 | Cycles feature-coverage reference-corpus report tooling (pkg259; npy->PNG, per-crop extraction from `manifest.json` `crops` rects, Cycles-vs-Astroray + per-crop contact sheets) | `benchmarks/reference_corpus/report_tools.py` (run in the repo's normal Python env, not Blender) |
 | pkg256 Cycles-vs-Preetham/Perez sky-band A/B (renders `world_sky_sky` in Cycles, bakes the same Sky node, prints per-band luminance ratios; consumed by `tests/test_pkg256_sky_bake.py`) | `benchmarks/reference_corpus/sky_ab_bands.py` (run inside Blender) |
-| Rough-metal/rough-glass live-Cycles A/B driver (CPU/GPU vs Cycles oracle; `--material metal\|glass`) | `benchmarks/cycles-parity/metal_ab/harness.py` (pkg129 metal preset; pkg263 added the glass preset + limb/centre/background ROIs) |
-| Thin-film iridescence A/B driver vs Cycles-5.2 oracle | `benchmarks/cycles-parity/thin_film/harness.py` (pkg178 Stage-4 acceptance) |
-| Heitz-2016 multiple-scattering dielectric random-walk oracle (numpy; MS vs single-scatter vs Cycles 1/E divergence table + directional histograms) | `benchmarks/cycles-parity/glass_ms_oracle/heitz_random_walk.py` (pkg265; clean-room from DOI 10.1145/2897824.2925943) |
-| Heitz-2016 **independent** oracle: explicit Gaussian(Beckmann) heightfield ray tracer (geometric, no Smith abstraction) + numpy glass-sphere path tracer — validates the multiple-scattering exit-interface redistribution vs Cycles 1/E (issue #782) | `benchmarks/cycles-parity/glass_ms_oracle/heightfield_oracle.py` (pkg265; Heitz 2016 §Validation, explicit random Beckmann surfaces) |
-| Blender dev-loop guard functions (stale-.pyd, OpenMP-on, addon-files-drift, sentinel-pass) used by `dev_addon.ps1` | `scripts/dev_loop_guards.py` (pkg175; OpenMP guard inverted by #780) |
-| Wavefront SoA baseline measurement harness | `benchmarks/wavefront_baseline.py` (pkg55 Phase A) |
-| Caustic-integrator visual/stat validation (pkg74 may reuse its scene builders) | `scripts/benchmarks/benchmark_caustic_transport.py` (pkg29a) |
-| Light-transport integrator head-to-head (path tracer / auto / NRC fallback / NRC backend) | `scripts/benchmarks/benchmark_light_transport.py` (pkg27b) |
-| Kerr validation fixture generator (analytic, GYOTO/RAPTOR-cited but not linked; imported by `tests/test_kerr_validation.py`) | `scripts/generate_gyoto_references.py` (pkg41) |
-| tiny-cuda-nn CUDA smoke build (opt-in CMake target `tcnn_smoke`) | `scripts/cuda/tiny_cuda_nn_smoke.cu` |
-| NRC prototype CUDA smoke render (opt-in CMake target `nrc_smoke_render`) | `scripts/cuda/nrc_smoke_render.cu` (pkg26) |
-| Standalone-binary render used by the Blender addon smoke test | `scripts/dev/render_test_scene.py` (invoked by `scripts/dev/blender_addon_smoke.py`) |
-
-Note on the two `build_cuda_worktree.bat` copies: they are intentionally
-different pipelines (root = VS multi-config, no configure step, SHA
-validation, pinned by agent configs and `tests/test_hw_verifier_buildenv.py`;
-`scripts/build/` = Ninja single-config + sccache full configure). Do not
-delete either; a future package may unify them.
-
-## Folders
-
-| Folder | Contents |
-| ------ | -------- |
-| [`build/`](build/README.md) | Blender addon packaging and CUDA build helpers. |
-| [`diagnostics/`](diagnostics/README.md) | Render triage, denoising comparisons, convergence checks, README render generators. |
-| [`benchmarks/`](benchmarks/README.md) | Caustic and light-transport benchmark runners (showcase lives in `benchmarks/showcase/`). |
-| [`data/`](data/README.md) | Spectral profile and spectrum data generation utilities. |
-| [`dev/`](dev/README.md) | Test runners and Blender smoke scripts. |
-| [`cuda/`](cuda/README.md) | CUDA smoke harness sources compiled by optional CMake targets (tcnn opt-in). |
-| [`test/`](test/) | Test-selection helpers (`run_split.py`, `select_impacted.py`) used by conftest/CI. |
-| [`prototypes/`](prototypes/) | Python-first algorithm validation prototypes (CLAUDE.md §6). |
-| [`roadmap_orchestrator/`](roadmap_orchestrator/) | The orchestrator subsystem behind `/roadmap-orchestrator`. |
-
-One-off package-verification scripts (`verify_pkgNNN_*.py`) are deleted once
-their package closes — the PR + STATUS.md hold the evidence. Exceptions that
-REMAIN because they are reusable harnesses (registered in the table above):
-`scripts/verify_pkg175_smoke_blender.py` (wired into `dev_addon.ps1`) and the
-`scripts/verify_pkg200_honour_matrix*.py` + `pkg200_honour_matrix.py` A/B
-honour driver. pkg201 extended that driver in place (not a fork): the
-`world_max_bounces` row was repointed to `world.cycles.max_bounces` (Finding B),
-and a `use_light_tree` row + its `many_lights` scene builder were added
-(promoting the former pkg200 known-gap) — no new script.
-# Scripts — canonical index
-
-**Agents: read this before writing a new script.** Every recurring task
-below already has ONE canonical script. Duplicating one of these (e.g. a
-new "material contact sheet" one-off) is a hygiene violation — extend the
-canonical script instead, or delete yours after use. If you add a genuinely
-new reusable script, register it here in the same commit.
-
-## Canonical script per task
-
-| Task | Canonical script |
-| ---- | ---------------- |
-| Build engine `.pyd` (dev, Ninja + sccache) | `scripts/build/build_cuda.bat` |
-| Build engine in an agent worktree (Ninja) | `scripts/build/build_cuda_worktree.bat` |
-| Build engine in an agent worktree (VS generator; what `hardware-verifier` / `package-implementer` / `tests/test_hw_verifier_buildenv.py` invoke) | repo-root `build_cuda_worktree.bat` |
-| Build-integrity guard (header-hash stamp, <5 s host-only ABI canary, cuobjdump CUDA-arch gate) invoked by all three build wrappers | `scripts/build/build_guard.py` (pkg183) |
-| Build/package/install the Blender addon | `scripts/build/build_blender_addon.py` (default backend: `cuda`) |
-| One-command Blender dev loop (build → install → smoke) | `scripts/dev_addon.ps1` |
-| Diagnose the local Blender MCP bridge without changing it | `scripts/dev/check_blender_mcp.ps1` |
-| Run the test suite against a build dir | `scripts/dev/run_tests.py` (default: `build_cuda/`) |
-| Material contact sheet / showcase renders / convergence + timing graphs | `benchmarks/showcase/runner.py` (curated presets: `config.MATERIAL_ZOO_VARIANTS`) |
-| Multi-scene SPP convergence sweep (diagnostic) | `scripts/diagnostics/convergence_tracker.py` |
-| Cycles↔Astroray parity table (CI) | `scripts/run_parity.py` + `scripts/summarize_parity.py` |
-| Blender differential parity harness | `benchmarks/blender_parity/harness.py` |
-| Visual reference-bank gates | `benchmarks/reference_bank/runner.py` |
-| README gallery / hero renders | `scripts/diagnostics/render_readme_gallery.py`, `render_readme_hero.py` |
-| Render-output triage | `scripts/diagnostics/render_output_triage.py` |
-| Denoiser A/B | `scripts/diagnostics/oidn_comparison.py` |
-| Roadmap orchestrator tick | `scripts/orchestrator_tick.ps1 -Driver claude\|opencode` → `python -m roadmap_orchestrator.cli` |
-| Project knowledge index (search / owns / deps / node-tree graph) | `scripts/project_index.py` (SQLite; `build` / `query` / `owns <path>` / `script <task>` / `whatis <pkg>` / `deps` / `graph` / `gh-sync`; auto-rebuilds when a spec is newer than the DB). **Interactive 3D graph of the whole index (exactly what agents query — packages, docs, files + dependency/doc/file edges): [`.astroray_plan/project-index-graph.html`](../.astroray_plan/project-index-graph.html).** Regenerate with `python scripts/project_index.py build && python scripts/project_index.py graph --html .astroray_plan/project-index-graph.html`. |
-| Open-weight model evaluation bench | `scripts/model_bench.py` (`--dry-run`, `--models`, `--timeout`; read-only, writes `docs/model-bench-results.json`) |
-| Native-settings F12 pixel-honour A/B matrix (does each adopted Blender/Cycles control actually change the render?) | `scripts/verify_pkg200_honour_matrix_run.py` (outer, cv2/per-channel mean-ratio) + `verify_pkg200_honour_matrix.py` (in-Blender A/B leg) + `pkg200_honour_matrix.py` (pure contract/predicate layer, enumerated from `settings_map.py`) |
-| Import a .blend without Blender | `tools/blend_import/blend_to_astroray.py` |
-| Spectral data/profile generation | `scripts/data/generate_spectrum_data.py`, `build_spectral_profiles.py` |
-| Sobol' direction-vector table (pkg224 progressive sampler) | `scripts/gen_sobol_matrices.py` → `include/astroray/sampling/sobol_matrices.h` (bakes SciPy's Joe-Kuo vectors; idempotent, commit header with any change) |
-| Hero-wavelength luminance-CDF fit (pkg206 importance-sampling constants) | `scripts/data/fit_hero_luminance_cdf.py` |
-| Viewport-interactivity parity harness (in-process pan/zoom/orbit timing) | `benchmarks/viewport_parity/run.py` (pkg81) |
-| Viewport-interactivity Cycles A/B driver (runs inside Blender) | `benchmarks/viewport_parity/blender_driver.py` (pkg81 companion to `run.py`) |
-| Blender parity coverage-matrix generator (AST-scanned SUPPORTED/APPROXIMATED/DROPPED-SILENT/UNKNOWN) | `scripts/generate_blender_parity_matrix.py` (pkg119 Phase A; run inside Blender) |
-| Cycles feature-coverage reference-corpus builder (pkg259; builds `.blend` + manifest per family, cross-checks builder coverage against `coverage_matrix.json`) | `benchmarks/reference_corpus/build_corpus.py` (run inside Blender; scene ids: `materials_hall`, `textures_mapping` (Phase 1), `lighting_studio`, `world_sky_hdri`, `world_sky_sky` (Phase 2), `geometry_zoo`, `camera_lens`, `render_settings` (Phase 3)) |
-| Cycles feature-coverage reference-corpus report tooling (pkg259; npy->PNG, per-crop extraction from `manifest.json` `crops` rects, Cycles-vs-Astroray + per-crop contact sheets) | `benchmarks/reference_corpus/report_tools.py` (run in the repo's normal Python env, not Blender) |
 | Rough-metal/rough-glass live-Cycles A/B driver (CPU/GPU vs Cycles oracle; `--material metal\|glass`) | `benchmarks/cycles-parity/metal_ab/harness.py` (pkg129 metal preset; pkg263 added the glass preset + limb/centre/background ROIs) |
 | Thin-film iridescence A/B driver vs Cycles-5.2 oracle | `benchmarks/cycles-parity/thin_film/harness.py` (pkg178 Stage-4 acceptance) |
 | Heitz-2016 multiple-scattering dielectric random-walk oracle (numpy; MS vs single-scatter vs Cycles 1/E divergence table + directional histograms) | `benchmarks/cycles-parity/glass_ms_oracle/heitz_random_walk.py` (pkg265; clean-room from DOI 10.1145/2897824.2925943) |
@@ -229,7 +78,6 @@ delete either; a future package may unify them.
 | [`dev/`](dev/README.md) | Test runners and Blender smoke scripts. |
 | [`cuda/`](cuda/README.md) | CUDA smoke harness sources compiled by optional CMake targets (tcnn opt-in). |
 | [`test/`](test/) | Test-selection helpers (`run_split.py`, `select_impacted.py`) used by conftest/CI. |
-| [`prototypes/`](prototypes/) | Python-first algorithm validation prototypes (CLAUDE.md §6). |
 | [`roadmap_orchestrator/`](roadmap_orchestrator/) | The orchestrator subsystem behind `/roadmap-orchestrator`. |
 
 One-off package-verification scripts (`verify_pkgNNN_*.py`) are deleted once

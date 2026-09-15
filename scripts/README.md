@@ -38,6 +38,7 @@ new reusable script, register it here in the same commit.
 | Hero-wavelength luminance-CDF fit (pkg206 importance-sampling constants) | `scripts/data/fit_hero_luminance_cdf.py` |
 | Extract a Cycles `shader.tables` LUT to `data/disney_compensation/*.bin` (pkg261 `ggx_gen_schlick_ior_s`) | `scripts/data/extract_ggx_gen_schlick_ior_s.py` (`--fetch` pins blender/blender@eaa5f63b; parses the C initializer, writes float32 LE) |
 | Launch GUI Blender 5.2 with the MCP bridge (watch/restart) | `pwsh scripts/dev/launch_blender_mcp.ps1 -Watch` (diagnostic: `scripts/dev/check_blender_mcp.ps1`) |
+| Bring up the MCP bridge inside Blender (startup script `launch_blender_mcp.ps1` passes with `--python`) | `scripts/dev/blender_mcp_autostart.py` |
 | Roadmap orchestrator tick | `scripts/orchestrator_tick.ps1 -Driver claude\|opencode` → `python -m roadmap_orchestrator.cli` |
 | Regenerate the addon known-issues doc from GitHub issues (`addon-bug`/`addon-gap`) | `python scripts/dev/known_issues_report.py` (`--check` in CI) |
 | Viewport-interactivity parity harness (in-process pan/zoom/orbit timing) | `benchmarks/viewport_parity/run.py` (pkg81) |
@@ -72,13 +73,13 @@ delete either; a future package may unify them.
 | Folder | Contents |
 | ------ | -------- |
 | [`build/`](build/README.md) | Blender addon packaging and CUDA build helpers. |
-| [`diagnostics/`](diagnostics/README.md) | Render triage, denoising comparisons, convergence checks, README render generators. |
+| [`diagnostics/`](diagnostics/README.md) | Render triage, denoising comparisons, convergence checks, README render generators. `_preview_helpers.py` is a shared helper module (imported by the material contact-sheet scripts), not an entry point. |
 | [`benchmarks/`](benchmarks/README.md) | Caustic and light-transport benchmark runners (showcase lives in `benchmarks/showcase/`). |
 | [`data/`](data/README.md) | Spectral profile and spectrum data generation utilities. |
 | [`dev/`](dev/README.md) | Test runners and Blender smoke scripts. |
 | [`cuda/`](cuda/README.md) | CUDA smoke harness sources compiled by optional CMake targets (tcnn opt-in). |
 | [`test/`](test/) | Test-selection helpers (`run_split.py`, `select_impacted.py`) used by conftest/CI. |
-| [`roadmap_orchestrator/`](roadmap_orchestrator/) | The orchestrator subsystem behind `/roadmap-orchestrator`. |
+| [`roadmap_orchestrator/`](roadmap_orchestrator/) | The orchestrator subsystem behind `/roadmap-orchestrator`. Modules: `ci.py` reduces a statusCheckRollup; `classify.py` buckets open PRs; `cli.py` is the read-only tick-plan emitter; `locks.py` provides the tick-overlap + single-GPU-slot locks; `plan.py` is the pure tick-plan builder; `priority.py`/`queue.py` order NEXT_STAGE_REPORT; `standup.py` renders the daily standup markdown; `state.py` persists debounce + the SHA-bound HW ledger. |
 
 One-off package-verification scripts (`verify_pkgNNN_*.py`) are deleted once
 their package closes — the PR + STATUS.md hold the evidence. Exceptions that

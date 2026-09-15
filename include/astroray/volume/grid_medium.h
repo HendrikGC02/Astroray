@@ -97,6 +97,8 @@ public:
     // --- passthrough accessors (pkg270) ---
     bool hasTemperature() const;
     float temperatureIndex(float ix, float iy, float iz) const;
+    // pkg270 -- nearest-voxel temperature at a WORLD point (0 outside / no grid).
+    float temperatureWorld(float wx, float wy, float wz) const;
 
 private:
     struct Impl;

@@ -5080,9 +5080,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 if not filepath:
                     return False
                 o2w = _vol.flatten_matrix_world(obj_instance.matrix_world)
-                payload = _vol.payload_from_vdb(filepath, o2w, report=self._vol_report)
                 mat = obj.data.materials[0] if getattr(obj.data, 'materials', None) else None
                 pv = _vol.principled_volume_from_material(mat) if mat else None
+                payload = _vol.payload_from_vdb(
+                    filepath, o2w, report=self._vol_report,
+                    density_attribute=(pv or {}).get("density_attribute", "density"),
+                    temperature_attribute=(pv or {}).get("temperature_attribute", "temperature"))
                 kwargs = dict(
                     density=payload["density"], bbox_min=payload["bbox_min"],
                     index_to_object=payload["index_to_object"],
@@ -5090,10 +5093,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 )
                 if "temperature" in payload:
                     kwargs["temperature"] = payload["temperature"]
+                    kwargs["temperature_bbox_min"] = payload["temperature_bbox_min"]
                 if pv is not None:
                     kwargs.update(density_scale=pv["density"], color=pv["color"],
                                   absorption_color=pv["absorption_color"],
                                   anisotropy=pv["anisotropy"])
+                    kwargs.update(_vol.emission_kwargs(pv))  # pkg270
                 renderer.set_volume_grid(obj.name, **kwargs)
                 return True  # a Volume object has no surface geometry
             if obj.type == 'MESH':
@@ -5105,7 +5110,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     mn, mx = _vol.mesh_world_aabb(obj, obj_instance.matrix_world)
                     renderer.add_homogeneous_medium(
                         mn, mx, pv["density"], pv["color"],
-                        pv["absorption_color"], pv["anisotropy"])
+                        pv["absorption_color"], pv["anisotropy"],
+                        **_vol.emission_kwargs(pv))  # pkg270 emission/blackbody
                     for d in pv.get("degradations", []):
                         self._vol_report(d)
                     # a mesh that is ONLY a volume (no surface shader) is an

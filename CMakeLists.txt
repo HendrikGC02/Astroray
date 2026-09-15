@@ -436,6 +436,8 @@ add_library(astroray_core_impl STATIC
     src/light_list.cpp
     # pkg267 — heterogeneous-volume grid (NanoVDB-backed GridMedium + majorant)
     src/volume/grid_medium.cpp
+    # pkg270 -- Principled Volume blackbody emission (Planck via the lamp Blackbody path)
+    src/volume/volume_emission.cpp
 )
 
 # pkg267 — vendored NanoVDB (Apache-2.0, external/nanovdb, tag v12.0.0) is

@@ -230,5 +230,10 @@ float GridMedium::temperatureIndex(float ix, float iy, float iz) const {
     return g.data[size_t((z * g.dim[1] + y) * g.dim[0] + x)];
 }
 
+float GridMedium::temperatureWorld(float wx, float wy, float wz) const {
+    auto p = worldPointToIndex(wx, wy, wz);
+    return temperatureIndex(p[0], p[1], p[2]);
+}
+
 }  // namespace volume
 }  // namespace astroray

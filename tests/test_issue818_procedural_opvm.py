@@ -151,3 +151,90 @@ def test_engine_program_over_checker_is_nonconstant():
         u = (i + 0.5) / 8.0
         samples.append(r.sample_named_texture("prog", u, 0.5)[0])
     assert max(samples) - min(samples) > 0.5, samples  # checker toggles 0<->1
+
+
+# --------------------------------------------------------------------------- #
+# GPU: the procedural op-VM input is baked (scene_upload.cu bakeProceduralTexId)
+# and renders NON-FLAT + at CPU/GPU parity — the new code path for issue #818.
+# Mirrors tests/test_pkg190_gpu_procedural_texture.py (GPU-gated: RTX box only).
+# --------------------------------------------------------------------------- #
+_BBOX_MIN = [-1.0, -1.0, -1.0]
+_BBOX_SIZE = [2.0, 2.0, 2.0]
+_C1 = (0.9, 0.1, 0.1)   # red
+_C2 = (0.1, 0.1, 0.9)   # blue
+
+
+def _compiled_checker_passthrough():
+    # Checker -> Math(Multiply 1.0) -> Base Color: a real op-VM chain (non-bare)
+    # whose Multiply-by-1 keeps the checker colours, so the program render should
+    # match a bare-checker render while still exercising svm_eval end to end.
+    checker = Node('TEX_CHECKER', inputs=[Sock('Vector')])
+    mul = Node('MATH', operation='MULTIPLY',
+               inputs=[Sock('A', 0.0, Link(checker, 'Color')), Sock('B', 1.0)])
+    base = Sock('Base Color', [0.5, 0.5, 0.5], Link(mul, 'Color'))
+    return C.compile_chain(base)
+
+
+def _build_program_scene(r, use_gpu):
+    import astroray
+    from base_helpers import setup_camera
+    if use_gpu:
+        r.set_use_gpu(True)
+    r.set_seed(1)
+    r.set_background_color([0.8, 0.8, 0.8])
+    # Generated-coord checker child of an op-VM ProgramTexture.
+    r.create_procedural_texture(
+        "chk818", "checker",
+        [_C1[0], _C1[1], _C1[2], _C2[0], _C2[1], _C2[2], 4.0], "GENERATED")
+    r.set_texture_generated_bbox("chk818", _BBOX_MIN, _BBOX_SIZE)
+    compiled = _compiled_checker_passthrough()
+    r.create_program_texture("prog818", "GENERATED")
+    r.set_texture_generated_bbox("prog818", _BBOX_MIN, _BBOX_SIZE)
+    r.program_texture_add_input("prog818", "chk818")
+    r.set_program_texture_program(
+        "prog818", compiled['num_tex'], compiled['out_slot'],
+        compiled['code_flat'], compiled['consts_flat'], compiled['ramps_flat'])
+    mat = r.create_material("lambertian", [0.8, 0.8, 0.8], {"texture": "prog818"})
+    A, B = [-1, -1, 0], [1, -1, 0]
+    Cc, D = [1, 1, 0], [-1, 1, 0]
+    n = [0, 0, 1]
+    r.add_triangle_layers(A, B, Cc, mat, {"UVMap": [[0, 0], [1, 0], [1, 1]]}, n, n, n)
+    r.add_triangle_layers(A, Cc, D, mat, {"UVMap": [[0, 0], [1, 1], [0, 1]]}, n, n, n)
+    setup_camera(r, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0],
+                 vfov=45, width=64, height=64)
+
+
+def _has_cuda_gpu(r):
+    import astroray
+    return bool(astroray.__features__.get("cuda", False)) and \
+        bool(getattr(r, "gpu_available", False))
+
+
+def test_gpu_procedural_opvm_input_not_flat_and_parity():
+    astroray = pytest.importorskip("astroray")
+    from base_helpers import create_renderer, render_image
+    rg = create_renderer()
+    if not _has_cuda_gpu(rg):
+        pytest.skip("No CUDA GPU — issue #818 GPU leg runs on the RTX box.")
+    _build_program_scene(rg, use_gpu=True)
+    gpu = render_image(rg, samples=96, max_depth=3, apply_gamma=False)
+
+    rc = create_renderer()
+    _build_program_scene(rc, use_gpu=False)
+    cpu = render_image(rc, samples=96, max_depth=3, apply_gamma=False)
+
+    import numpy as np
+    # 1. GPU render is NON-FLAT: red channel varies spatially (red vs blue cells).
+    red = gpu[..., 0]
+    assert red.max() - red.min() > 0.1, (
+        "GPU op-VM procedural-input render shows no spatial contrast — the "
+        "procedural child was dropped (not baked).")
+    # 2. CPU/GPU per-channel mean-ratio within band (independent RNG streams:
+    #    mean-ratio, NOT SSIM — memory ssim-wrong-gate-for-independent-rng).
+    gm = np.array([float(gpu[..., c].mean()) for c in range(3)])
+    cm = np.array([float(cpu[..., c].mean()) for c in range(3)])
+    assert cm.mean() > 0.02 and gm.mean() > 0.02, (cm, gm)
+    ratio = gm / np.maximum(cm, 1e-6)
+    for c, rr in enumerate(ratio):
+        assert 0.80 <= rr <= 1.25, (
+            f"channel {c} CPU/GPU mean-ratio {rr:.3f} out of band; cpu={cm}, gpu={gm}")

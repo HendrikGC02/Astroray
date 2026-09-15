@@ -28,7 +28,6 @@ new reusable script, register it here in the same commit.
 | README gallery / hero renders | `scripts/diagnostics/render_readme_gallery.py`, `render_readme_hero.py` |
 | Render-output triage | `scripts/diagnostics/render_output_triage.py` |
 | Denoiser A/B | `scripts/diagnostics/oidn_comparison.py` |
-| Roadmap orchestrator tick | `scripts/orchestrator_tick.ps1` → `python -m roadmap_orchestrator.cli` |
 | Project knowledge index (search / owns / deps / node-tree graph) | `scripts/project_index.py` (SQLite; `build` / `query` / `owns <path>` / `script <task>` / `whatis <pkg>` / `deps` / `graph` / `gh-sync`; auto-rebuilds when a spec is newer than the DB). **Interactive 3D graph of the whole index (exactly what agents query — packages, docs, files + dependency/doc/file edges): [`.astroray_plan/project-index-graph.html`](../.astroray_plan/project-index-graph.html).** Regenerate with `python scripts/project_index.py build && python scripts/project_index.py graph --html .astroray_plan/project-index-graph.html`. |
 | Lint package specs against TEMPLATE v2 | `python scripts/project_index.py lint` (`[PATH...] \| --all`; baselined via `scripts/spec_lint_baseline.txt`) |
 | Open-weight model evaluation bench | `scripts/model_bench.py` (`--dry-run`, `--models`, `--timeout`; read-only, writes `.astroray_plan/docs/model-bench-results.json`) |

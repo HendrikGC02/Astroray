@@ -5944,10 +5944,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         if lum_s > 1e-12:
                             color = [s_rgb[0] / lum_s, s_rgb[1] / lum_s,
                                      s_rgb[2] / lum_s]
+                            # #814: match Cycles' Nishita sun world direction.
+                            # Measured (Blender 5.2, top-down pole-shadow A/B,
+                            # 814-sun-direction-convention-research.md): the sun
+                            # sits at world azimuth 90deg - sun_rotation, i.e.
+                            # world dir (toward sun) = (cosE sinR, cosE cosR,
+                            # sinE); the DistantLight travel dir is its negative.
                             ce = math.cos(sun_elev)
                             se = math.sin(sun_elev)
-                            direction = [-(ce * math.cos(sun_rot)),
-                                         -(ce * math.sin(sun_rot)),
+                            direction = [-(ce * math.sin(sun_rot)),
+                                         -(ce * math.cos(sun_rot)),
                                          -se]
                             renderer.add_sun_light_dedicated(
                                 direction, sun_size,

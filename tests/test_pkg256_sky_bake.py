@@ -149,8 +149,10 @@ def test_sun_disc_params_enabled_shape_and_direction():
     p = sky_bake.sun_disc_params_from_node(node)
     assert p is not None
     # travel direction == -sun (sun points toward the sun, light travels away).
+    # #814: Cycles Nishita convention, sun world dir = (cosE sinR, cosE cosR,
+    # sinE) (azimuth 90deg - sun_rotation), measured vs Blender 5.2.
     ce, se = math.cos(E), math.sin(E)
-    sun = (ce * math.cos(A), ce * math.sin(A), se)
+    sun = (ce * math.sin(A), ce * math.cos(A), se)
     assert p["direction"] == pytest.approx([-sun[0], -sun[1], -sun[2]], abs=1e-9)
     assert p["angular_diameter"] == pytest.approx(0.009512)
     assert p["intensity"] > 0.0

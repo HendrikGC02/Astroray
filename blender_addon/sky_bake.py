@@ -101,9 +101,16 @@ _XYZ_TO_RGB = np.array(
 
 def _sun_direction(elevation, rotation):
     """Blender Z-up world-frame sun direction from sun_elevation (rad, above
-    horizon) and sun_rotation (rad, azimuth about +Z)."""
+    horizon) and sun_rotation (rad).
+
+    #814: matches Cycles' Nishita convention (kernel/svm/sky.h, measured against
+    Blender 5.2 in 814-sun-direction-convention-research.md): the sun sits at
+    world azimuth 90deg - sun_rotation, so the world direction toward the sun is
+    (cosE sinR, cosE cosR, sinE). Used for BOTH the Preetham/Hosek equirect glow
+    (bake_params) and the legacy sun disc (sun_disc_params), keeping them
+    coincident and Cycles-aligned."""
     ce, se = math.cos(elevation), math.sin(elevation)
-    return np.array([ce * math.cos(rotation), ce * math.sin(rotation), se],
+    return np.array([ce * math.sin(rotation), ce * math.cos(rotation), se],
                     dtype=np.float64)
 
 

@@ -3927,52 +3927,108 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         if compiled is None:
             return None
-        # Require image-texture inputs; a program input that is not a loadable
-        # image texture is out of scope (procedural inputs stay on the pkg190
-        # bake path).
+        # issue #818 Item 1 — op-VM inputs may be image OR procedural texture
+        # nodes. All inputs of one program must share a single coordinate
+        # signature (the ProgramTexture carries one coord_mode + Mapping), and
+        # must be the same KIND: an image child is uploaded identity + the
+        # ProgramTexture's Mapping (sampled at (M*uv).xy), whereas a procedural
+        # child is BAKED with its own coordinate/Mapping folded in (pkg190/pkg242)
+        # — mixing the two would double- or mis-apply the Mapping. The common
+        # cases (single input; or several images) are unaffected.
         inputs = compiled['inputs']
         if not inputs:
-            self._warn_shader_fallback('op-VM', 'program has no image inputs; flattened')
+            self._warn_shader_fallback('op-VM', 'program has no texture inputs; flattened')
             return None
+        PROC_TYPES = {'TEX_NOISE', 'TEX_CHECKER', 'TEX_VORONOI', 'TEX_WAVE',
+                      'TEX_MAGIC', 'TEX_BRICK', 'TEX_GRADIENT', 'TEX_MUSGRAVE'}
+        kinds = set()
+        for in_node in inputs:
+            ntype = getattr(in_node, 'type', None)
+            if ntype == 'TEX_IMAGE' and getattr(in_node, 'image', None) is not None:
+                kinds.add('image')
+            elif ntype in PROC_TYPES:
+                kinds.add('proc')
+            else:
+                self._warn_shader_fallback(
+                    'op-VM', 'op-VM input is not a loadable texture; flattened')
+                return None
+        if len(kinds) > 1:
+            self._warn_shader_fallback(
+                'op-VM', 'op-VM inputs mix image + procedural textures; '
+                'flattened (unsupported)')
+            return None
+        input_kind = kinds.pop()
+        # Procedural inputs default to GENERATED coords (Blender standard for an
+        # unconnected Vector) and reject affine coordinate chains, exactly like
+        # the direct-to-BSDF procedural path (load_procedural_texture); image
+        # inputs keep the UV default + affine Mapping support.
+        proc_kind = input_kind == 'proc'
         resolved_inputs = []
         signatures = []
         for in_node in inputs:
-            img = getattr(in_node, 'image', None)
-            if getattr(in_node, 'type', None) != 'TEX_IMAGE' or img is None:
-                self._warn_shader_fallback(
-                    "op-VM", "op-VM input is not an image texture; flattened")
-                return None
             vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
-            resolved = self._resolve_affine_coordinates(vinp, warn=self._warn_shader_fallback)
+            if proc_kind:
+                resolved = self._resolve_affine_coordinates(
+                    vinp, default_coord_mode='GENERATED',
+                    warn=self._warn_shader_fallback, allow_affine=False)
+            else:
+                resolved = self._resolve_affine_coordinates(
+                    vinp, warn=self._warn_shader_fallback)
             resolved_inputs.append(resolved)
             signatures.append(self._texture_variant_key(
                 '', resolved['coord_mode'], (1.0, 1.0), (0.0, 0.0), 0.0,
                 resolved['uv_layer'], self._affine_matrix_values(resolved)))
         if any(signature != signatures[0] for signature in signatures[1:]):
-            self._warn_shader_fallback('op-VM', 'image inputs have differing coordinate mappings; '
+            self._warn_shader_fallback('op-VM', 'texture inputs have differing coordinate mappings; '
                                        'independent program coordinates are unsupported; flattened')
             return None
         resolved = resolved_inputs[0]
         coord_mode, uvlayer = resolved['coord_mode'], resolved['uv_layer']
         scale, offset, rot = (1.0, 1.0), (0.0, 0.0), 0.0
         mapping_matrix = self._affine_matrix_values(resolved)
-        # scene_upload.cu deduplicates child ImageTexture pointers and attaches
-        # the first parent's mapping. Isolate identity child samplers by parent
-        # coordinates; CPU children must never apply that mapping a second time.
-        identity = {'matrix': np.identity(4), 'coord_mode': 'UV', 'uv_layer': ''}
         child_names = []
-        for in_node in inputs:
-            cn = self._load_blender_image_resolved(
-                in_node.image, renderer, identity, child_signature=signatures[0])
-            if cn is None:
-                return None
-            child_names.append(cn)
+        if proc_kind:
+            # Procedural child: register it with its OWN resolved coord/Mapping so
+            # the GPU pkg190 bake domain (2D-UV grid or 3D voxel) and the CPU
+            # native evaluator both sample the correct field. The ProgramTexture
+            # (below) carries the SAME coord/Mapping, so CPU delivers `p` once and
+            # the GPU shade path rebuilds the identical normalized coordinate.
+            for in_node in inputs:
+                vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
+                cn = self.load_procedural_texture(in_node, renderer, vector_input=vinp)
+                if cn is None:
+                    self._warn_shader_fallback('op-VM', 'procedural input failed to load; flattened')
+                    return None
+                child_names.append(cn)
+        else:
+            # scene_upload.cu deduplicates child ImageTexture pointers and attaches
+            # the first parent's mapping. Isolate identity child samplers by parent
+            # coordinates; CPU children must never apply that mapping a second time.
+            identity = {'matrix': np.identity(4), 'coord_mode': 'UV', 'uv_layer': ''}
+            for in_node in inputs:
+                cn = self._load_blender_image_resolved(
+                    in_node.image, renderer, identity, child_signature=signatures[0])
+                if cn is None:
+                    return None
+                child_names.append(cn)
         mat_name = getattr(self, "_current_material_name", "") or ""
         prog_name = "_prog_%s.%s.%s" % (mat_name, getattr(node, "name", "n"), input_name)
+        # The ProgramTexture carries the SAME coordinate contract as its children
+        # so the CPU delivers `p` exactly once (child value(uv,p) never re-resolves)
+        # and the GPU shade path rebuilds the identical coordinate. Procedural
+        # children were registered via load_procedural_texture, which uses the
+        # legacy 2-D Mapping (allow_affine=False); mirror that here so CPU (prog)
+        # and GPU (baked child) apply the identical transform. Image children use
+        # the 3-D affine matrix path unchanged.
+        if proc_kind:
+            p_scale, p_offset, p_rot = resolved['legacy']
+            p_matrix = None
+        else:
+            p_scale, p_offset, p_rot, p_matrix = scale, offset, rot, mapping_matrix
         try:
             renderer.create_program_texture(prog_name, coord_mode)
-            self._apply_texture_transform(renderer, prog_name, coord_mode, scale,
-                                          offset, rot, uvlayer, mapping_matrix)
+            self._apply_texture_transform(renderer, prog_name, coord_mode, p_scale,
+                                          p_offset, p_rot, uvlayer, p_matrix)
             for cn in child_names:
                 renderer.program_texture_add_input(prog_name, cn)
             renderer.set_program_texture_program(

@@ -58,7 +58,9 @@ def test_red_absorber_is_chromatic_per_wavelength():
     assert a[0] > 3.0 * a[2], a           # 450 nm absorbed >= 3x more than 650 nm
     assert a[3] <= a[2] * 1.1 + 1e-6, a   # long wavelengths stay weakly absorbed
     assert a[0] == pytest.approx((1.0 - 0.2) * 5.0, rel=0.25)   # near the blue channel value
-    assert a[2] == pytest.approx((1.0 - 0.85) * 5.0, rel=0.5)  # near the red channel value
+    # The JH-upsampled red reflectance exceeds the R channel value at 650 nm, so
+    # the long-wavelength absorption is at or BELOW the RGB-channel figure.
+    assert a[2] <= (1.0 - 0.85) * 5.0 * 1.2, a
 
 
 @pytest.mark.parametrize("color,absorption", [

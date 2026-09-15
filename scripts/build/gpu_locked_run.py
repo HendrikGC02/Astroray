@@ -7,7 +7,7 @@ working directory. Never write the lock file yourself (memory
 via locks.py, which refuses to remove a lock it does not own.
 """
 import os, subprocess, sys, time
-MAIN = "C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray"
+MAIN = r"C:\Users\hgcom\OneDrive\Astroray\Astroray_repo\Astroray"
 sys.path.insert(0, os.path.join(MAIN, "scripts", "roadmap_orchestrator"))
 from locks import acquire_lock, release_lock, lock_status
 LOCK = os.path.join(MAIN, ".astroray_plan", ".orchestrator.gpu.lock")

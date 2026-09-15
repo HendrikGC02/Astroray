@@ -50,11 +50,16 @@ def test_no_exposure_bridge_values_are_order_one():
 
 
 def _sun_position(elev_deg, rot_deg):
-    """Astroray-world (Blender Z-up) direction TO the sun at elevation/azimuth
-    (what the dedicated DistantLight's axis_ points at, = -travel direction)."""
+    """Astroray-world (Blender Z-up) direction TO the sun at elevation/rotation
+    (what the dedicated DistantLight's axis_ points at, = -travel direction).
+
+    #814: Cycles' Nishita convention — sun world azimuth = 90deg - sun_rotation,
+    so the direction toward the sun is (cosE sinR, cosE cosR, sinE) (measured vs
+    Blender 5.2, 814-sun-direction-convention-research.md). Matches
+    sky_bake._sun_direction and setup_world's dedicated-sun direction."""
     e, a = math.radians(elev_deg), math.radians(rot_deg)
     ce, se = math.cos(e), math.sin(e)
-    return (ce * math.cos(a), ce * math.sin(a), se)
+    return (ce * math.sin(a), ce * math.cos(a), se)
 
 
 def _env_phi(d):

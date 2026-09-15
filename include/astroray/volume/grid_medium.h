@@ -94,6 +94,11 @@ public:
     std::array<float, 3> worldPointToIndex(float wx, float wy, float wz) const;
     std::array<float, 3> worldDirToIndex(float dx, float dy, float dz) const;
 
+    // --- pkg269: raw NanoVDB buffer (position-independent; byte-copied to the
+    //     device and read through nanovdb::FloatGrid on the GPU) ---
+    const void* nanoData() const;
+    size_t nanoBytes() const;
+
     // --- passthrough accessors (pkg270) ---
     bool hasTemperature() const;
     float temperatureIndex(float ix, float iy, float iz) const;

@@ -161,6 +161,15 @@ __constant__ float* c_wfMissCoverage = nullptr;
 // so the snapshot/ReSTIR drivers that never publish it render as vacuum.
 __constant__ GWorldVolume c_worldVolume;
 
+// pkg269 — bounded (grid / homogeneous) media side table. Published once per
+// frame by cuda_wavefront_render (setWavefrontGridVolumeBinding); read by
+// intersectPathSlotT<..., HasGridVolume=true> (free flight), stageShadowKernel
+// (per-λ ratio-tracking NEE transmittance, runtime `count > 0` gate) and the
+// dedicated stageVolumeHeteroScatterKernel (stage_volume_hetero.cu). count==0
+// (the default; the snapshot/ReSTIR drivers publish it explicitly) keeps every
+// fleet kernel byte-identical.
+__constant__ GWavefrontGridVolumeBinding c_wfGridVolume = {};
+
 // pkg258 - environment-NEE side-table binding (see GWavefrontEnvNeeBinding).
 // Published once per frame by cuda_wavefront_render (setWavefrontEnvNeeBinding).
 // enabled==0 (the default) means the env-NEE generate body is never entered and
@@ -325,77 +334,10 @@ __device__ inline GSampledSpectrum gpu_worldSigmaT(const GSampledWavelengths& la
     return s;
 }
 
-// pkg199 Stage 2 — Henyey-Greenstein phase function (HG 1941; PBRT-v3 PhaseHG,
-// src/core/medium.cpp, BSD). cosTheta = dot(wo, wi), wo pointing back along the
-// incoming ray. Normalised over the sphere (integrates to 1); Inv4Pi = 1/(4π).
-// Device twin of Renderer::phaseHG — same sign convention for CPU↔GPU parity.
-__device__ inline float gpu_phaseHG(float cosTheta, float g)
-{
-    float denom = 1.f + g * g + 2.f * g * cosTheta;
-    denom = fmaxf(denom, 1e-6f);
-    return (0.25f / M_PI_F) * (1.f - g * g) / (denom * sqrtf(denom));
-}
-
-// pkg199 Stage 2 — importance-sample the HG phase function (PBRT-v3
-// HenyeyGreenstein::Sample_p, BSD). `wo` points back along the incoming ray
-// (= -ray.direction). Returns the sampled continuation direction; outPdf is the
-// phase value (HG is perfectly importance-sampled, pdf == value → throughput
-// factor value/pdf = 1). g>0 forward-scatters (peak at wi = -wo). Device twin of
-// Renderer::sampleHG; gpu_buildONB gives the orthonormal frame (z-axis = wo).
-__device__ inline GVec3 gpu_sampleHG(const GVec3& wo, float g, float u1, float u2,
-                                     float& outPdf)
-{
-    float cosTheta;
-    if (fabsf(g) < 1e-3f) {
-        cosTheta = 1.f - 2.f * u1;
-    } else {
-        float sqrTerm = (1.f - g * g) / (1.f + g - 2.f * g * u1);
-        cosTheta = -(1.f + g * g - sqrTerm * sqrTerm) / (2.f * g);
-    }
-    cosTheta = fmaxf(-1.f, fminf(1.f, cosTheta));
-    float sinTheta = sqrtf(fmaxf(0.f, 1.f - cosTheta * cosTheta));
-    float phi = 2.f * M_PI_F * u2;
-    GVec3 v1, v2;
-    gpu_buildONB(wo, v1, v2);
-    GVec3 wi = v1 * (sinTheta * cosf(phi)) + v2 * (sinTheta * sinf(phi)) + wo * cosTheta;
-    outPdf = gpu_phaseHG(cosTheta, g);
-    return wi.normalized();
-}
-
-// pkg199 Stage 2 — dimension-salt base for the free-flight sampler. Far above any
-// dimension the shade/volume WavefrontRNG stream reaches (0..~depth·draws), so the
-// free-flight draws are decorrelated from all shading draws by construction.
-static constexpr uint32_t G_WF_VOL_DIM_SALT = 0xF0000000u;
-
-// pkg199 Stage 2 — OBJECT-FREE counter-based free-flight uniform. Reuses the exact
-// published keying of WavefrontRNG::GenerateForDimension (PBRT-v4 MixBits =
-// MurmurHash3 finalizer, src/pbrt/util/hash.h; -> PCG32 SetSequence -> PCG32 XSH-RR
-// output, imneme/pcg-c-basic Apache-2.0) — a counter-based RNG in the Salmon et al.
-// 2011 ("Parallel Random Numbers", Random123) sense — but computed inline so
-// intersectPathSlot holds NO persistent WavefrontRNG object and does NO
-// rng_dimension SoA round-trip (Option 3: keeps the intersect decision block
-// register-light so the kernel stays <=128 regs / 2 blocks/SM at 256 threads). Keyed
-// on (pixel, sample, seed, dimSalt); the salt varies per bounce and per draw so
-// every free-flight event is independent, and is disjoint from the shade stream.
-// CPU<->GPU free-flight streams are INDEPENDENT (parity gate is per-channel
-// mean-ratio, not sample-matched). See the research note.
-__device__ inline float gpu_freeflightUniform(uint32_t pixel, uint32_t sample,
-                                              uint64_t seed, uint32_t dimSalt)
-{
-    uint64_t seq_index = (static_cast<uint64_t>(pixel) * 65536ULL + sample) << 32 | dimSalt;
-    uint64_t stream = astroray::MixBits(seq_index);
-    uint64_t inc   = (stream << 1) | 1;
-    uint64_t state = 0;
-    state = state * 6364136223846793005ULL + inc;   // PCG32 SetSequence, advance 1
-    state += seed;
-    state = state * 6364136223846793005ULL + inc;   // advance 2
-    uint32_t xorshifted = static_cast<uint32_t>(((state >> 18u) ^ state) >> 27u);
-    uint32_t rot        = static_cast<uint32_t>(state >> 59u);
-    int32_t  rot_signed = static_cast<int32_t>(rot);
-    uint32_t u = (xorshifted >> rot) | (xorshifted << ((-rot_signed) & 31));
-    constexpr float kOneMinusEpsilon = 0x1.fffffep-1f;
-    return fminf(u * 0x1p-32f, kOneMinusEpsilon);
-}
+// pkg199 Stage 2 — gpu_phaseHG / gpu_sampleHG / G_WF_VOL_DIM_SALT /
+// gpu_freeflightUniform live in src/gpu/gpu_volume_phase.cuh since pkg269
+// (moved verbatim; shared with stage_volume_hetero.cu).
+#include "../gpu_volume_phase.cuh"
 
 // intersectPathSlotT returns -1 when the path died, else the GMaterialType
 // of the hit (0..GMAT_CLOSURE_GRAPH) for shade-queue bucketing. The hit
@@ -411,7 +353,8 @@ __device__ inline float gpu_freeflightUniform(uint32_t pixel, uint32_t sample,
 // non-template `intersectPathSlot` symbol below forwards to <false> so the
 // cross-TU callers (ReSTIR primary, MIS-audit; both scatter=0) link unchanged.
 template<bool HasWorldScatter, bool HasLightPassAOVs = false,
-         bool HasCurves = false>  // pkg225 Stage 3 — curve-leaf isolation axis
+         bool HasCurves = false,  // pkg225 Stage 3 — curve-leaf isolation axis
+         bool HasGridVolume = false>  // pkg269 — bounded-media (NanoVDB) isolation axis
 __device__ int intersectPathSlotT(
     int idx,
     GPUWavefrontState& state,
@@ -500,6 +443,77 @@ __device__ int intersectPathSlotT(
     // HasWorldScatter folds this to a compile-time false in the fleet <false>
     // kernel, so the block below is removed and the role-1/role-3 gates collapse
     // to their Stage-1 form (byte-identical).
+    // pkg269 — bounded grid/homogeneous medium free flight (device twin of the
+    // CPU pathTraceSpectral pkg268/pkg270 block: nearest entered medium on the
+    // segment [0.001, surfaceT], hero-wavelength spectral-MIS tracking with
+    // per-path r_u lanes, emission at the null-collision vertices). Compiled out
+    // of the fleet <..., HasGridVolume=false> kernels entirely; runs BEFORE the
+    // world-volume block and the lamp/emission/env legs so a scatter or an
+    // absorption intercepts the segment exactly like the CPU loop top.
+    if constexpr (HasGridVolume) if (c_wfGridVolume.count > 0) {
+        const float surfaceT = hit ? rec.t : 1e30f;
+        int mi = -1;
+        float mEnter = surfaceT, mExit = surfaceT, bestEnter = surfaceT;
+        for (int k = 0; k < c_wfGridVolume.count; ++k) {
+            float t0, t1;
+            if (gpu_gridAabbOverlap(c_wfGridVolume.media[k], ray.origin, ray.direction,
+                                    0.001f, surfaceT, t0, t1) && t0 < bestEnter) {
+                bestEnter = t0; mi = k; mEnter = t0; mExit = t1;
+            }
+        }
+        if (mi >= 0) {
+            GSampledSpectrum ru;
+            ru.v[0] = state.vol_ru_0[idx]; ru.v[1] = state.vol_ru_1[idx];
+            ru.v[2] = state.vol_ru_2[idx]; ru.v[3] = state.vol_ru_3[idx];
+            GSampledSpectrum beta = throughput * gpu_heroAverage(ru, lambdas);
+            GSampledSpectrum emission(0.f);
+            float tEv = 0.f;
+            const uint32_t salt = G_WF_GRID_DIM_SALT + (uint32_t)bounce * 4096u;
+            int ev = gpu_gridVolumeTrack(mi, ray.origin, ray.direction, mEnter, mExit,
+                                         lambdas, beta, ru, emission, tEv,
+                                         state.rng_pixel[idx], state.rng_sample[idx],
+                                         state.rng_seed[idx], salt);
+            if (emission.maxValue() > 0.f) {
+                // Volume emission along the flight (pkg270): Emission pass when
+                // directly visible, else <firstCat>_INDIRECT (surface-emission rule).
+                GSampledSpectrum ce = gpu_clampContribMW(
+                    emission, lambdas, bounce, clampDirect, clampIndirect, useLuminanceOutput);
+                color += ce;
+                if constexpr (HasLightPassAOVs) {
+                    unsigned char cat = c_wfLpBinding.firstCat[idx];
+                    lpAccumulate(idx, lpEmitOrBgPass(cat, G_LP_PASS_EMISSION), ce);
+                }
+                state.color_0[idx] = color.v[0]; state.color_1[idx] = color.v[1];
+                state.color_2[idx] = color.v[2]; state.color_3[idx] = color.v[3];
+            }
+            {
+                float rAvg = gpu_heroAverage(ru, lambdas);
+                throughput = (rAvg > 0.f) ? beta * (1.f / rAvg) : GSampledSpectrum(0.f);
+            }
+            state.vol_ru_0[idx] = ru.v[0]; state.vol_ru_1[idx] = ru.v[1];
+            state.vol_ru_2[idx] = ru.v[2]; state.vol_ru_3[idx] = ru.v[3];
+            state.throughput_0[idx] = throughput.v[0];
+            state.throughput_1[idx] = throughput.v[1];
+            state.throughput_2[idx] = throughput.v[2];
+            state.throughput_3[idx] = throughput.v[3];
+            if (ev == 1) {                       // absorbed: the path ends here
+                state.path_alive[idx] = 0;
+                return -1;
+            }
+            if (ev == 2) {                       // scattered at P: hetero queue
+                // Snapshot semantics as pkg199: P becomes ray_origin, ray_direction
+                // stays the incoming direction (woMedium = -direction downstream).
+                GVec3 P = ray.origin + ray.direction * tEv;
+                state.ray_origin_x[idx] = P.x;
+                state.ray_origin_y[idx] = P.y;
+                state.ray_origin_z[idx] = P.z;
+                state.grid_medium_id[idx] = mi;
+                return -3;
+            }
+            // escaped: delta-track survival IS the transmittance — fall through.
+        }
+    }
+
     const bool mediumScatters = HasWorldScatter &&
                                 c_worldVolume.hasVolume &&
                                 c_worldVolume.density > 0.f &&
@@ -2154,6 +2168,27 @@ __global__ void stageShadowKernel(
         float geomDist = nee_f[14 * nee_capacity + idx];
         contrib *= gpu_worldTransmittanceMW(geomDist, lambdas);
     }
+    // pkg269 — per-λ ratio-tracking transmittance through every bounded medium
+    // the shadow segment crosses (device twin of the CPU medium/surface NEE
+    // attenuation, Novák 2014). Runtime-gated on the side-table count (this lean
+    // resolve kernel is not register-critical): the fleet pays one predicated
+    // branch on a constant zero. geomDist==0 (distant/infinite light) => cross
+    // the whole AABB, like the CPU's ls.distance for an infinite light.
+    if (c_wfGridVolume.count > 0) {
+        float geomDist = nee_f[14 * nee_capacity + idx];
+        float far = (geomDist > 0.f) ? geomDist : 1e30f;
+        int parkedBounce = nee_i[3 * nee_capacity + idx];
+        for (int k = 0; k < c_wfGridVolume.count; ++k) {
+            float s0, s1;
+            if (gpu_gridAabbOverlap(c_wfGridVolume.media[k], s.origin, s.wi, 1e-3f, far, s0, s1)) {
+                uint32_t salt = G_WF_GRIDSHADOW_DIM_SALT + (uint32_t)parkedBounce * 4096u
+                                + (uint32_t)k * 1024u;
+                contrib *= gpu_gridVolumeTransmittance(k, s.origin, s.wi, s0, s1, lambdas,
+                                                       state.rng_pixel[idx], state.rng_sample[idx],
+                                                       state.rng_seed[idx], salt);
+            }
+        }
+    }
     // pkg157: direct/indirect clamp split. bounce is the PARKED depth (lane
     // 3, see G_WF_NEE_I_LANES) the NEE sample was taken at, not state.bounce
     // (already advanced by the time this later-launched kernel runs).
@@ -2321,7 +2356,8 @@ __global__ void stageQueueIotaKernel(int* queue, int* count, int n)
 // as bucketed atomic append instead of a radix sort (7 types only).
 // ---------------------------------------------------------------------------
 template<bool HasWorldScatter, bool HasLightPassAOVs = false,
-         bool HasCurves = false>   // pkg225 Stage 3 — curve-leaf isolation axis
+         bool HasCurves = false,   // pkg225 Stage 3 — curve-leaf isolation axis
+         bool HasGridVolume = false>  // pkg269 — bounded-media isolation axis
 __global__ void stageIntersectQueuedKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -2355,7 +2391,10 @@ __global__ void stageIntersectQueuedKernel(
     // does not scatter (scatter==0) — the -2 return never fires then.
     int* vol_queue, int* vol_count,
     // pkg225 Stage 3 — device curve segments (nullptr = no curves).
-    const GCurveSegment* curves)
+    const GCurveSegment* curves,
+    // pkg269 — heterogeneous-medium queue (intersect returns -3). Null in the
+    // fleet <..., false> kernels (the -3 return never fires there).
+    int* grid_queue, int* grid_count)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *count_in) return;
@@ -2364,7 +2403,8 @@ __global__ void stageIntersectQueuedKernel(
     // (no-op there); the regeneration driver iterates a dense identity
     // queue where exhausted slots stay dead.
     if (state.path_alive[idx] == 0) return;
-    int matType = intersectPathSlotT<HasWorldScatter, HasLightPassAOVs, HasCurves>(
+    int matType = intersectPathSlotT<HasWorldScatter, HasLightPassAOVs, HasCurves,
+                                     HasGridVolume>(
                                     idx, state, hitBufs, tlas, instances, blas,
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
@@ -2377,6 +2417,11 @@ __global__ void stageIntersectQueuedKernel(
     if (matType == -2) {   // pkg199 Stage 2: scattered → volume-scatter queue
         int vslot = atomicAdd(vol_count, 1);
         vol_queue[vslot] = idx;
+        return;
+    }
+    if constexpr (HasGridVolume) if (matType == -3) {   // pkg269: bounded-medium scatter
+        int gslot = atomicAdd(grid_count, 1);
+        grid_queue[gslot] = idx;
         return;
     }
     if (matType < 0) return;
@@ -2486,7 +2531,9 @@ void launchStageIntersectQueued(
     int* d_vol_queue, int* d_vol_count,   // pkg199 Stage 2
     bool has_world_scatter,               // pkg199 Stage 2: picks the fleet-isolation axis
     bool has_light_pass_aovs,             // pkg198 Stage 2: picks the pass-AOV axis
-    const GCurveSegment* d_curveSegments) // pkg225 Stage 3 (nullptr = no curves)
+    const GCurveSegment* d_curveSegments, // pkg225 Stage 3 (nullptr = no curves)
+    int* d_grid_queue, int* d_grid_count, // pkg269 (nullptr = no bounded media)
+    bool has_grid_volume)                 // pkg269: picks the bounded-media axis
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -2505,7 +2552,8 @@ void launchStageIntersectQueued(
         d_lights, num_lights, total_light_power, \
         d_dedLights, num_ded, lightTree, \
         d_vol_queue, d_vol_count, \
-        d_curveSegments
+        d_curveSegments, \
+        d_grid_queue, d_grid_count
     {
         // pkg198 Stage 2: the second axis picks the pass-AOV specialization. The
         // fleet (no scatter, no passes) launches <false,false> — REG 127, byte-
@@ -2519,32 +2567,43 @@ void launchStageIntersectQueued(
         // land in the cubin for the cuobjdump register report.
         const bool hc = (d_curveSegments != nullptr);
         const int sel = (has_world_scatter ? 2 : 0) | (has_light_pass_aovs ? 1 : 0);
-        const void* kptr = hc ?
-            (sel == 3 ? (const void*)stageIntersectQueuedKernel<true, true, true>  :
-             sel == 2 ? (const void*)stageIntersectQueuedKernel<true, false, true> :
-             sel == 1 ? (const void*)stageIntersectQueuedKernel<false, true, true> :
-                        (const void*)stageIntersectQueuedKernel<false, false, true>) :
-            (sel == 3 ? (const void*)stageIntersectQueuedKernel<true, true, false>  :
-             sel == 2 ? (const void*)stageIntersectQueuedKernel<true, false, false> :
-             sel == 1 ? (const void*)stageIntersectQueuedKernel<false, true, false> :
-                        (const void*)stageIntersectQueuedKernel<false, false, false>);
+        // pkg269: the 4th (HasGridVolume) axis. Scenes without bounded media
+        // launch the <..,..,..,false> kernels (the whole grid block DCE'd →
+        // intersect<false,false,false,false> unchanged, byte-identical); only
+        // scenes carrying grid/homogeneous media launch <..,..,..,true>. All 16
+        // instantiations are referenced so they land in the cubin.
+        #define ASTRORAY_PKG269_KSEL(G) \
+            (hc ? \
+                (sel == 3 ? (const void*)stageIntersectQueuedKernel<true, true, true, G>  : \
+                 sel == 2 ? (const void*)stageIntersectQueuedKernel<true, false, true, G> : \
+                 sel == 1 ? (const void*)stageIntersectQueuedKernel<false, true, true, G> : \
+                            (const void*)stageIntersectQueuedKernel<false, false, true, G>) : \
+                (sel == 3 ? (const void*)stageIntersectQueuedKernel<true, true, false, G>  : \
+                 sel == 2 ? (const void*)stageIntersectQueuedKernel<true, false, false, G> : \
+                 sel == 1 ? (const void*)stageIntersectQueuedKernel<false, true, false, G> : \
+                            (const void*)stageIntersectQueuedKernel<false, false, false, G>))
+        const void* kptr = has_grid_volume ? ASTRORAY_PKG269_KSEL(true) : ASTRORAY_PKG269_KSEL(false);
+        #undef ASTRORAY_PKG269_KSEL
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_intersect_queued_n7", kptr, blocks, threads);
-        if (hc) {
-            switch (sel) {
-                case 3: stageIntersectQueuedKernel<true, true, true> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
-                case 2: stageIntersectQueuedKernel<true, false, true><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
-                case 1: stageIntersectQueuedKernel<false, true, true> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
-                default:stageIntersectQueuedKernel<false, false, true><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
+        #define ASTRORAY_PKG269_LAUNCH(G) \
+            if (hc) { \
+                switch (sel) { \
+                    case 3: stageIntersectQueuedKernel<true, true, true, G> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break; \
+                    case 2: stageIntersectQueuedKernel<true, false, true, G><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break; \
+                    case 1: stageIntersectQueuedKernel<false, true, true, G> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break; \
+                    default:stageIntersectQueuedKernel<false, false, true, G><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break; \
+                } \
+            } else { \
+                switch (sel) { \
+                    case 3: stageIntersectQueuedKernel<true, true, false, G> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break; \
+                    case 2: stageIntersectQueuedKernel<true, false, false, G><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break; \
+                    case 1: stageIntersectQueuedKernel<false, true, false, G> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break; \
+                    default:stageIntersectQueuedKernel<false, false, false, G><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break; \
+                } \
             }
-        } else {
-            switch (sel) {
-                case 3: stageIntersectQueuedKernel<true, true, false> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
-                case 2: stageIntersectQueuedKernel<true, false, false><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
-                case 1: stageIntersectQueuedKernel<false, true, false> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
-                default:stageIntersectQueuedKernel<false, false, false><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break;
-            }
-        }
+        if (has_grid_volume) { ASTRORAY_PKG269_LAUNCH(true) } else { ASTRORAY_PKG269_LAUNCH(false) }
+        #undef ASTRORAY_PKG269_LAUNCH
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             std::fprintf(stderr, "stage_intersect_queued launch error: %s\n",
@@ -2783,6 +2842,15 @@ void setWavefrontGuideBinding(const GWavefrontGuideBinding& binding)
 void setWavefrontWorldVolume(const GWorldVolume& volume)
 {
     cudaMemcpyToSymbol(c_worldVolume, &volume, sizeof(GWorldVolume));
+}
+
+// pkg269 — publish the frame's bounded-media side table into the __constant__
+// c_wfGridVolume symbol (read by intersectPathSlotT<...,true>, stageShadowKernel
+// and the hetero scatter stage). Called ONCE per frame by every wavefront driver;
+// count==0 disables every grid branch (byte-identical renders).
+void setWavefrontGridVolumeBinding(const GWavefrontGridVolumeBinding& binding)
+{
+    cudaMemcpyToSymbol(c_wfGridVolume, &binding, sizeof(GWavefrontGridVolumeBinding));
 }
 
 // pkg201 Stage 2 (Finding F) — publish the frame's transparent-film coverage

@@ -219,6 +219,9 @@ float GridMedium::majorantDensityWorld(float wx, float wy, float wz) const {
     return impl_->majorant.lookup(sv[0], sv[1], sv[2]);
 }
 
+const void* GridMedium::nanoData() const { return impl_->densityHandle.data(); }
+size_t GridMedium::nanoBytes() const { return impl_->densityHandle.buffer().size(); }
+
 bool GridMedium::hasTemperature() const { return impl_->hasTemp; }
 float GridMedium::temperatureIndex(float ix, float iy, float iz) const {
     const DenseGrid& g = impl_->temperature;

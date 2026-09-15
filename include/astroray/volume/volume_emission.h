@@ -44,6 +44,7 @@ inline float cyclesBlackbodyIntensity(float temperatureK, float blackbodyIntensi
 struct VolumeEmission {
     float emissionStrength = 0.0f;
     float blackbodyIntensity = 0.0f;
+    std::array<float, 3> emissionRGB = {1.0f, 1.0f, 1.0f};  // pkg269: raw socket for the GPU upload
     bool tintIsWhite = true;
     astroray::RGBIlluminantSpectrum emissionSpec;  // Emission Color (illuminant upsample)
     astroray::RGBAlbedoSpectrum tintSpec;          // Blackbody Tint (reflectance-like filter)
@@ -55,6 +56,7 @@ struct VolumeEmission {
         std::array<float, 3> c = {std::max(0.0f, color[0]), std::max(0.0f, color[1]),
                                   std::max(0.0f, color[2])};
         emissionSpec = astroray::RGBIlluminantSpectrum(c);
+        emissionRGB = c;
         tintSpec = astroray::RGBAlbedoSpectrum(tint);
         tintIsWhite = std::abs(tint[0] - 1.0f) < 1e-6f && std::abs(tint[1] - 1.0f) < 1e-6f &&
                       std::abs(tint[2] - 1.0f) < 1e-6f;

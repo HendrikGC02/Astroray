@@ -446,6 +446,10 @@ add_library(astroray_core_impl STATIC
 # widely-included raytracer.h, which sees only the opaque GridMedium PIMPL).
 set_source_files_properties(src/volume/grid_medium.cpp PROPERTIES
     INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/external/nanovdb")
+# pkg269 — the GPU heterogeneous-volume stage is the only CUDA TU that reads the
+# NanoVDB device grid; scope the include path to it the same way.
+set_source_files_properties(src/gpu/wavefront/stage_volume_hetero.cu PROPERTIES
+    INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/external/nanovdb")
 
 # pkg55 Phase B' — CPU wavefront reference oracle + driver (Session 2b/2c).
 # Glob auto-picks up files as 2b/2c lands them. Session 2a only ships the
@@ -568,6 +572,7 @@ if(ASTRORAY_CUDA_FOUND)
             src/gpu/wavefront/stage_intersect_session_n3.cu
             src/gpu/wavefront/stage_shade_lambertian.cu
         src/gpu/wavefront/stage_advance.cu
+        src/gpu/wavefront/stage_volume_hetero.cu   # pkg269 heterogeneous-volume stage (NanoVDB)
             src/gpu/wavefront/stage_light_sample.cu
             src/gpu/wavefront/stage_russian_roulette.cu
             src/gpu/wavefront/stage_restir.cu

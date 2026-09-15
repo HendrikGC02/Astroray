@@ -59,6 +59,8 @@ struct BoundedMedium {
     float densityScale = 1.0f;                    // Principled "Density" D
     astroray::RGBAlbedoSpectrum colorSpec;        // JH-upsampled Color
     astroray::RGBAlbedoSpectrum absorptionSpec;   // JH-upsampled Absorption Color
+    std::array<float, 3> colorRGB = {0.8f, 0.8f, 0.8f};       // pkg269: raw sockets for the GPU upload
+    std::array<float, 3> absorptionRGB = {1.0f, 1.0f, 1.0f};
     VolumeEmission emission;
     float temperature = 1000.0f;                  // "Temperature" socket
     float emissionFloor = 0.0f;                   // tracking-rate floor for emissive media
@@ -100,6 +102,8 @@ inline void setupPrincipled(BoundedMedium& m, const PrincipledVolume& pv) {
     m.densityScale = std::max(0.0f, pv.density);
     m.colorSpec = astroray::RGBAlbedoSpectrum(pv.color);
     m.absorptionSpec = astroray::RGBAlbedoSpectrum(pv.absorptionColor);
+    m.colorRGB = pv.color;
+    m.absorptionRGB = pv.absorptionColor;
     m.emission.setup(pv.emissionStrength, pv.emissionColor, pv.blackbodyIntensity,
                      pv.blackbodyTint);
     m.temperature = std::max(0.0f, pv.temperature);

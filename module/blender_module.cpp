@@ -2547,8 +2547,8 @@ public:
             // the standard pybind11 + OpenMP + Python-callback pattern (and
             // what Cycles does around its render). With a null callback no
             // Python is touched, so releasing is a safe no-op. The addon .pyd
-            // is built OpenMP-OFF, so there the single (main) thread runs the
-            // callback and the re-acquire is a reentrant no-op.
+            // is built OpenMP-ON too (PR #790), so its CPU leg also runs the
+            // callback from worker threads and relies on this GIL release.
             {
                 py::gil_scoped_release release;
                 renderer.render(*camera, samplesPerPixel, maxDepth, callback, useAdaptiveSampling, false,

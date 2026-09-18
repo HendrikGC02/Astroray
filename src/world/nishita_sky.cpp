@@ -71,16 +71,8 @@ void sky_equirect(Mode mode,
   // (model_sun_az 0); multiple-scattering sun_direction(sin elev)->-X
   // (model_sun_az pi). Validated by rendering (sky glow coincides with the sun
   // disc); see test_batch_j_nishita_sky.py::test_sky_glow_matches_distant_sun.
-  // #814: match Cycles' Nishita sun world azimuth = 90deg - sun_rotation
-  // (measured vs Blender 5.2, 814-sun-direction-convention-research.md). The
-  // glow's world azimuth = model_sun_az - beta, so to land it at (pi/2 -
-  // sun_rotation): SS (model_sun_az 0) -> beta = sun_rotation - pi/2; MS
-  // (model_sun_az pi) -> beta = sun_rotation + pi/2. This keeps the baked sky
-  // glow coincident with the dedicated distant sun (same world azimuth) while
-  // matching Cycles' shadow direction.
-  const float half_pi = 0.5f * pi;
-  const float beta = (mode == Mode::MultipleScattering) ? (sun_rotation + half_pi)
-                                                        : (sun_rotation - half_pi);
+  const float beta =
+      (mode == Mode::MultipleScattering) ? (pi - sun_rotation) : (-sun_rotation);
   const float cos_b = std::cos(beta);
   const float sin_b = std::sin(beta);
 

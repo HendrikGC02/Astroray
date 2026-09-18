@@ -379,13 +379,6 @@ __device__ void initPathSlot(
     state.photon_xyz_y[idx] = 0.0f;
     state.photon_xyz_z[idx] = 0.0f;
 
-    // pkg269 — spectral-MIS r_u = 1 (no bounded-medium event yet); no medium.
-    state.vol_ru_0[idx] = 1.0f;
-    state.vol_ru_1[idx] = 1.0f;
-    state.vol_ru_2[idx] = 1.0f;
-    state.vol_ru_3[idx] = 1.0f;
-    state.grid_medium_id[idx] = -1;
-
     // Path flags.
     state.was_specular[idx] = 1;  // true
     state.env_nee_sampled_prev[idx] = 0;  // pkg258: no env NEE ran before the camera ray

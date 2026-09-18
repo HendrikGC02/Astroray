@@ -461,10 +461,15 @@ __device__ int intersectPathSlotT(
                 bestEnter = t0; mi = k; mEnter = t0; mExit = t1;
             }
         }
+        // r_u lanes live in the side table (not GPUWavefrontState). A path starts
+        // at bounce 0 with r_u = 1: reset there (no regen-kernel change needed).
+        const int ruCap = c_wfGridVolume.capacity;
+        float* const ruLane = c_wfGridVolume.ru;
+        if (bounce == 0)
+            for (int l = 0; l < G_SPECTRUM_SAMPLES; ++l) ruLane[l * ruCap + idx] = 1.f;
         if (mi >= 0) {
             GSampledSpectrum ru;
-            ru.v[0] = state.vol_ru_0[idx]; ru.v[1] = state.vol_ru_1[idx];
-            ru.v[2] = state.vol_ru_2[idx]; ru.v[3] = state.vol_ru_3[idx];
+            for (int l = 0; l < G_SPECTRUM_SAMPLES; ++l) ru.v[l] = ruLane[l * ruCap + idx];
             GSampledSpectrum beta = throughput * gpu_heroAverage(ru, lambdas);
             GSampledSpectrum emission(0.f);
             float tEv = 0.f;
@@ -490,8 +495,7 @@ __device__ int intersectPathSlotT(
                 float rAvg = gpu_heroAverage(ru, lambdas);
                 throughput = (rAvg > 0.f) ? beta * (1.f / rAvg) : GSampledSpectrum(0.f);
             }
-            state.vol_ru_0[idx] = ru.v[0]; state.vol_ru_1[idx] = ru.v[1];
-            state.vol_ru_2[idx] = ru.v[2]; state.vol_ru_3[idx] = ru.v[3];
+            for (int l = 0; l < G_SPECTRUM_SAMPLES; ++l) ruLane[l * ruCap + idx] = ru.v[l];
             state.throughput_0[idx] = throughput.v[0];
             state.throughput_1[idx] = throughput.v[1];
             state.throughput_2[idx] = throughput.v[2];
@@ -507,7 +511,7 @@ __device__ int intersectPathSlotT(
                 state.ray_origin_x[idx] = P.x;
                 state.ray_origin_y[idx] = P.y;
                 state.ray_origin_z[idx] = P.z;
-                state.grid_medium_id[idx] = mi;
+                c_wfGridVolume.mediumId[idx] = mi;
                 return -3;
             }
             // escaped: delta-track survival IS the transmittance — fall through.
@@ -2029,7 +2033,8 @@ __device__ bool shadePathSlot(
 // <*, false> specialisation keeps the binary gpu_nee_occlude (fleet byte-
 // identical); <*, true> walks transparent occluders and attenuates the NEE
 // contribution by the accumulated transmittance.
-template<bool HasCurves = false, bool HasAlphaShadow = false>
+template<bool HasCurves = false, bool HasAlphaShadow = false,
+         bool HasGridVolume = false>  // pkg269 — bounded-media isolation axis
 __global__ void stageShadowKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -2170,11 +2175,11 @@ __global__ void stageShadowKernel(
     }
     // pkg269 — per-λ ratio-tracking transmittance through every bounded medium
     // the shadow segment crosses (device twin of the CPU medium/surface NEE
-    // attenuation, Novák 2014). Runtime-gated on the side-table count (this lean
-    // resolve kernel is not register-critical): the fleet pays one predicated
-    // branch on a constant zero. geomDist==0 (distant/infinite light) => cross
-    // the whole AABB, like the CPU's ls.distance for an infinite light.
-    if (c_wfGridVolume.count > 0) {
+    // attenuation, Novák 2014). Behind the HasGridVolume axis: the grid-free
+    // <..., false> shadow kernels compile this out entirely (REG/STACK unchanged).
+    // geomDist==0 (distant/infinite light) => cross the whole AABB, like the
+    // CPU's ls.distance for an infinite light.
+    if constexpr (HasGridVolume) if (c_wfGridVolume.count > 0) {
         float geomDist = nee_f[14 * nee_capacity + idx];
         float segFar = (geomDist > 0.f) ? geomDist : 1e30f;  // (`far` is a windef.h macro)
         int parkedBounce = nee_i[3 * nee_capacity + idx];
@@ -3400,7 +3405,8 @@ void launchStageShadow(
     bool              useLuminanceOutput,   // pkg157
     float             clampDirect, float clampIndirect,  // pkg157
     const GCurveSegment* d_curveSegments,  // pkg225 Stage 3 (nullptr = no curves)
-    bool              hasAlphaShadow)  // pkg253 (scene has a Principled alpha<1)
+    bool              hasAlphaShadow,  // pkg253 (scene has a Principled alpha<1)
+    bool              hasGridVolume)   // pkg269 (bounded media present)
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -3413,11 +3419,16 @@ void launchStageShadow(
         // fleet path stays <…,false> (binary occlusion, byte-identical). All four
         // specialisations are referenced so they land in the cubin.
         const bool hc = (d_curveSegments != nullptr);
-        const void* kfn =
-            hc ? (hasAlphaShadow ? (const void*)stageShadowKernel<true,  true>
-                                 : (const void*)stageShadowKernel<true,  false>)
-               : (hasAlphaShadow ? (const void*)stageShadowKernel<false, true>
-                                 : (const void*)stageShadowKernel<false, false>);
+        // pkg269: third axis. Grid-free scenes launch <..,..,false> (unchanged);
+        // all eight specialisations are referenced so they land in the cubin.
+        #define ASTRORAY_PKG269_SHADOW_KFN(G) \
+            (hc ? (hasAlphaShadow ? (const void*)stageShadowKernel<true,  true,  G> \
+                                  : (const void*)stageShadowKernel<true,  false, G>) \
+                : (hasAlphaShadow ? (const void*)stageShadowKernel<false, true,  G> \
+                                  : (const void*)stageShadowKernel<false, false, G>))
+        const void* kfn = hasGridVolume ? ASTRORAY_PKG269_SHADOW_KFN(true)
+                                        : ASTRORAY_PKG269_SHADOW_KFN(false);
+        #undef ASTRORAY_PKG269_SHADOW_KFN
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_shadow_n7", kfn, blocks, threads);
         #define ASTRORAY_PKG225_SHADOW_ARGS \
@@ -3426,13 +3437,16 @@ void launchStageShadow(
             d_tlas, d_instances, d_blas, \
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials, \
             useLuminanceOutput, clampDirect, clampIndirect, d_curveSegments
-        if (hc) {
-            if (hasAlphaShadow) stageShadowKernel<true,  true> <<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS);
-            else                stageShadowKernel<true,  false><<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS);
-        } else {
-            if (hasAlphaShadow) stageShadowKernel<false, true> <<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS);
-            else                stageShadowKernel<false, false><<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS);
-        }
+        #define ASTRORAY_PKG269_SHADOW_LAUNCH(G) \
+            if (hc) { \
+                if (hasAlphaShadow) stageShadowKernel<true,  true,  G><<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS); \
+                else                stageShadowKernel<true,  false, G><<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS); \
+            } else { \
+                if (hasAlphaShadow) stageShadowKernel<false, true,  G><<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS); \
+                else                stageShadowKernel<false, false, G><<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS); \
+            }
+        if (hasGridVolume) { ASTRORAY_PKG269_SHADOW_LAUNCH(true) } else { ASTRORAY_PKG269_SHADOW_LAUNCH(false) }
+        #undef ASTRORAY_PKG269_SHADOW_LAUNCH
         #undef ASTRORAY_PKG225_SHADOW_ARGS
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {

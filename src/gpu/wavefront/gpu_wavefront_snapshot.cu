@@ -1074,6 +1074,7 @@ struct WfContext {
     WfDeviceBuf neeF, neeI, shadowQueue, shadowCount, work;
     WfDeviceBuf volQueue, volCount;   // pkg199 Stage 2 volume-scatter queue
     WfDeviceBuf gridQueue, gridCount; // pkg269 heterogeneous-medium queue
+    WfDeviceBuf gridRu, gridMediumId; // pkg269 per-path r_u (4 lanes) + scattered-medium id
     std::vector<WfDeviceBuf> gridBufs; // pkg269 device NanoVDB grid buffers (grow-only)
     // pkg258 - env NEE parked-record arrays + queue (SEPARATE from the lamp neeF/
     // neeI so an idx carries independent lamp AND env NEE records). Grow-only; only
@@ -1577,8 +1578,15 @@ std::vector<float> cuda_wavefront_render(
         if (media.size() > (size_t)G_WF_MAX_GRID_MEDIA)
             std::fprintf(stderr, "[pkg269] %zu bounded media exceed the GPU side table (%d); "
                          "the rest are ignored on the GPU\n", media.size(), G_WF_MAX_GRID_MEDIA);
-        setWavefrontGridVolumeBinding(gb);
         hasGridVolume = gb.count > 0;
+        // Per-path lanes only for scenes that carry bounded media (grow-only).
+        gb.ru = nullptr; gb.mediumId = nullptr; gb.capacity = 0;
+        if (hasGridVolume) {
+            gb.ru = wfEnsure<float>(C.gridRu, size_t(G_SPECTRUM_SAMPLES) * total_paths);
+            gb.mediumId = wfEnsure<int>(C.gridMediumId, total_paths);
+            gb.capacity = total_paths;
+        }
+        setWavefrontGridVolumeBinding(gb);
     }
     // pkg201 Stage 2 (Finding D) — publish the pixel reconstruction filter every
     // frame (c_wfPixelFilter is __constant__ and persists across calls). Box
@@ -2156,7 +2164,8 @@ std::vector<float> cuda_wavefront_render(
                               useLuminanceOutput,
                               clampDirect, clampIndirect,  // pkg157
                               d_curveSegments,  // pkg225 Stage 3 — curve shadows
-                              res.hasAlphaShadow);  // pkg253 — transparent shadows
+                              res.hasAlphaShadow,  // pkg253 — transparent shadows
+                              hasGridVolume);      // pkg269 — bounded-media Tr axis
             // pkg258: resolve env NEE records parked by the shade stage this pass
             // (independent additive strategy; no-op when env NEE off / no HDRI).
             if (envNeeOn)

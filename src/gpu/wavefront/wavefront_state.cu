@@ -81,12 +81,6 @@ bool allocateGPUWavefrontState(GPUWavefrontState& s, int capacity) {
     ALLOC_CHECK(s.path_mis_pdf,    capacity * sizeof(float));
     ALLOC_CHECK(s.path_mis_weight, capacity * sizeof(float));
     ALLOC_CHECK(s.path_bsdf_pdf,   capacity * sizeof(float));  // pkg120
-    // pkg269 — spectral-MIS r_u lanes + scattered-medium id (bounded media).
-    ALLOC_CHECK(s.vol_ru_0, capacity * sizeof(float));
-    ALLOC_CHECK(s.vol_ru_1, capacity * sizeof(float));
-    ALLOC_CHECK(s.vol_ru_2, capacity * sizeof(float));
-    ALLOC_CHECK(s.vol_ru_3, capacity * sizeof(float));
-    ALLOC_CHECK(s.grid_medium_id, capacity * sizeof(int));
 
     // pkg55-C5 / pkg113: photon caustic XYZ contribution (see gpu_wavefront_state.h).
     // Written by shadePathSlot at bounce==0 when hasPhotonGrid, read by stageRegenKernel
@@ -152,11 +146,6 @@ void freeGPUWavefrontState(GPUWavefrontState& s) {
     cudaFree(s.path_mis_pdf);
     cudaFree(s.path_mis_weight);
     cudaFree(s.path_bsdf_pdf);  // pkg120
-    cudaFree(s.vol_ru_0);       // pkg269
-    cudaFree(s.vol_ru_1);
-    cudaFree(s.vol_ru_2);
-    cudaFree(s.vol_ru_3);
-    cudaFree(s.grid_medium_id);
 
     cudaFree(s.photon_xyz_x);  // pkg55-C5
     cudaFree(s.photon_xyz_y);

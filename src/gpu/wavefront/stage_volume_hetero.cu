@@ -20,8 +20,9 @@
 //                                    continuation with the MEDIUM's g. The REG-254
 //                                    stageShadeBucketedKernel is never touched.
 // Media/grids arrive through the __constant__ side table c_wfGridVolume
-// (stage_advance.cu; memory shade-axis-side-table-avoids-spill) and the
-// per-path SoA lanes vol_ru_0..3 / grid_medium_id (gpu_wavefront_state.h).
+// (stage_advance.cu; memory shade-axis-side-table-avoids-spill), which also
+// carries the per-path r_u / medium-id lanes (kept out of GPUWavefrontState so no
+// fleet kernel's by-value parameter block grows).
 
 #include <nanovdb/NanoVDB.h>
 
@@ -248,7 +249,7 @@ __global__ void stageVolumeHeteroScatterKernel(
     int idx = grid_queue[i];
     if (state.path_alive[idx] == 0) return;
     const int bounce = state.bounce[idx];
-    int mid = state.grid_medium_id[idx];
+    int mid = c_wfGridVolume.mediumId[idx];
     if (mid < 0 || mid >= c_wfGridVolume.count) { state.path_alive[idx] = 0; return; }
     const float g = c_wfGridVolume.media[mid].g;
 

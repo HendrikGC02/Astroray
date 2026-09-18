@@ -135,16 +135,6 @@ struct GPUWavefrontState {
     // an emitter, to weight the BSDF-sampled emission by the power heuristic
     // against the reconstructed light-sampling pdf (gpu_reconstruct_light_pdf).
     float*    path_bsdf_pdf   = nullptr;
-    // pkg269 — hero-wavelength spectral-MIS rescaled path pdf r_u (pbrt-v4
-    // VolPath) through bounded chromatic media: throughput == beta/avg(r_u).
-    // Init 1 at regen; touched only by intersectPathSlotT<..., HasGridVolume>.
-    float*    vol_ru_0        = nullptr;
-    float*    vol_ru_1        = nullptr;
-    float*    vol_ru_2        = nullptr;
-    float*    vol_ru_3        = nullptr;
-    // pkg269 — index into c_wfGridVolume.media of the medium a path scattered in
-    // (parked by intersect for the hetero scatter stage); -1 = none.
-    int*      grid_medium_id  = nullptr;
 
     // pkg55-C5 / pkg113: photon caustic contribution (XYZ) accumulated at primary
     // hit (bounce==0) from photonGridGatherKnn. Added to accum_xyz during regen
@@ -654,7 +644,8 @@ void launchStageShadow(
     bool              useLuminanceOutput,   // pkg157
     float             clampDirect, float clampIndirect,  // pkg157
     const GCurveSegment* d_curveSegments = nullptr,  // pkg225 Stage 3
-    bool              hasAlphaShadow = false);  // pkg253 (Principled alpha<1 scene)
+    bool              hasAlphaShadow = false,  // pkg253 (Principled alpha<1 scene)
+    bool              hasGridVolume = false);  // pkg269 (bounded media: per-λ ratio-tracking Tr)
 
 // Session N+7 part 4: path regeneration -- dense pass accumulating dead
 // paths' radiance (atomic, per-pixel) then refilling slots from a global

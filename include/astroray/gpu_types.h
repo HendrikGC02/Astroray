@@ -805,6 +805,16 @@ struct GGridMedium {
 };
 struct GWavefrontGridVolumeBinding {
     int count;                   // 0 (default) = no bounded media: fleet byte-identical
+    // Per-path lanes, driver-allocated ONLY for scenes with bounded media and kept
+    // OUT of GPUWavefrontState (a by-value kernel parameter: growing it grows the
+    // STACK of every wavefront kernel, the REG-254 shade kernel included).
+    //   ru[lane*capacity + idx] — hero-wavelength spectral-MIS rescaled path pdf r_u
+    //     (pbrt-v4 VolPath): throughput == beta/avg(r_u). Reset to 1 at bounce 0 by
+    //     intersectPathSlotT<..., HasGridVolume=true>.
+    //   mediumId[idx] — medium a path scattered in (parked for the hetero stage).
+    float* ru;
+    int*   mediumId;
+    int    capacity;
     GGridMedium media[G_WF_MAX_GRID_MEDIA];
 };
 

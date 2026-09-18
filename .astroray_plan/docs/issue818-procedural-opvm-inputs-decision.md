@@ -59,3 +59,14 @@ The genuinely-new value in Item 2 is the non-affine part, which requires the ful
 materially larger, REG:254-risky change. Recommendation: land Item 1 (closes the
 issue's PRIMARY acceptance — the `Noise → Math → Ramp → Base Color` row), and file
 option (b) as a scoped follow-up for the non-affine coordinate distortion.
+
+## Follow-ups filed (2026-09-18)
+- **#822** — Item 2: coordinate-side non-affine math needs the `OP_LOAD_PROC` /
+  coordinate-as-VM-input architecture (option b). Deferred (REG:254 risk, large).
+- **#823** — Item 3: the parity coverage scanner targets `compile_socket` (a thin
+  wrapper) instead of `_compile_socket_value` (where the op-VM `ntype` dispatch
+  lives), so Math/Mix/Map Range/Clamp/… read DROPPED-SILENT in the matrix.
+  The one-line target fix flips ~46 rows to SUPPORTED but cascades into a
+  46-tag `textures_mapping` corpus-scene obligation (manifest gate) + a plain
+  regen drops unrelated pkg256/EMISSION notes — so it is a separate package,
+  not committed here.

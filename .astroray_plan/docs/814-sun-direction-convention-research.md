@@ -77,10 +77,33 @@ Astroray was at ( cosE*cosR, cosE*sinR, sinE ) => azimuth R.
    - SS (model_az 0):  beta = sun_rotation - pi/2   (was -sun_rotation)
    - MS (model_az pi): beta = sun_rotation + pi/2   (was pi - sun_rotation)
 
-## Gate
-The self-consistency test (glow == disc) must still pass with updated expected
-values. The decisive external gate is the headless Blender 5.2 Cycles-vs-Astroray
-A/B (pole shadow azimuth at sun_rotation 0/90/225): a constant offset (this
-model) vs a mirror is distinguished by whether (astro_az - cycles_az) is constant
-across rotations. Verify before finalizing — Blender 5.2's shipped convention is
-the ground truth, this note is the analytic prediction.
+NOTE: fix items 2 and 3 above were an OVER-CORRECTION — see the scope
+correction below. The bake was already correct; only the raw-world sun LIGHT
+(item 1, plus sky_bake.sun_disc_params' direction field) needed changing.
+
+## SCOPE CORRECTION (2026-09-18) — fix the sun LIGHT only, not the bake
+Building the first attempt and running the pre-existing LIVE-Cycles gate
+`test_pkg256_sky_bake.py::test_sun_column_matches_cycles` FAILED (bake_col
+26->239 vs Cycles 41): rotating the bake moved the sky glow to the WRONG side.
+Reason: the baked sky is loaded via `load_environment_map(blender_convention=
+True)`, whose coord swap ALREADY maps the bake's authoring azimuth onto Cycles'
+world azimuth — so the OLD bake was correct and must not be touched. Only the
+dedicated distant sun is a RAW WORLD vector that bypasses that swap. Final fix =
+sun-LIGHT direction only (world dir toward sun = (cosE sinR, cosE cosR, sinE)):
+blender_addon/__init__.py MS/SS branch + sky_bake.sun_disc_params' `direction`
+field. src/world/nishita_sky.cpp beta and sky_bake._sun_direction reverted to
+origin/main.
+
+## VERIFIED (direct Astroray CPU render vs Cycles, 2026-09-18)
+scratchpad/astro_sun_probe.py renders a top-down sphere scene with the fixed
+dedicated sun (no Blender, set_use_gpu(False)); RGB marker spheres calibrate
++X=image-right, +Y=image-up.
+
+| sun_rotation | Cycles sun az | Astroray sun az | match |
+|--------------|---------------|-----------------|-------|
+| 0   deg | 90  (+Y)  | 90  (+Y)  | yes |
+| 90  deg | 0   (+X)  | 0   (+X)  | yes |
+| 225 deg | 225 (-X-Y)| 225 (-X-Y)| yes |
+
+Evidence: test_results/batchL/814_sun_direction_contact_sheet.png (Cycles top,
+Astroray bottom — shadows point the same way at every rotation).

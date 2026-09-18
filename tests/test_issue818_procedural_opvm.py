@@ -238,3 +238,83 @@ def test_gpu_procedural_opvm_input_not_flat_and_parity():
     for c, rr in enumerate(ratio):
         assert 0.80 <= rr <= 1.25, (
             f"channel {c} CPU/GPU mean-ratio {rr:.3f} out of band; cpu={cm}, gpu={gm}")
+
+
+# --------------------------------------------------------------------------- #
+# Degradation: a MULTI-input op-VM program (>1 texture input) is NON-SILENT.
+# The GPU samples exactly one input (scene_upload requires numInputs()==1), so a
+# multi-input program renders flat on GPU / exact on CPU — the addon must record
+# a degradation entry (critic item 1, PR #821). Uses the addon bpy-stub pattern
+# from tests/test_blender_uv_plumbing.py.
+# --------------------------------------------------------------------------- #
+def _load_addon_stub(monkeypatch):
+    import importlib.util
+    import types
+    from pathlib import Path
+    bpy = types.ModuleType("bpy")
+    bt = types.ModuleType("bpy.types")
+    bp = types.ModuleType("bpy.props")
+
+    class _B: pass
+    class _RE:
+        def report(self, *_a, **_k): return None
+    bt.Panel = bt.Operator = bt.AddonPreferences = bt.PropertyGroup = _B
+    bt.RenderEngine = _RE
+    bpy.types = bt
+    for n in ("BoolProperty", "IntProperty", "FloatProperty", "StringProperty",
+              "PointerProperty", "FloatVectorProperty", "EnumProperty"):
+        setattr(bp, n, lambda **_k: None)
+    bpy.props = bp
+    bpy.path = types.SimpleNamespace(abspath=lambda p: p)
+    ar = types.ModuleType("astroray")
+    ar.__version__ = "test"
+    ar.__features__ = {"cuda": False, "spectral": True}
+    ar.__file__ = "/fake/astroray.pyd"
+    ar.integrator_registry_names = lambda: ["path_tracer"]
+    ar.material_registry_names = lambda: ["lambertian", "disney"]
+    ar.pass_registry_names = lambda: []
+    sb = types.ModuleType("shader_blending")
+    sb.blend_shader_specs = {}
+    sb.add_shader_specs = {}
+    mu = types.ModuleType("mathutils")
+    mu.Vector = lambda v: v
+    for name, mod in (("bpy", bpy), ("bpy.types", bt), ("bpy.props", bp),
+                      ("astroray", ar), ("shader_blending", sb), ("mathutils", mu)):
+        monkeypatch.setitem(sys.modules, name, mod)
+    path = Path(__file__).parent.parent / "blender_addon" / "__init__.py"
+    spec = importlib.util.spec_from_file_location("astroray_addon_818", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _NoopProgRenderer:
+    """Mock renderer exposing the program/texture bindings _maybe_build_program_
+    texture probes; every call is a no-op (we only assert the degradation entry)."""
+    def __getattr__(self, _name):
+        return lambda *a, **k: 1
+
+
+def test_multi_input_program_records_degradation(monkeypatch):
+    addon = _load_addon_stub(monkeypatch)
+    eng = addon.CustomRaytracerRenderEngine.__new__(addon.CustomRaytracerRenderEngine)
+    eng._current_material_name = "M"
+    eng._generated_textures_by_material = {}
+
+    # Two Noise textures into one Mix -> Base Color: compile_chain yields 2 inputs.
+    noise_a = Node('TEX_NOISE', inputs=[Sock('Vector')])
+    noise_b = Node('TEX_NOISE', inputs=[Sock('Vector')])
+    mix = Node('MIX_RGB', blend_type='MIX',
+               inputs=[Sock('Fac', 0.5),
+                       Sock('Color1', [0, 0, 0], Link(noise_a, 'Color')),
+                       Sock('Color2', [0, 0, 0], Link(noise_b, 'Color'))])
+    base = Sock('Base Color', [0.5, 0.5, 0.5], Link(mix, 'Color'))
+    node = Node('BSDF_PRINCIPLED', inputs=[base])
+
+    try:
+        eng._maybe_build_program_texture(base, node, 'Base Color', _NoopProgRenderer())
+    except Exception:
+        pass  # the warning fires before any renderer program call; build outcome irrelevant
+
+    lines = eng._degradation_report().messages()
+    assert any("multi-input shader program" in m for m in lines), lines

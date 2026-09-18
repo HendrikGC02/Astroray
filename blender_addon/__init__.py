@@ -3958,6 +3958,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 'flattened (unsupported)')
             return None
         input_kind = kinds.pop()
+        # #818 critic item 1: the GPU op-VM path samples exactly ONE input texture
+        # (scene_upload.cu requires pt->numInputs() == 1); a program with >1 texture
+        # input (e.g. Noise -> Mix <- Checker, or two images into one Mix) renders
+        # correctly on the CPU but falls back to the flat base colour on the GPU.
+        # Record the visible degradation so it is never silent (real multi-input
+        # GPU support is tracked separately). CPU stays exact.
+        if len(inputs) > 1:
+            self._warn_shader_fallback(
+                'op-VM', 'multi-input shader program (%d texture inputs): '
+                'GPU renders base colour; CPU exact' % len(inputs))
         # Procedural inputs default to GENERATED coords (Blender standard for an
         # unconnected Vector) and reject affine coordinate chains, exactly like
         # the direct-to-BSDF procedural path (load_procedural_texture); image

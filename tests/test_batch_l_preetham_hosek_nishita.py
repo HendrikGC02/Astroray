@@ -53,7 +53,7 @@ def _load_blender_addon(monkeypatch):
     astroray_module.__file__ = "/fake/astroray.pyd"
     astroray_module.integrator_registry_names = lambda: ["path_tracer"]
     astroray_module.material_registry_names = lambda: ["lambertian"]
-    astroray_module.pass_registry_names = lambda: []
+    astroray_module.pass_registry_names = list
     # NOTE: no nishita_sky/nishita_sun on the stub — the bake attempt raises and
     # is caught by setup_world's guard AFTER the degradation warning fires, which
     # is exactly what we assert. Keeps the test free of numpy/HDR temp files.

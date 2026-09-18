@@ -2176,11 +2176,11 @@ __global__ void stageShadowKernel(
     // the whole AABB, like the CPU's ls.distance for an infinite light.
     if (c_wfGridVolume.count > 0) {
         float geomDist = nee_f[14 * nee_capacity + idx];
-        float far = (geomDist > 0.f) ? geomDist : 1e30f;
+        float segFar = (geomDist > 0.f) ? geomDist : 1e30f;  // (`far` is a windef.h macro)
         int parkedBounce = nee_i[3 * nee_capacity + idx];
         for (int k = 0; k < c_wfGridVolume.count; ++k) {
             float s0, s1;
-            if (gpu_gridAabbOverlap(c_wfGridVolume.media[k], s.origin, s.wi, 1e-3f, far, s0, s1)) {
+            if (gpu_gridAabbOverlap(c_wfGridVolume.media[k], s.origin, s.wi, 1e-3f, segFar, s0, s1)) {
                 uint32_t salt = G_WF_GRIDSHADOW_DIM_SALT + (uint32_t)parkedBounce * 4096u
                                 + (uint32_t)k * 1024u;
                 contrib *= gpu_gridVolumeTransmittance(k, s.origin, s.wi, s0, s1, lambdas,

@@ -31,24 +31,41 @@
 #include "astroray/sampling/wavefront_rng_device.h"
 #include "../profile.h"
 #include "../gpu_spectral_tables.h"
-#include "../gpu_volume_phase.cuh"
 
 #include <cuda_runtime.h>
+#include <curand_kernel.h>
+#include <cstdint>
 #include <cstdio>
 #include <stdexcept>
 
-// Per-path PCG32 uniform for gpu_nee.cuh (same shim stage_advance.cu defines).
-__device__ inline float gpu_rng_uniform(WavefrontRNG* rng) { return rng->Uniform(); }
+// Per-path PCG32 uniform for gpu_nee.cuh — the same ADL shim stage_advance.cu
+// defines (WavefrontRNG lives in namespace astroray).
+namespace astroray {
+__device__ inline float gpu_rng_uniform(WavefrontRNG* rng) {
+    return rng->Uniform();
+}
+}  // namespace astroray
+using astroray::gpu_rng_uniform;
 #include "../gpu_nee.cuh"
 
-// Defined in stage_advance.cu (published once per frame by
-// setWavefrontGridVolumeBinding / setWavefrontLightPassBinding).
-extern __constant__ GWavefrontGridVolumeBinding c_wfGridVolume;
-extern __constant__ GWavefrontLightPassBinding  c_wfLpBinding;
 // Non-inline XYZ wrapper exported by multiwavelength_kernel.cu.
 __device__ GVec3 gpu_spectrum_to_xyz(const GSampledSpectrum& s, const GSampledWavelengths& wl);
 
+namespace astroray::wavefront {
+
+// Included INSIDE the namespace, exactly as stage_advance.cu does, so the
+// rdc-linked gpu_gridVolume* symbols have the same qualified names in both TUs.
+#include "../gpu_volume_phase.cuh"
+
+// Defined in stage_advance.cu (namespace astroray::wavefront; published once per
+// frame by setWavefrontGridVolumeBinding / setWavefrontLightPassBinding).
+extern __constant__ GWavefrontGridVolumeBinding c_wfGridVolume;
+extern __constant__ GWavefrontLightPassBinding  c_wfLpBinding;
+
 namespace {
+
+// Mirrors stage_advance.cu (TU-local there): unset light-path category.
+constexpr unsigned char G_LP_CAT_UNSET = 0xFFu;
 
 // D · voxel density at a world point (homogeneous => D). Nearest voxel via the
 // NanoVDB accessor — mirrors GridMedium::densityWorld (nearest, not trilinear,
@@ -381,3 +398,5 @@ void launchStageVolumeHeteroScatter(
         }
     }
 }
+
+}  // namespace astroray::wavefront

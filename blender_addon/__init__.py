@@ -5889,7 +5889,24 @@ class CustomRaytracerRenderEngine(RenderEngine):
             try:
                 import sky_bake
                 sky_type = str(getattr(sky_node, 'sky_type', 'MULTIPLE_SCATTERING'))
+                # #814 item 4: PREETHAM / HOSEK_WILKIE are legacy Cycles sky
+                # models Astroray does not implement. Route them through the
+                # engine-side spectral Nishita sky (MULTIPLE_SCATTERING) with a
+                # degradation warning, so they share the correct sun direction
+                # and disc handling instead of the separate Preetham bake. They
+                # honour the same sun_elevation/sun_rotation the bake already
+                # read; turbidity / ground_albedo are NOT honoured by Nishita.
+                nishita_mode = None
                 if sky_type in ('SINGLE_SCATTERING', 'MULTIPLE_SCATTERING'):
+                    nishita_mode = sky_type
+                elif sky_type in ('PREETHAM', 'HOSEK_WILKIE'):
+                    nishita_mode = 'MULTIPLE_SCATTERING'
+                    self._warn_shader_fallback(
+                        'TEX_SKY',
+                        "sky_type %r is not implemented; Astroray renders it as "
+                        "the Nishita (MULTIPLE_SCATTERING) sky. NOT honoured: "
+                        "turbidity, ground_albedo." % sky_type)
+                if nishita_mode is not None:
                     # #799 Phase 2: engine-side spectral Nishita sky
                     # (vendored Blender Apache/MIT models,
                     # external/blender_sky/). The sky AND the sun disc come
@@ -5903,7 +5920,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     aero = float(getattr(sky_node, 'aerosol_density', 1.0))
                     ozone = float(getattr(sky_node, 'ozone_density', 1.0))
                     sky_img = astroray.nishita_sky(
-                        sky_type, 1024, 512, sun_elev, sun_rot,
+                        nishita_mode, 1024, 512, sun_elev, sun_rot,
                         altitude, air, aero, ozone)
                     fd, sky_temp_path = tempfile.mkstemp(prefix="astroray_sky_", suffix=".hdr")
                     os.close(fd)
@@ -5928,7 +5945,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         sun_size = float(getattr(sky_node, 'sun_size', 0.009512))
                         sun_intensity = float(getattr(sky_node, 'sun_intensity', 1.0))
                         bottom, top = astroray.nishita_sun(
-                            sky_type, sun_elev, sun_size, altitude, air, aero, ozone)
+                            nishita_mode, sun_elev, sun_size, altitude, air, aero, ozone)
                         # Cycles draws the disc with limb darkening
                         # 1 - 0.6*(1 - sqrt(1 - (angle/half)^2)) (svm/sky.h). Our
                         # DistantLight disc is uniform, so apply the area-average
@@ -5960,10 +5977,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                 {'mode': 'rgb', 'color': color},
                                 lum_s * strength, 0, 0)
                 else:
-                    # PREETHAM / HOSEK_WILKIE: keep the licence-clean
-                    # Preetham/Perez analytic bake (sky_bake.py); these
-                    # legacy Cycles models are approximated with one model
-                    # plus a Preetham-derived distant sun disc.
+                    # #814 item 4: fallback for any UNRECOGNISED sky_type (the
+                    # four known types SINGLE/MULTIPLE_SCATTERING/PREETHAM/
+                    # HOSEK_WILKIE now all route to the engine Nishita sky
+                    # above). A future Blender sky_type lands here on the
+                    # licence-clean Preetham/Perez analytic bake with a warning.
                     sky_img = sky_bake.bake_to_equirect(sky_node, width=1024, height=512)
                     fd, sky_temp_path = tempfile.mkstemp(prefix="astroray_sky_", suffix=".hdr")
                     os.close(fd)

@@ -13,6 +13,7 @@ downstream Math / Ramp chain constant-folded to grey (memory
 """
 import os
 import sys
+
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "blender_addon"))
@@ -176,7 +177,6 @@ def _compiled_checker_passthrough():
 
 
 def _build_program_scene(r, use_gpu):
-    import astroray
     from base_helpers import setup_camera
     if use_gpu:
         r.set_use_gpu(True)
@@ -211,7 +211,7 @@ def _has_cuda_gpu(r):
 
 
 def test_gpu_procedural_opvm_input_not_flat_and_parity():
-    astroray = pytest.importorskip("astroray")
+    pytest.importorskip("astroray")
     from base_helpers import create_renderer, render_image
     rg = create_renderer()
     if not _has_cuda_gpu(rg):

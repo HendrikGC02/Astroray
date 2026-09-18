@@ -193,7 +193,7 @@ def test_gpu_constant_emission_slab_parity():
 def test_gpu_media_free_render_is_bit_identical():
     if not _gpu_available():
         pytest.skip("CUDA GPU not available on this machine")
-    a = _render(_smoke_scene(True, False), 32, 6, 32, 32)
+    a = _render(_smoke_scene(True, False, 32, 32), 32, 6, 32, 32)
     r = _smoke_scene(True, False, 32, 32)
     r.add_homogeneous_medium([-1, -1, -1], [1, 1, 1], 2.0, [0.5, 0.5, 0.5], [1, 1, 1], 0.0)
     r.clear_grid_media()

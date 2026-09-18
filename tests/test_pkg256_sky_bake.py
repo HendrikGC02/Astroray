@@ -270,11 +270,16 @@ def test_sun_disc_casts_shadow(astroray_mod):
         r.add_sun_light_dedicated(sun["direction"], sun["angular_diameter"],
                                   {"mode": "rgb", "color": sun["color"]},
                                   sun["intensity"])
+        # #814: sun_disc_params returns a Z-UP WORLD vector (the addon/engine
+        # world frame, Blender Z-up). The scene must use the same convention or
+        # the sun points below the ground: ground in the XY plane (normal +Z),
+        # sphere above it, camera looking straight down -Z. (The old scene put the
+        # ground in XZ / Y-up, which only lit for the pre-#814 sun vector.)
         white = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
-        r.add_triangle([-6, 0, -6], [6, 0, -6], [6, 0, 6], white)
-        r.add_triangle([-6, 0, -6], [6, 0, 6], [-6, 0, 6], white)
-        r.add_sphere([0, 1, 0], 1.0, white)
-        r.setup_camera(look_from=[0, 8, 0.01], look_at=[0, 0, 0], vup=[0, 0, -1],
+        r.add_triangle([-6, -6, 0], [6, -6, 0], [6, 6, 0], white)
+        r.add_triangle([-6, -6, 0], [6, 6, 0], [-6, 6, 0], white)
+        r.add_sphere([0, 0, 1], 1.0, white)
+        r.setup_camera(look_from=[0, 0, 8], look_at=[0, 0, 0], vup=[0, 1, 0],
                        vfov=55, aspect_ratio=1.0, aperture=0.0, focus_dist=8.0,
                        width=128, height=128)
         px = np.asarray(r.render(96, 6, None, False)).reshape(128, 128, 3)

@@ -59,6 +59,34 @@ def test_addon_leg_command_and_exr(monkeypatch, tmp_path, engine, device):
     np.testing.assert_allclose(back, img, rtol=0, atol=1e-6)  # same orientation, RGB order
 
 
+def test_ssim_reads_addon_leg_exr_as_rgb(tmp_path):
+    """#779 — the addon leg writes its EXR via cv2.imwrite (BGR channel order),
+    so the SSIM path must read it back RGB to compare against the RGB Cycles
+    reference. Round-trip a synthetic RGB image through the addon-leg write path
+    and assert the SSIM-side read is identical RGB (no Blender needed)."""
+    pytest.importorskip("cv2")
+    pytest.importorskip("skimage")
+    import cv2
+    import imageio.v3 as iio
+
+    rng = np.random.default_rng(5)
+    rgb = rng.random((48, 64, 3)).astype(np.float32)
+    out = tmp_path / "addon_leg.exr"
+    ref = tmp_path / "cycles_ref.exr"
+    # Same write path as _render_astroray_addon (cv2.imwrite of the BGR-reversed
+    # array); the Cycles reference is RGB on disk (iio.imwrite stands in for it).
+    assert cv2.imwrite(str(out), np.ascontiguousarray(rgb[..., ::-1]))
+    iio.imwrite(str(ref), rgb)
+    # The SSIM read path returns the addon leg back in RGB order.
+    back = rp._read_exr_float(out)
+    assert back is not None
+    np.testing.assert_allclose(back, rgb, rtol=0, atol=1e-6)
+    # Identical images on both sides must score ~1.0; a BGR/RGB swap would drop it.
+    ssim = rp._ssim(out, ref)
+    assert ssim != ""
+    assert float(ssim) > 0.999
+
+
 def test_addon_leg_missing_output_is_a_skip(monkeypatch, tmp_path):
     scene = rp._load_scenes()["glass_sphere"]
     monkeypatch.setattr(rp, "_run_command", lambda *a, **k: (1.0, 0.0, None))
@@ -75,8 +103,16 @@ def _find_blender():
 
 
 def _has_module():
-    return any((ROOT / d).glob("astroray*.pyd") or (ROOT / d).glob("astroray*.so")
-               for d in ("build_cuda", "build_cuda/Release")) or bool(os.environ.get("ASTRORAY_PYD_DIR"))
+    for d in ("build_cuda", "build_cuda/Release"):
+        if any((ROOT / d).glob("astroray*.pyd")) or any((ROOT / d).glob("astroray*.so")):
+            return True
+    pyd_dir = os.environ.get("ASTRORAY_PYD_DIR")
+    if pyd_dir:
+        # The dir must actually exist and hold a built module; a bare env var
+        # pointing at a missing directory must not count as "has module".
+        p = Path(pyd_dir)
+        return p.is_dir() and any(p.glob("astroray*.pyd"))
+    return False
 
 
 # Module-level BLENDER_EXE also makes the test classifier run this file serially.

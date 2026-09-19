@@ -243,15 +243,17 @@ def test_spectral_melanin_distinct_and_red_dominant():
     not (AVAILABLE and astroray.__features__.get("cuda", False)),
     reason="CUDA feature not in this build -- GPU spectral melanin parity needs the RTX box.")
 def test_gpu_spectral_melanin_matches_cpu():
-    # Pooled over 6 seeds (#767 / PR #837). One seed's ~130 lit pixels gave a
-    # per-seed B GPU/CPU spread of 0.79-0.91 on main (2 of 6 seeds below the
-    # 0.85 floor), so the single-seed gate measured noise. The CIE 1931 table
-    # change re-rolled the RR stream and moved the single seed to 0.832.
-    # Pooled B: main 0.865, #837 0.880.
+    # Pooled over 7 seeds (#767 / PR #837), now including the historical fixed
+    # SEED = 225501. One seed's ~130 lit pixels gave a per-seed B GPU/CPU spread
+    # of 0.79-0.91 on main (2 of 6 seeds below the 0.85 floor), so the
+    # single-seed gate measured noise. The CIE 1931 table change re-rolled the
+    # RR stream and moved the single seed to 0.832. Pooled B: main 0.865, #837
+    # 0.880. [The 0.865/0.880 pooled-B figures were measured over the original
+    # 6 seeds; they MUST be re-measured now that SEED=225501 is in the pool.]
     def _lum(im):
         return 0.2126 * im[..., 0] + 0.7152 * im[..., 1] + 0.0722 * im[..., 2]
     cs, gs = np.zeros(3), np.zeros(3)
-    for seed in (7, 11, 23, 31, 47, 59):
+    for seed in (7, 11, 23, 31, 47, 59, SEED):
         cpu = _render(use_gpu=False, spectral=True, melanin=0.6, redness=0.0, seed=seed)
         gpu = _render(use_gpu=True, spectral=True, melanin=0.6, redness=0.0, seed=seed)
         assert int(np.sum(~np.isfinite(gpu))) == 0

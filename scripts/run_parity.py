@@ -180,6 +180,27 @@ def _default_astroray_binary() -> Path | None:
     return None
 
 
+def _find_blender() -> str | None:
+    """Locate a Blender executable, newest-first across standard install dirs
+    (Windows ``Blender */blender.exe``) with a PATH fallback. Mirrors
+    scripts/build/build_blender_addon.py `_candidate_blender_paths` so the addon
+    leg can find a non-PATH Blender install."""
+    candidates: list[Path] = []
+    if platform.system() == "Windows":
+        base = Path(r"C:\Program Files\Blender Foundation")
+        if base.exists():
+            candidates += sorted(base.glob("Blender */blender.exe"), reverse=True)
+    elif platform.system() == "Darwin":
+        candidates.append(Path("/Applications/Blender.app/Contents/MacOS/Blender"))
+    else:
+        candidates += [Path(p) for p in
+                       ("/usr/bin/blender", "/usr/local/bin/blender", "/snap/bin/blender")]
+    for path in candidates:
+        if path.exists():
+            return str(path)
+    return shutil.which("blender")
+
+
 def _monitor_process(proc: subprocess.Popen) -> tuple[threading.Event, list[float]]:
     done = threading.Event()
     samples: list[float] = []
@@ -541,13 +562,20 @@ def _ssim(output: Path, reference: Path) -> str:
     try:
         import os
         os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')  # pkg76: SSIM runs in parent process
-        import imageio.v3 as iio  # type: ignore
         from skimage.metrics import structural_similarity  # type: ignore
 
         import numpy as np  # type: ignore
 
-        a = iio.imread(output).astype("float32")[..., :3]
-        b = iio.imread(reference).astype("float32")[..., :3]
+        # #779 — read both sides through _read_exr_float so the addon leg's
+        # cv2.imwrite-written EXR (BGR channel order) and the Cycles RGB
+        # reference come back RGB. imageio's default EXR plugin misreads these
+        # float files as uint8 (see _read_exr_float docstring).
+        a = _read_exr_float(output)
+        b = _read_exr_float(reference)
+        if a is None or b is None:
+            return ""
+        a = a.astype("float32")
+        b = b.astype("float32")
         if a.shape != b.shape:
             return ""
         finite = np.concatenate([a[np.isfinite(a)], b[np.isfinite(b)]])
@@ -703,7 +731,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--engine", action="append", dest="engines", choices=ENGINES, help="Engine id; repeatable")
     parser.add_argument("--runs", type=int, default=3, help="Timed subprocess runs per tuple")
     parser.add_argument("--timeout", type=int, default=3600, help="Per-process timeout in seconds")
-    parser.add_argument("--blender", default=shutil.which("blender"), help="Blender 4.x executable")
+    parser.add_argument("--blender", default=_find_blender(), help="Blender 4.x executable")
     parser.add_argument("--astroray", type=Path, default=_default_astroray_binary(), help="Astroray standalone binary")
     parser.add_argument("--output", type=Path, help="CSV output path")
     args = parser.parse_args(argv)

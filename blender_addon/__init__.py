@@ -2336,10 +2336,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
             else:
                 focus_dist = camera.dof.focus_distance
 
+        # pkg274 (#724): export the Blender camera clip planes so the engine
+        # bounds the PRIMARY camera ray's t to [clip_start, clip_end] (secondary
+        # rays are untouched). The binding defaults (0.001 / FLT_MAX) match the
+        # engine's pre-clip behaviour when a stub camera has no clip props.
+        clip_near = float(getattr(camera, "clip_start", 0.001))
+        clip_far = float(getattr(camera, "clip_end", 3.402823466e38))
         renderer.setup_camera(look_from, look_at, vup, vfov,
                               aspect,
                               aperture, focus_dist, width, height,
-                              shift_x, shift_y)
+                              shift_x, shift_y,
+                              clip_near=clip_near, clip_far=clip_far)
 
     def convert_materials(self, depsgraph, renderer):
         # In Blender 5.0+ every material is node-based (use_nodes is deprecated
@@ -3651,6 +3658,27 @@ class CustomRaytracerRenderEngine(RenderEngine):
             self._texture_cache = cache
         if cache_key in cache:
             return cache[cache_key]
+
+        # pkg274 (#723): a missing image file must never silently drop its node.
+        # A non-packed external image whose file does not exist falls back to a
+        # 1x1 magenta texture (Cycles renders missing images pink,
+        # intern/cycles/scene/image.cpp) and records a DEGRADED entry so the
+        # missing file surfaces once per render. Packed/generated images are
+        # untouched.
+        filepath = getattr(bpy_image, "filepath", "") or ""
+        packed = bool(getattr(bpy_image, "packed_file", None))
+        if filepath and not packed:
+            abspath = bpy.path.abspath(filepath)
+            if not os.path.exists(abspath):
+                try:
+                    renderer.load_texture(cache_key, [1.0, 0.0, 1.0], 1, 1)
+                except Exception as e:
+                    print(f"Astroray: failed to register magenta fallback for "
+                          f"missing texture '{bpy_image.name}': {e}")
+                    return None
+                self._degradation_report().degraded(bpy_image.name, abspath)
+                cache[cache_key] = cache_key
+                return cache_key
 
         try:
             width, height = bpy_image.size
@@ -5468,6 +5496,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # caustic-caster flag on the [pre, post) range.
             ao = getattr(obj, "astroray_object", None)
             is_caustic_caster = bool(getattr(ao, "is_caustic_caster", False))
+            # pkg274 (#36): Cycles holdout (object.is_holdout) -> camera-ray alpha
+            # hole. Mirrors the is_caustic_caster flag on the same [pre, post) range.
+            is_holdout = bool(getattr(obj, "is_holdout", False))
             scene_count_before = (renderer.scene_object_count()
                                   if hasattr(renderer, "scene_object_count") else 0)
 
@@ -5585,6 +5616,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 # pkg64 Phase 3 — caustic caster flag
                 if is_caustic_caster and hasattr(renderer, "set_object_caustic_caster"):
                     renderer.set_object_caustic_caster(oid, True)
+                # pkg274 (#36) — holdout flag (camera-ray alpha hole, no shading)
+                if is_holdout and hasattr(renderer, "set_object_holdout"):
+                    renderer.set_object_holdout(oid, True)
                 # pkg87c — Cryptomatte object name
                 if hasattr(renderer, "set_object_name"):
                     renderer.set_object_name(oid, obj.name)
@@ -6075,6 +6109,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 self._warn_shader_fallback('TEX_SKY', 'sky bake failed (%s)' % e)
                 sky_temp_path = None
                 hdri_path = None
+
+        # pkg274 (#723): a missing environment file must never silently drop the
+        # world. Cycles renders missing images pink; fall back to a magenta
+        # constant background and record a DEGRADED entry so the missing file
+        # surfaces once per render.
+        if hdri_path and not os.path.exists(hdri_path):
+            self._degradation_report().degraded("world HDRI", hdri_path)
+            renderer.set_background_color([1.0, 0.0, 1.0])
+            print(f"Missing HDRI file: {hdri_path} (magenta fallback)")
+            return
 
         # Try loading HDRI first.
         # pkg63: pass full XYZ rotation + RGB color tint; blender_convention=True

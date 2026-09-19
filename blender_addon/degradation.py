@@ -11,7 +11,9 @@ POLICY the addon's previously-parallel warning sources funnel through:
      ``native_settings.report_unsupported_native_controls``) - recorded as IGNORED;
   3. DROPPED-SILENT translation-dispatch fall-throughs (an unsupported surface
      shader node routed to a neutral grey material) surfaced at the dispatch
-     site - recorded as IGNORED.
+     site - recorded as IGNORED;
+  4. missing image/environment files replaced by a magenta fallback (pkg274 #723)
+     - recorded as DEGRADED.
 
 Route-2 discipline (dcc-integration-decision-2026-08 s6): this is a pure
 collector/formatter. It holds NO bpy or engine/session references; the render
@@ -25,10 +27,12 @@ from __future__ import annotations
 class DegradationReport:
     """Per-render accumulator of translation degradations.
 
-    Two dispositions, both surfaced (never silent):
+    Three dispositions, all surfaced (never silent):
 
       * :meth:`approximate` - a recognised input mapped to a nearest engine
         behaviour (e.g. Cycles microfiber sheen -> Disney sheen).
+      * :meth:`degrade` - an input that could not be read as authored and is
+        replaced by a visible fallback (e.g. a missing image/env file -> magenta).
       * :meth:`ignore` - an input the engine cannot honour yet and drops (e.g.
         an unsupported surface shader node, an ORTHO camera).
 
@@ -38,8 +42,9 @@ class DegradationReport:
 
     def __init__(self):
         self._approximated = []   # list of (feature, detail)
+        self._degraded = []       # list of (feature, detail)
         self._ignored = []        # list of (feature, detail)
-        self._seen = set()        # dedup keys across both buckets
+        self._seen = set()        # dedup keys across all buckets
 
     def _record(self, bucket, tag, feature, detail):
         key = (tag, feature, detail)
@@ -51,6 +56,10 @@ class DegradationReport:
     def approximate(self, feature, detail=""):
         """Record a recognised-but-approximated input."""
         self._record(self._approximated, "approx", str(feature), str(detail))
+
+    def degraded(self, feature, detail=""):
+        """Record an input replaced by a visible fallback (pkg274 #723)."""
+        self._record(self._degraded, "degraded", str(feature), str(detail))
 
     def ignore(self, feature, detail=""):
         """Record an unsupported input that is dropped (reported, not silent)."""
@@ -72,7 +81,7 @@ class DegradationReport:
         return list(self._ignored)
 
     def is_empty(self):
-        return not self._approximated and not self._ignored
+        return not self._approximated and not self._degraded and not self._ignored
 
     @staticmethod
     def _line(feature, detail):
@@ -83,15 +92,21 @@ class DegradationReport:
         lines = []
         for feature, detail in self._approximated:
             lines.append("approximated " + self._line(feature, detail))
+        for feature, detail in self._degraded:
+            lines.append("degraded " + self._line(feature, detail))
         for feature, detail in self._ignored:
             lines.append("ignored " + self._line(feature, detail))
         return lines
 
     def summary(self):
-        return (
-            f"Astroray degradation: {len(self._approximated)} approximated / "
-            f"{len(self._ignored)} ignored"
-        )
+        counts = [f"{len(self._approximated)} approximated"]
+        # The degraded segment only appears when there IS a degraded entry, so the
+        # pre-pkg274 "N approximated / M ignored" summary is unchanged for reports
+        # that record no degraded fallback (keeps pkg119-C tests byte-identical).
+        if self._degraded:
+            counts.append(f"{len(self._degraded)} degraded")
+        counts.append(f"{len(self._ignored)} ignored")
+        return "Astroray degradation: " + " / ".join(counts)
 
     def text(self):
         """The full consolidated report line, or "" when nothing degraded."""

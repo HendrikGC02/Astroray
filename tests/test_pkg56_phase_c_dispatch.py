@@ -196,28 +196,25 @@ def test_world_update_dispatches_environment_only(monkeypatch):
     assert "upload_lights" not in names
 
 
-def test_light_update_dispatches_lights_only(monkeypatch):
+# #835: MATERIALS / LIGHTS / GEOMETRY have no reconcile step — upload_* re-pushes
+# the engine's already-converted objects, so these edits must full-sync (the
+# per-domain dispatch below left the live viewport stale). Only reconciled
+# domains (environment, backend config, transforms) still dispatch.
+
+def test_light_update_falls_back(monkeypatch):
     _addon, eng, spy = _engine(monkeypatch)
     res = eng._apply_depsgraph_updates(
         spy, _depsgraph([_DepsgraphUpdate(Light("L"))]), settings=None)
-    assert res == "dispatched"
-    names = [c[0] for c in spy.calls]
-    assert "upload_lights" in names
-    assert "upload_geometry" not in names
-    assert "upload_environment" not in names
-    assert "upload_materials" not in names
+    assert res == "fallback"
+    assert spy.calls == []
 
 
-def test_material_update_dispatches_materials_only(monkeypatch):
+def test_material_update_falls_back(monkeypatch):
     _addon, eng, spy = _engine(monkeypatch)
     res = eng._apply_depsgraph_updates(
         spy, _depsgraph([_DepsgraphUpdate(Material("M"))]), settings=None)
-    assert res == "dispatched"
-    names = [c[0] for c in spy.calls]
-    assert "upload_materials" in names
-    assert "upload_geometry" not in names
-    assert "upload_environment" not in names
-    assert "upload_lights" not in names
+    assert res == "fallback"
+    assert spy.calls == []
 
 
 def test_image_update_falls_back_to_full_sync(monkeypatch):
@@ -232,35 +229,29 @@ def test_image_update_falls_back_to_full_sync(monkeypatch):
     assert spy.calls == []
 
 
-def test_object_geometry_dispatches_geometry_only(monkeypatch):
+def test_object_geometry_falls_back(monkeypatch):
     _addon, eng, spy = _engine(monkeypatch)
     res = eng._apply_depsgraph_updates(
         spy, _depsgraph([_DepsgraphUpdate(Object("Cube"), geometry=True)]),
         settings=None)
-    assert res == "dispatched"
-    names = [c[0] for c in spy.calls]
-    assert "upload_geometry" in names
-    assert "upload_materials" not in names
-    assert "upload_lights" not in names
-    assert "upload_environment" not in names
+    assert res == "fallback"
+    assert spy.calls == []
 
 
-def test_object_shading_dispatches_materials_only(monkeypatch):
+def test_object_shading_falls_back(monkeypatch):
     _addon, eng, spy = _engine(monkeypatch)
     res = eng._apply_depsgraph_updates(
         spy, _depsgraph([_DepsgraphUpdate(Object("Cube"), shading=True)]),
         settings=None)
-    assert res == "dispatched"
-    names = [c[0] for c in spy.calls]
-    assert "upload_materials" in names
-    assert "upload_geometry" not in names
+    assert res == "fallback"
+    assert spy.calls == []
 
 
 # ---------------------------------------------------------------------------
 # 3. Coalescing — geometry + shading on one Object → each uploader once
 # ---------------------------------------------------------------------------
 
-def test_coalesce_geometry_and_shading_one_run_each(monkeypatch):
+def test_geometry_and_shading_one_object_falls_back(monkeypatch):
     _addon, eng, spy = _engine(monkeypatch)
     obj = Object("Cube")
     res = eng._apply_depsgraph_updates(
@@ -271,10 +262,8 @@ def test_coalesce_geometry_and_shading_one_run_each(monkeypatch):
         ]),
         settings=None,
     )
-    assert res == "dispatched"
-    names = [c[0] for c in spy.calls]
-    assert names.count("upload_geometry") == 1
-    assert names.count("upload_materials") == 1
+    assert res == "fallback"
+    assert spy.calls == []
 
 
 def test_coalesce_dedupes_repeated_world_update(monkeypatch):
@@ -290,12 +279,12 @@ def test_coalesce_dedupes_repeated_world_update(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 4. Dispatch order — env → materials → lights → geometry
+# 4. Mixed batch with any non-reconciled domain -> full sync (#835)
 # ---------------------------------------------------------------------------
 
-def test_fixed_dispatch_order(monkeypatch):
-    """The dispatcher runs uploaders in env → materials → lights →
-    geometry order regardless of the order the updates arrive in."""
+def test_mixed_batch_with_unreconciled_domain_falls_back(monkeypatch):
+    """Geometry + light + material + world in one batch: the non-reconciled
+    domains force a full sync, which also re-parses the world."""
     _addon, eng, spy = _engine(monkeypatch)
     res = eng._apply_depsgraph_updates(
         spy,
@@ -307,12 +296,8 @@ def test_fixed_dispatch_order(monkeypatch):
         ]),
         settings=None,
     )
-    assert res == "dispatched"
-    upload_calls = [c[0] for c in spy.calls if c[0].startswith("upload_")]
-    assert upload_calls == [
-        "upload_environment", "upload_materials",
-        "upload_lights", "upload_geometry",
-    ]
+    assert res == "fallback"
+    assert spy.calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -345,21 +330,19 @@ def test_missing_updates_attr_returns_fallback(monkeypatch):
 # 6. Object transform-only — no obj-id mapping → promote to upload_geometry
 # ---------------------------------------------------------------------------
 
-def test_transform_only_without_id_map_promotes_to_geometry(monkeypatch):
+def test_transform_only_without_id_map_falls_back(monkeypatch):
     """Phase C ships without a Blender-Object → renderer-primitive-id
-    tracker (would require touching Phase B's `convert_objects` surface,
-    out of scope per CLAUDE.md §3). The dispatcher promotes transform-only
-    edits to a geometry rebuild — same cost on the single-level BVH."""
+    tracker, so a transform-only edit is promoted to a geometry rebuild. #835:
+    upload_geometry() alone re-uploads the unmoved engine geometry (measured
+    live: the moved sphere stayed put), so the promote is a full sync."""
     _addon, eng, spy = _engine(monkeypatch)
     res = eng._apply_depsgraph_updates(
         spy,
         _depsgraph([_DepsgraphUpdate(Object("Cube"), transform=True)]),
         settings=None,
     )
-    assert res == "dispatched"
-    names = [c[0] for c in spy.calls]
-    assert "upload_geometry" in names
-    assert "update_object_transform" not in names
+    assert res == "fallback"
+    assert spy.calls == []
 
 
 def test_transform_only_with_id_map_uses_update_object_transform(monkeypatch):

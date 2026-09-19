@@ -1,0 +1,323 @@
+{
+ "setup": {
+  "region": [
+   2100,
+   1221
+  ],
+  "emission_color_default": [
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "engine": "CUSTOM_RAYTRACER",
+  "device": "cpu"
+ },
+ "worker": true,
+ "00_base": {
+  "region": [
+   2100,
+   1221
+  ],
+  "n_present": 2,
+  "spp": 0,
+  "sync": 1,
+  "dispatch": {},
+  "replay": {},
+  "worker_idle": true,
+  "worker_gen": [
+   1,
+   1,
+   2
+  ],
+  "wh": [
+   2100,
+   1221
+  ],
+  "sphere": [
+   0.3048,
+   0.3067,
+   0.307,
+   1050,
+   572
+  ],
+  "ground_near": [
+   0.2336,
+   0.2376,
+   0.2222,
+   1382,
+   864
+  ],
+  "ground_far": [
+   0.2296,
+   0.2178,
+   0.2448,
+   1687,
+   659
+  ]
+ },
+ "01_basecolor_red": {
+  "region": [
+   2100,
+   1221
+  ],
+  "n_present": 5,
+  "spp": 0,
+  "sync": 2,
+  "dispatch": {
+   "fallback": 1
+  },
+  "replay": {},
+  "worker_idle": true,
+  "worker_gen": [
+   3,
+   3,
+   5
+  ],
+  "wh": [
+   2100,
+   1221
+  ],
+  "sphere": [
+   0.4103,
+   0.0602,
+   0.0537,
+   1050,
+   572
+  ],
+  "ground_near": [
+   0.24,
+   0.2404,
+   0.2001,
+   1382,
+   864
+  ],
+  "ground_far": [
+   0.2298,
+   0.2128,
+   0.2524,
+   1687,
+   659
+  ]
+ },
+ "02_emission_5": {
+  "region": [
+   2100,
+   1221
+  ],
+  "n_present": 8,
+  "spp": 0,
+  "sync": 3,
+  "dispatch": {
+   "fallback": 2
+  },
+  "replay": {},
+  "worker_idle": true,
+  "worker_gen": [
+   5,
+   5,
+   8
+  ],
+  "wh": [
+   2100,
+   1221
+  ],
+  "sphere": [
+   4.9975,
+   5.0799,
+   5.172,
+   1050,
+   572
+  ],
+  "ground_near": [
+   0.0134,
+   0.0132,
+   0.0158,
+   1382,
+   864
+  ],
+  "ground_far": [
+   0.29,
+   0.3118,
+   0.0175,
+   1687,
+   659
+  ]
+ },
+ "03_emission_10": {
+  "region": [
+   2100,
+   1221
+  ],
+  "n_present": 11,
+  "spp": 0,
+  "sync": 4,
+  "dispatch": {
+   "fallback": 3
+  },
+  "replay": {},
+  "worker_idle": true,
+  "worker_gen": [
+   7,
+   7,
+   11
+  ],
+  "wh": [
+   2100,
+   1221
+  ],
+  "sphere": [
+   10.6231,
+   9.6246,
+   11.8011,
+   1050,
+   572
+  ],
+  "ground_near": [
+   0.013,
+   0.0121,
+   0.0127,
+   1382,
+   864
+  ],
+  "ground_far": [
+   0.0175,
+   0.014,
+   0.0205,
+   1687,
+   659
+  ]
+ },
+ "04_emission_green": {
+  "region": [
+   2100,
+   1221
+  ],
+  "n_present": 14,
+  "spp": 0,
+  "sync": 5,
+  "dispatch": {
+   "fallback": 4
+  },
+  "replay": {},
+  "worker_idle": true,
+  "worker_gen": [
+   9,
+   9,
+   14
+  ],
+  "wh": [
+   2100,
+   1221
+  ],
+  "sphere": [
+   1.7138,
+   9.2619,
+   0.1009,
+   1050,
+   572
+  ],
+  "ground_near": [
+   0.0162,
+   0.0135,
+   0.0189,
+   1382,
+   864
+  ],
+  "ground_far": [
+   0.0143,
+   0.0145,
+   0.0113,
+   1687,
+   659
+  ]
+ },
+ "05_emission_0": {
+  "region": [
+   2100,
+   1221
+  ],
+  "n_present": 17,
+  "spp": 0,
+  "sync": 6,
+  "dispatch": {
+   "fallback": 5
+  },
+  "replay": {},
+  "worker_idle": true,
+  "worker_gen": [
+   11,
+   11,
+   17
+  ],
+  "wh": [
+   2100,
+   1221
+  ],
+  "sphere": [
+   0.4077,
+   0.0619,
+   0.0533,
+   1050,
+   572
+  ],
+  "ground_near": [
+   0.2273,
+   0.2401,
+   0.1756,
+   1382,
+   864
+  ],
+  "ground_far": [
+   0.2312,
+   0.2148,
+   0.2521,
+   1687,
+   659
+  ]
+ },
+ "final_save": {
+  "region": [
+   2100,
+   1221
+  ],
+  "n_present": 17,
+  "spp": 0,
+  "sync": 6,
+  "dispatch": {
+   "fallback": 5
+  },
+  "replay": {},
+  "worker_idle": true,
+  "worker_gen": [
+   11,
+   11,
+   17
+  ],
+  "wh": [
+   2100,
+   1221
+  ],
+  "sphere": [
+   0.4077,
+   0.0619,
+   0.0533,
+   1050,
+   572
+  ],
+  "ground_near": [
+   0.2273,
+   0.2401,
+   0.1756,
+   1382,
+   864
+  ],
+  "ground_far": [
+   0.2312,
+   0.2148,
+   0.2521,
+   1687,
+   659
+  ]
+ }
+}

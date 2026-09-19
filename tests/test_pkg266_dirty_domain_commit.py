@@ -131,9 +131,9 @@ def _make_exporter(exp):
 # Coalesced dirty-domain record + replay
 # ---------------------------------------------------------------------------
 
-def test_n_material_edits_coalesce_to_one_materials_replay():
-    """N material edits while the worker is busy coalesce into ONE materials-only
-    replay — upload_materials runs exactly once, no geometry/lights/env."""
+def test_material_edits_while_busy_force_full_sync():
+    """#835: material edits recorded while the worker is busy force a full sync —
+    upload_materials() alone re-pushes the stale converted materials."""
     exp = _load_exporter_module()
     exporter = _make_exporter(exp)
 
@@ -141,34 +141,24 @@ def test_n_material_edits_coalesce_to_one_materials_replay():
         exporter._record_deferred_dirty(
             _stub_depsgraph([_DepsgraphUpdate(Material("M"))]), settings=None)
 
-    assert exporter._deferred_full_sync is False
-    assert exporter._deferred_dirty_mask & exp.Change.MATERIALS
-    assert not (exporter._deferred_dirty_mask & exp.Change.GEOMETRY)
-
+    assert exporter._deferred_full_sync is True
     spy = _SpyRenderer()
     replayed = exporter._replay_deferred_dirty(
         spy, _stub_depsgraph([]), None, lambda *_: None, None)
-    assert replayed is True
-    names = [c[0] for c in spy.calls]
-    assert names.count("upload_materials") == 1, names
-    assert "upload_geometry" not in names
-    assert "upload_lights" not in names
-    assert "upload_environment" not in names
+    assert replayed is False
+    assert spy.calls == []
 
 
-def test_mixed_safe_domains_coalesce_and_replay_each_once():
-    """Material + light + world edits coalesce into one replay that runs each safe
-    uploader exactly once (env, materials, lights) — no full sync."""
+def test_world_edits_coalesce_and_replay_once_light_poisons():
+    """Reconciled domains still coalesce: N world edits replay setup_world +
+    upload_environment once. A light edit (#835: no reconcile step) poisons the
+    batch into a full sync."""
     exp = _load_exporter_module()
     exporter = _make_exporter(exp)
 
-    exporter._record_deferred_dirty(
-        _stub_depsgraph([_DepsgraphUpdate(Material("M"))]), settings=None)
-    exporter._record_deferred_dirty(
-        _stub_depsgraph([_DepsgraphUpdate(Light("L"))]), settings=None)
-    exporter._record_deferred_dirty(
-        _stub_depsgraph([_DepsgraphUpdate(World("W"))]), settings=None)
-
+    for _ in range(3):
+        exporter._record_deferred_dirty(
+            _stub_depsgraph([_DepsgraphUpdate(World("W"))]), settings=None)
     assert exporter._deferred_full_sync is False
     spy = _SpyRenderer()
     replayed = exporter._replay_deferred_dirty(
@@ -176,9 +166,15 @@ def test_mixed_safe_domains_coalesce_and_replay_each_once():
         None, lambda *_: None, None)
     assert replayed is True
     names = [c[0] for c in spy.calls]
-    assert names.count("upload_materials") == 1
-    assert names.count("upload_lights") == 1
     assert names.count("upload_environment") == 1
+    assert names.count("setup_world") == 1
+
+    exporter._clear_deferred_dirty()
+    exporter._record_deferred_dirty(
+        _stub_depsgraph([_DepsgraphUpdate(World("W"))]), settings=None)
+    exporter._record_deferred_dirty(
+        _stub_depsgraph([_DepsgraphUpdate(Light("L"))]), settings=None)
+    assert exporter._deferred_full_sync is True
 
 
 def test_geometry_edit_forces_full_sync():
@@ -357,10 +353,10 @@ def test_world_node_tree_edit_replays_environment_not_materials_only():
     assert "upload_materials" not in names, names   # not a materials-only replay
 
 
-def test_material_node_tree_edit_still_materials():
-    """The world exclusion is narrow: a NON-world shader node tree edit still
-    classifies MATERIALS (regression guard so item 3 did not disable material
-    node edits)."""
+def test_material_node_tree_edit_is_not_environment():
+    """The world exclusion is narrow: a NON-world shader node tree edit is a
+    material edit, not ENVIRONMENT (regression guard so item 3 did not disable
+    material node edits). #835: material edits full-sync."""
     exp = _load_exporter_module()
     exporter = _make_exporter(exp)
 
@@ -373,7 +369,7 @@ def test_material_node_tree_edit_still_materials():
     exporter._record_deferred_dirty(
         _stub_depsgraph([_DepsgraphUpdate(mat_tree, shading=True)], scene=scene),
         settings=None)
-    assert exporter._deferred_dirty_mask & exp.Change.MATERIALS
+    assert exporter._deferred_full_sync is True
     assert not (exporter._deferred_dirty_mask & exp.Change.ENVIRONMENT)
 
 

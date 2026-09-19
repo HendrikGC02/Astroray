@@ -490,6 +490,9 @@ class PyRenderer {
     // dispatch disabled). Surfaced through last_render_info().
     int lastRenderInfoUnitsLaunched_ = 0;
     int lastRenderInfoCancelledAtUnit_ = -1;
+    // #828: grid buffers copied host->device by the last GPU render (0 = the
+    // device grid cache served it; always 0 on the CPU path).
+    int lastRenderInfoGridUploads_ = 0;
     // pkg89 Phase B: IES profile cache (shared_ptr keeps profiles alive).
     std::unordered_map<std::string, std::shared_ptr<IESProfile>> iesProfiles_;
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -2525,6 +2528,8 @@ public:
                     skipUpload, sceneOwnerId_);                // #801 device scene cache
                 lastRenderInfoUnitsLaunched_ = gpuUnitsLaunched;
                 lastRenderInfoCancelledAtUnit_ = gpuCancelledAtUnit;
+                lastRenderInfoGridUploads_ =
+                    astroray::wavefront::cuda_wavefront_last_grid_uploads();  // #828
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],
@@ -2627,6 +2632,7 @@ public:
             // counters so last_render_info() never reports a prior GPU render's.
             lastRenderInfoUnitsLaunched_ = 0;
             lastRenderInfoCancelledAtUnit_ = -1;
+            lastRenderInfoGridUploads_ = 0;  // #828
         }
         if (callbackError) std::rethrow_exception(callbackError);
 
@@ -2677,6 +2683,9 @@ public:
         // report how promptly a cancel took effect.
         d["units_launched"] = lastRenderInfoUnitsLaunched_;
         d["cancelled_at_unit"] = lastRenderInfoCancelledAtUnit_;
+        // #828: grid buffers copied host->device by the last GPU render
+        // (NanoVDB density + dense temperature); 0 = served by the grid cache.
+        d["grid_uploads"] = lastRenderInfoGridUploads_;
         return d;
     }
 

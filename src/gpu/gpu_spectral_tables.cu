@@ -15,7 +15,6 @@
 #include "astroray/volume/volume_emission.h"  // #828 blackbodyLogLuminanceLut
 
 #include <cuda_runtime.h>
-#include <cmath>
 #include <cstdio>
 #include <stdexcept>
 #include <vector>
@@ -389,18 +388,16 @@ void uploadEmissionProfileTable(const float* host, int count) {
     }
 }
 
-// #828 — blackbody photopic-normaliser LUT (see the declaration in
-// gpu_spectral_tables.h). Built on the host from the CPU's own double integral
-// (astroray::volume::blackbodyLogLuminanceLut, src/volume/volume_emission.cpp) so
-// the GPU normaliser is the CPU's, interpolated in ln T.
-__device__ float g_bbLogLum[G_BB_LUT_N];
+// #828 — blackbody photopic-normaliser table (see the declaration in
+// gpu_spectral_tables.h): the SAME host table the CPU normalizedPlanck reads.
+__device__ float g_bbLogLum[astroray::volume::kBBLutN];
 
 void uploadBlackbodyLuminanceLut() {
     static bool uploaded = false;
     if (uploaded) return;
-    std::vector<float> lut = astroray::volume::blackbodyLogLuminanceLut(
-        G_BB_LUT_N, std::log(double(G_BB_LUT_TMIN)), std::log(1.0e6));
-    cudaError_t e = cudaMemcpyToSymbol(g_bbLogLum, lut.data(), sizeof(float) * G_BB_LUT_N);
+    const std::vector<float>& lut = astroray::volume::blackbodyLogLuminanceLut();
+    cudaError_t e = cudaMemcpyToSymbol(g_bbLogLum, lut.data(),
+                                       sizeof(float) * astroray::volume::kBBLutN);
     if (e != cudaSuccess) {
         fprintf(stderr, "uploadBlackbodyLuminanceLut failed: %s\n", cudaGetErrorString(e));
         throw std::runtime_error(cudaGetErrorString(e));

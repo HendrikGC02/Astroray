@@ -29,7 +29,9 @@ namespace astroray {
 namespace volume {
 
 // Luminance-normalised Planck radiance per nm at (lambda_nm, T): E[Y] == 1 for
-// any T (pkg122 normalisation). 0 for T <= 0. Defined in volume_emission.cpp.
+// any T >= 30 K (pkg122 normalisation), 0 below. #828: the shared CPU/GPU
+// formula astroray::volume::bbNormalizedPlanck (blackbody_lut.h) on the table
+// below. Defined in volume_emission.cpp.
 float normalizedPlanck(float lambdaNm, float temperatureK);
 
 // #828 — the pkg122 photopic integral ∫ planck(λ,T)·1e9·ȳ(λ) dλ (the engine
@@ -38,9 +40,10 @@ float normalizedPlanck(float lambdaNm, float temperatureK);
 // float inverse.
 double blackbodyLuminanceIntegral(double temperatureK);
 
-// #828 — GPU LUT: ln(blackbodyLuminanceIntegral) at n uniform steps of ln T over
-// [lnTMin, lnTMax]. Research: batchq-volumes-3-research.md §1.
-std::vector<float> blackbodyLogLuminanceLut(int n, double lnTMin, double lnTMax);
+// #828 — the shared normaliser table: ln(blackbodyLuminanceIntegral) at the
+// kBBLutN uniform ln-T steps of blackbody_lut.h. Built once per process
+// (thread-safe static); the CPU reads it directly, the GPU uploads it.
+const std::vector<float>& blackbodyLogLuminanceLut();
 
 // Cycles Stefan–Boltzmann intensity: sigma·1e-6/π · mix(1, T⁴, I_bb).
 inline float cyclesBlackbodyIntensity(float temperatureK, float blackbodyIntensity) {

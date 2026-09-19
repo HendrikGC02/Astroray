@@ -140,19 +140,20 @@ def test_materials_cache_diff_fires_on_material_nodetree_image():
     bpy = _stub_bpy()
     cache = exp.MaterialsCache(bpy)
 
-    # Material → True
-    assert cache.diff(_stub_depsgraph([_DepsgraphUpdate(Material("M"))])) is True
-    # NodeTree → True
-    assert cache.diff(_stub_depsgraph([_DepsgraphUpdate(NodeTree("N"))])) is True
-    # Image → True
-    assert cache.diff(_stub_depsgraph([_DepsgraphUpdate(Image("I"))])) is True
-    # Object.is_updated_shading → True
-    assert cache.diff(_stub_depsgraph([_DepsgraphUpdate(Object("O"), shading=True)])) is True
+    # Material → materials (safe value-only edit)
+    assert cache.diff(_stub_depsgraph([_DepsgraphUpdate(Material("M"))])) == cache.MATERIALS
+    # NodeTree → materials (a material node-tree edit)
+    assert cache.diff(_stub_depsgraph([_DepsgraphUpdate(NodeTree("N"))])) == cache.MATERIALS
+    # Image → fallback (an image texture datablock change needs a full sync,
+    # pkg/issue #721)
+    assert cache.diff(_stub_depsgraph([_DepsgraphUpdate(Image("I"))])) == cache.FALLBACK
+    # Object.is_updated_shading → materials
+    assert cache.diff(_stub_depsgraph([_DepsgraphUpdate(Object("O"), shading=True)])) == cache.MATERIALS
 
-    # World → False
-    assert cache.diff(_stub_depsgraph([_DepsgraphUpdate(World("W"))])) is False
-    # Light → False
-    assert cache.diff(_stub_depsgraph([_DepsgraphUpdate(Light("L"))])) is False
+    # World → none
+    assert cache.diff(_stub_depsgraph([_DepsgraphUpdate(World("W"))])) == cache.NONE
+    # Light → none
+    assert cache.diff(_stub_depsgraph([_DepsgraphUpdate(Light("L"))])) == cache.NONE
 
 
 def test_lights_cache_diff_fires_on_light_only():

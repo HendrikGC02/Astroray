@@ -220,16 +220,16 @@ def test_material_update_dispatches_materials_only(monkeypatch):
     assert "upload_lights" not in names
 
 
-def test_image_update_dispatches_materials_only(monkeypatch):
-    """An Image update (texture reload from disk) routes through the
-    materials path — Phase C ships without a dedicated texture uploader,
-    spec §C key-design 3 promotes Image → materials."""
+def test_image_update_falls_back_to_full_sync(monkeypatch):
+    """An Image update (texture reload from disk) cannot be represented by the
+    incremental materials replay (upload_materials pushes material payloads, not
+    image texel data), so it must fall back to a full sync — pkg/issue #721
+    (this supersedes the pkg56 §C key-design 3 Image→materials promotion)."""
     _addon, eng, spy = _engine(monkeypatch)
     res = eng._apply_depsgraph_updates(
         spy, _depsgraph([_DepsgraphUpdate(Image("img"))]), settings=None)
-    assert res == "dispatched"
-    names = [c[0] for c in spy.calls]
-    assert "upload_materials" in names
+    assert res == "fallback"
+    assert spy.calls == []
 
 
 def test_object_geometry_dispatches_geometry_only(monkeypatch):

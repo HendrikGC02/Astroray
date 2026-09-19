@@ -1373,15 +1373,16 @@ class Exporter:
         """Bucket `depsgraph.updates` into domains via per-cache diff(), dispatch
         only the matching Phase B uploader(s). Returns one of:
 
-          - 'fallback'   : caller must run sync_viewport_scene
-                           (unrecognised update id or .updates absent).
+          - 'fallback'   : caller must run sync_viewport_scene (unrecognised
+                           update id, .updates absent, or — #835 — any
+                           material / light / geometry edit, which has no
+                           reconcile step).
           - 'idle'       : zero domain edits — caller skips upload AND render.
           - 'dispatched' : one or more uploaders ran — caller renders.
 
-        Dispatch order (backend_config → env → materials → lights → geometry →
-        transforms) matches Cycles `BlenderSync::sync_data()` so the device-state
-        result is order-independent of Blender's iteration order over
-        depsgraph.updates.
+        Dispatch order (backend_config → env → transforms) follows Cycles
+        `BlenderSync::sync_data()` so the device-state result is independent of
+        Blender's iteration order over depsgraph.updates.
         """
         status, changes, flat_transforms, do_refit = \
             self._classify_depsgraph_domains(depsgraph, settings)

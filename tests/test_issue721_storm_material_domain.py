@@ -340,7 +340,7 @@ def _sync_dispatch(exporter, updates):
 
 def test_same_sign_emission_strength_edit_falls_back():
     # 5 -> 10 keeps the emission sign (fingerprint unchanged) but must still
-    # re-convert: the #835 viewport repro edited 5 -> 10 with no visible change.
+    # re-convert (the engine material carries emission_strength).
     exp = _load_exporter_module()
     exporter = _make_exporter(exp)
     exporter._materials_cache.observe([_principled_mat(emission_strength=5.0)])

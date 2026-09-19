@@ -6,7 +6,12 @@ The **CPU light tree** owns the gap. Turning it off (the power sampler) cuts the
 Astroray/Cycles variance ratio **8–14×** on the lit ROIs: wall 83 → 7.7, floor
 200 → 14, D 145 → 10. Removing the practical bulb changes nothing (wall 83 →
 122, within two-seed noise). Owner: pkg86 CPU light tree, which pkg262 made the
-default via the native `use_light_tree = True`. Follow-up: #TBD.
+default via the native `use_light_tree = True`. Follow-up: #851.
+Prime suspect, a cited divergence: `LightTree::importance` uses
+`max(distance - bboxRadius, 1e-6)`, which blows importance up ×1e12 whenever the
+shading point lies inside a cluster's bounding sphere. Cycles `kernel/light/tree.h`
+clamps `distance >= 0.5·|centroid − bbox.max|` and blends min- and max-distance
+importance.
 
 The residual after the tree is off is 4–9× in luminance and 50–120× in chroma.
 Spectral rendering plausibly explains it: 4 wavelengths per path give colour

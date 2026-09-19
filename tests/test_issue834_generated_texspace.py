@@ -49,6 +49,8 @@ def _engine_generated(p_world, bmin, bsize):
 
 
 def _checker_parity(g, scale):
+    """Cycles kernel/svm/checker.h svm_checker verbatim (Blender 5.2): the same
+    formula on both sides, so the tests compare the Generated COORDINATES."""
     sp = (np.asarray(g, np.float32) * np.float32(scale) + np.float32(1e-6)) * np.float32(0.999999)
     xi, yi, zi = (abs(int(np.floor(c))) for c in sp)
     return (xi % 2 == yi % 2) == (zi % 2)
@@ -95,3 +97,22 @@ def test_without_texspace_falls_back_to_bound_box(helper):
     bmin, bsize = helper(obj, _M())
     assert bmin[:2] == pytest.approx([-4.0, -4.0])
     assert bsize[:2] == pytest.approx([8.0, 8.0])
+
+
+def test_zero_texspace_axis_follows_bke_rule(helper):
+    """BKE_mesh_texspace_calc: a zero-size axis becomes 1 (never a 1e-6 divide)."""
+    bmin, bsize = helper(_plane(size=(4.0, 4.0, 0.0)), _M())
+    assert bmin[2] == pytest.approx(-1.0) and bsize[2] == pytest.approx(2.0)
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "#834 scope: rotated objects -- the engine's Generated frame is an axis-aligned "
+    "WORLD box (genMin/genSize), so Blender's object-space texture space cannot be "
+    "expressed for a rotated object; needs a per-texture affine (#847)."))
+def test_rotated_plane_matches_blender_local_generated(helper):
+    a = np.radians(30.0)
+    A = np.array([[np.cos(a), -np.sin(a), 0.0], [np.sin(a), np.cos(a), 0.0], [0.0, 0.0, 1.0]])
+    bmin, bsize = helper(_plane(), _M(A))
+    co = (1.3, -2.1, 0.0)
+    np.testing.assert_allclose(_engine_generated(A @ np.asarray(co), bmin, bsize),
+                               _blender_generated(co, (0, 0, 0), (4, 4, 1)), atol=1e-6)

@@ -897,6 +897,31 @@ class CustomRaytracerLightSettings(PropertyGroup):
     )
 
 
+def _tint_emission_dict(emission, rgb):
+    """#841: multiply a constant light-shader Emission Color into the lamp's
+    emission dict (rgb colour / blackbody tint / SPD composite filter)."""
+    rgb = [float(c) for c in rgb]
+    mode = emission.get('mode')
+    out = dict(emission)
+    if mode == 'rgb':
+        out['color'] = [a * c for a, c in zip(emission.get('color', [1.0, 1.0, 1.0]), rgb)]
+    elif mode == 'blackbody':
+        out['tint_rgb'] = [a * c for a, c in zip(emission.get('tint_rgb', [1.0, 1.0, 1.0]), rgb)]
+    elif mode == 'composite':
+        out['filter_rgb'] = [a * c for a, c in zip(emission.get('filter_rgb', [1.0, 1.0, 1.0]), rgb)]
+    else:
+        out = {'mode': 'composite', 'base': emission, 'filter_rgb': rgb}
+    return out
+
+
+def _node_input(node, name):
+    """#841: node input socket by name (None when absent)."""
+    for s in getattr(node, 'inputs', ()):
+        if getattr(s, 'name', None) == name:
+            return s
+    return None
+
+
 def _generated_texspace_bbox(obj, matrix):
     """#834: world-space (bmin, bsize) of the object's Generated texture space.
 
@@ -910,8 +935,12 @@ def _generated_texspace_bbox(obj, matrix):
     tloc = getattr(tdata, 'texspace_location', None)
     tsize = getattr(tdata, 'texspace_size', None)
     if tloc is not None and tsize is not None:
-        local_corners = [(tloc[0] + sx * tsize[0], tloc[1] + sy * tsize[1],
-                          tloc[2] + sz * tsize[2])
+        # BKE_mesh_texspace_calc: a zero axis becomes 1, |size| < 1e-5 -> 1e-5.
+        ts = []
+        for v in tsize:
+            v = float(v)
+            ts.append(1.0 if v == 0.0 else (v if abs(v) >= 1e-5 else (1e-5 if v > 0 else -1e-5)))
+        local_corners = [(tloc[0] + sx * ts[0], tloc[1] + sy * ts[1], tloc[2] + sz * ts[2])
                          for sx in (-1.0, 1.0) for sy in (-1.0, 1.0) for sz in (-1.0, 1.0)]
     else:
         local_corners = obj.bound_box
@@ -5697,7 +5726,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if mode == 'EXTERNAL':
             filepath = getattr(node, 'filepath', '')
             if filepath:
-                return bpy.path.abspath(filepath)
+                resolved = bpy.path.abspath(filepath)
+                if not os.path.isfile(resolved):
+                    self._warn_shader_fallback(
+                        'TEX_IES', 'EXTERNAL IES file not found (%s); light rendered without IES' % resolved)
+                return resolved
             self._warn_shader_fallback(
                 'TEX_IES', 'EXTERNAL IES node has no filepath; light rendered without IES')
             return ""
@@ -5734,32 +5767,72 @@ class CustomRaytracerRenderEngine(RenderEngine):
         return temp_path
 
 
-    def _resolve_ies_strength(self, light_data):
-        # Batch J item 2 (owner 2026-09-13): Cycles evaluates the TexIES node
-        # as `fac = strength * table(dir)` (kernel/svm/ies.h). The node Strength
-        # input (default 1.0) scales the absolute candela table. We read the
-        # constant default_value of the linked TexIES node Strength input and
-        # fold it into the light intensity (equivalent: the engine applies
-        # intensity * 1/(4pi) * iesValue). A Strength driven by another node is
-        # not evaluated here; the constant default is honoured.
-        node_tree = getattr(light_data, "node_tree", None)
-        if node_tree is None:
+    def _resolve_light_shader(self, light_data):
+        """#841: constant-fold the light node tree onto the lamp.
+
+        Cycles multiplies the light shader's emission (Emission Color x
+        Strength) into the lamp strength (kernel/light/sample.h
+        light_sample_shader_eval_* x klight->strength); the engine has one
+        intensity, one colour and an optional IES table. Folded here: a constant
+        Emission Color and the Strength chain `TexIES [x|/ Math constant]*`
+        (including the TexIES Strength input and constant Value nodes; Cycles
+        svm_node_ies: fac = strength * table). Anything else on that path is
+        reported through the degradation report and treated as 1 (the previous
+        behaviour). Returns (strength_factor, [r, g, b] colour factor)."""
+        white = [1.0, 1.0, 1.0]
+        node_tree = getattr(light_data, 'node_tree', None)
+        if node_tree is None or not getattr(light_data, 'use_nodes', True):
+            return 1.0, white
+        outs = [n for n in node_tree.nodes if getattr(n, 'type', '') == 'OUTPUT_LIGHT']
+        out = next((n for n in outs if getattr(n, 'is_active_output', False)), outs[0] if outs else None)
+        surf = _node_input(out, 'Surface') if out is not None else None
+        if surf is None or not getattr(surf, 'is_linked', False):
+            return 1.0, white
+        em = surf.links[0].from_node
+        if getattr(em, 'type', '') != 'EMISSION':
+            self._warn_shader_fallback(
+                'OUTPUT_LIGHT', 'light shader %s is not an Emission node; lamp uses energy/colour only'
+                % getattr(em, 'type', '?'))
+            return 1.0, white
+        color = white
+        c_in = _node_input(em, 'Color')
+        if c_in is not None:
+            if getattr(c_in, 'is_linked', False):
+                self._warn_shader_fallback(
+                    'EMISSION', 'linked light Emission Color dropped (only a constant colour is folded)')
+            else:
+                color = [float(v) for v in list(c_in.default_value)[:3]]
+        s_in = _node_input(em, 'Strength')
+        strength = self._fold_light_scalar(s_in) if s_in is not None else 1.0
+        return strength, color
+
+    def _fold_light_scalar(self, socket, depth=0):
+        """#841: constant value of a scalar light-shader input, folding
+        TexIES (its Strength input; the table itself is the engine's IES), Math
+        MULTIPLY/DIVIDE with one constant operand, and Value nodes."""
+        if not getattr(socket, 'is_linked', False):
+            return float(getattr(socket, 'default_value', 1.0))
+        node = socket.links[0].from_node
+        ntype = getattr(node, 'type', '')
+        if depth > 16:
+            self._warn_shader_fallback(ntype, 'light Strength chain too deep; treated as 1')
             return 1.0
-        for node in node_tree.nodes:
-            if getattr(node, "type", "") != "TEX_IES":
-                continue
-            if not any(o.is_linked for o in node.outputs):
-                continue
-            inputs = getattr(node, "inputs", None)
-            if inputs is None:
-                return 1.0
-            try:
-                strength_in = inputs["Strength"]
-            except (KeyError, TypeError):
-                return 1.0
-            if getattr(strength_in, "is_linked", False):
-                return 1.0
-            return float(getattr(strength_in, "default_value", 1.0))
+        if ntype == 'TEX_IES':
+            s_in = _node_input(node, 'Strength')
+            return self._fold_light_scalar(s_in, depth + 1) if s_in is not None else 1.0
+        if ntype == 'VALUE':
+            return float(node.outputs[0].default_value)
+        if ntype == 'MATH' and not getattr(node, 'use_clamp', False) \
+                and getattr(node, 'operation', '') in ('MULTIPLY', 'DIVIDE'):
+            a, bb = node.inputs[0], node.inputs[1]
+            if node.operation == 'MULTIPLY':
+                return self._fold_light_scalar(a, depth + 1) * self._fold_light_scalar(bb, depth + 1)
+            if not getattr(bb, 'is_linked', False):
+                den = float(bb.default_value)
+                return self._fold_light_scalar(a, depth + 1) / den if den != 0.0 else 0.0
+        self._warn_shader_fallback(
+            ntype or 'NODE',
+            'light Strength input driven by %s dropped (only IES x/÷ constant Math is folded)' % ntype)
         return 1.0
 
     def convert_lights(self, depsgraph, renderer):
@@ -5822,10 +5895,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 frame_kw['light_frame'] = [float(basis3[r][c]) for c in range(3) for r in range(3)]
             emission_dict = _build_emission_dict(light)
             intensity = float(light.energy)
-            # Batch J item 2: honour the TexIES node Strength (Cycles fac =
-            # strength * table); folds into intensity for IES POINT/SPOT lights.
-            if ies_path:
-                intensity *= self._resolve_ies_strength(light)
+            # #841 (supersedes Batch J's TexIES-Strength-only fold): the light
+            # shader's constant Emission Color x Strength chain (TexIES Strength,
+            # Math x/÷ constants) scales the lamp, as in Cycles.
+            shader_strength, shader_color = self._resolve_light_shader(light)
+            intensity *= shader_strength
+            if any(abs(c - 1.0) > 1e-6 for c in shader_color):
+                emission_dict = _tint_emission_dict(emission_dict, shader_color)
+            # #840: Blender use_soft_falloff picks the radius > 0 lamp model
+            # (disk vs sphere); passed only for radius > 0 (keeps the call shape).
+            if float(getattr(light, 'shadow_soft_size', 0.0) or 0.0) > 0.0:
+                frame_kw['soft_falloff'] = bool(getattr(light, 'use_soft_falloff', True))
             pass_idx = int(getattr(obj, "pass_index", 0))
 
             if light.type == 'POINT':

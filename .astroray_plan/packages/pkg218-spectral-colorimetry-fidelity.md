@@ -56,14 +56,16 @@ changed to the human eye, or to different cameras?*
 
 **Current state (audited):** the renderer's "response function" is a **CIE standard
 observer** (the human-eye colour-matching functions), and it is **hardcoded / baked**:
-- Primary spectral→XYZ: **CIE 1964 10° observer** — `cieCmf1964_10deg`
+- Primary spectral→XYZ: **CIE 1931 2° observer** — `cieCmf1931_2deg`
   (`include/astroray/spectrum.h:33`, `src/spectrum.cpp`), baked to GPU constant memory in
-  `src/gpu/gpu_spectral_tables.cu` (`g_cmfX/Y/Z`, 360–830 @1 nm) via `uploadCmfTables()`.
+  `src/gpu/gpu_spectral_tables.cu` (`g_cmfX/Y/Z`, 360–830 @1 nm) via `uploadCmfTables()`
+  (renamed from `cieCmf1964_10deg`; fixed in #767 / PR #837).
 - A white-balance constant `k = 1/∫D65·ȳ dλ` is derived from that same CMF (`g_d65SPD`).
-- Inconsistency to resolve: `include/astroray/spectral.h` also carries a **CIE 1931 2°**
-  CMF (380–780 @5 nm), and ReSTIR luminance (`include/astroray/restir/light_sample.h`)
-  uses **1931 2°**. So two observers coexist in the codebase.
-- There is **no runtime control** and **no camera-spectral-sensitivity path**.
+- The former 1931/1964 split is resolved: `include/astroray/spectral.h` and ReSTIR
+  luminance (`include/astroray/restir/light_sample.h`) already used **1931 2°**, so the
+  primary CMF now matches.
+- Remaining pkg218 scope: a **selectable observer** and a **camera-spectral-sensitivity**
+  path (there is still **no runtime control**).
 
 **The feature:** make the response function a first-class, swappable input:
 - Built-in observers: CIE 1931 2°, CIE 1964 10° (and unify the codebase on the selected

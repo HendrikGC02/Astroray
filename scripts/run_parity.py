@@ -43,6 +43,10 @@ CSV_COLUMNS = [
     # oracle for the textured_plane procedural scene (never SSIM: independent RNG
     # streams — [[ssim-wrong-gate-for-independent-rng]]).
     "mean_ratio_cpu_gpu",
+    # #837 — per-row provenance of the compiled module the Astroray legs import
+    # (resolved .pyd path + mtime), so a mixed-build CSV is detectable.
+    "astroray_pyd",
+    "astroray_pyd_mtime",
     "skip_reason",
 ]
 ENGINES = ("cycles-cpu", "cycles-cuda", "astroray-cpu", "astroray-gpu")
@@ -63,6 +67,28 @@ def _oidn_bin_dirs() -> list[Path]:
     return [path for path in candidates if path.is_dir()]
 
 
+def _resolve_astroray_pyd() -> Path | None:
+    """The compiled ``astroray`` module the in-process legs import, resolved in
+    the same order as ``_subprocess_env``'s PYTHONPATH (repo root, then
+    ``build_cuda``/``build_cuda/Release``, then ``build``/``build/Release``).
+    Returns the first ``astroray*.pyd``/``*.so`` (excluding ``astroray_test_helpers``),
+    or None."""
+    search_dirs = [
+        ROOT,
+        ROOT / "build_cuda",
+        ROOT / "build_cuda" / "Release",
+        ROOT / "build",
+        ROOT / "build" / "Release",
+    ]
+    for directory in search_dirs:
+        matches = [p for p in directory.glob("astroray*.pyd") if "_test_helpers" not in p.name]
+        matches += [p for p in directory.glob("astroray*.so") if "_test_helpers" not in p.name]
+        if matches:
+            matches.sort(key=lambda p: p.name)
+            return matches[0]
+    return None
+
+
 def _subprocess_env() -> dict[str, str]:
     env = os.environ.copy()
     python_paths = [
@@ -76,6 +102,11 @@ def _subprocess_env() -> dict[str, str]:
     if existing_pythonpath:
         python_paths.append(existing_pythonpath)
     env["PYTHONPATH"] = os.pathsep.join(python_paths)
+    # #837 — pin the addon leg (render_leg.py) to the same .pyd the in-process
+    # legs import, instead of letting it fall back to build_cuda on its own.
+    pyd = _resolve_astroray_pyd()
+    if pyd is not None:
+        env["ASTRORAY_PYD_DIR"] = str(pyd.parent)
     if platform.system() == "Windows":
         oidn_bins = [str(path) for path in _oidn_bin_dirs()]
         if oidn_bins:
@@ -713,6 +744,15 @@ def _row(
     skip_reason: str = "",
 ) -> dict[str, str]:
     skip_reason = " ".join(skip_reason.splitlines())
+    pyd, pyd_mtime = "", ""
+    if engine.startswith("astroray"):
+        resolved = _resolve_astroray_pyd()
+        if resolved is not None:
+            pyd = str(resolved)
+            try:
+                pyd_mtime = f"{resolved.stat().st_mtime:.3f}"
+            except OSError:
+                pyd_mtime = ""
     return {
         "scene": scene.scene_id,
         "engine": engine,
@@ -721,6 +761,8 @@ def _row(
         "peak_mem_mb": peak_mem_mb,
         "ssim_to_cycles": ssim_to_cycles,
         "mean_ratio_cpu_gpu": mean_ratio_cpu_gpu,
+        "astroray_pyd": pyd,
+        "astroray_pyd_mtime": pyd_mtime,
         "skip_reason": skip_reason,
     }
 

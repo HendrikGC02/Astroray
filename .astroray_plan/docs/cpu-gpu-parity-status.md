@@ -67,7 +67,7 @@ pkg109 + pkg110 changed exactly **four** code files (`git diff --stat 6e22a11..H
 Not touched: any `src/gpu/*.cu`, `sms_attempt*.{h,cuh}`, `spectral_path_tracer.cpp`,
 `sms_caustic_path_tracer.cpp`, `raytracer.h` (the `SMSHook`/`pathTraceSpectral`),
 `dielectric.cpp`, `spectrum.h`, `gpu_types.h`. The forward tracer **consumes** the
-spectral pipeline (`SampledWavelengths`/`SampledSpectrum`/`XYZ`/`cieCmf1964_10deg`/
+spectral pipeline (`SampledWavelengths`/`SampledSpectrum`/`XYZ`/`cieCmf1931_2deg`/
 `iorAt`) unchanged. So the **spectral GPU parity (pkg54*) and the SMS GPU parity
 (pkg64-gpu) are intact** — they gate code that this refactor did not modify.
 

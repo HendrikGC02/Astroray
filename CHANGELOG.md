@@ -243,7 +243,7 @@
   library; `ASTRORAY_DATA_DIR` compile definition (with env-var
   override) lets the loader find the LUT both in-tree and post-install.
   Python bindings expose every new type plus a top-level
-  `rgb_to_spectrum()` helper, `sample_d65()`, `cie_cmf_1964_10deg()`,
+  `rgb_to_spectrum()` helper, `sample_d65()`, `cie_cmf_1931_2deg()` (renamed from cie_cmf_1964_10deg in #837; the engine observer is CIE 1931 2 degree),
   and `spectrum_lut_path()`. `THIRD_PARTY.md` added with license and
   provenance for the shipped data files. No integration into any
   material, integrator, pass, or environment map — the existing

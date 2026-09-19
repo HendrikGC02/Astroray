@@ -105,5 +105,48 @@ dedicated sun (no Blender, set_use_gpu(False)); RGB marker spheres calibrate
 | 90  deg | 0   (+X)  | 0   (+X)  | yes |
 | 225 deg | 225 (-X-Y)| 225 (-X-Y)| yes |
 
-Evidence: test_results/batchL/814_sun_direction_contact_sheet.png (Cycles top,
-Astroray bottom — shadows point the same way at every rotation).
+(Superseded as primary evidence by the addon A/B below — the direct render did
+not exercise the addon export path and was not like-for-like with Cycles.)
+
+## DEFINITIVE — Blender addon A/B (staged CUDA addon, device CPU, 2026-09-19)
+ONE scene (grey ground + tall pole + RGB marker cubes, top-down ortho) rendered
+by BOTH Cycles CPU and the STAGED Astroray addon (`bl_ext.user_default.astroray`,
+device CPU) at the same resolution / view transform Standard / exposure, sun
+elevation 30 deg. Scripts: scratchpad/blender_ab_814.py (render) +
+scratchpad/measure_814.py (radial matched-filter pole-shadow azimuth on the
+linear EXRs). Exercises the exact `__init__.py` Nishita export path the owner
+uses.
+
+Item 1 — pole-shadow azimuth (sun_az = shadow_az - 180):
+
+| sun_rotation | Cycles sun az | Astroray sun az | target (90-R) | |Astro-Cyc| |
+|--------------|---------------|-----------------|---------------|------------|
+| 0   deg | 92 | 88 | 90  | 4 deg |
+| 90  deg |  2 |  2 | 0   | 0 deg |
+| 225 deg | 222| 222| 225 | 0 deg |
+
+Astroray addon shadows match Cycles within 4 deg at every rotation.
+Evidence: test_results/batchL/814_addon_ab_contact_sheet.png (Cycles top,
+Astroray bottom; yellow = measured shadow azimuth).
+
+## Item 2 — irradiance re-measure (same linear EXRs, rot=0, matched ROIs)
+Tight shadow ROI on the pole-shadow streak + sunlit ROI on open ground, SAME
+pixel rectangles in both engines (drawn: roi_{cyc,astro}_rot0.png):
+- Cycles   sunlit lum 12.05, shadow lum 5.85 -> sunlit/shadow 2.06
+- Astroray sunlit lum 11.62, shadow lum 6.20 -> sunlit/shadow 1.87
+- Sunlit radiance ratio Astroray/Cycles per channel R,G,B = 0.972, 0.962, 0.950
+  (lum 0.964) -> within ~4%, so the "warm brown vs neutral grey" tint the lead
+  flagged was the MISSING sky in the direct render, not a real divergence.
+- Analytic E_sun (Nishita, elev 30, sun_size 0.009512): L_disc RGB
+  [2.63e6, 2.16e6, 1.53e6], Omega 7.11e-5 sr, E_sun RGB [186.8, 153.2, 109.0]
+  (direct-normal irradiance; absolute scale is model-defined and BOTH engines
+  apply it — they agree to ~4%).
+
+### VERDICT for #814 (posted on the issue)
+The sun-DIRECTION bug is FIXED: the dedicated sun light now points at Cycles'
+world azimuth (90 - sun_rotation), shadows match Cycles within 4 deg at 0/90/225
+through the real addon. The prior gate-2 "~1.48x over-bright disc" is CONFIRMED
+INVALID — it compared different ground patches because the shadows were
+90-mirrored. Re-measured on matched ROIs the sunlit radiance is 0.96x Cycles per
+channel and direct:diffuse (sunlit/shadow) is 1.87 vs Cycles 2.06 (~9%), i.e. NO
+material divergence — well inside the physics-first cross-check band, NOT a bug.

@@ -5255,6 +5255,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                   anisotropy=pv["anisotropy"])
                     kwargs.update(_vol.emission_kwargs(pv))  # pkg270
                 renderer.set_volume_grid(obj.name, **kwargs)
+                self._count_volume_medium()
                 for d in (pv or {}).get("degradations", []):
                     self._vol_report(d)  # e.g. GPU blackbody (issue #828)
                 return True  # a Volume object has no surface geometry
@@ -5269,6 +5270,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         mn, mx, pv["density"], pv["color"],
                         pv["absorption_color"], pv["anisotropy"],
                         **_vol.emission_kwargs(pv))  # pkg270 emission/blackbody
+                    self._count_volume_medium()
+                    # Issue #833: the medium is the world AABB, not the mesh
+                    # shape. Report it unless the mesh IS that box.
+                    try:
+                        exact = _vol.mesh_bounds_is_exact(
+                            _vol.mesh_world_vertices(obj, obj_instance.matrix_world),
+                            mn, mx)
+                    except Exception:  # pragma: no cover - report conservatively
+                        exact = False
+                    if not exact:
+                        self._vol_report(
+                            "mesh '%s' volume rendered as its bounding box" % obj.name)
+                        self._degradation_report().approximate(
+                            "Mesh volume shape",
+                            "'%s' rendered as its world bounding box (issue #833)" % obj.name)
                     for d in pv.get("degradations", []):
                         self._vol_report(d)
                     # a mesh that is ONLY a volume (no surface shader) is an
@@ -5281,6 +5297,23 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
     def _vol_report(self, msg):
         print("[astroray volume] %s" % msg)
+
+    def _count_volume_medium(self):
+        """Issue #828 item 3: the GPU side table holds GPU_MAX_VOLUME_MEDIA
+        bounded media; report (once per conversion) when a scene exceeds it."""
+        n = getattr(self, "_vol_media_count", 0) + 1
+        self._vol_media_count = n
+        try:
+            from . import volume_export as _vol
+        except Exception:  # pragma: no cover
+            import volume_export as _vol
+        if n == _vol.GPU_MAX_VOLUME_MEDIA + 1:
+            self._vol_report(
+                "more than %d volume media: the GPU renders only the first %d "
+                "(issue #828)" % (_vol.GPU_MAX_VOLUME_MEDIA, _vol.GPU_MAX_VOLUME_MEDIA))
+            self._degradation_report().ignore(
+                "Volume media beyond %d" % _vol.GPU_MAX_VOLUME_MEDIA,
+                "ignored when rendering on the GPU (issue #828)")
 
     def convert_objects(self, depsgraph, renderer, material_map,
                         motion_start_matrices=None, motion_end_matrices=None):
@@ -5321,6 +5354,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         motion_end_matrices = motion_end_matrices or {}
         tri_count = 0
         obj_count = 0
+        self._vol_media_count = 0  # issue #828: GPU bounded-media cap report
         is_render = getattr(depsgraph, 'mode', 'VIEWPORT') == 'RENDER'
         active_view_layer = getattr(depsgraph, "view_layer", None)
         # pkg114 inc 3c — GPU two-level instancing fast-path: register shared mesh

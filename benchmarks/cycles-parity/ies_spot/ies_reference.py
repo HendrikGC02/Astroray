@@ -212,6 +212,8 @@ class SpotScene:
     cam_height: float = 6.0
     fov_deg: float = 30.0
     res: int = 200
+    radius: float = 0.0                # Blender shadow_soft_size
+    soft_falloff: bool = True          # Blender use_soft_falloff (default True)
 
     def rotation(self) -> np.ndarray:
         """Light object rotation (columns = local X, Y, Z in world); the light
@@ -242,12 +244,88 @@ def plane_points(sc: SpotScene, sub: int = 1, divisor: float | None = None):
     return np.stack([x, y, np.zeros_like(x)], axis=-1)
 
 
+def _emit_factor(sc, table, ies_strength, dirw, spot_mask=None):
+    """Directional emission factor along world dirs (light -> lit point): spot
+    attenuation x IES, both in the light-local frame. `spot_mask` False = no
+    spot attenuation there (Cycles skips it inside a sphere lamp)."""
+    local = dirw @ sc.rotation()                # (dir . X, dir . Y, dir . Z)
+    f = np.ones(dirw.shape[:-1])
+    if sc.kind == "SPOT":
+        att = spot_attenuation(-local[..., 2], sc.spot_size, sc.spot_blend)
+        f = f * (att if spot_mask is None else np.where(spot_mask, att, 1.0))
+    if table is not None:
+        h, v = ies_angles(local)
+        f = f * ies_strength * ies_interp(table, h, v)
+    return f
+
+
+def _gauss_legendre_01(n):
+    x, w = np.polynomial.legendre.leggauss(n)
+    return 0.5 * (x + 1.0), 0.5 * w
+
+
+def _radiance_area(sc, table, ies_strength, P, nq_r=12, nq_phi=48):
+    """radius > 0 (Cycles kernel/light/point.h, spot.h). Radiance of the lamp
+    surface L_e = P_w * eval_fac, eval_fac = 1/(4 pi r^2 * pi) (scene/light.cpp,
+    area = 4 pi r^2 in BOTH modes). use_soft_falloff (is_sphere = false): an
+    oriented disk of radius r facing the lit point, E = int L_e f cos_l cos_i / t^2 dA.
+    Sphere (use_soft_falloff off): the visible cap, E = int L_e f cos_i dw.
+    Quadrature: Gauss-Legendre in the radial / cos variable, uniform in phi."""
+    L = np.asarray(sc.light_pos, dtype=np.float64)
+    r = sc.radius
+    Le = sc.power / (4.0 * math.pi * r * r * math.pi)
+    xr, wr = _gauss_legendre_01(nq_r)
+    phi = (np.arange(nq_phi) + 0.5) / nq_phi * 2.0 * math.pi
+    shape = P.shape[:-1]
+    Pf = P.reshape(-1, 3)
+    E = np.zeros(len(Pf))
+    for c0 in range(0, len(Pf), 4096):
+        Pc = Pf[c0:c0 + 4096]
+        n = Pc - L
+        d = np.linalg.norm(n, axis=-1)
+        n = n / d[:, None]                      # light -> point
+        a = np.where(np.abs(n[:, 0:1]) > 0.9, [[0.0, 1.0, 0.0]], [[1.0, 0.0, 0.0]])
+        u = a - n * (n * a).sum(-1, keepdims=True)
+        u /= np.linalg.norm(u, axis=-1, keepdims=True)
+        v = np.cross(n, u)
+        acc = np.zeros(len(Pc))
+        for xi, wi in zip(xr, wr):
+            for ph in phi:
+                if sc.soft_falloff:
+                    rho = r * math.sqrt(xi)          # area-uniform in rho^2
+                    Q = L + rho * (math.cos(ph) * u + math.sin(ph) * v)
+                    PQ = Pc - Q                      # disk point -> lit point
+                    t = np.linalg.norm(PQ, axis=-1)
+                    dirw = PQ / t[:, None]
+                    cos_l = np.abs((n * dirw).sum(-1))
+                    cos_i = np.clip(-dirw[:, 2], 0.0, None)
+                    val = Le * _emit_factor(sc, table, ies_strength, dirw) * cos_l * cos_i / (t * t)
+                    acc += wi * val * (math.pi * r * r) / len(phi)
+                else:
+                    outside = d > r
+                    # Outside: the visible cap; inside: every direction hits the lamp.
+                    cos_a = np.where(outside, np.sqrt(np.maximum(0.0, 1.0 - r * r / (d * d))), -1.0)
+                    ct = 1.0 - xi * (1.0 - cos_a)    # uniform in cos over the cap
+                    st = np.sqrt(np.maximum(0.0, 1.0 - ct * ct))
+                    w = -n                            # point -> light centre
+                    om = (ct[:, None] * w + st[:, None] * (math.cos(ph) * u + math.sin(ph) * v))
+                    dirw = -om                        # lamp surface -> lit point
+                    cos_i = np.clip(om[:, 2], 0.0, None)
+                    dom = 2.0 * math.pi * (1.0 - cos_a) / len(phi)
+                    acc += wi * Le * _emit_factor(sc, table, ies_strength, dirw, outside) * cos_i * dom
+        E[c0:c0 + 4096] = acc
+    return E.reshape(shape)
+
+
 def radiance(sc: SpotScene, table: IESTable | None, ies_strength: float = 1.0, sub: int = 4,
              divisor: float | None = None):
     """Linear radiance (res, res) of the plane: rho/pi * I(dir) * cos_i / d^2 with
     I = P/(4 pi) * spot_attenuation * ies_fac (Cycles light/sample.h: shader
-    emission * eval_fac * strength; radius-0 point/spot pdf = d^2)."""
+    emission * eval_fac * strength; radius-0 point/spot pdf = d^2). radius > 0:
+    see _radiance_area."""
     P = plane_points(sc, sub, divisor)
+    if sc.radius > 0.0:
+        return (sc.albedo / math.pi * _radiance_area(sc, table, ies_strength, P)).mean(axis=-1)
     L = np.asarray(sc.light_pos, dtype=np.float64)
     d_vec = P - L                               # light -> point (world)
     dist = np.linalg.norm(d_vec, axis=-1)

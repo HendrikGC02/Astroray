@@ -66,9 +66,9 @@ def build_scene(bpy, sc, ies_text):
     ld = bpy.data.lights.new("Light", type=sc.kind)
     ld.energy = sc.power
     ld.color = (1.0, 1.0, 1.0)
-    ld.shadow_soft_size = 0.0
+    ld.shadow_soft_size = sc.radius
     if hasattr(ld, "use_soft_falloff"):
-        ld.use_soft_falloff = False
+        ld.use_soft_falloff = sc.soft_falloff
     if sc.kind == "SPOT":
         ld.spot_size = sc.spot_size
         ld.spot_blend = sc.spot_blend

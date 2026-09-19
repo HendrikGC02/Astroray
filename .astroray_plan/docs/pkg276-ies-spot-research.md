@@ -85,3 +85,40 @@ with `4 pi r^2` (measured 0.125x at r=0.1, 0.74x at Blender's default 0.25).
   `test_reference_cone_mapping_equals_cycles_field`).
 - Gates sample the reference at the engine's `(res-1)` raster positions so they measure
   the light, not the camera.
+
+## #840 — lamps with radius > 0 (added 2026-09-20)
+**Sources (Blender 5.2, Apache-2.0):** `kernel/light/point.h` `point_light_sample`
+(sphere branch: `sample_uniform_cone(-lightN, sin_sqr_to_one_minus_cos(r^2/d^2))`,
+law-of-cosines hit + remap; soft-falloff branch: `disk_light_sample(lightN)`,
+`pdf = invarea * light_pdf_area_to_solid_angle`, `invarea = 1/(pi r^2)`),
+`blender/light.cpp` (`set_is_sphere(!(mode & LA_USE_SOFT_FALLOFF))`; Blender's
+default `use_soft_falloff` is True, startup-scene lamp radius 0.1),
+`scene/light.cpp` `PointLight::area` = 4 pi r^2 in both modes, so
+`eval_fac = 1/(4 pi r^2 * pi)`: lamp radiance P/(4 pi^2 r^2) = I/(pi r^2).
+`kernel/sample/mapping.h` `sample_uniform_disk` / `sample_uniform_cone`,
+`util/math_float3.h` `make_orthonormals`.
+
+**Reference:** `ies_reference._radiance_area` (Gauss-Legendre x phi quadrature
+over the disk / visible cap). Cycles CPU 256 spp vs reference, 2-deg annuli,
+POINT and SPOT, r in {0.05, 0.1, 0.25, 1.0}, soft falloff on and off: total
+1.0000 in all 16 legs, annuli 0.998..1.001 (recorded in `cycles_recorded.json`).
+
+**Astroray CPU before (soft-falloff reference):**
+| r | 0 | 0.05 | 0.1 | 0.25 | 1.0 |
+|---|---|---|---|---|---|
+| POINT total | 0.930 | 0.0315 | 0.126 | 0.760 | 1.347 |
+| 4 pi r^2 | - | 0.031 | 0.126 | 0.785 | 12.57 |
+Uniform-surface point + AREA pdf 1/(4 pi r^2) against point-intensity emission;
+plus the NEE MIS weight against a BSDF strategy that cannot hit the lamp
+(point/spot are never BSDF-intersected on either backend), and `pdfLi`
+returned a direction-independent area pdf into other emitters' BSDF-hit MIS.
+
+**Fix:** `include/astroray/lamp_sampling.h` (host/device port of the above),
+used by CPU `{point,spot}_light.cpp` and the GPU `gpu_lamp_sample_ext`;
+radiance + solid-angle pdf; NEE weight 1 (NEE-only lamp: Cycles' radius-0 rule
+and the only unbiased weight when the other strategy cannot reach the lamp);
+`pdfLi` = 0 (mirrors `gpu_dedicated_reconstruct_pdf`). Mode from the addon
+(`use_soft_falloff`), carried in `GDedicatedLight::areaShape` (unused for
+point/spot; 0 disk, 1 sphere). Sampling-strategy differences only (same
+expectation): uniform sphere inside a sphere lamp (Cycles' transmissive
+branch), no spread-cone switch for sphere spots.

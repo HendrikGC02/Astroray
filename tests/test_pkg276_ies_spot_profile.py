@@ -78,14 +78,15 @@ def render_astroray(astroray, sc, ies_path, spp=32, use_gpu=False, seed=7):
     r.add_triangle([-s, -s, 0], [s, s, 0], [-s, s, 0], m)
     em = {"mode": "rgb", "color": [1.0, 1.0, 1.0]}
     R = sc.rotation()
-    frame = [float(R[rr, c]) for c in range(3) for rr in range(3)]
+    kw = {"light_frame": [float(R[rr, c]) for c in range(3) for rr in range(3)]}
+    if sc.radius > 0.0:
+        kw["soft_falloff"] = bool(sc.soft_falloff)   # #840
     if sc.kind == "SPOT":
         inner, outer = ref.cycles_cone_angles(sc.spot_size, sc.spot_blend)
         r.add_spot_light_dedicated(list(sc.light_pos), list(-R[:, 2]), inner, outer, em,
-                                   sc.power, 0.0, ies_path, 0, 0, light_frame=frame)
+                                   sc.power, sc.radius, ies_path, 0, 0, **kw)
     else:
-        r.add_point_light(list(sc.light_pos), em, sc.power, 0.0, ies_path, 0, 0,
-                          light_frame=frame)
+        r.add_point_light(list(sc.light_pos), em, sc.power, sc.radius, ies_path, 0, 0, **kw)
     r.setup_camera(look_from=[0, 0, sc.cam_height], look_at=[0, 0, 0], vup=[0, 1, 0],
                    vfov=sc.fov_deg, aspect_ratio=1.0, aperture=0.0,
                    focus_dist=sc.cam_height, width=sc.res, height=sc.res)
@@ -132,6 +133,43 @@ def test_reference_cone_mapping_equals_cycles_field():
     t = (cos - math.cos(outer)) / (math.cos(inner) - math.cos(outer))
     engine = ref.smoothstepf(t)
     np.testing.assert_allclose(engine, ref.spot_attenuation(cos, size, blend), atol=1e-6)
+
+
+_RECORDED = REPO_ROOT / "benchmarks" / "cycles-parity" / "ies_spot" / "cycles_recorded.json"
+_RECORDED_LEGS = ["spot_noies", "spot_asym", "point_asym", "spot_wallwasher",
+                  "point_r01_soft", "point_r10_soft", "point_r10_sphere",
+                  "spot_r025_soft", "spot_r10_sphere"]
+
+
+@pytest.mark.parametrize("leg", _RECORDED_LEGS)
+def test_reference_reproduces_recorded_cycles(leg):
+    """The reference is not validated against itself: headless Cycles 5.2 annulus
+    means (cycles_recorded.json, see its _provenance) must be reproduced within
+    1 % in every bin above 5 % of the peak (measured: <= 0.2 %)."""
+    import json
+    rec = json.loads(_RECORDED.read_text(encoding="utf-8"))
+    entry = rec[leg]
+    sc = ref.SpotScene(**entry["scene"])
+    prof = entry["profile"]
+    table = None
+    if prof == "asym":
+        table = ref.parse_ies(ref.asym_profile_lm63())
+    elif prof == "wallwasher":
+        table = ref.parse_ies(_wall_washer())
+    img = ref.radiance(sc, table, sub=2)
+    theta, _ = ref.pixel_geometry(sc)
+    edges = rec["edges_deg"]
+    want = entry["annulus_mean_G"]
+    peak = max(w for w in want if w is not None)
+    checked = 0
+    for (lo, hi), w in zip(zip(edges[:-1], edges[1:]), want):
+        if w is None or w < 0.05 * peak:
+            continue
+        m = (theta >= lo) & (theta < hi)
+        got = float(img[m].mean())
+        assert got == pytest.approx(w, rel=0.01), (leg, lo, got, w)
+        checked += 1
+    assert checked >= 8, (leg, checked)
 
 
 def test_reference_cycles_float32_wrap_quirk():

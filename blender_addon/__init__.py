@@ -897,6 +897,31 @@ class CustomRaytracerLightSettings(PropertyGroup):
     )
 
 
+def _generated_texspace_bbox(obj, matrix):
+    """#834: world-space (bmin, bsize) of the object's Generated texture space.
+
+    Generated is the mesh TEXTURE SPACE, not the bounding box: Cycles
+    blender/mesh.cpp mesh_texture_space reads texspace_location/size, and
+    BKE_mesh_texspace_calc forces a zero-size axis to size 1, so a flat plane's
+    Generated z is 0.5 (the bbox gave 0; a 3-D checker/noise then differs).
+    The exporter bakes world transforms into vertices, so the texspace box
+    corners are baked to world (exact for unrotated objects, as before)."""
+    tdata = getattr(obj, 'data', None)
+    tloc = getattr(tdata, 'texspace_location', None)
+    tsize = getattr(tdata, 'texspace_size', None)
+    if tloc is not None and tsize is not None:
+        local_corners = [(tloc[0] + sx * tsize[0], tloc[1] + sy * tsize[1],
+                          tloc[2] + sz * tsize[2])
+                         for sx in (-1.0, 1.0) for sy in (-1.0, 1.0) for sz in (-1.0, 1.0)]
+    else:
+        local_corners = obj.bound_box
+    corners = [matrix @ mathutils.Vector(c) for c in local_corners]
+    bmin = [min(c[i] for c in corners) for i in range(3)]
+    bmax = [max(c[i] for c in corners) for i in range(3)]
+    bsize = [max(bmax[i] - bmin[i], 1e-6) for i in range(3)]
+    return bmin, bsize
+
+
 def _light_spectrum_profile(light):
     """pkg195 Stage B: resolved profile name for preset/custom spectrum modes,
     or '' when the light is in native mode / unresolved."""
@@ -5481,11 +5506,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     if slot.material is not None:
                         gen_texs.extend(gen_by_mat.get(slot.material.name, ()))
                 if gen_texs:
-                    corners = [matrix @ mathutils.Vector(c)
-                               for c in obj.bound_box]
-                    bmin = [min(c[i] for c in corners) for i in range(3)]
-                    bmax = [max(c[i] for c in corners) for i in range(3)]
-                    bsize = [max(bmax[i] - bmin[i], 1e-6) for i in range(3)]
+                    bmin, bsize = _generated_texspace_bbox(obj, matrix)
                     for tex_name in set(gen_texs):
                         renderer.set_texture_generated_bbox(
                             tex_name, bmin, bsize)

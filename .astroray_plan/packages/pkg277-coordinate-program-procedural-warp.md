@@ -44,7 +44,7 @@ directive).
 
 ## Prerequisites
 
-- [ ] PR #844 (#825/#826) merged.
+- [ ] PR #844 (#825/#826 multi-input GPU program inputs) merged — the work pkg277 extends (tracked here, not in `Depends on`, which is a package-spec list).
 - [ ] Build passes on main.
 
 ---
@@ -72,6 +72,7 @@ directive).
 - No `svm_eval` change: every opcode needed exists; the fleet and `HasProgram=true` kernels stay byte-identical (still measured).
 - Base coordinate provenance: UV / Generated bake; Object / Camera / Window / Normal / Reflection stay CPU-exact with the existing "GPU skips the program" degradation.
 - Bake resolution: default 64³ (pkg190 convention). 128³ halves pixel mismatch at 8× memory (25 MB per 128³ texture); leave as a follow-up unless owner asks.
+- Mapping × warp ordering: when a Mapping node is combined with a non-affine warp, Mapping is applied to the base coordinate first (affine, via `_resolve_affine_coordinates`), then the coordinate program warps the mapped point. CPU and GPU must apply the same ordering — the CPU evaluates the mapped-then-warped point per shade, and the GPU bake must be of that same mapped-then-warped field so the wrapper's baked value agrees with `wrapper->value()`.
 
 ---
 
@@ -79,6 +80,8 @@ directive).
 
 - [ ] CPU render of `Generated -> Separate XYZ -> Math(Sin) -> Combine XYZ -> Checker` matches a numpy reference of the same field (Cycles `svm/checker.h` formula) per pixel, excluding a 1-px band at cell edges.
 - [ ] GPU/CPU per-channel region-mean ratio within 3 % at 256 spp for the same scene and for a warped Noise.
+- [ ] Per-pixel gate (the 64³ bake is the limiting factor, so the region-mean ratio alone does not catch the 4–26 % edge mismatch): at the 64³ bake resolution, the fraction of pixels whose per-channel |Astroray_GPU − Astroray_CPU| exceeds 0.01 must be ≤ 26 % for the sin-warped Checker (worst case, k = 24) and ≤ the same bound for the warped Noise.
+- [ ] Mapping + non-affine warp: CPU and GPU both apply Mapping before the warp; verified against a numpy reference with a Mapping node present.
 - [ ] `cuobjdump --dump-resource-usage`: 0 functions changed vs main.
 - [ ] Non-affine chain with an Object base coordinate: CPU exact, degradation entry recorded.
 - [ ] Addon path contact sheet (Cycles CPU | Astroray CPU | Astroray GPU) inspected.

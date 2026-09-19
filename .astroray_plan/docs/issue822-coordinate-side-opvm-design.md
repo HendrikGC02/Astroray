@@ -31,9 +31,12 @@ grid points.
 | 12 | 14.21 % | 0.0006 | 7.07 % | 0.0028 |
 | 24 | 25.64 % | 0.0017 | 15.04 % | 0.0026 |
 
-  Region means stay within 0.6 %; per-pixel error is edge aliasing that grows with
-  warp frequency. Smooth fields (Noise) err far less. Same accepted tradeoff as
-  pkg190 for direct procedurals.
+  `mean err` is the region-mean absolute error over the 320² Generated-plane shading
+  points (`|bake − exact|`, averaged over the region). Region means stay within
+  0.6 %; per-pixel error is edge aliasing that grows with warp frequency, and the
+  4–26 % per-pixel edge mismatch is NOT gated by a region-mean test — the region-mean
+  column cannot catch it. Smooth fields (Noise) err far less. Same accepted tradeoff
+  as pkg190 for direct procedurals.
 - Scalar `Math(Sin/Cos/Tan)` needs no evaluator change: a Separate XYZ output is a
   broadcast `GVec3`, so the compiler can emit the existing `OP_VEC_MATH`
   `SINE/COSINE/TANGENT` (Cycles `svm/math_util.h`, already cited in `shader_vm.h`).

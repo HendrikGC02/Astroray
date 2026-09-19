@@ -2005,6 +2005,7 @@ public:
     // camera ray's first intersection (secondary rays keep the unconditional
     // 0.001f/FLT_MAX bounds). Defaults match the pre-clip engine bounds, so the
     // default render path is byte-identical.
+    Vec3 viewForward() const { return w_axis * -1.0f; }  // unit view direction (w_axis points backward)
     float clipNear = 0.001f;
     float clipFar = std::numeric_limits<float>::max();
     std::vector<Vec3> pixels, albedoBuffer, normalBuffer, positionBuffer, uvBuffer;
@@ -4378,7 +4379,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         // byte-identical.
         clipNear_ = cam.clipNear;
         clipFar_ = cam.clipFar;
-        clipForward_ = cam.w_axis * -1.0f;
+        clipForward_ = cam.viewForward();
         hasHoldoutObjects_ = false;
         for (const auto& o : scene) {
             if (o && o->isHoldout()) { hasHoldoutObjects_ = true; break; }

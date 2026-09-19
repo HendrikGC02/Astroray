@@ -198,8 +198,16 @@ unfixed, GPU renders of IES lights silently differ from CPU and from Cycles.
       within 3 % per channel, green on the RTX 5070 Ti.
 - [ ] GPU render of an IES SPOT shows a modulated beam, not a plain cone
       (qualitative visual inspection by a visual-capable agent).
-- [ ] `stageShadeBucketedKernel` REG stays 254 / 0 spill, and all `HasIES=false`
-      specializations are `cuobjdump` byte-identical to main.
+- [ ] ~~`stageShadeBucketedKernel` REG stays 254 / 0 spill, and all `HasIES=false`
+      specializations are `cuobjdump` byte-identical to main.~~ **Amended (lead,
+      2026-09-20):** the GPU leg uses a runtime `__constant__` IES flag + a
+      `__noinline__` IES evaluation (pkg224 pattern), not a `template<bool HasIES>`
+      axis — the axis doubles the 128-way shade fleet and `stage_advance.cu` compile
+      time on every build (owner: builds are the biggest time sink). New gate: every
+      shade specialization keeps REG 254 and the STACK of the Batch P baseline build
+      (627bfe67), kernels not touched stay `cuobjdump` byte-identical, and a non-IES
+      perf A/B (burn-in + min-of-N) is within noise. If REG or STACK moves, fall back
+      to the template axis.
 - [ ] Existing `tests/test_batch_a_ies_export.py` and non-IES dedicated-light
       parity suites stay green.
 - [ ] Before/after renders saved under `test_results/` and inspected.
@@ -216,6 +224,10 @@ unfixed, GPU renders of IES lights silently differ from CPU and from Cycles.
 - No new light types.
 - No area-light IES.
 - Do not change the unified light CDF, light selection, or MIS weighting.
+  **Exception (lead, 2026-09-20):** radius-0 point/spot NEE weight 1 (Batch P commit
+  0c6d888b) — an energy-loss bug found by the controlled A/B (0.910x / 0.722x /
+  0.397x vs analytic for 1 / 2 / 4 lamps), Cycles gives such lamps no MIS
+  (`surface_shader_bsdf_eval`). Reviewed by cycles-parity.
 - No threshold relaxation on any existing parity gate.
 - Do not change the Cycles-exact non-IES light radiometry (pkg122).
 

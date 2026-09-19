@@ -35,6 +35,7 @@ FAMILIES = [
     "geometry_zoo",
     "camera_lens",
     "render_settings",
+    "volumes",          # pkg271 (added after Phase 0: OpenVDB smoke + blackbody fire)
 ]
 
 # (category, feature) -> (primary_family, [secondary_families])
@@ -192,6 +193,9 @@ ASSIGN: dict[tuple[str, str], tuple[str, list[str]]] = {
 # the pkg260 brief, not a world_sky one.
 SOCKET_OVERRIDE: dict[tuple[str, str, str], tuple[str, list[str]]] = {
     ("world", "World", "light_linking_shadow_linking"): ("lighting_studio", []),
+    # pkg271: volume_bounces is demonstrated where volumes scatter, not in the
+    # render_settings hero shot.
+    ("render_settings", "RenderSettings", "volume_bounces"): ("volumes", []),
 }
 
 

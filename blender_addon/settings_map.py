@@ -155,8 +155,9 @@ _LIGHT_PATHS = [
                  "custom_raytracer.transmission_bounces", "render(transmission_bounces=...)", "direct", "DROPPED-SILENT",
                  "Custom duplicate shadows native."),
     MappingEntry("light_paths", "volume_bounces", "scene.cycles.volume_bounces",
-                 "custom_raytracer.volume_bounces", "render(volume_bounces=...)", "direct", "DROPPED-SILENT",
-                 "Custom duplicate shadows native; volume transport is itself only partially implemented."),
+                 "custom_raytracer.volume_bounces", "render(volume_bounces=...)", "direct", "SUPPORTED",
+                 "pkg271: honoured by both engines with Cycles max_volume_bounce semantics "
+                 "(grid, mesh and world-fog media; terminate-after continuation past the cap)."),
     MappingEntry("light_paths", "transparent_max_bounces", "scene.cycles.transparent_max_bounces",
                  "custom_raytracer.transparent_bounces", "render(transparent_bounces=...)", "direct", "DROPPED-SILENT",
                  "NAME MISMATCH: custom prop is 'transparent_bounces', Cycles is 'transparent_max_bounces'."),

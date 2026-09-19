@@ -2165,6 +2165,7 @@
       "socket_or_prop": "output:Portal Depth"
     }
   ],
+  "volumes_smoke": [],
   "world_sky_hdri": [
     {
       "bl_idname": "ShaderNodeBackground",

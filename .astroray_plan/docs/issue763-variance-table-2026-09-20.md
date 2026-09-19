@@ -62,6 +62,31 @@ A and I are mostly the dark world seen directly. Cycles returns it noise-free;
 Astroray's 4-λ estimate adds chroma noise. Read those two columns as the
 spectral floor.
 
-## GPU table
+## GPU table (Astroray GPU against the same Cycles CPU renders)
 
-(pending: GPU-lock slot)
+| variant | metric | A | B | C | D | E | H | I | wall | floor |
+|---|---|---|---|---|---|---|---|---|---|---|
+| base (tree on) | rgb | 46 | 9.2 | 6.8 | 11 | 3.7 | 19 | 15 | 7.7 | 15 |
+| | lum | 35 | 6.0 | 4.9 | 7.2 | 2.3 | 4.1 | 12 | 4.4 | 9.2 |
+| (a) tree off | rgb | = base (max abs pixel diff 2.4e-7) | | | | | | | | |
+| (b) progressive on | rgb | 42 | 5.9 | 6.1 | 10 | 3.5 | 17 | 13 | 7.1 | 13 |
+| | lum | 31 | 4.2 | 4.1 | 6.0 | 2.1 | 3.5 | 10 | 3.9 | 7.6 |
+| (c) progressive + tree off | rgb | = (b) (max abs diff 1.8e-7) | | | | | | | | |
+| (d) bulb removed | rgb | 43 | 8.8 | 6.4 | 11 | 4.6 | 19 | 13 | 10 | 17 |
+
+- **The GPU tree is inert here.** The log shows `[CUDA] light tree not uploadable
+  (dedicated lights present) - GPU NEE falls back to power-CDF selection` (pkg86-B
+  deferral). GPU base therefore equals CPU tree-off: wall 7.7 vs 7.7, floor 15 vs 14.
+  The GPU never showed the #763 grain.
+- **Progressive Sobol (pkg224)** gives 8–36 % less variance (wall 7.7 → 7.1,
+  B 9.2 → 5.9). Helpful, but not the owner.
+- **Bulb removal** gives no improvement on either backend.
+
+## Owner
+
+| term | effect on the gap |
+|---|---|
+| CPU light tree (pkg86; default via native `use_light_tree`) | **owns it**: 8–14× of the variance, CPU only. Fix: #851 |
+| progressive Sobol (pkg224, GPU-only, off unless GPU adaptive) | 8–36 % |
+| practical bulb (firefly suspect) | none |
+| residual (spectral 4-λ chroma; lum 4–9×) | open. Candidates: 4-λ hero luminance noise, pixel filter. Not a sampler toggle |

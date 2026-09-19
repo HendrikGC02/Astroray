@@ -212,6 +212,10 @@ __device__ inline GNEESample gpu_dedicated_sample(
         s.geomDist    = dist;                 // pkg199: true distance for Tr
         s.lightPdf    = pdf * selPdf;
         s.dedGeoScale = d.staticScale * geo;
+        // Batch P: radius-0 point/spot is a delta light -> MIS weight 1 (Cycles
+        // surface_shader_bsdf_eval zeroes the BSDF pdf for non-MIS lights; CPU
+        // {point,spot}_light.cpp LiSample::isDelta mirror).
+        s.isDeltaLight = (d.radius > 0.f) ? 0 : 1;
         s.valid       = 1;
         return s;
     }

@@ -103,6 +103,14 @@ void PointLight::sampleLi(LiSample& sample,
     } else {
         sample.pdf = 1.0f;
     }
+    // Batch P: a radius-0 point/spot is a delta light -- BSDF sampling can never
+    // hit it, so NEE must not be MIS-weighted against the BSDF pdf. Cycles gives
+    // it SHADER_USE_MIS only when radius > 0 (scene/light.cpp
+    // PointLight::copy_to_kernel) and zeroes the BSDF pdf for non-MIS lights
+    // (kernel/integrator/surface_shader.h surface_shader_bsdf_eval), i.e. weight 1.
+    // Same mechanism as pkg140's delta sun (LiSample::isDelta). Apache-2.0.
+    // Measured before: NEE weight 1/(1+(cos/pi)^2) -> 0.91x (1 light) .. 0.40x (4).
+    sample.isDelta = !(radius_ > 0.0f);
 }
 
 float PointLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {

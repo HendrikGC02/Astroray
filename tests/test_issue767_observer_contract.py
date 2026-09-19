@@ -21,13 +21,12 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from runtime_setup import configure_test_imports
 
 configure_test_imports()
 
 try:
-    import astroray  # noqa: E402
+    import astroray
     AVAILABLE = True
 except ImportError:
     AVAILABLE = False
@@ -39,7 +38,7 @@ _needs_engine = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 def _inc_array(name: str) -> np.ndarray:
     txt = (ROOT / "data" / "spectra" / ("cie_cmf.inc" if "Cmf" in name else "illuminant_d65.inc")).read_text(
         encoding="utf-8")
-    body = re.search(name + r"\[\d+\]\s*=\s*\{(.*?)\};", txt, re.S).group(1)
+    body = re.search(name + r"\[\d+\]\s*=\s*\{(.*?)\};", txt, re.DOTALL).group(1)
     return np.array([float(v.strip().rstrip("f")) for v in body.split(",") if v.strip()])
 
 

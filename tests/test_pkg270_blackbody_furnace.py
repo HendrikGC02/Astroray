@@ -110,6 +110,12 @@ def test_blackbody_spectral_shape_is_planck(T):
 
 @pytest.mark.parametrize("T,I", [(3000.0, 1.0), (1400.0, 0.8), (6500.0, 0.5)])
 def test_blackbody_luminance_matches_cycles_stefan_boltzmann(T, I):
+    # NOTE (cycles-parity review, PR #820): this assert is SELF-CONSISTENT by
+    # construction — the engine normalises Planck by the same CIE-1964 ybar
+    # integral it is re-integrated with here, so it pins the magnitude convention
+    # and catches wiring/unit slips, not the physics. The INDEPENDENT checks are
+    # the numpy Planck ratio test above and the Rec.709 chroma band below
+    # (Cycles' polynomial, a different observer and fit).
     # Photopic luminance of the per-unit-length emission integrated on a 1-nm grid
     # with the engine's own CIE-1964 10deg ybar must equal Cycles' intensity
     # (luminance-1 colour x Stefan-Boltzmann magnitude), i.e. a physical Planck
@@ -275,12 +281,21 @@ def test_exporter_lowers_principled_emission_sockets():
     assert pv["blackbody_tint"] == pytest.approx([1.0, 0.9, 0.8])
     assert pv["temperature"] == pytest.approx(1400.0)
     assert pv["temperature_attribute"] == "flame_temp"
-    assert not any("emission" in d for d in pv["degradations"]), pv["degradations"]
+    # Blackbody Intensity 0.8 > 0: the GPU drops the blackbody term, so the
+    # exporter must SAY so (pkg200 rule) and point at the follow-up issue.
+    assert vol.BLACKBODY_GPU_DEGRADATION in pv["degradations"], pv["degradations"]
+    assert "CPU-only" in vol.BLACKBODY_GPU_DEGRADATION and "#828" in vol.BLACKBODY_GPU_DEGRADATION
+    assert not any("not honoured" in d for d in pv["degradations"]), pv["degradations"]
     assert not any("grey" in d for d in pv["degradations"]), pv["degradations"]
     kw = vol.emission_kwargs(pv)
     assert kw == {"emission_strength": 1.4, "emission_color": [1.0, 0.45, 0.10],
                   "blackbody_intensity": 0.8, "blackbody_tint": [1.0, 0.9, 0.8],
                   "blackbody_temperature": 1400.0}
+    # No blackbody => no degradation entry (constant emission IS honoured on GPU).
+    principled.inputs["Blackbody Intensity"].default_value = 0.0
+    pv_const = vol.principled_volume_from_material(_Mat([out, principled]))
+    assert vol.BLACKBODY_GPU_DEGRADATION not in pv_const["degradations"], pv_const["degradations"]
+    assert pv_const["emission_strength"] == pytest.approx(1.4)
     # Scatter / Absorption nodes carry no emission: Cycles defaults.
     kw0 = vol.emission_kwargs({"density": 1.0})
     assert kw0["emission_strength"] == 0.0 and kw0["blackbody_intensity"] == 0.0

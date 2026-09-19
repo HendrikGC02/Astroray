@@ -5100,6 +5100,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                   anisotropy=pv["anisotropy"])
                     kwargs.update(_vol.emission_kwargs(pv))  # pkg270
                 renderer.set_volume_grid(obj.name, **kwargs)
+                for d in (pv or {}).get("degradations", []):
+                    self._vol_report(d)  # e.g. GPU blackbody (issue #828)
                 return True  # a Volume object has no surface geometry
             if obj.type == 'MESH':
                 mats = [m for m in getattr(obj.data, 'materials', []) if m is not None]

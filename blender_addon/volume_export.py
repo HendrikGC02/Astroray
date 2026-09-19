@@ -32,6 +32,15 @@ import numpy as np
 
 # Grid attribute names follow Cycles (`blender/volume.cpp`).
 DENSITY_GRID = "density"
+
+# pkg269/pkg270 — degradation reported whenever a Principled Volume carries
+# blackbody emission: the GPU heterogeneous-volume stage accumulates the constant
+# emission term only (the Planck luminance normalisation is a host table), so the
+# blackbody glow is CPU-only until issue #828 lands. Emitted unconditionally —
+# the volume-lowering site does not know the active render device.
+BLACKBODY_GPU_DEGRADATION = (
+    "Principled Volume blackbody emission is CPU-only; the GPU renders constant "
+    "emission only (issue #828)")
 PASSTHROUGH_GRIDS = ("temperature", "color", "velocity", "flame", "heat")
 
 
@@ -254,6 +263,8 @@ def principled_volume_from_material(material):
         info["temperature"] = _socket_float(node, "Temperature", 1000.0)
         info["temperature_attribute"] = _socket_str(node, "Temperature Attribute", "temperature")
         info["density_attribute"] = _socket_str(node, "Density Attribute", "density")
+        if info["blackbody_intensity"] > 0.0:
+            degr.append(BLACKBODY_GPU_DEGRADATION)  # pkg200 rule: never claim honour silently
     elif ntype == "VOLUME_SCATTER" or "Scatter" in node.bl_idname:
         info["density"] = _socket_float(node, "Density", 1.0)
         info["color"] = _socket_rgb(node, "Color", (0.8, 0.8, 0.8))  # scattering albedo

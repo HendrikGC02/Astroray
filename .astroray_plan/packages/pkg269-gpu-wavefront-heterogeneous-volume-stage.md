@@ -138,7 +138,9 @@ under the GPU lock (memory `concurrent-nvcc-builds-kill-each-other`). Research:
 
 - GPU emission = the CONSTANT term only. Blackbody emission is CPU-only (the
   Planck luminance normalisation is a host table) — a blackbody volume renders
-  without its blackbody glow on the GPU. Follow-up.
+  without its blackbody glow on the GPU. The addon reports it as a degradation
+  (`volume_export.BLACKBODY_GPU_DEGRADATION`); follow-up = issue #828, which also
+  owns the device-side grid cache and the 8-media cap below.
 - Global majorant per medium (no DDA over the pkg267 majorant grid) and
   nearest-entered-medium only, mirroring the CPU oracle (pkg272 scope).
 - NanoVDB buffers are re-uploaded on every `render()` call (not part of the #801

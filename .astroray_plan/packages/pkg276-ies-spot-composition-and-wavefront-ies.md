@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** in-progress (batchP, 2026-09-19)
+**Status:** in-progress — batchP lane, 2026-09-19
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** none
 

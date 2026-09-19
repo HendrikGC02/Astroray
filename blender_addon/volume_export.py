@@ -301,6 +301,44 @@ def _cornerv(c):
     return mathutils.Vector((c[0], c[1], c[2]))
 
 
+# Issue #833 — a mesh volume is lowered to its world AABB (homogeneous medium).
+# That is exact only when the mesh IS that box; anything else is reported.
+def mesh_world_vertices(obj, matrix_world):
+    """World-space vertex positions of a mesh object as an (N, 3) array."""
+    verts = obj.data.vertices
+    n = len(verts)
+    if hasattr(verts, "foreach_get"):
+        co = np.empty(n * 3, dtype=np.float64)
+        verts.foreach_get("co", co)
+        co = co.reshape(n, 3)
+    else:
+        co = np.array([tuple(v.co) for v in verts], dtype=np.float64).reshape(n, 3)
+    m = np.array([[float(c) for c in row] for row in matrix_world], dtype=np.float64)
+    return co @ m[:3, :3].T + m[:3, 3]
+
+
+def mesh_bounds_is_exact(world_verts, aabb_min, aabb_max, rel_tol=1e-4):
+    """True iff the vertices are exactly the 8 corners of [aabb_min, aabb_max],
+    i.e. the AABB lowering reproduces the mesh (an axis-aligned box)."""
+    v = np.asarray(world_verts, dtype=np.float64).reshape(-1, 3)
+    mn = np.asarray(aabb_min, dtype=np.float64)
+    mx = np.asarray(aabb_max, dtype=np.float64)
+    if v.shape[0] < 8:
+        return False
+    tol = rel_tol * max(float((mx - mn).max()), 1e-12)
+    at_min = np.abs(v - mn) <= tol
+    at_max = np.abs(v - mx) <= tol
+    if not np.all(at_min | at_max):
+        return False
+    corners = {tuple(bool(b) for b in row) for row in at_max}
+    return len(corners) == 8
+
+
+# The GPU wavefront side table holds G_WF_MAX_GRID_MEDIA (include/astroray/
+# gpu_types.h) bounded media; extra media are ignored on the GPU (issue #828).
+GPU_MAX_VOLUME_MEDIA = 8
+
+
 def export_volume_objects(depsgraph, renderer, bpy_module=None, report=None):
     """Walk the depsgraph, export every `VOLUME` object to ``renderer``.
 

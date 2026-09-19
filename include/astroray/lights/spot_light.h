@@ -57,6 +57,10 @@ public:
         iesFx_ = fx; iesFy_ = fy; iesFz_ = fz;
     }
 
+    // #840: Blender use_soft_falloff (default on). On: Cycles samples an oriented
+    // disk facing the lit point; off: the sphere. Only matters for radius > 0.
+    void setSoftFalloff(bool on) { softFalloff_ = on; }
+
 private:
     Vec3             position_;
     Vec3             axis_;
@@ -68,6 +72,7 @@ private:
     const IESProfile* ies_;
     float            normalizeFactor_;
     Vec3             iesFx_, iesFy_, iesFz_;  // pkg276 IES frame
+    bool             softFalloff_ = true;     // #840
 
     // Helper: compute falloff for angle θ from axis.
     float angleFalloff(float cosTheta) const;

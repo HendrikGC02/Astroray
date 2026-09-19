@@ -28,6 +28,7 @@
 #include <random>
 #include <cmath>
 #include <vector>
+#include <array>
 
 // Vec3 and AABB are assumed to be already defined (from raytracer.h).
 // Forward-declare them here to make the dependency explicit.
@@ -79,6 +80,10 @@ struct DeviceLightParams {
     // scene_upload.cu registers this into SceneUploadResult::emissionProfileTable
     // and stamps the returned index onto GDedicatedLight::emissionProfileIndex.
     std::vector<float> emissionProfileSamples;
+    // pkg276: IES table in the Cycles packed layout (IESProfile::packed(); empty =
+    // no IES) and the light frame (local X, Y, Z columns) for the GPU side table.
+    std::vector<float> iesPacked;
+    std::array<float, 9> iesFrame{};
 };
 
 // --------------------------------------------------------------------------

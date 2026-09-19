@@ -1044,13 +1044,15 @@ public:
     void addPointLight(const std::vector<float>& position, py::dict emissionDict, float intensity,
                        float radius = 0.0f, const std::string& iesFile = "",
                        int objectPassIndex = 0, int materialPassIndex = 0,
-                       const std::vector<float>& lightFrame = {}) {
+                       const std::vector<float>& lightFrame = {},
+                       bool softFalloff = true) {
         Vec3 pos(position[0], position[1], position[2]);
         auto emission = parseEmissionSpectrum(emissionDict);
         const IESProfile* iesProfile = getOrLoadIESProfile(iesFile);
         auto light = std::make_unique<astroray::PointLight>(pos, emission, intensity, radius, iesProfile);
         Vec3 fx, fy, fz;
         if (applyIESFrame(lightFrame, fx, fy, fz)) light->setIESFrame(fx, fy, fz);
+        light->setSoftFalloff(softFalloff);   // #840
         // Dedicated lights don't have pass indices yet (Phase C unification), so we skip setObjectPassIndex.
         renderer.addDedicatedLight(std::move(light));
     }
@@ -1094,7 +1096,8 @@ public:
                                float innerAngle, float outerAngle, py::dict emissionDict, float intensity,
                                float radius = 0.0f, const std::string& iesFile = "",
                                int objectPassIndex = 0, int materialPassIndex = 0,
-                               const std::vector<float>& lightFrame = {}) {
+                               const std::vector<float>& lightFrame = {},
+                               bool softFalloff = true) {
         Vec3 pos(center[0], center[1], center[2]);
         Vec3 dir(direction[0], direction[1], direction[2]);
         auto emission = parseEmissionSpectrum(emissionDict);
@@ -1104,6 +1107,7 @@ public:
         );
         Vec3 fx, fy, fz;
         if (applyIESFrame(lightFrame, fx, fy, fz)) light->setIESFrame(fx, fy, fz);
+        light->setSoftFalloff(softFalloff);   // #840
         renderer.addDedicatedLight(std::move(light));
     }
 
@@ -3622,9 +3626,10 @@ PYBIND11_MODULE(astroray, m) {
         .def("add_point_light", &PyRenderer::addPointLight,
              "position"_a, "emission"_a, "intensity"_a, "radius"_a = 0.0f,
              "ies_file"_a = std::string(), "object_pass_index"_a = 0, "material_pass_index"_a = 0,
-             "light_frame"_a = std::vector<float>(),
+             "light_frame"_a = std::vector<float>(), "soft_falloff"_a = true,
              "pkg89 Phase B: dedicated PointLight with EmissionSpectrum. pkg276: light_frame = "
-             "light matrix_world 3x3 columns (X, Y, Z; 9 floats) for the IES lookup")
+             "light matrix_world 3x3 columns (X, Y, Z; 9 floats) for the IES lookup. #840: "
+             "soft_falloff = Blender use_soft_falloff (radius > 0: disk vs sphere)")
         .def("add_sun_light_dedicated", &PyRenderer::addSunLightDedicated,
              "direction"_a, "angular_diameter"_a, "emission"_a, "intensity"_a,
              "object_pass_index"_a = 0, "material_pass_index"_a = 0,
@@ -3638,9 +3643,10 @@ PYBIND11_MODULE(astroray, m) {
              "center"_a, "direction"_a, "inner_angle"_a, "outer_angle"_a,
              "emission"_a, "intensity"_a, "radius"_a = 0.0f, "ies_file"_a = std::string(),
              "object_pass_index"_a = 0, "material_pass_index"_a = 0,
-             "light_frame"_a = std::vector<float>(),
+             "light_frame"_a = std::vector<float>(), "soft_falloff"_a = true,
              "pkg89 Phase B: dedicated SpotLight with EmissionSpectrum. pkg276: light_frame = "
-             "light matrix_world 3x3 columns (X, Y, Z; 9 floats) for the IES lookup")
+             "light matrix_world 3x3 columns (X, Y, Z; 9 floats) for the IES lookup. #840: "
+             "soft_falloff = Blender use_soft_falloff (radius > 0: disk vs sphere)")
         .def("add_triangle", &PyRenderer::addTriangle, "v0"_a, "v1"_a, "v2"_a, "material_id"_a,
              "uv0"_a = std::vector<float>(), "uv1"_a = std::vector<float>(), "uv2"_a = std::vector<float>(),
              "n0"_a = std::vector<float>(), "n1"_a = std::vector<float>(), "n2"_a = std::vector<float>(),

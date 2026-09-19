@@ -3927,52 +3927,118 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         if compiled is None:
             return None
-        # Require image-texture inputs; a program input that is not a loadable
-        # image texture is out of scope (procedural inputs stay on the pkg190
-        # bake path).
+        # issue #818 Item 1 — op-VM inputs may be image OR procedural texture
+        # nodes. All inputs of one program must share a single coordinate
+        # signature (the ProgramTexture carries one coord_mode + Mapping), and
+        # must be the same KIND: an image child is uploaded identity + the
+        # ProgramTexture's Mapping (sampled at (M*uv).xy), whereas a procedural
+        # child is BAKED with its own coordinate/Mapping folded in (pkg190/pkg242)
+        # — mixing the two would double- or mis-apply the Mapping. The common
+        # cases (single input; or several images) are unaffected.
         inputs = compiled['inputs']
         if not inputs:
-            self._warn_shader_fallback('op-VM', 'program has no image inputs; flattened')
+            self._warn_shader_fallback('op-VM', 'program has no texture inputs; flattened')
             return None
+        PROC_TYPES = {'TEX_NOISE', 'TEX_CHECKER', 'TEX_VORONOI', 'TEX_WAVE',
+                      'TEX_MAGIC', 'TEX_BRICK', 'TEX_GRADIENT', 'TEX_MUSGRAVE'}
+        kinds = set()
+        for in_node in inputs:
+            ntype = getattr(in_node, 'type', None)
+            if ntype == 'TEX_IMAGE' and getattr(in_node, 'image', None) is not None:
+                kinds.add('image')
+            elif ntype in PROC_TYPES:
+                kinds.add('proc')
+            else:
+                self._warn_shader_fallback(
+                    'op-VM', 'op-VM input is not a loadable texture; flattened')
+                return None
+        if len(kinds) > 1:
+            self._warn_shader_fallback(
+                'op-VM', 'op-VM inputs mix image + procedural textures; '
+                'flattened (unsupported)')
+            return None
+        input_kind = kinds.pop()
+        # #818 critic item 1: the GPU op-VM path samples exactly ONE input texture
+        # (scene_upload.cu requires pt->numInputs() == 1); a program with >1 texture
+        # input (e.g. Noise -> Mix <- Checker, or two images into one Mix) renders
+        # correctly on the CPU but falls back to the flat base colour on the GPU.
+        # Record the visible degradation so it is never silent (real multi-input
+        # GPU support is tracked separately). CPU stays exact.
+        if len(inputs) > 1:
+            self._warn_shader_fallback(
+                'op-VM', 'multi-input shader program (%d texture inputs): '
+                'GPU renders base colour; CPU exact' % len(inputs))
+        # Procedural inputs default to GENERATED coords (Blender standard for an
+        # unconnected Vector) and reject affine coordinate chains, exactly like
+        # the direct-to-BSDF procedural path (load_procedural_texture); image
+        # inputs keep the UV default + affine Mapping support.
+        proc_kind = input_kind == 'proc'
         resolved_inputs = []
         signatures = []
         for in_node in inputs:
-            img = getattr(in_node, 'image', None)
-            if getattr(in_node, 'type', None) != 'TEX_IMAGE' or img is None:
-                self._warn_shader_fallback(
-                    "op-VM", "op-VM input is not an image texture; flattened")
-                return None
             vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
-            resolved = self._resolve_affine_coordinates(vinp, warn=self._warn_shader_fallback)
+            if proc_kind:
+                resolved = self._resolve_affine_coordinates(
+                    vinp, default_coord_mode='GENERATED',
+                    warn=self._warn_shader_fallback, allow_affine=False)
+            else:
+                resolved = self._resolve_affine_coordinates(
+                    vinp, warn=self._warn_shader_fallback)
             resolved_inputs.append(resolved)
             signatures.append(self._texture_variant_key(
                 '', resolved['coord_mode'], (1.0, 1.0), (0.0, 0.0), 0.0,
                 resolved['uv_layer'], self._affine_matrix_values(resolved)))
         if any(signature != signatures[0] for signature in signatures[1:]):
-            self._warn_shader_fallback('op-VM', 'image inputs have differing coordinate mappings; '
+            self._warn_shader_fallback('op-VM', 'texture inputs have differing coordinate mappings; '
                                        'independent program coordinates are unsupported; flattened')
             return None
         resolved = resolved_inputs[0]
         coord_mode, uvlayer = resolved['coord_mode'], resolved['uv_layer']
         scale, offset, rot = (1.0, 1.0), (0.0, 0.0), 0.0
         mapping_matrix = self._affine_matrix_values(resolved)
-        # scene_upload.cu deduplicates child ImageTexture pointers and attaches
-        # the first parent's mapping. Isolate identity child samplers by parent
-        # coordinates; CPU children must never apply that mapping a second time.
-        identity = {'matrix': np.identity(4), 'coord_mode': 'UV', 'uv_layer': ''}
         child_names = []
-        for in_node in inputs:
-            cn = self._load_blender_image_resolved(
-                in_node.image, renderer, identity, child_signature=signatures[0])
-            if cn is None:
-                return None
-            child_names.append(cn)
+        if proc_kind:
+            # Procedural child: register it with its OWN resolved coord/Mapping so
+            # the GPU pkg190 bake domain (2D-UV grid or 3D voxel) and the CPU
+            # native evaluator both sample the correct field. The ProgramTexture
+            # (below) carries the SAME coord/Mapping, so CPU delivers `p` once and
+            # the GPU shade path rebuilds the identical normalized coordinate.
+            for in_node in inputs:
+                vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
+                cn = self.load_procedural_texture(in_node, renderer, vector_input=vinp)
+                if cn is None:
+                    self._warn_shader_fallback('op-VM', 'procedural input failed to load; flattened')
+                    return None
+                child_names.append(cn)
+        else:
+            # scene_upload.cu deduplicates child ImageTexture pointers and attaches
+            # the first parent's mapping. Isolate identity child samplers by parent
+            # coordinates; CPU children must never apply that mapping a second time.
+            identity = {'matrix': np.identity(4), 'coord_mode': 'UV', 'uv_layer': ''}
+            for in_node in inputs:
+                cn = self._load_blender_image_resolved(
+                    in_node.image, renderer, identity, child_signature=signatures[0])
+                if cn is None:
+                    return None
+                child_names.append(cn)
         mat_name = getattr(self, "_current_material_name", "") or ""
         prog_name = "_prog_%s.%s.%s" % (mat_name, getattr(node, "name", "n"), input_name)
+        # The ProgramTexture carries the SAME coordinate contract as its children
+        # so the CPU delivers `p` exactly once (child value(uv,p) never re-resolves)
+        # and the GPU shade path rebuilds the identical coordinate. Procedural
+        # children were registered via load_procedural_texture, which uses the
+        # legacy 2-D Mapping (allow_affine=False); mirror that here so CPU (prog)
+        # and GPU (baked child) apply the identical transform. Image children use
+        # the 3-D affine matrix path unchanged.
+        if proc_kind:
+            p_scale, p_offset, p_rot = resolved['legacy']
+            p_matrix = None
+        else:
+            p_scale, p_offset, p_rot, p_matrix = scale, offset, rot, mapping_matrix
         try:
             renderer.create_program_texture(prog_name, coord_mode)
-            self._apply_texture_transform(renderer, prog_name, coord_mode, scale,
-                                          offset, rot, uvlayer, mapping_matrix)
+            self._apply_texture_transform(renderer, prog_name, coord_mode, p_scale,
+                                          p_offset, p_rot, uvlayer, p_matrix)
             for cn in child_names:
                 renderer.program_texture_add_input(prog_name, cn)
             renderer.set_program_texture_program(
@@ -5897,7 +5963,24 @@ class CustomRaytracerRenderEngine(RenderEngine):
             try:
                 import sky_bake
                 sky_type = str(getattr(sky_node, 'sky_type', 'MULTIPLE_SCATTERING'))
+                # #814 item 4: PREETHAM / HOSEK_WILKIE are legacy Cycles sky
+                # models Astroray does not implement. Route them through the
+                # engine-side spectral Nishita sky (MULTIPLE_SCATTERING) with a
+                # degradation warning, so they share the correct sun direction
+                # and disc handling instead of the separate Preetham bake. They
+                # honour the same sun_elevation/sun_rotation the bake already
+                # read; turbidity / ground_albedo are NOT honoured by Nishita.
+                nishita_mode = None
                 if sky_type in ('SINGLE_SCATTERING', 'MULTIPLE_SCATTERING'):
+                    nishita_mode = sky_type
+                elif sky_type in ('PREETHAM', 'HOSEK_WILKIE'):
+                    nishita_mode = 'MULTIPLE_SCATTERING'
+                    self._warn_shader_fallback(
+                        'TEX_SKY',
+                        "sky_type %r is not implemented; Astroray renders it as "
+                        "the Nishita (MULTIPLE_SCATTERING) sky. NOT honoured: "
+                        "turbidity, ground_albedo." % sky_type)
+                if nishita_mode is not None:
                     # #799 Phase 2: engine-side spectral Nishita sky
                     # (vendored Blender Apache/MIT models,
                     # external/blender_sky/). The sky AND the sun disc come
@@ -5911,7 +5994,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     aero = float(getattr(sky_node, 'aerosol_density', 1.0))
                     ozone = float(getattr(sky_node, 'ozone_density', 1.0))
                     sky_img = astroray.nishita_sky(
-                        sky_type, 1024, 512, sun_elev, sun_rot,
+                        nishita_mode, 1024, 512, sun_elev, sun_rot,
                         altitude, air, aero, ozone)
                     fd, sky_temp_path = tempfile.mkstemp(prefix="astroray_sky_", suffix=".hdr")
                     os.close(fd)
@@ -5936,7 +6019,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         sun_size = float(getattr(sky_node, 'sun_size', 0.009512))
                         sun_intensity = float(getattr(sky_node, 'sun_intensity', 1.0))
                         bottom, top = astroray.nishita_sun(
-                            sky_type, sun_elev, sun_size, altitude, air, aero, ozone)
+                            nishita_mode, sun_elev, sun_size, altitude, air, aero, ozone)
                         # Cycles draws the disc with limb darkening
                         # 1 - 0.6*(1 - sqrt(1 - (angle/half)^2)) (svm/sky.h). Our
                         # DistantLight disc is uniform, so apply the area-average
@@ -5952,20 +6035,27 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         if lum_s > 1e-12:
                             color = [s_rgb[0] / lum_s, s_rgb[1] / lum_s,
                                      s_rgb[2] / lum_s]
+                            # #814: match Cycles' Nishita sun world direction.
+                            # Measured (Blender 5.2, top-down pole-shadow A/B,
+                            # 814-sun-direction-convention-research.md): the sun
+                            # sits at world azimuth 90deg - sun_rotation, i.e.
+                            # world dir (toward sun) = (cosE sinR, cosE cosR,
+                            # sinE); the DistantLight travel dir is its negative.
                             ce = math.cos(sun_elev)
                             se = math.sin(sun_elev)
-                            direction = [-(ce * math.cos(sun_rot)),
-                                         -(ce * math.sin(sun_rot)),
+                            direction = [-(ce * math.sin(sun_rot)),
+                                         -(ce * math.cos(sun_rot)),
                                          -se]
                             renderer.add_sun_light_dedicated(
                                 direction, sun_size,
                                 {'mode': 'rgb', 'color': color},
                                 lum_s * strength, 0, 0)
                 else:
-                    # PREETHAM / HOSEK_WILKIE: keep the licence-clean
-                    # Preetham/Perez analytic bake (sky_bake.py); these
-                    # legacy Cycles models are approximated with one model
-                    # plus a Preetham-derived distant sun disc.
+                    # #814 item 4: fallback for any UNRECOGNISED sky_type (the
+                    # four known types SINGLE/MULTIPLE_SCATTERING/PREETHAM/
+                    # HOSEK_WILKIE now all route to the engine Nishita sky
+                    # above). A future Blender sky_type lands here on the
+                    # licence-clean Preetham/Perez analytic bake with a warning.
                     sky_img = sky_bake.bake_to_equirect(sky_node, width=1024, height=512)
                     fd, sky_temp_path = tempfile.mkstemp(prefix="astroray_sky_", suffix=".hdr")
                     os.close(fd)

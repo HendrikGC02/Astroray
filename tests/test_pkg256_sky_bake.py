@@ -149,8 +149,10 @@ def test_sun_disc_params_enabled_shape_and_direction():
     p = sky_bake.sun_disc_params_from_node(node)
     assert p is not None
     # travel direction == -sun (sun points toward the sun, light travels away).
+    # #814: Cycles Nishita convention, sun world dir = (cosE sinR, cosE cosR,
+    # sinE) (azimuth 90deg - sun_rotation), measured vs Blender 5.2.
     ce, se = math.cos(E), math.sin(E)
-    sun = (ce * math.cos(A), ce * math.sin(A), se)
+    sun = (ce * math.sin(A), ce * math.cos(A), se)
     assert p["direction"] == pytest.approx([-sun[0], -sun[1], -sun[2]], abs=1e-9)
     assert p["angular_diameter"] == pytest.approx(0.009512)
     assert p["intensity"] > 0.0
@@ -268,11 +270,16 @@ def test_sun_disc_casts_shadow(astroray_mod):
         r.add_sun_light_dedicated(sun["direction"], sun["angular_diameter"],
                                   {"mode": "rgb", "color": sun["color"]},
                                   sun["intensity"])
+        # #814: sun_disc_params returns a Z-UP WORLD vector (the addon/engine
+        # world frame, Blender Z-up). The scene must use the same convention or
+        # the sun points below the ground: ground in the XY plane (normal +Z),
+        # sphere above it, camera looking straight down -Z. (The old scene put the
+        # ground in XZ / Y-up, which only lit for the pre-#814 sun vector.)
         white = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
-        r.add_triangle([-6, 0, -6], [6, 0, -6], [6, 0, 6], white)
-        r.add_triangle([-6, 0, -6], [6, 0, 6], [-6, 0, 6], white)
-        r.add_sphere([0, 1, 0], 1.0, white)
-        r.setup_camera(look_from=[0, 8, 0.01], look_at=[0, 0, 0], vup=[0, 0, -1],
+        r.add_triangle([-6, -6, 0], [6, -6, 0], [6, 6, 0], white)
+        r.add_triangle([-6, -6, 0], [6, 6, 0], [-6, 6, 0], white)
+        r.add_sphere([0, 0, 1], 1.0, white)
+        r.setup_camera(look_from=[0, 0, 8], look_at=[0, 0, 0], vup=[0, 1, 0],
                        vfov=55, aspect_ratio=1.0, aperture=0.0, focus_dist=8.0,
                        width=128, height=128)
         px = np.asarray(r.render(96, 6, None, False)).reshape(128, 128, 3)

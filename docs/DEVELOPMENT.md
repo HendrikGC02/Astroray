@@ -43,20 +43,25 @@ Astroray on Windows is always built **twice**, into two separate build dirs:
    multi-config generator with artifacts under `build_cuda/Release/` —
    superseded 2026-08-06; kept only for reference.)*
 
-2. **Blender addon build — `build_blender_addon_*/` (OpenMP OFF, forced).**
+2. **Blender addon build — `build_blender_addon_*/` (OpenMP ON).**
 
    ```bat
    python scripts/build/build_blender_addon.py --backend cuda   REM or tcnn / cpu
    ```
 
-   The script always passes `-DASTRORAY_DISABLE_OPENMP=ON`: **OpenMP
-   deadlocks inside Blender 5.2 on Windows with BOTH MinGW libgomp and MSVC
-   vcomp** (diagnosed in PR #471). It stages `dist/astroray/` (addon +
-   `.pyd` + CUDA runtime DLLs + OIDN DLLs) and zips
+   Since PR #790 (2026-09-10) the addon is built with OpenMP **ON**
+   (`-DASTRORAY_DISABLE_OPENMP=OFF`). The historical hang was a **GIL
+   circular wait**, not a libgomp/vcomp defect: OpenMP workers called the
+   Python progress callback under `gil_scoped_acquire` while the master
+   thread held the GIL, fixed by releasing the GIL around the CPU render.
+   The matching OpenMP runtime is bundled — `vcomp140.dll` for the MSVC
+   (cuda) backend, `libgomp-1.dll` for MinGW. It stages `dist/astroray/`
+   (addon + `.pyd` + CUDA runtime DLLs + OIDN DLLs) and zips
    `dist/astroray-<version>-cuda.zip` for `Install from Disk...`.
 
-   **Never load the OpenMP test build's `.pyd` into Blender.** The two build
-   dirs exist precisely so the artifacts cannot be confused.
+   **Never load the test build's `.pyd` into Blender.** The two build dirs
+   exist precisely so the staged addon artifact (with its bundled runtime
+   DLLs) cannot be confused with the test build.
 
 ## GPU architectures / second-machine portability
 
@@ -138,7 +143,8 @@ Rules that save hours:
   and the hook silently stops running.
 - **MinGW (only if you build with it)**: pass structs > 32 bytes as
   `const T&` across TU boundaries (by-value corrupts), and `.pyd`s for
-  Blender additionally need the OpenMP-off rule above.
+  Blender additionally need the matching OpenMP runtime bundled (see the
+  two-build story above).
 
 ## Blender addon on a second machine
 

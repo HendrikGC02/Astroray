@@ -269,11 +269,13 @@ controlled by `use_native_principled` (default `True`).
 reports sockets the native path doesn't yet honour (pkg119-C).
 
 **Build:** `python scripts/build/build_blender_addon.py [--install]`. This
-always passes `-DASTRORAY_DISABLE_OPENMP=ON` regardless of backend — MinGW's
-`libgomp` deadlocks inside Blender's MSVC-hosted Python process. This is a
-separate build tree from the `build_cuda/` test build (see
-docs/DEVELOPMENT.md's "two-build story"); the addon `.pyd` and the test
-build `.pyd` are not interchangeable.
+builds with OpenMP **ON** (`-DASTRORAY_DISABLE_OPENMP=OFF`, PR #790) and
+bundles the matching runtime (`vcomp140.dll` for MSVC, `libgomp-1.dll` for
+MinGW) — the old Blender hang was a GIL circular wait, fixed by releasing the
+GIL around the CPU render, not a libgomp/vcomp defect. This is a separate
+build tree from the `build_cuda/` test build (see docs/DEVELOPMENT.md's
+"two-build story"); the addon `.pyd` and the test build `.pyd` are not
+interchangeable.
 
 Deeper Blender-parity notes and the coverage matrix live under
 `docs/blender_parity/` (`report.md`, `coverage_matrix.json`,
@@ -317,7 +319,7 @@ Deeper Blender-parity notes and the coverage matrix live under
 ## Where to go next
 
 - [docs/DEVELOPMENT.md](../DEVELOPMENT.md) — the two-build story (`build_cuda/`
-  test build vs. OpenMP-free Blender addon build), perf-gate calibration,
+  test build vs. Blender addon build), perf-gate calibration,
   Windows/MinGW/CUDA footguns.
 - [docs/blender_parity/](../blender_parity/) — Blender differential-parity
   coverage matrix and closure-mapping notes (pkg119, pkg178).

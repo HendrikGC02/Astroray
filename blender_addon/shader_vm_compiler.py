@@ -166,6 +166,24 @@ def _is_image_texture(node):
     return getattr(node, 'type', None) == 'TEX_IMAGE'
 
 
+# issue #818 Item 1 — procedural texture nodes are also op-VM INPUT leaves (an
+# OP_LOAD_TEX slot). The engine samples them per-shade (CPU: the native evaluator;
+# GPU: the pkg190 bake), exactly as it already samples an image input. Mirrors the
+# addon's PROC_TYPES set (blender_addon/__init__.py get_base_color_texture).
+_PROC_TEX_TYPES = frozenset((
+    'TEX_NOISE', 'TEX_CHECKER', 'TEX_VORONOI', 'TEX_WAVE',
+    'TEX_MAGIC', 'TEX_BRICK', 'TEX_GRADIENT', 'TEX_MUSGRAVE',
+))
+
+
+def _is_proc_texture(node):
+    return getattr(node, 'type', None) in _PROC_TEX_TYPES
+
+
+def _is_texture_leaf(node):
+    return _is_image_texture(node) or _is_proc_texture(node)
+
+
 def _linked_source(socket):
     """Return (from_node, from_socket_name) for a linked socket, else None."""
     if socket is None or not getattr(socket, 'is_linked', False):
@@ -293,7 +311,8 @@ def _compile_socket_value(socket, builder, depth=0):
     node, out_name = src
     ntype = getattr(node, 'type', None)
 
-    if _is_image_texture(node):
+    # issue #818 Item 1 — image OR procedural texture nodes are input leaves.
+    if _is_texture_leaf(node):
         return builder.push_tex(node)
 
     if ntype == 'VALTORGB':  # Color Ramp
@@ -517,15 +536,18 @@ def compile_chain(socket):
 
     On success returns a dict:
       {num_tex, out_slot, code_flat, consts_flat, ramps_flat, inputs}
-    where `inputs` is the ordered list of Blender image-texture nodes.
+    where `inputs` is the ordered list of Blender texture nodes (image OR
+    procedural — issue #818 Item 1).
     """
     src = _linked_source(socket)
     if src is None:
         return None
     node, _ = src
-    # A bare image texture needs no VM (pkg186 path). A per-texel op is required
-    # only when there is a node BETWEEN the texture and the socket.
-    if _is_image_texture(node):
+    # A bare texture needs no VM: a bare image uses the pkg186 path, a bare
+    # procedural the pkg190 bake / native evaluator (get_base_color_texture
+    # routes it before the op-VM). A per-texel op is required only when there is a
+    # node BETWEEN the texture and the socket.
+    if _is_texture_leaf(node):
         return None
 
     builder = ProgramBuilder()

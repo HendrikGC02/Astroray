@@ -293,12 +293,23 @@ def sun_disc_params(sky_type, sun_elevation, sun_rotation, turbidity=2.0,
     e_sun = l_sun * omega_ref * float(sun_intensity)             # illuminance-like
     intensity = e_sun * LUM_TO_RADIANCE                          # bake radiance units
     # Disc colour = our own sky colour toward the sun (γ=0), unit-luminance.
+    # sun[2] = sin(elevation) only, so the authoring-frame `sun` is fine here.
     sun_theta = math.acos(min(max(float(sun[2]), -1.0), 1.0))
     rgb = _sky_rgb(t, sun_theta, float(sun[2]), 0.0, 1.0)
     lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
     color = (rgb / lum) if lum > 1e-8 else np.array([1.0, 1.0, 1.0])
+    # #814: the dedicated distant sun is a RAW WORLD vector — it does NOT pass
+    # through the env-map blender_convention swap that the baked sky glow does —
+    # so its direction is authored directly in Cycles' world frame. Cycles'
+    # Nishita sun sits at world azimuth 90deg - sun_rotation (measured vs Blender
+    # 5.2, 814-sun-direction-convention-research.md): world dir toward the sun =
+    # (cosE sinR, cosE cosR, sinE); travel is its negative. (`_sun_direction` is
+    # the bake AUTHORING frame — azimuth R — which the loader swap maps onto the
+    # same world azimuth, keeping the glow and this disc coincident.)
+    ce, se = math.cos(sun_elevation), math.sin(sun_elevation)
+    world_sun = (ce * math.sin(sun_rotation), ce * math.cos(sun_rotation), se)
     return {
-        "direction": [-float(sun[0]), -float(sun[1]), -float(sun[2])],
+        "direction": [-float(world_sun[0]), -float(world_sun[1]), -float(world_sun[2])],
         "angular_diameter": float(sun_size),
         "color": [float(c) for c in color],
         "intensity": float(intensity),

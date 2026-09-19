@@ -31,6 +31,9 @@ SpotLight::SpotLight(const Vec3& position,
     // Compute normalize factor using geometric normalization (Cycles parity).
     // For point/spot lights, pass area=1.0 (normalize factor is just 1/pi).
     normalizeFactor_ = Light::computeNormalizeFactor(1.0f, true);
+    // pkg276: default IES frame (no light object known): local -Z = axis.
+    iesFz_ = -axis_;
+    buildOrthonormalBasis(iesFz_, iesFx_, iesFy_);
 }
 
 void SpotLight::sampleLi(LiSample& sample,
@@ -84,7 +87,8 @@ void SpotLight::sampleLi(LiSample& sample,
     // IES profile modulation (if present).
     float iesModulation = 1.0f;
     if (ies_ != nullptr) {
-        iesModulation = ies_->sample(axis_, lightDir);
+        // pkg276: Cycles light-local lookup (kernel/svm/ies.h, util/ies.h).
+        iesModulation = ies_->sampleFrame(iesFx_, iesFy_, iesFz_, lightDir);
     }
 
     // Evaluate spectral emission.

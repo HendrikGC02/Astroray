@@ -5792,6 +5792,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
             matrix = obj_instance.matrix_world
             position = list(matrix.translation)
             ies_path = self._resolve_ies_path(light)
+            # pkg276: Cycles evaluates IES in the light's local frame
+            # (kernel/svm/ies.h); pass matrix_world's 3x3 columns (local X, Y, Z).
+            light_frame = []
+            if ies_path:
+                basis3 = matrix.to_3x3()
+                light_frame = [float(basis3[r][c]) for c in range(3) for r in range(3)]
             emission_dict = _build_emission_dict(light)
             intensity = float(light.energy)
             # Batch J item 2: honour the TexIES node Strength (Cycles fac =
@@ -5804,7 +5810,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 # pkg89 Phase B: use dedicated PointLight (no more 0.1 m sphere hack).
                 radius = float(max(getattr(light, 'shadow_soft_size', 0.0), 0.0))
                 renderer.add_point_light(
-                    position, emission_dict, intensity, radius, ies_path, pass_idx, 0
+                    position, emission_dict, intensity, radius, ies_path, pass_idx, 0,
+                    light_frame=light_frame,
                 )
             elif light.type == 'SUN':
                 # pkg89 Phase B: use dedicated DistantLight with EmissionSpectrum.
@@ -5853,9 +5860,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 radius = float(max(getattr(light, 'shadow_soft_size', 0.0), 0.0))
                 # Blender spot_size is the full cone angle; we need outer half-angle.
                 outer_angle = float(light.spot_size) / 2.0
-                # Blender spot_blend is the blend zone fraction; compute inner angle.
-                blend_fraction = float(light.spot_blend)
-                inner_angle = outer_angle * (1.0 - blend_fraction)
+                # pkg276: Cycles spot_light_attenuation (kernel/light/spot.h) is
+                # smoothstep((cos - cos_half) * spot_smooth) with spot_smooth =
+                # 1/((1 - cos_half) * spot_blend) (scene/light.cpp). The engine's
+                # smoothstep in t = (cos - cosOuter)/(cosInner - cosOuter) equals it
+                # when cosInner = cos_half + (1 - cos_half) * spot_blend (the prior
+                # angle-space inner = outer*(1-blend) started the falloff early).
+                cos_outer = math.cos(outer_angle)
+                cos_inner = min(1.0, cos_outer + (1.0 - cos_outer) * float(light.spot_blend))
+                inner_angle = math.acos(cos_inner)
                 renderer.add_spot_light_dedicated(
                     position,
                     [direction.x, direction.y, direction.z],
@@ -5867,6 +5880,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     ies_path,
                     pass_idx,
                     0,
+                    light_frame=light_frame,
                 )
 
     def setup_world(self, scene, renderer):

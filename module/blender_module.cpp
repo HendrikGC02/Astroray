@@ -1030,13 +1030,27 @@ public:
     }
 
     // pkg89 Phase B: Dedicated light bindings (use EmissionSpectrum instead of material_id).
+    // pkg276: light_frame = the light object's matrix_world 3x3 columns
+    // (local X, Y, Z in world; 9 floats) for the Cycles light-local IES lookup.
+    static bool applyIESFrame(const std::vector<float>& f, Vec3& fx, Vec3& fy, Vec3& fz) {
+        if (f.size() != 9) {
+            if (!f.empty()) throw std::invalid_argument("light_frame must have 9 floats (X, Y, Z columns)");
+            return false;
+        }
+        fx = Vec3(f[0], f[1], f[2]); fy = Vec3(f[3], f[4], f[5]); fz = Vec3(f[6], f[7], f[8]);
+        return true;
+    }
+
     void addPointLight(const std::vector<float>& position, py::dict emissionDict, float intensity,
                        float radius = 0.0f, const std::string& iesFile = "",
-                       int objectPassIndex = 0, int materialPassIndex = 0) {
+                       int objectPassIndex = 0, int materialPassIndex = 0,
+                       const std::vector<float>& lightFrame = {}) {
         Vec3 pos(position[0], position[1], position[2]);
         auto emission = parseEmissionSpectrum(emissionDict);
         const IESProfile* iesProfile = getOrLoadIESProfile(iesFile);
         auto light = std::make_unique<astroray::PointLight>(pos, emission, intensity, radius, iesProfile);
+        Vec3 fx, fy, fz;
+        if (applyIESFrame(lightFrame, fx, fy, fz)) light->setIESFrame(fx, fy, fz);
         // Dedicated lights don't have pass indices yet (Phase C unification), so we skip setObjectPassIndex.
         renderer.addDedicatedLight(std::move(light));
     }
@@ -1079,7 +1093,8 @@ public:
     void addSpotLightDedicated(const std::vector<float>& center, const std::vector<float>& direction,
                                float innerAngle, float outerAngle, py::dict emissionDict, float intensity,
                                float radius = 0.0f, const std::string& iesFile = "",
-                               int objectPassIndex = 0, int materialPassIndex = 0) {
+                               int objectPassIndex = 0, int materialPassIndex = 0,
+                               const std::vector<float>& lightFrame = {}) {
         Vec3 pos(center[0], center[1], center[2]);
         Vec3 dir(direction[0], direction[1], direction[2]);
         auto emission = parseEmissionSpectrum(emissionDict);
@@ -1087,6 +1102,8 @@ public:
         auto light = std::make_unique<astroray::SpotLight>(
             pos, dir, innerAngle, outerAngle, emission, intensity, radius, iesProfile
         );
+        Vec3 fx, fy, fz;
+        if (applyIESFrame(lightFrame, fx, fy, fz)) light->setIESFrame(fx, fy, fz);
         renderer.addDedicatedLight(std::move(light));
     }
 
@@ -3605,7 +3622,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("add_point_light", &PyRenderer::addPointLight,
              "position"_a, "emission"_a, "intensity"_a, "radius"_a = 0.0f,
              "ies_file"_a = std::string(), "object_pass_index"_a = 0, "material_pass_index"_a = 0,
-             "pkg89 Phase B: dedicated PointLight with EmissionSpectrum")
+             "light_frame"_a = std::vector<float>(),
+             "pkg89 Phase B: dedicated PointLight with EmissionSpectrum. pkg276: light_frame = "
+             "light matrix_world 3x3 columns (X, Y, Z; 9 floats) for the IES lookup")
         .def("add_sun_light_dedicated", &PyRenderer::addSunLightDedicated,
              "direction"_a, "angular_diameter"_a, "emission"_a, "intensity"_a,
              "object_pass_index"_a = 0, "material_pass_index"_a = 0,
@@ -3619,7 +3638,9 @@ PYBIND11_MODULE(astroray, m) {
              "center"_a, "direction"_a, "inner_angle"_a, "outer_angle"_a,
              "emission"_a, "intensity"_a, "radius"_a = 0.0f, "ies_file"_a = std::string(),
              "object_pass_index"_a = 0, "material_pass_index"_a = 0,
-             "pkg89 Phase B: dedicated SpotLight with EmissionSpectrum")
+             "light_frame"_a = std::vector<float>(),
+             "pkg89 Phase B: dedicated SpotLight with EmissionSpectrum. pkg276: light_frame = "
+             "light matrix_world 3x3 columns (X, Y, Z; 9 floats) for the IES lookup")
         .def("add_triangle", &PyRenderer::addTriangle, "v0"_a, "v1"_a, "v2"_a, "material_id"_a,
              "uv0"_a = std::vector<float>(), "uv1"_a = std::vector<float>(), "uv2"_a = std::vector<float>(),
              "n0"_a = std::vector<float>(), "n1"_a = std::vector<float>(), "n2"_a = std::vector<float>(),

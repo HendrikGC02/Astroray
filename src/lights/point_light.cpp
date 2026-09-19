@@ -25,6 +25,10 @@ PointLight::PointLight(const Vec3& position,
     // Compute normalize factor using geometric normalization (Cycles parity).
     // For point lights, pass area=1.0 (normalize factor is just 1/pi).
     normalizeFactor_ = Light::computeNormalizeFactor(1.0f, true);
+    // pkg276: default IES frame (no light object known): local -Z = (0,-1,0),
+    // the axis this light used before pkg276.
+    iesFz_ = Vec3(0, 1, 0);
+    buildOrthonormalBasis(iesFz_, iesFx_, iesFy_);
 }
 
 void PointLight::sampleLi(LiSample& sample,
@@ -66,10 +70,8 @@ void PointLight::sampleLi(LiSample& sample,
     // IES profile modulation (if present).
     float iesModulation = 1.0f;
     if (ies_ != nullptr) {
-        // IESProfile::sample expects (axis, directionFromLight).
-        // For PointLight, use a default downward axis (-Y).
-        Vec3 axis(0, -1, 0);
-        iesModulation = ies_->sample(axis, lightDir);
+        // pkg276: Cycles light-local lookup (kernel/svm/ies.h, util/ies.h).
+        iesModulation = ies_->sampleFrame(iesFx_, iesFy_, iesFz_, lightDir);
     }
 
     // Evaluate spectral emission.

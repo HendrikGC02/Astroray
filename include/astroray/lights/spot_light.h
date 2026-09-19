@@ -50,6 +50,13 @@ public:
 
     bool fillDeviceParams(DeviceLightParams& out) const override;  // pkg89-GPU
 
+    // pkg276: the light object's frame (matrix_world 3x3 columns: local X, Y, Z
+    // in world) for the IES lookup; Cycles evaluates IES in light-local space
+    // (kernel/svm/ies.h). Without it a default frame is derived (see ctor).
+    void setIESFrame(const Vec3& fx, const Vec3& fy, const Vec3& fz) {
+        iesFx_ = fx; iesFy_ = fy; iesFz_ = fz;
+    }
+
 private:
     Vec3             position_;
     Vec3             axis_;
@@ -60,6 +67,7 @@ private:
     float            radius_;
     const IESProfile* ies_;
     float            normalizeFactor_;
+    Vec3             iesFx_, iesFy_, iesFz_;  // pkg276 IES frame
 
     // Helper: compute falloff for angle θ from axis.
     float angleFalloff(float cosTheta) const;

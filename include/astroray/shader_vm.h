@@ -644,4 +644,9 @@ struct GWavefrontProgramBinding {
     // touches these and stays byte-identical.
     const int*                            matScalarProgId;
     const int*                            matScalarTexId;
+    // #826 — multi-input programs. [mat*VM_MAX_TEX + t] = index into
+    // c_wfTexBinding.textures of base-colour program input t (-1 = none); the
+    // shade path samples t >= 1 from here (t = 0 is c_wfTexBinding.matTexId).
+    // Read ONLY inside the <HasProgram=true> shade kernel.
+    const int*                            matProgInTexId;
 };

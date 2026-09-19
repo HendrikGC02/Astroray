@@ -779,8 +779,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
 
     // --- Materials: unique ID per shared_ptr (shared by single-level + pkg114 instanced) ---
     std::unordered_map<Material*, int> matIdx;
-    // pkg186 — texture dedup: one flat-buffer slice per unique image Texture*.
-    std::unordered_map<Texture*, int> texIdx;
+    // pkg186 — image dedup. #825: a descriptor is keyed on (ImageTexture*, the
+    // Mapping applied to it) — the image's own Mapping for a direct/normal/bump
+    // use, the parent ProgramTexture's Mapping for an op-VM child — so a direct
+    // use and a program use with a different Mapping get distinct descriptors
+    // (was keyed on the pointer alone: first consumer's Mapping won). Texels
+    // are uploaded once per ImageTexture* and shared by its descriptors.
+    std::unordered_map<std::string, int> texIdx;
+    std::unordered_map<Texture*, int> texelOffset;
     // pkg219b — op-VM program dedup: one ShaderVMProgram slot per ProgramTexture*.
     std::unordered_map<Texture*, int> progIdx;
     // pkg242 — procedural-bake dedup keyed on (Texture*, Mapping matrix). The
@@ -801,6 +807,46 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             }
         }
         return k;
+    };
+    // #825 — upload `img` (texels once per pointer) with `mapSrc`'s Mapping on
+    // the descriptor; returns the texId. Key = (img, mapSrc Mapping bits), same
+    // bit-exact convention as procBakeKey.
+    auto uploadImageTexId = [&](ImageTexture* img, const Texture* mapSrc) -> int {
+        std::string k = std::to_string(reinterpret_cast<uintptr_t>(img));
+        if (mapSrc->hasMapping()) {
+            const float* m = mapSrc->getMappingMatrix();
+            for (int i = 0; i < 12; ++i) {
+                uint32_t bits; std::memcpy(&bits, &m[i], sizeof bits);
+                k += '|'; k += std::to_string(bits);
+            }
+        }
+        auto tit = texIdx.find(k);
+        if (tit != texIdx.end()) return tit->second;
+        GImageTexture desc;
+        auto oit = texelOffset.find(img);
+        if (oit != texelOffset.end()) {
+            desc.offset = oit->second;
+        } else {
+            desc.offset = (int)r.textureTexels.size();
+            texelOffset[img] = desc.offset;
+            const std::vector<Vec3>& px = img->getData();
+            r.textureTexels.reserve(r.textureTexels.size() + px.size());
+            for (const Vec3& c : px)
+                r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+        }
+        desc.width  = img->getWidth();
+        desc.height = img->getHeight();
+        // pkg219a — full 3-D Mapping matrix so the GPU image sample honors it
+        // exactly like the CPU (M*(u,v,0)).
+        if (mapSrc->hasMapping()) {
+            desc.hasMapping = 1;
+            const float* mm = mapSrc->getMappingMatrix();
+            for (int i = 0; i < 12; ++i) desc.mapping[i] = mm[i];
+        }
+        int texId = (int)r.textures.size();
+        texIdx[k] = texId;
+        r.textures.push_back(desc);
+        return texId;
     };
     // pkg190 procedural bake, factored out (issue #818 Item 1) so it serves BOTH
     // a direct procedural base colour AND a procedural INPUT of an op-VM
@@ -927,59 +973,35 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         // same buffer — 3D voxel for Generated coords, 2D for UV.
         int texId = -1;
         int progId = -1;
+        // #826 — texIds of the program's inputs, OP_LOAD_TEX order (-1 = none).
+        int progInTex[astroray::svm::VM_MAX_TEX];
+        for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t) progInTex[t] = -1;
         if (auto* tl = dynamic_cast<TexturedLambertian*>(m.get())) {
             std::shared_ptr<Texture> tex = tl->getTexture();
-            // pkg219b — a ProgramTexture (per-texel op-VM chain). GPU scope: a
-            // program whose single input is an ImageTexture (the canonical repro:
-            // Color Ramp / Mix / Math / Map Range on ONE image → Base Color). The
-            // image is uploaded as usual (carrying the ProgramTexture's coord +
-            // Mapping), the compiled program is deduped into r.programs, and the
-            // shade path runs svm_eval on the sampled image colour. A program with
-            // a non-image or multi-image input falls through to the flat baseColor
-            // (GPU-degraded; CPU stays correct) — the pkg190/pkg186 cut, deferred.
+            // pkg219b — a ProgramTexture (per-texel op-VM chain). GPU scope (#826):
+            // 1..VM_MAX_TEX inputs, each an ImageTexture (uploaded with the
+            // ProgramTexture's Mapping on its descriptor, #825 key) or a procedural
+            // (issue #818 Item 1: pkg190 bake of the child's own evaluator, its
+            // coord_mode + Mapping folded in). The compiled program is deduped into
+            // r.programs; the shade path samples every input and runs svm_eval —
+            // CPU parity by construction. If any input cannot upload (empty image,
+            // unbakeable coord mode, > VM_MAX_TEX inputs) the whole program falls
+            // through to the flat baseColor (GPU-degraded; CPU stays correct).
             if (auto pt = std::dynamic_pointer_cast<ProgramTexture>(tex)) {
-                std::shared_ptr<Texture> child =
-                    pt->numInputs() == 1 ? pt->getInput(0) : nullptr;
-                int childTexId = -1;
-                if (auto childImg = std::dynamic_pointer_cast<ImageTexture>(child)) {
-                    if (!childImg->getData().empty()) {
-                        // Upload the child image (deduped by the ImageTexture*), but
-                        // carry the ProgramTexture's Mapping matrix on the descriptor.
-                        auto tit = texIdx.find(childImg.get());
-                        if (tit != texIdx.end()) {
-                            childTexId = tit->second;
-                        } else {
-                            childTexId = (int)r.textures.size();
-                            texIdx[childImg.get()] = childTexId;
-                            GImageTexture desc;
-                            desc.offset = (int)r.textureTexels.size();
-                            desc.width  = childImg->getWidth();
-                            desc.height = childImg->getHeight();
-                            if (pt->hasMapping()) {
-                                desc.hasMapping = 1;
-                                const float* mm = pt->getMappingMatrix();
-                                for (int i = 0; i < 12; ++i) desc.mapping[i] = mm[i];
-                            }
-                            const std::vector<Vec3>& px = childImg->getData();
-                            r.textureTexels.reserve(r.textureTexels.size() + px.size());
-                            for (const Vec3& c : px)
-                                r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
-                            r.textures.push_back(desc);
-                        }
+                const int numIn = (int)pt->numInputs();
+                bool inputsOk = numIn >= 1 && numIn <= astroray::svm::VM_MAX_TEX;
+                for (int t = 0; inputsOk && t < numIn; ++t) {
+                    std::shared_ptr<Texture> child = pt->getInput(t);
+                    if (auto childImg = std::dynamic_pointer_cast<ImageTexture>(child)) {
+                        if (!childImg->getData().empty())
+                            progInTex[t] = uploadImageTexId(childImg.get(), pt.get());
+                    } else if (child) {
+                        progInTex[t] = bakeProceduralTexId(child.get());
                     }
-                } else if (child) {
-                    // issue #818 Item 1 — a PROCEDURAL op-VM input. Bake the child's
-                    // own evaluator (Noise/Checker/Wave/…) into the flat texel buffer
-                    // via the shared pkg190 path; its coord_mode + Mapping (carried on
-                    // the child, set by load_procedural_texture) select the bake
-                    // domain and are folded in, so the wavefront shade path samples it
-                    // exactly like a baked direct-procedural base colour and then runs
-                    // svm_eval — CPU parity by construction. Unbakeable coord modes
-                    // return -1 (GPU-degraded to flat; CPU stays the reference).
-                    childTexId = bakeProceduralTexId(child.get());
+                    inputsOk = progInTex[t] >= 0;
                 }
-                if (childTexId >= 0) {
-                    texId = childTexId;
+                if (inputsOk) {
+                    texId = progInTex[0];
                     // Dedup the compiled program by ProgramTexture*.
                     auto pit = progIdx.find(pt.get());
                     if (pit != progIdx.end()) {
@@ -991,33 +1013,13 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                     }
                     r.hasTexture = true;
                     r.hasProgram = true;
+                } else {
+                    // unsupported program input → texId/progId/progInTex stay -1
+                    for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t) progInTex[t] = -1;
                 }
-                // (else: unsupported program input → texId/progId stay -1)
             } else if (auto img = std::dynamic_pointer_cast<ImageTexture>(tex)) {
                 if (!img->getData().empty()) {
-                    auto tit = texIdx.find(img.get());
-                    if (tit != texIdx.end()) {
-                        texId = tit->second;
-                    } else {
-                        texId = (int)r.textures.size();
-                        texIdx[img.get()] = texId;
-                        GImageTexture desc;
-                        desc.offset = (int)r.textureTexels.size();
-                        desc.width  = img->getWidth();
-                        desc.height = img->getHeight();
-                        // pkg219a — carry the full 3-D Mapping matrix so the GPU
-                        // image sample honors it exactly like the CPU (M*(u,v,0)).
-                        if (img->hasMapping()) {
-                            desc.hasMapping = 1;
-                            const float* m = img->getMappingMatrix();
-                            for (int i = 0; i < 12; ++i) desc.mapping[i] = m[i];
-                        }
-                        const std::vector<Vec3>& px = img->getData();
-                        r.textureTexels.reserve(r.textureTexels.size() + px.size());
-                        for (const Vec3& c : px)
-                            r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
-                        r.textures.push_back(desc);
-                    }
+                    texId = uploadImageTexId(img.get(), img.get());
                     r.hasTexture = true;
                 }
             } else if (tex) {
@@ -1051,27 +1053,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         int normalTexId = -1;
         if (auto nimg = std::dynamic_pointer_cast<ImageTexture>(nmTex)) {
             if (!nimg->getData().empty()) {
-                auto nit = texIdx.find(nimg.get());
-                if (nit != texIdx.end()) {
-                    normalTexId = nit->second;
-                } else {
-                    normalTexId = (int)r.textures.size();
-                    texIdx[nimg.get()] = normalTexId;
-                    GImageTexture ndesc;
-                    ndesc.offset = (int)r.textureTexels.size();
-                    ndesc.width  = nimg->getWidth();
-                    ndesc.height = nimg->getHeight();
-                    if (nimg->hasMapping()) {
-                        ndesc.hasMapping = 1;
-                        const float* mm = nimg->getMappingMatrix();
-                        for (int i = 0; i < 12; ++i) ndesc.mapping[i] = mm[i];
-                    }
-                    const std::vector<Vec3>& px = nimg->getData();
-                    r.textureTexels.reserve(r.textureTexels.size() + px.size());
-                    for (const Vec3& c : px)
-                        r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
-                    r.textures.push_back(ndesc);
-                }
+                normalTexId = uploadImageTexId(nimg.get(), nimg.get());
                 r.hasNormalPerturb = true;
             }
         }
@@ -1082,27 +1064,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         int bumpTexId = -1;
         if (auto bimg = std::dynamic_pointer_cast<ImageTexture>(bmTex)) {
             if (!bimg->getData().empty()) {
-                auto bit = texIdx.find(bimg.get());
-                if (bit != texIdx.end()) {
-                    bumpTexId = bit->second;
-                } else {
-                    bumpTexId = (int)r.textures.size();
-                    texIdx[bimg.get()] = bumpTexId;
-                    GImageTexture bdesc;
-                    bdesc.offset = (int)r.textureTexels.size();
-                    bdesc.width  = bimg->getWidth();
-                    bdesc.height = bimg->getHeight();
-                    if (bimg->hasMapping()) {
-                        bdesc.hasMapping = 1;
-                        const float* mm = bimg->getMappingMatrix();
-                        for (int i = 0; i < 12; ++i) bdesc.mapping[i] = mm[i];
-                    }
-                    const std::vector<Vec3>& px = bimg->getData();
-                    r.textureTexels.reserve(r.textureTexels.size() + px.size());
-                    for (const Vec3& c : px)
-                        r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
-                    r.textures.push_back(bdesc);
-                }
+                bumpTexId = uploadImageTexId(bimg.get(), bimg.get());
                 r.hasNormalPerturb = true;  // Bump shares the HasNormalPerturb axis
             }
         }
@@ -1111,6 +1073,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         r.materialBumpDistance.push_back(bmDistance);
         r.materialTextureId.push_back(texId);
         r.materialProgramId.push_back(progId);
+        for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t)
+            r.materialProgInputTexId.push_back(progInTex[t]);
         // pkg219d — scalar BSDF-parameter op-VM programs (Roughness/Metallic/
         // Transmission/IOR). Same shape as the base-colour ProgramTexture above: a
         // program whose single input is an ImageTexture. Source image + compiled
@@ -1126,27 +1090,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             auto childImg = std::dynamic_pointer_cast<ImageTexture>(child);
             if (!(childImg && !childImg->getData().empty() && pt->numInputs() == 1))
                 return;
-            auto tit = texIdx.find(childImg.get());
-            if (tit != texIdx.end()) {
-                outTexId = tit->second;
-            } else {
-                outTexId = (int)r.textures.size();
-                texIdx[childImg.get()] = outTexId;
-                GImageTexture desc;
-                desc.offset = (int)r.textureTexels.size();
-                desc.width  = childImg->getWidth();
-                desc.height = childImg->getHeight();
-                if (pt->hasMapping()) {
-                    desc.hasMapping = 1;
-                    const float* mm = pt->getMappingMatrix();
-                    for (int i = 0; i < 12; ++i) desc.mapping[i] = mm[i];
-                }
-                const std::vector<Vec3>& px = childImg->getData();
-                r.textureTexels.reserve(r.textureTexels.size() + px.size());
-                for (const Vec3& c : px)
-                    r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
-                r.textures.push_back(desc);
-            }
+            outTexId = uploadImageTexId(childImg.get(), pt.get());  // #825 key
             auto pit = progIdx.find(pt.get());
             if (pit != progIdx.end()) {
                 outProgId = pit->second;

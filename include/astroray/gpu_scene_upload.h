@@ -76,10 +76,13 @@ struct SceneUploadResult {
     // parallel to `materials` (-1 = no program). `hasProgram` selects the
     // stageShadeBucketedKernel<…,HasProgram=true> instantiation; false keeps the
     // whole fleet on the byte-identical <…,false> kernel (register-probe gate).
-    // A program material ALSO carries a materialTextureId (its single ImageTexture
-    // input): the shade path samples that image, then runs the VM on the colour.
+    // A program material ALSO carries a materialTextureId (its input 0): the shade
+    // path samples it, then runs the VM on the colour. #826: materialProgInputTexId
+    // is [mat*VM_MAX_TEX + t] = texId of program input t (-1 = none); the shade
+    // path samples inputs t >= 1 from it (t = 0 == materialTextureId).
     std::vector<astroray::svm::ShaderVMProgram> programs;
     std::vector<int>                            materialProgramId;
+    std::vector<int>                            materialProgInputTexId;
     bool                                        hasProgram = false;
     // pkg219d — scalar BSDF-param op-VM programs. Flattened [mat*VM_SCALAR_SLOTS +
     // slot] tables parallel to `materials` (slots per astroray::svm::ScalarSlot):

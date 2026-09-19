@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** in-progress — Batch P PR #839: all gates green; awaiting lead ruling on STACK +64 B in 4/128 shade specializations (A' gate)
+**Status:** done — PR #839, 2026-09-20: CPU/GPU IES vs Cycles-exact reference 1.000–1.003 per bin; A' accepted (REG 254 on 128/128, STACK +64 B on 4, perf neutral)
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** none
 
@@ -208,6 +208,15 @@ unfixed, GPU renders of IES lights silently differ from CPU and from Cycles.
       (627bfe67), kernels not touched stay `cuobjdump` byte-identical, and a non-IES
       perf A/B (burn-in + min-of-N) is within noise. If REG or STACK moves, fall back
       to the template axis.
+  - [x] **Measured + accepted (lead, 2026-09-20; design A would double the
+        `stage_advance.cu` compile time on every build):** REG 254 on 128/128;
+        STACK equal on 124, +64 B on 4 (`<false,true,true,*,*,true,false>`:
+        textures + photons + op-VM, no Principled); volume-scatter kernels REG
+        68 -> 102 (not saturated), STACK 88 -> 120; all other kernels identical
+        modulo a +4 B constant-bank relocation (`c_iesEnabled`). Perf (15 burn-in,
+        min of 10, B1 -> B2 -> B1): contact sheet 1.2611 / 1.2610 / 1.2608 s, with
+        fog 0.9847 / 0.9867 / 0.9839 s (+0.2 %), radius-0 spot 0.8093 / 0.8057 /
+        0.8097 s (-0.4 %).
 - [x] Existing `tests/test_batch_a_ies_export.py` and non-IES dedicated-light
       parity suites stay green.
 - [x] Before/after renders saved under `test_results/` and inspected.

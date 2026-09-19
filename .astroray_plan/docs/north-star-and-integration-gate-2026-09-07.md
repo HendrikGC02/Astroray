@@ -265,3 +265,12 @@ Asked by the lead with the state of HDRI noise, rough glass, the dim corpus spot
    sky diffuse ~2x too bright vs the sun). No constant fixes it; #799 Phase 2 = engine-side port of
    Blender's `intern/sky` Nishita sources (single scattering Apache-2.0, multiple scattering MIT —
    verified 2026-09-13; only the two small headers are GPL) with the sun from the same model. Batch J.
+
+
+### Owner decisions — 2026-09-19 night (session start)
+
+1. **Issue hygiene:** the lead ran the pending `gh` close/comment block from `issue-audit-2026-09-15.md` (owner-authorised; 36/36 ok).
+2. **Showcase scenes (low priority):** one or two README-grade Blender scenes by a visual-capable agent, covering glass dispersion + caustics, volumes, Nishita sky + sun, thin film + metals, plus one black-hole scene if the GR path still renders.
+3. **Writing style:** concise in all owner-facing text, docs and code comments.
+4. **Owner observation:** a mesh with a Principled Volume renders as its bounding box (icosphere → cube); low priority → #833.
+5. **Mistake log:** the lead keeps `reports/2026-09-20-opus5-mistakes.md`, summarised in the run report.

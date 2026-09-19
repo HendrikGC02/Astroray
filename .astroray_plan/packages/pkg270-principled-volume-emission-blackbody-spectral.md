@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** in-progress (batch K, feat/batch-k-volumes-2, 2026-09-15). Was: open
+**Status:** done (PR #820, 2026-09-19 — hero-wavelength spectral MIS per-λ σ + spectral-Planck emission on the CPU: blackbody furnace Y 1.013× analytic, Planck ratios to 6 s.f., chromatic slab Tr (0.633,0.151,0.129) vs Cycles (0.687,0.153,0.135) vs grey 0.135; #807 cabinet A/B; grid-free byte-identical). Was: in-progress
 **Estimated effort:** 3 sessions (~9 h)
 **Depends on:** pkg268
 

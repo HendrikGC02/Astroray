@@ -18,8 +18,9 @@ Grid transfer contract (matches `astroray::volume::DenseGrid` /
   volume's object space (from ``grid.transform``),
 * ``object_to_world`` — the object's ``matrix_world`` (row-major 4x4).
 
-``temperature`` / ``color`` / ``velocity`` are carried as passthrough handles
-(consumed by pkg270); anything else is reported as a degradation.
+``temperature`` (or the Principled Volume's "Temperature Attribute") is
+consumed by pkg270 blackbody emission; ``color`` / ``velocity`` are carried as
+passthrough handles and reported as degradations (pkg272).
 
 This module is import-safe without Blender/openvdb so the unit layer can exercise
 the array/transform math; the Blender-dependent helpers import lazily.
@@ -31,6 +32,15 @@ import numpy as np
 
 # Grid attribute names follow Cycles (`blender/volume.cpp`).
 DENSITY_GRID = "density"
+
+# pkg269/pkg270 — degradation reported whenever a Principled Volume carries
+# blackbody emission: the GPU heterogeneous-volume stage accumulates the constant
+# emission term only (the Planck luminance normalisation is a host table), so the
+# blackbody glow is CPU-only until issue #828 lands. Emitted unconditionally —
+# the volume-lowering site does not know the active render device.
+BLACKBODY_GPU_DEGRADATION = (
+    "Principled Volume blackbody emission is CPU-only; the GPU renders constant "
+    "emission only (issue #828)")
 PASSTHROUGH_GRIDS = ("temperature", "color", "velocity", "flame", "heat")
 
 
@@ -102,20 +112,25 @@ def resolve_vdb_filepath(volume_data, bpy_module=None):
     return fp
 
 
-def payload_from_vdb(filepath, object_to_world, report=None):
+def payload_from_vdb(filepath, object_to_world, report=None,
+                     density_attribute=DENSITY_GRID, temperature_attribute="temperature"):
     """Read a `.vdb` file and build the engine grid-transfer payload.
 
     ``object_to_world`` is a flat row-major length-16 list. Returns a dict with
     ``density`` (np.float32 (nz,ny,nx)), ``bbox_min``, ``index_to_object``,
     ``object_to_world`` and optional passthrough arrays, plus a ``degradations``
     list naming any grid we did not honour (pkg200 rule: never claim honour
-    silently).
+    silently). ``density_attribute`` / ``temperature_attribute`` are the
+    Principled Volume attribute-name sockets (Cycles defaults ``density`` /
+    ``temperature``).
     """
     openvdb = _import_openvdb()
     grids = openvdb.readAll(filepath)[0]  # (grids, file_metadata)
     by_name = {g.name: g for g in grids}
     degradations = []
 
+    if density_attribute != DENSITY_GRID and density_attribute in by_name:
+        by_name[DENSITY_GRID] = by_name[density_attribute]
     if DENSITY_GRID not in by_name:
         # Some fog caches name the scalar grid differently; take the first
         # scalar FloatGrid as density and report the substitution.
@@ -136,16 +151,17 @@ def payload_from_vdb(filepath, object_to_world, report=None):
         "degradations": degradations,
     }
 
-    # temperature passthrough (pkg270) — carried, not evaluated here.
-    if "temperature" in by_name:
-        temp, temp_bbox = dense_from_grid(by_name["temperature"])
+    # temperature grid (pkg270 blackbody emission): the named attribute.
+    temp_name = temperature_attribute or "temperature"
+    if temp_name in by_name:
+        temp, temp_bbox = dense_from_grid(by_name[temp_name])
         payload["temperature"] = temp
         payload["temperature_bbox_min"] = temp_bbox
 
     for name, g in by_name.items():
-        if name == DENSITY_GRID or name == "temperature":
+        if name == DENSITY_GRID or name == temp_name or name == density_attribute:
             continue
-        degradations.append("grid '%s' not yet consumed (pkg270/pkg272)" % name)
+        degradations.append("grid '%s' not yet consumed (pkg272)" % name)
 
     if report is not None and degradations:
         for d in degradations:
@@ -179,15 +195,41 @@ def _socket_float(node, name, default=0.0):
         return float(default)
 
 
+def _socket_str(node, name, default=""):
+    s = node.inputs.get(name) if hasattr(node.inputs, "get") else None
+    if s is None:
+        return str(default)
+    try:
+        v = str(s.default_value)
+    except (TypeError, ValueError):
+        return str(default)
+    return v if v else str(default)
+
+
+def emission_kwargs(pv):
+    """pkg270 — the emission/blackbody keyword arguments for
+    ``renderer.set_volume_grid`` / ``renderer.add_homogeneous_medium`` from a
+    ``principled_volume_from_material`` dict (Cycles defaults when absent)."""
+    return dict(
+        emission_strength=float(pv.get("emission_strength", 0.0)),
+        emission_color=list(pv.get("emission_color", [1.0, 1.0, 1.0])),
+        blackbody_intensity=float(pv.get("blackbody_intensity", 0.0)),
+        blackbody_tint=list(pv.get("blackbody_tint", [1.0, 1.0, 1.0])),
+        blackbody_temperature=float(pv.get("temperature", 1000.0)),
+    )
+
+
 def principled_volume_from_material(material):
     """Extract Principled-Volume-basics params from a material's node tree.
 
     Returns a dict ``{density, color, absorption_color, anisotropy, has_surface,
-    degradations}`` when the Material Output has a Volume input connected, else
-    ``None``. Supports ``ShaderNodeVolumePrincipled`` / ``ShaderNodeVolumeScatter``
-    / ``ShaderNodeVolumeAbsorption`` (Cycles socket semantics). Honours only the
-    basics (density/color/absorption/anisotropy); every other socket or node is
-    reported as a degradation (pkg200 rule).
+    degradations}`` (plus, for the Principled node, ``emission_strength``,
+    ``emission_color``, ``blackbody_intensity``, ``blackbody_tint``,
+    ``temperature``, ``temperature_attribute``, ``density_attribute`` — pkg270)
+    when the Material Output has a Volume input connected, else ``None``.
+    Supports ``ShaderNodeVolumePrincipled`` / ``ShaderNodeVolumeScatter`` /
+    ``ShaderNodeVolumeAbsorption`` (Cycles socket semantics); unsupported nodes
+    are reported as a degradation (pkg200 rule).
     """
     nt = getattr(material, "node_tree", None)
     if nt is None:
@@ -213,8 +255,16 @@ def principled_volume_from_material(material):
         info["color"] = _socket_rgb(node, "Color", (0.8, 0.8, 0.8))
         info["absorption_color"] = _socket_rgb(node, "Absorption Color", (1.0, 1.0, 1.0))
         info["anisotropy"] = _socket_float(node, "Anisotropy", 0.0)
-        if _socket_float(node, "Emission Strength", 0.0) > 0.0:
-            degr.append("Principled Volume emission not honoured (pkg270)")
+        # pkg270 — emission / blackbody sockets (Cycles svm_node_principled_volume).
+        info["emission_strength"] = _socket_float(node, "Emission Strength", 0.0)
+        info["emission_color"] = _socket_rgb(node, "Emission Color", (1.0, 1.0, 1.0))
+        info["blackbody_intensity"] = _socket_float(node, "Blackbody Intensity", 0.0)
+        info["blackbody_tint"] = _socket_rgb(node, "Blackbody Tint", (1.0, 1.0, 1.0))
+        info["temperature"] = _socket_float(node, "Temperature", 1000.0)
+        info["temperature_attribute"] = _socket_str(node, "Temperature Attribute", "temperature")
+        info["density_attribute"] = _socket_str(node, "Density Attribute", "density")
+        if info["blackbody_intensity"] > 0.0:
+            degr.append(BLACKBODY_GPU_DEGRADATION)  # pkg200 rule: never claim honour silently
     elif ntype == "VOLUME_SCATTER" or "Scatter" in node.bl_idname:
         info["density"] = _socket_float(node, "Density", 1.0)
         info["color"] = _socket_rgb(node, "Color", (0.8, 0.8, 0.8))  # scattering albedo
@@ -229,20 +279,11 @@ def principled_volume_from_material(material):
         col = _socket_rgb(node, "Color", (1.0, 1.0, 1.0))
         info["color"] = [0.0, 0.0, 0.0]  # pure absorption: no scattering
         info["absorption_color"] = [max(c, 0.0) ** 2 for c in col]
-        if abs(col[0] - col[1]) > 1e-3 or abs(col[0] - col[2]) > 1e-3:
-            degr.append("chromatic Volume Absorption colour approximated grey (pkg270)")
     else:
-        degr.append("unsupported volume node '%s' (pkg270/pkg272)" % node.bl_idname)
+        degr.append("unsupported volume node '%s' (pkg272)" % node.bl_idname)
         return None
-    # chromatic scattering colour / absorption -> grey-extinction approximation
-    # (true per-lambda extinction is pkg270). Report it (pkg200 rule).
-    ac = info.get("absorption_color", [1, 1, 1])
-    if abs(ac[0] - ac[1]) > 1e-3 or abs(ac[0] - ac[2]) > 1e-3:
-        degr.append("chromatic absorption colour approximated grey (pkg270)")
-    cc = info.get("color", [0, 0, 0])
-    if abs(cc[0] - cc[1]) > 1e-3 or abs(cc[0] - cc[2]) > 1e-3:
-        degr.append("chromatic scatter colour: grey-extinction approximation "
-                    "(per-lambda extinction is pkg270)")
+    # pkg270: chromatic colour / absorption colour are honoured per wavelength
+    # (hero-wavelength spectral tracking) — no grey-extinction degradation.
     return info
 
 
@@ -291,6 +332,7 @@ def export_volume_objects(depsgraph, renderer, bpy_module=None, report=None):
             )
             if "temperature" in payload:
                 kwargs["temperature"] = payload["temperature"]
+                kwargs["temperature_bbox_min"] = payload["temperature_bbox_min"]
             set_grid(obj.name, **kwargs)
         exported.append(obj.name)
     return exported

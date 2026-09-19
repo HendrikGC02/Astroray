@@ -1,0 +1,146 @@
+{
+  "tag": "workerOFF_big",
+  "steps": [
+    {
+      "i": 0,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 3,
+      "tick_ms_p50": 45.68,
+      "tick_ms_max": 95.7
+    },
+    {
+      "i": 1,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 5,
+      "tick_ms_p50": 46.68,
+      "tick_ms_max": 63.79
+    },
+    {
+      "i": 2,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 4,
+      "tick_ms_p50": 47.33,
+      "tick_ms_max": 54.28
+    },
+    {
+      "i": 3,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 5,
+      "tick_ms_p50": 46.37,
+      "tick_ms_max": 63.6
+    },
+    {
+      "i": 4,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 5,
+      "tick_ms_p50": 46.12,
+      "tick_ms_max": 54.3
+    },
+    {
+      "i": 5,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 5,
+      "tick_ms_p50": 46.0,
+      "tick_ms_max": 54.17
+    },
+    {
+      "i": 6,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 5,
+      "tick_ms_p50": 46.03,
+      "tick_ms_max": 63.78
+    },
+    {
+      "i": 7,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 5,
+      "tick_ms_p50": 45.84,
+      "tick_ms_max": 63.43
+    },
+    {
+      "i": 8,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 4,
+      "tick_ms_p50": 47.25,
+      "tick_ms_max": 53.63
+    },
+    {
+      "i": 9,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 5,
+      "tick_ms_p50": 46.04,
+      "tick_ms_max": 63.42
+    },
+    {
+      "i": 10,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 5,
+      "tick_ms_p50": 46.18,
+      "tick_ms_max": 63.28
+    },
+    {
+      "i": 11,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 5,
+      "tick_ms_p50": 46.33,
+      "tick_ms_max": 62.73
+    },
+    {
+      "i": 12,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 5,
+      "tick_ms_p50": 46.46,
+      "tick_ms_max": 62.77
+    },
+    {
+      "i": 13,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 5,
+      "tick_ms_p50": 45.96,
+      "tick_ms_max": 63.4
+    },
+    {
+      "i": 14,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 5,
+      "tick_ms_p50": 45.77,
+      "tick_ms_max": 63.05
+    }
+  ],
+  "region": [
+    2100,
+    1221
+  ],
+  "warmup_presents": 0,
+  "shot_before": "C:\\\\Users\\\\hgcom\\\\OneDrive\\\\Astroray\\\\Astroray_repo\\\\Astroray-batchM\\\\test_results\\\\batchM\\workerOFF_big_before.png",
+  "shot_during": "C:\\\\Users\\\\hgcom\\\\OneDrive\\\\Astroray\\\\Astroray_repo\\\\Astroray-batchM\\\\test_results\\\\batchM\\workerOFF_big_during.png",
+  "settle_presents": 0,
+  "settle_resolutions_tail": [],
+  "final_presented": null,
+  "region_full": [
+    2100,
+    1221
+  ],
+  "shot_after": "C:\\\\Users\\\\hgcom\\\\OneDrive\\\\Astroray\\\\Astroray_repo\\\\Astroray-batchM\\\\test_results\\\\batchM\\workerOFF_big_after.png",
+  "total_presents": 0,
+  "orbit_presents": 0,
+  "orbit_ticks": 71,
+  "orbit_present_rate": 0.0,
+  "full_width": 0,
+  "final_full_res": false
+}

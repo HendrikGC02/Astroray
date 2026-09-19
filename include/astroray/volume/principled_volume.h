@@ -46,6 +46,19 @@ struct PrincipledVolume {
     // "Anisotropy": HG asymmetry g in [-1, 1].
     float anisotropy = 0.0f;
 
+    // pkg270 -- emission sockets (Cycles svm_node_principled_volume; research
+    // note pkg270-spectral-tracking-volume-emission-research.md section 3).
+    // "Emission Strength" x "Emission Color": constant radiance per unit length.
+    float emissionStrength = 0.0f;
+    std::array<float, 3> emissionColor = {1.0f, 1.0f, 1.0f};
+    // "Blackbody Intensity" (0..1, the mix(1, T^4, I) Stefan-Boltzmann weight)
+    // and "Blackbody Tint".
+    float blackbodyIntensity = 0.0f;
+    std::array<float, 3> blackbodyTint = {1.0f, 1.0f, 1.0f};
+    // "Temperature" socket (K): absolute T when the medium has no temperature
+    // grid (mesh-bounded media), a multiplier on the grid value otherwise.
+    float temperature = 1000.0f;
+
     static float clamp01(float v) { return std::clamp(v, 0.0f, 1.0f); }
 
     // Cycles per-channel scattering coefficient σ_s_c / density (= color_c).
@@ -96,6 +109,29 @@ struct PrincipledVolume {
         return std::abs(color[0] - color[1]) > eps || std::abs(color[0] - color[2]) > eps;
     }
 };
+
+// pkg270 -- per-wavelength Cycles coefficients at grid density 1 (multiply by
+// D * density(p)). Spectral discipline (memory
+// spectral-upsample-nonlinearity-scaled-bsdf): upsample the two REFLECTANCE-like
+// socket colours through the JH albedo LUT, then apply the Cycles formula per
+// wavelength -- never upsample a derived coefficient. Because both upsampled
+// curves lie in (0,1), s(l) + a(l) <= s + (1 - s) = 1 for every wavelength, so
+// D * maxDensity is an exact lambda-independent majorant (research note s1.2).
+inline void principledSpectralCoeffs(const astroray::RGBAlbedoSpectrum& colorSpec,
+                                     const astroray::RGBAlbedoSpectrum& absorptionSpec,
+                                     const astroray::SampledWavelengths& wl,
+                                     astroray::SampledSpectrum& sigmaSUnit,
+                                     astroray::SampledSpectrum& sigmaAUnit) {
+    astroray::SampledSpectrum c = colorSpec.sample(wl);
+    astroray::SampledSpectrum ab = absorptionSpec.sample(wl);
+    for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+        float s = std::clamp(c[i], 0.0f, 1.0f);
+        float a = std::max(1.0f - s, 0.0f) *
+                  std::max(1.0f - std::sqrt(std::clamp(ab[i], 0.0f, 1.0f)), 0.0f);
+        sigmaSUnit[i] = s;
+        sigmaAUnit[i] = a;
+    }
+}
 
 }  // namespace volume
 }  // namespace astroray

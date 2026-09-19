@@ -212,8 +212,16 @@ def test_late_idle_after_desired_n_plus_2_submits_n_plus_2():
 
 
 def test_frame_for_superseded_generation_is_discarded():
-    """A published frame whose generation is older than desired_generation is
-    discarded on drain and never presented (no stale present after an edit)."""
+    """A published frame rendered BEFORE a scene/material edit is discarded on
+    drain and never presented (no stale-content present after an edit).
+
+    pkg266 (#817 bug 1): the present gate is now `present_floor_generation <= gen`,
+    not `gen == desired_generation` — a camera-only move raises desired_generation
+    but NOT the floor, so a one-step-stale orbit frame stays presentable. Only a
+    content edit raises the floor. This test therefore raises the floor (the edit
+    semantics it was written to assert) rather than merely bumping desired; the
+    original author's invariant ("no stale present after an edit") is preserved
+    exactly, now expressed against the floor."""
     entered = threading.Event()
     gate = threading.Event()
 
@@ -229,10 +237,13 @@ def test_frame_for_superseded_generation_is_discarded():
         h.worker.maybe_submit(h.commit)  # submit gen 1
         assert _wait(entered.is_set)
         assert _wait(lambda: h.worker.mailbox_depth == 1)
-        # a new edit supersedes gen 1 before the pump presents it
+        # a new CONTENT edit supersedes gen 1 before the pump presents it: it bumps
+        # desired AND raises the present floor (the main thread does this in
+        # _worker_view_update on a genuine scene/material edit).
         h.worker.request()  # desired 2
-        h.worker.pump()      # drains mailbox: frame gen 1 < desired 2 -> discard
-        assert h.presented == []  # never presented a superseded frame
+        h.worker.present_floor_generation = h.worker.desired_generation
+        h.worker.pump()      # drains mailbox: frame gen 1 < floor 2 -> discard
+        assert h.presented == []  # never presented a stale-content frame
         gate.set()
     finally:
         h.teardown()
@@ -335,7 +346,12 @@ def test_worker_view_update_pumps_control_only_preserving_the_frame():
     pump_calls = []
 
     class _FakeWorker:
-        def request(self):
+        # pkg266 (#817 bug 1): _worker_view_update raises the present floor to the
+        # desired generation on a genuine edit, so the fake exposes both fields.
+        desired_generation = 1
+        present_floor_generation = 0
+
+        def request(self, cancel_inflight=True):
             pass
 
         def pump(self, present=True):

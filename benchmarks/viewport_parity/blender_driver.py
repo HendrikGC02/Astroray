@@ -849,6 +849,23 @@ def _reduce_spike_events(events):
                   "mean": round(sum(chunk_spp_vals) / len(chunk_spp_vals), 2)}
                  if chunk_spp_vals else None)
 
+    # pkg266 (#817 orbit row): presented-resolution timeline. The reduced first
+    # unit publishes W/N x H/N; the full-resolution refinement publishes the region
+    # size. Full res is the LARGEST presented width seen this run. Used by the
+    # orbit-navigation row to assert the viewport does not stay stuck at the reduced
+    # first-unit resolution ("final presented resolution == full") — the #817 bug 2
+    # symptom — and to report the full-res fraction over the run.
+    presented_res = [(g, t, int(x.get("width", 0)), int(x.get("height", 0)))
+                     for (n, g, t, _e, x) in ev
+                     if n == "texture_upload_end" and "width" in x]
+    full_w = max((w for (_g, _t, w, _h) in presented_res), default=0)
+    n_full = sum(1 for (_g, _t, w, _h) in presented_res
+                 if full_w > 0 and w == full_w)
+    presented_full_res_frac = (round(n_full / len(presented_res), 4)
+                               if presented_res else None)
+    final_presented_full_res = (bool(presented_res[-1][2] == full_w and full_w > 0)
+                                if presented_res else None)
+
     # present-rate is UNGRADEABLE when no eligible terminal generation exists
     # (e.g. the continuous edit storm never lets a render reach its terminal
     # publication while still desired). Report the flag rather than a fake 0.
@@ -868,6 +885,10 @@ def _reduce_spike_events(events):
         "presented_completed": presented_completed,
         "present_rate": round(present_rate, 4) if present_rate is not None else None,
         "present_rate_gradeable": present_rate_gradeable,
+        # pkg266 (#817 orbit row): presented-resolution outcome.
+        "presented_full_res_frac": presented_full_res_frac,
+        "final_presented_full_res": final_presented_full_res,
+        "n_presents": len(presented_res),
         "devices_seen": devices,
         "n_render_device": n_render_device,
         "cuda_errors": n_errors,
@@ -1421,10 +1442,11 @@ def _write_ui_latency_summary_md(doc, path):
         lines += [
             "## worker lifeline (ASTRORAY_VIEWPORT_WORKER=1) -- generation-tagged",
             "",
-            "| scene | engine | completed | presented | present_rate | commit p95 | "
+            "| scene | engine | completed | presented | present_rate | n_present | "
+            "full_res_frac | final_full_res | commit p95 | "
             "cancel_ack p99 | cancel_ack_pump p99 | frame_age p95 | tex_tail p95 | "
             "mailbox_max | chunk_spp (p50/max) | samples/s | devices | cuda_err |",
-            "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for c in spike_rows:
             s = c["spike"]
             # pkg241 P2.2 item 3 (Terra review 4): present_rate is UNGRADEABLE when
@@ -1433,9 +1455,14 @@ def _write_ui_latency_summary_md(doc, path):
                   else "UNGRADEABLE")
             cspp = s.get("chunk_spp") or {}
             cspp_txt = (f"{cspp.get('p50')}/{cspp.get('max')}" if cspp else "-")
+            # pkg266 (#817 orbit row): presented-resolution outcome.
+            frf = s.get("presented_full_res_frac")
+            ffr = s.get("final_presented_full_res")
             lines.append(
                 f"| {c['scene']} | {c['engine']} | {s['completed_generations']} | "
-                f"{s['presented_completed']} | {pr} | "
+                f"{s['presented_completed']} | {pr} | {s.get('n_presents')} | "
+                f"{frf if frf is not None else '-'} | "
+                f"{ffr if ffr is not None else '-'} | "
                 f"{_p(s, 'commit_cost')} | {_p(s, 'cancel_ack', 'p99_ms')} | "
                 f"{_p(s, 'cancel_ack_pump', 'p99_ms')} | {_p(s, 'frame_age')} | "
                 f"{_p(s, 'texture_upload_tail')} | {s['mailbox_depth_max']} | "
@@ -1529,10 +1556,13 @@ def main():
                    help="fine ticker interval (default 5 ms)")
     # pkg241 P2.2 item 4: edit-dispatch pattern for --mode ui_latency.
     p.add_argument("--ui-pattern", dest="ui_pattern", default="continuous",
-                   choices=["continuous", "settle"],
+                   choices=["continuous", "settle", "orbit"],
                    help="continuous = an edit every tick (stress; present-rate "
                         "undefined); settle = edit bursts + idle spans so "
-                        "completed/present-rate/frame-age are defined")
+                        "completed/present-rate/frame-age are defined; orbit "
+                        "(#817) = continuous region-view rotation only "
+                        "(real navigation) — grades present-rate + "
+                        "final-full-res over the sustained orbit")
     p.add_argument("--ui-burst-s", dest="ui_burst_s", type=float, default=0.4,
                    help="settle pattern: seconds of edits per cycle")
     p.add_argument("--ui-settle-s", dest="ui_settle_s", type=float, default=2.0,

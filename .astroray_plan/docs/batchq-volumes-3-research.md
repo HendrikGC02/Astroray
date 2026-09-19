@@ -8,7 +8,7 @@
 ### What the CPU does (pkg270, the oracle)
 
 `normalizedPlanck(λ,T) = B(λ,T)·1e9 / ∫ B(λ',T)·1e9·ȳ(λ') dλ'` (Planck × the pkg122
-photopic normalisation, CIE-1964 10° ȳ, 360–830 nm, 1 nm), times Cycles'
+photopic normalisation over the engine CMF ȳ, 360–830 nm, 1 nm), times Cycles'
 `σ_SB·1e-6/π·mix(1,T⁴,I)` and the JH-upsampled tint.
 
 ### CPU defect found (fixed here)
@@ -19,8 +19,10 @@ photopic normalisation, CIE-1964 10° ȳ, 360–830 nm, 1 nm), times Cycles'
 every λ (∫ underflows → norm = inf; `float(B)` = 0 → 0·inf). T ≤ 20 K → 0,
 T ≥ 150 K finite. Temperature grids multiply the socket (Cycles), so the cold
 rim of a fire (grid value 0.02–0.1 × 1500 K) lands in the NaN band.
-Fix: evaluate the ratio in double from a double memo of the integral. Values
-where the old code was finite change by ≤ 1 float ulp.
+Fix: evaluate the ratio in double from a double memo of the integral. The memo
+(1 K bins, thread_local) is now evaluated AT the rounded kelvin; the old one kept
+whichever T a thread saw first in the bin (thread-order dependent). Integer
+temperatures are unchanged to ≤ 1 float ulp.
 
 ### GPU design
 

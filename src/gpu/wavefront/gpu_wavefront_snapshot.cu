@@ -36,6 +36,8 @@ void uploadProfileTable(const float* host, int count);
 // pkg218 — dedicated-light emission-profile table (gpu_spectral_tables.cu),
 // same reasoning as uploadProfileTable above.
 void uploadEmissionProfileTable(const float* host, int count);
+// #828 — blackbody photopic-normaliser LUT for GPU volume emission (gpu_spectral_tables.cu).
+void uploadBlackbodyLuminanceLut();
 // pkg152 (#523, rebased into C7): reflection-lobe multi-scatter/layering
 // compensation tables (gpu_ggx_tables.cu) — required by gpu_disney_eval's
 // gpu_ggxCompensationFactor/DirectionalAlbedo/sheen/clearcoat lookups.
@@ -1076,6 +1078,7 @@ struct WfContext {
     WfDeviceBuf gridQueue, gridCount; // pkg269 heterogeneous-medium queue
     WfDeviceBuf gridRu, gridMediumId; // pkg269 per-path r_u (4 lanes) + scattered-medium id
     std::vector<WfDeviceBuf> gridBufs; // pkg269 device NanoVDB grid buffers (grow-only)
+    std::vector<WfDeviceBuf> gridTempBufs; // #828 dense temperature grids (grow-only)
     // pkg258 - env NEE parked-record arrays + queue (SEPARATE from the lamp neeF/
     // neeI so an idx carries independent lamp AND env NEE records). Grow-only; only
     // touched when a render enables env NEE with a loaded importance-sampled HDRI.
@@ -1539,14 +1542,19 @@ std::vector<float> cuda_wavefront_render(
     // frame (c_wfGridVolume is __constant__ and persists; media-free scenes
     // publish count==0 → every grid branch is skipped → byte-identical). The
     // NanoVDB density buffers are position-independent, so they are byte-copied
-    // to the device and read through nanovdb::FloatGrid there. Re-uploaded per
-    // call (a 128^3 grid is a few MB); a device-cache entry is a follow-up.
+    // to the device and read through nanovdb::FloatGrid there.
+    // #828 device grid cache: the NanoVDB + temperature buffers ride the #801
+    // `reuse` decision — on a reuse call the WfContext buffers still hold this
+    // renderer's grids (every grid mutation binding invalidates the scene cache),
+    // so no memcpy runs; the small side-table fields are rebuilt every frame.
     bool hasGridVolume = false;
     {
         GWavefrontGridVolumeBinding gb{};
         gb.count = 0;
         const auto& media = renderer.gridMedia();
         if (C.gridBufs.size() < media.size()) C.gridBufs.resize(media.size());
+        if (C.gridTempBufs.size() < media.size()) C.gridTempBufs.resize(media.size());
+        bool anyBlackbody = false;
         for (size_t k = 0; k < media.size() && gb.count < G_WF_MAX_GRID_MEDIA; ++k) {
             const auto& m = media[k];
             GGridMedium& g = gb.media[gb.count];
@@ -1554,15 +1562,40 @@ std::vector<float> cuda_wavefront_render(
             for (int a = 0; a < 12; ++a) g.worldToIndex[a] = (a % 5 == 0 && a < 11) ? 1.f : 0.f;
             g.heterogeneous = 0;
             g.grid = nullptr;
+            g.tempGrid = nullptr;
             if (m.heterogeneous && m.grid && m.grid->nanoBytes() > 0) {
                 size_t bytes = m.grid->nanoBytes();
-                char* d = wfEnsure<char>(C.gridBufs[k], bytes);
-                cudaError_t e = cudaMemcpy(d, m.grid->nanoData(), bytes, cudaMemcpyHostToDevice);
-                if (e != cudaSuccess) throw std::runtime_error(cudaGetErrorString(e));
+                char* d;
+                if (reuse) {
+                    d = reinterpret_cast<char*>(C.gridBufs[k].ptr);
+                } else {
+                    d = wfEnsure<char>(C.gridBufs[k], bytes);
+                    cudaError_t e = cudaMemcpy(d, m.grid->nanoData(), bytes, cudaMemcpyHostToDevice);
+                    if (e != cudaSuccess) throw std::runtime_error(cudaGetErrorString(e));
+                }
                 g.grid = d;
                 g.heterogeneous = 1;
                 auto w2i = m.grid->worldToIndex();   // row-major 4x4
                 for (int a = 0; a < 12; ++a) g.worldToIndex[a] = w2i[a];
+                // #828 — dense temperature block (nearest voxel, CPU layout).
+                const astroray::volume::DenseGrid* tg = m.grid->temperatureDense();
+                if (tg && !tg->data.empty()) {
+                    float* td;
+                    if (reuse) {
+                        td = reinterpret_cast<float*>(C.gridTempBufs[k].ptr);
+                    } else {
+                        td = wfEnsure<float>(C.gridTempBufs[k], tg->data.size());
+                        cudaError_t e = cudaMemcpy(td, tg->data.data(),
+                                                   tg->data.size() * sizeof(float),
+                                                   cudaMemcpyHostToDevice);
+                        if (e != cudaSuccess) throw std::runtime_error(cudaGetErrorString(e));
+                    }
+                    g.tempGrid = td;
+                    for (int a = 0; a < 3; ++a) {
+                        g.tempDim[a] = tg->dim[a];
+                        g.tempBboxMin[a] = tg->bboxMin[a];
+                    }
+                }
             }
             g.densityScale = m.densityScale;
             g.maxDensity = m.maxDensity;
@@ -1573,12 +1606,25 @@ std::vector<float> cuda_wavefront_render(
             g.emisR = m.emission.emissionRGB[0]; g.emisG = m.emission.emissionRGB[1];
             g.emisB = m.emission.emissionRGB[2];
             g.emissionFloor = m.emissionFloor;
+            // #828 — blackbody sockets (VolumeEmission, already clamped to [0,1]).
+            g.blackbodyIntensity = m.emission.blackbodyIntensity;
+            g.temperature = m.temperature;
+            g.bbTintR = m.emission.tintRGB[0]; g.bbTintG = m.emission.tintRGB[1];
+            g.bbTintB = m.emission.tintRGB[2];
+            g.bbTintIsWhite = m.emission.tintIsWhite ? 1 : 0;
+            anyBlackbody = anyBlackbody || m.emission.hasBlackbody();
             ++gb.count;
         }
+        if (anyBlackbody) uploadBlackbodyLuminanceLut();   // #828, one-time
         if (media.size() > (size_t)G_WF_MAX_GRID_MEDIA)
             std::fprintf(stderr, "[pkg269] %zu bounded media exceed the GPU side table (%d); "
                          "the rest are ignored on the GPU\n", media.size(), G_WF_MAX_GRID_MEDIA);
         hasGridVolume = gb.count > 0;
+        // pkg271 — Cycles max_volume_bounce (volume_bounces + 1; 0 = unlimited).
+        // Published for fog-only scenes too (count == 0): the world-volume scatter
+        // kernel and the <HasWorldScatter> intersect kernels read it.
+        gb.volumeBounceCap = (renderer.getMaxVolumeBounces() >= 0)
+                                 ? renderer.getMaxVolumeBounces() + 1 : 0;
         // Per-path lanes only for scenes that carry bounded media (grow-only).
         gb.ru = nullptr; gb.mediumId = nullptr; gb.capacity = 0;
         if (hasGridVolume) {

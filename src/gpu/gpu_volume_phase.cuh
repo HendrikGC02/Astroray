@@ -59,11 +59,26 @@ __device__ inline GVec3 gpu_sampleHG(const GVec3& wo, float g, float u1, float u
 // free-flight draws are decorrelated from all shading draws by construction.
 static constexpr uint32_t G_WF_VOL_DIM_SALT = 0xF0000000u;
 // pkg269 — disjoint salt bases for the heterogeneous-medium tracker (intersect
-// stage) and the grid ratio-tracking transmittance (shadow stage). Each consumes
-// `salt + draw` for an unbounded number of draws per event; the per-bounce stride
-// (4096) and the per-medium stride (1024, shadow) keep events disjoint.
+// stage) and the grid ratio-tracking transmittance (shadow stage).
+// #828 review note: the salt is a set of DISJOINT bit fields (the pkg269
+// `bounce·4096 + draw` strides aliased past 4096 draws):
+//   tracker: 0xE | bounce&0xFF << 20 | draw & 0xFFFFF   (1,048,576 draws/flight)
+//   shadow : 0xD | bounce&0xFF << 20 | medium&7 << 17 | draw & 0x1FFFF (131,072)
+// A flight past its draw budget repeats its OWN stream (a correlation inside the
+// flight, never an alias across bounces/media). batchq-volumes-3-research.md §3.
 static constexpr uint32_t G_WF_GRID_DIM_SALT       = 0xE0000000u;
 static constexpr uint32_t G_WF_GRIDSHADOW_DIM_SALT = 0xD0000000u;
+static constexpr uint32_t G_WF_GRID_DRAW_MASK       = 0x000FFFFFu;
+static constexpr uint32_t G_WF_GRIDSHADOW_DRAW_MASK = 0x0001FFFFu;
+__device__ inline uint32_t gpu_gridTrackSalt(int bounce)
+{
+    return G_WF_GRID_DIM_SALT | ((uint32_t)(bounce & 0xFF) << 20);
+}
+__device__ inline uint32_t gpu_gridShadowSalt(int bounce, int medium)
+{
+    return G_WF_GRIDSHADOW_DIM_SALT | ((uint32_t)(bounce & 0xFF) << 20)
+         | ((uint32_t)(medium & 7) << 17);
+}
 
 // pkg199 Stage 2 — OBJECT-FREE counter-based free-flight uniform. Reuses the exact
 // published keying of WavefrontRNG::GenerateForDimension (PBRT-v4 MixBits =
@@ -93,6 +108,29 @@ __device__ inline float gpu_freeflightUniform(uint32_t pixel, uint32_t sample,
     uint32_t u = (xorshifted >> rot) | (xorshifted << ((-rot_signed) & 31));
     constexpr float kOneMinusEpsilon = 0x1.fffffep-1f;
     return fminf(u * 0x1p-32f, kOneMinusEpsilon);
+}
+
+// pkg271 — Cycles volume_bounce bookkeeping (kernel/integrator/path_state.h
+// path_state_next, LABEL_VOLUME_SCATTER; Apache-2.0). GPUWavefrontState.
+// per_type_bounce byte 3: bits 0-6 = volume scatters so far (saturating at 127),
+// bit 7 = sticky terminate-after (PATH_RAY_TERMINATE_AFTER_TRANSPARENT). `cap` =
+// volume_bounces + 1 (Cycles max_volume_bounce); cap <= 0 = unlimited: no read,
+// no write. Called by both volume-scatter kernels after the medium NEE.
+__device__ inline void gpu_countVolumeBounce(uint32_t* perTypeBounce, int idx, int cap)
+{
+    if (cap <= 0) return;
+    uint32_t ptb = perTypeBounce[idx];
+    uint32_t b3 = ptb >> 24;
+    uint32_t vb = (b3 & 0x7Fu) + 1u;   // volume_bounce after this scatter
+    uint32_t flag = (b3 & 0x80u) | ((vb >= (uint32_t)cap) ? 0x80u : 0u);
+    if (vb > 0x7Fu) vb = 0x7Fu;
+    perTypeBounce[idx] = (ptb & 0x00FFFFFFu) | ((flag | vb) << 24);
+}
+// pkg271 — the path's terminate-after flag (see gpu_countVolumeBounce).
+__device__ inline bool gpu_volumeTerminateAfter(const uint32_t* perTypeBounce, int idx,
+                                                int cap)
+{
+    return cap > 0 && (perTypeBounce[idx] >> 31) != 0u;
 }
 
 // pkg269 — ray (o, unit d) vs a bounded medium's world AABB, clipped to
@@ -139,15 +177,17 @@ __device__ inline float gpu_heroAverage(const GSampledSpectrum& r,
 // gpu_gridVolumeTrack: hero-wavelength spectral-MIS free flight over
 // [tMin,tMax] in medium `mi` (device twin of astroray::volume::spectralTrack).
 // Returns 0 = escaped, 1 = absorbed (beta zeroed), 2 = scattered at tOut.
-// `emission` accumulates the constant-emission contribution (already divided by
-// avg(r_u)); `salt` seeds the counter-based draws (salt + draw index).
+// `emission` accumulates the constant + blackbody (#828) emission contribution
+// (already divided by avg(r_u)); `salt` seeds the counter-based draws
+// (gpu_gridTrackSalt + draw index). `noScatter` (pkg271 volume_bounces exhausted):
+// a scatter collision absorbs — the flight only attenuates and emits.
 __device__ int gpu_gridVolumeTrack(int mi, const GVec3& o, const GVec3& d,
                                    float tMin, float tMax,
                                    const GSampledWavelengths& wl,
                                    GSampledSpectrum& beta, GSampledSpectrum& r_u,
                                    GSampledSpectrum& emission, float& tOut,
                                    uint32_t rpix, uint32_t rsmp, uint64_t rsd,
-                                   uint32_t salt);
+                                   uint32_t salt, bool noScatter);
 // Per-λ ratio-tracking transmittance over [tMin,tMax] in medium `mi` (device twin
 // of astroray::volume::ratioTrackingTransmittanceSpectral).
 __device__ GSampledSpectrum gpu_gridVolumeTransmittance(int mi, const GVec3& o,

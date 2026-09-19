@@ -12,8 +12,10 @@
 
 #include "gpu_spectral_tables.h"
 #include "astroray/spectrum.h"  // jhEvalSpectrumF + JH LUT accessors (pkg54c)
+#include "astroray/volume/volume_emission.h"  // #828 blackbodyLogLuminanceLut
 
 #include <cuda_runtime.h>
+#include <cmath>
 #include <cstdio>
 #include <stdexcept>
 #include <vector>
@@ -385,6 +387,25 @@ void uploadEmissionProfileTable(const float* host, int count) {
         fprintf(stderr, "uploadEmissionProfileTable failed: %s\n", cudaGetErrorString(e));
         throw std::runtime_error(cudaGetErrorString(e));
     }
+}
+
+// #828 — blackbody photopic-normaliser LUT (see the declaration in
+// gpu_spectral_tables.h). Built on the host from the CPU's own double integral
+// (astroray::volume::blackbodyLogLuminanceLut, src/volume/volume_emission.cpp) so
+// the GPU normaliser is the CPU's, interpolated in ln T.
+__device__ float g_bbLogLum[G_BB_LUT_N];
+
+void uploadBlackbodyLuminanceLut() {
+    static bool uploaded = false;
+    if (uploaded) return;
+    std::vector<float> lut = astroray::volume::blackbodyLogLuminanceLut(
+        G_BB_LUT_N, std::log(double(G_BB_LUT_TMIN)), std::log(1.0e6));
+    cudaError_t e = cudaMemcpyToSymbol(g_bbLogLum, lut.data(), sizeof(float) * G_BB_LUT_N);
+    if (e != cudaSuccess) {
+        fprintf(stderr, "uploadBlackbodyLuminanceLut failed: %s\n", cudaGetErrorString(e));
+        throw std::runtime_error(cudaGetErrorString(e));
+    }
+    uploaded = true;
 }
 
 // pkg55-B' Session N+6: non-inline export of spectrumToXYZ for the wavefront

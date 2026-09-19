@@ -75,6 +75,18 @@ extern __device__ int          g_jhLutRes;
 extern __device__ const float* g_emissionProfileTable;  // [count * G_EMISSION_SAMPLES]
 extern __device__ int          g_emissionProfileCount;
 
+// #828 — blackbody photopic-normaliser LUT for GPU volume emission:
+// g_bbLogLum[k] = ln ∫ planck(λ,T_k)·1e9·ȳ(λ) dλ at ln T_k = G_BB_LUT_LNTMIN + k/G_BB_LUT_INVH,
+// T in [30 K, 1e6 K] (astroray::volume::blackbodyLogLuminanceLut, the CPU's own
+// double integral). Device GLOBAL memory: per-thread temperatures diverge, which
+// would serialise a __constant__ read. Research: batchq-volumes-3-research.md §1.
+static constexpr int   G_BB_LUT_N      = 2048;
+static constexpr float G_BB_LUT_TMIN   = 30.0f;
+static constexpr float G_BB_LUT_LNTMIN = 3.4011973817f;   // ln 30
+static constexpr float G_BB_LUT_LNTMAX = 13.8155105580f;  // ln 1e6
+static constexpr float G_BB_LUT_INVH   = 196.5564089870f; // (N-1)/(lnTmax-lnTmin)
+extern __device__ float g_bbLogLum[G_BB_LUT_N];
+
 // ---------------------------------------------------------------------------
 // Host-callable uploads / probe (defined in gpu_spectral_tables.cu).
 // ---------------------------------------------------------------------------
@@ -91,6 +103,9 @@ int uploadedProfileCount();
 // of G_EMISSION_SAMPLES floats) into device global memory. count == 0 clears
 // the device table (every emissionProfileIndex then falls back to RGB).
 void uploadEmissionProfileTable(const float* host, int count);
+// #828 — one-time (idempotent) upload of g_bbLogLum; called by the wavefront
+// driver only when a bounded medium carries blackbody emission.
+void uploadBlackbodyLuminanceLut();
 // pkg54d — single-lookup probe binding (tests/test_gpu_profile_lookup.py).
 float launchProfileLookup(int profileIndex, float lambda);
 // pkg168 — test-only batch RGB→spectral upsampling probe. Returns nRgb*nLambda

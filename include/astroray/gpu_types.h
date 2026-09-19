@@ -802,6 +802,16 @@ struct GGridMedium {
     float emissionStrength;      // pkg270 constant emission (per unit length)
     float emisR, emisG, emisB;   // Emission Color (illuminant upsample)
     float emissionFloor;         // tracking-rate floor for emissive media (8/diag)
+    // #828 — blackbody emission (device twin of VolumeEmission::evalBlackbody +
+    // BoundedMedium::emissionAt). temperature = the Temperature socket: absolute
+    // T without a temperature grid, a scale on the grid values with one.
+    float blackbodyIntensity;    // 0 = no blackbody term
+    float temperature;
+    float bbTintR, bbTintG, bbTintB;  // Blackbody Tint (JH albedo upsample per λ)
+    int   bbTintIsWhite;         // 1 = skip the tint filter (CPU tintIsWhite)
+    const float* tempGrid;       // dense temperature block, x fastest (null = none)
+    int   tempDim[3];            // nx, ny, nz
+    int   tempBboxMin[3];        // index-space origin of the dense block
 };
 struct GWavefrontGridVolumeBinding {
     int count;                   // 0 (default) = no bounded media: fleet byte-identical
@@ -815,6 +825,11 @@ struct GWavefrontGridVolumeBinding {
     float* ru;
     int*   mediumId;
     int    capacity;
+    // pkg271 — Cycles kernel max_volume_bounce = volume_bounces + 1; 0 (the
+    // zero-init default every snapshot driver publishes) = unlimited. Read by the
+    // two volume-scatter kernels and the <HasWorldScatter|HasGridVolume> intersect
+    // kernels only. Per-path count/flag: GPUWavefrontState.per_type_bounce byte 3.
+    int    volumeBounceCap;
     GGridMedium media[G_WF_MAX_GRID_MEDIA];
 };
 

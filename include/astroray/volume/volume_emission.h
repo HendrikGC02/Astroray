@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <vector>
 
 #include "astroray/spectrum.h"
 
@@ -30,6 +31,16 @@ namespace volume {
 // Luminance-normalised Planck radiance per nm at (lambda_nm, T): E[Y] == 1 for
 // any T (pkg122 normalisation). 0 for T <= 0. Defined in volume_emission.cpp.
 float normalizedPlanck(float lambdaNm, float temperatureK);
+
+// #828 — the pkg122 photopic integral ∫ planck(λ,T)·1e9·ȳ(λ) dλ (the engine
+// CMF ȳ from astroray/spectrum.h, 360–830 nm, 1 nm) in DOUBLE, evaluated at T
+// (no memo). normalizedPlanck divides by it; blackbodyLuminanceNorm() is its
+// float inverse.
+double blackbodyLuminanceIntegral(double temperatureK);
+
+// #828 — GPU LUT: ln(blackbodyLuminanceIntegral) at n uniform steps of ln T over
+// [lnTMin, lnTMax]. Research: batchq-volumes-3-research.md §1.
+std::vector<float> blackbodyLogLuminanceLut(int n, double lnTMin, double lnTMax);
 
 // Cycles Stefan–Boltzmann intensity: sigma·1e-6/π · mix(1, T⁴, I_bb).
 inline float cyclesBlackbodyIntensity(float temperatureK, float blackbodyIntensity) {
@@ -45,6 +56,7 @@ struct VolumeEmission {
     float emissionStrength = 0.0f;
     float blackbodyIntensity = 0.0f;
     std::array<float, 3> emissionRGB = {1.0f, 1.0f, 1.0f};  // pkg269: raw socket for the GPU upload
+    std::array<float, 3> tintRGB = {1.0f, 1.0f, 1.0f};      // #828: raw Blackbody Tint for the GPU upload
     bool tintIsWhite = true;
     astroray::RGBIlluminantSpectrum emissionSpec;  // Emission Color (illuminant upsample)
     astroray::RGBAlbedoSpectrum tintSpec;          // Blackbody Tint (reflectance-like filter)
@@ -58,6 +70,7 @@ struct VolumeEmission {
         emissionSpec = astroray::RGBIlluminantSpectrum(c);
         emissionRGB = c;
         tintSpec = astroray::RGBAlbedoSpectrum(tint);
+        tintRGB = tint;
         tintIsWhite = std::abs(tint[0] - 1.0f) < 1e-6f && std::abs(tint[1] - 1.0f) < 1e-6f &&
                       std::abs(tint[2] - 1.0f) < 1e-6f;
     }

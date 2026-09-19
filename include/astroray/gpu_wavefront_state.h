@@ -338,7 +338,34 @@ void launchStageIntersectQueued(
     int* d_vol_queue, int* d_vol_count,   // pkg199 Stage 2
     bool has_world_scatter,               // pkg199 Stage 2 fleet-isolation axis
     bool has_light_pass_aovs,             // pkg198 Stage 2 pass-AOV axis
-    const GCurveSegment* d_curveSegments = nullptr);  // pkg225 Stage 3
+    const GCurveSegment* d_curveSegments = nullptr,  // pkg225 Stage 3
+    // pkg269 — heterogeneous-volume queue (intersect returns -3 for a path that
+    // scattered in a bounded medium) + the HasGridVolume fleet-isolation axis.
+    int* d_grid_queue = nullptr, int* d_grid_count = nullptr,
+    bool has_grid_volume = false);
+
+// pkg269 — publish the frame's bounded-media side table (grid handles +
+// Principled params) into the wavefront's __constant__ binding. Call ONCE per
+// frame (cuda_wavefront_render). count==0 (the default) leaves every kernel on
+// its fleet path — byte-identical, no extra RNG. See stage_advance.cu /
+// GWavefrontGridVolumeBinding.
+void setWavefrontGridVolumeBinding(const GWavefrontGridVolumeBinding& binding);
+
+// pkg269 — dedicated heterogeneous-medium scatter stage (stage_volume_hetero.cu):
+// drains the grid queue, parks the phase-sampled medium NEE into the shared
+// nee_f/nee_i lanes + shadow queue, emits the HG continuation with the medium's
+// g and requeues survivors into queue_out.
+void launchStageVolumeHeteroScatter(
+    GPUWavefrontState& state,
+    const int* d_grid_queue, const int* d_grid_count,
+    int* d_queue_out, int* d_count_out,
+    float* d_nee_f, int* d_nee_i, int* d_shadow_queue, int* d_shadow_count,
+    int nee_capacity,
+    const GPrimitive* d_prims, const GTriangle* d_tris, const GSphere* d_spheres,
+    const ::GLight* d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,
+    GLightTreeView lightTree,
+    int max_depth, bool useLuminanceOutput, bool enableNEE);
 
 // pkg199 Stage 2 — dedicated volume-scatter wavefront stage (between intersect
 // and shade). Drains the volume-scatter queue, parks the phase-sampled
@@ -617,7 +644,8 @@ void launchStageShadow(
     bool              useLuminanceOutput,   // pkg157
     float             clampDirect, float clampIndirect,  // pkg157
     const GCurveSegment* d_curveSegments = nullptr,  // pkg225 Stage 3
-    bool              hasAlphaShadow = false);  // pkg253 (Principled alpha<1 scene)
+    bool              hasAlphaShadow = false,  // pkg253 (Principled alpha<1 scene)
+    bool              hasGridVolume = false);  // pkg269 (bounded media: per-λ ratio-tracking Tr)
 
 // Session N+7 part 4: path regeneration -- dense pass accumulating dead
 // paths' radiance (atomic, per-pixel) then refilling slots from a global

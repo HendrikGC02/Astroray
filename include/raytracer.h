@@ -2809,6 +2809,7 @@ public:
         m.g = std::clamp(pv.anisotropy, -0.99f, 0.99f);
         m.albedo = pv.scatteringAlbedo();
         m.grid = g.get();
+        astroray::volume::setupPrincipled(m, pv);  // pkg270 chromatic σ + emission
         gridStore_.push_back(std::move(g));
         gridMedia_.push_back(m);
     }
@@ -2825,6 +2826,7 @@ public:
         m.maxDensity = 1.0f;
         m.g = std::clamp(pv.anisotropy, -0.99f, 0.99f);
         m.albedo = pv.scatteringAlbedo();
+        astroray::volume::setupPrincipled(m, pv);  // pkg270 chromatic σ + emission
         gridMedia_.push_back(m);
     }
     const std::vector<astroray::volume::BoundedMedium>& gridMedia() const { return gridMedia_; }
@@ -3054,6 +3056,11 @@ public:
         const int rrDepth = 3;
         astroray::SampledSpectrum color(0.0f);
         astroray::SampledSpectrum throughput(1.0f);
+        // pkg270 — rescaled unidirectional path pdf for hero-wavelength spectral
+        // MIS through chromatic bounded media (pbrt-v4 VolPath r_u). Only the
+        // bounded-medium block touches it; `throughput` always equals
+        // beta / avg(volRu), so surface bounces need no change.
+        astroray::SampledSpectrum volRu(1.0f);
         Ray ray = r;
         bool wasSpecular = true;
         // pkg258 (Terra Q1c): true iff env NEE ACTUALLY drew a competing sample at
@@ -3123,12 +3130,12 @@ public:
             // pkg268 — bounded grid/homogeneous medium free flight (delta/Woodcock
             // tracking). Mirrors the world-volume mediumScatters block below but for
             // object-bounded media registered via addGridMedium/addHomogeneousMedium.
-            // Scalar σ_t (pkg268 scope — colour is the scattering albedo); free
-            // flight + ratio-tracking NEE from volume_transport.h (Woodcock 1965 /
-            // Novák 2014, cited). A real collision with albedo→0 kills the path =
-            // pure absorption (Beer–Lambert transmittance in expectation); a
-            // pass-through applies no Tr multiply (delta-track survival IS the
-            // transmittance).
+            // pkg270 — chromatic σ(λ) via hero-wavelength spectral MIS (pbrt-v4
+            // VolPath, Apache-2.0; Kutz 2017; research note
+            // pkg270-spectral-tracking-volume-emission-research.md) with emission
+            // accumulated at the null-collision vertices (no fixed-step march).
+            // Absorption terminates the path (pbrt analog event); a pass-through
+            // applies no Tr multiply (delta-track survival IS the transmittance).
             if (!gridMedia_.empty()) {
                 Vec3 dUnit = ray.direction.normalized();
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
@@ -3144,13 +3151,29 @@ public:
                 }
                 if (mi >= 0) {
                     const astroray::volume::BoundedMedium& med = gridMedia_[mi];
-                    astroray::volume::FreeFlight ff =
-                        astroray::volume::deltaTrack(med, ray.origin, dUnit, mEnter, mExit, gen);
-                    if (ff.scattered) {
+                    // beta = pbrt path throughput; volRu = rescaled path pdf.
+                    astroray::SampledSpectrum beta =
+                        throughput * astroray::volume::heroAverage(volRu, lambdas);
+                    astroray::volume::SpectralFlight ff = astroray::volume::spectralTrack(
+                        med, ray.origin, dUnit, mEnter, mExit, lambdas, beta, volRu, gen);
+                    if (!ff.emission.isZero()) {
+                        // Volume emission along the flight: Emission pass when
+                        // directly visible, else folded into <firstCat>_INDIRECT
+                        // (same classification as surface emission, pkg198).
+                        astroray::SampledSpectrum ce =
+                            clampContribSpectral(ff.emission, lambdas, bounce);
+                        color += ce;
+                        addPass((firstCat < 0) ? PASS_EMISSION : (firstCat * 3 + 1), ce);
+                    }
+                    {
+                        float rAvg = astroray::volume::heroAverage(volRu, lambdas);
+                        throughput = (rAvg > 0.0f) ? beta * (1.0f / rAvg)
+                                                   : astroray::SampledSpectrum(0.0f);
+                    }
+                    if (ff.event == astroray::volume::SpectralEvent::Absorbed) break;
+                    if (ff.event == astroray::volume::SpectralEvent::Scattered) {
                         Vec3 P = ray.origin + dUnit * ff.t;
                         Vec3 woMedium = -dUnit;
-                        // throughput *= single-scattering albedo (σ_s/σ_t).
-                        throughput *= med.albedo.sample(lambdas);
                         bool firstInteraction = (firstCat < 0);
                         int volPass = firstInteraction ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT;
                         if (firstInteraction) firstCat = 3;
@@ -3167,13 +3190,13 @@ public:
                                     float ph = astroray::volume::phaseHG(woMedium.dot(wi), med.g);
                                     float a = ls.pdf, b = ph;
                                     float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
-                                    float medTr = 1.0f;
+                                    astroray::SampledSpectrum medTr(1.0f);  // pkg270 per-λ
                                     for (const auto& mm : gridMedia_) {
                                         float s0, s1;
                                         if (astroray::volume::intersectAABB(P, wi, mm.aabbMin,
                                                 mm.aabbMax, 1e-3f, ls.distance, s0, s1))
-                                            medTr *= astroray::volume::ratioTrackingTransmittance(
-                                                mm, P, wi, s0, s1, gen);
+                                            medTr *= astroray::volume::ratioTrackingTransmittanceSpectral(
+                                                mm, P, wi, s0, s1, lambdas, gen);
                                     }
                                     astroray::SampledSpectrum neeContrib =
                                         throughput * ls.emission_spec * ph *
@@ -3588,8 +3611,8 @@ public:
                         }
                         // pkg268 — attenuate the surface NEE over any bounded grid
                         // medium the shadow ray crosses (ratio tracking, Novák 2014;
-                        // grey so a single scalar multiplies the spectrum). Empty =>
-                        // no-op, so non-volume scenes are byte-identical.
+                        // pkg270: per-λ). Empty => no-op, so non-volume scenes are
+                        // byte-identical.
                         if (!gridMedia_.empty()) {
                             Vec3 sp = rec.point;
                             Vec3 swi = (ls.position - sp).normalized();
@@ -3598,8 +3621,8 @@ public:
                                 if (astroray::volume::intersectAABB(sp, swi, mm.aabbMin,
                                         mm.aabbMax, 1e-3f, ls.distance, s0, s1))
                                     neeContrib = neeContrib *
-                                        astroray::volume::ratioTrackingTransmittance(
-                                            mm, sp, swi, s0, s1, gen);
+                                        astroray::volume::ratioTrackingTransmittanceSpectral(
+                                            mm, sp, swi, s0, s1, lambdas, gen);
                             }
                         }
                         // pkg198: NEE at the first (camera-visible) surface is DIRECT

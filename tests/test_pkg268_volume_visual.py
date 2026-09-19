@@ -73,8 +73,12 @@ def test_red_scatter_cube_is_translucent_and_reddish():
     print(f"[pkg268 visual] cube_mean RGB = {cube_mean.round(4)} "
           f"backdrop RGB = {bg_cube.round(4)}")
     # reddish: R dominates G and B (red scattering albedo + red transmission).
-    assert cube_mean[0] > cube_mean[1] * 1.3, f"cube not red-dominant: {cube_mean}"
-    assert cube_mean[0] > cube_mean[2] * 1.3, f"cube not red-dominant: {cube_mean}"
+    # pkg270: with per-wavelength extinction and the default WHITE absorption
+    # colour the medium is lossless (sigma_a = 0): green/blue pass through to the
+    # blue-grey backdrop while red is scattered, so the cube is red RELATIVE to
+    # the backdrop (the ratios below), not red-dominant in absolute terms. The
+    # old absolute red-dominance asserts encoded pkg268's grey-extinction
+    # approximation (all channels over-extincted at the max-channel rate).
     # lit and not a black silhouette.
     assert cube_mean[0] > 0.03, f"cube is black (no in-scatter): {cube_mean}"
     # translucent + selectively red: the medium favours red over green/blue

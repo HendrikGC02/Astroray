@@ -162,6 +162,7 @@ jobs:
               -I include \
               -I src \
               -I . \
+              -I external/nanovdb \
               -I "$CUDA_PATH/include" \
               --expt-relaxed-constexpr \
               --extended-lambda \

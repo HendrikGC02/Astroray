@@ -782,6 +782,42 @@ struct GWorldVolume {
     float anisotropy;            // worldVolumeAnisotropy (HG g)
 };
 
+// pkg269 — bounded (NanoVDB grid or homogeneous) medium descriptor for the
+// wavefront heterogeneous-volume stage; the device twin of
+// astroray::volume::BoundedMedium (pkg268/pkg270). Published once per frame as
+// the __constant__ side table c_wfGridVolume (stage_advance.cu), never through
+// the hit buffer (memory shade-axis-side-table-avoids-spill).
+inline constexpr int G_WF_MAX_GRID_MEDIA = 8;
+struct GGridMedium {
+    float aabbMin[3];
+    float aabbMax[3];
+    float worldToIndex[12];      // row-major 3x4 affine (world -> voxel index)
+    int   heterogeneous;         // 1 = `grid` is a device nanovdb::FloatGrid; 0 = constant
+    const void* grid;            // device NanoVDB grid buffer (null when homogeneous)
+    float densityScale;          // Principled "Density" D
+    float maxDensity;            // density majorant (1 for homogeneous)
+    float g;                     // HG anisotropy
+    float colorR, colorG, colorB;   // Principled Color (JH albedo upsample per λ)
+    float absR, absG, absB;         // Principled Absorption Color
+    float emissionStrength;      // pkg270 constant emission (per unit length)
+    float emisR, emisG, emisB;   // Emission Color (illuminant upsample)
+    float emissionFloor;         // tracking-rate floor for emissive media (8/diag)
+};
+struct GWavefrontGridVolumeBinding {
+    int count;                   // 0 (default) = no bounded media: fleet byte-identical
+    // Per-path lanes, driver-allocated ONLY for scenes with bounded media and kept
+    // OUT of GPUWavefrontState (a by-value kernel parameter: growing it grows the
+    // STACK of every wavefront kernel, the REG-254 shade kernel included).
+    //   ru[lane*capacity + idx] — hero-wavelength spectral-MIS rescaled path pdf r_u
+    //     (pbrt-v4 VolPath): throughput == beta/avg(r_u). Reset to 1 at bounce 0 by
+    //     intersectPathSlotT<..., HasGridVolume=true>.
+    //   mediumId[idx] — medium a path scattered in (parked for the hetero stage).
+    float* ru;
+    int*   mediumId;
+    int    capacity;
+    GGridMedium media[G_WF_MAX_GRID_MEDIA];
+};
+
 // Nearest-neighbour image fetch — mirrors CPU ImageTexture::value EXACTLY
 // (clamp u,v to [0,1]; v flip; floor to texel; clamp index to bounds).
 HD inline GVec3 gpu_sampleImageTexture(const GImageTexture& tex,

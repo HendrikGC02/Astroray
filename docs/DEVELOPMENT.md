@@ -49,6 +49,9 @@ Astroray on Windows is always built **twice**, into two separate build dirs:
    python scripts/build/build_blender_addon.py --backend cuda   REM or tcnn / cpu
    ```
 
+   **Known issue (#827):** `--backend cpu` currently fails under MinGW GCC 15.2
+   in NanoVDB `GridBuilder.h`.
+
    Since PR #790 (2026-09-10) the addon is built with OpenMP **ON**
    (`-DASTRORAY_DISABLE_OPENMP=OFF`). The historical hang was a **GIL
    circular wait**, not a libgomp/vcomp defect: OpenMP workers called the
@@ -170,6 +173,15 @@ Rules that save hours:
    `BLENDER_EXE` (Blender path), `ASTRORAY_PYD_DIR` (addon-visible `.pyd`),
    `ASTRORAY_BUILD_DIR` (test-build dir), `ASTRORAY_ROOT` (repo root for
    in-Blender scripts), `CUDA_PATH` (CUDA runtime bin for DLL loading).
+
+## Isolated Blender and GPU-lock tooling
+
+- `scripts/dev/launch_isolated_blender.ps1` launches a measurement-lane Blender
+  on a non-default MCP port. `-StagedAddon <dist/astroray>` loads a worktree
+  addon through a scratch `BLENDER_USER_EXTENSIONS` root (and stages the `mcp`
+  bridge) with no user-profile install.
+- `scripts/build/gpu_locked_run.py <who> -- <cmd>` runs an arbitrary command
+  under the shared GPU lock — use it to serialise CUDA-heavy builds and renders.
 
 ## Standalone renderer
 

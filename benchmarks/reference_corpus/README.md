@@ -320,11 +320,15 @@ No external asset, no licence question, no relative-path bookkeeping.
   but that diagnosis is not confirmed here -- filed as a finding for the
   addon owner, not investigated further (non-goal: "do not fix engine or
   addon defects the corpus exposes").
-- **`world_sky_sky`'s Sky Texture is a clean total drop, as expected.**
-  Astroray logs `No recognised world shader: set background color to black`
-  and renders solid black; Cycles renders the full Nishita/Multiple-
-  Scattering sky. This is the spec's textbook "visible drop" example, not a
-  finding -- `TEX_SKY` is 100% DROPPED-SILENT in the current matrix.
+- **`world_sky_sky`'s Sky Texture is no longer a total drop.** The addon
+  renders the native SINGLE/MULTIPLE_SCATTERING `sky_type` through the
+  engine-side spectral Nishita sky with the Cycles sun-direction convention
+  (world azimuth 90° − `sun_rotation`, #824); the legacy PREETHAM/HOSEK_WILKIE
+  types now route through the same Nishita (MULTIPLE_SCATTERING) path with a
+  degradation warning that `turbidity` and `ground_albedo` are not honoured.
+  The black-frame reference (`refs/world_sky_sky_*`) and the DROPPED-SILENT
+  `TEX_SKY` row quoted here predate that and need a corpus regeneration before
+  re-reading the leg.
 - **Sky Texture brightness is tuned down from a physically-scaled default**
   (`Background.Strength = 0.06`, not `1.0`) because this harness's
   `render_leg.py` uses a plain sRGB encode with no filmic tone-mapping
@@ -355,9 +359,9 @@ No external asset, no licence question, no relative-path bookkeeping.
   low/high-turbidity Sky variant (design doc Sec 1.4: "a dropped Sky
   parameter may leave a plausible-looking default sky instead of a black
   one... pair a variant to expose a control that is silently ignored").
-  `world_sky_sky`'s single black-frame result already demonstrates the
-  simpler "total drop" case; the "silently-ignored-parameter" case is not
-  demonstrated this phase.
+  `world_sky_sky`'s single sky render already exercises the native Nishita
+  path (a PREETHAM/HOSEK substitution would warn); the
+  "silently-ignored-parameter" case is not demonstrated this phase.
 - **Light-linking/shadow-linking** (`World.light_linking_shadow_linking`,
   the one `SOCKET_OVERRIDE` row) is a doc-only gap-registry entry, per the
   owner's 2026-09-08 decision (design doc Sec "Owner answers", Q7: "out of
@@ -382,6 +386,10 @@ No external asset, no licence question, no relative-path bookkeeping.
   more saturated result (a solid yellow-orange disk where Cycles shows a
   soft red patch) -- consistent with a coarser/differently-normalised
   homogeneous-volume implementation, not investigated further here.
+  **Superseded in part by pkg270 (#820):** Principled Volume emission
+  (including a spectral Planck blackbody) and per-wavelength extinction now
+  render on the CPU, and the cabinet A/B was regenerated (#807); this reading
+  predates both.
 - **`geometry_zoo`'s motion-blur pair is a weak visual tell at this crop
   scale/sample count.** The VaneBlur/VaneSharp vanes are both authored
   correctly (`cycles.use_motion_blur` True/False, keyframed rotation
@@ -397,14 +405,13 @@ No external asset, no licence question, no relative-path bookkeeping.
   this camera placement -- only the focus/far pair is visible, which is
   still enough to prove the DoF row (sharp focus subject vs. a visibly
   softer far sphere in both engines). `NearClipProp` (a tiny 0.08-unit cube
-  just inside `clip_start`) is only a few pixels at this resolution and is
-  not clearly distinguishable in the contact sheet; the row's actual
-  DROPPED-SILENT status is instead confirmed by the addon's own console
-  degradation message (`ignored camera clip_start/clip_end`), and the
-  `clip_far` crop is a strong, clean visible-drop demonstration (Cycles
-  shows only three bokeh discs on black; Astroray shows the same three
-  discs in front of the magenta backdrop plane that should have been culled
-  by `clip_end`).
+  just inside `clip_start`) is only a few pixels at this resolution, but it is
+  no longer a gap: pkg274 (#724) honours `camera.data.clip_start`/`clip_end` on
+  the CPU path, bounding the primary ray's t-bounds in view-axis depth, so the
+  earlier DROPPED-SILENT status and `ignored camera clip_start/clip_end`
+  degradation message no longer apply. The committed `clip_far` crop (Cycles
+  culls the magenta backdrop by `clip_end`; the pre-pkg274 Astroray leg still
+  showed it) is likewise superseded.
 - **`camera_lens` builds no orthographic/panoramic camera in-scene.** A
   Blender render has exactly one active camera, so demonstrating a second
   camera `type` needs either a second `.blend` (the `world_sky` pattern) or

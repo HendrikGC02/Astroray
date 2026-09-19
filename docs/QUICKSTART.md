@@ -19,6 +19,8 @@ These unlock GPU rendering and hardware-accelerated denoising. Astroray
 builds and runs CPU-only without them. Optional denoisers are auto-detected.
 The addon builder's default CUDA request requires NVCC; select `--backend cpu`
 for a CPU-only package or `--backend auto` for explicit compiler-based selection.
+Known issue (#827): `--backend cpu` currently fails under MinGW GCC 15.2 in
+NanoVDB `GridBuilder.h`.
 
 - **CUDA Toolkit 12.x** — GPU path tracer + OIDN-CUDA denoiser backend.
   Standard NVIDIA installer.
@@ -201,6 +203,9 @@ runtime (`vcomp140.dll` for MSVC, `libgomp-1.dll` for MinGW). On Windows, CUDA
 builds prefer the Ninja + MSVC generator; CPU builds can use MinGW Makefiles
 when gcc is on PATH.
 
+Known issue (#827): `--backend cpu` currently fails under MinGW GCC 15.2 in
+NanoVDB `GridBuilder.h`.
+
 ### Output
 
 ```
@@ -210,7 +215,9 @@ dist/
 ```
 
 The default CUDA build uses the filename above. Explicit `--backend cpu`
-produces `astroray-<version>.zip`; use the package path printed by the builder.
+produces `astroray-<version>.zip`; use the package path printed by the builder
+(known issue #827: `--backend cpu` currently fails under MinGW GCC 15.2 in
+NanoVDB `GridBuilder.h`).
 
 ### Install in Blender
 

@@ -26,10 +26,10 @@ custom. This is the charter Stage 1 executes against.
 
 ## Summary
 
-- **direct**: 58
-- **approximated**: 4
-- **dropped**: 19
-- **astroray-only**: 9
+- **direct**: 60
+- **approximated**: 5
+- **dropped**: 17
+- **astroray-only**: 8
 - **total rows**: 90
 
 The full 461-row shader-node socket classification is NOT duplicated here; it is the pkg119-A matrix (`docs/blender_parity/report.md`). The Material section below is the primary material steering wheel (Principled BSDF).
@@ -132,8 +132,8 @@ The full 461-row shader-node socket classification is NOT duplicated here; it is
 | `camera.data.dof.aperture_rotation` | `—` | `(none)` | dropped | DROPPED-SILENT | Bokeh rotation ignored. |
 | `camera.data.dof.aperture_ratio` | `—` | `(none)` | dropped | DROPPED-SILENT | Anamorphic bokeh ratio ignored. |
 | `camera.data.type` | `—` | `(none)` | dropped | DROPPED-SILENT | PERSP/ORTHO/PANO ignored; engine assumes perspective. |
-| `camera.data.clip_start` | `—` | `(none)` | dropped | DROPPED-SILENT | Near clip ignored. |
-| `camera.data.clip_end` | `—` | `(none)` | dropped | DROPPED-SILENT | Far clip ignored. |
+| `camera.data.clip_start` | `—` | `setup_camera (clip near/far)` | direct | SUPPORTED | pkg274 (#724): camera.data.clip_start now bounds the primary camera ray's t-min. |
+| `camera.data.clip_end` | `—` | `setup_camera (clip near/far)` | direct | SUPPORTED | pkg274 (#724): camera.data.clip_end now bounds the primary camera ray's t-max. |
 
 ## Lights (light.data.*, across POINT/SUN/SPOT/AREA)
 
@@ -182,7 +182,7 @@ The full 461-row shader-node socket classification is NOT duplicated here; it is
 | `wavelength_max` | `custom_raytracer.wavelength_max` | `wavelength band max (nm)` | astroray-only | n/a | Custom spectral band upper bound. |
 | `colourmap` | `custom_raytracer.colourmap` | `output colourmap` | astroray-only | n/a | False-colour palette for non-visible renders. |
 | `integrator_type` | `custom_raytracer.integrator_type` | `render(integrator=...)` | astroray-only | n/a | Plugin-registry integrator selector; Cycles has no equivalent (progressive/branched removed). |
-| `scene.cycles.device` | `custom_raytracer.device_mode` | `renderer.set_use_gpu` | astroray-only | n/a | SEMANTIC MISMATCH: native scene.cycles.device is CPU/GPU only; Astroray adds an 'auto' safe-fallback tri-state. Kept custom until reconciled (Stage 1 mismatch rule). |
+| `scene.cycles.device` | `custom_raytracer.device_mode` | `renderer.set_use_gpu` | approximated | SUPPORTED | pkg274 (#722): native scene.cycles.device now drives the backend when device_mode='auto' (CPU->cpu, GPU->gpu); an explicit Astroray 'cpu'/'gpu' override still wins. Stays APPROXIMATED (Cycles exposes only CPU/GPU; Astroray's 'auto' tri-state is engine-unique). |
 | `viewport_display_pass` | `custom_raytracer.viewport_display_pass` | `viewport pass selector` | astroray-only | n/a | Which AOV to show in the viewport; engine-specific. |
 | `view_layer.pass_cryptomatte_depth` | `custom_raytracer.cryptomatte_depth` | `cryptomatte depth` | approximated | n/a | Native counterpart exists (view_layer.pass_cryptomatte_depth); currently a custom duplicate. |
 | `black_hole` | `object.astroray_black_hole (PropertyGroup)` | `GR/accretion object params` | astroray-only | n/a | GR/Kerr black-hole objects (mass/spin/accretion model/jets); wholly engine-unique. |

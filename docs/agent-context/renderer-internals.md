@@ -165,6 +165,21 @@ and its CPU analog (pkg118).
 
 ---
 
+## Volumetric transport
+
+Homogeneous media use the scalar tracker; heterogeneous (VDB) media are
+NanoVDB-backed (`include/astroray/volume/grid_medium.h`) and, since pkg270, use
+the pbrt-v4 hero-wavelength spectral MIS tracker in `volume_transport.h` — the
+extinction/transmittance are per-wavelength (chromatic). Principled Volume
+emission is supported on the CPU including a spectral Planck blackbody
+(`volume_emission.h`). The GPU wavefront path renders heterogeneous volumes too
+(`src/gpu/wavefront/stage_volume_hetero.cu`, pkg269, via a NanoVDB device grid
+and a `HasGridVolume` intersect/shadow axis) with at most 8 media and
+**constant emission only** — blackbody volume emission is CPU-only and is
+surfaced as a degradation (issue #828).
+
+---
+
 ## Material system: closure-graph Principled
 
 `include/astroray/material_closure.h` defines `MaterialClosureType` — lobes
@@ -267,6 +282,26 @@ controlled by `use_native_principled` (default `True`).
 `_principled_native_params()` maps every Blender Principled socket onto
 `plugins/materials/principled.cpp`'s param names; `_native_principled_gaps()`
 reports sockets the native path doesn't yet honour (pkg119-C).
+
+Since pkg274 (#830) the addon honours native `scene.cycles.device` when the
+Astroray device is `auto`, replaces a missing image/environment file with a
+magenta fallback and a DEGRADED entry in the degradation report, honours camera
+`clip_start`/`clip_end` on the CPU path (primary ray, view-axis depth), and
+punches an alpha hole for `object.is_holdout` (CPU path); indirect-only objects
+remain unsupported.
+
+Procedural textures (Noise, Checker, Wave, Gradient, Voronoi, Magic, …) are
+accepted as op-VM input leaves feeding Math / Mix / Color Ramp / Map Range
+chains on both backends (#821). The GPU bakes them (64×64 for UV coordinates,
+64³ for Generated/Object) and falls back to the flat base colour with a
+degradation warning when a program has more than one texture input (#826);
+coordinate-side non-affine math (Separate XYZ → Sin → Combine XYZ → texture) is
+still unsupported (#822).
+
+The off-main-thread viewport worker is opt-in (`ASTRORAY_VIEWPORT_WORKER=1`,
+#819): it presents a reduced preview while the camera is orbited and refines at
+full resolution. Material-only edits use an incremental material upload instead
+of a full scene re-sync (#831).
 
 **Build:** `python scripts/build/build_blender_addon.py [--install]`. This
 builds with OpenMP **ON** (`-DASTRORAY_DISABLE_OPENMP=OFF`, PR #790) and

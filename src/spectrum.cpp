@@ -46,7 +46,7 @@ inline float sampleTable(const float* table, float lambda) {
     return table[i] * (1.0f - t) + table[i + 1] * t;
 }
 
-// Integrated Y of D65 against the 1964 10° observer over the table grid.
+// Integrated Y of D65 against the 1931 2° observer over the table grid.
 // Used to normalize `sampleD65` so the resulting D65 XYZ has Y = 1.0.
 float computeD65Normalization() {
     double yInt = 0.0;
@@ -66,7 +66,7 @@ float d65NormFactor() {
 
 }  // namespace
 
-XYZ cieCmf1964_10deg(float lambda) {
+XYZ cieCmf1931_2deg(float lambda) {
     return XYZ{ sampleTable(baked::kCieCmfX, lambda),
                 sampleTable(baked::kCieCmfY, lambda),
                 sampleTable(baked::kCieCmfZ, lambda) };
@@ -304,7 +304,7 @@ XYZ SampledSpectrum::toXYZ(const SampledWavelengths& wl) const {
     for (int i = 0; i < kSpectrumSamples; ++i) {
         float pdf = wl.pdf(i);
         if (pdf == 0.0f) continue;
-        XYZ cmf = cieCmf1964_10deg(wl.lambda(i));
+        XYZ cmf = cieCmf1931_2deg(wl.lambda(i));
         float w = v_[i] / pdf;
         X += w * cmf.X;
         Y += w * cmf.Y;

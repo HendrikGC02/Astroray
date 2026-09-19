@@ -89,8 +89,8 @@ void uploadProfileTable(const float* host, int count) {
 }
 
 // ---------------------------------------------------------------------------
-// pkg54b: CIE 1964 10° CMF tables in constant memory — same data as the CPU
-// `cieCmf1964_10deg` lookup in src/spectrum.cpp, so visible-band CPU vs GPU
+// pkg54b: CIE 1931 2° CMF tables in constant memory — same data as the CPU
+// `cieCmf1931_2deg` lookup in src/spectrum.cpp, so visible-band CPU vs GPU
 // XYZ values match within float-precision instead of the ~5 % observer bias
 // the previous Wyman/Sloan/Shirley 2013 1931 2° fits introduced.
 //
@@ -313,7 +313,7 @@ __device__ float gpu_jhEvalSpectrum(const GVec3& rgb, float lambda) {
 
 // Mirror of astroray::sampleD65 in src/spectrum.cpp — linear lookup into
 // the D65 SPD scaled by the normalization factor so unit white emission
-// integrates to Y = 1 against the CIE 1964 10° observer.
+// integrates to Y = 1 against the CIE 1931 2° observer.
 __device__ float gpu_sampleD65(float lambda) {
     if (lambda < G_CMF_LAMBDA_MIN || lambda > G_CMF_LAMBDA_MAX) return 0.f;
     float idx = (lambda - G_CMF_LAMBDA_MIN) / G_CMF_LAMBDA_STEP;

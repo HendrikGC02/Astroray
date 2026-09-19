@@ -26,7 +26,7 @@ Vec3 approximateBlackbodyRGB(float temperatureK, float intensity) {
     constexpr float step = 5.0f;
     for (float lam = astroray::kLambdaMin; lam <= astroray::kLambdaMax; lam += step) {
         float spd = relativeBlackbody(lam, temperatureK) * intensity;
-        astroray::XYZ cmf = astroray::cieCmf1964_10deg(lam);
+        astroray::XYZ cmf = astroray::cieCmf1931_2deg(lam);
         X += double(spd * cmf.X * step);
         Y += double(spd * cmf.Y * step);
         Z += double(spd * cmf.Z * step);

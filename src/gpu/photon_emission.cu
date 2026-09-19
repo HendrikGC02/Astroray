@@ -18,7 +18,7 @@
 // Citations (CLAUDE.md §6; .astroray_plan/docs/pkg113-phase2-photon-emission-research.md):
 //   Arvo 1986 (forward light transport); Jensen 1996 (diffuse photon deposit);
 //   Schlick 1994 (Fresnel approx); Sellmeier 1871 (n(λ) — reused via
-//   gpu_dispersion.cuh); CIE 1964 10° CMF (data/spectra/cie_cmf.inc).
+//   gpu_dispersion.cuh); CIE 1931 2° CMF (data/spectra/cie_cmf.inc).
 
 #include "astroray/gpu_photon_emit.h"
 #include "astroray/gpu_photon_store.h"
@@ -46,7 +46,7 @@ namespace gpu {
 
 namespace {
 
-// --- CIE 1964 10° CMF table (same data the CPU cieCmf1964_10deg reads) -------
+// --- CIE 1931 2° CMF table (same data the CPU cieCmf1931_2deg reads) -------
 // Mirrors multiwavelength_kernel.cu:163-165; the .inc declares
 // `static constexpr float kCieCmfX[471] = {...}` plus the range constants. We
 // keep the table in a translation-unit-local namespace and copy it to constant

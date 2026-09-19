@@ -3,7 +3,7 @@
 // multiwavelength_kernel.cu; behaviour-preserving).
 //
 // The shared spectral-tables layer: the pkg54a/54b/54c constant-memory tables
-// (per-material reflectance profiles, CIE 1964 10° CMF + D65 SPD, Jakob-Hanika
+// (per-material reflectance profiles, CIE 1931 2° CMF + D65 SPD, Jakob-Hanika
 // sRGB sigmoid LUT) plus the device helpers that read them. This layer is
 // consumed cross-TU by cuda_renderer.cu, the wavefront driver
 // (gpu_wavefront_snapshot.cu / stage_advance.cu), and — until pkg55 Phase C
@@ -34,7 +34,7 @@
 #endif
 
 // ---------------------------------------------------------------------------
-// pkg54b: CIE 1964 10° CMF + D65 table geometry. Layout matches
+// pkg54b: CIE 1931 2° CMF + D65 table geometry. Layout matches
 // data/spectra/cie_cmf.inc: 1 nm step over [360, 830] nm.
 // ---------------------------------------------------------------------------
 static constexpr int   G_CMF_COUNT       = 471;
@@ -88,7 +88,7 @@ extern __device__ int              g_iesLightCount;
 // ---------------------------------------------------------------------------
 // Host-callable uploads / probe (defined in gpu_spectral_tables.cu).
 // ---------------------------------------------------------------------------
-// pkg54b — one-time copy of CIE 1964 10° CMF + D65 tables into constant memory.
+// pkg54b — one-time copy of CIE 1931 2° CMF + D65 tables into constant memory.
 void uploadCmfTables();
 // pkg54c — one-time copy of the Jakob-Hanika sRGB sigmoid LUT into device
 // global memory; required before any gpu_jhEvalSpectrum call.

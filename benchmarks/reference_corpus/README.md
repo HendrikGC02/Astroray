@@ -241,6 +241,7 @@ per `manifest.json` `crops` entry, and `refs/<scene_id>_crops_contact_sheet.png`
 | `geometry_zoo` | 960x220 | 96 | ~3s | ~22-23s |
 | `camera_lens` | 640x400 | 192 | ~9-10s | ~123-126s |
 | `render_settings` | 640x360 | 128 | ~4-7s | ~6s |
+| `volumes_smoke` | 640x360 | 128 | ~16s | ~9s |
 
 All stay far under the ~40 min/render budget the addon's CPU leg needs for
 `materials_hall`-scale scenes (#780) -- most Phase 2/3 scenes are simple
@@ -377,6 +378,17 @@ builder rewrites them on every build (sha256 in the manifest `assets`).
   the one `SOCKET_OVERRIDE` row) is a doc-only gap-registry entry, per the
   owner's 2026-09-08 decision (design doc Sec "Owner answers", Q7: "out of
   scope for the corpus").
+
+## `volumes` A/B cross-check band (pkg271)
+
+Per-crop linear mean, Astroray CPU / Cycles CPU, 640x360 @128 spp (2026-09-20,
+`480212796`). A cross-check band, not a gate: Astroray tracks sigma and Planck
+spectrally (pkg270), Cycles in RGB.
+
+| Setting | smoke R/G/B | fire R/G/B |
+|---|---|---|
+| authored `volume_bounces` = 2 | 0.982 / 0.996 / 0.976 | 0.986 / 0.994 / 0.974 |
+| Blender default `volume_bounces` = 0 | 0.983 / 0.996 / 0.977 | 0.985 / 0.995 / 0.977 |
 
 ## Known Phase-3 gaps and findings (deliberate scope cuts, and inspection notes)
 

@@ -1,5 +1,7 @@
 # #767 colour skew — observer mismatch (batch T, 2026-09-20)
 
+Status: fix in PR #837 (engine table CIE 1931 2°, build 887bdfb0). Follow-up: #848 (hero-λ re-fit).
+
 ## Verdict
 
 The engine integrated spectra with the **CIE 1964 10°** CMF but converted XYZ with

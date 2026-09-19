@@ -175,7 +175,7 @@ def test_axis_aligned_cube_volume_is_silent(monkeypatch, capsys):
     assert engine._degradation_report().is_empty()
 
 
-def test_more_than_eight_media_reports_gpu_cap(monkeypatch, capsys):
+def test_more_than_eight_media_reports_gpu_cap_on_gpu_only(monkeypatch, capsys):
     addon = load_addon(monkeypatch, "i828cap")
     monkeypatch.setattr(vol, "mesh_world_aabb", _aabb)
     monkeypatch.setitem(sys.modules, "volume_export", vol)
@@ -184,10 +184,15 @@ def test_more_than_eight_media_reports_gpu_cap(monkeypatch, capsys):
     r = _Renderer()
     for k in range(vol.GPU_MAX_VOLUME_MEDIA):
         engine._try_export_volume(_Obj("C%d" % k, _cube(0.5)), _Inst(IDENT), r)
-    assert "GPU renders only" not in capsys.readouterr().out
+    engine._report_gpu_volume_cap("gpu")
+    assert "GPU renders only" not in capsys.readouterr().out      # exactly 8: fine
     engine._try_export_volume(_Obj("C9", _cube(0.5)), _Inst(IDENT), r)
-    out = capsys.readouterr().out
     assert len(r.media) == vol.GPU_MAX_VOLUME_MEDIA + 1
-    assert "more than 8 volume media: the GPU renders only the first 8" in out, out
+    engine._report_gpu_volume_cap("cpu")                           # CPU honours all 9
+    assert "GPU renders only" not in capsys.readouterr().out
+    assert not engine._degradation_report().ignored
+    engine._report_gpu_volume_cap("gpu")
+    out = capsys.readouterr().out
+    assert "9 volume media: the GPU renders only the first 8" in out, out
     ign = [f for f, _ in engine._degradation_report().ignored]
     assert "Volume media beyond 8" in ign, ign

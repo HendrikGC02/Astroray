@@ -180,7 +180,7 @@ def test_volume_bounces_changes_world_fog_image(backend):
     assert m0 > 0.0 and m0 < 0.97 * m4, (m0, m4)
 
 
-def _fire_core_scene(backend, w=24, h=24, n=32):
+def _fire_core_scene(backend, w=24, h=24, n=32, density_scale=1.0):
     """ONE grid medium: a density-free hot core (x < -0.4, temperature only) and
     a scattering smoke block (x > 0.2, density only). The camera looks straight
     down -z at the smoke block; no camera ray crosses the core, so every pixel
@@ -192,7 +192,7 @@ def _fire_core_scene(backend, w=24, h=24, n=32):
     temp = np.where(xw < -0.4, 1.0, 0.0).astype(np.float32)
     i2o, o2w = _grid_xform(n, 4.0)
     r.set_volume_grid("firecore", np.ascontiguousarray(dens), [0, 0, 0], i2o, o2w,
-                      density_scale=3.0, color=[0.9, 0.9, 0.9],
+                      density_scale=density_scale, color=[0.9, 0.9, 0.9],
                       absorption_color=[1.0, 1.0, 1.0], anisotropy=0.0,
                       temperature=np.ascontiguousarray(temp),
                       blackbody_intensity=1.0, blackbody_temperature=1500.0)
@@ -226,8 +226,9 @@ def test_gpu_cpu_parity_volume_bounces_zero():
     print(f"\n[pkg271 parity vb=0] CPU={cpu.round(5)} GPU={gpu.round(5)} GPU/CPU={ratio.round(4)}")
     for c in range(3):
         assert 0.95 <= ratio[c] <= 1.05, (c, ratio, cpu, gpu)
-    fc = _mean3(_render(_fire_core_scene("cpu"), 1024, 16, 24, 24, volume_bounces=0))
-    fg = _mean3(_render(_fire_core_scene("gpu"), 1024, 16, 24, 24, volume_bounces=0))
+    # 2048 spp: CPU seed-to-seed spread of this mean is ~1 % (5 seeds, 1024 spp: 1.5 %).
+    fc = _mean3(_render(_fire_core_scene("cpu"), 2048, 16, 24, 24, volume_bounces=0))
+    fg = _mean3(_render(_fire_core_scene("gpu"), 2048, 16, 24, 24, volume_bounces=0))
     fr = fg / np.maximum(fc, 1e-9)
     print(f"[pkg271 parity fire-lit vb=0] CPU={fc.round(5)} GPU={fg.round(5)} GPU/CPU={fr.round(4)}")
     lit = [c for c in range(3) if fc[c] > 1e-3]    # 1500 K has ~no blue

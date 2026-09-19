@@ -3986,16 +3986,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 'flattened (unsupported)')
             return None
         input_kind = kinds.pop()
-        # #818 critic item 1: the GPU op-VM path samples exactly ONE input texture
-        # (scene_upload.cu requires pt->numInputs() == 1); a program with >1 texture
-        # input (e.g. Noise -> Mix <- Checker, or two images into one Mix) renders
-        # correctly on the CPU but falls back to the flat base colour on the GPU.
-        # Record the visible degradation so it is never silent (real multi-input
-        # GPU support is tracked separately). CPU stays exact.
-        if len(inputs) > 1:
+        # #826: GPU base-colour programs sample up to VM_MAX_TEX (2) inputs; more
+        # never reach here (compile_chain raises -> flattened + warned above). The
+        # GPU scalar-parameter path (Roughness/Metallic/IOR/Transmission,
+        # scene_upload.cu uploadProgramTexture) still samples ONE input, so a
+        # multi-input scalar program keeps its visible degradation. CPU is exact.
+        if len(inputs) > 1 and input_name in ('Roughness', 'Metallic', 'IOR',
+                                              'Transmission'):
             self._warn_shader_fallback(
-                'op-VM', 'multi-input shader program (%d texture inputs): '
-                'GPU renders base colour; CPU exact' % len(inputs))
+                'op-VM', 'multi-input shader program (%d texture inputs) on %s: '
+                'GPU uses the constant value; CPU exact' % (len(inputs), input_name))
         # Procedural inputs default to GENERATED coords (Blender standard for an
         # unconnected Vector) and reject affine coordinate chains, exactly like
         # the direct-to-BSDF procedural path (load_procedural_texture); image
@@ -4039,9 +4039,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     return None
                 child_names.append(cn)
         else:
-            # scene_upload.cu deduplicates child ImageTexture pointers and attaches
-            # the first parent's mapping. Isolate identity child samplers by parent
-            # coordinates; CPU children must never apply that mapping a second time.
+            # Isolate identity child samplers by parent coordinates; CPU children
+            # must never apply that mapping a second time. (scene_upload.cu keys a
+            # child's GPU descriptor on (image, parent Mapping) since #825.)
             identity = {'matrix': np.identity(4), 'coord_mode': 'UV', 'uv_layer': ''}
             for in_node in inputs:
                 cn = self._load_blender_image_resolved(

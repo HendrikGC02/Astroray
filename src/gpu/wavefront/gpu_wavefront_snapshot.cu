@@ -1049,6 +1049,7 @@ struct WfContext {
     WfDeviceBuf materialNormalTexId, materialNormalStrength;  // pkg223 normal maps
     WfDeviceBuf materialBumpTexId, materialBumpStrength, materialBumpDistance;  // pkg223b bump
     WfDeviceBuf programs, materialProgramId;   // pkg219b op-VM programs
+    WfDeviceBuf materialProgInputTexId;        // #826 op-VM input texIds [mat*VM_MAX_TEX+t]
     WfDeviceBuf materialScalarProgId, materialScalarTexId;  // pkg219d scalar-param programs
     WfDeviceBuf tlas, instances, blas;        // pkg55-C4 / pkg114
     WfDeviceBuf motionVertices;               // pkg55-C4 / pkg88-C.0
@@ -1519,9 +1520,13 @@ std::vector<float> cuda_wavefront_render(
     // uploaded above (res.hasTexture is set for a scalar-program material).
     int* d_matScalarProgId = wfSync(reuse, C.materialScalarProgId, res.materialScalarProgId);
     int* d_matScalarTexId  = wfSync(reuse, C.materialScalarTexId,  res.materialScalarTexId);
+    // #826 — per-material program input texIds (inputs t >= 1 of a multi-input
+    // program ride here; t = 0 is d_matTexId).
+    int* d_matProgInTexId = wfSync(reuse, C.materialProgInputTexId, res.materialProgInputTexId);
     if (res.hasProgram)
         setWavefrontProgramBinding(GWavefrontProgramBinding{
-            d_programs, d_matProgId, d_matScalarProgId, d_matScalarTexId});
+            d_programs, d_matProgId, d_matScalarProgId, d_matScalarTexId,
+            d_matProgInTexId});
     // pkg199 Stage 1 — publish the homogeneous world-volume medium every frame
     // (c_worldVolume is __constant__ and persists across calls, so set it
     // unconditionally — vacuum scenes publish hasVolume==0, which the intersect /

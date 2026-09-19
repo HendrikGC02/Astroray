@@ -10,7 +10,8 @@ scene with the Astroray CPU engine and compare, per channel:
   * azimuth lobe:   30-deg sectors of the Cycles light-local h angle inside the
                     core (an asymmetric profile with no mirror axis, so a frame
                     rotation or mirror fails loudly; a radial mean cannot).
-Band [0.95, 1.05] above the noise floor (reference >= 5 % of the peak bin).
+Band [0.95, 1.05] above the noise floor (reference >= 5 % of the peak bin,
+>= 100 pixels per bin).
 
 Camera note: the Astroray raster->NDC divisor is (res - 1) on both backends
 (raytracer.h render loop, stage_init.cu; deferred in the pkg212 spec), so the
@@ -63,7 +64,7 @@ PROFILES = {
 }
 
 
-def render_astroray(astroray, sc, ies_path, spp=32, use_gpu=False, seed=7):
+def render_astroray(astroray, sc, ies_path, spp=64, use_gpu=False, seed=7):
     """Render ref.SpotScene with the engine directly (addon-equivalent inputs:
     Cycles cone mapping, light matrix_world columns as light_frame)."""
     r = astroray.Renderer()
@@ -99,8 +100,11 @@ def profile_tables(img, sc, table):
     div = sc.res - 1
     refimg = ref.radiance(sc, table, sub=6, divisor=div)
     theta, h = ref.pixel_geometry(sc, divisor=div)
+    # >= 100 px per bin: the innermost 1-deg annuli hold ~44 px, where the B
+    # channel's per-bin MC noise alone reaches ~5 % at 32 spp (measured 0.947 /
+    # 1.004 on two seeds for the same bin).
     radial = ref.binned_ratio(img, refimg, theta, np.arange(0.0, 31.0, 1.0),
-                              min_ref_frac=NOISE_FLOOR)
+                              min_ref_frac=NOISE_FLOOR, min_pixels=100)
     core = (theta > 4.0) & (theta < 24.0)
     azim = ref.binned_ratio(np.where(core[..., None], img, 0.0), np.where(core, refimg, 0.0),
                             np.where(core, h, -1.0), np.arange(0.0, 361.0, 30.0),

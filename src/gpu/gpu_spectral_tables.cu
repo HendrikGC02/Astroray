@@ -91,8 +91,8 @@ void uploadProfileTable(const float* host, int count) {
 // ---------------------------------------------------------------------------
 // pkg54b: CIE 1931 2° CMF tables in constant memory — same data as the CPU
 // `cieCmf1931_2deg` lookup in src/spectrum.cpp, so visible-band CPU vs GPU
-// XYZ values match within float-precision instead of the ~5 % observer bias
-// the previous Wyman/Sloan/Shirley 2013 1931 2° fits introduced.
+// XYZ values match within float-precision (pkg54b replaced the Wyman/Sloan/
+// Shirley 2013 analytic fits; #767 moved the shared table to CIE 1931 2°).
 //
 // Tables are 471 samples × 3 channels × 4 bytes = 5.6 KB (well under the
 // 64 KB constant-memory budget). Layout matches data/spectra/cie_cmf.inc:

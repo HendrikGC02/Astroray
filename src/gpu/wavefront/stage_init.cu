@@ -150,7 +150,8 @@ __device__ inline GSampledWavelengths sampleUniformWavelength(float u,
 // IMPORTANCE sampling. BYTE-MIRROR of astroray::SampledWavelengths::
 // sampleImportance() (src/spectrum.cpp) — the constants and pdf formula MUST
 // match bit-for-bit. Draws the hero + stratified companions from a logistic CDF
-// fitted to Astroray's (CIE-1964 10deg y_bar + 0.25)*D65 luminance target, and
+// fitted to a (CIE-1964 10deg y_bar + 0.25)*D65 luminance target (pre-#767 table;
+// still unbiased with the CIE 1931 2deg table, re-fit is variance-only: #848), and
 // sets each lane's pdf to the logistic density at its OWN lambda (1/nm) so the
 // MC estimator stays UNBIASED.
 //

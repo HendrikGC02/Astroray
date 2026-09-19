@@ -104,7 +104,8 @@ SampledWavelengths SampledWavelengths::sampleUniform(float u,
 //
 // Draws the hero wavelength (and its stratified companions) from a logistic
 // (sigmoid) CDF fitted to Astroray's luminance-weighted D65 target,
-// (y_bar + 0.25)*D65 against the CIE-1964 10-degree observer, instead of
+// (y_bar + 0.25)*D65 against the CIE-1964 10-degree observer (the pre-#767
+// table; the engine now uses CIE 1931 2deg, re-fit is variance-only: #848), instead of
 // uniformly. Wavelengths the eye sees strongly are sampled more often, cutting
 // chromatic noise on dispersive-caustic paths; each lane's pdf is the logistic
 // density at its OWN wavelength (1/nm) so the MC estimator (toXYZ divides by

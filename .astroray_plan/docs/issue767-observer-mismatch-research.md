@@ -4,8 +4,11 @@
 
 The engine integrated spectra with the **CIE 1964 10°** CMF but converted XYZ with
 the **CIE 1931 2°** sRGB matrix, and the Jakob–Hanika LUT is also fit against 1931 2°.
-The mismatch owns essentially all of #767 and the #795 chrome green skew.
-Albedo upsampling and illuminant upsampling are ≤0.4 % terms once the observer matches.
+The mismatch owns the grey and low-chroma skew: the #767 ground, white B −1.7 %, and
+the #795 chrome G +8 %. Albedo upsampling and illuminant upsampling are ≤0.4 % terms
+once the observer matches. Saturated albedo under a coloured sky keeps a residual of
+up to ~9 %. That residual is the physical spectral product (Cycles multiplies in
+RGB), not a bug.
 Fix: bake the 1931 2° table (`data/spectra/cie_cmf.inc`), rename
 `cieCmf1964_10deg` → `cieCmf1931_2deg`. CPU and GPU read the same table.
 
@@ -19,7 +22,9 @@ Fix: bake the 1931 2° table (`data/spectra/cie_cmf.inc`), rename
 - **JH LUT fitting observer.** Jakob & Hanika 2019, "A Low-Dimensional Function
   Space for Efficient Spectral Upsampling" (DOI 10.1111/cgf.13626). Reference optimiser
   `mitsuba-renderer/rgb2spec` `rgb2spec_opt.cpp` includes `details/cie1931.h`
-  ("CIE 1931 curves", 360–830 nm at 5 nm, `cie_x[0]=0.0001299`). Empirical check: with
+  ("CIE 1931 curves", 360–830 nm at 5 nm, `cie_x[0]=0.0001299`;
+  https://github.com/mitsuba-renderer/rgb2spec, not vendored; the `.coeff` comes via
+  simple-spectral). Empirical check: with
   the 2° CMF the vendored LUT round-trips a 7³ RGB grid in [0.05, 0.95] under D65 to
   max |err| 9.9e-4. With the 10° CMF the max |err| is 0.117.
 - **Cycles cross-check.** Cycles is RGB. A white world returns exactly (1, 1, 1) and a
@@ -81,10 +86,50 @@ matches the 10° model to ≤1.3 %; the remainder is sun MC noise.
 - D65 white XYZ becomes (0.95047, 1, 1.08883), the CIE nominal (was 0.9481, 1, 1.0731).
 - Blackbody luminance normalisation and D65 Y = 1 re-derive from the table automatically.
 - The pkg206 hero-λ proposal was fitted to the 10° ȳ. It stays unbiased (pdf = own
-  density). A re-fit would only change variance. Not done.
+  density). A 2° re-fit (kHeroA +0.8 %, kHeroX0 552.0 → 555.7 nm) only changes
+  variance and needs a CPU+GPU lockstep constant edit. Deferred to #848; the
+  comments now say so.
+- Mercury line lamp (pkg222): xy (0.334, 0.368) under 10° → (0.317, 0.396) under 2°.
+  Real-lamp targets are quoted in CIE 1931 xy, so pkg222's "Δxy≈0.01" claim needs a
+  re-check under pkg218.
 - `include/astroray/spectral.h` already carried a 1931 2° 5 nm table (legacy
   `SpectralSample`, ReSTIR luminance). The pkg218 thread-B "1931/1964 split" is gone.
 
-## After-fix measurement
+## After-fix measurement (build 887bdfb0, same addon renders)
 
-(filled after the build; see PR.)
+The fix `.pyd` was overlaid on a scratch copy of the 916907b staged addon; the
+branch changes no addon `.py`. Sheet (Cycles | main | fix | ratio maps):
+`test_results/batchT/issue767_tiles_before_after.png`.
+
+| tile | white world, fix | HDRI, fix (mean ratio) | HDRI, main |
+|---|---|---|---|
+| grey 0.18 | 0.997 / 0.997 / 0.997 | 0.997 / 0.997 / 0.995 | 1.006 / 0.980 / 0.969 |
+| #767 ground | 0.999 / 0.999 / 0.999 | 0.994 / 0.988 / 0.993 | 1.015 / 0.965 / 0.961 |
+| green | 0.998 / 1.000 / 1.000 | 1.075 / 0.977 / 0.992 | 1.276 / 0.941 / 0.918 |
+| blue | 0.998 / 0.997 / 1.000 | 0.915 / 1.086 / 1.001 | 0.659 / 1.427 / 1.007 |
+| chrome | 1.000 / 1.001 / 1.000 | 1.006 / 1.001 / 1.000 | 0.950 / 1.080 / 1.005 |
+| world seen directly | 1.000 / 1.000 / 0.999 | 0.990 / 0.986 / 1.000 | 0.976 / 0.946 / 0.965 |
+
+- The #767 ground's G/B spread under the HDRI drops from 5.4 pp to 0.6 pp. Chrome G
+  +8 % → +0.1 %.
+- The green and blue HDRI rows match the 2° model's spectral-product prediction
+  (1.09 / 0.99 / 1.005 and 0.93 / 1.10 / 1.01) to ≤1.5 %.
+- HDRI per-pixel medians sit low (sun noise, skewed per-pixel distribution). The
+  diffuse tiles therefore use the ROI mean.
+
+In-process (CPU, `path_tracer`, lambertian sphere under white world, 1024 spp):
+sphere/albedo within 0.4 % for grey, #767 ground and blue (main: blue 0.633 / 1.447 / 1.011).
+
+**Blackbody colour against an independent oracle.** Oracle: colour-science
+`sd_blackbody` → 1931 XYZ → sRGB. Dedicated area light on a white plane, black world:
+
+| T | oracle | fix | main |
+|---|---|---|---|
+| 6500 K | 1 / 0.943 / 0.992 | 1 / 0.944 / 0.991 | 1 / 0.946 / 0.983 |
+| 3000 K | 1 / 0.477 / 0.154 | 1 / 0.477 / 0.154 | 1 / 0.459 / 0.148 |
+
+`test_pkg89_phase_b_dedicated_lights::test_g2` failed after the fix (12.16 % vs its
+12 % gate). A probe showed it never measured the light. The emitter faced away from
+the plane, so with a black world the plane rendered 0 for 6500 K, 3000 K and RGB white.
+The gamma-encoded default sky was the entire signal. The test was rewritten to measure
+the light against the oracle above.

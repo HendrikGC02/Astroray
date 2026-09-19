@@ -94,7 +94,7 @@ def test_tint_emission_dict_modes(engine):
 def test_convert_lights_applies_fold_to_spot(engine):
     """End to end through convert_lights: energy x 180, tinted RGB emission."""
     import numpy as np
-    addon, eng = engine
+    _addon, eng = engine
     tree = _studio_tree()
     tree.nodes[0].ies = types.SimpleNamespace(name="studio", as_string=lambda: (
         "IESNA:LM-63-2002\nTILT=NONE\n1 -1 1.0 3 1 1 2 0 0 0\n1 1 1\n0 90 180\n0\n1 1 1\n"))

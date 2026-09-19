@@ -122,3 +122,39 @@ and the only unbiased weight when the other strategy cannot reach the lamp);
 point/spot; 0 disk, 1 sphere). Sampling-strategy differences only (same
 expectation): uniform sphere inside a sphere lamp (Cycles' transmissive
 branch), no spread-cone switch for sphere spots.
+
+## #841 — light shader folded into the lamp (added 2026-09-20)
+Cycles multiplies the light shader emission (Emission Color x Strength) into
+`klight->strength` (`kernel/light/sample.h`). The addon now folds a constant
+Emission Color and the Strength chain (TexIES Strength, Math x/÷ constant,
+Value) and reports anything else (`_resolve_light_shader`).
+lighting_studio (640x160, 256 spp, CPU, addon path via
+`benchmarks/blender_parity/render_leg.py --load-blend`), Astroray/Cycles
+per-pixel-median ratio, R G B:
+| ROI | main | Batch P |
+|---|---|---|
+| SPOT floor pool | 0.019 0.020 0.024 | 1.097 1.087 1.041 |
+| SPOT backdrop | 0.587 0.608 0.670 | 0.890 0.882 0.862 |
+| POINT backdrop (r 0.35, #840) | 0.672 0.671 0.760 | 0.961 0.927 0.956 |
+| SUN backdrop | 1.016 0.994 0.980 | 0.980 0.974 0.977 |
+| AREA backdrop | 0.169 0.169 0.163 | 0.170 0.170 0.163 |
+Pool-wide smoothed ratio median 0.87 (p10 0.39 / p90 1.45: pole/cube shadow
+edges shifted by the camera's `(res-1)` divisor). AREA 0.17 is untouched here
+(separate area-light residual, filed as #852).
+
+## GPU leg (A') — measured on a80d219b vs the 627bfe67 build (2026-09-20)
+- Controlled IES spot, 128 spp, per 2-deg annulus / 30-deg sector vs reference:
+  CPU 1.001..1.003, GPU 1.000..1.003 (main: CPU azimuth 0.28..2.98, GPU a plain
+  cone 0.22..2.08). Sheets: `test_results/batchP/ies_spot_{main,after}_sheet.png`.
+- Gates: `test_pkg276_gpu_ies_parity.py` + pkg89 wavefront/GPU dedicated suites
+  21/21; CPU pkg276 21/21, #840 15/15.
+- `cuobjdump -res-usage`: all 128 `stageShadeBucketedKernel` REG 254; STACK
+  unchanged on 124, +64 B on 4 (`<false,true,true,*,*,true,false>`: textures +
+  photons + op-VM program, no Principled). Volume-scatter kernels (medium NEE)
+  REG 68 -> 102, STACK 88 -> 120 (the noinline callee's registers).
+- SASS: every kernel that does not sample NEE is identical modulo a +4 B
+  constant-bank-3 relocation (the new `c_iesEnabled` symbol); genuinely changed:
+  `shadePathSlot` x128, the two volume-scatter kernels.
+- Perf (15 burn-in, min of 10, 2887 MHz, B1 -> B2 -> B1): contact sheet 1.2611 /
+  1.2610 / 1.2608 s; contact sheet + world fog 0.9847 / 0.9867 / 0.9839 s
+  (+0.2 %); radius-0 spot 0.8093 / 0.8057 / 0.8097 s.

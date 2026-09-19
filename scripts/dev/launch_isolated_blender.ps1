@@ -17,6 +17,16 @@ if ($StagedAddon -ne '') {
     if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
     New-Item -ItemType Directory -Force (Join-Path $extRoot 'user_default') | Out-Null
     Copy-Item -Recurse -Force $StagedAddon $dest
+    # The MCP bridge extension lives only in the user profile; with BLENDER_USER_EXTENSIONS
+    # redirected it would be invisible and the 9877 bridge would never bind (Batch M, 2026-09-19).
+    $profileExt = Get-ChildItem (Join-Path $env:APPDATA 'Blender Foundation/Blender') -Directory -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName 'extensions/user_default/mcp' } |
+        Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($profileExt) {
+        $mcpDest = Join-Path $extRoot 'user_default/mcp'
+        if (Test-Path $mcpDest) { Remove-Item -Recurse -Force $mcpDest }
+        Copy-Item -Recurse -Force $profileExt $mcpDest
+    } else { Write-Warning 'mcp extension not found in the user profile; the isolated bridge will not bind' }
     $env:BLENDER_USER_EXTENSIONS = $extRoot
     Write-Host "isolated extensions root: $extRoot (addon from $StagedAddon)"
 } else { Remove-Item Env:BLENDER_USER_EXTENSIONS -ErrorAction SilentlyContinue }

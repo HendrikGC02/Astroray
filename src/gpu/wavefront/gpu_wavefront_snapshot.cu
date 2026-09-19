@@ -1134,6 +1134,10 @@ void cuda_wavefront_invalidate_scene() {
     wfCtx().sceneInvalidated = true;
 }
 
+// #828: grid buffers uploaded by the last cuda_wavefront_render (see header).
+static int s_lastGridUploads = 0;
+int cuda_wavefront_last_grid_uploads() { return s_lastGridUploads; }
+
 // pkg55-C2 MIS audit: run stage_init + the PRODUCTION intersect+shade (deferred
 // NEE parking) for one bounce and download the shade-time MIS pdfs the wavefront
 // used. Row format (3 floats per path):
@@ -1566,6 +1570,7 @@ std::vector<float> cuda_wavefront_render(
         if (C.gridBufs.size() < media.size()) C.gridBufs.resize(media.size());
         if (C.gridTempBufs.size() < media.size()) C.gridTempBufs.resize(media.size());
         bool anyBlackbody = false;
+        s_lastGridUploads = 0;
         for (size_t k = 0; k < media.size() && gb.count < G_WF_MAX_GRID_MEDIA; ++k) {
             const auto& m = media[k];
             GGridMedium& g = gb.media[gb.count];
@@ -1583,6 +1588,7 @@ std::vector<float> cuda_wavefront_render(
                     d = wfEnsure<char>(C.gridBufs[k], bytes);
                     cudaError_t e = cudaMemcpy(d, m.grid->nanoData(), bytes, cudaMemcpyHostToDevice);
                     if (e != cudaSuccess) throw std::runtime_error(cudaGetErrorString(e));
+                    ++s_lastGridUploads;
                 }
                 g.grid = d;
                 g.heterogeneous = 1;
@@ -1600,6 +1606,7 @@ std::vector<float> cuda_wavefront_render(
                                                    tg->data.size() * sizeof(float),
                                                    cudaMemcpyHostToDevice);
                         if (e != cudaSuccess) throw std::runtime_error(cudaGetErrorString(e));
+                        ++s_lastGridUploads;
                     }
                     g.tempGrid = td;
                     for (int a = 0; a < 3; ++a) {

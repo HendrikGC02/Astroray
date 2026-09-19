@@ -124,38 +124,10 @@ __device__ inline float gridTemperatureAt(const GGridMedium& m, const GVec3& p)
     return m.tempGrid[((size_t)z * m.tempDim[1] + y) * m.tempDim[0] + x];
 }
 
-// #828 — ln of the pkg122 photopic integral at T, linear in ln T over the
-// g_bbLogLum LUT (linear extrapolation above 1e6 K). T >= G_BB_LUT_TMIN.
-__device__ inline float gpu_bbLogLuminance(float T)
-{
-    float u = (logf(T) - G_BB_LUT_LNTMIN) * G_BB_LUT_INVH;
-    int i = (int)u;
-    if (i < 0) i = 0;
-    if (i > G_BB_LUT_N - 2) i = G_BB_LUT_N - 2;
-    float f = u - (float)i;
-    return g_bbLogLum[i] + f * (g_bbLogLum[i + 1] - g_bbLogLum[i]);
-}
-
-// #828 — luminance-normalised Planck per nm (device twin of
-// astroray::volume::normalizedPlanck), evaluated in LOG space so no temperature
-// underflows in float: ln(B·1e9) = ln(2hc²·1e9) − 5 ln λ − ln(expm1(hc/λkT)).
-// Constants: h, c, k of include/astroray/gr_types.h. 0 below the LUT's 30 K and
-// where planck() returns 0 (hc/λkT > 700).
-__device__ inline float gpu_normalizedPlanck(float lambdaNm, float T)
-{
-    if (!(T >= G_BB_LUT_TMIN)) return 0.f;
-    const float kLn2hc2e9 = -15.9432662803f;       // ln(2·h·c²·1e9)
-    const float kC2       = 1.438776877504e-2f;    // h·c/k  [m·K]
-    float lam = lambdaNm * 1e-9f;
-    float x = kC2 / (lam * T);
-    if (x > 700.f) return 0.f;
-    float lnExpm1 = (x > 20.f) ? x : logf(expm1f(x));
-    return expf(kLn2hc2e9 - 5.f * logf(lam) - lnExpm1 - gpu_bbLogLuminance(T));
-}
-
 // #828 — blackbody emission per unit length at temperature T (device twin of
 // VolumeEmission::evalBlackbody): Cycles σ_SB·1e-6/π·mix(1,T⁴,I) × tint(λ) ×
-// normalised Planck(λ,T).
+// normalised Planck(λ,T) — the SAME bbNormalizedPlanck formula and table the
+// CPU uses (include/astroray/volume/blackbody_lut.h).
 __device__ inline GSampledSpectrum gridBlackbody(const GGridMedium& m, float T,
                                                  const GSampledWavelengths& wl)
 {
@@ -169,7 +141,8 @@ __device__ inline GSampledSpectrum gridBlackbody(const GGridMedium& m, float T,
         tint = gpu_rgbToSampledSpectrum(GVec3(m.bbTintR, m.bbTintG, m.bbTintB), wl,
                                         GSPEC_RGB_ALBEDO);
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
-        s.v[i] = gpu_normalizedPlanck(wl.lambda[i], T) * intensity * tint.v[i];
+        s.v[i] = astroray::volume::bbNormalizedPlanck(wl.lambda[i], T, g_bbLogLum)
+                 * intensity * tint.v[i];
     return s;
 }
 

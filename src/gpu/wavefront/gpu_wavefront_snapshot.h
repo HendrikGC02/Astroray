@@ -235,6 +235,12 @@ std::vector<float> cuda_wavefront_render(
 // TLAS refit, upload_scene) so a following render(skip_upload=True) re-uploads.
 void cuda_wavefront_invalidate_scene();
 
+// #828: number of bounded-media grid buffers (NanoVDB density + dense
+// temperature) copied host->device by the most recent cuda_wavefront_render;
+// 0 when the device grid cache served the render. Surfaced as
+// last_render_info()["grid_uploads"] (tests/test_issue828_grid_cache.py).
+int cuda_wavefront_last_grid_uploads();
+
 // pkg55-C6b / pkg24: GPU ReSTIR-DI wavefront render. Direct-illumination
 // driver with double-buffered per-pixel reservoirs persisted across frames
 // (render calls) for temporal reuse. Returns the linear-sRGB image

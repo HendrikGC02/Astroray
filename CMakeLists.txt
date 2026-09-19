@@ -444,8 +444,11 @@ add_library(astroray_core_impl STATIC
 # included ONLY by src/volume/grid_medium.cpp. Scope the include path to that TU
 # so NanoVDB.h never leaks into other translation units (and never into the
 # widely-included raytracer.h, which sees only the opaque GridMedium PIMPL).
+# GCC 14+ emits -Wtemplate-body on a never-instantiated NanoVDB GridBuilder.h
+# template; MinGW GCC 15.2 errors on it. Demote it for this TU only (#827).
 set_source_files_properties(src/volume/grid_medium.cpp PROPERTIES
-    INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/external/nanovdb")
+    INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/external/nanovdb"
+    COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:GNU>:-Wno-template-body>")
 # pkg269 — the GPU heterogeneous-volume stage is the only CUDA TU that reads the
 # NanoVDB device grid; scope the include path to it the same way.
 set_source_files_properties(src/gpu/wavefront/stage_volume_hetero.cu PROPERTIES

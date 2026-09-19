@@ -144,9 +144,16 @@ the environment-map reflection LOOKUP":
 
 ### #755 (CPU/GPU env-only render gap)
 Rungs 5/6 prove the GPU and CPU env lookup and spectral upsample are identical
-to ~1e-6, so the render-level R 1.025 / G 1.040 / B 0.978 gap is a downstream
-integrator difference (wavefront MIS / RR / accumulation), not the lookup —
-outside pkg275's authorised surface and owned by pkg258.
+to ~1e-6. Rung 8 (CPU vs GPU chrome sphere under the same colour HDRI, 4096 spp,
+adaptive OFF, linear ROI) confirms the two backends AGREE at render level:
+  r=0.00 GPU/CPU = [1.0000, 0.9999, 1.0004]
+  r=0.05 GPU/CPU = [1.0003, 0.9998, 1.0010]
+So the previously-reported R 1.025 / G 1.040 / B 0.978 gap does NOT reproduce on
+a clean chrome scene with adaptive sampling disabled and a shared exposure — it
+was an artefact of the pkg237 env-only parity scene's stopping metric / firefly
+exposure (see tests/test_world_hdri_parity.py::test_gpu_cpu_mean_ratio_hdri
+docstring), not the env lookup. Any residual downstream gap is a wavefront
+integrator difference owned by pkg258, not pkg275's lookup.
 
 ### Recommended pkg275 action
 The one in-scope, evidence-backed change is the **half-texel offset** to match

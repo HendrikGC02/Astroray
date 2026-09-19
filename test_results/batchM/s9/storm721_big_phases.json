@@ -1,0 +1,25 @@
+{
+  "scene": "big",
+  "phases": {
+    "sync_viewport_scene": [
+      50,
+      5574.639799888246
+    ],
+    "_classify_depsgraph_domains": [
+      48,
+      4.1964999691117555
+    ],
+    "apply_depsgraph_updates": [
+      3,
+      0.20140002015978098
+    ],
+    "_record_deferred_dirty": [
+      45,
+      4.131799913011491
+    ],
+    "_replay_deferred_dirty": [
+      45,
+      0.06990021211095154
+    ]
+  }
+}

@@ -2,9 +2,11 @@
 
 Status: measured (PR #837). Owner of the gap: CPU light tree, follow-up #851.
 
-## Verdict (CPU)
+## Verdict
 
-The **CPU light tree** owns the gap. Turning it off (the power sampler) cuts the
+The **CPU light tree** owns the gap. The GPU never uses the tree here (it falls
+back to the power CDF when dedicated lights are present), so the GPU already sits
+at the CPU tree-off level. Turning it off (the power sampler) cuts the
 Astroray/Cycles variance ratio **8–14×** on the lit ROIs: wall 83 → 7.7, floor
 200 → 14, D 145 → 10. Removing the practical bulb changes nothing (wall 83 →
 122, within two-seed noise). Owner: pkg86 CPU light tree, which pkg262 made the

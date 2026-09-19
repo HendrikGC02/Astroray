@@ -1,0 +1,191 @@
+{
+ "setup": {
+  "region": [
+   2100,
+   1221
+  ],
+  "emission_color_default": [
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "engine": "CUSTOM_RAYTRACER",
+  "device": "cpu"
+ },
+ "worker": true,
+ "00_base": {
+  "region": [
+   2100,
+   1221
+  ],
+  "n_present": 2,
+  "spp": 0,
+  "sync": 1,
+  "dispatch": {},
+  "replay": {},
+  "worker_idle": true,
+  "worker_gen": [
+   1,
+   1,
+   2
+  ],
+  "wh": [
+   2100,
+   1221
+  ],
+  "sphere": [
+   0.3033,
+   0.2844,
+   0.2771,
+   1050,
+   572
+  ],
+  "ground_near": [
+   0.2331,
+   0.2387,
+   0.235,
+   1382,
+   864
+  ],
+  "ground_far": [
+   0.2222,
+   0.2183,
+   0.262,
+   1687,
+   659
+  ]
+ },
+ "01_move_sphere_x": {
+  "region": [
+   2100,
+   1221
+  ],
+  "n_present": 5,
+  "spp": 0,
+  "sync": 1,
+  "dispatch": {
+   "dispatched": 1
+  },
+  "replay": {},
+  "worker_idle": true,
+  "worker_gen": [
+   3,
+   3,
+   5
+  ],
+  "wh": [
+   2100,
+   1221
+  ],
+  "sphere": [
+   0.3074,
+   0.3131,
+   0.2825,
+   1050,
+   572
+  ],
+  "ground_near": [
+   0.2428,
+   0.2374,
+   0.2654,
+   1382,
+   864
+  ],
+  "ground_far": [
+   0.2163,
+   0.2273,
+   0.2073,
+   1687,
+   659
+  ]
+ },
+ "02_light_energy_x4": {
+  "region": [
+   2100,
+   1221
+  ],
+  "n_present": 8,
+  "spp": 0,
+  "sync": 1,
+  "dispatch": {
+   "dispatched": 2
+  },
+  "replay": {},
+  "worker_idle": true,
+  "worker_gen": [
+   5,
+   5,
+   8
+  ],
+  "wh": [
+   2100,
+   1221
+  ],
+  "sphere": [
+   0.316,
+   0.2955,
+   0.3683,
+   1050,
+   572
+  ],
+  "ground_near": [
+   0.2445,
+   0.2402,
+   0.2534,
+   1382,
+   864
+  ],
+  "ground_far": [
+   0.2316,
+   0.216,
+   0.2608,
+   1687,
+   659
+  ]
+ },
+ "final_save": {
+  "region": [
+   2100,
+   1221
+  ],
+  "n_present": 8,
+  "spp": 0,
+  "sync": 1,
+  "dispatch": {
+   "dispatched": 2
+  },
+  "replay": {},
+  "worker_idle": true,
+  "worker_gen": [
+   5,
+   5,
+   8
+  ],
+  "wh": [
+   2100,
+   1221
+  ],
+  "sphere": [
+   0.316,
+   0.2955,
+   0.3683,
+   1050,
+   572
+  ],
+  "ground_near": [
+   0.2445,
+   0.2402,
+   0.2534,
+   1382,
+   864
+  ],
+  "ground_far": [
+   0.2316,
+   0.216,
+   0.2608,
+   1687,
+   659
+  ]
+ }
+}

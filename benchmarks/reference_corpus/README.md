@@ -62,6 +62,7 @@ against its own Cycles reference" cannot be a single scene.
 | `geometry_zoo` | A "cabinet of curiosities": collection instancing, a live modifier stack, a flat/smooth/auto-smooth shading trio, a small Curves (hair) object, a blurred-vs-disabled motion-blur pair, and a backlit volume cabinet (Principled Volume / Volume Absorption / Volume Scatter). | Phase 3 (built) |
 | `camera_lens` | One perspective hero shot: DoF (aperture_fstop + focus_object/focus_distance), lens shift, explicit sensor_fit, plus in-scene aperture-blades/clip gap cards. | Phase 3 (built) |
 | `render_settings` | A small hero shot proving samples/film_transparent/use_denoising/denoiser by scene authorship, plus an opposed-mirror `max_bounces` gap card. | Phase 3 (built) |
+| `volumes` | Scene id `volumes_smoke`: a sun-lit OpenVDB smoke plume and a self-lit blackbody fire with a sooty plume on a dark ground (two Volume objects, synthetic grids), `volume_bounces` = 2. Owns the `volume_bounces` row (allocation `SOCKET_OVERRIDE`); the Principled Volume rows stay with `geometry_zoo`. | pkg271 (built) |
 
 ## Naming and files
 
@@ -181,7 +182,7 @@ unaffected by the pkg260 merge -- no new rows were assigned to it.)
 "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup \
     --python benchmarks/reference_corpus/build_corpus.py -- \
     --families materials_hall textures_mapping lighting_studio world_sky_hdri world_sky_sky \
-               geometry_zoo camera_lens render_settings \
+               geometry_zoo camera_lens render_settings volumes_smoke \
     --out-dir benchmarks/reference_corpus/scenes
 ```
 
@@ -279,6 +280,16 @@ in code, not downloaded -- a `bpy.types.Text` data-block (`ShaderNodeTexIES`
 (design doc Sec 3.2's "synthesize procedurally... sidesteps IES licensing
 entirely"; format research: `.astroray_plan/docs/pkg259-phase2-ies-format-research.md`).
 No external asset, no licence question, no relative-path bookkeeping.
+
+`volumes_smoke` (pkg271) references two synthetic OpenVDB files written by
+`scene_library.write_volumes_vdbs()` (seeded numpy value-noise fBm, Blender's
+bundled `openvdb`) -- no third-party data, released CC0 with the repo. The
+builder rewrites them on every build (sha256 in the manifest `assets`).
+
+| File | Grids | Source | Licence |
+|---|---|---|---|
+| `assets/volumes_smoke_plume.vdb` | density (64^3) | `scene_library.write_volumes_vdbs` | CC0 1.0 |
+| `assets/volumes_fire.vdb` | density + temperature (64^3) | `scene_library.write_volumes_vdbs` | CC0 1.0 |
 
 ## Known Phase-1 gaps (deliberate, not oversights)
 

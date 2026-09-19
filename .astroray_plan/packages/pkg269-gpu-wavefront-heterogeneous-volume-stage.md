@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** done (PR #820, 2026-09-19 — NanoVDB device grid + HasGridVolume intersect/shadow axes + dedicated hetero scatter kernel; GPU/CPU ROI ratios slab 1.011/0.979/0.996, smoke 1.007/1.005/0.998, emission 0.986/0.981/1.026; stageShadeBucketedKernel 128/128 instantiations identical REG 254 + STACK; grid-free GPU render byte-identical vs main). Was: in-progress
+**Status:** done — PR #820, 2026-09-19: NanoVDB device grid + HasGridVolume intersect/shadow axes + dedicated hetero scatter kernel; GPU/CPU ROI ratios slab 1.011/0.979/0.996, smoke 1.007/1.005/0.998, emission 0.986/0.981/1.026; stageShadeBucketedKernel 128/128 instantiations identical REG 254 + STACK; grid-free GPU render byte-identical vs main. Was: in-progress
 **Estimated effort:** 1 week
 **Depends on:** pkg268
 

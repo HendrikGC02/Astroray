@@ -37,7 +37,7 @@ BAND = (0.95, 1.05)
 def _has_gpu():
     try:
         return bool(astroray.Renderer().gpu_available)
-    except Exception:
+    except (RuntimeError, AttributeError):
         return False
 
 

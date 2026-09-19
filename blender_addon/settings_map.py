@@ -288,9 +288,11 @@ _CAMERA = [
                  "(none)", "dropped", "DROPPED-SILENT",
                  "PERSP/ORTHO/PANO ignored; engine assumes perspective."),
     MappingEntry("camera", "clip_start", "camera.data.clip_start", "",
-                 "(none)", "dropped", "DROPPED-SILENT", "Near clip ignored."),
+                 "setup_camera (clip near/far)", "direct", "SUPPORTED",
+                 "pkg274 (#724): camera.data.clip_start now bounds the primary camera ray's t-min."),
     MappingEntry("camera", "clip_end", "camera.data.clip_end", "",
-                 "(none)", "dropped", "DROPPED-SILENT", "Far clip ignored."),
+                 "setup_camera (clip near/far)", "direct", "SUPPORTED",
+                 "pkg274 (#724): camera.data.clip_end now bounds the primary camera ray's t-max."),
     # pkg260 — camera rows added by the scanner extension (classification mirrors
     # the AST evidence in docs/blender_parity/coverage_matrix.json).
     MappingEntry("camera", "focus_distance", "camera.data.dof.focus_distance", "",
@@ -405,9 +407,10 @@ _ASTRORAY_ONLY = [
                  "render(integrator=...)", "astroray-only", "n/a",
                  "Plugin-registry integrator selector; Cycles has no equivalent (progressive/branched removed)."),
     MappingEntry("astroray_only", "device_mode", "scene.cycles.device", "custom_raytracer.device_mode",
-                 "renderer.set_use_gpu", "astroray-only", "n/a",
-                 "SEMANTIC MISMATCH: native scene.cycles.device is CPU/GPU only; Astroray adds an 'auto' "
-                 "safe-fallback tri-state. Kept custom until reconciled (Stage 1 mismatch rule)."),
+                 "renderer.set_use_gpu", "approximated", "SUPPORTED",
+                 "pkg274 (#722): native scene.cycles.device now drives the backend when device_mode='auto' "
+                 "(CPU->cpu, GPU->gpu); an explicit Astroray 'cpu'/'gpu' override still wins. Stays "
+                 "APPROXIMATED (Cycles exposes only CPU/GPU; Astroray's 'auto' tri-state is engine-unique)."),
     MappingEntry("astroray_only", "viewport_display_pass", "", "custom_raytracer.viewport_display_pass",
                  "viewport pass selector", "astroray-only", "n/a", "Which AOV to show in the viewport; engine-specific."),
     MappingEntry("astroray_only", "cryptomatte_depth", "view_layer.pass_cryptomatte_depth",

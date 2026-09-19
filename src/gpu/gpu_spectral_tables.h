@@ -75,6 +75,16 @@ extern __device__ int          g_jhLutRes;
 extern __device__ const float* g_emissionProfileTable;  // [count * G_EMISSION_SAMPLES]
 extern __device__ int          g_emissionProfileCount;
 
+// pkg276: IES side table. g_iesTable holds every profile in the Cycles packed
+// layout (astroray/ies_eval.h); g_iesLights[j] maps dedicated light j to its
+// profile + frame. Device GLOBAL memory, re-uploaded per scene with the lights.
+// c_iesEnabled is the runtime gate the NEE fleet reads (pkg224 pattern, not a
+// template axis): 0 keeps every lamp on the pre-IES path.
+extern __constant__ int            c_iesEnabled;
+extern __device__ const float*     g_iesTable;
+extern __device__ const GIESLight* g_iesLights;
+extern __device__ int              g_iesLightCount;
+
 // ---------------------------------------------------------------------------
 // Host-callable uploads / probe (defined in gpu_spectral_tables.cu).
 // ---------------------------------------------------------------------------
@@ -91,6 +101,9 @@ int uploadedProfileCount();
 // of G_EMISSION_SAMPLES floats) into device global memory. count == 0 clears
 // the device table (every emissionProfileIndex then falls back to RGB).
 void uploadEmissionProfileTable(const float* host, int count);
+// pkg276 — IES side table (tableFloats floats of packed profiles, count
+// GIESLight entries). count == 0 clears it and sets c_iesEnabled = 0.
+void uploadIESTables(const float* table, int tableFloats, const GIESLight* lights, int count);
 // pkg54d — single-lookup probe binding (tests/test_gpu_profile_lookup.py).
 float launchProfileLookup(int profileIndex, float lambda);
 // pkg168 — test-only batch RGB→spectral upsampling probe. Returns nRgb*nLambda

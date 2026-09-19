@@ -337,6 +337,51 @@ __device__ float gpu_sampleD65(float lambda) {
 __device__ const float* g_emissionProfileTable = nullptr;  // [count * G_EMISSION_SAMPLES]
 __device__ int          g_emissionProfileCount  = 0;
 
+// pkg276: IES side table (see gpu_spectral_tables.h).
+__constant__ int            c_iesEnabled    = 0;
+__device__ const float*     g_iesTable      = nullptr;
+__device__ const GIESLight* g_iesLights     = nullptr;
+__device__ int              g_iesLightCount = 0;
+
+static float*     s_iesTableDev  = nullptr;
+static size_t     s_iesTableCap  = 0;   // floats allocated
+static GIESLight* s_iesLightsDev = nullptr;
+static size_t     s_iesLightsCap = 0;   // entries allocated
+
+void uploadIESTables(const float* table, int tableFloats, const GIESLight* lights, int count) {
+    const int on = (table && lights && tableFloats > 0 && count > 0) ? 1 : 0;
+    cudaError_t e = cudaSuccess;
+    if (on) {
+        if (size_t(tableFloats) > s_iesTableCap) {
+            if (s_iesTableDev) cudaFree(s_iesTableDev);
+            s_iesTableDev = nullptr; s_iesTableCap = 0;
+            e = cudaMalloc(reinterpret_cast<void**>(&s_iesTableDev), size_t(tableFloats) * sizeof(float));
+            if (e == cudaSuccess) s_iesTableCap = size_t(tableFloats);
+        }
+        if (e == cudaSuccess && size_t(count) > s_iesLightsCap) {
+            if (s_iesLightsDev) cudaFree(s_iesLightsDev);
+            s_iesLightsDev = nullptr; s_iesLightsCap = 0;
+            e = cudaMalloc(reinterpret_cast<void**>(&s_iesLightsDev), size_t(count) * sizeof(GIESLight));
+            if (e == cudaSuccess) s_iesLightsCap = size_t(count);
+        }
+        if (e == cudaSuccess)
+            e = cudaMemcpy(s_iesTableDev, table, size_t(tableFloats) * sizeof(float), cudaMemcpyHostToDevice);
+        if (e == cudaSuccess)
+            e = cudaMemcpy(s_iesLightsDev, lights, size_t(count) * sizeof(GIESLight), cudaMemcpyHostToDevice);
+    }
+    const float*     tp = on ? s_iesTableDev : nullptr;
+    const GIESLight* lp = on ? s_iesLightsDev : nullptr;
+    const int        n  = on ? count : 0;
+    if (e == cudaSuccess) e = cudaMemcpyToSymbol(g_iesTable, &tp, sizeof(tp));
+    if (e == cudaSuccess) e = cudaMemcpyToSymbol(g_iesLights, &lp, sizeof(lp));
+    if (e == cudaSuccess) e = cudaMemcpyToSymbol(g_iesLightCount, &n, sizeof(int));
+    if (e == cudaSuccess) e = cudaMemcpyToSymbol(c_iesEnabled, &on, sizeof(int));
+    if (e != cudaSuccess) {
+        fprintf(stderr, "uploadIESTables failed: %s\n", cudaGetErrorString(e));
+        throw std::runtime_error(cudaGetErrorString(e));
+    }
+}
+
 static float* s_emissionProfileTableDev  = nullptr;
 static size_t s_emissionProfileTableCap  = 0;  // floats currently allocated
 

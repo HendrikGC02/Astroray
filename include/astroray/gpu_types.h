@@ -989,6 +989,15 @@ struct GDedicatedLight {
     int   emissionProfileIndex;
 };
 
+// pkg276 — per-dedicated-light IES side-table entry (indexed by the dedicated
+// light's index; GDedicatedLight itself is unchanged). offset = start of the
+// light's Cycles-packed profile in g_iesTable (-1 = no IES); fx/fy/fz = the light
+// object's local X/Y/Z axes in world (astroray/ies_eval.h evalFrame).
+struct GIESLight {
+    int   offset;
+    float fx[3], fy[3], fz[3];
+};
+
 // ---------------------------------------------------------------------------
 // Area light structure for wavefront NEE (pkg55-B' Session N+4)
 // ---------------------------------------------------------------------------

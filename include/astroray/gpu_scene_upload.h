@@ -165,6 +165,11 @@ struct SceneUploadResult {
     // — unlike profileTable above, no fixed G_MAX_* cap.
     std::vector<float> emissionProfileTable;
     int                emissionProfileCount = 0;
+
+    // pkg276: IES side table (uploadIESTables). iesLights[j] belongs to
+    // dedicatedLights[j] (offset -1 = no IES); empty when the scene has no IES.
+    std::vector<float>     iesTable;
+    std::vector<GIESLight> iesLights;
 };
 
 // Declared here; defined in scene_upload.cu

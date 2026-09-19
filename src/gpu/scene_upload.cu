@@ -1341,6 +1341,20 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                             p.emissionProfileSamples.end());
                     }
                 }
+                // pkg276: IES profile -> side table entry j (Cycles packed layout).
+                if (!p.iesPacked.empty()) {
+                    GIESLight none{};
+                    none.offset = -1;
+                    if (r.iesLights.size() <= j) r.iesLights.resize(j + 1, none);
+                    GIESLight& e = r.iesLights[j];
+                    e.offset = (int)r.iesTable.size();
+                    for (int a = 0; a < 3; ++a) {
+                        e.fx[a] = p.iesFrame[a];
+                        e.fy[a] = p.iesFrame[3 + a];
+                        e.fz[a] = p.iesFrame[6 + a];
+                    }
+                    r.iesTable.insert(r.iesTable.end(), p.iesPacked.begin(), p.iesPacked.end());
+                }
             } else {
                 // Unsupported type (e.g. Background): keep the CDF slot aligned
                 // but flag invalid so the device sampler yields no contribution.

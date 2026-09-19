@@ -50,6 +50,8 @@ int uploadedProfileCount();
 // pkg218 — copies the baked dedicated-light emission-profile table into
 // device global memory (gpu_spectral_tables.cu).
 void uploadEmissionProfileTable(const float* host, int count);
+// pkg276 — IES side table (gpu_spectral_tables.cu).
+void uploadIESTables(const float* table, int tableFloats, const GIESLight* lights, int count);
 // pkg54b — one-time copy of CIE 1964 10° CMF tables into MW kernel constant memory.
 void uploadCmfTables();
 // pkg54c — one-time copy of the Jakob-Hanika sRGB sigmoid LUT into MW kernel
@@ -347,6 +349,9 @@ void CUDARenderer::uploadLights(const Renderer& cpuRenderer) {
     // pkg218: dedicatedLights above may carry emissionProfileIndex into this
     // table — re-upload it alongside the light buffer it's keyed by.
     uploadEmissionProfileTable(r.emissionProfileTable.data(), r.emissionProfileCount);
+    // pkg276: IES side table, keyed by the same dedicated-light indices.
+    uploadIESTables(r.iesTable.data(), (int)r.iesTable.size(),
+                    r.iesLights.data(), (int)r.iesLights.size());
 
     uploadLightTree(r);  // pkg86-B: tree arrays track the light buffer
 
@@ -534,6 +539,9 @@ void CUDARenderer::uploadScene(const Renderer& cpuRenderer, const Camera& cam) {
     // previous scene so a light-count-shrinking re-upload can't leave dangling
     // indices resolving into old data.
     uploadEmissionProfileTable(r.emissionProfileTable.data(), r.emissionProfileCount);
+    // pkg276: IES side table (same always-call / clear-on-empty contract).
+    uploadIESTables(r.iesTable.data(), (int)r.iesTable.size(),
+                    r.iesLights.data(), (int)r.iesLights.size());
 
     printf("[CUDA] Scene uploaded: %zu nodes, %zu prims, %zu mats, %d lights, %d profiles, "
            "%d emission profiles\n",

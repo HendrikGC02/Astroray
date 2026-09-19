@@ -14,6 +14,7 @@ exec_module + register() pattern as tests/test_issue762_headless_render.py):
 Skips without Blender or a staged build (``scripts/build/build_blender_addon.py``).
 """
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -23,7 +24,9 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-STAGE_DIR = REPO_ROOT / "dist" / "astroray"
+# ASTRORAY_ADDON_STAGE_DIR: point at another staged addon (a lane verifying a
+# fresh build_cuda .pyd before the addon is restaged).
+STAGE_DIR = Path(os.environ.get("ASTRORAY_ADDON_STAGE_DIR", str(REPO_ROOT / "dist" / "astroray")))
 
 _SCRIPT = r'''
 import sys, glob, os, json, importlib.util

@@ -92,6 +92,10 @@ class Scene:
     height: int
     astroray_scene_id: int | None = None
     blend_path: Path | None = None
+    # #779 — how the Astroray legs render a `.blend` row: "blend_import" (pkg76
+    # in-process reader, Base Color only) or "addon" (headless Blender + the
+    # addon's full translation, via benchmarks/blender_parity/render_leg.py).
+    astroray_leg: str = "blend_import"
 
 
 def _load_scenes() -> dict[str, Scene]:
@@ -111,12 +115,16 @@ def _load_scenes() -> dict[str, Scene]:
             for item in tomllib.load(fh).get("scene", []):
                 width, height = item["resolution"]
                 blend_path = _find_blend_path(item["id"], item.get("archive", ""))
+                leg = item.get("astroray_leg", "blend_import")
+                if leg not in ("blend_import", "addon"):
+                    raise ValueError(f"scene {item['id']!r}: unknown astroray_leg {leg!r}")
                 scenes[item["id"]] = Scene(
                     item["id"],
                     samples=int(item["reference_spp"]),
                     width=int(width),
                     height=int(height),
                     blend_path=blend_path,
+                    astroray_leg=leg,
                 )
     return scenes
 
@@ -430,6 +438,47 @@ iio.imwrite({str(output)!r}, pixels)
 """
 
 
+RENDER_LEG = ROOT / "benchmarks" / "blender_parity" / "render_leg.py"
+
+
+def _addon_leg_command(scene: Scene, stem: Path, blender: str, device: str) -> list[str]:
+    """#779 — headless Blender + the Astroray addon on the row's `.blend`, reusing
+    the pkg119b render leg (`--load-blend`). The engine module comes from
+    ASTRORAY_PYD_DIR (e.g. the staged `dist/astroray`), else `build_cuda/`."""
+    return [
+        blender, "--background", "--factory-startup", "--python", str(RENDER_LEG), "--",
+        "--load-blend", str(scene.blend_path), "--engine", "CUSTOM_RAYTRACER",
+        "--out", str(stem), "--res", str(scene.width), "--res-y", str(scene.height),
+        "--samples", str(scene.samples), "--device", device,
+    ]
+
+
+def _render_astroray_addon(
+    scene: Scene, engine: str, output: Path, blender: str | None, timeout: int,
+) -> tuple[float, float, str | None]:
+    if not blender or not Path(blender).exists():
+        return 0.0, 0.0, "blender_not_found"
+    if scene.blend_path is None or not scene.blend_path.exists():
+        return 0.0, 0.0, "scene_blend_not_found"
+    device = "gpu" if engine == "astroray-gpu" else "cpu"
+    stem = output.with_suffix("")
+    npy = stem.with_suffix(".npy")
+    elapsed, peak, skip = _run_command(_addon_leg_command(scene, stem, blender, device), ROOT, timeout)
+    if skip:
+        return elapsed, peak, skip
+    # render_leg exits 0 even on failure (sentinel protocol); the .npy is the proof.
+    if not npy.exists():
+        return elapsed, peak, "addon_leg_no_output"
+    os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
+    import cv2  # type: ignore
+    import numpy as np  # type: ignore
+
+    rgb = np.load(npy).astype("float32")  # linear, row 0 = top (render_leg flips)
+    if not cv2.imwrite(str(output), np.ascontiguousarray(rgb[..., ::-1])):
+        return elapsed, peak, "addon_leg_exr_write_failed"
+    return elapsed, peak, None
+
+
 def _render_once(
     scene: Scene,
     engine: str,
@@ -438,6 +487,8 @@ def _render_once(
     astroray: Path | None,
     timeout: int,
 ) -> tuple[float, float, str | None]:
+    if engine.startswith("astroray") and scene.astroray_leg == "addon":
+        return _render_astroray_addon(scene, engine, output, blender, timeout)
     if engine.startswith("cycles"):
         if not blender or not Path(blender).exists():
             return 0.0, 0.0, "blender_not_found"
@@ -698,16 +749,13 @@ def main(argv: list[str] | None = None) -> int:
     for row in rows:
         if not row["engine"].startswith("astroray") or row["skip_reason"] or not row["ssim_to_cycles"]:
             continue
-        # pkg265 — glass_sphere is a RECORDED cross-check, not gated, but NOT
-        # because of any glass-physics divergence (issue #779): this scene's
-        # astroray-cpu leg goes through tools/blend_import (pkg76), which maps
-        # Base Color ONLY — Transmission/IOR/Roughness are dropped, so the
-        # Astroray side renders as a DIFFUSE PROXY, not the multi-scatter
-        # dielectric walk. The real glass oracle is
-        # benchmarks/cycles-parity/metal_ab/harness.py --material glass
-        # (pkg263), which renders through the real addon translation; see
-        # pkg265-multiscatter-microfacet-research.md Phases 4/6. This row is
-        # written to the CSV for inspection but does not fail the run.
+        # pkg265 — glass_sphere is a RECORDED cross-check, not gated. Since #779
+        # its Astroray legs render through the addon (manifest astroray_leg =
+        # "addon"), so the row now compares real glass against Cycles glass.
+        # It stays ungated because windowed SSIM between independent-RNG
+        # renders is the wrong gate (memory ssim-wrong-gate-for-independent-rng).
+        # The gated glass oracle remains
+        # benchmarks/cycles-parity/metal_ab/harness.py --material glass (pkg263).
         if row["scene"] == "glass_sphere":
             continue
         gate = 0.95 if row["scene"] == "cornell" else 0.85

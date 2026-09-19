@@ -33,6 +33,10 @@ structural comparison.
   The harness gates Cornell rows at SSIM ≥ 0.95 and `.blend`-imported rows at
   SSIM ≥ 0.85, the relaxed threshold reflecting parity-scope shader-graph
   fidelity loss.
+- A manifest row with `astroray_leg = "addon"` (#779; `glass_sphere`) renders its
+  Astroray legs through headless Blender + the addon instead
+  (`benchmarks/blender_parity/render_leg.py --load-blend`; engine module from
+  `ASTRORAY_PYD_DIR`, default `build_cuda/`).
 - `refs/` stores `MANIFEST.sha256`; large `*.exr` references are gitignored.
 - `scripts/run_parity.py` runs the matrix and writes a CSV.
 - `scripts/summarize_parity.py` converts a CSV into a Markdown summary.

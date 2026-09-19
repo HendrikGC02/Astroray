@@ -1,20 +1,23 @@
-"""pkg/issue #721 — storm material-domain classification fix.
+"""pkg/issue #721 + #835 — material-edit classification in the viewport commit.
 
-A viewport "storm" of Principled Base Color default_value edits must resolve to
-the safe MATERIALS domain (so the deferred replay runs ``upload_materials()``)
-instead of every edit classifying ``fallback`` (a full ~115 ms
-``sync_viewport_scene``). These are pure-Python, bpy-free unit tests using the
+#721 made a Base Color storm classify MATERIALS (upload_materials() replay)
+instead of a full sync. #835 reverses the routing: the replay never re-converts,
+so every material edit must full-sync; the MaterialsCache value/structural split
+stays for a future in-place engine update. These are pure-Python, bpy-free unit tests using the
 fake depsgraph/update object pattern from tests/test_pkg116_exporter_caches.py
 and tests/test_pkg266_dirty_domain_commit.py.
 
 Covered:
-  (a) a Base-Color-only edit storm of 20 updates -> MATERIALS every time; the
-      replay dispatches upload_materials and never a full sync.
-  (b) every must-still-fallback case -> full sync: node-tree topology change,
-      an image texture datablock change, a material-slot assignment, an
-      emission-strength sign flip, a volume/displacement output change.
-  (c) an object transform edit mixed with a material edit keeps today's
-      behaviour (both domains dispatched, no fallback).
+  (a) #835 supersedes the original (a): a Base-Color value edit must FULL-SYNC.
+      upload_materials() re-pushes the engine's already-converted materials
+      (primitives hold them by pointer), so the MATERIALS replay left the
+      viewport stale (measured live: Base Color edit -> sphere stayed grey).
+  (b) every structural case -> full sync: node-tree topology change, an image
+      texture datablock change, a material-slot assignment, an emission-strength
+      sign flip, a volume/displacement output change.
+  (c) an object transform edit mixed with a material edit -> full sync (#835).
+  (d) #835: same-sign emission-strength edits, light edits and non-instanced
+      object moves full-sync on the synchronous (worker OFF) path too.
 """
 
 import importlib.util
@@ -196,36 +199,41 @@ def _principled_mat(name="Mat1", base_color=0.5, emission_strength=0.0,
 
 
 # ---------------------------------------------------------------------------
-# (a) Base-Color-only edit storm
+# (a) Base-Color value edit storm -> full sync (#835)
 # ---------------------------------------------------------------------------
 
-def test_base_color_storm_20_edits_classify_materials_and_replay():
+def test_base_color_storm_edits_force_full_sync():
     exp = _load_exporter_module()
     exporter = _make_exporter(exp)
 
-    # Model the post-full-sync state: the current topology/emission/volume
-    # fingerprint is primed, then 20 ticks of a Base Color default_value edit.
+    # Post-full-sync state (fingerprints primed), then 20 Base Color value edits
+    # while the worker is busy.
     exporter._materials_cache.observe([_principled_mat()])
-
     for i in range(20):
         exporter._record_deferred_dirty(
             _stub_depsgraph([_DepsgraphUpdate(_principled_mat(base_color=0.1 + i * 0.01))]),
             settings=None)
 
-    # Every edit classified MATERIALS, never a fallback/geometry full sync.
-    assert exporter._deferred_full_sync is False
-    assert exporter._deferred_dirty_mask & exp.Change.MATERIALS
-    assert not (exporter._deferred_dirty_mask & exp.Change.GEOMETRY)
-
+    # The idle commit must re-convert (full sync); an upload-only replay would
+    # re-push the stale converted material.
+    assert exporter._deferred_full_sync is True
     spy = _SpyRenderer()
     replayed = exporter._replay_deferred_dirty(
         spy, _stub_depsgraph([]), None, lambda *_: None, None)
-    assert replayed is True
-    names = [c[0] for c in spy.calls]
-    assert names.count("upload_materials") == 1, names
-    assert "upload_geometry" not in names
-    assert "upload_lights" not in names
-    assert "upload_environment" not in names
+    assert replayed is False
+    assert spy.calls == []
+
+
+def test_base_color_edit_falls_back_on_synchronous_path():
+    exp = _load_exporter_module()
+    exporter = _make_exporter(exp)
+    exporter._materials_cache.observe([_principled_mat()])
+    spy = _SpyRenderer()
+    res = exporter.apply_depsgraph_updates(
+        spy, _stub_depsgraph([_DepsgraphUpdate(_principled_mat(base_color=0.9))]),
+        None, lambda *_: None, None)
+    assert res == 'fallback'
+    assert spy.calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -302,10 +310,10 @@ def test_displacement_output_change_falls_back():
 
 
 # ---------------------------------------------------------------------------
-# (c) transform + material mix keeps today's behaviour
+# (c) transform + material mix -> full sync (#835)
 # ---------------------------------------------------------------------------
 
-def test_transform_plus_material_keeps_todays_behaviour():
+def test_transform_plus_material_full_syncs():
     exp = _load_exporter_module()
     exporter = _make_exporter(exp, renderer_object_id_map={"Cube": 42})
 
@@ -316,18 +324,46 @@ def test_transform_plus_material_keeps_todays_behaviour():
             _DepsgraphUpdate(_principled_mat()),
         ]),
         settings=None)
+    assert exporter._deferred_full_sync is True
 
-    assert exporter._deferred_full_sync is False
-    assert exporter._deferred_dirty_mask & exp.Change.TRANSFORMS
-    assert exporter._deferred_dirty_mask & exp.Change.MATERIALS
-    assert not (exporter._deferred_dirty_mask & exp.Change.GEOMETRY)
-    assert 42 in exporter._deferred_transforms
 
+# ---------------------------------------------------------------------------
+# (d) #835: edits without a reconcile step full-sync on the synchronous path
+# ---------------------------------------------------------------------------
+
+def _sync_dispatch(exporter, updates):
     spy = _SpyRenderer()
-    replayed = exporter._replay_deferred_dirty(
-        spy, _stub_depsgraph([]), None, lambda *_: None, None)
-    assert replayed is True
-    names = [c[0] for c in spy.calls]
-    assert "update_object_transform" in names
-    assert "upload_materials" in names
-    assert "upload_geometry" not in names
+    res = exporter.apply_depsgraph_updates(
+        spy, _stub_depsgraph(updates), None, lambda *_: None, None)
+    return res, spy.calls
+
+
+def test_same_sign_emission_strength_edit_falls_back():
+    # 5 -> 10 keeps the emission sign (fingerprint unchanged) but must still
+    # re-convert: the #835 viewport repro edited 5 -> 10 with no visible change.
+    exp = _load_exporter_module()
+    exporter = _make_exporter(exp)
+    exporter._materials_cache.observe([_principled_mat(emission_strength=5.0)])
+    res, calls = _sync_dispatch(
+        exporter, [_DepsgraphUpdate(_principled_mat(emission_strength=10.0))])
+    assert res == 'fallback'
+    assert calls == []
+
+
+def test_light_edit_falls_back():
+    exp = _load_exporter_module()
+    exporter = _make_exporter(exp)
+    res, calls = _sync_dispatch(exporter, [
+        _DepsgraphUpdate(Object("Sun"), geometry=True, shading=True),
+        _DepsgraphUpdate(Light("Sun"))])
+    assert res == 'fallback'
+    assert calls == []
+
+
+def test_non_instanced_object_move_falls_back():
+    exp = _load_exporter_module()
+    exporter = _make_exporter(exp)
+    res, calls = _sync_dispatch(
+        exporter, [_DepsgraphUpdate(Object("Sphere"), transform=True)])
+    assert res == 'fallback'
+    assert calls == []

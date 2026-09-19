@@ -475,10 +475,12 @@ class ObjectsCache:
 class MaterialsCache:
     """Tracks material definitions.
 
-    pkg/issue #721 (storm-material-domain): distinguishes a SAFE material-only
-    edit (socket values only — replayable with ``renderer.upload_materials()``)
-    from a material change the MATERIALS replay cannot represent, which must
-    fall back to a full ``sync_viewport_scene``. The un-representable set is a
+    pkg/issue #721 (storm-material-domain): distinguishes a value-only
+    material edit (socket values only) from a structural material change. #835:
+    BOTH route to a full ``sync_viewport_scene`` today — the engine has no
+    in-place material update, so ``renderer.upload_materials()`` alone re-pushes
+    the stale converted materials (see _classify_depsgraph_domains). The split
+    is kept for that future in-place path. The structural set is a
     node-tree TOPOLOGY change (nodes/links added or removed), an Image texture
     datablock update, a material-slot assignment (detected upstream via the
     owning geometry datablock's geometry flag), an emission-strength sign flip
@@ -1503,6 +1505,16 @@ class Exporter:
         if not do_refit and any(not _fast_ok(nm) for nm in xform_names):
             changes |= Change.GEOMETRY
 
+        # #835: MATERIALS / LIGHTS / GEOMETRY have no reconcile step (pkg96 P2
+        # contract: reconcile, then upload). upload_materials / upload_lights /
+        # upload_geometry re-push the engine's EXISTING objects -- primitives hold
+        # their Material by pointer from add time -- so a Blender edit of these
+        # domains reaches the render only through re-conversion, i.e. a full
+        # sync. Measured in the live viewport: a Base Color edit, an object move
+        # and a light-energy edit each dispatched here and left the image stale.
+        if changes & (Change.MATERIALS | Change.LIGHTS | Change.GEOMETRY):
+            return 'fallback', Change.NONE, [], False
+
         return 'dispatched', changes, flat_transforms, do_refit
 
     def _dispatch_dirty_domains(self, renderer, depsgraph, settings,
@@ -1577,8 +1589,8 @@ class Exporter:
         if (changes & Change.GEOMETRY) or do_refit:
             self._deferred_full_sync = True
             return
-        # Safe domains only (env / materials / lights / flat transforms /
-        # backend): coalesce the mask and capture the transform matrices now
+        # Safe (reconciled) domains only (env / flat transforms / backend;
+        # materials and lights already returned 'fallback', #835): coalesce the mask and capture the transform matrices now
         # (newest wins — a later edit of the same object supersedes the earlier).
         self._deferred_dirty_mask |= changes
         for obj_id, mat16 in flat_transforms:

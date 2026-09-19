@@ -320,9 +320,11 @@ def test_cpu_empty_maps_promotes_to_geometry(monkeypatch):
 
     res = eng._apply_depsgraph_updates(spy, depsgraph, settings=None)
 
-    assert res == "dispatched"
+    # #835: the geometry promote is a full sync (upload_geometry alone
+    # re-uploads the unmoved engine geometry); never a refit.
+    assert res == "fallback"
     names = spy.names()
-    assert "upload_geometry" in names
+    assert "upload_geometry" not in names
     assert "update_instance_transform" not in names
     assert "upload_instance_transforms" not in names
     assert eng._get_exporter()._viewport_skip_upload_next is False

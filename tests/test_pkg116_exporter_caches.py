@@ -262,8 +262,10 @@ class _SpyRenderer:
         self._rec("update_object_transform", obj_id, tuple(mat16))
 
 
-def test_exporter_apply_depsgraph_updates_dispatch_order():
-    """Dispatch order: backend_config → env → materials → lights → geometry → transforms"""
+def test_exporter_apply_depsgraph_updates_material_or_light_falls_back():
+    """#835: World + Material + Light in one batch -> full sync. Materials and
+    lights have no reconcile step (upload_* re-pushes stale converted state), so
+    the batch falls back before any uploader runs."""
     exp = _load_exporter_module()
     bpy = _stub_bpy()
 
@@ -293,15 +295,8 @@ def test_exporter_apply_depsgraph_updates_dispatch_order():
 
     result = exporter.apply_depsgraph_updates(spy, dg, None, noop_config, None)
 
-    assert result == 'dispatched'
-
-    # Check call order: env (setup_world + upload_environment) → materials → lights
-    call_names = [c[0] for c in spy.calls]
-    env_idx = call_names.index("setup_world")
-    mat_idx = call_names.index("upload_materials")
-    light_idx = call_names.index("upload_lights")
-
-    assert env_idx < mat_idx < light_idx
+    assert result == 'fallback'
+    assert spy.calls == []
 
 
 def test_exporter_apply_depsgraph_updates_idle_on_empty():
@@ -325,8 +320,9 @@ def test_exporter_apply_depsgraph_updates_idle_on_empty():
     assert spy.calls == []
 
 
-def test_exporter_apply_depsgraph_updates_materials_only_skips_geometry():
-    """Material-only update → upload_materials called, upload_geometry NOT called"""
+def test_exporter_apply_depsgraph_updates_materials_only_falls_back():
+    """#835: material-only update -> full sync (upload_materials alone would
+    re-push the stale converted material)."""
     exp = _load_exporter_module()
     bpy = _stub_bpy()
 
@@ -342,9 +338,5 @@ def test_exporter_apply_depsgraph_updates_materials_only_skips_geometry():
 
     result = exporter.apply_depsgraph_updates(spy, dg, None, lambda *_: None, None)
 
-    assert result == 'dispatched'
-    call_names = [c[0] for c in spy.calls]
-    assert "upload_materials" in call_names
-    assert "upload_geometry" not in call_names
-    assert "upload_lights" not in call_names
-    assert "upload_environment" not in call_names
+    assert result == 'fallback'
+    assert spy.calls == []

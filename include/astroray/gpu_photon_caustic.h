@@ -17,7 +17,7 @@
 // .astroray_plan/docs/pkg113-phase3-gather-wiring-research.md):
 //   Jensen 1996/2000 (photon map + §3.1 Eq. 8 density estimate);
 //   Arvo 1986 (forward light transport); Schlick 1994 (Fresnel approx);
-//   Sellmeier 1871 (n(λ), reused via gpu_dispersion.cuh); CIE 1964 10° CMF;
+//   Sellmeier 1871 (n(λ), reused via gpu_dispersion.cuh); CIE 1931 2° CMF;
 //   pbrt-v3 sppm.cpp hash grid (BSD-2-Clause); the CPU pkg111 wiring above.
 //
 // Pure-C++-safe: the host-callable build/free entry points and the result POD

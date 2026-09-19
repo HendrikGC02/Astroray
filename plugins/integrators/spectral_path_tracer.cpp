@@ -552,7 +552,7 @@ private:
                 // pkg111: REMOVED the `rec.normal.y < 0.7f` gate — deposit on ANY diffuse surface.
                 // Account for surface orientation: flux density ∝ cos(θ) (Lambert cosine law).
                 const float cosTheta = std::fabs(rec.normal.dot(d2));
-                astroray::XYZ cmf = astroray::cieCmf1964_10deg(lambda);
+                astroray::XYZ cmf = astroray::cieCmf1931_2deg(lambda);
                 astroray::photon::Photon ph;
                 ph.position = rec.point;
                 ph.incidentDir = d2;
@@ -614,7 +614,7 @@ private:
                     if (passedCaster && tr > 0.0f) {
                         // Account for surface orientation: flux density ∝ cos(θ) (Lambert cosine law).
                         const float cosTheta = std::fabs(rec.normal.dot(d));
-                        astroray::XYZ cmf = astroray::cieCmf1964_10deg(lambda);
+                        astroray::XYZ cmf = astroray::cieCmf1931_2deg(lambda);
                         astroray::photon::Photon ph;
                         ph.position = rec.point;
                         ph.incidentDir = d;

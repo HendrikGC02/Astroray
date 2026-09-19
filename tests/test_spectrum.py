@@ -1,7 +1,7 @@
 """Tests for pkg10: Pillar 2 spectral core scaffolding.
 
 Covers the new `include/astroray/spectrum.h` types — arithmetic, the
-CIE 1964 10° CMF / D65 SPD tables, `SampledSpectrum.toXYZ`, and the
+CIE 1931 2° CMF / D65 SPD tables, `SampledSpectrum.toXYZ`, and the
 Jakob-Hanika LUT upsampling. No integration of these types into the
 renderer is in scope for pkg10, so this test file drives them via the
 Python bindings only.
@@ -121,9 +121,9 @@ def test_reductions():
 # ---------------------------------------------------------------------------
 
 def _d65_xyz_via_ground_truth():
-    """Integrate baked D65 SPD against the baked 1964 10° CMF the same way
+    """Integrate baked D65 SPD against the baked 1931 2° CMF the same way
     the C++ runtime normalizes its SPD: this reproduces the published
-    whitepoint for the 10° observer."""
+    whitepoint for the 2° observer."""
     ref = _reference()
     return ref["d65_xyz_whitepoint"]
 
@@ -135,7 +135,7 @@ def test_d65_xyz_whitepoint_matches_reference_within_one_percent():
     We use uniform stratified hero wavelengths across many seeds and
     average to beat down the 4-sample variance — the whitepoint is what
     we ultimately care about for colour fidelity, so the test is an
-    integrated check of `sampleD65`, `cie_cmf_1964_10deg`, and
+    integrated check of `sampleD65`, `cie_cmf_1931_2deg`, and
     `SampledSpectrum.toXYZ` together.
     """
     ref = _d65_xyz_via_ground_truth()
@@ -160,10 +160,10 @@ def test_d65_xyz_whitepoint_matches_reference_within_one_percent():
     assert X == pytest.approx(ref["X"], rel=0.01), f"X={X}"
     assert Z == pytest.approx(ref["Z"], rel=0.01), f"Z={Z}"
 
-    # Also within 1% of the 1964 10° observer's published tristimulus.
-    assert X == pytest.approx(0.9481, rel=0.01)
+    # Also within 1% of the 1931 2° observer's published tristimulus.
+    assert X == pytest.approx(0.95047, rel=0.01)
     assert Y == pytest.approx(1.0, rel=0.01)
-    assert Z == pytest.approx(1.0731, rel=0.01)
+    assert Z == pytest.approx(1.08883, rel=0.01)
 
 
 # ---------------------------------------------------------------------------
@@ -217,9 +217,9 @@ def test_rgb_illuminant_spectrum_nonzero_in_visible_range():
 # ---------------------------------------------------------------------------
 
 def test_cie_cmf_has_expected_peak_at_555nm():
-    cmf_555 = astroray.cie_cmf_1964_10deg(555.0)
-    cmf_360 = astroray.cie_cmf_1964_10deg(360.0)
-    # y_bar peaks near 555 nm for the 10° observer — value ~0.99.
+    cmf_555 = astroray.cie_cmf_1931_2deg(555.0)
+    cmf_360 = astroray.cie_cmf_1931_2deg(360.0)
+    # y_bar peaks near 555 nm for the 2° observer — value 1.0.
     assert cmf_555.Y > 0.9
     assert cmf_360.Y < 0.01
 

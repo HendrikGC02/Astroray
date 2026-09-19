@@ -32,7 +32,7 @@
 // this). pkg109 stores photons in a world-space kd-tree (photon_map.h) built in
 // beginFrame (serial, before the parallel camera loop); the camera pass gathers via
 // a k-NN density estimate (Jensen 1996 Eq. 8). The per-wavelength CIE deposit
-// (spectrum.h cieCmf1964_10deg) gives physically-based rainbow colours.
+// (spectrum.h cieCmf1931_2deg) gives physically-based rainbow colours.
 
 #include "astroray/register.h"
 #include "astroray/integrator.h"
@@ -263,7 +263,7 @@ private:
                 if (!rec.material || rec.material->isEmissive()) continue;
                 if (rec.hitObject && rec.hitObject->isCausticCaster()) continue;
                 if (rec.normal.y < 0.7f) continue;            // horizontal receiver only
-                astroray::XYZ cmf = astroray::cieCmf1964_10deg(lambda);
+                astroray::XYZ cmf = astroray::cieCmf1931_2deg(lambda);
                 astroray::photon::Photon ph;
                 ph.position = rec.point;
                 ph.incidentDir = d2;
@@ -315,7 +315,7 @@ private:
                         continue;
                     }
                     if (passedCaster && rec.normal.y > 0.7f && tr > 0.0f) {
-                        astroray::XYZ cmf = astroray::cieCmf1964_10deg(lambda);
+                        astroray::XYZ cmf = astroray::cieCmf1931_2deg(lambda);
                         astroray::photon::Photon ph;
                         ph.position = rec.point;
                         ph.incidentDir = d;

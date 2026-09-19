@@ -28,12 +28,14 @@ inline constexpr float kLambdaMax       = 830.0f;
 
 struct XYZ { float X = 0.0f; float Y = 0.0f; float Z = 0.0f; };
 
-// Return the CIE 1964 10 degree standard observer CMF value at the given
-// wavelength. Outside [kLambdaMin, kLambdaMax] returns zeros.
-XYZ cieCmf1964_10deg(float lambda);
+// Return the CIE 1931 2 degree standard observer CMF value at the given
+// wavelength. Outside [kLambdaMin, kLambdaMax] returns zeros. 1931 2 deg is
+// the observer the XYZ->sRGB matrix and the Jakob-Hanika LUT fit assume
+// (#767; .astroray_plan/docs/issue767-observer-mismatch-research.md).
+XYZ cieCmf1931_2deg(float lambda);
 
 // Return the normalized CIE Standard Illuminant D65 SPD at the given
-// wavelength. Normalization: the SPD integrated against the 1964 10° CMF
+// wavelength. Normalization: the SPD integrated against the 1931 2° CMF
 // gives Y = 1.0 (relative colorimetry for a perfect reflector).
 float sampleD65(float lambda);
 

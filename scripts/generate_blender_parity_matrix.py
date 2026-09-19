@@ -1143,7 +1143,10 @@ def generate_matrix(evidence, vm_supported_types=frozenset(),
 
     # Render settings (static evidence, hand-verified by review, not scanner-derived)
     # Direct reads from addon code (lines 1243-1270, 4602-4630)
-    RENDER_SETTINGS_EVIDENCE = {'samples', 'use_denoising', 'denoiser', 'film_transparent'}
+    # pkg271: volume_bounces is wired through render(volume_bounces=...) and
+    # honoured by both engines (hand-verified, output-effect tested).
+    RENDER_SETTINGS_EVIDENCE = {'samples', 'use_denoising', 'denoiser', 'film_transparent',
+                                'volume_bounces'}
     for prop_name in render_settings:
         classification = 'SUPPORTED' if prop_name in RENDER_SETTINGS_EVIDENCE else 'DROPPED-SILENT'
         matrix_rows.append({

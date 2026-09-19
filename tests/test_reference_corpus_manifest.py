@@ -40,11 +40,13 @@ PHASE2_SCENE_IDS = ("lighting_studio", "world_sky_hdri", "world_sky_sky")
 # pkg259 Phase 3: geometry_zoo/camera_lens/render_settings are all plain 1:1
 # scene ids (no split, like lighting_studio).
 PHASE3_SCENE_IDS = ("geometry_zoo", "camera_lens", "render_settings")
-ALL_SCENE_IDS = PHASE1_FAMILIES + PHASE2_SCENE_IDS + PHASE3_SCENE_IDS
+# pkg271: the volumes family (scene id volumes_smoke -> family volumes).
+PKG271_SCENE_IDS = ("volumes_smoke",)
+ALL_SCENE_IDS = PHASE1_FAMILIES + PHASE2_SCENE_IDS + PHASE3_SCENE_IDS + PKG271_SCENE_IDS
 # The real families (used for the matrix-coverage join, which is keyed on
 # family, not scene id).
 FAMILIES = ("materials_hall", "textures_mapping", "lighting_studio", "world_sky",
-            "geometry_zoo", "camera_lens", "render_settings")
+            "geometry_zoo", "camera_lens", "render_settings", "volumes")
 
 BLENDER = Path("C:/Program Files/Blender Foundation/Blender 5.2/blender.exe")
 

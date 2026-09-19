@@ -144,21 +144,29 @@ SUPPORTED 9 / APPROXIMATED 0 / DROPPED-SILENT 7
 |---|---|---|
 | Camera |  | lens [SUPPORTED]; sensor_width [SUPPORTED]; sensor_height [SUPPORTED]; shift_x [SUPPORTED]; shift_y [SUPPORTED]; aperture_fstop [SUPPORTED]; aperture_blades [DROPPED-SILENT]; aperture_rotation [DROPPED-SILENT]; aperture_ratio [DROPPED-SILENT]; type [DROPPED-SILENT]; clip_start [DROPPED-SILENT]; clip_end [DROPPED-SILENT]; focus_distance [SUPPORTED]; focus_object [SUPPORTED]; ortho_scale [DROPPED-SILENT]; sensor_fit [SUPPORTED] |
 
-## render_settings  (33 rows)
+## render_settings  (32 rows)
 
-SUPPORTED 4 / APPROXIMATED 0 / DROPPED-SILENT 29
+SUPPORTED 4 / APPROXIMATED 0 / DROPPED-SILENT 28
 
 | Node / category | bl_idname | sockets/props (status) |
 |---|---|---|
 | OUTPUT_AOV | ShaderNodeOutputAOV | input:Color [DROPPED-SILENT]; input:Value [DROPPED-SILENT] |
 | OUTPUT_LINESTYLE | ShaderNodeOutputLineStyle | input:Color [DROPPED-SILENT]; input:Color Fac [DROPPED-SILENT]; input:Alpha [DROPPED-SILENT]; input:Alpha Fac [DROPPED-SILENT]; prop:blend_type [DROPPED-SILENT]; prop:is_active_output [DROPPED-SILENT]; prop:target [DROPPED-SILENT]; prop:use_alpha [DROPPED-SILENT]; prop:use_clamp [DROPPED-SILENT] |
-| RenderSettings |  | samples [SUPPORTED]; use_adaptive_sampling [DROPPED-SILENT]; adaptive_threshold [DROPPED-SILENT]; adaptive_min_samples [DROPPED-SILENT]; seed [DROPPED-SILENT]; sample_offset [DROPPED-SILENT]; film_exposure [DROPPED-SILENT]; film_transparent [SUPPORTED]; filter_width [DROPPED-SILENT]; max_bounces [DROPPED-SILENT]; diffuse_bounces [DROPPED-SILENT]; glossy_bounces [DROPPED-SILENT]; transparent_max_bounces [DROPPED-SILENT]; transmission_bounces [DROPPED-SILENT]; volume_bounces [DROPPED-SILENT]; caustics_reflective [DROPPED-SILENT]; caustics_refractive [DROPPED-SILENT]; use_fast_gi [DROPPED-SILENT]; use_denoising [SUPPORTED]; denoiser [SUPPORTED]; denoising_input_passes [DROPPED-SILENT] |
+| RenderSettings |  | samples [SUPPORTED]; use_adaptive_sampling [DROPPED-SILENT]; adaptive_threshold [DROPPED-SILENT]; adaptive_min_samples [DROPPED-SILENT]; seed [DROPPED-SILENT]; sample_offset [DROPPED-SILENT]; film_exposure [DROPPED-SILENT]; film_transparent [SUPPORTED]; filter_width [DROPPED-SILENT]; max_bounces [DROPPED-SILENT]; diffuse_bounces [DROPPED-SILENT]; glossy_bounces [DROPPED-SILENT]; transparent_max_bounces [DROPPED-SILENT]; transmission_bounces [DROPPED-SILENT]; caustics_reflective [DROPPED-SILENT]; caustics_refractive [DROPPED-SILENT]; use_fast_gi [DROPPED-SILENT]; use_denoising [SUPPORTED]; denoiser [SUPPORTED]; denoising_input_passes [DROPPED-SILENT] |
 | UVALONGSTROKE | ShaderNodeUVAlongStroke | prop:use_tips [DROPPED-SILENT] |
+
+## volumes  (1 rows)
+
+SUPPORTED 1 / APPROXIMATED 0 / DROPPED-SILENT 0
+
+| Node / category | bl_idname | sockets/props (status) |
+|---|---|---|
+| RenderSettings |  | volume_bounces [SUPPORTED] |
 
 ## Totals
 
 Grand total rows: 586 (matrix has 586)
-SUPPORTED 122 / APPROXIMATED 66 / DROPPED-SILENT 398
+SUPPORTED 123 / APPROXIMATED 66 / DROPPED-SILENT 397
 
 | family | rows | SUPPORTED | APPROXIMATED | DROPPED-SILENT |
 |---|---|---|---|---|
@@ -168,4 +176,5 @@ SUPPORTED 122 / APPROXIMATED 66 / DROPPED-SILENT 398
 | world_sky | 25 | 1 | 5 | 19 |
 | geometry_zoo | 47 | 5 | 12 | 30 |
 | camera_lens | 16 | 9 | 0 | 7 |
-| render_settings | 33 | 4 | 0 | 29 |
+| render_settings | 32 | 4 | 0 | 28 |
+| volumes | 1 | 1 | 0 | 0 |

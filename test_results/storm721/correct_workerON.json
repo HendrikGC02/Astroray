@@ -1,0 +1,61 @@
+{
+  "tag": "workerON",
+  "log": [
+    "00_base: center RGB [0.795, 0.782, 0.751]",
+    "01_basecolor_red: center RGB [0.902, 0.557, 0.504]",
+    "02_roughness: center RGB [0.906, 0.529, 0.479]",
+    "03_noise_link: center RGB [0.795, 0.77, 0.751]",
+    "04a_image_A_red: center RGB [0.92, 0.529, 0.475]",
+    "04b_image_B_blue: center RGB [0.523, 0.65, 0.858]",
+    "05a_emission_0: center RGB [0.79, 0.777, 0.746]",
+    "05b_emission_5: center RGB [0.762, 0.745, 0.703]",
+    "06_undo_emission: center RGB [0.791, 0.778, 0.748]"
+  ],
+  "samples": {
+    "00_base": [
+      0.795,
+      0.782,
+      0.751
+    ],
+    "01_basecolor_red": [
+      0.902,
+      0.557,
+      0.504
+    ],
+    "02_roughness": [
+      0.906,
+      0.529,
+      0.479
+    ],
+    "03_noise_link": [
+      0.795,
+      0.77,
+      0.751
+    ],
+    "04a_image_A_red": [
+      0.92,
+      0.529,
+      0.475
+    ],
+    "04b_image_B_blue": [
+      0.523,
+      0.65,
+      0.858
+    ],
+    "05a_emission_0": [
+      0.79,
+      0.777,
+      0.746
+    ],
+    "05b_emission_5": [
+      0.762,
+      0.745,
+      0.703
+    ],
+    "06_undo_emission": [
+      0.791,
+      0.778,
+      0.748
+    ]
+  }
+}

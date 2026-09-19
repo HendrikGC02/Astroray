@@ -495,8 +495,8 @@ struct GPrincipledClosure {
     GVec3 subsurfaceRadius;  // Cycles subsurface_radius (uploaded; not yet read)
     float subsurfaceWeight;  // Cycles subsurface_weight (APPROX, D2=a)
     float subsurfaceScale;   // Cycles subsurface_scale (uploaded; not yet read)
-    GVec3 emissionColor;     // Cycles emission_color (uploaded; not yet read)
-    float emissionStrength;  // Cycles emission_strength (uploaded; not yet read)
+    GVec3 emissionColor;     // Cycles emission_color (read: gpu_principled_emitted, #835)
+    float emissionStrength;  // Cycles emission_strength (read: gpu_principled_emitted, #835)
     // pkg178 Stage-3b PR-4b — anisotropy (metallic/specular; 0 → isotropic).
     float anisotropic;
     float anisotropicRotation;

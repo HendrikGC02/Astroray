@@ -1851,10 +1851,9 @@ public:
     // heuristic for the flagged path; the closure side lives here, the addon switch
     // is Stage 5). Emission = emission_color·emission_strength (two-sided, like
     // EmissivePlugin). Default emission_color=(0,0,0) → emitted()=0 (non-regressing).
-    // NOTE (LEAD/GPU): the GPU leg emits via scene_upload's g.emissionIntensity +
-    // GAreaLight extraction, which today only fires for gpuType=="diffuse_light";
-    // an emissive Principled surface on the wavefront leg needs that extraction to
-    // learn the closure-graph emission path. CPU leg is complete here.
+    // GPU twin: gpu_principled_emitted / gpu_material_emitted_spectral
+    // (gpu_materials.h, #835) read GPrincipledClosure::emission* uploaded by
+    // closureGraph() below; NEE picks the emitter from the host power CDF.
     Vec3 emitted(const HitRecord& /*rec*/) const override {
         return emissionColor_ * emissionStrength_;
     }

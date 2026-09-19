@@ -21,7 +21,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-import run_parity as rp  # noqa: E402
+import run_parity as rp
 
 os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
 

@@ -104,6 +104,17 @@ public:
         const std::vector<float>& rgbs, const std::vector<float>& lambdas,
         int mode) const;
 
+    // pkg275: texel-exact device env-lookup probe (diagnostic ladder rung 5/6).
+    // Evaluates the SAME device functions the wavefront env-miss leg uses
+    // (gpu_envmap_lookup for RGB, gpu_env_miss_spectral for the spectral path)
+    // for a batch of world directions. `dirs` is flat 3*n; `u` selects the
+    // hero wavelength exactly like CPU SampledWavelengths::sampleUniform.
+    // Returns (3 + kSpectrumSamples) floats per direction: [r,g,b, s0..sN].
+    // Requires uploadEnvironmentMap() first. NOT on any render path. See
+    // tests/test_pkg275_env_lookup_probe.py.
+    std::vector<float> probeEnvLookup(
+        const std::vector<float>& dirs, float u) const;
+
     // [0, 1] progress estimate (reserved for async use in Phase 3).
     float getProgress() const;
 

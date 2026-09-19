@@ -7,6 +7,7 @@
 #include "astroray/gpu_types.h"
 #include "astroray/gpu_photon_store.h"     // pkg113 Phase 3: GPhotonGrid
 #include "astroray/gpu_photon_caustic.h"   // pkg113 Phase 3: scene-driven pre-pass
+#include "astroray/gpu_env_spectral.cuh"   // pkg275: gpu_env_miss_spectral (+ gpu_bvh.h gpu_envmap_lookup)
 #include "raytracer.h"
 #include "advanced_features.h"
 #include "profile.h"  // pkg55-A: env-gated NVTX ranges around upload + render
@@ -558,6 +559,75 @@ std::vector<float> CUDARenderer::rgbUpsampleBatch(
     const std::vector<float>& rgbs, const std::vector<float>& lambdas, int mode) const {
     if (!impl->available) throw std::runtime_error("No CUDA GPU available");
     return launchRgbUpsampleBatch(rgbs, lambdas, mode);
+}
+
+// ---------------------------------------------------------------------------
+// pkg275 — texel-exact GPU env-lookup probe (diagnostic ladder rung 5/6).
+// Runs the SAME device functions the wavefront env-miss leg uses so
+// tests/test_pkg275_env_lookup_probe.py can A/B them against the CPU
+// EnvironmentMap::lookup / evalSpectral without any Monte Carlo. Wavelengths
+// are built from a fixed `u` exactly like CPU SampledWavelengths::sampleUniform
+// (src/spectrum.cpp:82) so the spectral legs compare at identical lambdas.
+// NOT on any render path.
+// ---------------------------------------------------------------------------
+namespace {
+__global__ void pkg275_env_probe_kernel(GEnvMap em, const float* dirs, int n,
+                                         float u, float* out /* (3+N) per dir */) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    GVec3 d(dirs[i * 3 + 0], dirs[i * 3 + 1], dirs[i * 3 + 2]);
+    GVec3 rgb = gpu_envmap_lookup(em, d);
+
+    GSampledWavelengths wl;
+    float span = G_LAMBDA_MAX - G_LAMBDA_MIN;
+    float step = span / float(G_SPECTRUM_SAMPLES);
+    float hero = G_LAMBDA_MIN + u * span;
+    for (int k = 0; k < G_SPECTRUM_SAMPLES; ++k) {
+        float lam = hero + float(k) * step;
+        if (lam > G_LAMBDA_MAX) lam -= span;
+        wl.lambda[k] = lam;
+        wl.pdf[k]    = 1.f / span;
+    }
+    GSampledSpectrum s = gpu_env_miss_spectral(em, GVec3(0.f), false, d, wl);
+
+    float* o = out + i * (3 + G_SPECTRUM_SAMPLES);
+    o[0] = rgb.x; o[1] = rgb.y; o[2] = rgb.z;
+    for (int k = 0; k < G_SPECTRUM_SAMPLES; ++k) o[3 + k] = s[k];
+}
+}  // namespace
+
+std::vector<float> CUDARenderer::probeEnvLookup(
+    const std::vector<float>& dirs, float u) const {
+    if (!impl->available)     throw std::runtime_error("No CUDA GPU available");
+    if (!impl->envMap.loaded) throw std::runtime_error("env map not uploaded to GPU");
+    // Spectral leg reads the JH LUT + CMF/D65 tables (idempotent, guarded).
+    uploadCmfTables();
+    uploadJakobHanikaLut();
+
+    const int n      = static_cast<int>(dirs.size() / 3);
+    const int stride = 3 + G_SPECTRUM_SAMPLES;
+    std::vector<float> host(static_cast<size_t>(n) * stride, 0.f);
+    if (n == 0) return host;
+
+    float *dDirs = nullptr, *dOut = nullptr;
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&dDirs), dirs.size() * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&dOut),  host.size() * sizeof(float)));
+    CUDA_CHECK(cudaMemcpy(dDirs, dirs.data(), dirs.size() * sizeof(float),
+                          cudaMemcpyHostToDevice));
+
+    int block = 128;
+    int grid  = (n + block - 1) / block;
+    pkg275_env_probe_kernel<<<grid, block>>>(impl->envMap, dDirs, n, u, dOut);
+    cudaError_t err = cudaGetLastError();
+    if (err == cudaSuccess) err = cudaDeviceSynchronize();
+    if (err == cudaSuccess)
+        err = cudaMemcpy(host.data(), dOut, host.size() * sizeof(float),
+                         cudaMemcpyDeviceToHost);
+
+    cudaFree(dDirs);
+    cudaFree(dOut);
+    if (err != cudaSuccess) throw std::runtime_error(cudaGetErrorString(err));
+    return host;
 }
 
 void CUDARenderer::uploadEnvironmentMap(const EnvironmentMap& envMap) {

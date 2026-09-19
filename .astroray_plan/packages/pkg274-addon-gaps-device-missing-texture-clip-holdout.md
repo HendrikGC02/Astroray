@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** B
-**Status:** open
+**Status:** done — PR #830 merged 2026-09-19 (e55288ca): all four items on the CPU path (deepseek-v4-pro draft; lead fixed the clip planes to view-axis depths per Cycles z_inv, built and ran 123 passed / 0 skipped; evidence test_results/pkg274). GPU wavefront parity for clip planes + holdout and indirect-only objects remain out of scope (#36 stays open for indirect-only).
 **Estimated effort:** 1 session (~3 h)
 **Depends on:** none
 

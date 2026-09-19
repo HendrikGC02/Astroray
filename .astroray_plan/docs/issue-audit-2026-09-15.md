@@ -76,3 +76,20 @@ gh issue comment 141 --body "Issue audit 2026-09-15: no code and no spec; needs 
 gh issue comment 39 --body "Issue audit 2026-09-15: unowned (pkg52 covers the viewport session only); low priority until animation rendering is a target."
 gh issue comment 38 --body "Issue audit 2026-09-15: unowned; only tile bookkeeping exists. Revisit when memory pressure is measured on a real scene."
 ```
+
+## Addendum — 2026-09-19 (after the session's merges)
+
+Auto-closed by PR #830: #722 #723 #724. Still open although resolved (the PR bodies carried no closing keyword) — run these as well:
+
+```bash
+gh issue close 817 --comment "Fixed by #819 (2026-09-19): the viewport worker presents a reduced preview during a real region-view orbit and hands off to full resolution; orbit row added to the §9 driver. The worker default stays opt-in (metal-scene orbit row + 1-spp chroma noise), tracked on #721."
+gh issue close 818 --comment "Primary case fixed by #821 (2026-09-19): procedural textures are op-VM inputs on both backends. Residuals: #822 (coordinate-side non-affine math), #823 (coverage scanner blind spot), #826 (multi-input programs on GPU), #825 (texIdx mapping aliasing)."
+gh issue close 814 --comment "Sun direction fixed by #824 (2026-09-19): same-.blend addon-path A/B matches Cycles at sun_rotation 0/90/225 within 4 deg; sunlit radiance ratio 0.97/0.96/0.95, sunlit:shadow 2.06 vs 1.87 - the 1.48x number was invalid. IES x spot composition + GPU IES moved to pkg276."
+gh issue close 807 --comment "Resolved by #810 + #820 (2026-09-19): per-wavelength extinction and Principled Volume emission - the cabinet's Principled cube shows the emission patch where Cycles does (ROI 0.809/0.801/0.773 vs Cycles 0.826/0.809/0.796). GPU blackbody emission is tracked in #828."
+gh issue close 755 --comment "Not reproducible (pkg275, #829): GPU/CPU chrome-under-HDRI ratio [1.0003, 0.9998, 1.0010] at 4096 spp with adaptive sampling off and a shared exposure; texel-exact probes show the lookup and spectral upsample are byte-faithful across backends. The original gap was the pkg237 stopping-metric artefact."
+gh issue close 795 --comment "Not a reflection deficit (pkg275, #829): the 0.77 sphere-masked MEAN is dominated by the reflected-sun highlight; the per-pixel median Astroray/Cycles ratio is R 0.96 / G 1.11 / B 1.02 and the luminance ratio map is uniform ~1.0. F82 Fresnel and ground illumination were both ruled out. The residual green skew is a spectral-upsampling effect (see #767)."
+gh issue comment 36 --body "Holdout objects landed in #830 (pkg274, CPU path). Indirect-only objects are still open."
+gh issue comment 721 --body "Storm row: #831 makes material-only edits take the incremental upload_materials() replay (commit p95 218.6->73.0 ms metal, 117.9->23.4 ms big; full re-syncs 48->2). The remaining ~80 ms tick gap is render/present, and the worker default stays opt-in."
+```
+
+New issues filed by lanes this session: #822 #823 #825 #826 #827 #828 #832. New specs: pkg273 (paused), pkg274 (done), pkg275 (done), pkg276 (open).

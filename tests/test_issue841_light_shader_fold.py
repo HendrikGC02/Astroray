@@ -76,6 +76,50 @@ def test_unfoldable_node_is_reported_and_neutral(engine, op, clamp):
     assert eng.warnings, "a dropped light-shader node must reach the degradation report"
 
 
+def _noise_math_tree(op, a_value, a_src, b_value):
+    """Math(op) with operand a driven by a_src (else constant a_value) and a
+    constant b operand, wired into an Emission Strength (no IES)."""
+    math_node = _node("MATH", [_sock("Value", a_value, a_src),
+                               _sock("Value", b_value), _sock("Value", 0.0)],
+                      operation=op)
+    em = _node("EMISSION", [_sock("Color", (1.0, 1.0, 1.0, 1.0)),
+                            _sock("Strength", 1.0, math_node), _sock("Weight", 0.0)])
+    out = _node("OUTPUT_LIGHT", [_sock("Surface", None, em)], outputs=[], is_active_output=True)
+    nodes = [math_node, em, out]
+    if a_src is not None:
+        nodes.insert(0, a_src)
+    return types.SimpleNamespace(nodes=nodes)
+
+
+def test_math_multiply_non_constant_operand_folds_neutral(engine):
+    _addon, eng = engine
+    noise = _node("TEX_NOISE", [_sock("Vector"), _sock("Scale", 5.0)], scale=5.0)
+    light = types.SimpleNamespace(
+        node_tree=_noise_math_tree("MULTIPLY", 0.0, noise, 180.0), use_nodes=True)
+    strength, _ = eng._resolve_light_shader(light)
+    assert strength == pytest.approx(1.0)
+    assert eng.warnings
+
+
+def test_math_divide_non_constant_operand_folds_neutral(engine):
+    _addon, eng = engine
+    noise = _node("TEX_NOISE", [_sock("Vector"), _sock("Scale", 5.0)], scale=5.0)
+    light = types.SimpleNamespace(
+        node_tree=_noise_math_tree("DIVIDE", 0.0, noise, 4.0), use_nodes=True)
+    strength, _ = eng._resolve_light_shader(light)
+    assert strength == pytest.approx(1.0)
+    assert eng.warnings
+
+
+def test_math_multiply_both_constant_folds(engine):
+    _addon, eng = engine
+    light = types.SimpleNamespace(
+        node_tree=_noise_math_tree("MULTIPLY", 2.0, None, 90.0), use_nodes=True)
+    strength, _ = eng._resolve_light_shader(light)
+    assert strength == pytest.approx(180.0)
+    assert eng.warnings == []
+
+
 def test_no_tree_is_neutral(engine):
     _addon, eng = engine
     assert eng._resolve_light_shader(types.SimpleNamespace(node_tree=None)) == (1.0, [1.0, 1.0, 1.0])

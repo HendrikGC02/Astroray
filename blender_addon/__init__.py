@@ -5803,37 +5803,50 @@ class CustomRaytracerRenderEngine(RenderEngine):
             else:
                 color = [float(v) for v in list(c_in.default_value)[:3]]
         s_in = _node_input(em, 'Strength')
-        strength = self._fold_light_scalar(s_in) if s_in is not None else 1.0
+        strength = self._fold_light_scalar(s_in)[0] if s_in is not None else 1.0
         return strength, color
 
     def _fold_light_scalar(self, socket, depth=0):
         """#841: constant value of a scalar light-shader input, folding
         TexIES (its Strength input; the table itself is the engine's IES), Math
-        MULTIPLY/DIVIDE with one constant operand, and Value nodes."""
+        MULTIPLY/DIVIDE with one constant operand, and Value nodes. Returns
+        (value, folded): folded is False (value 1.0) when a node on the path is
+        not a fully-constant chain, so only constant chains fold numerically."""
         if not getattr(socket, 'is_linked', False):
-            return float(getattr(socket, 'default_value', 1.0))
+            return float(getattr(socket, 'default_value', 1.0)), True
         node = socket.links[0].from_node
         ntype = getattr(node, 'type', '')
         if depth > 16:
             self._warn_shader_fallback(ntype, 'light Strength chain too deep; treated as 1')
-            return 1.0
+            return 1.0, False
         if ntype == 'TEX_IES':
             s_in = _node_input(node, 'Strength')
-            return self._fold_light_scalar(s_in, depth + 1) if s_in is not None else 1.0
+            return self._fold_light_scalar(s_in, depth + 1) if s_in is not None else (1.0, True)
         if ntype == 'VALUE':
-            return float(node.outputs[0].default_value)
+            return float(node.outputs[0].default_value), True
         if ntype == 'MATH' and not getattr(node, 'use_clamp', False) \
                 and getattr(node, 'operation', '') in ('MULTIPLY', 'DIVIDE'):
             a, bb = node.inputs[0], node.inputs[1]
+            va, oka = self._fold_light_scalar(a, depth + 1)
             if node.operation == 'MULTIPLY':
-                return self._fold_light_scalar(a, depth + 1) * self._fold_light_scalar(bb, depth + 1)
+                vb, okb = self._fold_light_scalar(bb, depth + 1)
+                if not (oka and okb):
+                    self._warn_shader_fallback(
+                        'MATH', 'light Strength Math MULTIPLY has a non-constant operand; treated as 1')
+                    return 1.0, False
+                return va * vb, True
+            # DIVIDE: the denominator must be a constant (unlinked) socket.
             if not getattr(bb, 'is_linked', False):
+                if not oka:
+                    self._warn_shader_fallback(
+                        'MATH', 'light Strength Math DIVIDE has a non-constant operand; treated as 1')
+                    return 1.0, False
                 den = float(bb.default_value)
-                return self._fold_light_scalar(a, depth + 1) / den if den != 0.0 else 0.0
+                return (va / den, True) if den != 0.0 else (0.0, True)
         self._warn_shader_fallback(
             ntype or 'NODE',
             'light Strength input driven by %s dropped (only IES x/÷ constant Math is folded)' % ntype)
-        return 1.0
+        return 1.0, False
 
     def convert_lights(self, depsgraph, renderer):
         def _build_emission_dict(light):

@@ -1786,6 +1786,29 @@ public:
 #endif
     }
 
+    // pkg275: GPU texel-exact env-lookup probe (diagnostic ladder rung 5/6).
+    // Uploads the loaded env map to the device, then evaluates
+    // gpu_envmap_lookup (RGB) + gpu_env_miss_spectral (spectral) for each
+    // world direction. `dirs` is flat 3*n, `u` the wavelength stratum in
+    // [0,1). Returns (3 + kSpectrumSamples) floats per direction:
+    // [r,g,b, s0..sN]. A/B'd against environment_lookup / eval_env_spectral
+    // in tests/test_pkg275_env_lookup_probe.py.
+    std::vector<float> gpuProbeEnvLookup(const std::vector<float>& dirs, float u) {
+#ifdef ASTRORAY_CUDA_ENABLED
+        if (!envMap || !envMap->loaded())
+            throw std::runtime_error("no environment map loaded");
+        if (!cudaRenderer) cudaRenderer = std::make_unique<CUDARenderer>();
+        if (!cudaRenderer->isAvailable())
+            throw std::runtime_error("No CUDA GPU available");
+        cudaRenderer->uploadEnvironmentMap(*envMap);
+        return cudaRenderer->probeEnvLookup(dirs, u);
+#else
+        (void)dirs;
+        (void)u;
+        throw std::runtime_error("CUDA support not compiled");
+#endif
+    }
+
     // pkg63: extended for full Blender Mapping node parity (XYZ Euler rotation,
     // multiplicative Background Color tint). Backward-compatible — direct callers
     // that pass (path, strength, 0.0) just get rx=0 (identity matrix).
@@ -3795,6 +3818,11 @@ PYBIND11_MODULE(astroray, m) {
              "pkg258 — solid-angle pdf of the HDRI CDF for a world direction.")
         .def("environment_lookup", &PyRenderer::environmentLookup, "direction"_a,
              "pkg258 — RGB radiance lookup (bilinear, strength+tint) for a direction.")
+        .def("probe_env_lookup_gpu", &PyRenderer::gpuProbeEnvLookup,
+             "directions"_a, "u"_a,
+             "pkg275 — GPU texel-exact env-lookup probe. Uploads the env map to "
+             "the device and returns (3+kSpectrumSamples) floats per direction "
+             "[r,g,b,s0..sN] from gpu_envmap_lookup + gpu_env_miss_spectral.")
         .def("set_env_nee", &PyRenderer::setEnvNee, "enable"_a,
              "pkg258 — toggle environment next-event estimation (default ON).")
         .def("get_env_nee", &PyRenderer::getEnvNee)

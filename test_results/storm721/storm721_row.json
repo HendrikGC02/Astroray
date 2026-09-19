@@ -1,0 +1,58 @@
+[
+  {
+    "state": "ON",
+    "scene": "metal_sweep",
+    "gap_p95": 80.07,
+    "gap_p99": 108.37,
+    "commit_p95": 73.01,
+    "present_rate": 1.0,
+    "sync_calls": 0,
+    "sync_ms_avg": 0.0,
+    "dispatch_calls": 0,
+    "replay_true": 0,
+    "replay_false": 0,
+    "classify": {}
+  },
+  {
+    "state": "ON",
+    "scene": "big",
+    "gap_p95": 80.68,
+    "gap_p99": 83.44,
+    "commit_p95": 23.42,
+    "present_rate": 1.0,
+    "sync_calls": 0,
+    "sync_ms_avg": 0.0,
+    "dispatch_calls": 0,
+    "replay_true": 0,
+    "replay_false": 0,
+    "classify": {}
+  },
+  {
+    "state": "OFF",
+    "scene": "metal_sweep",
+    "gap_p95": 36.5,
+    "gap_p99": 36.71,
+    "commit_p95": null,
+    "present_rate": "UNGR",
+    "sync_calls": 0,
+    "sync_ms_avg": 0.0,
+    "dispatch_calls": 0,
+    "replay_true": 0,
+    "replay_false": 0,
+    "classify": {}
+  },
+  {
+    "state": "OFF",
+    "scene": "big",
+    "gap_p95": 118.24,
+    "gap_p99": 119.51,
+    "commit_p95": null,
+    "present_rate": "UNGR",
+    "sync_calls": 0,
+    "sync_ms_avg": 0.0,
+    "dispatch_calls": 0,
+    "replay_true": 0,
+    "replay_false": 0,
+    "classify": {}
+  }
+]

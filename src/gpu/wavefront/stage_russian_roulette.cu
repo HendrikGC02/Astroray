@@ -45,7 +45,7 @@ constexpr int kRRDepth = 3;
 //
 // For Session N+4, we use a simplified conversion (direct sum of spectral
 // samples weighted by CIE Y matching function). Production would use the
-// full CIE 1964 standard observer or CIE 1931 observer via wavelength lookup.
+// full CIE observer table via wavelength lookup (CIE 1931 2°, #767).
 //
 // NOTE: This is a PLACEHOLDER conversion. A proper implementation requires:
 //   - Wavelength-dependent CIE Y matching function y_bar(lambda).
@@ -58,7 +58,7 @@ constexpr int kRRDepth = 3;
 // functions. The exact conversion is not critical for RR (we only need a
 // monotonic brightness proxy); the relative ordering is what matters.
 //
-// Session N+5+ will replace this with the full CIE 1964 GPU lookup from pkg54b.
+// Session N+5+ will replace this with the full CIE CMF GPU lookup from pkg54b.
 __device__ float estimateLuminance(
     const GSampledSpectrum& spectrum,
     const GSampledWavelengths& lambdas)

@@ -50,7 +50,7 @@ int uploadedProfileCount();
 // pkg218 — copies the baked dedicated-light emission-profile table into
 // device global memory (gpu_spectral_tables.cu).
 void uploadEmissionProfileTable(const float* host, int count);
-// pkg54b — one-time copy of CIE 1964 10° CMF tables into MW kernel constant memory.
+// pkg54b — one-time copy of CIE 1931 2° CMF tables into MW kernel constant memory.
 void uploadCmfTables();
 // pkg54c — one-time copy of the Jakob-Hanika sRGB sigmoid LUT into MW kernel
 // global memory; required by gpu_jhEvalSpectrum (the new upsampling path).

@@ -1,6 +1,6 @@
 #include "astroray/emission_spectrum.h"
 #include "astroray/spectral.h"  // for planck()
-#include "astroray/spectrum.h"  // for RGBAlbedoSpectrum, RGBIlluminantSpectrum, cieCmf1964_10deg
+#include "astroray/spectrum.h"  // for RGBAlbedoSpectrum, RGBIlluminantSpectrum, cieCmf1931_2deg
 #include "astroray/spectral_profile.h"
 #include "raytracer.h"  // for Vec3
 #include <stdexcept>
@@ -21,8 +21,8 @@ namespace astroray {
 // scene/light.cpp::light_normalize_factor (divide emission by its luminance)
 // and precomputes the normalized XYZ in kernel/svm/svm_blackbody.h (Apache-2.0).
 //
-// Returned factor = 1 / ∫ planck(λ,T)·1e9·ȳ(λ) dλ, integrated over the CIE-1964
-// 10° ȳ support (360–830 nm, 1 nm) using the SAME cieCmf1964_10deg() that
+// Returned factor = 1 / ∫ planck(λ,T)·1e9·ȳ(λ) dλ, integrated over the CIE-1931
+// 2° ȳ support (360–830 nm, 1 nm) using the SAME cieCmf1931_2deg() that
 // SampledSpectrum::toXYZ() uses. This is self-consistent: the evaluated,
 // normalized SPD has E[toXYZ().Y] = 1 for any T, independent of planck()'s
 // absolute scale and of the render's wavelength-sampling pdf (the Monte-Carlo
@@ -41,7 +41,7 @@ float blackbodyLuminanceNorm(double temperature_K) {
     double lumIntegral = 0.0;  // ∫ planck·1e9·ȳ dλ  (dλ = 1 nm)
     for (int lambda = 360; lambda <= 830; ++lambda) {
         double bb = planck(static_cast<double>(lambda), temperature_K) * 1e9;
-        float ybar = cieCmf1964_10deg(static_cast<float>(lambda)).Y;
+        float ybar = cieCmf1931_2deg(static_cast<float>(lambda)).Y;
         lumIntegral += bb * static_cast<double>(ybar);  // ·1 nm
     }
     float norm = (lumIntegral > 0.0) ? static_cast<float>(1.0 / lumIntegral) : 0.0f;
@@ -145,7 +145,7 @@ void EmissionSpectrum::deviceReference(Vec3& outRGB, bool& exactRGB) const {
     for (int lambda = 360; lambda <= 830; ++lambda) {
         float lam = static_cast<float>(lambda);
         float s = eval(SampledWavelengths::fromLambdas({lam, lam, lam, lam}))[0];
-        XYZ cmf = cieCmf1964_10deg(lam);
+        XYZ cmf = cieCmf1931_2deg(lam);
         xyz.X += s * cmf.X;  // implicit * 1 nm step
         xyz.Y += s * cmf.Y;
         xyz.Z += s * cmf.Z;

@@ -123,7 +123,14 @@ Implementation, hardware, and visual gates are UNRUN.
 
 ## Progress
 
-- (none yet)
+- 2026-09-20 (batch T, #767): Phase 0 observer question answered. The LUT was fit
+  against CIE 1931 2° (rgb2spec_opt `details/cie1931.h`). The output matrix is
+  also 2°, but the engine CMF was 1964 10°. That mismatch was the whole
+  `(.15,.45,.25)→(.179,.440,.234)` error above. With a 2° table the 7³ grid
+  round-trips to max |err| 9.9e-4. The engine table was switched to 1931 2°, with
+  contract tests in `tests/test_issue767_observer_contract.py`. See
+  `.astroray_plan/docs/issue767-observer-mismatch-research.md`. Phase 1 tolerances
+  can start from those numbers.
 
 ---
 

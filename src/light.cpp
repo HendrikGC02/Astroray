@@ -2,7 +2,7 @@
 #include "raytracer.h"
 #include "astroray/light.h"
 #include "astroray/spectral.h"  // for planck()
-#include "astroray/spectrum.h"  // for cieCmf1964_10deg
+#include "astroray/spectrum.h"  // for cieCmf1931_2deg
 #include <cmath>
 
 namespace astroray {

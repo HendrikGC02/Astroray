@@ -101,7 +101,57 @@ Format: measurement → verdict. Filled in as each rung runs on a fresh `.pyd`.
   (R 1.025 / G 1.040 / B 0.978) is NOT the spectral upsample of the env lookup
   either.
 
+### Rung 7 (added) — env-NEE estimator invariance on a glossy chrome sphere (CPU)
+- Rationale: rungs 2-6 clear the lookup, so if the #795 deficit is real it must
+  live in the env-reflection *combination* (BSDF-sampled env hit + env NEE via
+  the pkg258 power-heuristic MIS). Two unbiased estimators of the same integral
+  (env NEE ON vs OFF) must agree at convergence; a uniform furnace (rung 1)
+  cannot see a MIS-weight bias because a constant env makes every direction
+  equal.
+- Measurement (metal F0=(0.9,0.9,0.92) sphere under a 256x128 smooth colour
+  HDRI, 2048 spp, linear, ROI = central disk):
+  - r=0.00 (mirror): NEE on/off ratio = [1.0000, 1.0000, 1.0001]
+  - r=0.05 (corpus): NEE on/off ratio = [0.9999, 1.0001, 0.9998]
+  - r=0.20:          NEE on/off ratio = [0.9781, 0.9741, 0.9776]
+- Verdict: at the corpus chrome roughness (r=0.05) the CPU env-reflection path
+  is UNBIASED to ~0.01% and a perfect mirror equals the glossy sphere — the
+  23% #795 deficit is NOT reproduced on the CPU env-reflection path. A small
+  (~2.3%) NEE-on deficit appears only at higher roughness (r=0.2), a minor
+  pkg258 power-heuristic MIS effect, not a 23% lookup bug.
+
 ## Conclusion
 
-_Pending — the localised step and the fix (or the physics/upsampling
-explanation if no bug) go here with numbers._
+The diagnostic ladder falsifies the spec's premise that "the causal step is in
+the environment-map reflection LOOKUP":
+
+- The env lookup is byte-faithful across CPU and GPU (rung 5: 2.25e-7) and the
+  RGB->spectral upsample is faithful (rung 6: 4.94e-6). The CPU lookup matches
+  an independent numpy bilinear once the intentional load-flip is accounted for
+  (rung 2), the load is linear (rung 3), and there is no mip/blur (rung 4).
+  **Neither #755 nor #795 is an env-lookup or env-upsample bug.**
+- The only Cycles parameterisation difference found is the **half-texel offset**
+  (Astroray floors `u*W`; Cycles `svm_image` floors `u*W-0.5`). This is a real
+  but sub-1e-3 effect on smooth HDRIs and cannot account for 23%. It is a
+  legitimate small parity nit; fixing it is low-risk and mirrored CPU+GPU (see
+  below) but it is NOT the #795 cause.
+- On CPU, the env-reflection combination is unbiased at r=0.05 (rung 7), so the
+  #795 23% deficit is not reproduced by the CPU path. Its residual therefore
+  lives OUTSIDE pkg275's authorised surface (the env lookup): most likely the
+  GPU wavefront env-reflection/MIS leg (pkg258 owns env NEE/MIS;
+  memory `gpu-wavefront-nee-occlusion-deferred-stage`) or the Cycles-comparison
+  harness exposure/colour-management, both of which need a GPU repro of the
+  corpus hero + a Cycles reference to pin — flagged to the lead.
+
+### #755 (CPU/GPU env-only render gap)
+Rungs 5/6 prove the GPU and CPU env lookup and spectral upsample are identical
+to ~1e-6, so the render-level R 1.025 / G 1.040 / B 0.978 gap is a downstream
+integrator difference (wavefront MIS / RR / accumulation), not the lookup —
+outside pkg275's authorised surface and owned by pkg258.
+
+### Recommended pkg275 action
+The one in-scope, evidence-backed change is the **half-texel offset** to match
+Cycles `svm_image` texel-center sampling, mirrored in `EnvironmentMap::lookup`,
+`evalSpectral`, `gpu_envmap_lookup`, and `gpu_env_miss_spectral`. It closes the
+only lookup-vs-Cycles discrepancy the ladder found. The chrome-ROI [0.95,1.05]
+and #755 acceptance gates cannot be met by a lookup change (the lookup is
+clean) and are reassigned per the evidence — see the PR / lead hand-off.

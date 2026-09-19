@@ -802,6 +802,68 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         }
         return k;
     };
+    // pkg190 procedural bake, factored out (issue #818 Item 1) so it serves BOTH
+    // a direct procedural base colour AND a procedural INPUT of an op-VM
+    // ProgramTexture. Bakes the CPU texture's own evaluator into the flat texel
+    // buffer over its coord domain (2D-UV grid or 3D voxel, Mapping folded in per
+    // pkg242) and returns the texId, or -1 for an unbakeable coord mode
+    // (Object/Camera/Normal/Reflection/Window — CPU stays the reference). Dedups
+    // on (pointer, Mapping) via procBakeIdx. Does NOT set r.hasTexture; the caller
+    // does when texId >= 0.
+    auto bakeProceduralTexId = [&](Texture* tex) -> int {
+        Texture* key = tex;
+        const Texture::CoordMode cmode = tex->getCoordMode();
+        const bool uvMode  = cmode == Texture::CoordMode::UV;
+        const bool bakeable = uvMode || cmode == Texture::CoordMode::Generated;
+        if (!bakeable) return -1;
+        std::string pkey = procBakeKey(key);
+        auto tit = procBakeIdx.find(pkey);
+        if (tit != procBakeIdx.end()) return tit->second;
+        int res = 64;  // pkg190 default bake resolution
+        GImageTexture desc;
+        desc.offset = (int)r.textureTexels.size();
+        desc.width  = res;
+        desc.height = res;
+        if (uvMode) {
+            desc.depth = 1;  // 2D UV field → pkg186 image path verbatim
+            r.textureTexels.reserve(r.textureTexels.size() + (size_t)res * res);
+            for (int j = 0; j < res; ++j) {
+                float v = 1.0f - (j + 0.5f) / res;
+                for (int i = 0; i < res; ++i) {
+                    float u = (i + 0.5f) / res;
+                    Vec3 mp = tex->mappedPoint(Vec3(u, v, 0.0f));
+                    Vec3 c = tex->value(Vec2(mp.x, mp.y), mp);
+                    r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+                }
+            }
+        } else {
+            desc.depth = res;  // Generated 3D voxel
+            Vec3 gmin  = tex->hasGeneratedBBox() ? tex->getGeneratedMin()
+                                                 : Vec3(0.f, 0.f, 0.f);
+            Vec3 gsize = tex->hasGeneratedBBox() ? tex->getGeneratedSize()
+                                                 : Vec3(1.f, 1.f, 1.f);
+            desc.genMin  = GVec3(gmin.x,  gmin.y,  gmin.z);
+            desc.genSize = GVec3(gsize.x, gsize.y, gsize.z);
+            r.textureTexels.reserve(r.textureTexels.size() +
+                                    (size_t)res * res * res);
+            for (int k = 0; k < res; ++k) {
+                float pz = (k + 0.5f) / res;
+                for (int j = 0; j < res; ++j) {
+                    float py = (j + 0.5f) / res;
+                    for (int i = 0; i < res; ++i) {
+                        float px = (i + 0.5f) / res;
+                        Vec3 mp = tex->mappedPoint(Vec3(px, py, pz));
+                        Vec3 c = tex->value(Vec2(mp.x, mp.y), mp);
+                        r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+                    }
+                }
+            }
+        }
+        int texId = (int)r.textures.size();
+        procBakeIdx[pkey] = texId;
+        r.textures.push_back(desc);
+        return texId;
+    };
     auto getOrAddMat = [&](const std::shared_ptr<Material>& mIn) -> int {
         auto it = matIdx.find(mIn.get());
         if (it != matIdx.end()) return it->second;
@@ -877,32 +939,47 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // (GPU-degraded; CPU stays correct) — the pkg190/pkg186 cut, deferred.
             if (auto pt = std::dynamic_pointer_cast<ProgramTexture>(tex)) {
                 std::shared_ptr<Texture> child =
-                    pt->numInputs() >= 1 ? pt->getInput(0) : nullptr;
-                auto childImg = std::dynamic_pointer_cast<ImageTexture>(child);
-                if (childImg && !childImg->getData().empty() && pt->numInputs() == 1) {
-                    // Upload the child image (deduped by the ImageTexture*), but
-                    // carry the ProgramTexture's Mapping matrix on the descriptor.
-                    auto tit = texIdx.find(childImg.get());
-                    if (tit != texIdx.end()) {
-                        texId = tit->second;
-                    } else {
-                        texId = (int)r.textures.size();
-                        texIdx[childImg.get()] = texId;
-                        GImageTexture desc;
-                        desc.offset = (int)r.textureTexels.size();
-                        desc.width  = childImg->getWidth();
-                        desc.height = childImg->getHeight();
-                        if (pt->hasMapping()) {
-                            desc.hasMapping = 1;
-                            const float* mm = pt->getMappingMatrix();
-                            for (int i = 0; i < 12; ++i) desc.mapping[i] = mm[i];
+                    pt->numInputs() == 1 ? pt->getInput(0) : nullptr;
+                int childTexId = -1;
+                if (auto childImg = std::dynamic_pointer_cast<ImageTexture>(child)) {
+                    if (!childImg->getData().empty()) {
+                        // Upload the child image (deduped by the ImageTexture*), but
+                        // carry the ProgramTexture's Mapping matrix on the descriptor.
+                        auto tit = texIdx.find(childImg.get());
+                        if (tit != texIdx.end()) {
+                            childTexId = tit->second;
+                        } else {
+                            childTexId = (int)r.textures.size();
+                            texIdx[childImg.get()] = childTexId;
+                            GImageTexture desc;
+                            desc.offset = (int)r.textureTexels.size();
+                            desc.width  = childImg->getWidth();
+                            desc.height = childImg->getHeight();
+                            if (pt->hasMapping()) {
+                                desc.hasMapping = 1;
+                                const float* mm = pt->getMappingMatrix();
+                                for (int i = 0; i < 12; ++i) desc.mapping[i] = mm[i];
+                            }
+                            const std::vector<Vec3>& px = childImg->getData();
+                            r.textureTexels.reserve(r.textureTexels.size() + px.size());
+                            for (const Vec3& c : px)
+                                r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+                            r.textures.push_back(desc);
                         }
-                        const std::vector<Vec3>& px = childImg->getData();
-                        r.textureTexels.reserve(r.textureTexels.size() + px.size());
-                        for (const Vec3& c : px)
-                            r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
-                        r.textures.push_back(desc);
                     }
+                } else if (child) {
+                    // issue #818 Item 1 — a PROCEDURAL op-VM input. Bake the child's
+                    // own evaluator (Noise/Checker/Wave/…) into the flat texel buffer
+                    // via the shared pkg190 path; its coord_mode + Mapping (carried on
+                    // the child, set by load_procedural_texture) select the bake
+                    // domain and are folded in, so the wavefront shade path samples it
+                    // exactly like a baked direct-procedural base colour and then runs
+                    // svm_eval — CPU parity by construction. Unbakeable coord modes
+                    // return -1 (GPU-degraded to flat; CPU stays the reference).
+                    childTexId = bakeProceduralTexId(child.get());
+                }
+                if (childTexId >= 0) {
+                    texId = childTexId;
                     // Dedup the compiled program by ProgramTexture*.
                     auto pit = progIdx.find(pt.get());
                     if (pit != progIdx.end()) {
@@ -946,110 +1023,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             } else if (tex) {
                 // pkg190 — bake a PROCEDURAL base-colour texture (checker / brick /
                 // wave / magic / …) into the flat device texel buffer, then reuse
-                // the pkg186 fetch machinery. Two domains, matching how the CPU
-                // Texture evaluates the node (include/advanced_features.h
-                // Texture::textureCoordinates):
-                //   * Generated coord mode → the node is a 3D field over
-                //     the object's normalized bbox → bake a res^3 VOXEL grid in
-                //     [0,1]^3 (the same space the CPU passes as `p`), sampled on the
-                //     GPU by the Generated coordinate (gpu_sampleProcedural3D).
-                //   * UV coord mode → the node is a 2D field of (u,v) → bake a res^2
-                //     grid sampled by the pkg186 2D UV path (depth == 1).
-                // The bake calls the material's OWN CPU evaluator, so parity is
-                // exact-by-construction modulo grid resolution (no procedural math
-                // is re-derived on the device — cite-algorithm safe).
-                Texture* key = tex.get();
-                // pkg190 follow-up (PR #612 review) — COORD-MODE CONVENTION:
-                // the 3D voxel bake below stores the field over the NORMALIZED
-                // Generated domain ([0,1]^3 over genMin/genSize) and the shade
-                // path rebuilds g = clamp((p - genMin)/genSize, 0, 1) to sample
-                // it. Only CoordMode::Generated evaluates in that space on the
-                // CPU. CoordMode::Object passes the RAW unnormalized
-                // objectPoint (include/advanced_features.h CoordMode::Object),
-                // so an Object bake would diverge CPU<->GPU by construction —
-                // bake Object only if the CPU side gains the identical bbox
-                // normalization in lockstep. Object/Camera/Normal/Reflection/
-                // Window therefore stay UNBAKED: texId stays -1 and the GPU
-                // shades the flat baseColor (the pre-pkg190 degradation; CPU
-                // remains the reference — test_pkg190 test_object_mode_*).
-                const Texture::CoordMode cmode = tex->getCoordMode();
-                const bool uvMode  = cmode == Texture::CoordMode::UV;
-                const bool bakeable =
-                    uvMode || cmode == Texture::CoordMode::Generated;
-                // pkg242 — dedup on (pointer, Mapping) so an edited transform
-                // re-bakes (the transform is folded into the texels below).
-                std::string pkey = procBakeKey(key);
-                auto tit = procBakeIdx.find(pkey);
-                if (!bakeable) {
-                    // guarded fallback — no bake (see convention above)
-                } else if (tit != procBakeIdx.end()) {
-                    texId = tit->second;
-                    r.hasTexture = true;
-                } else {
-                    // pkg190 default bake resolution; escalate a specific high-
-                    // frequency node only if its parity/SSIM gate demands it.
-                    int res = 64;
-                    GImageTexture desc;
-                    desc.offset = (int)r.textureTexels.size();
-                    desc.width  = res;
-                    desc.height = res;
-                    if (uvMode) {
-                        desc.depth = 1;  // 2D UV field → pkg186 image path verbatim
-                        r.textureTexels.reserve(r.textureTexels.size() +
-                                                (size_t)res * res);
-                        // Bake row j at v = 1 - (j+0.5)/res so the GPU 2D fetch
-                        // (which v-flips, mirroring CPU ImageTexture::value) round-
-                        // trips to value(u, v) exactly.
-                        for (int j = 0; j < res; ++j) {
-                            float v = 1.0f - (j + 0.5f) / res;
-                            for (int i = 0; i < res; ++i) {
-                                float u = (i + 0.5f) / res;
-                                // pkg242 — fold the Mapping transform into the
-                                // baked texel: evaluate the field at the same
-                                // transformed point the CPU HitRecord overload
-                                // samples (mappedPoint == identity when unset,
-                                // so the untransformed bake stays byte-identical).
-                                Vec3 mp = tex->mappedPoint(Vec3(u, v, 0.0f));
-                                Vec3 c = tex->value(Vec2(mp.x, mp.y), mp);
-                                r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
-                            }
-                        }
-                    } else {
-                        // Generated 3D voxel bake. genMin/genSize come from
-                        // the CPU texture's baked object bbox so the GPU rebuilds
-                        // the identical normalized coordinate.
-                        desc.depth = res;
-                        Vec3 gmin  = tex->hasGeneratedBBox() ? tex->getGeneratedMin()
-                                                             : Vec3(0.f, 0.f, 0.f);
-                        Vec3 gsize = tex->hasGeneratedBBox() ? tex->getGeneratedSize()
-                                                             : Vec3(1.f, 1.f, 1.f);
-                        desc.genMin  = GVec3(gmin.x,  gmin.y,  gmin.z);
-                        desc.genSize = GVec3(gsize.x, gsize.y, gsize.z);
-                        r.textureTexels.reserve(r.textureTexels.size() +
-                                                (size_t)res * res * res);
-                        // Bake cell CENTERS over the normalized [0,1]^3 domain the
-                        // CPU passes as `p` (= g) in CoordMode::Generated. Storage
-                        // is k-major: idx = (k*res + j)*res + i.
-                        for (int k = 0; k < res; ++k) {
-                            float pz = (k + 0.5f) / res;
-                            for (int j = 0; j < res; ++j) {
-                                float py = (j + 0.5f) / res;
-                                for (int i = 0; i < res; ++i) {
-                                    float px = (i + 0.5f) / res;
-                                    // pkg242 — fold the Mapping transform into
-                                    // the voxel (identity when unset).
-                                    Vec3 mp = tex->mappedPoint(Vec3(px, py, pz));
-                                    Vec3 c = tex->value(Vec2(mp.x, mp.y), mp);
-                                    r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
-                                }
-                            }
-                        }
-                    }
-                    texId = (int)r.textures.size();
-                    procBakeIdx[pkey] = texId;
-                    r.textures.push_back(desc);
-                    r.hasTexture = true;
-                }
+                // the pkg186 fetch machinery. Factored into bakeProceduralTexId
+                // (issue #818 Item 1) which the ProgramTexture procedural-input path
+                // shares; see that lambda for the coord-domain / Mapping / dedup
+                // convention (Object/Camera/… stay UNBAKED → -1, CPU is the
+                // reference). The bake calls the material's OWN CPU evaluator, so
+                // parity is exact-by-construction modulo grid resolution.
+                texId = bakeProceduralTexId(tex.get());
+                if (texId >= 0) r.hasTexture = true;
             }
             // pkg190 fold-guard exactness (advisory #1, PR #590): a textured
             // lambertian's flat baseColor is only a fallback. Neutralize it so the

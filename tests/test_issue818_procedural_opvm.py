@@ -326,6 +326,22 @@ def test_multi_input_base_color_program_no_degradation(monkeypatch):
     lines = _degradation_lines(monkeypatch, 'Base Color',
                                _two_noise_mix_socket('Base Color'))
     assert not any("multi-input shader program" in m for m in lines), lines
+    assert not any("procedural input with" in m for m in lines), lines
+
+
+def test_unbakeable_procedural_program_records_degradation(monkeypatch):
+    # Object coords: the GPU cannot bake the procedural, so it drops the whole
+    # program (critic finding on #826) — must stay non-silent.
+    tc = Node('TEX_COORD')
+    noise_a = Node('TEX_NOISE', inputs=[Sock('Vector', link=Link(tc, 'Object'))])
+    noise_b = Node('TEX_NOISE', inputs=[Sock('Vector', link=Link(tc, 'Object'))])
+    mix = Node('MIX_RGB', blend_type='MIX',
+               inputs=[Sock('Fac', 0.5),
+                       Sock('Color1', [0, 0, 0], Link(noise_a, 'Color')),
+                       Sock('Color2', [0, 0, 0], Link(noise_b, 'Color'))])
+    base = Sock('Base Color', [0.5, 0.5, 0.5], Link(mix, 'Color'))
+    lines = _degradation_lines(monkeypatch, 'Base Color', base)
+    assert any("procedural input with OBJECT coordinates" in m for m in lines), lines
 
 
 def test_multi_input_scalar_program_records_degradation(monkeypatch):

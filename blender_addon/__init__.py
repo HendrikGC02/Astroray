@@ -4022,6 +4022,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         resolved = resolved_inputs[0]
         coord_mode, uvlayer = resolved['coord_mode'], resolved['uv_layer']
+        # The GPU bakes procedural inputs only over UV / Generated coordinates
+        # (scene_upload.cu bakeProceduralTexId); any other mode drops the whole
+        # program to the flat base colour on the GPU. Keep that non-silent.
+        if proc_kind and coord_mode not in ('UV', 'GENERATED'):
+            self._warn_shader_fallback(
+                'op-VM', 'procedural input with %s coordinates on %s: GPU skips '
+                'the program (flat value); CPU exact' % (coord_mode, input_name))
         scale, offset, rot = (1.0, 1.0), (0.0, 0.0), 0.0
         mapping_matrix = self._affine_matrix_values(resolved)
         child_names = []

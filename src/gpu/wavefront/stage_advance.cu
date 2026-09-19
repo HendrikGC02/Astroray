@@ -996,14 +996,15 @@ __device__ __forceinline__ bool gpu_scalarProgSourceTexel(
 // images into one Mix). Same fetch as input 0 in shadePathSlot's HasTexture
 // block: a 3D voxel bake (depth > 1; Generated coord rebuilt from the hit point
 // and THIS descriptor's genMin/genSize) or a 2D image / UV bake (triangle-UV
-// barycentric recompute, Ericson §3.4, + THIS descriptor's Mapping). Returns
-// `fallback` on a non-triangle / UV-less 2D hit. __noinline__ with by-value args
-// keeps the body out of the REG:254 <HasProgram=true> caller's allocation
-// (memory noinline-runtime-flag-avoids-shade-spill); single-input programs never
-// call it. Only ever called from <HasProgram=true>.
-static __device__ __noinline__ GVec3 gpu_progInputTexel(
-    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris,
-    int texId, GVec3 fallback)
+// barycentric recompute, Ericson §3.4, + THIS descriptor's Mapping). ok=false on
+// a non-triangle / UV-less / degenerate 2D hit; the caller then skips the whole
+// texture, exactly as when input 0 misses. __noinline__ with by-value args keeps
+// the body out of the REG:254 <HasProgram=true> caller's allocation (memory
+// noinline-runtime-flag-avoids-shade-spill); single-input programs never call
+// it. Only ever called from <HasProgram=true>.
+struct GProgInputTexel { GVec3 c; bool ok; };
+static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
+    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
 {
     const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
     if (tdesc.depth > 1) {
@@ -1011,17 +1012,18 @@ static __device__ __noinline__ GVec3 gpu_progInputTexel(
         g.x = tdesc.genSize.x > 1e-6f ? (point.x - tdesc.genMin.x) / tdesc.genSize.x : 0.0f;
         g.y = tdesc.genSize.y > 1e-6f ? (point.y - tdesc.genMin.y) / tdesc.genSize.y : 0.0f;
         g.z = tdesc.genSize.z > 1e-6f ? (point.z - tdesc.genMin.z) / tdesc.genSize.z : 0.0f;
-        return gpu_sampleProcedural3D(tdesc, c_wfTexBinding.texelBuf, g);
+        return {gpu_sampleProcedural3D(tdesc, c_wfTexBinding.texelBuf, g), true};
     }
-    if (!(primId >= 0 && prims[primId].type == GPRIM_TRIANGLE)) return fallback;
+    const GProgInputTexel miss{GVec3(0.0f, 0.0f, 0.0f), false};
+    if (!(primId >= 0 && prims[primId].type == GPRIM_TRIANGLE)) return miss;
     const GTriangle& ttri = tris[prims[primId].index];
-    if (!ttri.hasUV) return fallback;
+    if (!ttri.hasUV) return miss;
     GVec3 e1 = ttri.v1 - ttri.v0, e2 = ttri.v2 - ttri.v0;
     GVec3 ep = point - ttri.v0;
     float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
     float d20 = ep.dot(e1), d21 = ep.dot(e2);
     float denom = d00 * d11 - d01 * d01;
-    if (fabsf(denom) <= 1e-20f) return fallback;
+    if (fabsf(denom) <= 1e-20f) return miss;
     float b1 = (d11 * d20 - d01 * d21) / denom;
     float b2 = (d00 * d21 - d01 * d20) / denom;
     float b0 = 1.0f - b1 - b2;
@@ -1033,7 +1035,7 @@ static __device__ __noinline__ GVec3 gpu_progInputTexel(
         float mv = m[4]*uu + m[5]*vv + m[7];
         uu = mu; vv = mv;
     }
-    return gpu_sampleImageTexture(tdesc, c_wfTexBinding.texelBuf, uu, vv);
+    return {gpu_sampleImageTexture(tdesc, c_wfTexBinding.texelBuf, uu, vv), true};
 }
 
 // pkg219d — apply one op-VM scalar result to the LOCAL GMaterial copy. Overwrites
@@ -1596,17 +1598,23 @@ __device__ bool shadePathSlot(
                         vmIn[0] = texColor;
                         // #826 — inputs t >= 1 use their own texId; a single-input
                         // program has -1 there and broadcasts input 0 (as before).
+                        // An input that cannot be sampled at this hit skips the
+                        // whole texture, like an input-0 miss (haveTex = false).
                         const int* inTexIds = c_wfProgBinding.matProgInTexId;
                         const int inBase = rec.materialId * astroray::svm::VM_MAX_TEX;
                         for (int t = 1; t < astroray::svm::VM_MAX_TEX; ++t) {
                             int inTex = inTexIds ? inTexIds[inBase + t] : -1;
-                            vmIn[t] = inTex >= 0
-                                ? gpu_progInputTexel(rec.point, rec.primId, prims, tris,
-                                                     inTex, texColor)
-                                : texColor;
+                            vmIn[t] = texColor;
+                            if (inTex >= 0) {
+                                GProgInputTexel s = gpu_progInputTexel(
+                                    rec.point, rec.primId, prims, tris, inTex);
+                                vmIn[t] = s.c;
+                                haveTex = haveTex && s.ok;
+                            }
                         }
-                        texColor = astroray::svm::svm_eval(
-                            c_wfProgBinding.programs[progId], vmIn);
+                        if (haveTex)
+                            texColor = astroray::svm::svm_eval(
+                                c_wfProgBinding.programs[progId], vmIn);
                     }
                 }
             }

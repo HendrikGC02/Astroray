@@ -9,7 +9,8 @@ Mapping for both. scene_upload.cu now keys it on (image, applied Mapping).
 images into one Mix) samples both inputs on the GPU (was: flat base colour).
 
 Gate: per-ROI, per-channel GPU/CPU mean ratio within 3 % (independent RNG
-streams -> mean ratio, not SSIM). CPU legs check the scene itself; GPU legs are
+streams -> mean ratio, not SSIM). 256 spp: at 64 spp the darkest channels
+(~0.03) showed 3.5 % GPU/CPU noise on a correct build; 256 spp measured <= 1.8 %. CPU legs check the scene itself; GPU legs are
 GPU-gated (CI has no CUDA device).
 """
 import astroray
@@ -66,7 +67,7 @@ def _program(r, name, coord, inputs, prog, num_tex):
                                   code, consts, [])
 
 
-def _render(build, use_gpu, width, height, samples=64):
+def _render(build, use_gpu, width, height, samples=256):
     r = create_renderer()
     if use_gpu:
         if not _has_cuda_gpu(r):
@@ -99,8 +100,8 @@ def _assert_ratio(gpu, cpu, label):
 
 # --------------------------------------------------------------------------- #
 # #825 — direct image (no Mapping) + the same image inside a mirrored program.
-# Two quads fill a 2:1 frame; `program_left` swaps which one the BVH (and so the
-# upload) visits first, covering both "first consumer wins" directions.
+# Two quads fill a 2:1 frame. Both layouts fail on main's .pyd (program quad
+# wrong with it on the right; both quads wrong with it on the left).
 # --------------------------------------------------------------------------- #
 _W825, _H825 = 128, 64
 
@@ -221,3 +222,37 @@ def test_826_gpu_noise_mix_checker_parity():
                   cpu_img.reshape(-1, 3).mean(axis=0), "#826 Noise->Mix<-Checker (frame)")
     _assert_ratio(_quadrant_means(gpu_img, 0, _W826), _quadrant_means(cpu_img, 0, _W826),
                   "#826 Noise->Mix<-Checker (quadrants)")
+
+
+# --------------------------------------------------------------------------- #
+# #826 — an input t >= 1 that cannot be sampled at a hit skips the whole texture,
+# exactly like an input-0 miss (critic finding: it used to substitute input 0).
+# Spheres carry no GPU texture UVs: a single-image program misses input 0; a
+# program with a 3-D procedural input 0 and an image input 1 misses input 1.
+# Both must render the same (texture skipped). GPU-only: the CPU samples sphere
+# UVs, so this is a GPU-internal consistency check.
+# --------------------------------------------------------------------------- #
+def _build_sphere_miss(r):
+    r.load_texture("imgS826", _flat(_IMG_A), 2, 2, "UV")
+    r.create_procedural_texture("chkS826", "checker",
+                                [0.9, 0.1, 0.1, 0.1, 0.1, 0.9, 4.0], "GENERATED")
+    r.set_texture_generated_bbox("chkS826", [-2.2, -1.1, -1.1], [4.4, 2.2, 2.2])
+    _program(r, "progS1", "UV", ["imgS826"], _IDENTITY_PROG, 1)
+    _program(r, "progS2", "GENERATED", ["chkS826", "imgS826"], _MIX2_PROG, 2)
+    r.set_texture_generated_bbox("progS2", [-2.2, -1.1, -1.1], [4.4, 2.2, 2.2])
+    single = r.create_material("lambertian", [1.0, 1.0, 1.0], {"texture": "progS1"})
+    mixed = r.create_material("lambertian", [1.0, 1.0, 1.0], {"texture": "progS2"})
+    r.add_sphere([-1.0, 0.0, 0.0], 0.9, single)
+    r.add_sphere([1.0, 0.0, 0.0], 0.9, mixed)
+    setup_camera(r, look_from=[0, 0, 6], look_at=[0, 0, 0], vup=[0, 1, 0],
+                 vfov=float(np.degrees(2 * np.arctan(1.0 / 6.0))),
+                 width=_W825, height=_H825)
+
+
+def test_826_gpu_input_miss_skips_like_input0():
+    gpu = _render(_build_sphere_miss, True, _W825, _H825)
+    h, w = gpu.shape[:2]
+    # sphere centres at x = -1 / +1 of a [-2, 2] x [-1, 1] window
+    roi = lambda cx: gpu[int(0.35 * h):int(0.65 * h),  # noqa: E731
+                         int((cx - 0.15) * w):int((cx + 0.15) * w)].reshape(-1, 3).mean(axis=0)
+    _assert_ratio(roi(0.75), roi(0.25), "#826 input-1 miss vs input-0 miss (spheres)")

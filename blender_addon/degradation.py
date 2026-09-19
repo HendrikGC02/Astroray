@@ -31,7 +31,7 @@ class DegradationReport:
 
       * :meth:`approximate` - a recognised input mapped to a nearest engine
         behaviour (e.g. Cycles microfiber sheen -> Disney sheen).
-      * :meth:`degrade` - an input that could not be read as authored and is
+      * :meth:`degraded` - an input that could not be read as authored and is
         replaced by a visible fallback (e.g. a missing image/env file -> magenta).
       * :meth:`ignore` - an input the engine cannot honour yet and drops (e.g.
         an unsupported surface shader node, an ORTHO camera).

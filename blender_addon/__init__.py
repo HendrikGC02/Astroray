@@ -1347,6 +1347,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             except RuntimeError as exc:
                 self.report({'ERROR'}, str(exc))
                 return
+            self._report_gpu_volume_cap(active_device)  # issue #828 item 3
             if active_device == "gpu":
                 try:
                     print(f"GPU rendering: {renderer.gpu_device_name}")
@@ -1598,7 +1599,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             min(settings.diffuse_bounces, depth),
             min(settings.glossy_bounces, depth),
             min(settings.transmission_bounces, depth),
-            min(settings.volume_bounces, depth),
+            settings.volume_bounces,  # pkg271: Cycles max_volume_bounce is its own limit
             min(settings.transparent_bounces, depth),
         )
 
@@ -5299,21 +5300,29 @@ class CustomRaytracerRenderEngine(RenderEngine):
         print("[astroray volume] %s" % msg)
 
     def _count_volume_medium(self):
-        """Issue #828 item 3: the GPU side table holds GPU_MAX_VOLUME_MEDIA
-        bounded media; report (once per conversion) when a scene exceeds it."""
-        n = getattr(self, "_vol_media_count", 0) + 1
-        self._vol_media_count = n
+        """Issue #828 item 3: count the bounded media this conversion exported
+        (the GPU side table holds GPU_MAX_VOLUME_MEDIA; see
+        _report_gpu_volume_cap, called once the render device is known)."""
+        self._vol_media_count = getattr(self, "_vol_media_count", 0) + 1
+
+    def _report_gpu_volume_cap(self, active_device):
+        """Issue #828 item 3: on a GPU render, report media beyond the GPU side
+        table (the CPU honours every medium, so a CPU render reports nothing)."""
+        if active_device != "gpu":
+            return
         try:
             from . import volume_export as _vol
         except Exception:  # pragma: no cover
             import volume_export as _vol
-        if n == _vol.GPU_MAX_VOLUME_MEDIA + 1:
+        n = getattr(self, "_vol_media_count", 0)
+        if n > _vol.GPU_MAX_VOLUME_MEDIA:
             self._vol_report(
-                "more than %d volume media: the GPU renders only the first %d "
-                "(issue #828)" % (_vol.GPU_MAX_VOLUME_MEDIA, _vol.GPU_MAX_VOLUME_MEDIA))
+                "%d volume media: the GPU renders only the first %d (issue #828)"
+                % (n, _vol.GPU_MAX_VOLUME_MEDIA))
             self._degradation_report().ignore(
                 "Volume media beyond %d" % _vol.GPU_MAX_VOLUME_MEDIA,
-                "ignored when rendering on the GPU (issue #828)")
+                "%d ignored when rendering on the GPU (issue #828)"
+                % (n - _vol.GPU_MAX_VOLUME_MEDIA))
 
     def convert_objects(self, depsgraph, renderer, material_map,
                         motion_start_matrices=None, motion_end_matrices=None):

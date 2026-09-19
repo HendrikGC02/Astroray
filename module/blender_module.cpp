@@ -1616,13 +1616,15 @@ public:
     void setupCamera(const std::vector<float>& lookFrom, const std::vector<float>& lookAt,
                     const std::vector<float>& vup, float vfov, float aspectRatio,
                     float aperture, float focusDist, int width, int height,
-                    float shiftX = 0.0f, float shiftY = 0.0f) {
+                    float shiftX = 0.0f, float shiftY = 0.0f,
+                    float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max()) {
         auto oldCamera = camera;
         camera = std::make_shared<Camera>(
             Vec3(lookFrom[0], lookFrom[1], lookFrom[2]),
             Vec3(lookAt[0], lookAt[1], lookAt[2]),
             Vec3(vup[0], vup[1], vup[2]),
-            vfov, aspectRatio, aperture, focusDist, width, height, shiftX, shiftY);
+            vfov, aspectRatio, aperture, focusDist, width, height,
+            shiftX, shiftY, clipNear, clipFar);
         // pkg72: Blender re-uploads the camera every viewport frame via
         // setup_camera; carry the previous-frame projection snapshot across
         // so motion vectors are non-zero on the second and later frames.
@@ -2025,7 +2027,11 @@ public:
                        const std::array<float, 16>& object_to_world,
                        float density_scale, std::array<float, 3> color,
                        std::array<float, 3> absorption_color, float anisotropy,
-                       py::object temperature) {
+                       py::object temperature,
+                       // pkg270 — emission sockets + the temperature grid's own bbox
+                       py::object temperature_bbox_min, float emission_strength,
+                       std::array<float, 3> emission_color, float blackbody_intensity,
+                       std::array<float, 3> blackbody_tint, float blackbody_temperature) {
         auto buf = density.request();
         if (buf.ndim != 3)
             throw std::runtime_error("density must be a 3D array (nz, ny, nx)");
@@ -2042,7 +2048,9 @@ public:
             if (tb.ndim == 3) {
                 astroray::volume::DenseGrid tg;
                 tg.dim[0] = int(tb.shape[2]); tg.dim[1] = int(tb.shape[1]); tg.dim[2] = int(tb.shape[0]);
-                tg.bboxMin[0] = bbox_min[0]; tg.bboxMin[1] = bbox_min[1]; tg.bboxMin[2] = bbox_min[2];
+                std::array<int, 3> tbm = bbox_min;
+                if (!temperature_bbox_min.is_none()) tbm = temperature_bbox_min.cast<std::array<int, 3>>();
+                tg.bboxMin[0] = tbm[0]; tg.bboxMin[1] = tbm[1]; tg.bboxMin[2] = tbm[2];
                 const float* tp = static_cast<const float*>(tb.ptr);
                 tg.data.assign(tp, tp + size_t(tg.dim[0]) * tg.dim[1] * tg.dim[2]);
                 gm->setTemperature(tg);
@@ -2053,18 +2061,31 @@ public:
         pv.color = color;
         pv.absorptionColor = absorption_color;
         pv.anisotropy = anisotropy;
+        pv.emissionStrength = emission_strength;
+        pv.emissionColor = emission_color;
+        pv.blackbodyIntensity = blackbody_intensity;
+        pv.blackbodyTint = blackbody_tint;
+        pv.temperature = blackbody_temperature;
         renderer.addGridMedium(std::move(gm), pv);
     }
 
     // Homogeneous bounded medium (the #807 cabinet cubes, the slab furnace).
     void addHomogeneousMedium(std::array<float, 3> aabb_min, std::array<float, 3> aabb_max,
                               float density_scale, std::array<float, 3> color,
-                              std::array<float, 3> absorption_color, float anisotropy) {
+                              std::array<float, 3> absorption_color, float anisotropy,
+                              float emission_strength, std::array<float, 3> emission_color,
+                              float blackbody_intensity, std::array<float, 3> blackbody_tint,
+                              float blackbody_temperature) {
         astroray::volume::PrincipledVolume pv;
         pv.density = density_scale;
         pv.color = color;
         pv.absorptionColor = absorption_color;
         pv.anisotropy = anisotropy;
+        pv.emissionStrength = emission_strength;
+        pv.emissionColor = emission_color;
+        pv.blackbodyIntensity = blackbody_intensity;
+        pv.blackbodyTint = blackbody_tint;
+        pv.temperature = blackbody_temperature;
         renderer.addHomogeneousMedium(Vec3(aabb_min[0], aabb_min[1], aabb_min[2]),
                                       Vec3(aabb_max[0], aabb_max[1], aabb_max[2]), pv);
     }
@@ -2121,6 +2142,13 @@ public:
     // pkg64-gpu spec follow-ups, out of scope for Phase 1.)
     bool setObjectCausticCaster(int objectId, bool enabled) {
         return renderer.setObjectCausticCaster(objectId, enabled);
+    }
+
+    // pkg274 (#36) — per-object holdout flag (mirrors setObjectCausticCaster).
+    // `objectId` is the addObject call order. CPU-only: the primary camera ray's
+    // first hit on a holdout object writes color 0 / alpha 0 (a transparent hole).
+    bool setObjectHoldout(int objectId, bool enabled) {
+        return renderer.setObjectHoldout(objectId, enabled);
     }
 
     int getCausticCasterCount() const {
@@ -3647,7 +3675,8 @@ PYBIND11_MODULE(astroray, m) {
              "position"_a, "mass"_a, "influence_radius"_a, "params"_a = py::dict())
         .def("setup_camera", &PyRenderer::setupCamera, "look_from"_a, "look_at"_a, "vup"_a, "vfov"_a,
              "aspect_ratio"_a, "aperture"_a, "focus_dist"_a, "width"_a, "height"_a,
-             "shift_x"_a = 0.0f, "shift_y"_a = 0.0f)
+             "shift_x"_a = 0.0f, "shift_y"_a = 0.0f,
+             "clip_near"_a = 0.001f, "clip_far"_a = std::numeric_limits<float>::max())
         .def("set_camera_motion_blur", &PyRenderer::setCameraMotionBlur,
              "start_t"_a, "start_r"_a, "start_s"_a, "end_t"_a, "end_r"_a, "end_s"_a,
              "shutter"_a, "shutter_position"_a,
@@ -3687,14 +3716,29 @@ PYBIND11_MODULE(astroray, m) {
              "color"_a = std::array<float, 3>{0.8f, 0.8f, 0.8f},
              "absorption_color"_a = std::array<float, 3>{1.0f, 1.0f, 1.0f},
              "anisotropy"_a = 0.0f, "temperature"_a = py::none(),
+             "temperature_bbox_min"_a = py::none(),
+             "emission_strength"_a = 0.0f,
+             "emission_color"_a = std::array<float, 3>{1.0f, 1.0f, 1.0f},
+             "blackbody_intensity"_a = 0.0f,
+             "blackbody_tint"_a = std::array<float, 3>{1.0f, 1.0f, 1.0f},
+             "blackbody_temperature"_a = 1000.0f,
              "pkg268 — register a heterogeneous GridMedium (NanoVDB) with "
-             "Principled Volume basics for the spectral integrator.")
+             "Principled Volume basics for the spectral integrator. pkg270: "
+             "chromatic σ(λ) + emission/blackbody sockets (Cycles semantics; "
+             "blackbody_temperature scales the temperature grid when present).")
         .def("add_homogeneous_medium", &PyRenderer::addHomogeneousMedium,
              "aabb_min"_a, "aabb_max"_a, "density_scale"_a = 1.0f,
              "color"_a = std::array<float, 3>{0.8f, 0.8f, 0.8f},
              "absorption_color"_a = std::array<float, 3>{1.0f, 1.0f, 1.0f},
              "anisotropy"_a = 0.0f,
-             "pkg268 — register a bounded homogeneous medium (constant σ_t).")
+             "emission_strength"_a = 0.0f,
+             "emission_color"_a = std::array<float, 3>{1.0f, 1.0f, 1.0f},
+             "blackbody_intensity"_a = 0.0f,
+             "blackbody_tint"_a = std::array<float, 3>{1.0f, 1.0f, 1.0f},
+             "blackbody_temperature"_a = 1000.0f,
+             "pkg268 — register a bounded homogeneous medium (constant σ_t). "
+             "pkg270: emission/blackbody sockets (blackbody_temperature is the "
+             "absolute T in kelvin for a mesh-bounded medium).")
         .def("set_guiding", &PyRenderer::setGuiding, "use"_a,
              "pkg136 — enable CPU SD-tree path guiding (off = byte-identical).")
         .def("set_guiding_params", &PyRenderer::setGuidingParams,
@@ -3723,6 +3767,11 @@ PYBIND11_MODULE(astroray, m) {
              "pkg64 Phase 3 — flag an object (by addObject order) as a "
              "caustic caster. Default path_tracer attempts SMS connections "
              "through flagged objects when use_refractive_caustics=True.")
+        .def("set_object_holdout", &PyRenderer::setObjectHoldout,
+             "object_id"_a, "enabled"_a,
+             "pkg274 (#36) — flag an object (by addObject order) as holdout. The "
+             "primary camera ray's first hit on it writes color 0 / alpha 0 "
+             "(a transparent hole); indirect rays are untouched. CPU only.")
         .def("caustic_caster_count", &PyRenderer::getCausticCasterCount)
         .def("scene_object_count", &PyRenderer::getSceneObjectCount)
         .def("set_object_name", &PyRenderer::setObjectName,
@@ -5858,5 +5907,44 @@ PYBIND11_MODULE(astroray, m) {
               "density"_a, "color"_a, "absorption_color"_a,
               "pkg268 — Cycles Principled Volume coefficient mapping: returns "
               "(extinction_scale, (albedo_r, albedo_g, albedo_b)).");
+
+        // pkg270 — per-wavelength Cycles coefficients (JH-upsampled colours,
+        // formula applied per λ): returns (sigma_s[4], sigma_a[4]) at `density`.
+        m.def("principled_volume_spectral_coefficients",
+              [](float density, std::array<float, 3> color,
+                 std::array<float, 3> absorption_color,
+                 std::array<float, astroray::kSpectrumSamples> lambdas) {
+                  astroray::RGBAlbedoSpectrum cs(color), as(absorption_color);
+                  auto wl = astroray::SampledWavelengths::fromLambdas(lambdas);
+                  astroray::SampledSpectrum s, a;
+                  astroray::volume::principledSpectralCoeffs(cs, as, wl, s, a);
+                  py::list ls, la;
+                  for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+                      ls.append(density * s[i]);
+                      la.append(density * a[i]);
+                  }
+                  return py::make_tuple(ls, la);
+              },
+              "density"_a, "color"_a, "absorption_color"_a, "lambdas"_a,
+              "pkg270 — per-λ Principled Volume coefficients: (sigma_s, sigma_a) "
+              "lists at the four wavelengths (nm).");
+
+        // pkg270 — blackbody emission per unit length at T (Cycles Stefan-Boltzmann
+        // intensity × tint × luminance-normalised Planck) at four wavelengths.
+        m.def("volume_blackbody_emission",
+              [](float temperature, float blackbody_intensity, std::array<float, 3> tint,
+                 std::array<float, astroray::kSpectrumSamples> lambdas) {
+                  astroray::volume::VolumeEmission e;
+                  e.setup(0.0f, {1.0f, 1.0f, 1.0f}, blackbody_intensity, tint);
+                  auto wl = astroray::SampledWavelengths::fromLambdas(lambdas);
+                  astroray::SampledSpectrum s = e.evalBlackbody(temperature, wl);
+                  py::list out;
+                  for (int i = 0; i < astroray::kSpectrumSamples; ++i) out.append(s[i]);
+                  return out;
+              },
+              "temperature"_a, "blackbody_intensity"_a,
+              "tint"_a = std::array<float, 3>{1.0f, 1.0f, 1.0f}, "lambdas"_a,
+              "pkg270 — Principled Volume blackbody radiance per unit length at "
+              "four wavelengths (nm).");
     }
 }

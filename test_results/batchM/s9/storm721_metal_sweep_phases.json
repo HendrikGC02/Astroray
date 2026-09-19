@@ -1,0 +1,25 @@
+{
+  "scene": "metal_sweep",
+  "phases": {
+    "sync_viewport_scene": [
+      46,
+      5504.4054999016225
+    ],
+    "_classify_depsgraph_domains": [
+      66,
+      5.192599957808852
+    ],
+    "_record_deferred_dirty": [
+      51,
+      4.270599863957614
+    ],
+    "_replay_deferred_dirty": [
+      29,
+      0.04680000711232424
+    ],
+    "apply_depsgraph_updates": [
+      15,
+      1.0863000352401286
+    ]
+  }
+}

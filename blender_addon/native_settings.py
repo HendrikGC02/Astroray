@@ -102,14 +102,6 @@ class ResolvedSettings:
         setattr(object.__getattribute__(self, "_settings"), name, value)
 
 
-# pkg176 Stage 3: Blender camera factory defaults for the DROPPED-SILENT clip
-# controls. We only warn when the user has moved a control OFF its default (i.e.
-# is actually steering with it), so untouched scenes stay quiet -- a lightweight
-# stand-in for the pkg119-C degradation policy that will generalise this later.
-_CAM_CLIP_START_DEFAULT = 0.1
-_CAM_CLIP_END_DEFAULT = 1000.0
-
-
 def report_unsupported_native_controls(scene, report=None, emit=True):
     """Surface, once per render, the DROPPED-SILENT world/light/camera native
     controls the user has set to a render-affecting value the engine cannot
@@ -117,7 +109,7 @@ def report_unsupported_native_controls(scene, report=None, emit=True):
 
     Every world/light/camera row the Stage-0 table (``settings_map.py``) marks
     ``dropped`` has a ``(none)`` neutral target: closing those gaps needs new
-    engine capability (orthographic/panoramic cameras, near/far clipping,
+    engine capability (orthographic/panoramic cameras,
     polygonal/anamorphic bokeh, per-light specular) and is a follow-up package
     per the pkg176 non-goal. Until then the steering wheel must not drop them
     SILENTLY (Stage 3 clause). This emits ONE consolidated ``WARNING`` per
@@ -147,11 +139,6 @@ def report_unsupported_native_controls(scene, report=None, emit=True):
                 f"camera projection '{cam_type}' (engine renders PERSP only; "
                 f"ORTHO/PANO need new engine capability)"
             )
-        clip_start = float(getattr(cam_data, "clip_start", _CAM_CLIP_START_DEFAULT))
-        clip_end = float(getattr(cam_data, "clip_end", _CAM_CLIP_END_DEFAULT))
-        if (abs(clip_start - _CAM_CLIP_START_DEFAULT) > 1e-6 or
-                abs(clip_end - _CAM_CLIP_END_DEFAULT) > 1e-3):
-            messages.append("camera clip_start/clip_end (near/far clipping ignored)")
         dof = getattr(cam_data, "dof", None)
         if dof is not None and getattr(dof, "use_dof", False):
             if int(getattr(dof, "aperture_blades", 0)) >= 3:
@@ -222,6 +209,30 @@ def resolve_light_sampler(cycles, custom_value):
     return "tree" if custom_value == "light_tree" else "power"
 
 
+def resolve_device_mode(cycles, custom_value):
+    """pkg274 (#722): resolve the backend token the ENGINE session should use,
+    reconciling the native Cycles ``scene.cycles.device`` enum with Astroray's
+    ``auto`` / ``cpu`` / ``gpu`` UI tri-state (mirroring ``resolve_light_sampler``).
+
+      * An explicit Astroray ``'cpu'`` / ``'gpu'`` override always wins.
+      * ``'auto'`` honours the native device: ``'CPU'`` -> ``'cpu'``, any GPU
+        backend (``'GPU'`` / ``'CUDA'`` / ``'OPTIX'`` / ...) -> ``'gpu'``.
+      * A non-Cycles scene (no ``scene.cycles``) keeps today's ``'auto'``
+        safe-fallback, so ``configure_backend`` probes GPU availability as before.
+
+    Resolving here (not in ``configure_backend``) keeps ``settings_map.py`` the
+    single translation source of truth and leaves the exporter's existing
+    ``configure_backend(renderer, settings, ...)`` call unchanged. Always returns
+    a valid backend token, never ``None``.
+    """
+    if custom_value in ("cpu", "gpu"):
+        return custom_value
+    if cycles is not None and hasattr(cycles, "device"):
+        native = str(getattr(cycles, "device", "CPU")).upper()
+        return "cpu" if native == "CPU" else "gpu"
+    return "auto"
+
+
 def resolve_native_settings(scene, report=None):
     """Resolve the DIRECT-mapped settings for ``scene`` and return a
     :class:`ResolvedSettings` view.
@@ -250,4 +261,9 @@ def resolve_native_settings(scene, report=None):
     # otherwise throw on the UI's 'uniform'/'light_tree' values).
     resolved["light_sampler"] = resolve_light_sampler(
         cycles, getattr(settings, "light_sampler", "power"))
+    # pkg274 (#722): resolve the APPROXIMATED device_mode row to the engine
+    # backend token. 'auto' honours the native scene.cycles.device; an explicit
+    # 'cpu'/'gpu' override still wins (see resolve_device_mode).
+    resolved["device_mode"] = resolve_device_mode(
+        cycles, getattr(settings, "device_mode", "auto"))
     return ResolvedSettings(settings, resolved)

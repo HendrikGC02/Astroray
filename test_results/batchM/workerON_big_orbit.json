@@ -1,0 +1,256 @@
+{
+  "tag": "workerON_big",
+  "steps": [
+    {
+      "i": 0,
+      "presents": 2,
+      "resolutions": [
+        [
+          2100,
+          1221
+        ],
+        [
+          525,
+          305
+        ]
+      ],
+      "n_ticks": 7,
+      "tick_ms_p50": 3.19,
+      "tick_ms_max": 195.9
+    },
+    {
+      "i": 1,
+      "presents": 0,
+      "resolutions": [],
+      "n_ticks": 13,
+      "tick_ms_p50": 2.55,
+      "tick_ms_max": 39.55
+    },
+    {
+      "i": 2,
+      "presents": 2,
+      "resolutions": [
+        [
+          525,
+          305
+        ],
+        [
+          525,
+          305
+        ]
+      ],
+      "n_ticks": 3,
+      "tick_ms_p50": 15.87,
+      "tick_ms_max": 164.81
+    },
+    {
+      "i": 3,
+      "presents": 1,
+      "resolutions": [
+        [
+          525,
+          305
+        ]
+      ],
+      "n_ticks": 13,
+      "tick_ms_p50": 2.43,
+      "tick_ms_max": 163.46
+    },
+    {
+      "i": 4,
+      "presents": 1,
+      "resolutions": [
+        [
+          525,
+          305
+        ]
+      ],
+      "n_ticks": 13,
+      "tick_ms_p50": 2.35,
+      "tick_ms_max": 99.99
+    },
+    {
+      "i": 5,
+      "presents": 1,
+      "resolutions": [
+        [
+          525,
+          305
+        ]
+      ],
+      "n_ticks": 12,
+      "tick_ms_p50": 2.61,
+      "tick_ms_max": 99.66
+    },
+    {
+      "i": 6,
+      "presents": 1,
+      "resolutions": [
+        [
+          525,
+          305
+        ]
+      ],
+      "n_ticks": 13,
+      "tick_ms_p50": 2.39,
+      "tick_ms_max": 101.06
+    },
+    {
+      "i": 7,
+      "presents": 1,
+      "resolutions": [
+        [
+          525,
+          305
+        ]
+      ],
+      "n_ticks": 13,
+      "tick_ms_p50": 2.56,
+      "tick_ms_max": 100.28
+    },
+    {
+      "i": 8,
+      "presents": 2,
+      "resolutions": [
+        [
+          2100,
+          1221
+        ],
+        [
+          525,
+          305
+        ]
+      ],
+      "n_ticks": 11,
+      "tick_ms_p50": 2.39,
+      "tick_ms_max": 100.6
+    },
+    {
+      "i": 9,
+      "presents": 1,
+      "resolutions": [
+        [
+          525,
+          305
+        ]
+      ],
+      "n_ticks": 13,
+      "tick_ms_p50": 2.29,
+      "tick_ms_max": 100.88
+    },
+    {
+      "i": 10,
+      "presents": 1,
+      "resolutions": [
+        [
+          525,
+          305
+        ]
+      ],
+      "n_ticks": 13,
+      "tick_ms_p50": 2.57,
+      "tick_ms_max": 102.45
+    },
+    {
+      "i": 11,
+      "presents": 1,
+      "resolutions": [
+        [
+          525,
+          305
+        ]
+      ],
+      "n_ticks": 13,
+      "tick_ms_p50": 2.25,
+      "tick_ms_max": 100.62
+    },
+    {
+      "i": 12,
+      "presents": 1,
+      "resolutions": [
+        [
+          525,
+          305
+        ]
+      ],
+      "n_ticks": 13,
+      "tick_ms_p50": 2.5,
+      "tick_ms_max": 100.38
+    },
+    {
+      "i": 13,
+      "presents": 1,
+      "resolutions": [
+        [
+          525,
+          305
+        ]
+      ],
+      "n_ticks": 13,
+      "tick_ms_p50": 2.53,
+      "tick_ms_max": 103.61
+    },
+    {
+      "i": 14,
+      "presents": 1,
+      "resolutions": [
+        [
+          525,
+          305
+        ]
+      ],
+      "n_ticks": 13,
+      "tick_ms_p50": 2.32,
+      "tick_ms_max": 100.83
+    }
+  ],
+  "region": [
+    2100,
+    1221
+  ],
+  "warmup_presents": 14,
+  "shot_before": "C:\\\\Users\\\\hgcom\\\\OneDrive\\\\Astroray\\\\Astroray_repo\\\\Astroray-batchM\\\\test_results\\\\batchM\\workerON_big_before.png",
+  "shot_during": "C:\\\\Users\\\\hgcom\\\\OneDrive\\\\Astroray\\\\Astroray_repo\\\\Astroray-batchM\\\\test_results\\\\batchM\\workerON_big_during.png",
+  "settle_presents": 27,
+  "settle_resolutions_tail": [
+    [
+      2100,
+      1221
+    ],
+    [
+      2100,
+      1221
+    ],
+    [
+      2100,
+      1221
+    ],
+    [
+      2100,
+      1221
+    ],
+    [
+      2100,
+      1221
+    ],
+    [
+      2100,
+      1221
+    ]
+  ],
+  "final_presented": [
+    2100,
+    1221
+  ],
+  "region_full": [
+    2100,
+    1221
+  ],
+  "shot_after": "C:\\\\Users\\\\hgcom\\\\OneDrive\\\\Astroray\\\\Astroray_repo\\\\Astroray-batchM\\\\test_results\\\\batchM\\workerON_big_after.png",
+  "total_presents": 58,
+  "orbit_presents": 17,
+  "orbit_ticks": 176,
+  "orbit_present_rate": 0.097,
+  "full_width": 2100,
+  "final_full_res": true
+}

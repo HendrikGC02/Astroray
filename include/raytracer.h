@@ -819,6 +819,11 @@ class Hittable {
     // actual SMS sampling is the BSD-3 Mitsuba-2 / Hanika 2015 chain in
     // include/astroray/manifold/. CLAUDE.md §6.
     bool isCausticCaster_ = false;
+    // pkg274 (#36) — Cycles holdout (object.is_holdout). A camera ray whose first
+    // hit is a holdout object contributes color 0 / alpha 0 (a transparent hole,
+    // no shading). Mirrors Cycles intern/cycles/scene/object.cpp `use_holdout`
+    // (Apache-2.0); the indirect path is untouched.
+    bool isHoldout_ = false;
     std::string name_;  // pkg87a — for Cryptomatte object ID
 public:
     // Result type used by GR objects (BlackHole). Defined here so that
@@ -878,6 +883,8 @@ public:
     int getMaterialPassIndex() const { return materialPassIndex; }
     void setCausticCaster(bool v) { isCausticCaster_ = v; }
     bool isCausticCaster() const { return isCausticCaster_; }
+    void setHoldout(bool v) { isHoldout_ = v; }
+    bool isHoldout() const { return isHoldout_; }
     // pkg87a — Cryptomatte name plumbing
     void setName(const std::string& name) { name_ = name; }
     std::string getName() const { return name_; }
@@ -1994,6 +2001,13 @@ class Camera {
     float vw_ = 0, vh_ = 0, focusDist_ = 0, shiftX_ = 0, shiftY_ = 0;
 public:
     int width, height;
+    // pkg274 (#724): Blender camera clip planes, applied only to the PRIMARY
+    // camera ray's first intersection (secondary rays keep the unconditional
+    // 0.001f/FLT_MAX bounds). Defaults match the pre-clip engine bounds, so the
+    // default render path is byte-identical.
+    Vec3 viewForward() const { return w_axis * -1.0f; }  // unit view direction (w_axis points backward)
+    float clipNear = 0.001f;
+    float clipFar = std::numeric_limits<float>::max();
     std::vector<Vec3> pixels, albedoBuffer, normalBuffer, positionBuffer, uvBuffer;
     // pkg72: per-pixel previous->current screen-space flow (float2/pixel,
     // OptiX convention). Sized unconditionally to match albedoBuffer/normalBuffer.
@@ -2029,8 +2043,9 @@ public:
 
     Camera(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio,
            float aperture, float focusDist, int w, int h,
-           float shiftX = 0.0f, float shiftY = 0.0f)
-        : width(w), height(h) {
+           float shiftX = 0.0f, float shiftY = 0.0f,
+           float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max())
+        : width(w), height(h), clipNear(clipNear), clipFar(clipFar) {
         float theta = vfov * M_PI / 180.0f;
         float vh = 2.0f * std::tan(theta / 2) * focusDist;
         float vw = aspectRatio * vh;
@@ -2321,6 +2336,19 @@ class Renderer {
     float filmExposure = 1.0f;
     bool useTransparentFilm = false;
     bool transparentGlass = false;
+    // pkg274 (#724) — primary camera-ray clip bounds, copied from Camera at the
+    // top of render() so pathTraceSpectral / coverageAlpha can bound the first
+    // bounce without touching secondary rays. Defaults match the pre-clip
+    // hard-coded 0.001f/FLT_MAX, so the default render is byte-identical.
+    float clipNear_ = 0.001f;
+    float clipFar_ = std::numeric_limits<float>::max();
+    // Clip planes are VIEW-AXIS DEPTHS (Blender/Cycles: ray t-range = clip * z_inv,
+    // intern/cycles/kernel/camera/camera.h camera_sample_perspective, Apache-2.0), so the
+    // primary ray bound is clip / dot(dir, forward), not the raw Euclidean t.
+    Vec3 clipForward_{0, 0, -1};
+    // pkg274 (#36) — cached once per render (see render()) so the primary-ray
+    // holdout check is free when no holdout object is present.
+    bool hasHoldoutObjects_ = false;
     float clampDirect = 0.0f;   // 0 = disabled
     float clampIndirect = 0.0f; // 0 = disabled
     float filterGlossy = 0.0f;
@@ -2735,6 +2763,14 @@ public:
         scene[objectIndex]->setCausticCaster(enabled);
         return true;
     }
+    // pkg274 (#36) — per-object holdout opt-in (mirrors setObjectCausticCaster).
+    // The index is the addObject call order (same as getScene()).
+    bool setObjectHoldout(int objectIndex, bool enabled) {
+        if (objectIndex < 0 || static_cast<size_t>(objectIndex) >= scene.size())
+            return false;
+        scene[objectIndex]->setHoldout(enabled);
+        return true;
+    }
     // pkg87c — Cryptomatte object name setter
     bool setObjectName(int objectIndex, const std::string& name) {
         if (objectIndex < 0 || static_cast<size_t>(objectIndex) >= scene.size())
@@ -2809,6 +2845,7 @@ public:
         m.g = std::clamp(pv.anisotropy, -0.99f, 0.99f);
         m.albedo = pv.scatteringAlbedo();
         m.grid = g.get();
+        astroray::volume::setupPrincipled(m, pv);  // pkg270 chromatic σ + emission
         gridStore_.push_back(std::move(g));
         gridMedia_.push_back(m);
     }
@@ -2825,6 +2862,7 @@ public:
         m.maxDensity = 1.0f;
         m.g = std::clamp(pv.anisotropy, -0.99f, 0.99f);
         m.albedo = pv.scatteringAlbedo();
+        astroray::volume::setupPrincipled(m, pv);  // pkg270 chromatic σ + emission
         gridMedia_.push_back(m);
     }
     const std::vector<astroray::volume::BoundedMedium>& gridMedia() const { return gridMedia_; }
@@ -3054,6 +3092,11 @@ public:
         const int rrDepth = 3;
         astroray::SampledSpectrum color(0.0f);
         astroray::SampledSpectrum throughput(1.0f);
+        // pkg270 — rescaled unidirectional path pdf for hero-wavelength spectral
+        // MIS through chromatic bounded media (pbrt-v4 VolPath r_u). Only the
+        // bounded-medium block touches it; `throughput` always equals
+        // beta / avg(volRu), so surface bounces need no change.
+        astroray::SampledSpectrum volRu(1.0f);
         Ray ray = r;
         bool wasSpecular = true;
         // pkg258 (Terra Q1c): true iff env NEE ACTUALLY drew a competing sample at
@@ -3118,17 +3161,23 @@ public:
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             lastBounce = bounce;
             HitRecord rec;
-            bool didHit = bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec);
+            // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
+            // camera clip planes; every secondary ray keeps the unconditional
+            // 0.001f/FLT_MAX bounds so it is byte-identical to pre-clip behaviour.
+            const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
+            const float tMin = (bounce == 0) ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
+            const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv : std::numeric_limits<float>::max();
+            bool didHit = bvh->hit(ray, tMin, tMax, rec);
 
             // pkg268 — bounded grid/homogeneous medium free flight (delta/Woodcock
             // tracking). Mirrors the world-volume mediumScatters block below but for
             // object-bounded media registered via addGridMedium/addHomogeneousMedium.
-            // Scalar σ_t (pkg268 scope — colour is the scattering albedo); free
-            // flight + ratio-tracking NEE from volume_transport.h (Woodcock 1965 /
-            // Novák 2014, cited). A real collision with albedo→0 kills the path =
-            // pure absorption (Beer–Lambert transmittance in expectation); a
-            // pass-through applies no Tr multiply (delta-track survival IS the
-            // transmittance).
+            // pkg270 — chromatic σ(λ) via hero-wavelength spectral MIS (pbrt-v4
+            // VolPath, Apache-2.0; Kutz 2017; research note
+            // pkg270-spectral-tracking-volume-emission-research.md) with emission
+            // accumulated at the null-collision vertices (no fixed-step march).
+            // Absorption terminates the path (pbrt analog event); a pass-through
+            // applies no Tr multiply (delta-track survival IS the transmittance).
             if (!gridMedia_.empty()) {
                 Vec3 dUnit = ray.direction.normalized();
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
@@ -3144,13 +3193,29 @@ public:
                 }
                 if (mi >= 0) {
                     const astroray::volume::BoundedMedium& med = gridMedia_[mi];
-                    astroray::volume::FreeFlight ff =
-                        astroray::volume::deltaTrack(med, ray.origin, dUnit, mEnter, mExit, gen);
-                    if (ff.scattered) {
+                    // beta = pbrt path throughput; volRu = rescaled path pdf.
+                    astroray::SampledSpectrum beta =
+                        throughput * astroray::volume::heroAverage(volRu, lambdas);
+                    astroray::volume::SpectralFlight ff = astroray::volume::spectralTrack(
+                        med, ray.origin, dUnit, mEnter, mExit, lambdas, beta, volRu, gen);
+                    if (!ff.emission.isZero()) {
+                        // Volume emission along the flight: Emission pass when
+                        // directly visible, else folded into <firstCat>_INDIRECT
+                        // (same classification as surface emission, pkg198).
+                        astroray::SampledSpectrum ce =
+                            clampContribSpectral(ff.emission, lambdas, bounce);
+                        color += ce;
+                        addPass((firstCat < 0) ? PASS_EMISSION : (firstCat * 3 + 1), ce);
+                    }
+                    {
+                        float rAvg = astroray::volume::heroAverage(volRu, lambdas);
+                        throughput = (rAvg > 0.0f) ? beta * (1.0f / rAvg)
+                                                   : astroray::SampledSpectrum(0.0f);
+                    }
+                    if (ff.event == astroray::volume::SpectralEvent::Absorbed) break;
+                    if (ff.event == astroray::volume::SpectralEvent::Scattered) {
                         Vec3 P = ray.origin + dUnit * ff.t;
                         Vec3 woMedium = -dUnit;
-                        // throughput *= single-scattering albedo (σ_s/σ_t).
-                        throughput *= med.albedo.sample(lambdas);
                         bool firstInteraction = (firstCat < 0);
                         int volPass = firstInteraction ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT;
                         if (firstInteraction) firstCat = 3;
@@ -3167,13 +3232,13 @@ public:
                                     float ph = astroray::volume::phaseHG(woMedium.dot(wi), med.g);
                                     float a = ls.pdf, b = ph;
                                     float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
-                                    float medTr = 1.0f;
+                                    astroray::SampledSpectrum medTr(1.0f);  // pkg270 per-λ
                                     for (const auto& mm : gridMedia_) {
                                         float s0, s1;
                                         if (astroray::volume::intersectAABB(P, wi, mm.aabbMin,
                                                 mm.aabbMax, 1e-3f, ls.distance, s0, s1))
-                                            medTr *= astroray::volume::ratioTrackingTransmittance(
-                                                mm, P, wi, s0, s1, gen);
+                                            medTr *= astroray::volume::ratioTrackingTransmittanceSpectral(
+                                                mm, P, wi, s0, s1, lambdas, gen);
                                     }
                                     astroray::SampledSpectrum neeContrib =
                                         throughput * ls.emission_spec * ph *
@@ -3588,8 +3653,8 @@ public:
                         }
                         // pkg268 — attenuate the surface NEE over any bounded grid
                         // medium the shadow ray crosses (ratio tracking, Novák 2014;
-                        // grey so a single scalar multiplies the spectrum). Empty =>
-                        // no-op, so non-volume scenes are byte-identical.
+                        // pkg270: per-λ). Empty => no-op, so non-volume scenes are
+                        // byte-identical.
                         if (!gridMedia_.empty()) {
                             Vec3 sp = rec.point;
                             Vec3 swi = (ls.position - sp).normalized();
@@ -3598,8 +3663,8 @@ public:
                                 if (astroray::volume::intersectAABB(sp, swi, mm.aabbMin,
                                         mm.aabbMax, 1e-3f, ls.distance, s0, s1))
                                     neeContrib = neeContrib *
-                                        astroray::volume::ratioTrackingTransmittance(
-                                            mm, sp, swi, s0, s1, gen);
+                                        astroray::volume::ratioTrackingTransmittanceSpectral(
+                                            mm, sp, swi, s0, s1, lambdas, gen);
                             }
                         }
                         // pkg198: NEE at the first (camera-visible) surface is DIRECT
@@ -3931,7 +3996,13 @@ public:
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             lastBounce = bounce;
             HitRecord rec;
-            bool didHit = bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec);
+            // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
+            // camera clip planes; every secondary ray keeps the unconditional
+            // 0.001f/FLT_MAX bounds so it is byte-identical to pre-clip behaviour.
+            const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
+            const float tMin = (bounce == 0) ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
+            const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv : std::numeric_limits<float>::max();
+            bool didHit = bvh->hit(ray, tMin, tMax, rec);
 
             // pkg181: dedicated-lamp visibility (Cycles lights_intersect). This
             // opt-in caustic kernel carries no pkg120 two-sided-MIS state
@@ -4275,7 +4346,13 @@ public:
         const int cap = std::max(1, maxDepth);
         for (int bounce = 0; bounce < cap; ++bounce) {
             HitRecord rec;
-            if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec))
+            // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
+            // camera clip planes; the transparent-glass continuation rays keep the
+            // unconditional 0.001f/FLT_MAX bounds.
+            const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
+            const float tMin = (bounce == 0) ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
+            const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv : std::numeric_limits<float>::max();
+            if (!bvh->hit(ray, tMin, tMax, rec))
                 return 0.0f;  // reached the background uncovered
             if (rec.hitObject && rec.hitObject->isGRObject())
                 return 1.0f;  // a GR object covers the film
@@ -4319,6 +4396,17 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         // every caller are unchanged.
         setPerTypeBounces(argDiffuseBounces, argGlossyBounces, argTransmissionBounces);
         (void)argVolumeBounces; (void)argTransparentBounces;
+        // pkg274 (#724/#36): copy the camera clip planes and cache the holdout
+        // presence once per render, before the integrator / trace loops read them.
+        // Defaults (0.001f / FLT_MAX / no holdout) keep the default render path
+        // byte-identical.
+        clipNear_ = cam.clipNear;
+        clipFar_ = cam.clipFar;
+        clipForward_ = cam.viewForward();
+        hasHoldoutObjects_ = false;
+        for (const auto& o : scene) {
+            if (o && o->isHoldout()) { hasHoldoutObjects_ = true; break; }
+        }
         ensureDefaultIntegrator();
         buildAcceleration();
         if (integrator_) {
@@ -4601,6 +4689,23 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                 sObjectIndex = ir.objectIndex;
                                 sMaterialIndex = ir.materialIndex;
                                 sPass = ir.passes;
+                            }
+                            // pkg274 (#36): holdout — when the PRIMARY camera ray's
+                            // first hit is a holdout object, this sample contributes
+                            // color 0 / alpha 0 (a transparent hole, no shading),
+                            // mirroring Cycles' use_holdout (intern/cycles/kernel/
+                            // integrator/shade_surface.h). Indirect rays are
+                            // untouched. No-op (single bool test) when no holdout
+                            // object is present, so the default render is
+                            // byte-identical.
+                            if (hasHoldoutObjects_) {
+                                HitRecord holdRec;
+                                if (bvh->hit(primaryRay, clipNear_, clipFar_, holdRec) &&
+                                    holdRec.hitObject && holdRec.hitObject->isHoldout()) {
+                                    sCol = Vec3(0);
+                                    sPass.fill(Vec3(0));
+                                    sAlpha = 0.0f;
+                                }
                             }
                             sCol = finiteVecOrZero(sCol);
                             // pkg144: the always-on, direct+indirect-combined `sLum > 20`

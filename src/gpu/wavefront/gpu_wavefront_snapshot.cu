@@ -103,6 +103,7 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera (mirrors production GPU render path).
     // Camera CPU→GPU conversion (mirrors gpu_renderer.cu::upload_camera_params).
@@ -277,6 +278,7 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
     GCameraParams gcam;
@@ -460,6 +462,7 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
     GCameraParams gcam;
@@ -621,6 +624,7 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
     GCameraParams gcam;
@@ -800,6 +804,7 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
     GCameraParams gcam;
@@ -1068,6 +1073,9 @@ struct WfContext {
     WfDeviceBuf accum, queueA, queueB, counts, shadeQueues, shadeCounts;
     WfDeviceBuf neeF, neeI, shadowQueue, shadowCount, work;
     WfDeviceBuf volQueue, volCount;   // pkg199 Stage 2 volume-scatter queue
+    WfDeviceBuf gridQueue, gridCount; // pkg269 heterogeneous-medium queue
+    WfDeviceBuf gridRu, gridMediumId; // pkg269 per-path r_u (4 lanes) + scattered-medium id
+    std::vector<WfDeviceBuf> gridBufs; // pkg269 device NanoVDB grid buffers (grow-only)
     // pkg258 - env NEE parked-record arrays + queue (SEPARATE from the lamp neeF/
     // neeI so an idx carries independent lamp AND env NEE records). Grow-only; only
     // touched when a render enables env NEE with a loaded importance-sampled HDRI.
@@ -1144,6 +1152,7 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     GCameraParams gcam;
     gcam.origin = GVec3(cam.getOrigin().x, cam.getOrigin().y, cam.getOrigin().z);
@@ -1526,6 +1535,59 @@ std::vector<float> cuda_wavefront_render(
             renderer.getWorldVolumeScatter(),      // pkg199 Stage 2 (α)
             renderer.getWorldVolumeAnisotropy()}); // pkg199 Stage 2 (g)
     }
+    // pkg269 — publish the bounded (grid / homogeneous) media side table every
+    // frame (c_wfGridVolume is __constant__ and persists; media-free scenes
+    // publish count==0 → every grid branch is skipped → byte-identical). The
+    // NanoVDB density buffers are position-independent, so they are byte-copied
+    // to the device and read through nanovdb::FloatGrid there. Re-uploaded per
+    // call (a 128^3 grid is a few MB); a device-cache entry is a follow-up.
+    bool hasGridVolume = false;
+    {
+        GWavefrontGridVolumeBinding gb{};
+        gb.count = 0;
+        const auto& media = renderer.gridMedia();
+        if (C.gridBufs.size() < media.size()) C.gridBufs.resize(media.size());
+        for (size_t k = 0; k < media.size() && gb.count < G_WF_MAX_GRID_MEDIA; ++k) {
+            const auto& m = media[k];
+            GGridMedium& g = gb.media[gb.count];
+            for (int a = 0; a < 3; ++a) { g.aabbMin[a] = m.aabbMin[a]; g.aabbMax[a] = m.aabbMax[a]; }
+            for (int a = 0; a < 12; ++a) g.worldToIndex[a] = (a % 5 == 0 && a < 11) ? 1.f : 0.f;
+            g.heterogeneous = 0;
+            g.grid = nullptr;
+            if (m.heterogeneous && m.grid && m.grid->nanoBytes() > 0) {
+                size_t bytes = m.grid->nanoBytes();
+                char* d = wfEnsure<char>(C.gridBufs[k], bytes);
+                cudaError_t e = cudaMemcpy(d, m.grid->nanoData(), bytes, cudaMemcpyHostToDevice);
+                if (e != cudaSuccess) throw std::runtime_error(cudaGetErrorString(e));
+                g.grid = d;
+                g.heterogeneous = 1;
+                auto w2i = m.grid->worldToIndex();   // row-major 4x4
+                for (int a = 0; a < 12; ++a) g.worldToIndex[a] = w2i[a];
+            }
+            g.densityScale = m.densityScale;
+            g.maxDensity = m.maxDensity;
+            g.g = m.g;
+            g.colorR = m.colorRGB[0]; g.colorG = m.colorRGB[1]; g.colorB = m.colorRGB[2];
+            g.absR = m.absorptionRGB[0]; g.absG = m.absorptionRGB[1]; g.absB = m.absorptionRGB[2];
+            g.emissionStrength = m.emission.emissionStrength;
+            g.emisR = m.emission.emissionRGB[0]; g.emisG = m.emission.emissionRGB[1];
+            g.emisB = m.emission.emissionRGB[2];
+            g.emissionFloor = m.emissionFloor;
+            ++gb.count;
+        }
+        if (media.size() > (size_t)G_WF_MAX_GRID_MEDIA)
+            std::fprintf(stderr, "[pkg269] %zu bounded media exceed the GPU side table (%d); "
+                         "the rest are ignored on the GPU\n", media.size(), G_WF_MAX_GRID_MEDIA);
+        hasGridVolume = gb.count > 0;
+        // Per-path lanes only for scenes that carry bounded media (grow-only).
+        gb.ru = nullptr; gb.mediumId = nullptr; gb.capacity = 0;
+        if (hasGridVolume) {
+            gb.ru = wfEnsure<float>(C.gridRu, size_t(G_SPECTRUM_SAMPLES) * total_paths);
+            gb.mediumId = wfEnsure<int>(C.gridMediumId, total_paths);
+            gb.capacity = total_paths;
+        }
+        setWavefrontGridVolumeBinding(gb);
+    }
     // pkg201 Stage 2 (Finding D) — publish the pixel reconstruction filter every
     // frame (c_wfPixelFilter is __constant__ and persists across calls). Box
     // (type 0, the default) ignores width and is byte-identical to the pre-pkg201
@@ -1672,6 +1734,9 @@ std::vector<float> cuda_wavefront_render(
     // in at most one of {surface shade, volume} per bounce), one counter.
     int*   d_volQueue    = wfEnsure<int>(C.volQueue, total_paths);
     int*   d_volCount    = wfEnsure<int>(C.volCount, 1);
+    // pkg269 — heterogeneous-medium queue (one slot per path, one counter).
+    int*   d_gridQueue   = wfEnsure<int>(C.gridQueue, total_paths);
+    int*   d_gridCount   = wfEnsure<int>(C.gridCount, 1);
     int*   d_work        = wfEnsure<int>(C.work, 1);
 
     // pkg258 - env NEE arrays + queue, allocated only when env NEE is on AND an
@@ -2031,7 +2096,8 @@ std::vector<float> cuda_wavefront_render(
                                        renderer.getHasWorldVolume() &&
                                            renderer.getWorldVolumeScatter() > 0.0f,
                                        passesOn,   // pkg198 Stage 2 pass-AOV axis
-                                       d_curveSegments);  // pkg225 Stage 3
+                                       d_curveSegments,  // pkg225 Stage 3
+                                       d_gridQueue, d_gridCount, hasGridVolume);  // pkg269
             // pkg199 Stage 2 — dedicated volume-scatter stage, between intersect
             // and shade. Drains the volume queue (scattered slots), parks the
             // phase NEE into the shared nee/shadow lanes, and requeues survivors
@@ -2047,6 +2113,23 @@ std::vector<float> cuda_wavefront_render(
                                      d_dedLights, (int)res.dedicatedLights.size(),
                                      treeView, max_depth,
                                      useLuminanceOutput, enableNEE);
+            // pkg269 — dedicated heterogeneous-medium scatter stage (grid queue →
+            // medium NEE park + HG continuation with the medium's g). Media-free
+            // scenes never launch it. The counter is zeroed per pass here (the
+            // fused regen zeroing keeps its signature).
+            if (hasGridVolume) {
+                launchStageVolumeHeteroScatter(state, d_gridQueue, d_gridCount,
+                                               d_queueB, cout,
+                                               d_neeF, d_neeI, d_shadowQueue, d_shadowCount,
+                                               total_paths,
+                                               d_prims, d_tris, d_spheres,
+                                               d_lights, (int)res.lights.size(),
+                                               res.totalLightPower,
+                                               d_dedLights, (int)res.dedicatedLights.size(),
+                                               treeView, max_depth,
+                                               useLuminanceOutput, enableNEE);
+                cudaMemsetAsync(d_gridCount, 0, sizeof(int));
+            }
             launchStageShadeBucketed(state, hitBufs,
                                      d_shadeQueues, d_shadeCounts,
                                      total_paths, d_queueB, cout,
@@ -2081,7 +2164,8 @@ std::vector<float> cuda_wavefront_render(
                               useLuminanceOutput,
                               clampDirect, clampIndirect,  // pkg157
                               d_curveSegments,  // pkg225 Stage 3 — curve shadows
-                              res.hasAlphaShadow);  // pkg253 — transparent shadows
+                              res.hasAlphaShadow,  // pkg253 — transparent shadows
+                              hasGridVolume);      // pkg269 — bounded-media Tr axis
             // pkg258: resolve env NEE records parked by the shade stage this pass
             // (independent additive strategy; no-op when env NEE off / no HDRI).
             if (envNeeOn)
@@ -2375,6 +2459,7 @@ std::vector<float> cuda_wavefront_render_restir(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     GCameraParams gcam;
     gcam.origin     = GVec3(cam.getOrigin().x, cam.getOrigin().y, cam.getOrigin().z);

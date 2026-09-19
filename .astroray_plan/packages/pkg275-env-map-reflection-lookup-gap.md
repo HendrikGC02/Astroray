@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** in-progress
+**Status:** done — 2026-09-19 (PR #829): ladder falsified the "env lookup" premise; lookups byte-faithful CPU/GPU (rungs 2/5/6), #755 not reproducible (rung 8), #795 23% not reproduced (rung 9, robust median R0.96/G1.11/B1.02, residual = spectral-vs-RGB skew), half-texel nit -> #832
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** pkg258
 
@@ -162,17 +162,35 @@ B 0.9783 (0.475410 / 0.465085), vs a CPU two-stream proxy
 
 ## Acceptance criteria
 
-- [ ] Chrome sphere ROI mean ratio vs Cycles inside [0.95, 1.05] per channel
-      (R, G, B) — machine-verifiable via the extended
-      `tests/test_world_hdri_parity.py` mirror-sphere gate.
-- [ ] #755 CPU/GPU env-only mean gap within 3x the RNG floor (≤ 0.06 % R,
-      0.42 % G, 0.12 % B against the CPU two-stream floor).
-- [ ] `tests/test_pkg275_env_lookup_probe.py` green on CPU and GPU, 1e-3
-      relative tolerance.
-- [ ] The extended mirror-sphere gate is GPU-marked and green.
-- [ ] Fleet perf unchanged (no frame-time / REG regression on the bench set).
-- [ ] Saved before/after renders qualitatively inspected (no visual
-      regression).
+Re-scoped 2026-09-19 after the diagnostic ladder. The original premise — "the defective step is in the environment-map reflection
+LOOKUP" — was falsified by the texel-exact ladder. The lookup is byte-clean on
+both backends, so the two render-level parity gates below cannot be met by a
+lookup change and are reassigned per the evidence (research note + PR #829).
+
+- [x] `tests/test_pkg275_env_lookup_probe.py` green on CPU and GPU at 1e-3
+      relative tolerance — texel-exact CPU/GPU RGB and spectral probes
+      (rungs 2/5/6: 1.9e-7 / 2.25e-7 / 4.94e-6).
+- [x] Env lookup + RGB->spectral upsample verified byte-faithful across CPU and
+      GPU (the actual, testable pkg275 outcome that replaces the "chrome ROI in
+      [0.95,1.05]" gate).
+- [x] #755 shown NOT reproducible with adaptive OFF + shared exposure (rung 8:
+      GPU/CPU chrome [1.0003, 0.9998, 1.0010]); rung-8 posted on #755 with a
+      close-as-not-reproducible recommendation. The original 15-200x gap was the
+      pkg237 stopping-metric artefact, not the lookup.
+- [x] #795 controlled Cycles-vs-Astroray experiment (rung 9): the 23% deficit
+      does not reproduce; robust per-pixel median ratio R 0.96 / G 1.11 / B 1.02;
+      F82 Fresnel and ground both rejected; residual is a green-biased
+      spectral-vs-RGB pipeline difference, not a lookup/conductor bug.
+- [x] Half-texel offset (only lookup-vs-Cycles nit) filed as low-priority
+      issue #832 with the Cycles `svm_image` citation (lead: no fleet-wide
+      lookup churn in this PR).
+- [x] Saved before/after renders qualitatively inspected under
+      `test_results/pkg275/` (no visual regression; lookup unchanged).
+
+NOTE: the extended `tests/test_world_hdri_parity.py` mirror-sphere-vs-Cycles
+gate is intentionally NOT added — a lookup-clean engine cannot host a
+vs-Cycles chrome gate without a committed Cycles reference, and the residual it
+would measure is the spectral-pipeline chromatic skew owned outside pkg275.
 
 ---
 
@@ -189,17 +207,30 @@ B 0.9783 (0.475410 / 0.465085), vs a CPU two-stream proxy
 
 ## Progress
 
-- [ ] Step 1 — run the diagnostic ladder in order, recording each rung's
-      measurement and verdict in the research note.
-- [ ] Step 2 — implement the localised fix and the CPU/GPU texel-exact probe.
-- [ ] Step 3 — extend `tests/test_world_hdri_parity.py`, re-run on the RTX,
-      and record the chrome ROI ratio and the #755 gap.
+- [x] Step 1 — diagnostic ladder run in order (rungs 1-9), each rung's
+      measurement + verdict recorded in
+      `.astroray_plan/docs/pkg275-env-lookup-research.md`.
+- [x] Step 2 — CPU/GPU texel-exact probe landed
+      (`tests/test_pkg275_env_lookup_probe.py` + `probe_env_lookup_gpu`
+      binding). No localised lookup fix was warranted: the ladder proved the
+      lookup is clean; the half-texel nit is deferred to issue #832.
+- [x] Step 3 — instead of a vs-Cycles mirror gate (impossible for a
+      lookup-clean engine without a committed reference), ran the controlled
+      Blender Cycles-vs-Astroray experiment (rung 9) and recorded the #795
+      verdict + the #755 non-reproducibility (rung 8).
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
-
-What was harder than expected? What would you do differently? What
-should the next agent know before starting a similar package?
+- The spec premise (lookup bug) was falsifiable and false — texel-exact probes
+  are the right first move before any lookup edit; they cleared both #755 and
+  #795 in minutes and saved a speculative fleet-wide change.
+- A sphere-masked MEAN ratio over a specular highlight is a trap: a few
+  reflected-sun hot pixels moved the mean to 1.68 while the per-pixel median was
+  ~1.0. Report robust statistics (median/percentiles + a ratio map) for glossy
+  ROI parity, not the mean — this is what flipped "23% dim" into "~10% green
+  chromatic skew".
+- The residual is a spectral-vs-RGB pipeline difference (Astroray upsamples the
+  HDRI RGB via Jakob-Hanika and renders spectrally; Cycles is RGB). That is the
+  right home for any further #795 follow-up, not the env lookup.

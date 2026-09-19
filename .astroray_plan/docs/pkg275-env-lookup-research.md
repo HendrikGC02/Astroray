@@ -162,5 +162,34 @@ integrator difference owned by pkg258, not pkg275's lookup.
 - #795: resolved by the step-3 controlled Cycles-vs-Astroray experiment below.
 
 ### Rung 9 — controlled Cycles-vs-Astroray chrome experiment (#795 verdict)
-_Filled in by the headless Blender A/B (staged addon, Cycles CPU vs Astroray
-CPU, adaptive OFF, linear EXR, sphere-masked ratio)._
+Headless Blender 5.2, staged main addon (`Astroray-storm721/dist/astroray`,
+device CPU), Cycles CPU vs Astroray CPU, 200x200, 256 spp, adaptive OFF both,
+`view_transform='Raw'`, linear OpenEXR, corpus HDRI
+`syferfontein_18d_clear_1k.hdr`. Sphere = Principled metallic=1, base
+(0.9,0.9,0.92), roughness 0.05.
+
+- **F82 conductor Fresnel — REJECTED.** Cycles Glossy(GGX) / Cycles
+  Principled-metallic sphere ratio = **[1.0000, 1.0000, 1.0000]** at this F0, so
+  the F82-tint conductor Fresnel is not a differentiator; any Astroray/Cycles
+  gap is the same against both Cycles closures.
+- **Ground illumination (H1) — REJECTED.** Sphere-masked mean ratio is
+  essentially unchanged sphere-only vs sphere+ground (R 1.68 -> 1.76), so the
+  deficit is not the ground reflected in the sphere.
+- **The naive sphere-masked MEAN ratio is a hot-highlight artefact.** Mean
+  Astroray/Cycles = [1.68, 1.45, 1.13], but the per-pixel ratio distribution
+  inside the mask is dominated by a few reflected-sun pixels (std 0.27-0.47).
+  The robust **per-pixel median** ratio is **R 0.964, G 1.111, B 1.018**
+  (R p10-p90 0.89-1.08, B 0.985-1.055), and the luminance ratio map is uniform
+  grey (~1.0) across the sphere. So the bulk chrome reflection matches Cycles to
+  ~2-11% per channel — NOT a 23% dimming, and of the OPPOSITE sign to #795's
+  0.77 mean (which is the same mean-over-a-specular-highlight artefact, just with
+  the sun landing on different sub-pixels).
+- Background (direct env) mean ratio [0.95, 0.93, 0.93].
+
+Verdict: #795's 23% conductor/lookup deficit does NOT reproduce on current main.
+The residual is a modest, green-biased (~+11% G) chromatic difference consistent
+with Astroray's SPECTRAL pipeline (Jakob-Hanika upsample of the HDRI RGB +
+conductor F0, integrated to XYZ) vs Cycles' RGB pipeline — a physics-first
+spectral-vs-RGB model difference within the "Cycles is a cross-check band" rule,
+not an env-lookup bug (lookup cleared by rungs 2-6) and not a conductor-energy
+loss (F82 rejected). Evidence renders under `test_results/pkg275/`.

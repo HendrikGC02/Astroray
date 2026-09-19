@@ -67,7 +67,8 @@ def test_pkg81_harness_smoke(tmp_path, astroray_module):
     # This is the H1 baseline.
     assert cam_cfg["h1_upload_geometry_calls_per_frame_total"] == 0
     assert cam_cfg["h1_upload_materials_calls_per_frame_total"] == 0
-    # transform_edit: every tick fires a transform-only depsgraph
-    # update; with the single-level BVH this currently promotes to
-    # one upload_geometry per frame (pkg56-C documented limitation).
-    assert xform_cfg["h1_upload_geometry_calls_per_frame_max"] >= 1
+    # transform_edit: a non-instanced transform edit promotes to GEOMETRY,
+    # which (#850) returns 'fallback' — the caller runs a full sync and the
+    # dispatcher itself uploads nothing. The harness does not model that
+    # full sync (in-place updates: #849).
+    assert xform_cfg["h1_upload_geometry_calls_per_frame_max"] == 0

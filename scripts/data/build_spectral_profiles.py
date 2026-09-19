@@ -741,8 +741,9 @@ def _build_light_sources() -> list[dict]:
     # present — the two facts the previous model got wrong (it used 435.83=1000 >>
     # 546.07=500 and OMITTED the yellow doublet, plus an unjustified 5% flat
     # continuum), which drove the stored SPD to a magenta-below-locus xy≈(0.314,
-    # 0.311). The NIST-Handbook lines integrate (vs the engine CIE-1964-10deg CMF)
-    # to a greenish-white xy≈(0.335, 0.369) — above the blackbody locus, matching a
+    # 0.311). The NIST-Handbook lines integrate (vs the CIE-1964-10deg CMF the
+    # engine used until #767; CIE 1931 2deg gives xy≈(0.317, 0.396)) to a greenish-white
+    # xy≈(0.335, 0.369) — above the blackbody locus, matching a
     # real clear high-pressure mercury lamp (Δxy≈0.01 of the (0.33,0.38) target).
     # No artificial continuum: a clear (non-phosphor) mercury lamp is a line source;
     # the old flat baseline only pulled the chromaticity back below the locus.

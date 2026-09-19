@@ -105,8 +105,9 @@ public:
                                             float lambdaMax = kLambdaMax);
 
     // pkg206 — luminance-weighted hero-wavelength IMPORTANCE sample. Draws the
-    // hero (and its stratified companions) from a logistic CDF fitted to
-    // Astroray's own (CIE-1964 10deg y_bar + 0.25)*D65 luminance target, so the
+    // hero (and its stratified companions) from a logistic CDF fitted to a
+    // (CIE-1964 10deg y_bar + 0.25)*D65 luminance target (pre-#767 table; still
+    // unbiased with the CIE 1931 2deg table, re-fit is variance-only: #848), so the
     // eye's strong wavelengths are sampled more often (lower chromatic noise on
     // dispersive paths). Each lane's `pdf` is set to the logistic density at its
     // OWN wavelength (Wilkie 2014), so the MC estimator stays UNBIASED. Consumes

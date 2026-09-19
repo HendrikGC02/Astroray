@@ -44,10 +44,17 @@ def _inc_array(name: str) -> np.ndarray:
 
 
 def _matrix(path: str, fn: str) -> np.ndarray:
+    """M[out, in] from the `float r/g/b = c * xyz.x + ...` lines of `fn`,
+    keyed by channel and component (independent of term order)."""
     txt = (ROOT / path).read_text(encoding="utf-8")
     body = txt[txt.index(fn):]
-    nums = re.findall(r"([-+]?\s*\d+\.\d+)f\s*\*\s*xyz\.[xyz]", body)[:9]
-    return np.array([float(n.replace(" ", "")) for n in nums]).reshape(3, 3)
+    m = np.full((3, 3), np.nan)
+    for row, ch in enumerate("rgb"):
+        expr = re.search(r"float\s+" + ch + r"\s*=\s*([^;]+);", body).group(1).replace(" ", "")
+        for coef, comp in re.findall(r"([-+]?\d+\.\d+)f\*xyz\.([xyz])", expr):
+            m[row, "xyz".index(comp)] = float(coef)
+    assert not np.isnan(m).any(), (path, m)
+    return m
 
 
 LAM = np.arange(360.0, 831.0)
@@ -69,7 +76,12 @@ def test_baked_cmf_is_cie_1931_2deg():
 
 
 def test_cpu_gpu_output_matrices_match():
-    assert np.array_equal(M_CPU, M_GPU)
+    # IEC 61966-2-1 XYZ(D65) -> linear sRGB, 4-decimal form.
+    srgb = np.array([[3.2406, -1.5372, -0.4986],
+                     [-0.9689, 1.8758, 0.0415],
+                     [0.0557, -0.2040, 1.0570]])
+    np.testing.assert_allclose(M_CPU, srgb, atol=1e-4)
+    np.testing.assert_array_equal(M_CPU, M_GPU)
 
 
 @pytest.mark.parametrize("band", ["production_380_780", "full_360_830"])
@@ -119,7 +131,11 @@ def _white_env_sphere(albedo, *, use_gpu, spp=256):
     r.setup_camera([0, 0, 4], [0, 0, 0], [0, 1, 0], 40.0, 1.0, 0.0, 4.0, 80, 80)
     r.set_seed(7)
     img = np.asarray(r.render(spp, 8, None, False), dtype=np.float64).reshape(80, 80, 3)
-    return img[30:50, 30:50].reshape(-1, 3).mean(0), img[:6, :6].reshape(-1, 3).mean(0)
+    # World ROI = top + bottom 8 rows (1280 px). A 6x6 corner is too small:
+    # the blue (z-bar) lane has high per-sample variance under the
+    # luminance-weighted hero proposal (measured +-2.8 % at 256 spp).
+    world = np.concatenate([img[:8].reshape(-1, 3), img[-8:].reshape(-1, 3)])
+    return img[30:50, 30:50].reshape(-1, 3).mean(0), world.mean(0)
 
 
 def _render_legs():

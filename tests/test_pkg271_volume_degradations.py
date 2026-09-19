@@ -9,7 +9,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "blender_addon"))
-import volume_export as vol  # noqa: E402
+import volume_export as vol
 
 
 class _Sock:

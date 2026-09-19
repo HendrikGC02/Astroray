@@ -2844,8 +2844,10 @@ def write_volumes_vdbs(out_dir, n=64, seed=271, size=2.4):
     """Write the smoke / fire .vdb files (Blender's bundled openvdb). Returns
     {'smoke': path, 'fire': path}. Voxel size ``size / n`` -> a ``size`` cube."""
     import os
+
     import numpy as np
     import openvdb
+
     smoke, fire_d, fire_t = volumes_synthetic_grids(n, seed)
     os.makedirs(out_dir, exist_ok=True)
     paths = {}

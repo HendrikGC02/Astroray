@@ -186,7 +186,7 @@ def _fire_core_scene(backend, w=24, h=24, n=32, density_scale=1.0):
     down -z at the smoke block; no camera ray crosses the core, so every pixel
     is smoke lit by the fire's volume emission (no lamps, black background)."""
     r = _base(backend)
-    z, y, x = np.mgrid[0:n, 0:n, 0:n].astype(np.float32)
+    _z, _y, x = np.mgrid[0:n, 0:n, 0:n].astype(np.float32)
     xw = (x + 0.5) / n * 4.0 - 2.0          # world x of the voxel centre
     dens = np.where(xw > 0.2, 1.0, 0.0).astype(np.float32)
     temp = np.where(xw < -0.4, 1.0, 0.0).astype(np.float32)

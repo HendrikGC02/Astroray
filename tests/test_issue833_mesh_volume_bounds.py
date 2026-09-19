@@ -13,11 +13,10 @@ import os
 import sys
 
 import numpy as np
-import pytest
 from _batch_a_stub import load_addon
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "blender_addon"))
-import volume_export as vol  # noqa: E402
+import volume_export as vol
 
 
 # --------------------------------------------------------------------------- #
@@ -183,7 +182,7 @@ def test_more_than_eight_media_reports_gpu_cap_on_gpu_only(monkeypatch, capsys):
     engine._vol_media_count = 0
     r = _Renderer()
     for k in range(vol.GPU_MAX_VOLUME_MEDIA):
-        engine._try_export_volume(_Obj("C%d" % k, _cube(0.5)), _Inst(IDENT), r)
+        engine._try_export_volume(_Obj(f"C{k}", _cube(0.5)), _Inst(IDENT), r)
     engine._report_gpu_volume_cap("gpu")
     assert "GPU renders only" not in capsys.readouterr().out      # exactly 8: fine
     engine._try_export_volume(_Obj("C9", _cube(0.5)), _Inst(IDENT), r)

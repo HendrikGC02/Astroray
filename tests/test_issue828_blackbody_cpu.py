@@ -26,7 +26,7 @@ LAMS4 = [450.0, 550.0, 650.0, 800.0]
 
 def _cmf(lam):
     # accessor renamed by #837 (CIE 1931 2°); accept either spelling.
-    f = getattr(astroray, "cie_cmf_1931_2deg", None) or getattr(astroray, "cie_cmf_1964_10deg")
+    f = getattr(astroray, "cie_cmf_1931_2deg", None) or astroray.cie_cmf_1964_10deg
     return f(float(lam))
 
 

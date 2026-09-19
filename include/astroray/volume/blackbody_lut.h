@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <math.h>
+#include <cmath>
 
 #if defined(__CUDACC__)
 #  define ASTRORAY_BB_HD __host__ __device__

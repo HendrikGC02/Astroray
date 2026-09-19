@@ -22,7 +22,6 @@ import time
 
 import numpy as np
 import pytest
-
 import runtime_setup  # noqa: F401
 
 astroray = pytest.importorskip("astroray")

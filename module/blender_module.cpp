@@ -1616,13 +1616,15 @@ public:
     void setupCamera(const std::vector<float>& lookFrom, const std::vector<float>& lookAt,
                     const std::vector<float>& vup, float vfov, float aspectRatio,
                     float aperture, float focusDist, int width, int height,
-                    float shiftX = 0.0f, float shiftY = 0.0f) {
+                    float shiftX = 0.0f, float shiftY = 0.0f,
+                    float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max()) {
         auto oldCamera = camera;
         camera = std::make_shared<Camera>(
             Vec3(lookFrom[0], lookFrom[1], lookFrom[2]),
             Vec3(lookAt[0], lookAt[1], lookAt[2]),
             Vec3(vup[0], vup[1], vup[2]),
-            vfov, aspectRatio, aperture, focusDist, width, height, shiftX, shiftY);
+            vfov, aspectRatio, aperture, focusDist, width, height,
+            shiftX, shiftY, clipNear, clipFar);
         // pkg72: Blender re-uploads the camera every viewport frame via
         // setup_camera; carry the previous-frame projection snapshot across
         // so motion vectors are non-zero on the second and later frames.
@@ -2098,6 +2100,13 @@ public:
     // pkg64-gpu spec follow-ups, out of scope for Phase 1.)
     bool setObjectCausticCaster(int objectId, bool enabled) {
         return renderer.setObjectCausticCaster(objectId, enabled);
+    }
+
+    // pkg274 (#36) — per-object holdout flag (mirrors setObjectCausticCaster).
+    // `objectId` is the addObject call order. CPU-only: the primary camera ray's
+    // first hit on a holdout object writes color 0 / alpha 0 (a transparent hole).
+    bool setObjectHoldout(int objectId, bool enabled) {
+        return renderer.setObjectHoldout(objectId, enabled);
     }
 
     int getCausticCasterCount() const {
@@ -3624,7 +3633,8 @@ PYBIND11_MODULE(astroray, m) {
              "position"_a, "mass"_a, "influence_radius"_a, "params"_a = py::dict())
         .def("setup_camera", &PyRenderer::setupCamera, "look_from"_a, "look_at"_a, "vup"_a, "vfov"_a,
              "aspect_ratio"_a, "aperture"_a, "focus_dist"_a, "width"_a, "height"_a,
-             "shift_x"_a = 0.0f, "shift_y"_a = 0.0f)
+             "shift_x"_a = 0.0f, "shift_y"_a = 0.0f,
+             "clip_near"_a = 0.001f, "clip_far"_a = std::numeric_limits<float>::max())
         .def("set_camera_motion_blur", &PyRenderer::setCameraMotionBlur,
              "start_t"_a, "start_r"_a, "start_s"_a, "end_t"_a, "end_r"_a, "end_s"_a,
              "shutter"_a, "shutter_position"_a,
@@ -3700,6 +3710,11 @@ PYBIND11_MODULE(astroray, m) {
              "pkg64 Phase 3 — flag an object (by addObject order) as a "
              "caustic caster. Default path_tracer attempts SMS connections "
              "through flagged objects when use_refractive_caustics=True.")
+        .def("set_object_holdout", &PyRenderer::setObjectHoldout,
+             "object_id"_a, "enabled"_a,
+             "pkg274 (#36) — flag an object (by addObject order) as holdout. The "
+             "primary camera ray's first hit on it writes color 0 / alpha 0 "
+             "(a transparent hole); indirect rays are untouched. CPU only.")
         .def("caustic_caster_count", &PyRenderer::getCausticCasterCount)
         .def("scene_object_count", &PyRenderer::getSceneObjectCount)
         .def("set_object_name", &PyRenderer::setObjectName,

@@ -819,6 +819,11 @@ class Hittable {
     // actual SMS sampling is the BSD-3 Mitsuba-2 / Hanika 2015 chain in
     // include/astroray/manifold/. CLAUDE.md §6.
     bool isCausticCaster_ = false;
+    // pkg274 (#36) — Cycles holdout (object.is_holdout). A camera ray whose first
+    // hit is a holdout object contributes color 0 / alpha 0 (a transparent hole,
+    // no shading). Mirrors Cycles intern/cycles/scene/object.cpp `use_holdout`
+    // (Apache-2.0); the indirect path is untouched.
+    bool isHoldout_ = false;
     std::string name_;  // pkg87a — for Cryptomatte object ID
 public:
     // Result type used by GR objects (BlackHole). Defined here so that
@@ -878,6 +883,8 @@ public:
     int getMaterialPassIndex() const { return materialPassIndex; }
     void setCausticCaster(bool v) { isCausticCaster_ = v; }
     bool isCausticCaster() const { return isCausticCaster_; }
+    void setHoldout(bool v) { isHoldout_ = v; }
+    bool isHoldout() const { return isHoldout_; }
     // pkg87a — Cryptomatte name plumbing
     void setName(const std::string& name) { name_ = name; }
     std::string getName() const { return name_; }
@@ -1994,6 +2001,12 @@ class Camera {
     float vw_ = 0, vh_ = 0, focusDist_ = 0, shiftX_ = 0, shiftY_ = 0;
 public:
     int width, height;
+    // pkg274 (#724): Blender camera clip planes, applied only to the PRIMARY
+    // camera ray's first intersection (secondary rays keep the unconditional
+    // 0.001f/FLT_MAX bounds). Defaults match the pre-clip engine bounds, so the
+    // default render path is byte-identical.
+    float clipNear = 0.001f;
+    float clipFar = std::numeric_limits<float>::max();
     std::vector<Vec3> pixels, albedoBuffer, normalBuffer, positionBuffer, uvBuffer;
     // pkg72: per-pixel previous->current screen-space flow (float2/pixel,
     // OptiX convention). Sized unconditionally to match albedoBuffer/normalBuffer.
@@ -2029,8 +2042,9 @@ public:
 
     Camera(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio,
            float aperture, float focusDist, int w, int h,
-           float shiftX = 0.0f, float shiftY = 0.0f)
-        : width(w), height(h) {
+           float shiftX = 0.0f, float shiftY = 0.0f,
+           float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max())
+        : width(w), height(h), clipNear(clipNear), clipFar(clipFar) {
         float theta = vfov * M_PI / 180.0f;
         float vh = 2.0f * std::tan(theta / 2) * focusDist;
         float vw = aspectRatio * vh;
@@ -2321,6 +2335,15 @@ class Renderer {
     float filmExposure = 1.0f;
     bool useTransparentFilm = false;
     bool transparentGlass = false;
+    // pkg274 (#724) — primary camera-ray clip bounds, copied from Camera at the
+    // top of render() so pathTraceSpectral / coverageAlpha can bound the first
+    // bounce without touching secondary rays. Defaults match the pre-clip
+    // hard-coded 0.001f/FLT_MAX, so the default render is byte-identical.
+    float clipNear_ = 0.001f;
+    float clipFar_ = std::numeric_limits<float>::max();
+    // pkg274 (#36) — cached once per render (see render()) so the primary-ray
+    // holdout check is free when no holdout object is present.
+    bool hasHoldoutObjects_ = false;
     float clampDirect = 0.0f;   // 0 = disabled
     float clampIndirect = 0.0f; // 0 = disabled
     float filterGlossy = 0.0f;
@@ -2735,6 +2758,14 @@ public:
         scene[objectIndex]->setCausticCaster(enabled);
         return true;
     }
+    // pkg274 (#36) — per-object holdout opt-in (mirrors setObjectCausticCaster).
+    // The index is the addObject call order (same as getScene()).
+    bool setObjectHoldout(int objectIndex, bool enabled) {
+        if (objectIndex < 0 || static_cast<size_t>(objectIndex) >= scene.size())
+            return false;
+        scene[objectIndex]->setHoldout(enabled);
+        return true;
+    }
     // pkg87c — Cryptomatte object name setter
     bool setObjectName(int objectIndex, const std::string& name) {
         if (objectIndex < 0 || static_cast<size_t>(objectIndex) >= scene.size())
@@ -3118,7 +3149,12 @@ public:
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             lastBounce = bounce;
             HitRecord rec;
-            bool didHit = bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec);
+            // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
+            // camera clip planes; every secondary ray keeps the unconditional
+            // 0.001f/FLT_MAX bounds so it is byte-identical to pre-clip behaviour.
+            const float tMin = (bounce == 0) ? clipNear_ : 0.001f;
+            const float tMax = (bounce == 0) ? clipFar_ : std::numeric_limits<float>::max();
+            bool didHit = bvh->hit(ray, tMin, tMax, rec);
 
             // pkg268 — bounded grid/homogeneous medium free flight (delta/Woodcock
             // tracking). Mirrors the world-volume mediumScatters block below but for
@@ -3931,7 +3967,12 @@ public:
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             lastBounce = bounce;
             HitRecord rec;
-            bool didHit = bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec);
+            // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
+            // camera clip planes; every secondary ray keeps the unconditional
+            // 0.001f/FLT_MAX bounds so it is byte-identical to pre-clip behaviour.
+            const float tMin = (bounce == 0) ? clipNear_ : 0.001f;
+            const float tMax = (bounce == 0) ? clipFar_ : std::numeric_limits<float>::max();
+            bool didHit = bvh->hit(ray, tMin, tMax, rec);
 
             // pkg181: dedicated-lamp visibility (Cycles lights_intersect). This
             // opt-in caustic kernel carries no pkg120 two-sided-MIS state
@@ -4275,7 +4316,12 @@ public:
         const int cap = std::max(1, maxDepth);
         for (int bounce = 0; bounce < cap; ++bounce) {
             HitRecord rec;
-            if (!bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec))
+            // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
+            // camera clip planes; the transparent-glass continuation rays keep the
+            // unconditional 0.001f/FLT_MAX bounds.
+            const float tMin = (bounce == 0) ? clipNear_ : 0.001f;
+            const float tMax = (bounce == 0) ? clipFar_ : std::numeric_limits<float>::max();
+            if (!bvh->hit(ray, tMin, tMax, rec))
                 return 0.0f;  // reached the background uncovered
             if (rec.hitObject && rec.hitObject->isGRObject())
                 return 1.0f;  // a GR object covers the film
@@ -4319,6 +4365,16 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         // every caller are unchanged.
         setPerTypeBounces(argDiffuseBounces, argGlossyBounces, argTransmissionBounces);
         (void)argVolumeBounces; (void)argTransparentBounces;
+        // pkg274 (#724/#36): copy the camera clip planes and cache the holdout
+        // presence once per render, before the integrator / trace loops read them.
+        // Defaults (0.001f / FLT_MAX / no holdout) keep the default render path
+        // byte-identical.
+        clipNear_ = cam.clipNear;
+        clipFar_ = cam.clipFar;
+        hasHoldoutObjects_ = false;
+        for (const auto& o : scene) {
+            if (o && o->isHoldout()) { hasHoldoutObjects_ = true; break; }
+        }
         ensureDefaultIntegrator();
         buildAcceleration();
         if (integrator_) {
@@ -4601,6 +4657,23 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                 sObjectIndex = ir.objectIndex;
                                 sMaterialIndex = ir.materialIndex;
                                 sPass = ir.passes;
+                            }
+                            // pkg274 (#36): holdout — when the PRIMARY camera ray's
+                            // first hit is a holdout object, this sample contributes
+                            // color 0 / alpha 0 (a transparent hole, no shading),
+                            // mirroring Cycles' use_holdout (intern/cycles/kernel/
+                            // integrator/shade_surface.h). Indirect rays are
+                            // untouched. No-op (single bool test) when no holdout
+                            // object is present, so the default render is
+                            // byte-identical.
+                            if (hasHoldoutObjects_) {
+                                HitRecord holdRec;
+                                if (bvh->hit(primaryRay, clipNear_, clipFar_, holdRec) &&
+                                    holdRec.hitObject && holdRec.hitObject->isHoldout()) {
+                                    sCol = Vec3(0);
+                                    sPass.fill(Vec3(0));
+                                    sAlpha = 0.0f;
+                                }
                             }
                             sCol = finiteVecOrZero(sCol);
                             // pkg144: the always-on, direct+indirect-combined `sLum > 20`

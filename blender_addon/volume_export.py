@@ -282,9 +282,24 @@ def principled_volume_from_material(material):
     else:
         degr.append("unsupported volume node '%s' (pkg272)" % node.bl_idname)
         return None
+    # pkg271: a linked input (texture / attribute node driving the socket) is
+    # lowered to its default value -- say so (pkg200 rule).
+    for sname in _VOLUME_VALUE_SOCKETS:
+        s = node.inputs.get(sname) if hasattr(node.inputs, "get") else None
+        if s is not None and getattr(s, "is_linked", False):
+            degr.append("volume '%s' input is linked; only its default value is used" % sname)
+    color_attr = _socket_str(node, "Color Attribute", "")
+    if color_attr:
+        degr.append("volume 'Color Attribute' ('%s') is not consumed (pkg272)" % color_attr)
     # pkg270: chromatic colour / absorption colour are honoured per wavelength
     # (hero-wavelength spectral tracking) — no grey-extinction degradation.
     return info
+
+
+# pkg271 — the value sockets principled_volume_from_material reads by default value.
+_VOLUME_VALUE_SOCKETS = ("Color", "Density", "Anisotropy", "Absorption Color",
+                         "Emission Strength", "Emission Color", "Blackbody Intensity",
+                         "Blackbody Tint", "Temperature")
 
 
 def mesh_world_aabb(obj, matrix_world):

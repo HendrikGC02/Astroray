@@ -129,7 +129,9 @@ __device__ inline float gridTemperatureAt(const GGridMedium& m, const GVec3& p)
 __device__ inline float gpu_bbLogLuminance(float T)
 {
     float u = (logf(T) - G_BB_LUT_LNTMIN) * G_BB_LUT_INVH;
-    int i = min(max((int)u, 0), G_BB_LUT_N - 2);
+    int i = (int)u;
+    if (i < 0) i = 0;
+    if (i > G_BB_LUT_N - 2) i = G_BB_LUT_N - 2;
     float f = u - (float)i;
     return g_bbLogLum[i] + f * (g_bbLogLum[i + 1] - g_bbLogLum[i]);
 }

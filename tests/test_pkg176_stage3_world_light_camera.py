@@ -115,9 +115,12 @@ def test_non_perspective_camera_warns(cam_type):
     assert reports[0][0] == {'WARNING'}
 
 
-def test_changed_clip_warns():
+def test_changed_clip_no_longer_warns():
+    # pkg274 (#724): clip_start/clip_end are now honoured (exported to the
+    # engine's primary camera ray), so a non-default clip no longer emits the
+    # old "near/far clipping ignored" warning.
     msgs, _ = _collect(_scene(camera=_camera(clip_start=2.0, clip_end=500.0)))
-    assert any("clip_start/clip_end" in m for m in msgs)
+    assert not any("clip_start/clip_end" in m for m in msgs)
 
 
 def test_default_clip_is_silent():
@@ -173,7 +176,7 @@ def test_multiple_controls_one_consolidated_report():
     _, reports = _collect(scene)
     assert len(reports) == 1                       # exactly one WARNING per render
     joined = reports[0][1]
-    for token in ("PANO", "clip_start/clip_end", "aperture_blades",
+    for token in ("PANO", "aperture_blades",
                   "aperture_ratio", "specular_factor"):
         assert token in joined
 

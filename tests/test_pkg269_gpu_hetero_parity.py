@@ -245,12 +245,13 @@ def test_gpu_blackbody_temperature_grid_parity_and_finite():
     if not _gpu_available():
         pytest.skip("CUDA GPU not available on this machine")
     from base_helpers import save_image
-    os.makedirs(_OUT, exist_ok=True)
     w = h = 32
     cpu_img = _render(_fire_grid_scene(False, w, h), 1024, 4, w, h)
     gpu_img = _render(_fire_grid_scene(True, w, h), 1024, 4, w, h)
-    save_image(cpu_img, os.path.join(_OUT, "issue828_fire_cpu.png"))
-    save_image(gpu_img, os.path.join(_OUT, "issue828_fire_gpu.png"))
+    out = os.path.join(os.path.dirname(__file__), "..", "test_results", "batchQ")
+    os.makedirs(out, exist_ok=True)
+    save_image(cpu_img, os.path.join(out, "issue828_fire_cpu.png"))
+    save_image(gpu_img, os.path.join(out, "issue828_fire_gpu.png"))
     assert np.all(np.isfinite(cpu_img)), "CPU fire has NaN/inf (cold-rim normaliser)"
     assert np.all(np.isfinite(gpu_img)), "GPU fire has NaN/inf"
     cpu, gpu = _center(cpu_img, 10), _center(gpu_img, 10)

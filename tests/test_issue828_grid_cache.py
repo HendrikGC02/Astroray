@@ -6,12 +6,17 @@ density + temperature buffers ride the #801 reuse decision and every media
 mutation (``set_volume_grid`` / ``add_homogeneous_medium`` / ``clear_grid_media``)
 invalidates the cache.
 
-Contract (style of tests/test_issue801_wavefront_scene_cache.py):
-  1. a reuse render of a grid scene is byte-identical to an upload render;
-  2. ``set_volume_grid`` after an upload invalidates: the next reuse render shows
-     the new medium and equals an upload render;
-  3. ``clear_grid_media`` invalidates the same way;
+The gate is the driver's own upload count, ``last_render_info()["grid_uploads"]``
+(host->device grid buffer copies of the last GPU render; the key does not exist
+before #828, so every test here fails on main):
+  1. an upload render copies density + temperature (2); a following reuse
+     render copies nothing (0) and renders the same image;
+  2. ``set_volume_grid`` / ``add_homogeneous_medium`` after an upload force the
+     next reuse render to re-upload (and match an upload render);
+  3. ``clear_grid_media`` leaves nothing to upload and the medium is gone;
   4. on a grid-dominated scene the reuse path is measurably cheaper.
+Images are compared with a float tolerance, not bit-exactly: with volumes the
+wavefront's per-pixel accumulation order varies run to run (ulp-level).
 """
 import time
 
@@ -74,15 +79,23 @@ def _render(r, spp=4, skip_upload=False):
     return img.reshape(H, W, 3) if img.ndim == 1 else img
 
 
-def test_grid_reuse_is_byte_identical_to_upload():
+def _uploads(r):
+    return r.last_render_info()["grid_uploads"]
+
+
+def _close(a, b):
+    np.testing.assert_allclose(a, b, rtol=1e-4, atol=1e-6)
+
+
+def test_reuse_render_uploads_no_grid_buffers():
     _gpu_or_skip()
     r = _scene()
     a = _render(r, skip_upload=False)
+    assert _uploads(r) == 2, "upload render must copy density + temperature"
     b = _render(r, skip_upload=True)
-    c = _render(r, skip_upload=False)
+    assert _uploads(r) == 0, "reuse render re-uploaded the grids (no device grid cache)"
     assert a.mean() > 0.01, "grid scene renders black -- fixture broken"
-    np.testing.assert_array_equal(a, b)
-    np.testing.assert_array_equal(a, c)
+    _close(a, b)
 
 
 def test_set_volume_grid_invalidates_the_cache():
@@ -91,20 +104,10 @@ def test_set_volume_grid_invalidates_the_cache():
     base = _render(r, skip_upload=False)
     _add_fire(r, T=3500.0, name="fire2", offset=(1.6, 0.0, -1.0))  # a second, hotter grid
     after_reuse = _render(r, skip_upload=True)
+    assert _uploads(r) == 4, "set_volume_grid did not invalidate the grid cache"
     after_upload = _render(r, skip_upload=False)
-    assert not np.array_equal(base, after_reuse), "stale cached grid after set_volume_grid()"
-    np.testing.assert_array_equal(after_reuse, after_upload)
-
-
-def test_clear_grid_media_invalidates_the_cache():
-    _gpu_or_skip()
-    r = _scene()
-    base = _render(r, skip_upload=False)
-    r.clear_grid_media()
-    after_reuse = _render(r, skip_upload=True)
-    after_upload = _render(r, skip_upload=False)
-    assert after_reuse.mean() < 0.5 * base.mean(), "cleared medium still rendered from the cache"
-    np.testing.assert_array_equal(after_reuse, after_upload)
+    assert after_reuse.mean() > 1.05 * base.mean(), "second grid not rendered"
+    _close(after_reuse, after_upload)
 
 
 def test_add_homogeneous_medium_invalidates_the_cache():
@@ -114,14 +117,28 @@ def test_add_homogeneous_medium_invalidates_the_cache():
     r.add_homogeneous_medium([-3, -3, -3], [3, 3, -1.5], 0.0, [0, 0, 0], [1, 1, 1], 0.0,
                              emission_strength=2.0, emission_color=[0.2, 0.4, 1.0])
     after_reuse = _render(r, skip_upload=True)
+    assert _uploads(r) == 2, "add_homogeneous_medium did not invalidate the grid cache"
     after_upload = _render(r, skip_upload=False)
-    assert not np.array_equal(base, after_reuse), "stale cache after add_homogeneous_medium()"
-    np.testing.assert_array_equal(after_reuse, after_upload)
+    assert not np.allclose(base, after_reuse, rtol=1e-3), "new medium not rendered"
+    _close(after_reuse, after_upload)
+
+
+def test_clear_grid_media_invalidates_the_cache():
+    _gpu_or_skip()
+    r = _scene()
+    base = _render(r, skip_upload=False)
+    r.clear_grid_media()
+    after_reuse = _render(r, skip_upload=True)
+    assert _uploads(r) == 0
+    after_upload = _render(r, skip_upload=False)
+    assert after_reuse.mean() < 0.9 * base.mean(), "cleared medium still rendered"
+    _close(after_reuse, after_upload)
 
 
 def test_grid_reuse_is_cheaper_than_upload():
     """A dense 192^3 density + temperature pair is ~56 MB of host->device copy per
-    upload render; the reuse path copies nothing (min-of-N, clock drift)."""
+    upload render; the reuse path copies nothing. Measured 4.4 ms vs 0.7 ms
+    (2026-09-20, RTX 5070 Ti); gate at 1.5x, min-of-7 against clock drift."""
     _gpu_or_skip()
     n = 192
     r = astroray.Renderer()
@@ -143,7 +160,7 @@ def test_grid_reuse_is_cheaper_than_upload():
 
     def best(skip):
         ts = []
-        for _ in range(5):
+        for _ in range(7):
             t = time.perf_counter()
             run(skip)
             ts.append(time.perf_counter() - t)

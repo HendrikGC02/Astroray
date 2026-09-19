@@ -91,18 +91,29 @@ AR_LAMP_HD inline Sample sample(const float c[3], float r, bool sphere, const fl
         if (d2 > r2) {
             // sample_uniform_cone(-lightN, one_minus_cos(r^2/d^2)).
             const float omc = sinSqrToOneMinusCos(r2 / d2);
-            float x, y;
-            uniformDisk(u1, u2, x, y);
-            const float rd2 = x * x + y * y;
-            cosT = 1.0f - rd2 * omc;
-            const float k = sqrtf(fmaxf(0.0f, omc * (2.0f - omc * rd2)));
-            x *= k; y *= k;
-            const float N[3] = {-ln[0], -ln[1], -ln[2]};
-            float T[3], B[3];
-            orthonormals(N, T, B);
-            for (int i = 0; i < 3; ++i) D[i] = x * T[i] + y * B[i] + cosT * N[i];
-            s.pdf = 1.0f / (2.0f * kPiF * omc);
-            t = d * cosT - sqrtf(fmaxf(0.0f, r2 - d2 + d2 * cosT * cosT));
+            // Cycles kernel/sample/mapping.h (:131, :171-174) guards a zero
+            // one_minus_cos_angle (fully degenerate cone) by returning
+            // cos_theta=1, pdf=1, D=N instead of dividing by zero below.
+            if (omc > 0.0f) {
+                float x, y;
+                uniformDisk(u1, u2, x, y);
+                const float rd2 = x * x + y * y;
+                cosT = 1.0f - rd2 * omc;
+                const float k = sqrtf(fmaxf(0.0f, omc * (2.0f - omc * rd2)));
+                x *= k; y *= k;
+                const float N[3] = {-ln[0], -ln[1], -ln[2]};
+                float T[3], B[3];
+                orthonormals(N, T, B);
+                for (int i = 0; i < 3; ++i) D[i] = x * T[i] + y * B[i] + cosT * N[i];
+                s.pdf = 1.0f / (2.0f * kPiF * omc);
+                t = d * cosT - sqrtf(fmaxf(0.0f, r2 - d2 + d2 * cosT * cosT));
+            } else {
+                // Degenerate cone: collapse to the sphere axis (cos_theta=1).
+                cosT = 1.0f;
+                s.pdf = 1.0f;
+                D[0] = -ln[0]; D[1] = -ln[1]; D[2] = -ln[2];
+                t = d - r;
+            }
         } else {
             // Inside: uniform sphere (sample_uniform_sphere), pdf 1/(4 pi).
             const float z = 1.0f - 2.0f * u1;

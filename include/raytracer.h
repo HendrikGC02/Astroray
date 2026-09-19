@@ -205,7 +205,8 @@ public:
         if (nums.size() < 13) return nullptr;
 
         // LM-63 numeric header:
-        // [2]=candela multiplier, [3]=vertical angle count, [4]=horizontal angle count
+        // [2]=candela multiplier, [3]=vertical angle count, [4]=horizontal angle count,
+        // [10]=ballast factor, [11]=ballast-lamp photometric factor
         const float candelaMultiplier = nums[2];
         const int vCount = std::max(0, static_cast<int>(std::lround(nums[3])));
         const int hCount = std::max(0, static_cast<int>(std::lround(nums[4])));
@@ -239,7 +240,14 @@ public:
         // same result as no IES node times 4*pi/177.83 (see composition in
         // point_light.cpp / spot_light.cpp: intensity * 1/(4*pi) * iesValue).
         constexpr float kCandelaToWatt = 0.0706650768394f;  // 4*pi / 177.83
-        float scale = std::max(candelaMultiplier, 0.0f) * kCandelaToWatt;
+        // Cycles util/ies.cpp IESFile::parse (:163-166) folds the ballast factor
+        // and ballast-lamp photometric factor (header[10], header[11]) into the
+        // candela multiplier before the candela->Watt conversion; each is used
+        // only when > 0 (a zero/blank field means "none" -> 1.0).
+        const float ballastFactor = nums[10] > 0.0f ? nums[10] : 1.0f;
+        const float lampPhotometricFactor = nums[11] > 0.0f ? nums[11] : 1.0f;
+        float scale = std::max(candelaMultiplier, 0.0f) * ballastFactor
+                    * lampPhotometricFactor * kCandelaToWatt;
         std::vector<std::vector<float>> table(static_cast<size_t>(hCount));
         for (int h = 0; h < hCount; ++h) {
             table[h].resize(static_cast<size_t>(vCount));
@@ -247,6 +255,13 @@ public:
                 table[h][v] = nums[offset + static_cast<size_t>(h) * vCount + v] * scale;
             }
         }
+        // Photometric type field (header[5]): LM-63 type C == 1. Cycles
+        // util/ies.cpp (:155-158, :380-387) rejects non-A/B/C files and
+        // dispatches per type; we implement only type C, so a non-C file is
+        // still processed as C but logged (pre-existing A/B gap).
+        if (static_cast<int>(std::lround(nums[5])) != 1)
+            fprintf(stderr, "[astroray ies] warning: photometric type %d is not type C (1); processing as type C\n",
+                    static_cast<int>(std::lround(nums[5])));
         processTypeC(hAngles, table);
 
         auto profile = std::make_shared<IESProfile>();

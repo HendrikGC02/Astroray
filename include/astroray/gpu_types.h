@@ -972,7 +972,7 @@ struct GDedicatedLight {
     GVec3 axis;             // spot axis / distant axis (FROM light) / area normal
     GVec3 u, v;             // area plane axes (normalized)
     float width, height;    // area extents (width = disk radius for Disk)
-    int   areaShape;        // 0 rect, 1 disk, 2 ellipse
+    int   areaShape;        // area: 0 rect, 1 disk, 2 ellipse; point/spot radius>0: 0 soft-falloff disk, 1 sphere
     float radius;           // point/spot soft-shadow radius (0 = hard/delta)
     float spread;           // area emission cone half-angle (radians)
     float cosInner, cosOuter; // spot cone cosines / distant cos(halfAngle)

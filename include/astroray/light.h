@@ -57,7 +57,7 @@ struct DeviceLightParams {
     Vec3  u, v;                   // area plane axes (normalized); u × v = normal
     float width     = 0.0f;       // area width (or disk radius in width)
     float height    = 0.0f;       // area height
-    int   areaShape = 0;          // 0 rectangle, 1 disk, 2 ellipse
+    int   areaShape = 0;          // area: 0 rectangle, 1 disk, 2 ellipse; point/spot radius>0: 0 soft-falloff disk, 1 sphere
     float radius    = 0.0f;       // point/spot soft-shadow radius (0 = hard/delta)
     float spread    = 0.0f;       // area emission cone half-angle (radians) /
                                    // distant: precomputed solid angle in sr

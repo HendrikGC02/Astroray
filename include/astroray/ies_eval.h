@@ -1,7 +1,7 @@
 #pragma once
 // pkg276 — IES lookup shared by the CPU (IESProfile, raytracer.h) and the GPU
-// (gpu_nee.cuh gpu_dedicated_sample<HasIES>), so both backends evaluate the
-// SAME Cycles interpolation.
+// (gpu_nee.cuh gpu_lamp_sample_ext, gated by the runtime __constant__ flag
+// c_iesEnabled), so both backends evaluate the SAME Cycles interpolation.
 //
 // Source: Blender 5.2 Cycles, intern/cycles/kernel/util/ies.h
 //   (kernel_ies_interp, interpolate_ies_vertical), kernel/svm/ies.h

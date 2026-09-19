@@ -1231,6 +1231,10 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
         devUpload(res.materials, &d_materials);
         devUpload(res.lights, &d_lights);
         devUpload(res.dedicatedLights, &d_dedLights);  // pkg89-wavefront (C7)
+        // pkg276: clear any process-global IES state from a prior render so it
+        // cannot leak into this snapshot; mirrors cuda_renderer.cu's upload.
+        uploadIESTables(res.iesTable.data(), (int)res.iesTable.size(),
+                        res.iesLights.data(), (int)res.iesLights.size());
         devUpload(res.lightTreeNodes, &d_treeNodes);
         devUpload(res.lightTreeEmitters, &d_treeEmitters);
         devUpload(res.lightToEmitter, &d_lightToEmitter);

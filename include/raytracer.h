@@ -2417,6 +2417,12 @@ class Renderer {
     int maxDiffuseBounces = -1;
     int maxGlossyBounces = -1;
     int maxTransmissionBounces = -1;
+    // pkg271 — Cycles volume_bounces (-1 = unlimited). The k-th volume scatter
+    // (bounded grid/homogeneous medium or world fog) with k > limit continues
+    // "terminate-after" (Cycles PATH_RAY_TERMINATE_AFTER_TRANSPARENT): media
+    // only attenuate + emit, a surface adds its emission then ends. Read by
+    // pathTraceSpectral and cuda_wavefront_render (both backends).
+    int maxVolumeBounces = -1;
     // pkg113 Phase-3: opt-in GPU photon-map caustic pre-pass. Default FALSE so existing GPU
     // caustic renders (incl. the legacy SMS-GPU path) are unchanged; the photon-map scene
     // pre-pass + gather only runs when a caller explicitly opts in (set_use_photon_caustics).
@@ -2829,6 +2835,8 @@ public:
     int getMaxDiffuseBounces() const { return maxDiffuseBounces; }
     int getMaxGlossyBounces() const { return maxGlossyBounces; }
     int getMaxTransmissionBounces() const { return maxTransmissionBounces; }
+    void setVolumeBounces(int n) { maxVolumeBounces = (n < 0) ? -1 : n; }
+    int getMaxVolumeBounces() const { return maxVolumeBounces; }
     // pkg268 — register bounded object media. Clear before a re-export.
     void clearGridMedia() { gridMedia_.clear(); gridStore_.clear(); }
     // Heterogeneous: takes ownership of a built GridMedium + Principled Volume
@@ -3125,6 +3133,10 @@ public:
         int diffuseBounceCount = 0;
         int glossyBounceCount = 0;
         int transmissionBounceCount = 0;
+        // pkg271 — volume scatter count + the sticky terminate-after flag
+        // (maxVolumeBounces; research batchq-volumes-3-research.md §4).
+        int volumeBounceCount = 0;
+        bool volTerminateAfter = false;
         // pkg201 Stage 3 (Finding E) — native caustic toggles. Sticky path-lifetime
         // flag mirroring Cycles PATH_RAY_DIFFUSE_ANCESTOR: set once a path bounces
         // off a genuinely diffuse surface, never cleared. A subsequent specular
@@ -3197,7 +3209,8 @@ public:
                     astroray::SampledSpectrum beta =
                         throughput * astroray::volume::heroAverage(volRu, lambdas);
                     astroray::volume::SpectralFlight ff = astroray::volume::spectralTrack(
-                        med, ray.origin, dUnit, mEnter, mExit, lambdas, beta, volRu, gen);
+                        med, ray.origin, dUnit, mEnter, mExit, lambdas, beta, volRu, gen,
+                        /*noScatter=*/volTerminateAfter);
                     if (!ff.emission.isZero()) {
                         // Volume emission along the flight: Emission pass when
                         // directly visible, else folded into <firstCat>_INDIRECT
@@ -3249,6 +3262,11 @@ public:
                                 }
                             }
                         }
+                        // pkg271: Cycles volume_bounce (+1 at this scatter); past
+                        // the limit the continuation is terminate-after.
+                        if (maxVolumeBounces >= 0 && volumeBounceCount >= maxVolumeBounces)
+                            volTerminateAfter = true;
+                        ++volumeBounceCount;
                         // --- HG phase-sampled continuation from P ---
                         float phasePdf;
                         Vec3 wiCont = astroray::volume::sampleHG(woMedium, med.g,
@@ -3282,7 +3300,10 @@ public:
             // selection distance sampling, balance-heuristic pdf averaged over the
             // spectral channels (unbiased for coloured media). See
             // .astroray_plan/docs/pkg199-stage2-scattering-research.md.
-            if (mediumScatters) {
+            // pkg271: a terminate-after path (volume_bounces exhausted) does not
+            // scatter in the fog; it takes the Stage-1 absorption path instead.
+            const bool fogScatter = mediumScatters && !volTerminateAfter;
+            if (fogScatter) {
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
                 // Nearest terminating event: surface, or a hittable dedicated lamp
                 // closer than it (bounce>0). Env => FLT_MAX.
@@ -3360,6 +3381,10 @@ public:
                             }
                         }
                     }
+                    // pkg271: count the volume scatter (see the grid block).
+                    if (maxVolumeBounces >= 0 && volumeBounceCount >= maxVolumeBounces)
+                        volTerminateAfter = true;
+                    ++volumeBounceCount;
                     // --- HG phase-sampled continuation from P ---
                     float phasePdf;
                     Vec3 wiCont = sampleHG(woMedium, g, dist01(gen), dist01(gen), phasePdf);
@@ -3422,7 +3447,7 @@ public:
                         // already applied Tr(termT=lh.t)/pdf to throughput, so the
                         // lamp emission must NOT be re-attenuated here.
                         astroray::SampledSpectrum lampEmission =
-                            (hasWorldVolume && !mediumScatters)
+                            (hasWorldVolume && !fogScatter)
                                 ? lh.emission * worldTransmittanceSpectral(lh.t, lambdas)
                                 : lh.emission;
                         // pkg198: a lamp hit by a continuation ray is indirect light
@@ -3499,7 +3524,7 @@ public:
             // intersectPathSlot. Vacuum: guarded, throughput unchanged.
             // pkg199 Stage 2: in scatter mode the free-flight estimator above
             // already applied Tr(termT)/pdf, so skip this deterministic multiply.
-            if (hasWorldVolume && worldVolumeDensity > 0.0f && !mediumScatters) {
+            if (hasWorldVolume && worldVolumeDensity > 0.0f && !fogScatter) {
                 throughput *= worldTransmittanceSpectral(rec.t, lambdas);
             }
             if (rec.hitObject && rec.hitObject->isGRObject()) {
@@ -3583,6 +3608,8 @@ public:
                 }
                 break;
             }
+            // pkg271: a terminate-after path ends at a non-emissive surface.
+            if (volTerminateAfter) break;
 
             Vec3 wo = -ray.direction.normalized();
 
@@ -4395,7 +4422,8 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         // cross-ref / BSDF-label follow-up); accept+ignore so the signature and
         // every caller are unchanged.
         setPerTypeBounces(argDiffuseBounces, argGlossyBounces, argTransmissionBounces);
-        (void)argVolumeBounces; (void)argTransparentBounces;
+        setVolumeBounces(argVolumeBounces);  // pkg271
+        (void)argTransparentBounces;
         // pkg274 (#724/#36): copy the camera clip planes and cache the holdout
         // presence once per render, before the integrator / trace loops read them.
         // Defaults (0.001f / FLT_MAX / no holdout) keep the default render path

@@ -171,12 +171,17 @@ Homogeneous media use the scalar tracker; heterogeneous (VDB) media are
 NanoVDB-backed (`include/astroray/volume/grid_medium.h`) and, since pkg270, use
 the pbrt-v4 hero-wavelength spectral MIS tracker in `volume_transport.h` — the
 extinction/transmittance are per-wavelength (chromatic). Principled Volume
-emission is supported on the CPU including a spectral Planck blackbody
-(`volume_emission.h`). The GPU wavefront path renders heterogeneous volumes too
+emission (constant + spectral Planck blackbody from the Temperature socket or a
+temperature grid) renders on both backends through ONE shared formula
+(`include/astroray/volume/blackbody_lut.h`: log-space Planck over a ln-T table of
+the photopic integral; #828). The GPU wavefront path renders heterogeneous volumes
 (`src/gpu/wavefront/stage_volume_hetero.cu`, pkg269, via a NanoVDB device grid
-and a `HasGridVolume` intersect/shadow axis) with at most 8 media and
-**constant emission only** — blackbody volume emission is CPU-only and is
-surfaced as a degradation (issue #828).
+and a `HasGridVolume` intersect/shadow axis) with at most 8 media (the addon
+reports more on GPU renders); the grid buffers ride the #801 device scene cache.
+`volume_bounces` follows Cycles (`max_volume_bounce = volume_bounces + 1`; past
+it the continuation only attenuates + emits, then ends at the next surface — no
+transparent-surface pass-through, unlike Cycles; pkg271). A ray segment tracks
+only the nearest medium it enters (a second medium further along is skipped).
 
 ---
 

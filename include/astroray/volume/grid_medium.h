@@ -104,6 +104,8 @@ public:
     float temperatureIndex(float ix, float iy, float iz) const;
     // pkg270 -- nearest-voxel temperature at a WORLD point (0 outside / no grid).
     float temperatureWorld(float wx, float wy, float wz) const;
+    // #828 -- the raw dense temperature block (GPU upload); nullptr without one.
+    const DenseGrid* temperatureDense() const;
 
 private:
     struct Impl;

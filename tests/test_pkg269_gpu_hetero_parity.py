@@ -187,6 +187,83 @@ def test_gpu_constant_emission_slab_parity():
 
 
 # --------------------------------------------------------------------------- #
+# (d) #828 — blackbody emission on the GPU: homogeneous slab (socket T) and a
+#     heterogeneous grid with a temperature grid (T = socket × grid), incl. the
+#     cold rim where the pre-#828 CPU normaliser produced NaN (25–140 K).
+# --------------------------------------------------------------------------- #
+
+def _bb_slab_scene(use_gpu, T, I, tint, w=24, h=24, dist=6.0, near=-4.0, far=-2.0):
+    r = _base(use_gpu, w, h, 2)
+    r.add_homogeneous_medium([-10.0, -10.0, near], [10.0, 10.0, far],
+                             0.0, [0.0, 0.0, 0.0], [1.0, 1.0, 1.0], 0.0,
+                             blackbody_intensity=I, blackbody_tint=tint,
+                             blackbody_temperature=T)
+    r.setup_camera([0.0, 0.0, 0.001], [0.0, 0.0, -dist], [0.0, 1.0, 0.0],
+                   20.0, w / h, 0.0, dist, w, h)
+    return r
+
+
+@pytest.mark.parametrize("T,I,tint", [(1500.0, 1.0, [1.0, 1.0, 1.0]),
+                                      (3200.0, 0.7, [1.0, 0.8, 0.6])])
+def test_gpu_blackbody_slab_parity(T, I, tint):
+    if not _gpu_available():
+        pytest.skip("CUDA GPU not available on this machine")
+    cpu = _center(_render(_bb_slab_scene(False, T, I, tint), 1024, 2, 24, 24), 3)
+    gpu = _center(_render(_bb_slab_scene(True, T, I, tint), 1024, 2, 24, 24), 3)
+    ratio = gpu / np.maximum(cpu, 1e-12)
+    print(f"\n[#828 bb slab T={T} I={I}] CPU={cpu.round(5)} GPU={gpu.round(5)} "
+          f"GPU/CPU={ratio.round(4)}")
+    assert cpu.max() > 1e-3, "CPU blackbody slab is black -- fixture broken"
+    for c in range(3):
+        if cpu[c] > 0.02 * cpu.max():
+            assert 0.95 <= ratio[c] <= 1.05, (c, ratio, cpu, gpu)
+
+
+def _fire_grid_scene(use_gpu, w=32, h=32, n=24):
+    """Density + temperature grid: a hot core fading to a cold rim. T = 1800 K ×
+    grid, so the rim sweeps 0..~150 K (the pre-#828 CPU NaN band)."""
+    r = _base(use_gpu, w, h, 4)
+    z, y, x = np.mgrid[0:n, 0:n, 0:n].astype(np.float32)
+    c = (n - 1) / 2.0
+    r2 = ((x - c) ** 2 + (y - c) ** 2 + (z - c) ** 2) / (c * c)
+    dens = np.clip(1.0 - r2, 0.0, 1.0).astype(np.float32) * 0.5
+    temp = np.clip(1.0 - r2 * 1.2, 0.0, 1.0).astype(np.float32) ** 2
+    vox = 2.0 / n
+    i2o = [vox, 0, 0, -1.0, 0, vox, 0, -1.0, 0, 0, vox, -1.0, 0, 0, 0, 1]
+    o2w = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+    r.set_volume_grid("fire", np.ascontiguousarray(dens), [0, 0, 0], i2o, o2w,
+                      density_scale=2.0, color=[0.5, 0.5, 0.5],
+                      absorption_color=[0.2, 0.2, 0.2], anisotropy=0.0,
+                      temperature=np.ascontiguousarray(temp),
+                      blackbody_intensity=1.0, blackbody_temperature=1800.0)
+    r.setup_camera([0.0, 0.0, 5.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
+                   30.0, w / h, 0.0, 5.0, w, h)
+    return r
+
+
+def test_gpu_blackbody_temperature_grid_parity_and_finite():
+    if not _gpu_available():
+        pytest.skip("CUDA GPU not available on this machine")
+    from base_helpers import save_image
+    w = h = 32
+    cpu_img = _render(_fire_grid_scene(False, w, h), 1024, 4, w, h)
+    gpu_img = _render(_fire_grid_scene(True, w, h), 1024, 4, w, h)
+    out = os.path.join(os.path.dirname(__file__), "..", "test_results", "batchQ")
+    os.makedirs(out, exist_ok=True)
+    save_image(cpu_img, os.path.join(out, "issue828_fire_cpu.png"))
+    save_image(gpu_img, os.path.join(out, "issue828_fire_gpu.png"))
+    assert np.all(np.isfinite(cpu_img)), "CPU fire has NaN/inf (cold-rim normaliser)"
+    assert np.all(np.isfinite(gpu_img)), "GPU fire has NaN/inf"
+    cpu, gpu = _center(cpu_img, 10), _center(gpu_img, 10)
+    ratio = gpu / np.maximum(cpu, 1e-12)
+    print(f"\n[#828 fire grid] CPU={cpu.round(5)} GPU={gpu.round(5)} GPU/CPU={ratio.round(4)}")
+    assert cpu[0] > 1e-2 and cpu[0] > cpu[2], "CPU fire not a warm glow -- fixture broken"
+    for c in range(3):
+        if cpu[c] > 0.02 * cpu.max():
+            assert 0.95 <= ratio[c] <= 1.05, (c, ratio, cpu, gpu)
+
+
+# --------------------------------------------------------------------------- #
 # media-free byte-identity on the GPU (count==0 path)
 # --------------------------------------------------------------------------- #
 

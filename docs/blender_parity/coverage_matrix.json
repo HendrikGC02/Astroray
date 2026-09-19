@@ -3828,8 +3828,8 @@
     "feature": "RenderSettings",
     "bl_idname": "",
     "socket_or_prop": "volume_bounces",
-    "classification": "DROPPED-SILENT",
-    "notes": ""
+    "classification": "SUPPORTED",
+    "notes": "pkg271: engine honours it on CPU+GPU (Cycles max_volume_bounce semantics); output-effect test tests/test_pkg271_volume_passes.py"
   },
   {
     "category": "render_settings",

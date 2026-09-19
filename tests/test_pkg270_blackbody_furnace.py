@@ -281,10 +281,10 @@ def test_exporter_lowers_principled_emission_sockets():
     assert pv["blackbody_tint"] == pytest.approx([1.0, 0.9, 0.8])
     assert pv["temperature"] == pytest.approx(1400.0)
     assert pv["temperature_attribute"] == "flame_temp"
-    # Blackbody Intensity 0.8 > 0: the GPU drops the blackbody term, so the
-    # exporter must SAY so (pkg200 rule) and point at the follow-up issue.
-    assert vol.BLACKBODY_GPU_DEGRADATION in pv["degradations"], pv["degradations"]
-    assert "CPU-only" in vol.BLACKBODY_GPU_DEGRADATION and "#828" in vol.BLACKBODY_GPU_DEGRADATION
+    # #828 flipped this guard: blackbody renders on the GPU too, so the pkg270
+    # "CPU-only (issue #828)" degradation entry must no longer be emitted.
+    assert not hasattr(vol, "BLACKBODY_GPU_DEGRADATION")
+    assert not any("CPU-only" in d or "#828" in d for d in pv["degradations"]), pv["degradations"]
     assert not any("not honoured" in d for d in pv["degradations"]), pv["degradations"]
     assert not any("grey" in d for d in pv["degradations"]), pv["degradations"]
     kw = vol.emission_kwargs(pv)
@@ -294,7 +294,7 @@ def test_exporter_lowers_principled_emission_sockets():
     # No blackbody => no degradation entry (constant emission IS honoured on GPU).
     principled.inputs["Blackbody Intensity"].default_value = 0.0
     pv_const = vol.principled_volume_from_material(_Mat([out, principled]))
-    assert vol.BLACKBODY_GPU_DEGRADATION not in pv_const["degradations"], pv_const["degradations"]
+    assert pv_const["degradations"] == [], pv_const["degradations"]
     assert pv_const["emission_strength"] == pytest.approx(1.4)
     # Scatter / Absorption nodes carry no emission: Cycles defaults.
     kw0 = vol.emission_kwargs({"density": 1.0})

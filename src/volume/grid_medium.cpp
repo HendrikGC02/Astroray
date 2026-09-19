@@ -238,5 +238,9 @@ float GridMedium::temperatureWorld(float wx, float wy, float wz) const {
     return temperatureIndex(p[0], p[1], p[2]);
 }
 
+const DenseGrid* GridMedium::temperatureDense() const {
+    return impl_->hasTemp ? &impl_->temperature : nullptr;
+}
+
 }  // namespace volume
 }  // namespace astroray

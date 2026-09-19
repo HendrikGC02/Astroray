@@ -490,6 +490,9 @@ class PyRenderer {
     // dispatch disabled). Surfaced through last_render_info().
     int lastRenderInfoUnitsLaunched_ = 0;
     int lastRenderInfoCancelledAtUnit_ = -1;
+    // #828: grid buffers copied host->device by the last GPU render (0 = the
+    // device grid cache served it; always 0 on the CPU path).
+    int lastRenderInfoGridUploads_ = 0;
     // pkg89 Phase B: IES profile cache (shared_ptr keeps profiles alive).
     std::unordered_map<std::string, std::shared_ptr<IESProfile>> iesProfiles_;
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -2016,7 +2019,8 @@ public:
     }
 
     // pkg268 — bounded object media registration (exporter / tests).
-    void clearGridMedia() { renderer.clearGridMedia(); }
+    // #828: every media mutation drops the wavefront device scene + grid cache.
+    void clearGridMedia() { renderer.clearGridMedia(); invalidateWavefrontScene(); }
 
     // Heterogeneous grid medium from a dense numpy density + transforms +
     // Principled Volume basics.
@@ -2067,6 +2071,7 @@ public:
         pv.blackbodyTint = blackbody_tint;
         pv.temperature = blackbody_temperature;
         renderer.addGridMedium(std::move(gm), pv);
+        invalidateWavefrontScene();  // #828 device grid cache
     }
 
     // Homogeneous bounded medium (the #807 cabinet cubes, the slab furnace).
@@ -2088,6 +2093,7 @@ public:
         pv.temperature = blackbody_temperature;
         renderer.addHomogeneousMedium(Vec3(aabb_min[0], aabb_min[1], aabb_min[2]),
                                       Vec3(aabb_max[0], aabb_max[1], aabb_max[2]), pv);
+        invalidateWavefrontScene();  // #828 device grid cache
     }
 
     void setGuiding(bool use) {
@@ -2327,6 +2333,7 @@ public:
             // (getMaxDiffuse/Glossy/TransmissionBounces) and publishes the
             // shade-kernel __constant__. -1 (the default) = unlimited.
             renderer.setPerTypeBounces(diffuseBounces, glossyBounces, transmissionBounces);
+            renderer.setVolumeBounces(volumeBounces);  // pkg271
             // pkg241 Phase 2 A2 spike (§3.7): widen the GIL release to the whole
             // GPU render tail. Declared empty here (GIL still held for the CPU-side
             // buildAcceleration / scene-array prep); emplaced immediately before
@@ -2521,6 +2528,8 @@ public:
                     skipUpload, sceneOwnerId_);                // #801 device scene cache
                 lastRenderInfoUnitsLaunched_ = gpuUnitsLaunched;
                 lastRenderInfoCancelledAtUnit_ = gpuCancelledAtUnit;
+                lastRenderInfoGridUploads_ =
+                    astroray::wavefront::cuda_wavefront_last_grid_uploads();  // #828
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],
@@ -2623,6 +2632,7 @@ public:
             // counters so last_render_info() never reports a prior GPU render's.
             lastRenderInfoUnitsLaunched_ = 0;
             lastRenderInfoCancelledAtUnit_ = -1;
+            lastRenderInfoGridUploads_ = 0;  // #828
         }
         if (callbackError) std::rethrow_exception(callbackError);
 
@@ -2673,6 +2683,9 @@ public:
         // report how promptly a cancel took effect.
         d["units_launched"] = lastRenderInfoUnitsLaunched_;
         d["cancelled_at_unit"] = lastRenderInfoCancelledAtUnit_;
+        // #828: grid buffers copied host->device by the last GPU render
+        // (NanoVDB density + dense temperature); 0 = served by the grid cache.
+        d["grid_uploads"] = lastRenderInfoGridUploads_;
         return d;
     }
 

@@ -135,3 +135,17 @@ sphere/albedo within 0.4 % for grey, #767 ground and blue (main: blue 0.633 / 1.
 the plane, so with a black world the plane rendered 0 for 6500 K, 3000 K and RGB white.
 The gamma-encoded default sky was the entire signal. The test was rewritten to measure
 the light against the oracle above.
+
+**GPU and test attribution (under the GPU lock).**
+
+`tests/test_issue767_observer_contract.py`, run with each `.pyd`:
+- #837: 15/15 pass, including the GPU legs of the white-world sphere.
+- main: all 8 engine tests fail (binding, round trip, and the CPU and GPU sphere legs).
+
+`test_gpu_spectral_melanin_matches_cpu` failed on #837 (B 0.832 < 0.85):
+- It is seed noise, not a regression. Per-seed B GPU/CPU on main is 0.79–0.91
+  over 6 seeds, and 2 of 6 already fail.
+- Pooled over the 6 seeds, B is 0.865 on main and 0.880 on #837.
+- The test now pools those 6 seeds.
+- The underlying GPU/CPU hair difference is pre-existing: GPU +11 % on
+  unpigmented hair. Filed as #853.

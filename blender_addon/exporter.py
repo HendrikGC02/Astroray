@@ -334,7 +334,8 @@ def viewport_navigation_samples(res_divisor, target_spp):
     (intern/cycles/integrator/render_scheduler.cpp, Apache-2.0): pixels drop by
     divisor^2, so divisor samples still cost ~1/divisor of a full-res sample.
     Off-thread worker only; the synchronous path keeps 1 spp because its chunk
-    is the main-thread stall."""
+    is the main-thread stall. Cycles' denoise-during-navigation branch (return
+    1) does not apply: the worker never denoises (owner rule)."""
     return min(max(1, int(res_divisor)), max(1, min(int(target_spp), 4)))
 
 

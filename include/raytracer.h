@@ -2341,6 +2341,10 @@ class Renderer {
     // hard-coded 0.001f/FLT_MAX, so the default render is byte-identical.
     float clipNear_ = 0.001f;
     float clipFar_ = std::numeric_limits<float>::max();
+    // Clip planes are VIEW-AXIS DEPTHS (Blender/Cycles: ray t-range = clip * z_inv,
+    // intern/cycles/kernel/camera/camera.h camera_sample_perspective, Apache-2.0), so the
+    // primary ray bound is clip / dot(dir, forward), not the raw Euclidean t.
+    Vec3 clipForward_{0, 0, -1};
     // pkg274 (#36) — cached once per render (see render()) so the primary-ray
     // holdout check is free when no holdout object is present.
     bool hasHoldoutObjects_ = false;
@@ -3152,8 +3156,9 @@ public:
             // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
             // camera clip planes; every secondary ray keeps the unconditional
             // 0.001f/FLT_MAX bounds so it is byte-identical to pre-clip behaviour.
-            const float tMin = (bounce == 0) ? clipNear_ : 0.001f;
-            const float tMax = (bounce == 0) ? clipFar_ : std::numeric_limits<float>::max();
+            const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
+            const float tMin = (bounce == 0) ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
+            const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv : std::numeric_limits<float>::max();
             bool didHit = bvh->hit(ray, tMin, tMax, rec);
 
             // pkg268 — bounded grid/homogeneous medium free flight (delta/Woodcock
@@ -3970,8 +3975,9 @@ public:
             // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
             // camera clip planes; every secondary ray keeps the unconditional
             // 0.001f/FLT_MAX bounds so it is byte-identical to pre-clip behaviour.
-            const float tMin = (bounce == 0) ? clipNear_ : 0.001f;
-            const float tMax = (bounce == 0) ? clipFar_ : std::numeric_limits<float>::max();
+            const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
+            const float tMin = (bounce == 0) ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
+            const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv : std::numeric_limits<float>::max();
             bool didHit = bvh->hit(ray, tMin, tMax, rec);
 
             // pkg181: dedicated-lamp visibility (Cycles lights_intersect). This
@@ -4319,8 +4325,9 @@ public:
             // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
             // camera clip planes; the transparent-glass continuation rays keep the
             // unconditional 0.001f/FLT_MAX bounds.
-            const float tMin = (bounce == 0) ? clipNear_ : 0.001f;
-            const float tMax = (bounce == 0) ? clipFar_ : std::numeric_limits<float>::max();
+            const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
+            const float tMin = (bounce == 0) ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
+            const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv : std::numeric_limits<float>::max();
             if (!bvh->hit(ray, tMin, tMax, rec))
                 return 0.0f;  // reached the background uncovered
             if (rec.hitObject && rec.hitObject->isGRObject())
@@ -4371,6 +4378,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         // byte-identical.
         clipNear_ = cam.clipNear;
         clipFar_ = cam.clipFar;
+        clipForward_ = cam.w_axis * -1.0f;
         hasHoldoutObjects_ = false;
         for (const auto& o : scene) {
             if (o && o->isHoldout()) { hasHoldoutObjects_ = true; break; }

@@ -102,7 +102,12 @@ def _decode_radiance_hdr(path):
     img = np.zeros((height, width, 3), dtype=np.float32)
     for c in range(3):
         img[..., c] = rgbe[..., c] * f_scale
-    return img
+    # EnvironmentMap::load flips the stb-decoded rows vertically on load
+    # (raytracer.h:1525, "Flip vertically") so that v = 1 - theta/pi maps the
+    # up direction (theta=0 -> v=1 -> last row) onto the file's TOP scanline
+    # (north pole at the top) — the standard equirect convention. Mirror that
+    # flip so the reference indexes the same row the engine's `data` holds.
+    return np.ascontiguousarray(img[::-1])
 
 
 def _make_hdri(width=128, height=64, high_freq=False):

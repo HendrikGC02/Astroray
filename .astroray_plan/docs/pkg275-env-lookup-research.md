@@ -58,24 +58,48 @@ Format: measurement → verdict. Filled in as each rung runs on a fresh `.pyd`.
   lookup path, not the closure. (Cited, not re-run.)
 
 ### Rung 2 — texel-exact CPU lookup vs numpy bilinear
-- Measurement: _pending build_
-- Verdict: _pending_
+- Measurement: with the numpy reference decoding the identical RGBE bytes AND
+  mirroring the loader's deliberate vertical flip (`raytracer.h:1525`, so
+  `v=1-theta/pi` puts the up direction on the file's top scanline),
+  `environment_lookup` matches the numpy bilinear to worst-rel < 1e-3 per
+  channel on a smooth HDRI. The first cut (before the flip) showed R/B exact
+  and only the vertical G gradient off by ~0.64 — a pure row-order relationship
+  the load-flip fully explains, not a decode or interpolation error.
+- Verdict: CPU bilinear is correct. No gamma-on-load (values are linear), no
+  interpolation error, no row-flip *bug* (the flip is intentional and matches
+  the equirect convention). The only parameterisation difference from Cycles is
+  the **half-texel offset**: Astroray floors `u*W` (texel edges) where Cycles
+  `svm_image` floors `u*W - 0.5` (texel centers). On a smooth HDRI this is
+  << 1e-3 and cannot produce the #795 23% dimming.
 
 ### Rung 3 — sRGB-vs-linear on load / flat-.hdr decode
-- Measurement: _pending_
-- Verdict: _pending_
+- Measurement: the numpy reference reproduces `stbi_loadf`'s exact RGBE decode
+  (`out = byte * 2^(e-136)`) and agrees with `environment_lookup` to < 1e-3, so
+  the loaded texels are LINEAR — no sRGB transform is applied on load. (The
+  #797/#798 MinGW flat-`.hdr` miscompile is a separate, already-fixed codegen
+  bug gated by test_issue797; this build is MSVC/nvcc.)
+- Verdict: load path is linear and correct; not the culprit.
 
 ### Rung 4 — mip/blur on glossy lookups
-- Measurement: _pending_
-- Verdict: _pending_
+- Measurement: `EnvironmentMap::lookup` / `gpu_envmap_lookup` do a single
+  bilinear fetch with NO mip and NO derivative/roughness-dependent blur; a
+  glossy reflection ray reads the same unblurred texel a mirror ray would.
+  Matches Cycles `svm_image.h` + `background.h` (background lookups use no mip).
+- Verdict: no roughness-dependent dimming originates in the lookup itself.
 
 ### Rung 5 — CPU vs GPU texel-exact lookup (#755)
-- Measurement: _pending_
-- Verdict: _pending_
+- Measurement: `probe_env_lookup_gpu` RGB vs `environment_lookup` over 32
+  directions on a smooth HDRI: **worst rel 2.25e-7** (float round-off).
+- Verdict: the GPU RGB lookup is byte-faithful to the CPU. #755's render-level
+  gap is NOT in the RGB env lookup.
 
 ### Rung 6 — spectral upsampling (Jakob-Hanika) grey vs colour HDRI
-- Measurement: _pending_
-- Verdict: _pending_
+- Measurement: GPU `gpu_env_miss_spectral` vs CPU `evalSpectral` at identical
+  wavelengths (u=0.5) over 32 directions: **worst rel 4.94e-6**.
+- Verdict: the GPU RGB->spectral (Jakob-Hanika ILLUMINANT) upsample matches the
+  CPU `RGBIlluminantSpectrum` atlas to ~5e-6. #755's per-channel-chromatic gap
+  (R 1.025 / G 1.040 / B 0.978) is NOT the spectral upsample of the env lookup
+  either.
 
 ## Conclusion
 

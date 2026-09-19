@@ -1,5 +1,7 @@
 # #763 materials_hall variance table (batch T, 2026-09-20)
 
+Status: measured (PR #837). Owner of the gap: CPU light tree, follow-up #851.
+
 ## Verdict (CPU)
 
 The **CPU light tree** owns the gap. Turning it off (the power sampler) cuts the

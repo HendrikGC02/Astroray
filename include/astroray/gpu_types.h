@@ -473,8 +473,8 @@ struct GMaterialClosure {
 // ONCE per GMaterial (GMaterial::principled) rather than on every GMaterialClosure
 // in the closures[] array, so the shared non-Principled closure-graph path (which
 // stack-copies a full GMaterial via gpu_closure_as_material) no longer pays for
-// principled-only fields. Read only by the gpu_principled_* twin in the <true>
-// shade-kernel instantiation. Mirrors the Stage-2/3 fields of the CPU
+// principled-only fields. Read by the gpu_principled_* twin in the <true>
+// shade-kernel instantiation (emission* also by gpu_principled_emitted, #835). Mirrors the Stage-2/3 fields of the CPU
 // MaterialClosure (material_closure.h); scene_upload.cu copies them across.
 struct GPrincipledClosure {
     GVec3 color;             // base_color
@@ -495,8 +495,8 @@ struct GPrincipledClosure {
     GVec3 subsurfaceRadius;  // Cycles subsurface_radius (uploaded; not yet read)
     float subsurfaceWeight;  // Cycles subsurface_weight (APPROX, D2=a)
     float subsurfaceScale;   // Cycles subsurface_scale (uploaded; not yet read)
-    GVec3 emissionColor;     // Cycles emission_color (uploaded; not yet read)
-    float emissionStrength;  // Cycles emission_strength (uploaded; not yet read)
+    GVec3 emissionColor;     // Cycles emission_color (read: gpu_principled_emitted, #835)
+    float emissionStrength;  // Cycles emission_strength (read: gpu_principled_emitted, #835)
     // pkg178 Stage-3b PR-4b — anisotropy (metallic/specular; 0 → isotropic).
     float anisotropic;
     float anisotropicRotation;
@@ -619,7 +619,8 @@ struct alignas(64) GMaterial {
     // Principled material (closures[0].type == GCLOSURE_PRINCIPLED). Kept out of
     // the per-closure array so non-Principled materials, and the by-value GMaterial
     // temp in the shared closure-graph path, do not pay for principled-only data.
-    // Read only by the gpu_principled_* twin (<true> instantiation).
+    // Read by the gpu_principled_* twin (<true> instantiation); emissionColor/
+    // emissionStrength also by gpu_principled_emitted on the shared path (#835).
     GPrincipledClosure principled;
 };
 

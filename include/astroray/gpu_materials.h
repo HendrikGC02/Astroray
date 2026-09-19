@@ -3439,19 +3439,36 @@ __device__ inline float gpu_material_pdf(
     }
 }
 
+// #835: native Principled emission (emission_color * emission_strength) rides
+// GMaterial::principled, not a GCLOSURE_EMISSION closure, so the closure-graph
+// sum never saw it and the GPU rendered emissive Principled surfaces unlit.
+// Two-sided, like the CPU twin PrincipledPlugin::emitted (principled.cpp).
+// Zero for every non-Principled material: scene_upload.cu value-initialises
+// GMaterial and only the GCLOSURE_PRINCIPLED lowering writes `principled`.
+__device__ inline GVec3 gpu_principled_emitted(const GMaterial& mat) {
+    return mat.principled.emissionColor * mat.principled.emissionStrength;
+}
+
 __device__ inline GVec3 gpu_material_emitted(
     const GMaterial& mat, bool frontFace)
 {
     if (mat.type == GMAT_DIFFUSE_LIGHT && frontFace)
         return mat.baseColor * mat.emissionIntensity;
     if (mat.type == GMAT_CLOSURE_GRAPH)
-        return gpu_closure_graph_emitted(mat, frontFace);
+        return gpu_closure_graph_emitted(mat, frontFace) + gpu_principled_emitted(mat);
     return GVec3(0.f);
 }
 
 __device__ inline GSampledSpectrum gpu_material_emitted_spectral(
     const GMaterial& mat, bool frontFace, const GSampledWavelengths& wl)
 {
+    // #835: emission is an illuminant. The CPU Principled twin upsamples it with
+    // RGBIlluminantSpectrum (scale-renormalised JH x D65, pbrt-v4); a closure
+    // graph's spectralMode is GSPEC_RGB_ALBEDO, whose JH lookup clamps rgb to
+    // [0,1] and drops D65, which would cap emission_strength at 1.
+    if (mat.type == GMAT_CLOSURE_GRAPH && mat.principled.emissionStrength > 0.f)
+        return gpu_rgbToSampledSpectrum(
+            gpu_material_emitted(mat, frontFace), wl, GSPEC_RGB_ILLUMINANT);
     return gpu_rgbToSampledSpectrum(
         gpu_material_emitted(mat, frontFace), wl, mat.spectralMode);
 }

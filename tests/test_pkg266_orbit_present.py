@@ -252,3 +252,49 @@ def test_camera_request_does_not_cancel_cheap_preview():
     # A full-res in flight IS cancelled by the default.
     w.request(cancel_inflight=True)
     assert w._cancel_event.is_set()
+
+
+def test_navigation_samples_follow_cycles_rule():
+    """Batch S item 4: Cycles get_num_samples_during_navigation — divisor spp,
+    capped at min(target, 4)."""
+    exp = _load_exporter_module()
+    nav = exp.viewport_navigation_samples
+    assert [nav(d, 64) for d in (1, 2, 4, 8)] == [1, 2, 4, 4]
+    assert nav(4, 2) == 2 and nav(4, 1) == 1
+
+
+def test_reduced_orbit_unit_renders_navigation_samples_in_one_chunk():
+    """Batch S item 4: with the production chunk (1 spp) the coarse orbit unit
+    rendered 1 spp (strong spectral chroma noise); it now renders the
+    navigation sample count (4 at divisor 4) in one render() call."""
+    exp = _load_exporter_module()
+    presents = []
+    exporter = _build_exporter(exp, presents)
+    calls = []
+    fake = exporter._get_viewport_renderer()
+    orig = fake.render
+
+    def rec(samples, *a, **k):
+        calls.append(samples)
+        return orig(samples, *a, **k)
+
+    fake.render = rec
+    em = _engine_methods(presents)
+    em["viewport_chunk_samples"] = lambda s, cur: min(1, max(0, 64 - int(cur)))
+    region = types.SimpleNamespace(width=128, height=128)
+    scene = types.SimpleNamespace(custom_raytracer=_settings(), world=None)
+    dg = types.SimpleNamespace(scene=scene, updates=[])
+    camhash = [1000.0]
+    exporter._viewport_last_full_render_ms = 500.0  # expensive -> divisor 4
+    a = _args(dg, region, em, camhash)
+    try:
+        camhash[0] += 1.0
+        exporter._worker_view_draw(*a)
+        t_end = time.perf_counter() + 1.0
+        while time.perf_counter() < t_end and not presents:
+            exporter._worker_view_draw(*a)
+            time.sleep(0.01)
+        assert presents and presents[0] == (32, 32), presents
+        assert calls[0] == 4, calls
+    finally:
+        exporter._worker.stop(timeout=2.0)

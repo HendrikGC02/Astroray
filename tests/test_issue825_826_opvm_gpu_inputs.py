@@ -252,7 +252,9 @@ def _build_sphere_miss(r):
 def test_826_gpu_input_miss_skips_like_input0():
     gpu = _render(_build_sphere_miss, True, _W825, _H825)
     h, w = gpu.shape[:2]
-    # sphere centres at x = -1 / +1 of a [-2, 2] x [-1, 1] window
-    roi = lambda cx: gpu[int(0.35 * h):int(0.65 * h),  # noqa: E731
-                         int((cx - 0.15) * w):int((cx + 0.15) * w)].reshape(-1, 3).mean(axis=0)
+
+    def roi(cx):  # sphere centres at x = -1 / +1 of a [-2, 2] x [-1, 1] window
+        box = gpu[int(0.35 * h):int(0.65 * h), int((cx - 0.15) * w):int((cx + 0.15) * w)]
+        return box.reshape(-1, 3).mean(axis=0)
+
     _assert_ratio(roi(0.75), roi(0.25), "#826 input-1 miss vs input-0 miss (spheres)")

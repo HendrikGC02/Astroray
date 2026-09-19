@@ -131,9 +131,10 @@ the environment-map reflection LOOKUP":
   **Neither #755 nor #795 is an env-lookup or env-upsample bug.**
 - The only Cycles parameterisation difference found is the **half-texel offset**
   (Astroray floors `u*W`; Cycles `svm_image` floors `u*W-0.5`). This is a real
-  but sub-1e-3 effect on smooth HDRIs and cannot account for 23%. It is a
-  legitimate small parity nit; fixing it is low-risk and mirrored CPU+GPU (see
-  below) but it is NOT the #795 cause.
+  but sub-1e-3 effect on smooth HDRIs and cannot account for 23%. Lead decision:
+  do NOT change the lookup in this PR (fleet-wide baseline churn, negligible on
+  real HDRIs) — filed as a low-priority follow-up, **issue #832**, with the
+  Cycles citation and these numbers.
 - On CPU, the env-reflection combination is unbiased at r=0.05 (rung 7), so the
   #795 23% deficit is not reproduced by the CPU path. Its residual therefore
   lives OUTSIDE pkg275's authorised surface (the env lookup): most likely the
@@ -155,10 +156,11 @@ exposure (see tests/test_world_hdri_parity.py::test_gpu_cpu_mean_ratio_hdri
 docstring), not the env lookup. Any residual downstream gap is a wavefront
 integrator difference owned by pkg258, not pkg275's lookup.
 
-### Recommended pkg275 action
-The one in-scope, evidence-backed change is the **half-texel offset** to match
-Cycles `svm_image` texel-center sampling, mirrored in `EnvironmentMap::lookup`,
-`evalSpectral`, `gpu_envmap_lookup`, and `gpu_env_miss_spectral`. It closes the
-only lookup-vs-Cycles discrepancy the ladder found. The chrome-ROI [0.95,1.05]
-and #755 acceptance gates cannot be met by a lookup change (the lookup is
-clean) and are reassigned per the evidence — see the PR / lead hand-off.
+### Disposition (lead decisions)
+- Half-texel offset: deferred, filed as issue #832 (do not churn baselines here).
+- #755: rung 8 posted on the issue; recommended closed as not reproducible.
+- #795: resolved by the step-3 controlled Cycles-vs-Astroray experiment below.
+
+### Rung 9 — controlled Cycles-vs-Astroray chrome experiment (#795 verdict)
+_Filled in by the headless Blender A/B (staged addon, Cycles CPU vs Astroray
+CPU, adaptive OFF, linear EXR, sphere-masked ratio)._

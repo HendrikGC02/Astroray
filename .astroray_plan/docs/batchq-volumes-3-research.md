@@ -19,24 +19,31 @@ photopic normalisation over the engine CMF ȳ, 360–830 nm, 1 nm), times Cycles
 every λ (∫ underflows → norm = inf; `float(B)` = 0 → 0·inf). T ≤ 20 K → 0,
 T ≥ 150 K finite. Temperature grids multiply the socket (Cycles), so the cold
 rim of a fire (grid value 0.02–0.1 × 1500 K) lands in the NaN band.
-Fix: evaluate the ratio in double from a double memo of the integral. The memo
-(1 K bins, thread_local) is now evaluated AT the rounded kelvin; the old one kept
-whichever T a thread saw first in the bin (thread-order dependent). Integer
-temperatures are unchanged to ≤ 1 float ulp.
+Fix (round 2, after the critic pass): the CPU uses the SAME formula and table as
+the GPU (`include/astroray/volume/blackbody_lut.h`, below). A per-kelvin memo
+(round 1: evaluated at `lround(T)` while Planck used the exact T) mis-normalises
+non-integer grid temperatures; measured on the round-1 build, luminance / Cycles
+intensity = 0.095 at 60.5 K, 1.035 at 500.4 K, 0.992 at 1234.5 K, 1.001 at
+2718.3 K, and a 7 % step between 500.49 K and 500.51 K. Main's first-seen memo had
+the same error plus thread-order dependence. `tests/test_issue828_blackbody_cpu.py`
+pins all three (CPU-only).
 
-### GPU design
+### Shared CPU/GPU design (`blackbody_lut.h`)
 
 - Log-domain Planck, so no T underflows in float:
   `ln B(λ,T)·1e9 = ln(2hc²) − 5 ln λ_m − ln(expm1(x)) + ln 1e9`, `x = hc/(λ_m k T)`;
   `ln(expm1 x) ≈ x` for x > 20; `x > 700 → 0` (mirrors `planck()`).
 - LUT: `ln ∫ B·1e9·ȳ dλ` on a uniform ln-T grid, 2048 entries, T ∈ [30 K, 1e6 K],
   linear interpolation, linear extrapolation above 1e6 K, emission 0 below 30 K.
-  Built on the host from the SAME double integral the CPU memoises
-  (`src/volume/volume_emission.cpp`), uploaded once to a `__device__` array owned
-  by `gpu_spectral_tables.cu` (lazy: only when a medium has blackbody).
+  Built once per process from the exact double integral
+  (`blackbodyLogLuminanceLut()`, `src/volume/volume_emission.cpp`); the CPU reads
+  it directly and the GPU uploads the same vector to a `__device__` array owned by
+  `gpu_spectral_tables.cu` (lazy: only when a medium has blackbody). One
+  `__host__ __device__` function evaluates it on both backends.
   Interpolation error `h²/8·|f''|`, `f'' ≈ −hc/(λ̄kT)`: 0.2 % at 30 K,
   < 1e-4 at fire temperatures (h = ln(1e6/30)/2047 = 0.0051).
-  Below 30 K the CPU luminance is ≤ (30/T_fire)⁴ of the fire (< 2e-7 at 1500 K).
+  Both backends return 0 below 30 K; the luminance lost there is ≤ (30/T_fire)⁴
+  of the fire (< 2e-7 at 1500 K) when Blackbody Intensity = 1.
 - Temperature grid: dense float array (same layout as the CPU `DenseGrid`,
   nearest voxel), uploaded beside the density NanoVDB buffer. Dense matches the
   CPU lookup exactly; a second NanoVDB grid would need a second host build path.
@@ -69,7 +76,9 @@ bounce taken mod 256, medium index < 8 (the side-table cap).
 
 ## 4. `volume_bounces` (pkg271)
 
-Source: Cycles (Apache-2.0), `blender/cycles` main, read 2026-09-20:
+Source: upstream Cycles (Apache-2.0), https://github.com/blender/cycles `main`,
+raw files fetched 2026-09-20 (NOT vendored in-repo; `external/cycles_light_tree`
+holds only the light tree):
 - `src/scene/integrator.cpp` `device_update`:
   `kintegrator->max_volume_bounce = max_volume_bounce + 1;`
   ("Plus one so that a bounce of 0 indicates no global illumination, only direct illumination").
@@ -93,8 +102,21 @@ Why not the pkg201 surface-limit convention (drop the continuation): with
 render black — Cycles gets that light through the terminate-after continuation
 collecting volume emission, which no NEE samples.
 
-Divergence kept: Cycles also continues through transparent surfaces after the
-limit; the engine's alpha pass-through is not special-cased (ends at the hit).
+Divergences kept (documented, not claimed as parity):
+- Cycles' terminate-after continues through TRANSPARENT surfaces (alpha / the
+  transparent BSDF, counted against `transparent_max_bounces`); the engine ends a
+  past-limit path at the first non-emissive surface, alpha or not. The engine's
+  `transparent_bounces` is itself unwired (pkg201 park note), and its alpha
+  pass-through is a BSDF lobe sampled in the shade stage, which a past-limit path
+  never reaches. Visible only where an alpha-cutout surface sits behind a volume
+  at the bounce limit.
+- Cycles' total `max_bounces` also sets terminate-after (the continuation still
+  collects emission); the engine's total depth ends the path loop. Pre-existing,
+  unchanged here. `volume_bounces` is passed unclamped by the addon (the old
+  `min(volume_bounces, depth)` was output-neutral: the depth loop bounds scatters
+  anyway) so the native value reaches the engine as authored.
+- Only the nearest medium entered by a ray segment is tracked (pkg268/269); a
+  second medium further along the same segment is skipped. Follow-up.
 
 ## 5. #833 (mesh volume as world AABB)
 

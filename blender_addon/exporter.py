@@ -351,7 +351,7 @@ class Change(IntFlag):
 # real Blender.
 _DEPSGRAPH_ID_TYPE_NAMES = (
     'World', 'Light', 'Material', 'NodeTree', 'ShaderNodeTree',
-    'Image', 'Object', 'Scene',
+    'Image', 'Object', 'Mesh', 'Scene',
 )
 
 
@@ -433,6 +433,15 @@ class ObjectsCache:
             upd_id = getattr(upd, 'id', None)
             type_name = _depsgraph_id_type_name(upd_id, self.bpy)
             if type_name != 'Object':
+                # pkg/issue #721: a material edit also tags the owning geometry
+                # datablock (Mesh) with a SHADING-only update — that is a
+                # harmless material side-effect, so ignore it. A geometry- or
+                # transform-flagged Mesh update is a real geometry change (a
+                # material-slot assignment included) -> rebuild.
+                if type_name == 'Mesh' and (
+                        bool(getattr(upd, 'is_updated_geometry', False))
+                        or bool(getattr(upd, 'is_updated_transform', False))):
+                    geometry = True
                 continue
 
             is_geom = bool(getattr(upd, 'is_updated_geometry', False))
@@ -464,29 +473,204 @@ class ObjectsCache:
 
 
 class MaterialsCache:
-    """Tracks material definitions."""
+    """Tracks material definitions.
+
+    pkg/issue #721 (storm-material-domain): distinguishes a SAFE material-only
+    edit (socket values only — replayable with ``renderer.upload_materials()``)
+    from a material change the MATERIALS replay cannot represent, which must
+    fall back to a full ``sync_viewport_scene``. The un-representable set is a
+    node-tree TOPOLOGY change (nodes/links added or removed), an Image texture
+    datablock update, a material-slot assignment (detected upstream via the
+    owning geometry datablock's geometry flag), an emission-strength sign flip
+    (it changes the light list), or a volume/displacement output change.
+
+    The structural fingerprint records node types + link topology + output
+    routing + emission sign — everything upload_materials() cannot represent —
+    and deliberately EXCLUDES socket default_values so a Base-Color value edit
+    keeps the fingerprint stable. ``observe()`` primes the fingerprints after a
+    full ``sync_viewport_scene`` so the next value-only edit compares cleanly.
+
+    ``diff()`` returns one of NONE / MATERIALS / FALLBACK.
+    """
+    NONE = 'none'
+    MATERIALS = 'materials'
+    FALLBACK = 'fallback'
+
     def __init__(self, bpy_module):
         self.bpy = bpy_module
         self._last_ids = set()
+        # material name -> structural fingerprint (primed by observe()/diff()).
+        self._fingerprints = {}
 
-    def diff(self, depsgraph) -> bool:
-        """Check if materials changed (Material/NodeTree/ShaderNodeTree/Image)."""
+    # -- structural fingerprint helpers -----------------------------------
+    @staticmethod
+    def _node_kind(n):
+        return (getattr(n, 'bl_idname', None)
+                or getattr(n, 'type', None)
+                or type(n).__name__)
+
+    @classmethod
+    def _link_sig(cls, link):
+        fn = getattr(link, 'from_node', None)
+        tn = getattr(link, 'to_node', None)
+        fs = getattr(getattr(link, 'from_socket', None), 'name', '')
+        ts = getattr(getattr(link, 'to_socket', None), 'name', '')
+        return (cls._node_kind(fn) if fn is not None else None, fs,
+                cls._node_kind(tn) if tn is not None else None, ts)
+
+    @classmethod
+    def _input_value(cls, node, *names, default=0.0):
+        """Best-effort float of the first named socket's default_value."""
+        inputs = getattr(node, 'inputs', None)
+        if inputs is None:
+            return default
+        for nm in names:
+            inp = None
+            get = getattr(inputs, 'get', None)
+            if get is not None:
+                try:
+                    inp = get(nm)
+                except Exception:
+                    inp = None
+            if inp is None:
+                for candidate in inputs:
+                    if getattr(candidate, 'name', None) == nm:
+                        inp = candidate
+                        break
+            if inp is None:
+                continue
+            if getattr(inp, 'is_linked', False):
+                continue
+            try:
+                return float(inp.default_value)
+            except (TypeError, ValueError, AttributeError):
+                return default
+        return default
+
+    @classmethod
+    def _emission_sign(cls, nodes):
+        """Coarse emitter sign: an EMISSION node present, or a Principled with a
+        positive emission strength. A Base-Color edit does not touch it; emission
+        strength crossing zero flips it (and the light list)."""
+        has_emission = False
+        principled_pos = False
+        for n in nodes:
+            t = str(getattr(n, 'type', '') or '')
+            if t == 'EMISSION':
+                has_emission = True
+            elif t == 'BSDF_PRINCIPLED':
+                if cls._input_value(n, 'Emission Strength', default=0.0) > 0.0:
+                    principled_pos = True
+        return (has_emission, principled_pos)
+
+    @classmethod
+    def _output_routing(cls, nodes):
+        """Which OUTPUT_MATERIAL/OUTPUT_WORLD inputs are linked (surface/volume/
+        displacement routing) — linked-ness only, not socket values."""
+        sig = []
+        for n in nodes:
+            t = str(getattr(n, 'type', '') or '')
+            if t not in ('OUTPUT_MATERIAL', 'OUTPUT_WORLD'):
+                continue
+            for inp in (getattr(n, 'inputs', None) or ()):
+                sig.append((t, getattr(inp, 'name', ''),
+                            bool(getattr(inp, 'is_linked', False))))
+        return tuple(sorted(sig))
+
+    @classmethod
+    def _node_tree_fingerprint(cls, node_tree):
+        if node_tree is None:
+            return None
+        try:
+            nodes = list(getattr(node_tree, 'nodes', None) or [])
+            links = list(getattr(node_tree, 'links', None) or [])
+        except Exception:
+            return None
+        node_types = tuple(sorted(cls._node_kind(n) for n in nodes))
+        link_sig = tuple(sorted(cls._link_sig(l) for l in links))
+        return (node_types, link_sig, cls._output_routing(nodes),
+                cls._emission_sign(nodes))
+
+    @classmethod
+    def _fingerprint_of(cls, owner):
+        """Structural fingerprint of a material (via its node tree) or of a node
+        tree itself (the depsgraph reports a material edit as a Material update
+        AND a companion ShaderNodeTree update)."""
+        nt = getattr(owner, 'node_tree', None)
+        if nt is None:
+            nt = owner  # owner is itself a node tree
+        return cls._node_tree_fingerprint(nt)
+
+    # -- priming ----------------------------------------------------------
+    def observe(self, materials):
+        """Record the current structural fingerprint of `materials` (called after
+        a full sync_viewport_scene) so the next value-only edit compares cleanly
+        instead of being mistaken for a topology change."""
+        for mat in materials or ():
+            if mat is None:
+                continue
+            name = getattr(mat, 'name', None)
+            if name is None:
+                continue
+            self._fingerprints[name] = self._fingerprint_of(mat)
+
+    def _owning_material(self, node_tree):
+        data = getattr(self.bpy, 'data', None)
+        mats = getattr(data, 'materials', None)
+        if mats is None:
+            return None
+        for mat in mats:
+            if getattr(mat, 'node_tree', None) is node_tree:
+                return mat
+        return None
+
+    # -- diff -------------------------------------------------------------
+    def diff(self, depsgraph):
+        """Return NONE / MATERIALS / FALLBACK for `depsgraph.updates`."""
         updates = getattr(depsgraph, 'updates', None)
         if updates is None:
-            return False
+            return self.NONE
 
         # pkg266 (Terra review, item 3): the active World's node tree arrives as a
         # NodeTree/ShaderNodeTree update but is an ENVIRONMENT edit, not a material
         # one — exclude it here so WorldCache owns it and the replay re-runs
         # setup_world/upload_environment (never leave the world stale).
         world_tree = _active_world_node_tree(depsgraph)
+        saw_material = False
+
         for upd in updates:
             upd_id = getattr(upd, 'id', None)
             if world_tree is not None and upd_id is world_tree:
                 continue
             type_name = _depsgraph_id_type_name(upd_id, self.bpy)
-            if type_name in ('Material', 'NodeTree', 'ShaderNodeTree', 'Image'):
-                return True
+            if type_name == 'Image':
+                # An image texture datablock change cannot be represented by
+                # upload_materials() alone -> full sync.
+                return self.FALLBACK
+            if type_name in ('Material', 'NodeTree', 'ShaderNodeTree'):
+                # A Material update carries the material directly; a node-tree
+                # update is attributed back to its owning material (bpy.data), or
+                # — under a stub bpy without bpy.data — fingerprinted as the tree
+                # itself. Either way the fingerprint key is the owner's name.
+                owner = upd_id if type_name == 'Material' else self._owning_material(upd_id)
+                if owner is None:
+                    owner = upd_id
+                saw_material = True
+                name = getattr(owner, 'name', None)
+                if name is None:
+                    return self.FALLBACK
+                fp = self._fingerprint_of(owner)
+                prev = self._fingerprints.get(name)
+                if prev is None:
+                    # First sighting of this material since the last full sync:
+                    # record its fingerprint. A brand-new material arrives with a
+                    # slot-assignment geometry update (handled upstream), so a
+                    # Material/NodeTree-only edit here is an existing material.
+                    self._fingerprints[name] = fp
+                elif prev != fp:
+                    # Topology / emission-sign / volume-displacement routing
+                    # change -> the MATERIALS replay cannot represent it.
+                    return self.FALLBACK
 
         # Object.is_updated_shading also triggers material upload
         for upd in updates:
@@ -494,9 +678,9 @@ class MaterialsCache:
             type_name = _depsgraph_id_type_name(upd_id, self.bpy)
             if type_name == 'Object':
                 if bool(getattr(upd, 'is_updated_shading', False)):
-                    return True
+                    saw_material = True
 
-        return False
+        return self.MATERIALS if saw_material else self.NONE
 
 
 class LightsCache:
@@ -1138,6 +1322,19 @@ class Exporter:
         except AttributeError:
             return None
 
+    def _scene_materials(self):
+        """All materials known to Blender (bpy.data.materials), or () under a
+        stub bpy / no-data environment. Used to prime MaterialsCache after a full
+        sync (pkg/issue #721)."""
+        data = getattr(self.bpy, 'data', None)
+        mats = getattr(data, 'materials', None)
+        if mats is None:
+            return ()
+        try:
+            return list(mats)
+        except Exception:
+            return ()
+
     def _depsgraph_has_image_changing_update(self, depsgraph):
         """pkg266: a NON-STATEFUL, cache-free peek at `depsgraph.updates` that
         answers "does this view_update carry any edit that could change the
@@ -1229,7 +1426,12 @@ class Exporter:
         changes = Change.NONE
         if self._world_cache.diff(depsgraph):
             changes |= Change.ENVIRONMENT
-        if self._materials_cache.diff(depsgraph):
+        mat_status = self._materials_cache.diff(depsgraph)
+        if mat_status == MaterialsCache.FALLBACK:
+            # A material change the MATERIALS replay cannot represent (topology,
+            # image, emission-sign flip, volume/displacement routing) -> full sync.
+            return 'fallback', Change.NONE, [], False
+        if mat_status == MaterialsCache.MATERIALS:
             changes |= Change.MATERIALS
         if self._lights_cache.diff(depsgraph):
             changes |= Change.LIGHTS
@@ -1439,6 +1641,12 @@ class Exporter:
         t0 = time.perf_counter()
         material_map = self.engine.convert_materials(depsgraph, renderer)
         viewport_perf_record_fn("materials", t0)
+
+        # pkg/issue #721: prime the material structural fingerprints after a full
+        # sync so the NEXT value-only edit (a storm Base-Color tweak) compares
+        # cleanly in _classify_depsgraph_domains instead of being treated as a
+        # topology change (which would force a full sync again).
+        self._materials_cache.observe(self._scene_materials())
 
         t0 = time.perf_counter()
         self.engine.convert_objects(depsgraph, renderer, material_map)

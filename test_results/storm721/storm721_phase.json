@@ -1,0 +1,38 @@
+{
+  "metal_sweep": {
+    "phase": {
+      "sync_viewport_scene": [
+        2,
+        415.67180000129156
+      ],
+      "apply_depsgraph_updates": [
+        28,
+        137.83030002377927
+      ]
+    },
+    "classify": {
+      "dispatched": 133
+    },
+    "replay": {
+      "True": 97,
+      "False": 0
+    },
+    "dispatch": 125
+  },
+  "big": {
+    "phase": {
+      "sync_viewport_scene": [
+        2,
+        226.30700003355742
+      ]
+    },
+    "classify": {
+      "dispatched": 85
+    },
+    "replay": {
+      "True": 85,
+      "False": 0
+    },
+    "dispatch": 85
+  }
+}

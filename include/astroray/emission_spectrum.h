@@ -142,4 +142,10 @@ private:
     SampledSpectrum evalComposite(const Composite& comp, const SampledWavelengths& wl) const;
 };
 
+// pkg122 photopic-luminance normalisation of a Planck SPD: 1 / (integral of
+// planck(lambda,T)*1e9*ybar(lambda) dlambda over 360-830 nm). Defined in
+// src/emission_spectrum.cpp; exposed for pkg270 volume blackbody emission so
+// the Principled Volume shares the lamp Blackbody path exactly.
+float blackbodyLuminanceNorm(double temperature_K);
+
 } // namespace astroray

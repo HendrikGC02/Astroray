@@ -219,6 +219,9 @@ float GridMedium::majorantDensityWorld(float wx, float wy, float wz) const {
     return impl_->majorant.lookup(sv[0], sv[1], sv[2]);
 }
 
+const void* GridMedium::nanoData() const { return impl_->densityHandle.data(); }
+size_t GridMedium::nanoBytes() const { return impl_->densityHandle.buffer().size(); }
+
 bool GridMedium::hasTemperature() const { return impl_->hasTemp; }
 float GridMedium::temperatureIndex(float ix, float iy, float iz) const {
     const DenseGrid& g = impl_->temperature;
@@ -228,6 +231,11 @@ float GridMedium::temperatureIndex(float ix, float iy, float iz) const {
     int z = int(std::lround(iz)) - g.bboxMin[2];
     if (x < 0 || y < 0 || z < 0 || x >= g.dim[0] || y >= g.dim[1] || z >= g.dim[2]) return 0.0f;
     return g.data[size_t((z * g.dim[1] + y) * g.dim[0] + x)];
+}
+
+float GridMedium::temperatureWorld(float wx, float wy, float wz) const {
+    auto p = worldPointToIndex(wx, wy, wz);
+    return temperatureIndex(p[0], p[1], p[2]);
 }
 
 }  // namespace volume

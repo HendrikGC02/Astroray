@@ -226,5 +226,6 @@ Astroray targets MIT (or Apache 2.0). Compatible:
 When in doubt, ask before adding a dependency.
 
 - Cycles Blender v5.1.0 vector math, Vector Rotate and Mix factor semantics (Apache-2.0), pinned at adfe2921d5f3: [pkg230 Phase 2 research](pkg230-phase2-vector-semantics-research.md).
+- Kutz/Habel/Li/Novak 2017 spectral & decomposition tracking (TOG 36(4), DOI 10.1145/3072959.3073665), pbrt-v4 VolPath hero-wavelength spectral MIS + Cycles svm_node_principled_volume / blackbody tables (Apache-2.0): [pkg270 research](pkg270-spectral-tracking-volume-emission-research.md).
 
 - Cloud-volume material (pkg273, horizon): Lorenz-Mie tables (miepython MIT / BHMIE / MIEV0), Hansen-Travis size distributions, Hu-Stamnes 1993 r_eff parameterisation, water/ice optical constants (Hale-Querry, Segelstein, Warren-Brandt; refractiveindex.info CC0), Yang 2013 / Baum 2014 ice databases (CC-BY-4.0), tabulated Mie phase sampling, cloud multiple-scattering survey: [cloud-volume-material-research-2026-09-15.md](cloud-volume-material-research-2026-09-15.md).

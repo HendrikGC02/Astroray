@@ -11,7 +11,6 @@
 
 namespace astroray {
 
-namespace {
 
 // pkg122 (Defect 3) — photopic-luminance normalization for a Planck SPD.
 //
@@ -49,8 +48,6 @@ float blackbodyLuminanceNorm(double temperature_K) {
     cache.emplace(key, norm);
     return norm;
 }
-
-}  // namespace
 
 // Copy constructor (handles unique_ptr in Composite).
 EmissionSpectrum::EmissionSpectrum(const EmissionSpectrum& other)

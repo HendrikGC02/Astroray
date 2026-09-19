@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** open
+**Status:** done — PR #820, 2026-09-19: NanoVDB device grid + HasGridVolume intersect/shadow axes + dedicated hetero scatter kernel; GPU/CPU ROI ratios slab 1.011/0.979/0.996, smoke 1.007/1.005/0.998, emission 0.986/0.981/1.026; stageShadeBucketedKernel 128/128 instantiations identical REG 254 + STACK; grid-free GPU render byte-identical vs main. Was: in-progress
 **Estimated effort:** 1 week
 **Depends on:** pkg268
 
@@ -121,15 +121,44 @@ under the GPU lock (memory `concurrent-nvcc-builds-kill-each-other`). Research:
 
 ## Progress
 
-- [ ] Confirm `NanoVDB.h` compiles under nvcc for sm_120.
-- [ ] Device grid upload + `__constant__` side-table.
-- [ ] `stage_volume_hetero.cu` (`template<bool HasGridVolume>`) + snapshot lanes.
-- [ ] Dispatch wiring + frame-start publish.
-- [ ] CPU↔GPU parity + byte-identity + REG gate; RTX sweep; visual inspection.
+- [x] Confirm `NanoVDB.h` compiles under nvcc for sm_120 (standalone probe
+      `nvcc -arch=sm_120 -std=c++17`, exit 0, before any engine code).
+- [x] Device grid upload + `__constant__` side-table (`GWavefrontGridVolumeBinding`,
+      ≤ 8 media; the position-independent NanoVDB buffer is byte-copied).
+- [x] `stage_volume_hetero.cu` (the only CUDA TU with NanoVDB.h): tracker,
+      per-λ ratio-tracking Tr, `stageVolumeHeteroScatterKernel`. The isolation
+      axis `HasGridVolume` sits on `intersectPathSlotT` / `stageIntersectQueuedKernel`
+      / `stageShadowKernel`; per-path r_u + medium-id lanes ride the side table.
+- [x] Dispatch wiring + frame-start publish (driver `gpu_wavefront_snapshot.cu`,
+      next to `setWavefrontWorldVolume`; snapshot/ReSTIR drivers publish empty).
+- [x] CPU↔GPU parity + byte-identity + REG gate + visual inspection (PR #820).
+      The full RTX sweep is the lead's closeout.
+
+### Known limitations (documented for reviewers)
+
+- GPU emission = the CONSTANT term only. Blackbody emission is CPU-only (the
+  Planck luminance normalisation is a host table) — a blackbody volume renders
+  without its blackbody glow on the GPU. The addon reports it as a degradation
+  (`volume_export.BLACKBODY_GPU_DEGRADATION`); follow-up = issue #828, which also
+  owns the device-side grid cache and the 8-media cap below.
+- Global majorant per medium (no DDA over the pkg267 majorant grid) and
+  nearest-entered-medium only, mirroring the CPU oracle (pkg272 scope).
+- NanoVDB buffers are re-uploaded on every `render()` call (not part of the #801
+  device scene cache); ≤ 8 media per scene (extra media are ignored with a stderr
+  note).
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- `GPUWavefrontState` is passed BY VALUE to every wavefront kernel: adding five
+  lanes to it grew the STACK of all 128 `stageShadeBucketedKernel` instantiations
+  by 40 B (REG stayed 254). New per-path data belongs in a driver-allocated array
+  published through a `__constant__` binding, never in the state struct.
+- A runtime `if (binding.count > 0)` in a "lean" kernel is NOT free: it changed
+  the fleet shadow kernel's REG/STACK (108/584 → 109/864). Only a `template<bool>`
+  axis restored byte-identical fleet kernels.
+- `far`/`near` are `windef.h` macros under MSVC+nvcc; and a second CUDA TU must
+  sit in the same namespace as the TU that includes a shared `.cuh` inside one,
+  or the rdc device symbols and `extern __constant__` names will not match.
 </content>

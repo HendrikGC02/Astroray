@@ -5815,10 +5815,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
             ies_path = self._resolve_ies_path(light)
             # pkg276: Cycles evaluates IES in the light's local frame
             # (kernel/svm/ies.h); pass matrix_world's 3x3 columns (local X, Y, Z).
-            light_frame = []
+            # Passed only for IES lights (keeps the non-IES call shape unchanged).
+            frame_kw = {}
             if ies_path:
                 basis3 = matrix.to_3x3()
-                light_frame = [float(basis3[r][c]) for c in range(3) for r in range(3)]
+                frame_kw['light_frame'] = [float(basis3[r][c]) for c in range(3) for r in range(3)]
             emission_dict = _build_emission_dict(light)
             intensity = float(light.energy)
             # Batch J item 2: honour the TexIES node Strength (Cycles fac =
@@ -5832,7 +5833,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 radius = float(max(getattr(light, 'shadow_soft_size', 0.0), 0.0))
                 renderer.add_point_light(
                     position, emission_dict, intensity, radius, ies_path, pass_idx, 0,
-                    light_frame=light_frame,
+                    **frame_kw,
                 )
             elif light.type == 'SUN':
                 # pkg89 Phase B: use dedicated DistantLight with EmissionSpectrum.
@@ -5901,7 +5902,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     ies_path,
                     pass_idx,
                     0,
-                    light_frame=light_frame,
+                    **frame_kw,
                 )
 
     def setup_world(self, scene, renderer):

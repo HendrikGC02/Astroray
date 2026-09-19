@@ -1838,7 +1838,7 @@ class Exporter:
             min(settings.diffuse_bounces, depth),
             min(settings.glossy_bounces, depth),
             min(settings.transmission_bounces, depth),
-            min(settings.volume_bounces, depth),
+            settings.volume_bounces,  # pkg271: Cycles max_volume_bounce is its own limit
             min(settings.transparent_bounces, depth),
             skip_upload
         )
@@ -2506,7 +2506,7 @@ class Exporter:
                 "diffuse": min(settings.diffuse_bounces, depth),
                 "glossy": min(settings.glossy_bounces, depth),
                 "transmission": min(settings.transmission_bounces, depth),
-                "volume": min(settings.volume_bounces, depth),
+                "volume": settings.volume_bounces,  # pkg271: own limit (Cycles)
                 "transparent": min(settings.transparent_bounces, depth),
             }
 

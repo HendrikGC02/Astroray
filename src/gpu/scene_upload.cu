@@ -988,9 +988,9 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // unbakeable coord mode, > VM_MAX_TEX inputs) the whole program falls
             // through to the flat baseColor (GPU-degraded; CPU stays correct).
             if (auto pt = std::dynamic_pointer_cast<ProgramTexture>(tex)) {
-                const int nIn = (int)pt->numInputs();
-                bool inputsOk = nIn >= 1 && nIn <= astroray::svm::VM_MAX_TEX;
-                for (int t = 0; inputsOk && t < nIn; ++t) {
+                const int numIn = (int)pt->numInputs();
+                bool inputsOk = numIn >= 1 && numIn <= astroray::svm::VM_MAX_TEX;
+                for (int t = 0; inputsOk && t < numIn; ++t) {
                     std::shared_ptr<Texture> child = pt->getInput(t);
                     if (auto childImg = std::dynamic_pointer_cast<ImageTexture>(child)) {
                         if (!childImg->getData().empty())

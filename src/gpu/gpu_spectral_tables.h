@@ -84,6 +84,17 @@ extern __constant__ int            c_iesEnabled;
 extern __device__ const float*     g_iesTable;
 extern __device__ const GIESLight* g_iesLights;
 extern __device__ int              g_iesLightCount;
+// #828 — blackbody photopic-normaliser LUT for GPU volume emission:
+// g_bbLogLum[k] = ln ∫ planck(λ,T_k)·1e9·ȳ(λ) dλ at ln T_k = G_BB_LUT_LNTMIN + k/G_BB_LUT_INVH,
+// T in [30 K, 1e6 K] (astroray::volume::blackbodyLogLuminanceLut, the CPU's own
+// double integral). Device GLOBAL memory: per-thread temperatures diverge, which
+// would serialise a __constant__ read. Research: batchq-volumes-3-research.md §1.
+static constexpr int   G_BB_LUT_N      = 2048;
+static constexpr float G_BB_LUT_TMIN   = 30.0f;
+static constexpr float G_BB_LUT_LNTMIN = 3.4011973817f;   // ln 30
+static constexpr float G_BB_LUT_LNTMAX = 13.8155105580f;  // ln 1e6
+static constexpr float G_BB_LUT_INVH   = 196.5564089870f; // (N-1)/(lnTmax-lnTmin)
+extern __device__ float g_bbLogLum[G_BB_LUT_N];
 
 // ---------------------------------------------------------------------------
 // Host-callable uploads / probe (defined in gpu_spectral_tables.cu).
@@ -104,6 +115,9 @@ void uploadEmissionProfileTable(const float* host, int count);
 // pkg276 — IES side table (tableFloats floats of packed profiles, count
 // GIESLight entries). count == 0 clears it and sets c_iesEnabled = 0.
 void uploadIESTables(const float* table, int tableFloats, const GIESLight* lights, int count);
+// #828 — one-time (idempotent) upload of g_bbLogLum; called by the wavefront
+// driver only when a bounded medium carries blackbody emission.
+void uploadBlackbodyLuminanceLut();
 // pkg54d — single-lookup probe binding (tests/test_gpu_profile_lookup.py).
 float launchProfileLookup(int profileIndex, float lambda);
 // pkg168 — test-only batch RGB→spectral upsampling probe. Returns nRgb*nLambda

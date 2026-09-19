@@ -450,6 +450,15 @@ __device__ int intersectPathSlotT(
     // of the fleet <..., HasGridVolume=false> kernels entirely; runs BEFORE the
     // world-volume block and the lamp/emission/env legs so a scatter or an
     // absorption intercepts the segment exactly like the CPU loop top.
+    // pkg271 — volume_bounces exhausted (Cycles PATH_RAY_TERMINATE_AFTER_TRANSPARENT,
+    // flag set by a volume-scatter kernel in per_type_bounce byte 3): media only
+    // attenuate + emit, and a non-emissive surface hit ends the path below. Only
+    // the <HasGridVolume | HasWorldScatter> kernels read it; in the fleet <false>
+    // kernels volTerm is a compile-time false.
+    bool volTerm = false;
+    if constexpr (HasGridVolume || HasWorldScatter)
+        volTerm = gpu_volumeTerminateAfter(state.per_type_bounce, idx,
+                                           c_wfGridVolume.volumeBounceCap);
     if constexpr (HasGridVolume) if (c_wfGridVolume.count > 0) {
         const float surfaceT = hit ? rec.t : 1e30f;
         int mi = -1;
@@ -473,11 +482,11 @@ __device__ int intersectPathSlotT(
             GSampledSpectrum beta = throughput * gpu_heroAverage(ru, lambdas);
             GSampledSpectrum emission(0.f);
             float tEv = 0.f;
-            const uint32_t salt = G_WF_GRID_DIM_SALT + (uint32_t)bounce * 4096u;
+            const uint32_t salt = gpu_gridTrackSalt(bounce);   // #828 disjoint fields
             int ev = gpu_gridVolumeTrack(mi, ray.origin, ray.direction, mEnter, mExit,
                                          lambdas, beta, ru, emission, tEv,
                                          state.rng_pixel[idx], state.rng_sample[idx],
-                                         state.rng_seed[idx], salt);
+                                         state.rng_seed[idx], salt, volTerm);
             if (emission.maxValue() > 0.f) {
                 // Volume emission along the flight (pkg270): Emission pass when
                 // directly visible, else <firstCat>_INDIRECT (surface-emission rule).
@@ -521,7 +530,8 @@ __device__ int intersectPathSlotT(
     const bool mediumScatters = HasWorldScatter &&
                                 c_worldVolume.hasVolume &&
                                 c_worldVolume.density > 0.f &&
-                                c_worldVolume.scatter > 0.f;
+                                c_worldVolume.scatter > 0.f &&
+                                !volTerm;   // pkg271: terminate-after => absorb only
     if constexpr (HasWorldScatter) if (mediumScatters) {
         float surfaceT = hit ? rec.t : 1e30f;
         float termT = surfaceT;
@@ -846,6 +856,13 @@ __device__ int intersectPathSlotT(
         state.color_1[idx] = color.v[1];
         state.color_2[idx] = color.v[2];
         state.color_3[idx] = color.v[3];
+        state.path_alive[idx] = 0;
+        return -1;
+    }
+
+    // pkg271 — a terminate-after path (volume_bounces exhausted) has taken this
+    // surface's emission above; it ends here instead of being shaded.
+    if constexpr (HasGridVolume || HasWorldScatter) if (volTerm) {
         state.path_alive[idx] = 0;
         return -1;
     }
@@ -2248,8 +2265,7 @@ __global__ void stageShadowKernel(
         for (int k = 0; k < c_wfGridVolume.count; ++k) {
             float s0, s1;
             if (gpu_gridAabbOverlap(c_wfGridVolume.media[k], s.origin, s.wi, 1e-3f, segFar, s0, s1)) {
-                uint32_t salt = G_WF_GRIDSHADOW_DIM_SALT + (uint32_t)parkedBounce * 4096u
-                                + (uint32_t)k * 1024u;
+                uint32_t salt = gpu_gridShadowSalt(parkedBounce, k);   // #828
                 contrib *= gpu_gridVolumeTransmittance(k, s.origin, s.wi, s0, s1, lambdas,
                                                        state.rng_pixel[idx], state.rng_sample[idx],
                                                        state.rng_seed[idx], salt);
@@ -2801,6 +2817,10 @@ __global__ void stageVolumeScatterKernel(
             }
         }
     }
+
+    // pkg271 — Cycles volume_bounce (+1 at this scatter); past the cap the
+    // continuation is terminate-after (see intersectPathSlotT volTerm).
+    gpu_countVolumeBounce(state.per_type_bounce, idx, c_wfGridVolume.volumeBounceCap);
 
     // ---- HG phase-sampled continuation from P (throughput *= phase/pdf = 1) ----
     float phasePdf;

@@ -2037,7 +2037,8 @@ public:
     }
 
     // pkg268 — bounded object media registration (exporter / tests).
-    void clearGridMedia() { renderer.clearGridMedia(); }
+    // #828: every media mutation drops the wavefront device scene + grid cache.
+    void clearGridMedia() { renderer.clearGridMedia(); invalidateWavefrontScene(); }
 
     // Heterogeneous grid medium from a dense numpy density + transforms +
     // Principled Volume basics.
@@ -2088,6 +2089,7 @@ public:
         pv.blackbodyTint = blackbody_tint;
         pv.temperature = blackbody_temperature;
         renderer.addGridMedium(std::move(gm), pv);
+        invalidateWavefrontScene();  // #828 device grid cache
     }
 
     // Homogeneous bounded medium (the #807 cabinet cubes, the slab furnace).
@@ -2109,6 +2111,7 @@ public:
         pv.temperature = blackbody_temperature;
         renderer.addHomogeneousMedium(Vec3(aabb_min[0], aabb_min[1], aabb_min[2]),
                                       Vec3(aabb_max[0], aabb_max[1], aabb_max[2]), pv);
+        invalidateWavefrontScene();  // #828 device grid cache
     }
 
     void setGuiding(bool use) {
@@ -2348,6 +2351,7 @@ public:
             // (getMaxDiffuse/Glossy/TransmissionBounces) and publishes the
             // shade-kernel __constant__. -1 (the default) = unlimited.
             renderer.setPerTypeBounces(diffuseBounces, glossyBounces, transmissionBounces);
+            renderer.setVolumeBounces(volumeBounces);  // pkg271
             // pkg241 Phase 2 A2 spike (§3.7): widen the GIL release to the whole
             // GPU render tail. Declared empty here (GIL still held for the CPU-side
             // buildAcceleration / scene-array prep); emplaced immediately before

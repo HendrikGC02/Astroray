@@ -268,9 +268,34 @@ def test_gpu_cpu_mean_ratio_hdri(hdri_path):
     # pkg237: the gate itself is the per-channel mean ratio on the raw linear
     # arrays (no shared-exposure normalisation needed for a ratio) — the same
     # +-5% per-channel band the north-star gate (c) uses.
+    #
+    # #767 (2026-09-20): a channel can be legitimately DARK here, and then the
+    # ratio is 0/0 and means nothing. This fixture is a red/blue horizontal
+    # gradient with G == 0 in every texel except one (0, 50, 0) pixel that this
+    # camera does not see (_write_test_hdri above). Under the pre-#767 CIE 1964
+    # 10deg observer the spectral round trip leaked green into every pixel — 1 nm
+    # quadrature: an illuminant (0,0,1) reconstructed as (0.000, 0.112, 1.060)
+    # and the mid-gradient (0.5,0,0.5) as (0.442, 0.024, 0.529) — which is what
+    # made this channel's ratio well-defined (measured CPU G mean 0.01457, GPU
+    # 0.01484, ratio 1.019). With the CIE 1931 2deg observer the same colours
+    # reconstruct with G == 0.00000 and the render agrees: CPU G mean 4e-6, GPU
+    # 1e-6 (max pixel 2.1e-3, 0.7 % of pixels above 1e-6) — correct, and a ratio
+    # of 0.19 that carries no parity information. So a channel whose CPU mean is
+    # below DARK_CHANNEL_FLOOR is gated on ABSOLUTE agreement instead: the GPU
+    # must also be dark. The lit channels keep the +-5% ratio band.
+    DARK_CHANNEL_FLOOR = 1e-3  # 500x below the lit channels here (~0.4-0.6)
     for c, name in enumerate("RGB"):
         cpu_mean = float(cpu[..., c].mean())
         gpu_mean = float(gpu[..., c].mean())
+        if cpu_mean < DARK_CHANNEL_FLOOR:
+            assert gpu_mean < DARK_CHANNEL_FLOOR, (
+                f"{name} channel is dark on CPU (mean={cpu_mean:.3e}) but not on "
+                f"GPU (mean={gpu_mean:.3e}, floor {DARK_CHANNEL_FLOOR:.0e}) — the "
+                f"env fixture has no {name} energy in view, so this is a leak"
+            )
+            print(f"[#767] {name} channel dark on both legs "
+                  f"(cpu={cpu_mean:.3e}, gpu={gpu_mean:.3e}); ratio not asserted")
+            continue
         ratio_c = gpu_mean / cpu_mean
         assert abs(ratio_c - 1.0) <= 0.05, (
             f"GPU/CPU {name} channel mean ratio {ratio_c:.4f} outside +-5% band "

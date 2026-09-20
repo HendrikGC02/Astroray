@@ -19,10 +19,12 @@
 
 #include <math.h>
 
-#if defined(__CUDACC__)
-#  define ASTRORAY_BB_HD __host__ __device__
-#else
-#  define ASTRORAY_BB_HD
+#ifndef ASTRORAY_BB_HD          // ABI-4: never redefine a caller's macro
+#  if defined(__CUDACC__)
+#    define ASTRORAY_BB_HD __host__ __device__
+#  else
+#    define ASTRORAY_BB_HD
+#  endif
 #endif
 
 namespace astroray {

@@ -7,7 +7,7 @@
 
 #include "astroray/volume/volume_emission.h"
 
-#include "astroray/emission_spectrum.h"  // blackbodyLuminanceNorm
+#include "astroray/emission_spectrum.h"  // (header order: pulls in spectral.h's colour helpers)
 #include "astroray/spectral.h"           // planck()
 #include "astroray/volume/blackbody_lut.h"
 

@@ -140,8 +140,9 @@ __device__ inline GSampledSpectrum gridBlackbody(const GGridMedium& m, float T,
     if (!m.bbTintIsWhite)
         tint = gpu_rgbToSampledSpectrum(GVec3(m.bbTintR, m.bbTintG, m.bbTintB), wl,
                                         GSPEC_RGB_ALBEDO);
+    const float* lut = g_bbLogLum;   // ABI-3: hoisted out of the lane loop
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
-        s.v[i] = astroray::volume::bbNormalizedPlanck(wl.lambda[i], T, g_bbLogLum)
+        s.v[i] = astroray::volume::bbNormalizedPlanck(wl.lambda[i], T, lut)
                  * intensity * tint.v[i];
     return s;
 }

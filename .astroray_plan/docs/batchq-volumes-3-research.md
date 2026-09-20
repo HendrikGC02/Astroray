@@ -40,8 +40,11 @@ pins all three (CPU-only).
   it directly and the GPU uploads the same vector to a `__device__` array owned by
   `gpu_spectral_tables.cu` (lazy: only when a medium has blackbody). One
   `__host__ __device__` function evaluates it on both backends.
-  Interpolation error `h²/8·|f''|`, `f'' ≈ −hc/(λ̄kT)`: 0.2 % at 30 K,
-  < 1e-4 at fire temperatures (h = ln(1e6/30)/2047 = 0.0051).
+  Interpolation error, DERIVED as `h²/8·|f''|` with `f'' ≈ −hc/(λ̄kT)`
+  (h = ln(1e6/30)/2047 = 0.0051): 0.2 % at 30 K, < 1e-4 at fire temperatures.
+  MEASURED end-to-end by re-integrating the emitted SPD against the engine's own
+  ȳ (`tests/test_issue828_blackbody_cpu.py`): luminance / Cycles intensity within
+  0.05 % at 60.5–6543.2 K.
   Both backends return 0 below 30 K; the luminance lost there is ≤ (30/T_fire)⁴
   of the fire (< 2e-7 at 1500 K) when Blackbody Intensity = 1.
 - Temperature grid: dense float array (same layout as the CPU `DenseGrid`,
@@ -49,6 +52,11 @@ pins all three (CPU-only).
   CPU lookup exactly; a second NanoVDB grid would need a second host build path.
 - The blackbody term lives in `gpu_gridVolumeTrack` (called only from
   `intersectPathSlotT<…, HasGridVolume=true>`), gated like the CPU `emissionAt`.
+- Observer: the table is built from whatever CMF ȳ `astroray/spectrum.h` exposes,
+  at runtime — #837 switches the engine to CIE 1931 2° and this code follows it by
+  construction (accessor by name, no baked numbers). Cycles' blackbody colour is
+  its own Rec.709 polynomial fit, which is the recorded divergence (pkg270 §3);
+  the observer itself is NOT a divergence.
 - `emissionFloor` (8/diag) stays on upload: with blackbody on the GPU, a
   density-free blackbody medium needs the tentative collisions (#828 review note).
 
@@ -101,6 +109,11 @@ Why not the pkg201 surface-limit convention (drop the continuation): with
 `volume_bounces = 0` (Blender's default) smoke lit only by its own fire would
 render black — Cycles gets that light through the terminate-after continuation
 collecting volume emission, which no NEE samples.
+
+Per-path state: `GPUWavefrontState.per_type_bounce` byte 3 (bits 0-6 count,
+bit 7 terminate-after). The count saturates at 127, so the published GPU cap is
+clamped to 127; the pkg201 per-type counters now saturate at 255 so a
+transmission-bounce increment can never carry into that byte.
 
 Divergences kept (documented, not claimed as parity):
 - Cycles' terminate-after continues through TRANSPARENT surfaces (alpha / the

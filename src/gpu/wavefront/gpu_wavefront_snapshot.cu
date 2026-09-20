@@ -1581,10 +1581,11 @@ std::vector<float> cuda_wavefront_render(
             g.tempGrid = nullptr;
             if (m.heterogeneous && m.grid && m.grid->nanoBytes() > 0) {
                 size_t bytes = m.grid->nanoBytes();
-                char* d;
-                if (reuse) {
-                    d = reinterpret_cast<char*>(C.gridBufs[k].ptr);
-                } else {
+                // ABI-1: only a cached pointer that actually exists serves a
+                // reuse; anything else (a slice this owner never filled) falls
+                // back to the upload branch rather than handing the kernel null.
+                char* d = reuse ? reinterpret_cast<char*>(C.gridBufs[k].ptr) : nullptr;
+                if (d == nullptr) {
                     d = wfEnsure<char>(C.gridBufs[k], bytes);
                     cudaError_t e = cudaMemcpy(d, m.grid->nanoData(), bytes, cudaMemcpyHostToDevice);
                     if (e != cudaSuccess) throw std::runtime_error(cudaGetErrorString(e));
@@ -1597,10 +1598,9 @@ std::vector<float> cuda_wavefront_render(
                 // #828 — dense temperature block (nearest voxel, CPU layout).
                 const astroray::volume::DenseGrid* tg = m.grid->temperatureDense();
                 if (tg && !tg->data.empty()) {
-                    float* td;
-                    if (reuse) {
-                        td = reinterpret_cast<float*>(C.gridTempBufs[k].ptr);
-                    } else {
+                    float* td = reuse ? reinterpret_cast<float*>(C.gridTempBufs[k].ptr)
+                                      : nullptr;   // ABI-1, as above
+                    if (td == nullptr) {
                         td = wfEnsure<float>(C.gridTempBufs[k], tg->data.size());
                         cudaError_t e = cudaMemcpy(td, tg->data.data(),
                                                    tg->data.size() * sizeof(float),
@@ -1641,8 +1641,11 @@ std::vector<float> cuda_wavefront_render(
         // pkg271 — Cycles max_volume_bounce (volume_bounces + 1; 0 = unlimited).
         // Published for fog-only scenes too (count == 0): the world-volume scatter
         // kernel and the <HasWorldScatter> intersect kernels read it.
+        // PARITY-6: the per-path volume counter is 7 bits (per_type_bounce byte 3),
+        // so the GPU cap is clamped to 127 — a limit above that is unreachable
+        // before max_depth ends the path anyway (the CPU keeps the exact value).
         gb.volumeBounceCap = (renderer.getMaxVolumeBounces() >= 0)
-                                 ? renderer.getMaxVolumeBounces() + 1 : 0;
+                                 ? std::min(renderer.getMaxVolumeBounces() + 1, 127) : 0;
         // Per-path lanes only for scenes that carry bounded media (grow-only).
         gb.ru = nullptr; gb.mediumId = nullptr; gb.capacity = 0;
         if (hasGridVolume) {

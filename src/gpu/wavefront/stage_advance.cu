@@ -2067,7 +2067,12 @@ __device__ bool shadePathSlot(
                 state.path_alive[idx] = 0;
                 return false;
             }
-            state.per_type_bounce[idx] = packed + (1u << (lobeCat * 8));
+            // ABI-2: saturate at 255 — an increment past it would carry into the
+            // next byte (transmission carries into byte 3, pkg271's volume
+            // counter/terminate-after flag). A limit above 255 is unreachable
+            // before max_depth ends the path.
+            if (cnt < 255)
+                state.per_type_bounce[idx] = packed + (1u << (lobeCat * 8));
         }
     }
 

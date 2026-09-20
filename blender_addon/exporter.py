@@ -328,6 +328,17 @@ VIEWPORT_REFINE_CHUNK_MS = 50.0
 VIEWPORT_REFINE_CHUNK_MAX_SPP = 32
 
 
+def viewport_navigation_samples(res_divisor, target_spp):
+    """Samples for a reduced-resolution (navigation) unit: the divisor, capped at
+    min(target, 4). Cycles RenderScheduler::get_num_samples_during_navigation
+    (intern/cycles/integrator/render_scheduler.cpp, Apache-2.0): pixels drop by
+    divisor^2, so divisor samples still cost ~1/divisor of a full-res sample.
+    Off-thread worker only; the synchronous path keeps 1 spp because its chunk
+    is the main-thread stall. Cycles' denoise-during-navigation branch (return
+    1) does not apply: the worker never denoises (owner rule)."""
+    return min(max(1, int(res_divisor)), max(1, min(int(target_spp), 4)))
+
+
 def _nav_clock():
     """Monotonic clock for the nav-settle debounce (patchable in tests)."""
     return time.perf_counter()
@@ -2498,7 +2509,11 @@ class Exporter:
             # reduced first-unit resolution"). The full-res refinement scheduled
             # after this unit still renders to the real target progressively.
             if res_divisor > 1:
-                target = max(1, min(target, chunk))
+                # Batch S item 4: the coarse unit renders the Cycles navigation
+                # sample count in ONE chunk (1 spp showed strong spectral chroma
+                # noise while orbiting).
+                target = viewport_navigation_samples(res_divisor, target)
+                chunk = target
             return {
                 "generation": gen, "renderer": renderer,
                 "session_epoch": self._worker.session_epoch,

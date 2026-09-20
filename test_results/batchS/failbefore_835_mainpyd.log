@@ -1,0 +1,110 @@
+FF
+[#835 principled emission GPU/CPU] quad_nee
+  R: cpu=0.05415 gpu=0.00000 ratio=0.0000
+F
+================================== FAILURES ===================================
+_____ test_principled_self_emission_gpu_matches_cpu[white_x5-color0-5.0] ______
+
+label = 'white_x5', color = [1.0, 1.0, 1.0], strength = 5.0
+
+    @pytest.mark.parametrize("label,color,strength", [
+        ("white_x5", [1.0, 1.0, 1.0], 5.0),
+        ("green_x3", [0.2, 1.0, 0.3], 3.0),
+    ])
+    def test_principled_self_emission_gpu_matches_cpu(label, color, strength):
+        if not _has_gpu():
+            pytest.skip("no CUDA device")
+        cpu = _self_emission(False, color, strength)
+        gpu = _self_emission(True, color, strength)
+        # Pre-fix the GPU returned ~0 here (emission never read).
+>       assert gpu.mean() > 0.5 * cpu.mean() > 0.0
+E       assert np.float64(0.0) > (0.5 * np.float64(4.9734383968774365))
+E        +  where np.float64(0.0) = <built-in method mean of numpy.ndarray object at 0x0000020962934690>()
+E        +    where <built-in method mean of numpy.ndarray object at 0x0000020962934690> = array([[[0., 0., 0.],\n        [0., 0., 0.],\n        [0., 0., 0.],\n        ...,\n        [0., 0., 0.],\n        [0., 0., ...      [0., 0., 0.],\n        ...,\n        [0., 0., 0.],\n        [0., 0., 0.],\n        [0., 0., 0.]]], shape=(48, 48, 3)).mean
+E        +  and   np.float64(4.9734383968774365) = <built-in method mean of numpy.ndarray object at 0x0000020962934630>()
+E        +    where <built-in method mean of numpy.ndarray object at 0x0000020962934630> = array([[[4.96194553, 5.01837301, 4.85299397],\n        [4.88887691, 5.06702089, 4.75410986],\n        [5.08368063, 4.965...1567],\n        [4.75951624, 5.13657045, 4.34684038],\n        [4.91864491, 5.06289434, 4.50784826]]], shape=(48, 48, 3)).mean
+
+tests\test_issue835_principled_emission_gpu.py:104: AssertionError
+_____ test_principled_self_emission_gpu_matches_cpu[green_x3-color1-3.0] ______
+
+label = 'green_x3', color = [0.2, 1.0, 0.3], strength = 3.0
+
+    @pytest.mark.parametrize("label,color,strength", [
+        ("white_x5", [1.0, 1.0, 1.0], 5.0),
+        ("green_x3", [0.2, 1.0, 0.3], 3.0),
+    ])
+    def test_principled_self_emission_gpu_matches_cpu(label, color, strength):
+        if not _has_gpu():
+            pytest.skip("no CUDA device")
+        cpu = _self_emission(False, color, strength)
+        gpu = _self_emission(True, color, strength)
+        # Pre-fix the GPU returned ~0 here (emission never read).
+>       assert gpu.mean() > 0.5 * cpu.mean() > 0.0
+E       assert np.float64(0.0) > (0.5 * np.float64(1.516002324220069))
+E        +  where np.float64(0.0) = <built-in method mean of numpy.ndarray object at 0x000002096280B3F0>()
+E        +    where <built-in method mean of numpy.ndarray object at 0x000002096280B3F0> = array([[[0., 0., 0.],\n        [0., 0., 0.],\n        [0., 0., 0.],\n        ...,\n        [0., 0., 0.],\n        [0., 0., ...      [0., 0., 0.],\n        ...,\n        [0., 0., 0.],\n        [0., 0., 0.],\n        [0., 0., 0.]]], shape=(48, 48, 3)).mean
+E        +  and   np.float64(1.516002324220069) = <built-in method mean of numpy.ndarray object at 0x000002096280AFD0>()
+E        +    where <built-in method mean of numpy.ndarray object at 0x000002096280AFD0> = array([[[0.87139606, 2.86469865, 0.84502399],\n        [0.88599318, 2.87393594, 0.71123976],\n        [0.86287928, 2.870...0212],\n        [0.85775435, 2.89214206, 0.65560722],\n        [0.86365944, 2.87063265, 0.81705564]]], shape=(48, 48, 3)).mean
+
+tests\test_issue835_principled_emission_gpu.py:104: AssertionError
+____________ test_principled_emitter_lights_scene_gpu_matches_cpu _____________
+
+    def test_principled_emitter_lights_scene_gpu_matches_cpu():
+        if not _has_gpu():
+            pytest.skip("no CUDA device")
+        cpu = _quad_lit(False)
+        gpu = _quad_lit(True)
+        assert cpu.mean() > 1e-3
+>       _assert_parity("quad_nee", cpu, gpu)
+
+tests\test_issue835_principled_emission_gpu.py:114:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+label = 'quad_nee'
+cpu = array([[[0., 0., 0.],
+        [0., 0., 0.],
+        [0., 0., 0.],
+        ...,
+        [0., 0., 0.],
+        [0., 0., ...      [0., 0., 0.],
+        ...,
+        [0., 0., 0.],
+        [0., 0., 0.],
+        [0., 0., 0.]]], shape=(48, 48, 3))
+gpu = array([[[0., 0., 0.],
+        [0., 0., 0.],
+        [0., 0., 0.],
+        ...,
+        [0., 0., 0.],
+        [0., 0., ...      [0., 0., 0.],
+        ...,
+        [0., 0., 0.],
+        [0., 0., 0.],
+        [0., 0., 0.]]], shape=(48, 48, 3))
+
+    def _assert_parity(label, cpu, gpu):
+        assert np.all(np.isfinite(gpu)), "GPU render produced NaN/Inf"
+        print(f"\n[#835 principled emission GPU/CPU] {label}")
+        for c, ch in enumerate("RGB"):
+            cm, gm = float(cpu[..., c].mean()), float(gpu[..., c].mean())
+            ratio = gm / cm if cm > 1e-8 else float("nan")
+            print(f"  {ch}: cpu={cm:.5f} gpu={gm:.5f} ratio={ratio:.4f}")
+>           assert BAND[0] <= ratio <= BAND[1], (
+                f"{label} channel {ch}: GPU/CPU {ratio:.4f} outside {BAND} "
+                f"(cpu={cm:.5f}, gpu={gm:.5f})")
+E           AssertionError: quad_nee channel R: GPU/CPU 0.0000 outside (0.95, 1.05) (cpu=0.05415, gpu=0.00000)
+E           assert 0.95 <= 0.0
+
+tests\test_issue835_principled_emission_gpu.py:89: AssertionError
+============================== warnings summary ===============================
+..\..\..\..\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py:1434
+  C:\Users\hgcom\AppData\Local\Programs\Python\Python313\Lib\site-packages\_pytest\config\__init__.py:1434: PytestConfigWarning: Unknown config option: cache_dir
+
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_issue835_principled_emission_gpu.py::test_principled_self_emission_gpu_matches_cpu[white_x5-color0-5.0]
+FAILED tests/test_issue835_principled_emission_gpu.py::test_principled_self_emission_gpu_matches_cpu[green_x3-color1-3.0]
+FAILED tests/test_issue835_principled_emission_gpu.py::test_principled_emitter_lights_scene_gpu_matches_cpu
+3 failed, 1 warning in 1.09s

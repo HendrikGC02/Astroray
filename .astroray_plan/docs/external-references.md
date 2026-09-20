@@ -53,7 +53,7 @@ own because a dependency for 40 lines of code is ridiculous.
   Loader is ~30 lines; format is documented.
 - **CIE color matching functions** — ship as constants in
   `data/spectra/cie_cmf.inc`. Public domain data from
-  http://cvrl.ucl.ac.uk/ (download the 1964 10° observer).
+  http://cvrl.ucl.ac.uk/ (download the 1931 2° observer).
 
 ### Measured BRDFs
 

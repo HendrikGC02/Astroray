@@ -299,14 +299,14 @@ Procedural textures (Noise, Checker, Wave, Gradient, Voronoi, Magic, …) are
 accepted as op-VM input leaves feeding Math / Mix / Color Ramp / Map Range
 chains on both backends (#821). The GPU bakes them (64×64 for UV coordinates,
 64³ for Generated/Object) and falls back to the flat base colour with a
-degradation warning when a program has more than one texture input (#826);
+degradation warning when a program has more than two texture inputs (#826, #844);
 coordinate-side non-affine math (Separate XYZ → Sin → Combine XYZ → texture) is
 still unsupported (#822).
 
 The off-main-thread viewport worker is opt-in (`ASTRORAY_VIEWPORT_WORKER=1`,
 #819): it presents a reduced preview while the camera is orbited and refines at
-full resolution. Material-only edits use an incremental material upload instead
-of a full scene re-sync (#831).
+full resolution. Material, light and geometry edits trigger a full scene re-sync
+(~125–132 ms per edit; the incremental replay rendered stale data, #850).
 
 **Build:** `python scripts/build/build_blender_addon.py [--install]`. This
 builds with OpenMP **ON** (`-DASTRORAY_DISABLE_OPENMP=OFF`, PR #790) and

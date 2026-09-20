@@ -46,7 +46,7 @@ inline float sampleTable(const float* table, float lambda) {
     return table[i] * (1.0f - t) + table[i + 1] * t;
 }
 
-// Integrated Y of D65 against the 1964 10° observer over the table grid.
+// Integrated Y of D65 against the 1931 2° observer over the table grid.
 // Used to normalize `sampleD65` so the resulting D65 XYZ has Y = 1.0.
 float computeD65Normalization() {
     double yInt = 0.0;
@@ -66,7 +66,7 @@ float d65NormFactor() {
 
 }  // namespace
 
-XYZ cieCmf1964_10deg(float lambda) {
+XYZ cieCmf1931_2deg(float lambda) {
     return XYZ{ sampleTable(baked::kCieCmfX, lambda),
                 sampleTable(baked::kCieCmfY, lambda),
                 sampleTable(baked::kCieCmfZ, lambda) };
@@ -104,7 +104,8 @@ SampledWavelengths SampledWavelengths::sampleUniform(float u,
 //
 // Draws the hero wavelength (and its stratified companions) from a logistic
 // (sigmoid) CDF fitted to Astroray's luminance-weighted D65 target,
-// (y_bar + 0.25)*D65 against the CIE-1964 10-degree observer, instead of
+// (y_bar + 0.25)*D65 against the CIE-1964 10-degree observer (the pre-#767
+// table; the engine now uses CIE 1931 2deg, re-fit is variance-only: #848), instead of
 // uniformly. Wavelengths the eye sees strongly are sampled more often, cutting
 // chromatic noise on dispersive-caustic paths; each lane's pdf is the logistic
 // density at its OWN wavelength (1/nm) so the MC estimator (toXYZ divides by
@@ -304,7 +305,7 @@ XYZ SampledSpectrum::toXYZ(const SampledWavelengths& wl) const {
     for (int i = 0; i < kSpectrumSamples; ++i) {
         float pdf = wl.pdf(i);
         if (pdf == 0.0f) continue;
-        XYZ cmf = cieCmf1964_10deg(wl.lambda(i));
+        XYZ cmf = cieCmf1931_2deg(wl.lambda(i));
         float w = v_[i] / pdf;
         X += w * cmf.X;
         Y += w * cmf.Y;

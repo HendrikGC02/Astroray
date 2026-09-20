@@ -76,8 +76,17 @@ def _render(*, poly: bool, samples: int, seed: int):
     return pix, r.get_integrator_stats()
 
 
-def _roi_lum(pix: np.ndarray) -> np.ndarray:
+def _roi_lum(pix: np.ndarray, *, smooth: bool = False) -> np.ndarray:
+    """ROI luminance values. ``smooth=True`` first applies a 3x3 box filter:
+    the caustic focus is a few pixels wide, so an unsmoothed single-pixel
+    percentile is a sparse-event statistic (see the focus test's note)."""
     lum = 0.2126 * pix[..., 0] + 0.7152 * pix[..., 1] + 0.0722 * pix[..., 2]
+    if smooth:
+        acc = np.zeros_like(lum)
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                acc += np.roll(np.roll(lum, dy, 0), dx, 1) / 9.0
+        lum = acc
     h, w = lum.shape
     yy, xx = np.mgrid[:h, :w]
     roi = (xx > w * 0.20) & (xx < w * 0.80) & (yy < h * 0.55) & (yy > h * 0.20)
@@ -111,8 +120,20 @@ def test_specular_poly_caustic_focus_matches_newton():
     (it finds the same specular vertices), while its total energy is LOWER: the
     Newton single-vertex estimator over-brightens via a biased seed-area weight
     and a receiver-cosine double-count (filed separately). So the physical
-    invariant is the peak, not the total. Reported for the record."""
-    seeds = (145, 211, 333, 422, 519)
+    invariant is the peak, not the total. Reported for the record.
+
+    Statistic re-derived 2026-09-20 (#767 / PR #837). The old form -- the
+    99.5th percentile of the RAW luminance over 5 seeds -- is a single-pixel
+    sparse-event statistic: SMS connections through the caster are rare, so one
+    seed's bright pixel sets it. Bootstrap over 32 seeds, 200 five-seed draws:
+    the ratio's p5/median/p95 was 0.67/1.05/2.07 and only 61 % of draws landed
+    inside this [0.7, 1.3] band -- on the PRE-#767 build as well (62 %, p95
+    3.39). The observer change only re-rolled which rare events fire. Pooling
+    24 seeds and taking the peak of a 3x3-smoothed image converges: measured
+    ratio 1.02 (2 deg) and 1.04 (10 deg), with 100 % of 24-seed draws in band.
+    Band unchanged.
+    """
+    seeds = tuple(145 + 37 * i for i in range(24))
 
     def avg_and_rate(poly):
         acc = None
@@ -122,15 +143,15 @@ def test_specular_poly_caustic_focus_matches_newton():
             acc = pix if acc is None else acc + pix
             att += st.get("sms_attempts", 0.0)
             con += st.get("sms_converged", 0.0)
-        L = _roi_lum(acc / len(seeds))
-        return L, (1.0 - con / max(att, 1.0))
+        avg = acc / len(seeds)
+        return _roi_lum(avg, smooth=True), _roi_lum(avg), (1.0 - con / max(att, 1.0))
 
-    Ln, fail_newton = avg_and_rate(False)
-    Lp, fail_poly = avg_and_rate(True)
+    Ln, Ln_raw, fail_newton = avg_and_rate(False)
+    Lp, Lp_raw, fail_poly = avg_and_rate(True)
     peak_n, peak_p = float(np.percentile(Ln, 99.5)), float(np.percentile(Lp, 99.5))
-    print(f"\npkg127 ROI: newton peak={peak_n:.3f} sum={Ln.sum():.1f} | "
-          f"poly peak={peak_p:.3f} sum={Lp.sum():.1f} "
-          f"(energy ratio {Lp.sum()/max(Ln.sum(),1e-6):.2f}); "
+    print(f"\npkg127 ROI ({len(seeds)} seeds, 3x3-smoothed): newton peak={peak_n:.3f} "
+          f"sum={Ln_raw.sum():.1f} | poly peak={peak_p:.3f} sum={Lp_raw.sum():.1f} "
+          f"(energy ratio {Lp_raw.sum()/max(Ln_raw.sum(),1e-6):.2f}); "
           f"seed-failure newton={fail_newton:.3f} poly={fail_poly:.3f}")
 
     # The caustic is present and its focus matches Newton's (same specular

@@ -97,10 +97,11 @@ def _make_hair_scene(*, use_gpu: bool, spectral: bool, melanin: float,
     return r
 
 
-def _render(*, use_gpu: bool, spectral: bool, melanin: float, redness: float = 0.0):
+def _render(*, use_gpu: bool, spectral: bool, melanin: float, redness: float = 0.0,
+            seed: int = SEED):
     r = _make_hair_scene(use_gpu=use_gpu, spectral=spectral, melanin=melanin,
                          redness=redness)
-    r.set_seed(SEED)
+    r.set_seed(seed)
     return np.asarray(r.render(SAMPLES, MAX_DEPTH, None, False), dtype=np.float32)
 
 
@@ -242,20 +243,26 @@ def test_spectral_melanin_distinct_and_red_dominant():
     not (AVAILABLE and astroray.__features__.get("cuda", False)),
     reason="CUDA feature not in this build -- GPU spectral melanin parity needs the RTX box.")
 def test_gpu_spectral_melanin_matches_cpu():
-    cpu = _render(use_gpu=False, spectral=True, melanin=0.6, redness=0.0)
-    gpu = _render(use_gpu=True, spectral=True, melanin=0.6, redness=0.0)
-    assert int(np.sum(~np.isfinite(gpu))) == 0
-
+    # Pooled over these 7 seeds (#767 / PR #837), including the historical fixed
+    # SEED = 225501. One seed's ~130 lit pixels gave a per-seed B GPU/CPU spread
+    # of 0.79-0.91 on main (2 of 7 seeds below the 0.85 floor), so the
+    # single-seed gate measured noise. The CIE 1931 table change re-rolled the
+    # RR stream and moved SEED=225501 from 0.869 to 0.832. Re-measured over all
+    # 7 seeds under the GPU lock: pooled GPU/CPU = (0.956, 0.942, 0.865) on
+    # main and (0.959, 0.941, 0.873) on #837 -- the fix does not regress it.
+    # The underlying GPU-vs-CPU hair difference is pre-existing (#853).
     def _lum(im):
         return 0.2126 * im[..., 0] + 0.7152 * im[..., 1] + 0.0722 * im[..., 2]
-    lit = (_lum(cpu) > 0.01) | (_lum(gpu) > 0.01)
-    assert int(lit.sum()) > 50, f"too few lit hair pixels ({int(lit.sum())})"
-
-    ratios = []
-    for c in range(3):
-        cs = float(cpu[..., c][lit].sum())
-        gs = float(gpu[..., c][lit].sum())
-        ratios.append((gs / cs) if cs > 1e-9 else 1.0)
+    cs, gs = np.zeros(3), np.zeros(3)
+    for seed in (7, 11, 23, 31, 47, 59, SEED):
+        cpu = _render(use_gpu=False, spectral=True, melanin=0.6, redness=0.0, seed=seed)
+        gpu = _render(use_gpu=True, spectral=True, melanin=0.6, redness=0.0, seed=seed)
+        assert int(np.sum(~np.isfinite(gpu))) == 0
+        lit = (_lum(cpu) > 0.01) | (_lum(gpu) > 0.01)
+        assert int(lit.sum()) > 50, f"too few lit hair pixels ({int(lit.sum())})"
+        cs += [float(cpu[..., c][lit].sum()) for c in range(3)]
+        gs += [float(gpu[..., c][lit].sum()) for c in range(3)]
+    ratios = [(g / c) if c > 1e-9 else 1.0 for g, c in zip(gs, cs)]
     for ch, ratio in zip("RGB", ratios):
         assert 0.85 <= ratio <= 1.15, f"GPU/CPU melanin channel {ch} ratio {ratio:.4f} out of band"
     assert max(ratios) / min(ratios) <= 1.15

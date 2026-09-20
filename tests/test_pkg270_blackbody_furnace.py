@@ -111,13 +111,13 @@ def test_blackbody_spectral_shape_is_planck(T):
 @pytest.mark.parametrize("T,I", [(3000.0, 1.0), (1400.0, 0.8), (6500.0, 0.5)])
 def test_blackbody_luminance_matches_cycles_stefan_boltzmann(T, I):
     # NOTE (cycles-parity review, PR #820): this assert is SELF-CONSISTENT by
-    # construction — the engine normalises Planck by the same CIE-1964 ybar
+    # construction — the engine normalises Planck by the same CIE-1931 ybar
     # integral it is re-integrated with here, so it pins the magnitude convention
     # and catches wiring/unit slips, not the physics. The INDEPENDENT checks are
     # the numpy Planck ratio test above and the Rec.709 chroma band below
     # (Cycles' polynomial, a different observer and fit).
     # Photopic luminance of the per-unit-length emission integrated on a 1-nm grid
-    # with the engine's own CIE-1964 10deg ybar must equal Cycles' intensity
+    # with the engine's own CIE-1931 2deg ybar must equal Cycles' intensity
     # (luminance-1 colour x Stefan-Boltzmann magnitude), i.e. a physical Planck
     # SHAPE with Cycles' MAGNITUDE convention.
     lams = np.arange(360.0, 831.0, 1.0)
@@ -128,7 +128,7 @@ def test_blackbody_luminance_matches_cycles_stefan_boltzmann(T, I):
             chunk.append(830.0)
         vals = astroray.volume_blackbody_emission(T, I, [1.0, 1.0, 1.0], chunk)
         for j, lam in enumerate(lams[k:k + 4]):
-            Y += vals[j] * astroray.cie_cmf_1964_10deg(float(lam)).Y
+            Y += vals[j] * astroray.cie_cmf_1931_2deg(float(lam)).Y
     expected = cycles_intensity(T, I)
     print(f"[pkg270 lum] T={T} I={I}: Y={Y:.6g} cycles={expected:.6g} ratio={Y/expected:.4f}")
     assert Y == pytest.approx(expected, rel=0.01)

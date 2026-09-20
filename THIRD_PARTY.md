@@ -31,7 +31,7 @@ upsampling sRGB values into spectral reflectances.
 
 ### `data/spectra/cie_cmf.inc` and `data/spectra/illuminant_d65.inc`
 
-Auto-generated C++ `constexpr` tables containing the CIE 1964 10°
+Auto-generated C++ `constexpr` tables containing the CIE 1931 2°
 Standard Observer and the CIE Standard Illuminant D65 SPD,
 respectively, at 1 nm resolution over 360–830 nm.
 

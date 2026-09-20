@@ -16,7 +16,7 @@
 // Citations (CLAUDE.md §6; .astroray_plan/docs/pkg113-phase3-gather-wiring-research.md):
 //   Jensen 1996/2000 (photon map + §3.1 Eq. 8); Arvo 1986 (forward transport);
 //   Schlick 1994 (Fresnel); Sellmeier 1871 (n(λ), via gpu_dispersion.cuh);
-//   CIE 1964 10° CMF (data/spectra/cie_cmf.inc); pbrt-v3 sppm.cpp hash grid
+//   CIE 1931 2° CMF (data/spectra/cie_cmf.inc); pbrt-v3 sppm.cpp hash grid
 //   (BSD-2-Clause). Build = count/scan/scatter (same as photon_store.cu).
 
 #include "astroray/gpu_photon_caustic.h"
@@ -48,7 +48,7 @@ namespace gpu {
 
 namespace {
 
-// --- CIE 1964 10° CMF table (same data the CPU cieCmf1964_10deg reads, and the
+// --- CIE 1931 2° CMF table (same data the CPU cieCmf1931_2deg reads, and the
 // same table Phase-2 photon_emission.cu bakes). Kept TU-local so the two .cu
 // files don't collide on the __constant__ symbol names. -------------------------
 namespace cmf_baked {

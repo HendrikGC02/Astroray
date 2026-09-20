@@ -295,8 +295,18 @@ def _render_checker(use_gpu, mapping=None, samples=96):
 # structural guard (a dropped-transform regression would flatten the checker
 # far outside this band) tolerant of MSVC-vs-GCC MC float drift
 # ([[mingw_local_vs_gcc_ci_divergence]]).
-_BASELINE_MEANS = np.array([0.685399, 0.687098, 0.674164])
-_BASELINE_STD = 0.434213
+# Re-baselined 2026-09-20 (#767, PR #837): the engine observer moved from CIE
+# 1964 10 deg to CIE 1931 2 deg, the observer the XYZ->sRGB matrix and the
+# Jakob-Hanika LUT are defined against. The OLD pin carried B/R = 0.9836 -- the
+# "per-channel asymmetry ... deterministic spectral RGB round-trip" the note
+# below called out -- which is exactly the -1.7 % blue the 10 deg table applies
+# to a neutral illuminant (1 nm quadrature: 0.9831; research note
+# .astroray_plan/docs/issue767-observer-mismatch-research.md). The grey checker
+# under a neutral illuminant now reconstructs neutral: B/R 1.0003, G/R 1.0006,
+# R and std unchanged (0.685399 -> 0.685497, 0.434213 -> 0.434026). The new
+# values are the physically expected ones; the structural guard is unchanged.
+_BASELINE_MEANS = np.array([0.685497, 0.685916, 0.685729])
+_BASELINE_STD = 0.434026
 
 
 @pytest.mark.cpu

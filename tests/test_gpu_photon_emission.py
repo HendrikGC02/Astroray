@@ -16,7 +16,7 @@ caustic numeric gates pass on salt-and-pepper noise, so assert energy AND
 position, never a count alone). The oracle runs the IDENTICAL closed-form math
 (same pe_jitter aperture lattice, same Sellmeier IOR via the GPU's GDispersion
 coefficients, same Schlick transmittance, same CIE-CMF table via the
-`cie_cmf_1964_10deg` binding) fed the SAME deterministic entry samples — the
+`cie_cmf_1931_2deg` binding) fed the SAME deterministic entry samples — the
 "inject the same samples both sides" tactic sms_attempt_device.cuh uses for its
 Phase-1 unit test — so the comparison isolates the device math from RNG noise.
 
@@ -25,7 +25,7 @@ this on the RTX box. Mirrors the skip pattern of tests/test_gpu_photon_store.py.
 
 References: Arvo 1986 (forward light transport); Jensen 1996 (diffuse photon
 deposit); Schlick 1994 (Fresnel); Sellmeier 1871 (n(λ), reused via pkg64-gpu
-gpu_dispersion.cuh); CIE 1964 10° CMF (data/spectra/cie_cmf.inc). See
+gpu_dispersion.cuh); CIE 1931 2° CMF (data/spectra/cie_cmf.inc). See
 .astroray_plan/docs/pkg113-phase2-photon-emission-research.md.
 """
 
@@ -178,7 +178,7 @@ def _oracle_emit(center, radius, B, C, sun_dir, ap_origin, ap_u, ap_v,
             if t_plane <= eps:
                 continue
             hit = o + d * t_plane
-            cmf = astroray.cie_cmf_1964_10deg(lam)  # exact CPU CMF table (XYZ struct)
+            cmf = astroray.cie_cmf_1931_2deg(lam)  # exact CPU CMF table (XYZ struct)
             power = np.array([cmf.X * tr, cmf.Y * tr, cmf.Z * tr])
             deposits.append((hit, power, lam))
     return deposits

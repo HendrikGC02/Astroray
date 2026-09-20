@@ -103,77 +103,45 @@ def test_g1_dedicated_lights_zoo(astroray_module):
     print(f"[G1 PASS] Zoo scene rendered successfully, mean luminance={mean_lum:.4f}")
 
 
-def test_g2_blackbody_spectral_correctness(astroray_module):
-    """G2: EmissionSpectrum::fromBlackbody(6500K) XYZ matches D65 within 1%."""
-    # This requires exposing EmissionSpectrum.eval() to Python or a helper.
-    # For now, we'll create a scene with a 6500K blackbody light and verify
-    # that the rendered color matches the expected D65 white point in XYZ.
+# Linear sRGB of a Planckian radiator, normalised to its max channel. Independent
+# oracle: colour-science 0.4.7 sd_blackbody -> sd_to_XYZ (CIE 1931 2 deg) ->
+# XYZ_to_RGB(sRGB, no CCTF, no adaptation). 6500 K is NOT D65: G is 5.7 % low.
+_PLANCK_SRGB = {6500.0: (1.0, 0.9429, 0.9922), 3000.0: (1.0, 0.4769, 0.1537)}
 
+
+@pytest.mark.parametrize("temperature_K", [6500.0, 3000.0])
+def test_g2_blackbody_spectral_correctness(astroray_module, temperature_K):
+    """G2: a blackbody area light lights a white plane with the Planck colour.
+
+    #767 rewrite. The old body lit the plane with an emitter facing AWAY from
+    it (axis_u x axis_v = +z) and left the default world on, rendered with
+    gamma, and gated channel spread < 12 %. A black-world probe showed the
+    light contributed exactly 0: the gate measured the default sky gradient,
+    for 6500 K, 3000 K and RGB white alike. Its original intent was "6500 K
+    blackbody chromaticity is correct". This version tests that intent against
+    an independent oracle. Pre-#767 (10 deg observer) 3000 K rendered G 0.459
+    (oracle 0.477). Post-fix: 1.000 / 0.477 / 0.154.
+    """
     r = astroray_module.Renderer()
-
-    r.setup_camera(
-        look_from=[0, 0, 3],
-        look_at=[0, 0, 0],
-        vup=[0, 1, 0],
-        vfov=45.0,
-        aspect_ratio=1.0,
-        aperture=0.0,
-        focus_dist=3.0,
-        width=64,
-        height=64
-    )
-
-    # Diffuse white plane (perfect reflector for color measurement)
+    r.setup_camera(look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=45.0,
+                   aspect_ratio=1.0, aperture=0.0, focus_dist=3.0, width=64, height=64)
+    r.set_background_color([0.0, 0.0, 0.0])  # the light is the only source
     mat_white = r.create_material('lambertian', [1, 1, 1], {})
-    r.add_triangle(
-        [-1, -1, 0], [1, -1, 0], [1, 1, 0], mat_white
-    )
-    r.add_triangle(
-        [-1, -1, 0], [1, 1, 0], [-1, 1, 0], mat_white
-    )
-
-    # Blackbody area light at D65 (6500K)
-    emission_d65 = {'mode': 'blackbody', 'temperature_K': 6500.0, 'tint_rgb': [1, 1, 1]}
+    r.add_triangle([-1, -1, 0], [1, -1, 0], [1, 1, 0], mat_white)
+    r.add_triangle([-1, -1, 0], [1, 1, 0], [-1, 1, 0], mat_white)
+    emission = {'mode': 'blackbody', 'temperature_K': temperature_K, 'tint_rgb': [1, 1, 1]}
     r.add_area_light_dedicated(
-        center=[0, 0, 2],
-        axis_u=[1, 0, 0],
-        axis_v=[0, 1, 0],
-        size_x=2.0,
-        size_y=2.0,
-        shape='RECTANGLE',
-        emission=emission_d65,
-        intensity=1.0,
-        spread=1.57
-    )
+        center=[0, 0, 2], axis_u=[1, 0, 0], axis_v=[0, -1, 0],  # normal -z, faces the plane
+        size_x=2.0, size_y=2.0, shape='RECTANGLE', emission=emission, intensity=1.0, spread=1.57)
 
-    pixels = r.render(256, 1)
-
-    # Compute mean RGB (should be close to D65 white point when rendered on white surface)
-    mean_rgb = np.mean(pixels, axis=(0, 1))
-
-    # D65 XYZ tristimulus: (0.9505, 1.0000, 1.0888) (CIE standard)
-    # Convert to RGB via a simple linear approximation (sRGB D65 primaries).
-    # For this test, we'll check that the RGB channels are roughly balanced
-    # (within 10% of each other) for a neutral white.
-
-    max_channel = np.max(mean_rgb)
-    min_channel = np.min(mean_rgb)
-    rel_variation = (max_channel - min_channel) / max_channel if max_channel > 0 else 0
-
-    # G2 gate: D65 should produce near-neutral RGB.
-    # Gate at <12% (relaxed from spec's <10%): the residual ~11.7% blue cast
-    # is intrinsic to the Planck-SPD → Jakob-Hanika upsample → SampledSpectrum
-    # → XYZ → sRGB integration chain for 6500 K. Cycles avoids this entirely
-    # by precomputing XYZ directly from blackbody temperature instead of
-    # routing Planck through Jakob-Hanika. The geometric normalize (1/area)
-    # and white-tint short-circuit in evalBlackbody are correct; the
-    # chromaticity error is a spectrum-pipeline limitation.
-    # TODO(spectrum): add a precomputed-XYZ blackbody fast-path mirroring
-    # Cycles `kernel/svm/svm_blackbody.h` to drop this gate back to <10%.
-    assert rel_variation < 0.12, \
-        f"G2 FAIL: D65 blackbody not neutral, RGB={mean_rgb}, variation={rel_variation*100:.2f}%"
-
-    print(f"[G2 PASS] D65 blackbody RGB={mean_rgb}, variation={rel_variation*100:.2f}%")
+    pixels = np.asarray(r.render(256, 4, None, False), dtype=np.float64)  # LINEAR
+    mean_rgb = pixels.reshape(-1, 3).mean(0)
+    assert mean_rgb.max() > 1e-3, f"G2 FAIL: light does not reach the plane, RGB={mean_rgb}"
+    got = mean_rgb / mean_rgb.max()
+    want = np.array(_PLANCK_SRGB[temperature_K])
+    assert np.abs(got - want).max() < 0.01, \
+        f"G2 FAIL: {temperature_K:.0f} K normalised RGB={got}, Planck oracle={want}"
+    print(f"[G2 PASS] {temperature_K:.0f} K normalised RGB={got} (oracle {want})")
 
 
 def test_g3_ies_profile_correctness(astroray_module):

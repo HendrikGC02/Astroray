@@ -22,7 +22,7 @@
 // Citations (CLAUDE.md §6; see the research note above):
 //   Arvo 1986 (forward light transport); Jensen 1996 (diffuse photon deposit);
 //   Schlick 1994 (Fresnel approximation); Sellmeier 1871 (n(λ), REUSED via
-//   gpu_dispersion.cuh's gpu_sellmeier_ior, pkg64-gpu upload); CIE 1964 10° CMF
+//   gpu_dispersion.cuh's gpu_sellmeier_ior, pkg64-gpu upload); CIE 1931 2° CMF
 //   (data/spectra/cie_cmf.inc, the same table src/spectrum.cpp uses).
 //
 // Mirrors the Phase-1 host-callable pattern (cuda_photon_store_query): a

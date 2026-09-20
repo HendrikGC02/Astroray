@@ -18,7 +18,7 @@ Vec3 approximateLineRGB(float wavelengthNm, float bandwidthNm, float intensity) 
     constexpr float step = 2.0f;
     for (float lam = astroray::kLambdaMin; lam <= astroray::kLambdaMax; lam += step) {
         float spd = gaussianLine(lam, wavelengthNm, bandwidthNm) * intensity;
-        astroray::XYZ cmf = astroray::cieCmf1964_10deg(lam);
+        astroray::XYZ cmf = astroray::cieCmf1931_2deg(lam);
         X += double(spd * cmf.X * step);
         Y += double(spd * cmf.Y * step);
         Z += double(spd * cmf.Z * step);

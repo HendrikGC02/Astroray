@@ -4963,7 +4963,7 @@ PYBIND11_MODULE(astroray, m) {
           "wavelengths via the Jakob-Hanika 2019 LUT.");
 
     m.def("sample_d65", &astroray::sampleD65, "lambda"_a);
-    m.def("cie_cmf_1964_10deg", &astroray::cieCmf1964_10deg, "lambda"_a);
+    m.def("cie_cmf_1931_2deg", &astroray::cieCmf1931_2deg, "lambda"_a);
     m.def("spectrum_lut_path", &astroray::spectrumLutPath,
           "Absolute path of the Jakob-Hanika sRGB coefficient LUT in use.");
 

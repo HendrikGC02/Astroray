@@ -175,8 +175,18 @@ def test_uvless_checker_cpu_gpu_parity():
 # neutralised base), far outside this band, while cross-toolchain float drift
 # stays well inside it. The slight per-channel asymmetry is the deterministic
 # spectral RGB round-trip, not MC noise (verified identical across two renders).
-_AUTHORED_UV_CPU_MEANS = np.array([0.685399, 0.687098, 0.674164])
-_AUTHORED_UV_CPU_STD = 0.434213
+# Re-baselined 2026-09-20 (#767, PR #837): the engine observer moved from CIE
+# 1964 10 deg to CIE 1931 2 deg, the observer the XYZ->sRGB matrix and the
+# Jakob-Hanika LUT are defined against. The OLD pin carried B/R = 0.9836 -- the
+# "per-channel asymmetry ... deterministic spectral RGB round-trip" the note
+# below called out -- which is exactly the -1.7 % blue the 10 deg table applies
+# to a neutral illuminant (1 nm quadrature: 0.9831; research note
+# .astroray_plan/docs/issue767-observer-mismatch-research.md). The grey checker
+# under a neutral illuminant now reconstructs neutral: B/R 1.0003, G/R 1.0006,
+# R and std unchanged (0.685399 -> 0.685497, 0.434213 -> 0.434026). The new
+# values are the physically expected ones; the structural guard is unchanged.
+_AUTHORED_UV_CPU_MEANS = np.array([0.685497, 0.685916, 0.685729])
+_AUTHORED_UV_CPU_STD = 0.434026
 
 
 @pytest.mark.cpu

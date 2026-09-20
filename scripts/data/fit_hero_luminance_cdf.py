@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 """pkg206 -- fit a logistic (sigmoid) CDF to Astroray's luminance-weighted D65
-hero-wavelength target, against Astroray's OWN CIE 1964 10-degree observer.
+hero-wavelength target, against the baked observer table (data/spectra/cie_cmf.inc).
+
+The committed kHeroA/kHeroX0 were fitted 2026-08-21 against the then-baked
+CIE 1964 10 deg table. #767 moved the table to CIE 1931 2 deg, so re-running
+this script now fits 2 deg (kHeroA 0.0223367, kHeroX0 555.72 nm). The old
+constants stay an unbiased proposal; the re-fit is variance-only (#848).
 
 Astroray carries the CIE 1964 10 deg observer + a normalized D65 SPD
 (src/spectrum.cpp, data/spectra/*.inc). Blender Cycles' merged dispersion PR
@@ -11,7 +16,7 @@ CIE 1931 2 deg observer; because Astroray's observer differs we RE-FIT here
 against Astroray's baked tables rather than reusing Cycles' constants blindly.
 
 Target CDF: cumulative of  (y_bar + BLEND) * D65  over [360, 830] nm.
-  * y_bar    = CIE 1964 10 deg luminance CMF (kCieCmfY)
+  * y_bar    = baked luminance CMF (kCieCmfY; CIE 1931 2 deg since #767)
   * D65      = normalized D65 SPD (kD65Spd)
   * BLEND    = additive constant on the luminance CMF ("a bit of all
                wavelengths" -- Cycles' trick; blends luminance vs uniform).
@@ -79,7 +84,7 @@ def main() -> int:
     # Fit quality: max abs error of the fitted CDF vs empirical.
     err = float(np.max(np.abs(sigmoid(lam, a, x0) - cdf)))
 
-    print("# CIE-1964 10deg luminance-weighted D65 hero-wavelength fit (nm units)")
+    print("# luminance-weighted D65 hero-wavelength fit vs the baked CMF (nm units)")
     print(f"# range [{LMIN}, {LMAX}] nm, blend +{BLEND}")
     print(f"kHeroA  = {a:.10f}f;   // 1/nm")
     print(f"kHeroX0 = {x0:.6f}f;    // nm")

@@ -43,6 +43,10 @@ CSV_COLUMNS = [
     # oracle for the textured_plane procedural scene (never SSIM: independent RNG
     # streams — [[ssim-wrong-gate-for-independent-rng]]).
     "mean_ratio_cpu_gpu",
+    # #837 — per-row provenance of the compiled module the Astroray legs import
+    # (resolved .pyd path + mtime), so a mixed-build CSV is detectable.
+    "astroray_pyd",
+    "astroray_pyd_mtime",
     "skip_reason",
 ]
 ENGINES = ("cycles-cpu", "cycles-cuda", "astroray-cpu", "astroray-gpu")
@@ -63,6 +67,28 @@ def _oidn_bin_dirs() -> list[Path]:
     return [path for path in candidates if path.is_dir()]
 
 
+def _resolve_astroray_pyd() -> Path | None:
+    """The compiled ``astroray`` module the in-process legs import, resolved in
+    the same order as ``_subprocess_env``'s PYTHONPATH (repo root, then
+    ``build_cuda``/``build_cuda/Release``, then ``build``/``build/Release``).
+    Returns the first ``astroray*.pyd``/``*.so`` (excluding ``astroray_test_helpers``),
+    or None."""
+    search_dirs = [
+        ROOT,
+        ROOT / "build_cuda",
+        ROOT / "build_cuda" / "Release",
+        ROOT / "build",
+        ROOT / "build" / "Release",
+    ]
+    for directory in search_dirs:
+        matches = [p for p in directory.glob("astroray*.pyd") if "_test_helpers" not in p.name]
+        matches += [p for p in directory.glob("astroray*.so") if "_test_helpers" not in p.name]
+        if matches:
+            matches.sort(key=lambda p: p.name)
+            return matches[0]
+    return None
+
+
 def _subprocess_env() -> dict[str, str]:
     env = os.environ.copy()
     python_paths = [
@@ -76,6 +102,11 @@ def _subprocess_env() -> dict[str, str]:
     if existing_pythonpath:
         python_paths.append(existing_pythonpath)
     env["PYTHONPATH"] = os.pathsep.join(python_paths)
+    # #837 — pin the addon leg (render_leg.py) to the same .pyd the in-process
+    # legs import, instead of letting it fall back to build_cuda on its own.
+    pyd = _resolve_astroray_pyd()
+    if pyd is not None:
+        env["ASTRORAY_PYD_DIR"] = str(pyd.parent)
     if platform.system() == "Windows":
         oidn_bins = [str(path) for path in _oidn_bin_dirs()]
         if oidn_bins:
@@ -92,6 +123,10 @@ class Scene:
     height: int
     astroray_scene_id: int | None = None
     blend_path: Path | None = None
+    # #779 — how the Astroray legs render a `.blend` row: "blend_import" (pkg76
+    # in-process reader, Base Color only) or "addon" (headless Blender + the
+    # addon's full translation, via benchmarks/blender_parity/render_leg.py).
+    astroray_leg: str = "blend_import"
 
 
 def _load_scenes() -> dict[str, Scene]:
@@ -111,12 +146,16 @@ def _load_scenes() -> dict[str, Scene]:
             for item in tomllib.load(fh).get("scene", []):
                 width, height = item["resolution"]
                 blend_path = _find_blend_path(item["id"], item.get("archive", ""))
+                leg = item.get("astroray_leg", "blend_import")
+                if leg not in ("blend_import", "addon"):
+                    raise ValueError(f"scene {item['id']!r}: unknown astroray_leg {leg!r}")
                 scenes[item["id"]] = Scene(
                     item["id"],
                     samples=int(item["reference_spp"]),
                     width=int(width),
                     height=int(height),
                     blend_path=blend_path,
+                    astroray_leg=leg,
                 )
     return scenes
 
@@ -170,6 +209,27 @@ def _default_astroray_binary() -> Path | None:
             if candidate.exists():
                 return candidate
     return None
+
+
+def _find_blender() -> str | None:
+    """Locate a Blender executable, newest-first across standard install dirs
+    (Windows ``Blender */blender.exe``) with a PATH fallback. Mirrors
+    scripts/build/build_blender_addon.py `_candidate_blender_paths` so the addon
+    leg can find a non-PATH Blender install."""
+    candidates: list[Path] = []
+    if platform.system() == "Windows":
+        base = Path(r"C:\Program Files\Blender Foundation")
+        if base.exists():
+            candidates += sorted(base.glob("Blender */blender.exe"), reverse=True)
+    elif platform.system() == "Darwin":
+        candidates.append(Path("/Applications/Blender.app/Contents/MacOS/Blender"))
+    else:
+        candidates += [Path(p) for p in
+                       ("/usr/bin/blender", "/usr/local/bin/blender", "/snap/bin/blender")]
+    for path in candidates:
+        if path.exists():
+            return str(path)
+    return shutil.which("blender")
 
 
 def _monitor_process(proc: subprocess.Popen) -> tuple[threading.Event, list[float]]:
@@ -430,6 +490,47 @@ iio.imwrite({str(output)!r}, pixels)
 """
 
 
+RENDER_LEG = ROOT / "benchmarks" / "blender_parity" / "render_leg.py"
+
+
+def _addon_leg_command(scene: Scene, stem: Path, blender: str, device: str) -> list[str]:
+    """#779 — headless Blender + the Astroray addon on the row's `.blend`, reusing
+    the pkg119b render leg (`--load-blend`). The engine module comes from
+    ASTRORAY_PYD_DIR (e.g. the staged `dist/astroray`), else `build_cuda/`."""
+    return [
+        blender, "--background", "--factory-startup", "--python", str(RENDER_LEG), "--",
+        "--load-blend", str(scene.blend_path), "--engine", "CUSTOM_RAYTRACER",
+        "--out", str(stem), "--res", str(scene.width), "--res-y", str(scene.height),
+        "--samples", str(scene.samples), "--device", device,
+    ]
+
+
+def _render_astroray_addon(
+    scene: Scene, engine: str, output: Path, blender: str | None, timeout: int,
+) -> tuple[float, float, str | None]:
+    if not blender or not Path(blender).exists():
+        return 0.0, 0.0, "blender_not_found"
+    if scene.blend_path is None or not scene.blend_path.exists():
+        return 0.0, 0.0, "scene_blend_not_found"
+    device = "gpu" if engine == "astroray-gpu" else "cpu"
+    stem = output.with_suffix("")
+    npy = stem.with_suffix(".npy")
+    elapsed, peak, skip = _run_command(_addon_leg_command(scene, stem, blender, device), ROOT, timeout)
+    if skip:
+        return elapsed, peak, skip
+    # render_leg exits 0 even on failure (sentinel protocol); the .npy is the proof.
+    if not npy.exists():
+        return elapsed, peak, "addon_leg_no_output"
+    os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
+    import cv2  # type: ignore
+    import numpy as np  # type: ignore
+
+    rgb = np.load(npy).astype("float32")  # linear, row 0 = top (render_leg flips)
+    if not cv2.imwrite(str(output), np.ascontiguousarray(rgb[..., ::-1])):
+        return elapsed, peak, "addon_leg_exr_write_failed"
+    return elapsed, peak, None
+
+
 def _render_once(
     scene: Scene,
     engine: str,
@@ -438,6 +539,8 @@ def _render_once(
     astroray: Path | None,
     timeout: int,
 ) -> tuple[float, float, str | None]:
+    if engine.startswith("astroray") and scene.astroray_leg == "addon":
+        return _render_astroray_addon(scene, engine, output, blender, timeout)
     if engine.startswith("cycles"):
         if not blender or not Path(blender).exists():
             return 0.0, 0.0, "blender_not_found"
@@ -490,13 +593,20 @@ def _ssim(output: Path, reference: Path) -> str:
     try:
         import os
         os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')  # pkg76: SSIM runs in parent process
-        import imageio.v3 as iio  # type: ignore
         from skimage.metrics import structural_similarity  # type: ignore
 
         import numpy as np  # type: ignore
 
-        a = iio.imread(output).astype("float32")[..., :3]
-        b = iio.imread(reference).astype("float32")[..., :3]
+        # #779 — read both sides through _read_exr_float so the addon leg's
+        # cv2.imwrite-written EXR (BGR channel order) and the Cycles RGB
+        # reference come back RGB. imageio's default EXR plugin misreads these
+        # float files as uint8 (see _read_exr_float docstring).
+        a = _read_exr_float(output)
+        b = _read_exr_float(reference)
+        if a is None or b is None:
+            return ""
+        a = a.astype("float32")
+        b = b.astype("float32")
         if a.shape != b.shape:
             return ""
         finite = np.concatenate([a[np.isfinite(a)], b[np.isfinite(b)]])
@@ -634,6 +744,15 @@ def _row(
     skip_reason: str = "",
 ) -> dict[str, str]:
     skip_reason = " ".join(skip_reason.splitlines())
+    pyd, pyd_mtime = "", ""
+    if engine.startswith("astroray"):
+        resolved = _resolve_astroray_pyd()
+        if resolved is not None:
+            pyd = str(resolved)
+            try:
+                pyd_mtime = f"{resolved.stat().st_mtime:.3f}"
+            except OSError:
+                pyd_mtime = ""
     return {
         "scene": scene.scene_id,
         "engine": engine,
@@ -642,6 +761,8 @@ def _row(
         "peak_mem_mb": peak_mem_mb,
         "ssim_to_cycles": ssim_to_cycles,
         "mean_ratio_cpu_gpu": mean_ratio_cpu_gpu,
+        "astroray_pyd": pyd,
+        "astroray_pyd_mtime": pyd_mtime,
         "skip_reason": skip_reason,
     }
 
@@ -652,7 +773,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--engine", action="append", dest="engines", choices=ENGINES, help="Engine id; repeatable")
     parser.add_argument("--runs", type=int, default=3, help="Timed subprocess runs per tuple")
     parser.add_argument("--timeout", type=int, default=3600, help="Per-process timeout in seconds")
-    parser.add_argument("--blender", default=shutil.which("blender"), help="Blender 4.x executable")
+    parser.add_argument("--blender", default=_find_blender(), help="Blender 4.x executable")
     parser.add_argument("--astroray", type=Path, default=_default_astroray_binary(), help="Astroray standalone binary")
     parser.add_argument("--output", type=Path, help="CSV output path")
     args = parser.parse_args(argv)
@@ -698,16 +819,13 @@ def main(argv: list[str] | None = None) -> int:
     for row in rows:
         if not row["engine"].startswith("astroray") or row["skip_reason"] or not row["ssim_to_cycles"]:
             continue
-        # pkg265 — glass_sphere is a RECORDED cross-check, not gated, but NOT
-        # because of any glass-physics divergence (issue #779): this scene's
-        # astroray-cpu leg goes through tools/blend_import (pkg76), which maps
-        # Base Color ONLY — Transmission/IOR/Roughness are dropped, so the
-        # Astroray side renders as a DIFFUSE PROXY, not the multi-scatter
-        # dielectric walk. The real glass oracle is
-        # benchmarks/cycles-parity/metal_ab/harness.py --material glass
-        # (pkg263), which renders through the real addon translation; see
-        # pkg265-multiscatter-microfacet-research.md Phases 4/6. This row is
-        # written to the CSV for inspection but does not fail the run.
+        # pkg265 — glass_sphere is a RECORDED cross-check, not gated. Since #779
+        # its Astroray legs render through the addon (manifest astroray_leg =
+        # "addon"), so the row now compares real glass against Cycles glass.
+        # It stays ungated because windowed SSIM between independent-RNG
+        # renders is the wrong gate (memory ssim-wrong-gate-for-independent-rng).
+        # The gated glass oracle remains
+        # benchmarks/cycles-parity/metal_ab/harness.py --material glass (pkg263).
         if row["scene"] == "glass_sphere":
             continue
         gate = 0.95 if row["scene"] == "cornell" else 0.85

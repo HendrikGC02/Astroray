@@ -52,7 +52,7 @@ int uploadedProfileCount();
 void uploadEmissionProfileTable(const float* host, int count);
 // pkg276 — IES side table (gpu_spectral_tables.cu).
 void uploadIESTables(const float* table, int tableFloats, const GIESLight* lights, int count);
-// pkg54b — one-time copy of CIE 1964 10° CMF tables into MW kernel constant memory.
+// pkg54b — one-time copy of CIE 1931 2° CMF tables into MW kernel constant memory.
 void uploadCmfTables();
 // pkg54c — one-time copy of the Jakob-Hanika sRGB sigmoid LUT into MW kernel
 // global memory; required by gpu_jhEvalSpectrum (the new upsampling path).

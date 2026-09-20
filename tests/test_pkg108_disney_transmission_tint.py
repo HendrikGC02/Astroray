@@ -72,13 +72,29 @@ def _render_with_disney_tint(tint_rgb):
         2.4,
         WIDTH, HEIGHT,
     )
-    return np.asarray(r.render(SAMPLES, MAX_DEPTH, None, True), dtype=np.float32)
+    # LINEAR (apply_gamma=False). The light is intensity 35, so the transmitted
+    # light is far above 1.0 in both tinted channels: a gamma render clips them
+    # to 1 and the colour comparison below degenerates (memory
+    # gamma-vs-linear-comparison-artifact / gamma-furnace-cannot-detect-energy-gain).
+    return np.asarray(r.render(SAMPLES, MAX_DEPTH, None, False), dtype=np.float32)
 
 
 def test_disney_glass_tint_at_low_roughness_visible():
     """Disney glass (transmission=1, low roughness) with red vs blue tint must
     produce visibly different renders. If identical, BUG-14 reproduces via the
-    Blender Principled-BSDF routing path."""
+    Blender Principled-BSDF routing path.
+
+    Rewritten 2026-09-20 (#767 / PR #837) from gamma to LINEAR. The old form
+    compared gamma-encoded ROI means, and at this exposure R and B clip to 1.0
+    in BOTH renders, so it measured the clipped fraction, not the tint. It
+    passed on the pre-#767 build only because the CIE 1964 10 deg observer
+    drove the blue tint's red channel negative (1 nm quadrature: the blue tint
+    reconstructs (0.00, 0.12, 0.96) under 10 deg vs (0.05, 0.05, 0.95) under
+    1931 2 deg), which inflated the red-vs-blue contrast. In LINEAR the tint is
+    unmistakable on both builds: in-render R/B is 25.2 (red tint) and 0.118
+    (blue tint) here, 38.7 / 0.042 pre-#767; cross-render R ratio 8.0 (19.4
+    pre-#767). A tint-ignoring engine returns ~1 for all four and fails.
+    """
     red = _render_with_disney_tint([0.95, 0.05, 0.05])
     blue = _render_with_disney_tint([0.05, 0.05, 0.95])
 
@@ -87,18 +103,20 @@ def test_disney_glass_tint_at_low_roughness_visible():
     cy0, cy1 = h // 4, 3 * h // 4
     cx0, cx1 = w // 4, 3 * w // 4
 
-    red_mean  = red[cy0:cy1, cx0:cx1].mean(axis=(0, 1))
-    blue_mean = blue[cy0:cy1, cx0:cx1].mean(axis=(0, 1))
+    red_mean = red[cy0:cy1, cx0:cx1].mean(axis=(0, 1)).astype(np.float64)
+    blue_mean = blue[cy0:cy1, cx0:cx1].mean(axis=(0, 1)).astype(np.float64)
 
-    # Red render should be redder; blue render should be bluer.
-    r_ratio = (red_mean[0] + 1e-4) / (blue_mean[0] + 1e-4)
-    b_ratio = (red_mean[2] + 1e-4) / (blue_mean[2] + 1e-4)
+    # Within each render: the tinted channel dominates its opposite.
+    red_rb = (red_mean[0] + 1e-6) / (red_mean[2] + 1e-6)
+    blue_rb = (blue_mean[0] + 1e-6) / (blue_mean[2] + 1e-6)
+    # Across renders: the red render is redder, the blue render bluer.
+    r_ratio = (red_mean[0] + 1e-6) / (blue_mean[0] + 1e-6)
+    b_ratio = (red_mean[2] + 1e-6) / (blue_mean[2] + 1e-6)
+    msg = (f"red mean={np.round(red_mean, 3)} blue mean={np.round(blue_mean, 3)}; "
+           f"in-render R/B red={red_rb:.2f} blue={blue_rb:.3f}; "
+           f"cross R={r_ratio:.2f} B={b_ratio:.3f}")
 
-    assert r_ratio > 1.3, (
-        f"Disney transmission ignores red tint at low roughness: "
-        f"red R={red_mean[0]:.4f}, blue R={blue_mean[0]:.4f}, ratio={r_ratio:.2f}"
-    )
-    assert b_ratio < 0.77, (
-        f"Disney transmission ignores blue tint at low roughness: "
-        f"red B={red_mean[2]:.4f}, blue B={blue_mean[2]:.4f}, ratio={b_ratio:.2f}"
-    )
+    assert red_rb > 4.0, f"Disney transmission ignores the red tint: {msg}"
+    assert blue_rb < 0.5, f"Disney transmission ignores the blue tint: {msg}"
+    assert r_ratio > 3.0, f"red tint does not brighten red vs the blue tint: {msg}"
+    assert b_ratio < 0.35, f"red tint does not darken blue vs the blue tint: {msg}"

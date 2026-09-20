@@ -24,3 +24,9 @@ pkg276 done (#839), pkg271 done (#838), pkg277 filed (#822 coordinate-warp desig
 - Every lane diff got a deepseek-v4.1-flash critic pass; Opus reviewers (cpp-abi-guard, cycles-parity-reviewer) ran per PR through a Workflow; deepseek-v4-pro applied the agreed fixes.
 - opencode spend: US$0.049 total (8 critic passes, 5 fix jobs, 1 implementation).
 - Two usage-limit kills (02:55, 06:40); every lane resumed by raw agentId.
+
+## Closeout (post-merge)
+- 8th PR: **#863** — observer fallout in 6 GPU gates (CI has no GPU, so they only appeared in the RTX sweep): pkg64 phase2/phase3 pins re-captured after proving hook-on == hook-off at exactly 0.0; `test_world_hdri_parity` G channel was dividing 0/0 because the 10° observer used to leak green into a red/blue-only env (CPU G mean 0.01457 → 1.7e-08); pkg55 wavefront/megakernel re-gated on the ABSOLUTE per-channel gap `[0.035, 0.012, 0.015]` (measured worst 0.0261/0.0040/0.0051 over 5 seeds) instead of a ratio that is ill-conditioned on a dim channel.
+- Lead's one-variable A/B: current main with ONLY `data/spectra/cie_cmf.inc` reverted to 10° → all three pkg55 gates pass. So the observer contributes ~0.8 pp of a 12.2 % CPU↔GPU red divergence that is long-standing (9.1 % 2026-06, 11.4 % pre-observer) → root cause tracked in **#862**.
+- Main rebuilt at 0888f278 (`.pyd` 13:14), addon restaged `--backend cuda` (build id `0888f27+20260920T031515Z`).
+- Worktrees after cleanup: main + `Astroray-batchH` (pkg265 Phase 3 WIP).

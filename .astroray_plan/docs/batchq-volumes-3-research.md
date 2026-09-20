@@ -52,9 +52,10 @@ pins all three (CPU-only).
   CPU lookup exactly; a second NanoVDB grid would need a second host build path.
 - The blackbody term lives in `gpu_gridVolumeTrack` (called only from
   `intersectPathSlotT<…, HasGridVolume=true>`), gated like the CPU `emissionAt`.
-- Observer: the table is built from whatever CMF ȳ `astroray/spectrum.h` exposes,
-  at runtime — #837 switches the engine to CIE 1931 2° and this code follows it by
-  construction (accessor by name, no baked numbers). Cycles' blackbody colour is
+- Observer: the table is built at runtime from the CMF ȳ `astroray/spectrum.h`
+  exposes — since #837 that is `cieCmf1931_2deg` (CIE 1931 2°), and the table
+  follows it by construction (no baked numbers; the CPU test resolves the binding
+  by prefix, so it survives a further rename). Cycles' blackbody colour is
   its own Rec.709 polynomial fit, which is the recorded divergence (pkg270 §3);
   the observer itself is NOT a divergence.
 - `emissionFloor` (8/diag) stays on upload: with blackbody on the GPU, a

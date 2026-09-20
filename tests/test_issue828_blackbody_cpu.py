@@ -25,9 +25,10 @@ LAMS4 = [450.0, 550.0, 650.0, 800.0]
 
 
 def _cmf(lam):
-    # accessor renamed by #837 (CIE 1931 2°); accept either spelling.
-    f = getattr(astroray, "cie_cmf_1931_2deg", None) or astroray.cie_cmf_1964_10deg
-    return f(float(lam))
+    # The engine's own observer, by whatever name it currently carries (#837
+    # renamed it to the CIE 1931 2 deg accessor) -- never a hard-coded table.
+    name = next(n for n in dir(astroray) if n.startswith("cie_cmf_"))
+    return getattr(astroray, name)(float(lam))
 
 
 def _cycles_intensity(T, I):

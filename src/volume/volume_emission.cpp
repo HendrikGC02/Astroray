@@ -19,7 +19,7 @@ double blackbodyLuminanceIntegral(double temperatureK) {
     double lum = 0.0;  // same 1 nm Riemann sum as blackbodyLuminanceNorm (pkg122)
     for (int lambda = 360; lambda <= 830; ++lambda) {
         double bb = planck(static_cast<double>(lambda), temperatureK) * 1e9;
-        lum += bb * static_cast<double>(cieCmf1964_10deg(static_cast<float>(lambda)).Y);
+        lum += bb * static_cast<double>(cieCmf1931_2deg(static_cast<float>(lambda)).Y);
     }
     return lum;
 }

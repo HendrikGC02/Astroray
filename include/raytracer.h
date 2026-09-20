@@ -25,6 +25,7 @@
 #include "astroray/spectral_profile.h"
 #include "astroray/light_sampler.h"
 #include "astroray/cryptomatte.h"
+#include "astroray/ies_eval.h"                   // pkg276 Cycles IES lookup (CPU+GPU)
 #include "astroray/sampling/adaptive_sampling.h"  // pkg131 zero-knob adaptive core
 #include "astroray/guiding/sdtree.h"               // pkg136 SD-tree path guiding
 #include "astroray/guiding/guide_context.h"        // pkg136 training record
@@ -109,12 +110,10 @@ inline void buildOrthonormalBasis(const Vec3& n, Vec3& u, Vec3& v) {
 }
 
 class IESProfile {
-    std::vector<float> verticalAngles;
-    std::vector<float> horizontalAngles;
-    std::vector<float> candelaTable; // [h * verticalCount + v]
-    int verticalCount = 0;
-    int horizontalCount = 0;
-    static constexpr float kDirectionEpsilon2 = 1e-12f;
+    // pkg276: Cycles' processed layout (IESFile::pack), evaluated by the shared
+    // host/device lookup astroray/ies_eval.h (kernel_ies_interp port):
+    //   [h_num, v_num, h_angles, v_angles, intensity[h][v]]  (radians, Watt)
+    std::vector<float> packed_;
 
     static bool parseFloat(const std::string& token, float& out) {
         char* end = nullptr;
@@ -122,40 +121,45 @@ class IESProfile {
         return end && *end == '\0';
     }
 
-    static float lerp(float a, float b, float t) {
-        return a + (b - a) * t;
-    }
+    static bool angleClose(float a, float b) { return std::fabs(a - b) < 1e-4f; }
 
-    static void findBracket(const std::vector<float>& values, float x, int& i0, int& i1, float& t) {
-        if (values.empty()) {
-            i0 = i1 = 0;
-            t = 0.0f;
-            return;
+    // pkg276: Cycles util/ies.cpp IESFile::process_type_c (Apache-2.0) --
+    // horizontal symmetry expansion to a full 0..360 table (90-270 rotate,
+    // single plane -> 0/360, quadrant and half mirrors, missing 360 entry).
+    // Photometric types A/B are still read as type C (pre-existing gap).
+    static void processTypeC(std::vector<float>& h, std::vector<std::vector<float>>& I) {
+        if (angleClose(h[0], 90.0f)) {
+            for (float& a : h) a -= 90.0f;
         }
-        if (values.size() == 1 || x <= values.front()) {
-            i0 = i1 = 0;
-            t = 0.0f;
-            return;
+        if (h.size() == 1) {
+            h[0] = 0.0f;
+            h.push_back(360.0f);
+            I.push_back(I[0]);
         }
-        if (x >= values.back()) {
-            i0 = i1 = static_cast<int>(values.size()) - 1;
-            t = 0.0f;
-            return;
+        if (angleClose(h.back(), 90.0f)) {
+            const int hnum = static_cast<int>(h.size());
+            for (int i = hnum - 2; i >= 0; --i) {
+                h.push_back(180.0f - h[i]);
+                I.push_back(I[i]);
+            }
         }
-        auto it = std::upper_bound(values.begin(), values.end(), x);
-        i1 = static_cast<int>(std::distance(values.begin(), it));
-        i0 = std::max(0, i1 - 1);
-        float denom = std::max(values[i1] - values[i0], 1e-6f);
-        t = std::clamp((x - values[i0]) / denom, 0.0f, 1.0f);
-    }
-
-    float sampleVertical(int hIndex, float verticalDeg) const {
-        int v0 = 0, v1 = 0;
-        float vt = 0.0f;
-        findBracket(verticalAngles, verticalDeg, v0, v1, vt);
-        float a = candelaTable[hIndex * verticalCount + v0];
-        float b = candelaTable[hIndex * verticalCount + v1];
-        return lerp(a, b, vt);
+        if (angleClose(h.back(), 180.0f)) {
+            const int hnum = static_cast<int>(h.size());
+            for (int i = hnum - 2; i >= 0; --i) {
+                h.push_back(360.0f - h[i]);
+                I.push_back(I[i]);
+            }
+        }
+        if (angleClose(h[0], 0.0f) && !angleClose(h.back(), 360.0f)) {
+            const size_t hnum = h.size();
+            const float lastStep = h[hnum - 1] - h[hnum - 2];
+            const float firstStep = h[1] - h[0];
+            const float gapStep = 360.0f - h[hnum - 1];
+            if (angleClose(lastStep, gapStep) || angleClose(firstStep, gapStep)) {
+                h.push_back(360.0f);
+                I.push_back(I[0]);
+            }
+        }
     }
 
 public:
@@ -201,7 +205,8 @@ public:
         if (nums.size() < 13) return nullptr;
 
         // LM-63 numeric header:
-        // [2]=candela multiplier, [3]=vertical angle count, [4]=horizontal angle count
+        // [2]=candela multiplier, [3]=vertical angle count, [4]=horizontal angle count,
+        // [10]=ballast factor, [11]=ballast-lamp photometric factor
         const float candelaMultiplier = nums[2];
         const int vCount = std::max(0, static_cast<int>(std::lround(nums[3])));
         const int hCount = std::max(0, static_cast<int>(std::lround(nums[4])));
@@ -212,17 +217,13 @@ public:
                         + static_cast<size_t>(vCount) * static_cast<size_t>(hCount);
         if (nums.size() < required) return nullptr;
 
-        auto profile = std::make_shared<IESProfile>();
-        profile->verticalCount = vCount;
-        profile->horizontalCount = hCount;
-        profile->verticalAngles.assign(nums.begin() + static_cast<std::ptrdiff_t>(offset),
-                                       nums.begin() + static_cast<std::ptrdiff_t>(offset + vCount));
+        std::vector<float> vAngles(nums.begin() + static_cast<std::ptrdiff_t>(offset),
+                                   nums.begin() + static_cast<std::ptrdiff_t>(offset + vCount));
         offset += static_cast<size_t>(vCount);
-        profile->horizontalAngles.assign(nums.begin() + static_cast<std::ptrdiff_t>(offset),
-                                         nums.begin() + static_cast<std::ptrdiff_t>(offset + hCount));
+        std::vector<float> hAngles(nums.begin() + static_cast<std::ptrdiff_t>(offset),
+                                   nums.begin() + static_cast<std::ptrdiff_t>(offset + hCount));
         offset += static_cast<size_t>(hCount);
 
-        profile->candelaTable.resize(static_cast<size_t>(vCount) * static_cast<size_t>(hCount));
         // Batch J item 2 (owner 2026-09-13): honour the IES file's ABSOLUTE
         // candela distribution, matching Cycles util/ies.cpp (Apache-2.0):
         //   factor = candela_multiplier * candela;  factor *= 4*pi/177.83;
@@ -239,55 +240,68 @@ public:
         // same result as no IES node times 4*pi/177.83 (see composition in
         // point_light.cpp / spot_light.cpp: intensity * 1/(4*pi) * iesValue).
         constexpr float kCandelaToWatt = 0.0706650768394f;  // 4*pi / 177.83
-        float scale = std::max(candelaMultiplier, 0.0f) * kCandelaToWatt;
-        for (size_t i = 0; i < profile->candelaTable.size(); ++i) {
-            profile->candelaTable[i] = nums[offset + i] * scale;
+        // Cycles util/ies.cpp IESFile::parse (:163-166) folds the ballast factor
+        // and ballast-lamp photometric factor (header[10], header[11]) into the
+        // candela multiplier before the candela->Watt conversion; each is used
+        // only when > 0 (a zero/blank field means "none" -> 1.0).
+        const float ballastFactor = nums[10] > 0.0f ? nums[10] : 1.0f;
+        const float lampPhotometricFactor = nums[11] > 0.0f ? nums[11] : 1.0f;
+        float scale = std::max(candelaMultiplier, 0.0f) * ballastFactor
+                    * lampPhotometricFactor * kCandelaToWatt;
+        std::vector<std::vector<float>> table(static_cast<size_t>(hCount));
+        for (int h = 0; h < hCount; ++h) {
+            table[h].resize(static_cast<size_t>(vCount));
+            for (int v = 0; v < vCount; ++v) {
+                table[h][v] = nums[offset + static_cast<size_t>(h) * vCount + v] * scale;
+            }
         }
+        // Photometric type field (header[5]): LM-63 type C == 1. Cycles
+        // util/ies.cpp (:155-158, :380-387) rejects non-A/B/C files and
+        // dispatches per type; we implement only type C, so a non-C file is
+        // still processed as C but logged (pre-existing A/B gap).
+        if (static_cast<int>(std::lround(nums[5])) != 1)
+            fprintf(stderr, "[astroray ies] warning: photometric type %d is not type C (1); processing as type C\n",
+                    static_cast<int>(std::lround(nums[5])));
+        processTypeC(hAngles, table);
+
+        auto profile = std::make_shared<IESProfile>();
+        const int hNum = static_cast<int>(hAngles.size());
+        std::vector<float>& p = profile->packed_;
+        p.reserve(2 + hNum + vCount + static_cast<size_t>(hNum) * vCount);
+        p.push_back(static_cast<float>(hNum));
+        p.push_back(static_cast<float>(vCount));
+        // Cycles IESFile::process: `angle *= M_PI_F / 180.f` in float32, so the
+        // float32 wrap tests in ies_eval.h see the same bits as the kernel.
+        const float degToRad = astroray::ies::kPiF / 180.0f;
+        for (float a : hAngles) p.push_back(a * degToRad);
+        for (float a : vAngles) p.push_back(a * degToRad);
+        for (const auto& row : table) p.insert(p.end(), row.begin(), row.end());
         return profile;
     }
 
+    // Cycles-packed table for the GPU side-table upload (pkg276).
+    const std::vector<float>& packed() const { return packed_; }
+
+    // pkg276: evaluate in the light object's frame. fx/fy/fz = local X/Y/Z axes
+    // in world (the light's matrix_world 3x3 columns); dir = light -> lit point.
+    float sampleFrame(const Vec3& fx, const Vec3& fy, const Vec3& fz,
+                      const Vec3& directionFromLight) const {
+        if (packed_.empty()) return 1.0f;
+        const float X[3] = {fx.x, fx.y, fx.z};
+        const float Y[3] = {fy.x, fy.y, fy.z};
+        const float Z[3] = {fz.x, fz.y, fz.z};
+        return astroray::ies::evalFrame(packed_.data(), X, Y, Z,
+                              directionFromLight.x, directionFromLight.y, directionFromLight.z);
+    }
+
+    // Legacy entry (no light frame known): local -Z = `axis`, local X/Y from
+    // buildOrthonormalBasis. Lights built from a Blender object use sampleFrame.
     float sample(const Vec3& axis, const Vec3& directionFromLight) const {
-        if (verticalCount <= 0 || horizontalCount <= 0 || candelaTable.empty()) return 1.0f;
-
-        Vec3 nAxis = axis.length2() > kDirectionEpsilon2 ? axis.normalized() : Vec3(0, -1, 0);
-        Vec3 dir = directionFromLight.normalized();
-        if (dir.length2() <= kDirectionEpsilon2) return 1.0f;
-
-        float cosVertical = std::clamp(nAxis.dot(dir), -1.0f, 1.0f);
-        float verticalDeg = std::acos(cosVertical) * (180.0f / static_cast<float>(M_PI));
-
-        float horizontalDeg = 0.0f;
-        Vec3 tangent, bitangent;
-        buildOrthonormalBasis(nAxis, tangent, bitangent);
-        Vec3 planar = dir - nAxis * cosVertical;
-        if (planar.length2() > kDirectionEpsilon2) {
-            planar = planar.normalized();
-            float x = planar.dot(tangent);
-            float y = planar.dot(bitangent);
-            horizontalDeg = std::atan2(y, x) * (180.0f / static_cast<float>(M_PI));
-            if (horizontalDeg < 0.0f) horizontalDeg += 360.0f;
-        }
-
-        if (horizontalCount == 1) return sampleVertical(0, verticalDeg);
-
-        float h = horizontalDeg;
-        const float hStart = horizontalAngles.front();
-        const float hEnd = horizontalAngles.back();
-        const float hSpan = hEnd - hStart;
-        if (hSpan >= 359.0f) {
-            h = std::fmod(h, 360.0f);
-            if (h < 0.0f) h += 360.0f;
-            if (h < hStart) h += 360.0f;
-        } else {
-            h = std::clamp(h, hStart, hEnd);
-        }
-
-        int h0 = 0, h1 = 0;
-        float ht = 0.0f;
-        findBracket(horizontalAngles, h, h0, h1, ht);
-        float a = sampleVertical(h0, verticalDeg);
-        float b = sampleVertical(h1, verticalDeg);
-        return std::max(0.0f, lerp(a, b, ht));
+        if (packed_.empty()) return 1.0f;
+        Vec3 fz = axis.length2() > 1e-12f ? -axis.normalized() : Vec3(0, 1, 0);
+        Vec3 fx, fy;
+        buildOrthonormalBasis(fz, fx, fy);
+        return sampleFrame(fx, fy, fz, directionFromLight);
     }
 };
 

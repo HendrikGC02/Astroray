@@ -65,7 +65,9 @@ one.
   brightness scales linearly with the candela values (regression tests in
   tests/test_batch_a_ies_export.py).
 
-**GPU gap (explicit, not silently shipped):** IES is CPU-only. The wavefront
+**GPU gap (explicit, not silently shipped):** IES is CPU-only. *(Closed by pkg276,
+2026-09-20: the GPU evaluates the same Cycles lookup, `astroray/ies_eval.h`; see
+`pkg276-ies-spot-research.md`.)* The wavefront
 GPU path does not mirror the IES modulation (point_light.cpp v1 comment:
 "IES modulation is not mirrored on the GPU in v1"). Absolute IES magnitude
 therefore applies on the CPU backend only; on GPU an IES PointLight/SpotLight

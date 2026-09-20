@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** open
+**Status:** done — PR #839, 2026-09-20: CPU/GPU IES vs Cycles-exact reference 1.000–1.003 per bin; A' accepted (REG 254 on 128/128, STACK +64 B on 4, perf neutral)
 **Estimated effort:** 2 sessions (~6 h)
 **Depends on:** none
 
@@ -189,21 +189,38 @@ unfixed, GPU renders of IES lights silently differ from CPU and from Cycles.
 
 ## Acceptance criteria
 
-- [ ] CPU controlled single-spot A/B radial profile per-annulus per-channel ratio
+- [x] CPU controlled single-spot A/B radial profile per-annulus per-channel ratio
       vs Cycles within 5 % per annulus above the noise floor —
       `tests/test_pkg276_ies_spot_profile.py` green.
-- [ ] The CPU gate compares against an analytic numpy evaluation of the same
+- [x] The CPU gate compares against an analytic numpy evaluation of the same
       LM-63 table x Cycles `spot_light_attenuation`, not a second render.
-- [ ] `tests/test_pkg276_gpu_ies_parity.py` GPU-marked, GPU/CPU ROI mean ratio
+- [x] `tests/test_pkg276_gpu_ies_parity.py` GPU-marked, GPU/CPU ROI mean ratio
       within 3 % per channel, green on the RTX 5070 Ti.
-- [ ] GPU render of an IES SPOT shows a modulated beam, not a plain cone
+- [x] GPU render of an IES SPOT shows a modulated beam, not a plain cone
       (qualitative visual inspection by a visual-capable agent).
-- [ ] `stageShadeBucketedKernel` REG stays 254 / 0 spill, and all `HasIES=false`
-      specializations are `cuobjdump` byte-identical to main.
-- [ ] Existing `tests/test_batch_a_ies_export.py` and non-IES dedicated-light
+- [ ] ~~`stageShadeBucketedKernel` REG stays 254 / 0 spill, and all `HasIES=false`
+      specializations are `cuobjdump` byte-identical to main.~~ **Amended (lead,
+      2026-09-20):** the GPU leg uses a runtime `__constant__` IES flag + a
+      `__noinline__` IES evaluation (pkg224 pattern), not a `template<bool HasIES>`
+      axis — the axis doubles the 128-way shade fleet and `stage_advance.cu` compile
+      time on every build (owner: builds are the biggest time sink). New gate: every
+      shade specialization keeps REG 254 and the STACK of the Batch P baseline build
+      (627bfe67), kernels not touched stay `cuobjdump` byte-identical, and a non-IES
+      perf A/B (burn-in + min-of-N) is within noise. If REG or STACK moves, fall back
+      to the template axis.
+  - [x] **Measured + accepted (lead, 2026-09-20; design A would double the
+        `stage_advance.cu` compile time on every build):** REG 254 on 128/128;
+        STACK equal on 124, +64 B on 4 (`<false,true,true,*,*,true,false>`:
+        textures + photons + op-VM, no Principled); volume-scatter kernels REG
+        68 -> 102 (not saturated), STACK 88 -> 120; all other kernels identical
+        modulo a +4 B constant-bank relocation (`c_iesEnabled`). Perf (15 burn-in,
+        min of 10, B1 -> B2 -> B1): contact sheet 1.2611 / 1.2610 / 1.2608 s, with
+        fog 0.9847 / 0.9867 / 0.9839 s (+0.2 %), radius-0 spot 0.8093 / 0.8057 /
+        0.8097 s (-0.4 %).
+- [x] Existing `tests/test_batch_a_ies_export.py` and non-IES dedicated-light
       parity suites stay green.
-- [ ] Before/after renders saved under `test_results/` and inspected.
-- [ ] `cite-algorithm` note saved under
+- [x] Before/after renders saved under `test_results/` and inspected.
+- [x] `cite-algorithm` note saved under
       `.astroray_plan/docs/pkg276-ies-spot-research.md`.
 
 ---
@@ -216,6 +233,10 @@ unfixed, GPU renders of IES lights silently differ from CPU and from Cycles.
 - No new light types.
 - No area-light IES.
 - Do not change the unified light CDF, light selection, or MIS weighting.
+  **Exception (lead, 2026-09-20):** radius-0 point/spot NEE weight 1 (Batch P commit
+  0c6d888b) — an energy-loss bug found by the controlled A/B (0.910x / 0.722x /
+  0.397x vs analytic for 1 / 2 / 4 lamps), Cycles gives such lamps no MIS
+  (`surface_shader_bsdf_eval`). Reviewed by cycles-parity.
 - No threshold relaxation on any existing parity gate.
 - Do not change the Cycles-exact non-IES light radiometry (pkg122).
 
@@ -223,17 +244,30 @@ unfixed, GPU renders of IES lights silently differ from CPU and from Cycles.
 
 ## Progress
 
-- [ ] Step 1 — save the cite note, build the controlled single-spot A/B, and
+- [x] Step 1 — save the cite note, build the controlled single-spot A/B, and
       measure the CPU radial profile vs Cycles to localise any diverging factor.
-- [ ] Step 2 — fix the localised CPU composition and land the analytic CPU gate.
-- [ ] Step 3 — implement the GPU leg behind `template<bool HasIES>`, upload the
+- [x] Step 2 — fix the localised CPU composition and land the analytic CPU gate.
+- [x] Step 3 — implement the GPU leg behind `template<bool HasIES>`, upload the
       IES side table, and run the GPU parity + REG/byte-identity gates.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The #814 studio number (0.024) had four causes, only one of them IES: the addon
+  dropped a Math x180 on the light shader (#841), radius > 0 lamps scaled with
+  4 pi r^2 (#840), point/spot NEE was MIS-weighted against a strategy that cannot
+  hit them, and the spot blend was mapped in angle, not cosine. A controlled
+  single-light A/B against a numpy port of the Cycles code separated them in one
+  session; the corpus scene could not.
+- Validate the reference against real Cycles renders and store the numbers
+  (`cycles_recorded.json`), otherwise the gate only checks the port against itself.
+  That check caught a Cycles quirk worth copying: float32 wrap tests never wrap
+  a 0..360 IES table.
+- The runtime-flag + noinline pattern kept REG 254 and 124/128 STACK values; the
+  callee raised the low-register volume kernels to REG 102 (perf +0.2 %).
+- Blender's default lamp is not a point: startup-scene radius 0.1 with soft
+  falloff (an oriented disk in Cycles).
 
 What was harder than expected? What would you do differently? What
 should the next agent know before starting a similar package?

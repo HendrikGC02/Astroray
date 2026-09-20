@@ -14,6 +14,8 @@
 #include "astroray/gpu_bvh.h"
 #include "light_tree_device.cuh"  // gpu_light_tree_pick (pkg86-B)
 #include "gpu_spectral_tables.h"  // pkg218: gpu_emission_profile
+#include "astroray/ies_eval.h"      // pkg276: Cycles kernel_ies_interp port (shared with CPU)
+#include "astroray/lamp_sampling.h" // #840: Cycles point_light_sample port (shared with CPU)
 
 #include <curand_kernel.h>
 
@@ -167,9 +169,57 @@ __device__ inline float gpu_reconstruct_light_pdf(
 // via the same RGBIlluminant path the CPU uses. Cite: Cycles kernel/light/
 // {point,spot,distant,area}.h (Apache-2.0), via the CPU mirrors.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// pkg276 + #840 — the opt-in point/spot lamp path: radius > 0 (Cycles disk /
+// sphere lamp, astroray/lamp_sampling.h, exactly the CPU {point,spot}_light.cpp
+// code) and/or an IES scene (astroray/ies_eval.h). Out of line (__noinline__)
+// behind a runtime test (radius > 0 || c_iesEnabled) so the REG-254 shade fleet's
+// radius-0 non-IES path keeps its register/stack footprint (pkg224 pattern,
+// memory noinline-runtime-flag-avoids-shade-spill). Returns the sampled lamp
+// point, its solid-angle pdf (1 for radius 0) and the lambda-independent
+// emission scale (staticScale x 1/d^2 or 1/(pi r^2) x spot attenuation x IES);
+// pdf == 0 means no contribution.
+// ---------------------------------------------------------------------------
+struct GLampExt { float qx, qy, qz, pdf, scale; };
+
+__device__ __noinline__ inline GLampExt gpu_lamp_sample_ext(
+    const GDedicatedLight* d, int dj, GVec3 P, float u1, float u2)
+{
+    GLampExt e{};
+    const float c[3] = {d->position.x, d->position.y, d->position.z};
+    const float p[3] = {P.x, P.y, P.z};
+    const astroray::lamp::Sample ls =
+        astroray::lamp::sample(c, d->radius, d->areaShape == 1, p, u1, u2);
+    if (!ls.valid) return e;
+    const GVec3 q(ls.q[0], ls.q[1], ls.q[2]);
+    GVec3 dir = P - q;
+    const float len = dir.length();
+    if (!(len > 1e-6f)) return e;
+    dir = dir * (1.f / len);                          // lamp point -> lit point
+    float scale = d->staticScale * ls.emit;
+    if (d->kind == GDED_SPOT && ls.outside) {          // Cycles: none inside a sphere lamp
+        const float cosTheta = dir.dot(d->axis);
+        if (cosTheta <= d->cosOuter) return e;
+        if (cosTheta < d->cosInner) {
+            const float t = (cosTheta - d->cosOuter) / (d->cosInner - d->cosOuter);
+            scale *= t * t * (3.f - 2.f * t);          // Cycles smoothstepf
+        }
+    }
+    if (c_iesEnabled && g_iesLights != nullptr && dj >= 0 && dj < g_iesLightCount) {
+        const GIESLight& L = g_iesLights[dj];
+        if (L.offset >= 0)
+            scale *= astroray::ies::evalFrame(g_iesTable + L.offset, L.fx, L.fy, L.fz,
+                                              dir.x, dir.y, dir.z);
+    }
+    e.qx = q.x; e.qy = q.y; e.qz = q.z;
+    e.pdf = ls.pdf;
+    e.scale = scale;
+    return e;
+}
+
 template <typename TRng>
 __device__ inline GNEESample gpu_dedicated_sample(
-    const GDedicatedLight& d, const GVec3& shadingPoint, float selPdf, TRng* rng)
+    const GDedicatedLight& d, int dj, const GVec3& shadingPoint, float selPdf, TRng* rng)
 {
     GNEESample s{};
     s.valid       = 0;
@@ -180,14 +230,25 @@ __device__ inline GNEESample gpu_dedicated_sample(
     s.dedEmissionProfileIndex = d.emissionProfileIndex;  // pkg218
 
     if (d.kind == GDED_POINT || d.kind == GDED_SPOT) {
-        GVec3 sampledPos = d.position;
-        if (d.radius > 0.f) {
-            float u1 = gpu_rng_uniform(rng), u2 = gpu_rng_uniform(rng);
-            float z  = 1.f - 2.f * u1;
-            float rr = sqrtf(fmaxf(0.f, 1.f - z * z));
-            float phi = 2.f * M_PI_F * u2;
-            sampledPos = d.position + GVec3(rr * cosf(phi), rr * sinf(phi), z) * d.radius;
+        // pkg276 + #840: radius > 0 or an IES scene -> out-of-line lamp path.
+        if (d.radius > 0.f || c_iesEnabled) {
+            float u1 = 0.f, u2 = 0.f;
+            if (d.radius > 0.f) { u1 = gpu_rng_uniform(rng); u2 = gpu_rng_uniform(rng); }
+            const GLampExt e = gpu_lamp_sample_ext(&d, dj, shadingPoint, u1, u2);
+            if (!(e.pdf > 0.f) || !(e.scale > 0.f)) return s;
+            const GVec3 q(e.qx, e.qy, e.qz);
+            const float qd = (shadingPoint - q).length();
+            if (qd < 1e-6f) return s;
+            s.wi          = (q - shadingPoint) * (1.f / qd);
+            s.maxDist     = qd - 0.001f;
+            s.geomDist    = qd;
+            s.lightPdf    = e.pdf * selPdf;
+            s.dedGeoScale = e.scale;
+            s.isDeltaLight = 1;   // NEE-only lamp (never BSDF-hit here): weight 1
+            s.valid       = 1;
+            return s;
         }
+        GVec3 sampledPos = d.position;   // radius 0, no IES: the delta path
         GVec3 lts  = shadingPoint - sampledPos;
         float dist = lts.length();
         if (dist < 1e-6f) return s;
@@ -202,16 +263,19 @@ __device__ inline GNEESample gpu_dedicated_sample(
                    att = t * t * (3.f - 2.f * t); }  // Cycles cubic Hermite smoothstep
             geo *= att;
         }
-        // pkg122: point AND spot use the same measure — radius-0 is a delta
-        // light (pdf = 1; the 1/d² and, for spot, the cone attenuation are baked
-        // into dedGeoScale via staticScale = intensity·1/(4π)); radius>0 uses the
-        // sphere-surface pdf 1/(4π·r²). Mirrors the CPU {point,spot}_light.cpp.
-        float pdf = (d.radius > 0.f) ? (1.f / (4.f * M_PI_F * d.radius * d.radius)) : 1.f;
+        // pkg122: radius-0 is a delta light (pdf = 1; the 1/d² and, for spot,
+        // the cone attenuation are baked into dedGeoScale via staticScale =
+        // intensity·1/(4π)). radius > 0 took the out-of-line path above (#840).
+        float pdf = 1.f;
         s.wi          = (sampledPos - shadingPoint) * (1.f / dist);
         s.maxDist     = dist - 0.001f;
         s.geomDist    = dist;                 // pkg199: true distance for Tr
         s.lightPdf    = pdf * selPdf;
         s.dedGeoScale = d.staticScale * geo;
+        // Batch P: radius-0 point/spot is a delta light -> MIS weight 1 (Cycles
+        // surface_shader_bsdf_eval zeroes the BSDF pdf for non-MIS lights; CPU
+        // {point,spot}_light.cpp LiSample::isDelta mirror).
+        s.isDeltaLight = 1;
         s.valid       = 1;
         return s;
     }
@@ -450,7 +514,7 @@ __device__ inline GNEESample gpu_nee_sample(
             int dj = numDed - 1;
             for (int j = 0; j < numDed; ++j) { if (u <= dedLights[j].cumulativePower) { dj = j; break; } }
             float dselPdf = dedLights[dj].power / totalLightPower;
-            return gpu_dedicated_sample(dedLights[dj], rec.point, dselPdf, rng);
+            return gpu_dedicated_sample(dedLights[dj], dj, rec.point, dselPdf, rng);
         }
         if (hit < 0) hit = numLights - 1;   // fp fallback within hittable range
         li = hit;

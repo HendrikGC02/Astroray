@@ -973,7 +973,7 @@ struct GDedicatedLight {
     GVec3 axis;             // spot axis / distant axis (FROM light) / area normal
     GVec3 u, v;             // area plane axes (normalized)
     float width, height;    // area extents (width = disk radius for Disk)
-    int   areaShape;        // 0 rect, 1 disk, 2 ellipse
+    int   areaShape;        // area: 0 rect, 1 disk, 2 ellipse; point/spot radius>0: 0 soft-falloff disk, 1 sphere
     float radius;           // point/spot soft-shadow radius (0 = hard/delta)
     float spread;           // area emission cone half-angle (radians)
     float cosInner, cosOuter; // spot cone cosines / distant cos(halfAngle)
@@ -988,6 +988,15 @@ struct GDedicatedLight {
     // exact for RGB mode, unchanged by this package). Set by scene_upload.cu
     // from DeviceLightParams::emissionProfileSamples.
     int   emissionProfileIndex;
+};
+
+// pkg276 — per-dedicated-light IES side-table entry (indexed by the dedicated
+// light's index; GDedicatedLight itself is unchanged). offset = start of the
+// light's Cycles-packed profile in g_iesTable (-1 = no IES); fx/fy/fz = the light
+// object's local X/Y/Z axes in world (astroray/ies_eval.h evalFrame).
+struct GIESLight {
+    int   offset;
+    float fx[3], fy[3], fz[3];
 };
 
 // ---------------------------------------------------------------------------

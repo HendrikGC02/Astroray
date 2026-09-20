@@ -290,8 +290,12 @@ def _render_spot_on_plane(blend: float) -> np.ndarray:
 def _write_test_ies(path: str) -> None:
     # Minimal LM-63 style profile:
     # - 3 vertical angles (0,45,90)
-    # - 2 horizontal angles (0,180) with strong asymmetry
-    #   so +X receives much more flux than -X for axis=(0,-1,0).
+    # - 2 horizontal angles (0,180) with strong asymmetry.
+    # pkg276: IES follows Cycles (kernel/svm/ies.h h = atan2(x, y) + pi in the
+    # light frame; no light object here, so the frame is local -Z = axis with an
+    # orthonormal basis): for axis (0,-1,0) the bright h=0 half faces world +Z,
+    # the image BOTTOM for this camera (vup = -Z). It used to face +X under the
+    # pre-pkg276 arbitrary basis, which is what these tests measured.
     content = """IESNA:LM-63-1995
 TILT=NONE
 1 1000 1 3 2 1 1 0.1 0.1 0.1 1 1 10
@@ -336,9 +340,9 @@ def test_spot_light_ies_profile_creates_nonuniform_pattern(tmp_path):
     img = _render_spot_with_optional_ies(ies_path)
     lum = img.mean(axis=2)
     cy, cx = H // 2, W // 2
-    left = float(np.mean(lum[cy-12:cy+12, cx-45:cx-15]))
-    right = float(np.mean(lum[cy-12:cy+12, cx+15:cx+45]))
-    assert right > left * 1.6, f"Expected IES asymmetry on floor (left={left:.4f}, right={right:.4f})"
+    top = float(np.mean(lum[cy-45:cy-15, cx-12:cx+12]))
+    bottom = float(np.mean(lum[cy+15:cy+45, cx-12:cx+12]))
+    assert bottom > top * 1.6, f"Expected IES asymmetry on floor (top={top:.4f}, bottom={bottom:.4f})"
 
 
 def test_spot_light_without_ies_remains_near_symmetric():
@@ -357,9 +361,9 @@ def test_point_light_ies_profile_creates_nonuniform_pattern(tmp_path):
     img = _render_point_with_optional_ies(ies_path)
     lum = img.mean(axis=2)
     cy, cx = H // 2, W // 2
-    left = float(np.mean(lum[cy-12:cy+12, cx-45:cx-15]))
-    right = float(np.mean(lum[cy-12:cy+12, cx+15:cx+45]))
-    assert right > left * 1.6, f"Expected point-light IES asymmetry (left={left:.4f}, right={right:.4f})"
+    top = float(np.mean(lum[cy-45:cy-15, cx-12:cx+12]))
+    bottom = float(np.mean(lum[cy+15:cy+45, cx-12:cx+12]))
+    assert bottom > top * 1.6, f"Expected point-light IES asymmetry (top={top:.4f}, bottom={bottom:.4f})"
 
 
 def test_spot_light_sharp_cone_on_floor_plane():

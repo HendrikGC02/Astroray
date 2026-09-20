@@ -241,11 +241,12 @@ def test_gpu_procedural_opvm_input_not_flat_and_parity():
 
 
 # --------------------------------------------------------------------------- #
-# Degradation: a MULTI-input op-VM program (>1 texture input) is NON-SILENT.
-# The GPU samples exactly one input (scene_upload requires numInputs()==1), so a
-# multi-input program renders flat on GPU / exact on CPU — the addon must record
-# a degradation entry (critic item 1, PR #821). Uses the addon bpy-stub pattern
-# from tests/test_blender_uv_plumbing.py.
+# Degradation for MULTI-input op-VM programs. PR #821 recorded one for every
+# program with >1 texture input (the GPU then sampled only one). #826 samples up
+# to VM_MAX_TEX (2) base-colour inputs on the GPU, so the entry now fires only for
+# scalar-parameter programs (the GPU scalar path is still single-input); more
+# than VM_MAX_TEX inputs is rejected by the compiler (flattened + warned on both
+# backends). Uses the addon bpy-stub pattern from tests/test_blender_uv_plumbing.py.
 # --------------------------------------------------------------------------- #
 def _load_addon_stub(monkeypatch):
     import importlib.util
@@ -295,26 +296,75 @@ class _NoopProgRenderer:
         return lambda *a, **k: 1
 
 
-def test_multi_input_program_records_degradation(monkeypatch):
-    addon = _load_addon_stub(monkeypatch)
-    eng = addon.CustomRaytracerRenderEngine.__new__(addon.CustomRaytracerRenderEngine)
-    eng._current_material_name = "M"
-    eng._generated_textures_by_material = {}
-
-    # Two Noise textures into one Mix -> Base Color: compile_chain yields 2 inputs.
+def _two_noise_mix_socket(socket_name):
+    # Two Noise textures into one Mix -> socket: compile_chain yields 2 inputs.
     noise_a = Node('TEX_NOISE', inputs=[Sock('Vector')])
     noise_b = Node('TEX_NOISE', inputs=[Sock('Vector')])
     mix = Node('MIX_RGB', blend_type='MIX',
                inputs=[Sock('Fac', 0.5),
                        Sock('Color1', [0, 0, 0], Link(noise_a, 'Color')),
                        Sock('Color2', [0, 0, 0], Link(noise_b, 'Color'))])
-    base = Sock('Base Color', [0.5, 0.5, 0.5], Link(mix, 'Color'))
-    node = Node('BSDF_PRINCIPLED', inputs=[base])
+    return Sock(socket_name, [0.5, 0.5, 0.5], Link(mix, 'Color'))
 
+
+def _degradation_lines(monkeypatch, socket_name, sock):
+    addon = _load_addon_stub(monkeypatch)
+    eng = addon.CustomRaytracerRenderEngine.__new__(addon.CustomRaytracerRenderEngine)
+    eng._current_material_name = "M"
+    eng._generated_textures_by_material = {}
+    node = Node('BSDF_PRINCIPLED', inputs=[sock])
     try:
-        eng._maybe_build_program_texture(base, node, 'Base Color', _NoopProgRenderer())
+        eng._maybe_build_program_texture(sock, node, socket_name, _NoopProgRenderer())
     except Exception:
         pass  # the warning fires before any renderer program call; build outcome irrelevant
+    return eng._degradation_report().messages()
 
-    lines = eng._degradation_report().messages()
-    assert any("multi-input shader program" in m for m in lines), lines
+
+def test_multi_input_base_color_program_no_degradation(monkeypatch):
+    # #826: flips PR #821's guard (which asserted the entry for ANY 2-input
+    # program) — a 2-input base-colour program now renders per-texel on the GPU.
+    lines = _degradation_lines(monkeypatch, 'Base Color',
+                               _two_noise_mix_socket('Base Color'))
+    assert not any("multi-input shader program" in m for m in lines), lines
+    assert not any("procedural input with" in m for m in lines), lines
+
+
+def test_unbakeable_procedural_program_records_degradation(monkeypatch):
+    # Object coords: the GPU cannot bake the procedural, so it drops the whole
+    # program (critic finding on #826) — must stay non-silent.
+    tc = Node('TEX_COORD')
+    noise_a = Node('TEX_NOISE', inputs=[Sock('Vector', link=Link(tc, 'Object'))])
+    noise_b = Node('TEX_NOISE', inputs=[Sock('Vector', link=Link(tc, 'Object'))])
+    mix = Node('MIX_RGB', blend_type='MIX',
+               inputs=[Sock('Fac', 0.5),
+                       Sock('Color1', [0, 0, 0], Link(noise_a, 'Color')),
+                       Sock('Color2', [0, 0, 0], Link(noise_b, 'Color'))])
+    base = Sock('Base Color', [0.5, 0.5, 0.5], Link(mix, 'Color'))
+    lines = _degradation_lines(monkeypatch, 'Base Color', base)
+    assert any("procedural input with OBJECT coordinates" in m for m in lines), lines
+
+
+def test_multi_input_scalar_program_records_degradation(monkeypatch):
+    # The GPU scalar-parameter path still samples one input -> stays non-silent.
+    lines = _degradation_lines(monkeypatch, 'Roughness',
+                               _two_noise_mix_socket('Roughness'))
+    assert any("multi-input shader program" in m and "Roughness" in m
+               for m in lines), lines
+
+
+def test_three_input_program_flattened_with_warning(monkeypatch):
+    # > VM_MAX_TEX inputs: the compiler rejects the chain -> flattened + warned.
+    tex = [Node('TEX_NOISE', inputs=[Sock('Vector')]) for _ in range(3)]
+    inner = Node('MIX_RGB', blend_type='MIX',
+                 inputs=[Sock('Fac', 0.5),
+                         Sock('Color1', [0, 0, 0], Link(tex[1], 'Color')),
+                         Sock('Color2', [0, 0, 0], Link(tex[2], 'Color'))])
+    outer = Node('MIX_RGB', blend_type='MIX',
+                 inputs=[Sock('Fac', 0.5),
+                         Sock('Color1', [0, 0, 0], Link(tex[0], 'Color')),
+                         Sock('Color2', [0, 0, 0], Link(inner, 'Color'))])
+    base = Sock('Base Color', [0.5, 0.5, 0.5], Link(outer, 'Color'))
+    with pytest.raises(C.VMCompileError):
+        C.compile_chain(base)
+    lines = _degradation_lines(monkeypatch, 'Base Color', base)
+    assert any("VM_MAX_TEX" in m for m in lines), lines

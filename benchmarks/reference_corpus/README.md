@@ -390,6 +390,28 @@ spectrally (pkg270), Cycles in RGB.
 | authored `volume_bounces` = 2 | 0.982 / 0.996 / 0.976 | 0.986 / 0.994 / 0.974 |
 | Blender default `volume_bounces` = 0 | 0.983 / 0.996 / 0.977 | 0.985 / 0.995 / 0.977 |
 
+## `geometry_zoo` volume cabinet — matched-setting gap (pkg271 finding)
+
+`geometry_zoo`'s Astroray leg was re-rendered when pkg271 wired `volume_bounces`
+(the scene authors `cycles.volume_bounces = 0`). VOLUME-crop linear means,
+960x220 @96 spp, 2026-09-20:
+
+| Render | R/G/B | vs Cycles at the same setting |
+|---|---|---|
+| Cycles, `volume_bounces` 0 | 0.1236 / 0.1170 / 0.1170 | — |
+| Astroray, `volume_bounces` 0 | 0.1007 / 0.0933 / 0.0875 | 0.81 / 0.80 / 0.75 |
+| Cycles, `volume_bounces` 4 | 0.1654 / 0.1624 / 0.1739 | — |
+| Astroray, `volume_bounces` 4 | 0.1299 / 0.1267 / 0.1284 | 0.79 / 0.78 / 0.74 |
+| Astroray before pkg271 (limit ignored, unlimited scatter) | 0.1318 / 0.1288 / 0.1311 | 1.07 / 1.10 / 1.12 vs Cycles @0 |
+
+So the old leg's apparent agreement was a coincidence: unlimited multiple
+scattering happened to land near Cycles' single-scatter image. At MATCHED
+settings the mesh-volume cabinet is 20-25 % dark in both settings, i.e. a
+pre-existing bounded-media gap (mesh -> world-AABB lowering, the Volume
+Scatter/Absorption socket lowering, or the missing equiangular sampling for
+bounded media), not a `volume_bounces` defect — the `volumes_smoke` grid scene
+matches Cycles to within 2 % at both settings. Follow-up material.
+
 ## Known Phase-3 gaps and findings (deliberate scope cuts, and inspection notes)
 
 - **`geometry_zoo`'s non-volume content (instancing, modifiers, shading,

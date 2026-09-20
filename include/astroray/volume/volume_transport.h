@@ -226,11 +226,15 @@ struct SpectralFlight {
 // pAbsorb = σ_a[0]/σ̄ (terminate), scatter with pScatter = σ_s[0]/σ̄
 // (beta, r_u *= σ_s/σ_s[0]), else null (beta, r_u *= σ_n/σ_n[0]). Escaping
 // applies no factor (delta-track survival IS the transmittance).
+// pkg271 `noScatter` (volume_bounces exhausted — Cycles PATH_RAY_TERMINATE,
+// shade_volume.h `attenuation_only`): a scatter collision is an absorption, so
+// the flight only attenuates and collects emission.
 inline SpectralFlight spectralTrack(const BoundedMedium& m, const Vec3& o, const Vec3& d,
                                     float tMin, float tMax,
                                     const astroray::SampledWavelengths& wl,
                                     astroray::SampledSpectrum& beta,
-                                    astroray::SampledSpectrum& r_u, std::mt19937& gen) {
+                                    astroray::SampledSpectrum& r_u, std::mt19937& gen,
+                                    bool noScatter = false) {
     std::uniform_real_distribution<float> u(0.0f, 1.0f);
     astroray::SampledSpectrum sUnit, aUnit;
     principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, wl, sUnit, aUnit);
@@ -256,6 +260,7 @@ inline SpectralFlight spectralTrack(const BoundedMedium& m, const Vec3& o, const
         }
         float pAbsorb = sigA[0] / sigBar;
         float pScatter = sigS[0] / sigBar;
+        if (noScatter) { pAbsorb += pScatter; pScatter = 0.0f; }
         float um = u(gen);
         if (um < pAbsorb) {
             beta = astroray::SampledSpectrum(0.0f);

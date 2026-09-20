@@ -62,6 +62,7 @@ against its own Cycles reference" cannot be a single scene.
 | `geometry_zoo` | A "cabinet of curiosities": collection instancing, a live modifier stack, a flat/smooth/auto-smooth shading trio, a small Curves (hair) object, a blurred-vs-disabled motion-blur pair, and a backlit volume cabinet (Principled Volume / Volume Absorption / Volume Scatter). | Phase 3 (built) |
 | `camera_lens` | One perspective hero shot: DoF (aperture_fstop + focus_object/focus_distance), lens shift, explicit sensor_fit, plus in-scene aperture-blades/clip gap cards. | Phase 3 (built) |
 | `render_settings` | A small hero shot proving samples/film_transparent/use_denoising/denoiser by scene authorship, plus an opposed-mirror `max_bounces` gap card. | Phase 3 (built) |
+| `volumes` | Scene id `volumes_smoke`: a sun-lit OpenVDB smoke plume and a self-lit blackbody fire with a sooty plume on a dark ground (two Volume objects, synthetic grids), `volume_bounces` = 2. Owns the `volume_bounces` row (allocation `SOCKET_OVERRIDE`); the Principled Volume rows stay with `geometry_zoo`. | pkg271 (built) |
 
 ## Naming and files
 
@@ -181,7 +182,7 @@ unaffected by the pkg260 merge -- no new rows were assigned to it.)
 "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup \
     --python benchmarks/reference_corpus/build_corpus.py -- \
     --families materials_hall textures_mapping lighting_studio world_sky_hdri world_sky_sky \
-               geometry_zoo camera_lens render_settings \
+               geometry_zoo camera_lens render_settings volumes_smoke \
     --out-dir benchmarks/reference_corpus/scenes
 ```
 
@@ -240,6 +241,7 @@ per `manifest.json` `crops` entry, and `refs/<scene_id>_crops_contact_sheet.png`
 | `geometry_zoo` | 960x220 | 96 | ~3s | ~22-23s |
 | `camera_lens` | 640x400 | 192 | ~9-10s | ~123-126s |
 | `render_settings` | 640x360 | 128 | ~4-7s | ~6s |
+| `volumes_smoke` | 640x360 | 128 | ~16s | ~9s |
 
 All stay far under the ~40 min/render budget the addon's CPU leg needs for
 `materials_hall`-scale scenes (#780) -- most Phase 2/3 scenes are simple
@@ -279,6 +281,16 @@ in code, not downloaded -- a `bpy.types.Text` data-block (`ShaderNodeTexIES`
 (design doc Sec 3.2's "synthesize procedurally... sidesteps IES licensing
 entirely"; format research: `.astroray_plan/docs/pkg259-phase2-ies-format-research.md`).
 No external asset, no licence question, no relative-path bookkeeping.
+
+`volumes_smoke` (pkg271) references two synthetic OpenVDB files written by
+`scene_library.write_volumes_vdbs()` (seeded numpy value-noise fBm, Blender's
+bundled `openvdb`) -- no third-party data, released CC0 with the repo. The
+builder rewrites them on every build (sha256 in the manifest `assets`).
+
+| File | Grids | Source | Licence |
+|---|---|---|---|
+| `assets/volumes_smoke_plume.vdb` | density (64^3) | `scene_library.write_volumes_vdbs` | CC0 1.0 |
+| `assets/volumes_fire.vdb` | density + temperature (64^3) | `scene_library.write_volumes_vdbs` | CC0 1.0 |
 
 ## Known Phase-1 gaps (deliberate, not oversights)
 
@@ -366,6 +378,43 @@ No external asset, no licence question, no relative-path bookkeeping.
   the one `SOCKET_OVERRIDE` row) is a doc-only gap-registry entry, per the
   owner's 2026-09-08 decision (design doc Sec "Owner answers", Q7: "out of
   scope for the corpus").
+
+## `volumes` A/B cross-check band (pkg271)
+
+Per-crop linear mean, Astroray CPU / Cycles CPU, 640x360 @128 spp (2026-09-20,
+post-#837 observer, build `6d9f253d`). A cross-check band, not a gate: Astroray
+tracks sigma and Planck spectrally (pkg270), Cycles in RGB.
+
+| Setting | smoke R/G/B | fire R/G/B |
+|---|---|---|
+| authored `volume_bounces` = 2 | 0.987 / 0.989 / 0.989 | 0.989 / 0.986 / 0.988 |
+| Blender default `volume_bounces` = 0 | 0.987 / 0.988 / 0.989 | 0.990 / 0.989 / 0.989 |
+| `volume_bounces` = 64 (pre-pkg271 behaviour) | 0.985 / 0.987 / 0.987 | 0.988 / 0.986 / 0.988 |
+
+`volume_bounces` itself moves the smoke crop the same way in both engines: 0 vs 64
+is 0.0680 vs 0.0861 in Astroray (0.79) and 0.0689 vs 0.0874 in Cycles (0.79).
+
+## `geometry_zoo` volume cabinet — matched-setting gap (pkg271 finding)
+
+`geometry_zoo`'s Astroray leg was re-rendered when pkg271 wired `volume_bounces`
+(the scene authors `cycles.volume_bounces = 0`). VOLUME-crop linear means,
+960x220 @96 spp, 2026-09-20:
+
+| Render | R/G/B | vs Cycles at the same setting |
+|---|---|---|
+| Cycles, `volume_bounces` 0 | 0.1236 / 0.1170 / 0.1170 | — |
+| Astroray, `volume_bounces` 0 | 0.1007 / 0.0933 / 0.0875 | 0.81 / 0.80 / 0.75 |
+| Cycles, `volume_bounces` 4 | 0.1654 / 0.1624 / 0.1739 | — |
+| Astroray, `volume_bounces` 4 | 0.1299 / 0.1267 / 0.1284 | 0.79 / 0.78 / 0.74 |
+| Astroray before pkg271 (limit ignored, unlimited scatter) | 0.1318 / 0.1288 / 0.1311 | 1.07 / 1.10 / 1.12 vs Cycles @0 |
+
+So the old leg's apparent agreement was a coincidence: unlimited multiple
+scattering happened to land near Cycles' single-scatter image. At MATCHED
+settings the mesh-volume cabinet is 20-25 % dark in both settings, i.e. a
+pre-existing bounded-media gap (mesh -> world-AABB lowering, the Volume
+Scatter/Absorption socket lowering, or the missing equiangular sampling for
+bounded media), not a `volume_bounces` defect — the `volumes_smoke` grid scene
+matches Cycles to within 2 % at both settings. Tracked as **#860**.
 
 ## Known Phase-3 gaps and findings (deliberate scope cuts, and inspection notes)
 

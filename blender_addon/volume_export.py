@@ -33,14 +33,6 @@ import numpy as np
 # Grid attribute names follow Cycles (`blender/volume.cpp`).
 DENSITY_GRID = "density"
 
-# pkg269/pkg270 — degradation reported whenever a Principled Volume carries
-# blackbody emission: the GPU heterogeneous-volume stage accumulates the constant
-# emission term only (the Planck luminance normalisation is a host table), so the
-# blackbody glow is CPU-only until issue #828 lands. Emitted unconditionally —
-# the volume-lowering site does not know the active render device.
-BLACKBODY_GPU_DEGRADATION = (
-    "Principled Volume blackbody emission is CPU-only; the GPU renders constant "
-    "emission only (issue #828)")
 PASSTHROUGH_GRIDS = ("temperature", "color", "velocity", "flame", "heat")
 
 
@@ -263,8 +255,8 @@ def principled_volume_from_material(material):
         info["temperature"] = _socket_float(node, "Temperature", 1000.0)
         info["temperature_attribute"] = _socket_str(node, "Temperature Attribute", "temperature")
         info["density_attribute"] = _socket_str(node, "Density Attribute", "density")
-        if info["blackbody_intensity"] > 0.0:
-            degr.append(BLACKBODY_GPU_DEGRADATION)  # pkg200 rule: never claim honour silently
+        # #828: blackbody emission renders on CPU and GPU (the pkg270 GPU
+        # degradation entry is gone).
     elif ntype == "VOLUME_SCATTER" or "Scatter" in node.bl_idname:
         info["density"] = _socket_float(node, "Density", 1.0)
         info["color"] = _socket_rgb(node, "Color", (0.8, 0.8, 0.8))  # scattering albedo
@@ -282,9 +274,24 @@ def principled_volume_from_material(material):
     else:
         degr.append("unsupported volume node '%s' (pkg272)" % node.bl_idname)
         return None
+    # pkg271: a linked input (texture / attribute node driving the socket) is
+    # lowered to its default value -- say so (pkg200 rule).
+    for sname in _VOLUME_VALUE_SOCKETS:
+        s = node.inputs.get(sname) if hasattr(node.inputs, "get") else None
+        if s is not None and getattr(s, "is_linked", False):
+            degr.append("volume '%s' input is linked; only its default value is used" % sname)
+    color_attr = _socket_str(node, "Color Attribute", "")
+    if color_attr:
+        degr.append("volume 'Color Attribute' ('%s') is not consumed (pkg272)" % color_attr)
     # pkg270: chromatic colour / absorption colour are honoured per wavelength
     # (hero-wavelength spectral tracking) — no grey-extinction degradation.
     return info
+
+
+# pkg271 — the value sockets principled_volume_from_material reads by default value.
+_VOLUME_VALUE_SOCKETS = ("Color", "Density", "Anisotropy", "Absorption Color",
+                         "Emission Strength", "Emission Color", "Blackbody Intensity",
+                         "Blackbody Tint", "Temperature")
 
 
 def mesh_world_aabb(obj, matrix_world):
@@ -299,6 +306,44 @@ def _cornerv(c):
     # obj.bound_box yields length-3 sequences; build a mathutils-compatible vec4.
     import mathutils  # Blender only
     return mathutils.Vector((c[0], c[1], c[2]))
+
+
+# Issue #833 — a mesh volume is lowered to its world AABB (homogeneous medium).
+# That is exact only when the mesh IS that box; anything else is reported.
+def mesh_world_vertices(obj, matrix_world):
+    """World-space vertex positions of a mesh object as an (N, 3) array."""
+    verts = obj.data.vertices
+    n = len(verts)
+    if hasattr(verts, "foreach_get"):
+        co = np.empty(n * 3, dtype=np.float64)
+        verts.foreach_get("co", co)
+        co = co.reshape(n, 3)
+    else:
+        co = np.array([tuple(v.co) for v in verts], dtype=np.float64).reshape(n, 3)
+    m = np.array([[float(c) for c in row] for row in matrix_world], dtype=np.float64)
+    return co @ m[:3, :3].T + m[:3, 3]
+
+
+def mesh_bounds_is_exact(world_verts, aabb_min, aabb_max, rel_tol=1e-4):
+    """True iff the vertices are exactly the 8 corners of [aabb_min, aabb_max],
+    i.e. the AABB lowering reproduces the mesh (an axis-aligned box)."""
+    v = np.asarray(world_verts, dtype=np.float64).reshape(-1, 3)
+    mn = np.asarray(aabb_min, dtype=np.float64)
+    mx = np.asarray(aabb_max, dtype=np.float64)
+    if v.shape[0] < 8:
+        return False
+    tol = rel_tol * max(float((mx - mn).max()), 1e-12)
+    at_min = np.abs(v - mn) <= tol
+    at_max = np.abs(v - mx) <= tol
+    if not np.all(at_min | at_max):
+        return False
+    corners = {tuple(bool(b) for b in row) for row in at_max}
+    return len(corners) == 8
+
+
+# The GPU wavefront side table holds G_WF_MAX_GRID_MEDIA (include/astroray/
+# gpu_types.h) bounded media; extra media are ignored on the GPU (issue #828).
+GPU_MAX_VOLUME_MEDIA = 8
 
 
 def export_volume_objects(depsgraph, renderer, bpy_module=None, report=None):

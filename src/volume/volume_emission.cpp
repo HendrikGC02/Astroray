@@ -7,20 +7,43 @@
 
 #include "astroray/volume/volume_emission.h"
 
-#include "astroray/emission_spectrum.h"  // blackbodyLuminanceNorm
+#include "astroray/emission_spectrum.h"  // (header order: pulls in spectral.h's colour helpers)
 #include "astroray/spectral.h"           // planck()
+#include "astroray/volume/blackbody_lut.h"
 
 namespace astroray {
 namespace volume {
 
+double blackbodyLuminanceIntegral(double temperatureK) {
+    if (!(temperatureK > 0.0)) return 0.0;
+    double lum = 0.0;  // same 1 nm Riemann sum as blackbodyLuminanceNorm (pkg122)
+    for (int lambda = 360; lambda <= 830; ++lambda) {
+        double bb = planck(static_cast<double>(lambda), temperatureK) * 1e9;
+        lum += bb * static_cast<double>(cieCmf1931_2deg(static_cast<float>(lambda)).Y);
+    }
+    return lum;
+}
+
+const std::vector<float>& blackbodyLogLuminanceLut() {
+    static const std::vector<float> lut = [] {
+        std::vector<float> t(static_cast<size_t>(kBBLutN));
+        const double lnMin = double(kBBLutLnTMin);
+        const double h = 1.0 / double(kBBLutInvH);   // the index formula's step
+        for (int k = 0; k < kBBLutN; ++k) {
+            double lum = blackbodyLuminanceIntegral(std::exp(lnMin + h * double(k)));
+            t[size_t(k)] = (lum > 0.0) ? static_cast<float>(std::log(lum)) : -1e30f;
+        }
+        return t;
+    }();
+    return lut;
+}
+
 float normalizedPlanck(float lambdaNm, float temperatureK) {
-    if (!(temperatureK > 0.0f)) return 0.0f;
-    // blackbodyLuminanceNorm memoises per rounded kelvin (thread_local), so a
-    // temperature grid costs one 471-step integral per distinct kelvin per thread.
-    float norm = blackbodyLuminanceNorm(static_cast<double>(temperatureK));
-    if (!(norm > 0.0f)) return 0.0f;
-    double bb = planck(static_cast<double>(lambdaNm), static_cast<double>(temperatureK)) * 1e9;
-    return static_cast<float>(bb) * norm;
+    // #828: the shared CPU/GPU formula (blackbody_lut.h). Replaces the float
+    // blackbodyLuminanceNorm() product, which gave NaN for T ~ 25-140 K
+    // (normaliser overflowed to inf, float(planck) underflowed to 0), and any
+    // per-kelvin memo, which mis-normalises non-integer grid temperatures.
+    return bbNormalizedPlanck(lambdaNm, temperatureK, blackbodyLogLuminanceLut().data());
 }
 
 }  // namespace volume

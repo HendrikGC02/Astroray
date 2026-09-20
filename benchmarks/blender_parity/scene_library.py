@@ -2767,6 +2767,192 @@ REFERENCE_RENDER_SETTINGS_RES = (640, 360)
 REFERENCE_RENDER_SETTINGS_SAMPLES = 128
 
 
+# --------------------------------------------------------------------------- #
+# pkg271 -- `volumes` family: a scattering smoke plume + an emissive blackbody
+# fire, both OpenVDB Volume objects built from deterministic synthetic grids
+# (seeded numpy value-noise fBm, written with Blender's bundled openvdb; no
+# third-party asset, so licence-clean). Also the source of the Batch Q showcase.
+# --------------------------------------------------------------------------- #
+
+VOLUMES_ASSET_DIR_REL = "benchmarks/reference_corpus/assets"
+VOLUMES_SMOKE_VDB = "volumes_smoke_plume.vdb"
+VOLUMES_FIRE_VDB = "volumes_fire.vdb"
+
+
+def _value_noise3(np, n, cells, rng):
+    """Value noise on a (cells+1)^3 random lattice, sampled on an n^3 grid with
+    smoothstep-weighted trilinear interpolation (separable). Array order [x,y,z]."""
+    lat = rng.random((cells + 1, cells + 1, cells + 1), dtype=np.float32)
+    t = np.linspace(0.0, cells, n, endpoint=False, dtype=np.float32)
+    i = t.astype(np.int32)
+    f = t - i
+    f = f * f * (3.0 - 2.0 * f)
+    a = lat[i, :, :] * (1.0 - f)[:, None, None] + lat[i + 1, :, :] * f[:, None, None]
+    b = a[:, i, :] * (1.0 - f)[None, :, None] + a[:, i + 1, :] * f[None, :, None]
+    return b[:, :, i] * (1.0 - f)[None, None, :] + b[:, :, i + 1] * f[None, None, :]
+
+
+def _fbm3(np, n, rng, octaves=5, base_cells=3):
+    out = np.zeros((n, n, n), dtype=np.float32)
+    amp, total = 0.5, 0.0
+    for o in range(octaves):
+        out += amp * _value_noise3(np, n, base_cells * (2 ** o), rng)
+        total += amp
+        amp *= 0.5
+    return out / total
+
+
+def _smoothstep(np, e0, e1, x):
+    t = np.clip((x - e0) / (e1 - e0), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+def volumes_synthetic_grids(n=64, seed=271):
+    """Return (smoke_density, fire_density, fire_temperature) float32 [x,y,z]
+    arrays in [0,1]. Normalised coords: u,v in [-0.5,0.5] horizontal, h in
+    [0,1] up (Blender Z)."""
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    ax = (np.arange(n, dtype=np.float32) + 0.5) / n
+    u = (ax - 0.5)[:, None, None]
+    v = (ax - 0.5)[None, :, None]
+    h = ax[None, None, :]
+    noise_a = _fbm3(np, n, rng)
+    noise_b = _fbm3(np, n, rng, octaves=4, base_cells=4)
+
+    # Smoke plume: a column that widens and drifts with height, eroded by fBm.
+    sway = 0.10 * np.sin(5.0 * h + 0.7) * h
+    ru = (u - sway) / (0.10 + 0.28 * h)
+    rv = (v + 0.05 * np.cos(4.0 * h)) / (0.10 + 0.28 * h)
+    body = np.clip(1.0 - np.sqrt(ru * ru + rv * rv), 0.0, 1.0)
+    fade = _smoothstep(np, 0.0, 0.12, h) * (1.0 - _smoothstep(np, 0.82, 1.0, h))
+    smoke = body * fade * np.clip(2.4 * noise_a - 0.85, 0.0, 1.0)
+    smoke = np.clip(smoke * 2.2, 0.0, 1.0).astype(np.float32)
+
+    # Fire: a tapering flame at the base (temperature) under a sooty plume.
+    rf = np.sqrt(u * u + v * v) / np.maximum(0.30 * (1.0 - h / 0.85), 1e-3)
+    flame = np.clip(1.2 - rf + 0.7 * (noise_b - 0.5), 0.0, 1.0) * (h < 0.85)
+    temp = (flame ** 0.9) * (1.0 - _smoothstep(np, 0.30, 0.80, h))
+    soot_r = np.sqrt((u - 0.04 * h) ** 2 + v * v) / (0.12 + 0.22 * h)
+    soot = np.clip(1.0 - soot_r, 0.0, 1.0) * _smoothstep(np, 0.25, 0.55, h) \
+        * (1.0 - _smoothstep(np, 0.85, 1.0, h)) * np.clip(1.6 * noise_a - 0.4, 0.0, 1.0)
+    fire_density = np.clip(0.2 * flame + 2.0 * soot, 0.0, 1.0).astype(np.float32)
+    return smoke, fire_density, temp.astype(np.float32)
+
+
+def write_volumes_vdbs(out_dir, n=64, seed=271, size=2.4):
+    """Write the smoke / fire .vdb files (Blender's bundled openvdb). Returns
+    {'smoke': path, 'fire': path}. Voxel size ``size / n`` -> a ``size`` cube."""
+    import os
+
+    import numpy as np
+    import openvdb
+
+    smoke, fire_d, fire_t = volumes_synthetic_grids(n, seed)
+    os.makedirs(out_dir, exist_ok=True)
+    paths = {}
+    for key, fname, grids in (("smoke", VOLUMES_SMOKE_VDB, (("density", smoke),)),
+                              ("fire", VOLUMES_FIRE_VDB,
+                               (("density", fire_d), ("temperature", fire_t)))):
+        out = []
+        for name, arr in grids:
+            g = openvdb.FloatGrid()
+            g.copyFromArray(np.ascontiguousarray(arr))
+            g.name = name
+            g.transform = openvdb.createLinearTransform(voxelSize=size / n)
+            out.append(g)
+        path = os.path.join(out_dir, fname)
+        openvdb.write(path, grids=out)
+        paths[key] = path
+    return paths
+
+
+def _volume_object(bpy, scene, name, vdb_path, location, material):
+    vol = bpy.data.volumes.new(name)
+    vol.filepath = vdb_path
+    obj = bpy.data.objects.new(name, vol)
+    obj.location = location
+    scene.collection.objects.link(obj)
+    vol.materials.append(material)
+    return obj
+
+
+def _principled_volume_material(bpy, name, *, density, color, anisotropy=0.0,
+                                blackbody=0.0, temperature=1000.0):
+    mat, nt, out = _bare_material(bpy, name)
+    pv = nt.nodes.new("ShaderNodeVolumePrincipled")
+    _sock(pv.inputs, "Density").default_value = density
+    _sock(pv.inputs, "Color").default_value = (color[0], color[1], color[2], 1.0)
+    _sock(pv.inputs, "Anisotropy").default_value = anisotropy
+    _sock(pv.inputs, "Blackbody Intensity").default_value = blackbody
+    _sock(pv.inputs, "Temperature").default_value = temperature
+    nt.links.new(_sock(pv.outputs, "Volume"), _sock(out.inputs, "Volume"))
+    return mat
+
+
+def build_volumes_smoke_scene(bpy, vdb_dir=None, grid_res=64):
+    """pkg271 `volumes` family: a sun-lit scattering smoke plume (left) and a
+    self-lit blackbody fire with a sooty plume (right) standing on a dark
+    ground, one fixed camera. Proves the family's one allocated matrix row,
+    RenderSettings.volume_bounces (authored non-default: 2 -- the smoke's
+    multiple scattering and the fire lighting its own soot both depend on
+    it). The Principled Volume rows stay with geometry_zoo (allocation table).
+    The two grids' AABBs are disjoint on purpose (the engine tracks one medium
+    per ray segment)."""
+    import os
+    scene = _reset(bpy)
+    _add_world(bpy, scene, strength=0.35, color=(0.05, 0.06, 0.09))
+    tags = []
+    gap_tags = []
+
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    vdb_dir = vdb_dir or os.path.join(repo_root, VOLUMES_ASSET_DIR_REL)
+    paths = write_volumes_vdbs(vdb_dir, n=grid_res)
+
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0.0, 0.0, 0.0))
+    ground = bpy.context.active_object
+    ground.name = "VolumesGround"
+    ground.scale = (14.0, 10.0, 1.0)
+    _apply_principled(bpy, ground, (0.16, 0.16, 0.17), roughness=0.9, name="VolumesGroundMat")
+
+    SIZE = 2.4
+    smoke_mat = _principled_volume_material(bpy, "SmokeMat", density=8.0,
+                                            color=(0.82, 0.84, 0.88), anisotropy=0.35)
+    fire_mat = _principled_volume_material(bpy, "FireMat", density=3.0,
+                                           color=(0.25, 0.24, 0.23), anisotropy=0.2,
+                                           blackbody=1.0, temperature=2300.0)
+    _volume_object(bpy, scene, "SmokePlume", paths["smoke"], (-1.5 - SIZE / 2, -SIZE / 2, 0.0),
+                   smoke_mat)
+    _volume_object(bpy, scene, "Fire", paths["fire"], (1.5 - SIZE / 2, -SIZE / 2, 0.0), fire_mat)
+
+    sun = bpy.data.lights.new("VolumesSun", "SUN")
+    sun.energy = 4.0
+    sun.color = (1.0, 0.96, 0.9)
+    sun.angle = math.radians(2.0)
+    sun_obj = bpy.data.objects.new("VolumesSun", sun)
+    sun_obj.rotation_euler = (math.radians(50.0), 0.0, math.radians(-40.0))
+    scene.collection.objects.link(sun_obj)
+
+    scene.cycles.volume_bounces = 2
+    tag = tags.append
+    tag(("", "volume_bounces"))
+
+    CAM_DIST = 8.0
+    cam = _add_pinned_camera(bpy, scene, (0.0, -CAM_DIST, 1.5), (0.0, 0.0, 1.15), lens=35.0)
+    cam.data.sensor_width = 36.0
+    fov_x = 2.0 * math.atan(cam.data.sensor_width / (2.0 * cam.data.lens))
+    crop_rects = {
+        "smoke": _crop_rect(CAM_DIST, fov_x, -1.5 - SIZE / 2, -1.5 + SIZE / 2, y0=0.08, y1=0.92),
+        "fire": _crop_rect(CAM_DIST, fov_x, 1.5 - SIZE / 2, 1.5 + SIZE / 2, y0=0.08, y1=0.92),
+    }
+    scene["volumes_vdb_paths"] = [paths["smoke"], paths["fire"]]
+    return scene, tags, crop_rects, gap_tags
+
+
+REFERENCE_VOLUMES_RES = (640, 360)
+REFERENCE_VOLUMES_SAMPLES = 128
+
+
 REFERENCE_SCENES = {
     "cornell_interior": dict(
         builder=build_cornell_interior_scene,

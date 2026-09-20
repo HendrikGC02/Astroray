@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** open
+**Status:** done — PR #838, 2026-09-20: grid volume passes sum to beauty (rel_L1 CPU 2.3e-5, GPU 7e-6); `volume_bounces` wired in the engine (was ignored) with Cycles max_volume_bounce semantics, 0/2/unlimited smoke 0.037/0.072/0.101 CPU, GPU/CPU 1.007 at 0; corpus `volumes` family, Astroray/Cycles crop band 0.974-0.996; Blender headless Volume F12 CPU+GPU. Was: open
 **Estimated effort:** 3 sessions (~9 h)
 **Depends on:** pkg269, pkg270
 
@@ -119,15 +119,26 @@ Research: `docs/volumes-track-research-2026-09-12.md` §1d, §5.
 
 ## Progress
 
-- [ ] CPU + GPU volume direct/indirect pass split for grids.
-- [ ] `volume_bounces` honour + settings_map flip + output-effect test.
-- [ ] `volumes_smoke` corpus scene + manifest rows.
-- [ ] Blender headless import+render test.
-- [ ] Pass all gates; Cycles A/B band; contact-sheet inspection; RTX sweep.
+- [x] CPU + GPU volume direct/indirect pass split for grids (already routed by
+      pkg269/270; this package adds the gate, `tests/test_pkg271_volume_passes.py`).
+- [x] `volume_bounces` honour + settings_map flip + output-effect test. The engine
+      ignored the argument (`(void)argVolumeBounces`); now wired on both backends.
+- [x] `volumes_smoke` corpus scene + manifest rows (builder in
+      `benchmarks/blender_parity/scene_library.py` per the corpus convention, not a
+      `scenes/volumes_smoke.py`; synthetic CC0 `.vdb` assets).
+- [x] Blender headless import+render test.
+- [x] Gates, Cycles A/B band (corpus README), contact sheets inspected (Claude).
+      RTX sweep: lead closeout.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The spec's premise "volume_bounces is wired through transport" was false; read
+  the engine before trusting a spec's context line.
+- Cycles' volume_bounces is not a hard stop: past the cap the continuation still
+  attenuates and collects emission (PATH_RAY_TERMINATE_AFTER_TRANSPARENT). A hard
+  stop would render fire-lit smoke black at Blender's default of 0.
+- Blender's default `volume_bounces = 0` is now honoured: the corpus smoke is 21 %
+  darker than main's (unlimited) render, matching Cycles at 0 within 2 %.
 </content>

@@ -107,6 +107,46 @@ __device__ inline float gridExtinctionMajorant(const GGridMedium& m)
     return m.densityScale * m.maxDensity + 1e-8f;
 }
 
+// #828 — nearest-voxel temperature grid value at a world point (0 outside).
+// Device twin of GridMedium::temperatureWorld: the density grid's world->index
+// affine, std::lround-style rounding (lroundf), the dense block's own origin.
+__device__ inline float gridTemperatureAt(const GGridMedium& m, const GVec3& p)
+{
+    const float* M = m.worldToIndex;
+    float ix = M[0] * p.x + M[1] * p.y + M[2]  * p.z + M[3];
+    float iy = M[4] * p.x + M[5] * p.y + M[6]  * p.z + M[7];
+    float iz = M[8] * p.x + M[9] * p.y + M[10] * p.z + M[11];
+    int x = (int)lroundf(ix) - m.tempBboxMin[0];
+    int y = (int)lroundf(iy) - m.tempBboxMin[1];
+    int z = (int)lroundf(iz) - m.tempBboxMin[2];
+    if (x < 0 || y < 0 || z < 0 || x >= m.tempDim[0] || y >= m.tempDim[1] || z >= m.tempDim[2])
+        return 0.f;
+    return m.tempGrid[((size_t)z * m.tempDim[1] + y) * m.tempDim[0] + x];
+}
+
+// #828 — blackbody emission per unit length at temperature T (device twin of
+// VolumeEmission::evalBlackbody): Cycles σ_SB·1e-6/π·mix(1,T⁴,I) × tint(λ) ×
+// normalised Planck(λ,T) — the SAME bbNormalizedPlanck formula and table the
+// CPU uses (include/astroray/volume/blackbody_lut.h).
+__device__ inline GSampledSpectrum gridBlackbody(const GGridMedium& m, float T,
+                                                 const GSampledWavelengths& wl)
+{
+    GSampledSpectrum s(0.f);
+    float T2 = T * T;
+    const float sigma = 5.670373e-8f * 1e-6f / M_PI_F;
+    float intensity = sigma * ((1.f - m.blackbodyIntensity) + m.blackbodyIntensity * T2 * T2);
+    if (!(intensity > 0.f)) return s;
+    GSampledSpectrum tint(1.f);
+    if (!m.bbTintIsWhite)
+        tint = gpu_rgbToSampledSpectrum(GVec3(m.bbTintR, m.bbTintG, m.bbTintB), wl,
+                                        GSPEC_RGB_ALBEDO);
+    const float* lut = g_bbLogLum;   // ABI-3: hoisted out of the lane loop
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+        s.v[i] = astroray::volume::bbNormalizedPlanck(wl.lambda[i], T, lut)
+                 * intensity * tint.v[i];
+    return s;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -117,9 +157,11 @@ __device__ inline float gridExtinctionMajorant(const GGridMedium& m)
 //   scatter with pS = σ_s[0]/σ̄ (beta, r_u *= σ_s/σ_s[0]),
 //   null    otherwise            (beta, r_u *= σ_n/σ_n[0]).
 // Escaping applies no factor (delta-track survival IS the transmittance).
-// Constant emission only on the GPU (blackbody needs the CPU Planck
-// normalisation table — pkg270 follow-up); in a GRID medium it is gated on
-// density(p) > 0 exactly like the CPU (Cycles bounds-mesh approximation).
+// Emission = constant (Emission Strength × Color) + #828 blackbody, gated like
+// the CPU BoundedMedium::emissionAt: in a GRID medium the constant term (and a
+// grid-less blackbody) needs density(p) > 0 (Cycles bounds-mesh approximation);
+// with a temperature grid T = Temperature × grid(p).
+// pkg271 noScatter: scatter collisions absorb (volume_bounces exhausted).
 // ---------------------------------------------------------------------------
 __device__ int gpu_gridVolumeTrack(int mi, const GVec3& o, const GVec3& d,
                                    float tMin, float tMax,
@@ -127,21 +169,22 @@ __device__ int gpu_gridVolumeTrack(int mi, const GVec3& o, const GVec3& d,
                                    GSampledSpectrum& beta, GSampledSpectrum& r_u,
                                    GSampledSpectrum& emission, float& tOut,
                                    uint32_t rpix, uint32_t rsmp, uint64_t rsd,
-                                   uint32_t salt)
+                                   uint32_t salt, bool noScatter)
 {
     const GGridMedium& m = c_wfGridVolume.media[mi];
     GSampledSpectrum sUnit, aUnit;
     gridCoeffs(m, wl, sUnit, aUnit);
     const float sigBar = fmaxf(gridExtinctionMajorant(m), m.emissionFloor + 1e-8f);
-    const bool emissive = m.emissionStrength > 0.f;
+    const bool hasConst = m.emissionStrength > 0.f;
+    const bool hasBB = m.blackbodyIntensity > 0.f;
     GSampledSpectrum Le(0.f);
-    if (emissive)
+    if (hasConst)
         Le = gpu_rgbToSampledSpectrum(GVec3(m.emisR, m.emisG, m.emisB), wl,
                                       GSPEC_RGB_ILLUMINANT) * m.emissionStrength;
     uint32_t draw = 0;
     float t = tMin;
     for (;;) {
-        float xi = gpu_freeflightUniform(rpix, rsmp, rsd, salt + draw++);
+        float xi = gpu_freeflightUniform(rpix, rsmp, rsd, salt + (draw++ & G_WF_GRID_DRAW_MASK));
         t -= __logf(fmaxf(1e-20f, 1.f - xi)) / sigBar;
         if (t >= tMax) return 0;
         GVec3 p = o + d * t;
@@ -151,14 +194,25 @@ __device__ int gpu_gridVolumeTrack(int mi, const GVec3& o, const GVec3& d,
         GSampledSpectrum sigN;
         for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
             sigN.v[i] = fmaxf(sigBar - sigS.v[i] - sigA.v[i], 0.f);
-        if (emissive && (!m.heterogeneous || dens > 0.f)) {
-            float w = 1.f / (sigBar * gpu_heroAverage(r_u, wl));
-            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
-                emission.v[i] += beta.v[i] * Le.v[i] * w;
+        if (hasConst || hasBB) {
+            const bool inActive = !m.heterogeneous || dens > 0.f;
+            GSampledSpectrum e(0.f);
+            if (hasConst && inActive) e = Le;
+            if (hasBB) {
+                float T = m.tempGrid ? m.temperature * gridTemperatureAt(m, p)
+                                     : (inActive ? m.temperature : 0.f);
+                if (T > 0.f) e += gridBlackbody(m, T, wl);
+            }
+            if (e.maxValue() > 0.f) {
+                float w = 1.f / (sigBar * gpu_heroAverage(r_u, wl));
+                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                    emission.v[i] += beta.v[i] * e.v[i] * w;
+            }
         }
         float pAbsorb  = sigA.v[0] / sigBar;
         float pScatter = sigS.v[0] / sigBar;
-        float um = gpu_freeflightUniform(rpix, rsmp, rsd, salt + draw++);
+        if (noScatter) { pAbsorb += pScatter; pScatter = 0.f; }
+        float um = gpu_freeflightUniform(rpix, rsmp, rsd, salt + (draw++ & G_WF_GRID_DRAW_MASK));
         if (um < pAbsorb) {
             beta = GSampledSpectrum(0.f);
             tOut = t;
@@ -204,7 +258,8 @@ __device__ GSampledSpectrum gpu_gridVolumeTransmittance(int mi, const GVec3& o,
     uint32_t draw = 0;
     float t = tMin;
     for (;;) {
-        float xi = gpu_freeflightUniform(rpix, rsmp, rsd, salt + draw++);
+        float xi = gpu_freeflightUniform(rpix, rsmp, rsd,
+                                         salt + (draw++ & G_WF_GRIDSHADOW_DRAW_MASK));
         t -= __logf(fmaxf(1e-20f, 1.f - xi)) / sigBar;
         if (t >= tMax) break;
         GVec3 p = o + d * t;
@@ -213,7 +268,8 @@ __device__ GSampledSpectrum gpu_gridVolumeTransmittance(int mi, const GVec3& o,
             Tr.v[i] *= fmaxf(sigBar - dens * (sUnit.v[i] + aUnit.v[i]), 0.f) / sigBar;
         float mx = Tr.maxValue();
         if (mx < 0.05f) {
-            if (gpu_freeflightUniform(rpix, rsmp, rsd, salt + draw++) > mx)
+            if (gpu_freeflightUniform(rpix, rsmp, rsd,
+                                      salt + (draw++ & G_WF_GRIDSHADOW_DRAW_MASK)) > mx)
                 return GSampledSpectrum(0.f);
             Tr = Tr * (1.f / fmaxf(mx, 1e-20f));
         }
@@ -324,6 +380,10 @@ __global__ void stageVolumeHeteroScatterKernel(
             }
         }
     }
+
+    // pkg271 — Cycles volume_bounce (+1 at this scatter); past the cap the
+    // continuation is terminate-after (intersect reads the per_type_bounce flag).
+    gpu_countVolumeBounce(state.per_type_bounce, idx, c_wfGridVolume.volumeBounceCap);
 
     // ---- HG phase-sampled continuation from P (throughput *= phase/pdf = 1) ----
     float phasePdf;

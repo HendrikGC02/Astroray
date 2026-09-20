@@ -12,6 +12,7 @@
 
 #include "gpu_spectral_tables.h"
 #include "astroray/spectrum.h"  // jhEvalSpectrumF + JH LUT accessors (pkg54c)
+#include "astroray/volume/volume_emission.h"  // #828 blackbodyLogLuminanceLut
 
 #include <cuda_runtime.h>
 #include <cstdio>
@@ -430,6 +431,23 @@ void uploadEmissionProfileTable(const float* host, int count) {
         fprintf(stderr, "uploadEmissionProfileTable failed: %s\n", cudaGetErrorString(e));
         throw std::runtime_error(cudaGetErrorString(e));
     }
+}
+
+// #828 — blackbody photopic-normaliser table (see the declaration in
+// gpu_spectral_tables.h): the SAME host table the CPU normalizedPlanck reads.
+__device__ float g_bbLogLum[astroray::volume::kBBLutN];
+
+void uploadBlackbodyLuminanceLut() {
+    static bool uploaded = false;
+    if (uploaded) return;
+    const std::vector<float>& lut = astroray::volume::blackbodyLogLuminanceLut();
+    cudaError_t e = cudaMemcpyToSymbol(g_bbLogLum, lut.data(),
+                                       sizeof(float) * astroray::volume::kBBLutN);
+    if (e != cudaSuccess) {
+        fprintf(stderr, "uploadBlackbodyLuminanceLut failed: %s\n", cudaGetErrorString(e));
+        throw std::runtime_error(cudaGetErrorString(e));
+    }
+    uploaded = true;
 }
 
 // pkg55-B' Session N+6: non-inline export of spectrumToXYZ for the wavefront

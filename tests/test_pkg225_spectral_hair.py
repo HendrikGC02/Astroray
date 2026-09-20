@@ -243,13 +243,14 @@ def test_spectral_melanin_distinct_and_red_dominant():
     not (AVAILABLE and astroray.__features__.get("cuda", False)),
     reason="CUDA feature not in this build -- GPU spectral melanin parity needs the RTX box.")
 def test_gpu_spectral_melanin_matches_cpu():
-    # Pooled over 7 seeds (#767 / PR #837), now including the historical fixed
+    # Pooled over these 7 seeds (#767 / PR #837), including the historical fixed
     # SEED = 225501. One seed's ~130 lit pixels gave a per-seed B GPU/CPU spread
-    # of 0.79-0.91 on main (2 of 6 seeds below the 0.85 floor), so the
+    # of 0.79-0.91 on main (2 of 7 seeds below the 0.85 floor), so the
     # single-seed gate measured noise. The CIE 1931 table change re-rolled the
-    # RR stream and moved the single seed to 0.832. Pooled B: main 0.865, #837
-    # 0.880. [The 0.865/0.880 pooled-B figures were measured over the original
-    # 6 seeds; they MUST be re-measured now that SEED=225501 is in the pool.]
+    # RR stream and moved SEED=225501 from 0.869 to 0.832. Re-measured over all
+    # 7 seeds under the GPU lock: pooled GPU/CPU = (0.956, 0.942, 0.865) on
+    # main and (0.959, 0.941, 0.873) on #837 -- the fix does not regress it.
+    # The underlying GPU-vs-CPU hair difference is pre-existing (#853).
     def _lum(im):
         return 0.2126 * im[..., 0] + 0.7152 * im[..., 1] + 0.0722 * im[..., 2]
     cs, gs = np.zeros(3), np.zeros(3)

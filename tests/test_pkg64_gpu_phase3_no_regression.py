@@ -112,6 +112,16 @@ def test_empty_hook_bit_equality():
 
     pix, _ = _render(seed=145, use_caustics=False)
 
+    # Re-captured 2026-09-20 (#767 observer change, PR #837 -> main). The pins
+    # were taken under the CIE 1964 10 deg observer; the engine now integrates
+    # with CIE 1931 2 deg (the observer the XYZ->sRGB matrix and the
+    # Jakob-Hanika LUT are defined against), so every spectral render shifts:
+    # this Cornell's channel means moved (0.21171, 0.18551, 0.19635) ->
+    # (0.21676, 0.18318, 0.19934) and max|render - old pin| was 2.675e-02.
+    # The bit-equality PROPERTY is intact and was verified on the current build
+    # before re-capturing: rendering with the caustics toggle ON (no caster
+    # flagged) vs OFF gives max|on - off| == 0.000000e+00 in both phases, and
+    # the pre-observer build still matched its own pin at exactly 0.0.
     # pkg225-S6: refuse to pin (or compare against) an all-black frame. Both
     # pinned Cornell baselines here were captured while the GPU
     # multiwavelength route was light-sampling-blind, so they were literally

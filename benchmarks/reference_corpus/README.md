@@ -382,13 +382,17 @@ builder rewrites them on every build (sha256 in the manifest `assets`).
 ## `volumes` A/B cross-check band (pkg271)
 
 Per-crop linear mean, Astroray CPU / Cycles CPU, 640x360 @128 spp (2026-09-20,
-`480212796`). A cross-check band, not a gate: Astroray tracks sigma and Planck
-spectrally (pkg270), Cycles in RGB.
+post-#837 observer, build `6d9f253d`). A cross-check band, not a gate: Astroray
+tracks sigma and Planck spectrally (pkg270), Cycles in RGB.
 
 | Setting | smoke R/G/B | fire R/G/B |
 |---|---|---|
-| authored `volume_bounces` = 2 | 0.982 / 0.996 / 0.976 | 0.986 / 0.994 / 0.974 |
-| Blender default `volume_bounces` = 0 | 0.983 / 0.996 / 0.977 | 0.985 / 0.995 / 0.977 |
+| authored `volume_bounces` = 2 | 0.987 / 0.989 / 0.989 | 0.989 / 0.986 / 0.988 |
+| Blender default `volume_bounces` = 0 | 0.987 / 0.988 / 0.989 | 0.990 / 0.989 / 0.989 |
+| `volume_bounces` = 64 (pre-pkg271 behaviour) | 0.985 / 0.987 / 0.987 | 0.988 / 0.986 / 0.988 |
+
+`volume_bounces` itself moves the smoke crop the same way in both engines: 0 vs 64
+is 0.0680 vs 0.0861 in Astroray (0.79) and 0.0689 vs 0.0874 in Cycles (0.79).
 
 ## `geometry_zoo` volume cabinet — matched-setting gap (pkg271 finding)
 
@@ -410,7 +414,7 @@ settings the mesh-volume cabinet is 20-25 % dark in both settings, i.e. a
 pre-existing bounded-media gap (mesh -> world-AABB lowering, the Volume
 Scatter/Absorption socket lowering, or the missing equiangular sampling for
 bounded media), not a `volume_bounces` defect — the `volumes_smoke` grid scene
-matches Cycles to within 2 % at both settings. Follow-up material.
+matches Cycles to within 2 % at both settings. Tracked as **#860**.
 
 ## Known Phase-3 gaps and findings (deliberate scope cuts, and inspection notes)
 

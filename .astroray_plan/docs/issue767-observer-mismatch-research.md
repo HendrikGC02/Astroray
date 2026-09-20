@@ -97,6 +97,23 @@ matches the 10° model to ≤1.3 %; the remainder is sun MC noise.
 - `include/astroray/spectral.h` already carried a 1931 2° 5 nm table (legacy
   `SpectralSample`, ReSTIR luminance). The pkg218 thread-B "1931/1964 split" is gone.
 
+## CI fallout: the five tests the observer change turned red
+
+All five pass on main's pre-fix `.pyd` and failed on this build; each was
+attributed against main before being touched.
+
+| test | what it measured | outcome |
+|---|---|---|
+| pkg242 transformed-P pin | mean RGB of a grey checker | **re-baselined**. The old pin's B/R was 0.9836; the 10° table applies −1.7 % blue to a neutral illuminant (quadrature 0.9831). New means are neutral (B/R 1.0003), R and std unchanged. The old note already called the asymmetry "the deterministic spectral RGB round-trip" |
+| pkg242 uvless pin | same numbers, same scene | **re-baselined**, same argument |
+| pkg67 flat SSIM ≥ 0.999 | bit-identity against a committed PNG | **re-baselined**. Two seeds on one build score SSIM 0.13 at 16 spp, so 0.999 only holds for an unchanged RNG stream and colour pipeline. The authored sky (0.5, 0.7, 1.0) round-tripped to (0.496, 0.722, 0.993) under 10° (+3.2 % G) and now renders (0.5008, 0.6994, 1.0046) linear. Regenerated with `benchmarks/pkg67_flat_perf.capture_baseline` |
+| pkg108 Disney transmission tint | gamma ROI means, red vs blue tint | **metric fixed, band unchanged**. At intensity 35 both R and B clip to 1.0 in gamma, so the ratio measured clipped area. It passed pre-fix only because 10° drove the blue tint's red negative (blue tint reconstructs (0.00, 0.12, 0.96) under 10° vs (0.05, 0.05, 0.95) under 2°). In linear the tint is unmistakable on both builds: in-render R/B 25.2 red / 0.118 blue here, 38.7 / 0.042 pre-fix |
+| pkg127 poly vs Newton focus | 99.5th percentile of raw luminance, 5 seeds | **statistic fixed, band unchanged**. A single-pixel sparse-event statistic: over 32 seeds / 200 five-seed draws only 61 % land in [0.7, 1.3] here and 62 % pre-fix (p95 3.39). Pooling 24 seeds + a 3×3 smooth converges to 0.96 here and 0.93 pre-fix, 100 % of draws in band |
+
+Neither pkg108 nor pkg127 is a physical regression from the observer swap: the
+first is a clipping artefact whose old pass depended on the observer error, the
+second is noise whose realisation the table change re-rolled.
+
 ## After-fix measurement (build 887bdfb0, same addon renders)
 
 The fix `.pyd` was overlaid on a scratch copy of the 916907b staged addon; the

@@ -14,8 +14,8 @@ Before: each row (a)–(f) of the Pillar-4 exit gate is measured, if at all, by 
 After: every row is produced by its own scripted instrument, and `docs/blender_parity/acceptance_manifest.json` records scene SHA-256s, build id, backend,
 settings, metric, threshold and evidence path per row — re-measurable and auditable from one file.
 
-pkg278's exit permits measured RED rows: its deliverable is the validated
-instruments + reproducible commands + evidence for every row. A row without an instrument stays UNMEASURED (`value: null`, `status: unmeasured`); a red measurement is a valid result, not a failure of this package.
+pkg278's exit permits measured RED rows: its deliverable is the validated instruments + reproducible commands + evidence for every row. A row without an
+instrument stays UNMEASURED (`value: null`, `status: unmeasured`); a red measurement is a valid result, not a package failure.
 
 ---
 
@@ -34,6 +34,7 @@ This package builds the instruments only; fixing what they measure is Stage 0b�
 - 2026-09-22: Astra turn-2 review amendments applied (planning session).
 - 2026-09-22: Codex Terra review defects applied (planning session).
 - 2026-09-22: Astra turn-4 sign-off discrepancies closed (planning session).
+- 2026-09-22: Codex Terra review defects applied (planning session).
 - 2026-09-22: Codex Terra review defects applied (planning session).
 
 ---
@@ -77,7 +78,7 @@ This package builds the instruments only; fixing what they measure is Stage 0b�
 | File | What changes |
 |---|---|
 | `benchmarks/blender_parity/harness.py` | Export a per-feature verdict JSON for the manifest; reuse the existing pkg119b triage output, add no new metric. |
-| `benchmarks/reference_bank/runner.py` | Add a per-channel mean-ratio gate type; SSIM stays a diagnostic print for the reference bank and the HDRI CPU/GPU parity gate only (owner 2026-09-08) — NOT for exit-gate (c), which gates on SSIM. |
+| `benchmarks/reference_bank/runner.py` | Add a per-channel mean-ratio gate type; SSIM stays a diagnostic print for the reference bank and the HDRI CPU/GPU parity gate only (owner 2026-09-08). Exit-gate (c) is the exception: it requires SSIM ≥ 0.95 (see Gate (c) trio). |
 | `scripts/README.md` | Register `coverage_report.py`, `scripts/gate_manifest.py` and `scripts/validate_clean_install.py`. |
 | `.astroray_plan/docs/KNOWN_ISSUES.md` | Publish the severity rubric: high = wrong image, crash, or a native setting silently ignored; medium = degraded but flagged; low = cosmetic. |
 | `benchmarks/blender_parity/scene_library.py` | `REFERENCE_SCENES` reads the corpus directory instead of the hard-coded three. |
@@ -110,8 +111,9 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
   required fields present; every `evidence_path` exists and its recorded SHA-256
   matches; `build_id` and `backend` present; all mandatory measurements for that
   row present — (a) 3×100 repetitions on both pinned scenes, GPU-only latency,
-  denoise excluded, p95/p99 and cancel-ack limits; (c) separate CPU and GPU F12
-  exit status plus SHA-pinned images and metrics; (f) the five hash-locked
+  denoise excluded, p95/p99 and cancel-ack limits; (b) subchecks b1–b6 all true;
+  (c) separate CPU and GPU F12 exit status plus SHA-pinned images and metrics;
+  (e) a reconciled snapshot with `high_count == 0`; (f) the five hash-locked
   clean-install checks (fresh profile, ZIP SHA-256, installer path, toolchain
   absence, F12 exit 0); `value` inside `threshold`.
 - Any missing or dangling item makes the row RED or UNMEASURED — never GREEN by
@@ -129,24 +131,24 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
   the manifest; an unproven claim defaults to `s_{i,b} = 0` — it can never raise
   the score. EACH backend must pass 95 % separately; never average
   backends into a single score.
-- Scoring rules:
-  - (a) scene hashes, exercised uses, socket identities, weights and exclusions
-    are FROZEN in a committed input manifest before scoring; the manifest's
-    SHA-256 is recorded in the report, every exclusion carries a written
-    rationale, and any change is a new manifest version, never an edit.
-  - (b) exercised uses are derived from the scene node trees and Blender/Cycles
-    reachability — a use Astroray drops stays in the denominator.
-  - (c) a SUPPORTED claim must cover the frozen exercised variants of the socket
-    and link per-backend, per-variant rendered/test evidence; a working constant
-    input does not validate linked programs. No linked artifact ⇒ 0.
-  - (d) 0.5 is awarded only for a functioning bounded approximation with a
-    user-visible attributable warning and a linked evidence artifact; "ignored
-    but warned" scores 0.
-  - (e) missing evidence is not SUPPORTED; a missing corpus asset invalidates the
-    run.
-  - (f) zero silent drops in corpus scenes is a separate Boolean requirement, not
-    a diagnostic.
-  - (g) the mandatory Principled-advanced, Metallic BSDF, Sky texture and Displacement checks are their own rows even if corpus weighting hides them.
+- Scoring rules: (a) scene hashes, exercised uses, socket identities, weights and
+  exclusions are FROZEN in a committed input manifest before scoring; its SHA-256
+  is recorded, every exclusion carries a written rationale, and any change is a
+  new manifest version, never an edit. (b) exercised uses come from the scene node
+  trees and Blender/Cycles reachability — a use Astroray drops stays in the
+  denominator. (c) a SUPPORTED claim must cover the frozen exercised variants and
+  link per-backend, per-variant rendered/test evidence; a working constant input
+  does not validate linked programs, and no linked artifact ⇒ 0. (d) 0.5 is
+  awarded only for a functioning bounded approximation with a user-visible
+  attributable warning and linked evidence; "ignored but warned" scores 0.
+  (e) missing evidence is not SUPPORTED; a missing corpus asset invalidates the run.
+- Row (b) GREEN is COMPUTED and requires EVERY subcheck below present and true;
+  any missing, false, dangling or unlinked subcheck makes (b) RED:
+  - b1 — input manifest hash-locked to a committed version and owner-ratified.
+  - b2 — CPU score `S_CPU ≥ 0.95`; b3 — GPU score `S_GPU ≥ 0.95`.
+  - b4 — zero silent drops in corpus scenes.
+  - b5 — Principled-advanced, Metallic BSDF, Sky texture and Displacement checks pass.
+  - b6 — every nonzero classification links its per-backend, per-variant evidence artifact.
 - Count EXERCISED sockets by reopening each `.blend` and reading its node tree,
   not from manifest labels.
 - The nine-scene score is PROVISIONAL until the owner ratifies the population (`stage-plan-2026-09-22.md` §6); the unfrozen "~50 scenes" original is
@@ -181,27 +183,24 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
 
 #### Gate (e) triage
 
-- Publish the severity rubric in `.astroray_plan/docs/KNOWN_ISSUES.md`: high = wrong image, crash, or a native setting silently ignored;
-  medium = degraded but flagged; low = cosmetic.
+- Publish the rubric in `.astroray_plan/docs/KNOWN_ISSUES.md` (Files to modify): high = wrong image, crash, or silently ignored native setting; medium = degraded but flagged; low = cosmetic.
 - The LIVE open-issue population is captured at acceptance time by an exhaustive paginated query:
   `gh issue list --repo HendrikGC02/Astroray --state open --limit 1000 --json number,title,labels` (`--limit 1000` frozen 2026-09-22, lead may adjust; it must
   exceed the reported total, and if exactly `--limit` rows return the limit is raised and the query re-run). The command, timestamp and full issue-ID snapshot
   are stored in the manifest together with the snapshot's SHA-256 and issue count; a machine check asserts the count equals the query's reported total and that
-  all IDs are unique. Reconciliation rule: every snapshot issue needs an independent signed rating; the query is re-run until the delta is empty, and any
-  unrated, newly-appeared or count/hash-mismatched issue blocks GREEN.
+  all IDs are unique. Reconciliation rule: every snapshot issue needs an independent signed rating; the query is re-run until the delta is empty. Row (e) GREEN is
+  COMPUTED and requires BOTH a fully reconciled snapshot (no unrated, newly-appeared, duplicate or count/hash-mismatched issue) AND `high_count == 0`; any high-rated issue makes (e) RED.
 - Every open issue is rated under the rubric by an independent pass (Codex Terra), not by label — the gate cannot be met by relabeling.
 
 #### Gate (f) clean install
 
-- Fresh Blender profile; install the ZIP through Blender's own extension installer
-  (distinct from `scripts/dev_addon.ps1`); machine without the build toolchain; one F12 render.
-- `scripts/validate_clean_install.py` captures and validates the run, emitting
-  `docs/blender_parity/evidence/install-clean-machine/checks.json` with a SHA-256 over each artifact.
-  Mandatory checks, each GREEN-required: (1) profile fresh — no prior `astroray` addon or userpref entry;
-  (2) ZIP identity — installed ZIP SHA-256 equals the recorded build artifact; (3) installer path — installed
-  through Blender's extension installer, not `scripts/dev_addon.ps1` or a source path; (4) no build toolchain
-  present and no source-tree fallback imported; (5) F12 render exits 0 and writes the pinned PNG. A missing
-  or hash-mismatched check is RED; procedure in `docs/install-clean-machine.md`.
+- Fresh Blender profile; install the ZIP through Blender's own extension installer (distinct from `scripts/dev_addon.ps1`); machine without the build
+  toolchain; one F12 render.
+- `scripts/validate_clean_install.py` captures and validates the run, emitting `docs/blender_parity/evidence/install-clean-machine/checks.json` with a
+  SHA-256 over each artifact. Mandatory GREEN-required checks: (1) profile fresh — no prior `astroray` addon or userpref entry; (2) ZIP identity — installed
+  ZIP SHA-256 equals the recorded build artifact; (3) installer path — through Blender's extension installer, not `scripts/dev_addon.ps1` or a source path;
+  (4) no build toolchain present and no source-tree fallback imported; (5) F12 exits 0 and writes the pinned PNG. A missing or hash-mismatched check is RED;
+  procedure in `docs/install-clean-machine.md`.
 
 ---
 
@@ -226,7 +225,7 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
 - [ ] GPU parity rows, the real-Blender viewport table and the clean-machine install each have their own execution slot recorded in the manifest
       (CPU-only lanes cannot produce them). Gate (c) GREEN additionally requires separate successful CPU and GPU render exit statuses, SHA-256-pinned images and
       metrics for every trio scene.
-- [ ] Gate (b) GREEN requires a hash-locked, owner-ratified input manifest and linked evidence for every nonzero classification; a PROVISIONAL population is
+- [ ] Gate (b) GREEN requires a hash-locked, owner-ratified input manifest, all subchecks b1–b6 true (including zero silent drops), and linked evidence for every nonzero classification; a PROVISIONAL population is
       ineligible for GREEN.
 
 ---

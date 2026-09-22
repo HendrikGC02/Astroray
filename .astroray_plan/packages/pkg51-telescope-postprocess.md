@@ -10,8 +10,7 @@
 
 ## Goal
 
-**Before:** Astroray has no instrument model: it samples path wavelengths uniformly over the
-band, outputs one broadband image, and has no PSF, per-channel detector response or photon counts.
+**Before:** no instrument model — uniform band sampling, one broadband image, no PSF, detector response or photon counts.
 
 **After:** One declared instrument pipeline in fixed dependency order — trusted spectral
 output (pkg243) → flux-normalized radiance microbins (render-time, per path wavelength,
@@ -65,8 +64,7 @@ an instrument. pkg133's design merges here as Phase 1, preserving "separate impl
 - Hero-wavelength basis: Wilkie et al., EGSR 2014, DOI 10.1111/cgf.12419.
 - pkg133 source record: `.astroray_plan/docs/2026-07-other-engines-research.md §3`.
 - Case-B ratio: A&A 2021 grid, https://www.aanda.org/articles/aa/pdf/2021/10/aa40890-21.pdf.
-- Infrastructure: `include/astroray/pass.h` (pass registry), `include/astroray/fits_io.h` (FITS cubes),
-  `include/astroray/spectrum.h` (`kLambdaMin`/`kLambdaMax`).
+- Infrastructure: `include/astroray/pass.h`, `include/astroray/fits_io.h`, `include/astroray/spectrum.h` (`kLambdaMin`/`kLambdaMax`).
 
 ---
 
@@ -115,9 +113,8 @@ an instrument. pkg133's design merges here as Phase 1, preserving "separate impl
   counts and SRF channel layers are derived outputs, so no double QE/throughput.
 - **No calibration before pkg243.** Phases 0–1 emit relative band radiance with provenance;
   absolute electron counts wait for Phase 3 and a landed pkg243 contract.
-- **Ordering.** render → spectral output (pkg243) → radiance-microbin accumulation →
-  per-microbin PSF → detector integration (T·QE once) → (optional) denoise. Denoising a
-  noisy synthetic observation is physically questionable; document that the user should disable OIDN.
+- **Ordering.** render → spectral output (pkg243) → radiance-microbin accumulation → per-microbin
+  PSF → detector integration (T·QE once) → (optional) denoise; denoising a noisy synthetic observation is physically questionable, so document disabling OIDN.
 - **Reuse, do not reinvent.** Use `include/astroray/pass.h` (no parallel pass API) and
   `include/astroray/fits_io.h`; fall back to a Gaussian FWHM = 1.22 λ/D only when no cube is supplied.
 
@@ -133,12 +130,11 @@ the analytic flat band integral within 0.5 % relative; no display transform touc
 #### Phase 1 — Radiance-microbin accumulation (pkg133 merge)
 
 Port Mitsuba 3 `specfilm`'s importance-sampling mechanism: build one combined continuous
-distribution over the union of N SRF channels by inverse-transform sampling;
-importance-sample path wavelengths from it; deposit **flux-normalized radiance** into
-wavelength microbins (bin width fine enough for Phase 2), keeping the deposit
-hero-wavelength-aware (Wilkie 2014) so the existing spectral pdf stays unbiased. No T(λ)
-or QE(λ) is applied here. N microbins → N EXR layers; SRF channel layers are derived by
-response-weighting afterwards, never deposited directly.
+distribution over the union of N SRF channels by inverse-transform sampling; importance-sample
+path wavelengths from it; deposit **flux-normalized radiance** into wavelength microbins (bin
+width fine enough for Phase 2), keeping the deposit hero-wavelength-aware (Wilkie 2014) so the
+existing spectral pdf stays unbiased. No T(λ) or QE(λ) is applied here. N microbins → N EXR
+layers; SRF channel layers are derived by response-weighting afterwards, never deposited directly.
 **Acceptance (numeric):** a flat full-band SRF reproduces the uniform-sampling render
 within MC noise (≤ 1 σ over ≥ 64 spp); a narrow-band SRF reaches target relative error in
 ≤ 1/4 the samples of uniform sampling (report the measured factor); microbin radiance is
@@ -146,25 +142,29 @@ flux-normalized (total invariant to bin width, < 1 % on halving).
 
 #### Phase 2 — Chromatic optics (per-band PSF)
 
-Convolve each radiance microbin independently with its PSF slice loaded from a
-wavelength-tagged STPSF/WebbPSF FITS cube (`include/astroray/fits_io.h`); each slice carries
-an explicit wavelength coordinate, is interpolated in λ to the microbin wavelength (linear),
-resampled onto the detector pixel grid, and normalized to unit sum (flux-conserving) before
-convolution; zero-pad to avoid wrap-around. Spectral effects are never recovered from one
-broadband image.
-**Acceptance (numeric):** PSF FWHM matches the STPSF cube within 5 %; a delta source
-convolves to the PSF with unchanged centroid; per-microbin outputs differ exactly where the
-cube differs; encircled energy is preserved and a flat-field flux-conservation test holds
-(summed convolved flux equals input within 1 %).
+Convolve each radiance microbin independently with its PSF slice loaded from a wavelength-tagged
+STPSF/WebbPSF FITS cube (`include/astroray/fits_io.h`). Each slice carries a wavelength coordinate
+(linear λ interpolation to the microbin) and a **spatial WCS contract**: FITS `CUNIT`/`CDELT` (or
+`CD`/`PC`) and `CRPIX`/`CRVAL` give the pixel angular units, plate scale and PSF centre/orientation.
+Map the cube grid explicitly onto the detector angular grid via the pkg243-Phase-2 pixel solid angle
+(θ_pix = √Ω_pix) — unit-sum normalization fixes total flux but not angular scale — and reject
+missing/incompatible metadata (no units, non-positive scale, unmappable centre). Resample, normalize
+to unit sum (flux-conserving), zero-pad against wrap-around.
+**Acceptance (numeric):** PSF FWHM matches the STPSF cube within 5 %; after resampling the
+angular FWHM and centroid match the cube within 5 % and 0.1 pixel respectively, at detector
+plate scale √Ω_pix within 1 % (resampling tolerances frozen 2026-09-22, lead may adjust);
+missing/incompatible spatial metadata is rejected; a delta source convolves to the PSF with
+unchanged centroid; per-microbin outputs differ exactly where the cube differs; encircled energy
+is preserved and a flat-field flux-conservation test holds (summed convolved flux equals input
+within 1 %).
 
 #### Physical normalisation bridge
 
-pkg243 exports RELATIVE band radiance only. pkg243 **Phase 1** (Stage 1c prerequisite) fixes
-the scene-length units and emissivity-to-radiance contract; pkg243 **Phase 2** (Stage 3
-bridge) supplies only the observer pixel solid angle Ω_pix and the physical radiance
-normalisation / detector conversion (per-nm I_λ, W m⁻² sr⁻¹ nm⁻¹; Phase 3 fixes the nm↔m
-units). Exposure and collecting area cannot calibrate an arbitrary scalar. **Phase 3 is
-BLOCKED on pkg243 Phase 2; Phase 0/1 are blocked on pkg243 Phase 1.**
+pkg243 exports RELATIVE band radiance only. pkg243 **Phase 1** (Stage 1c) fixes the scene-length
+units and emissivity-to-radiance contract; **Phase 2** (Stage 3 bridge) supplies the observer
+pixel solid angle Ω_pix and the physical radiance normalisation / detector conversion (per-nm
+I_λ, W m⁻² sr⁻¹ nm⁻¹; Phase 3 fixes nm↔m). Exposure and collecting area cannot calibrate an
+arbitrary scalar. **Phase 3 is BLOCKED on pkg243 Phase 2; Phase 0/1 on pkg243 Phase 1.**
 
 #### Phase 3 — Detector statistics (photon-count model)
 
@@ -222,7 +222,7 @@ separately; linear scaling with path length.
 - [ ] Flat field of known radiance yields the analytic **detected-electron** count within 1 % (Phase 3); the chain keeps incident photons, detected electrons and ADU distinct, and every test names the quantity it checks.
 - [ ] Spectral-bin convergence: halving the bin width changes μ_e by < 1 % (Phase 3).
 - [ ] T(λ) and QE(λ) applied exactly once (Phase 3); SRF channel layers are derived outputs, never spectral inputs.
-- [ ] PSF FWHM matches the STPSF cube within 5 %; delta convolution preserves centroid; flat-field flux conservation holds within 1 % (Phase 2).
+- [ ] PSF FWHM/centroid match the STPSF cube within 5 % / 0.1 pixel after resampling at detector plate scale √Ω_pix; spatial WCS metadata (units, scale, reference pixel/orientation) required and incompatible metadata rejected; delta convolution preserves centroid; flat-field flux conservation holds within 1 % (Phase 2).
 - [ ] Narrow-band SRF reaches target error in ≤ 1/4 the uniform-sampling sample count, reported (Phase 1).
 - [ ] Flat full-band SRF reproduces today's output within MC noise (unbiased; Phase 1).
 - [ ] Same seed reproduces identical noise; `add_noise=false` yields a noise-free convolved image.

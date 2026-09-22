@@ -16,20 +16,18 @@
 
 ## Context
 
-This package serves Pillar 5 (Blender/DCC output) and Pillar 2 (spectral core). It depends on pkg125, pkg39, pkg54, and pkg58, which provide DONE band/multiwavelength coverage:
+Serves Pillar 5 (Blender/DCC output) and Pillar 2 (spectral core); depends on
+pkg125, pkg39, pkg54, pkg58, which provide DONE band/multiwavelength coverage:
 
 - pkg39 (multiwavelength render) — multi-band CPU rendering baseline.
 - pkg54 (GPU multiwavelength integrator) — CUDA megakernel mirror.
 - pkg58 (spectral profile UX) — band/profile user-facing controls.
-- pkg125 (CPU path-tracer band awareness) — band-aware transport on the CPU
-  path.
+- pkg125 (CPU path-tracer band awareness) — CPU band-aware transport.
 
-pkg133 (SRF/spectral sensors) owns SRF/instrument channels and is
-Pillar-4-adjacent; pkg130 (light groups) and pkg134 (light path
-expressions) own emission decomposition and LPEs. pkg133, pkg130, and
-pkg134 are scope exclusions, not prerequisites; none are activated or
-duplicated here. No Pillar 4 activation. Detailed architect review is
-required before implementation; estimated effort is TBD at that review.
+pkg133 (SRF/spectral sensors), pkg130 (light groups), pkg134 (light path
+expressions) own SRF/instrument channels, emission decomposition, and LPEs; they
+are scope exclusions, not prerequisites, none activated or duplicated here. No
+Pillar 4 activation; architect review required before implementation (effort TBD).
 
 ---
 
@@ -89,17 +87,16 @@ Reuse existing pass, EXR, and band-render test machinery.
 #### Phase 0 (mandatory)
 
 Prove the existing average-vs-integral semantics, normalization, and backend
-support; pin the honest schema and the exported estimator. The exported
-estimator is the relative band scalar
+support; pin the honest schema and exported estimator. The exported estimator
+is the relative band scalar
 
 $$Q_\mathrm{band} = \frac{1}{N}\sum_{i=1}^{N} L(\lambda_i),$$
 
 where \(L(\lambda_i)\) is the per-wavelength radiance scalar accumulated for
-the \(N\) uniform wavelength samples \(\lambda_i\) spanning the band interval
-\([\lambda_\mathrm{lo}, \lambda_\mathrm{hi}]\) in nanometres. \(Q_\mathrm{band}\)
-is a **relative scalar**: dimensionless in the current pipeline and carrying
-physical radiance dimension only after the Phase 1 unit contract and the
-Phase 2 normalisation bridge. The
+the \(N\) uniform samples \(\lambda_i\) spanning \([\lambda_\mathrm{lo},
+\lambda_\mathrm{hi}]\) in nanometres. \(Q_\mathrm{band}\) is a **relative
+scalar**: dimensionless in the current pipeline, carrying physical radiance
+dimension only after the Phase 1 unit contract and Phase 2 normalisation bridge;
 band interval and \(N\) are recorded in metadata. Then: a separate float
 raw-relative-band channel; metadata for band bounds, quantity, normalization,
 build, backend, seed, samples, plus explicitly-unavailable provenance; the
@@ -110,67 +107,69 @@ display path stays independent of the raw channel.
 Phase 1 is the prerequisite for every quantitative Stage 2 output
 (stage-plan-2026-09-22.md Stage 1c); Phase 2 is the Stage 3 bridge.
 
-Implements the reviewed minimal pass/export boundary. The raw plane is a
-separate float framebuffer/export plane populated with the integrator's
-scalar \(Q_\mathrm{band}\) at the moment it is computed (immediately after the
-4-sample average), before XYZ/RGB conversion, tone mapping, denoising,
-colourmap application, gamma, or clamping. The display colour path must never
-read the raw plane, and the raw plane must never receive display-transformed
-values.
+Implements the reviewed minimal pass/export boundary: a separate float
+framebuffer/export plane populated with the integrator's scalar
+\(Q_\mathrm{band}\) at the moment it is computed (immediately after the 4-sample
+average), before XYZ/RGB conversion, tone mapping, denoising, colourmap
+application, gamma, or clamping. The display colour path never reads the raw
+plane; the raw plane never receives display-transformed values.
 
-Phase 1 also carries the unit and emission contracts that every quantitative
-output depends on:
+Phase 1 also carries the unit/emission contracts every output depends on:
 
 - Scene-length unit: one Blender unit = one metre, i.e. a conversion
   \(u_\mathrm{m/BU} = 1.0\) (metres per Blender unit); `scene_unit = "metre"`,
   declared and stored in provenance (frozen 2026-09-22, lead may adjust).
-- Calibrated emissivity/source scale: the relative scalar is mapped to physical
-  per-wavelength spectral radiance by
-  \(I_{\lambda,\mathrm{SI}} = u_\mathrm{m/BU}\,C_j\,Q_\mathrm{band}\), where
-  \(u_\mathrm{m/BU}\) is metres per Blender unit (m/BU), \(C_j\) is the
-  calibrated emissivity constant (W m⁻³ sr⁻¹ nm⁻¹; default 1.0, frozen
-  2026-09-22, lead may adjust) and \(Q_\mathrm{band}\) is the dimensionless
-  relative scalar; \(I_{\lambda,\mathrm{SI}}\) is in W m⁻² sr⁻¹ nm⁻¹. This is
-  the only dimensional conversion applied to the raw scalar.
-- Emissivity-to-radiance: emission-only radiative transfer gives
-  \(I = \int j\,ds\), where \(j\) is emissivity (radiance per unit length,
-  W m⁻³ sr⁻¹ nm⁻¹) and \(I\) is radiance (Rybicki & Lightman, *Radiative
-  Processes in Astrophysics*, 1979, §1.2). The path length \(ds\) is in scene
-  units, converted to metres by \(u_\mathrm{m/BU}\), and the solid-angle
-  convention (radiance per unit projected solid angle, steradian) is stated
-  explicitly.
+- Calibrated emissivity/source scale — restricted to the named, validated
+  `emission_only_volume` contract. The SI conversion
+  \(I_{\lambda,\mathrm{SI}} = u_\mathrm{m/BU}\,C_j\,Q_\mathrm{band}\) (\(C_j\)
+  in W m⁻³ sr⁻¹ nm⁻¹, default 1.0, frozen 2026-09-22, lead may adjust;
+  \(I_{\lambda,\mathrm{SI}}\) in W m⁻² sr⁻¹ nm⁻¹) applies only when the scene
+  is validated to contain no surface, environment, or lamp contribution, so
+  \(Q_\mathrm{band}\) is a volumetric-emissivity path integral; this is then the
+  sole dimensional step.
+- All other outputs are relative and SI-free: on failed validation, or with any
+  surface/environment/lamp contribution, the plane is a relative dimensionless
+  scalar (`quantity = "relative_band_scalar"`), no SI label, no Phase 1/2
+  conversion; contract name and validation result go in provenance.
+- Emissivity-to-radiance: emission-only transfer gives \(I = \int j\,ds\),
+  where \(j\) is emissivity (W m⁻³ sr⁻¹ nm⁻¹) and \(I\) radiance (Rybicki &
+  Lightman, *Radiative Processes in Astrophysics*, 1979, §1.2); \(ds\) is in
+  scene units converted by \(u_\mathrm{m/BU}\), and the radiance-per-unit-
+  projected-solid-angle (steradian) convention is stated explicitly.
 
-The analytic acceptance checks for these contracts live in Phase 1:
-
-- A homogeneous slab of emissivity \(j\) and thickness \(L\) yields
-  \(I = jL\) within 0.5 %.
-- A known relative scalar \(Q_\mathrm{band}\) with declared \(u_\mathrm{m/BU}\)
-  and \(C_j\) yields \(I_{\lambda,\mathrm{SI}} = u_\mathrm{m/BU}\,C_j\,
-  Q_\mathrm{band}\) within 0.5 %.
-- A unit round-trip test confirms `scene_unit` survives write/read unchanged.
+The Phase 1 analytic checks for these contracts (slab \(I = jL\), calibrated
+scale, unit round-trip; all within 0.5 %) are listed in Acceptance criteria.
 
 #### Phase 2
 
 Phase 2 is the Stage 3 bridge and keeps only the observer-pixel solid angle and
 the physical radiance normalisation / detector conversion:
 
-- Observer-pixel solid angle: pinhole convention
-  \(\Omega_\mathrm{pix} = (w_\mathrm{pix}\,h_\mathrm{pix}) / f^2\)
-  (small-angle approximation, steradian), with pixel size \(w_\mathrm{pix},
-  h_\mathrm{pix}\) and focal length \(f\) in metres (scene units converted by
-  \(u_\mathrm{m/BU}\); frozen 2026-09-22, lead may adjust).
+- Observer-pixel solid angle: the exported \(\Omega_\mathrm{pix}\) is the exact
+  corner-based solid angle of the pixel rectangle at the pinhole (Van Oosterom
+  & Strackee, *The Solid Angle of a Plane Triangle*, IEEE Trans. Biomed. Eng.
+  BME-30(2), 1983): each pixel rectangle is split into two image-plane triangles
+  with corner position vectors \(\vec{r}_i\) (pixel size
+  \(w_\mathrm{pix}, h_\mathrm{pix}\) and focal length \(f\) in metres via
+  \(u_\mathrm{m/BU}\)),
+  \(\tan(\Omega_\mathrm{tri}/2)=\vec{r}_1\!\cdot\!(\vec{r}_2\!\times\!\vec{r}_3)
+  /\big(|\vec{r}_1||\vec{r}_2||\vec{r}_3|+(\vec{r}_1\!\cdot\!\vec{r}_2)|\vec{r}_3|
+  +(\vec{r}_1\!\cdot\!\vec{r}_3)|\vec{r}_2|+(\vec{r}_2\!\cdot\!\vec{r}_3)|\vec{r}_1|\big)\),
+  \(\Omega_\mathrm{pix}=\Omega_{\mathrm{tri},1}+\Omega_{\mathrm{tri},2}\). The
+  on-axis small-pixel approximation \((w_\mathrm{pix}h_\mathrm{pix})/f^2\) is an
+  on-axis fixture cross-check only, never the exported value (frozen
+  2026-09-22, lead may adjust).
 - Physical radiance units and detector conversion: per-wavelength spectral
   radiance \(I_{\lambda,\mathrm{SI}}\) (W m⁻² sr⁻¹ nm⁻¹) comes from the Phase 1
-  calibrated scale, and band-integrated radiance is
+  calibrated scale; band-integrated radiance is
   \(I_\mathrm{band} = \Delta\lambda_\mathrm{nm}\,I_{\lambda,\mathrm{SI}}\)
   (W m⁻² sr⁻¹) with \(\Delta\lambda_\mathrm{nm} = \lambda_\mathrm{hi} -
-  \lambda_\mathrm{lo}\) in nanometres. Where the output is intended as pixel
-  irradiance, \(E_\mathrm{pix} = I_\mathrm{band}\,\Omega_\mathrm{pix}\)
-  (W m⁻²); the exported plane is labelled as either radiance \(I_\mathrm{band}\)
-  or pixel irradiance \(E_\mathrm{pix}\), never both.
-- Per-output provenance (written alongside every exported plane): the
-  normalization inputs and conversion formula below are mandatory, not implied
-  by the display metadata:
+  \lambda_\mathrm{lo}\) in nanometres. Where the output is pixel irradiance,
+  \(E_\mathrm{pix} = I_\mathrm{band}\,\Omega_\mathrm{pix}\) (W m⁻²); the plane is
+  labelled either radiance \(I_\mathrm{band}\) or irradiance \(E_\mathrm{pix}\),
+  never both.
+- Per-output provenance (written alongside every exported plane): normalization
+  inputs and conversion formula below are mandatory, not implied by display metadata:
   - metres-per-scene-unit \(u_\mathrm{m/BU}\);
   - emissivity calibration constant \(C_j\) with its units
     (W m⁻³ sr⁻¹ nm⁻¹);
@@ -196,10 +195,14 @@ All implementation gates are UNRUN.
 - [ ] **(Phase 1)** Emissivity-to-radiance analytic check passes: a homogeneous
       slab of emissivity \(j\) and thickness \(L\) yields
       \(I = \int j\,ds = jL\) within 0.5 %.
-- [ ] **(Phase 1)** Calibrated-scale check passes: a known relative scalar
-      \(Q_\mathrm{band}\) with declared \(u_\mathrm{m/BU}\) and \(C_j\) yields
+- [ ] **(Phase 1)** Calibrated-scale check passes inside the validated
+      `emission_only_volume` fixture: a known relative scalar \(Q_\mathrm{band}\)
+      with declared \(u_\mathrm{m/BU}\) and \(C_j\) yields
       \(I_{\lambda,\mathrm{SI}} = u_\mathrm{m/BU}\,C_j\,Q_\mathrm{band}\) within
       0.5 %.
+- [ ] **(Phase 1)** Contract gating: a scene with any surface, environment, or
+      lamp contribution is exported as the relative dimensionless
+      `relative_band_scalar` with no SI label and no dimensional conversion.
 - [ ] **(Phase 1)** Flat-spectrum/exposure/bandwidth analytic checks pass
       WITHOUT an accidental average-to-integral switch, and confirm the
       exported estimator is \(Q_\mathrm{band} = \frac{1}{N}\sum_i L(\lambda_i)\).
@@ -212,6 +215,10 @@ All implementation gates are UNRUN.
       and band integration \(I_\mathrm{band} = \Delta\lambda_\mathrm{nm}
       I_{\lambda,\mathrm{SI}}\) (and \(E_\mathrm{pix} = I_\mathrm{band}
       \Omega_\mathrm{pix}\) when irradiance is exported).
+- [ ] **(Phase 2)** Off-axis pixel solid angle: the exact corner-based
+      \(\Omega_\mathrm{pix}\) (Van Oosterom & Strackee 1983) matches numerical
+      integration within 0.5 % on-axis and off-axis; \((w_\mathrm{pix}
+      h_\mathrm{pix})/f^2\) is checked only on the on-axis fixture.
 - [ ] **(Phase 2)** Per-output metadata assertions confirm every mandatory
       provenance field is present and matches the produced output:
       \(u_\mathrm{m/BU}\), \(C_j\) and units, wavelength estimator/PDF,
@@ -232,13 +239,11 @@ All implementation gates are UNRUN.
 ## Non-goals
 
 - No wavelength-sampling redesign.
-- No detector, exposure, or photon-count calibration. The Phase 1 unit and
-  emissivity contracts and the Phase 2 physical-radiance normalisation bridge
-  (observer-pixel solid angle, radiance units) are required, not non-goals.
+- No detector, exposure, or photon-count calibration; the Phase 1 unit/emissivity
+  contracts and the Phase 2 radiance bridge are required, not non-goals.
 - No telescope/GR/pkg51/pkg133 unpause.
-- Risk: XYZ/RGB conversion can obscure the original scalar's meaning; existing
-  band averages must not be mislabeled as integrals, calibrated radiance, or
-  photon counts.
+- Risk: XYZ/RGB conversion can obscure the scalar's meaning; band averages must
+  not be mislabeled as integrals, calibrated radiance, or photon counts.
 - Risk: metadata and unsupported-backend claims must match the actual output.
 
 ---

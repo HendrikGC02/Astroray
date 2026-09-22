@@ -45,6 +45,7 @@ required before implementation; estimated effort is TBD at that review.
 - `src/io/exr_writer.h:1` — scoped to Cryptomatte, but already has named float
   channels and string headers that may be reusable.
 - 2026-09-22: Codex Terra review defects applied (planning session).
+- 2026-09-22: Astra turn-4 sign-off discrepancies closed (planning session).
 
 ---
 
@@ -97,13 +98,17 @@ where \(L(\lambda_i)\) is the per-wavelength radiance scalar accumulated for
 the \(N\) uniform wavelength samples \(\lambda_i\) spanning the band interval
 \([\lambda_\mathrm{lo}, \lambda_\mathrm{hi}]\) in nanometres. \(Q_\mathrm{band}\)
 is a **relative scalar**: dimensionless in the current pipeline and carrying
-physical radiance dimension only after the Phase 2 normalisation bridge. The
+physical radiance dimension only after the Phase 1 unit contract and the
+Phase 2 normalisation bridge. The
 band interval and \(N\) are recorded in metadata. Then: a separate float
 raw-relative-band channel; metadata for band bounds, quantity, normalization,
 build, backend, seed, samples, plus explicitly-unavailable provenance; the
 display path stays independent of the raw channel.
 
 #### Phase 1
+
+Phase 1 is the prerequisite for every quantitative Stage 2 output
+(stage-plan-2026-09-22.md Stage 1c); Phase 2 is the Stage 3 bridge.
 
 Implements the reviewed minimal pass/export boundary. The raw plane is a
 separate float framebuffer/export plane populated with the integrator's
@@ -113,22 +118,34 @@ colourmap application, gamma, or clamping. The display colour path must never
 read the raw plane, and the raw plane must never receive display-transformed
 values.
 
-#### Phase 2
-
-Checks round-trip and backend behavior, plus the mandatory physical-radiance
-normalisation bridge:
+Phase 1 also carries the unit and emission contracts that every quantitative
+output depends on:
 
 - Scene-length unit: one Blender unit = one metre (`scene_unit = "metre"`;
-  frozen 2026-09-22, lead may adjust).
+  declared and stored in provenance; frozen 2026-09-22, lead may adjust).
 - Emissivity-to-radiance: emission-only radiative transfer gives
-  \(I = \int j\,ds\), where \(j\) is emissivity (radiance per unit length) and
-  \(I\) is radiance (Rybicki & Lightman, *Radiative Processes in
-  Astrophysics*, 1979, §1.2).
+  \(I = \int j\,ds\) in the declared scene units, where \(j\) is emissivity
+  (radiance per unit length) and \(I\) is radiance (Rybicki & Lightman,
+  *Radiative Processes in Astrophysics*, 1979, §1.2). The path length \(ds\) is
+  in declared scene units, and the solid-angle convention (radiance per unit
+  projected solid angle, steradian) is stated explicitly.
+
+The analytic acceptance checks for these contracts live in Phase 1:
+
+- A homogeneous slab of emissivity \(j\) and thickness \(L\) yields
+  \(I = jL\) within 0.5 %.
+- A unit round-trip test confirms `scene_unit` survives write/read unchanged.
+
+#### Phase 2
+
+Phase 2 is the Stage 3 bridge and keeps only the observer-pixel solid angle and
+the physical radiance normalisation / detector conversion:
+
 - Observer-pixel solid angle: pinhole convention
   \(\Omega_\mathrm{pix} = (w_\mathrm{pix}\,h_\mathrm{pix}) / f^2\)
   (small-angle approximation, steradian), with pixel size and focal length
   \(f\) in scene units (frozen 2026-09-22, lead may adjust).
-- Physical radiance units: band-integrated radiance
+- Physical radiance units and detector conversion: band-integrated radiance
   \(W\,m^{-2}\,sr^{-1}\); per-wavelength spectral radiance
   \(W\,m^{-2}\,sr^{-1}\,nm^{-1}\). Conversion from the relative scalar scales
   by the scene-length-unit factor and the declared band interval, then applies
@@ -140,16 +157,24 @@ normalisation bridge:
 
 All implementation gates are UNRUN.
 
-- [ ] Flat-spectrum/exposure/bandwidth analytic checks pass WITHOUT an
-      accidental average-to-integral switch, and confirm the exported
-      estimator is \(Q_\mathrm{band} = \frac{1}{N}\sum_i L(\lambda_i)\).
-- [ ] Analytic fixtures prove each Phase 2 bridge component: dimensional
-      units, path-length (scene-unit) scaling of \(I = \int j\,ds\),
-      observer-pixel solid angle \(\Omega_\mathrm{pix}\), and physical
+- [ ] **(Phase 1)** Scene-length unit contract holds and round-trips: a unit
+      round-trip test confirms `scene_unit = "metre"` (one Blender unit = one
+      metre) is stored in and read back from provenance unchanged.
+- [ ] **(Phase 1)** Emissivity-to-radiance analytic check passes: a homogeneous
+      slab of emissivity \(j\) and thickness \(L\) yields
+      \(I = \int j\,ds = jL\) within 0.5 %.
+- [ ] **(Phase 1)** Flat-spectrum/exposure/bandwidth analytic checks pass
+      WITHOUT an accidental average-to-integral switch, and confirm the
+      exported estimator is \(Q_\mathrm{band} = \frac{1}{N}\sum_i L(\lambda_i)\).
+- [ ] **(Phase 1)** Metadata assertions confirm the declared Phase 1 units and
+      conventions (`scene_unit`, band interval in nm) match the produced
+      output.
+- [ ] **(Phase 2)** Analytic fixtures prove each Phase 2 bridge component:
+      observer-pixel solid angle \(\Omega_\mathrm{pix}\) and physical
       radiance conversion.
-- [ ] Metadata assertions confirm declared units and conventions
-      (`scene_unit`, band interval in nm, solid-angle convention, radiance
-      units) match the produced output.
+- [ ] **(Phase 2)** Metadata assertions confirm the declared Phase 2
+      conventions (solid-angle convention, radiance units) match the produced
+      output.
 - [ ] Raw float > 1.0 round-trips through the output path.
 - [ ] Colourmap/denoise/display invariance: display transforms do not touch
       the raw channel.
@@ -165,9 +190,9 @@ All implementation gates are UNRUN.
 ## Non-goals
 
 - No wavelength-sampling redesign.
-- No detector, exposure, or photon-count calibration. The Phase 2
-  physical-radiance normalisation bridge (scene-length units, observer-pixel
-  solid angle, radiance units) is required, not a non-goal.
+- No detector, exposure, or photon-count calibration. The Phase 1 unit and
+  emissivity contracts and the Phase 2 physical-radiance normalisation bridge
+  (observer-pixel solid angle, radiance units) are required, not non-goals.
 - No telescope/GR/pkg51/pkg133 unpause.
 - Risk: XYZ/RGB conversion can obscure the original scalar's meaning; existing
   band averages must not be mislabeled as integrals, calibrated radiance, or

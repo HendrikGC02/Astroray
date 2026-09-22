@@ -50,6 +50,7 @@ package's Phase 1 (a separately dispatched bounded implementation), so the stage
 - 2026-09-22: rewritten in the planning session (stage-plan-2026-09-22.md §4); previous text superseded.
 - 2026-09-22: Astra turn-2 review amendments applied (planning session).
 - 2026-09-22: Codex Terra review defects applied (planning session).
+- 2026-09-22: Astra turn-4 sign-off discrepancies closed (planning session).
 - 2026-09-12: pkg133 triage — no SRF/`specfilm` spectral-sensor code exists in the repo.
 - pkg243 (raw band output + provenance) is open and depends on pkg251; no band contract is landed.
 - `include/astroray/pass.h` (pkg06) and `include/astroray/fits_io.h` (pkg47) already exist and are reusable.
@@ -77,7 +78,8 @@ package's Phase 1 (a separately dispatched bounded implementation), so the stage
 
 - [ ] pkg251 done (band parameter reachability contract).
 - [ ] pkg243 done (raw relative band output + honest provenance) — hard gate on any calibrated claim.
-- [ ] pkg243 Phase 2 (physical normalisation bridge; to be filed) done — **Phase 3 is BLOCKED on it.**
+- [ ] pkg243 Phase 1 (scene-length units + emissivity-to-radiance contract; to be filed) done — **Phase 0/1 are BLOCKED on it.**
+- [ ] pkg243 Phase 2 (observer pixel solid angle + physical radiance normalisation / detector conversion; to be filed) done — **Phase 3 is BLOCKED on it.**
 - [ ] pkg47 done (FITS loader) for PSF cubes — done.
 - [ ] Build passes on main.
 
@@ -164,11 +166,12 @@ cube differs; encircled energy is preserved and a flat-field flux-conservation t
 
 #### Physical normalisation bridge
 
-pkg243 exports RELATIVE band radiance only. Before any electron count is meaningful, a
-declared package (pkg243 Phase 2, to be filed) must fix the scene-length units, the
-observer pixel solid angle Ω_pix, and the physical radiance normalisation
-(W m⁻² sr⁻¹ nm⁻¹). Exposure time and collecting area cannot calibrate an arbitrary
-scalar. **Phase 3 is BLOCKED on that bridge.**
+pkg243 exports RELATIVE band radiance only. pkg243 **Phase 1** (Stage 1c prerequisite) fixes
+the scene-length units and the emissivity-to-radiance contract. pkg243 **Phase 2** (Stage 3
+bridge) supplies only the observer pixel solid angle Ω_pix and the physical radiance
+normalisation / detector conversion (W m⁻² sr⁻¹ nm⁻¹). Exposure time and collecting area
+cannot calibrate an arbitrary scalar. **Phase 3 is BLOCKED on pkg243 Phase 2; Phase 0/1 are
+blocked on pkg243 Phase 1.**
 
 #### Phase 3 — Detector statistics (photon-count model)
 

@@ -39,6 +39,7 @@ pkg259 is superseded; its Phase 4 obligations live here in full (2026-09-22).
 - 2026-09-22: rewritten in the planning session (stage-plan-2026-09-22.md §4); previous text superseded.
 - 2026-09-22: Astra turn-2 review amendments applied (planning session).
 - 2026-09-22: Codex Terra review defects applied (planning session).
+- 2026-09-22: Astra turn-4 sign-off discrepancies closed (planning session).
 
 ---
 
@@ -70,6 +71,7 @@ pkg259 is superseded; its Phase 4 obligations live here in full (2026-09-22).
 |---|---|
 | `benchmarks/reference_corpus/coverage_report.py` | pkg259 Phase 4 gap: joins corpus manifests to `docs/blender_parity/coverage_matrix.json`, counts exercised sockets from the scene node trees, and writes `corpus_coverage.md` + a JSON twin. |
 | `scripts/gate_manifest.py` | Assembles `docs/blender_parity/acceptance_manifest.json` from the per-row instruments. |
+| `docs/blender_parity/acceptance_manifest.schema.json` | JSON schema the manifest rows must validate against; `gate_manifest.py` rejects a hand-edited status. |
 | `tests/test_gate_native_panels.py` | Gate (d) output-effect smoke: adaptive sampling and denoise driven only by native panels, CPU and GPU. |
 | `docs/install-clean-machine.md` | Gate (f) documented ZIP install through Blender's extension installer, no build toolchain. |
 | `docs/blender_parity/evidence/install-clean-machine/` | Gate (f) evidence: install log, installed-file list, F12 PNG, fresh-profile settings. |
@@ -79,7 +81,7 @@ pkg259 is superseded; its Phase 4 obligations live here in full (2026-09-22).
 | File | What changes |
 |---|---|
 | `benchmarks/blender_parity/harness.py` | Export a per-feature verdict JSON for the manifest; reuse the existing pkg119b triage output, add no new metric. |
-| `benchmarks/reference_bank/runner.py` | Add a per-channel mean-ratio gate type; SSIM stays a diagnostic print (owner 2026-09-08, gate (c)). |
+| `benchmarks/reference_bank/runner.py` | Add a per-channel mean-ratio gate type; SSIM stays a diagnostic print for the reference bank and the HDRI CPU/GPU parity gate only (owner 2026-09-08) — NOT for exit-gate (c), which gates on SSIM. |
 | `scripts/README.md` | Register `coverage_report.py` and `scripts/gate_manifest.py`. |
 | `.astroray_plan/docs/KNOWN_ISSUES.md` | Publish the severity rubric: high = wrong image, crash, or a native setting silently ignored; medium = degraded but flagged; low = cosmetic. |
 | `benchmarks/blender_parity/scene_library.py` | `REFERENCE_SCENES` reads the corpus directory instead of the hard-coded three. |
@@ -104,6 +106,18 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
   with no instrument writes `value: null` and `status: unmeasured` — never
   omitted.
 - Re-runs overwrite atomically; git history is the audit record.
+
+#### GREEN predicate (schema-enforced, universal)
+
+- Every row's status is COMPUTED by `scripts/gate_manifest.py` from a
+  JSON-schema-validated row (`docs/blender_parity/acceptance_manifest.schema.json`):
+  required fields present; every `evidence_path` exists and its recorded SHA-256
+  matches; `build_id` and `backend` present; all mandatory measurements for that
+  row present — (a) 3×100 repetitions on both pinned scenes, GPU-only latency,
+  denoise excluded, p95/p99 and cancel-ack limits; (c) separate CPU and GPU F12
+  exit status plus SHA-pinned images and metrics; `value` inside `threshold`.
+- Any missing or dangling item makes the row RED or UNMEASURED — never GREEN by
+  narrative. A hand-edited status is rejected by the validator.
 
 #### Gate (b) weighted coverage
 
@@ -151,55 +165,38 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
 
 #### Gate (a) table
 
-- Warm session, both pinned scenes (10k and 100k triangles), 3×100 camera edits
-  and 3×100 material edits each; instrument emits one row per scene × edit-kind.
-- event → first *correct* Blender-presented frame: GPU p95 ≤ 100 ms, p99 ≤ 150 ms;
-  cancel-ack p95 ≤ 200 ms, p99 ≤ 300 ms; no stale frame presented after the ack.
-  Latency is a GPU-only oracle (CPU is the image oracle, not a latency oracle),
-  and denoise is excluded from the interactive loop (owner-ratified
-  2026-09-07). The GREEN evaluator requires every one of these fields.
-- Extends the pkg241/pkg266 viewport harness; measured in a real Blender session,
-  not the in-process harness.
+- Warm session, both pinned scenes (10k and 100k triangles), 3×100 camera edits and 3×100 material edits each; instrument emits one row per scene × edit-kind.
+- event → first *correct* Blender-presented frame: GPU p95 ≤ 100 ms, p99 ≤ 150 ms; cancel-ack p95 ≤ 200 ms, p99 ≤ 300 ms; no stale frame presented after the ack.
+  Latency is a GPU-only oracle (CPU is the image oracle, not a latency oracle), and denoise is excluded from the interactive loop (owner-ratified 2026-09-07).
+  The GREEN evaluator requires every one of these fields.
+- Extends the pkg241/pkg266 viewport harness; measured in a real Blender session, not the in-process harness.
 
 #### Gate (c) trio
 
-- materials_hall gallery / textures_mapping workshop / world_sky terrace-with-hair
-  (owner 2026-09-08), pinned SHAs.
-- Each scene is rendered through F12 under CPU and GPU separately; the report
-  records both render exit statuses, SHA-256-pinned output images and the
-  per-channel metrics. GREEN requires successful CPU **and** GPU renders with
-  paired artifacts — a CPU-only report cannot be represented as complete.
-- ±5 % ROI mean ratio per channel, SSIM ≥ 0.95, and non-vacuity checks (checker
-  contrast present, HDRI contribution present, hair-pixel coverage > 0) so a
-  black or missing feature cannot pass.
+- materials_hall gallery / textures_mapping workshop / world_sky terrace-with-hair (owner 2026-09-08), pinned SHAs.
+- Each scene is rendered through F12 under CPU and GPU separately; the report records both render exit statuses, SHA-256-pinned output images and the per-channel
+  metrics. GREEN requires successful CPU **and** GPU renders with paired artifacts — a CPU-only report cannot be represented as complete.
+- ±5 % ROI mean ratio per channel, SSIM ≥ 0.95 on the GPU-vs-CPU pair as a gating metric (north-star §2(c)), and non-vacuity checks (checker contrast
+  present, HDRI contribution present, hair-pixel coverage > 0) so a black or missing feature cannot pass.
 
 #### Gate (d) native panels
 
-- `tests/test_gate_native_panels.py`: adaptive on/off changes the sample-count AOV
-  and lowers flat-region noise at a declared budget; denoise on/off lowers residual noise after settle; CPU and GPU.
-- Driven only by native panel properties, never a custom property. Output-effect
-  test, not a reachability test.
-- Accuracy safeguard: compare adaptive-on and denoise-on outputs against a
-  converged reference at a fixed budget, and require mean-error and
-  detail-preservation (edge/texture) checks, so lower variance purchased by
-  blurring or bias cannot pass. Numeric limits are predeclared in the test and
-  the manifest: mean relative luminance error ≤ 2 % over the declared
-  reference-comparison regions, and detail preservation (edge/texture gradient
-  energy) ≥ 0.95 of the reference (frozen 2026-09-22, lead may adjust). Regions
-  are declared in the manifest, not chosen after the fact.
+- `tests/test_gate_native_panels.py`: adaptive on/off changes the sample-count AOV and lowers flat-region noise at a declared budget;
+  denoise on/off lowers residual noise after settle; CPU and GPU.
+- Driven only by native panel properties, never a custom property. Output-effect test, not a reachability test.
+- Accuracy safeguard: compare adaptive-on and denoise-on outputs against a converged reference at a fixed budget, and require mean-error and
+  detail-preservation (edge/texture) checks, so lower variance purchased by blurring or bias cannot pass. Numeric limits are predeclared in the test
+  and the manifest: mean relative luminance error ≤ 2 % over the declared reference-comparison regions, and detail preservation (edge/texture gradient
+  energy) ≥ 0.95 of the reference (frozen 2026-09-22, lead may adjust). Regions are declared in the manifest, not chosen after the fact.
 
 #### Gate (e) triage
 
-- Publish the severity rubric in `.astroray_plan/docs/KNOWN_ISSUES.md`: high =
-  wrong image, crash, or a native setting silently ignored; medium = degraded but flagged; low = cosmetic.
-- The LIVE open-issue population is captured at acceptance time — not a frozen
-  count carried from the planning session — by an exact `gh issue list` query
-  whose command, timestamp and full issue-ID snapshot are stored in the
-  manifest. Reconciliation rule: every issue in the snapshot must have an
-  independent signed rating; the snapshot is re-run and the query repeated until
-  the delta is empty, and any unrated or newly-appeared issue blocks GREEN.
-- Every open issue is rated under the rubric by an independent pass (Codex
-  Terra), not by label — the gate cannot be met by relabeling.
+- Publish the severity rubric in `.astroray_plan/docs/KNOWN_ISSUES.md`: high = wrong image, crash, or a native setting silently ignored;
+  medium = degraded but flagged; low = cosmetic.
+- The LIVE open-issue population is captured at acceptance time — not a frozen count carried from the planning session — by an exact `gh issue list`
+  query whose command, timestamp and full issue-ID snapshot are stored in the manifest. Reconciliation rule: every issue in the snapshot must have an
+  independent signed rating; the snapshot is re-run and the query repeated until the delta is empty, and any unrated or newly-appeared issue blocks GREEN.
+- Every open issue is rated under the rubric by an independent pass (Codex Terra), not by label — the gate cannot be met by relabeling.
 
 #### Gate (f) clean install
 
@@ -211,8 +208,9 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
 
 ## Acceptance criteria
 
-- [ ] `docs/blender_parity/acceptance_manifest.json` exists with a number or
-      evidence path in every row (a)–(f).
+- [ ] `docs/blender_parity/acceptance_manifest.json` exists and every row's
+      status is produced by the schema-enforced predicate; a hand-edited status
+      is rejected by the validator.
 - [ ] `coverage_report.py` runs headless in Blender and emits
       `docs/blender_parity/corpus_coverage.md` + JSON, with silent drops and
       CPU/GPU differences reported separately.

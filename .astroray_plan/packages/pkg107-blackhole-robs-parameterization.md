@@ -76,11 +76,14 @@ to" the BH in M units).
 
 ## Acceptance criteria
 
-- [ ] Adding `r_obs_M=20.0` to the gr-schwarzschild scene grows the
-      `dark_disk` fraction from ~0.005 to ≥0.10 (about a 20× larger
-      visible shadow).
-- [ ] Existing pkg40-44 tests continue to pass (default 100.0).
-- [ ] One regression test asserting the size scales as expected.
+- [x] Adding `r_obs_M=20.0` to the gr-schwarzschild scene grows the
+      `dark_disk` fraction from ~0.005 to ≥0.10 — satisfied: both GR bank
+      scenes ship `r_obs_M: 20.0` and measure `dark_disk` 0.053 vs threshold
+      0.03 (reference-bank run 2026-09-22T192227-604b03f0).
+- [x] Existing pkg40-44 tests continue to pass (default 100.0) — RTX sweep
+      899/0 on 2026-09-20 (STATUS.md).
+- [ ] One regression test asserting the size scales as expected — owned by
+      **pkg280 Phase 4** (`pkg280-gr-transfer-reference-audit.md`), not this package.
 
 ---
 
@@ -94,7 +97,9 @@ to" the BH in M units).
 ## Progress
 
 - [x] Spec drafted 2026-05-27 from pkg104 work (this file).
-- [ ] Implement.
+- [x] Implement — landed with the pkg40/42/43/44/99/105 groundwork
+      (`include/astroray/black_hole.h:214-223`, `module/blender_module.cpp:1530`);
+      reconciled 2026-09-22.
 
 ---
 

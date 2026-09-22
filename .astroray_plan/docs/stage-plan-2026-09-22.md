@@ -100,8 +100,11 @@ Three separate exits:
   sign-off. Exit: the report lists validated-for-science paths vs unresolved paths; only
   validated paths feed Stage 2. No GPU GR work enters through this lane.
 - 1c **Science-foundational lane (behind gate-critical work):** pkg251 → pkg243 raw band
-  output with provenance. Exit: pkg243 acceptance met; it is an explicit prerequisite for
-  every quantitative Stage 2 output.
+  output with provenance, where pkg243 Phase 1 now also fixes the MINIMAL normalisation
+  contract Stage 2 needs: scene-length units and the emissivity-to-radiance mapping
+  (I = ∫ j ds in declared units, solid-angle convention explicit). Pixel solid angle and
+  detector conversion stay in pkg243 Phase 2 (Stage 3). Exit: pkg243 Phase 1 acceptance
+  met; it is an explicit prerequisite for every quantitative Stage 2 output.
 
 ### Stage 2 — Pillar 4 thaw round 1 (after Stage 0 exit; two tracks in parallel)
 
@@ -133,9 +136,9 @@ qualitative inspection required by CLAUDE.md §5c.
 
 ### Stage 3 — Instrument pipeline and simulation ingest
 
-- Physical normalisation bridge first: pkg243 Phase 2 fixes scene-length units, observer
-  pixel solid angle and physical radiance normalisation; exposure and collecting area
-  cannot calibrate an arbitrary scalar.
+- Physical normalisation bridge first: pkg243 Phase 2 adds the observer pixel solid angle
+  and physical radiance normalisation on top of the Phase 1 length/emissivity contract
+  (Stage 1c); exposure and collecting area cannot calibrate an arbitrary scalar.
 - pkg51 (design merges pkg133; separate bounded implementation phases): trusted spectral
   output → response-weighted accumulation (QE and throughput kept separate) → per-band
   chromatic PSF applied BEFORE spectral integration with a spectral-bin convergence test →
@@ -146,20 +149,29 @@ qualitative inspection required by CLAUDE.md §5c.
   conservation and resolution convergence. An engine-side reader needs a demonstrated gap.
 - #799 Phase 2 per-wavelength Nishita sky (owner: stretch goal).
 
-**Exit:** ensemble statistics, not one image: over ≥ 20 realisations of the Track N slab
-through a declared instrument, the electron histogram matches the declared
-Poisson + read + dark model (χ²/dof in [0.8, 1.25]) and the Hα/Hβ recovery holds as a
-mean with CI.
+**Exit:** ensemble statistics, not one image. (i) Detector model: with renderer Monte
+Carlo noise removed (noise-free converged input, `add_noise` only in the detector stage),
+the per-pixel electron counts over a frozen number of realisations, binning and
+expected-occupancy rule match the declared Poisson + read + dark model under a declared
+goodness-of-fit test at significance α = 0.01 (χ² bounds from the frozen degrees of
+freedom, or a calibrated simulation-based test), so a correct simulator is rejected at a
+known rate. (ii) Line recovery: the response-corrected integrated ENERGY radiance ratio
+Hα/Hβ, as a mean over realisations, carries Stage 2's criterion forward unchanged: its
+95 % CI lies wholly inside ±2 % of the pinned table row, or the instrument's own error
+budget is declared and justified in the spec before dispatch.
 
 ### Stage 4 — Research-grade validation and figures
 
 Validation lives inside each package from Stage 2 on; this stage extends it to research
-use with a bounded matrix: ipole/GYOTO frames across ≥ 3 spins × ≥ 2 inclinations,
-line-ratio grids across ≥ 3 (Tₑ, nₑ) points, journal-figure production (pkg130 light
-groups, per-mechanism AOVs). Deferred candidates (diffraction grating #141, cluster/NFW
-lensing) only when a science case names them.
-**Exit:** a reproducible figure bundle (one script, pinned inputs) whose every panel
-carries its reference value and residual.
+use with a matrix FROZEN before dispatch (the exact cases, not minimums): ipole/GYOTO
+frames at spins a ∈ {0, 0.5, 0.94} × inclinations {17°, 60°}; line-ratio grid at
+(Tₑ, nₑ) ∈ {(5·10³, 10²), (10⁴, 10²), (2·10⁴, 10⁴)}; journal-figure production (pkg130
+light groups, per-mechanism AOVs). Deferred candidates (diffraction grating #141,
+cluster/NFW lensing) only when a science case names them.
+**Exit:** a reproducible figure bundle (one script, pinned inputs) in which EVERY panel
+satisfies its pre-declared, observable-specific tolerance (photon-ring position and
+redshift asymmetry ≤ 5 %; line ratios ≤ 2 %); a panel that documents a residual outside
+its tolerance fails the stage.
 
 ### Stage 5 — Platform (conditional, unscheduled)
 

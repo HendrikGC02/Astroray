@@ -121,19 +121,32 @@ values.
 Phase 1 also carries the unit and emission contracts that every quantitative
 output depends on:
 
-- Scene-length unit: one Blender unit = one metre (`scene_unit = "metre"`;
-  declared and stored in provenance; frozen 2026-09-22, lead may adjust).
+- Scene-length unit: one Blender unit = one metre, i.e. a conversion
+  \(u_\mathrm{m/BU} = 1.0\) (metres per Blender unit); `scene_unit = "metre"`,
+  declared and stored in provenance (frozen 2026-09-22, lead may adjust).
+- Calibrated emissivity/source scale: the relative scalar is mapped to physical
+  per-wavelength spectral radiance by
+  \(I_{\lambda,\mathrm{SI}} = u_\mathrm{m/BU}\,C_j\,Q_\mathrm{band}\), where
+  \(u_\mathrm{m/BU}\) is metres per Blender unit (m/BU), \(C_j\) is the
+  calibrated emissivity constant (W m⁻³ sr⁻¹ nm⁻¹; default 1.0, frozen
+  2026-09-22, lead may adjust) and \(Q_\mathrm{band}\) is the dimensionless
+  relative scalar; \(I_{\lambda,\mathrm{SI}}\) is in W m⁻² sr⁻¹ nm⁻¹. This is
+  the only dimensional conversion applied to the raw scalar.
 - Emissivity-to-radiance: emission-only radiative transfer gives
-  \(I = \int j\,ds\) in the declared scene units, where \(j\) is emissivity
-  (radiance per unit length) and \(I\) is radiance (Rybicki & Lightman,
-  *Radiative Processes in Astrophysics*, 1979, §1.2). The path length \(ds\) is
-  in declared scene units, and the solid-angle convention (radiance per unit
-  projected solid angle, steradian) is stated explicitly.
+  \(I = \int j\,ds\), where \(j\) is emissivity (radiance per unit length,
+  W m⁻³ sr⁻¹ nm⁻¹) and \(I\) is radiance (Rybicki & Lightman, *Radiative
+  Processes in Astrophysics*, 1979, §1.2). The path length \(ds\) is in scene
+  units, converted to metres by \(u_\mathrm{m/BU}\), and the solid-angle
+  convention (radiance per unit projected solid angle, steradian) is stated
+  explicitly.
 
 The analytic acceptance checks for these contracts live in Phase 1:
 
 - A homogeneous slab of emissivity \(j\) and thickness \(L\) yields
   \(I = jL\) within 0.5 %.
+- A known relative scalar \(Q_\mathrm{band}\) with declared \(u_\mathrm{m/BU}\)
+  and \(C_j\) yields \(I_{\lambda,\mathrm{SI}} = u_\mathrm{m/BU}\,C_j\,
+  Q_\mathrm{band}\) within 0.5 %.
 - A unit round-trip test confirms `scene_unit` survives write/read unchanged.
 
 #### Phase 2
@@ -143,13 +156,33 @@ the physical radiance normalisation / detector conversion:
 
 - Observer-pixel solid angle: pinhole convention
   \(\Omega_\mathrm{pix} = (w_\mathrm{pix}\,h_\mathrm{pix}) / f^2\)
-  (small-angle approximation, steradian), with pixel size and focal length
-  \(f\) in scene units (frozen 2026-09-22, lead may adjust).
-- Physical radiance units and detector conversion: band-integrated radiance
-  \(W\,m^{-2}\,sr^{-1}\); per-wavelength spectral radiance
-  \(W\,m^{-2}\,sr^{-1}\,nm^{-1}\). Conversion from the relative scalar scales
-  by the scene-length-unit factor and the declared band interval, then applies
-  \(\Omega_\mathrm{pix}\) where the output is intended as pixel irradiance.
+  (small-angle approximation, steradian), with pixel size \(w_\mathrm{pix},
+  h_\mathrm{pix}\) and focal length \(f\) in metres (scene units converted by
+  \(u_\mathrm{m/BU}\); frozen 2026-09-22, lead may adjust).
+- Physical radiance units and detector conversion: per-wavelength spectral
+  radiance \(I_{\lambda,\mathrm{SI}}\) (W m⁻² sr⁻¹ nm⁻¹) comes from the Phase 1
+  calibrated scale, and band-integrated radiance is
+  \(I_\mathrm{band} = \Delta\lambda_\mathrm{nm}\,I_{\lambda,\mathrm{SI}}\)
+  (W m⁻² sr⁻¹) with \(\Delta\lambda_\mathrm{nm} = \lambda_\mathrm{hi} -
+  \lambda_\mathrm{lo}\) in nanometres. Where the output is intended as pixel
+  irradiance, \(E_\mathrm{pix} = I_\mathrm{band}\,\Omega_\mathrm{pix}\)
+  (W m⁻²); the exported plane is labelled as either radiance \(I_\mathrm{band}\)
+  or pixel irradiance \(E_\mathrm{pix}\), never both.
+- Per-output provenance (written alongside every exported plane): the
+  normalization inputs and conversion formula below are mandatory, not implied
+  by the display metadata:
+  - metres-per-scene-unit \(u_\mathrm{m/BU}\);
+  - emissivity calibration constant \(C_j\) with its units
+    (W m⁻³ sr⁻¹ nm⁻¹);
+  - wavelength estimator and PDF (uniform over \([\lambda_\mathrm{lo},
+    \lambda_\mathrm{hi}]\), \(p(\lambda_i) = 1/N\), yielding
+    \(Q_\mathrm{band} = \frac{1}{N}\sum_i L(\lambda_i)\));
+  - band width \(\Delta\lambda_\mathrm{nm}\) and bounds
+    \([\lambda_\mathrm{lo}, \lambda_\mathrm{hi}]\);
+  - per-pixel \(\Omega_\mathrm{pix}\) (sr);
+  - conversion formula identifier and version;
+  - a flag stating whether the plane is band radiance \(I_\mathrm{band}\) or
+    pixel irradiance \(E_\mathrm{pix}\).
 
 ---
 
@@ -163,18 +196,27 @@ All implementation gates are UNRUN.
 - [ ] **(Phase 1)** Emissivity-to-radiance analytic check passes: a homogeneous
       slab of emissivity \(j\) and thickness \(L\) yields
       \(I = \int j\,ds = jL\) within 0.5 %.
+- [ ] **(Phase 1)** Calibrated-scale check passes: a known relative scalar
+      \(Q_\mathrm{band}\) with declared \(u_\mathrm{m/BU}\) and \(C_j\) yields
+      \(I_{\lambda,\mathrm{SI}} = u_\mathrm{m/BU}\,C_j\,Q_\mathrm{band}\) within
+      0.5 %.
 - [ ] **(Phase 1)** Flat-spectrum/exposure/bandwidth analytic checks pass
       WITHOUT an accidental average-to-integral switch, and confirm the
       exported estimator is \(Q_\mathrm{band} = \frac{1}{N}\sum_i L(\lambda_i)\).
 - [ ] **(Phase 1)** Metadata assertions confirm the declared Phase 1 units and
-      conventions (`scene_unit`, band interval in nm) match the produced
-      output.
+      conventions (`scene_unit`, \(u_\mathrm{m/BU}\), \(C_j\) and units, band
+      interval in nm, estimator/PDF) match the produced output.
 - [ ] **(Phase 2)** Analytic fixtures prove each Phase 2 bridge component:
-      observer-pixel solid angle \(\Omega_\mathrm{pix}\) and physical
-      radiance conversion.
-- [ ] **(Phase 2)** Metadata assertions confirm the declared Phase 2
-      conventions (solid-angle convention, radiance units) match the produced
-      output.
+      observer-pixel solid angle \(\Omega_\mathrm{pix}\), the calibrated
+      conversion \(I_{\lambda,\mathrm{SI}} = u_\mathrm{m/BU}\,C_j\,Q_\mathrm{band}\),
+      and band integration \(I_\mathrm{band} = \Delta\lambda_\mathrm{nm}
+      I_{\lambda,\mathrm{SI}}\) (and \(E_\mathrm{pix} = I_\mathrm{band}
+      \Omega_\mathrm{pix}\) when irradiance is exported).
+- [ ] **(Phase 2)** Per-output metadata assertions confirm every mandatory
+      provenance field is present and matches the produced output:
+      \(u_\mathrm{m/BU}\), \(C_j\) and units, wavelength estimator/PDF,
+      \(\Delta\lambda_\mathrm{nm}\), per-pixel \(\Omega_\mathrm{pix}\),
+      conversion formula/version, and the radiance-vs-irradiance plane flag.
 - [ ] Raw float > 1.0 round-trips through the output path.
 - [ ] Colourmap/denoise/display invariance: display transforms do not touch
       the raw channel.

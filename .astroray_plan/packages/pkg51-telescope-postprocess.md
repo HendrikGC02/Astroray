@@ -10,9 +10,8 @@
 
 ## Goal
 
-**Before:** Astroray has no instrument model. It samples path wavelengths uniformly over
-the band, outputs one broadband image, and has no point-spread function, no per-channel
-detector response and no photon-count statistics.
+**Before:** Astroray has no instrument model: it samples path wavelengths uniformly over the
+band, outputs one broadband image, and has no PSF, per-channel detector response or photon counts.
 
 **After:** One declared instrument pipeline in fixed dependency order — trusted spectral
 output (pkg243) → flux-normalized radiance microbins (render-time, per path wavelength,
@@ -34,14 +33,11 @@ radiance alone is NOT a photon-count model.**
 
 ## Context
 
-Stage 3 of `stage-plan-2026-09-22.md` requires one instrument design, separate
-implementations, gated on pkg243. pkg243 (raw relative band output + honest provenance)
-is still open on pkg251, so no calibrated or absolute claim is possible yet. The
-render-time half (pkg133) was never implemented; the image-space half (pkg51) was
-outreach-grade only. Without this, the Track N nebula deliverable cannot be observed
-through an instrument. pkg133's design is merged here; its implementation is this
-package's Phase 1 (a separately dispatched bounded implementation), so the stage plan's
-"separate implementations" promise holds.
+Stage 3 of `stage-plan-2026-09-22.md` requires one instrument design with separate
+implementations, gated on pkg243 — still open on pkg251, so no calibrated or absolute claim
+is possible. The render-time half (pkg133) was never implemented; the image-space half
+(pkg51) was outreach-grade only, so the Track N nebula deliverable cannot be observed through
+an instrument. pkg133's design merges here as Phase 1, preserving "separate implementations".
 
 ---
 
@@ -109,9 +105,8 @@ package's Phase 1 (a separately dispatched bounded implementation), so the stage
 ### Key design decisions
 
 - **Two execution domains.** Radiance-microbin accumulation is render-time (film, per path
-  wavelength). PSF convolution and detector statistics are image-space, per microbin.
-  pkg133's boundary is preserved: the film feeds cleaner spectral input; it does not do
-  PSF or noise.
+  wavelength); PSF convolution and detector statistics are image-space, per microbin.
+  pkg133's boundary is preserved: the film feeds cleaner spectral input; it does not do PSF or noise.
 - **Never collapse bands.** Spectral information stays per microbin through PSF + detector; a
   wavelength-dependent, spatially varying PSF cannot be recovered from one broadband image
   (STPSF weighting). The multichannel EXR of flux-normalized microbins is the hand-off.
@@ -122,11 +117,9 @@ package's Phase 1 (a separately dispatched bounded implementation), so the stage
   absolute electron counts wait for Phase 3 and a landed pkg243 contract.
 - **Ordering.** render → spectral output (pkg243) → radiance-microbin accumulation →
   per-microbin PSF → detector integration (T·QE once) → (optional) denoise. Denoising a
-  noisy synthetic observation is physically questionable — document that the user should
-  disable OIDN.
-- **Reuse, do not reinvent.** Use `include/astroray/pass.h`; no parallel pass API. Use
-  `include/astroray/fits_io.h`; fall back to a Gaussian FWHM = 1.22 λ/D only when no cube
-  is supplied.
+  noisy synthetic observation is physically questionable; document that the user should disable OIDN.
+- **Reuse, do not reinvent.** Use `include/astroray/pass.h` (no parallel pass API) and
+  `include/astroray/fits_io.h`; fall back to a Gaussian FWHM = 1.22 λ/D only when no cube is supplied.
 
 #### Phase 0 — Contract audit (blocked on pkg243)
 
@@ -154,11 +147,11 @@ flux-normalized (total invariant to bin width, < 1 % on halving).
 #### Phase 2 — Chromatic optics (per-band PSF)
 
 Convolve each radiance microbin independently with its PSF slice loaded from a
-wavelength-tagged STPSF/WebbPSF FITS cube (`include/astroray/fits_io.h`); each slice
-carries an explicit wavelength coordinate, is interpolated in λ to the microbin
-wavelength (linear), resampled onto the detector pixel grid, and normalized to unit sum
-(flux-conserving) before convolution; zero-pad to avoid wrap-around. Spectral effects are
-never recovered from one broadband image.
+wavelength-tagged STPSF/WebbPSF FITS cube (`include/astroray/fits_io.h`); each slice carries
+an explicit wavelength coordinate, is interpolated in λ to the microbin wavelength (linear),
+resampled onto the detector pixel grid, and normalized to unit sum (flux-conserving) before
+convolution; zero-pad to avoid wrap-around. Spectral effects are never recovered from one
+broadband image.
 **Acceptance (numeric):** PSF FWHM matches the STPSF cube within 5 %; a delta source
 convolves to the PSF with unchanged centroid; per-microbin outputs differ exactly where the
 cube differs; encircled energy is preserved and a flat-field flux-conservation test holds
@@ -167,11 +160,11 @@ cube differs; encircled energy is preserved and a flat-field flux-conservation t
 #### Physical normalisation bridge
 
 pkg243 exports RELATIVE band radiance only. pkg243 **Phase 1** (Stage 1c prerequisite) fixes
-the scene-length units and the emissivity-to-radiance contract. pkg243 **Phase 2** (Stage 3
+the scene-length units and emissivity-to-radiance contract; pkg243 **Phase 2** (Stage 3
 bridge) supplies only the observer pixel solid angle Ω_pix and the physical radiance
-normalisation / detector conversion (W m⁻² sr⁻¹ nm⁻¹). Exposure time and collecting area
-cannot calibrate an arbitrary scalar. **Phase 3 is BLOCKED on pkg243 Phase 2; Phase 0/1 are
-blocked on pkg243 Phase 1.**
+normalisation / detector conversion (per-nm I_λ, W m⁻² sr⁻¹ nm⁻¹; Phase 3 fixes the nm↔m
+units). Exposure and collecting area cannot calibrate an arbitrary scalar. **Phase 3 is
+BLOCKED on pkg243 Phase 2; Phase 0/1 are blocked on pkg243 Phase 1.**
 
 #### Phase 3 — Detector statistics (photon-count model)
 
@@ -181,7 +174,14 @@ Physical normalisation per band, chromatic form:
 
 where ∗ is convolution with the wavelength-dependent PSF P_λ applied **before** spectral
 integration, T(λ) is optical throughput/filter transmission and QE(λ) the detector quantum
-efficiency. T(λ) and QE(λ) are applied **here and only here** (Phase 1 deposited
+efficiency. **Wavelength units (frozen 2026-09-22, lead may adjust):** λ and dλ are SI
+metres throughout — the 360–830 nm microbin grid converts as dλ = dλ_nm × 10⁻⁹ m and
+per-nm radiance as I_λ = I_λ,nm × 10⁹ W m⁻² sr⁻¹ m⁻¹; h = 6.62607015×10⁻³⁴ J s and
+c = 2.99792458×10⁸ m s⁻¹ (SI 2019 exact), so λ/(h c) is photons J⁻¹. Equivalently in the
+nm domain, μ_e = t · A · Ω_pix · ∫ [I_λ ∗ P_λ] · T · QE · (λ_nm · K) dλ_nm with
+K = 10⁻⁹/(h c) = 5.034117×10¹⁵ (J nm)⁻¹; the analytic-count test below MUST use this same
+conversion, so a 10⁹ unit slip fails it rather than hiding in a per-nm scalar.
+T(λ) and QE(λ) are applied **here and only here** (Phase 1 deposited
 flux-normalized radiance). A broad SRF-integrated image cannot receive the correct
 chromatic PSF afterwards, so Phase 1 must preserve spectral bins fine enough for Phase 2;
 add a **spectral-bin convergence test** (halving the bin width changes μ_e by < 1 %).
@@ -193,7 +193,8 @@ electrons (Gaussian read, Poisson dark), then converted **once** by gain to ADU,
 collecting area, pixel solid angle, exposure time and photon-energy conversion explicit
 parameters.
 **Acceptance (numeric):** a flat field of known spectral radiance yields the analytic
-detected-electron count within 1 %; SNR ∝ √t in the photon-noise-dominated regime (fit
+detected-electron count within 1 % using the metre/nm conversion above (a 10⁹ unit slip
+must fail it); SNR ∝ √t in the photon-noise-dominated regime (fit
 exponent 0.5 ± 0.02); read and dark add in quadrature to the analytic σ; identical seed
 reproduces identical noise; the spectral-bin convergence test passes (< 1 % on halving);
 each test names photons, electrons or ADU.

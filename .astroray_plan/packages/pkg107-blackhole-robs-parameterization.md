@@ -2,7 +2,7 @@
 
 **Pillar:** 4 (Astrophysics)
 **Track:** A (small C++ + Python binding change)
-**Status:** paused (owner directive 2026-06-08 — resume when core rendering stable)
+**Status:** done — status reconciled 2026-09-22 (planning session, Astra fact-check): `r_obs_M` is already a constructor parameter (`include/astroray/black_hole.h:214-223`), forwarded by `addBlackHole` (`module/blender_module.cpp:1530`), and used by the reference-bank GR scenes (`r_obs_M: 20.0`). No further implementation; verification is folded into the pkg280 GR transfer audit. Was: paused (owner directive 2026-06-08).
 **Estimated effort:** ½ day (~3 h)
 **Depends on:** nothing
 

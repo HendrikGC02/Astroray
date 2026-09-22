@@ -1,13 +1,13 @@
 {
-  "updated": "2026-09-15",
-  "note": "Tier -> model policy for opencode delegation. Update models here as the roster shifts; never hardcode model ids in skills/hooks. Evidence: .astroray_plan/docs/open-model-research-2026-08.md + scripts/model_bench.py (2026-08-20 run, see docs/model-bench-results.json). 2026-08-19 owner directive: lean harder on opencode models — deepseek-v4-pro promoted to implement primary (near-Opus capability at a fraction of the cost). Verify gates unchanged; open-model diffs are still evidence-verified, never trusted. Bench (clean-finish only, NOT quality): muse-spark errored 3/3 (avoid); hy3 cheapest+fastest clean (strong grunt candidate); minimax-m3 functional (M2.7 tool-call bug not present); mimo-v2.5 clean but tool-heavy/slow. Re-rank with quality gates before swapping primaries. 2026-09-07: the `opencode/` provider is not authenticated (only `opencode-go/` is), so the free-tier grunt entries were removed; verify primary bumped to glm-5.3 and a docs_variant added to grunt.",
+  "updated": "2026-09-22",
+  "note": "Tier -> model policy for opencode delegation. Update models here as the roster shifts; never hardcode model ids in skills/hooks. Evidence: .astroray_plan/docs/open-model-research-2026-08.md + scripts/model_bench.py. Open-model diffs are evidence-verified, never trusted. 2026-09-22 owner directive: deepseek-v4.1-flash is implement AND grunt primary (highly capable even on longer tasks, cheap); deepseek-v4-pro is implement fallback; Codex Terra reviews AND implements bounded work with no per-session cap; Astra fenced to the 2026-09-22 planning session and the render-speed optimisation session; Opus 5 replaces Opus 4.8 as the Claude judgment tier; Haiku 4.5 summarises short files; Sonnet 5 is the Claude grunt workhorse. Earlier history (muse-spark errored, opencode/ provider unauthenticated, glm-5.3-flash docs variant) unchanged.",
   "avoid": [
     "opencode-go/muse-spark-1.2-contributor"
   ],
   "tiers": {
     "grunt": {
       "primary": "opencode-go/deepseek-v4.1-flash",
-      "primary_note": "owner 2026-09-15: DeepSeek V4.1 Flash has 4x usage limits for a limited time - hammer grunt work on it; previous primary deepseek-v4-flash kept as fallback",
+      "primary_note": "owner 2026-09-15/22: DeepSeek V4.1 Flash - hammer grunt work on it; deepseek-v4-flash kept as fallback",
       "docs_variant": "opencode-go/glm-5.3-flash",
       "docs_variant_note": "owner 2026-09-07: extra usage available; preferred for .astroray_plan/ and *.md grunt work",
       "fallback": "opencode-go/deepseek-v4-flash",
@@ -15,11 +15,12 @@
       "default_timeout_s": 600
     },
     "implement": {
-      "primary": "opencode-go/deepseek-v4-pro",
-      "primary_note": "Promoted to primary 2026-08-19 per owner directive (near-Opus capability at a fraction of the cost). Still gated: build+pytest+lint verify every diff.",
-      "fallback": "opencode-go/kimi-k2.7-code",
+      "primary": "opencode-go/deepseek-v4.1-flash",
+      "primary_note": "owner 2026-09-22: Flash promoted to implement primary (capable on longer tasks, cheap). Still gated: build+pytest+lint verify every diff. Hard multi-file physics/shade kernels stay on Opus 5 (memory delegate-tier-stalls-on-hard-packages).",
+      "fallback": "opencode-go/deepseek-v4-pro",
       "use_for": "well-specified package implementation in a worktree, test writing; ALWAYS behind build+pytest+lint gates",
-      "default_timeout_s": 3600
+      "default_timeout_s": 3600,
+      "fallback_note": "proven on tight-spec addon/Python + small header work and on applying named review findings"
     },
     "verify": {
       "primary": "opencode-go/glm-5.3",
@@ -30,11 +31,15 @@
   },
   "codex": {
     "reviewer_deep": "gpt-5.6-terra",
+    "implementer_bounded": "gpt-5.6-terra",
     "reviewer_cheap": "gpt-5.6-luna",
+    "planning_seat": "gpt-6-astra",
     "never_spend": [
-      "gpt-6-astra"
+      "gpt-6-astra (outside the 2026-09-22 planning session and the render-speed optimisation session)",
+      "gpt-5.6-sol"
     ],
-    "invocation": "codex exec -m <model> -s read-only - < prompt.txt",
-    "budget_note": "owner 2026-09-07: <=4 Terra calls per overnight session; Luna freely; Codex reviews only, never implements or orchestrates"
+    "invocation": "codex exec -m <model> -s read-only - < prompt.txt   (implementation: -s workspace-write inside a worktree)",
+    "budget_note": "owner 2026-09-22: Terra = reviews, small implementations, light thinking; NO per-session cap (usage tracked in the run report). Luna free. Astra: this planning session (<=4 turns) + the optimisation session only; Astra may spawn cheap Codex subagents (Luna/Terra), never Sol/Astra.",
+    "credits_check": "login status != credits; one cheap Luna call is the only test"
   }
 }

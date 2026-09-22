@@ -70,19 +70,37 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Project status lives in `.astroray_plan/docs/STATUS.md`.
 - Work packages live in `.astroray_plan/packages/`.
 - Codex is supported alongside Claude Code and opencode (owner directive
-  2026-09-05). Its project configuration, hooks, focused subagents, and skill
-  bridge live in `.codex/` and `.agents/skills/`. Specs with legacy
-  `Codex-paste-ready`/`Track: E` tags remain inert historical metadata and route
-  to `package-implementer`, not a special legacy implementation flow.
+  2026-09-05, widened 2026-09-22). Its project configuration, hooks, focused
+  subagents, and skill bridge live in `.codex/` and `.agents/skills/`. Specs
+  with legacy `Codex-paste-ready`/`Track: E` tags remain inert historical
+  metadata and route to `package-implementer`, not a special legacy flow.
+- **Model policy (owner 2026-09-22, supersedes the 2026-08/09 rules):**
+  - Claude judgment tier = **Opus 5** (`claude-opus-5`); the Opus 4.8 pins and
+    the "never Opus 5" rule are retired. **Fable subagents stay banned.**
+  - **Haiku 4.5** summarises short files when surveying the repo; **Sonnet 5**
+    is the Claude grunt workhorse; prefer opencode models when they fit.
+  - **DeepSeek V4.1 Flash** (`opencode-go/deepseek-v4.1-flash`) is the
+    implement AND grunt primary: highly capable on long tasks and cheap; use it
+    to its full potential, still evidence-verified behind build+test+lint.
+  - **Codex Terra** (`gpt-5.6-terra`) does reviews, bounded implementations
+    and light thinking with no per-session cap; Luna is free. **Astra**
+    (`gpt-6-astra`) only in the 2026-09-22 planning session and the
+    render-speed optimisation session; Astra may spawn cheap Codex subagents
+    (Luna/Terra), never Sol/Astra.
+  - Routing table: `.claude/skills/delegate/config/tiers.json`.
+- **Project index first (owner 2026-09-22):** before grepping
+  `.astroray_plan/` or `scripts/`, or asking "who owns / what landed / is there
+  a script", run `python scripts/project_index.py {query,owns,whatis,deps,script}`.
+  The `index_nudge` hook reminds you; put the rule in every lane brief.
 - Shared repo invariants live in `AGENTS.md`; follow them in addition to this file.
 - Keep Claude Code available as the last-line-of-defense judgment path. Codex
   may orchestrate or implement scoped work, and may dispatch bounded grunt,
   implementation, or pre-review work through the existing opencode delegation
   wrapper; it still verifies the resulting evidence rather than trusting it.
-- **Cost routing (2026-08):** bounded grunt work (docs flips, lint fixes, report
-  assembly, pre-review critique, well-specified gated implementation) goes to
-  open-weight models via the `delegate` skill — evidence-verified, never
-  trusted. Claude stays on last-line-of-defense judgment: architect/specs,
+- **Cost routing (2026-08, re-tiered 2026-09-22):** bounded grunt and
+  well-specified implementation go to open-weight models via the `delegate`
+  skill (DeepSeek V4.1 Flash primary), evidence-verified, never trusted.
+  Claude (Opus 5) stays on last-line-of-defense judgment: architect/specs,
   cycles-parity, ABI reachability, gate-failure root-cause, merge decisions,
   visual inspection. Tier→model mapping: `.claude/skills/delegate/config/tiers.json`.
 - Package specs must pass `python scripts/project_index.py lint`; template:

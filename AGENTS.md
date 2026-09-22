@@ -32,10 +32,12 @@ Astroray/
   Then confirm the candidate package's own `Status:`/dependencies and current
   git/GitHub state. Do not route from old handoffs, archived plans, or an
   apparent empty queue alone.
-- `KNOWLEDGE.md` is the repo routing map — it documents `scripts/project_index.py`
-  (`query`/`owns`/`script`/`deps`/`whatis`) for answering "who owns this file",
-  "what package does X", and "is there already a script for this task". Consult it
-  before grepping blind.
+- **Project index first (owner 2026-09-22).** `scripts/project_index.py`
+  (`query`/`owns`/`script`/`deps`/`whatis`) answers "who owns this file",
+  "what package does X", "what landed", and "is there already a script for
+  this task" in one line. Run it BEFORE grepping `.astroray_plan/` or
+  `scripts/`; the Claude `index_nudge` hook reminds you. `KNOWLEDGE.md` is the
+  routing map behind it.
 - Keep agent-specific notes additive. If a rule belongs to all agents, put it here.
 - **Before writing any new script, check `scripts/README.md` (the canonical
   per-task script index) and grep `scripts/`, `benchmarks/`, `tools/` for an
@@ -101,6 +103,10 @@ Astroray/
   switch back any time; it is the fallback and last-line-of-defense layer.
 - **Codex** uses `.codex/` for project configuration, lifecycle hooks, and
   focused subagents, plus `.agents/skills/` for the index/workflow bridge.
+  Owner 2026-09-22: Terra reviews and implements bounded work (no cap), Luna
+  is free, Astra is fenced to named sessions. Claude judgment tier is Opus 5;
+  DeepSeek V4.1 Flash is the open-model implement+grunt primary (see
+  `CLAUDE.md` §5 "Model policy").
   Codex model and provider choice stays user-level so it can evolve. For cheap
   external-model work, `astroray-opencode-delegator` reads the current mapping
   from `.claude/skills/delegate/config/tiers.json`; never hard-code those model

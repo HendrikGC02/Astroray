@@ -41,6 +41,7 @@ no scene that exercises the existing accretion emission in a time-varying config
 
 - 2026-09-22: rewritten in the planning session (stage-plan-2026-09-22.md §4); previous text superseded.
 - 2026-09-22: Astra turn-2 review amendments applied (planning session).
+- 2026-09-22: Codex Terra review defects applied (planning session).
 
 ---
 
@@ -73,7 +74,8 @@ no scene that exercises the existing accretion emission in a time-varying config
 | File | Purpose |
 |---|---|
 | `tests/scenes/hmxb_phase1.py` | Prescribed-geometry HMXB scene builder: donor Roche surface, circular orbit, slim-disk accretor. |
-| `benchmarks/reference_bank/scenes/hmxb-lightcurve/scene.py` | Reference-bank scene entry for the orbital light curve. |
+| `tests/scenes/hmxb_control.py` | Dedicated analytic control scene: spherical opaque donor (radius `R_L`) + point emitter on a circular edge-on orbit, rendered through Blender CPU. |
+| `benchmarks/reference_bank/scenes/hmxb-lightcurve/scene.py` | Reference-bank scene entry for the orbital light curve (references both the deliverable and the control scene). |
 | `benchmarks/reference_bank/scenes/hmxb-lightcurve/gates.toml` | Gate thresholds for the eclipse/ellipsoidal checks. |
 | `benchmarks/reference_bank/scenes/hmxb-lightcurve/notes.md` | Geometry, settings, and evidence paths for the reference frame. |
 | `scripts/hmxb_lightcurve.py` | Render phase-folded frames over one period, assemble the normalised light curve figure. |
@@ -106,34 +108,55 @@ None.
 
 - Produce one phase-folded, **normalised** orbital light curve over one period from a
   Blender-driven CPU render.
-- **Analytic eclipse control (exact).** Compare against a closed-form control: a
-  spherical opaque donor of radius `R_star`, a point emitter at the compact object, and a
-  circular edge-on orbit. The eclipse duration fraction is
-  `f_eclipse = arcsin(R_star / a) / pi` (e.g. `R_star / a = 0.5` gives `f = 1/6`). For
-  inclination `i < 90 deg` use the standard geometric contact condition for a circular
-  orbit (Kopal 1959). The control radius is the donor's Roche-lobe radius `R_L` — the
-  volume-equivalent spherical radius of the Roche-filling donor.
+- **Normalisation baseline.** Normalise every frame by the mean flux over phases outside
+  eclipse (all sampled phases with `|phase − 0.5| > f_eclipse`); that baseline is 1.0 by
+  construction, so depth and contact phases are dimensionless. The deliverable and the
+  control use the identical baseline.
+- **Dedicated analytic control scene (Blender-rendered, required).** A separate scene,
+  `tests/scenes/hmxb_control.py`, is rendered through Blender CPU: a spherical opaque
+  donor of radius `R_star` (the donor's Roche-lobe radius `R_L` — its volume-equivalent
+  radius), a point emitter at the compact object, and a circular edge-on orbit. Its
+  measured contacts and depth are compared **directly** to the closed-form solution below.
+  The Roche + slim-disk deliverable is *not* the analytic control: it is compared to the
+  same closed form only through the flux-based criterion below.
+- **Analytic control solution.** Eclipse duration fraction `f_eclipse = arcsin(R_star /
+  a) / pi` (e.g. `R_star / a = 0.5` gives `f = 1/6`). For inclination `i < 90 deg` use
+  the Kopal 1959 geometric contact condition for a circular orbit; the control contacts
+  are the exact geometric contact phases of that condition.
 - **Eclipse duration fraction** matches the analytic control **within 2% relative error
-  in `f_eclipse`** — a relative tolerance, not `±0.02` of an orbit.
-- **Eclipse depth** matches the analytic occulted source fraction at mid-eclipse (full
-  for the point emitter; the slim-disk source uses its own contact geometry below).
-- **Ingress/egress phase locations** match the analytic contact phases.
+  in `f_eclipse`** — a relative tolerance, not `±0.02` of an orbit. Not weakened.
+- **Contact detection (reproducible, flux-based).** From the phase-folded normalised curve
+  `F(phi)` on the declared phase grid: let `D = 1 − min F` be the mid-eclipse depth. Define
+  the partial-contact level `L1 = 1 − D/2` and the full-occultation level `L2 = 1 − 0.95 D`.
+  Contacts are the linear-interpolation crossings of those levels on the bracketing
+  samples: **1st** = first falling crossing of `L1`, **2nd** = first falling crossing of
+  `L2`, **3rd** = last rising crossing of `L2`, **4th** = last rising crossing of `L1`.
+  `f_eclipse = phase(4th) − phase(1st)` (total duration including partial phases); ingress
+  is `phase(2nd) − phase(1st)`, egress is `phase(4th) − phase(3rd)`. For the point emitter
+  `L2` is reached only at the minimum, so 2nd = 3rd within one phase step.
+- **Slim-disk emitter contact geometry.** The pkg43 slim disk is a finite-thickness
+  volumetric emitter with inner/outer radii, so its projected silhouette is **not**
+  assumed to be a circle and no projected radius `R_emit` is used for contacts. Contacts
+  for the extended emitter are defined solely by the flux-based criterion above; this
+  makes the full-occultation condition reproducible from the sampled curve alone.
+- **Eclipse depth tolerance.** Depth `= 1 − min F`, with absolute tolerance `±0.01` in
+  normalised flux against the analytic occulted fraction (full for the point control;
+  the flux-based `D` for the extended emitter). `(frozen 2026-09-22, lead may adjust)`
+- **Ingress/egress phase tolerance.** All four contact phases match the analytic control
+  within `±0.005` in orbital phase (absolute). `(frozen 2026-09-22, lead may adjust)`
 - **Phase-resolution convergence:** halving the phase step changes `f_eclipse` by
   `< 0.5 %`.
 - **Non-eclipsing control run:** at an inclination low enough that no eclipse occurs
   (`R_star` no longer crosses the line of sight), the light curve shows only ellipsoidal
   modulation, with no occultation dip.
-- **Extended-emitter contacts (slim disk).** When the emitter is the extended slim disk
-  of projected radius `R_emit`, define the four contacts exactly: **first contact** —
-  donor limb first touches the far edge of the emitter (eclipse begins); **second
-  contact** — donor limb reaches the near edge (full occultation begins); **third
-  contact** — donor limb leaves the near edge (full occultation ends); **fourth
-  contact** — donor limb clears the far edge (eclipse ends). `f_eclipse = phase(4th) −
-  phase(1st)` (total duration including partial phases); ingress is `phase(2nd) −
-  phase(1st)` and egress is `phase(4th) − phase(3rd)`.
+- **Uncertainty allocation (frozen 2026-09-22, lead may adjust).** Each phase point is
+  rendered with the declared sample count and `N_seed = 5` independent seeds; report the
+  mean and the 95% CI (`1.96 × SEM`). The Monte-Carlo CI half-width on `f_eclipse` must be
+  `≤ 0.5 %` relative and the phase-grid extraction error `≤ 0.5 %` relative, so the
+  combined uncertainty `≤ 1 %` relative is strictly below the 2% acceptance tolerance.
 - **Ellipsoidal amplitude** matches the analytic Fourier amplitude (Avni & Bahcall 1975;
   Morris & Naftilan 1993) **within 10%**.
-- The figure reports the stated Monte-Carlo uncertainty; CPU is the oracle.
+- The figure reports the stated Monte-Carlo 95% CI; CPU is the oracle.
 
 #### Phases
 
@@ -147,8 +170,10 @@ None.
 ## Acceptance criteria
 
 - [ ] `scripts/hmxb_lightcurve.py` renders one period and writes the phase-folded normalised light-curve figure and its raw frame data.
+- [ ] The dedicated sphere/point control scene (`tests/scenes/hmxb_control.py`) renders through Blender CPU on a circular edge-on orbit, and its measured contacts and depth match the closed-form solution directly.
 - [ ] Eclipse duration fraction is within **2% relative error** of the analytic `f_eclipse = arcsin(R_star/a)/pi` (Kopal 1959 contact condition for `i < 90 deg`).
-- [ ] Ingress/egress phase locations and eclipse depth match the analytic control (four contacts defined for the extended slim-disk emitter).
+- [ ] Ingress/egress contact phases are within `±0.005` (absolute orbital phase) and eclipse depth is within `±0.01` (normalised flux) of the analytic control, using the flux-based contact criterion (the extended slim-disk emitter claims no projected-radius geometry).
+- [ ] Repeated seeded renders (`N_seed = 5`) give a 95% CI half-width on `f_eclipse` of `≤ 0.5 %` relative, and the combined Monte-Carlo + phase-extraction uncertainty is `≤ 1 %` relative — strictly below the 2% acceptance tolerance.
 - [ ] Halving the phase step changes `f_eclipse` by `< 0.5 %`.
 - [ ] A non-eclipsing control run shows only ellipsoidal modulation, with no occultation dip.
 - [ ] Ellipsoidal amplitude is within 10% of the analytic Fourier amplitude for the declared geometry.
@@ -172,9 +197,10 @@ None.
 
 - [ ] Fix and record the declared geometry (`P`, `a`, `i`, `q`, donor `T_eff`).
 - [ ] Implement the analytic Roche-surface donor and circular-orbit scene in `tests/scenes/hmxb_phase1.py`.
+- [ ] Implement and Blender-CPU-render the dedicated sphere/point control scene (`tests/scenes/hmxb_control.py`); compare its contacts directly to the closed-form solution.
 - [ ] Wire the pkg43 slim disk as the compact-object emission model.
-- [ ] Implement `scripts/hmxb_lightcurve.py` and render the period.
-- [ ] Compute eclipse-duration (relative error in `f_eclipse`), ingress/egress, depth, and ellipsoidal-amplitude checks against the analytic values; commit the figure.
+- [ ] Implement `scripts/hmxb_lightcurve.py` and render the period with `N_seed = 5` independent seeds per phase point.
+- [ ] Compute eclipse-duration (relative error in `f_eclipse`), ingress/egress (flux-based contacts), depth, and ellipsoidal-amplitude checks against the analytic values; report the 95% CI and combined uncertainty budget; commit the figure.
 - [ ] Run the phase-resolution convergence check and the non-eclipsing inclination control.
 - [ ] Register the reference-bank scene and pass its gates.
 

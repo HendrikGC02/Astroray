@@ -4,7 +4,7 @@
 **Track:** B
 **Status:** paused — Pillar 4 (Stage 2, Track N); merged with #144 and rewritten 2026-09-22
 **Estimated effort:** 3 sessions (~9 h), two phases
-**Depends on:** pkg45, pkg243, pkg267, pkg270
+**Depends on:** pkg45, pkg251, pkg243, pkg267, pkg270
 
 ---
 
@@ -15,13 +15,12 @@ spectral Planck continuum from them (pkg270), but it cannot emit atomic lines.
 The pkg45 CLOUDY tables exist but no code reads them, and there is no way to feed
 per-voxel n_e / T_e / ionisation fields into an emitter.
 
-**After:** Line emission is evaluated inside the existing volume transport:
-per-voxel n_e, T_e and ionisation come from `set_volume_grid` arrays or VDB
-grids; each line is looked up in the pkg45 table and deposited through the
-`GridMedium` / pkg270 spectral-accumulation path with an unbiased
-hero-wavelength MIS estimator. Phase 2 adds dust scattering (reflection nebulae,
-#144). A Principled-Volume-driven preset renders the result from Blender with no
-new UI.
+**After:** Line emission is evaluated in the existing volume transport: per-voxel
+n_e, T_e and ionisation come from `set_volume_grid` arrays or VDB grids, each
+line is looked up in the pkg45 table and deposited through the `GridMedium` /
+pkg270 accumulation with an unbiased hero-wavelength MIS estimator, and a
+headless Blender preset renders the result. Phase 2 adds dust scattering
+(reflection nebulae, #144).
 
 **First measurable deliverable:** the measured quantity is **integrated energy
 radiance per line** — the line's total power per unit area per solid angle
@@ -43,12 +42,12 @@ discrete wavelengths carry the colour. Issue #144 asks for emission and
 reflection nebula media; this spec merges it into the existing volume lane
 instead of a parallel emitter.
 
-The previous pkg46 text assumed its own sampler, its own `VolumetricEmission`
-interface (pkg42), and an unvalidated table. The engine has since landed
-`GridMedium` traversal (pkg267), delta/ratio tracking + volume NEE (pkg268–269,
-271) and spectral Planck emission (pkg270); reuse is the smallest correct path.
-Without this, Pillar 4 Track N has no physical line source and the pkg45 tables
-stay unused.
+The previous pkg46 text assumed its own sampler, `VolumetricEmission` interface
+(pkg42) and an unvalidated table. The engine has since landed `GridMedium`
+traversal (pkg267), delta/ratio tracking + volume NEE (pkg268–269, 271) and
+spectral Planck emission (pkg270); reuse is the smallest correct path. Without
+this, Pillar 4 Track N has no physical line source and the pkg45 tables stay
+unused.
 
 ---
 
@@ -56,6 +55,7 @@ stay unused.
 
 - 2026-09-22: rewritten in the planning session (stage-plan-2026-09-22.md §4); previous text superseded.
 - 2026-09-22: Astra turn-2 review amendments applied (planning session).
+- 2026-09-22: Codex Terra review defects applied (planning session).
 
 ---
 
@@ -84,8 +84,11 @@ stay unused.
 - [ ] pkg45 is done: `data/emissivity/hii_emissivity.bin` + metadata committed.
 - [ ] pkg267/pkg268 are done: `GridMedium` + delta/ratio tracking (landed).
 - [ ] pkg270 is done: per-λ spectral volume emission (landed).
-- [ ] pkg243 is open: raw band output + provenance, needed to measure Hα/Hβ
-      honestly (this package consumes it, it is not blocked by it).
+- [ ] **Blocking:** the pkg251 → pkg243 chain has landed — the band-parameter
+      reachability contract (pkg251) then raw band output + honest provenance
+      (pkg243). Every Hα/Hβ ratio gate and every absolute-normalisation gate is
+      blocked on this chain: without it those quantities cannot be measured
+      honestly. Phase 1 code may proceed in parallel but is not done until it lands.
 - [ ] Build passes on main.
 
 ---
@@ -124,10 +127,10 @@ accumulation — no parallel ray marcher, no runtime CLOUDY.
 Narrow lines are missed by the luminance-weighted hero-λ proposal (pkg206,
 `SampledWavelengths::sampleImportance`, `src/spectrum.cpp`): Hα's physical width
 is ~0.1 nm against the engine grid. Deposit each line as an energy-normalised
-Gaussian whose FWHM is matched to the spectral grid, not to the physical
-linewidth, following the `_atomic_lines` convention in
+Gaussian whose FWHM matches the spectral grid, not the physical linewidth,
+following the `_atomic_lines` convention in
 `atomic-line-broadening-research.md` (Gaussian = Doppler limit of the Voigt
-profile; Armstrong 1967). The line's *area* is the table intensity, so total
+profile; Armstrong 1967); the line's *area* is the table intensity, so total
 power is conserved regardless of the numerical width.
 
 Sampling λ ∝ luminance alone is therefore low-efficiency for line light. Use
@@ -138,12 +141,11 @@ multiple importance sampling (balance heuristic) between:
   Gaussian profile, sampled by picking a line then sampling its profile.
 
 Each contribution is weighted by `p_λ/(p_λ + p_line)` (and the mirror term),
-with both pdfs in closed form. This is the hero-wavelength spectral-MIS
-construction of Wilkie et al. 2014 and follows the SPD importance-sampling
-weight of pkg221. `p_line` is built once per medium from the table; per-voxel
-n_e / T_e / log U modulate the mixture weights, not the sampling support.
-Unbiasedness is demonstrated by a test, not assumed: a broad flat spectral
-response function (uniform-wavelength render) and the MIS render agree within MC noise.
+both pdfs closed-form: the hero-wavelength spectral-MIS construction of Wilkie
+et al. 2014, following pkg221's SPD importance weight. `p_line` is built once per
+medium; per-voxel n_e / T_e / log U modulate the mixture weights, not the
+support. Unbiasedness is tested, not assumed: a uniform-wavelength render and
+the MIS render agree within MC noise.
 
 #### Phase 1 emission-only
 
@@ -156,27 +158,37 @@ temperature grid, log U from a new optional ionisation grid (dense array via
 scalars.
 
 No ionisation solver and no runtime CLOUDY: the fields are inputs and the table
-is the physics. Line list and wavelengths: Hα 656.3, Hβ 486.1, Hγ 434.0,
-[OIII] 495.9/500.7, [NII] 654.8/658.3, [SII] 671.6 nm (pkg45).
+is the physics. Line identities, air wavelengths and units come **exclusively
+from the pkg45 sidecar metadata** (`hii_emissivity_metadata.json`); the loader
+rejects any schema mismatch (line count, λ, or units) before a render. Nothing
+is hard-coded here — pkg45's eight-entry contract is Hα 656.28, Hβ 486.13,
+[OIII] 495.9/500.7, [NII] 654.8/658.3, [SII] 671.6/673.1 nm.
 
 #### Phase 2 dust scattering / reflection nebula
 
 #144's reflection media: add dust extinction and anisotropic scattering to the
-same traversal, so a nebula can both emit lines and scatter a nearby star's
-light. Scattering reuses the existing `anisotropy` (Henyey-Greenstein 1941)
-term; an optional Draine 2003 grain phase function may replace it later. Dust
-albedo / extinction are scene inputs — no dust microphysics model. Phase 2 also
-delivers #144's diagnostic: a contact-sheet of volume tiles across preset
-parameters.
+same traversal, so a nebula emits lines and scatters a nearby star's light.
+Scattering reuses the existing `anisotropy` (Henyey-Greenstein 1941) term; an
+optional Draine 2003 grain phase function may replace it later. Dust albedo /
+extinction are scene inputs — no dust microphysics model. Phase 2 also delivers
+#144's diagnostic: a contact-sheet of volume tiles across preset parameters.
 
 #### Blender surface
 
-No new UI. The addon grows one named preset, "Emission Nebula", that maps a
-Principled Volume (or a VDB) onto `set_volume_grid`: the density grid is n_e,
-the temperature grid is T_e, plus the optional ionisation attribute and the HII
-line strength. Emission colour/strength stay the Principled Volume sockets.
-Preset logic lives in `blender_addon/exporter.py`; the user drives it from the
-existing volume material, exactly as the pkg270 blackbody path is driven today.
+No new UI: the named preset "Emission Nebula" is selected by the fixture via a
+volume-material custom property (`mat["astroray_volume_preset"]`), which
+`exporter.py` maps onto `set_volume_grid` — density grid = n_e, temperature grid
+= T_e, plus the optional ionisation attribute and HII line strength; colour and
+strength stay on the Principled Volume sockets, exactly as today's pkg270
+blackbody path is driven.
+
+The quantitative path is a **headless Blender CPU slab render**
+(`blender --background --python tests/scenes/hii_caseb_slab.py`), same T_e, n_e
+and thickness L as the CPU oracle, writing raw pre-display Hα and Hβ channels
+(the pkg251→pkg243 raw float path — no gamma/tone-map/colourmap) plus
+provenance. The pkg45 discrete-line bin deposit puts each line in its own 1 nm
+emission cell, so each saved channel integrates exactly one line; comparison is
+external to Blender, against `I = j_λ·L`.
 
 ---
 
@@ -187,19 +199,26 @@ existing volume material, exactly as the pkg270 blackbody path is driven today.
       pinned pkg45 table row (Storey & Hummer 1995 Case B; ≈ 2.86) — the
       tabulated row for that grid point, not a universal constant. The 2 % is an
       engineering budget: require ≥ 5 seeds and a 95 % confidence interval fully
-      inside the ±2 % tolerance.
+      inside the ±2 % tolerance. Blocked until the pkg251→pkg243 chain lands.
 - [ ] Independent single-line normalisation: for a homogeneous slab of thickness
       L, rendered line radiance equals I_line = j_line · L / (4π), with j_line
       [erg s⁻¹ cm⁻³] the un-normalised line-integrated emissivity; pkg45 stores
       its 4π-normalised form j_line/(4π) [erg s⁻¹ cm⁻³ sr⁻¹]. Catches a missing
-      4π or density factor that cancels in the Hα/Hβ ratio.
+      4π or density factor that cancels in the Hα/Hβ ratio. Blocked until the
+      pkg251→pkg243 chain lands.
 - [ ] Hα line power scales linearly with slab path length (≤ 2 % residual).
 - [ ] Energy conservation: integrated emitted line power equals table
       j × voxel volume within MC noise (floor and ceiling both asserted, linear
       render — see `AGENTS.md` §Furnace/energy tests).
 - [ ] Line-sampling estimator is unbiased: identity of the mean under
       luminance-only vs MIS sampling, with lower variance under MIS.
-- [ ] Hα/Hβ measured through the pkg243 band output, with provenance recorded.
+- [ ] Blender quantitative path: a headless CPU slab fixture
+      (`blender --background --python tests/scenes/hii_caseb_slab.py`) renders
+      through the "Emission Nebula" preset (selected by the material custom
+      property, not a UI toggle) and saves raw, pre-display Hα and Hβ channels
+      with provenance; each channel, isolated by the pkg45 line-bin deposit, is
+      compared externally to `I = j_λ·L` and agrees within tolerance. Blocked
+      until the pkg251→pkg243 chain lands.
 - [ ] `EmissivityTable` loads `hii_emissivity.bin` and interpolates known grid
       values to the documented tolerance.
 - [ ] ≥8 tests cover loading, interpolation, line-profile area, line ratio,

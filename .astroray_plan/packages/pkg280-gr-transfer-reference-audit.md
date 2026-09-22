@@ -46,6 +46,7 @@ an unverified path.
 - 2026-09-22: `benchmarks/reference_bank/README.md` lists `~2 s` for `gr-schwarzschild` and `gr-kerr-94-faceon` (2026-05); measured 19.7–19.8 s at `604b03f0`, 512×512×64.
 - 2026-09-22: pkg107 reconciled — `r_obs_M` is a constructor parameter (`include/astroray/black_hole.h:214-223`), forwarded by `addBlackHole`, and used by the bank scenes (`r_obs_M: 20.0`). Verification is folded into this package.
 - 2026-09-22: Astra turn-2 review amendments applied (planning session).
+- 2026-09-22: Codex Terra review defects applied (planning session).
 
 ---
 
@@ -97,12 +98,18 @@ transport and the emission registry rather than new accumulators.
 #### Phase 1 — Invariant intensity transfer
 
 - Frequency domain: `I_ν,obs(ν) = g³ I_ν,em(ν/g)` with `g = ν_obs/ν_em`. Wavelength domain: `I_λ,obs(λ) = g⁵ I_λ,em(g·λ)`.
-- The engine's `diskEmissionSpectral` works in the wavelength domain (per-λ `SampledSpectrum`), so the correct evaluation is `g⁵ · B_λ(g·λ, T)` (equivalently `g³ · B_ν` at the shifted frequency converted to per-λ). Applying `g³` to `B_λ`, or evaluating `B` at the unshifted `λ`, is wrong.
+- The engine's `diskEmissionSpectral` works in the wavelength domain (per-λ `SampledSpectrum`); the Jacobian-exact form is `I_λ,obs(λ) = (c/λ²)·g³·B_ν(c/(g·λ), T) = g⁵·B_λ(g·λ, T)`. Applying `g³` to `B_λ`, evaluating `B` at the unshifted `λ`, or omitting the `(c/λ²)` Jacobian is wrong.
+- Test bin-by-bin that the `(c/λ²)·g³·B_ν` and `g⁵·B_λ` evaluations agree on every sampled bin, so a missing Jacobian cannot pass.
 - Keep the existing `exposureScale / span` normalisation unchanged.
 - Remove the `min(20.0, ·)` clamp unless a numeric test shows a needed bound; if kept, state the affected pixel range and why unbiased sampling cannot replace it.
-- Test: `g = 1` reduces to `B(λ, T)`; monotone `g` scaling; energy conservation; recovered colour temperature `= g·T` within 1 %.
+- Test: `g = 1` reduces to `B(λ, T)`; monotone `g` scaling; the invariant residual `I_ν/ν³` is preserved within **≤ 1 %**; recovered colour temperature `= g·T` within 1 %.
 - Test: monochromatic shift — a delta emitter at `λ_em` appears at `λ_em/g`.
-- Test: bolometric scaling — integrated intensity scales as `g⁴`.
+- Test: bolometric scaling `∫I_ν dν ∝ g⁴` — integration measure: trapezoidal integral over the sampled per-λ grid spanning ≥ 99.9 % of the Planck flux at both `T` and `g·T`; tolerance **≤ 1 %** `(frozen 2026-09-22, lead may adjust)`.
+
+#### Phase 1b — Volumetric transfer convention (mandatory for science paths)
+
+- Any path transporting emission or absorption through a moving medium transports the Lorentz-invariant `j_ν/ν²` (emissivity) and `ν·α_ν` (absorption), applying the `g³` intensity transfer at integration. Source: Rybicki & Lightman 1979 §4.2; ipole `radiation.c::jnu_inv`.
+- Each volumetric path (ADAF, synchrotron) MUST pass the Phase 1 analytic tests under this convention before it is labelled science-ready; a path that cannot pass is unresolved and prohibited from science release.
 
 #### Phase 2 — Render-time attribution (~10×, bounded)
 
@@ -113,7 +120,8 @@ transport and the emission registry rather than new accumulators.
 #### Phase 3 — Cross-check one Kerr frame
 
 - `gr-kerr-94-faceon`, `a = 0.94`: compare photon-ring image position and disk redshift asymmetry against a GYOTO or ipole reference, each within **5 %**.
-- If neither tool runs in-env, use one published frame and cite it; the 5 % check still applies.
+- Any reference MUST supply frozen comparison metadata — matched geometry (`a`, `r_obs_M`, inclination, field of view, pixel resolution), emission model (disk temperature profile and emissivity index), spectral band, intensity normalization, and the measurement procedure for both extracted quantities — or it is rejected; a 5 % mismatch is only interpretable under matched metadata.
+- If neither tool runs in-env, use one published frame that supplies all metadata above; a frame missing any item is rejected.
 
 #### Phase 4 — Bank re-baseline and pkg107
 
@@ -123,21 +131,21 @@ transport and the emission registry rather than new accumulators.
 
 #### Scope boundary
 
-- Mandatory analytic validation core: the Phase 1 tests above, on the thin-disk path.
+- Mandatory analytic validation core: the Phase 1 tests above, on every path the report labels science-ready — the thin-disk path AND each volumetric path (ADAF, synchrotron) to be labelled science-ready. A path without passing analytic transfer validation MUST NOT be labelled science-ready.
+- Volumetric paths additionally require the invariant emissivity/absorption transport of Phase 1b; absent it they are not science-ready.
 - Plus ONE compatible external reference comparison (Phase 3, GYOTO or ipole), matching physical model and normalisation.
-- The volumetric ADAF/synchrotron transfer conventions are audited and either validated or listed as unresolved follow-ups.
-- The report MUST distinguish "validated for science use" paths from "unresolved" paths; the existence of the report does not authorise use of an unresolved path.
+- Any path not validated in-lane is recorded as unresolved and explicitly prohibited from science release; the existence of the report does not authorise use of an unresolved path.
 
 ---
 
 ## Acceptance criteria
 
 - [ ] Report exists with four numbers: invariance residual, render-time delta, cross-check mismatch, bank per-channel ratios.
-- [ ] `tests/test_gr_transfer_invariance.py` passes; invariance residual ≤ 1 %.
+- [ ] `tests/test_gr_transfer_invariance.py` passes on every path labelled science-ready; invariance residual ≤ 1 %.
 - [ ] Emission clamp removed or justified by a numeric test.
 - [ ] `gr-kerr-94-faceon`, `gr-schwarzschild`, `adaf-sgrA-faceon`, `synchrotron-jet-m87` PASS on the new per-channel metric; SSIM recorded.
 - [ ] The ~10× growth is attributed to a named component (attribution only).
-- [ ] Report lists validated vs unresolved paths explicitly.
+- [ ] Report lists validated vs unresolved paths explicitly; no unresolved path is labelled science-ready.
 - [ ] pkg107 `r_obs_M` shadow-radius behaviour verified.
 - [ ] Follow-up specs filed for anything not fixed in-lane.
 

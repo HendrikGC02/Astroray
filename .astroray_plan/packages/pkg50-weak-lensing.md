@@ -32,14 +32,18 @@ Eur. Phys. J. C 80, 242), so the second-order term alone consumes
 `≈ 2.945 r_g/b` of the relative budget and `b = 100 r_g` is **unsuitable**
 for a 1 % first-order gate. The declared validity range is **`b ≥ 1000 r_g`**
 (second-order ≈ 0.3 %), with finite-distance and numerical errors budgeted
-separately. The observables are **independent** of the pass's own formula:
-rendered background-grid image positions against the analytic lens equation;
-magnification / Jacobian behaviour including the parity flip inside `θ_E`;
-surface-brightness conservation on a uniform background; and, over the
-overlap range, agreement with the existing geodesic tracer. A rendered
-Einstein-ring radius must match
-`θ_E = sqrt(4GM D_ls / (c² D_l D_s))` within **≤ 1 %** for a declared
-lens/source geometry.
+separately. `α` is recovered **only** from rendered source-grid displacements
+(image minus source position for a background grid) or from independently
+propagated geodesic endpoints; it is never read from the pass's deflection
+field or internals. The independent oracle is the existing geodesic tracer:
+geodesic-propagated background-grid image positions and finite-difference
+Jacobians from those positions. The pass's rendered image positions, its
+finite-difference Jacobian / magnification (including the parity flip inside
+`θ_E`) and its Einstein-ring radius are bound to that oracle over the declared
+overlap range; surface-brightness conservation is retained as a remap
+invariant, not a lens-model validator. The analytic
+`θ_E = sqrt(4GM D_ls / (c² D_l D_s))` is a cross-check, not the sole
+validator.
 
 ---
 
@@ -62,6 +66,7 @@ the two Track L packages are independent.
 - 2026-09-22: rewritten in the planning session (stage-plan-2026-09-22.md §4); previous text superseded.
 - 2026-09-22: no lensing pass exists under `plugins/passes/`; `include/astroray/pass.h` exposes only `execute(Framebuffer&)` and `name()`.
 - 2026-09-22: Astra turn-2 review amendments applied (planning session).
+- 2026-09-22: Codex Terra review defects applied (planning session).
 
 ---
 
@@ -98,7 +103,7 @@ the two Track L packages are independent.
 | File | Purpose |
 |---|---|
 | `plugins/passes/weak_lensing.cpp` | CPU screen-space `WeakLensing` pass: thin-lens deflection field, source-plane remap, built-in models. |
-| `tests/test_weak_lensing.py` | Q deflection (`b ≥ 1000 r_g`), Einstein radius, flux conservation + parity flip, geodesic agreement, no-lens identity, pass ordering. |
+| `tests/test_weak_lensing.py` | Q from rendered displacements, geodesic-oracle positions/Jacobian, Einstein radius, flux invariant + parity, geodesic equivalence, no-lens identity, pass ordering. |
 | `tests/scenes/weak_lensing_deflection.py` | Deflection-vs-impact-parameter figure scene; writes the four-number evidence. |
 | `tests/data/test_convergence_map.npy` | Small synthetic κ map for the Phase-2 custom-map path. |
 
@@ -131,15 +136,39 @@ screen-space pass, no new transport.
   At `b = 1000 r_g` the same term is ≈ 0.3 %; the remaining ≤ 1 % budget is for
   finite-distance and numerical error, budgeted separately.
 - **Non-circularity:** testing the pass's inserted `4GM/(b c²)` formula against
-  itself proves nothing. The validation observables must be independent of the
-  implementation: (a) rendered image positions of a background grid against the
-  analytic lens equation; (b) magnification / Jacobian behaviour, including the
-  parity flip inside `θ_E`; (c) surface-brightness conservation on a uniform
-  background; (d) for `b` in the overlap range, agreement with the existing
-  geodesic tracer `include/astroray/black_hole.h` (Schwarzschild path,
-  pkg40/pkg67) — the independent GR propagation.
+  itself proves nothing. `α` and every image observable are recovered from
+  rendered source-grid displacements and from the geodesic oracle — never from
+  the pass's deflection field or internals. Required oracle outputs are (a)
+  geodesic-propagated background-grid image positions and (b) finite-difference
+  Jacobians from those positions. The pass's (i) rendered image positions,
+  (ii) Jacobian / magnification and parity flip inside `θ_E`, and (iii)
+  Einstein-ring radius must agree with the oracle over `b ≥ 1000 r_g`.
+  Surface-brightness conservation on a uniform background is retained as a
+  remap invariant, not a lens-model validator.
 - CPU-only and achromatic: the deflection is independent of λ. GPU is a
   non-goal.
+
+#### Frozen geodesic equivalence protocol (frozen 2026-09-22, lead may adjust)
+
+- **Geometry:** observer–lens
+  `D_l = 1 Gpc`, lens–source `D_ls = 1 Gpc`, observer–source
+  `D_s = D_l + D_ls = 2 Gpc`, point mass `M = 10¹² M_⊙`
+  (`r_g = GM/c² ≈ 1.5×10¹² km`; `D_l ≈ 2×10⁷ r_g`, so finite-distance
+  corrections are ≪ 0.1 %). `G`, `c`: CODATA 2018.
+- **Coordinate mapping:** geodesics integrate in Schwarzschild coordinates
+  with `include/astroray/black_hole.h`; camera rays launch from `r_o = D_l`
+  along image angle `θ` and terminate at the source plane `r_s = D_s` (flat,
+  thin-lens convention). Angles and transverse offsets are converted to the
+  same angular units on both sides.
+- **Asymptotic `b` extraction:** `b` comes from the geodesic's conserved null
+  angular momentum `b = L/E` (exact for Schwarzschild), never from the
+  thin-lens formula; the pass's `b` is the straight-line asymptote offset at
+  the observer plane.
+- **Sampling:** `b/r_g ∈ {1000, 2000, 5000, 10000}` (log-spaced); image
+  angles `θ` on a 16×16 background grid spanning `±3 θ_E`.
+- **Measurement:** per `θ`, compare geodesic exit direction / image position
+  with the pass's remapped position; Jacobians by central differences with
+  step `Δθ = 10⁻⁴ θ_E`; acceptance ≤ 1 % relative over the sampled range.
 
 #### Phase 2 — extended lenses
 
@@ -148,17 +177,19 @@ screen-space pass, no new transport.
   (`ψ̂ = 2κ̂ / (k₁² + k₂²)`) and sets `α = ∇ψ`. These are image-geometry
   diagnostics and are not required for the Phase-1 deliverables.
 
-#### Surface-brightness conservation
+#### Surface-brightness conservation and Jacobian
 
-- Lensing preserves specific intensity: the pass remaps, never rescales,
-  radiance. Flux changes only through the source-to-image area Jacobian
-  `μ = 1 / det A`. The uniform-background check confirms the remap creates no
-  spurious flux (≤ 1 %).
-- A point source is magnified by `μ` and forms a ring at `θ_E`; that is a
-  geometry check, not an energy violation.
-- Inside `θ_E` the Jacobian determinant changes sign, so the image is
-  parity-flipped; the test asserts the observed parity flip at the predicted
-  radius, not merely a magnification value.
+- **Invariant (remap integrity, not lens-model correctness):** lensing
+  preserves specific intensity — the pass remaps, never rescales, radiance —
+  so a uniform background creates no spurious flux (≤ 1 % over a fixed
+  aperture).
+- **Geodesic-reference criterion:** the pass's magnification `μ = 1 / det A`
+  and its finite-difference Jacobian must match the geodesic oracle's
+  finite-difference Jacobian (from geodesic-propagated image positions) within
+  ≤ 1 % over the sampled range.
+- **Parity criterion:** inside `θ_E` the Jacobian determinant changes sign; the
+  test asserts the observed parity flip at the geodesic-predicted critical
+  radius (where `det A = 0`), not merely a magnification value.
 
 #### Pass ordering and registration
 
@@ -171,15 +202,21 @@ screen-space pass, no new transport.
 ## Acceptance criteria
 
 - [ ] `Q = α b c²/(G M)` reaches 4 within ≤ 1 % (`|Q/4 − 1| ≤ 0.01`) over
-      `b ≥ 1000 r_g`, using the asymptotic `b`.
-- [ ] Rendered Einstein-ring radius matches
-      `θ_E = sqrt(4GM D_ls / (c² D_l D_s))` within ≤ 1 % for a declared
-      lens/source geometry.
-- [ ] Uniform-background flux conservation within ≤ 1 % over a fixed aperture,
-      with the parity flip inside `θ_E` observed at the predicted radius.
-- [ ] Deflection agrees with the independent geodesic tracer
+      `b ≥ 1000 r_g`, with `α` recovered from rendered source-grid
+      displacements or geodesic endpoints — never from the pass's deflection
+      field — and `b` the asymptotic (conserved `L/E`) impact parameter.
+- [ ] Rendered background-grid image positions match geodesic-propagated
+      positions within ≤ 1 % over the frozen protocol range; the rendered
+      Einstein-ring radius matches the oracle's `det A = 0` critical radius
+      within ≤ 1 % (analytic `θ_E = sqrt(4GM D_ls / (c² D_l D_s))` as
+      cross-check).
+- [ ] Geodesic-reference finite-difference Jacobian / magnification agrees
+      within ≤ 1 % over the sampled range; uniform-background flux
+      conservation holds within ≤ 1 % as a remap invariant, with the parity
+      flip observed at the geodesic-predicted radius.
+- [ ] Deflection and image positions agree with the independent geodesic tracer
       `include/astroray/black_hole.h` (Schwarzschild path, pkg40/pkg67) within
-      ≤ 1 % over the overlap range.
+      ≤ 1 % under the frozen equivalence protocol (see Key design decisions).
 - [ ] `WeakLensing` registered via
       `ASTRORAY_REGISTER_PASS("weak_lensing", WeakLensing)`.
 - [ ] `lens_model = "none"` produces a pixel-identical image to no pass.

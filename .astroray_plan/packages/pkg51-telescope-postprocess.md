@@ -15,18 +15,20 @@ the band, outputs one broadband image, and has no point-spread function, no per-
 detector response and no photon-count statistics.
 
 **After:** One declared instrument pipeline in fixed dependency order — trusted spectral
-output (pkg243) → response-weighted accumulation (detector QE × filter SRF, Mitsuba 3
-`specfilm` semantics) → chromatic optics (per-band PSF from STPSF/WebbPSF FITS cubes) →
-detector statistics (collecting area, pixel solid angle, exposure, photon-energy
-conversion, Poisson + read + dark). This spec merges pkg51 and pkg133 into one design with
-separate bounded implementations.
+output (pkg243) → flux-normalized radiance microbins (render-time, per path wavelength,
+Mitsuba 3 `specfilm` importance-sampling mechanism) → chromatic optics (per-microbin PSF
+from STPSF/WebbPSF FITS cubes) → detector statistics (filter throughput T(λ) × QE(λ)
+applied exactly once, collecting area, pixel solid angle, exposure, photon-energy
+conversion, Poisson + read + dark). SRF channel layers are derived outputs only. This spec
+merges pkg51 and pkg133 into one design with separate bounded implementations.
 
 **First measurable deliverable:** a synthetic observation of the Track N Case-B hydrogen
 slab through one declared instrument (filter SRF + per-band PSF + exposure). The
-photon-count image must recover the literature Hα/Hβ = 2.86 (Case B, Tₑ = 10⁴ K,
-nₑ = 100 cm⁻³; A&A 2021 Case-B grid) within 2 %, with stated MC uncertainty, and its
-electron statistics must match the declared exposure. **SRF-weighted radiance alone is NOT
-a photon-count model.**
+**response-corrected integrated energy-radiance ratio** must recover the literature
+Hα/Hβ = 2.86 (Case B, Tₑ = 10⁴ K, nₑ = 100 cm⁻³; A&A 2021 Case-B grid) as a mean over
+realisations with its 95 % CI wholly inside ±2 %; detector counts/SNR are reported
+separately. Its electron statistics must match the declared exposure. **Response-weighted
+radiance alone is NOT a photon-count model.**
 
 ---
 
@@ -47,6 +49,7 @@ package's Phase 1 (a separately dispatched bounded implementation), so the stage
 
 - 2026-09-22: rewritten in the planning session (stage-plan-2026-09-22.md §4); previous text superseded.
 - 2026-09-22: Astra turn-2 review amendments applied (planning session).
+- 2026-09-22: Codex Terra review defects applied (planning session).
 - 2026-09-12: pkg133 triage — no SRF/`specfilm` spectral-sensor code exists in the repo.
 - pkg243 (raw band output + provenance) is open and depends on pkg251; no band contract is landed.
 - `include/astroray/pass.h` (pkg06) and `include/astroray/fits_io.h` (pkg47) already exist and are reusable.
@@ -86,35 +89,39 @@ package's Phase 1 (a separately dispatched bounded implementation), so the stage
 
 | File | Purpose |
 |---|---|
-| `plugins/passes/telescope.cpp` | Merged instrument pass: SRF response, chromatic optics, detector statistics (phases land incrementally). |
-| `tests/test_telescope.py` | Numeric gates per phase (flat field, PSF FWHM, SNR, reproducibility). |
-| `scripts/generate_psf_cube.py` | STPSF/WebbPSF → per-band PSF FITS cube generator. |
+| `plugins/passes/telescope.cpp` | Merged instrument pass: radiance microbins, chromatic optics, detector statistics (phases land incrementally). |
+| `tests/test_telescope.py` | Numeric gates per phase (flat field, PSF FWHM, flux conservation, SNR, reproducibility). |
+| `scripts/generate_psf_cube.py` | STPSF/WebbPSF → wavelength-tagged per-band PSF FITS cube generator. |
 | `tests/data/test_psf_gaussian.fits` | Tiny synthetic Gaussian PSF cube for tests (no STPSF required). |
 
 ### Files to modify
 
 | File | What changes |
 |---|---|
-| `include/astroray/spectrum.h` | Add SRF channel tabulation + combined CDF over the 360–830 nm grid (CIE 1931 is the observer, not the emissivity grid). |
-| `plugins/integrators/multiwavelength_path_tracer.cpp` | Preserve per-band radiance to the film; no display transform before the raw channel (pkg243 contract). |
-| `src/io/exr_writer.h` | Write one named float layer per SRF channel. |
+| `include/astroray/spectrum.h` | Add SRF channel tabulation + combined CDF over the 360–830 nm grid (CIE 1931 is the observer, not the emissivity grid); add flux-normalized radiance-microbin tabulation. |
+| `plugins/integrators/multiwavelength_path_tracer.cpp` | Preserve per-band radiance to the film as flux-normalized microbins; no display transform before the raw channel (pkg243 contract). |
+| `src/io/exr_writer.h` | Write one named float layer per radiance microbin; SRF channel layers are derived outputs. |
 | `module/blender_module.cpp` | Expose SRF channels, PSF cube path, exposure and detector parameters. |
 | `blender_addon/__init__.py` | Instrument section: instrument/filter picker, PSF file, exposure, detector parameters. |
 
 ### Key design decisions
 
-- **Two execution domains.** SRF response-weighted accumulation is render-time (film, per
-  path wavelength). PSF convolution and detector statistics are image-space, per band.
-  pkg133's boundary is preserved: the film feeds cleaner per-band input; it does not do
+- **Two execution domains.** Radiance-microbin accumulation is render-time (film, per path
+  wavelength). PSF convolution and detector statistics are image-space, per microbin.
+  pkg133's boundary is preserved: the film feeds cleaner spectral input; it does not do
   PSF or noise.
-- **Never collapse bands.** Spectral information stays per band through PSF + detector; a
+- **Never collapse bands.** Spectral information stays per microbin through PSF + detector; a
   wavelength-dependent, spatially varying PSF cannot be recovered from one broadband image
-  (STPSF weighting). The multichannel EXR is the hand-off.
+  (STPSF weighting). The multichannel EXR of flux-normalized microbins is the hand-off.
+- **Response applied exactly once.** T(λ) and QE(λ) enter only inside the Phase 3 detector
+  integral, over flux-normalized radiance microbins. Phase 1 never emits response-weighted
+  counts and SRF channel layers are derived outputs, so no double QE/throughput.
 - **No calibration before pkg243.** Phases 0–1 emit relative band radiance with provenance;
   absolute electron counts wait for Phase 3 and a landed pkg243 contract.
-- **Ordering.** render → spectral output (pkg243) → SRF film accumulation → per-band PSF →
-  detector statistics → (optional) denoise. Denoising a noisy synthetic observation is
-  physically questionable — document that the user should disable OIDN.
+- **Ordering.** render → spectral output (pkg243) → radiance-microbin accumulation →
+  per-microbin PSF → detector integration (T·QE once) → (optional) denoise. Denoising a
+  noisy synthetic observation is physically questionable — document that the user should
+  disable OIDN.
 - **Reuse, do not reinvent.** Use `include/astroray/pass.h`; no parallel pass API. Use
   `include/astroray/fits_io.h`; fall back to a Gaussian FWHM = 1.22 λ/D only when no cube
   is supplied.
@@ -122,29 +129,38 @@ package's Phase 1 (a separately dispatched bounded implementation), so the stage
 #### Phase 0 — Contract audit (blocked on pkg243)
 
 Audit the pkg251/pk243 band contract: raw relative band quantity preserved before any
-display transform; wavelength grid tied to `kLambdaMin=360` / `kLambdaMax=830` nm; SRF
-channels defined as tabulated filter × QE over that grid. No photon counts claimed.
+display transform; wavelength grid tied to `kLambdaMin=360` / `kLambdaMax=830` nm; the
+flux-normalized radiance-microbin tabulation defined over that grid, with SRF channels
+(filter × QE) as derived outputs. No photon counts claimed.
 **Acceptance (numeric):** a flat-spectrum render round-trips raw floats > 1.0 and equals
 the analytic flat band integral within 0.5 % relative; no display transform touches it.
 
-#### Phase 1 — Response-weighted accumulation (pkg133 merge)
+#### Phase 1 — Radiance-microbin accumulation (pkg133 merge)
 
-Port Mitsuba 3 `specfilm`: build one combined continuous distribution over the union of N
-SRF channels by inverse-transform sampling; importance-sample path wavelengths from it;
-deposit SRF(λ) / pdf into the channels non-zero at λ; keep it hero-wavelength-aware
-(Wilkie 2014) so the existing spectral pdf stays unbiased. N channels → N EXR layers.
+Port Mitsuba 3 `specfilm`'s importance-sampling mechanism: build one combined continuous
+distribution over the union of N SRF channels by inverse-transform sampling;
+importance-sample path wavelengths from it; deposit **flux-normalized radiance** into
+wavelength microbins (bin width fine enough for Phase 2), keeping the deposit
+hero-wavelength-aware (Wilkie 2014) so the existing spectral pdf stays unbiased. No T(λ)
+or QE(λ) is applied here. N microbins → N EXR layers; SRF channel layers are derived by
+response-weighting afterwards, never deposited directly.
 **Acceptance (numeric):** a flat full-band SRF reproduces the uniform-sampling render
 within MC noise (≤ 1 σ over ≥ 64 spp); a narrow-band SRF reaches target relative error in
-≤ 1/4 the samples of uniform sampling (report the measured factor).
+≤ 1/4 the samples of uniform sampling (report the measured factor); microbin radiance is
+flux-normalized (total invariant to bin width, < 1 % on halving).
 
 #### Phase 2 — Chromatic optics (per-band PSF)
 
-Convolve each band independently with its PSF slice loaded from a STPSF/WebbPSF FITS cube
-(`include/astroray/fits_io.h`); zero-pad to avoid wrap-around. Spectral effects are never
-recovered from one broadband image.
+Convolve each radiance microbin independently with its PSF slice loaded from a
+wavelength-tagged STPSF/WebbPSF FITS cube (`include/astroray/fits_io.h`); each slice
+carries an explicit wavelength coordinate, is interpolated in λ to the microbin
+wavelength (linear), resampled onto the detector pixel grid, and normalized to unit sum
+(flux-conserving) before convolution; zero-pad to avoid wrap-around. Spectral effects are
+never recovered from one broadband image.
 **Acceptance (numeric):** PSF FWHM matches the STPSF cube within 5 %; a delta source
-convolves to the PSF with unchanged centroid; per-band outputs differ exactly where the
-cube differs.
+convolves to the PSF with unchanged centroid; per-microbin outputs differ exactly where the
+cube differs; encircled energy is preserved and a flat-field flux-conservation test holds
+(summed convolved flux equals input within 1 %).
 
 #### Physical normalisation bridge
 
@@ -162,13 +178,17 @@ Physical normalisation per band, chromatic form:
 
 where ∗ is convolution with the wavelength-dependent PSF P_λ applied **before** spectral
 integration, T(λ) is optical throughput/filter transmission and QE(λ) the detector quantum
-efficiency (kept separate). A broad SRF-integrated image cannot receive the correct
+efficiency. T(λ) and QE(λ) are applied **here and only here** (Phase 1 deposited
+flux-normalized radiance). A broad SRF-integrated image cannot receive the correct
 chromatic PSF afterwards, so Phase 1 must preserve spectral bins fine enough for Phase 2;
 add a **spectral-bin convergence test** (halving the bin width changes μ_e by < 1 %).
 Three quantities stay distinct: **incident photons**, **detected electrons** (μ_e above),
-and **ADU** (gain applied); tests name which one they check. Mode is then
-Poisson(photons) → Gaussian(read) → Poisson(dark) → gain → ADU, with collecting area,
-pixel solid angle, exposure time and photon-energy conversion as explicit parameters.
+and **ADU** (gain applied); tests name which one they check. Because QE is already inside
+μ_e, detected electrons are sampled directly as `Poisson(μ_e)` (equivalently, sample
+incident photons then binomial-thin by QE); read noise and dark current are added in
+electrons (Gaussian read, Poisson dark), then converted **once** by gain to ADU, with
+collecting area, pixel solid angle, exposure time and photon-energy conversion explicit
+parameters.
 **Acceptance (numeric):** a flat field of known spectral radiance yields the analytic
 detected-electron count within 1 %; SNR ∝ √t in the photon-noise-dominated regime (fit
 exponent 0.5 ± 0.02); read and dark add in quadrature to the analytic σ; identical seed
@@ -179,10 +199,16 @@ each test names photons, electrons or ADU.
 
 Wire Phases 1–3 to the Blender addon as the declared instrument and produce the first
 measurable deliverable figure (Track N Case-B slab).
-**Acceptance (numeric, ENSEMBLE statistics):** over ≥ 20 realisations the detected-electron
-histogram matches the declared Poisson+read+dark model with χ²/dof within [0.8, 1.25]; the
-recovered Hα/Hβ = 2.86 is a **mean over realisations with a confidence interval** (within
-2 %); linear scaling with path length.
+**Acceptance (numeric, ENSEMBLE statistics; Stage 3 contract):** with renderer MC noise
+removed (noise-free converged input; `add_noise` only in the detector stage), the per-pixel
+electron counts over a frozen design — 1000 realisations, 32 equal-width electron-count
+bins spanning μ_e ± 6σ, pooled so every bin has expected occupancy ≥ 5, dof = pooled
+bins − 1 (frozen 2026-09-22, lead may adjust) — match the declared Poisson+read+dark model
+under a goodness-of-fit test at α = 0.01 (χ² bounds from the frozen dof, or a calibrated
+simulation-based test, so a correct simulator is rejected at a known rate). Line recovery
+is the **response-corrected integrated energy-radiance ratio** Hα/Hβ = 2.86 as a mean over
+realisations with its 95 % CI wholly inside ±2 %; detector counts/SNR are reported
+separately; linear scaling with path length.
 
 ---
 
@@ -191,11 +217,12 @@ recovered Hα/Hβ = 2.86 is a **mean over realisations with a confidence interva
 - [ ] `TelescopeObservation` registered via the `include/astroray/pass.h` registry; no parallel pass API.
 - [ ] Flat field of known radiance yields the analytic **detected-electron** count within 1 % (Phase 3); the chain keeps incident photons, detected electrons and ADU distinct, and every test names the quantity it checks.
 - [ ] Spectral-bin convergence: halving the bin width changes μ_e by < 1 % (Phase 3).
-- [ ] PSF FWHM matches the STPSF cube within 5 %; delta convolution preserves centroid (Phase 2).
+- [ ] T(λ) and QE(λ) applied exactly once (Phase 3); SRF channel layers are derived outputs, never spectral inputs.
+- [ ] PSF FWHM matches the STPSF cube within 5 %; delta convolution preserves centroid; flat-field flux conservation holds within 1 % (Phase 2).
 - [ ] Narrow-band SRF reaches target error in ≤ 1/4 the uniform-sampling sample count, reported (Phase 1).
 - [ ] Flat full-band SRF reproduces today's output within MC noise (unbiased; Phase 1).
 - [ ] Same seed reproduces identical noise; `add_noise=false` yields a noise-free convolved image.
-- [ ] Over ≥ 20 realisations the electron histogram matches the declared Poisson+read+dark model (χ²/dof ∈ [0.8, 1.25]); Hα/Hβ = 2.86 recovered within 2 % as a mean with a confidence interval through a declared instrument.
+- [ ] With noise-free converged input and detector-only noise, the frozen realisation/binning design matches the declared Poisson+read+dark model under a goodness-of-fit test at α = 0.01; the response-corrected integrated energy-radiance Hα/Hβ = 2.86 has its 95 % CI wholly inside ±2 % (detector counts/SNR reported separately).
 - [ ] Blender addon exposes all instrument parameters.
 - [ ] All existing tests pass; ≥ 8 new tests; per-phase visual output saved and inspected.
 
@@ -216,7 +243,7 @@ recovered Hα/Hβ = 2.86 is a **mean over realisations with a confidence interva
 ## Progress
 
 - [ ] Phase 0 — contract audit (blocked on pkg243).
-- [ ] Phase 1 — response-weighted accumulation (pkg133 merge).
+- [ ] Phase 1 — radiance-microbin accumulation (pkg133 merge).
 - [ ] Phase 2 — chromatic optics (per-band PSF).
 - [ ] Phase 3 — detector statistics (photon-count model).
 - [ ] Phase 4 — declared-instrument observation + first deliverable figure.

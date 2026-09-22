@@ -44,6 +44,7 @@ required before implementation; estimated effort is TBD at that review.
   opt-in for non-visible renders; `:1070` — no raw band pass exists.
 - `src/io/exr_writer.h:1` — scoped to Cryptomatte, but already has named float
   channels and string headers that may be reusable.
+- 2026-09-22: Codex Terra review defects applied (planning session).
 
 ---
 
@@ -75,10 +76,10 @@ None.
 
 | File | What changes |
 |---|---|
-| `plugins/integrators/multiwavelength_path_tracer.cpp` | Averages the 4 spectral samples at `:127-137` then `r.color = Vec3(L, L, L)` before XYZ/RGB conversion; the raw band quantity must be preserved before any display transform. |
-| `plugins/passes/colourmap_output.cpp` | Reads the colour, applies Reinhard tone-mapping, then the named colourmap overwrites the colour at `:77`; the display path stays independent of the raw channel. |
-| `blender_addon/__init__.py` | Band setup at `:1216-1226`; colourmap opt-in for non-visible renders at `:1255-1256`; no raw band pass exists at `:1070`. |
-| `src/io/exr_writer.h` | Scoped to Cryptomatte at `:1`, but already has named float channels and string headers that may be reusable. |
+| `plugins/integrators/multiwavelength_path_tracer.cpp` | Averages the 4 spectral samples at `:127-137` then `r.color = Vec3(L, L, L)` before XYZ/RGB conversion. Write the pre-display scalar `Q_band` (defined in Phase 0) into a separate raw-plane slot at that point — before XYZ/RGB conversion, tone mapping, denoising, colourmaps, gamma, or clamping; the display `r.color` path is unchanged. |
+| `plugins/passes/colourmap_output.cpp` | Reads the colour, applies Reinhard tone-mapping, then the named colourmap overwrites the colour at `:77`; the display path stays independent of the raw channel and never reads or writes the raw plane. |
+| `blender_addon/__init__.py` | Band setup at `:1216-1226`; colourmap opt-in for non-visible renders at `:1255-1256`; no raw band pass exists at `:1070`. Expose the raw plane and its unit/convention metadata. |
+| `src/io/exr_writer.h` | Scoped to Cryptomatte at `:1`, but already has named float channels and string headers that may be reusable. Add the raw-band export plane as named float channel(s) with unit and provenance string headers. |
 
 ### Key design decisions
 
@@ -87,18 +88,51 @@ Reuse existing pass, EXR, and band-render test machinery.
 #### Phase 0 (mandatory)
 
 Prove the existing average-vs-integral semantics, normalization, and backend
-support; pin the honest schema. Then: a separate float raw-relative-band
-channel; metadata for band bounds, quantity, normalization, build, backend,
-seed, samples, plus explicitly-unavailable provenance; the display path stays
-independent of the raw channel.
+support; pin the honest schema and the exported estimator. The exported
+estimator is the relative band scalar
+
+$$Q_\mathrm{band} = \frac{1}{N}\sum_{i=1}^{N} L(\lambda_i),$$
+
+where \(L(\lambda_i)\) is the per-wavelength radiance scalar accumulated for
+the \(N\) uniform wavelength samples \(\lambda_i\) spanning the band interval
+\([\lambda_\mathrm{lo}, \lambda_\mathrm{hi}]\) in nanometres. \(Q_\mathrm{band}\)
+is a **relative scalar**: dimensionless in the current pipeline and carrying
+physical radiance dimension only after the Phase 2 normalisation bridge. The
+band interval and \(N\) are recorded in metadata. Then: a separate float
+raw-relative-band channel; metadata for band bounds, quantity, normalization,
+build, backend, seed, samples, plus explicitly-unavailable provenance; the
+display path stays independent of the raw channel.
 
 #### Phase 1
 
-Implements the reviewed minimal pass/export boundary.
+Implements the reviewed minimal pass/export boundary. The raw plane is a
+separate float framebuffer/export plane populated with the integrator's
+scalar \(Q_\mathrm{band}\) at the moment it is computed (immediately after the
+4-sample average), before XYZ/RGB conversion, tone mapping, denoising,
+colourmap application, gamma, or clamping. The display colour path must never
+read the raw plane, and the raw plane must never receive display-transformed
+values.
 
 #### Phase 2
 
-Checks round-trip and backend behavior.
+Checks round-trip and backend behavior, plus the mandatory physical-radiance
+normalisation bridge:
+
+- Scene-length unit: one Blender unit = one metre (`scene_unit = "metre"`;
+  frozen 2026-09-22, lead may adjust).
+- Emissivity-to-radiance: emission-only radiative transfer gives
+  \(I = \int j\,ds\), where \(j\) is emissivity (radiance per unit length) and
+  \(I\) is radiance (Rybicki & Lightman, *Radiative Processes in
+  Astrophysics*, 1979, §1.2).
+- Observer-pixel solid angle: pinhole convention
+  \(\Omega_\mathrm{pix} = (w_\mathrm{pix}\,h_\mathrm{pix}) / f^2\)
+  (small-angle approximation, steradian), with pixel size and focal length
+  \(f\) in scene units (frozen 2026-09-22, lead may adjust).
+- Physical radiance units: band-integrated radiance
+  \(W\,m^{-2}\,sr^{-1}\); per-wavelength spectral radiance
+  \(W\,m^{-2}\,sr^{-1}\,nm^{-1}\). Conversion from the relative scalar scales
+  by the scene-length-unit factor and the declared band interval, then applies
+  \(\Omega_\mathrm{pix}\) where the output is intended as pixel irradiance.
 
 ---
 
@@ -107,7 +141,15 @@ Checks round-trip and backend behavior.
 All implementation gates are UNRUN.
 
 - [ ] Flat-spectrum/exposure/bandwidth analytic checks pass WITHOUT an
-      accidental average-to-integral switch.
+      accidental average-to-integral switch, and confirm the exported
+      estimator is \(Q_\mathrm{band} = \frac{1}{N}\sum_i L(\lambda_i)\).
+- [ ] Analytic fixtures prove each Phase 2 bridge component: dimensional
+      units, path-length (scene-unit) scaling of \(I = \int j\,ds\),
+      observer-pixel solid angle \(\Omega_\mathrm{pix}\), and physical
+      radiance conversion.
+- [ ] Metadata assertions confirm declared units and conventions
+      (`scene_unit`, band interval in nm, solid-angle convention, radiance
+      units) match the produced output.
 - [ ] Raw float > 1.0 round-trips through the output path.
 - [ ] Colourmap/denoise/display invariance: display transforms do not touch
       the raw channel.
@@ -123,7 +165,9 @@ All implementation gates are UNRUN.
 ## Non-goals
 
 - No wavelength-sampling redesign.
-- No calibrated radiance or photon counts.
+- No detector, exposure, or photon-count calibration. The Phase 2
+  physical-radiance normalisation bridge (scene-length units, observer-pixel
+  solid angle, radiance units) is required, not a non-goal.
 - No telescope/GR/pkg51/pkg133 unpause.
 - Risk: XYZ/RGB conversion can obscure the original scalar's meaning; existing
   band averages must not be mislabeled as integrals, calibrated radiance, or

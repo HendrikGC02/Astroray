@@ -28,17 +28,16 @@ tests that parameter values reach the intended backend.
 
 ## Context
 
-Pillar 5 covers renderer interoperability and spectral foundations. The package
-depends on pkg250, the standalone dispatch repair, and on the existing spectral
-core. The divergent band and parameter behaviors predate pkg250; that repair
-mirrors the current GPU binding and does not establish a single band/output
-contract. Current callers disagree on defaults (CPU 360–830 nm, GPU/CLI
-380–780 nm), on numeric representation (integer CLI bounds are read back with
-`getFloat`, so they silently fall through to the default), on mode handling (the
-CPU `path_tracer` ignores `output_mode`, the GPU interprets only `luminance`,
-and callers pass `xyz`/`rgb`/`srgb`), and on lifecycle (setting a band after
-`set_integrator()` does not rebuild the CPU integrator). A contract audit and
-detailed architect review are required before implementation.
+Pillar 5 covers renderer interoperability and spectral foundations; the package
+depends on pkg250 (the standalone dispatch repair) and the existing spectral
+core. The divergent band/parameter behavior predates pkg250, whose repair
+mirrors the current GPU binding and does not establish one band/output contract.
+Callers disagree on defaults (CPU 360–830 nm, GPU/CLI 380–780 nm), on numeric
+representation (integer CLI bounds read back with `getFloat` silently fall
+through to the default), on mode handling (the CPU `path_tracer` ignores
+`output_mode`, the GPU interprets only `luminance`, callers pass `xyz`/`rgb`/
+`srgb`), and on lifecycle (a band set after `set_integrator()` does not rebuild
+the CPU integrator). Audit and architect review precede implementation.
 
 ---
 
@@ -51,11 +50,10 @@ detailed architect review are required before implementation.
   ParamDict value, while getFloat accepts a float; decimal wavelength arguments
   and integer-looking arguments may not reach the same band.
 - 2026-09-06: Additional gate investigation — the existing GPU luma path
-  accumulates equal XYZ components and then converts XYZ to linear sRGB; equal
-  XYZ (E-white) is not D65-neutral sRGB: matrix row sums produce
-  (1.2048, 0.9484, 0.9087) times the scalar signal.
-- 2026-09-06: Pkg250's first exact-gray PNG assertion therefore failed; Terra
-  confirmed the caller was correct.
+  accumulates equal XYZ components then converts XYZ to linear sRGB; equal XYZ
+  (E-white) is not D65-neutral sRGB: matrix row sums produce
+  (1.2048, 0.9484, 0.9087) times the scalar signal, so pkg250's first exact-gray
+  PNG assertion failed; Terra confirmed the caller was correct.
 - 2026-09-22: Codex Terra review defects applied (planning session).
 
 ---
@@ -110,23 +108,19 @@ the Phase 2 gate, so no file is created or modified yet.
 - Blender viewport dispatch in `blender_addon/__init__.py`: GPU (CPU fallback).
 - Blender viewport dispatch in `blender_addon/exporter.py`: GPU (CPU fallback).
 
-The Phase 1 matrix pins the exact function names for the F12 and the two
-viewport sites.
-
 **Coercion:** both `lambda_min` and `lambda_max` MUST be read with a
 numeric-coercing `ParamDict::getNumber`-equivalent at every receiver — CPU
 `plugins/integrators/spectral_path_tracer.cpp`, the GPU `path_tracer` branch and
 the CLI GPU dispatch in `apps/main.cpp`, and the bindings — never the exact-type
-`getFloat`. `output_mode` is read as a string. Integer and decimal spellings of
-the same bound MUST select the same band; tests assert integer-vs-decimal
-equivalence on every backend.
+`getFloat`. `output_mode` is read as a string; integer and decimal spellings of
+the same bound MUST select the same band, asserted on every backend.
 
 **Defaults (frozen 2026-09-22, lead may adjust):** the single canonical
 omitted-band default for every backend is `[kLambdaMin, kLambdaMax] = [360, 830]
 nm` (`include/astroray/spectrum.h`; the existing CPU `SpectralPathTracer`
-fallback) — not a new arbitrary default. The GPU binding's `380/780` and the
-CLI's `380/780` defaults change to this. Unset-path CPU and GPU tests assert the
-same band; an explicit caller-supplied range always overrides.
+fallback) — not a new arbitrary default. The GPU binding's and the CLI's
+`380/780` defaults change to this; unset-path CPU and GPU tests assert the same
+band, and an explicit caller range always overrides.
 
 **Output modes:** the accepted v1 enum is `xyz`, `rgb`, `srgb`, `luminance`.
 Explicit over inferred — a non-empty `output_mode` governs; when empty the
@@ -135,9 +129,15 @@ the visible band `[379.5, 780.5]` nm, else `xyz` (the existing GPU rule,
 frozen). A mode outside the enum fails hard before rendering, never a silent
 fallback. Each `(backend, mode)` pair is either implemented or rejected with an
 explicit error; the CPU `path_tracer` currently ignores `output_mode` and must
-implement or reject every accepted mode. The direct GPU binding's
-`use_luminance_output` bool is its mode channel; a conflict between a
-non-default bool and an explicit string mode is an error.
+implement or reject every accepted mode. The direct GPU binding exposes the
+same `output_mode` string contract as every other entrypoint: it MUST accept
+and validate the full four-value enum and map each value to its output, so a
+mode it cannot produce is rejected, never coerced. Its legacy
+`use_luminance_output` bool is deprecated — when `output_mode` is absent, `true`
+maps to `luminance` and `false` to `xyz` (the defined migration); passing both
+is an error. `cuda_wavefront_render_restir` is bound by the identical contract
+(same string enum, validation, output mapping and provenance) and may not
+ignore it.
 
 **Lifecycle:** band/mode configuration is transactional. `set_wavelength_range`
 and `set_output_mode` must rebuild/re-create the active CPU integrator (today
@@ -153,10 +153,17 @@ visible↔non-visible transitions. Tests drive sequential band changes
 luminance; `xyz` is 3-channel CIE XYZ 1931 2°; `rgb`/`srgb` follow the declared
 transform. Every output carries versioned metadata `band_contract = 1`:
 `lambda_min_nm`, `lambda_max_nm`, `output_mode`, observer/transform, `units`
-(`relative spectral radiance`, dimensionless), backend id and seed. Matched
-CPU/GPU outputs compare raw pixels and every metadata field; bounds, mode,
-observer and units must match exactly, pixel values within the declared sampling
-uncertainty.
+(`relative spectral radiance`, dimensionless), backend id and seed. Each
+entrypoint declares its carrier, since a bare array, a CLI file and a Blender
+result cannot hold metadata alike: Python bindings return a result record with
+`pixels` (raw ndarray) and `metadata` (the mapping above), never a bare array;
+the CLI writes a JSON sidecar beside `--output` (same basename) and embeds the
+same fields as PNG text chunks; Blender F12/viewport attach the mapping to the
+result metadata and write the same sidecar next to a saved image, re-emitting
+it on every reused-renderer dispatch. Matched CPU/GPU outputs compare raw pixels
+and every metadata field; bounds, mode, observer and units must match exactly,
+pixel values within the declared sampling uncertainty. Runtime tests assert the
+carrier exists and round-trips on every entrypoint above.
 
 #### Phase 1 — Trace callers and defaults
 
@@ -178,7 +185,8 @@ Implement only the accepted contract: numeric-coercing bound reads, canonical
 defaults, mode validation and support, transactional configuration, and raw
 metadata. Add runtime tests proving values reach the intended backend —
 integer-vs-decimal equivalence, invalid-mode failure, unset-path CPU/GPU
-equality, and sequential band changes.
+equality, sequential band changes, and metadata-carrier round-trip on every
+entrypoint.
 
 #### Phase 4 — Measurement and visual evidence
 
@@ -205,12 +213,17 @@ identity, independent sign-off and evidence-backed docs are delivery gates.
       `[360, 830] nm` and produce the same band.
 - [ ] `output_mode` accepts only `xyz`/`rgb`/`srgb`/`luminance`; explicit
       overrides inference; an out-of-enum mode fails hard; every unsupported
-      `(backend, mode)` pair is rejected, not silently ignored.
+      `(backend, mode)` pair is rejected, not silently ignored; the direct GPU
+      binding and `..._restir` take the same string enum (legacy bool maps
+      `true`→`luminance`, `false`→`xyz`).
 - [ ] Setting band/mode after `set_integrator()` takes effect, and sequential
       visible→IR→visible changes on a reused renderer never leave stale state.
 - [ ] Matched CPU/GPU raw outputs carry `band_contract = 1` metadata (bounds,
       mode, observer/transform, units, backend id, seed) and agree on every
       field, with pixels within declared sampling uncertainty.
+- [ ] Each entrypoint delivers its declared carrier (binding result record, CLI
+      sidecar/PNG chunks, Blender result metadata) and a test round-trips every
+      field.
 - [ ] Astra architecture plus independent high-tier review has decided
       compatibility, validation and any migration before implementation;
       numerical changes cite the established spectral method.
@@ -227,6 +240,7 @@ identity, independent sign-off and evidence-backed docs are delivery gates.
 - No new arbitrary band default.
 - No output mode outside the v1 enum.
 - No silent ignore of an unsupported `(backend, mode)` pair.
+- No reachable backend, including ReSTIR, may bypass the v1 contract.
 - No claim that current output is scientific instrument calibration.
 - Do not choose new defaults merely to make a reference image pass.
 - Filing does not preempt pkg241/240 or the mapped-texture sequence.

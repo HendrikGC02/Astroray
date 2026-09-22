@@ -32,6 +32,7 @@ groundwork, behind the Stage 0 gate work; the thaw rule permits the spec now.
 ## Evidence
 
 - 2026-09-22: rewritten in the planning session (stage-plan-2026-09-22.md §4); previous text superseded.
+- 2026-09-22: Codex Terra review defects applied (planning session).
 
 ---
 
@@ -73,9 +74,9 @@ groundwork, behind the Stage 0 gate work; the thaw rule permits the spec now.
 
 | File | Purpose |
 |---|---|
-| `include/astroray/sph_kernel.h` | Header-only Wendland C4 kernel + Shepard-normalised scatter splatting; no external deps. |
-| `scripts/sph_to_volume.py` | Convert SPH snapshot fields → dense `.npy` (C-order float32) or `.vdb` via Blender 5.2's bundled `openvdb`; record provenance and resampling loss. |
-| `tests/test_sph_kernel.py` | Kernel, conservation, convergence and warning tests; synthetic particles created at test time. |
+| `include/astroray/sph_kernel.h` | Header-only Wendland C4 kernel + conservative density deposition and Shepard-normalised interpolation; no external deps. |
+| `scripts/sph_to_volume.py` | Convert SPH snapshot fields → dense `.npy` (C-order float32) or `.vdb` via Blender 5.2's bundled `openvdb`; emit the full `set_volume_grid` transform payload; record provenance and resampling loss. |
+| `tests/test_sph_kernel.py` | Kernel, conservation, boundary, convergence, transform and warning tests; synthetic particles created at test time. |
 
 ### Files to modify
 
@@ -88,13 +89,20 @@ groundwork, behind the Stage 0 gate work; the thaw rule permits the spec now.
 
 ### Key design decisions
 
-- **Output contract.** A dense C-order float32 array shaped `(nz, ny, nx)` —
-  exactly what `PyRenderer.set_volume_grid` in `module/blender_module.cpp`
-  consumes. Retire `DensityGrid`/`SimulationVolume`; pkg48 supplies read/write
-  adapters, units and provenance, pkg49 only resamples.
+- **Output contract (full `set_volume_grid` payload).** The script emits the
+  dense C-order float32 `(nz, ny, nx)` density *and* the transforms the engine
+  requires — `bbox_min` `(i, j, k)` (active-block minimum), `index_to_object`
+  and `object_to_world` (row-major 4×4 affines; exactly the tuple
+  `PyRenderer.set_volume_grid` in `module/blender_module.cpp` consumes) — plus
+  pkg48 provenance. Physical voxel volume is
+  `dV = |det(index_to_object[:3, :3])|`; world placement comes from
+  `object_to_world`. Both transforms are emitted in the sidecar/metadata and
+  asserted by tests. Retire `DensityGrid`/`SimulationVolume`; pkg48 supplies
+  read/write adapters, units and provenance, pkg49 only resamples.
 - **`.vdb` is a representation choice, not proof of fidelity.** The script records
   the resampling step and reports mass before/after plus min/max, per pkg48's
-  provenance contract. `.npy` and `.vdb` must carry identical values.
+  provenance contract. `.npy` and `.vdb` must carry identical values *and*
+  identical transforms.
 - **Kernel: Wendland C4** (Dehnen & Aly 2012, Table 1, 3D):
 
   ```
@@ -105,39 +113,64 @@ groundwork, behind the Stage 0 gate work; the thaw rule permits the spec now.
   Here `h` is the support radius. Simulation codes define `h` differently
   (e.g. GADGET's cubic-spline support is `2h`); the script takes an explicit
   `h_convention` argument and records it in provenance.
-- **Splatting: Westover footprint AABB + Shepard (1968) normalisation**, on the
-  Monaghan (1992) smoothing estimate. For each particle, evaluate the kernel on
-  the grid cells inside its support AABB, accumulate `value[i] * W * V[i]` and
-  `W * V[i]` with `V[i] = mass[i] / density[i]`, then divide the field by the
-  weight (0 in vacuum cells).
+- **Splatting: conservative deposition + Shepard interpolation (two fields).**
+  Westover (1990) footprint AABB on the Monaghan (1992) estimate, per the
+  research-doc pseudocode. *Conservative density deposition:*
+  `rho(x) = Σ_i m_i W(x − x_i, h_i)`, no division — this is the field that
+  carries the mass meaning. *Shepard (1968) interpolation:* for non-mass fields
+  (`values`, e.g. `T`, `v`), accumulate `Σ_i value_i W_i V_i` and `Σ_i W_i V_i`
+  per cell, divide by the weight (vacuum cells → 0), with `V_i = m_i / rho_i`;
+  interpolation only, with no conservation claim.
+- **Boundary policy: pad-and-report.** The deposition grid is internally padded
+  by `ceil(h_max / dx)` ghost cells per axis (`dx` the smallest cell edge) so no
+  in-domain particle support is truncated by index clamping; ghost cells are
+  cropped after deposition. A particle whose support misses the requested domain
+  deposits nothing and its mass is counted in `mass_out`; the script reports
+  `mass_in = Σ m_i − mass_out` and `|∫rho dV − mass_in| / mass_in`. Tests place
+  one particle at the interior, on a face, on a corner and fully outside,
+  asserting each lands in the expected category and that the accounting identity
+  holds.
 - **Smoothing-length-vs-grid-resolution warning.** Warn when a particle's support
   radius spans fewer than ~2 voxels (undersampled kernel), reporting the affected
   fraction and suggesting a finer grid or larger `h`. This is the known
   resolution floor for a kernel-deposited field (Price 2012; Dehnen & Aly 2012).
 - **First measurable deliverable.** A kernel-normalisation figure: numerical
-  quadrature of the Wendland C4 kernel reproduces the Dehnen & Aly (2012) Table 1
-  3D constant `495/(32*pi)` within **1e-4**.
+  quadrature gives `∫W dV = 1` within **1e-4**, and *separately* the dimensionless
+  central amplitude `h^3·W(0) = 495/(32*pi)` (Dehnen & Aly 2012, Table 1) within
+  1e-4. These are two distinct checks, not one.
 
-#### Phase 1 — kernel and conservation
+#### Phase 1 — kernel, deposition and boundary accounting
 
-`sph_kernel.h` plus the `sph_to_grid` binding; kernel-normalisation, symmetry,
-uniform-density and mass-conservation tests.
+`sph_kernel.h` plus the `sph_to_grid` binding; kernel-normalisation (`∫W dV = 1`
+and `h^3·W(0)` separately), symmetry, uniform-density, conservative-mass and
+face/corner/outside boundary tests.
 
 #### Phase 2 — conversion script
 
 `scripts/sph_to_volume.py`: HDF5/NumPy input, code-`h` mapping, `.npy` and `.vdb`
-output, provenance and resampling-loss report, undersampling warning.
+output, full transform payload (`bbox_min`, `index_to_object`, `object_to_world`),
+provenance and resampling-loss report, undersampling warning.
 
 ---
 
 ## Acceptance criteria
 
-- [ ] First deliverable: kernel-normalisation figure; quadrature equals
-      `495/(32*pi)` (Dehnen & Aly 2012, Table 1) within 1e-4.
-- [ ] Total mass conserved within 0.5% after splatting (Shepard weights sum to
-      the input `sum(mass)`).
-- [ ] Resolution convergence: halving the voxel size changes the integrated
-      density by < 1%.
+- [ ] Kernel normalisation: numerical quadrature gives `∫W dV = 1` within 1e-4,
+      and separately `h^3·W(0) = 495/(32*pi)` (Dehnen & Aly 2012, Table 1
+      central amplitude) within 1e-4.
+- [ ] Conservative mass: `|∫rho dV − mass_in| / mass_in < 0.5%` with
+      `rho(x) = Σ_i m_i W(x − x_i, h_i)` and `mass_in = Σ m_i − mass_out`.
+      Shepard weights are interpolation only and are not a conservation check.
+- [ ] Boundary accounting: interior, face-centred, corner and fully-outside
+      particles each deposit the expected share; `mass_out` equals the mass of
+      supports that miss the domain; no silent AABB clamping.
+- [ ] Resolution convergence (fixture below): voxel volume
+      `dV = |det(index_to_object[:3, :3])|`; both grids satisfy the conservative
+      mass bound; halving the voxel size changes the integrated density by < 1%;
+      and the restricted-grid L1 error of the 32³ field against the
+      mass-conserving 2×2×2 restriction of the 64³ field is < 2%
+      (frozen 2026-09-22, lead may adjust). Integrated totals alone are not
+      convergence evidence.
 - [ ] Smoothing-length-vs-grid-resolution warning fires when the support radius
       spans < 2 voxels and names the affected particle fraction.
 - [ ] Compact support: kernel returns exactly 0 for `q >= 1`; non-negative on
@@ -146,8 +179,12 @@ output, provenance and resampling-loss report, undersampling warning.
       centre; exactly 0 beyond the support radius.
 - [ ] Uniform density: N=1000 equal-mass particles in `[0,1]^3` → 32³ grid,
       max/min < 1.05 (1-cell boundary margin).
-- [ ] Output array loads through `set_volume_grid` and renders without error.
-- [ ] `.vdb` round-trips through Blender's bundled `openvdb` with matching shape.
+- [ ] Transform payload: the script emits `bbox_min`, `index_to_object` and
+      `object_to_world`; tests assert `dV` equals the requested voxel volume,
+      round-trip the affines, and load the full tuple through `set_volume_grid`
+      (renders without error).
+- [ ] `.vdb` round-trips through Blender's bundled `openvdb` with matching shape
+      and matching transforms.
 - [ ] Python script NumPy fallback writes a `.npy` of the right shape and
       plausible values.
 - [ ] Performance: N=1×10⁵ particles → 128³ grid in < 10 s on a single core.
@@ -157,13 +194,18 @@ output, provenance and resampling-loss report, undersampling warning.
 
 | Test | Particles | Grid | Created by |
 |---|---|---|---|
-| Normalisation quadrature | kernel only | N/A | Numerical integration in Python |
+| Normalisation quadrature | kernel only | N/A | Numerical integration in Python (`∫W dV` and `h^3·W(0)`) |
 | Uniform distribution | N=1000, unit cube, equal mass | 32³ | `np.random.default_rng(42).uniform(0,1,(1000,3))` |
 | Single particle | N=1, unit-cube centre, `h=0.1` | 32³ | inline in test |
-| Resolution convergence | N=1000 | 32³ vs 64³ | same particles, halved voxel size |
+| Boundary accounting | 1 interior + 1 face + 1 corner + 1 outside, `h=0.2` | 32³, unit cube | inline in test |
+| Resolution convergence | N=1000 unit cube, fixed `h_i = 0.25` (frozen 2026-09-22, lead may adjust; support spans ≥ 8 voxels at 32³) | 32³ vs 64³ | same particles, halved voxel size; `dV` from `index_to_object` |
+| Transform payload | N=100 | 16³ | inline in test |
 | Output format | N=100 | 16³ | inline in test |
 
-All data generated inline in tests; no binaries committed.
+Reference for convergence: field-error metric is the restricted-grid L1 error
+against the mass-conserving 2×2×2 restriction of the 64³ field, with the pad-and-
+report boundary fixture; mass error is reported separately. All data generated
+inline in tests; no binaries committed.
 
 ---
 
@@ -184,12 +226,13 @@ All data generated inline in tests; no binaries committed.
 
 ## Progress
 
-- [ ] Implement Wendland C4 kernel + Shepard splatting in `sph_kernel.h`.
+- [ ] Implement Wendland C4 kernel + conservative deposition + Shepard
+      interpolation in `sph_kernel.h`.
 - [ ] Bind `sph_to_grid` in `module/blender_module.cpp`.
 - [ ] Write `scripts/sph_to_volume.py` (C++ call + NumPy fallback; `.npy`/`.vdb`;
-      provenance; undersampling warning).
-- [ ] Write tests (normalisation, conservation, convergence, warning, symmetry,
-      format).
+      transform payload; provenance; undersampling warning).
+- [ ] Write tests (normalisation, conservation, boundary, convergence, transform,
+      warning, symmetry, format).
 - [ ] Full test suite green.
 - [ ] Update STATUS.md, CHANGELOG.md, scripts/README.md.
 

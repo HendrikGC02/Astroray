@@ -14,26 +14,23 @@ Before: each row (a)–(f) of the Pillar-4 exit gate is measured, if at all, by 
 different ad-hoc artifact in a different format, and the gate can be called green
 by narrative. After: every row is produced by its own scripted instrument, and
 `docs/blender_parity/acceptance_manifest.json` records scene SHA-256s, build id,
-backend, settings, metric, threshold and an evidence path for every row, so the
-gate can be re-measured and audited from one file.
+backend, settings, metric, threshold and evidence path per row — re-measurable and auditable from one file.
 
-pkg278's exit permits measured RED rows. Its deliverable is the validated
-instruments + reproducible commands + evidence for every row; a row without an
-instrument stays UNMEASURED (`value: null`, `status: unmeasured`), and a red
-measurement is a valid, published result — not a failure of this package.
+pkg278's exit permits measured RED rows: its deliverable is the validated
+instruments + reproducible commands + evidence for every row. A row without an instrument stays UNMEASURED (`value: null`, `status: unmeasured`); a red measurement is a valid result, not a failure of this package.
 
 ---
 
 ## Context
 
-`north-star-and-integration-gate-2026-09-07.md` §2 defines gate rows (a)–(f).
+`north-star-and-integration-gate-2026-09-07.md` §2 defines gate rows (a)–(f);
 Stage 0a of `stage-plan-2026-09-22.md` says instrument them first, because a gate
 measured by narrative can be relabeled green. pkg260 landed the matrix extension
 (527 → 586 rows), but pkg259's Phase 4 — `coverage_report.py`, the gate (b)
-scorer — was never built, so coverage cannot be scored today. Gate (c) has no
-consolidated CPU+GPU report, gate (e) has no published rubric, and gate (f) is
-unverified on a clean machine. This package builds the instruments only; fixing
-what they measure is the Stage 0b–0d batches.
+scorer — was never built. Gate (c) has no consolidated CPU+GPU report, gate (e)
+no published rubric, and gate (f) is unverified on a clean machine. This package
+builds the instruments only; fixing what they measure is the Stage 0b–0d batches.
+pkg259 is superseded; its Phase 4 obligations live here in full (2026-09-22).
 
 ---
 
@@ -41,6 +38,7 @@ what they measure is the Stage 0b–0d batches.
 
 - 2026-09-22: rewritten in the planning session (stage-plan-2026-09-22.md §4); previous text superseded.
 - 2026-09-22: Astra turn-2 review amendments applied (planning session).
+- 2026-09-22: Codex Terra review defects applied (planning session).
 
 ---
 
@@ -84,6 +82,13 @@ what they measure is the Stage 0b–0d batches.
 | `benchmarks/reference_bank/runner.py` | Add a per-channel mean-ratio gate type; SSIM stays a diagnostic print (owner 2026-09-08, gate (c)). |
 | `scripts/README.md` | Register `coverage_report.py` and `scripts/gate_manifest.py`. |
 | `.astroray_plan/docs/KNOWN_ISSUES.md` | Publish the severity rubric: high = wrong image, crash, or a native setting silently ignored; medium = degraded but flagged; low = cosmetic. |
+| `benchmarks/blender_parity/scene_library.py` | `REFERENCE_SCENES` reads the corpus directory instead of the hard-coded three. |
+| `benchmarks/blender_parity/render_leg.py` | `--load-blend` works for every corpus scene; non-vacuity checks come from the manifest. |
+| `benchmarks/blender_parity/scenes/manifest.json` | The three #729 scenes absorbed into the corpus, recorded byte-identical or regenerated. |
+| `scripts/benchmarks/weekly_local_bench.ps1` | Parity and showcase legs iterate the corpus families. |
+| `scripts/run_parity.py` | Accepts corpus scene ids. |
+| `benchmarks/viewport_parity/blender_driver.py` | Accepts corpus scenes as workloads; pkg241 keeps metal_sweep as its historical baseline. |
+| `scripts/dev/known_issues_report.py` | Optional: link each open addon-gap issue to the corpus scene that reproduces it. |
 
 ### Key design decisions
 
@@ -108,24 +113,29 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
   `S_b = Σ_i min(n_i, 3)·s_{i,b} / Σ_i min(n_i, 3)`, where `i` is a canonical
   socket identity (`bl_idname` + socket identifier), `n_i` the number of distinct
   corpus scenes exercising it, and `s_{i,b} ∈ {1 SUPPORTED, 0.5 bounded
-  approximation, 0}`. EACH backend must pass 95 % separately; never average
+  approximation, 0}`. A classification is only nonzero when it links a
+  per-backend, per-variant evidence artifact (rendered PNG or test result) in
+  the manifest; an unproven claim defaults to `s_{i,b} = 0` — it can never raise
+  the score. EACH backend must pass 95 % separately; never average
   backends into a single score.
 - Scoring rules:
   - (a) scene hashes, exercised uses, socket identities, weights and exclusions
-    are FROZEN in a manifest before scoring.
+    are FROZEN in a committed input manifest before scoring; the manifest's
+    SHA-256 is recorded in the report, every exclusion carries a written
+    rationale, and any change is a new manifest version, never an edit.
   - (b) exercised uses are derived from the scene node trees and Blender/Cycles
     reachability — a use Astroray drops stays in the denominator.
-  - (c) a SUPPORTED claim must cover the frozen exercised variants of the socket;
-    a working constant input does not validate linked programs.
+  - (c) a SUPPORTED claim must cover the frozen exercised variants of the socket
+    and link per-backend, per-variant rendered/test evidence; a working constant
+    input does not validate linked programs. No linked artifact ⇒ 0.
   - (d) 0.5 is awarded only for a functioning bounded approximation with a
-    user-visible attributable warning; "ignored but warned" scores 0.
+    user-visible attributable warning and a linked evidence artifact; "ignored
+    but warned" scores 0.
   - (e) missing evidence is not SUPPORTED; a missing corpus asset invalidates the
     run.
   - (f) zero silent drops in corpus scenes is a separate Boolean requirement, not
     a diagnostic.
-  - (g) the mandatory Principled-advanced, Metallic BSDF, Sky texture and
-    Displacement checks are reported as their own rows even if the corpus
-    weighting would hide them.
+  - (g) the mandatory Principled-advanced, Metallic BSDF, Sky texture and Displacement checks are their own rows even if corpus weighting hides them.
 - Count EXERCISED sockets by reopening each `.blend` and reading its node tree,
   not from manifest labels.
 - Report silent drops and CPU/GPU differences as separate lists.
@@ -133,15 +143,21 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
 - The nine-scene score is published as PROVISIONAL until the owner ratifies the
   population (`stage-plan-2026-09-22.md` §6); the original "~50 scenes"
   population was never frozen, so its score is reported as UNDEFINED, not
-  computed.
+  computed. An unratified population is categorically ineligible for GREEN
+  regardless of score: the report carries `status: provisional`, and the GREEN
+  evaluator rejects any row whose population has no recorded owner ratification.
 - Validate the scorer on a synthetic 3-scene fixture with a hand-computed
   weighted score.
 
 #### Gate (a) table
 
-- event → first *correct* Blender-presented frame: p95/p99; cancel-ack p95/p99;
-  stale-frame exclusion; both pinned scenes (10k and 100k triangles) × camera
-  and material edits.
+- Warm session, both pinned scenes (10k and 100k triangles), 3×100 camera edits
+  and 3×100 material edits each; instrument emits one row per scene × edit-kind.
+- event → first *correct* Blender-presented frame: GPU p95 ≤ 100 ms, p99 ≤ 150 ms;
+  cancel-ack p95 ≤ 200 ms, p99 ≤ 300 ms; no stale frame presented after the ack.
+  Latency is a GPU-only oracle (CPU is the image oracle, not a latency oracle),
+  and denoise is excluded from the interactive loop (owner-ratified
+  2026-09-07). The GREEN evaluator requires every one of these fields.
 - Extends the pkg241/pkg266 viewport harness; measured in a real Blender session,
   not the in-process harness.
 
@@ -149,39 +165,47 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
 
 - materials_hall gallery / textures_mapping workshop / world_sky terrace-with-hair
   (owner 2026-09-08), pinned SHAs.
+- Each scene is rendered through F12 under CPU and GPU separately; the report
+  records both render exit statuses, SHA-256-pinned output images and the
+  per-channel metrics. GREEN requires successful CPU **and** GPU renders with
+  paired artifacts — a CPU-only report cannot be represented as complete.
 - ±5 % ROI mean ratio per channel, SSIM ≥ 0.95, and non-vacuity checks (checker
   contrast present, HDRI contribution present, hair-pixel coverage > 0) so a
   black or missing feature cannot pass.
 
 #### Gate (d) native panels
 
-- `tests/test_gate_native_panels.py`: adaptive on/off changes the sample-count
-  AOV and lowers flat-region noise at a declared budget; denoise on/off lowers
-  residual noise after settle; CPU and GPU.
+- `tests/test_gate_native_panels.py`: adaptive on/off changes the sample-count AOV
+  and lowers flat-region noise at a declared budget; denoise on/off lowers residual noise after settle; CPU and GPU.
 - Driven only by native panel properties, never a custom property. Output-effect
   test, not a reachability test.
 - Accuracy safeguard: compare adaptive-on and denoise-on outputs against a
   converged reference at a fixed budget, and require mean-error and
   detail-preservation (edge/texture) checks, so lower variance purchased by
-  blurring or bias cannot pass.
+  blurring or bias cannot pass. Numeric limits are predeclared in the test and
+  the manifest: mean relative luminance error ≤ 2 % over the declared
+  reference-comparison regions, and detail preservation (edge/texture gradient
+  energy) ≥ 0.95 of the reference (frozen 2026-09-22, lead may adjust). Regions
+  are declared in the manifest, not chosen after the fact.
 
 #### Gate (e) triage
 
 - Publish the severity rubric in `.astroray_plan/docs/KNOWN_ISSUES.md`: high =
-  wrong image, crash, or a native setting silently ignored; medium = degraded but
-  flagged; low = cosmetic.
-- The LIVE open-issue population is triaged at acceptance time — not a frozen
-  count carried from the planning session.
+  wrong image, crash, or a native setting silently ignored; medium = degraded but flagged; low = cosmetic.
+- The LIVE open-issue population is captured at acceptance time — not a frozen
+  count carried from the planning session — by an exact `gh issue list` query
+  whose command, timestamp and full issue-ID snapshot are stored in the
+  manifest. Reconciliation rule: every issue in the snapshot must have an
+  independent signed rating; the snapshot is re-run and the query repeated until
+  the delta is empty, and any unrated or newly-appeared issue blocks GREEN.
 - Every open issue is rated under the rubric by an independent pass (Codex
   Terra), not by label — the gate cannot be met by relabeling.
 
 #### Gate (f) clean install
 
-- Fresh Blender profile; install the ZIP through Blender's own extension
-  installer (distinct from `scripts/dev_addon.ps1`); machine without the build
-  toolchain; one F12 render.
-- Evidence in `docs/blender_parity/evidence/install-clean-machine/`, procedure
-  in `docs/install-clean-machine.md`.
+- Fresh Blender profile; install the ZIP through Blender's own extension installer
+  (distinct from `scripts/dev_addon.ps1`); machine without the build toolchain; one F12 render.
+- Evidence in `docs/blender_parity/evidence/install-clean-machine/`, procedure in `docs/install-clean-machine.md`.
 
 ---
 
@@ -203,7 +227,12 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
 - [ ] Both scripts are registered in `scripts/README.md`.
 - [ ] GPU parity rows, the real-Blender viewport table and the clean-machine
       install each have their own execution slot recorded in the manifest
-      (CPU-only lanes cannot produce them).
+      (CPU-only lanes cannot produce them). Gate (c) GREEN additionally requires
+      separate successful CPU and GPU render exit statuses, SHA-256-pinned
+      images and metrics for every trio scene.
+- [ ] Gate (b) GREEN requires a hash-locked, owner-ratified input manifest and
+      linked evidence for every nonzero classification; a PROVISIONAL
+      population is ineligible for GREEN.
 
 ---
 
@@ -227,6 +256,7 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
 - [ ] Gate (e) rubric + independent triage.
 - [ ] Gate (f) clean-machine evidence.
 - [ ] Register both scripts in `scripts/README.md`.
+- [ ] Absorb pkg259 Phase 4 residuals.
 
 ---
 

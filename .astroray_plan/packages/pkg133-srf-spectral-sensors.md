@@ -3,7 +3,7 @@
 **Pillar:** 2 (spectral core) — **Pillar-4-adjacent** (activates the astronomical-detector story)
 **Track:** A (SRF distribution build + wavelength-importance-sampling change is CPU-gated; wavefront spectral leg verified on RTX)
 **Codex-paste-ready:** no (touches the hero-wavelength-aware spectral sampling pdf + film accumulation — spectral-core surgery, needs care)
-**Status:** paused — Triage 2026-09-12 (half-implemented audit, `half-implemented-triage-2026-09-12.md`): Pillar-4-adjacent; resumes with pkg51. Was: still-open — never implemented; no SRF spectral-sensor/specfilm code in the repo, only the spec-filing PR #492.
+**Status:** superseded — merged into pkg51 (instrument pipeline design, 2026-09-22 planning session); implementation lands as pkg51 Phase 1
 **Estimated effort:** M (2–3 sessions per the research doc — the SRF distribution build is simple CDF inversion; the sampling-pdf + film changes are the delicate part)
 **Depends on:** the spectral wavelength sampler (Pillar-2 core, already present — hero-wavelength per Wilkie 2014). **Pillar-4-adjacent dependency note:** this is the *render-time* half of the paused **pkg51** telescope post-process — it activates when the owner lifts the Pillar-4 pause **or** ships standalone as a spectral-camera feature. Sequence after pkg51 resumes, or fold in as **pkg51-B**.
 
@@ -22,6 +22,12 @@ detector QE), builds a combined continuous distribution over all SRFs, and
 **importance-samples path wavelengths where the instruments are actually sensitive**
 instead of uniformly. Output is a multichannel EXR (one channel per SRF). Correct
 per-channel photon statistics and far lower spectral noise in narrow bands.
+
+---
+
+## Evidence
+
+- 2026-09-22: rewritten in the planning session (stage-plan-2026-09-22.md §4); previous text superseded.
 
 ---
 

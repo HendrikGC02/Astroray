@@ -1,56 +1,92 @@
-# pkg46 — HII Region Emission Plugin
+# pkg46 — HII Region Emission and Reflection Media (merged with #144)
 
 **Pillar:** 4
-**Track:** B (plugin, self-contained)
-**Status:** paused (owner directive 2026-06-08 — resume when core rendering stable)
-**Estimated effort:** 2 sessions (~5 h)
-**Depends on:** pkg42 (VolumetricEmission interface), pkg45 (CLOUDY tables)
+**Track:** B
+**Status:** paused — Pillar 4 (Stage 2, Track N); merged with #144 and rewritten 2026-09-22
+**Estimated effort:** 3 sessions (~9 h), two phases
+**Depends on:** pkg45, pkg243, pkg267, pkg270
 
 ---
 
 ## Goal
 
-**Before:** Astroray cannot render emission nebulae. The CLOUDY
-emissivity tables exist (pkg45) but there is no C++ code to load them
-or evaluate them during rendering.
+**Before:** Astroray can transport heterogeneous volumes (pkg267–271) and emit a
+spectral Planck continuum from them (pkg270), but it cannot emit atomic lines.
+The pkg45 CLOUDY tables exist but no code reads them, and there is no way to feed
+per-voxel n_e / T_e / ionisation fields into an emitter.
 
-**After:** An `HIIRegion` emission plugin loads the emissivity table
-from disk, defines a volumetric density/temperature/ionisation field,
-and returns per-voxel spectral emissivity during ray marching. The
-result is a physically-grounded rendering of emission nebulae with
-correct Hα, Hβ, [OIII], and [NII] line ratios, naturally integrated
-with the spectral pipeline.
+**After:** Line emission is evaluated inside the existing volume transport:
+per-voxel n_e, T_e and ionisation come from `set_volume_grid` arrays or VDB
+grids; each line is looked up in the pkg45 table and deposited through the
+`GridMedium` / pkg270 spectral-accumulation path with an unbiased
+hero-wavelength MIS estimator. Phase 2 adds dust scattering (reflection nebulae,
+#144). A Principled-Volume-driven preset renders the result from Blender with no
+new UI.
+
+**First measurable deliverable:** the measured quantity is **integrated energy
+radiance per line** — the line's total power per unit area per solid angle
+[erg s⁻¹ cm⁻² sr⁻¹], integrated over its profile; not photon counts, RGB
+values, or a spectral peak height. A dust-free Case-B hydrogen slab at
+T_e = 10⁴ K, n_e = 100 cm⁻³ renders an integrated Hα/Hβ = 2.86 within 2 % of the
+pinned pkg45 table row for that grid point (Osterbrock & Ferland 2006 Table 4.2;
+Storey & Hummer 1995), with stated MC uncertainty, and Hα line radiance scaling
+linearly with path length. The Case-B assumption is Lyman lines optically thick
+(trapped) and Balmer lines optically thin; linear path-length scaling holds in
+that optically-thin Balmer regime.
 
 ---
 
 ## Context
 
-HII regions are the spectral pipeline's most natural showcase. The
-emission is entirely line-dominated: a handful of discrete wavelengths,
-each with a physically-determined intensity. The hero-wavelength
-sampling naturally resolves individual lines and produces the correct
-colour (Hα = red, [OIII] = green, Hβ = blue-green). No other
-renderer in the Blender ecosystem renders emission nebulae from
-physical line emission — this is a unique capability.
+Line-dominated nebulae are the natural showcase for the spectral renderer: a few
+discrete wavelengths carry the colour. Issue #144 asks for emission and
+reflection nebula media; this spec merges it into the existing volume lane
+instead of a parallel emitter.
+
+The previous pkg46 text assumed its own sampler, its own `VolumetricEmission`
+interface (pkg42), and an unvalidated table. The engine has since landed
+`GridMedium` traversal (pkg267), delta/ratio tracking + volume NEE (pkg268–269,
+271) and spectral Planck emission (pkg270); reuse is the smallest correct path.
+Without this, Pillar 4 Track N has no physical line source and the pkg45 tables
+stay unused.
+
+---
+
+## Evidence
+
+- 2026-09-22: rewritten in the planning session (stage-plan-2026-09-22.md §4); previous text superseded.
+- 2026-09-22: Astra turn-2 review amendments applied (planning session).
 
 ---
 
 ## Reference
 
-- Design doc: `.astroray_plan/docs/astrophysics.md §4.4`
-- CLOUDY table format: `scripts/cloudy_table_format.md` (from pkg45)
-- Emissivity table: `data/emissivity/hii_emissivity.bin` (from pkg45)
-- VolumetricEmission interface: `include/astroray/emission.h` (from pkg42)
-- Osterbrock & Ferland 2006 ch. 2–4 (nebular physics)
+- Design: `.astroray_plan/docs/astrophysics.md §4.4`;
+  stage plan `.astroray_plan/docs/stage-plan-2026-09-22.md §4` (Track N)
+- Line-profile convention: `.astroray_plan/docs/atomic-line-broadening-research.md`;
+  ingest `.astroray_plan/docs/pillar4-data-io-research.md`; sibling GR emission
+  conventions `.astroray_plan/docs/accretion-emission-research.md`
+- Engine: `include/astroray/volume/grid_medium.h`,
+  `include/astroray/volume/volume_transport.h`,
+  `include/astroray/volume/volume_emission.h`
+- pkg45 table: `scripts/cloudy_table_format.md`, `data/emissivity/hii_emissivity.bin`
+- Sampling: pkg206 (luminance hero-λ, `src/spectrum.cpp`); pkg221
+  (`.astroray_plan/packages/pkg221-photon-wavelength-spd-importance-sampling.md`)
+- External: Wilkie et al. 2014 (hero-wavelength spectral sampling, CGF 33(4),
+  EGSR); Armstrong 1967 (JQSRT 7, 61); Osterbrock & Ferland 2006 (Table 4.2);
+  Storey & Hummer 1995 (MNRAS 272, 41); Case-B benchmark A&A 2021 (aa40890-21);
+  Henyey & Greenstein 1941 (ApJ 93, 70); Draine 2003 (ARA&A 41, 241); issue #144
 
 ---
 
 ## Prerequisites
 
-- [ ] pkg42 is done: `VolumetricEmission` interface exists.
-- [ ] pkg45 is done: emissivity table committed to `data/emissivity/`.
+- [ ] pkg45 is done: `data/emissivity/hii_emissivity.bin` + metadata committed.
+- [ ] pkg267/pkg268 are done: `GridMedium` + delta/ratio tracking (landed).
+- [ ] pkg270 is done: per-λ spectral volume emission (landed).
+- [ ] pkg243 is open: raw band output + provenance, needed to measure Hα/Hβ
+      honestly (this package consumes it, it is not blocked by it).
 - [ ] Build passes on main.
-- [ ] All existing tests pass.
 
 ---
 
@@ -60,164 +96,143 @@ physical line emission — this is a unique capability.
 
 | File | Purpose |
 |---|---|
-| `plugins/emission/hii_region.cpp` | `HIIRegion` emission plugin. |
-| `include/astroray/emissivity_table.h` | Loader and trilinear interpolation for the CLOUDY binary table. |
-| `tests/test_hii_region.py` | Unit and integration tests. |
-| `tests/scenes/hii_region.py` | Test scene: Strömgren-sphere-like HII region with central ionising star. |
+| `include/astroray/emissivity_table.h` | pkg45 binary-table loader + trilinear (n_e, T_e, log U) interpolation; validates magic/dims against the metadata JSON. |
+| `include/astroray/volume/hii_emission.h` | `HIILineEmission`: per-voxel (n_e, T_e, log U) → summed line radiance at λ; line-mixture pdf + energy normalisation. |
+| `src/volume/hii_emission.cpp` | Table lookup, Gaussian line profiles, line-mixture pdf construction, MIS support. |
+| `tests/test_pkg46_hii_line_emission.py` | Case-B slab ratio, path-length linearity, energy conservation, MIS unbiasedness. |
+| `tests/scenes/hii_caseb_slab.py` | Case-B hydrogen slab scene (T_e = 10⁴ K, n_e = 100 cm⁻³). |
 
 ### Files to modify
 
 | File | What changes |
 |---|---|
-| `module/blender_module.cpp` | Expose HII region parameters: position, radius, density profile, ionisation source. |
-| `blender_addon/__init__.py` | Add HII region object type to the Astroray objects panel. |
-| `.astroray_plan/docs/STATUS.md` | Mark pkg46 done. |
-| `CHANGELOG.md` | Add pkg46 entry. |
-
-### Physics model
-
-#### Nebular geometry
-
-The HII region is a volumetric object defined by:
-
-- Centre position and outer radius (Strömgren radius R_S).
-- Density profile: uniform (default) or r^(-2) (wind-blown).
-- Temperature profile: nearly isothermal at ~8000–10000 K (standard
-  for photoionised gas). Temperature decreases slightly with distance
-  from the ionising source.
-- Ionisation parameter profile: U(r) ∝ Q_ion / (4π r² n_e c), where
-  Q_ion is the ionising photon rate of the central source. Falls off
-  as r⁻².
-
-The ionisation front (edge of the HII region) is modelled as a smooth
-transition over ~5% of R_S, not a hard cutoff.
-
-#### Emissivity evaluation
-
-At each point (r) during ray marching:
-
-1. Compute local n_e, T_e, log U from the profiles.
-2. Look up emissivity j_λ for each emission line from the CLOUDY table
-   using trilinear interpolation in (n_e, T_e, log U) space.
-3. For each line, model the spectral profile as a Gaussian centred on
-   the rest wavelength with thermal broadening:
-
-       Δλ = λ₀ · √(2 k_B T / m_ion c²)
-
-   For hydrogen at 10000 K: Δλ ≈ 0.04 nm (Hα). The hero-wavelength
-   sampler will resolve this: if the sampled wavelength is within ~3σ
-   of a line, it contributes; otherwise it sees zero emission.
-4. Sum contributions from all lines. Return as `SampledSpectrum`.
-
-#### Radiative transfer
-
-Optically thin for the initial implementation. Nebulae are optically
-thin to their own line emission (photons escape freely after
-emission). Dust attenuation within the nebula is not included in this
-package.
-
-Accumulation: j_ν · ds along the ray, same as the jet and ADAF.
-
-#### Parameters
-
-| Parameter | Default | Description |
-|---|---|---|
-| `centre` | (0,0,0) | Position of the HII region centre. |
-| `radius` | 10 pc (scene units) | Strömgren radius. |
-| `density` | 100 cm⁻³ | Electron density at centre. |
-| `density_profile` | "uniform" | "uniform" or "wind" (r⁻²). |
-| `temperature` | 8000 K | Electron temperature. |
-| `log_ionisation_param` | −2.5 | log U at the inner boundary. |
-| `ionising_luminosity` | 10⁴⁹ s⁻¹ | Q_ion (used to compute U(r) if not specified directly). |
-
-### Table loader design
-
-The `EmissivityTable` class in `emissivity_table.h`:
-
-- Reads the binary header, validates magic and dimensions.
-- Maps the float32 data into a contiguous array.
-- Provides `float lookup(float log_ne, float T_e, float logU, int line_index)` with trilinear interpolation and clamping at grid boundaries.
-- Thread-safe (read-only after construction).
-- Loaded once at scene build time; shared across all HII region
-  instances via `std::shared_ptr`.
+| `include/astroray/volume/volume_emission.h` | Add the optional HII line term alongside the constant/blackbody terms. |
+| `include/astroray/volume/volume_transport.h` | Evaluate the line term in `emissionAt` at the tracking vertices using the per-voxel fields. |
+| `module/blender_module.cpp` | Extend `set_volume_grid` with an optional ionisation-fraction grid and the HII emission params. |
+| `blender_addon/exporter.py` | Map the Principled-Volume-driven nebula preset to `set_volume_grid`; no new UI. |
+| `CHANGELOG.md` | pkg46 entry. |
+| `.astroray_plan/docs/STATUS.md` | Mark pkg46 done at close. |
 
 ### Key design decisions
 
-1. **Lines as narrow Gaussians, not delta functions.** A delta function
-   at the exact line wavelength would almost never be hit by the hero
-   wavelength sampler. The thermal Gaussian profile gives each line a
-   physical width (~0.04–0.1 nm) that the sampler can resolve with
-   reasonable probability. For 4-wavelength hero sampling across
-   380–780 nm, the probability of hitting within 3σ of Hα is ~0.03% per
-   sample — low but non-zero. For efficient rendering, the plugin
-   checks all 8 lines per evaluation and returns the sum.
+Two phases. Phase 1 is emission-only and is the bounded, testable core; Phase 2
+adds dust. Both ride the existing `GridMedium` traversal and the pkg270
+accumulation — no parallel ray marcher, no runtime CLOUDY.
 
-2. **Table is loaded once, not per-ray.** The emissivity table is
-   small (~640 KB) and constant. It is loaded into memory at scene
-   construction and shared read-only across threads.
+#### Line sampling
 
-3. **HII region is not coupled to GR.** Unlike the accretion models,
-   HII regions exist at kiloparsec scales, far from any black hole.
-   The plugin works with the standard flat-space ray marcher, not the
-   GR integrator. It implements `VolumetricEmission` for interface
-   consistency but is evaluated by the standard volume integration
-   path, not the GR path.
+Narrow lines are missed by the luminance-weighted hero-λ proposal (pkg206,
+`SampledWavelengths::sampleImportance`, `src/spectrum.cpp`): Hα's physical width
+is ~0.1 nm against the engine grid. Deposit each line as an energy-normalised
+Gaussian whose FWHM is matched to the spectral grid, not to the physical
+linewidth, following the `_atomic_lines` convention in
+`atomic-line-broadening-research.md` (Gaussian = Doppler limit of the Voigt
+profile; Armstrong 1967). The line's *area* is the table intensity, so total
+power is conserved regardless of the numerical width.
 
-4. **No scattering or fluorescence.** The nebula does not scatter
-   starlight; it only emits. This is physically reasonable for pure
-   emission-line visualisation. Reflection nebulae (dust scattering)
-   are a different phenomenon and a separate plugin.
+Sampling λ ∝ luminance alone is therefore low-efficiency for line light. Use
+multiple importance sampling (balance heuristic) between:
+
+- `p_λ(λ)`: the current hero-wavelength proposal pdf (pkg206), and
+- `p_line(λ)`: a mixture over the pkg45 lines, weight ∝ line intensity × its
+  Gaussian profile, sampled by picking a line then sampling its profile.
+
+Each contribution is weighted by `p_λ/(p_λ + p_line)` (and the mirror term),
+with both pdfs in closed form. This is the hero-wavelength spectral-MIS
+construction of Wilkie et al. 2014 and follows the SPD importance-sampling
+weight of pkg221. `p_line` is built once per medium from the table; per-voxel
+n_e / T_e / log U modulate the mixture weights, not the sampling support.
+Unbiasedness is demonstrated by a test, not assumed: a broad flat spectral
+response function (uniform-wavelength render) and the MIS render agree within MC noise.
+
+#### Phase 1 emission-only
+
+Optically thin line emission: recombination / collisional emissivities from the
+pkg45 table, accumulated along the `GridMedium` traversal exactly like the
+pkg270 Planck term (per-unit-length radiance at the tracking vertices). Per-voxel
+fields: n_e from the density grid × `density_scale`, T_e from the existing
+temperature grid, log U from a new optional ionisation grid (dense array via
+`set_volume_grid` or a VDB attribute). Missing grids fall back to scene-level
+scalars.
+
+No ionisation solver and no runtime CLOUDY: the fields are inputs and the table
+is the physics. Line list and wavelengths: Hα 656.3, Hβ 486.1, Hγ 434.0,
+[OIII] 495.9/500.7, [NII] 654.8/658.3, [SII] 671.6 nm (pkg45).
+
+#### Phase 2 dust scattering / reflection nebula
+
+#144's reflection media: add dust extinction and anisotropic scattering to the
+same traversal, so a nebula can both emit lines and scatter a nearby star's
+light. Scattering reuses the existing `anisotropy` (Henyey-Greenstein 1941)
+term; an optional Draine 2003 grain phase function may replace it later. Dust
+albedo / extinction are scene inputs — no dust microphysics model. Phase 2 also
+delivers #144's diagnostic: a contact-sheet of volume tiles across preset
+parameters.
+
+#### Blender surface
+
+No new UI. The addon grows one named preset, "Emission Nebula", that maps a
+Principled Volume (or a VDB) onto `set_volume_grid`: the density grid is n_e,
+the temperature grid is T_e, plus the optional ionisation attribute and the HII
+line strength. Emission colour/strength stay the Principled Volume sockets.
+Preset logic lives in `blender_addon/exporter.py`; the user drives it from the
+existing volume material, exactly as the pkg270 blackbody path is driven today.
 
 ---
 
 ## Acceptance criteria
 
-- [ ] `HIIRegion` registered via
-      `ASTRORAY_REGISTER_EMISSION("hii_region", HIIRegion)`.
-- [ ] `EmissivityTable` loads the binary table and interpolates
-      correctly (verified by spot-checking known grid values).
-- [ ] Test scene renders a glowing nebula with visible colour structure:
-      red (Hα) dominant with green ([OIII]) and blue-green (Hβ) visible.
-- [ ] Hα/Hβ ratio in the rendered output is within 15% of the Case B
-      value (~2.86) when measured by integrating pixel values in narrow
-      wavelength bands.
-- [ ] [OIII]/Hβ ratio varies with ionisation parameter as expected
-      (higher U → higher [OIII]/Hβ).
-- [ ] Density profile is visible: uniform nebula vs wind-blown nebula
-      show different brightness distributions.
-- [ ] Blender addon exposes HII region creation and parameters.
+- [ ] First science figure: dust-free Case-B slab (T_e = 10⁴ K, n_e = 100 cm⁻³)
+      renders integrated (profile-integrated) energy-radiance Hα/Hβ against the
+      pinned pkg45 table row (Storey & Hummer 1995 Case B; ≈ 2.86) — the
+      tabulated row for that grid point, not a universal constant. The 2 % is an
+      engineering budget: require ≥ 5 seeds and a 95 % confidence interval fully
+      inside the ±2 % tolerance.
+- [ ] Independent single-line normalisation: for a homogeneous slab of thickness
+      L, rendered line radiance equals I_line = j_line · L / (4π), with j_line
+      [erg s⁻¹ cm⁻³] the un-normalised line-integrated emissivity; pkg45 stores
+      its 4π-normalised form j_line/(4π) [erg s⁻¹ cm⁻³ sr⁻¹]. Catches a missing
+      4π or density factor that cancels in the Hα/Hβ ratio.
+- [ ] Hα line power scales linearly with slab path length (≤ 2 % residual).
+- [ ] Energy conservation: integrated emitted line power equals table
+      j × voxel volume within MC noise (floor and ceiling both asserted, linear
+      render — see `AGENTS.md` §Furnace/energy tests).
+- [ ] Line-sampling estimator is unbiased: identity of the mean under
+      luminance-only vs MIS sampling, with lower variance under MIS.
+- [ ] Hα/Hβ measured through the pkg243 band output, with provenance recorded.
+- [ ] `EmissivityTable` loads `hii_emissivity.bin` and interpolates known grid
+      values to the documented tolerance.
+- [ ] ≥8 tests cover loading, interpolation, line-profile area, line ratio,
+      path-length linearity, energy conservation, MIS unbiasedness, finite
+      output.
 - [ ] All existing tests pass.
-- [ ] ≥8 new tests covering: table loading, interpolation, line
-      profile shape, line ratios, geometry, visual render.
 
 ---
 
 ## Non-goals
 
-- Do not implement dust within the nebula. Dust attenuation and
-  reddening are a separate post-process.
-- Do not implement reflection nebulae (dust scattering of starlight).
-- Do not implement planetary nebulae (would need different density/
-  temperature profiles and additional lines like [OII], HeII).
-- Do not implement velocity fields or Doppler shifts within the
-  nebula. All emission is at rest-frame wavelengths.
-- Do not render the ionising star itself. The star can be added as a
-  standard Astroray point light or emission object separately.
+- Do not implement an ionisation/recombination equilibrium solver at runtime.
+- Do not run or link CLOUDY at runtime (GPL; pkg45 precomputes the table).
+- Do not add a GPU leg in Phase 1 (CPU oracle first; GPU is a follow-up).
+- No new Blender UI panel or object type — a preset on the existing volume
+  material only.
+- Do not model velocity fields or Doppler shifts; lines are at rest-frame λ.
+- Do not implement planetary nebulae, HMXB/X-ray microphysics, grating (#141) or
+  cluster lensing — those stay deferred candidates.
+- Do not add hydrodynamics.
 
 ---
 
 ## Progress
 
-- [ ] Implement `EmissivityTable` loader and interpolator.
-- [ ] Implement `HIIRegion` plugin: geometry, profiles, emissivity
-      evaluation with Gaussian line profiles.
-- [ ] Wire into the standard volume integration path.
-- [ ] Create test scene.
-- [ ] Validate line ratios.
-- [ ] Add Blender UI.
-- [ ] Write tests.
-- [ ] Full test suite green.
-- [ ] Update STATUS.md, CHANGELOG.md.
+- [ ] Phase 1: `EmissivityTable` loader + interpolation.
+- [ ] Phase 1: `HIILineEmission` evaluator, Gaussian profiles, line-mixture pdf.
+- [ ] Phase 1: wire the line term into `VolumeEmission`/`emissionAt` and
+      `set_volume_grid` (ionisation grid).
+- [ ] Phase 1: Case-B slab scene + Hα/Hβ, path-length and energy tests.
+- [ ] Phase 1: Blender preset in `exporter.py`.
+- [ ] Phase 2: dust extinction + anisotropic scattering + contact-sheet tiles.
+- [ ] Full suite green; update `CHANGELOG.md`, `.astroray_plan/docs/STATUS.md`.
 
 ---
 

@@ -1,59 +1,76 @@
 # pkg50 — Weak Gravitational Lensing
 
 **Pillar:** 4
-**Track:** A (uses GR machinery)
-**Status:** paused (owner directive 2026-06-08 — resume when core rendering stable)
-**Estimated effort:** 1 session (~3 h)
-**Depends on:** pkg40 (Kerr metric), pkg06 (pass registry)
+**Track:** A
+**Status:** paused — Pillar 4 (Stage 2, Track L); rewritten 2026-09-22
+**Estimated effort:** 2 sessions (~6 h), CPU
+**Depends on:** pkg280
 
 ---
 
 ## Goal
 
-**Before:** Gravitational lensing in Astroray only occurs via the full
-GR geodesic integrator around compact objects. There is no way to
-render the lensing effects of extended mass distributions — galaxy
-clusters, dark matter halos, or intervening galaxies — which produce
-the characteristic arcs, Einstein rings, and magnification patterns
-seen in HST and JWST deep fields.
+**Before:** Astroray bends light only inside the full GR geodesic integrator
+(pkg40, Kerr / Schwarzschild). There is no thin-lens model for extended mass
+distributions — galaxy clusters, dark-matter halos, intervening galaxies — so the
+arcs, Einstein rings and magnification patterns of deep-field images cannot be
+rendered or quantitatively checked.
 
-**After:** A `WeakLensing` post-process pass deflects background rays
-according to a user-supplied convergence (κ) and shear (γ) map. A
-`PointMassLens` mode provides analytic lensing from a single point
-mass (Einstein ring). The pass integrates with the existing pass
-registry so it runs after rendering and before denoising.
+**After:** a CPU-only, achromatic screen-space `WeakLensing` pass in
+`plugins/passes/` deflects camera rays with an analytic thin-lens field and
+remaps the rendered image. The core models are a point mass
+(`α = 4GM/(c²b)`) and a projected mass sheet (`α = κθ`); Phase 2 adds SIS, NFW
+and a custom κ map. The pass remaps; it never rescales radiance, so specific
+intensity is preserved.
+
+**FIRST MEASURABLE DELIVERABLE.** A deflection-versus-impact-parameter figure
+whose ordinate `α·b·c²/(GM)` reaches **4 within ≤ 1 %** over the declared
+b-range; a rendered Einstein-ring radius that matches
+`θ_E = sqrt(4GM D_ls / (c² D_l D_s))` within **≤ 1 %**; and a uniform background
+whose integrated flux is conserved by the remap within **≤ 1 %**. These three
+numbers are the acceptance criteria.
 
 ---
 
 ## Context
 
-Weak lensing is computationally cheap (screen-space image remapping)
-compared to full GR ray tracing, and is the correct physical
-description for lensing by extended mass distributions at cosmological
-distances. It is visually striking — gravitational arcs around galaxy
-clusters are among the most iconic images in astronomy.
+Weak lensing is a screen-space remap, far cheaper than GR geodesics, and is the
+correct physical description for extended lenses at cosmological distances. The
+stage plan makes Track L begin behind pkg280's audited GR transfer; this package
+extends that verified path into the weak-field regime rather than standing up a
+second transport. Without it, Pillar 4 Track L has only compact-object lensing
+and no figure with an independent literature target.
 
-Strong lensing (multiple images, caustics) from compact objects is
-already handled by the GR integrator. This package covers the
-complementary regime: extended lenses where the thin-lens
-approximation is valid.
+---
+
+## Evidence
+
+- 2026-09-22: rewritten in the planning session (stage-plan-2026-09-22.md §4); previous text superseded.
+- 2026-09-22: no lensing pass exists under `plugins/passes/`; `include/astroray/pass.h` exposes only `execute(Framebuffer&)` and `name()`.
 
 ---
 
 ## Reference
 
-- Design doc: `.astroray_plan/docs/astrophysics.md §4.6`
-- Bartelmann & Schneider 2001 — "Weak Gravitational Lensing" (review)
-- Narayan & Bartelmann 1996 — lensing formalism (lectures)
-- Pass registry: `include/astroray/pass.h` (from pkg06)
+- Design: `.astroray_plan/docs/astrophysics.md §4.6`; stage plan
+  `.astroray_plan/docs/stage-plan-2026-09-22.md §3 Stage 1c, §4` (Track L).
+- Engine: `include/astroray/pass.h` (pkg06); `plugins/passes/`; pkg40 Kerr
+  metric `plugins/metrics/kerr.cpp`.
+- Siblings: `.astroray_plan/packages/pkg280-gr-transfer-reference-audit.md`;
+  `.astroray_plan/packages/pkg40-kerr-metric.md`.
+- External: Schneider, Ehlers & Falco 1992, *Gravitational Lenses* (Springer);
+  Narayan & Bartelmann 1996, *Lectures on Gravitational Lensing*
+  (astro-ph/9606001); Wambsganss 1998, Living Rev. Rel. 1, 12 (lrr-1998-12);
+  Bartelmann & Schneider 2001, Phys. Rep. 340, 291; Wright & Brainerd 2000,
+  ApJ 534, 34 (NFW).
 
 ---
 
 ## Prerequisites
 
-- [ ] pkg06 is done: pass registry and `Pass` interface exist.
-- [ ] Build passes on main.
-- [ ] All existing tests pass.
+- [ ] pkg280 is done: audited GR transfer and re-baselined reference bank.
+- [ ] pkg06 is done: `Pass` interface and registry exist (landed).
+- [ ] Build passes on main; CPU backend only.
 
 ---
 
@@ -63,148 +80,102 @@ approximation is valid.
 
 | File | Purpose |
 |---|---|
-| `plugins/passes/weak_lensing.cpp` | `WeakLensing` post-process pass. |
-| `tests/test_weak_lensing.py` | Unit and integration tests. |
-| `tests/data/test_convergence_map.npy` | Small synthetic κ map for testing. |
+| `plugins/passes/weak_lensing.cpp` | CPU screen-space `WeakLensing` pass: thin-lens deflection field, source-plane remap, built-in models. |
+| `tests/test_weak_lensing.py` | Deflection law, Einstein radius, flux conservation, no-lens identity, pass ordering. |
+| `tests/scenes/weak_lensing_deflection.py` | Deflection-vs-impact-parameter figure scene; writes the three-number evidence. |
+| `tests/data/test_convergence_map.npy` | Small synthetic κ map for the Phase-2 custom-map path. |
 
 ### Files to modify
 
 | File | What changes |
 |---|---|
-| `module/blender_module.cpp` | Expose lensing pass parameters. |
-| `blender_addon/__init__.py` | Add lensing section to render settings panel. |
-| `.astroray_plan/docs/STATUS.md` | Mark pkg50 done. |
-| `CHANGELOG.md` | Add pkg50 entry. |
-
-### Physics model
-
-#### Thin-lens formalism
-
-For each pixel at angular position **θ** on the image plane, the
-true source position is:
-
-    **β** = **θ** − **α**(**θ**)
-
-where **α** is the deflection angle. In the weak-lensing regime, the
-deflection is related to the convergence κ and shear γ by:
-
-    α₁ = ∂ψ/∂θ₁,  α₂ = ∂ψ/∂θ₂
-
-where ψ is the lensing potential satisfying ∇²ψ = 2κ.
-
-#### Implementation as image remapping
-
-The pass operates on the rendered image as a post-process:
-
-1. **Input**: user-supplied convergence map κ(θ₁, θ₂) as a 2D
-   floating-point image (`.npy` or `.fits`), or analytic parameters
-   for built-in lens models.
-2. **Compute deflection field**: solve ∇²ψ = 2κ via FFT
-   (ψ̂ = 2κ̂ / (k₁² + k₂²)), then compute α = ∇ψ via inverse FFT.
-3. **Remap**: for each output pixel at θ, sample the pre-lensing
-   image at β = θ − α(θ) using bilinear interpolation.
-
-The FFT approach is O(N log N) for an N-pixel image and handles
-arbitrary convergence maps.
-
-#### Built-in lens models
-
-| Model | Parameters | Deflection |
-|---|---|---|
-| Point mass | Einstein radius θ_E, centre | α = θ_E² / |θ − θ_c| (radial, toward centre) |
-| SIS (singular isothermal sphere) | θ_E, centre | α = θ_E (constant magnitude, radial) |
-| NFW (Navarro-Frenk-White) | M_200, c, z_lens, z_source | Analytic κ(r) from Wright & Brainerd 2000 |
-
-For built-in models, the convergence map is computed analytically on
-the pixel grid — no FFT needed for the deflection (it has closed-form
-expressions).
-
-#### Parameters
-
-| Parameter | Default | Description |
-|---|---|---|
-| `lens_model` | "none" | "none", "point_mass", "sis", "nfw", or "custom". |
-| `convergence_map` | None | Path to custom κ map (for `lens_model = "custom"`). |
-| `einstein_radius` | 1.0 arcsec | For point mass / SIS models (in pixel units). |
-| `lens_centre` | image centre | Position of lens centre (pixel coordinates). |
-| `nfw_mass` | 1e15 M_sun | For NFW model. |
-| `nfw_concentration` | 5.0 | For NFW model. |
+| `module/blender_module.cpp` | Expose the `WeakLensing` model and parameters. |
+| `blender_addon/__init__.py` | Add a lensing section to the render-settings panel. |
+| `CHANGELOG.md` | pkg50 entry. |
+| `.astroray_plan/docs/STATUS.md` | Mark pkg50 done at close. |
 
 ### Key design decisions
 
-1. **Post-process pass, not ray modification.** Weak lensing as a
-   screen-space remap is both physically appropriate (the thin-lens
-   approximation) and architecturally clean. It runs after the
-   renderer produces the unlensed image, avoiding any coupling to the
-   ray-tracing loop.
+Cite the published method and add no invented physics. One model, one
+screen-space pass, no new transport.
 
-2. **FFT for custom maps, analytic for built-ins.** FFT-based
-   potential solving handles arbitrary mass distributions. Built-in
-   models skip the FFT since their deflections are known analytically.
-   Both paths produce the same data structure (a 2D deflection field).
+#### Phase 1 — point mass and projected mass sheet (the validation core)
 
-3. **Pass ordering: lensing before denoising.** The lensing remap
-   should run before OIDN because the denoiser's guide buffers (normal,
-   albedo) are pre-lensing and would be inconsistent post-remap. In
-   practice the difference is small, but the correct ordering is
-   lensing → denoise.
+- Point mass: `α = 4GM/(c²b)` radially toward the lens centre; in angular units
+  `α(θ) = θ_E² / |θ|`. Projected mass sheet (uniform convergence κ):
+  `α(θ) = κθ`, radial. Both have closed-form deflections — no potential solve
+  (Schneider, Ehlers & Falco 1992 §2; Narayan & Bartelmann 1996 §2).
+- Remap: `β = θ − α(θ)`; sample the pre-lensing image at `β` with bilinear
+  interpolation. `lens_model = "none"` is the identity map.
+- Declared validity range: `b ∈ [10 r_s, 10⁴ r_s]`, `r_s = 2GM/c²`. The ≤ 1 %
+  tolerance is model-implementation agreement with the first-order law; the
+  physical second-order post-Newtonian correction (which makes the exact
+  deflection exceed `4GM/(c²b)` at small b) is out of scope.
+- CPU-only and achromatic: the deflection is independent of λ. GPU is a
+  non-goal.
 
-4. **No multiple-image handling.** The remapping samples the source
-   plane at a single position per output pixel. In the strong-lensing
-   regime (κ > 1), this misses multiply-imaged sources. This is a
-   known limitation of the screen-space approach; for strong lensing
-   around compact objects, the GR integrator (pkg40) is the correct
-   tool.
+#### Phase 2 — extended lenses
+
+- SIS (`α = θ_E`, constant magnitude), NFW (Wright & Brainerd 2000), and a
+  custom κ map. The custom map solves `∇²ψ = 2κ` by FFT
+  (`ψ̂ = 2κ̂ / (k₁² + k₂²)`) and sets `α = ∇ψ`. These are image-geometry
+  diagnostics and are not required for the Phase-1 deliverables.
+
+#### Surface-brightness conservation
+
+- Lensing preserves specific intensity: the pass remaps, never rescales,
+  radiance. Flux changes only through the source-to-image area Jacobian
+  `μ = 1 / det A`. The uniform-background check confirms the remap creates no
+  spurious flux (≤ 1 %).
+- A point source is magnified by `μ` and forms a ring at `θ_E`; that is a
+  geometry check, not an energy violation.
+
+#### Pass ordering and registration
+
+- After rendering, before denoising: the denoiser guide buffers are pre-lensing
+  and would be inconsistent post-remap.
+- Register with `ASTRORAY_REGISTER_PASS("weak_lensing", WeakLensing)`.
 
 ---
 
 ## Acceptance criteria
 
+- [ ] Figure: `α·b·c²/(GM)` reaches 4 within ≤ 1 % over the declared range
+      `b ∈ [10 r_s, 10⁴ r_s]`.
+- [ ] Einstein-ring radius matches `θ_E = sqrt(4GM D_ls / (c² D_l D_s))` within
+      ≤ 1 %.
+- [ ] Uniform-background flux conservation within ≤ 1 % over a fixed aperture.
 - [ ] `WeakLensing` registered via
       `ASTRORAY_REGISTER_PASS("weak_lensing", WeakLensing)`.
-- [ ] Point mass model: a background star field rendered through a
-      point-mass lens shows a visible Einstein ring at the specified
-      radius.
-- [ ] SIS model: tangential arcs visible around the lens centre.
-- [ ] Custom convergence map: a synthetic Gaussian κ map produces
-      smooth, radially symmetric magnification.
-- [ ] Deflection field is divergence-consistent: ∇·α ≈ 2κ (verified
-      numerically on the computed deflection grid to < 5%).
-- [ ] Pass runs after rendering and before denoising when both are
-      active.
-- [ ] No-lens mode (`lens_model = "none"`) produces a pixel-identical
-      image to no pass at all.
-- [ ] Blender addon exposes lensing model selection and parameters.
+- [ ] `lens_model = "none"` produces a pixel-identical image to no pass.
+- [ ] Pass runs after rendering and before denoising when both are active.
+- [ ] Blender addon exposes model selection and parameters.
+- [ ] ≥ 6 tests cover the three numbers plus no-lens identity, pass ordering and
+      model selection.
 - [ ] All existing tests pass.
-- [ ] ≥6 new tests covering: point mass ring, SIS arcs, custom map,
-      deflection consistency, no-lens identity, pass ordering.
 
 ---
 
 ## Non-goals
 
-- Do not implement strong lensing with multiple images. Use the GR
-  integrator for compact-object lensing.
-- Do not implement time-delay calculations between multiple images.
-- Do not implement shear measurement / shape catalogues (observation
-  pipeline, not rendering).
-- Do not implement flexion (higher-order lensing).
-- Do not implement cosmological distance calculations. User specifies
-  Einstein radius directly in pixel units.
+- Do not implement a GPU leg: the pass is CPU-only and achromatic.
+- Do not implement chromatic or wavelength-dependent deflection.
+- Do not implement multiple-image / strong lensing (κ > 1) — the GR integrator
+  (pkg40) is the correct tool.
+- Do not implement time delays, flexion, or shear catalogues.
+- Do not implement cluster lensing or grating (#141) — deferred candidates.
+- Do not integrate rays through a 3D mass distribution; screen-space thin lens
+  only.
 
 ---
 
 ## Progress
 
-- [ ] Implement deflection computation for point mass and SIS.
-- [ ] Implement NFW convergence profile + FFT potential solve.
-- [ ] Implement custom convergence map loading.
-- [ ] Implement image remapping with bilinear interpolation.
-- [ ] Wire as post-process pass.
-- [ ] Add Blender UI.
-- [ ] Write tests.
-- [ ] Full test suite green.
-- [ ] Update STATUS.md, CHANGELOG.md.
+- [ ] Phase 1: point-mass and mass-sheet deflection + source remap.
+- [ ] Phase 1: deflection figure, Einstein-radius and flux-conservation tests.
+- [ ] Phase 2: SIS / NFW + FFT custom κ map.
+- [ ] Wire as post-process pass; Blender UI.
+- [ ] Full suite green; update `CHANGELOG.md`, `.astroray_plan/docs/STATUS.md`.
 
 ---
 

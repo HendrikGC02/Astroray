@@ -105,6 +105,8 @@ gate-critical package is blocked or under review.
 
 ## 4. Sequencing — next 4–6 weeks, rounds of ~3 (existing IDs only)
 
+> **Superseded 2026-09-22** by [`stage-plan-2026-09-22.md`](stage-plan-2026-09-22.md) (stages, exits, Pillar 4 disposition). Kept for history.
+
 Ranked by contribution to the exit gate first, then the science lane. IDs only —
 no invented numbers. pkg253 (Principled advanced inputs) is being filed tonight
 (lane L3, branch `feat/pkg253-principled-advanced-inputs`).

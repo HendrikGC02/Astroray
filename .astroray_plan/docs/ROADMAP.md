@@ -46,10 +46,14 @@ second source of truth.
 - **Science-foundational side lane** (allowed while Pillar 4 is paused, ordered
   behind the gate work): pkg243 raw band provenance, pkg133 SRF spectral
   sensors, pkg130 light groups, pkg251 spectral reachability.
-- **Next rounds (~3 packages each):** R1 pkg241 Phase 0 + pkg237/238 +
-  pkg242; R2 pkg253 + pkg245 + pkg234/233; R3 pkg241 behavior + pkg251 +
-  pkg243; R4 pkg133 + pkg130 + pkg136 GPU. Full ranking and dependencies in the
-  north-star doc §4.
+- **Stage plan (2026-09-22, supersedes the north-star doc §4 rounds):**
+  [`stage-plan-2026-09-22.md`](stage-plan-2026-09-22.md) — Stage 0 wrap-up
+  (pkg278 gate instrumentation first, then correctness / viewport / coverage
+  batches and the Astra speed session), Stage 1 Pillar 4 groundwork in overlap
+  (spec rewrites, pkg280 GR transfer audit, pkg251→pkg243), Stage 2 thaw round 1
+  (Track N nebula pkg45→pkg46; Track L pkg50→pkg279 HMXB), Stage 3 instrument
+  pipeline (pkg51+133) + ingest (pkg48/49), Stage 4 research validation, Stage 5
+  Hydra only with a second caller.
 - **Volumes track (core Cycles parity, opened by owner 2026-09-11 §7 item 5; NOT Pillar 4):**
   pkg267→pkg268→{pkg269,pkg270}→pkg271 (+optional pkg272); dispatch pkg267+pkg268 first.
   Research + DAG: `volumes-track-research-2026-09-12.md`.
@@ -134,8 +138,10 @@ back without user intervention.
 > native adaptive-sampling + denoise, zero high-severity addon bugs, and a
 > documented one-command install. As of 2026-09-07 the gate is NOT MET
 > (DROPPED-SILENT sockets 64.5%, real viewport present latency unmeasured, one
-> of three reference scenes NOT GREEN on GPU). The Pillar-4-era specs are
-> outdated and get a full audit pass at unpause. Do not unpause unilaterally.
+> of three reference scenes NOT GREEN on GPU). The Pillar-4-era specs were
+> audited and rewritten on 2026-09-22 (`stage-plan-2026-09-22.md` §4); the owner
+> allows spec amendment and one groundwork lane (pkg280) in overlap with the
+> wrap-up. Do not unpause implementation unilaterally.
 
 > **Pre-pause groundwork (2026-05):** pkg40 Kerr metric, pkg41 Kerr validation
 > (#236), pkg42 synchrotron emission (#245), pkg43 slim disk (#271), pkg44 ADAF

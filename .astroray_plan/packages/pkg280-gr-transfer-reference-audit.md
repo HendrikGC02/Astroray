@@ -47,6 +47,7 @@ an unverified path.
 - 2026-09-22: pkg107 reconciled — `r_obs_M` is a constructor parameter (`include/astroray/black_hole.h:214-223`), forwarded by `addBlackHole`, and used by the bank scenes (`r_obs_M: 20.0`). Verification is folded into this package.
 - 2026-09-22: Astra turn-2 review amendments applied (planning session).
 - 2026-09-22: Codex Terra review defects applied (planning session).
+- 2026-09-22: Astra turn-4 sign-off discrepancies closed (planning session).
 
 ---
 
@@ -80,9 +81,9 @@ an unverified path.
 
 | File | What changes |
 |---|---|
-| `include/astroray/black_hole.h` | `diskEmissionSpectral` and the visualization disk path: invariant `g³` transfer evaluated at `ν_obs/g`; remove the clamp or justify it with a numeric test. |
-| `plugins/accretion/adaf.cpp` | Audit the `g`-factor transfer on the ADAF path; align it or record a no-op justification. |
-| `plugins/emission/synchrotron.cpp` | Audit the `g`-factor transfer on the synchrotron path; align it or record a no-op justification. |
+| `include/astroray/black_hole.h` | `diskEmissionSpectral`, `volumetricEmissionSpectral`, and the visualization disk path: invariant `g³` transfer evaluated at `ν_obs/g`; remove the clamp or justify it with a numeric test. |
+| `include/astroray/adaf.h` | `ADAF::emissivity` / `ADAF::integrateSegment`: audit the `g`-factor transfer (j_nu via `jnuThermalI` / `jnuBremsstrahlungI`); align it or record a no-op justification. |
+| `include/astroray/synchrotron.h` | `SynchrotronJet::emissivity` / `SynchrotronJet::integrateSegment`: audit the `g`-factor transfer (j_nu evaluated at `ν_obs/D`, `D³` boost); align it or record a no-op justification. |
 | `benchmarks/reference_bank/runner.py` | Add a per-channel mean-ratio metric for GR scenes, keeping SSIM as a diagnostic. |
 | `benchmarks/reference_bank/scenes/gr-kerr-94-faceon/gates.toml` | New metric thresholds for the Kerr scene. |
 | `benchmarks/reference_bank/scenes/gr-schwarzschild/gates.toml` | New metric thresholds for the Schwarzschild scene. |
@@ -105,6 +106,8 @@ transport and the emission registry rather than new accumulators.
 - Test: `g = 1` reduces to `B(λ, T)`; monotone `g` scaling; the invariant residual `I_ν/ν³` is preserved within **≤ 1 %**; recovered colour temperature `= g·T` within 1 %.
 - Test: monochromatic shift — a delta emitter at `λ_em` appears at `λ_em/g`.
 - Test: bolometric scaling `∫I_ν dν ∝ g⁴` — integration measure: trapezoidal integral over the sampled per-λ grid spanning ≥ 99.9 % of the Planck flux at both `T` and `g·T`; tolerance **≤ 1 %** `(frozen 2026-09-22, lead may adjust)`.
+- Test (fluid-frame frequency): for a moving emitter with 4-velocity `u`, the emitted frequency used to evaluate `j_ν` MUST be `ν_em = -k·u` (Moscibrodzka & Gammie 2018, ipole), verified against an analytic boost case.
+- Test (Doppler/redshift double-counting): the invariant `j_ν/ν²` and `α_ν·ν` transport MUST apply the `g`-factor exactly once (no separate Doppler multiply on top of the invariant transfer), verified by a static-vs-moving emitter pair whose ratio equals the analytic `g³` (frequency-domain) factor within **1 %**.
 
 #### Phase 1b — Volumetric transfer convention (mandatory for science paths)
 
@@ -142,6 +145,7 @@ transport and the emission registry rather than new accumulators.
 
 - [ ] Report exists with four numbers: invariance residual, render-time delta, cross-check mismatch, bank per-channel ratios.
 - [ ] `tests/test_gr_transfer_invariance.py` passes on every path labelled science-ready; invariance residual ≤ 1 %.
+- [ ] Fluid-frame frequency and double-counting tests pass for every path labelled science-ready.
 - [ ] Emission clamp removed or justified by a numeric test.
 - [ ] `gr-kerr-94-faceon`, `gr-schwarzschild`, `adaf-sgrA-faceon`, `synchrotron-jet-m87` PASS on the new per-channel metric; SSIM recorded.
 - [ ] The ~10× growth is attributed to a named component (attribution only).

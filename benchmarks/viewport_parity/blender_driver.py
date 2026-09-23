@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import hashlib
 import json
 import math
 import os
@@ -163,10 +164,14 @@ def _make_grid_scene(target_tris: int):
             bsdf.inputs["Roughness"].default_value = 1.0
         mats.append(m)
 
-    quads = max(1, int((target_tris / 2.0) ** 0.5))
+    quad_count = max(1, int(target_tris) // 2)
+    rows = max(1, int(quad_count ** 0.5))
+    while quad_count % rows:
+        rows -= 1
+    cols = quad_count // rows
     buckets = {k: ([], []) for k in range(len(mats))}  # verts, faces
-    for i in range(quads):
-        for j in range(quads):
+    for i in range(rows):
+        for j in range(cols):
             k = (i + j) % len(mats)
             verts, faces = buckets[k]
             x0, x1 = i * 0.1, (i + 1) * 0.1
@@ -190,7 +195,7 @@ def _make_grid_scene(target_tris: int):
     bg = world.node_tree.nodes.get("Background")
     if bg is not None:
         bg.inputs[0].default_value = (0.5, 0.7, 1.0, 1.0)
-    return 2 * quads * quads
+    return 2 * rows * cols
 
 
 def _bootstrap_astroray_addon():
@@ -487,6 +492,17 @@ bpy.app.timers.register(_back, first_interval=0.3)
 result = {'device_mode': sc.custom_raytracer.device_mode}
 """
 
+_GATE_A_SETTINGS = r"""
+import bpy
+sc = bpy.context.scene
+settings = sc.custom_raytracer
+if hasattr(settings, 'use_denoising'): settings.use_denoising = False
+if hasattr(settings, 'viewport_oidn'): settings.viewport_oidn = False
+result = {'device_mode': getattr(settings, 'device_mode', None),
+          'use_denoising': getattr(settings, 'use_denoising', None),
+          'viewport_oidn': getattr(settings, 'viewport_oidn', None)}
+"""
+
 _ENGINE_SWITCH = r"""
 import bpy
 sc = bpy.context.scene
@@ -564,6 +580,31 @@ except Exception as exc:
 result = {'gpu': str(name)}
 """
 
+_GATE_A_OBSERVED_RUNTIME = r"""
+import bpy, hashlib, sys
+sc = bpy.context.scene
+addon = sys.modules.get('bl_ext.user_default.astroray')
+module = sys.modules.get('astroray')
+settings = getattr(sc, 'custom_raytracer', None)
+def _digest(mod):
+    path = getattr(mod, '__file__', '') if mod else ''
+    try:
+        return {'path': path, 'sha256': hashlib.sha256(open(path, 'rb').read()).hexdigest()}
+    except Exception:
+        return {'path': path, 'sha256': None}
+result = {'engine': sc.render.engine,
+          'requested_device': getattr(settings, 'device_mode', None),
+          'denoise_enabled': bool(getattr(settings, 'use_denoising', False) or getattr(settings, 'viewport_oidn', False)),
+          'module_build_id': str(getattr(module, '__build__', '')) if module else '',
+          'addon': _digest(addon), 'module': _digest(module)}
+"""
+
+
+def _recorder_setup(cfg):
+    """Embed JSON as a Python string, never as Python source literals."""
+    encoded = json.dumps(cfg, sort_keys=True, separators=(",", ":"))
+    return "import json\n_PKG241_CONFIG = json.loads(" + repr(encoded) + ")\n" + _recorder_src()
+
 
 def _open_scene(host, port, which):
     """Open (or build) a pinned scene and return its info dict."""
@@ -571,7 +612,10 @@ def _open_scene(host, port, which):
         return ("import bpy; bpy.ops.wm.open_mainfile(filepath="
                 + json.dumps(str(path)) + "); result = {'ok': True}")
 
-    if which == "big":
+    explicit = Path(which)
+    if explicit.is_file():
+        _bridge(_open(explicit), host, port)
+    elif which == "big":
         if not _BIG_SCENE.exists():
             _BIG_SCENE.parent.mkdir(parents=True, exist_ok=True)
             build = _BUILD_BIG.replace("__BIG_PATH__", json.dumps(str(_BIG_SCENE)))
@@ -598,12 +642,12 @@ def _switch_engine(host, port, engine):
 
 
 def _run_class(host, port, event_class, n, reps, warmup, deadline_s,
-               rotate_deg=1.0):
+               rotate_deg=1.0, gate_a=False, evidence_dir=None):
     """Install the recorder for one event class, poll to completion (or the
     per-config wall-clock deadline), fetch and return non-warmup events."""
     cfg = {"event_class": event_class, "n": n, "reps": reps, "warmup": warmup,
-           "rotate_deg": rotate_deg}
-    setup = "_PKG241_CONFIG = " + json.dumps(cfg) + "\n" + _recorder_src()
+           "rotate_deg": rotate_deg, "gate_a": gate_a, "evidence_dir": evidence_dir}
+    setup = _recorder_setup(cfg)
     info = _bridge(setup, host, port)
     if info.get("setup") != "ok":
         raise RuntimeError(f"recorder setup failed: {info}")
@@ -623,13 +667,181 @@ def _run_class(host, port, event_class, n, reps, warmup, deadline_s,
     res = _bridge(_RESULTS, host, port)
     _bridge(_TEARDOWN, host, port)
     events = [e for e in res.get("events", []) if not e.get("warmup")]
-    return {"events": events, "truncated": truncated,
-            "material": res.get("material")}
+    return {"events": events, "raw_events": res.get("raw_events", []),
+            "truncated": truncated, "material": res.get("material")}
+
+
+def _gate_a_event(raw):
+    """Normalize recorder JSON and synthetic test tuples into one event form."""
+    if isinstance(raw, dict):
+        return (raw.get("name"), raw.get("generation"), raw.get("t_ns"),
+                raw.get("epoch"), raw.get("extra") or {})
+    if isinstance(raw, (list, tuple)) and len(raw) == 5:
+        return raw
+    return (None, None, None, None, {})
+
+
+def reduce_gate_a_capture(raw_events, edits, *, truncated=False, artifact_root=None):
+    """Fail-closed gate-(a) reducer over retained real-Blender observations.
+
+    A correct present is the ordered producer path for the generation actually
+    requested by a serialized edit.  This intentionally rejects the permitted
+    one-step camera preview and any unlabelled POST_PIXEL callback.
+    """
+    errors, rows, cancels = [], [], []
+    events = []
+    for index, raw in enumerate(raw_events):
+        name, gen, ts, epoch, extra = _gate_a_event(raw)
+        if not isinstance(name, str) or not isinstance(ts, int) or ts < 0 or not isinstance(extra, dict):
+            errors.append(f"raw event {index} is malformed"); continue
+        events.append((name, gen, ts, epoch, extra))
+    events.sort(key=lambda x: x[2])
+    if truncated: errors.append("capture truncated")
+    by_name = {}
+    for e in events: by_name.setdefault(e[0], []).append(e)
+
+    def after(name, ts, gen=None, epoch=None, pub=None):
+        for e in by_name.get(name, []):
+            if e[2] < ts or (gen is not None and e[1] != gen) or (epoch is not None and e[3] != epoch):
+                continue
+            if pub is not None and e[4].get("pub_id") != pub: continue
+            return e
+        return None
+
+    for edit in edits:
+        if not isinstance(edit, dict): errors.append("edit record is malformed"); continue
+        event_id, dispatch = edit.get("event_id"), edit.get("dispatch_ns")
+        gen, epoch = edit.get("generation"), edit.get("epoch")
+        floor = edit.get("input_floor")
+        if not all(isinstance(v, int) and v >= 0 for v in (event_id, dispatch, gen, epoch, floor)):
+            errors.append(f"edit {event_id!r} lacks actual generation binding"); continue
+        if "input_fingerprint" not in edit:
+            errors.append(f"edit {event_id} lacks input-revision fingerprint"); continue
+        req = after("request", dispatch, gen, epoch)
+        bound = next((e for e in by_name.get("edit_bound", []) if e[1] == gen and e[3] == epoch and
+                      e[2] >= dispatch and e[4].get("event_id") == event_id), None)
+        applied = next((e for e in by_name.get("input_applied", []) if e[2] >= dispatch and
+                        e[4].get("event_id") == event_id), None)
+        enq = after("mailbox_enqueue", req[2], gen, epoch) if req else None
+        pub = enq[4].get("pub_id") if enq else None
+        deq = after("mailbox_dequeue", enq[2], gen, epoch, pub) if enq and pub is not None else None
+        upload = after("texture_upload_end", deq[2], gen, epoch, pub) if deq else None
+        present = after("post_pixel_present", upload[2], gen, epoch, pub) if upload else None
+        pixels = [e for e in by_name.get("viewport_pixels", [])
+                  if e[4].get("event_id") == event_id and e[4].get("label") in ("pre", "post")]
+        pixel_by_label = {p[4].get("label"): p for p in pixels}
+        pixel_ok = set(pixel_by_label) == {"pre", "post"} and len(pixels) == 2
+        if pixel_ok and present is not None:
+            pre, post = pixel_by_label["pre"], pixel_by_label["post"]
+            pixel_ok = pre[2] <= dispatch and post[2] >= present[2] and post[1] == gen and post[3] == epoch
+            for p in (pre, post):
+                path, digest = p[4].get("path"), p[4].get("sha256")
+                target = Path(path) if isinstance(path, str) else None
+                if target is not None and not target.is_absolute() and artifact_root is not None:
+                    target = Path(artifact_root) / target
+                if target is None or not target.is_file() or not isinstance(digest, str):
+                    pixel_ok = False; break
+                blob = target.read_bytes()
+                if not blob.startswith(b"\x89PNG\r\n\x1a\n") or hashlib.sha256(blob).hexdigest() != digest:
+                    pixel_ok = False; break
+        if not all((req, bound, applied, enq, deq, upload, present)) or not pixel_ok or bound[4].get("fingerprint") != edit.get("input_fingerprint"):
+            errors.append(f"edit {event_id} has no correct presented generation chain"); continue
+        rows.append({"event_id": event_id, "event_ns": dispatch,
+                     "present_ns": present[2], "generation": gen, "epoch": epoch,
+                     "input_floor": floor, "correct_present": True})
+
+    eligible_cancels = 0
+    for cancel in by_name.get("cancel_request", []):
+        _name, gen, ts, epoch, _extra = cancel
+        ack = after("idle_ack", ts, gen, epoch)
+        drain = after("idle_drain", ack[2], gen, epoch) if ack else None
+        if ack is None or drain is None:
+            errors.append(f"cancel generation {gen} lacks same-generation idle_ack/idle_drain")
+            continue
+        # A camera preview is permitted to retain its old presentation floor.
+        # Only the material nudge, observed from the actual view_update, creates
+        # a stale-frame sample.  ACK is still retained for every cancel latency.
+        stimulus = next((e for e in by_name.get("cancel_stimulus", [])
+                         if e[2] <= ts and e[1] == gen and e[3] == epoch and
+                         e[4].get("kind") == "material_input"), None)
+        floor_event = next((e for e in by_name.get("cancel_floor", [])
+                            if e[2] >= ts and e[1] == gen and e[3] == epoch and
+                            e[4].get("cancelled_generation") == gen and
+                            e[4].get("cancelled_epoch") == epoch and
+                            e[4].get("stimulus") == "material_view_update"), None)
+        floor = floor_event[4].get("observed_floor") if floor_event else None
+        desired = floor_event[4].get("desired_generation") if floor_event else None
+        eligible = (stimulus is not None and isinstance(floor, int) and
+                    isinstance(desired, int) and desired == floor and floor > gen)
+        stale = []
+        excluded_reason = None
+        if eligible:
+            eligible_cancels += 1
+            # The floor is the observed production boundary.  Never stop at a
+            # later dispatch or drain: an old generation that appears later is
+            # still stale once idle_ack promised the cancellation.
+            stale = [p for p in by_name.get("post_pixel_present", []) if p[2] >= ack[2]
+                     and p[3] == epoch and isinstance(p[1], int) and p[1] < floor]
+            if stale: errors.append(f"stale present after ack below floor {floor} for generation {gen}")
+        else:
+            excluded_reason = "no observed floor-raising material cancellation"
+        cancels.append({"generation": gen, "epoch": epoch, "cancel_ns": ts,
+                        "idle_ack_ns": ack[2], "idle_drain_ns": drain[2],
+                        "observed_floor": floor, "desired_generation": desired,
+                        "stale_checked": eligible,
+                        "stale_excluded_reason": excluded_reason,
+                        "stale_frames_after_ack": len(stale)})
+    if cancels and not eligible_cancels:
+        errors.append("capture has no observed floor-raising material cancellation")
+    return {"rows": rows, "cancels": cancels, "errors": errors,
+            "complete": not errors and bool(rows) and bool(cancels) and bool(eligible_cancels)}
+
+
+def _load_gate_a_workloads(paths):
+    """Read explicit frozen descriptors; historical scene aliases are ineligible."""
+    workloads = []
+    for p in paths:
+        doc = json.loads(Path(p).read_text(encoding="utf-8"))
+        entries = doc.get("workloads", [doc])
+        if not isinstance(entries, list): raise TypeError(f"{p}: workloads must be a list")
+        for w in entries:
+            path, digest, tris = w.get("path"), w.get("sha256"), w.get("triangles")
+            if not isinstance(path, str) or not isinstance(digest, str) or len(digest) != 64 or not isinstance(tris, int):
+                raise TypeError(f"{p}: each workload needs path, sha256, and measured integer triangles")
+            blend = Path(path)
+            if not blend.is_file() or hashlib.sha256(blend.read_bytes()).hexdigest() != digest:
+                raise ValueError(f"{p}: workload path/SHA is not frozen: {path}")
+            freeze = w.get("freeze")
+            if not isinstance(freeze, dict) or freeze.get("observed_triangles") != tris or not freeze.get("blend_sha256") == digest:
+                raise ValueError(f"{p}: workload needs a pre-session observed census freeze")
+            # The bridge executes in Blender's own working directory.  Preserve
+            # the hash-validated file identity, but never hand that process a
+            # client-CWD-relative .blend path.
+            workloads.append({"name": w.get("name", blend.stem), "path": str(blend.resolve()),
+                              "sha256": digest, "triangles": tris, "freeze": freeze})
+    if len(workloads) != 2 or sorted(w["triangles"] for w in workloads) != [10000, 100000]:
+        raise ValueError("gate (a) requires exactly frozen 10,000- and 100,000-triangle workloads")
+    return workloads
 
 
 def _run_cancel(host, port, samples):
     src = "_PKG241_CANCEL = " + json.dumps({"samples": samples}) + "\n" + _cancel_src()
     return _bridge(src, host, port, timeout=600.0)
+
+
+def _actual_gpu_devices(raw_events):
+    """Return devices observed by native render telemetry for one capture."""
+    devices = []
+    for event in raw_events:
+        if not isinstance(event, dict) or event.get("name") != "render_device":
+            continue
+        device = (event.get("extra") or {}).get("device")
+        if not isinstance(device, int) or device < 0:
+            raise RuntimeError(f"gate (a) render telemetry is not GPU: {device!r}")
+        devices.append(device)
+    if not devices:
+        raise RuntimeError("gate (a) capture lacks observed native GPU render telemetry")
+    return sorted(set(devices))
 
 
 def _run_ui_latency(host, port, duration_s, warmup_s, tick_s,
@@ -645,7 +857,7 @@ def _run_ui_latency(host, port, duration_s, warmup_s, tick_s,
     cfg = {"event_class": "ui_latency", "duration_s": duration_s,
            "warmup_s": warmup_s, "tick_s": tick_s,
            "pattern": pattern, "burst_s": burst_s, "settle_s": settle_s}
-    setup = "_PKG241_CONFIG = " + json.dumps(cfg) + "\n" + _recorder_src()
+    setup = _recorder_setup(cfg)
     info = _bridge(setup, host, port)
     if info.get("setup") != "ok":
         raise RuntimeError(f"ui_latency recorder setup failed: {info}")
@@ -1062,6 +1274,73 @@ def run_interactive(args) -> dict:
     }
 
 
+def _gate_a_evidence_dir(out_dir, workload_name, kind, batch):
+    """Return the host-resolved directory passed to Blender for frame evidence."""
+    return Path(out_dir).resolve() / "a" / "frames" / str(workload_name) / str(kind) / str(batch)
+
+
+def run_gate_a(args) -> dict:
+    """Produce raw, hash-bindable GPU evidence for pkg278 gate (a).
+
+    The caller supplies two independently frozen .blend descriptors.  This
+    deliberately does not promote pkg241's `metal_sweep`/`big` aliases into
+    the 10k/100k acceptance workloads.
+    """
+    workloads = _load_gate_a_workloads(args.gate_a_workload)
+    host, port = args.host, args.port
+    gpu = _bridge(_GPU_NAME, host, port).get("gpu", "")
+    captures = []
+    observed_build = None
+    for workload in workloads:
+        scene_info = _open_scene(host, port, workload["path"])
+        if scene_info.get("tris") != workload["triangles"]:
+            raise RuntimeError(f"{workload['name']}: expected {workload['triangles']} triangles, "
+                               f"Blender reported {scene_info.get('tris')}")
+        _switch_device(host, port, "gpu")
+        settings = _bridge(_GATE_A_SETTINGS, host, port)
+        observed = _bridge(_GATE_A_OBSERVED_RUNTIME, host, port)
+        if settings.get("device_mode") != "gpu" or settings.get("use_denoising") not in (False, None):
+            raise RuntimeError(f"{workload['name']}: GPU denoise-off settings were not applied: {settings}")
+        if observed.get("engine") != "CUSTOM_RAYTRACER" or observed.get("requested_device") != "gpu" or observed.get("denoise_enabled"):
+            raise RuntimeError(f"{workload['name']}: observed runtime identity is not GPU denoise-off: {observed}")
+        build_id = observed.get("module_build_id")
+        if not isinstance(build_id, str) or not build_id or build_id != args.gate_a_build_id:
+            raise RuntimeError(f"{workload['name']}: loaded module build does not match --gate-a-build-id: {observed}")
+        if observed_build is None:
+            observed_build = build_id
+        elif observed_build != build_id:
+            raise RuntimeError(f"{workload['name']}: loaded module build changed during gate capture")
+        for kind in ("camera", "material"):
+            for batch in range(3):
+                result = _run_class(host, port, kind, 100, 1, args.warmup,
+                                    args.gpu_deadline_s, args.rotate_deg, gate_a=True,
+                                    evidence_dir=str(_gate_a_evidence_dir(args.out, workload["name"], kind, batch)))
+                capture_observed = dict(observed)
+                capture_observed["actual_gpu_devices"] = _actual_gpu_devices(result["raw_events"])
+                reduced = reduce_gate_a_capture(result["raw_events"], result["events"],
+                                                truncated=result["truncated"])
+                captures.append({"scene_sha256": workload["sha256"],
+                                 "workload": workload, "edit_kind": kind, "batch": batch,
+                                 "backend": "GPU", "denoise_enabled": False,
+                                 "observed_runtime": capture_observed,
+                                 "warmup": args.warmup, "truncated": result["truncated"],
+                                 "edits": result["events"], "raw_events": result["raw_events"],
+                                 "reduced": reduced})
+    return {"schema": "pkg278.instrument.v2", "row": "a", "instrument": "viewport_latency",
+            "scene_sha256": [w["sha256"] for w in workloads], "build_id": observed_build,
+            "backend": ["GPU"],
+            "settings": {"workloads": workloads, "worker": True, "denoise_enabled": False,
+                         "warmup": args.warmup, "events_per_batch": 100,
+                         "batches": 3, "serialized_edits": True, "gpu": gpu,
+                         "observed_runtime": observed},
+            "metric": {"source": "real_blender_post_pixel_generation_chain"},
+            "value": {}, "threshold": {"gpu_p95_ms": 100, "gpu_p99_ms": 150,
+                                           "cancel_p95_ms": 200, "cancel_p99_ms": 300,
+                                           "stale_frames_after_ack": 0},
+            "records": captures,
+            "date": _dt.date.today().isoformat()}
+
+
 def _write_summary_md(doc, path):
     lines = ["# pkg241 Phase 0 — viewport / cancellation latency", "",
              f"Generated: {doc['generated_utc']}  ", f"GPU: {doc['gpu']}  ",
@@ -1123,7 +1402,7 @@ def _run_present_check(host, port, duration_s, warmup_s, tick_s):
     frame."""
     cfg = {"event_class": "present_check", "duration_s": duration_s,
            "warmup_s": warmup_s, "tick_s": tick_s}
-    setup = "_PKG241_CONFIG = " + json.dumps(cfg) + "\n" + _recorder_src()
+    setup = _recorder_setup(cfg)
     info = _bridge(setup, host, port)
     if info.get("setup") != "ok":
         raise RuntimeError(f"present_check recorder setup failed: {info}")
@@ -1497,7 +1776,7 @@ def main():
                    choices=["CYCLES", "CUSTOM_RAYTRACER"])
     p.add_argument("--mode", default="offline",
                    choices=["offline", "interactive", "ui_latency",
-                            "present_check", "buffer_identity"])
+                            "present_check", "buffer_identity", "gate_a"])
     p.add_argument("--frames", type=int, default=30)
     p.add_argument("--width", type=int, default=512)
     p.add_argument("--height", type=int, default=512)
@@ -1517,7 +1796,11 @@ def main():
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=9876)
     p.add_argument("--scenes", nargs="+", default=["metal_sweep", "big"],
-                   choices=["metal_sweep", "big"])
+                   help="legacy metal_sweep/big workload names or validated corpus blend paths")
+    p.add_argument("--corpus-manifest", type=Path, default=None,
+                   help="reference-corpus manifest used only with --corpus-scene")
+    p.add_argument("--corpus-scene", action="append", default=[],
+                   help="exact corpus scene ID; resolved and hash-checked before the GUI run")
     p.add_argument("--devices", nargs="+", default=["gpu", "cpu"],
                    choices=["gpu", "cpu"])
     p.add_argument("--classes", nargs="+", default=["camera", "material"],
@@ -1531,6 +1814,10 @@ def main():
     p.add_argument("--cpu-events", dest="cpu_events", type=int, default=None)
     p.add_argument("--cpu-reps", dest="cpu_reps", type=int, default=None)
     p.add_argument("--rotate-deg", dest="rotate_deg", type=float, default=1.0)
+    p.add_argument("--gate-a-workload", action="append", default=[], metavar="JSON",
+                   help="required frozen workload descriptor(s): exactly one 10k and one 100k .blend SHA")
+    p.add_argument("--gate-a-build-id", default=None,
+                   help="required build identity recorded in the gate-(a) producer")
     p.add_argument("--cancel", action="store_true",
                    help="also run the F12 cancel full-stop-floor probe")
     p.add_argument("--cancel-samples", dest="cancel_samples", type=int,
@@ -1569,10 +1856,37 @@ def main():
                    help="settle pattern: idle seconds per cycle (worker "
                         "completes + presents the settling generation)")
     args = p.parse_args(argv)
+    if args.corpus_scene:
+        if args.corpus_manifest is None:
+            p.error("--corpus-scene requires --corpus-manifest")
+        from benchmarks.blender_parity.scene_library import load_corpus_manifest
+        corpus = load_corpus_manifest(args.corpus_manifest)
+        missing = [name for name in args.corpus_scene if name not in corpus]
+        if missing:
+            p.error(f"corpus scene absent: {', '.join(missing)}")
+        root = Path(__file__).resolve().parents[2]
+        args.scenes = [str((root / corpus[name]["blend_path"]).resolve()) for name in args.corpus_scene]
     if args.cpu_events is None:
         args.cpu_events = args.events
     if args.cpu_reps is None:
         args.cpu_reps = args.reps
+
+    if args.mode == "gate_a":
+        if not args.gate_a_build_id or not args.gate_a_workload:
+            p.error("gate_a requires --gate-a-build-id and --gate-a-workload descriptors")
+        try:
+            doc = run_gate_a(args)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            p.error(str(exc))
+        args.out.mkdir(parents=True, exist_ok=True)
+        tag = args.tag or _dt.date.today().isoformat()
+        json_path = args.out / f"{tag}-gate-a-instrument.json"
+        json_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        canonical = args.out / "a" / "instrument.json"
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        canonical.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        print(f"[pkg278] wrote raw gate-(a) evidence {json_path}")
+        return
 
     if args.mode == "interactive":
         doc = run_interactive(args)

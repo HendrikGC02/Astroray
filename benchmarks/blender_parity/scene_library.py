@@ -21,6 +21,7 @@ close the Phase-A UNKNOWN cell.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 # Dedicated-light energy configs mirror verify_pkg122_cycles_oracle.SCENES so the
 # light legs reproduce the pkg122 radiometric setup exactly.
@@ -607,7 +608,7 @@ def build_scene(bpy, category: str, feature: str, bl_idname: str = "",
             raise ValueError(f"unknown composite scene: {feature}")
         return builder(bpy)
     if category == "reference_scene":
-        spec = REFERENCE_SCENES.get(feature)
+        spec = HISTORICAL_EXPORT_SCENES.get(feature)
         if spec is None:
             raise ValueError(f"unknown reference scene: {feature}")
         return spec["builder"](bpy)
@@ -1518,6 +1519,9 @@ def build_materials_hall_scene(bpy):
     gap_tags.append(("ShaderNodeScript", "prop:mode"))
     crop("I")
 
+    # Gate-(c) gallery evidence is the Principled alcove itself: its several
+    # distinct closure demonstrations must retain visible luminance variation.
+    scene["gate_c"] = {"rois": {"gallery_principled": crop_rects["D"]}, "non_vacuity": [], "seed": 278}
     return scene, tags, crop_rects, gap_tags
 
 
@@ -1534,17 +1538,25 @@ REFERENCE_MATERIALS_HALL_SAMPLES = 256
 # --------------------------------------------------------------------------- #
 
 def build_textures_mapping_scene(bpy):
-    """A printmaker's workshop: a hero print table plus 19 small independent
-    proof cards (one per required node), each ``<node> -> Emission -> Output``
-    (bump/normal/displacement instead go on a small sphere, since they need
-    curvature to read) so texture legibility is never confounded by BSDF
-    fidelity, under one raking area light. Covers all 72 SUPPORTED/
-    APPROXIMATED textures_mapping matrix rows (69 SUPPORTED + 3 APPROXIMATED
-    as of the post-pkg253 matrix); the 149 DROPPED-SILENT rows are listed in
-    the corpus README's gap registry (Mapping is wired for visual flavour on
-    the TexImage proof but tags nothing new -- every Mapping row is
-    DROPPED-SILENT in the current matrix)."""
+    """A printmaker's workshop: a hero print table plus 21 small independent
+    proof cards, each ``<node> -> Emission -> Output`` (bump/normal/displacement
+    instead go on a small sphere, since they need curvature to read) so texture
+    legibility is never confounded by BSDF fidelity, under one raking area
+    light. Covers all 98 SUPPORTED/APPROXIMATED textures_mapping matrix rows
+    (95 SUPPORTED + 3 APPROXIMATED as of the #823 op-VM per-socket re-audit);
+    the 165 DROPPED-SILENT rows are listed in the corpus README's gap registry
+    (Mapping is wired for visual flavour on the TexImage proof but tags nothing
+    new -- every Mapping row is DROPPED-SILENT in the current matrix).
+
+    #823: the op-VM converter nodes (Math, Map Range, Clamp, Separate/Combine
+    Color, Vector Math, Vector Rotate, Mix) are wired through visible proof
+    cards, including a post-image vector program card for the CPU op-VM route.
+    """
     scene = _reset(bpy)
+    # Crop rectangles are consumed as top-down PIL coordinates by
+    # report_tools.crop_image. Set the final corpus aspect before projecting
+    # proof bounds; build_corpus applies these same values when saving.
+    scene.render.resolution_x, scene.render.resolution_y = REFERENCE_TEXTURES_MAPPING_RES
     _add_world(bpy, scene, strength=0.35, color=(0.06, 0.06, 0.08))
     tags = []
     gap_tags = []
@@ -1594,7 +1606,6 @@ def build_textures_mapping_scene(bpy):
     CAM_DIST = 6.5
     cam = _add_pinned_camera(bpy, scene, (0.0, -CAM_DIST, 8.0), (0.0, 0.3, 0.75), lens=24.0)
     cam.data.sensor_width = 36.0
-    fov_x = 2.0 * math.atan(cam.data.sensor_width / (2.0 * cam.data.lens))
 
     def _flat_card(x, y, z, size, name):
         bpy.ops.mesh.primitive_plane_add(size=size, location=(x, y, z))
@@ -1604,16 +1615,30 @@ def build_textures_mapping_scene(bpy):
             poly.use_smooth = True
         return obj
 
-    # Row bands in normalised image Y (row 0 = farthest from camera = top of
-    # frame, row 3 = nearest = bottom) -- a deliberately simple, documented
-    # approximation (not a perspective-accurate projection of each row's Z);
-    # good enough so every (row, col) proof gets a distinct crop rectangle
-    # for the Phase-4 coverage report, refine there if a crop render disagrees.
-    ROW_BANDS = ((0.10, 0.30), (0.30, 0.50), (0.50, 0.68), (0.68, 0.85))
+    def crop_for(key, obj, padding=0.025):
+        """Camera-project an actual proof object's bounds into its crop.
 
-    def crop_for(key, row, x, half=0.55):
-        y0, y1 = ROW_BANDS[row]
-        crop_rects[key] = _crop_rect(CAM_DIST, fov_x, x - half, x + half, y0, y1)
+        The earlier fixed row bands were only a rough layout estimate and
+        missed the cards under this scene's steep camera. The report crops are
+        evidence, so derive them from the committed camera and object instead.
+        ``world_to_camera_view`` returns Blender's bottom-up normalised image
+        coordinates; report_tools.crop_image expects top-down PIL coordinates.
+        Keep one explicit pad for rasterisation and antialiased card edges.
+        """
+        from bpy_extras.object_utils import world_to_camera_view
+        from mathutils import Vector
+        bpy.context.view_layer.update()
+        projected = [world_to_camera_view(scene, cam, obj.matrix_world @ Vector(corner))
+                     for corner in obj.bound_box]
+        xs = [p.x for p in projected]
+        ys = [1.0 - p.y for p in projected]
+        x0 = max(0.0, min(xs) - padding)
+        x1 = min(1.0, max(xs) + padding)
+        y0 = max(0.0, min(ys) - padding)
+        y1 = min(1.0, max(ys) + padding)
+        if not (x0 < x1 and y0 < y1):
+            raise ValueError(f"invalid projected crop for {key}: {(x0, y0, x1, y1)}")
+        crop_rects[key] = [round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4)]
 
     def texture_card(row, col, key, bl_idname, configure, output="Color", use_vector=True):
         x, y = grid[(row, col)]
@@ -1626,8 +1651,46 @@ def build_textures_mapping_scene(bpy):
         configure(node)
         nt.links.new(_sock(node.outputs, output), _sock(emit.inputs, "Color"))
         plane.data.materials.append(mat)
-        crop_for(key, row, x)
+        crop_for(key, plane)
         return node
+
+    def _enabled(collection, name):
+        """First ENABLED socket matching ``name``/identifier (#823). Modern
+        ShaderNodeMix declares every data-type variant at once; the enabled one
+        is the variant the compiler actually consumes for the node's data_type."""
+        for s in collection:
+            if (getattr(s, "identifier", None) == name or s.name == name) \
+                    and getattr(s, "enabled", True):
+                return s
+        return _sock(collection, name)
+
+    def converter_card(row, col, key, source_bl, cfg_source, converter_bl, cfg_converter,
+                       converter_out="Color", use_vector=True):
+        """A proof card whose visible output is a CONVERTER node fed by a
+        procedural source (#823). Used for the op-VM converter wave (Math, Map
+        Range, Clamp, Separate/Combine Color, Mix, Vector Math, Vector Rotate)
+        so the reclassified sockets are genuinely wired, not just labelled:
+        the converter is on the emission path and its inputs are read by the
+        addon's evaluator. ``converter_out=None`` selects the first enabled
+        output (Mix's per-data_type ``Result`` variant)."""
+        x, y = grid[(row, col)]
+        plane = _flat_card(x, y, Z, 0.85, key)
+        mat, nt, emit, out = _emission_card_material(bpy, f"{key}Mat")
+        src = nt.nodes.new(source_bl)
+        if use_vector and "Vector" in src.inputs:
+            coord = nt.nodes.new("ShaderNodeTexCoord")
+            nt.links.new(_sock(coord.outputs, "Generated"), _sock(src.inputs, "Vector"))
+        cfg_source(src)
+        conv = nt.nodes.new(converter_bl)
+        cfg_converter(conv, src, nt)
+        if converter_out is None:
+            conv_out = next(s for s in conv.outputs if s.enabled)
+        else:
+            conv_out = _enabled(conv.outputs, converter_out)
+        nt.links.new(conv_out, _sock(emit.inputs, "Color"))
+        plane.data.materials.append(mat)
+        crop_for(key, plane)
+        return src, conv, nt
 
     # --- Row 0: procedural noise family + Brick -------------------------- #
     def cfg_noise(n):
@@ -1640,11 +1703,20 @@ def build_textures_mapping_scene(bpy):
         _sock(n.inputs, "Distortion").default_value = 0.6
         n.noise_type = "HETERO_TERRAIN"
         n.normalize = False
-    texture_card(0, 0, "TexNoise", "ShaderNodeTexNoise", cfg_noise)
+    def cfg_math(n, src, nt):
+        # #823: MULTIPLY consumes the two unconditional positional Value
+        # sockets (Value/Value_001); Value_002 stays a DROPPED-SILENT gap.
+        n.operation = "MULTIPLY"
+        nt.links.new(_sock(src.outputs, "Fac"), n.inputs[0])
+        n.inputs[1].default_value = 0.75
+    converter_card(0, 0, "TexNoise", "ShaderNodeTexNoise", cfg_noise,
+                   "ShaderNodeMath", cfg_math, converter_out="Value", use_vector=True)
     for sock in ("Scale", "Detail", "Roughness", "Lacunarity", "Offset", "Gain", "Distortion"):
         tag("ShaderNodeTexNoise", f"input:{sock}")
     tag("ShaderNodeTexNoise", "prop:noise_type")
     tag("ShaderNodeTexNoise", "prop:normalize")
+    tag("ShaderNodeMath", "input:Value")
+    tag("ShaderNodeMath", "input:Value[Value_001]")
 
     def cfg_voronoi(n):
         _sock(n.inputs, "Scale").default_value = 6.0
@@ -1657,12 +1729,20 @@ def build_textures_mapping_scene(bpy):
         n.distance = "MANHATTAN"
         n.feature = "SMOOTH_F1"
         n.normalize = True
-    texture_card(0, 1, "TexVoronoi", "ShaderNodeTexVoronoi", cfg_voronoi, output="Color")
+    def cfg_clamp(n, src, nt):
+        # #823: Clamp reads the named Value/Min/Max sockets.
+        nt.links.new(_sock(src.outputs, "Distance"), _sock(n.inputs, "Value"))
+        _sock(n.inputs, "Min").default_value = 0.15
+        _sock(n.inputs, "Max").default_value = 0.85
+    converter_card(0, 1, "TexVoronoi", "ShaderNodeTexVoronoi", cfg_voronoi,
+                   "ShaderNodeClamp", cfg_clamp, converter_out="Result", use_vector=True)
     for sock in ("Scale", "Detail", "Roughness", "Lacunarity", "Smoothness", "Exponent", "Randomness"):
         tag("ShaderNodeTexVoronoi", f"input:{sock}")
     tag("ShaderNodeTexVoronoi", "prop:distance")
     tag("ShaderNodeTexVoronoi", "prop:feature")
     tag("ShaderNodeTexVoronoi", "prop:normalize")
+    for sock in ("Value", "Min", "Max"):
+        tag("ShaderNodeClamp", f"input:{sock}")
 
     def cfg_wave_bands(n):
         _sock(n.inputs, "Scale").default_value = 4.0
@@ -1674,12 +1754,26 @@ def build_textures_mapping_scene(bpy):
         n.wave_type = "BANDS"
         n.bands_direction = "Z"
         n.wave_profile = "SAW"
-    texture_card(0, 2, "TexWaveBands", "ShaderNodeTexWave", cfg_wave_bands)
+    def cfg_maprange_float(n, src, nt):
+        # #823: the FLOAT Map Range reads exactly Value + From Min/From Max/
+        # To Min/To Max; Steps is never read (DROPPED-SILENT gap).
+        n.data_type = "FLOAT"
+        n.interpolation_type = "SMOOTHSTEP"
+        nt.links.new(_sock(src.outputs, "Fac"), _sock(n.inputs, "Value"))
+        _sock(n.inputs, "From Min").default_value = 0.18
+        _sock(n.inputs, "From Max").default_value = 0.82
+        _sock(n.inputs, "To Min").default_value = 0.1
+        _sock(n.inputs, "To Max").default_value = 0.9
+    converter_card(0, 2, "TexWaveBands", "ShaderNodeTexWave", cfg_wave_bands,
+                   "ShaderNodeMapRange", cfg_maprange_float, converter_out="Result",
+                   use_vector=True)
     for sock in ("Scale", "Distortion", "Detail", "Detail Scale", "Detail Roughness", "Phase Offset"):
         tag("ShaderNodeTexWave", f"input:{sock}")
     tag("ShaderNodeTexWave", "prop:wave_type")
     tag("ShaderNodeTexWave", "prop:bands_direction")
     tag("ShaderNodeTexWave", "prop:wave_profile")
+    for sock in ("Value", "From Min", "From Max", "To Min", "To Max"):
+        tag("ShaderNodeMapRange", f"input:{sock}")
 
     def cfg_wave_rings(n):
         _sock(n.inputs, "Scale").default_value = 3.0
@@ -1713,23 +1807,51 @@ def build_textures_mapping_scene(bpy):
         _sock(n.inputs, "Color1").default_value = (0.9, 0.9, 0.85, 1.0)
         _sock(n.inputs, "Color2").default_value = (0.08, 0.08, 0.1, 1.0)
         _sock(n.inputs, "Scale").default_value = 8.0
-    texture_card(1, 0, "TexChecker", "ShaderNodeTexChecker", cfg_checker)
+    def cfg_separate(n, src, nt):
+        # #823: Separate Color reads only its Color input; mode selects the
+        # colour space at runtime.
+        nt.links.new(_sock(src.outputs, "Color"), _sock(n.inputs, "Color"))
+        n.mode = "RGB"
+    checker, _, _ = converter_card(1, 0, "TexChecker", "ShaderNodeTexChecker", cfg_checker,
+                                   "ShaderNodeSeparateColor", cfg_separate, converter_out="Red",
+                                   use_vector=True)
+    checker.name = "GateCWorkshopChecker"
     for sock in ("Color1", "Color2", "Scale"):
         tag("ShaderNodeTexChecker", f"input:{sock}")
+    tag("ShaderNodeSeparateColor", "input:Color")
 
     def cfg_magic(n):
         _sock(n.inputs, "Scale").default_value = 6.0
         _sock(n.inputs, "Distortion").default_value = 2.5
         n.turbulence_depth = 4
-    texture_card(1, 1, "TexMagic", "ShaderNodeTexMagic", cfg_magic)
+    def cfg_mix_float(n, src, nt):
+        # #823: FLOAT Mix consumes Factor/A/B (Factor_Float/A_Float/B_Float).
+        n.data_type = "FLOAT"
+        _enabled(n.inputs, "Factor").default_value = 0.5
+        nt.links.new(_sock(src.outputs, "Fac"), _enabled(n.inputs, "A"))
+        _enabled(n.inputs, "B").default_value = 0.25
+    converter_card(1, 1, "TexMagic", "ShaderNodeTexMagic", cfg_magic,
+                   "ShaderNodeMix", cfg_mix_float, converter_out=None, use_vector=True)
     for sock in ("Scale", "Distortion"):
         tag("ShaderNodeTexMagic", f"input:{sock}")
     tag("ShaderNodeTexMagic", "prop:turbulence_depth")
+    for sock in ("Factor[Factor_Float]", "A[A_Float]", "B[B_Float]"):
+        tag("ShaderNodeMix", f"input:{sock}")
 
     def cfg_gradient(n):
         n.gradient_type = "SPHERICAL"
-    texture_card(1, 2, "TexGradient", "ShaderNodeTexGradient", cfg_gradient)
+    def cfg_combine(n, src, nt):
+        # #823: Combine Color reads its named Red/Green/Blue inputs.
+        n.mode = "RGB"
+        nt.links.new(_sock(src.outputs, "Color"), _sock(n.inputs, "Red"))
+        _sock(n.inputs, "Green").default_value = 0.35
+        _sock(n.inputs, "Blue").default_value = 0.65
+    converter_card(1, 2, "TexGradient", "ShaderNodeTexGradient", cfg_gradient,
+                   "ShaderNodeCombineColor", cfg_combine, converter_out="Color",
+                   use_vector=True)
     tag("ShaderNodeTexGradient", "prop:gradient_type")
+    for sock in ("Red", "Green", "Blue"):
+        tag("ShaderNodeCombineColor", f"input:{sock}")
 
     stripe_img = bpy.data.images.new("WorkshopStripe", width=16, height=16, float_buffer=True)
     stripe_img.pixels[:] = _make_stripe_image_pixels(16, 16)
@@ -1747,8 +1869,10 @@ def build_textures_mapping_scene(bpy):
     nt.links.new(_sock(mapping.outputs, "Vector"), _sock(img.inputs, "Vector"))
     nt.links.new(_sock(img.outputs, "Color"), _sock(emit.inputs, "Color"))
     plane.data.materials.append(mat)
-    crop_for("TexImage", 1, x)
+    crop_for("TexImage", plane)
     tag("ShaderNodeTexImage", "input:Vector")
+    for sock in ("Factor[Factor_Float]", "A[A_Color]", "B[B_Color]"):
+        tag("ShaderNodeMix", f"input:{sock}")
 
     normal_img = bpy.data.images.new("WorkshopNormal", width=16, height=16, float_buffer=True)
     normal_img.colorspace_settings.name = "Non-Color"
@@ -1806,7 +1930,7 @@ def build_textures_mapping_scene(bpy):
             for sock in ("Height", "Midlevel", "Scale"):
                 tag("ShaderNodeDisplacement", f"input:{sock}")
         s.data.materials.append(mat)
-        crop_for(key, row, x, half=0.45)
+        crop_for(key, s)
 
     _bump_normal_displacement_sphere(1, 4, "BumpDemo", "bump")
     _bump_normal_displacement_sphere(2, 0, "NormalMapDemo", "normal_map")
@@ -1864,8 +1988,12 @@ def build_textures_mapping_scene(bpy):
     result = next(s for s in mixnode.outputs if s.enabled)
     nt.links.new(result, _sock(emit.inputs, "Color"))
     plane.data.materials.append(mat)
-    crop_for("MixCard", 3, x)
+    crop_for("MixCard", plane)
     tag("ShaderNodeMix", "prop:blend_type")
+    # #823: the RGBA variant exercises Factor_Float/A_Color/B_Color (the
+    # FLOAT/VECTOR variants are proven by the TexMagic and TexImage chains).
+    for sock in ("Factor[Factor_Float]", "A[A_Color]", "B[B_Color]"):
+        tag("ShaderNodeMix", f"input:{sock}")
 
     def cfg_mixrgb(n):
         n.blend_type = "SCREEN"
@@ -1875,7 +2003,67 @@ def build_textures_mapping_scene(bpy):
     texture_card(3, 3, "MixRgbCard", "ShaderNodeMixRGB", cfg_mixrgb, output="Color",
                  use_vector=False)
     tag("ShaderNodeMixRGB", "prop:blend_type")
+    tag("ShaderNodeMixRGB", "input:Color1")
+    tag("ShaderNodeMixRGB", "input:Color2")
 
+    # #823: split the vector proof across the spare grid slot. Each chain stays
+    # within the existing op-VM slot budget while retaining a loadable image leaf.
+    x, y = grid[(3, 4)]
+    plane = _flat_card(x - 0.22, y, Z, 0.40, "VectorRotateCard")
+    mat, nt, emit, out = _emission_card_material(bpy, "VectorRotateCardMat")
+    coord = nt.nodes.new("ShaderNodeTexCoord")
+    mapping = nt.nodes.new("ShaderNodeMapping")
+    _sock(mapping.inputs, "Scale").default_value = (1.6, 1.6, 1.0)
+    img = nt.nodes.new("ShaderNodeTexImage")
+    img.image = stripe_img
+    vrot = nt.nodes.new("ShaderNodeVectorRotate")
+    vrot.rotation_type = "AXIS_ANGLE"
+    _sock(vrot.inputs, "Center").default_value = (0.18, -0.12, 0.0)
+    _sock(vrot.inputs, "Axis").default_value = (0.0, 0.0, 1.0)
+    _sock(vrot.inputs, "Angle").default_value = 0.4
+    nt.links.new(_sock(coord.outputs, "Generated"), _sock(mapping.inputs, "Vector"))
+    nt.links.new(_sock(mapping.outputs, "Vector"), _sock(img.inputs, "Vector"))
+    nt.links.new(_sock(img.outputs, "Color"), _sock(vrot.inputs, "Vector"))
+    nt.links.new(_sock(vrot.outputs, "Vector"), _sock(emit.inputs, "Color"))
+    plane.data.materials.append(mat)
+    crop_for("VectorRotateCard", plane)
+    tag("ShaderNodeVectorRotate", "input:Vector")
+    tag("ShaderNodeVectorRotate", "input:Center")
+
+    plane = _flat_card(x + 0.22, y, Z, 0.40, "VectorMixCard")
+    mat, nt, emit, out = _emission_card_material(bpy, "VectorMixCardMat")
+    coord = nt.nodes.new("ShaderNodeTexCoord")
+    mapping = nt.nodes.new("ShaderNodeMapping")
+    _sock(mapping.inputs, "Scale").default_value = (1.6, 1.6, 1.0)
+    img = nt.nodes.new("ShaderNodeTexImage")
+    img.image = stripe_img
+    vmath = nt.nodes.new("ShaderNodeVectorMath")
+    vmath.operation = "SCALE"
+    _sock(vmath.inputs, "Scale").default_value = 0.65
+    vmix = nt.nodes.new("ShaderNodeMix")
+    vmix.data_type = "VECTOR"
+    vmix.factor_mode = "UNIFORM"
+    _enabled(vmix.inputs, "Factor").default_value = 0.35
+    _enabled(vmix.inputs, "B").default_value = (0.12, 0.46, 0.78)
+    nt.links.new(_sock(coord.outputs, "Generated"), _sock(mapping.inputs, "Vector"))
+    nt.links.new(_sock(mapping.outputs, "Vector"), _sock(img.inputs, "Vector"))
+    nt.links.new(_sock(img.outputs, "Color"), _sock(vmath.inputs, "Vector"))
+    nt.links.new(_sock(vmath.outputs, "Vector"), _enabled(vmix.inputs, "A"))
+    nt.links.new(next(s for s in vmix.outputs if s.enabled), _sock(emit.inputs, "Color"))
+    plane.data.materials.append(mat)
+    crop_for("VectorMixCard", plane)
+    tag("ShaderNodeVectorMath", "input:Vector")
+    for sock in ("A[A_Vector]", "B[B_Vector]"):
+        tag("ShaderNodeMix", f"input:{sock}")
+
+    # The workshop's non-vacuity proof is its real Checker Texture card, not
+    # a synthetic crop chosen after rendering.
+    scene["gate_c"] = {
+        "rois": {"workshop_checker": crop_rects["TexChecker"]},
+        "non_vacuity": [{"kind": "checker", "roi": "workshop_checker", "min_delta": 0.05, "min_coverage": 0.02}],
+        "controls": [{"kind": "checker_flat", "material": "TexCheckerMat", "node": "GateCWorkshopChecker", "object": "TexChecker", "mask": {"kind": "object_polygon", "inset": 0.16}}],
+        "seed": 278,
+    }
     return scene, tags, crop_rects, gap_tags
 
 
@@ -2198,6 +2386,30 @@ def _world_sky_geometry(bpy):
     _recess_panel("RecessRight", (rx + 0.5, ry, 0.35), (0.03, 0.55, 0.35))
     _recess_panel("RecessRoof", (rx, ry + 0.1, 0.71), (0.55, 0.65, 0.02))
 
+    # Gate-(c)'s terrace role is real Curves geometry, shared by both world
+    # variants so their HDRI/Sky A/B remains geometry-identical.
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.28, location=(-1.30, 0.15, 0.38),
+                                          segments=24, ring_count=12)
+    scalp = bpy.context.active_object
+    scalp.name = "TerraceScalp"
+    for poly in scalp.data.polygons:
+        poly.use_smooth = True
+    _apply_principled(bpy, scalp, (0.58, 0.46, 0.38), roughness=0.6, name="TerraceScalpMat")
+    curves = _build_hair_curves(bpy, scalp, 0.28, n_strands=320,
+                                points_per_strand=6, seed=278)
+    hair = bpy.data.objects.new("TerraceHair", curves)
+    bpy.context.scene.collection.objects.link(hair)
+    hmat = bpy.data.materials.new("TerraceHairMat")
+    hmat.use_nodes = True
+    hnt = hmat.node_tree
+    _clear_nodes(hnt)
+    hout = hnt.nodes.new("ShaderNodeOutputMaterial")
+    hair_bsdf = hnt.nodes.new("ShaderNodeBsdfHairPrincipled")
+    _sock(hair_bsdf.inputs, "Color").default_value = (0.15, 0.09, 0.05, 1.0)
+    _sock(hair_bsdf.inputs, "Roughness").default_value = 0.3
+    hnt.links.new(_sock(hair_bsdf.outputs, "BSDF"), _sock(hout.inputs, "Surface"))
+    hair.data.materials.append(hmat)
+
 
 def _world_sky_camera_and_crops(bpy, scene):
     CAM_DIST = 5.5
@@ -2241,6 +2453,7 @@ def build_world_sky_hdri_scene(bpy):
     wout = wnt.nodes.new("ShaderNodeOutputWorld")
     bg = wnt.nodes.new("ShaderNodeBackground")
     env = wnt.nodes.new("ShaderNodeTexEnvironment")
+    env.name = "GateCTerraceEnvironment"
     mapping = wnt.nodes.new("ShaderNodeMapping")
     texcoord = wnt.nodes.new("ShaderNodeTexCoord")
 
@@ -2259,6 +2472,22 @@ def build_world_sky_hdri_scene(bpy):
     scene["hdri_relpath"] = "//../assets/syferfontein_18d_clear_1k.hdr"
 
     crop_rects = _world_sky_camera_and_crops(bpy, scene)
+    scene["gate_c"] = {
+        "role": "world_sky:terrace-with-hair",
+        "rois": {
+            "terrace_hair": [0.2424, 0.28, 0.3485, 0.78],
+            "terrace_hair_background": [0.2424, 0.05, 0.3485, 0.26],
+            "terrace_hdri": [0.45, 0.04, 0.62, 0.22],
+        },
+        "non_vacuity": [
+            {"kind": "hair", "roi": "terrace_hair", "min_delta": 0.05, "min_coverage": 0.002},
+            {"kind": "hdri", "roi": "terrace_hdri", "min_delta": 0.03, "min_coverage": 0.02},
+        ],
+        "controls": [{"kind": "hair_off", "object": "TerraceHair", "mask": {"kind": "curves", "radius_px": 2}}, {"kind": "hdri_off", "world": "W", "node": "GateCTerraceEnvironment", "mask": {"kind": "sky_rays", "roi": [0.45, 0.04, 0.62, 0.22]}}],
+        "expected_curve_count": 320,
+        "expected_curve_point_count": 1920,
+        "seed": 278,
+    }
     return scene, tags, crop_rects, gap_tags
 
 
@@ -2953,7 +3182,9 @@ REFERENCE_VOLUMES_RES = (640, 360)
 REFERENCE_VOLUMES_SAMPLES = 128
 
 
-REFERENCE_SCENES = {
+# These builders remain solely for the historical export aliases.  Their
+# independently generated bytes are not members of the reference corpus.
+HISTORICAL_EXPORT_SCENES = {
     "cornell_interior": dict(
         builder=build_cornell_interior_scene,
         res_x=REFERENCE_CORNELL_RES[0], res_y=REFERENCE_CORNELL_RES[1],
@@ -2967,3 +3198,92 @@ REFERENCE_SCENES = {
         res_x=REFERENCE_HDRI_HAIR_RES[0], res_y=REFERENCE_HDRI_HAIR_RES[1],
         samples=REFERENCE_HDRI_HAIR_SAMPLES),
 }
+
+
+CORPUS_MANIFEST = Path(__file__).resolve().parents[1] / "reference_corpus" / "scenes" / "manifest.json"
+GATE_C_ROLES = ("materials_hall", "textures_mapping", "world_sky:terrace-with-hair")
+
+
+def load_corpus_manifest(manifest_path=CORPUS_MANIFEST):
+    """Return corpus entries in stable ID order after fail-closed path/hash checks."""
+    import hashlib
+    import json
+    root = Path(__file__).resolve().parents[2]
+    def no_duplicate_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate corpus manifest key: {key!r}")
+            result[key] = value
+        return result
+    data = json.loads(Path(manifest_path).read_text(encoding="utf-8"),
+                      object_pairs_hook=no_duplicate_keys)
+    scenes = data.get("scenes") if isinstance(data, dict) else None
+    if not isinstance(scenes, dict):
+        raise TypeError("corpus manifest requires a scenes object")
+    result = {}
+    for scene_id in sorted(scenes):
+        entry = scenes[scene_id]
+        if not isinstance(entry, dict) or not isinstance(entry.get("blend_path"), str):
+            raise TypeError(f"corpus scene {scene_id!r} lacks blend_path")
+        blend = (root / entry["blend_path"]).resolve()
+        try:
+            blend.relative_to((root / "benchmarks" / "reference_corpus").resolve())
+        except ValueError:
+            raise ValueError(f"corpus scene {scene_id!r} escapes corpus root")
+        digest = entry.get("sha256")
+        if not blend.is_file() or not isinstance(digest, str) or len(digest) != 64:
+            raise TypeError(f"corpus scene {scene_id!r} has missing blend or digest")
+        if hashlib.sha256(blend.read_bytes()).hexdigest() != digest:
+            raise ValueError(f"corpus scene {scene_id!r} blend digest mismatch")
+        settings = entry.get("settings")
+        if (not isinstance(settings, dict) or any(not isinstance(settings.get(k), int)
+                or isinstance(settings.get(k), bool) or settings[k] <= 0
+                for k in ("res_x", "res_y", "samples"))):
+            raise TypeError(f"corpus scene {scene_id!r} lacks positive render settings")
+        assets = entry.get("assets", [])
+        if not isinstance(assets, list):
+            raise TypeError(f"corpus scene {scene_id!r} assets must be a list")
+        for asset in assets:
+            if not isinstance(asset, dict) or not isinstance(asset.get("path"), str):
+                raise TypeError(f"corpus scene {scene_id!r} has invalid asset")
+            path = (root / asset["path"]).resolve()
+            try:
+                path.relative_to((root / "benchmarks" / "reference_corpus").resolve())
+            except ValueError:
+                raise ValueError(f"corpus scene {scene_id!r} asset escapes corpus root")
+            asset_digest = asset.get("sha256")
+            if (not path.is_file() or not isinstance(asset_digest, str)
+                    or len(asset_digest) != 64
+                    or hashlib.sha256(path.read_bytes()).hexdigest() != asset_digest):
+                raise ValueError(f"corpus scene {scene_id!r} asset digest mismatch")
+        result[scene_id] = entry
+    return result
+
+
+def reference_corpus_scenes(manifest_path=CORPUS_MANIFEST):
+    """Default parity discovery rows from the validated nine-scene corpus."""
+    return {
+        scene_id: {"blend_path": entry["blend_path"], "sha256": entry["sha256"],
+                   "res_x": entry["settings"]["res_x"], "res_y": entry["settings"]["res_y"],
+                   "samples": entry["settings"]["samples"], "astroray_leg": "addon"}
+        for scene_id, entry in load_corpus_manifest(manifest_path).items()
+    }
+
+
+REFERENCE_SCENES = reference_corpus_scenes()
+
+
+def resolve_gate_c_roles(manifest_path=CORPUS_MANIFEST):
+    """Resolve owner-selected logical roles without changing the nine-scene ID set."""
+    scenes = load_corpus_manifest(manifest_path)
+    roles = {}
+    for role in GATE_C_ROLES:
+        matches = [scene_id for scene_id, entry in scenes.items()
+                   if scene_id == role or (isinstance(entry.get("gate_c"), dict)
+                                           and entry["gate_c"].get("role") == role)]
+        if len(matches) != 1:
+            raise ValueError(f"required gate-c role absent from corpus manifest: {role}")
+        actual = matches[0]
+        roles[role] = {"scene_id": actual, **scenes[actual]}
+    return roles

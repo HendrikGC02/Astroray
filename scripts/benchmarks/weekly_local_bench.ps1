@@ -40,10 +40,32 @@ $Log = Join-Path $LogDir "weekly_bench_$stamp.log"
 "=== weekly_local_bench $stamp ===" | Out-File $Log -Encoding ascii
 "cwd=$(Get-Location)" | Out-File $Log -Append -Encoding ascii
 
-"=== cycles-parity: scripts/run_parity.py ===" | Out-File $Log -Append -Encoding ascii
-& python scripts/run_parity.py *>> $Log
+"=== cycles-parity: historical scripts/run_parity.py ===" | Out-File $Log -Append -Encoding ascii
+& python scripts/run_parity.py --scene cornell --scene textured_plane --scene glass_sphere *>> $Log
 $parityCode = $LASTEXITCODE
 "run_parity.py exit=$parityCode" | Out-File $Log -Append -Encoding ascii
+
+$CorpusScenes = @('camera_lens', 'geometry_zoo', 'lighting_studio', 'materials_hall',
+    'render_settings', 'textures_mapping', 'volumes_smoke', 'world_sky_hdri', 'world_sky_sky')
+$CorpusParityArgs = @()
+foreach ($CorpusScene in $CorpusScenes) {
+    $CorpusParityArgs += '--scene'
+    $CorpusParityArgs += $CorpusScene
+}
+"=== cycles-parity: corpus scripts/run_parity.py ===" | Out-File $Log -Append -Encoding ascii
+& python scripts/run_parity.py @CorpusParityArgs *>> $Log
+$corpusParityCode = $LASTEXITCODE
+"corpus run_parity.py exit=$corpusParityCode" | Out-File $Log -Append -Encoding ascii
+
+"=== gate-c corpus F12 evidence ===" | Out-File $Log -Append -Encoding ascii
+if ([string]::IsNullOrWhiteSpace($env:ASTRORAY_GATE_C_MODULE_SHA256)) {
+    "gate-c skipped: ASTRORAY_GATE_C_MODULE_SHA256 is required" | Out-File $Log -Append -Encoding ascii
+    $gateCCode = 1
+} else {
+    & python scripts/run_parity.py --gate-c --gate-c-build-id $env:ASTRORAY_GATE_C_BUILD_ID --gate-c-module-sha256 $env:ASTRORAY_GATE_C_MODULE_SHA256 *>> $Log
+    $gateCCode = $LASTEXITCODE
+}
+"gate-c exit=$gateCCode" | Out-File $Log -Append -Encoding ascii
 
 if ($parityCode -eq 0) {
     $latestCsv = Get-ChildItem -Path (Join-Path $Repo 'benchmarks\cycles-parity') -Filter '*.csv' -File |
@@ -66,7 +88,7 @@ $showcaseCode = $LASTEXITCODE
 "=== weekly_local_bench done ===" | Out-File $Log -Append -Encoding ascii
 Write-Host "Log written to $Log"
 
-if ($parityCode -ne 0 -or $showcaseCode -ne 0) {
+if ($parityCode -ne 0 -or $corpusParityCode -ne 0 -or $gateCCode -ne 0 -or $showcaseCode -ne 0) {
     exit 1
 }
 exit 0

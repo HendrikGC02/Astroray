@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astroray.local/schemas/acceptance_manifest.schema.json",
+  "title": "Astroray Pillar-4 exit-gate acceptance manifest (pkg278)",
+  "description": "Green rows are assembled only from pkg278.instrument.v2 producer payloads. The executable validator enforces row-specific record, digest, and reducer contracts; this schema covers the persisted aggregate shape.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "rows"],
+  "properties": {
+    "schema": { "const": "pkg278.acceptance_manifest.v1" },
+    "generated": { "type": "string" },
+    "rows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["a", "b", "c", "d", "e", "f"],
+      "properties": {
+        "a": { "$ref": "#/$defs/row" },
+        "b": { "$ref": "#/$defs/row" },
+        "c": { "$ref": "#/$defs/row" },
+        "d": { "$ref": "#/$defs/row" },
+        "e": { "$ref": "#/$defs/row" },
+        "f": { "$ref": "#/$defs/row" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "row",
+        "instrument",
+        "status",
+        "scene_sha256",
+        "build_id",
+        "backend",
+        "settings",
+        "metric",
+        "value",
+        "threshold",
+        "evidence_path",
+        "evidence_sha256",
+        "dimensions",
+        "date"
+      ],
+      "properties": {
+        "row": { "enum": ["a", "b", "c", "d", "e", "f"] },
+        "instrument": { "enum": ["viewport_latency", "coverage_report", "trio_parity", "native_panel_smoke", "issue_triage", "clean_install"] },
+        "status": { "enum": ["green", "red", "unmeasured"] },
+        "scene_sha256": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sha256" }
+        },
+        "build_id": { "type": ["string", "null"] },
+        "backend": {
+          "type": "array",
+          "items": { "enum": ["CPU", "GPU"] },
+          "uniqueItems": true
+        },
+        "settings": { "type": "object" },
+        "metric": { "type": "object" },
+        "value": { "type": ["object", "null"] },
+        "threshold": { "type": "object" },
+        "evidence_path": { "type": ["string", "null"] },
+        "evidence_sha256": { "type": ["string", "null"] },
+        "dimensions": { "type": "object" },
+        "subchecks": { "type": "object" },
+        "date": { "type": "string" },
+        "hand_edit_detected": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "green" } } },
+          "then": {
+            "required": ["evidence_path", "evidence_sha256", "value", "build_id"],
+            "properties": {
+              "evidence_path": { "type": "string", "minLength": 1 },
+              "evidence_sha256": { "$ref": "#/$defs/sha256" },
+              "value": { "type": "object" },
+              "build_id": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "green" }, "row": { "enum": ["a", "b", "c", "d"] } }, "required": ["status", "row"] },
+          "then": { "properties": { "scene_sha256": { "minItems": 1 } } }
+        }
+      ]
+    }
+  }
+}

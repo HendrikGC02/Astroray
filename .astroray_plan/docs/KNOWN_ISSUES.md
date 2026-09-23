@@ -1,8 +1,20 @@
 # Known issues — Blender addon
 
-Generated 2026-09-20 02:50 UTC by `scripts/dev/known_issues_report.py` from GitHub issues labelled `addon-bug` / `addon-gap`. Do not edit by hand; file or close issues instead.
+Generated 2026-09-23 18:29 UTC by `scripts/dev/known_issues_report.py` from GitHub issues labelled `addon-bug` / `addon-gap`. This is a legacy label diagnostic, not gate-(e) evidence. Do not edit by hand; file or close issues instead.
 
-Pillar-4 exit-gate (e): open `addon-bug` at P0/P1 = **1** (target 0).
+The separately retained pkg278 gate-(e) snapshot contains **37** open issues and
+its independent review rates **14** high. It is evidence of an unmet gate, not
+a green claim or a replacement for the next live reconciliation.
+
+Legacy label diagnostic: open `addon-bug` at P0/P1 = **1**.
+
+## Severity rubric (gate (e), owner-ratified 2026-09-07)
+
+- **high** — wrong image, crash, or a native setting silently ignored.
+- **medium** — degraded but flagged (a visible degradation with a warning).
+- **low** — cosmetic.
+
+Every open issue is rated independently under this rubric, not by label; gate (e) is green only when the live snapshot is fully reconciled and `high_count == 0`.
 
 ## Open defects (`addon-bug`)
 
@@ -21,6 +33,8 @@ Pillar-4 exit-gate (e): open `addon-bug` at P0/P1 = **1** (target 0).
 | # | Severity | Title | Updated |
 |---|---|---|---|
 | [858](https://github.com/HendrikGC02/Astroray/issues/858) | unranked | Owner try-out checklist: viewport worker default (ASTRORAY_VIEWPORT_WORKER=1) | 2026-09-19 |
+| [866](https://github.com/HendrikGC02/Astroray/issues/866) | unranked | Native adaptive-sampling toggle remains custom-only: gate (d) baseline gap | 2026-09-23 |
+| [867](https://github.com/HendrikGC02/Astroray/issues/867) | unranked | Expose requested native Debug Sample Count pass for CPU/GPU F12 | 2026-09-23 |
 
 ## Recently closed
 

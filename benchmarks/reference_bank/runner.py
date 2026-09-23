@@ -23,7 +23,7 @@ Scene contract:
         description = "..."
         [[gate]]
         type = "ssim" | "delta_e_2000" | "phash" | "hue_spread" |
-               "bright_coverage" | "dark_disk"
+               "bright_coverage" | "dark_disk" | "channel_ratio"
         threshold = <float>
         direction = "ge" | "le"        # ge: measured >= threshold passes;
                                        # le: measured <= threshold passes
@@ -234,6 +234,33 @@ def _save_reference(arr: np.ndarray, scene_dir: Path) -> Path:
     return p
 
 
+def compute_channel_mean_ratio(actual: np.ndarray, reference: np.ndarray,
+                               roi: tuple[int, int, int, int] | None = None
+                               ) -> tuple[float, dict[str, float]]:
+    """Worst |per-channel mean ratio - 1| between actual and reference.
+
+    A trivial per-channel mean ratio (no new metric stack): the reference-bank
+    extension pkg278 adds for the exit-gate (c) +/-5 % ROI gate. Returns the
+    worst absolute deviation and the three ratios for the report.
+    """
+    a = actual
+    r = reference
+    if roi is not None:
+        y0, y1, x0, x1 = roi
+        a = actual[y0:y1, x0:x1]
+        r = reference[y0:y1, x0:x1]
+    if a.size == 0 or r.size == 0 or a.shape != r.shape or a.shape[-1] < 3:
+        return float("inf"), {"r": float("nan"), "g": float("nan"), "b": float("nan")}
+    a_mean = a.reshape(-1, a.shape[-1]).mean(axis=0)
+    r_mean = r.reshape(-1, r.shape[-1]).mean(axis=0)
+    if not np.isfinite(a_mean[:3]).all() or not np.isfinite(r_mean[:3]).all() or np.any(np.abs(r_mean[:3]) <= 1e-9):
+        return float("inf"), {"r": float("nan"), "g": float("nan"), "b": float("nan")}
+    ratios = [float(a_mean[i] / r_mean[i]) if abs(r_mean[i]) > 1e-9 else float("nan")
+              for i in range(min(3, len(a_mean)))]
+    worst = max(abs(x - 1.0) for x in ratios)
+    return float(worst), {"r": ratios[0], "g": ratios[1], "b": ratios[2]}
+
+
 def _evaluate_gate(spec: GateSpec, actual: np.ndarray, reference: np.ndarray | None) -> GateResult:
     """Dispatch to the metric for spec.type, compute pass/fail."""
     from .metrics import (
@@ -246,7 +273,7 @@ def _evaluate_gate(spec: GateSpec, actual: np.ndarray, reference: np.ndarray | N
     )
 
     notes = ""
-    if spec.type in ("ssim", "delta_e_2000", "phash") and reference is None:
+    if spec.type in ("ssim", "delta_e_2000", "phash", "channel_ratio") and reference is None:
         return GateResult(spec=spec, measured=float("nan"), passed=False,
                           notes=f"gate {spec.type} requires a reference; none found")
 
@@ -281,6 +308,13 @@ def _evaluate_gate(spec: GateSpec, actual: np.ndarray, reference: np.ndarray | N
             luminance_threshold=spec.luminance_threshold or 0.02,
             roi=spec.roi,
         )
+    elif spec.type == "channel_ratio":
+        # pkg278 gate (c): per-channel mean Astroray/Cycles ratio. ``measured`` is
+        # the worst |ratio - 1| across channels, compared with direction "le"
+        # against a fractional threshold (0.05 == the +/-5 % ROI mean-ratio gate).
+        # SSIM is NOT replaced: it stays a diagnostic for the reference bank and
+        # the HDRI CPU/GPU gate; exit-gate (c) adds this as an additional bound.
+        measured, _ = compute_channel_mean_ratio(actual, reference, roi=spec.roi)
     else:
         return GateResult(spec=spec, measured=float("nan"), passed=False,
                           notes=f"unknown gate type: {spec.type}")
@@ -411,7 +445,8 @@ def run(scene_names: list[str] | None, mode: str, bless: bool) -> int:
             result.gates.append(_evaluate_gate(gs, actual, reference))
         result.passed = all(gr.passed for gr in result.gates) and (
             reference is not None or not any(
-                gr.spec.type in ("ssim", "delta_e_2000", "phash") for gr in result.gates
+                gr.spec.type in ("ssim", "delta_e_2000", "phash", "channel_ratio")
+                for gr in result.gates
             )
         )
 

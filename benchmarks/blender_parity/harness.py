@@ -27,12 +27,14 @@ a GPU (tests/test_blender_parity_harness.py). Only ``run()`` needs Blender.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -46,6 +48,7 @@ from benchmarks.blender_parity import triage as T  # noqa: E402
 SENTINEL = "PKG119B_LEG"
 DEFAULT_MATRIX = _REPO_ROOT / "docs" / "blender_parity" / "coverage_matrix.json"
 _RENDER_LEG = Path(__file__).resolve().parent / "render_leg.py"
+GATE_B_RUNNER_RESULT_SCHEMA = "pkg278.gate_b.runner_result.v1"
 
 
 # --------------------------------------------------------------------------- #
@@ -329,7 +332,7 @@ def _pyd_dir(root: Path) -> Path | None:
     # so it MUST be an OpenMP-OFF build or MinGW libgomp deadlocks in Blender
     # (memory mingw_openmp_blender_deadlock). Prefer the addon build dirs
     # (build_blender_addon.py forces -DASTRORAY_DISABLE_OPENMP=ON) over the
-    # plain build_cuda (OpenMP ON — deadlocks headless-Blender renders).
+    # plain build_cuda (OpenMP ON â€” deadlocks headless-Blender renders).
     for cand in (root / "build_blender_addon_cuda", root / "build_blender_addon_tcnn",
                  root / "build_blender_addon", root / "build_cuda",
                  root / "build_cuda" / "Release"):
@@ -356,7 +359,7 @@ def _run_render_leg_script(blender: Path, script_args: list[str], env: dict,
     return ok, combined, combined[-3000:]
 
 
-def _npy_to_png(npy_path: Path, png_path: Path) -> None:
+def _npy_to_png(npy_path: Path, png_path: Path, *, preserve_source: bool = False) -> None:
     """sRGB-encode a linear .npy render for the manifest's small reference
     PNGs (render_leg.py's own PNG write is skipped - Blender's bundled Python
     has no PIL - so this runs in the harness's own Python instead). Deletes
@@ -368,7 +371,8 @@ def _npy_to_png(npy_path: Path, png_path: Path) -> None:
     srgb = np.where(px <= 0.0031308, px * 12.92,
                     1.055 * np.clip(px, 0, None) ** (1 / 2.4) - 0.055)
     Image.fromarray((np.clip(srgb, 0, 1) * 255 + 0.5).astype(np.uint8)).save(png_path)
-    npy_path.unlink(missing_ok=True)
+    if not preserve_source:
+        npy_path.unlink(missing_ok=True)
 
 
 def export_reference_scenes(scenes_dir: Path, *, timeout: int = 600) -> int:
@@ -409,7 +413,7 @@ def export_reference_scenes(scenes_dir: Path, *, timeout: int = 600) -> int:
 
     manifest: dict[str, Any] = {"scenes": {}}
     all_ok = True
-    for scene_id, spec in scene_library.REFERENCE_SCENES.items():
+    for scene_id, spec in scene_library.HISTORICAL_EXPORT_SCENES.items():
         print(f"[pkg119b] exporting {scene_id} ...", flush=True)
         entry: dict[str, Any] = {}
         blend_path = scenes_dir / f"{scene_id}.blend"
@@ -502,6 +506,285 @@ def export_reference_scenes(scenes_dir: Path, *, timeout: int = 600) -> int:
     return 0 if all_ok else 1
 
 
+def _sha256(path: Path) -> str:
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _artifact_ref(path: Path, base: Path) -> dict[str, str]:
+    return {"path": str(path.resolve().relative_to(base.resolve())).replace("\\", "/"), "sha256": _sha256(path)}
+
+
+def _gate_c_freeze(manifest_path: Path) -> dict[str, Any]:
+    """Freeze the only admissible trio before spawning Blender.
+
+    A gate scene carries its own declared ROIs and non-vacuity probes.  This is
+    deliberately stricter than the general corpus manifest: a normal corpus
+    scene is not automatically gate-(c) evidence.
+    """
+    from benchmarks.blender_parity import scene_library
+    roles = scene_library.resolve_gate_c_roles(manifest_path)
+    frozen: dict[str, Any] = {}
+    for role, entry in roles.items():
+        cfg = entry.get("gate_c")
+        if not isinstance(cfg, dict) or not isinstance(cfg.get("rois"), dict):
+            raise TypeError(f"gate-c role {role} lacks declared gate_c ROIs/non-vacuity")
+        probes = cfg.get("non_vacuity")
+        if not isinstance(probes, list) or (role != "materials_hall" and not probes):
+            raise ValueError(f"gate-c role {role} lacks declared non-vacuity probes")
+        for name, roi in cfg["rois"].items():
+            if (not isinstance(name, str) or not isinstance(roi, list) or len(roi) != 4
+                    or any(not isinstance(x, (int, float)) or isinstance(x, bool) or x < 0 or x > 1 for x in roi)
+                    or roi[0] >= roi[2] or roi[1] >= roi[3]):
+                raise TypeError(f"gate-c role {role} has invalid ROI {name!r}")
+        if role == "world_sky:terrace-with-hair":
+            for key, census_key in (("expected_curve_count", "curve_count"),
+                                    ("expected_curve_point_count", "curve_point_count")):
+                expected = cfg.get(key)
+                if (not isinstance(expected, int) or isinstance(expected, bool)
+                        or entry.get(census_key) != expected):
+                    raise ValueError(f"gate-c terrace role has invalid {key}")
+        controls = cfg.get("controls", [])
+        if role != "materials_hall" and (not isinstance(controls, list) or not controls):
+            raise ValueError(f"gate-c role {role} lacks declared counterfactual controls")
+        if any(not isinstance(c, dict) or not isinstance(c.get("kind"), str) or not isinstance(c.get("mask"), dict) for c in controls):
+            raise ValueError(f"gate-c role {role} has invalid counterfactual controls")
+        seed = cfg.get("seed")
+        if not isinstance(seed, int) or isinstance(seed, bool) or seed <= 0:
+            raise ValueError(f"gate-c role {role} lacks a fixed non-zero seed")
+        for control in controls:
+            mask_kind = control["mask"].get("kind")
+            if mask_kind == "rect" or mask_kind not in ("object_polygon", "curves", "sky_rays"):
+                raise ValueError(f"gate-c role {role} has an invalid control mask")
+            required = {"checker_flat": ("object", "material", "node"),
+                        "hair_off": ("object",), "hdri_off": ("world", "node")}.get(control["kind"])
+            if required is None or any(not isinstance(control.get(key), str) or not control[key] for key in required):
+                raise ValueError(f"gate-c role {role} has incomplete {control['kind']} binding")
+        frozen[role] = {"scene_id": entry.get("scene_id", role),
+                        "blend_path": entry["blend_path"], "scene_sha256": entry["sha256"],
+                        "assets": entry.get("assets", []), "settings": entry["settings"],
+                        "rois": cfg["rois"], "non_vacuity": probes, "controls": controls,
+                        "seed": seed,
+                        "expected_curve_count": cfg.get("expected_curve_count"),
+                        "expected_curve_point_count": cfg.get("expected_curve_point_count")}
+    return frozen
+
+
+def _gate_c_probe(img, probe: Mapping[str, Any], rois: Mapping[str, Any]) -> dict[str, Any]:
+    """Evaluate a declared simple image probe.  Values are recorded, never flags."""
+    import numpy as np
+    kind, roi_name = probe.get("kind"), probe.get("roi")
+    roi = rois.get(roi_name)
+    if kind not in ("checker", "hdri", "hair", "luminance_std") or not isinstance(roi, list):
+        return {"kind": kind, "ok": False, "error": "invalid declared probe"}
+    patch = _resolve_roi(img, tuple(roi))
+    if patch.size == 0 or not np.isfinite(patch).all():
+        return {"kind": kind, "ok": False, "error": "empty or non-finite ROI"}
+    threshold = probe.get("min", 0.0)
+    if not isinstance(threshold, (int, float)) or isinstance(threshold, bool):
+        return {"kind": kind, "ok": False, "error": "invalid threshold"}
+    if kind in ("checker", "luminance_std"):
+        value = float(patch.mean(axis=-1).std())
+    elif kind == "hdri":
+        value = float(patch.mean())
+    else:
+        bg = rois.get(probe.get("background_roi"))
+        if not isinstance(bg, list):
+            return {"kind": kind, "ok": False, "error": "hair probe lacks background ROI"}
+        reference = _resolve_roi(img, tuple(bg)).reshape(-1, 3).mean(axis=0)
+        value = float((np.abs(patch - reference).sum(axis=-1) > float(probe.get("tolerance", .05))).mean())
+    return {"kind": kind, "value": value, "threshold": float(threshold), "ok": value > float(threshold)}
+
+
+def _gate_c_paired_probe(baseline, control, mask, probe: Mapping[str, Any]) -> dict[str, Any]:
+    """Feature witness from a recorded negative control, never scene variance."""
+    import numpy as np
+    if baseline.shape != control.shape or mask.shape != baseline.shape[:2] or not np.isfinite(baseline).all() or not np.isfinite(control).all():
+        return {"kind": probe.get("kind"), "ok": False, "error": "paired image/mask shape or finite check failed"}
+    selected = mask.astype(bool)
+    if not selected.any(): return {"kind": probe.get("kind"), "ok": False, "error": "empty frozen feature mask"}
+    delta = np.abs(baseline - control).mean(axis=-1)[selected]
+    floor, coverage = float(probe.get("min_delta", 0.0)), float(probe.get("min_coverage", 0.0))
+    value, support = float(delta.mean()), float((delta > floor).mean())
+    result = {"kind": probe.get("kind"), "value": value, "coverage": support,
+              "threshold": floor, "coverage_threshold": coverage,
+              "ok": value > floor and support > coverage}
+    if probe.get("kind") == "checker":
+        # The negative control is its midpoint.  A working checker must retain
+        # both bright and dark phases around it; a uniform brightness change is
+        # not a checker witness.  Rec. 709 coefficients are the standard
+        # linear-RGB luminance weights (ITU-R BT.709-6, Table 3).
+        signed = np.tensordot(baseline - control, np.array((.2126, .7152, .0722)), axes=([-1], [0]))[selected]
+        positive, negative = float((signed > floor).mean()), float((signed < -floor).mean())
+        result.update({"positive_coverage": positive, "negative_coverage": negative,
+                       "ok": result["ok"] and positive > coverage and negative > coverage})
+    return result
+
+
+def _gate_leg_execution(cmd: list[str], returncode: int, stdout: str, stderr: str) -> dict[str, Any]:
+    """Retain raw process evidence independently from parsed leg output."""
+    return {"command": cmd, "exit_code": returncode, "stdout": stdout, "stderr": stderr}
+
+
+def _parse_gate_leg_report(output: str) -> tuple[dict[str, Any], str | None]:
+    """Extract exactly one structured report even when Blender glues log lines."""
+    marker = f"{SENTINEL} REPORT "
+    offsets: list[int] = []
+    start = 0
+    while (offset := output.find(marker, start)) >= 0:
+        offsets.append(offset)
+        start = offset + len(marker)
+    if len(offsets) != 1:
+        return {}, f"expected one {marker!r} marker, found {len(offsets)}"
+    try:
+        report, _end = json.JSONDecoder().raw_decode(output[offsets[0] + len(marker):])
+    except json.JSONDecodeError as exc:
+        return {}, f"invalid sentinel report JSON: {exc.msg}"
+    if not isinstance(report, dict):
+        return {}, "sentinel report JSON is not an object"
+    return report, None
+
+
+def _run_gate_leg(blender: Path, args: list[str], env: dict[str, str], timeout: int) -> tuple[int, bool, dict[str, Any]]:
+    cmd = [str(blender), "--background", "--factory-startup", "--python", str(_RENDER_LEG), "--"] + args
+    try:
+        proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        return 124, False, {"error": "timeout", "reason": f"TIMEOUT after {timeout}s",
+                            "_gate_leg_execution": _gate_leg_execution(cmd, 124, stdout, stderr)}
+    stdout, stderr = proc.stdout or "", proc.stderr or ""
+    output = stdout + "\n" + stderr
+    report, parse_error = _parse_gate_leg_report(output)
+    if parse_error:
+        report = {"error": "report_parse", "reason": parse_error}
+    report["_gate_leg_execution"] = _gate_leg_execution(cmd, proc.returncode, stdout, stderr)
+    return proc.returncode, f"{SENTINEL} PASS" in output and f"{SENTINEL} FAIL" not in output, report
+
+
+def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
+                    timeout: int = 1800, build_id: str = "", module_sha256: str = "",
+                    addon_sha256: str = "") -> int:
+    """Produce real six-leg F12 evidence.  The current missing terrace role is
+    an intentional fail-closed result and starts no substitute renders."""
+    manifest_path = Path(manifest_path or _REPO_ROOT / "benchmarks" / "reference_corpus" / "scenes" / "manifest.json").resolve()
+    out_dir = Path(out_dir).resolve(); out_dir.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, Any] = {"schema": "pkg278.instrument.v2", "row": "c", "instrument": "trio_parity",
+                               "scene_sha256": [], "build_id": build_id, "backend": ["CPU", "GPU"],
+                               "settings": {}, "metric": {"ssim_min": .95, "channel_ratio_max": .05},
+                               "threshold": {"roi_pct_max": 5.0, "ssim_min": .95}, "records": []}
+    try:
+        frozen = _gate_c_freeze(manifest_path)
+        payload["scene_sha256"] = [frozen[r]["scene_sha256"] for r in sorted(frozen)]
+        payload["settings"] = {"manifest": str(manifest_path), "frozen_roles": frozen}
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        payload["freeze_error"] = str(exc)
+        (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return 1
+    import hashlib
+    freeze_path = out_dir / "gate_c.freeze.json"
+    if len(module_sha256) != 64:
+        payload["freeze_error"] = "gate-c requires an expected 64-hex module SHA-256"
+        (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return 1
+    if not isinstance(build_id, str) or not build_id.strip():
+        payload["freeze_error"] = "gate-c requires an expected non-empty build id"
+        (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return 1
+    if not addon_sha256:
+        addon_sha256 = _sha256(_REPO_ROOT / "blender_addon" / "__init__.py")
+    if len(addon_sha256) != 64:
+        payload["freeze_error"] = "gate-c requires an expected 64-hex addon SHA-256"
+        (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return 1
+    freeze = {"manifest_path": str(manifest_path), "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+              "build_id": build_id, "module_sha256": module_sha256,
+              "addon_sha256": addon_sha256, "roles": frozen}
+    freeze_path.write_text(json.dumps(freeze, indent=2), encoding="utf-8")
+    freeze_sha = _sha256(freeze_path)
+    payload["freeze"] = _artifact_ref(freeze_path, out_dir)
+    (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    blender = _find_blender()
+    if blender is None:
+        payload["freeze_error"] = "Blender not found"
+        (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return 2
+    env = os.environ.copy(); pyd = _pyd_dir(_REPO_ROOT)
+    if pyd: env["ASTRORAY_PYD_DIR"] = str(pyd)
+    arrays: dict[tuple[str, str, str], Path] = {}
+    masks: dict[tuple[str, str, str], Path] = {}
+    for role, item in frozen.items():
+        for backend in ("CPU", "GPU"):
+          for control in ([{"kind": "baseline"}] + item.get("controls", [])):
+            control_kind = control["kind"]
+            leg_dir = out_dir / "legs" / f"{role.replace(':', '_')}_{backend.lower()}_{control_kind}"; leg_dir.mkdir(parents=True, exist_ok=True)
+            stem = leg_dir / "render"
+            for stale in (stem.with_suffix(".npy"), stem.with_suffix(".png")): stale.unlink(missing_ok=True)
+            extra = [] if control_kind == "baseline" else ["--gate-c-control", control_kind, "--gate-c-mask-out", str(leg_dir / "feature_mask.npy")]
+            code, sentinel, report = _run_gate_leg(blender, ["--corpus-manifest", str(manifest_path),
+                "--corpus-scene", item["scene_id"], "--engine", "CUSTOM_RAYTRACER", "--device", backend.lower(),
+                "--gate-c-freeze", str(freeze_path), "--gate-c-freeze-sha256", freeze_sha, "--gate-c-build-id", build_id, "--gate-c-seed", str(item.get("seed", 278)), "--out", str(stem)] + extra, env, timeout)
+            npy, png = stem.with_suffix(".npy"), stem.with_suffix(".png")
+            execution = report.pop("_gate_leg_execution", None)
+            record: dict[str, Any] = {"kind": "f12_run", "control": control_kind, "role": role, "scene_id": item["scene_id"],
+                "scene_sha256": item["scene_sha256"], "backend": backend, "build_id": build_id,
+                "exit_code": code, "sentinel": SENTINEL if sentinel else "", "leg_report": report,
+                "settings": {**item["settings"], "gate_c_rois": item["rois"], "gate_c_probes": item["non_vacuity"]}, "non_vacuity": [], "rois": []}
+            if isinstance(execution, dict):
+                for stream in ("stdout", "stderr"):
+                    value = execution.get(stream)
+                    if not isinstance(value, str):
+                        value = ""
+                    stream_path = leg_dir / f"{stream}.log"
+                    stream_path.write_text(value, encoding="utf-8")
+                    record[f"{stream}_artifact"] = _artifact_ref(stream_path, out_dir)
+                execution_path = leg_dir / "execution.json"
+                execution_path.write_text(json.dumps({"command": execution.get("command"),
+                                                      "exit_code": execution.get("exit_code")}, indent=2), encoding="utf-8")
+                record["execution_artifact"] = _artifact_ref(execution_path, out_dir)
+            expected = {"corpus_scene": item["scene_id"], "blend_sha256": item["scene_sha256"], "freeze_sha256": freeze_sha,
+                        "requested_device": backend.lower(), "effective_device": backend.lower(), "build_id": build_id, "module_sha256": module_sha256, "engine": "CUSTOM_RAYTRACER", "res_x": item["settings"]["res_x"], "res_y": item["settings"]["res_y"], "samples": item["settings"]["samples"], "resolved_seed": item.get("seed", 278), "animated_seed": False}
+            actual_identity = (isinstance(report.get("module_path"), str) and
+                               isinstance(report.get("addon_path"), str) and
+                               len(str(report.get("module_sha256") or "")) == 64 and
+                               report.get("addon_sha256") == addon_sha256 and
+                               isinstance(report.get("bindings"), dict) and
+                               isinstance(report.get("telemetry"), list))
+            mask_path = leg_dir / "feature_mask.npy"
+            control_ok = control_kind == "baseline" or (isinstance(report.get("mutation_receipt"), dict) and report["mutation_receipt"].get("kind") == control_kind and report["mutation_receipt"].get("ok") is True and isinstance(report.get("mask_receipt"), dict) and report["mask_receipt"].get("control") == control_kind and mask_path.is_file())
+            if npy.is_file() and code == 0 and sentinel and actual_identity and control_ok and all(report.get(k) == v for k, v in expected.items()):
+                _npy_to_png(npy, png, preserve_source=True)
+                if png.is_file():
+                    record["linear_npy"] = _artifact_ref(npy, out_dir); record["image"] = _artifact_ref(png, out_dir); record["report_artifact"] = {"path": str((leg_dir / "report.json").relative_to(out_dir)).replace("\\", "/"), "sha256": ""}; (leg_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8"); record["report_artifact"]["sha256"] = _sha256(leg_dir / "report.json"); arrays[(role, backend)] = npy
+                    if control_kind != "baseline": record["feature_mask"] = _artifact_ref(mask_path, out_dir); masks[(role, backend, control_kind)] = mask_path
+                    arrays[(role, backend, control_kind)] = npy
+            payload["records"].append(record)
+            (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    import numpy as np
+    from benchmarks.reference_bank.metrics import compute_ssim
+    from benchmarks.reference_bank.runner import compute_channel_mean_ratio
+    for role, item in frozen.items():
+        cpu, gpu = arrays.get((role, "CPU", "baseline")), arrays.get((role, "GPU", "baseline"))
+        if not cpu or not gpu: continue
+        a, b = np.load(gpu), np.load(cpu)
+        for record in [r for r in payload["records"] if r["role"] == role and r.get("control") == "baseline"]:
+            backend = record["backend"]
+            paired = {c["kind"]: c for c in item["controls"]}
+            record["non_vacuity"] = []
+            for probe in item["non_vacuity"]:
+                kind = probe.get("kind"); control_kind = {"checker": "checker_flat", "hair": "hair_off", "hdri": "hdri_off"}.get(kind)
+                if control_kind in paired and (role, backend, control_kind) in arrays and (role, backend, control_kind) in masks:
+                    record["non_vacuity"].append(_gate_c_paired_probe(np.load(arrays[(role, backend, "baseline")]), np.load(arrays[(role, backend, control_kind)]), np.load(masks[(role, backend, control_kind)]), probe))
+            for name, roi in item["rois"].items():
+                y0, y1, x0, x1 = int(roi[1]*a.shape[0]), int(roi[3]*a.shape[0]), int(roi[0]*a.shape[1]), int(roi[2]*a.shape[1])
+                ratio, channels = compute_channel_mean_ratio(a, b, (y0, y1, x0, x1))
+                ssim, _ = compute_ssim(a[y0:y1, x0:x1], b[y0:y1, x0:x1])
+                record["rois"].append({"name": name, "ratio": channels, "ratio_max": float(ratio), "ssim": float(ssim)})
+    (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return 0 if all((role, backend, "baseline") in arrays for role in frozen for backend in ("CPU", "GPU")) else 1
+
+
 def _run_leg(blender: Path, feat: Feature, engine: str, out_stem: Path,
              res: int, samples: int, timeout: int, env: dict) -> tuple[bool, str]:
     """Spawn one headless-Blender leg. Returns (ok, log_tail)."""
@@ -540,7 +823,12 @@ def _render_pair(blender: Path, feat: Feature, renders_dir: Path, res: int,
 
 
 def run(matrix_path: Path, out_dir: Path, *, res: int = 128, samples: int = 64,
-        timeout: int = 300, include_composites: bool = True) -> int:
+        timeout: int = 300, include_composites: bool = True,
+        gate_b_cases: Path | None = None, gate_b_backend: str = "",
+        gate_b_build_id: str = "", gate_b_module_sha256: str = "",
+        gate_b_addon_sha256: str = "") -> int:
+    if gate_b_cases is not None:
+        raise ValueError("generic differential runs cannot emit gate-b corpus evidence; use run_gate_b_corpus")
     blender = _find_blender()
     if blender is None:
         print("[pkg119b] Blender not found (set BLENDER_EXE) - cannot run legs.",
@@ -650,6 +938,200 @@ def run(matrix_path: Path, out_dir: Path, *, res: int = 128, samples: int = 64,
 # Reports (pure)
 # --------------------------------------------------------------------------- #
 
+def verdict_payload(results: list[FeatureResult]) -> dict[str, Any]:
+    """pkg278: machine-readable per-feature verdicts for the acceptance manifest.
+
+    Reuses the pkg119b triage output verbatim; adds no metric. One entry per
+    feature with its status, triage bucket and metric values.
+    """
+    return {
+        "schema": "pkg278.feature_verdicts.v1",
+        "total": len(results),
+        "verdicts": [
+            {
+                "feature": f"{r.category}:{r.feature}",
+                "category": r.category,
+                "name": r.feature,
+                "phase_a_bucket": r.phase_a_bucket,
+                "status": r.status,
+                "triage_bucket": r.triage_bucket,
+                "skip_reason": r.skip_reason,
+                "ssim": r.ssim,
+                "delta_e": r.delta_e,
+                "ratio": list(r.ratio) if r.ratio else None,
+            }
+            for r in results
+        ],
+    }
+
+
+def gate_b_runner_results(results: list[FeatureResult], cases: list[dict[str, Any]],
+                          *, backend: str, build_id: str, module_sha256: str,
+                          addon_sha256: str) -> list[dict[str, Any]]:
+    """Deprecated generic feature records; never use for corpus coverage.
+
+    ``cases`` is the frozen coverage case map supplied by the gate runner.  A
+    result is emitted only when exactly one measured feature is named by its
+    ``feature`` field; pass/fail is recomputed from retained parity metrics.
+    """
+    del results, cases, backend, build_id, module_sha256, addon_sha256
+    raise ValueError("generic FeatureResult output cannot prove a frozen gate-b corpus case; use --gate-b-cases")
+
+
+def gate_b_corpus_result(case: Mapping[str, Any], observed: Mapping[str, Any],
+                         metrics: Mapping[str, Any], artifacts: Mapping[str, Any], *,
+                         effect: Mapping[str, Any], settings: Mapping[str, Any]) -> dict[str, Any]:
+    """Build one witnessed corpus result from actual paired render observations."""
+    required = ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id")
+    if any(not isinstance(case.get(key), str) or not case[key] for key in required):
+        raise ValueError("gate-b corpus case is incomplete")
+    if not isinstance(case.get("witness"), Mapping) or not isinstance(case.get("settings"), Mapping):
+        raise TypeError("gate-b corpus case lacks frozen witness/settings")
+    if any(observed.get(key) != case.get(key)
+           for key in ("identity", "scene_id", "variant_digest", "backend", "build_id")):
+        raise ValueError("observed corpus identity does not match frozen case")
+    if not all(isinstance(observed.get(key), str) and observed[key]
+               for key in ("module_sha256", "addon_sha256", "engine_id", "device")):
+        raise ValueError("corpus render leg lacks observed engine identity")
+    ssim, delta_e = metrics.get("ssim"), metrics.get("delta_e")
+    if not isinstance(ssim, (int, float)) or not isinstance(delta_e, (int, float)):
+        raise TypeError("corpus render leg lacks measured local SSIM/delta_e")
+    if dict(settings) != dict(case["settings"]):
+        raise ValueError("corpus render leg settings do not match the frozen case")
+    if not isinstance(effect.get("pass"), bool):
+        raise TypeError("corpus render leg lacks a recomputed witness effect")
+    for key in ("astroray_linear_npy", "cycles_linear_npy", "report", "cycles_report",
+                "astroray_control_linear_npy", "cycles_control_linear_npy",
+                "astroray_control_report", "cycles_control_report",
+                "astroray_feature_mask", "cycles_feature_mask",
+                "astroray_control_feature_mask", "cycles_control_feature_mask"):
+        if not isinstance(artifacts.get(key), Mapping):
+            raise TypeError(f"corpus render leg lacks {key} artifact")
+    return {"schema": GATE_B_RUNNER_RESULT_SCHEMA, **{key: case[key] for key in required},
+            "observed": dict(observed), "settings": dict(settings), "witness": dict(case["witness"]),
+            "metrics": {"ssim": float(ssim), "delta_e": float(delta_e)}, "effect": dict(effect),
+            "artifacts": dict(artifacts),
+            "status": "pass" if effect["pass"] and ssim >= .95 and delta_e <= 5.0 else "fail"}
+
+def _gate_b_cases(cases_path: Path) -> list[dict[str, Any]]:
+    """Read a registered v4 frozen case map, never a feature-result surrogate."""
+    payload = json.loads(Path(cases_path).read_text(encoding="utf-8"))
+    case_map = payload.get("evidence", {}).get("runner_case_map", {}) if isinstance(payload, Mapping) else {}
+    cases = case_map.get("cases") if isinstance(case_map, Mapping) else None
+    if payload.get("schema") != "pkg278.coverage_input_manifest.v4" or not isinstance(cases, list):
+        raise ValueError("--gate-b-cases requires a frozen coverage_input_v4.json with registered cases")
+    expected = hashlib.sha256(json.dumps(cases, sort_keys=True, ensure_ascii=True,
+                                         separators=(",", ":")).encode("utf-8")).hexdigest()
+    if case_map.get("sha256") != expected:
+        raise ValueError("frozen gate-b case map hash mismatch")
+    required = ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id",
+                "module_sha256", "addon_sha256", "witness", "settings")
+    if any(not isinstance(case, Mapping) or any(not case.get(key) for key in required) for case in cases):
+        raise ValueError("frozen gate-b case map contains an incomplete witnessed case")
+    return [dict(case) for case in cases]
+
+def _gate_b_report(combined: str) -> dict[str, Any]:
+    """Decode the one raw B observation using C's robust sentinel parser."""
+    report, error = _parse_gate_leg_report(combined)
+    if error is not None:
+        raise ValueError(f"corpus render-leg observation invalid: {error}")
+    return report
+
+def _gate_b_artifact(path: Path, base: Path) -> dict[str, str]:
+    # Evidence can be written under a caller-selected repository evidence
+    # directory; absolute references keep the runner result valid when its
+    # sidecar is discovered from the frozen canonical sidecar directory.
+    return {"path": str(path.resolve()).replace("\\", "/"),
+            "sha256": _sha256(path)}
+
+
+def run_gate_b_corpus(cases_path: Path, corpus_manifest: Path, out_dir: Path, *,
+                      timeout: int = 600) -> int:
+    """Render each frozen case plus its declared counterfactual control."""
+    import numpy as np
+
+    from benchmarks.reference_corpus.coverage_report import witness_metrics
+
+    blender = _find_blender()
+    build_dir = _pyd_dir(_REPO_ROOT) or _pyd_dir(_REPO_ROOT.parent / "Astroray")
+    if blender is None or build_dir is None:
+        print("[pkg278] Blender and an addon astroray build are required for gate-b corpus cases.", file=sys.stderr)
+        return 2
+    cases = _gate_b_cases(cases_path)
+    out_dir = Path(out_dir).resolve(); out_dir.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy(); env["ASTRORAY_PYD_DIR"] = str(build_dir); env["ASTRORAY_BUILD_DIR"] = str(_REPO_ROOT / "build_cuda")
+    results: list[dict[str, Any]] = []; sidecars = out_dir / "sidecars"; sidecars.mkdir(exist_ok=True)
+    for case in cases:
+        case_dir = out_dir / "cases" / case["case_id"]; case_dir.mkdir(parents=True, exist_ok=True)
+        case_path = case_dir / "case.json"; case_path.write_text(json.dumps(case, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        legs: dict[str, dict[str, Any]] = {}; failed = ""
+        for engine, device, name, control in (("CYCLES", "cpu", "cycles", "baseline"),
+                                              ("CYCLES", "cpu", "cycles_control", case["witness"]["control"]["kind"]),
+                                              ("CUSTOM_RAYTRACER", case["backend"].lower(), "astroray", "baseline"),
+                                              ("CUSTOM_RAYTRACER", case["backend"].lower(), "astroray_control", case["witness"]["control"]["kind"])):
+            stem = case_dir / name; raw = case_dir / f"{name}_raw.json"; mask = case_dir / f"{name}_mask.npy"
+            args = ["--corpus-manifest", str(Path(corpus_manifest).resolve()), "--corpus-scene", case["scene_id"],
+                    "--gate-b-case", str(case_path), "--gate-b-report", str(raw), "--gate-b-control", control,
+                    "--gate-b-mask-out", str(mask), "--engine", engine, "--device", device, "--out", str(stem)]
+            ok, combined, tail = _run_render_leg_script(blender, args, env, timeout)
+            if not ok or not stem.with_suffix(".npy").is_file() or not raw.is_file() or not mask.is_file():
+                failed = f"{name} leg failed: {tail}"; break
+            try:
+                legs[name] = {"report": _gate_b_report(combined), "raw": raw, "npy": stem.with_suffix(".npy"), "mask": mask}
+            except (ValueError, json.JSONDecodeError) as exc:
+                failed = f"{name} observation invalid: {exc}"; break
+        if failed:
+            results.append({"schema": GATE_B_RUNNER_RESULT_SCHEMA, "case_id": case["case_id"], "status": "fail", "reason": failed}); continue
+        astro, cycles, astro_control, cycles_control = (legs[key] for key in ("astroray", "cycles", "astroray_control", "cycles_control"))
+        try:
+            observed = astro["report"]["observed"]
+            expected = {key: case[key] for key in ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id")}
+            for report in (astro["report"], cycles["report"], astro_control["report"], cycles_control["report"]):
+                if report.get("case") != expected or report.get("witness") != case["witness"] or report.get("settings") != case["settings"]:
+                    raise ValueError("render-leg witness/settings case binding mismatch")
+                if report.get("graph", {}).get("identity") != case["identity"] or report["graph"].get("variant_digest") != case["variant_digest"]:
+                    raise ValueError("render-leg graph does not confirm frozen identity/variant")
+                if report.get("blend_sha256") != astro["report"].get("blend_sha256"):
+                    raise ValueError("paired legs opened different corpus bytes")
+            effect, reason = witness_metrics(np.load(astro["npy"]), np.load(cycles["npy"]), np.load(astro_control["npy"]), np.load(cycles_control["npy"]), np.load(astro["mask"]), np.load(cycles["mask"]), case["witness"])
+            if effect is None: raise ValueError(reason)
+            artifacts = {"astroray_linear_npy": _gate_b_artifact(astro["npy"], out_dir), "cycles_linear_npy": _gate_b_artifact(cycles["npy"], out_dir),
+                         "report": _gate_b_artifact(astro["raw"], out_dir), "cycles_report": _gate_b_artifact(cycles["raw"], out_dir),
+                         "astroray_control_report": _gate_b_artifact(astro_control["raw"], out_dir), "cycles_control_report": _gate_b_artifact(cycles_control["raw"], out_dir),
+                         "astroray_control_linear_npy": _gate_b_artifact(astro_control["npy"], out_dir), "cycles_control_linear_npy": _gate_b_artifact(cycles_control["npy"], out_dir),
+                         "astroray_feature_mask": _gate_b_artifact(astro["mask"], out_dir), "cycles_feature_mask": _gate_b_artifact(cycles["mask"], out_dir),
+                         "astroray_control_feature_mask": _gate_b_artifact(astro_control["mask"], out_dir), "cycles_control_feature_mask": _gate_b_artifact(cycles_control["mask"], out_dir)}
+            result = gate_b_corpus_result(case, observed, effect, artifacts, effect=effect, settings=astro["report"]["settings"]); results.append(result)
+            runner_one = case_dir / "runner_result.json"; runner_one.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            verifier = _gate_b_artifact(runner_one, out_dir)
+            sidecar = {"schema": "pkg278.gate_b.evidence.v2", "identity": case["identity"], "scene_id": case["scene_id"], "variant": case["scene_id"], "variant_digest": case["variant_digest"], "backend": case["backend"], "build_id": case["build_id"], "case_id": case["case_id"], "result_kind": "render", "artifact": artifacts["astroray_linear_npy"], "verdict": {"schema": "pkg278.gate_b.verdict.v1", "pass": result["status"] == "pass", **{key: case[key] for key in ("identity", "scene_id", "variant_digest", "backend", "build_id")}, "result": {"kind": "render", "artifact_sha256": verifier["sha256"]}}, "verifier_result": verifier}
+            (sidecars / f"{case['case_id']}.json").write_text(json.dumps(sidecar, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        except (KeyError, TypeError, ValueError) as exc:
+            results.append({"schema": GATE_B_RUNNER_RESULT_SCHEMA, "case_id": case["case_id"], "status": "fail", "reason": str(exc)})
+    payload = {"schema": GATE_B_RUNNER_RESULT_SCHEMA, "results": results}
+    (out_dir / "gate_b_runner_results.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return 0 if len(results) == len(cases) and all(result.get("status") == "pass" for result in results) else 1
+
+def write_gate_b_runner_results(results: list[FeatureResult], cases_path: Path,
+                                out_path: Path, *, backend: str, build_id: str,
+                                module_sha256: str, addon_sha256: str) -> None:
+    """Write canonical runner output consumed by the gate-(b) scorer."""
+    cases_payload = json.loads(cases_path.read_text(encoding="utf-8"))
+    if isinstance(cases_payload, dict) and isinstance(cases_payload.get("cases"), list):
+        cases = cases_payload["cases"]
+    elif isinstance(cases_payload, dict):
+        cases = cases_payload.get("evidence", {}).get("runner_case_map", {}).get("cases")
+    else:
+        cases = None
+    if not isinstance(cases, list):
+        raise TypeError("gate-(b) case map must contain a cases list")
+    payload = {"schema": GATE_B_RUNNER_RESULT_SCHEMA, "results": gate_b_runner_results(
+        results, cases, backend=backend, build_id=build_id,
+        module_sha256=module_sha256, addon_sha256=addon_sha256)}
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def summarize(results: list[FeatureResult]) -> dict[str, Any]:
     status = Counter(r.status for r in results)
     triage = Counter(r.triage_bucket for r in results if r.triage_bucket)
@@ -672,6 +1154,11 @@ def write_reports(results: list[FeatureResult], out_dir: Path) -> None:
     payload = {"summary": summary, "features": [asdict(r) for r in results]}
     (out_dir / "triage_report.json").write_text(
         json.dumps(payload, indent=2), encoding="utf-8")
+    # pkg278: per-feature verdict JSON for the acceptance manifest. Reuses the
+    # pkg119b triage output verbatim (no new metric) so gate (b)/(c) can link a
+    # machine-readable verdict per feature.
+    (out_dir / "feature_verdicts.json").write_text(
+        json.dumps(verdict_payload(results), indent=2), encoding="utf-8")
 
     lines = [
         "# Blender Differential Parity - Triage Report (pkg119 Phase B)",
@@ -726,11 +1213,32 @@ def main(argv: list[str] | None = None) -> int:
                         ".blend corpus into this directory (with a "
                         "manifest.json) instead of running the differential "
                         "matrix")
+    p.add_argument("--gate-c", action="store_true",
+                   help="produce the owner-selected corpus trio CPU/GPU F12 evidence")
+    p.add_argument("--corpus-manifest", type=Path, default=None)
+    p.add_argument("--build-id", default="", help="pinned addon/build identity for gate-c evidence")
+    p.add_argument("--module-sha256", default="", help="expected loaded astroray module SHA-256 for gate-c")
+    p.add_argument("--gate-b-cases", type=Path,
+                   help="frozen coverage_input_v3.json; run each immutable corpus case")
+    p.add_argument("--gate-b-backend", choices=("CPU", "GPU"), default="")
+    p.add_argument("--gate-b-addon-sha256", default="")
     args = p.parse_args(argv)
     if args.export_blend is not None:
         return export_reference_scenes(args.export_blend, timeout=args.timeout)
+    if args.gate_c:
+        return run_gate_c_trio(args.out, manifest_path=args.corpus_manifest,
+                               timeout=args.timeout, build_id=args.build_id,
+                               module_sha256=args.module_sha256)
+    if args.gate_b_cases is not None:
+        if args.corpus_manifest is None:
+            p.error("--gate-b-cases requires --corpus-manifest")
+        return run_gate_b_corpus(args.gate_b_cases, args.corpus_manifest, args.out,
+                                 timeout=args.timeout)
     return run(args.matrix, args.out, res=args.res, samples=args.samples,
-               timeout=args.timeout, include_composites=not args.no_composites)
+               timeout=args.timeout, include_composites=not args.no_composites,
+               gate_b_cases=args.gate_b_cases, gate_b_backend=args.gate_b_backend,
+               gate_b_build_id=args.build_id, gate_b_module_sha256=args.module_sha256,
+               gate_b_addon_sha256=args.gate_b_addon_sha256)
 
 
 if __name__ == "__main__":

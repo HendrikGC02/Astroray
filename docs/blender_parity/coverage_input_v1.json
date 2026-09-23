@@ -1,0 +1,79 @@
+{
+  "collector": {
+    "snapshot_sha256": "508ef47a43f876bde9a40848dabf72caadfebe81c4b313ea6ef2e9e3f5b255e4"
+  },
+  "corpus": {
+    "manifest_path": "benchmarks/reference_corpus/scenes/manifest.json",
+    "scenes": {
+      "camera_lens": {
+        "blend_path": "benchmarks/reference_corpus/scenes/camera_lens.blend",
+        "sha256": "0e07530e70fdbc813a0e69e7ea59ed29fd163721813de63e6c5775ed3a074a7b"
+      },
+      "geometry_zoo": {
+        "blend_path": "benchmarks/reference_corpus/scenes/geometry_zoo.blend",
+        "sha256": "84fe99a5ad2af0055d904c3a42d52b3b96072ae8e167817c9f2df1659968d7f5"
+      },
+      "lighting_studio": {
+        "blend_path": "benchmarks/reference_corpus/scenes/lighting_studio.blend",
+        "sha256": "9e3184ae2b423e93717085add2b3b741e37d6e1100d818cd2ee208137baadf5e"
+      },
+      "materials_hall": {
+        "blend_path": "benchmarks/reference_corpus/scenes/materials_hall.blend",
+        "sha256": "8baa2d3ae91f2788ef7cd252c58b9f0c7b2706e6b438ce3bc18915b8ecb77d26"
+      },
+      "render_settings": {
+        "blend_path": "benchmarks/reference_corpus/scenes/render_settings.blend",
+        "sha256": "dad996d592af4d29229cbe8a0f1921fd8c2f09d5a2810b3a84177836dab7fd82"
+      },
+      "textures_mapping": {
+        "blend_path": "benchmarks/reference_corpus/scenes/textures_mapping.blend",
+        "sha256": "83897e6678a9b327d8dc2426020268e1aab21f7bfe4cad9fb8260c916f093988"
+      },
+      "volumes_smoke": {
+        "blend_path": "benchmarks/reference_corpus/scenes/volumes_smoke.blend",
+        "sha256": "c1523075f16ce3af36c7ab93bc2229baa484c02c33090c6a0f2be9210168a9f5"
+      },
+      "world_sky_hdri": {
+        "blend_path": "benchmarks/reference_corpus/scenes/world_sky_hdri.blend",
+        "sha256": "231c8aa2d3a4caed89d60a9ef4f841ea0691e61dc6a8e44b685b8535b022f7b1"
+      },
+      "world_sky_sky": {
+        "blend_path": "benchmarks/reference_corpus/scenes/world_sky_sky.blend",
+        "sha256": "7c5044669355da35534359507fd83c7fd67dba477a90bafeea3d305373ff265e"
+      }
+    }
+  },
+  "created": "2026-09-23T15:38:43+00:00",
+  "evidence": {
+    "mode": "production",
+    "sidecar_dir": "docs/blender_parity/evidence/gate_b/sidecars"
+  },
+  "matrix": {
+    "path": "docs\\blender_parity\\coverage_matrix.json",
+    "sha256": "c59cc4e91d3569ffee40544a8abec67ef147aa5629c9f9687ffdca98593f1630"
+  },
+  "population": {
+    "expected_scene_ids": [
+      "camera_lens",
+      "geometry_zoo",
+      "lighting_studio",
+      "materials_hall",
+      "render_settings",
+      "textures_mapping",
+      "volumes_smoke",
+      "world_sky_hdri",
+      "world_sky_sky"
+    ],
+    "original_population_label": "~50 scenes",
+    "original_population_status": "undefined",
+    "ratification": null,
+    "ratified": false
+  },
+  "scanner_issue_823": {
+    "integrated": false,
+    "reason": "#823 not on origin/main",
+    "required": 823
+  },
+  "schema": "pkg278.coverage_input_manifest.v1",
+  "version": 1
+}

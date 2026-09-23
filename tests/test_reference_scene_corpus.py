@@ -91,3 +91,12 @@ def test_material_zoo_has_texture_nodes(manifest):
 def test_hdri_exterior_hair_has_environment_node(manifest):
     node_ids = set(manifest["scenes"]["hdri_exterior_hair"]["node_ids"])
     assert "ShaderNodeTexEnvironment" in node_ids
+
+
+def test_historical_roles_record_regenerated_corpus_successors_only(manifest):
+    roles = manifest["historical_roles"]
+    assert set(roles) == set(EXPECTED_SCENE_IDS)
+    assert all(role["replacement"] == "regenerated_replacement"
+               and role["population_member"] is False for role in roles.values())
+    assert roles["material_zoo"]["corpus_successors"] == ["materials_hall", "textures_mapping"]
+    assert roles["hdri_exterior_hair"]["corpus_role"] == "world_sky:terrace-with-hair"

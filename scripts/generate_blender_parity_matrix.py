@@ -634,6 +634,281 @@ def scan_vm_and_vector_supported_types(addon_module):
     return found
 
 
+def _vm_branch_literals(test):
+    """Extract node-type literals from an `if ntype == 'X':` /
+    `if type in ('A', 'B'):` test (same mechanical pattern the other scanners
+    use). Returns a list of string literals."""
+    out = []
+    if isinstance(test, ast.Compare):
+        left = test.left
+        name = (left.id if isinstance(left, ast.Name)
+                else left.attr if isinstance(left, ast.Attribute) else None)
+        if name in ('ntype', 'type'):
+            for op, comp in zip(test.ops, test.comparators):
+                if isinstance(op, ast.Eq) and isinstance(comp, ast.Constant):
+                    out.append(comp.value)
+                elif isinstance(op, ast.In) and isinstance(comp, (ast.Tuple, ast.List, ast.Set)):
+                    out += [e.value for e in comp.elts if isinstance(e, ast.Constant)]
+    elif isinstance(test, ast.BoolOp):
+        for v in test.values:
+            out += _vm_branch_literals(v)
+    return out
+
+
+def _is_arity_or_capability_guard(test):
+    """True when `test` gates only on socket-list arity (`len(x) > n`) or on
+    metadata availability (`x is None` / `x is not None`). Such guards do not
+    select WHICH socket variant is consumed, so a read under them still executes
+    for every configuration of the node. Guards that compare a node property
+    (operation / data_type / rotation_type / ...) DO select a variant and are
+    treated as semantic (#823)."""
+    if isinstance(test, ast.BoolOp):
+        return all(_is_arity_or_capability_guard(v) for v in test.values)
+    if isinstance(test, ast.Compare):
+        if all(isinstance(op, (ast.Is, ast.IsNot)) for op in test.ops):
+            return True
+        left = test.left
+        if (isinstance(left, ast.Call) and isinstance(left.func, ast.Name)
+                and left.func.id == 'len'):
+            return True
+    return False
+
+
+def _accepted_type_guard(test, body):
+    """Mechanically extract the accepted data-type strings from the compiler's
+    own guard pattern `if <attr> not in ('RGBA', 'FLOAT', 'VECTOR'): raise ...`
+    (Mix's `data_type` guard in `_compile_mix_modern`). Returns a set of strings
+    or None when the test is not such a guard. No node/socket table involved."""
+    if not isinstance(test, ast.Compare) or len(test.ops) != 1:
+        return None
+    if not isinstance(test.ops[0], ast.NotIn):  # codespell:ignore (AST class name)
+        return None
+    comp = test.comparators[0]
+    if not isinstance(comp, (ast.Tuple, ast.List, ast.Set)):
+        return None
+    vals = [e.value for e in comp.elts
+            if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+    if not vals or len(vals) != len(comp.elts):
+        return None
+    if not any(isinstance(n, ast.Raise) for stmt in body for n in ast.walk(stmt)):
+        return None
+    return set(vals)
+
+
+def _is_inputs_expr(expr):
+    """True for `node.inputs` / `list(node.inputs)` / `list(getattr(node, 'inputs', []))`
+    -- the local-alias patterns the compiler uses before positional reads."""
+    if isinstance(expr, ast.Attribute) and expr.attr == 'inputs':
+        return True
+    if isinstance(expr, ast.Call):
+        if isinstance(expr.func, ast.Name) and expr.func.id == 'list' and expr.args:
+            return _is_inputs_expr(expr.args[0])
+        if isinstance(expr.func, ast.Name) and expr.func.id == 'getattr':
+            if (len(expr.args) >= 2 and isinstance(expr.args[1], ast.Constant)
+                    and expr.args[1].value == 'inputs'):
+                return True
+    return False
+
+
+def _try_set_data_type(node, value):
+    """Set ``node.data_type`` to ``value``; return False if Blender rejects it
+    (some enum identifiers are not assignable on every build). Kept as a helper
+    so the probe reads as a simple guard, not a bare try/except."""
+    try:
+        node.data_type = value
+        return True
+    except Exception:
+        return False
+
+
+class _VMReadCollector(ast.NodeVisitor):
+    """Collects the socket reads of ONE op-VM dispatch branch.
+
+    Reads reached through arity / None guards go to `named` / `positional`
+    (proven for every node configuration). Reads reached only through a
+    semantic guard (operation / data_type / rotation_type / ...) go to the
+    `conditional_*` sets and are never credited: a socket-only matrix cannot
+    represent the guard, so the conservative answer is DROPPED-SILENT.
+
+    Follows the branch's delegation into local `_compile_*` helpers (e.g.
+    `_compile_mix_modern`) so Mix's Factor/A/B reads and its `data_type` guard
+    are discovered the same way as inline branches.
+    """
+
+    def __init__(self, helpers):
+        self.helpers = helpers
+        self.named = set()
+        self.positional = set()
+        self.conditional_named = set()
+        self.conditional_positional = set()
+        self.accepted_types = None
+        self.semantic_guards = []
+        self._semantic = False
+        self._following = set()
+        self._input_aliases = set()
+
+    def _add_named(self, name):
+        (self.conditional_named if self._semantic else self.named).add(name)
+
+    def _add_positional(self, index):
+        (self.conditional_positional if self._semantic else self.positional).add(index)
+
+    def _record_guard(self, test):
+        try:
+            text = ast.unparse(test)
+        except Exception:  # pragma: no cover - defensive (unparse is 3.9+)
+            text = '<unparsable guard>'
+        if text not in self.semantic_guards:
+            self.semantic_guards.append(text)
+
+    def _follow(self, name):
+        fn = self.helpers.get(name)
+        if fn is None or name in self._following:
+            return
+        self._following.add(name)
+        for stmt in fn.body:
+            self.visit(stmt)
+        self._following.discard(name)
+
+    def visit_If(self, node):
+        arity = _is_arity_or_capability_guard(node.test)
+        if not arity:
+            self._record_guard(node.test)
+            accepted = _accepted_type_guard(node.test, node.body)
+            if accepted is not None and self.accepted_types is None:
+                self.accepted_types = accepted
+        prev = self._semantic
+        if not arity:
+            self._semantic = True
+        for stmt in node.body:
+            self.visit(stmt)
+        for stmt in node.orelse:
+            self.visit(stmt)
+        self._semantic = prev
+
+    def visit_IfExp(self, node):
+        arity = _is_arity_or_capability_guard(node.test)
+        prev = self._semantic
+        if not arity:
+            self._semantic = True
+            self._record_guard(node.test)
+        self.visit(node.test)
+        self.visit(node.body)
+        self.visit(node.orelse)
+        self._semantic = prev
+
+    def visit_Assign(self, node):
+        if _is_inputs_expr(node.value):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name):
+                    self._input_aliases.add(tgt.id)
+        self.generic_visit(node)
+
+    def visit_Call(self, node):
+        f = node.func
+        if isinstance(f, ast.Name) and f.id == '_get_input':
+            for arg in node.args[1:]:
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    self._add_named(arg.value)
+        elif isinstance(f, ast.Name) and f.id in self.helpers:
+            self._follow(f.id)
+        self.generic_visit(node)
+
+    def visit_Subscript(self, node):
+        sl = node.slice
+        if isinstance(sl, ast.Constant) and isinstance(sl.value, int) and sl.value >= 0:
+            base = node.value
+            is_inputs = (
+                (isinstance(base, ast.Attribute) and base.attr == 'inputs')
+                or (isinstance(base, ast.Name) and base.id in self._input_aliases))
+            if is_inputs:
+                self._add_positional(sl.value)
+        self.generic_visit(node)
+
+
+def scan_vm_socket_evidence(addon_module):
+    """#823 -- PER-SOCKET AST evidence for the op-VM compiler dispatch.
+
+    `scan_vm_and_vector_supported_types` above returns whole-node types handled
+    by the vector/normal/mapping resolvers, whose contract really is "compile
+    the whole subtree" -- credit-all is correct there. The actual node-type
+    dispatch for the pkg219 op-VM lives in
+    `shader_vm_compiler._compile_socket_value` (reached via `compile_socket`),
+    and it consumes a DIFFERENT, per-node subset of inputs: Math reads
+    positional Value/Value_001 but Value_002 only under `MATH_TERNARY`; Map
+    Range reads five named sockets and never `Steps`; Mix accepts only
+    FLOAT/VECTOR/RGBA variants (rotation rejected; non-uniform VECTOR factor
+    rejected). Crediting every live input for these types would falsely claim
+    support, so this scanner returns per-socket evidence instead.
+
+    Returns node_type -> {
+        'named':                  {socket names read unconditionally},
+        'positional':             {input indices read unconditionally},
+        'conditional_named':      {names read only under a semantic guard},
+        'conditional_positional': {indices read only under a semantic guard},
+        'accepted_types':         {data-type strings} | None,
+        'semantic_guards':        [unparsed guard expressions],  # disclosure
+        'source_lines':           [lineno, ...],
+    }
+
+    Branch keys are the ntype literals; reads are the real `_get_input(...)` /
+    `inputs[i]` accesses; the data-type gate is the compiler's own
+    `not in (...)` guard. No hand-written node/socket table.
+    """
+    addon_path = inspect.getfile(addon_module.CustomRaytracerRenderEngine)
+    vm_path = Path(addon_path).parent / 'shader_vm_compiler.py'
+    try:
+        with open(vm_path, 'r', encoding='utf-8') as f:
+            tree = ast.parse(f.read())
+    except (OSError, SyntaxError) as exc:
+        print(f"[pkg119] #823 FATAL: cannot parse shader_vm_compiler.py: {exc}")
+        sys.exit(1)
+
+    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    dispatch = functions.get('_compile_socket_value')
+    if dispatch is None:
+        print("[pkg119] #823 FATAL: shader_vm_compiler._compile_socket_value not found.")
+        print("         The op-VM dispatch was refactored; update scan_vm_socket_evidence.")
+        sys.exit(1)
+
+    helpers = {name: fn for name, fn in functions.items()
+               if name.startswith('_compile_') and name != '_compile_socket_value'}
+
+    evidence = {}
+    for stmt in dispatch.body:
+        if not isinstance(stmt, ast.If):
+            continue
+        for node_type in _vm_branch_literals(stmt.test):
+            if not isinstance(node_type, str):
+                continue
+            collector = _VMReadCollector(helpers)
+            for body_stmt in stmt.body:
+                collector.visit(body_stmt)
+            entry = evidence.setdefault(node_type, {
+                'named': set(),
+                'positional': set(),
+                'conditional_named': set(),
+                'conditional_positional': set(),
+                'accepted_types': None,
+                'semantic_guards': [],
+                'source_lines': [],
+            })
+            entry['named'] |= collector.named
+            entry['positional'] |= collector.positional
+            entry['conditional_named'] |= collector.conditional_named
+            entry['conditional_positional'] |= collector.conditional_positional
+            if collector.accepted_types is not None:
+                entry['accepted_types'] = collector.accepted_types
+            for guard in collector.semantic_guards:
+                if guard not in entry['semantic_guards']:
+                    entry['semantic_guards'].append(guard)
+            entry['source_lines'].append(stmt.lineno)
+
+    print(f"[pkg119] #823 op-VM per-socket evidence: {len(evidence)} dispatch "
+          f"node types ({', '.join(sorted(evidence))})")
+    return evidence
+
+
 def scan_object_image_evidence(addon_module):
     """pkg260 -- whole-file AST evidence for the `object` and `image_property`
     categories. Unlike shader-node sockets (scoped to convert_shader_node's
@@ -733,6 +1008,31 @@ def enumerate_shader_nodes_via_bpy_types():
             processed_count += 1
             bl_idname = node.bl_idname
 
+            # #823: for a data-type-gated node (ShaderNodeMix) the enabled
+            # socket variants differ per `data_type`. Record the union of
+            # sockets enabled across EVERY enum value so classify_shader_node
+            # can tell which variants the compiler's enabled-input selection
+            # can ever consume (e.g. Mix's Factor_Vector is enabled for no
+            # data_type and must stay DROPPED-SILENT). Nodes without a
+            # `data_type` enum leave every socket activatable.
+            activatable_ids = set()
+            data_type_prop = None
+            try:
+                data_type_prop = node.bl_rna.properties.get('data_type')
+            except AttributeError:
+                data_type_prop = None
+            if data_type_prop is not None and getattr(data_type_prop, 'type', None) == 'ENUM':
+                original_dt = getattr(node, 'data_type', None)
+                for item in getattr(data_type_prop, 'enum_items', []):
+                    if not _try_set_data_type(node, item.identifier):
+                        continue
+                    for inp in node.inputs:
+                        if getattr(inp, 'enabled', True):
+                            activatable_ids.add(inp.identifier)
+                if original_dt is not None:
+                    _try_set_data_type(node, original_dt)
+            has_data_type = bool(activatable_ids)
+
             # Enumerate sockets
             sockets_in = []
             for inp in node.inputs:
@@ -741,6 +1041,7 @@ def enumerate_shader_nodes_via_bpy_types():
                     'identifier': inp.identifier,
                     'type': inp.type,
                     'bl_idname': inp.bl_idname,
+                    'activatable': (inp.identifier in activatable_ids) if has_data_type else True,
                 })
 
             sockets_out = []
@@ -944,14 +1245,103 @@ def enumerate_world_properties():
 # Classification (evidence-based via AST scanner)
 # =============================================================================
 
+def _socket_variant_accepted(sock, accepted_types):
+    """#823 -- a Mix-style socket variant is accepted when its Blender socket
+    `type` or its identifier's data-type suffix names one of the compiler's
+    accepted data types (Mix identifiers are `<name>_<DataType>`, e.g. A_Float /
+    A_Vector / A_Color / A_Rotation), AND the variant is actually enabled for at
+    least one of those data types. `activatable` comes from the generator's
+    runtime union across the node's `data_type` enum (Mix's Factor_Vector is
+    enabled for none, so it is never consumed). Mechanical naming-convention /
+    introspection check, not a node/socket support table."""
+    if not sock.get('activatable', True):
+        return False
+    if sock.get('type') in accepted_types:
+        return True
+    ident = sock.get('identifier') or ''
+    if '_' in ident:
+        suffix = ident.rsplit('_', 1)[1]
+        if suffix.upper() in accepted_types:
+            return True
+    return False
+
+
+def _classify_compiler_node(node_info, evidence, vm_evidence):
+    """#823 -- classify a node discovered in `_compile_socket_value` from its
+    PER-SOCKET AST evidence. Only sockets with a proven, accepted consumption
+    path are credited; conditional-only reads stay DROPPED-SILENT. Properties
+    keep the primary scanner's treatment (the op-VM AST scan does not classify
+    properties), so e.g. Mix's `blend_type` row is unchanged."""
+    node_type = node_info['node_type']
+    base = evidence.get(node_type, {})
+    cls = base.get('classification', 'SUPPORTED')
+    if cls == 'DROPPED-SILENT':
+        cls = 'SUPPORTED'
+
+    accepted = vm_evidence.get('accepted_types')
+    supported_ids = set()
+    supported_names = set()
+    # ``_get_input(node, 'Name')`` delegates to ``node.inputs.get('Name')``.
+    # RNA returns the first same-named socket even if it is disabled.  Map
+    # Range exposes FLOAT and FLOAT_VECTOR duplicates (From Min, etc.); only
+    # the first FLOAT occurrence is the compiler operand.  A data-type-gated
+    # helper such as modern Mix is different: it selects its enabled inputs
+    # before the name fallback, so its accepted variants are handled below.
+    first_named_index = {}
+    for index, sock in enumerate(node_info['sockets_in']):
+        first_named_index.setdefault(sock['name'], index)
+    for index, sock in enumerate(node_info['sockets_in']):
+        name = sock['name']
+        if name in vm_evidence['conditional_named']:
+            continue
+        if index in vm_evidence['conditional_positional']:
+            continue
+        if name not in vm_evidence['named'] and index not in vm_evidence['positional']:
+            continue
+        if (accepted is None and name in vm_evidence['named']
+                and index != first_named_index[name]):
+            continue
+        if accepted is not None and not _socket_variant_accepted(sock, accepted):
+            continue
+        supported_ids.add(sock['identifier'])
+        supported_names.add(name)
+
+    note = ('op-VM compiler dispatch (#823): per-socket AST evidence from '
+            'shader_vm_compiler._compile_socket_value')
+    if accepted is not None:
+        note += (f"; data-type-gated (accepted: {', '.join(sorted(accepted))}) -- "
+                 'other variants and configuration-specific restrictions (e.g. '
+                 'non-uniform VECTOR factor_mode) are not claimed by this '
+                 'socket-only matrix')
+    if vm_evidence.get('semantic_guards'):
+        note += ('; conditional reads not credited: '
+                 + ' | '.join(vm_evidence['semantic_guards']))
+    return {
+        'classification': cls,
+        'sockets_supported': sorted(supported_names),
+        'sockets_dropped': sorted({s['name'] for s in node_info['sockets_in']}
+                                  - supported_names),
+        # Per-socket-VARIANT decisions (Math's three "Value" sockets; Mix's
+        # A_Float/A_Vector/A_Color/A_Rotation all named "A"). generate_matrix
+        # consumes this instead of the name-based fields for these nodes.
+        'supported_socket_ids': supported_ids,
+        'properties_supported': sorted(
+            set(node_info['properties'].keys()) & base.get('properties', set())),
+        'notes': note,
+    }
+
+
 def classify_shader_node(node_info, evidence, stale_socket_findings,
-                         vm_supported_types=frozenset()) -> dict[str, Any]:
+                         vm_supported_types=frozenset(),
+                         vm_socket_evidence=None) -> dict[str, Any]:
     """Classify a shader node based on SCANNED evidence from addon source.
 
     Returns dict with:
       - classification: str (SUPPORTED / APPROXIMATED / DROPPED-SILENT)
       - sockets_supported: list of input socket names with evidence
       - sockets_dropped: list of input socket names without evidence
+      - supported_socket_ids: optional set of socket identifiers (per-variant
+        evidence; present only for op-VM compiler-derived nodes)
       - properties_supported: list of property names with evidence
       - notes: str
 
@@ -980,6 +1370,14 @@ def classify_shader_node(node_info, evidence, stale_socket_findings,
                 set(node_info['properties'].keys()) & base.get('properties', set())),
             'notes': (base_note + '; ' + note).strip('; ') if base_note else note,
         }
+
+    # #823 — op-VM compiler dispatch (`_compile_socket_value`): per-socket AST
+    # evidence. A node is discovered here only because a `ntype == 'X'` branch
+    # exists; its sockets are credited only where a proven, accepted read
+    # exists. This replaces the old false DROPPED-SILENT for Math/Mix/Map Range
+    # without the credit-all over-claim the old whole-node rule would produce.
+    if vm_socket_evidence and node_type in vm_socket_evidence:
+        return _classify_compiler_node(node_info, evidence, vm_socket_evidence[node_type])
 
     # Check if we have SCANNED evidence for this node type
     if node_type not in evidence:
@@ -1058,12 +1456,16 @@ def classify_shader_node(node_info, evidence, stale_socket_findings,
 # =============================================================================
 
 def generate_matrix(evidence, vm_supported_types=frozenset(),
-                     found_attrs=frozenset(), compare_literals=None):
+                     found_attrs=frozenset(), compare_literals=None,
+                     vm_socket_evidence=None):
     """Generate the full parity matrix.
 
     found_attrs / compare_literals (pkg260): whole-file AST evidence from
     scan_object_image_evidence(), used to classify the `object` and
     `image_property` categories below.
+
+    vm_socket_evidence (#823): per-socket evidence for op-VM compiler dispatch
+    nodes from scan_vm_socket_evidence().
     """
     compare_literals = compare_literals or {}
     print("[pkg119] Enumerating Blender API surface...")
@@ -1085,7 +1487,7 @@ def generate_matrix(evidence, vm_supported_types=frozenset(),
     # Shader nodes
     for node_info in shader_nodes:
         classification_result = classify_shader_node(node_info, evidence, stale_socket_findings,
-                                                     vm_supported_types)
+                                                     vm_supported_types, vm_socket_evidence)
 
         # Per-socket granularity
         # pkg260: Blender keeps ALL data-type/positional socket variants in
@@ -1108,7 +1510,16 @@ def generate_matrix(evidence, vm_supported_types=frozenset(),
                 sock_key = f"{sock_name}[{socket['identifier']}]"
             else:
                 sock_key = sock_name
-            if sock_name in classification_result['sockets_supported']:
+            if 'supported_socket_ids' in classification_result:
+                # #823 -- op-VM compiler evidence is per socket VARIANT, not per
+                # name: Math's three positional sockets are all named "Value"
+                # and Mix's A_Float/A_Vector/A_Color/A_Rotation are all named
+                # "A". Decide from the stable Blender socket identifier.
+                sock_classification = (
+                    classification_result['classification']
+                    if socket['identifier'] in classification_result['supported_socket_ids']
+                    else 'DROPPED-SILENT')
+            elif sock_name in classification_result['sockets_supported']:
                 sock_classification = classification_result['classification']
             elif sock_name in classification_result['sockets_dropped']:
                 sock_classification = 'DROPPED-SILENT'
@@ -1311,7 +1722,7 @@ def generate_matrix(evidence, vm_supported_types=frozenset(),
             'properties': {},
         }
         result = classify_shader_node(pseudo_node_info, evidence, stale_socket_findings,
-                                      vm_supported_types)
+                                      vm_supported_types, vm_socket_evidence)
         for socket in node_info['sockets_out']:
             name = socket['name']
             classification = result['classification'] if name in result['sockets_supported'] else 'DROPPED-SILENT'
@@ -1473,11 +1884,12 @@ def main():
     print("[pkg119] Scanning addon source via AST...")
     evidence = scan_addon_source_for_evidence(addon_module)
     vm_supported_types = scan_vm_and_vector_supported_types(addon_module)
+    vm_socket_evidence = scan_vm_socket_evidence(addon_module)  # #823
     evidence = _apply_displacement_evidence(evidence)
     found_attrs, compare_literals = scan_object_image_evidence(addon_module)  # pkg260
 
     matrix_rows, stale_socket_findings = generate_matrix(
-        evidence, vm_supported_types, found_attrs, compare_literals)
+        evidence, vm_supported_types, found_attrs, compare_literals, vm_socket_evidence)
 
     output_dir = Path(args.out)
     write_json_report(matrix_rows, output_dir / "coverage_matrix.json")

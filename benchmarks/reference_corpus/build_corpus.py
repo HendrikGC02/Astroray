@@ -139,6 +139,15 @@ def _build_one(bpy, scene_id: str, out_dir: Path, assign, overrides, matrix_rows
     # families are bonus, not a requirement) -- SOCKET_OVERRIDE-resolved, see
     # _primary_family.
     family_rows = [r for r in matrix_rows if _primary_family(assign, overrides, r) == family]
+    # ``world_sky`` is intentionally represented by two physical scenes: the
+    # HDRI graph and the procedural-Sky graph.  Their union is the family
+    # coverage population; requiring each file to contain the other World's
+    # mutually-exclusive nodes makes canonical regeneration impossible.
+    if scene_id == "world_sky_hdri":
+        family_rows = [r for r in family_rows if r["bl_idname"] not in ("ShaderNodeTexSky",)]
+    elif scene_id == "world_sky_sky":
+        family_rows = [r for r in family_rows if r["bl_idname"] not in (
+            "ShaderNodeTexEnvironment", "ShaderNodeMapping", "ShaderNodeTexCoord")]
 
     feature_tags = []
     missing = []
@@ -280,6 +289,24 @@ def _build_one(bpy, scene_id: str, out_dir: Path, assign, overrides, matrix_rows
         "assets": assets,
         "crops": crops,
     }
+    # Gate-(c) metadata is emitted only by a scene that declares a role.  It
+    # travels through the saved/reopened scene, never a side-channel manifest edit.
+    gate_c = reopened_scene.get("gate_c")
+    if gate_c is not None:
+        def _plain(value):
+            if hasattr(value, "keys"):
+                return {str(key): _plain(value[key]) for key in value}
+            if isinstance(value, (list, tuple)):
+                return [_plain(item) for item in value]
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                return value
+            # Blender ID-property arrays are not Python lists after reopen.
+            if type(value).__name__ == "IDPropertyArray":
+                return [_plain(value[index]) for index in range(len(value))]
+            if hasattr(value, "__iter__"):
+                return [_plain(item) for item in value]
+            raise ValueError(f"{scene_id}: gate_c metadata is not JSON-compatible ({type(value).__name__})")
+        manifest_entry["gate_c"] = _plain(gate_c)
     return manifest_entry, uncovered_dropped
 
 

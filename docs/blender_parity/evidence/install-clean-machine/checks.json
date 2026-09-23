@@ -1,0 +1,63 @@
+{
+  "schema": "pkg278.clean_install_checks.v1",
+  "generated": "2026-09-23T13:48:24+00:00",
+  "machine": {
+    "eligible": false,
+    "toolchain_present": true,
+    "toolchain_programs": [
+      "cmake",
+      "nvcc",
+      "ninja",
+      "gcc",
+      "g++"
+    ],
+    "source_tree_present": true,
+    "reasons": [
+      "build toolchain on PATH: cmake, nvcc, ninja, gcc, g++",
+      "source tree / build dir present (source-tree fallback possible)"
+    ]
+  },
+  "zip": {
+    "path": null,
+    "sha256": null
+  },
+  "checks": {
+    "fresh_profile": {
+      "pass": false,
+      "status": "unmeasured",
+      "evidence_path": null,
+      "evidence_sha256": null,
+      "artifact": "profile_fresh.json"
+    },
+    "zip_identity": {
+      "pass": false,
+      "status": "unmeasured",
+      "evidence_path": null,
+      "evidence_sha256": null,
+      "artifact": "zip_sha256.txt"
+    },
+    "installer_path": {
+      "pass": false,
+      "status": "unmeasured",
+      "evidence_path": null,
+      "evidence_sha256": null,
+      "artifact": "installer.log"
+    },
+    "no_toolchain": {
+      "pass": false,
+      "status": "unmeasured",
+      "evidence_path": null,
+      "evidence_sha256": null,
+      "artifact": "toolchain_absent.txt"
+    },
+    "f12_exit_zero": {
+      "pass": false,
+      "status": "unmeasured",
+      "evidence_path": null,
+      "evidence_sha256": null,
+      "artifact": "f12.png"
+    }
+  },
+  "status": "ineligible",
+  "reason": "this machine is a developer checkout; a clean no-toolchain host must run the capture"
+}

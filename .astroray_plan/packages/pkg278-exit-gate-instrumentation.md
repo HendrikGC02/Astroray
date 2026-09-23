@@ -160,6 +160,7 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
 
 - Warm session, both pinned scenes (10k and 100k triangles), 3×100 camera edits and 3×100 material edits each; instrument emits one row per scene × edit-kind.
 - event → first *correct* Blender-presented frame: GPU p95 ≤ 100 ms, p99 ≤ 150 ms; cancel-ack p95 ≤ 200 ms, p99 ≤ 300 ms; no stale frame presented after the ack.
+  A stale-frame sample is established only by a real material-input `view_update` that raises the worker's observed presentation floor while a generation is in flight: after that generation's `idle_ack`, any POST_PIXEL publication below that recorded floor is RED, even after later dispatches. Camera previews may retain their floor; their cancel latency is retained but they cannot count as a stale-frame pass.
   Latency is a GPU-only oracle (CPU is the image oracle, not a latency oracle), and denoise is excluded from the interactive loop (owner-ratified 2026-09-07).
 - Extends the pkg241/pkg266 viewport harness; measured in a real Blender session, not the in-process harness.
 
@@ -242,15 +243,23 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
 
 ## Progress
 
-- [ ] `coverage_report.py` + synthetic-fixture scorer validation.
-- [ ] `harness.py` per-feature verdict export.
-- [ ] `gate_manifest.py` + the manifest schema.
-- [ ] Gate (c) trio parity report.
-- [ ] Gate (d) native-panel smoke (CPU + GPU).
-- [ ] Gate (e) rubric + independent triage.
-- [ ] Gate (f) clean-machine evidence.
-- [ ] Register the three scripts in `scripts/README.md`.
+- [x] `coverage_report.py` + synthetic-fixture scorer validation.
+- [x] `harness.py` per-feature verdict export.
+- [x] `gate_manifest.py` + the manifest schema.
+- [x] Gate (c) trio parity report — baseline measured (valid RED); GREEN criterion not met.
+- [x] Gate (d) native-panel smoke (CPU + GPU) — candidate measured (valid RED); GREEN criterion not met.
+- [x] Gate (e) rubric + independent triage.
+- [ ] Gate (f) clean-machine evidence — unmeasured; eligible clean Windows host absent.
+- [x] Register the three scripts in `scripts/README.md`.
 - [ ] Absorb pkg259 Phase 4 residuals.
+
+Checkpoint 2026-09-24: instruments implemented and measured. Measurements are
+complete for rows A/C/D/E (RED) and B (diagnostic only, no formal coverage
+credit); F is unmeasured (no clean host). Exit acceptance stays open: #823 is
+implemented and tested but not merged, the nine-scene population is unratified,
+and final Opus sign-off is received while CI is pending. This is partial
+exit-gate instrumentation delivery, not package completion. See
+`.astroray_plan/docs/batch-a-checkpoint-2026-09-24.md`. Package stays open.
 
 ---
 

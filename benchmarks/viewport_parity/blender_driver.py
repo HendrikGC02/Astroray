@@ -674,7 +674,7 @@ def _gate_a_event(raw):
     return (None, None, None, None, {})
 
 
-def reduce_gate_a_capture(raw_events, edits, *, truncated=False):
+def reduce_gate_a_capture(raw_events, edits, *, truncated=False, artifact_root=None):
     """Fail-closed gate-(a) reducer over retained real-Blender observations.
 
     A correct present is the ordered producer path for the generation actually
@@ -722,7 +722,22 @@ def reduce_gate_a_capture(raw_events, edits, *, truncated=False):
         present = after("post_pixel_present", upload[2], gen, epoch, pub) if upload else None
         pixels = [e for e in by_name.get("viewport_pixels", [])
                   if e[4].get("event_id") == event_id and e[4].get("label") in ("pre", "post")]
-        if not all((req, bound, applied, enq, deq, upload, present)) or len(pixels) != 2 or bound[4].get("fingerprint") != edit.get("input_fingerprint"):
+        pixel_by_label = {p[4].get("label"): p for p in pixels}
+        pixel_ok = set(pixel_by_label) == {"pre", "post"} and len(pixels) == 2
+        if pixel_ok:
+            pre, post = pixel_by_label["pre"], pixel_by_label["post"]
+            pixel_ok = pre[2] <= dispatch and post[2] >= present[2] and post[1] == gen and post[3] == epoch
+            for p in (pre, post):
+                path, digest = p[4].get("path"), p[4].get("sha256")
+                target = Path(path) if isinstance(path, str) else None
+                if target is not None and not target.is_absolute() and artifact_root is not None:
+                    target = Path(artifact_root) / target
+                if target is None or not target.is_file() or not isinstance(digest, str):
+                    pixel_ok = False; break
+                blob = target.read_bytes()
+                if not blob.startswith(b"\x89PNG\r\n\x1a\n") or hashlib.sha256(blob).hexdigest() != digest:
+                    pixel_ok = False; break
+        if not all((req, bound, applied, enq, deq, upload, present)) or not pixel_ok or bound[4].get("fingerprint") != edit.get("input_fingerprint"):
             errors.append(f"edit {event_id} has no correct presented generation chain"); continue
         rows.append({"event_id": event_id, "event_ns": dispatch,
                      "present_ns": present[2], "generation": gen, "epoch": epoch,

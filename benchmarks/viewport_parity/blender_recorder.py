@@ -440,16 +440,19 @@ def _install():
                 S["done"] = True
                 S["phase"] = "done"
                 return None
-            S["dispatch_ts"] = time.perf_counter()
             if GATE_A:
                 S["event_seq"] += 1; S["input_revision"] += 1
+                # The pre-edit framebuffer is evidence, not part of dispatch
+                # latency.  Capture it before taking the measured zero point.
+                _capture_viewport("pre", None)
+            S["dispatch_ts"] = time.perf_counter()
+            if GATE_A:
                 S["pending"] = {"event_id": S["event_seq"], "input_revision": S["input_revision"],
                                 "kind": EVENT_CLASS, "dispatch_ns": time.perf_counter_ns(),
                                 "bound": False}
                 raw("dispatch", None, None, {"event_id": S["event_seq"],
                                                "input_revision": S["input_revision"],
                                                "edit_kind": EVENT_CLASS})
-                _capture_viewport("pre", None)
             apply()
             if GATE_A:
                 S["pending"]["input_fingerprint"] = input_fingerprint()

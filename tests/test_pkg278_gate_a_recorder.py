@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -22,6 +23,10 @@ def _load(name, rel):
 
 DRV = _load("pkg278_gate_a_driver", "benchmarks/viewport_parity/blender_driver.py")
 GM = _load("pkg278_gate_a_manifest", "scripts/gate_manifest.py")
+PIXELS = Path(tempfile.mkdtemp(prefix="pkg278_gate_a_"))
+PNG = b"\x89PNG\r\n\x1a\nfixture"
+for name in ("pre.png", "post.png"):
+    (PIXELS / name).write_bytes(PNG)
 
 
 def _sha(seed):
@@ -37,7 +42,7 @@ def _capture(scene, triangles, kind, batch, *, broken=None):
                       "epoch": 7, "input_floor": g, "input_fingerprint": [i],
                       "kind": kind, "bound": True})
         raw += [
-            {"name": "viewport_pixels", "generation": None, "epoch": None, "t_ns": t, "extra": {"event_id": i + 1, "label": "pre", "path": "pre.png", "sha256": _sha("pre")}},
+            {"name": "viewport_pixels", "generation": None, "epoch": None, "t_ns": t - 1, "extra": {"event_id": i + 1, "label": "pre", "path": str(PIXELS / "pre.png"), "sha256": hashlib.sha256(PNG).hexdigest()}},
             {"name": "input_applied", "generation": None, "epoch": None, "t_ns": t + 0, "extra": {"event_id": i + 1, "fingerprint": [i]}},
             {"name": "request", "generation": g, "epoch": 7, "t_ns": t + 1, "extra": {}},
             {"name": "edit_bound", "generation": g, "epoch": 7, "t_ns": t + 1, "extra": {"event_id": i + 1, "input_floor": g, "fingerprint": [i]}},
@@ -45,7 +50,7 @@ def _capture(scene, triangles, kind, batch, *, broken=None):
             {"name": "mailbox_dequeue", "generation": g, "epoch": 7, "t_ns": t + 3, "extra": {"pub_id": pub}},
             {"name": "texture_upload_end", "generation": g, "epoch": 7, "t_ns": t + 4, "extra": {"pub_id": pub}},
             {"name": "post_pixel_present", "generation": g, "epoch": 7, "t_ns": t + 5, "extra": {"pub_id": pub, "input_floor": g}},
-            {"name": "viewport_pixels", "generation": g, "epoch": None, "t_ns": t + 6, "extra": {"event_id": i + 1, "label": "post", "path": "post.png", "sha256": _sha("post")}},
+            {"name": "viewport_pixels", "generation": g, "epoch": 7, "t_ns": t + 6, "extra": {"event_id": i + 1, "label": "post", "path": str(PIXELS / "post.png"), "sha256": hashlib.sha256(PNG).hexdigest()}},
         ]
     raw += [{"name": "cancel_request", "generation": 100, "epoch": 7, "t_ns": base + 100_010, "extra": {}},
             {"name": "idle_ack", "generation": 100, "epoch": 7, "t_ns": base + 100_020, "extra": {}},
@@ -90,6 +95,15 @@ def test_gate_a_reducer_rejects_stale_after_ack_and_missing_ack_or_present():
     for failure in ("stale_after_ack", "no_ack", "no_present"):
         cap = _capture(_sha("s"), 10000, "material", 0, broken=failure)
         assert DRV.reduce_gate_a_capture(cap["raw_events"], cap["edits"])["errors"]
+
+
+def test_gate_a_reducer_rejects_forged_or_misordered_pixel_evidence():
+    cap = _capture(_sha("s"), 10000, "camera", 0)
+    cap["raw_events"][0]["extra"]["label"] = "post"
+    assert DRV.reduce_gate_a_capture(cap["raw_events"], cap["edits"])["errors"]
+    cap = _capture(_sha("s"), 10000, "camera", 0)
+    cap["raw_events"][0]["extra"]["sha256"] = _sha("forged")
+    assert DRV.reduce_gate_a_capture(cap["raw_events"], cap["edits"])["errors"]
 
 
 def test_gate_manifest_adapts_raw_producer_and_rejects_bad_captures(tmp_path):

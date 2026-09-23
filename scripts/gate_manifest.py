@@ -283,7 +283,7 @@ def _validate_a(records: list[Any], base: Path, expected_scenes: Any) -> tuple[l
             if not isinstance(freeze, Mapping) or freeze.get("blend_sha256") != scene or freeze.get("observed_triangles") != workload.get("triangles"):
                 errors.append(f"row a capture {i} lacks pre-session observed workload census")
             triangles[scene] = workload["triangles"]
-        result = driver.reduce_gate_a_capture(cap.get("raw_events", []), cap.get("edits", []), truncated=bool(cap.get("truncated")))
+        result = driver.reduce_gate_a_capture(cap.get("raw_events", []), cap.get("edits", []), truncated=bool(cap.get("truncated")), artifact_root=base)
         errors.extend(f"row a capture {i}: {e}" for e in result["errors"])
         if len(result["rows"]) != 100: errors.append(f"row a capture {i} lacks 100 correct presents")
         if not result["cancels"]: errors.append(f"row a capture {i} has no cancel acknowledgement")

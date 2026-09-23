@@ -2979,7 +2979,15 @@ def load_corpus_manifest(manifest_path=CORPUS_MANIFEST):
     import hashlib
     import json
     root = Path(__file__).resolve().parents[2]
-    data = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    def no_duplicate_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate corpus manifest key: {key!r}")
+            result[key] = value
+        return result
+    data = json.loads(Path(manifest_path).read_text(encoding="utf-8"),
+                      object_pairs_hook=no_duplicate_keys)
     scenes = data.get("scenes") if isinstance(data, dict) else None
     if not isinstance(scenes, dict):
         raise ValueError("corpus manifest requires a scenes object")
@@ -2998,6 +3006,27 @@ def load_corpus_manifest(manifest_path=CORPUS_MANIFEST):
             raise ValueError(f"corpus scene {scene_id!r} has missing blend or digest")
         if hashlib.sha256(blend.read_bytes()).hexdigest() != digest:
             raise ValueError(f"corpus scene {scene_id!r} blend digest mismatch")
+        settings = entry.get("settings")
+        if (not isinstance(settings, dict) or any(not isinstance(settings.get(k), int)
+                or isinstance(settings.get(k), bool) or settings[k] <= 0
+                for k in ("res_x", "res_y", "samples"))):
+            raise ValueError(f"corpus scene {scene_id!r} lacks positive render settings")
+        assets = entry.get("assets", [])
+        if not isinstance(assets, list):
+            raise ValueError(f"corpus scene {scene_id!r} assets must be a list")
+        for asset in assets:
+            if not isinstance(asset, dict) or not isinstance(asset.get("path"), str):
+                raise ValueError(f"corpus scene {scene_id!r} has invalid asset")
+            path = (root / asset["path"]).resolve()
+            try:
+                path.relative_to((root / "benchmarks" / "reference_corpus").resolve())
+            except ValueError:
+                raise ValueError(f"corpus scene {scene_id!r} asset escapes corpus root")
+            asset_digest = asset.get("sha256")
+            if (not path.is_file() or not isinstance(asset_digest, str)
+                    or len(asset_digest) != 64
+                    or hashlib.sha256(path.read_bytes()).hexdigest() != asset_digest):
+                raise ValueError(f"corpus scene {scene_id!r} asset digest mismatch")
         result[scene_id] = entry
     return result
 

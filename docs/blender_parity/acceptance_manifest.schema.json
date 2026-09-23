@@ -63,7 +63,7 @@
         },
         "settings": { "type": "object" },
         "metric": { "type": "object" },
-        "value": { "type": ["object", "number", "null"] },
+        "value": { "type": ["object", "null"] },
         "threshold": { "type": "object" },
         "evidence_path": { "type": ["string", "null"] },
         "evidence_sha256": { "type": ["string", "null"] },
@@ -80,11 +80,14 @@
             "properties": {
               "evidence_path": { "type": "string", "minLength": 1 },
               "evidence_sha256": { "$ref": "#/$defs/sha256" },
-              "value": { "type": ["object", "number"] },
-              "build_id": { "type": "string", "minLength": 1 },
-              "scene_sha256": { "minItems": 1 }
+              "value": { "type": "object" },
+              "build_id": { "type": "string", "minLength": 1 }
             }
           }
+        },
+        {
+          "if": { "properties": { "status": { "const": "green" }, "row": { "enum": ["a", "b", "c", "d"] } }, "required": ["status", "row"] },
+          "then": { "properties": { "scene_sha256": { "minItems": 1 } } }
         }
       ]
     }

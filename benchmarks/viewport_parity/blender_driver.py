@@ -571,7 +571,10 @@ def _open_scene(host, port, which):
         return ("import bpy; bpy.ops.wm.open_mainfile(filepath="
                 + json.dumps(str(path)) + "); result = {'ok': True}")
 
-    if which == "big":
+    explicit = Path(which)
+    if explicit.is_file():
+        _bridge(_open(explicit), host, port)
+    elif which == "big":
         if not _BIG_SCENE.exists():
             _BIG_SCENE.parent.mkdir(parents=True, exist_ok=True)
             build = _BUILD_BIG.replace("__BIG_PATH__", json.dumps(str(_BIG_SCENE)))
@@ -1517,7 +1520,11 @@ def main():
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=9876)
     p.add_argument("--scenes", nargs="+", default=["metal_sweep", "big"],
-                   choices=["metal_sweep", "big"])
+                   help="legacy metal_sweep/big workload names or validated corpus blend paths")
+    p.add_argument("--corpus-manifest", type=Path, default=None,
+                   help="reference-corpus manifest used only with --corpus-scene")
+    p.add_argument("--corpus-scene", action="append", default=[],
+                   help="exact corpus scene ID; resolved and hash-checked before the GUI run")
     p.add_argument("--devices", nargs="+", default=["gpu", "cpu"],
                    choices=["gpu", "cpu"])
     p.add_argument("--classes", nargs="+", default=["camera", "material"],
@@ -1569,6 +1576,16 @@ def main():
                    help="settle pattern: idle seconds per cycle (worker "
                         "completes + presents the settling generation)")
     args = p.parse_args(argv)
+    if args.corpus_scene:
+        if args.corpus_manifest is None:
+            p.error("--corpus-scene requires --corpus-manifest")
+        from benchmarks.blender_parity.scene_library import load_corpus_manifest
+        corpus = load_corpus_manifest(args.corpus_manifest)
+        missing = [name for name in args.corpus_scene if name not in corpus]
+        if missing:
+            p.error(f"corpus scene absent: {', '.join(missing)}")
+        root = Path(__file__).resolve().parents[2]
+        args.scenes = [str((root / corpus[name]["blend_path"]).resolve()) for name in args.corpus_scene]
     if args.cpu_events is None:
         args.cpu_events = args.events
     if args.cpu_reps is None:

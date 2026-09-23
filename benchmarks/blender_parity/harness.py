@@ -502,6 +502,139 @@ def export_reference_scenes(scenes_dir: Path, *, timeout: int = 600) -> int:
     return 0 if all_ok else 1
 
 
+def _sha256(path: Path) -> str:
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _artifact_ref(path: Path, base: Path) -> dict[str, str]:
+    return {"path": str(path.resolve().relative_to(base.resolve())).replace("\\", "/"), "sha256": _sha256(path)}
+
+
+def _gate_c_freeze(manifest_path: Path) -> dict[str, Any]:
+    """Freeze the only admissible trio before spawning Blender.
+
+    A gate scene carries its own declared ROIs and non-vacuity probes.  This is
+    deliberately stricter than the general corpus manifest: a normal corpus
+    scene is not automatically gate-(c) evidence.
+    """
+    from benchmarks.blender_parity import scene_library
+    roles = scene_library.resolve_gate_c_roles(manifest_path)
+    frozen: dict[str, Any] = {}
+    for role, entry in roles.items():
+        cfg = entry.get("gate_c")
+        if not isinstance(cfg, dict) or not isinstance(cfg.get("rois"), dict):
+            raise ValueError(f"gate-c role {role} lacks declared gate_c ROIs/non-vacuity")
+        probes = cfg.get("non_vacuity")
+        if not isinstance(probes, list) or not probes:
+            raise ValueError(f"gate-c role {role} lacks declared non-vacuity probes")
+        for name, roi in cfg["rois"].items():
+            if (not isinstance(name, str) or not isinstance(roi, list) or len(roi) != 4
+                    or any(not isinstance(x, (int, float)) or isinstance(x, bool) or x < 0 or x > 1 for x in roi)
+                    or roi[0] >= roi[2] or roi[1] >= roi[3]):
+                raise ValueError(f"gate-c role {role} has invalid ROI {name!r}")
+        frozen[role] = {"scene_id": entry["scene_id"] if "scene_id" in entry else role,
+                        "blend_path": entry["blend_path"], "scene_sha256": entry["sha256"],
+                        "assets": entry.get("assets", []), "settings": entry["settings"],
+                        "rois": cfg["rois"], "non_vacuity": probes}
+    return frozen
+
+
+def _gate_c_probe(img, probe: Mapping[str, Any], rois: Mapping[str, Any]) -> dict[str, Any]:
+    """Evaluate a declared simple image probe.  Values are recorded, never flags."""
+    import numpy as np
+    kind, roi_name = probe.get("kind"), probe.get("roi")
+    roi = rois.get(roi_name)
+    if kind not in ("checker", "hdri", "hair") or not isinstance(roi, list):
+        return {"kind": kind, "ok": False, "error": "invalid declared probe"}
+    patch = _resolve_roi(img, tuple(roi))
+    if patch.size == 0 or not np.isfinite(patch).all():
+        return {"kind": kind, "ok": False, "error": "empty or non-finite ROI"}
+    threshold = probe.get("min", 0.0)
+    if not isinstance(threshold, (int, float)) or isinstance(threshold, bool):
+        return {"kind": kind, "ok": False, "error": "invalid threshold"}
+    if kind == "checker":
+        value = float(patch.mean(axis=-1).std())
+    elif kind == "hdri":
+        value = float(patch.mean())
+    else:
+        bg = rois.get(probe.get("background_roi"))
+        if not isinstance(bg, list):
+            return {"kind": kind, "ok": False, "error": "hair probe lacks background ROI"}
+        reference = _resolve_roi(img, tuple(bg)).reshape(-1, 3).mean(axis=0)
+        value = float((np.abs(patch - reference).sum(axis=-1) > float(probe.get("tolerance", .05))).mean())
+    return {"kind": kind, "value": value, "threshold": float(threshold), "ok": value > float(threshold)}
+
+
+def _run_gate_leg(blender: Path, args: list[str], env: dict[str, str], timeout: int) -> tuple[int, bool, str]:
+    cmd = [str(blender), "--background", "--factory-startup", "--python", str(_RENDER_LEG), "--"] + args
+    try:
+        proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired:
+        return 124, False, f"TIMEOUT after {timeout}s"
+    output = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    return proc.returncode, f"{SENTINEL} PASS" in output and f"{SENTINEL} FAIL" not in output, output[-3000:]
+
+
+def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
+                    timeout: int = 1800, build_id: str = "") -> int:
+    """Produce real six-leg F12 evidence.  The current missing terrace role is
+    an intentional fail-closed result and starts no substitute renders."""
+    manifest_path = Path(manifest_path or _REPO_ROOT / "benchmarks" / "reference_corpus" / "scenes" / "manifest.json").resolve()
+    out_dir = Path(out_dir).resolve(); out_dir.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, Any] = {"schema": "pkg278.instrument.v2", "row": "c", "instrument": "trio_parity",
+                               "scene_sha256": [], "build_id": build_id, "backend": ["CPU", "GPU"],
+                               "settings": {}, "metric": {"ssim_min": .95, "channel_ratio_max": .05},
+                               "threshold": {"roi_pct_max": 5.0, "ssim_min": .95}, "records": []}
+    try:
+        frozen = _gate_c_freeze(manifest_path)
+        payload["scene_sha256"] = [frozen[r]["scene_sha256"] for r in sorted(frozen)]
+        payload["settings"] = {"manifest": str(manifest_path), "frozen_roles": frozen}
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        payload["freeze_error"] = str(exc)
+        (out_dir / "gate_c.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return 1
+    blender = _find_blender()
+    if blender is None:
+        payload["freeze_error"] = "Blender not found"
+        (out_dir / "gate_c.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return 2
+    env = os.environ.copy(); pyd = _pyd_dir(_REPO_ROOT)
+    if pyd: env["ASTRORAY_PYD_DIR"] = str(pyd)
+    arrays: dict[tuple[str, str], Path] = {}
+    for role, item in frozen.items():
+        for backend in ("CPU", "GPU"):
+            stem = out_dir / f"{role.replace(':', '_')}_{backend.lower()}"
+            code, sentinel, tail = _run_gate_leg(blender, ["--corpus-manifest", str(manifest_path),
+                "--corpus-scene", item["scene_id"], "--engine", "CUSTOM_RAYTRACER", "--device", backend.lower(),
+                "--out", str(stem)], env, timeout)
+            npy, png = stem.with_suffix(".npy"), stem.with_suffix(".png")
+            record: dict[str, Any] = {"kind": "f12_run", "role": role, "scene_id": item["scene_id"],
+                "scene_sha256": item["scene_sha256"], "backend": backend, "build_id": build_id,
+                "exit_code": code, "sentinel": SENTINEL if sentinel else "", "tail": tail,
+                "settings": {**item["settings"], "gate_c_rois": item["rois"], "gate_c_probes": item["non_vacuity"]}, "non_vacuity": [], "rois": []}
+            if npy.is_file() and png.is_file():
+                record["linear_npy"] = _artifact_ref(npy, out_dir); record["image"] = _artifact_ref(png, out_dir); arrays[(role, backend)] = npy
+            payload["records"].append(record)
+    import numpy as np
+    from benchmarks.reference_bank.metrics import compute_ssim
+    from benchmarks.reference_bank.runner import compute_channel_mean_ratio
+    for role, item in frozen.items():
+        cpu, gpu = arrays.get((role, "CPU")), arrays.get((role, "GPU"))
+        if not cpu or not gpu: continue
+        a, b = np.load(gpu), np.load(cpu)
+        for record in [r for r in payload["records"] if r["role"] == role]:
+            img = np.load(arrays[(role, record["backend"])])
+            record["non_vacuity"] = [_gate_c_probe(img, probe, item["rois"]) for probe in item["non_vacuity"]]
+            for name, roi in item["rois"].items():
+                y0, y1, x0, x1 = int(roi[1]*a.shape[0]), int(roi[3]*a.shape[0]), int(roi[0]*a.shape[1]), int(roi[2]*a.shape[1])
+                ratio, channels = compute_channel_mean_ratio(a, b, (y0, y1, x0, x1))
+                ssim, _ = compute_ssim(a[y0:y1, x0:x1], b[y0:y1, x0:x1])
+                record["rois"].append({"name": name, "ratio": channels, "ratio_max": float(ratio), "ssim": float(ssim)})
+    (out_dir / "gate_c.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return 0 if len(arrays) == 6 else 1
+
+
 def _run_leg(blender: Path, feat: Feature, engine: str, out_stem: Path,
              res: int, samples: int, timeout: int, env: dict) -> tuple[bool, str]:
     """Spawn one headless-Blender leg. Returns (ok, log_tail)."""
@@ -650,6 +783,33 @@ def run(matrix_path: Path, out_dir: Path, *, res: int = 128, samples: int = 64,
 # Reports (pure)
 # --------------------------------------------------------------------------- #
 
+def verdict_payload(results: list[FeatureResult]) -> dict[str, Any]:
+    """pkg278: machine-readable per-feature verdicts for the acceptance manifest.
+
+    Reuses the pkg119b triage output verbatim; adds no metric. One entry per
+    feature with its status, triage bucket and metric values.
+    """
+    return {
+        "schema": "pkg278.feature_verdicts.v1",
+        "total": len(results),
+        "verdicts": [
+            {
+                "feature": f"{r.category}:{r.feature}",
+                "category": r.category,
+                "name": r.feature,
+                "phase_a_bucket": r.phase_a_bucket,
+                "status": r.status,
+                "triage_bucket": r.triage_bucket,
+                "skip_reason": r.skip_reason,
+                "ssim": r.ssim,
+                "delta_e": r.delta_e,
+                "ratio": list(r.ratio) if r.ratio else None,
+            }
+            for r in results
+        ],
+    }
+
+
 def summarize(results: list[FeatureResult]) -> dict[str, Any]:
     status = Counter(r.status for r in results)
     triage = Counter(r.triage_bucket for r in results if r.triage_bucket)
@@ -672,6 +832,11 @@ def write_reports(results: list[FeatureResult], out_dir: Path) -> None:
     payload = {"summary": summary, "features": [asdict(r) for r in results]}
     (out_dir / "triage_report.json").write_text(
         json.dumps(payload, indent=2), encoding="utf-8")
+    # pkg278: per-feature verdict JSON for the acceptance manifest. Reuses the
+    # pkg119b triage output verbatim (no new metric) so gate (b)/(c) can link a
+    # machine-readable verdict per feature.
+    (out_dir / "feature_verdicts.json").write_text(
+        json.dumps(verdict_payload(results), indent=2), encoding="utf-8")
 
     lines = [
         "# Blender Differential Parity - Triage Report (pkg119 Phase B)",
@@ -726,9 +891,16 @@ def main(argv: list[str] | None = None) -> int:
                         ".blend corpus into this directory (with a "
                         "manifest.json) instead of running the differential "
                         "matrix")
+    p.add_argument("--gate-c", action="store_true",
+                   help="produce the owner-selected corpus trio CPU/GPU F12 evidence")
+    p.add_argument("--corpus-manifest", type=Path, default=None)
+    p.add_argument("--build-id", default="", help="pinned addon/build identity for gate-c evidence")
     args = p.parse_args(argv)
     if args.export_blend is not None:
         return export_reference_scenes(args.export_blend, timeout=args.timeout)
+    if args.gate_c:
+        return run_gate_c_trio(args.out, manifest_path=args.corpus_manifest,
+                               timeout=args.timeout, build_id=args.build_id)
     return run(args.matrix, args.out, res=args.res, samples=args.samples,
                timeout=args.timeout, include_composites=not args.no_composites)
 

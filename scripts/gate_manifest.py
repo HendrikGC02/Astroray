@@ -280,34 +280,79 @@ def _validate_a(records: list[Any], base: Path, expected_scenes: Any) -> tuple[l
 
 
 def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: Any) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
-    errors: list[str] = []; pairs = set(); ratios: list[float] = []; ssims: list[float] = []; hashes = {}
+    """Recompute gate-(c) from retained linear CPU/GPU renders.
+
+    Producer booleans and submitted metric values are evidence metadata only;
+    they cannot make a black pair or a forged ratio pass this reducer.
+    """
+    import numpy as np
+    from benchmarks.reference_bank.metrics import compute_ssim
+    from benchmarks.reference_bank.runner import compute_channel_mean_ratio
+    errors: list[str] = []; pairs = set(); ratios: list[float] = []; ssims: list[float] = []; hashes = {}; images = {}
     if len(records) != 6: errors.append("row c requires exactly three pinned scenes with CPU and GPU F12 records")
     for i, r in enumerate(records):
         if not isinstance(r, Mapping): errors.append(f"row c record {i} is not an object"); continue
         role, scene, backend, digest = r.get("role"), r.get("scene_id"), r.get("backend"), r.get("scene_sha256")
         if role not in TRIO_ROLES or not isinstance(scene, str) or not scene.strip() or backend not in ("CPU", "GPU") or not isinstance(digest, str) or not _HEX64.match(digest):
             errors.append(f"row c record {i} has invalid scene/backend identity"); continue
-        if r.get("kind") != "f12_run" or r.get("exit_code") != 0 or r.get("sentinel") != "f12" or r.get("build_id") != build_id:
+        if r.get("kind") != "f12_run" or r.get("exit_code") != 0 or r.get("sentinel") != "PKG119B_LEG" or r.get("build_id") != build_id:
             errors.append(f"row c record {i} lacks successful F12 sentinel/build")
         _, why = _artifact(r.get("image"), base, f"row c record {i} image"); errors.extend(why)
-        nonvac = r.get("non_vacuity"); rois = r.get("rois")
-        if not isinstance(nonvac, Mapping) or any((_number(nonvac.get(k)) is None or _number(nonvac[k]) <= 0) for k in ("checker", "hdri", "hair")):
-            errors.append(f"row c record {i} lacks concrete checker/HDRI/hair non-vacuity")
-        if not isinstance(rois, list) or not rois: errors.append(f"row c record {i} has no ROI measurements")
-        else:
-            for j, roi in enumerate(rois):
-                if not isinstance(roi, Mapping): errors.append(f"row c record {i} ROI {j} invalid"); continue
-                _, why = _artifact(roi.get("mask"), base, f"row c record {i} ROI {j} mask"); errors.extend(why)
-                ratio = roi.get("ratio"); ssim = _number(roi.get("ssim"))
-                if not isinstance(ratio, Mapping) or ssim is None: errors.append(f"row c record {i} ROI {j} metrics invalid"); continue
-                vals = [_number(ratio.get(k)) for k in ("r", "g", "b")]
-                if any(v is None or v < 0 for v in vals): errors.append(f"row c record {i} ROI {j} channel ratios invalid"); continue
-                ratios.extend(abs(v - 1.0) * 100 for v in vals); ssims.append(ssim)
+        linear, why = _artifact(r.get("linear_npy"), base, f"row c record {i} linear render"); errors.extend(why)
+        if linear is not None:
+            try:
+                arr = np.load(linear)
+                if arr.ndim != 3 or arr.shape[-1] < 3 or not np.isfinite(arr).all() or float(np.abs(arr[..., :3]).max()) <= 1e-9:
+                    errors.append(f"row c record {i} linear render is non-finite or black")
+                else: images[(role, backend)] = arr[..., :3]
+            except (OSError, ValueError): errors.append(f"row c record {i} linear render cannot be loaded")
         pairs.add((role, backend)); hashes.setdefault(role, (scene, digest))
         if hashes.get(role) != (scene, digest): errors.append(f"row c role {role} changes actual scene/hash across backends")
     if pairs != {(s, b) for s in TRIO_ROLES for b in ("CPU", "GPU")}: errors.append("row c records do not cover every required role/backend pair")
     if not isinstance(expected_hashes, list) or set(expected_hashes) != {entry[1] for entry in hashes.values()} or len(expected_hashes) != 3:
         errors.append("row c record scene hashes do not equal frozen manifest scene hashes")
+    for role in TRIO_ROLES:
+        cpu, gpu = images.get((role, "CPU")), images.get((role, "GPU"))
+        if cpu is None or gpu is None: continue
+        if cpu.shape != gpu.shape: errors.append(f"row c {role} CPU/GPU linear shapes differ"); continue
+        for roi in next((r.get("rois", []) for r in records if isinstance(r, Mapping) and r.get("role") == role), []):
+            if not isinstance(roi, Mapping): continue
+            # The producer's named ROI is retained, but its bounds are frozen in settings.
+            name = roi.get("name"); frozen = next((r.get("settings", {}).get("gate_c_rois", {}).get(name) for r in records if isinstance(r, Mapping) and r.get("role") == role), None)
+            if not isinstance(frozen, list) or len(frozen) != 4: continue
+            y0,y1,x0,x1 = int(frozen[1]*cpu.shape[0]),int(frozen[3]*cpu.shape[0]),int(frozen[0]*cpu.shape[1]),int(frozen[2]*cpu.shape[1])
+            ratio, channels = compute_channel_mean_ratio(gpu, cpu, (y0,y1,x0,x1)); ssim,_ = compute_ssim(gpu[y0:y1,x0:x1], cpu[y0:y1,x0:x1])
+            if not np.isfinite(ratio) or not np.isfinite(ssim): errors.append(f"row c {role} ROI {name} has non-finite recomputed metric"); continue
+            ratios.append(ratio*100); ssims.append(ssim)
+    for r in records:
+        if not isinstance(r, Mapping): continue
+        role, backend = r.get("role"), r.get("backend")
+        img = images.get((role, backend))
+        settings = r.get("settings") if isinstance(r.get("settings"), Mapping) else {}
+        rois, probes = settings.get("gate_c_rois"), settings.get("gate_c_probes")
+        required = ("checker",) if role in ("materials_hall", "textures_mapping") else ("hdri", "hair")
+        if img is None or not isinstance(rois, Mapping) or not isinstance(probes, list):
+            errors.append(f"row c record {role}/{backend} lacks frozen non-vacuity configuration"); continue
+        actual = r.get("non_vacuity")
+        for kind in required:
+            probe = next((p for p in probes if isinstance(p, Mapping) and p.get("kind") == kind), None)
+            reported = next((p for p in actual if isinstance(p, Mapping) and p.get("kind") == kind), None) if isinstance(actual, list) else None
+            roi = rois.get(probe.get("roi")) if isinstance(probe, Mapping) else None
+            threshold = _number(probe.get("min")) if isinstance(probe, Mapping) else None
+            if not isinstance(roi, list) or len(roi) != 4 or threshold is None or not isinstance(reported, Mapping):
+                errors.append(f"row c record {role}/{backend} lacks concrete {kind} probe"); continue
+            y0,y1,x0,x1 = int(roi[1]*img.shape[0]),int(roi[3]*img.shape[0]),int(roi[0]*img.shape[1]),int(roi[2]*img.shape[1]); patch = img[y0:y1,x0:x1]
+            if patch.size == 0: errors.append(f"row c record {role}/{backend} {kind} ROI is empty"); continue
+            if kind == "checker": value = float(patch.mean(axis=-1).std())
+            elif kind == "hdri": value = float(patch.mean())
+            else:
+                bg = rois.get(probe.get("background_roi"));
+                if not isinstance(bg, list) or len(bg) != 4: errors.append(f"row c record {role}/{backend} hair lacks background ROI"); continue
+                by0,by1,bx0,bx1 = int(bg[1]*img.shape[0]),int(bg[3]*img.shape[0]),int(bg[0]*img.shape[1]),int(bg[2]*img.shape[1]); ref = img[by0:by1,bx0:bx1].reshape(-1,3).mean(axis=0)
+                value = float((np.abs(patch-ref).sum(axis=-1) > float(probe.get("tolerance", .05))).mean())
+            if _number(reported.get("value")) is None or abs(float(reported["value"])-value) > 1e-6 or value <= threshold:
+                errors.append(f"row c record {role}/{backend} {kind} non-vacuity is not derived from its linear render")
+    if not ratios or not ssims: errors.append("row c has no recomputable frozen ROI metrics")
     return errors, {"roi_pct_max": max(ratios) if ratios else None, "ssim_min": min(ssims) if ssims else None}, {"cpu_exit_zero": all((s,"CPU") in pairs for s in TRIO_ROLES), "gpu_exit_zero": all((s,"GPU") in pairs for s in TRIO_ROLES), "pinned_images": not any("artifact" in e for e in errors), "non_vacuity": not any("non-vacuity" in e for e in errors)}
 
 
@@ -535,6 +580,16 @@ def validate_shape(manifest: Mapping[str, Any]) -> list[str]:
         for fld in ("instrument", "scene_sha256", "backend", "dimensions", "date"):
             if fld not in row:
                 errors.append(f"row {rid}: missing field {fld}")
+        if row.get("instrument") not in {"viewport_latency", "coverage_report", "trio_parity", "native_panel_smoke", "issue_triage", "clean_install"}:
+            errors.append(f"row {rid}: invalid instrument")
+        if not isinstance(row.get("scene_sha256"), list) or any(not _HEX64.match(str(x)) for x in row.get("scene_sha256", [])):
+            errors.append(f"row {rid}: scene_sha256 must be digest array")
+        if not isinstance(row.get("backend"), list) or any(x not in ("CPU", "GPU") for x in row.get("backend", [])) or len(set(row.get("backend", []))) != len(row.get("backend", [])):
+            errors.append(f"row {rid}: backend must be unique CPU/GPU array")
+        if not isinstance(row.get("settings"), Mapping) or not isinstance(row.get("metric"), Mapping) or not isinstance(row.get("threshold"), Mapping) or not isinstance(row.get("dimensions"), Mapping):
+            errors.append(f"row {rid}: settings/metric/threshold/dimensions must be objects")
+        if row.get("value") is not None and not isinstance(row.get("value"), Mapping):
+            errors.append(f"row {rid}: value must be an object or null")
         if row.get("status") == "green":
             if not row.get("evidence_path"):
                 errors.append(f"row {rid}: green without evidence_path")
@@ -544,6 +599,8 @@ def validate_shape(manifest: Mapping[str, Any]) -> list[str]:
                 errors.append(f"row {rid}: green without value")
             if not str(row.get("build_id") or "").strip():
                 errors.append(f"row {rid}: green without build_id")
+            if rid not in ("e", "f") and not row.get("scene_sha256"):
+                errors.append(f"row {rid}: green without scene hash")
     return errors
 
 

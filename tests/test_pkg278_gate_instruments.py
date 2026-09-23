@@ -16,6 +16,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -375,24 +376,39 @@ def test_latency_rejects_wrong_outer_instrument_and_bad_numeric_without_crash(tm
 
 
 def test_trio_requires_frozen_roles_paired_f12_runs_and_real_artifacts(tmp_path):
-    image = tmp_path / "image.bin"; image.write_bytes(b"image")
-    mask = tmp_path / "roi.bin"; mask.write_bytes(b"mask")
+    image = tmp_path / "image.bin"; image.write_bytes(b"display image")
     image_ref = {"path": image.name, "sha256": GM.sha256_file(image)}
-    mask_ref = {"path": mask.name, "sha256": GM.sha256_file(mask)}
     hashes = [_hex(i) for i in (11, 12, 13)]
     records = []
     for role, actual, digest in zip(GM.TRIO_ROLES, ("gallery", "workshop", "terrace_hair"), hashes):
         for backend in ("CPU", "GPU"):
+            linear = tmp_path / f"{actual}_{backend}.npy"
+            pixels = np.full((12, 12, 3), 0.5, dtype=np.float32)
+            if role != GM.TRIO_ROLES[-1]:
+                pixels[:, :6] = .2; pixels[:, 6:] = .8
+            else:
+                pixels[:, 6:] = .8
+            np.save(linear, pixels)
+            probes = [{"kind": "checker", "value": .3, "threshold": .1, "ok": True}]
+            cfg = {"gate_c_rois": {"all": [0, 0, 1, 1]},
+                   "gate_c_probes": [{"kind": "checker", "roi": "all", "min": .1}]}
+            if role == GM.TRIO_ROLES[-1]:
+                probes = [{"kind": "hdri", "value": .5, "threshold": .1, "ok": True},
+                          {"kind": "hair", "value": 1., "threshold": .1, "ok": True}]
+                cfg = {"gate_c_rois": {"bg": [0, 0, .5, 1], "hair": [.5, 0, 1, 1], "all": [0,0,1,1]},
+                       "gate_c_probes": [{"kind": "hdri", "roi": "bg", "min": .1},
+                                             {"kind": "hair", "roi": "hair", "background_roi": "bg", "min": .1}]}
             records.append({"kind": "f12_run", "role": role, "scene_id": actual, "scene_sha256": digest,
-                            "backend": backend, "build_id": "b1", "exit_code": 0, "sentinel": "f12",
-                            "image": image_ref, "non_vacuity": {"checker": 1, "hdri": 1, "hair": 1},
-                            "rois": [{"mask": mask_ref, "ratio": {"r": 1, "g": 1, "b": 1}, "ssim": .99}]})
+                            "backend": backend, "build_id": "b1", "exit_code": 0, "sentinel": "PKG119B_LEG",
+                            "image": image_ref, "linear_npy": {"path": linear.name, "sha256": GM.sha256_file(linear)},
+                            "non_vacuity": probes, "settings": cfg,
+                            "rois": [{"name": "all"}]})
     evidence = tmp_path / "gate_c.json"
     payload = {"schema": GM.PAYLOAD_SCHEMA, "row": "c", "instrument": "trio_parity", "scene_sha256": hashes,
                "build_id": "b1", "backend": ["CPU", "GPU"], "settings": {}, "metric": {}, "value": {},
                "threshold": {"roi_pct_max": 5, "ssim_min": .95}, "records": records}
     evidence.write_text(json.dumps(payload), encoding="utf-8")
-    raw = {**payload, "value": {"roi_pct_max": 0.0, "ssim_min": .99}, "evidence_path": str(evidence),
+    raw = {**payload, "value": {"roi_pct_max": 0.0, "ssim_min": 1.0}, "evidence_path": str(evidence),
            "evidence_sha256": GM.sha256_file(evidence), "dimensions": {"backend": "paired", "scene": "role", "roi": "mask"},
            "subchecks": {"cpu_exit_zero": True, "gpu_exit_zero": True, "pinned_images": True, "non_vacuity": True}, "date": "2026-09-24"}
     row, reasons = GM.compute_row("c", raw, GM.ROW_SPEC["c"], tmp_path)

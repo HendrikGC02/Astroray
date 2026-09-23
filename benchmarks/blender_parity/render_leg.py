@@ -210,6 +210,10 @@ def main():
     p.add_argument("--load-blend", default="",
                    help="open this .blend instead of building a scene from "
                         "(category, feature)")
+    p.add_argument("--corpus-manifest", default="",
+                   help="validated reference-corpus manifest; requires --corpus-scene")
+    p.add_argument("--corpus-scene", default="",
+                   help="exact reference-corpus scene ID, never an arbitrary path")
     p.add_argument("--report-only", action="store_true",
                    help="with --load-blend: print an object/node census as "
                         "JSON and exit, no render")
@@ -222,6 +226,21 @@ def main():
         import bpy
         import scene_library
 
+        if bool(args.corpus_manifest) != bool(args.corpus_scene):
+            raise ValueError("--corpus-manifest and --corpus-scene must be supplied together")
+        corpus_entry = None
+        if args.corpus_scene:
+            corpus = scene_library.load_corpus_manifest(Path(args.corpus_manifest))
+            corpus_entry = corpus.get(args.corpus_scene)
+            if corpus_entry is None:
+                raise ValueError(f"corpus scene absent: {args.corpus_scene!r}")
+            args.load_blend = str((repo_root / corpus_entry["blend_path"]).resolve())
+            for key, arg in (("res_x", "res"), ("res_y", "res_y"), ("samples", "samples")):
+                requested = getattr(args, arg)
+                declared = corpus_entry["settings"][key]
+                if requested != p.get_default(arg) and requested != declared:
+                    raise ValueError(f"corpus scene {args.corpus_scene!r} requires {arg}={declared}")
+                setattr(args, arg, declared)
         if args.load_blend:
             bpy.ops.wm.open_mainfile(filepath=args.load_blend)
             scene = bpy.context.scene

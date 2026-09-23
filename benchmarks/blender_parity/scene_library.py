@@ -2374,6 +2374,30 @@ def _world_sky_geometry(bpy):
     _recess_panel("RecessRight", (rx + 0.5, ry, 0.35), (0.03, 0.55, 0.35))
     _recess_panel("RecessRoof", (rx, ry + 0.1, 0.71), (0.55, 0.65, 0.02))
 
+    # Gate-(c)'s terrace role is real Curves geometry, shared by both world
+    # variants so their HDRI/Sky A/B remains geometry-identical.
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.28, location=(-1.30, 0.15, 0.38),
+                                          segments=24, ring_count=12)
+    scalp = bpy.context.active_object
+    scalp.name = "TerraceScalp"
+    for poly in scalp.data.polygons:
+        poly.use_smooth = True
+    _apply_principled(bpy, scalp, (0.58, 0.46, 0.38), roughness=0.6, name="TerraceScalpMat")
+    curves = _build_hair_curves(bpy, scalp, 0.28, n_strands=320,
+                                points_per_strand=6, seed=278)
+    hair = bpy.data.objects.new("TerraceHair", curves)
+    bpy.context.scene.collection.objects.link(hair)
+    hmat = bpy.data.materials.new("TerraceHairMat")
+    hmat.use_nodes = True
+    hnt = hmat.node_tree
+    _clear_nodes(hnt)
+    hout = hnt.nodes.new("ShaderNodeOutputMaterial")
+    hair_bsdf = hnt.nodes.new("ShaderNodeBsdfHairPrincipled")
+    _sock(hair_bsdf.inputs, "Color").default_value = (0.15, 0.09, 0.05, 1.0)
+    _sock(hair_bsdf.inputs, "Roughness").default_value = 0.3
+    hnt.links.new(_sock(hair_bsdf.outputs, "BSDF"), _sock(hout.inputs, "Surface"))
+    hair.data.materials.append(hmat)
+
 
 def _world_sky_camera_and_crops(bpy, scene):
     CAM_DIST = 5.5
@@ -2435,6 +2459,20 @@ def build_world_sky_hdri_scene(bpy):
     scene["hdri_relpath"] = "//../assets/syferfontein_18d_clear_1k.hdr"
 
     crop_rects = _world_sky_camera_and_crops(bpy, scene)
+    scene["gate_c"] = {
+        "role": "world_sky:terrace-with-hair",
+        "rois": {
+            "terrace_hair": [0.2424, 0.28, 0.3485, 0.78],
+            "terrace_hair_background": [0.2424, 0.05, 0.3485, 0.26],
+            "terrace_hdri": [0.45, 0.04, 0.62, 0.22],
+        },
+        "non_vacuity": [
+            {"kind": "hair", "roi": "terrace_hair", "background_roi": "terrace_hair_background", "tolerance": 0.05, "min": 0.01},
+            {"kind": "hdri", "roi": "terrace_hdri", "min": 0.01},
+        ],
+        "expected_curve_count": 320,
+        "expected_curve_point_count": 1920,
+    }
     return scene, tags, crop_rects, gap_tags
 
 
@@ -3212,7 +3250,8 @@ def resolve_gate_c_roles(manifest_path=CORPUS_MANIFEST):
     roles = {}
     for role in GATE_C_ROLES:
         matches = [scene_id for scene_id, entry in scenes.items()
-                   if scene_id == role or entry.get("gate_c_role") == role]
+                   if scene_id == role or (isinstance(entry.get("gate_c"), dict)
+                                           and entry["gate_c"].get("role") == role)]
         if len(matches) != 1:
             raise ValueError(f"required gate-c role absent from corpus manifest: {role}")
         actual = matches[0]

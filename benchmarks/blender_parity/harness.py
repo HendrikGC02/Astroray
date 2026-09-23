@@ -534,6 +534,13 @@ def _gate_c_freeze(manifest_path: Path) -> dict[str, Any]:
                     or any(not isinstance(x, (int, float)) or isinstance(x, bool) or x < 0 or x > 1 for x in roi)
                     or roi[0] >= roi[2] or roi[1] >= roi[3]):
                 raise ValueError(f"gate-c role {role} has invalid ROI {name!r}")
+        if role == "world_sky:terrace-with-hair":
+            for key, census_key in (("expected_curve_count", "curve_count"),
+                                    ("expected_curve_point_count", "curve_point_count")):
+                expected = cfg.get(key)
+                if (not isinstance(expected, int) or isinstance(expected, bool)
+                        or entry.get(census_key) != expected):
+                    raise ValueError(f"gate-c terrace role has invalid {key}")
         frozen[role] = {"scene_id": entry["scene_id"] if "scene_id" in entry else role,
                         "blend_path": entry["blend_path"], "scene_sha256": entry["sha256"],
                         "assets": entry.get("assets", []), "settings": entry["settings"],
@@ -567,12 +574,12 @@ def _gate_c_probe(img, probe: Mapping[str, Any], rois: Mapping[str, Any]) -> dic
     return {"kind": kind, "value": value, "threshold": float(threshold), "ok": value > float(threshold)}
 
 
-def _run_gate_leg(blender: Path, args: list[str], env: dict[str, str], timeout: int) -> tuple[int, bool, str]:
+def _run_gate_leg(blender: Path, args: list[str], env: dict[str, str], timeout: int) -> tuple[int, bool, dict[str, Any]]:
     cmd = [str(blender), "--background", "--factory-startup", "--python", str(_RENDER_LEG), "--"] + args
     try:
         proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout, check=False)
     except subprocess.TimeoutExpired:
-        return 124, False, f"TIMEOUT after {timeout}s"
+        return 124, False, {"error": "timeout", "reason": f"TIMEOUT after {timeout}s"}
     output = (proc.stdout or "") + "\n" + (proc.stderr or "")
     reports = [line[len(f"{SENTINEL} REPORT "):] for line in output.splitlines()
                if line.startswith(f"{SENTINEL} REPORT ")]

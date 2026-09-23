@@ -2100,90 +2100,6 @@
       "category": "shader_node",
       "feature": "TEX_ENVIRONMENT",
       "socket_or_prop": "prop:projection"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "input:Vector"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:aerosol_density"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:air_density"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:altitude"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:ground_albedo"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:ozone_density"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:sky_type"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:sun_direction"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:sun_disc"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:sun_elevation"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:sun_intensity"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:sun_rotation"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:sun_size"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:turbidity"
     }
   ],
   "world_sky_sky": [
@@ -2212,40 +2128,10 @@
       "socket_or_prop": "prop:target"
     },
     {
-      "bl_idname": "ShaderNodeTexEnvironment",
-      "category": "shader_node",
-      "feature": "TEX_ENVIRONMENT",
-      "socket_or_prop": "input:Vector"
-    },
-    {
-      "bl_idname": "ShaderNodeTexEnvironment",
-      "category": "shader_node",
-      "feature": "TEX_ENVIRONMENT",
-      "socket_or_prop": "prop:interpolation"
-    },
-    {
-      "bl_idname": "ShaderNodeTexEnvironment",
-      "category": "shader_node",
-      "feature": "TEX_ENVIRONMENT",
-      "socket_or_prop": "prop:projection"
-    },
-    {
       "bl_idname": "ShaderNodeTexSky",
       "category": "shader_node",
       "feature": "TEX_SKY",
       "socket_or_prop": "input:Vector"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:aerosol_density"
-    },
-    {
-      "bl_idname": "ShaderNodeTexSky",
-      "category": "shader_node",
-      "feature": "TEX_SKY",
-      "socket_or_prop": "prop:air_density"
     },
     {
       "bl_idname": "ShaderNodeTexSky",

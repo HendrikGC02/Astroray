@@ -5,25 +5,62 @@ import json
 from pathlib import Path
 import hashlib
 import numpy as np
+import pytest
 
 from benchmarks.blender_parity import harness as H
 from benchmarks.blender_parity import scene_library as S
 
 
-def test_current_corpus_refuses_world_variants_as_terrace_hair():
-    try:
-        S.resolve_gate_c_roles()
-    except ValueError as exc:
-        assert "world_sky:terrace-with-hair" in str(exc)
-    else:
-        raise AssertionError("world_sky_hdri/world_sky_sky must not satisfy the terrace-hair role")
+def test_terrace_role_resolves_only_to_the_hdri_corpus_scene():
+    roles = S.resolve_gate_c_roles()
+    terrace = roles["world_sky:terrace-with-hair"]
+    assert terrace["scene_id"] == "world_sky_hdri"
+    assert terrace["gate_c"]["expected_curve_count"] == 320
+    assert terrace["gate_c"]["expected_curve_point_count"] == 1920
+    assert terrace["gate_c"]["rois"]["terrace_hair"] == [0.2424, 0.28, 0.3485, 0.78]
+    assert "gate_c" not in S.load_corpus_manifest()["world_sky_sky"]
 
 
 def test_gate_c_cli_writes_fail_closed_payload_without_blender(tmp_path):
     assert H.run_gate_c_trio(tmp_path) == 1
     payload = json.loads((tmp_path / "instrument.json").read_text(encoding="utf-8"))
     assert payload["records"] == []
-    assert "world_sky:terrace-with-hair" in payload["freeze_error"]
+    # The asset role is present, but the companion gallery/workshop metadata
+    # must still be supplied before a trio can launch.
+    assert "materials_hall lacks declared gate_c" in payload["freeze_error"]
+
+
+def test_duplicate_logical_terrace_role_is_rejected(tmp_path):
+    manifest = json.loads(S.CORPUS_MANIFEST.read_text(encoding="utf-8"))
+    manifest["scenes"]["world_sky_sky"]["gate_c"] = {
+        "role": "world_sky:terrace-with-hair"}
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="world_sky:terrace-with-hair"):
+        S.resolve_gate_c_roles(path)
+
+
+def test_terrace_freeze_requires_reopened_curves_census(monkeypatch, tmp_path):
+    roles = {role: {"scene_id": role, "blend_path": "x.blend", "sha256": "a" * 64,
+                    "assets": [], "settings": {"res_x": 16, "res_y": 16, "samples": 4},
+                    "gate_c": {"rois": {"all": [0, 0, 1, 1]},
+                               "non_vacuity": [{"kind": "checker", "roi": "all", "min": .01}]}}
+             for role in S.GATE_C_ROLES}
+    terrace = roles["world_sky:terrace-with-hair"]
+    terrace.update({"curve_count": 319, "curve_point_count": 1920})
+    terrace["gate_c"].update({"expected_curve_count": 320, "expected_curve_point_count": 1920})
+    monkeypatch.setattr(S, "resolve_gate_c_roles", lambda _: roles)
+    with pytest.raises(ValueError, match="expected_curve_count"):
+        H._gate_c_freeze(tmp_path / "manifest.json")
+
+
+def test_gate_leg_timeout_has_structured_missing_report(monkeypatch):
+    def timeout(*args, **kwargs):
+        raise H.subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+    monkeypatch.setattr(H.subprocess, "run", timeout)
+    code, sentinel, report = H._run_gate_leg(Path("blender"), [], {}, 7)
+    assert (code, sentinel) == (124, False)
+    assert report == {"error": "timeout", "reason": "TIMEOUT after 7s"}
 
 
 def test_manifest_duplicate_scene_id_is_rejected_before_render(tmp_path):

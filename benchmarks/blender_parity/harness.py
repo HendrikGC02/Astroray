@@ -553,7 +553,7 @@ def _gate_c_probe(img, probe: Mapping[str, Any], rois: Mapping[str, Any]) -> dic
     import numpy as np
     kind, roi_name = probe.get("kind"), probe.get("roi")
     roi = rois.get(roi_name)
-    if kind not in ("checker", "hdri", "hair") or not isinstance(roi, list):
+    if kind not in ("checker", "hdri", "hair", "luminance_std") or not isinstance(roi, list):
         return {"kind": kind, "ok": False, "error": "invalid declared probe"}
     patch = _resolve_roi(img, tuple(roi))
     if patch.size == 0 or not np.isfinite(patch).all():
@@ -561,7 +561,7 @@ def _gate_c_probe(img, probe: Mapping[str, Any], rois: Mapping[str, Any]) -> dic
     threshold = probe.get("min", 0.0)
     if not isinstance(threshold, (int, float)) or isinstance(threshold, bool):
         return {"kind": kind, "ok": False, "error": "invalid threshold"}
-    if kind == "checker":
+    if kind in ("checker", "luminance_std"):
         value = float(patch.mean(axis=-1).std())
     elif kind == "hdri":
         value = float(patch.mean())

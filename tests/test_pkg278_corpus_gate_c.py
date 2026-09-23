@@ -25,9 +25,16 @@ def test_gate_c_cli_writes_fail_closed_payload_without_blender(tmp_path):
     assert H.run_gate_c_trio(tmp_path) == 1
     payload = json.loads((tmp_path / "instrument.json").read_text(encoding="utf-8"))
     assert payload["records"] == []
-    # The asset role is present, but the companion gallery/workshop metadata
-    # must still be supplied before a trio can launch.
-    assert "materials_hall lacks declared gate_c" in payload["freeze_error"]
+    assert "requires an expected 64-hex module SHA-256" in payload["freeze_error"]
+
+
+def test_entire_trio_freezes_real_declared_metadata():
+    frozen = H._gate_c_freeze(S.CORPUS_MANIFEST)
+    assert set(frozen) == set(S.GATE_C_ROLES)
+    assert frozen["materials_hall"]["non_vacuity"][0]["kind"] == "luminance_std"
+    assert frozen["textures_mapping"]["rois"]["workshop_checker"] == [
+        0.2912, 0.3603, 0.4079, 0.4804]
+    assert frozen["world_sky:terrace-with-hair"]["scene_id"] == "world_sky_hdri"
 
 
 def test_duplicate_logical_terrace_role_is_rejected(tmp_path):

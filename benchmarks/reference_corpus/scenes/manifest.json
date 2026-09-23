@@ -4,7 +4,7 @@
       "family": "materials_hall",
       "builder_fn": "build_materials_hall_scene",
       "blend_path": "benchmarks/reference_corpus/scenes/materials_hall.blend",
-      "sha256": "8baa2d3ae91f2788ef7cd252c58b9f0c7b2706e6b438ce3bc18915b8ecb77d26",
+      "sha256": "11fe42032bc5b88f648a520784aab8bd552ad91f3df85acf25ce7e6b3d200a56",
       "settings": {
         "res_x": 960,
         "res_y": 176,
@@ -545,13 +545,30 @@
           0.9567,
           0.8
         ]
+      },
+      "gate_c": {
+        "rois": {
+          "gallery_principled": [
+            0.4233,
+            0.02,
+            0.6433,
+            0.8
+          ]
+        },
+        "non_vacuity": [
+          {
+            "kind": "luminance_std",
+            "roi": "gallery_principled",
+            "min": 0.02
+          }
+        ]
       }
     },
     "textures_mapping": {
       "family": "textures_mapping",
       "builder_fn": "build_textures_mapping_scene",
       "blend_path": "benchmarks/reference_corpus/scenes/textures_mapping.blend",
-      "sha256": "83897e6678a9b327d8dc2426020268e1aab21f7bfe4cad9fb8260c916f093988",
+      "sha256": "494b84f923cace271c6e48902d3edac3f70e502ef24c0c586dc1844a997ca02f",
       "settings": {
         "res_x": 960,
         "res_y": 540,
@@ -1517,6 +1534,23 @@
           0.7285,
           0.6141
         ]
+      },
+      "gate_c": {
+        "rois": {
+          "workshop_checker": [
+            0.2912,
+            0.3603,
+            0.4079,
+            0.4804
+          ]
+        },
+        "non_vacuity": [
+          {
+            "kind": "checker",
+            "roi": "workshop_checker",
+            "min": 0.05
+          }
+        ]
       }
     },
     "lighting_studio": {
@@ -1807,7 +1841,7 @@
       "family": "world_sky",
       "builder_fn": "build_world_sky_hdri_scene",
       "blend_path": "benchmarks/reference_corpus/scenes/world_sky_hdri.blend",
-      "sha256": "d78f0fd0d96230f122c3952fffbd02dd836f00cff8219dceafee23137c33cfbc",
+      "sha256": "9876e4a0f632f3f1546d14fc8264e06e035855482f232963497e937664895795",
       "settings": {
         "res_x": 480,
         "res_y": 270,
@@ -1955,7 +1989,7 @@
       "family": "world_sky",
       "builder_fn": "build_world_sky_sky_scene",
       "blend_path": "benchmarks/reference_corpus/scenes/world_sky_sky.blend",
-      "sha256": "4b92d8c1461f5132aa201f963968bd2970de839ab16480973f60c9d11fec84b7",
+      "sha256": "415edb5777fd956c8bfbd730e8b0717a085fec19f2b20ab6241afacc60bf7b66",
       "settings": {
         "res_x": 480,
         "res_y": 270,

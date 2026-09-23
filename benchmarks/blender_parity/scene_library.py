@@ -1519,6 +1519,12 @@ def build_materials_hall_scene(bpy):
     gap_tags.append(("ShaderNodeScript", "prop:mode"))
     crop("I")
 
+    # Gate-(c) gallery evidence is the Principled alcove itself: its several
+    # distinct closure demonstrations must retain visible luminance variation.
+    scene["gate_c"] = {
+        "rois": {"gallery_principled": crop_rects["D"]},
+        "non_vacuity": [{"kind": "luminance_std", "roi": "gallery_principled", "min": 0.02}],
+    }
     return scene, tags, crop_rects, gap_tags
 
 
@@ -2052,6 +2058,12 @@ def build_textures_mapping_scene(bpy):
     for sock in ("A[A_Vector]", "B[B_Vector]"):
         tag("ShaderNodeMix", f"input:{sock}")
 
+    # The workshop's non-vacuity proof is its real Checker Texture card, not
+    # a synthetic crop chosen after rendering.
+    scene["gate_c"] = {
+        "rois": {"workshop_checker": crop_rects["TexChecker"]},
+        "non_vacuity": [{"kind": "checker", "roi": "workshop_checker", "min": 0.05}],
+    }
     return scene, tags, crop_rects, gap_tags
 
 

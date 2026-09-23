@@ -10,7 +10,7 @@ baseline build `2e058c7+20260923T134350Z`; module SHA-256
 `2c4b8db88e219838e79aa4313ee7aa0c639bb8224fa1494da0ab353786f16461`.
 
 **All actual render results below are the native origin/main baseline, NOT a
-final candidate.** Evidence root: `C:/Users/hgcom/OneDrive/astra_run/`.
+final candidate.** Evidence root: `C:/Users/hgcom/OneDrive/Astroray/astra_run/`.
 
 ## Gate rows
 
@@ -29,7 +29,7 @@ final candidate.** Evidence root: `C:/Users/hgcom/OneDrive/astra_run/`.
   complete; the current 9-scene population is unratified, so no real coverage
   credit counts before #823 lands on origin/main. Fresh graph-only 9-scene run
   had no errors; V4 baseline freeze is diagnostic-only
-  (`astra_run/batchA-b-integrated-baseline-freeze-v4.json`).
+  (`batchA-b-integrated-baseline-freeze-v4.json`).
 - **(c) trio parity — still RUNNING.** Full-budget capture with frozen producer
   `4c3e5a46` in `batchA-c-full-baseline-4c3e5a46`. Do NOT claim completed. The
   low-4spp diagnostic CPU-checker witness PASSed / GPU checker FAILed (known

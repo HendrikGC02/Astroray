@@ -61,7 +61,7 @@ def _bootstrap_astroray_addon(repo_root: Path):
                 os.add_dll_directory(str(dll_dir))
             except (OSError, AttributeError):
                 pass
-    import astroray  # noqa: F401
+    import astroray
     print(f"[pkg119b-leg] astroray module: {astroray.__file__}", flush=True)
     import blender_addon
     try:
@@ -69,6 +69,7 @@ def _bootstrap_astroray_addon(repo_root: Path):
     except Exception as exc:  # noqa: BLE001
         if "already registered" not in str(exc):
             raise
+    return astroray, blender_addon
 
 
 def _configure_render(scene, engine, res, samples, device="gpu", res_y=None):
@@ -289,21 +290,44 @@ def main():
             print(f"{SENTINEL} PASS", flush=True)
             return
 
+        astroray = addon = None
         if args.engine == "CUSTOM_RAYTRACER":
-            _bootstrap_astroray_addon(repo_root)
+            astroray, addon = _bootstrap_astroray_addon(repo_root)
 
         _configure_render(scene, args.engine, args.res, args.samples, args.device,
                            res_y=args.res_y)
         out_stem = Path(args.out)
         out_stem.parent.mkdir(parents=True, exist_ok=True)
-        npy = _render_to_npy(bpy, scene, out_stem, args.res)
+        telemetry = []
+        engine_cls = getattr(addon, "CustomRaytracerRenderEngine", None) if addon else None
+        original_write = getattr(engine_cls, "write_pixels", None) if engine_cls else None
+        if original_write is not None:
+            def capture_write(self, *call_args, **call_kwargs):
+                renderer = call_kwargs.get("renderer")
+                if renderer is None and len(call_args) >= 5:
+                    renderer = call_args[4]
+                if renderer is not None:
+                    try: telemetry.append(dict(renderer.last_render_info() or {}))
+                    except Exception as exc: telemetry.append({"last_render_info_error": repr(exc)})
+                return original_write(self, *call_args, **call_kwargs)
+            engine_cls.write_pixels = capture_write
+        try:
+            npy = _render_to_npy(bpy, scene, out_stem, args.res)
+        finally:
+            if engine_cls is not None and original_write is not None:
+                engine_cls.write_pixels = original_write
         if corpus_entry is not None:
-            module = ""; module_sha = ""
+            module = ""; module_sha = ""; addon_path = ""; addon_sha = ""; observed_build = ""
             if args.engine == "CUSTOM_RAYTRACER":
-                import astroray
                 module = str(Path(astroray.__file__).resolve())
                 module_sha = hashlib.sha256(Path(module).read_bytes()).hexdigest()
-            print(f"{SENTINEL} REPORT {json.dumps({'corpus_scene': args.corpus_scene, 'blend_sha256': hashlib.sha256(Path(args.load_blend).read_bytes()).hexdigest(), 'freeze_sha256': args.gate_c_freeze_sha256, 'build_id': args.gate_c_build_id, 'requested_device': args.device, 'effective_device': getattr(scene.custom_raytracer, 'device_mode', ''), 'engine': args.engine, 'res_x': args.res, 'res_y': args.res_y or args.res, 'samples': args.samples, 'blender_version': bpy.app.version_string, 'module_path': module, 'module_sha256': module_sha})}", flush=True)
+                addon_path = str(Path(addon.__file__).resolve())
+                addon_sha = hashlib.sha256(Path(addon_path).read_bytes()).hexdigest()
+                observed_build = str(getattr(astroray, "__build__", ""))
+            devices = [info.get("device") for info in telemetry if isinstance(info, dict) and isinstance(info.get("device"), (int, float))]
+            effective_device = ("gpu" if devices and all(value >= 0 for value in devices) else
+                                ("cpu" if devices and all(value < 0 for value in devices) else ""))
+            print(f"{SENTINEL} REPORT {json.dumps({'corpus_scene': args.corpus_scene, 'blend_sha256': hashlib.sha256(Path(args.load_blend).read_bytes()).hexdigest(), 'freeze_sha256': args.gate_c_freeze_sha256, 'build_id': observed_build, 'requested_device': args.device, 'effective_device': effective_device, 'telemetry': telemetry, 'engine': str(scene.render.engine), 'res_x': int(scene.render.resolution_x), 'res_y': int(scene.render.resolution_y), 'samples': int(scene.cycles.samples), 'blender_version': bpy.app.version_string, 'module_path': module, 'module_sha256': module_sha, 'addon_path': addon_path, 'addon_sha256': addon_sha})}", flush=True)
         print(f"[pkg119b-leg] wrote {npy}", flush=True)
         print(f"{SENTINEL} PASS", flush=True)
     except Exception as exc:  # noqa: BLE001

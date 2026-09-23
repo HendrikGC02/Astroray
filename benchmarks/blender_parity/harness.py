@@ -634,7 +634,12 @@ def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
                 "settings": {**item["settings"], "gate_c_rois": item["rois"], "gate_c_probes": item["non_vacuity"]}, "non_vacuity": [], "rois": []}
             expected = {"corpus_scene": item["scene_id"], "blend_sha256": item["scene_sha256"], "freeze_sha256": freeze_sha,
                         "requested_device": backend.lower(), "effective_device": backend.lower(), "build_id": build_id, "module_sha256": module_sha256, "engine": "CUSTOM_RAYTRACER", "res_x": item["settings"]["res_x"], "res_y": item["settings"]["res_y"], "samples": item["settings"]["samples"]}
-            if npy.is_file() and code == 0 and sentinel and all(report.get(k) == v for k, v in expected.items()):
+            actual_identity = (isinstance(report.get("module_path"), str) and
+                               isinstance(report.get("addon_path"), str) and
+                               len(str(report.get("module_sha256") or "")) == 64 and
+                               len(str(report.get("addon_sha256") or "")) == 64 and
+                               isinstance(report.get("telemetry"), list))
+            if npy.is_file() and code == 0 and sentinel and actual_identity and all(report.get(k) == v for k, v in expected.items()):
                 _npy_to_png(npy, png, preserve_source=True)
                 if png.is_file():
                     record["linear_npy"] = _artifact_ref(npy, out_dir); record["image"] = _artifact_ref(png, out_dir); record["report_artifact"] = {"path": str((leg_dir / "report.json").relative_to(out_dir)).replace("\\", "/"), "sha256": ""}; (leg_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8"); record["report_artifact"]["sha256"] = _sha256(leg_dir / "report.json"); arrays[(role, backend)] = npy

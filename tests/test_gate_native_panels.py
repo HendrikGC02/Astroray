@@ -105,7 +105,8 @@ DECLARED_REGIONS = {
 }
 
 LEG_NAMES = ("adaptive_off", "adaptive_on", "denoise_off", "denoise_on", "reference")
-SAMPLE_COUNT_PASS_NAME = "Sample Count"
+SAMPLE_COUNT_PASS_NAME = "Debug Sample Count"
+SAMPLE_COUNT_UNITS = "normalized_to_max_samples"
 
 # Native settings whose resolved (engine-effective) value must equal the native
 # value for the native panel to be honoured.
@@ -713,6 +714,38 @@ def test_write_pixels_trace_observes_result_before_dynamic_rna_end_result():
     assert not hasattr(Engine, "end_result")
 
 
+def test_write_pixels_trace_retains_final_pre_end_result_pass_values():
+    """A begin-result zero snapshot must not replace the filled pass snapshot."""
+    import sys
+    captured = []
+
+    class Engine:
+        def end_result(self, _result):
+            return None
+
+        def write_pixels(self):
+            result = {"sample_count": [0, 0]}
+            result["sample_count"][:] = [17, 23]
+            self.end_result(result)
+
+    original_write = Engine.write_pixels
+    previous = sys.gettrace()
+
+    def trace(frame, event, _arg):
+        if event == "line" and frame.f_code is original_write.__code__:
+            result = frame.f_locals.get("result")
+            if result is not None:
+                captured[:] = [list(result["sample_count"])]
+        return trace
+
+    sys.settrace(trace)
+    try:
+        Engine().write_pixels()
+    finally:
+        sys.settrace(previous)
+    assert captured == [[17, 23]]
+
+
 # --------------------------------------------------------------------------- #
 # In-Blender leg script (host pytest NEVER imports bpy; this runs inside Blender)
 # --------------------------------------------------------------------------- #
@@ -876,6 +909,11 @@ def _render_leg(bpy, scene, out_dir, stem, engine_cls):
         def inspect_result(result):
             capture["result_seen"] = True
             try:
+                # Retain only the latest line snapshot.  The line event for
+                # self.end_result(result) occurs before native release, after
+                # write_pixels has filled every registered pass.
+                capture["passes"] = []
+                capture["sample_count"] = None
                 for layer in result.layers:
                     for render_pass in layer.passes:
                         name = str(getattr(render_pass, "name", ""))
@@ -891,10 +929,10 @@ def _render_leg(bpy, scene, out_dir, stem, engine_cls):
                 capture["reason"] = "trace result capture failed: %r" % (exc,)
 
         def trace(frame, event, _arg):
-            if frame.f_code is orig_write.__code__:
+            if frame.f_code is orig_write.__code__ and event == "line":
                 capture["trace_observed"] = True
                 result = frame.f_locals.get("result")
-                if result is not None and not capture["result_seen"]:
+                if result is not None:
                     inspect_result(result)
             return trace
 
@@ -1053,6 +1091,13 @@ def main():
         scene.cycles.samples = int(samples)
         scene.cycles.use_adaptive_sampling = bool(adaptive)
         scene.cycles.use_denoising = bool(denoise)
+        view_layer = bpy.context.view_layer
+        requested_sample_count_pass = False
+        try:
+            view_layer.cycles.pass_debug_sample_count = True
+            requested_sample_count_pass = bool(view_layer.cycles.pass_debug_sample_count)
+        except (AttributeError, TypeError):
+            requested_sample_count_pass = False
 
         resolved = addon.resolve_native_settings(scene)
         arr, exr_path, err, capture = _render_leg(
@@ -1100,15 +1145,20 @@ def main():
             "rendered": True,
             "error": None,
             "output_telemetry": capture["telemetry"],
+            "requested_sample_count_pass": requested_sample_count_pass,
         }
 
         if name in ("adaptive_off", "adaptive_on"):
             aov_info = {k: v for k, v in capture.items() if k != "sample_count"}
+            aov_info["requested"] = requested_sample_count_pass
+            aov_info["pass_name"] = "__SAMPLE_COUNT_PASS__"
+            aov_info["units"] = "__SAMPLE_COUNT_UNITS__"
+            aov_info["normalization_max_samples"] = int(scene.cycles.samples)
             sample = capture.get("sample_count")
             if sample is None:
                 aov_info["present"] = False
                 aov_info["reason"] = (aov_info.get("reason") if not capture["valid"]
-                                      else "exact sample-count pass not registered")
+                                      else "requested Debug Sample Count pass not registered")
             else:
                 channels = int(sample["channels"] or 0)
                 rect = np.asarray(sample["rect"], dtype=np.float32)
@@ -1164,7 +1214,8 @@ if __name__ == "__main__":
    .replace("__ADAPTIVE_BUDGET__", str(ADAPTIVE_BUDGET_SAMPLES)) \
    .replace("__DENOISE_SETTLE__", str(DENOISE_SETTLE_SAMPLES)) \
    .replace("__REFERENCE__", str(REFERENCE_SAMPLES)) \
-   .replace("__SAMPLE_COUNT_PASS__", SAMPLE_COUNT_PASS_NAME)
+   .replace("__SAMPLE_COUNT_PASS__", SAMPLE_COUNT_PASS_NAME) \
+   .replace("__SAMPLE_COUNT_UNITS__", SAMPLE_COUNT_UNITS)
 
 
 # --------------------------------------------------------------------------- #

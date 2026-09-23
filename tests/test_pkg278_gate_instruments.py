@@ -53,8 +53,8 @@ def test_scorer_self_test_passes():
 
 def test_synthetic_fixture_matches_hand_computed_weighted_score():
     fx = CR.synthetic_fixture()
-    cpu = CR.score_backend("CPU", fx["uses"], fx["matrix"], fx["evidence"], None)
-    gpu = CR.score_backend("GPU", fx["uses"], fx["matrix"], fx["evidence"], None)
+    cpu = CR.score_backend("CPU", fx["uses"], fx["matrix"], fx["evidence"], None, fixture_mode=True)
+    gpu = CR.score_backend("GPU", fx["uses"], fx["matrix"], fx["evidence"], None, fixture_mode=True)
     assert cpu.score == pytest.approx(5.0 / 7.0, abs=1e-12)
     assert gpu.score == pytest.approx(4.0 / 7.0, abs=1e-12)
     assert cpu.denominator == 7.0 and gpu.denominator == 7.0
@@ -64,7 +64,7 @@ def test_missing_evidence_scores_zero_never_raises():
     fx = CR.synthetic_fixture()
     u1 = CR.canonical_identity("ShaderNodeBsdfDiffuse", "input:Color")
     fx["evidence"][u1]["GPU"] = []
-    gpu = CR.score_backend("GPU", fx["uses"], fx["matrix"], fx["evidence"], None)
+    gpu = CR.score_backend("GPU", fx["uses"], fx["matrix"], fx["evidence"], None, fixture_mode=True)
     # U1 drops from 1.0 to 0 -> (3*0 + 2*0.5)/7 = 1/7
     assert gpu.score == pytest.approx(1.0 / 7.0, abs=1e-12)
 
@@ -72,7 +72,7 @@ def test_missing_evidence_scores_zero_never_raises():
 def test_hash_mismatch_invalidates_evidence():
     rec = {"variant": "S1", "behavior": "functioning", "warning": "",
            "content": "payload", "sha256": _sha("a different payload")}
-    ok, why = CR.evidence_is_valid(rec, None)
+    ok, why = CR.evidence_is_valid(rec, None, fixture_mode=True)
     assert not ok and "hash mismatch" in why
 
 
@@ -80,10 +80,43 @@ def test_evidence_path_hash_verified(tmp_path):
     artifact = tmp_path / "evidence.txt"
     artifact.write_text("rendered", encoding="utf-8")
     good = {"variant": "S1", "behavior": "functioning", "warning": "",
-            "path": "evidence.txt", "sha256": _sha("rendered")}
-    assert CR.evidence_is_valid(good, tmp_path)[0]
-    bad = dict(good, sha256=_sha("tampered"))
-    assert not CR.evidence_is_valid(bad, tmp_path)[0]
+            "artifact": {"path": "evidence.txt", "sha256": _sha("rendered")}}
+    assert CR.evidence_is_valid(good, tmp_path, fixture_mode=True)[0]
+    bad = dict(good, artifact={"path": "evidence.txt", "sha256": _sha("tampered")})
+    assert not CR.evidence_is_valid(bad, tmp_path, fixture_mode=True)[0]
+
+
+def test_inline_evidence_rejected_in_production_mode():
+    rec = {"scene_id": "S1", "variant": "S1", "backend": "CPU", "build_id": "b1",
+           "result_kind": "render", "behavior": "functioning", "warning": "",
+           "content": "payload", "sha256": _sha("payload")}
+    ok, why = CR.evidence_is_valid(rec, None, fixture_mode=False)
+    assert not ok and "requires a file artifact" in why
+
+
+def test_production_sidecar_requires_bindings(tmp_path):
+    artifact = tmp_path / "render.png"
+    artifact.write_bytes(b"\x89PNG\r\n\x1a\n")
+    digest = CR.sha256_file(artifact)
+    # Missing scene/variant/backend/build bindings -> invalid production evidence.
+    bare = {"artifact": {"path": "render.png", "sha256": digest}}
+    ok, why = CR.evidence_is_valid(bare, tmp_path, fixture_mode=False)
+    assert not ok and "missing bindings" in why
+
+    full = {"scene_id": "S1", "variant": "S1", "backend": "CPU", "build_id": "b1",
+            "result_kind": "render",
+            "artifact": {"path": "render.png", "sha256": digest}}
+    ok, why = CR.evidence_is_valid(full, tmp_path, fixture_mode=False)
+    assert ok, why
+
+
+def test_production_scoring_rejects_forged_inline_evidence():
+    key = CR.canonical_identity("N", "input:X")
+    inline = {"variant": "S1", "behavior": "functioning", "warning": "",
+              "content": "x", "sha256": _sha("x")}
+    score, reason = CR.score_use(key, {"S1"}, CR.SUPPORTED,
+                                 {key: {"CPU": [inline]}}, "CPU", None, fixture_mode=False)
+    assert score == 0.0 and "no hash-verified evidence" in reason
 
 
 def test_approximation_without_warning_scores_zero():
@@ -91,7 +124,7 @@ def test_approximation_without_warning_scores_zero():
     ev = {"variant": "S1", "behavior": "functioning", "warning": "",
           "content": "x", "sha256": _sha("x")}
     score, reason = CR.score_use(key, {"S1"}, CR.APPROXIMATED, {key: {"CPU": [ev]}},
-                                 "CPU", None)
+                                 "CPU", None, fixture_mode=True)
     assert score == 0.0 and "warning" in reason
 
 
@@ -99,7 +132,8 @@ def test_approximation_ignored_but_warned_scores_zero():
     key = CR.canonical_identity("N", "input:X")
     ev = {"variant": "S1", "behavior": "ignored", "warning": "dropped with a warning",
           "content": "x", "sha256": _sha("x")}
-    score, _ = CR.score_use(key, {"S1"}, CR.APPROXIMATED, {key: {"CPU": [ev]}}, "CPU", None)
+    score, _ = CR.score_use(key, {"S1"}, CR.APPROXIMATED, {key: {"CPU": [ev]}},
+                            "CPU", None, fixture_mode=True)
     assert score == 0.0
 
 
@@ -108,7 +142,7 @@ def test_evidence_must_cover_every_exercised_variant():
     ev = {"variant": "S1", "behavior": "functioning", "warning": "",
           "content": "x", "sha256": _sha("x")}
     score, reason = CR.score_use(key, {"S1", "S2"}, CR.SUPPORTED, {key: {"CPU": [ev]}},
-                                 "CPU", None)
+                                 "CPU", None, fixture_mode=True)
     assert score == 0.0 and "S2" in reason
 
 
@@ -121,15 +155,6 @@ def test_weight_capped_at_three_distinct_scenes():
     assert min(len(uses[key]), CR.WEIGHT_CAP) == 3
 
 
-def test_unreachable_nodes_not_counted():
-    uses = CR.extract_exercised_uses({
-        "S1": [{"bl_idname": "N", "sockets": ["input:X"], "reachable": True},
-               {"bl_idname": "N", "sockets": ["input:Y"], "reachable": False}],
-    })
-    assert CR.canonical_identity("N", "input:X") in uses
-    assert CR.canonical_identity("N", "input:Y") not in uses
-
-
 def test_silent_drops_reported_separately():
     uses = {CR.canonical_identity("N", "input:X"): {"S1"},
             CR.canonical_identity("M", "input:Y"): {"S1"}}
@@ -139,25 +164,296 @@ def test_silent_drops_reported_separately():
     assert drops == [CR.canonical_identity("M", "input:Y")]
 
 
-def _ratified_input_manifest(*, scanner: bool = True, ratified: bool = True,
-                             scene_count: int = 9) -> dict:
+# =========================================================================== #
+# Computed reachability (disconnected subtrees, group routing, mute)
+# =========================================================================== #
+
+def _mk_node(bl_idname, *, inputs=None, outputs=None, internal_links=None,
+             mute=False, is_group=False, group_tree=None, is_active_output=True):
+    return {
+        "name": bl_idname,
+        "bl_idname": bl_idname,
+        "mute": mute,
+        "is_group": is_group,
+        "group_tree": group_tree,
+        "is_active_output": is_active_output,
+        "inputs": inputs or {},
+        "outputs": outputs or {},
+        "internal_links": internal_links or [],
+    }
+
+
+def _mk_tree(kind, nodes, links):
+    return {"kind": kind, "nodes": {n["name"]: n for n in nodes}, "links": links}
+
+
+def test_reachability_excludes_disconnected_internally_wired_subtree():
+    trees = {
+        "material:M": _mk_tree("material", [
+            _mk_node("ShaderNodeOutputMaterial", inputs={"Surface": True}),
+            _mk_node("LinkedBSDF", inputs={"Base Color": False}, outputs={"BSDF": True}),
+            _mk_node("DisconnectedTex", inputs={"Vector": True}, outputs={"Color": False}),
+            _mk_node("DisconnectedSrc", outputs={"Generated": True}),
+        ], [
+            {"from_node": "LinkedBSDF", "from_socket": "BSDF",
+             "to_node": "ShaderNodeOutputMaterial", "to_socket": "Surface"},
+            {"from_node": "DisconnectedSrc", "from_socket": "Generated",
+             "to_node": "DisconnectedTex", "to_socket": "Vector"},
+        ]),
+    }
+    reachable, errors = CR.trace_reachable(trees)
+    assert not errors
+    assert ("material:M", "ShaderNodeOutputMaterial") in reachable
+    assert ("material:M", "LinkedBSDF") in reachable
+    assert ("material:M", "DisconnectedTex") not in reachable
+    assert ("material:M", "DisconnectedSrc") not in reachable
+
+
+def test_reachability_traverses_live_group_path_and_excludes_inner_disconnected():
+    trees = {
+        "material:M": _mk_tree("material", [
+            _mk_node("ShaderNodeOutputMaterial", inputs={"Surface": True}),
+            _mk_node("ShaderNodeGroup", is_group=True, group_tree="group:G",
+                     inputs={"Color": True}, outputs={"Shader": True}),
+            _mk_node("ShaderNodeTexImage", outputs={"Color": True}),
+        ], [
+            {"from_node": "ShaderNodeGroup", "from_socket": "Shader",
+             "to_node": "ShaderNodeOutputMaterial", "to_socket": "Surface"},
+            {"from_node": "ShaderNodeTexImage", "from_socket": "Color",
+             "to_node": "ShaderNodeGroup", "to_socket": "Color"},
+        ]),
+        "group:G": _mk_tree("group", [
+            _mk_node("NodeGroupInput", outputs={"Color": True, "Color2": False}),
+            _mk_node("NodeGroupOutput", inputs={"Shader": True}),
+            _mk_node("InnerBSDF", inputs={"Color": True}, outputs={"BSDF": True}),
+            _mk_node("DisconnectedInner", inputs={"Color": False}, outputs={"Emission": False}),
+        ], [
+            {"from_node": "NodeGroupInput", "from_socket": "Color",
+             "to_node": "InnerBSDF", "to_socket": "Color"},
+            {"from_node": "InnerBSDF", "from_socket": "BSDF",
+             "to_node": "NodeGroupOutput", "to_socket": "Shader"},
+        ]),
+    }
+    reachable, errors = CR.trace_reachable(trees)
+    assert not errors
+    for pair in [("material:M", "ShaderNodeOutputMaterial"), ("material:M", "ShaderNodeGroup"),
+                 ("material:M", "ShaderNodeTexImage"), ("group:G", "NodeGroupOutput"),
+                 ("group:G", "InnerBSDF"), ("group:G", "NodeGroupInput")]:
+        assert pair in reachable, pair
+    assert ("group:G", "DisconnectedInner") not in reachable
+
+
+def test_reachability_unresolvable_group_invalidates_collection():
+    trees = {
+        "material:M": _mk_tree("material", [
+            _mk_node("ShaderNodeOutputMaterial", inputs={"Surface": True}),
+            _mk_node("ShaderNodeGroup", is_group=True, group_tree="group:missing",
+                     inputs={}, outputs={"Shader": True}),
+        ], [
+            {"from_node": "ShaderNodeGroup", "from_socket": "Shader",
+             "to_node": "ShaderNodeOutputMaterial", "to_socket": "Surface"},
+        ]),
+    }
+    reachable, errors = CR.trace_reachable(trees)
+    assert errors  # missing group support must invalidate, never silently drop
+
+
+def test_reachability_muted_node_is_bypassed_but_still_reachable():
+    trees = {
+        "material:M": _mk_tree("material", [
+            _mk_node("ShaderNodeOutputMaterial", inputs={"Surface": True}),
+            _mk_node("ShaderNodeMixRGB", mute=True, inputs={"Fac": True, "Color1": True, "Color2": True},
+                     outputs={"Color": True}, internal_links=[("Color1", "Color")]),
+            _mk_node("ShaderNodeTexImage", outputs={"Color": True}),
+        ], [
+            {"from_node": "ShaderNodeMixRGB", "from_socket": "Color",
+             "to_node": "ShaderNodeOutputMaterial", "to_socket": "Surface"},
+            {"from_node": "ShaderNodeTexImage", "from_socket": "Color",
+             "to_node": "ShaderNodeMixRGB", "to_socket": "Color1"},
+        ]),
+    }
+    reachable, errors = CR.trace_reachable(trees)
+    assert not errors
+    assert ("material:M", "ShaderNodeMixRGB") in reachable
+    # internal link Color1 -> Color passes the signal through to TexImage.
+    assert ("material:M", "ShaderNodeTexImage") in reachable
+
+
+def test_exercised_sockets_enumerate_input_output_and_prop():
+    node = {
+        "bl_idname": "ShaderNodeMath",
+        "inputs": {"Value": True, "Value_001": True, "Value_002": False},
+        "outputs": {"Value": True},
+        "prop_variants": {"operation": "MULTIPLY"},
+        "op": "MULTIPLY",
+    }
+    sockets, fingerprint = CR.exercised_sockets_for(node)
+    assert "input:Value" in sockets and "input:Value_001" in sockets
+    assert "output:Value" in sockets
+    assert "prop:operation" in sockets
+    assert fingerprint["op"] == "MULTIPLY"
+    assert "input:Value_002" not in sockets
+
+
+def _find_blender() -> str | None:
+    import shutil
+    from pathlib import Path as _P
+    candidates = [
+        _P(r"C:/Program Files/Blender Foundation/Blender 5.2/blender.exe"),
+        _P(r"C:/Program Files/Blender Foundation/Blender 5.1/blender.exe"),
+        _P(r"C:/Program Files/Blender Foundation/Blender 4.3/blender.exe"),
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    found = shutil.which("blender")
+    return found or None
+
+
+def test_headless_blender_collector_reachability_fixture():
+    blender = _find_blender()
+    if blender is None:
+        pytest.skip("Blender not found; headless graph-only fixture skipped")
+    import subprocess
+    fixture = REPO_ROOT / "benchmarks" / "reference_corpus" / "gate_b_fixture.py"
+    result = subprocess.run(
+        [blender, "-b", "--factory-startup", "--python", str(fixture)],
+        capture_output=True, text=True, timeout=180, encoding="utf-8", errors="replace")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+# =========================================================================== #
+# Frozen input manifest (binding, integrity, mandatory scene coverage)
+# =========================================================================== #
+
+def _corpus_manifest(scenes: dict) -> dict:
+    return {"scenes": {sid: {"blend_path": f"benchmarks/reference_corpus/scenes/{sid}.blend",
+                             "sha256": sha}
+                       for sid, sha in scenes.items()}}
+
+
+def _freeze_and_verify(tmp_path, scene_ids):
+    """Build corpus .blend files + a collected snapshot, freeze, then verify.
+
+    Lays out the same repo-relative layout the production scorer expects
+    (``benchmarks/reference_corpus/scenes/...``) under ``tmp_path`` so the
+    frozen manifest's relative paths resolve against the repo root.
+    """
+    scenes_dir = tmp_path / "benchmarks" / "reference_corpus" / "scenes"
+    scenes_dir.mkdir(parents=True)
+    scene_hashes = {}
+    snapshot_scenes = {}
+    for sid in scene_ids:
+        blend = scenes_dir / f"{sid}.blend"
+        blend.write_bytes(f"blend-{sid}".encode())
+        scene_hashes[sid] = CR.sha256_file(blend)
+        snapshot_scenes[sid] = {"blend_path": f"benchmarks/reference_corpus/scenes/{sid}.blend",
+                                "scene_sha256": scene_hashes[sid],
+                                "collection_errors": [],
+                                "nodes": [{"bl_idname": "ShaderNodeBsdfDiffuse",
+                                           "sockets": ["input:Color"], "fingerprint": {}}]}
+    matrix = tmp_path / "coverage_matrix.json"
+    matrix.write_text(json.dumps([{"category": "shader_node", "feature": "BSDF_DIFFUSE",
+                                   "bl_idname": "ShaderNodeBsdfDiffuse",
+                                   "socket_or_prop": "input:Color",
+                                   "classification": CR.SUPPORTED}]), encoding="utf-8")
+    corpus = _corpus_manifest(scene_hashes)
+    corpus_file = scenes_dir / "manifest.json"
+    corpus_file.write_text(json.dumps(corpus), encoding="utf-8")
+    snapshot = {"schema": CR.NODE_USES_SCHEMA, "scenes": snapshot_scenes}
+    frozen, errors = CR.freeze_coverage_input(corpus, matrix, snapshot)
+    assert not errors, errors
+    ok, verify_errors, _ = CR.verify_frozen_input(frozen, tmp_path, snapshot)
+    assert ok, verify_errors
+    return frozen, snapshot, scene_hashes, matrix
+
+
+def test_freeze_and_verify_roundtrip(tmp_path):
+    frozen, snapshot, hashes, matrix = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
+    assert frozen["population"]["ratified"] is False
+    assert frozen["population"]["expected_scene_ids"] == ["S1", "S2", "S3"]
+    assert frozen["matrix"]["sha256"] == CR.sha256_file(matrix)
+    assert frozen["collector"]["snapshot_sha256"]
+
+
+def test_verify_rejects_missing_frozen_scene(tmp_path):
+    frozen, snapshot, hashes, _ = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
+    snapshot["scenes"].pop("S2")
+    ok, errors, _ = CR.verify_frozen_input(frozen, tmp_path, snapshot)
+    assert not ok and any("missing frozen scenes" in e for e in errors)
+
+
+def test_verify_rejects_changed_scene_bytes(tmp_path):
+    frozen, snapshot, hashes, _ = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
+    blend = tmp_path / "benchmarks" / "reference_corpus" / "scenes" / "S1.blend"
+    blend.write_bytes(b"tampered")
+    ok, errors, _ = CR.verify_frozen_input(frozen, tmp_path, snapshot)
+    assert not ok and any("bytes changed" in e for e in errors)
+
+
+def test_verify_rejects_snapshot_hash_mismatch(tmp_path):
+    frozen, snapshot, hashes, _ = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
+    snapshot["scenes"]["S1"]["nodes"].append({"bl_idname": "ShaderNodeEmission",
+                                              "sockets": ["input:Color"], "fingerprint": {}})
+    ok, errors, _ = CR.verify_frozen_input(frozen, tmp_path, snapshot)
+    assert not ok and any("snapshot hash" in e for e in errors)
+
+
+def test_verify_rejects_wrong_matrix_hash(tmp_path):
+    frozen, snapshot, hashes, matrix = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
+    matrix.write_text(json.dumps([]), encoding="utf-8")
+    ok, errors, _ = CR.verify_frozen_input(frozen, tmp_path, snapshot)
+    assert not ok and any("matrix hash" in e for e in errors)
+
+
+def test_freeze_rejects_unexpected_scene(tmp_path):
+    scenes_dir = tmp_path / "benchmarks" / "reference_corpus" / "scenes"
+    scenes_dir.mkdir(parents=True)
+    scene_hashes = {}
+    snapshot_scenes = {}
+    for sid in ("S1", "S2", "EXTRA"):
+        blend = scenes_dir / f"{sid}.blend"
+        blend.write_bytes(f"blend-{sid}".encode())
+        scene_hashes[sid] = CR.sha256_file(blend)
+        snapshot_scenes[sid] = {"blend_path": f"benchmarks/reference_corpus/scenes/{sid}.blend",
+                                "scene_sha256": scene_hashes[sid],
+                                "collection_errors": [], "nodes": []}
+    matrix = tmp_path / "coverage_matrix.json"
+    matrix.write_text("[]", encoding="utf-8")
+    corpus = _corpus_manifest({"S1": scene_hashes["S1"], "S2": scene_hashes["S2"]})
+    snapshot = {"schema": CR.NODE_USES_SCHEMA, "scenes": snapshot_scenes}
+    frozen, errors = CR.freeze_coverage_input(corpus, matrix, snapshot)
+    assert any("unexpected scenes" in e for e in errors)
+
+
+# =========================================================================== #
+# Report assembly (fixture mode + scanner/population gates)
+# =========================================================================== #
+
+def _fixture_frozen(*, ratified=True, scanner=True, scene_ids=("S1", "S2", "S3"),
+                    evidence_entries=None) -> dict:
     scanner_entry = {"integrated": True}
     if scanner:
         content = "issue-823-landed"
         scanner_entry.update({"content": content, "sha256": _sha(content)})
     return {
-        "population": {"scene_count": scene_count, "ratified": ratified},
+        "schema": CR.INPUT_MANIFEST_SCHEMA,
+        "version": 1,
+        "population": {"ratified": ratified,
+                       "ratification": {"owner": "test"} if ratified else None,
+                       "expected_scene_ids": list(scene_ids)},
         "scanner_issue_823": scanner_entry,
-        "evidence": {},
+        "evidence": {"mode": "fixture"},
+        "evidence_entries": evidence_entries or {},
     }
 
 
 def test_scanner_823_blocks_any_score():
     fx = CR.synthetic_fixture()
-    report = CR.build_report({"population": {"scene_count": 9, "ratified": False},
-                              "scanner_issue_823": {"integrated": False},
-                              "evidence": fx["evidence"]},
-                             {"S1": [], "S2": [], "S3": []}, [])
+    frozen = _fixture_frozen(ratified=False, scanner=False)
+    frozen["evidence_entries"] = fx["evidence"]
+    report = CR.build_report(frozen, {"scenes": {"S1": [], "S2": [], "S3": []}},
+                             [], None, fixture_mode=True)
     assert report["status"] == "unmeasured"
     assert report["blocked"] is True
     assert report["cpu"]["score"] is None and report["gpu"]["score"] is None
@@ -165,21 +461,18 @@ def test_scanner_823_blocks_any_score():
 
 def test_unratified_population_is_provisional_not_green():
     fx = CR.synthetic_fixture()
-    # Make all four uses fully supported on both backends so scores clear 0.95.
     u4 = CR.canonical_identity("ShaderNodeBsdfMetallic", "input:Base Color")
     for key in fx["evidence"]:
-        if not fx["evidence"][key]["GPU"]:
-            fx["evidence"][key]["GPU"] = [CR._inline_evidence(s)
-                                          for s in sorted(fx["uses"][key])]
-        if not fx["evidence"][key]["CPU"]:
-            fx["evidence"][key]["CPU"] = [CR._inline_evidence(s)
-                                          for s in sorted(fx["uses"][key])]
+        for backend in ("CPU", "GPU"):
+            if not fx["evidence"][key][backend]:
+                fx["evidence"][key][backend] = [CR._inline_evidence(s)
+                                                for s in sorted(fx["uses"][key])]
     assert u4 in fx["evidence"]
-    input_manifest = _ratified_input_manifest(ratified=False)
-    input_manifest["evidence"] = fx["evidence"]
-    node_trees = {s: [] for s in ("S1", "S2", "S3")}
-    # node_trees empty => no exercised uses; inject the fixture uses directly.
-    report = CR.build_report(input_manifest, node_trees, [])
+    scene_ids = tuple(f"S{i}" for i in range(9))  # nine-scene population
+    frozen = _fixture_frozen(ratified=False, scene_ids=scene_ids,
+                             evidence_entries=fx["evidence"])
+    report = CR.build_report(frozen, {"scenes": {s: [] for s in scene_ids}},
+                             [], None, fixture_mode=True)
     assert report["population"]["status"] == "provisional"
     assert report["population"]["gate_eligible"] is False
     assert report["status"] == "provisional"
@@ -188,14 +481,14 @@ def test_unratified_population_is_provisional_not_green():
 def test_backend_scores_are_separate_not_averaged():
     u1 = CR.canonical_identity("ShaderNodeBsdfDiffuse", "input:Color")
     ev = {u1: {"CPU": [CR._inline_evidence("S1")], "GPU": []}}
-    input_manifest = _ratified_input_manifest()
-    input_manifest["evidence"] = ev
-    # build_report extracts uses from node trees; feed a node tree that exercises U1.
+    frozen = _fixture_frozen(evidence_entries=ev)
     node_trees = {"S1": [{"bl_idname": "ShaderNodeBsdfDiffuse", "sockets": ["input:Color"]}]}
-    report = CR.build_report(input_manifest, node_trees, [{
-        "category": "shader_node", "feature": "BSDF_DIFFUSE",
-        "bl_idname": "ShaderNodeBsdfDiffuse", "socket_or_prop": "input:Color",
-        "classification": CR.SUPPORTED}])
+    report = CR.build_report(frozen, {"scenes": node_trees},
+                             [{"category": "shader_node", "feature": "BSDF_DIFFUSE",
+                               "bl_idname": "ShaderNodeBsdfDiffuse",
+                               "socket_or_prop": "input:Color",
+                               "classification": CR.SUPPORTED}],
+                             None, fixture_mode=True)
     assert report["cpu"]["score"] == pytest.approx(1.0)
     assert report["gpu"]["score"] == pytest.approx(0.0)
     assert report["status"] == "red"  # GPU fails 95 %; backends never averaged
@@ -204,9 +497,16 @@ def test_backend_scores_are_separate_not_averaged():
 
 
 def test_original_population_is_undefined():
-    report = CR.population_status({"population": {"scene_count": None, "ratified": False}})
+    report = CR.population_status({"population": {"ratified": False,
+                                                  "expected_scene_ids": []}})
     assert report["status"] == "undefined"
     assert report["original_population"]["status"] == "undefined"
+
+
+def test_production_build_report_requires_repo_root():
+    frozen = _fixture_frozen()
+    with pytest.raises(ValueError):
+        CR.build_report(frozen, {"scenes": {}}, [], None, fixture_mode=False)
 
 
 # =========================================================================== #

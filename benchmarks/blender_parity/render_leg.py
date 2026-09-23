@@ -193,6 +193,69 @@ def _object_and_node_report(bpy):
     }
 
 
+def _gate_c_control(bpy, scene, control):
+    """Apply exactly one declared, reversible gate-C negative control."""
+    kind = control.get("kind") if isinstance(control, dict) else ""
+    receipt = {"kind": kind, "ok": False}
+    if kind == "checker_flat":
+        mat = bpy.data.materials.get(control.get("material")); node = mat and mat.node_tree.nodes.get(control.get("node"))
+        if node is None or node.bl_idname != "ShaderNodeTexChecker":
+            raise ValueError("gate-c checker binding is absent or wrong type")
+        before = [list(node.inputs[n].default_value[:]) for n in ("Color1", "Color2")]
+        flat = tuple((before[0][i] + before[1][i]) / 2.0 for i in range(4))
+        node.inputs["Color1"].default_value = flat; node.inputs["Color2"].default_value = flat
+        receipt.update({"material": mat.name, "node": node.name, "before": before, "after": [list(flat), list(flat)], "ok": True})
+    elif kind == "hair_off":
+        obj = bpy.data.objects.get(control.get("object"))
+        if obj is None or obj.type != "CURVES": raise ValueError("gate-c hair binding is absent or wrong type")
+        receipt.update({"object": obj.name, "type": obj.type, "was_hide_render": bool(obj.hide_render), "ok": True})
+        obj.hide_render = True
+    elif kind == "hdri_off":
+        world = bpy.data.worlds.get(control.get("world")); node = world and world.node_tree.nodes.get(control.get("node"))
+        if node is None or node.bl_idname != "ShaderNodeTexEnvironment": raise ValueError("gate-c HDRI binding is absent or wrong type")
+        receipt.update({"world": world.name, "node": node.name, "image": getattr(node.image, "filepath", ""), "ok": bool(node.image)})
+        node.image = None
+    else: raise ValueError("unknown gate-c control")
+    return receipt
+
+
+def _gate_c_mask(bpy, scene, control, shape):
+    """Return a source-geometry-derived top-down mask, never an image crop."""
+    import numpy as np
+    h, w = shape; spec = control.get("mask", {}); kind = spec.get("kind")
+    mask = np.zeros((h, w), dtype=np.uint8)
+    if kind == "rect":
+        x0, y0, x1, y1 = spec["roi"]; mask[int(y0*h):int(y1*h), int(x0*w):int(x1*w)] = 255
+        return mask
+    obj = bpy.data.objects.get(control.get("object"))
+    if obj is None: raise ValueError("gate-c mask object absent")
+    from bpy_extras.object_utils import world_to_camera_view
+    def point(co):
+        v = world_to_camera_view(scene, scene.camera, obj.matrix_world @ co)
+        return (v.x*w, (1.0-v.y)*h)
+    if kind == "object_polygon":
+        pts = [point(v.co) for v in obj.data.vertices]
+        cx, cy = sum(p[0] for p in pts)/len(pts), sum(p[1] for p in pts)/len(pts); inset = float(spec.get("inset", 0.0))
+        pts = [(cx+(x-cx)*(1-inset), cy+(y-cy)*(1-inset)) for x,y in pts]
+        # Ray-crossing fill; plane vertices are the actual named card geometry.
+        yy, xx = np.mgrid[:h, :w]; inside = np.zeros((h,w), dtype=bool)
+        for (x0,y0),(x1,y1) in zip(pts, pts[1:]+pts[:1]):
+            inside ^= ((y0 > yy) != (y1 > yy)) & (xx < (x1-x0)*(yy-y0)/(y1-y0+1e-12)+x0)
+        mask[inside] = 255
+    elif kind == "curves":
+        radius = int(spec.get("radius_px", 1))
+        for curve in obj.data.curves:
+            pts = [point(p.position) for p in curve.points]
+            for (x0,y0),(x1,y1) in zip(pts, pts[1:]):
+                steps=max(1,int(max(abs(x1-x0),abs(y1-y0))*2))
+                for t in range(steps+1):
+                    x=int(round(x0+(x1-x0)*t/steps)); y=int(round(y0+(y1-y0)*t/steps))
+                    mask[max(0,y-radius):min(h,y+radius+1), max(0,x-radius):min(w,x+radius+1)] = 255
+    else: raise ValueError("unknown gate-c mask kind")
+    if not mask.any(): raise ValueError("gate-c geometry mask is empty")
+    return mask
+
+
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     p = argparse.ArgumentParser()
@@ -219,6 +282,8 @@ def main():
     p.add_argument("--gate-c-freeze", default="", help="hash-pinned gate-c freeze input")
     p.add_argument("--gate-c-freeze-sha256", default="")
     p.add_argument("--gate-c-build-id", default="")
+    p.add_argument("--gate-c-control", default="", help="declared gate-c negative control kind")
+    p.add_argument("--gate-c-mask-out", default="", help="write source-geometry gate-c mask here")
     p.add_argument("--report-only", action="store_true",
                    help="with --load-blend: print an object/node census as "
                         "JSON and exit, no render")
@@ -258,6 +323,22 @@ def main():
                 raise ValueError("--category/--feature are required unless --load-blend is given")
             scene = scene_library.build_scene(
                 bpy, args.category, args.feature, args.bl_idname, engine=args.engine)
+
+        control = None
+        if args.gate_c_control:
+            if not args.gate_c_freeze:
+                raise ValueError("gate-c control requires a frozen declaration")
+            role = next((v for v in freeze.get("roles", {}).values() if v.get("scene_id") == args.corpus_scene), None)
+            control = next((c for c in role.get("controls", []) if c.get("kind") == args.gate_c_control), None) if role else None
+            if control is None: raise ValueError("gate-c control is not declared for corpus scene")
+            # Mask before mutation/render; it binds the named original geometry.
+            if args.gate_c_mask_out:
+                import numpy as np
+                mask = _gate_c_mask(bpy, scene, control, (int(scene.render.resolution_y), int(scene.render.resolution_x)))
+                Path(args.gate_c_mask_out).parent.mkdir(parents=True, exist_ok=True); np.save(args.gate_c_mask_out, mask)
+            receipt = _gate_c_control(bpy, scene, control)
+        else:
+            receipt = {"kind": "baseline", "ok": True}
 
         if args.report_only:
             report = _object_and_node_report(bpy)
@@ -327,7 +408,7 @@ def main():
             devices = [info.get("device") for info in telemetry if isinstance(info, dict) and isinstance(info.get("device"), (int, float))]
             effective_device = ("gpu" if devices and all(value >= 0 for value in devices) else
                                 ("cpu" if devices and all(value < 0 for value in devices) else ""))
-            print(f"{SENTINEL} REPORT {json.dumps({'corpus_scene': args.corpus_scene, 'blend_sha256': hashlib.sha256(Path(args.load_blend).read_bytes()).hexdigest(), 'freeze_sha256': args.gate_c_freeze_sha256, 'build_id': observed_build, 'requested_device': args.device, 'effective_device': effective_device, 'telemetry': telemetry, 'engine': str(scene.render.engine), 'res_x': int(scene.render.resolution_x), 'res_y': int(scene.render.resolution_y), 'samples': int(scene.cycles.samples), 'blender_version': bpy.app.version_string, 'module_path': module, 'module_sha256': module_sha, 'addon_path': addon_path, 'addon_sha256': addon_sha})}", flush=True)
+            print(f"{SENTINEL} REPORT {json.dumps({'corpus_scene': args.corpus_scene, 'blend_sha256': hashlib.sha256(Path(args.load_blend).read_bytes()).hexdigest(), 'freeze_sha256': args.gate_c_freeze_sha256, 'build_id': observed_build, 'requested_device': args.device, 'effective_device': effective_device, 'telemetry': telemetry, 'engine': str(scene.render.engine), 'res_x': int(scene.render.resolution_x), 'res_y': int(scene.render.resolution_y), 'samples': int(scene.cycles.samples), 'blender_version': bpy.app.version_string, 'module_path': module, 'module_sha256': module_sha, 'addon_path': addon_path, 'addon_sha256': addon_sha, 'mutation_receipt': receipt, 'mask_path': args.gate_c_mask_out})}", flush=True)
         print(f"[pkg119b-leg] wrote {npy}", flush=True)
         print(f"{SENTINEL} PASS", flush=True)
     except Exception as exc:  # noqa: BLE001

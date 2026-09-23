@@ -568,7 +568,7 @@
       "family": "textures_mapping",
       "builder_fn": "build_textures_mapping_scene",
       "blend_path": "benchmarks/reference_corpus/scenes/textures_mapping.blend",
-      "sha256": "494b84f923cace271c6e48902d3edac3f70e502ef24c0c586dc1844a997ca02f",
+      "sha256": "bb5b5f2fcf2cddb78b94aed247bc82cb932ca73173ba274645f20d7792aa81eb",
       "settings": {
         "res_x": 960,
         "res_y": 540,
@@ -1548,7 +1548,20 @@
           {
             "kind": "checker",
             "roi": "workshop_checker",
-            "min": 0.05
+            "min_delta": 0.05,
+            "min_coverage": 0.02
+          }
+        ],
+        "controls": [
+          {
+            "kind": "checker_flat",
+            "material": "TexCheckerMat",
+            "node": "GateCWorkshopChecker",
+            "object": "TexChecker",
+            "mask": {
+              "kind": "object_polygon",
+              "inset": 0.16
+            }
           }
         ]
       }
@@ -1841,7 +1854,7 @@
       "family": "world_sky",
       "builder_fn": "build_world_sky_hdri_scene",
       "blend_path": "benchmarks/reference_corpus/scenes/world_sky_hdri.blend",
-      "sha256": "9876e4a0f632f3f1546d14fc8264e06e035855482f232963497e937664895795",
+      "sha256": "2cbd64a53fe2628445eb69b715503f3e6b1bfa289716dacfb97ec00d39c3d680",
       "settings": {
         "res_x": 480,
         "res_y": 270,
@@ -1971,14 +1984,38 @@
           {
             "kind": "hair",
             "roi": "terrace_hair",
-            "background_roi": "terrace_hair_background",
-            "tolerance": 0.05,
-            "min": 0.01
+            "min_delta": 0.05,
+            "min_coverage": 0.002
           },
           {
             "kind": "hdri",
             "roi": "terrace_hdri",
-            "min": 0.01
+            "min_delta": 0.03,
+            "min_coverage": 0.02
+          }
+        ],
+        "controls": [
+          {
+            "kind": "hair_off",
+            "object": "TerraceHair",
+            "mask": {
+              "kind": "curves",
+              "radius_px": 2
+            }
+          },
+          {
+            "kind": "hdri_off",
+            "world": "W",
+            "node": "GateCTerraceEnvironment",
+            "mask": {
+              "kind": "rect",
+              "roi": [
+                0.45,
+                0.04,
+                0.62,
+                0.22
+              ]
+            }
           }
         ],
         "expected_curve_count": 320,

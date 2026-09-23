@@ -542,10 +542,15 @@ def _gate_c_freeze(manifest_path: Path) -> dict[str, Any]:
                 if (not isinstance(expected, int) or isinstance(expected, bool)
                         or entry.get(census_key) != expected):
                     raise ValueError(f"gate-c terrace role has invalid {key}")
+        controls = cfg.get("controls", [])
+        if role != "materials_hall" and (not isinstance(controls, list) or not controls):
+            raise ValueError(f"gate-c role {role} lacks declared counterfactual controls")
+        if any(not isinstance(c, dict) or not isinstance(c.get("kind"), str) or not isinstance(c.get("mask"), dict) for c in controls):
+            raise ValueError(f"gate-c role {role} has invalid counterfactual controls")
         frozen[role] = {"scene_id": entry["scene_id"] if "scene_id" in entry else role,
                         "blend_path": entry["blend_path"], "scene_sha256": entry["sha256"],
                         "assets": entry.get("assets", []), "settings": entry["settings"],
-                        "rois": cfg["rois"], "non_vacuity": probes}
+                        "rois": cfg["rois"], "non_vacuity": probes, "controls": controls}
     return frozen
 
 
@@ -573,6 +578,21 @@ def _gate_c_probe(img, probe: Mapping[str, Any], rois: Mapping[str, Any]) -> dic
         reference = _resolve_roi(img, tuple(bg)).reshape(-1, 3).mean(axis=0)
         value = float((np.abs(patch - reference).sum(axis=-1) > float(probe.get("tolerance", .05))).mean())
     return {"kind": kind, "value": value, "threshold": float(threshold), "ok": value > float(threshold)}
+
+
+def _gate_c_paired_probe(baseline, control, mask, probe: Mapping[str, Any]) -> dict[str, Any]:
+    """Feature witness from a recorded negative control, never scene variance."""
+    import numpy as np
+    if baseline.shape != control.shape or mask.shape != baseline.shape[:2] or not np.isfinite(baseline).all() or not np.isfinite(control).all():
+        return {"kind": probe.get("kind"), "ok": False, "error": "paired image/mask shape or finite check failed"}
+    selected = mask.astype(bool)
+    if not selected.any(): return {"kind": probe.get("kind"), "ok": False, "error": "empty frozen feature mask"}
+    delta = np.abs(baseline - control).mean(axis=-1)[selected]
+    floor, coverage = float(probe.get("min_delta", 0.0)), float(probe.get("min_coverage", 0.0))
+    value, support = float(delta.mean()), float((delta > floor).mean())
+    return {"kind": probe.get("kind"), "value": value, "coverage": support,
+            "threshold": floor, "coverage_threshold": coverage,
+            "ok": value > floor and support > coverage}
 
 
 def _run_gate_leg(blender: Path, args: list[str], env: dict[str, str], timeout: int) -> tuple[int, bool, dict[str, Any]]:
@@ -626,17 +646,21 @@ def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
         return 2
     env = os.environ.copy(); pyd = _pyd_dir(_REPO_ROOT)
     if pyd: env["ASTRORAY_PYD_DIR"] = str(pyd)
-    arrays: dict[tuple[str, str], Path] = {}
+    arrays: dict[tuple[str, str, str], Path] = {}
+    masks: dict[tuple[str, str, str], Path] = {}
     for role, item in frozen.items():
         for backend in ("CPU", "GPU"):
-            leg_dir = out_dir / "legs" / f"{role.replace(':', '_')}_{backend.lower()}"; leg_dir.mkdir(parents=True, exist_ok=True)
+          for control in ([{"kind": "baseline"}] + item.get("controls", [])):
+            control_kind = control["kind"]
+            leg_dir = out_dir / "legs" / f"{role.replace(':', '_')}_{backend.lower()}_{control_kind}"; leg_dir.mkdir(parents=True, exist_ok=True)
             stem = leg_dir / "render"
             for stale in (stem.with_suffix(".npy"), stem.with_suffix(".png")): stale.unlink(missing_ok=True)
+            extra = [] if control_kind == "baseline" else ["--gate-c-control", control_kind, "--gate-c-mask-out", str(leg_dir / "feature_mask.npy")]
             code, sentinel, report = _run_gate_leg(blender, ["--corpus-manifest", str(manifest_path),
                 "--corpus-scene", item["scene_id"], "--engine", "CUSTOM_RAYTRACER", "--device", backend.lower(),
-                "--gate-c-freeze", str(freeze_path), "--gate-c-freeze-sha256", freeze_sha, "--gate-c-build-id", build_id, "--out", str(stem)], env, timeout)
+                "--gate-c-freeze", str(freeze_path), "--gate-c-freeze-sha256", freeze_sha, "--gate-c-build-id", build_id, "--out", str(stem)] + extra, env, timeout)
             npy, png = stem.with_suffix(".npy"), stem.with_suffix(".png")
-            record: dict[str, Any] = {"kind": "f12_run", "role": role, "scene_id": item["scene_id"],
+            record: dict[str, Any] = {"kind": "f12_run", "control": control_kind, "role": role, "scene_id": item["scene_id"],
                 "scene_sha256": item["scene_sha256"], "backend": backend, "build_id": build_id,
                 "exit_code": code, "sentinel": SENTINEL if sentinel else "", "leg_report": report,
                 "settings": {**item["settings"], "gate_c_rois": item["rois"], "gate_c_probes": item["non_vacuity"]}, "non_vacuity": [], "rois": []}
@@ -647,29 +671,38 @@ def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
                                len(str(report.get("module_sha256") or "")) == 64 and
                                len(str(report.get("addon_sha256") or "")) == 64 and
                                isinstance(report.get("telemetry"), list))
-            if npy.is_file() and code == 0 and sentinel and actual_identity and all(report.get(k) == v for k, v in expected.items()):
+            mask_path = leg_dir / "feature_mask.npy"
+            control_ok = control_kind == "baseline" or (isinstance(report.get("mutation_receipt"), dict) and report["mutation_receipt"].get("kind") == control_kind and report["mutation_receipt"].get("ok") is True and mask_path.is_file())
+            if npy.is_file() and code == 0 and sentinel and actual_identity and control_ok and all(report.get(k) == v for k, v in expected.items()):
                 _npy_to_png(npy, png, preserve_source=True)
                 if png.is_file():
                     record["linear_npy"] = _artifact_ref(npy, out_dir); record["image"] = _artifact_ref(png, out_dir); record["report_artifact"] = {"path": str((leg_dir / "report.json").relative_to(out_dir)).replace("\\", "/"), "sha256": ""}; (leg_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8"); record["report_artifact"]["sha256"] = _sha256(leg_dir / "report.json"); arrays[(role, backend)] = npy
+                    if control_kind != "baseline": record["feature_mask"] = _artifact_ref(mask_path, out_dir); masks[(role, backend, control_kind)] = mask_path
+                    arrays[(role, backend, control_kind)] = npy
             payload["records"].append(record)
             (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
     import numpy as np
     from benchmarks.reference_bank.metrics import compute_ssim
     from benchmarks.reference_bank.runner import compute_channel_mean_ratio
     for role, item in frozen.items():
-        cpu, gpu = arrays.get((role, "CPU")), arrays.get((role, "GPU"))
+        cpu, gpu = arrays.get((role, "CPU", "baseline")), arrays.get((role, "GPU", "baseline"))
         if not cpu or not gpu: continue
         a, b = np.load(gpu), np.load(cpu)
-        for record in [r for r in payload["records"] if r["role"] == role]:
-            img = np.load(arrays[(role, record["backend"])])
-            record["non_vacuity"] = [_gate_c_probe(img, probe, item["rois"]) for probe in item["non_vacuity"]]
+        for record in [r for r in payload["records"] if r["role"] == role and r.get("control") == "baseline"]:
+            backend = record["backend"]
+            paired = {c["kind"]: c for c in item["controls"]}
+            record["non_vacuity"] = []
+            for probe in item["non_vacuity"]:
+                kind = probe.get("kind"); control_kind = {"checker": "checker_flat", "hair": "hair_off", "hdri": "hdri_off"}.get(kind)
+                if control_kind in paired and (role, backend, control_kind) in arrays and (role, backend, control_kind) in masks:
+                    record["non_vacuity"].append(_gate_c_paired_probe(np.load(arrays[(role, backend, "baseline")]), np.load(arrays[(role, backend, control_kind)]), np.load(masks[(role, backend, control_kind)]), probe))
             for name, roi in item["rois"].items():
                 y0, y1, x0, x1 = int(roi[1]*a.shape[0]), int(roi[3]*a.shape[0]), int(roi[0]*a.shape[1]), int(roi[2]*a.shape[1])
                 ratio, channels = compute_channel_mean_ratio(a, b, (y0, y1, x0, x1))
                 ssim, _ = compute_ssim(a[y0:y1, x0:x1], b[y0:y1, x0:x1])
                 record["rois"].append({"name": name, "ratio": channels, "ratio_max": float(ratio), "ssim": float(ssim)})
     (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return 0 if len(arrays) == 6 else 1
+    return 0 if all((role, backend, "baseline") in arrays for role in frozen for backend in ("CPU", "GPU")) else 1
 
 
 def _run_leg(blender: Path, feat: Feature, engine: str, out_stem: Path,

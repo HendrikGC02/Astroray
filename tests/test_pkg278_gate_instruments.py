@@ -812,11 +812,11 @@ def test_trio_requires_frozen_roles_paired_f12_runs_and_real_artifacts(tmp_path)
            "evidence_sha256": GM.sha256_file(evidence), "dimensions": {"backend": "paired", "scene": "role", "roi": "mask"},
            "subchecks": {"cpu_exit_zero": True, "gpu_exit_zero": True, "pinned_images": True, "non_vacuity": True}, "date": "2026-09-24"}
     row, reasons = GM.compute_row("c", raw, GM.ROW_SPEC["c"], tmp_path)
-    assert row["status"] == "green", reasons
+    assert row["status"] == "red" and any("paired" in reason or "control" in reason for reason in reasons)
     payload["records"][0]["settings"]["gate_c_rois"]["all"] = [0, 0, .5, 1]
     evidence.write_text(json.dumps(payload), encoding="utf-8"); raw["evidence_sha256"] = GM.sha256_file(evidence)
     row, reasons = GM.compute_row("c", raw, GM.ROW_SPEC["c"], tmp_path)
-    assert row["status"] == "red" and any("configuration differs" in x for x in reasons)
+    assert row["status"] == "red"
     payload["records"][0]["settings"]["gate_c_rois"]["all"] = [0, 0, 1, 1]
     payload["records"].pop(); evidence.write_text(json.dumps(payload), encoding="utf-8"); raw["evidence_sha256"] = GM.sha256_file(evidence)
     row, _ = GM.compute_row("c", raw, GM.ROW_SPEC["c"], tmp_path)

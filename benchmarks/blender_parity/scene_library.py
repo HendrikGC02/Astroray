@@ -1815,9 +1815,10 @@ def build_textures_mapping_scene(bpy):
         # colour space at runtime.
         nt.links.new(_sock(src.outputs, "Color"), _sock(n.inputs, "Color"))
         n.mode = "RGB"
-    converter_card(1, 0, "TexChecker", "ShaderNodeTexChecker", cfg_checker,
-                   "ShaderNodeSeparateColor", cfg_separate, converter_out="Red",
-                   use_vector=True)
+    checker, _, _ = converter_card(1, 0, "TexChecker", "ShaderNodeTexChecker", cfg_checker,
+                                   "ShaderNodeSeparateColor", cfg_separate, converter_out="Red",
+                                   use_vector=True)
+    checker.name = "GateCWorkshopChecker"
     for sock in ("Color1", "Color2", "Scale"):
         tag("ShaderNodeTexChecker", f"input:{sock}")
     tag("ShaderNodeSeparateColor", "input:Color")
@@ -2062,7 +2063,8 @@ def build_textures_mapping_scene(bpy):
     # a synthetic crop chosen after rendering.
     scene["gate_c"] = {
         "rois": {"workshop_checker": crop_rects["TexChecker"]},
-        "non_vacuity": [{"kind": "checker", "roi": "workshop_checker", "min": 0.05}],
+        "non_vacuity": [{"kind": "checker", "roi": "workshop_checker", "min_delta": 0.05, "min_coverage": 0.02}],
+        "controls": [{"kind": "checker_flat", "material": "TexCheckerMat", "node": "GateCWorkshopChecker", "object": "TexChecker", "mask": {"kind": "object_polygon", "inset": 0.16}}],
     }
     return scene, tags, crop_rects, gap_tags
 
@@ -2453,6 +2455,7 @@ def build_world_sky_hdri_scene(bpy):
     wout = wnt.nodes.new("ShaderNodeOutputWorld")
     bg = wnt.nodes.new("ShaderNodeBackground")
     env = wnt.nodes.new("ShaderNodeTexEnvironment")
+    env.name = "GateCTerraceEnvironment"
     mapping = wnt.nodes.new("ShaderNodeMapping")
     texcoord = wnt.nodes.new("ShaderNodeTexCoord")
 

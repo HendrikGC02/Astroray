@@ -246,16 +246,19 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
 - [x] `coverage_report.py` + synthetic-fixture scorer validation.
 - [x] `harness.py` per-feature verdict export.
 - [x] `gate_manifest.py` + the manifest schema.
-- [ ] Gate (c) trio parity report.
-- [ ] Gate (d) native-panel smoke (CPU + GPU).
+- [x] Gate (c) trio parity report — baseline measured (valid RED); GREEN criterion not met.
+- [x] Gate (d) native-panel smoke (CPU + GPU) — candidate measured (valid RED); GREEN criterion not met.
 - [x] Gate (e) rubric + independent triage.
-- [ ] Gate (f) clean-machine evidence.
+- [ ] Gate (f) clean-machine evidence — unmeasured; eligible clean Windows host absent.
 - [x] Register the three scripts in `scripts/README.md`.
 - [ ] Absorb pkg259 Phase 4 residuals.
 
-Checkpoint 2026-09-24: instruments implemented and baseline-measured (rows A/D/E
-RED, B instrumented pending #823 + population ratification, C running, F
-unmeasured — clean host missing); see
+Checkpoint 2026-09-24: instruments implemented and measured. Measurements are
+complete for rows A/C/D/E (RED) and B (diagnostic only, no formal coverage
+credit); F is unmeasured (no clean host). Exit acceptance stays open: #823 is
+implemented and tested but not merged, the nine-scene population is unratified,
+and final Opus sign-off is received while CI is pending. This is partial
+exit-gate instrumentation delivery, not package completion. See
 `.astroray_plan/docs/batch-a-checkpoint-2026-09-24.md`. Package stays open.
 
 ---

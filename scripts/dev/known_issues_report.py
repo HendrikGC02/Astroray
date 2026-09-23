@@ -41,14 +41,21 @@ SEVERITY_RUBRIC = (
 # typed capture below, where every open issue is independently rated.
 GATE_E_SCHEMA = "pkg278.issue_snapshot.v2"
 RATINGS_SCHEMA = "pkg278.issue_ratings.v2"
-GATE_E_COMMAND = ["gh", "issue", "list", "--state", "open", "--limit", "1000",
-                  "--json", "number,title,body,labels,url,updatedAt"]
+GATE_E_REPO = "HendrikGC02/Astroray"
+GATE_E_FIELDS = "number,title,body,labels,url,updatedAt"
+GATE_E_COMMAND = ["gh", "issue", "list", "--repo", GATE_E_REPO, "--state", "open",
+                  "--limit", "1000", "--json", GATE_E_FIELDS]
 GATE_E_GRAPHQL_QUERY = "repository.issues(states:OPEN).totalCount"
 GATE_E_SEVERITIES = {"high", "medium", "low", "not-applicable"}
 
 
 def sha256_file(path: pathlib.Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def gate_e_command(limit: int) -> list[str]:
+    return ["gh", "issue", "list", "--repo", GATE_E_REPO, "--state", "open",
+            "--limit", str(limit), "--json", GATE_E_FIELDS]
 
 
 def _timestamp(value: Any) -> datetime:
@@ -68,7 +75,8 @@ def _issue_ids(issues: Any) -> list[int]:
             raise ValueError(f"issue #{issue.get('number')} lacks full content fields")
         if not isinstance(issue.get("labels"), list):
             raise ValueError(f"issue #{issue.get('number')} labels malformed")
-        _timestamp(issue["updatedAt"]); ids.append(issue["number"])
+        _timestamp(issue["updatedAt"])
+        ids.append(issue["number"])
     if len(ids) != len(set(ids)):
         raise ValueError("snapshot contains duplicate issue IDs")
     return ids
@@ -78,11 +86,17 @@ def parse_snapshot(path: pathlib.Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or data.get("schema") != GATE_E_SCHEMA:
         raise ValueError("unsupported gate-e snapshot schema")
-    if data.get("command") != GATE_E_COMMAND or data.get("graphql_total_query") != GATE_E_GRAPHQL_QUERY or data.get("reported_total") != len(data.get("issues", [])):
+    command = data.get("command")
+    if (data.get("repo") != GATE_E_REPO or not isinstance(command, list)
+            or not isinstance(data.get("capture_limit"), int)
+            or data["capture_limit"] < data.get("reported_total", 0)
+            or command != gate_e_command(data["capture_limit"])
+            or data.get("graphql_total_query") != GATE_E_GRAPHQL_QUERY
+            or data.get("reported_total") != len(data.get("issues", []))):
         raise ValueError("snapshot command or reported total is not canonical")
     ids = _issue_ids(data["issues"])
-    if data["reported_total"] >= 1000:
-        raise ValueError("snapshot hit the 1000-issue capture limit")
+    if data["reported_total"] >= data["capture_limit"]:
+        raise ValueError("snapshot hit its capture limit")
     _timestamp(data.get("captured_at"))
     return {"ids": ids, "content": data["issues"], "captured_at": data["captured_at"], "reported_total": data["reported_total"]}
 
@@ -115,7 +129,8 @@ def parse_ratings(path: pathlib.Path, snapshot_sha256: str, ids: list[int]) -> d
 def validate_gate_e_artifacts(baseline: pathlib.Path, recheck: pathlib.Path,
                               ratings: pathlib.Path) -> dict[str, Any]:
     """Strict pure reducer used by both collector and acceptance aggregator."""
-    first = parse_snapshot(baseline); second = parse_snapshot(recheck)
+    first = parse_snapshot(baseline)
+    second = parse_snapshot(recheck)
     if _timestamp(second["captured_at"]) <= _timestamp(first["captured_at"]):
         raise ValueError("recheck snapshot is not newer than baseline")
     if first["ids"] != second["ids"] or first["content"] != second["content"]:
@@ -133,18 +148,32 @@ def _run(cmd: list[str]) -> str:
     return subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=ROOT).stdout
 
 
-def _live_snapshot() -> dict[str, Any]:
-    issues = json.loads(_run(GATE_E_COMMAND) or "[]")
-    repo = json.loads(_run(["gh", "repo", "view", "--json", "nameWithOwner"]))["nameWithOwner"].split("/", 1)
+def _reported_total() -> int:
     query = "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN,first:1){totalCount}}}"
-    total = json.loads(_run(["gh", "api", "graphql", "-f", f"query={query}", "-F", f"owner={repo[0]}", "-F", f"name={repo[1]}"]))["data"]["repository"]["issues"]["totalCount"]
-    if total >= 1000:
-        raise RuntimeError("gate-e capture refuses a 1000-issue-truncated snapshot")
-    if total != len(issues):
-        raise RuntimeError(f"GraphQL total {total} disagrees with issue-list count {len(issues)}")
+    owner, name = GATE_E_REPO.split("/", 1)
+    result = json.loads(_run(["gh", "api", "graphql", "-f", f"query={query}", "-F", f"owner={owner}", "-F", f"name={name}"]))
+    total = result["data"]["repository"]["issues"]["totalCount"]
+    if isinstance(total, bool) or not isinstance(total, int) or total < 0:
+        raise RuntimeError("GraphQL totalCount malformed")
+    return total
+
+
+def _live_snapshot() -> dict[str, Any]:
+    """Read a complete all-open-issues snapshot, retrying once if it changes."""
+    for _ in range(2):
+        reported = _reported_total()
+        limit = max(1000, reported + 1)
+        command = gate_e_command(limit)
+        issues = json.loads(_run(command) or "[]")
+        confirmed = _reported_total()
+        if reported == confirmed == len(issues):
+            break
+    else:
+        raise RuntimeError("live issue count changed during bounded capture retry")
     return {"schema": GATE_E_SCHEMA, "captured_at": datetime.now(timezone.utc).isoformat(),
-            "command": GATE_E_COMMAND, "graphql_total_query": GATE_E_GRAPHQL_QUERY,
-            "reported_total": total, "issues": issues}
+            "repo": GATE_E_REPO, "command": command, "capture_limit": limit,
+            "graphql_total_query": GATE_E_GRAPHQL_QUERY, "reported_total": reported,
+            "issues": issues}
 
 
 def fetch(label: str, state: str) -> list[dict]:
@@ -195,20 +224,37 @@ def render() -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", action="store_true", help="exit 1 if KNOWN_ISSUES.md differs (ignoring the timestamp line)")
-    ap.add_argument("--capture-gate-e", action="store_true", help="capture typed live gate-(e) evidence; read-only GitHub access")
+    ap.add_argument("--capture-gate-e", action="store_true", help="capture an immutable typed gate-(e) baseline; read-only GitHub access")
+    ap.add_argument("--finalize-gate-e", action="store_true", help="validate ratings against an existing baseline, capture recheck, and assemble instrument")
     ap.add_argument("--ratings", type=pathlib.Path, help="independent pkg278.issue_ratings.v2 JSON linked to the baseline SHA")
     ap.add_argument("--evidence-dir", type=pathlib.Path, default=ROOT / "docs" / "blender_parity" / "evidence" / "e")
     args = ap.parse_args()
-    if args.capture_gate_e:
-        if args.check or args.ratings is None:
-            ap.error("--capture-gate-e requires --ratings and cannot be combined with --check")
-        out = args.evidence_dir; out.mkdir(parents=True, exist_ok=True)
-        baseline = out / "issues-baseline.json"; baseline.write_text(json.dumps(_live_snapshot(), indent=2), encoding="utf-8")
-        ratings = out / "issue-ratings.json"; ratings.write_bytes(args.ratings.read_bytes())
-        # Validate before the fresh query so malformed independent input cannot
-        # produce a partially assembled instrument.
-        parse_ratings(ratings, sha256_file(baseline), parse_snapshot(baseline)["ids"])
-        recheck = out / "issues-recheck.json"; recheck.write_text(json.dumps(_live_snapshot(), indent=2), encoding="utf-8")
+    if args.capture_gate_e or args.finalize_gate_e:
+        if args.check or (args.capture_gate_e and args.finalize_gate_e):
+            ap.error("choose exactly one gate-e phase and do not combine it with --check")
+        out = args.evidence_dir
+        baseline = out / "issues-baseline.json"
+        if args.capture_gate_e:
+            if args.ratings is not None:
+                ap.error("--capture-gate-e does not accept ratings; review the written baseline first")
+            if baseline.exists():
+                ap.error(f"immutable baseline already exists: {baseline}")
+            out.mkdir(parents=True, exist_ok=True)
+            baseline.write_text(json.dumps(_live_snapshot(), indent=2), encoding="utf-8")
+            print(baseline)
+            return 0
+        if args.ratings is None or not baseline.is_file():
+            ap.error("--finalize-gate-e requires --ratings and an existing issues-baseline.json")
+        # The review is linked to the already captured immutable baseline. Do
+        # this before the fresh recheck; it never writes that baseline again.
+        baseline_info = parse_snapshot(baseline)
+        parse_ratings(args.ratings, sha256_file(baseline), baseline_info["ids"])
+        ratings = out / "issue-ratings.json"
+        ratings.write_bytes(args.ratings.read_bytes())
+        recheck = out / "issues-recheck.json"
+        if recheck.exists():
+            ap.error(f"remove stale finalize output before retrying: {recheck}")
+        recheck.write_text(json.dumps(_live_snapshot(), indent=2), encoding="utf-8")
         reduced = validate_gate_e_artifacts(baseline, recheck, ratings)
         ref = lambda p: {"path": p.name, "sha256": sha256_file(p)}
         payload = {"schema": "pkg278.instrument.v2", "row": "e", "instrument": "issue_triage",

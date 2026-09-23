@@ -198,8 +198,27 @@ def reachable_to_output(node):
 
 map_node = next(n for n in bpy.data.materials['TexWaveBandsMat'].node_tree.nodes
                 if n.bl_idname == 'ShaderNodeMapRange')
-rotate_node = next(n for n in bpy.data.materials['TexImageMat'].node_tree.nodes
+vector_nt = bpy.data.materials['VectorOpsCardMat'].node_tree
+rotate_node = next(n for n in vector_nt.nodes
                    if n.bl_idname == 'ShaderNodeVectorRotate')
+vmath_node = next(n for n in vector_nt.nodes
+                  if n.bl_idname == 'ShaderNodeVectorMath')
+mix_node = next(n for n in vector_nt.nodes
+                if n.bl_idname == 'ShaderNodeMix')
+image_node = next(n for n in vector_nt.nodes
+                  if n.bl_idname == 'ShaderNodeTexImage')
+mapping_node = next(n for n in vector_nt.nodes
+                    if n.bl_idname == 'ShaderNodeMapping')
+
+def linked_from(socket, bl_idname):
+    return bool(socket.is_linked and socket.links[0].from_node.bl_idname == bl_idname)
+
+def enabled_input(node, name):
+    return next(s for s in node.inputs if s.name == name and s.enabled)
+
+mix_factor = enabled_input(mix_node, 'Factor')
+mix_a = enabled_input(mix_node, 'A')
+mix_b = enabled_input(mix_node, 'B')
 crop_ok = {{}}
 for name, rect in {json.dumps(entry['crops'])}.items():
     obj = bpy.data.objects[name]
@@ -215,7 +234,15 @@ print('PKG823_PROOF ' + json.dumps({{
     'map_value_linked': bool(map_node.inputs['Value'].is_linked),
     'map_reaches_output': reachable_to_output(map_node),
     'rotate_center': list(rotate_node.inputs['Center'].default_value),
-    'rotate_vector_linked': bool(rotate_node.inputs['Vector'].is_linked),
+    'rotate_vector_from_image': linked_from(rotate_node.inputs['Vector'], 'ShaderNodeTexImage'),
+    'vmath_vector_from_rotate': linked_from(vmath_node.inputs['Vector'], 'ShaderNodeVectorRotate'),
+    'mix_data_type': mix_node.data_type,
+    'mix_factor_mode': mix_node.factor_mode,
+    'mix_factor': mix_factor.default_value,
+    'mix_a_from_vmath': linked_from(mix_a, 'ShaderNodeVectorMath'),
+    'mix_b': list(mix_b.default_value),
+    'image_vector_from_mapping': linked_from(image_node.inputs['Vector'], 'ShaderNodeMapping'),
+    'mapping_vector_from_texcoord': linked_from(mapping_node.inputs['Vector'], 'ShaderNodeTexCoord'),
     'rotate_reaches_output': reachable_to_output(rotate_node),
     'crop_ok': crop_ok,
 }}))
@@ -232,7 +259,14 @@ print('PKG823_PROOF ' + json.dumps({{
     assert proof["map_from_max"] != 1.0
     assert proof["map_value_linked"] and proof["map_reaches_output"]
     assert proof["rotate_center"] != [0.0, 0.0, 0.0]
-    assert proof["rotate_vector_linked"] and proof["rotate_reaches_output"]
+    assert proof["rotate_vector_from_image"] and proof["vmath_vector_from_rotate"]
+    assert proof["mix_data_type"] == "VECTOR"
+    assert proof["mix_factor_mode"] == "UNIFORM"
+    assert proof["mix_factor"] != 0.5
+    assert proof["mix_a_from_vmath"]
+    assert proof["mix_b"] != [0.0, 0.0, 0.0]
+    assert proof["image_vector_from_mapping"] and proof["mapping_vector_from_texcoord"]
+    assert proof["rotate_reaches_output"]
     assert all(proof["crop_ok"].values()), proof["crop_ok"]
 
 

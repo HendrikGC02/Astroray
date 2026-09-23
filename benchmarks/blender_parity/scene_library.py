@@ -1535,7 +1535,7 @@ REFERENCE_MATERIALS_HALL_SAMPLES = 256
 # --------------------------------------------------------------------------- #
 
 def build_textures_mapping_scene(bpy):
-    """A printmaker's workshop: a hero print table plus 19 small independent
+    """A printmaker's workshop: a hero print table plus 20 small independent
     proof cards, each ``<node> -> Emission -> Output`` (bump/normal/displacement
     instead go on a small sphere, since they need curvature to read) so texture
     legibility is never confounded by BSDF fidelity, under one raking area
@@ -1546,10 +1546,9 @@ def build_textures_mapping_scene(bpy):
     new -- every Mapping row is DROPPED-SILENT in the current matrix).
 
     #823: the op-VM converter nodes (Math, Map Range, Clamp, Separate/Combine
-    Color, Vector Math, Vector Rotate, Mix) are chained into existing proof
-    cards via ``converter_card`` rather than given new cards, so each
-    reclassified socket is genuinely wired into a rendered card without
-    disturbing the committed grid/crops."""
+    Color, Vector Math, Vector Rotate, Mix) are wired through visible proof
+    cards, including a post-image vector program card for the CPU op-VM route.
+    """
     scene = _reset(bpy)
     # Crop rectangles are consumed as top-down PIL coordinates by
     # report_tools.crop_image. Set the final corpus aspect before projecting
@@ -1860,38 +1859,15 @@ def build_textures_mapping_scene(bpy):
     coord = nt.nodes.new("ShaderNodeTexCoord")
     mapping = nt.nodes.new("ShaderNodeMapping")
     _sock(mapping.inputs, "Scale").default_value = (2.0, 2.0, 2.0)
-    # #823: Vector Rotate / Vector Math / VECTOR Mix
-    # sit on the image's coordinate chain, so each reclassified converter is
-    # genuinely wired into the render path (not a label for an absent node).
-    vrot = nt.nodes.new("ShaderNodeVectorRotate")
-    vrot.rotation_type = "AXIS_ANGLE"
-    _sock(vrot.inputs, "Center").default_value = (0.18, -0.12, 0.0)
-    _sock(vrot.inputs, "Axis").default_value = (0.0, 0.0, 1.0)
-    _sock(vrot.inputs, "Angle").default_value = 0.4
-    vmath = nt.nodes.new("ShaderNodeVectorMath")
-    vmath.operation = "SCALE"
-    _sock(vmath.inputs, "Scale").default_value = 0.5
-    vmix = nt.nodes.new("ShaderNodeMix")
-    vmix.data_type = "VECTOR"
-    _enabled(vmix.inputs, "Factor").default_value = 0.5
-    _enabled(vmix.inputs, "B").default_value = (0.2, 0.2, 0.2)
     img = nt.nodes.new("ShaderNodeTexImage")
     img.image = stripe_img
     nt.links.new(_sock(coord.outputs, "Generated"), _sock(mapping.inputs, "Vector"))
-    nt.links.new(_sock(mapping.outputs, "Vector"), _sock(vrot.inputs, "Vector"))
-    nt.links.new(_sock(vrot.outputs, "Vector"), _sock(vmath.inputs, "Vector"))
-    nt.links.new(_sock(vmath.outputs, "Vector"), _enabled(vmix.inputs, "A"))
-    nt.links.new(next(s for s in vmix.outputs if s.enabled), _sock(img.inputs, "Vector"))
+    nt.links.new(_sock(mapping.outputs, "Vector"), _sock(img.inputs, "Vector"))
     nt.links.new(_sock(img.outputs, "Color"), _sock(emit.inputs, "Color"))
     plane.data.materials.append(mat)
     crop_for("TexImage", plane)
     tag("ShaderNodeTexImage", "input:Vector")
-    tag("ShaderNodeVectorRotate", "input:Vector")
-    tag("ShaderNodeVectorRotate", "input:Center")
-    tag("ShaderNodeVectorMath", "input:Vector")
     for sock in ("Factor[Factor_Float]", "A[A_Color]", "B[B_Color]"):
-        tag("ShaderNodeMix", f"input:{sock}")
-    for sock in ("A[A_Vector]", "B[B_Vector]"):
         tag("ShaderNodeMix", f"input:{sock}")
 
     normal_img = bpy.data.images.new("WorkshopNormal", width=16, height=16, float_buffer=True)
@@ -2025,6 +2001,44 @@ def build_textures_mapping_scene(bpy):
     tag("ShaderNodeMixRGB", "prop:blend_type")
     tag("ShaderNodeMixRGB", "input:Color1")
     tag("ShaderNodeMixRGB", "input:Color2")
+
+    # #823: keep image coordinates on the supported TexCoord/Mapping route.
+    # The vector operators are downstream of a loadable image leaf, so this
+    # card exercises shader_vm_compiler rather than the coordinate resolver.
+    x, y = grid[(3, 4)]
+    plane = _flat_card(x, y, Z, 0.85, "VectorOpsCard")
+    mat, nt, emit, out = _emission_card_material(bpy, "VectorOpsCardMat")
+    coord = nt.nodes.new("ShaderNodeTexCoord")
+    mapping = nt.nodes.new("ShaderNodeMapping")
+    _sock(mapping.inputs, "Scale").default_value = (1.6, 1.6, 1.0)
+    img = nt.nodes.new("ShaderNodeTexImage")
+    img.image = stripe_img
+    vrot = nt.nodes.new("ShaderNodeVectorRotate")
+    vrot.rotation_type = "AXIS_ANGLE"
+    _sock(vrot.inputs, "Center").default_value = (0.18, -0.12, 0.0)
+    _sock(vrot.inputs, "Axis").default_value = (0.0, 0.0, 1.0)
+    _sock(vrot.inputs, "Angle").default_value = 0.4
+    vmath = nt.nodes.new("ShaderNodeVectorMath")
+    vmath.operation = "SCALE"
+    _sock(vmath.inputs, "Scale").default_value = 0.65
+    vmix = nt.nodes.new("ShaderNodeMix")
+    vmix.data_type = "VECTOR"
+    vmix.factor_mode = "UNIFORM"
+    _enabled(vmix.inputs, "Factor").default_value = 0.35
+    _enabled(vmix.inputs, "B").default_value = (0.12, 0.46, 0.78)
+    nt.links.new(_sock(coord.outputs, "Generated"), _sock(mapping.inputs, "Vector"))
+    nt.links.new(_sock(mapping.outputs, "Vector"), _sock(img.inputs, "Vector"))
+    nt.links.new(_sock(img.outputs, "Color"), _sock(vrot.inputs, "Vector"))
+    nt.links.new(_sock(vrot.outputs, "Vector"), _sock(vmath.inputs, "Vector"))
+    nt.links.new(_sock(vmath.outputs, "Vector"), _enabled(vmix.inputs, "A"))
+    nt.links.new(next(s for s in vmix.outputs if s.enabled), _sock(emit.inputs, "Color"))
+    plane.data.materials.append(mat)
+    crop_for("VectorOpsCard", plane)
+    tag("ShaderNodeVectorRotate", "input:Vector")
+    tag("ShaderNodeVectorRotate", "input:Center")
+    tag("ShaderNodeVectorMath", "input:Vector")
+    for sock in ("A[A_Vector]", "B[B_Vector]"):
+        tag("ShaderNodeMix", f"input:{sock}")
 
     return scene, tags, crop_rects, gap_tags
 

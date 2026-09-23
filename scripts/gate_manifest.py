@@ -838,16 +838,10 @@ def _check_common(row: Mapping[str, Any], spec: Mapping[str, Any],
 
 def _check_scanner_823(row: Mapping[str, Any], repo_root: Path) -> tuple[bool, str]:
     entry = row.get("scanner_issue_823")
-    if not isinstance(entry, Mapping) or entry.get("integrated") is not True:
-        return False, "scanner issue #823 not integrated"
-    path = entry.get("evidence_path")
-    recorded = str(entry.get("evidence_sha256") or "").lower()
-    if not path or not _HEX64.match(recorded):
-        return False, "#823 evidence not hash-pinned"
-    p = _resolve(repo_root, str(path))
-    if not p.is_file() or sha256_file(p) != recorded:
-        return False, "#823 evidence hash mismatch"
-    return True, ""
+    try:
+        return _coverage_reducer().verify_scanner_integration_proof(entry, repo_root)
+    except (ImportError, OSError, ValueError):
+        return False, "scanner integration verifier unavailable"
 
 
 def compute_row(rid: str, raw: Mapping[str, Any] | None, spec: Mapping[str, Any],

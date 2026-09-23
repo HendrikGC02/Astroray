@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -644,6 +645,117 @@ def test_freeze_and_verify_roundtrip(tmp_path):
     assert frozen["collector"]["snapshot_sha256"]
 
 
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=repo, check=True, text=True,
+                          capture_output=True).stdout.strip()
+
+
+def test_scanner_proof_uses_landed_source_review_and_committed_custom_input(tmp_path, monkeypatch):
+    """Production proof checks real git ancestry, source bytes, receipt, and HEAD input bytes."""
+    repo, origin = tmp_path / "repo", tmp_path / "origin.git"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    (repo / "scripts").mkdir()
+    source = repo / CR.SCANNER_SOURCE_PATH
+    source.write_text("# landed scanner fix\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "-c", "user.name=fixture", "-c", "user.email=fixture@example.test",
+         "commit", "-m", "scanner source")
+    landed_commit = _git(repo, "rev-parse", "HEAD")
+    # Pin the committed blob, rather than the checkout bytes: Windows Git may
+    # materialize a text checkout with CRLF while ``git show`` exposes the
+    # canonical object bytes that the production verifier hashes.
+    source_sha = hashlib.sha256(subprocess.run(
+        ["git", "show", f"{landed_commit}:{CR.SCANNER_SOURCE_PATH}"], cwd=repo,
+        check=True, capture_output=True).stdout).hexdigest()
+    subprocess.run(["git", "init", "--bare", str(origin)], check=True, capture_output=True)
+    _git(repo, "remote", "add", "origin", str(origin))
+    _git(repo, "push", "-u", "origin", "main")
+
+    scenes = repo / "benchmarks" / "reference_corpus" / "scenes"
+    scenes.mkdir(parents=True)
+    blend = scenes / "S1.blend"; blend.write_bytes(b"fixture blend")
+    scene_sha = CR.sha256_file(blend)
+    corpus = _corpus_manifest({"S1": scene_sha})
+    corpus["scenes"]["S1"]["settings"] = {"res_x": 16, "res_y": 16, "samples": 1}
+    (scenes / "manifest.json").write_text(json.dumps(corpus), encoding="utf-8")
+    matrix = repo / "coverage_matrix.json"
+    matrix.write_text(json.dumps([{"category": "shader_node", "feature": "BSDF_DIFFUSE",
+                                   "bl_idname": "ShaderNodeBsdfDiffuse",
+                                   "socket_or_prop": "input:Color",
+                                   "classification": CR.SUPPORTED}]), encoding="utf-8")
+    snapshot = {"schema": CR.NODE_USES_SCHEMA, "scenes": {"S1": {
+        "blend_path": "benchmarks/reference_corpus/scenes/S1.blend", "scene_sha256": scene_sha,
+        "collection_errors": [], "nodes": [{"bl_idname": "ShaderNodeBsdfDiffuse",
+                                                "sockets": ["input:Color"], "fingerprint": {}}]}}}
+    receipt_path = repo / "docs" / "blender_parity" / "scanner_review.json"
+    receipt_path.parent.mkdir(parents=True)
+    receipt = {"schema": CR.SCANNER_REVIEW_RECEIPT_SCHEMA, "issue": 823,
+               "commit": landed_commit, "source_path": CR.SCANNER_SOURCE_PATH,
+               "source_sha256": source_sha, "verdict": "ACCEPT",
+               "reviewer": {"id": "independent-fixture", "signature": "a" * 64,
+                            "signed_at": "2026-09-24T00:00:00Z"}}
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    proof = {"schema": CR.SCANNER_PROOF_SCHEMA, "required": 823, "integrated": True,
+             "commit": landed_commit, "source_path": CR.SCANNER_SOURCE_PATH,
+             "source_sha256": source_sha,
+             "review_receipt": {"path": "docs/blender_parity/scanner_review.json",
+                                "sha256": CR.sha256_file(receipt_path)}}
+    frozen_path = repo / "docs" / "blender_parity" / "coverage_input_v4_fixture.json"
+    ledger = CR.materialize_use_ledger(snapshot)
+    registration = {"roi": [.25, .25, .75, .75],
+                    "control": {"kind": "checker_flat", "object": "fixture",
+                                "mask": {"kind": "object_polygon"}},
+                    "effect": {"min_delta": .05, "min_coverage": .02, "min_signal": .001}}
+    key = (ledger[0]["identity"], "S1", ledger[0]["variants"][0]["variant_digest"])
+    monkeypatch.setattr(CR, "CASE_WITNESS_REGISTRY", {**CR.CASE_WITNESS_REGISTRY, key: registration})
+    frozen, errors = CR.freeze_coverage_input_v4(
+        corpus, matrix, snapshot, candidate_build={"build_id": "fixture",
+                                                    "module_sha256": "a" * 64,
+                                                    "addon_sha256": "b" * 64},
+        scanner_integration=proof,
+        input_path="docs/blender_parity/coverage_input_v4_fixture.json",
+        sidecar_dir="docs/blender_parity/evidence/gate_b/sidecars_fixture")
+    assert not errors
+    assert frozen["input_path"] == "docs/blender_parity/coverage_input_v4_fixture.json"
+    assert frozen["evidence"]["sidecar_dir"].endswith("sidecars_fixture")
+    frozen_path.write_text(json.dumps(frozen, sort_keys=True), encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "-c", "user.name=fixture", "-c", "user.email=fixture@example.test",
+         "commit", "-m", "frozen scanner proof")
+    _git(repo, "push")
+
+    assert CR.verify_scanner_integration_proof(proof, repo) == (True, "")
+    assert GM._check_scanner_823({"scanner_issue_823": proof}, repo) == (True, "")
+    report = CR.build_report(frozen, snapshot, json.loads(matrix.read_text(encoding="utf-8")), repo)
+    assert report["status"] == "provisional"  # owner population is still unratified
+    frozen_path.write_text("tampered", encoding="utf-8")
+    report = CR.build_report(frozen, snapshot, json.loads(matrix.read_text(encoding="utf-8")), repo)
+    assert report["status"] == "unmeasured"
+
+    wrong_receipt = {**receipt, "source_sha256": "b" * 64}
+    receipt_path.write_text(json.dumps(wrong_receipt), encoding="utf-8")
+    wrong_source = {**proof, "source_sha256": "b" * 64,
+                    "review_receipt": {"path": proof["review_receipt"]["path"],
+                                       "sha256": CR.sha256_file(receipt_path)}}
+    assert CR.verify_scanner_integration_proof(wrong_source, repo) == (
+        False, "#823 pinned scanner source does not match landed commit")
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    bad_receipt = {**proof, "review_receipt": {**proof["review_receipt"], "sha256": "c" * 64}}
+    assert not CR.verify_scanner_integration_proof(bad_receipt, repo)[0]
+    source.write_text("# unlanded scanner change\n", encoding="utf-8")
+    _git(repo, "add", CR.SCANNER_SOURCE_PATH)
+    _git(repo, "-c", "user.name=fixture", "-c", "user.email=fixture@example.test",
+         "commit", "-m", "unlanded scanner source")
+    unlanded = _git(repo, "rev-parse", "HEAD")
+    receipt["commit"] = unlanded; receipt["source_sha256"] = CR.sha256_file(source)
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    unlanded_proof = {**proof, "commit": unlanded, "source_sha256": receipt["source_sha256"],
+                      "review_receipt": {"path": proof["review_receipt"]["path"],
+                                         "sha256": CR.sha256_file(receipt_path)}}
+    assert not CR.verify_scanner_integration_proof(unlanded_proof, repo)[0]
+
+
 def test_verify_rejects_missing_frozen_scene(tmp_path):
     frozen, snapshot, _, _ = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
     snapshot["scenes"].pop("S2")
@@ -880,6 +992,12 @@ def test_gate_b_provisional_report_stays_unmeasured_before_823_and_red_after(tmp
         @staticmethod
         def build_report(*_args):
             return expected
+
+        @staticmethod
+        def verify_scanner_integration_proof(proof, *_args):
+            proof = proof if isinstance(proof, dict) else {}
+            return (bool(proof.get("integrated")),
+                    "" if proof.get("integrated") else "#823 scanner proof not integrated")
 
     monkeypatch.setattr(GM, "_coverage_reducer", lambda: Reducer)
     adapted = GM.adapt_b_instrument(tmp_path / "report.json", tmp_path / "input.json",

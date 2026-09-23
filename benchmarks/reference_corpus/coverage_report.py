@@ -71,6 +71,7 @@ import datetime
 import hashlib
 import json
 import math
+import re
 import subprocess
 import sys
 from collections import deque
@@ -88,6 +89,10 @@ SCORE_APPROXIMATION = 0.5
 SCORE_UNPROVEN = 0.0
 SCORE_MIN = 0.95            # EACH backend must pass 95 % separately
 REQUIRED_SCANNER_ISSUE = 823
+SCANNER_SOURCE_PATH = "scripts/generate_blender_parity_matrix.py"
+SCANNER_PROOF_SCHEMA = "pkg278.scanner_integration_proof.v1"
+SCANNER_REVIEW_RECEIPT_SCHEMA = "pkg278.scanner_review_receipt.v1"
+HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 NINE_SCENE_COUNT = 9
 ORIGINAL_POPULATION_LABEL = "~50 scenes"
 
@@ -964,34 +969,89 @@ def evaluate_subchecks(uses: Mapping[str, set[str]], matrix: Mapping[str, str],
     }
 
 
+def _repo_relative_path(repo_root: Path, value: Any, label: str) -> tuple[Path | None, str]:
+    if not isinstance(value, str) or not value.strip():
+        return None, f"{label} path missing"
+    if Path(value).is_absolute():
+        return None, f"{label} path must be repository-relative"
+    try:
+        candidate = (Path(repo_root) / value).resolve()
+        candidate.relative_to(Path(repo_root).resolve())
+    except (OSError, ValueError):
+        return None, f"{label} path escapes repository"
+    return candidate, ""
+
+
+def verify_scanner_integration_proof(proof: Any, repo_root: Path | None,
+                                     fixture_mode: bool = False) -> tuple[bool, str]:
+    """Verify the dedicated #823 landing proof and independent review receipt.
+
+    This deliberately does not use render-evidence sidecars: scanner integration
+    is a source/commit review claim, not a renderer observation.
+    """
+    if not isinstance(proof, Mapping):
+        return False, "#823 scanner integration proof is not an object"
+    if proof.get("integrated") is not True:
+        return False, f"scanner issue #{proof.get('required', REQUIRED_SCANNER_ISSUE)} not declared integrated"
+    if fixture_mode:
+        content, digest = proof.get("content"), proof.get("sha256")
+        if not isinstance(content, str) or not isinstance(digest, str):
+            return False, "fixture scanner proof lacks content hash"
+        return (_sha256_bytes(content.encode("utf-8")) == digest.lower(),
+                "" if _sha256_bytes(content.encode("utf-8")) == digest.lower()
+                else "fixture scanner proof hash mismatch")
+    if repo_root is None:
+        return False, "scanner integration requires a repository root"
+    commit, source_path, source_sha = (proof.get("commit"), proof.get("source_path"),
+                                       proof.get("source_sha256"))
+    if proof.get("schema") != SCANNER_PROOF_SCHEMA or proof.get("required") != REQUIRED_SCANNER_ISSUE:
+        return False, "scanner integration proof has wrong schema or issue"
+    if (not isinstance(commit, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", commit)
+            or source_path != SCANNER_SOURCE_PATH or not isinstance(source_sha, str)
+            or not HEX64_RE.match(source_sha.lower())):
+        return False, "scanner integration proof lacks full commit or pinned canonical source"
+    receipt_ref = proof.get("review_receipt")
+    if not isinstance(receipt_ref, Mapping):
+        return False, "scanner integration proof lacks review receipt reference"
+    receipt_path, receipt_reason = _repo_relative_path(repo_root, receipt_ref.get("path"), "scanner review receipt")
+    receipt_sha = receipt_ref.get("sha256")
+    if receipt_path is None or not isinstance(receipt_sha, str) or not HEX64_RE.match(receipt_sha.lower()):
+        return False, receipt_reason or "scanner review receipt digest malformed"
+    if not receipt_path.is_file() or _sha256_file(receipt_path) != receipt_sha.lower():
+        return False, "scanner review receipt is missing or hash-mismatched"
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, "scanner review receipt is not JSON"
+    reviewer = receipt.get("reviewer") if isinstance(receipt, Mapping) else None
+    if (not isinstance(receipt, Mapping) or receipt.get("schema") != SCANNER_REVIEW_RECEIPT_SCHEMA
+            or receipt.get("issue") != REQUIRED_SCANNER_ISSUE or receipt.get("commit") != commit
+            or receipt.get("source_path") != SCANNER_SOURCE_PATH
+            or receipt.get("source_sha256") != source_sha or receipt.get("verdict") != "ACCEPT"
+            or not isinstance(reviewer, Mapping) or not isinstance(reviewer.get("id"), str)
+            or not reviewer["id"].strip() or not isinstance(reviewer.get("signature"), str)
+            or not HEX64_RE.match(reviewer["signature"].lower())
+            or not isinstance(reviewer.get("signed_at"), str) or not reviewer["signed_at"].strip()):
+        return False, "scanner review receipt is not an independently signed ACCEPT for this source"
+    try:
+        landed = subprocess.run(["git", "merge-base", "--is-ancestor", commit, "origin/main"],
+                                cwd=repo_root, capture_output=True, check=False).returncode == 0
+        shown = subprocess.run(["git", "show", f"{commit}:{SCANNER_SOURCE_PATH}"],
+                               cwd=repo_root, capture_output=True, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False, "cannot verify #823 commit ancestry/source"
+    if not landed:
+        return False, "#823 commit is not an ancestor of origin/main"
+    if _sha256_bytes(shown) != source_sha.lower():
+        return False, "#823 pinned scanner source does not match landed commit"
+    return True, ""
+
+
 def scanner_823_integrated(frozen: Mapping[str, Any], repo_root: Path | None,
                            fixture_mode: bool) -> tuple[bool, str]:
     """#823 must land before gate (b) is scored. Evidence is hash-verified."""
     entry = frozen.get("scanner_issue_823")
-    if not isinstance(entry, Mapping):
-        return False, "no scanner_issue_823 declaration in the frozen input manifest"
-    if not entry.get("integrated"):
-        return False, f"scanner issue #{entry.get('required', REQUIRED_SCANNER_ISSUE)} not declared integrated"
-    if not fixture_mode:
-        if repo_root is None:
-            return False, "scanner integration requires a repository root"
-        commit, path, recorded = entry.get("commit"), entry.get("source_path"), entry.get("source_sha256")
-        if not isinstance(commit, str) or not isinstance(path, str) or not isinstance(recorded, str):
-            return False, "scanner integration needs landed commit and pinned scanner source"
-        try:
-            landed = subprocess.run(["git", "merge-base", "--is-ancestor", commit, "origin/main"],
-                                    cwd=repo_root, capture_output=True, check=False).returncode == 0
-            shown = subprocess.run(["git", "show", f"{commit}:{path}"], cwd=repo_root, capture_output=True, check=True).stdout
-        except (OSError, subprocess.SubprocessError):
-            return False, "cannot verify #823 commit ancestry/source"
-        if not landed:
-            return False, "#823 commit is not an ancestor of origin/main"
-        if _sha256_bytes(shown) != recorded.lower():
-            return False, "#823 pinned scanner source does not match landed commit"
-    ok, why = evidence_is_valid(entry, repo_root, fixture_mode=fixture_mode)
-    if not ok:
-        return False, f"#823 integration evidence invalid: {why}"
-    return True, ""
+    return verify_scanner_integration_proof(entry, repo_root, fixture_mode)
 
 
 def population_status(frozen: Mapping[str, Any], repo_root: Path | None = None,
@@ -1144,7 +1204,11 @@ def freeze_coverage_input(corpus_manifest: Mapping[str, Any],
                           matrix_path: Path,
                           snapshot: Mapping[str, Any],
                           *, scanner_integrated: bool = False,
-                          scanner_reason: str = "#823 not on origin/main") -> tuple[dict[str, Any], list[str]]:
+                          scanner_reason: str = "#823 not on origin/main",
+                          scanner_integration: Mapping[str, Any] | None = None,
+                          input_path: str = "docs/blender_parity/coverage_input_v2.json",
+                          sidecar_dir: str = "docs/blender_parity/evidence/gate_b/sidecars"
+                          ) -> tuple[dict[str, Any], list[str]]:
     """Build the versioned, committed coverage-input manifest (v2).
 
     Verifies the collected snapshot's scene set equals the committed corpus
@@ -1187,10 +1251,19 @@ def freeze_coverage_input(corpus_manifest: Mapping[str, Any],
     ledger = materialize_use_ledger(snapshot)
     ledger_sha = _sha256_bytes(_canonical_json(ledger))
 
+    scanner_entry = {"required": REQUIRED_SCANNER_ISSUE, "integrated": False,
+                     "reason": scanner_reason}
+    if scanner_integration is not None:
+        scanner_entry = dict(scanner_integration)
+    elif scanner_integrated:
+        # A legacy bool never creates a claimed landing without the structured
+        # commit/source/review proof required by the scorer.
+        errors.append("scanner integration requires a structured proof, not scanner_integrated=True")
+
     frozen = {
         "schema": INPUT_MANIFEST_SCHEMA,
         "version": 1,
-        "input_path": "docs/blender_parity/coverage_input_v2.json",
+        "input_path": input_path,
         "created": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "population": {
             "ratified": False,
@@ -1206,13 +1279,8 @@ def freeze_coverage_input(corpus_manifest: Mapping[str, Any],
         "matrix": {"path": str(matrix_path), "sha256": matrix_sha},
         "collector": {"snapshot_sha256": snapshot_sha, "use_ledger": ledger,
                       "use_ledger_sha256": ledger_sha},
-        "scanner_issue_823": {
-            "required": REQUIRED_SCANNER_ISSUE,
-            "integrated": scanner_integrated,
-            "reason": "" if scanner_integrated else scanner_reason,
-        },
-        "evidence": {"mode": "production",
-                     "sidecar_dir": "docs/blender_parity/evidence/gate_b/sidecars"},
+        "scanner_issue_823": scanner_entry,
+        "evidence": {"mode": "production", "sidecar_dir": sidecar_dir},
     }
     return frozen, errors
 
@@ -1220,17 +1288,23 @@ def freeze_coverage_input(corpus_manifest: Mapping[str, Any],
 def freeze_coverage_input_v3(corpus_manifest: Mapping[str, Any], matrix_path: Path,
                              snapshot: Mapping[str, Any], *,
                              candidate_build: Mapping[str, str] | None = None,
-                             case_features: Mapping[str, str] | None = None) -> tuple[dict[str, Any], list[str]]:
+                             case_features: Mapping[str, str] | None = None,
+                             scanner_integration: Mapping[str, Any] | None = None,
+                             input_path: str = "docs/blender_parity/coverage_input_v3.json",
+                             sidecar_dir: str = "docs/blender_parity/evidence/gate_b/sidecars"
+                             ) -> tuple[dict[str, Any], list[str]]:
     """Freeze v3 with the exact runner-case/build map, or a provisional empty map.
 
     A live candidate supplies build/module/addon hashes and a feature mapping.
     Until then this records an explicit unmeasured placeholder which cannot
     validate any production evidence.
     """
-    frozen, errors = freeze_coverage_input(corpus_manifest, matrix_path, snapshot)
+    frozen, errors = freeze_coverage_input(corpus_manifest, matrix_path, snapshot,
+                                            scanner_integration=scanner_integration,
+                                            input_path=input_path, sidecar_dir=sidecar_dir)
     frozen["schema"] = INPUT_MANIFEST_SCHEMA_V3
     frozen["version"] = 3
-    frozen["input_path"] = "docs/blender_parity/coverage_input_v3.json"
+    frozen["input_path"] = input_path
     build = dict(candidate_build or {})
     required = ("build_id", "module_sha256", "addon_sha256")
     ready = all(isinstance(build.get(field), str) and build[field] for field in required)
@@ -1269,17 +1343,23 @@ def freeze_coverage_input_v3(corpus_manifest: Mapping[str, Any], matrix_path: Pa
 
 def freeze_coverage_input_v4(corpus_manifest: Mapping[str, Any], matrix_path: Path,
                              snapshot: Mapping[str, Any], *,
-                             candidate_build: Mapping[str, str] | None = None) -> tuple[dict[str, Any], list[str]]:
+                             candidate_build: Mapping[str, str] | None = None,
+                             scanner_integration: Mapping[str, Any] | None = None,
+                             input_path: str = "docs/blender_parity/coverage_input_v4.json",
+                             sidecar_dir: str = "docs/blender_parity/evidence/gate_b/sidecars"
+                             ) -> tuple[dict[str, Any], list[str]]:
     """Freeze only explicitly registered, locally measurable Gate-B cases.
 
     Unlike v3's broad provisional map, v4 carries immutable render settings and
     a reviewed pixel witness for each case.  A collected use without an exact
     registry entry is deliberately absent and therefore remains unproven.
     """
-    frozen, errors = freeze_coverage_input(corpus_manifest, matrix_path, snapshot)
+    frozen, errors = freeze_coverage_input(corpus_manifest, matrix_path, snapshot,
+                                            scanner_integration=scanner_integration,
+                                            input_path=input_path, sidecar_dir=sidecar_dir)
     frozen["schema"] = INPUT_MANIFEST_SCHEMA_V4
     frozen["version"] = 4
-    frozen["input_path"] = "docs/blender_parity/coverage_input_v4.json"
+    frozen["input_path"] = input_path
     build = dict(candidate_build or {})
     required = ("build_id", "module_sha256", "addon_sha256")
     ready = all(isinstance(build.get(field), str) and build[field] for field in required)
@@ -1342,6 +1422,13 @@ def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
 
     if frozen.get("schema") not in (INPUT_MANIFEST_SCHEMA, INPUT_MANIFEST_SCHEMA_V3, INPUT_MANIFEST_SCHEMA_V4):
         return False, ["input manifest schema must be a supported v2, v3, or v4 manifest"], {}
+
+    input_file, input_reason = _repo_relative_path(
+        repo_root, frozen.get("input_path", "docs/blender_parity/coverage_input_v2.json"), "frozen input")
+    if input_file is None:
+        errors.append(input_reason)
+    else:
+        verified["input_path"] = input_file
 
     corpus_path = (frozen.get("corpus", {}).get("manifest_path")
                    or "benchmarks/reference_corpus/scenes/manifest.json")
@@ -1434,9 +1521,12 @@ def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
     verified["expected_scene_ids"] = expected
     verified["use_ledger"] = frozen.get("collector", {}).get("use_ledger", [])
     sidecar_dir = frozen.get("evidence", {}).get("sidecar_dir") or "docs/blender_parity/evidence/gate_b/sidecars"
-    verified["sidecar_dir"] = Path(sidecar_dir)
-    if not verified["sidecar_dir"].is_absolute():
-        verified["sidecar_dir"] = Path(repo_root) / verified["sidecar_dir"]
+    resolved_sidecars, sidecar_reason = _repo_relative_path(repo_root, sidecar_dir, "evidence sidecar")
+    if resolved_sidecars is None:
+        errors.append(sidecar_reason)
+        verified["sidecar_dir"] = Path(repo_root) / "docs/blender_parity/evidence/gate_b/sidecars"
+    else:
+        verified["sidecar_dir"] = resolved_sidecars
     if frozen.get("schema") in (INPUT_MANIFEST_SCHEMA_V3, INPUT_MANIFEST_SCHEMA_V4):
         case_map = frozen.get("evidence", {}).get("runner_case_map", {})
         cases = case_map.get("cases") if isinstance(case_map, Mapping) else None
@@ -1549,9 +1639,12 @@ def build_report(frozen: Mapping[str, Any], snapshot: Mapping[str, Any],
         # committed at HEAD.  The freeze command can create v2 before commit;
         # scoring cannot turn that draft into a claim.
         input_path = frozen.get("input_path", "docs/blender_parity/coverage_input_v2.json")
+        disk, input_reason = _repo_relative_path(repo_root, input_path, "frozen input")
         try:
-            disk = Path(repo_root) / str(input_path)
-            head = subprocess.run(["git", "show", f"HEAD:{input_path}"], cwd=repo_root,
+            if disk is None:
+                raise OSError(input_reason)
+            relative = disk.relative_to(Path(repo_root).resolve()).as_posix()
+            head = subprocess.run(["git", "show", f"HEAD:{relative}"], cwd=repo_root,
                                   capture_output=True, check=True).stdout
             if not disk.is_file() or disk.read_bytes() != head:
                 integrity_errors.append("frozen input bytes are not the exact committed HEAD version")
@@ -1823,6 +1916,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="freeze v4 with registered pixel witnesses and immutable render settings")
     p.add_argument("--candidate-build", type=Path,
                    help="JSON with build_id/module_sha256/addon_sha256 for a ready v3/v4 case map")
+    p.add_argument("--scanner-integration", type=Path,
+                   help="structured #823 commit/source/review proof; only accepted for --freeze-v4")
     p.add_argument("--score", action="store_true",
                    help="verify the frozen input + snapshot against disk, then score")
     p.add_argument("--manifest", type=Path,
@@ -1831,6 +1926,8 @@ def main(argv: list[str] | None = None) -> int:
                    default=Path("docs/blender_parity/coverage_matrix.json"))
     p.add_argument("--input-manifest", type=Path, default=None,
                    help="frozen scoring input manifest (population, evidence, #823 status)")
+    p.add_argument("--sidecar-dir", type=Path, default=Path("docs/blender_parity/evidence/gate_b/sidecars"),
+                   help="repository-relative Gate-B render-evidence sidecar directory frozen into v4 input")
     p.add_argument("--node-uses", type=Path, default=None,
                    help="node-use snapshot produced by --collect")
     p.add_argument("--out", type=Path, default=Path("docs/blender_parity/evidence/gate_b"))
@@ -1855,24 +1952,46 @@ def main(argv: list[str] | None = None) -> int:
         if args.node_uses is None:
             print("--freeze needs --node-uses", file=sys.stderr)
             return 2
+        if args.scanner_integration is not None and not args.freeze_v4:
+            print("--scanner-integration is only valid with --freeze-v4", file=sys.stderr)
+            return 2
+        scanner_proof = None
+        if args.scanner_integration is not None:
+            scanner_proof = _load_json(args.scanner_integration)
+            scanner_ok, scanner_reason = verify_scanner_integration_proof(scanner_proof, repo_root)
+            if not scanner_ok:
+                print(f"--scanner-integration rejected: {scanner_reason}", file=sys.stderr)
+                return 2
+        default_input = ("docs/blender_parity/coverage_input_v4.json" if args.freeze_v4 else
+                         "docs/blender_parity/coverage_input_v3.json" if args.freeze_v3 else
+                         "docs/blender_parity/coverage_input_v2.json")
+        out_path = args.input_manifest or Path(default_input)
+        input_file, input_reason = _repo_relative_path(repo_root, str(out_path), "frozen input")
+        sidecar_path, sidecar_reason = _repo_relative_path(repo_root, str(args.sidecar_dir), "evidence sidecar")
+        if input_file is None or sidecar_path is None:
+            print(input_reason or sidecar_reason, file=sys.stderr)
+            return 2
+        input_relative = input_file.relative_to(repo_root.resolve()).as_posix()
+        sidecar_relative = sidecar_path.relative_to(repo_root.resolve()).as_posix()
         corpus_manifest = _load_json(args.manifest)
         snapshot = _load_json(args.node_uses)
         if args.freeze_v4:
             candidate = _load_json(args.candidate_build) if args.candidate_build else None
             frozen, errors = freeze_coverage_input_v4(corpus_manifest, args.matrix, snapshot,
-                                                       candidate_build=candidate)
+                                                       candidate_build=candidate,
+                                                       scanner_integration=scanner_proof,
+                                                       input_path=input_relative,
+                                                       sidecar_dir=sidecar_relative)
         elif args.freeze_v3:
             candidate = _load_json(args.candidate_build) if args.candidate_build else None
             frozen, errors = freeze_coverage_input_v3(corpus_manifest, args.matrix, snapshot,
-                                                       candidate_build=candidate)
+                                                       candidate_build=candidate,
+                                                       input_path=input_relative,
+                                                       sidecar_dir=sidecar_relative)
         else:
-            frozen, errors = freeze_coverage_input(corpus_manifest, args.matrix, snapshot)
-        default_input = ("docs/blender_parity/coverage_input_v4.json" if args.freeze_v4 else
-                         "docs/blender_parity/coverage_input_v3.json" if args.freeze_v3 else
-                         "docs/blender_parity/coverage_input_v2.json")
-        out_path = args.input_manifest or Path(default_input)
-        if args.input_manifest is not None:
-            out_path = args.input_manifest
+            frozen, errors = freeze_coverage_input(corpus_manifest, args.matrix, snapshot,
+                                                    input_path=input_relative,
+                                                    sidecar_dir=sidecar_relative)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(frozen, indent=2, sort_keys=True), encoding="utf-8", newline="\n")
         for err in errors:

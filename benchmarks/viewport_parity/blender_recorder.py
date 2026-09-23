@@ -384,7 +384,7 @@ def _install():
             row.update(S["pending"])
         S["events"].append(row)
 
-    def _capture_viewport(label, generation=None):
+    def _capture_viewport(label, generation=None, epoch=None):
         """Save an actual UI framebuffer image; never substitute a label/hash."""
         if not GATE_A or not EVIDENCE_DIR:
             return None
@@ -394,11 +394,11 @@ def _install():
             bpy.ops.screen.screenshot(filepath=path)
             with open(path, "rb") as fh:
                 digest = hashlib.sha256(fh.read()).hexdigest()
-            raw("viewport_pixels", generation, None, {"label": label, "path": path, "sha256": digest,
+            raw("viewport_pixels", generation, epoch, {"label": label, "path": path, "sha256": digest,
                                                         "event_id": S.get("event_seq")})
             return path
         except Exception as exc:
-            raw("viewport_pixels_failed", generation, None, {"label": label, "error": str(exc)})
+            raw("viewport_pixels_failed", generation, epoch, {"label": label, "error": str(exc)})
             return None
 
     def _request_real_cancel():
@@ -431,7 +431,7 @@ def _install():
                 _record(S["idx"])
                 if GATE_A:
                     pending = S.get("pending") or {}
-                    _capture_viewport("post", pending.get("generation"))
+                    _capture_viewport("post", pending.get("generation"), pending.get("epoch"))
                     _request_real_cancel()
                 S["awaiting"] = False
                 S["idx"] += 1

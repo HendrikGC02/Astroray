@@ -114,6 +114,8 @@ def test_recorder_uses_blender_52_screenshot_signature():
     source = (ROOT / "benchmarks/viewport_parity/blender_recorder.py").read_text(encoding="utf-8")
     assert "bpy.ops.screen.screenshot(filepath=path)" in source
     assert "bpy.ops.screen.screenshot(filepath=path, full=False)" not in source
+    assert 'raw("viewport_pixels", generation, epoch,' in source
+    assert '_capture_viewport("post", pending.get("generation"), pending.get("epoch"))' in source
 
 
 def test_gate_a_reducer_rejects_stale_after_ack_and_missing_ack_or_present():

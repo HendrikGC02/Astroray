@@ -270,6 +270,10 @@ def _validate_a(records: list[Any], base: Path, expected_scenes: Any) -> tuple[l
         observed = cap.get("observed_runtime")
         if not isinstance(observed, Mapping) or observed.get("engine") != "CUSTOM_RAYTRACER" or observed.get("requested_device") != "gpu" or observed.get("denoise_enabled") is not False:
             errors.append(f"row a capture {i} lacks observed GPU denoise-off runtime identity")
+        actual_devices = observed.get("actual_gpu_devices") if isinstance(observed, Mapping) else None
+        if (not isinstance(actual_devices, list) or not actual_devices
+                or any(not isinstance(device, int) or device < 0 for device in actual_devices)):
+            errors.append(f"row a capture {i} lacks observed native GPU render telemetry")
         if not all(isinstance(observed.get(name, {}).get("path"), str) and _HEX64.match(str(observed.get(name, {}).get("sha256") or ""))
                    for name in ("addon", "module")) if isinstance(observed, Mapping) else True:
             errors.append(f"row a capture {i} lacks hash-pinned loaded addon/module identity")

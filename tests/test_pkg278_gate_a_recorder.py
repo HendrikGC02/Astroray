@@ -62,7 +62,7 @@ def _capture(scene, triangles, kind, batch, *, broken=None):
     if broken == "stale_after_ack":
         raw.append({"name": "post_pixel_present", "generation": 1, "epoch": 7,
                     "t_ns": base + 100_025, "extra": {"pub_id": 1, "input_floor": 100}})
-    observed = {"engine": "CUSTOM_RAYTRACER", "requested_device": "gpu", "denoise_enabled": False,
+    observed = {"engine": "CUSTOM_RAYTRACER", "requested_device": "gpu", "actual_gpu_devices": [0], "denoise_enabled": False,
                 "addon": {"path": "addon.py", "sha256": _sha("addon")},
                 "module": {"path": "module.pyd", "sha256": _sha("module")}}
     return {"scene_sha256": scene, "workload": {"path": f"{scene}.blend", "sha256": scene, "triangles": triangles,
@@ -146,10 +146,12 @@ def test_gate_manifest_adapts_raw_producer_and_rejects_bad_captures(tmp_path):
 
 
 def test_gate_manifest_rejects_wrong_device_truncation_and_forged_summary(tmp_path):
-    for mutation in ("device", "truncated", "forged_stale"):
+    for mutation in ("device", "actual_device", "truncated", "forged_stale"):
         payload = _payload()
         if mutation == "device":
             payload["records"][0]["backend"] = "CPU"
+        elif mutation == "actual_device":
+            payload["records"][0]["observed_runtime"]["actual_gpu_devices"] = [-1]
         elif mutation == "truncated":
             payload["records"][0]["truncated"] = True
         else:

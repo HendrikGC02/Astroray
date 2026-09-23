@@ -776,7 +776,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--blender", default=_find_blender(), help="Blender 4.x executable")
     parser.add_argument("--astroray", type=Path, default=_default_astroray_binary(), help="Astroray standalone binary")
     parser.add_argument("--output", type=Path, help="CSV output path")
+    parser.add_argument("--gate-c", action="store_true", help="run the corpus gate-(c) six-leg producer")
+    parser.add_argument("--gate-c-build-id", default="", help="pinned build identity required by gate-(c)")
     args = parser.parse_args(argv)
+    if args.gate_c:
+        from benchmarks.blender_parity.harness import run_gate_c_trio
+        return run_gate_c_trio(ROOT / "docs" / "blender_parity" / "evidence" / "c",
+                               timeout=args.timeout, build_id=args.gate_c_build_id)
 
     scenes = _load_scenes()
     requested_scenes = args.scenes or list(scenes)

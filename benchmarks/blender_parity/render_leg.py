@@ -24,6 +24,7 @@ Run:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -214,6 +215,8 @@ def main():
                    help="validated reference-corpus manifest; requires --corpus-scene")
     p.add_argument("--corpus-scene", default="",
                    help="exact reference-corpus scene ID, never an arbitrary path")
+    p.add_argument("--gate-c-freeze", default="", help="hash-pinned gate-c freeze input")
+    p.add_argument("--gate-c-freeze-sha256", default="")
     p.add_argument("--report-only", action="store_true",
                    help="with --load-blend: print an object/node census as "
                         "JSON and exit, no render")
@@ -241,6 +244,10 @@ def main():
                 if requested != p.get_default(arg) and requested != declared:
                     raise ValueError(f"corpus scene {args.corpus_scene!r} requires {arg}={declared}")
                 setattr(args, arg, declared)
+            if args.gate_c_freeze:
+                freeze = Path(args.gate_c_freeze)
+                if (not freeze.is_file() or hashlib.sha256(freeze.read_bytes()).hexdigest() != args.gate_c_freeze_sha256):
+                    raise ValueError("gate-c freeze artifact hash mismatch")
         if args.load_blend:
             bpy.ops.wm.open_mainfile(filepath=args.load_blend)
             scene = bpy.context.scene
@@ -289,6 +296,13 @@ def main():
         out_stem = Path(args.out)
         out_stem.parent.mkdir(parents=True, exist_ok=True)
         npy = _render_to_npy(bpy, scene, out_stem, args.res)
+        if corpus_entry is not None:
+            module = ""; module_sha = ""
+            if args.engine == "CUSTOM_RAYTRACER":
+                import astroray
+                module = str(Path(astroray.__file__).resolve())
+                module_sha = hashlib.sha256(Path(module).read_bytes()).hexdigest()
+            print(f"{SENTINEL} REPORT {json.dumps({'corpus_scene': args.corpus_scene, 'blend_sha256': hashlib.sha256(Path(args.load_blend).read_bytes()).hexdigest(), 'freeze_sha256': args.gate_c_freeze_sha256, 'requested_device': args.device, 'effective_device': getattr(scene.custom_raytracer, 'device_mode', ''), 'engine': args.engine, 'res_x': args.res, 'res_y': args.res_y or args.res, 'samples': args.samples, 'blender_version': bpy.app.version_string, 'module_path': module, 'module_sha256': module_sha})}", flush=True)
         print(f"[pkg119b-leg] wrote {npy}", flush=True)
         print(f"{SENTINEL} PASS", flush=True)
     except Exception as exc:  # noqa: BLE001

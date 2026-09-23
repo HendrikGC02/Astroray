@@ -356,7 +356,7 @@ def _run_render_leg_script(blender: Path, script_args: list[str], env: dict,
     return ok, combined, combined[-3000:]
 
 
-def _npy_to_png(npy_path: Path, png_path: Path) -> None:
+def _npy_to_png(npy_path: Path, png_path: Path, *, preserve_source: bool = False) -> None:
     """sRGB-encode a linear .npy render for the manifest's small reference
     PNGs (render_leg.py's own PNG write is skipped - Blender's bundled Python
     has no PIL - so this runs in the harness's own Python instead). Deletes
@@ -368,7 +368,8 @@ def _npy_to_png(npy_path: Path, png_path: Path) -> None:
     srgb = np.where(px <= 0.0031308, px * 12.92,
                     1.055 * np.clip(px, 0, None) ** (1 / 2.4) - 0.055)
     Image.fromarray((np.clip(srgb, 0, 1) * 255 + 0.5).astype(np.uint8)).save(png_path)
-    npy_path.unlink(missing_ok=True)
+    if not preserve_source:
+        npy_path.unlink(missing_ok=True)
 
 
 def export_reference_scenes(scenes_dir: Path, *, timeout: int = 600) -> int:
@@ -573,7 +574,11 @@ def _run_gate_leg(blender: Path, args: list[str], env: dict[str, str], timeout: 
     except subprocess.TimeoutExpired:
         return 124, False, f"TIMEOUT after {timeout}s"
     output = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    return proc.returncode, f"{SENTINEL} PASS" in output and f"{SENTINEL} FAIL" not in output, output[-3000:]
+    reports = [line[len(f"{SENTINEL} REPORT "):] for line in output.splitlines()
+               if line.startswith(f"{SENTINEL} REPORT ")]
+    try: report = json.loads(reports[-1]) if reports else {}
+    except json.JSONDecodeError: report = {}
+    return proc.returncode, f"{SENTINEL} PASS" in output and f"{SENTINEL} FAIL" not in output, report
 
 
 def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
@@ -592,30 +597,45 @@ def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
         payload["settings"] = {"manifest": str(manifest_path), "frozen_roles": frozen}
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         payload["freeze_error"] = str(exc)
-        (out_dir / "gate_c.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return 1
+    import hashlib
+    freeze_path = out_dir / "gate_c.freeze.json"
+    freeze = {"manifest_path": str(manifest_path), "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+              "build_id": build_id, "roles": frozen}
+    freeze_path.write_text(json.dumps(freeze, indent=2), encoding="utf-8")
+    freeze_sha = _sha256(freeze_path)
+    payload["freeze"] = _artifact_ref(freeze_path, out_dir)
+    (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
     blender = _find_blender()
     if blender is None:
         payload["freeze_error"] = "Blender not found"
-        (out_dir / "gate_c.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return 2
     env = os.environ.copy(); pyd = _pyd_dir(_REPO_ROOT)
     if pyd: env["ASTRORAY_PYD_DIR"] = str(pyd)
     arrays: dict[tuple[str, str], Path] = {}
     for role, item in frozen.items():
         for backend in ("CPU", "GPU"):
-            stem = out_dir / f"{role.replace(':', '_')}_{backend.lower()}"
-            code, sentinel, tail = _run_gate_leg(blender, ["--corpus-manifest", str(manifest_path),
+            leg_dir = out_dir / "legs" / f"{role.replace(':', '_')}_{backend.lower()}"; leg_dir.mkdir(parents=True, exist_ok=True)
+            stem = leg_dir / "render"
+            for stale in (stem.with_suffix(".npy"), stem.with_suffix(".png")): stale.unlink(missing_ok=True)
+            code, sentinel, report = _run_gate_leg(blender, ["--corpus-manifest", str(manifest_path),
                 "--corpus-scene", item["scene_id"], "--engine", "CUSTOM_RAYTRACER", "--device", backend.lower(),
-                "--out", str(stem)], env, timeout)
+                "--gate-c-freeze", str(freeze_path), "--gate-c-freeze-sha256", freeze_sha, "--out", str(stem)], env, timeout)
             npy, png = stem.with_suffix(".npy"), stem.with_suffix(".png")
             record: dict[str, Any] = {"kind": "f12_run", "role": role, "scene_id": item["scene_id"],
                 "scene_sha256": item["scene_sha256"], "backend": backend, "build_id": build_id,
-                "exit_code": code, "sentinel": SENTINEL if sentinel else "", "tail": tail,
+                "exit_code": code, "sentinel": SENTINEL if sentinel else "", "leg_report": report,
                 "settings": {**item["settings"], "gate_c_rois": item["rois"], "gate_c_probes": item["non_vacuity"]}, "non_vacuity": [], "rois": []}
-            if npy.is_file() and png.is_file():
-                record["linear_npy"] = _artifact_ref(npy, out_dir); record["image"] = _artifact_ref(png, out_dir); arrays[(role, backend)] = npy
+            expected = {"corpus_scene": item["scene_id"], "blend_sha256": item["scene_sha256"], "freeze_sha256": freeze_sha,
+                        "requested_device": backend.lower(), "engine": "CUSTOM_RAYTRACER", "res_x": item["settings"]["res_x"], "res_y": item["settings"]["res_y"], "samples": item["settings"]["samples"]}
+            if npy.is_file() and code == 0 and sentinel and all(report.get(k) == v for k, v in expected.items()):
+                _npy_to_png(npy, png, preserve_source=True)
+                if png.is_file():
+                    record["linear_npy"] = _artifact_ref(npy, out_dir); record["image"] = _artifact_ref(png, out_dir); record["report_artifact"] = {"path": str((leg_dir / "report.json").relative_to(out_dir)).replace("\\", "/"), "sha256": ""}; (leg_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8"); record["report_artifact"]["sha256"] = _sha256(leg_dir / "report.json"); arrays[(role, backend)] = npy
             payload["records"].append(record)
+            (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
     import numpy as np
     from benchmarks.reference_bank.metrics import compute_ssim
     from benchmarks.reference_bank.runner import compute_channel_mean_ratio
@@ -631,7 +651,7 @@ def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
                 ratio, channels = compute_channel_mean_ratio(a, b, (y0, y1, x0, x1))
                 ssim, _ = compute_ssim(a[y0:y1, x0:x1], b[y0:y1, x0:x1])
                 record["rois"].append({"name": name, "ratio": channels, "ratio_max": float(ratio), "ssim": float(ssim)})
-    (out_dir / "gate_c.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return 0 if len(arrays) == 6 else 1
 
 

@@ -279,7 +279,7 @@ def _validate_a(records: list[Any], base: Path, expected_scenes: Any) -> tuple[l
     return errors, value, {"both_pinned_scenes": len(scenes) == 2, "three_by_hundred_repetitions": len(cells) == 1200, "denoise_excluded": not any("denoise" in e for e in errors), "gpu_only_latency": not any("not GPU" in e for e in errors)}
 
 
-def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: Any) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
+def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: Any, freeze_ref: Any = None) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
     """Recompute gate-(c) from retained linear CPU/GPU renders.
 
     Producer booleans and submitted metric values are evidence metadata only;
@@ -289,6 +289,9 @@ def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
     from benchmarks.reference_bank.metrics import compute_ssim
     from benchmarks.reference_bank.runner import compute_channel_mean_ratio
     errors: list[str] = []; pairs = set(); ratios: list[float] = []; ssims: list[float] = []; hashes = {}; images = {}
+    freeze_path, why = _artifact(freeze_ref, base, "row c freeze"); errors.extend(why)
+    try: freeze = json.loads(freeze_path.read_text(encoding="utf-8")) if freeze_path else {}
+    except (OSError, json.JSONDecodeError): errors.append("row c freeze cannot be read"); freeze = {}
     if len(records) != 6: errors.append("row c requires exactly three pinned scenes with CPU and GPU F12 records")
     for i, r in enumerate(records):
         if not isinstance(r, Mapping): errors.append(f"row c record {i} is not an object"); continue
@@ -298,6 +301,14 @@ def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
         if r.get("kind") != "f12_run" or r.get("exit_code") != 0 or r.get("sentinel") != "PKG119B_LEG" or r.get("build_id") != build_id:
             errors.append(f"row c record {i} lacks successful F12 sentinel/build")
         _, why = _artifact(r.get("image"), base, f"row c record {i} image"); errors.extend(why)
+        report_path, why = _artifact(r.get("report_artifact"), base, f"row c record {i} report"); errors.extend(why)
+        try: report = json.loads(report_path.read_text(encoding="utf-8")) if report_path else {}
+        except (OSError, json.JSONDecodeError): report = {}; errors.append(f"row c record {i} report cannot be read")
+        frozen = (freeze.get("roles") or {}).get(role, {}) if isinstance(freeze, Mapping) else {}
+        if (not isinstance(frozen, Mapping) or report.get("corpus_scene") != scene
+                or report.get("blend_sha256") != digest
+                or report.get("freeze_sha256") != (sha256_file(freeze_path) if freeze_path else None)):
+            errors.append(f"row c record {i} report identity does not match frozen role")
         linear, why = _artifact(r.get("linear_npy"), base, f"row c record {i} linear render"); errors.extend(why)
         if linear is not None:
             try:
@@ -469,7 +480,7 @@ def _records_validate(payload: Mapping[str, Any], rid: str, base: Path) -> tuple
     records = payload.get("records")
     if not isinstance(records, list) or not records: return ["instrument payload requires non-empty typed records"], {}, {}
     if rid == "a": return _validate_a(records, base, payload.get("scene_sha256"))
-    if rid == "c": return _validate_c(records, base, payload.get("scene_sha256"), payload.get("build_id"))
+    if rid == "c": return _validate_c(records, base, payload.get("scene_sha256"), payload.get("build_id"), payload.get("freeze"))
     if rid == "d": return _validate_d(records, base)
     if rid == "e": return _validate_e(records, base)
     if rid == "f": return _validate_f(records, base)

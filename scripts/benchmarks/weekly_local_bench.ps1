@@ -45,6 +45,11 @@ $Log = Join-Path $LogDir "weekly_bench_$stamp.log"
 $parityCode = $LASTEXITCODE
 "run_parity.py exit=$parityCode" | Out-File $Log -Append -Encoding ascii
 
+"=== gate-c corpus F12 evidence ===" | Out-File $Log -Append -Encoding ascii
+& python scripts/run_parity.py --gate-c --gate-c-build-id $env:ASTRORAY_GATE_C_BUILD_ID *>> $Log
+$gateCCode = $LASTEXITCODE
+"gate-c exit=$gateCCode" | Out-File $Log -Append -Encoding ascii
+
 if ($parityCode -eq 0) {
     $latestCsv = Get-ChildItem -Path (Join-Path $Repo 'benchmarks\cycles-parity') -Filter '*.csv' -File |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -66,7 +71,7 @@ $showcaseCode = $LASTEXITCODE
 "=== weekly_local_bench done ===" | Out-File $Log -Append -Encoding ascii
 Write-Host "Log written to $Log"
 
-if ($parityCode -ne 0 -or $showcaseCode -ne 0) {
+if ($parityCode -ne 0 -or $gateCCode -ne 0 -or $showcaseCode -ne 0) {
     exit 1
 }
 exit 0

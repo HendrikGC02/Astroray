@@ -3032,12 +3032,14 @@ def load_corpus_manifest(manifest_path=CORPUS_MANIFEST):
 
 
 def resolve_gate_c_roles(manifest_path=CORPUS_MANIFEST):
-    """Resolve owner-selected logical roles; never substitute old world scenes."""
+    """Resolve owner-selected logical roles without changing the nine-scene ID set."""
     scenes = load_corpus_manifest(manifest_path)
     roles = {}
     for role in GATE_C_ROLES:
-        actual = role if role in scenes else None
-        if actual is None:
+        matches = [scene_id for scene_id, entry in scenes.items()
+                   if scene_id == role or entry.get("gate_c_role") == role]
+        if len(matches) != 1:
             raise ValueError(f"required gate-c role absent from corpus manifest: {role}")
+        actual = matches[0]
         roles[role] = {"scene_id": actual, **scenes[actual]}
     return roles

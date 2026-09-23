@@ -404,9 +404,19 @@ def test_trio_requires_frozen_roles_paired_f12_runs_and_real_artifacts(tmp_path)
                             "non_vacuity": probes, "settings": cfg,
                             "rois": [{"name": "all"}]})
     evidence = tmp_path / "gate_c.json"
+    freeze = {"roles": {role: {"scene_id": actual, "scene_sha256": digest}
+                         for role, actual, digest in zip(GM.TRIO_ROLES, ("gallery", "workshop", "terrace_hair"), hashes)}}
+    freeze_path = tmp_path / "gate_c.freeze.json"; freeze_path.write_text(json.dumps(freeze), encoding="utf-8")
+    freeze_ref = {"path": freeze_path.name, "sha256": GM.sha256_file(freeze_path)}
+    for record in records:
+        report = {"corpus_scene": record["scene_id"], "blend_sha256": record["scene_sha256"],
+                  "freeze_sha256": freeze_ref["sha256"]}
+        report_path = tmp_path / f"report_{record['scene_id']}_{record['backend']}.json"
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+        record["report_artifact"] = {"path": report_path.name, "sha256": GM.sha256_file(report_path)}
     payload = {"schema": GM.PAYLOAD_SCHEMA, "row": "c", "instrument": "trio_parity", "scene_sha256": hashes,
                "build_id": "b1", "backend": ["CPU", "GPU"], "settings": {}, "metric": {}, "value": {},
-               "threshold": {"roi_pct_max": 5, "ssim_min": .95}, "records": records}
+               "threshold": {"roi_pct_max": 5, "ssim_min": .95}, "records": records, "freeze": freeze_ref}
     evidence.write_text(json.dumps(payload), encoding="utf-8")
     raw = {**payload, "value": {"roi_pct_max": 0.0, "ssim_min": 1.0}, "evidence_path": str(evidence),
            "evidence_sha256": GM.sha256_file(evidence), "dimensions": {"backend": "paired", "scene": "role", "roi": "mask"},

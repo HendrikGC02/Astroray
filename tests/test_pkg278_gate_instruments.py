@@ -402,7 +402,7 @@ def test_trio_requires_frozen_roles_paired_f12_runs_and_real_artifacts(tmp_path)
     assert row["status"] == "red"
 
 
-def test_triage_requires_two_snapshots_and_signed_rating_for_every_id(tmp_path):
+def test_triage_rejects_legacy_detached_snapshot_and_rating_flags(tmp_path):
     blob = tmp_path / "triage.json"; blob.write_bytes(b"triage")
     ref = {"path": blob.name, "sha256": GM.sha256_file(blob)}
     records = [{"kind": "snapshot", "phase": "baseline", "command": "gh issue list", "timestamp": "2026-09-24T00:00:00Z", "reported_total": 2, "issue_ids": [1, 2], "artifact": ref},
@@ -414,9 +414,6 @@ def test_triage_requires_two_snapshots_and_signed_rating_for_every_id(tmp_path):
     evidence.write_text(json.dumps(payload), encoding="utf-8")
     raw = {**payload, "value": {"high_count": 0}, "evidence_path": str(evidence), "evidence_sha256": GM.sha256_file(evidence), "dimensions": {"issue_snapshot": "ids", "ratings": "signed"}, "subchecks": {"snapshot_unique": True, "count_matches_total": True, "all_rated_independently": True, "delta_empty": True}, "date": "2026-09-24"}
     row, reasons = GM.compute_row("e", raw, GM.ROW_SPEC["e"], tmp_path)
-    assert row["status"] == "green", reasons
-    payload["records"].pop(); evidence.write_text(json.dumps(payload), encoding="utf-8"); raw["evidence_sha256"] = GM.sha256_file(evidence)
-    row, _ = GM.compute_row("e", raw, GM.ROW_SPEC["e"], tmp_path)
     assert row["status"] == "red"
 
 

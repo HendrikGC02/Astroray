@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import hashlib
+import importlib.util
 import json
 import re
 import sys
@@ -311,24 +312,28 @@ def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
 
 
 def _validate_e(records: list[Any], base: Path) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
-    errors: list[str] = []; snapshots = [r for r in records if isinstance(r, Mapping) and r.get("kind") == "snapshot"]; ratings = [r for r in records if isinstance(r, Mapping) and r.get("kind") == "rating"]
-    if len(snapshots) != 2: errors.append("row e requires baseline and reconciled snapshot records")
-    ids: list[int] = []; recheck: list[int] = []
-    for i, s in enumerate(snapshots):
-        values = s.get("issue_ids") if isinstance(s, Mapping) else None
-        if not isinstance(s.get("command"), str) or not s["command"].strip() or not isinstance(s.get("timestamp"), str) or not isinstance(values, list) or any(isinstance(x, bool) or not isinstance(x, int) for x in values) or s.get("reported_total") != len(values): errors.append(f"row e snapshot {i} malformed")
-        _, why = _artifact(s.get("artifact"), base, f"row e snapshot {i}"); errors.extend(why)
-        (recheck if s.get("phase") == "recheck" else ids).extend(values or [])
-    if len(ids) != len(set(ids)): errors.append("row e baseline snapshot has duplicate IDs")
-    if set(ids) != set(recheck): errors.append("row e reconciled snapshot ID delta is non-empty")
-    rated = set()
-    for i, rating in enumerate(ratings):
-        if rating.get("issue_id") not in set(ids) or not isinstance(rating.get("rater_id"), str) or not rating["rater_id"].strip() or rating.get("signed") is not True:
-            errors.append(f"row e rating {i} lacks an independent signed identity")
-        _, why = _artifact(rating.get("signature"), base, f"row e rating {i} signature"); errors.extend(why); rated.add(rating.get("issue_id"))
-    if rated != set(ids) or len(ratings) != len(ids): errors.append("row e ratings are not exhaustive one-per-snapshot-ID")
-    high = sum(1 for r in ratings if r.get("severity") == "high")
-    return errors, {"high_count": high}, {"snapshot_unique": len(ids) == len(set(ids)), "count_matches_total": not any("malformed" in e for e in errors), "all_rated_independently": rated == set(ids) and len(ratings) == len(ids), "delta_empty": set(ids) == set(recheck)}
+    errors: list[str] = []
+    required = {("snapshot", "baseline"), ("snapshot", "recheck"), ("ratings", None)}
+    if len(records) != 3 or not all(isinstance(record, Mapping) for record in records):
+        return ["row e requires baseline/recheck snapshots and one ratings artifact"], {}, {}
+    paths: dict[tuple[str, Any], Path] = {}
+    for i, record in enumerate(records):
+        key = (record.get("kind"), record.get("phase") if record.get("kind") == "snapshot" else None)
+        if key not in required or key in paths:
+            errors.append(f"row e record {i} has unexpected or duplicate kind/phase"); continue
+        path, why = _artifact(record.get("artifact"), base, f"row e {key[0]} {key[1] or ''}".strip())
+        errors.extend(why)
+        if path is not None: paths[key] = path
+    if set(paths) != required:
+        return errors + ["row e typed artifacts incomplete"], {}, {}
+    try:
+        spec = importlib.util.spec_from_file_location("pkg278_known_issues", REPO_ROOT / "scripts" / "dev" / "known_issues_report.py")
+        if spec is None or spec.loader is None: raise ImportError("cannot load known-issues reducer")
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        result = module.validate_gate_e_artifacts(paths[("snapshot", "baseline")], paths[("snapshot", "recheck")], paths[("ratings", None)])
+    except (ImportError, OSError, ValueError, json.JSONDecodeError) as exc:
+        return errors + [f"row e strict reducer rejected evidence: {exc}"], {}, {}
+    return errors, result["value"], result["subchecks"]
 
 
 def _validate_f(records: list[Any], base: Path) -> tuple[list[str], dict[str, Any], dict[str, Any]]:

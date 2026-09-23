@@ -46,6 +46,7 @@ N_REPS = int(_CFG.get("reps", 3))
 N_WARMUP = int(_CFG.get("warmup", 5))
 ROTATE_DEG = float(_CFG.get("rotate_deg", 1.0))
 TICK = float(_CFG.get("tick", 0.05))
+GATE_A = bool(_CFG.get("gate_a", False))
 
 
 def _find_v3d():
@@ -121,6 +122,14 @@ def _install():
         "renders": [],        # list[(start, end)] render_viewport_frame
         "presents": [],       # list[float] draw-handler POST_PIXEL
         "events": [],         # per measured event dicts
+        # Gate (a) retains the producer stream and labels the actual Blender
+        # POST_PIXEL callback.  Scalar timestamps alone cannot prove that the
+        # displayed frame contains this particular edit.
+        "raw_events": [],
+        "pending": None,
+        "displayed": None,    # (generation, pub_id, epoch), after real upload
+        "input_revision": 0,
+        "event_seq": 0,
         "phase": "run",
         "idx": 0,             # events dispatched so far (incl warmup)
         "total": N_WARMUP + N_REPS * N_EVENTS,
@@ -142,12 +151,58 @@ def _install():
     o_update = S["orig"]["view_update"]
     o_render = S["orig"]["render_viewport_frame"]
 
+    # Chain the exporter diagnostic sink: it is the production worker's own
+    # generation stream, not a replacement for Blender/worker behaviour.
+    exporter_mod = addon.exporter
+    old_sink = getattr(exporter_mod, "_spike_event_sink", None)
+
+    def raw(name, generation=None, epoch=None, extra=None):
+        S["raw_events"].append({
+            "name": name, "generation": generation, "epoch": epoch,
+            "t_ns": time.perf_counter_ns(), "extra": dict(extra or {}),
+        })
+
+    def sink(name, generation, ts, epoch, extra):
+        # Keep the worker clock value so every producer event shares its native
+        # perf_counter domain with dispatch and POST_PIXEL observations.
+        S["raw_events"].append({"name": name, "generation": generation,
+                                "epoch": epoch, "t_ns": int(ts * 1e9),
+                                "extra": dict(extra or {})})
+        if name == "texture_upload_end":
+            S["displayed"] = (generation, extra.get("pub_id"), epoch)
+        if old_sink is not None:
+            old_sink(name, generation, ts, epoch, extra)
+
+    if GATE_A:
+        exporter_mod._spike_event_sink = sink
+
+    def bind_after_engine_call(engine, kind):
+        """Bind only to the request emitted by the actual exporter call."""
+        pending = S.get("pending")
+        if not GATE_A or pending is None or pending.get("bound") or pending["kind"] != kind:
+            return
+        exporter = engine.__dict__.get("_exporter")
+        worker = getattr(exporter, "_worker", None) if exporter is not None else None
+        gen = getattr(worker, "desired_generation", None)
+        epoch = getattr(worker, "session_epoch", None)
+        found = any(e["name"] == "request" and e["generation"] == gen and
+                    e["epoch"] == epoch and e["t_ns"] >= pending["dispatch_ns"]
+                    for e in S["raw_events"])
+        if isinstance(gen, int) and isinstance(epoch, int) and found:
+            pending.update({"bound": True, "generation": gen, "epoch": epoch,
+                            "input_floor": gen})
+            raw("edit_bound", gen, epoch, {"event_id": pending["event_id"],
+                                            "input_revision": pending["input_revision"],
+                                            "edit_kind": kind, "input_floor": gen,
+                                            "fingerprint": pending.get("input_fingerprint")})
+
     def w_draw(self, context, depsgraph):
         e = time.perf_counter()
         try:
             return o_draw(self, context, depsgraph)
         finally:
             S["draws"].append((e, time.perf_counter()))
+            bind_after_engine_call(self, "camera")
 
     def w_update(self, context, depsgraph):
         e = time.perf_counter()
@@ -155,6 +210,7 @@ def _install():
             return o_update(self, context, depsgraph)
         finally:
             S["updates"].append((e, time.perf_counter()))
+            bind_after_engine_call(self, "material")
 
     def w_render(self, *a, **k):
         e = time.perf_counter()
@@ -172,7 +228,16 @@ def _install():
     exporter_cls.render_viewport_frame = w_render
 
     def present_cb():
-        S["presents"].append(time.perf_counter())
+        now = time.perf_counter()
+        S["presents"].append(now)
+        if GATE_A:
+            ident = S.get("displayed")
+            pending = S.get("pending") or {}
+            raw("post_pixel_present", ident[0] if ident else None,
+                ident[2] if ident else None,
+                {"pub_id": ident[1] if ident else None,
+                 "input_floor": pending.get("input_floor"),
+                 "event_id": pending.get("event_id")})
 
     S["handler"] = bpy.types.SpaceView3D.draw_handler_add(
         present_cb, (), "WINDOW", "POST_PIXEL")
@@ -182,6 +247,8 @@ def _install():
             eng_cls.view_draw = S["orig"]["view_draw"]
             eng_cls.view_update = S["orig"]["view_update"]
             exporter_cls.render_viewport_frame = S["orig"]["render_viewport_frame"]
+            if GATE_A:
+                exporter_mod._spike_event_sink = old_sink
         except Exception:
             pass
         if S.get("handler") is not None:
@@ -205,7 +272,8 @@ def _install():
 
     def results():
         return {"cfg": S["cfg"], "material": S["material"],
-                "events": S["events"], "done": S["done"], "error": S["error"]}
+                "events": S["events"], "raw_events": S["raw_events"],
+                "done": S["done"], "error": S["error"]}
 
     S["results"] = results
 
@@ -243,11 +311,39 @@ def _install():
 
     apply = apply_material if EVENT_CLASS == "material" else apply_camera
 
+    def input_fingerprint():
+        if EVENT_CLASS == "material" and bsdf is not None:
+            return tuple(round(float(v), 7) for v in bsdf.inputs["Base Color"].default_value)
+        _, rv = _find_v3d()
+        return tuple(round(float(v), 7) for row in rv.view_matrix for v in row) if rv else None
+
     def _first_after(seq, ts, key=lambda x: x):
         for x in seq:
             if key(x) >= ts:
                 return x
         return None
+
+    def _correct_presented(pending):
+        """Gate-A's serialized dispatch barrier, using the recorded producer path."""
+        if not GATE_A or not pending.get("bound"):
+            return not GATE_A
+        gen, epoch, start = pending["generation"], pending["epoch"], pending["dispatch_ns"]
+        req = next((e for e in S["raw_events"] if e["name"] == "request" and
+                    e["generation"] == gen and e["epoch"] == epoch and e["t_ns"] >= start), None)
+        if req is None: return False
+        enq = next((e for e in S["raw_events"] if e["name"] == "mailbox_enqueue" and
+                    e["generation"] == gen and e["epoch"] == epoch and e["t_ns"] >= req["t_ns"]), None)
+        pub = enq and enq["extra"].get("pub_id")
+        if pub is None: return False
+        deq = next((e for e in S["raw_events"] if e["name"] == "mailbox_dequeue" and
+                    e["generation"] == gen and e["epoch"] == epoch and e["t_ns"] >= enq["t_ns"] and
+                    e["extra"].get("pub_id") == pub), None)
+        up = deq and next((e for e in S["raw_events"] if e["name"] == "texture_upload_end" and
+                           e["generation"] == gen and e["epoch"] == epoch and e["t_ns"] >= deq["t_ns"] and
+                           e["extra"].get("pub_id") == pub), None)
+        return bool(up and any(e["name"] == "post_pixel_present" and e["generation"] == gen and
+                               e["epoch"] == epoch and e["t_ns"] >= up["t_ns"] and
+                               e["extra"].get("pub_id") == pub for e in S["raw_events"]))
 
     def _record(ev_idx):
         dts = S["dispatch_ts"]
@@ -279,6 +375,8 @@ def _install():
             # starting divisor the interactive-resolution budget engaged.
             "start_divisor": (rnd[2] if rnd is not None and len(rnd) > 2 else None),
         }
+        if GATE_A and S.get("pending") is not None:
+            row.update(S["pending"])
         S["events"].append(row)
 
     def timer():
@@ -288,7 +386,9 @@ def _install():
             if S["awaiting"]:
                 # Need at least the first present after dispatch to close event.
                 pres = _first_after(S["presents"], S["dispatch_ts"])
-                if pres is None:
+                # The gate producer never turns an unlabelled redraw into a
+                # measurement.  The pure reducer verifies the complete chain.
+                if pres is None or (GATE_A and not _correct_presented(S.get("pending", {}))):
                     return TICK
                 _record(S["idx"])
                 S["awaiting"] = False
@@ -299,7 +399,20 @@ def _install():
                 S["phase"] = "done"
                 return None
             S["dispatch_ts"] = time.perf_counter()
+            if GATE_A:
+                S["event_seq"] += 1; S["input_revision"] += 1
+                S["pending"] = {"event_id": S["event_seq"], "input_revision": S["input_revision"],
+                                "kind": EVENT_CLASS, "dispatch_ns": time.perf_counter_ns(),
+                                "bound": False}
+                raw("dispatch", None, None, {"event_id": S["event_seq"],
+                                               "input_revision": S["input_revision"],
+                                               "edit_kind": EVENT_CLASS})
             apply()
+            if GATE_A:
+                S["pending"]["input_fingerprint"] = input_fingerprint()
+                raw("input_applied", None, None, {"event_id": S["pending"]["event_id"],
+                                                   "input_revision": S["pending"]["input_revision"],
+                                                   "fingerprint": S["pending"]["input_fingerprint"]})
             _tag_redraw()
             S["awaiting"] = True
             return TICK

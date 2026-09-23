@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import hashlib
 import json
 import math
 import os
@@ -487,6 +488,17 @@ bpy.app.timers.register(_back, first_interval=0.3)
 result = {'device_mode': sc.custom_raytracer.device_mode}
 """
 
+_GATE_A_SETTINGS = r"""
+import bpy
+sc = bpy.context.scene
+settings = sc.custom_raytracer
+if hasattr(settings, 'use_denoising'): settings.use_denoising = False
+if hasattr(settings, 'viewport_oidn'): settings.viewport_oidn = False
+result = {'device_mode': getattr(settings, 'device_mode', None),
+          'use_denoising': getattr(settings, 'use_denoising', None),
+          'viewport_oidn': getattr(settings, 'viewport_oidn', None)}
+"""
+
 _ENGINE_SWITCH = r"""
 import bpy
 sc = bpy.context.scene
@@ -601,11 +613,11 @@ def _switch_engine(host, port, engine):
 
 
 def _run_class(host, port, event_class, n, reps, warmup, deadline_s,
-               rotate_deg=1.0):
+               rotate_deg=1.0, gate_a=False):
     """Install the recorder for one event class, poll to completion (or the
     per-config wall-clock deadline), fetch and return non-warmup events."""
     cfg = {"event_class": event_class, "n": n, "reps": reps, "warmup": warmup,
-           "rotate_deg": rotate_deg}
+           "rotate_deg": rotate_deg, "gate_a": gate_a}
     setup = "_PKG241_CONFIG = " + json.dumps(cfg) + "\n" + _recorder_src()
     info = _bridge(setup, host, port)
     if info.get("setup") != "ok":
@@ -626,8 +638,110 @@ def _run_class(host, port, event_class, n, reps, warmup, deadline_s,
     res = _bridge(_RESULTS, host, port)
     _bridge(_TEARDOWN, host, port)
     events = [e for e in res.get("events", []) if not e.get("warmup")]
-    return {"events": events, "truncated": truncated,
-            "material": res.get("material")}
+    return {"events": events, "raw_events": res.get("raw_events", []),
+            "truncated": truncated, "material": res.get("material")}
+
+
+def _gate_a_event(raw):
+    """Normalize recorder JSON and synthetic test tuples into one event form."""
+    if isinstance(raw, dict):
+        return (raw.get("name"), raw.get("generation"), raw.get("t_ns"),
+                raw.get("epoch"), raw.get("extra") or {})
+    if isinstance(raw, (list, tuple)) and len(raw) == 5:
+        return raw
+    return (None, None, None, None, {})
+
+
+def reduce_gate_a_capture(raw_events, edits, *, truncated=False):
+    """Fail-closed gate-(a) reducer over retained real-Blender observations.
+
+    A correct present is the ordered producer path for the generation actually
+    requested by a serialized edit.  This intentionally rejects the permitted
+    one-step camera preview and any unlabelled POST_PIXEL callback.
+    """
+    errors, rows, cancels = [], [], []
+    events = []
+    for index, raw in enumerate(raw_events):
+        name, gen, ts, epoch, extra = _gate_a_event(raw)
+        if not isinstance(name, str) or not isinstance(ts, int) or ts < 0 or not isinstance(extra, dict):
+            errors.append(f"raw event {index} is malformed"); continue
+        events.append((name, gen, ts, epoch, extra))
+    events.sort(key=lambda x: x[2])
+    if truncated: errors.append("capture truncated")
+    by_name = {}
+    for e in events: by_name.setdefault(e[0], []).append(e)
+
+    def after(name, ts, gen=None, epoch=None, pub=None):
+        for e in by_name.get(name, []):
+            if e[2] < ts or (gen is not None and e[1] != gen) or (epoch is not None and e[3] != epoch):
+                continue
+            if pub is not None and e[4].get("pub_id") != pub: continue
+            return e
+        return None
+
+    for edit in edits:
+        if not isinstance(edit, dict): errors.append("edit record is malformed"); continue
+        event_id, dispatch = edit.get("event_id"), edit.get("dispatch_ns")
+        gen, epoch = edit.get("generation"), edit.get("epoch")
+        floor = edit.get("input_floor")
+        if not all(isinstance(v, int) and v >= 0 for v in (event_id, dispatch, gen, epoch, floor)):
+            errors.append(f"edit {event_id!r} lacks actual generation binding"); continue
+        if "input_fingerprint" not in edit:
+            errors.append(f"edit {event_id} lacks input-revision fingerprint"); continue
+        req = after("request", dispatch, gen, epoch)
+        bound = next((e for e in by_name.get("edit_bound", []) if e[1] == gen and e[3] == epoch and
+                      e[2] >= dispatch and e[4].get("event_id") == event_id), None)
+        applied = next((e for e in by_name.get("input_applied", []) if e[2] >= dispatch and
+                        e[4].get("event_id") == event_id), None)
+        enq = after("mailbox_enqueue", req[2], gen, epoch) if req else None
+        pub = enq[4].get("pub_id") if enq else None
+        deq = after("mailbox_dequeue", enq[2], gen, epoch, pub) if enq and pub is not None else None
+        upload = after("texture_upload_end", deq[2], gen, epoch, pub) if deq else None
+        present = after("post_pixel_present", upload[2], gen, epoch, pub) if upload else None
+        if not all((req, bound, applied, enq, deq, upload, present)) or bound[4].get("fingerprint") != edit.get("input_fingerprint"):
+            errors.append(f"edit {event_id} has no correct presented generation chain"); continue
+        rows.append({"event_id": event_id, "event_ns": dispatch,
+                     "present_ns": present[2], "generation": gen, "epoch": epoch,
+                     "input_floor": floor, "correct_present": True})
+
+    for cancel in by_name.get("cancel_request", []):
+        _name, gen, ts, epoch, _extra = cancel
+        ack = after("idle_ack", ts, gen, epoch)
+        drain = after("idle_drain", ack[2], gen, epoch) if ack else None
+        if ack is None or drain is None:
+            errors.append(f"cancel generation {gen} lacks same-generation idle_ack/idle_drain")
+            continue
+        stale = [p for p in by_name.get("post_pixel_present", []) if p[2] >= ack[2]
+                 and p[3] == epoch and isinstance(p[1], int)
+                 and isinstance(p[4].get("input_floor"), int)
+                 and p[1] < p[4]["input_floor"]]
+        if stale: errors.append(f"stale present after ack for generation {gen}")
+        cancels.append({"generation": gen, "epoch": epoch, "cancel_ns": ts,
+                        "idle_ack_ns": ack[2], "idle_drain_ns": drain[2],
+                        "stale_frames_after_ack": len(stale)})
+    return {"rows": rows, "cancels": cancels, "errors": errors,
+            "complete": not errors and bool(rows) and bool(cancels)}
+
+
+def _load_gate_a_workloads(paths):
+    """Read explicit frozen descriptors; historical scene aliases are ineligible."""
+    workloads = []
+    for p in paths:
+        doc = json.loads(Path(p).read_text(encoding="utf-8"))
+        entries = doc.get("workloads", [doc])
+        if not isinstance(entries, list): raise ValueError(f"{p}: workloads must be a list")
+        for w in entries:
+            path, digest, tris = w.get("path"), w.get("sha256"), w.get("triangles")
+            if not isinstance(path, str) or not isinstance(digest, str) or len(digest) != 64 or not isinstance(tris, int):
+                raise ValueError(f"{p}: each workload needs path, sha256, and measured integer triangles")
+            blend = Path(path)
+            if not blend.is_file() or hashlib.sha256(blend.read_bytes()).hexdigest() != digest:
+                raise ValueError(f"{p}: workload path/SHA is not frozen: {path}")
+            workloads.append({"name": w.get("name", blend.stem), "path": str(blend),
+                              "sha256": digest, "triangles": tris})
+    if len(workloads) != 2 or sorted(w["triangles"] for w in workloads) != [10000, 100000]:
+        raise ValueError("gate (a) requires exactly frozen 10,000- and 100,000-triangle workloads")
+    return workloads
 
 
 def _run_cancel(host, port, samples):
@@ -1065,6 +1179,52 @@ def run_interactive(args) -> dict:
     }
 
 
+def run_gate_a(args) -> dict:
+    """Produce raw, hash-bindable GPU evidence for pkg278 gate (a).
+
+    The caller supplies two independently frozen .blend descriptors.  This
+    deliberately does not promote pkg241's `metal_sweep`/`big` aliases into
+    the 10k/100k acceptance workloads.
+    """
+    workloads = _load_gate_a_workloads(args.gate_a_workload)
+    host, port = args.host, args.port
+    gpu = _bridge(_GPU_NAME, host, port).get("gpu", "")
+    captures = []
+    for workload in workloads:
+        scene_info = _open_scene(host, port, workload["path"])
+        if scene_info.get("tris") != workload["triangles"]:
+            raise RuntimeError(f"{workload['name']}: expected {workload['triangles']} triangles, "
+                               f"Blender reported {scene_info.get('tris')}")
+        _switch_device(host, port, "gpu")
+        settings = _bridge(_GATE_A_SETTINGS, host, port)
+        if settings.get("device_mode") != "gpu" or settings.get("use_denoising") not in (False, None):
+            raise RuntimeError(f"{workload['name']}: GPU denoise-off settings were not applied: {settings}")
+        for kind in ("camera", "material"):
+            for batch in range(3):
+                result = _run_class(host, port, kind, 100, 1, args.warmup,
+                                    args.gpu_deadline_s, args.rotate_deg, gate_a=True)
+                reduced = reduce_gate_a_capture(result["raw_events"], result["events"],
+                                                truncated=result["truncated"])
+                captures.append({"scene_sha256": workload["sha256"],
+                                 "workload": workload, "edit_kind": kind, "batch": batch,
+                                 "backend": "GPU", "denoise_enabled": False,
+                                 "warmup": args.warmup, "truncated": result["truncated"],
+                                 "edits": result["events"], "raw_events": result["raw_events"],
+                                 "reduced": reduced})
+    return {"schema": "pkg278.instrument.v2", "row": "a", "instrument": "viewport_latency",
+            "scene_sha256": [w["sha256"] for w in workloads], "build_id": args.gate_a_build_id,
+            "backend": ["GPU"],
+            "settings": {"workloads": workloads, "worker": True, "denoise_enabled": False,
+                         "warmup": args.warmup, "events_per_batch": 100,
+                         "batches": 3, "serialized_edits": True, "gpu": gpu},
+            "metric": {"source": "real_blender_post_pixel_generation_chain"},
+            "value": {}, "threshold": {"gpu_p95_ms": 100, "gpu_p99_ms": 150,
+                                           "cancel_p95_ms": 200, "cancel_p99_ms": 300,
+                                           "stale_frames_after_ack": 0},
+            "records": captures,
+            "date": _dt.date.today().isoformat()}
+
+
 def _write_summary_md(doc, path):
     lines = ["# pkg241 Phase 0 — viewport / cancellation latency", "",
              f"Generated: {doc['generated_utc']}  ", f"GPU: {doc['gpu']}  ",
@@ -1500,7 +1660,7 @@ def main():
                    choices=["CYCLES", "CUSTOM_RAYTRACER"])
     p.add_argument("--mode", default="offline",
                    choices=["offline", "interactive", "ui_latency",
-                            "present_check", "buffer_identity"])
+                            "present_check", "buffer_identity", "gate_a"])
     p.add_argument("--frames", type=int, default=30)
     p.add_argument("--width", type=int, default=512)
     p.add_argument("--height", type=int, default=512)
@@ -1538,6 +1698,10 @@ def main():
     p.add_argument("--cpu-events", dest="cpu_events", type=int, default=None)
     p.add_argument("--cpu-reps", dest="cpu_reps", type=int, default=None)
     p.add_argument("--rotate-deg", dest="rotate_deg", type=float, default=1.0)
+    p.add_argument("--gate-a-workload", action="append", default=[], metavar="JSON",
+                   help="required frozen workload descriptor(s): exactly one 10k and one 100k .blend SHA")
+    p.add_argument("--gate-a-build-id", default=None,
+                   help="required build identity recorded in the gate-(a) producer")
     p.add_argument("--cancel", action="store_true",
                    help="also run the F12 cancel full-stop-floor probe")
     p.add_argument("--cancel-samples", dest="cancel_samples", type=int,
@@ -1590,6 +1754,20 @@ def main():
         args.cpu_events = args.events
     if args.cpu_reps is None:
         args.cpu_reps = args.reps
+
+    if args.mode == "gate_a":
+        if not args.gate_a_build_id or not args.gate_a_workload:
+            p.error("gate_a requires --gate-a-build-id and --gate-a-workload descriptors")
+        try:
+            doc = run_gate_a(args)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            p.error(str(exc))
+        args.out.mkdir(parents=True, exist_ok=True)
+        tag = args.tag or _dt.date.today().isoformat()
+        json_path = args.out / f"{tag}-gate-a-instrument.json"
+        json_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        print(f"[pkg278] wrote raw gate-(a) evidence {json_path}")
+        return
 
     if args.mode == "interactive":
         doc = run_interactive(args)

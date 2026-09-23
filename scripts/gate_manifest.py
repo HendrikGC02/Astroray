@@ -255,25 +255,38 @@ def _pct(samples: list[float], quantile: float) -> float:
 
 
 def _validate_a(records: list[Any], base: Path, expected_scenes: Any) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
-    errors: list[str] = []; samples: list[float] = []; cancels: list[float] = []; cells = set(); scenes = set(); stale = 0
-    if len(records) != 1200:
-        errors.append("row a requires exactly 1200 concrete latency records")
-    for i, r in enumerate(records):
-        if not isinstance(r, Mapping): errors.append(f"row a record {i} is not an object"); continue
-        fields = (r.get("scene_sha256"), r.get("edit_kind"), r.get("batch"), r.get("repetition"))
-        if (not isinstance(fields[0], str) or not _HEX64.match(fields[0]) or fields[1] not in ("camera", "material")
-                or isinstance(fields[2], bool) or fields[2] not in (0, 1, 2)
-                or isinstance(fields[3], bool) or fields[3] not in range(100)):
-            errors.append(f"row a record {i} has invalid concrete dimensions"); continue
-        if r.get("backend") != "GPU" or r.get("denoise_enabled") is not False:
-            errors.append(f"row a record {i} is not GPU denoise-off evidence")
-        values = [_number(r.get(k)) for k in ("event_ns", "present_ns", "cancel_ack_ns", "stale_frames_after_ack")]
-        if any(x is None for x in values) or values[0] < 0 or values[1] < values[0] or values[2] < values[0] or values[3] < 0:
-            errors.append(f"row a record {i} has invalid event/present/cancel/stale values"); continue
-        _, why = _artifact(r.get("artifact"), base, f"row a record {i}"); errors.extend(why)
-        cell = tuple(fields); cells.add(cell); scenes.add(fields[0]); samples.append((values[1]-values[0])/1e6); cancels.append((values[2]-values[0])/1e6); stale += int(values[3])
-    if not isinstance(expected_scenes, list) or len(expected_scenes) != 2 or set(expected_scenes) != scenes or len(scenes) != 2 or len(cells) != 1200:
-        errors.append("row a records must cover two pinned scenes × camera/material × 3 batches × 100 repetitions")
+    errors: list[str] = []; samples: list[float] = []; cancels: list[float] = []; cells = set(); scenes = set(); stale = 0; triangles = {}
+    if len(records) != 12: errors.append("row a requires 12 raw captures (2 scenes × 2 kinds × 3 batches)")
+    driver_path = REPO_ROOT / "benchmarks" / "viewport_parity" / "blender_driver.py"
+    spec = importlib.util.spec_from_file_location("pkg278_gate_a_reducer", driver_path)
+    driver = importlib.util.module_from_spec(spec); assert spec and spec.loader; spec.loader.exec_module(driver)
+    for i, cap in enumerate(records):
+        if not isinstance(cap, Mapping): errors.append(f"row a capture {i} is not an object"); continue
+        scene, kind, batch = cap.get("scene_sha256"), cap.get("edit_kind"), cap.get("batch")
+        if not isinstance(scene, str) or not _HEX64.match(scene) or kind not in ("camera", "material") or batch not in (0, 1, 2):
+            errors.append(f"row a capture {i} has invalid dimensions"); continue
+        if cap.get("backend") != "GPU" or cap.get("denoise_enabled") is not False:
+            errors.append(f"row a capture {i} is not GPU denoise-off evidence")
+        workload = cap.get("workload")
+        if (not isinstance(workload, Mapping) or workload.get("sha256") != scene
+                or not isinstance(workload.get("path"), str)
+                or workload.get("triangles") not in (10000, 100000)):
+            errors.append(f"row a capture {i} lacks frozen 10k/100k workload identity")
+        else:
+            triangles[scene] = workload["triangles"]
+        result = driver.reduce_gate_a_capture(cap.get("raw_events", []), cap.get("edits", []), truncated=bool(cap.get("truncated")))
+        errors.extend(f"row a capture {i}: {e}" for e in result["errors"])
+        if len(result["rows"]) != 100: errors.append(f"row a capture {i} lacks 100 correct presents")
+        if not result["cancels"]: errors.append(f"row a capture {i} has no cancel acknowledgement")
+        scenes.add(scene)
+        for rep, row in enumerate(result["rows"]):
+            cells.add((scene, kind, batch, rep)); samples.append((row["present_ns"] - row["event_ns"]) / 1e6)
+        for cancel in result["cancels"]:
+            cancels.append((cancel["idle_drain_ns"] - cancel["cancel_ns"]) / 1e6)
+            stale += int(cancel["stale_frames_after_ack"])
+    if (not isinstance(expected_scenes, list) or len(expected_scenes) != 2 or set(expected_scenes) != scenes
+            or len(cells) != 1200 or sorted(triangles.values()) != [10000, 100000]):
+        errors.append("row a captures must cover two pinned scenes × camera/material × 3 batches × 100 repetitions")
     value = {"gpu_p95_ms": _pct(samples, .95) if samples else None, "gpu_p99_ms": _pct(samples, .99) if samples else None,
              "cancel_p95_ms": _pct(cancels, .95) if cancels else None, "cancel_p99_ms": _pct(cancels, .99) if cancels else None,
              "stale_frames_after_ack": stale}
@@ -771,6 +784,19 @@ def load_instruments(instruments_dir: Path | None,
         # Producer payloads are not manifest rows.  Wrap their own immutable
         # file as evidence and derive gate-e values/subchecks from its raw
         # artifacts; do not invent dimensions or accept producer pass flags.
+        if (isinstance(payload, Mapping) and payload.get("schema") == PAYLOAD_SCHEMA
+                and payload.get("row") == "a" and payload.get("instrument") == "viewport_latency"):
+            errors, value, subchecks = _validate_a(payload.get("records", []), path.parent,
+                                                   payload.get("scene_sha256"))
+            row = dict(payload)
+            row["evidence_path"] = str(path)
+            row["evidence_sha256"] = sha256_file(path)
+            row["dimensions"] = {"scene": "frozen workload SHA", "edit_kind": "camera/material",
+                                 "repetitions": "3x100 serialized edits"}
+            row["subchecks"] = subchecks if not errors else {}
+            row["value"] = value
+            row["date"] = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+            return row
         if (isinstance(payload, Mapping) and payload.get("schema") == PAYLOAD_SCHEMA
                 and payload.get("row") == "e" and payload.get("instrument") == "issue_triage"):
             errors, value, subchecks = _validate_e(payload.get("records", []), path.parent)

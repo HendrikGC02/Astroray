@@ -39,6 +39,74 @@ def _find_blender():
 
 BLENDER_EXE = _find_blender()
 SKIP_REASON = "Blender not found (set BLENDER_EXE or install at default path)"
+MATRIX_PATH = Path(__file__).resolve().parents[1] / "docs" / "blender_parity" / "coverage_matrix.json"
+
+
+def _row_classification(rows, feature, sock_prop):
+    matches = [r for r in rows
+               if r.get('category') == 'shader_node'
+               and r.get('feature') == feature
+               and r.get('socket_or_prop') == sock_prop]
+    assert len(matches) == 1, (
+        f"expected exactly one shader_node row {feature}/{sock_prop}, "
+        f"found {len(matches)}")
+    return matches[0]['classification']
+
+
+def _assert_823_op_vm_per_socket_evidence(rows):
+    """#823 -- the op-VM compiler dispatch (`_compile_socket_value`) must be
+    scanned per socket, not credited wholesale.
+
+    Positive: sockets the compiler unconditionally consumes for every node
+    configuration. Negative: sockets with no read, or a read reachable only
+    under a semantic guard the socket-only matrix cannot represent (Math's
+    MATH_TERNARY third operand, Map Range's Steps, Mix's rotation variants and
+    its never-enabled Factor_Vector)."""
+    # Math: two unconditional positional reads.
+    for sock in ('input:Value', 'input:Value[Value_001]'):
+        assert _row_classification(rows, 'MATH', sock) == 'SUPPORTED', sock
+    # Math: third operand read only for MULTIPLY_ADD -> conservatively dropped.
+    assert _row_classification(rows, 'MATH', 'input:Value[Value_002]') == 'DROPPED-SILENT'
+
+    # Map Range: five named reads.
+    for sock in ('input:Value', 'input:From Min', 'input:From Max',
+                 'input:To Min', 'input:To Max'):
+        assert _row_classification(rows, 'MAP_RANGE', sock) == 'SUPPORTED', sock
+    # Map Range: Steps is never read.
+    for sock in ('input:Steps', 'input:Steps[Steps_FLOAT3]'):
+        assert _row_classification(rows, 'MAP_RANGE', sock) == 'DROPPED-SILENT', sock
+    # Blender's inputs.get('From Min') resolves the first FLOAT socket even
+    # when Map Range is configured for FLOAT_VECTOR; the compiler therefore
+    # does not consume the duplicate FLOAT3 variants.
+    for sock in ('input:From Min[From_Min_FLOAT3]', 'input:From Max[From_Max_FLOAT3]',
+                 'input:To Min[To_Min_FLOAT3]', 'input:To Max[To_Max_FLOAT3]'):
+        assert _row_classification(rows, 'MAP_RANGE', sock) == 'DROPPED-SILENT', sock
+
+    # Mix: the FLOAT/VECTOR/RGBA variants the compiler accepts are supported...
+    for sock in ('input:Factor[Factor_Float]', 'input:A[A_Float]', 'input:B[B_Float]',
+                 'input:A[A_Vector]', 'input:B[B_Vector]',
+                 'input:A[A_Color]', 'input:B[B_Color]'):
+        assert _row_classification(rows, 'MIX', sock) == 'SUPPORTED', sock
+    # ...rotation is rejected, and Factor_Vector is enabled for no data_type.
+    for sock in ('input:A[A_Rotation]', 'input:B[B_Rotation]',
+                 'input:Factor[Factor_Vector]'):
+        assert _row_classification(rows, 'MIX', sock) == 'DROPPED-SILENT', sock
+
+    # Discovery is tied to a `_compile_socket_value` dispatch branch: a node
+    # absent from that function must stay DROPPED-SILENT even though the
+    # compiler module is full of unrelated `inputs` reads.
+    gabor = [r for r in rows
+             if r.get('category') == 'shader_node' and r.get('feature') == 'TEX_GABOR']
+    assert gabor, "expected TEX_GABOR rows to exist"
+    assert all(r['classification'] == 'DROPPED-SILENT' for r in gabor), (
+        "TEX_GABOR is absent from _compile_socket_value and must stay DROPPED-SILENT")
+
+
+def test_823_checked_in_matrix_rows():
+    """The reviewed checked-in artifact carries the same per-socket #823
+    evidence as the fresh ephemeral generation. Runs without Blender."""
+    rows = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
+    _assert_823_op_vm_per_socket_evidence(rows)
 
 
 @pytest.mark.skipif(BLENDER_EXE is None, reason=SKIP_REASON)
@@ -124,6 +192,9 @@ def test_blender_parity_matrix_generation():
     unknown_crashes = [r for r in matrix_rows if r['classification'] == 'UNKNOWN-CRASH']
     assert len(unknown_crashes) == 0, \
         f"Phase A acceptance NOT met: {len(unknown_crashes)} UNKNOWN-CRASH features remain"
+
+    # #823 -- per-socket op-VM evidence must hold in the FRESH matrix too.
+    _assert_823_op_vm_per_socket_evidence(matrix_rows)
 
     # Print summary
     from collections import defaultdict

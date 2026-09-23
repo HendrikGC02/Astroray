@@ -551,7 +551,7 @@
       "family": "textures_mapping",
       "builder_fn": "build_textures_mapping_scene",
       "blend_path": "benchmarks/reference_corpus/scenes/textures_mapping.blend",
-      "sha256": "08d0d14b4979b7453ba98bbc38a0d15aae64cd40c1fbd5748019fcfc839e19f0",
+      "sha256": "5edb1bc3c152f0eddf5e582179810f30c8d2407820c52818db513e0c2f128ed1",
       "settings": {
         "res_x": 960,
         "res_y": 540,
@@ -572,12 +572,16 @@
         "ShaderNodeBrightContrast",
         "ShaderNodeBsdfPrincipled",
         "ShaderNodeBump",
+        "ShaderNodeClamp",
+        "ShaderNodeCombineColor",
         "ShaderNodeDisplacement",
         "ShaderNodeEmission",
         "ShaderNodeGamma",
         "ShaderNodeHueSaturation",
         "ShaderNodeInvert",
+        "ShaderNodeMapRange",
         "ShaderNodeMapping",
+        "ShaderNodeMath",
         "ShaderNodeMix",
         "ShaderNodeMixRGB",
         "ShaderNodeNewGeometry",
@@ -586,6 +590,7 @@
         "ShaderNodeOutputMaterial",
         "ShaderNodeOutputWorld",
         "ShaderNodeRGBToBW",
+        "ShaderNodeSeparateColor",
         "ShaderNodeTexBrick",
         "ShaderNodeTexChecker",
         "ShaderNodeTexCoord",
@@ -594,7 +599,9 @@
         "ShaderNodeTexMagic",
         "ShaderNodeTexNoise",
         "ShaderNodeTexVoronoi",
-        "ShaderNodeTexWave"
+        "ShaderNodeTexWave",
+        "ShaderNodeVectorMath",
+        "ShaderNodeVectorRotate"
       ],
       "feature_tags": [
         {
@@ -658,6 +665,54 @@
           "feature": "BUMP",
           "bl_idname": "ShaderNodeBump",
           "socket_or_prop": "input:Normal",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "CLAMP",
+          "bl_idname": "ShaderNodeClamp",
+          "socket_or_prop": "input:Value",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "CLAMP",
+          "bl_idname": "ShaderNodeClamp",
+          "socket_or_prop": "input:Min",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "CLAMP",
+          "bl_idname": "ShaderNodeClamp",
+          "socket_or_prop": "input:Max",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "COMBINE_COLOR",
+          "bl_idname": "ShaderNodeCombineColor",
+          "socket_or_prop": "input:Red",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "COMBINE_COLOR",
+          "bl_idname": "ShaderNodeCombineColor",
+          "socket_or_prop": "input:Green",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "COMBINE_COLOR",
+          "bl_idname": "ShaderNodeCombineColor",
+          "socket_or_prop": "input:Blue",
           "classification": "SUPPORTED",
           "gap_card": false
         },
@@ -751,9 +806,137 @@
         },
         {
           "category": "shader_node",
+          "feature": "MAP_RANGE",
+          "bl_idname": "ShaderNodeMapRange",
+          "socket_or_prop": "input:Value",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MAP_RANGE",
+          "bl_idname": "ShaderNodeMapRange",
+          "socket_or_prop": "input:From Min",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MAP_RANGE",
+          "bl_idname": "ShaderNodeMapRange",
+          "socket_or_prop": "input:From Max",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MAP_RANGE",
+          "bl_idname": "ShaderNodeMapRange",
+          "socket_or_prop": "input:To Min",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MAP_RANGE",
+          "bl_idname": "ShaderNodeMapRange",
+          "socket_or_prop": "input:To Max",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MATH",
+          "bl_idname": "ShaderNodeMath",
+          "socket_or_prop": "input:Value",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MATH",
+          "bl_idname": "ShaderNodeMath",
+          "socket_or_prop": "input:Value[Value_001]",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MIX",
+          "bl_idname": "ShaderNodeMix",
+          "socket_or_prop": "input:Factor[Factor_Float]",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MIX",
+          "bl_idname": "ShaderNodeMix",
+          "socket_or_prop": "input:A[A_Float]",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MIX",
+          "bl_idname": "ShaderNodeMix",
+          "socket_or_prop": "input:B[B_Float]",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MIX",
+          "bl_idname": "ShaderNodeMix",
+          "socket_or_prop": "input:A[A_Vector]",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MIX",
+          "bl_idname": "ShaderNodeMix",
+          "socket_or_prop": "input:B[B_Vector]",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MIX",
+          "bl_idname": "ShaderNodeMix",
+          "socket_or_prop": "input:A[A_Color]",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MIX",
+          "bl_idname": "ShaderNodeMix",
+          "socket_or_prop": "input:B[B_Color]",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
           "feature": "MIX",
           "bl_idname": "ShaderNodeMix",
           "socket_or_prop": "prop:blend_type",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MIX_RGB",
+          "bl_idname": "ShaderNodeMixRGB",
+          "socket_or_prop": "input:Color1",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "MIX_RGB",
+          "bl_idname": "ShaderNodeMixRGB",
+          "socket_or_prop": "input:Color2",
           "classification": "SUPPORTED",
           "gap_card": false
         },
@@ -785,6 +968,14 @@
           "category": "shader_node",
           "feature": "RGBTOBW",
           "bl_idname": "ShaderNodeRGBToBW",
+          "socket_or_prop": "input:Color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "SEPARATE_COLOR",
+          "bl_idname": "ShaderNodeSeparateColor",
           "socket_or_prop": "input:Color",
           "classification": "SUPPORTED",
           "gap_card": false
@@ -1170,6 +1361,30 @@
           "feature": "TEX_WAVE",
           "bl_idname": "ShaderNodeTexWave",
           "socket_or_prop": "prop:wave_type",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "VECT_MATH",
+          "bl_idname": "ShaderNodeVectorMath",
+          "socket_or_prop": "input:Vector",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "VECTOR_ROTATE",
+          "bl_idname": "ShaderNodeVectorRotate",
+          "socket_or_prop": "input:Vector",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "VECTOR_ROTATE",
+          "bl_idname": "ShaderNodeVectorRotate",
+          "socket_or_prop": "input:Center",
           "classification": "SUPPORTED",
           "gap_card": false
         }

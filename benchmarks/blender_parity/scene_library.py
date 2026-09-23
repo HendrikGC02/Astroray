@@ -1536,15 +1536,20 @@ REFERENCE_MATERIALS_HALL_SAMPLES = 256
 
 def build_textures_mapping_scene(bpy):
     """A printmaker's workshop: a hero print table plus 19 small independent
-    proof cards (one per required node), each ``<node> -> Emission -> Output``
-    (bump/normal/displacement instead go on a small sphere, since they need
-    curvature to read) so texture legibility is never confounded by BSDF
-    fidelity, under one raking area light. Covers all 72 SUPPORTED/
-    APPROXIMATED textures_mapping matrix rows (69 SUPPORTED + 3 APPROXIMATED
-    as of the post-pkg253 matrix); the 149 DROPPED-SILENT rows are listed in
-    the corpus README's gap registry (Mapping is wired for visual flavour on
-    the TexImage proof but tags nothing new -- every Mapping row is
-    DROPPED-SILENT in the current matrix)."""
+    proof cards, each ``<node> -> Emission -> Output`` (bump/normal/displacement
+    instead go on a small sphere, since they need curvature to read) so texture
+    legibility is never confounded by BSDF fidelity, under one raking area
+    light. Covers all 102 SUPPORTED/APPROXIMATED textures_mapping matrix rows
+    (99 SUPPORTED + 3 APPROXIMATED as of the #823 op-VM per-socket re-audit);
+    the 161 DROPPED-SILENT rows are listed in the corpus README's gap registry
+    (Mapping is wired for visual flavour on the TexImage proof but tags nothing
+    new -- every Mapping row is DROPPED-SILENT in the current matrix).
+
+    #823: the op-VM converter nodes (Math, Map Range, Clamp, Separate/Combine
+    Color, Vector Math, Vector Rotate, Mix) are chained into existing proof
+    cards via ``converter_card`` rather than given new cards, so each
+    reclassified socket is genuinely wired into a rendered card without
+    disturbing the committed grid/crops."""
     scene = _reset(bpy)
     _add_world(bpy, scene, strength=0.35, color=(0.06, 0.06, 0.08))
     tags = []
@@ -1630,6 +1635,44 @@ def build_textures_mapping_scene(bpy):
         crop_for(key, row, x)
         return node
 
+    def _enabled(collection, name):
+        """First ENABLED socket matching ``name``/identifier (#823). Modern
+        ShaderNodeMix declares every data-type variant at once; the enabled one
+        is the variant the compiler actually consumes for the node's data_type."""
+        for s in collection:
+            if (getattr(s, "identifier", None) == name or s.name == name) \
+                    and getattr(s, "enabled", True):
+                return s
+        return _sock(collection, name)
+
+    def converter_card(row, col, key, source_bl, cfg_source, converter_bl, cfg_converter,
+                       converter_out="Color", use_vector=True):
+        """A proof card whose visible output is a CONVERTER node fed by a
+        procedural source (#823). Used for the op-VM converter wave (Math, Map
+        Range, Clamp, Separate/Combine Color, Mix, Vector Math, Vector Rotate)
+        so the reclassified sockets are genuinely wired, not just labelled:
+        the converter is on the emission path and its inputs are read by the
+        addon's evaluator. ``converter_out=None`` selects the first enabled
+        output (Mix's per-data_type ``Result`` variant)."""
+        x, y = grid[(row, col)]
+        plane = _flat_card(x, y, Z, 0.85, key)
+        mat, nt, emit, out = _emission_card_material(bpy, f"{key}Mat")
+        src = nt.nodes.new(source_bl)
+        if use_vector and "Vector" in src.inputs:
+            coord = nt.nodes.new("ShaderNodeTexCoord")
+            nt.links.new(_sock(coord.outputs, "Generated"), _sock(src.inputs, "Vector"))
+        cfg_source(src)
+        conv = nt.nodes.new(converter_bl)
+        cfg_converter(conv, src, nt)
+        if converter_out is None:
+            conv_out = next(s for s in conv.outputs if s.enabled)
+        else:
+            conv_out = _enabled(conv.outputs, converter_out)
+        nt.links.new(conv_out, _sock(emit.inputs, "Color"))
+        plane.data.materials.append(mat)
+        crop_for(key, row, x)
+        return src, conv, nt
+
     # --- Row 0: procedural noise family + Brick -------------------------- #
     def cfg_noise(n):
         _sock(n.inputs, "Scale").default_value = 8.0
@@ -1641,11 +1684,20 @@ def build_textures_mapping_scene(bpy):
         _sock(n.inputs, "Distortion").default_value = 0.6
         n.noise_type = "HETERO_TERRAIN"
         n.normalize = False
-    texture_card(0, 0, "TexNoise", "ShaderNodeTexNoise", cfg_noise)
+    def cfg_math(n, src, nt):
+        # #823: MULTIPLY consumes the two unconditional positional Value
+        # sockets (Value/Value_001); Value_002 stays a DROPPED-SILENT gap.
+        n.operation = "MULTIPLY"
+        nt.links.new(_sock(src.outputs, "Fac"), n.inputs[0])
+        n.inputs[1].default_value = 0.75
+    converter_card(0, 0, "TexNoise", "ShaderNodeTexNoise", cfg_noise,
+                   "ShaderNodeMath", cfg_math, converter_out="Value", use_vector=True)
     for sock in ("Scale", "Detail", "Roughness", "Lacunarity", "Offset", "Gain", "Distortion"):
         tag("ShaderNodeTexNoise", f"input:{sock}")
     tag("ShaderNodeTexNoise", "prop:noise_type")
     tag("ShaderNodeTexNoise", "prop:normalize")
+    tag("ShaderNodeMath", "input:Value")
+    tag("ShaderNodeMath", "input:Value[Value_001]")
 
     def cfg_voronoi(n):
         _sock(n.inputs, "Scale").default_value = 6.0
@@ -1658,12 +1710,20 @@ def build_textures_mapping_scene(bpy):
         n.distance = "MANHATTAN"
         n.feature = "SMOOTH_F1"
         n.normalize = True
-    texture_card(0, 1, "TexVoronoi", "ShaderNodeTexVoronoi", cfg_voronoi, output="Color")
+    def cfg_clamp(n, src, nt):
+        # #823: Clamp reads the named Value/Min/Max sockets.
+        nt.links.new(_sock(src.outputs, "Distance"), _sock(n.inputs, "Value"))
+        _sock(n.inputs, "Min").default_value = 0.15
+        _sock(n.inputs, "Max").default_value = 0.85
+    converter_card(0, 1, "TexVoronoi", "ShaderNodeTexVoronoi", cfg_voronoi,
+                   "ShaderNodeClamp", cfg_clamp, converter_out="Result", use_vector=True)
     for sock in ("Scale", "Detail", "Roughness", "Lacunarity", "Smoothness", "Exponent", "Randomness"):
         tag("ShaderNodeTexVoronoi", f"input:{sock}")
     tag("ShaderNodeTexVoronoi", "prop:distance")
     tag("ShaderNodeTexVoronoi", "prop:feature")
     tag("ShaderNodeTexVoronoi", "prop:normalize")
+    for sock in ("Value", "Min", "Max"):
+        tag("ShaderNodeClamp", f"input:{sock}")
 
     def cfg_wave_bands(n):
         _sock(n.inputs, "Scale").default_value = 4.0
@@ -1675,12 +1735,26 @@ def build_textures_mapping_scene(bpy):
         n.wave_type = "BANDS"
         n.bands_direction = "Z"
         n.wave_profile = "SAW"
-    texture_card(0, 2, "TexWaveBands", "ShaderNodeTexWave", cfg_wave_bands)
+    def cfg_maprange_float(n, src, nt):
+        # #823: the FLOAT Map Range reads exactly Value + From Min/From Max/
+        # To Min/To Max; Steps is never read (DROPPED-SILENT gap).
+        n.data_type = "FLOAT"
+        n.interpolation_type = "SMOOTHSTEP"
+        nt.links.new(_sock(src.outputs, "Fac"), _sock(n.inputs, "Value"))
+        _sock(n.inputs, "From Min").default_value = 0.0
+        _sock(n.inputs, "From Max").default_value = 1.0
+        _sock(n.inputs, "To Min").default_value = 0.1
+        _sock(n.inputs, "To Max").default_value = 0.9
+    converter_card(0, 2, "TexWaveBands", "ShaderNodeTexWave", cfg_wave_bands,
+                   "ShaderNodeMapRange", cfg_maprange_float, converter_out="Result",
+                   use_vector=True)
     for sock in ("Scale", "Distortion", "Detail", "Detail Scale", "Detail Roughness", "Phase Offset"):
         tag("ShaderNodeTexWave", f"input:{sock}")
     tag("ShaderNodeTexWave", "prop:wave_type")
     tag("ShaderNodeTexWave", "prop:bands_direction")
     tag("ShaderNodeTexWave", "prop:wave_profile")
+    for sock in ("Value", "From Min", "From Max", "To Min", "To Max"):
+        tag("ShaderNodeMapRange", f"input:{sock}")
 
     def cfg_wave_rings(n):
         _sock(n.inputs, "Scale").default_value = 3.0
@@ -1714,23 +1788,50 @@ def build_textures_mapping_scene(bpy):
         _sock(n.inputs, "Color1").default_value = (0.9, 0.9, 0.85, 1.0)
         _sock(n.inputs, "Color2").default_value = (0.08, 0.08, 0.1, 1.0)
         _sock(n.inputs, "Scale").default_value = 8.0
-    texture_card(1, 0, "TexChecker", "ShaderNodeTexChecker", cfg_checker)
+    def cfg_separate(n, src, nt):
+        # #823: Separate Color reads only its Color input; mode selects the
+        # colour space at runtime.
+        nt.links.new(_sock(src.outputs, "Color"), _sock(n.inputs, "Color"))
+        n.mode = "RGB"
+    converter_card(1, 0, "TexChecker", "ShaderNodeTexChecker", cfg_checker,
+                   "ShaderNodeSeparateColor", cfg_separate, converter_out="Red",
+                   use_vector=True)
     for sock in ("Color1", "Color2", "Scale"):
         tag("ShaderNodeTexChecker", f"input:{sock}")
+    tag("ShaderNodeSeparateColor", "input:Color")
 
     def cfg_magic(n):
         _sock(n.inputs, "Scale").default_value = 6.0
         _sock(n.inputs, "Distortion").default_value = 2.5
         n.turbulence_depth = 4
-    texture_card(1, 1, "TexMagic", "ShaderNodeTexMagic", cfg_magic)
+    def cfg_mix_float(n, src, nt):
+        # #823: FLOAT Mix consumes Factor/A/B (Factor_Float/A_Float/B_Float).
+        n.data_type = "FLOAT"
+        _enabled(n.inputs, "Factor").default_value = 0.5
+        nt.links.new(_sock(src.outputs, "Fac"), _enabled(n.inputs, "A"))
+        _enabled(n.inputs, "B").default_value = 0.25
+    converter_card(1, 1, "TexMagic", "ShaderNodeTexMagic", cfg_magic,
+                   "ShaderNodeMix", cfg_mix_float, converter_out=None, use_vector=True)
     for sock in ("Scale", "Distortion"):
         tag("ShaderNodeTexMagic", f"input:{sock}")
     tag("ShaderNodeTexMagic", "prop:turbulence_depth")
+    for sock in ("Factor[Factor_Float]", "A[A_Float]", "B[B_Float]"):
+        tag("ShaderNodeMix", f"input:{sock}")
 
     def cfg_gradient(n):
         n.gradient_type = "SPHERICAL"
-    texture_card(1, 2, "TexGradient", "ShaderNodeTexGradient", cfg_gradient)
+    def cfg_combine(n, src, nt):
+        # #823: Combine Color reads its named Red/Green/Blue inputs.
+        n.mode = "RGB"
+        nt.links.new(_sock(src.outputs, "Color"), _sock(n.inputs, "Red"))
+        _sock(n.inputs, "Green").default_value = 0.35
+        _sock(n.inputs, "Blue").default_value = 0.65
+    converter_card(1, 2, "TexGradient", "ShaderNodeTexGradient", cfg_gradient,
+                   "ShaderNodeCombineColor", cfg_combine, converter_out="Color",
+                   use_vector=True)
     tag("ShaderNodeTexGradient", "prop:gradient_type")
+    for sock in ("Red", "Green", "Blue"):
+        tag("ShaderNodeCombineColor", f"input:{sock}")
 
     stripe_img = bpy.data.images.new("WorkshopStripe", width=16, height=16, float_buffer=True)
     stripe_img.pixels[:] = _make_stripe_image_pixels(16, 16)
@@ -1742,14 +1843,38 @@ def build_textures_mapping_scene(bpy):
     coord = nt.nodes.new("ShaderNodeTexCoord")
     mapping = nt.nodes.new("ShaderNodeMapping")
     _sock(mapping.inputs, "Scale").default_value = (2.0, 2.0, 2.0)
+    # #823: Vector Rotate / Vector Math / VECTOR Mix
+    # sit on the image's coordinate chain, so each reclassified converter is
+    # genuinely wired into the render path (not a label for an absent node).
+    vrot = nt.nodes.new("ShaderNodeVectorRotate")
+    vrot.rotation_type = "AXIS_ANGLE"
+    _sock(vrot.inputs, "Axis").default_value = (0.0, 0.0, 1.0)
+    _sock(vrot.inputs, "Angle").default_value = 0.4
+    vmath = nt.nodes.new("ShaderNodeVectorMath")
+    vmath.operation = "SCALE"
+    _sock(vmath.inputs, "Scale").default_value = 0.5
+    vmix = nt.nodes.new("ShaderNodeMix")
+    vmix.data_type = "VECTOR"
+    _enabled(vmix.inputs, "Factor").default_value = 0.5
+    _enabled(vmix.inputs, "B").default_value = (0.2, 0.2, 0.2)
     img = nt.nodes.new("ShaderNodeTexImage")
     img.image = stripe_img
     nt.links.new(_sock(coord.outputs, "Generated"), _sock(mapping.inputs, "Vector"))
-    nt.links.new(_sock(mapping.outputs, "Vector"), _sock(img.inputs, "Vector"))
+    nt.links.new(_sock(mapping.outputs, "Vector"), _sock(vrot.inputs, "Vector"))
+    nt.links.new(_sock(vrot.outputs, "Vector"), _sock(vmath.inputs, "Vector"))
+    nt.links.new(_sock(vmath.outputs, "Vector"), _enabled(vmix.inputs, "A"))
+    nt.links.new(next(s for s in vmix.outputs if s.enabled), _sock(img.inputs, "Vector"))
     nt.links.new(_sock(img.outputs, "Color"), _sock(emit.inputs, "Color"))
     plane.data.materials.append(mat)
     crop_for("TexImage", 1, x)
     tag("ShaderNodeTexImage", "input:Vector")
+    tag("ShaderNodeVectorRotate", "input:Vector")
+    tag("ShaderNodeVectorRotate", "input:Center")
+    tag("ShaderNodeVectorMath", "input:Vector")
+    for sock in ("Factor[Factor_Float]", "A[A_Color]", "B[B_Color]"):
+        tag("ShaderNodeMix", f"input:{sock}")
+    for sock in ("A[A_Vector]", "B[B_Vector]"):
+        tag("ShaderNodeMix", f"input:{sock}")
 
     normal_img = bpy.data.images.new("WorkshopNormal", width=16, height=16, float_buffer=True)
     normal_img.colorspace_settings.name = "Non-Color"
@@ -1867,6 +1992,10 @@ def build_textures_mapping_scene(bpy):
     plane.data.materials.append(mat)
     crop_for("MixCard", 3, x)
     tag("ShaderNodeMix", "prop:blend_type")
+    # #823: the RGBA variant exercises Factor_Float/A_Color/B_Color (the
+    # FLOAT/VECTOR variants are proven by the TexMagic and TexImage chains).
+    for sock in ("Factor[Factor_Float]", "A[A_Color]", "B[B_Color]"):
+        tag("ShaderNodeMix", f"input:{sock}")
 
     def cfg_mixrgb(n):
         n.blend_type = "SCREEN"
@@ -1876,6 +2005,8 @@ def build_textures_mapping_scene(bpy):
     texture_card(3, 3, "MixRgbCard", "ShaderNodeMixRGB", cfg_mixrgb, output="Color",
                  use_vector=False)
     tag("ShaderNodeMixRGB", "prop:blend_type")
+    tag("ShaderNodeMixRGB", "input:Color1")
+    tag("ShaderNodeMixRGB", "input:Color2")
 
     return scene, tags, crop_rects, gap_tags
 

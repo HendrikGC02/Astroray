@@ -1,0 +1,12 @@
+{
+  "name": "pkg278-grid-10k",
+  "path": "benchmarks/viewport_parity/scenes/pkg278_grid_10k.blend",
+  "sha256": "3a82690820b364ba9d9de18e66e207610ace692892d2ec1d69d065b23f69496c",
+  "triangles": 10000,
+  "freeze": {
+    "blend_sha256": "3a82690820b364ba9d9de18e66e207610ace692892d2ec1d69d065b23f69496c",
+    "observed_triangles": 10000,
+    "observer": "Blender 5.2 headless graph census",
+    "captured_utc": "2026-09-24"
+  }
+}

@@ -164,10 +164,14 @@ def _make_grid_scene(target_tris: int):
             bsdf.inputs["Roughness"].default_value = 1.0
         mats.append(m)
 
-    quads = max(1, int((target_tris / 2.0) ** 0.5))
+    quad_count = max(1, int(target_tris) // 2)
+    rows = max(1, int(quad_count ** 0.5))
+    while quad_count % rows:
+        rows -= 1
+    cols = quad_count // rows
     buckets = {k: ([], []) for k in range(len(mats))}  # verts, faces
-    for i in range(quads):
-        for j in range(quads):
+    for i in range(rows):
+        for j in range(cols):
             k = (i + j) % len(mats)
             verts, faces = buckets[k]
             x0, x1 = i * 0.1, (i + 1) * 0.1
@@ -191,7 +195,7 @@ def _make_grid_scene(target_tris: int):
     bg = world.node_tree.nodes.get("Background")
     if bg is not None:
         bg.inputs[0].default_value = (0.5, 0.7, 1.0, 1.0)
-    return 2 * quads * quads
+    return 2 * rows * cols
 
 
 def _bootstrap_astroray_addon():
@@ -576,6 +580,24 @@ except Exception as exc:
 result = {'gpu': str(name)}
 """
 
+_GATE_A_OBSERVED_RUNTIME = r"""
+import bpy, hashlib, sys
+sc = bpy.context.scene
+addon = sys.modules.get('bl_ext.user_default.astroray')
+module = sys.modules.get('astroray')
+settings = getattr(sc, 'custom_raytracer', None)
+def _digest(mod):
+    path = getattr(mod, '__file__', '') if mod else ''
+    try:
+        return {'path': path, 'sha256': hashlib.sha256(open(path, 'rb').read()).hexdigest()}
+    except Exception:
+        return {'path': path, 'sha256': None}
+result = {'engine': sc.render.engine,
+          'requested_device': getattr(settings, 'device_mode', None),
+          'denoise_enabled': bool(getattr(settings, 'use_denoising', False) or getattr(settings, 'viewport_oidn', False)),
+          'addon': _digest(addon), 'module': _digest(module)}
+"""
+
 
 def _open_scene(host, port, which):
     """Open (or build) a pinned scene and return its info dict."""
@@ -737,8 +759,11 @@ def _load_gate_a_workloads(paths):
             blend = Path(path)
             if not blend.is_file() or hashlib.sha256(blend.read_bytes()).hexdigest() != digest:
                 raise ValueError(f"{p}: workload path/SHA is not frozen: {path}")
+            freeze = w.get("freeze")
+            if not isinstance(freeze, dict) or freeze.get("observed_triangles") != tris or not freeze.get("blend_sha256") == digest:
+                raise ValueError(f"{p}: workload needs a pre-session observed census freeze")
             workloads.append({"name": w.get("name", blend.stem), "path": str(blend),
-                              "sha256": digest, "triangles": tris})
+                              "sha256": digest, "triangles": tris, "freeze": freeze})
     if len(workloads) != 2 or sorted(w["triangles"] for w in workloads) != [10000, 100000]:
         raise ValueError("gate (a) requires exactly frozen 10,000- and 100,000-triangle workloads")
     return workloads
@@ -1197,8 +1222,11 @@ def run_gate_a(args) -> dict:
                                f"Blender reported {scene_info.get('tris')}")
         _switch_device(host, port, "gpu")
         settings = _bridge(_GATE_A_SETTINGS, host, port)
+        observed = _bridge(_GATE_A_OBSERVED_RUNTIME, host, port)
         if settings.get("device_mode") != "gpu" or settings.get("use_denoising") not in (False, None):
             raise RuntimeError(f"{workload['name']}: GPU denoise-off settings were not applied: {settings}")
+        if observed.get("engine") != "CUSTOM_RAYTRACER" or observed.get("requested_device") != "gpu" or observed.get("denoise_enabled"):
+            raise RuntimeError(f"{workload['name']}: observed runtime identity is not GPU denoise-off: {observed}")
         for kind in ("camera", "material"):
             for batch in range(3):
                 result = _run_class(host, port, kind, 100, 1, args.warmup,
@@ -1208,6 +1236,7 @@ def run_gate_a(args) -> dict:
                 captures.append({"scene_sha256": workload["sha256"],
                                  "workload": workload, "edit_kind": kind, "batch": batch,
                                  "backend": "GPU", "denoise_enabled": False,
+                                 "observed_runtime": observed,
                                  "warmup": args.warmup, "truncated": result["truncated"],
                                  "edits": result["events"], "raw_events": result["raw_events"],
                                  "reduced": reduced})
@@ -1216,7 +1245,8 @@ def run_gate_a(args) -> dict:
             "backend": ["GPU"],
             "settings": {"workloads": workloads, "worker": True, "denoise_enabled": False,
                          "warmup": args.warmup, "events_per_batch": 100,
-                         "batches": 3, "serialized_edits": True, "gpu": gpu},
+                         "batches": 3, "serialized_edits": True, "gpu": gpu,
+                         "observed_runtime": observed},
             "metric": {"source": "real_blender_post_pixel_generation_chain"},
             "value": {}, "threshold": {"gpu_p95_ms": 100, "gpu_p99_ms": 150,
                                            "cancel_p95_ms": 200, "cancel_p99_ms": 300,
@@ -1766,6 +1796,9 @@ def main():
         tag = args.tag or _dt.date.today().isoformat()
         json_path = args.out / f"{tag}-gate-a-instrument.json"
         json_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        canonical = args.out / "a" / "instrument.json"
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        canonical.write_text(json.dumps(doc, indent=2), encoding="utf-8")
         print(f"[pkg278] wrote raw gate-(a) evidence {json_path}")
         return
 

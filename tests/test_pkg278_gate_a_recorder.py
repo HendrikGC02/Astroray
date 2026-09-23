@@ -54,9 +54,13 @@ def _capture(scene, triangles, kind, batch, *, broken=None):
     if broken == "stale_after_ack":
         raw.append({"name": "post_pixel_present", "generation": 1, "epoch": 7,
                     "t_ns": base + 100_025, "extra": {"pub_id": 1, "input_floor": 100}})
-    return {"scene_sha256": scene, "workload": {"path": f"{scene}.blend", "sha256": scene, "triangles": triangles},
+    observed = {"engine": "CUSTOM_RAYTRACER", "requested_device": "gpu", "denoise_enabled": False,
+                "addon": {"path": "addon.py", "sha256": _sha("addon")},
+                "module": {"path": "module.pyd", "sha256": _sha("module")}}
+    return {"scene_sha256": scene, "workload": {"path": f"{scene}.blend", "sha256": scene, "triangles": triangles,
+                                                    "freeze": {"blend_sha256": scene, "observed_triangles": triangles}},
             "edit_kind": kind, "batch": batch, "backend": "GPU", "denoise_enabled": False,
-            "truncated": False, "raw_events": raw, "edits": edits}
+            "observed_runtime": observed, "truncated": False, "raw_events": raw, "edits": edits}
 
 
 def _payload(broken=None):

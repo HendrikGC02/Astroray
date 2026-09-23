@@ -267,12 +267,21 @@ def _validate_a(records: list[Any], base: Path, expected_scenes: Any) -> tuple[l
             errors.append(f"row a capture {i} has invalid dimensions"); continue
         if cap.get("backend") != "GPU" or cap.get("denoise_enabled") is not False:
             errors.append(f"row a capture {i} is not GPU denoise-off evidence")
+        observed = cap.get("observed_runtime")
+        if not isinstance(observed, Mapping) or observed.get("engine") != "CUSTOM_RAYTRACER" or observed.get("requested_device") != "gpu" or observed.get("denoise_enabled") is not False:
+            errors.append(f"row a capture {i} lacks observed GPU denoise-off runtime identity")
+        if not all(isinstance(observed.get(name, {}).get("path"), str) and _HEX64.match(str(observed.get(name, {}).get("sha256") or ""))
+                   for name in ("addon", "module")) if isinstance(observed, Mapping) else True:
+            errors.append(f"row a capture {i} lacks hash-pinned loaded addon/module identity")
         workload = cap.get("workload")
         if (not isinstance(workload, Mapping) or workload.get("sha256") != scene
                 or not isinstance(workload.get("path"), str)
                 or workload.get("triangles") not in (10000, 100000)):
             errors.append(f"row a capture {i} lacks frozen 10k/100k workload identity")
         else:
+            freeze = workload.get("freeze")
+            if not isinstance(freeze, Mapping) or freeze.get("blend_sha256") != scene or freeze.get("observed_triangles") != workload.get("triangles"):
+                errors.append(f"row a capture {i} lacks pre-session observed workload census")
             triangles[scene] = workload["triangles"]
         result = driver.reduce_gate_a_capture(cap.get("raw_events", []), cap.get("edits", []), truncated=bool(cap.get("truncated")))
         errors.extend(f"row a capture {i}: {e}" for e in result["errors"])
@@ -282,7 +291,10 @@ def _validate_a(records: list[Any], base: Path, expected_scenes: Any) -> tuple[l
         for rep, row in enumerate(result["rows"]):
             cells.add((scene, kind, batch, rep)); samples.append((row["present_ns"] - row["event_ns"]) / 1e6)
         for cancel in result["cancels"]:
-            cancels.append((cancel["idle_drain_ns"] - cancel["cancel_ns"]) / 1e6)
+            # The contract is the worker's actual acknowledgement.  Drain is
+            # retained as safety telemetry by the raw gate producer, but timing
+            # it would charge the main-thread pump rather than cancellation.
+            cancels.append((cancel["idle_ack_ns"] - cancel["cancel_ns"]) / 1e6)
             stale += int(cancel["stale_frames_after_ack"])
     if (not isinstance(expected_scenes, list) or len(expected_scenes) != 2 or set(expected_scenes) != scenes
             or len(cells) != 1200 or sorted(triangles.values()) != [10000, 100000]):

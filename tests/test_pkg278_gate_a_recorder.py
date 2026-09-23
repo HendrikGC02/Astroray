@@ -124,7 +124,7 @@ def test_gate_a_reducer_requires_ordered_actual_generation_chain():
 def test_recorder_setup_executes_json_booleans_as_python_config():
     cfg = {"event_class": "camera", "gate_a": True, "evidence_dir": None}
     namespace = {}
-    exec(DRV._recorder_setup(cfg).split(DRV._recorder_src(), 1)[0], namespace)
+    exec(DRV._recorder_setup(cfg).split(DRV._recorder_src(), 1)[0], namespace)  # noqa: S102 - validates generated setup source
     assert namespace["_PKG241_CONFIG"] == cfg
 
 

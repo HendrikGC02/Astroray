@@ -166,7 +166,7 @@ def _load_scenes() -> dict[str, Scene]:
     corpus = json.loads(CORPUS_MANIFEST.read_text(encoding="utf-8"))
     entries = corpus.get("scenes") if isinstance(corpus, dict) else None
     if not isinstance(entries, dict):
-        raise ValueError("reference corpus manifest requires a scenes object")
+        raise TypeError("reference corpus manifest requires a scenes object")
     for scene_id, item in sorted(entries.items()):
         settings = item.get("settings") if isinstance(item, dict) else None
         rel = item.get("blend_path") if isinstance(item, dict) else None

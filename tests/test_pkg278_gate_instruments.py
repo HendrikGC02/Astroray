@@ -426,7 +426,7 @@ def test_reachability_unresolvable_group_invalidates_collection():
              "to_node": "ShaderNodeOutputMaterial", "to_socket": "Surface"},
         ]),
     }
-    reachable, errors = CR.trace_reachable(trees)
+    _, errors = CR.trace_reachable(trees)
     assert errors  # missing group support must invalidate, never silently drop
 
 
@@ -491,7 +491,7 @@ def test_headless_blender_collector_reachability_fixture():
     fixture = REPO_ROOT / "benchmarks" / "reference_corpus" / "gate_b_fixture.py"
     result = subprocess.run(
         [blender, "-b", "--factory-startup", "--python", str(fixture)],
-        capture_output=True, text=True, timeout=180, encoding="utf-8", errors="replace")
+        capture_output=True, text=True, timeout=180, encoding="utf-8", errors="replace", check=False)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
@@ -565,7 +565,7 @@ def test_freeze_v4_emits_only_registered_witness_cases(tmp_path, monkeypatch):
 
 
 def test_freeze_and_verify_roundtrip(tmp_path):
-    frozen, snapshot, hashes, matrix = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
+    frozen, _, _, matrix = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
     assert frozen["population"]["ratified"] is False
     assert frozen["population"]["expected_scene_ids"] == ["S1", "S2", "S3"]
     assert frozen["matrix"]["sha256"] == CR.sha256_file(matrix)
@@ -573,14 +573,14 @@ def test_freeze_and_verify_roundtrip(tmp_path):
 
 
 def test_verify_rejects_missing_frozen_scene(tmp_path):
-    frozen, snapshot, hashes, _ = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
+    frozen, snapshot, _, _ = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
     snapshot["scenes"].pop("S2")
     ok, errors, _ = CR.verify_frozen_input(frozen, tmp_path, snapshot)
     assert not ok and any("missing frozen scenes" in e for e in errors)
 
 
 def test_verify_rejects_changed_scene_bytes(tmp_path):
-    frozen, snapshot, hashes, _ = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
+    frozen, snapshot, _, _ = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
     blend = tmp_path / "benchmarks" / "reference_corpus" / "scenes" / "S1.blend"
     blend.write_bytes(b"tampered")
     ok, errors, _ = CR.verify_frozen_input(frozen, tmp_path, snapshot)
@@ -588,7 +588,7 @@ def test_verify_rejects_changed_scene_bytes(tmp_path):
 
 
 def test_verify_rejects_snapshot_hash_mismatch(tmp_path):
-    frozen, snapshot, hashes, _ = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
+    frozen, snapshot, _, _ = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
     snapshot["scenes"]["S1"]["nodes"].append({"bl_idname": "ShaderNodeEmission",
                                               "sockets": ["input:Color"], "fingerprint": {}})
     ok, errors, _ = CR.verify_frozen_input(frozen, tmp_path, snapshot)
@@ -596,7 +596,7 @@ def test_verify_rejects_snapshot_hash_mismatch(tmp_path):
 
 
 def test_verify_rejects_wrong_matrix_hash(tmp_path):
-    frozen, snapshot, hashes, matrix = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
+    frozen, snapshot, _, matrix = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
     matrix.write_text(json.dumps([]), encoding="utf-8")
     ok, errors, _ = CR.verify_frozen_input(frozen, tmp_path, snapshot)
     assert not ok and any("matrix hash" in e for e in errors)
@@ -637,7 +637,7 @@ def test_freeze_rejects_unexpected_scene(tmp_path):
     matrix.write_text("[]", encoding="utf-8")
     corpus = _corpus_manifest({"S1": scene_hashes["S1"], "S2": scene_hashes["S2"]})
     snapshot = {"schema": CR.NODE_USES_SCHEMA, "scenes": snapshot_scenes}
-    frozen, errors = CR.freeze_coverage_input(corpus, matrix, snapshot)
+    _, errors = CR.freeze_coverage_input(corpus, matrix, snapshot)
     assert any("unexpected scenes" in e for e in errors)
 
 
@@ -1068,7 +1068,7 @@ def test_triage_rejects_legacy_detached_snapshot_and_rating_flags(tmp_path):
     payload = {"schema": GM.PAYLOAD_SCHEMA, "row": "e", "instrument": "issue_triage", "scene_sha256": [], "build_id": "b1", "backend": [], "settings": {}, "metric": {}, "value": {}, "threshold": {"high_count": 0}, "records": records}
     evidence.write_text(json.dumps(payload), encoding="utf-8")
     raw = {**payload, "value": {"high_count": 0}, "evidence_path": str(evidence), "evidence_sha256": GM.sha256_file(evidence), "dimensions": {"issue_snapshot": "ids", "ratings": "signed"}, "subchecks": {"snapshot_unique": True, "count_matches_total": True, "all_rated_independently": True, "delta_empty": True}, "date": "2026-09-24"}
-    row, reasons = GM.compute_row("e", raw, GM.ROW_SPEC["e"], tmp_path)
+    row, _ = GM.compute_row("e", raw, GM.ROW_SPEC["e"], tmp_path)
     assert row["status"] == "red"
 
 

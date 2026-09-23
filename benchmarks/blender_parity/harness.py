@@ -34,9 +34,10 @@ import shutil
 import subprocess
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 # reference_bank is a sibling package under benchmarks/; make it importable.
@@ -527,7 +528,7 @@ def _gate_c_freeze(manifest_path: Path) -> dict[str, Any]:
     for role, entry in roles.items():
         cfg = entry.get("gate_c")
         if not isinstance(cfg, dict) or not isinstance(cfg.get("rois"), dict):
-            raise ValueError(f"gate-c role {role} lacks declared gate_c ROIs/non-vacuity")
+            raise TypeError(f"gate-c role {role} lacks declared gate_c ROIs/non-vacuity")
         probes = cfg.get("non_vacuity")
         if not isinstance(probes, list) or (role != "materials_hall" and not probes):
             raise ValueError(f"gate-c role {role} lacks declared non-vacuity probes")
@@ -535,7 +536,7 @@ def _gate_c_freeze(manifest_path: Path) -> dict[str, Any]:
             if (not isinstance(name, str) or not isinstance(roi, list) or len(roi) != 4
                     or any(not isinstance(x, (int, float)) or isinstance(x, bool) or x < 0 or x > 1 for x in roi)
                     or roi[0] >= roi[2] or roi[1] >= roi[3]):
-                raise ValueError(f"gate-c role {role} has invalid ROI {name!r}")
+                raise TypeError(f"gate-c role {role} has invalid ROI {name!r}")
         if role == "world_sky:terrace-with-hair":
             for key, census_key in (("expected_curve_count", "curve_count"),
                                     ("expected_curve_point_count", "curve_point_count")):
@@ -559,7 +560,7 @@ def _gate_c_freeze(manifest_path: Path) -> dict[str, Any]:
                         "hair_off": ("object",), "hdri_off": ("world", "node")}.get(control["kind"])
             if required is None or any(not isinstance(control.get(key), str) or not control[key] for key in required):
                 raise ValueError(f"gate-c role {role} has incomplete {control['kind']} binding")
-        frozen[role] = {"scene_id": entry["scene_id"] if "scene_id" in entry else role,
+        frozen[role] = {"scene_id": entry.get("scene_id", role),
                         "blend_path": entry["blend_path"], "scene_sha256": entry["sha256"],
                         "assets": entry.get("assets", []), "settings": entry["settings"],
                         "rois": cfg["rois"], "non_vacuity": probes, "controls": controls,
@@ -1121,7 +1122,7 @@ def write_gate_b_runner_results(results: list[FeatureResult], cases_path: Path,
     else:
         cases = None
     if not isinstance(cases, list):
-        raise ValueError("gate-(b) case map must contain a cases list")
+        raise TypeError("gate-(b) case map must contain a cases list")
     payload = {"schema": GATE_B_RUNNER_RESULT_SCHEMA, "results": gate_b_runner_results(
         results, cases, backend=backend, build_id=build_id,
         module_sha256=module_sha256, addon_sha256=addon_sha256)}

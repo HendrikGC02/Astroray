@@ -100,7 +100,17 @@ def _configure_render(scene, engine, res, samples, device="gpu", res_y=None, see
         # Adaptive sampling remains an Astroray-only setting in the resolver.
         cr.use_adaptive_sampling = False
 
-
+def _gate_b_settings(scene):
+    """Return the immutable render settings a witnessed case freezes."""
+    return {
+        "res_x": int(scene.render.resolution_x), "res_y": int(scene.render.resolution_y),
+        "samples": int(scene.cycles.samples), "seed": int(scene.cycles.seed),
+        "denoise": bool(scene.cycles.use_denoising),
+        "adaptive": bool(scene.cycles.use_adaptive_sampling),
+        "resolution_percentage": int(scene.render.resolution_percentage),
+        "film_transparent": bool(scene.render.film_transparent),
+        "view_transform": str(scene.view_settings.view_transform),
+    }
 def _to_top_down(px):
     """Flip Blender's native bottom-up pixel buffer (row 0 = bottom of the
     picture) to top-down (row 0 = top), matching every ROI constant in
@@ -128,6 +138,7 @@ def _clear_render_outputs(out_stem: Path):
 
 def _render_to_npy(bpy, scene, out_stem: Path, res: int):
     import glob
+
     import numpy as np
 
     _clear_render_outputs(out_stem)
@@ -157,7 +168,7 @@ def _render_to_npy(bpy, scene, out_stem: Path, res: int):
                         1.055 * np.clip(px, 0, None) ** (1 / 2.4) - 0.055)
         Image.fromarray((np.clip(srgb, 0, 1) * 255 + 0.5).astype(np.uint8)).save(
             out_stem.with_suffix(".png"))
-    except Exception:  # PNG is cosmetic
+    except (ImportError, OSError, ValueError):  # PNG is cosmetic
         pass
     return npy_path
 
@@ -321,18 +332,19 @@ def _gate_c_mask(bpy, scene, control, shape):
         radius = int(spec.get("radius_px", 1))
         for curve in obj.data.curves:
             pts = [point(p.position) for p in curve.points]
-            for (x0,y0),(x1,y1) in zip(pts, pts[1:]):
+            from itertools import pairwise
+            for (x0,y0),(x1,y1) in pairwise(pts):
                 steps=max(1,int(max(abs(x1-x0),abs(y1-y0))*2))
                 for t in range(steps+1):
-                    x=int(round(x0+(x1-x0)*t/steps)); y=int(round(y0+(y1-y0)*t/steps))
+                    x=round(x0+(x1-x0)*t/steps); y=round(y0+(y1-y0)*t/steps)
                     mask[max(0,y-radius):min(h,y+radius+1), max(0,x-radius):min(w,x+radius+1)] = 255
     elif kind == "sky_rays":
         # Visibility mask: only camera rays that miss actual scene geometry may witness the world.
         x0,y0,x1,y1=spec["roi"]; frame=scene.camera.data.view_frame(scene=scene); origin=scene.camera.matrix_world.translation
         deps=bpy.context.evaluated_depsgraph_get()
-        for y in range(int(y0*h), int(y1*h)):
+        for y in range(y0*h, y1*h):
             v=1.0-(y+.5)/h
-            for x in range(int(x0*w), int(x1*w)):
+            for x in range(x0*w, x1*w):
                 u=(x+.5)/w; local=frame[0].lerp(frame[1],u).lerp(frame[3].lerp(frame[2],u),v).normalized(); direction=(scene.camera.matrix_world.to_3x3() @ local).normalized()
                 if not scene.ray_cast(deps, origin, direction)[0]: mask[y,x]=255
     else: raise ValueError("unknown gate-c mask kind")
@@ -581,7 +593,7 @@ def main():
                     renderer = call_args[4]
                 if renderer is not None:
                     try: telemetry.append(dict(renderer.last_render_info() or {}))
-                    except Exception as exc: telemetry.append({"last_render_info_error": repr(exc)})
+                    except (AttributeError, RuntimeError, TypeError, ValueError) as exc: telemetry.append({"last_render_info_error": repr(exc)})
                 return original_write(self, *call_args, **call_kwargs)
             engine_cls.write_pixels = capture_write
         try:
@@ -638,7 +650,7 @@ def main():
                 print(f"{SENTINEL} REPORT {json.dumps(raw, sort_keys=True)}", flush=True)
         print(f"[pkg119b-leg] wrote {npy}", flush=True)
         print(f"{SENTINEL} PASS", flush=True)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - Blender leg boundary reports every failure
         traceback.print_exc()
         _fail(f"{type(exc).__name__}: {exc}")
 

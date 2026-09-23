@@ -48,6 +48,14 @@ GATE_E_COMMAND = ["gh", "issue", "list", "--repo", GATE_E_REPO, "--state", "open
 GATE_E_GRAPHQL_QUERY = "repository.issues(states:OPEN).totalCount"
 GATE_E_SEVERITIES = {"high", "medium", "low", "not-applicable"}
 
+# This independently reviewed snapshot is retained as evidence that gate (e)
+# remains unmet. The live label table below is a separate legacy diagnostic.
+GATE_E_UNMET_SNAPSHOT_SUMMARY = (
+    "The separately retained pkg278 gate-(e) snapshot contains **37** open issues and\n"
+    "its independent review rates **14** high. It is evidence of an unmet gate, not\n"
+    "a green claim or a replacement for the next live reconciliation.\n"
+)
+
 
 def sha256_file(path: pathlib.Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -60,21 +68,21 @@ def gate_e_command(limit: int) -> list[str]:
 
 def _timestamp(value: Any) -> datetime:
     if not isinstance(value, str) or not value:
-        raise ValueError("timestamp missing")
+        raise TypeError("timestamp missing")
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def _issue_ids(issues: Any) -> list[int]:
     if not isinstance(issues, list):
-        raise ValueError("issues must be a list")
+        raise TypeError("issues must be a list")
     ids = []
     for issue in issues:
         if not isinstance(issue, dict) or isinstance(issue.get("number"), bool) or not isinstance(issue.get("number"), int):
-            raise ValueError("issue record lacks numeric number")
+            raise TypeError("issue record lacks numeric number")
         if not all(isinstance(issue.get(key), str) for key in ("title", "body", "url", "updatedAt")):
             raise ValueError(f"issue #{issue.get('number')} lacks full content fields")
         if not isinstance(issue.get("labels"), list):
-            raise ValueError(f"issue #{issue.get('number')} labels malformed")
+            raise TypeError(f"issue #{issue.get('number')} labels malformed")
         _timestamp(issue["updatedAt"])
         ids.append(issue["number"])
     if len(ids) != len(set(ids)):
@@ -117,7 +125,7 @@ def parse_ratings(path: pathlib.Path, snapshot_sha256: str, ids: list[int]) -> d
     rated: dict[int, str] = {}
     for item in ratings:
         if not isinstance(item, dict) or isinstance(item.get("id"), bool) or not isinstance(item.get("id"), int):
-            raise ValueError("rating lacks numeric issue ID")
+            raise TypeError("rating lacks numeric issue ID")
         if item["id"] in rated or item.get("severity") not in GATE_E_SEVERITIES or not isinstance(item.get("rationale"), str) or not item["rationale"].strip():
             raise ValueError("rating has duplicate ID, unknown severity, or empty rationale")
         rated[item["id"]] = item["severity"]
@@ -213,7 +221,8 @@ def render() -> str:
         "# Known issues — Blender addon\n\n"
         f"Generated {stamp} by `scripts/dev/known_issues_report.py` from GitHub issues "
         "labelled `addon-bug` / `addon-gap`. This is a legacy label diagnostic, not gate-(e) evidence. Do not edit by hand; file or close issues instead.\n\n"
-        f"Legacy label diagnostic: open `addon-bug` at P0/P1 = **{high_open}**.\n\n"
+        + GATE_E_UNMET_SNAPSHOT_SUMMARY + "\n"
+        + f"Legacy label diagnostic: open `addon-bug` at P0/P1 = **{high_open}**.\n\n"
         + SEVERITY_RUBRIC +
         "\n## Open defects (`addon-bug`)\n\n" + table(bugs) +
         "\n## Open gaps (`addon-gap`)\n\n" + table(gaps) +
@@ -273,7 +282,7 @@ def main() -> int:
             print("KNOWN_ISSUES.md is stale; rerun without --check", file=sys.stderr)
             return 1
         return 0
-    OUT.write_text(text, encoding="utf-8")
+    OUT.write_text(text, encoding="utf-8", newline="\n")
     print(f"wrote {OUT.relative_to(ROOT)}")
     return 0
 

@@ -3220,12 +3220,12 @@ def load_corpus_manifest(manifest_path=CORPUS_MANIFEST):
                       object_pairs_hook=no_duplicate_keys)
     scenes = data.get("scenes") if isinstance(data, dict) else None
     if not isinstance(scenes, dict):
-        raise ValueError("corpus manifest requires a scenes object")
+        raise TypeError("corpus manifest requires a scenes object")
     result = {}
     for scene_id in sorted(scenes):
         entry = scenes[scene_id]
         if not isinstance(entry, dict) or not isinstance(entry.get("blend_path"), str):
-            raise ValueError(f"corpus scene {scene_id!r} lacks blend_path")
+            raise TypeError(f"corpus scene {scene_id!r} lacks blend_path")
         blend = (root / entry["blend_path"]).resolve()
         try:
             blend.relative_to((root / "benchmarks" / "reference_corpus").resolve())
@@ -3233,20 +3233,20 @@ def load_corpus_manifest(manifest_path=CORPUS_MANIFEST):
             raise ValueError(f"corpus scene {scene_id!r} escapes corpus root")
         digest = entry.get("sha256")
         if not blend.is_file() or not isinstance(digest, str) or len(digest) != 64:
-            raise ValueError(f"corpus scene {scene_id!r} has missing blend or digest")
+            raise TypeError(f"corpus scene {scene_id!r} has missing blend or digest")
         if hashlib.sha256(blend.read_bytes()).hexdigest() != digest:
             raise ValueError(f"corpus scene {scene_id!r} blend digest mismatch")
         settings = entry.get("settings")
         if (not isinstance(settings, dict) or any(not isinstance(settings.get(k), int)
                 or isinstance(settings.get(k), bool) or settings[k] <= 0
                 for k in ("res_x", "res_y", "samples"))):
-            raise ValueError(f"corpus scene {scene_id!r} lacks positive render settings")
+            raise TypeError(f"corpus scene {scene_id!r} lacks positive render settings")
         assets = entry.get("assets", [])
         if not isinstance(assets, list):
-            raise ValueError(f"corpus scene {scene_id!r} assets must be a list")
+            raise TypeError(f"corpus scene {scene_id!r} assets must be a list")
         for asset in assets:
             if not isinstance(asset, dict) or not isinstance(asset.get("path"), str):
-                raise ValueError(f"corpus scene {scene_id!r} has invalid asset")
+                raise TypeError(f"corpus scene {scene_id!r} has invalid asset")
             path = (root / asset["path"]).resolve()
             try:
                 path.relative_to((root / "benchmarks" / "reference_corpus").resolve())

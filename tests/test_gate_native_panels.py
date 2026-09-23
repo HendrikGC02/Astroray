@@ -1275,7 +1275,7 @@ def _run_native_backend(blender: Path, addon_dir: Path, out_dir: Path,
     proc = subprocess.run(cmd, env=env, capture_output=True, text=True,
                           timeout=1800, check=False)
     out = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    if f"GATE_D_LEG FAIL" in out or f"GATE_D_LEG PASS" not in out:
+    if "GATE_D_LEG FAIL" in out or "GATE_D_LEG PASS" not in out:
         tail = "\n".join(out.strip().splitlines()[-25:])
         raise RuntimeError(f"native leg did not PASS for backend {backend!r}:\n{tail}")
     print("\n".join(out.strip().splitlines()[-12:]))
@@ -1300,7 +1300,7 @@ def _host_evaluate_backend(raw: dict, out_dir: Path) -> dict:
     missing_build = [key for key in required_build if not isinstance(build.get(key), str)
                      or not build[key]]
     if build.get("engine_id") != ENGINE_ID:
-        missing_build.append("engine_id=%r" % build.get("engine_id"))
+        missing_build.append(f"engine_id={build.get('engine_id')!r}")
     for key in ("module_sha256", "addon_init_sha256"):
         value = build.get(key)
         if isinstance(value, str) and (len(value) != 64 or any(c not in "0123456789abcdef" for c in value.lower())):

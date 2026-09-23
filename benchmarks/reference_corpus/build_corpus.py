@@ -295,7 +295,7 @@ def _build_one(bpy, scene_id: str, out_dir: Path, assign, overrides, matrix_rows
     if gate_c is not None:
         def _plain(value):
             if hasattr(value, "keys"):
-                return {str(key): _plain(value[key]) for key in value.keys()}
+                return {str(key): _plain(value[key]) for key in value}
             if isinstance(value, (list, tuple)):
                 return [_plain(item) for item in value]
             if isinstance(value, (str, int, float, bool)) or value is None:

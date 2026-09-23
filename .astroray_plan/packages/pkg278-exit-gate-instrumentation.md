@@ -243,15 +243,20 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
 
 ## Progress
 
-- [ ] `coverage_report.py` + synthetic-fixture scorer validation.
-- [ ] `harness.py` per-feature verdict export.
-- [ ] `gate_manifest.py` + the manifest schema.
+- [x] `coverage_report.py` + synthetic-fixture scorer validation.
+- [x] `harness.py` per-feature verdict export.
+- [x] `gate_manifest.py` + the manifest schema.
 - [ ] Gate (c) trio parity report.
 - [ ] Gate (d) native-panel smoke (CPU + GPU).
-- [ ] Gate (e) rubric + independent triage.
+- [x] Gate (e) rubric + independent triage.
 - [ ] Gate (f) clean-machine evidence.
-- [ ] Register the three scripts in `scripts/README.md`.
+- [x] Register the three scripts in `scripts/README.md`.
 - [ ] Absorb pkg259 Phase 4 residuals.
+
+Checkpoint 2026-09-24: instruments implemented and baseline-measured (rows A/D/E
+RED, B instrumented pending #823 + population ratification, C running, F
+unmeasured — clean host missing); see
+`.astroray_plan/docs/batch-a-checkpoint-2026-09-24.md`. Package stays open.
 
 ---
 

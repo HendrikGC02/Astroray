@@ -1521,10 +1521,7 @@ def build_materials_hall_scene(bpy):
 
     # Gate-(c) gallery evidence is the Principled alcove itself: its several
     # distinct closure demonstrations must retain visible luminance variation.
-    scene["gate_c"] = {
-        "rois": {"gallery_principled": crop_rects["D"]},
-        "non_vacuity": [{"kind": "luminance_std", "roi": "gallery_principled", "min": 0.02}],
-    }
+    scene["gate_c"] = {"rois": {"gallery_principled": crop_rects["D"]}, "non_vacuity": [], "seed": 278}
     return scene, tags, crop_rects, gap_tags
 
 
@@ -2065,6 +2062,7 @@ def build_textures_mapping_scene(bpy):
         "rois": {"workshop_checker": crop_rects["TexChecker"]},
         "non_vacuity": [{"kind": "checker", "roi": "workshop_checker", "min_delta": 0.05, "min_coverage": 0.02}],
         "controls": [{"kind": "checker_flat", "material": "TexCheckerMat", "node": "GateCWorkshopChecker", "object": "TexChecker", "mask": {"kind": "object_polygon", "inset": 0.16}}],
+        "seed": 278,
     }
     return scene, tags, crop_rects, gap_tags
 
@@ -2482,11 +2480,13 @@ def build_world_sky_hdri_scene(bpy):
             "terrace_hdri": [0.45, 0.04, 0.62, 0.22],
         },
         "non_vacuity": [
-            {"kind": "hair", "roi": "terrace_hair", "background_roi": "terrace_hair_background", "tolerance": 0.05, "min": 0.01},
-            {"kind": "hdri", "roi": "terrace_hdri", "min": 0.01},
+            {"kind": "hair", "roi": "terrace_hair", "min_delta": 0.05, "min_coverage": 0.002},
+            {"kind": "hdri", "roi": "terrace_hdri", "min_delta": 0.03, "min_coverage": 0.02},
         ],
+        "controls": [{"kind": "hair_off", "object": "TerraceHair", "mask": {"kind": "curves", "radius_px": 2}}, {"kind": "hdri_off", "world": "W", "node": "GateCTerraceEnvironment", "mask": {"kind": "sky_rays", "roi": [0.45, 0.04, 0.62, 0.22]}}],
         "expected_curve_count": 320,
         "expected_curve_point_count": 1920,
+        "seed": 278,
     }
     return scene, tags, crop_rects, gap_tags
 

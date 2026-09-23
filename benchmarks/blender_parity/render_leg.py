@@ -72,7 +72,7 @@ def _bootstrap_astroray_addon(repo_root: Path):
     return astroray, blender_addon
 
 
-def _configure_render(scene, engine, res, samples, device="gpu", res_y=None):
+def _configure_render(scene, engine, res, samples, device="gpu", res_y=None, seed=278):
     scene.render.resolution_x = res
     scene.render.resolution_y = res if res_y is None else res_y
     scene.render.resolution_percentage = 100
@@ -89,7 +89,8 @@ def _configure_render(scene, engine, res, samples, device="gpu", res_y=None):
         scene.cycles.samples = samples
         scene.cycles.use_denoising = False
         scene.cycles.use_adaptive_sampling = False
-        scene.cycles.seed = 7
+        scene.cycles.seed = seed
+        scene.cycles.use_animated_seed = False
     if engine == "CUSTOM_RAYTRACER" and hasattr(scene, "custom_raytracer"):
         cr = scene.custom_raytracer
         cr.samples = samples
@@ -227,14 +228,15 @@ def _gate_c_mask(bpy, scene, control, shape):
     if kind == "rect":
         x0, y0, x1, y1 = spec["roi"]; mask[int(y0*h):int(y1*h), int(x0*w):int(x1*w)] = 255
         return mask
-    obj = bpy.data.objects.get(control.get("object"))
-    if obj is None: raise ValueError("gate-c mask object absent")
+    obj = bpy.data.objects.get(control.get("object")) if kind in ("object_polygon", "curves") else None
+    if kind in ("object_polygon", "curves") and obj is None: raise ValueError("gate-c mask object absent")
     from bpy_extras.object_utils import world_to_camera_view
     def point(co):
         v = world_to_camera_view(scene, scene.camera, obj.matrix_world @ co)
         return (v.x*w, (1.0-v.y)*h)
     if kind == "object_polygon":
-        pts = [point(v.co) for v in obj.data.vertices]
+        if not obj.data.polygons: raise ValueError("gate-c checker object has no face")
+        pts = [point(obj.data.vertices[i].co) for i in obj.data.polygons[0].vertices]
         cx, cy = sum(p[0] for p in pts)/len(pts), sum(p[1] for p in pts)/len(pts); inset = float(spec.get("inset", 0.0))
         pts = [(cx+(x-cx)*(1-inset), cy+(y-cy)*(1-inset)) for x,y in pts]
         # Ray-crossing fill; plane vertices are the actual named card geometry.
@@ -251,6 +253,15 @@ def _gate_c_mask(bpy, scene, control, shape):
                 for t in range(steps+1):
                     x=int(round(x0+(x1-x0)*t/steps)); y=int(round(y0+(y1-y0)*t/steps))
                     mask[max(0,y-radius):min(h,y+radius+1), max(0,x-radius):min(w,x+radius+1)] = 255
+    elif kind == "sky_rays":
+        # Visibility mask: only camera rays that miss actual scene geometry may witness the world.
+        x0,y0,x1,y1=spec["roi"]; frame=scene.camera.data.view_frame(scene=scene); origin=scene.camera.matrix_world.translation
+        deps=bpy.context.evaluated_depsgraph_get()
+        for y in range(int(y0*h), int(y1*h)):
+            v=1.0-(y+.5)/h
+            for x in range(int(x0*w), int(x1*w)):
+                u=(x+.5)/w; local=frame[0].lerp(frame[1],u).lerp(frame[3].lerp(frame[2],u),v).normalized(); direction=(scene.camera.matrix_world.to_3x3() @ local).normalized()
+                if not scene.ray_cast(deps, origin, direction)[0]: mask[y,x]=255
     else: raise ValueError("unknown gate-c mask kind")
     if not mask.any(): raise ValueError("gate-c geometry mask is empty")
     return mask
@@ -282,6 +293,7 @@ def main():
     p.add_argument("--gate-c-freeze", default="", help="hash-pinned gate-c freeze input")
     p.add_argument("--gate-c-freeze-sha256", default="")
     p.add_argument("--gate-c-build-id", default="")
+    p.add_argument("--gate-c-seed", type=int, default=278)
     p.add_argument("--gate-c-control", default="", help="declared gate-c negative control kind")
     p.add_argument("--gate-c-mask-out", default="", help="write source-geometry gate-c mask here")
     p.add_argument("--report-only", action="store_true",
@@ -376,7 +388,7 @@ def main():
             astroray, addon = _bootstrap_astroray_addon(repo_root)
 
         _configure_render(scene, args.engine, args.res, args.samples, args.device,
-                           res_y=args.res_y)
+                           res_y=args.res_y, seed=args.gate_c_seed)
         out_stem = Path(args.out)
         out_stem.parent.mkdir(parents=True, exist_ok=True)
         telemetry = []
@@ -408,7 +420,7 @@ def main():
             devices = [info.get("device") for info in telemetry if isinstance(info, dict) and isinstance(info.get("device"), (int, float))]
             effective_device = ("gpu" if devices and all(value >= 0 for value in devices) else
                                 ("cpu" if devices and all(value < 0 for value in devices) else ""))
-            print(f"{SENTINEL} REPORT {json.dumps({'corpus_scene': args.corpus_scene, 'blend_sha256': hashlib.sha256(Path(args.load_blend).read_bytes()).hexdigest(), 'freeze_sha256': args.gate_c_freeze_sha256, 'build_id': observed_build, 'requested_device': args.device, 'effective_device': effective_device, 'telemetry': telemetry, 'engine': str(scene.render.engine), 'res_x': int(scene.render.resolution_x), 'res_y': int(scene.render.resolution_y), 'samples': int(scene.cycles.samples), 'blender_version': bpy.app.version_string, 'module_path': module, 'module_sha256': module_sha, 'addon_path': addon_path, 'addon_sha256': addon_sha, 'mutation_receipt': receipt, 'mask_path': args.gate_c_mask_out})}", flush=True)
+            print(f"{SENTINEL} REPORT {json.dumps({'corpus_scene': args.corpus_scene, 'blend_sha256': hashlib.sha256(Path(args.load_blend).read_bytes()).hexdigest(), 'freeze_sha256': args.gate_c_freeze_sha256, 'build_id': observed_build, 'requested_device': args.device, 'effective_device': effective_device, 'telemetry': telemetry, 'engine': str(scene.render.engine), 'res_x': int(scene.render.resolution_x), 'res_y': int(scene.render.resolution_y), 'samples': int(scene.cycles.samples), 'resolved_seed': int(scene.cycles.seed), 'animated_seed': bool(scene.cycles.use_animated_seed), 'blender_version': bpy.app.version_string, 'module_path': module, 'module_sha256': module_sha, 'addon_path': addon_path, 'addon_sha256': addon_sha, 'mutation_receipt': receipt, 'mask_path': args.gate_c_mask_out})}", flush=True)
         print(f"[pkg119b-leg] wrote {npy}", flush=True)
         print(f"{SENTINEL} PASS", flush=True)
     except Exception as exc:  # noqa: BLE001

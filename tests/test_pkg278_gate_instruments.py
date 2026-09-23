@@ -639,20 +639,80 @@ def test_green_row_without_evidence_is_red(tmp_path):
 
 def _green_row_a(tmp_path) -> dict:
     evidence = tmp_path / "gate_a.json"
-    scene_hashes = [_hex(1), _hex(2)]
-    capture = tmp_path / "latency-capture.bin"
-    capture.write_bytes(b"immutable latency capture")
-    artifact = {"path": capture.name, "sha256": GM.sha256_file(capture)}
-    records = []
-    for scene in scene_hashes:
-        for edit_kind in ("camera", "material"):
-            for batch in range(3):
-                for repetition in range(100):
-                    event = len(records) * 1_000_000_000
-                    records.append({"backend": "GPU", "scene_sha256": scene, "edit_kind": edit_kind,
-                                    "batch": batch, "repetition": repetition, "event_ns": event,
-                                    "present_ns": event + 50_000_000, "cancel_ack_ns": event + 100_000_000,
-                                    "stale_frames_after_ack": 0, "denoise_enabled": False, "artifact": artifact})
+    pre, post = tmp_path / "pre.png", tmp_path / "post.png"
+    pre.write_bytes(b"\x89PNG\r\n\x1a\npre-capture")
+    post.write_bytes(b"\x89PNG\r\n\x1a\npost-capture")
+    addon, module = tmp_path / "addon.py", tmp_path / "astroray.pyd"
+    addon.write_bytes(b"observed addon identity")
+    module.write_bytes(b"observed module identity")
+    observed = {
+        "engine": "CUSTOM_RAYTRACER", "requested_device": "gpu", "denoise_enabled": False,
+        "actual_gpu_devices": [0],
+        "addon": {"path": str(addon), "sha256": GM.sha256_file(addon)},
+        "module": {"path": str(module), "sha256": GM.sha256_file(module)},
+    }
+    workloads = []
+    for triangles in (10_000, 100_000):
+        blend = tmp_path / f"workload_{triangles}.blend"
+        blend.write_bytes(f"frozen workload with {triangles} triangles".encode())
+        scene = GM.sha256_file(blend)
+        workloads.append((scene, triangles, blend))
+
+    def capture(scene, triangles, blend, edit_kind, batch):
+        raw_events, edits = [{"name": "render_device", "generation": None, "epoch": None,
+                               "t_ns": 0, "extra": {"device": 0}}], []
+        base = (batch + 1) * 20_000_000_000
+        for repetition in range(100):
+            event_id, generation = repetition + 1, repetition + 1
+            dispatch = base + repetition * 100_000_000
+            publication = event_id
+            fingerprint = [edit_kind, batch, repetition]
+            edits.append({"event_id": event_id, "dispatch_ns": dispatch,
+                          "generation": generation, "epoch": 7, "input_floor": generation,
+                          "input_fingerprint": fingerprint})
+            raw_events.extend([
+                {"name": "viewport_pixels", "generation": None, "epoch": None,
+                 "t_ns": dispatch - 1, "extra": {"event_id": event_id, "label": "pre",
+                                                     "path": str(pre), "sha256": GM.sha256_file(pre)}},
+                {"name": "input_applied", "generation": None, "epoch": None,
+                 "t_ns": dispatch, "extra": {"event_id": event_id}},
+                {"name": "request", "generation": generation, "epoch": 7,
+                 "t_ns": dispatch + 1, "extra": {}},
+                {"name": "edit_bound", "generation": generation, "epoch": 7,
+                 "t_ns": dispatch + 1, "extra": {"event_id": event_id, "fingerprint": fingerprint}},
+                {"name": "mailbox_enqueue", "generation": generation, "epoch": 7,
+                 "t_ns": dispatch + 2, "extra": {"pub_id": publication}},
+                {"name": "mailbox_dequeue", "generation": generation, "epoch": 7,
+                 "t_ns": dispatch + 3, "extra": {"pub_id": publication}},
+                {"name": "texture_upload_end", "generation": generation, "epoch": 7,
+                 "t_ns": dispatch + 4, "extra": {"pub_id": publication}},
+                {"name": "post_pixel_present", "generation": generation, "epoch": 7,
+                 "t_ns": dispatch + 50_000_000, "extra": {"pub_id": publication}},
+                {"name": "viewport_pixels", "generation": generation, "epoch": 7,
+                 "t_ns": dispatch + 50_000_001, "extra": {"event_id": event_id, "label": "post",
+                                                               "path": str(post), "sha256": GM.sha256_file(post)}},
+            ])
+        cancel = base + 10_000_000_010
+        raw_events.extend([
+            {"name": "cancel_stimulus", "generation": 100, "epoch": 7,
+             "t_ns": cancel - 1, "extra": {"kind": "material_input"}},
+            {"name": "cancel_request", "generation": 100, "epoch": 7, "t_ns": cancel, "extra": {}},
+            {"name": "cancel_floor", "generation": 100, "epoch": 7, "t_ns": cancel + 5,
+             "extra": {"cancelled_generation": 100, "cancelled_epoch": 7, "observed_floor": 101,
+                       "desired_generation": 101, "stimulus": "material_view_update"}},
+            {"name": "idle_ack", "generation": 100, "epoch": 7, "t_ns": cancel + 100_000_000, "extra": {}},
+            {"name": "idle_drain", "generation": 100, "epoch": 7, "t_ns": cancel + 100_000_001, "extra": {}},
+        ])
+        return {"scene_sha256": scene, "edit_kind": edit_kind, "batch": batch, "backend": "GPU",
+                "denoise_enabled": False, "observed_runtime": observed, "truncated": False,
+                "workload": {"path": str(blend), "sha256": scene, "triangles": triangles,
+                             "freeze": {"blend_sha256": scene, "observed_triangles": triangles}},
+                "raw_events": raw_events, "edits": edits}
+
+    records = [capture(scene, triangles, blend, edit_kind, batch)
+               for scene, triangles, blend in workloads
+               for edit_kind in ("camera", "material") for batch in range(3)]
+    scene_hashes = [scene for scene, _triangles, _blend in workloads]
     payload = {
         "schema": "pkg278.instrument.v2", "row": "a", "instrument": "viewport_latency",
         "scene_sha256": scene_hashes, "build_id": "b1", "backend": ["GPU"],
@@ -742,14 +802,16 @@ def test_latency_rejects_missing_artifact_and_nonconcrete_dimensions(tmp_path):
     raw = _green_row_a(tmp_path)
     evidence = Path(raw["evidence_path"])
     payload = json.loads(evidence.read_text(encoding="utf-8"))
-    payload["records"][0]["artifact"] = {"path": "DOES_NOT_EXIST.json", "sha256": "0" * 64}
+    pixels = next(event for event in payload["records"][0]["raw_events"]
+                  if event["name"] == "viewport_pixels" and event["extra"]["label"] == "post")
+    pixels["extra"] = {**pixels["extra"], "path": "DOES_NOT_EXIST.png", "sha256": "0" * 64}
     evidence.write_text(json.dumps(payload), encoding="utf-8")
     raw["evidence_sha256"] = GM.sha256_file(evidence)
     raw["dimensions"] = {"scene": [], "edit_kind": 0, "repetitions": {}}
     row, reasons = GM.compute_row("a", raw, GM.ROW_SPEC["a"], tmp_path)
     assert row["status"] == "red"
-    assert any("artifact missing" in reason for reason in reasons)
-    assert any("dimension absent" in reason for reason in reasons)
+    assert any("correct presented generation chain" in reason for reason in reasons)
+    assert any("dimension" in reason for reason in reasons)
 
 
 def test_latency_rejects_wrong_outer_instrument_and_bad_numeric_without_crash(tmp_path):

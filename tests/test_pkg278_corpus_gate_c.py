@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from benchmarks.blender_parity import harness as H
+from benchmarks.blender_parity import render_leg as R
 from benchmarks.blender_parity import scene_library as S
 from scripts import gate_manifest as GM
 
@@ -76,6 +77,15 @@ def test_terrace_role_resolves_only_to_the_hdri_corpus_scene():
     assert terrace["gate_c"]["expected_curve_point_count"] == 1920
     assert terrace["gate_c"]["rois"]["terrace_hair"] == [0.2424, 0.28, 0.3485, 0.78]
     assert "gate_c" not in S.load_corpus_manifest()["world_sky_sky"]
+
+
+def test_gate_c_freeze_loader_returns_json_roles_before_graph_access(tmp_path):
+    freeze_path = tmp_path / "freeze.json"
+    freeze_path.write_text(json.dumps({"roles": {"workshop": {"scene_id": "textures_mapping"}}}), encoding="utf-8")
+    digest = hashlib.sha256(freeze_path.read_bytes()).hexdigest()
+    assert R._load_gate_c_freeze(freeze_path, digest)["roles"]["workshop"]["scene_id"] == "textures_mapping"
+    with pytest.raises(ValueError, match="hash mismatch"):
+        R._load_gate_c_freeze(freeze_path, "0" * 64)
 
 
 def test_reducer_recomputes_valid_paired_control_receipts(tmp_path):

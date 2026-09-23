@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """pkg119 Phase B - single (feature, engine) render leg (runs INSIDE Blender).
 
 Invoked once per feature per engine by ``harness.py`` for subprocess isolation
@@ -66,7 +65,7 @@ def _bootstrap_astroray_addon(repo_root: Path):
     import blender_addon
     try:
         blender_addon.register()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         if "already registered" not in str(exc):
             raise
     return astroray, blender_addon
@@ -116,6 +115,7 @@ def _to_top_down(px):
 
 def _render_to_npy(bpy, scene, out_stem: Path, res: int):
     import glob
+
     import numpy as np
 
     for f in glob.glob(str(out_stem) + "*"):
@@ -149,7 +149,7 @@ def _render_to_npy(bpy, scene, out_stem: Path, res: int):
                         1.055 * np.clip(px, 0, None) ** (1 / 2.4) - 0.055)
         Image.fromarray((np.clip(srgb, 0, 1) * 255 + 0.5).astype(np.uint8)).save(
             out_stem.with_suffix(".png"))
-    except Exception:  # noqa: BLE001 - PNG is cosmetic
+    except Exception:  # PNG is cosmetic
         pass
     return npy_path
 
@@ -201,7 +201,7 @@ def _gate_c_control(bpy, scene, control):
     if kind == "checker_flat":
         obj = bpy.data.objects.get(control.get("object"))
         mat = bpy.data.materials.get(control.get("material")); node = mat and mat.node_tree.nodes.get(control.get("node"))
-        if obj is None or obj.type != "MESH" or mat not in obj.data.materials:
+        if obj is None or obj.type != "MESH" or mat is None or mat.name not in obj.data.materials:
             raise ValueError("gate-c checker object/material binding is absent or wrong")
         if node is None or node.bl_idname != "ShaderNodeTexChecker":
             raise ValueError("gate-c checker binding is absent or wrong type")
@@ -231,6 +231,20 @@ def _gate_c_control(bpy, scene, control):
     return receipt
 
 
+def _load_gate_c_freeze(path, digest):
+    """Read the hash-pinned freeze before accessing its declared role data."""
+    freeze_path = Path(path)
+    if not freeze_path.is_file() or hashlib.sha256(freeze_path.read_bytes()).hexdigest() != digest:
+        raise ValueError("gate-c freeze artifact hash mismatch")
+    try:
+        freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("gate-c freeze artifact is not JSON") from exc
+    if not isinstance(freeze, dict) or not isinstance(freeze.get("roles"), dict):
+        raise TypeError("gate-c freeze artifact lacks roles")
+    return freeze
+
+
 def _gate_c_bindings(bpy, scene, controls):
     """Inspect declared Blender bindings before either gate-C leg mutates them."""
     bindings = {}
@@ -240,7 +254,7 @@ def _gate_c_bindings(bpy, scene, controls):
             obj = bpy.data.objects.get(control.get("object"))
             mat = bpy.data.materials.get(control.get("material"))
             node = mat and mat.node_tree and mat.node_tree.nodes.get(control.get("node"))
-            if obj is None or obj.type != "MESH" or mat is None or mat not in obj.data.materials or node is None or node.bl_idname != "ShaderNodeTexChecker":
+            if obj is None or obj.type != "MESH" or mat is None or mat.name not in obj.data.materials or node is None or node.bl_idname != "ShaderNodeTexChecker":
                 raise ValueError("gate-c checker declared binding is absent or wrong")
             bindings[kind] = {"object": obj.name, "object_type": obj.type,
                               "material": mat.name, "node": node.name, "node_type": node.bl_idname}
@@ -375,9 +389,7 @@ def main():
                     raise ValueError(f"corpus scene {args.corpus_scene!r} requires {arg}={declared}")
                 setattr(args, arg, declared)
             if args.gate_c_freeze:
-                freeze = Path(args.gate_c_freeze)
-                if (not freeze.is_file() or hashlib.sha256(freeze.read_bytes()).hexdigest() != args.gate_c_freeze_sha256):
-                    raise ValueError("gate-c freeze artifact hash mismatch")
+                freeze = _load_gate_c_freeze(args.gate_c_freeze, args.gate_c_freeze_sha256)
         if args.load_blend:
             bpy.ops.wm.open_mainfile(filepath=args.load_blend)
             scene = bpy.context.scene
@@ -398,6 +410,15 @@ def main():
                          if v.get("scene_id") == args.corpus_scene), None)
             if role is None:
                 raise ValueError("gate-c corpus scene is absent from the frozen roles")
+            settings = role.get("settings", {})
+            if any(not isinstance(settings.get(key), int) or settings[key] <= 0
+                   for key in ("res_x", "res_y", "samples")):
+                raise ValueError("gate-c frozen render settings are invalid")
+            # The mask raster follows the frozen capture dimensions, never a
+            # stale size saved in the source blend.
+            scene.render.resolution_x = settings["res_x"]
+            scene.render.resolution_y = settings["res_y"]
+            scene.render.resolution_percentage = 100
             bindings = _gate_c_bindings(bpy, scene, role.get("controls", []))
         if args.gate_c_control:
             if not args.gate_c_freeze:
@@ -419,6 +440,14 @@ def main():
 
         if args.report_only:
             report = _object_and_node_report(bpy)
+            if args.gate_c_freeze:
+                report.update({"corpus_scene": args.corpus_scene,
+                               "freeze_sha256": args.gate_c_freeze_sha256,
+                               "res_x": int(scene.render.resolution_x),
+                               "res_y": int(scene.render.resolution_y),
+                               "bindings": bindings,
+                               "mutation_receipt": receipt,
+                               "mask_receipt": mask_receipt})
             print(f"{SENTINEL} REPORT {json.dumps(report)}", flush=True)
             print(f"{SENTINEL} PASS", flush=True)
             return
@@ -488,7 +517,7 @@ def main():
             print(f"{SENTINEL} REPORT {json.dumps({'corpus_scene': args.corpus_scene, 'blend_sha256': hashlib.sha256(Path(args.load_blend).read_bytes()).hexdigest(), 'freeze_sha256': args.gate_c_freeze_sha256, 'build_id': observed_build, 'requested_device': args.device, 'effective_device': effective_device, 'telemetry': telemetry, 'engine': str(scene.render.engine), 'res_x': int(scene.render.resolution_x), 'res_y': int(scene.render.resolution_y), 'samples': int(scene.cycles.samples), 'resolved_seed': int(scene.cycles.seed), 'animated_seed': bool(scene.cycles.use_animated_seed), 'blender_version': bpy.app.version_string, 'module_path': module, 'module_sha256': module_sha, 'addon_path': addon_path, 'addon_sha256': addon_sha, 'bindings': bindings, 'mutation_receipt': receipt, 'mask_receipt': mask_receipt})}", flush=True)
         print(f"[pkg119b-leg] wrote {npy}", flush=True)
         print(f"{SENTINEL} PASS", flush=True)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         traceback.print_exc()
         _fail(f"{type(exc).__name__}: {exc}")
 

@@ -25,7 +25,9 @@ def test_hair_counterfactual_rejects_bright_scalp_when_hair_off_is_identical():
 
 def test_paired_feature_delta_requires_supported_masked_change():
     baseline = np.full((10, 10, 3), .2, np.float32); control = baseline.copy()
-    baseline[2:6, 3:7] = .7
+    baseline[2:6, 3:5] = .7
+    baseline[2:6, 5:7] = .0
     mask = np.zeros((10, 10), np.uint8); mask[2:6, 3:7] = 1
-    result = H._gate_c_paired_probe(baseline, control, mask, {"kind": "checker", "min_delta": .05, "min_coverage": .5})
+    result = H._gate_c_paired_probe(baseline, control, mask, {"kind": "checker", "min_delta": .05, "min_coverage": .49})
     assert result["ok"] and result["coverage"] == 1.0
+    assert result["positive_coverage"] == result["negative_coverage"] == .5

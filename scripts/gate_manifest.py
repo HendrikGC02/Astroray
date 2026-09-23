@@ -445,7 +445,12 @@ def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
                 if baseline is None or control is None or mask is None or control.shape!=baseline.shape or mask.shape!=baseline.shape[:2] or not isinstance(reported,Mapping): errors.append(f"row c record {role}/{backend} lacks concrete {kind} paired probe"); continue
                 if np.array_equal(baseline, control): errors.append(f"row c record {role}/{backend} {kind} control has no linear-image effect")
                 floor=float(probe.get("min_delta",0)); coverage=float(probe.get("min_coverage",0)); delta=np.abs(baseline-control).mean(axis=-1)[mask]; value=float(delta.mean()); observed=float((delta>floor).mean())
-                if (_number(reported.get("value")) is None or _number(reported.get("coverage")) is None or abs(float(reported["value"])-value)>1e-6 or abs(float(reported["coverage"])-observed)>1e-6 or value<=floor or observed<=coverage): errors.append(f"row c record {role}/{backend} {kind} non-vacuity is not derived from paired frozen-mask evidence")
+                valid = (_number(reported.get("value")) is not None and _number(reported.get("coverage")) is not None and abs(float(reported["value"])-value)<=1e-6 and abs(float(reported["coverage"])-observed)<=1e-6 and value>floor and observed>coverage)
+                if kind == "checker":
+                    signed = np.tensordot(baseline - control, np.array((.2126, .7152, .0722)), axes=([-1], [0]))[mask]
+                    positive, negative = float((signed > floor).mean()), float((signed < -floor).mean())
+                    valid = (valid and _number(reported.get("positive_coverage")) is not None and _number(reported.get("negative_coverage")) is not None and abs(float(reported["positive_coverage"])-positive)<=1e-6 and abs(float(reported["negative_coverage"])-negative)<=1e-6 and positive>coverage and negative>coverage)
+                if not valid: errors.append(f"row c record {role}/{backend} {kind} non-vacuity is not derived from paired frozen-mask evidence")
     if not ratios or not ssims: errors.append("row c has no recomputable frozen ROI metrics")
     return errors,{"roi_pct_max":max(ratios) if ratios else None,"ssim_min":min(ssims) if ssims else None},{"cpu_exit_zero":all((s,"CPU") in pairs for s in TRIO_ROLES),"gpu_exit_zero":all((s,"GPU") in pairs for s in TRIO_ROLES),"pinned_images":not any("artifact" in e for e in errors),"non_vacuity":not any("non-vacuity" in e for e in errors)}
 

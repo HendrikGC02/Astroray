@@ -604,22 +604,60 @@ def _gate_c_paired_probe(baseline, control, mask, probe: Mapping[str, Any]) -> d
     delta = np.abs(baseline - control).mean(axis=-1)[selected]
     floor, coverage = float(probe.get("min_delta", 0.0)), float(probe.get("min_coverage", 0.0))
     value, support = float(delta.mean()), float((delta > floor).mean())
-    return {"kind": probe.get("kind"), "value": value, "coverage": support,
-            "threshold": floor, "coverage_threshold": coverage,
-            "ok": value > floor and support > coverage}
+    result = {"kind": probe.get("kind"), "value": value, "coverage": support,
+              "threshold": floor, "coverage_threshold": coverage,
+              "ok": value > floor and support > coverage}
+    if probe.get("kind") == "checker":
+        # The negative control is its midpoint.  A working checker must retain
+        # both bright and dark phases around it; a uniform brightness change is
+        # not a checker witness.  Rec. 709 coefficients are the standard
+        # linear-RGB luminance weights (ITU-R BT.709-6, Table 3).
+        signed = np.tensordot(baseline - control, np.array((.2126, .7152, .0722)), axes=([-1], [0]))[selected]
+        positive, negative = float((signed > floor).mean()), float((signed < -floor).mean())
+        result.update({"positive_coverage": positive, "negative_coverage": negative,
+                       "ok": result["ok"] and positive > coverage and negative > coverage})
+    return result
+
+
+def _gate_leg_execution(cmd: list[str], returncode: int, stdout: str, stderr: str) -> dict[str, Any]:
+    """Retain raw process evidence independently from parsed leg output."""
+    return {"command": cmd, "exit_code": returncode, "stdout": stdout, "stderr": stderr}
+
+
+def _parse_gate_leg_report(output: str) -> tuple[dict[str, Any], str | None]:
+    """Extract exactly one structured report even when Blender glues log lines."""
+    marker = f"{SENTINEL} REPORT "
+    offsets: list[int] = []
+    start = 0
+    while (offset := output.find(marker, start)) >= 0:
+        offsets.append(offset)
+        start = offset + len(marker)
+    if len(offsets) != 1:
+        return {}, f"expected one {marker!r} marker, found {len(offsets)}"
+    try:
+        report, _end = json.JSONDecoder().raw_decode(output[offsets[0] + len(marker):])
+    except json.JSONDecodeError as exc:
+        return {}, f"invalid sentinel report JSON: {exc.msg}"
+    if not isinstance(report, dict):
+        return {}, "sentinel report JSON is not an object"
+    return report, None
 
 
 def _run_gate_leg(blender: Path, args: list[str], env: dict[str, str], timeout: int) -> tuple[int, bool, dict[str, Any]]:
     cmd = [str(blender), "--background", "--factory-startup", "--python", str(_RENDER_LEG), "--"] + args
     try:
         proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout, check=False)
-    except subprocess.TimeoutExpired:
-        return 124, False, {"error": "timeout", "reason": f"TIMEOUT after {timeout}s"}
-    output = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    reports = [line[len(f"{SENTINEL} REPORT "):] for line in output.splitlines()
-               if line.startswith(f"{SENTINEL} REPORT ")]
-    try: report = json.loads(reports[-1]) if reports else {}
-    except json.JSONDecodeError: report = {}
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        return 124, False, {"error": "timeout", "reason": f"TIMEOUT after {timeout}s",
+                            "_gate_leg_execution": _gate_leg_execution(cmd, 124, stdout, stderr)}
+    stdout, stderr = proc.stdout or "", proc.stderr or ""
+    output = stdout + "\n" + stderr
+    report, parse_error = _parse_gate_leg_report(output)
+    if parse_error:
+        report = {"error": "report_parse", "reason": parse_error}
+    report["_gate_leg_execution"] = _gate_leg_execution(cmd, proc.returncode, stdout, stderr)
     return proc.returncode, f"{SENTINEL} PASS" in output and f"{SENTINEL} FAIL" not in output, report
 
 
@@ -686,10 +724,23 @@ def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
                 "--corpus-scene", item["scene_id"], "--engine", "CUSTOM_RAYTRACER", "--device", backend.lower(),
                 "--gate-c-freeze", str(freeze_path), "--gate-c-freeze-sha256", freeze_sha, "--gate-c-build-id", build_id, "--gate-c-seed", str(item.get("seed", 278)), "--out", str(stem)] + extra, env, timeout)
             npy, png = stem.with_suffix(".npy"), stem.with_suffix(".png")
+            execution = report.pop("_gate_leg_execution", None)
             record: dict[str, Any] = {"kind": "f12_run", "control": control_kind, "role": role, "scene_id": item["scene_id"],
                 "scene_sha256": item["scene_sha256"], "backend": backend, "build_id": build_id,
                 "exit_code": code, "sentinel": SENTINEL if sentinel else "", "leg_report": report,
                 "settings": {**item["settings"], "gate_c_rois": item["rois"], "gate_c_probes": item["non_vacuity"]}, "non_vacuity": [], "rois": []}
+            if isinstance(execution, dict):
+                for stream in ("stdout", "stderr"):
+                    value = execution.get(stream)
+                    if not isinstance(value, str):
+                        value = ""
+                    stream_path = leg_dir / f"{stream}.log"
+                    stream_path.write_text(value, encoding="utf-8")
+                    record[f"{stream}_artifact"] = _artifact_ref(stream_path, out_dir)
+                execution_path = leg_dir / "execution.json"
+                execution_path.write_text(json.dumps({"command": execution.get("command"),
+                                                      "exit_code": execution.get("exit_code")}, indent=2), encoding="utf-8")
+                record["execution_artifact"] = _artifact_ref(execution_path, out_dir)
             expected = {"corpus_scene": item["scene_id"], "blend_sha256": item["scene_sha256"], "freeze_sha256": freeze_sha,
                         "requested_device": backend.lower(), "effective_device": backend.lower(), "build_id": build_id, "module_sha256": module_sha256, "engine": "CUSTOM_RAYTRACER", "res_x": item["settings"]["res_x"], "res_y": item["settings"]["res_y"], "samples": item["settings"]["samples"], "resolved_seed": item.get("seed", 278), "animated_seed": False}
             actual_identity = (isinstance(report.get("module_path"), str) and

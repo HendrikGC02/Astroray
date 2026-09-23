@@ -48,6 +48,11 @@ def _valid_gate_c_records(tmp_path):
             for control in [{"kind": "baseline"}] + controls[role]:
                 kind = control["kind"]
                 pixels = np.full((16, 16, 3), .5 if kind == "baseline" else .3, np.float32)
+                if role == "textures_mapping":
+                    pixels.fill(.5)
+                    if kind == "baseline":
+                        pixels[:, :8] = .7
+                        pixels[:, 8:] = .3
                 linear = _artifact(tmp_path, f"{role.replace(':', '_')}_{backend}_{kind}.npy", pixels)
                 report = {"corpus_scene": role, "blend_sha256": hashes[role], "freeze_sha256": freeze_sha, "build_id": "build-1", "requested_device": backend.lower(), "effective_device": backend.lower(), "engine": "CUSTOM_RAYTRACER", "res_x": 16, "res_y": 16, "samples": 4, "resolved_seed": 278, "animated_seed": False, "module_sha256": "a" * 64, "addon_sha256": "b" * 64, "blender_version": "5.2.0", "module_path": "C:/build/astroray.pyd", "addon_path": "C:/build/addon/__init__.py", "telemetry": [], "bindings": bindings}
                 if kind == "baseline":
@@ -58,7 +63,11 @@ def _valid_gate_c_records(tmp_path):
                     report["mutation_receipt"] = {"kind": kind, "ok": True, "object": "TerraceHair", "type": "CURVES", "was_hide_render": False, "after_hide_render": True}
                 else:
                     report["mutation_receipt"] = {"kind": kind, "ok": True, "world": "W", "node": "GateCTerraceEnvironment", "image": "sky.hdr", "after_image": None}
-                record = {"kind": "f12_run", "control": kind, "role": role, "scene_id": role, "scene_sha256": hashes[role], "backend": backend, "build_id": "build-1", "exit_code": 0, "sentinel": "PKG119B_LEG", "image": image, "linear_npy": linear, "settings": {"res_x": 16, "res_y": 16, "samples": 4, "gate_c_rois": {"all": [0, 0, 1, 1]}, "gate_c_probes": probes[role]}, "non_vacuity": [{"kind": p["kind"], "value": .2, "coverage": 1.0} for p in probes[role]]}
+                non_vacuity = [{"kind": p["kind"], "value": .2, "coverage": 1.0} for p in probes[role]]
+                for probe in non_vacuity:
+                    if probe["kind"] == "checker":
+                        probe.update({"positive_coverage": .5, "negative_coverage": .5})
+                record = {"kind": "f12_run", "control": kind, "role": role, "scene_id": role, "scene_sha256": hashes[role], "backend": backend, "build_id": "build-1", "exit_code": 0, "sentinel": "PKG119B_LEG", "image": image, "linear_npy": linear, "settings": {"res_x": 16, "res_y": 16, "samples": 4, "gate_c_rois": {"all": [0, 0, 1, 1]}, "gate_c_probes": probes[role]}, "non_vacuity": non_vacuity}
                 if kind != "baseline":
                     mask = _artifact(tmp_path, f"{role.replace(':', '_')}_{backend}_{kind}_mask.npy", np.ones((16, 16), np.uint8))
                     record["feature_mask"] = mask
@@ -127,6 +136,20 @@ def test_reducer_rejects_observed_seed_or_mask_receipt_mismatch(tmp_path):
     assert any("no linear-image effect" in error for error in errors)
 
 
+def test_reducer_rejects_one_sided_checker_brightness_change(tmp_path):
+    records, hashes, freeze = _valid_gate_c_records(tmp_path)
+    baseline = next(record for record in records if record["role"] == "textures_mapping"
+                    and record["backend"] == "CPU" and record["control"] == "baseline")
+    baseline_path = tmp_path / baseline["linear_npy"]["path"]
+    np.save(baseline_path, np.full((16, 16, 3), .7, np.float32))
+    baseline["linear_npy"]["sha256"] = hashlib.sha256(baseline_path.read_bytes()).hexdigest()
+    checker = next(probe for probe in baseline["non_vacuity"] if probe["kind"] == "checker")
+    checker.update({"value": .2, "coverage": 1.0, "positive_coverage": 1.0,
+                    "negative_coverage": 0.0})
+    errors, _, _ = GM._validate_c(records, tmp_path, hashes, "build-1", freeze)
+    assert any("checker non-vacuity" in error for error in errors)
+
+
 def test_gate_c_cli_writes_fail_closed_payload_without_blender(tmp_path):
     assert H.run_gate_c_trio(tmp_path) == 1
     payload = json.loads((tmp_path / "instrument.json").read_text(encoding="utf-8"))
@@ -178,7 +201,36 @@ def test_gate_leg_timeout_has_structured_missing_report(monkeypatch):
     monkeypatch.setattr(H.subprocess, "run", timeout)
     code, sentinel, report = H._run_gate_leg(Path("blender"), [], {}, 7)
     assert (code, sentinel) == (124, False)
-    assert report == {"error": "timeout", "reason": "TIMEOUT after 7s"}
+    assert report["error"] == "timeout"
+    assert report["reason"] == "TIMEOUT after 7s"
+    assert report["_gate_leg_execution"]["exit_code"] == 124
+
+
+def test_gate_leg_parses_one_glued_sentinel_report_and_rejects_duplicates(monkeypatch):
+    expected = {"corpus_scene": "materials_hall", "resolved_seed": 278}
+
+    class Process:
+        returncode = 0
+        stdout = "warning text truncated" + H.SENTINEL + " REPORT " + json.dumps(expected) + "\n" + H.SENTINEL + " PASS"
+        stderr = "native warning"
+
+    monkeypatch.setattr(H.subprocess, "run", lambda *args, **kwargs: Process())
+    code, sentinel, report = H._run_gate_leg(Path("blender"), ["--corpus-scene", "materials_hall"], {}, 7)
+    assert (code, sentinel) == (0, True)
+    assert report["corpus_scene"] == "materials_hall"
+    assert report["_gate_leg_execution"]["stdout"] == Process.stdout
+    duplicate = Process.stdout + H.SENTINEL + " REPORT " + json.dumps(expected)
+    assert H._parse_gate_leg_report(duplicate)[0] == {}
+    assert "expected one" in H._parse_gate_leg_report(duplicate)[1]
+
+
+def test_checker_paired_probe_rejects_one_sided_brightness_shift():
+    baseline = np.full((8, 8, 3), .8, np.float32)
+    control = np.full((8, 8, 3), .5, np.float32)
+    probe = H._gate_c_paired_probe(baseline, control, np.ones((8, 8), np.uint8),
+                                   {"kind": "checker", "min_delta": .05, "min_coverage": .02})
+    assert probe["coverage"] == 1.0 and probe["positive_coverage"] == 1.0
+    assert probe["negative_coverage"] == 0.0 and not probe["ok"]
 
 
 def test_manifest_duplicate_scene_id_is_rejected_before_render(tmp_path):
@@ -213,16 +265,20 @@ def test_fake_six_leg_capture_freezes_before_spawn_and_keeps_npy_png(tmp_path, m
         out = Path(args[args.index("--out") + 1]); out.parent.mkdir(parents=True, exist_ok=True)
         pixels = np.full((16,16,3), .5, dtype=np.float32); pixels[:,8:] = .8
         if "--gate-c-control" in args:
-            pixels[:] = .2
+            pixels[:] = .65
             mask = Path(args[args.index("--gate-c-mask-out") + 1]); np.save(mask, np.ones((16,16), dtype=np.uint8))
         np.save(out.with_suffix(".npy"), pixels)
         scene = args[args.index("--corpus-scene") + 1]; device = args[args.index("--device") + 1]
         report = {"corpus_scene": scene, "blend_sha256": roles[next(k for k,v in roles.items() if v["scene_id"] == scene)]["scene_sha256"], "freeze_sha256": args[args.index("--gate-c-freeze-sha256") + 1], "requested_device": device, "effective_device": device, "build_id": "b1", "module_path": "C:/candidate/astroray.pyd", "module_sha256": "a" * 64, "addon_path": "C:/candidate/addon/__init__.py", "addon_sha256": hashlib.sha256((H._REPO_ROOT / "blender_addon" / "__init__.py").read_bytes()).hexdigest(), "telemetry": [{"device": -1 if device == "cpu" else 0}], "engine": "CUSTOM_RAYTRACER", "res_x": 16, "res_y": 16, "samples": 4, "resolved_seed": 278, "animated_seed": False, "blender_version": "5.2.0", "bindings": {}, "mutation_receipt": {"kind": args[args.index("--gate-c-control") + 1], "ok": True} if "--gate-c-control" in args else {"kind": "baseline", "ok": True}}
         if "--gate-c-control" in args:
             report["mask_receipt"] = {"control": args[args.index("--gate-c-control") + 1]}
+        report["_gate_leg_execution"] = {"command": ["fake-blender", *args], "exit_code": 0,
+                                          "stdout": "raw stdout", "stderr": "raw stderr"}
         return 0, True, report
     monkeypatch.setattr(H, "_run_gate_leg", fake_leg)
     assert H.run_gate_c_trio(tmp_path, manifest_path=manifest, build_id="b1", module_sha256="a" * 64) == 0
     payload = json.loads((tmp_path / "instrument.json").read_text(encoding="utf-8"))
     assert all(seen_freeze) and len(payload["records"]) == 12
     assert all("linear_npy" in r and "image" in r and "report_artifact" in r for r in payload["records"])
+    assert all("execution_artifact" in r and "stdout_artifact" in r and "stderr_artifact" in r
+               for r in payload["records"])

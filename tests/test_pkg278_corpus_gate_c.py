@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -71,9 +73,18 @@ def _valid_gate_c_records(tmp_path):
                 if kind != "baseline":
                     mask = _artifact(tmp_path, f"{role.replace(':', '_')}_{backend}_{kind}_mask.npy", np.ones((16, 16), np.uint8))
                     record["feature_mask"] = mask
-                    report["mask_receipt"] = {"control": kind, "kind": control["mask"]["kind"], "path": str((tmp_path / mask["path"]).resolve()), "sha256": mask["sha256"]}
+                    report["mask_receipt"] = {"control": kind, "kind": control["mask"]["kind"], "path": str((tmp_path / mask["path"]).resolve()), "sha256": mask["sha256"], "shape": [16, 16], "pixels": 256}
                 report_ref = _artifact(tmp_path, f"{role.replace(':', '_')}_{backend}_{kind}.json", json.dumps(report).encode())
                 record["report_artifact"] = report_ref
+                record["leg_report"] = report
+                stdout = f"{H.SENTINEL} REPORT {json.dumps(report)}\n{H.SENTINEL} PASS\n"
+                record["stdout_artifact"] = _artifact(
+                    tmp_path, f"{role.replace(':', '_')}_{backend}_{kind}_stdout.log", stdout.encode())
+                record["stderr_artifact"] = _artifact(
+                    tmp_path, f"{role.replace(':', '_')}_{backend}_{kind}_stderr.log", b"")
+                record["execution_artifact"] = _artifact(
+                    tmp_path, f"{role.replace(':', '_')}_{backend}_{kind}_execution.json",
+                    json.dumps({"command": ["fake-blender"], "exit_code": 0}).encode())
                 records.append(record)
     return records, list(hashes.values()), freeze_ref
 
@@ -135,6 +146,16 @@ def test_reducer_rejects_observed_seed_or_mask_receipt_mismatch(tmp_path):
     report_path = tmp_path / record["report_artifact"]["path"]
     report = json.loads(report_path.read_text(encoding="utf-8"))
     report["mask_receipt"]["sha256"] = "0" * 64
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    record["report_artifact"]["sha256"] = hashlib.sha256(report_path.read_bytes()).hexdigest()
+    errors, _, _ = GM._validate_c(records, tmp_path, hashes, "build-1", freeze)
+    assert any("mask receipt" in error for error in errors)
+
+    records, hashes, freeze = _valid_gate_c_records(tmp_path)
+    record = next(item for item in records if item["control"] == "checker_flat")
+    report_path = tmp_path / record["report_artifact"]["path"]
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["mask_receipt"]["pixels"] = 0
     report_path.write_text(json.dumps(report), encoding="utf-8")
     record["report_artifact"]["sha256"] = hashlib.sha256(report_path.read_bytes()).hexdigest()
     errors, _, _ = GM._validate_c(records, tmp_path, hashes, "build-1", freeze)
@@ -210,6 +231,34 @@ def test_adapter_accepts_valid_measured_red_with_black_hdri_control(tmp_path):
     assert computed["status"] == "red"
     assert any("textures_mapping/GPU checker non-vacuity witness failed" in reason for reason in reasons)
     assert not GM.validate_manifest(_manifest_with_c_row(row, tmp_path), tmp_path)
+
+
+def test_gate_manifest_cli_adapts_c_from_external_working_directory(tmp_path):
+    raw_path = _adapted_valid_red_c(tmp_path)
+    external_cwd = tmp_path / "external-cwd"
+    external_cwd.mkdir()
+    out_path = tmp_path / "manifest.json"
+    result = subprocess.run(
+        [sys.executable, str(GM.REPO_ROOT / "scripts" / "gate_manifest.py"),
+         "--instrument", f"c={raw_path}", "--out", str(out_path), "--json"],
+        cwd=external_cwd, text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    manifest = json.loads(out_path.read_text(encoding="utf-8"))
+    assert manifest["rows"]["c"]["status"] == "red"
+    assert not GM.validate_manifest(manifest, tmp_path)
+
+
+@pytest.mark.parametrize("field", ["stdout_artifact", "stderr_artifact", "execution_artifact"])
+def test_adapter_rejects_missing_raw_execution_artifact(tmp_path, field):
+    raw_path = _adapted_valid_red_c(tmp_path)
+    payload = json.loads(raw_path.read_text(encoding="utf-8"))
+    for record in payload["records"]:
+        (tmp_path / record[field]["path"]).unlink()
+    row = GM.adapt_c_instrument(raw_path)
+    manifest = _manifest_with_c_row(row, tmp_path)
+    assert manifest["rows"]["c"]["status"] == "red"
+    assert GM.validate_manifest(manifest, tmp_path)
 
 
 @pytest.mark.parametrize("tamper", ["npy", "mask", "report", "seed", "identity", "metrics", "digest"])

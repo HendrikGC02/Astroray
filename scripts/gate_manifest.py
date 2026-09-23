@@ -37,6 +37,10 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+# Direct CLI execution puts ``scripts/`` on sys.path, while the C reducer
+# imports the checkout-owned reference-bank metric implementation.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 SCHEMA_PATH = REPO_ROOT / "docs" / "blender_parity" / "acceptance_manifest.schema.json"
 DEFAULT_OUT = REPO_ROOT / "docs" / "blender_parity" / "acceptance_manifest.json"
 
@@ -334,6 +338,7 @@ def _evaluate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
     """Recompute C, separating invalid evidence from a valid failed measurement."""
     import numpy as np
 
+    from benchmarks.blender_parity.harness import SENTINEL, _parse_gate_leg_report
     from benchmarks.reference_bank.metrics import compute_ssim
     from benchmarks.reference_bank.runner import compute_channel_mean_ratio
     provenance_errors: list[str] = []
@@ -373,6 +378,17 @@ def _evaluate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
         _image_path,image_why=_artifact(r.get("image"),base,f"row c record {i} image"); errors.extend(image_why)
         report_path,report_why=_artifact(r.get("report_artifact"),base,f"row c record {i} report"); errors.extend(report_why)
         linear,why=_artifact(r.get("linear_npy"),base,f"row c record {i} linear render"); errors.extend(why)
+        stdout_path,stdout_why=_artifact(r.get("stdout_artifact"),base,f"row c record {i} stdout"); errors.extend(stdout_why)
+        _stderr_path,stderr_why=_artifact(r.get("stderr_artifact"),base,f"row c record {i} stderr"); errors.extend(stderr_why)
+        execution_path,execution_why=_artifact(r.get("execution_artifact"),base,f"row c record {i} execution"); errors.extend(execution_why)
+        try:
+            execution=json.loads(execution_path.read_text(encoding="utf-8")) if execution_path else None
+            if (not isinstance(execution, Mapping) or execution.get("exit_code") != 0
+                    or not isinstance(execution.get("command"), list)
+                    or not all(isinstance(arg, str) for arg in execution["command"])):
+                raise ValueError()
+        except (OSError, ValueError, TypeError, json.JSONDecodeError, UnicodeDecodeError):
+            errors.append(f"row c record {i} execution artifact lacks a successful command receipt")
         try:
             arr=np.load(linear)[...,:3] if linear else None
             if arr is None or arr.ndim != 3 or not np.isfinite(arr).all(): raise ValueError()
@@ -385,6 +401,17 @@ def _evaluate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
             reports[leg_key] = report
         except (OSError,TypeError,ValueError,json.JSONDecodeError):
             report={}; errors.append(f"row c record {i} report cannot be read")
+        try:
+            stdout=stdout_path.read_text(encoding="utf-8") if stdout_path else ""
+            parsed_report, parse_error = _parse_gate_leg_report(stdout)
+            if (parse_error or f"{SENTINEL} PASS" not in stdout
+                    or f"{SENTINEL} FAIL" in stdout):
+                raise ValueError()
+            if (not isinstance(r.get("leg_report"), Mapping) or r["leg_report"] != parsed_report
+                    or report != parsed_report):
+                errors.append(f"row c record {i} parsed stdout report is not bound to its inline/report artifact")
+        except (OSError, ValueError, UnicodeDecodeError):
+            errors.append(f"row c record {i} stdout lacks one successful parsed F12 report")
         expected = {"corpus_scene": scene, "blend_sha256": digest, "freeze_sha256": freeze_sha,
                     "build_id": build_id, "requested_device": backend.lower(),
                     "effective_device": backend.lower(), "engine": "CUSTOM_RAYTRACER",
@@ -433,8 +460,7 @@ def _evaluate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
                 errors.append(f"row c record {i} HDRI mutation receipt is not the declared world control")
             if control != "baseline":
                 mask_path,why=_artifact(r.get("feature_mask"),base,f"row c record {i} feature mask"); errors.extend(why)
-                if mask_path is None:
-                    continue
+                mask = None
                 try:
                     mask=np.load(mask_path).astype(bool) if mask_path else None
                     if mask is None or mask.ndim!=2 or not mask.any(): raise ValueError()
@@ -444,8 +470,10 @@ def _evaluate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
                 declared=next((item for item in frozen.get("controls", []) if item.get("kind") == control), {})
                 if (not isinstance(mask_receipt, Mapping) or mask_receipt.get("control") != control
                         or mask_receipt.get("kind") != declared.get("mask", {}).get("kind")
-                        or mask_receipt.get("path") != str(mask_path.resolve())
-                        or mask_receipt.get("sha256") != (r.get("feature_mask") or {}).get("sha256")):
+                        or mask_path is None or mask_receipt.get("path") != str(mask_path.resolve())
+                        or mask_receipt.get("sha256") != (r.get("feature_mask") or {}).get("sha256")
+                        or mask is None or mask_receipt.get("shape") != [int(mask.shape[0]), int(mask.shape[1])]
+                        or mask_receipt.get("pixels") != int(mask.sum())):
                     errors.append(f"row c record {i} mask receipt is not bound to the frozen control artifact")
         if control == "baseline":
             pairs.add((role, backend)); hashes.setdefault(role, (scene, digest))

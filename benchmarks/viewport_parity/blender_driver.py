@@ -595,8 +595,15 @@ def _digest(mod):
 result = {'engine': sc.render.engine,
           'requested_device': getattr(settings, 'device_mode', None),
           'denoise_enabled': bool(getattr(settings, 'use_denoising', False) or getattr(settings, 'viewport_oidn', False)),
+          'module_build_id': str(getattr(module, '__build__', '')) if module else '',
           'addon': _digest(addon), 'module': _digest(module)}
 """
+
+
+def _recorder_setup(cfg):
+    """Embed JSON as a Python string, never as Python source literals."""
+    encoded = json.dumps(cfg, sort_keys=True, separators=(",", ":"))
+    return "import json\n_PKG241_CONFIG = json.loads(" + repr(encoded) + ")\n" + _recorder_src()
 
 
 def _open_scene(host, port, which):
@@ -640,7 +647,7 @@ def _run_class(host, port, event_class, n, reps, warmup, deadline_s,
     per-config wall-clock deadline), fetch and return non-warmup events."""
     cfg = {"event_class": event_class, "n": n, "reps": reps, "warmup": warmup,
            "rotate_deg": rotate_deg, "gate_a": gate_a, "evidence_dir": evidence_dir}
-    setup = "_PKG241_CONFIG = " + json.dumps(cfg) + "\n" + _recorder_src()
+    setup = _recorder_setup(cfg)
     info = _bridge(setup, host, port)
     if info.get("setup") != "ok":
         raise RuntimeError(f"recorder setup failed: {info}")
@@ -768,11 +775,11 @@ def _load_gate_a_workloads(paths):
     for p in paths:
         doc = json.loads(Path(p).read_text(encoding="utf-8"))
         entries = doc.get("workloads", [doc])
-        if not isinstance(entries, list): raise ValueError(f"{p}: workloads must be a list")
+        if not isinstance(entries, list): raise TypeError(f"{p}: workloads must be a list")
         for w in entries:
             path, digest, tris = w.get("path"), w.get("sha256"), w.get("triangles")
             if not isinstance(path, str) or not isinstance(digest, str) or len(digest) != 64 or not isinstance(tris, int):
-                raise ValueError(f"{p}: each workload needs path, sha256, and measured integer triangles")
+                raise TypeError(f"{p}: each workload needs path, sha256, and measured integer triangles")
             blend = Path(path)
             if not blend.is_file() or hashlib.sha256(blend.read_bytes()).hexdigest() != digest:
                 raise ValueError(f"{p}: workload path/SHA is not frozen: {path}")
@@ -791,6 +798,21 @@ def _run_cancel(host, port, samples):
     return _bridge(src, host, port, timeout=600.0)
 
 
+def _actual_gpu_devices(raw_events):
+    """Return devices observed by native render telemetry for one capture."""
+    devices = []
+    for event in raw_events:
+        if not isinstance(event, dict) or event.get("name") != "render_device":
+            continue
+        device = (event.get("extra") or {}).get("device")
+        if not isinstance(device, int) or device < 0:
+            raise RuntimeError(f"gate (a) render telemetry is not GPU: {device!r}")
+        devices.append(device)
+    if not devices:
+        raise RuntimeError("gate (a) capture lacks observed native GPU render telemetry")
+    return sorted(set(devices))
+
+
 def _run_ui_latency(host, port, duration_s, warmup_s, tick_s,
                     pattern="continuous", burst_s=0.4, settle_s=2.0, _retries=1):
     """pkg241 Phase 2: install the fine-ticker recorder, poll to completion,
@@ -804,7 +826,7 @@ def _run_ui_latency(host, port, duration_s, warmup_s, tick_s,
     cfg = {"event_class": "ui_latency", "duration_s": duration_s,
            "warmup_s": warmup_s, "tick_s": tick_s,
            "pattern": pattern, "burst_s": burst_s, "settle_s": settle_s}
-    setup = "_PKG241_CONFIG = " + json.dumps(cfg) + "\n" + _recorder_src()
+    setup = _recorder_setup(cfg)
     info = _bridge(setup, host, port)
     if info.get("setup") != "ok":
         raise RuntimeError(f"ui_latency recorder setup failed: {info}")
@@ -1232,6 +1254,7 @@ def run_gate_a(args) -> dict:
     host, port = args.host, args.port
     gpu = _bridge(_GPU_NAME, host, port).get("gpu", "")
     captures = []
+    observed_build = None
     for workload in workloads:
         scene_info = _open_scene(host, port, workload["path"])
         if scene_info.get("tris") != workload["triangles"]:
@@ -1244,22 +1267,31 @@ def run_gate_a(args) -> dict:
             raise RuntimeError(f"{workload['name']}: GPU denoise-off settings were not applied: {settings}")
         if observed.get("engine") != "CUSTOM_RAYTRACER" or observed.get("requested_device") != "gpu" or observed.get("denoise_enabled"):
             raise RuntimeError(f"{workload['name']}: observed runtime identity is not GPU denoise-off: {observed}")
+        build_id = observed.get("module_build_id")
+        if not isinstance(build_id, str) or not build_id or build_id != args.gate_a_build_id:
+            raise RuntimeError(f"{workload['name']}: loaded module build does not match --gate-a-build-id: {observed}")
+        if observed_build is None:
+            observed_build = build_id
+        elif observed_build != build_id:
+            raise RuntimeError(f"{workload['name']}: loaded module build changed during gate capture")
         for kind in ("camera", "material"):
             for batch in range(3):
                 result = _run_class(host, port, kind, 100, 1, args.warmup,
                                     args.gpu_deadline_s, args.rotate_deg, gate_a=True,
                                     evidence_dir=str(args.out / "a" / "frames" / workload["name"] / kind / str(batch)))
+                capture_observed = dict(observed)
+                capture_observed["actual_gpu_devices"] = _actual_gpu_devices(result["raw_events"])
                 reduced = reduce_gate_a_capture(result["raw_events"], result["events"],
                                                 truncated=result["truncated"])
                 captures.append({"scene_sha256": workload["sha256"],
                                  "workload": workload, "edit_kind": kind, "batch": batch,
                                  "backend": "GPU", "denoise_enabled": False,
-                                 "observed_runtime": observed,
+                                 "observed_runtime": capture_observed,
                                  "warmup": args.warmup, "truncated": result["truncated"],
                                  "edits": result["events"], "raw_events": result["raw_events"],
                                  "reduced": reduced})
     return {"schema": "pkg278.instrument.v2", "row": "a", "instrument": "viewport_latency",
-            "scene_sha256": [w["sha256"] for w in workloads], "build_id": args.gate_a_build_id,
+            "scene_sha256": [w["sha256"] for w in workloads], "build_id": observed_build,
             "backend": ["GPU"],
             "settings": {"workloads": workloads, "worker": True, "denoise_enabled": False,
                          "warmup": args.warmup, "events_per_batch": 100,
@@ -1334,7 +1366,7 @@ def _run_present_check(host, port, duration_s, warmup_s, tick_s):
     frame."""
     cfg = {"event_class": "present_check", "duration_s": duration_s,
            "warmup_s": warmup_s, "tick_s": tick_s}
-    setup = "_PKG241_CONFIG = " + json.dumps(cfg) + "\n" + _recorder_src()
+    setup = _recorder_setup(cfg)
     info = _bridge(setup, host, port)
     if info.get("setup") != "ok":
         raise RuntimeError(f"present_check recorder setup failed: {info}")

@@ -391,7 +391,7 @@ def _install():
         try:
             os.makedirs(EVIDENCE_DIR, exist_ok=True)
             path = os.path.join(EVIDENCE_DIR, f"{S['event_seq']:04d}-{label}.png")
-            bpy.ops.screen.screenshot(filepath=path, full=False)
+            bpy.ops.screen.screenshot(filepath=path)
             with open(path, "rb") as fh:
                 digest = hashlib.sha256(fh.read()).hexdigest()
             raw("viewport_pixels", generation, None, {"label": label, "path": path, "sha256": digest,

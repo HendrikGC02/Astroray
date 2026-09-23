@@ -9,6 +9,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -89,6 +90,30 @@ def test_gate_a_reducer_requires_ordered_actual_generation_chain():
     assert result["complete"] and len(result["rows"]) == 100
     bad = _capture(_sha("s"), 10000, "camera", 0, broken="wrong_generation")
     assert DRV.reduce_gate_a_capture(bad["raw_events"], bad["edits"])["errors"]
+
+
+def test_recorder_setup_executes_json_booleans_as_python_config():
+    cfg = {"event_class": "camera", "gate_a": True, "evidence_dir": None}
+    namespace = {}
+    exec(DRV._recorder_setup(cfg).split(DRV._recorder_src(), 1)[0], namespace)
+    assert namespace["_PKG241_CONFIG"] == cfg
+
+
+def test_gate_a_requires_native_gpu_render_telemetry():
+    assert DRV._actual_gpu_devices([
+        {"name": "render_device", "extra": {"device": 0}},
+        {"name": "render_device", "extra": {"device": 0}},
+    ]) == [0]
+    with pytest.raises(RuntimeError):
+        DRV._actual_gpu_devices([])
+    with pytest.raises(RuntimeError):
+        DRV._actual_gpu_devices([{"name": "render_device", "extra": {"device": -1}}])
+
+
+def test_recorder_uses_blender_52_screenshot_signature():
+    source = (ROOT / "benchmarks/viewport_parity/blender_recorder.py").read_text(encoding="utf-8")
+    assert "bpy.ops.screen.screenshot(filepath=path)" in source
+    assert "bpy.ops.screen.screenshot(filepath=path, full=False)" not in source
 
 
 def test_gate_a_reducer_rejects_stale_after_ack_and_missing_ack_or_present():

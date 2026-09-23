@@ -64,36 +64,58 @@ def _canonical_production_record(tmp_path, *, backend="CPU", build_id="build-1",
                                  variant_digest="variant-1", module_sha256="m" * 64,
                                  addon_sha256="a" * 64):
     identity, scene_id, case_id = "ShaderNodeBsdfDiffuse|input:Color", "S1", "case-1"
+    witness = {"roi": [0.25, 0.25, 0.75, 0.75],
+               "control": {"kind": "checker_flat", "object": "card", "mask": {"kind": "object_polygon"}},
+               "effect": {"min_delta": .05, "min_coverage": .02, "min_signal": .001}}
+    settings = {"res_x": 16, "res_y": 16, "samples": 1, "seed": 7, "denoise": False,
+                "adaptive": False, "resolution_percentage": 100, "film_transparent": False, "view_transform": "Standard"}
     case = {"case_id": case_id, "identity": identity, "scene_id": scene_id,
             "variant_digest": variant_digest, "backend": backend, "build_id": build_id,
             "module_sha256": module_sha256, "addon_sha256": addon_sha256,
-            "feature": "shader_node:BSDF_DIFFUSE"}
-    astro = tmp_path / "astroray_linear_npy.npy"
-    cycles = tmp_path / "cycles_linear_npy.npy"
-    np.save(astro, np.full((16, 16, 3), .5, dtype=np.float32))
-    np.save(cycles, np.full((16, 16, 3), .5, dtype=np.float32))
+            "witness": witness, "settings": settings}
+    astro = tmp_path / "astroray_linear_npy.npy"; cycles = tmp_path / "cycles_linear_npy.npy"
+    astro_control = tmp_path / "astroray_control_linear_npy.npy"; cycles_control = tmp_path / "cycles_control_linear_npy.npy"
+    astro_mask = tmp_path / "astroray_feature_mask.npy"; cycles_mask = tmp_path / "cycles_feature_mask.npy"
+    baseline = np.full((16, 16, 3), .5, dtype=np.float32); control = baseline.copy()
+    control[4:12, 4:8] = .25; control[4:12, 8:12] = .75
+    mask = np.zeros((16, 16), dtype=np.uint8); mask[4:12, 4:12] = 255
+    np.save(astro, baseline); np.save(cycles, baseline); np.save(astro_control, control); np.save(cycles_control, control)
+    np.save(astro_mask, mask); np.save(cycles_mask, mask)
     binding = {key: case[key] for key in ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id")}
     observed = {"identity": identity, "scene_id": scene_id, "variant_digest": variant_digest,
                 "backend": backend, "build_id": build_id, "module_sha256": module_sha256,
                 "addon_sha256": addon_sha256, "engine_id": "CUSTOM_RAYTRACER", "device": backend.lower()}
     blend_sha = _sha("frozen blend")
-    raw = {"schema": "pkg278.gate_b.case_observation.v1", "case": binding,
-           "graph": {"identity": identity, "variant_digest": variant_digest},
+    raw = {"schema": "pkg278.gate_b.case_observation.v2", "case": binding, "witness": witness, "settings": settings,
+           "mutation_receipt": {"kind": "baseline", "ok": True}, "graph": {"identity": identity, "variant_digest": variant_digest},
            "engine": "CUSTOM_RAYTRACER", "observed": observed, "blend_sha256": blend_sha}
-    cycles_observed = {"schema": "pkg278.gate_b.case_observation.v1", "case": binding,
-                       "graph": {"identity": identity, "variant_digest": variant_digest},
+    cycles_observed = {"schema": "pkg278.gate_b.case_observation.v2", "case": binding, "witness": witness, "settings": settings,
+                       "mutation_receipt": {"kind": "baseline", "ok": True}, "graph": {"identity": identity, "variant_digest": variant_digest},
                        "engine": "CYCLES", "observed": {"identity": identity, "scene_id": scene_id,
                        "variant_digest": variant_digest, "engine_id": "CYCLES", "device": "cpu"},
                        "blend_sha256": blend_sha}
+    raw["linear_npy"], raw["feature_mask_npy"] = str(astro.resolve()), str(astro_mask.resolve())
+    cycles_observed["linear_npy"], cycles_observed["feature_mask_npy"] = str(cycles.resolve()), str(cycles_mask.resolve())
+    astro_control_observed = dict(raw, linear_npy=str(astro_control.resolve()), mutation_receipt={"kind": "checker_flat", "ok": True})
+    cycles_control_observed = dict(cycles_observed, linear_npy=str(cycles_control.resolve()), mutation_receipt={"kind": "checker_flat", "ok": True})
     astro_raw = tmp_path / "report.json"; astro_raw.write_text(json.dumps(raw), encoding="utf-8")
     cycles_raw = tmp_path / "cycles_report.json"; cycles_raw.write_text(json.dumps(cycles_observed), encoding="utf-8")
+    astro_control_raw = tmp_path / "astroray_control_report.json"; astro_control_raw.write_text(json.dumps(astro_control_observed), encoding="utf-8")
+    cycles_control_raw = tmp_path / "cycles_control_report.json"; cycles_control_raw.write_text(json.dumps(cycles_control_observed), encoding="utf-8")
     refs = {"astroray_linear_npy": {"path": astro.name, "sha256": CR.sha256_file(astro)},
             "cycles_linear_npy": {"path": cycles.name, "sha256": CR.sha256_file(cycles)},
             "report": {"path": astro_raw.name, "sha256": CR.sha256_file(astro_raw)},
-            "cycles_report": {"path": cycles_raw.name, "sha256": CR.sha256_file(cycles_raw)}}
-    measured_ssim, measured_delta_e, _ = HARNESS._metrics(np.load(astro), np.load(cycles))
+            "cycles_report": {"path": cycles_raw.name, "sha256": CR.sha256_file(cycles_raw)},
+            "astroray_control_report": {"path": astro_control_raw.name, "sha256": CR.sha256_file(astro_control_raw)},
+            "cycles_control_report": {"path": cycles_control_raw.name, "sha256": CR.sha256_file(cycles_control_raw)},
+            "astroray_control_linear_npy": {"path": astro_control.name, "sha256": CR.sha256_file(astro_control)},
+            "cycles_control_linear_npy": {"path": cycles_control.name, "sha256": CR.sha256_file(cycles_control)},
+            "astroray_feature_mask": {"path": astro_mask.name, "sha256": CR.sha256_file(astro_mask)},
+            "cycles_feature_mask": {"path": cycles_mask.name, "sha256": CR.sha256_file(cycles_mask)}}
+    effect, reason = CR.witness_metrics(baseline, baseline, control, control, mask, mask, witness)
+    assert effect is not None, reason
     runner = {"schema": CR.RUNNER_RESULT_SCHEMA, "results": [HARNESS.gate_b_corpus_result(
-        case, observed, {"ssim": measured_ssim, "delta_e": measured_delta_e}, refs)]}
+        case, observed, effect, refs, effect=effect, settings=settings)]}
     runner_path = tmp_path / "runner.json"; runner_path.write_text(json.dumps(runner), encoding="utf-8")
     runner_sha = CR.sha256_file(runner_path)
     record = {"schema": CR.EVIDENCE_SCHEMA, "identity": identity, "scene_id": scene_id,
@@ -105,6 +127,33 @@ def _canonical_production_record(tmp_path, *, backend="CPU", build_id="build-1",
                           "build_id": build_id, "result": {"kind": "test_result", "artifact_sha256": runner_sha}},
               "verifier_result": {"path": runner_path.name, "sha256": runner_sha}}
     return record, {case_id: case}
+
+
+def test_witness_metrics_rejects_wrong_local_region_empty_mask_and_dark_signal():
+    witness = {"roi": [.25, .25, .75, .75], "effect": {"min_delta": .05, "min_coverage": .02, "min_signal": .001}}
+    baseline = np.full((16, 16, 3), .5, dtype=np.float32)
+    wrong_control = baseline.copy(); wrong_control[:4, :4] = .1
+    mask = np.zeros((16, 16), dtype=np.uint8); mask[4:12, 4:12] = 255
+    result, reason = CR.witness_metrics(baseline, baseline, wrong_control, wrong_control, mask, mask, witness)
+    assert result is not None and not result["pass"]
+    one_sided = baseline.copy(); one_sided[4:12, 4:12] = .25
+    result, reason = CR.witness_metrics(baseline, baseline, one_sided, one_sided, mask, mask, witness)
+    assert result is not None and not result["pass"]
+    empty, reason = CR.witness_metrics(baseline, baseline, baseline, baseline, np.zeros_like(mask), mask, witness)
+    assert empty is None and "empty" in reason
+    dark = np.zeros_like(baseline); changed = dark.copy(); changed[4:12, 4:12] = .5
+    result, reason = CR.witness_metrics(dark, dark, changed, changed, mask, mask, witness)
+    assert result is not None and not result["pass"]
+
+
+def test_production_evidence_rejects_tampered_frozen_settings(tmp_path):
+    record, cases = _canonical_production_record(tmp_path)
+    runner_path = tmp_path / "runner.json"; runner = json.loads(runner_path.read_text(encoding="utf-8"))
+    runner["results"][0]["settings"]["seed"] = 99
+    runner_path.write_text(json.dumps(runner), encoding="utf-8")
+    digest = CR.sha256_file(runner_path)
+    record["verifier_result"]["sha256"] = digest; record["verdict"]["result"]["artifact_sha256"] = digest
+    assert not CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)[0]
 
 
 def test_production_evidence_requires_frozen_case_and_canonical_metrics(tmp_path):
@@ -480,6 +529,26 @@ def _freeze_and_verify(tmp_path, scene_ids):
     ok, verify_errors, _ = CR.verify_frozen_input(frozen, tmp_path, snapshot)
     assert ok, verify_errors
     return frozen, snapshot, scene_hashes, matrix
+
+
+def test_freeze_v4_emits_only_registered_witness_cases(tmp_path, monkeypatch):
+    _frozen, snapshot, _hashes, matrix = _freeze_and_verify(tmp_path, ["textures_mapping"])
+    manifest_path = tmp_path / "benchmarks" / "reference_corpus" / "scenes" / "manifest.json"
+    corpus = json.loads(manifest_path.read_text(encoding="utf-8"))
+    corpus["scenes"]["textures_mapping"]["settings"] = {"res_x": 16, "res_y": 16, "samples": 1}
+    manifest_path.write_text(json.dumps(corpus), encoding="utf-8")
+    ledger = CR.materialize_use_ledger(snapshot)
+    variant = ledger[0]["variants"][0]["variant_digest"]
+    witness = {"roi": [.25, .25, .75, .75], "control": {"kind": "checker_flat", "object": "card", "mask": {"kind": "object_polygon"}}, "effect": {"min_delta": .05, "min_coverage": .02, "min_signal": .001}}
+    monkeypatch.setattr(CR, "CASE_WITNESS_REGISTRY", {(ledger[0]["identity"], "textures_mapping", variant): witness})
+    candidate = {"build_id": "b", "module_sha256": "m", "addon_sha256": "a"}
+    frozen, errors = CR.freeze_coverage_input_v4(corpus, matrix, snapshot, candidate_build=candidate)
+    assert not errors and frozen["schema"] == CR.INPUT_MANIFEST_SCHEMA_V4
+    cases = frozen["evidence"]["runner_case_map"]["cases"]
+    assert len(cases) == 2 and all(case["witness"] == witness and case["settings"]["seed"] == 7 for case in cases)
+    ok, verify_errors, verified = CR.verify_frozen_input(frozen, tmp_path, snapshot)
+    assert ok, verify_errors
+    assert set(verified["allowed_cases"]) == {case["case_id"] for case in cases}
 
 
 def test_freeze_and_verify_roundtrip(tmp_path):

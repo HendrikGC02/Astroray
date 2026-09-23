@@ -388,6 +388,10 @@ def main():
                    help="one immutable v3 runner case; requires corpus scene and emits graph provenance")
     p.add_argument("--gate-b-report", default="",
                    help="write the raw observed gate-b case report JSON")
+    p.add_argument("--gate-b-control", default="",
+                   help="baseline or the frozen Gate-B counterfactual control kind")
+    p.add_argument("--gate-b-mask-out", default="",
+                   help="write the geometry-derived Gate-B feature mask here")
     p.add_argument("--gate-c-freeze", default="", help="hash-pinned gate-c freeze input")
     p.add_argument("--gate-c-freeze-sha256", default="")
     p.add_argument("--gate-c-build-id", default="")
@@ -425,6 +429,8 @@ def main():
                 freeze = _load_gate_c_freeze(args.gate_c_freeze, args.gate_c_freeze_sha256)
         if bool(args.gate_b_case) != bool(args.gate_b_report):
             raise ValueError("--gate-b-case and --gate-b-report must be supplied together")
+        if bool(args.gate_b_case) != bool(args.gate_b_control) or bool(args.gate_b_case) != bool(args.gate_b_mask_out):
+            raise ValueError("gate-b case requires control and feature-mask output")
         if args.gate_b_case:
             if corpus_entry is None:
                 raise ValueError("gate-b case requires --corpus-manifest and --corpus-scene")
@@ -436,6 +442,12 @@ def main():
                 raise ValueError("gate-b case is incomplete")
             if gate_b_case["scene_id"] != args.corpus_scene:
                 raise ValueError("gate-b case scene does not match --corpus-scene")
+            witness, settings = gate_b_case.get("witness"), gate_b_case.get("settings")
+            if not isinstance(witness, dict) or not isinstance(settings, dict) or not isinstance(witness.get("control"), dict):
+                raise ValueError("gate-b case lacks frozen witness/settings")
+            control_kind = witness["control"].get("kind")
+            if args.gate_b_control not in ("baseline", control_kind):
+                raise ValueError("gate-b control is not the frozen baseline/counterfactual")
             if args.engine not in ("CYCLES", "CUSTOM_RAYTRACER"):
                 raise ValueError("gate-b case requires an engine")
         if args.load_blend:
@@ -532,7 +544,23 @@ def main():
             astroray, addon = _bootstrap_astroray_addon(repo_root)
 
         _configure_render(scene, args.engine, args.res, args.samples, args.device,
-                           res_y=args.res_y, seed=args.gate_c_seed)
+                           res_y=args.res_y,
+                           seed=gate_b_case["settings"]["seed"] if gate_b_case is not None else args.gate_c_seed)
+        if gate_b_case is not None:
+            observed_settings = _gate_b_settings(scene)
+            if observed_settings != gate_b_case["settings"]:
+                raise ValueError("applied render settings do not match frozen gate-b case")
+            control_spec = gate_b_case["witness"]["control"]
+            if args.gate_b_control == "baseline":
+                gate_b_receipt = {"kind": "baseline", "ok": True}
+            else:
+                gate_b_receipt = _gate_c_control(bpy, scene, control_spec)
+            import numpy as np
+            gate_b_mask = _gate_c_mask(bpy, scene, control_spec,
+                                       (int(scene.render.resolution_y), int(scene.render.resolution_x)))
+            mask_path = Path(args.gate_b_mask_out)
+            mask_path.parent.mkdir(parents=True, exist_ok=True)
+            np.save(mask_path, gate_b_mask)
         out_stem = Path(args.out)
         out_stem.parent.mkdir(parents=True, exist_ok=True)
         telemetry = []
@@ -584,9 +612,11 @@ def main():
                                 "device": "cpu"}
                 case_binding = {key: gate_b_case[key] for key in
                                 ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id")}
-                raw = {"schema": "pkg278.gate_b.case_observation.v1", "case": case_binding,
+                raw = {"schema": "pkg278.gate_b.case_observation.v2", "case": case_binding,
                        "blend_sha256": hashlib.sha256(Path(args.load_blend).read_bytes()).hexdigest(),
                        "graph": graph, "observed": observed, "engine": args.engine,
+                       "settings": observed_settings, "witness": gate_b_case["witness"],
+                       "mutation_receipt": gate_b_receipt, "feature_mask_npy": str(Path(args.gate_b_mask_out).resolve()),
                        "linear_npy": str(Path(args.out).with_suffix(".npy").resolve()),
                        "blender_version": bpy.app.version_string}
                 raw_path = Path(args.gate_b_report)

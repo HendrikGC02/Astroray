@@ -93,11 +93,27 @@ ORIGINAL_POPULATION_LABEL = "~50 scenes"
 
 INPUT_MANIFEST_SCHEMA = "pkg278.coverage_input_manifest.v2"
 INPUT_MANIFEST_SCHEMA_V3 = "pkg278.coverage_input_manifest.v3"
+INPUT_MANIFEST_SCHEMA_V4 = "pkg278.coverage_input_manifest.v4"
 NODE_USES_SCHEMA = "pkg278.node_uses.v1"
 EVIDENCE_SCHEMA = "pkg278.gate_b.evidence.v2"
 VERDICT_SCHEMA = "pkg278.gate_b.verdict.v1"
 RUNNER_RESULT_SCHEMA = "pkg278.gate_b.runner_result.v1"
 RESULT_KINDS = ("render", "test_result")
+
+# A nonzero Gate-B claim needs an explicit per-identity/scene/variant pixel
+# witness. This registry intentionally contains one reviewed checker case;
+# every other collected variant remains unproven until separately registered.
+CASE_WITNESS_REGISTRY: dict[tuple[str, str, str], dict[str, Any]] = {
+    ("ShaderNodeTexChecker|input:Color1", "textures_mapping",
+     "35ff18873b07e2120a2556a973fe831021dd6c1e1714c8fce90208e5d37f83c2"): {
+        "roi": [0.2912, 0.3603, 0.4079, 0.4804],
+        "control": {"kind": "checker_flat", "material": "TexCheckerMat",
+                    "node": "GateCWorkshopChecker", "object": "TexChecker",
+                    "mask": {"kind": "object_polygon", "inset": 0.16}},
+        "effect": {"min_delta": 0.05, "min_coverage": 0.02,
+                   "min_signal": 0.001},
+    },
+}
 
 # b5: the four shader families the north star names explicitly. Each exercised
 # use of these nodes must be SUPPORTED or APPROXIMATED-with-warning on BOTH
@@ -236,6 +252,64 @@ def _runner_artifact(ref: Any, repo_root: Path | None) -> Path | None:
     return path
 
 
+def _witness_roi(shape: tuple[int, ...], witness: Mapping[str, Any]) -> tuple[slice, slice] | None:
+    roi = witness.get("roi")
+    if (not isinstance(roi, list) or len(roi) != 4
+            or any(not isinstance(value, (int, float)) or isinstance(value, bool)
+                   for value in roi)):
+        return None
+    x0, y0, x1, y1 = roi
+    if not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
+        return None
+    height, width = shape[:2]
+    left, right = int(x0 * width), int(x1 * width)
+    top, bottom = int(y0 * height), int(y1 * height)
+    if left >= right or top >= bottom:
+        return None
+    return slice(top, bottom), slice(left, right)
+
+
+def witness_metrics(actual, reference, actual_control, reference_control,
+                    actual_mask, reference_mask, witness: Mapping[str, Any]) -> tuple[dict[str, Any] | None, str]:
+    """Compute local parity and counterfactual effect from frozen case data."""
+    import numpy as np
+
+    from benchmarks.blender_parity.harness import _gate_c_paired_probe
+    from benchmarks.reference_bank.metrics import compute_delta_e_2000, compute_ssim
+
+    arrays = (actual, reference, actual_control, reference_control)
+    if any(getattr(array, "shape", None) != actual.shape or array.ndim != 3 or array.shape[-1] != 3
+           for array in arrays) or not all(np.isfinite(array).all() for array in arrays):
+        return None, "witness arrays have incompatible shape or non-finite pixels"
+    roi = _witness_roi(actual.shape, witness)
+    effect = witness.get("effect")
+    if roi is None or not isinstance(effect, Mapping):
+        return None, "case witness has invalid ROI or effect threshold"
+    if any(not isinstance(effect.get(key), (int, float)) for key in ("min_delta", "min_coverage", "min_signal")):
+        return None, "case witness has invalid effect thresholds"
+    results: dict[str, Any] = {}
+    for name, baseline, control, mask in (("astroray", actual, actual_control, actual_mask),
+                                          ("cycles", reference, reference_control, reference_mask)):
+        if getattr(mask, "shape", None) != actual.shape[:2]:
+            return None, f"{name} witness mask has wrong shape"
+        selected = np.asarray(mask[roi], dtype=bool)
+        base = baseline[roi]
+        changed = control[roi]
+        if not selected.any():
+            return None, f"{name} witness mask is empty in frozen ROI"
+        signal = float(base[selected].mean())
+        paired = _gate_c_paired_probe(base, changed, selected,
+                                      {"kind": "checker", "min_delta": effect["min_delta"],
+                                       "min_coverage": effect["min_coverage"]})
+        results[name] = {"signal": signal, **paired,
+                         "ok": signal > float(effect["min_signal"]) and paired["ok"]}
+    patch_actual, patch_reference = actual[roi], reference[roi]
+    ssim, _ = compute_ssim(patch_actual, patch_reference)
+    delta_e, _ = compute_delta_e_2000(patch_actual, patch_reference)
+    return {"ssim": float(ssim), "delta_e": float(delta_e), "effects": results,
+            "roi": list(witness["roi"]), "pass": all(result["ok"] for result in results.values())}, ""
+
+
 def _runner_metrics_match(produced: Mapping[str, Any], repo_root: Path | None) -> tuple[bool, str]:
     """Recompute the frozen metric predicate from the retained linear arrays."""
     artifacts = produced.get("artifacts")
@@ -245,34 +319,68 @@ def _runner_metrics_match(produced: Mapping[str, Any], repo_root: Path | None) -
     cycles = _runner_artifact(artifacts.get("cycles_linear_npy"), repo_root)
     raw = _runner_artifact(artifacts.get("report"), repo_root)
     cycles_raw = _runner_artifact(artifacts.get("cycles_report"), repo_root)
-    if not all((astro, cycles, raw, cycles_raw)):
+    astro_control_raw = _runner_artifact(artifacts.get("astroray_control_report"), repo_root)
+    cycles_control_raw = _runner_artifact(artifacts.get("cycles_control_report"), repo_root)
+    astro_control = _runner_artifact(artifacts.get("astroray_control_linear_npy"), repo_root)
+    cycles_control = _runner_artifact(artifacts.get("cycles_control_linear_npy"), repo_root)
+    astro_mask = _runner_artifact(artifacts.get("astroray_feature_mask"), repo_root)
+    cycles_mask = _runner_artifact(artifacts.get("cycles_feature_mask"), repo_root)
+    if not all((astro, cycles, raw, cycles_raw, astro_control_raw, cycles_control_raw, astro_control, cycles_control, astro_mask, cycles_mask)):
         return False, "canonical runner artifact is missing or hash-mismatched"
     try:
         import numpy as np
-        from benchmarks.reference_bank.metrics import compute_delta_e_2000, compute_ssim
-        astro_pixels, cycles_pixels = np.load(astro), np.load(cycles)
-        ssim, _ = compute_ssim(astro_pixels, cycles_pixels)
-        delta_e, _ = compute_delta_e_2000(astro_pixels, cycles_pixels)
+        witness = produced.get("witness")
+        if not isinstance(witness, Mapping):
+            return False, "canonical runner result lacks a registered case witness"
+        witness_result, witness_reason = witness_metrics(
+            np.load(astro), np.load(cycles), np.load(astro_control), np.load(cycles_control),
+            np.load(astro_mask), np.load(cycles_mask), witness)
+        if witness_result is None:
+            return False, witness_reason
         raw_observed = json.loads(raw.read_text(encoding="utf-8"))
         cycles_observed = json.loads(cycles_raw.read_text(encoding="utf-8"))
+        astro_control_observed = json.loads(astro_control_raw.read_text(encoding="utf-8"))
+        cycles_control_observed = json.loads(cycles_control_raw.read_text(encoding="utf-8"))
     except (OSError, ValueError, json.JSONDecodeError, ImportError):
         return False, "canonical runner artifacts cannot be decoded"
     metrics = produced.get("metrics")
     if not isinstance(metrics, Mapping) or not all(isinstance(metrics.get(k), (int, float)) for k in ("ssim", "delta_e")):
         return False, "canonical runner result lacks re-derivable metrics"
-    if not math.isclose(float(metrics["ssim"]), float(ssim), rel_tol=1e-7, abs_tol=1e-7) or not math.isclose(float(metrics["delta_e"]), float(delta_e), rel_tol=1e-7, abs_tol=1e-7):
+    if (not math.isclose(float(metrics["ssim"]), witness_result["ssim"], rel_tol=1e-7, abs_tol=1e-7)
+            or not math.isclose(float(metrics["delta_e"]), witness_result["delta_e"], rel_tol=1e-7, abs_tol=1e-7)):
         return False, "canonical runner metrics do not match retained linear arrays"
+    if produced.get("effect") != witness_result or not witness_result["pass"]:
+        return False, "canonical runner witness effect is missing or does not pass"
     expected = {key: produced.get(key) for key in ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id")}
-    for report in (raw_observed, cycles_observed):
-        if not isinstance(report, Mapping) or report.get("schema") != "pkg278.gate_b.case_observation.v1":
+    for report in (raw_observed, cycles_observed, astro_control_observed, cycles_control_observed):
+        if not isinstance(report, Mapping) or report.get("schema") != "pkg278.gate_b.case_observation.v2":
             return False, "canonical runner raw observation has wrong schema"
         if report.get("case") != expected:
             return False, "canonical runner raw observation does not bind its case"
         graph = report.get("graph")
         if not isinstance(graph, Mapping) or graph.get("identity") != produced.get("identity") or graph.get("variant_digest") != produced.get("variant_digest"):
             return False, "canonical runner raw observation does not confirm identity/variant"
-    if raw_observed.get("engine") != "CUSTOM_RAYTRACER" or cycles_observed.get("engine") != "CYCLES":
+    reports = (raw_observed, cycles_observed, astro_control_observed, cycles_control_observed)
+    if any(report.get("witness") != produced.get("witness") or report.get("settings") != produced.get("settings")
+           for report in reports):
+        return False, "canonical runner raw observations lack frozen witness/settings"
+    receipts = tuple(report.get("mutation_receipt") for report in reports)
+    control_kind = produced["witness"].get("control", {}).get("kind") if isinstance(produced.get("witness"), Mapping) else None
+    if (any(not isinstance(receipt, Mapping) or receipt.get("ok") is not True for receipt in receipts)
+            or any(receipt.get("kind") != "baseline" for receipt in receipts[:2])
+            or any(receipt.get("kind") != control_kind for receipt in receipts[2:])):
+        return False, "canonical runner raw observations lack the declared baseline/control receipts"
+    if (raw_observed.get("engine") != "CUSTOM_RAYTRACER" or cycles_observed.get("engine") != "CYCLES"
+            or astro_control_observed.get("engine") != "CUSTOM_RAYTRACER"
+            or cycles_control_observed.get("engine") != "CYCLES"):
         return False, "canonical runner raw observations have the wrong engines"
+    for report, linear, mask in ((raw_observed, astro, astro_mask), (cycles_observed, cycles, cycles_mask),
+                                 (astro_control_observed, astro_control, astro_mask),
+                                 (cycles_control_observed, cycles_control, cycles_mask)):
+        if (not isinstance(report.get("linear_npy"), str) or not isinstance(report.get("feature_mask_npy"), str)
+                or Path(report["linear_npy"]).resolve() != linear.resolve()
+                or Path(report["feature_mask_npy"]).resolve() != mask.resolve()):
+            return False, "canonical runner raw observation does not bind retained linear/mask artifacts"
     if raw_observed.get("observed") != produced.get("observed"):
         return False, "canonical runner result does not match the observed native render leg"
     blend_sha = raw_observed.get("blend_sha256")
@@ -349,6 +457,8 @@ def evidence_is_valid(rec: Mapping[str, Any], repo_root: Path | None = None,
             expected = case.get(field)
             if not isinstance(expected, str) or not expected or actual != expected:
                 return False, f"canonical runner result does not match frozen case {field}"
+        if produced.get("witness") != case.get("witness") or produced.get("settings") != case.get("settings"):
+            return False, "canonical runner result does not match frozen witness/settings"
         if result.get("artifact_sha256") != verifier.get("sha256"):
             return False, "production verdict is not tied to the generated runner artifact"
         if "feature" in produced:
@@ -1009,7 +1119,13 @@ def _corpus_manifest_entries(corpus_manifest: Mapping[str, Any]) -> tuple[dict[s
                 errors.append(f"corpus scene {scene_id!r} has malformed external asset")
                 continue
             assets.append({"path": asset["path"], "sha256": asset["sha256"].lower()})
-        entries[scene_id] = {"blend_path": blend_path, "sha256": sha.lower(), "assets": sorted(assets, key=lambda a: a["path"])}
+        settings = scene.get("settings", {})
+        if settings is not None and not isinstance(settings, Mapping):
+            errors.append(f"corpus scene {scene_id!r} has malformed settings")
+            settings = {}
+        entries[scene_id] = {"blend_path": blend_path, "sha256": sha.lower(),
+                             "assets": sorted(assets, key=lambda a: a["path"]),
+                             "settings": dict(settings or {})}
     return entries, errors
 
 
@@ -1140,6 +1256,68 @@ def freeze_coverage_input_v3(corpus_manifest: Mapping[str, Any], matrix_path: Pa
     return frozen, errors
 
 
+def freeze_coverage_input_v4(corpus_manifest: Mapping[str, Any], matrix_path: Path,
+                             snapshot: Mapping[str, Any], *,
+                             candidate_build: Mapping[str, str] | None = None) -> tuple[dict[str, Any], list[str]]:
+    """Freeze only explicitly registered, locally measurable Gate-B cases.
+
+    Unlike v3's broad provisional map, v4 carries immutable render settings and
+    a reviewed pixel witness for each case.  A collected use without an exact
+    registry entry is deliberately absent and therefore remains unproven.
+    """
+    frozen, errors = freeze_coverage_input(corpus_manifest, matrix_path, snapshot)
+    frozen["schema"] = INPUT_MANIFEST_SCHEMA_V4
+    frozen["version"] = 4
+    frozen["input_path"] = "docs/blender_parity/coverage_input_v4.json"
+    build = dict(candidate_build or {})
+    required = ("build_id", "module_sha256", "addon_sha256")
+    ready = all(isinstance(build.get(field), str) and build[field] for field in required)
+    corpus_entries, corpus_errors = _corpus_manifest_entries(corpus_manifest)
+    errors.extend(corpus_errors)
+    for scene_id, entry in corpus_entries.items():
+        declared = entry.get("settings", {})
+        frozen_settings = {key: declared.get(key) for key in ("res_x", "res_y", "samples")}
+        if all(isinstance(value, int) and value > 0 for value in frozen_settings.values()):
+            frozen["corpus"]["scenes"][scene_id]["settings"] = frozen_settings
+    cases: list[dict[str, Any]] = []
+    if ready:
+        for row in frozen["collector"]["use_ledger"]:
+            for variant in row["variants"]:
+                registration = CASE_WITNESS_REGISTRY.get(
+                    (row["identity"], variant["scene_id"], variant["variant_digest"]))
+                entry = corpus_entries.get(variant["scene_id"])
+                if registration is None or entry is None:
+                    continue
+                declared = entry.get("settings", {})
+                settings = {
+                    "res_x": declared.get("res_x"), "res_y": declared.get("res_y"),
+                    "samples": declared.get("samples"), "seed": 7, "denoise": False,
+                    "adaptive": False, "resolution_percentage": 100,
+                    "film_transparent": False, "view_transform": "Standard",
+                }
+                if any(not isinstance(settings[key], int) or settings[key] <= 0
+                       for key in ("res_x", "res_y", "samples")):
+                    errors.append(f"registered case {row['identity']!r} has invalid corpus settings")
+                    continue
+                for backend in ("CPU", "GPU"):
+                    case = {
+                        "identity": row["identity"], "scene_id": variant["scene_id"],
+                        "variant_digest": variant["variant_digest"], "backend": backend,
+                        **{field: build[field] for field in required},
+                        "settings": settings, "witness": registration,
+                    }
+                    case["case_id"] = _sha256_bytes(_canonical_json(case))
+                    cases.append(case)
+    frozen["evidence"]["runner_case_map"] = {
+        "status": "ready" if cases else "provisional",
+        "candidate_build": {field: build.get(field) if ready else None for field in required},
+        "cases": sorted(cases, key=lambda row: row["case_id"]),
+    }
+    frozen["evidence"]["runner_case_map"]["sha256"] = _sha256_bytes(
+        _canonical_json(frozen["evidence"]["runner_case_map"]["cases"]))
+    return frozen, errors
+
+
 def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
                         snapshot: Mapping[str, Any]) -> tuple[bool, list[str], dict[str, Any]]:
     """Re-verify a frozen input manifest against disk + the collected snapshot.
@@ -1151,8 +1329,8 @@ def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
     errors: list[str] = []
     verified: dict[str, Any] = {}
 
-    if frozen.get("schema") not in (INPUT_MANIFEST_SCHEMA, INPUT_MANIFEST_SCHEMA_V3):
-        return False, [f"input manifest schema must be v2 or {INPUT_MANIFEST_SCHEMA_V3!r}"], {}
+    if frozen.get("schema") not in (INPUT_MANIFEST_SCHEMA, INPUT_MANIFEST_SCHEMA_V3, INPUT_MANIFEST_SCHEMA_V4):
+        return False, ["input manifest schema must be a supported v2, v3, or v4 manifest"], {}
 
     corpus_path = (frozen.get("corpus", {}).get("manifest_path")
                    or "benchmarks/reference_corpus/scenes/manifest.json")
@@ -1204,6 +1382,12 @@ def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
             elif _sha256_file(asset_file) != asset["sha256"]:
                 errors.append(f"corpus external asset bytes changed: {asset['path']}")
 
+    if frozen.get("schema") == INPUT_MANIFEST_SCHEMA_V4:
+        for scene_id in expected:
+            frozen_settings = frozen_scenes.get(scene_id, {}).get("settings")
+            actual_settings = corpus_entries.get(scene_id, {}).get("settings")
+            if frozen_settings != {key: actual_settings.get(key) for key in ("res_x", "res_y", "samples")}:
+                errors.append(f"v4 frozen settings disagree with corpus scene {scene_id!r}")
     matrix_path = frozen.get("matrix", {}).get("path") or "docs/blender_parity/coverage_matrix.json"
     matrix_file = Path(matrix_path)
     if not matrix_file.is_absolute():
@@ -1242,14 +1426,22 @@ def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
     verified["sidecar_dir"] = Path(sidecar_dir)
     if not verified["sidecar_dir"].is_absolute():
         verified["sidecar_dir"] = Path(repo_root) / verified["sidecar_dir"]
-    if frozen.get("schema") == INPUT_MANIFEST_SCHEMA_V3:
+    if frozen.get("schema") in (INPUT_MANIFEST_SCHEMA_V3, INPUT_MANIFEST_SCHEMA_V4):
         case_map = frozen.get("evidence", {}).get("runner_case_map", {})
         cases = case_map.get("cases") if isinstance(case_map, Mapping) else None
         if not isinstance(cases, list):
-            errors.append("v3 runner case map has no cases list")
+            errors.append("runner case map has no cases list")
             cases = []
         if _sha256_bytes(_canonical_json(cases)) != case_map.get("sha256"):
-            errors.append("v3 runner case map hash does not match frozen input")
+            errors.append("runner case map hash does not match frozen input")
+        if frozen.get("schema") == INPUT_MANIFEST_SCHEMA_V4:
+            for case in cases:
+                if (not isinstance(case, Mapping) or not isinstance(case.get("witness"), Mapping)
+                        or not isinstance(case.get("settings"), Mapping)
+                        or CASE_WITNESS_REGISTRY.get((case.get("identity"), case.get("scene_id"),
+                                                      case.get("variant_digest"))) != case.get("witness")):
+                    errors.append("v4 runner case lacks its exact registered witness/settings")
+                    break
         verified["allowed_cases"] = {str(case.get("case_id")): case for case in cases
                                      if isinstance(case, Mapping) and isinstance(case.get("case_id"), str)}
     else:
@@ -1614,8 +1806,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="verify the snapshot against the corpus and write the versioned input manifest")
     p.add_argument("--freeze-v3", action="store_true",
                    help="freeze v3 with an explicitly provisional runner case map")
+    p.add_argument("--freeze-v4", action="store_true",
+                   help="freeze v4 with registered pixel witnesses and immutable render settings")
     p.add_argument("--candidate-build", type=Path,
-                   help="JSON with build_id/module_sha256/addon_sha256 for a ready v3 case map")
+                   help="JSON with build_id/module_sha256/addon_sha256 for a ready v3/v4 case map")
     p.add_argument("--score", action="store_true",
                    help="verify the frozen input + snapshot against disk, then score")
     p.add_argument("--manifest", type=Path,
@@ -1644,19 +1838,26 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {out_path}")
         return 0
 
-    if args.freeze or args.freeze_v3:
+    if args.freeze or args.freeze_v3 or args.freeze_v4:
         if args.node_uses is None:
             print("--freeze needs --node-uses", file=sys.stderr)
             return 2
         corpus_manifest = _load_json(args.manifest)
         snapshot = _load_json(args.node_uses)
-        if args.freeze_v3:
+        if args.freeze_v4:
+            candidate = _load_json(args.candidate_build) if args.candidate_build else None
+            frozen, errors = freeze_coverage_input_v4(corpus_manifest, args.matrix, snapshot,
+                                                       candidate_build=candidate)
+        elif args.freeze_v3:
             candidate = _load_json(args.candidate_build) if args.candidate_build else None
             frozen, errors = freeze_coverage_input_v3(corpus_manifest, args.matrix, snapshot,
                                                        candidate_build=candidate)
         else:
             frozen, errors = freeze_coverage_input(corpus_manifest, args.matrix, snapshot)
-        out_path = args.input_manifest or Path("docs/blender_parity/coverage_input_v3.json" if args.freeze_v3 else "docs/blender_parity/coverage_input_v2.json")
+        default_input = ("docs/blender_parity/coverage_input_v4.json" if args.freeze_v4 else
+                         "docs/blender_parity/coverage_input_v3.json" if args.freeze_v3 else
+                         "docs/blender_parity/coverage_input_v2.json")
+        out_path = args.input_manifest or Path(default_input)
         if args.input_manifest is not None:
             out_path = args.input_manifest
         out_path.parent.mkdir(parents=True, exist_ok=True)

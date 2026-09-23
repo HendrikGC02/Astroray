@@ -62,6 +62,7 @@ new reusable script, register it here in the same commit.
 | NRC prototype CUDA smoke render (opt-in CMake target `nrc_smoke_render`) | `scripts/cuda/nrc_smoke_render.cu` (pkg26) |
 | Standalone-binary render used by the Blender addon smoke test | `scripts/dev/render_test_scene.py` (invoked by `scripts/dev/blender_addon_smoke.py`) |
 | Weekly local cycles-parity + showcase bench (manual; replaces the retired self-hosted-runner `cycles-parity.yml` / `showcase.yml` workflows) | `scripts/benchmarks/weekly_local_bench.ps1` |
+| Capture and validate portable clean-host Blender ZIP-install evidence for gate (f) | `scripts/validate_clean_install.py --capture` / `--validate` |
 
 Note on the two `build_cuda_worktree.bat` copies: they are intentionally
 different pipelines (root = VS multi-config, no configure step, SHA

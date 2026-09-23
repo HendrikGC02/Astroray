@@ -406,9 +406,16 @@ def _validate_f(records: list[Any], base: Path) -> tuple[list[str], dict[str, An
         return errors, {}, {}
     try:
         doc = json.loads(checks_path.read_text(encoding="utf-8"))
-        # Same-directory import is deliberate: the evaluator is the single gate-f reducer.
-        from validate_clean_install import evaluate  # type: ignore
-        result = evaluate(doc, checks_path.parent)
+        # Load the versioned producer beside this script.  This works both from
+        # ``python scripts/gate_manifest.py`` and when the manifest reducer is
+        # imported by tests; gate (f) has exactly one reducer.
+        spec = importlib.util.spec_from_file_location("pkg278_clean_install", REPO_ROOT / "scripts" / "validate_clean_install.py")
+        if spec is None or spec.loader is None:
+            raise ImportError("cannot load clean-install reducer")
+        clean_install = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = clean_install
+        spec.loader.exec_module(clean_install)
+        result = clean_install.evaluate(doc, checks_path.parent)
     except (OSError, json.JSONDecodeError, ImportError) as exc:
         return [f"row f checks cannot be evaluated: {exc}"], {}, {}
     names = ("fresh_profile", "zip_identity", "installer_path", "no_toolchain", "f12_exit_zero")

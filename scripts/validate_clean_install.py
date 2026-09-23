@@ -1,307 +1,141 @@
 #!/usr/bin/env python
-"""pkg278 gate (f) - clean-machine install capture/validator.
-
-Gate (f) requires a fresh Blender profile, a ZIP installed through Blender's own
-extension installer (NOT ``scripts/dev_addon.ps1`` or a source path), on a machine
-WITHOUT the build toolchain, followed by one F12 render. Each of the five
-mandatory checks is hash-locked to an artifact; a missing or hash-mismatched
-check is RED.
-
-This validator never fabricates a clean machine. When it runs on a developer
-checkout (a source tree and/or a build toolchain are present) it reports the
-machine ``ineligible`` and leaves the checks ``unmeasured`` -- the run must
-happen on a genuinely clean host, and the command for that host is printed.
-
-    python scripts/validate_clean_install.py                 # capture/report here
-    python scripts/validate_clean_install.py --validate      # validate committed evidence
-"""
-
+"""Capture and reduce pkg278 gate-(f) clean-host evidence."""
 from __future__ import annotations
-
-import argparse
-import datetime
-import hashlib
-import json
-import shutil
-import sys
+import argparse, datetime as dt, hashlib, json, os, shutil, subprocess, sys, uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_EVIDENCE_DIR = REPO_ROOT / "docs" / "blender_parity" / "evidence" / "install-clean-machine"
-
-MANDATORY_CHECKS = (
-    "fresh_profile",        # no prior astroray addon / userpref entry
-    "zip_identity",         # installed ZIP SHA-256 == recorded build artifact
-    "installer_path",       # Blender's extension installer, not dev_addon.ps1/source
-    "no_toolchain",         # no build toolchain and no source-tree fallback
-    "f12_exit_zero",        # F12 exits 0 and writes the pinned PNG
-)
-
-CHECK_ARTIFACTS = {
-    "fresh_profile": "profile_fresh.probe.json",
-    "zip_identity": "zip_identity.probe.json",
-    "installer_path": "installer_path.probe.json",
-    "no_toolchain": "host_eligibility.probe.json",
-    "f12_exit_zero": "f12_result.probe.json",
-}
-
-
-def sha256_file(path: Path) -> str:
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
-
-def _hex_digest(value: Any) -> bool:
-    return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
-
-
-def _artifact(ref: Any, evidence_dir: Path, label: str) -> tuple[Path | None, str]:
-    if not isinstance(ref, Mapping) or not isinstance(ref.get("path"), str) or not _hex_digest(ref.get("sha256")):
-        return None, f"{label} must provide path and lower-case SHA-256"
-    path = (evidence_dir / ref["path"]).resolve()
-    try:
-        path.relative_to(evidence_dir.resolve())
-    except ValueError:
-        return None, f"{label} escapes evidence directory"
-    if not path.is_file():
-        return None, f"{label} missing: {ref['path']}"
-    if sha256_file(path) != ref["sha256"]:
-        return None, f"{label} digest mismatch: {ref['path']}"
-    return path, ""
-
-
-def _valid_png(path: Path) -> bool:
-    data = path.read_bytes()
-    return (len(data) >= 24 and data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR"
-            and int.from_bytes(data[16:20], "big") > 0 and int.from_bytes(data[20:24], "big") > 0)
-
-
-def detect_toolchain() -> list[str]:
-    """Names of build-toolchain programs found on PATH (empty on a clean host)."""
-    found = []
-    for exe in ("cl", "clang-cl", "cmake", "nvcc", "ninja", "make", "gcc", "g++"):
-        if shutil.which(exe):
-            found.append(exe)
-    return found
-
-
-def machine_eligibility(repo_root: Path) -> dict[str, Any]:
-    """A clean-install run needs no toolchain AND no source-tree fallback."""
-    toolchain = detect_toolchain()
-    source_markers = [
-        (repo_root / "CMakeLists.txt").is_file(),
-        (repo_root / "src").is_dir(),
-        (repo_root / "include").is_dir(),
-        (repo_root / "build_cuda").is_dir(),
-    ]
-    source_tree = any(source_markers)
-    reasons = []
-    if toolchain:
-        reasons.append(f"build toolchain on PATH: {', '.join(toolchain)}")
-    if source_tree:
-        reasons.append("source tree / build dir present (source-tree fallback possible)")
-    return {
-        "eligible": not reasons,
-        "toolchain_present": bool(toolchain),
-        "toolchain_programs": toolchain,
-        "source_tree_present": source_tree,
-        "reasons": reasons,
-    }
-
-
-def _check_evidence(name: str, check: Mapping[str, Any], evidence_dir: Path,
-                    doc: Mapping[str, Any]) -> tuple[bool, str]:
-    path = check.get("evidence_path")
-    recorded = str(check.get("evidence_sha256") or "").lower()
-    if not path:
-        return False, "no evidence_path"
-    if not _hex_digest(recorded):
-        return False, "missing or malformed evidence_sha256"
-    p = Path(path)
-    if not p.is_absolute():
-        p = evidence_dir / p
-    if not p.is_file():
-        return False, f"evidence artifact missing: {path}"
-    if sha256_file(p) != recorded:
-        return False, f"evidence hash mismatch: {path}"
-    try:
-        probe = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        return False, f"probe is not structured JSON: {exc}"
-    if not isinstance(probe, Mapping) or probe.get("schema") != "pkg278.clean_install_probe.v1":
-        return False, "probe schema missing or unsupported"
-    if probe.get("check") != name:
-        return False, "probe check identity mismatch"
-    if name == "fresh_profile":
-        good = (probe.get("prior_astroray_addon") is False and probe.get("userpref_astroray") is False
-                and isinstance(probe.get("profile_path"), str) and probe["profile_path"].strip()
-                and isinstance(probe.get("addons"), list))
-    elif name == "zip_identity":
-        zip_path, why = _artifact(probe.get("zip"), evidence_dir, "release ZIP")
-        good = zip_path is not None and probe.get("zip", {}).get("sha256") == (doc.get("zip") or {}).get("sha256")
-        if not good: return False, why or "ZIP identity does not match checks document"
-    elif name == "installer_path":
-        good = (probe.get("installer") == "blender_extension_installer" and probe.get("installer_result") in ("FINISHED", ["FINISHED"])
-                and isinstance(probe.get("installed_module_path"), str) and probe["installed_module_path"].strip()
-                and isinstance(probe.get("zip_path"), str) and probe["zip_path"].strip()
-                and probe.get("source_path_used") is False)
-    elif name == "no_toolchain":
-        good = (probe.get("toolchain_programs") == [] and probe.get("source_tree_fallback") is False
-                and isinstance(probe.get("checked_path"), str) and probe["checked_path"].strip()
-                and isinstance(probe.get("source_roots_checked"), list) and probe["source_roots_checked"] == []
-                and isinstance(probe.get("loaded_module_path"), str) and probe["loaded_module_path"].strip())
-    else:
-        image = probe.get("image")
-        image_path, why = _artifact(image, evidence_dir, "F12 image")
-        good = (probe.get("exit_code") == 0 and image_path is not None and _valid_png(image_path)
-                and isinstance(probe.get("loaded_module_path"), str) and probe["loaded_module_path"].strip())
-        if not good: return False, why or "F12 output is not a readable PNG"
-    return (True, "") if good else (False, "probe does not establish required condition")
-
-
-def evaluate(checks_doc: Mapping[str, Any], evidence_dir: Path) -> dict[str, Any]:
-    """Compute per-check + overall status from hash-verified artifacts."""
-    checks = checks_doc.get("checks") or {}
-    results: dict[str, Any] = {}
-    for name in MANDATORY_CHECKS:
-        entry = checks.get(name)
-        if not isinstance(entry, Mapping):
-            results[name] = {"pass": False, "status": "unmeasured",
-                             "reason": "check absent"}
-            continue
-        if entry.get("evidence_path") is None:
-            results[name] = {"pass": False, "status": "unmeasured",
-                             "reason": "check not captured on this machine"}
-            continue
-        ok, why = _check_evidence(name, entry, evidence_dir, checks_doc)
-        results[name] = {"pass": ok, "status": "green" if ok else "red", "reason": why}
-
-    # The path claims must describe one installed extension, not independent
-    # booleans captured from unrelated runs.
-    if all(results[n]["pass"] for n in ("installer_path", "no_toolchain", "f12_exit_zero")):
-        probes: dict[str, Any] = {}
+SCHEMA = "pkg278.clean_install_probe.v2"; CHECKS_SCHEMA = "pkg278.clean_install_checks.v2"
+MANDATORY_CHECKS = ("fresh_profile", "zip_identity", "installer_path", "no_toolchain", "f12_exit_zero")
+CHECK_ARTIFACTS = dict(zip(MANDATORY_CHECKS, ("profile_fresh.probe.json", "zip_identity.probe.json", "installer_path.probe.json", "host_eligibility.probe.json", "f12_result.probe.json")))
+TOOLS = ("cl", "clang-cl", "cmake", "nvcc", "ninja", "make", "gcc", "g++")
+def sha256_file(path: Path) -> str: return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+def _hex(x: Any) -> bool: return isinstance(x,str) and len(x)==64 and all(c in "0123456789abcdef" for c in x)
+def _write(path: Path, value: Mapping[str,Any]) -> Path: path.write_text(json.dumps(value,indent=2,sort_keys=True),encoding="utf-8"); return path
+def _artifact(ref: Any, base: Path, label: str) -> tuple[Path|None,str]:
+    if not isinstance(ref,Mapping) or not isinstance(ref.get("path"),str) or not _hex(ref.get("sha256")): return None,f"{label} needs a relative path and SHA-256"
+    path=(base/ref["path"]).resolve()
+    try: path.relative_to(base.resolve())
+    except ValueError: return None,f"{label} escapes evidence directory"
+    if not path.is_file(): return None,f"{label} missing"
+    if sha256_file(path)!=ref["sha256"]: return None,f"{label} hash mismatch"
+    return path,""
+def _png(path: Path) -> bool:
+    data=path.read_bytes(); return len(data)>=24 and data[:8]==b"\x89PNG\r\n\x1a\n" and data[12:16]==b"IHDR" and int.from_bytes(data[16:20],"big")>0 and int.from_bytes(data[20:24],"big")>0
+def _path_probe(path: Path) -> dict[str,str]:
+    try: return {"path":str(path),"result":"present" if path.exists() else "absent"}
+    except OSError as exc: return {"path":str(path),"result":"unknown","error":str(exc)}
+def _registry_probe() -> list[dict[str,str]]:
+    keys=(r"SOFTWARE\Microsoft\VisualStudio\SxS\VS7",r"SOFTWARE\Microsoft\Windows Kits\Installed Roots",r"SOFTWARE\NVIDIA Corporation\GPU Computing Toolkit\CUDA")
+    try: import winreg # type: ignore
+    except ImportError as exc: return [{"key":key,"result":"unknown","error":f"winreg unavailable: {exc}"} for key in keys]
+    answer=[]
+    for key in keys:
         try:
-            for name in ("installer_path", "no_toolchain", "f12_exit_zero"):
-                probe_path = evidence_dir / checks[name]["evidence_path"]
-                probes[name] = json.loads(probe_path.read_text(encoding="utf-8"))
-            installed = probes["installer_path"]["installed_module_path"]
-            if any(probes[n]["loaded_module_path"] != installed for n in ("no_toolchain", "f12_exit_zero")):
-                results["installer_path"] = {"pass": False, "status": "red", "reason": "installed module path is inconsistent across probes"}
-        except (KeyError, OSError, json.JSONDecodeError, TypeError):
-            results["installer_path"] = {"pass": False, "status": "red", "reason": "cannot cross-check installed module paths"}
-
-    machine = checks_doc.get("machine") or {}
-    # Never trust a hand-set eligibility flag: derive it from captured host probes.
-    no_toolchain = results.get("no_toolchain", {}).get("pass") is True
-    eligible = no_toolchain and not bool(machine.get("toolchain_present")) and not bool(machine.get("source_tree_present"))
-    all_green = all(r["pass"] for r in results.values())
-    if not eligible:
-        status = "ineligible"
-    elif all_green:
-        status = "green"
-    elif any(r["status"] == "red" for r in results.values()):
-        status = "red"
-    else:
-        status = "unmeasured"
-    return {
-        "status": status,
-        "machine": machine,
-        "checks": results,
-        "all_green": all_green and eligible,
-    }
-
-
-def build_checks_doc(repo_root: Path, zip_path: Path | None = None,
-                     evidence_dir: Path | None = None,
-                     probes: Mapping[str, Path] | None = None) -> dict[str, Any]:
-    """Capture what is knowable here; leave unmeasured what is not."""
-    eligibility = machine_eligibility(repo_root)
-    checks: dict[str, Any] = {}
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,key,0,winreg.KEY_READ|winreg.KEY_WOW64_64KEY) as handle: answer.append({"key":key,"result":"present","values":str(winreg.QueryInfoKey(handle)[1])})
+        except FileNotFoundError: answer.append({"key":key,"result":"absent"})
+        except OSError as exc: answer.append({"key":key,"result":"unknown","error":str(exc)})
+    return answer
+def machine_eligibility(repo_root: Path) -> dict[str,Any]:
+    path_tools=[{"tool":tool,"path":shutil.which(tool),"result":"present" if shutil.which(tool) else "absent"} for tool in TOOLS]
+    roots=[Path(os.environ.get("ProgramFiles",r"C:\Program Files"))/"Microsoft Visual Studio",Path(os.environ.get("ProgramFiles(x86)",r"C:\Program Files (x86)"))/"Windows Kits",Path(os.environ.get("ProgramFiles",r"C:\Program Files"))/"NVIDIA GPU Computing Toolkit"/"CUDA"]
+    standard_roots=[_path_probe(p) for p in roots]; registry=_registry_probe(); source_markers=[_path_probe(repo_root/name) for name in ("CMakeLists.txt","src","include","build_cuda","build")]
+    source_tree=any(x["result"]=="present" for x in source_markers); unknown=any(x["result"]=="unknown" for x in registry+standard_roots+source_markers)
+    present=any(x["result"]=="present" for x in path_tools+registry+standard_roots) or source_tree
+    reasons=[]
+    if present: reasons.append("build toolchain, installed product, standard toolchain root, or source tree detected")
+    if unknown: reasons.append("installed-product/root probe is unreadable or unsupported")
+    return {"eligible":not present and not unknown,"probe_version":2,"path_tools":path_tools,"registry":registry,"standard_roots":standard_roots,"source_markers":source_markers,"source_tree_present":source_tree,"reasons":reasons}
+def _profile_env(evidence: Path) -> tuple[dict[str,str],dict[str,str]]:
+    root=evidence/"isolated_profile"; values={"BLENDER_USER_CONFIG":root/"config","BLENDER_USER_SCRIPTS":root/"scripts","BLENDER_USER_EXTENSIONS":root/"extensions","BLENDER_USER_DATAFILES":root/"datafiles","BLENDER_USER_RESOURCES":root/"resources"}
+    if root.exists(): raise ValueError("isolated profile root already exists")
+    actual={key:str(path.resolve()) for key,path in values.items()}; return {**os.environ,**actual},actual
+def _run(argv:list[str],env:Mapping[str,str],log:Path)->dict[str,Any]:
+    result=subprocess.run(argv,env=dict(env),text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False); log.write_text(result.stdout or "",encoding="utf-8"); return {"argv":argv,"exit_code":result.returncode,"log":{"path":log.name,"sha256":sha256_file(log)}}
+def _payload()->str:
+    return r'''import bpy, hashlib, importlib, json, os, sys
+from pathlib import Path
+root=Path(os.environ["BLENDER_USER_EXTENSIONS"]).resolve(); evidence=Path(os.environ["PKG278_EVIDENCE"]).resolve(); run_id=os.environ["PKG278_RUN_ID"]; zip_sha=os.environ["PKG278_ZIP_SHA256"]
+def write(name,value):
+ value.update({"schema":"pkg278.clean_install_probe.v2","run_id":run_id,"zip_sha256":zip_sha,"profile_root":str(root.parent)}); (evidence/name).write_text(json.dumps(value,indent=2),encoding="utf-8")
+phase=sys.argv[sys.argv.index("--")+1] if "--" in sys.argv else ""
+addons=sorted(bpy.context.preferences.addons.keys()); astr=[x for x in addons if x=="astroray" or x.endswith(".astroray")]
+if phase=="profile":
+ fresh=not astr and (not root.exists() or not any(p.name.lower()=="astroray" for p in root.rglob("*"))); write("profile_fresh.probe.json",{"check":"fresh_profile","profile_paths":{k:os.environ[k] for k in os.environ if k.startswith("BLENDER_USER_")},"addons":addons,"prior_astroray_addon":not not astr,"userpref_astroray":not not astr,"fresh":fresh}); print("PKG278_CLEAN_PROFILE "+("PASS" if fresh else "FAIL")); sys.exit(0 if fresh else 8)
+if phase!="render": raise RuntimeError("unknown phase")
+mod=importlib.import_module("bl_ext.user_default.astroray"); installed=Path(mod.__file__).resolve(); expected=(root/"user_default"/"astroray").resolve()
+if expected not in installed.parents: raise RuntimeError("extension imported outside isolated root")
+bpy.ops.preferences.addon_enable(module="bl_ext.user_default.astroray"); bpy.ops.wm.read_factory_settings(use_empty=True); scene=bpy.context.scene; scene.render.engine="CUSTOM_RAYTRACER"; scene.render.resolution_x=64; scene.render.resolution_y=64; scene.render.resolution_percentage=100; scene.render.filepath=str(evidence/"f12.png")
+bpy.ops.mesh.primitive_cube_add(); bpy.ops.object.light_add(type="POINT",location=(4,-4,5)); bpy.context.object.data.energy=1000; bpy.ops.object.camera_add(location=(7,-7,5)); scene.camera=bpy.context.object; bpy.context.object.rotation_euler=(0.9,0,0.78); bpy.ops.render.render(write_still=True)
+image=Path(scene.render.filepath)
+if not image.is_file(): raise RuntimeError("F12 did not write PNG")
+write("f12_result.probe.json",{"check":"f12_exit_zero","loaded_module_path":str(installed),"installed_module_root":str(expected),"extension_listing":sorted(x for x in sys.modules if x.endswith("astroray")),"engine_id":scene.render.engine,"image":{"path":image.name,"sha256":hashlib.sha256(image.read_bytes()).hexdigest()},"f12_sentinel":"PKG278_CLEAN_F12 PASS"}); print("PKG278_CLEAN_F12 PASS")
+'''
+def _ref(path:Path,evidence:Path)->dict[str,str]: return {"path":str(path.relative_to(evidence)),"sha256":sha256_file(path)}
+def capture(blender:Path,zip_path:Path,evidence:Path)->dict[str,Any]:
+    if not blender.is_file(): raise ValueError("Blender executable is missing")
+    if not zip_path.is_file(): raise ValueError("release ZIP is missing")
+    if evidence.exists(): raise ValueError("evidence directory must not already exist")
+    # In a repository this is the checkout root; in a copied standalone file it
+    # is merely the parent directory, which is exactly the source-fallback area
+    # that must be absent on an eligible host.
+    host=machine_eligibility(REPO_ROOT)
+    if not host["eligible"]: raise ValueError("host is ineligible; no Blender subprocess was launched")
+    evidence.mkdir(parents=True); run_id=str(uuid.uuid4()); env,profile=_profile_env(evidence); copied=evidence/"release.zip"; shutil.copyfile(zip_path,copied); digest=sha256_file(copied); env.update({"PKG278_EVIDENCE":str(evidence.resolve()),"PKG278_RUN_ID":run_id,"PKG278_ZIP_SHA256":digest}); payload=evidence/"clean_install_probe.py"; payload.write_text(_payload(),encoding="utf-8")
+    base={"schema":SCHEMA,"run_id":run_id,"zip_sha256":digest,"profile_root":str((evidence/"isolated_profile").resolve())}; host.update(base); _write(evidence/CHECK_ARTIFACTS["no_toolchain"],{**host,"check":"no_toolchain","loaded_module_path":None})
+    pre=_run([str(blender),"--background","--factory-startup","--python",str(payload),"--","profile"],env,evidence/"profile.log")
+    if pre["exit_code"]!=0 or "PKG278_CLEAN_PROFILE PASS" not in (evidence/"profile.log").read_text(encoding="utf-8"): raise RuntimeError("fresh isolated-profile probe failed")
+    install=_run([str(blender),"--command","extension","install-file","-r","user_default","-e",str(copied)],env,evidence/"installer.log"); listing=_run([str(blender),"--command","extension","list"],env,evidence/"extension-list.log")
+    if install["exit_code"]!=0 or listing["exit_code"]!=0 or "astroray" not in (evidence/"extension-list.log").read_text(encoding="utf-8").lower(): raise RuntimeError("extension installer/listing failed")
+    installed=str((evidence/"isolated_profile"/"extensions"/"user_default"/"astroray").resolve()); _write(evidence/CHECK_ARTIFACTS["zip_identity"],{**base,"check":"zip_identity","zip":_ref(copied,evidence)}); _write(evidence/CHECK_ARTIFACTS["installer_path"],{**base,"check":"installer_path","installer":"blender_extension_installer","command":install,"listing_command":listing,"installed_module_path":installed,"source_path_used":False,"zip":_ref(copied,evidence)})
+    post=_run([str(blender),"--background","--factory-startup","--python",str(payload),"--","render"],env,evidence/"f12.log"); f12=evidence/CHECK_ARTIFACTS["f12_exit_zero"]
+    if post["exit_code"]!=0 or not f12.is_file() or "PKG278_CLEAN_F12 PASS" not in (evidence/"f12.log").read_text(encoding="utf-8"): raise RuntimeError("F12 probe failed")
+    f12_doc=json.loads(f12.read_text(encoding="utf-8")); f12_doc["external_command"]=post; _write(f12,f12_doc)
+    checks={name:{"evidence_path":CHECK_ARTIFACTS[name],"evidence_sha256":sha256_file(evidence/CHECK_ARTIFACTS[name])} for name in MANDATORY_CHECKS}; doc={"schema":CHECKS_SCHEMA,"generated":dt.datetime.now(dt.timezone.utc).isoformat(),"run_id":run_id,"zip":_ref(copied,evidence),"profile":profile,"machine":host,"checks":checks}; _write(evidence/"checks.json",doc); return evaluate(doc,evidence)
+def _check(name:str,probe:Mapping[str,Any],doc:Mapping[str,Any],evidence:Path)->tuple[bool,str]:
+    common=probe.get("schema")==SCHEMA and probe.get("check")==name and probe.get("run_id")==doc.get("run_id") and probe.get("zip_sha256")==(doc.get("zip") or {}).get("sha256") and probe.get("profile_root")==str((evidence/"isolated_profile").resolve())
+    if not common: return False,"probe identity does not bind run/ZIP/profile"
+    isolated=str((evidence/"isolated_profile"/"extensions"/"user_default"/"astroray").resolve())
+    if name=="fresh_profile": return probe.get("fresh") is True and probe.get("prior_astroray_addon") is False and probe.get("userpref_astroray") is False,"fresh profile missing"
+    if name=="zip_identity": p,why=_artifact(probe.get("zip"),evidence,"copied ZIP"); return p is not None and probe.get("zip")==doc.get("zip"),why or "ZIP differs"
+    if name=="installer_path":
+        command=probe.get("command") or {}; argv=command.get("argv") or []; listing=(probe.get("listing_command") or {}).get("argv") or []; expected=["--command","extension","install-file","-r","user_default","-e",str((evidence/"release.zip").resolve())]
+        return command.get("exit_code")==0 and argv[1:]==expected and listing[1:]==["--command","extension","list"] and probe.get("installed_module_path")==isolated and probe.get("source_path_used") is False,"installer command/path is not the isolated Blender extension install"
+    if name=="no_toolchain":
+        clean=probe.get("eligible") is True and not any(x.get("result")!="absent" for x in probe.get("path_tools",[])+probe.get("registry",[])+probe.get("standard_roots",[])) and not any(x.get("result")=="present" for x in probe.get("source_markers",[])); return clean,"host probes are present, missing, or unknown"
+    image,why=_artifact(probe.get("image"),evidence,"F12 image"); command=probe.get("external_command") or {}
+    try: loaded_inside = Path(probe.get("loaded_module_path", "")).resolve().is_relative_to(Path(isolated))
+    except OSError: loaded_inside = False
+    return command.get("exit_code")==0 and probe.get("f12_sentinel")=="PKG278_CLEAN_F12 PASS" and probe.get("installed_module_root")==isolated and loaded_inside and image is not None and _png(image),why or "F12 sentinel/path/image invalid"
+def evaluate(doc:Mapping[str,Any],evidence:Path)->dict[str,Any]:
+    results={}; probes={}
     for name in MANDATORY_CHECKS:
-        checks[name] = {"pass": False, "status": "unmeasured",
-                        "evidence_path": None, "evidence_sha256": None,
-                        "artifact": CHECK_ARTIFACTS[name]}
-    doc: dict[str, Any] = {
-        "schema": "pkg278.clean_install_checks.v1",
-        "generated": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
-        "machine": eligibility,
-        "zip": {"path": str(zip_path) if zip_path else None,
-                "sha256": sha256_file(zip_path) if zip_path and Path(zip_path).is_file() else None},
-        "checks": checks,
-    }
-    for name, probe_path in (probes or {}).items():
-        if name not in MANDATORY_CHECKS or not probe_path.is_file():
-            continue
-        try:
-            relative = probe_path.relative_to(evidence_dir or probe_path.parent)
-        except ValueError:
-            relative = probe_path
-        doc["checks"][name] = {"evidence_path": str(relative),
-                               "evidence_sha256": sha256_file(probe_path)}
-    if not eligibility["eligible"]:
-        doc["status"] = "ineligible"
-        doc["reason"] = ("this machine is a developer checkout; a clean no-toolchain "
-                         "host must run the capture")
-    return doc
-
-
-def write_template(evidence_dir: Path, doc: Mapping[str, Any]) -> Path:
-    evidence_dir.mkdir(parents=True, exist_ok=True)
-    out = evidence_dir / "checks.json"
-    out.write_text(json.dumps(doc, indent=2), encoding="utf-8")
-    return out
-
-
-def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description="Clean-machine install validator (pkg278 gate f).")
-    p.add_argument("--evidence-dir", type=Path, default=DEFAULT_EVIDENCE_DIR)
-    p.add_argument("--zip", type=Path, default=None)
-    p.add_argument("--probe", action="append", default=[], metavar="CHECK=PATH",
-                   help="capture a hash-pinned structured probe (repeatable)")
-    p.add_argument("--validate", action="store_true",
-                   help="validate the committed checks.json instead of capturing")
-    p.add_argument("--json", action="store_true")
-    args = p.parse_args(argv)
-
-    evidence_dir = Path(args.evidence_dir)
-    if args.validate:
-        checks_path = evidence_dir / "checks.json"
-        if not checks_path.is_file():
-            print(f"no checks.json at {checks_path}", file=sys.stderr)
-            return 2
-        doc = json.loads(checks_path.read_text(encoding="utf-8"))
-        result = evaluate(doc, evidence_dir)
-        if args.json:
-            print(json.dumps(result, indent=2))
-        else:
-            print(f"clean-install status: {result['status'].upper()}")
-            for name, entry in result["checks"].items():
-                print(f"  {name}: {entry['status']}"
-                      + (f" ({entry['reason']})" if entry["reason"] else ""))
-        return 0 if result["status"] == "green" else 1
-
-    probes: dict[str, Path] = {}
-    for item in args.probe:
-        name, sep, value = item.partition("=")
-        if not sep or name not in MANDATORY_CHECKS:
-            p.error(f"--probe must be CHECK=PATH for one of: {', '.join(MANDATORY_CHECKS)}")
-        probes[name] = Path(value)
-    doc = build_checks_doc(REPO_ROOT, args.zip, evidence_dir, probes)
-    out = write_template(evidence_dir, doc)
-    if args.json:
-        print(json.dumps(doc, indent=2))
-    else:
-        print(f"wrote {out}")
-        print(f"machine eligible: {doc['machine']['eligible']}")
-        for reason in doc["machine"]["reasons"]:
-            print(f"  - {reason}")
-        if not doc["machine"]["eligible"]:
-            print("This machine CANNOT produce gate (f) evidence. On a clean host run:")
-            print("  python scripts/validate_clean_install.py --zip <release.zip> "
-                  "--evidence-dir <copied evidence dir>")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+        entry=(doc.get("checks") or {}).get(name)
+        if not isinstance(entry, Mapping) or entry.get("evidence_path") is None:
+            results[name]={"pass":False,"status":"unmeasured","reason":"check not captured on this host"}; continue
+        ref = {"path": entry.get("evidence_path"), "sha256": entry.get("evidence_sha256")} if isinstance(entry, Mapping) else None
+        path,why=_artifact(ref,evidence,name)
+        if path is None: results[name]={"pass":False,"status":"unmeasured" if entry is None else "red","reason":why}; continue
+        try: probe=json.loads(path.read_text(encoding="utf-8")); probes[name]=probe; ok,why=_check(name,probe,doc,evidence)
+        except (OSError,json.JSONDecodeError) as exc: ok,why=False,str(exc)
+        results[name]={"pass":ok,"status":"green" if ok else "red","reason":why}
+    ids=[p.get("run_id") for p in probes.values()]; linked=len(probes)==5 and len(set(ids))==1 and ids[0]==doc.get("run_id")
+    if probes and not linked and "installer_path" in results: results["installer_path"]={"pass":False,"status":"red","reason":"missing, duplicate, stale, or mismatched run ID"}
+    green=linked and all(x["pass"] for x in results.values())
+    machine = doc.get("machine", {})
+    status = "green" if green else ("ineligible" if machine.get("eligible") is False else ("red" if probes else "unmeasured"))
+    return {"status":status,"all_green":green,"checks":results,"machine":machine}
+def main(argv:list[str]|None=None)->int:
+    p=argparse.ArgumentParser(); p.add_argument("--capture",action="store_true"); p.add_argument("--validate",action="store_true"); p.add_argument("--blender",type=Path); p.add_argument("--zip",type=Path); p.add_argument("--evidence-dir",type=Path,default=DEFAULT_EVIDENCE_DIR); p.add_argument("--json",action="store_true"); args=p.parse_args(argv)
+    if args.capture==args.validate: p.error("choose exactly one of --capture or --validate")
+    try:
+        if args.capture:
+            if not args.blender or not args.zip: p.error("--capture requires --blender and --zip")
+            result=capture(args.blender,args.zip,args.evidence_dir)
+        else: result=evaluate(json.loads((args.evidence_dir/"checks.json").read_text(encoding="utf-8")),args.evidence_dir)
+    except (OSError,ValueError,RuntimeError,json.JSONDecodeError) as exc: print(f"clean-install: {exc}",file=sys.stderr); return 2
+    print(json.dumps(result,indent=2) if args.json else f"clean-install status: {result['status'].upper()}"); return 0 if result["status"]=="green" else 1
+if __name__=="__main__": raise SystemExit(main())

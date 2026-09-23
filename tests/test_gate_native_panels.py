@@ -676,6 +676,52 @@ def test_evaluate_backend_marks_invalid_aov_capture_unmeasured():
     assert check["status"] == "unmeasured" and not check["passed"]
 
 
+def test_instance_bound_rna_end_result_can_be_captured_from_write_pixels():
+    """RenderEngine-style methods can exist only on a live instance.
+
+    This mirrors Blender RNA: the subclass has no ``end_result`` attribute,
+    while its instance obtains the native delegate dynamically. The write hook
+    must capture that delegate before temporarily shadowing it on the subclass.
+    """
+    calls = []
+
+    class RnaEngine:
+        def __getattr__(self, name):
+            if name == "end_result":
+                return lambda result: calls.append(("native", result))
+            raise AttributeError(name)
+
+    class Engine(RnaEngine):
+        def write_pixels(self):
+            self.end_result("render-result")
+
+    assert not hasattr(Engine, "end_result")
+    original_write = Engine.write_pixels
+
+    def capture_write(self):
+        bound_end = self.end_result
+
+        def capture_end(_engine, result):
+            calls.append(("capture", result))
+            return bound_end(result)
+
+        marker = object()
+        previous = Engine.__dict__.get("end_result", marker)
+        Engine.end_result = capture_end
+        try:
+            return original_write(self)
+        finally:
+            if previous is marker:
+                delattr(Engine, "end_result")
+            else:
+                Engine.end_result = previous
+
+    Engine.write_pixels = capture_write
+    Engine().write_pixels()
+    assert calls == [("capture", "render-result"), ("native", "render-result")]
+    assert not hasattr(Engine, "end_result")
+
+
 # --------------------------------------------------------------------------- #
 # In-Blender leg script (host pytest NEVER imports bpy; this runs inside Blender)
 # --------------------------------------------------------------------------- #
@@ -818,26 +864,7 @@ def _render_leg(bpy, scene, out_dir, stem, engine_cls):
     capture = {"end_result_calls": 0, "write_pixels_calls": 0,
                "passes": [], "telemetry": [], "valid": False,
                "reason": None, "sample_count": None}
-    orig_end = engine_cls.end_result
     orig_write = engine_cls.write_pixels
-
-    def capture_end(self, result):
-        capture["end_result_calls"] += 1
-        try:
-            for layer in result.layers:
-                for render_pass in layer.passes:
-                    name = str(getattr(render_pass, "name", ""))
-                    channels = int(getattr(render_pass, "channels", 0))
-                    rect = np.asarray(render_pass.rect[:], dtype=np.float32)
-                    capture["passes"].append({"layer": str(getattr(layer, "name", "")),
-                                               "name": name, "channels": channels,
-                                               "rect_len": int(rect.size)})
-                    if name == "__SAMPLE_COUNT_PASS__":
-                        capture["sample_count"] = {"channels": channels,
-                                                   "rect": rect.copy()}
-        except Exception as exc:  # noqa: BLE001
-            capture["reason"] = "end_result capture failed: %r" % (exc,)
-        return orig_end(self, result)
 
     def capture_write(self, pixels, width, height, alpha=None, renderer=None,
                       view_layer=None, scene=None, layer_name=None):
@@ -847,16 +874,54 @@ def _render_leg(bpy, scene, out_dir, stem, engine_cls):
                 capture["telemetry"].append(dict(renderer.last_render_info() or {}))
             except Exception as exc:  # noqa: BLE001
                 capture["telemetry"].append({"last_render_info_error": repr(exc)})
-        return orig_write(self, pixels, width, height, alpha, renderer, view_layer,
-                          scene, layer_name)
 
-    engine_cls.end_result = capture_end
+        # Blender exposes end_result through the live RenderEngine instance,
+        # not as a normal attribute on CustomRaytracerRenderEngine or its RNA
+        # base type. Capture that bound delegate first, then temporarily shadow
+        # it on the Python subclass while write_pixels creates and ends result.
+        # This preserves the exact instance delegate Blender supplied.
+        try:
+            bound_end = self.end_result
+        except Exception as exc:  # noqa: BLE001
+            capture["reason"] = "cannot obtain instance end_result: %r" % (exc,)
+            return orig_write(self, pixels, width, height, alpha=alpha, renderer=renderer,
+                              view_layer=view_layer, scene=scene, layer_name=layer_name)
+
+        def capture_end(_engine, result):
+            capture["end_result_calls"] += 1
+            try:
+                for layer in result.layers:
+                    for render_pass in layer.passes:
+                        name = str(getattr(render_pass, "name", ""))
+                        channels = int(getattr(render_pass, "channels", 0))
+                        rect = np.asarray(render_pass.rect[:], dtype=np.float32)
+                        capture["passes"].append({"layer": str(getattr(layer, "name", "")),
+                                                   "name": name, "channels": channels,
+                                                   "rect_len": int(rect.size)})
+                        if name == "__SAMPLE_COUNT_PASS__":
+                            capture["sample_count"] = {"channels": channels,
+                                                       "rect": rect.copy()}
+            except Exception as exc:  # noqa: BLE001
+                capture["reason"] = "end_result capture failed: %r" % (exc,)
+            return bound_end(result)
+
+        marker = object()
+        previous_end = engine_cls.__dict__.get("end_result", marker)
+        engine_cls.end_result = capture_end
+        try:
+            return orig_write(self, pixels, width, height, alpha=alpha, renderer=renderer,
+                              view_layer=view_layer, scene=scene, layer_name=layer_name)
+        finally:
+            if previous_end is marker:
+                delattr(engine_cls, "end_result")
+            else:
+                engine_cls.end_result = previous_end
+
     engine_cls.write_pixels = capture_write
     try:
         scene.render.filepath = str(path)
         bpy.ops.render.render(write_still=True)
     finally:
-        engine_cls.end_result = orig_end
         engine_cls.write_pixels = orig_write
     capture["valid"] = capture["end_result_calls"] > 0 and capture["reason"] is None
     if not capture["valid"]:

@@ -94,6 +94,7 @@ INPUT_MANIFEST_SCHEMA = "pkg278.coverage_input_manifest.v2"
 NODE_USES_SCHEMA = "pkg278.node_uses.v1"
 EVIDENCE_SCHEMA = "pkg278.gate_b.evidence.v2"
 VERDICT_SCHEMA = "pkg278.gate_b.verdict.v1"
+RUNNER_RESULT_SCHEMA = "pkg278.gate_b.runner_result.v1"
 RESULT_KINDS = ("render", "test_result")
 
 # b5: the four shader families the north star names explicitly. Each exercised
@@ -248,6 +249,28 @@ def evidence_is_valid(rec: Mapping[str, Any], repo_root: Path | None = None,
             return False, "production verdict has no genuine render/test result"
         if result.get("artifact_sha256") != recorded:
             return False, "production verdict is not tied to the pinned artifact"
+        verifier = rec.get("verifier_result")
+        if not isinstance(verifier, Mapping) or not isinstance(verifier.get("path"), str):
+            return False, "production evidence requires a canonical runner result"
+        vp = Path(verifier["path"])
+        if not vp.is_absolute() and repo_root is not None:
+            vp = Path(repo_root) / vp
+        if not vp.is_file() or verifier.get("sha256") != _sha256_file(vp):
+            return False, "canonical runner result is missing or hash-mismatched"
+        try:
+            produced = json.loads(vp.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False, "canonical runner result is not JSON"
+        if produced.get("schema") != RUNNER_RESULT_SCHEMA or produced.get("status") != "pass":
+            return False, "canonical runner result is not a passing typed result"
+        for field in ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id"):
+            if produced.get(field) != rec.get(field):
+                return False, f"canonical runner result does not bind {field}"
+        metrics = produced.get("metrics")
+        if not isinstance(metrics, Mapping) or not all(isinstance(metrics.get(k), (int, float)) for k in ("ssim", "delta_e")):
+            return False, "canonical runner result lacks re-derivable metrics"
+        if float(metrics["ssim"]) < 0.95 or float(metrics["delta_e"]) > 5.0:
+            return False, "canonical runner metrics do not pass the frozen predicate"
 
     if isinstance(artifact, Mapping):
         path = artifact.get("path")

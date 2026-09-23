@@ -48,6 +48,8 @@ def _build_fixture_material():
     mat = bpy.data.materials.new("GateBFixtureMat")
     mat.use_nodes = True
     nt = mat.node_tree
+    obj = bpy.context.scene.objects[0]
+    obj.data.materials.append(mat)
     nt.nodes.clear()
 
     output = nt.nodes.new("ShaderNodeOutputMaterial")
@@ -98,6 +100,13 @@ def _build_fixture_material():
     group_node = nt2.nodes.new("ShaderNodeGroup")
     group_node.node_tree = group
     nt2.links.new(group_node.outputs["Shader"], out2.inputs["Surface"])
+
+    # The collector intentionally ignores unused datablocks.  Put the second
+    # material on a scene instance so the group route is part of the population.
+    mesh2 = bpy.data.meshes.new("FixtureMeshGroup")
+    obj2 = bpy.data.objects.new("FixtureObjGroup", mesh2)
+    scene.collection.objects.link(obj2)
+    mesh2.materials.append(mat2)
 
     return mat, mat2, group
 

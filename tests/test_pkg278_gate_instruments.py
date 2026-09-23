@@ -103,11 +103,12 @@ def test_production_sidecar_requires_bindings(tmp_path):
     ok, why = CR.evidence_is_valid(bare, tmp_path, fixture_mode=False)
     assert not ok and "missing bindings" in why
 
-    full = {"scene_id": "S1", "variant": "S1", "backend": "CPU", "build_id": "b1",
-            "result_kind": "render",
-            "artifact": {"path": "render.png", "sha256": digest}}
+    full = {"identity": "ShaderNodeBsdfDiffuse|input:Color", "scene_id": "S1", "variant": "S1",
+            "variant_digest": "a" * 64, "backend": "CPU", "build_id": "b1",
+                "result_kind": "render",
+                "artifact": {"path": "render.png", "sha256": digest}}
     ok, why = CR.evidence_is_valid(full, tmp_path, fixture_mode=False)
-    assert ok, why
+    assert not ok and "semantic verdict" in why
 
 
 def test_production_scoring_rejects_forged_inline_evidence():
@@ -292,7 +293,8 @@ def test_exercised_sockets_enumerate_input_output_and_prop():
     assert "output:Value" in sockets
     assert "prop:operation" in sockets
     assert fingerprint["op"] == "MULTIPLY"
-    assert "input:Value_002" not in sockets
+    # An enabled constant/default socket is a real exercised variant too.
+    assert "input:Value_002" in sockets
 
 
 def _find_blender() -> str | None:
@@ -406,6 +408,25 @@ def test_verify_rejects_wrong_matrix_hash(tmp_path):
     assert not ok and any("matrix hash" in e for e in errors)
 
 
+def test_verify_rejects_external_asset_tamper_and_ledger_drift(tmp_path):
+    frozen, snapshot, hashes, matrix = _freeze_and_verify(tmp_path, ["S1"])
+    asset = tmp_path / "benchmarks" / "reference_corpus" / "assets" / "volume.vdb"
+    asset.parent.mkdir(parents=True); asset.write_bytes(b"vdb")
+    asset_ref = {"path": "benchmarks/reference_corpus/assets/volume.vdb", "sha256": CR.sha256_file(asset)}
+    corpus = _corpus_manifest(hashes)
+    corpus["scenes"]["S1"]["assets"] = [asset_ref]
+    (tmp_path / "benchmarks" / "reference_corpus" / "scenes" / "manifest.json").write_text(json.dumps(corpus), encoding="utf-8")
+    frozen, errors = CR.freeze_coverage_input(corpus, matrix, snapshot)
+    assert not errors, errors
+    asset.write_bytes(b"changed")
+    ok, errors, _ = CR.verify_frozen_input(frozen, tmp_path, snapshot)
+    assert not ok and any("external asset bytes changed" in e for e in errors)
+    asset.write_bytes(b"vdb")
+    snapshot["scenes"]["S1"]["nodes"][0]["sockets"].append("input:Roughness")
+    ok, errors, _ = CR.verify_frozen_input(frozen, tmp_path, snapshot)
+    assert not ok and any("use ledger" in e for e in errors)
+
+
 def test_freeze_rejects_unexpected_scene(tmp_path):
     scenes_dir = tmp_path / "benchmarks" / "reference_corpus" / "scenes"
     scenes_dir.mkdir(parents=True)
@@ -501,6 +522,12 @@ def test_original_population_is_undefined():
                                                   "expected_scene_ids": []}})
     assert report["status"] == "undefined"
     assert report["original_population"]["status"] == "undefined"
+
+
+def test_empty_owner_ratification_is_not_a_production_decision():
+    report = CR.population_status({"population": {"ratified": True, "ratification": {},
+                                                    "expected_scene_ids": [str(i) for i in range(9)]}})
+    assert report["status"] == "provisional"
 
 
 def test_production_build_report_requires_repo_root():

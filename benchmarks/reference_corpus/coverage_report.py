@@ -52,13 +52,13 @@ Pipeline (three explicit steps; never a caller-supplied score or scene count):
            --freeze --manifest benchmarks/reference_corpus/scenes/manifest.json \
            --matrix docs/blender_parity/coverage_matrix.json \
            --node-uses docs/blender_parity/evidence/gate_b/node_uses.json \
-           --out docs/blender_parity/coverage_input_v1.json
+           --out docs/blender_parity/coverage_input_v2.json
 
 3. Score (re-verifies the frozen input against disk + the collected snapshot
    before calculating; no score is published before #823 lands):
 
        python -m benchmarks.reference_corpus.coverage_report \
-           --score --input-manifest docs/blender_parity/coverage_input_v1.json \
+           --score --input-manifest docs/blender_parity/coverage_input_v2.json \
            --matrix docs/blender_parity/coverage_matrix.json \
            --node-uses docs/blender_parity/evidence/gate_b/node_uses.json \
            --out docs/blender_parity/evidence/gate_b
@@ -70,6 +70,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import subprocess
 import sys
 from collections import deque
 from collections.abc import Iterable, Mapping
@@ -89,9 +90,10 @@ REQUIRED_SCANNER_ISSUE = 823
 NINE_SCENE_COUNT = 9
 ORIGINAL_POPULATION_LABEL = "~50 scenes"
 
-INPUT_MANIFEST_SCHEMA = "pkg278.coverage_input_manifest.v1"
+INPUT_MANIFEST_SCHEMA = "pkg278.coverage_input_manifest.v2"
 NODE_USES_SCHEMA = "pkg278.node_uses.v1"
-EVIDENCE_SCHEMA = "pkg278.gate_b.evidence.v1"
+EVIDENCE_SCHEMA = "pkg278.gate_b.evidence.v2"
+VERDICT_SCHEMA = "pkg278.gate_b.verdict.v1"
 RESULT_KINDS = ("render", "test_result")
 
 # b5: the four shader families the north star names explicitly. Each exercised
@@ -170,6 +172,44 @@ def _canonical_json(obj: Any) -> bytes:
                       separators=(",", ":")).encode("utf-8")
 
 
+def variant_digest(fingerprint: Mapping[str, Any]) -> str:
+    """Stable identity for one collected socket configuration."""
+    return _sha256_bytes(_canonical_json(dict(fingerprint)))
+
+
+def materialize_use_ledger(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Freeze every exact scene/socket/variant use and its capped weight.
+
+    The ledger is deliberately derived at freeze time, rather than reconstructed
+    by whatever collector/scorer code happens to be installed at score time.
+    """
+    by_key: dict[str, set[tuple[str, str]]] = {}
+    for scene_id, nodes in _snapshot_node_trees(snapshot).items():
+        for node in nodes:
+            name = node.get("bl_idname")
+            if not name:
+                continue
+            sockets = node.get("sockets") or exercised_sockets_for(node)[0]
+            digest = variant_digest(node.get("fingerprint") or exercised_sockets_for(node)[1])
+            for socket in sockets:
+                if socket:
+                    by_key.setdefault(canonical_identity(name, str(socket)), set()).add((str(scene_id), digest))
+    ledger = []
+    for identity in sorted(by_key):
+        variants = [{"scene_id": scene, "variant_digest": digest}
+                    for scene, digest in sorted(by_key[identity])]
+        ledger.append({"identity": identity, "variants": variants,
+                       "scene_ids": sorted({v["scene_id"] for v in variants}),
+                       "weight": min(len({v["scene_id"] for v in variants}), WEIGHT_CAP),
+                       "exclusions": []})
+    return ledger
+
+
+def _ledger_uses(ledger: Iterable[Mapping[str, Any]]) -> dict[str, set[str]]:
+    return {str(row["identity"]): set(row.get("scene_ids") or []) for row in ledger
+            if isinstance(row.get("identity"), str)}
+
+
 def evidence_is_valid(rec: Mapping[str, Any], repo_root: Path | None = None,
                       *, fixture_mode: bool = False) -> tuple[bool, str]:
     """A linked evidence artifact is valid iff its recorded SHA-256 matches.
@@ -187,14 +227,27 @@ def evidence_is_valid(rec: Mapping[str, Any], repo_root: Path | None = None,
         return False, "missing or malformed sha256"
 
     if not fixture_mode:
-        missing = [field for field in ("scene_id", "variant", "backend", "build_id")
+        if not isinstance(artifact, Mapping):
+            return False, "production evidence requires a file artifact (inline content is not evidence)"
+        missing = [field for field in ("identity", "scene_id", "variant", "variant_digest", "backend", "build_id")
                    if not str(rec.get(field) or "").strip()]
         if missing:
             return False, f"production evidence sidecar missing bindings: {missing}"
         if rec.get("result_kind") not in RESULT_KINDS:
             return False, "production evidence sidecar has invalid result_kind"
-        if not isinstance(artifact, Mapping):
-            return False, "production evidence requires a file artifact (inline content is not evidence)"
+        verdict = rec.get("verdict")
+        if not isinstance(verdict, Mapping):
+            return False, "production evidence requires a machine-readable semantic verdict"
+        if verdict.get("schema") != VERDICT_SCHEMA or verdict.get("pass") is not True:
+            return False, "production verdict has wrong schema or is not a passing verdict"
+        for field in ("identity", "scene_id", "variant_digest", "backend", "build_id"):
+            if verdict.get(field) != rec.get(field):
+                return False, f"production verdict does not bind {field}"
+        result = verdict.get("result")
+        if not isinstance(result, Mapping) or result.get("kind") not in RESULT_KINDS:
+            return False, "production verdict has no genuine render/test result"
+        if result.get("artifact_sha256") != recorded:
+            return False, "production verdict is not tied to the pinned artifact"
 
     if isinstance(artifact, Mapping):
         path = artifact.get("path")
@@ -262,6 +315,8 @@ def trace_reachable(trees: Mapping[str, Mapping[str, Any]]) -> tuple[set[tuple[s
     are collection errors (a non-empty list invalidates the whole collection).
     """
     errors: list[str] = []
+    def linked(value: Any) -> bool:
+        return bool(value.get("linked")) if isinstance(value, Mapping) else bool(value)
     link_index: dict[tuple[str, str, str], list[tuple[str, str, str]]] = {}
     for tid, tree in trees.items():
         for link in tree.get("links", []):
@@ -343,7 +398,7 @@ def trace_reachable(trees: Mapping[str, Mapping[str, Any]]) -> tuple[set[tuple[s
                     enqueue_input(tid, node_name, from_s)
             return
         for in_s in node.get("inputs", {}):
-            if node["inputs"][in_s]:
+            if linked(node["inputs"][in_s]):
                 enqueue_input(tid, node_name, in_s)
         for from_s, to_s in node.get("internal_links", []):
             if to_s == out_socket:
@@ -389,15 +444,20 @@ def exercised_sockets_for(node: Mapping[str, Any]) -> tuple[list[str], dict[str,
     """
     sockets: list[str] = []
     fingerprint: dict[str, Any] = {}
-    linked_inputs = sorted(sid for sid, linked in node.get("inputs", {}).items() if linked)
+    active_inputs = {sid: value for sid, value in node.get("inputs", {}).items()
+                     if not isinstance(value, Mapping) or value.get("enabled", True)}
+    linked_inputs = sorted(sid for sid, value in active_inputs.items()
+                           if (value.get("linked") if isinstance(value, Mapping) else value))
     linked_outputs = sorted(sid for sid, linked in node.get("outputs", {}).items() if linked)
-    for sid in linked_inputs:
+    for sid in sorted(active_inputs):
         sockets.append(f"input:{sid}")
     for sid in linked_outputs:
         sockets.append(f"output:{sid}")
     for name in sorted(node.get("prop_variants", {})):
         sockets.append(f"prop:{name}")
     fingerprint["linked_inputs"] = linked_inputs
+    fingerprint["active_inputs"] = {sid: (value if isinstance(value, Mapping) else {"linked": bool(value)})
+                                    for sid, value in sorted(active_inputs.items())}
     fingerprint["linked_outputs"] = linked_outputs
     fingerprint["prop_variants"] = dict(sorted(node.get("prop_variants", {}).items()))
     for key in ("op", "data_type", "blend_type"):
@@ -529,7 +589,8 @@ def _records_for(evidence: Mapping[str, Any], key: str, backend: str) -> list[Ma
 
 def score_use(key: str, scenes: set[str], classification: str,
               evidence: Mapping[str, Any], backend: str,
-              repo_root: Path | None, fixture_mode: bool) -> tuple[float, str]:
+              repo_root: Path | None, fixture_mode: bool,
+              variants: set[tuple[str, str]] | None = None) -> tuple[float, str]:
     """Score one exercised use on one backend. Never raises; unproven -> 0."""
     if classification == DROPPED_SILENT or not classification:
         return SCORE_UNPROVEN, "dropped-silent or absent from the matrix"
@@ -552,6 +613,12 @@ def score_use(key: str, scenes: set[str], classification: str,
                 return SCORE_UNPROVEN, "evidence sidecar backend does not match the scored backend"
             if str(r.get("scene_id") or "") not in scenes:
                 return SCORE_UNPROVEN, "evidence sidecar scene_id is not an exercised scene"
+            if variants is not None and (str(r.get("scene_id")), str(r.get("variant_digest"))) not in variants:
+                return SCORE_UNPROVEN, "evidence sidecar variant digest is not a frozen exercised variant"
+        if variants is not None:
+            missing_variants = sorted(variants - {(str(r.get("scene_id")), str(r.get("variant_digest"))) for r in records})
+            if missing_variants:
+                return SCORE_UNPROVEN, "evidence does not cover every frozen socket variant"
 
     if classification == APPROXIMATED:
         bad = [r for r in records
@@ -565,16 +632,23 @@ def score_use(key: str, scenes: set[str], classification: str,
 
 def score_backend(backend: str, uses: Mapping[str, set[str]], matrix: Mapping[str, str],
                   evidence: Mapping[str, Any], repo_root: Path | None,
-                  fixture_mode: bool) -> BackendScore:
+                  fixture_mode: bool, ledger: Iterable[Mapping[str, Any]] | None = None) -> BackendScore:
     numerator = 0.0
     denominator = 0.0
     use_scores: list[UseScore] = []
+    variant_index = {str(row.get("identity")): {(str(v.get("scene_id")), str(v.get("variant_digest")))
+                     for v in row.get("variants", []) if isinstance(v, Mapping)}
+                     for row in (ledger or []) if isinstance(row, Mapping)}
+    weights = {str(row.get("identity")): row.get("weight") for row in (ledger or []) if isinstance(row, Mapping)}
     for key in sorted(uses):
         scenes = uses[key]
-        weight = min(len(scenes), WEIGHT_CAP)
+        weight = weights.get(key, min(len(scenes), WEIGHT_CAP))
+        if not isinstance(weight, int) or weight != min(len(scenes), WEIGHT_CAP):
+            weight = min(len(scenes), WEIGHT_CAP)
         classification = matrix.get(key, "")
-        cpu_score, cpu_reason = score_use(key, scenes, classification, evidence, "CPU", repo_root, fixture_mode)
-        gpu_score, gpu_reason = score_use(key, scenes, classification, evidence, "GPU", repo_root, fixture_mode)
+        variants = variant_index.get(key) if ledger is not None else None
+        cpu_score, cpu_reason = score_use(key, scenes, classification, evidence, "CPU", repo_root, fixture_mode, variants)
+        gpu_score, gpu_reason = score_use(key, scenes, classification, evidence, "GPU", repo_root, fixture_mode, variants)
         s = cpu_score if backend == "CPU" else gpu_score
         numerator += weight * s
         denominator += weight
@@ -589,9 +663,9 @@ def score_backend(backend: str, uses: Mapping[str, set[str]], matrix: Mapping[st
 
 def compute(uses: Mapping[str, set[str]], matrix: Mapping[str, str],
             evidence: Mapping[str, Any], repo_root: Path | None,
-            fixture_mode: bool) -> dict[str, Any]:
-    cpu = score_backend("CPU", uses, matrix, evidence, repo_root, fixture_mode)
-    gpu = score_backend("GPU", uses, matrix, evidence, repo_root, fixture_mode)
+            fixture_mode: bool, ledger: Iterable[Mapping[str, Any]] | None = None) -> dict[str, Any]:
+    cpu = score_backend("CPU", uses, matrix, evidence, repo_root, fixture_mode, ledger)
+    gpu = score_backend("GPU", uses, matrix, evidence, repo_root, fixture_mode, ledger)
     return {"cpu": cpu, "gpu": gpu}
 
 
@@ -635,8 +709,7 @@ def evaluate_subchecks(uses: Mapping[str, set[str]], matrix: Mapping[str, str],
             unlinked.append(f"{use.key} [CPU]")
         if use.gpu > 0.0 and not _valid_records(_records_for(evidence, use.key, "GPU"), repo_root, fixture_mode):
             unlinked.append(f"{use.key} [GPU]")
-    pop = frozen.get("population", {})
-    ratified = bool(pop.get("ratified")) and pop.get("ratification") is not None
+    ratified = population_status(frozen, repo_root, fixture_mode)["ratified"]
     return {
         "b1_input_manifest_ratified": {
             "pass": bool(ratified and hash_locked),
@@ -660,13 +733,29 @@ def scanner_823_integrated(frozen: Mapping[str, Any], repo_root: Path | None,
         return False, "no scanner_issue_823 declaration in the frozen input manifest"
     if not entry.get("integrated"):
         return False, f"scanner issue #{entry.get('required', REQUIRED_SCANNER_ISSUE)} not declared integrated"
+    if not fixture_mode:
+        if repo_root is None:
+            return False, "scanner integration requires a repository root"
+        commit, path, recorded = entry.get("commit"), entry.get("source_path"), entry.get("source_sha256")
+        if not isinstance(commit, str) or not isinstance(path, str) or not isinstance(recorded, str):
+            return False, "scanner integration needs landed commit and pinned scanner source"
+        try:
+            landed = subprocess.run(["git", "merge-base", "--is-ancestor", commit, "origin/main"], cwd=repo_root, capture_output=True).returncode == 0
+            shown = subprocess.run(["git", "show", f"{commit}:{path}"], cwd=repo_root, capture_output=True, check=True).stdout
+        except (OSError, subprocess.SubprocessError):
+            return False, "cannot verify #823 commit ancestry/source"
+        if not landed:
+            return False, "#823 commit is not an ancestor of origin/main"
+        if _sha256_bytes(shown) != recorded.lower():
+            return False, "#823 pinned scanner source does not match landed commit"
     ok, why = evidence_is_valid(entry, repo_root, fixture_mode=fixture_mode)
     if not ok:
         return False, f"#823 integration evidence invalid: {why}"
     return True, ""
 
 
-def population_status(frozen: Mapping[str, Any]) -> dict[str, Any]:
+def population_status(frozen: Mapping[str, Any], repo_root: Path | None = None,
+                      fixture_mode: bool = False) -> dict[str, Any]:
     """PROVISIONAL nine-scene vs UNDEFINED unfrozen original.
 
     The scene count is derived from the frozen ``expected_scene_ids`` -- never
@@ -675,7 +764,15 @@ def population_status(frozen: Mapping[str, Any]) -> dict[str, Any]:
     """
     pop = frozen.get("population", {})
     expected = list(pop.get("expected_scene_ids") or [])
-    ratified = bool(pop.get("ratified")) and pop.get("ratification") is not None
+    ratification = pop.get("ratification")
+    ratified = bool(pop.get("ratified")) and isinstance(ratification, Mapping) and bool(ratification)
+    if not fixture_mode:
+        ratified = (ratified and isinstance(ratification.get("path"), str)
+                    and len(str(ratification.get("sha256") or "")) == 64
+                    and bool(ratification.get("owner")))
+        if ratified and repo_root is not None:
+            approval = Path(repo_root) / str(ratification["path"])
+            ratified = approval.is_file() and _sha256_file(approval) == str(ratification["sha256"]).lower()
     if ratified:
         status = "ratified"
     elif len(expected) == NINE_SCENE_COUNT:
@@ -787,7 +884,13 @@ def _corpus_manifest_entries(corpus_manifest: Mapping[str, Any]) -> tuple[dict[s
         if not isinstance(sha, str) or len(sha) != 64:
             errors.append(f"corpus scene {scene_id!r} has malformed sha256")
             continue
-        entries[scene_id] = {"blend_path": blend_path, "sha256": sha.lower()}
+        assets = []
+        for asset in scene.get("assets", []) or []:
+            if not isinstance(asset, Mapping) or not isinstance(asset.get("path"), str) or not isinstance(asset.get("sha256"), str) or len(asset["sha256"]) != 64:
+                errors.append(f"corpus scene {scene_id!r} has malformed external asset")
+                continue
+            assets.append({"path": asset["path"], "sha256": asset["sha256"].lower()})
+        entries[scene_id] = {"blend_path": blend_path, "sha256": sha.lower(), "assets": sorted(assets, key=lambda a: a["path"])}
     return entries, errors
 
 
@@ -796,7 +899,7 @@ def freeze_coverage_input(corpus_manifest: Mapping[str, Any],
                           snapshot: Mapping[str, Any],
                           *, scanner_integrated: bool = False,
                           scanner_reason: str = "#823 not on origin/main") -> tuple[dict[str, Any], list[str]]:
-    """Build the versioned, committed coverage-input manifest (v1).
+    """Build the versioned, committed coverage-input manifest (v2).
 
     Verifies the collected snapshot's scene set equals the committed corpus
     exactly and that each scene's collected bytes hash matches the corpus hash.
@@ -831,14 +934,17 @@ def freeze_coverage_input(corpus_manifest: Mapping[str, Any],
                           f"!= corpus sha256 {entry['sha256']!r}")
         if snap_scene.get("collection_errors"):
             errors.append(f"scene {scene_id!r} has collection errors: {snap_scene.get('collection_errors')}")
-        scene_manifest[scene_id] = {"blend_path": entry["blend_path"], "sha256": entry["sha256"]}
+        scene_manifest[scene_id] = {"blend_path": entry["blend_path"], "sha256": entry["sha256"], "assets": entry["assets"]}
 
     matrix_sha = _sha256_file(matrix_path)
     snapshot_sha = _sha256_bytes(_canonical_json(snapshot_scenes))
+    ledger = materialize_use_ledger(snapshot)
+    ledger_sha = _sha256_bytes(_canonical_json(ledger))
 
     frozen = {
         "schema": INPUT_MANIFEST_SCHEMA,
         "version": 1,
+        "input_path": "docs/blender_parity/coverage_input_v2.json",
         "created": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "population": {
             "ratified": False,
@@ -852,7 +958,8 @@ def freeze_coverage_input(corpus_manifest: Mapping[str, Any],
             "scenes": scene_manifest,
         },
         "matrix": {"path": str(matrix_path), "sha256": matrix_sha},
-        "collector": {"snapshot_sha256": snapshot_sha},
+        "collector": {"snapshot_sha256": snapshot_sha, "use_ledger": ledger,
+                      "use_ledger_sha256": ledger_sha},
         "scanner_issue_823": {
             "required": REQUIRED_SCANNER_ISSUE,
             "integrated": scanner_integrated,
@@ -916,6 +1023,17 @@ def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
             errors.append(f"corpus scene file missing: {corpus_entry['blend_path']}")
         elif _sha256_file(blend_file) != corpus_entry["sha256"]:
             errors.append(f"corpus scene bytes changed: {corpus_entry['blend_path']}")
+        frozen_assets = frozen_entry.get("assets", [])
+        if frozen_assets != corpus_entry.get("assets", []):
+            errors.append(f"corpus scene {scene_id!r} external asset set disagrees with corpus")
+        for asset in corpus_entry.get("assets", []):
+            asset_file = Path(asset["path"])
+            if not asset_file.is_absolute():
+                asset_file = Path(repo_root) / asset_file
+            if not asset_file.is_file():
+                errors.append(f"corpus external asset missing: {asset['path']}")
+            elif _sha256_file(asset_file) != asset["sha256"]:
+                errors.append(f"corpus external asset bytes changed: {asset['path']}")
 
     matrix_path = frozen.get("matrix", {}).get("path") or "docs/blender_parity/coverage_matrix.json"
     matrix_file = Path(matrix_path)
@@ -940,11 +1058,17 @@ def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
         snapshot_sha = _sha256_bytes(_canonical_json(snapshot_scenes))
         if snapshot_sha != frozen.get("collector", {}).get("snapshot_sha256"):
             errors.append("collector snapshot hash does not match the frozen input manifest")
+        ledger = materialize_use_ledger(snapshot)
+        if ledger != frozen.get("collector", {}).get("use_ledger"):
+            errors.append("collector use ledger does not match the frozen input manifest")
+        if _sha256_bytes(_canonical_json(ledger)) != frozen.get("collector", {}).get("use_ledger_sha256"):
+            errors.append("collector use ledger hash does not match the frozen input manifest")
         for scene_id in snapshot_scenes:
             if snapshot_scenes[scene_id].get("collection_errors"):
                 errors.append(f"scene {scene_id!r} has collection errors")
 
     verified["expected_scene_ids"] = expected
+    verified["use_ledger"] = frozen.get("collector", {}).get("use_ledger", [])
     sidecar_dir = frozen.get("evidence", {}).get("sidecar_dir") or "docs/blender_parity/evidence/gate_b/sidecars"
     verified["sidecar_dir"] = Path(sidecar_dir)
     if not verified["sidecar_dir"].is_absolute():
@@ -1020,23 +1144,37 @@ def build_report(frozen: Mapping[str, Any], snapshot: Mapping[str, Any],
     if fixture_mode:
         uses = extract_exercised_uses(node_trees)
         evidence = frozen.get("evidence_entries", {}) or {}
-        pop = population_status(frozen)
+        pop = population_status(frozen, fixture_mode=True)
         hash_locked = True
         integrity_errors: list[str] = []
     else:
         if repo_root is None:
             raise ValueError("production scoring requires repo_root")
         ok, integrity_errors, verified = verify_frozen_input(frozen, repo_root, snapshot)
-        uses = extract_exercised_uses(node_trees)
+        uses = _ledger_uses(verified.get("use_ledger", [])) if ok else extract_exercised_uses(node_trees)
         evidence = {}
-        pop = population_status(frozen)
+        pop = population_status(frozen, repo_root)
         if ok:
             evidence, sidecar_errors = load_production_evidence(verified["sidecar_dir"], repo_root)
             integrity_errors.extend(sidecar_errors)
         hash_locked = ok
 
+        # A production score may only consume the exact input bytes currently
+        # committed at HEAD.  The freeze command can create v2 before commit;
+        # scoring cannot turn that draft into a claim.
+        input_path = frozen.get("input_path", "docs/blender_parity/coverage_input_v2.json")
+        try:
+            disk = Path(repo_root) / str(input_path)
+            head = subprocess.run(["git", "show", f"HEAD:{input_path}"], cwd=repo_root,
+                                  capture_output=True, check=True).stdout
+            if not disk.is_file() or disk.read_bytes() != head:
+                integrity_errors.append("frozen input bytes are not the exact committed HEAD version")
+        except (OSError, subprocess.SubprocessError):
+            integrity_errors.append("frozen input manifest is not committed at HEAD")
+
     scanner_ok, scanner_reason = scanner_823_integrated(frozen, repo_root, fixture_mode)
-    computed = compute(uses, matrix, evidence, repo_root, fixture_mode)
+    ledger = None if fixture_mode else verified.get("use_ledger", [])
+    computed = compute(uses, matrix, evidence, repo_root, fixture_mode, ledger)
     subchecks = evaluate_subchecks(uses, matrix, evidence, repo_root, frozen,
                                    computed["cpu"], computed["gpu"],
                                    fixture_mode, hash_locked)
@@ -1169,7 +1307,9 @@ def _build_trees_from_bpy() -> dict[str, Any]:
                 "is_group": is_group,
                 "group_tree": group_tree,
                 "is_active_output": bool(getattr(node, "is_active_output", True)),
-                "inputs": {s.identifier: bool(s.is_linked) for s in node.inputs},
+                "inputs": {s.identifier: {"linked": bool(s.is_linked), "enabled": bool(s.enabled),
+                                           "default_value": _json_safe(getattr(s, "default_value", None))}
+                           for s in node.inputs},
                 "outputs": {s.identifier: bool(s.is_linked) for s in node.outputs},
                 "internal_links": [(il.from_socket.identifier, il.to_socket.identifier)
                                    for il in getattr(node, "internal_links", [])],
@@ -1189,15 +1329,32 @@ def _build_trees_from_bpy() -> dict[str, Any]:
                     })
         trees[tid] = {"kind": kind, "nodes": nodes, "links": links}
 
-    for mat in bpy.data.materials:
+    # Only datablocks actually reachable from the opened scene form the gate
+    # population.  This includes object instances and their material slots.
+    scene_objects = set(bpy.context.scene.objects)
+    # Depsgraph instances include geometry supplied by collection instances;
+    # those materials are part of the rendered scene even when their source
+    # object is absent from Scene.objects.
+    for instance in bpy.context.evaluated_depsgraph_get().object_instances:
+        original = getattr(getattr(instance, "object", None), "original", None)
+        if original is not None:
+            scene_objects.add(original)
+    used_materials = set()
+    for obj in scene_objects:
+        if getattr(obj, "type", None) in {"MESH", "CURVE", "SURFACE", "FONT", "META", "GPENCIL"}:
+            for slot in getattr(obj, "material_slots", []):
+                if slot.material is not None:
+                    used_materials.add(slot.material)
+    for mat in used_materials:
         if getattr(mat, "node_tree", None) is not None:
             _add_tree(mat.node_tree, "material", f"material:{mat.name}")
-    for light in bpy.data.lights:
-        if getattr(light, "use_nodes", False) and getattr(light, "node_tree", None) is not None:
+    for obj in scene_objects:
+        light = getattr(obj, "data", None) if getattr(obj, "type", None) == "LIGHT" else None
+        if light is not None and getattr(light, "use_nodes", False) and getattr(light, "node_tree", None) is not None:
             _add_tree(light.node_tree, "light", f"light:{light.name}")
-    for world in bpy.data.worlds:
-        if getattr(world, "use_nodes", False) and getattr(world, "node_tree", None) is not None:
-            _add_tree(world.node_tree, "world", f"world:{world.name}")
+    world = bpy.context.scene.world
+    if world is not None and getattr(world, "use_nodes", False) and getattr(world, "node_tree", None) is not None:
+        _add_tree(world.node_tree, "world", f"world:{world.name}")
     return trees
 
 
@@ -1297,7 +1454,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = collect_node_uses_in_blender(blend_paths)
         out_path = args.node_uses or (args.out / "node_uses.json")
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8", newline="\n")
         print(f"wrote {out_path}")
         return 0
 
@@ -1308,11 +1465,11 @@ def main(argv: list[str] | None = None) -> int:
         corpus_manifest = _load_json(args.manifest)
         snapshot = _load_json(args.node_uses)
         frozen, errors = freeze_coverage_input(corpus_manifest, args.matrix, snapshot)
-        out_path = args.input_manifest or (args.out / "coverage_input_v1.json")
+        out_path = args.input_manifest or Path("docs/blender_parity/coverage_input_v2.json")
         if args.input_manifest is not None:
             out_path = args.input_manifest
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(frozen, indent=2, sort_keys=True), encoding="utf-8")
+        out_path.write_text(json.dumps(frozen, indent=2, sort_keys=True), encoding="utf-8", newline="\n")
         for err in errors:
             print(f"[freeze] error: {err}", file=sys.stderr)
         print(f"[freeze] wrote {out_path} (errors={len(errors)})")
@@ -1328,9 +1485,9 @@ def main(argv: list[str] | None = None) -> int:
         report = build_report(frozen, snapshot, matrix_rows, repo_root)
         args.out.mkdir(parents=True, exist_ok=True)
         (args.out / "coverage_report.json").write_text(
-            json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+            json.dumps(report, indent=2, sort_keys=True), encoding="utf-8", newline="\n")
         (args.out / "corpus_coverage.md").write_text(
-            report_markdown(report), encoding="utf-8")
+            report_markdown(report), encoding="utf-8", newline="\n")
         print(f"[pkg278] gate (b) status={report['status']} -> {args.out}")
         return 0 if report["status"] in ("green", "provisional") else 1
 

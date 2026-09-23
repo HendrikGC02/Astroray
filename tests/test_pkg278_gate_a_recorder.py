@@ -106,6 +106,13 @@ def test_gate_a_workloads_resolve_relative_blend_paths_for_blender_bridge(tmp_pa
     assert all(Path(row["path"]).is_absolute() for row in workloads)
 
 
+def test_gate_a_evidence_dir_is_absolute_across_blender_working_directories(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    path = DRV._gate_a_evidence_dir(Path("relative-output"), "small", "camera", 2)
+    assert path == (tmp_path / "relative-output" / "a" / "frames" / "small" / "camera" / "2").resolve()
+    assert path.is_absolute()
+
+
 def test_gate_a_reducer_requires_ordered_actual_generation_chain():
     cap = _capture(_sha("s"), 10000, "camera", 0)
     result = DRV.reduce_gate_a_capture(cap["raw_events"], cap["edits"])

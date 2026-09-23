@@ -1274,6 +1274,11 @@ def run_interactive(args) -> dict:
     }
 
 
+def _gate_a_evidence_dir(out_dir, workload_name, kind, batch):
+    """Return the host-resolved directory passed to Blender for frame evidence."""
+    return Path(out_dir).resolve() / "a" / "frames" / str(workload_name) / str(kind) / str(batch)
+
+
 def run_gate_a(args) -> dict:
     """Produce raw, hash-bindable GPU evidence for pkg278 gate (a).
 
@@ -1309,7 +1314,7 @@ def run_gate_a(args) -> dict:
             for batch in range(3):
                 result = _run_class(host, port, kind, 100, 1, args.warmup,
                                     args.gpu_deadline_s, args.rotate_deg, gate_a=True,
-                                    evidence_dir=str(args.out / "a" / "frames" / workload["name"] / kind / str(batch)))
+                                    evidence_dir=str(_gate_a_evidence_dir(args.out, workload["name"], kind, batch)))
                 capture_observed = dict(observed)
                 capture_observed["actual_gpu_devices"] = _actual_gpu_devices(result["raw_events"])
                 reduced = reduce_gate_a_capture(result["raw_events"], result["events"],

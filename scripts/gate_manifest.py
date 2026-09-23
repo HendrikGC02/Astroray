@@ -309,6 +309,9 @@ def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
                 or report.get("blend_sha256") != digest
                 or report.get("freeze_sha256") != (sha256_file(freeze_path) if freeze_path else None)):
             errors.append(f"row c record {i} report identity does not match frozen role")
+        if (r.get("settings", {}).get("gate_c_rois") != frozen.get("rois")
+                or r.get("settings", {}).get("gate_c_probes") != frozen.get("non_vacuity")):
+            errors.append(f"row c record {i} ROI/probe configuration differs from hash-pinned freeze")
         linear, why = _artifact(r.get("linear_npy"), base, f"row c record {i} linear render"); errors.extend(why)
         if linear is not None:
             try:
@@ -332,15 +335,18 @@ def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
             name = roi.get("name"); frozen = next((r.get("settings", {}).get("gate_c_rois", {}).get(name) for r in records if isinstance(r, Mapping) and r.get("role") == role), None)
             if not isinstance(frozen, list) or len(frozen) != 4: continue
             y0,y1,x0,x1 = int(frozen[1]*cpu.shape[0]),int(frozen[3]*cpu.shape[0]),int(frozen[0]*cpu.shape[1]),int(frozen[2]*cpu.shape[1])
-            ratio, channels = compute_channel_mean_ratio(gpu, cpu, (y0,y1,x0,x1)); ssim,_ = compute_ssim(gpu[y0:y1,x0:x1], cpu[y0:y1,x0:x1])
+            try:
+                ratio, channels = compute_channel_mean_ratio(gpu, cpu, (y0,y1,x0,x1)); ssim,_ = compute_ssim(gpu[y0:y1,x0:x1], cpu[y0:y1,x0:x1])
+            except ValueError:
+                errors.append(f"row c {role} ROI {name} is too small for SSIM"); continue
             if not np.isfinite(ratio) or not np.isfinite(ssim): errors.append(f"row c {role} ROI {name} has non-finite recomputed metric"); continue
             ratios.append(ratio*100); ssims.append(ssim)
     for r in records:
         if not isinstance(r, Mapping): continue
         role, backend = r.get("role"), r.get("backend")
         img = images.get((role, backend))
-        settings = r.get("settings") if isinstance(r.get("settings"), Mapping) else {}
-        rois, probes = settings.get("gate_c_rois"), settings.get("gate_c_probes")
+        frozen = (freeze.get("roles") or {}).get(role, {}) if isinstance(freeze, Mapping) else {}
+        rois, probes = frozen.get("rois"), frozen.get("non_vacuity")
         required = ("checker",) if role in ("materials_hall", "textures_mapping") else ("hdri", "hair")
         if img is None or not isinstance(rois, Mapping) or not isinstance(probes, list):
             errors.append(f"row c record {role}/{backend} lacks frozen non-vacuity configuration"); continue

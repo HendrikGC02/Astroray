@@ -404,7 +404,9 @@ def test_trio_requires_frozen_roles_paired_f12_runs_and_real_artifacts(tmp_path)
                             "non_vacuity": probes, "settings": cfg,
                             "rois": [{"name": "all"}]})
     evidence = tmp_path / "gate_c.json"
-    freeze = {"roles": {role: {"scene_id": actual, "scene_sha256": digest}
+    freeze = {"roles": {role: {"scene_id": actual, "scene_sha256": digest,
+                                 "rois": next(r["settings"]["gate_c_rois"] for r in records if r["role"] == role),
+                                 "non_vacuity": next(r["settings"]["gate_c_probes"] for r in records if r["role"] == role)}
                          for role, actual, digest in zip(GM.TRIO_ROLES, ("gallery", "workshop", "terrace_hair"), hashes)}}
     freeze_path = tmp_path / "gate_c.freeze.json"; freeze_path.write_text(json.dumps(freeze), encoding="utf-8")
     freeze_ref = {"path": freeze_path.name, "sha256": GM.sha256_file(freeze_path)}
@@ -423,6 +425,11 @@ def test_trio_requires_frozen_roles_paired_f12_runs_and_real_artifacts(tmp_path)
            "subchecks": {"cpu_exit_zero": True, "gpu_exit_zero": True, "pinned_images": True, "non_vacuity": True}, "date": "2026-09-24"}
     row, reasons = GM.compute_row("c", raw, GM.ROW_SPEC["c"], tmp_path)
     assert row["status"] == "green", reasons
+    payload["records"][0]["settings"]["gate_c_rois"]["all"] = [0, 0, .5, 1]
+    evidence.write_text(json.dumps(payload), encoding="utf-8"); raw["evidence_sha256"] = GM.sha256_file(evidence)
+    row, reasons = GM.compute_row("c", raw, GM.ROW_SPEC["c"], tmp_path)
+    assert row["status"] == "red" and any("configuration differs" in x for x in reasons)
+    payload["records"][0]["settings"]["gate_c_rois"]["all"] = [0, 0, 1, 1]
     payload["records"].pop(); evidence.write_text(json.dumps(payload), encoding="utf-8"); raw["evidence_sha256"] = GM.sha256_file(evidence)
     row, _ = GM.compute_row("c", raw, GM.ROW_SPEC["c"], tmp_path)
     assert row["status"] == "red"

@@ -582,7 +582,7 @@ def _run_gate_leg(blender: Path, args: list[str], env: dict[str, str], timeout: 
 
 
 def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
-                    timeout: int = 1800, build_id: str = "") -> int:
+                    timeout: int = 1800, build_id: str = "", module_sha256: str = "") -> int:
     """Produce real six-leg F12 evidence.  The current missing terrace role is
     an intentional fail-closed result and starts no substitute renders."""
     manifest_path = Path(manifest_path or _REPO_ROOT / "benchmarks" / "reference_corpus" / "scenes" / "manifest.json").resolve()
@@ -601,8 +601,12 @@ def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
         return 1
     import hashlib
     freeze_path = out_dir / "gate_c.freeze.json"
+    if len(module_sha256) != 64:
+        payload["freeze_error"] = "gate-c requires an expected 64-hex module SHA-256"
+        (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return 1
     freeze = {"manifest_path": str(manifest_path), "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
-              "build_id": build_id, "roles": frozen}
+              "build_id": build_id, "module_sha256": module_sha256, "roles": frozen}
     freeze_path.write_text(json.dumps(freeze, indent=2), encoding="utf-8")
     freeze_sha = _sha256(freeze_path)
     payload["freeze"] = _artifact_ref(freeze_path, out_dir)
@@ -622,14 +626,14 @@ def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
             for stale in (stem.with_suffix(".npy"), stem.with_suffix(".png")): stale.unlink(missing_ok=True)
             code, sentinel, report = _run_gate_leg(blender, ["--corpus-manifest", str(manifest_path),
                 "--corpus-scene", item["scene_id"], "--engine", "CUSTOM_RAYTRACER", "--device", backend.lower(),
-                "--gate-c-freeze", str(freeze_path), "--gate-c-freeze-sha256", freeze_sha, "--out", str(stem)], env, timeout)
+                "--gate-c-freeze", str(freeze_path), "--gate-c-freeze-sha256", freeze_sha, "--gate-c-build-id", build_id, "--out", str(stem)], env, timeout)
             npy, png = stem.with_suffix(".npy"), stem.with_suffix(".png")
             record: dict[str, Any] = {"kind": "f12_run", "role": role, "scene_id": item["scene_id"],
                 "scene_sha256": item["scene_sha256"], "backend": backend, "build_id": build_id,
                 "exit_code": code, "sentinel": SENTINEL if sentinel else "", "leg_report": report,
                 "settings": {**item["settings"], "gate_c_rois": item["rois"], "gate_c_probes": item["non_vacuity"]}, "non_vacuity": [], "rois": []}
             expected = {"corpus_scene": item["scene_id"], "blend_sha256": item["scene_sha256"], "freeze_sha256": freeze_sha,
-                        "requested_device": backend.lower(), "engine": "CUSTOM_RAYTRACER", "res_x": item["settings"]["res_x"], "res_y": item["settings"]["res_y"], "samples": item["settings"]["samples"]}
+                        "requested_device": backend.lower(), "effective_device": backend.lower(), "build_id": build_id, "module_sha256": module_sha256, "engine": "CUSTOM_RAYTRACER", "res_x": item["settings"]["res_x"], "res_y": item["settings"]["res_y"], "samples": item["settings"]["samples"]}
             if npy.is_file() and code == 0 and sentinel and all(report.get(k) == v for k, v in expected.items()):
                 _npy_to_png(npy, png, preserve_source=True)
                 if png.is_file():
@@ -915,12 +919,14 @@ def main(argv: list[str] | None = None) -> int:
                    help="produce the owner-selected corpus trio CPU/GPU F12 evidence")
     p.add_argument("--corpus-manifest", type=Path, default=None)
     p.add_argument("--build-id", default="", help="pinned addon/build identity for gate-c evidence")
+    p.add_argument("--module-sha256", default="", help="expected loaded astroray module SHA-256 for gate-c")
     args = p.parse_args(argv)
     if args.export_blend is not None:
         return export_reference_scenes(args.export_blend, timeout=args.timeout)
     if args.gate_c:
         return run_gate_c_trio(args.out, manifest_path=args.corpus_manifest,
-                               timeout=args.timeout, build_id=args.build_id)
+                               timeout=args.timeout, build_id=args.build_id,
+                               module_sha256=args.module_sha256)
     return run(args.matrix, args.out, res=args.res, samples=args.samples,
                timeout=args.timeout, include_composites=not args.no_composites)
 

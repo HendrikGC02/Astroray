@@ -778,11 +778,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, help="CSV output path")
     parser.add_argument("--gate-c", action="store_true", help="run the corpus gate-(c) six-leg producer")
     parser.add_argument("--gate-c-build-id", default="", help="pinned build identity required by gate-(c)")
+    parser.add_argument("--gate-c-module-sha256", default="", help="expected loaded module SHA-256")
     args = parser.parse_args(argv)
     if args.gate_c:
         from benchmarks.blender_parity.harness import run_gate_c_trio
         return run_gate_c_trio(ROOT / "docs" / "blender_parity" / "evidence" / "c",
-                               timeout=args.timeout, build_id=args.gate_c_build_id)
+                               timeout=args.timeout, build_id=args.gate_c_build_id,
+                               module_sha256=args.gate_c_module_sha256)
 
     scenes = _load_scenes()
     requested_scenes = args.scenes or list(scenes)

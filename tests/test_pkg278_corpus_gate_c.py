@@ -54,10 +54,10 @@ def test_fake_six_leg_capture_freezes_before_spawn_and_keeps_npy_png(tmp_path, m
         pixels = np.full((16,16,3), .5, dtype=np.float32); pixels[:,8:] = .8
         np.save(out.with_suffix(".npy"), pixels)
         scene = args[args.index("--corpus-scene") + 1]; device = args[args.index("--device") + 1]
-        report = {"corpus_scene": scene, "blend_sha256": roles[next(k for k,v in roles.items() if v["scene_id"] == scene)]["scene_sha256"], "freeze_sha256": args[args.index("--gate-c-freeze-sha256") + 1], "requested_device": device, "engine": "CUSTOM_RAYTRACER", "res_x": 16, "res_y": 16, "samples": 4}
+        report = {"corpus_scene": scene, "blend_sha256": roles[next(k for k,v in roles.items() if v["scene_id"] == scene)]["scene_sha256"], "freeze_sha256": args[args.index("--gate-c-freeze-sha256") + 1], "requested_device": device, "effective_device": device, "build_id": "b1", "module_sha256": "a" * 64, "engine": "CUSTOM_RAYTRACER", "res_x": 16, "res_y": 16, "samples": 4}
         return 0, True, report
     monkeypatch.setattr(H, "_run_gate_leg", fake_leg)
-    assert H.run_gate_c_trio(tmp_path, manifest_path=manifest, build_id="b1") == 0
+    assert H.run_gate_c_trio(tmp_path, manifest_path=manifest, build_id="b1", module_sha256="a" * 64) == 0
     payload = json.loads((tmp_path / "instrument.json").read_text(encoding="utf-8"))
     assert all(seen_freeze) and len(payload["records"]) == 6
     assert all("linear_npy" in r and "image" in r and "report_artifact" in r for r in payload["records"])

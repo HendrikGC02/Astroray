@@ -139,5 +139,27 @@
         "png": "benchmarks/blender_parity/scenes/refs/hdri_exterior_hair_astroray_cpu.png"
       }
     }
+  },
+  "historical_roles": {
+    "cornell_interior": {
+      "legacy_sha256": "b8625b1228d05950f60b3ef5b29657250f0c37771d1773068ad6c6f4432b610a",
+      "replacement": "regenerated_replacement",
+      "corpus_successors": ["materials_hall"],
+      "scope": "interior/material coverage",
+      "population_member": false
+    },
+    "material_zoo": {
+      "legacy_sha256": "1e0dbe3399dfd30873d637dd16a19ff40a83e7c1f290e44824cd6bae858d4dda",
+      "replacement": "regenerated_replacement",
+      "corpus_successors": ["materials_hall", "textures_mapping"],
+      "population_member": false
+    },
+    "hdri_exterior_hair": {
+      "legacy_sha256": "119f3fcfdbad65b64555ca64a1e8f3952c21c3160910728d3a456999dbe862c7",
+      "replacement": "regenerated_replacement",
+      "corpus_successors": ["world_sky_hdri"],
+      "corpus_role": "world_sky:terrace-with-hair",
+      "population_member": false
+    }
   }
 }

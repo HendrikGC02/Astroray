@@ -411,7 +411,7 @@ def export_reference_scenes(scenes_dir: Path, *, timeout: int = 600) -> int:
 
     manifest: dict[str, Any] = {"scenes": {}}
     all_ok = True
-    for scene_id, spec in scene_library.REFERENCE_SCENES.items():
+    for scene_id, spec in scene_library.HISTORICAL_EXPORT_SCENES.items():
         print(f"[pkg119b] exporting {scene_id} ...", flush=True)
         entry: dict[str, Any] = {}
         blend_path = scenes_dir / f"{scene_id}.blend"

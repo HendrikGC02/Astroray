@@ -88,6 +88,14 @@ def test_terrace_role_resolves_only_to_the_hdri_corpus_scene():
     assert "gate_c" not in S.load_corpus_manifest()["world_sky_sky"]
 
 
+def test_default_reference_discovery_is_corpus_backed_with_historical_aliases():
+    corpus = S.load_corpus_manifest()
+    assert set(S.REFERENCE_SCENES) == set(corpus)
+    assert set(S.HISTORICAL_EXPORT_SCENES) == {
+        "cornell_interior", "material_zoo", "hdri_exterior_hair"}
+    assert all(row["astroray_leg"] == "addon" for row in S.REFERENCE_SCENES.values())
+
+
 def test_gate_c_freeze_loader_returns_json_roles_before_graph_access(tmp_path):
     freeze_path = tmp_path / "freeze.json"
     freeze_path.write_text(json.dumps({"roles": {"workshop": {"scene_id": "textures_mapping"}}}), encoding="utf-8")

@@ -1,8 +1,20 @@
 # Known issues — Blender addon
 
-Generated 2026-09-20 02:50 UTC by `scripts/dev/known_issues_report.py` from GitHub issues labelled `addon-bug` / `addon-gap`. Do not edit by hand; file or close issues instead.
+Generated 2026-09-20 02:50 UTC by `scripts/dev/known_issues_report.py` from GitHub issues labelled `addon-bug` / `addon-gap`. This is a legacy label diagnostic, not gate-(e) evidence. Do not edit by hand; file or close issues instead.
 
-Pillar-4 exit-gate (e): open `addon-bug` at P0/P1 = **1** (target 0).
+The separately retained pkg278 gate-(e) snapshot contains **37** open issues and
+its independent review rates **14** high. It is evidence of an unmet gate, not
+a green claim or a replacement for the next live reconciliation.
+
+## Severity rubric (gate (e), owner-ratified 2026-09-07)
+
+- **high** — wrong image, crash, or a native setting silently ignored.
+- **medium** — degraded but flagged (a visible degradation with a warning).
+- **low** — cosmetic.
+
+Every open issue is rated independently under this rubric, not by label; gate (e) is green only when the live snapshot is fully reconciled and `high_count == 0`.
+
+Legacy label diagnostic: open `addon-bug` at P0/P1 = **1**.
 
 ## Open defects (`addon-bug`)
 

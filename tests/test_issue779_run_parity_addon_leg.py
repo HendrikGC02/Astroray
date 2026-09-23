@@ -11,6 +11,7 @@ Blender + the addon (benchmarks/blender_parity/render_leg.py --load-blend).
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
 import shutil
 import sys
@@ -30,6 +31,27 @@ def test_glass_sphere_row_uses_addon_leg():
     scene = rp._load_scenes()["glass_sphere"]
     assert scene.astroray_leg == "addon"
     assert scene.blend_path is not None and scene.blend_path.exists()
+
+
+def test_corpus_rows_are_pinned_addon_legs_without_removing_legacy_rows():
+    corpus = json.loads((ROOT / "benchmarks/reference_corpus/scenes/manifest.json").read_text(encoding="utf-8"))
+    scenes = rp._load_scenes()
+    assert set(corpus["scenes"]).issubset(scenes)
+    assert {"cornell", "textured_plane", "glass_sphere"}.issubset(scenes)
+    for scene_id, entry in corpus["scenes"].items():
+        scene = scenes[scene_id]
+        assert scene.astroray_leg == "addon"
+        assert scene.blend_path == (ROOT / entry["blend_path"]).resolve()
+        assert (scene.width, scene.height, scene.samples) == (
+            entry["settings"]["res_x"], entry["settings"]["res_y"], entry["settings"]["samples"])
+
+
+def test_weekly_entrypoint_has_explicit_corpus_and_gate_module_identity():
+    text = (ROOT / "scripts/benchmarks/weekly_local_bench.ps1").read_text(encoding="utf-8")
+    corpus = json.loads((ROOT / "benchmarks/reference_corpus/scenes/manifest.json").read_text(encoding="utf-8"))
+    assert all(repr(scene_id) in text for scene_id in corpus["scenes"])
+    assert "--gate-c-module-sha256 $env:ASTRORAY_GATE_C_MODULE_SHA256" in text
+    assert "ASTRORAY_GATE_C_MODULE_SHA256 is required" in text
 
 
 @pytest.mark.parametrize("engine,device", [("astroray-cpu", "cpu"), ("astroray-gpu", "gpu")])

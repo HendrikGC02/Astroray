@@ -453,7 +453,7 @@ def main():
             return
 
         if args.export_blend:
-            spec = scene_library.REFERENCE_SCENES.get(args.feature)
+            spec = scene_library.HISTORICAL_EXPORT_SCENES.get(args.feature)
             if spec is None:
                 raise ValueError(f"--export-blend needs a reference_scene feature, got {args.feature!r}")
             _configure_render(scene, "CYCLES", spec["res_x"], spec["samples"],

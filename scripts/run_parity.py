@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import json
 import os
 import platform
 import shutil
@@ -30,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BENCH_ROOT = ROOT / "benchmarks" / "cycles-parity"
 SCENE_ROOT = BENCH_ROOT / "scenes"
 MANIFEST = SCENE_ROOT / "manifest.toml"
+CORPUS_MANIFEST = ROOT / "benchmarks" / "reference_corpus" / "scenes" / "manifest.json"
 REFS = BENCH_ROOT / "refs"
 RESULTS = BENCH_ROOT / "results"
 CSV_COLUMNS = [
@@ -157,6 +160,27 @@ def _load_scenes() -> dict[str, Scene]:
                     blend_path=blend_path,
                     astroray_leg=leg,
                 )
+    # pkg278: parity discovery consumes the committed corpus directly.  These
+    # rows use the addon so the same Blender translation path is measured as
+    # the Cycles legs, rather than a lossy blend-import proxy.
+    corpus = json.loads(CORPUS_MANIFEST.read_text(encoding="utf-8"))
+    entries = corpus.get("scenes") if isinstance(corpus, dict) else None
+    if not isinstance(entries, dict):
+        raise ValueError("reference corpus manifest requires a scenes object")
+    for scene_id, item in sorted(entries.items()):
+        settings = item.get("settings") if isinstance(item, dict) else None
+        rel = item.get("blend_path") if isinstance(item, dict) else None
+        digest = item.get("sha256") if isinstance(item, dict) else None
+        if (not isinstance(settings, dict) or not isinstance(rel, str) or not isinstance(digest, str)
+                or any(not isinstance(settings.get(key), int) or settings[key] <= 0
+                       for key in ("res_x", "res_y", "samples"))):
+            raise ValueError(f"corpus scene {scene_id!r} has invalid pinned settings")
+        blend_path = (ROOT / rel).resolve()
+        if not blend_path.is_file() or hashlib.sha256(blend_path.read_bytes()).hexdigest() != digest:
+            raise ValueError(f"corpus scene {scene_id!r} blend path/SHA is not pinned")
+        scenes[scene_id] = Scene(scene_id, samples=settings["samples"], width=settings["res_x"],
+                                 height=settings["res_y"], blend_path=blend_path,
+                                 astroray_leg="addon")
     return scenes
 
 

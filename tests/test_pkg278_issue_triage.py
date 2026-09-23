@@ -168,3 +168,10 @@ def test_live_capture_raises_limit_and_reconciles_with_bounded_query(monkeypatch
     assert snapshot["capture_limit"] == 1001
     assert snapshot["command"] == KIR.gate_e_command(1001)
     assert any(command == KIR.gate_e_command(1001) for command in commands)
+
+
+def test_published_known_issues_keeps_rubric_and_unmet_snapshot_status():
+    text = (REPO_ROOT / ".astroray_plan/docs/KNOWN_ISSUES.md").read_text(encoding="utf-8")
+    assert KIR.SEVERITY_RUBRIC in text
+    assert "**37** open issues" in text and "**14** high" in text
+    assert "not\na green claim" in text

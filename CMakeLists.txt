@@ -782,7 +782,13 @@ if(BUILD_PYTHON_MODULE)
     target_link_libraries(astroray_test_helpers PRIVATE
         raytracer_core
         astroray_core_impl
+        stb_impl
     )
+    # The registry probe must include plugin object files so their registration
+    # initializers expose the same integrators as the production Python module.
+    if(TARGET astroray_plugins)
+        target_link_libraries(astroray_test_helpers PRIVATE astroray_plugins)
+    endif()
 
     set_target_properties(astroray_test_helpers PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}

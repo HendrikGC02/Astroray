@@ -3068,6 +3068,10 @@ public:
         return finiteFloat(v) ? std::clamp(v, lo, hi) : 0.0f;
     }
 
+    static float finiteNonnegative(float v) {
+        return finiteFloat(v) && v >= 0.0f ? v : 0.0f;
+    }
+
     static Vec3 finiteVecOrZero(const Vec3& v) {
         return Vec3(finiteOrZero(v.x), finiteOrZero(v.y), finiteOrZero(v.z));
     }
@@ -3547,7 +3551,7 @@ public:
                 if (grResult.hasEmission) {
                     astroray::SampledSpectrum grEmission(0.0f);
                     for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
-                        grEmission[i] = finiteClamped(grResult.emission[i], 0.0f, 20.0f);
+                        grEmission[i] = finiteNonnegative(grResult.emission[i]);
                     }
                     if (!grEmission.isZero()) {
                         // pkg198: GR/black-hole emission — treat like surface emission
@@ -4085,7 +4089,7 @@ public:
                 if (grResult.hasEmission) {
                     astroray::SampledSpectrum grEmission(0.0f);
                     for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
-                        grEmission[i] = finiteClamped(grResult.emission[i], 0.0f, 20.0f);
+                        grEmission[i] = finiteNonnegative(grResult.emission[i]);
                     }
                     color += clampContribSpectral(throughput * grEmission, lambdas, bounce);
                 }

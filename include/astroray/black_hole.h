@@ -8,7 +8,74 @@
 #include <memory>
 #include <random>
 #include <cmath>
+#include <limits>
 #include <vector>
+
+namespace astroray {
+
+// Source: Rybicki & Lightman, "Radiative Processes in Astrophysics", §4.9,
+// "Invariant Phase Volumes and Specific Intensity" (1979), DOI:10.1002/9783527618170;
+// Cunningham, "The Effects of Redshifts and Focusing on the Spectrum of an
+// Accretion Disk around a Kerr Black Hole", ApJ 202 (1975), DOI:10.1086/154033.
+// Reference impl: AFD-Illinois/ipole@7f7a482cf91125aeeeb9c431485bba680e8941d7
+// — src/radiation.c (Planck-frequency convention and fluid-frame frequency).
+// License: BSD-3-Clause (compatible with Astroray's MIT LICENSE); no code copied.
+// I_lambda,obs(lambda_obs) = g^5 B_lambda(g lambda_obs, T), g = nu_obs / nu_em.
+inline double thinDiskEmittedWavelengthNm(double lambda_obs_nm, double g) {
+    if (!gr_isfinite(lambda_obs_nm) || !gr_isfinite(g) ||
+        lambda_obs_nm <= 0.0 || g <= 0.0) {
+        return 0.0;
+    }
+    const double lambda_emit_nm = g * lambda_obs_nm;
+    return gr_isfinite(lambda_emit_nm) && lambda_emit_nm > 0.0
+        ? lambda_emit_nm : 0.0;
+}
+
+inline double thinDiskInvariantTransferWavelength(
+        double lambda_obs_nm, double temperature_K, double g) {
+    const double lambda_emit_nm = thinDiskEmittedWavelengthNm(lambda_obs_nm, g);
+    if (lambda_emit_nm <= 0.0 || !gr_isfinite(temperature_K) || temperature_K <= 0.0) {
+        return 0.0;
+    }
+    const double B_lambda = planck(lambda_emit_nm, temperature_K);
+    if (!gr_isfinite(B_lambda) || B_lambda <= 0.0) return 0.0;
+    const double g2 = g * g;
+    const double g5 = g2 * g2 * g;
+    const double observed = g5 * B_lambda;
+    return gr_isfinite(observed) && observed > 0.0 ? observed : 0.0;
+}
+
+inline double thinDiskNormalizedTransferWavelength(
+        double lambda_obs_nm, double temperature_K, double g,
+        double exposure_scale, double wavelength_span_nm) {
+    if (!gr_isfinite(exposure_scale) || !gr_isfinite(wavelength_span_nm) ||
+        exposure_scale <= 0.0 || wavelength_span_nm <= 0.0) {
+        return 0.0;
+    }
+    const double observed = thinDiskInvariantTransferWavelength(
+        lambda_obs_nm, temperature_K, g);
+    const double scaled = observed * exposure_scale / wavelength_span_nm;
+    return gr_isfinite(scaled) && scaled > 0.0 ? scaled : 0.0;
+}
+
+// Preserve the already accumulated finite value when a physically computed
+// double cannot be represented in SampledSpectrum's float storage, or adding a
+// representable value would overflow it. This is a storage guard, not a
+// radiance cap; the thin-disk transfer itself remains unclamped.
+inline float accumulateFiniteThinDiskEmission(float accumulated, double contribution) {
+    if (!gr_isfinite(static_cast<double>(accumulated)) || accumulated < 0.0f) return 0.0f;
+    const double max_float = static_cast<double>(std::numeric_limits<float>::max());
+    if (!gr_isfinite(contribution) || contribution <= 0.0 || contribution > max_float)
+        return accumulated;
+    const float contribution_float = static_cast<float>(contribution);
+    if (!gr_isfinite(static_cast<double>(contribution_float)) ||
+        contribution_float > std::numeric_limits<float>::max() - accumulated) {
+        return accumulated;
+    }
+    return accumulated + contribution_float;
+}
+
+} // namespace astroray
 
 // ============================================================================
 // BlackHole — a Hittable that represents a GR influence sphere.
@@ -156,14 +223,13 @@ private:
             double T = disk->temperatureAt(dc.r);
             if (T <= 0.0 || !gr_isfinite(T)) continue;
             if (!gr_isfinite(dc.g) || dc.g <= 0.0) continue;
-            double g = std::min(dc.g, 10.0);
-            double g4 = g * g * g * g;
+            const double g = dc.g;
             for (int wi = 0; wi < astroray::kSpectrumSamples; ++wi) {
-                double B = planck(double(lambdas.lambda(wi)), T);
-                if (!gr_isfinite(B) || B <= 0.0) continue;
-                double scaled = g4 * B * double(exposureScale) / span;
+                const double scaled = astroray::thinDiskNormalizedTransferWavelength(
+                    double(lambdas.lambda(wi)), T, g, double(exposureScale), span);
                 if (!gr_isfinite(scaled) || scaled <= 0.0) continue;
-                emission[wi] = std::min(20.0f, emission[wi] + float(scaled));
+                emission[wi] = astroray::accumulateFiniteThinDiskEmission(
+                    emission[wi], scaled);
             }
         }
         return emission;
@@ -299,13 +365,10 @@ public:
                 double T = disk->temperatureAt(dc.r);
                 if (T <= 0.0 || !gr_isfinite(T)) continue;
                 if (!gr_isfinite(dc.g) || dc.g <= 0.0) continue;
-                double g = std::min(dc.g, 10.0);
+                const double g = dc.g;
                 for (int wi = 0; wi < 4; ++wi) {
-                    double lam_emit = spec.wavelengths[wi];
-                    double B  = planck(lam_emit, T);
-                    if (!gr_isfinite(B) || B <= 0.0) continue;
-                    double g4 = g * g * g * g;
-                    double contrib = g4 * B;
+                    const double contrib = astroray::thinDiskInvariantTransferWavelength(
+                        spec.wavelengths[wi], T, g);
                     if (!gr_isfinite(contrib) || contrib <= 0.0) continue;
                     spec.radiance[wi] += contrib;
                 }

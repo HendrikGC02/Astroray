@@ -213,7 +213,7 @@ def render() -> str:
         "# Known issues — Blender addon\n\n"
         f"Generated {stamp} by `scripts/dev/known_issues_report.py` from GitHub issues "
         "labelled `addon-bug` / `addon-gap`. This is a legacy label diagnostic, not gate-(e) evidence. Do not edit by hand; file or close issues instead.\n\n"
-        f"Pillar-4 exit-gate (e): open `addon-bug` at P0/P1 = **{high_open}** (target 0).\n\n"
+        f"Legacy label diagnostic: open `addon-bug` at P0/P1 = **{high_open}**.\n\n"
         + SEVERITY_RUBRIC +
         "\n## Open defects (`addon-bug`)\n\n" + table(bugs) +
         "\n## Open gaps (`addon-gap`)\n\n" + table(gaps) +

@@ -573,15 +573,33 @@ def validate_manifest(manifest: Mapping[str, Any], repo_root: Path = REPO_ROOT) 
 
 def load_instruments(instruments_dir: Path | None,
                      overrides: Mapping[str, Path] | None) -> dict[str, Any]:
+    def adapt(path: Path) -> Any:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        # Producer payloads are not manifest rows.  Wrap their own immutable
+        # file as evidence and derive gate-e values/subchecks from its raw
+        # artifacts; do not invent dimensions or accept producer pass flags.
+        if (isinstance(payload, Mapping) and payload.get("schema") == PAYLOAD_SCHEMA
+                and payload.get("row") == "e" and payload.get("instrument") == "issue_triage"):
+            errors, value, subchecks = _validate_e(payload.get("records", []), path.parent)
+            row = dict(payload)
+            row["evidence_path"] = str(path)
+            row["evidence_sha256"] = sha256_file(path)
+            row["dimensions"] = {"issue_snapshot": "raw-artifacts", "ratings": "independent-review"}
+            row["subchecks"] = subchecks if not errors else {}
+            row["value"] = value if not errors else payload.get("value")
+            row["date"] = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+            return row
+        return payload
+
     out: dict[str, Any] = {r: None for r in ROWS}
     if instruments_dir is not None:
         for rid in ROWS:
             candidate = Path(instruments_dir) / rid / "instrument.json"
             if candidate.is_file():
-                out[rid] = json.loads(candidate.read_text(encoding="utf-8"))
+                out[rid] = adapt(candidate)
     for rid, path in (overrides or {}).items():
         if rid in out and Path(path).is_file():
-            out[rid] = json.loads(Path(path).read_text(encoding="utf-8"))
+            out[rid] = adapt(Path(path))
     return out
 
 

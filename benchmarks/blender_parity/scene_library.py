@@ -21,6 +21,7 @@ close the Phase-A UNKNOWN cell.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 # Dedicated-light energy configs mirror verify_pkg122_cycles_oracle.SCENES so the
 # light legs reproduce the pkg122 radiometric setup exactly.
@@ -2967,3 +2968,47 @@ REFERENCE_SCENES = {
         res_x=REFERENCE_HDRI_HAIR_RES[0], res_y=REFERENCE_HDRI_HAIR_RES[1],
         samples=REFERENCE_HDRI_HAIR_SAMPLES),
 }
+
+
+CORPUS_MANIFEST = Path(__file__).resolve().parents[1] / "reference_corpus" / "scenes" / "manifest.json"
+GATE_C_ROLES = ("materials_hall", "textures_mapping", "world_sky:terrace-with-hair")
+
+
+def load_corpus_manifest(manifest_path=CORPUS_MANIFEST):
+    """Return corpus entries in stable ID order after fail-closed path/hash checks."""
+    import hashlib
+    import json
+    root = Path(__file__).resolve().parents[2]
+    data = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    scenes = data.get("scenes") if isinstance(data, dict) else None
+    if not isinstance(scenes, dict):
+        raise ValueError("corpus manifest requires a scenes object")
+    result = {}
+    for scene_id in sorted(scenes):
+        entry = scenes[scene_id]
+        if not isinstance(entry, dict) or not isinstance(entry.get("blend_path"), str):
+            raise ValueError(f"corpus scene {scene_id!r} lacks blend_path")
+        blend = (root / entry["blend_path"]).resolve()
+        try:
+            blend.relative_to((root / "benchmarks" / "reference_corpus").resolve())
+        except ValueError:
+            raise ValueError(f"corpus scene {scene_id!r} escapes corpus root")
+        digest = entry.get("sha256")
+        if not blend.is_file() or not isinstance(digest, str) or len(digest) != 64:
+            raise ValueError(f"corpus scene {scene_id!r} has missing blend or digest")
+        if hashlib.sha256(blend.read_bytes()).hexdigest() != digest:
+            raise ValueError(f"corpus scene {scene_id!r} blend digest mismatch")
+        result[scene_id] = entry
+    return result
+
+
+def resolve_gate_c_roles(manifest_path=CORPUS_MANIFEST):
+    """Resolve owner-selected logical roles; never substitute old world scenes."""
+    scenes = load_corpus_manifest(manifest_path)
+    roles = {}
+    for role in GATE_C_ROLES:
+        actual = role if role in scenes else None
+        if actual is None:
+            raise ValueError(f"required gate-c role absent from corpus manifest: {role}")
+        roles[role] = {"scene_id": actual, **scenes[actual]}
+    return roles

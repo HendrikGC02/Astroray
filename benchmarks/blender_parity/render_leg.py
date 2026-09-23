@@ -332,6 +332,35 @@ def _gate_c_mask(bpy, scene, control, shape):
     return mask
 
 
+def _gate_b_graph(repo_root: Path, case: dict):
+    """Compute the case identity from the opened Blender graph, not its label."""
+    import importlib.util
+
+    report_path = repo_root / "benchmarks" / "reference_corpus" / "coverage_report.py"
+    spec = importlib.util.spec_from_file_location("pkg278_gate_b_collector", report_path)
+    collector = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    sys.modules[spec.name] = collector
+    spec.loader.exec_module(collector)
+    trees = collector._build_trees_from_bpy()
+    reachable, errors = collector.trace_reachable(trees)
+    matches = []
+    for tree_id, name in sorted(reachable):
+        node = trees[tree_id]["nodes"][name]
+        if node.get("mute"):
+            continue
+        sockets, fingerprint = collector.exercised_sockets_for(node)
+        for socket in sockets:
+            if collector.canonical_identity(node["bl_idname"], socket) == case["identity"]:
+                matches.append({"tree": tree_id, "node": name, "socket": socket,
+                                "variant_digest": collector.variant_digest(fingerprint)})
+    matched = [row for row in matches if row["variant_digest"] == case["variant_digest"]]
+    if errors or not matched:
+        raise ValueError("frozen gate-b identity/variant is absent from the opened computed graph")
+    return {"identity": case["identity"], "variant_digest": case["variant_digest"],
+            "match_count": len(matched), "matches": matched, "collection_errors": errors}
+
+
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     p = argparse.ArgumentParser()
@@ -355,6 +384,10 @@ def main():
                    help="validated reference-corpus manifest; requires --corpus-scene")
     p.add_argument("--corpus-scene", default="",
                    help="exact reference-corpus scene ID, never an arbitrary path")
+    p.add_argument("--gate-b-case", default="",
+                   help="one immutable v3 runner case; requires corpus scene and emits graph provenance")
+    p.add_argument("--gate-b-report", default="",
+                   help="write the raw observed gate-b case report JSON")
     p.add_argument("--gate-c-freeze", default="", help="hash-pinned gate-c freeze input")
     p.add_argument("--gate-c-freeze-sha256", default="")
     p.add_argument("--gate-c-build-id", default="")
@@ -390,6 +423,21 @@ def main():
                 setattr(args, arg, declared)
             if args.gate_c_freeze:
                 freeze = _load_gate_c_freeze(args.gate_c_freeze, args.gate_c_freeze_sha256)
+        if bool(args.gate_b_case) != bool(args.gate_b_report):
+            raise ValueError("--gate-b-case and --gate-b-report must be supplied together")
+        if args.gate_b_case:
+            if corpus_entry is None:
+                raise ValueError("gate-b case requires --corpus-manifest and --corpus-scene")
+            gate_b_case = json.loads(Path(args.gate_b_case).read_text(encoding="utf-8"))
+            required = ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id",
+                        "module_sha256", "addon_sha256")
+            if not isinstance(gate_b_case, dict) or any(not isinstance(gate_b_case.get(key), str)
+                                                         or not gate_b_case[key] for key in required):
+                raise ValueError("gate-b case is incomplete")
+            if gate_b_case["scene_id"] != args.corpus_scene:
+                raise ValueError("gate-b case scene does not match --corpus-scene")
+            if args.engine not in ("CYCLES", "CUSTOM_RAYTRACER"):
+                raise ValueError("gate-b case requires an engine")
         if args.load_blend:
             bpy.ops.wm.open_mainfile(filepath=args.load_blend)
             scene = bpy.context.scene
@@ -398,6 +446,8 @@ def main():
                 raise ValueError("--category/--feature are required unless --load-blend is given")
             scene = scene_library.build_scene(
                 bpy, args.category, args.feature, args.bl_idname, engine=args.engine)
+
+        graph = _gate_b_graph(repo_root, gate_b_case) if gate_b_case else None
 
         control = None
         role = None
@@ -514,7 +564,35 @@ def main():
             devices = [info.get("device") for info in telemetry if isinstance(info, dict) and isinstance(info.get("device"), (int, float))]
             effective_device = ("gpu" if devices and all(value >= 0 for value in devices) else
                                 ("cpu" if devices and all(value < 0 for value in devices) else ""))
-            print(f"{SENTINEL} REPORT {json.dumps({'corpus_scene': args.corpus_scene, 'blend_sha256': hashlib.sha256(Path(args.load_blend).read_bytes()).hexdigest(), 'freeze_sha256': args.gate_c_freeze_sha256, 'build_id': observed_build, 'requested_device': args.device, 'effective_device': effective_device, 'telemetry': telemetry, 'engine': str(scene.render.engine), 'res_x': int(scene.render.resolution_x), 'res_y': int(scene.render.resolution_y), 'samples': int(scene.cycles.samples), 'resolved_seed': int(scene.cycles.seed), 'animated_seed': bool(scene.cycles.use_animated_seed), 'blender_version': bpy.app.version_string, 'module_path': module, 'module_sha256': module_sha, 'addon_path': addon_path, 'addon_sha256': addon_sha, 'bindings': bindings, 'mutation_receipt': receipt, 'mask_receipt': mask_receipt})}", flush=True)
+            if gate_b_case is None:
+                print(f"{SENTINEL} REPORT {json.dumps({'corpus_scene': args.corpus_scene, 'blend_sha256': hashlib.sha256(Path(args.load_blend).read_bytes()).hexdigest(), 'freeze_sha256': args.gate_c_freeze_sha256, 'build_id': observed_build, 'requested_device': args.device, 'effective_device': effective_device, 'telemetry': telemetry, 'engine': str(scene.render.engine), 'res_x': int(scene.render.resolution_x), 'res_y': int(scene.render.resolution_y), 'samples': int(scene.cycles.samples), 'resolved_seed': int(scene.cycles.seed), 'animated_seed': bool(scene.cycles.use_animated_seed), 'blender_version': bpy.app.version_string, 'module_path': module, 'module_sha256': module_sha, 'addon_path': addon_path, 'addon_sha256': addon_sha, 'bindings': bindings, 'mutation_receipt': receipt, 'mask_receipt': mask_receipt})}", flush=True)
+            if gate_b_case is not None:
+                if args.engine == "CUSTOM_RAYTRACER":
+                    observed = {"identity": graph["identity"], "scene_id": args.corpus_scene,
+                                "variant_digest": graph["variant_digest"], "backend": gate_b_case["backend"],
+                                "build_id": observed_build, "module_sha256": module_sha,
+                                "addon_sha256": addon_sha, "engine_id": str(scene.render.engine),
+                                "device": effective_device}
+                    for field in ("build_id", "module_sha256", "addon_sha256"):
+                        if observed[field] != gate_b_case[field]:
+                            raise ValueError(f"loaded {field} does not match frozen gate-b case")
+                    if effective_device != gate_b_case["backend"].lower():
+                        raise ValueError("effective renderer device does not match frozen gate-b backend")
+                else:
+                    observed = {"identity": graph["identity"], "scene_id": args.corpus_scene,
+                                "variant_digest": graph["variant_digest"], "engine_id": str(scene.render.engine),
+                                "device": "cpu"}
+                case_binding = {key: gate_b_case[key] for key in
+                                ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id")}
+                raw = {"schema": "pkg278.gate_b.case_observation.v1", "case": case_binding,
+                       "blend_sha256": hashlib.sha256(Path(args.load_blend).read_bytes()).hexdigest(),
+                       "graph": graph, "observed": observed, "engine": args.engine,
+                       "linear_npy": str(Path(args.out).with_suffix(".npy").resolve()),
+                       "blender_version": bpy.app.version_string}
+                raw_path = Path(args.gate_b_report)
+                raw_path.parent.mkdir(parents=True, exist_ok=True)
+                raw_path.write_text(json.dumps(raw, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                print(f"{SENTINEL} REPORT {json.dumps(raw, sort_keys=True)}", flush=True)
         print(f"[pkg119b-leg] wrote {npy}", flush=True)
         print(f"{SENTINEL} PASS", flush=True)
     except Exception as exc:

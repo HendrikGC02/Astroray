@@ -70,6 +70,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import math
 import subprocess
 import sys
 from collections import deque
@@ -223,6 +224,64 @@ def _canonical_runner_result(payload: Mapping[str, Any], case_id: str) -> Mappin
     return payload
 
 
+def _runner_artifact(ref: Any, repo_root: Path | None) -> Path | None:
+    """Resolve and hash-check one runner-retained artifact reference."""
+    if not isinstance(ref, Mapping) or not isinstance(ref.get("path"), str):
+        return None
+    path = Path(ref["path"])
+    if not path.is_absolute() and repo_root is not None:
+        path = Path(repo_root) / path
+    if not path.is_file() or ref.get("sha256") != _sha256_file(path):
+        return None
+    return path
+
+
+def _runner_metrics_match(produced: Mapping[str, Any], repo_root: Path | None) -> tuple[bool, str]:
+    """Recompute the frozen metric predicate from the retained linear arrays."""
+    artifacts = produced.get("artifacts")
+    if not isinstance(artifacts, Mapping):
+        return False, "canonical runner result lacks corpus render artifacts"
+    astro = _runner_artifact(artifacts.get("astroray_linear_npy"), repo_root)
+    cycles = _runner_artifact(artifacts.get("cycles_linear_npy"), repo_root)
+    raw = _runner_artifact(artifacts.get("report"), repo_root)
+    cycles_raw = _runner_artifact(artifacts.get("cycles_report"), repo_root)
+    if not all((astro, cycles, raw, cycles_raw)):
+        return False, "canonical runner artifact is missing or hash-mismatched"
+    try:
+        import numpy as np
+        from benchmarks.reference_bank.metrics import compute_delta_e_2000, compute_ssim
+        astro_pixels, cycles_pixels = np.load(astro), np.load(cycles)
+        ssim, _ = compute_ssim(astro_pixels, cycles_pixels)
+        delta_e, _ = compute_delta_e_2000(astro_pixels, cycles_pixels)
+        raw_observed = json.loads(raw.read_text(encoding="utf-8"))
+        cycles_observed = json.loads(cycles_raw.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError, ImportError):
+        return False, "canonical runner artifacts cannot be decoded"
+    metrics = produced.get("metrics")
+    if not isinstance(metrics, Mapping) or not all(isinstance(metrics.get(k), (int, float)) for k in ("ssim", "delta_e")):
+        return False, "canonical runner result lacks re-derivable metrics"
+    if not math.isclose(float(metrics["ssim"]), float(ssim), rel_tol=1e-7, abs_tol=1e-7) or not math.isclose(float(metrics["delta_e"]), float(delta_e), rel_tol=1e-7, abs_tol=1e-7):
+        return False, "canonical runner metrics do not match retained linear arrays"
+    expected = {key: produced.get(key) for key in ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id")}
+    for report in (raw_observed, cycles_observed):
+        if not isinstance(report, Mapping) or report.get("schema") != "pkg278.gate_b.case_observation.v1":
+            return False, "canonical runner raw observation has wrong schema"
+        if report.get("case") != expected:
+            return False, "canonical runner raw observation does not bind its case"
+        graph = report.get("graph")
+        if not isinstance(graph, Mapping) or graph.get("identity") != produced.get("identity") or graph.get("variant_digest") != produced.get("variant_digest"):
+            return False, "canonical runner raw observation does not confirm identity/variant"
+    if raw_observed.get("engine") != "CUSTOM_RAYTRACER" or cycles_observed.get("engine") != "CYCLES":
+        return False, "canonical runner raw observations have the wrong engines"
+    if raw_observed.get("observed") != produced.get("observed"):
+        return False, "canonical runner result does not match the observed native render leg"
+    blend_sha = raw_observed.get("blend_sha256")
+    if (not isinstance(blend_sha, str) or len(blend_sha) != 64
+            or cycles_observed.get("blend_sha256") != blend_sha):
+        return False, "canonical runner paired legs do not bind the same corpus blend"
+    return True, ""
+
+
 def evidence_is_valid(rec: Mapping[str, Any], repo_root: Path | None = None,
                       *, fixture_mode: bool = False,
                       allowed_cases: Mapping[str, Mapping[str, Any]] | None = None) -> tuple[bool, str]:
@@ -270,7 +329,7 @@ def evidence_is_valid(rec: Mapping[str, Any], repo_root: Path | None = None,
             return False, "canonical runner result is missing or hash-mismatched"
         try:
             produced = json.loads(vp.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return False, "canonical runner result is not JSON"
         produced = _canonical_runner_result(produced, str(rec.get("case_id") or ""))
         if produced is None or produced.get("status") != "pass":
@@ -292,15 +351,12 @@ def evidence_is_valid(rec: Mapping[str, Any], repo_root: Path | None = None,
                 return False, f"canonical runner result does not match frozen case {field}"
         if result.get("artifact_sha256") != verifier.get("sha256"):
             return False, "production verdict is not tied to the generated runner artifact"
-        artifacts = produced.get("artifacts")
-        if not isinstance(artifacts, Mapping) or any(not isinstance(artifacts.get(key), Mapping)
-                                                     for key in ("astroray_linear_npy", "cycles_linear_npy", "report")):
-            return False, "canonical runner result lacks corpus render artifacts"
         if "feature" in produced:
             return False, "generic FeatureResult cannot prove a corpus case"
-        metrics = produced.get("metrics")
-        if not isinstance(metrics, Mapping) or not all(isinstance(metrics.get(k), (int, float)) for k in ("ssim", "delta_e")):
-            return False, "canonical runner result lacks re-derivable metrics"
+        metrics_ok, metrics_reason = _runner_metrics_match(produced, repo_root)
+        if not metrics_ok:
+            return False, metrics_reason
+        metrics = produced["metrics"]
         if float(metrics["ssim"]) < 0.95 or float(metrics["delta_e"]) > 5.0:
             return False, "canonical runner metrics do not pass the frozen predicate"
 

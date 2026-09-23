@@ -30,6 +30,7 @@ import importlib.util
 import json
 import math
 import re
+import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -216,6 +217,25 @@ def _artifact(ref: Any, base: Path, label: str) -> tuple[Path | None, list[str]]
         return None, [f"{label} artifact missing: {path}"]
     if sha256_file(candidate) != digest:
         return None, [f"{label} artifact digest mismatch: {path}"]
+    return candidate, []
+
+
+def _repo_artifact(ref: Any, label: str) -> tuple[Path | None, list[str]]:
+    """Resolve a hash-pinned canonical input beneath this checkout."""
+    if not isinstance(ref, Mapping) or not isinstance(ref.get("path"), str):
+        return None, [f"{label} must be an artifact object"]
+    digest = ref.get("sha256")
+    if not isinstance(digest, str) or not _HEX64.match(digest):
+        return None, [f"{label} artifact digest malformed"]
+    candidate = _resolve(REPO_ROOT, ref["path"]).resolve()
+    try:
+        candidate.relative_to(REPO_ROOT.resolve())
+    except ValueError:
+        return None, [f"{label} artifact escapes repository"]
+    if not candidate.is_file():
+        return None, [f"{label} artifact missing: {ref['path']}"]
+    if sha256_file(candidate) != digest:
+        return None, [f"{label} artifact digest mismatch: {ref['path']}"]
     return candidate, []
 
 
@@ -570,10 +590,65 @@ def _validate_d(records: list[Any], base: Path) -> tuple[list[str], dict[str, An
                     "detail_preservation_min": min(details) if details else None}, subchecks
 
 
+def _coverage_reducer():
+    spec = importlib.util.spec_from_file_location(
+        "pkg278_coverage_manifest_reducer",
+        REPO_ROOT / "benchmarks" / "reference_corpus" / "coverage_report.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _validate_b(records: list[Any], _base: Path) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
+    """Re-run the coverage reducer from its hash-pinned committed inputs."""
+    if len(records) != 1 or not isinstance(records[0], Mapping) or records[0].get("kind") != "coverage_reduction":
+        return ["row b requires exactly one canonical coverage reduction record"], {}, {}
+    record = records[0]
+    paths: dict[str, Path] = {}
+    errors: list[str] = []
+    for key in ("input", "snapshot", "matrix", "report"):
+        path, why = _repo_artifact(record.get(key), f"coverage {key}")
+        errors.extend(why)
+        if path is not None:
+            paths[key] = path
+    if errors:
+        return errors, {}, {}
+    try:
+        frozen = json.loads(paths["input"].read_text(encoding="utf-8"))
+        snapshot = json.loads(paths["snapshot"].read_text(encoding="utf-8"))
+        matrix = json.loads(paths["matrix"].read_text(encoding="utf-8"))
+        claimed = json.loads(paths["report"].read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"row b canonical artifact is not JSON: {exc}"], {}, {}
+    if not isinstance(frozen, Mapping) or frozen.get("schema") != "pkg278.coverage_input.v3":
+        return ["row b requires a v3 frozen coverage input"], {}, {}
+    if paths["input"].resolve() != (REPO_ROOT / str(frozen.get("input_path") or "")).resolve():
+        return ["row b input artifact is not the frozen canonical input_path"], {}, {}
+    if paths["matrix"].resolve() != (REPO_ROOT / str(frozen.get("matrix", {}).get("path") or "")).resolve():
+        return ["row b matrix artifact is not the frozen canonical matrix path"], {}, {}
+    if not isinstance(claimed, Mapping) or claimed.get("schema") != "pkg278.coverage_report.v1":
+        return ["row b requires a canonical coverage_report.v1 artifact"], {}, {}
+    try:
+        recomputed = _coverage_reducer().build_report(frozen, snapshot, matrix, REPO_ROOT)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        return [f"row b canonical reducer failed: {exc}"], {}, {}
+    if claimed != recomputed:
+        return ["row b coverage report differs from the canonical recomputation"], {}, {}
+    cpu, gpu = recomputed.get("cpu", {}), recomputed.get("gpu", {})
+    value = {"cpu_score": cpu.get("score"), "gpu_score": gpu.get("score")}
+    subchecks = recomputed.get("subchecks")
+    if not isinstance(subchecks, Mapping):
+        return ["row b canonical reducer produced no subchecks"], value, {}
+    return [], value, dict(subchecks)
+
+
 def _records_validate(payload: Mapping[str, Any], rid: str, base: Path) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
     records = payload.get("records")
     if not isinstance(records, list) or not records: return ["instrument payload requires non-empty typed records"], {}, {}
     if rid == "a": return _validate_a(records, base, payload.get("scene_sha256"))
+    if rid == "b": return _validate_b(records, base)
     if rid == "c": return _validate_c(records, base, payload.get("scene_sha256"), payload.get("build_id"), payload.get("freeze"))
     if rid == "d": return _validate_d(records, base)
     if rid == "e": return _validate_e(records, base)
@@ -875,26 +950,49 @@ def adapt_d_instrument(raw_path: Path, expected_identity: Mapping[str, str]) -> 
                          "expected_identity": dict(expected_identity)}]}
 
 
-def adapt_b_instrument(input_path: Path, snapshot_path: Path, matrix_path: Path) -> dict[str, Any]:
-    """Recompute row (b) from canonical frozen inputs; never accept a score claim."""
-    spec = importlib.util.spec_from_file_location("pkg278_coverage_reducer",
-        REPO_ROOT / "benchmarks" / "reference_corpus" / "coverage_report.py")
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    sys.modules[spec.name] = module; spec.loader.exec_module(module)
+def _repo_ref(path: Path) -> dict[str, str]:
+    path = Path(path).resolve()
+    try:
+        rel = path.relative_to(REPO_ROOT.resolve())
+    except ValueError as exc:
+        raise ValueError(f"canonical gate-b artifact escapes this checkout: {path}") from exc
+    return {"path": str(rel).replace("\\", "/"), "sha256": sha256_file(path)}
+
+
+def adapt_b_instrument(report_path: Path, input_path: Path, snapshot_path: Path,
+                       matrix_path: Path) -> dict[str, Any]:
+    """Wrap a canonical report only after reproducing it from pinned inputs."""
+    report_path, input_path = Path(report_path).resolve(), Path(input_path).resolve()
+    snapshot_path, matrix_path = Path(snapshot_path).resolve(), Path(matrix_path).resolve()
     frozen = json.loads(input_path.read_text(encoding="utf-8"))
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
     matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
-    report = module.build_report(frozen, snapshot, matrix, REPO_ROOT)
+    claimed = json.loads(report_path.read_text(encoding="utf-8"))
+    if not isinstance(frozen, Mapping) or frozen.get("schema") != "pkg278.coverage_input.v3":
+        raise ValueError("row-b adapter requires coverage_input_v3.json")
+    canonical_input = (REPO_ROOT / str(frozen.get("input_path") or "")).resolve()
+    if canonical_input != input_path:
+        raise ValueError("row-b input must be the frozen input_path in this checkout")
+    recomputed = _coverage_reducer().build_report(frozen, snapshot, matrix, REPO_ROOT)
+    if claimed != recomputed:
+        raise ValueError("coverage report differs from canonical build_report recomputation")
+    build = frozen.get("evidence", {}).get("runner_case_map", {}).get("candidate_build", {})
+    build_id = build.get("build_id") if isinstance(build, Mapping) else None
+    if not isinstance(build_id, str) or not build_id:
+        raise ValueError("row-b frozen case map has no candidate build identity")
     scenes = frozen.get("corpus", {}).get("scenes", {})
+    record = {"kind": "coverage_reduction", "input": _repo_ref(input_path),
+              "snapshot": _repo_ref(snapshot_path), "matrix": _repo_ref(matrix_path),
+              "report": _repo_ref(report_path)}
     return {"schema": PAYLOAD_SCHEMA, "row": "b", "instrument": "coverage_report",
             "scene_sha256": sorted(str(row.get("sha256")) for row in scenes.values() if isinstance(row, Mapping)),
-            "build_id": "", "backend": ["CPU", "GPU"],
+            "build_id": build_id, "backend": ["CPU", "GPU"],
             "settings": {"source": "canonical_coverage_reducer"}, "metric": {"source": "build_report"},
-            "value": {"cpu_score": report.get("cpu", {}).get("score"), "gpu_score": report.get("gpu", {}).get("score")},
-            "threshold": {"score_min": .95},
-            "records": [{"kind": "coverage_reduction", "artifact": {"path": str(input_path), "sha256": sha256_file(input_path)},
-                         "report": report}]}
+            "value": {"cpu_score": recomputed.get("cpu", {}).get("score"),
+                      "gpu_score": recomputed.get("gpu", {}).get("score")},
+            "threshold": {"cpu_score": .95, "gpu_score": .95}, "dimensions": {"backend": "CPU+GPU", "variant": "frozen-ledger"},
+            "subchecks": dict(recomputed.get("subchecks") or {}),
+            "scanner_issue_823": frozen.get("scanner_issue_823"), "records": [record]}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -910,6 +1008,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--json", action="store_true")
     p.add_argument("--adapt-d", type=Path, metavar="RAW_JSON",
                    help="write a v2 row-(d) adapter around hash-linked native-panel raw evidence")
+    p.add_argument("--adapt-b-report", type=Path, metavar="COVERAGE_REPORT_JSON",
+                   help="wrap a canonical gate-b coverage_report.json after recomputation")
+    p.add_argument("--adapt-b-input", type=Path, metavar="COVERAGE_INPUT_V3")
+    p.add_argument("--adapt-b-snapshot", type=Path, metavar="NODE_USES_JSON")
+    p.add_argument("--adapt-b-matrix", type=Path, metavar="COVERAGE_MATRIX_JSON")
     p.add_argument("--expected-d-build-id")
     p.add_argument("--expected-d-engine-id")
     p.add_argument("--expected-d-module-sha256")
@@ -926,6 +1029,19 @@ def main(argv: list[str] | None = None) -> int:
             p.error(str(exc))
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        print(f"wrote {args.out}")
+        return 0
+
+    if args.adapt_b_report:
+        if not all((args.adapt_b_input, args.adapt_b_snapshot, args.adapt_b_matrix)):
+            p.error("--adapt-b-report requires --adapt-b-input, --adapt-b-snapshot and --adapt-b-matrix")
+        try:
+            payload = adapt_b_instrument(args.adapt_b_report, args.adapt_b_input,
+                                         args.adapt_b_snapshot, args.adapt_b_matrix)
+        except (OSError, ValueError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
+            p.error(str(exc))
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(f"wrote {args.out}")
         return 0
 

@@ -68,21 +68,38 @@ def _canonical_production_record(tmp_path, *, backend="CPU", build_id="build-1",
             "variant_digest": variant_digest, "backend": backend, "build_id": build_id,
             "module_sha256": module_sha256, "addon_sha256": addon_sha256,
             "feature": "shader_node:BSDF_DIFFUSE"}
-    artifact = tmp_path / "image.bin"; artifact.write_bytes(b"measured image")
-    refs = {}
-    for name in ("astroray_linear_npy", "cycles_linear_npy", "report"):
-        path = tmp_path / f"{name}.bin"; path.write_bytes(name.encode())
-        refs[name] = {"path": path.name, "sha256": CR.sha256_file(path)}
-    observed = {"backend": backend, "build_id": build_id, "module_sha256": module_sha256,
-                "addon_sha256": addon_sha256, "engine_id": "CUSTOM_RAYTRACER", "device": backend}
+    astro = tmp_path / "astroray_linear_npy.npy"
+    cycles = tmp_path / "cycles_linear_npy.npy"
+    np.save(astro, np.full((16, 16, 3), .5, dtype=np.float32))
+    np.save(cycles, np.full((16, 16, 3), .5, dtype=np.float32))
+    binding = {key: case[key] for key in ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id")}
+    observed = {"identity": identity, "scene_id": scene_id, "variant_digest": variant_digest,
+                "backend": backend, "build_id": build_id, "module_sha256": module_sha256,
+                "addon_sha256": addon_sha256, "engine_id": "CUSTOM_RAYTRACER", "device": backend.lower()}
+    blend_sha = _sha("frozen blend")
+    raw = {"schema": "pkg278.gate_b.case_observation.v1", "case": binding,
+           "graph": {"identity": identity, "variant_digest": variant_digest},
+           "engine": "CUSTOM_RAYTRACER", "observed": observed, "blend_sha256": blend_sha}
+    cycles_observed = {"schema": "pkg278.gate_b.case_observation.v1", "case": binding,
+                       "graph": {"identity": identity, "variant_digest": variant_digest},
+                       "engine": "CYCLES", "observed": {"identity": identity, "scene_id": scene_id,
+                       "variant_digest": variant_digest, "engine_id": "CYCLES", "device": "cpu"},
+                       "blend_sha256": blend_sha}
+    astro_raw = tmp_path / "report.json"; astro_raw.write_text(json.dumps(raw), encoding="utf-8")
+    cycles_raw = tmp_path / "cycles_report.json"; cycles_raw.write_text(json.dumps(cycles_observed), encoding="utf-8")
+    refs = {"astroray_linear_npy": {"path": astro.name, "sha256": CR.sha256_file(astro)},
+            "cycles_linear_npy": {"path": cycles.name, "sha256": CR.sha256_file(cycles)},
+            "report": {"path": astro_raw.name, "sha256": CR.sha256_file(astro_raw)},
+            "cycles_report": {"path": cycles_raw.name, "sha256": CR.sha256_file(cycles_raw)}}
+    measured_ssim, measured_delta_e, _ = HARNESS._metrics(np.load(astro), np.load(cycles))
     runner = {"schema": CR.RUNNER_RESULT_SCHEMA, "results": [HARNESS.gate_b_corpus_result(
-        case, observed, {"ssim": .99, "delta_e": 1.0}, refs)]}
+        case, observed, {"ssim": measured_ssim, "delta_e": measured_delta_e}, refs)]}
     runner_path = tmp_path / "runner.json"; runner_path.write_text(json.dumps(runner), encoding="utf-8")
     runner_sha = CR.sha256_file(runner_path)
     record = {"schema": CR.EVIDENCE_SCHEMA, "identity": identity, "scene_id": scene_id,
               "variant": scene_id, "variant_digest": variant_digest, "backend": backend,
               "build_id": build_id, "case_id": case_id, "result_kind": "test_result",
-              "artifact": {"path": artifact.name, "sha256": CR.sha256_file(artifact)},
+              "artifact": refs["astroray_linear_npy"],
               "verdict": {"schema": CR.VERDICT_SCHEMA, "pass": True, "identity": identity,
                           "scene_id": scene_id, "variant_digest": variant_digest, "backend": backend,
                           "build_id": build_id, "result": {"kind": "test_result", "artifact_sha256": runner_sha}},
@@ -94,8 +111,8 @@ def test_production_evidence_requires_frozen_case_and_canonical_metrics(tmp_path
     record, cases = _canonical_production_record(tmp_path)
     assert CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)[0]
     assert not CR.evidence_is_valid(record, tmp_path, allowed_cases={})[0]
-    record["verifier_result"]["path"] = "image.bin"
-    record["verifier_result"]["sha256"] = CR.sha256_file(tmp_path / "image.bin")
+    record["verifier_result"]["path"] = "astroray_linear_npy.npy"
+    record["verifier_result"]["sha256"] = CR.sha256_file(tmp_path / "astroray_linear_npy.npy")
     assert not CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)[0]
 
 
@@ -111,17 +128,48 @@ def test_production_evidence_rejects_runner_case_mismatch(tmp_path, field, value
     assert not CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)[0]
 
 
+@pytest.mark.parametrize("field,value", [("module_sha256", "bad-module"),
+                                           ("addon_sha256", "bad-addon")])
+def test_production_evidence_rejects_observed_native_identity_mismatch(tmp_path, field, value):
+    record, cases = _canonical_production_record(tmp_path)
+    cases["case-1"][field] = value
+    assert not CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)[0]
+
+
+def test_production_evidence_recomputes_runner_metrics_and_raw_graph(tmp_path):
+    record, cases = _canonical_production_record(tmp_path)
+    runner_path = tmp_path / "runner.json"
+    runner = json.loads(runner_path.read_text(encoding="utf-8"))
+    runner["results"][0]["metrics"]["ssim"] = .99
+    runner_path.write_text(json.dumps(runner), encoding="utf-8")
+    digest = CR.sha256_file(runner_path)
+    record["verifier_result"]["sha256"] = digest
+    record["verdict"]["result"]["artifact_sha256"] = digest
+    assert not CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)[0]
+
+    record, cases = _canonical_production_record(tmp_path)
+    raw = tmp_path / "report.json"
+    report = json.loads(raw.read_text(encoding="utf-8"))
+    report["graph"]["variant_digest"] = "relabeled"
+    raw.write_text(json.dumps(report), encoding="utf-8")
+    runner_path = tmp_path / "runner.json"
+    runner = json.loads(runner_path.read_text(encoding="utf-8"))
+    runner["results"][0]["artifacts"]["report"]["sha256"] = CR.sha256_file(raw)
+    runner_path.write_text(json.dumps(runner), encoding="utf-8")
+    digest = CR.sha256_file(runner_path)
+    record["verifier_result"]["sha256"] = digest
+    record["verdict"]["result"]["artifact_sha256"] = digest
+    assert not CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)[0]
+
+
 def test_harness_emits_metric_derived_gate_b_result():
     result = HARNESS.FeatureResult("shader_node", "BSDF_DIFFUSE", "SUPPORTED", "pass",
                                    ssim=.99, delta_e=1.0)
     case = {"case_id": "case", "identity": "N|input:X", "scene_id": "S1",
             "variant_digest": "v", "feature": "shader_node:BSDF_DIFFUSE"}
-    emitted = HARNESS.gate_b_runner_results([result], [case], backend="CPU", build_id="b",
-                                             module_sha256="m", addon_sha256="a")
-    assert emitted[0]["status"] == "pass" and emitted[0]["metrics"]["ssim"] == .99
-    failed = HARNESS.gate_b_runner_results([result], [case], backend="CPU", build_id="b",
-                                            module_sha256="m", addon_sha256="a")
-    assert failed[0]["observed"]["module_sha256"] == "m"
+    with pytest.raises(ValueError, match="generic FeatureResult"):
+        HARNESS.gate_b_runner_results([result], [case], backend="CPU", build_id="b",
+                                      module_sha256="m", addon_sha256="a")
 
 
 def test_missing_evidence_scores_zero_never_raises():
@@ -611,6 +659,38 @@ def test_manifest_always_has_rows_a_through_f():
         assert manifest["rows"][rid]["status"] == "unmeasured"
         assert manifest["rows"][rid]["value"] is None
     assert GM.validate_shape(manifest) == []
+
+
+def test_gate_b_adapter_recomputes_a_hash_pinned_canonical_report(tmp_path, monkeypatch):
+    """End-to-end-shaped pure fixture: report text cannot supply its own score."""
+    expected = {"schema": "pkg278.coverage_report.v1", "cpu": {"score": .97},
+                "gpu": {"score": .96}, "subchecks": {key: {"pass": True}
+                for key in GM.ROW_SPEC["b"]["required_subchecks"]}}
+    frozen = {"schema": "pkg278.coverage_input.v3", "input_path": "input.json",
+              "matrix": {"path": "matrix.json"}}
+    snapshot, matrix = {"scenes": {}}, []
+    for name, payload in (("input.json", frozen), ("snapshot.json", snapshot),
+                          ("matrix.json", matrix), ("report.json", expected)):
+        (tmp_path / name).write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(GM, "REPO_ROOT", tmp_path)
+    calls = []
+    class Reducer:
+        @staticmethod
+        def build_report(got_frozen, got_snapshot, got_matrix, got_root):
+            calls.append((got_frozen, got_snapshot, got_matrix, got_root))
+            return expected
+    monkeypatch.setattr(GM, "_coverage_reducer", lambda: Reducer)
+    ref = lambda name: {"path": name, "sha256": GM.sha256_file(tmp_path / name)}
+    record = {"kind": "coverage_reduction", "input": ref("input.json"),
+              "snapshot": ref("snapshot.json"), "matrix": ref("matrix.json"),
+              "report": ref("report.json")}
+    errors, value, subchecks = GM._validate_b([record], tmp_path)
+    assert not errors and value == {"cpu_score": .97, "gpu_score": .96}
+    assert subchecks == expected["subchecks"] and len(calls) == 1
+    (tmp_path / "report.json").write_text(json.dumps({**expected, "cpu": {"score": 1.0}}), encoding="utf-8")
+    record["report"] = ref("report.json")
+    errors, _, _ = GM._validate_b([record], tmp_path)
+    assert any("differs from the canonical recomputation" in error for error in errors)
 
 
 def test_hand_edited_green_is_rejected(tmp_path):

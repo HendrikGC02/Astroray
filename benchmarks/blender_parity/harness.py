@@ -27,6 +27,7 @@ a GPU (tests/test_blender_parity_harness.py). Only ``run()`` needs Blender.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -825,6 +826,8 @@ def run(matrix_path: Path, out_dir: Path, *, res: int = 128, samples: int = 64,
         gate_b_cases: Path | None = None, gate_b_backend: str = "",
         gate_b_build_id: str = "", gate_b_module_sha256: str = "",
         gate_b_addon_sha256: str = "") -> int:
+    if gate_b_cases is not None:
+        raise ValueError("generic differential runs cannot emit gate-b corpus evidence; use run_gate_b_corpus")
     blender = _find_blender()
     if blender is None:
         print("[pkg119b] Blender not found (set BLENDER_EXE) - cannot run legs.",
@@ -924,11 +927,6 @@ def run(matrix_path: Path, out_dir: Path, *, res: int = 128, samples: int = 64,
               flush=True)
 
     write_reports(results, out_dir)
-    if gate_b_cases is not None:
-        write_gate_b_runner_results(
-            results, gate_b_cases, out_dir / "gate_b_runner_results.json",
-            backend=gate_b_backend, build_id=gate_b_build_id,
-            module_sha256=gate_b_module_sha256, addon_sha256=gate_b_addon_sha256)
     # A crashed feature is a hard failure of "no crash on any feature"; a
     # triaged FAIL is expected output, not a harness failure.
     crashes = [r for r in results if r.status == "crash"]
@@ -975,27 +973,8 @@ def gate_b_runner_results(results: list[FeatureResult], cases: list[dict[str, An
     result is emitted only when exactly one measured feature is named by its
     ``feature`` field; pass/fail is recomputed from retained parity metrics.
     """
-    by_feature = {f"{result.category}:{result.feature}": result for result in results}
-    emitted: list[dict[str, Any]] = []
-    for case in cases:
-        feature_key = case.get("feature")
-        result = by_feature.get(feature_key)
-        if not isinstance(feature_key, str) or result is None:
-            continue
-        ssim, delta_e = result.ssim, result.delta_e
-        passed = (result.status == "pass" and isinstance(ssim, (int, float))
-                  and isinstance(delta_e, (int, float)) and ssim >= 0.95 and delta_e <= 5.0)
-        emitted.append({
-            "schema": GATE_B_RUNNER_RESULT_SCHEMA,
-            "case_id": case.get("case_id"), "identity": case.get("identity"),
-            "scene_id": case.get("scene_id"), "variant_digest": case.get("variant_digest"),
-            "backend": backend, "build_id": build_id,
-            "observed": {"backend": backend, "build_id": build_id,
-                         "module_sha256": module_sha256, "addon_sha256": addon_sha256},
-            "feature": feature_key, "status": "pass" if passed else "fail",
-            "metrics": {"ssim": ssim, "delta_e": delta_e},
-        })
-    return emitted
+    del results, cases, backend, build_id, module_sha256, addon_sha256
+    raise ValueError("generic FeatureResult output cannot prove a frozen gate-b corpus case; use --gate-b-cases")
 
 
 def gate_b_corpus_result(case: Mapping[str, Any], observed: Mapping[str, Any],
@@ -1008,8 +987,9 @@ def gate_b_corpus_result(case: Mapping[str, Any], observed: Mapping[str, Any],
     required = ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id")
     if any(not isinstance(case.get(key), str) or not case[key] for key in required):
         raise ValueError("gate-b corpus case is incomplete")
-    if any(observed.get(key) != case.get(key) for key in ("backend", "build_id")):
-        raise ValueError("observed backend/build does not match frozen case")
+    if any(observed.get(key) != case.get(key)
+           for key in ("identity", "scene_id", "variant_digest", "backend", "build_id")):
+        raise ValueError("observed corpus identity does not match frozen case")
     if not all(isinstance(observed.get(key), str) and observed[key] for key in ("module_sha256", "addon_sha256", "engine_id", "device")):
         raise ValueError("corpus render leg lacks observed engine identity")
     ssim, delta_e = metrics.get("ssim"), metrics.get("delta_e")
@@ -1022,6 +1002,138 @@ def gate_b_corpus_result(case: Mapping[str, Any], observed: Mapping[str, Any],
             "observed": dict(observed), "metrics": {"ssim": ssim, "delta_e": delta_e},
             "artifacts": dict(artifacts),
             "status": "pass" if ssim >= .95 and delta_e <= 5.0 else "fail"}
+
+
+def _gate_b_cases(cases_path: Path) -> list[dict[str, Any]]:
+    """Read the v3 frozen case map, never a feature-result surrogate."""
+    payload = json.loads(Path(cases_path).read_text(encoding="utf-8"))
+    case_map = payload.get("evidence", {}).get("runner_case_map", {}) if isinstance(payload, Mapping) else {}
+    cases = case_map.get("cases") if isinstance(case_map, Mapping) else None
+    if payload.get("schema") != "pkg278.coverage_input.v3" or not isinstance(cases, list):
+        raise ValueError("--gate-b-cases requires a frozen coverage_input_v3.json with cases")
+    expected = hashlib.sha256(json.dumps(cases, sort_keys=True, ensure_ascii=True,
+                                         separators=(",", ":")).encode("utf-8")).hexdigest()
+    if case_map.get("sha256") != expected:
+        raise ValueError("frozen gate-b case map hash mismatch")
+    required = ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id",
+                "module_sha256", "addon_sha256")
+    if any(not isinstance(case, Mapping) or any(not isinstance(case.get(key), str) or not case[key]
+                                                for key in required) for case in cases):
+        raise ValueError("frozen gate-b case map contains an incomplete case")
+    return [dict(case) for case in cases]
+
+
+def _gate_b_report(combined: str) -> dict[str, Any]:
+    prefix = f"{SENTINEL} REPORT "
+    reports = [line[len(prefix):] for line in combined.splitlines() if line.startswith(prefix)]
+    if len(reports) != 1:
+        raise ValueError("corpus render leg did not emit exactly one observation report")
+    report = json.loads(reports[0])
+    if not isinstance(report, dict):
+        raise ValueError("corpus render-leg observation is not an object")
+    return report
+
+
+def _gate_b_artifact(path: Path, base: Path) -> dict[str, str]:
+    # Evidence can be written under a caller-selected repository evidence
+    # directory; absolute references keep the runner result valid when its
+    # sidecar is discovered from the frozen canonical sidecar directory.
+    return {"path": str(path.resolve()).replace("\\", "/"),
+            "sha256": _sha256(path)}
+
+
+def run_gate_b_corpus(cases_path: Path, corpus_manifest: Path, out_dir: Path, *,
+                      timeout: int = 600) -> int:
+    """Render every frozen corpus case and retain the paired linear evidence.
+
+    Each Blender invocation receives one immutable case file.  The leg itself
+    reopens the named corpus blend, verifies its bytes, and records the actual
+    reachability-derived identity/variant plus loaded addon/module telemetry.
+    This is deliberately separate from the generic feature differential loop:
+    a FeatureResult has no authority to label a corpus case.
+    """
+    import numpy as np
+
+    blender = _find_blender()
+    build_dir = _pyd_dir(_REPO_ROOT) or _pyd_dir(_REPO_ROOT.parent / "Astroray")
+    if blender is None or build_dir is None:
+        print("[pkg278] Blender and an addon astroray build are required for gate-b corpus cases.", file=sys.stderr)
+        return 2
+    cases = _gate_b_cases(cases_path)
+    out_dir = Path(out_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env["ASTRORAY_PYD_DIR"] = str(build_dir)
+    env["ASTRORAY_BUILD_DIR"] = str(_REPO_ROOT / "build_cuda")
+    results: list[dict[str, Any]] = []
+    sidecars = out_dir / "sidecars"
+    sidecars.mkdir(exist_ok=True)
+
+    for case in cases:
+        case_dir = out_dir / "cases" / case["case_id"]
+        case_dir.mkdir(parents=True, exist_ok=True)
+        case_path = case_dir / "case.json"
+        case_path.write_text(json.dumps(case, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        legs: dict[str, dict[str, Any]] = {}
+        failed = ""
+        for engine, device, name in (("CYCLES", "cpu", "cycles"),
+                                     ("CUSTOM_RAYTRACER", case["backend"].lower(), "astroray")):
+            stem = case_dir / name
+            raw = case_dir / f"{name}_raw.json"
+            args = ["--corpus-manifest", str(Path(corpus_manifest).resolve()),
+                    "--corpus-scene", case["scene_id"], "--gate-b-case", str(case_path),
+                    "--gate-b-report", str(raw), "--engine", engine, "--device", device,
+                    "--out", str(stem)]
+            ok, combined, tail = _run_render_leg_script(blender, args, env, timeout)
+            if not ok or not stem.with_suffix(".npy").is_file() or not raw.is_file():
+                failed = f"{name} leg failed: {tail}"
+                break
+            try:
+                legs[name] = {"report": _gate_b_report(combined), "raw": raw,
+                              "npy": stem.with_suffix(".npy")}
+            except (ValueError, json.JSONDecodeError) as exc:
+                failed = f"{name} observation invalid: {exc}"
+                break
+        if failed:
+            results.append({"schema": GATE_B_RUNNER_RESULT_SCHEMA, "case_id": case["case_id"],
+                            "status": "fail", "reason": failed})
+            continue
+        astro, cycles = legs["astroray"], legs["cycles"]
+        try:
+            observed = astro["report"]["observed"]
+            for report in (astro["report"], cycles["report"]):
+                if report.get("case") != {key: case[key] for key in ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id")}:
+                    raise ValueError("render-leg case binding mismatch")
+                if report.get("graph", {}).get("identity") != case["identity"] or report["graph"].get("variant_digest") != case["variant_digest"]:
+                    raise ValueError("render-leg graph does not confirm frozen identity/variant")
+                if report.get("blend_sha256") != astro["report"].get("blend_sha256"):
+                    raise ValueError("paired legs opened different corpus bytes")
+            ssim, delta_e, _ratio = _metrics(np.load(astro["npy"]), np.load(cycles["npy"]))
+            artifacts = {"astroray_linear_npy": _gate_b_artifact(astro["npy"], out_dir),
+                         "cycles_linear_npy": _gate_b_artifact(cycles["npy"], out_dir),
+                         "report": _gate_b_artifact(astro["raw"], out_dir),
+                         "cycles_report": _gate_b_artifact(cycles["raw"], out_dir)}
+            result = gate_b_corpus_result(case, observed, {"ssim": ssim, "delta_e": delta_e}, artifacts)
+            results.append(result)
+            runner_one = case_dir / "runner_result.json"
+            runner_one.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            verifier = _gate_b_artifact(runner_one, out_dir)
+            sidecar = {"schema": "pkg278.gate_b.evidence.v2", "identity": case["identity"],
+                       "scene_id": case["scene_id"], "variant": case["scene_id"],
+                       "variant_digest": case["variant_digest"], "backend": case["backend"],
+                       "build_id": case["build_id"], "case_id": case["case_id"], "result_kind": "render",
+                       "artifact": artifacts["astroray_linear_npy"],
+                       "verdict": {"schema": "pkg278.gate_b.verdict.v1", "pass": result["status"] == "pass",
+                                   **{key: case[key] for key in ("identity", "scene_id", "variant_digest", "backend", "build_id")},
+                                   "result": {"kind": "render", "artifact_sha256": verifier["sha256"]}},
+                       "verifier_result": verifier}
+            (sidecars / f"{case['case_id']}.json").write_text(json.dumps(sidecar, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        except (KeyError, TypeError, ValueError) as exc:
+            results.append({"schema": GATE_B_RUNNER_RESULT_SCHEMA, "case_id": case["case_id"],
+                            "status": "fail", "reason": str(exc)})
+    payload = {"schema": GATE_B_RUNNER_RESULT_SCHEMA, "results": results}
+    (out_dir / "gate_b_runner_results.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return 0 if len(results) == len(cases) and all(result.get("status") == "pass" for result in results) else 1
 
 
 def write_gate_b_runner_results(results: list[FeatureResult], cases_path: Path,
@@ -1131,7 +1243,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--build-id", default="", help="pinned addon/build identity for gate-c evidence")
     p.add_argument("--module-sha256", default="", help="expected loaded astroray module SHA-256 for gate-c")
     p.add_argument("--gate-b-cases", type=Path,
-                   help="frozen gate-(b) case map; emits canonical runner results")
+                   help="frozen coverage_input_v3.json; run each immutable corpus case")
     p.add_argument("--gate-b-backend", choices=("CPU", "GPU"), default="")
     p.add_argument("--gate-b-addon-sha256", default="")
     args = p.parse_args(argv)
@@ -1141,6 +1253,11 @@ def main(argv: list[str] | None = None) -> int:
         return run_gate_c_trio(args.out, manifest_path=args.corpus_manifest,
                                timeout=args.timeout, build_id=args.build_id,
                                module_sha256=args.module_sha256)
+    if args.gate_b_cases is not None:
+        if args.corpus_manifest is None:
+            p.error("--gate-b-cases requires --corpus-manifest")
+        return run_gate_b_corpus(args.gate_b_cases, args.corpus_manifest, args.out,
+                                 timeout=args.timeout)
     return run(args.matrix, args.out, res=args.res, samples=args.samples,
                timeout=args.timeout, include_composites=not args.no_composites,
                gate_b_cases=args.gate_b_cases, gate_b_backend=args.gate_b_backend,

@@ -645,6 +645,47 @@ def test_freeze_and_verify_roundtrip(tmp_path):
     assert frozen["collector"]["snapshot_sha256"]
 
 
+def test_freeze_v4_cli_writes_validated_repo_relative_input_from_external_cwd(tmp_path, monkeypatch):
+    """The CLI writes the verified repo path, never the invocation-relative spelling."""
+    repo, external_cwd = tmp_path / "repo", tmp_path / "external-cwd"
+    scenes = repo / "benchmarks" / "reference_corpus" / "scenes"
+    scenes.mkdir(parents=True); external_cwd.mkdir()
+    blend = scenes / "S1.blend"; blend.write_bytes(b"cli fixture blend")
+    scene_sha = CR.sha256_file(blend)
+    corpus = _corpus_manifest({"S1": scene_sha})
+    corpus["scenes"]["S1"]["settings"] = {"res_x": 16, "res_y": 16, "samples": 1}
+    manifest = scenes / "manifest.json"; manifest.write_text(json.dumps(corpus), encoding="utf-8")
+    matrix = repo / "coverage_matrix.json"
+    matrix.write_text(json.dumps([{"category": "shader_node", "feature": "BSDF_DIFFUSE",
+                                   "bl_idname": "ShaderNodeBsdfDiffuse",
+                                   "socket_or_prop": "input:Color",
+                                   "classification": CR.SUPPORTED}]), encoding="utf-8")
+    snapshot = {"schema": CR.NODE_USES_SCHEMA, "scenes": {"S1": {
+        "blend_path": "benchmarks/reference_corpus/scenes/S1.blend", "scene_sha256": scene_sha,
+        "collection_errors": [], "nodes": [{"bl_idname": "ShaderNodeBsdfDiffuse",
+                                                "sockets": ["input:Color"], "fingerprint": {}}]}}}
+    snapshot_path = tmp_path / "snapshot.json"; snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+    candidate_path = tmp_path / "candidate.json"
+    candidate_path.write_text(json.dumps({"build_id": "cli-fixture", "module_sha256": "a" * 64,
+                                          "addon_sha256": "b" * 64}), encoding="utf-8")
+    ledger = CR.materialize_use_ledger(snapshot)
+    key = (ledger[0]["identity"], "S1", ledger[0]["variants"][0]["variant_digest"])
+    witness = {"roi": [.25, .25, .75, .75],
+               "control": {"kind": "checker_flat", "object": "fixture",
+                           "mask": {"kind": "object_polygon"}},
+               "effect": {"min_delta": .05, "min_coverage": .02, "min_signal": .001}}
+    monkeypatch.setattr(CR, "CASE_WITNESS_REGISTRY", {**CR.CASE_WITNESS_REGISTRY, key: witness})
+    monkeypatch.setattr(CR, "__file__", str(repo / "benchmarks" / "reference_corpus" / "coverage_report.py"))
+    monkeypatch.chdir(external_cwd)
+    custom = "docs/blender_parity/coverage_input_v4_cli_fixture.json"
+    assert CR.main(["--freeze-v4", "--manifest", str(manifest.resolve()),
+                    "--node-uses", str(snapshot_path.resolve()), "--matrix", str(matrix.resolve()),
+                    "--candidate-build", str(candidate_path.resolve()), "--input-manifest", custom]) == 0
+    written = repo / custom
+    assert written.is_file() and not (external_cwd / custom).exists()
+    assert json.loads(written.read_text(encoding="utf-8"))["input_path"] == custom
+
+
 def _git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=repo, check=True, text=True,
                           capture_output=True).stdout.strip()

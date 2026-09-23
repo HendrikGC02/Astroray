@@ -1992,11 +1992,11 @@ def main(argv: list[str] | None = None) -> int:
             frozen, errors = freeze_coverage_input(corpus_manifest, args.matrix, snapshot,
                                                     input_path=input_relative,
                                                     sidecar_dir=sidecar_relative)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(frozen, indent=2, sort_keys=True), encoding="utf-8", newline="\n")
+        input_file.parent.mkdir(parents=True, exist_ok=True)
+        input_file.write_text(json.dumps(frozen, indent=2, sort_keys=True), encoding="utf-8", newline="\n")
         for err in errors:
             print(f"[freeze] error: {err}", file=sys.stderr)
-        print(f"[freeze] wrote {out_path} (errors={len(errors)})")
+        print(f"[freeze] wrote {input_file} (errors={len(errors)})")
         return 1 if errors else 0
 
     if args.score:

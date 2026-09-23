@@ -203,6 +203,11 @@ def _number(value: Any) -> float | None:
     return value if math.isfinite(value) else None
 
 
+def _subcheck_passed(value: Any) -> bool:
+    """Accept the bool and typed-check forms emitted by the canonical reducers."""
+    return value is True or (isinstance(value, Mapping) and value.get("pass") is True)
+
+
 def _artifact(ref: Any, base: Path, label: str) -> tuple[Path | None, list[str]]:
     """Resolve an immutable producer artifact beneath its payload directory."""
     if not isinstance(ref, Mapping):
@@ -732,7 +737,10 @@ def _validate_b(records: list[Any], _base: Path) -> tuple[list[str], dict[str, A
     subchecks = recomputed.get("subchecks")
     if not isinstance(subchecks, Mapping):
         return ["row b canonical reducer produced no subchecks"], value, {}
-    return [], value, dict(subchecks)
+    errors = []
+    if recomputed.get("status") != "green":
+        errors.append(f"row b canonical coverage report status is {recomputed.get('status')!r}, not 'green'")
+    return errors, value, dict(subchecks)
 
 
 def _records_validate(payload: Mapping[str, Any], rid: str, base: Path) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
@@ -812,6 +820,14 @@ def _check_common(row: Mapping[str, Any], spec: Mapping[str, Any],
             reasons.append("manifest value is not the value derived from concrete records")
         if derived_subchecks and row.get("subchecks") != derived_subchecks:
             reasons.append("manifest subchecks are not derived from concrete records")
+        # A failed required check is a measured RED during row computation.  A
+        # C RED remains semantically valid in validate_manifest, where
+        # measurement_failure_is_error is deliberately false.
+        if measurement_failure_is_error:
+            for name in spec.get("required_subchecks", ()):
+                result = derived_subchecks.get(name) if isinstance(derived_subchecks, Mapping) else None
+                if not _subcheck_passed(result):
+                    reasons.append(f"required subcheck failed or missing: {name}")
         if rid == "c":
             if row.get("measurement_failures") != measurement_failures:
                 reasons.append("manifest measurement failures are not derived from concrete records")
@@ -1018,6 +1034,17 @@ def load_instruments(instruments_dir: Path | None,
             row["dimensions"] = {"scene": "frozen workload SHA", "edit_kind": "camera/material",
                                  "repetitions": "3x100 serialized edits"}
             row["subchecks"] = subchecks if not errors else {}
+            row["value"] = value
+            row["date"] = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+            return row
+        if (isinstance(payload, Mapping) and payload.get("schema") == PAYLOAD_SCHEMA
+                and payload.get("row") == "b" and payload.get("instrument") == "coverage_report"):
+            _errors, value, subchecks = _validate_b(payload.get("records", []), path.parent)
+            row = dict(payload)
+            row["evidence_path"] = str(path)
+            row["evidence_sha256"] = sha256_file(path)
+            row["dimensions"] = {"backend": "CPU+GPU", "variant": "frozen-ledger"}
+            row["subchecks"] = subchecks
             row["value"] = value
             row["date"] = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
             return row

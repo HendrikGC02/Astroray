@@ -817,11 +817,12 @@ def test_manifest_always_has_rows_a_through_f():
 
 def test_gate_b_adapter_recomputes_a_hash_pinned_canonical_report(tmp_path, monkeypatch):
     """End-to-end-shaped pure fixture: report text cannot supply its own score."""
-    expected = {"schema": "pkg278.coverage_report.v1", "cpu": {"score": .97},
+    expected = {"schema": "pkg278.coverage_report.v1", "status": "green", "cpu": {"score": .97},
                 "gpu": {"score": .96}, "subchecks": {key: {"pass": True}
                 for key in GM.ROW_SPEC["b"]["required_subchecks"]}}
     frozen = {"schema": "pkg278.coverage_input_manifest.v4", "input_path": "input.json",
               "matrix": {"path": "matrix.json"},
+              "corpus": {"scenes": {"fixture": {"sha256": _hex(1)}}},
               "evidence": {"runner_case_map": {"status": "ready",
                            "candidate_build": {"build_id": "candidate"}}}}
     snapshot, matrix = {"scenes": {}}, []
@@ -848,10 +849,79 @@ def test_gate_b_adapter_recomputes_a_hash_pinned_canonical_report(tmp_path, monk
     assert adapted["build_id"] == "candidate" and adapted["value"] == value
     errors, adapted_value, _ = GM._validate_b(adapted["records"], tmp_path)
     assert not errors and adapted_value == value
+    adapter_path = tmp_path / "b_instrument.json"
+    adapter_path.write_text(json.dumps(adapted), encoding="utf-8")
+    loaded = GM.load_instruments(None, {"b": adapter_path})["b"]
+    assert all(field in loaded for field in ("evidence_path", "evidence_sha256", "date"))
+    assert loaded["value"] == value and loaded["subchecks"] == expected["subchecks"]
     (tmp_path / "report.json").write_text(json.dumps({**expected, "cpu": {"score": 1.0}}), encoding="utf-8")
     record["report"] = ref("report.json")
     errors, _, _ = GM._validate_b([record], tmp_path)
     assert any("differs from the canonical recomputation" in error for error in errors)
+
+
+def test_gate_b_provisional_report_stays_unmeasured_before_823_and_red_after(tmp_path, monkeypatch):
+    """A canonical provisional result is never promoted by in-bound scores."""
+    expected = {"schema": "pkg278.coverage_report.v1", "status": "provisional",
+                "cpu": {"score": .97}, "gpu": {"score": .96},
+                "subchecks": {key: {"pass": True} for key in GM.ROW_SPEC["b"]["required_subchecks"]}}
+    expected["subchecks"]["b1_input_manifest_ratified"] = {"pass": False}
+    frozen = {"schema": "pkg278.coverage_input_manifest.v4", "input_path": "input.json",
+              "matrix": {"path": "matrix.json"},
+              "corpus": {"scenes": {"fixture": {"sha256": _hex(2)}}},
+              "evidence": {"runner_case_map": {"status": "ready",
+                           "candidate_build": {"build_id": "candidate"}}}}
+    for name, payload in (("input.json", frozen), ("snapshot.json", {"scenes": {}}),
+                          ("matrix.json", []), ("report.json", expected)):
+        (tmp_path / name).write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(GM, "REPO_ROOT", tmp_path)
+
+    class Reducer:
+        @staticmethod
+        def build_report(*_args):
+            return expected
+
+    monkeypatch.setattr(GM, "_coverage_reducer", lambda: Reducer)
+    adapted = GM.adapt_b_instrument(tmp_path / "report.json", tmp_path / "input.json",
+                                    tmp_path / "snapshot.json", tmp_path / "matrix.json")
+    adapter_path = tmp_path / "b_instrument.json"
+    adapter_path.write_text(json.dumps(adapted), encoding="utf-8")
+    loaded = GM.load_instruments(None, {"b": adapter_path})["b"]
+    row, reasons = GM.compute_row("b", loaded, GM.ROW_SPEC["b"], tmp_path)
+    assert row["status"] == "unmeasured"
+    assert any("823" in reason for reason in reasons)
+    scanner = tmp_path / "scanner.json"; scanner.write_text("integrated", encoding="utf-8")
+    loaded["scanner_issue_823"] = {"integrated": True, "evidence_path": scanner.name,
+                                    "evidence_sha256": GM.sha256_file(scanner)}
+    row, reasons = GM.compute_row("b", loaded, GM.ROW_SPEC["b"], tmp_path)
+    assert row["status"] == "red"
+    assert any("status" in reason and "provisional" in reason for reason in reasons)
+
+
+def test_required_subcheck_false_or_missing_cannot_compute_green(tmp_path, monkeypatch):
+    """Required checks are gate predicates, not informational reducer output."""
+    payload = {"schema": GM.PAYLOAD_SCHEMA, "row": "d", "instrument": "native_panel_smoke",
+               "records": [{"kind": "native_panel_aggregate"}], "scene_sha256": [_hex(3)],
+               "build_id": "candidate", "backend": ["CPU", "GPU"], "settings": {}, "metric": {},
+               "threshold": {"mean_rel_error_max": .02, "detail_preservation_min": .95}}
+    evidence = tmp_path / "d_instrument.json"; evidence.write_text(json.dumps(payload), encoding="utf-8")
+    derived_value = {"mean_rel_error_max": .01, "detail_preservation_min": .96}
+    derived_subchecks = {key: True for key in GM.ROW_SPEC["d"]["required_subchecks"]}
+    raw = {**payload, "value": derived_value, "evidence_path": str(evidence),
+           "evidence_sha256": GM.sha256_file(evidence),
+           "dimensions": {"backend": "CPU+GPU", "panel": "native settings"},
+           "subchecks": derived_subchecks, "date": "2026-09-24"}
+    monkeypatch.setattr(GM, "_records_validate",
+                        lambda *_args: ([], derived_value, derived_subchecks))
+    derived_subchecks["adaptive_lowers_flat_noise"] = False
+    row, reasons = GM.compute_row("d", raw, GM.ROW_SPEC["d"], tmp_path)
+    assert row["status"] == "red"
+    assert any("adaptive_lowers_flat_noise" in reason for reason in reasons)
+    derived_subchecks.pop("denoise_lowers_residual_noise")
+    raw["subchecks"] = derived_subchecks
+    row, reasons = GM.compute_row("d", raw, GM.ROW_SPEC["d"], tmp_path)
+    assert row["status"] == "red"
+    assert any("denoise_lowers_residual_noise" in reason for reason in reasons)
 
 
 def test_hand_edited_green_is_rejected(tmp_path):

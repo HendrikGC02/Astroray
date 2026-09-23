@@ -1341,7 +1341,7 @@ def _build_trees_from_bpy() -> dict[str, Any]:
             scene_objects.add(original)
     used_materials = set()
     for obj in scene_objects:
-        if getattr(obj, "type", None) in {"MESH", "CURVE", "SURFACE", "FONT", "META", "GPENCIL"}:
+        if getattr(obj, "type", None) in {"MESH", "CURVE", "CURVES", "SURFACE", "FONT", "META", "GPENCIL"}:
             for slot in getattr(obj, "material_slots", []):
                 if slot.material is not None:
                     used_materials.add(slot.material)

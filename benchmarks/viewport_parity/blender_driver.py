@@ -635,11 +635,11 @@ def _switch_engine(host, port, engine):
 
 
 def _run_class(host, port, event_class, n, reps, warmup, deadline_s,
-               rotate_deg=1.0, gate_a=False):
+               rotate_deg=1.0, gate_a=False, evidence_dir=None):
     """Install the recorder for one event class, poll to completion (or the
     per-config wall-clock deadline), fetch and return non-warmup events."""
     cfg = {"event_class": event_class, "n": n, "reps": reps, "warmup": warmup,
-           "rotate_deg": rotate_deg, "gate_a": gate_a}
+           "rotate_deg": rotate_deg, "gate_a": gate_a, "evidence_dir": evidence_dir}
     setup = "_PKG241_CONFIG = " + json.dumps(cfg) + "\n" + _recorder_src()
     info = _bridge(setup, host, port)
     if info.get("setup") != "ok":
@@ -720,7 +720,9 @@ def reduce_gate_a_capture(raw_events, edits, *, truncated=False):
         deq = after("mailbox_dequeue", enq[2], gen, epoch, pub) if enq and pub is not None else None
         upload = after("texture_upload_end", deq[2], gen, epoch, pub) if deq else None
         present = after("post_pixel_present", upload[2], gen, epoch, pub) if upload else None
-        if not all((req, bound, applied, enq, deq, upload, present)) or bound[4].get("fingerprint") != edit.get("input_fingerprint"):
+        pixels = [e for e in by_name.get("viewport_pixels", [])
+                  if e[4].get("event_id") == event_id and e[4].get("label") in ("pre", "post")]
+        if not all((req, bound, applied, enq, deq, upload, present)) or len(pixels) != 2 or bound[4].get("fingerprint") != edit.get("input_fingerprint"):
             errors.append(f"edit {event_id} has no correct presented generation chain"); continue
         rows.append({"event_id": event_id, "event_ns": dispatch,
                      "present_ns": present[2], "generation": gen, "epoch": epoch,
@@ -1230,7 +1232,8 @@ def run_gate_a(args) -> dict:
         for kind in ("camera", "material"):
             for batch in range(3):
                 result = _run_class(host, port, kind, 100, 1, args.warmup,
-                                    args.gpu_deadline_s, args.rotate_deg, gate_a=True)
+                                    args.gpu_deadline_s, args.rotate_deg, gate_a=True,
+                                    evidence_dir=str(args.out / "a" / "frames" / workload["name"] / kind / str(batch)))
                 reduced = reduce_gate_a_capture(result["raw_events"], result["events"],
                                                 truncated=result["truncated"])
                 captures.append({"scene_sha256": workload["sha256"],

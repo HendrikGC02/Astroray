@@ -32,6 +32,8 @@ separate bridge requests used to poll/fetch/teardown.
 """
 
 import math
+import hashlib
+import os
 import time
 
 import bpy
@@ -47,6 +49,7 @@ N_WARMUP = int(_CFG.get("warmup", 5))
 ROTATE_DEG = float(_CFG.get("rotate_deg", 1.0))
 TICK = float(_CFG.get("tick", 0.05))
 GATE_A = bool(_CFG.get("gate_a", False))
+EVIDENCE_DIR = _CFG.get("evidence_dir")
 
 
 def _find_v3d():
@@ -182,6 +185,8 @@ def _install():
         if not GATE_A or pending is None or pending.get("bound") or pending["kind"] != kind:
             return
         exporter = engine.__dict__.get("_exporter")
+        if exporter is not None:
+            S["exporter_instance"] = exporter
         worker = getattr(exporter, "_worker", None) if exporter is not None else None
         gen = getattr(worker, "desired_generation", None)
         epoch = getattr(worker, "session_epoch", None)
@@ -379,6 +384,39 @@ def _install():
             row.update(S["pending"])
         S["events"].append(row)
 
+    def _capture_viewport(label, generation=None):
+        """Save an actual UI framebuffer image; never substitute a label/hash."""
+        if not GATE_A or not EVIDENCE_DIR:
+            return None
+        try:
+            os.makedirs(EVIDENCE_DIR, exist_ok=True)
+            path = os.path.join(EVIDENCE_DIR, f"{S['event_seq']:04d}-{label}.png")
+            bpy.ops.screen.screenshot(filepath=path, full=False)
+            with open(path, "rb") as fh:
+                digest = hashlib.sha256(fh.read()).hexdigest()
+            raw("viewport_pixels", generation, None, {"label": label, "path": path, "sha256": digest,
+                                                        "event_id": S.get("event_seq")})
+            return path
+        except Exception as exc:
+            raw("viewport_pixels_failed", generation, None, {"label": label, "error": str(exc)})
+            return None
+
+    def _request_real_cancel():
+        """Ask the live worker to cancel its actual in-flight generation.
+
+        ``request`` is the production cancellation seam; worker events, not this
+        call, establish success.  A request while idle emits no cancel row and
+        the fail-closed reducer rejects that capture.
+        """
+        exporter = S.get("exporter_instance")
+        worker = getattr(exporter, "_worker", None) if exporter is not None else None
+        inflight = getattr(worker, "in_flight_generation", None) if worker is not None else None
+        if worker is None or not isinstance(inflight, int):
+            raw("cancel_stimulus_unavailable", None, None, {})
+            return
+        raw("cancel_stimulus", inflight, getattr(worker, "session_epoch", None), {})
+        worker.request()  # emits cancel_request only for a real in-flight job
+
     def timer():
         if S["done"]:
             return None
@@ -391,6 +429,10 @@ def _install():
                 if pres is None or (GATE_A and not _correct_presented(S.get("pending", {}))):
                     return TICK
                 _record(S["idx"])
+                if GATE_A:
+                    pending = S.get("pending") or {}
+                    _capture_viewport("post", pending.get("generation"))
+                    _request_real_cancel()
                 S["awaiting"] = False
                 S["idx"] += 1
                 return TICK * 0.5
@@ -407,6 +449,7 @@ def _install():
                 raw("dispatch", None, None, {"event_id": S["event_seq"],
                                                "input_revision": S["input_revision"],
                                                "edit_kind": EVENT_CLASS})
+                _capture_viewport("pre", None)
             apply()
             if GATE_A:
                 S["pending"]["input_fingerprint"] = input_fingerprint()

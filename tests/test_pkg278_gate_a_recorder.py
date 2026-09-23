@@ -37,6 +37,7 @@ def _capture(scene, triangles, kind, batch, *, broken=None):
                       "epoch": 7, "input_floor": g, "input_fingerprint": [i],
                       "kind": kind, "bound": True})
         raw += [
+            {"name": "viewport_pixels", "generation": None, "epoch": None, "t_ns": t, "extra": {"event_id": i + 1, "label": "pre", "path": "pre.png", "sha256": _sha("pre")}},
             {"name": "input_applied", "generation": None, "epoch": None, "t_ns": t + 0, "extra": {"event_id": i + 1, "fingerprint": [i]}},
             {"name": "request", "generation": g, "epoch": 7, "t_ns": t + 1, "extra": {}},
             {"name": "edit_bound", "generation": g, "epoch": 7, "t_ns": t + 1, "extra": {"event_id": i + 1, "input_floor": g, "fingerprint": [i]}},
@@ -44,6 +45,7 @@ def _capture(scene, triangles, kind, batch, *, broken=None):
             {"name": "mailbox_dequeue", "generation": g, "epoch": 7, "t_ns": t + 3, "extra": {"pub_id": pub}},
             {"name": "texture_upload_end", "generation": g, "epoch": 7, "t_ns": t + 4, "extra": {"pub_id": pub}},
             {"name": "post_pixel_present", "generation": g, "epoch": 7, "t_ns": t + 5, "extra": {"pub_id": pub, "input_floor": g}},
+            {"name": "viewport_pixels", "generation": g, "epoch": None, "t_ns": t + 6, "extra": {"event_id": i + 1, "label": "post", "path": "post.png", "sha256": _sha("post")}},
         ]
     raw += [{"name": "cancel_request", "generation": 100, "epoch": 7, "t_ns": base + 100_010, "extra": {}},
             {"name": "idle_ack", "generation": 100, "epoch": 7, "t_ns": base + 100_020, "extra": {}},

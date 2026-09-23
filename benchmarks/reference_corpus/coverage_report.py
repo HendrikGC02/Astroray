@@ -796,7 +796,8 @@ def scanner_823_integrated(frozen: Mapping[str, Any], repo_root: Path | None,
         if not isinstance(commit, str) or not isinstance(path, str) or not isinstance(recorded, str):
             return False, "scanner integration needs landed commit and pinned scanner source"
         try:
-            landed = subprocess.run(["git", "merge-base", "--is-ancestor", commit, "origin/main"], cwd=repo_root, capture_output=True).returncode == 0
+            landed = subprocess.run(["git", "merge-base", "--is-ancestor", commit, "origin/main"],
+                                    cwd=repo_root, capture_output=True, check=False).returncode == 0
             shown = subprocess.run(["git", "show", f"{commit}:{path}"], cwd=repo_root, capture_output=True, check=True).stdout
         except (OSError, subprocess.SubprocessError):
             return False, "cannot verify #823 commit ancestry/source"

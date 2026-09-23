@@ -86,6 +86,10 @@ REFERENCE_SAMPLES = 512            # converged reference budget
 DENOISE_SETTLE_SAMPLES = 64
 LIGHT_FLOOR = 1e-4                 # reference must carry real light
 DETAIL_ENERGY_FLOOR = 1e-6         # reference detail region must carry edges
+CHECKER_DARK_MAX = 0.25            # fixed pre-render checker non-vacuity bound
+CHECKER_BRIGHT_MIN = 0.45          # fixed pre-render checker non-vacuity bound
+CHECKER_MIN_FRACTION = 0.02        # each tone must occupy this much detail ROI
+FLAT_MAX_GRADIENT_ENERGY = 0.02    # flat ROI must remain distinguishable from checker
 
 # Edge energy is measured after a single 3x3 box smooth so Monte-Carlo noise
 # gradient is not counted as "preserved detail" (a noisy frame would otherwise
@@ -101,6 +105,7 @@ DECLARED_REGIONS = {
 }
 
 LEG_NAMES = ("adaptive_off", "adaptive_on", "denoise_off", "denoise_on", "reference")
+SAMPLE_COUNT_PASS_NAME = "Sample Count"
 
 # Native settings whose resolved (engine-effective) value must equal the native
 # value for the native panel to be honoured.
@@ -220,6 +225,24 @@ def reference_nonvacuous(reference: np.ndarray) -> tuple[bool, dict]:
         "light_floor": LIGHT_FLOOR,
         "detail_energy_floor": DETAIL_ENERGY_FLOOR,
     }
+
+
+def reference_regions_identified(reference: np.ndarray) -> tuple[bool, dict]:
+    """Prove the frozen ROIs contain the authored flat/checker controls."""
+    detail = luminance(resolve_region(reference, DECLARED_REGIONS["detail"]))
+    flat = luminance(resolve_region(reference, DECLARED_REGIONS["flat"]))
+    if detail.size == 0 or flat.size == 0 or not (np.isfinite(detail).all() and np.isfinite(flat).all()):
+        return False, {"valid": False, "reason": "empty or non-finite declared ROI"}
+    dark = float((detail <= CHECKER_DARK_MAX).mean())
+    bright = float((detail >= CHECKER_BRIGHT_MIN).mean())
+    flat_energy = gradient_energy(reference, DECLARED_REGIONS["flat"])
+    ok = (dark >= CHECKER_MIN_FRACTION and bright >= CHECKER_MIN_FRACTION
+          and np.isfinite(flat_energy) and flat_energy <= FLAT_MAX_GRADIENT_ENERGY)
+    return ok, {"valid": True, "checker_dark_fraction": dark,
+                "checker_bright_fraction": bright, "flat_gradient_energy": flat_energy,
+                "checker_dark_max": CHECKER_DARK_MAX, "checker_bright_min": CHECKER_BRIGHT_MIN,
+                "checker_min_fraction": CHECKER_MIN_FRACTION,
+                "flat_max_gradient_energy": FLAT_MAX_GRADIENT_ENERGY}
 
 
 def adaptive_effect_ok(
@@ -396,6 +419,13 @@ def test_accuracy_safeguard_rejects_zero_detail_reference():
     assert not vacuous and vac_stats["detail_gradient_energy"] <= DETAIL_ENERGY_FLOOR
 
 
+def test_reference_regions_require_the_authored_checker_and_flat_controls():
+    reference = _split_reference(seed=41)
+    assert reference_regions_identified(reference)[0]
+    flat = np.full_like(reference, 0.5)
+    assert not reference_regions_identified(flat)[0]
+
+
 def test_accuracy_safeguard_rejects_non_finite():
     reference = _detailed(seed=8)
     broken = reference.copy()
@@ -494,6 +524,23 @@ def evaluate_backend(backend: str, legs: dict, arrays: dict, aov: dict,
            "green" if not ignored else "red",
            {"ignored_native_settings": ignored})
 
+    observed_devices = []
+    for leg in legs.values():
+        for info in leg.get("output_telemetry", []) or []:
+            value = info.get("device", info.get("device_mode", info.get("backend")))
+            if isinstance(value, str):
+                value = value.lower()
+                observed_devices.append("gpu" if "gpu" in value or "cuda" in value else
+                                        ("cpu" if "cpu" in value else None))
+            elif isinstance(value, (int, float)):
+                observed_devices.append("gpu" if value >= 0 else "cpu")
+    observed_devices = [d for d in observed_devices if d is not None]
+    device_ok = bool(observed_devices) and all(d == backend for d in observed_devices)
+    record("actual_backend_provenance", device_ok,
+           "green" if device_ok else "unmeasured",
+           {"expected": backend, "observed": observed_devices,
+            "reason": None if observed_devices else "write_pixels recorded no usable last_render_info device"})
+
     # --- reference must be converged AND non-vacuous -----------------------
     ref = arrays.get("reference")
     if ref is None:
@@ -502,6 +549,8 @@ def evaluate_backend(backend: str, legs: dict, arrays: dict, aov: dict,
     else:
         ok, stats = reference_nonvacuous(ref)
         record("reference_nonvacuous", ok, "green" if ok else "red", stats)
+        ok, stats = reference_regions_identified(ref)
+        record("reference_regions_identified", ok, "green" if ok else "red", stats)
 
     # --- adaptive effect + accuracy safeguard ------------------------------
     a_off, a_on = arrays.get("adaptive_off"), arrays.get("adaptive_on")
@@ -530,7 +579,11 @@ def evaluate_backend(backend: str, legs: dict, arrays: dict, aov: dict,
         record("denoise_accuracy", ok, "green" if ok else "red", stats)
 
     # --- sample-count AOV ---------------------------------------------------
-    if not aov.get("present"):
+    if aov.get("capture_invalid"):
+        record("sample_count_aov_changes", False, "unmeasured",
+               {"reason": aov.get("reason") or "sample-count capture invalid",
+                "captures": aov.get("captures", {})})
+    elif not aov.get("present"):
         record("sample_count_aov_changes", False, "red",
                {"reason": aov.get("reason") or "sample-count AOV not exposed by the engine",
                 "attempted": aov.get("attempted", []),
@@ -556,7 +609,8 @@ def test_evaluate_backend_green_on_synthetic_effect():
     legs = {n: {"native": {"samples": 64, "use_adaptive_sampling": n.startswith("adaptive"),
                            "use_denoising": n == "denoise_on"},
                 "resolved": {"samples": 64, "use_adaptive_sampling": n.startswith("adaptive"),
-                             "use_denoising": n == "denoise_on"}}
+                             "use_denoising": n == "denoise_on"},
+                "output_telemetry": [{"device": -1}]}
             for n in LEG_NAMES}
     noisy = (ref + rng.normal(0, 0.05, ref.shape)).astype(np.float32)
     arrays = {
@@ -607,6 +661,21 @@ def test_evaluate_backend_flags_ignored_native_panel():
                for item in honored["stats"]["ignored_native_settings"])
 
 
+def test_evaluate_backend_marks_invalid_aov_capture_unmeasured():
+    ref = _split_reference(seed=42)
+    legs = {n: {"native": {"samples": 64, "use_adaptive_sampling": n.startswith("adaptive"),
+                           "use_denoising": n == "denoise_on"},
+                "resolved": {"samples": 64, "use_adaptive_sampling": n.startswith("adaptive"),
+                             "use_denoising": n == "denoise_on"}}
+            for n in LEG_NAMES}
+    record = evaluate_backend("cpu", legs, {n: ref.copy() for n in LEG_NAMES},
+                              {"present": False, "capture_invalid": True,
+                               "reason": "end_result was not called",
+                               "captures": {"adaptive_off": {"valid": False}}})
+    check = record["checks"]["sample_count_aov_changes"]
+    assert check["status"] == "unmeasured" and not check["passed"]
+
+
 # --------------------------------------------------------------------------- #
 # In-Blender leg script (host pytest NEVER imports bpy; this runs inside Blender)
 # --------------------------------------------------------------------------- #
@@ -617,6 +686,7 @@ import hashlib
 import json
 import sys
 import traceback
+import uuid
 from pathlib import Path
 
 SENTINEL = "GATE_D_LEG"
@@ -739,16 +809,60 @@ def _scene_manifest(scene):
     }
 
 
-def _render_leg(bpy, scene, out_dir, stem):
+def _render_leg(bpy, scene, out_dir, stem, engine_cls):
     """Render one leg through the real F12 path and return the top-down linear
     HxWx3 array (or None + error)."""
     import numpy as np
-    scene.render.filepath = str(out_dir / stem)
-    bpy.ops.render.render(write_still=True)
-    produced = sorted((out_dir).glob(stem + "*.exr"))
-    if not produced:
-        return None, None, "no EXR produced for stem %s" % stem
-    path = produced[0]
+    path = out_dir / (stem + ".exr")
+    path.unlink(missing_ok=True)
+    capture = {"end_result_calls": 0, "write_pixels_calls": 0,
+               "passes": [], "telemetry": [], "valid": False,
+               "reason": None, "sample_count": None}
+    orig_end = engine_cls.end_result
+    orig_write = engine_cls.write_pixels
+
+    def capture_end(self, result):
+        capture["end_result_calls"] += 1
+        try:
+            for layer in result.layers:
+                for render_pass in layer.passes:
+                    name = str(getattr(render_pass, "name", ""))
+                    channels = int(getattr(render_pass, "channels", 0))
+                    rect = np.asarray(render_pass.rect[:], dtype=np.float32)
+                    capture["passes"].append({"layer": str(getattr(layer, "name", "")),
+                                               "name": name, "channels": channels,
+                                               "rect_len": int(rect.size)})
+                    if name == "__SAMPLE_COUNT_PASS__":
+                        capture["sample_count"] = {"channels": channels,
+                                                   "rect": rect.copy()}
+        except Exception as exc:  # noqa: BLE001
+            capture["reason"] = "end_result capture failed: %r" % (exc,)
+        return orig_end(self, result)
+
+    def capture_write(self, pixels, width, height, alpha=None, renderer=None,
+                      view_layer=None, scene=None, layer_name=None):
+        capture["write_pixels_calls"] += 1
+        if renderer is not None:
+            try:
+                capture["telemetry"].append(dict(renderer.last_render_info() or {}))
+            except Exception as exc:  # noqa: BLE001
+                capture["telemetry"].append({"last_render_info_error": repr(exc)})
+        return orig_write(self, pixels, width, height, alpha, renderer, view_layer,
+                          scene, layer_name)
+
+    engine_cls.end_result = capture_end
+    engine_cls.write_pixels = capture_write
+    try:
+        scene.render.filepath = str(path)
+        bpy.ops.render.render(write_still=True)
+    finally:
+        engine_cls.end_result = orig_end
+        engine_cls.write_pixels = orig_write
+    capture["valid"] = capture["end_result_calls"] > 0 and capture["reason"] is None
+    if not capture["valid"]:
+        capture["reason"] = capture["reason"] or "end_result was not called"
+    if not path.is_file():
+        return None, None, "no EXR produced for stem %s" % stem, capture
     img = bpy.data.images.load(str(path))
     try:
         w, h = int(img.size[0]), int(img.size[1])
@@ -758,72 +872,7 @@ def _render_leg(bpy, scene, out_dir, stem):
         arr = np.ascontiguousarray(px[::-1, :, :3])  # bottom-up -> top-down, once
     finally:
         bpy.data.images.remove(img)
-    return arr, path, None
-
-
-def _probe_sample_count_aov(bpy, width, height):
-    """Probe the real Render Result pass API for a per-pixel sample-count pass.
-
-    Blender exposes render passes on the Render Result's render slots
-    (``image.render_slots`` -> ``view_layers`` / ``passes``). If the engine has
-    registered no sample-count pass, this returns present=False - an honest RED
-    observation, never an invented value.
-    """
-    import numpy as np
-    info = {"present": False, "reason": None, "attempted": [], "passes_seen": []}
-    img = bpy.data.images.get("Render Result")
-    if img is None:
-        info["reason"] = "no Render Result image"
-        return None, info
-
-    candidates = []
-    slots = getattr(img, "render_slots", None)
-    if slots is not None:
-        info["attempted"].append("image.render_slots[].view_layers[].passes")
-        try:
-            for slot in slots:
-                vls = getattr(slot, "view_layers", None)
-                if vls is None:
-                    continue
-                for vl in vls:
-                    for p in getattr(vl, "passes", []) or []:
-                        candidates.append(p)
-        except Exception as exc:  # noqa: BLE001
-            info["attempted"].append("render_slots.view_layers error: %r" % (exc,))
-        info["attempted"].append("image.render_slots[].passes")
-        try:
-            for slot in slots:
-                for p in getattr(slot, "passes", []) or []:
-                    candidates.append(p)
-        except Exception as exc:  # noqa: BLE001
-            info["attempted"].append("render_slots.passes error: %r" % (exc,))
-    info["attempted"].append("image.passes")
-    try:
-        for p in getattr(img, "passes", []) or []:
-            candidates.append(p)
-    except Exception:  # noqa: BLE001
-        pass
-
-    seen = []
-    for p in candidates:
-        name = str(getattr(p, "name", ""))
-        if name not in seen:
-            seen.append(name)
-        low = name.lower()
-        if "sample" in low and ("count" in low or "spp" in low):
-            try:
-                channels = int(getattr(p, "channels", 1)) or 1
-                rect = np.asarray(p.rect[:], dtype=np.float64)
-                arr = rect.reshape(height, width, channels)[::-1]  # top-down
-                info["present"] = True
-                info["found_pass"] = name
-                return arr, info
-            except Exception as exc:  # noqa: BLE001
-                info["reason"] = "sample-count pass %r unreadable: %r" % (name, exc)
-                return None, info
-    info["passes_seen"] = seen
-    info["reason"] = "no sample-count pass registered by the engine"
-    return None, info
+    return arr, path, None, capture
 
 
 def main():
@@ -881,6 +930,12 @@ def main():
         "blender_version": str(bpy.app.version_string),
         "blender_binary": str(bpy.app.binary_path),
     }
+    build["module_sha256"] = _sha256(Path(build["astroray_module"])) \
+        if Path(build["astroray_module"]).is_file() else None
+    build["addon_init_sha256"] = _sha256(Path(build["addon_init"])) \
+        if Path(build["addon_init"]).is_file() else None
+    if not build["build_id"] or not build["module_sha256"] or not build["addon_init_sha256"]:
+        _fail("missing build identity or hash; refusing unproven runtime provenance")
 
     # Backend selection uses the addon's SUPPORTED device selector only.
     try:
@@ -923,7 +978,8 @@ def main():
         ("reference", False, False, __REFERENCE__),
     ]
 
-    aov_probe = {"present": False, "reason": "not probed"}
+    run_id = uuid.uuid4().hex
+    aov_captures = {}
     aov_arrays = {}
     for name, adaptive, denoise, samples in specs:
         # NATIVE PANEL ONLY: samples / adaptive / denoise come exclusively from
@@ -933,13 +989,14 @@ def main():
         scene.cycles.use_denoising = bool(denoise)
 
         resolved = addon.resolve_native_settings(scene)
-        arr, exr_path, err = _render_leg(bpy, scene, out_dir,
-                                         args.backend + "_" + name)
+        arr, exr_path, err, capture = _render_leg(
+            bpy, scene, out_dir, run_id + "_" + args.backend + "_" + name,
+            addon.CustomRaytracerRenderEngine)
         if err:
             _fail("%s/%s: %s" % (args.backend, name, err))
 
         stem = args.backend + "_" + name
-        npy_path = out_dir / (stem + ".npy")
+        npy_path = out_dir / (run_id + "_" + stem + ".npy")
         np.save(npy_path, arr)
         artifacts[str(npy_path.name)] = {
             "path": str(npy_path),
@@ -976,13 +1033,30 @@ def main():
             },
             "rendered": True,
             "error": None,
+            "output_telemetry": capture["telemetry"],
         }
 
         if name in ("adaptive_off", "adaptive_on"):
-            aov_arr, aov_info = _probe_sample_count_aov(bpy, arr.shape[1], arr.shape[0])
-            aov_probe = aov_info
-            if aov_arr is not None:
-                aov_path = out_dir / (args.backend + "_aov_" + name + ".npy")
+            aov_info = {k: v for k, v in capture.items() if k != "sample_count"}
+            sample = capture.get("sample_count")
+            if sample is None:
+                aov_info["present"] = False
+                aov_info["reason"] = (aov_info.get("reason") if not capture["valid"]
+                                      else "exact sample-count pass not registered")
+            else:
+                channels = int(sample["channels"] or 0)
+                rect = np.asarray(sample["rect"], dtype=np.float32)
+                expected = int(arr.shape[0]) * int(arr.shape[1]) * channels
+                if channels <= 0 or rect.size != expected:
+                    aov_info.update({"present": False, "valid": False,
+                                     "reason": "sample-count pass rect shape invalid"})
+                else:
+                    aov_arr = rect.reshape(arr.shape[0], arr.shape[1], channels)[::-1].copy()
+                    aov_info["present"] = True
+                    aov_info["reason"] = None
+            aov_captures[name] = aov_info
+            if aov_info.get("present"):
+                aov_path = out_dir / (run_id + "_" + args.backend + "_aov_" + name + ".npy")
                 np.save(aov_path, aov_arr)
                 artifacts[aov_path.name] = {
                     "path": str(aov_path),
@@ -1006,7 +1080,8 @@ def main():
         "scene_sha256": hashlib.sha256(
             json.dumps(scene_manifest, sort_keys=True).encode("utf-8")).hexdigest(),
         "legs": legs_meta,
-        "aov": {"probe": aov_probe, "artifacts": aov_arrays},
+        "run_id": run_id,
+        "aov": {"captures": aov_captures, "artifacts": aov_arrays},
         "artifacts": artifacts,
     }
     _write_json(out_dir / ("legs_" + args.backend + ".json"), record)
@@ -1022,7 +1097,8 @@ if __name__ == "__main__":
 '''.replace("__SCHEMA_VERSION__", str(SCHEMA_VERSION)) \
    .replace("__ADAPTIVE_BUDGET__", str(ADAPTIVE_BUDGET_SAMPLES)) \
    .replace("__DENOISE_SETTLE__", str(DENOISE_SETTLE_SAMPLES)) \
-   .replace("__REFERENCE__", str(REFERENCE_SAMPLES))
+   .replace("__REFERENCE__", str(REFERENCE_SAMPLES)) \
+   .replace("__SAMPLE_COUNT_PASS__", SAMPLE_COUNT_PASS_NAME)
 
 
 # --------------------------------------------------------------------------- #
@@ -1096,8 +1172,27 @@ def _host_evaluate_backend(raw: dict, out_dir: Path) -> dict:
                 "scene_sha256": raw.get("scene_sha256"), "legs": {}, "checks": {},
                 "artifacts": {}}
 
+    build = raw.get("build") or {}
+    required_build = ("build_id", "engine_id", "module_sha256", "addon_init_sha256")
+    missing_build = [key for key in required_build if not isinstance(build.get(key), str)
+                     or not build[key]]
+    if build.get("engine_id") != ENGINE_ID:
+        missing_build.append("engine_id=%r" % build.get("engine_id"))
+    for key in ("module_sha256", "addon_init_sha256"):
+        value = build.get(key)
+        if isinstance(value, str) and (len(value) != 64 or any(c not in "0123456789abcdef" for c in value.lower())):
+            missing_build.append(key + "(not sha256)")
+    if missing_build:
+        raise RuntimeError("measured backend lacks exact build provenance: " + ", ".join(missing_build))
+
+    run_id = raw.get("run_id")
+    if not isinstance(run_id, str) or not run_id:
+        raise RuntimeError("measured backend lacks run-specific artifact provenance")
+
     artifacts = raw.get("artifacts", {})
     for name, meta in artifacts.items():
+        if not name.startswith(run_id + "_"):
+            raise RuntimeError(f"artifact {name!r} is not bound to run {run_id!r}")
         path = out_dir / name
         if not path.is_file():
             raise RuntimeError(f"artifact {name!r} missing for backend {backend!r}")
@@ -1133,15 +1228,24 @@ def _host_evaluate_backend(raw: dict, out_dir: Path) -> dict:
             "resolved": meta["resolved"],
             "rendered": meta.get("rendered", True),
             "error": meta.get("error"),
+            "output_telemetry": meta.get("output_telemetry", []),
         }
 
     aov_raw = raw.get("aov", {})
-    probe = aov_raw.get("probe", {}) or {}
+    captures = aov_raw.get("captures", {}) or {}
     aov_art = aov_raw.get("artifacts", {}) or {}
-    aov = {"present": bool(probe.get("present")),
-           "reason": probe.get("reason"),
-           "attempted": probe.get("attempted", []),
-           "passes_seen": probe.get("passes_seen", [])}
+    required_captures = {name: captures.get(name) for name in ("adaptive_off", "adaptive_on")}
+    invalid_capture = {name: cap for name, cap in required_captures.items()
+                       if not isinstance(cap, dict) or not cap.get("valid")}
+    missing_pass = {name: cap for name, cap in required_captures.items()
+                    if isinstance(cap, dict) and cap.get("valid") and not cap.get("present")}
+    aov = {"present": not invalid_capture and not missing_pass,
+           "capture_invalid": bool(invalid_capture),
+           "captures": required_captures,
+           "reason": ("invalid end_result capture: " + ", ".join(invalid_capture)
+                      if invalid_capture else
+                      ("sample-count pass absent after valid capture: " + ", ".join(missing_pass)
+                       if missing_pass else None))}
     if aov["present"] and "adaptive_off" in aov_art and "adaptive_on" in aov_art:
         aov["off"] = np.load(out_dir / aov_art["adaptive_off"]["artifact"])
         aov["on"] = np.load(out_dir / aov_art["adaptive_on"]["artifact"])
@@ -1155,6 +1259,10 @@ def _host_evaluate_backend(raw: dict, out_dir: Path) -> dict:
         "reference_samples": REFERENCE_SAMPLES,
         "denoise_settle_samples": DENOISE_SETTLE_SAMPLES,
         "regions": {k: list(v) for k, v in DECLARED_REGIONS.items()},
+        "region_nonvacuity": {"checker_dark_max": CHECKER_DARK_MAX,
+                                "checker_bright_min": CHECKER_BRIGHT_MIN,
+                                "checker_min_fraction": CHECKER_MIN_FRACTION,
+                                "flat_max_gradient_energy": FLAT_MAX_GRADIENT_ENERGY},
         "budget_note": ("equal max-spp is an upper bound on equal work: adaptive "
                         "sampling may retire pixels early; declared budgets and "
                         "resolved per-leg sample counts are recorded for audit"),
@@ -1162,6 +1270,7 @@ def _host_evaluate_backend(raw: dict, out_dir: Path) -> dict:
     record = evaluate_backend(backend, legs_meta, arrays, aov, declared)
     record["build"] = raw.get("build")
     record["scene_sha256"] = raw.get("scene_sha256")
+    record["run_id"] = raw.get("run_id")
     record["artifacts"] = {
         name: {"backend": backend, "path": str(out_dir / name),
                "sha256": meta["sha256"], "kind": meta.get("kind"),
@@ -1194,16 +1303,26 @@ def _write_merged(out_dir: Path, backend_records: dict):
             record = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
+        for name, meta in record.get("artifacts", {}).items():
+            artifact = Path(meta.get("path", ""))
+            if not artifact.is_file() or _sha256_file(artifact) != meta.get("sha256"):
+                record["status"] = "error"
+                record["artifact_error"] = f"stale or mismatched merged artifact: {name}"
         merged_backends[backend] = record
         all_artifacts.update(record.get("artifacts", {}))
 
-    builds = {(r.get("build") or {}).get("build_id")
-              for r in merged_backends.values()
-              if r.get("status") != "unmeasured"}
-    builds.discard(None)
+    measured = [r for r in merged_backends.values() if r.get("status") != "unmeasured"]
+    identities = {tuple((r.get("build") or {}).get(key)
+                        for key in ("build_id", "engine_id", "module_sha256", "addon_init_sha256"))
+                  for r in measured}
+    builds = {identity[0] for identity in identities if identity[0]}
+    scenes = {r.get("scene_sha256") for r in measured}
+    run_ids = [r.get("run_id") for r in measured]
     status = merge_status(r.get("status", "error") for r in merged_backends.values())
-    if len(builds) > 1:
+    if len(identities) > 1 or len(scenes) > 1 or len(run_ids) != len(set(run_ids)):
         status = "error"
+    if set(merged_backends) != {"cpu", "gpu"}:
+        status = "unmeasured"
     merged = {
         "schema_version": SCHEMA_VERSION,
         "instrument": INSTRUMENT,
@@ -1220,6 +1339,10 @@ def _write_merged(out_dir: Path, backend_records: dict):
             "reference_samples": REFERENCE_SAMPLES,
             "denoise_settle_samples": DENOISE_SETTLE_SAMPLES,
             "regions": {k: list(v) for k, v in DECLARED_REGIONS.items()},
+            "region_nonvacuity": {"checker_dark_max": CHECKER_DARK_MAX,
+                                    "checker_bright_min": CHECKER_BRIGHT_MIN,
+                                    "checker_min_fraction": CHECKER_MIN_FRACTION,
+                                    "flat_max_gradient_energy": FLAT_MAX_GRADIENT_ENERGY},
         },
     }
     (out_dir / "gate_native_panels.json").write_text(
@@ -1349,13 +1472,19 @@ def test_host_evaluate_backend_reads_and_verifies_artifacts(tmp_path):
         "denoise_on": (ref + rng.normal(0, 0.001, ref.shape)).astype(np.float32),
         "reference": ref,
     }
-    raw = {"backend": "cpu", "status": "measured",
-           "build": {"build_id": "test-build", "engine_id": ENGINE_ID},
+    run_id = "test-run"
+    raw = {"backend": "cpu", "status": "measured", "run_id": run_id,
+           "build": {"build_id": "test-build", "engine_id": ENGINE_ID,
+                     "module_sha256": "a" * 64, "addon_init_sha256": "b" * 64},
            "scene_sha256": "abc", "legs": {}, "artifacts": {},
-           "aov": {"probe": {"present": False, "reason": "no sample-count pass"},
+           "aov": {"captures": {
+               "adaptive_off": {"valid": True, "present": False,
+                                "reason": "exact sample-count pass not registered"},
+               "adaptive_on": {"valid": True, "present": False,
+                               "reason": "exact sample-count pass not registered"}},
                    "artifacts": {}}}
     for leg, arr in arrays.items():
-        name = f"cpu_{leg}.npy"
+        name = f"{run_id}_cpu_{leg}.npy"
         path = tmp_path / name
         np.save(path, arr)
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -1379,17 +1508,40 @@ def test_host_evaluate_backend_reads_and_verifies_artifacts(tmp_path):
     assert record["checks"]["denoise_effect"]["passed"]
     assert record["checks"]["sample_count_aov_changes"]["status"] == "red"
     assert record["build"]["build_id"] == "test-build"
-    assert "cpu_adaptive_off.npy" in record["artifacts"]
+    assert f"{run_id}_cpu_adaptive_off.npy" in record["artifacts"]
+    raw["aov"]["captures"].pop("adaptive_on")
+    missing_pair = _host_evaluate_backend(raw, tmp_path)
+    assert missing_pair["checks"]["sample_count_aov_changes"]["status"] == "unmeasured"
+    raw["build"].pop("module_sha256")
+    with pytest.raises(RuntimeError, match="exact build provenance"):
+        _host_evaluate_backend(raw, tmp_path)
 
 
 def test_host_evaluate_backend_rejects_tampered_artifact(tmp_path):
     """A dangling/hash-mismatched artifact is an instrument error, never a pass."""
     ref = _split_reference(seed=33, size=64)
-    path = tmp_path / "cpu_adaptive_off.npy"
+    run_id = "tampered-run"
+    path = tmp_path / f"{run_id}_cpu_adaptive_off.npy"
     np.save(path, ref)
-    raw = {"backend": "cpu", "status": "measured", "build": {}, "scene_sha256": "x",
+    raw = {"backend": "cpu", "status": "measured", "run_id": run_id,
+           "build": {"build_id": "test-build", "engine_id": ENGINE_ID,
+                     "module_sha256": "a" * 64, "addon_init_sha256": "b" * 64}, "scene_sha256": "x",
            "legs": {"adaptive_off": {"artifact": path.name, "sha256": "0" * 64}},
            "artifacts": {path.name: {"sha256": "0" * 64, "kind": "linear_topdown_npy"}},
            "aov": {"probe": {}, "artifacts": {}}}
     with pytest.raises(RuntimeError, match="hash mismatch"):
         _host_evaluate_backend(raw, tmp_path)
+
+
+def test_merged_pair_rejects_mismatched_build_or_reused_run(tmp_path):
+    """CPU/GPU records may merge only when they identify one build and distinct runs."""
+    build = {"build_id": "test-build", "engine_id": ENGINE_ID,
+             "module_sha256": "a" * 64, "addon_init_sha256": "b" * 64}
+    cpu = {"backend": "cpu", "status": "red", "build": build,
+           "scene_sha256": "scene", "run_id": "cpu-run", "artifacts": {}}
+    gpu = {"backend": "gpu", "status": "red", "build": {**build, "module_sha256": "c" * 64},
+           "scene_sha256": "scene", "run_id": "gpu-run", "artifacts": {}}
+    assert _write_merged(tmp_path, {"cpu": cpu, "gpu": gpu})["status"] == "error"
+    gpu["build"] = build
+    gpu["run_id"] = "cpu-run"
+    assert _write_merged(tmp_path, {"cpu": cpu, "gpu": gpu})["status"] == "error"

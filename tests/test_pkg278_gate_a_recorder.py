@@ -124,6 +124,31 @@ def test_gate_a_reducer_rejects_stale_after_ack_and_missing_ack_or_present():
         assert DRV.reduce_gate_a_capture(cap["raw_events"], cap["edits"])["errors"]
 
 
+def test_gate_a_stale_check_deduplicates_redraws_and_preserves_late_old_publication():
+    cap = _capture(_sha("s"), 10000, "camera", 0)
+    raw = cap["raw_events"]
+    # A second UI redraw of an already-presented publication before ACK does
+    # not create another post-ACK stale frame.
+    raw.append({"name": "post_pixel_present", "generation": 1, "epoch": 7,
+                "t_ns": 10_050_000, "extra": {"pub_id": 1}})
+    # A newer publication after ACK is not an old-generation replay.
+    raw.extend([
+        {"name": "mailbox_enqueue", "generation": 101, "epoch": 7, "t_ns": 10_100_021, "extra": {"pub_id": 101}},
+        {"name": "mailbox_dequeue", "generation": 101, "epoch": 7, "t_ns": 10_100_022, "extra": {"pub_id": 101}},
+        {"name": "texture_upload_end", "generation": 101, "epoch": 7, "t_ns": 10_100_023, "extra": {"pub_id": 101}},
+        {"name": "post_pixel_present", "generation": 101, "epoch": 7, "t_ns": 10_100_024, "extra": {"pub_id": 101}},
+    ])
+    result = DRV.reduce_gate_a_capture(raw, cap["edits"])
+    assert result["complete"] and result["cancels"][0]["stale_frames_after_ack"] == 0
+
+    # A canceled old generation presented after ACK is RED even after a newer
+    # upload/dispatch would otherwise move the current input floor.
+    raw.append({"name": "post_pixel_present", "generation": 1, "epoch": 7,
+                "t_ns": 10_100_025, "extra": {"pub_id": 1}})
+    result = DRV.reduce_gate_a_capture(raw, cap["edits"])
+    assert result["errors"] and result["cancels"][0]["stale_frames_after_ack"] == 1
+
+
 def test_gate_a_reducer_rejects_forged_or_misordered_pixel_evidence():
     cap = _capture(_sha("s"), 10000, "camera", 0)
     cap["raw_events"][0]["extra"]["label"] = "post"

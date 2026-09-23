@@ -757,10 +757,13 @@ def reduce_gate_a_capture(raw_events, edits, *, truncated=False, artifact_root=N
         if ack is None or drain is None:
             errors.append(f"cancel generation {gen} lacks same-generation idle_ack/idle_drain")
             continue
+        # ACK is the worker's promise that this generation stopped.  Every
+        # later presentation of that generation or an older one is stale even
+        # if a later user edit has changed the current input floor.  Deliberately
+        # do not stop at idle_drain or the next dispatch: a late old publication
+        # remains a stale-frame failure whenever it reaches POST_PIXEL.
         stale = [p for p in by_name.get("post_pixel_present", []) if p[2] >= ack[2]
-                 and p[3] == epoch and isinstance(p[1], int)
-                 and isinstance(p[4].get("input_floor"), int)
-                 and p[1] < p[4]["input_floor"]]
+                 and p[3] == epoch and isinstance(p[1], int) and p[1] <= gen]
         if stale: errors.append(f"stale present after ack for generation {gen}")
         cancels.append({"generation": gen, "epoch": epoch, "cancel_ns": ts,
                         "idle_ack_ns": ack[2], "idle_drain_ns": drain[2],

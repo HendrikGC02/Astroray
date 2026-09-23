@@ -130,7 +130,10 @@ def _install():
         # displayed frame contains this particular edit.
         "raw_events": [],
         "pending": None,
-        "displayed": None,    # (generation, pub_id, epoch), after real upload
+        # The next POST_PIXEL callback is the first actual presentation of this
+        # particular uploaded texture.  It is consumed there so redraws do not
+        # become duplicate presentations of an old publication.
+        "pending_present": None,  # (generation, pub_id, epoch)
         "input_revision": 0,
         "event_seq": 0,
         "phase": "run",
@@ -172,7 +175,7 @@ def _install():
                                 "epoch": epoch, "t_ns": int(ts * 1e9),
                                 "extra": dict(extra or {})})
         if name == "texture_upload_end":
-            S["displayed"] = (generation, extra.get("pub_id"), epoch)
+            S["pending_present"] = (generation, extra.get("pub_id"), epoch)
         if old_sink is not None:
             old_sink(name, generation, ts, epoch, extra)
 
@@ -236,13 +239,16 @@ def _install():
         now = time.perf_counter()
         S["presents"].append(now)
         if GATE_A:
-            ident = S.get("displayed")
-            pending = S.get("pending") or {}
-            raw("post_pixel_present", ident[0] if ident else None,
-                ident[2] if ident else None,
-                {"pub_id": ident[1] if ident else None,
-                 "input_floor": pending.get("input_floor"),
-                 "event_id": pending.get("event_id")})
+            ident = S.get("pending_present")
+            if ident is not None:
+                # This is deliberately consumed only after recording.  A
+                # texture upload that happens before cancellation acknowledgement
+                # but first reaches the screen after it must remain observable.
+                S["pending_present"] = None
+                pending = S.get("pending") or {}
+                raw("post_pixel_present", ident[0], ident[2],
+                    {"pub_id": ident[1], "input_floor": pending.get("input_floor"),
+                     "event_id": pending.get("event_id")})
 
     S["handler"] = bpy.types.SpaceView3D.draw_handler_add(
         present_cb, (), "WINDOW", "POST_PIXEL")

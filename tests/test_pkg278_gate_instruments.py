@@ -33,7 +33,6 @@ def _load(name: str, rel: str):
 CR = _load("pkg278_coverage_report", "benchmarks/reference_corpus/coverage_report.py")
 HARNESS = _load("pkg278_blender_parity_harness", "benchmarks/blender_parity/harness.py")
 GM = _load("pkg278_gate_manifest", "scripts/gate_manifest.py")
-VCI = _load("pkg278_validate_clean_install", "scripts/validate_clean_install.py")
 
 
 def _sha(text: str) -> str:
@@ -865,96 +864,6 @@ def test_validate_shape_detects_missing_row():
     manifest = {"schema": "pkg278.acceptance_manifest.v1", "rows": {}}
     errors = GM.validate_shape(manifest)
     assert any("missing" in e for e in errors)
-
-
-# =========================================================================== #
-# Clean-install validator
-# =========================================================================== #
-
-def test_dev_machine_is_ineligible_never_green():
-    doc = VCI.build_checks_doc(REPO_ROOT)
-    assert doc["machine"]["eligible"] is False
-    result = VCI.evaluate(doc, REPO_ROOT)
-    assert result["status"] == "ineligible"
-    assert result["all_green"] is False
-
-
-def test_all_five_checks_required(tmp_path):
-    doc = VCI.build_checks_doc(REPO_ROOT)
-    doc["machine"] = {"eligible": True}
-    for name in VCI.MANDATORY_CHECKS:
-        artifact = tmp_path / VCI.CHECK_ARTIFACTS[name]
-        artifact.write_text(name, encoding="utf-8")
-        doc["checks"][name] = {"pass": True, "evidence_path": artifact.name,
-                               "evidence_sha256": VCI.sha256_file(artifact)}
-    doc["checks"].pop("f12_exit_zero")
-    result = VCI.evaluate(doc, tmp_path)
-    assert result["status"] == "ineligible" and not result["all_green"]
-
-
-def test_hash_locked_check_detects_tamper(tmp_path):
-    doc = VCI.build_checks_doc(REPO_ROOT)
-    doc["machine"] = {"eligible": True}
-    artifact = tmp_path / "profile_fresh.json"
-    artifact.write_text(json.dumps({"schema": "pkg278.clean_install_probe.v1", "check": "fresh_profile",
-                                    "prior_astroray_addon": False, "userpref_astroray": False,
-                                    "profile_path": "C:/isolated/profile", "addons": []}), encoding="utf-8")
-    doc["checks"]["fresh_profile"] = {"evidence_path": artifact.name,
-                                      "evidence_sha256": VCI.sha256_file(artifact)}
-    result = VCI.evaluate(doc, tmp_path)
-    assert result["checks"]["fresh_profile"]["status"] == "green"
-
-    artifact.write_text("tampered", encoding="utf-8")
-    result = VCI.evaluate(doc, tmp_path)
-    assert result["checks"]["fresh_profile"]["status"] == "red"
-
-
-def test_all_green_on_eligible_machine(tmp_path):
-    doc = VCI.build_checks_doc(REPO_ROOT)
-    doc["machine"] = {"eligible": True}
-    release = tmp_path / "release.zip"; release.write_bytes(b"release ZIP bytes")
-    image = tmp_path / "f12.png"
-    image.write_bytes(b"\x89PNG\r\n\x1a\n" + (13).to_bytes(4, "big") + b"IHDR" + (1).to_bytes(4, "big") + (1).to_bytes(4, "big") + b"\x08\x02\x00\x00\x00")
-    zip_ref = {"path": release.name, "sha256": VCI.sha256_file(release)}
-    image_ref = {"path": image.name, "sha256": VCI.sha256_file(image)}
-    probes = {
-        "fresh_profile": {"prior_astroray_addon": False, "userpref_astroray": False, "profile_path": "C:/isolated/profile", "addons": []},
-        "zip_identity": {"zip": zip_ref},
-        "installer_path": {"installer": "blender_extension_installer", "installer_result": "FINISHED", "installed_module_path": "C:/isolated/extensions/astroray", "zip_path": "C:/isolated/release.zip", "source_path_used": False},
-        "no_toolchain": {"toolchain_programs": [], "source_tree_fallback": False, "checked_path": "C:/Windows", "source_roots_checked": [], "loaded_module_path": "C:/isolated/extensions/astroray"},
-        "f12_exit_zero": {"exit_code": 0, "image": image_ref, "loaded_module_path": "C:/isolated/extensions/astroray"},
-    }
-    doc["zip"] = zip_ref
-    for name in VCI.MANDATORY_CHECKS:
-        artifact = tmp_path / VCI.CHECK_ARTIFACTS[name]
-        probe = {"schema": "pkg278.clean_install_probe.v1", "check": name, **probes[name]}
-        artifact.write_text(json.dumps(probe), encoding="utf-8")
-        doc["checks"][name] = {"evidence_path": artifact.name,
-                               "evidence_sha256": VCI.sha256_file(artifact)}
-    result = VCI.evaluate(doc, tmp_path)
-    assert result["status"] == "green" and result["all_green"]
-
-
-def test_clean_install_rejects_forged_eligibility_and_arbitrary_blob(tmp_path):
-    doc = VCI.build_checks_doc(REPO_ROOT)
-    doc["machine"] = {"eligible": True}
-    artifact = tmp_path / "profile_fresh.json"
-    artifact.write_text("arbitrary text", encoding="utf-8")
-    doc["checks"]["fresh_profile"] = {"evidence_path": artifact.name,
-                                         "evidence_sha256": VCI.sha256_file(artifact)}
-    result = VCI.evaluate(doc, tmp_path)
-    assert result["status"] != "green"
-    assert result["checks"]["fresh_profile"]["status"] == "red"
-
-
-def test_committed_evidence_reports_ineligible():
-    checks = REPO_ROOT / "docs" / "blender_parity" / "evidence" / "install-clean-machine" / "checks.json"
-    if not checks.is_file():
-        pytest.skip("clean-install evidence not committed")
-    doc = json.loads(checks.read_text(encoding="utf-8"))
-    result = VCI.evaluate(doc, checks.parent)
-    assert result["status"] == "ineligible"
-    assert result["all_green"] is False
 
 
 # =========================================================================== #

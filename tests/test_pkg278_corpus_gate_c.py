@@ -88,6 +88,12 @@ def test_terrace_role_resolves_only_to_the_hdri_corpus_scene():
     assert "gate_c" not in S.load_corpus_manifest()["world_sky_sky"]
 
 
+def test_sky_ray_mask_uses_integer_ranges_for_fractional_frozen_roi():
+    rows, columns = R._gate_c_mask_pixel_ranges([.45, .04, .62, .22], (10, 10))
+    assert list(rows) == [0, 1]
+    assert list(columns) == [4, 5]
+
+
 def test_default_reference_discovery_is_corpus_backed_with_historical_aliases():
     corpus = S.load_corpus_manifest()
     assert set(S.REFERENCE_SCENES) == set(corpus)

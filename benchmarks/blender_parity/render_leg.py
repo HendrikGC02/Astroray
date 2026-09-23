@@ -340,16 +340,24 @@ def _gate_c_mask(bpy, scene, control, shape):
                     mask[max(0,y-radius):min(h,y+radius+1), max(0,x-radius):min(w,x+radius+1)] = 255
     elif kind == "sky_rays":
         # Visibility mask: only camera rays that miss actual scene geometry may witness the world.
-        x0,y0,x1,y1=spec["roi"]; frame=scene.camera.data.view_frame(scene=scene); origin=scene.camera.matrix_world.translation
+        y_pixels, x_pixels = _gate_c_mask_pixel_ranges(spec["roi"], shape)
+        frame=scene.camera.data.view_frame(scene=scene); origin=scene.camera.matrix_world.translation
         deps=bpy.context.evaluated_depsgraph_get()
-        for y in range(y0*h, y1*h):
+        for y in y_pixels:
             v=1.0-(y+.5)/h
-            for x in range(x0*w, x1*w):
+            for x in x_pixels:
                 u=(x+.5)/w; local=frame[0].lerp(frame[1],u).lerp(frame[3].lerp(frame[2],u),v).normalized(); direction=(scene.camera.matrix_world.to_3x3() @ local).normalized()
                 if not scene.ray_cast(deps, origin, direction)[0]: mask[y,x]=255
     else: raise ValueError("unknown gate-c mask kind")
     if not mask.any(): raise ValueError("gate-c geometry mask is empty")
     return mask
+
+
+def _gate_c_mask_pixel_ranges(roi, shape):
+    """Convert a frozen normalized sky ROI to top-down integer pixel ranges."""
+    x0, y0, x1, y1 = roi
+    h, w = shape
+    return range(int(y0 * h), int(y1 * h)), range(int(x0 * w), int(x1 * w))
 
 
 def _gate_b_graph(repo_root: Path, case: dict):

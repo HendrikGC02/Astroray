@@ -24,18 +24,24 @@ def _load(name, rel):
 
 DRV = _load("pkg278_gate_a_driver", "benchmarks/viewport_parity/blender_driver.py")
 GM = _load("pkg278_gate_a_manifest", "scripts/gate_manifest.py")
-PIXELS = Path(tempfile.mkdtemp(prefix="pkg278_gate_a_"))
 PNG = b"\x89PNG\r\n\x1a\nfixture"
-for name in ("pre.png", "post.png"):
-    (PIXELS / name).write_bytes(PNG)
 
 
 def _sha(seed):
     return hashlib.sha256(seed.encode()).hexdigest()
 
 
+def _pixel_artifacts() -> Path:
+    """Create retained evidence after pytest has prepared its base temp root."""
+    pixels = Path(tempfile.mkdtemp(prefix="pkg278_gate_a_"))
+    for name in ("pre.png", "post.png"):
+        (pixels / name).write_bytes(PNG)
+    return pixels
+
+
 def _capture(scene, triangles, kind, batch, *, broken=None):
     raw, edits = [], []
+    pixels = _pixel_artifacts()
     base = (batch + 1) * 10_000_000
     for i in range(100):
         g, pub, t = i + 1, i + 1, base + i * 1000
@@ -43,7 +49,7 @@ def _capture(scene, triangles, kind, batch, *, broken=None):
                       "epoch": 7, "input_floor": g, "input_fingerprint": [i],
                       "kind": kind, "bound": True})
         raw += [
-            {"name": "viewport_pixels", "generation": None, "epoch": None, "t_ns": t - 1, "extra": {"event_id": i + 1, "label": "pre", "path": str(PIXELS / "pre.png"), "sha256": hashlib.sha256(PNG).hexdigest()}},
+            {"name": "viewport_pixels", "generation": None, "epoch": None, "t_ns": t - 1, "extra": {"event_id": i + 1, "label": "pre", "path": str(pixels / "pre.png"), "sha256": hashlib.sha256(PNG).hexdigest()}},
             {"name": "input_applied", "generation": None, "epoch": None, "t_ns": t + 0, "extra": {"event_id": i + 1, "fingerprint": [i]}},
             {"name": "request", "generation": g, "epoch": 7, "t_ns": t + 1, "extra": {}},
             {"name": "edit_bound", "generation": g, "epoch": 7, "t_ns": t + 1, "extra": {"event_id": i + 1, "input_floor": g, "fingerprint": [i]}},
@@ -51,7 +57,7 @@ def _capture(scene, triangles, kind, batch, *, broken=None):
             {"name": "mailbox_dequeue", "generation": g, "epoch": 7, "t_ns": t + 3, "extra": {"pub_id": pub}},
             {"name": "texture_upload_end", "generation": g, "epoch": 7, "t_ns": t + 4, "extra": {"pub_id": pub}},
             {"name": "post_pixel_present", "generation": g, "epoch": 7, "t_ns": t + 5, "extra": {"pub_id": pub, "input_floor": g}},
-            {"name": "viewport_pixels", "generation": g, "epoch": 7, "t_ns": t + 6, "extra": {"event_id": i + 1, "label": "post", "path": str(PIXELS / "post.png"), "sha256": hashlib.sha256(PNG).hexdigest()}},
+            {"name": "viewport_pixels", "generation": g, "epoch": 7, "t_ns": t + 6, "extra": {"event_id": i + 1, "label": "post", "path": str(pixels / "post.png"), "sha256": hashlib.sha256(PNG).hexdigest()}},
         ]
     raw += [{"name": "cancel_stimulus", "generation": 100, "epoch": 7, "t_ns": base + 100_009,
              "extra": {"kind": "material_input"}},

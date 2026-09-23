@@ -622,8 +622,12 @@ def _validate_b(records: list[Any], _base: Path) -> tuple[list[str], dict[str, A
         claimed = json.loads(paths["report"].read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         return [f"row b canonical artifact is not JSON: {exc}"], {}, {}
-    if not isinstance(frozen, Mapping) or frozen.get("schema") != "pkg278.coverage_input.v3":
-        return ["row b requires a v3 frozen coverage input"], {}, {}
+    if not isinstance(frozen, Mapping) or frozen.get("schema") not in (
+            "pkg278.coverage_input_manifest.v3", "pkg278.coverage_input_manifest.v4"):
+        return ["row b requires a v3 or v4 frozen coverage input"], {}, {}
+    if frozen.get("schema") == "pkg278.coverage_input_manifest.v4" and (
+            frozen.get("evidence", {}).get("runner_case_map", {}).get("status") != "ready"):
+        return ["row b v4 frozen case map must be ready"], {}, {}
     if paths["input"].resolve() != (REPO_ROOT / str(frozen.get("input_path") or "")).resolve():
         return ["row b input artifact is not the frozen canonical input_path"], {}, {}
     if paths["matrix"].resolve() != (REPO_ROOT / str(frozen.get("matrix", {}).get("path") or "")).resolve():
@@ -968,8 +972,12 @@ def adapt_b_instrument(report_path: Path, input_path: Path, snapshot_path: Path,
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
     matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
     claimed = json.loads(report_path.read_text(encoding="utf-8"))
-    if not isinstance(frozen, Mapping) or frozen.get("schema") != "pkg278.coverage_input.v3":
-        raise ValueError("row-b adapter requires coverage_input_v3.json")
+    if not isinstance(frozen, Mapping) or frozen.get("schema") not in (
+            "pkg278.coverage_input_manifest.v3", "pkg278.coverage_input_manifest.v4"):
+        raise ValueError("row-b adapter requires coverage_input_v3.json or coverage_input_v4.json")
+    if frozen.get("schema") == "pkg278.coverage_input_manifest.v4" and (
+            frozen.get("evidence", {}).get("runner_case_map", {}).get("status") != "ready"):
+        raise ValueError("row-b v4 frozen case map must be ready")
     canonical_input = (REPO_ROOT / str(frozen.get("input_path") or "")).resolve()
     if canonical_input != input_path:
         raise ValueError("row-b input must be the frozen input_path in this checkout")
@@ -1010,7 +1018,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="write a v2 row-(d) adapter around hash-linked native-panel raw evidence")
     p.add_argument("--adapt-b-report", type=Path, metavar="COVERAGE_REPORT_JSON",
                    help="wrap a canonical gate-b coverage_report.json after recomputation")
-    p.add_argument("--adapt-b-input", type=Path, metavar="COVERAGE_INPUT_V3")
+    p.add_argument("--adapt-b-input", type=Path, metavar="COVERAGE_INPUT_V3_OR_V4")
     p.add_argument("--adapt-b-snapshot", type=Path, metavar="NODE_USES_JSON")
     p.add_argument("--adapt-b-matrix", type=Path, metavar="COVERAGE_MATRIX_JSON")
     p.add_argument("--expected-d-build-id")

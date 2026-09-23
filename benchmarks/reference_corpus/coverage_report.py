@@ -1435,6 +1435,8 @@ def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
         if _sha256_bytes(_canonical_json(cases)) != case_map.get("sha256"):
             errors.append("runner case map hash does not match frozen input")
         if frozen.get("schema") == INPUT_MANIFEST_SCHEMA_V4:
+            if case_map.get("status") != "ready":
+                errors.append("v4 runner case map is not ready")
             for case in cases:
                 if (not isinstance(case, Mapping) or not isinstance(case.get("witness"), Mapping)
                         or not isinstance(case.get("settings"), Mapping)

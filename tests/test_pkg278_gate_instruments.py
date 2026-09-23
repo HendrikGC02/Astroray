@@ -211,6 +211,16 @@ def test_production_evidence_recomputes_runner_metrics_and_raw_graph(tmp_path):
     assert not CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)[0]
 
 
+def test_render_cleanup_preserves_precomputed_gate_b_mask(tmp_path):
+    render_leg = _load("pkg278_render_leg", "benchmarks/blender_parity/render_leg.py")
+    stem = tmp_path / "cycles"
+    mask = tmp_path / "cycles_mask.npy"; np.save(mask, np.ones((2, 2), dtype=np.uint8))
+    stale = stem.with_suffix(".npy"); np.save(stale, np.zeros((2, 2), dtype=np.float32))
+    (tmp_path / "cycles0001.exr").write_bytes(b"render")
+    render_leg._clear_render_outputs(stem)
+    assert mask.is_file() and not stale.exists() and not (tmp_path / "cycles0001.exr").exists()
+
+
 def test_harness_emits_metric_derived_gate_b_result():
     result = HARNESS.FeatureResult("shader_node", "BSDF_DIFFUSE", "SUPPORTED", "pass",
                                    ssim=.99, delta_e=1.0)
@@ -549,6 +559,9 @@ def test_freeze_v4_emits_only_registered_witness_cases(tmp_path, monkeypatch):
     ok, verify_errors, verified = CR.verify_frozen_input(frozen, tmp_path, snapshot)
     assert ok, verify_errors
     assert set(verified["allowed_cases"]) == {case["case_id"] for case in cases}
+    frozen["evidence"]["runner_case_map"]["status"] = "provisional"
+    ok, verify_errors, _ = CR.verify_frozen_input(frozen, tmp_path, snapshot)
+    assert not ok and "v4 runner case map is not ready" in verify_errors
 
 
 def test_freeze_and_verify_roundtrip(tmp_path):
@@ -735,8 +748,10 @@ def test_gate_b_adapter_recomputes_a_hash_pinned_canonical_report(tmp_path, monk
     expected = {"schema": "pkg278.coverage_report.v1", "cpu": {"score": .97},
                 "gpu": {"score": .96}, "subchecks": {key: {"pass": True}
                 for key in GM.ROW_SPEC["b"]["required_subchecks"]}}
-    frozen = {"schema": "pkg278.coverage_input.v3", "input_path": "input.json",
-              "matrix": {"path": "matrix.json"}}
+    frozen = {"schema": "pkg278.coverage_input_manifest.v4", "input_path": "input.json",
+              "matrix": {"path": "matrix.json"},
+              "evidence": {"runner_case_map": {"status": "ready",
+                           "candidate_build": {"build_id": "candidate"}}}}
     snapshot, matrix = {"scenes": {}}, []
     for name, payload in (("input.json", frozen), ("snapshot.json", snapshot),
                           ("matrix.json", matrix), ("report.json", expected)):
@@ -756,6 +771,11 @@ def test_gate_b_adapter_recomputes_a_hash_pinned_canonical_report(tmp_path, monk
     errors, value, subchecks = GM._validate_b([record], tmp_path)
     assert not errors and value == {"cpu_score": .97, "gpu_score": .96}
     assert subchecks == expected["subchecks"] and len(calls) == 1
+    adapted = GM.adapt_b_instrument(tmp_path / "report.json", tmp_path / "input.json",
+                                    tmp_path / "snapshot.json", tmp_path / "matrix.json")
+    assert adapted["build_id"] == "candidate" and adapted["value"] == value
+    errors, adapted_value, _ = GM._validate_b(adapted["records"], tmp_path)
+    assert not errors and adapted_value == value
     (tmp_path / "report.json").write_text(json.dumps({**expected, "cpu": {"score": 1.0}}), encoding="utf-8")
     record["report"] = ref("report.json")
     errors, _, _ = GM._validate_b([record], tmp_path)

@@ -113,20 +113,28 @@ def _to_top_down(px):
     return np.ascontiguousarray(px[::-1, :, :])
 
 
-def _render_to_npy(bpy, scene, out_stem: Path, res: int):
+def _clear_render_outputs(out_stem: Path):
+    """Remove only renderer products; a precomputed witness mask is evidence."""
     import glob
 
-    import numpy as np
-
-    for f in glob.glob(str(out_stem) + "*"):
+    candidates = glob.glob(str(out_stem) + "*.exr")
+    candidates.extend(str(out_stem.with_suffix(suffix)) for suffix in (".npy", ".png"))
+    for f in candidates:
         try:
             os.remove(f)
         except OSError:
             pass
+
+
+def _render_to_npy(bpy, scene, out_stem: Path, res: int):
+    import glob
+    import numpy as np
+
+    _clear_render_outputs(out_stem)
     scene.render.filepath = str(out_stem)
     bpy.ops.render.render(write_still=True)
 
-    matches = sorted(glob.glob(str(out_stem) + "*.exr")) or sorted(glob.glob(str(out_stem) + "*"))
+    matches = sorted(glob.glob(str(out_stem) + "*.exr"))
     if not matches:
         raise RuntimeError(f"no render output for stem {out_stem}")
     img = bpy.data.images.load(matches[0])
@@ -413,6 +421,7 @@ def main():
         if bool(args.corpus_manifest) != bool(args.corpus_scene):
             raise ValueError("--corpus-manifest and --corpus-scene must be supplied together")
         corpus_entry = None
+        gate_b_case = None
         if args.corpus_scene:
             corpus = scene_library.load_corpus_manifest(Path(args.corpus_manifest))
             corpus_entry = corpus.get(args.corpus_scene)
@@ -551,16 +560,15 @@ def main():
             if observed_settings != gate_b_case["settings"]:
                 raise ValueError("applied render settings do not match frozen gate-b case")
             control_spec = gate_b_case["witness"]["control"]
+            # Bind original geometry before the counterfactual changes it; save
+            # after _render_to_npy has cleaned only renderer products.
+            gate_b_mask = _gate_c_mask(bpy, scene, control_spec,
+                                       (int(scene.render.resolution_y), int(scene.render.resolution_x)))
+            mask_path = Path(args.gate_b_mask_out)
             if args.gate_b_control == "baseline":
                 gate_b_receipt = {"kind": "baseline", "ok": True}
             else:
                 gate_b_receipt = _gate_c_control(bpy, scene, control_spec)
-            import numpy as np
-            gate_b_mask = _gate_c_mask(bpy, scene, control_spec,
-                                       (int(scene.render.resolution_y), int(scene.render.resolution_x)))
-            mask_path = Path(args.gate_b_mask_out)
-            mask_path.parent.mkdir(parents=True, exist_ok=True)
-            np.save(mask_path, gate_b_mask)
         out_stem = Path(args.out)
         out_stem.parent.mkdir(parents=True, exist_ok=True)
         telemetry = []
@@ -581,6 +589,11 @@ def main():
         finally:
             if engine_cls is not None and original_write is not None:
                 engine_cls.write_pixels = original_write
+        if gate_b_case is not None:
+            import numpy as np
+
+            mask_path.parent.mkdir(parents=True, exist_ok=True)
+            np.save(mask_path, gate_b_mask)
         if corpus_entry is not None:
             module = ""; module_sha = ""; addon_path = ""; addon_sha = ""; observed_build = ""
             if args.engine == "CUSTOM_RAYTRACER":

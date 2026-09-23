@@ -1,14 +1,71 @@
 """Pure fail-closed contracts for pkg278's corpus gate-(c) producer."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
-import hashlib
+
 import numpy as np
 import pytest
 
 from benchmarks.blender_parity import harness as H
 from benchmarks.blender_parity import scene_library as S
+from scripts import gate_manifest as GM
+
+
+def _artifact(tmp_path, name, data):
+    path = tmp_path / name
+    if isinstance(data, np.ndarray):
+        np.save(path, data)
+    else:
+        path.write_bytes(data)
+    return {"path": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+
+
+def _valid_gate_c_records(tmp_path):
+    hashes = {role: hashlib.sha256(role.encode()).hexdigest() for role in S.GATE_C_ROLES}
+    controls = {
+        "materials_hall": [],
+        "textures_mapping": [{"kind": "checker_flat", "object": "TexChecker", "material": "TexCheckerMat", "node": "GateCWorkshopChecker", "mask": {"kind": "object_polygon"}}],
+        "world_sky:terrace-with-hair": [{"kind": "hair_off", "object": "TerraceHair", "mask": {"kind": "curves"}}, {"kind": "hdri_off", "world": "W", "node": "GateCTerraceEnvironment", "mask": {"kind": "sky_rays"}}],
+    }
+    probes = {"materials_hall": [], "textures_mapping": [{"kind": "checker", "min_delta": .05, "min_coverage": .02}], "world_sky:terrace-with-hair": [{"kind": "hair", "min_delta": .05, "min_coverage": .02}, {"kind": "hdri", "min_delta": .05, "min_coverage": .02}]}
+    freeze = {"build_id": "build-1", "module_sha256": "a" * 64, "addon_sha256": "b" * 64, "roles": {}}
+    for role in S.GATE_C_ROLES:
+        freeze["roles"][role] = {"scene_id": role, "scene_sha256": hashes[role], "settings": {"res_x": 16, "res_y": 16, "samples": 4}, "rois": {"all": [0, 0, 1, 1]}, "non_vacuity": probes[role], "controls": controls[role], "seed": 278, "expected_curve_count": 320 if role.endswith("hair") else None, "expected_curve_point_count": 1920 if role.endswith("hair") else None}
+    freeze_ref = _artifact(tmp_path, "freeze.json", json.dumps(freeze).encode())
+    freeze_sha = freeze_ref["sha256"]
+    image = _artifact(tmp_path, "image.png", b"display-only")
+    records = []
+    for role in S.GATE_C_ROLES:
+        bindings = {}
+        for control in controls[role]:
+            if control["kind"] == "checker_flat": bindings[control["kind"]] = {"object": "TexChecker", "object_type": "MESH", "material": "TexCheckerMat", "node": "GateCWorkshopChecker", "node_type": "ShaderNodeTexChecker"}
+            elif control["kind"] == "hair_off": bindings[control["kind"]] = {"object": "TerraceHair", "object_type": "CURVES", "curve_count": 320, "curve_point_count": 1920}
+            else: bindings[control["kind"]] = {"world": "W", "node": "GateCTerraceEnvironment", "node_type": "ShaderNodeTexEnvironment"}
+        for backend in ("CPU", "GPU"):
+            for control in [{"kind": "baseline"}] + controls[role]:
+                kind = control["kind"]
+                pixels = np.full((16, 16, 3), .5 if kind == "baseline" else .3, np.float32)
+                linear = _artifact(tmp_path, f"{role.replace(':', '_')}_{backend}_{kind}.npy", pixels)
+                report = {"corpus_scene": role, "blend_sha256": hashes[role], "freeze_sha256": freeze_sha, "build_id": "build-1", "requested_device": backend.lower(), "effective_device": backend.lower(), "engine": "CUSTOM_RAYTRACER", "res_x": 16, "res_y": 16, "samples": 4, "resolved_seed": 278, "animated_seed": False, "module_sha256": "a" * 64, "addon_sha256": "b" * 64, "blender_version": "5.2.0", "module_path": "C:/build/astroray.pyd", "addon_path": "C:/build/addon/__init__.py", "telemetry": [], "bindings": bindings}
+                if kind == "baseline":
+                    report["mutation_receipt"] = {"kind": "baseline", "ok": True}
+                elif kind == "checker_flat":
+                    report["mutation_receipt"] = {"kind": kind, "ok": True, "object": "TexChecker", "material": "TexCheckerMat", "node": "GateCWorkshopChecker", "before": [[0, 0, 0, 1], [1, 1, 1, 1]], "after": [[.5, .5, .5, 1], [.5, .5, .5, 1]]}
+                elif kind == "hair_off":
+                    report["mutation_receipt"] = {"kind": kind, "ok": True, "object": "TerraceHair", "type": "CURVES", "was_hide_render": False, "after_hide_render": True}
+                else:
+                    report["mutation_receipt"] = {"kind": kind, "ok": True, "world": "W", "node": "GateCTerraceEnvironment", "image": "sky.hdr", "after_image": None}
+                record = {"kind": "f12_run", "control": kind, "role": role, "scene_id": role, "scene_sha256": hashes[role], "backend": backend, "build_id": "build-1", "exit_code": 0, "sentinel": "PKG119B_LEG", "image": image, "linear_npy": linear, "settings": {"res_x": 16, "res_y": 16, "samples": 4, "gate_c_rois": {"all": [0, 0, 1, 1]}, "gate_c_probes": probes[role]}, "non_vacuity": [{"kind": p["kind"], "value": .2, "coverage": 1.0} for p in probes[role]]}
+                if kind != "baseline":
+                    mask = _artifact(tmp_path, f"{role.replace(':', '_')}_{backend}_{kind}_mask.npy", np.ones((16, 16), np.uint8))
+                    record["feature_mask"] = mask
+                    report["mask_receipt"] = {"control": kind, "kind": control["mask"]["kind"], "path": str((tmp_path / mask["path"]).resolve()), "sha256": mask["sha256"]}
+                report_ref = _artifact(tmp_path, f"{role.replace(':', '_')}_{backend}_{kind}.json", json.dumps(report).encode())
+                record["report_artifact"] = report_ref
+                records.append(record)
+    return records, list(hashes.values()), freeze_ref
 
 
 def test_terrace_role_resolves_only_to_the_hdri_corpus_scene():
@@ -21,6 +78,45 @@ def test_terrace_role_resolves_only_to_the_hdri_corpus_scene():
     assert "gate_c" not in S.load_corpus_manifest()["world_sky_sky"]
 
 
+def test_reducer_recomputes_valid_paired_control_receipts(tmp_path):
+    records, hashes, freeze = _valid_gate_c_records(tmp_path)
+    errors, value, subchecks = GM._validate_c(records, tmp_path, hashes, "build-1", freeze)
+    assert not errors
+    assert value == {"roi_pct_max": 0.0, "ssim_min": 1.0}
+    assert all(subchecks.values())
+
+
+def test_reducer_rejects_observed_seed_or_mask_receipt_mismatch(tmp_path):
+    records, hashes, freeze = _valid_gate_c_records(tmp_path)
+    record = next(item for item in records if item["control"] == "checker_flat")
+    report_path = tmp_path / record["report_artifact"]["path"]
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["resolved_seed"] = 0
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    record["report_artifact"]["sha256"] = hashlib.sha256(report_path.read_bytes()).hexdigest()
+    errors, _, _ = GM._validate_c(records, tmp_path, hashes, "build-1", freeze)
+    assert any("settings/seed" in error for error in errors)
+
+    records, hashes, freeze = _valid_gate_c_records(tmp_path)
+    record = next(item for item in records if item["control"] == "checker_flat")
+    report_path = tmp_path / record["report_artifact"]["path"]
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["mask_receipt"]["sha256"] = "0" * 64
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    record["report_artifact"]["sha256"] = hashlib.sha256(report_path.read_bytes()).hexdigest()
+    errors, _, _ = GM._validate_c(records, tmp_path, hashes, "build-1", freeze)
+    assert any("mask receipt" in error for error in errors)
+
+    records, hashes, freeze = _valid_gate_c_records(tmp_path)
+    control = next(item for item in records if item["control"] == "checker_flat")
+    baseline = next(item for item in records if item["role"] == control["role"] and item["backend"] == control["backend"] and item["control"] == "baseline")
+    control_path = tmp_path / control["linear_npy"]["path"]
+    control_path.write_bytes((tmp_path / baseline["linear_npy"]["path"]).read_bytes())
+    control["linear_npy"]["sha256"] = hashlib.sha256(control_path.read_bytes()).hexdigest()
+    errors, _, _ = GM._validate_c(records, tmp_path, hashes, "build-1", freeze)
+    assert any("no linear-image effect" in error for error in errors)
+
+
 def test_gate_c_cli_writes_fail_closed_payload_without_blender(tmp_path):
     assert H.run_gate_c_trio(tmp_path) == 1
     payload = json.loads((tmp_path / "instrument.json").read_text(encoding="utf-8"))
@@ -31,7 +127,8 @@ def test_gate_c_cli_writes_fail_closed_payload_without_blender(tmp_path):
 def test_entire_trio_freezes_real_declared_metadata():
     frozen = H._gate_c_freeze(S.CORPUS_MANIFEST)
     assert set(frozen) == set(S.GATE_C_ROLES)
-    assert frozen["materials_hall"]["non_vacuity"][0]["kind"] == "luminance_std"
+    assert frozen["materials_hall"]["non_vacuity"] == []
+    assert frozen["materials_hall"]["seed"] == 278
     assert frozen["textures_mapping"]["rois"]["workshop_checker"] == [
         0.2912, 0.3603, 0.4079, 0.4804]
     assert frozen["textures_mapping"]["controls"][0]["kind"] == "checker_flat"
@@ -52,14 +149,14 @@ def test_duplicate_logical_terrace_role_is_rejected(tmp_path):
 def test_terrace_freeze_requires_reopened_curves_census(monkeypatch, tmp_path):
     roles = {role: {"scene_id": role, "blend_path": "x.blend", "sha256": "a" * 64,
                     "assets": [], "settings": {"res_x": 16, "res_y": 16, "samples": 4},
-                    "gate_c": {"rois": {"all": [0, 0, 1, 1]},
+                    "gate_c": {"rois": {"all": [0, 0, 1, 1]}, "seed": 278,
                                "non_vacuity": [{"kind": "checker", "roi": "all", "min": .01}]}}
              for role in S.GATE_C_ROLES}
     terrace = roles["world_sky:terrace-with-hair"]
     terrace.update({"curve_count": 319, "curve_point_count": 1920})
     terrace["gate_c"].update({"expected_curve_count": 320, "expected_curve_point_count": 1920})
-    roles["textures_mapping"]["gate_c"]["controls"] = [{"kind": "checker_flat", "mask": {}}]
-    terrace["gate_c"]["controls"] = [{"kind": "hair_off", "mask": {}}]
+    roles["textures_mapping"]["gate_c"]["controls"] = [{"kind": "checker_flat", "object": "card", "material": "mat", "node": "node", "mask": {"kind": "object_polygon"}}]
+    terrace["gate_c"]["controls"] = [{"kind": "hair_off", "object": "hair", "mask": {"kind": "curves"}}]
     monkeypatch.setattr(S, "resolve_gate_c_roles", lambda _: roles)
     with pytest.raises(ValueError, match="expected_curve_count"):
         H._gate_c_freeze(tmp_path / "manifest.json")
@@ -110,7 +207,9 @@ def test_fake_six_leg_capture_freezes_before_spawn_and_keeps_npy_png(tmp_path, m
             mask = Path(args[args.index("--gate-c-mask-out") + 1]); np.save(mask, np.ones((16,16), dtype=np.uint8))
         np.save(out.with_suffix(".npy"), pixels)
         scene = args[args.index("--corpus-scene") + 1]; device = args[args.index("--device") + 1]
-        report = {"corpus_scene": scene, "blend_sha256": roles[next(k for k,v in roles.items() if v["scene_id"] == scene)]["scene_sha256"], "freeze_sha256": args[args.index("--gate-c-freeze-sha256") + 1], "requested_device": device, "effective_device": device, "build_id": "b1", "module_path": "C:/candidate/astroray.pyd", "module_sha256": "a" * 64, "addon_path": "C:/candidate/addon/__init__.py", "addon_sha256": "b" * 64, "telemetry": [{"device": -1 if device == "cpu" else 0}], "engine": "CUSTOM_RAYTRACER", "res_x": 16, "res_y": 16, "samples": 4, "resolved_seed": 278, "animated_seed": False, "mutation_receipt": {"kind": args[args.index("--gate-c-control") + 1], "ok": True} if "--gate-c-control" in args else {"kind": "baseline", "ok": True}}
+        report = {"corpus_scene": scene, "blend_sha256": roles[next(k for k,v in roles.items() if v["scene_id"] == scene)]["scene_sha256"], "freeze_sha256": args[args.index("--gate-c-freeze-sha256") + 1], "requested_device": device, "effective_device": device, "build_id": "b1", "module_path": "C:/candidate/astroray.pyd", "module_sha256": "a" * 64, "addon_path": "C:/candidate/addon/__init__.py", "addon_sha256": hashlib.sha256((H._REPO_ROOT / "blender_addon" / "__init__.py").read_bytes()).hexdigest(), "telemetry": [{"device": -1 if device == "cpu" else 0}], "engine": "CUSTOM_RAYTRACER", "res_x": 16, "res_y": 16, "samples": 4, "resolved_seed": 278, "animated_seed": False, "blender_version": "5.2.0", "bindings": {}, "mutation_receipt": {"kind": args[args.index("--gate-c-control") + 1], "ok": True} if "--gate-c-control" in args else {"kind": "baseline", "ok": True}}
+        if "--gate-c-control" in args:
+            report["mask_receipt"] = {"control": args[args.index("--gate-c-control") + 1]}
         return 0, True, report
     monkeypatch.setattr(H, "_run_gate_leg", fake_leg)
     assert H.run_gate_c_trio(tmp_path, manifest_path=manifest, build_id="b1", module_sha256="a" * 64) == 0

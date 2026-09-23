@@ -547,11 +547,24 @@ def _gate_c_freeze(manifest_path: Path) -> dict[str, Any]:
             raise ValueError(f"gate-c role {role} lacks declared counterfactual controls")
         if any(not isinstance(c, dict) or not isinstance(c.get("kind"), str) or not isinstance(c.get("mask"), dict) for c in controls):
             raise ValueError(f"gate-c role {role} has invalid counterfactual controls")
+        seed = cfg.get("seed")
+        if not isinstance(seed, int) or isinstance(seed, bool) or seed <= 0:
+            raise ValueError(f"gate-c role {role} lacks a fixed non-zero seed")
+        for control in controls:
+            mask_kind = control["mask"].get("kind")
+            if mask_kind == "rect" or mask_kind not in ("object_polygon", "curves", "sky_rays"):
+                raise ValueError(f"gate-c role {role} has an invalid control mask")
+            required = {"checker_flat": ("object", "material", "node"),
+                        "hair_off": ("object",), "hdri_off": ("world", "node")}.get(control["kind"])
+            if required is None or any(not isinstance(control.get(key), str) or not control[key] for key in required):
+                raise ValueError(f"gate-c role {role} has incomplete {control['kind']} binding")
         frozen[role] = {"scene_id": entry["scene_id"] if "scene_id" in entry else role,
                         "blend_path": entry["blend_path"], "scene_sha256": entry["sha256"],
                         "assets": entry.get("assets", []), "settings": entry["settings"],
                         "rois": cfg["rois"], "non_vacuity": probes, "controls": controls,
-                        "seed": cfg.get("seed")}
+                        "seed": seed,
+                        "expected_curve_count": cfg.get("expected_curve_count"),
+                        "expected_curve_point_count": cfg.get("expected_curve_point_count")}
     return frozen
 
 
@@ -611,7 +624,8 @@ def _run_gate_leg(blender: Path, args: list[str], env: dict[str, str], timeout: 
 
 
 def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
-                    timeout: int = 1800, build_id: str = "", module_sha256: str = "") -> int:
+                    timeout: int = 1800, build_id: str = "", module_sha256: str = "",
+                    addon_sha256: str = "") -> int:
     """Produce real six-leg F12 evidence.  The current missing terrace role is
     an intentional fail-closed result and starts no substitute renders."""
     manifest_path = Path(manifest_path or _REPO_ROOT / "benchmarks" / "reference_corpus" / "scenes" / "manifest.json").resolve()
@@ -634,8 +648,19 @@ def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
         payload["freeze_error"] = "gate-c requires an expected 64-hex module SHA-256"
         (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return 1
+    if not isinstance(build_id, str) or not build_id.strip():
+        payload["freeze_error"] = "gate-c requires an expected non-empty build id"
+        (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return 1
+    if not addon_sha256:
+        addon_sha256 = _sha256(_REPO_ROOT / "blender_addon" / "__init__.py")
+    if len(addon_sha256) != 64:
+        payload["freeze_error"] = "gate-c requires an expected 64-hex addon SHA-256"
+        (out_dir / "instrument.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return 1
     freeze = {"manifest_path": str(manifest_path), "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
-              "build_id": build_id, "module_sha256": module_sha256, "roles": frozen}
+              "build_id": build_id, "module_sha256": module_sha256,
+              "addon_sha256": addon_sha256, "roles": frozen}
     freeze_path.write_text(json.dumps(freeze, indent=2), encoding="utf-8")
     freeze_sha = _sha256(freeze_path)
     payload["freeze"] = _artifact_ref(freeze_path, out_dir)
@@ -670,10 +695,11 @@ def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
             actual_identity = (isinstance(report.get("module_path"), str) and
                                isinstance(report.get("addon_path"), str) and
                                len(str(report.get("module_sha256") or "")) == 64 and
-                               len(str(report.get("addon_sha256") or "")) == 64 and
+                               report.get("addon_sha256") == addon_sha256 and
+                               isinstance(report.get("bindings"), dict) and
                                isinstance(report.get("telemetry"), list))
             mask_path = leg_dir / "feature_mask.npy"
-            control_ok = control_kind == "baseline" or (isinstance(report.get("mutation_receipt"), dict) and report["mutation_receipt"].get("kind") == control_kind and report["mutation_receipt"].get("ok") is True and mask_path.is_file())
+            control_ok = control_kind == "baseline" or (isinstance(report.get("mutation_receipt"), dict) and report["mutation_receipt"].get("kind") == control_kind and report["mutation_receipt"].get("ok") is True and isinstance(report.get("mask_receipt"), dict) and report["mask_receipt"].get("control") == control_kind and mask_path.is_file())
             if npy.is_file() and code == 0 and sentinel and actual_identity and control_ok and all(report.get(k) == v for k, v in expected.items()):
                 _npy_to_png(npy, png, preserve_source=True)
                 if png.is_file():

@@ -28,6 +28,7 @@ import datetime
 import hashlib
 import importlib.util
 import json
+import math
 import re
 import sys
 from collections.abc import Mapping
@@ -194,7 +195,7 @@ def _number(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     value = float(value)
-    return value if value == value and value not in (float("inf"), float("-inf")) else None
+    return value if math.isfinite(value) else None
 
 
 def _artifact(ref: Any, base: Path, label: str) -> tuple[Path | None, list[str]]:
@@ -250,7 +251,7 @@ def _typed_payload(row: Mapping[str, Any], rid: str, spec: Mapping[str, Any],
 
 
 def _pct(samples: list[float], quantile: float) -> float:
-    return sorted(samples)[max(0, int((len(samples) * quantile + .999999)) - 1)]
+    return sorted(samples)[max(0, int(len(samples) * quantile + .999999) - 1)]
 
 
 def _validate_a(records: list[Any], base: Path, expected_scenes: Any) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
@@ -282,28 +283,99 @@ def _validate_a(records: list[Any], base: Path, expected_scenes: Any) -> tuple[l
 def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: Any, freeze_ref: Any = None) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
     """Fail closed unless every semantic witness is a paired control delta."""
     import numpy as np
+
     from benchmarks.reference_bank.metrics import compute_ssim
     from benchmarks.reference_bank.runner import compute_channel_mean_ratio
-    errors=[]; pairs=set(); hashes={}; images={}; masks={}; ratios=[]; ssims=[]
+    errors=[]; pairs=set(); hashes={}; images={}; masks={}; ratios=[]; ssims=[]; reports={}; leg_keys=set()
     freeze_path, why = _artifact(freeze_ref, base, "row c freeze"); errors.extend(why)
     try: freeze=json.loads(freeze_path.read_text(encoding="utf-8")) if freeze_path else {}
     except (OSError,json.JSONDecodeError): freeze={}; errors.append("row c freeze cannot be read")
-    if len(records) != 12: errors.append("row c requires paired baseline/control F12 evidence for every declared feature")
+    roles = freeze.get("roles", {}) if isinstance(freeze, Mapping) else {}
+    if not isinstance(roles, Mapping) or set(roles) != set(TRIO_ROLES):
+        errors.append("row c freeze lacks the exact declared trio roles")
+        roles = {}
+    freeze_sha = sha256_file(freeze_path) if freeze_path else ""
+    if freeze.get("build_id") != build_id or not isinstance(build_id, str) or not build_id:
+        errors.append("row c freeze build identity differs from the instrument")
+    for field in ("module_sha256", "addon_sha256"):
+        if not isinstance(freeze.get(field), str) or not _HEX64.match(freeze[field]):
+            errors.append(f"row c freeze has invalid {field}")
+    expected_legs = {(role, backend, control.get("kind", "baseline"))
+                     for role, frozen in roles.items() for backend in ("CPU", "GPU")
+                     for control in ([{"kind": "baseline"}] + list(frozen.get("controls", [])))}
+    if len(records) != len(expected_legs): errors.append("row c requires paired baseline/control F12 evidence for every declared feature")
     for i,r in enumerate(records):
         if not isinstance(r,Mapping): errors.append(f"row c record {i} is not an object"); continue
         role,scene,backend,digest,control=(r.get(k) for k in ("role","scene_id","backend","scene_sha256","control"))
-        frozen=(freeze.get("roles") or {}).get(role,{}) if isinstance(freeze,Mapping) else {}
+        frozen=roles.get(role,{})
         allowed={"baseline"}|{c.get("kind") for c in frozen.get("controls",[]) if isinstance(c,Mapping)}
         if role not in TRIO_ROLES or backend not in ("CPU","GPU") or not isinstance(scene,str) or not isinstance(digest,str) or not _HEX64.match(digest) or control not in allowed: errors.append(f"row c record {i} has invalid identity/control"); continue
+        leg_key = (role, backend, control)
+        if leg_key in leg_keys: errors.append(f"row c record {i} duplicates a frozen leg")
+        leg_keys.add(leg_key)
+        if scene != frozen.get("scene_id") or digest != frozen.get("scene_sha256"):
+            errors.append(f"row c record {i} identity differs from its frozen role")
         if r.get("kind")!="f12_run" or r.get("exit_code")!=0 or r.get("sentinel")!="PKG119B_LEG" or r.get("build_id")!=build_id: errors.append(f"row c record {i} lacks successful F12 sentinel/build")
-        for field,label in (("image","image"),("report_artifact","report")):
-            _,why=_artifact(r.get(field),base,f"row c record {i} {label}"); errors.extend(why)
+        _image_path,image_why=_artifact(r.get("image"),base,f"row c record {i} image"); errors.extend(image_why)
+        report_path,report_why=_artifact(r.get("report_artifact"),base,f"row c record {i} report"); errors.extend(report_why)
         linear,why=_artifact(r.get("linear_npy"),base,f"row c record {i} linear render"); errors.extend(why)
         try:
             arr=np.load(linear)[...,:3] if linear else None
             if arr is None or arr.ndim!=3 or not np.isfinite(arr).all() or float(np.abs(arr).max())<=1e-9: raise ValueError()
             images[(role,backend,control)]=arr
         except (OSError,ValueError): errors.append(f"row c record {i} linear render cannot be loaded")
+        try:
+            report=json.loads(report_path.read_text(encoding="utf-8")) if report_path else None
+            if not isinstance(report, Mapping): raise TypeError()
+            reports[leg_key] = report
+        except (OSError,TypeError,ValueError,json.JSONDecodeError):
+            report={}; errors.append(f"row c record {i} report cannot be read")
+        expected = {"corpus_scene": scene, "blend_sha256": digest, "freeze_sha256": freeze_sha,
+                    "build_id": build_id, "requested_device": backend.lower(),
+                    "effective_device": backend.lower(), "engine": "CUSTOM_RAYTRACER",
+                    "res_x": frozen.get("settings", {}).get("res_x"),
+                    "res_y": frozen.get("settings", {}).get("res_y"),
+                    "samples": frozen.get("settings", {}).get("samples"),
+                    "resolved_seed": frozen.get("seed"), "animated_seed": False,
+                    "module_sha256": freeze.get("module_sha256"), "addon_sha256": freeze.get("addon_sha256")}
+        if any(report.get(key) != value for key, value in expected.items()):
+            errors.append(f"row c record {i} observed engine/module/addon/build/device/settings/seed differs from freeze")
+        if not isinstance(report.get("blender_version"), str) or not report["blender_version"].startswith("5.2"):
+            errors.append(f"row c record {i} was not observed in Blender 5.2")
+        if not isinstance(report.get("module_path"), str) or not report["module_path"] or not isinstance(report.get("addon_path"), str) or not report["addon_path"] or not isinstance(report.get("telemetry"), list):
+            errors.append(f"row c record {i} lacks observed module/addon/device telemetry")
+        bindings=report.get("bindings")
+        if not isinstance(bindings, Mapping):
+            errors.append(f"row c record {i} lacks observed graph bindings")
+        else:
+            for declared in frozen.get("controls", []):
+                kind=declared.get("kind"); observed=bindings.get(kind)
+                if not isinstance(observed, Mapping): errors.append(f"row c record {i} lacks observed {kind} binding"); continue
+                checks = {"checker_flat": (("object", "object"), ("material", "material"), ("node", "node"), ("object_type", "MESH"), ("node_type", "ShaderNodeTexChecker")),
+                          "hair_off": (("object", "object"), ("object_type", "CURVES")),
+                          "hdri_off": (("world", "world"), ("node", "node"), ("node_type", "ShaderNodeTexEnvironment"))}.get(kind, ())
+                for check in checks:
+                    observed_key, expected_key = check
+                    expected_value = declared.get(expected_key) if expected_key in declared else expected_key
+                    if observed.get(observed_key) != expected_value:
+                        errors.append(f"row c record {i} observed {kind} binding differs from freeze")
+                        break
+                if kind == "hair_off" and (observed.get("curve_count") != frozen.get("expected_curve_count")
+                                             or observed.get("curve_point_count") != frozen.get("expected_curve_point_count")):
+                    errors.append(f"row c record {i} observed hair census differs from freeze")
+        receipt=report.get("mutation_receipt")
+        if not isinstance(receipt, Mapping) or receipt.get("kind") != control or receipt.get("ok") is not True:
+            errors.append(f"row c record {i} mutation receipt is missing or wrong")
+        elif control == "baseline":
+            if set(receipt) != {"kind", "ok"}: errors.append(f"row c record {i} baseline receipt is not inert")
+        else:
+            declared=next((item for item in frozen.get("controls", []) if item.get("kind") == control), {})
+            if control == "checker_flat" and (receipt.get("object") != declared.get("object") or receipt.get("material") != declared.get("material") or receipt.get("node") != declared.get("node") or receipt.get("before") == receipt.get("after")):
+                errors.append(f"row c record {i} checker mutation receipt is not the declared flat control")
+            if control == "hair_off" and (receipt.get("object") != declared.get("object") or receipt.get("type") != "CURVES" or receipt.get("was_hide_render") is not False or receipt.get("after_hide_render") is not True):
+                errors.append(f"row c record {i} hair mutation receipt is not the declared hide control")
+            if control == "hdri_off" and (receipt.get("world") != declared.get("world") or receipt.get("node") != declared.get("node") or not receipt.get("image") or receipt.get("after_image", "not-none") is not None):
+                errors.append(f"row c record {i} HDRI mutation receipt is not the declared world control")
         if control != "baseline":
             mask_path,why=_artifact(r.get("feature_mask"),base,f"row c record {i} feature mask"); errors.extend(why)
             try:
@@ -311,8 +383,17 @@ def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
                 if mask is None or mask.ndim!=2 or not mask.any(): raise ValueError()
                 masks[(role,backend,control)]=mask
             except (OSError,ValueError): errors.append(f"row c record {i} feature mask cannot be loaded")
+            mask_receipt=report.get("mask_receipt")
+            declared=next((item for item in frozen.get("controls", []) if item.get("kind") == control), {})
+            if (not isinstance(mask_receipt, Mapping) or mask_receipt.get("control") != control
+                    or mask_receipt.get("kind") != declared.get("mask", {}).get("kind")
+                    or mask_receipt.get("path") != str(mask_path.resolve())
+                    or mask_receipt.get("sha256") != (r.get("feature_mask") or {}).get("sha256")):
+                errors.append(f"row c record {i} mask receipt is not bound to the frozen control artifact")
         else: pairs.add((role,backend)); hashes.setdefault(role,(scene,digest))
-        if r.get("settings",{}).get("gate_c_rois")!=frozen.get("rois") or r.get("settings",{}).get("gate_c_probes")!=frozen.get("non_vacuity"): errors.append(f"row c record {i} configuration differs from hash-pinned freeze")
+        if (r.get("settings",{}).get("gate_c_rois")!=frozen.get("rois") or r.get("settings",{}).get("gate_c_probes")!=frozen.get("non_vacuity")
+                or any(r.get("settings", {}).get(key) != frozen.get("settings", {}).get(key) for key in ("res_x", "res_y", "samples"))): errors.append(f"row c record {i} configuration differs from hash-pinned freeze")
+    if leg_keys != expected_legs: errors.append("row c records do not cover the exact frozen baseline/control legs")
     if pairs != {(s,b) for s in TRIO_ROLES for b in ("CPU","GPU")}: errors.append("row c records do not cover every required baseline role/backend pair")
     if not isinstance(expected_hashes,list) or set(expected_hashes)!={v[1] for v in hashes.values()} or len(expected_hashes)!=3: errors.append("row c record scene hashes do not equal frozen manifest scene hashes")
     for role in TRIO_ROLES:
@@ -333,6 +414,7 @@ def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
                 if ck is None: continue
                 control,mask=images.get((role,backend,ck)),masks.get((role,backend,ck)); reported=next((x for x in base_record.get("non_vacuity",[]) if isinstance(x,Mapping) and x.get("kind")==kind),None)
                 if baseline is None or control is None or mask is None or control.shape!=baseline.shape or mask.shape!=baseline.shape[:2] or not isinstance(reported,Mapping): errors.append(f"row c record {role}/{backend} lacks concrete {kind} paired probe"); continue
+                if np.array_equal(baseline, control): errors.append(f"row c record {role}/{backend} {kind} control has no linear-image effect")
                 floor=float(probe.get("min_delta",0)); coverage=float(probe.get("min_coverage",0)); delta=np.abs(baseline-control).mean(axis=-1)[mask]; value=float(delta.mean()); observed=float((delta>floor).mean())
                 if (_number(reported.get("value")) is None or _number(reported.get("coverage")) is None or abs(float(reported["value"])-value)>1e-6 or abs(float(reported["coverage"])-observed)>1e-6 or value<=floor or observed<=coverage): errors.append(f"row c record {role}/{backend} {kind} non-vacuity is not derived from paired frozen-mask evidence")
     if not ratios or not ssims: errors.append("row c has no recomputable frozen ROI metrics")
@@ -486,7 +568,7 @@ def _check_common(row: Mapping[str, Any], spec: Mapping[str, Any],
     dims = row.get("dimensions") or {}
     for dim in spec.get("required_dimensions", ()):
         observed = dims.get(dim) if isinstance(dims, Mapping) else None
-        if (not observed or isinstance(observed, bool) or isinstance(observed, (list, tuple, dict, set))):
+        if not observed or isinstance(observed, (bool, list, tuple, dict, set)):
             reasons.append(f"required dimension absent: {dim}")
     # Frozen thresholds: the row may not loosen (or drop) a bound.
     supplied = row.get("threshold") or {}

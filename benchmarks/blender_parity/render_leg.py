@@ -199,25 +199,67 @@ def _gate_c_control(bpy, scene, control):
     kind = control.get("kind") if isinstance(control, dict) else ""
     receipt = {"kind": kind, "ok": False}
     if kind == "checker_flat":
+        obj = bpy.data.objects.get(control.get("object"))
         mat = bpy.data.materials.get(control.get("material")); node = mat and mat.node_tree.nodes.get(control.get("node"))
+        if obj is None or obj.type != "MESH" or mat not in obj.data.materials:
+            raise ValueError("gate-c checker object/material binding is absent or wrong")
         if node is None or node.bl_idname != "ShaderNodeTexChecker":
             raise ValueError("gate-c checker binding is absent or wrong type")
         before = [list(node.inputs[n].default_value[:]) for n in ("Color1", "Color2")]
         flat = tuple((before[0][i] + before[1][i]) / 2.0 for i in range(4))
         node.inputs["Color1"].default_value = flat; node.inputs["Color2"].default_value = flat
-        receipt.update({"material": mat.name, "node": node.name, "before": before, "after": [list(flat), list(flat)], "ok": True})
+        receipt.update({"object": obj.name, "material": mat.name, "node": node.name,
+                        "before": before, "after": [list(flat), list(flat)], "ok": True})
     elif kind == "hair_off":
         obj = bpy.data.objects.get(control.get("object"))
         if obj is None or obj.type != "CURVES": raise ValueError("gate-c hair binding is absent or wrong type")
-        receipt.update({"object": obj.name, "type": obj.type, "was_hide_render": bool(obj.hide_render), "ok": True})
+        if obj.hide_render:
+            raise ValueError("gate-c hair control is already hidden")
+        receipt.update({"object": obj.name, "type": obj.type, "was_hide_render": False, "ok": True})
         obj.hide_render = True
+        receipt["after_hide_render"] = bool(obj.hide_render)
     elif kind == "hdri_off":
         world = bpy.data.worlds.get(control.get("world")); node = world and world.node_tree.nodes.get(control.get("node"))
         if node is None or node.bl_idname != "ShaderNodeTexEnvironment": raise ValueError("gate-c HDRI binding is absent or wrong type")
-        receipt.update({"world": world.name, "node": node.name, "image": getattr(node.image, "filepath", ""), "ok": bool(node.image)})
+        if scene.world != world or not node.outputs.get("Color") or not node.outputs["Color"].is_linked:
+            raise ValueError("gate-c HDRI node is not active in the scene world graph")
+        receipt.update({"world": world.name, "node": node.name,
+                        "image": getattr(node.image, "filepath", ""), "ok": bool(node.image)})
         node.image = None
+        receipt["after_image"] = None
     else: raise ValueError("unknown gate-c control")
     return receipt
+
+
+def _gate_c_bindings(bpy, scene, controls):
+    """Inspect declared Blender bindings before either gate-C leg mutates them."""
+    bindings = {}
+    for control in controls:
+        kind = control.get("kind")
+        if kind == "checker_flat":
+            obj = bpy.data.objects.get(control.get("object"))
+            mat = bpy.data.materials.get(control.get("material"))
+            node = mat and mat.node_tree and mat.node_tree.nodes.get(control.get("node"))
+            if obj is None or obj.type != "MESH" or mat is None or mat not in obj.data.materials or node is None or node.bl_idname != "ShaderNodeTexChecker":
+                raise ValueError("gate-c checker declared binding is absent or wrong")
+            bindings[kind] = {"object": obj.name, "object_type": obj.type,
+                              "material": mat.name, "node": node.name, "node_type": node.bl_idname}
+        elif kind == "hair_off":
+            obj = bpy.data.objects.get(control.get("object"))
+            if obj is None or obj.type != "CURVES" or obj.hide_render:
+                raise ValueError("gate-c hair declared binding is absent, wrong, or already hidden")
+            bindings[kind] = {"object": obj.name, "object_type": obj.type,
+                              "curve_count": len(obj.data.curves), "curve_point_count": len(obj.data.points)}
+        elif kind == "hdri_off":
+            world = bpy.data.worlds.get(control.get("world"))
+            node = world and world.use_nodes and world.node_tree and world.node_tree.nodes.get(control.get("node"))
+            if world is None or scene.world != world or node is None or node.bl_idname != "ShaderNodeTexEnvironment" or not node.image or not node.outputs.get("Color") or not node.outputs["Color"].is_linked:
+                raise ValueError("gate-c HDRI declared world/node binding is absent or inactive")
+            bindings[kind] = {"world": world.name, "node": node.name,
+                              "node_type": node.bl_idname, "image": node.image.filepath}
+        else:
+            raise ValueError("unknown gate-c control binding")
+    return bindings
 
 
 def _gate_c_mask(bpy, scene, control, shape):
@@ -226,8 +268,7 @@ def _gate_c_mask(bpy, scene, control, shape):
     h, w = shape; spec = control.get("mask", {}); kind = spec.get("kind")
     mask = np.zeros((h, w), dtype=np.uint8)
     if kind == "rect":
-        x0, y0, x1, y1 = spec["roi"]; mask[int(y0*h):int(y1*h), int(x0*w):int(x1*w)] = 255
-        return mask
+        raise ValueError("gate-c control masks cannot be rectangles")
     obj = bpy.data.objects.get(control.get("object")) if kind in ("object_polygon", "curves") else None
     if kind in ("object_polygon", "curves") and obj is None: raise ValueError("gate-c mask object absent")
     from bpy_extras.object_utils import world_to_camera_view
@@ -236,14 +277,24 @@ def _gate_c_mask(bpy, scene, control, shape):
         return (v.x*w, (1.0-v.y)*h)
     if kind == "object_polygon":
         if not obj.data.polygons: raise ValueError("gate-c checker object has no face")
-        pts = [point(obj.data.vertices[i].co) for i in obj.data.polygons[0].vertices]
+        # Blender records this card's quad boundary as [0, 1, 3, 2].  Do not
+        # sort it: its stored winding is the source geometry contract.  The
+        # coverage test uses Blender's own documented
+        # mathutils.geometry.intersect_point_tri_2d predicate, split on the
+        # fixed 0-2 diagonal; see https://docs.blender.org/api/5.1/mathutils.geometry.html.
+        vertices = list(obj.data.polygons[0].vertices)
+        pts = [point(obj.data.vertices[i].co) for i in vertices]
         cx, cy = sum(p[0] for p in pts)/len(pts), sum(p[1] for p in pts)/len(pts); inset = float(spec.get("inset", 0.0))
         pts = [(cx+(x-cx)*(1-inset), cy+(y-cy)*(1-inset)) for x,y in pts]
-        # Ray-crossing fill; plane vertices are the actual named card geometry.
-        yy, xx = np.mgrid[:h, :w]; inside = np.zeros((h,w), dtype=bool)
-        for (x0,y0),(x1,y1) in zip(pts, pts[1:]+pts[:1]):
-            inside ^= ((y0 > yy) != (y1 > yy)) & (xx < (x1-x0)*(yy-y0)/(y1-y0+1e-12)+x0)
-        mask[inside] = 255
+        from mathutils import Vector
+        from mathutils.geometry import intersect_point_tri_2d
+        tri_a = tuple(Vector(p) for p in (pts[0], pts[1], pts[2]))
+        tri_b = tuple(Vector(p) for p in (pts[0], pts[2], pts[3]))
+        for y in range(h):
+            for x in range(w):
+                pixel = Vector((x + .5, y + .5))
+                if intersect_point_tri_2d(pixel, *tri_a) or intersect_point_tri_2d(pixel, *tri_b):
+                    mask[y, x] = 255
     elif kind == "curves":
         radius = int(spec.get("radius_px", 1))
         for curve in obj.data.curves:
@@ -337,17 +388,31 @@ def main():
                 bpy, args.category, args.feature, args.bl_idname, engine=args.engine)
 
         control = None
+        role = None
+        bindings = {}
+        mask_receipt = None
+        if args.gate_c_freeze:
+            if not isinstance(args.gate_c_seed, int) or args.gate_c_seed <= 0:
+                raise ValueError("gate-c seed must be a fixed non-zero integer")
+            role = next((v for v in freeze.get("roles", {}).values()
+                         if v.get("scene_id") == args.corpus_scene), None)
+            if role is None:
+                raise ValueError("gate-c corpus scene is absent from the frozen roles")
+            bindings = _gate_c_bindings(bpy, scene, role.get("controls", []))
         if args.gate_c_control:
             if not args.gate_c_freeze:
                 raise ValueError("gate-c control requires a frozen declaration")
-            role = next((v for v in freeze.get("roles", {}).values() if v.get("scene_id") == args.corpus_scene), None)
-            control = next((c for c in role.get("controls", []) if c.get("kind") == args.gate_c_control), None) if role else None
+            control = next((c for c in role.get("controls", []) if c.get("kind") == args.gate_c_control), None)
             if control is None: raise ValueError("gate-c control is not declared for corpus scene")
             # Mask before mutation/render; it binds the named original geometry.
             if args.gate_c_mask_out:
                 import numpy as np
                 mask = _gate_c_mask(bpy, scene, control, (int(scene.render.resolution_y), int(scene.render.resolution_x)))
-                Path(args.gate_c_mask_out).parent.mkdir(parents=True, exist_ok=True); np.save(args.gate_c_mask_out, mask)
+                mask_path = Path(args.gate_c_mask_out)
+                mask_path.parent.mkdir(parents=True, exist_ok=True); np.save(mask_path, mask)
+                mask_receipt = {"control": control["kind"], "kind": control["mask"].get("kind"),
+                                "path": str(mask_path.resolve()), "sha256": hashlib.sha256(mask_path.read_bytes()).hexdigest(),
+                                "shape": [int(mask.shape[0]), int(mask.shape[1])], "pixels": int(mask.astype(bool).sum())}
             receipt = _gate_c_control(bpy, scene, control)
         else:
             receipt = {"kind": "baseline", "ok": True}
@@ -420,7 +485,7 @@ def main():
             devices = [info.get("device") for info in telemetry if isinstance(info, dict) and isinstance(info.get("device"), (int, float))]
             effective_device = ("gpu" if devices and all(value >= 0 for value in devices) else
                                 ("cpu" if devices and all(value < 0 for value in devices) else ""))
-            print(f"{SENTINEL} REPORT {json.dumps({'corpus_scene': args.corpus_scene, 'blend_sha256': hashlib.sha256(Path(args.load_blend).read_bytes()).hexdigest(), 'freeze_sha256': args.gate_c_freeze_sha256, 'build_id': observed_build, 'requested_device': args.device, 'effective_device': effective_device, 'telemetry': telemetry, 'engine': str(scene.render.engine), 'res_x': int(scene.render.resolution_x), 'res_y': int(scene.render.resolution_y), 'samples': int(scene.cycles.samples), 'resolved_seed': int(scene.cycles.seed), 'animated_seed': bool(scene.cycles.use_animated_seed), 'blender_version': bpy.app.version_string, 'module_path': module, 'module_sha256': module_sha, 'addon_path': addon_path, 'addon_sha256': addon_sha, 'mutation_receipt': receipt, 'mask_path': args.gate_c_mask_out})}", flush=True)
+            print(f"{SENTINEL} REPORT {json.dumps({'corpus_scene': args.corpus_scene, 'blend_sha256': hashlib.sha256(Path(args.load_blend).read_bytes()).hexdigest(), 'freeze_sha256': args.gate_c_freeze_sha256, 'build_id': observed_build, 'requested_device': args.device, 'effective_device': effective_device, 'telemetry': telemetry, 'engine': str(scene.render.engine), 'res_x': int(scene.render.resolution_x), 'res_y': int(scene.render.resolution_y), 'samples': int(scene.cycles.samples), 'resolved_seed': int(scene.cycles.seed), 'animated_seed': bool(scene.cycles.use_animated_seed), 'blender_version': bpy.app.version_string, 'module_path': module, 'module_sha256': module_sha, 'addon_path': addon_path, 'addon_sha256': addon_sha, 'bindings': bindings, 'mutation_receipt': receipt, 'mask_receipt': mask_receipt})}", flush=True)
         print(f"[pkg119b-leg] wrote {npy}", flush=True)
         print(f"{SENTINEL} PASS", flush=True)
     except Exception as exc:  # noqa: BLE001

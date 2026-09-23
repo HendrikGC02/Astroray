@@ -4,7 +4,7 @@
       "family": "materials_hall",
       "builder_fn": "build_materials_hall_scene",
       "blend_path": "benchmarks/reference_corpus/scenes/materials_hall.blend",
-      "sha256": "11fe42032bc5b88f648a520784aab8bd552ad91f3df85acf25ce7e6b3d200a56",
+      "sha256": "8e63d6a8f3e2f49f83aec15214d5094d5d0eff1f61be0338ede5cf1c79838f44",
       "settings": {
         "res_x": 960,
         "res_y": 176,
@@ -555,20 +555,15 @@
             0.8
           ]
         },
-        "non_vacuity": [
-          {
-            "kind": "luminance_std",
-            "roi": "gallery_principled",
-            "min": 0.02
-          }
-        ]
+        "non_vacuity": [],
+        "seed": 278
       }
     },
     "textures_mapping": {
       "family": "textures_mapping",
       "builder_fn": "build_textures_mapping_scene",
       "blend_path": "benchmarks/reference_corpus/scenes/textures_mapping.blend",
-      "sha256": "bb5b5f2fcf2cddb78b94aed247bc82cb932ca73173ba274645f20d7792aa81eb",
+      "sha256": "9f2f1c88d362687c18caf4debf3dce0bf87f79e1e38c02e155d831e8ec248080",
       "settings": {
         "res_x": 960,
         "res_y": 540,
@@ -1563,7 +1558,8 @@
               "inset": 0.16
             }
           }
-        ]
+        ],
+        "seed": 278
       }
     },
     "lighting_studio": {
@@ -1854,7 +1850,7 @@
       "family": "world_sky",
       "builder_fn": "build_world_sky_hdri_scene",
       "blend_path": "benchmarks/reference_corpus/scenes/world_sky_hdri.blend",
-      "sha256": "2cbd64a53fe2628445eb69b715503f3e6b1bfa289716dacfb97ec00d39c3d680",
+      "sha256": "345e8f24d56185a8222dca682648541cceb8c26b6e2c47f91f6daf47ab9fa2d9",
       "settings": {
         "res_x": 480,
         "res_y": 270,
@@ -2008,7 +2004,7 @@
             "world": "W",
             "node": "GateCTerraceEnvironment",
             "mask": {
-              "kind": "rect",
+              "kind": "sky_rays",
               "roi": [
                 0.45,
                 0.04,
@@ -2019,7 +2015,8 @@
           }
         ],
         "expected_curve_count": 320,
-        "expected_curve_point_count": 1920
+        "expected_curve_point_count": 1920,
+        "seed": 278
       }
     },
     "world_sky_sky": {

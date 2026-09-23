@@ -31,6 +31,7 @@ def _load(name: str, rel: str):
 
 
 CR = _load("pkg278_coverage_report", "benchmarks/reference_corpus/coverage_report.py")
+HARNESS = _load("pkg278_blender_parity_harness", "benchmarks/blender_parity/harness.py")
 GM = _load("pkg278_gate_manifest", "scripts/gate_manifest.py")
 VCI = _load("pkg278_validate_clean_install", "scripts/validate_clean_install.py")
 
@@ -58,6 +59,67 @@ def test_synthetic_fixture_matches_hand_computed_weighted_score():
     assert cpu.score == pytest.approx(5.0 / 7.0, abs=1e-12)
     assert gpu.score == pytest.approx(4.0 / 7.0, abs=1e-12)
     assert cpu.denominator == 7.0 and gpu.denominator == 7.0
+
+
+def _canonical_production_record(tmp_path, *, backend="CPU", build_id="build-1",
+                                 variant_digest="variant-1", module_sha256="m" * 64,
+                                 addon_sha256="a" * 64):
+    identity, scene_id, case_id = "ShaderNodeBsdfDiffuse|input:Color", "S1", "case-1"
+    case = {"case_id": case_id, "identity": identity, "scene_id": scene_id,
+            "variant_digest": variant_digest, "backend": backend, "build_id": build_id,
+            "module_sha256": module_sha256, "addon_sha256": addon_sha256,
+            "feature": "shader_node:BSDF_DIFFUSE"}
+    feature = HARNESS.FeatureResult("shader_node", "BSDF_DIFFUSE", "SUPPORTED", "pass",
+                                    ssim=.99, delta_e=1.0)
+    runner = {"schema": CR.RUNNER_RESULT_SCHEMA, "results": HARNESS.gate_b_runner_results(
+        [feature], [case], backend=backend, build_id=build_id,
+        module_sha256=module_sha256, addon_sha256=addon_sha256)}
+    runner_path = tmp_path / "runner.json"; runner_path.write_text(json.dumps(runner), encoding="utf-8")
+    artifact = tmp_path / "image.bin"; artifact.write_bytes(b"measured image")
+    runner_sha = CR.sha256_file(runner_path)
+    record = {"schema": CR.EVIDENCE_SCHEMA, "identity": identity, "scene_id": scene_id,
+              "variant": scene_id, "variant_digest": variant_digest, "backend": backend,
+              "build_id": build_id, "case_id": case_id, "result_kind": "test_result",
+              "artifact": {"path": artifact.name, "sha256": CR.sha256_file(artifact)},
+              "verdict": {"schema": CR.VERDICT_SCHEMA, "pass": True, "identity": identity,
+                          "scene_id": scene_id, "variant_digest": variant_digest, "backend": backend,
+                          "build_id": build_id, "result": {"kind": "test_result", "artifact_sha256": runner_sha}},
+              "verifier_result": {"path": runner_path.name, "sha256": runner_sha}}
+    return record, {case_id: case}
+
+
+def test_production_evidence_requires_frozen_case_and_canonical_metrics(tmp_path):
+    record, cases = _canonical_production_record(tmp_path)
+    assert CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)[0]
+    assert not CR.evidence_is_valid(record, tmp_path, allowed_cases={})[0]
+    record["verifier_result"]["path"] = "image.bin"
+    record["verifier_result"]["sha256"] = CR.sha256_file(tmp_path / "image.bin")
+    assert not CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)[0]
+
+
+@pytest.mark.parametrize("field,value", [("backend", "GPU"), ("build_id", "wrong"),
+                                           ("variant_digest", "wrong")])
+def test_production_evidence_rejects_runner_case_mismatch(tmp_path, field, value):
+    record, cases = _canonical_production_record(tmp_path)
+    produced = json.loads((tmp_path / "runner.json").read_text(encoding="utf-8"))
+    produced["results"][0][field] = value
+    (tmp_path / "runner.json").write_text(json.dumps(produced), encoding="utf-8")
+    record["verifier_result"]["sha256"] = CR.sha256_file(tmp_path / "runner.json")
+    record["verdict"]["result"]["artifact_sha256"] = record["verifier_result"]["sha256"]
+    assert not CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)[0]
+
+
+def test_harness_emits_metric_derived_gate_b_result():
+    result = HARNESS.FeatureResult("shader_node", "BSDF_DIFFUSE", "SUPPORTED", "pass",
+                                   ssim=.99, delta_e=1.0)
+    case = {"case_id": "case", "identity": "N|input:X", "scene_id": "S1",
+            "variant_digest": "v", "feature": "shader_node:BSDF_DIFFUSE"}
+    emitted = HARNESS.gate_b_runner_results([result], [case], backend="CPU", build_id="b",
+                                             module_sha256="m", addon_sha256="a")
+    assert emitted[0]["status"] == "pass" and emitted[0]["metrics"]["ssim"] == .99
+    failed = HARNESS.gate_b_runner_results([result], [case], backend="CPU", build_id="b",
+                                            module_sha256="m", addon_sha256="a")
+    assert failed[0]["observed"]["module_sha256"] == "m"
 
 
 def test_missing_evidence_scores_zero_never_raises():

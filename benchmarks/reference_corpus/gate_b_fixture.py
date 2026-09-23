@@ -108,7 +108,21 @@ def _build_fixture_material():
     scene.collection.objects.link(obj2)
     mesh2.materials.append(mat2)
 
-    return mat, mat2, group
+    # Blender 5.2 hair uses object type CURVES.  It must enter the same
+    # scene-assigned material roots as mesh instances.
+    mat3 = bpy.data.materials.new("GateBCurvesMat")
+    mat3.use_nodes = True
+    nt3 = mat3.node_tree
+    nt3.nodes.clear()
+    out3 = nt3.nodes.new("ShaderNodeOutputMaterial")
+    emission = nt3.nodes.new("ShaderNodeEmission")
+    nt3.links.new(emission.outputs["Emission"], out3.inputs["Surface"])
+    hair = bpy.data.hair_curves.new("GateBFixtureHair")
+    hair_obj = bpy.data.objects.new("GateBFixtureHair", hair)
+    scene.collection.objects.link(hair_obj)
+    hair.materials.append(mat3)
+
+    return mat, mat2, mat3, group
 
 
 def main() -> int:
@@ -137,6 +151,8 @@ def main() -> int:
         failures.append("group-inner node ShaderNodeBsdfDiffuse not reached through the group")
     if reach_in("group:GateBFixtureGroup", "ShaderNodeEmission"):
         failures.append("group-inner disconnected node ShaderNodeEmission was wrongly reached")
+    if not reach_in("material:GateBCurvesMat", "ShaderNodeEmission"):
+        failures.append("CURVES-assigned material was not reached")
 
     print(f"[gate_b_fixture] {'PASS' if not failures else 'FAIL'}")
     for failure in failures:

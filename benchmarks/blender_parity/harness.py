@@ -35,7 +35,7 @@ import sys
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 # reference_bank is a sibling package under benchmarks/; make it importable.
@@ -46,6 +46,7 @@ from benchmarks.blender_parity import triage as T  # noqa: E402
 SENTINEL = "PKG119B_LEG"
 DEFAULT_MATRIX = _REPO_ROOT / "docs" / "blender_parity" / "coverage_matrix.json"
 _RENDER_LEG = Path(__file__).resolve().parent / "render_leg.py"
+GATE_B_RUNNER_RESULT_SCHEMA = "pkg278.gate_b.runner_result.v1"
 
 
 # --------------------------------------------------------------------------- #
@@ -709,7 +710,10 @@ def _render_pair(blender: Path, feat: Feature, renders_dir: Path, res: int,
 
 
 def run(matrix_path: Path, out_dir: Path, *, res: int = 128, samples: int = 64,
-        timeout: int = 300, include_composites: bool = True) -> int:
+        timeout: int = 300, include_composites: bool = True,
+        gate_b_cases: Path | None = None, gate_b_backend: str = "",
+        gate_b_build_id: str = "", gate_b_module_sha256: str = "",
+        gate_b_addon_sha256: str = "") -> int:
     blender = _find_blender()
     if blender is None:
         print("[pkg119b] Blender not found (set BLENDER_EXE) - cannot run legs.",
@@ -809,6 +813,11 @@ def run(matrix_path: Path, out_dir: Path, *, res: int = 128, samples: int = 64,
               flush=True)
 
     write_reports(results, out_dir)
+    if gate_b_cases is not None:
+        write_gate_b_runner_results(
+            results, gate_b_cases, out_dir / "gate_b_runner_results.json",
+            backend=gate_b_backend, build_id=gate_b_build_id,
+            module_sha256=gate_b_module_sha256, addon_sha256=gate_b_addon_sha256)
     # A crashed feature is a hard failure of "no crash on any feature"; a
     # triaged FAIL is expected output, not a harness failure.
     crashes = [r for r in results if r.status == "crash"]
@@ -844,6 +853,58 @@ def verdict_payload(results: list[FeatureResult]) -> dict[str, Any]:
             for r in results
         ],
     }
+
+
+def gate_b_runner_results(results: list[FeatureResult], cases: list[dict[str, Any]],
+                          *, backend: str, build_id: str, module_sha256: str,
+                          addon_sha256: str) -> list[dict[str, Any]]:
+    """Derive gate-(b) results from this harness's measured feature results.
+
+    ``cases`` is the frozen coverage case map supplied by the gate runner.  A
+    result is emitted only when exactly one measured feature is named by its
+    ``feature`` field; pass/fail is recomputed from retained parity metrics.
+    """
+    by_feature = {f"{result.category}:{result.feature}": result for result in results}
+    emitted: list[dict[str, Any]] = []
+    for case in cases:
+        feature_key = case.get("feature")
+        result = by_feature.get(feature_key)
+        if not isinstance(feature_key, str) or result is None:
+            continue
+        ssim, delta_e = result.ssim, result.delta_e
+        passed = (result.status == "pass" and isinstance(ssim, (int, float))
+                  and isinstance(delta_e, (int, float)) and ssim >= 0.95 and delta_e <= 5.0)
+        emitted.append({
+            "schema": GATE_B_RUNNER_RESULT_SCHEMA,
+            "case_id": case.get("case_id"), "identity": case.get("identity"),
+            "scene_id": case.get("scene_id"), "variant_digest": case.get("variant_digest"),
+            "backend": backend, "build_id": build_id,
+            "observed": {"backend": backend, "build_id": build_id,
+                         "module_sha256": module_sha256, "addon_sha256": addon_sha256},
+            "feature": feature_key, "status": "pass" if passed else "fail",
+            "metrics": {"ssim": ssim, "delta_e": delta_e},
+        })
+    return emitted
+
+
+def write_gate_b_runner_results(results: list[FeatureResult], cases_path: Path,
+                                out_path: Path, *, backend: str, build_id: str,
+                                module_sha256: str, addon_sha256: str) -> None:
+    """Write canonical runner output consumed by the gate-(b) scorer."""
+    cases_payload = json.loads(cases_path.read_text(encoding="utf-8"))
+    if isinstance(cases_payload, dict) and isinstance(cases_payload.get("cases"), list):
+        cases = cases_payload["cases"]
+    elif isinstance(cases_payload, dict):
+        cases = cases_payload.get("evidence", {}).get("runner_case_map", {}).get("cases")
+    else:
+        cases = None
+    if not isinstance(cases, list):
+        raise ValueError("gate-(b) case map must contain a cases list")
+    payload = {"schema": GATE_B_RUNNER_RESULT_SCHEMA, "results": gate_b_runner_results(
+        results, cases, backend=backend, build_id=build_id,
+        module_sha256=module_sha256, addon_sha256=addon_sha256)}
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def summarize(results: list[FeatureResult]) -> dict[str, Any]:
@@ -932,6 +993,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--corpus-manifest", type=Path, default=None)
     p.add_argument("--build-id", default="", help="pinned addon/build identity for gate-c evidence")
     p.add_argument("--module-sha256", default="", help="expected loaded astroray module SHA-256 for gate-c")
+    p.add_argument("--gate-b-cases", type=Path,
+                   help="frozen gate-(b) case map; emits canonical runner results")
+    p.add_argument("--gate-b-backend", choices=("CPU", "GPU"), default="")
+    p.add_argument("--gate-b-addon-sha256", default="")
     args = p.parse_args(argv)
     if args.export_blend is not None:
         return export_reference_scenes(args.export_blend, timeout=args.timeout)
@@ -940,7 +1005,10 @@ def main(argv: list[str] | None = None) -> int:
                                timeout=args.timeout, build_id=args.build_id,
                                module_sha256=args.module_sha256)
     return run(args.matrix, args.out, res=args.res, samples=args.samples,
-               timeout=args.timeout, include_composites=not args.no_composites)
+               timeout=args.timeout, include_composites=not args.no_composites,
+               gate_b_cases=args.gate_b_cases, gate_b_backend=args.gate_b_backend,
+               gate_b_build_id=args.build_id, gate_b_module_sha256=args.module_sha256,
+               gate_b_addon_sha256=args.gate_b_addon_sha256)
 
 
 if __name__ == "__main__":

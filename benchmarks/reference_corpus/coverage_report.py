@@ -91,6 +91,7 @@ NINE_SCENE_COUNT = 9
 ORIGINAL_POPULATION_LABEL = "~50 scenes"
 
 INPUT_MANIFEST_SCHEMA = "pkg278.coverage_input_manifest.v2"
+INPUT_MANIFEST_SCHEMA_V3 = "pkg278.coverage_input_manifest.v3"
 NODE_USES_SCHEMA = "pkg278.node_uses.v1"
 EVIDENCE_SCHEMA = "pkg278.gate_b.evidence.v2"
 VERDICT_SCHEMA = "pkg278.gate_b.verdict.v1"
@@ -211,8 +212,20 @@ def _ledger_uses(ledger: Iterable[Mapping[str, Any]]) -> dict[str, set[str]]:
             if isinstance(row.get("identity"), str)}
 
 
+def _canonical_runner_result(payload: Mapping[str, Any], case_id: str) -> Mapping[str, Any] | None:
+    """Select one runner-produced result from a direct result or its envelope."""
+    if payload.get("schema") != RUNNER_RESULT_SCHEMA:
+        return None
+    if isinstance(payload.get("results"), list):
+        matches = [row for row in payload["results"]
+                   if isinstance(row, Mapping) and row.get("case_id") == case_id]
+        return matches[0] if len(matches) == 1 else None
+    return payload
+
+
 def evidence_is_valid(rec: Mapping[str, Any], repo_root: Path | None = None,
-                      *, fixture_mode: bool = False) -> tuple[bool, str]:
+                      *, fixture_mode: bool = False,
+                      allowed_cases: Mapping[str, Mapping[str, Any]] | None = None) -> tuple[bool, str]:
     """A linked evidence artifact is valid iff its recorded SHA-256 matches.
 
     Production (``fixture_mode=False``) requires a structured sidecar: a real
@@ -247,8 +260,6 @@ def evidence_is_valid(rec: Mapping[str, Any], repo_root: Path | None = None,
         result = verdict.get("result")
         if not isinstance(result, Mapping) or result.get("kind") not in RESULT_KINDS:
             return False, "production verdict has no genuine render/test result"
-        if result.get("artifact_sha256") != recorded:
-            return False, "production verdict is not tied to the pinned artifact"
         verifier = rec.get("verifier_result")
         if not isinstance(verifier, Mapping) or not isinstance(verifier.get("path"), str):
             return False, "production evidence requires a canonical runner result"
@@ -261,11 +272,26 @@ def evidence_is_valid(rec: Mapping[str, Any], repo_root: Path | None = None,
             produced = json.loads(vp.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return False, "canonical runner result is not JSON"
-        if produced.get("schema") != RUNNER_RESULT_SCHEMA or produced.get("status") != "pass":
+        produced = _canonical_runner_result(produced, str(rec.get("case_id") or ""))
+        if produced is None or produced.get("status") != "pass":
             return False, "canonical runner result is not a passing typed result"
         for field in ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id"):
             if produced.get(field) != rec.get(field):
                 return False, f"canonical runner result does not bind {field}"
+        observed = produced.get("observed")
+        if not isinstance(observed, Mapping):
+            return False, "canonical runner result lacks observed engine identity"
+        case = (allowed_cases or {}).get(str(rec.get("case_id") or ""))
+        if not isinstance(case, Mapping):
+            return False, "canonical runner case is not in the frozen v3 case map"
+        for field in ("identity", "scene_id", "variant_digest", "backend", "build_id",
+                      "module_sha256", "addon_sha256"):
+            actual = observed.get(field) if field in ("module_sha256", "addon_sha256") else produced.get(field)
+            expected = case.get(field)
+            if not isinstance(expected, str) or not expected or actual != expected:
+                return False, f"canonical runner result does not match frozen case {field}"
+        if result.get("artifact_sha256") != verifier.get("sha256"):
+            return False, "production verdict is not tied to the generated runner artifact"
         metrics = produced.get("metrics")
         if not isinstance(metrics, Mapping) or not all(isinstance(metrics.get(k), (int, float)) for k in ("ssim", "delta_e")):
             return False, "canonical runner result lacks re-derivable metrics"
@@ -297,8 +323,9 @@ def evidence_is_valid(rec: Mapping[str, Any], repo_root: Path | None = None,
 
 
 def _valid_records(records: Iterable[Mapping[str, Any]], repo_root: Path | None,
-                   fixture_mode: bool) -> list[Mapping[str, Any]]:
-    return [r for r in records if evidence_is_valid(r, repo_root, fixture_mode=fixture_mode)[0]]
+                   fixture_mode: bool, allowed_cases: Mapping[str, Mapping[str, Any]] | None = None) -> list[Mapping[str, Any]]:
+    return [r for r in records if evidence_is_valid(r, repo_root, fixture_mode=fixture_mode,
+                                                    allowed_cases=allowed_cases)[0]]
 
 
 # --------------------------------------------------------------------------- #
@@ -613,14 +640,15 @@ def _records_for(evidence: Mapping[str, Any], key: str, backend: str) -> list[Ma
 def score_use(key: str, scenes: set[str], classification: str,
               evidence: Mapping[str, Any], backend: str,
               repo_root: Path | None, fixture_mode: bool,
-              variants: set[tuple[str, str]] | None = None) -> tuple[float, str]:
+              variants: set[tuple[str, str]] | None = None,
+              allowed_cases: Mapping[str, Mapping[str, Any]] | None = None) -> tuple[float, str]:
     """Score one exercised use on one backend. Never raises; unproven -> 0."""
     if classification == DROPPED_SILENT or not classification:
         return SCORE_UNPROVEN, "dropped-silent or absent from the matrix"
     if classification not in (SUPPORTED, APPROXIMATED):
         return SCORE_UNPROVEN, f"unknown classification {classification!r}"
 
-    records = _valid_records(_records_for(evidence, key, backend), repo_root, fixture_mode)
+    records = _valid_records(_records_for(evidence, key, backend), repo_root, fixture_mode, allowed_cases)
     if not records:
         return SCORE_UNPROVEN, "no hash-verified evidence artifact for this backend"
 
@@ -655,7 +683,8 @@ def score_use(key: str, scenes: set[str], classification: str,
 
 def score_backend(backend: str, uses: Mapping[str, set[str]], matrix: Mapping[str, str],
                   evidence: Mapping[str, Any], repo_root: Path | None,
-                  fixture_mode: bool, ledger: Iterable[Mapping[str, Any]] | None = None) -> BackendScore:
+                  fixture_mode: bool, ledger: Iterable[Mapping[str, Any]] | None = None,
+                  allowed_cases: Mapping[str, Mapping[str, Any]] | None = None) -> BackendScore:
     numerator = 0.0
     denominator = 0.0
     use_scores: list[UseScore] = []
@@ -670,8 +699,8 @@ def score_backend(backend: str, uses: Mapping[str, set[str]], matrix: Mapping[st
             weight = min(len(scenes), WEIGHT_CAP)
         classification = matrix.get(key, "")
         variants = variant_index.get(key) if ledger is not None else None
-        cpu_score, cpu_reason = score_use(key, scenes, classification, evidence, "CPU", repo_root, fixture_mode, variants)
-        gpu_score, gpu_reason = score_use(key, scenes, classification, evidence, "GPU", repo_root, fixture_mode, variants)
+        cpu_score, cpu_reason = score_use(key, scenes, classification, evidence, "CPU", repo_root, fixture_mode, variants, allowed_cases)
+        gpu_score, gpu_reason = score_use(key, scenes, classification, evidence, "GPU", repo_root, fixture_mode, variants, allowed_cases)
         s = cpu_score if backend == "CPU" else gpu_score
         numerator += weight * s
         denominator += weight
@@ -686,9 +715,10 @@ def score_backend(backend: str, uses: Mapping[str, set[str]], matrix: Mapping[st
 
 def compute(uses: Mapping[str, set[str]], matrix: Mapping[str, str],
             evidence: Mapping[str, Any], repo_root: Path | None,
-            fixture_mode: bool, ledger: Iterable[Mapping[str, Any]] | None = None) -> dict[str, Any]:
-    cpu = score_backend("CPU", uses, matrix, evidence, repo_root, fixture_mode, ledger)
-    gpu = score_backend("GPU", uses, matrix, evidence, repo_root, fixture_mode, ledger)
+            fixture_mode: bool, ledger: Iterable[Mapping[str, Any]] | None = None,
+            allowed_cases: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
+    cpu = score_backend("CPU", uses, matrix, evidence, repo_root, fixture_mode, ledger, allowed_cases)
+    gpu = score_backend("GPU", uses, matrix, evidence, repo_root, fixture_mode, ledger, allowed_cases)
     return {"cpu": cpu, "gpu": gpu}
 
 
@@ -698,7 +728,8 @@ def compute(uses: Mapping[str, set[str]], matrix: Mapping[str, str],
 
 def _named_node_checks(uses: Mapping[str, set[str]], matrix: Mapping[str, str],
                        evidence: Mapping[str, Any], repo_root: Path | None,
-                       fixture_mode: bool) -> dict[str, Any]:
+                       fixture_mode: bool,
+                       allowed_cases: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
     checks: dict[str, Any] = {}
     for label, bl_idname in NAMED_NODE_CHECKS.items():
         keys = [k for k in uses if k.split("|", 1)[0] == bl_idname]
@@ -711,7 +742,8 @@ def _named_node_checks(uses: Mapping[str, set[str]], matrix: Mapping[str, str],
             scenes = uses[key]
             cls = matrix.get(key, "")
             for backend in ("CPU", "GPU"):
-                score, _ = score_use(key, scenes, cls, evidence, backend, repo_root, fixture_mode)
+                score, _ = score_use(key, scenes, cls, evidence, backend, repo_root, fixture_mode,
+                                     allowed_cases=allowed_cases)
                 if score <= 0.0:
                     failing.append(f"{key} [{backend}]")
         checks[label] = {"bl_idname": bl_idname, "exercised": True,
@@ -723,14 +755,15 @@ def evaluate_subchecks(uses: Mapping[str, set[str]], matrix: Mapping[str, str],
                        evidence: Mapping[str, Any], repo_root: Path | None,
                        frozen: Mapping[str, Any],
                        cpu: BackendScore, gpu: BackendScore,
-                       fixture_mode: bool, hash_locked: bool) -> dict[str, Any]:
+                       fixture_mode: bool, hash_locked: bool,
+                       allowed_cases: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
     drops = silent_drops(uses, matrix)
-    named = _named_node_checks(uses, matrix, evidence, repo_root, fixture_mode)
+    named = _named_node_checks(uses, matrix, evidence, repo_root, fixture_mode, allowed_cases)
     unlinked: list[str] = []
     for use in cpu.use_scores:
-        if use.cpu > 0.0 and not _valid_records(_records_for(evidence, use.key, "CPU"), repo_root, fixture_mode):
+        if use.cpu > 0.0 and not _valid_records(_records_for(evidence, use.key, "CPU"), repo_root, fixture_mode, allowed_cases):
             unlinked.append(f"{use.key} [CPU]")
-        if use.gpu > 0.0 and not _valid_records(_records_for(evidence, use.key, "GPU"), repo_root, fixture_mode):
+        if use.gpu > 0.0 and not _valid_records(_records_for(evidence, use.key, "GPU"), repo_root, fixture_mode, allowed_cases):
             unlinked.append(f"{use.key} [GPU]")
     ratified = population_status(frozen, repo_root, fixture_mode)["ratified"]
     return {
@@ -994,6 +1027,56 @@ def freeze_coverage_input(corpus_manifest: Mapping[str, Any],
     return frozen, errors
 
 
+def freeze_coverage_input_v3(corpus_manifest: Mapping[str, Any], matrix_path: Path,
+                             snapshot: Mapping[str, Any], *,
+                             candidate_build: Mapping[str, str] | None = None,
+                             case_features: Mapping[str, str] | None = None) -> tuple[dict[str, Any], list[str]]:
+    """Freeze v3 with the exact runner-case/build map, or a provisional empty map.
+
+    A live candidate supplies build/module/addon hashes and a feature mapping.
+    Until then this records an explicit unmeasured placeholder which cannot
+    validate any production evidence.
+    """
+    frozen, errors = freeze_coverage_input(corpus_manifest, matrix_path, snapshot)
+    frozen["schema"] = INPUT_MANIFEST_SCHEMA_V3
+    frozen["version"] = 3
+    frozen["input_path"] = "docs/blender_parity/coverage_input_v3.json"
+    build = dict(candidate_build or {})
+    required = ("build_id", "module_sha256", "addon_sha256")
+    ready = all(isinstance(build.get(field), str) and build[field] for field in required)
+    cases: list[dict[str, str]] = []
+    if case_features is None:
+        try:
+            rows = json.loads(matrix_path.read_text(encoding="utf-8"))
+            case_features = {canonical_identity(str(row["bl_idname"]), str(row["socket_or_prop"])):
+                             f"{row['category']}:{row['feature']}" for row in rows
+                             if isinstance(row, Mapping) and row.get("bl_idname") and row.get("socket_or_prop")
+                             and row.get("category") and row.get("feature")}
+        except (OSError, json.JSONDecodeError):
+            case_features = {}
+    if ready and case_features:
+        for row in frozen["collector"]["use_ledger"]:
+            feature = case_features.get(row["identity"])
+            if not isinstance(feature, str) or not feature:
+                continue
+            for variant in row["variants"]:
+                for backend in ("CPU", "GPU"):
+                    case = {"identity": row["identity"], "scene_id": variant["scene_id"],
+                            "variant_digest": variant["variant_digest"], "backend": backend,
+                            "build_id": build["build_id"], "module_sha256": build["module_sha256"],
+                            "addon_sha256": build["addon_sha256"], "feature": feature}
+                    case["case_id"] = _sha256_bytes(_canonical_json(case))
+                    cases.append(case)
+    frozen["evidence"]["runner_case_map"] = {
+        "status": "ready" if cases else "provisional",
+        "candidate_build": {field: build.get(field) if ready else None for field in required},
+        "cases": sorted(cases, key=lambda row: row["case_id"]),
+    }
+    frozen["evidence"]["runner_case_map"]["sha256"] = _sha256_bytes(
+        _canonical_json(frozen["evidence"]["runner_case_map"]["cases"]))
+    return frozen, errors
+
+
 def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
                         snapshot: Mapping[str, Any]) -> tuple[bool, list[str], dict[str, Any]]:
     """Re-verify a frozen input manifest against disk + the collected snapshot.
@@ -1005,8 +1088,8 @@ def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
     errors: list[str] = []
     verified: dict[str, Any] = {}
 
-    if frozen.get("schema") != INPUT_MANIFEST_SCHEMA:
-        return False, [f"input manifest schema must be {INPUT_MANIFEST_SCHEMA!r}"], {}
+    if frozen.get("schema") not in (INPUT_MANIFEST_SCHEMA, INPUT_MANIFEST_SCHEMA_V3):
+        return False, [f"input manifest schema must be v2 or {INPUT_MANIFEST_SCHEMA_V3!r}"], {}
 
     corpus_path = (frozen.get("corpus", {}).get("manifest_path")
                    or "benchmarks/reference_corpus/scenes/manifest.json")
@@ -1096,6 +1179,18 @@ def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
     verified["sidecar_dir"] = Path(sidecar_dir)
     if not verified["sidecar_dir"].is_absolute():
         verified["sidecar_dir"] = Path(repo_root) / verified["sidecar_dir"]
+    if frozen.get("schema") == INPUT_MANIFEST_SCHEMA_V3:
+        case_map = frozen.get("evidence", {}).get("runner_case_map", {})
+        cases = case_map.get("cases") if isinstance(case_map, Mapping) else None
+        if not isinstance(cases, list):
+            errors.append("v3 runner case map has no cases list")
+            cases = []
+        if _sha256_bytes(_canonical_json(cases)) != case_map.get("sha256"):
+            errors.append("v3 runner case map hash does not match frozen input")
+        verified["allowed_cases"] = {str(case.get("case_id")): case for case in cases
+                                     if isinstance(case, Mapping) and isinstance(case.get("case_id"), str)}
+    else:
+        verified["allowed_cases"] = {}
     return (not errors), errors, verified
 
 
@@ -1197,10 +1292,11 @@ def build_report(frozen: Mapping[str, Any], snapshot: Mapping[str, Any],
 
     scanner_ok, scanner_reason = scanner_823_integrated(frozen, repo_root, fixture_mode)
     ledger = None if fixture_mode else verified.get("use_ledger", [])
-    computed = compute(uses, matrix, evidence, repo_root, fixture_mode, ledger)
+    allowed_cases = None if fixture_mode else verified.get("allowed_cases", {})
+    computed = compute(uses, matrix, evidence, repo_root, fixture_mode, ledger, allowed_cases)
     subchecks = evaluate_subchecks(uses, matrix, evidence, repo_root, frozen,
                                    computed["cpu"], computed["gpu"],
-                                   fixture_mode, hash_locked)
+                                   fixture_mode, hash_locked, allowed_cases)
 
     if integrity_errors:
         return _unmeasured_report(pop, uses, matrix, subchecks,
@@ -1453,6 +1549,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="(inside Blender) reopen corpus .blend files and write the computed-reachability snapshot")
     p.add_argument("--freeze", action="store_true",
                    help="verify the snapshot against the corpus and write the versioned input manifest")
+    p.add_argument("--freeze-v3", action="store_true",
+                   help="freeze v3 with an explicitly provisional runner case map")
+    p.add_argument("--candidate-build", type=Path,
+                   help="JSON with build_id/module_sha256/addon_sha256 for a ready v3 case map")
     p.add_argument("--score", action="store_true",
                    help="verify the frozen input + snapshot against disk, then score")
     p.add_argument("--manifest", type=Path,
@@ -1481,14 +1581,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {out_path}")
         return 0
 
-    if args.freeze:
+    if args.freeze or args.freeze_v3:
         if args.node_uses is None:
             print("--freeze needs --node-uses", file=sys.stderr)
             return 2
         corpus_manifest = _load_json(args.manifest)
         snapshot = _load_json(args.node_uses)
-        frozen, errors = freeze_coverage_input(corpus_manifest, args.matrix, snapshot)
-        out_path = args.input_manifest or Path("docs/blender_parity/coverage_input_v2.json")
+        if args.freeze_v3:
+            candidate = _load_json(args.candidate_build) if args.candidate_build else None
+            frozen, errors = freeze_coverage_input_v3(corpus_manifest, args.matrix, snapshot,
+                                                       candidate_build=candidate)
+        else:
+            frozen, errors = freeze_coverage_input(corpus_manifest, args.matrix, snapshot)
+        out_path = args.input_manifest or Path("docs/blender_parity/coverage_input_v3.json" if args.freeze_v3 else "docs/blender_parity/coverage_input_v2.json")
         if args.input_manifest is not None:
             out_path = args.input_manifest
         out_path.parent.mkdir(parents=True, exist_ok=True)

@@ -551,7 +551,7 @@
       "family": "textures_mapping",
       "builder_fn": "build_textures_mapping_scene",
       "blend_path": "benchmarks/reference_corpus/scenes/textures_mapping.blend",
-      "sha256": "f63e13f0a05d6baafb977f0fdab57ea5f6290c631c11741a5a8735a43864eca5",
+      "sha256": "83897e6678a9b327d8dc2426020268e1aab21f7bfe4cad9fb8260c916f093988",
       "settings": {
         "res_x": 960,
         "res_y": 540,
@@ -559,11 +559,11 @@
         "saved_default_engine": "CYCLES"
       },
       "reopen_verified": true,
-      "triangle_count": 2928,
+      "triangle_count": 2930,
       "curve_count": 0,
       "curve_point_count": 0,
       "object_counts": {
-        "MESH": 22,
+        "MESH": 23,
         "LIGHT": 2,
         "CAMERA": 1
       },
@@ -1505,11 +1505,17 @@
           0.6456,
           0.6388
         ],
-        "VectorOpsCard": [
-          0.6064,
-          0.4999,
-          0.7327,
-          0.6388
+        "VectorRotateCard": [
+          0.609,
+          0.5223,
+          0.6944,
+          0.6141
+        ],
+        "VectorMixCard": [
+          0.6421,
+          0.5223,
+          0.7285,
+          0.6141
         ]
       }
     },

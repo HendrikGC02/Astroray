@@ -177,7 +177,7 @@ def test_textures_mapping_proof_bindings_and_crops(manifest):
     entry = manifest["scenes"]["textures_mapping"]
     blend_path = REPO_ROOT / entry["blend_path"]
     script = f"""
-import bpy, json
+import bpy, json, sys
 from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Vector
 bpy.ops.wm.open_mainfile(filepath=r'{blend_path}')
@@ -198,16 +198,17 @@ def reachable_to_output(node):
 
 map_node = next(n for n in bpy.data.materials['TexWaveBandsMat'].node_tree.nodes
                 if n.bl_idname == 'ShaderNodeMapRange')
-vector_nt = bpy.data.materials['VectorOpsCardMat'].node_tree
-rotate_node = next(n for n in vector_nt.nodes
+rotate_nt = bpy.data.materials['VectorRotateCardMat'].node_tree
+mix_nt = bpy.data.materials['VectorMixCardMat'].node_tree
+rotate_node = next(n for n in rotate_nt.nodes
                    if n.bl_idname == 'ShaderNodeVectorRotate')
-vmath_node = next(n for n in vector_nt.nodes
+vmath_node = next(n for n in mix_nt.nodes
                   if n.bl_idname == 'ShaderNodeVectorMath')
-mix_node = next(n for n in vector_nt.nodes
+mix_node = next(n for n in mix_nt.nodes
                 if n.bl_idname == 'ShaderNodeMix')
-image_node = next(n for n in vector_nt.nodes
+image_node = next(n for n in mix_nt.nodes
                   if n.bl_idname == 'ShaderNodeTexImage')
-mapping_node = next(n for n in vector_nt.nodes
+mapping_node = next(n for n in mix_nt.nodes
                     if n.bl_idname == 'ShaderNodeMapping')
 
 def linked_from(socket, bl_idname):
@@ -219,6 +220,20 @@ def enabled_input(node, name):
 mix_factor = enabled_input(mix_node, 'Factor')
 mix_a = enabled_input(mix_node, 'A')
 mix_b = enabled_input(mix_node, 'B')
+sys.path.insert(0, r'{(REPO_ROOT / "blender_addon").as_posix()}')
+import shader_vm_compiler as svm
+programs = {{}}
+for material_name in ('TexNoiseMat', 'TexVoronoiMat', 'TexWaveBandsMat',
+                      'TexCheckerMat', 'TexMagicMat', 'TexGradientMat',
+                      'VectorRotateCardMat', 'VectorMixCardMat'):
+    nt = bpy.data.materials[material_name].node_tree
+    emission = next(n for n in nt.nodes if n.bl_idname == 'ShaderNodeEmission')
+    compiled = svm.compile_chain(emission.inputs['Color'])
+    programs[material_name] = None if compiled is None else {{
+        'num_tex': compiled['num_tex'],
+        'out_slot': compiled['out_slot'],
+        'instructions': len(compiled['code_flat']) // 8,
+    }}
 crop_ok = {{}}
 for name, rect in {json.dumps(entry['crops'])}.items():
     obj = bpy.data.objects[name]
@@ -235,7 +250,7 @@ print('PKG823_PROOF ' + json.dumps({{
     'map_reaches_output': reachable_to_output(map_node),
     'rotate_center': list(rotate_node.inputs['Center'].default_value),
     'rotate_vector_from_image': linked_from(rotate_node.inputs['Vector'], 'ShaderNodeTexImage'),
-    'vmath_vector_from_rotate': linked_from(vmath_node.inputs['Vector'], 'ShaderNodeVectorRotate'),
+    'vmath_vector_from_image': linked_from(vmath_node.inputs['Vector'], 'ShaderNodeTexImage'),
     'mix_data_type': mix_node.data_type,
     'mix_factor_mode': mix_node.factor_mode,
     'mix_factor': mix_factor.default_value,
@@ -244,6 +259,9 @@ print('PKG823_PROOF ' + json.dumps({{
     'image_vector_from_mapping': linked_from(image_node.inputs['Vector'], 'ShaderNodeMapping'),
     'mapping_vector_from_texcoord': linked_from(mapping_node.inputs['Vector'], 'ShaderNodeTexCoord'),
     'rotate_reaches_output': reachable_to_output(rotate_node),
+    'mix_reaches_output': reachable_to_output(mix_node),
+    'programs': programs,
+    'vm_max_slots': svm.VM_MAX_SLOTS,
     'crop_ok': crop_ok,
 }}))
 """
@@ -259,14 +277,19 @@ print('PKG823_PROOF ' + json.dumps({{
     assert proof["map_from_max"] != 1.0
     assert proof["map_value_linked"] and proof["map_reaches_output"]
     assert proof["rotate_center"] != [0.0, 0.0, 0.0]
-    assert proof["rotate_vector_from_image"] and proof["vmath_vector_from_rotate"]
+    assert proof["rotate_vector_from_image"] and proof["vmath_vector_from_image"]
     assert proof["mix_data_type"] == "VECTOR"
     assert proof["mix_factor_mode"] == "UNIFORM"
     assert proof["mix_factor"] != 0.5
     assert proof["mix_a_from_vmath"]
     assert proof["mix_b"] != [0.0, 0.0, 0.0]
     assert proof["image_vector_from_mapping"] and proof["mapping_vector_from_texcoord"]
-    assert proof["rotate_reaches_output"]
+    assert proof["rotate_reaches_output"] and proof["mix_reaches_output"]
+    assert all(program is not None for program in proof["programs"].values()), proof["programs"]
+    for material_name, program in proof["programs"].items():
+        assert program["num_tex"] >= 1, (material_name, program)
+        assert program["instructions"] >= 2, (material_name, program)
+        assert program["out_slot"] < proof["vm_max_slots"], (material_name, program)
     assert all(proof["crop_ok"].values()), proof["crop_ok"]
 
 

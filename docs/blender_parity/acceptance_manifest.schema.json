@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://astroray.local/schemas/acceptance_manifest.schema.json",
   "title": "Astroray Pillar-4 exit-gate acceptance manifest (pkg278)",
+  "description": "Green rows are assembled only from pkg278.instrument.v2 producer payloads. The executable validator enforces row-specific record, digest, and reducer contracts; this schema covers the persisted aggregate shape.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "rows"],
@@ -48,7 +49,7 @@
       ],
       "properties": {
         "row": { "enum": ["a", "b", "c", "d", "e", "f"] },
-        "instrument": { "type": "string", "minLength": 1 },
+        "instrument": { "enum": ["viewport_latency", "coverage_report", "trio_parity", "native_panel_smoke", "issue_triage", "clean_install"] },
         "status": { "enum": ["green", "red", "unmeasured"] },
         "scene_sha256": {
           "type": "array",

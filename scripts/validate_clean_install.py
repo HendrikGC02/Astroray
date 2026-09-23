@@ -40,16 +40,41 @@ MANDATORY_CHECKS = (
 )
 
 CHECK_ARTIFACTS = {
-    "fresh_profile": "profile_fresh.json",
-    "zip_identity": "zip_sha256.txt",
-    "installer_path": "installer.log",
-    "no_toolchain": "toolchain_absent.txt",
-    "f12_exit_zero": "f12.png",
+    "fresh_profile": "profile_fresh.probe.json",
+    "zip_identity": "zip_identity.probe.json",
+    "installer_path": "installer_path.probe.json",
+    "no_toolchain": "host_eligibility.probe.json",
+    "f12_exit_zero": "f12_result.probe.json",
 }
 
 
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _hex_digest(value: Any) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+
+
+def _artifact(ref: Any, evidence_dir: Path, label: str) -> tuple[Path | None, str]:
+    if not isinstance(ref, Mapping) or not isinstance(ref.get("path"), str) or not _hex_digest(ref.get("sha256")):
+        return None, f"{label} must provide path and lower-case SHA-256"
+    path = (evidence_dir / ref["path"]).resolve()
+    try:
+        path.relative_to(evidence_dir.resolve())
+    except ValueError:
+        return None, f"{label} escapes evidence directory"
+    if not path.is_file():
+        return None, f"{label} missing: {ref['path']}"
+    if sha256_file(path) != ref["sha256"]:
+        return None, f"{label} digest mismatch: {ref['path']}"
+    return path, ""
+
+
+def _valid_png(path: Path) -> bool:
+    data = path.read_bytes()
+    return (len(data) >= 24 and data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR"
+            and int.from_bytes(data[16:20], "big") > 0 and int.from_bytes(data[20:24], "big") > 0)
 
 
 def detect_toolchain() -> list[str]:
@@ -91,7 +116,7 @@ def _check_evidence(name: str, check: Mapping[str, Any], evidence_dir: Path,
     recorded = str(check.get("evidence_sha256") or "").lower()
     if not path:
         return False, "no evidence_path"
-    if len(recorded) != 64:
+    if not _hex_digest(recorded):
         return False, "missing or malformed evidence_sha256"
     p = Path(path)
     if not p.is_absolute():
@@ -109,16 +134,29 @@ def _check_evidence(name: str, check: Mapping[str, Any], evidence_dir: Path,
     if probe.get("check") != name:
         return False, "probe check identity mismatch"
     if name == "fresh_profile":
-        good = probe.get("prior_astroray_addon") is False and probe.get("userpref_astroray") is False
+        good = (probe.get("prior_astroray_addon") is False and probe.get("userpref_astroray") is False
+                and isinstance(probe.get("profile_path"), str) and probe["profile_path"].strip()
+                and isinstance(probe.get("addons"), list))
     elif name == "zip_identity":
-        good = isinstance(probe.get("zip_sha256"), str) and probe.get("zip_sha256") == (doc.get("zip") or {}).get("sha256")
+        zip_path, why = _artifact(probe.get("zip"), evidence_dir, "release ZIP")
+        good = zip_path is not None and probe.get("zip", {}).get("sha256") == (doc.get("zip") or {}).get("sha256")
+        if not good: return False, why or "ZIP identity does not match checks document"
     elif name == "installer_path":
-        good = probe.get("installer") == "blender_extension_installer" and probe.get("source_path_used") is False
+        good = (probe.get("installer") == "blender_extension_installer" and probe.get("installer_result") in ("FINISHED", ["FINISHED"])
+                and isinstance(probe.get("installed_module_path"), str) and probe["installed_module_path"].strip()
+                and isinstance(probe.get("zip_path"), str) and probe["zip_path"].strip()
+                and probe.get("source_path_used") is False)
     elif name == "no_toolchain":
-        good = probe.get("toolchain_programs") == [] and probe.get("source_tree_fallback") is False
+        good = (probe.get("toolchain_programs") == [] and probe.get("source_tree_fallback") is False
+                and isinstance(probe.get("checked_path"), str) and probe["checked_path"].strip()
+                and isinstance(probe.get("source_roots_checked"), list) and probe["source_roots_checked"] == []
+                and isinstance(probe.get("loaded_module_path"), str) and probe["loaded_module_path"].strip())
     else:
         image = probe.get("image")
-        good = probe.get("exit_code") == 0 and isinstance(image, Mapping) and isinstance(image.get("sha256"), str) and bool(image.get("path"))
+        image_path, why = _artifact(image, evidence_dir, "F12 image")
+        good = (probe.get("exit_code") == 0 and image_path is not None and _valid_png(image_path)
+                and isinstance(probe.get("loaded_module_path"), str) and probe["loaded_module_path"].strip())
+        if not good: return False, why or "F12 output is not a readable PNG"
     return (True, "") if good else (False, "probe does not establish required condition")
 
 
@@ -138,6 +176,20 @@ def evaluate(checks_doc: Mapping[str, Any], evidence_dir: Path) -> dict[str, Any
             continue
         ok, why = _check_evidence(name, entry, evidence_dir, checks_doc)
         results[name] = {"pass": ok, "status": "green" if ok else "red", "reason": why}
+
+    # The path claims must describe one installed extension, not independent
+    # booleans captured from unrelated runs.
+    if all(results[n]["pass"] for n in ("installer_path", "no_toolchain", "f12_exit_zero")):
+        probes: dict[str, Any] = {}
+        try:
+            for name in ("installer_path", "no_toolchain", "f12_exit_zero"):
+                probe_path = evidence_dir / checks[name]["evidence_path"]
+                probes[name] = json.loads(probe_path.read_text(encoding="utf-8"))
+            installed = probes["installer_path"]["installed_module_path"]
+            if any(probes[n]["loaded_module_path"] != installed for n in ("no_toolchain", "f12_exit_zero")):
+                results["installer_path"] = {"pass": False, "status": "red", "reason": "installed module path is inconsistent across probes"}
+        except (KeyError, OSError, json.JSONDecodeError, TypeError):
+            results["installer_path"] = {"pass": False, "status": "red", "reason": "cannot cross-check installed module paths"}
 
     machine = checks_doc.get("machine") or {}
     # Never trust a hand-set eligibility flag: derive it from captured host probes.

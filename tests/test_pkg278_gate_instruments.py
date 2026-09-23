@@ -234,8 +234,8 @@ def test_green_row_without_evidence_is_red(tmp_path):
     raw = {
         "instrument": "viewport_latency", "scene_sha256": [_hex(1), _hex(2)],
         "build_id": "b1", "backend": ["GPU"], "settings": {}, "metric": {},
-        "value": {"gpu_p95_ms": 50, "gpu_p99_ms": 80, "cancel_p95_ms": 100,
-                  "cancel_p99_ms": 120, "stale_frames_after_ack": 0},
+        "value": {"gpu_p95_ms": 50.0, "gpu_p99_ms": 50.0, "cancel_p95_ms": 100.0,
+                  "cancel_p99_ms": 100.0, "stale_frames_after_ack": 0},
         "threshold": {"gpu_p95_ms": 100, "gpu_p99_ms": 150, "cancel_p95_ms": 200,
                       "cancel_p99_ms": 300, "stale_frames_after_ack": 0},
         "evidence_path": None, "evidence_sha256": None,
@@ -251,19 +251,25 @@ def test_green_row_without_evidence_is_red(tmp_path):
 def _green_row_a(tmp_path) -> dict:
     evidence = tmp_path / "gate_a.json"
     scene_hashes = [_hex(1), _hex(2)]
-    subchecks = list(GM.ROW_SPEC["a"]["required_subchecks"])
-    records = [
-        {"backend": "GPU", "dimensions": {"scene": scene_hashes[0], "edit_kind": "camera", "repetitions": 300}},
-        {"backend": "GPU", "dimensions": {"scene": scene_hashes[1], "edit_kind": "material", "repetitions": 300}},
-    ]
-    records.extend({"kind": "subcheck", "name": name, "result": "pass",
-                    "artifact": {"sha256": _sha(name)}} for name in subchecks)
+    capture = tmp_path / "latency-capture.bin"
+    capture.write_bytes(b"immutable latency capture")
+    artifact = {"path": capture.name, "sha256": GM.sha256_file(capture)}
+    records = []
+    for scene in scene_hashes:
+        for edit_kind in ("camera", "material"):
+            for batch in range(3):
+                for repetition in range(100):
+                    event = len(records) * 1_000_000_000
+                    records.append({"backend": "GPU", "scene_sha256": scene, "edit_kind": edit_kind,
+                                    "batch": batch, "repetition": repetition, "event_ns": event,
+                                    "present_ns": event + 50_000_000, "cancel_ack_ns": event + 100_000_000,
+                                    "stale_frames_after_ack": 0, "denoise_enabled": False, "artifact": artifact})
     payload = {
-        "schema": "pkg278.instrument.v1", "row": "a", "instrument": "viewport_latency",
+        "schema": "pkg278.instrument.v2", "row": "a", "instrument": "viewport_latency",
         "scene_sha256": scene_hashes, "build_id": "b1", "backend": ["GPU"],
         "settings": {"resolution": "128x128"}, "metric": {"name": "event_to_present"},
-        "value": {"gpu_p95_ms": 50, "gpu_p99_ms": 80, "cancel_p95_ms": 100,
-                  "cancel_p99_ms": 120, "stale_frames_after_ack": 0},
+        "value": {"gpu_p95_ms": 50.0, "gpu_p99_ms": 50.0, "cancel_p95_ms": 100.0,
+                  "cancel_p99_ms": 100.0, "stale_frames_after_ack": 0},
         "threshold": {"gpu_p95_ms": 100, "gpu_p99_ms": 150, "cancel_p95_ms": 200,
                       "cancel_p99_ms": 300, "stale_frames_after_ack": 0}, "records": records,
     }
@@ -273,13 +279,14 @@ def _green_row_a(tmp_path) -> dict:
         "instrument": "viewport_latency",
         "scene_sha256": scene_hashes, "build_id": "b1", "backend": ["GPU"],
         "settings": {"resolution": "128x128"}, "metric": {"name": "event_to_present"},
-        "value": {"gpu_p95_ms": 50, "gpu_p99_ms": 80, "cancel_p95_ms": 100,
-                  "cancel_p99_ms": 120, "stale_frames_after_ack": 0},
+        "value": {"gpu_p95_ms": 50.0, "gpu_p99_ms": 50.0, "cancel_p95_ms": 100.0,
+                  "cancel_p99_ms": 100.0, "stale_frames_after_ack": 0},
         "threshold": {"gpu_p95_ms": 100, "gpu_p99_ms": 150, "cancel_p95_ms": 200,
                       "cancel_p99_ms": 300, "stale_frames_after_ack": 0},
         "evidence_path": str(evidence), "evidence_sha256": digest,
-        "dimensions": {"scene": True, "edit_kind": True, "repetitions": True},
-        "subchecks": {},
+        "dimensions": {"scene": "concrete", "edit_kind": "concrete", "repetitions": 100},
+        "subchecks": {"both_pinned_scenes": True, "three_by_hundred_repetitions": True,
+                      "denoise_excluded": True, "gpu_only_latency": True},
         "date": "2026-09-23",
     }
 
@@ -331,16 +338,86 @@ def test_value_outside_frozen_bound_is_red(tmp_path):
     assert row["status"] == "red" and any("outside frozen bound" in r for r in reasons)
 
 
-def test_missing_subcheck_is_red(tmp_path):
+def test_incomplete_latency_lattice_is_red(tmp_path):
     raw = _green_row_a(tmp_path)
     evidence = Path(raw["evidence_path"])
     payload = json.loads(evidence.read_text(encoding="utf-8"))
-    payload["records"] = [record for record in payload["records"]
-                          if record.get("name") != "gpu_only_latency"]
+    payload["records"].pop()
     evidence.write_text(json.dumps(payload), encoding="utf-8")
     raw["evidence_sha256"] = GM.sha256_file(evidence)
     row, reasons = GM.compute_row("a", raw, GM.ROW_SPEC["a"], tmp_path)
-    assert row["status"] == "red" and any("subcheck" in r for r in reasons)
+    assert row["status"] == "red" and any("1200" in r or "cover" in r for r in reasons)
+
+
+def test_latency_rejects_missing_artifact_and_nonconcrete_dimensions(tmp_path):
+    raw = _green_row_a(tmp_path)
+    evidence = Path(raw["evidence_path"])
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    payload["records"][0]["artifact"] = {"path": "DOES_NOT_EXIST.json", "sha256": "0" * 64}
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    raw["evidence_sha256"] = GM.sha256_file(evidence)
+    raw["dimensions"] = {"scene": [], "edit_kind": 0, "repetitions": {}}
+    row, reasons = GM.compute_row("a", raw, GM.ROW_SPEC["a"], tmp_path)
+    assert row["status"] == "red"
+    assert any("artifact missing" in reason for reason in reasons)
+    assert any("dimension absent" in reason for reason in reasons)
+
+
+def test_latency_rejects_wrong_outer_instrument_and_bad_numeric_without_crash(tmp_path):
+    raw = _green_row_a(tmp_path)
+    raw["instrument"] = "issue_triage"
+    raw["threshold"]["gpu_p95_ms"] = []
+    raw["value"]["gpu_p99_ms"] = True
+    row, reasons = GM.compute_row("a", raw, GM.ROW_SPEC["a"], tmp_path)
+    assert row["status"] == "red"
+    assert any("manifest instrument mismatch" in reason for reason in reasons)
+    assert any("finite number" in reason for reason in reasons)
+
+
+def test_trio_requires_frozen_roles_paired_f12_runs_and_real_artifacts(tmp_path):
+    image = tmp_path / "image.bin"; image.write_bytes(b"image")
+    mask = tmp_path / "roi.bin"; mask.write_bytes(b"mask")
+    image_ref = {"path": image.name, "sha256": GM.sha256_file(image)}
+    mask_ref = {"path": mask.name, "sha256": GM.sha256_file(mask)}
+    hashes = [_hex(i) for i in (11, 12, 13)]
+    records = []
+    for role, actual, digest in zip(GM.TRIO_ROLES, ("gallery", "workshop", "terrace_hair"), hashes):
+        for backend in ("CPU", "GPU"):
+            records.append({"kind": "f12_run", "role": role, "scene_id": actual, "scene_sha256": digest,
+                            "backend": backend, "build_id": "b1", "exit_code": 0, "sentinel": "f12",
+                            "image": image_ref, "non_vacuity": {"checker": 1, "hdri": 1, "hair": 1},
+                            "rois": [{"mask": mask_ref, "ratio": {"r": 1, "g": 1, "b": 1}, "ssim": .99}]})
+    evidence = tmp_path / "gate_c.json"
+    payload = {"schema": GM.PAYLOAD_SCHEMA, "row": "c", "instrument": "trio_parity", "scene_sha256": hashes,
+               "build_id": "b1", "backend": ["CPU", "GPU"], "settings": {}, "metric": {}, "value": {},
+               "threshold": {"roi_pct_max": 5, "ssim_min": .95}, "records": records}
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    raw = {**payload, "value": {"roi_pct_max": 0.0, "ssim_min": .99}, "evidence_path": str(evidence),
+           "evidence_sha256": GM.sha256_file(evidence), "dimensions": {"backend": "paired", "scene": "role", "roi": "mask"},
+           "subchecks": {"cpu_exit_zero": True, "gpu_exit_zero": True, "pinned_images": True, "non_vacuity": True}, "date": "2026-09-24"}
+    row, reasons = GM.compute_row("c", raw, GM.ROW_SPEC["c"], tmp_path)
+    assert row["status"] == "green", reasons
+    payload["records"].pop(); evidence.write_text(json.dumps(payload), encoding="utf-8"); raw["evidence_sha256"] = GM.sha256_file(evidence)
+    row, _ = GM.compute_row("c", raw, GM.ROW_SPEC["c"], tmp_path)
+    assert row["status"] == "red"
+
+
+def test_triage_requires_two_snapshots_and_signed_rating_for_every_id(tmp_path):
+    blob = tmp_path / "triage.json"; blob.write_bytes(b"triage")
+    ref = {"path": blob.name, "sha256": GM.sha256_file(blob)}
+    records = [{"kind": "snapshot", "phase": "baseline", "command": "gh issue list", "timestamp": "2026-09-24T00:00:00Z", "reported_total": 2, "issue_ids": [1, 2], "artifact": ref},
+               {"kind": "snapshot", "phase": "recheck", "command": "gh issue list", "timestamp": "2026-09-24T01:00:00Z", "reported_total": 2, "issue_ids": [1, 2], "artifact": ref},
+               {"kind": "rating", "issue_id": 1, "rater_id": "r1", "signed": True, "severity": "low", "signature": ref},
+               {"kind": "rating", "issue_id": 2, "rater_id": "r2", "signed": True, "severity": "low", "signature": ref}]
+    evidence = tmp_path / "gate_e.json"
+    payload = {"schema": GM.PAYLOAD_SCHEMA, "row": "e", "instrument": "issue_triage", "scene_sha256": [], "build_id": "b1", "backend": [], "settings": {}, "metric": {}, "value": {}, "threshold": {"high_count": 0}, "records": records}
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    raw = {**payload, "value": {"high_count": 0}, "evidence_path": str(evidence), "evidence_sha256": GM.sha256_file(evidence), "dimensions": {"issue_snapshot": "ids", "ratings": "signed"}, "subchecks": {"snapshot_unique": True, "count_matches_total": True, "all_rated_independently": True, "delta_empty": True}, "date": "2026-09-24"}
+    row, reasons = GM.compute_row("e", raw, GM.ROW_SPEC["e"], tmp_path)
+    assert row["status"] == "green", reasons
+    payload["records"].pop(); evidence.write_text(json.dumps(payload), encoding="utf-8"); raw["evidence_sha256"] = GM.sha256_file(evidence)
+    row, _ = GM.compute_row("e", raw, GM.ROW_SPEC["e"], tmp_path)
+    assert row["status"] == "red"
 
 
 def test_row_b_unmeasured_until_scanner_823(tmp_path):
@@ -401,7 +478,8 @@ def test_hash_locked_check_detects_tamper(tmp_path):
     doc["machine"] = {"eligible": True}
     artifact = tmp_path / "profile_fresh.json"
     artifact.write_text(json.dumps({"schema": "pkg278.clean_install_probe.v1", "check": "fresh_profile",
-                                    "prior_astroray_addon": False, "userpref_astroray": False}), encoding="utf-8")
+                                    "prior_astroray_addon": False, "userpref_astroray": False,
+                                    "profile_path": "C:/isolated/profile", "addons": []}), encoding="utf-8")
     doc["checks"]["fresh_profile"] = {"evidence_path": artifact.name,
                                       "evidence_sha256": VCI.sha256_file(artifact)}
     result = VCI.evaluate(doc, tmp_path)
@@ -415,14 +493,19 @@ def test_hash_locked_check_detects_tamper(tmp_path):
 def test_all_green_on_eligible_machine(tmp_path):
     doc = VCI.build_checks_doc(REPO_ROOT)
     doc["machine"] = {"eligible": True}
+    release = tmp_path / "release.zip"; release.write_bytes(b"release ZIP bytes")
+    image = tmp_path / "f12.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n" + (13).to_bytes(4, "big") + b"IHDR" + (1).to_bytes(4, "big") + (1).to_bytes(4, "big") + b"\x08\x02\x00\x00\x00")
+    zip_ref = {"path": release.name, "sha256": VCI.sha256_file(release)}
+    image_ref = {"path": image.name, "sha256": VCI.sha256_file(image)}
     probes = {
-        "fresh_profile": {"prior_astroray_addon": False, "userpref_astroray": False},
-        "zip_identity": {"zip_sha256": "zip-digest"},
-        "installer_path": {"installer": "blender_extension_installer", "source_path_used": False},
-        "no_toolchain": {"toolchain_programs": [], "source_tree_fallback": False},
-        "f12_exit_zero": {"exit_code": 0, "image": {"path": "f12.png", "sha256": _sha("png")}},
+        "fresh_profile": {"prior_astroray_addon": False, "userpref_astroray": False, "profile_path": "C:/isolated/profile", "addons": []},
+        "zip_identity": {"zip": zip_ref},
+        "installer_path": {"installer": "blender_extension_installer", "installer_result": "FINISHED", "installed_module_path": "C:/isolated/extensions/astroray", "zip_path": "C:/isolated/release.zip", "source_path_used": False},
+        "no_toolchain": {"toolchain_programs": [], "source_tree_fallback": False, "checked_path": "C:/Windows", "source_roots_checked": [], "loaded_module_path": "C:/isolated/extensions/astroray"},
+        "f12_exit_zero": {"exit_code": 0, "image": image_ref, "loaded_module_path": "C:/isolated/extensions/astroray"},
     }
-    doc["zip"] = {"sha256": "zip-digest"}
+    doc["zip"] = zip_ref
     for name in VCI.MANDATORY_CHECKS:
         artifact = tmp_path / VCI.CHECK_ARTIFACTS[name]
         probe = {"schema": "pkg278.clean_install_probe.v1", "check": name, **probes[name]}

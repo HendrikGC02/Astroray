@@ -2,7 +2,7 @@
 
 **Pillar:** 4
 **Track:** A
-**Status:** open
+**Status:** done — fixed stop reached, 2026-09-24; report + follow-ups pkg281-283
 **Estimated effort:** 2 sessions (~6 h), CPU
 **Depends on:** none
 
@@ -167,14 +167,30 @@ transport and the emission registry rather than new accumulators.
 
 ## Progress
 
-- [ ] Phase 1: invariant transfer + clamp decision + tests.
-- [ ] Phase 2: render-time attribution.
-- [ ] Phase 3: Kerr cross-check.
-- [ ] Phase 4: bank re-baseline + pkg107 verification.
-- [ ] Report written; follow-ups filed; stop.
+- [x] Phase 1: invariant transfer + clamp decision + tests. Thin-disk `g⁵·B_λ`/`(c/λ²)·g³·B_ν` helper landed; clamp-20 removed; analytic tests pass; GYOTO external-`g` checkpoint ≤1% (see Checkpoint 2026-09-24).
+- [x] Phase 2: render-time attribution. ~15-16x scene re-authoring (PR #405), +4.8-6.7% code.
+- [x] Phase 3: Kerr cross-check. FAILS both quantities against GYOTO a=0.94 (ring 94%, redshift asymmetry ~100%); root causes identified (spin ignored, momentum-free redshift). Filed pkg281/pkg282.
+- [x] Phase 4: bank re-baseline + pkg107 verification. No reference.png replaced; all four scenes within ~1.5% of stored refs; pkg107 scaling law verified, 0.37x absolute offset unexplained (filed to pkg282).
+- [x] Report written; follow-ups filed; stop. `.astroray_plan/docs/gr-transfer-audit-2026-09.md` has the four-numbers section; pkg281 (Kerr spin), pkg282 (momentum redshift + pkg107 offset), pkg283 (ADAF/synchrotron Phase 1b) filed.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The Phase 1 analytic core (thin-disk transfer formula) and the Phase 3
+  cross-check are separable: a formula can be internally self-consistent and
+  match an external oracle at a controlled `g`, while the engine path that
+  produces `g` in practice is still wrong (ignored spin, momentum-free
+  redshift). "Analytically validated" and "science-ready" are different
+  claims — keep the report explicit about which paths earn which label.
+- Freezing the comparison procedure (rows/cols, edge threshold, tolerance)
+  in `NOTES.md` *before* reading the 512² GYOTO output was load-bearing: it
+  let a genuine 94%/100% failure stand without room to re-interpret the
+  measurement after the fact.
+- Render-time attribution and reference-bank re-baseline both need a
+  matched-settings/matched-build bisection, not just before/after diffing;
+  otherwise a scene-authoring change (PR #405) would have been misread as a
+  10x code regression.
+- Do not re-bless a reference image for a path known to be geometrically
+  wrong (Kerr at a=0): a passing per-channel gate on a mislabeled scene is
+  not evidence of correctness. Rebaseline only after pkg281 fixes the metric.

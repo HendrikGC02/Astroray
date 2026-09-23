@@ -1,5 +1,44 @@
 # GR thin-disk invariant transfer — Research
 
+## Four numbers (fixed stop)
+
+| # | Quantity | Result |
+|---|---|---|
+| 1 | Invariance residual | `2.41577546934435e-5` max spectral relative residual; `0.0033140826922287703` max bin residual; bolometric error `8.282559041994375e-5`; external-control ratio/`g⁴` error `8.946660117103988e-5` — all ≤ 1 % at externally measured `g = 0.8205396856615398` (Checkpoint 2026-09-24 below). PASS at this external `g`; not a claim about Astroray's own geodesics or redshift. |
+| 2 | Render-time delta (~10x growth) | Attributed: scene-setting delta (same build) **15.45x–15.73x**; build/code delta (same settings) **+4.8% to +6.7%**. Root cause is the 2026-05-30 scene re-authoring (PR #405: 256²×16 → 512²×64, +1 bounce, generated env maps), not code. Source: `C:/Users/hgcom/OneDrive/Astroray/astra_run/batchB-phase24/RESULT.md` §Phase 2. |
+| 3 | Cross-check mismatch (Kerr vs GYOTO) | **FAILS both quantities.** Photon-ring position: max per-edge mismatch 94 % (prograde edge, 34 px GYOTO vs 66 px Astroray), mean radius +9.0 %. Disk redshift asymmetry δ: Astroray ≈0 vs GYOTO +0.203 (a=0.94, i=90) — ~100 % mismatch. Against GYOTO a=0 (diagnostic), the ring agrees within 1.5 %. Source: `C:/Users/hgcom/OneDrive/Astroray/astra_run/batchB-phase3/RESULT.md`, `NOTES.md`, `phase3_metrics.json`. |
+| 4 | Bank per-channel ratios | All four scenes within ~1.5 % per channel of stored `reference.png` (Kerr 1.009/0.998/1.003, Schwarzschild 1.015/0.994/1.003, ADAF 1.000/1.000/1.000, synchrotron 1.001/1.001/1.001). Vs pre-Phase-1 baseline: Schwarzschild/ADAF byte-identical, Kerr 0.68 % px changed (disk-ring boundaries, expected from the Phase 1 thin-disk fix), synchrotron 2/65536 px (clamp-removal boundary). Source: `C:/Users/hgcom/OneDrive/Astroray/astra_run/batchB-phase24/RESULT.md` §Phase 4. |
+
+## Phase 3 — Kerr cross-check (GYOTO 2.0.2, pinned `94863d06`)
+
+Frozen matched geometry (both codes): 512², 45° tan-pinhole camera, disk seen edge-on (world xz plane, camera on +z), disk radii 6–18 M, distance 48 M. Measurement procedure frozen in `NOTES.md` before any 512² GYOTO output was read (edge = first 50 % mask crossing on fixed rows/cols; δ = (g_R−g_L)/(g_R+g_L) over rows 248–263).
+
+**Both quantities FAIL against GYOTO a=0.94.**
+
+- **Root cause 1 (spin):** `addBlackHole` (`module/blender_module.cpp`) never reads the scene's `spin` parameter; `BlackHole`'s constructor hardcodes `SchwarzschildMetric(1.0)` (`include/astroray/black_hole.h:291`). The `gr-kerr-94-faceon` scene therefore renders at a=0, not a=0.94. Against GYOTO a=0 the ring matches within 1.5 % (procedure validated: GYOTO a=0.94 edges match the analytic Bardeen equatorial critical impact parameters 34.0/88.8 px).
+- **Root cause 2 (redshift):** `NovikovThorneDisk::redshiftFactor` (`include/astroray/accretion_disk.h`) computes `g` from `sin(i_param)·sin(φ_emit)` — a flat-space approximation using the *declared* inclination parameter, not the photon's actual momentum. It never reads `p_φ`/`p_t`. The scene's declared inclination (78°) only enters this formula; the rendered geometry is actually 90° (geometrically edge-on). At i=90° every ring pixel sees the same far-side disk point, so `g` comes out azimuthally uniform (δ≈0) instead of matching GYOTO's momentum-based asymmetry (δ=+0.203 at a=0.94, i=90; +0.216 at a=0, i=90).
+- Side observation, not investigated: the Astroray capture mask shows a faint partial dark ring at 74–78 px that GYOTO does not show.
+
+Conclusion: the `gr-kerr-94-faceon` frame is not science-valid as currently rendered. See pkg281 (spin) and pkg282 (momentum-based redshift) below.
+
+## Phase 2 / Phase 4 / pkg107
+
+- **Phase 2 (render time):** the ~10x-and-more growth (README's `~2 s` in 2026-05 vs 19.7–19.8 s measured at `604b03f0`) is **not** a code regression. Matched-settings bisection (same scene SHA, build, backend, 512×512×64) attributes **15.45x–15.73x** to the 2026-05-30 scene re-authoring (PR #405: `WIDTH/HEIGHT` 256→512, `SAMPLES` 16→64, `MAX_DEPTH` 4→5, generated env maps) and only **+4.8% to +6.7%** to code changes since. Recovering the old performance is out of scope (non-goal).
+- **Phase 4 (bank re-baseline):** no `reference.png` was replaced. Schwarzschild and ADAF renders are byte-identical vs pre-Phase-1 baseline; synchrotron differs in 2/65536 px (an isolated clamp-boundary pixel from the shared finite/nonnegative clamp removal, not the disk transfer). Kerr differs in 0.68 % of pixels at disk-ring boundaries — the expected footprint of the Phase 1 `g⁵·B_λ` fix. All four scenes remain within ~1.5 % per channel of the stored `reference.png`. Re-blessing the Kerr reference is deferred: the engine still renders `gr-kerr-94-faceon` at a=0 (Phase 3), so a rebaseline now would bless a scene that isn't the Kerr geometry it claims to be. SSIM is recorded as a diagnostic only (0.934 Kerr, 0.850 Schwarzschild vs stored reference — pre-existing, not introduced by this package); it is not the pass/fail metric.
+- **pkg107 (`r_obs_M` shadow-radius scaling):** verified. θ halves as `r_obs_M` doubles (measured ratios 0.483x, 0.475x vs ideal 0.5x, within small-`r_px` noise) — `r_obs_M` scales the shadow radius per the expected inverse-linear law. The absolute size is ≈0.37x of the idealized `3√3·M/r_obs` textbook formula; this fixed offset is **unexplained** (the lane's earlier "geometric factor" claim is unproven) and is deferred to pkg282 alongside the momentum-based redshift work, since both concern the camera/geodesic-to-image mapping.
+
+Evidence: `C:/Users/hgcom/OneDrive/Astroray/astra_run/batchB-phase3/` (`RESULT.md`, `NOTES.md`, `phase3_metrics.json`, `phase3_comparison.png`, `astroray_*.{npy,json}`, `gyoto/`) and `C:/Users/hgcom/OneDrive/Astroray/astra_run/batchB-phase24/` (`RESULT.md`, `render_bank.py`, `compare_bank.py`, `phase4_report.json`, `*_cand_vs_*.png`).
+
+## Validated vs unresolved paths
+
+- **Validated (analytically, at external `g` only):** thin-disk transfer helper `g⁵·B_λ(gλ, T)` / `(c/λ²)·g³·B_ν(ν/g, T)` in `diskEmissionSpectral` — passes all Phase 1 analytic tests and the GYOTO external-`g` checkpoint within 1 %. This validates the *formula*, not Astroray's own geodesics, redshift, or the matched Kerr image.
+- **Unresolved — thin-disk *path* (not science-ready):** the disk render path as a whole. `BlackHole` ignores `spin` (always Schwarzschild) and `NovikovThorneDisk::redshiftFactor` ignores photon momentum. Both are required before any Kerr-labelled render can be trusted. Follow-up: pkg281 (spin), pkg282 (redshift + pkg107 offset).
+- **Unresolved — ADAF:** no invariant `j_ν/ν²` / `ν·α_ν` transport exists (Phase 1b never implemented); no analytic tests pass. Prohibited from science release. Follow-up: pkg283.
+- **Unresolved — synchrotron jet:** same as ADAF — no Phase 1b transport, no analytic tests. Prohibited from science release. Follow-up: pkg283.
+- No path in this audit is labelled science-ready except the isolated thin-disk transfer formula at a fixed external `g`. The bank scenes passing their per-channel gate does not authorize science use of any unresolved path.
+
+---
+
 ## Paper
 - **Title:** *Radiative Processes in Astrophysics*, §4.9, “Invariant Phase Volumes and Specific Intensity.”
 - **Authors:** George B. Rybicki and Alan P. Lightman.

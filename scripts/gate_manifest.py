@@ -329,13 +329,18 @@ def _validate_a(records: list[Any], base: Path, expected_scenes: Any) -> tuple[l
     return errors, value, {"both_pinned_scenes": len(scenes) == 2, "three_by_hundred_repetitions": len(cells) == 1200, "denoise_excluded": not any("denoise" in e for e in errors), "gpu_only_latency": not any("not GPU" in e for e in errors)}
 
 
-def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: Any, freeze_ref: Any = None) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
-    """Fail closed unless every semantic witness is a paired control delta."""
+def _evaluate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: Any,
+                freeze_ref: Any = None) -> tuple[list[str], dict[str, Any], dict[str, Any], list[str]]:
+    """Recompute C, separating invalid evidence from a valid failed measurement."""
     import numpy as np
 
     from benchmarks.reference_bank.metrics import compute_ssim
     from benchmarks.reference_bank.runner import compute_channel_mean_ratio
-    errors=[]; pairs=set(); hashes={}; images={}; masks={}; ratios=[]; ssims=[]; reports={}; leg_keys=set()
+    provenance_errors: list[str] = []
+    errors = provenance_errors
+    measurement_failures: list[str] = []
+    derived_pairs_valid = True
+    pairs=set(); hashes={}; images={}; masks={}; ratios=[]; ssims=[]; reports={}; leg_keys=set()
     freeze_path, why = _artifact(freeze_ref, base, "row c freeze"); errors.extend(why)
     try: freeze=json.loads(freeze_path.read_text(encoding="utf-8")) if freeze_path else {}
     except (OSError,json.JSONDecodeError): freeze={}; errors.append("row c freeze cannot be read")
@@ -370,7 +375,8 @@ def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
         linear,why=_artifact(r.get("linear_npy"),base,f"row c record {i} linear render"); errors.extend(why)
         try:
             arr=np.load(linear)[...,:3] if linear else None
-            if arr is None or arr.ndim!=3 or not np.isfinite(arr).all() or float(np.abs(arr).max())<=1e-9: raise ValueError()
+            if arr is None or arr.ndim != 3 or not np.isfinite(arr).all(): raise ValueError()
+            if control == "baseline" and float(np.abs(arr).max()) <= 1e-9: raise ValueError()
             images[(role,backend,control)]=arr
         except (OSError,ValueError): errors.append(f"row c record {i} linear render cannot be loaded")
         try:
@@ -425,21 +431,24 @@ def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
                 errors.append(f"row c record {i} hair mutation receipt is not the declared hide control")
             if control == "hdri_off" and (receipt.get("world") != declared.get("world") or receipt.get("node") != declared.get("node") or not receipt.get("image") or receipt.get("after_image", "not-none") is not None):
                 errors.append(f"row c record {i} HDRI mutation receipt is not the declared world control")
-        if control != "baseline":
-            mask_path,why=_artifact(r.get("feature_mask"),base,f"row c record {i} feature mask"); errors.extend(why)
-            try:
-                mask=np.load(mask_path).astype(bool) if mask_path else None
-                if mask is None or mask.ndim!=2 or not mask.any(): raise ValueError()
-                masks[(role,backend,control)]=mask
-            except (OSError,ValueError): errors.append(f"row c record {i} feature mask cannot be loaded")
-            mask_receipt=report.get("mask_receipt")
-            declared=next((item for item in frozen.get("controls", []) if item.get("kind") == control), {})
-            if (not isinstance(mask_receipt, Mapping) or mask_receipt.get("control") != control
-                    or mask_receipt.get("kind") != declared.get("mask", {}).get("kind")
-                    or mask_receipt.get("path") != str(mask_path.resolve())
-                    or mask_receipt.get("sha256") != (r.get("feature_mask") or {}).get("sha256")):
-                errors.append(f"row c record {i} mask receipt is not bound to the frozen control artifact")
-        else: pairs.add((role,backend)); hashes.setdefault(role,(scene,digest))
+            if control != "baseline":
+                mask_path,why=_artifact(r.get("feature_mask"),base,f"row c record {i} feature mask"); errors.extend(why)
+                if mask_path is None:
+                    continue
+                try:
+                    mask=np.load(mask_path).astype(bool) if mask_path else None
+                    if mask is None or mask.ndim!=2 or not mask.any(): raise ValueError()
+                    masks[(role,backend,control)]=mask
+                except (OSError,ValueError): errors.append(f"row c record {i} feature mask cannot be loaded")
+                mask_receipt=report.get("mask_receipt")
+                declared=next((item for item in frozen.get("controls", []) if item.get("kind") == control), {})
+                if (not isinstance(mask_receipt, Mapping) or mask_receipt.get("control") != control
+                        or mask_receipt.get("kind") != declared.get("mask", {}).get("kind")
+                        or mask_receipt.get("path") != str(mask_path.resolve())
+                        or mask_receipt.get("sha256") != (r.get("feature_mask") or {}).get("sha256")):
+                    errors.append(f"row c record {i} mask receipt is not bound to the frozen control artifact")
+        if control == "baseline":
+            pairs.add((role, backend)); hashes.setdefault(role, (scene, digest))
         if (r.get("settings",{}).get("gate_c_rois")!=frozen.get("rois") or r.get("settings",{}).get("gate_c_probes")!=frozen.get("non_vacuity")
                 or any(r.get("settings", {}).get(key) != frozen.get("settings", {}).get(key) for key in ("res_x", "res_y", "samples"))): errors.append(f"row c record {i} configuration differs from hash-pinned freeze")
     if leg_keys != expected_legs: errors.append("row c records do not cover the exact frozen baseline/control legs")
@@ -449,9 +458,36 @@ def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
         cpu,gpu=images.get((role,"CPU","baseline")),images.get((role,"GPU","baseline"))
         if cpu is None or gpu is None or cpu.shape!=gpu.shape: continue
         frozen=(freeze.get("roles") or {}).get(role,{})
+        baseline_records = {
+            backend: next((record for record in records if isinstance(record, Mapping)
+                           and record.get("role") == role and record.get("backend") == backend
+                           and record.get("control") == "baseline"), {})
+            for backend in ("CPU", "GPU")
+        }
         for name,roi in frozen.get("rois",{}).items():
             y0,y1,x0,x1=int(roi[1]*cpu.shape[0]),int(roi[3]*cpu.shape[0]),int(roi[0]*cpu.shape[1]),int(roi[2]*cpu.shape[1])
-            try: ratio,_=compute_channel_mean_ratio(gpu,cpu,(y0,y1,x0,x1)); ssim,_=compute_ssim(gpu[y0:y1,x0:x1],cpu[y0:y1,x0:x1]); ratios.append(ratio*100); ssims.append(ssim)
+            try:
+                ratio, channel_ratios = compute_channel_mean_ratio(gpu, cpu, (y0, y1, x0, x1))
+                ssim, _ = compute_ssim(gpu[y0:y1, x0:x1], cpu[y0:y1, x0:x1])
+                ratios.append(ratio * 100); ssims.append(ssim)
+                for backend, record in baseline_records.items():
+                    claims = record.get("rois") if isinstance(record, Mapping) else None
+                    if not claims:
+                        continue
+                    claim = next((item for item in claims if isinstance(item, Mapping)
+                                  and item.get("name") == name), None)
+                    if not isinstance(claim, Mapping):
+                        errors.append(f"row c {role}/{backend} lacks derived ROI claim {name}")
+                        continue
+                    claim_ratio = claim.get("ratio")
+                    if (_number(claim.get("ratio_max")) is None or _number(claim.get("ssim")) is None
+                            or not isinstance(claim_ratio, Mapping)
+                            or any(_number(claim_ratio.get(channel)) is None
+                                   or abs(float(claim_ratio[channel]) - float(channel_ratios[channel])) > 1e-6
+                                   for channel in ("r", "g", "b"))
+                            or abs(float(claim["ratio_max"]) - ratio) > 1e-6
+                            or abs(float(claim["ssim"]) - ssim) > 1e-6):
+                        errors.append(f"row c {role}/{backend} ROI metric claim differs from recomputation")
             except ValueError: errors.append(f"row c {role} ROI {name} is too small for SSIM")
     mapping={"checker":"checker_flat","hair":"hair_off","hdri":"hdri_off"}
     for role in TRIO_ROLES:
@@ -462,17 +498,40 @@ def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
                 kind=probe.get("kind"); ck=mapping.get(kind)
                 if ck is None: continue
                 control,mask=images.get((role,backend,ck)),masks.get((role,backend,ck)); reported=next((x for x in base_record.get("non_vacuity",[]) if isinstance(x,Mapping) and x.get("kind")==kind),None)
-                if baseline is None or control is None or mask is None or control.shape!=baseline.shape or mask.shape!=baseline.shape[:2] or not isinstance(reported,Mapping): errors.append(f"row c record {role}/{backend} lacks concrete {kind} paired probe"); continue
-                if np.array_equal(baseline, control): errors.append(f"row c record {role}/{backend} {kind} control has no linear-image effect")
+                if baseline is None or control is None or mask is None or control.shape!=baseline.shape or mask.shape!=baseline.shape[:2] or not isinstance(reported,Mapping):
+                    derived_pairs_valid = False
+                    errors.append(f"row c record {role}/{backend} lacks concrete {kind} paired probe"); continue
                 floor=float(probe.get("min_delta",0)); coverage=float(probe.get("min_coverage",0)); delta=np.abs(baseline-control).mean(axis=-1)[mask]; value=float(delta.mean()); observed=float((delta>floor).mean())
-                valid = (_number(reported.get("value")) is not None and _number(reported.get("coverage")) is not None and abs(float(reported["value"])-value)<=1e-6 and abs(float(reported["coverage"])-observed)<=1e-6 and value>floor and observed>coverage)
+                claim_matches = (_number(reported.get("value")) is not None and _number(reported.get("coverage")) is not None and abs(float(reported["value"])-value)<=1e-6 and abs(float(reported["coverage"])-observed)<=1e-6)
+                witness_passes = value > floor and observed > coverage
                 if kind == "checker":
                     signed = np.tensordot(baseline - control, np.array((.2126, .7152, .0722)), axes=([-1], [0]))[mask]
                     positive, negative = float((signed > floor).mean()), float((signed < -floor).mean())
-                    valid = (valid and _number(reported.get("positive_coverage")) is not None and _number(reported.get("negative_coverage")) is not None and abs(float(reported["positive_coverage"])-positive)<=1e-6 and abs(float(reported["negative_coverage"])-negative)<=1e-6 and positive>coverage and negative>coverage)
-                if not valid: errors.append(f"row c record {role}/{backend} {kind} non-vacuity is not derived from paired frozen-mask evidence")
+                    claim_matches = (claim_matches and _number(reported.get("positive_coverage")) is not None and _number(reported.get("negative_coverage")) is not None and abs(float(reported["positive_coverage"])-positive)<=1e-6 and abs(float(reported["negative_coverage"])-negative)<=1e-6)
+                    witness_passes = witness_passes and positive > coverage and negative > coverage
+                if not claim_matches:
+                    derived_pairs_valid = False
+                    errors.append(f"row c record {role}/{backend} {kind} non-vacuity claim is not derived from paired frozen-mask evidence")
+                if not witness_passes:
+                    measurement_failures.append(f"row c record {role}/{backend} {kind} non-vacuity witness failed")
     if not ratios or not ssims: errors.append("row c has no recomputable frozen ROI metrics")
-    return errors,{"roi_pct_max":max(ratios) if ratios else None,"ssim_min":min(ssims) if ssims else None},{"cpu_exit_zero":all((s,"CPU") in pairs for s in TRIO_ROLES),"gpu_exit_zero":all((s,"GPU") in pairs for s in TRIO_ROLES),"pinned_images":not any("artifact" in e for e in errors),"non_vacuity":not any("non-vacuity" in e for e in errors)}
+    value = {"roi_pct_max": max(ratios) if ratios else None, "ssim_min": min(ssims) if ssims else None}
+    for key, rule in ROW_SPEC["c"]["threshold"].items():
+        if _number(value.get(key)) is not None and not _bound(float(value[key]), rule):
+            measurement_failures.append(f"row c {key}={value[key]} outside frozen bound {rule}")
+    subchecks = {"cpu_exit_zero": all((s, "CPU") in pairs for s in TRIO_ROLES),
+                 "gpu_exit_zero": all((s, "GPU") in pairs for s in TRIO_ROLES),
+                 "pinned_images": not any("artifact" in e for e in errors),
+                 "non_vacuity": derived_pairs_valid}
+    return provenance_errors, value, subchecks, measurement_failures
+
+
+def _validate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: Any,
+                freeze_ref: Any = None) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
+    """Compatibility wrapper for direct reducer tests; errors include metric failures."""
+    provenance_errors, value, subchecks, measurement_failures = _evaluate_c(
+        records, base, expected_hashes, build_id, freeze_ref)
+    return provenance_errors + measurement_failures, value, subchecks
 
 def _validate_e(records: list[Any], base: Path) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
     errors: list[str] = []
@@ -661,7 +720,7 @@ def _records_validate(payload: Mapping[str, Any], rid: str, base: Path) -> tuple
 
 
 def _check_common(row: Mapping[str, Any], spec: Mapping[str, Any],
-                  repo_root: Path) -> list[str]:
+                  repo_root: Path, measurement_failure_is_error: bool = True) -> list[str]:
     reasons: list[str] = []
     for fld in BASE_FIELDS:
         if fld not in row:
@@ -707,17 +766,29 @@ def _check_common(row: Mapping[str, Any], spec: Mapping[str, Any],
                 reasons.append(f"value missing measured metric: {key}")
             elif _number(value[key]) is None:
                 reasons.append(f"value {key} must be a finite number")
-            elif not _bound(_number(value[key]), rule):
+            elif measurement_failure_is_error and not _bound(_number(value[key]), rule):
                 reasons.append(f"value {key}={value[key]} outside frozen bound {rule}")
     payload, payload_base, payload_errors = _typed_payload(row, str(row.get("row")), spec, repo_root)
     reasons.extend(payload_errors)
     if payload is not None and payload_base is not None:
-        record_errors, derived_value, derived_subchecks = _records_validate(payload, str(row.get("row")), payload_base)
+        rid = str(row.get("row"))
+        measurement_failures: list[str] = []
+        if rid == "c":
+            record_errors, derived_value, derived_subchecks, measurement_failures = _evaluate_c(
+                payload.get("records", []), payload_base, payload.get("scene_sha256"),
+                payload.get("build_id"), payload.get("freeze"))
+        else:
+            record_errors, derived_value, derived_subchecks = _records_validate(payload, rid, payload_base)
         reasons.extend(record_errors)
         if derived_value and row.get("value") != derived_value:
             reasons.append("manifest value is not the value derived from concrete records")
         if derived_subchecks and row.get("subchecks") != derived_subchecks:
             reasons.append("manifest subchecks are not derived from concrete records")
+        if rid == "c":
+            if row.get("measurement_failures") != measurement_failures:
+                reasons.append("manifest measurement failures are not derived from concrete records")
+            if measurement_failure_is_error:
+                reasons.extend(measurement_failures)
     return reasons
 
 
@@ -862,20 +933,45 @@ def validate_manifest(manifest: Mapping[str, Any], repo_root: Path = REPO_ROOT) 
         if not isinstance(row, Mapping):
             continue
         status = row.get("status")
-        if status == "green":
-            reasons = _check_common(row, ROW_SPEC[rid], repo_root)
+        if status == "green" or (rid == "c" and status == "red"):
+            reasons = _check_common(row, ROW_SPEC[rid], repo_root,
+                                    measurement_failure_is_error=status == "green")
             if ROW_SPEC[rid].get("requires_scanner_823"):
                 ok, why = _check_scanner_823(row, repo_root)
                 if not ok:
                     reasons.append(f"scanner #823: {why}")
             if reasons:
-                errors.append(f"row {rid}: green fails recomputation: {reasons[:3]}")
+                errors.append(f"row {rid}: {status} fails semantic recomputation: {reasons[:3]}")
     return errors
 
 
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
+
+def adapt_c_instrument(raw_path: Path) -> dict[str, Any]:
+    """Adapt immutable raw C evidence into the generic manifest-row contract."""
+    payload = json.loads(raw_path.read_text(encoding="utf-8"))
+    if (not isinstance(payload, Mapping) or payload.get("schema") != PAYLOAD_SCHEMA
+            or payload.get("row") != "c" or payload.get("instrument") != "trio_parity"):
+        raise ValueError("row-c raw evidence must be a trio_parity v2 instrument")
+    _provenance_errors, value, subchecks, measurement_failures = _evaluate_c(
+        payload.get("records", []), raw_path.parent, payload.get("scene_sha256"),
+        payload.get("build_id"), payload.get("freeze"))
+    row = dict(payload)
+    row["evidence_path"] = str(raw_path)
+    row["evidence_sha256"] = sha256_file(raw_path)
+    row["dimensions"] = {
+        "backend": "CPU+GPU",
+        "scene": "exact frozen trio scene SHA-256s",
+        "roi": "freeze-declared ROIs",
+    }
+    row["value"] = value
+    row["subchecks"] = subchecks
+    row["measurement_failures"] = measurement_failures
+    row["date"] = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    return row
+
 
 def load_instruments(instruments_dir: Path | None,
                      overrides: Mapping[str, Path] | None) -> dict[str, Any]:
@@ -897,6 +993,9 @@ def load_instruments(instruments_dir: Path | None,
             row["value"] = value
             row["date"] = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
             return row
+        if (isinstance(payload, Mapping) and payload.get("schema") == PAYLOAD_SCHEMA
+                and payload.get("row") == "c" and payload.get("instrument") == "trio_parity"):
+            return adapt_c_instrument(path)
         if (isinstance(payload, Mapping) and payload.get("schema") == PAYLOAD_SCHEMA
                 and payload.get("row") == "e" and payload.get("instrument") == "issue_triage"):
             errors, value, subchecks = _validate_e(payload.get("records", []), path.parent)

@@ -147,7 +147,106 @@ def test_reducer_rejects_observed_seed_or_mask_receipt_mismatch(tmp_path):
     control_path.write_bytes((tmp_path / baseline["linear_npy"]["path"]).read_bytes())
     control["linear_npy"]["sha256"] = hashlib.sha256(control_path.read_bytes()).hexdigest()
     errors, _, _ = GM._validate_c(records, tmp_path, hashes, "build-1", freeze)
-    assert any("no linear-image effect" in error for error in errors)
+    assert any("non-vacuity witness failed" in error for error in errors)
+
+
+def _raw_gate_c_payload(records, hashes, freeze):
+    return {
+        "schema": GM.PAYLOAD_SCHEMA,
+        "row": "c",
+        "instrument": "trio_parity",
+        "scene_sha256": hashes,
+        "build_id": "build-1",
+        "backend": ["CPU", "GPU"],
+        "settings": {},
+        "metric": {"source": "raw_c_capture"},
+        "value": {},
+        "threshold": {"roi_pct_max": 5.0, "ssim_min": 0.95},
+        "records": records,
+        "freeze": freeze,
+    }
+
+
+def _adapted_valid_red_c(tmp_path):
+    records, hashes, freeze = _valid_gate_c_records(tmp_path)
+    for record in records:
+        if record["control"] == "hdri_off":
+            control_path = tmp_path / record["linear_npy"]["path"]
+            np.save(control_path, np.zeros((16, 16, 3), np.float32))
+            record["linear_npy"]["sha256"] = hashlib.sha256(control_path.read_bytes()).hexdigest()
+            baseline = next(item for item in records if item["role"] == record["role"]
+                            and item["backend"] == record["backend"] and item["control"] == "baseline")
+            next(probe for probe in baseline["non_vacuity"] if probe["kind"] == "hdri").update(
+                {"value": .5, "coverage": 1.0}
+            )
+    gpu_checker = next(item for item in records if item["role"] == "textures_mapping"
+                       and item["backend"] == "GPU" and item["control"] == "checker_flat")
+    gpu_baseline = next(item for item in records if item["role"] == "textures_mapping"
+                        and item["backend"] == "GPU" and item["control"] == "baseline")
+    control_path = tmp_path / gpu_checker["linear_npy"]["path"]
+    control_path.write_bytes((tmp_path / gpu_baseline["linear_npy"]["path"]).read_bytes())
+    gpu_checker["linear_npy"]["sha256"] = hashlib.sha256(control_path.read_bytes()).hexdigest()
+    next(probe for probe in gpu_baseline["non_vacuity"] if probe["kind"] == "checker").update(
+        {"value": 0.0, "coverage": 0.0, "positive_coverage": 0.0, "negative_coverage": 0.0}
+    )
+    raw_path = tmp_path / "instrument.json"
+    raw_path.write_text(json.dumps(_raw_gate_c_payload(records, hashes, freeze)), encoding="utf-8")
+    return raw_path
+
+
+def _manifest_with_c_row(row, tmp_path):
+    manifest, _ = GM.assemble({"c": row}, tmp_path)
+    return manifest
+
+
+def test_adapter_accepts_valid_measured_red_with_black_hdri_control(tmp_path):
+    raw_path = _adapted_valid_red_c(tmp_path)
+    row = GM.load_instruments(None, {"c": raw_path})["c"]
+    assert row["value"]["roi_pct_max"] == pytest.approx(0.0)
+    assert row["value"]["ssim_min"] == pytest.approx(1.0)
+    assert any("textures_mapping/GPU checker non-vacuity witness failed" in failure
+               for failure in row["measurement_failures"])
+    computed, reasons = GM.compute_row("c", row, GM.ROW_SPEC["c"], tmp_path)
+    assert computed["status"] == "red"
+    assert any("textures_mapping/GPU checker non-vacuity witness failed" in reason for reason in reasons)
+    assert not GM.validate_manifest(_manifest_with_c_row(row, tmp_path), tmp_path)
+
+
+@pytest.mark.parametrize("tamper", ["npy", "mask", "report", "seed", "identity", "metrics", "digest"])
+def test_adapter_rejects_tampered_measured_red_evidence(tmp_path, tamper):
+    raw_path = _adapted_valid_red_c(tmp_path)
+    row = GM.adapt_c_instrument(raw_path)
+    payload = json.loads(raw_path.read_text(encoding="utf-8"))
+    if tamper == "npy":
+        record = next(item for item in payload["records"] if item["control"] == "hdri_off")
+        np.save(tmp_path / record["linear_npy"]["path"], np.ones((16, 16, 3), np.float32))
+    elif tamper == "mask":
+        record = next(item for item in payload["records"] if item["control"] == "hdri_off")
+        np.save(tmp_path / record["feature_mask"]["path"], np.zeros((16, 16), np.uint8))
+    elif tamper == "report":
+        record = next(item for item in payload["records"] if item["control"] == "hdri_off")
+        report_path = tmp_path / record["report_artifact"]["path"]
+        report = json.loads(report_path.read_text(encoding="utf-8")); report["engine"] = "OTHER"
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+    elif tamper == "seed":
+        record = next(item for item in payload["records"] if item["control"] == "hdri_off")
+        report_path = tmp_path / record["report_artifact"]["path"]
+        report = json.loads(report_path.read_text(encoding="utf-8")); report["resolved_seed"] = 0
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+        record["report_artifact"]["sha256"] = hashlib.sha256(report_path.read_bytes()).hexdigest()
+        raw_path.write_text(json.dumps(payload), encoding="utf-8"); row = GM.adapt_c_instrument(raw_path)
+    elif tamper == "identity":
+        payload["records"][0]["scene_id"] = "wrong-scene"
+        raw_path.write_text(json.dumps(payload), encoding="utf-8"); row = GM.adapt_c_instrument(raw_path)
+    elif tamper == "metrics":
+        record = next(item for item in payload["records"] if item["control"] == "baseline")
+        record["rois"] = [{"name": "all", "ratio": {"r": 0.5, "g": 1.0, "b": 1.0}, "ratio_max": 0.5, "ssim": 1.0}]
+        raw_path.write_text(json.dumps(payload), encoding="utf-8"); row = GM.adapt_c_instrument(raw_path)
+    else:
+        row["evidence_sha256"] = "0" * 64
+    manifest = _manifest_with_c_row(row, tmp_path)
+    assert manifest["rows"]["c"]["status"] == "red"
+    assert GM.validate_manifest(manifest, tmp_path)
 
 
 def test_reducer_rejects_one_sided_checker_brightness_change(tmp_path):

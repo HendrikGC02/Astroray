@@ -325,8 +325,19 @@ def _runner_metrics_match(produced: Mapping[str, Any], repo_root: Path | None) -
     cycles_control = _runner_artifact(artifacts.get("cycles_control_linear_npy"), repo_root)
     astro_mask = _runner_artifact(artifacts.get("astroray_feature_mask"), repo_root)
     cycles_mask = _runner_artifact(artifacts.get("cycles_feature_mask"), repo_root)
-    if not all((astro, cycles, raw, cycles_raw, astro_control_raw, cycles_control_raw, astro_control, cycles_control, astro_mask, cycles_mask)):
+    astro_control_mask = _runner_artifact(artifacts.get("astroray_control_feature_mask"), repo_root)
+    cycles_control_mask = _runner_artifact(artifacts.get("cycles_control_feature_mask"), repo_root)
+    if not all((astro, cycles, raw, cycles_raw, astro_control_raw, cycles_control_raw, astro_control, cycles_control, astro_mask, cycles_mask, astro_control_mask, cycles_control_mask)):
         return False, "canonical runner artifact is missing or hash-mismatched"
+    # Each baseline/control pair is rendered from the same frozen feature region,
+    # so the retained control mask must describe that one region -- a mask
+    # swapped for an unrelated (or differently shaped) artifact is rejected even
+    # when its own recorded hash matches.
+    for engine, baseline_mask, control_mask in (("astroray", astro_mask, astro_control_mask),
+                                                ("cycles", cycles_mask, cycles_control_mask)):
+        if _sha256_file(baseline_mask) != _sha256_file(control_mask):
+            return False, (f"canonical runner {engine} baseline/control feature masks "
+                           "do not describe the same frozen region")
     try:
         import numpy as np
         witness = produced.get("witness")
@@ -375,8 +386,8 @@ def _runner_metrics_match(produced: Mapping[str, Any], repo_root: Path | None) -
             or cycles_control_observed.get("engine") != "CYCLES"):
         return False, "canonical runner raw observations have the wrong engines"
     for report, linear, mask in ((raw_observed, astro, astro_mask), (cycles_observed, cycles, cycles_mask),
-                                 (astro_control_observed, astro_control, astro_mask),
-                                 (cycles_control_observed, cycles_control, cycles_mask)):
+                                 (astro_control_observed, astro_control, astro_control_mask),
+                                 (cycles_control_observed, cycles_control, cycles_control_mask)):
         if (not isinstance(report.get("linear_npy"), str) or not isinstance(report.get("feature_mask_npy"), str)
                 or Path(report["linear_npy"]).resolve() != linear.resolve()
                 or Path(report["feature_mask_npy"]).resolve() != mask.resolve()):

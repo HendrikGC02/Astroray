@@ -1003,7 +1003,8 @@ def gate_b_corpus_result(case: Mapping[str, Any], observed: Mapping[str, Any],
     for key in ("astroray_linear_npy", "cycles_linear_npy", "report", "cycles_report",
                 "astroray_control_linear_npy", "cycles_control_linear_npy",
                 "astroray_control_report", "cycles_control_report",
-                "astroray_feature_mask", "cycles_feature_mask"):
+                "astroray_feature_mask", "cycles_feature_mask",
+                "astroray_control_feature_mask", "cycles_control_feature_mask"):
         if not isinstance(artifacts.get(key), Mapping):
             raise TypeError(f"corpus render leg lacks {key} artifact")
     return {"schema": GATE_B_RUNNER_RESULT_SCHEMA, **{key: case[key] for key in required},
@@ -1098,7 +1099,8 @@ def run_gate_b_corpus(cases_path: Path, corpus_manifest: Path, out_dir: Path, *,
                          "report": _gate_b_artifact(astro["raw"], out_dir), "cycles_report": _gate_b_artifact(cycles["raw"], out_dir),
                          "astroray_control_report": _gate_b_artifact(astro_control["raw"], out_dir), "cycles_control_report": _gate_b_artifact(cycles_control["raw"], out_dir),
                          "astroray_control_linear_npy": _gate_b_artifact(astro_control["npy"], out_dir), "cycles_control_linear_npy": _gate_b_artifact(cycles_control["npy"], out_dir),
-                         "astroray_feature_mask": _gate_b_artifact(astro["mask"], out_dir), "cycles_feature_mask": _gate_b_artifact(cycles["mask"], out_dir)}
+                         "astroray_feature_mask": _gate_b_artifact(astro["mask"], out_dir), "cycles_feature_mask": _gate_b_artifact(cycles["mask"], out_dir),
+                         "astroray_control_feature_mask": _gate_b_artifact(astro_control["mask"], out_dir), "cycles_control_feature_mask": _gate_b_artifact(cycles_control["mask"], out_dir)}
             result = gate_b_corpus_result(case, observed, effect, artifacts, effect=effect, settings=astro["report"]["settings"]); results.append(result)
             runner_one = case_dir / "runner_result.json"; runner_one.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             verifier = _gate_b_artifact(runner_one, out_dir)

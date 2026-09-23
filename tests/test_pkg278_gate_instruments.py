@@ -76,11 +76,14 @@ def _canonical_production_record(tmp_path, *, backend="CPU", build_id="build-1",
     astro = tmp_path / "astroray_linear_npy.npy"; cycles = tmp_path / "cycles_linear_npy.npy"
     astro_control = tmp_path / "astroray_control_linear_npy.npy"; cycles_control = tmp_path / "cycles_control_linear_npy.npy"
     astro_mask = tmp_path / "astroray_feature_mask.npy"; cycles_mask = tmp_path / "cycles_feature_mask.npy"
+    astro_control_mask = tmp_path / "astroray_control_feature_mask.npy"
+    cycles_control_mask = tmp_path / "cycles_control_feature_mask.npy"
     baseline = np.full((16, 16, 3), .5, dtype=np.float32); control = baseline.copy()
     control[4:12, 4:8] = .25; control[4:12, 8:12] = .75
     mask = np.zeros((16, 16), dtype=np.uint8); mask[4:12, 4:12] = 255
     np.save(astro, baseline); np.save(cycles, baseline); np.save(astro_control, control); np.save(cycles_control, control)
     np.save(astro_mask, mask); np.save(cycles_mask, mask)
+    np.save(astro_control_mask, mask); np.save(cycles_control_mask, mask)
     binding = {key: case[key] for key in ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id")}
     observed = {"identity": identity, "scene_id": scene_id, "variant_digest": variant_digest,
                 "backend": backend, "build_id": build_id, "module_sha256": module_sha256,
@@ -96,8 +99,8 @@ def _canonical_production_record(tmp_path, *, backend="CPU", build_id="build-1",
                        "blend_sha256": blend_sha}
     raw["linear_npy"], raw["feature_mask_npy"] = str(astro.resolve()), str(astro_mask.resolve())
     cycles_observed["linear_npy"], cycles_observed["feature_mask_npy"] = str(cycles.resolve()), str(cycles_mask.resolve())
-    astro_control_observed = dict(raw, linear_npy=str(astro_control.resolve()), mutation_receipt={"kind": "checker_flat", "ok": True})
-    cycles_control_observed = dict(cycles_observed, linear_npy=str(cycles_control.resolve()), mutation_receipt={"kind": "checker_flat", "ok": True})
+    astro_control_observed = dict(raw, linear_npy=str(astro_control.resolve()), feature_mask_npy=str(astro_control_mask.resolve()), mutation_receipt={"kind": "checker_flat", "ok": True})
+    cycles_control_observed = dict(cycles_observed, linear_npy=str(cycles_control.resolve()), feature_mask_npy=str(cycles_control_mask.resolve()), mutation_receipt={"kind": "checker_flat", "ok": True})
     astro_raw = tmp_path / "report.json"; astro_raw.write_text(json.dumps(raw), encoding="utf-8")
     cycles_raw = tmp_path / "cycles_report.json"; cycles_raw.write_text(json.dumps(cycles_observed), encoding="utf-8")
     astro_control_raw = tmp_path / "astroray_control_report.json"; astro_control_raw.write_text(json.dumps(astro_control_observed), encoding="utf-8")
@@ -111,7 +114,9 @@ def _canonical_production_record(tmp_path, *, backend="CPU", build_id="build-1",
             "astroray_control_linear_npy": {"path": astro_control.name, "sha256": CR.sha256_file(astro_control)},
             "cycles_control_linear_npy": {"path": cycles_control.name, "sha256": CR.sha256_file(cycles_control)},
             "astroray_feature_mask": {"path": astro_mask.name, "sha256": CR.sha256_file(astro_mask)},
-            "cycles_feature_mask": {"path": cycles_mask.name, "sha256": CR.sha256_file(cycles_mask)}}
+            "cycles_feature_mask": {"path": cycles_mask.name, "sha256": CR.sha256_file(cycles_mask)},
+            "astroray_control_feature_mask": {"path": astro_control_mask.name, "sha256": CR.sha256_file(astro_control_mask)},
+            "cycles_control_feature_mask": {"path": cycles_control_mask.name, "sha256": CR.sha256_file(cycles_control_mask)}}
     effect, reason = CR.witness_metrics(baseline, baseline, control, control, mask, mask, witness)
     assert effect is not None, reason
     runner = {"schema": CR.RUNNER_RESULT_SCHEMA, "results": [HARNESS.gate_b_corpus_result(
@@ -209,6 +214,73 @@ def test_production_evidence_recomputes_runner_metrics_and_raw_graph(tmp_path):
     record["verifier_result"]["sha256"] = digest
     record["verdict"]["result"]["artifact_sha256"] = digest
     assert not CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)[0]
+
+
+def _refresh_runner(record, tmp_path, runner):
+    """Rewrite the canonical runner and re-bind the evidence hashes to it."""
+    runner_path = tmp_path / "runner.json"
+    runner_path.write_text(json.dumps(runner), encoding="utf-8")
+    digest = CR.sha256_file(runner_path)
+    record["verifier_result"]["sha256"] = digest
+    record["verdict"]["result"]["artifact_sha256"] = digest
+
+
+def test_production_evidence_requires_retained_control_feature_masks(tmp_path):
+    # The producer must retain/hash-reference the real control masks; the
+    # validator rejects a runner result that omits either one.
+    record, cases = _canonical_production_record(tmp_path)
+    runner = json.loads((tmp_path / "runner.json").read_text(encoding="utf-8"))
+    del runner["results"][0]["artifacts"]["astroray_control_feature_mask"]
+    _refresh_runner(record, tmp_path, runner)
+    ok, why = CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)
+    assert not ok and "missing or hash-mismatched" in why
+
+
+def test_production_evidence_rejects_swapped_control_feature_mask(tmp_path):
+    # Regression for the observed defect: a control raw observation that points
+    # at the baseline mask instead of its own retained control mask must fail,
+    # even though the two mask files are byte-identical in a real run.
+    record, cases = _canonical_production_record(tmp_path)
+    control_raw = tmp_path / "astroray_control_report.json"
+    report = json.loads(control_raw.read_text(encoding="utf-8"))
+    report["feature_mask_npy"] = str((tmp_path / "astroray_feature_mask.npy").resolve())
+    control_raw.write_text(json.dumps(report), encoding="utf-8")
+    runner = json.loads((tmp_path / "runner.json").read_text(encoding="utf-8"))
+    runner["results"][0]["artifacts"]["astroray_control_report"]["sha256"] = CR.sha256_file(control_raw)
+    _refresh_runner(record, tmp_path, runner)
+    ok, why = CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)
+    assert not ok and "does not bind retained linear/mask artifacts" in why
+
+
+def test_production_evidence_rejects_tampered_control_feature_mask(tmp_path):
+    record, cases = _canonical_production_record(tmp_path)
+    np.save(tmp_path / "astroray_control_feature_mask.npy", np.zeros((16, 16), dtype=np.uint8))
+    ok, why = CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)
+    assert not ok and "missing or hash-mismatched" in why
+
+
+def test_production_evidence_rejects_inconsistent_paired_masks(tmp_path):
+    # A control mask with refreshed hashes but different bytes is not the same
+    # frozen feature region as the baseline it is paired with.
+    record, cases = _canonical_production_record(tmp_path)
+    control_mask = tmp_path / "cycles_control_feature_mask.npy"
+    np.save(control_mask, np.zeros((16, 16), dtype=np.uint8))
+    runner = json.loads((tmp_path / "runner.json").read_text(encoding="utf-8"))
+    runner["results"][0]["artifacts"]["cycles_control_feature_mask"]["sha256"] = CR.sha256_file(control_mask)
+    _refresh_runner(record, tmp_path, runner)
+    ok, why = CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)
+    assert not ok and "same frozen region" in why
+
+
+def test_gate_b_corpus_result_requires_control_mask_artifacts(tmp_path):
+    _, cases = _canonical_production_record(tmp_path)
+    produced = json.loads((tmp_path / "runner.json").read_text(encoding="utf-8"))["results"][0]
+    case = cases[produced["case_id"]]
+    artifacts = {key: value for key, value in produced["artifacts"].items()
+                 if key != "cycles_control_feature_mask"}
+    with pytest.raises(TypeError, match="cycles_control_feature_mask"):
+        HARNESS.gate_b_corpus_result(case, produced["observed"], produced["metrics"], artifacts,
+                                     effect=produced["effect"], settings=produced["settings"])
 
 
 def test_render_cleanup_preserves_precomputed_gate_b_mask(tmp_path):

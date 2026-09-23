@@ -75,15 +75,18 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
   with legacy `Codex-paste-ready`/`Track: E` tags remain inert historical
   metadata and route to `package-implementer`, not a special legacy flow.
 - **Model policy (owner 2026-09-22, supersedes the 2026-08/09 rules):**
-  - Claude judgment tier = **Opus 5** (`claude-opus-5`); the Opus 4.8 pins and
-    the "never Opus 5" rule are retired. **Fable subagents stay banned.**
+  - Claude judgment tier = **Opus 5.5** (`claude-opus-5-5`); the Opus 4.8 pins and
+    the "never Opus 5" rule are retired (owner 2026-09-23: 5.5 replaces 5). **Fable subagents stay banned.**
   - **Haiku 4.5** summarises short files when surveying the repo; **Sonnet 5**
     is the Claude grunt workhorse; prefer opencode models when they fit.
   - **DeepSeek V4.1 Flash** (`opencode-go/deepseek-v4.1-flash`) is the
     implement AND grunt primary: highly capable on long tasks and cheap; use it
     to its full potential, still evidence-verified behind build+test+lint.
   - **Codex Terra** (`gpt-5.6-terra`) does reviews, bounded implementations
-    and light thinking with no per-session cap; Luna is free. **Astra**
+    and light thinking with no per-session cap; Luna is free.
+    **Owner 2026-09-23:** Astra may run as the long-haul development
+    orchestrator (commit/merge authority), directing Terra/Luna and opencode
+    lanes; a Claude session supervises and spot-checks it. **Astra**
     (`gpt-6-astra`) only in the 2026-09-22 planning session and the
     render-speed optimisation session; Astra may spawn cheap Codex subagents
     (Luna/Terra), never Sol/Astra.
@@ -100,7 +103,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - **Cost routing (2026-08, re-tiered 2026-09-22):** bounded grunt and
   well-specified implementation go to open-weight models via the `delegate`
   skill (DeepSeek V4.1 Flash primary), evidence-verified, never trusted.
-  Claude (Opus 5) stays on last-line-of-defense judgment: architect/specs,
+  Claude (Opus 5.5) stays on last-line-of-defense judgment: architect/specs,
   cycles-parity, ABI reachability, gate-failure root-cause, merge decisions,
   visual inspection. Tier→model mapping: `.claude/skills/delegate/config/tiers.json`.
 - Package specs must pass `python scripts/project_index.py lint`; template:

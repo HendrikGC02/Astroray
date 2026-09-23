@@ -1,7 +1,7 @@
 ---
 name: package-implementer
 description: Implement one Astroray package spec end-to-end in an isolated worktree. Use for any package with Track A or Track B routing; legacy Track-E/Codex-paste-ready specs route here too (Codex Terra may also review or implement bounded single-file changes behind build+test gates, owner 2026-09-22; Codex never orchestrates).
-model: claude-opus-5
+model: claude-opus-5-5
 tools:
   - Read
   - Write

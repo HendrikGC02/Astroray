@@ -1,6 +1,6 @@
 {
   "updated": "2026-09-22",
-  "note": "Tier -> model policy for opencode delegation. Update models here as the roster shifts; never hardcode model ids in skills/hooks. Evidence: .astroray_plan/docs/open-model-research-2026-08.md + scripts/model_bench.py. Open-model diffs are evidence-verified, never trusted. 2026-09-22 owner directive: deepseek-v4.1-flash is implement AND grunt primary (highly capable even on longer tasks, cheap); deepseek-v4-pro is implement fallback; Codex Terra reviews AND implements bounded work with no per-session cap; Astra fenced to the 2026-09-22 planning session and the render-speed optimisation session; Opus 5 replaces Opus 4.8 as the Claude judgment tier; Haiku 4.5 summarises short files; Sonnet 5 is the Claude grunt workhorse. Earlier history (muse-spark errored, opencode/ provider unauthenticated, glm-5.3-flash docs variant) unchanged.",
+  "note": "Tier -> model policy for opencode delegation. Update models here as the roster shifts; never hardcode model ids in skills/hooks. Evidence: .astroray_plan/docs/open-model-research-2026-08.md + scripts/model_bench.py. Open-model diffs are evidence-verified, never trusted. 2026-09-22 owner directive: deepseek-v4.1-flash is implement AND grunt primary (highly capable even on longer tasks, cheap); deepseek-v4-pro is implement fallback; Codex Terra reviews AND implements bounded work with no per-session cap; Astra fenced to the 2026-09-22 planning session and the render-speed optimisation session; Opus 5.5 replaces Opus 4.8 as the Claude judgment tier; Haiku 4.5 summarises short files; Sonnet 5 is the Claude grunt workhorse. Earlier history (muse-spark errored, opencode/ provider unauthenticated, glm-5.3-flash docs variant) unchanged.",
   "avoid": [
     "opencode-go/muse-spark-1.2-contributor"
   ],
@@ -16,7 +16,7 @@
     },
     "implement": {
       "primary": "opencode-go/deepseek-v4.1-flash",
-      "primary_note": "owner 2026-09-22: Flash promoted to implement primary (capable on longer tasks, cheap). Still gated: build+pytest+lint verify every diff. Hard multi-file physics/shade kernels stay on Opus 5 (memory delegate-tier-stalls-on-hard-packages).",
+      "primary_note": "owner 2026-09-22: Flash promoted to implement primary (capable on longer tasks, cheap). Still gated: build+pytest+lint verify every diff. Hard multi-file physics/shade kernels stay on Opus 5.5 (memory delegate-tier-stalls-on-hard-packages).",
       "fallback": "opencode-go/deepseek-v4-pro",
       "use_for": "well-specified package implementation in a worktree, test writing; ALWAYS behind build+pytest+lint gates",
       "default_timeout_s": 3600,

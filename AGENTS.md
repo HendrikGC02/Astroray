@@ -104,7 +104,8 @@ Astroray/
 - **Codex** uses `.codex/` for project configuration, lifecycle hooks, and
   focused subagents, plus `.agents/skills/` for the index/workflow bridge.
   Owner 2026-09-22: Terra reviews and implements bounded work (no cap), Luna
-  is free, Astra is fenced to named sessions. Claude judgment tier is Opus 5;
+  is free, Astra is fenced to named sessions (owner 2026-09-23: plus the
+  long-haul orchestrator session, supervised by Claude). Claude judgment tier is Opus 5.5;
   DeepSeek V4.1 Flash is the open-model implement+grunt primary (see
   `CLAUDE.md` §5 "Model policy").
   Codex model and provider choice stays user-level so it can evolve. For cheap

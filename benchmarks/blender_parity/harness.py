@@ -969,7 +969,7 @@ def verdict_payload(results: list[FeatureResult]) -> dict[str, Any]:
 def gate_b_runner_results(results: list[FeatureResult], cases: list[dict[str, Any]],
                           *, backend: str, build_id: str, module_sha256: str,
                           addon_sha256: str) -> list[dict[str, Any]]:
-    """Derive gate-(b) results from this harness's measured feature results.
+    """Deprecated generic feature records; never use for corpus coverage.
 
     ``cases`` is the frozen coverage case map supplied by the gate runner.  A
     result is emitted only when exactly one measured feature is named by its
@@ -996,6 +996,32 @@ def gate_b_runner_results(results: list[FeatureResult], cases: list[dict[str, An
             "metrics": {"ssim": ssim, "delta_e": delta_e},
         })
     return emitted
+
+
+def gate_b_corpus_result(case: Mapping[str, Any], observed: Mapping[str, Any],
+                         metrics: Mapping[str, Any], artifacts: Mapping[str, Any]) -> dict[str, Any]:
+    """Build one corpus-case result from a render-leg's observed raw record.
+
+    This deliberately has no FeatureResult input: a parity-matrix feature may
+    not be relabelled as a frozen corpus scene/socket variant.
+    """
+    required = ("case_id", "identity", "scene_id", "variant_digest", "backend", "build_id")
+    if any(not isinstance(case.get(key), str) or not case[key] for key in required):
+        raise ValueError("gate-b corpus case is incomplete")
+    if any(observed.get(key) != case.get(key) for key in ("backend", "build_id")):
+        raise ValueError("observed backend/build does not match frozen case")
+    if not all(isinstance(observed.get(key), str) and observed[key] for key in ("module_sha256", "addon_sha256", "engine_id", "device")):
+        raise ValueError("corpus render leg lacks observed engine identity")
+    ssim, delta_e = metrics.get("ssim"), metrics.get("delta_e")
+    if not isinstance(ssim, (int, float)) or not isinstance(delta_e, (int, float)):
+        raise ValueError("corpus render leg lacks measured SSIM/delta_e")
+    for key in ("astroray_linear_npy", "cycles_linear_npy", "report"):
+        if not isinstance(artifacts.get(key), Mapping):
+            raise ValueError(f"corpus render leg lacks {key} artifact")
+    return {"schema": GATE_B_RUNNER_RESULT_SCHEMA, **{key: case[key] for key in required},
+            "observed": dict(observed), "metrics": {"ssim": ssim, "delta_e": delta_e},
+            "artifacts": dict(artifacts),
+            "status": "pass" if ssim >= .95 and delta_e <= 5.0 else "fail"}
 
 
 def write_gate_b_runner_results(results: list[FeatureResult], cases_path: Path,

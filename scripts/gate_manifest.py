@@ -875,6 +875,28 @@ def adapt_d_instrument(raw_path: Path, expected_identity: Mapping[str, str]) -> 
                          "expected_identity": dict(expected_identity)}]}
 
 
+def adapt_b_instrument(input_path: Path, snapshot_path: Path, matrix_path: Path) -> dict[str, Any]:
+    """Recompute row (b) from canonical frozen inputs; never accept a score claim."""
+    spec = importlib.util.spec_from_file_location("pkg278_coverage_reducer",
+        REPO_ROOT / "benchmarks" / "reference_corpus" / "coverage_report.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    sys.modules[spec.name] = module; spec.loader.exec_module(module)
+    frozen = json.loads(input_path.read_text(encoding="utf-8"))
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+    report = module.build_report(frozen, snapshot, matrix, REPO_ROOT)
+    scenes = frozen.get("corpus", {}).get("scenes", {})
+    return {"schema": PAYLOAD_SCHEMA, "row": "b", "instrument": "coverage_report",
+            "scene_sha256": sorted(str(row.get("sha256")) for row in scenes.values() if isinstance(row, Mapping)),
+            "build_id": "", "backend": ["CPU", "GPU"],
+            "settings": {"source": "canonical_coverage_reducer"}, "metric": {"source": "build_report"},
+            "value": {"cpu_score": report.get("cpu", {}).get("score"), "gpu_score": report.get("gpu", {}).get("score")},
+            "threshold": {"score_min": .95},
+            "records": [{"kind": "coverage_reduction", "artifact": {"path": str(input_path), "sha256": sha256_file(input_path)},
+                         "report": report}]}
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Assemble/validate the exit-gate acceptance manifest (pkg278).")
     p.add_argument("--instruments-dir", type=Path,

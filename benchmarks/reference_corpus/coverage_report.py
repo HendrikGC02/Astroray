@@ -292,6 +292,12 @@ def evidence_is_valid(rec: Mapping[str, Any], repo_root: Path | None = None,
                 return False, f"canonical runner result does not match frozen case {field}"
         if result.get("artifact_sha256") != verifier.get("sha256"):
             return False, "production verdict is not tied to the generated runner artifact"
+        artifacts = produced.get("artifacts")
+        if not isinstance(artifacts, Mapping) or any(not isinstance(artifacts.get(key), Mapping)
+                                                     for key in ("astroray_linear_npy", "cycles_linear_npy", "report")):
+            return False, "canonical runner result lacks corpus render artifacts"
+        if "feature" in produced:
+            return False, "generic FeatureResult cannot prove a corpus case"
         metrics = produced.get("metrics")
         if not isinstance(metrics, Mapping) or not all(isinstance(metrics.get(k), (int, float)) for k in ("ssim", "delta_e")):
             return False, "canonical runner result lacks re-derivable metrics"

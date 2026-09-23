@@ -68,13 +68,16 @@ def _canonical_production_record(tmp_path, *, backend="CPU", build_id="build-1",
             "variant_digest": variant_digest, "backend": backend, "build_id": build_id,
             "module_sha256": module_sha256, "addon_sha256": addon_sha256,
             "feature": "shader_node:BSDF_DIFFUSE"}
-    feature = HARNESS.FeatureResult("shader_node", "BSDF_DIFFUSE", "SUPPORTED", "pass",
-                                    ssim=.99, delta_e=1.0)
-    runner = {"schema": CR.RUNNER_RESULT_SCHEMA, "results": HARNESS.gate_b_runner_results(
-        [feature], [case], backend=backend, build_id=build_id,
-        module_sha256=module_sha256, addon_sha256=addon_sha256)}
-    runner_path = tmp_path / "runner.json"; runner_path.write_text(json.dumps(runner), encoding="utf-8")
     artifact = tmp_path / "image.bin"; artifact.write_bytes(b"measured image")
+    refs = {}
+    for name in ("astroray_linear_npy", "cycles_linear_npy", "report"):
+        path = tmp_path / f"{name}.bin"; path.write_bytes(name.encode())
+        refs[name] = {"path": path.name, "sha256": CR.sha256_file(path)}
+    observed = {"backend": backend, "build_id": build_id, "module_sha256": module_sha256,
+                "addon_sha256": addon_sha256, "engine_id": "CUSTOM_RAYTRACER", "device": backend}
+    runner = {"schema": CR.RUNNER_RESULT_SCHEMA, "results": [HARNESS.gate_b_corpus_result(
+        case, observed, {"ssim": .99, "delta_e": 1.0}, refs)]}
+    runner_path = tmp_path / "runner.json"; runner_path.write_text(json.dumps(runner), encoding="utf-8")
     runner_sha = CR.sha256_file(runner_path)
     record = {"schema": CR.EVIDENCE_SCHEMA, "identity": identity, "scene_id": scene_id,
               "variant": scene_id, "variant_digest": variant_digest, "backend": backend,

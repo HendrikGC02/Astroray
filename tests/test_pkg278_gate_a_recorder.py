@@ -90,6 +90,22 @@ def _payload(broken=None):
                           "cancel_p99_ms": 300, "stale_frames_after_ack": 0}, "records": records}
 
 
+def test_gate_a_workloads_resolve_relative_blend_paths_for_blender_bridge(tmp_path, monkeypatch):
+    small, large = tmp_path / "small.blend", tmp_path / "large.blend"
+    small.write_bytes(b"small"); large.write_bytes(b"large")
+    descriptor = tmp_path / "workloads.json"
+    descriptor.write_text(json.dumps({"workloads": [
+        {"name": "small", "path": small.name, "sha256": hashlib.sha256(small.read_bytes()).hexdigest(),
+         "triangles": 10_000, "freeze": {"blend_sha256": hashlib.sha256(small.read_bytes()).hexdigest(), "observed_triangles": 10_000}},
+        {"name": "large", "path": large.name, "sha256": hashlib.sha256(large.read_bytes()).hexdigest(),
+         "triangles": 100_000, "freeze": {"blend_sha256": hashlib.sha256(large.read_bytes()).hexdigest(), "observed_triangles": 100_000}},
+    ]}), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    workloads = DRV._load_gate_a_workloads([descriptor.name])
+    assert {Path(row["path"]) for row in workloads} == {small.resolve(), large.resolve()}
+    assert all(Path(row["path"]).is_absolute() for row in workloads)
+
+
 def test_gate_a_reducer_requires_ordered_actual_generation_chain():
     cap = _capture(_sha("s"), 10000, "camera", 0)
     result = DRV.reduce_gate_a_capture(cap["raw_events"], cap["edits"])

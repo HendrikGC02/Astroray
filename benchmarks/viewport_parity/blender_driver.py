@@ -814,7 +814,10 @@ def _load_gate_a_workloads(paths):
             freeze = w.get("freeze")
             if not isinstance(freeze, dict) or freeze.get("observed_triangles") != tris or not freeze.get("blend_sha256") == digest:
                 raise ValueError(f"{p}: workload needs a pre-session observed census freeze")
-            workloads.append({"name": w.get("name", blend.stem), "path": str(blend),
+            # The bridge executes in Blender's own working directory.  Preserve
+            # the hash-validated file identity, but never hand that process a
+            # client-CWD-relative .blend path.
+            workloads.append({"name": w.get("name", blend.stem), "path": str(blend.resolve()),
                               "sha256": digest, "triangles": tris, "freeze": freeze})
     if len(workloads) != 2 or sorted(w["triangles"] for w in workloads) != [10000, 100000]:
         raise ValueError("gate (a) requires exactly frozen 10,000- and 100,000-triangle workloads")

@@ -160,6 +160,7 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
 
 - Warm session, both pinned scenes (10k and 100k triangles), 3×100 camera edits and 3×100 material edits each; instrument emits one row per scene × edit-kind.
 - event → first *correct* Blender-presented frame: GPU p95 ≤ 100 ms, p99 ≤ 150 ms; cancel-ack p95 ≤ 200 ms, p99 ≤ 300 ms; no stale frame presented after the ack.
+  A stale-frame sample is established only by a real material-input `view_update` that raises the worker's observed presentation floor while a generation is in flight: after that generation's `idle_ack`, any POST_PIXEL publication below that recorded floor is RED, even after later dispatches. Camera previews may retain their floor; their cancel latency is retained but they cannot count as a stale-frame pass.
   Latency is a GPU-only oracle (CPU is the image oracle, not a latency oracle), and denoise is excluded from the interactive loop (owner-ratified 2026-09-07).
 - Extends the pkg241/pkg266 viewport harness; measured in a real Blender session, not the in-process harness.
 

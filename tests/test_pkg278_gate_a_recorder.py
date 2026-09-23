@@ -53,7 +53,13 @@ def _capture(scene, triangles, kind, batch, *, broken=None):
             {"name": "post_pixel_present", "generation": g, "epoch": 7, "t_ns": t + 5, "extra": {"pub_id": pub, "input_floor": g}},
             {"name": "viewport_pixels", "generation": g, "epoch": 7, "t_ns": t + 6, "extra": {"event_id": i + 1, "label": "post", "path": str(PIXELS / "post.png"), "sha256": hashlib.sha256(PNG).hexdigest()}},
         ]
-    raw += [{"name": "cancel_request", "generation": 100, "epoch": 7, "t_ns": base + 100_010, "extra": {}},
+    raw += [{"name": "cancel_stimulus", "generation": 100, "epoch": 7, "t_ns": base + 100_009,
+             "extra": {"kind": "material_input"}},
+            {"name": "cancel_request", "generation": 100, "epoch": 7, "t_ns": base + 100_010, "extra": {}},
+            {"name": "cancel_floor", "generation": 100, "epoch": 7, "t_ns": base + 100_015,
+             "extra": {"cancelled_generation": 100, "cancelled_epoch": 7,
+                       "observed_floor": 101, "desired_generation": 101,
+                       "stimulus": "material_view_update"}},
             {"name": "idle_ack", "generation": 100, "epoch": 7, "t_ns": base + 100_020, "extra": {}},
             {"name": "idle_drain", "generation": 100, "epoch": 7, "t_ns": base + 100_030, "extra": {}}]
     if broken == "wrong_generation": raw[4]["generation"] = 999
@@ -116,6 +122,8 @@ def test_recorder_uses_blender_52_screenshot_signature():
     assert "bpy.ops.screen.screenshot(filepath=path, full=False)" not in source
     assert 'raw("viewport_pixels", generation, epoch,' in source
     assert '_capture_viewport("post", pending.get("generation"), pending.get("epoch"))' in source
+    assert "worker.request()" not in source[source.index("def _stimulate_material_cancel"):source.index("def timer()", source.index("def _stimulate_material_cancel"))]
+    assert '"stimulus": "material_view_update"' in source
 
 
 def test_gate_a_reducer_rejects_stale_after_ack_and_missing_ack_or_present():
@@ -148,6 +156,30 @@ def test_gate_a_stale_check_deduplicates_redraws_and_preserves_late_old_publicat
     result = DRV.reduce_gate_a_capture(raw, cap["edits"])
     assert result["errors"] and result["cancels"][0]["stale_frames_after_ack"] == 1
 
+
+
+def test_gate_a_stale_requires_observed_floor_raising_material_cancel():
+    cap = _capture(_sha("s"), 10000, "camera", 0)
+    raw = cap["raw_events"]
+    raw[:] = [e for e in raw if e["name"] != "cancel_floor"]
+    result = DRV.reduce_gate_a_capture(raw, cap["edits"])
+    assert not result["complete"]
+    assert result["cancels"][0]["stale_checked"] is False
+    assert result["cancels"][0]["stale_excluded_reason"] == "no observed floor-raising material cancellation"
+
+
+def test_gate_a_stale_uses_observed_floor_after_ack_not_cancel_generation():
+    cap = _capture(_sha("s"), 10000, "material", 0)
+    raw = cap["raw_events"]
+    # A future generation is above the observed floor and cannot be stale.
+    raw.append({"name": "post_pixel_present", "generation": 101, "epoch": 7,
+                "t_ns": 10_100_025, "extra": {"pub_id": 101}})
+    assert DRV.reduce_gate_a_capture(raw, cap["edits"])["complete"]
+    # A later replay below the floor remains RED even after a future publication.
+    raw.append({"name": "post_pixel_present", "generation": 99, "epoch": 7,
+                "t_ns": 10_100_026, "extra": {"pub_id": 99}})
+    result = DRV.reduce_gate_a_capture(raw, cap["edits"])
+    assert result["errors"] and result["cancels"][0]["stale_frames_after_ack"] == 1
 
 def test_gate_a_reducer_rejects_forged_or_misordered_pixel_evidence():
     cap = _capture(_sha("s"), 10000, "camera", 0)

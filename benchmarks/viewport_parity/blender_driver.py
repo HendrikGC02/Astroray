@@ -750,6 +750,7 @@ def reduce_gate_a_capture(raw_events, edits, *, truncated=False, artifact_root=N
                      "present_ns": present[2], "generation": gen, "epoch": epoch,
                      "input_floor": floor, "correct_present": True})
 
+    eligible_cancels = 0
     for cancel in by_name.get("cancel_request", []):
         _name, gen, ts, epoch, _extra = cancel
         ack = after("idle_ack", ts, gen, epoch)
@@ -757,19 +758,43 @@ def reduce_gate_a_capture(raw_events, edits, *, truncated=False, artifact_root=N
         if ack is None or drain is None:
             errors.append(f"cancel generation {gen} lacks same-generation idle_ack/idle_drain")
             continue
-        # ACK is the worker's promise that this generation stopped.  Every
-        # later presentation of that generation or an older one is stale even
-        # if a later user edit has changed the current input floor.  Deliberately
-        # do not stop at idle_drain or the next dispatch: a late old publication
-        # remains a stale-frame failure whenever it reaches POST_PIXEL.
-        stale = [p for p in by_name.get("post_pixel_present", []) if p[2] >= ack[2]
-                 and p[3] == epoch and isinstance(p[1], int) and p[1] <= gen]
-        if stale: errors.append(f"stale present after ack for generation {gen}")
+        # A camera preview is permitted to retain its old presentation floor.
+        # Only the material nudge, observed from the actual view_update, creates
+        # a stale-frame sample.  ACK is still retained for every cancel latency.
+        stimulus = next((e for e in by_name.get("cancel_stimulus", [])
+                         if e[2] <= ts and e[1] == gen and e[3] == epoch and
+                         e[4].get("kind") == "material_input"), None)
+        floor_event = next((e for e in by_name.get("cancel_floor", [])
+                            if e[2] >= ts and e[1] == gen and e[3] == epoch and
+                            e[4].get("cancelled_generation") == gen and
+                            e[4].get("cancelled_epoch") == epoch and
+                            e[4].get("stimulus") == "material_view_update"), None)
+        floor = floor_event[4].get("observed_floor") if floor_event else None
+        desired = floor_event[4].get("desired_generation") if floor_event else None
+        eligible = (stimulus is not None and isinstance(floor, int) and
+                    isinstance(desired, int) and desired == floor and floor > gen)
+        stale = []
+        excluded_reason = None
+        if eligible:
+            eligible_cancels += 1
+            # The floor is the observed production boundary.  Never stop at a
+            # later dispatch or drain: an old generation that appears later is
+            # still stale once idle_ack promised the cancellation.
+            stale = [p for p in by_name.get("post_pixel_present", []) if p[2] >= ack[2]
+                     and p[3] == epoch and isinstance(p[1], int) and p[1] < floor]
+            if stale: errors.append(f"stale present after ack below floor {floor} for generation {gen}")
+        else:
+            excluded_reason = "no observed floor-raising material cancellation"
         cancels.append({"generation": gen, "epoch": epoch, "cancel_ns": ts,
                         "idle_ack_ns": ack[2], "idle_drain_ns": drain[2],
+                        "observed_floor": floor, "desired_generation": desired,
+                        "stale_checked": eligible,
+                        "stale_excluded_reason": excluded_reason,
                         "stale_frames_after_ack": len(stale)})
+    if cancels and not eligible_cancels:
+        errors.append("capture has no observed floor-raising material cancellation")
     return {"rows": rows, "cancels": cancels, "errors": errors,
-            "complete": not errors and bool(rows) and bool(cancels)}
+            "complete": not errors and bool(rows) and bool(cancels) and bool(eligible_cancels)}
 
 
 def _load_gate_a_workloads(paths):

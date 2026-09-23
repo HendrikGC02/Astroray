@@ -113,7 +113,10 @@ def _install():
             rv3d.update()
         except Exception:
             pass
-    mat, bsdf = _pick_material() if EVENT_CLASS == "material" else (None, None)
+    # The cancellation probe always uses a material input.  Camera edits are
+    # allowed to keep their preview floor, so they cannot prove stale-frame
+    # suppression by themselves.
+    mat, bsdf = _pick_material()
 
     S = {
         "cfg": {
@@ -134,6 +137,7 @@ def _install():
         # particular uploaded texture.  It is consumed there so redraws do not
         # become duplicate presentations of an old publication.
         "pending_present": None,  # (generation, pub_id, epoch)
+        "cancel_wait": None,       # floor-raising material cancel in flight
         "input_revision": 0,
         "event_seq": 0,
         "phase": "run",
@@ -176,6 +180,10 @@ def _install():
                                 "extra": dict(extra or {})})
         if name == "texture_upload_end":
             S["pending_present"] = (generation, extra.get("pub_id"), epoch)
+        waiting = S.get("cancel_wait")
+        if (waiting is not None and name == "idle_drain" and
+                generation == waiting.get("generation") and epoch == waiting.get("epoch")):
+            waiting["drained"] = True
         if old_sink is not None:
             old_sink(name, generation, ts, epoch, extra)
 
@@ -219,6 +227,7 @@ def _install():
         finally:
             S["updates"].append((e, time.perf_counter()))
             bind_after_engine_call(self, "material")
+            _observe_cancel_floor(self)
 
     def w_render(self, *a, **k):
         e = time.perf_counter()
@@ -407,26 +416,66 @@ def _install():
             raw("viewport_pixels_failed", generation, epoch, {"label": label, "error": str(exc)})
             return None
 
-    def _request_real_cancel():
-        """Ask the live worker to cancel its actual in-flight generation.
+    _cancel_state = {"toggle": False}
 
-        ``request`` is the production cancellation seam; worker events, not this
-        call, establish success.  A request while idle emits no cancel row and
-        the fail-closed reducer rejects that capture.
+    def _observe_cancel_floor(engine):
+        """Record the floor only after the production material view_update."""
+        waiting = S.get("cancel_wait")
+        if not GATE_A or waiting is None:
+            return
+        exporter = engine.__dict__.get("_exporter")
+        if exporter is not None:
+            S["exporter_instance"] = exporter
+        worker = getattr(exporter, "_worker", None) if exporter is not None else None
+        floor = getattr(worker, "present_floor_generation", None) if worker is not None else None
+        desired = getattr(worker, "desired_generation", None) if worker is not None else None
+        raw("cancel_floor", waiting["generation"], waiting["epoch"], {
+            "cancelled_generation": waiting["generation"],
+            "cancelled_epoch": waiting["epoch"],
+            "observed_floor": floor,
+            "desired_generation": desired,
+            "stimulus": "material_view_update",
+        })
+        waiting["floor_observed"] = True
+
+    def _stimulate_material_cancel():
+        """Nudge a real material while a worker job is in flight.
+
+        This deliberately does not call ``worker.request``.  The following
+        Blender depsgraph ``view_update`` is the production request/floor path.
         """
         exporter = S.get("exporter_instance")
         worker = getattr(exporter, "_worker", None) if exporter is not None else None
         inflight = getattr(worker, "in_flight_generation", None) if worker is not None else None
-        if worker is None or not isinstance(inflight, int):
-            raw("cancel_stimulus_unavailable", None, None, {})
-            return
-        raw("cancel_stimulus", inflight, getattr(worker, "session_epoch", None), {})
-        worker.request()  # emits cancel_request only for a real in-flight job
+        epoch = getattr(worker, "session_epoch", None) if worker is not None else None
+        if (worker is None or not isinstance(inflight, int) or not isinstance(epoch, int)
+                or bsdf is None):
+            raw("cancel_stimulus_unavailable", inflight, epoch, {"kind": "material_input"})
+            return False
+        S["cancel_wait"] = {"generation": inflight, "epoch": epoch,
+                            "floor_observed": False, "drained": False}
+        _cancel_state["toggle"] = not _cancel_state["toggle"]
+        col = list(bsdf.inputs["Base Color"].default_value)
+        # Change a second component so the cancellation nudge remains a real
+        # input edit even when the measured material edit changed red already.
+        col[1] = 0.67 if _cancel_state["toggle"] else 0.23
+        bsdf.inputs["Base Color"].default_value = col
+        raw("cancel_stimulus", inflight, epoch, {"kind": "material_input"})
+        _tag_redraw()
+        return True
 
     def timer():
         if S["done"]:
             return None
         try:
+            waiting = S.get("cancel_wait")
+            if waiting is not None:
+                # Do not overlap the next measured edit with this production
+                # cancellation.  The reducer still judges ACK, not drain, as
+                # the stale-frame boundary.
+                if not (waiting.get("floor_observed") and waiting.get("drained")):
+                    return TICK
+                S["cancel_wait"] = None
             if S["awaiting"]:
                 # Need at least the first present after dispatch to close event.
                 pres = _first_after(S["presents"], S["dispatch_ts"])
@@ -438,7 +487,10 @@ def _install():
                 if GATE_A:
                     pending = S.get("pending") or {}
                     _capture_viewport("post", pending.get("generation"), pending.get("epoch"))
-                    _request_real_cancel()
+                    if not _stimulate_material_cancel():
+                        S["error"] = "no real in-flight material cancellation stimulus"
+                        S["done"] = True
+                        return None
                 S["awaiting"] = False
                 S["idx"] += 1
                 return TICK * 0.5

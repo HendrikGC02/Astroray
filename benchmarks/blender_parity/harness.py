@@ -659,14 +659,14 @@ def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
             extra = [] if control_kind == "baseline" else ["--gate-c-control", control_kind, "--gate-c-mask-out", str(leg_dir / "feature_mask.npy")]
             code, sentinel, report = _run_gate_leg(blender, ["--corpus-manifest", str(manifest_path),
                 "--corpus-scene", item["scene_id"], "--engine", "CUSTOM_RAYTRACER", "--device", backend.lower(),
-                "--gate-c-freeze", str(freeze_path), "--gate-c-freeze-sha256", freeze_sha, "--gate-c-build-id", build_id, "--gate-c-seed", str(item["seed"]), "--out", str(stem)] + extra, env, timeout)
+                "--gate-c-freeze", str(freeze_path), "--gate-c-freeze-sha256", freeze_sha, "--gate-c-build-id", build_id, "--gate-c-seed", str(item.get("seed", 278)), "--out", str(stem)] + extra, env, timeout)
             npy, png = stem.with_suffix(".npy"), stem.with_suffix(".png")
             record: dict[str, Any] = {"kind": "f12_run", "control": control_kind, "role": role, "scene_id": item["scene_id"],
                 "scene_sha256": item["scene_sha256"], "backend": backend, "build_id": build_id,
                 "exit_code": code, "sentinel": SENTINEL if sentinel else "", "leg_report": report,
                 "settings": {**item["settings"], "gate_c_rois": item["rois"], "gate_c_probes": item["non_vacuity"]}, "non_vacuity": [], "rois": []}
             expected = {"corpus_scene": item["scene_id"], "blend_sha256": item["scene_sha256"], "freeze_sha256": freeze_sha,
-                        "requested_device": backend.lower(), "effective_device": backend.lower(), "build_id": build_id, "module_sha256": module_sha256, "engine": "CUSTOM_RAYTRACER", "res_x": item["settings"]["res_x"], "res_y": item["settings"]["res_y"], "samples": item["settings"]["samples"], "resolved_seed": item["seed"], "animated_seed": False}
+                        "requested_device": backend.lower(), "effective_device": backend.lower(), "build_id": build_id, "module_sha256": module_sha256, "engine": "CUSTOM_RAYTRACER", "res_x": item["settings"]["res_x"], "res_y": item["settings"]["res_y"], "samples": item["settings"]["samples"], "resolved_seed": item.get("seed", 278), "animated_seed": False}
             actual_identity = (isinstance(report.get("module_path"), str) and
                                isinstance(report.get("addon_path"), str) and
                                len(str(report.get("module_sha256") or "")) == 64 and

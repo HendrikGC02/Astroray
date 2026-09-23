@@ -47,6 +47,8 @@ $env:ASTRORAY_MCP_PORT = "$Port"
 $env:ASTRORAY_BLENDER_PID_FILE = Join-Path $StateDir ("blender_{0}_inner.pid" -f $Port)
 if ($Worker -eq 1) { $env:ASTRORAY_VIEWPORT_WORKER = '1' } else { Remove-Item Env:ASTRORAY_VIEWPORT_WORKER -ErrorAction SilentlyContinue }
 $window = if ($Visible) { 'Normal' } else { 'Hidden' }
-$proc = Start-Process -FilePath $Blender -ArgumentList @('--python', ('"{0}"' -f $startup)) -WindowStyle $window -PassThru -RedirectStandardOutput $log -RedirectStandardError ($log + '.err')
+# A fresh isolated profile has no persisted Online Access consent; the local
+# MCP extension needs Blender's explicit online mode to bind its localhost port.
+$proc = Start-Process -FilePath $Blender -ArgumentList @('--online-mode', '--python', ('"{0}"' -f $startup)) -WindowStyle $window -PassThru -RedirectStandardOutput $log -RedirectStandardError ($log + '.err')
 $proc.Id | Out-File -FilePath $pidFile -Encoding ascii
 Write-Host "launched Blender pid $($proc.Id) worker=$Worker port=$Port log=$log"

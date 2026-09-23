@@ -120,6 +120,7 @@ def test_every_blend_reopens_and_sha_matches(manifest, scene_id):
 import bpy
 bpy.ops.wm.open_mainfile(filepath=r'{blend_path}')
 scene = bpy.context.scene
+bpy.context.view_layer.update()
 assert scene.camera is not None, "no camera after reopen"
 print("PKG259_REOPEN_OK")
 """
@@ -167,6 +168,72 @@ print("PKG259_NODE_IDS " + json.dumps(sorted(node_ids)))
         f"{scene_id} manifest node_ids drifted from the committed .blend "
         f"(missing from manifest: {actual - set(entry['node_ids'])}, "
         f"stale in manifest: {set(entry['node_ids']) - actual})")
+
+
+def test_textures_mapping_proof_bindings_and_crops(manifest):
+    """#823 proof tags must bind non-default/live inputs on a real path."""
+    if not BLENDER.exists():
+        pytest.skip("Blender 5.2 not installed - local-host gate")
+    entry = manifest["scenes"]["textures_mapping"]
+    blend_path = REPO_ROOT / entry["blend_path"]
+    script = f"""
+import bpy, json
+from bpy_extras.object_utils import world_to_camera_view
+from mathutils import Vector
+bpy.ops.wm.open_mainfile(filepath=r'{blend_path}')
+scene = bpy.context.scene
+
+def reachable_to_output(node):
+    seen, stack = set(), [node]
+    while stack:
+        current = stack.pop()
+        if current.as_pointer() in seen:
+            continue
+        seen.add(current.as_pointer())
+        if current.bl_idname == 'ShaderNodeOutputMaterial':
+            return True
+        for output in current.outputs:
+            stack.extend(link.to_node for link in output.links)
+    return False
+
+map_node = next(n for n in bpy.data.materials['TexWaveBandsMat'].node_tree.nodes
+                if n.bl_idname == 'ShaderNodeMapRange')
+rotate_node = next(n for n in bpy.data.materials['TexImageMat'].node_tree.nodes
+                   if n.bl_idname == 'ShaderNodeVectorRotate')
+crop_ok = {{}}
+for name, rect in {json.dumps(entry['crops'])}.items():
+    obj = bpy.data.objects[name]
+    points = [world_to_camera_view(scene, scene.camera, obj.matrix_world @ Vector(corner))
+              for corner in obj.bound_box]
+    # Manifest crops feed PIL, whose origin is at the top left. Keep this
+    # conversion in the test rather than sharing crop_for's implementation.
+    crop_ok[name] = all(rect[0] <= p.x <= rect[2] and rect[1] <= 1.0 - p.y <= rect[3]
+                        for p in points)
+print('PKG823_PROOF ' + json.dumps({{
+    'map_from_min': map_node.inputs['From Min'].default_value,
+    'map_from_max': map_node.inputs['From Max'].default_value,
+    'map_value_linked': bool(map_node.inputs['Value'].is_linked),
+    'map_reaches_output': reachable_to_output(map_node),
+    'rotate_center': list(rotate_node.inputs['Center'].default_value),
+    'rotate_vector_linked': bool(rotate_node.inputs['Vector'].is_linked),
+    'rotate_reaches_output': reachable_to_output(rotate_node),
+    'crop_ok': crop_ok,
+}}))
+"""
+    proc = subprocess.run(
+        [str(BLENDER), "-b", "--factory-startup", "--python-expr", script],
+        capture_output=True, text=True, timeout=120,
+    )
+    marker = "PKG823_PROOF "
+    line = next((line for line in proc.stdout.splitlines() if line.startswith(marker)), None)
+    assert line is not None, f"no #823 proof report:\n{proc.stdout}\n{proc.stderr}"
+    proof = json.loads(line[len(marker):])
+    assert proof["map_from_min"] != 0.0
+    assert proof["map_from_max"] != 1.0
+    assert proof["map_value_linked"] and proof["map_reaches_output"]
+    assert proof["rotate_center"] != [0.0, 0.0, 0.0]
+    assert proof["rotate_vector_linked"] and proof["rotate_reaches_output"]
+    assert all(proof["crop_ok"].values()), proof["crop_ok"]
 
 
 # --------------------------------------------------------------------------- #

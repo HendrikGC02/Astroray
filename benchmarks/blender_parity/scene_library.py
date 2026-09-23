@@ -1539,9 +1539,9 @@ def build_textures_mapping_scene(bpy):
     proof cards, each ``<node> -> Emission -> Output`` (bump/normal/displacement
     instead go on a small sphere, since they need curvature to read) so texture
     legibility is never confounded by BSDF fidelity, under one raking area
-    light. Covers all 102 SUPPORTED/APPROXIMATED textures_mapping matrix rows
-    (99 SUPPORTED + 3 APPROXIMATED as of the #823 op-VM per-socket re-audit);
-    the 161 DROPPED-SILENT rows are listed in the corpus README's gap registry
+    light. Covers all 98 SUPPORTED/APPROXIMATED textures_mapping matrix rows
+    (95 SUPPORTED + 3 APPROXIMATED as of the #823 op-VM per-socket re-audit);
+    the 165 DROPPED-SILENT rows are listed in the corpus README's gap registry
     (Mapping is wired for visual flavour on the TexImage proof but tags nothing
     new -- every Mapping row is DROPPED-SILENT in the current matrix).
 
@@ -1551,6 +1551,10 @@ def build_textures_mapping_scene(bpy):
     reclassified socket is genuinely wired into a rendered card without
     disturbing the committed grid/crops."""
     scene = _reset(bpy)
+    # Crop rectangles are consumed as top-down PIL coordinates by
+    # report_tools.crop_image. Set the final corpus aspect before projecting
+    # proof bounds; build_corpus applies these same values when saving.
+    scene.render.resolution_x, scene.render.resolution_y = REFERENCE_TEXTURES_MAPPING_RES
     _add_world(bpy, scene, strength=0.35, color=(0.06, 0.06, 0.08))
     tags = []
     gap_tags = []
@@ -1600,7 +1604,6 @@ def build_textures_mapping_scene(bpy):
     CAM_DIST = 6.5
     cam = _add_pinned_camera(bpy, scene, (0.0, -CAM_DIST, 8.0), (0.0, 0.3, 0.75), lens=24.0)
     cam.data.sensor_width = 36.0
-    fov_x = 2.0 * math.atan(cam.data.sensor_width / (2.0 * cam.data.lens))
 
     def _flat_card(x, y, z, size, name):
         bpy.ops.mesh.primitive_plane_add(size=size, location=(x, y, z))
@@ -1610,16 +1613,30 @@ def build_textures_mapping_scene(bpy):
             poly.use_smooth = True
         return obj
 
-    # Row bands in normalised image Y (row 0 = farthest from camera = top of
-    # frame, row 3 = nearest = bottom) -- a deliberately simple, documented
-    # approximation (not a perspective-accurate projection of each row's Z);
-    # good enough so every (row, col) proof gets a distinct crop rectangle
-    # for the Phase-4 coverage report, refine there if a crop render disagrees.
-    ROW_BANDS = ((0.10, 0.30), (0.30, 0.50), (0.50, 0.68), (0.68, 0.85))
+    def crop_for(key, obj, padding=0.025):
+        """Camera-project an actual proof object's bounds into its crop.
 
-    def crop_for(key, row, x, half=0.55):
-        y0, y1 = ROW_BANDS[row]
-        crop_rects[key] = _crop_rect(CAM_DIST, fov_x, x - half, x + half, y0, y1)
+        The earlier fixed row bands were only a rough layout estimate and
+        missed the cards under this scene's steep camera. The report crops are
+        evidence, so derive them from the committed camera and object instead.
+        ``world_to_camera_view`` returns Blender's bottom-up normalised image
+        coordinates; report_tools.crop_image expects top-down PIL coordinates.
+        Keep one explicit pad for rasterisation and antialiased card edges.
+        """
+        from bpy_extras.object_utils import world_to_camera_view
+        from mathutils import Vector
+        bpy.context.view_layer.update()
+        projected = [world_to_camera_view(scene, cam, obj.matrix_world @ Vector(corner))
+                     for corner in obj.bound_box]
+        xs = [p.x for p in projected]
+        ys = [1.0 - p.y for p in projected]
+        x0 = max(0.0, min(xs) - padding)
+        x1 = min(1.0, max(xs) + padding)
+        y0 = max(0.0, min(ys) - padding)
+        y1 = min(1.0, max(ys) + padding)
+        if not (x0 < x1 and y0 < y1):
+            raise ValueError(f"invalid projected crop for {key}: {(x0, y0, x1, y1)}")
+        crop_rects[key] = [round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4)]
 
     def texture_card(row, col, key, bl_idname, configure, output="Color", use_vector=True):
         x, y = grid[(row, col)]
@@ -1632,7 +1649,7 @@ def build_textures_mapping_scene(bpy):
         configure(node)
         nt.links.new(_sock(node.outputs, output), _sock(emit.inputs, "Color"))
         plane.data.materials.append(mat)
-        crop_for(key, row, x)
+        crop_for(key, plane)
         return node
 
     def _enabled(collection, name):
@@ -1670,7 +1687,7 @@ def build_textures_mapping_scene(bpy):
             conv_out = _enabled(conv.outputs, converter_out)
         nt.links.new(conv_out, _sock(emit.inputs, "Color"))
         plane.data.materials.append(mat)
-        crop_for(key, row, x)
+        crop_for(key, plane)
         return src, conv, nt
 
     # --- Row 0: procedural noise family + Brick -------------------------- #
@@ -1741,8 +1758,8 @@ def build_textures_mapping_scene(bpy):
         n.data_type = "FLOAT"
         n.interpolation_type = "SMOOTHSTEP"
         nt.links.new(_sock(src.outputs, "Fac"), _sock(n.inputs, "Value"))
-        _sock(n.inputs, "From Min").default_value = 0.0
-        _sock(n.inputs, "From Max").default_value = 1.0
+        _sock(n.inputs, "From Min").default_value = 0.18
+        _sock(n.inputs, "From Max").default_value = 0.82
         _sock(n.inputs, "To Min").default_value = 0.1
         _sock(n.inputs, "To Max").default_value = 0.9
     converter_card(0, 2, "TexWaveBands", "ShaderNodeTexWave", cfg_wave_bands,
@@ -1848,6 +1865,7 @@ def build_textures_mapping_scene(bpy):
     # genuinely wired into the render path (not a label for an absent node).
     vrot = nt.nodes.new("ShaderNodeVectorRotate")
     vrot.rotation_type = "AXIS_ANGLE"
+    _sock(vrot.inputs, "Center").default_value = (0.18, -0.12, 0.0)
     _sock(vrot.inputs, "Axis").default_value = (0.0, 0.0, 1.0)
     _sock(vrot.inputs, "Angle").default_value = 0.4
     vmath = nt.nodes.new("ShaderNodeVectorMath")
@@ -1866,7 +1884,7 @@ def build_textures_mapping_scene(bpy):
     nt.links.new(next(s for s in vmix.outputs if s.enabled), _sock(img.inputs, "Vector"))
     nt.links.new(_sock(img.outputs, "Color"), _sock(emit.inputs, "Color"))
     plane.data.materials.append(mat)
-    crop_for("TexImage", 1, x)
+    crop_for("TexImage", plane)
     tag("ShaderNodeTexImage", "input:Vector")
     tag("ShaderNodeVectorRotate", "input:Vector")
     tag("ShaderNodeVectorRotate", "input:Center")
@@ -1932,7 +1950,7 @@ def build_textures_mapping_scene(bpy):
             for sock in ("Height", "Midlevel", "Scale"):
                 tag("ShaderNodeDisplacement", f"input:{sock}")
         s.data.materials.append(mat)
-        crop_for(key, row, x, half=0.45)
+        crop_for(key, s)
 
     _bump_normal_displacement_sphere(1, 4, "BumpDemo", "bump")
     _bump_normal_displacement_sphere(2, 0, "NormalMapDemo", "normal_map")
@@ -1990,7 +2008,7 @@ def build_textures_mapping_scene(bpy):
     result = next(s for s in mixnode.outputs if s.enabled)
     nt.links.new(result, _sock(emit.inputs, "Color"))
     plane.data.materials.append(mat)
-    crop_for("MixCard", 3, x)
+    crop_for("MixCard", plane)
     tag("ShaderNodeMix", "prop:blend_type")
     # #823: the RGBA variant exercises Factor_Float/A_Color/B_Color (the
     # FLOAT/VECTOR variants are proven by the TexMagic and TexImage chains).

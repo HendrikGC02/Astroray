@@ -116,6 +116,9 @@ _BACKENDS_ENV = "ASTRORAY_GATE_D_BACKENDS"
 _BLENDER_ENV = "ASTRORAY_GATE_D_BLENDER"
 _OUT_ENV = "ASTRORAY_GATE_D_OUT"
 _ADDON_ENV = "ASTRORAY_SMOKE_ADDON_DIR"
+_EXPECTED_BUILD_ENV = "ASTRORAY_GATE_D_EXPECTED_BUILD_ID"
+_EXPECTED_MODULE_ENV = "ASTRORAY_GATE_D_EXPECTED_MODULE_SHA256"
+_EXPECTED_ADDON_ENV = "ASTRORAY_GATE_D_EXPECTED_ADDON_INIT_SHA256"
 
 
 # --------------------------------------------------------------------------- #
@@ -676,14 +679,10 @@ def test_evaluate_backend_marks_invalid_aov_capture_unmeasured():
     assert check["status"] == "unmeasured" and not check["passed"]
 
 
-def test_instance_bound_rna_end_result_can_be_captured_from_write_pixels():
-    """RenderEngine-style methods can exist only on a live instance.
-
-    This mirrors Blender RNA: the subclass has no ``end_result`` attribute,
-    while its instance obtains the native delegate dynamically. The write hook
-    must capture that delegate before temporarily shadowing it on the subclass.
-    """
-    calls = []
+def test_write_pixels_trace_observes_result_before_dynamic_rna_end_result():
+    """The capture seam is the original frame local, never a class shadow."""
+    import sys
+    calls, captured = [], []
 
     class RnaEngine:
         def __getattr__(self, name):
@@ -693,32 +692,24 @@ def test_instance_bound_rna_end_result_can_be_captured_from_write_pixels():
 
     class Engine(RnaEngine):
         def write_pixels(self):
-            self.end_result("render-result")
+            result = "render-result"
+            self.end_result(result)
 
-    assert not hasattr(Engine, "end_result")
     original_write = Engine.write_pixels
+    previous = sys.gettrace()
 
-    def capture_write(self):
-        bound_end = self.end_result
+    def trace(frame, event, _arg):
+        if frame.f_code is original_write.__code__ and frame.f_locals.get("result") is not None:
+            captured.append(frame.f_locals["result"])
+        return trace
 
-        def capture_end(_engine, result):
-            calls.append(("capture", result))
-            return bound_end(result)
-
-        marker = object()
-        previous = Engine.__dict__.get("end_result", marker)
-        Engine.end_result = capture_end
-        try:
-            return original_write(self)
-        finally:
-            if previous is marker:
-                delattr(Engine, "end_result")
-            else:
-                Engine.end_result = previous
-
-    Engine.write_pixels = capture_write
-    Engine().write_pixels()
-    assert calls == [("capture", "render-result"), ("native", "render-result")]
+    sys.settrace(trace)
+    try:
+        Engine().write_pixels()
+    finally:
+        sys.settrace(previous)
+    assert captured and captured[0] == "render-result"
+    assert calls == [("native", "render-result")]
     assert not hasattr(Engine, "end_result")
 
 
@@ -862,6 +853,7 @@ def _render_leg(bpy, scene, out_dir, stem, engine_cls):
     path = out_dir / (stem + ".exr")
     path.unlink(missing_ok=True)
     capture = {"end_result_calls": 0, "write_pixels_calls": 0,
+               "trace_observed": False, "result_seen": False,
                "passes": [], "telemetry": [], "valid": False,
                "reason": None, "sample_count": None}
     orig_write = engine_cls.write_pixels
@@ -875,20 +867,14 @@ def _render_leg(bpy, scene, out_dir, stem, engine_cls):
             except Exception as exc:  # noqa: BLE001
                 capture["telemetry"].append({"last_render_info_error": repr(exc)})
 
-        # Blender exposes end_result through the live RenderEngine instance,
-        # not as a normal attribute on CustomRaytracerRenderEngine or its RNA
-        # base type. Capture that bound delegate first, then temporarily shadow
-        # it on the Python subclass while write_pixels creates and ends result.
-        # This preserves the exact instance delegate Blender supplied.
-        try:
-            bound_end = self.end_result
-        except Exception as exc:  # noqa: BLE001
-            capture["reason"] = "cannot obtain instance end_result: %r" % (exc,)
-            return orig_write(self, pixels, width, height, alpha=alpha, renderer=renderer,
-                              view_layer=view_layer, scene=scene, layer_name=layer_name)
+        # ``end_result`` is Blender RNA and can bypass a temporary class
+        # attribute.  Trace only this original pure-Python method instead: its
+        # ``result`` local exists after ``begin_result`` and before it is passed
+        # to native ``end_result``.  Never infer Sample Count from Combined.
+        previous_trace = sys.gettrace()
 
-        def capture_end(_engine, result):
-            capture["end_result_calls"] += 1
+        def inspect_result(result):
+            capture["result_seen"] = True
             try:
                 for layer in result.layers:
                     for render_pass in layer.passes:
@@ -902,20 +888,22 @@ def _render_leg(bpy, scene, out_dir, stem, engine_cls):
                             capture["sample_count"] = {"channels": channels,
                                                        "rect": rect.copy()}
             except Exception as exc:  # noqa: BLE001
-                capture["reason"] = "end_result capture failed: %r" % (exc,)
-            return bound_end(result)
+                capture["reason"] = "trace result capture failed: %r" % (exc,)
 
-        marker = object()
-        previous_end = engine_cls.__dict__.get("end_result", marker)
-        engine_cls.end_result = capture_end
+        def trace(frame, event, _arg):
+            if frame.f_code is orig_write.__code__:
+                capture["trace_observed"] = True
+                result = frame.f_locals.get("result")
+                if result is not None and not capture["result_seen"]:
+                    inspect_result(result)
+            return trace
+
+        sys.settrace(trace)
         try:
             return orig_write(self, pixels, width, height, alpha=alpha, renderer=renderer,
                               view_layer=view_layer, scene=scene, layer_name=layer_name)
         finally:
-            if previous_end is marker:
-                delattr(engine_cls, "end_result")
-            else:
-                engine_cls.end_result = previous_end
+            sys.settrace(previous_trace)
 
     engine_cls.write_pixels = capture_write
     try:
@@ -923,9 +911,10 @@ def _render_leg(bpy, scene, out_dir, stem, engine_cls):
         bpy.ops.render.render(write_still=True)
     finally:
         engine_cls.write_pixels = orig_write
-    capture["valid"] = capture["end_result_calls"] > 0 and capture["reason"] is None
+    capture["valid"] = (capture["trace_observed"] and capture["result_seen"]
+                        and capture["reason"] is None)
     if not capture["valid"]:
-        capture["reason"] = capture["reason"] or "end_result was not called"
+        capture["reason"] = capture["reason"] or "write_pixels trace did not expose result"
     if not path.is_file():
         return None, None, "no EXR produced for stem %s" % stem, capture
     img = bpy.data.images.load(str(path))
@@ -946,6 +935,9 @@ def main():
     p.add_argument("--out-dir", required=True)
     p.add_argument("--backend", required=True, choices=["cpu", "gpu"])
     p.add_argument("--repo-root", required=True)
+    p.add_argument("--expected-build-id")
+    p.add_argument("--expected-module-sha256")
+    p.add_argument("--expected-addon-init-sha256")
     args = p.parse_args(argv)
 
     import numpy as np
@@ -1001,6 +993,15 @@ def main():
         if Path(build["addon_init"]).is_file() else None
     if not build["build_id"] or not build["module_sha256"] or not build["addon_init_sha256"]:
         _fail("missing build identity or hash; refusing unproven runtime provenance")
+    expected = {"build_id": args.expected_build_id,
+                "module_sha256": args.expected_module_sha256,
+                "addon_init_sha256": args.expected_addon_init_sha256}
+    supplied = {key: value for key, value in expected.items() if value}
+    build["expected_identity"] = supplied or None
+    build["provenance_claim"] = "candidate" if supplied else "baseline_diagnostic"
+    for key, value in supplied.items():
+        if build.get(key) != value:
+            _fail("loaded %s does not match expected candidate identity" % key)
 
     # Backend selection uses the addon's SUPPORTED device selector only.
     try:
@@ -1202,7 +1203,8 @@ def _sha256_file(path: Path) -> str:
 
 
 def _run_native_backend(blender: Path, addon_dir: Path, out_dir: Path,
-                        backend: str, leg_script: Path) -> dict:
+                        backend: str, leg_script: Path,
+                        expected_identity: dict[str, str] | None = None) -> dict:
     """Spawn isolated headless Blender, return its parsed legs_<backend>.json."""
     env = os.environ.copy()
     env[_ADDON_ENV] = str(addon_dir)
@@ -1213,6 +1215,11 @@ def _run_native_backend(blender: Path, addon_dir: Path, out_dir: Path,
         "--backend", backend,
         "--repo-root", str(REPO_ROOT),
     ]
+    for key, flag in (("build_id", "--expected-build-id"),
+                      ("module_sha256", "--expected-module-sha256"),
+                      ("addon_init_sha256", "--expected-addon-init-sha256")):
+        if expected_identity and expected_identity.get(key):
+            cmd.extend((flag, expected_identity[key]))
     print(f"\n[gate_d_native] running: {' '.join(cmd)}")
     proc = subprocess.run(cmd, env=env, capture_output=True, text=True,
                           timeout=1800, check=False)
@@ -1452,6 +1459,14 @@ def test_gate_d_native_panels_effect():
     backends = _requested_backends()
     out_dir = Path(os.environ.get(_OUT_ENV, REPO_ROOT / "test_results" / "gate_native_panels"))
     out_dir.mkdir(parents=True, exist_ok=True)
+    expected_identity = {
+        "build_id": os.environ.get(_EXPECTED_BUILD_ENV, ""),
+        "module_sha256": os.environ.get(_EXPECTED_MODULE_ENV, ""),
+        "addon_init_sha256": os.environ.get(_EXPECTED_ADDON_ENV, ""),
+    }
+    supplied_identity = {k: v for k, v in expected_identity.items() if v}
+    if supplied_identity and len(supplied_identity) != len(expected_identity):
+        pytest.fail("candidate provenance requires build id, module SHA-256, and addon SHA-256 together")
 
     # Persist the in-Blender leg next to its artifacts for auditability.
     leg_script = out_dir / "gate_d_leg.py"
@@ -1459,7 +1474,8 @@ def test_gate_d_native_panels_effect():
 
     backend_records: dict = {}
     for backend in backends:
-        raw = _run_native_backend(blender, Path(addon_dir), out_dir, backend, leg_script)
+        raw = _run_native_backend(blender, Path(addon_dir), out_dir, backend, leg_script,
+                                  supplied_identity or None)
         backend_records[backend] = _host_evaluate_backend(raw, out_dir)
 
     merged = _write_merged(out_dir, backend_records)

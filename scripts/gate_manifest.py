@@ -401,11 +401,76 @@ def _validate_f(records: list[Any], base: Path) -> tuple[list[str], dict[str, An
     return errors, {}, subchecks
 
 
+def _validate_d(records: list[Any], base: Path) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
+    """Re-run gate (d)'s canonical reducer from hash-linked raw CPU/GPU legs."""
+    if len(records) != 1 or not isinstance(records[0], Mapping) or records[0].get("kind") != "native_panel_aggregate":
+        return ["row d requires one native_panel_aggregate adapter record"], {}, {}
+    raw_path, errors = _artifact(records[0].get("artifact"), base, "row d aggregate")
+    expected = records[0].get("expected_identity")
+    required = ("build_id", "engine_id", "module_sha256", "addon_init_sha256")
+    if not isinstance(expected, Mapping) or any(not isinstance(expected.get(k), str) or not expected[k] for k in required):
+        errors.append("row d requires complete expected candidate build identity")
+        return errors, {}, {}
+    if raw_path is None:
+        return errors, {}, {}
+    try:
+        raw = json.loads(raw_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return errors + [f"row d aggregate cannot be read: {exc}"], {}, {}
+    if not isinstance(raw, Mapping) or raw.get("schema_version") != 1 or raw.get("instrument") != "gate_native_panels":
+        return errors + ["row d aggregate has wrong native-panel schema/instrument"], {}, {}
+    backends = raw.get("backends")
+    if not isinstance(backends, Mapping) or set(backends) != {"cpu", "gpu"}:
+        return errors + ["row d aggregate requires exactly CPU and GPU raw legs"], {}, {}
+    try:
+        spec = importlib.util.spec_from_file_location("pkg278_native_panel_reducer", REPO_ROOT / "tests" / "test_gate_native_panels.py")
+        if spec is None or spec.loader is None: raise ImportError("cannot load native-panel reducer")
+        native = importlib.util.module_from_spec(spec); sys.modules[spec.name] = native; spec.loader.exec_module(native)
+    except (ImportError, OSError) as exc:
+        return errors + [f"row d canonical reducer unavailable: {exc}"], {}, {}
+    recomputed = {}
+    for backend in ("cpu", "gpu"):
+        leg = backends[backend]
+        if not isinstance(leg, Mapping):
+            errors.append(f"row d {backend} leg is not an object"); continue
+        build = leg.get("build") or {}
+        if build.get("provenance_claim") != "candidate":
+            errors.append(f"row d {backend} is baseline diagnostic provenance, not candidate evidence")
+        if any(build.get(k) != expected[k] for k in required):
+            errors.append(f"row d {backend} loaded build does not match expected candidate identity")
+        if build.get("expected_identity") != {k: expected[k] for k in ("build_id", "module_sha256", "addon_init_sha256")}:
+            errors.append(f"row d {backend} did not receive the expected identity contract")
+        try:
+            recomputed[backend] = native._host_evaluate_backend(dict(leg), raw_path.parent)
+        except (OSError, RuntimeError, ValueError) as exc:
+            errors.append(f"row d {backend} canonical reducer rejected raw evidence: {exc}")
+    if set(recomputed) != {"cpu", "gpu"}:
+        return errors, {}, {}
+    checks = [rec.get("checks", {}) for rec in recomputed.values()]
+    accuracy = [c.get(name, {}).get("stats", {}) for c in checks for name in ("adaptive_accuracy", "denoise_accuracy")]
+    mean_errors = [value for stats in accuracy for value in (stats.get("mean_rel_error") or {}).values() if _number(value) is not None]
+    details = [stats.get("detail_preservation") for stats in accuracy if _number(stats.get("detail_preservation")) is not None]
+    if not mean_errors or not details:
+        errors.append("row d canonical reducer produced no accuracy metrics")
+    required_checks = ("native_settings_honored", "actual_backend_provenance", "adaptive_effect", "denoise_effect", "sample_count_aov_changes", "reference_nonvacuous", "reference_regions_identified")
+    subchecks = {
+        "adaptive_changes_sample_count_aov": all(c.get("sample_count_aov_changes", {}).get("passed") is True for c in checks),
+        "adaptive_lowers_flat_noise": all(c.get("adaptive_effect", {}).get("passed") is True for c in checks),
+        "denoise_lowers_residual_noise": all(c.get("denoise_effect", {}).get("passed") is True for c in checks),
+        "reference_comparison": all(c.get("adaptive_accuracy", {}).get("passed") is True and c.get("denoise_accuracy", {}).get("passed") is True for c in checks),
+    }
+    if any(c.get(name, {}).get("status") in ("error", "unmeasured") for c in checks for name in required_checks):
+        errors.append("row d has missing/invalid raw legs, telemetry, or AOV capture")
+    return errors, {"mean_rel_error_max": max(mean_errors) if mean_errors else None,
+                    "detail_preservation_min": min(details) if details else None}, subchecks
+
+
 def _records_validate(payload: Mapping[str, Any], rid: str, base: Path) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
     records = payload.get("records")
     if not isinstance(records, list) or not records: return ["instrument payload requires non-empty typed records"], {}, {}
     if rid == "a": return _validate_a(records, base, payload.get("scene_sha256"))
     if rid == "c": return _validate_c(records, base, payload.get("scene_sha256"), payload.get("build_id"))
+    if rid == "d": return _validate_d(records, base)
     if rid == "e": return _validate_e(records, base)
     if rid == "f": return _validate_f(records, base)
     return [f"row {rid} producer adapter is not yet available"], {}, {}
@@ -646,6 +711,17 @@ def load_instruments(instruments_dir: Path | None,
             row["value"] = value if not errors else payload.get("value")
             row["date"] = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
             return row
+        if (isinstance(payload, Mapping) and payload.get("schema") == PAYLOAD_SCHEMA
+                and payload.get("row") == "d" and payload.get("instrument") == "native_panel_smoke"):
+            errors, value, subchecks = _validate_d(payload.get("records", []), path.parent)
+            row = dict(payload)
+            row["evidence_path"] = str(path)
+            row["evidence_sha256"] = sha256_file(path)
+            row["dimensions"] = {"backend": "CPU+GPU", "panel": "native Cycles settings"}
+            row["subchecks"] = subchecks if not errors else {}
+            row["value"] = value
+            row["date"] = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+            return row
         return payload
 
     out: dict[str, Any] = {r: None for r in ROWS}
@@ -660,6 +736,27 @@ def load_instruments(instruments_dir: Path | None,
     return out
 
 
+def adapt_d_instrument(raw_path: Path, expected_identity: Mapping[str, str]) -> dict[str, Any]:
+    """Create the v2 row-(d) adapter; the raw aggregate remains the evidence."""
+    required = ("build_id", "engine_id", "module_sha256", "addon_init_sha256")
+    if any(not isinstance(expected_identity.get(key), str) or not expected_identity[key] for key in required):
+        raise ValueError("expected row-d identity needs build_id, engine_id, module_sha256, addon_init_sha256")
+    raw = json.loads(raw_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, Mapping) or raw.get("instrument") != "gate_native_panels":
+        raise ValueError("row-d raw evidence must be a gate_native_panels aggregate")
+    build_id = expected_identity["build_id"]
+    scene_hashes = sorted({str((record or {}).get("scene_sha256"))
+                           for record in (raw.get("backends") or {}).values()
+                           if isinstance(record, Mapping) and str(record.get("scene_sha256") or "")})
+    return {"schema": PAYLOAD_SCHEMA, "row": "d", "instrument": "native_panel_smoke",
+            "scene_sha256": scene_hashes, "build_id": build_id, "backend": ["CPU", "GPU"],
+            "settings": raw.get("declared") or {}, "metric": {"source": "canonical_native_panel_reducer"},
+            "value": {}, "threshold": {"mean_rel_error_max": 0.02, "detail_preservation_min": 0.95},
+            "records": [{"kind": "native_panel_aggregate",
+                         "artifact": {"path": raw_path.name, "sha256": sha256_file(raw_path)},
+                         "expected_identity": dict(expected_identity)}]}
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Assemble/validate the exit-gate acceptance manifest (pkg278).")
     p.add_argument("--instruments-dir", type=Path,
@@ -671,7 +768,26 @@ def main(argv: list[str] | None = None) -> int:
                    help="validate an existing manifest instead of assembling")
     p.add_argument("--existing", type=Path, default=None)
     p.add_argument("--json", action="store_true")
+    p.add_argument("--adapt-d", type=Path, metavar="RAW_JSON",
+                   help="write a v2 row-(d) adapter around hash-linked native-panel raw evidence")
+    p.add_argument("--expected-d-build-id")
+    p.add_argument("--expected-d-engine-id")
+    p.add_argument("--expected-d-module-sha256")
+    p.add_argument("--expected-d-addon-init-sha256")
     args = p.parse_args(argv)
+
+    if args.adapt_d:
+        identity = {"build_id": args.expected_d_build_id, "engine_id": args.expected_d_engine_id,
+                    "module_sha256": args.expected_d_module_sha256,
+                    "addon_init_sha256": args.expected_d_addon_init_sha256}
+        try:
+            payload = adapt_d_instrument(args.adapt_d, identity)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            p.error(str(exc))
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        print(f"wrote {args.out}")
+        return 0
 
     overrides: dict[str, Path] = {}
     for spec in args.instrument:

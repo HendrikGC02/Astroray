@@ -724,7 +724,7 @@ def reduce_gate_a_capture(raw_events, edits, *, truncated=False, artifact_root=N
                   if e[4].get("event_id") == event_id and e[4].get("label") in ("pre", "post")]
         pixel_by_label = {p[4].get("label"): p for p in pixels}
         pixel_ok = set(pixel_by_label) == {"pre", "post"} and len(pixels) == 2
-        if pixel_ok:
+        if pixel_ok and present is not None:
             pre, post = pixel_by_label["pre"], pixel_by_label["post"]
             pixel_ok = pre[2] <= dispatch and post[2] >= present[2] and post[1] == gen and post[3] == epoch
             for p in (pre, post):

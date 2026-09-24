@@ -87,6 +87,11 @@ if __name__ == "__main__" and "--write-reference" in sys.argv:
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
+try:  # bind the real module now: _render's addon loader stubs sys.modules["astroray"]
+    import astroray as _ASTRORAY  # noqa: E402
+except ImportError:
+    _ASTRORAY = None
+
 
 def _ref():
     return json.loads(REF_PATH.read_text(encoding="utf-8"))
@@ -123,7 +128,9 @@ def _ortho_cam_obj(cam_type="ORTHO"):
 
 
 def _render(monkeypatch, frame, seed, gpu):
-    astroray = pytest.importorskip("astroray")
+    if _ASTRORAY is None:
+        pytest.skip("astroray not importable")
+    astroray = _ASTRORAY
     from test_addon_viewport_camera_vfov import _load_blender_addon
 
     W, H = G[FRAMES[frame]]
@@ -143,7 +150,7 @@ def _render(monkeypatch, frame, seed, gpu):
     addon = _load_blender_addon(monkeypatch)
     cam_type = "PERSP" if frame.startswith("persp_") else "ORTHO"
     addon.CustomRaytracerRenderEngine()._apply_camera(r, _ortho_cam_obj(cam_type), W, H)
-    img = np.asarray(r.render(16, 2, None, False), dtype=np.float64).reshape(H, W, 3)
+    img = np.asarray(r.render(64, 2, None, False), dtype=np.float64).reshape(H, W, 3)
     return img
 
 

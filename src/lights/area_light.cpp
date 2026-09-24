@@ -225,12 +225,12 @@ AABB AreaLight::bounds() const {
 }
 
 OrientationCone AreaLight::orientationCone() const {
-    // #851: one-sided planar emitter, so theta_o = 0 (all normals == normal_)
-    // and theta_e bounds the emission actually produced by sampleLi(): angle
-    // <= spread_ and front-facing, i.e. min(spread_, pi/2). Cycles
-    // scene/light_tree.cpp area branch (theta_o = 0, theta_e = spread / 2;
-    // Apache-2.0). The old cone (spread_, spread_) was a full sphere at the
-    // default spread = pi, so the tree sampled back-facing area lights.
+    // #851: one-sided planar emitter, so theta_o = 0 (all normals == normal_);
+    // theta_e = the emission half-angle spread_ (Blender spread / 2, #852),
+    // capped at pi/2 by the front-face test. Cycles scene/light_tree.cpp area
+    // branch: theta_o = 0, theta_e = spread / 2 (Apache-2.0). The old cone
+    // (spread_, spread_) was a full sphere at the default spread, so the tree
+    // sampled back-facing area lights.
     return OrientationCone{normal_, 0.0f,
                            std::min(spread_, static_cast<float>(M_PI) * 0.5f)};
 }

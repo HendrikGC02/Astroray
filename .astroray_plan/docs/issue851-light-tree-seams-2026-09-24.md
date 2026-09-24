@@ -46,8 +46,8 @@ Adaptive Tree Splitting" (§4.4 importance); Cycles `kernel/light/tree.h`
    faces away from the scene: removing it moved floor tree/power variance from
    1.11 to 1.02. The cone is now θo = 0 and θe = min(spread, π/2), following
    Cycles `scene/light_tree.cpp` (area branch: θo = 0, θe = spread/2).
-   `min(spread, π/2)` bounds what `sampleLi` emits: it treats `spread` as a
-   half-angle limit and rejects back faces.
+   `AreaLight::spread` is the emission half-angle (#852), so this equals the
+   Cycles cone. The π/2 cap matches the front-face test.
 
 ## Not ported (still differs from Cycles)
 
@@ -58,9 +58,6 @@ Adaptive Tree Splitting" (§4.4 importance); Cycles `kernel/light/tree.h`
 
 ## Open
 
-- `AreaLight::withinSpread` compares against the full Blender spread as if it
-  were a half-angle. For spread < π it emits into twice the Cycles cone. This
-  is a radiometry bug, separate from #851.
 - `SpotLight::orientationCone` has the same `(angle, angle)` form. Cycles uses
   θo = 0. It costs efficiency only, not bias.
 

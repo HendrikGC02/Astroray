@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <stdexcept>
 
 namespace {
 
@@ -121,10 +120,57 @@ public:
         return static_cast<float>(result);
     }
 
-    GeodesicState geodesic_rhs(const GeodesicState&) const override {
-        throw std::runtime_error(
-            "KerrMetric geodesic_rhs is reserved for pkg41/pkg67; "
-            "pkg40 exposes metric tensors, Christoffels, and analytic gates");
+    // pkg281: Hamilton's equations for H = g^{mu nu} p_mu p_nu / 2 in BL
+    // coordinates, covariant momenta. Uses Carter's separated form
+    //   2 Sigma H = N = Delta p_r^2 + p_th^2 + Q^2 - P^2/Delta,
+    //   P = (r^2+a^2) p_t + a p_phi,  Q = p_phi/sin(th) + a sin(th) p_t
+    // (Carter 1968, Phys. Rev. 174, 1559, DOI:10.1103/PhysRev.174.1559;
+    // Chandrasekhar 1983, Mathematical Theory of Black Holes, ch. 7 §62-63).
+    // H is differentiated in full (not only on shell), so the flow is exactly
+    // Hamiltonian and reduces to SchwarzschildMetric::geodesic_rhs at a=0.
+    // Derivation: .astroray_plan/docs/kerr-metric-research.md §6.
+    GeodesicState geodesic_rhs(const GeodesicState& s) const override {
+        const double r = s.r;
+        if (!gr_isfinite(r) || !gr_isfinite(s.theta) || !gr_isfinite(s.phi) ||
+            !gr_isfinite(s.p_t) || !gr_isfinite(s.p_r) ||
+            !gr_isfinite(s.p_theta) || !gr_isfinite(s.p_phi) ||
+            r < 0.5 * M) {
+            return GeodesicState{0, 0, 0, 0, 0, 0, 0, 0};
+        }
+        double sin_th = std::sin(s.theta);
+        const double cos_th = std::cos(s.theta);
+        if (std::abs(sin_th) < 1e-6) sin_th = (sin_th >= 0.0 ? 1e-6 : -1e-6);
+        const double a2 = a_ * a_;
+        const double r2a2 = r*r + a2;
+        const double sigma = r*r + a2*cos_th*cos_th;
+        double delta = r*r - 2.0*M*r + a2;
+        if (delta < 1e-12) delta = 1e-12;
+        const double d_delta = 2.0 * (r - M);
+
+        const double P = r2a2 * s.p_t + a_ * s.p_phi;
+        const double Q = s.p_phi / sin_th + a_ * sin_th * s.p_t;
+        const double N = delta * s.p_r * s.p_r + s.p_theta * s.p_theta
+                       + Q * Q - P * P / delta;
+
+        GeodesicState ds;
+        ds.t     = (a_ * sin_th * Q - r2a2 * P / delta) / sigma;
+        ds.r     = delta * s.p_r / sigma;
+        ds.theta = s.p_theta / sigma;
+        ds.phi   = (Q / sin_th - a_ * P / delta) / sigma;
+
+        const double dN_dr = d_delta * s.p_r * s.p_r
+                           - 4.0 * r * s.p_t * P / delta
+                           + P * P * d_delta / (delta * delta);
+        const double dQ_dth = -s.p_phi * cos_th / (sin_th * sin_th)
+                            + a_ * cos_th * s.p_t;
+        const double dN_dth = 2.0 * Q * dQ_dth;
+        const double dSigma_dth = -2.0 * a2 * sin_th * cos_th;
+
+        ds.p_t     = 0.0;  // stationary: E conserved
+        ds.p_r     = -(dN_dr - 2.0 * r * N / sigma) / (2.0 * sigma);
+        ds.p_theta = -(dN_dth - N * dSigma_dth / sigma) / (2.0 * sigma);
+        ds.p_phi   = 0.0;  // axisymmetric: L_z conserved
+        return ds;
     }
 
     double event_horizon_radius() const override {
@@ -151,8 +197,15 @@ public:
         return a_ / (r_plus*r_plus + a_*a_);
     }
 
+    // pkg281: an incoming photon inside the innermost circular photon orbit
+    // cannot turn around, so any radius between r_+ and min(r_ph) is a safe
+    // capture threshold. The midpoint keeps BL away from Delta=0 and gives
+    // 2.5M at a=0 (SchwarzschildMetric's threshold). The old r_+ + 0.5M
+    // (1.84M at a=0.94) lay outside r_ph,pro = 1.43M and ate the prograde edge.
     bool is_captured(const GeodesicState& s) const override {
-        return s.r < event_horizon_radius() + 0.5 * M;
+        const double r_ph = std::min(photon_sphere_radius(true),
+                                     photon_sphere_radius(false));
+        return s.r < 0.5 * (event_horizon_radius() + r_ph);
     }
 
     double disk_omega(double r) const override {

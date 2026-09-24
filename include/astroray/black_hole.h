@@ -5,6 +5,7 @@
 #include "emission.h"
 #include "gr_integrator.h"
 #include "spectral.h"
+#include "astroray/register.h"
 #include <memory>
 #include <random>
 #include <cmath>
@@ -93,7 +94,9 @@ private:
     double worldToGR;        // scale: world unit → BL unit  (= r_obs_M / influenceRadius)
     double inclination;      // observer inclination in radians (from spin axis)
 
-    std::unique_ptr<SchwarzschildMetric> metric;
+    double spin;             // Kerr a/M; 0 selects SchwarzschildMetric (pkg281)
+
+    std::shared_ptr<Metric> metric;
     std::unique_ptr<NovikovThorneDisk>   disk;
     std::vector<std::shared_ptr<Emission>> emissions;
 
@@ -152,6 +155,27 @@ private:
         double L2    = p_th * p_th + p_phi * p_phi / sin2;
         double pt2   = f * f * p_r * p_r + f * L2 / r2;
         double p_t   = -std::sqrt(std::max(pt2, 0.0));
+
+        if (spin != 0.0) {
+            // pkg281 Kerr: p_i = g_ii v^i, with v^phi taken relative to the
+            // frame-dragging ZAMO (p_phi = g_phiphi v^phi; Bardeen, Press &
+            // Teukolsky 1972 §III). p_t solves g^{mu nu} p_mu p_nu = 0 on the
+            // future-directed (p^t > 0) root. Reduces to the branch above at a=0.
+            const double a2     = spin * spin;
+            const double sigma  = r2 + a2 * cos_th * cos_th;
+            const double delta  = r2 - 2.0 * M * r + a2;
+            const double A_     = (r2 + a2) * (r2 + a2) - delta * a2 * sin2;
+            p_r   = sigma / delta * dr;
+            p_th  = sigma * dth;
+            p_phi = A_ / sigma * sin2 * dph;
+            const double g_tt  = -A_ / (sigma * delta);
+            const double g_tph = -2.0 * M * spin * r / (sigma * delta);
+            const double g_phph = (delta - a2 * sin2) / (sigma * delta * sin2);
+            const double C = delta / sigma * p_r * p_r + p_th * p_th / sigma
+                           + g_phph * p_phi * p_phi;
+            const double b = g_tph * p_phi;
+            p_t = (-b + std::sqrt(std::max(b * b - g_tt * C, 0.0))) / g_tt;
+        }
 
         GeodesicState s;
         s.t      = 0.0;
@@ -277,8 +301,10 @@ private:
 public:
     BlackHole(Vec3 pos, double mass_solar, double influence_r,
               double disk_outer_M = 30.0, double mdot = 1.0,
-              double incl_deg = 75.0, double r_obs_M_in = 100.0)
-        : position(pos), mass(mass_solar), influenceRadius(influence_r)
+              double incl_deg = 75.0, double r_obs_M_in = 100.0,
+              double spin_a = 0.0)
+        : position(pos), mass(mass_solar), influenceRadius(influence_r),
+          spin(gr_isfinite(spin_a) ? std::clamp(spin_a, -0.998, 0.998) : 0.0)
     {
         // pkg107: r_obs_M_in controls the world-to-GR scale factor.
         // Default 100.0 preserves pkg40-pkg44 baselines. Smaller values
@@ -288,7 +314,16 @@ public:
         r_obs_M   = r_obs_M_in > 0.0 ? r_obs_M_in : 100.0;
         worldToGR = r_obs_M / double(influence_r);
 
-        metric = std::make_unique<SchwarzschildMetric>(1.0);
+        // pkg281: honour spin. Kerr lives in plugins/metrics/kerr.cpp (same
+        // |a| <= 0.998 clamp as above).
+        if (spin != 0.0) {
+            astroray::ParamDict kp;
+            kp.set("M", 1.0f);
+            kp.set("a", static_cast<float>(spin));
+            metric = astroray::MetricRegistry::instance().create("kerr", kp);
+        } else {
+            metric = std::make_shared<SchwarzschildMetric>(1.0);
+        }
         disk   = std::make_unique<NovikovThorneDisk>(metric.get(), disk_outer_M, mdot);
 
         inclination  = incl_deg * GR_PI / 180.0;

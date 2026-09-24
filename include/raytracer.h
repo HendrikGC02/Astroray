@@ -2221,9 +2221,9 @@ public:
         const float alpha = prevOrthographic ? 1.0f : prevFocusDist / depth;
         const float s = alpha * d.dot(prevU) / prevVw + (0.5f - prevShiftX);
         const float t = alpha * d.dot(prevV) / prevVh + (0.5f - prevShiftY);
-        // Render loop maps pixel(x,y) -> u=x/(W-1), v=1-y/(H-1); invert that.
-        px = s * float(width - 1);
-        py = (1.0f - t) * float(height - 1);
+        // Render loop maps pixel(x,y) -> u=x/W, v=1-y/H (#845); invert that.
+        px = s * float(width);
+        py = (1.0f - t) * float(height);
         return true;
     }
 
@@ -4591,8 +4591,8 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         for (int y = ty0; y < ty1; ++y)
                             for (int x = tx0; x < tx1; ++x)
                                 for (int s = 0; s < trainSpp; ++s) {
-                                    float u = (x + td(tgen)) / (cam.width - 1);
-                                    float v = 1.0f - (y + td(tgen)) / (cam.height - 1);
+                                    float u = (x + td(tgen)) / cam.width;
+                                    float v = 1.0f - (y + td(tgen)) / cam.height;
                                     Ray pr = cam.getRay(u, v, 0.0f, tgen);
                                     // Full path trace: builds the guide (records)
                                     // AND contributes its radiance to the image
@@ -4725,8 +4725,10 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         bool firstRayCaptured = false;
 
                         for (int s = 0; s < maxSamples; ++s) {
-                            float u = (x + filterSample(gen, dist)) / (cam.width - 1);
-                            float v = 1.0f - (y + filterSample(gen, dist)) / (cam.height - 1);
+                            // #845: pixel i's centre (i+0.5; filterSample is centred on
+                            // 0.5) maps to film (i+0.5)/W, as Cycles/Blender (was /(W-1)).
+                            float u = (x + filterSample(gen, dist)) / cam.width;
+                            float v = 1.0f - (y + filterSample(gen, dist)) / cam.height;
 
                             // pkg88-A: sample time from Halton dimension 8 (independent per spp).
                             // Per spec Q-Owner-4, we use independent Halton (not stratified)
@@ -4754,9 +4756,9 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                 // pixel_curr so static-camera motion is exactly
                                 // zero (the projected hit point lands back on
                                 // the same sub-pixel). The render loop maps
-                                // pixel(x,y) -> u=x/(W-1), v=1-y/(H-1).
-                                firstPixelCurrX = u * float(cam.width - 1);
-                                firstPixelCurrY = (1.0f - v) * float(cam.height - 1);
+                                // pixel(x,y) -> u=x/W, v=1-y/H (#845).
+                                firstPixelCurrX = u * float(cam.width);
+                                firstPixelCurrY = (1.0f - v) * float(cam.height);
                                 firstRayCaptured = true;
                             }
                             if (integrator_) {

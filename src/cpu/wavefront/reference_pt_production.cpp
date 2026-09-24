@@ -304,8 +304,8 @@ ReferencePTResult reference_pt_production_render(
                         //    pkg88 added `time` as a required parameter; passing 0.0f matches
                         //    production's behaviour when shutter=0 (no motion blur).
                         // 4. dist01(gen) — 1 draw for lambda sampling.
-                        float u = (x + renderer.filterSample(gen, dist)) / (cam.width - 1);
-                        float v = 1.0f - (y + renderer.filterSample(gen, dist)) / (cam.height - 1);
+                        float u = (x + renderer.filterSample(gen, dist)) / cam.width;  // #845
+                        float v = 1.0f - (y + renderer.filterSample(gen, dist)) / cam.height;
                         Ray primaryRay = cam.getRay(u, v, 0.0f, gen);
 
                         // Lambda sampling (production spectral_path_tracer.cpp:107-108).

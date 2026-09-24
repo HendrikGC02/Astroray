@@ -136,8 +136,8 @@ template <typename TRng>
 __device__ inline GRay gpu_generateCameraRay(
     const GCameraParams& cam, int px, int py, TRng* rng)
 {
-    float u = (px + gpu_rng_uniform(rng)) / (cam.width  - 1);
-    float v = 1.f - (py + gpu_rng_uniform(rng)) / (cam.height - 1);
+    float u = (px + gpu_rng_uniform(rng)) / cam.width;   // #845: /W, not /(W-1)
+    float v = 1.f - (py + gpu_rng_uniform(rng)) / cam.height;
 
     GVec3 rd     = gpu_randomInUnitDisk(rng) * cam.lensRadius;
     GVec3 offset = cam.u * rd.x + cam.v * rd.y;

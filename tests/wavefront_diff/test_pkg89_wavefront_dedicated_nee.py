@@ -135,3 +135,87 @@ def test_wavefront_dedicated_light_nee(scene):
         f"wavefront/CPU mean ratio {ratios.round(4).tolist()} deviates more "
         f"than {MEAN_RATIO_TOL} on {scene} (measured 2026-07-25: ~0.997)")
     print(f"\n[pkg89-wavefront {scene}] PASS: WF/CPU = {ratios.round(4).tolist()}")
+
+
+# ---------------------------------------------------------------------------
+# #859 — sun + mesh emitter through Renderer.render() (the addon route).
+# The GPU refused to upload a light tree containing dedicated lights and fell
+# back to the power CDF, where a tessellated emitter's per-triangle mass leaves
+# the sun a tiny selection probability: at viewport spp the sun-lit ground went
+# dark on GPU while the CPU tree sampler (the addon default) was fine.
+# ---------------------------------------------------------------------------
+SUN_RES = 128
+SUN_SPP = 16
+SUN_SEEDS = (11, 23, 37, 51, 73)
+SUN_ROI = (slice(8, 71), slice(8, 71))  # 63x63 sun-lit ground far from the quad
+
+
+def _sun_scene(case, gpu, seed, integrator):
+    r = astroray.Renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    r.set_seed(seed)
+    r.set_use_gpu(gpu)
+    r.set_light_sampler("tree")  # addon default (cycles.use_light_tree)
+    r.setup_camera(
+        look_from=[0.0, 20.0, 0.01], look_at=[0.0, 0.0, 0.0],
+        vup=[0.0, 0.0, -1.0], vfov=40.0, aspect_ratio=1.0,
+        aperture=0.0, focus_dist=20.0, width=SUN_RES, height=SUN_RES)
+    g = r.create_material("principled", [0.5, 0.5, 0.5], {})
+    r.add_triangle([-40, 0, -40], [40, 0, -40], [40, 0, 40], g)
+    r.add_triangle([-40, 0, -40], [40, 0, 40], [-40, 0, 40], g)
+    r.add_sun_light_dedicated([0.3, -1.0, 0.2], float(np.radians(0.526)),
+                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 1.0, 0, 0)
+    if case != "none":
+        if case == "principled":
+            m = r.create_material("principled", [0.8, 0.8, 0.8],
+                                  {"emission_color": [1.0, 1.0, 1.0],
+                                   "emission_strength": 5.0})
+        else:
+            m = r.create_material("diffuse_light", [1.0, 1.0, 1.0], {"intensity": 5.0})
+        # Tessellated 4x2 m panel (400 triangles, like a Blender UV sphere):
+        # the per-triangle power-CDF mass is what starves the sun.
+        for i in range(20):
+            for j in range(10):
+                x, z = 5.0 + 0.2 * i, 5.0 + 0.2 * j
+                r.add_triangle([x, 1, z], [x + 0.2, 1, z], [x + 0.2, 1, z + 0.2], m)
+                r.add_triangle([x, 1, z], [x + 0.2, 1, z + 0.2], [x, 1, z + 0.2], m)
+    r.set_integrator_param("use_temporal", 0)
+    r.set_integrator_param("use_spatial", 0)
+    r.set_integrator(integrator)
+    return r
+
+
+def _sun_roi_mean(case, gpu, integrator):
+    means = []
+    for s in SUN_SEEDS:
+        r = _sun_scene(case, gpu, s, integrator)
+        img = np.asarray(r.render(SUN_SPP, 4, None, False), dtype=np.float64)
+        img = img.reshape(SUN_RES, SUN_RES, -1)[..., :3]
+        means.append(img[SUN_ROI].mean(axis=(0, 1)))
+    return np.mean(means, axis=0)
+
+
+@pytest.mark.parametrize("integrator,case", [
+    ("path_tracer", "none"),
+    ("path_tracer", "principled"),
+    ("path_tracer", "light"),
+    ("restir-di", "none"),        # restir-di used to drop dedicated lights
+    ("restir-di", "principled"),
+])
+def test_issue859_sun_survives_mesh_emitter(integrator, case):
+    """GPU/CPU far-ground mean within MEAN_RATIO_TOL with a sun + mesh emitter.
+
+    The oracle is always CPU path_tracer: the ground receives direct light
+    only (no occluders/bounce surfaces near the ROI), so DI-only restir-di must
+    match it, and the CPU restir-di has its own colour cast on a SUN.
+    """
+    _require_gpu()
+    cpu = _sun_roi_mean(case, False, "path_tracer")
+    gpu = _sun_roi_mean(case, True, integrator)
+    assert np.all(cpu > 1e-3), f"CPU oracle dark on {integrator}/{case}: {cpu}"
+    ratios = gpu / cpu
+    print(f"\n[#859 {integrator}/{case}] CPU {cpu.round(4).tolist()} "
+          f"GPU {gpu.round(4).tolist()} GPU/CPU {ratios.round(4).tolist()}")
+    assert np.all(np.abs(ratios - 1.0) <= MEAN_RATIO_TOL), (
+        f"#859: GPU/CPU far-ground ratio {ratios.round(4).tolist()} on "
+        f"{integrator}/{case} (sun lost on GPU)")

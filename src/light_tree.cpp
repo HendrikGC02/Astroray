@@ -462,8 +462,13 @@ float LightTree::importance(const LightTreeNode& node, const Vec3& point,
 
     // Final importance: (energy / distance²) · cos_min_incidence_angle · cos_min_outgoing_angle.
     // Cycles: line 215-216 in kernel/light/tree.h.
-    float minDistance = std::max(distance - bboxRadius, 1e-6f);
-    float importance = node.energy * cosMinIncidenceAngle * cosMinOutgoingAngle / (minDistance * minDistance);
+    // #851: Cycles light_tree_node_importance clamps the distance to half the
+    // bbox half-diagonal, `fmaxf(0.5f * len(centroid - bbox.max), distance)`.
+    // The old max(distance - bboxRadius, 1e-6) gave a cluster enclosing the
+    // point ~1e12 importance, starving its sibling (e.g. the key light).
+    float clampedDistance = std::max(0.5f * bboxRadius, distance);
+    float importance = node.energy * cosMinIncidenceAngle * cosMinOutgoingAngle /
+                       (clampedDistance * clampedDistance);
 
     return importance;
 }

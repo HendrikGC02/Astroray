@@ -81,8 +81,10 @@ __device__ inline float gpu_light_tree_importance(
         return 0.0f;  // cluster invisible from this shading point
     }
 
-    float minDistance = fmaxf(distance - bboxRadius, 1e-6f);
-    return node.energy * cosMinIncidenceAngle * cosMinOutgoingAngle / (minDistance * minDistance);
+    // #851: Cycles distance clamp (light_tree_node_importance), see CPU mirror.
+    float clampedDistance = fmaxf(0.5f * bboxRadius, distance);
+    return node.energy * cosMinIncidenceAngle * cosMinOutgoingAngle /
+           (clampedDistance * clampedDistance);
 }
 
 // Mirror of LightTree::pick (src/light_tree.cpp:476-522; Cycles

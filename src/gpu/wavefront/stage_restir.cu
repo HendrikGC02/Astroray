@@ -310,6 +310,7 @@ __global__ void stageRestirInitialRISKernel(
     const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres,
     const ::GMaterial* materials,
     const ::GLight* lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,   // #859
     GLightTreeView lightTree,
     int numCandidates, int mCap, int numPixels)
 {
@@ -332,13 +333,16 @@ __global__ void stageRestirInitialRISKernel(
     WavefrontRNG rng = loadRNG(state, p);
 
     // Delta surfaces get no direct-light RIS (restir_di.cpp:193 !rec.isDelta).
-    if (!rec.isDelta && (numLights > 0) && (totalLightPower > 0.0f)) {
+    // #859: dedicated lights (SUN/point/spot/area) are RIS candidates too; the
+    // unified CDF (totalLightPower) spans both arrays, so omitting them left
+    // their selection mass falling through to the last hittable emitter.
+    if (!rec.isDelta && (numLights + numDed > 0) && (totalLightPower > 0.0f)) {
         // Initial sampling (Algorithm 1): draw numCandidates light samples,
         // RIS weight w_i = p_hat(x_i)/q(x_i) (restir_di.cpp:199-206).
         for (int i = 0; i < numCandidates; ++i) {
             GNEESample s = gpu_nee_sample(
                 rec, prims, tris, spheres, lights, numLights, totalLightPower,
-                /*dedLights=*/nullptr, /*numDed=*/0, lightTree, &rng);
+                dedLights, numDed, lightTree, &rng);
             if (!s.valid || s.lightPdf <= 0.0f || !isfinite(s.lightPdf)) continue;
             GReSTIRCandidate cand = GReSTIRCandidate::fromNEE(s, materials);
             float pHat = cand.targetLuminanceRGB();
@@ -596,12 +600,13 @@ void launchStageRestirInitialRIS(
     const GPrimitive* d_prims, const GTriangle* d_tris, const GSphere* d_spheres,
     const ::GMaterial* d_materials,
     const ::GLight* d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,   // #859
     GLightTreeView lightTree, int numCandidates, int mCap, int numPixels)
 {
     int tpb = 256;
     stageRestirInitialRISKernel<<<gGrid(numPixels, tpb), tpb>>>(
         state, hitBufs, cur, d_prims, d_tris, d_spheres, d_materials,
-        d_lights, num_lights, total_light_power, lightTree,
+        d_lights, num_lights, total_light_power, d_dedLights, num_ded, lightTree,
         numCandidates, mCap, numPixels);
 }
 

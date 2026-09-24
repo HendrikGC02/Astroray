@@ -264,3 +264,46 @@ def test_issue859_sun_survives_mesh_emitter(integrator, case):
     assert np.all(np.abs(ratios - 1.0) <= MEAN_RATIO_TOL), (
         f"#859: GPU/CPU far-ground ratio {ratios.round(4).tolist()} on "
         f"{integrator}/{case} (sun lost on GPU)")
+
+
+def _order_scene(gpu, sun_first):
+    """Sun + UV-sphere emitter, power sampler; only the add order differs."""
+    r = astroray.Renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    r.set_seed(11)
+    r.set_use_gpu(gpu)
+    r.set_light_sampler("power")
+    r.setup_camera(
+        look_from=[0.0, -12.0, 8.0], look_at=[0.0, -11.1808, 7.4264],
+        vup=[0.0, 0.5736, 0.8192], vfov=39.598, aspect_ratio=1.0,
+        aperture=0.0, focus_dist=10.0, width=64, height=64)
+    m = r.create_material("principled", [0.8, 0.8, 0.8],
+                          {"emission_color": [1.0, 1.0, 1.0], "emission_strength": 5.0})
+    g = r.create_material("principled", [0.8, 0.8, 0.8], {})
+    r.add_triangle([-20, -20, 0], [20, -20, 0], [20, 20, 0], g)
+    r.add_triangle([-20, -20, 0], [20, 20, 0], [-20, 20, 0], g)
+
+    def sun():
+        r.add_sun_light_dedicated([-0.17435, 0.47943, -0.86009], 0.0091804,
+                                  {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 1.0, 0, 0)
+    if sun_first:
+        sun()
+    _uv_sphere_bulk(r, m, seg=8, rings=4)
+    if not sun_first:
+        sun()
+    r.set_integrator("path_tracer")
+    return np.asarray(r.render(4, 4, None, False), dtype=np.float64)
+
+
+@pytest.mark.parametrize("gpu", [False, True], ids=["cpu", "gpu"])
+def test_issue859_light_add_order_invariant(gpu):
+    """#859: LightList built powerDist in CALL order while every consumer
+    (PowerLightSampler, scene_upload) indexes it hittables-first. A dedicated
+    light added before a mesh emitter scrambled all selection probabilities.
+    Same scene, sun-first vs emitter-first, must render identically."""
+    if gpu:
+        _require_gpu()
+    a = _order_scene(gpu, sun_first=True)
+    b = _order_scene(gpu, sun_first=False)
+    diff = float(np.abs(a - b).max())
+    assert diff <= 1e-6, f"#859: light add order changes the render (max |diff| {diff})"

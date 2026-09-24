@@ -114,6 +114,11 @@ class Triangle : public Hittable {
     // motionSteps=2 → 1 extra step at shutter close. Linear interpolation only (K ≤ 3 typical).
     const Vec3* motionVertexBuffer = nullptr;  // points to [v0_end, v1_end, v2_end, ...] for each step
     int motionSteps = 1;  // 1 = no motion (static), 2 = pre+post shutter, 3+ = keyframes
+    // #847 — per-vertex Generated coordinates (Cycles ATTR_STD_GENERATED:
+    // blender/mesh.cpp mesh_texture_space, (co - loc) * 0.5 / size + 0.5 on
+    // OBJECT-local co), interpolated barycentrically at the hit.
+    Vec3 gen0_, gen1_, gen2_;
+    bool hasGenerated_ = false;
 public:
     Triangle(const Vec3& a, const Vec3& b, const Vec3& c, std::shared_ptr<Material> m)
         : v0(a), v1(b), v2(c), material(m), uv0(0,0), uv1(1,0), uv2(0,1),
@@ -323,6 +328,31 @@ public:
     // pkg88-C.0 — accessor for GPU scene upload to read motion data.
     const Vec3* getMotionVertexBuffer() const { return motionVertexBuffer; }
     int getMotionSteps() const { return motionSteps; }
+    // #847 — per-vertex Generated coordinates (see gen0_ above).
+    void setGenerated(const Vec3& a, const Vec3& b, const Vec3& c) {
+        gen0_ = a; gen1_ = b; gen2_ = c;
+        hasGenerated_ = true;
+    }
+    bool getGenerated(Vec3& a, Vec3& b, Vec3& c) const {
+        if (!hasGenerated_) return false;
+        a = gen0_; b = gen1_; c = gen2_;
+        return true;
+    }
+    // Barycentrics recomputed from the hit point (Ericson, Real-Time Collision
+    // Detection §3.4), same as the GPU texture fetch in stage_advance.cu.
+    // Static vertices: motion-blurred triangles use the shutter-start pose.
+    bool generatedCoord(const Vec3& p, Vec3& out) const override {
+        if (!hasGenerated_) return false;
+        Vec3 e1 = v1 - v0, e2 = v2 - v0, ep = p - v0;
+        float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
+        float d20 = ep.dot(e1), d21 = ep.dot(e2);
+        float denom = d00 * d11 - d01 * d01;
+        if (std::fabs(denom) <= 1e-20f) return false;
+        float b1 = (d11 * d20 - d01 * d21) / denom;
+        float b2 = (d00 * d21 - d01 * d20) / denom;
+        out = gen0_ + (gen1_ - gen0_) * b1 + (gen2_ - gen0_) * b2;  // exact on flat axes
+        return true;
+    }
 };
 
 // ============================================================================

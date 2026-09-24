@@ -697,6 +697,9 @@ struct GWavefrontTextureBinding {
     const int*           matBumpTexId;      // per-material height-texture id, -1 absent
     const float*         matBumpStrength;   // per-material Strength [0,1]
     const float*         matBumpDistance;   // per-material Distance (surfgrad scale)
+    // #847 — per-vertex Generated coords, 3 per triangle (tris[] index), or
+    // nullptr. A NaN .x in the first entry = none (use the texture's bbox).
+    const GVec3*         triGenerated;
 };
 
 // pkg197 — wavefront first-hit denoise-guide AOV binding. Published ONCE per
@@ -862,9 +865,17 @@ HD inline GVec3 gpu_sampleProcedural3D(const GImageTexture& tex,
     float gx = g.x < 0.f ? 0.f : (g.x > 1.f ? 1.f : g.x);
     float gy = g.y < 0.f ? 0.f : (g.y > 1.f ? 1.f : g.y);
     float gz = g.z < 0.f ? 0.f : (g.z > 1.f ? 1.f : g.z);
-    int i = (int)(gx * (float)tex.width);
-    int j = (int)(gy * (float)tex.height);
-    int k = (int)(gz * (float)tex.depth);
+    // #847 — a g exactly on a voxel face belongs to the LOWER cell (ceil - 1),
+    // matching Cycles svm_checker's floor((p*s + 1e-6) * 0.999999), which rounds
+    // exact integers > 0 down. A default flat plane has Generated z = 0.5, which
+    // is a checker face for even scales; floor(g*res) picked the upper cell and
+    // inverted the whole GPU checker vs CPU/Cycles.
+    int i = (int)ceilf(gx * (float)tex.width)  - 1;
+    int j = (int)ceilf(gy * (float)tex.height) - 1;
+    int k = (int)ceilf(gz * (float)tex.depth)  - 1;
+    if (i < 0) i = 0;
+    if (j < 0) j = 0;
+    if (k < 0) k = 0;
     if (i > tex.width  - 1) i = tex.width  - 1;
     if (j > tex.height - 1) j = tex.height - 1;
     if (k > tex.depth  - 1) k = tex.depth  - 1;

@@ -966,6 +966,39 @@ def _generated_texspace_bbox(obj, matrix):
     return bmin, bsize
 
 
+def _generated_texspace_affine(obj, matrix):
+    """#847: row-major 3x4 WORLD -> Generated affine (12 floats), or None.
+
+    Cycles blender/mesh.cpp mesh_texture_space evaluates Generated on OBJECT-
+    local co: (co - loc) * 0.5 / size + 0.5, so compose it with matrix^-1
+    (the exporter bakes `matrix` into the vertices). Exact for any rotation;
+    the engine bakes it per triangle vertex (set_objects_generated_transform)."""
+    m = np.array([[float(matrix[r][c]) for c in range(4)] for r in range(4)])
+    try:
+        minv = np.linalg.inv(m)
+    except np.linalg.LinAlgError:
+        return None
+    tdata = getattr(obj, 'data', None)
+    tloc = getattr(tdata, 'texspace_location', None)
+    tsize = getattr(tdata, 'texspace_size', None)
+    if tloc is not None and tsize is not None:
+        # Same BKE_mesh_texspace_calc clamp as _generated_texspace_bbox.
+        ts = []
+        for v in tsize:
+            v = float(v)
+            ts.append(1.0 if v == 0.0 else (v if abs(v) >= 1e-5 else (1e-5 if v > 0 else -1e-5)))
+        scale = 0.5 / np.array(ts)
+        offset = 0.5 - np.array([float(c) for c in tloc]) * scale
+    else:
+        pts = np.array([[float(c) for c in corner] for corner in obj.bound_box])
+        lo = pts.min(axis=0)
+        size = np.maximum(pts.max(axis=0) - lo, 1e-6)
+        scale, offset = 1.0 / size, -lo / size
+    a = scale[:, None] * minv[:3, :]
+    a[:, 3] += offset
+    return [float(x) for x in a.reshape(-1)]
+
+
 def _light_spectrum_profile(light):
     """pkg195 Stage B: resolved profile name for preset/custom spectrum modes,
     or '' when the light is in native mode / unresolved."""
@@ -3877,6 +3910,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if cache is None:
             cache = {}
             self._proc_tex_cache = cache
+        # pkg277 (#822): a non-affine Vector chain becomes a coordinate program.
+        coord_prog = self._procedural_coord_program(vector_input)
+        if coord_prog is not None and hasattr(renderer, 'create_coord_program_texture'):
+            return self._load_coord_program_procedural(node, renderer, cache, *coord_prog)
         # Cache key includes the transform so the same procedural node used
         # with different Mapping wiring gets distinct entries. A procedural
         # node only has one Vector input in practice, so the same id+vector
@@ -4050,6 +4087,82 @@ class CustomRaytracerRenderEngine(RenderEngine):
             cache[cache_key] = tex_name
         return tex_name
 
+    def _procedural_coord_program(self, vector_input):
+        """pkg277 (#822): (compiled, base) when a procedural's Vector chain is
+        non-affine and the coordinate op-VM represents it, else None. Affine
+        chains keep _resolve_affine_coordinates. `base` is the resolved affine
+        base coordinate, so a Mapping applies before the warp."""
+        if vector_input is None or not getattr(vector_input, 'is_linked', False):
+            return None
+        notes = []
+        self._resolve_affine_coordinates(
+            vector_input, default_coord_mode='GENERATED',
+            warn=lambda *a: notes.append(a), allow_affine=False)
+        if not notes:
+            return None
+        try:
+            from . import shader_vm_compiler as svm
+        except Exception:
+            import shader_vm_compiler as svm
+        try:
+            compiled = svm.compile_coord_chain(vector_input)
+        except svm.VMCompileError as e:
+            self._warn_shader_fallback('op-VM', 'coordinate chain not representable (%s)' % e)
+            return None
+        if compiled is None:
+            return None
+        bases, signatures = [], []
+        for sock in compiled['coord_sockets']:
+            leaf_notes = []
+            base = self._resolve_affine_coordinates(
+                sock, default_coord_mode='GENERATED',
+                warn=lambda *a: leaf_notes.append(a))
+            if leaf_notes:
+                self._warn_shader_fallback(
+                    'op-VM', 'coordinate program base is not affine (%s)' % leaf_notes[0][-1])
+                return None
+            bases.append(base)
+            signatures.append(self._texture_variant_key(
+                '', base['coord_mode'], (1.0, 1.0), (0.0, 0.0), 0.0,
+                base['uv_layer'], self._affine_matrix_values(base)))
+        if any(sig != signatures[0] for sig in signatures[1:]):
+            self._warn_shader_fallback(
+                'op-VM', 'coordinate program mixes base coordinates; unsupported')
+            return None
+        return compiled, bases[0]
+
+    def _load_coord_program_procedural(self, node, renderer, cache, compiled, base):
+        """pkg277: register `node` unwarped, then wrap it in a
+        CoordProgramTexture carrying the base coord mode + 3-D Mapping."""
+        coord_mode, uv_layer = base['coord_mode'], base['uv_layer']
+        mapping = self._affine_matrix_values(base)
+        mat_name = getattr(self, "_current_material_name", "") or ""
+        node_id = f"{mat_name}.{getattr(node, 'name', '') or id(node)}"
+        cache_key = self._texture_variant_key(
+            f"_proc_{node_id}::coordprog", coord_mode, (1.0, 1.0), (0.0, 0.0), 0.0,
+            uv_layer, mapping)
+        if cache_key in cache:
+            return cache[cache_key]
+        child = self.load_procedural_texture(node, renderer)
+        if child is None:
+            return None
+        name = f"{child}::coordprog"
+        try:
+            renderer.create_coord_program_texture(
+                name, child, coord_mode, compiled['out_slot'], compiled['code_flat'],
+                compiled['consts_flat'], compiled['ramps_flat'])
+        except Exception as e:
+            self._warn_shader_fallback('op-VM', 'coordinate program upload failed (%s)' % e)
+            return None
+        self._apply_texture_transform(renderer, name, coord_mode, (1.0, 1.0), (0.0, 0.0),
+                                      0.0, uv_layer, mapping)
+        if coord_mode not in ('UV', 'GENERATED'):
+            self._warn_shader_fallback(
+                'op-VM', 'coordinate program on %s with %s coordinates: GPU skips the '
+                'texture (flat value); CPU exact' % (getattr(node, 'name', node.type), coord_mode))
+        cache[cache_key] = name
+        return name
+
     def get_base_color_texture(self, node, input_name, renderer):
         """Returns (fallback_color, tex_name_or_None) for a color input,
         handling both Image Texture and procedural texture nodes."""
@@ -4088,7 +4201,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return fallback, prog_name
         return [0.8, 0.8, 0.8], None
 
-    def _maybe_build_program_texture(self, socket, node, input_name, renderer):
+    def _maybe_build_program_texture(self, socket, node, input_name, renderer,
+                                     allow_leaf=False):
         """pkg219b: try to compile the chain feeding `socket` into an op-VM
         program texture. Returns the registered program-texture name, or None if
         the chain is not a per-texel op (or the renderer lacks the bindings)."""
@@ -4099,7 +4213,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         except Exception:
             import shader_vm_compiler as svm
         try:
-            compiled = svm.compile_chain(socket)
+            compiled = svm.compile_chain(socket, allow_leaf=allow_leaf)
         except svm.VMCompileError as e:
             self._warn_shader_fallback(
                 "op-VM", "shader chain on '%s' not representable (%s) — "
@@ -4157,7 +4271,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         signatures = []
         for in_node in inputs:
             vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
-            if proc_kind:
+            coord_prog = self._procedural_coord_program(vinp) if proc_kind else None
+            if coord_prog is not None:
+                # pkg277: a warped child carries its base coordinate + 3-D Mapping.
+                resolved = dict(coord_prog[1], coord_program=True)
+            elif proc_kind:
                 resolved = self._resolve_affine_coordinates(
                     vinp, default_coord_mode='GENERATED',
                     warn=self._warn_shader_fallback, allow_affine=False)
@@ -4167,7 +4285,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             resolved_inputs.append(resolved)
             signatures.append(self._texture_variant_key(
                 '', resolved['coord_mode'], (1.0, 1.0), (0.0, 0.0), 0.0,
-                resolved['uv_layer'], self._affine_matrix_values(resolved)))
+                resolved['uv_layer'], self._affine_matrix_values(resolved))
+                + ('::coordprog' if coord_prog is not None else ''))
         if any(signature != signatures[0] for signature in signatures[1:]):
             self._warn_shader_fallback('op-VM', 'texture inputs have differing coordinate mappings; '
                                        'independent program coordinates are unsupported; flattened')
@@ -4217,7 +4336,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # legacy 2-D Mapping (allow_affine=False); mirror that here so CPU (prog)
         # and GPU (baked child) apply the identical transform. Image children use
         # the 3-D affine matrix path unchanged.
-        if proc_kind:
+        if proc_kind and not resolved.get('coord_program'):
             p_scale, p_offset, p_rot = resolved['legacy']
             p_matrix = None
         else:
@@ -4297,7 +4416,46 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     spec['bump_map_texture'] = tex
                     spec['bump_strength'] = normal_inputs['bump_strength']
                     spec['bump_distance'] = normal_inputs['bump_distance']
+            # #846: per-texel op-VM chains on the scalar sockets. Carried for both
+            # routes (Disney + native Principled); the engine attaches them to
+            # either material on CPU and GPU.
+            scalar_programs = self._scalar_program_params(node, renderer)
+            if scalar_programs:
+                spec['scalar_programs'] = scalar_programs
         return spec
+
+    def _scalar_program_params(self, node, renderer):
+        """pkg219d/#846: compile each linked Roughness/Metallic/IOR/Transmission
+        chain into an op-VM program texture. Returns {param_key: program_name};
+        unrepresentable chains are warned inside _maybe_build_program_texture."""
+        out = {}
+        for sock_names, label, key in ((('Roughness',), 'Roughness', 'roughness_program'),
+                                       (('Metallic',), 'Metallic', 'metallic_program'),
+                                       (('IOR',), 'IOR', 'ior_program'),
+                                       # Blender 4.0 renamed Transmission.
+                                       (('Transmission Weight', 'Transmission'),
+                                        'Transmission', 'transmission_program')):
+            sock = None
+            for nm in sock_names:
+                sock = node.inputs.get(nm)
+                if sock is not None:
+                    break
+            if sock is None or not getattr(sock, 'is_linked', False):
+                continue
+            # allow_leaf: a bare texture on a scalar socket has no other path.
+            prog = self._maybe_build_program_texture(sock, node, label, renderer,
+                                                     allow_leaf=True)
+            if prog is not None:
+                out[key] = prog
+        return out
+
+    def _warn_scalar_programs_dropped(self, spec):
+        """#846: the textured-base-colour lambertian route has no scalar slots."""
+        progs = spec.get('scalar_programs') or {}
+        if progs:
+            self._warn_shader_fallback(
+                'BSDF_PRINCIPLED', 'textured Base Color routes through lambertian: '
+                'per-texel %s dropped (both backends)' % ', '.join(sorted(progs)))
 
     # pkg178 Stage 5: Blender Principled sockets present on 5.x but NOT honoured
     # by the native 'principled' material. Thin Film (thickness/IOR), Thin Wall and
@@ -4476,6 +4634,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         for msg in spec.get('native_gaps', []):
             self._warn_shader_fallback('BSDF_PRINCIPLED', msg)
 
+        # #846: per-texel scalar op-VM programs (Roughness/Metallic/IOR/Transmission).
+        native.update(spec.get('scalar_programs') or {})
+
         # Textured base colour → textured-lambertian (Non-goal: base-colour
         # texture slot on the native material). Mirrors the Disney path.
         base_tex = spec.get('base_color_texture')
@@ -4484,6 +4645,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 'BSDF_PRINCIPLED',
                 'textured Base Color routes through lambertian (native material '
                 'has no base-color texture slot yet)')
+            self._warn_scalar_programs_dropped(spec)
             lambert_params = {'texture': base_tex}
             for key in ('normal_map_texture', 'normal_strength',
                         'bump_map_texture', 'bump_strength', 'bump_distance'):
@@ -4765,6 +4927,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # a texture slot, both paths can target Disney directly.
             base_tex = spec.get('base_color_texture')
             if base_tex is not None:
+                self._warn_scalar_programs_dropped(spec)
                 lambert_params = {'texture': base_tex}
                 for key in ('normal_map_texture', 'normal_strength',
                             'bump_map_texture', 'bump_strength', 'bump_distance'):
@@ -4772,6 +4935,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         lambert_params[key] = params[key]
                 return renderer.create_material('lambertian', color, lambert_params)
 
+            params.update(spec.get('scalar_programs') or {})  # #846
+            if 'metallic_program' in params:
+                # #846: the GPU lowers Disney to the closure graph with lobe weights
+                # baked from the constant Metallic, so a per-texel Metallic has no
+                # effect there (measured). Native Principled is exact on both.
+                self._warn_shader_fallback(
+                    'BSDF_PRINCIPLED', 'per-texel Metallic on the Disney material: '
+                    'GPU keeps the constant Metallic lobe mix; CPU exact')
             return renderer.create_material('disney', color, params)
 
         if kind == 'hair':
@@ -5022,32 +5193,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     native[key] = params[key]
             for msg in self._native_principled_gaps(node, native):
                 self._warn_shader_fallback('BSDF_PRINCIPLED', msg)
+            native.update(self._scalar_program_params(node, renderer))  # #846
             return renderer.create_material('principled', base_color, native)
 
-        # pkg219d — per-texel scalar-parameter op-VM chains (Image → Map Range →
-        # Roughness, etc.). Reuse the base-colour op-VM detection/upload; attach the
-        # resulting program-texture names so the engine (DisneyPlugin::substituted()
-        # on CPU + the GPU c_wfProgBinding scalar side table) per-texel-drives the
-        # scalar BSDF inputs. Wired only on this Disney path — the native 'principled'
-        # material and the textured-base-colour 'lambertian' route above do not carry
-        # the DisneyPlugin scalar slots (a documented follow-up). No-ops when a socket
-        # is unlinked or its chain is not a per-texel op (constant default stands).
-        for _sock_name, _param_key in (('Roughness', 'roughness_program'),
-                                       ('Metallic', 'metallic_program'),
-                                       ('IOR', 'ior_program')):
-            _sock = node.inputs.get(_sock_name)
-            if _sock is not None and getattr(_sock, 'is_linked', False):
-                _prog = self._maybe_build_program_texture(
-                    _sock, node, _sock_name, renderer)
-                if _prog is not None:
-                    params[_param_key] = _prog
-        # Transmission uses the Blender-4.0 renamed socket ('Transmission Weight').
-        _tsock = node.inputs.get('Transmission Weight') or node.inputs.get('Transmission')
-        if _tsock is not None and getattr(_tsock, 'is_linked', False):
-            _prog = self._maybe_build_program_texture(
-                _tsock, node, 'Transmission', renderer)
-            if _prog is not None:
-                params['transmission_program'] = _prog
+        # pkg219d/#846 — per-texel scalar op-VM chains (see _scalar_program_params).
+        params.update(self._scalar_program_params(node, renderer))
         return renderer.create_material('disney', base_color, params)
 
     def _render_will_use_gpu(self, settings, renderer):
@@ -5673,14 +5823,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # object's bounding box (Blender Texture Coordinate > Generated;
             # Cycles orco). The exporter bakes world transforms into vertices,
             # so the WORLD-space bbox of this object is the right frame here.
-            # Shared-material multi-object scenes: last writer wins (per-object
-            # texture instancing is a recorded follow-up).
+            # Shared-material multi-object scenes: last writer wins here; #847's
+            # per-object set_objects_generated_transform (below the triangle
+            # upload) overrides it for triangles. The bbox stays the fallback.
             gen_by_mat = getattr(self, "_generated_textures_by_material", {})
+            needs_generated = False
             if gen_by_mat and hasattr(renderer, "set_texture_generated_bbox"):
                 gen_texs = []
                 for slot in obj.material_slots:
                     if slot.material is not None:
                         gen_texs.extend(gen_by_mat.get(slot.material.name, ()))
+                needs_generated = bool(gen_texs)
                 if gen_texs:
                     bmin, bsize = _generated_texspace_bbox(obj, matrix)
                     for tex_name in set(gen_texs):
@@ -5722,6 +5875,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             uv_data = uv_layer_items[0][1] if uv_layer_items else None
 
             n_tri = len(mesh.loop_triangles)
+            gen_matrix = matrix  # #847: pose of the uploaded vertices
             # pkg112: bulk geometry upload — fill contiguous NumPy arrays with
             # Blender's C-speed foreach_get and push the whole mesh in ONE
             # add_triangles_bulk() call instead of one pybind round-trip per
@@ -5749,6 +5903,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 if motion_end_matrix is not None and hasattr(renderer, "add_triangles_bulk_motion"):
                     positions_start = mesh_world_positions(mesh, motion_start_matrix)
                     positions_end = mesh_world_positions(mesh, motion_end_matrix)
+                    gen_matrix = motion_start_matrix  # #847: stored verts' pose
                     renderer.add_triangles_bulk_motion(
                         positions_start, positions_end, material_ids, mat_pass,
                         int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals)
@@ -5817,6 +5972,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # mesh → many add_triangle calls).
             scene_count_after = (renderer.scene_object_count()
                                  if hasattr(renderer, "scene_object_count") else 0)
+            # #847 — per-object Generated frame (object-space texture space).
+            if needs_generated and hasattr(renderer, "set_objects_generated_transform"):
+                gen_affine = _generated_texspace_affine(obj, gen_matrix)
+                if gen_affine is not None:
+                    renderer.set_objects_generated_transform(
+                        scene_count_before, scene_count_after, gen_affine)
             for oid in range(scene_count_before, scene_count_after):
                 # pkg64 Phase 3 — caustic caster flag
                 if is_caustic_caster and hasattr(renderer, "set_object_caustic_caster"):

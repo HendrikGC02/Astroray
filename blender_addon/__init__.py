@@ -3780,6 +3780,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if cache is None:
             cache = {}
             self._proc_tex_cache = cache
+        # pkg277 (#822): a non-affine Vector chain becomes a coordinate program.
+        coord_prog = self._procedural_coord_program(vector_input)
+        if coord_prog is not None and hasattr(renderer, 'create_coord_program_texture'):
+            return self._load_coord_program_procedural(node, renderer, cache, *coord_prog)
         # Cache key includes the transform so the same procedural node used
         # with different Mapping wiring gets distinct entries. A procedural
         # node only has one Vector input in practice, so the same id+vector
@@ -3953,6 +3957,82 @@ class CustomRaytracerRenderEngine(RenderEngine):
             cache[cache_key] = tex_name
         return tex_name
 
+    def _procedural_coord_program(self, vector_input):
+        """pkg277 (#822): (compiled, base) when a procedural's Vector chain is
+        non-affine and the coordinate op-VM represents it, else None. Affine
+        chains keep _resolve_affine_coordinates. `base` is the resolved affine
+        base coordinate, so a Mapping applies before the warp."""
+        if vector_input is None or not getattr(vector_input, 'is_linked', False):
+            return None
+        notes = []
+        self._resolve_affine_coordinates(
+            vector_input, default_coord_mode='GENERATED',
+            warn=lambda *a: notes.append(a), allow_affine=False)
+        if not notes:
+            return None
+        try:
+            from . import shader_vm_compiler as svm
+        except Exception:
+            import shader_vm_compiler as svm
+        try:
+            compiled = svm.compile_coord_chain(vector_input)
+        except svm.VMCompileError as e:
+            self._warn_shader_fallback('op-VM', 'coordinate chain not representable (%s)' % e)
+            return None
+        if compiled is None:
+            return None
+        bases, signatures = [], []
+        for sock in compiled['coord_sockets']:
+            leaf_notes = []
+            base = self._resolve_affine_coordinates(
+                sock, default_coord_mode='GENERATED',
+                warn=lambda *a: leaf_notes.append(a))
+            if leaf_notes:
+                self._warn_shader_fallback(
+                    'op-VM', 'coordinate program base is not affine (%s)' % leaf_notes[0][-1])
+                return None
+            bases.append(base)
+            signatures.append(self._texture_variant_key(
+                '', base['coord_mode'], (1.0, 1.0), (0.0, 0.0), 0.0,
+                base['uv_layer'], self._affine_matrix_values(base)))
+        if any(sig != signatures[0] for sig in signatures[1:]):
+            self._warn_shader_fallback(
+                'op-VM', 'coordinate program mixes base coordinates; unsupported')
+            return None
+        return compiled, bases[0]
+
+    def _load_coord_program_procedural(self, node, renderer, cache, compiled, base):
+        """pkg277: register `node` unwarped, then wrap it in a
+        CoordProgramTexture carrying the base coord mode + 3-D Mapping."""
+        coord_mode, uv_layer = base['coord_mode'], base['uv_layer']
+        mapping = self._affine_matrix_values(base)
+        mat_name = getattr(self, "_current_material_name", "") or ""
+        node_id = f"{mat_name}.{getattr(node, 'name', '') or id(node)}"
+        cache_key = self._texture_variant_key(
+            f"_proc_{node_id}::coordprog", coord_mode, (1.0, 1.0), (0.0, 0.0), 0.0,
+            uv_layer, mapping)
+        if cache_key in cache:
+            return cache[cache_key]
+        child = self.load_procedural_texture(node, renderer)
+        if child is None:
+            return None
+        name = f"{child}::coordprog"
+        try:
+            renderer.create_coord_program_texture(
+                name, child, coord_mode, compiled['out_slot'], compiled['code_flat'],
+                compiled['consts_flat'], compiled['ramps_flat'])
+        except Exception as e:
+            self._warn_shader_fallback('op-VM', 'coordinate program upload failed (%s)' % e)
+            return None
+        self._apply_texture_transform(renderer, name, coord_mode, (1.0, 1.0), (0.0, 0.0),
+                                      0.0, uv_layer, mapping)
+        if coord_mode not in ('UV', 'GENERATED'):
+            self._warn_shader_fallback(
+                'op-VM', 'coordinate program on %s with %s coordinates: GPU skips the '
+                'texture (flat value); CPU exact' % (getattr(node, 'name', node.type), coord_mode))
+        cache[cache_key] = name
+        return name
+
     def get_base_color_texture(self, node, input_name, renderer):
         """Returns (fallback_color, tex_name_or_None) for a color input,
         handling both Image Texture and procedural texture nodes."""
@@ -4060,7 +4140,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         signatures = []
         for in_node in inputs:
             vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
-            if proc_kind:
+            coord_prog = self._procedural_coord_program(vinp) if proc_kind else None
+            if coord_prog is not None:
+                # pkg277: a warped child carries its base coordinate + 3-D Mapping.
+                resolved = dict(coord_prog[1], coord_program=True)
+            elif proc_kind:
                 resolved = self._resolve_affine_coordinates(
                     vinp, default_coord_mode='GENERATED',
                     warn=self._warn_shader_fallback, allow_affine=False)
@@ -4070,7 +4154,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             resolved_inputs.append(resolved)
             signatures.append(self._texture_variant_key(
                 '', resolved['coord_mode'], (1.0, 1.0), (0.0, 0.0), 0.0,
-                resolved['uv_layer'], self._affine_matrix_values(resolved)))
+                resolved['uv_layer'], self._affine_matrix_values(resolved))
+                + ('::coordprog' if coord_prog is not None else ''))
         if any(signature != signatures[0] for signature in signatures[1:]):
             self._warn_shader_fallback('op-VM', 'texture inputs have differing coordinate mappings; '
                                        'independent program coordinates are unsupported; flattened')
@@ -4120,7 +4205,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # legacy 2-D Mapping (allow_affine=False); mirror that here so CPU (prog)
         # and GPU (baked child) apply the identical transform. Image children use
         # the 3-D affine matrix path unchanged.
-        if proc_kind:
+        if proc_kind and not resolved.get('coord_program'):
             p_scale, p_offset, p_rot = resolved['legacy']
             p_matrix = None
         else:

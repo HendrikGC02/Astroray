@@ -45,6 +45,9 @@ MATH_OPS = {
     'LESS_THAN': 15, 'GREATER_THAN': 16, 'SIGN': 17,
 }
 MATH_TERNARY = {'MULTIPLY_ADD'}  # ops that read the 3rd (c) input
+# pkg277 — scalar trig: the VM broadcasts scalars, so Math(Sin/Cos/Tan) lowers to
+# the existing OP_VEC_MATH SINE/COSINE/TANGENT (Cycles svm/math_util.h).
+MATH_TRIG = {'SINE': 'SINE', 'COSINE': 'COSINE', 'TANGENT': 'TANGENT'}
 
 MIX_OPS = {
     'MIX': 0, 'ADD': 1, 'MULTIPLY': 2, 'SUBTRACT': 3, 'SCREEN': 4,
@@ -111,6 +114,11 @@ class ProgramBuilder:
         self.ramps = []         # flat floats, RAMP_TABLE_SIZE*3 per ramp
         self.inputs = []        # input texture nodes, in OP_LOAD_TEX order
         self._next_slot = 0
+        # pkg277 — coordinate mode: TEX_COORD / UVMAP / MAPPING sources become
+        # OP_LOAD_TEX 0 (the resolved point); their linked sockets are recorded
+        # so the addon resolves the affine base via _resolve_affine_coordinates.
+        self.coord_mode = False
+        self.coord_sockets = []
 
     # -- resource allocation --------------------------------------------------
     def alloc_slot(self):
@@ -178,6 +186,11 @@ _PROC_TEX_TYPES = frozenset((
 
 def _is_proc_texture(node):
     return getattr(node, 'type', None) in _PROC_TEX_TYPES
+
+
+# pkg277 — coordinate sources that the affine resolver handles; in coordinate
+# mode they are the program's single input (OP_LOAD_TEX 0).
+_COORD_LEAF_TYPES = frozenset(('TEX_COORD', 'UVMAP', 'MAPPING'))
 
 
 def _is_texture_leaf(node):
@@ -311,6 +324,15 @@ def _compile_socket_value(socket, builder, depth=0):
     node, out_name = src
     ntype = getattr(node, 'type', None)
 
+    if builder.coord_mode:
+        if ntype in _COORD_LEAF_TYPES:
+            builder.coord_sockets.append(socket)
+            s = builder.alloc_slot()
+            builder.emit(OP_LOAD_TEX, s, imm=0)
+            return s
+        if _is_texture_leaf(node):
+            raise VMCompileError("texture-driven coordinates are unsupported")
+
     # issue #818 Item 1 — image OR procedural texture nodes are input leaves.
     if _is_texture_leaf(node):
         return builder.push_tex(node)
@@ -402,6 +424,36 @@ def _compile_socket_value(socket, builder, depth=0):
             imm |= VEC_ROTATE_INVERT
         out = builder.alloc_slot()
         builder.emit(OP_VEC_ROTATE, out, a=vec_s, b=ctr_s, c=c_s, d=d_s, imm=imm)
+        return out
+
+    if ntype == 'SEPXYZ':  # pkg277 — Separate XYZ == Separate Color (RGB)
+        comp = {'X': 0, 'Y': 1, 'Z': 2}.get(out_name)
+        if comp is None:
+            raise VMCompileError("unsupported Separate XYZ output: %s" % out_name)
+        v_s = compile_socket(_get_input(node, 'Vector'), builder, depth + 1)
+        out = builder.alloc_slot()
+        builder.emit(OP_SEP_COLOR, out, a=v_s, imm=CS_RGB * 4 + comp)
+        return out
+
+    if ntype == 'COMBXYZ':  # pkg277 — Combine XYZ == Combine Color (RGB)
+        x_s = compile_socket(_get_input(node, 'X'), builder, depth + 1)
+        y_s = compile_socket(_get_input(node, 'Y'), builder, depth + 1)
+        z_s = compile_socket(_get_input(node, 'Z'), builder, depth + 1)
+        out = builder.alloc_slot()
+        builder.emit(OP_COMBINE_COLOR, out, a=x_s, b=y_s, c=z_s, imm=CS_RGB)
+        return out
+
+    if ntype == 'MATH' and getattr(node, 'operation', None) in MATH_TRIG:
+        a_s = compile_socket(node.inputs[0], builder, depth + 1)
+        out = builder.alloc_slot()
+        builder.emit(OP_VEC_MATH, out, a=a_s,
+                     imm=VEC_MATH_OPS[MATH_TRIG[node.operation]])
+        if getattr(node, 'use_clamp', False):
+            zero = builder.push_const([0.0, 0.0, 0.0])
+            clamped = builder.alloc_slot()
+            builder.emit(OP_MATH, clamped, a=out, b=zero,
+                         imm=MATH_OPS['ADD'] | SVM_MATH_CLAMP)
+            return clamped
         return out
 
     if ntype == 'MATH':
@@ -565,4 +617,34 @@ def compile_chain(socket):
         'consts_flat': builder.consts,
         'ramps_flat': builder.ramps,
         'inputs': builder.inputs,
+    }
+
+
+def compile_coord_chain(socket):
+    """pkg277 — compile a procedural's Vector chain into a coordinate program.
+
+    Returns None when the chain is unlinked or starts at an affine source
+    (TEX_COORD / UVMAP / MAPPING: the existing affine path handles it), or has
+    no coordinate leaf. Raises VMCompileError if unrepresentable. On success
+    returns {out_slot, code_flat, consts_flat, ramps_flat, coord_sockets}: the
+    program maps the resolved point (OP_LOAD_TEX 0) to the child's point, and
+    coord_sockets are the linked sockets of its affine base coordinate.
+    """
+    src = _linked_source(socket)
+    if src is None or getattr(src[0], 'type', None) in _COORD_LEAF_TYPES:
+        return None
+    builder = ProgramBuilder()
+    builder.coord_mode = True
+    out_slot = compile_socket(socket, builder, 0)
+    if not builder.coord_sockets:
+        return None
+    code_flat = []
+    for ins in builder.code:
+        code_flat.extend(ins)
+    return {
+        'out_slot': out_slot,
+        'code_flat': code_flat,
+        'consts_flat': builder.consts,
+        'ramps_flat': builder.ramps,
+        'coord_sockets': builder.coord_sockets,
     }

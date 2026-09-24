@@ -393,11 +393,14 @@ def test_apply_camera_auto_fit_landscape_matches_horizontal(monkeypatch):
     assert abs(auto[3] - horiz[3]) < 1e-6
 
 
-def test_apply_camera_auto_fit_portrait_matches_vertical(monkeypatch):
-    """AUTO on a portrait image (height > width) must equal VERTICAL fit."""
-    auto = _apply_camera_args(monkeypatch, width=90, height=160, sensor_fit='AUTO')
-    vert = _apply_camera_args(monkeypatch, width=90, height=160, sensor_fit='VERTICAL')
-    assert abs(auto[3] - vert[3]) < 1e-6
+def test_apply_camera_auto_fit_portrait_uses_sensor_width(monkeypatch):
+    """AUTO on a portrait image fits sensor_WIDTH to the (larger) vertical axis
+    (Blender BKE_camera_sensor_size; Blender 5.2 calc_matrix_camera gives
+    39.598 deg for 50 mm / 36 mm on 200x320). #845: was sensor_height."""
+    auto = _apply_camera_args(monkeypatch, width=90, height=160, sensor_fit='AUTO',
+                              sensor_width=36.0, sensor_height=24.0, lens=50.0)
+    assert abs(auto[3] - math.degrees(2.0 * math.atan(36.0 / 100.0))) < 1e-6
+    assert abs(auto[3] - 39.5977541) < 1e-4
 
 
 def test_apply_camera_shift_film_fit_scaled(monkeypatch):

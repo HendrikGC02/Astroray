@@ -2294,12 +2294,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         aspect = width / max(1, height)
         fit = camera.sensor_fit
-        # AUTO picks the axis with the larger image dimension
-        if fit == 'AUTO':
+        # AUTO fits sensor_width to the larger image dimension
+        # (BKE_camera_sensor_size returns sensor_x for AUTO), so a portrait
+        # AUTO frame uses sensor_width vertically, not sensor_height.
+        auto = fit == 'AUTO'
+        if auto:
             fit = 'HORIZONTAL' if width >= height else 'VERTICAL'
 
         if fit == 'VERTICAL':
-            sensor = camera.sensor_height
+            sensor = camera.sensor_width if auto else camera.sensor_height
             vfov_rad = 2.0 * math.atan(sensor / (2.0 * camera.lens))
         else:  # HORIZONTAL
             sensor = camera.sensor_width

@@ -50,6 +50,10 @@ struct SceneUploadResult {
     std::vector<GVec3>         textureTexels;
     std::vector<int>           materialTextureId;
     bool                       hasTexture = false;
+    // #847 — per-vertex Generated coords parallel to `triangles` (3 per tri;
+    // NaN .x = none). Empty unless a Generated 3D bake AND a triangle carrying
+    // Triangle::setGenerated exist (and the scene is not instanced).
+    std::vector<GVec3>         triGenerated;
 
     // pkg223 — tangent-space normal maps. Parallel to `materials`:
     // `materialNormalTexId[i]` indexes `textures` for material i's normal map

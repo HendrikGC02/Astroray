@@ -115,6 +115,17 @@ protected:
                 // space for exported meshes. Shared-material multi-object
                 // scenes get the last writer's bbox (per-object texture
                 // instancing is the follow-up).
+                // #847 — per-vertex object-space Generated (rotation-correct,
+                // per object) takes precedence over the per-texture bbox.
+                {
+                    Vec3 g;
+                    if (rec.hitObject && rec.hitObject->generatedCoord(rec.point, g)) {
+                        g = Vec3(std::clamp(g.x, 0.0f, 1.0f),
+                                 std::clamp(g.y, 0.0f, 1.0f),
+                                 std::clamp(g.z, 0.0f, 1.0f));
+                        return {Vec2(g.x, g.y), g};
+                    }
+                }
                 if (hasGenBBox_) {
                     Vec3 size = genSize_;
                     Vec3 p = rec.objectPoint;

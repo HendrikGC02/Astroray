@@ -2212,6 +2212,33 @@ public:
         return renderer.setObjectHoldout(objectId, enabled);
     }
 
+    // #847 — per-object Generated frame. `m` is the row-major 3x4 world ->
+    // Generated affine; baked onto every Triangle in [begin, end) as per-vertex
+    // Generated coords (Cycles ATTR_STD_GENERATED), so rotation and shared
+    // materials match Cycles and update_object_transform keeps them attached.
+    // Returns the number of triangles set.
+    int setObjectsGeneratedTransform(int begin, int end, const std::vector<float>& m) {
+        if (m.size() != 12)
+            throw std::runtime_error("set_objects_generated_transform: matrix must have 12 floats");
+        auto& scene = renderer.getSceneMutable();
+        invalidateWavefrontScene();  // #801: triangle data read by buildSceneArrays
+        begin = std::max(begin, 0);
+        end = std::min(end, static_cast<int>(scene.size()));
+        auto apply = [&](const Vec3& p) {
+            return Vec3(m[0]*p.x + m[1]*p.y + m[2]*p.z  + m[3],
+                        m[4]*p.x + m[5]*p.y + m[6]*p.z  + m[7],
+                        m[8]*p.x + m[9]*p.y + m[10]*p.z + m[11]);
+        };
+        int n = 0;
+        for (int i = begin; i < end; ++i) {
+            if (auto* tri = dynamic_cast<Triangle*>(scene[i].get())) {
+                tri->setGenerated(apply(tri->getV0()), apply(tri->getV1()), apply(tri->getV2()));
+                ++n;
+            }
+        }
+        return n;
+    }
+
     int getCausticCasterCount() const {
         return renderer.getCausticCasterCount();
     }
@@ -3897,6 +3924,11 @@ PYBIND11_MODULE(astroray, m) {
              "pkg274 (#36) — flag an object (by addObject order) as holdout. The "
              "primary camera ray's first hit on it writes color 0 / alpha 0 "
              "(a transparent hole); indirect rays are untouched. CPU only.")
+        .def("set_objects_generated_transform", &PyRenderer::setObjectsGeneratedTransform,
+             "begin"_a, "end"_a, "matrix"_a,
+             "#847 — bake a row-major 3x4 world->Generated affine onto the "
+             "triangles in [begin, end) (addObject order) as per-vertex Generated "
+             "coords (Blender object-space texture space). Returns the count set.")
         .def("caustic_caster_count", &PyRenderer::getCausticCasterCount)
         .def("scene_object_count", &PyRenderer::getSceneObjectCount)
         .def("set_object_name", &PyRenderer::setObjectName,

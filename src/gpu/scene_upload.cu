@@ -418,6 +418,18 @@ static void appendOnePrim(
         // (per-batch stable pointers; see Renderer::motionVertexBatches_).
         gt.motionOffset = -1;
         gt.motionSteps = 1;
+        // #847 — per-vertex Generated coords, lazily padded with the NaN
+        // "none" sentinel so the array stays parallel to r.triangles.
+        {
+            Vec3 g0, g1, g2;
+            if (tri->getGenerated(g0, g1, g2)) {
+                const float nan = std::numeric_limits<float>::quiet_NaN();
+                r.triGenerated.resize((size_t)gp.index * 3, GVec3(nan, nan, nan));
+                r.triGenerated.push_back(GVec3(g0.x, g0.y, g0.z));
+                r.triGenerated.push_back(GVec3(g1.x, g1.y, g1.z));
+                r.triGenerated.push_back(GVec3(g2.x, g2.y, g2.z));
+            }
+        }
         r.triangles.push_back(gt);
         std::string objName = tri->getName();
         if (objName.empty()) objName = "Unnamed_Triangle_" + std::to_string(r.triangles.size() - 1);
@@ -1463,6 +1475,21 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     for (const auto& batch : cpu.getMotionVertexBatches()) {
         for (const auto& v : batch)
             r.motionVertices.push_back(GVec3(v.x, v.y, v.z));
+    }
+
+    // --- #847: per-vertex Generated coords ---
+    // Only read by the Generated 3D-bake fetch (depth > 1). Instanced BLAS
+    // triangles are object-local while the fetch uses the world hit point, so
+    // instanced scenes keep the per-texture bbox frame (pre-#847 behaviour).
+    {
+        bool hasGenBake = false;
+        for (const auto& t : r.textures) hasGenBake = hasGenBake || t.depth > 1;
+        if (!hasGenBake || cpu.hasInstances()) {
+            r.triGenerated.clear();
+        } else if (!r.triGenerated.empty()) {
+            const float nan = std::numeric_limits<float>::quiet_NaN();
+            r.triGenerated.resize(r.triangles.size() * 3, GVec3(nan, nan, nan));
+        }
     }
 
     // --- Environment map ---

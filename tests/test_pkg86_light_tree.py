@@ -434,5 +434,36 @@ class TestIssue851TreeSeams:
         ratio = np.mean(tree) / np.mean(power)
         assert abs(ratio - 1.0) < 0.05, f"tree/power mean ratio {ratio:.3f}"
 
+    def test_tree_energy_is_intensity_not_flux(self):
+        """Cycles weights tree emitters by on-axis intensity (area: power/pi,
+        point: power/4pi). With flux, a point light looked 4x too important
+        next to an area light of the same intensity parameter (#851).
+        Equal distance, area light facing the point: one leaf, and the area
+        light owns the whole min-importance term, so
+        p_point = 0.5 * max_point / (max_point + max_area):
+        intensity -> 0.5 * 1/2 = 0.25; flux (pi vs 4 pi) -> 0.5 * 4/5 = 0.40."""
+        r = astroray.Renderer()
+        r.set_background_color([0.0, 0.0, 0.0])
+        floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+        r.add_triangle([-5, 0, -5], [5, 0, 5], [5, 0, -5], floor)
+        r.add_triangle([-5, 0, -5], [-5, 0, 5], [5, 0, 5], floor)
+        white = {"mode": "rgb", "color": [1.0, 1.0, 1.0]}
+        s5 = 5.0 ** 0.5
+        # Normal = u x v = (-1,-2,0)/sqrt5: faces the query point at the origin.
+        r.add_area_light_dedicated(center=[1, 2, 0], axis_u=[0, 0, 1],
+                                   axis_v=[-2 / s5, 1 / s5, 0], size_x=0.05, size_y=0.05,
+                                   shape="RECTANGLE", emission=white, intensity=10.0,
+                                   spread=3.14159)
+        r.add_point_light([-1, 2, 0], white, 10.0)  # dedicated PointLight
+        setup_camera(r, look_from=[0, 3, 6], look_at=[0, 0, 0], width=16, height=16)
+        r.set_light_sampler("tree")
+        r.render(1, 1, None, False)  # builds the tree
+        n = 2000
+        us = np.random.default_rng(4).uniform(0, 1, n)
+        idx, pdf = r.debug_light_tree_pick([0.0, 0.0, 0.0] * n, [0.0, 1.0, 0.0] * n, us.tolist())
+        assert set(np.asarray(idx).tolist()) == {-2}
+        p_point = float(np.min(pdf))
+        assert abs(p_point - 0.25) < 0.03, f"point-light share {p_point:.3f} (flux weighting gives 0.40)"
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

@@ -49,6 +49,20 @@ Adaptive Tree Splitting" (§4.4 importance); Cycles `kernel/light/tree.h`
    `AreaLight::spread` is the emission half-angle (#852), so this equals the
    Cycles cone. The π/2 cap matches the front-face test.
 
+6. **Tree energy units.** The tree weighted dedicated lights by flux
+   (`power()`) and meshes by luminance × AABB surface area. Cycles uses the
+   on-axis radiant intensity (`scene/light_tree.cpp`: area strength/π, point
+   and spot strength/(4π), mesh area × emission), so energy/d² tracks
+   irradiance. Flux made a point light look 4× too important next to an area
+   light. The new `Light::treeEnergy()` gives power/π for area, power/4π for
+   point and power/Ω for spot. Emissive triangles use L·area, spheres L·πr²,
+   and other shapes L·(bbox surface)/4. The power sampler is unchanged.
+   Measured on materials_hall (world contribution subtracted): the floor is
+   lit by Key 65%, world 18% and Fill 15%. The nearby point lights and meshes
+   add about 1%, but the tree sampled them far more often than that.
+   Reference: Cycles tree on/off on the same scene gives wall 0.48 and floor
+   0.12 (`astra_run/batchU/u851/cycles_table.txt`).
+
 ## Not ported (still differs from Cycles)
 
 - Min/max-importance averaging for inner nodes (`get_left_probability`).

@@ -53,6 +53,7 @@ public:
                    Intersection& out) const override;
 
     float power() const override;
+    float treeEnergy() const override;  // #851
 
     AABB bounds() const override;
 

@@ -197,6 +197,12 @@ float AreaLight::power() const {
     return luminance * intensity_ * normalizeFactor_ * area_ * static_cast<float>(M_PI);
 }
 
+// #851: Lambertian emitter, power = L*A*pi; on-axis intensity L*A (Cycles:
+// strength * M_1_PI_F, scene/light_tree.cpp).
+float AreaLight::treeEnergy() const {
+    return power() / static_cast<float>(M_PI);
+}
+
 AABB AreaLight::bounds() const {
     // Bounding box of the area light shape.
     Vec3 corners[4];

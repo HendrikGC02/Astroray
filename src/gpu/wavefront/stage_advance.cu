@@ -526,7 +526,7 @@ __device__ int intersectPathSlotT(
                 // Volume emission along the flight (pkg270): Emission pass when
                 // directly visible, else <firstCat>_INDIRECT (surface-emission rule).
                 GSampledSpectrum ce = gpu_clampContribMW(
-                    emission, lambdas, bounce, clampDirect, clampIndirect, useLuminanceOutput);
+                    emission, lambdas, bounce - 1, clampDirect, clampIndirect, useLuminanceOutput);  // #860
                 color += ce;
                 if constexpr (HasLightPassAOVs) {
                     unsigned char cat = c_wfLpBinding.firstCat[idx];
@@ -694,7 +694,7 @@ __device__ int intersectPathSlotT(
                 // naive mode (enableNEE == false, non-specular): no NEE leg to
                 // complement, so nothing is added — mirrors the emissive block.
                 GSampledSpectrum lampContrib = gpu_clampContribMW(
-                    contrib, lambdas, bounce,
+                    contrib, lambdas, bounce - 1,   // #860: emission hit = Cycles bounce-1
                     clampDirect, clampIndirect, useLuminanceOutput);
                 color += lampContrib;
                 // pkg198 Stage 2: a lamp hit by a continuation ray is indirect light
@@ -763,7 +763,7 @@ __device__ int intersectPathSlotT(
             // pkg157: clamp by bounce depth (Cycles film_clamp_light split);
             // see gpu_clampContribMW (gpu_spectral_tables.h).
             GSampledSpectrum envContrib = gpu_clampContribMW(
-                throughput * envSpec, lambdas, bounce,
+                throughput * envSpec, lambdas, bounce - 1,   // #860
                 clampDirect, clampIndirect, useLuminanceOutput);
             color += envContrib;
             // pkg198 Stage 2: directly-visible background → PASS_ENVIRONMENT; a
@@ -839,7 +839,7 @@ __device__ int intersectPathSlotT(
             // pkg157: emissive-hit direct term, same clamp split as above.
             // Camera / post-specular ray: no NEE leg competes (w_B = 1).
             GSampledSpectrum emitContrib = gpu_clampContribMW(
-                throughput * Le, lambdas, bounce,
+                throughput * Le, lambdas, bounce - 1,   // #860
                 clampDirect, clampIndirect, useLuminanceOutput);
             color += emitContrib;
             // pkg198 Stage 2: directly-visible surface emission → PASS_EMISSION;
@@ -876,7 +876,7 @@ __device__ int intersectPathSlotT(
             GSampledSpectrum contrib = throughput * Le;
             contrib *= wB;
             GSampledSpectrum emitContrib = gpu_clampContribMW(
-                contrib, lambdas, bounce,
+                contrib, lambdas, bounce - 1,   // #860
                 clampDirect, clampIndirect, useLuminanceOutput);
             color += emitContrib;
             // pkg198 Stage 2: two-sided-MIS emissive hit at a diffuse bounce is

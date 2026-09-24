@@ -2578,6 +2578,12 @@ class Renderer {
     // including delta-light NEE) and indirect (bounce>0) contributions are
     // clamped independently rather than the old top-level clamp on the whole
     // summed path.
+    // #860: NEE sites pass the vertex's `bounce`; EMISSION HITS (lamp, emissive
+    // surface, background, volume emission) pass `bounce - 1`, as Cycles'
+    // film_write_{surface,volume}_emission / film_write_background do — a light
+    // reached by the continuation from the first vertex is DIRECT light. Passing
+    // `bounce` clamped that leg with sample_clamp_indirect (Blender default 10) and
+    // dimmed the backlit geometry_zoo volume cubes to 0.55-0.8 of Cycles.
     astroray::SampledSpectrum clampContribSpectral(const astroray::SampledSpectrum& contrib,
                                                     const astroray::SampledWavelengths& lambdas,
                                                     int bounce) const {
@@ -3228,7 +3234,7 @@ public:
                         // directly visible, else folded into <firstCat>_INDIRECT
                         // (same classification as surface emission, pkg198).
                         astroray::SampledSpectrum ce =
-                            clampContribSpectral(ff.emission, lambdas, bounce);
+                            clampContribSpectral(ff.emission, lambdas, bounce - 1);  // #860
                         color += ce;
                         addPass((firstCat < 0) ? PASS_EMISSION : (firstCat * 3 + 1), ce);
                     }
@@ -3468,14 +3474,14 @@ public:
                         int lampPass = (firstCat < 0 ? 0 : firstCat) * 3 + 1;
                         if (wasSpecular || !lightNeeEnabled) {  // pkg265: NEE off -> w_B = 1
                             astroray::SampledSpectrum c =
-                                clampContribSpectral(throughput * lampEmission, lambdas, bounce);
+                                clampContribSpectral(throughput * lampEmission, lambdas, bounce - 1);
                             color += c; addPass(lampPass, c);
                         } else {
                             float lp = lights.pdfValue(ray.origin, ray.direction);
                             float bp = bsdfPdfPrev;
                             float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                             astroray::SampledSpectrum c =
-                                clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce);
+                                clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce - 1);
                             color += c; addPass(lampPass, c);
                         }
                     }
@@ -3520,7 +3526,7 @@ public:
                     // film_write_emission_or_background_pass / film_write_background).
                     int envPass = (firstCat < 0) ? PASS_ENVIRONMENT : (firstCat * 3 + 1);
                     astroray::SampledSpectrum c =
-                        clampContribSpectral(throughput * weighted, lambdas, bounce);
+                        clampContribSpectral(throughput * weighted, lambdas, bounce - 1);
                     color += c; addPass(envPass, c);
                 }
                 break;
@@ -3592,7 +3598,7 @@ public:
                     // Camera / post-specular ray: no NEE leg competes for this
                     // direction, so the whole emission is taken (w_B = 1).
                     astroray::SampledSpectrum c =
-                        clampContribSpectral(throughput * Le_spec, lambdas, bounce);
+                        clampContribSpectral(throughput * Le_spec, lambdas, bounce - 1);
                     color += c; addPass(emitPass, c);
                 } else {
                     // pkg120: two-sided MIS. A BSDF-sampled continuation ray hit
@@ -3615,7 +3621,7 @@ public:
                     // gpu_mw_powerHeuristic, so w_L + w_B ≈ 1 per direction.
                     float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                     astroray::SampledSpectrum c =
-                        clampContribSpectral(throughput * Le_spec * wB, lambdas, bounce);
+                        clampContribSpectral(throughput * Le_spec * wB, lambdas, bounce - 1);
                     color += c; addPass(emitPass, c);
                 }
                 break;

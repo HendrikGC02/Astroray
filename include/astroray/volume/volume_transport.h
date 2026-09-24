@@ -286,11 +286,13 @@ inline SpectralFlight spectralTrack(const BoundedMedium& m, const Vec3& o, const
 
 // #842 — free flight where n >= 2 bounded media overlap on [tMin,tMax]. The
 // coefficients add (Cycles volume stack: shade_volume.h volume_shader_sample sums
-// the closures of every volume the point is inside; pbrt-v4 media.h
-// SampleT_maj over a summed majorant). σ̄ = Σ σ̄_k; each medium's scattering is its
-// own collision type (pScatter_k = σ_s,k[0]/σ̄, beta, r_u *= σ_s,k/σ_s,k[0]), so
+// the closures of every volume the point is inside, Apache-2.0). Null-collision
+// tracking over a summed majorant with one collision type per component (Novák
+// et al. 2018, "Monte Carlo Methods for Volumetric Light Transport Simulation",
+// §3-4): σ̄ = Σ σ̄_k; each medium's scattering is its own type (pScatter_k =
+// σ_s,k[0]/σ̄; beta, r_u *= σ_s,k/σ_s,k[0], the pbrt-v4 VolPath update), so
 // `which` names the medium whose phase function the scatter uses. One uniform per
-// collision, as spectralTrack.
+// collision, as spectralTrack. Research: issue842-sequential-media-research.md.
 inline SpectralFlight spectralTrackOverlap(const BoundedMedium* const* act, int n,
                                            const Vec3& o, const Vec3& d, float tMin,
                                            float tMax, const astroray::SampledWavelengths& wl,

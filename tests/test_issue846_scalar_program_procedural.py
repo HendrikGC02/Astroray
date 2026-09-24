@@ -133,6 +133,55 @@ def test_846_gpu_scalar_procedural_program_parity(socket, kind):
 
 
 # --------------------------------------------------------------------------- #
+# Native Principled dispersion follows the PER-HIT transmission (review finding):
+# constant transmission 0 + a program driving it to 1 must disperse exactly like
+# constant transmission 1 (dispersive_ recomputed in substituted()). A glass
+# sphere over a black/white stripe backdrop: dispersion splits the stripe edges
+# into colour fringes (per-pixel chroma), which a non-dispersive sphere lacks.
+# --------------------------------------------------------------------------- #
+def _dispersion_render(trans_const, with_program, dispersion):
+    r = create_renderer()
+    r.set_seed(3)
+    r.set_background_color([0.0, 0.0, 0.0])
+    params = {"transmission_weight": trans_const, "roughness": 0.0, "ior": 1.5,
+              "dispersion_scale": dispersion, "dispersion_abbe": 5.0}
+    if with_program:
+        r.load_texture("t846_one", [1.0, 1.0, 1.0], 1, 1, "UV")
+        r.create_program_texture("t846_prog", "UV")
+        r.program_texture_add_input("t846_prog", "t846_one")
+        r.set_program_texture_program("t846_prog", 1, 0,
+                                      [OP_LOAD_TEX, 0, 0, 0, 0, 0, 0, 0], [], [])
+        params["transmission_program"] = "t846_prog"
+    glass = r.create_material("principled", [1.0, 1.0, 1.0], params)
+    r.add_sphere([0.0, 0.0, 0.0], 0.9, glass)
+    white = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 1.0})
+    for i in range(-4, 5, 2):  # emissive stripes on a backdrop at z = -2
+        x0, x1 = i * 0.5, i * 0.5 + 0.5
+        A, B, C, D = [x0, -3, -2], [x1, -3, -2], [x1, 3, -2], [x0, 3, -2]
+        r.add_triangle(A, B, C, white)
+        r.add_triangle(A, C, D, white)
+    setup_camera(r, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0],
+                 vfov=40, width=64, height=64)
+    return render_image(r, samples=128, max_depth=8, apply_gamma=False)
+
+
+def _chroma(img):
+    """Mean per-pixel colour spread inside the sphere's central disc."""
+    c = img[16:48, 16:48]
+    return float((c.max(axis=2) - c.min(axis=2)).mean())
+
+
+def test_846_principled_transmission_program_disperses():
+    prog = _chroma(_dispersion_render(0.0, True, 1.0))
+    const_disp = _chroma(_dispersion_render(1.0, False, 1.0))
+    const_flat = _chroma(_dispersion_render(1.0, False, 0.0))
+    assert const_disp > 3 * const_flat, (const_disp, const_flat)  # scene shows dispersion
+    assert abs(prog - const_disp) < 0.2 * const_disp, (
+        f"program transmission 1 did not disperse like constant 1: prog={prog:.4f} "
+        f"const_disp={const_disp:.4f} const_flat={const_flat:.4f}")
+
+
+# --------------------------------------------------------------------------- #
 # Addon (bpy-free): the LIVE Principled path (_principled_shader_spec ->
 # _create_material_from_shader_spec) attaches scalar programs on both routes.
 # Before #846 only the uncalled convert_principled_bsdf_v2 did, so Blender

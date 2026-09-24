@@ -114,6 +114,9 @@ class PrincipledPlugin : public Material {
             c.ior_ = std::max(1.0f, iorProgram_->value(rec, wo).x);
             cauchyAB(c.ior_, invAbbe_, c.cauchyA_, c.cauchyB_);
         }
+        // Same rule as the ctor, on the per-hit transmission (gates the hero-λ
+        // refraction + collapse in sampleSpectral).
+        c.dispersive_ = (c.transmission_ > 1e-4f) && (invAbbe_ > 0.0f);
         c.roughnessProgram_ = c.metallicProgram_ =
             c.transmissionProgram_ = c.iorProgram_ = nullptr;
         return c;

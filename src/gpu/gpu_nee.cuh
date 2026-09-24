@@ -417,14 +417,16 @@ __device__ inline bool gpu_dedicated_intersect(
 }
 
 // Closest dedicated-light hit along the ray (Area/Distant). Returns the winning
-// light index (-1 = none) with its t / emission scale.
+// light index (-1 = none) with its t / emission scale. #903: cameraRay skips
+// lamps without cameraVisible (CPU LightList::intersectDedicated twin).
 __device__ inline int gpu_dedicated_intersect_closest(
     const GDedicatedLight* dedLights, int numDed,
     const GVec3& origin, const GVec3& dir, float tMin, float tMax,
-    float* tOut, float* scaleOut)
+    float* tOut, float* scaleOut, bool cameraRay = false)
 {
     int best = -1; float closest = tMax; float sc = 0.f;
     for (int j = 0; j < numDed; ++j) {
+        if (cameraRay && !dedLights[j].cameraVisible) continue;
         float tt, s;
         if (gpu_dedicated_intersect(dedLights[j], origin, dir, tMin, closest, &tt, &s)) {
             closest = tt; sc = s; best = j;

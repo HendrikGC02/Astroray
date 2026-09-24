@@ -1492,10 +1492,12 @@ public:
     bool intersectDedicated(const Vec3& origin, const Vec3& dir,
                             float tMin, float tMax,
                             const astroray::SampledWavelengths& lambdas,
-                            astroray::Light::Intersection& out) const {
+                            astroray::Light::Intersection& out,
+                            bool cameraRay = false) const {
         bool anyHit = false;
         float closest = tMax;
         for (const auto& l : dedicatedLights) {
+            if (cameraRay && !l->cameraVisible) continue;  // #903
             astroray::Light::Intersection tmp;
             if (l->intersect(origin, dir, tMin, closest, lambdas, tmp)) {
                 closest = tmp.t;
@@ -1504,6 +1506,13 @@ public:
             }
         }
         return anyHit;
+    }
+
+    // #903: any dedicated lamp camera rays can hit (sky-texture sun disc).
+    bool hasCameraVisibleDedicated() const {
+        for (const auto& l : dedicatedLights)
+            if (l->cameraVisible) return true;
+        return false;
     }
 
     bool empty() const { return lights.empty() && dedicatedLights.empty(); }
@@ -3558,11 +3567,13 @@ public:
             // path uses below (wB = 1 after a specular/delta bounce, where no
             // NEE leg competes; power-heuristic otherwise). Fixes the systemic
             // dim + dark lamp-reflections localized by pkg180 Phase 2.
-            if (bounce > 0 && !lights.getDedicatedLights().empty()) {
+            // #903: a cameraVisible lamp (sky sun disc) is also hit at bounce 0.
+            if (!lights.getDedicatedLights().empty() &&
+                (bounce > 0 || lights.hasCameraVisibleDedicated())) {
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
                 astroray::Light::Intersection lh;
                 if (lights.intersectDedicated(ray.origin, ray.direction, 0.001f,
-                                              surfaceT, lambdas, lh)) {
+                                              surfaceT, lambdas, lh, bounce == 0)) {
                     if (!lh.emission.isZero()) {
                         // pkg199 Stage 1 (role 3): the lamp is closer than the
                         // surface, so throughput is not yet segment-attenuated;
@@ -3578,7 +3589,9 @@ public:
                         // pkg198: a lamp hit by a continuation ray is indirect light
                         // (bounce > 0), folded into the first-bounce category's INDIRECT
                         // pass (Cycles film_write_indirect_light).
-                        int lampPass = (firstCat < 0 ? 0 : firstCat) * 3 + 1;
+                        // #903: the camera-visible sky disc is background.
+                        int lampPass = (bounce == 0) ? PASS_ENVIRONMENT
+                                                     : (firstCat < 0 ? 0 : firstCat) * 3 + 1;
                         if (wasSpecular || !lightNeeEnabled) {  // pkg265: NEE off -> w_B = 1
                             astroray::SampledSpectrum c =
                                 clampContribSpectral(throughput * lampEmission, lambdas, bounce - 1);

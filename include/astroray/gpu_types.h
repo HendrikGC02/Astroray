@@ -1014,6 +1014,9 @@ struct GDedicatedLight {
     // exact for RGB mode, unchanged by this package). Set by scene_upload.cu
     // from DeviceLightParams::emissionProfileSamples.
     int   emissionProfileIndex;
+    // #903 — 1 = camera rays (bounce 0) hit this lamp (sky-texture sun disc;
+    // Light::cameraVisible). 0 = lamps stay invisible to the camera.
+    int   cameraVisible;
 };
 
 // pkg276 — per-dedicated-light IES side-table entry (indexed by the dedicated

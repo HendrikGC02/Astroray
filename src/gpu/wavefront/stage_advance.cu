@@ -649,13 +649,17 @@ __device__ int intersectPathSlotT(
     // snapshot; the lamp hit terminates before the hit-record is parked. Emission
     // + MIS mirror the emissive-Hittable block below (wB = 1 after specular; the
     // power heuristic otherwise; naive mode = enableNEE false takes specular only).
-    if (bounce > 0 && numDed > 0) {
+    // #903: bounce 0 tests only cameraVisible lamps (sky-texture sun disc).
+    if (numDed > 0) {
         float surfaceT = hit ? rec.t : 1e30f;
         float lampT, lampScale;
         int lampIdx = gpu_dedicated_intersect_closest(
             dedLights, numDed, ray.origin, ray.direction, 0.001f, surfaceT,
-            &lampT, &lampScale);
+            &lampT, &lampScale, bounce == 0);
         if (lampIdx >= 0) {
+            // #903: the camera-visible disc is background for transparent film.
+            if (bounce == 0 && c_wfMissCoverage != nullptr)
+                atomicAdd(&c_wfMissCoverage[state.pixel_index[idx]], 1.0f);
             // pkg218: a directly-visible dedicated light (area/distant disc hit
             // by a BSDF-continuation ray) reads the baked device SPD for non-RGB
             // emission modes, same substitution as the NEE paths above/below
@@ -705,7 +709,9 @@ __device__ int intersectPathSlotT(
                 // (firstCat<0?0:firstCat)*3+1).
                 if constexpr (HasLightPassAOVs) {
                     unsigned char cat = c_wfLpBinding.firstCat[idx];
-                    int lampPass = (cat == G_LP_CAT_UNSET ? 0 : (int)cat) * 3 + 1;
+                    // #903: camera-visible sky disc -> PASS_ENVIRONMENT (CPU twin).
+                    int lampPass = (bounce == 0) ? G_LP_PASS_ENVIRONMENT
+                                 : (cat == G_LP_CAT_UNSET ? 0 : (int)cat) * 3 + 1;
                     lpAccumulate(idx, lampPass, lampContrib);
                 }
             }

@@ -1106,7 +1106,7 @@ public:
     void addAreaLightDedicated(const std::vector<float>& center, const std::vector<float>& axisU,
                                const std::vector<float>& axisV, float sizeX, float sizeY,
                                const std::string& shape, py::dict emissionDict, float intensity,
-                               float spread = 1.0f,
+                               float spread = static_cast<float>(M_PI) / 2.0f,
                                int objectPassIndex = 0, int materialPassIndex = 0) {
         Vec3 pos(center[0], center[1], center[2]);
         Vec3 u(axisU[0], axisU[1], axisU[2]);
@@ -1675,14 +1675,15 @@ public:
                     const std::vector<float>& vup, float vfov, float aspectRatio,
                     float aperture, float focusDist, int width, int height,
                     float shiftX = 0.0f, float shiftY = 0.0f,
-                    float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max()) {
+                    float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max(),
+                    bool orthographic = false, float orthoWidth = 0.0f, float orthoHeight = 0.0f) {
         auto oldCamera = camera;
         camera = std::make_shared<Camera>(
             Vec3(lookFrom[0], lookFrom[1], lookFrom[2]),
             Vec3(lookAt[0], lookAt[1], lookAt[2]),
             Vec3(vup[0], vup[1], vup[2]),
             vfov, aspectRatio, aperture, focusDist, width, height,
-            shiftX, shiftY, clipNear, clipFar);
+            shiftX, shiftY, clipNear, clipFar, orthographic, orthoWidth, orthoHeight);
         // pkg72: Blender re-uploads the camera every viewport frame via
         // setup_camera; carry the previous-frame projection snapshot across
         // so motion vectors are non-zero on the second and later frames.
@@ -1697,6 +1698,7 @@ public:
             camera->prevFocusDist = oldCamera->prevFocusDist;
             camera->prevShiftX    = oldCamera->prevShiftX;
             camera->prevShiftY    = oldCamera->prevShiftY;
+            camera->prevOrthographic = oldCamera->prevOrthographic;  // #845
             camera->hasPrevCamera = true;
         }
     }
@@ -3761,9 +3763,11 @@ PYBIND11_MODULE(astroray, m) {
              "pkg89 Phase B: dedicated DistantLight with EmissionSpectrum")
         .def("add_area_light_dedicated", &PyRenderer::addAreaLightDedicated,
              "center"_a, "axis_u"_a, "axis_v"_a, "size_x"_a, "size_y"_a,
-             "shape"_a, "emission"_a, "intensity"_a, "spread"_a = 1.0f,
+             "shape"_a, "emission"_a, "intensity"_a,
+             "spread"_a = static_cast<float>(M_PI) / 2.0f,  // #852: half-angle; pi/2 = Lambertian
              "object_pass_index"_a = 0, "material_pass_index"_a = 0,
-             "pkg89 Phase B: dedicated AreaLight with EmissionSpectrum")
+             "pkg89 Phase B: dedicated AreaLight with EmissionSpectrum; spread = "
+             "half-angle (Blender light.spread / 2)")
         .def("add_spot_light_dedicated", &PyRenderer::addSpotLightDedicated,
              "center"_a, "direction"_a, "inner_angle"_a, "outer_angle"_a,
              "emission"_a, "intensity"_a, "radius"_a = 0.0f, "ies_file"_a = std::string(),
@@ -3828,7 +3832,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("setup_camera", &PyRenderer::setupCamera, "look_from"_a, "look_at"_a, "vup"_a, "vfov"_a,
              "aspect_ratio"_a, "aperture"_a, "focus_dist"_a, "width"_a, "height"_a,
              "shift_x"_a = 0.0f, "shift_y"_a = 0.0f,
-             "clip_near"_a = 0.001f, "clip_far"_a = std::numeric_limits<float>::max())
+             "clip_near"_a = 0.001f, "clip_far"_a = std::numeric_limits<float>::max(),
+             // #845: orthographic plane extents are world units (resolved by the caller).
+             "orthographic"_a = false, "ortho_width"_a = 0.0f, "ortho_height"_a = 0.0f)
         .def("set_camera_motion_blur", &PyRenderer::setCameraMotionBlur,
              "start_t"_a, "start_r"_a, "start_s"_a, "end_t"_a, "end_r"_a, "end_s"_a,
              "shutter"_a, "shutter_position"_a,

@@ -135,3 +135,177 @@ def test_wavefront_dedicated_light_nee(scene):
         f"wavefront/CPU mean ratio {ratios.round(4).tolist()} deviates more "
         f"than {MEAN_RATIO_TOL} on {scene} (measured 2026-07-25: ~0.997)")
     print(f"\n[pkg89-wavefront {scene}] PASS: WF/CPU = {ratios.round(4).tolist()}")
+
+
+# ---------------------------------------------------------------------------
+# #859 — sun + mesh emitter through Renderer.render() (the addon route).
+# The GPU refused to upload a light tree containing dedicated lights and fell
+# back to the power CDF, where the mesh emitter's mass leaves the sun a tiny
+# selection probability: the sun-lit ground went dark on GPU while the CPU tree
+# sampler (the addon default) was fine. The rig is the addon's own export of a
+# Blender scene (Z-up 40 m plane, default UV sphere with smooth normals via
+# add_triangles_bulk, default SUN, recorded camera, clamp_indirect 10).
+# ---------------------------------------------------------------------------
+SUN_RES = 256
+SUN_SPP = 16
+SUN_SEEDS = (11, 23, 37, 51, 73)
+# 63x63 far sun-lit ground (engine rows; Blender's top-down [8:71, 8:71]).
+SUN_ROI = (slice(185, 248), slice(8, 71))
+
+
+def _uv_sphere_bulk(r, mat, center=(0.0, 0.0, 1.0), rad=1.0, seg=32, rings=16):
+    """Blender default UV sphere (Z-up), smooth normals, bulk-ingested."""
+    th = np.linspace(0.0, np.pi, rings + 1)
+    ph = np.linspace(0.0, 2.0 * np.pi, seg + 1)
+
+    def n(i, j):
+        return [np.sin(th[i]) * np.cos(ph[j]), np.sin(th[i]) * np.sin(ph[j]), np.cos(th[i])]
+
+    def p(i, j):
+        v = n(i, j)
+        return [center[k] + rad * v[k] for k in range(3)]
+
+    pos, nrm = [], []
+    for i in range(rings):
+        for j in range(seg):
+            a, b, c, d = (i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)
+            if i > 0:
+                pos.append([p(*a), p(*b), p(*d)])
+                nrm.append([n(*a), n(*b), n(*d)])
+            if i < rings - 1:
+                pos.append([p(*b), p(*c), p(*d)])
+                nrm.append([n(*b), n(*c), n(*d)])
+    pos = np.asarray(pos, np.float32)
+    k = len(pos)
+    r.add_triangles_bulk(pos, np.full(k, mat, np.int32), np.zeros(k, np.int32), 0,
+                         np.zeros((1, k, 3, 2), np.float32), ["UVMap"],
+                         np.asarray(nrm, np.float32))
+
+
+def _sun_scene(case, gpu, seed, integrator, sun=True):
+    r = astroray.Renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    r.set_seed(seed)
+    r.set_use_gpu(gpu)
+    r.set_light_sampler("tree")  # addon default (cycles.use_light_tree)
+    # Cycles' default sample_clamp_indirect, sent by the addon. With the sun
+    # starved in NEE, only clamped BSDF-hit lamp samples reached the ground.
+    # Measured on main 0dd98e18: GPU/CPU 0.105 (principled/light), restir 0.0.
+    r.set_clamp_indirect(10.0)
+    r.setup_camera(
+        look_from=[0.0, -12.0, 8.0], look_at=[0.0, -11.1808, 7.4264],
+        vup=[0.0, 0.5736, 0.8192], vfov=39.598, aspect_ratio=1.0,
+        aperture=0.0, focus_dist=10.0, width=SUN_RES, height=SUN_RES)
+    # Same call order as the addon export: materials, plane, sphere, then sun.
+    # Principled with Blender defaults (white Emission Color, strength 0).
+    m = None
+    if case == "principled":
+        m = r.create_material("principled", [0.8, 0.8, 0.8],
+                              {"emission_color": [1.0, 1.0, 1.0], "emission_strength": 5.0})
+    elif case == "light":
+        m = r.create_material("diffuse_light", [1.0, 1.0, 1.0], {"intensity": 5.0})
+    g = r.create_material("principled", [0.8, 0.8, 0.8],
+                          {"emission_color": [1.0, 1.0, 1.0], "emission_strength": 0.0})
+    plane = np.asarray([[[-20, -20, 0], [20, -20, 0], [20, 20, 0]],
+                        [[-20, -20, 0], [20, 20, 0], [-20, 20, 0]]], np.float32)
+    r.add_triangles_bulk(plane, np.full(2, g, np.int32), np.zeros(2, np.int32), 0,
+                         np.zeros((1, 2, 3, 2), np.float32), ["UVMap"],
+                         np.tile(np.asarray([0, 0, 1], np.float32), (2, 3, 1)))
+    if m is not None:
+        _uv_sphere_bulk(r, m)
+    if sun:
+        r.add_sun_light_dedicated([-0.17435, 0.47943, -0.86009], 0.0091804,
+                                  {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 1.0, 0, 0)
+    r.set_integrator_param("use_temporal", 0)
+    r.set_integrator_param("use_spatial", 0)
+    r.set_integrator(integrator)
+    return r
+
+
+def _sun_roi_mean(case, gpu, integrator, sun=True):
+    means = []
+    for s in SUN_SEEDS:
+        r = _sun_scene(case, gpu, s, integrator, sun)
+        img = np.asarray(r.render(SUN_SPP, 12, None, False), dtype=np.float64)
+        img = img.reshape(SUN_RES, SUN_RES, -1)[..., :3]
+        means.append(img[SUN_ROI].mean(axis=(0, 1)))
+    return np.mean(means, axis=0)
+
+
+@pytest.mark.parametrize("integrator,case", [
+    ("path_tracer", "none"),
+    ("path_tracer", "principled"),
+    ("path_tracer", "light"),
+    ("restir-di", "none"),        # restir-di used to drop dedicated lights
+    ("restir-di", "principled"),  # #885: fixed by the DistantLight tree energy
+])
+def test_issue859_sun_survives_mesh_emitter(integrator, case):
+    """GPU/CPU far-ground mean within MEAN_RATIO_TOL with a sun + mesh emitter.
+
+    Oracle = straight CPU path_tracer render (valid since #851's tree MIS
+    fix). The ROI sees direct light only, so DI-only restir-di must match too
+    (CPU restir-di has its own colour cast on a SUN). The CPU render is also
+    checked against linearity, CPU(sun) + CPU(emitter): a tree that starves
+    the sun (DistantLight tree energy = power(), post-#851) turns the sum
+    into high-variance chromatic noise on both backends.
+    """
+    _require_gpu()
+    cpu = _sun_roi_mean(case, False, "path_tracer")
+    if case != "none" and integrator == "path_tracer":
+        parts = (_sun_roi_mean("none", False, "path_tracer")
+                 + _sun_roi_mean(case, False, "path_tracer", sun=False))
+        lin = cpu / parts
+        assert np.all(np.abs(lin - 1.0) <= MEAN_RATIO_TOL), (
+            f"#859: CPU sun+emitter {cpu.round(4).tolist()} != CPU sun + CPU "
+            f"emitter {parts.round(4).tolist()} (tree sampler starves a light)")
+    gpu = _sun_roi_mean(case, True, integrator)
+    assert np.all(cpu > 1e-3), f"CPU oracle dark on {integrator}/{case}: {cpu}"
+    ratios = gpu / cpu
+    print(f"\n[#859 {integrator}/{case}] CPU {cpu.round(4).tolist()} "
+          f"GPU {gpu.round(4).tolist()} GPU/CPU {ratios.round(4).tolist()}")
+    assert np.all(np.abs(ratios - 1.0) <= MEAN_RATIO_TOL), (
+        f"#859: GPU/CPU far-ground ratio {ratios.round(4).tolist()} on "
+        f"{integrator}/{case} (sun lost on GPU)")
+
+
+def _order_scene(gpu, sun_first):
+    """Sun + UV-sphere emitter, power sampler; only the add order differs."""
+    r = astroray.Renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    r.set_seed(11)
+    r.set_use_gpu(gpu)
+    r.set_light_sampler("power")
+    r.setup_camera(
+        look_from=[0.0, -12.0, 8.0], look_at=[0.0, -11.1808, 7.4264],
+        vup=[0.0, 0.5736, 0.8192], vfov=39.598, aspect_ratio=1.0,
+        aperture=0.0, focus_dist=10.0, width=64, height=64)
+    m = r.create_material("principled", [0.8, 0.8, 0.8],
+                          {"emission_color": [1.0, 1.0, 1.0], "emission_strength": 5.0})
+    g = r.create_material("principled", [0.8, 0.8, 0.8], {})
+    r.add_triangle([-20, -20, 0], [20, -20, 0], [20, 20, 0], g)
+    r.add_triangle([-20, -20, 0], [20, 20, 0], [-20, 20, 0], g)
+
+    def sun():
+        r.add_sun_light_dedicated([-0.17435, 0.47943, -0.86009], 0.0091804,
+                                  {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 1.0, 0, 0)
+    if sun_first:
+        sun()
+    _uv_sphere_bulk(r, m, seg=8, rings=4)
+    if not sun_first:
+        sun()
+    r.set_integrator("path_tracer")
+    return np.asarray(r.render(4, 4, None, False), dtype=np.float64)
+
+
+@pytest.mark.parametrize("gpu", [False, True], ids=["cpu", "gpu"])
+def test_issue859_light_add_order_invariant(gpu):
+    """#859: LightList built powerDist in CALL order while every consumer
+    (PowerLightSampler, scene_upload) indexes it hittables-first. A dedicated
+    light added before a mesh emitter scrambled all selection probabilities.
+    Same scene, sun-first vs emitter-first, must render identically."""
+    if gpu:
+        _require_gpu()
+    a = _order_scene(gpu, sun_first=True)
+    b = _order_scene(gpu, sun_first=False)
+    diff = float(np.abs(a - b).max())
+    assert diff <= 1e-6, f"#859: light add order changes the render (max |diff| {diff})"

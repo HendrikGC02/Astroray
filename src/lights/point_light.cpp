@@ -132,6 +132,11 @@ float PointLight::power() const {
     return luminance * intensity_ * normalizeFactor_ * 4.0f * static_cast<float>(M_PI);
 }
 
+// #851: isotropic, intensity = power / 4pi (Cycles: strength * 0.25 * M_1_PI_F).
+float PointLight::treeEnergy() const {
+    return power() / (4.0f * static_cast<float>(M_PI));
+}
+
 AABB PointLight::bounds() const {
     // Point light has negligible spatial extent (or small sphere for soft shadows).
     Vec3 r(radius_, radius_, radius_);

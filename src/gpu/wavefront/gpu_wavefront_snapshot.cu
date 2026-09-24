@@ -127,6 +127,8 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
     gcam.u = GVec3(u_vec.x, u_vec.y, u_vec.z);
     gcam.v = GVec3(v_vec.x, v_vec.y, v_vec.z);
     gcam.focusDist = cam.getFocusDist();
+    gcam.orthographic = cam.isOrthographic() ? 1 : 0;  // #845
+    { Vec3 f = cam.viewForward(); gcam.forward = GVec3(f.x, f.y, f.z); }
 
     // Allocate GPU SoA state.
     GPUWavefrontState state;
@@ -298,6 +300,8 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
     gcam.u = GVec3(u_vec.x, u_vec.y, u_vec.z);
     gcam.v = GVec3(v_vec.x, v_vec.y, v_vec.z);
     gcam.focusDist = cam.getFocusDist();
+    gcam.orthographic = cam.isOrthographic() ? 1 : 0;  // #845
+    { Vec3 f = cam.viewForward(); gcam.forward = GVec3(f.x, f.y, f.z); }
 
     // Upload scene data to GPU (temporary for this snapshot).
     GBVHNode* d_bvhNodes = nullptr;
@@ -482,6 +486,8 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     gcam.u = GVec3(u_vec.x, u_vec.y, u_vec.z);
     gcam.v = GVec3(v_vec.x, v_vec.y, v_vec.z);
     gcam.focusDist = cam.getFocusDist();
+    gcam.orthographic = cam.isOrthographic() ? 1 : 0;  // #845
+    { Vec3 f = cam.viewForward(); gcam.forward = GVec3(f.x, f.y, f.z); }
 
     // Upload scene data to GPU (temporary for this snapshot).
     GBVHNode* d_bvhNodes = nullptr;
@@ -644,6 +650,8 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
     gcam.u = GVec3(u_vec.x, u_vec.y, u_vec.z);
     gcam.v = GVec3(v_vec.x, v_vec.y, v_vec.z);
     gcam.focusDist = cam.getFocusDist();
+    gcam.orthographic = cam.isOrthographic() ? 1 : 0;  // #845
+    { Vec3 f = cam.viewForward(); gcam.forward = GVec3(f.x, f.y, f.z); }
 
     // Upload scene data to GPU (temporary for this snapshot).
     GBVHNode* d_bvhNodes = nullptr;
@@ -824,6 +832,8 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     gcam.u = GVec3(u_vec.x, u_vec.y, u_vec.z);
     gcam.v = GVec3(v_vec.x, v_vec.y, v_vec.z);
     gcam.focusDist = cam.getFocusDist();
+    gcam.orthographic = cam.isOrthographic() ? 1 : 0;  // #845
+    { Vec3 f = cam.viewForward(); gcam.forward = GVec3(f.x, f.y, f.z); }
 
     // Upload scene data to GPU (temporary for this snapshot).
     GBVHNode* d_bvhNodes = nullptr;
@@ -1180,6 +1190,8 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
         gcam.v = GVec3(v_vec.x, v_vec.y, v_vec.z);
     }
     gcam.focusDist = cam.getFocusDist();
+    gcam.orthographic = cam.isOrthographic() ? 1 : 0;  // #845
+    { Vec3 f = cam.viewForward(); gcam.forward = GVec3(f.x, f.y, f.z); }
 
     // Scene upload (mirrors cuda_wavefront_render: GLight + light tree + env).
     GBVHNode* d_bvhNodes = nullptr;
@@ -1464,6 +1476,8 @@ std::vector<float> cuda_wavefront_render(
         gcam.v = GVec3(v_vec.x, v_vec.y, v_vec.z);
     }
     gcam.focusDist = cam.getFocusDist();
+    gcam.orthographic = cam.isOrthographic() ? 1 : 0;  // #845
+    { Vec3 f = cam.viewForward(); gcam.forward = GVec3(f.x, f.y, f.z); }
 
     // Persistent context: per-path state reused across calls. Scene DATA was
     // re-converted (buildSceneArrays) and re-uploaded on EVERY call (megakernel-
@@ -2548,6 +2562,8 @@ std::vector<float> cuda_wavefront_render_restir(
         gcam.v = GVec3(v_vec.x, v_vec.y, v_vec.z);
     }
     gcam.focusDist = cam.getFocusDist();
+    gcam.orthographic = cam.isOrthographic() ? 1 : 0;  // #845
+    { Vec3 f = cam.viewForward(); gcam.forward = GVec3(f.x, f.y, f.z); }
 
     WfContext& C = wfCtx();
     SceneUploadResult res = buildSceneArrays(renderer, &cam);
@@ -2561,6 +2577,7 @@ std::vector<float> cuda_wavefront_render_restir(
     GVec3*      d_motionVerts = wfUpload(C.motionVertices, res.motionVertices);
     ::GMaterial* d_materials = wfUpload(C.materials, res.materials);
     ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
+    GDedicatedLight* d_dedLights = wfUpload(C.dedLights, res.dedicatedLights);  // #859
     GLightTreeNode* d_treeNodes = wfUpload(C.treeNodes, res.lightTreeNodes);
     GLightTreeEmitter* d_treeEmitters = wfUpload(C.treeEmitters, res.lightTreeEmitters);
     int* d_lightToEmitter = wfUpload(C.lightToEmitter, res.lightToEmitter);
@@ -2700,7 +2717,8 @@ std::vector<float> cuda_wavefront_render_restir(
 
         launchStageRestirInitialRIS(
             state, hitBufs, curRes, d_prims, d_tris, d_spheres, d_materials,
-            d_lights, (int)res.lights.size(), res.totalLightPower, treeView,
+            d_lights, (int)res.lights.size(), res.totalLightPower,
+            d_dedLights, (int)res.dedicatedLights.size(), treeView,  // #859
             numCandidates, effectiveMCap, numPixels);
 
         if (reuseReady && useTemporal)

@@ -72,7 +72,7 @@ def test_approximate_and_ignore_counts_and_dedup():
 def test_ignore_messages_folds_a_list():
     r = deg.DegradationReport()
     r.ignore_messages([
-        "camera projection 'ORTHO' (engine renders PERSP only)",
+        "camera projection 'PANO' (engine renders PERSP/ORTHO only)",
         "light specular_factor on Key (per-light specular ignored)",
     ])
     assert len(r.ignored) == 2
@@ -291,7 +291,7 @@ def test_three_sources_funnel_through_one_policy(monkeypatch):
 
     # source 3: native world/light/camera drops (IGNORED), folded as messages
     engine._degradation_report().ignore_messages(
-        ["camera projection 'ORTHO' (engine renders PERSP only)"])
+        ["camera projection 'PANO' (engine renders PERSP/ORTHO only)"])
 
     reports = []
     text = engine._degradation_report().emit(
@@ -301,7 +301,27 @@ def test_three_sources_funnel_through_one_policy(monkeypatch):
     assert "1 approximated / 2 ignored" in text
     assert "BSDF_SHEEN" in text            # source 1
     assert "BSDF_TOON" in text             # source 2
-    assert "ORTHO" in text                 # source 3
+    assert "PANO" in text                  # source 3
+
+
+def test_ortho_camera_produces_no_degradation_row():
+    """#845: ORTHO is native -- no camera message reaches the report; PANO does."""
+    spec = importlib.util.spec_from_file_location(
+        "pkg119c_native_settings", _ADDON / "native_settings.py")
+    ns = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ns)
+
+    def _scene(cam_type):
+        dof = types.SimpleNamespace(use_dof=False)
+        cam = types.SimpleNamespace(data=types.SimpleNamespace(type=cam_type, dof=dof))
+        return types.SimpleNamespace(camera=cam, objects=[])
+
+    for cam_type, expect in (("ORTHO", 0), ("PANO", 1)):
+        r = deg.DegradationReport()
+        r.ignore_messages(ns.report_unsupported_native_controls(
+            _scene(cam_type), report=None, emit=False))
+        assert len(r.ignored) == expect, cam_type
+        assert ("PANO" in r.text()) == (cam_type == "PANO")
 
 
 if __name__ == '__main__':

@@ -461,37 +461,72 @@ __device__ int intersectPathSlotT(
                                            c_wfGridVolume.volumeBounceCap);
     if constexpr (HasGridVolume) if (c_wfGridVolume.count > 0) {
         const float surfaceT = hit ? rec.t : 1e30f;
-        int mi = -1;
-        float mEnter = surfaceT, mExit = surfaceT, bestEnter = surfaceT;
-        for (int k = 0; k < c_wfGridVolume.count; ++k) {
-            float t0, t1;
-            if (gpu_gridAabbOverlap(c_wfGridVolume.media[k], ray.origin, ray.direction,
-                                    0.001f, surfaceT, t0, t1) && t0 < bestEnter) {
-                bestEnter = t0; mi = k; mEnter = t0; mExit = t1;
-            }
-        }
         // r_u lanes live in the side table (not GPUWavefrontState). A path starts
         // at bounce 0 with r_u = 1: reset there (no regen-kernel change needed).
         const int ruCap = c_wfGridVolume.capacity;
         float* const ruLane = c_wfGridVolume.ru;
         if (bounce == 0)
             for (int l = 0; l < G_SPECTRUM_SAMPLES; ++l) ruLane[l * ruCap + idx] = 1.f;
-        if (mi >= 0) {
-            GSampledSpectrum ru;
-            for (int l = 0; l < G_SPECTRUM_SAMPLES; ++l) ru.v[l] = ruLane[l * ruCap + idx];
-            GSampledSpectrum beta = throughput * gpu_heroAverage(ru, lambdas);
-            GSampledSpectrum emission(0.f);
-            float tEv = 0.f;
-            const uint32_t salt = gpu_gridTrackSalt(bounce);   // #828 disjoint fields
-            int ev = gpu_gridVolumeTrack(mi, ray.origin, ray.direction, mEnter, mExit,
+        // #842: every medium on [0.001, surfaceT], swept in AABB-boundary order
+        // (device twin of astroray::volume::spectralTrackSegment; was: only the
+        // nearest-entered medium). One medium on a piece => gpu_gridVolumeTrack
+        // (single-medium scenes byte-identical); several => the overlap flight.
+        bool entered = false;
+        int ev = 0, mi = -1;
+        float tEv = 0.f;
+        GSampledSpectrum ru, beta, emission(0.f);
+        uint32_t draw = 0;
+        const uint32_t salt = gpu_gridTrackSalt(bounce);   // #828 disjoint fields
+        float cursor = 0.001f;
+        while (cursor < surfaceT) {
+            uint32_t mask = 0u;
+            int first = -1, n = 0;
+            float segEnd = surfaceT;
+            bool later = false;
+            for (int k = 0; k < c_wfGridVolume.count; ++k) {
+                float t0, t1;
+                if (!gpu_gridAabbOverlap(c_wfGridVolume.media[k], ray.origin, ray.direction,
+                                         cursor, surfaceT, t0, t1))
+                    continue;
+                if (t0 > cursor) { segEnd = fminf(segEnd, t0); later = true; }
+                else if (t1 > cursor) {
+                    segEnd = fminf(segEnd, t1);
+                    mask |= 1u << k;
+                    if (first < 0) first = k;
+                    ++n;
+                }
+            }
+            if (n == 0) {
+                if (!later) break;
+                cursor = segEnd;
+                continue;
+            }
+            if (!entered) {
+                entered = true;
+                for (int l = 0; l < G_SPECTRUM_SAMPLES; ++l) ru.v[l] = ruLane[l * ruCap + idx];
+                beta = throughput * gpu_heroAverage(ru, lambdas);
+            }
+            if (n == 1) {
+                mi = first;
+                ev = gpu_gridVolumeTrack(first, ray.origin, ray.direction, cursor, segEnd,
                                          lambdas, beta, ru, emission, tEv,
                                          state.rng_pixel[idx], state.rng_sample[idx],
-                                         state.rng_seed[idx], salt, volTerm);
+                                         state.rng_seed[idx], salt, draw, volTerm);
+            } else {
+                ev = gpu_gridVolumeTrackOverlap(mask, ray.origin, ray.direction, cursor, segEnd,
+                                                lambdas, beta, ru, emission, tEv, mi,
+                                                state.rng_pixel[idx], state.rng_sample[idx],
+                                                state.rng_seed[idx], salt, draw, volTerm);
+            }
+            if (ev != 0) break;
+            cursor = segEnd;
+        }
+        if (entered) {
             if (emission.maxValue() > 0.f) {
                 // Volume emission along the flight (pkg270): Emission pass when
                 // directly visible, else <firstCat>_INDIRECT (surface-emission rule).
                 GSampledSpectrum ce = gpu_clampContribMW(
-                    emission, lambdas, bounce, clampDirect, clampIndirect, useLuminanceOutput);
+                    emission, lambdas, bounce - 1, clampDirect, clampIndirect, useLuminanceOutput);  // #860
                 color += ce;
                 if constexpr (HasLightPassAOVs) {
                     unsigned char cat = c_wfLpBinding.firstCat[idx];
@@ -651,15 +686,18 @@ __device__ int intersectPathSlotT(
                 if (bounce == 0 || wasSpecular) {
                     contrib = throughput * Le;                 // w_B = 1
                 } else if (enableNEE) {
+                    GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
+                                        state.path_mis_nz[idx]);
                     float lp = gpu_dedicated_reconstruct_pdf(
-                        dedLights, numDed, totalLightPower, ray.origin, ray.direction);
+                        dedLights, numDed, totalLightPower, ray.origin, ray.direction,
+                        lightTree, numLights, misNormalPrev);
                     float wB = gpu_mw_powerHeuristic(state.path_bsdf_pdf[idx], lp);
                     contrib = throughput * Le * wB;
                 }
                 // naive mode (enableNEE == false, non-specular): no NEE leg to
                 // complement, so nothing is added — mirrors the emissive block.
                 GSampledSpectrum lampContrib = gpu_clampContribMW(
-                    contrib, lambdas, bounce,
+                    contrib, lambdas, bounce - 1,   // #860: emission hit = Cycles bounce-1
                     clampDirect, clampIndirect, useLuminanceOutput);
                 color += lampContrib;
                 // pkg198 Stage 2: a lamp hit by a continuation ray is indirect light
@@ -728,7 +766,7 @@ __device__ int intersectPathSlotT(
             // pkg157: clamp by bounce depth (Cycles film_clamp_light split);
             // see gpu_clampContribMW (gpu_spectral_tables.h).
             GSampledSpectrum envContrib = gpu_clampContribMW(
-                throughput * envSpec, lambdas, bounce,
+                throughput * envSpec, lambdas, bounce - 1,   // #860
                 clampDirect, clampIndirect, useLuminanceOutput);
             color += envContrib;
             // pkg198 Stage 2: directly-visible background → PASS_ENVIRONMENT; a
@@ -804,7 +842,7 @@ __device__ int intersectPathSlotT(
             // pkg157: emissive-hit direct term, same clamp split as above.
             // Camera / post-specular ray: no NEE leg competes (w_B = 1).
             GSampledSpectrum emitContrib = gpu_clampContribMW(
-                throughput * Le, lambdas, bounce,
+                throughput * Le, lambdas, bounce - 1,   // #860
                 clampDirect, clampIndirect, useLuminanceOutput);
             color += emitContrib;
             // pkg198 Stage 2: directly-visible surface emission → PASS_EMISSION;
@@ -833,15 +871,18 @@ __device__ int intersectPathSlotT(
             // pkg156 residual); skipping it restores CPU/GPU parity and the
             // pre-pkg120 naive behaviour. NEE mode (path_tracer) is unchanged.
             float bsdfPdfPrev = state.path_bsdf_pdf[idx];
+            // #851: the NEE normal of the previous vertex (tree pick == pdf).
+            GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
+                                state.path_mis_nz[idx]);
             float lp = gpu_reconstruct_light_pdf(
                 rec, ray.origin, ray.direction,
                 lights, numLights, totalLightPower,
-                prims, tris, spheres, lightTree);
+                prims, tris, spheres, lightTree, misNormalPrev);
             float wB = gpu_mw_powerHeuristic(bsdfPdfPrev, lp);
             GSampledSpectrum contrib = throughput * Le;
             contrib *= wB;
             GSampledSpectrum emitContrib = gpu_clampContribMW(
-                contrib, lambdas, bounce,
+                contrib, lambdas, bounce - 1,   // #860
                 clampDirect, clampIndirect, useLuminanceOutput);
             color += emitContrib;
             // pkg198 Stage 2: two-sided-MIS emissive hit at a diffuse bounce is
@@ -1902,6 +1943,10 @@ __device__ bool shadePathSlot(
     // can weight a diffuse-bounce emissive hit by the two-sided MIS heuristic
     // (mirrors CPU bsdfPdfPrev = bss.pdf in pathTraceSpectral).
     state.path_bsdf_pdf[idx] = bss.pdf;
+    // #851: the normal NEE used at this vertex, for the next hit's tree MIS pdf.
+    state.path_mis_nx[idx] = rec.normal.x;
+    state.path_mis_ny[idx] = rec.normal.y;
+    state.path_mis_nz[idx] = rec.normal.z;
     // pkg258: record whether env NEE competed at THIS vertex so the next-bounce
     // miss leg applies the env power heuristic only when it actually ran (mirrors
     // CPU pathTraceSpectral envNeeSampledPrev; the miss leg also requires
@@ -2776,7 +2821,7 @@ __global__ void stageVolumeScatterKernel(
     if (enableNEE && (numLights + numDed) > 0 && totalLightPower > 0.f) {
         GHitRecord mrec{};
         mrec.point   = P;
-        mrec.normal  = woMedium;   // arbitrary; only the (disabled) light-tree path reads it
+        mrec.normal  = GVec3(0.f, 0.f, 0.f);  // #851: zero normal = volume vertex (CPU convention)
         mrec.isDelta = false;
         GNEESample s = gpu_nee_sample(mrec, prims, tris, spheres,
                                       lights, numLights, totalLightPower,
@@ -2864,6 +2909,9 @@ __global__ void stageVolumeScatterKernel(
     // event; memory occlusion-sentinel / wavefront-snapshot-semantics).
     state.env_nee_sampled_prev[idx] = 0;
     state.path_bsdf_pdf[idx] = phasePdf;
+    state.path_mis_nx[idx] = 0.f;  // #851: medium vertex, zero MIS normal
+    state.path_mis_ny[idx] = 0.f;
+    state.path_mis_nz[idx] = 0.f;
     state.rng_dimension[idx] = rng.dimension();
     int next_bounce = bounce + 1;
     state.bounce[idx] = next_bounce;

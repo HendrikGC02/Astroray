@@ -167,11 +167,9 @@ class TestLightTreeAcceptance:
     """Acceptance gates from pkg86 spec."""
 
     @pytest.mark.xfail(
-        reason="pkg86-B Phase 1 SAOH + full Conty importance implemented per Cycles "
-               "(commit e52e5eb0) but measured variance reduction remains ~1.14×. "
-               "Algorithm is correct (all other gates pass); likely scene-dependent or "
-               "needs higher SPP / different light distribution. Promoting to strict may "
-               "require scene tuning (deferred to follow-up investigation).",
+        reason="#851 fixed the MIS-pdf normal and Cycles distance clamp: 0.46x -> 1.41x "
+               "(2026-09-24). Still below 2x; unported Cycles parts: min/max importance "
+               "averaging, per-emitter leaf reservoir, oriented cones for mesh emitters.",
         strict=False,
     )
     def test_variance_reduction_64_lights(self):
@@ -283,6 +281,269 @@ class TestLightTreeComposability:
         """neural-cache should work with tree sampler."""
         self._test_integrator("neural-cache")
 
+
+class TestIssue851TreeSeams:
+    """#851: CPU light-tree seams that made materials_hall noisier than power."""
+
+    def test_enclosing_cluster_does_not_starve_bright_sibling(self):
+        """A point inside a dim cluster's bounding sphere must still pick a
+        bright distant light. The old max(d - r, 1e-6) distance gave the
+        enclosing cluster ~1e12x importance; Cycles clamps d >= r/2."""
+        r = astroray.Renderer()
+        r.set_background_color([0.0, 0.0, 0.0])
+        floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+        r.add_triangle([-40, 0, -40], [40, 0, -40], [40, 0, 40], floor)
+        r.add_triangle([-40, 0, -40], [40, 0, 40], [-40, 0, 40], floor)
+        dim = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 1.0})
+        for k in range(8):  # ring of radius 4 around the query point
+            a = 2 * np.pi * k / 8
+            r.add_sphere([4 * np.cos(a), 1.0, 4 * np.sin(a)], 0.05, dim)
+        bright = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 1e4})
+        r.add_sphere([30.0, 3.0, 0.0], 0.05, bright)  # light index 8
+        setup_camera(r, look_from=[0, 2, 8], look_at=[0, 0, 0], width=16, height=16)
+        r.set_light_sampler("tree")
+        r.render(1, 1, None, False)  # builds the tree
+        n = 4000
+        us = np.random.default_rng(3).uniform(0, 1, n)
+        idx, pdf = r.debug_light_tree_pick([0.0, 0.05, 0.0] * n, [0.0, 1.0, 0.0] * n, us.tolist())
+        frac = float(np.mean(np.asarray(idx) == 8))
+        # Measured 0.0% before #851 and ~53% after (the dim ring stays a close
+        # competitor); 25% separates the two with margin.
+        assert frac > 0.25, f"bright light picked {frac:.1%} (starved by the enclosing cluster)"
+
+    def test_tree_mean_matches_power_with_lights_behind_surface(self):
+        """An unbiased sampler switch must not move the mean. Lights below the
+        floor made the old -dir proxy normal in TreeLightSampler::pdfValue
+        prune the lit cluster, so the BSDF-hit MIS weight went to 1 while NEE
+        also counted the light (double counting)."""
+        def render(mode):
+            r = astroray.Renderer()
+            r.set_integrator("path_tracer")
+            r.set_background_color([0.0, 0.0, 0.0])
+            floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+            r.add_triangle([-20, 0, -20], [20, 0, -20], [20, 0, 20], floor)
+            r.add_triangle([-20, 0, -20], [20, 0, 20], [-20, 0, 20], floor)
+            light = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 4.0})
+            for y in (2.0, -2.0):  # 4 lights above, 4 hidden below the floor
+                for x in (-1.0, 1.0):
+                    for z in (-1.0, 1.0):
+                        r.add_sphere([x, y, z], 0.4, light)
+            setup_camera(r, look_from=[0, 6, 0.01], look_at=[0, 0, 0], vfov=50,
+                         width=48, height=48)
+            r.set_light_sampler(mode)
+            r.set_seed(7)
+            img = np.asarray(r.render(64, 2, None, False), dtype=np.float64)
+            return img[..., :3]
+        power, tree = render("power"), render("tree")
+        # Mask pixels that see a light directly (identical in both modes).
+        m = (power.max(axis=-1) < 3.0) & (tree.max(axis=-1) < 3.0)
+        ratio = tree[m].mean() / power[m].mean()
+        assert abs(ratio - 1.0) < 0.05, f"tree/power mean ratio {ratio:.3f}"
+
+    @pytest.mark.parametrize("mode", ["power", "tree"])
+    def test_small_triangle_emitter_pdf_is_tessellation_invariant(self, mode):
+        """Splitting one emitter into 800 small triangles must not change NEE.
+        Triangle::pdfValue added 1e-3 to |cos|*area, so small triangles had a
+        pdf far below the density random() samples from: 118x too bright on
+        main. The tree picks nearby small triangles often, so this showed up
+        as a tree-vs-power mean shift on materials_hall (#851)."""
+        def render(n):
+            r = astroray.Renderer()
+            r.set_integrator("path_tracer")
+            r.set_background_color([0.0, 0.0, 0.0])
+            floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+            r.add_triangle([-3, 0, -3], [3, 0, 3], [3, 0, -3], floor)
+            r.add_triangle([-3, 0, -3], [-3, 0, 3], [3, 0, 3], floor)
+            light = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 5.0})
+            h, w = 0.3, 0.2  # 0.2 x 0.2 emitter facing down
+            for i in range(n):
+                for j in range(n):
+                    x0, z0 = -w / 2 + w * i / n, -w / 2 + w * j / n
+                    x1, z1 = x0 + w / n, z0 + w / n
+                    r.add_triangle([x0, h, z0], [x1, h, z0], [x1, h, z1], light)
+                    r.add_triangle([x0, h, z0], [x1, h, z1], [x0, h, z1], light)
+            setup_camera(r, look_from=[0, 2.5, 2.5], look_at=[0, 0, 0], vfov=40,
+                         width=48, height=48)
+            r.set_light_sampler(mode)
+            r.set_seed(5)
+            return np.asarray(r.render(256, 2, None, False), dtype=np.float64)[..., :3]
+        one, many = render(1), render(20)
+        m = (one.max(axis=-1) < 1.0) & (many.max(axis=-1) < 1.0)  # skip the emitter itself
+        ratio = many[m].mean() / one[m].mean()
+        assert abs(ratio - 1.0) < 0.03, f"{mode}: 800-triangle / 2-triangle mean ratio {ratio:.3f}"
+
+    def test_leaf_selection_weights_bright_emitter(self):
+        """Four lights fit in one leaf. Uniform leaf selection gave the bright
+        one 25%; Cycles light_tree_cluster_select_emitter weights by importance
+        (0.5 * max share + 0.5 * uniform-over-lit for spheres) -> ~62%."""
+        r = astroray.Renderer()
+        r.set_background_color([0.0, 0.0, 0.0])
+        floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+        r.add_triangle([-20, 0, -20], [20, 0, -20], [20, 0, 20], floor)
+        r.add_triangle([-20, 0, -20], [20, 0, 20], [-20, 0, 20], floor)
+        dim = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 1.0})
+        for x in (-0.6, -0.2, 0.2):
+            r.add_sphere([x, 2.0, 0.0], 0.05, dim)  # light indices 0..2
+        r.add_sphere([0.6, 2.0, 0.0], 0.05,
+                     r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 1e3}))
+        setup_camera(r, look_from=[0, 2, 8], look_at=[0, 0, 0], width=16, height=16)
+        r.set_light_sampler("tree")
+        r.render(1, 1, None, False)  # builds the tree
+        n = 4000
+        us = np.random.default_rng(9).uniform(0, 1, n)
+        idx, pdf = r.debug_light_tree_pick([0.0, 0.05, 0.0] * n, [0.0, 1.0, 0.0] * n, us.tolist())
+        idx, pdf = np.asarray(idx), np.asarray(pdf)
+        frac = float(np.mean(idx == 3))
+        assert frac > 0.45, f"bright emitter picked {frac:.1%} (uniform leaf selection is 25%)"
+        # pick pdf must equal the empirical selection frequency (unbiasedness).
+        for k in range(4):
+            if np.any(idx == k):
+                assert abs(pdf[idx == k][0] - np.mean(idx == k)) < 0.03, (k, pdf[idx == k][0])
+
+    def test_back_facing_area_light_not_oversampled(self):
+        """An area light facing away from the receiver contributes nothing.
+        AreaLight::orientationCone was (spread, spread) = a full sphere at the
+        default spread pi, so the tree sampled a near back-facing light almost
+        exclusively. Cycles uses theta_o = 0, theta_e = spread/2 (#851)."""
+        def render(mode, seed):
+            r = astroray.Renderer()
+            r.set_integrator("path_tracer")
+            r.set_background_color([0.0, 0.0, 0.0])
+            floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+            r.add_triangle([-5, 0, -5], [5, 0, 5], [5, 0, -5], floor)
+            r.add_triangle([-5, 0, -5], [-5, 0, 5], [5, 0, 5], floor)
+            white = {"mode": "rgb", "color": [1.0, 1.0, 1.0]}
+            # Faces the floor: normal = (1,0,0) x (0,0,1) = (0,-1,0).
+            r.add_area_light_dedicated(center=[0, 6, 0], axis_u=[1, 0, 0], axis_v=[0, 0, 1],
+                                       size_x=1.0, size_y=1.0, shape="RECTANGLE",
+                                       emission=white, intensity=300.0, spread=3.14159)
+            # Faces up, 1 m above the floor: normal = (0,0,1) x (1,0,0) = (0,1,0).
+            r.add_area_light_dedicated(center=[0, 1, 0], axis_u=[0, 0, 1], axis_v=[1, 0, 0],
+                                       size_x=1.0, size_y=1.0, shape="RECTANGLE",
+                                       emission=white, intensity=300.0, spread=3.14159)
+            setup_camera(r, look_from=[0, 3, 6], look_at=[0, 0, 0], vfov=50,
+                         width=32, height=32)
+            r.set_light_sampler(mode)
+            r.set_seed(seed)
+            return np.asarray(r.render(16, 1, None, False), dtype=np.float64)[..., :3]
+        seeds = [3, 5, 7, 11]
+        power = [render("power", s) for s in seeds]
+        tree = [render("tree", s) for s in seeds]
+        pv, tv = compute_pixel_variance(power), compute_pixel_variance(tree)
+        assert tv <= pv, f"tree variance {tv:.3g} > power {pv:.3g}"
+        ratio = np.mean(tree) / np.mean(power)
+        assert abs(ratio - 1.0) < 0.05, f"tree/power mean ratio {ratio:.3f}"
+
+    def test_tree_energy_is_intensity_not_flux(self):
+        """Cycles weights tree emitters by on-axis intensity (area: power/pi,
+        point: power/4pi). With flux, a point light looked 4x too important
+        next to an area light of the same intensity parameter (#851).
+        Equal distance, area light facing the point: one leaf, and the area
+        light owns the whole min-importance term, so
+        p_point = 0.5 * max_point / (max_point + max_area):
+        intensity -> 0.5 * 1/2 = 0.25; flux (pi vs 4 pi) -> 0.5 * 4/5 = 0.40."""
+        r = astroray.Renderer()
+        r.set_background_color([0.0, 0.0, 0.0])
+        floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+        r.add_triangle([-5, 0, -5], [5, 0, 5], [5, 0, -5], floor)
+        r.add_triangle([-5, 0, -5], [-5, 0, 5], [5, 0, 5], floor)
+        white = {"mode": "rgb", "color": [1.0, 1.0, 1.0]}
+        s5 = 5.0 ** 0.5
+        # Normal = u x v = (-1,-2,0)/sqrt5: faces the query point at the origin.
+        r.add_area_light_dedicated(center=[1, 2, 0], axis_u=[0, 0, 1],
+                                   axis_v=[-2 / s5, 1 / s5, 0], size_x=0.05, size_y=0.05,
+                                   shape="RECTANGLE", emission=white, intensity=10.0,
+                                   spread=3.14159)
+        r.add_point_light([-1, 2, 0], white, 10.0)  # dedicated PointLight
+        setup_camera(r, look_from=[0, 3, 6], look_at=[0, 0, 0], width=16, height=16)
+        r.set_light_sampler("tree")
+        r.render(1, 1, None, False)  # builds the tree
+        n = 2000
+        us = np.random.default_rng(4).uniform(0, 1, n)
+        idx, pdf = r.debug_light_tree_pick([0.0, 0.0, 0.0] * n, [0.0, 1.0, 0.0] * n, us.tolist())
+        assert set(np.asarray(idx).tolist()) == {-2}
+        p_point = float(np.min(pdf))
+        assert abs(p_point - 0.25) < 0.03, f"point-light share {p_point:.3f} (flux weighting gives 0.40)"
+
+    @staticmethod
+    def _tree_power_mean_ratio(build, spp=256, depth=4, seeds=(7, 9), gpu=False):
+        """Mean tree/power ratio over non-emitter pixels, summed over seeds (an
+        unbiased sampler switch must not move it). Scenes add hittable emitters
+        before dedicated lights: the power sampler's CDF currently assumes that
+        order (separate issue)."""
+        imgs = {"power": 0.0, "tree": 0.0}
+        for mode in ("power", "tree"):
+            for seed in seeds:
+                r = astroray.Renderer()
+                r.set_integrator("path_tracer")
+                r.set_background_color([0.0, 0.0, 0.0])
+                build(r)
+                if gpu:
+                    r.set_use_gpu(True)
+                r.set_light_sampler(mode)
+                r.set_seed(seed)
+                imgs[mode] = imgs[mode] + np.asarray(
+                    r.render(spp, depth, None, False), dtype=np.float64)[..., :3]
+        m = (imgs["power"].max(axis=-1) < 3.0 * len(seeds)) & (imgs["tree"].max(axis=-1) < 3.0 * len(seeds))
+        return imgs["tree"][m].mean() / imgs["power"][m].mean()
+
+    def test_medium_vertex_keeps_point_light(self):
+        """#851 review C2: at a medium vertex (zero normal) the old importance
+        gave a radius-0 point light cos_theta_i = 0 -> importance 0, so the
+        tree never picked it and its in-scattered light was lost. Cycles omits
+        the incidence term in volumes."""
+        def build(r):
+            floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+            r.add_triangle([-6, 0, -6], [6, 0, 6], [6, 0, -6], floor)
+            r.add_triangle([-6, 0, -6], [-6, 0, 6], [6, 0, 6], floor)
+            tri = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 5.0})
+            r.add_triangle([2, 1.5, -0.2], [2.4, 1.5, -0.2], [2.2, 1.5, 0.2], tri)  # faces down
+            r.add_point_light([0, 2, 0], {"mode": "rgb", "color": [1, 1, 1]}, 20.0)
+            r.set_world_volume(0.3, [1.0, 1.0, 1.0], 0.0, 0.9)
+            setup_camera(r, look_from=[0, 1.5, 6], look_at=[0, 0.8, 0], vfov=50,
+                         width=40, height=40)
+        ratio = self._tree_power_mean_ratio(build)
+        assert abs(ratio - 1.0) < 0.05, f"tree/power mean ratio in a medium {ratio:.3f}"
+
+    def test_point_light_behind_transmissive_plane(self):
+        """#851 review C2: the tree pruned lights 'behind the surface'. On a
+        transmissive surface they light it through transmission, and a delta
+        point light is reachable only by NEE, so the pruned light was lost.
+        Cycles uses |cos| for has_transmission."""
+        def build(r):
+            # Broad rough transmission keeps the point-light NEE tail light
+            # (roughness 0.5 / ior 1.5 swung the power mean +-9% per seed).
+            glass = r.create_material("disney", [1.0, 1.0, 1.0],
+                                      {"transmission": 1.0, "roughness": 0.9, "ior": 1.2})
+            r.add_triangle([-3, 0, -3], [3, 0, 3], [3, 0, -3], glass)
+            r.add_triangle([-3, 0, -3], [-3, 0, 3], [3, 0, 3], glass)
+            r.add_point_light([0, -1.0, 0], {"mode": "rgb", "color": [1, 1, 1]}, 10.0)
+            r.add_point_light([2.0, 2.0, 0.0], {"mode": "rgb", "color": [1, 1, 1]}, 2.0)
+            setup_camera(r, look_from=[0, 4, 3], look_at=[0, 0, 0], vfov=45,
+                         width=40, height=40)
+        ratio = self._tree_power_mean_ratio(build)
+        assert abs(ratio - 1.0) < 0.05, f"tree/power mean ratio {ratio:.3f}"
+
+    def test_gpu_tree_mean_matches_power_with_lights_behind_surface(self):
+        """GPU twin of test_tree_mean_matches_power_with_lights_behind_surface
+        (#851 review C1): the wavefront reverse pdf used a -dir proxy normal
+        while the forward pick used rec.normal. Sphere emitters only, so the
+        GPU tree uploads."""
+        if not astroray.__features__.get("cuda", False):
+            pytest.skip("CUDA not in this build")
+        def build(r):
+            floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+            r.add_triangle([-20, 0, -20], [20, 0, 20], [20, 0, -20], floor)
+            r.add_triangle([-20, 0, -20], [-20, 0, 20], [20, 0, 20], floor)
+            light = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 4.0})
+            for y in (2.0, -2.0):
+                for x in (-1.0, 1.0):
+                    for z in (-1.0, 1.0):
+                        r.add_sphere([x, y, z], 0.4, light)
+            setup_camera(r, look_from=[0, 6, 0.01], look_at=[0, 0, 0], vfov=50,
+                         width=48, height=48)
+        ratio = self._tree_power_mean_ratio(build, spp=64, depth=2, seeds=(7,), gpu=True)
+        assert abs(ratio - 1.0) < 0.05, f"GPU tree/power mean ratio {ratio:.3f}"
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

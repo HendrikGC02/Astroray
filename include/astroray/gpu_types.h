@@ -1059,17 +1059,22 @@ struct GLightTreeNode {
 };
 
 struct GLightTreeEmitter {
-    int          lightIndex;  // index into the GLight array (same order as LightList::getLights)
+    int          lightIndex;  // >=0: GLight index; <0: dedicated light j = -lightIndex-1 (#859)
     unsigned int bitTrail;    // root->leaf path: bit i = level-i branch (0 = left, 1 = right)
+    // #851: per-emitter bounds for leaf selection (Cycles light_tree_cluster_select_emitter).
+    GVec3 bboxMin, bboxMax;
+    GVec3 bconeAxis;
+    float thetaO, thetaE;
+    float energy;
 };
 
 // View passed into the kernels. enabled != 0 only when the CPU sampler mode
-// is Tree AND the tree was uploadable (no dedicated lights — those have no
-// GLight slot on the GPU yet).
+// is Tree AND the tree was uploadable (scene_upload.cu).
 struct GLightTreeView {
     const GLightTreeNode*    nodes;
     const GLightTreeEmitter* emitters;
-    const int*               lightToEmitter;  // GLight index -> emitter index (-1 if absent)
+    // GLight i -> emitter at [i]; dedicated j at [numLights + j] (-1 if absent).
+    const int*               lightToEmitter;
     int                      numNodes;
     int                      enabled;
 };
@@ -1136,4 +1141,8 @@ struct GCameraParams {
     int   shutterPosition;               // 0=Start, 1=Center, 2=End
     float vw, vh, focusDist;             // Projection scalars for interpolated camera
     float shiftX, shiftY;                // Camera shift for interpolated camera
+    // #845: orthographic projection. lowerLeft/horizontal/vertical then span
+    // the image plane through the camera; rays leave it along `forward`.
+    int   orthographic = 0;
+    GVec3 forward;                       // unit view direction (-w)
 };

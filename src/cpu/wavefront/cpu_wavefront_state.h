@@ -91,6 +91,8 @@ struct CPUWavefrontState {
     // SoA round-trip so the next bounce's two-sided-MIS emissive-hit sees it
     // (mirrors the GPU path_bsdf_pdf SoA field; parallels was_specular).
     std::vector<float> bsdf_pdf_prev;
+    // #851: previous vertex's NEE normal (tree-sampler MIS pdf).
+    std::vector<float> mis_normal_prev_x, mis_normal_prev_y, mis_normal_prev_z;
 
     // Carried hit identity (post-intersect -> shade). Full HitRecord so
     // shade never re-traces. >32 bytes / has std::vector members → kept in
@@ -138,6 +140,9 @@ struct CPUWavefrontState {
         was_specular.resize(max_paths);
         path_alive.resize(max_paths);
         bsdf_pdf_prev.resize(max_paths);  // pkg120
+        mis_normal_prev_x.resize(max_paths);  // #851
+        mis_normal_prev_y.resize(max_paths);
+        mis_normal_prev_z.resize(max_paths);
 
         hit.resize(max_paths);
         hit_valid.resize(max_paths);

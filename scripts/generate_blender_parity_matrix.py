@@ -1596,10 +1596,13 @@ def generate_matrix(evidence, vm_supported_types=frozenset(),
                        'dof_distance', 'aperture_fstop',
                        # pkg260: confirmed direct reads (blender_addon/__init__.py
                        # camera.dof.focus_object / .focus_distance / .sensor_fit).
-                       # ortho_scale is NOT read anywhere -- stays DROPPED-SILENT.
-                       'focus_distance', 'focus_object', 'sensor_fit'}
+                       # #845: ortho_scale read by _ortho_camera_plane.
+                       'focus_distance', 'focus_object', 'sensor_fit', 'ortho_scale'}
+    # #845: PERSP + ORTHO native; PANO still falls back to perspective (reported).
+    CAMERA_APPROXIMATED = {'type'}
     for prop in camera_props:
-        classification = 'SUPPORTED' if prop in CAMERA_EVIDENCE else 'DROPPED-SILENT'
+        classification = ('SUPPORTED' if prop in CAMERA_EVIDENCE else
+                          'APPROXIMATED' if prop in CAMERA_APPROXIMATED else 'DROPPED-SILENT')
         matrix_rows.append({
             'category': 'camera',
             'feature': 'Camera',

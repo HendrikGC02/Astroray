@@ -2,6 +2,7 @@
 #include "raytracer.h"
 #include "astroray/lights/area_light.h"
 #include "astroray/spectrum.h"
+#include "astroray/area_spread.h"
 #include <cmath>
 #include <algorithm>
 #include <random>
@@ -92,7 +93,9 @@ void AreaLight::sampleLi(LiSample& sample,
     // Evaluate spectral emission — plain Lambertian radiance L_e = P/(π·A).
     constexpr float kM1PiF = 0.31830988618f;  // M_1_PI_F = 1/π
     SampledSpectrum emissionSpec = emission_.eval(lambdas);
-    emissionSpec *= (intensity_ * normalizeFactor_ * kM1PiF);
+    // #852: Cycles soft-box spread attenuation (area_spread.h).
+    emissionSpec *= (intensity_ * normalizeFactor_ * kM1PiF
+                     * areaSpreadAttenuation(cosTheta, spread_));
 
     sample.emission_spec = emissionSpec;
 
@@ -182,7 +185,8 @@ bool AreaLight::intersect(const Vec3& rayOrigin, const Vec3& rayDir,
     // emission_spec (the geometry is carried by the pdf / throughput, not here).
     constexpr float kM1PiF = 0.31830988618f;  // 1/π
     SampledSpectrum e = emission_.eval(lambdas);
-    e *= (intensity_ * normalizeFactor_ * kM1PiF);
+    e *= (intensity_ * normalizeFactor_ * kM1PiF
+          * areaSpreadAttenuation(-denom, spread_));   // #852, == sampleLi
     out.emission = e;
     return true;
 }

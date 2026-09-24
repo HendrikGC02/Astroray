@@ -1072,7 +1072,7 @@ public:
     void addAreaLightDedicated(const std::vector<float>& center, const std::vector<float>& axisU,
                                const std::vector<float>& axisV, float sizeX, float sizeY,
                                const std::string& shape, py::dict emissionDict, float intensity,
-                               float spread = 1.0f,
+                               float spread = static_cast<float>(M_PI) / 2.0f,
                                int objectPassIndex = 0, int materialPassIndex = 0) {
         Vec3 pos(center[0], center[1], center[2]);
         Vec3 u(axisU[0], axisU[1], axisU[2]);
@@ -3694,9 +3694,11 @@ PYBIND11_MODULE(astroray, m) {
              "pkg89 Phase B: dedicated DistantLight with EmissionSpectrum")
         .def("add_area_light_dedicated", &PyRenderer::addAreaLightDedicated,
              "center"_a, "axis_u"_a, "axis_v"_a, "size_x"_a, "size_y"_a,
-             "shape"_a, "emission"_a, "intensity"_a, "spread"_a = 1.0f,
+             "shape"_a, "emission"_a, "intensity"_a,
+             "spread"_a = static_cast<float>(M_PI) / 2.0f,  // #852: half-angle; pi/2 = Lambertian
              "object_pass_index"_a = 0, "material_pass_index"_a = 0,
-             "pkg89 Phase B: dedicated AreaLight with EmissionSpectrum")
+             "pkg89 Phase B: dedicated AreaLight with EmissionSpectrum; spread = "
+             "half-angle (Blender light.spread / 2)")
         .def("add_spot_light_dedicated", &PyRenderer::addSpotLightDedicated,
              "center"_a, "direction"_a, "inner_angle"_a, "outer_angle"_a,
              "emission"_a, "intensity"_a, "radius"_a = 0.0f, "ies_file"_a = std::string(),

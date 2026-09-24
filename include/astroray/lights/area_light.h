@@ -4,7 +4,8 @@
 //
 // Emission profile (pkg89 research §5.4):
 //   - Lambertian base (cosine falloff from surface normal).
-//   - Optional "spread" cone: emission restricted to θ ≤ spread_angle.
+//   - Optional "spread": emission restricted to θ ≤ spread_angle and shaped by
+//     Cycles' power-preserving soft-box attenuation (area_spread.h, #852).
 //
 // Shapes: rectangle, disk, ellipse (Cycles convention).
 //
@@ -26,7 +27,8 @@ public:
     // u, v: orthonormal axes defining the plane (width, height).
     // width, height: size along u, v (for Rectangle/Ellipse; Disk uses width as radius).
     // shape: Rectangle (default), Disk, Ellipse.
-    // spread: emission cone half-angle in radians (π/2 = Lambertian hemisphere).
+    // spread: emission cone half-angle in radians (π/2 = Lambertian hemisphere)
+    //         = Blender light.spread / 2.
     AreaLight(const Vec3& position,
               const Vec3& u,
               const Vec3& v,

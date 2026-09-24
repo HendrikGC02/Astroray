@@ -6018,7 +6018,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 axis_u = list((basis @ mathutils.Vector((1, 0, 0))).normalized())
                 axis_v = list((basis @ mathutils.Vector((0, -1, 0))).normalized())
                 shape = getattr(light, 'shape', 'SQUARE')
-                spread = float(getattr(light, 'spread', 1.0))
+                # #852: Blender spread is the FULL angle (Cycles scene/light.cpp
+                # half_spread = 0.5 * spread); AreaLight takes the half-angle.
+                spread = 0.5 * float(getattr(light, 'spread', math.pi))
                 size_x = float(light.size)
                 size_y = float(getattr(light, 'size_y', light.size))
                 if shape in {'SQUARE', 'DISK'}:

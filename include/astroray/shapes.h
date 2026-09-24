@@ -81,6 +81,9 @@ public:
         return iesProfile->sample(iesAxis, directionFromLight);
     }
     Vec3  getCenter()   const { return center; }
+    float treeEmitterArea() const override {  // #851: projected disc
+        return static_cast<float>(M_PI) * radius * radius;
+    }
     float getRadius()   const { return radius; }
     const std::shared_ptr<Material>& getMaterial() const { return material; }
     // pkg56 Phase B: in-place mutators used by Renderer::update_object_transform.
@@ -280,6 +283,9 @@ public:
 
     bool isLight() const override { return emissive; }
     Vec3 emittedRadiance() const override { return material->getEmission(); }
+    float treeEmitterArea() const override {  // #851: Cycles triangle area
+        return 0.5f * (v1 - v0).cross(v2 - v0).length();
+    }
     Vec3 getV0() const { return v0; }
     Vec3 getV1() const { return v1; }
     Vec3 getV2() const { return v2; }

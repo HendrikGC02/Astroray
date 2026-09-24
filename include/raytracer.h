@@ -873,6 +873,13 @@ public:
     virtual bool isInfiniteLight() const { return false; }
     virtual Vec3 emittedRadiance() const { return Vec3(0); }
     virtual float directionFalloff(const Vec3& /*directionFromLight*/) const { return 1.0f; }
+    // #851: emitting area for the light-tree energy L * area (Cycles uses the
+    // triangle area). Default: mean projected area of the bbox, surface / 4
+    // (Cauchy's formula for convex bodies).
+    virtual float treeEmitterArea() const {
+        AABB b;
+        return boundingBox(b) ? 0.25f * b.area() : 0.0f;
+    }
     virtual Vec3 emittedRadiance(const Vec3& /*lightNormal*/, const Vec3& /*toPointDir*/) const { return emittedRadiance(); }
     // GR dispatch â€” BlackHole overrides both
     virtual bool isGRObject() const { return false; }

@@ -131,14 +131,7 @@ void LightTree::build(const LightList& lightList) {
         float luminance = 0.2126f * emission_rgb.x + 0.7152f * emission_rgb.y + 0.0722f * emission_rgb.z;
         e.energy = luminance;
         if (!hittable->isInfiniteLight()) {
-            if (const auto* tri = dynamic_cast<const Triangle*>(hittable.get())) {
-                e.energy *= 0.5f * (tri->getV1() - tri->getV0()).cross(tri->getV2() - tri->getV0()).length();
-            } else if (const auto* sph = dynamic_cast<const Sphere*>(hittable.get())) {
-                e.energy *= static_cast<float>(M_PI) * sph->getRadius() * sph->getRadius();
-            } else {
-                // Mean projected area of a convex body = surface area / 4 (Cauchy).
-                e.energy *= 0.25f * e.bbox.area();
-            }
+            e.energy *= hittable->treeEmitterArea();
         }
 
         // Orientation cone: assume full-sphere for Hittable lights (no explicit orientation).

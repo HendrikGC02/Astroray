@@ -63,14 +63,45 @@ Adaptive Tree Splitting" (§4.4 importance); Cycles `kernel/light/tree.h`
    Reference: Cycles tree on/off on the same scene gives wall 0.48 and floor
    0.12 (`astra_run/batchU/u851/cycles_table.txt`).
 
-## Not ported (still differs from Cycles)
+7. **Review fixes (cycles-parity-reviewer).**
+   - **C2, energy loss.** A zero normal marks a volume vertex, and the
+     importance then has no incidence term, as in Cycles `tree.h:142-167`.
+     Surfaces are always treated as `has_transmission` (`|cos θi|`, no
+     behind-surface prune; `tree.h:148,161`). Astroray cannot reliably tell
+     which materials transmit, and pruning a delta light on the transmission
+     side lost its light. Tree/power before → after: medium 0.19 → 1.0,
+     translucent plane 0.016 → 1.0.
+   - **Distant lights.** The sun and infinite hittables go in one leaf, the
+     root's right child, following Cycles `LightTree::build`. Distant
+     importance uses distance 1, direction −axis and cos θu = cos(θo+θe)
+     (`light_tree_node_importance`). The #851 distance clamp had given an
+     unbounded bbox zero importance. The sun cone is now axis = emission
+     direction, θo = 0, θe = half angle.
+   - **M2.** The leaf pick is the one-pass two-reservoir scheme
+     (`light_tree_cluster_select_emitter`), on CPU and GPU.
+   - **C1 and M1.** The GPU reverse pdf uses the previous vertex's NEE normal,
+     carried in `path_mis_n{x,y,z}`, which is zero after a medium scatter.
+     GPU medium NEE passes a zero normal, the same convention as the CPU.
 
-- Min/max-importance averaging for inner nodes (`get_left_probability`).
-- Per-type emitter distances (triangle vertices, light radius).
-- Oriented cones for mesh emitters (Astroray uses a full sphere).
-- `has_transmission`.
+## Remaining deviations (variance-only; pick pdf == MIS pdf, so no bias)
+
+- Inner nodes use only the max-importance share (Cycles averages min and max
+  in `get_left_probability`).
+- Node and emitter distances use the centroid clamp, not Cycles' per-type
+  vertex distances.
+- Mesh emitters use a full-sphere cone (sidedness is not exposed per material).
+- Surfaces never prune on incidence (always `has_transmission`).
+- `SpotLight::orientationCone` still uses (angle, angle), where Cycles uses
+  θo = 0.
 
 ## Open
+
+- `PowerLightSampler` depends on insertion order. `powerDist` follows the
+  order of `add()`/`addLight()` calls, but `sample()` assumes hittables come
+  first. With a dedicated light added before a hittable emitter, power
+  renders 3–4× dark at 256 spp, on main too (tree is unaffected). This needs
+  its own issue.
+- #886: `pdfValue` sums the pdfs of back faces of closed emitter meshes.
 
 - `SpotLight::orientationCone` has the same `(angle, angle)` form. Cycles uses
   θo = 0. It costs efficiency only, not bias.

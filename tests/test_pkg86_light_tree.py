@@ -465,5 +465,83 @@ class TestIssue851TreeSeams:
         p_point = float(np.min(pdf))
         assert abs(p_point - 0.25) < 0.03, f"point-light share {p_point:.3f} (flux weighting gives 0.40)"
 
+    @staticmethod
+    def _tree_power_mean_ratio(build, spp=256, depth=4, seeds=(7, 9), gpu=False):
+        """Mean tree/power ratio over non-emitter pixels, summed over seeds (an
+        unbiased sampler switch must not move it). Scenes add hittable emitters
+        before dedicated lights: the power sampler's CDF currently assumes that
+        order (separate issue)."""
+        imgs = {"power": 0.0, "tree": 0.0}
+        for mode in ("power", "tree"):
+            for seed in seeds:
+                r = astroray.Renderer()
+                r.set_integrator("path_tracer")
+                r.set_background_color([0.0, 0.0, 0.0])
+                build(r)
+                if gpu:
+                    r.set_use_gpu(True)
+                r.set_light_sampler(mode)
+                r.set_seed(seed)
+                imgs[mode] = imgs[mode] + np.asarray(
+                    r.render(spp, depth, None, False), dtype=np.float64)[..., :3]
+        m = (imgs["power"].max(axis=-1) < 3.0 * len(seeds)) & (imgs["tree"].max(axis=-1) < 3.0 * len(seeds))
+        return imgs["tree"][m].mean() / imgs["power"][m].mean()
+
+    def test_medium_vertex_keeps_point_light(self):
+        """#851 review C2: at a medium vertex (zero normal) the old importance
+        gave a radius-0 point light cos_theta_i = 0 -> importance 0, so the
+        tree never picked it and its in-scattered light was lost. Cycles omits
+        the incidence term in volumes."""
+        def build(r):
+            floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+            r.add_triangle([-6, 0, -6], [6, 0, 6], [6, 0, -6], floor)
+            r.add_triangle([-6, 0, -6], [-6, 0, 6], [6, 0, 6], floor)
+            tri = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 5.0})
+            r.add_triangle([2, 1.5, -0.2], [2.4, 1.5, -0.2], [2.2, 1.5, 0.2], tri)  # faces down
+            r.add_point_light([0, 2, 0], {"mode": "rgb", "color": [1, 1, 1]}, 20.0)
+            r.set_world_volume(0.3, [1.0, 1.0, 1.0], 0.0, 0.9)
+            setup_camera(r, look_from=[0, 1.5, 6], look_at=[0, 0.8, 0], vfov=50,
+                         width=40, height=40)
+        ratio = self._tree_power_mean_ratio(build)
+        assert abs(ratio - 1.0) < 0.05, f"tree/power mean ratio in a medium {ratio:.3f}"
+
+    def test_point_light_behind_transmissive_plane(self):
+        """#851 review C2: the tree pruned lights 'behind the surface'. On a
+        transmissive surface they light it through transmission, and a delta
+        point light is reachable only by NEE, so the pruned light was lost.
+        Cycles uses |cos| for has_transmission."""
+        def build(r):
+            glass = r.create_material("disney", [1.0, 1.0, 1.0],
+                                      {"transmission": 1.0, "roughness": 0.5, "ior": 1.5})
+            r.add_triangle([-3, 0, -3], [3, 0, 3], [3, 0, -3], glass)
+            r.add_triangle([-3, 0, -3], [-3, 0, 3], [3, 0, 3], glass)
+            r.add_point_light([0, -1.0, 0], {"mode": "rgb", "color": [1, 1, 1]}, 10.0)
+            r.add_point_light([2.0, 2.0, 0.0], {"mode": "rgb", "color": [1, 1, 1]}, 2.0)
+            setup_camera(r, look_from=[0, 4, 3], look_at=[0, 0, 0], vfov=45,
+                         width=40, height=40)
+        ratio = self._tree_power_mean_ratio(build)
+        assert abs(ratio - 1.0) < 0.05, f"tree/power mean ratio {ratio:.3f}"
+
+    def test_gpu_tree_mean_matches_power_with_lights_behind_surface(self):
+        """GPU twin of test_tree_mean_matches_power_with_lights_behind_surface
+        (#851 review C1): the wavefront reverse pdf used a -dir proxy normal
+        while the forward pick used rec.normal. Sphere emitters only, so the
+        GPU tree uploads."""
+        if not astroray.__features__.get("cuda", False):
+            pytest.skip("CUDA not in this build")
+        def build(r):
+            floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+            r.add_triangle([-20, 0, -20], [20, 0, 20], [20, 0, -20], floor)
+            r.add_triangle([-20, 0, -20], [-20, 0, 20], [20, 0, 20], floor)
+            light = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 4.0})
+            for y in (2.0, -2.0):
+                for x in (-1.0, 1.0):
+                    for z in (-1.0, 1.0):
+                        r.add_sphere([x, y, z], 0.4, light)
+            setup_camera(r, look_from=[0, 6, 0.01], look_at=[0, 0, 0], vfov=50,
+                         width=48, height=48)
+        ratio = self._tree_power_mean_ratio(build, spp=64, depth=2, seeds=(7,), gpu=True)
+        assert abs(ratio - 1.0) < 0.05, f"GPU tree/power mean ratio {ratio:.3f}"
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

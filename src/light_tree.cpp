@@ -161,8 +161,56 @@ void LightTree::build(const LightList& lightList) {
         return;
     }
 
-    // Build tree recursively.
-    buildRecursive(0, static_cast<int>(emitters.size()), 0);
+    // #851: distant emitters (unbounded bbox: sun, infinite hittables) go in
+    // one leaf, the root's right child, as Cycles LightTree::build does ("all
+    // distant lights are grouped to the right child as a leaf node",
+    // scene/light_tree.cpp). Mixed into SAOH clusters, their infinite bbox
+    // zeroed the importance of every local light sharing the cluster.
+    auto mid = std::stable_partition(emitters.begin(), emitters.end(),
+                                     [](const LightTreeEmitter& e) { return !isDistantBox(e.bbox); });
+    const int numLocal = static_cast<int>(mid - emitters.begin());
+    const int numTotal = static_cast<int>(emitters.size());
+    if (numLocal == numTotal) {
+        buildRecursive(0, numTotal, 0);
+    } else if (numLocal == 0) {
+        makeLeaf(0, numTotal);
+    } else {
+        nodes.emplace_back();  // root, index 0
+        int leftChild = buildRecursive(0, numLocal, 1);
+        int rightChild = makeLeaf(numLocal, numTotal);
+        LightTreeNode& root = nodes[0];
+        root.bbox = nodes[leftChild].bbox.merge(nodes[rightChild].bbox);
+        root.bcone = OrientationBounds::merge(nodes[leftChild].bcone, nodes[rightChild].bcone);
+        root.energy = nodes[leftChild].energy + nodes[rightChild].energy;
+        root.leftChild = leftChild;
+        root.rightChild = rightChild;
+    }
+}
+
+// #851: an unbounded (or absurdly large) bbox marks a distant emitter/node.
+bool LightTree::isDistantBox(const AABB& bbox) {
+    const float radius = (bbox.max - bbox.centroid()).length();
+    return !(radius < 1e9f);  // also true for inf/NaN
+}
+
+// Leaf over emitters [start, end) with merged bounds.
+int LightTree::makeLeaf(int start, int end) {
+    int nodeIdx = static_cast<int>(nodes.size());
+    nodes.emplace_back();
+    AABB bbox = emitters[start].bbox;
+    OrientationBounds bcone = emitters[start].bcone;
+    float energy = emitters[start].energy;
+    for (int i = start + 1; i < end; ++i) {
+        bbox = bbox.merge(emitters[i].bbox);
+        bcone = OrientationBounds::merge(bcone, emitters[i].bcone);
+        energy += emitters[i].energy;
+    }
+    nodes[nodeIdx].bbox = bbox;
+    nodes[nodeIdx].bcone = bcone;
+    nodes[nodeIdx].energy = energy;
+    nodes[nodeIdx].firstEmitter = start;
+    nodes[nodeIdx].numEmitters = end - start;
+    return nodeIdx;
 }
 
 // ============================================================================
@@ -397,52 +445,67 @@ void LightTree::importanceMinMax(const AABB& bbox, const OrientationBounds& bcon
                                  float& maxImp, float& minImp) const {
     maxImp = 0.0f;
     minImp = 0.0f;
-    // Compute vector from point to cluster centroid.
-    Vec3 centroid = bbox.centroid();
-    Vec3 pointToCentroid = (centroid - point);
-    float distance = pointToCentroid.length();
-    if (distance < 1e-6f) {
-        distance = 1e-6f;  // Avoid division by zero.
-    }
-    Vec3 pointToCentroidNorm = pointToCentroid / distance;
-
-    // Compute subtended half-angle theta_u (bounding sphere of the cluster bbox).
-    // Cycles: light_tree_cos_bound_subtended_angle (kernel/light/tree.h).
-    float bboxRadius = (bbox.max - centroid).length();
-    float distanceSq = distance * distance;
-    float radiusSq = bboxRadius * bboxRadius;
-
+    Vec3 pointToCentroidNorm;
     float cosSubtendedAngle;
-    if (distanceSq <= radiusSq) {
-        // Point inside bounding sphere.
-        cosSubtendedAngle = -1.0f;
+    float clampedDistance;
+    if (isDistantBox(bbox)) {
+        // #851: Cycles LIGHT_TREE_DISTANT (light_tree_node_importance):
+        // direction -axis, cos_theta_u = cos(theta_o + theta_e), distance 1.
+        pointToCentroidNorm = (bcone.axis * -1.0f).normalized();
+        cosSubtendedAngle = std::cos(std::min(static_cast<float>(M_PI), bcone.theta_o + bcone.theta_e));
+        clampedDistance = 1.0f;
     } else {
-        float sinSubtendedAngleSq = radiusSq / distanceSq;
-        cosSubtendedAngle = std::sqrt(1.0f - sinSubtendedAngleSq);
+        // Compute vector from point to cluster centroid.
+        Vec3 centroid = bbox.centroid();
+        Vec3 pointToCentroid = (centroid - point);
+        float distance = pointToCentroid.length();
+        if (distance < 1e-6f) {
+            distance = 1e-6f;  // Avoid division by zero.
+        }
+        pointToCentroidNorm = pointToCentroid / distance;
+
+        // Compute subtended half-angle theta_u (bounding sphere of the cluster bbox).
+        // Cycles: light_tree_cos_bound_subtended_angle (kernel/light/tree.h).
+        float bboxRadius = (bbox.max - centroid).length();
+        float distanceSq = distance * distance;
+        float radiusSq = bboxRadius * bboxRadius;
+        if (distanceSq <= radiusSq) {
+            // Point inside bounding sphere.
+            cosSubtendedAngle = -1.0f;
+        } else {
+            float sinSubtendedAngleSq = radiusSq / distanceSq;
+            cosSubtendedAngle = std::sqrt(1.0f - sinSubtendedAngleSq);
+        }
+        // #851: Cycles light_tree_node_importance clamps the distance to half the
+        // bbox half-diagonal, `fmaxf(0.5f * len(centroid - bbox.max), distance)`.
+        // The old max(distance - bboxRadius, 1e-6) gave a cluster enclosing the
+        // point ~1e12 importance, starving its sibling (e.g. the key light).
+        clampedDistance = std::max(0.5f * bboxRadius, distance);
     }
     float sinSubtendedAngle = std::sqrt(std::max(0.0f, 1.0f - cosSubtendedAngle * cosSubtendedAngle));
 
-    // Compute cos(theta_i) — angle between point-to-centroid and shading normal.
-    // For surface shading (not volume), we care about the incidence angle.
-    float cosThetaI = pointToCentroidNorm.dot(normal);
-    float sinThetaI = std::sqrt(std::max(0.0f, 1.0f - cosThetaI * cosThetaI));
-
-    // cos_min_incidence_angle = cos(max{theta_i - theta_u, 0}).
-    // Cycles: line 152-154 in kernel/light/tree.h.
-    float cosMinIncidenceAngle;
-    if (cosThetaI >= cosSubtendedAngle) {
-        cosMinIncidenceAngle = 1.0f;
-    } else {
-        cosMinIncidenceAngle = cosThetaI * cosSubtendedAngle + sinThetaI * sinSubtendedAngle;
+    // Incidence term, Cycles tree.h:142-167. A zero normal marks a volume
+    // (medium) vertex: no incidence term (Cycles in_volume_segment). Surfaces
+    // are always treated as has_transmission (tree.h:148,161): |cos theta_i|
+    // and no behind-surface prune. Astroray cannot tell reliably which
+    // materials transmit (isTransmissive() misses Disney/closure-graph
+    // transmission), and pruning a delta light on the transmission side loses
+    // its energy (#851 review C2). Opaque surfaces only pay variance.
+    float cosMinIncidenceAngle = 1.0f;
+    float cosMaxIncidenceAngle = 1.0f;
+    if (normal.dot(normal) > 0.0f) {
+        float cosThetaI = std::abs(pointToCentroidNorm.dot(normal));
+        float sinThetaI = std::sqrt(std::max(0.0f, 1.0f - cosThetaI * cosThetaI));
+        // cos_min_incidence_angle = cos(max{theta_i - theta_u, 0}).
+        if (cosThetaI >= cosSubtendedAngle) {
+            cosMinIncidenceAngle = 1.0f;
+        } else {
+            cosMinIncidenceAngle = cosThetaI * cosSubtendedAngle + sinThetaI * sinSubtendedAngle;
+        }
+        // cos_max_incidence_angle = cos(min{theta_i + theta_u, pi}), Cycles tree.h:163.
+        cosMaxIncidenceAngle =
+            std::max(cosThetaI * cosSubtendedAngle - sinThetaI * sinSubtendedAngle, 0.0f);
     }
-
-    // If cluster is entirely behind the surface (and surface is opaque), prune.
-    if (cosMinIncidenceAngle < 0.0f) {
-        return;
-    }
-    // cos_max_incidence_angle = cos(min{theta_i + theta_u, pi}), Cycles tree.h:163.
-    float cosMaxIncidenceAngle =
-        std::max(cosThetaI * cosSubtendedAngle - sinThetaI * sinSubtendedAngle, 0.0f);
 
     // Compute cos(theta) — angle between cluster axis and -point_to_centroid (emission direction).
     // Cycles: line 177-178 in kernel/light/tree.h.
@@ -475,11 +538,6 @@ void LightTree::importanceMinMax(const AABB& bbox, const OrientationBounds& bcon
 
     // Final importance: (energy / distance²) · cos_min_incidence_angle · cos_min_outgoing_angle.
     // Cycles: line 215-216 in kernel/light/tree.h.
-    // #851: Cycles light_tree_node_importance clamps the distance to half the
-    // bbox half-diagonal, `fmaxf(0.5f * len(centroid - bbox.max), distance)`.
-    // The old max(distance - bboxRadius, 1e-6) gave a cluster enclosing the
-    // point ~1e12 importance, starving its sibling (e.g. the key light).
-    float clampedDistance = std::max(0.5f * bboxRadius, distance);
     maxImp = energy * cosMinIncidenceAngle * cosMinOutgoingAngle /
              (clampedDistance * clampedDistance);
 
@@ -498,6 +556,28 @@ void LightTree::importanceMinMax(const AABB& bbox, const OrientationBounds& bcon
     }
 }
 
+// Cycles sample_reservoir (kernel/light/tree.h, Apache-2.0): weighted
+// reservoir step that reuses `rand`.
+void LightTree::sampleReservoir(int index, float weight, int& selected, float& selectedWeight,
+                                float& totalWeight, float& rand) {
+    if (!(weight > 0.0f)) return;
+    totalWeight += weight;
+    if (selected == -1) {
+        selected = index;
+        selectedWeight = weight;
+        return;
+    }
+    const float thresh = weight / totalWeight;
+    if (rand <= thresh) {
+        selected = index;
+        selectedWeight = weight;
+        rand = rand / thresh;
+    } else {
+        rand = (rand - thresh) / (1.0f - thresh);
+    }
+    rand = std::clamp(rand, 0.0f, 1.0f);
+}
+
 float LightTree::importance(const LightTreeNode& node, const Vec3& point,
                             const Vec3& normal) const {
     float maxImp, minImp;
@@ -506,12 +586,11 @@ float LightTree::importance(const LightTreeNode& node, const Vec3& point,
 }
 
 // #851: probability of emitter `target` (absolute index) within `leaf`, Cycles
-// light_tree_cluster_select_emitter / light_tree_pdf leaf branch (kernel/light/
-// tree.h, Apache-2.0): p = 0.5 * (max_i/sum(max) + min_i/sum(min)), where the min
-// term falls back to uniform over emitters with max > 0 when sum(min) == 0.
-// Uniform over the leaf when every max is 0 (Astroray keeps sampling there,
-// matching its inner-node fallback). Replaces uniform leaf selection, which
-// gave a dim emitter the same share as a bright one sharing its leaf.
+// light_tree_pdf leaf branch (kernel/light/tree.h, Apache-2.0):
+// p = 0.5 * (max_i/sum(max) + min_i/sum(min)), where the min term falls back to
+// uniform over emitters with max > 0 when sum(min) == 0. 0 when no emitter has
+// importance (pick() then returns no light, as Cycles). One pass; pick() draws
+// the same distribution with Cycles' two-reservoir scheme.
 float LightTree::leafEmitterProb(const LightTreeNode& leaf, int target, const Vec3& point,
                                  const Vec3& normal) const {
     float sumMax = 0.0f, sumMin = 0.0f, tMax = 0.0f, tMin = 0.0f;
@@ -525,8 +604,7 @@ float LightTree::leafEmitterProb(const LightTreeNode& leaf, int target, const Ve
         numHas += (mx > 0.0f) ? 1 : 0;
         if (i == target) { tMax = mx; tMin = mn; }
     }
-    if (!(sumMax > 0.0f)) return 1.0f / static_cast<float>(leaf.numEmitters);
-    if (!(tMax > 0.0f)) return 0.0f;
+    if (!(sumMax > 0.0f) || !(tMax > 0.0f)) return 0.0f;
     float minTerm = sumMin > 0.0f ? tMin / sumMin : 1.0f / static_cast<float>(numHas);
     return 0.5f * (tMax / sumMax + minTerm);
 }
@@ -573,24 +651,51 @@ LightTree::PickResult LightTree::pick(const Vec3& point, const Vec3& normal, flo
         }
     }
 
-    // At leaf: pick an emitter by the Cycles min/max importance mixture (#851).
-    // Inverts the CDF of leafEmitterProb, so pick pdf == pdf() by construction.
+    // At leaf: Cycles light_tree_cluster_select_emitter (kernel/light/tree.h,
+    // Apache-2.0), one pass with two reservoirs: with probability 1/2 sample by
+    // max importance, else by min importance (uniform over lit emitters when
+    // every min is 0). Selection pdf = leafEmitterProb (#851).
     const LightTreeNode& leaf = nodes[nodeIdx];
     int emitterIdx = -1;
-    float emitterProb = 0.0f, cdf = 0.0f;
-    for (int i = leaf.firstEmitter; i < leaf.firstEmitter + leaf.numEmitters; ++i) {
-        float p = leafEmitterProb(leaf, i, point, normal);
-        if (!(p > 0.0f)) continue;
-        emitterIdx = i;  // the last positive entry absorbs float round-off
-        emitterProb = p;
-        cdf += p;
-        if (u < cdf) break;
+    float selImp[2] = {0.0f, 0.0f};  // [0] = max, [1] = min importance
+    float totImp[2] = {0.0f, 0.0f};
+    int numHas = 0;
+    const bool sampleMax = (u > 0.5f);
+    if (leaf.numEmitters > 1) {
+        u = u * 2.0f - (sampleMax ? 1.0f : 0.0f);
     }
-    if (emitterIdx < 0) {
+    const int r = sampleMax ? 0 : 1;  // reservoir on importance[!sample_max]
+    const int o = 1 - r;
+    for (int i = leaf.firstEmitter; i < leaf.firstEmitter + leaf.numEmitters; ++i) {
+        const LightTreeEmitter& e = emitters[i];
+        float imp[2];
+        importanceMinMax(e.bbox, e.bcone, e.energy, point, normal, imp[0], imp[1]);
+        sampleReservoir(i, imp[r], emitterIdx, selImp[r], totImp[r], u);
+        if (emitterIdx == i) selImp[o] = imp[o];
+        totImp[o] += imp[o];
+        numHas += (imp[0] > 0.0f) ? 1 : 0;
+    }
+    if (numHas == 0) {
         return PickResult{-1, false, 0.0f};
     }
+    if (totImp[1] == 0.0f) {
+        if (!sampleMax) {
+            // Uniform over emitters with positive max importance.
+            emitterIdx = -1;
+            float w = 0.0f, t = 0.0f;
+            for (int i = leaf.firstEmitter; i < leaf.firstEmitter + leaf.numEmitters; ++i) {
+                const LightTreeEmitter& e = emitters[i];
+                float mx, mn;
+                importanceMinMax(e.bbox, e.bcone, e.energy, point, normal, mx, mn);
+                sampleReservoir(i, mx > 0.0f ? 1.0f : 0.0f, emitterIdx, w, t, u);
+                if (emitterIdx == i) selImp[0] = mx;
+            }
+        }
+        selImp[1] = 1.0f;
+        totImp[1] = static_cast<float>(numHas);
+    }
 
-    pdf *= emitterProb;
+    pdf *= 0.5f * (selImp[0] / totImp[0] + selImp[1] / totImp[1]);
 
     const LightTreeEmitter& e = emitters[emitterIdx];
     return PickResult{e.lightIndex, e.isDedicated, pdf};

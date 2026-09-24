@@ -833,10 +833,13 @@ __device__ int intersectPathSlotT(
             // pkg156 residual); skipping it restores CPU/GPU parity and the
             // pre-pkg120 naive behaviour. NEE mode (path_tracer) is unchanged.
             float bsdfPdfPrev = state.path_bsdf_pdf[idx];
+            // #851: the NEE normal of the previous vertex (tree pick == pdf).
+            GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
+                                state.path_mis_nz[idx]);
             float lp = gpu_reconstruct_light_pdf(
                 rec, ray.origin, ray.direction,
                 lights, numLights, totalLightPower,
-                prims, tris, spheres, lightTree);
+                prims, tris, spheres, lightTree, misNormalPrev);
             float wB = gpu_mw_powerHeuristic(bsdfPdfPrev, lp);
             GSampledSpectrum contrib = throughput * Le;
             contrib *= wB;
@@ -1903,6 +1906,10 @@ __device__ bool shadePathSlot(
     // can weight a diffuse-bounce emissive hit by the two-sided MIS heuristic
     // (mirrors CPU bsdfPdfPrev = bss.pdf in pathTraceSpectral).
     state.path_bsdf_pdf[idx] = bss.pdf;
+    // #851: the normal NEE used at this vertex, for the next hit's tree MIS pdf.
+    state.path_mis_nx[idx] = rec.normal.x;
+    state.path_mis_ny[idx] = rec.normal.y;
+    state.path_mis_nz[idx] = rec.normal.z;
     // pkg258: record whether env NEE competed at THIS vertex so the next-bounce
     // miss leg applies the env power heuristic only when it actually ran (mirrors
     // CPU pathTraceSpectral envNeeSampledPrev; the miss leg also requires
@@ -2777,7 +2784,7 @@ __global__ void stageVolumeScatterKernel(
     if (enableNEE && (numLights + numDed) > 0 && totalLightPower > 0.f) {
         GHitRecord mrec{};
         mrec.point   = P;
-        mrec.normal  = woMedium;   // arbitrary; only the (disabled) light-tree path reads it
+        mrec.normal  = GVec3(0.f, 0.f, 0.f);  // #851: zero normal = volume vertex (CPU convention)
         mrec.isDelta = false;
         GNEESample s = gpu_nee_sample(mrec, prims, tris, spheres,
                                       lights, numLights, totalLightPower,
@@ -2865,6 +2872,9 @@ __global__ void stageVolumeScatterKernel(
     // event; memory occlusion-sentinel / wavefront-snapshot-semantics).
     state.env_nee_sampled_prev[idx] = 0;
     state.path_bsdf_pdf[idx] = phasePdf;
+    state.path_mis_nx[idx] = 0.f;  // #851: medium vertex, zero MIS normal
+    state.path_mis_ny[idx] = 0.f;
+    state.path_mis_nz[idx] = 0.f;
     state.rng_dimension[idx] = rng.dimension();
     int next_bounce = bounce + 1;
     state.bounce[idx] = next_bounce;

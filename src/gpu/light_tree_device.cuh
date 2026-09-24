@@ -32,38 +32,48 @@ __device__ inline void gpu_light_tree_importance_mm(
     *maxImp = 0.0f;
     *minImp = 0.0f;
     GVec3 centroid = (bboxMin + bboxMax) * 0.5f;
-    GVec3 pointToCentroid = centroid - point;
-    float distance = pointToCentroid.length();
-    if (distance < 1e-6f) distance = 1e-6f;
-    GVec3 pointToCentroidNorm = pointToCentroid / distance;
-
-    // Subtended half-angle of the cluster's bounding sphere.
     float bboxRadius = (bboxMax - centroid).length();
-    float distanceSq = distance * distance;
-    float radiusSq = bboxRadius * bboxRadius;
-
+    GVec3 pointToCentroidNorm;
     float cosSubtendedAngle;
-    if (distanceSq <= radiusSq) {
-        cosSubtendedAngle = -1.0f;  // point inside bounding sphere
+    float clampedDistance;
+    if (!(bboxRadius < 1e9f)) {
+        // #851: distant node/emitter (Cycles LIGHT_TREE_DISTANT), CPU mirror.
+        pointToCentroidNorm = (bconeAxis * -1.0f).normalized();
+        cosSubtendedAngle = cosf(fminf(M_PI_F, thetaO + thetaE));
+        clampedDistance = 1.0f;
     } else {
-        float sinSubtendedAngleSq = radiusSq / distanceSq;
-        cosSubtendedAngle = sqrtf(1.0f - sinSubtendedAngleSq);
+        GVec3 pointToCentroid = centroid - point;
+        float distance = pointToCentroid.length();
+        if (distance < 1e-6f) distance = 1e-6f;
+        pointToCentroidNorm = pointToCentroid / distance;
+        float distanceSq = distance * distance;
+        float radiusSq = bboxRadius * bboxRadius;
+        if (distanceSq <= radiusSq) {
+            cosSubtendedAngle = -1.0f;  // point inside bounding sphere
+        } else {
+            float sinSubtendedAngleSq = radiusSq / distanceSq;
+            cosSubtendedAngle = sqrtf(1.0f - sinSubtendedAngleSq);
+        }
+        // #851: Cycles distance clamp (light_tree_node_importance), see CPU mirror.
+        clampedDistance = fmaxf(0.5f * bboxRadius, distance);
     }
     float sinSubtendedAngle = sqrtf(fmaxf(0.0f, 1.0f - cosSubtendedAngle * cosSubtendedAngle));
 
-    float cosThetaI = pointToCentroidNorm.dot(normal);
-    float sinThetaI = sqrtf(fmaxf(0.0f, 1.0f - cosThetaI * cosThetaI));
-
-    // cos_min_incidence_angle = cos(max{theta_i - theta_u, 0}).
-    float cosMinIncidenceAngle;
-    if (cosThetaI >= cosSubtendedAngle) {
-        cosMinIncidenceAngle = 1.0f;
-    } else {
-        cosMinIncidenceAngle = cosThetaI * cosSubtendedAngle + sinThetaI * sinSubtendedAngle;
+    // Zero normal = volume vertex (no incidence term); surfaces use
+    // has_transmission (|cos|, no prune). Mirror of the CPU (#851 review C2).
+    float cosMinIncidenceAngle = 1.0f;
+    float cosMaxIncidenceAngle = 1.0f;
+    if (normal.dot(normal) > 0.0f) {
+        float cosThetaI = fabsf(pointToCentroidNorm.dot(normal));
+        float sinThetaI = sqrtf(fmaxf(0.0f, 1.0f - cosThetaI * cosThetaI));
+        if (cosThetaI >= cosSubtendedAngle) {
+            cosMinIncidenceAngle = 1.0f;
+        } else {
+            cosMinIncidenceAngle = cosThetaI * cosSubtendedAngle + sinThetaI * sinSubtendedAngle;
+        }
+        cosMaxIncidenceAngle =
+            fmaxf(cosThetaI * cosSubtendedAngle - sinThetaI * sinSubtendedAngle, 0.0f);
     }
-    if (cosMinIncidenceAngle < 0.0f) return;  // cluster behind surface
-    float cosMaxIncidenceAngle =
-        fmaxf(cosThetaI * cosSubtendedAngle - sinThetaI * sinSubtendedAngle, 0.0f);
 
     // Angle between cluster axis and emission direction toward the point.
     GVec3 negPointToCentroid = pointToCentroidNorm * -1.0f;
@@ -87,8 +97,6 @@ __device__ inline void gpu_light_tree_importance_mm(
         return;  // cluster invisible from this shading point
     }
 
-    // #851: Cycles distance clamp (light_tree_node_importance), see CPU mirror.
-    float clampedDistance = fmaxf(0.5f * bboxRadius, distance);
     *maxImp = energy * cosMinIncidenceAngle * cosMinOutgoingAngle /
               (clampedDistance * clampedDistance);
 
@@ -116,9 +124,26 @@ __device__ inline float gpu_light_tree_importance(
     return mx;
 }
 
-// Mirror of LightTree::leafEmitterProb (#851; Cycles
-// light_tree_cluster_select_emitter): 0.5 * (max_i/sum(max) + min_i/sum(min)),
-// min term uniform over max>0 emitters when sum(min) == 0; uniform when all max == 0.
+// Mirror of LightTree::sampleReservoir (Cycles sample_reservoir).
+__device__ inline void gpu_light_tree_reservoir(int index, float weight, int* selected,
+                                                float* selectedWeight, float* totalWeight,
+                                                float* rand)
+{
+    if (!(weight > 0.0f)) return;
+    *totalWeight += weight;
+    if (*selected == -1) { *selected = index; *selectedWeight = weight; return; }
+    const float thresh = weight / *totalWeight;
+    if (*rand <= thresh) {
+        *selected = index; *selectedWeight = weight; *rand = *rand / thresh;
+    } else {
+        *rand = (*rand - thresh) / (1.0f - thresh);
+    }
+    *rand = fminf(fmaxf(*rand, 0.0f), 1.0f);
+}
+
+// Mirror of LightTree::leafEmitterProb (#851; Cycles light_tree_pdf leaf):
+// 0.5 * (max_i/sum(max) + min_i/sum(min)), min term uniform over max>0 emitters
+// when sum(min) == 0; 0 when no emitter has importance.
 __device__ inline float gpu_light_tree_leaf_prob(
     const GLightTreeView& view, const GLightTreeNode& leaf, int target,
     const GVec3& point, const GVec3& normal)
@@ -136,8 +161,7 @@ __device__ inline float gpu_light_tree_leaf_prob(
         numHas += (mx > 0.0f) ? 1 : 0;
         if (i == target) { tMax = mx; tMin = mn; }
     }
-    if (!(sumMax > 0.0f)) return 1.0f / (float)leaf.numEmitters;
-    if (!(tMax > 0.0f)) return 0.0f;
+    if (!(sumMax > 0.0f) || !(tMax > 0.0f)) return 0.0f;
     float minTerm = sumMin > 0.0f ? tMin / sumMin : 1.0f / (float)numHas;
     return 0.5f * (tMax / sumMax + minTerm);
 }
@@ -180,21 +204,48 @@ __device__ inline int gpu_light_tree_pick(
         }
     }
 
-    // #851: leaf pick by the importance mixture (mirror of CPU pick()).
+    // #851: one-pass two-reservoir leaf pick (mirror of CPU pick(); Cycles
+    // light_tree_cluster_select_emitter).
     const GLightTreeNode& leaf = view.nodes[nodeIdx];
     int emitterIdx = -1;
-    float emitterProb = 0.0f, cdf = 0.0f;
+    float selImp[2] = {0.0f, 0.0f};
+    float totImp[2] = {0.0f, 0.0f};
+    int numHas = 0;
+    const bool sampleMax = (u > 0.5f);
+    if (leaf.numEmitters > 1) u = u * 2.0f - (sampleMax ? 1.0f : 0.0f);
+    const int r = sampleMax ? 0 : 1;
+    const int o = 1 - r;
     for (int i = leaf.firstEmitter; i < leaf.firstEmitter + leaf.numEmitters; ++i) {
-        float p = gpu_light_tree_leaf_prob(view, leaf, i, point, normal);
-        if (!(p > 0.0f)) continue;
-        emitterIdx = i;
-        emitterProb = p;
-        cdf += p;
-        if (u < cdf) break;
+        const GLightTreeEmitter& e = view.emitters[i];
+        float imp[2];
+        gpu_light_tree_importance_mm(e.bboxMin, e.bboxMax, e.bconeAxis,
+                                     e.thetaO, e.thetaE, e.energy,
+                                     point, normal, &imp[0], &imp[1]);
+        gpu_light_tree_reservoir(i, imp[r], &emitterIdx, &selImp[r], &totImp[r], &u);
+        if (emitterIdx == i) selImp[o] = imp[o];
+        totImp[o] += imp[o];
+        numHas += (imp[0] > 0.0f) ? 1 : 0;
     }
-    if (emitterIdx < 0) { *outPdf = 0.f; return -1; }
+    if (numHas == 0) { *outPdf = 0.f; return -1; }
+    if (totImp[1] == 0.0f) {
+        if (!sampleMax) {
+            emitterIdx = -1;
+            float w = 0.0f, t = 0.0f;
+            for (int i = leaf.firstEmitter; i < leaf.firstEmitter + leaf.numEmitters; ++i) {
+                const GLightTreeEmitter& e = view.emitters[i];
+                float mx, mn;
+                gpu_light_tree_importance_mm(e.bboxMin, e.bboxMax, e.bconeAxis,
+                                             e.thetaO, e.thetaE, e.energy,
+                                             point, normal, &mx, &mn);
+                gpu_light_tree_reservoir(i, mx > 0.0f ? 1.0f : 0.0f, &emitterIdx, &w, &t, &u);
+                if (emitterIdx == i) selImp[0] = mx;
+            }
+        }
+        selImp[1] = 1.0f;
+        totImp[1] = (float)numHas;
+    }
 
-    *outPdf = pdf * emitterProb;
+    *outPdf = pdf * 0.5f * (selImp[0] / totImp[0] + selImp[1] / totImp[1]);
     return emitterIdx;
 }
 

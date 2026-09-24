@@ -1195,6 +1195,8 @@ public:
         return rec.t * rec.t / (cosLight * area());
     }
 
+    float treeEmitterArea() const override { return area(); }  // #851
+
     Vec3 random(const Vec3& origin, std::mt19937& gen) const override {
         return (samplePoint(gen) - origin).normalized();
     }

@@ -73,9 +73,9 @@ __device__ inline float gpu_env_seed_uniform(uint32_t env_seed, uint32_t k) {
 // resident). Mirrors CPU LightList::pdfValue (src/light_sampler.cpp) so the CPU
 // and wavefront two-sided terms agree by construction:
 //   selection  : power-CDF diff (power mode) OR gpu_light_tree_pdf with the
-//                -dir PROXY normal — TreeLightSampler::pdfValue uses
-//                normal = -dir (light_sampler.cpp:210), the shading normal
-//                being unavailable at MIS reconstruction time.
+//                previous vertex's NEE normal (prevNormal, carried per path in
+//                path_mis_n{x,y,z}; zero after a medium scatter), exactly as
+//                the forward pick used it (#851; CPU TreeLightSampler::pdfValue).
 //   solid-angle: Sphere 1/(2π(1-cosθmax)) (shapes.h:50); Triangle
 //                t²/(|dir·Ng|·area) (shapes.h Triangle::pdfValue).
 // Returns 0 when the hit emitter has no NEE-sampleable GLight slot; the
@@ -87,7 +87,7 @@ __device__ inline float gpu_reconstruct_light_pdf(
     const GHitRecord& rec, const GVec3& prevPoint, const GVec3& dir,
     const GLight* lights, int numLights, float totalLightPower,
     const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres,
-    const GLightTreeView& lightTree)
+    const GLightTreeView& lightTree, const GVec3& prevNormal)
 {
     if (numLights <= 0 || totalLightPower <= 0.f) return 0.f;
 
@@ -104,8 +104,7 @@ __device__ inline float gpu_reconstruct_light_pdf(
     if (lightTree.enabled) {
         int emitterIdx = lightTree.lightToEmitter[lightIdx];
         if (emitterIdx < 0) return 0.f;
-        GVec3 proxyN = (dir * -1.f).normalized();   // CPU proxy normal (-dir)
-        selPdf = gpu_light_tree_pdf(lightTree, prevPoint, proxyN, emitterIdx);
+        selPdf = gpu_light_tree_pdf(lightTree, prevPoint, prevNormal, emitterIdx);
     } else {
         float prevCum = (lightIdx > 0) ? lights[lightIdx - 1].cumulativePower : 0.f;
         selPdf = (lights[lightIdx].cumulativePower - prevCum) / totalLightPower;

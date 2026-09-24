@@ -307,8 +307,9 @@ class TestIssue851TreeSeams:
         us = np.random.default_rng(3).uniform(0, 1, n)
         idx, pdf = r.debug_light_tree_pick([0.0, 0.05, 0.0] * n, [0.0, 1.0, 0.0] * n, us.tolist())
         frac = float(np.mean(np.asarray(idx) == 8))
-        # Importance ratio after the clamp: bright 1e4/30^2 vs dim 8/2.83^2 -> ~0.9.
-        assert frac > 0.5, f"bright light picked {frac:.1%} (starved by the enclosing cluster)"
+        # Measured 0.0% before #851 and ~53% after (the dim ring stays a close
+        # competitor); 25% separates the two with margin.
+        assert frac > 0.25, f"bright light picked {frac:.1%} (starved by the enclosing cluster)"
 
     def test_tree_mean_matches_power_with_lights_behind_surface(self):
         """An unbiased sampler switch must not move the mean. Lights below the

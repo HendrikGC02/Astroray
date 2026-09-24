@@ -16,6 +16,7 @@
 #include "gpu_spectral_tables.h"  // pkg218: gpu_emission_profile
 #include "astroray/ies_eval.h"      // pkg276: Cycles kernel_ies_interp port (shared with CPU)
 #include "astroray/lamp_sampling.h" // #840: Cycles point_light_sample port (shared with CPU)
+#include "astroray/area_spread.h"   // #852: Cycles area spread attenuation (shared with CPU)
 
 #include <curand_kernel.h>
 
@@ -313,7 +314,7 @@ __device__ inline GNEESample gpu_dedicated_sample(
         // pdf (pdf_A·dist²/cosθ) so the integrator's MIS is measure-consistent.
         // Mirrors the CPU area_light.cpp::sampleLi fix.
         s.lightPdf    = ((dist * dist) / (area * cosTheta)) * selPdf;
-        s.dedGeoScale = d.staticScale;
+        s.dedGeoScale = d.staticScale * astroray::areaSpreadAttenuation(cosTheta, d.spread);  // #852
         s.valid       = 1;
         return s;
     }
@@ -394,7 +395,8 @@ __device__ inline bool gpu_dedicated_intersect(
         if (!inb) return false;
         if ((-denom) < cosf(d.spread)) return false; // out of spread cone (-D toward receiver)
         *t = tt;
-        *scale = d.staticScale;                      // plain radiance (== area dedGeoScale)
+        *scale = d.staticScale                       // plain radiance (== area dedGeoScale)
+               * astroray::areaSpreadAttenuation(-denom, d.spread);  // #852
         return true;
     }
     if (d.kind == GDED_DISTANT) {

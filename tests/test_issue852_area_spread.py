@@ -108,6 +108,17 @@ def test_spread_centre_boost_matches_quadrature_cpu(cpu_renders, deg):
     assert abs(got / want - 1) < 0.05, f"half {deg}: centre ratio {got:.3f}, quadrature {want:.3f}"
 
 
+@pytest.mark.parametrize("use_gpu", [False, pytest.param(True, marks=pytest.mark.gpu)])
+@pytest.mark.parametrize("half", [0.0, 5e-11, 1e-4])
+def test_zero_and_tiny_spread_finite(astroray_module, half, use_gpu):
+    """Spread -> 0 must not produce Inf*0 = NaN (Cycles: collimated, pi on axis)."""
+    if use_gpu and not getattr(astroray_module, "__features__", {}).get("cuda", False):
+        pytest.skip("CUDA build required")
+    img = _render(astroray_module, half, use_gpu=use_gpu, spp=64)
+    assert np.isfinite(img).all(), f"half {half}: non-finite pixels"
+    assert (img >= 0).all(), f"half {half}: negative pixels"
+
+
 @pytest.mark.gpu
 @pytest.mark.parametrize("deg", [90.0, 45.0, 22.5])
 def test_spread_gpu_matches_cpu(astroray_module, cpu_renders, deg):

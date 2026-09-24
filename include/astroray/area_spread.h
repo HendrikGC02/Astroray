@@ -26,13 +26,19 @@ namespace astroray {
 
 // cosA = cos(angle between emitted direction and the light normal);
 // halfSpread = h in radians. h >= pi/2 (Blender spread 180 deg) -> 1 (Lambertian).
+// h -> 0 (Blender spread 0; also guards h^3 underflow -> Inf * 0 = NaN): Cycles
+// area_light_spread_attenuation special-cases tan_half_spread == 0 as collimated,
+// pi on the axis (tan a <= 1e-5) and 0 elsewhere (scene/light.cpp then stores
+// normalize_spread = FLT_MAX). Uniform-area sampling hits the axis with measure
+// zero, so a zero-spread lamp renders black, as the old hard cone did.
 AR_AREA_HD inline float areaSpreadAttenuation(float cosA, float halfSpread) {
     if (halfSpread >= 1.5707963f) return 1.0f;
     if (cosA <= 0.0f) return 0.0f;
+    const float tanA = sqrtf(fmaxf(0.0f, 1.0f - cosA * cosA)) / cosA;
+    if (halfSpread <= 1e-10f) return (tanA > 1e-5f) ? 0.0f : 3.14159265f;
     const float tanH = tanf(halfSpread);
     const float norm = halfSpread > 0.05f ? 1.0f / (tanH - halfSpread)
                                           : 3.0f / (halfSpread * halfSpread * halfSpread);
-    const float tanA = sqrtf(fmaxf(0.0f, 1.0f - cosA * cosA)) / cosA;
     return fmaxf((tanH - tanA) * norm, 0.0f);
 }
 

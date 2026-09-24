@@ -31,6 +31,18 @@ lamp hit, emissive surface, background, bounded-medium emission; GPU wavefront:
 the same five sites). NEE sites keep the vertex bounce. Not changed: GR emission
 (no Cycles counterpart) and the legacy `pathTraceSpectralCaustic` integrator.
 
+**Five-seed gate (CPU addon at b3873898, seeds 278, 2781–2784, crop means / Cycles).**
+`volume_bounces` 0, Blender defaults (`sample_clamp_indirect` 10): 0.989 / 0.989 / 0.986.
+`volume_bounces` 4 is gated with `sample_clamp_indirect = 0` in BOTH engines:
+0.991 / 0.990 / 0.994. Reason (lead decision 2026-09-25): the clamp is a biased
+cutoff, so the energy it removes depends on the per-sample contribution spread,
+not only on the mean. #860's observable is volume transport. With the default
+clamp at bounces 4, Cycles loses 2 % of the crop and Astroray 9–10 %
+(scatter cube: 5 % vs 21 %; Principled: 0 % vs 3–7.5 %, blue-heavy) → 0.92 / 0.92 /
+0.91. That clamp-on gap is filed separately (per-sample spread in
+multi-scatter media; candidates: hero-wavelength spectral spikes, XYZ-Y vs
+Cycles RGB-sum clamp metric).
+
 **Residual (recorded, not hidden).** Backdrop seen through the saturated red
 Absorption cube: 0.90 / 0.77 / 0.79 (G/B absolute ≈ 0.02) — spectral transport of
 σ_a = D(1 − Color) with Color = (0.85, 0.25, 0.20) at optical depth ≈ 2 vs Cycles

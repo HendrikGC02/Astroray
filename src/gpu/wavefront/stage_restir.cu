@@ -162,7 +162,10 @@ struct GReSTIRCandidate {
     {
         GReSTIRCandidate c;
         if (!s.valid) { c.pdf = 0.0f; return c; }
-        float dist = s.maxDist + 0.001f;
+        // #859: a distant light's maxDist is the 1e30 occlusion sentinel;
+        // |position - point| would overflow float (1e60) to inf and zero wi in
+        // the resolve. 1e8 keeps the direction exact to ~1e-7 rad.
+        float dist = fminf(s.maxDist + 0.001f, 1e8f);
         c.position = s.origin + s.wi * dist;
         c.normal   = s.wi * -1.0f;   // light-facing (toward the shading point)
         c.emission = s.isDedicated

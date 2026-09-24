@@ -182,7 +182,7 @@ def _uv_sphere_bulk(r, mat, center=(0.0, 0.0, 1.0), rad=1.0, seg=32, rings=16):
                          np.asarray(nrm, np.float32))
 
 
-def _sun_scene(case, gpu, seed, integrator):
+def _sun_scene(case, gpu, seed, integrator, sun=True):
     r = astroray.Renderer()
     r.set_background_color([0.0, 0.0, 0.0])
     r.set_seed(seed)
@@ -213,18 +213,19 @@ def _sun_scene(case, gpu, seed, integrator):
                          np.tile(np.asarray([0, 0, 1], np.float32), (2, 3, 1)))
     if m is not None:
         _uv_sphere_bulk(r, m)
-    r.add_sun_light_dedicated([-0.17435, 0.47943, -0.86009], 0.0091804,
-                              {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 1.0, 0, 0)
+    if sun:
+        r.add_sun_light_dedicated([-0.17435, 0.47943, -0.86009], 0.0091804,
+                                  {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 1.0, 0, 0)
     r.set_integrator_param("use_temporal", 0)
     r.set_integrator_param("use_spatial", 0)
     r.set_integrator(integrator)
     return r
 
 
-def _sun_roi_mean(case, gpu, integrator):
+def _sun_roi_mean(case, gpu, integrator, sun=True):
     means = []
     for s in SUN_SEEDS:
-        r = _sun_scene(case, gpu, s, integrator)
+        r = _sun_scene(case, gpu, s, integrator, sun)
         img = np.asarray(r.render(SUN_SPP, 12, None, False), dtype=np.float64)
         img = img.reshape(SUN_RES, SUN_RES, -1)[..., :3]
         means.append(img[SUN_ROI].mean(axis=(0, 1)))
@@ -241,12 +242,17 @@ def _sun_roi_mean(case, gpu, integrator):
 def test_issue859_sun_survives_mesh_emitter(integrator, case):
     """GPU/CPU far-ground mean within MEAN_RATIO_TOL with a sun + mesh emitter.
 
-    The oracle is always CPU path_tracer: the ground receives direct light
-    only (no occluders/bounce surfaces near the ROI), so DI-only restir-di must
-    match it, and the CPU restir-di has its own colour cast on a SUN.
+    Oracle = CPU path_tracer, built by linearity: CPU(sun only) +
+    CPU(emitter only). The CPU tree sampler drops the emitter when a sun is in
+    the same tree (measured: sun+emitter 0.209 vs 0.2096 + 0.0246; identical
+    at emission 5 and 50), so a direct CPU(sun+emitter) render is not a valid
+    oracle. The ROI sees direct light only, so DI-only restir-di must match
+    too (CPU restir-di has its own colour cast on a SUN).
     """
     _require_gpu()
-    cpu = _sun_roi_mean(case, False, "path_tracer")
+    cpu = _sun_roi_mean("none", False, "path_tracer")
+    if case != "none":
+        cpu = cpu + _sun_roi_mean(case, False, "path_tracer", sun=False)
     gpu = _sun_roi_mean(case, True, integrator)
     assert np.all(cpu > 1e-3), f"CPU oracle dark on {integrator}/{case}: {cpu}"
     ratios = gpu / cpu

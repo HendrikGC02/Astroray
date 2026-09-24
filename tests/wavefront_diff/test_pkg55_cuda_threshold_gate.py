@@ -316,6 +316,34 @@ def _unit_vector_ulp_distance(a, b):
     return int(np.ceil(float(d.max()) / 2.0 ** -23 - 1e-9)) if d.size else 0
 
 
+def _point_ulp_distance(a, b):
+    """Max per-row |a-b| in units of ulp(max(|p|_inf, 1.0)) of that point.
+
+    #845: hit points carry the rounding of the scene-scale ray.at(t), so a
+    near-zero coordinate's own ULP (~2e-10 at 0.0037) is the wrong unit; the
+    error scales with the point's largest coordinate (floored at 1.0).
+    """
+    import numpy as np
+    a = np.asarray(a, np.float64).reshape(-1, 3)
+    b = np.asarray(b, np.float64).reshape(-1, 3)
+    if a.size == 0:
+        return 0
+    scale = np.maximum(np.max(np.abs(a), axis=1), 1.0)
+    ulp = np.spacing(scale.astype(np.float32)).astype(np.float64)
+    d = np.max(np.abs(a - b), axis=1) / ulp
+    return int(np.ceil(float(d.max()) - 1e-9))
+
+
+def test_point_ulp_metric_catches_real_divergence():
+    """Negative control: at |p|_inf = 3.19 one ulp is 2.4e-7, so the 64-ulp
+    PostIntersect bound is 1.5e-5; a 5e-5 divergence must fail, the measured
+    6.6e-7 rounding difference must pass."""
+    import numpy as np
+    p = np.array([[-0.0036931857, 1.2, -3.1891515]], np.float32)
+    assert _point_ulp_distance(p, p + np.float32(5e-5)) > 64
+    assert _point_ulp_distance(p, p + np.float32(6.6e-7)) <= 64
+
+
 def test_unit_vector_ulp_metric_catches_real_divergence():
     """Negative control: a 1e-5 direction divergence (~84 ulp(1.0)) must fail
     the PostInit max_ulp=4 bound; a 1.2e-7 rounding difference must pass."""
@@ -381,8 +409,11 @@ def _compute_stage_ulp(cpu_snapshots, gpu_snapshot_array, stage):
         gpu_hit_normal = gpu_snapshot_array[:, 19:22].astype(np.float32)[mask]
 
         ulp_hit_t = _compute_ulp_distance(cpu_hit_t, gpu_hit_t)
-        ulp_hit_point = _compute_ulp_distance(cpu_hit_point.flatten(), gpu_hit_point.flatten())
-        ulp_hit_normal = _compute_ulp_distance(cpu_hit_normal.flatten(), gpu_hit_normal.flatten())
+        # #845: magnitude-relative ULPs (see _unit_vector_ulp_distance /
+        # _point_ulp_distance) -- per-component ULPs of near-zero coordinates
+        # read 1930 for a 6.6e-7 point difference.
+        ulp_hit_point = _point_ulp_distance(cpu_hit_point, gpu_hit_point)
+        ulp_hit_normal = _unit_vector_ulp_distance(cpu_hit_normal, gpu_hit_normal)
 
         return max(ulp_hit_t, ulp_hit_point, ulp_hit_normal)
 

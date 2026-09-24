@@ -222,8 +222,8 @@ def _pixel_generated(sub=1):
     """Generated coordinate at `sub`x`sub` sub-pixel points, shape (RES,RES,sub*sub,3)."""
     h = CAM_Z * math.tan(math.radians(VFOV) / 2)
     off = (np.arange(sub) + 0.5) / sub
-    # Camera convention (measured): s = (i + jitter) / (W - 1), RTOW-style.
-    px = (np.arange(RES)[:, None] + off[None, :]).reshape(-1) / (RES - 1)
+    # Camera convention: s = (i + jitter) / W (#845 pixel-to-film fix).
+    px = (np.arange(RES)[:, None] + off[None, :]).reshape(-1) / RES
     x = (2 * px - 1) * h
     y = (1 - 2 * px) * h
     X, Y = np.meshgrid(x, y)

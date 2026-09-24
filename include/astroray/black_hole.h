@@ -131,7 +131,10 @@ private:
         double M     = metric->M;
         double f     = 1.0 - 2.0 * M / r;
         double sin_th = std::sin(theta);
-        if (std::abs(sin_th) < 1e-10) sin_th = (sin_th >= 0 ? 1e-10 : -1e-10);
+        // Same polar clamp as the metric RHS (Schwarzschild sin^2 >= 1e-12,
+        // KerrMetric |sin| >= 1e-6). A smaller clamp here only inflates
+        // dph = O(1/sin) while p_phi = O(sin) stays ~0 either way.
+        if (std::abs(sin_th) < 1e-6) sin_th = (sin_th >= 0 ? 1e-6 : -1e-6);
         double sin2  = sin_th * sin_th;
         double r2    = r * r;
 
@@ -155,20 +158,27 @@ private:
         double p_th  = r2 * dth;
         double p_phi = r2 * sin2 * dph;
 
-        // Null condition → p_t
+        // Null condition → p_t, on the PAST-directed root (p^t < 0) in both
+        // branches. The traced ray starts at the camera and runs against the
+        // photon: its tangent is -k for photon momentum k. The geodesic
+        // equation is invariant under (lambda, k) -> (-lambda, -k), so tracing
+        // -k (spatial part along the camera ray, p^t < 0) retraces the real
+        // photon backwards. Keeping p^t > 0 with the spatial part reversed is
+        // a time-reversed photon, and t -> -t maps Kerr a -> -a: the shadow
+        // mirrors. pkg281 measured exactly that (L/R 34/88 px vs GYOTO 87/34);
+        // the past-directed root gives 89/33. At a=0 the sign of p_t is inert
+        // (it enters the Schwarzschild RHS only as p_t^2 and in dt/dlambda).
         double L2    = p_th * p_th + p_phi * p_phi / sin2;
         double pt2   = f * f * p_r * p_r + f * L2 / r2;
-        double p_t   = -std::sqrt(std::max(pt2, 0.0));
+        double p_t   = std::sqrt(std::max(pt2, 0.0));  // p^t = -p_t/f < 0
 
         if (spin != 0.0) {
             // pkg281 Kerr: p_i = g_ii v^i, with v^phi taken relative to the
             // frame-dragging ZAMO (p_phi = g_phiphi v^phi; Bardeen, Press &
-            // Teukolsky 1972 §III). p_t solves g^{mu nu} p_mu p_nu = 0 on the
-            // PAST-directed root (p^t < 0): the camera ray runs opposite to the
-            // photon, so it is the photon geodesic with lambda reversed. A
-            // future-directed root would trace the a -> -a spacetime (mirrored
-            // shadow). At a=0 only the sign of p_t differs from the branch
-            // above, and p_t enters the a=0 dynamics squared.
+            // Teukolsky 1972 §III). g^{tt} p_t^2 + 2 b p_t + C = 0 with
+            // b = g^{tphi} p_phi; p^t = g^{tt} p_t + b, so the root
+            // g^{tt} p_t = -b - sqrt(b^2 - g^{tt} C) gives p^t = -sqrt(.) < 0.
+            // At a=0 it equals the branch above.
             const double a2     = spin * spin;
             const double sigma  = r2 + a2 * cos_th * cos_th;
             const double delta  = r2 - 2.0 * M * r + a2;

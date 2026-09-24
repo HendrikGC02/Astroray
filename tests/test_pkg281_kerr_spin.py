@@ -67,6 +67,62 @@ def test_spin_094_matches_bardeen_equatorial_edges():
     assert left == pytest.approx(_px(6.90), abs=2.0), (left, right)
 
 
+def _polar_radius_M(a: float) -> float:
+    """Shadow radius for an on-axis observer (Chandrasekhar 1983 §63).
+
+    Only L_z = 0 photons reach the axis: the spherical photon orbit with
+    lambda = 0 solves r^3 - 3r^2 + a^2 r + a^2 = 0 (M=1), and the critical
+    curve is a circle of radius sqrt(eta + a^2),
+    eta = r^3 (4 Delta - r (r-1)^2) / (a^2 (r-1)^2).
+    """
+    r = 3.0
+    for _ in range(60):  # Newton from the a=0 root
+        f = r**3 - 3 * r**2 + a * a * r + a * a
+        r -= f / (3 * r**2 - 6 * r + a * a)
+    delta = r * r - 2 * r + a * a
+    eta = r**3 * (4 * delta - r * (r - 1) ** 2) / (a * a * (r - 1) ** 2)
+    return math.sqrt(eta + a * a)
+
+
+def test_polar_observer_circular_bardeen_radius():
+    n = 512
+    r = astroray.Renderer()
+    r.set_integrator("path_tracer")
+    r.set_background_color([1.0, 1.0, 1.0])
+    r.set_seed(17)
+    r.set_adaptive_sampling(False)
+    # Camera on the spin axis (+y), 48 M out; the central ray runs along theta=0.
+    r.setup_camera([0.0, 12.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
+                   45.0, 1.0, 0.0, 12.0, n, n)
+    r.add_black_hole([0.0, 0.0, 0.0], 4.0e6, 5.0, {
+        "spin": 0.94, "disk_outer": 18.0, "accretion_rate": 0.0,
+        "inclination": 0.0, "enable_adaf": False, "r_obs_M": 20.0})
+    img = np.asarray(r.render(4, 4, None, False), dtype=np.float32)
+    assert np.isfinite(img).all()
+    lum = img.mean(2)
+    mask = lum < 0.5 * float(np.median(lum))
+
+    focal = (n / 2) / math.tan(math.radians(22.5))
+    expected = focal * _polar_radius_M(0.94) / DIST_M        # ~62.9 px
+    schw = focal * 3.0 * math.sqrt(3.0) / DIST_M             # ~66.9 px
+    yy, xx = np.mgrid[0:n, 0:n] + 0.5
+    rad = np.hypot(xx - n / 2, yy - n / 2)
+    # Filled disc of the analytic radius: no pole streaks inside or just
+    # outside. The annulus stops at 70 px: a faint dotted ring at ~74-77 px
+    # predates pkg281 (present at a=0 on the old build; pkg280 side note).
+    assert mask[rad < expected - 1.5].all()
+    assert not mask[(rad > expected + 1.5) & (rad < 70.0)].any()
+    # Pole streak check: the central row/column (theta ~ 0 rays) stay lit
+    # beyond 70 px out to the frame edge, apart from that ring.
+    ring = (rad > 72.0) & (rad < 79.0)
+    for line in (mask[n // 2 - 1:n // 2 + 1, :], mask[:, n // 2 - 1:n // 2 + 1].T):
+        far = (rad[n // 2 - 1:n // 2 + 1, :] > 70.0) & ~ring[n // 2 - 1:n // 2 + 1, :]
+        assert not line[far].any()
+    # Area-equivalent radius: tighter than the 4 px gap to Schwarzschild.
+    r_eq = math.sqrt(mask[rad < 70.0].sum() / math.pi)
+    assert r_eq == pytest.approx(expected, abs=1.0), (r_eq, expected, schw)
+
+
 def _disk_flux(spin: float) -> float:
     r = astroray.Renderer()
     r.set_integrator("path_tracer")

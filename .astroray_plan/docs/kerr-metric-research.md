@@ -310,16 +310,21 @@ Euclidean direction gives BL coordinate velocities as before; then
 `p_r = (Sigma/Delta) v^r`, `p_th = Sigma v^th`, `p_phi = g_phiphi v^phi` (v^phi
 relative to the ZAMO). `p_t` solves the null condition on the **past-directed**
 root (`p^t < 0`): the traced ray runs opposite to the photon, i.e. it is the
-photon geodesic with lambda reversed. Choosing the future-directed root (as the
-a=0 branch does, harmlessly) traces the a -> -a spacetime and mirrors the shadow
-(measured: 34/88 px instead of GYOTO's 87/34 px).
+photon geodesic with lambda reversed (the geodesic equation is invariant under
+(lambda, k) -> (-lambda, -k)). The future-directed root instead describes a
+time-reversed photon, and t -> -t maps a -> -a, which mirrors the shadow
+(measured: 34/88 px instead of GYOTO's 87/34 px). The a=0 branch uses the same
+sign; there it is inert (a=0 renders bitwise identical).
 
 **Capture.** `r < (r_+ + min r_ph)/2`. An incoming photon inside the innermost
 circular photon orbit cannot turn back. The old `r_+ + 0.5M` (1.84 M at a=0.94)
 lay outside r_ph,pro = 1.43 M and would clip the prograde edge. At a=0 the new
 threshold is 2.5 M, identical to `SchwarzschildMetric`.
 
-**Validation.** pkg280 Phase 3 frozen procedure, gr-kerr-94-faceon (equatorial
+The polar clamp `|sin th| >= 1e-6` is shared by `buildInitialState`, `KerrMetric::geodesic_rhs`, and `SchwarzschildMetric` (`sin^2 >= 1e-12`).
+
+**Validation.** Polar observer (a=0.94, camera on the spin axis): circular shadow, radius sqrt(eta + a^2) = 4.884 M (Chandrasekhar 1983 §63, lambda=0 spherical orbit r=2.507 M) -> 62.9 px; measured area radius within 1 px, no pole streak.
+pkg280 Phase 3 frozen procedure, gr-kerr-94-faceon (equatorial
 view), a=0.94: Astroray L/R/T/B = 89/33/62.5/61.5 px vs GYOTO 87/34/61.5/61.5
 (max 2.9 %). Analytic Bardeen b_c = 6.90/2.64 M -> 88.8/34.0 px.
 

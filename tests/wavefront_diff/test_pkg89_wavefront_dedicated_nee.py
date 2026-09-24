@@ -237,10 +237,7 @@ def _sun_roi_mean(case, gpu, integrator, sun=True):
     ("path_tracer", "principled"),
     ("path_tracer", "light"),
     ("restir-di", "none"),        # restir-di used to drop dedicated lights
-    pytest.param("restir-di", "principled", marks=pytest.mark.xfail(
-        strict=True,
-        reason="#885: restir-di drops the mesh emitter when a sun is present "
-               "(CPU+GPU; GPU sun+emitter 0.2097 vs sum-of-parts 0.2317)")),
+    ("restir-di", "principled"),  # #885: fixed by the DistantLight tree energy
 ])
 def test_issue859_sun_survives_mesh_emitter(integrator, case):
     """GPU/CPU far-ground mean within MEAN_RATIO_TOL with a sun + mesh emitter.

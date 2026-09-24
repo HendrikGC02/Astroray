@@ -41,6 +41,12 @@ Disc: Cycles centre (2.19e5, 1.01e5, 1.70e4), limb-darkened mean
 
 ## Not covered
 - ReSTIR-DI bounce-0 path passes no dedicated lights (disc invisible there).
-- `multiwavelength_path_tracer` lamp block unchanged (NEE-gated oracle).
-- Preetham fallback bake (`sky_bake._sun_direction`, unknown sky types only)
-  still places its glow at azimuth R.
+
+## Follow-ups landed on this branch
+- `multiwavelength_path_tracer`: camera rays see camera-visible lamps (unit
+  weight, NEE on or off), matching the GPU.
+- #905: Preetham fallback bake glow moved to 90deg - R. The pkg256 Cycles A/B
+  now aims the camera at the true sun (the corpus camera faced azimuth 90 with
+  the sun at -25, out of frame); exposure constant recalibrated 1/1766 -> 1/1333
+  on the full-sky mean (bands: upper 1.40, horizon 0.60, full 1.00; sun
+  column 120 vs 120 of 240).

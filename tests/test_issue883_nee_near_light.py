@@ -6,7 +6,8 @@ of a plane has closed forms, so each leg is checked against an analytic
 reference, not only against the other leg:
   * sphere of radiance L, radius r, centre height h (wholly above the plane):
     E = pi L r^2 cos(theta) / d^2 (exact for a Lambertian sphere).
-  * polygon: Lambert's formula E = L/2 sum_i beta_i (n . (a_i x a_i+1)^).
+  * polygon: Lambert's formula E = L/2 sum_i beta_i (n . (a_i x a_i+1)^)
+    (Arvo 1995, "Applications of Irradiance Tensors").
 Floor radiance = albedo/pi * E, averaged over 4x4 sub-pixels per pixel.
 
 The #883 report (NEE-on/NEE-off 1.22 for a sphere light) was measured with

@@ -137,9 +137,10 @@ def _render(monkeypatch, frame, seed, gpu):
     r = astroray.Renderer()
     r.set_integrator("path_tracer")
     if gpu:
-        r.set_use_gpu(True)
+        # Check before set_use_gpu: a CPU-only build raises there (CI).
         if not getattr(r, "gpu_available", False):
             pytest.skip("gpu_available is False")
+        r.set_use_gpu(True)
     r.set_seed(seed)
     r.set_background_color([0.0, 0.0, 0.0])
     for _name, rgb, c in SL.ortho_grid_quads():
@@ -252,7 +253,8 @@ def test_addon_viewport_path_inverts_blender_ortho_window_matrix(monkeypatch):
 
 
 @pytest.mark.parametrize("orient", list(FRAMES))
-@pytest.mark.parametrize("gpu", [False, True], ids=["cpu", "gpu"])
+@pytest.mark.parametrize("gpu", [False, pytest.param(True, marks=pytest.mark.gpu)],
+                         ids=["cpu", "gpu"])
 def test_grid_matches_blender_projection(monkeypatch, orient, gpu):
     """ORTHO frames plus a PERSP control (same grid/shift): raster positions
     must match Blender within 1 px on both projections."""

@@ -141,6 +141,12 @@ __device__ inline GRay gpu_generateCameraRay(
 
     GVec3 rd     = gpu_randomInUnitDisk(rng) * cam.lensRadius;
     GVec3 offset = cam.u * rd.x + cam.v * rd.y;
+    if (cam.orthographic) {
+        // #845: mirrors stage_init.cu::generatePrimaryRay / Camera::orthoRay.
+        GVec3 plane_point = cam.lowerLeft + cam.horizontal*u + cam.vertical*v;
+        GVec3 odir = (cam.lensRadius > 0.f) ? cam.forward * cam.focusDist - offset : cam.forward;
+        return GRay(plane_point + offset, odir);
+    }
     GVec3 dir    = cam.lowerLeft + cam.horizontal*u + cam.vertical*v
                    - cam.origin - offset;
     return GRay(cam.origin + offset, dir);

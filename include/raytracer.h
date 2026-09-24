@@ -342,6 +342,13 @@ struct Ray {
     Vec3 at(float t) const { return origin + direction * t; }
 };
 
+// #845: invert the camera's film mapping u = (x + jitter)/W, v = 1 - (y + jitter)/H
+// (jitter in [0,1) for the box filter; wider filters clamp to the frame).
+inline void screenToPixel(float su, float sv, int w, int h, int& px, int& py) {
+    px = std::max(0, std::min(w - 1, static_cast<int>(std::floor(su * float(w)))));
+    py = std::max(0, std::min(h - 1, static_cast<int>(std::floor((1.0f - sv) * float(h)))));
+}
+
 class Material;
 class Texture;  // pkg223 — normalMapTexture() returns shared_ptr<Texture>
 

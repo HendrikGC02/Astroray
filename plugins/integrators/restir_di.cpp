@@ -162,7 +162,7 @@ public:
                     astroray::SampledSpectrum grEm(0.0f);
                     for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
                         float v = grResult.emission[i];
-                        grEm[i] = (std::isfinite(v) && v >= 0.0f) ? std::min(v, 20.0f) : 0.0f;
+                        grEm[i] = (std::isfinite(v) && v >= 0.0f) ? v : 0.0f;
                     }
                     if (!grEm.isZero()) color += throughput * grEm;
                 }

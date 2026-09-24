@@ -16,12 +16,118 @@
 #include "astroray/energy_compensation.h"
 #include "astroray/guiding/dtree.h"
 #include "astroray/guiding/sdtree.h"
+#include "astroray/black_hole.h"
+#include "astroray/integrator.h"
+#include "astroray/register.h"
 
 namespace py = pybind11;
 using namespace pybind11::literals;
 
+namespace {
+
+class GrDispatchProbe final : public Hittable {
+    float emission_;
+    int* trace_calls_;
+
+public:
+    GrDispatchProbe(float emission, int* trace_calls)
+        : emission_(emission), trace_calls_(trace_calls) {}
+
+    bool hit(const Ray& ray, float t_min, float t_max, HitRecord& rec) const override {
+        constexpr float t = 1.0f;
+        if (t < t_min || t > t_max) return false;
+        rec.t = t;
+        rec.point = ray.at(t);
+        rec.objectPoint = rec.point;
+        rec.setFaceNormal(ray, Vec3(0.0f, 0.0f, -1.0f));
+        rec.hitObject = this;
+        return true;
+    }
+
+    bool boundingBox(AABB& box) const override {
+        box = AABB(Vec3(-1.0f, -1.0f, -1.5f), Vec3(1.0f, 1.0f, -0.5f));
+        return true;
+    }
+
+    bool isGRObject() const override { return true; }
+    bool isLight() const override { return true; }
+
+    GRSpectralResult traceGRSpectral(
+            const Ray&, const astroray::SampledWavelengths&, std::mt19937&) const override {
+        ++*trace_calls_;
+        GRSpectralResult result;
+        result.emission = astroray::SampledSpectrum(emission_);
+        result.exitDirection = Vec3(0.0f, 0.0f, 1.0f);
+        result.captured = true;
+        result.hasEmission = true;
+        return result;
+    }
+};
+
+std::array<float, 2> probeGrRendererDispatch(float emission, float clamp_direct, bool caustic) {
+    Renderer renderer;
+    renderer.setClampDirect(clamp_direct);
+    int trace_calls = 0;
+    renderer.addObject(std::make_shared<GrDispatchProbe>(emission, &trace_calls));
+    renderer.buildAcceleration();
+    astroray::SampledWavelengths lambdas =
+        astroray::SampledWavelengths::sampleUniform(0.5f);
+    std::mt19937 generator(1234);
+    // Renderer defaults to a -Z camera forward axis; match it so its primary
+    // clip-depth conversion accepts the synthetic hit at t=1.
+    const Ray ray(Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f));
+    const astroray::SampledSpectrum result = caustic
+        ? renderer.pathTraceSpectralCaustic(ray, 1, 1, lambdas, generator)
+        : renderer.pathTraceSpectral(ray, 1, lambdas, generator);
+    return {result[0], static_cast<float>(trace_calls)};
+}
+
+std::array<float, 2> probeRegisteredReSTIRGrDispatch(float emission) {
+    int trace_calls = 0;
+    Renderer renderer;
+    renderer.addObject(std::make_shared<GrDispatchProbe>(emission, &trace_calls));
+    renderer.buildAcceleration();
+
+    astroray::ParamDict params;
+    params.set("max_depth", 1);
+    auto integrator = astroray::IntegratorRegistry::instance().create("restir-di", params);
+    Camera camera(
+        Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f), Vec3(0.0f, 1.0f, 0.0f),
+        45.0f, 1.0f, 0.0f, 1.0f, 1, 1);
+    integrator->beginFrame(renderer, camera);
+
+    std::mt19937 generator(1234);
+    const Ray ray = camera.getRay(0.0f, 0.0f, 0.0f, generator);
+    const SampleResult result = integrator->sampleFull(ray, generator);
+    return {result.color.y, static_cast<float>(trace_calls)};
+}
+
+} // namespace
+
 PYBIND11_MODULE(astroray_test_helpers, m) {
     m.doc() = "Astroray test/oracle utilities (internal, not public API)";
+
+    // pkg280 — expose the exact production thin-disk transfer helper for
+    // analytic invariance tests. This is deliberately not part of astroray's
+    // public Python API.
+    m.def("thin_disk_invariant_transfer_wavelength",
+          &astroray::thinDiskInvariantTransferWavelength,
+          "lambda_obs_nm"_a, "temperature_K"_a, "g"_a);
+    m.def("thin_disk_emitted_wavelength_nm", &astroray::thinDiskEmittedWavelengthNm,
+          "lambda_obs_nm"_a, "g"_a);
+    m.def("thin_disk_normalized_transfer_wavelength",
+          &astroray::thinDiskNormalizedTransferWavelength,
+          "lambda_obs_nm"_a, "temperature_K"_a, "g"_a,
+          "exposure_scale"_a, "wavelength_span_nm"_a);
+    m.def("thin_disk_accumulate_finite", &astroray::accumulateFiniteThinDiskEmission,
+          "accumulated"_a, "contribution"_a);
+    m.def("gr_renderer_dispatch_probe", &probeGrRendererDispatch,
+          // cppcheck-suppress assignBoolToPointer -- pybind11 named-argument default.
+          "emission"_a, "clamp_direct"_a = 0.0f, "caustic"_a = false,
+          "Runs either Renderer GR dispatch and returns (radiance, trace_calls).");
+    m.def("gr_restir_registry_dispatch_probe", &probeRegisteredReSTIRGrDispatch,
+          "emission"_a,
+          "Instantiates registered restir-di and returns (Y_radiance, trace_calls).");
 
     // pkg92 — WavefrontRNG (PCG32 counter-based RNG for wavefront oracles).
     // This is a test/oracle utility, not production API.

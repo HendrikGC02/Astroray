@@ -21,6 +21,8 @@ import threading
 import types
 from pathlib import Path
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # bpy stub (matches test_pkg116_exporter_caches.py)
 # ---------------------------------------------------------------------------
@@ -579,6 +581,49 @@ def test_worker_cheap_scene_renders_full_res_first():
         lambda *a: "path", em, commit_mode='camera') is True
     assert exporter._worker._current_job["width"] == region.width
     assert exporter._worker_refine_pending is False
+
+
+class _RegionSpyRenderer(_SpyRenderer):
+    def set_render_region(self, x0, y0, x1, y1):
+        self._rec("set_render_region", x0, y0, x1, y1)
+
+    def clear_render_region(self):
+        self._rec("clear_render_region")
+
+
+def _camera_border_context(region, use_border):
+    render = types.SimpleNamespace(
+        use_border=use_border, border_min_x=0.30, border_max_x=0.75,
+        border_min_y=0.15, border_max_y=0.85)
+    space = types.SimpleNamespace(
+        region_3d=types.SimpleNamespace(view_perspective='CAMERA'))
+    return types.SimpleNamespace(
+        region=region, space_data=space,
+        scene=types.SimpleNamespace(render=render))
+
+
+@pytest.mark.parametrize("use_border", [True, False])
+def test_worker_commit_applies_render_border(use_border):
+    """#857: the worker commit honours the camera render border (#802) — a
+    bordered commit sets the engine region, a borderless one clears it."""
+    exp = _load_exporter_module()
+    exporter = _make_exporter(exp)
+    exporter._worker = _idle_worker(exp)
+    spy = _RegionSpyRenderer()
+    exporter._get_viewport_renderer = lambda: spy
+    region = types.SimpleNamespace(width=200, height=100)
+    context = _camera_border_context(region, use_border)
+    exporter._viewport_last_full_render_ms = 0.0   # full-res first unit
+    exporter._worker.desired_generation = 1
+    assert exporter._worker_commit_and_submit(
+        context, None, _worker_settings(), region, lambda *a: None,
+        lambda *a: None, lambda *a: "path", _worker_engine_methods({}),
+        commit_mode='camera') is True
+    region_calls = [c for c in spy.calls if "render_region" in c[0]]
+    if use_border:
+        assert region_calls == [("set_render_region", 60, 15, 150, 85)]
+    else:
+        assert region_calls == [("clear_render_region",)]
 
 
 def test_worker_view_draw_schedules_fullres_refinement():

@@ -2480,6 +2480,8 @@ class Exporter:
             width = max(1, int(region.width) // res_divisor)
             height = max(1, int(region.height) // res_divisor)
             engine_methods['setup_viewport_camera'](renderer, context, width, height)
+            # #857: honour the render border on the worker path too (#802).
+            self._apply_viewport_render_region(renderer, context, width, height)
             lmin, lmax = engine_methods['wavelength_range_from_settings'](settings)
             renderer.set_wavelength_range(lmin, lmax)
             if lmax > 780.0 or lmin < 380.0:

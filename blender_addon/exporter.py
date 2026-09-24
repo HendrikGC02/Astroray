@@ -403,6 +403,17 @@ def _active_world_node_tree(depsgraph):
     return getattr(world, 'node_tree', None) if world is not None else None
 
 
+def _original_id(x):
+    """#874: depsgraph update ids and `scene.world.node_tree` are evaluated
+    copies -- each bpy access hands back a different Python wrapper over the
+    same datablock, so an `is` compare between them always misses (the world
+    edit was never recognised as an ENVIRONMENT change, only a stale-material
+    fallback caught it). Compare the ORIGINAL datablock instead, same fix as
+    #849's `_owning_material` (bpy_struct `==` compares the underlying
+    pointer)."""
+    return getattr(x, 'original', None) or x
+
+
 class CameraCache:
     """Tracks camera state and detects changes via depsgraph updates."""
     def __init__(self, bpy_module):
@@ -681,7 +692,7 @@ class MaterialsCache:
 
         for upd in updates:
             upd_id = getattr(upd, 'id', None)
-            if world_tree is not None and upd_id is world_tree:
+            if world_tree is not None and _original_id(upd_id) == _original_id(world_tree):
                 continue
             type_name = _depsgraph_id_type_name(upd_id, self.bpy)
             if type_name == 'Image':
@@ -773,7 +784,7 @@ class WorldCache:
         world_tree = _active_world_node_tree(depsgraph)
         for upd in updates:
             upd_id = getattr(upd, 'id', None)
-            if world_tree is not None and upd_id is world_tree:
+            if world_tree is not None and _original_id(upd_id) == _original_id(world_tree):
                 return True
             type_name = _depsgraph_id_type_name(upd_id, self.bpy)
             if type_name == 'World':
@@ -1305,6 +1316,11 @@ class Exporter:
         # range of dedicated lights that convert_lights added.
         self._viewport_material_ids = None
         self._viewport_light_range = None
+        # #874: the (start, count) range of dedicated lights the LAST
+        # setup_world() call added (the world sky-sun lamp baked from a Sky
+        # Texture). An environment-only replay must remove this range before
+        # re-running setup_world, or each world edit adds another sun.
+        self._viewport_world_light_range = None
         self._classified_material_names = set()
         # pkg266 (Terra review, item 2): reduced-resolution first unit on the
         # worker path. A fresh generation whose measured full-res cost exceeds the
@@ -1605,7 +1621,7 @@ class Exporter:
             # World update — re-parse the world tree before device upload.
             # Guard: tests may pass scene=None.
             if depsgraph.scene is not None:
-                self.engine.setup_world(depsgraph.scene, renderer)
+                self._resync_world(depsgraph.scene, renderer)
             renderer.upload_environment()
 
         if changes & Change.MATERIALS:
@@ -1688,6 +1704,25 @@ class Exporter:
             if not renderer.rebind_material(old_id, new_id):
                 return False
         return True
+
+    def _resync_world(self, scene, renderer):
+        """#874: setup_world() unconditionally adds a dedicated sky-sun lamp
+        (Sky Texture bake) with no removal of a previous one, so calling it
+        again on every world edit accumulated suns. Remove the range the last
+        call added first, then re-run and record the new range -- same
+        pattern as _reconcile_lights for convert_lights."""
+        has_range_bindings = self._has_bindings(
+            renderer, 'remove_dedicated_lights', 'dedicated_light_count')
+        rng = self._viewport_world_light_range
+        if has_range_bindings and rng is not None:
+            start, count = rng
+            renderer.remove_dedicated_lights(start, count)
+        light_start = (int(renderer.dedicated_light_count())
+                       if has_range_bindings else None)
+        self.engine.setup_world(scene, renderer)
+        self._viewport_world_light_range = (
+            None if light_start is None else
+            (light_start, int(renderer.dedicated_light_count()) - light_start))
 
     def _reconcile_lights(self, renderer, depsgraph):
         """Drop the dedicated lights the last sync's convert_lights added and
@@ -1823,7 +1858,8 @@ class Exporter:
         viewport_perf_record_fn("lights", t0)
 
         t0 = time.perf_counter()
-        self.engine.setup_world(depsgraph.scene, renderer)
+        self._viewport_world_light_range = None  # #874: renderer.clear() above wiped any prior range
+        self._resync_world(depsgraph.scene, renderer)
         viewport_perf_record_fn("environment", t0)
 
         active_mode = configure_backend_fn(renderer, settings, self.engine.report,

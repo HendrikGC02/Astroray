@@ -34,6 +34,9 @@ def _affine(center, deg, half):
     rinv = np.array([[np.cos(a), np.sin(a), 0.0], [-np.sin(a), np.cos(a), 0.0], [0.0, 0.0, 1.0]])
     lin = rinv * (0.5 / half)
     off = 0.5 - lin @ np.asarray(center, float)
+    # Plane at g.z = 0.55, not 0.5: z*4 = 2 is a checker boundary where the GPU
+    # 64^3 voxel bake picks a cell by float noise (pre-existing, main too).
+    off[2] += 0.05
     return [float(x) for x in np.hstack([lin, off[:, None]]).reshape(-1)]
 
 
@@ -73,9 +76,10 @@ def _render(backend, objects, bbox=None):
 
 
 def _cells(img):
-    """+1 red cell, -1 blue cell, 0 background / ambiguous edge pixel."""
+    """+1 red cell, -1 blue cell, 0 background / ambiguous edge pixel. Cells
+    give |r-b| ~ 0.6; the grey background's spectral noise stays below 0.3."""
     d = img[..., 0] - img[..., 2]
-    return np.where(d > 0.1, 1, np.where(d < -0.1, -1, 0))
+    return np.where(d > 0.3, 1, np.where(d < -0.3, -1, 0))
 
 
 def _agree(a, b, invert=False):
@@ -86,7 +90,7 @@ def _agree(a, b, invert=False):
 
 @pytest.mark.parametrize("backend", ["cpu", "gpu"])
 def test_identity_object_frame_matches_bbox_frame(backend):
-    old = _render(backend, [((0, 0, 0), 0.0, 1.0, False)], bbox=([-1, -1, -1], [2, 2, 2]))
+    old = _render(backend, [((0, 0, 0), 0.0, 1.0, False)], bbox=([-1, -1, -1.1], [2, 2, 2]))
     new = _render(backend, [((0, 0, 0), 0.0, 1.0, True)])
     assert _agree(_cells(old), _cells(new)) >= 0.99
 

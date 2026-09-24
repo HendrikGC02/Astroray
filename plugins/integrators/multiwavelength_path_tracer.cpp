@@ -166,6 +166,7 @@ private:
         // used by the two-sided-MIS lamp legs below. Mirrors pathTraceSpectral's
         // bsdfPdfPrev (raytracer.h:2405).
         float bsdfPdfPrev = 0.0f;
+        Vec3 misNormalPrev(0.0f);  // #851: NEE normal at the previous vertex
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
         int lastBounce = 0;
         float weightSum = 0.0f;
@@ -206,7 +207,7 @@ private:
                         if (wasSpecular) {
                             color += throughput * lh.emission;
                         } else {
-                            float lp = lights.pdfValue(ray.origin, ray.direction);
+                            float lp = lights.pdfValue(ray.origin, ray.direction, misNormalPrev);
                             float bp = bsdfPdfPrev;
                             float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                             color += throughput * lh.emission * wB;
@@ -279,7 +280,7 @@ private:
                     // against the light-sampling pdf that would have generated it.
                     float lp = lights.empty()
                         ? 0.0f
-                        : lights.pdfValue(ray.origin, ray.direction);
+                        : lights.pdfValue(ray.origin, ray.direction, misNormalPrev);
                     float bp = bsdfPdfPrev;
                     float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                     color += throughput * Le * wB;
@@ -376,6 +377,7 @@ private:
             // pkg195 Stage A: carry this bounce's BSDF pdf for the next iteration's
             // two-sided-MIS lamp/emissive legs (mirrors pathTraceSpectral:2599).
             bsdfPdfPrev = bss.pdf;
+            misNormalPrev = rec.normal;
 
             // pkg87b: Cryptomatte accumulation at shade point (before throughput update).
             // Weight = average(throughput · bsdf_eval), per Cycles.

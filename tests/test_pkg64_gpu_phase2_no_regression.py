@@ -127,17 +127,19 @@ def test_empty_hook_bit_equality():
     #   seed:            145 11 23 37 51 73 101 202
     #   main 0dd98e18:     0  0  0  0  0  4   0   2   (2.98e-8)
     #   #845 build:        3  0  0  3  0  1   0   0   (2.38e-7)
-    # so a cross-process bit-equality pin was only stable by chance. PRIMARY
-    # gate: in-process caustics hook ON vs OFF (no caster flagged) bit-equal,
-    # at seed 11 (0 varying pixels on both builds). SECONDARY: the stored
-    # seed-145 baseline within 1e-6 (~4x the measured 2.4e-7 atomic spread).
+    # so a cross-process bit-equality pin was only stable by chance. Even
+    # in-process, OFF vs OFF at seed 11 differed in 2 of 10 trials (2.98e-8) on
+    # the #845 build (main: 0 of 10). PRIMARY gate: in-process caustics hook ON
+    # vs OFF (no caster flagged) within 1e-6 -- a hook that ran would consume
+    # RNG / add energy and move pixels by orders of magnitude more. SECONDARY:
+    # the stored seed-145 baseline within 1e-6 (~4x the 2.4e-7 atomic spread).
     off, _ = _render(seed=11, use_caustics=False)
     on, _ = _render(seed=11, use_caustics=True)
     hook_diff = float(np.abs(on - off).max())
     assert float(off.max()) > 0.0
-    assert hook_diff == 0.0, (
+    assert hook_diff <= 1e-6, (
         f"empty caustics hook changed the render in-process: max|on - off| = "
-        f"{hook_diff:.6e} != 0.0 -- find the divergent code path "
+        f"{hook_diff:.6e} > 1e-6 (atomicAdd jitter <= 2.4e-7) -- find the divergent code path "
         f"(useCaustics && numSMSCasters > 0 guard)."
     )
 
@@ -190,7 +192,7 @@ def test_empty_hook_bit_equality():
 
     print(
         f"\n[pkg64-gpu Phase 2 empty-hook bit-equality] PASS: "
-        f"max diff = {max_diff!r} (<= 1e-6; hook on/off exactly equal)"
+        f"max diff = {max_diff!r} (<= 1e-6; hook on/off within atomic jitter)"
     )
 
 

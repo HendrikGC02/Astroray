@@ -80,6 +80,9 @@ struct PathState {
     // sample, read at the next bounce's emissive-hit for two-sided MIS). Live
     // state carried across advance_one_bounce calls, mirroring wasSpecular.
     float bsdfPdfPrev;
+    // #851: normal passed to lights.sample() at the previous vertex; the tree
+    // sampler's MIS pdf re-walks the tree with it.
+    Vec3 misNormalPrev;
 
     int pixel_index;
     int sample_index;
@@ -95,6 +98,7 @@ struct PathState {
           wasSpecular(true),
           alive(true),
           bsdfPdfPrev(0.0f),
+          misNormalPrev(0, 0, 0),
           pixel_index(static_cast<int>(pixel)),
           sample_index(static_cast<int>(sample)),
           bounce(0) {}

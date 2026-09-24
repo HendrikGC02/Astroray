@@ -372,5 +372,33 @@ class TestIssue851TreeSeams:
         ratio = many[m].mean() / one[m].mean()
         assert abs(ratio - 1.0) < 0.03, f"{mode}: 800-triangle / 2-triangle mean ratio {ratio:.3f}"
 
+    def test_leaf_selection_weights_bright_emitter(self):
+        """Four lights fit in one leaf. Uniform leaf selection gave the bright
+        one 25%; Cycles light_tree_cluster_select_emitter weights by importance
+        (0.5 * max share + 0.5 * uniform-over-lit for spheres) -> ~62%."""
+        r = astroray.Renderer()
+        r.set_background_color([0.0, 0.0, 0.0])
+        floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+        r.add_triangle([-20, 0, -20], [20, 0, -20], [20, 0, 20], floor)
+        r.add_triangle([-20, 0, -20], [20, 0, 20], [-20, 0, 20], floor)
+        dim = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 1.0})
+        for x in (-0.6, -0.2, 0.2):
+            r.add_sphere([x, 2.0, 0.0], 0.05, dim)  # light indices 0..2
+        r.add_sphere([0.6, 2.0, 0.0], 0.05,
+                     r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 1e3}))
+        setup_camera(r, look_from=[0, 2, 8], look_at=[0, 0, 0], width=16, height=16)
+        r.set_light_sampler("tree")
+        r.render(1, 1, None, False)  # builds the tree
+        n = 4000
+        us = np.random.default_rng(9).uniform(0, 1, n)
+        idx, pdf = r.debug_light_tree_pick([0.0, 0.05, 0.0] * n, [0.0, 1.0, 0.0] * n, us.tolist())
+        idx, pdf = np.asarray(idx), np.asarray(pdf)
+        frac = float(np.mean(idx == 3))
+        assert frac > 0.45, f"bright emitter picked {frac:.1%} (uniform leaf selection is 25%)"
+        # pick pdf must equal the empirical selection frequency (unbiasedness).
+        for k in range(4):
+            if np.any(idx == k):
+                assert abs(pdf[idx == k][0] - np.mean(idx == k)) < 0.03, (k, pdf[idx == k][0])
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

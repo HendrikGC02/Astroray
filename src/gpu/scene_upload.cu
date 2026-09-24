@@ -1389,8 +1389,16 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                     const astroray::LightTreeNode& n = tnodes[se.node];
                     if (n.isLeaf()) {
                         for (int k = 0; k < n.numEmitters; ++k) {
-                            r.lightTreeEmitters[n.firstEmitter + k] = GLightTreeEmitter{
-                                temitters[n.firstEmitter + k].lightIndex, se.trail};
+                            const astroray::LightTreeEmitter& te = temitters[n.firstEmitter + k];
+                            GLightTreeEmitter ge{te.lightIndex, se.trail};
+                            // #851: bounds for per-emitter leaf selection.
+                            ge.bboxMin   = GVec3(te.bbox.min.x, te.bbox.min.y, te.bbox.min.z);
+                            ge.bboxMax   = GVec3(te.bbox.max.x, te.bbox.max.y, te.bbox.max.z);
+                            ge.bconeAxis = GVec3(te.bcone.axis.x, te.bcone.axis.y, te.bcone.axis.z);
+                            ge.thetaO    = te.bcone.theta_o;
+                            ge.thetaE    = te.bcone.theta_e;
+                            ge.energy    = te.energy;
+                            r.lightTreeEmitters[n.firstEmitter + k] = ge;
                         }
                         continue;
                     }

@@ -145,6 +145,17 @@ private:
     // Mirrors Cycles light_tree_importance (kernel/light/tree.h, Apache-2.0).
     float importance(const LightTreeNode& node, const Vec3& point, const Vec3& normal) const;
 
+    // Upper/lower importance bounds shared by nodes and emitters (#851).
+    // Mirrors Cycles light_tree_importance (kernel/light/tree.h, Apache-2.0).
+    void importanceMinMax(const AABB& bbox, const OrientationBounds& bcone, float energy,
+                          const Vec3& point, const Vec3& normal,
+                          float& maxImp, float& minImp) const;
+
+    // Selection probability of emitter `target` inside `leaf` (#851).
+    // Mirrors Cycles light_tree_cluster_select_emitter (kernel/light/tree.h).
+    float leafEmitterProb(const LightTreeNode& leaf, int target, const Vec3& point,
+                          const Vec3& normal) const;
+
     // Helper for pdf(): check if a subtree contains a given emitter index.
     bool subtreeContainsEmitter(int nodeIdx, int emitterIdx) const;
 };

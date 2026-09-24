@@ -363,26 +363,31 @@ public:
 
     bool isGRObject() const override { return true; }
 
-    // pkg282 test/oracle probe for one camera ray: {g, reenters}. g is the
-    // first in-disk crossing's redshift, -1 if captured, 0 if no disk hit (or
-    // the ray misses the sphere). reenters = 1 if the escaped ray's
-    // continuation (entry point + exit direction, as the path tracer spawns
-    // it) intersects the influence sphere again.
+    // pkg282 test/oracle probe for one camera ray: {g, passes}. g is the
+    // first pass's first in-disk crossing redshift, -1 if captured, 0 if no
+    // disk hit (or the ray misses the sphere). passes replays the path
+    // tracer's GR chain (continuation = entry point + exit direction): the
+    // number of sphere passes before the ray leaves for good, negated if a
+    // pass is captured, 99 if still inside after 8 passes.
     std::array<double, 2> probeDiskRedshift(const Ray& r) const {
-        TraceState trace = integrateIncomingRay(r);
-        if (!trace.valid) return {0.0, 0.0};
-        const IntegrationResult& ir = trace.integration;
-        if (ir.captured) return {-1.0, 0.0};
         double g = 0.0;
-        for (int ci = 0; ci < ir.nCrossings; ++ci) {
-            if (ir.crossings[ci].valid) { g = ir.crossings[ci].g; break; }
+        Ray ray = r;
+        for (int pass = 1; pass <= 8; ++pass) {
+            HitRecord rec;
+            if (!hit(ray, 0.001f, std::numeric_limits<float>::max(), rec))
+                return {g, double(pass - 1)};
+            TraceState trace = integrateIncomingRay(ray);
+            if (!trace.valid) return {g, double(pass - 1)};
+            const IntegrationResult& ir = trace.integration;
+            if (ir.captured) return {pass == 1 ? -1.0 : g, -double(pass)};
+            if (pass == 1) {
+                for (int ci = 0; ci < ir.nCrossings; ++ci) {
+                    if (ir.crossings[ci].valid) { g = ir.crossings[ci].g; break; }
+                }
+            }
+            ray = Ray(rec.point, sanitizedExitDirection(ir));
         }
-        HitRecord rec;
-        if (!hit(r, 0.001f, std::numeric_limits<float>::max(), rec)) return {g, 0.0};
-        Ray next(rec.point, sanitizedExitDirection(ir));
-        HitRecord rec2;
-        const bool re = hit(next, 0.001f, std::numeric_limits<float>::max(), rec2);
-        return {g, re ? 1.0 : 0.0};
+        return {g, 99.0};
     }
 
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {

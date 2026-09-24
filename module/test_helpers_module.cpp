@@ -103,8 +103,8 @@ std::array<float, 2> probeRegisteredReSTIRGrDispatch(float emission) {
     return {result.color.y, static_cast<float>(trace_calls)};
 }
 
-// pkg282: per-pixel first-crossing disk redshift g (and continuation re-entry
-// flag) for a pinhole camera looking at a BlackHole. Returns 2*w*h doubles,
+// pkg282: per-pixel first-crossing disk redshift g (and GR pass count, see
+// BlackHole::probeDiskRedshift) for a pinhole camera looking at a BlackHole. Returns 2*w*h doubles,
 // row-major from the top row, pixel (x, y) at camera (u, v) = ((x+0.5)/w,
 // 1-(y+0.5)/h).
 std::vector<double> grDiskRedshiftImage(
@@ -154,7 +154,7 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
     m.def("gr_disk_redshift_image", &grDiskRedshiftImage,
           "look_from"_a, "look_at"_a, "vfov"_a, "width"_a, "height"_a,
           "bh_pos"_a, "influence_radius"_a, "disk_outer"_a, "r_obs_M"_a, "spin"_a,
-          "pkg282: flat [g, reenters] per pixel (g=-1 captured, 0 no disk hit).");
+          "pkg282: flat [g, passes] per pixel (g=-1 captured, 0 no disk hit).");
     m.def("gr_renderer_dispatch_probe", &probeGrRendererDispatch,
           // cppcheck-suppress assignBoolToPointer -- pybind11 named-argument default.
           "emission"_a, "clamp_direct"_a = 0.0f, "caustic"_a = false,

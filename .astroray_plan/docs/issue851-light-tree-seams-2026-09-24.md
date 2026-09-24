@@ -32,10 +32,19 @@ Adaptive Tree Splitting" (§4.4 importance); Cycles `kernel/light/tree.h`
    and reverse triangle pdfs (`gpu_nee.cuh`); the GPU forward pdf had used the
    vertex normal `n0`.
 
+4. **Leaf selection.** Leaves picked uniformly among ≤4 emitters. Now each
+   emitter gets `p = ½·(max_i/Σmax + min_i/Σmin)`, with the min term uniform
+   over lit emitters when `Σmin = 0`, as in Cycles
+   `light_tree_cluster_select_emitter` and the leaf branch of `light_tree_pdf`.
+   `LightTree::importanceMinMax` returns both bounds. Nodes still use only the
+   max bound. Emitters use the node distance clamp, not Cycles' per-type
+   vertex distances. The GPU mirror uploads emitter bounds in `GLightTreeEmitter`.
+
 ## Not ported (still differs from Cycles)
 
-- Min/max-importance averaging in `get_left_probability`.
-- Per-emitter importance reservoir in leaves. Astroray is uniform over ≤4.
+- Min/max-importance averaging for inner nodes (`get_left_probability`).
+- Per-type emitter distances (triangle vertices, light radius).
+- Oriented cones for mesh emitters (Astroray uses a full sphere).
 - `has_transmission`.
 
 ## Open

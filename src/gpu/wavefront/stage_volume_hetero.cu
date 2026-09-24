@@ -169,7 +169,7 @@ __device__ int gpu_gridVolumeTrack(int mi, const GVec3& o, const GVec3& d,
                                    GSampledSpectrum& beta, GSampledSpectrum& r_u,
                                    GSampledSpectrum& emission, float& tOut,
                                    uint32_t rpix, uint32_t rsmp, uint64_t rsd,
-                                   uint32_t salt, bool noScatter)
+                                   uint32_t salt, uint32_t& draw, bool noScatter)
 {
     const GGridMedium& m = c_wfGridVolume.media[mi];
     GSampledSpectrum sUnit, aUnit;
@@ -181,7 +181,6 @@ __device__ int gpu_gridVolumeTrack(int mi, const GVec3& o, const GVec3& d,
     if (hasConst)
         Le = gpu_rgbToSampledSpectrum(GVec3(m.emisR, m.emisG, m.emisB), wl,
                                       GSPEC_RGB_ILLUMINANT) * m.emissionStrength;
-    uint32_t draw = 0;
     float t = tMin;
     for (;;) {
         float xi = gpu_freeflightUniform(rpix, rsmp, rsd, salt + (draw++ & G_WF_GRID_DRAW_MASK));
@@ -236,6 +235,102 @@ __device__ int gpu_gridVolumeTrack(int mi, const GVec3& o, const GVec3& d,
                 float r = sigN.v[i] * inv;
                 beta.v[i] *= r; r_u.v[i] *= r;
             }
+        }
+    }
+}
+
+// #842 — free flight where the media in `mask` (>= 2) overlap on [tMin,tMax]
+// (device twin of astroray::volume::spectralTrackOverlap). σ̄ = Σ σ̄_k; the
+// coefficients and emission add (Cycles volume stack); each medium's scattering
+// is its own collision type, `which` = the medium a scatter uses. Coefficients
+// are recomputed per collision (no per-medium arrays: overlap is rare and this
+// keeps the intersect kernel's stack flat).
+__device__ int gpu_gridVolumeTrackOverlap(uint32_t mask, const GVec3& o, const GVec3& d,
+                                          float tMin, float tMax,
+                                          const GSampledWavelengths& wl,
+                                          GSampledSpectrum& beta, GSampledSpectrum& r_u,
+                                          GSampledSpectrum& emission, float& tOut, int& which,
+                                          uint32_t rpix, uint32_t rsmp, uint64_t rsd,
+                                          uint32_t salt, uint32_t& draw, bool noScatter)
+{
+    float sigBar = 0.f;
+    for (int k = 0; k < c_wfGridVolume.count; ++k)
+        if (mask & (1u << k)) {
+            const GGridMedium& m = c_wfGridVolume.media[k];
+            sigBar += fmaxf(gridExtinctionMajorant(m), m.emissionFloor + 1e-8f);
+        }
+    float t = tMin;
+    for (;;) {
+        float xi = gpu_freeflightUniform(rpix, rsmp, rsd, salt + (draw++ & G_WF_GRID_DRAW_MASK));
+        t -= __logf(fmaxf(1e-20f, 1.f - xi)) / sigBar;
+        if (t >= tMax) return 0;
+        GVec3 p = o + d * t;
+        GSampledSpectrum sigS(0.f), sigA(0.f), e(0.f);
+        for (int k = 0; k < c_wfGridVolume.count; ++k) {
+            if (!(mask & (1u << k))) continue;
+            const GGridMedium& m = c_wfGridVolume.media[k];
+            GSampledSpectrum sUnit, aUnit;
+            gridCoeffs(m, wl, sUnit, aUnit);
+            float dens = gridDensityAt(m, p);
+            sigS += sUnit * dens;
+            sigA += aUnit * dens;
+            const bool inActive = !m.heterogeneous || dens > 0.f;
+            if (m.emissionStrength > 0.f && inActive)
+                e += gpu_rgbToSampledSpectrum(GVec3(m.emisR, m.emisG, m.emisB), wl,
+                                              GSPEC_RGB_ILLUMINANT) * m.emissionStrength;
+            if (m.blackbodyIntensity > 0.f) {
+                float T = m.tempGrid ? m.temperature * gridTemperatureAt(m, p)
+                                     : (inActive ? m.temperature : 0.f);
+                if (T > 0.f) e += gridBlackbody(m, T, wl);
+            }
+        }
+        if (e.maxValue() > 0.f) {
+            float w = 1.f / (sigBar * gpu_heroAverage(r_u, wl));
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                emission.v[i] += beta.v[i] * e.v[i] * w;
+        }
+        float pAbsorb = sigA.v[0] / sigBar;
+        if (noScatter) pAbsorb += sigS.v[0] / sigBar;
+        float um = gpu_freeflightUniform(rpix, rsmp, rsd, salt + (draw++ & G_WF_GRID_DRAW_MASK));
+        if (um < pAbsorb) {
+            beta = GSampledSpectrum(0.f);
+            tOut = t;
+            return 1;
+        }
+        if (!noScatter) {
+            float cum = pAbsorb;
+            for (int k = 0; k < c_wfGridVolume.count; ++k) {
+                if (!(mask & (1u << k))) continue;
+                const GGridMedium& m = c_wfGridVolume.media[k];
+                GSampledSpectrum sUnit, aUnit;
+                gridCoeffs(m, wl, sUnit, aUnit);
+                GSampledSpectrum sk = sUnit * gridDensityAt(m, p);
+                if (sk.v[0] <= 0.f) continue;
+                cum += sk.v[0] / sigBar;
+                if (um < cum) {
+                    float inv = 1.f / sk.v[0];
+                    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+                        float r = sk.v[i] * inv;
+                        beta.v[i] *= r; r_u.v[i] *= r;
+                    }
+                    tOut = t;
+                    which = k;
+                    return 2;
+                }
+            }
+        }
+        GSampledSpectrum sigN;
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+            sigN.v[i] = fmaxf(sigBar - sigS.v[i] - sigA.v[i], 0.f);
+        if (sigN.v[0] <= 0.f) {
+            beta = GSampledSpectrum(0.f);
+            tOut = t;
+            return 1;
+        }
+        float inv = 1.f / sigN.v[0];
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+            float r = sigN.v[i] * inv;
+            beta.v[i] *= r; r_u.v[i] *= r;
         }
     }
 }

@@ -3211,24 +3211,18 @@ public:
             if (!gridMedia_.empty()) {
                 Vec3 dUnit = ray.direction.normalized();
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
+                // #842: every medium on [0.001, surfaceT], swept in boundary order
+                // (was: only the nearest-entered one).
+                // beta = pbrt path throughput; volRu = rescaled path pdf.
+                astroray::SampledSpectrum beta =
+                    throughput * astroray::volume::heroAverage(volRu, lambdas);
+                bool entered = false;
                 int mi = -1;
-                float mEnter = surfaceT, mExit = surfaceT, bestEnter = surfaceT;
-                for (size_t k = 0; k < gridMedia_.size(); ++k) {
-                    float t0, t1;
-                    if (astroray::volume::intersectAABB(ray.origin, dUnit,
-                            gridMedia_[k].aabbMin, gridMedia_[k].aabbMax,
-                            0.001f, surfaceT, t0, t1)) {
-                        if (t0 < bestEnter) { bestEnter = t0; mi = (int)k; mEnter = t0; mExit = t1; }
-                    }
-                }
-                if (mi >= 0) {
-                    const astroray::volume::BoundedMedium& med = gridMedia_[mi];
-                    // beta = pbrt path throughput; volRu = rescaled path pdf.
-                    astroray::SampledSpectrum beta =
-                        throughput * astroray::volume::heroAverage(volRu, lambdas);
-                    astroray::volume::SpectralFlight ff = astroray::volume::spectralTrack(
-                        med, ray.origin, dUnit, mEnter, mExit, lambdas, beta, volRu, gen,
-                        /*noScatter=*/volTerminateAfter);
+                astroray::volume::SpectralFlight ff = astroray::volume::spectralTrackSegment(
+                    gridMedia_, ray.origin, dUnit, 0.001f, surfaceT, lambdas, beta, volRu, gen,
+                    /*noScatter=*/volTerminateAfter, entered, mi);
+                if (entered) {
+                    const float medG = (mi >= 0) ? gridMedia_[mi].g : 0.0f;
                     if (!ff.emission.isZero()) {
                         // Volume emission along the flight: Emission pass when
                         // directly visible, else folded into <firstCat>_INDIRECT
@@ -3260,7 +3254,7 @@ public:
                                 float shadowTr = shadowTransmittance(*bvh, Ray(P, wi, ray.time),
                                                                      ls.distance);
                                 if (shadowTr > 0.0f) {
-                                    float ph = astroray::volume::phaseHG(woMedium.dot(wi), med.g);
+                                    float ph = astroray::volume::phaseHG(woMedium.dot(wi), medG);
                                     float a = ls.pdf, b = ph;
                                     float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
                                     astroray::SampledSpectrum medTr(1.0f);  // pkg270 per-λ
@@ -3287,7 +3281,7 @@ public:
                         ++volumeBounceCount;
                         // --- HG phase-sampled continuation from P ---
                         float phasePdf;
-                        Vec3 wiCont = astroray::volume::sampleHG(woMedium, med.g,
+                        Vec3 wiCont = astroray::volume::sampleHG(woMedium, medG,
                                                                 dist01(gen), dist01(gen), phasePdf);
                         Ray next(P, wiCont, ray.time, ray.screenU, ray.screenV);
                         next.hasCameraFrame = ray.hasCameraFrame;

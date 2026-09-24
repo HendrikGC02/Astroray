@@ -81,6 +81,7 @@ directive).
 - [ ] CPU render of `Generated -> Separate XYZ -> Math(Sin) -> Combine XYZ -> Checker` matches a numpy reference of the same field (Cycles `svm/checker.h` formula) per pixel, excluding a 1-px band at cell edges.
 - [ ] GPU/CPU per-channel region-mean ratio within 3 % at 256 spp for the same scene and for a warped Noise.
 - [ ] Per-pixel gate (the 64³ bake is the limiting factor, so the region-mean ratio alone does not catch the 4–26 % edge mismatch): at the 64³ bake resolution, the fraction of pixels whose per-channel |Astroray_GPU − Astroray_CPU| exceeds 0.01 must be ≤ 26 % for the sin-warped Checker (worst case, k = 24) and ≤ the same bound for the warped Noise.
+  - Amended 2026-09-24 (lead-approved): the raw 0.01 fraction is invalid on the spectral render. CPU seed-vs-seed with adaptive sampling off already exceeds it: 75.1 % at 256 spp, 30.6 % at 4096, 12.5 % at 16384. The gate is now noise-floor-corrected, adaptive off, at 4096 spp: frac(|GPU−CPU|>0.01) − frac(|CPU−CPU′|>0.01) ≤ 26 % (Checker and Noise). The Checker cases also require a cell-flip fraction frac(|GPU−CPU|>0.3) ≤ 26 %, with CPU-vs-CPU ≈ 0 %.
 - [ ] Mapping + non-affine warp: CPU and GPU both apply Mapping before the warp; verified against a numpy reference with a Mapping node present.
 - [ ] `cuobjdump --dump-resource-usage`: 0 functions changed vs main.
 - [ ] Non-affine chain with an Object base coordinate: CPU exact, degradation entry recorded.

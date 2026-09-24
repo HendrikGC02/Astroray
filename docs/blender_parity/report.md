@@ -10,9 +10,9 @@
 
 ## Summary
 
-- **SUPPORTED**: 149 features
-- **APPROXIMATED**: 66 features
-- **DROPPED-SILENT**: 371 features ⚠️
+- **SUPPORTED**: 150 features
+- **APPROXIMATED**: 67 features
+- **DROPPED-SILENT**: 369 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 586 features
 
@@ -51,10 +51,8 @@ These features are silently ignored by the addon with no warning:
 - **Camera**: `aperture_blades`
 - **Camera**: `aperture_rotation`
 - **Camera**: `aperture_ratio`
-- **Camera**: `type`
 - **Camera**: `clip_start`
 - **Camera**: `clip_end`
-- **Camera**: `ortho_scale`
 
 ### image_property
 
@@ -461,12 +459,12 @@ These features are silently ignored by the addon with no warning:
 | Camera | aperture_blades | DROPPED-SILENT |  |
 | Camera | aperture_rotation | DROPPED-SILENT |  |
 | Camera | aperture_ratio | DROPPED-SILENT |  |
-| Camera | type | DROPPED-SILENT |  |
+| Camera | type | APPROXIMATED |  |
 | Camera | clip_start | DROPPED-SILENT |  |
 | Camera | clip_end | DROPPED-SILENT |  |
 | Camera | focus_distance | SUPPORTED |  |
 | Camera | focus_object | SUPPORTED |  |
-| Camera | ortho_scale | DROPPED-SILENT |  |
+| Camera | ortho_scale | SUPPORTED |  |
 | Camera | sensor_fit | SUPPORTED |  |
 
 ### image_property

@@ -85,7 +85,8 @@ def _render_area_floor(use_gpu, depth):
     _topdown(r)
     r.add_area_light_dedicated([0.0, 3.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0],
                                3.0, 3.0, 'RECTANGLE',
-                               {'mode': 'rgb', 'color': [1.0, 1.0, 1.0]}, 300.0, 1.0)
+                               {'mode': 'rgb', 'color': [1.0, 1.0, 1.0]}, 300.0,
+                               math.pi / 2)  # Lambertian; #852 made spread a soft-box
     px = np.array(r.render(768, depth, None, False), dtype=np.float32)
     return _lum(_center_rgb(px))
 
@@ -108,7 +109,7 @@ def _render_mirror(use_gpu, mesh):
         r.add_triangle(list(p00), list(p11), list(p01), em)
     else:
         r.add_area_light_dedicated(list(c), list(u), list(v), size, size, 'RECTANGLE',
-                                   {'mode': 'rgb', 'color': [1.0, 1.0, 1.0]}, P, 1.0)
+                                   {'mode': 'rgb', 'color': [1.0, 1.0, 1.0]}, P, math.pi / 2)
     px = np.array(r.render(512, 4, None, False), dtype=np.float32)
     return _bright_top(px)
 

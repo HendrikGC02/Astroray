@@ -159,15 +159,15 @@ def _scene(cam_data=None, lights=()):
 
 
 def test_degradation_honesty_camera_and_light():
-    # ORTHO projection + polygonal bokeh + anamorphic + a per-light
+    # PANO projection (#845: ORTHO is native now) + polygonal bokeh + anamorphic + a per-light
     # specular_factor: all DROPPED, all must be named. (Clip is now HONOURED by
     # pkg274, so it no longer produces a "clipping ignored" warning.)
     dof = _ns(use_dof=True, aperture_blades=6, aperture_rotation=0.0, aperture_ratio=1.5)
-    cam_data = _ns(type="ORTHO", clip_start=0.5, clip_end=500.0, dof=dof)
+    cam_data = _ns(type="PANO", clip_start=0.5, clip_end=500.0, dof=dof)
     scene = _scene(cam_data=cam_data, lights=[("Key", _ns(specular_factor=0.3))])
     msgs = NS.report_unsupported_native_controls(scene, report=None, emit=False)
     joined = " ".join(msgs).lower()
-    assert "ortho" in joined
+    assert "pano" in joined
     assert "clip" not in joined
     assert "bokeh" in joined or "aperture" in joined
     assert "specular" in joined

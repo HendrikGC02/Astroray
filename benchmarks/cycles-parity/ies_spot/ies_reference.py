@@ -214,11 +214,20 @@ class SpotScene:
     res: int = 200
     radius: float = 0.0                # Blender shadow_soft_size
     soft_falloff: bool = True          # Blender use_soft_falloff (default True)
+    # #852 AREA A/B (ies_leg.py only; no analytic reference for AREA here).
+    area_size: tuple = (1.0, 1.0)      # Blender light.size, size_y (m)
+    area_shape: str = "RECTANGLE"
+    spread: float = math.pi            # Blender light.spread (full angle, rad)
+    light_rot_x_deg: float = 0.0       # tilt about X, applied before the Z spin
 
     def rotation(self) -> np.ndarray:
         """Light object rotation (columns = local X, Y, Z in world); the light
-        emits along local -Z, so an unrotated light points straight down."""
-        return rotation_z(self.light_rot_z_deg)
+        emits along local -Z, so an unrotated light points straight down.
+        Blender XYZ euler: R = Rz @ Rx."""
+        a = math.radians(self.light_rot_x_deg)
+        c, s = math.cos(a), math.sin(a)
+        rx = np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
+        return rotation_z(self.light_rot_z_deg) @ rx
 
 
 def plane_points(sc: SpotScene, sub: int = 1, divisor: float | None = None):

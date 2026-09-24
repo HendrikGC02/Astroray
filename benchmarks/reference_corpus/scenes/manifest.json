@@ -2408,7 +2408,7 @@
       "family": "camera_lens",
       "builder_fn": "build_camera_lens_scene",
       "blend_path": "benchmarks/reference_corpus/scenes/camera_lens.blend",
-      "sha256": "0e07530e70fdbc813a0e69e7ea59ed29fd163721813de63e6c5775ed3a074a7b",
+      "sha256": "4155b86bc07ea868705e866b88e4567c69cc13bb222de8cc862eaf99086866c6",
       "settings": {
         "res_x": 640,
         "res_y": 400,
@@ -2699,6 +2699,99 @@
           0.08,
           0.8281,
           0.92
+        ]
+      }
+    },
+    "camera_lens_ortho": {
+      "family": "camera_lens",
+      "builder_fn": "build_camera_lens_ortho_scene",
+      "blend_path": "benchmarks/reference_corpus/scenes/camera_lens_ortho.blend",
+      "sha256": "1af49d7aab2597c706d7607cbd79daa662b7c2699dda8e61534f5b5fa9b745df",
+      "settings": {
+        "res_x": 320,
+        "res_y": 200,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "reopen_verified": true,
+      "triangle_count": 20,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "MESH": 10,
+        "CAMERA": 1
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeEmission",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld"
+      ],
+      "feature_tags": [
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "shift_x",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "shift_y",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "type",
+          "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "clip_start",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "clip_end",
+          "classification": "DROPPED-SILENT",
+          "gap_card": true
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "ortho_scale",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "camera",
+          "feature": "Camera",
+          "bl_idname": "",
+          "socket_or_prop": "sensor_fit",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        }
+      ],
+      "assets": [],
+      "crops": {
+        "grid": [
+          0.0,
+          0.0,
+          1.0,
+          1.0
         ]
       }
     }

@@ -81,6 +81,9 @@ public:
         return iesProfile->sample(iesAxis, directionFromLight);
     }
     Vec3  getCenter()   const { return center; }
+    float treeEmitterArea() const override {  // #851: projected disc
+        return static_cast<float>(M_PI) * radius * radius;
+    }
     float getRadius()   const { return radius; }
     const std::shared_ptr<Material>& getMaterial() const { return material; }
     // pkg56 Phase B: in-place mutators used by Renderer::update_object_transform.
@@ -268,8 +271,15 @@ public:
     float pdfValue(const Vec3& origin, const Vec3& direction) const override {
         HitRecord rec;
         if (!hit(Ray(origin, direction), 0.001f, std::numeric_limits<float>::max(), rec)) return 0;
+        // #851: exact density of random()'s uniform-area sample, t²/(|cos|·A)
+        // with the GEOMETRIC normal (rec.normal is interpolated on smooth
+        // meshes). The old "+ 0.001" in the denominator under-reported the pdf
+        // of small emitter triangles, biasing NEE bright. Cycles
+        // kernel/light/triangle.h triangle_light_pdf_area_sampling (Apache-2.0).
         float area = (v1 - v0).cross(v2 - v0).length() * 0.5f;
-        return rec.t * rec.t / (std::abs(direction.dot(rec.normal)) * area + 0.001f);
+        float cosLight = std::abs(direction.normalized().dot(normal));
+        if (cosLight <= 0.0f || area <= 0.0f) return 0;
+        return rec.t * rec.t / (cosLight * area);
     }
 
     Vec3 random(const Vec3& origin, std::mt19937& gen) const override {
@@ -281,6 +291,9 @@ public:
 
     bool isLight() const override { return emissive; }
     Vec3 emittedRadiance() const override { return material->getEmission(); }
+    float treeEmitterArea() const override {  // #851: Cycles triangle area
+        return 0.5f * (v1 - v0).cross(v2 - v0).length();
+    }
     Vec3 getV0() const { return v0; }
     Vec3 getV1() const { return v1; }
     Vec3 getV2() const { return v2; }

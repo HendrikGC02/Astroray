@@ -16,6 +16,7 @@
 #include "gpu_spectral_tables.h"  // pkg218: gpu_emission_profile
 #include "astroray/ies_eval.h"      // pkg276: Cycles kernel_ies_interp port (shared with CPU)
 #include "astroray/lamp_sampling.h" // #840: Cycles point_light_sample port (shared with CPU)
+#include "astroray/area_spread.h"   // #852: Cycles area spread attenuation (shared with CPU)
 
 #include <curand_kernel.h>
 
@@ -73,11 +74,11 @@ __device__ inline float gpu_env_seed_uniform(uint32_t env_seed, uint32_t k) {
 // resident). Mirrors CPU LightList::pdfValue (src/light_sampler.cpp) so the CPU
 // and wavefront two-sided terms agree by construction:
 //   selection  : power-CDF diff (power mode) OR gpu_light_tree_pdf with the
-//                -dir PROXY normal — TreeLightSampler::pdfValue uses
-//                normal = -dir (light_sampler.cpp:210), the shading normal
-//                being unavailable at MIS reconstruction time.
+//                previous vertex's NEE normal (prevNormal, carried per path in
+//                path_mis_n{x,y,z}; zero after a medium scatter), exactly as
+//                the forward pick used it (#851; CPU TreeLightSampler::pdfValue).
 //   solid-angle: Sphere 1/(2π(1-cosθmax)) (shapes.h:50); Triangle
-//                t²/(|dir·n|·area + 1e-3) (shapes.h:226).
+//                t²/(|dir·Ng|·area) (shapes.h Triangle::pdfValue).
 // Returns 0 when the hit emitter has no NEE-sampleable GLight slot; the
 // caller's power heuristic then yields w_B = 1 (full emission — no NEE leg
 // competes). Cite: Veach 1997 §9.2 (power heuristic); Cycles
@@ -87,7 +88,7 @@ __device__ inline float gpu_reconstruct_light_pdf(
     const GHitRecord& rec, const GVec3& prevPoint, const GVec3& dir,
     const GLight* lights, int numLights, float totalLightPower,
     const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres,
-    const GLightTreeView& lightTree)
+    const GLightTreeView& lightTree, const GVec3& prevNormal)
 {
     if (numLights <= 0 || totalLightPower <= 0.f) return 0.f;
 
@@ -104,8 +105,7 @@ __device__ inline float gpu_reconstruct_light_pdf(
     if (lightTree.enabled) {
         int emitterIdx = lightTree.lightToEmitter[lightIdx];
         if (emitterIdx < 0) return 0.f;
-        GVec3 proxyN = (dir * -1.f).normalized();   // CPU proxy normal (-dir)
-        selPdf = gpu_light_tree_pdf(lightTree, prevPoint, proxyN, emitterIdx);
+        selPdf = gpu_light_tree_pdf(lightTree, prevPoint, prevNormal, emitterIdx);
     } else {
         float prevCum = (lightIdx > 0) ? lights[lightIdx - 1].cumulativePower : 0.f;
         selPdf = (lights[lightIdx].cumulativePower - prevCum) / totalLightPower;
@@ -123,8 +123,12 @@ __device__ inline float gpu_reconstruct_light_pdf(
         saPdf = 1.f / (2.f * M_PI_F * (1.f - cosThetaMax));
     } else {  // GPRIM_TRIANGLE
         const GTriangle& tri = tris[prim.index];
-        float area = (tri.v1 - tri.v0).cross(tri.v2 - tri.v0).length() * 0.5f;
-        saPdf = (rec.t * rec.t) / (fabsf(dir.dot(rec.normal)) * area + 0.001f);
+        // #851: exact pdf with the geometric normal, mirrors CPU Triangle::pdfValue.
+        GVec3 ng = (tri.v1 - tri.v0).cross(tri.v2 - tri.v0);
+        float area = ng.length() * 0.5f;
+        float cosLight = fabsf(dir.dot(ng)) / fmaxf(2.f * area, 1e-20f);
+        if (cosLight <= 0.f || area <= 0.f) return 0.f;
+        saPdf = (rec.t * rec.t) / (cosLight * area);
     }
     return selPdf * saPdf;
 }
@@ -313,7 +317,7 @@ __device__ inline GNEESample gpu_dedicated_sample(
         // pdf (pdf_A·dist²/cosθ) so the integrator's MIS is measure-consistent.
         // Mirrors the CPU area_light.cpp::sampleLi fix.
         s.lightPdf    = ((dist * dist) / (area * cosTheta)) * selPdf;
-        s.dedGeoScale = d.staticScale;
+        s.dedGeoScale = d.staticScale * astroray::areaSpreadAttenuation(cosTheta, d.spread);  // #852
         s.valid       = 1;
         return s;
     }
@@ -394,7 +398,8 @@ __device__ inline bool gpu_dedicated_intersect(
         if (!inb) return false;
         if ((-denom) < cosf(d.spread)) return false; // out of spread cone (-D toward receiver)
         *t = tt;
-        *scale = d.staticScale;                      // plain radiance (== area dedGeoScale)
+        *scale = d.staticScale                       // plain radiance (== area dedGeoScale)
+               * astroray::areaSpreadAttenuation(-denom, d.spread);  // #852
         return true;
     }
     if (d.kind == GDED_DISTANT) {
@@ -435,14 +440,25 @@ __device__ inline int gpu_dedicated_intersect_closest(
 // weight d.power/totalLightPower matches gpu_dedicated_sample's dselPdf.
 __device__ inline float gpu_dedicated_reconstruct_pdf(
     const GDedicatedLight* dedLights, int numDed, float totalLightPower,
-    const GVec3& prevPoint, const GVec3& dir)
+    const GVec3& prevPoint, const GVec3& dir,
+    const GLightTreeView& lightTree, int numLights,   // #859: tree selection
+    const GVec3& prevNormal)                          // #851: NEE normal of prev vertex
 {
     if (numDed <= 0 || totalLightPower <= 0.f) return 0.f;
     float pdf = 0.f;
     GVec3 D = dir.normalized();
     for (int j = 0; j < numDed; ++j) {
         const GDedicatedLight& d = dedLights[j];
-        float selPdf = d.power / totalLightPower;
+        // Tree mode: re-walk with the previous vertex's NEE normal, as the
+        // pick did (CPU TreeLightSampler::pdfValue, Cycles mis_origin_n).
+        float selPdf;
+        if (lightTree.enabled) {
+            int e = lightTree.lightToEmitter[numLights + j];
+            selPdf = (e < 0) ? 0.f
+                   : gpu_light_tree_pdf(lightTree, prevPoint, prevNormal, e);
+        } else {
+            selPdf = d.power / totalLightPower;
+        }
         if (selPdf <= 0.f) continue;
         if (d.kind == GDED_AREA) {
             float denom = D.dot(d.axis);
@@ -493,14 +509,19 @@ __device__ inline GNEESample gpu_nee_sample(
     // power-weighted CDF (mirrors LightList::sample).
     int   li = 0;
     float selPdf;
+    int   dj = -1;   // selected dedicated light (-1 = a hittable GLight)
     if (lightTree.enabled) {
-        // Tree mode is enabled only when there are NO dedicated lights (see
-        // scene_upload.cu), so this path selects hittable emitters only.
+        // Tree selects hittable emitters AND dedicated lights (#859; mirrors
+        // CPU TreeLightSampler::sample). Negative lightIndex = dedicated j.
         float treePdf = 0.f;
         int eIdx = gpu_light_tree_pick(lightTree, rec.point, rec.normal,
                                        gpu_rng_uniform(rng), &treePdf);
         if (eIdx < 0 || treePdf <= 0.f) return s;
         li = lightTree.emitters[eIdx].lightIndex;
+        if (li < 0) {
+            dj = -li - 1;
+            if (dj >= numDed) return s;
+        }
         selPdf = treePdf;
     } else {
         // Unified power CDF over hittable emitters THEN dedicated lights
@@ -511,15 +532,17 @@ __device__ inline GNEESample gpu_nee_sample(
         int hit = -1;
         for (int i = 0; i < numLights; ++i) { if (u <= lights[i].cumulativePower) { hit = i; break; } }
         if (hit < 0 && numDed > 0) {
-            int dj = numDed - 1;
+            dj = numDed - 1;
             for (int j = 0; j < numDed; ++j) { if (u <= dedLights[j].cumulativePower) { dj = j; break; } }
-            float dselPdf = dedLights[dj].power / totalLightPower;
-            return gpu_dedicated_sample(dedLights[dj], dj, rec.point, dselPdf, rng);
+            selPdf = dedLights[dj].power / totalLightPower;
+        } else {
+            if (hit < 0) hit = numLights - 1;   // fp fallback within hittable range
+            li = hit;
+            selPdf = lights[li].power / totalLightPower;
         }
-        if (hit < 0) hit = numLights - 1;   // fp fallback within hittable range
-        li = hit;
-        selPdf = lights[li].power / totalLightPower;
     }
+    // One call site for both selectors (keeps the shade kernel's code size flat).
+    if (dj >= 0) return gpu_dedicated_sample(dedLights[dj], dj, rec.point, selPdf, rng);
     int primIdx  = lights[li].primitiveIndex;
     if (primIdx < 0) return s;
 
@@ -569,8 +592,10 @@ __device__ inline GNEESample gpu_nee_sample(
         float dist = d.length();
         wi         = d * (1.f / fmaxf(dist, 1e-8f));
         GVec3 e1   = t.v1 - t.v0, e2 = t.v2 - t.v0;
-        float area = e1.cross(e2).length() * 0.5f;
-        float NdotWi = fabsf(t.n0.dot(wi));
+        GVec3 ng   = e1.cross(e2);
+        float area = ng.length() * 0.5f;
+        // #851: geometric normal (n0 is a vertex normal on smooth meshes).
+        float NdotWi = fabsf(ng.dot(wi)) / fmaxf(2.f * area, 1e-20f);
         if (NdotWi < 1e-8f || area < 1e-8f) return s;
         lightPdf   = (dist * dist) / (NdotWi * area) * selPdf;
         maxDist    = dist - 0.001f;

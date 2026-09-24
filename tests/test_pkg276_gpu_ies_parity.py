@@ -55,7 +55,7 @@ def test_gpu_ies_profile_matches_reference_and_cpu(astroray_module, ies_files, k
     bad = _bad(radial, "") + _bad(azim, "azimuth ")
     assert not bad, "GPU %s %s IES off the Cycles reference: %s" % (kind, profile, bad)
     cpu = render_astroray(astroray_module, sc, path, spp=64, use_gpu=False)
-    theta, _ = ref.pixel_geometry(sc, divisor=sc.res - 1)
+    theta, _ = ref.pixel_geometry(sc, divisor=sc.res)
     roi = theta < 27.0
     ratio = gpu[roi].mean(axis=0) / cpu[roi].mean(axis=0)
     assert np.all(np.abs(ratio - 1.0) <= 0.03), ("GPU/CPU ROI mean ratio", ratio)
@@ -69,7 +69,7 @@ def test_gpu_lamp_radius_matches_reference(astroray_module, kind, radius, soft):
     _require_gpu(astroray_module)
     sc = ref.SpotScene(kind=kind, radius=radius, soft_falloff=soft)
     gpu = render_astroray(astroray_module, sc, "", spp=64, use_gpu=True)
-    div = sc.res - 1
+    div = sc.res  # #845: engine raster divisor is res (was res - 1)
     refimg = ref.radiance(sc, None, sub=2, divisor=div)
     theta, _ = ref.pixel_geometry(sc, divisor=div)
     rows = ref.binned_ratio(gpu, refimg, theta, np.arange(0.0, 34.0, 2.0), min_ref_frac=0.05)

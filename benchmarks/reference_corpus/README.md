@@ -26,8 +26,7 @@ the allocation table actually requires (9 and 4 SUPPORTED rows
 respectively): `camera_lens` is a single perspective hero shot (a Blender
 render has exactly one active camera, so a genuinely different camera
 `type` needs a second file the way `world_sky` needed one for its World --
-not required here since `type`/`ortho_scale` are DROPPED-SILENT, not
-required rows); `render_settings` authors its 4 SUPPORTED render-process
+#845 adds that second file, `camera_lens_ortho`); `render_settings` authors its 4 SUPPORTED render-process
 rows on a small hero shot (their effect is normalised away by
 `render_leg.py`'s own engine-parity settings, exactly like every other
 scene's `cycles.use_denoising`/`use_adaptive_sampling` already are) plus one
@@ -60,7 +59,7 @@ against its own Cycles reference" cannot be a single scene.
 | `lighting_studio` | Photography-studio still life in four walled booths (POINT/SUN/SPOT/AREA), one fixed camera, one establishing shot; the SPOT booth carries a synthetic asymmetric-wall-washer IES profile. | Phase 2 (built) |
 | `world_sky` | HDRI vs Sky-texture exterior, "three independent opportunities" (background/reflection/indirect), two `.blend` files (`world_sky_hdri`/`world_sky_sky`) sharing the family tag. | Phase 2 (built) |
 | `geometry_zoo` | A "cabinet of curiosities": collection instancing, a live modifier stack, a flat/smooth/auto-smooth shading trio, a small Curves (hair) object, a blurred-vs-disabled motion-blur pair, and a backlit volume cabinet (Principled Volume / Volume Absorption / Volume Scatter). | Phase 3 (built) |
-| `camera_lens` | One perspective hero shot: DoF (aperture_fstop + focus_object/focus_distance), lens shift, explicit sensor_fit, plus in-scene aperture-blades/clip gap cards. | Phase 3 (built) |
+| `camera_lens` | One perspective hero shot: DoF (aperture_fstop + focus_object/focus_distance), lens shift, explicit sensor_fit, plus in-scene aperture-blades/clip gap cards. A second file, `camera_lens_ortho` (#845), is a shifted, clipped ORTHO emissive grid proving camera `type`/`ortho_scale`. | Phase 3 (built) |
 | `render_settings` | A small hero shot proving samples/film_transparent/use_denoising/denoiser by scene authorship, plus an opposed-mirror `max_bounces` gap card. | Phase 3 (built) |
 | `volumes` | Scene id `volumes_smoke`: a sun-lit OpenVDB smoke plume and a self-lit blackbody fire with a sooty plume on a dark ground (two Volume objects, synthetic grids), `volume_bounces` = 2. Owns the `volume_bounces` row (allocation `SOCKET_OVERRIDE`); the Principled Volume rows stay with `geometry_zoo`. | pkg271 (built) |
 
@@ -132,7 +131,8 @@ assigned to that family. This is why building the corpus is called
 | `world_sky_hdri` | `world_sky` | 25 | 1 | 0 | 1 | 5 | 19 |
 | `world_sky_sky` | `world_sky` | 25 | 1 | 0 | 1 | 11 | 13 |
 | `geometry_zoo` | `geometry_zoo` | 47 | 5 | 12 | 18 | 1 (`instance_collection`) | 29 |
-| `camera_lens` | `camera_lens` | 16 | 9 | 0 | 12 | 3 (`aperture_blades`, `clip_start`, `clip_end`) | 4 |
+| `camera_lens` | `camera_lens` | 14 | 9 | 0 | 12 | 3 (`aperture_blades`, `clip_start`, `clip_end`) | 2 |
+| `camera_lens_ortho` | `camera_lens` | 7 | 4 | 1 | 7 | 2 (`clip_start`, `clip_end`) | 0 |
 | `render_settings` | `render_settings` | 33 | 4 | 0 | 5 | 1 (`max_bounces`) | 28 |
 
 ("Rows owned" = every matrix row the Phase-0 allocation table assigns to
@@ -461,13 +461,10 @@ matches Cycles to within 2 % at both settings. Tracked as **#860**.
   degradation message no longer apply. The committed `clip_far` crop (Cycles
   culls the magenta backdrop by `clip_end`; the pre-pkg274 Astroray leg still
   showed it) is likewise superseded.
-- **`camera_lens` builds no orthographic/panoramic camera in-scene.** A
-  Blender render has exactly one active camera, so demonstrating a second
-  camera `type` needs either a second `.blend` (the `world_sky` pattern) or
-  a second render pass; `type`/`ortho_scale` are DROPPED-SILENT, not
-  required rows, so this is scope-cut to a gap-registry entry rather than
-  built, the same simplification precedent as materials_hall's un-built
-  Alcoves F/G (Known Phase-1 gaps above).
+- **Orthographic cameras live in `camera_lens_ortho` (#845).** A Blender
+  render has exactly one active camera, so ORTHO gets a second `.blend`
+  (the `world_sky` pattern); `build_corpus.py` splits the camera rows
+  between the two files. PANO stays a reported degradation.
 - **`render_settings`'s four SUPPORTED rows are proven by scene authorship,
   not by a visible pixel difference in this corpus's own contact sheet.**
   `render_leg.py`'s `_configure_render` normalises samples/denoising for a
@@ -619,9 +616,9 @@ has no Environment Texture node at all; see `world_sky_hdri` above.)
 (`Object.instance_collection` is gap-carded in-scene instead -- the RockProto
 collection-instancing content demonstrates it directly at no extra cost.)
 
-### `camera_lens` (4 rows)
+### `camera_lens` (2 rows)
 
-- `Camera` (``): aperture_rotation, aperture_ratio, type, ortho_scale
+- `Camera` (``): aperture_rotation, aperture_ratio
 
 (`aperture_blades`, `clip_start`, and `clip_end` are gap-carded in-scene
 instead -- see "Known Phase-3 gaps and findings" above.)

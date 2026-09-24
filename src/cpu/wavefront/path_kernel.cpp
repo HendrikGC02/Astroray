@@ -87,8 +87,9 @@ void init_path(PathState& ps, const Camera& cam, int x, int y,
     // the call site, not inside filterSample. Mirrors the GPU wavefront edit
     // in stage_init.cu (CPU<->GPU wavefront byte-identity invariant). See
     // pkg212 spec.
-    float u = (x + 0.5f + filterSample(ps.rng)) / (width - 1);
-    float v = 1.0f - (y + 0.5f + filterSample(ps.rng)) / (height - 1);
+    // #845: divide by W/H so pixel i's centre lands at film (i+0.5)/W (Cycles).
+    float u = (x + 0.5f + filterSample(ps.rng)) / width;
+    float v = 1.0f - (y + 0.5f + filterSample(ps.rng)) / height;
 
     // Lens sampling via a temporary mt19937 seeded from the live RNG. This
     // consumes exactly one WavefrontRNG draw (dimension auto-increments).
@@ -213,7 +214,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
                 if (ps.wasSpecular) {
                     ps.color += ps.throughput * lh.emission;
                 } else {
-                    float lp = lights.pdfValue(ps.ray_origin, ps.ray_direction);
+                    float lp = lights.pdfValue(ps.ray_origin, ps.ray_direction, ps.misNormalPrev);
                     float bp = ps.bsdfPdfPrev;
                     float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                     ps.color += ps.throughput * lh.emission * wB;
@@ -289,7 +290,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
             // direction, already unit).
             float lightPdfHit = lights.empty()
                 ? 0.0f
-                : lights.pdfValue(ps.ray_origin, ps.ray_direction);
+                : lights.pdfValue(ps.ray_origin, ps.ray_direction, ps.misNormalPrev);
             float bp = ps.bsdfPdfPrev, lp = lightPdfHit;
             float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
             ps.color += ps.throughput * Le_spec * wB;
@@ -442,6 +443,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
     if (bss.pdf <= 0.0f) { ps.alive = false; return false; }
     ps.wasSpecular = bss.isDelta;
     ps.bsdfPdfPrev = bss.pdf;  // pkg120: carry for next-bounce two-sided MIS
+    ps.misNormalPrev = rec.normal;  // #851: the normal NEE used at this vertex
     ps.throughput *= bss.f_spectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
 
     // ---- PostShade snapshot.

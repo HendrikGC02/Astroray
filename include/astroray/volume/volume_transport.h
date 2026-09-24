@@ -21,8 +21,11 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <random>
+#include <vector>
 
 #include "astroray/spectrum.h"
 #include "astroray/volume/grid_medium.h"
@@ -281,6 +284,154 @@ inline SpectralFlight spectralTrack(const BoundedMedium& m, const Vec3& o, const
             beta *= ratio; r_u *= ratio;
         }
     }
+}
+
+// #842 — free flight where n >= 2 bounded media overlap on [tMin,tMax]. The
+// coefficients add (Cycles volume stack: shade_volume.h volume_shader_sample sums
+// the closures of every volume the point is inside, Apache-2.0). Null-collision
+// tracking over a summed majorant with one collision type per component (Novák
+// et al. 2018, "Monte Carlo Methods for Volumetric Light Transport Simulation",
+// §3-4): σ̄ = Σ σ̄_k; each medium's scattering is its own type (pScatter_k =
+// σ_s,k[0]/σ̄; beta, r_u *= σ_s,k/σ_s,k[0], the pbrt-v4 VolPath update), so
+// `which` names the medium whose phase function the scatter uses. One uniform per
+// collision, as spectralTrack. Research: issue842-sequential-media-research.md.
+inline SpectralFlight spectralTrackOverlap(const BoundedMedium* const* act, int n,
+                                           const Vec3& o, const Vec3& d, float tMin,
+                                           float tMax, const astroray::SampledWavelengths& wl,
+                                           astroray::SampledSpectrum& beta,
+                                           astroray::SampledSpectrum& r_u, std::mt19937& gen,
+                                           bool noScatter, int& which) {
+    std::uniform_real_distribution<float> u(0.0f, 1.0f);
+    constexpr int kMax = 8;
+    astroray::SampledSpectrum sUnit[kMax], aUnit[kMax];
+    float sigBar = 0.0f;
+    bool emissive = false;
+    for (int k = 0; k < n; ++k) {
+        principledSpectralCoeffs(act[k]->colorSpec, act[k]->absorptionSpec, wl, sUnit[k], aUnit[k]);
+        sigBar += act[k]->spectralMajorant();
+        emissive = emissive || act[k]->emission.active();
+    }
+    SpectralFlight ff;
+    float t = tMin;
+    astroray::SampledSpectrum sigSk[kMax];
+    for (;;) {
+        float xi = u(gen);
+        t -= std::log(std::max(1e-20f, 1.0f - xi)) / sigBar;
+        if (t >= tMax) { ff.event = SpectralEvent::Escaped; return ff; }
+        Vec3 p = o + d * t;
+        astroray::SampledSpectrum sigS(0.0f), sigA(0.0f), Le(0.0f);
+        for (int k = 0; k < n; ++k) {
+            float dens = act[k]->densityAt(p);
+            sigSk[k] = sUnit[k] * dens;
+            sigS += sigSk[k];
+            sigA += aUnit[k] * dens;
+            if (emissive) Le += act[k]->emissionAt(p, wl);
+        }
+        if (!Le.isZero())
+            ff.emission += beta * Le * (1.0f / (sigBar * heroAverage(r_u, wl)));
+        float pAbsorb = sigA[0] / sigBar;
+        if (noScatter) pAbsorb += sigS[0] / sigBar;
+        float um = u(gen);
+        if (um < pAbsorb) {
+            beta = astroray::SampledSpectrum(0.0f);
+            ff.event = SpectralEvent::Absorbed; ff.t = t;
+            return ff;
+        }
+        float cum = pAbsorb;
+        if (!noScatter) {
+            for (int k = 0; k < n; ++k) {
+                if (sigSk[k][0] <= 0.0f) continue;
+                cum += sigSk[k][0] / sigBar;
+                if (um < cum) {
+                    astroray::SampledSpectrum ratio = sigSk[k] * (1.0f / sigSk[k][0]);
+                    beta *= ratio; r_u *= ratio;
+                    ff.event = SpectralEvent::Scattered; ff.t = t;
+                    which = k;
+                    return ff;
+                }
+            }
+        }
+        astroray::SampledSpectrum sigN;
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+            sigN[i] = std::max(sigBar - sigS[i] - sigA[i], 0.0f);
+        if (sigN[0] <= 0.0f) {
+            beta = astroray::SampledSpectrum(0.0f);
+            ff.event = SpectralEvent::Absorbed; ff.t = t;
+            return ff;
+        }
+        astroray::SampledSpectrum ratio = sigN * (1.0f / sigN[0]);
+        beta *= ratio; r_u *= ratio;
+    }
+}
+
+// #842 — free flight through EVERY bounded medium on the segment [tMin,tMax]
+// (was: only the nearest-entered one). The segment is swept in order of the
+// media's AABB boundaries; each piece is tracked with the media that cover it
+// (one => spectralTrack, byte-identical to the single-medium path; several =>
+// spectralTrackOverlap). Restarting the exponential at a boundary is exact
+// (memoryless). `entered` = some medium overlaps the segment; `mediumOut` = the
+// medium index a Scattered event uses. At most 8 media are tracked on one piece
+// (the GPU binding's G_WF_MAX_GRID_MEDIA; extras warn once on stderr). The GPU
+// binding itself holds <= 8 media (the addon reports the cap), so a GPU piece
+// can never exceed it.
+inline SpectralFlight spectralTrackSegment(const std::vector<BoundedMedium>& media,
+                                           const Vec3& o, const Vec3& d, float tMin,
+                                           float tMax, const astroray::SampledWavelengths& wl,
+                                           astroray::SampledSpectrum& beta,
+                                           astroray::SampledSpectrum& r_u, std::mt19937& gen,
+                                           bool noScatter, bool& entered, int& mediumOut) {
+    entered = false;
+    mediumOut = -1;
+    SpectralFlight total;
+    float cursor = tMin;
+    while (cursor < tMax) {
+        const BoundedMedium* act[8];
+        int actIdx[8];
+        int n = 0;
+        float segEnd = tMax;
+        bool later = false;
+        for (size_t k = 0; k < media.size(); ++k) {
+            float t0, t1;
+            if (!intersectAABB(o, d, media[k].aabbMin, media[k].aabbMax, cursor, tMax, t0, t1))
+                continue;
+            if (t0 > cursor) {           // enters further on: bounds this piece
+                segEnd = std::min(segEnd, t0);
+                later = true;
+            } else if (t1 > cursor) {    // covers the cursor
+                segEnd = std::min(segEnd, t1);
+                if (n < 8) { act[n] = &media[k]; actIdx[n] = (int)k; ++n; }
+                else {
+                    static std::atomic<bool> warned{false};
+                    if (!warned.exchange(true))
+                        std::fprintf(stderr, "[astroray volume] more than 8 bounded media "
+                                             "overlap on one ray; extra media are skipped\n");
+                }
+            }
+        }
+        if (n == 0) {
+            if (!later) break;
+            cursor = segEnd;
+            continue;
+        }
+        entered = true;
+        SpectralFlight ff;
+        int which = 0;
+        if (n == 1)
+            ff = spectralTrack(*act[0], o, d, cursor, segEnd, wl, beta, r_u, gen, noScatter);
+        else
+            ff = spectralTrackOverlap(act, n, o, d, cursor, segEnd, wl, beta, r_u, gen,
+                                      noScatter, which);
+        total.emission += ff.emission;
+        if (ff.event != SpectralEvent::Escaped) {
+            total.event = ff.event;
+            total.t = ff.t;
+            mediumOut = actIdx[which];
+            return total;
+        }
+        cursor = segEnd;
+    }
+    total.event = SpectralEvent::Escaped;
+    return total;
 }
 
 // Per-λ ratio-tracking transmittance over [tMin,tMax] (Novák 2014; pbrt-v4

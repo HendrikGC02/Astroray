@@ -184,7 +184,8 @@ def test_camera_new_rows_present_and_classified(matrix_rows):
         ("camera", "Camera", "", "focus_distance"): "SUPPORTED",
         ("camera", "Camera", "", "focus_object"): "SUPPORTED",
         ("camera", "Camera", "", "sensor_fit"): "SUPPORTED",
-        ("camera", "Camera", "", "ortho_scale"): "DROPPED-SILENT",
+        ("camera", "Camera", "", "ortho_scale"): "SUPPORTED",  # #845
+        ("camera", "Camera", "", "type"): "APPROXIMATED",       # #845: PANO degraded
     }
     for key, cls in expected.items():
         assert key in by_key, key

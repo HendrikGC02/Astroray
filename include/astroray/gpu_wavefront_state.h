@@ -135,6 +135,11 @@ struct GPUWavefrontState {
     // an emitter, to weight the BSDF-sampled emission by the power heuristic
     // against the reconstructed light-sampling pdf (gpu_reconstruct_light_pdf).
     float*    path_bsdf_pdf   = nullptr;
+    // #851: normal the NEE leg used at the previous vertex (zero after a medium
+    // scatter); the tree MIS reverse pdf re-walks the tree with it.
+    float*    path_mis_nx     = nullptr;
+    float*    path_mis_ny     = nullptr;
+    float*    path_mis_nz     = nullptr;
 
     // pkg55-C5 / pkg113: photon caustic contribution (XYZ) accumulated at primary
     // hit (bounce==0) from photonGridGatherKnn. Added to accum_xyz during regen
@@ -785,6 +790,7 @@ void launchStageRestirInitialRIS(
     const GSphere*    d_spheres,
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,   // #859
     GLightTreeView    lightTree,
     int numCandidates, int mCap, int numPixels);
 

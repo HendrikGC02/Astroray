@@ -115,7 +115,8 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
     }
 }
 
-float PowerLightSampler::pdfValue(const Vec3& point, const Vec3& dir) const {
+float PowerLightSampler::pdfValue(const Vec3& point, const Vec3& dir,
+                                   const Vec3& /*normal*/) const {
     const auto& lights = lightList_->getLights();
     const auto& dedicatedLights = lightList_->getDedicatedLights();
     const auto& powerDist = lightList_->getPowerDist();
@@ -235,7 +236,8 @@ void TreeLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& n
     }
 }
 
-float TreeLightSampler::pdfValue(const Vec3& point, const Vec3& dir) const {
+float TreeLightSampler::pdfValue(const Vec3& point, const Vec3& dir,
+                                  const Vec3& normal) const {
     // For MIS, we compute the pdf of sampling direction `dir` from `point`.
     // This requires summing over all lights that could be sampled in that direction:
     //   pdf = sum_i [ tree_pdf(i) * light_i.pdfValue(point, dir) ]
@@ -246,26 +248,29 @@ float TreeLightSampler::pdfValue(const Vec3& point, const Vec3& dir) const {
     const auto& lights = lightList_->getLights();
     const auto& dedicatedLights = lightList_->getDedicatedLights();
 
-    // We need a normal for tree traversal. Since we don't have the actual surface normal here,
-    // use the direction as a proxy (assume normal ≈ -dir for backfacing logic).
-    // This is a heuristic; proper MIS would cache the shading normal from the hit point.
-    Vec3 normal = -dir.normalized();
+    // #851: re-walk the tree with the SAME shading normal sample() used at this
+    // point, so the MIS pdf equals the pick pdf (Cycles light_tree_pdf takes the
+    // stored mis_origin_n, kernel/light/tree.h). The old -dir proxy pruned the
+    // emitter's own cluster as "behind the surface", so pdf≈0 and w_B≈1.
 
     float pdf = 0.0f;
 
-    // Legacy Hittables.
+    // Legacy Hittables. The tree walk is costly; only do it for lights the
+    // direction can reach (same sum, skipping zero terms).
     for (size_t i = 0; i < lights.size(); ++i) {
-        float treePdf = tree_->pdf(point, normal, static_cast<int>(i), false);
-        if (treePdf > 0.0f) {
-            pdf += treePdf * lights[i]->pdfValue(point, dir);
+        float lightPdf = lights[i]->pdfValue(point, dir);
+        if (lightPdf > 0.0f) {
+            float treePdf = tree_->pdf(point, normal, static_cast<int>(i), false);
+            if (treePdf > 0.0f) pdf += treePdf * lightPdf;
         }
     }
 
     // Dedicated Lights.
     for (size_t i = 0; i < dedicatedLights.size(); ++i) {
-        float treePdf = tree_->pdf(point, normal, static_cast<int>(i), true);
-        if (treePdf > 0.0f) {
-            pdf += treePdf * dedicatedLights[i]->pdfLi(point, dir);
+        float lightPdf = dedicatedLights[i]->pdfLi(point, dir);
+        if (lightPdf > 0.0f) {
+            float treePdf = tree_->pdf(point, normal, static_cast<int>(i), true);
+            if (treePdf > 0.0f) pdf += treePdf * lightPdf;
         }
     }
 

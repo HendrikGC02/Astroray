@@ -15,6 +15,7 @@ LightList::LightList(LightList&& other) noexcept
     : lights(std::move(other.lights))
     , dedicatedLights(std::move(other.dedicatedLights))
     , powerDist(std::move(other.powerDist))
+    , dedicatedPowers(std::move(other.dedicatedPowers))
     , totalPower(other.totalPower)
     , sampler_(std::move(other.sampler_))
 {
@@ -29,6 +30,7 @@ LightList& LightList::operator=(LightList&& other) noexcept {
     lights = std::move(other.lights);
     dedicatedLights = std::move(other.dedicatedLights);
     powerDist = std::move(other.powerDist);
+    dedicatedPowers = std::move(other.dedicatedPowers);
     totalPower = other.totalPower;
     other.totalPower = 0;
     // Rebuild sampler bound to `this` (see ctor rationale).

@@ -67,6 +67,25 @@ def test_spin_094_matches_bardeen_equatorial_edges():
     assert left == pytest.approx(_px(6.90), abs=2.0), (left, right)
 
 
+def _disk_flux(spin: float) -> float:
+    r = astroray.Renderer()
+    r.set_integrator("path_tracer")
+    r.set_background_color([0.0, 0.0, 0.0])
+    r.set_seed(17)
+    r.set_adaptive_sampling(False)
+    r.setup_camera([0.0, 0.0, 12.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
+                   45.0, 1.0, 0.0, 12.0, 96, 96)
+    r.add_black_hole([0.0, 0.0, 0.0], 4.0e6, 5.0, {
+        "spin": spin, "disk_outer": 18.0, "accretion_rate": 1.0,
+        "inclination": 78.0, "enable_adaf": False, "r_obs_M": 20.0})
+    return float(np.asarray(r.render(4, 4, None, False), dtype=np.float32).sum())
+
+
+def test_spin_keeps_thin_disk_emission():
+    # The Schwarzschild-formula disk fed a Kerr ISCO (<3M) lost all flux.
+    assert _disk_flux(0.94) > 0.5 * _disk_flux(0.0)
+
+
 def test_spin_zero_unchanged_schwarzschild():
     left, right = _edges(_mask(0.0))
     b = 3.0 * math.sqrt(3.0)

@@ -97,6 +97,10 @@ private:
     double spin;             // Kerr a/M; 0 selects SchwarzschildMetric (pkg281)
 
     std::shared_ptr<Metric> metric;
+    // pkg281 interim: NovikovThorneDisk uses Schwarzschild E/L/flux formulas;
+    // fed a Kerr ISCO (<3M) its flux integral diverges and the disk vanishes.
+    // Keep the disk on a=0 (its pre-pkg281 behaviour) until it is Kerr-consistent.
+    std::unique_ptr<SchwarzschildMetric> diskMetric;
     std::unique_ptr<NovikovThorneDisk>   disk;
     std::vector<std::shared_ptr<Emission>> emissions;
 
@@ -328,7 +332,8 @@ public:
         } else {
             metric = std::make_shared<SchwarzschildMetric>(1.0);
         }
-        disk   = std::make_unique<NovikovThorneDisk>(metric.get(), disk_outer_M, mdot);
+        diskMetric = std::make_unique<SchwarzschildMetric>(1.0);
+        disk   = std::make_unique<NovikovThorneDisk>(diskMetric.get(), disk_outer_M, mdot);
 
         inclination  = incl_deg * GR_PI / 180.0;
         // Matched to NovikovThorneDisk::TARGET_PEAK_TEMP = 20 000 K:

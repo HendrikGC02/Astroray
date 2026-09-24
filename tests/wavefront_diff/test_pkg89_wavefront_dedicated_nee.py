@@ -245,20 +245,22 @@ def _sun_roi_mean(case, gpu, integrator, sun=True):
 def test_issue859_sun_survives_mesh_emitter(integrator, case):
     """GPU/CPU far-ground mean within MEAN_RATIO_TOL with a sun + mesh emitter.
 
-    Oracle = CPU path_tracer, built by linearity: CPU(sun only) +
-    CPU(emitter only). The CPU tree sampler drops the emitter when a sun is in
-    the same tree (measured: sun+emitter 0.209 vs 0.2096 + 0.0246; identical
-    at emission 5 and 50), so a direct CPU(sun+emitter) render is not a valid
-    oracle. The ROI sees direct light only, so DI-only restir-di must match
-    too (CPU restir-di has its own colour cast on a SUN).
+    Oracle = straight CPU path_tracer render (valid since #851's tree MIS
+    fix). The ROI sees direct light only, so DI-only restir-di must match too
+    (CPU restir-di has its own colour cast on a SUN). The CPU render is also
+    checked against linearity, CPU(sun) + CPU(emitter): a tree that starves
+    the sun (DistantLight tree energy = power(), post-#851) turns the sum
+    into high-variance chromatic noise on both backends.
     """
-    # TODO(#859/u851): once fix/u-851-light-tree lands (TreeLightSampler
-    # pdfValue proxy-normal MIS fix), switch back to a straight CPU(sun+emitter)
-    # render as the oracle.
     _require_gpu()
-    cpu = _sun_roi_mean("none", False, "path_tracer")
-    if case != "none":
-        cpu = cpu + _sun_roi_mean(case, False, "path_tracer", sun=False)
+    cpu = _sun_roi_mean(case, False, "path_tracer")
+    if case != "none" and integrator == "path_tracer":
+        parts = (_sun_roi_mean("none", False, "path_tracer")
+                 + _sun_roi_mean(case, False, "path_tracer", sun=False))
+        lin = cpu / parts
+        assert np.all(np.abs(lin - 1.0) <= MEAN_RATIO_TOL), (
+            f"#859: CPU sun+emitter {cpu.round(4).tolist()} != CPU sun + CPU "
+            f"emitter {parts.round(4).tolist()} (tree sampler starves a light)")
     gpu = _sun_roi_mean(case, True, integrator)
     assert np.all(cpu > 1e-3), f"CPU oracle dark on {integrator}/{case}: {cpu}"
     ratios = gpu / cpu

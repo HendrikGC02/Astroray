@@ -194,6 +194,17 @@ float DistantLight::power() const {
     return luminance * intensity_ * normalizeFactor_ * effectiveSolidAngle;
 }
 
+// #859 (post-#851): light-tree energy is the sun's strength (irradiance), NOT
+// power(): Cycles scene/light_tree.cpp LightTreeEmitter sets
+// measure.energy = average(strength) with no solid-angle factor for a sun
+// (Apache-2.0). power()'s solid-angle scale (~7e-5 for 0.526 deg) starved the
+// sun beside any mesh emitter in the tree (CPU and GPU).
+float DistantLight::treeEnergy() const {
+    SampledWavelengths lambdas = SampledWavelengths::sampleUniform(0.5f);
+    float luminance = emission_.eval(lambdas).toXYZ(lambdas).Y;
+    return luminance * intensity_ * normalizeFactor_;
+}
+
 AABB DistantLight::bounds() const {
     // Infinite light: unbounded AABB.
     return AABB(Vec3(-std::numeric_limits<float>::max()),

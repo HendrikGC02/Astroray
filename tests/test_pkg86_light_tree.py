@@ -400,5 +400,39 @@ class TestIssue851TreeSeams:
             if np.any(idx == k):
                 assert abs(pdf[idx == k][0] - np.mean(idx == k)) < 0.03, (k, pdf[idx == k][0])
 
+    def test_back_facing_area_light_not_oversampled(self):
+        """An area light facing away from the receiver contributes nothing.
+        AreaLight::orientationCone was (spread, spread) = a full sphere at the
+        default spread pi, so the tree sampled a near back-facing light almost
+        exclusively. Cycles uses theta_o = 0, theta_e = spread/2 (#851)."""
+        def render(mode, seed):
+            r = astroray.Renderer()
+            r.set_integrator("path_tracer")
+            r.set_background_color([0.0, 0.0, 0.0])
+            floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+            r.add_triangle([-5, 0, -5], [5, 0, 5], [5, 0, -5], floor)
+            r.add_triangle([-5, 0, -5], [-5, 0, 5], [5, 0, 5], floor)
+            white = {"mode": "rgb", "color": [1.0, 1.0, 1.0]}
+            # Faces the floor: normal = (1,0,0) x (0,0,1) = (0,-1,0).
+            r.add_area_light_dedicated(center=[0, 6, 0], axis_u=[1, 0, 0], axis_v=[0, 0, 1],
+                                       size_x=1.0, size_y=1.0, shape="RECTANGLE",
+                                       emission=white, intensity=300.0, spread=3.14159)
+            # Faces up, 1 m above the floor: normal = (0,0,1) x (1,0,0) = (0,1,0).
+            r.add_area_light_dedicated(center=[0, 1, 0], axis_u=[0, 0, 1], axis_v=[1, 0, 0],
+                                       size_x=1.0, size_y=1.0, shape="RECTANGLE",
+                                       emission=white, intensity=300.0, spread=3.14159)
+            setup_camera(r, look_from=[0, 3, 6], look_at=[0, 0, 0], vfov=50,
+                         width=32, height=32)
+            r.set_light_sampler(mode)
+            r.set_seed(seed)
+            return np.asarray(r.render(16, 1, None, False), dtype=np.float64)[..., :3]
+        seeds = [3, 5, 7, 11]
+        power = [render("power", s) for s in seeds]
+        tree = [render("tree", s) for s in seeds]
+        pv, tv = compute_pixel_variance(power), compute_pixel_variance(tree)
+        assert tv <= pv, f"tree variance {tv:.3g} > power {pv:.3g}"
+        ratio = np.mean(tree) / np.mean(power)
+        assert abs(ratio - 1.0) < 0.05, f"tree/power mean ratio {ratio:.3f}"
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

@@ -225,8 +225,14 @@ AABB AreaLight::bounds() const {
 }
 
 OrientationCone AreaLight::orientationCone() const {
-    // Orientation cone: emission is restricted to spread half-angle around normal.
-    return OrientationCone::fromAxisAngle(normal_, spread_);
+    // #851: one-sided planar emitter, so theta_o = 0 (all normals == normal_)
+    // and theta_e bounds the emission actually produced by sampleLi(): angle
+    // <= spread_ and front-facing, i.e. min(spread_, pi/2). Cycles
+    // scene/light_tree.cpp area branch (theta_o = 0, theta_e = spread / 2;
+    // Apache-2.0). The old cone (spread_, spread_) was a full sphere at the
+    // default spread = pi, so the tree sampled back-facing area lights.
+    return OrientationCone{normal_, 0.0f,
+                           std::min(spread_, static_cast<float>(M_PI) * 0.5f)};
 }
 
 // pkg89-GPU / GAP 1 — device upload description mirroring sampleLi() radiometry.

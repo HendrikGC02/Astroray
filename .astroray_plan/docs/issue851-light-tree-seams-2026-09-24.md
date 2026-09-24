@@ -40,6 +40,15 @@ Adaptive Tree Splitting" (§4.4 importance); Cycles `kernel/light/tree.h`
    max bound. Emitters use the node distance clamp, not Cycles' per-type
    vertex distances. The GPU mirror uploads emitter bounds in `GLightTreeEmitter`.
 
+5. **Area-light cone.** `AreaLight::orientationCone` returned
+   `(spread, spread)`, which is a full sphere at Blender's default spread π.
+   The tree then sampled back-facing area lights. materials_hall's Rim light
+   faces away from the scene: removing it moved floor tree/power variance from
+   1.11 to 1.02. The cone is now θo = 0 and θe = min(spread, π/2), following
+   Cycles `scene/light_tree.cpp` (area branch: θo = 0, θe = spread/2).
+   `min(spread, π/2)` bounds what `sampleLi` emits: it treats `spread` as a
+   half-angle limit and rejects back faces.
+
 ## Not ported (still differs from Cycles)
 
 - Min/max-importance averaging for inner nodes (`get_left_probability`).
@@ -48,6 +57,12 @@ Adaptive Tree Splitting" (§4.4 importance); Cycles `kernel/light/tree.h`
 - `has_transmission`.
 
 ## Open
+
+- `AreaLight::withinSpread` compares against the full Blender spread as if it
+  were a half-angle. For spread < π it emits into twice the Cycles cone. This
+  is a radiometry bug, separate from #851.
+- `SpotLight::orientationCone` has the same `(angle, angle)` form. Cycles uses
+  θo = 0. It costs efficiency only, not bias.
 
 - The GPU `gpu_reconstruct_light_pdf` still uses the `-dir` proxy. It is inert
   when dedicated lights are present, because the tree is not uploaded then.

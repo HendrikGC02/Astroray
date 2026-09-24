@@ -183,6 +183,12 @@ public:
     // Reference: Cycles `Light::emission_estimate` (Apache-2.0).
     virtual float power() const = 0;
 
+    // #851: light-tree energy = on-axis radiant intensity, so energy / d^2
+    // estimates irradiance. Cycles scene/light_tree.cpp LightTreeEmitter ctor
+    // (Apache-2.0): area strength / pi, point and spot strength / (4 pi).
+    // Default (distant, background): power().
+    virtual float treeEnergy() const { return power(); }
+
     // Bounding box (world space). Infinite lights return unbounded AABB.
     virtual AABB bounds() const = 0;
 

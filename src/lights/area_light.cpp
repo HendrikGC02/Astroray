@@ -2,6 +2,7 @@
 #include "raytracer.h"
 #include "astroray/lights/area_light.h"
 #include "astroray/spectrum.h"
+#include "astroray/area_spread.h"
 #include <cmath>
 #include <algorithm>
 #include <random>
@@ -92,7 +93,9 @@ void AreaLight::sampleLi(LiSample& sample,
     // Evaluate spectral emission — plain Lambertian radiance L_e = P/(π·A).
     constexpr float kM1PiF = 0.31830988618f;  // M_1_PI_F = 1/π
     SampledSpectrum emissionSpec = emission_.eval(lambdas);
-    emissionSpec *= (intensity_ * normalizeFactor_ * kM1PiF);
+    // #852: Cycles soft-box spread attenuation (area_spread.h).
+    emissionSpec *= (intensity_ * normalizeFactor_ * kM1PiF
+                     * areaSpreadAttenuation(cosTheta, spread_));
 
     sample.emission_spec = emissionSpec;
 
@@ -182,7 +185,8 @@ bool AreaLight::intersect(const Vec3& rayOrigin, const Vec3& rayDir,
     // emission_spec (the geometry is carried by the pdf / throughput, not here).
     constexpr float kM1PiF = 0.31830988618f;  // 1/π
     SampledSpectrum e = emission_.eval(lambdas);
-    e *= (intensity_ * normalizeFactor_ * kM1PiF);
+    e *= (intensity_ * normalizeFactor_ * kM1PiF
+          * areaSpreadAttenuation(-denom, spread_));   // #852, == sampleLi
     out.emission = e;
     return true;
 }
@@ -195,6 +199,12 @@ float AreaLight::power() const {
     XYZ xyz = emissionSpec.toXYZ(lambdas);
     float luminance = xyz.Y;
     return luminance * intensity_ * normalizeFactor_ * area_ * static_cast<float>(M_PI);
+}
+
+// #851: Lambertian emitter, power = L*A*pi; on-axis intensity L*A (Cycles:
+// strength * M_1_PI_F, scene/light_tree.cpp).
+float AreaLight::treeEnergy() const {
+    return power() / static_cast<float>(M_PI);
 }
 
 AABB AreaLight::bounds() const {
@@ -225,8 +235,14 @@ AABB AreaLight::bounds() const {
 }
 
 OrientationCone AreaLight::orientationCone() const {
-    // Orientation cone: emission is restricted to spread half-angle around normal.
-    return OrientationCone::fromAxisAngle(normal_, spread_);
+    // #851: one-sided planar emitter, so theta_o = 0 (all normals == normal_);
+    // theta_e = the emission half-angle spread_ (Blender spread / 2, #852),
+    // capped at pi/2 by the front-face test. Cycles scene/light_tree.cpp area
+    // branch: theta_o = 0, theta_e = spread / 2 (Apache-2.0). The old cone
+    // (spread_, spread_) was a full sphere at the default spread, so the tree
+    // sampled back-facing area lights.
+    return OrientationCone{normal_, 0.0f,
+                           std::min(spread_, static_cast<float>(M_PI) * 0.5f)};
 }
 
 // pkg89-GPU / GAP 1 — device upload description mirroring sampleLi() radiometry.

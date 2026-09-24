@@ -393,23 +393,49 @@ public:
                                   const std::vector<int>& code_flat,
                                   const std::vector<float>& consts_flat,
                                   const std::vector<float>& ramps_flat) {
-        using namespace astroray::svm;
         auto it = programTextures.find(name);
         if (it == programTextures.end())
             throw std::runtime_error("set_program_texture_program: unknown program texture " + name);
+        it->second->setProgram(parseProgram("set_program_texture_program", numTex, outSlot,
+                                            code_flat, consts_flat, ramps_flat));
+    }
+    // pkg277 (#822): wrap a registered procedural in a coordinate program. The
+    // wrapper carries coord_mode (+ Mapping via set_texture_mapping_matrix);
+    // OP_LOAD_TEX 0 reads the resolved point, the output is the child's point.
+    void createCoordProgramTexture(const std::string& name, const std::string& childName,
+                                   const std::string& coordMode, int outSlot,
+                                   const std::vector<int>& code_flat,
+                                   const std::vector<float>& consts_flat,
+                                   const std::vector<float>& ramps_flat) {
+        auto child = getTexture(childName);
+        if (!child)
+            throw std::runtime_error("create_coord_program_texture: unknown child texture " + childName);
+        auto t = std::make_shared<CoordProgramTexture>(child,
+            parseProgram("create_coord_program_texture", 1, outSlot,
+                         code_flat, consts_flat, ramps_flat));
+        t->setCoordMode(parseCoordMode(coordMode));
+        proceduralTextures[name] = t;
+    }
+private:
+    static astroray::svm::ShaderVMProgram parseProgram(
+            const std::string& who, int numTex, int outSlot,
+            const std::vector<int>& code_flat,
+            const std::vector<float>& consts_flat,
+            const std::vector<float>& ramps_flat) {
+        using namespace astroray::svm;
         if (code_flat.size() % 8 != 0)
-            throw std::runtime_error("set_program_texture_program: code_flat not a multiple of 8");
+            throw std::runtime_error(who + ": code_flat not a multiple of 8");
         int numInstr = (int)(code_flat.size() / 8);
         if (numInstr > VM_MAX_INSTR)
-            throw std::runtime_error("set_program_texture_program: program exceeds VM_MAX_INSTR");
+            throw std::runtime_error(who + ": program exceeds VM_MAX_INSTR");
         int numConst = (int)(consts_flat.size() / 3);
         if (numConst > VM_MAX_CONST)
-            throw std::runtime_error("set_program_texture_program: too many constants");
+            throw std::runtime_error(who + ": too many constants");
         if (ramps_flat.size() % (RAMP_TABLE_SIZE * 3) != 0)
-            throw std::runtime_error("set_program_texture_program: ramps_flat wrong length");
+            throw std::runtime_error(who + ": ramps_flat wrong length");
         int numRamps = (int)(ramps_flat.size() / (RAMP_TABLE_SIZE * 3));
         if (numRamps > VM_MAX_RAMPS)
-            throw std::runtime_error("set_program_texture_program: too many ramps");
+            throw std::runtime_error(who + ": too many ramps");
         ShaderVMProgram prog;
         prog.numInstr = numInstr;
         prog.outSlot  = outSlot;
@@ -433,7 +459,7 @@ public:
                 int base = (r * RAMP_TABLE_SIZE + s) * 3;
                 prog.ramp[r][s] = GVec3(ramps_flat[base], ramps_flat[base+1], ramps_flat[base+2]);
             }
-        it->second->setProgram(prog);
+        return prog;
     }
 };
 
@@ -554,6 +580,14 @@ public:
                                   const std::vector<float>& ramps_flat) {
         textureManager.setProgramTextureProgram(name, numTex, outSlot,
                                                 code_flat, consts_flat, ramps_flat);
+    }
+    void createCoordProgramTexture(const std::string& name, const std::string& childName,
+                                   const std::string& coordMode, int outSlot,
+                                   const std::vector<int>& code_flat,
+                                   const std::vector<float>& consts_flat,
+                                   const std::vector<float>& ramps_flat) {
+        textureManager.createCoordProgramTexture(name, childName, coordMode, outSlot,
+                                                 code_flat, consts_flat, ramps_flat);
     }
 
     // pkg219b test helper — sample a registered texture (image / procedural /
@@ -1072,7 +1106,7 @@ public:
     void addAreaLightDedicated(const std::vector<float>& center, const std::vector<float>& axisU,
                                const std::vector<float>& axisV, float sizeX, float sizeY,
                                const std::string& shape, py::dict emissionDict, float intensity,
-                               float spread = 1.0f,
+                               float spread = static_cast<float>(M_PI) / 2.0f,
                                int objectPassIndex = 0, int materialPassIndex = 0) {
         Vec3 pos(center[0], center[1], center[2]);
         Vec3 u(axisU[0], axisU[1], axisU[2]);
@@ -1644,14 +1678,15 @@ public:
                     const std::vector<float>& vup, float vfov, float aspectRatio,
                     float aperture, float focusDist, int width, int height,
                     float shiftX = 0.0f, float shiftY = 0.0f,
-                    float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max()) {
+                    float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max(),
+                    bool orthographic = false, float orthoWidth = 0.0f, float orthoHeight = 0.0f) {
         auto oldCamera = camera;
         camera = std::make_shared<Camera>(
             Vec3(lookFrom[0], lookFrom[1], lookFrom[2]),
             Vec3(lookAt[0], lookAt[1], lookAt[2]),
             Vec3(vup[0], vup[1], vup[2]),
             vfov, aspectRatio, aperture, focusDist, width, height,
-            shiftX, shiftY, clipNear, clipFar);
+            shiftX, shiftY, clipNear, clipFar, orthographic, orthoWidth, orthoHeight);
         // pkg72: Blender re-uploads the camera every viewport frame via
         // setup_camera; carry the previous-frame projection snapshot across
         // so motion vectors are non-zero on the second and later frames.
@@ -1666,6 +1701,7 @@ public:
             camera->prevFocusDist = oldCamera->prevFocusDist;
             camera->prevShiftX    = oldCamera->prevShiftX;
             camera->prevShiftY    = oldCamera->prevShiftY;
+            camera->prevOrthographic = oldCamera->prevOrthographic;  // #845
             camera->hasPrevCamera = true;
         }
     }
@@ -2179,6 +2215,33 @@ public:
     // first hit on a holdout object writes color 0 / alpha 0 (a transparent hole).
     bool setObjectHoldout(int objectId, bool enabled) {
         return renderer.setObjectHoldout(objectId, enabled);
+    }
+
+    // #847 — per-object Generated frame. `m` is the row-major 3x4 world ->
+    // Generated affine; baked onto every Triangle in [begin, end) as per-vertex
+    // Generated coords (Cycles ATTR_STD_GENERATED), so rotation and shared
+    // materials match Cycles and update_object_transform keeps them attached.
+    // Returns the number of triangles set.
+    int setObjectsGeneratedTransform(int begin, int end, const std::vector<float>& m) {
+        if (m.size() != 12)
+            throw std::runtime_error("set_objects_generated_transform: matrix must have 12 floats");
+        auto& scene = renderer.getSceneMutable();
+        invalidateWavefrontScene();  // #801: triangle data read by buildSceneArrays
+        begin = std::max(begin, 0);
+        end = std::min(end, static_cast<int>(scene.size()));
+        auto apply = [&](const Vec3& p) {
+            return Vec3(m[0]*p.x + m[1]*p.y + m[2]*p.z  + m[3],
+                        m[4]*p.x + m[5]*p.y + m[6]*p.z  + m[7],
+                        m[8]*p.x + m[9]*p.y + m[10]*p.z + m[11]);
+        };
+        int n = 0;
+        for (int i = begin; i < end; ++i) {
+            if (auto* tri = dynamic_cast<Triangle*>(scene[i].get())) {
+                tri->setGenerated(apply(tri->getV0()), apply(tri->getV1()), apply(tri->getV2()));
+                ++n;
+            }
+        }
+        return n;
     }
 
     int getCausticCasterCount() const {
@@ -3645,6 +3708,12 @@ PYBIND11_MODULE(astroray, m) {
              "pkg219b: set the compiled bytecode. code_flat = 8 ints/instr "
              "(op,out,a,b,c,d,e,imm); consts_flat = 3 floats/const; ramps_flat = "
              "numRamps*256*3 floats (baked Color-Ramp tables, RGB).")
+        .def("create_coord_program_texture", &PyRenderer::createCoordProgramTexture,
+             "name"_a, "child_name"_a, "coord_mode"_a, "out_slot"_a,
+             "code_flat"_a, "consts_flat"_a, "ramps_flat"_a = std::vector<float>{},
+             "pkg277: register a procedural sampled at a coordinate warped by an "
+             "op-VM program (OP_LOAD_TEX 0 = resolved point). Coord mode + Mapping "
+             "live on the wrapper; the GPU bakes it like any procedural (pkg190).")
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)
         .def("eval_material", &PyRenderer::evalMaterial,
              "material_id"_a, "wo"_a, "wi"_a,
@@ -3697,9 +3766,11 @@ PYBIND11_MODULE(astroray, m) {
              "pkg89 Phase B: dedicated DistantLight with EmissionSpectrum")
         .def("add_area_light_dedicated", &PyRenderer::addAreaLightDedicated,
              "center"_a, "axis_u"_a, "axis_v"_a, "size_x"_a, "size_y"_a,
-             "shape"_a, "emission"_a, "intensity"_a, "spread"_a = 1.0f,
+             "shape"_a, "emission"_a, "intensity"_a,
+             "spread"_a = static_cast<float>(M_PI) / 2.0f,  // #852: half-angle; pi/2 = Lambertian
              "object_pass_index"_a = 0, "material_pass_index"_a = 0,
-             "pkg89 Phase B: dedicated AreaLight with EmissionSpectrum")
+             "pkg89 Phase B: dedicated AreaLight with EmissionSpectrum; spread = "
+             "half-angle (Blender light.spread / 2)")
         .def("add_spot_light_dedicated", &PyRenderer::addSpotLightDedicated,
              "center"_a, "direction"_a, "inner_angle"_a, "outer_angle"_a,
              "emission"_a, "intensity"_a, "radius"_a = 0.0f, "ies_file"_a = std::string(),
@@ -3764,7 +3835,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("setup_camera", &PyRenderer::setupCamera, "look_from"_a, "look_at"_a, "vup"_a, "vfov"_a,
              "aspect_ratio"_a, "aperture"_a, "focus_dist"_a, "width"_a, "height"_a,
              "shift_x"_a = 0.0f, "shift_y"_a = 0.0f,
-             "clip_near"_a = 0.001f, "clip_far"_a = std::numeric_limits<float>::max())
+             "clip_near"_a = 0.001f, "clip_far"_a = std::numeric_limits<float>::max(),
+             // #845: orthographic plane extents are world units (resolved by the caller).
+             "orthographic"_a = false, "ortho_width"_a = 0.0f, "ortho_height"_a = 0.0f)
         .def("set_camera_motion_blur", &PyRenderer::setCameraMotionBlur,
              "start_t"_a, "start_r"_a, "start_s"_a, "end_t"_a, "end_r"_a, "end_s"_a,
              "shutter"_a, "shutter_position"_a,
@@ -3860,6 +3933,11 @@ PYBIND11_MODULE(astroray, m) {
              "pkg274 (#36) — flag an object (by addObject order) as holdout. The "
              "primary camera ray's first hit on it writes color 0 / alpha 0 "
              "(a transparent hole); indirect rays are untouched. CPU only.")
+        .def("set_objects_generated_transform", &PyRenderer::setObjectsGeneratedTransform,
+             "begin"_a, "end"_a, "matrix"_a,
+             "#847 — bake a row-major 3x4 world->Generated affine onto the "
+             "triangles in [begin, end) (addObject order) as per-vertex Generated "
+             "coords (Blender object-space texture space). Returns the count set.")
         .def("caustic_caster_count", &PyRenderer::getCausticCasterCount)
         .def("scene_object_count", &PyRenderer::getSceneObjectCount)
         .def("set_object_name", &PyRenderer::setObjectName,

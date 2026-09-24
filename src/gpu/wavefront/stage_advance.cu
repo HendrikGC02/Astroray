@@ -461,37 +461,72 @@ __device__ int intersectPathSlotT(
                                            c_wfGridVolume.volumeBounceCap);
     if constexpr (HasGridVolume) if (c_wfGridVolume.count > 0) {
         const float surfaceT = hit ? rec.t : 1e30f;
-        int mi = -1;
-        float mEnter = surfaceT, mExit = surfaceT, bestEnter = surfaceT;
-        for (int k = 0; k < c_wfGridVolume.count; ++k) {
-            float t0, t1;
-            if (gpu_gridAabbOverlap(c_wfGridVolume.media[k], ray.origin, ray.direction,
-                                    0.001f, surfaceT, t0, t1) && t0 < bestEnter) {
-                bestEnter = t0; mi = k; mEnter = t0; mExit = t1;
-            }
-        }
         // r_u lanes live in the side table (not GPUWavefrontState). A path starts
         // at bounce 0 with r_u = 1: reset there (no regen-kernel change needed).
         const int ruCap = c_wfGridVolume.capacity;
         float* const ruLane = c_wfGridVolume.ru;
         if (bounce == 0)
             for (int l = 0; l < G_SPECTRUM_SAMPLES; ++l) ruLane[l * ruCap + idx] = 1.f;
-        if (mi >= 0) {
-            GSampledSpectrum ru;
-            for (int l = 0; l < G_SPECTRUM_SAMPLES; ++l) ru.v[l] = ruLane[l * ruCap + idx];
-            GSampledSpectrum beta = throughput * gpu_heroAverage(ru, lambdas);
-            GSampledSpectrum emission(0.f);
-            float tEv = 0.f;
-            const uint32_t salt = gpu_gridTrackSalt(bounce);   // #828 disjoint fields
-            int ev = gpu_gridVolumeTrack(mi, ray.origin, ray.direction, mEnter, mExit,
+        // #842: every medium on [0.001, surfaceT], swept in AABB-boundary order
+        // (device twin of astroray::volume::spectralTrackSegment; was: only the
+        // nearest-entered medium). One medium on a piece => gpu_gridVolumeTrack
+        // (single-medium scenes byte-identical); several => the overlap flight.
+        bool entered = false;
+        int ev = 0, mi = -1;
+        float tEv = 0.f;
+        GSampledSpectrum ru, beta, emission(0.f);
+        uint32_t draw = 0;
+        const uint32_t salt = gpu_gridTrackSalt(bounce);   // #828 disjoint fields
+        float cursor = 0.001f;
+        while (cursor < surfaceT) {
+            uint32_t mask = 0u;
+            int first = -1, n = 0;
+            float segEnd = surfaceT;
+            bool later = false;
+            for (int k = 0; k < c_wfGridVolume.count; ++k) {
+                float t0, t1;
+                if (!gpu_gridAabbOverlap(c_wfGridVolume.media[k], ray.origin, ray.direction,
+                                         cursor, surfaceT, t0, t1))
+                    continue;
+                if (t0 > cursor) { segEnd = fminf(segEnd, t0); later = true; }
+                else if (t1 > cursor) {
+                    segEnd = fminf(segEnd, t1);
+                    mask |= 1u << k;
+                    if (first < 0) first = k;
+                    ++n;
+                }
+            }
+            if (n == 0) {
+                if (!later) break;
+                cursor = segEnd;
+                continue;
+            }
+            if (!entered) {
+                entered = true;
+                for (int l = 0; l < G_SPECTRUM_SAMPLES; ++l) ru.v[l] = ruLane[l * ruCap + idx];
+                beta = throughput * gpu_heroAverage(ru, lambdas);
+            }
+            if (n == 1) {
+                mi = first;
+                ev = gpu_gridVolumeTrack(first, ray.origin, ray.direction, cursor, segEnd,
                                          lambdas, beta, ru, emission, tEv,
                                          state.rng_pixel[idx], state.rng_sample[idx],
-                                         state.rng_seed[idx], salt, volTerm);
+                                         state.rng_seed[idx], salt, draw, volTerm);
+            } else {
+                ev = gpu_gridVolumeTrackOverlap(mask, ray.origin, ray.direction, cursor, segEnd,
+                                                lambdas, beta, ru, emission, tEv, mi,
+                                                state.rng_pixel[idx], state.rng_sample[idx],
+                                                state.rng_seed[idx], salt, draw, volTerm);
+            }
+            if (ev != 0) break;
+            cursor = segEnd;
+        }
+        if (entered) {
             if (emission.maxValue() > 0.f) {
                 // Volume emission along the flight (pkg270): Emission pass when
                 // directly visible, else <firstCat>_INDIRECT (surface-emission rule).
                 GSampledSpectrum ce = gpu_clampContribMW(
-                    emission, lambdas, bounce, clampDirect, clampIndirect, useLuminanceOutput);
+                    emission, lambdas, bounce - 1, clampDirect, clampIndirect, useLuminanceOutput);  // #860
                 color += ce;
                 if constexpr (HasLightPassAOVs) {
                     unsigned char cat = c_wfLpBinding.firstCat[idx];
@@ -651,15 +686,18 @@ __device__ int intersectPathSlotT(
                 if (bounce == 0 || wasSpecular) {
                     contrib = throughput * Le;                 // w_B = 1
                 } else if (enableNEE) {
+                    GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
+                                        state.path_mis_nz[idx]);
                     float lp = gpu_dedicated_reconstruct_pdf(
-                        dedLights, numDed, totalLightPower, ray.origin, ray.direction);
+                        dedLights, numDed, totalLightPower, ray.origin, ray.direction,
+                        lightTree, numLights, misNormalPrev);
                     float wB = gpu_mw_powerHeuristic(state.path_bsdf_pdf[idx], lp);
                     contrib = throughput * Le * wB;
                 }
                 // naive mode (enableNEE == false, non-specular): no NEE leg to
                 // complement, so nothing is added — mirrors the emissive block.
                 GSampledSpectrum lampContrib = gpu_clampContribMW(
-                    contrib, lambdas, bounce,
+                    contrib, lambdas, bounce - 1,   // #860: emission hit = Cycles bounce-1
                     clampDirect, clampIndirect, useLuminanceOutput);
                 color += lampContrib;
                 // pkg198 Stage 2: a lamp hit by a continuation ray is indirect light
@@ -728,7 +766,7 @@ __device__ int intersectPathSlotT(
             // pkg157: clamp by bounce depth (Cycles film_clamp_light split);
             // see gpu_clampContribMW (gpu_spectral_tables.h).
             GSampledSpectrum envContrib = gpu_clampContribMW(
-                throughput * envSpec, lambdas, bounce,
+                throughput * envSpec, lambdas, bounce - 1,   // #860
                 clampDirect, clampIndirect, useLuminanceOutput);
             color += envContrib;
             // pkg198 Stage 2: directly-visible background → PASS_ENVIRONMENT; a
@@ -804,7 +842,7 @@ __device__ int intersectPathSlotT(
             // pkg157: emissive-hit direct term, same clamp split as above.
             // Camera / post-specular ray: no NEE leg competes (w_B = 1).
             GSampledSpectrum emitContrib = gpu_clampContribMW(
-                throughput * Le, lambdas, bounce,
+                throughput * Le, lambdas, bounce - 1,   // #860
                 clampDirect, clampIndirect, useLuminanceOutput);
             color += emitContrib;
             // pkg198 Stage 2: directly-visible surface emission → PASS_EMISSION;
@@ -833,15 +871,18 @@ __device__ int intersectPathSlotT(
             // pkg156 residual); skipping it restores CPU/GPU parity and the
             // pre-pkg120 naive behaviour. NEE mode (path_tracer) is unchanged.
             float bsdfPdfPrev = state.path_bsdf_pdf[idx];
+            // #851: the NEE normal of the previous vertex (tree pick == pdf).
+            GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
+                                state.path_mis_nz[idx]);
             float lp = gpu_reconstruct_light_pdf(
                 rec, ray.origin, ray.direction,
                 lights, numLights, totalLightPower,
-                prims, tris, spheres, lightTree);
+                prims, tris, spheres, lightTree, misNormalPrev);
             float wB = gpu_mw_powerHeuristic(bsdfPdfPrev, lp);
             GSampledSpectrum contrib = throughput * Le;
             contrib *= wB;
             GSampledSpectrum emitContrib = gpu_clampContribMW(
-                contrib, lambdas, bounce,
+                contrib, lambdas, bounce - 1,   // #860
                 clampDirect, clampIndirect, useLuminanceOutput);
             color += emitContrib;
             // pkg198 Stage 2: two-sided-MIS emissive hit at a diffuse bounce is
@@ -974,61 +1015,61 @@ __constant__ GWavefrontProgramBinding c_wfProgBinding;
 template<bool> struct GScalarOverride {};
 template<> struct GScalarOverride<true> { ::GMaterial mat; };
 
-// pkg219d — fetch a scalar program's OWN source texel at the hit UV. Mirrors the
-// base-colour triangle-UV recompute (Ericson §3.4) + Mapping in shadePathSlot's
-// HasTexture block, but for the scalar program's own image (matScalarTexId, a
-// DIFFERENT image than the base colour). Returns false for non-triangle / UV-less
-// hits (the override is then skipped, exactly like the base-colour path). Reads
-// c_wfTexBinding (published this frame); only ever called from <HasProgram=true>.
-__device__ __forceinline__ bool gpu_scalarProgSourceTexel(
-    const GHitRecord& rec, const GPrimitive* prims, const GTriangle* tris,
-    int texId, GVec3& outTexel)
-{
-    if (!(rec.primId >= 0 && prims[rec.primId].type == GPRIM_TRIANGLE)) return false;
-    const GTriangle& ttri = tris[prims[rec.primId].index];
-    if (!ttri.hasUV) return false;
-    GVec3 e1 = ttri.v1 - ttri.v0, e2 = ttri.v2 - ttri.v0;
-    GVec3 ep = rec.point - ttri.v0;
-    float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
-    float d20 = ep.dot(e1), d21 = ep.dot(e2);
-    float denom = d00 * d11 - d01 * d01;
-    if (fabsf(denom) <= 1e-20f) return false;
-    float b1 = (d11 * d20 - d01 * d21) / denom;
-    float b2 = (d00 * d21 - d01 * d20) / denom;
-    float b0 = 1.0f - b1 - b2;
-    float uu = b0*ttri.uv0.x + b1*ttri.uv1.x + b2*ttri.uv2.x;
-    float vv = b0*ttri.uv0.y + b1*ttri.uv1.y + b2*ttri.uv2.y;
-    const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
-    if (tdesc.hasMapping) {
-        const float* m = tdesc.mapping;
-        float mu = m[0]*uu + m[1]*vv + m[3];
-        float mv = m[4]*uu + m[5]*vv + m[7];
-        uu = mu; vv = mv;
-    }
-    outTexel = gpu_sampleImageTexture(tdesc, c_wfTexBinding.texelBuf, uu, vv);
-    return true;
-}
-
-// #826 — sample base-colour program input t >= 1 (Noise -> Mix <- Checker, two
-// images into one Mix). Same fetch as input 0 in shadePathSlot's HasTexture
+// #826 — sample an op-VM program input: base-colour input t >= 1 (Noise -> Mix
+// <- Checker, two images into one Mix) and, since #846, every scalar-program input. Same fetch as input 0 in shadePathSlot's HasTexture
 // block: a 3D voxel bake (depth > 1; Generated coord rebuilt from the hit point
 // and THIS descriptor's genMin/genSize) or a 2D image / UV bake (triangle-UV
 // barycentric recompute, Ericson §3.4, + THIS descriptor's Mapping). ok=false on
 // a non-triangle / UV-less / degenerate 2D hit; the caller then skips the whole
 // texture, exactly as when input 0 misses. __noinline__ with by-value args keeps
 // the body out of the REG:254 <HasProgram=true> caller's allocation (memory
-// noinline-runtime-flag-avoids-shade-spill); single-input programs never call
-// it. Only ever called from <HasProgram=true>.
+// noinline-runtime-flag-avoids-shade-spill). Only ever called from
+// <HasProgram=true>.
+//
+// #847 — Generated coordinate for a 3D-bake fetch (depth > 1). A triangle with
+// per-vertex Generated coords (c_wfTexBinding.triGenerated, Cycles
+// ATTR_STD_GENERATED: object-space texture space, per object) interpolates them
+// with barycentrics recomputed from the hit point (Ericson §3.4, as the UV fetch
+// below). Otherwise the pre-#847 per-texture bbox frame:
+// g = (point - genMin)/genSize (include/advanced_features.h CoordMode::Generated).
+// __noinline__ keeps the body out of the REG:254 shade kernel's allocation.
+static __device__ __noinline__ GVec3 gpu_generatedCoord(
+    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
+{
+    const GVec3* tg = c_wfTexBinding.triGenerated;
+    if (tg && primId >= 0 && prims[primId].type == GPRIM_TRIANGLE) {
+        const int ti = prims[primId].index;
+        const GVec3 g0 = tg[3 * ti];
+        if (!isnan(g0.x)) {
+            const GTriangle& t = tris[ti];
+            GVec3 e1 = t.v1 - t.v0, e2 = t.v2 - t.v0, ep = point - t.v0;
+            float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
+            float d20 = ep.dot(e1), d21 = ep.dot(e2);
+            float denom = d00 * d11 - d01 * d01;
+            if (fabsf(denom) > 1e-20f) {
+                float b1 = (d11 * d20 - d01 * d21) / denom;
+                float b2 = (d00 * d21 - d01 * d20) / denom;
+                // Edge form: exact when all three vertices share a coordinate
+                // (flat plane z = 0.5 stays 0.5, see gpu_sampleProcedural3D).
+                return g0 + (tg[3 * ti + 1] - g0) * b1 + (tg[3 * ti + 2] - g0) * b2;
+            }
+        }
+    }
+    const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
+    GVec3 g;
+    g.x = tdesc.genSize.x > 1e-6f ? (point.x - tdesc.genMin.x) / tdesc.genSize.x : 0.0f;
+    g.y = tdesc.genSize.y > 1e-6f ? (point.y - tdesc.genMin.y) / tdesc.genSize.y : 0.0f;
+    g.z = tdesc.genSize.z > 1e-6f ? (point.z - tdesc.genMin.z) / tdesc.genSize.z : 0.0f;
+    return g;
+}
+
 struct GProgInputTexel { GVec3 c; bool ok; };
 static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
 {
     const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
     if (tdesc.depth > 1) {
-        GVec3 g;
-        g.x = tdesc.genSize.x > 1e-6f ? (point.x - tdesc.genMin.x) / tdesc.genSize.x : 0.0f;
-        g.y = tdesc.genSize.y > 1e-6f ? (point.y - tdesc.genMin.y) / tdesc.genSize.y : 0.0f;
-        g.z = tdesc.genSize.z > 1e-6f ? (point.z - tdesc.genMin.z) / tdesc.genSize.z : 0.0f;
+        GVec3 g = gpu_generatedCoord(point, primId, prims, tris, texId);  // #847
         return {gpu_sampleProcedural3D(tdesc, c_wfTexBinding.texelBuf, g), true};
     }
     const GProgInputTexel miss{GVec3(0.0f, 0.0f, 0.0f), false};
@@ -1478,11 +1519,14 @@ __device__ bool shadePathSlot(
                 int sProg = c_wfProgBinding.matScalarProgId[base + slot];
                 int sTex  = c_wfProgBinding.matScalarTexId[base + slot];
                 if (sProg < 0 || sTex < 0) continue;
-                GVec3 srcTexel;
-                if (!gpu_scalarProgSourceTexel(rec, prims, tris, sTex, srcTexel))
+                // #846: same fetch as base-colour inputs — 2D image / UV bake or a
+                // Generated 3D voxel bake of a procedural input.
+                GProgInputTexel src = gpu_progInputTexel(rec.point, rec.primId,
+                                                         prims, tris, sTex);
+                if (!src.ok)
                     continue;  // non-triangle / UV-less hit → skip (mirrors base colour)
                 GVec3 vmIn[astroray::svm::VM_MAX_TEX];
-                for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t) vmIn[t] = srcTexel;
+                for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t) vmIn[t] = src.c;
                 float v = astroray::svm::svm_eval(
                     c_wfProgBinding.programs[sProg], vmIn).x;
                 if (!anyOverride) {
@@ -1557,13 +1601,9 @@ __device__ bool shadePathSlot(
                 // objectPoint. Needs no triangle UVs (works for any hit prim);
                 // instanced-mesh object-local Generated coords are the same cut
                 // pkg178/pkg186 took for instanced anisotropy/texture.
-                GVec3 g;
-                g.x = tdesc.genSize.x > 1e-6f
-                    ? (rec.point.x - tdesc.genMin.x) / tdesc.genSize.x : 0.0f;
-                g.y = tdesc.genSize.y > 1e-6f
-                    ? (rec.point.y - tdesc.genMin.y) / tdesc.genSize.y : 0.0f;
-                g.z = tdesc.genSize.z > 1e-6f
-                    ? (rec.point.z - tdesc.genMin.z) / tdesc.genSize.z : 0.0f;
+                // #847: per-vertex object-space Generated first (see
+                // gpu_generatedCoord), else the bbox frame above.
+                GVec3 g = gpu_generatedCoord(rec.point, rec.primId, prims, tris, texId);
                 texColor = gpu_sampleProcedural3D(tdesc, c_wfTexBinding.texelBuf, g);
                 haveTex = true;
             } else if (rec.primId >= 0 &&
@@ -1903,6 +1943,10 @@ __device__ bool shadePathSlot(
     // can weight a diffuse-bounce emissive hit by the two-sided MIS heuristic
     // (mirrors CPU bsdfPdfPrev = bss.pdf in pathTraceSpectral).
     state.path_bsdf_pdf[idx] = bss.pdf;
+    // #851: the normal NEE used at this vertex, for the next hit's tree MIS pdf.
+    state.path_mis_nx[idx] = rec.normal.x;
+    state.path_mis_ny[idx] = rec.normal.y;
+    state.path_mis_nz[idx] = rec.normal.z;
     // pkg258: record whether env NEE competed at THIS vertex so the next-bounce
     // miss leg applies the env power heuristic only when it actually ran (mirrors
     // CPU pathTraceSpectral envNeeSampledPrev; the miss leg also requires
@@ -2777,7 +2821,7 @@ __global__ void stageVolumeScatterKernel(
     if (enableNEE && (numLights + numDed) > 0 && totalLightPower > 0.f) {
         GHitRecord mrec{};
         mrec.point   = P;
-        mrec.normal  = woMedium;   // arbitrary; only the (disabled) light-tree path reads it
+        mrec.normal  = GVec3(0.f, 0.f, 0.f);  // #851: zero normal = volume vertex (CPU convention)
         mrec.isDelta = false;
         GNEESample s = gpu_nee_sample(mrec, prims, tris, spheres,
                                       lights, numLights, totalLightPower,
@@ -2865,6 +2909,9 @@ __global__ void stageVolumeScatterKernel(
     // event; memory occlusion-sentinel / wavefront-snapshot-semantics).
     state.env_nee_sampled_prev[idx] = 0;
     state.path_bsdf_pdf[idx] = phasePdf;
+    state.path_mis_nx[idx] = 0.f;  // #851: medium vertex, zero MIS normal
+    state.path_mis_ny[idx] = 0.f;
+    state.path_mis_nz[idx] = 0.f;
     state.rng_dimension[idx] = rng.dimension();
     int next_bounce = bounce + 1;
     state.bounce[idx] = next_bounce;

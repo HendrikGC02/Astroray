@@ -2822,10 +2822,8 @@ def build_camera_lens_scene(bpy):
     camera `type` (orthographic/panoramic) and `ortho_scale` are NOT built
     in-scene: a render has exactly one active camera, so demonstrating a
     second camera TYPE needs either a second .blend (the `world_sky`
-    pattern) or a second render pass, and neither is required here since
-    `type`/`ortho_scale` are DROPPED-SILENT, not required rows --
-    registry-only, the same simplification precedent as materials_hall's
-    un-built Alcoves F/G."""
+    pattern) or a second render pass -- #845 adds the second .blend,
+    build_camera_lens_ortho_scene."""
     scene = _reset(bpy)
     _add_world(bpy, scene, strength=0.05, color=(0.02, 0.02, 0.03))
     tags = []
@@ -2914,6 +2912,87 @@ def build_camera_lens_scene(bpy):
 
 REFERENCE_CAMERA_LENS_RES = (640, 400)
 REFERENCE_CAMERA_LENS_SAMPLES = 192
+
+
+# #845 orthographic plane-grid fixture. Plain data so the engine-side test
+# (tests/test_pkg845_orthographic_camera.py) builds the SAME geometry without
+# bpy. Camera at (0, 0, cam_z) looking down -Z, up +Y (Blender identity
+# rotation). Emissive strips on z=0; a near marker inside clip_start and a far
+# marker beyond clip_end must both vanish.
+ORTHO_GRID = {
+    "cam_z": 10.0,
+    "ortho_scale": 8.0,
+    "shift": (0.1, -0.07),
+    "clip": (2.0, 12.0),
+    "line_w": 0.1,
+    "v_lines_x": (-1.0, 0.0, 1.0, 2.0),
+    "v_span_y": (-2.5, 1.5),
+    "h_lines_y": (-2.0, -1.0, 0.0, 1.0),
+    "h_span_x": (-1.2, 2.6),
+    "near_marker": ((3.0, -2.8), 9.0, 0.4),   # (centre xy, z, size)
+    "far_marker": ((-1.4, 1.75), -3.0, 0.3),
+    "landscape": (320, 200),
+    "portrait": (200, 320),
+}
+
+
+def ortho_grid_quads():
+    """[(name, rgb, [4 xyz corners CCW seen from +Z])] for ORTHO_GRID."""
+    g = ORTHO_GRID
+    hw = g["line_w"] / 2.0
+    quads = []
+
+    def rect(name, rgb, x0, x1, y0, y1, z):
+        quads.append((name, rgb, [(x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z)]))
+
+    for i, x in enumerate(g["v_lines_x"]):
+        rect(f"GridV{i}", (1.0, 1.0, 1.0), x - hw, x + hw, g["v_span_y"][0], g["v_span_y"][1], 0.0)
+    for i, y in enumerate(g["h_lines_y"]):
+        rect(f"GridH{i}", (1.0, 1.0, 1.0), g["h_span_x"][0], g["h_span_x"][1], y - hw, y + hw, 0.0)
+    for name, rgb, key in (("NearMarker", (1.0, 0.0, 0.0), "near_marker"),
+                           ("FarMarker", (0.0, 1.0, 0.0), "far_marker")):
+        (cx, cy), z, size = g[key]
+        rect(name, rgb, cx - size / 2, cx + size / 2, cy - size / 2, cy + size / 2, z)
+    return quads
+
+
+def build_camera_lens_ortho_scene(bpy, res=None):
+    """#845: the ORTHO_GRID fixture as a Blender scene (black world, emissive
+    strips, shifted + clipped ORTHO camera). Second camera_lens .blend (the
+    world_sky two-file pattern): proves camera `type` and `ortho_scale`."""
+    g = ORTHO_GRID
+    scene = _reset(bpy)
+    _add_world(bpy, scene, strength=0.0, color=(0.0, 0.0, 0.0))
+    for name, rgb, corners in ortho_grid_quads():
+        mesh = bpy.data.meshes.new(name)
+        mesh.from_pydata(corners, [], [(0, 1, 2, 3)])
+        obj = bpy.data.objects.new(name, mesh)
+        scene.collection.objects.link(obj)
+        mat, _nt, emit, _out = _emission_card_material(bpy, f"{name}Mat", strength=1.0)
+        _sock(emit.inputs, "Color").default_value = (rgb[0], rgb[1], rgb[2], 1.0)
+        mesh.materials.append(mat)
+    cam_data = bpy.data.cameras.new("OrthoCam")
+    cam_data.type = "ORTHO"
+    cam_data.ortho_scale = g["ortho_scale"]
+    cam_data.sensor_fit = "AUTO"
+    cam_data.shift_x, cam_data.shift_y = g["shift"]
+    cam_data.clip_start, cam_data.clip_end = g["clip"]
+    cam = bpy.data.objects.new("OrthoCam", cam_data)
+    scene.collection.objects.link(cam)
+    cam.location = (0.0, 0.0, g["cam_z"])
+    cam.rotation_euler = (0.0, 0.0, 0.0)
+    scene.camera = cam
+    res_x, res_y = res or g["landscape"]
+    scene.render.resolution_x, scene.render.resolution_y = res_x, res_y
+    scene.render.resolution_percentage = 100
+    tags = [("", "type"), ("", "ortho_scale"), ("", "shift_x"), ("", "shift_y"),
+            ("", "sensor_fit")]
+    gap_tags = [("", "clip_start"), ("", "clip_end")]
+    return scene, tags, {"grid": [0.0, 0.0, 1.0, 1.0]}, gap_tags
+
+
+REFERENCE_CAMERA_LENS_ORTHO_RES = ORTHO_GRID["landscape"]
+REFERENCE_CAMERA_LENS_ORTHO_SAMPLES = 64
 
 
 def build_render_settings_scene(bpy):

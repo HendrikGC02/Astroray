@@ -37,6 +37,7 @@ public:
     float pdfLi(const Vec3& shadingPoint, const Vec3& direction) const override;
 
     float power() const override;
+    float treeEnergy() const override;  // #851
 
     AABB bounds() const override;
 

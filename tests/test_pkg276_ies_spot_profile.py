@@ -13,9 +13,9 @@ scene with the Astroray CPU engine and compare, per channel:
 Band [0.95, 1.05] above the noise floor (reference >= 5 % of the peak bin,
 >= 100 pixels per bin).
 
-Camera note: the Astroray raster->NDC divisor is (res - 1) on both backends
-(raytracer.h render loop, stage_init.cu; deferred in the pkg212 spec), so the
-reference samples the plane at the engine's pixel positions (divisor=res-1).
+Camera note: the Astroray raster->NDC divisor is res on both backends, as in
+Blender/Cycles (#845 fixed the former res - 1), so the reference samples the
+plane at the engine's pixel positions (divisor=res).
 """
 
 import math
@@ -97,7 +97,7 @@ def render_astroray(astroray, sc, ies_path, spp=64, use_gpu=False, seed=7):
 
 def profile_tables(img, sc, table):
     """(radial_rows, azimuth_rows) of per-channel img/reference ratios."""
-    div = sc.res - 1
+    div = sc.res  # #845: engine raster divisor is res (was res - 1)
     refimg = ref.radiance(sc, table, sub=6, divisor=div)
     theta, h = ref.pixel_geometry(sc, divisor=div)
     # >= 100 px per bin: the innermost 1-deg annuli hold ~44 px, where the B

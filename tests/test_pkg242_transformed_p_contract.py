@@ -305,8 +305,11 @@ def _render_checker(use_gpu, mapping=None, samples=96):
 # under a neutral illuminant now reconstructs neutral: B/R 1.0003, G/R 1.0006,
 # R and std unchanged (0.685399 -> 0.685497, 0.434213 -> 0.434026). The new
 # values are the physically expected ones; the structural guard is unchanged.
-_BASELINE_MEANS = np.array([0.685497, 0.685916, 0.685729])
-_BASELINE_STD = 0.434026
+# Re-baselined 2026-09-24 (#845): the raster now maps pixel centres to
+# (i+0.5)/W (was /(W-1)), removing ~1.6 % of extra white background per axis at
+# 64x64; predicted mean drop ~0.010, measured 0.0099 (0.685497 -> 0.675577).
+_BASELINE_MEANS = np.array([0.675577, 0.676324, 0.675118])
+_BASELINE_STD = 0.443885
 
 
 @pytest.mark.cpu

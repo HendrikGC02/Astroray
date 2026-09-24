@@ -4188,7 +4188,7 @@
     "feature": "Camera",
     "bl_idname": "",
     "socket_or_prop": "type",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -4228,7 +4228,7 @@
     "feature": "Camera",
     "bl_idname": "",
     "socket_or_prop": "ortho_scale",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {

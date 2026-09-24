@@ -150,6 +150,13 @@ float SpotLight::power() const {
     return luminance * intensity_ * normalizeFactor_ * coneSolidAngle;
 }
 
+// #851: on-axis intensity = power / cone solid angle, the point-light
+// intensity Cycles uses for spots (strength * 0.25 * M_1_PI_F).
+float SpotLight::treeEnergy() const {
+    float coneSolidAngle = 2.0f * static_cast<float>(M_PI) * (1.0f - std::cos(outerAngle_));
+    return coneSolidAngle > 0.0f ? power() / coneSolidAngle : power();
+}
+
 AABB SpotLight::bounds() const {
     Vec3 r(radius_, radius_, radius_);
     return AABB(position_ - r, position_ + r);

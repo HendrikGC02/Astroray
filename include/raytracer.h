@@ -342,6 +342,13 @@ struct Ray {
     Vec3 at(float t) const { return origin + direction * t; }
 };
 
+// #845: invert the camera's film mapping u = (x + jitter)/W, v = 1 - (y + jitter)/H
+// (jitter in [0,1) for the box filter; wider filters clamp to the frame).
+inline void screenToPixel(float su, float sv, int w, int h, int& px, int& py) {
+    px = std::max(0, std::min(w - 1, static_cast<int>(std::floor(su * float(w)))));
+    py = std::max(0, std::min(h - 1, static_cast<int>(std::floor((1.0f - sv) * float(h)))));
+}
+
 class Material;
 class Texture;  // pkg223 — normalMapTexture() returns shared_ptr<Texture>
 
@@ -875,10 +882,20 @@ public:
     virtual bool boundingBox(AABB& box) const = 0;
     virtual float pdfValue(const Vec3& origin, const Vec3& direction) const { return 0; }
     virtual Vec3 random(const Vec3& origin, std::mt19937& gen) const { return Vec3(0, 1, 0); }
+    // #847 — per-object Generated texture coordinate at world point p (Cycles
+    // ATTR_STD_GENERATED). false = none; Texture falls back to its bbox frame.
+    virtual bool generatedCoord(const Vec3& /*p*/, Vec3& /*out*/) const { return false; }
     virtual bool isLight() const { return false; }
     virtual bool isInfiniteLight() const { return false; }
     virtual Vec3 emittedRadiance() const { return Vec3(0); }
     virtual float directionFalloff(const Vec3& /*directionFromLight*/) const { return 1.0f; }
+    // #851: emitting area for the light-tree energy L * area (Cycles uses the
+    // triangle area). Default: mean projected area of the bbox, surface / 4
+    // (Cauchy's formula for convex bodies).
+    virtual float treeEmitterArea() const {
+        AABB b;
+        return boundingBox(b) ? 0.25f * b.area() : 0.0f;
+    }
     virtual Vec3 emittedRadiance(const Vec3& /*lightNormal*/, const Vec3& /*toPointDir*/) const { return emittedRadiance(); }
     // GR dispatch â€” BlackHole overrides both
     virtual bool isGRObject() const { return false; }
@@ -1191,8 +1208,13 @@ public:
     float pdfValue(const Vec3& origin, const Vec3& direction) const override {
         HitRecord rec;
         if (!hit(Ray(origin, direction), 0.001f, std::numeric_limits<float>::max(), rec)) return 0;
-        return rec.t * rec.t / (std::abs(direction.dot(rec.normal)) * area() + 0.001f);
+        // #851: exact solid-angle pdf of uniform-area sampling (no +0.001 fudge).
+        float cosLight = std::abs(direction.normalized().dot(normal));
+        if (cosLight <= 0.0f) return 0;
+        return rec.t * rec.t / (cosLight * area());
     }
+
+    float treeEmitterArea() const override { return area(); }  // #851
 
     Vec3 random(const Vec3& origin, std::mt19937& gen) const override {
         return (samplePoint(gen) - origin).normalized();
@@ -1367,7 +1389,8 @@ namespace astroray {
 class LightList {
     std::vector<std::shared_ptr<Hittable>> lights;              // emissive Hittables (legacy)
     std::vector<std::unique_ptr<astroray::Light>> dedicatedLights;  // pkg89 dedicated Light objects
-    std::vector<float> powerDist;                               // unified CDF over both kinds
+    std::vector<float> powerDist;                               // unified CDF: hittables, then dedicated
+    std::vector<float> dedicatedPowers;                         // #859: per-dedicated-light power
     float totalPower = 0;
 
     // pkg86: Light sampler (Power or Tree). Eagerly constructed in the
@@ -1397,15 +1420,29 @@ public:
     }
 
     void add(std::shared_ptr<Hittable> l) {
+        const float power = hittablePower(*l);
+        // #859: powerDist is indexed hittables-first, then dedicated
+        // (PowerLightSampler, scene_upload.cu). Insert this entry after the
+        // last hittable and shift the dedicated tail, so add order is inert.
+        // The tail is recomputed from dedicatedPowers so the float sums are
+        // identical whichever kind was added first.
+        const size_t k = lights.size();
+        const float prev = (k == 0) ? 0.0f : powerDist[k - 1];
+        powerDist.insert(powerDist.begin() + k, prev + power);
+        float cum = powerDist[k];
+        for (size_t j = 0; j < dedicatedPowers.size(); ++j) {
+            cum += dedicatedPowers[j];
+            powerDist[k + 1 + j] = cum;
+        }
         lights.push_back(l);
-        totalPower += hittablePower(*l);
-        powerDist.push_back(totalPower);
+        totalPower = powerDist.back();
     }
 
     // Add a dedicated Light (pkg89 Phase A). Takes ownership.
     void addLight(std::unique_ptr<astroray::Light> l) {
         float power = l->power();
         dedicatedLights.push_back(std::move(l));
+        dedicatedPowers.push_back(power);
         totalPower += power;
         powerDist.push_back(totalPower);
     }
@@ -1419,10 +1456,12 @@ public:
         count = std::min(count, dedicatedLights.size() - start);
         dedicatedLights.erase(dedicatedLights.begin() + start,
                               dedicatedLights.begin() + start + count);
+        dedicatedPowers.erase(dedicatedPowers.begin() + start,
+                              dedicatedPowers.begin() + start + count);
         powerDist.clear();
         totalPower = 0;
         for (const auto& l : lights) { totalPower += hittablePower(*l); powerDist.push_back(totalPower); }
-        for (const auto& l : dedicatedLights) { totalPower += l->power(); powerDist.push_back(totalPower); }
+        for (float p : dedicatedPowers) { totalPower += p; powerDist.push_back(totalPower); }
         setSampler(samplerMode_);
     }
 
@@ -1448,8 +1487,8 @@ public:
         sampler_->sample(out, pt, normal, lambdas, gen);
     }
 
-    float pdfValue(const Vec3& pt, const Vec3& dir) const {
-        return sampler_->pdfValue(pt, dir);
+    float pdfValue(const Vec3& pt, const Vec3& dir, const Vec3& normal) const {
+        return sampler_->pdfValue(pt, dir, normal);
     }
 
     // pkg181: intersect a BSDF-sampled ray against the dedicated (non-hittable)
@@ -2042,6 +2081,11 @@ class Camera {
     // pkg72: projection scalars retained so snapshotForMotion() can replay the
     // previous frame's pixel mapping without re-deriving from lowerLeft.
     float vw_ = 0, vh_ = 0, focusDist_ = 0, shiftX_ = 0, shiftY_ = 0;
+    // #845: orthographic projection (PBRT v4 OrthographicCamera, Apache-2.0,
+    // pbr-book.org/4ed/Cameras_and_Film/Orthographic_Camera): ray origin varies
+    // over the image plane through the camera; direction is the constant view
+    // axis. vw_/vh_ are then the world-space plane extents.
+    bool orthographic_ = false;
 public:
     int width, height;
     // pkg274 (#724): Blender camera clip planes, applied only to the PRIMARY
@@ -2070,6 +2114,7 @@ public:
     // geometry is out of scope per pkg72 spec).
     Vec3 prevOrigin{0}, prevU{0}, prevV{0}, prevW{0};
     float prevVw = 0, prevVh = 0, prevFocusDist = 0, prevShiftX = 0, prevShiftY = 0;
+    bool prevOrthographic = false;  // #845
     bool hasPrevCamera = false;
 
     // pkg88-A: camera motion blur shutter keyframes (T/R/S decomposed).
@@ -2087,18 +2132,29 @@ public:
     Camera(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio,
            float aperture, float focusDist, int w, int h,
            float shiftX = 0.0f, float shiftY = 0.0f,
-           float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max())
+           float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max(),
+           bool orthographic = false, float orthoWidth = 0.0f, float orthoHeight = 0.0f)
         : width(w), height(h), clipNear(clipNear), clipFar(clipFar) {
-        float theta = vfov * M_PI / 180.0f;
-        float vh = 2.0f * std::tan(theta / 2) * focusDist;
-        float vw = aspectRatio * vh;
+        float vh, vw;
+        if (orthographic) {
+            vw = orthoWidth;
+            vh = orthoHeight;
+        } else {
+            float theta = vfov * M_PI / 180.0f;
+            vh = 2.0f * std::tan(theta / 2) * focusDist;
+            vw = aspectRatio * vh;
+        }
         w_axis = (lookFrom - lookAt).normalized();
         u = vup.cross(w_axis).normalized();
         v = w_axis.cross(u);
         origin = lookFrom;
         horizontal = u * vw;
         vertical = v * vh;
-        lowerLeft = origin - horizontal * (0.5f - shiftX) - vertical * (0.5f - shiftY) - w_axis * focusDist;
+        orthographic_ = orthographic;
+        if (orthographic)  // #845: ortho image plane passes through the camera.
+            lowerLeft = origin - horizontal * (0.5f - shiftX) - vertical * (0.5f - shiftY);
+        else
+            lowerLeft = origin - horizontal * (0.5f - shiftX) - vertical * (0.5f - shiftY) - w_axis * focusDist;
         lensRadius = aperture / 2;
         vw_ = vw; vh_ = vh; focusDist_ = focusDist;
         shiftX_ = shiftX; shiftY_ = shiftY;
@@ -2135,6 +2191,8 @@ public:
         if (shutter <= 0.0f) {
             Vec3 rd = Vec3::randomInUnitDisk(gen) * lensRadius;
             Vec3 offset = u * rd.x + v * rd.y;
+            if (orthographic_) return orthoRay(lowerLeft + horizontal * s + vertical * t, offset,
+                                               origin, u, v, w_axis, time, s, t);
             Ray ray(origin + offset, lowerLeft + horizontal * s + vertical * t - origin - offset, time, s, t);
             ray.hasCameraFrame = true;
             ray.cameraOrigin = origin;
@@ -2171,6 +2229,10 @@ public:
         // Generate ray from interpolated camera
         Vec3 rd = Vec3::randomInUnitDisk(gen) * lensRadius;
         Vec3 offset = u_interp * rd.x + v_interp * rd.y;
+        if (orthographic_)
+            return orthoRay(lowerLeft_interp + w_interp * focusDist_ + horizontal_interp * s
+                                + vertical_interp * t,
+                            offset, origin_interp, u_interp, v_interp, w_interp, time, s, t);
         Ray ray(origin_interp + offset,
                 lowerLeft_interp + horizontal_interp * s + vertical_interp * t - origin_interp - offset,
                 time, s, t);
@@ -2187,11 +2249,29 @@ public:
     // intern/cycles/integrator/pass.cpp where motion-pass writes consume the
     // previous-frame camera transform. Called once per frame by the renderer
     // at the end of renderFrame().
+    // #845: PBRT v4 OrthographicCamera::GenerateRay — origin on the image
+    // plane, constant forward direction; with a lens, aim at the focus point
+    // focusDist along the view axis from the unperturbed plane point.
+    Ray orthoRay(const Vec3& planePoint, const Vec3& lensOffset, const Vec3& camOrigin,
+                 const Vec3& cu, const Vec3& cv, const Vec3& cw,
+                 float time, float s, float t) const {
+        const Vec3 fwd = cw * -1.0f;
+        const Vec3 dir = (lensRadius > 0.0f) ? fwd * focusDist_ - lensOffset : fwd;
+        Ray ray(planePoint + lensOffset, dir, time, s, t);
+        ray.hasCameraFrame = true;
+        ray.cameraOrigin = camOrigin;
+        ray.cameraU = cu;
+        ray.cameraV = cv;
+        ray.cameraW = cw;
+        return ray;
+    }
+
     void snapshotForMotion() {
         prevOrigin = origin;
         prevU = u; prevV = v; prevW = w_axis;
         prevVw = vw_; prevVh = vh_; prevFocusDist = focusDist_;
         prevShiftX = shiftX_; prevShiftY = shiftY_;
+        prevOrthographic = orthographic_;
         hasPrevCamera = true;
     }
 
@@ -2205,12 +2285,13 @@ public:
         const Vec3 d = P - prevOrigin;
         const float depth = -d.dot(prevW);    // +ve when in front of prev cam
         if (depth <= 1e-6f) return false;
-        const float alpha = prevFocusDist / depth;
+        // #845: orthographic has no perspective divide.
+        const float alpha = prevOrthographic ? 1.0f : prevFocusDist / depth;
         const float s = alpha * d.dot(prevU) / prevVw + (0.5f - prevShiftX);
         const float t = alpha * d.dot(prevV) / prevVh + (0.5f - prevShiftY);
-        // Render loop maps pixel(x,y) -> u=x/(W-1), v=1-y/(H-1); invert that.
-        px = s * float(width - 1);
-        py = (1.0f - t) * float(height - 1);
+        // Render loop maps pixel(x,y) -> u=x/W, v=1-y/H (#845); invert that.
+        px = s * float(width);
+        py = (1.0f - t) * float(height);
         return true;
     }
 
@@ -2237,6 +2318,7 @@ public:
     float getFocusDist()    const { return focusDist_; }
     float getShiftX()       const { return shiftX_; }
     float getShiftY()       const { return shiftY_; }
+    bool isOrthographic()   const { return orthographic_; }  // #845
 };
 
 // Named-buffer view over Camera's pixel data, passed to Pass::execute().
@@ -2607,6 +2689,12 @@ class Renderer {
     // including delta-light NEE) and indirect (bounce>0) contributions are
     // clamped independently rather than the old top-level clamp on the whole
     // summed path.
+    // #860: NEE sites pass the vertex's `bounce`; EMISSION HITS (lamp, emissive
+    // surface, background, volume emission) pass `bounce - 1`, as Cycles'
+    // film_write_{surface,volume}_emission / film_write_background do — a light
+    // reached by the continuation from the first vertex is DIRECT light. Passing
+    // `bounce` clamped that leg with sample_clamp_indirect (Blender default 10) and
+    // dimmed the backlit geometry_zoo volume cubes to 0.55-0.8 of Cycles.
     astroray::SampledSpectrum clampContribSpectral(const astroray::SampledSpectrum& contrib,
                                                     const astroray::SampledWavelengths& lambdas,
                                                     int bounce) const {
@@ -3202,6 +3290,9 @@ public:
         // two-sided MIS emissive-hit term can weight this leg by the power
         // heuristic against the light-sampling pdf of the emitter it lands on.
         float bsdfPdfPrev = 0.0f;
+        // #851: normal the previous vertex passed to lights.sample() (zero for a
+        // medium vertex); pdfValue must re-walk the light tree with it.
+        Vec3 misNormalPrev(0.0f);
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
         int lastBounce = 0;
         float weightSum = 0.0f;
@@ -3240,30 +3331,24 @@ public:
             if (!gridMedia_.empty()) {
                 Vec3 dUnit = ray.direction.normalized();
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
+                // #842: every medium on [0.001, surfaceT], swept in boundary order
+                // (was: only the nearest-entered one).
+                // beta = pbrt path throughput; volRu = rescaled path pdf.
+                astroray::SampledSpectrum beta =
+                    throughput * astroray::volume::heroAverage(volRu, lambdas);
+                bool entered = false;
                 int mi = -1;
-                float mEnter = surfaceT, mExit = surfaceT, bestEnter = surfaceT;
-                for (size_t k = 0; k < gridMedia_.size(); ++k) {
-                    float t0, t1;
-                    if (astroray::volume::intersectAABB(ray.origin, dUnit,
-                            gridMedia_[k].aabbMin, gridMedia_[k].aabbMax,
-                            0.001f, surfaceT, t0, t1)) {
-                        if (t0 < bestEnter) { bestEnter = t0; mi = (int)k; mEnter = t0; mExit = t1; }
-                    }
-                }
-                if (mi >= 0) {
-                    const astroray::volume::BoundedMedium& med = gridMedia_[mi];
-                    // beta = pbrt path throughput; volRu = rescaled path pdf.
-                    astroray::SampledSpectrum beta =
-                        throughput * astroray::volume::heroAverage(volRu, lambdas);
-                    astroray::volume::SpectralFlight ff = astroray::volume::spectralTrack(
-                        med, ray.origin, dUnit, mEnter, mExit, lambdas, beta, volRu, gen,
-                        /*noScatter=*/volTerminateAfter);
+                astroray::volume::SpectralFlight ff = astroray::volume::spectralTrackSegment(
+                    gridMedia_, ray.origin, dUnit, 0.001f, surfaceT, lambdas, beta, volRu, gen,
+                    /*noScatter=*/volTerminateAfter, entered, mi);
+                if (entered) {
+                    const float medG = (mi >= 0) ? gridMedia_[mi].g : 0.0f;
                     if (!ff.emission.isZero()) {
                         // Volume emission along the flight: Emission pass when
                         // directly visible, else folded into <firstCat>_INDIRECT
                         // (same classification as surface emission, pkg198).
                         astroray::SampledSpectrum ce =
-                            clampContribSpectral(ff.emission, lambdas, bounce);
+                            clampContribSpectral(ff.emission, lambdas, bounce - 1);  // #860
                         color += ce;
                         addPass((firstCat < 0) ? PASS_EMISSION : (firstCat * 3 + 1), ce);
                     }
@@ -3289,7 +3374,7 @@ public:
                                 float shadowTr = shadowTransmittance(*bvh, Ray(P, wi, ray.time),
                                                                      ls.distance);
                                 if (shadowTr > 0.0f) {
-                                    float ph = astroray::volume::phaseHG(woMedium.dot(wi), med.g);
+                                    float ph = astroray::volume::phaseHG(woMedium.dot(wi), medG);
                                     float a = ls.pdf, b = ph;
                                     float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
                                     astroray::SampledSpectrum medTr(1.0f);  // pkg270 per-λ
@@ -3316,7 +3401,7 @@ public:
                         ++volumeBounceCount;
                         // --- HG phase-sampled continuation from P ---
                         float phasePdf;
-                        Vec3 wiCont = astroray::volume::sampleHG(woMedium, med.g,
+                        Vec3 wiCont = astroray::volume::sampleHG(woMedium, medG,
                                                                 dist01(gen), dist01(gen), phasePdf);
                         Ray next(P, wiCont, ray.time, ray.screenU, ray.screenV);
                         next.hasCameraFrame = ray.hasCameraFrame;
@@ -3327,6 +3412,7 @@ public:
                         ray = next;
                         wasSpecular = false;
                         bsdfPdfPrev = phasePdf;
+                        misNormalPrev = Vec3(0.0f);
                         envNeeSampledPrev = false;
                         if (bounce > rrDepth) {
                             astroray::XYZ thrXYZ = throughput.toXYZ(lambdas);
@@ -3445,6 +3531,7 @@ public:
                     ray = next;
                     wasSpecular = false;
                     bsdfPdfPrev = phasePdf;
+                    misNormalPrev = Vec3(0.0f);
                     // pkg258 (Terra Q1c): medium NEE samples lamps only, NOT the
                     // environment, so env NEE did not compete here — the next env
                     // miss must be UNWEIGHTED.
@@ -3503,14 +3590,14 @@ public:
                         int lampPass = (firstCat < 0 ? 0 : firstCat) * 3 + 1;
                         if (wasSpecular || !lightNeeEnabled) {  // pkg265: NEE off -> w_B = 1
                             astroray::SampledSpectrum c =
-                                clampContribSpectral(throughput * lampEmission, lambdas, bounce);
+                                clampContribSpectral(throughput * lampEmission, lambdas, bounce - 1);
                             color += c; addPass(lampPass, c);
                         } else {
-                            float lp = lights.pdfValue(ray.origin, ray.direction);
+                            float lp = lights.pdfValue(ray.origin, ray.direction, misNormalPrev);
                             float bp = bsdfPdfPrev;
                             float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                             astroray::SampledSpectrum c =
-                                clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce);
+                                clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce - 1);
                             color += c; addPass(lampPass, c);
                         }
                     }
@@ -3555,7 +3642,7 @@ public:
                     // film_write_emission_or_background_pass / film_write_background).
                     int envPass = (firstCat < 0) ? PASS_ENVIRONMENT : (firstCat * 3 + 1);
                     astroray::SampledSpectrum c =
-                        clampContribSpectral(throughput * weighted, lambdas, bounce);
+                        clampContribSpectral(throughput * weighted, lambdas, bounce - 1);
                     color += c; addPass(envPass, c);
                 }
                 break;
@@ -3629,7 +3716,7 @@ public:
                     // Camera / post-specular ray: no NEE leg competes for this
                     // direction, so the whole emission is taken (w_B = 1).
                     astroray::SampledSpectrum c =
-                        clampContribSpectral(throughput * Le_spec, lambdas, bounce);
+                        clampContribSpectral(throughput * Le_spec, lambdas, bounce - 1);
                     color += c; addPass(emitPass, c);
                 } else {
                     // pkg120: two-sided MIS. A BSDF-sampled continuation ray hit
@@ -3646,13 +3733,13 @@ public:
                     // same selection probabilities the NEE leg uses.
                     float lightPdfHit = lights.empty()
                         ? 0.0f
-                        : lights.pdfValue(ray.origin, ray.direction);
+                        : lights.pdfValue(ray.origin, ray.direction, misNormalPrev);
                     float bp = bsdfPdfPrev, lp = lightPdfHit;
                     // Same power-heuristic form as the NEE leg above and the GPU
                     // gpu_mw_powerHeuristic, so w_L + w_B ≈ 1 per direction.
                     float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                     astroray::SampledSpectrum c =
-                        clampContribSpectral(throughput * Le_spec * wB, lambdas, bounce);
+                        clampContribSpectral(throughput * Le_spec * wB, lambdas, bounce - 1);
                     color += c; addPass(emitPass, c);
                 }
                 break;
@@ -3887,6 +3974,7 @@ public:
             // pkg120: carry this bounce's BSDF pdf so the next iteration's
             // emissive-hit two-sided MIS can weight the BSDF leg (see above).
             bsdfPdfPrev = bss.pdf;
+            misNormalPrev = rec.normal;
             // pkg258 (Terra Q1c): env NEE competed at THIS surface vertex iff the
             // env-NEE strategy was active (enabled, HDRI loaded, bounce gate) AND
             // this is a non-delta lobe (a delta continuation is unweighted on miss).
@@ -4584,8 +4672,8 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         for (int y = ty0; y < ty1; ++y)
                             for (int x = tx0; x < tx1; ++x)
                                 for (int s = 0; s < trainSpp; ++s) {
-                                    float u = (x + td(tgen)) / (cam.width - 1);
-                                    float v = 1.0f - (y + td(tgen)) / (cam.height - 1);
+                                    float u = (x + td(tgen)) / cam.width;
+                                    float v = 1.0f - (y + td(tgen)) / cam.height;
                                     Ray pr = cam.getRay(u, v, 0.0f, tgen);
                                     // Full path trace: builds the guide (records)
                                     // AND contributes its radiance to the image
@@ -4718,8 +4806,10 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         bool firstRayCaptured = false;
 
                         for (int s = 0; s < maxSamples; ++s) {
-                            float u = (x + filterSample(gen, dist)) / (cam.width - 1);
-                            float v = 1.0f - (y + filterSample(gen, dist)) / (cam.height - 1);
+                            // #845: pixel i's centre (i+0.5; filterSample is centred on
+                            // 0.5) maps to film (i+0.5)/W, as Cycles/Blender (was /(W-1)).
+                            float u = (x + filterSample(gen, dist)) / cam.width;
+                            float v = 1.0f - (y + filterSample(gen, dist)) / cam.height;
 
                             // pkg88-A: sample time from Halton dimension 8 (independent per spp).
                             // Per spec Q-Owner-4, we use independent Halton (not stratified)
@@ -4747,9 +4837,9 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                 // pixel_curr so static-camera motion is exactly
                                 // zero (the projected hit point lands back on
                                 // the same sub-pixel). The render loop maps
-                                // pixel(x,y) -> u=x/(W-1), v=1-y/(H-1).
-                                firstPixelCurrX = u * float(cam.width - 1);
-                                firstPixelCurrY = (1.0f - v) * float(cam.height - 1);
+                                // pixel(x,y) -> u=x/W, v=1-y/H (#845).
+                                firstPixelCurrX = u * float(cam.width);
+                                firstPixelCurrY = (1.0f - v) * float(cam.height);
                                 firstRayCaptured = true;
                             }
                             if (integrator_) {

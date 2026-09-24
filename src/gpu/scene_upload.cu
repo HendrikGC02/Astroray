@@ -418,6 +418,18 @@ static void appendOnePrim(
         // (per-batch stable pointers; see Renderer::motionVertexBatches_).
         gt.motionOffset = -1;
         gt.motionSteps = 1;
+        // #847 — per-vertex Generated coords, lazily padded with the NaN
+        // "none" sentinel so the array stays parallel to r.triangles.
+        {
+            Vec3 g0, g1, g2;
+            if (tri->getGenerated(g0, g1, g2)) {
+                const float nan = std::numeric_limits<float>::quiet_NaN();
+                r.triGenerated.resize((size_t)gp.index * 3, GVec3(nan, nan, nan));
+                r.triGenerated.push_back(GVec3(g0.x, g0.y, g0.z));
+                r.triGenerated.push_back(GVec3(g1.x, g1.y, g1.z));
+                r.triGenerated.push_back(GVec3(g2.x, g2.y, g2.z));
+            }
+        }
         r.triangles.push_back(gt);
         std::string objName = tri->getName();
         if (objName.empty()) objName = "Unnamed_Triangle_" + std::to_string(r.triangles.size() - 1);
@@ -775,6 +787,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         r.camera.focusDist = cam->getFocusDist();
         r.camera.shiftX = cam->getShiftX();
         r.camera.shiftY = cam->getShiftY();
+        r.camera.orthographic = cam->isOrthographic() ? 1 : 0;  // #845
+        { Vec3 f = cam->viewForward(); r.camera.forward = GVec3(f.x, f.y, f.z); }
     }
 
     // --- Materials: unique ID per shared_ptr (shared by single-level + pkg114 instanced) ---
@@ -910,6 +924,16 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         r.textures.push_back(desc);
         return texId;
     };
+    // Input t of an op-VM ProgramTexture → texId: an image (with the program's
+    // Mapping, #825 key) or a procedural (pkg190 bake, #818 Item 1). -1 = cannot
+    // upload (empty image / unbakeable coord). Shared by base-colour and scalar
+    // programs (#846).
+    auto uploadProgInputTexId = [&](ProgramTexture* pt, int t) -> int {
+        std::shared_ptr<Texture> child = pt->getInput(t);
+        if (auto childImg = std::dynamic_pointer_cast<ImageTexture>(child))
+            return childImg->getData().empty() ? -1 : uploadImageTexId(childImg.get(), pt);
+        return child ? bakeProceduralTexId(child.get()) : -1;
+    };
     auto getOrAddMat = [&](const std::shared_ptr<Material>& mIn) -> int {
         auto it = matIdx.find(mIn.get());
         if (it != matIdx.end()) return it->second;
@@ -991,13 +1015,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 const int numIn = (int)pt->numInputs();
                 bool inputsOk = numIn >= 1 && numIn <= astroray::svm::VM_MAX_TEX;
                 for (int t = 0; inputsOk && t < numIn; ++t) {
-                    std::shared_ptr<Texture> child = pt->getInput(t);
-                    if (auto childImg = std::dynamic_pointer_cast<ImageTexture>(child)) {
-                        if (!childImg->getData().empty())
-                            progInTex[t] = uploadImageTexId(childImg.get(), pt.get());
-                    } else if (child) {
-                        progInTex[t] = bakeProceduralTexId(child.get());
-                    }
+                    progInTex[t] = uploadProgInputTexId(pt.get(), t);
                     inputsOk = progInTex[t] >= 0;
                 }
                 if (inputsOk) {
@@ -1076,21 +1094,18 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t)
             r.materialProgInputTexId.push_back(progInTex[t]);
         // pkg219d — scalar BSDF-parameter op-VM programs (Roughness/Metallic/
-        // Transmission/IOR). Same shape as the base-colour ProgramTexture above: a
-        // program whose single input is an ImageTexture. Source image + compiled
-        // program dedup into the SAME textures/programs buffers (texIdx/progIdx);
-        // matScalarTexId feeds the shade path's OWN per-slot texel fetch (a scalar
-        // map is a DIFFERENT image than the base colour). Non-image / multi-image
-        // program inputs fall through to -1 (GPU-degraded; CPU stays correct — the
-        // pkg186 cut). Read only in the <HasProgram=true> shade kernel.
+        // Transmission/IOR). A program with ONE input, image or procedural bake
+        // (#846, same uploadProgInputTexId as base colour). Source + compiled
+        // program dedup into the SAME textures/programs buffers (texIdx/procBakeIdx/
+        // progIdx); matScalarTexId feeds the shade path's OWN per-slot texel fetch.
+        // Multi-input or un-uploadable inputs fall through to -1 (GPU-degraded,
+        // addon reports it; CPU stays correct). Read only in <HasProgram=true>.
         auto uploadProgramTexture = [&](const std::shared_ptr<ProgramTexture>& pt,
                                         int& outTexId, int& outProgId) {
-            std::shared_ptr<Texture> child =
-                pt->numInputs() >= 1 ? pt->getInput(0) : nullptr;
-            auto childImg = std::dynamic_pointer_cast<ImageTexture>(child);
-            if (!(childImg && !childImg->getData().empty() && pt->numInputs() == 1))
-                return;
-            outTexId = uploadImageTexId(childImg.get(), pt.get());  // #825 key
+            if (pt->numInputs() != 1) return;
+            int inTex = uploadProgInputTexId(pt.get(), 0);
+            if (inTex < 0) return;
+            outTexId = inTex;
             auto pit = progIdx.find(pt.get());
             if (pit != progIdx.end()) {
                 outProgId = pit->second;
@@ -1339,25 +1354,29 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             const auto& tnodes    = tree->getNodes();
             const auto& temitters = tree->getEmitters();
 
-            // Dedicated lights have no GLight slot on the GPU yet — if the
-            // tree contains one, skip the upload and warn (the kernels fall
-            // back to power-CDF selection; spec: warn, don't error).
             // pkg202: a converted legacy sun reindexes r.lights (the sun no
             // longer occupies a hittable slot), so the CPU tree's per-emitter
             // lightIndex values no longer map onto r.lights. Fall back to the
             // power-CDF selection (the documented behavior whenever the tree is
             // not uploadable) rather than upload a mis-indexed tree.
+            // #859: dedicated emitters ARE uploadable — encoded as
+            // GLightTreeEmitter::lightIndex = -(j+1) for r.dedicatedLights[j]
+            // (1:1 with ll2.getDedicatedLights() while no legacy sun was
+            // converted). Refusing them made the GPU fall back to the power CDF
+            // while the CPU used the tree; a sun's power-CDF weight (solid-angle
+            // scaled) is ~1e-5 of any mesh emitter, so the GPU starved the sun.
             bool uploadable = !convertedLegacySun;
             for (const auto& e : temitters) {
-                if (e.isDedicated || e.lightIndex < 0 ||
-                    e.lightIndex >= (int)r.lights.size()) {
+                const int limit = e.isDedicated ? (int)r.dedicatedLights.size()
+                                                : (int)r.lights.size();
+                if (e.lightIndex < 0 || e.lightIndex >= limit) {
                     uploadable = false;
                     break;
                 }
             }
             if (!uploadable) {
-                fprintf(stderr, "[CUDA] light tree not uploadable (dedicated "
-                                "lights present) - GPU NEE falls back to "
+                fprintf(stderr, "[CUDA] light tree not uploadable (converted "
+                                "legacy sun or unmapped emitter) - GPU NEE falls back to "
                                 "power-CDF selection\n");
             } else {
                 r.lightTreeNodes.reserve(tnodes.size());
@@ -1389,8 +1408,18 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                     const astroray::LightTreeNode& n = tnodes[se.node];
                     if (n.isLeaf()) {
                         for (int k = 0; k < n.numEmitters; ++k) {
-                            r.lightTreeEmitters[n.firstEmitter + k] = GLightTreeEmitter{
-                                temitters[n.firstEmitter + k].lightIndex, se.trail};
+                            const astroray::LightTreeEmitter& te = temitters[n.firstEmitter + k];
+                            // #859: dedicated lights encoded as -(j+1).
+                            GLightTreeEmitter ge{te.isDedicated ? -(te.lightIndex + 1) : te.lightIndex,
+                                                 se.trail};
+                            // #851: bounds for per-emitter leaf selection.
+                            ge.bboxMin   = GVec3(te.bbox.min.x, te.bbox.min.y, te.bbox.min.z);
+                            ge.bboxMax   = GVec3(te.bbox.max.x, te.bbox.max.y, te.bbox.max.z);
+                            ge.bconeAxis = GVec3(te.bcone.axis.x, te.bcone.axis.y, te.bcone.axis.z);
+                            ge.thetaO    = te.bcone.theta_o;
+                            ge.thetaE    = te.bcone.theta_e;
+                            ge.energy    = te.energy;
+                            r.lightTreeEmitters[n.firstEmitter + k] = ge;
                         }
                         continue;
                     }
@@ -1405,9 +1434,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                     r.lightTreeNodes.clear();
                     r.lightTreeEmitters.clear();
                 } else {
-                    r.lightToEmitter.assign(r.lights.size(), -1);
-                    for (size_t ei = 0; ei < r.lightTreeEmitters.size(); ++ei)
-                        r.lightToEmitter[r.lightTreeEmitters[ei].lightIndex] = (int)ei;
+                    // #859: slots [0, numLights) = GLight, then one per
+                    // dedicated light at numLights + j.
+                    r.lightToEmitter.assign(r.lights.size() + r.dedicatedLights.size(), -1);
+                    for (size_t ei = 0; ei < r.lightTreeEmitters.size(); ++ei) {
+                        int li = r.lightTreeEmitters[ei].lightIndex;
+                        int slot = li >= 0 ? li : (int)r.lights.size() + (-li - 1);
+                        r.lightToEmitter[slot] = (int)ei;
+                    }
                 }
             }
         }
@@ -1462,6 +1496,21 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     for (const auto& batch : cpu.getMotionVertexBatches()) {
         for (const auto& v : batch)
             r.motionVertices.push_back(GVec3(v.x, v.y, v.z));
+    }
+
+    // --- #847: per-vertex Generated coords ---
+    // Only read by the Generated 3D-bake fetch (depth > 1). Instanced BLAS
+    // triangles are object-local while the fetch uses the world hit point, so
+    // instanced scenes keep the per-texture bbox frame (pre-#847 behaviour).
+    {
+        bool hasGenBake = false;
+        for (const auto& t : r.textures) hasGenBake = hasGenBake || t.depth > 1;
+        if (!hasGenBake || cpu.hasInstances()) {
+            r.triGenerated.clear();
+        } else if (!r.triGenerated.empty()) {
+            const float nan = std::numeric_limits<float>::quiet_NaN();
+            r.triGenerated.resize(r.triangles.size() * 3, GVec3(nan, nan, nan));
+        }
     }
 
     // --- Environment map ---

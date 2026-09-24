@@ -45,7 +45,7 @@ SAMPLES = 8
 MAX_DEPTH = 10
 
 
-def _make_scene():
+def _make_scene(glass: bool = True):
     r = astroray.Renderer()
     r.set_background_color([0.01, 0.012, 0.018])
     floor = r.create_material("lambertian", [0.78, 0.78, 0.78], {})
@@ -53,7 +53,10 @@ def _make_scene():
     r.add_triangle([-2.4, -1.2, -2.2], [2.4, -1.2, 1.6], [-2.4, -1.2, 1.6], floor)
     light = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 14.0})
     r.add_sphere([0.0, 1.6, 1.0], 0.22, light)
-    glass = r.create_material("dielectric", [1.0, 1.0, 1.0], {"ior": 1.52})
+    if glass:
+        glass = r.create_material("dielectric", [1.0, 1.0, 1.0], {"ior": 1.52})
+    else:  # negative control: same sphere, no specular caster
+        glass = r.create_material("lambertian", [0.5, 0.5, 0.5], {})
     r.add_sphere([0.0, -0.4, 0.15], 0.7, glass)
     r.setup_camera(
         [0.0, 0.0, 4.2], [0.0, -0.05, 0.0], [0.0, 1.0, 0.0],
@@ -62,14 +65,19 @@ def _make_scene():
 
 
 def _render(integrator: str, samples: int = SAMPLES, seed: int = 145) -> np.ndarray:
-    r = _make_scene()
+    return _render_with_stats(integrator, samples, seed)[0]
+
+
+def _render_with_stats(integrator: str, samples: int = SAMPLES, seed: int = 145,
+                       glass: bool = True):
+    r = _make_scene(glass)
     r.set_seed(seed)
     if integrator in ("caustic_path_tracer", "sms_caustic_path_tracer"):
         r.set_integrator_param("max_depth", MAX_DEPTH)
         r.set_integrator_param("caustic_chain_iters", 3)
     r.set_integrator(integrator)
     pixels = np.asarray(r.render(samples, MAX_DEPTH, None, True), dtype=np.float32)
-    return pixels
+    return pixels, dict(r.get_integrator_stats())
 
 
 def _receiver_energy(pixels: np.ndarray) -> float:
@@ -93,9 +101,16 @@ def test_sms_integrator_registered():
     assert "sms_caustic_path_tracer" in astroray.integrator_registry_names()
 
 
+def test_sms_convergence_counter_is_live():
+    """Negative control for the sms_converged check below: with no specular
+    caster SMS has nothing to solve, so the counter must read 0."""
+    _, stats = _render_with_stats("sms_caustic_path_tracer", glass=False)
+    assert stats.get("sms_converged", 0.0) == 0.0, stats
+
+
 def test_sms_caustic_validation_gate(test_results_dir):
     baseline = _render("caustic_path_tracer", samples=SAMPLES)
-    sms_lo  = _render("sms_caustic_path_tracer", samples=SAMPLES)
+    sms_lo, sms_stats = _render_with_stats("sms_caustic_path_tracer", samples=SAMPLES)
     # Reference: same SMS integrator at higher spp. Phase 1 cares about
     # *relative* improvement; we don't compare absolute pixel-perfect.
     sms_hi  = _render("sms_caustic_path_tracer", samples=SAMPLES * 4, seed=911)
@@ -110,10 +125,26 @@ def test_sms_caustic_validation_gate(test_results_dir):
     e_baseline = _receiver_energy(baseline)
     e_sms      = _receiver_energy(sms_lo)
 
-    # Sanity: SMS adds energy in the receiver region (it finds caustic
-    # paths the baseline missed).
-    assert e_sms > e_baseline, (
-        f"SMS receiver energy {e_sms:.4f} should exceed baseline {e_baseline:.4f}")
+    # Sanity: SMS receiver energy stays within a two-sided band of the
+    # caustic_path_tracer baseline. The old strict `e_sms > e_baseline` passed
+    # by chance (#845): after pkg226's correct MNEE weight the two agree to
+    # MC noise. Measured e_sms/e_base at 8 spp, seeds 145/11/23/37/51/73:
+    #   main 0dd98e18: 1.0057 0.9878 0.9968 0.9995 1.0005 0.9771
+    #   #845 build:    0.9997 1.0192 0.9781 0.9798 1.0146 0.9841
+    # Spread 0.977..1.019 on both; band = 2x the largest deviation (2.3 %).
+    # The band cannot see "SMS found nothing" (the two agree to MC noise), so
+    # check directly that the manifold solver converged and deposited energy.
+    assert sms_stats.get("sms_caster_count", 0.0) >= 1.0, sms_stats
+    # (sms_energy is not used: it is an unsynchronised cross-thread float sum
+    # and read -1.4e5 on a MinGW/OpenMP build -- a debug counter, not a gate.)
+    assert sms_stats.get("sms_attempts", 0.0) > 0.0, sms_stats
+    assert sms_stats.get("sms_converged", 0.0) > 0.0, (
+        f"SMS found no converged caustic chains: {sms_stats}")
+
+    ratio = e_sms / e_baseline
+    assert 0.95 <= ratio <= 1.05, (
+        f"SMS/baseline receiver energy {e_sms:.4f}/{e_baseline:.4f} = {ratio:.4f} "
+        f"outside [0.95, 1.05]")
 
     # Phase 1 acceptance: PSNR(SMS, ref) meaningfully better than PSNR(baseline, ref).
     # Threshold relaxed 6.0 -> 5.0 dB after the 2026-05-30 refraction fix (dielectric

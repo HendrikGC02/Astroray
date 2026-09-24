@@ -245,8 +245,9 @@ __device__ inline void generatePrimaryRay(
     // offset centered at 0 ([-0.5,0.5]); the raster pixel-center convention
     // (integer+0.5, matches Cycles + the megakernel raytracer.h) belongs at
     // the call site, not inside filterSample. See pkg212 spec.
-    float u = (px + 0.5f + filterSample(rng)) / float(width - 1);
-    float v = 1.0f - (py + 0.5f + filterSample(rng)) / float(height - 1);
+    // #845: divide by W/H so pixel i's centre lands at film (i+0.5)/W (Cycles).
+    float u = (px + 0.5f + filterSample(rng)) / float(width);
+    float v = 1.0f - (py + 0.5f + filterSample(rng)) / float(height);
 
     // 2. Lens seed draw (CPU converts to mt19937; we consume the same dimension).
     uint32_t lens_seed = rng.UniformUInt32();
@@ -264,6 +265,20 @@ __device__ inline void generatePrimaryRay(
     float lens_offset_x = lens_r * cosf(lens_theta) * cam.lensRadius;
     float lens_offset_y = lens_r * sinf(lens_theta) * cam.lensRadius;
 
+    if (cam.orthographic) {
+        // #845: PBRT v4 OrthographicCamera (mirrors CPU Camera::orthoRay):
+        // origin on the image plane through the camera, constant direction;
+        // with a lens, aim at the focus point focusDist along the view axis.
+        GVec3 plane_point = cam.lowerLeft + cam.horizontal * u + cam.vertical * v;
+        if (cam.lensRadius > 0.0f) {
+            GVec3 offset = cam.u * lens_offset_x + cam.v * lens_offset_y;
+            ray_origin = plane_point + offset;
+            ray_direction = (cam.forward * cam.focusDist - offset).normalized();
+        } else {
+            ray_origin = plane_point;
+            ray_direction = cam.forward;
+        }
+    } else {
     // Ray direction (world-space from camera basis).
     // Mirrors Camera::getRay() math (no GR; flat-space camera).
     // GCameraParams has: lowerLeft, horizontal, vertical, origin.
@@ -284,6 +299,7 @@ __device__ inline void generatePrimaryRay(
         ray_origin = cam.origin;
         ray_direction = dir;
     }
+    }  // #845 perspective
 
     // 3. Lambda draw (CPU: std::uniform_real_distribution<float>(0,1)). pkg206:
     // primary path uses luminance-weighted IMPORTANCE sampling (mirrors CPU

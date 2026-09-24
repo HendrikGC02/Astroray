@@ -107,12 +107,19 @@ def test_no_camera_is_silent():
 # (a) each user-set DROPPED control produces a visible warning
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.parametrize("cam_type", ["ORTHO", "PANO"])
+@pytest.mark.parametrize("cam_type", ["PANO"])
 def test_non_perspective_camera_warns(cam_type):
     msgs, reports = _collect(_scene(camera=_camera(cam_type=cam_type)))
     assert any(cam_type in m for m in msgs)
     assert len(reports) == 1
     assert reports[0][0] == {'WARNING'}
+
+
+def test_ortho_camera_no_longer_warns():
+    # #845: ORTHO is rendered natively, so it must not be reported as dropped.
+    msgs, reports = _collect(_scene(camera=_camera(cam_type="ORTHO")))
+    assert msgs == []
+    assert reports == []
 
 
 def test_changed_clip_no_longer_warns():
@@ -186,9 +193,9 @@ def test_multiple_controls_one_consolidated_report():
 # --------------------------------------------------------------------------- #
 
 def test_report_none_prints(capsys):
-    ns.report_unsupported_native_controls(_scene(camera=_camera(cam_type="ORTHO")), report=None)
+    ns.report_unsupported_native_controls(_scene(camera=_camera(cam_type="PANO")), report=None)
     out = capsys.readouterr().out
-    assert "ORTHO" in out
+    assert "PANO" in out
     assert "not honoured" in out
 
 

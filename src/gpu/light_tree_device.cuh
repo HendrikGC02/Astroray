@@ -206,28 +206,33 @@ __device__ inline int gpu_light_tree_pick(
 
     // #851: one-pass two-reservoir leaf pick (mirror of CPU pick(); Cycles
     // light_tree_cluster_select_emitter).
+    // Scalars, not runtime-indexed arrays, so nothing lands in local memory
+    // (the shade kernels are register-saturated).
     const GLightTreeNode& leaf = view.nodes[nodeIdx];
     int emitterIdx = -1;
-    float selImp[2] = {0.0f, 0.0f};
-    float totImp[2] = {0.0f, 0.0f};
+    float selMax = 0.0f, selMin = 0.0f, totMax = 0.0f, totMin = 0.0f;
     int numHas = 0;
     const bool sampleMax = (u > 0.5f);
     if (leaf.numEmitters > 1) u = u * 2.0f - (sampleMax ? 1.0f : 0.0f);
-    const int r = sampleMax ? 0 : 1;
-    const int o = 1 - r;
     for (int i = leaf.firstEmitter; i < leaf.firstEmitter + leaf.numEmitters; ++i) {
         const GLightTreeEmitter& e = view.emitters[i];
-        float imp[2];
+        float mx, mn;
         gpu_light_tree_importance_mm(e.bboxMin, e.bboxMax, e.bconeAxis,
                                      e.thetaO, e.thetaE, e.energy,
-                                     point, normal, &imp[0], &imp[1]);
-        gpu_light_tree_reservoir(i, imp[r], &emitterIdx, &selImp[r], &totImp[r], &u);
-        if (emitterIdx == i) selImp[o] = imp[o];
-        totImp[o] += imp[o];
-        numHas += (imp[0] > 0.0f) ? 1 : 0;
+                                     point, normal, &mx, &mn);
+        if (sampleMax) {
+            gpu_light_tree_reservoir(i, mx, &emitterIdx, &selMax, &totMax, &u);
+            if (emitterIdx == i) selMin = mn;
+            totMin += mn;
+        } else {
+            gpu_light_tree_reservoir(i, mn, &emitterIdx, &selMin, &totMin, &u);
+            if (emitterIdx == i) selMax = mx;
+            totMax += mx;
+        }
+        numHas += (mx > 0.0f) ? 1 : 0;
     }
     if (numHas == 0) { *outPdf = 0.f; return -1; }
-    if (totImp[1] == 0.0f) {
+    if (totMin == 0.0f) {
         if (!sampleMax) {
             emitterIdx = -1;
             float w = 0.0f, t = 0.0f;
@@ -238,14 +243,14 @@ __device__ inline int gpu_light_tree_pick(
                                              e.thetaO, e.thetaE, e.energy,
                                              point, normal, &mx, &mn);
                 gpu_light_tree_reservoir(i, mx > 0.0f ? 1.0f : 0.0f, &emitterIdx, &w, &t, &u);
-                if (emitterIdx == i) selImp[0] = mx;
+                if (emitterIdx == i) selMax = mx;
             }
         }
-        selImp[1] = 1.0f;
-        totImp[1] = (float)numHas;
+        selMin = 1.0f;
+        totMin = (float)numHas;
     }
 
-    *outPdf = pdf * 0.5f * (selImp[0] / totImp[0] + selImp[1] / totImp[1]);
+    *outPdf = pdf * 0.5f * (selMax / totMax + selMin / totMin);
     return emitterIdx;
 }
 

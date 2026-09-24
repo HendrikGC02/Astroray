@@ -657,28 +657,31 @@ LightTree::PickResult LightTree::pick(const Vec3& point, const Vec3& normal, flo
     // every min is 0). Selection pdf = leafEmitterProb (#851).
     const LightTreeNode& leaf = nodes[nodeIdx];
     int emitterIdx = -1;
-    float selImp[2] = {0.0f, 0.0f};  // [0] = max, [1] = min importance
-    float totImp[2] = {0.0f, 0.0f};
+    float selMax = 0.0f, selMin = 0.0f, totMax = 0.0f, totMin = 0.0f;
     int numHas = 0;
     const bool sampleMax = (u > 0.5f);
     if (leaf.numEmitters > 1) {
         u = u * 2.0f - (sampleMax ? 1.0f : 0.0f);
     }
-    const int r = sampleMax ? 0 : 1;  // reservoir on importance[!sample_max]
-    const int o = 1 - r;
     for (int i = leaf.firstEmitter; i < leaf.firstEmitter + leaf.numEmitters; ++i) {
         const LightTreeEmitter& e = emitters[i];
-        float imp[2];
-        importanceMinMax(e.bbox, e.bcone, e.energy, point, normal, imp[0], imp[1]);
-        sampleReservoir(i, imp[r], emitterIdx, selImp[r], totImp[r], u);
-        if (emitterIdx == i) selImp[o] = imp[o];
-        totImp[o] += imp[o];
-        numHas += (imp[0] > 0.0f) ? 1 : 0;
+        float mx, mn;
+        importanceMinMax(e.bbox, e.bcone, e.energy, point, normal, mx, mn);
+        if (sampleMax) {  // reservoir on max importance
+            sampleReservoir(i, mx, emitterIdx, selMax, totMax, u);
+            if (emitterIdx == i) selMin = mn;
+            totMin += mn;
+        } else {          // reservoir on min importance
+            sampleReservoir(i, mn, emitterIdx, selMin, totMin, u);
+            if (emitterIdx == i) selMax = mx;
+            totMax += mx;
+        }
+        numHas += (mx > 0.0f) ? 1 : 0;
     }
     if (numHas == 0) {
         return PickResult{-1, false, 0.0f};
     }
-    if (totImp[1] == 0.0f) {
+    if (totMin == 0.0f) {
         if (!sampleMax) {
             // Uniform over emitters with positive max importance.
             emitterIdx = -1;
@@ -688,14 +691,14 @@ LightTree::PickResult LightTree::pick(const Vec3& point, const Vec3& normal, flo
                 float mx, mn;
                 importanceMinMax(e.bbox, e.bcone, e.energy, point, normal, mx, mn);
                 sampleReservoir(i, mx > 0.0f ? 1.0f : 0.0f, emitterIdx, w, t, u);
-                if (emitterIdx == i) selImp[0] = mx;
+                if (emitterIdx == i) selMax = mx;
             }
         }
-        selImp[1] = 1.0f;
-        totImp[1] = static_cast<float>(numHas);
+        selMin = 1.0f;
+        totMin = static_cast<float>(numHas);
     }
 
-    pdf *= 0.5f * (selImp[0] / totImp[0] + selImp[1] / totImp[1]);
+    pdf *= 0.5f * (selMax / totMax + selMin / totMin);
 
     const LightTreeEmitter& e = emitters[emitterIdx];
     return PickResult{e.lightIndex, e.isDedicated, pdf};

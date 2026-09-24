@@ -249,6 +249,9 @@ def test_issue859_sun_survives_mesh_emitter(integrator, case):
     oracle. The ROI sees direct light only, so DI-only restir-di must match
     too (CPU restir-di has its own colour cast on a SUN).
     """
+    # TODO(#859/u851): once fix/u-851-light-tree lands (TreeLightSampler
+    # pdfValue proxy-normal MIS fix), switch back to a straight CPU(sun+emitter)
+    # render as the oracle.
     _require_gpu()
     cpu = _sun_roi_mean("none", False, "path_tracer")
     if case != "none":

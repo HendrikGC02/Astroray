@@ -368,8 +368,11 @@ def test_remove_dedicated_lights_resyncs_energy(astroray_module, device):
     assert r.dedicated_light_count() == 1
     r.remove_dedicated_lights(0, 1)
     assert r.dedicated_light_count() == 0
+    r.upload_lights()
+    ambient = _centre(r.render(16, 4, None, False)).mean()   # default background only
+    assert ambient < 0.8 * before                            # the lamp really went
     r.add_point_light([0.0, 0.0, 4.0], {"mode": "rgb", "color": [1, 1, 1]}, 200.0,
                       0.0, "", 0, 0)
     r.upload_lights()
     after = _centre(r.render(16, 4, None, False)).mean()
-    assert after == pytest.approx(2.0 * before, rel=0.1)
+    assert after - ambient == pytest.approx(2.0 * (before - ambient), rel=0.1)

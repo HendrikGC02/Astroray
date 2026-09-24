@@ -435,14 +435,24 @@ __device__ inline int gpu_dedicated_intersect_closest(
 // weight d.power/totalLightPower matches gpu_dedicated_sample's dselPdf.
 __device__ inline float gpu_dedicated_reconstruct_pdf(
     const GDedicatedLight* dedLights, int numDed, float totalLightPower,
-    const GVec3& prevPoint, const GVec3& dir)
+    const GVec3& prevPoint, const GVec3& dir,
+    const GLightTreeView& lightTree, int numLights)   // #859: tree selection
 {
     if (numDed <= 0 || totalLightPower <= 0.f) return 0.f;
     float pdf = 0.f;
     GVec3 D = dir.normalized();
     for (int j = 0; j < numDed; ++j) {
         const GDedicatedLight& d = dedLights[j];
-        float selPdf = d.power / totalLightPower;
+        // Tree mode: CPU TreeLightSampler::pdfValue selection with the -dir
+        // proxy normal (same as gpu_reconstruct_light_pdf).
+        float selPdf;
+        if (lightTree.enabled) {
+            int e = lightTree.lightToEmitter[numLights + j];
+            selPdf = (e < 0) ? 0.f
+                   : gpu_light_tree_pdf(lightTree, prevPoint, D * -1.f, e);
+        } else {
+            selPdf = d.power / totalLightPower;
+        }
         if (selPdf <= 0.f) continue;
         if (d.kind == GDED_AREA) {
             float denom = D.dot(d.axis);
@@ -494,13 +504,18 @@ __device__ inline GNEESample gpu_nee_sample(
     int   li = 0;
     float selPdf;
     if (lightTree.enabled) {
-        // Tree mode is enabled only when there are NO dedicated lights (see
-        // scene_upload.cu), so this path selects hittable emitters only.
+        // Tree selects hittable emitters AND dedicated lights (#859; mirrors
+        // CPU TreeLightSampler::sample). Negative lightIndex = dedicated j.
         float treePdf = 0.f;
         int eIdx = gpu_light_tree_pick(lightTree, rec.point, rec.normal,
                                        gpu_rng_uniform(rng), &treePdf);
         if (eIdx < 0 || treePdf <= 0.f) return s;
         li = lightTree.emitters[eIdx].lightIndex;
+        if (li < 0) {
+            int dj = -li - 1;
+            if (dj >= numDed) return s;
+            return gpu_dedicated_sample(dedLights[dj], dj, rec.point, treePdf, rng);
+        }
         selPdf = treePdf;
     } else {
         // Unified power CDF over hittable emitters THEN dedicated lights

@@ -1048,17 +1048,17 @@ struct GLightTreeNode {
 };
 
 struct GLightTreeEmitter {
-    int          lightIndex;  // index into the GLight array (same order as LightList::getLights)
+    int          lightIndex;  // >=0: GLight index; <0: dedicated light j = -lightIndex-1 (#859)
     unsigned int bitTrail;    // root->leaf path: bit i = level-i branch (0 = left, 1 = right)
 };
 
 // View passed into the kernels. enabled != 0 only when the CPU sampler mode
-// is Tree AND the tree was uploadable (no dedicated lights — those have no
-// GLight slot on the GPU yet).
+// is Tree AND the tree was uploadable (scene_upload.cu).
 struct GLightTreeView {
     const GLightTreeNode*    nodes;
     const GLightTreeEmitter* emitters;
-    const int*               lightToEmitter;  // GLight index -> emitter index (-1 if absent)
+    // GLight i -> emitter at [i]; dedicated j at [numLights + j] (-1 if absent).
+    const int*               lightToEmitter;
     int                      numNodes;
     int                      enabled;
 };

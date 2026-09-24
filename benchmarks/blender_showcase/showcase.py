@@ -94,7 +94,7 @@ def _assign(obj, mat):
     return obj
 
 
-def _cyclorama(name, color, width=16.0, depth=8.0, height=6.0, radius=2.5, y_back=4.0, rough=0.7):
+def _cyclorama(name, color, width=40.0, depth=8.0, height=6.0, radius=2.5, y_back=4.0, rough=0.7):
     """Floor that curves up into a back wall (studio sweep), smooth-shaded."""
     import bmesh
     prof = [(-depth, 0.0), (y_back - radius, 0.0)]
@@ -264,8 +264,8 @@ def build_glass():
     # Wall with a window between sun and casters (beyond the photon aperture).
     c = (0.5, 0.0, 0.6)
     dh = math.hypot(d[0], d[1])
-    wall_c = [c[i] - 5.0 * d[i] / (dh if i < 2 else 1.0) * (1 if i < 2 else 0) for i in range(3)]
-    wall_z = c[2] + 5.0 * math.tan(elev)
+    wall_c = [c[i] - 8.0 * d[i] / (dh if i < 2 else 1.0) * (1 if i < 2 else 0) for i in range(3)]
+    wall_z = c[2] + 8.0 * math.tan(elev)
     wmat = _principled("WallMat", (0.05, 0.05, 0.05), rough=0.9)
     rot = math.atan2(d[1], d[0])
     ww, wh = 1.8, 1.6  # opening
@@ -276,7 +276,7 @@ def build_glass():
     _box("Lintel", (wall_c[0], wall_c[1], wall_z + wh / 2 + 1.5), (0.1, ww, 3.0), wmat).rotation_euler.z = rot
     _box("Sill", (wall_c[0], wall_c[1], (wall_z - wh / 2) / 2), (0.1, ww, max(wall_z - wh / 2, 0.01)), wmat).rotation_euler.z = rot
 
-    _camera((2.2, -4.6, 2.9), (0.3, 0.6, 0.3), lens=38.0)
+    _camera((2.3, -4.4, 2.8), (0.55, 0.55, 0.25), lens=40.0)
     return scene
 
 
@@ -294,8 +294,8 @@ def build_volumes():
     vdb_dir = HERE / "assets"
     size = 3.2
     paths = sl.write_volumes_vdbs(str(vdb_dir), n=128, seed=4242, size=size)
-    smoke = sl._principled_volume_material(bpy, "Smoke", density=6.0,
-                                           color=(0.8, 0.82, 0.86), anisotropy=0.4)
+    smoke = sl._principled_volume_material(bpy, "Smoke", density=10.0,
+                                           color=(0.6, 0.62, 0.66), anisotropy=0.4)
     fire = sl._principled_volume_material(bpy, "Fire", density=3.0,
                                           color=(0.2, 0.19, 0.18), anisotropy=0.2,
                                           blackbody=3.0, temperature=3000.0)
@@ -338,7 +338,7 @@ def build_sky():
     sky.sky_type = "MULTIPLE_SCATTERING"
     sky.sun_disc = True
     sky.sun_size = math.radians(1.2)
-    sky.sun_elevation = math.radians(7.0)
+    sky.sun_elevation = math.radians(4.0)
     sky.sun_rotation = math.radians(0.0)
     sky.altitude = 200.0
     sky.air_density = 1.0
@@ -348,13 +348,13 @@ def build_sky():
     bg.inputs[1].default_value = 0.25
 
     bpy.ops.mesh.primitive_plane_add(size=400.0, location=(0.0, 0.0, 0.0))
-    ground = _assign(bpy.context.active_object, _principled("Ground", (0.32, 0.27, 0.2), rough=0.95))
+    ground = _assign(bpy.context.active_object, _principled("Ground", (0.22, 0.19, 0.14), rough=0.95))
     ground.name = "Ground"
 
     # A ring of standing stones catching the low sun, with long shadows.
     import random
     rnd = random.Random(7)
-    stone = _principled("Stone", (0.55, 0.52, 0.48), rough=0.8)
+    stone = _principled("Stone", (0.3, 0.28, 0.26), rough=0.8)
     for i in range(9):
         a = 2 * math.pi * i / 9 + 0.2
         h = rnd.uniform(1.6, 2.6)

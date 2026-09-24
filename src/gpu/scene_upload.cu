@@ -1339,25 +1339,29 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             const auto& tnodes    = tree->getNodes();
             const auto& temitters = tree->getEmitters();
 
-            // Dedicated lights have no GLight slot on the GPU yet — if the
-            // tree contains one, skip the upload and warn (the kernels fall
-            // back to power-CDF selection; spec: warn, don't error).
             // pkg202: a converted legacy sun reindexes r.lights (the sun no
             // longer occupies a hittable slot), so the CPU tree's per-emitter
             // lightIndex values no longer map onto r.lights. Fall back to the
             // power-CDF selection (the documented behavior whenever the tree is
             // not uploadable) rather than upload a mis-indexed tree.
+            // #859: dedicated emitters ARE uploadable — encoded as
+            // GLightTreeEmitter::lightIndex = -(j+1) for r.dedicatedLights[j]
+            // (1:1 with ll2.getDedicatedLights() while no legacy sun was
+            // converted). Refusing them made the GPU fall back to the power CDF
+            // while the CPU used the tree; a sun's power-CDF weight (solid-angle
+            // scaled) is ~1e-5 of any mesh emitter, so the GPU starved the sun.
             bool uploadable = !convertedLegacySun;
             for (const auto& e : temitters) {
-                if (e.isDedicated || e.lightIndex < 0 ||
-                    e.lightIndex >= (int)r.lights.size()) {
+                const int limit = e.isDedicated ? (int)r.dedicatedLights.size()
+                                                : (int)r.lights.size();
+                if (e.lightIndex < 0 || e.lightIndex >= limit) {
                     uploadable = false;
                     break;
                 }
             }
             if (!uploadable) {
-                fprintf(stderr, "[CUDA] light tree not uploadable (dedicated "
-                                "lights present) - GPU NEE falls back to "
+                fprintf(stderr, "[CUDA] light tree not uploadable (converted "
+                                "legacy sun or unmapped emitter) - GPU NEE falls back to "
                                 "power-CDF selection\n");
             } else {
                 r.lightTreeNodes.reserve(tnodes.size());
@@ -1389,8 +1393,10 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                     const astroray::LightTreeNode& n = tnodes[se.node];
                     if (n.isLeaf()) {
                         for (int k = 0; k < n.numEmitters; ++k) {
+                            const auto& te = temitters[n.firstEmitter + k];
                             r.lightTreeEmitters[n.firstEmitter + k] = GLightTreeEmitter{
-                                temitters[n.firstEmitter + k].lightIndex, se.trail};
+                                te.isDedicated ? -(te.lightIndex + 1) : te.lightIndex,
+                                se.trail};
                         }
                         continue;
                     }
@@ -1405,9 +1411,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                     r.lightTreeNodes.clear();
                     r.lightTreeEmitters.clear();
                 } else {
-                    r.lightToEmitter.assign(r.lights.size(), -1);
-                    for (size_t ei = 0; ei < r.lightTreeEmitters.size(); ++ei)
-                        r.lightToEmitter[r.lightTreeEmitters[ei].lightIndex] = (int)ei;
+                    // #859: slots [0, numLights) = GLight, then one per
+                    // dedicated light at numLights + j.
+                    r.lightToEmitter.assign(r.lights.size() + r.dedicatedLights.size(), -1);
+                    for (size_t ei = 0; ei < r.lightTreeEmitters.size(); ++ei) {
+                        int li = r.lightTreeEmitters[ei].lightIndex;
+                        int slot = li >= 0 ? li : (int)r.lights.size() + (-li - 1);
+                        r.lightToEmitter[slot] = (int)ei;
+                    }
                 }
             }
         }

@@ -2559,6 +2559,7 @@ std::vector<float> cuda_wavefront_render_restir(
     GVec3*      d_motionVerts = wfUpload(C.motionVertices, res.motionVertices);
     ::GMaterial* d_materials = wfUpload(C.materials, res.materials);
     ::GLight*   d_lights    = wfUpload(C.lights, res.lights);
+    GDedicatedLight* d_dedLights = wfUpload(C.dedLights, res.dedicatedLights);  // #859
     GLightTreeNode* d_treeNodes = wfUpload(C.treeNodes, res.lightTreeNodes);
     GLightTreeEmitter* d_treeEmitters = wfUpload(C.treeEmitters, res.lightTreeEmitters);
     int* d_lightToEmitter = wfUpload(C.lightToEmitter, res.lightToEmitter);
@@ -2698,7 +2699,8 @@ std::vector<float> cuda_wavefront_render_restir(
 
         launchStageRestirInitialRIS(
             state, hitBufs, curRes, d_prims, d_tris, d_spheres, d_materials,
-            d_lights, (int)res.lights.size(), res.totalLightPower, treeView,
+            d_lights, (int)res.lights.size(), res.totalLightPower,
+            d_dedLights, (int)res.dedicatedLights.size(), treeView,  // #859
             numCandidates, effectiveMCap, numPixels);
 
         if (reuseReady && useTemporal)

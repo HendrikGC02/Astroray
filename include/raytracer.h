@@ -1358,7 +1358,8 @@ namespace astroray {
 class LightList {
     std::vector<std::shared_ptr<Hittable>> lights;              // emissive Hittables (legacy)
     std::vector<std::unique_ptr<astroray::Light>> dedicatedLights;  // pkg89 dedicated Light objects
-    std::vector<float> powerDist;                               // unified CDF over both kinds
+    std::vector<float> powerDist;                               // unified CDF: hittables, then dedicated
+    std::vector<float> dedicatedPowers;                         // #859: per-dedicated-light power
     float totalPower = 0;
 
     // pkg86: Light sampler (Power or Tree). Eagerly constructed in the
@@ -1388,15 +1389,29 @@ public:
     }
 
     void add(std::shared_ptr<Hittable> l) {
+        const float power = hittablePower(*l);
+        // #859: powerDist is indexed hittables-first, then dedicated
+        // (PowerLightSampler, scene_upload.cu). Insert this entry after the
+        // last hittable and shift the dedicated tail, so add order is inert.
+        // The tail is recomputed from dedicatedPowers so the float sums are
+        // identical whichever kind was added first.
+        const size_t k = lights.size();
+        const float prev = (k == 0) ? 0.0f : powerDist[k - 1];
+        powerDist.insert(powerDist.begin() + k, prev + power);
+        float cum = powerDist[k];
+        for (size_t j = 0; j < dedicatedPowers.size(); ++j) {
+            cum += dedicatedPowers[j];
+            powerDist[k + 1 + j] = cum;
+        }
         lights.push_back(l);
-        totalPower += hittablePower(*l);
-        powerDist.push_back(totalPower);
+        totalPower = powerDist.back();
     }
 
     // Add a dedicated Light (pkg89 Phase A). Takes ownership.
     void addLight(std::unique_ptr<astroray::Light> l) {
         float power = l->power();
         dedicatedLights.push_back(std::move(l));
+        dedicatedPowers.push_back(power);
         totalPower += power;
         powerDist.push_back(totalPower);
     }
@@ -1410,10 +1425,12 @@ public:
         count = std::min(count, dedicatedLights.size() - start);
         dedicatedLights.erase(dedicatedLights.begin() + start,
                               dedicatedLights.begin() + start + count);
+        dedicatedPowers.erase(dedicatedPowers.begin() + start,
+                              dedicatedPowers.begin() + start + count);
         powerDist.clear();
         totalPower = 0;
         for (const auto& l : lights) { totalPower += hittablePower(*l); powerDist.push_back(totalPower); }
-        for (const auto& l : dedicatedLights) { totalPower += l->power(); powerDist.push_back(totalPower); }
+        for (float p : dedicatedPowers) { totalPower += p; powerDist.push_back(totalPower); }
         setSampler(samplerMode_);
     }
 

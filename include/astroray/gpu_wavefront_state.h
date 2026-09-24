@@ -785,6 +785,7 @@ void launchStageRestirInitialRIS(
     const GSphere*    d_spheres,
     const ::GMaterial* d_materials,
     const ::GLight*    d_lights, int num_lights, float total_light_power,
+    const GDedicatedLight* d_dedLights, int num_ded,   // #859
     GLightTreeView    lightTree,
     int numCandidates, int mCap, int numPixels);
 

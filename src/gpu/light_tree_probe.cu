@@ -26,7 +26,10 @@ __global__ void lightTreePickKernel(
     GVec3 N(nrms[i*3], nrms[i*3+1], nrms[i*3+2]);
     float pdf = 0.f;
     int e = gpu_light_tree_pick(view, P, N, us[i], &pdf);
-    outIdx[i] = (e >= 0) ? view.emitters[e].lightIndex : -1;
+    // #859: dedicated emitters carry a negative lightIndex; report them as -2,
+    // the CPU debug_light_tree_pick marker for dedicated lights.
+    int li = (e >= 0) ? view.emitters[e].lightIndex : -1;
+    outIdx[i] = (e >= 0 && li < 0) ? -2 : li;
     outPdf[i] = pdf;
 }
 

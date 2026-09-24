@@ -307,3 +307,20 @@ None at this time. The spec is clear, the Cycles implementation is accessible (A
 - [Blender PR #105862: Cycles build Light Tree in parallel](https://projects.blender.org/blender/blender/pulls/105862)
 - [Blender PR #106683: Cycles add instancing support in light tree](https://projects.blender.org/blender/blender/pulls/106683)
 - [Blender 3.5 release notes: Cycles Light Tree](https://developer.blender.org/docs/release_notes/3.5/cycles/)
+
+---
+
+## #859 (2026-09-24): GPU tree now carries dedicated lights
+
+Root cause of #859: `scene_upload.cu` refused to upload a tree containing
+dedicated lights, so tree mode (the addon default) fell back to the power CDF on
+GPU while the CPU used the tree. A 0.526 deg sun's power (`lum * solid angle`,
+~6.6e-5) is starved by any mesh emitter (`lum * bbox area` per triangle), so GPU
+NEE almost never picked it; the rare BSDF-hit lamp samples were clipped by
+`clamp_indirect` 10. Addon scene: CPU tree 0.195, CPU power 0.006, GPU 0.005.
+
+Fix mirrors CPU `TreeLightSampler` (no new algorithm): dedicated emitters upload
+with `GLightTreeEmitter::lightIndex = -(j+1)`; `gpu_nee_sample` routes them to
+`gpu_dedicated_sample` with the tree pdf; `lightToEmitter[numLights + j]` gives
+the reverse (MIS) pdf via `gpu_light_tree_pdf` with the CPU `-dir` proxy normal
+(`gpu_dedicated_reconstruct_pdf`). Conty & Kulla 2018; Cycles kernel/light/tree.h.

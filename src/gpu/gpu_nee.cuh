@@ -437,14 +437,24 @@ __device__ inline int gpu_dedicated_intersect_closest(
 // weight d.power/totalLightPower matches gpu_dedicated_sample's dselPdf.
 __device__ inline float gpu_dedicated_reconstruct_pdf(
     const GDedicatedLight* dedLights, int numDed, float totalLightPower,
-    const GVec3& prevPoint, const GVec3& dir)
+    const GVec3& prevPoint, const GVec3& dir,
+    const GLightTreeView& lightTree, int numLights)   // #859: tree selection
 {
     if (numDed <= 0 || totalLightPower <= 0.f) return 0.f;
     float pdf = 0.f;
     GVec3 D = dir.normalized();
     for (int j = 0; j < numDed; ++j) {
         const GDedicatedLight& d = dedLights[j];
-        float selPdf = d.power / totalLightPower;
+        // Tree mode: CPU TreeLightSampler::pdfValue selection with the -dir
+        // proxy normal (same as gpu_reconstruct_light_pdf).
+        float selPdf;
+        if (lightTree.enabled) {
+            int e = lightTree.lightToEmitter[numLights + j];
+            selPdf = (e < 0) ? 0.f
+                   : gpu_light_tree_pdf(lightTree, prevPoint, D * -1.f, e);
+        } else {
+            selPdf = d.power / totalLightPower;
+        }
         if (selPdf <= 0.f) continue;
         if (d.kind == GDED_AREA) {
             float denom = D.dot(d.axis);
@@ -495,14 +505,19 @@ __device__ inline GNEESample gpu_nee_sample(
     // power-weighted CDF (mirrors LightList::sample).
     int   li = 0;
     float selPdf;
+    int   dj = -1;   // selected dedicated light (-1 = a hittable GLight)
     if (lightTree.enabled) {
-        // Tree mode is enabled only when there are NO dedicated lights (see
-        // scene_upload.cu), so this path selects hittable emitters only.
+        // Tree selects hittable emitters AND dedicated lights (#859; mirrors
+        // CPU TreeLightSampler::sample). Negative lightIndex = dedicated j.
         float treePdf = 0.f;
         int eIdx = gpu_light_tree_pick(lightTree, rec.point, rec.normal,
                                        gpu_rng_uniform(rng), &treePdf);
         if (eIdx < 0 || treePdf <= 0.f) return s;
         li = lightTree.emitters[eIdx].lightIndex;
+        if (li < 0) {
+            dj = -li - 1;
+            if (dj >= numDed) return s;
+        }
         selPdf = treePdf;
     } else {
         // Unified power CDF over hittable emitters THEN dedicated lights
@@ -513,15 +528,17 @@ __device__ inline GNEESample gpu_nee_sample(
         int hit = -1;
         for (int i = 0; i < numLights; ++i) { if (u <= lights[i].cumulativePower) { hit = i; break; } }
         if (hit < 0 && numDed > 0) {
-            int dj = numDed - 1;
+            dj = numDed - 1;
             for (int j = 0; j < numDed; ++j) { if (u <= dedLights[j].cumulativePower) { dj = j; break; } }
-            float dselPdf = dedLights[dj].power / totalLightPower;
-            return gpu_dedicated_sample(dedLights[dj], dj, rec.point, dselPdf, rng);
+            selPdf = dedLights[dj].power / totalLightPower;
+        } else {
+            if (hit < 0) hit = numLights - 1;   // fp fallback within hittable range
+            li = hit;
+            selPdf = lights[li].power / totalLightPower;
         }
-        if (hit < 0) hit = numLights - 1;   // fp fallback within hittable range
-        li = hit;
-        selPdf = lights[li].power / totalLightPower;
     }
+    // One call site for both selectors (keeps the shade kernel's code size flat).
+    if (dj >= 0) return gpu_dedicated_sample(dedLights[dj], dj, rec.point, selPdf, rng);
     int primIdx  = lights[li].primitiveIndex;
     if (primIdx < 0) return s;
 

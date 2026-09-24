@@ -652,7 +652,8 @@ __device__ int intersectPathSlotT(
                     contrib = throughput * Le;                 // w_B = 1
                 } else if (enableNEE) {
                     float lp = gpu_dedicated_reconstruct_pdf(
-                        dedLights, numDed, totalLightPower, ray.origin, ray.direction);
+                        dedLights, numDed, totalLightPower, ray.origin, ray.direction,
+                        lightTree, numLights);
                     float wB = gpu_mw_powerHeuristic(state.path_bsdf_pdf[idx], lp);
                     contrib = throughput * Le * wB;
                 }

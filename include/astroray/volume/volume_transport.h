@@ -21,7 +21,9 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <random>
 #include <vector>
 
@@ -369,7 +371,9 @@ inline SpectralFlight spectralTrackOverlap(const BoundedMedium* const* act, int 
 // spectralTrackOverlap). Restarting the exponential at a boundary is exact
 // (memoryless). `entered` = some medium overlaps the segment; `mediumOut` = the
 // medium index a Scattered event uses. At most 8 media are tracked on one piece
-// (the GPU binding's G_WF_MAX_GRID_MEDIA).
+// (the GPU binding's G_WF_MAX_GRID_MEDIA; extras warn once on stderr). The GPU
+// binding itself holds <= 8 media (the addon reports the cap), so a GPU piece
+// can never exceed it.
 inline SpectralFlight spectralTrackSegment(const std::vector<BoundedMedium>& media,
                                            const Vec3& o, const Vec3& d, float tMin,
                                            float tMax, const astroray::SampledWavelengths& wl,
@@ -396,6 +400,12 @@ inline SpectralFlight spectralTrackSegment(const std::vector<BoundedMedium>& med
             } else if (t1 > cursor) {    // covers the cursor
                 segEnd = std::min(segEnd, t1);
                 if (n < 8) { act[n] = &media[k]; actIdx[n] = (int)k; ++n; }
+                else {
+                    static std::atomic<bool> warned{false};
+                    if (!warned.exchange(true))
+                        std::fprintf(stderr, "[astroray volume] more than 8 bounded media "
+                                             "overlap on one ray; extra media are skipped\n");
+                }
             }
         }
         if (n == 0) {

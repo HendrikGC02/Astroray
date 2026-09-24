@@ -1,7 +1,8 @@
 """#846 — GPU scalar op-VM programs with a PROCEDURAL input.
 
 Noise (Generated coords) -> Map Range -> Roughness / Metallic / IOR /
-Transmission on a Disney quad. The GPU scalar path used to accept only an image
+Transmission on a quad, for the Disney and the native Principled material (the
+addon default; it ignored scalar programs on both backends before #846). The GPU scalar path used to accept only an image
 input, so these programs were dropped (constant value) without a report. Now the
 scalar input goes through the same upload (image or pkg190 bake) and shade fetch
 (gpu_progInputTexel) as base-colour program inputs.
@@ -63,7 +64,10 @@ def _noise_program(r, name, to_lo, to_hi):
     r.set_program_texture_program(name, 1, 5, code, consts, [])
 
 
-def _render(socket, use_gpu, with_program=True, samples=256):
+_KINDS = ("disney", "principled")
+
+
+def _render(socket, use_gpu, with_program=True, samples=256, kind="disney"):
     param, consts, (lo, hi), light = _CASES[socket]
     r = create_renderer()
     if use_gpu:
@@ -76,7 +80,7 @@ def _render(socket, use_gpu, with_program=True, samples=256):
     if with_program:
         _noise_program(r, "p846_" + socket, lo, hi)
         params[param] = "p846_" + socket
-    mat = r.create_material("disney", [0.8, 0.5, 0.3], params)
+    mat = r.create_material(kind, [0.8, 0.5, 0.3], params)
     A, B, C, D = [-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]
     n = [0, 0, 1]
     r.add_triangle_layers(A, B, C, mat, {"UVMap": [[0, 0], [1, 0], [1, 1]]}, n, n, n)
@@ -97,20 +101,96 @@ def _quadrants(img):
     return np.array(out)
 
 
+@pytest.mark.parametrize("kind", _KINDS)
 @pytest.mark.parametrize("socket", sorted(_CASES))
-def test_846_cpu_program_changes_image(socket):
+def test_846_cpu_program_changes_image(socket, kind):
     """Scene check: the program visibly changes the CPU render vs the constant."""
-    prog = _render(socket, False)
-    const = _render(socket, False, with_program=False)
+    prog = _render(socket, False, kind=kind)
+    const = _render(socket, False, with_program=False, kind=kind)
     assert _quadrants(prog).min() > 0.01, f"{socket}: CPU program render too dark to gate"
     rel = np.abs(prog - const).mean() / max(float(const.mean()), 1e-4)
     assert rel > 0.25, f"{socket}: program barely changes the image (rel L1 {rel:.3f})"
 
 
+@pytest.mark.parametrize("kind", _KINDS)
 @pytest.mark.parametrize("socket", sorted(_CASES))
-def test_846_gpu_scalar_procedural_program_parity(socket):
-    cpu = _quadrants(_render(socket, False))
-    gpu = _quadrants(_render(socket, True))
+def test_846_gpu_scalar_procedural_program_parity(socket, kind):
+    cpu = _quadrants(_render(socket, False, kind=kind))
+    gpu = _quadrants(_render(socket, True, kind=kind))
     ratio = gpu / np.maximum(cpu, 1e-4)
     assert np.allclose(ratio, 1.0, atol=0.03), (
-        f"{socket}: GPU/CPU quadrant ratio outside 3 %:\n{ratio}\ncpu={cpu}\ngpu={gpu}")
+        f"{kind} {socket}: GPU/CPU quadrant ratio outside 3 %:\n{ratio}\ncpu={cpu}\ngpu={gpu}")
+
+
+# --------------------------------------------------------------------------- #
+# Addon (bpy-free): the LIVE Principled path (_principled_shader_spec ->
+# _create_material_from_shader_spec) attaches scalar programs on both routes.
+# Before #846 only the uncalled convert_principled_bsdf_v2 did, so Blender
+# dropped every scalar chain silently. Reuses the #818 bpy stub + node mocks.
+# --------------------------------------------------------------------------- #
+from test_issue818_procedural_opvm import Link, Node, Sock, _load_addon_stub  # noqa: E402
+
+
+class _RecRenderer:
+    """Records create_material calls; every other binding is a no-op."""
+    def __init__(self):
+        self.materials = []
+
+    def create_material(self, kind, color, params):
+        self.materials.append((kind, dict(params)))
+        return len(self.materials)
+
+    def __getattr__(self, _name):
+        return lambda *a, **k: 1
+
+
+def _principled_node(roughness_sock, base_color_sock=None):
+    socks = [roughness_sock]
+    if base_color_sock is not None:
+        socks.append(base_color_sock)
+    return Node('BSDF_PRINCIPLED', inputs=socks, name='P')
+
+
+def _noise_map_range_roughness():
+    noise = Node('TEX_NOISE', inputs=[Sock('Vector')])
+    mr = Node('MAP_RANGE', interpolation_type='LINEAR',
+              inputs=[Sock('Value', 0.0, Link(noise, 'Fac')),
+                      Sock('From Min', 0.35), Sock('From Max', 0.65),
+                      Sock('To Min', 0.3), Sock('To Max', 0.8)])
+    return Sock('Roughness', 0.5, Link(mr, 'Value'))
+
+
+def _convert(monkeypatch, node, native):
+    addon = _load_addon_stub(monkeypatch)
+    eng = addon.CustomRaytracerRenderEngine.__new__(addon.CustomRaytracerRenderEngine)
+    eng._current_material_name = "M"
+    eng._generated_textures_by_material = {}
+    eng._use_native_principled = lambda: native
+    r = _RecRenderer()
+    spec = eng._principled_shader_spec(node, r)
+    eng._create_material_from_shader_spec(spec, r)
+    return r.materials[-1], eng._degradation_report().messages()
+
+
+@pytest.mark.parametrize("native", [True, False])
+def test_846_addon_principled_attaches_roughness_program(monkeypatch, native):
+    (kind, params), _ = _convert(
+        monkeypatch, _principled_node(_noise_map_range_roughness()), native)
+    assert kind == ('principled' if native else 'disney'), kind
+    assert params.get('roughness_program'), params
+
+
+def test_846_addon_bare_texture_on_roughness_attaches(monkeypatch):
+    noise = Node('TEX_NOISE', inputs=[Sock('Vector')])
+    sock = Sock('Roughness', 0.5, Link(noise, 'Fac'))
+    (kind, params), _ = _convert(monkeypatch, _principled_node(sock), True)
+    assert kind == 'principled' and params.get('roughness_program'), (kind, params)
+
+
+def test_846_addon_textured_base_colour_reports_dropped_program(monkeypatch):
+    chk = Node('TEX_CHECKER', inputs=[Sock('Vector')])
+    base = Sock('Base Color', [0.8, 0.8, 0.8], Link(chk, 'Color'))
+    (kind, _), lines = _convert(
+        monkeypatch, _principled_node(_noise_map_range_roughness(), base), True)
+    assert kind == 'lambertian', kind
+    assert any('roughness_program dropped' in m for m in lines), lines

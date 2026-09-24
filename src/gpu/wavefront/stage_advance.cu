@@ -974,51 +974,16 @@ __constant__ GWavefrontProgramBinding c_wfProgBinding;
 template<bool> struct GScalarOverride {};
 template<> struct GScalarOverride<true> { ::GMaterial mat; };
 
-// pkg219d — fetch a scalar program's OWN source texel at the hit UV. Mirrors the
-// base-colour triangle-UV recompute (Ericson §3.4) + Mapping in shadePathSlot's
-// HasTexture block, but for the scalar program's own image (matScalarTexId, a
-// DIFFERENT image than the base colour). Returns false for non-triangle / UV-less
-// hits (the override is then skipped, exactly like the base-colour path). Reads
-// c_wfTexBinding (published this frame); only ever called from <HasProgram=true>.
-__device__ __forceinline__ bool gpu_scalarProgSourceTexel(
-    const GHitRecord& rec, const GPrimitive* prims, const GTriangle* tris,
-    int texId, GVec3& outTexel)
-{
-    if (!(rec.primId >= 0 && prims[rec.primId].type == GPRIM_TRIANGLE)) return false;
-    const GTriangle& ttri = tris[prims[rec.primId].index];
-    if (!ttri.hasUV) return false;
-    GVec3 e1 = ttri.v1 - ttri.v0, e2 = ttri.v2 - ttri.v0;
-    GVec3 ep = rec.point - ttri.v0;
-    float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
-    float d20 = ep.dot(e1), d21 = ep.dot(e2);
-    float denom = d00 * d11 - d01 * d01;
-    if (fabsf(denom) <= 1e-20f) return false;
-    float b1 = (d11 * d20 - d01 * d21) / denom;
-    float b2 = (d00 * d21 - d01 * d20) / denom;
-    float b0 = 1.0f - b1 - b2;
-    float uu = b0*ttri.uv0.x + b1*ttri.uv1.x + b2*ttri.uv2.x;
-    float vv = b0*ttri.uv0.y + b1*ttri.uv1.y + b2*ttri.uv2.y;
-    const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
-    if (tdesc.hasMapping) {
-        const float* m = tdesc.mapping;
-        float mu = m[0]*uu + m[1]*vv + m[3];
-        float mv = m[4]*uu + m[5]*vv + m[7];
-        uu = mu; vv = mv;
-    }
-    outTexel = gpu_sampleImageTexture(tdesc, c_wfTexBinding.texelBuf, uu, vv);
-    return true;
-}
-
-// #826 — sample base-colour program input t >= 1 (Noise -> Mix <- Checker, two
-// images into one Mix). Same fetch as input 0 in shadePathSlot's HasTexture
+// #826 — sample an op-VM program input: base-colour input t >= 1 (Noise -> Mix
+// <- Checker, two images into one Mix) and, since #846, every scalar-program input. Same fetch as input 0 in shadePathSlot's HasTexture
 // block: a 3D voxel bake (depth > 1; Generated coord rebuilt from the hit point
 // and THIS descriptor's genMin/genSize) or a 2D image / UV bake (triangle-UV
 // barycentric recompute, Ericson §3.4, + THIS descriptor's Mapping). ok=false on
 // a non-triangle / UV-less / degenerate 2D hit; the caller then skips the whole
 // texture, exactly as when input 0 misses. __noinline__ with by-value args keeps
 // the body out of the REG:254 <HasProgram=true> caller's allocation (memory
-// noinline-runtime-flag-avoids-shade-spill); single-input programs never call
-// it. Only ever called from <HasProgram=true>.
+// noinline-runtime-flag-avoids-shade-spill). Only ever called from
+// <HasProgram=true>.
 struct GProgInputTexel { GVec3 c; bool ok; };
 static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
@@ -1478,11 +1443,14 @@ __device__ bool shadePathSlot(
                 int sProg = c_wfProgBinding.matScalarProgId[base + slot];
                 int sTex  = c_wfProgBinding.matScalarTexId[base + slot];
                 if (sProg < 0 || sTex < 0) continue;
-                GVec3 srcTexel;
-                if (!gpu_scalarProgSourceTexel(rec, prims, tris, sTex, srcTexel))
+                // #846: same fetch as base-colour inputs — 2D image / UV bake or a
+                // Generated 3D voxel bake of a procedural input.
+                GProgInputTexel src = gpu_progInputTexel(rec.point, rec.primId,
+                                                         prims, tris, sTex);
+                if (!src.ok)
                     continue;  // non-triangle / UV-less hit → skip (mirrors base colour)
                 GVec3 vmIn[astroray::svm::VM_MAX_TEX];
-                for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t) vmIn[t] = srcTexel;
+                for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t) vmIn[t] = src.c;
                 float v = astroray::svm::svm_eval(
                     c_wfProgBinding.programs[sProg], vmIn).x;
                 if (!anyOverride) {

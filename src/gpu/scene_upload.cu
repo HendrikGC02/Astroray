@@ -910,6 +910,16 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         r.textures.push_back(desc);
         return texId;
     };
+    // Input t of an op-VM ProgramTexture → texId: an image (with the program's
+    // Mapping, #825 key) or a procedural (pkg190 bake, #818 Item 1). -1 = cannot
+    // upload (empty image / unbakeable coord). Shared by base-colour and scalar
+    // programs (#846).
+    auto uploadProgInputTexId = [&](ProgramTexture* pt, int t) -> int {
+        std::shared_ptr<Texture> child = pt->getInput(t);
+        if (auto childImg = std::dynamic_pointer_cast<ImageTexture>(child))
+            return childImg->getData().empty() ? -1 : uploadImageTexId(childImg.get(), pt);
+        return child ? bakeProceduralTexId(child.get()) : -1;
+    };
     auto getOrAddMat = [&](const std::shared_ptr<Material>& mIn) -> int {
         auto it = matIdx.find(mIn.get());
         if (it != matIdx.end()) return it->second;
@@ -991,13 +1001,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 const int numIn = (int)pt->numInputs();
                 bool inputsOk = numIn >= 1 && numIn <= astroray::svm::VM_MAX_TEX;
                 for (int t = 0; inputsOk && t < numIn; ++t) {
-                    std::shared_ptr<Texture> child = pt->getInput(t);
-                    if (auto childImg = std::dynamic_pointer_cast<ImageTexture>(child)) {
-                        if (!childImg->getData().empty())
-                            progInTex[t] = uploadImageTexId(childImg.get(), pt.get());
-                    } else if (child) {
-                        progInTex[t] = bakeProceduralTexId(child.get());
-                    }
+                    progInTex[t] = uploadProgInputTexId(pt.get(), t);
                     inputsOk = progInTex[t] >= 0;
                 }
                 if (inputsOk) {
@@ -1076,21 +1080,18 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t)
             r.materialProgInputTexId.push_back(progInTex[t]);
         // pkg219d — scalar BSDF-parameter op-VM programs (Roughness/Metallic/
-        // Transmission/IOR). Same shape as the base-colour ProgramTexture above: a
-        // program whose single input is an ImageTexture. Source image + compiled
-        // program dedup into the SAME textures/programs buffers (texIdx/progIdx);
-        // matScalarTexId feeds the shade path's OWN per-slot texel fetch (a scalar
-        // map is a DIFFERENT image than the base colour). Non-image / multi-image
-        // program inputs fall through to -1 (GPU-degraded; CPU stays correct — the
-        // pkg186 cut). Read only in the <HasProgram=true> shade kernel.
+        // Transmission/IOR). A program with ONE input, image or procedural bake
+        // (#846, same uploadProgInputTexId as base colour). Source + compiled
+        // program dedup into the SAME textures/programs buffers (texIdx/procBakeIdx/
+        // progIdx); matScalarTexId feeds the shade path's OWN per-slot texel fetch.
+        // Multi-input or un-uploadable inputs fall through to -1 (GPU-degraded,
+        // addon reports it; CPU stays correct). Read only in <HasProgram=true>.
         auto uploadProgramTexture = [&](const std::shared_ptr<ProgramTexture>& pt,
                                         int& outTexId, int& outProgId) {
-            std::shared_ptr<Texture> child =
-                pt->numInputs() >= 1 ? pt->getInput(0) : nullptr;
-            auto childImg = std::dynamic_pointer_cast<ImageTexture>(child);
-            if (!(childImg && !childImg->getData().empty() && pt->numInputs() == 1))
-                return;
-            outTexId = uploadImageTexId(childImg.get(), pt.get());  // #825 key
+            if (pt->numInputs() != 1) return;
+            int inTex = uploadProgInputTexId(pt.get(), 0);
+            if (inTex < 0) return;
+            outTexId = inTex;
             auto pit = progIdx.find(pt.get());
             if (pit != progIdx.end()) {
                 outProgId = pit->second;

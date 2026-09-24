@@ -332,7 +332,7 @@ class _ProgramRenderer(_RecordingRenderer):
 def _program(engine, monkeypatch, renderer, images, name):
     module = types.ModuleType('shader_vm_compiler')
     module.VMCompileError = ValueError
-    module.compile_chain = lambda _socket: {
+    module.compile_chain = lambda _socket, **_kw: {
         'inputs': images, 'num_tex': len(images), 'out_slot': 0,
         'code_flat': [], 'consts_flat': [], 'ramps_flat': [],
     }

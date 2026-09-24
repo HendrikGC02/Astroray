@@ -529,10 +529,12 @@ def _bake_ramp(node):
     return table
 
 
-def compile_chain(socket):
+def compile_chain(socket, allow_leaf=False):
     """Compile the chain feeding `socket`. Returns None if it is purely a single
     image texture (no per-texel op — the existing pkg186 texture path handles it)
-    or purely constant; raises VMCompileError if unrepresentable.
+    or purely constant; raises VMCompileError if unrepresentable. allow_leaf=True
+    (#846, scalar sockets, which have no bare-texture path) compiles a bare
+    texture to a one-op program instead.
 
     On success returns a dict:
       {num_tex, out_slot, code_flat, consts_flat, ramps_flat, inputs}
@@ -547,7 +549,7 @@ def compile_chain(socket):
     # procedural the pkg190 bake / native evaluator (get_base_color_texture
     # routes it before the op-VM). A per-texel op is required only when there is a
     # node BETWEEN the texture and the socket.
-    if _is_texture_leaf(node):
+    if _is_texture_leaf(node) and not allow_leaf:
         return None
 
     builder = ProgramBuilder()

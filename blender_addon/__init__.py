@@ -94,7 +94,18 @@ def _import_astroray_nodes():
         if spec is None or spec.loader is None:
             return None
         mod = _u.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        # Register before exec: nodes/__init__.py uses `from __future__ import
+        # annotations`, so bpy.utils.register_class resolves the stringified
+        # `FloatVectorProperty(...)` annotations via typing.get_type_hints(),
+        # which looks up globalns in sys.modules[cls.__module__]. Without this,
+        # that lookup misses and register_class raises
+        # NameError: name 'FloatVectorProperty' is not defined.
+        sys.modules[spec.name] = mod
+        try:
+            spec.loader.exec_module(mod)
+        except Exception:
+            del sys.modules[spec.name]
+            raise
         return mod
     except Exception as exc:  # pragma: no cover - defensive
         print(f"Astroray native shader nodes unavailable: {exc}")
@@ -103,6 +114,10 @@ def _import_astroray_nodes():
 
 astroray_nodes = _import_astroray_nodes()
 _ASTRORAY_NODES_AVAILABLE = astroray_nodes is not None
+# Set by register() to the exception if astroray_nodes.register() raised, so
+# tests can assert loudly instead of only seeing a printed line (was silently
+# swallowed; see the NameError repro this fixes).
+native_nodes_register_error = None
 
 # On Windows the compiled .pyd ships with bundled MinGW runtime DLLs
 # (libgomp-1.dll, etc.). Python 3.8+ no longer searches PATH for module
@@ -7508,10 +7523,13 @@ def register():
     bpy.types.Object.astroray_object = PointerProperty(type=AstrorayObjectProperties)
 
     # pkg57: native shader nodes + per-material settings.
+    global native_nodes_register_error
+    native_nodes_register_error = None
     if _ASTRORAY_NODES_AVAILABLE:
         try:
             astroray_nodes.register()
         except Exception as exc:  # pragma: no cover - defensive
+            native_nodes_register_error = exc
             print(f"Astroray native shader nodes register() failed: {exc}")
 
     # Opt every compatible built-in panel into our engine.

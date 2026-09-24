@@ -181,13 +181,24 @@ __device__ inline float gpu_heroAverage(const GSampledSpectrum& r,
 // (already divided by avg(r_u)); `salt` seeds the counter-based draws
 // (gpu_gridTrackSalt + draw index). `noScatter` (pkg271 volume_bounces exhausted):
 // a scatter collision absorbs — the flight only attenuates and emits.
+// #842: `draw` is the flight's draw counter, carried across the pieces of one
+// segment so consecutive pieces never reuse a draw.
 __device__ int gpu_gridVolumeTrack(int mi, const GVec3& o, const GVec3& d,
                                    float tMin, float tMax,
                                    const GSampledWavelengths& wl,
                                    GSampledSpectrum& beta, GSampledSpectrum& r_u,
                                    GSampledSpectrum& emission, float& tOut,
                                    uint32_t rpix, uint32_t rsmp, uint64_t rsd,
-                                   uint32_t salt, bool noScatter);
+                                   uint32_t salt, uint32_t& draw, bool noScatter);
+// #842: the same flight where the media in `mask` (>= 2 bits) overlap; `which`
+// = the medium a scatter (return 2) uses.
+__device__ int gpu_gridVolumeTrackOverlap(uint32_t mask, const GVec3& o, const GVec3& d,
+                                          float tMin, float tMax,
+                                          const GSampledWavelengths& wl,
+                                          GSampledSpectrum& beta, GSampledSpectrum& r_u,
+                                          GSampledSpectrum& emission, float& tOut, int& which,
+                                          uint32_t rpix, uint32_t rsmp, uint64_t rsd,
+                                          uint32_t salt, uint32_t& draw, bool noScatter);
 // Per-λ ratio-tracking transmittance over [tMin,tMax] in medium `mi` (device twin
 // of astroray::volume::ratioTrackingTransmittanceSpectral).
 __device__ GSampledSpectrum gpu_gridVolumeTransmittance(int mi, const GVec3& o,

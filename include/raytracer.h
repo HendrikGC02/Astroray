@@ -2615,6 +2615,12 @@ class Renderer {
     // including delta-light NEE) and indirect (bounce>0) contributions are
     // clamped independently rather than the old top-level clamp on the whole
     // summed path.
+    // #860: NEE sites pass the vertex's `bounce`; EMISSION HITS (lamp, emissive
+    // surface, background, volume emission) pass `bounce - 1`, as Cycles'
+    // film_write_{surface,volume}_emission / film_write_background do — a light
+    // reached by the continuation from the first vertex is DIRECT light. Passing
+    // `bounce` clamped that leg with sample_clamp_indirect (Blender default 10) and
+    // dimmed the backlit geometry_zoo volume cubes to 0.55-0.8 of Cycles.
     astroray::SampledSpectrum clampContribSpectral(const astroray::SampledSpectrum& contrib,
                                                     const astroray::SampledWavelengths& lambdas,
                                                     int bounce) const {
@@ -3248,30 +3254,24 @@ public:
             if (!gridMedia_.empty()) {
                 Vec3 dUnit = ray.direction.normalized();
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
+                // #842: every medium on [0.001, surfaceT], swept in boundary order
+                // (was: only the nearest-entered one).
+                // beta = pbrt path throughput; volRu = rescaled path pdf.
+                astroray::SampledSpectrum beta =
+                    throughput * astroray::volume::heroAverage(volRu, lambdas);
+                bool entered = false;
                 int mi = -1;
-                float mEnter = surfaceT, mExit = surfaceT, bestEnter = surfaceT;
-                for (size_t k = 0; k < gridMedia_.size(); ++k) {
-                    float t0, t1;
-                    if (astroray::volume::intersectAABB(ray.origin, dUnit,
-                            gridMedia_[k].aabbMin, gridMedia_[k].aabbMax,
-                            0.001f, surfaceT, t0, t1)) {
-                        if (t0 < bestEnter) { bestEnter = t0; mi = (int)k; mEnter = t0; mExit = t1; }
-                    }
-                }
-                if (mi >= 0) {
-                    const astroray::volume::BoundedMedium& med = gridMedia_[mi];
-                    // beta = pbrt path throughput; volRu = rescaled path pdf.
-                    astroray::SampledSpectrum beta =
-                        throughput * astroray::volume::heroAverage(volRu, lambdas);
-                    astroray::volume::SpectralFlight ff = astroray::volume::spectralTrack(
-                        med, ray.origin, dUnit, mEnter, mExit, lambdas, beta, volRu, gen,
-                        /*noScatter=*/volTerminateAfter);
+                astroray::volume::SpectralFlight ff = astroray::volume::spectralTrackSegment(
+                    gridMedia_, ray.origin, dUnit, 0.001f, surfaceT, lambdas, beta, volRu, gen,
+                    /*noScatter=*/volTerminateAfter, entered, mi);
+                if (entered) {
+                    const float medG = (mi >= 0) ? gridMedia_[mi].g : 0.0f;
                     if (!ff.emission.isZero()) {
                         // Volume emission along the flight: Emission pass when
                         // directly visible, else folded into <firstCat>_INDIRECT
                         // (same classification as surface emission, pkg198).
                         astroray::SampledSpectrum ce =
-                            clampContribSpectral(ff.emission, lambdas, bounce);
+                            clampContribSpectral(ff.emission, lambdas, bounce - 1);  // #860
                         color += ce;
                         addPass((firstCat < 0) ? PASS_EMISSION : (firstCat * 3 + 1), ce);
                     }
@@ -3297,7 +3297,7 @@ public:
                                 float shadowTr = shadowTransmittance(*bvh, Ray(P, wi, ray.time),
                                                                      ls.distance);
                                 if (shadowTr > 0.0f) {
-                                    float ph = astroray::volume::phaseHG(woMedium.dot(wi), med.g);
+                                    float ph = astroray::volume::phaseHG(woMedium.dot(wi), medG);
                                     float a = ls.pdf, b = ph;
                                     float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
                                     astroray::SampledSpectrum medTr(1.0f);  // pkg270 per-λ
@@ -3324,7 +3324,7 @@ public:
                         ++volumeBounceCount;
                         // --- HG phase-sampled continuation from P ---
                         float phasePdf;
-                        Vec3 wiCont = astroray::volume::sampleHG(woMedium, med.g,
+                        Vec3 wiCont = astroray::volume::sampleHG(woMedium, medG,
                                                                 dist01(gen), dist01(gen), phasePdf);
                         Ray next(P, wiCont, ray.time, ray.screenU, ray.screenV);
                         next.hasCameraFrame = ray.hasCameraFrame;
@@ -3511,14 +3511,14 @@ public:
                         int lampPass = (firstCat < 0 ? 0 : firstCat) * 3 + 1;
                         if (wasSpecular || !lightNeeEnabled) {  // pkg265: NEE off -> w_B = 1
                             astroray::SampledSpectrum c =
-                                clampContribSpectral(throughput * lampEmission, lambdas, bounce);
+                                clampContribSpectral(throughput * lampEmission, lambdas, bounce - 1);
                             color += c; addPass(lampPass, c);
                         } else {
                             float lp = lights.pdfValue(ray.origin, ray.direction);
                             float bp = bsdfPdfPrev;
                             float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                             astroray::SampledSpectrum c =
-                                clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce);
+                                clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce - 1);
                             color += c; addPass(lampPass, c);
                         }
                     }
@@ -3563,7 +3563,7 @@ public:
                     // film_write_emission_or_background_pass / film_write_background).
                     int envPass = (firstCat < 0) ? PASS_ENVIRONMENT : (firstCat * 3 + 1);
                     astroray::SampledSpectrum c =
-                        clampContribSpectral(throughput * weighted, lambdas, bounce);
+                        clampContribSpectral(throughput * weighted, lambdas, bounce - 1);
                     color += c; addPass(envPass, c);
                 }
                 break;
@@ -3635,7 +3635,7 @@ public:
                     // Camera / post-specular ray: no NEE leg competes for this
                     // direction, so the whole emission is taken (w_B = 1).
                     astroray::SampledSpectrum c =
-                        clampContribSpectral(throughput * Le_spec, lambdas, bounce);
+                        clampContribSpectral(throughput * Le_spec, lambdas, bounce - 1);
                     color += c; addPass(emitPass, c);
                 } else {
                     // pkg120: two-sided MIS. A BSDF-sampled continuation ray hit
@@ -3658,7 +3658,7 @@ public:
                     // gpu_mw_powerHeuristic, so w_L + w_B ≈ 1 per direction.
                     float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                     astroray::SampledSpectrum c =
-                        clampContribSpectral(throughput * Le_spec * wB, lambdas, bounce);
+                        clampContribSpectral(throughput * Le_spec * wB, lambdas, bounce - 1);
                     color += c; addPass(emitPass, c);
                 }
                 break;

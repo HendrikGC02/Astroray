@@ -1,7 +1,6 @@
-"""#880 - a linked Checker/Image/etc. texture on a standalone BSDF's Color
-input (Diffuse, Glossy/Anisotropic, Glass, Refraction, Translucent, Sheen)
-rendered flat grey through the addon; the same graph on Principled BSDF
-rendered the texture.
+"""#880 - a linked Checker/Image/etc. texture on a standalone Diffuse BSDF's
+Color input rendered flat grey through the addon; the same graph on
+Principled BSDF rendered the texture.
 
 Root cause: `_standalone_bsdf_spec` (blender_addon/__init__.py, ~2841 code
 pointer in the issue) read Color via `get_color_input`, which only
@@ -10,12 +9,21 @@ spec (memory: addon-constant-folds-shader-graph). The Principled Base Color
 path and the #762 Emission fix both route through `get_base_color_texture`
 instead, which returns a real texture name for Image/procedural chains.
 
-Fix: `_standalone_bsdf_spec` now accepts the `renderer` and calls
-`get_base_color_texture` for each of the branches above, carrying
-'base_color_texture' through the 'principled'-kind spec so
-`_create_material_from_shader_spec` routes it through the existing
-textured-Lambertian fallback (same compromise already accepted for a
-textured Principled BSDF).
+Fix, scoped to Diffuse only (owner review 2026-09-25): `_standalone_bsdf_spec`
+now accepts `renderer` and routes Diffuse's Color through
+`get_base_color_texture`, carrying 'base_color_texture' through the
+'principled'-kind spec so `_create_material_from_shader_spec` routes it
+through the textured-Lambertian fallback -- textured-Lambertian is the
+physically-correct closure for Diffuse (not a compromise).
+
+Glossy/Anisotropic/Glass/Translucent/Refraction/Sheen do NOT get this
+treatment: the engine has no colour-texture slot on those material types
+(module/blender_module.cpp createMaterial + makeLegacyMaterial -- a 'texture'
+param always yields plain Lambertian), so routing them the same way would
+silently turn a metal/glass/sheen material into flat diffuse, a worse
+regression than a constant colour. They keep their constant-folded colour and
+material-defining params, and record a visible degradation entry instead of
+silently dropping the texture.
 
 Same stub-bpy level as test_issue762_emission_texture.py -- no real Blender
 or astroray import.
@@ -25,6 +33,8 @@ import importlib.util
 import sys
 import types
 from pathlib import Path
+
+import pytest
 
 
 def _load_blender_addon(monkeypatch):
@@ -249,17 +259,20 @@ def test_diffuse_texture_without_renderer_falls_back_to_constant_fold(monkeypatc
     assert 'base_color_texture' not in spec
 
 
-import pytest
-
-
-@pytest.mark.parametrize("node_factory,expected_ttype", [
-    (_glossy_node, 'checker'),
-    (_glass_node, 'checker'),
-    (_translucent_node, 'checker'),
-    (_refraction_node, 'checker'),
-    (_sheen_node, 'checker'),
+@pytest.mark.parametrize("node_factory,expected_kind_params", [
+    (_glossy_node, {'metallic': 1.0}),
+    (_glass_node, {'transmission': 1.0}),
+    (_translucent_node, {'transmission': 1.0}),
+    (_refraction_node, {'transmission': 1.0}),
+    (_sheen_node, {'sheen': 1.0}),
 ])
-def test_other_standalone_bsdfs_route_linked_color_texture(monkeypatch, node_factory, expected_ttype):
+def test_other_standalone_bsdfs_keep_material_type_and_warn_on_linked_texture(
+        monkeypatch, node_factory, expected_kind_params):
+    """Owner review (2026-09-25): routing a textured Glossy/Glass/Translucent/
+    Refraction/Sheen through the textured-Lambertian fallback silently turns a
+    metal/glass/sheen material into flat diffuse -- a worse regression than a
+    constant colour. These must keep their material-defining params (no
+    base_color_texture) and instead surface a visible degradation entry."""
     addon = _load_blender_addon(monkeypatch)
     engine = addon.CustomRaytracerRenderEngine()
     renderer = _RecordingRenderer()
@@ -268,8 +281,32 @@ def test_other_standalone_bsdfs_route_linked_color_texture(monkeypatch, node_fac
     spec = engine._shader_spec_from_node(node, renderer, node_tree=None)
 
     assert spec is not None
-    assert spec.get('base_color_texture'), (
-        f"{node.type}: linked Checker on Color must carry a texture through the spec, got: {spec}"
+    assert 'base_color_texture' not in spec, (
+        f"{node.type}: must NOT route through textured-Lambertian (changes material type), got: {spec}"
     )
-    assert renderer.proc_texture_calls
-    assert renderer.proc_texture_calls[0][1] == expected_ttype
+    for key, val in expected_kind_params.items():
+        assert spec['params'].get(key) == val, f"{node.type}: lost its material-defining param {key!r}"
+
+    report = engine._degradation_report()
+    assert not report.is_empty(), f"{node.type}: expected a degradation entry for the dropped texture"
+    assert any(node.type in feature and 'texture not supported' in detail
+               for feature, detail in report.approximated), (
+        f"{node.type}: expected a 'texture not supported' entry, got: {report.approximated}"
+    )
+
+
+@pytest.mark.parametrize("node_factory", [_glossy_node, _glass_node, _translucent_node, _refraction_node, _sheen_node])
+def test_other_standalone_bsdfs_no_warning_for_constant_color(monkeypatch, node_factory):
+    """Regression: an unlinked constant colour must not spuriously warn."""
+    addon = _load_blender_addon(monkeypatch)
+    engine = addon.CustomRaytracerRenderEngine()
+    renderer = _RecordingRenderer()
+
+    node = node_factory(color_link=None)
+    spec = engine._shader_spec_from_node(node, renderer, node_tree=None)
+
+    assert spec is not None
+    assert 'base_color_texture' not in spec
+    report = engine._degradation_report()
+    assert not any(node.type in feature and 'texture not supported' in detail
+                   for feature, detail in report.approximated)

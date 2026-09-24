@@ -426,6 +426,10 @@ def main():
     p.add_argument("--gate-c-seed", type=int, default=278)
     p.add_argument("--gate-c-control", default="", help="declared gate-c negative control kind")
     p.add_argument("--gate-c-mask-out", default="", help="write source-geometry gate-c mask here")
+    p.add_argument("--seed", type=int, default=None,
+                   help="explicit non-zero render seed (default: gate-c seed)")
+    p.add_argument("--light-tree", choices=("on", "off"), default=None,
+                   help="force native scene.cycles.use_light_tree (default: as authored)")
     p.add_argument("--report-only", action="store_true",
                    help="with --load-blend: print an object/node census as "
                         "JSON and exit, no render")
@@ -574,7 +578,12 @@ def main():
 
         _configure_render(scene, args.engine, args.res, args.samples, args.device,
                            res_y=args.res_y,
-                           seed=gate_b_case["settings"]["seed"] if gate_b_case is not None else args.gate_c_seed)
+                           seed=(gate_b_case["settings"]["seed"] if gate_b_case is not None
+                                 else args.seed if args.seed is not None else args.gate_c_seed))
+        if args.seed is not None and args.seed <= 0:
+            raise ValueError("--seed must be non-zero (0 is the random sentinel)")
+        if args.light_tree is not None:
+            scene.cycles.use_light_tree = args.light_tree == "on"
         if gate_b_case is not None:
             observed_settings = _gate_b_settings(scene)
             if observed_settings != gate_b_case["settings"]:

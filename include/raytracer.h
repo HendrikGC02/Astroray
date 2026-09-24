@@ -847,6 +847,10 @@ public:
         Vec3 exitDirection;    // world-space exit direction
         bool captured;         // absorbed by horizon
         bool hasEmission;      // disk was hit
+        // #896: world-space point where the geodesic left the GR region. The
+        // continuation ray starts here (not at the entry hit) when set.
+        Vec3 exitPoint{0};
+        bool hasExitPoint = false;
     };
 
     struct GRSpectralResult {
@@ -862,6 +866,8 @@ public:
         // Defaults to 1.0 (no shift) so the field is safe to read on the
         // captured/non-emitting paths.
         double frequencyShift = 1.0;
+        Vec3 exitPoint{0};          // #896: see GRResult::exitPoint
+        bool hasExitPoint = false;
     };
 
     virtual ~Hittable() = default;
@@ -889,7 +895,10 @@ public:
             emission = astroray::RGBIlluminantSpectrum(
                 {rgb.color.x, rgb.color.y, rgb.color.z}).sample(lambdas);
         }
-        return {emission, rgb.exitDirection, rgb.captured, rgb.hasEmission};
+        GRSpectralResult out{emission, rgb.exitDirection, rgb.captured, rgb.hasEmission};
+        out.exitPoint = rgb.exitPoint;
+        out.hasExitPoint = rgb.hasExitPoint;
+        return out;
     }
     void setObjectPassIndex(int value) { objectPassIndex = std::max(0, value); }
     void setMaterialPassIndex(int value) { materialPassIndex = std::max(0, value); }
@@ -3593,7 +3602,9 @@ public:
                     break;
                 }
 
-                Ray next(rec.point, exitDir, ray.time, ray.screenU, ray.screenV);
+                // #896: continue from the geodesic's exit point.
+                const Vec3 exitOrigin = grResult.hasExitPoint ? grResult.exitPoint : rec.point;
+                Ray next(exitOrigin, exitDir, ray.time, ray.screenU, ray.screenV);
                 next.hasCameraFrame = ray.hasCameraFrame;
                 next.cameraOrigin = ray.cameraOrigin;
                 next.cameraU = ray.cameraU;
@@ -4120,7 +4131,9 @@ public:
                     !finiteFloat(exitDir.z) || !finiteFloat(exitLen2) || exitLen2 < 1e-10f) {
                     break;
                 }
-                Ray next(rec.point, exitDir, ray.time, ray.screenU, ray.screenV);
+                // #896: continue from the geodesic's exit point.
+                const Vec3 exitOrigin = grResult.hasExitPoint ? grResult.exitPoint : rec.point;
+                Ray next(exitOrigin, exitDir, ray.time, ray.screenU, ray.screenV);
                 next.hasCameraFrame = ray.hasCameraFrame;
                 next.cameraOrigin = ray.cameraOrigin;
                 next.cameraU = ray.cameraU;

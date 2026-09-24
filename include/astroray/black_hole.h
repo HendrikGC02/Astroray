@@ -251,6 +251,20 @@ private:
         return Vec3(0, 0, 1);
     }
 
+    // #896: world-space point where an escaped geodesic crossed r_max (just
+    // outside the influence sphere). Inverse of buildInitialState's mapping.
+    bool exitPointWorld(const IntegrationResult& ir, Vec3& out) const {
+        if (!ir.escaped) return false;
+        const GeodesicState& s = ir.finalState;
+        if (!gr_isfinite(s.r) || !gr_isfinite(s.theta) || !gr_isfinite(s.phi)) return false;
+        const double k = s.r / worldToGR;
+        const double st = std::sin(s.theta);
+        out = position + Vec3(float(k * st * std::cos(s.phi)),
+                              float(k * std::cos(s.theta)),
+                              float(k * st * std::sin(s.phi)));
+        return true;
+    }
+
     astroray::SampledSpectrum diskEmissionSpectral(
             const IntegrationResult& ir,
             const astroray::SampledWavelengths& lambdas) const {
@@ -385,7 +399,9 @@ public:
                     if (ir.crossings[ci].valid) { g = ir.crossings[ci].g; break; }
                 }
             }
-            ray = Ray(rec.point, sanitizedExitDirection(ir));
+            Vec3 origin = rec.point;
+            exitPointWorld(ir, origin);
+            ray = Ray(origin, sanitizedExitDirection(ir));
         }
         return {g, 99.0};
     }
@@ -487,6 +503,7 @@ public:
         }
 
         result.exitDirection = sanitizedExitDirection(ir);
+        result.hasExitPoint = exitPointWorld(ir, result.exitPoint);
 
         return result;
     }
@@ -522,6 +539,7 @@ public:
                         + volumetricEmissionSpectral(incomingRay, lambdas);
         result.hasEmission = !result.emission.isZero();
         result.exitDirection = sanitizedExitDirection(ir);
+        result.hasExitPoint = exitPointWorld(ir, result.exitPoint);
         // pkg67: expose the integrator's frequency-shift factor so the caller
         // can redshift the exiting ray's carried wavelengths. For
         // Schwarzschild p_t is conserved → 1.0; pkg40 Kerr will compute a

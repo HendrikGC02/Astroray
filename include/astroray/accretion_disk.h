@@ -17,6 +17,7 @@ public:
 private:
     const Metric* metric;
     double M_val;   // cached metric->M (avoids pointer dereference in hot path)
+    double a_emit;  // pkg282: Kerr spin of the emitter orbit (redshift kinematics only)
     double r_isco;
     double r_outer;
     double mdot;
@@ -129,8 +130,11 @@ private:
     }
 
 public:
-    NovikovThorneDisk(const Metric* m, double outer = 30.0, double accretion = 1.0)
-        : metric(m), M_val(m->M), r_outer(outer * m->M), mdot(accretion)
+    // emitter_spin: Kerr a of the emitter's circular-orbit kinematics used by
+    // redshiftFactor. Flux/extent still follow `m` (a=0 Page-Thorne; #894).
+    NovikovThorneDisk(const Metric* m, double outer = 30.0, double accretion = 1.0,
+                      double emitter_spin = 0.0)
+        : metric(m), M_val(m->M), a_emit(emitter_spin), r_outer(outer * m->M), mdot(accretion)
     {
         r_isco = metric->isco_radius();
         // Clamp outer radius to be at least a bit beyond ISCO
@@ -151,23 +155,28 @@ public:
         return interpolate(temp_table, r) * tempNorm;
     }
 
-    // g = ν_obs/ν_emit: combined gravitational + Doppler redshift
-    // g = 1 / [(1 + Ω·r·sinθ·sinφ) / √(1 - 3M/r)]
-    // theta here is the observer inclination, phi is the azimuthal position of the
-    // disk element at crossing.
+    // pkg282: g = ν_obs/ν_emit = (k·u)_obs / (k·u)_em from the photon's
+    // conserved momentum. Observer static at infinity (u_obs = ∂_t); emitter on
+    // a prograde circular equatorial Kerr orbit, u_em = u^t (∂_t + Ω ∂_φ):
+    //   g = 1 / (u^t (1 - Ω λ)),  λ = -k_φ / k_t  (sign-invariant under k -> -k)
+    //   Ω   = √M / (r^{3/2} + a√M)
+    //   u^t = (r^{3/2} + a√M) / (r^{3/4} √(r^{3/2} - 3M r^{1/2} + 2a√M))
+    // Source: Cunningham, ApJ 202 (1975) 788, DOI:10.1086/154033 (g = 1/(u^t(1-Ωλ)));
+    // Bardeen, Press & Teukolsky, ApJ 178 (1972) 347, eqs. 2.16 + 2.12 (Ω, u^t).
+    // At a=0 this is √(1-3M/r)/(1-Ωλ). Note .astroray_plan/docs/pkg282-momentum-redshift.md.
     ASTRORAY_NOINLINE
-    double redshiftFactor(double r, double phi, double inclination) const {
-        double M     = M_val;
-        if (r <= 0.0) return 0.0;
-        double r3    = r * r * r;
-        double Omega = std::sqrt(M / r3);
-        double x     = 1.0 - 3.0 * M / r;
-        if (x <= 0.0) return 0.0;
-        double sqrt_x    = std::sqrt(x);
-        double sin_incl  = std::sin(inclination);
-        double numerator = 1.0 + Omega * r * sin_incl * std::sin(phi);
-        if (std::abs(numerator) < 1e-15) return 0.0;
-        return sqrt_x / numerator;
+    double redshiftFactor(double r, double lambda) const {
+        const double M = M_val;
+        if (r <= 0.0 || !gr_isfinite(lambda)) return 0.0;
+        const double sqrtM = std::sqrt(M);
+        const double r32   = r * std::sqrt(r);
+        const double rad   = r32 - 3.0 * M * std::sqrt(r) + 2.0 * a_emit * sqrtM;
+        if (rad <= 0.0) return 0.0;
+        const double Omega = sqrtM / (r32 + a_emit * sqrtM);
+        const double u_t   = (r32 + a_emit * sqrtM) / (std::pow(r, 0.75) * std::sqrt(rad));
+        const double denom = u_t * (1.0 - Omega * lambda);
+        if (!(denom > 1e-15)) return 0.0;
+        return 1.0 / denom;
     }
 
     double getISCO()  const { return r_isco; }

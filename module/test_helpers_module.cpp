@@ -9,6 +9,7 @@
 #include <pybind11/stl.h>
 
 #include <array>
+#include <vector>
 
 #include "astroray/sampling/wavefront_rng.h"
 #include "astroray/sampling/progressive_sobol.h"
@@ -102,6 +103,35 @@ std::array<float, 2> probeRegisteredReSTIRGrDispatch(float emission) {
     return {result.color.y, static_cast<float>(trace_calls)};
 }
 
+// pkg282: per-pixel first-crossing disk redshift g (and continuation re-entry
+// flag) for a pinhole camera looking at a BlackHole. Returns 2*w*h doubles,
+// row-major from the top row, pixel (x, y) at camera (u, v) = ((x+0.5)/w,
+// 1-(y+0.5)/h).
+std::vector<double> grDiskRedshiftImage(
+        std::array<float, 3> look_from, std::array<float, 3> look_at, float vfov,
+        int w, int h, std::array<float, 3> bh_pos, double influence_radius,
+        double disk_outer, double r_obs_M, double spin) {
+    const Vec3 from(look_from[0], look_from[1], look_from[2]);
+    const Vec3 at(look_at[0], look_at[1], look_at[2]);
+    Camera camera(from, at, Vec3(0.0f, 1.0f, 0.0f), vfov, float(w) / float(h),
+                  0.0f, (from - at).length(), w, h);
+    BlackHole bh(Vec3(bh_pos[0], bh_pos[1], bh_pos[2]), 4.0e6, influence_radius,
+                 disk_outer, 1.0, 75.0, r_obs_M, spin);
+    std::vector<double> out(size_t(2) * size_t(w) * size_t(h), 0.0);
+    std::mt19937 gen(1);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const Ray ray = camera.getRay((x + 0.5f) / float(w),
+                                          1.0f - (y + 0.5f) / float(h), 0.0f, gen);
+            const auto p = bh.probeDiskRedshift(ray);
+            const size_t i = size_t(y) * size_t(w) + size_t(x);
+            out[2 * i] = p[0];
+            out[2 * i + 1] = p[1];
+        }
+    }
+    return out;
+}
+
 } // namespace
 
 PYBIND11_MODULE(astroray_test_helpers, m) {
@@ -121,6 +151,10 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
           "exposure_scale"_a, "wavelength_span_nm"_a);
     m.def("thin_disk_accumulate_finite", &astroray::accumulateFiniteThinDiskEmission,
           "accumulated"_a, "contribution"_a);
+    m.def("gr_disk_redshift_image", &grDiskRedshiftImage,
+          "look_from"_a, "look_at"_a, "vfov"_a, "width"_a, "height"_a,
+          "bh_pos"_a, "influence_radius"_a, "disk_outer"_a, "r_obs_M"_a, "spin"_a,
+          "pkg282: flat [g, reenters] per pixel (g=-1 captured, 0 no disk hit).");
     m.def("gr_renderer_dispatch_probe", &probeGrRendererDispatch,
           // cppcheck-suppress assignBoolToPointer -- pybind11 named-argument default.
           "emission"_a, "clamp_direct"_a = 0.0f, "caustic"_a = false,

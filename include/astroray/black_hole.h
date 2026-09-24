@@ -6,6 +6,7 @@
 #include "gr_integrator.h"
 #include "spectral.h"
 #include "astroray/register.h"
+#include <array>
 #include <memory>
 #include <random>
 #include <cmath>
@@ -92,7 +93,6 @@ private:
     double influenceRadius;  // world-space radius of influence sphere
     double r_obs_M;          // influence radius in geometrized units (M)
     double worldToGR;        // scale: world unit → BL unit  (= r_obs_M / influenceRadius)
-    double inclination;      // observer inclination in radians (from spin axis)
 
     double spin;             // Kerr a/M; 0 selects SchwarzschildMetric (pkg281)
 
@@ -229,7 +229,7 @@ private:
         Vec3 hitPoint = incomingRay.at(entry_t);
         GeodesicState s0 = buildInitialState(hitPoint, incomingRay.direction);
         state.integration = integrateGeodesic(
-            *metric, disk.get(), s0, inclination,
+            *metric, disk.get(), s0,
             /*maxSteps=*/5000, /*h_init=*/0.5,
             /*atol=*/1e-8, /*rtol=*/1e-6,
             /*r_max=*/r_obs_M * 1.05
@@ -319,7 +319,9 @@ private:
 public:
     BlackHole(Vec3 pos, double mass_solar, double influence_r,
               double disk_outer_M = 30.0, double mdot = 1.0,
-              double incl_deg = 75.0, double r_obs_M_in = 100.0,
+              // pkg282: unused. g comes from photon momentum, so the viewing
+              // inclination is the camera's actual geometry.
+              double /*incl_deg*/ = 75.0, double r_obs_M_in = 100.0,
               double spin_a = 0.0)
         : position(pos), mass(mass_solar), influenceRadius(influence_r),
           spin(gr_isfinite(spin_a) ? std::clamp(spin_a, -0.998, 0.998) : 0.0)
@@ -343,9 +345,10 @@ public:
             metric = std::make_shared<SchwarzschildMetric>(1.0);
         }
         diskMetric = std::make_unique<SchwarzschildMetric>(1.0);
-        disk   = std::make_unique<NovikovThorneDisk>(diskMetric.get(), disk_outer_M, mdot);
+        // pkg282: emitter kinematics (Ω, u^t) follow the geodesic spin; flux
+        // and r_in stay a=0 Page-Thorne until #894.
+        disk   = std::make_unique<NovikovThorneDisk>(diskMetric.get(), disk_outer_M, mdot, spin);
 
-        inclination  = incl_deg * GR_PI / 180.0;
         // Matched to NovikovThorneDisk::TARGET_PEAK_TEMP = 20 000 K:
         // Planck at 500 nm → ~2e14 W/(m²·sr·m); CIE pipeline with 4 stratified
         // samples → Y ≈ 1.8e13; exposureScale = 1/1.8e13 ≈ 5.5e-14 → Y ≈ 1.
@@ -359,6 +362,28 @@ public:
     // --------------- Hittable interface ---------------
 
     bool isGRObject() const override { return true; }
+
+    // pkg282 test/oracle probe for one camera ray: {g, reenters}. g is the
+    // first in-disk crossing's redshift, -1 if captured, 0 if no disk hit (or
+    // the ray misses the sphere). reenters = 1 if the escaped ray's
+    // continuation (entry point + exit direction, as the path tracer spawns
+    // it) intersects the influence sphere again.
+    std::array<double, 2> probeDiskRedshift(const Ray& r) const {
+        TraceState trace = integrateIncomingRay(r);
+        if (!trace.valid) return {0.0, 0.0};
+        const IntegrationResult& ir = trace.integration;
+        if (ir.captured) return {-1.0, 0.0};
+        double g = 0.0;
+        for (int ci = 0; ci < ir.nCrossings; ++ci) {
+            if (ir.crossings[ci].valid) { g = ir.crossings[ci].g; break; }
+        }
+        HitRecord rec;
+        if (!hit(r, 0.001f, std::numeric_limits<float>::max(), rec)) return {g, 0.0};
+        Ray next(rec.point, sanitizedExitDirection(ir));
+        HitRecord rec2;
+        const bool re = hit(next, 0.001f, std::numeric_limits<float>::max(), rec2);
+        return {g, re ? 1.0 : 0.0};
+    }
 
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
         Vec3 oc     = r.origin - position;

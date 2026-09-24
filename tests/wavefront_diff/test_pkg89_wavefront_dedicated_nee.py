@@ -140,14 +140,46 @@ def test_wavefront_dedicated_light_nee(scene):
 # ---------------------------------------------------------------------------
 # #859 — sun + mesh emitter through Renderer.render() (the addon route).
 # The GPU refused to upload a light tree containing dedicated lights and fell
-# back to the power CDF, where a tessellated emitter's per-triangle mass leaves
-# the sun a tiny selection probability: at viewport spp the sun-lit ground went
-# dark on GPU while the CPU tree sampler (the addon default) was fine.
+# back to the power CDF, where the mesh emitter's mass leaves the sun a tiny
+# selection probability: the sun-lit ground went dark on GPU while the CPU tree
+# sampler (the addon default) was fine. The rig is the addon's own export of a
+# Blender scene (Z-up 40 m plane, default UV sphere with smooth normals via
+# add_triangles_bulk, default SUN, recorded camera, clamp_indirect 10).
 # ---------------------------------------------------------------------------
-SUN_RES = 128
+SUN_RES = 256
 SUN_SPP = 16
 SUN_SEEDS = (11, 23, 37, 51, 73)
-SUN_ROI = (slice(8, 71), slice(8, 71))  # 63x63 sun-lit ground far from the quad
+# 63x63 far sun-lit ground (engine rows; Blender's top-down [8:71, 8:71]).
+SUN_ROI = (slice(185, 248), slice(8, 71))
+
+
+def _uv_sphere_bulk(r, mat, center=(0.0, 0.0, 1.0), rad=1.0, seg=32, rings=16):
+    """Blender default UV sphere (Z-up), smooth normals, bulk-ingested."""
+    th = np.linspace(0.0, np.pi, rings + 1)
+    ph = np.linspace(0.0, 2.0 * np.pi, seg + 1)
+
+    def n(i, j):
+        return [np.sin(th[i]) * np.cos(ph[j]), np.sin(th[i]) * np.sin(ph[j]), np.cos(th[i])]
+
+    def p(i, j):
+        v = n(i, j)
+        return [center[k] + rad * v[k] for k in range(3)]
+
+    pos, nrm = [], []
+    for i in range(rings):
+        for j in range(seg):
+            a, b, c, d = (i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)
+            if i > 0:
+                pos.append([p(*a), p(*b), p(*d)])
+                nrm.append([n(*a), n(*b), n(*d)])
+            if i < rings - 1:
+                pos.append([p(*b), p(*c), p(*d)])
+                nrm.append([n(*b), n(*c), n(*d)])
+    pos = np.asarray(pos, np.float32)
+    k = len(pos)
+    r.add_triangles_bulk(pos, np.full(k, mat, np.int32), np.zeros(k, np.int32), 0,
+                         np.zeros((1, k, 3, 2), np.float32), ["UVMap"],
+                         np.asarray(nrm, np.float32))
 
 
 def _sun_scene(case, gpu, seed, integrator):
@@ -156,29 +188,33 @@ def _sun_scene(case, gpu, seed, integrator):
     r.set_seed(seed)
     r.set_use_gpu(gpu)
     r.set_light_sampler("tree")  # addon default (cycles.use_light_tree)
+    # Cycles' default sample_clamp_indirect, sent by the addon. With the sun
+    # starved in NEE, only clamped BSDF-hit lamp samples reached the ground.
+    # Measured on main 0dd98e18: GPU/CPU 0.105 (principled/light), restir 0.0.
+    r.set_clamp_indirect(10.0)
     r.setup_camera(
-        look_from=[0.0, 20.0, 0.01], look_at=[0.0, 0.0, 0.0],
-        vup=[0.0, 0.0, -1.0], vfov=40.0, aspect_ratio=1.0,
-        aperture=0.0, focus_dist=20.0, width=SUN_RES, height=SUN_RES)
-    g = r.create_material("principled", [0.5, 0.5, 0.5], {})
-    r.add_triangle([-40, 0, -40], [40, 0, -40], [40, 0, 40], g)
-    r.add_triangle([-40, 0, -40], [40, 0, 40], [-40, 0, 40], g)
-    r.add_sun_light_dedicated([0.3, -1.0, 0.2], float(np.radians(0.526)),
+        look_from=[0.0, -12.0, 8.0], look_at=[0.0, -11.1808, 7.4264],
+        vup=[0.0, 0.5736, 0.8192], vfov=39.598, aspect_ratio=1.0,
+        aperture=0.0, focus_dist=10.0, width=SUN_RES, height=SUN_RES)
+    # Same call order as the addon export: materials, plane, sphere, then sun.
+    # Principled with Blender defaults (white Emission Color, strength 0).
+    m = None
+    if case == "principled":
+        m = r.create_material("principled", [0.8, 0.8, 0.8],
+                              {"emission_color": [1.0, 1.0, 1.0], "emission_strength": 5.0})
+    elif case == "light":
+        m = r.create_material("diffuse_light", [1.0, 1.0, 1.0], {"intensity": 5.0})
+    g = r.create_material("principled", [0.8, 0.8, 0.8],
+                          {"emission_color": [1.0, 1.0, 1.0], "emission_strength": 0.0})
+    plane = np.asarray([[[-20, -20, 0], [20, -20, 0], [20, 20, 0]],
+                        [[-20, -20, 0], [20, 20, 0], [-20, 20, 0]]], np.float32)
+    r.add_triangles_bulk(plane, np.full(2, g, np.int32), np.zeros(2, np.int32), 0,
+                         np.zeros((1, 2, 3, 2), np.float32), ["UVMap"],
+                         np.tile(np.asarray([0, 0, 1], np.float32), (2, 3, 1)))
+    if m is not None:
+        _uv_sphere_bulk(r, m)
+    r.add_sun_light_dedicated([-0.17435, 0.47943, -0.86009], 0.0091804,
                               {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 1.0, 0, 0)
-    if case != "none":
-        if case == "principled":
-            m = r.create_material("principled", [0.8, 0.8, 0.8],
-                                  {"emission_color": [1.0, 1.0, 1.0],
-                                   "emission_strength": 5.0})
-        else:
-            m = r.create_material("diffuse_light", [1.0, 1.0, 1.0], {"intensity": 5.0})
-        # Tessellated 4x2 m panel (400 triangles, like a Blender UV sphere):
-        # the per-triangle power-CDF mass is what starves the sun.
-        for i in range(20):
-            for j in range(10):
-                x, z = 5.0 + 0.2 * i, 5.0 + 0.2 * j
-                r.add_triangle([x, 1, z], [x + 0.2, 1, z], [x + 0.2, 1, z + 0.2], m)
-                r.add_triangle([x, 1, z], [x + 0.2, 1, z + 0.2], [x, 1, z + 0.2], m)
     r.set_integrator_param("use_temporal", 0)
     r.set_integrator_param("use_spatial", 0)
     r.set_integrator(integrator)
@@ -189,7 +225,7 @@ def _sun_roi_mean(case, gpu, integrator):
     means = []
     for s in SUN_SEEDS:
         r = _sun_scene(case, gpu, s, integrator)
-        img = np.asarray(r.render(SUN_SPP, 4, None, False), dtype=np.float64)
+        img = np.asarray(r.render(SUN_SPP, 12, None, False), dtype=np.float64)
         img = img.reshape(SUN_RES, SUN_RES, -1)[..., :3]
         means.append(img[SUN_ROI].mean(axis=(0, 1)))
     return np.mean(means, axis=0)

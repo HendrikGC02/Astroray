@@ -72,6 +72,10 @@ def build_scene(bpy, sc, ies_text):
     if sc.kind == "SPOT":
         ld.spot_size = sc.spot_size
         ld.spot_blend = sc.spot_blend
+    if sc.kind == "AREA":  # #852 spread A/B
+        ld.shape = sc.area_shape
+        ld.size, ld.size_y = sc.area_size
+        ld.spread = sc.spread
     if ies_text:
         ld.use_nodes = True
         lnt = ld.node_tree
@@ -85,7 +89,8 @@ def build_scene(bpy, sc, ies_text):
     lobj = bpy.data.objects.new("Light", ld)
     scene.collection.objects.link(lobj)
     lobj.location = sc.light_pos
-    lobj.rotation_euler = (0.0, 0.0, math.radians(sc.light_rot_z_deg))
+    lobj.rotation_euler = (math.radians(sc.light_rot_x_deg), 0.0,
+                           math.radians(sc.light_rot_z_deg))
 
     cd = bpy.data.cameras.new("Cam")
     cd.lens_unit = "FOV"
@@ -99,7 +104,7 @@ def build_scene(bpy, sc, ies_text):
     return scene
 
 
-def configure(scene, engine, device, res, samples):
+def configure(scene, engine, device, res, samples, seed=7):
     scene.render.resolution_x = res
     scene.render.resolution_y = res
     scene.render.resolution_percentage = 100
@@ -116,7 +121,7 @@ def configure(scene, engine, device, res, samples):
     c.samples = samples
     c.use_denoising = False
     c.use_adaptive_sampling = False
-    c.seed = 7
+    c.seed = seed
     c.sample_clamp_direct = 0.0
     c.sample_clamp_indirect = 0.0
     c.pixel_filter_type = "BOX"
@@ -140,6 +145,7 @@ def main():
     p.add_argument("--ies", default="", help="LM-63 file; empty = no IES node")
     p.add_argument("--scene-json", default="{}", help="SpotScene field overrides")
     p.add_argument("--samples", type=int, default=64)
+    p.add_argument("--seed", type=int, default=7, help="nonzero (0 = random)")
     p.add_argument("--save-blend", default="")
     args = p.parse_args(argv)
     try:
@@ -154,7 +160,7 @@ def main():
             leg._bootstrap_astroray_addon(_HERE.parents[2])
         ies_text = Path(args.ies).read_text(encoding="utf-8") if args.ies else ""
         scene = build_scene(bpy, sc, ies_text)
-        configure(scene, args.engine, args.device, sc.res, args.samples)
+        configure(scene, args.engine, args.device, sc.res, args.samples, args.seed)
         if args.save_blend:
             bpy.ops.wm.save_as_mainfile(filepath=args.save_blend)
         out_stem = Path(args.out)

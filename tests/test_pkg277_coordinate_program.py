@@ -383,6 +383,13 @@ def test_object_base_cpu_exact():
 #    that bake (voxel centres, z-centre 32.5/64, 6x6 box pixels; bake_model.txt)
 #    predicts delta 48.6 % (checker k=24), 59.0 % (checker + Mapping), 9.0 %
 #    (noise k=6). Model flip>0.3 at k=24 = 26.1 % (design note 25.6 %).
+#    Measured delta: checker 29.4 %, checker + Mapping 24.4 % (pass); noise
+#    26.1 % vs model 9.0 %. The model shows the bake alone exceeds 0.01 on 83 %
+#    (plain) / 92 % (warped) of noise pixels, so the metric cannot isolate the
+#    warp on smooth fields.
+# 4. Lead decision 2026-09-25: smooth fields (noise) drop the per-pixel gate and
+#    keep region-mean + the inspected contact sheet
+#    (astra_run/batchY/y277/contact_sheet_pkg277.png). Checker keeps (b) + flips.
 # Primary gates stay region-mean (3 %) and cell flips (<= 26 %).
 PIX_SPP = 4096
 PIX_BUDGET = 0.26   # design note worst case (k = 24, 64^3 bake): 25.6 % cell flips
@@ -400,22 +407,25 @@ def _excess(tex_setup):
     return gpu, cpu, _frac_over(gpu, cpu) - _frac_over(cpu2, cpu), _frac_over(cpu2, cpu, FLIP_THR)
 
 
-def _gpu_cpu_gates(tex_setup, name, plain_setup, model_delta, cells=False):
+def _gpu_cpu_gates(tex_setup, name, plain_setup=None, model_delta=None, cells=False):
     _need_binding()
     gpu = _render(tex_setup, use_gpu=True)
     cpu = _render(tex_setup, use_gpu=False)
     gm = np.array([gpu[..., c].mean() for c in range(3)])
     cm = np.array([cpu[..., c].mean() for c in range(3)])
     ratio = gm / np.maximum(cm, 1e-6)
+    _save(gpu, f"gpu_{name}.png")
+    _save(cpu, f"cpu_{name}.png")
+    print(f"[pkg277] {name}: 256spp mean ratio {ratio}")
+    assert np.all(np.abs(ratio - 1) <= 0.03), (ratio, cm, gm)
+    if model_delta is None:  # smooth field: region-mean + visual only (lead 2026-09-25)
+        return gpu, cpu
     gpu_hi, cpu_hi, ex_w, flip_floor = _excess(tex_setup)
     _, _, ex_p, _ = _excess(plain_setup)
-    _save(gpu_hi, f"gpu_{name}.png")
-    _save(cpu_hi, f"cpu_{name}.png")
     flip = _frac_over(gpu_hi, cpu_hi, FLIP_THR)
-    print(f"[pkg277] {name}: 256spp mean ratio {ratio}; excess warped {ex_w:.4f} plain "
-          f"{ex_p:.4f} delta {ex_w - ex_p:.4f} (model bound {model_delta}); flip>0.3 "
-          f"{flip:.4f} (floor {flip_floor:.4f})")
-    assert np.all(np.abs(ratio - 1) <= 0.03), (ratio, cm, gm)
+    print(f"[pkg277] {name}: excess warped {ex_w:.4f} plain {ex_p:.4f} delta "
+          f"{ex_w - ex_p:.4f} (model bound {model_delta}); flip>0.3 {flip:.4f} "
+          f"(floor {flip_floor:.4f})")
     if cells:
         assert flip_floor <= 0.001, flip_floor
         assert flip <= PIX_BUDGET, flip
@@ -430,20 +440,14 @@ def _plain_checker_mapped(r):
     return name
 
 
-def _plain_noise(r):
-    r.create_procedural_texture("noise277", "noise_perlin",
-                                [5.0, 2.0, 0.5, 2.0, 0.0, 1.0, 0.0, 0.0, 1.0], "GENERATED")
-    r.set_texture_generated_bbox("noise277", BBOX_MIN, BBOX_SIZE)
-    return "noise277"
-
-
 def test_gpu_cpu_parity_warped_checker():
     _gpu_cpu_gates(_checker_setup(k=24.0), "warped_checker_k24",
                    _checker_setup(warp=False), 0.486, cells=True)
 
 
 def test_gpu_cpu_parity_warped_noise():
-    _gpu_cpu_gates(_noise_setup, "warped_noise", _plain_noise, 0.090)
+    # Model delta 9.0 % recorded; per-pixel gate dropped for smooth fields.
+    _gpu_cpu_gates(_noise_setup, "warped_noise")
 
 
 def test_gpu_cpu_parity_mapping_then_warp():

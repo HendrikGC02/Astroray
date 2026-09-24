@@ -133,6 +133,8 @@ def test_empty_hook_bit_equality():
 
     pix, _ = _render(seed=145, use_caustics=False)
 
+    # Re-captured 2026-09-25 (Batch U transport fixes, see the phase-2 test):
+    # max|new - old| = 9.7e-05, channel means moved < 5e-06.
     # Re-captured 2026-09-20 (#767 observer change, PR #837 -> main). The pins
     # were taken under the CIE 1964 10 deg observer; the engine now integrates
     # with CIE 1931 2 deg (the observer the XYZ->sRGB matrix and the

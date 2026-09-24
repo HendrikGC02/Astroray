@@ -332,7 +332,7 @@ public:
         if (std::fabs(denom) <= 1e-20f) return false;
         float b1 = (d11 * d20 - d01 * d21) / denom;
         float b2 = (d00 * d21 - d01 * d20) / denom;
-        out = gen0_ * (1.0f - b1 - b2) + gen1_ * b1 + gen2_ * b2;
+        out = gen0_ + (gen1_ - gen0_) * b1 + (gen2_ - gen0_) * b2;  // exact on flat axes
         return true;
     }
 };

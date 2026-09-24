@@ -1042,7 +1042,9 @@ static __device__ __noinline__ GVec3 gpu_generatedCoord(
             if (fabsf(denom) > 1e-20f) {
                 float b1 = (d11 * d20 - d01 * d21) / denom;
                 float b2 = (d00 * d21 - d01 * d20) / denom;
-                return g0 * (1.0f - b1 - b2) + tg[3 * ti + 1] * b1 + tg[3 * ti + 2] * b2;
+                // Edge form: exact when all three vertices share a coordinate
+                // (flat plane z = 0.5 stays 0.5, see gpu_sampleProcedural3D).
+                return g0 + (tg[3 * ti + 1] - g0) * b1 + (tg[3 * ti + 2] - g0) * b2;
             }
         }
     }

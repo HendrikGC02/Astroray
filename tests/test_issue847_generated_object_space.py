@@ -27,16 +27,16 @@ def _has_cuda_gpu(r):
     return bool(astroray.__features__.get("cuda", False)) and bool(getattr(r, "gpu_available", False))
 
 
-def _affine(center, deg, half):
+def _affine(center, deg, half, z_off=0.05):
     """World -> Generated for a quad object at `center`, rotated `deg` about z,
     texspace = its own square (loc 0, size half): g = R^-1 (p - c) * 0.5/half + 0.5."""
     a = np.radians(deg)
     rinv = np.array([[np.cos(a), np.sin(a), 0.0], [-np.sin(a), np.cos(a), 0.0], [0.0, 0.0, 1.0]])
     lin = rinv * (0.5 / half)
     off = 0.5 - lin @ np.asarray(center, float)
-    # Plane at g.z = 0.55, not 0.5: z*4 = 2 is a checker boundary where the GPU
-    # 64^3 voxel bake picks a cell by float noise (pre-existing, main too).
-    off[2] += 0.05
+    # Default plane at g.z = 0.55, off the z*4 = 2 checker face; the on-face
+    # case (Blender's default flat plane, g.z = 0.5) has its own test below.
+    off[2] += z_off
     return [float(x) for x in np.hstack([lin, off[:, None]]).reshape(-1)]
 
 
@@ -49,7 +49,7 @@ def _add_quad(r, mat, center, half):
     r.add_triangle(A, C, D, mat, [], [], [], n, n, n)
 
 
-def _render(backend, objects, bbox=None):
+def _render(backend, objects, bbox=None, z_off=0.05):
     """objects: list of (center, deg, half, use_affine)."""
     r = create_renderer()
     if backend == "gpu":
@@ -69,7 +69,7 @@ def _render(backend, objects, bbox=None):
         _add_quad(r, mat, center, half)
         if use_affine:
             assert r.set_objects_generated_transform(
-                before, r.scene_object_count(), _affine(center, deg, half)) == 2
+                before, r.scene_object_count(), _affine(center, deg, half, z_off)) == 2
     setup_camera(r, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0],
                  vfov=45, width=96, height=96)
     return np.asarray(render_image(r, samples=16, max_depth=2, apply_gamma=False))
@@ -111,3 +111,13 @@ def test_shared_material_objects_keep_own_frames(backend):
     only_r = _cells(_render(backend, [right]))
     assert _agree(both[:, :48], only_l[:, :48]) >= 0.97
     assert _agree(both[:, 48:], only_r[:, 48:]) >= 0.97
+
+
+def test_gpu_matches_cpu_on_checker_face():
+    """Flat plane at Generated z = 0.5 with scale 4: z*4 = 2 lies on a checker
+    face. Cycles/CPU round it down (svm_checker epsilon); the GPU voxel fetch
+    used to pick the upper cell and invert every cell."""
+    obj = [((0, 0, 0), 30.0, 1.0, True)]
+    cpu = _cells(_render("cpu", obj, z_off=0.0))
+    gpu = _cells(_render("gpu", obj, z_off=0.0))
+    assert _agree(cpu, gpu) >= 0.97

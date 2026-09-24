@@ -110,10 +110,17 @@ def test_sms_caustic_validation_gate(test_results_dir):
     e_baseline = _receiver_energy(baseline)
     e_sms      = _receiver_energy(sms_lo)
 
-    # Sanity: SMS adds energy in the receiver region (it finds caustic
-    # paths the baseline missed).
-    assert e_sms > e_baseline, (
-        f"SMS receiver energy {e_sms:.4f} should exceed baseline {e_baseline:.4f}")
+    # Sanity: SMS receiver energy stays within a two-sided band of the
+    # caustic_path_tracer baseline. The old strict `e_sms > e_baseline` passed
+    # by chance (#845): after pkg226's correct MNEE weight the two agree to
+    # MC noise. Measured e_sms/e_base at 8 spp, seeds 145/11/23/37/51/73:
+    #   main 0dd98e18: 1.0057 0.9878 0.9968 0.9995 1.0005 0.9771
+    #   #845 build:    0.9997 1.0192 0.9781 0.9798 1.0146 0.9841
+    # Spread 0.977..1.019 on both; band = 2x the largest deviation (2.3 %).
+    ratio = e_sms / e_baseline
+    assert 0.95 <= ratio <= 1.05, (
+        f"SMS/baseline receiver energy {e_sms:.4f}/{e_baseline:.4f} = {ratio:.4f} "
+        f"outside [0.95, 1.05]")
 
     # Phase 1 acceptance: PSNR(SMS, ref) meaningfully better than PSNR(baseline, ref).
     # Threshold relaxed 6.0 -> 5.0 dB after the 2026-05-30 refraction fix (dielectric

@@ -30,6 +30,10 @@ class _M:
     def __matmul__(self, v):
         return self.A @ np.array([v.x, v.y, v.z], float) + self.t
 
+    def __getitem__(self, r):
+        """mathutils.Matrix row access (4x4 homogeneous)."""
+        return list(self.A[r]) + [self.t[r]] if r < 3 else [0.0, 0.0, 0.0, 1.0]
+
 
 def _plane(loc=(0.0, 0.0, 0.0), size=(4.0, 4.0, 1.0), half=4.0):
     bb = [(sx * half, sy * half, 0.0) for sx in (-1, 1) for sy in (-1, 1) for _ in (0, 1)]
@@ -105,14 +109,56 @@ def test_zero_texspace_axis_follows_bke_rule(helper):
     assert bmin[2] == pytest.approx(-1.0) and bsize[2] == pytest.approx(2.0)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "#834 scope: rotated objects -- the engine's Generated frame is an axis-aligned "
-    "WORLD box (genMin/genSize), so Blender's object-space texture space cannot be "
-    "expressed for a rotated object; needs a per-texture affine (#847)."))
-def test_rotated_plane_matches_blender_local_generated(helper):
-    a = np.radians(30.0)
-    A = np.array([[np.cos(a), -np.sin(a), 0.0], [np.sin(a), np.cos(a), 0.0], [0.0, 0.0, 1.0]])
-    bmin, bsize = helper(_plane(), _M(A))
+@pytest.fixture
+def affine_helper(monkeypatch):
+    return load_addon(monkeypatch, "issue847")._generated_texspace_affine
+
+
+def _engine_generated_affine(p_world, m12):
+    """#847 engine frame: g = M * p (row-major 3x4 world -> Generated)."""
+    return np.asarray(m12, float).reshape(3, 4) @ np.append(np.asarray(p_world, float), 1.0)
+
+
+def _rot(axis, deg):
+    a = np.radians(deg)
+    c, s = np.cos(a), np.sin(a)
+    return {"z": np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]]),
+            "x": np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])}[axis]
+
+
+def test_rotated_plane_matches_blender_local_generated(affine_helper):
+    """#847: a rotated object's Generated follows its OBJECT-space texture space."""
+    A = _rot("z", 30.0)
+    m12 = affine_helper(_plane(), _M(A))
     co = (1.3, -2.1, 0.0)
-    np.testing.assert_allclose(_engine_generated(A @ np.asarray(co), bmin, bsize),
+    np.testing.assert_allclose(_engine_generated_affine(A @ np.asarray(co), m12),
                                _blender_generated(co, (0, 0, 0), (4, 4, 1)), atol=1e-6)
+
+
+@pytest.mark.parametrize("deg", [0.0, 45.0, 90.0])
+@pytest.mark.parametrize("axis", ["z", "x"])
+def test_affine_matches_blender_under_rotation_scale_translation(affine_helper, deg, axis):
+    A = _rot(axis, deg) @ np.diag([2.0, 0.5, 3.0])
+    t = (5.0, -1.0, 0.5)
+    loc, size = (0.2, -0.1, 0.3), (4.0, 3.0, 1.5)
+    m12 = affine_helper(_plane(loc=loc, size=size), _M(A, t))
+    rng = np.random.default_rng(847)
+    for co in rng.uniform(-3.5, 3.5, size=(16, 3)):
+        world = A @ co + np.asarray(t)
+        np.testing.assert_allclose(_engine_generated_affine(world, m12),
+                                   _blender_generated(co, loc, size), atol=1e-9)
+
+
+def test_affine_bound_box_fallback_and_zero_axis(affine_helper):
+    obj = _plane()
+    obj.data = types.SimpleNamespace()
+    m12 = affine_helper(obj, _M(_rot("z", 90.0)))
+    # bound_box x,y in [-4,4], z flat -> 1e-6 size guard (no divide blow-up).
+    world = _rot("z", 90.0) @ np.array([2.0, -4.0, 0.0])
+    np.testing.assert_allclose(_engine_generated_affine(world, m12)[:2], [0.75, 0.0], atol=1e-9)
+    m12 = affine_helper(_plane(size=(4.0, 4.0, 0.0)), _M())
+    assert _engine_generated_affine((0.0, 0.0, 0.0), m12)[2] == pytest.approx(0.5)
+
+
+def test_affine_singular_matrix_returns_none(affine_helper):
+    assert affine_helper(_plane(), _M(np.diag([1.0, 0.0, 1.0]))) is None

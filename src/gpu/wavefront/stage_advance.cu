@@ -1019,16 +1019,48 @@ __device__ __forceinline__ bool gpu_scalarProgSourceTexel(
 // the body out of the REG:254 <HasProgram=true> caller's allocation (memory
 // noinline-runtime-flag-avoids-shade-spill); single-input programs never call
 // it. Only ever called from <HasProgram=true>.
+// #847 — Generated coordinate for a 3D-bake fetch (depth > 1). A triangle with
+// per-vertex Generated coords (c_wfTexBinding.triGenerated, Cycles
+// ATTR_STD_GENERATED: object-space texture space, per object) interpolates them
+// with barycentrics recomputed from the hit point (Ericson §3.4, as the UV fetch
+// below). Otherwise the pre-#847 per-texture bbox frame:
+// g = (point - genMin)/genSize (include/advanced_features.h CoordMode::Generated).
+// __noinline__ keeps the body out of the REG:254 shade kernel's allocation.
+static __device__ __noinline__ GVec3 gpu_generatedCoord(
+    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
+{
+    const GVec3* tg = c_wfTexBinding.triGenerated;
+    if (tg && primId >= 0 && prims[primId].type == GPRIM_TRIANGLE) {
+        const int ti = prims[primId].index;
+        const GVec3 g0 = tg[3 * ti];
+        if (!isnan(g0.x)) {
+            const GTriangle& t = tris[ti];
+            GVec3 e1 = t.v1 - t.v0, e2 = t.v2 - t.v0, ep = point - t.v0;
+            float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
+            float d20 = ep.dot(e1), d21 = ep.dot(e2);
+            float denom = d00 * d11 - d01 * d01;
+            if (fabsf(denom) > 1e-20f) {
+                float b1 = (d11 * d20 - d01 * d21) / denom;
+                float b2 = (d00 * d21 - d01 * d20) / denom;
+                return g0 * (1.0f - b1 - b2) + tg[3 * ti + 1] * b1 + tg[3 * ti + 2] * b2;
+            }
+        }
+    }
+    const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
+    GVec3 g;
+    g.x = tdesc.genSize.x > 1e-6f ? (point.x - tdesc.genMin.x) / tdesc.genSize.x : 0.0f;
+    g.y = tdesc.genSize.y > 1e-6f ? (point.y - tdesc.genMin.y) / tdesc.genSize.y : 0.0f;
+    g.z = tdesc.genSize.z > 1e-6f ? (point.z - tdesc.genMin.z) / tdesc.genSize.z : 0.0f;
+    return g;
+}
+
 struct GProgInputTexel { GVec3 c; bool ok; };
 static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
 {
     const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
     if (tdesc.depth > 1) {
-        GVec3 g;
-        g.x = tdesc.genSize.x > 1e-6f ? (point.x - tdesc.genMin.x) / tdesc.genSize.x : 0.0f;
-        g.y = tdesc.genSize.y > 1e-6f ? (point.y - tdesc.genMin.y) / tdesc.genSize.y : 0.0f;
-        g.z = tdesc.genSize.z > 1e-6f ? (point.z - tdesc.genMin.z) / tdesc.genSize.z : 0.0f;
+        GVec3 g = gpu_generatedCoord(point, primId, prims, tris, texId);  // #847
         return {gpu_sampleProcedural3D(tdesc, c_wfTexBinding.texelBuf, g), true};
     }
     const GProgInputTexel miss{GVec3(0.0f, 0.0f, 0.0f), false};
@@ -1557,13 +1589,9 @@ __device__ bool shadePathSlot(
                 // objectPoint. Needs no triangle UVs (works for any hit prim);
                 // instanced-mesh object-local Generated coords are the same cut
                 // pkg178/pkg186 took for instanced anisotropy/texture.
-                GVec3 g;
-                g.x = tdesc.genSize.x > 1e-6f
-                    ? (rec.point.x - tdesc.genMin.x) / tdesc.genSize.x : 0.0f;
-                g.y = tdesc.genSize.y > 1e-6f
-                    ? (rec.point.y - tdesc.genMin.y) / tdesc.genSize.y : 0.0f;
-                g.z = tdesc.genSize.z > 1e-6f
-                    ? (rec.point.z - tdesc.genMin.z) / tdesc.genSize.z : 0.0f;
+                // #847: per-vertex object-space Generated first (see
+                // gpu_generatedCoord), else the bbox frame above.
+                GVec3 g = gpu_generatedCoord(rec.point, rec.primId, prims, tris, texId);
                 texColor = gpu_sampleProcedural3D(tdesc, c_wfTexBinding.texelBuf, g);
                 haveTex = true;
             } else if (rec.primId >= 0 &&

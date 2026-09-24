@@ -869,6 +869,9 @@ public:
     virtual bool boundingBox(AABB& box) const = 0;
     virtual float pdfValue(const Vec3& origin, const Vec3& direction) const { return 0; }
     virtual Vec3 random(const Vec3& origin, std::mt19937& gen) const { return Vec3(0, 1, 0); }
+    // #847 — per-object Generated texture coordinate at world point p (Cycles
+    // ATTR_STD_GENERATED). false = none; Texture falls back to its bbox frame.
+    virtual bool generatedCoord(const Vec3& /*p*/, Vec3& /*out*/) const { return false; }
     virtual bool isLight() const { return false; }
     virtual bool isInfiniteLight() const { return false; }
     virtual Vec3 emittedRadiance() const { return Vec3(0); }

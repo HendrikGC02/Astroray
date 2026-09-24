@@ -951,6 +951,39 @@ def _generated_texspace_bbox(obj, matrix):
     return bmin, bsize
 
 
+def _generated_texspace_affine(obj, matrix):
+    """#847: row-major 3x4 WORLD -> Generated affine (12 floats), or None.
+
+    Cycles blender/mesh.cpp mesh_texture_space evaluates Generated on OBJECT-
+    local co: (co - loc) * 0.5 / size + 0.5, so compose it with matrix^-1
+    (the exporter bakes `matrix` into the vertices). Exact for any rotation;
+    the engine bakes it per triangle vertex (set_objects_generated_transform)."""
+    m = np.array([[float(matrix[r][c]) for c in range(4)] for r in range(4)])
+    try:
+        minv = np.linalg.inv(m)
+    except np.linalg.LinAlgError:
+        return None
+    tdata = getattr(obj, 'data', None)
+    tloc = getattr(tdata, 'texspace_location', None)
+    tsize = getattr(tdata, 'texspace_size', None)
+    if tloc is not None and tsize is not None:
+        # Same BKE_mesh_texspace_calc clamp as _generated_texspace_bbox.
+        ts = []
+        for v in tsize:
+            v = float(v)
+            ts.append(1.0 if v == 0.0 else (v if abs(v) >= 1e-5 else (1e-5 if v > 0 else -1e-5)))
+        scale = 0.5 / np.array(ts)
+        offset = 0.5 - np.array([float(c) for c in tloc]) * scale
+    else:
+        pts = np.array([[float(c) for c in corner] for corner in obj.bound_box])
+        lo = pts.min(axis=0)
+        size = np.maximum(pts.max(axis=0) - lo, 1e-6)
+        scale, offset = 1.0 / size, -lo / size
+    a = scale[:, None] * minv[:3, :]
+    a[:, 3] += offset
+    return [float(x) for x in a.reshape(-1)]
+
+
 def _light_spectrum_profile(light):
     """pkg195 Stage B: resolved profile name for preset/custom spectrum modes,
     or '' when the light is in native mode / unresolved."""
@@ -5576,14 +5609,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # object's bounding box (Blender Texture Coordinate > Generated;
             # Cycles orco). The exporter bakes world transforms into vertices,
             # so the WORLD-space bbox of this object is the right frame here.
-            # Shared-material multi-object scenes: last writer wins (per-object
-            # texture instancing is a recorded follow-up).
+            # Shared-material multi-object scenes: last writer wins here; #847's
+            # per-object set_objects_generated_transform (below the triangle
+            # upload) overrides it for triangles. The bbox stays the fallback.
             gen_by_mat = getattr(self, "_generated_textures_by_material", {})
+            needs_generated = False
             if gen_by_mat and hasattr(renderer, "set_texture_generated_bbox"):
                 gen_texs = []
                 for slot in obj.material_slots:
                     if slot.material is not None:
                         gen_texs.extend(gen_by_mat.get(slot.material.name, ()))
+                needs_generated = bool(gen_texs)
                 if gen_texs:
                     bmin, bsize = _generated_texspace_bbox(obj, matrix)
                     for tex_name in set(gen_texs):
@@ -5625,6 +5661,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             uv_data = uv_layer_items[0][1] if uv_layer_items else None
 
             n_tri = len(mesh.loop_triangles)
+            gen_matrix = matrix  # #847: pose of the uploaded vertices
             # pkg112: bulk geometry upload — fill contiguous NumPy arrays with
             # Blender's C-speed foreach_get and push the whole mesh in ONE
             # add_triangles_bulk() call instead of one pybind round-trip per
@@ -5652,6 +5689,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 if motion_end_matrix is not None and hasattr(renderer, "add_triangles_bulk_motion"):
                     positions_start = mesh_world_positions(mesh, motion_start_matrix)
                     positions_end = mesh_world_positions(mesh, motion_end_matrix)
+                    gen_matrix = motion_start_matrix  # #847: stored verts' pose
                     renderer.add_triangles_bulk_motion(
                         positions_start, positions_end, material_ids, mat_pass,
                         int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals)
@@ -5720,6 +5758,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # mesh → many add_triangle calls).
             scene_count_after = (renderer.scene_object_count()
                                  if hasattr(renderer, "scene_object_count") else 0)
+            # #847 — per-object Generated frame (object-space texture space).
+            if needs_generated and hasattr(renderer, "set_objects_generated_transform"):
+                gen_affine = _generated_texspace_affine(obj, gen_matrix)
+                if gen_affine is not None:
+                    renderer.set_objects_generated_transform(
+                        scene_count_before, scene_count_after, gen_affine)
             for oid in range(scene_count_before, scene_count_after):
                 # pkg64 Phase 3 — caustic caster flag
                 if is_caustic_caster and hasattr(renderer, "set_object_caustic_caster"):

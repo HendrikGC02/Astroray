@@ -697,6 +697,9 @@ struct GWavefrontTextureBinding {
     const int*           matBumpTexId;      // per-material height-texture id, -1 absent
     const float*         matBumpStrength;   // per-material Strength [0,1]
     const float*         matBumpDistance;   // per-material Distance (surfgrad scale)
+    // #847 — per-vertex Generated coords, 3 per triangle (tris[] index), or
+    // nullptr. A NaN .x in the first entry = none (use the texture's bbox).
+    const GVec3*         triGenerated;
 };
 
 // pkg197 — wavefront first-hit denoise-guide AOV binding. Published ONCE per

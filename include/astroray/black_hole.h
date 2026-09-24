@@ -160,7 +160,11 @@ private:
             // pkg281 Kerr: p_i = g_ii v^i, with v^phi taken relative to the
             // frame-dragging ZAMO (p_phi = g_phiphi v^phi; Bardeen, Press &
             // Teukolsky 1972 §III). p_t solves g^{mu nu} p_mu p_nu = 0 on the
-            // future-directed (p^t > 0) root. Reduces to the branch above at a=0.
+            // PAST-directed root (p^t < 0): the camera ray runs opposite to the
+            // photon, so it is the photon geodesic with lambda reversed. A
+            // future-directed root would trace the a -> -a spacetime (mirrored
+            // shadow). At a=0 only the sign of p_t differs from the branch
+            // above, and p_t enters the a=0 dynamics squared.
             const double a2     = spin * spin;
             const double sigma  = r2 + a2 * cos_th * cos_th;
             const double delta  = r2 - 2.0 * M * r + a2;
@@ -174,7 +178,7 @@ private:
             const double C = delta / sigma * p_r * p_r + p_th * p_th / sigma
                            + g_phph * p_phi * p_phi;
             const double b = g_tph * p_phi;
-            p_t = (-b + std::sqrt(std::max(b * b - g_tt * C, 0.0))) / g_tt;
+            p_t = (-b - std::sqrt(std::max(b * b - g_tt * C, 0.0))) / g_tt;
         }
 
         GeodesicState s;

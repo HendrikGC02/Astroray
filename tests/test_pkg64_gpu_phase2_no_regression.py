@@ -147,6 +147,10 @@ def test_empty_hook_bit_equality():
 
     pix, _ = _render(seed=145)
 
+    # Re-captured 2026-09-25 (Batch U: #851 exact triangle-light pdf / tree MIS,
+    # #859, #860 bounce-1 clamp): max|new - old| = 9.7e-05, channel means moved
+    # < 5e-06 (0.218679,0.183971,0.200118 -> 0.218675,0.183967,0.200114); the
+    # #845-only build (W pixel fix) still matched the previous pin.
     # Re-captured 2026-09-20 (#767 observer change, PR #837 -> main). The pins
     # were taken under the CIE 1964 10 deg observer; the engine now integrates
     # with CIE 1931 2 deg (the observer the XYZ->sRGB matrix and the

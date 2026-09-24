@@ -115,6 +115,17 @@ protected:
                 // space for exported meshes. Shared-material multi-object
                 // scenes get the last writer's bbox (per-object texture
                 // instancing is the follow-up).
+                // #847 — per-vertex object-space Generated (rotation-correct,
+                // per object) takes precedence over the per-texture bbox.
+                {
+                    Vec3 g;
+                    if (rec.hitObject && rec.hitObject->generatedCoord(rec.point, g)) {
+                        g = Vec3(std::clamp(g.x, 0.0f, 1.0f),
+                                 std::clamp(g.y, 0.0f, 1.0f),
+                                 std::clamp(g.z, 0.0f, 1.0f));
+                        return {Vec2(g.x, g.y), g};
+                    }
+                }
                 if (hasGenBBox_) {
                     Vec3 size = genSize_;
                     Vec3 p = rec.objectPoint;
@@ -450,6 +461,30 @@ public:
         }
         GVec3 r = astroray::svm::svm_eval(program_, in);
         return Vec3(r.x, r.y, r.z);
+    }
+};
+
+// ============================================================================
+// pkg277 (#822) — CoordProgramTexture: a procedural child sampled at a
+// coordinate warped by an op-VM program (Separate XYZ -> Math(Sin) -> Combine
+// XYZ -> Noise). OP_LOAD_TEX 0 reads the resolved (+Mapped) point p; the child
+// is sampled at p' = svm_eval(prog, {p}). Coord mode + Mapping live on the
+// wrapper, so Mapping precedes the warp. No device code: the GPU bakes
+// value() via scene_upload.cu bakeProceduralTexId (pkg190) like any procedural.
+// Design: .astroray_plan/docs/issue822-coordinate-side-opvm-design.md
+// ============================================================================
+class CoordProgramTexture : public Texture {
+    std::shared_ptr<Texture> child_;
+    astroray::svm::ShaderVMProgram program_;
+public:
+    CoordProgramTexture(std::shared_ptr<Texture> child,
+                        const astroray::svm::ShaderVMProgram& p)
+        : child_(std::move(child)), program_(p) {}
+    Vec3 value(const Vec2&, const Vec3& p) const override {
+        GVec3 in[astroray::svm::VM_MAX_TEX];
+        for (int i = 0; i < astroray::svm::VM_MAX_TEX; ++i) in[i] = GVec3(p.x, p.y, p.z);
+        GVec3 w = astroray::svm::svm_eval(program_, in);
+        return child_->value(Vec2(w.x, w.y), Vec3(w.x, w.y, w.z));
     }
 };
 

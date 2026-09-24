@@ -3991,7 +3991,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return fallback, prog_name
         return [0.8, 0.8, 0.8], None
 
-    def _maybe_build_program_texture(self, socket, node, input_name, renderer):
+    def _maybe_build_program_texture(self, socket, node, input_name, renderer,
+                                     allow_leaf=False):
         """pkg219b: try to compile the chain feeding `socket` into an op-VM
         program texture. Returns the registered program-texture name, or None if
         the chain is not a per-texel op (or the renderer lacks the bindings)."""
@@ -4002,7 +4003,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         except Exception:
             import shader_vm_compiler as svm
         try:
-            compiled = svm.compile_chain(socket)
+            compiled = svm.compile_chain(socket, allow_leaf=allow_leaf)
         except svm.VMCompileError as e:
             self._warn_shader_fallback(
                 "op-VM", "shader chain on '%s' not representable (%s) — "
@@ -4200,7 +4201,46 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     spec['bump_map_texture'] = tex
                     spec['bump_strength'] = normal_inputs['bump_strength']
                     spec['bump_distance'] = normal_inputs['bump_distance']
+            # #846: per-texel op-VM chains on the scalar sockets. Carried for both
+            # routes (Disney + native Principled); the engine attaches them to
+            # either material on CPU and GPU.
+            scalar_programs = self._scalar_program_params(node, renderer)
+            if scalar_programs:
+                spec['scalar_programs'] = scalar_programs
         return spec
+
+    def _scalar_program_params(self, node, renderer):
+        """pkg219d/#846: compile each linked Roughness/Metallic/IOR/Transmission
+        chain into an op-VM program texture. Returns {param_key: program_name};
+        unrepresentable chains are warned inside _maybe_build_program_texture."""
+        out = {}
+        for sock_names, label, key in ((('Roughness',), 'Roughness', 'roughness_program'),
+                                       (('Metallic',), 'Metallic', 'metallic_program'),
+                                       (('IOR',), 'IOR', 'ior_program'),
+                                       # Blender 4.0 renamed Transmission.
+                                       (('Transmission Weight', 'Transmission'),
+                                        'Transmission', 'transmission_program')):
+            sock = None
+            for nm in sock_names:
+                sock = node.inputs.get(nm)
+                if sock is not None:
+                    break
+            if sock is None or not getattr(sock, 'is_linked', False):
+                continue
+            # allow_leaf: a bare texture on a scalar socket has no other path.
+            prog = self._maybe_build_program_texture(sock, node, label, renderer,
+                                                     allow_leaf=True)
+            if prog is not None:
+                out[key] = prog
+        return out
+
+    def _warn_scalar_programs_dropped(self, spec):
+        """#846: the textured-base-colour lambertian route has no scalar slots."""
+        progs = spec.get('scalar_programs') or {}
+        if progs:
+            self._warn_shader_fallback(
+                'BSDF_PRINCIPLED', 'textured Base Color routes through lambertian: '
+                'per-texel %s dropped (both backends)' % ', '.join(sorted(progs)))
 
     # pkg178 Stage 5: Blender Principled sockets present on 5.x but NOT honoured
     # by the native 'principled' material. Thin Film (thickness/IOR), Thin Wall and
@@ -4379,6 +4419,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         for msg in spec.get('native_gaps', []):
             self._warn_shader_fallback('BSDF_PRINCIPLED', msg)
 
+        # #846: per-texel scalar op-VM programs (Roughness/Metallic/IOR/Transmission).
+        native.update(spec.get('scalar_programs') or {})
+
         # Textured base colour → textured-lambertian (Non-goal: base-colour
         # texture slot on the native material). Mirrors the Disney path.
         base_tex = spec.get('base_color_texture')
@@ -4387,6 +4430,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 'BSDF_PRINCIPLED',
                 'textured Base Color routes through lambertian (native material '
                 'has no base-color texture slot yet)')
+            self._warn_scalar_programs_dropped(spec)
             lambert_params = {'texture': base_tex}
             for key in ('normal_map_texture', 'normal_strength',
                         'bump_map_texture', 'bump_strength', 'bump_distance'):
@@ -4668,6 +4712,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # a texture slot, both paths can target Disney directly.
             base_tex = spec.get('base_color_texture')
             if base_tex is not None:
+                self._warn_scalar_programs_dropped(spec)
                 lambert_params = {'texture': base_tex}
                 for key in ('normal_map_texture', 'normal_strength',
                             'bump_map_texture', 'bump_strength', 'bump_distance'):
@@ -4675,6 +4720,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         lambert_params[key] = params[key]
                 return renderer.create_material('lambertian', color, lambert_params)
 
+            params.update(spec.get('scalar_programs') or {})  # #846
             return renderer.create_material('disney', color, params)
 
         if kind == 'hair':
@@ -4925,32 +4971,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     native[key] = params[key]
             for msg in self._native_principled_gaps(node, native):
                 self._warn_shader_fallback('BSDF_PRINCIPLED', msg)
+            native.update(self._scalar_program_params(node, renderer))  # #846
             return renderer.create_material('principled', base_color, native)
 
-        # pkg219d — per-texel scalar-parameter op-VM chains (Image → Map Range →
-        # Roughness, etc.). Reuse the base-colour op-VM detection/upload; attach the
-        # resulting program-texture names so the engine (DisneyPlugin::substituted()
-        # on CPU + the GPU c_wfProgBinding scalar side table) per-texel-drives the
-        # scalar BSDF inputs. Wired only on this Disney path — the native 'principled'
-        # material and the textured-base-colour 'lambertian' route above do not carry
-        # the DisneyPlugin scalar slots (a documented follow-up). No-ops when a socket
-        # is unlinked or its chain is not a per-texel op (constant default stands).
-        for _sock_name, _param_key in (('Roughness', 'roughness_program'),
-                                       ('Metallic', 'metallic_program'),
-                                       ('IOR', 'ior_program')):
-            _sock = node.inputs.get(_sock_name)
-            if _sock is not None and getattr(_sock, 'is_linked', False):
-                _prog = self._maybe_build_program_texture(
-                    _sock, node, _sock_name, renderer)
-                if _prog is not None:
-                    params[_param_key] = _prog
-        # Transmission uses the Blender-4.0 renamed socket ('Transmission Weight').
-        _tsock = node.inputs.get('Transmission Weight') or node.inputs.get('Transmission')
-        if _tsock is not None and getattr(_tsock, 'is_linked', False):
-            _prog = self._maybe_build_program_texture(
-                _tsock, node, 'Transmission', renderer)
-            if _prog is not None:
-                params['transmission_program'] = _prog
+        # pkg219d/#846 — per-texel scalar op-VM chains (see _scalar_program_params).
+        params.update(self._scalar_program_params(node, renderer))
         return renderer.create_material('disney', base_color, params)
 
     def _render_will_use_gpu(self, settings, renderer):

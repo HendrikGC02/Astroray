@@ -26,6 +26,7 @@
 #include "astroray/microsurface_dielectric.h"  // pkg265 Heitz-2016 dielectric walk
 #include "astroray/thin_film_fresnel.h"    // pkg178 Stage 4 PR-1 (Belcour-Barla 2017)
 #include "astroray/thin_film_cie_table.h"  // Rec.709-baked CIE sensitivity LUT
+#include "advanced_features.h"            // #846 Texture + svm::ScalarSlot
 #include "raytracer.h"
 
 #include <algorithm>
@@ -87,6 +88,36 @@ class PrincipledPlugin : public Material {
     // non-dispersive Principled fast path is untouched).
     bool dispersive_;
     float cauchyA_, cauchyB_;
+    float invAbbe_ = 0.0f;  // kept so an IOR program can refit the Cauchy pair
+
+    // #846 — per-texel scalar op-VM programs (Roughness/Metallic/Transmission/IOR),
+    // same contract as DisneyPlugin (pkg219d): substituted() evaluates them at the
+    // hit into a local copy, and the constant-material physics runs unchanged. The
+    // GPU twin is gpu_applyScalarOverride (stage_advance.cu); clamps match the ctor.
+    std::shared_ptr<Texture> roughnessProgram_, metallicProgram_,
+                             transmissionProgram_, iorProgram_;
+
+    bool hasScalarProgram() const {
+        return roughnessProgram_ || metallicProgram_ ||
+               transmissionProgram_ || iorProgram_;
+    }
+
+    PrincipledPlugin substituted(const HitRecord& rec, const Vec3& wo) const {
+        PrincipledPlugin c(*this);
+        if (roughnessProgram_)
+            c.roughness_ = std::clamp(roughnessProgram_->value(rec, wo).x, 0.001f, 1.0f);
+        if (metallicProgram_)
+            c.metallic_ = std::clamp(metallicProgram_->value(rec, wo).x, 0.0f, 1.0f);
+        if (transmissionProgram_)
+            c.transmission_ = std::clamp(transmissionProgram_->value(rec, wo).x, 0.0f, 1.0f);
+        if (iorProgram_) {
+            c.ior_ = std::max(1.0f, iorProgram_->value(rec, wo).x);
+            cauchyAB(c.ior_, invAbbe_, c.cauchyA_, c.cauchyB_);
+        }
+        c.roughnessProgram_ = c.metallicProgram_ =
+            c.transmissionProgram_ = c.iorProgram_ = nullptr;
+        return c;
+    }
 
     // Smooth glass below this roughness is treated as a delta transmission event
     // (matches disney.cpp::kDeltaTransmissionRoughness).
@@ -1817,6 +1848,7 @@ public:
             p.getFloat("dispersion_scale", p.getFloat("dispersion", 0.0f)), 0.0f, 1.0f);
         float abbe = std::max(0.0f, p.getFloat("dispersion_abbe", 20.0f));
         float invAbbe = (abbe > 0.0f) ? dispScale / abbe : 0.0f;
+        invAbbe_ = invAbbe;
         cauchyAB(ior_, invAbbe, cauchyA_, cauchyB_);
         // Dispersion only matters on the refracting transmission lobe.
         dispersive_ = (transmission_ > 1e-4f) && (invAbbe > 0.0f);
@@ -1876,6 +1908,24 @@ public:
     // per shade, because the assembly is VIEW-DEPENDENT and cannot be baked into
     // static per-lobe closure weights.
     std::string getGPUTypeName() const override { return "principled"; }
+    void setScalarProgram(int slot, const std::shared_ptr<Texture>& prog) override {
+        switch (slot) {
+            case astroray::svm::SCALAR_ROUGHNESS:    roughnessProgram_ = prog;    break;
+            case astroray::svm::SCALAR_METALLIC:     metallicProgram_ = prog;     break;
+            case astroray::svm::SCALAR_TRANSMISSION: transmissionProgram_ = prog; break;
+            case astroray::svm::SCALAR_IOR:          iorProgram_ = prog;          break;
+            default: break;
+        }
+    }
+    std::shared_ptr<Texture> scalarProgram(int slot) const override {
+        switch (slot) {
+            case astroray::svm::SCALAR_ROUGHNESS:    return roughnessProgram_;
+            case astroray::svm::SCALAR_METALLIC:     return metallicProgram_;
+            case astroray::svm::SCALAR_TRANSMISSION: return transmissionProgram_;
+            case astroray::svm::SCALAR_IOR:          return iorProgram_;
+            default: return nullptr;
+        }
+    }
     astroray::MaterialClosureGraph closureGraph() const override {
         astroray::MaterialClosureGraph graph;
         astroray::MaterialClosure c = astroray::makePrincipledClosure(
@@ -1921,6 +1971,7 @@ public:
     }
 
     Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+        if (hasScalarProgram()) return substituted(rec, wo).eval(rec, wo, wi);
         auto lobes = assembleLobes(rec, wo);
         Vec3 sum(0);
         for (const auto& L : lobes)
@@ -1931,6 +1982,7 @@ public:
     astroray::SampledSpectrum evalSpectral(const HitRecord& rec, const Vec3& wo,
                                            const Vec3& wi,
                                            const astroray::SampledWavelengths& lambdas) const override {
+        if (hasScalarProgram()) return substituted(rec, wo).evalSpectral(rec, wo, wi, lambdas);
         auto lobes = assembleLobes(rec, wo, &lambdas);  // pkg194: per-λ layering carry
         astroray::SampledSpectrum sum(0.0f);
         for (const auto& L : lobes)
@@ -2096,6 +2148,7 @@ public:
     }
 
     float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
+        if (hasScalarProgram()) return substituted(rec, wo).pdf(rec, wo, wi);
         auto lobes = assembleLobes(rec, wo);
         float W = 0.0f;
         for (const auto& L : lobes) W += L.sel;
@@ -2107,6 +2160,7 @@ public:
     }
 
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
+        if (hasScalarProgram()) return substituted(rec, wo).sample(rec, wo, gen);
         BSDFSample s;
         s.wi = rec.normal;
         s.f = Vec3(0);
@@ -2170,6 +2224,7 @@ public:
     BSDFSampleSpectral sampleSpectral(const HitRecord& rec, const Vec3& wo,
                                       std::mt19937& gen,
                                       astroray::SampledWavelengths& lambdas) const override {
+        if (hasScalarProgram()) return substituted(rec, wo).sampleSpectral(rec, wo, gen, lambdas);
         BSDFSampleSpectral bss;
         bss.wi = rec.normal;
         bss.f_spectral = astroray::SampledSpectrum(0.0f);

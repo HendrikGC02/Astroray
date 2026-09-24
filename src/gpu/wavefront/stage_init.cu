@@ -264,6 +264,20 @@ __device__ inline void generatePrimaryRay(
     float lens_offset_x = lens_r * cosf(lens_theta) * cam.lensRadius;
     float lens_offset_y = lens_r * sinf(lens_theta) * cam.lensRadius;
 
+    if (cam.orthographic) {
+        // #845: PBRT v4 OrthographicCamera (mirrors CPU Camera::orthoRay):
+        // origin on the image plane through the camera, constant direction;
+        // with a lens, aim at the focus point focusDist along the view axis.
+        GVec3 plane_point = cam.lowerLeft + cam.horizontal * u + cam.vertical * v;
+        if (cam.lensRadius > 0.0f) {
+            GVec3 offset = cam.u * lens_offset_x + cam.v * lens_offset_y;
+            ray_origin = plane_point + offset;
+            ray_direction = (cam.forward * cam.focusDist - offset).normalized();
+        } else {
+            ray_origin = plane_point;
+            ray_direction = cam.forward;
+        }
+    } else {
     // Ray direction (world-space from camera basis).
     // Mirrors Camera::getRay() math (no GR; flat-space camera).
     // GCameraParams has: lowerLeft, horizontal, vertical, origin.
@@ -284,6 +298,7 @@ __device__ inline void generatePrimaryRay(
         ray_origin = cam.origin;
         ray_direction = dir;
     }
+    }  // #845 perspective
 
     // 3. Lambda draw (CPU: std::uniform_real_distribution<float>(0,1)). pkg206:
     // primary path uses luminance-weighted IMPORTANCE sampling (mirrors CPU

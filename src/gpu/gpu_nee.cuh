@@ -503,6 +503,7 @@ __device__ inline GNEESample gpu_nee_sample(
     // power-weighted CDF (mirrors LightList::sample).
     int   li = 0;
     float selPdf;
+    int   dj = -1;   // selected dedicated light (-1 = a hittable GLight)
     if (lightTree.enabled) {
         // Tree selects hittable emitters AND dedicated lights (#859; mirrors
         // CPU TreeLightSampler::sample). Negative lightIndex = dedicated j.
@@ -512,9 +513,8 @@ __device__ inline GNEESample gpu_nee_sample(
         if (eIdx < 0 || treePdf <= 0.f) return s;
         li = lightTree.emitters[eIdx].lightIndex;
         if (li < 0) {
-            int dj = -li - 1;
+            dj = -li - 1;
             if (dj >= numDed) return s;
-            return gpu_dedicated_sample(dedLights[dj], dj, rec.point, treePdf, rng);
         }
         selPdf = treePdf;
     } else {
@@ -526,15 +526,17 @@ __device__ inline GNEESample gpu_nee_sample(
         int hit = -1;
         for (int i = 0; i < numLights; ++i) { if (u <= lights[i].cumulativePower) { hit = i; break; } }
         if (hit < 0 && numDed > 0) {
-            int dj = numDed - 1;
+            dj = numDed - 1;
             for (int j = 0; j < numDed; ++j) { if (u <= dedLights[j].cumulativePower) { dj = j; break; } }
-            float dselPdf = dedLights[dj].power / totalLightPower;
-            return gpu_dedicated_sample(dedLights[dj], dj, rec.point, dselPdf, rng);
+            selPdf = dedLights[dj].power / totalLightPower;
+        } else {
+            if (hit < 0) hit = numLights - 1;   // fp fallback within hittable range
+            li = hit;
+            selPdf = lights[li].power / totalLightPower;
         }
-        if (hit < 0) hit = numLights - 1;   // fp fallback within hittable range
-        li = hit;
-        selPdf = lights[li].power / totalLightPower;
     }
+    // One call site for both selectors (keeps the shade kernel's code size flat).
+    if (dj >= 0) return gpu_dedicated_sample(dedLights[dj], dj, rec.point, selPdf, rng);
     int primIdx  = lights[li].primitiveIndex;
     if (primIdx < 0) return s;
 

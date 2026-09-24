@@ -87,6 +87,9 @@ public:
     // Single-level BVH limitation per pkg56 spec §"Key design decisions" — the
     // caller must rebuild the BVH (Renderer::buildAcceleration) after mutating.
     void  setCenter(const Vec3& c) { center = c; }
+    // #849: in-place material swap (PyRenderer::rebindMaterial). The caller keeps
+    // isEmissive() unchanged, so the cached `emissive` flag stays valid.
+    void  setMaterial(std::shared_ptr<Material> m) { material = std::move(m); }
 };
 
 // ============================================================================
@@ -283,6 +286,8 @@ public:
         return true;
     }
     const std::shared_ptr<Material>& getMaterial() const { return material; }
+    // #849: in-place material swap; caller keeps isEmissive() unchanged.
+    void setMaterial(std::shared_ptr<Material> m) { material = std::move(m); }
     // pkg178 Stage-3b PR-4b — active-UV-layer texcoords for the GPU aniso tangent.
     Vec2 getUV0() const { return uv0; }
     Vec2 getUV1() const { return uv1; }

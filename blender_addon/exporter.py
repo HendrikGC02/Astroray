@@ -385,6 +385,12 @@ def _depsgraph_id_type_name(upd_id, bpy_module):
     return None
 
 
+def _is_light_object(upd_id):
+    """#849: an Object update for a LIGHT object (energy, colour, move). Its
+    lamp is rebuilt by the in-place light re-sync, not by a geometry rebuild."""
+    return getattr(upd_id, 'type', None) == 'LIGHT'
+
+
 def _active_world_node_tree(depsgraph):
     """pkg266 (Terra review, item 3): the active World's shader node tree, or
     None. A World node-tree edit reaches the depsgraph as a NodeTree/ShaderNodeTree
@@ -454,6 +460,8 @@ class ObjectsCache:
                         or bool(getattr(upd, 'is_updated_transform', False))):
                     geometry = True
                 continue
+            if _is_light_object(upd_id):
+                continue  # #849: LightsCache owns light objects (re-synced in place)
 
             is_geom = bool(getattr(upd, 'is_updated_geometry', False))
             is_xform = bool(getattr(upd, 'is_updated_transform', False))
@@ -487,11 +495,10 @@ class MaterialsCache:
     """Tracks material definitions.
 
     pkg/issue #721 (storm-material-domain): distinguishes a value-only
-    material edit (socket values only) from a structural material change. #835:
-    BOTH route to a full ``sync_viewport_scene`` today — the engine has no
-    in-place material update, so ``renderer.upload_materials()`` alone re-pushes
-    the stale converted materials (see _classify_depsgraph_domains). The split
-    is kept for that future in-place path. The structural set is a
+    material edit (socket values only) from a structural material change. #849:
+    a value-only edit is re-converted and rebound in place
+    (Exporter._reconcile_materials); a structural change full-syncs. The
+    structural set is a
     node-tree TOPOLOGY change (nodes/links added or removed), an Image texture
     datablock update, a material-slot assignment (detected upstream via the
     owning geometry datablock's geometry flag), an emission-strength sign flip
@@ -514,6 +521,9 @@ class MaterialsCache:
         self._last_ids = set()
         # material name -> structural fingerprint (primed by observe()/diff()).
         self._fingerprints = {}
+        # #849: names of the materials the last diff() saw edited (the in-place
+        # re-sync re-converts exactly these).
+        self.changed_names = set()
 
     # -- structural fingerprint helpers -----------------------------------
     @staticmethod
@@ -632,14 +642,32 @@ class MaterialsCache:
         mats = getattr(data, 'materials', None)
         if mats is None:
             return None
+        # #849: depsgraph update ids are evaluated copies and each bpy access
+        # returns a new wrapper, so match the ORIGINAL datablock by equality
+        # (bpy_struct == compares the underlying pointer), not identity.
+        target = getattr(node_tree, 'original', None) or node_tree
         for mat in mats:
-            if getattr(mat, 'node_tree', None) is node_tree:
+            nt = getattr(mat, 'node_tree', None)
+            if nt is not None and (nt is target or nt == target):
                 return mat
         return None
+
+    def _is_light_node_tree(self, node_tree):
+        """#849: a light's shader node tree (edited with the lamp)."""
+        lights = getattr(getattr(self.bpy, 'data', None), 'lights', None)
+        if lights is None:
+            return False
+        target = getattr(node_tree, 'original', None) or node_tree
+        for light in lights:
+            nt = getattr(light, 'node_tree', None)
+            if nt is not None and (nt is target or nt == target):
+                return True
+        return False
 
     # -- diff -------------------------------------------------------------
     def diff(self, depsgraph):
         """Return NONE / MATERIALS / FALLBACK for `depsgraph.updates`."""
+        self.changed_names = set()
         updates = getattr(depsgraph, 'updates', None)
         if updates is None:
             return self.NONE
@@ -667,11 +695,14 @@ class MaterialsCache:
                 # itself. Either way the fingerprint key is the owner's name.
                 owner = upd_id if type_name == 'Material' else self._owning_material(upd_id)
                 if owner is None:
+                    if self._is_light_node_tree(upd_id):
+                        continue  # #849: a lamp's shader tree -> LightsCache
                     owner = upd_id
                 saw_material = True
                 name = getattr(owner, 'name', None)
                 if name is None:
                     return self.FALLBACK
+                self.changed_names.add(name)
                 fp = self._fingerprint_of(owner)
                 prev = self._fingerprints.get(name)
                 if prev is None:
@@ -689,7 +720,7 @@ class MaterialsCache:
         for upd in updates:
             upd_id = getattr(upd, 'id', None)
             type_name = _depsgraph_id_type_name(upd_id, self.bpy)
-            if type_name == 'Object':
+            if type_name == 'Object' and not _is_light_object(upd_id):
                 if bool(getattr(upd, 'is_updated_shading', False)):
                     saw_material = True
 
@@ -712,6 +743,12 @@ class LightsCache:
             upd_id = getattr(upd, 'id', None)
             type_name = _depsgraph_id_type_name(upd_id, self.bpy)
             if type_name == 'Light':
+                return True
+            # #849: a light object's move / data edit (not a selection-only update).
+            if type_name == 'Object' and _is_light_object(upd_id) and (
+                    bool(getattr(upd, 'is_updated_geometry', False))
+                    or bool(getattr(upd, 'is_updated_transform', False))
+                    or bool(getattr(upd, 'is_updated_shading', False))):
                 return True
 
         return False
@@ -1262,6 +1299,13 @@ class Exporter:
         self._deferred_dirty_mask = Change.NONE   # OR of coalesced safe domains
         self._deferred_transforms = {}            # obj_id -> mat16 (newest wins)
         self._deferred_full_sync = False          # a geometry/instancing/unknown edit
+        self._deferred_material_names = set()     # #849: edited materials to re-convert
+        # #849 in-place material / light re-sync state, set by sync_viewport_scene:
+        # Blender material name -> engine material id, and the (start, count)
+        # range of dedicated lights that convert_lights added.
+        self._viewport_material_ids = None
+        self._viewport_light_range = None
+        self._classified_material_names = set()
         # pkg266 (Terra review, item 2): reduced-resolution first unit on the
         # worker path. A fresh generation whose measured full-res cost exceeds the
         # interactive budget (_budget_start_divisor() > 1) submits its FIRST job at
@@ -1385,9 +1429,9 @@ class Exporter:
         only the matching Phase B uploader(s). Returns one of:
 
           - 'fallback'   : caller must run sync_viewport_scene (unrecognised
-                           update id, .updates absent, or — #835 — any
-                           material / light / geometry edit, which has no
-                           reconcile step).
+                           update id, .updates absent, a geometry edit, or a
+                           material / light edit the #849 in-place re-sync
+                           cannot represent).
           - 'idle'       : zero domain edits — caller skips upload AND render.
           - 'dispatched' : one or more uploaders ran — caller renders.
 
@@ -1396,7 +1440,7 @@ class Exporter:
         Blender's iteration order over depsgraph.updates.
         """
         status, changes, flat_transforms, do_refit = \
-            self._classify_depsgraph_domains(depsgraph, settings)
+            self._classify_depsgraph_domains(depsgraph, settings, renderer)
         if status == 'fallback':
             return 'fallback'
         if status == 'idle':
@@ -1405,12 +1449,14 @@ class Exporter:
                 # accumulation. Reset and skip render.
                 self._reset_viewport_accumulation()
             return 'idle'
-        self._dispatch_dirty_domains(renderer, depsgraph, settings,
-                                     configure_backend_fn, report_fn,
-                                     changes, flat_transforms, do_refit)
+        if not self._dispatch_dirty_domains(
+                renderer, depsgraph, settings, configure_backend_fn, report_fn,
+                changes, flat_transforms, do_refit,
+                material_names=self._classified_material_names):
+            return 'fallback'  # #849: an in-place re-sync refused -> full sync
         return 'dispatched'
 
-    def _classify_depsgraph_domains(self, depsgraph, settings):
+    def _classify_depsgraph_domains(self, depsgraph, settings, renderer=None):
         """pkg266 (§13 item 2 / Terra (c)): classify `depsgraph.updates` into a
         dirty-domain Change mask WITHOUT dispatching any uploader (no renderer
         mutation). Shared by apply_depsgraph_updates (idle-time incremental
@@ -1447,6 +1493,7 @@ class Exporter:
             return 'fallback', Change.NONE, [], False
         if mat_status == MaterialsCache.MATERIALS:
             changes |= Change.MATERIALS
+        self._classified_material_names = set(self._materials_cache.changed_names)
         if self._lights_cache.diff(depsgraph):
             changes |= Change.LIGHTS
         geometry, flat_transforms, xform_names = self._objects_cache.diff(depsgraph)
@@ -1517,26 +1564,37 @@ class Exporter:
         if not do_refit and any(not _fast_ok(nm) for nm in xform_names):
             changes |= Change.GEOMETRY
 
-        # #835: MATERIALS / LIGHTS / GEOMETRY have no reconcile step (pkg96 P2
-        # contract: reconcile, then upload). upload_materials / upload_lights /
-        # upload_geometry re-push the engine's EXISTING objects -- primitives hold
-        # their Material by pointer from add time -- so a Blender edit of these
-        # domains reaches the render only through re-conversion, i.e. a full
-        # sync. Measured in the live viewport: a Base Color edit, an object move
-        # and a light-energy edit each dispatched here and left the image stale.
-        if changes & (Change.MATERIALS | Change.LIGHTS | Change.GEOMETRY):
+        # #835: upload_materials / upload_lights / upload_geometry re-push the
+        # engine's EXISTING objects, so an edit of these domains reaches the render
+        # only after re-conversion from Blender (pkg96 P2: reconcile, then upload).
+        # #849: MATERIALS and LIGHTS now reconcile in place (_reconcile_materials /
+        # _reconcile_lights) when the engine has the bindings and a prior full sync
+        # recorded the id maps; GEOMETRY (incl. non-instanced object moves) still
+        # full-syncs.
+        if changes & Change.GEOMETRY:
+            return 'fallback', Change.NONE, [], False
+        if (changes & Change.MATERIALS) and not (
+                self._classified_material_names
+                and self._can_reconcile_materials(renderer)):
+            # No named material (an Object shading-only edit) or no bindings.
+            return 'fallback', Change.NONE, [], False
+        if (changes & Change.LIGHTS) and not self._can_reconcile_lights(renderer):
             return 'fallback', Change.NONE, [], False
 
         return 'dispatched', changes, flat_transforms, do_refit
 
     def _dispatch_dirty_domains(self, renderer, depsgraph, settings,
                                 configure_backend_fn, report_fn,
-                                changes, flat_transforms, do_refit):
+                                changes, flat_transforms, do_refit,
+                                material_names=()):
         """Run the Phase B uploader(s) for a classified dirty-domain mask and reset
         viewport accumulation. Shared by apply_depsgraph_updates (idle dispatch)
         and the coalesced deferred replay (_replay_deferred_dirty). pkg96 P2
         reconcile-then-upload: each domain re-derives its state from Blender before
-        pushing device buffers."""
+        pushing device buffers. Returns False when an in-place material / light
+        re-sync refused (#849); the caller must then full-sync."""
+        if (changes & Change.MATERIALS) and not material_names:
+            return False
         self._device_scene_dirty = True  # #801: uploaders bypass render()
         if changes & Change.BACKEND_CONFIG:
             # Backend-affecting Scene props (device_mode) — reconfigure
@@ -1551,8 +1609,12 @@ class Exporter:
             renderer.upload_environment()
 
         if changes & Change.MATERIALS:
+            if not self._reconcile_materials(renderer, material_names):
+                return False
             renderer.upload_materials()
         if changes & Change.LIGHTS:
+            if not self._reconcile_lights(renderer, depsgraph):
+                return False
             renderer.upload_lights()
         if changes & Change.GEOMETRY:
             renderer.upload_geometry()
@@ -1574,6 +1636,73 @@ class Exporter:
 
         # Any image-changing dispatch resets accumulation
         self._reset_viewport_accumulation()
+        return True
+
+    # -- #849 in-place material / light re-sync ------------------------------
+    # Cycles BlenderSync::sync_shaders / sync_lights (intern/cycles/blender/
+    # shader.cpp, light.cpp, Apache-2.0): re-read only the edited datablocks from
+    # Blender, then ShaderManager / LightManager::device_update push the domain.
+    @staticmethod
+    def _has_bindings(renderer, *names):
+        # Look the bindings up on the TYPE: a unittest Mock instance answers
+        # every attribute, which would claim support the engine does not have.
+        return renderer is not None and all(
+            callable(getattr(type(renderer), n, None)) for n in names)
+
+    def _can_reconcile_materials(self, renderer=None):
+        r = renderer if renderer is not None else self._viewport_renderer
+        return (self._viewport_material_ids is not None
+                and self._has_bindings(r, 'rebind_material', 'upload_materials'))
+
+    def _can_reconcile_lights(self, renderer=None):
+        r = renderer if renderer is not None else self._viewport_renderer
+        return (self._viewport_light_range is not None
+                and self._has_bindings(r, 'remove_dedicated_lights',
+                                       'dedicated_light_count', 'upload_lights'))
+
+    def _reconcile_materials(self, renderer, names):
+        """Re-convert each edited material from Blender into a new engine
+        material and swap it in behind the id its primitives hold. False (full
+        sync) for anything the swap cannot represent: an unknown / renamed
+        material, a volume or Generated-coordinate material (convert_objects
+        consumes those per object), an emitter or an unhandled holder (the
+        engine refuses)."""
+        ids = self._viewport_material_ids
+        mats = getattr(getattr(self.bpy, 'data', None), 'materials', None)
+        if ids is None or mats is None:
+            return False
+        eng = self.engine
+        for name in sorted(names):
+            old_id = ids.get(name)
+            mat = mats.get(name)
+            if old_id is None or mat is None:
+                return False
+            if (getattr(eng, '_volume_material_map', None) or {}).get(name) is not None:
+                return False
+            if (getattr(eng, '_generated_textures_by_material', None) or {}).get(name):
+                return False
+            eng._current_material_name = name
+            new_id = eng.convert_node_material(mat, renderer)
+            if hasattr(renderer, 'set_material_name'):
+                renderer.set_material_name(new_id, name)
+            if not renderer.rebind_material(old_id, new_id):
+                return False
+        return True
+
+    def _reconcile_lights(self, renderer, depsgraph):
+        """Drop the dedicated lights the last sync's convert_lights added and
+        re-run convert_lights against the live depsgraph (world sky-sun lamps
+        outside that range are kept)."""
+        rng = self._viewport_light_range
+        if rng is None:
+            return False
+        start, count = rng
+        renderer.remove_dedicated_lights(start, count)
+        new_start = int(renderer.dedicated_light_count())
+        self.engine.convert_lights(depsgraph, renderer)
+        self._viewport_light_range = (
+            new_start, int(renderer.dedicated_light_count()) - new_start)
+        return True
 
     # -- pkg266 coalesced deferred dirty-domain commit (§13 item 2) ---------
     def _record_deferred_dirty(self, depsgraph, settings):
@@ -1601,10 +1730,13 @@ class Exporter:
         if (changes & Change.GEOMETRY) or do_refit:
             self._deferred_full_sync = True
             return
-        # Safe (reconciled) domains only (env / flat transforms / backend;
-        # materials and lights already returned 'fallback', #835): coalesce the mask and capture the transform matrices now
-        # (newest wins — a later edit of the same object supersedes the earlier).
+        # Safe (reconciled) domains only (env / flat transforms / backend, and
+        # #849 materials / lights): coalesce the mask and capture the transform
+        # matrices now (newest wins — a later edit of the same object supersedes
+        # the earlier). Material names accumulate; the replay re-reads their
+        # current values from Blender.
         self._deferred_dirty_mask |= changes
+        self._deferred_material_names |= self._classified_material_names
         for obj_id, mat16 in flat_transforms:
             self._deferred_transforms[obj_id] = mat16
 
@@ -1622,10 +1754,10 @@ class Exporter:
         if not (mask & ~Change.ACCUMULATION_ONLY):
             return False  # nothing image-changing to replay → caller full-syncs
         flat = list(self._deferred_transforms.items())
-        self._dispatch_dirty_domains(renderer, depsgraph, settings,
-                                     configure_backend_fn, report_fn,
-                                     mask, flat, do_refit=False)
-        return True
+        return self._dispatch_dirty_domains(
+            renderer, depsgraph, settings, configure_backend_fn, report_fn,
+            mask, flat, do_refit=False,
+            material_names=self._deferred_material_names)
 
     def _clear_deferred_dirty(self):
         """Reset the coalesced deferred dirty-domain state after a commit consumed
@@ -1633,6 +1765,7 @@ class Exporter:
         self._deferred_dirty_mask = Change.NONE
         self._deferred_transforms = {}
         self._deferred_full_sync = False
+        self._deferred_material_names = set()
 
     def sync_viewport_scene(self, renderer, depsgraph, settings,
                            configure_backend_fn, viewport_perf_record_fn,
@@ -1675,9 +1808,18 @@ class Exporter:
         t0 = time.perf_counter()
         self.engine.convert_objects(depsgraph, renderer, material_map)
         viewport_perf_record_fn("geometry", t0)
+        # #849: id map for the in-place material re-sync.
+        self._viewport_material_ids = dict(material_map or {})
 
         t0 = time.perf_counter()
+        light_start = (renderer.dedicated_light_count()
+                       if self._has_bindings(renderer, 'dedicated_light_count') else None)
         self.engine.convert_lights(depsgraph, renderer)
+        # #849: the dedicated-light range convert_lights owns (world sky-sun
+        # lamps added by setup_world below stay outside it).
+        self._viewport_light_range = (
+            None if light_start is None else
+            (int(light_start), int(renderer.dedicated_light_count()) - int(light_start)))
         viewport_perf_record_fn("lights", t0)
 
         t0 = time.perf_counter()
@@ -2480,6 +2622,8 @@ class Exporter:
             width = max(1, int(region.width) // res_divisor)
             height = max(1, int(region.height) // res_divisor)
             engine_methods['setup_viewport_camera'](renderer, context, width, height)
+            # #857: honour the render border on the worker path too (#802).
+            self._apply_viewport_render_region(renderer, context, width, height)
             lmin, lmax = engine_methods['wavelength_range_from_settings'](settings)
             renderer.set_wavelength_range(lmin, lmax)
             if lmax > 780.0 or lmin < 380.0:

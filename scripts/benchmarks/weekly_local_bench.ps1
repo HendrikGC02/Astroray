@@ -45,7 +45,7 @@ $Log = Join-Path $LogDir "weekly_bench_$stamp.log"
 $parityCode = $LASTEXITCODE
 "run_parity.py exit=$parityCode" | Out-File $Log -Append -Encoding ascii
 
-$CorpusScenes = @('camera_lens', 'geometry_zoo', 'lighting_studio', 'materials_hall',
+$CorpusScenes = @('camera_lens', 'camera_lens_ortho', 'geometry_zoo', 'lighting_studio', 'materials_hall',
     'render_settings', 'textures_mapping', 'volumes_smoke', 'world_sky_hdri', 'world_sky_sky')
 $CorpusParityArgs = @()
 foreach ($CorpusScene in $CorpusScenes) {

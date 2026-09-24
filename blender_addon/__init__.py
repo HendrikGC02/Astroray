@@ -1667,7 +1667,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
             tuple(round(float(o), 5)
                   for o in getattr(rv3d, 'view_camera_offset', (0.0, 0.0))),
             getattr(rv3d, 'view_perspective', 'PERSP'),
+            CustomRaytracerRenderEngine._camera_projection_key(context, rv3d),
         )
+
+    @staticmethod
+    def _camera_projection_key(context, rv3d):
+        """#845: scene-camera projection mode + ortho scale in CAMERA view
+        (a type/scale edit changes the image without moving the view)."""
+        scene = getattr(context, 'scene', None)
+        cam = getattr(scene, 'camera', None) if scene is not None else None
+        if getattr(rv3d, 'view_perspective', 'PERSP') != 'CAMERA' or cam is None:
+            return None
+        data = getattr(cam, 'data', None)
+        return (str(getattr(data, 'type', 'PERSP')),
+                round(float(getattr(data, 'ortho_scale', 6.0)), 5))
 
     @staticmethod
     def _camera_substantive_state_hash(context, region):
@@ -1740,6 +1753,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             dof_enabled, aperture_fstop,
             camera_zoom, camera_offset,
             view_perspective,
+            CustomRaytracerRenderEngine._camera_projection_key(context, rv3d),
         )
 
     # ------------------------------------------------------------------ #
@@ -2289,19 +2303,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
         frustum height. So for HORIZONTAL/AUTO-wide fits we convert hfov→vfov
         using the final image aspect."""
         if camera.type != 'PERSP':
-            # ORTHO / PANO: fall back to a plausible vfov so at least the
-            # scene is visible. A full ortho-camera implementation would
-            # require plumbing an orthographic flag into the C++ camera.
+            # PANO: fall back to a plausible vfov so at least the scene is
+            # visible (reported as degraded). ORTHO never reaches here (#845).
             return 40.0
 
         aspect = width / max(1, height)
         fit = camera.sensor_fit
-        # AUTO picks the axis with the larger image dimension
-        if fit == 'AUTO':
+        # AUTO fits sensor_width to the larger image dimension
+        # (BKE_camera_sensor_size returns sensor_x for AUTO), so a portrait
+        # AUTO frame uses sensor_width vertically, not sensor_height.
+        auto = fit == 'AUTO'
+        if auto:
             fit = 'HORIZONTAL' if width >= height else 'VERTICAL'
 
         if fit == 'VERTICAL':
-            sensor = camera.sensor_height
+            sensor = camera.sensor_width if auto else camera.sensor_height
             vfov_rad = 2.0 * math.atan(sensor / (2.0 * camera.lens))
         else:  # HORIZONTAL
             sensor = camera.sensor_width
@@ -2343,6 +2359,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         vup       = [up.x, up.y, up.z]
 
         camera = cam_obj.data
+
+        if getattr(camera, "type", "PERSP") == 'ORTHO':
+            self._apply_ortho_camera(renderer, camera, look_from, look_at, vup,
+                                     width, height, vfov_scale, viewport_shift, rv3d)
+            return
 
         # pkg193: reproduce Blender's camera projection EXACTLY so the rendered
         # framing matches the viewport overlay (numpad-0) and the F12 render.
@@ -2417,6 +2438,67 @@ class CustomRaytracerRenderEngine(RenderEngine):
                               aperture, focus_dist, width, height,
                               shift_x, shift_y,
                               clip_near=clip_near, clip_far=clip_far)
+
+    @staticmethod
+    def _ortho_camera_plane(camera, width, height, vfov_scale=1.0,
+                            viewport_shift=(0.0, 0.0), proj=None):
+        """#845: world-space ortho plane extents + frame-fraction shift.
+
+        Viewport (valid orthographic window_matrix, proj[3][3] == 1): invert
+        the OpenGL ortho matrix, m00 = 2/(r-l), m11 = 2/(t-b),
+        m03 = -(r+l)/(r-l); it already contains zoom, pan and datablock shift.
+        F12 (proj None): Blender's viewplane spans ortho_scale along the
+        sensor-fit axis (AUTO = larger image dimension) and shifts by
+        shift * ortho_scale world units (BKE_camera_params_compute_viewplane).
+        Locked against Blender world_to_camera_view by tests/test_pkg845_*.
+        """
+        if (proj is not None and abs(float(proj[3][3]) - 1.0) < 1e-6
+                and abs(proj[0][0]) > 1e-12 and abs(proj[1][1]) > 1e-12):
+            return (2.0 / proj[0][0], 2.0 / proj[1][1],
+                    -proj[0][3] / 2.0, -proj[1][3] / 2.0)
+        fit = getattr(camera, "sensor_fit", "AUTO")
+        if fit == 'AUTO':
+            fit = 'HORIZONTAL' if width >= height else 'VERTICAL'
+        scale = float(getattr(camera, "ortho_scale", 6.0))
+        if vfov_scale != 1.0 and vfov_scale > 0.0:
+            scale *= vfov_scale
+        if fit == 'HORIZONTAL':
+            ortho_w = scale
+            ortho_h = scale * height / max(1, width)
+        else:
+            ortho_h = scale
+            ortho_w = scale * width / max(1, height)
+        base = float(getattr(camera, "ortho_scale", 6.0))
+        shift_x = float(getattr(camera, "shift_x", 0.0)) * base / ortho_w + float(viewport_shift[0])
+        shift_y = float(getattr(camera, "shift_y", 0.0)) * base / ortho_h + float(viewport_shift[1])
+        return ortho_w, ortho_h, shift_x, shift_y
+
+    def _apply_ortho_camera(self, renderer, camera, look_from, look_at, vup,
+                            width, height, vfov_scale, viewport_shift, rv3d):
+        """#845: export a Blender ORTHO camera (no perspective FOV path)."""
+        proj = rv3d.window_matrix if (rv3d is not None and hasattr(rv3d, 'window_matrix')) else None
+        ortho_w, ortho_h, shift_x, shift_y = self._ortho_camera_plane(
+            camera, width, height, vfov_scale, viewport_shift, proj)
+        aperture, focus_dist = 0.0, 10.0
+        if camera.dof.use_dof:
+            if camera.dof.aperture_fstop > 0:
+                # Cycles blender/camera.cpp (Apache-2.0): ortho aperture radius
+                # is 1/(2*fstop) (no focal length). C++ takes the diameter.
+                aperture = 2.0 * (1.0 / (2.0 * float(camera.dof.aperture_fstop)))
+            if camera.dof.focus_object:
+                focus_dist = (mathutils.Vector(look_from)
+                              - camera.dof.focus_object.matrix_world.translation).length
+            else:
+                focus_dist = camera.dof.focus_distance
+        clip_near = float(getattr(camera, "clip_start", 0.001))
+        clip_far = float(getattr(camera, "clip_end", 3.402823466e38))
+        renderer.setup_camera(look_from, look_at, vup, 0.0,
+                              ortho_w / max(1e-12, ortho_h),
+                              aperture, focus_dist, width, height,
+                              shift_x, shift_y,
+                              clip_near=clip_near, clip_far=clip_far,
+                              orthographic=True, ortho_width=ortho_w,
+                              ortho_height=ortho_h)
 
     def convert_materials(self, depsgraph, renderer):
         # In Blender 5.0+ every material is node-based (use_nodes is deprecated

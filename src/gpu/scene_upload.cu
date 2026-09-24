@@ -775,6 +775,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         r.camera.focusDist = cam->getFocusDist();
         r.camera.shiftX = cam->getShiftX();
         r.camera.shiftY = cam->getShiftY();
+        r.camera.orthographic = cam->isOrthographic() ? 1 : 0;  // #845
+        { Vec3 f = cam->viewForward(); r.camera.forward = GVec3(f.x, f.y, f.z); }
     }
 
     // --- Materials: unique ID per shared_ptr (shared by single-level + pkg114 instanced) ---

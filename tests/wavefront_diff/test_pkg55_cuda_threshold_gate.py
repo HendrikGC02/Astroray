@@ -303,6 +303,56 @@ def _compute_ulp_distance(a, b):
     return int(np.max(ulp_dist))
 
 
+def _unit_vector_ulp_distance(a, b):
+    """Max component |a-b| in units of ulp(1.0) = 2^-23.
+
+    #845: ray directions are unit vectors, so their rounding error scales with
+    the vector magnitude (~1), not with each component. Per-component ULPs of a
+    near-zero component (e.g. -0.0065, where 1 ULP ~ 5e-10) blow a 1.4e-8
+    difference up to 31 "ULP" although the vector agrees to 1 ulp(1.0).
+    """
+    import numpy as np
+    d = np.abs(np.asarray(a, np.float64) - np.asarray(b, np.float64))
+    return int(np.ceil(float(d.max()) / 2.0 ** -23 - 1e-9)) if d.size else 0
+
+
+def _point_ulp_distance(a, b):
+    """Max per-row |a-b| in units of ulp(max(|p|_inf, 1.0)) of that point.
+
+    #845: hit points carry the rounding of the scene-scale ray.at(t), so a
+    near-zero coordinate's own ULP (~2e-10 at 0.0037) is the wrong unit; the
+    error scales with the point's largest coordinate (floored at 1.0).
+    """
+    import numpy as np
+    a = np.asarray(a, np.float64).reshape(-1, 3)
+    b = np.asarray(b, np.float64).reshape(-1, 3)
+    if a.size == 0:
+        return 0
+    scale = np.maximum(np.max(np.abs(a), axis=1), 1.0)
+    ulp = np.spacing(scale.astype(np.float32)).astype(np.float64)
+    d = np.max(np.abs(a - b), axis=1) / ulp
+    return int(np.ceil(float(d.max()) - 1e-9))
+
+
+def test_point_ulp_metric_catches_real_divergence():
+    """Negative control: at |p|_inf = 3.19 one ulp is 2.4e-7, so the 64-ulp
+    PostIntersect bound is 1.5e-5; a 5e-5 divergence must fail, the measured
+    6.6e-7 rounding difference must pass."""
+    import numpy as np
+    p = np.array([[-0.0036931857, 1.2, -3.1891515]], np.float32)
+    assert _point_ulp_distance(p, p + np.float32(5e-5)) > 64
+    assert _point_ulp_distance(p, p + np.float32(6.6e-7)) <= 64
+
+
+def test_unit_vector_ulp_metric_catches_real_divergence():
+    """Negative control: a 1e-5 direction divergence (~84 ulp(1.0)) must fail
+    the PostInit max_ulp=4 bound; a 1.2e-7 rounding difference must pass."""
+    import numpy as np
+    a = np.array([[-0.0064646620, 0.6, 0.79997]], np.float32)
+    assert _unit_vector_ulp_distance(a, a + np.float32(1e-5)) > 4
+    assert _unit_vector_ulp_distance(a, a + np.float32(1.1920929e-7)) <= 4
+
+
 def _compute_stage_ulp(cpu_snapshots, gpu_snapshot_array, stage):
     """Compute max ULP distance for geometry fields at a given stage."""
     import numpy as np
@@ -327,7 +377,7 @@ def _compute_stage_ulp(cpu_snapshots, gpu_snapshot_array, stage):
         gpu_ray_dir = gpu_snapshot_array[:, 3:6].astype(np.float32)
 
         ulp_origin = _compute_ulp_distance(cpu_ray_origin.flatten(), gpu_ray_origin.flatten())
-        ulp_dir = _compute_ulp_distance(cpu_ray_dir.flatten(), gpu_ray_dir.flatten())
+        ulp_dir = _unit_vector_ulp_distance(cpu_ray_dir, gpu_ray_dir)
 
         return max(ulp_origin, ulp_dir)
 
@@ -359,13 +409,46 @@ def _compute_stage_ulp(cpu_snapshots, gpu_snapshot_array, stage):
         gpu_hit_normal = gpu_snapshot_array[:, 19:22].astype(np.float32)[mask]
 
         ulp_hit_t = _compute_ulp_distance(cpu_hit_t, gpu_hit_t)
-        ulp_hit_point = _compute_ulp_distance(cpu_hit_point.flatten(), gpu_hit_point.flatten())
-        ulp_hit_normal = _compute_ulp_distance(cpu_hit_normal.flatten(), gpu_hit_normal.flatten())
+        # #845: magnitude-relative ULPs (see _unit_vector_ulp_distance /
+        # _point_ulp_distance) -- per-component ULPs of near-zero coordinates
+        # read 1930 for a 6.6e-7 point difference.
+        ulp_hit_point = _point_ulp_distance(cpu_hit_point, gpu_hit_point)
+        ulp_hit_normal = _unit_vector_ulp_distance(cpu_hit_normal, gpu_hit_normal)
 
         return max(ulp_hit_t, ulp_hit_point, ulp_hit_normal)
 
     else:
         raise ValueError(f"ULP comparison not defined for stage {stage}")
+
+
+def _magnitude_rel_err_p999(a, b, unit):
+    """p99.9 of |a-b| / scale per component, scale = 1.0 for unit vectors
+    (hit_normal) or max(|p|_inf, 1.0) of that point (hit_point).
+
+    #845: a per-component denominator turns a 4.5e-7 difference at a
+    near-zero coordinate (-0.0037) into a 1.2e-4 "relative error"; the
+    rounding scales with the vector / scene magnitude, not the component.
+    """
+    import numpy as np
+    a = np.asarray(a, np.float64).reshape(-1, 3)
+    b = np.asarray(b, np.float64).reshape(-1, 3)
+    if unit:
+        scale = np.ones((a.shape[0], 1))
+    else:
+        scale = np.maximum(np.max(np.abs(a), axis=1, keepdims=True), 1.0)
+    return float(np.percentile(np.abs(a - b) / scale, 99.9))
+
+
+def test_magnitude_rel_err_catches_real_divergence():
+    """Negative control for the 1e-5 PostIntersect p99.9 bound: a 1e-4
+    divergence on every row fails; the measured 4.5e-7 rounding passes."""
+    import numpy as np
+    p = np.array([[-0.0036931857, 1.2, -3.1891515]] * 8, np.float32)
+    n = np.array([[-0.0051569086, 0.6, 0.79998]] * 8, np.float32)
+    assert _magnitude_rel_err_p999(p, p + np.float32(1e-4), unit=False) > 1e-5
+    assert _magnitude_rel_err_p999(n, n + np.float32(1e-4), unit=True) > 1e-5
+    assert _magnitude_rel_err_p999(p, p + np.float32(4.5e-7), unit=False) <= 1e-5
+    assert _magnitude_rel_err_p999(n, n + np.float32(9.5e-7), unit=True) <= 1e-5
 
 
 def _compute_stage_p999(cpu_snapshots, gpu_snapshot_array, stage):
@@ -430,8 +513,11 @@ def _compute_stage_p999(cpu_snapshots, gpu_snapshot_array, stage):
         # contaminate the percentile. If no common hits, skip.
         if hit_mask.any():
             all_rel_errors.append(rel_err_p999(cpu_hit_t[hit_mask], gpu_hit_t[hit_mask]))
-            all_rel_errors.append(rel_err_p999(cpu_hit_point[hit_mask], gpu_hit_point[hit_mask]))
-            all_rel_errors.append(rel_err_p999(cpu_hit_normal[hit_mask], gpu_hit_normal[hit_mask]))
+            # #845: magnitude-relative denominators (see _magnitude_rel_err_p999).
+            all_rel_errors.append(_magnitude_rel_err_p999(
+                cpu_hit_point[hit_mask], gpu_hit_point[hit_mask], unit=False))
+            all_rel_errors.append(_magnitude_rel_err_p999(
+                cpu_hit_normal[hit_mask], gpu_hit_normal[hit_mask], unit=True))
 
     elif stage == 'PostShade':
         # PostShade compares only ray_origin (== rec.point from PostIntersect,
@@ -453,7 +539,9 @@ def _compute_stage_p999(cpu_snapshots, gpu_snapshot_array, stage):
         gpu_ray_origin = gpu_snapshot_array[:, 0:3].astype(np.float32)
         gpu_lambdas = gpu_snapshot_array[:, 10:14].astype(np.float32)
 
-        all_rel_errors.append(rel_err_p999(cpu_ray_origin, gpu_ray_origin))
+        # #845: ray_origin here is the shading point (== PostIntersect hit_point),
+        # so it takes the same scene-scale denominator.
+        all_rel_errors.append(_magnitude_rel_err_p999(cpu_ray_origin, gpu_ray_origin, unit=False))
         all_rel_errors.append(rel_err_p999(cpu_lambdas, gpu_lambdas))
 
     elif stage == 'PostLightSample':
@@ -471,7 +559,9 @@ def _compute_stage_p999(cpu_snapshots, gpu_snapshot_array, stage):
         gpu_ray_origin = gpu_snapshot_array[:, 0:3].astype(np.float32)
         gpu_lambdas = gpu_snapshot_array[:, 10:14].astype(np.float32)
 
-        all_rel_errors.append(rel_err_p999(cpu_ray_origin, gpu_ray_origin))
+        # #845: ray_origin here is the shading point (== PostIntersect hit_point),
+        # so it takes the same scene-scale denominator.
+        all_rel_errors.append(_magnitude_rel_err_p999(cpu_ray_origin, gpu_ray_origin, unit=False))
         all_rel_errors.append(rel_err_p999(cpu_lambdas, gpu_lambdas))
 
     elif stage == 'PostRR':
@@ -486,7 +576,9 @@ def _compute_stage_p999(cpu_snapshots, gpu_snapshot_array, stage):
         gpu_ray_origin = gpu_snapshot_array[:, 0:3].astype(np.float32)
         gpu_lambdas = gpu_snapshot_array[:, 10:14].astype(np.float32)
 
-        all_rel_errors.append(rel_err_p999(cpu_ray_origin, gpu_ray_origin))
+        # #845: ray_origin here is the shading point (== PostIntersect hit_point),
+        # so it takes the same scene-scale denominator.
+        all_rel_errors.append(_magnitude_rel_err_p999(cpu_ray_origin, gpu_ray_origin, unit=False))
         all_rel_errors.append(rel_err_p999(cpu_lambdas, gpu_lambdas))
 
     else:

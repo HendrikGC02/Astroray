@@ -9,8 +9,8 @@ the cell parity for scales 3, 4, 7, 8, ...; 3-D noise on a plane differs too.
 
 Measured on the issue's scene (checker scale 6): no parity flip there (z*6 = 3
 floors to 2, even, like 0); both backends match the Cycles checker formula at
-97-99 % of ground pixels. The remaining <= 1 px boundary offset is the camera's
-(res - 1) raster divisor (pkg212 spec, deferred), not Generated coordinates.
+97-99 % of ground pixels. The remaining <= 1 px boundary offset was the camera's
+(res - 1) raster divisor (fixed in #845), not Generated coordinates.
 """
 
 import types

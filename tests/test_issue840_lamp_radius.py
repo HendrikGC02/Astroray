@@ -24,7 +24,7 @@ RADII = [0.0, 0.05, 0.1, 0.25, 1.0]
 
 
 def _radial_bad(img, sc):
-    div = sc.res - 1
+    div = sc.res  # #845: engine raster divisor is res (was res - 1)
     refimg = ref.radiance(sc, None, sub=2, divisor=div)
     theta, _ = ref.pixel_geometry(sc, divisor=div)
     rows = ref.binned_ratio(img, refimg, theta, np.arange(0.0, 34.0, 2.0), min_ref_frac=0.05)
@@ -79,6 +79,6 @@ def test_four_equal_lamps_keep_full_energy(astroray_module):
                    vfov=base.fov_deg, aspect_ratio=1.0, aperture=0.0,
                    focus_dist=base.cam_height, width=base.res, height=base.res)
     img = np.asarray(r.render(64, 4, None, False))[..., :3]
-    want = ref.radiance(base, None, sub=2, divisor=base.res - 1)
+    want = ref.radiance(base, None, sub=2, divisor=base.res)
     ratio = img[..., 1].mean() / want.mean()
     assert 0.95 <= ratio <= 1.05, ratio

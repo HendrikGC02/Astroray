@@ -1125,4 +1125,8 @@ struct GCameraParams {
     int   shutterPosition;               // 0=Start, 1=Center, 2=End
     float vw, vh, focusDist;             // Projection scalars for interpolated camera
     float shiftX, shiftY;                // Camera shift for interpolated camera
+    // #845: orthographic projection. lowerLeft/horizontal/vertical then span
+    // the image plane through the camera; rays leave it along `forward`.
+    int   orthographic = 0;
+    GVec3 forward;                       // unit view direction (-w)
 };

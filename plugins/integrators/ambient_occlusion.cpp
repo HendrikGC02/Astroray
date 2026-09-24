@@ -41,10 +41,8 @@ public:
         // pkg87b: Cryptomatte accumulation for AO integrator.
         // Weight = visibility-fraction (the degenerate Cycles behaviour for non-lighting integrators).
         if (renderer_->getCryptomatteEnabled() && camera_) {
-            int pixelX = static_cast<int>(ray.screenU * (camera_->width - 1));
-            int pixelY = static_cast<int>((1.0f - ray.screenV) * (camera_->height - 1));
-            pixelX = std::max(0, std::min(pixelX, camera_->width - 1));
-            pixelY = std::max(0, std::min(pixelY, camera_->height - 1));
+            int pixelX, pixelY;  // #845: inverse of the /W film mapping
+            screenToPixel(ray.screenU, ray.screenV, camera_->width, camera_->height, pixelX, pixelY);
             int pixelIndex = pixelY * camera_->width + pixelX;
             int offset = pixelIndex * camera_->cryptomatteDepth * 2;
             float* cryptoObjRanks = camera_->cryptoObjectBuffer.data() + offset;

@@ -87,8 +87,9 @@ void init_path(PathState& ps, const Camera& cam, int x, int y,
     // the call site, not inside filterSample. Mirrors the GPU wavefront edit
     // in stage_init.cu (CPU<->GPU wavefront byte-identity invariant). See
     // pkg212 spec.
-    float u = (x + 0.5f + filterSample(ps.rng)) / (width - 1);
-    float v = 1.0f - (y + 0.5f + filterSample(ps.rng)) / (height - 1);
+    // #845: divide by W/H so pixel i's centre lands at film (i+0.5)/W (Cycles).
+    float u = (x + 0.5f + filterSample(ps.rng)) / width;
+    float v = 1.0f - (y + 0.5f + filterSample(ps.rng)) / height;
 
     // Lens sampling via a temporary mt19937 seeded from the live RNG. This
     // consumes exactly one WavefrontRNG draw (dimension auto-increments).

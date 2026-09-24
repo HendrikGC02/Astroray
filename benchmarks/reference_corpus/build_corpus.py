@@ -45,6 +45,7 @@ BUILDERS = {
     "world_sky_sky": "build_world_sky_sky_scene",
     "geometry_zoo": "build_geometry_zoo_scene",
     "camera_lens": "build_camera_lens_scene",
+    "camera_lens_ortho": "build_camera_lens_ortho_scene",   # #845
     "render_settings": "build_render_settings_scene",
     "volumes_smoke": "build_volumes_smoke_scene",   # pkg271
 }
@@ -56,6 +57,7 @@ RESOLUTIONS = {
     "world_sky_sky": ("REFERENCE_WORLD_SKY_RES", "REFERENCE_WORLD_SKY_SAMPLES"),
     "geometry_zoo": ("REFERENCE_GEOMETRY_ZOO_RES", "REFERENCE_GEOMETRY_ZOO_SAMPLES"),
     "camera_lens": ("REFERENCE_CAMERA_LENS_RES", "REFERENCE_CAMERA_LENS_SAMPLES"),
+    "camera_lens_ortho": ("REFERENCE_CAMERA_LENS_ORTHO_RES", "REFERENCE_CAMERA_LENS_ORTHO_SAMPLES"),
     "render_settings": ("REFERENCE_RENDER_SETTINGS_RES", "REFERENCE_RENDER_SETTINGS_SAMPLES"),
     "volumes_smoke": ("REFERENCE_VOLUMES_RES", "REFERENCE_VOLUMES_SAMPLES"),
 }
@@ -69,6 +71,7 @@ FAMILY_OF = {
     "world_sky_hdri": "world_sky",
     "world_sky_sky": "world_sky",
     "volumes_smoke": "volumes",   # pkg271 (scene id != family, like world_sky)
+    "camera_lens_ortho": "camera_lens",   # #845: one active camera per scene
 }
 # The one non-procedural asset Phase 2 uses (design doc Sec 3.2/README asset
 # table) -- recorded here so build_corpus.py's manifest carries the same
@@ -148,6 +151,14 @@ def _build_one(bpy, scene_id: str, out_dir: Path, assign, overrides, matrix_rows
     elif scene_id == "world_sky_sky":
         family_rows = [r for r in family_rows if r["bl_idname"] not in (
             "ShaderNodeTexEnvironment", "ShaderNodeMapping", "ShaderNodeTexCoord")]
+    # #845: camera_lens likewise splits by projection -- the perspective hero
+    # shot cannot show ORTHO, and the ortho grid has no lens/DoF.
+    ortho_socks = {"type", "ortho_scale", "shift_x", "shift_y", "sensor_fit",
+                   "clip_start", "clip_end"}
+    if scene_id == "camera_lens":
+        family_rows = [r for r in family_rows if r["socket_or_prop"] not in ("type", "ortho_scale")]
+    elif scene_id == "camera_lens_ortho":
+        family_rows = [r for r in family_rows if r["socket_or_prop"] in ortho_socks]
 
     feature_tags = []
     missing = []

@@ -102,9 +102,29 @@ std::array<float, 2> probeRegisteredReSTIRGrDispatch(float emission) {
     return {result.color.y, static_cast<float>(trace_calls)};
 }
 
+// #845: film round trip pixel -> u,v (the CPU render loop's (x + jitter)/W
+// mapping) -> Camera::getRay -> screenToPixel. Returns the recovered (px, py).
+std::array<int, 2> cameraPixelRoundtrip(int width, int height, int x, int y,
+                                        float jitterU, float jitterV, bool orthographic) {
+    Camera cam(Vec3(0, 0, 5), Vec3(0, 0, 0), Vec3(0, 1, 0), 40.0f,
+               float(width) / float(height), 0.0f, 5.0f, width, height,
+               0.1f, -0.05f, 0.001f, std::numeric_limits<float>::max(),
+               orthographic, 4.0f, 4.0f * float(height) / float(width));
+    std::mt19937 gen(7);
+    const float u = (x + jitterU) / float(width);
+    const float v = 1.0f - (y + jitterV) / float(height);
+    const Ray ray = cam.getRay(u, v, 0.0f, gen);
+    int px = -1, py = -1;
+    screenToPixel(ray.screenU, ray.screenV, width, height, px, py);
+    return {px, py};
+}
+
 } // namespace
 
 PYBIND11_MODULE(astroray_test_helpers, m) {
+    m.def("camera_pixel_roundtrip", &cameraPixelRoundtrip, "width"_a, "height"_a,
+          "x"_a, "y"_a, "jitter_u"_a, "jitter_v"_a, "orthographic"_a = false,
+          "#845: pixel -> film (u,v) -> Camera::getRay -> screenToPixel.");
     m.doc() = "Astroray test/oracle utilities (internal, not public API)";
 
     // pkg280 — expose the exact production thin-disk transfer helper for

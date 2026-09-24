@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done
 **Estimated effort:** 1–2 sessions (~5 h) + one CUDA build
 **Depends on:** pkg190, pkg219, pkg230b
 
@@ -78,13 +78,19 @@ directive).
 
 ## Acceptance criteria
 
-- [ ] CPU render of `Generated -> Separate XYZ -> Math(Sin) -> Combine XYZ -> Checker` matches a numpy reference of the same field (Cycles `svm/checker.h` formula) per pixel, excluding a 1-px band at cell edges.
-- [ ] GPU/CPU per-channel region-mean ratio within 3 % at 256 spp for the same scene and for a warped Noise.
-- [ ] Per-pixel gate (the 64³ bake is the limiting factor, so the region-mean ratio alone does not catch the 4–26 % edge mismatch): at the 64³ bake resolution, the fraction of pixels whose per-channel |Astroray_GPU − Astroray_CPU| exceeds 0.01 must be ≤ 26 % for the sin-warped Checker (worst case, k = 24) and ≤ the same bound for the warped Noise.
-- [ ] Mapping + non-affine warp: CPU and GPU both apply Mapping before the warp; verified against a numpy reference with a Mapping node present.
-- [ ] `cuobjdump --dump-resource-usage`: 0 functions changed vs main.
-- [ ] Non-affine chain with an Object base coordinate: CPU exact, degradation entry recorded.
-- [ ] Addon path contact sheet (Cycles CPU | Astroray CPU | Astroray GPU) inspected.
+- [x] CPU render of `Generated -> Separate XYZ -> Math(Sin) -> Combine XYZ -> Checker` matches a numpy reference of the same field (Cycles `svm/checker.h` formula) per pixel, excluding a 1-px band at cell edges.
+- [x] GPU/CPU per-channel region-mean ratio within 3 % at 256 spp for the same scene and for a warped Noise.
+- [x] Per-pixel gate (the 64³ bake is the limiting factor, so the region-mean ratio alone does not catch the 4–26 % edge mismatch): at the 64³ bake resolution, the fraction of pixels whose per-channel |Astroray_GPU − Astroray_CPU| exceeds 0.01 must be ≤ 26 % for the sin-warped Checker (worst case, k = 24) and ≤ the same bound for the warped Noise.
+  - Amended 2026-09-24 (lead-approved): the raw 0.01 fraction is invalid on the spectral render. CPU seed-vs-seed with adaptive sampling off already exceeds it: 75.1 % at 256 spp, 30.6 % at 4096, 12.5 % at 16384. The gate is now noise-floor-corrected, adaptive off, at 4096 spp: frac(|GPU−CPU|>0.01) − frac(|CPU−CPU′|>0.01) ≤ 26 % (Checker and Noise). The Checker cases also require a cell-flip fraction frac(|GPU−CPU|>0.3) ≤ 26 %, with CPU-vs-CPU ≈ 0 %.
+  - Measured 2026-09-25 (build ab6a37bb): the option-2 excess FAILED (checker k=24 36.5 %, noise 46.6 %, Mapping 32.3 %). The pre-existing unwarped pkg190 bake already scores 7.1 % (checker) and 20.5 % (noise), identical on main. The flip and region-mean gates pass.
+  - Amended again (lead, option b): excess(warped) − excess(plain pkg190 bake of the same field and Mapping) ≤ the noise-free bake-model Δ. The bound comes from a 64³ voxel-centre, nearest-fetch model at this fixture's 0.01 metric (the design note's frequency argument: the warp scales ∂/∂x by k|cos kx|). Model Δ: checker k=24 48.6 %, checker+Mapping 59.0 %, noise k=6 9.0 %.
+  - Measured Δ: checker 29.4 % (pass), checker+Mapping 24.4 % (pass), noise 26.1 % (**FAIL**).
+  - The model says the bake alone exceeds 0.01 on 83 % (plain) / 92 % (warped) of noise pixels, so a 0.01 per-pixel metric cannot isolate the warp on smooth fields.
+  - Lead decision 2026-09-25: smooth fields (Noise) drop the per-pixel gate and keep region-mean plus the inspected contact sheet. Checker keeps (b) and the flip gate. Final: 17/17 pass on build ab6a37bb. Follow-up (lead): 64³ nearest-voxel bake resolution/filtering, which loses the finest stripes of high-frequency warped checkers.
+- [x] Mapping + non-affine warp: CPU and GPU both apply Mapping before the warp; verified against a numpy reference with a Mapping node present.
+- [x] `cuobjdump --dump-resource-usage`: 0 functions changed vs main.
+- [x] Non-affine chain with an Object base coordinate: CPU exact, degradation entry recorded.
+- [x] Addon path contact sheet (Cycles CPU | Astroray CPU | Astroray GPU) inspected.
 
 ---
 
@@ -99,11 +105,16 @@ directive).
 
 ## Progress
 
-- [ ] Wrapper class + binding
-- [ ] Compiler leaf + nodes
-- [ ] Addon wiring
-- [ ] Tests + build + REG gate + GPU parity + contact sheet
+- [x] Wrapper class + binding
+- [x] Compiler leaf + nodes
+- [x] Addon wiring
+- [x] Tests + build + REG gate + GPU parity + contact sheet
 
 ---
 
 ## Lessons
+
+- The spectral render is too noisy for a raw 0.01 per-pixel gate. Gate cell flips plus region means, and model the bake noise-free before setting per-pixel bounds.
+- Adaptive sampling is on by default and caps convergence; parity gates must turn it off.
+- The camera maps pixels as s = (i + u)/(W − 1), not /W.
+- The Diffuse BSDF drops textures (#880); contact sheets need a Principled BSDF.

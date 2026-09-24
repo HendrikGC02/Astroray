@@ -393,23 +393,49 @@ public:
                                   const std::vector<int>& code_flat,
                                   const std::vector<float>& consts_flat,
                                   const std::vector<float>& ramps_flat) {
-        using namespace astroray::svm;
         auto it = programTextures.find(name);
         if (it == programTextures.end())
             throw std::runtime_error("set_program_texture_program: unknown program texture " + name);
+        it->second->setProgram(parseProgram("set_program_texture_program", numTex, outSlot,
+                                            code_flat, consts_flat, ramps_flat));
+    }
+    // pkg277 (#822): wrap a registered procedural in a coordinate program. The
+    // wrapper carries coord_mode (+ Mapping via set_texture_mapping_matrix);
+    // OP_LOAD_TEX 0 reads the resolved point, the output is the child's point.
+    void createCoordProgramTexture(const std::string& name, const std::string& childName,
+                                   const std::string& coordMode, int outSlot,
+                                   const std::vector<int>& code_flat,
+                                   const std::vector<float>& consts_flat,
+                                   const std::vector<float>& ramps_flat) {
+        auto child = getTexture(childName);
+        if (!child)
+            throw std::runtime_error("create_coord_program_texture: unknown child texture " + childName);
+        auto t = std::make_shared<CoordProgramTexture>(child,
+            parseProgram("create_coord_program_texture", 1, outSlot,
+                         code_flat, consts_flat, ramps_flat));
+        t->setCoordMode(parseCoordMode(coordMode));
+        proceduralTextures[name] = t;
+    }
+private:
+    static astroray::svm::ShaderVMProgram parseProgram(
+            const std::string& who, int numTex, int outSlot,
+            const std::vector<int>& code_flat,
+            const std::vector<float>& consts_flat,
+            const std::vector<float>& ramps_flat) {
+        using namespace astroray::svm;
         if (code_flat.size() % 8 != 0)
-            throw std::runtime_error("set_program_texture_program: code_flat not a multiple of 8");
+            throw std::runtime_error(who + ": code_flat not a multiple of 8");
         int numInstr = (int)(code_flat.size() / 8);
         if (numInstr > VM_MAX_INSTR)
-            throw std::runtime_error("set_program_texture_program: program exceeds VM_MAX_INSTR");
+            throw std::runtime_error(who + ": program exceeds VM_MAX_INSTR");
         int numConst = (int)(consts_flat.size() / 3);
         if (numConst > VM_MAX_CONST)
-            throw std::runtime_error("set_program_texture_program: too many constants");
+            throw std::runtime_error(who + ": too many constants");
         if (ramps_flat.size() % (RAMP_TABLE_SIZE * 3) != 0)
-            throw std::runtime_error("set_program_texture_program: ramps_flat wrong length");
+            throw std::runtime_error(who + ": ramps_flat wrong length");
         int numRamps = (int)(ramps_flat.size() / (RAMP_TABLE_SIZE * 3));
         if (numRamps > VM_MAX_RAMPS)
-            throw std::runtime_error("set_program_texture_program: too many ramps");
+            throw std::runtime_error(who + ": too many ramps");
         ShaderVMProgram prog;
         prog.numInstr = numInstr;
         prog.outSlot  = outSlot;
@@ -433,7 +459,7 @@ public:
                 int base = (r * RAMP_TABLE_SIZE + s) * 3;
                 prog.ramp[r][s] = GVec3(ramps_flat[base], ramps_flat[base+1], ramps_flat[base+2]);
             }
-        it->second->setProgram(prog);
+        return prog;
     }
 };
 
@@ -554,6 +580,14 @@ public:
                                   const std::vector<float>& ramps_flat) {
         textureManager.setProgramTextureProgram(name, numTex, outSlot,
                                                 code_flat, consts_flat, ramps_flat);
+    }
+    void createCoordProgramTexture(const std::string& name, const std::string& childName,
+                                   const std::string& coordMode, int outSlot,
+                                   const std::vector<int>& code_flat,
+                                   const std::vector<float>& consts_flat,
+                                   const std::vector<float>& ramps_flat) {
+        textureManager.createCoordProgramTexture(name, childName, coordMode, outSlot,
+                                                 code_flat, consts_flat, ramps_flat);
     }
 
     // pkg219b test helper — sample a registered texture (image / procedural /
@@ -3642,6 +3676,12 @@ PYBIND11_MODULE(astroray, m) {
              "pkg219b: set the compiled bytecode. code_flat = 8 ints/instr "
              "(op,out,a,b,c,d,e,imm); consts_flat = 3 floats/const; ramps_flat = "
              "numRamps*256*3 floats (baked Color-Ramp tables, RGB).")
+        .def("create_coord_program_texture", &PyRenderer::createCoordProgramTexture,
+             "name"_a, "child_name"_a, "coord_mode"_a, "out_slot"_a,
+             "code_flat"_a, "consts_flat"_a, "ramps_flat"_a = std::vector<float>{},
+             "pkg277: register a procedural sampled at a coordinate warped by an "
+             "op-VM program (OP_LOAD_TEX 0 = resolved point). Coord mode + Mapping "
+             "live on the wrapper; the GPU bakes it like any procedural (pkg190).")
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)
         .def("eval_material", &PyRenderer::evalMaterial,
              "material_id"_a, "wo"_a, "wi"_a,

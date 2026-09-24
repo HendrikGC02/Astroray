@@ -69,6 +69,7 @@ SampledSpectrum tracePathSpectral(
     bool wasSpecular = true;
     // pkg120: BSDF pdf of the current continuation ray (mirrors pathTraceSpectral).
     float bsdfPdfPrev = 0.0f;
+    Vec3 misNormalPrev(0.0f);  // #851: NEE normal at the previous vertex
     std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
 
     const auto& bvh = renderer.getBVH();
@@ -131,7 +132,7 @@ SampledSpectrum tracePathSpectral(
                 // so the raw accumulation matches production bit-for-bit).
                 float lightPdfHit = lights.empty()
                     ? 0.0f
-                    : lights.pdfValue(ray.origin, ray.direction);
+                    : lights.pdfValue(ray.origin, ray.direction, misNormalPrev);
                 float bp = bsdfPdfPrev, lp = lightPdfHit;
                 float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                 color += throughput * Le_spec * wB;
@@ -221,6 +222,7 @@ SampledSpectrum tracePathSpectral(
         if (bss.pdf <= 0.0f) break;
         wasSpecular = bss.isDelta;
         bsdfPdfPrev = bss.pdf;  // pkg120: carry for next-bounce two-sided MIS
+        misNormalPrev = rec.normal;
         throughput *= bss.f_spectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
 
         // PostShade snapshot.

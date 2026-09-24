@@ -880,6 +880,13 @@ public:
     virtual bool isInfiniteLight() const { return false; }
     virtual Vec3 emittedRadiance() const { return Vec3(0); }
     virtual float directionFalloff(const Vec3& /*directionFromLight*/) const { return 1.0f; }
+    // #851: emitting area for the light-tree energy L * area (Cycles uses the
+    // triangle area). Default: mean projected area of the bbox, surface / 4
+    // (Cauchy's formula for convex bodies).
+    virtual float treeEmitterArea() const {
+        AABB b;
+        return boundingBox(b) ? 0.25f * b.area() : 0.0f;
+    }
     virtual Vec3 emittedRadiance(const Vec3& /*lightNormal*/, const Vec3& /*toPointDir*/) const { return emittedRadiance(); }
     // GR dispatch â€” BlackHole overrides both
     virtual bool isGRObject() const { return false; }
@@ -1189,8 +1196,13 @@ public:
     float pdfValue(const Vec3& origin, const Vec3& direction) const override {
         HitRecord rec;
         if (!hit(Ray(origin, direction), 0.001f, std::numeric_limits<float>::max(), rec)) return 0;
-        return rec.t * rec.t / (std::abs(direction.dot(rec.normal)) * area() + 0.001f);
+        // #851: exact solid-angle pdf of uniform-area sampling (no +0.001 fudge).
+        float cosLight = std::abs(direction.normalized().dot(normal));
+        if (cosLight <= 0.0f) return 0;
+        return rec.t * rec.t / (cosLight * area());
     }
+
+    float treeEmitterArea() const override { return area(); }  // #851
 
     Vec3 random(const Vec3& origin, std::mt19937& gen) const override {
         return (samplePoint(gen) - origin).normalized();
@@ -1463,8 +1475,8 @@ public:
         sampler_->sample(out, pt, normal, lambdas, gen);
     }
 
-    float pdfValue(const Vec3& pt, const Vec3& dir) const {
-        return sampler_->pdfValue(pt, dir);
+    float pdfValue(const Vec3& pt, const Vec3& dir, const Vec3& normal) const {
+        return sampler_->pdfValue(pt, dir, normal);
     }
 
     // pkg181: intersect a BSDF-sampled ray against the dedicated (non-hittable)
@@ -3266,6 +3278,9 @@ public:
         // two-sided MIS emissive-hit term can weight this leg by the power
         // heuristic against the light-sampling pdf of the emitter it lands on.
         float bsdfPdfPrev = 0.0f;
+        // #851: normal the previous vertex passed to lights.sample() (zero for a
+        // medium vertex); pdfValue must re-walk the light tree with it.
+        Vec3 misNormalPrev(0.0f);
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
         int lastBounce = 0;
         float weightSum = 0.0f;
@@ -3385,6 +3400,7 @@ public:
                         ray = next;
                         wasSpecular = false;
                         bsdfPdfPrev = phasePdf;
+                        misNormalPrev = Vec3(0.0f);
                         envNeeSampledPrev = false;
                         if (bounce > rrDepth) {
                             astroray::XYZ thrXYZ = throughput.toXYZ(lambdas);
@@ -3503,6 +3519,7 @@ public:
                     ray = next;
                     wasSpecular = false;
                     bsdfPdfPrev = phasePdf;
+                    misNormalPrev = Vec3(0.0f);
                     // pkg258 (Terra Q1c): medium NEE samples lamps only, NOT the
                     // environment, so env NEE did not compete here — the next env
                     // miss must be UNWEIGHTED.
@@ -3564,7 +3581,7 @@ public:
                                 clampContribSpectral(throughput * lampEmission, lambdas, bounce - 1);
                             color += c; addPass(lampPass, c);
                         } else {
-                            float lp = lights.pdfValue(ray.origin, ray.direction);
+                            float lp = lights.pdfValue(ray.origin, ray.direction, misNormalPrev);
                             float bp = bsdfPdfPrev;
                             float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                             astroray::SampledSpectrum c =
@@ -3702,7 +3719,7 @@ public:
                     // same selection probabilities the NEE leg uses.
                     float lightPdfHit = lights.empty()
                         ? 0.0f
-                        : lights.pdfValue(ray.origin, ray.direction);
+                        : lights.pdfValue(ray.origin, ray.direction, misNormalPrev);
                     float bp = bsdfPdfPrev, lp = lightPdfHit;
                     // Same power-heuristic form as the NEE leg above and the GPU
                     // gpu_mw_powerHeuristic, so w_L + w_B ≈ 1 per direction.
@@ -3943,6 +3960,7 @@ public:
             // pkg120: carry this bounce's BSDF pdf so the next iteration's
             // emissive-hit two-sided MIS can weight the BSDF leg (see above).
             bsdfPdfPrev = bss.pdf;
+            misNormalPrev = rec.normal;
             // pkg258 (Terra Q1c): env NEE competed at THIS surface vertex iff the
             // env-NEE strategy was active (enabled, HDRI loaded, bounce gate) AND
             // this is a non-delta lobe (a delta continuation is unweighted on miss).

@@ -512,6 +512,9 @@ __global__ void stageVolumeHeteroScatterKernel(
     state.was_specular[idx]  = 0;
     state.env_nee_sampled_prev[idx] = 0;
     state.path_bsdf_pdf[idx] = phasePdf;
+    state.path_mis_nx[idx] = 0.f;  // #851: medium vertex, zero MIS normal
+    state.path_mis_ny[idx] = 0.f;
+    state.path_mis_nz[idx] = 0.f;
     state.rng_dimension[idx] = rng.dimension();
     int next_bounce = bounce + 1;
     state.bounce[idx] = next_bounce;

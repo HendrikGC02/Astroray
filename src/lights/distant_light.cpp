@@ -202,7 +202,10 @@ AABB DistantLight::bounds() const {
 
 OrientationCone DistantLight::orientationCone() const {
     float halfAngle = angularDiameter_ / 2.0f;
-    return OrientationCone::fromAxisAngle(-axis_, halfAngle);
+    // #851: Cycles sun cone (scene/light_tree.cpp): axis = emission direction
+    // (axis_ points FROM the light), theta_o = 0, theta_e = half angle. The
+    // tree's distant importance then uses -axis = direction to the sun.
+    return OrientationCone{axis_, 0.0f, halfAngle};
 }
 
 // pkg89-GPU / GAP 1 — device upload description mirroring sampleLi() radiometry.

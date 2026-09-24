@@ -35,8 +35,10 @@ public:
                         const SampledWavelengths& lambdas,
                         std::mt19937& gen) const = 0;
 
-    // PDF for a given direction from the shading point (for MIS).
-    virtual float pdfValue(const Vec3& point, const Vec3& dir) const = 0;
+    // PDF for a given direction from the shading point (for MIS). `normal` is
+    // the shading normal passed to sample() at that point (zero for a volume
+    // vertex); the tree's selection pdf depends on it (#851).
+    virtual float pdfValue(const Vec3& point, const Vec3& dir, const Vec3& normal) const = 0;
 
     // Check if the sampler is empty (no lights).
     virtual bool empty() const = 0;
@@ -57,7 +59,7 @@ public:
                 const SampledWavelengths& lambdas,
                 std::mt19937& gen) const override;
 
-    float pdfValue(const Vec3& point, const Vec3& dir) const override;
+    float pdfValue(const Vec3& point, const Vec3& dir, const Vec3& normal) const override;
 
     bool empty() const override;
 
@@ -77,7 +79,7 @@ public:
                 const SampledWavelengths& lambdas,
                 std::mt19937& gen) const override;
 
-    float pdfValue(const Vec3& point, const Vec3& dir) const override;
+    float pdfValue(const Vec3& point, const Vec3& dir, const Vec3& normal) const override;
 
     bool empty() const override;
 

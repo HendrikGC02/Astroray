@@ -1050,6 +1050,11 @@ struct GLightTreeNode {
 struct GLightTreeEmitter {
     int          lightIndex;  // >=0: GLight index; <0: dedicated light j = -lightIndex-1 (#859)
     unsigned int bitTrail;    // root->leaf path: bit i = level-i branch (0 = left, 1 = right)
+    // #851: per-emitter bounds for leaf selection (Cycles light_tree_cluster_select_emitter).
+    GVec3 bboxMin, bboxMax;
+    GVec3 bconeAxis;
+    float thetaO, thetaE;
+    float energy;
 };
 
 // View passed into the kernels. enabled != 0 only when the CPU sampler mode

@@ -53,6 +53,9 @@ void CPUWavefrontState::pack_from(int i, const PathState& ps) {
     was_specular[i] = ps.wasSpecular ? 1 : 0;
     path_alive[i]   = ps.alive ? 1 : 0;
     bsdf_pdf_prev[i] = ps.bsdfPdfPrev;  // pkg120
+    mis_normal_prev_x[i] = ps.misNormalPrev.x;  // #851
+    mis_normal_prev_y[i] = ps.misNormalPrev.y;
+    mis_normal_prev_z[i] = ps.misNormalPrev.z;
 }
 
 PathState CPUWavefrontState::unpack_to(int i) const {
@@ -82,6 +85,8 @@ PathState CPUWavefrontState::unpack_to(int i) const {
     ps.wasSpecular = was_specular[i] != 0;
     ps.alive       = path_alive[i] != 0;
     ps.bsdfPdfPrev = bsdf_pdf_prev[i];  // pkg120
+    ps.misNormalPrev = Vec3(mis_normal_prev_x[i], mis_normal_prev_y[i],
+                            mis_normal_prev_z[i]);  // #851
     return ps;
 }
 

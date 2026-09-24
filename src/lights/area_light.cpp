@@ -201,6 +201,12 @@ float AreaLight::power() const {
     return luminance * intensity_ * normalizeFactor_ * area_ * static_cast<float>(M_PI);
 }
 
+// #851: Lambertian emitter, power = L*A*pi; on-axis intensity L*A (Cycles:
+// strength * M_1_PI_F, scene/light_tree.cpp).
+float AreaLight::treeEnergy() const {
+    return power() / static_cast<float>(M_PI);
+}
+
 AABB AreaLight::bounds() const {
     // Bounding box of the area light shape.
     Vec3 corners[4];
@@ -229,8 +235,14 @@ AABB AreaLight::bounds() const {
 }
 
 OrientationCone AreaLight::orientationCone() const {
-    // Orientation cone: emission is restricted to spread half-angle around normal.
-    return OrientationCone::fromAxisAngle(normal_, spread_);
+    // #851: one-sided planar emitter, so theta_o = 0 (all normals == normal_);
+    // theta_e = the emission half-angle spread_ (Blender spread / 2, #852),
+    // capped at pi/2 by the front-face test. Cycles scene/light_tree.cpp area
+    // branch: theta_o = 0, theta_e = spread / 2 (Apache-2.0). The old cone
+    // (spread_, spread_) was a full sphere at the default spread, so the tree
+    // sampled back-facing area lights.
+    return OrientationCone{normal_, 0.0f,
+                           std::min(spread_, static_cast<float>(M_PI) * 0.5f)};
 }
 
 // pkg89-GPU / GAP 1 — device upload description mirroring sampleLi() radiometry.

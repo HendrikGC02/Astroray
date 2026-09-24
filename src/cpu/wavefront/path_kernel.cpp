@@ -214,7 +214,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
                 if (ps.wasSpecular) {
                     ps.color += ps.throughput * lh.emission;
                 } else {
-                    float lp = lights.pdfValue(ps.ray_origin, ps.ray_direction);
+                    float lp = lights.pdfValue(ps.ray_origin, ps.ray_direction, ps.misNormalPrev);
                     float bp = ps.bsdfPdfPrev;
                     float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                     ps.color += ps.throughput * lh.emission * wB;
@@ -290,7 +290,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
             // direction, already unit).
             float lightPdfHit = lights.empty()
                 ? 0.0f
-                : lights.pdfValue(ps.ray_origin, ps.ray_direction);
+                : lights.pdfValue(ps.ray_origin, ps.ray_direction, ps.misNormalPrev);
             float bp = ps.bsdfPdfPrev, lp = lightPdfHit;
             float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
             ps.color += ps.throughput * Le_spec * wB;
@@ -443,6 +443,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
     if (bss.pdf <= 0.0f) { ps.alive = false; return false; }
     ps.wasSpecular = bss.isDelta;
     ps.bsdfPdfPrev = bss.pdf;  // pkg120: carry for next-bounce two-sided MIS
+    ps.misNormalPrev = rec.normal;  // #851: the normal NEE used at this vertex
     ps.throughput *= bss.f_spectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
 
     // ---- PostShade snapshot.

@@ -167,11 +167,9 @@ class TestLightTreeAcceptance:
     """Acceptance gates from pkg86 spec."""
 
     @pytest.mark.xfail(
-        reason="pkg86-B Phase 1 SAOH + full Conty importance implemented per Cycles "
-               "(commit e52e5eb0) but measured variance reduction remains ~1.14×. "
-               "Algorithm is correct (all other gates pass); likely scene-dependent or "
-               "needs higher SPP / different light distribution. Promoting to strict may "
-               "require scene tuning (deferred to follow-up investigation).",
+        reason="#851 fixed the MIS-pdf normal and Cycles distance clamp: 0.46x -> 1.41x "
+               "(2026-09-24). Still below 2x; unported Cycles parts: min/max importance "
+               "averaging, per-emitter leaf reservoir, oriented cones for mesh emitters.",
         strict=False,
     )
     def test_variance_reduction_64_lights(self):

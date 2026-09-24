@@ -1182,7 +1182,10 @@ public:
     float pdfValue(const Vec3& origin, const Vec3& direction) const override {
         HitRecord rec;
         if (!hit(Ray(origin, direction), 0.001f, std::numeric_limits<float>::max(), rec)) return 0;
-        return rec.t * rec.t / (std::abs(direction.dot(rec.normal)) * area() + 0.001f);
+        // #851: exact solid-angle pdf of uniform-area sampling (no +0.001 fudge).
+        float cosLight = std::abs(direction.normalized().dot(normal));
+        if (cosLight <= 0.0f) return 0;
+        return rec.t * rec.t / (cosLight * area());
     }
 
     Vec3 random(const Vec3& origin, std::mt19937& gen) const override {

@@ -20,6 +20,18 @@ Adaptive Tree Splitting" (§4.4 importance); Cycles `kernel/light/tree.h`
    `light_tree_node_importance` uses `max(0.5·|centroid − bbox.max|, d)`. The CPU
    and `src/gpu/light_tree_device.cuh` now both use the Cycles clamp.
 
+3. **Triangle light pdf.** `Triangle::pdfValue` returned `t²/(|dir·n|·A + 0.001)`,
+   and `n` was the interpolated shading normal. `random()` samples uniformly by
+   area, so the density is `t²/(|dir·Ng|·A)`, as in Cycles
+   `kernel/light/triangle.h` `triangle_light_pdf_area_sampling`. For small
+   emitter triangles the fudge under-reports the pdf, which biases NEE bright:
+   a 5e-5 m² triangle patch gave NEE-on/NEE-off = 118×. This affects both
+   samplers. The tree exposed it because it picks nearby small triangles far
+   more often, so materials_hall showed a +0.94% full-frame shift at pedestal H.
+   The same fix went into `AreaLightShape::pdfValue` and into the GPU forward
+   and reverse triangle pdfs (`gpu_nee.cuh`); the GPU forward pdf had used the
+   vertex normal `n0`.
+
 ## Not ported (still differs from Cycles)
 
 - Min/max-importance averaging in `get_left_probability`.

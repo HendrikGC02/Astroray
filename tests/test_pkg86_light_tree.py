@@ -340,6 +340,39 @@ class TestIssue851TreeSeams:
         ratio = tree[m].mean() / power[m].mean()
         assert abs(ratio - 1.0) < 0.05, f"tree/power mean ratio {ratio:.3f}"
 
+    @pytest.mark.parametrize("mode", ["power", "tree"])
+    def test_small_triangle_emitter_nee_matches_bsdf_only(self, mode):
+        """NEE on must give the NEE-off (BSDF-only) mean. Triangle::pdfValue
+        added 1e-3 to |cos|*area, so for small emitter triangles the pdf was
+        far below the density random() samples from and NEE came out bright.
+        The tree picks nearby small triangles often, so this showed up as a
+        tree-vs-power mean shift on materials_hall (#851)."""
+        def render(nee):
+            r = astroray.Renderer()
+            r.set_integrator("path_tracer")
+            r.set_background_color([0.0, 0.0, 0.0])
+            floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+            r.add_triangle([-3, 0, -3], [3, 0, 3], [3, 0, -3], floor)
+            r.add_triangle([-3, 0, -3], [-3, 0, 3], [3, 0, 3], floor)
+            light = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 5.0})
+            n, h, w = 20, 0.3, 0.2  # 800 triangles of 5e-5 m^2, facing down
+            for i in range(n):
+                for j in range(n):
+                    x0, z0 = -w / 2 + w * i / n, -w / 2 + w * j / n
+                    x1, z1 = x0 + w / n, z0 + w / n
+                    r.add_triangle([x0, h, z0], [x1, h, z0], [x1, h, z1], light)
+                    r.add_triangle([x0, h, z0], [x1, h, z1], [x0, h, z1], light)
+            setup_camera(r, look_from=[0, 2.5, 2.5], look_at=[0, 0, 0], vfov=40,
+                         width=48, height=48)
+            r.set_light_sampler(mode)
+            r.set_light_nee(nee)
+            r.set_seed(5)
+            return np.asarray(r.render(256, 2, None, False), dtype=np.float64)[..., :3]
+        on, off = render(True), render(False)
+        m = (on.max(axis=-1) < 1.0) & (off.max(axis=-1) < 1.0)  # skip the emitter itself
+        ratio = on[m].mean() / off[m].mean()
+        assert abs(ratio - 1.0) < 0.05, f"{mode}: NEE-on/NEE-off mean ratio {ratio:.3f}"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

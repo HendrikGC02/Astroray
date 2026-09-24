@@ -100,11 +100,11 @@ def _quadrants(img):
 @pytest.mark.parametrize("socket", sorted(_CASES))
 def test_846_cpu_program_changes_image(socket):
     """Scene check: the program visibly changes the CPU render vs the constant."""
-    prog = _quadrants(_render(socket, False))
-    const = _quadrants(_render(socket, False, with_program=False))
-    assert prog.mean() > 0.01, f"{socket}: CPU program render too dark to gate: {prog}"
-    rel = np.abs(prog.mean(axis=1) - const.mean(axis=1)) / np.maximum(const.mean(axis=1), 1e-4)
-    assert rel.min() > 0.10, f"{socket}: program barely changes the image: {rel}"
+    prog = _render(socket, False)
+    const = _render(socket, False, with_program=False)
+    assert _quadrants(prog).min() > 0.01, f"{socket}: CPU program render too dark to gate"
+    rel = np.abs(prog - const).mean() / max(float(const.mean()), 1e-4)
+    assert rel > 0.25, f"{socket}: program barely changes the image (rel L1 {rel:.3f})"
 
 
 @pytest.mark.parametrize("socket", sorted(_CASES))

@@ -99,8 +99,9 @@ Adaptive Tree Splitting" (§4.4 importance); Cycles `kernel/light/tree.h`
 - `PowerLightSampler` depends on insertion order. `powerDist` follows the
   order of `add()`/`addLight()` calls, but `sample()` assumes hittables come
   first. With a dedicated light added before a hittable emitter, power
-  renders 3–4× dark at 256 spp, on main too (tree is unaffected). This needs
-  its own issue.
+  renders 3–4× dark at 256 spp, on main too (tree is unaffected). Fixed on
+  lane u859 (`fix/u-859-restir-dedicated`, 354769ee); it merges with Batch U.
+  materials_hall's power baseline may shift slightly after integration.
 - #886: `pdfValue` sums the pdfs of back faces of closed emitter meshes.
 
 - `SpotLight::orientationCone` has the same `(angle, angle)` form. Cycles uses

@@ -511,8 +511,10 @@ class TestIssue851TreeSeams:
         point light is reachable only by NEE, so the pruned light was lost.
         Cycles uses |cos| for has_transmission."""
         def build(r):
+            # Broad rough transmission keeps the point-light NEE tail light
+            # (roughness 0.5 / ior 1.5 swung the power mean +-9% per seed).
             glass = r.create_material("disney", [1.0, 1.0, 1.0],
-                                      {"transmission": 1.0, "roughness": 0.5, "ior": 1.5})
+                                      {"transmission": 1.0, "roughness": 0.9, "ior": 1.2})
             r.add_triangle([-3, 0, -3], [3, 0, 3], [3, 0, -3], glass)
             r.add_triangle([-3, 0, -3], [-3, 0, 3], [3, 0, 3], glass)
             r.add_point_light([0, -1.0, 0], {"mode": "rgb", "color": [1, 1, 1]}, 10.0)

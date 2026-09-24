@@ -642,10 +642,27 @@ class MaterialsCache:
         mats = getattr(data, 'materials', None)
         if mats is None:
             return None
+        # #849: depsgraph update ids are evaluated copies and each bpy access
+        # returns a new wrapper, so match the ORIGINAL datablock by equality
+        # (bpy_struct == compares the underlying pointer), not identity.
+        target = getattr(node_tree, 'original', None) or node_tree
         for mat in mats:
-            if getattr(mat, 'node_tree', None) is node_tree:
+            nt = getattr(mat, 'node_tree', None)
+            if nt is not None and (nt is target or nt == target):
                 return mat
         return None
+
+    def _is_light_node_tree(self, node_tree):
+        """#849: a light's shader node tree (edited with the lamp)."""
+        lights = getattr(getattr(self.bpy, 'data', None), 'lights', None)
+        if lights is None:
+            return False
+        target = getattr(node_tree, 'original', None) or node_tree
+        for light in lights:
+            nt = getattr(light, 'node_tree', None)
+            if nt is not None and (nt is target or nt == target):
+                return True
+        return False
 
     # -- diff -------------------------------------------------------------
     def diff(self, depsgraph):
@@ -678,6 +695,8 @@ class MaterialsCache:
                 # itself. Either way the fingerprint key is the owner's name.
                 owner = upd_id if type_name == 'Material' else self._owning_material(upd_id)
                 if owner is None:
+                    if self._is_light_node_tree(upd_id):
+                        continue  # #849: a lamp's shader tree -> LightsCache
                     owner = upd_id
                 saw_material = True
                 name = getattr(owner, 'name', None)

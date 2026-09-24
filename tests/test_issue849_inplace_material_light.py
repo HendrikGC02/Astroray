@@ -237,6 +237,20 @@ def test_base_color_edit_reaches_primitive_without_full_sync():
     assert r.prim_material["sphere"] == 0.2
 
 
+def test_node_tree_update_resolves_owner_by_original():
+    # Real Blender reports the edit as a ShaderNodeTree update whose id is an
+    # evaluated copy (a different wrapper); `.original` equals the material's tree.
+    exp = _load_exporter()
+    exporter, r, mat, _ = _setup(exp)
+    _edit_base(mat, 0.8)
+    tree_upd = NodeTree("Shader Nodetree")
+    tree_upd.original = mat.node_tree
+    res = exporter.apply_depsgraph_updates(
+        r, _dg([_Upd(mat), _Upd(tree_upd)]), None, lambda *_: None, None)
+    assert res == 'dispatched'
+    assert r.prim_material["sphere"] == 0.8
+
+
 def test_deferred_storm_replays_latest_value_in_place():
     exp = _load_exporter()
     exporter, r, mat, _ = _setup(exp)
@@ -298,6 +312,22 @@ def test_light_energy_edit_resyncs_light_range_only():
         r, _dg([_Upd(lamp, transform=True)]), None,
         lambda *_: None, None) == 'dispatched'
     assert sorted(r.dedicated) == [("Key", 6.0), ("Lamp", 20.0), ("sky_sun", 1.0)]
+
+
+def test_light_node_tree_update_is_not_a_material_edit():
+    # A lamp energy edit in Blender also reports the lamp's shader node tree.
+    exp = _load_exporter()
+    exporter, r, _mat, blender = _setup(exp, lights={"Lamp": 10.0})
+    lamp_tree = types.SimpleNamespace(nodes=[], links=[])
+    exporter.bpy.data.lights = [types.SimpleNamespace(name="Lamp", node_tree=lamp_tree)]
+    tree_upd = NodeTree("Shader Nodetree")
+    tree_upd.original = lamp_tree
+    blender["Lamp"] = 40.0
+    res = exporter.apply_depsgraph_updates(
+        r, _dg([_Upd(Light("Lamp")), _Upd(tree_upd)]), None, lambda *_: None, None)
+    assert res == 'dispatched'
+    assert ("Lamp", 40.0) in r.dedicated
+    assert not any(c[0] == "rebind_material" for c in r.calls)
 
 
 def test_mesh_object_move_still_full_syncs():

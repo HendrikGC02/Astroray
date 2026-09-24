@@ -45,9 +45,12 @@ def _disc_radiance():
 # --------------------------------------------------------------------------- #
 # Engine: a camera looking at a camera-visible sun sees the disc.
 # --------------------------------------------------------------------------- #
-def _sun_scene(camera_visible, gpu):
+def _sun_scene(camera_visible, gpu, integrator="path_tracer", nee=True):
     import base_helpers as bh
     r = bh.create_renderer()
+    r.set_integrator(integrator)
+    if not nee:
+        r.set_integrator_param("enable_nee", 0)
     if gpu:
         try:
             r.set_use_gpu(True)
@@ -75,8 +78,8 @@ def _sun_scene(camera_visible, gpu):
     return np.asarray(img, dtype=np.float64), l_disc
 
 
-def _check_disc(gpu):
-    img, l_disc = _sun_scene(True, gpu)
+def _check_disc(gpu, integrator="path_tracer", nee=True):
+    img, l_disc = _sun_scene(True, gpu, integrator, nee)
     centre = img[14:18, 14:18].reshape(-1, 3).mean(axis=0)
     # Radiance order of magnitude + per-channel within 15% (RGB->spectral->RGB).
     for k in range(3):
@@ -87,13 +90,18 @@ def _check_disc(gpu):
     # Disc spans ~1.2/4 of the frame: corners are black background.
     assert float(img[0, 0].max()) == 0.0 and float(img[-1, -1].max()) == 0.0
 
-    hidden, _ = _sun_scene(False, gpu)
+    hidden, _ = _sun_scene(False, gpu, integrator, nee)
     assert float(hidden[14:18, 14:18].max()) == 0.0, "default lamps stay camera-invisible"
 
 
 @pytest.mark.cpu
-def test_cpu_camera_sees_sky_sun_disc():
-    _check_disc(gpu=False)
+@pytest.mark.parametrize("integrator,nee", [
+    ("path_tracer", True),
+    ("multiwavelength_path_tracer", True),
+    ("multiwavelength_path_tracer", False),   # camera disc is background, not NEE
+])
+def test_cpu_camera_sees_sky_sun_disc(integrator, nee):
+    _check_disc(gpu=False, integrator=integrator, nee=nee)
 
 
 @pytest.mark.gpu

@@ -6560,10 +6560,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     # = sun_size) riding the same sky exposure.
                     sun = sky_bake.sun_disc_params_from_node(sky_node)
                     if sun is not None:
-                        renderer.add_sun_light_dedicated(
-                            sun['direction'], sun['angular_diameter'],
-                            {'mode': 'rgb', 'color': sun['color']},
-                            sun['intensity'] * strength, 0, 0)
+                        try:  # #903: camera-visible disc, as the Nishita path
+                            renderer.add_sun_light_dedicated(
+                                sun['direction'], sun['angular_diameter'],
+                                {'mode': 'rgb', 'color': sun['color']},
+                                sun['intensity'] * strength, 0, 0,
+                                camera_visible=True)
+                        except TypeError:  # engine predates #903
+                            renderer.add_sun_light_dedicated(
+                                sun['direction'], sun['angular_diameter'],
+                                {'mode': 'rgb', 'color': sun['color']},
+                                sun['intensity'] * strength, 0, 0)
             except Exception as e:  # noqa: BLE001 - bake must never break render
                 self._warn_shader_fallback('TEX_SKY', 'sky bake failed (%s)' % e)
                 sky_temp_path = None

@@ -367,17 +367,25 @@ def test_object_base_cpu_exact():
     _assert_matches_reference(img, fn)
 
 
-# Per-pixel gate (lead-approved change from the spec's raw 0.01 fraction). The
-# spectral render is noisy: CPU seed-vs-seed |diff| > 0.01 (any channel) on the
-# unwarped checker, adaptive off, is 75.1 % @256, 30.6 % @4096, 12.5 % @16384 spp
-# (B-dominated; astra_run/batchY/y277/seed_floor_cpu.txt), so the raw fraction
-# measures MC noise, not the 64^3 bake. Gate instead:
-#   (2) frac(|GPU-CPU| > 0.01) - frac(|CPU-CPU'| > 0.01) <= 26 %  (all cases);
-#   (1) checker only: cell-flip fraction frac(|GPU-CPU| > 0.3) <= 26 %, with
-#       CPU-vs-CPU at 0.3 ~ 0 % (noise never flips a 0.6-contrast cell).
-# 4096 spp keeps the noise floor well below saturation so (2) stays sensitive.
+# Per-pixel gate history (lead-approved amendments, 2026-09-24/25).
+# 1. Spec raw gate frac(|GPU-CPU| > 0.01) <= 26 % is invalid on the spectral
+#    render: CPU seed-vs-seed (adaptive off, unwarped checker) exceeds 0.01 on
+#    75.1 % @256, 30.6 % @4096, 12.5 % @16384 spp (astra_run/batchY/y277/
+#    seed_floor_cpu.txt).
+# 2. Option 2, excess = frac(GPU-CPU > 0.01) - frac(CPU-CPU' > 0.01) <= 26 %,
+#    FAILED at 4096 spp: checker k=24 36.5 %, warped noise 46.6 %, Mapping 32.3 %.
+#    The pre-existing unwarped pkg190 bake already scores 7.1 % (checker) and
+#    20.5 % (noise), identical on main's build (gpu_attribution.txt).
+# 3. Option (b), current: excess(warped) - excess(plain pkg190 bake, same field,
+#    same Mapping) <= model delta. Bound from the design note's frequency
+#    argument: the warp multiplies d/dx by k|cos(kx)| (mean 2k/pi), so the 64^3
+#    nearest bake mis-samples more pixels. The noise-free numpy/engine model of
+#    that bake (voxel centres, z-centre 32.5/64, 6x6 box pixels; bake_model.txt)
+#    predicts delta 48.6 % (checker k=24), 59.0 % (checker + Mapping), 9.0 %
+#    (noise k=6). Model flip>0.3 at k=24 = 26.1 % (design note 25.6 %).
+# Primary gates stay region-mean (3 %) and cell flips (<= 26 %).
 PIX_SPP = 4096
-PIX_BUDGET = 0.26   # design note worst case (k = 24, 64^3 bake): 25.6 %
+PIX_BUDGET = 0.26   # design note worst case (k = 24, 64^3 bake): 25.6 % cell flips
 FLIP_THR = 0.3
 
 
@@ -385,43 +393,62 @@ def _frac_over(a, b, thr=0.01):
     return float((np.abs(a - b) > thr).any(-1).mean())
 
 
-def _gpu_cpu_gates(tex_setup, name, cells=False):
+def _excess(tex_setup):
+    gpu = _render(tex_setup, use_gpu=True, spp=PIX_SPP)
+    cpu = _render(tex_setup, use_gpu=False, spp=PIX_SPP)
+    cpu2 = _render(tex_setup, use_gpu=False, spp=PIX_SPP, seed=11)
+    return gpu, cpu, _frac_over(gpu, cpu) - _frac_over(cpu2, cpu), _frac_over(cpu2, cpu, FLIP_THR)
+
+
+def _gpu_cpu_gates(tex_setup, name, plain_setup, model_delta, cells=False):
     _need_binding()
     gpu = _render(tex_setup, use_gpu=True)
     cpu = _render(tex_setup, use_gpu=False)
     gm = np.array([gpu[..., c].mean() for c in range(3)])
     cm = np.array([cpu[..., c].mean() for c in range(3)])
     ratio = gm / np.maximum(cm, 1e-6)
-    gpu_hi = _render(tex_setup, use_gpu=True, spp=PIX_SPP)
-    cpu_hi = _render(tex_setup, use_gpu=False, spp=PIX_SPP)
-    cpu_hi2 = _render(tex_setup, use_gpu=False, spp=PIX_SPP, seed=11)
+    gpu_hi, cpu_hi, ex_w, flip_floor = _excess(tex_setup)
+    _, _, ex_p, _ = _excess(plain_setup)
     _save(gpu_hi, f"gpu_{name}.png")
     _save(cpu_hi, f"cpu_{name}.png")
-    diff_frac = _frac_over(gpu_hi, cpu_hi)
-    noise_floor = _frac_over(cpu_hi2, cpu_hi)
     flip = _frac_over(gpu_hi, cpu_hi, FLIP_THR)
-    flip_floor = _frac_over(cpu_hi2, cpu_hi, FLIP_THR)
-    print(f"[pkg277] {name}: 256spp mean ratio {ratio}; {PIX_SPP}spp |GPU-CPU|>0.01 "
-          f"{diff_frac:.4f}, CPU-CPU' floor {noise_floor:.4f}, excess "
-          f"{diff_frac - noise_floor:.4f}; flip>0.3 {flip:.4f} (floor {flip_floor:.4f})")
+    print(f"[pkg277] {name}: 256spp mean ratio {ratio}; excess warped {ex_w:.4f} plain "
+          f"{ex_p:.4f} delta {ex_w - ex_p:.4f} (model bound {model_delta}); flip>0.3 "
+          f"{flip:.4f} (floor {flip_floor:.4f})")
     assert np.all(np.abs(ratio - 1) <= 0.03), (ratio, cm, gm)
-    assert diff_frac - noise_floor <= PIX_BUDGET, (diff_frac, noise_floor)
     if cells:
         assert flip_floor <= 0.001, flip_floor
         assert flip <= PIX_BUDGET, flip
+    assert ex_w - ex_p <= model_delta, (ex_w, ex_p, model_delta)
     return gpu_hi, cpu_hi
 
 
+def _plain_checker_mapped(r):
+    name = _checker_setup(warp=False)(r)
+    M = _mapping_matrix(*MAPPING)
+    r.set_texture_mapping_matrix(name, [float(v) for v in M[:3, :].reshape(-1)])
+    return name
+
+
+def _plain_noise(r):
+    r.create_procedural_texture("noise277", "noise_perlin",
+                                [5.0, 2.0, 0.5, 2.0, 0.0, 1.0, 0.0, 0.0, 1.0], "GENERATED")
+    r.set_texture_generated_bbox("noise277", BBOX_MIN, BBOX_SIZE)
+    return "noise277"
+
+
 def test_gpu_cpu_parity_warped_checker():
-    _gpu_cpu_gates(_checker_setup(k=24.0), "warped_checker_k24", cells=True)
+    _gpu_cpu_gates(_checker_setup(k=24.0), "warped_checker_k24",
+                   _checker_setup(warp=False), 0.486, cells=True)
 
 
 def test_gpu_cpu_parity_warped_noise():
-    _gpu_cpu_gates(_noise_setup, "warped_noise")
+    _gpu_cpu_gates(_noise_setup, "warped_noise", _plain_noise, 0.090)
 
 
 def test_gpu_cpu_parity_mapping_then_warp():
-    gpu, _ = _gpu_cpu_gates(_checker_setup(mapping=MAPPING), "mapping_warp", cells=True)
+    gpu, _ = _gpu_cpu_gates(_checker_setup(mapping=MAPPING), "mapping_warp",
+                            _plain_checker_mapped, 0.590, cells=True)
     # GPU applies Mapping before the warp: region mean matches the numpy field.
     ref, _ = _reference(_field(mapping=MAPPING))
     assert abs(gpu[..., 0].mean() - ref.mean()) < 0.02

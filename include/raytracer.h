@@ -1378,14 +1378,18 @@ public:
     LightList& operator=(const LightList&) = delete;
 
     // Add an emissive Hittable (legacy path for DiffuseLight / EmissivePlugin).
-    void add(std::shared_ptr<Hittable> l) {
-        lights.push_back(l);
-        float power = luminance(l->emittedRadiance());
-        if (!l->isInfiniteLight()) {
-            AABB b; l->boundingBox(b);
+    static float hittablePower(const Hittable& l) {
+        float power = luminance(l.emittedRadiance());
+        if (!l.isInfiniteLight()) {
+            AABB b; l.boundingBox(b);
             power *= b.area();
         }
-        totalPower += power;
+        return power;
+    }
+
+    void add(std::shared_ptr<Hittable> l) {
+        lights.push_back(l);
+        totalPower += hittablePower(*l);
         powerDist.push_back(totalPower);
     }
 
@@ -1395,6 +1399,22 @@ public:
         dedicatedLights.push_back(std::move(l));
         totalPower += power;
         powerDist.push_back(totalPower);
+    }
+
+    // #849: drop dedicated lights [start, start+count) for an in-place viewport
+    // light re-sync (Cycles BlenderSync::sync_light). Rebuilds the power CDF in
+    // the legacy-first order the samplers index by, and the sampler (a light tree
+    // holds pointers to the removed lights).
+    void removeDedicated(size_t start, size_t count) {
+        if (start > dedicatedLights.size()) start = dedicatedLights.size();
+        count = std::min(count, dedicatedLights.size() - start);
+        dedicatedLights.erase(dedicatedLights.begin() + start,
+                              dedicatedLights.begin() + start + count);
+        powerDist.clear();
+        totalPower = 0;
+        for (const auto& l : lights) { totalPower += hittablePower(*l); powerDist.push_back(totalPower); }
+        for (const auto& l : dedicatedLights) { totalPower += l->power(); powerDist.push_back(totalPower); }
+        setSampler(samplerMode_);
     }
 
     // pkg86: Set the light sampling strategy.
@@ -4293,6 +4313,9 @@ public:
     void addDedicatedLight(std::unique_ptr<astroray::Light> light) {
         lights.addLight(std::move(light));
     }
+    // #849: in-place viewport light re-sync.
+    size_t dedicatedLightCount() const { return lights.getDedicatedLights().size(); }
+    void removeDedicatedLights(size_t start, size_t count) { lights.removeDedicated(start, count); }
 
     void buildAcceleration() {
         bvh = std::make_shared<BVHAccel>(scene);

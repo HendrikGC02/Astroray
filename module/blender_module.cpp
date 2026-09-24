@@ -3323,6 +3323,51 @@ public:
         // No CPU-side action needed — the addition itself was via addObject.
     }
 
+    // #849: swap the material behind `oldId` for the freshly converted `newId`
+    // in every primitive that holds it, so a viewport material edit reaches the
+    // render without a full re-sync (Cycles BlenderSync::sync_shaders +
+    // ShaderManager::device_update, intern/cycles/blender/shader.cpp, Apache-2.0).
+    // `oldId` then names the new material and `newId` is released. Returns false,
+    // changing nothing, when the swap cannot be complete: either material emits
+    // (the light list caches emitter power), or a holder other than a top-level
+    // Sphere/Triangle references the old material (a pkg114 BLAS, a decorator).
+    // The caller full-syncs on false. Call upload_materials() afterwards.
+    bool rebindMaterial(int oldId, int newId) {
+        auto itOld = materials.find(oldId), itNew = materials.find(newId);
+        if (itOld == materials.end() || itNew == materials.end())
+            throw std::runtime_error("rebind_material: unknown material id");
+        std::shared_ptr<Material> oldM = itOld->second, newM = itNew->second;
+        if (oldM == newM) return true;
+        if (!oldM || !newM || oldM->isEmissive() || newM->isEmissive()) return false;
+        std::vector<Hittable*> holders;
+        for (auto& h : renderer.getSceneMutable()) {
+            if (auto* s = dynamic_cast<Sphere*>(h.get())) {
+                if (s->getMaterial() == oldM) holders.push_back(s);
+            } else if (auto* t = dynamic_cast<Triangle*>(h.get())) {
+                if (t->getMaterial() == oldM) holders.push_back(t);
+            }
+        }
+        // References: the map entry + `oldM` + one per holder found.
+        if (oldM.use_count() != static_cast<long>(holders.size()) + 2) return false;
+        for (Hittable* h : holders) {
+            if (auto* s = dynamic_cast<Sphere*>(h)) s->setMaterial(newM);
+            else static_cast<Triangle*>(h)->setMaterial(newM);
+        }
+        itOld->second = newM;
+        materials.erase(itNew);
+        invalidateWavefrontScene();
+        return true;
+    }
+
+    // #849: dedicated-light range bookkeeping for the in-place light re-sync.
+    int dedicatedLightCount() const { return static_cast<int>(renderer.dedicatedLightCount()); }
+    void removeDedicatedLights(int start, int count) {
+        if (start < 0 || count < 0)
+            throw std::runtime_error("remove_dedicated_lights: negative range");
+        renderer.removeDedicatedLights(static_cast<size_t>(start), static_cast<size_t>(count));
+        invalidateWavefrontScene();
+    }
+
     // Push only env map buffers + sampling tables (and post-pkg63 the MIS
     // CDF) to the GPU. Geometry / materials / lights are untouched.
     // Cycles equivalent: world_recalc → BackgroundManager::device_update.
@@ -3939,6 +3984,16 @@ PYBIND11_MODULE(astroray, m) {
              "pkg56 Phase B: push only the light buffer + power CDF to "
              "the GPU. Geometry, materials and environment device buffers "
              "are untouched. Cycles equivalent: LightManager::device_update.")
+        .def("rebind_material", &PyRenderer::rebindMaterial, "old_id"_a, "new_id"_a,
+             "#849: point every primitive holding material old_id at new_id's "
+             "material; old_id then names it and new_id is released. False (no "
+             "change) if either emits or an unhandled holder exists -> full sync.")
+        .def("dedicated_light_count", &PyRenderer::dedicatedLightCount,
+             "#849: number of dedicated (add_*_light) lights.")
+        .def("remove_dedicated_lights", &PyRenderer::removeDedicatedLights,
+             "start"_a, "count"_a,
+             "#849: remove dedicated lights [start, start+count) and rebuild the "
+             "power CDF / light sampler (in-place viewport light re-sync).")
         .def("upload_environment", &PyRenderer::uploadEnvironment,
              "pkg56 Phase B: push only environment-map data and sampling "
              "tables to the GPU (post-pkg63 also the MIS CDF). Geometry, "

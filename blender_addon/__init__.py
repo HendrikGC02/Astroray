@@ -4591,7 +4591,24 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # once per render (final render path).
         self._degradation_report().approximate(node_type, message)
 
-    def _standalone_bsdf_spec(self, node):
+    def _standalone_bsdf_spec(self, node, renderer=None):
+        # #880: a linked Checker/Image/etc. on a standalone BSDF's Color input
+        # rendered flat grey -- these branches used get_color_input(), which
+        # only constant-folds a node chain and never carries a per-texel
+        # texture through the spec (memory: addon-constant-folds-shader-graph;
+        # same root cause as #762's Emission fix above). Route each Color input
+        # through the same get_base_color_texture() lowering the Principled
+        # Base Color path uses, so 'base_color_texture' reaches
+        # _create_material_from_shader_spec's textured-Lambertian fallback for
+        # 'principled'-kind specs (same compromise already accepted there for
+        # a textured Principled: metallic/transmission/roughness are dropped
+        # when a texture is present).
+        def _color_texture(input_name):
+            if renderer is None:
+                return None
+            _, tex = self.get_base_color_texture(node, input_name, renderer)
+            return tex
+
         ntype = node.type
         if ntype == 'BSDF_DIFFUSE':
             color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
@@ -4605,10 +4622,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # #757). Export the closure as diffuse-only. The engine reads
             # 'specular_ior_level' (plugins/materials/principled.cpp:1779:
             # F0 = F0_from_ior(ior)*2*specular_ior_level -> 0).
-            return {'kind': 'principled', 'base_color': color,
+            spec = {'kind': 'principled', 'base_color': color,
                     'params': {'metallic': 0.0, 'roughness': rough,
                                'specular_ior_level': 0.0,  # native principled path
                                'specular': 0.0}}           # Disney fallback path
+            tex = _color_texture('Color')
+            if tex is not None:
+                spec['base_color_texture'] = tex
+            return spec
         if ntype in ('BSDF_GLOSSY', 'BSDF_ANISOTROPIC'):
             color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
             rough = self.get_float_input(node, 'Roughness', 0.5)
@@ -4618,16 +4639,28 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     params['anisotropic'] = self.get_float_input(node, 'Anisotropy', 0.0)
                 else:
                     params['anisotropic'] = self.get_float_input(node, 'Anisotropic', 0.0)
-            return {'kind': 'principled', 'base_color': color, 'params': params}
+            spec = {'kind': 'principled', 'base_color': color, 'params': params}
+            tex = _color_texture('Color')
+            if tex is not None:
+                spec['base_color_texture'] = tex
+            return spec
         if ntype == 'BSDF_GLASS':
             color = self.get_color_input(node, 'Color', [1.0, 1.0, 1.0])
             rough = self.get_float_input(node, 'Roughness', 0.0)
             ior = self.get_float_input(node, 'IOR', 1.5)
-            return {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'ior': ior, 'roughness': rough}}
+            spec = {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'ior': ior, 'roughness': rough}}
+            tex = _color_texture('Color')
+            if tex is not None:
+                spec['base_color_texture'] = tex
+            return spec
         if ntype == 'BSDF_TRANSLUCENT':
             color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
             self._warn_shader_fallback('BSDF_TRANSLUCENT', 'true normal-flipped diffuse transmission is approximated with rough transmission')
-            return {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'roughness': 1.0, 'ior': 1.0}}
+            spec = {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'roughness': 1.0, 'ior': 1.0}}
+            tex = _color_texture('Color')
+            if tex is not None:
+                spec['base_color_texture'] = tex
+            return spec
         if ntype == 'BSDF_TRANSPARENT':
             color = self.get_color_input(node, 'Color', [1.0, 1.0, 1.0])
             return {'kind': 'transparent', 'base_color': color}
@@ -4636,13 +4669,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
             rough = self.get_float_input(node, 'Roughness', 0.0)
             ior = self.get_float_input(node, 'IOR', 1.5)
             self._warn_shader_fallback('BSDF_REFRACTION', 'pure refraction without Fresnel reflection is approximated with Disney transmission')
-            return {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'roughness': rough, 'ior': ior}}
+            spec = {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'roughness': rough, 'ior': ior}}
+            tex = _color_texture('Color')
+            if tex is not None:
+                spec['base_color_texture'] = tex
+            return spec
         if ntype == 'BSDF_SHEEN':
             color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
             rough = self.get_float_input(node, 'Roughness', 0.5)
             weight = self.get_float_input(node, 'Weight', 1.0)
             self._warn_shader_fallback('BSDF_SHEEN', 'Cycles microfiber sheen is approximated with Disney sheen')
-            return {'kind': 'principled', 'base_color': color, 'params': {'sheen': weight, 'roughness': rough}}
+            spec = {'kind': 'principled', 'base_color': color, 'params': {'sheen': weight, 'roughness': rough}}
+            tex = _color_texture('Color')
+            if tex is not None:
+                spec['base_color_texture'] = tex
+            return spec
         if ntype == 'BSDF_METALLIC':
             # pkg255: ShaderNodeBsdfMetallic has never exposed a 'Color' socket
             # on any shipped Blender version (live 5.2 probe, 2026-09-07); the
@@ -4743,7 +4784,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         if ntype == 'BSDF_PRINCIPLED':
             return self._principled_shader_spec(node, renderer)
-        standalone = self._standalone_bsdf_spec(node)
+        standalone = self._standalone_bsdf_spec(node, renderer)
         if standalone is not None:
             return standalone
         if ntype == 'EMISSION':

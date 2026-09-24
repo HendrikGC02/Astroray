@@ -267,3 +267,16 @@ implemented in `bsdf_microfacet.h:1218–1428` + `bsdf_oren_nayar.h:169`.
   (conductor film).
 - Prior in-repo research: `.astroray_plan/docs/cycles-principled-port-research-2026-08.md`
   §1.3; pkg128 spec (per-λ design).
+
+## Addendum 2026-09-25 — spectral sensitivity sign (#902)
+
+Cycles' `table_thin_film_cmf` is the Fourier transform with kernel exp(-i·2π·OPD/λ)
+(row 1 imag < 0), and `iridescence_airy_summation_channel` accumulates
+`acc.re*S.re + acc.im*S.im`, i.e. cos(m(φ + Δ)), Δ = 2π·OPD/λ — Belcour & Barla
+Eq. 10. Astroray's analytic per-λ `sensitivitySpectral` returned exp(+iΔ), giving
+cos(m(φ − Δ)). Dielectric φ ∈ {0, π} hides the sign; the conductor's complex φ23
+does not, so metallic films rendered ~70 nm "thinner" than Cycles (230 nm ≈ Cycles
+300 nm). Fix: return {cos Δ, −sin Δ}. Verified against an exact closed-form Airy
+reflectance over n+ik (tests/cpp/test_thin_film_fresnel.cpp §F) and a render-level
+Cycles-formula reference (tests/test_issue902_thinfilm_conductor_phase.py). The
+RGB (LUT) leg was already correct; CPU and GPU share the header.

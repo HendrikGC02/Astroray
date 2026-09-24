@@ -27,7 +27,7 @@
 //     the RGB sensitivity LUT is passed in (CPU: thin_film_cie_table.h; GPU:
 //     device upload, PR-3). The spectral leg needs NO table — per sampled λ the
 //     CIE sensitivity degenerates to the exact analytic phasor
-//     exp(i·2π·m·OPD/λ) (pkg128 per-λ design; Belcour §4 RGB projection is
+//     exp(-i·2π·m·OPD/λ) (pkg128 per-λ design; Belcour §4 RGB projection is
 //     intentionally omitted on the spectral path).
 //   * Sensitivity is a functor S(argOPD) -> TFComplex; both legs share the SAME
 //     truncated m≤3 Airy series (structural parity with Cycles).
@@ -195,10 +195,14 @@ ASTRORAY_TF_FN void fresnelConductorPolarized(float cosi, float ambientIor,
 // Sensitivity providers S(argOPD) -> TFComplex, argOPD = m·OPD (nm).
 // -------------------------------------------------------------------------
 // Spectral leg (Astroray simplification, pkg128): the exact single-λ CMF is a
-// delta, whose Fourier transform (DC-normalized to 1) is exp(i·2π·argOPD/λ).
+// delta, whose Fourier transform (DC-normalized to 1) is exp(-i·2π·argOPD/λ).
+// Sign matches Cycles' LUT (table_thin_film_cmf imag < 0 at small OPD) so the
+// Airy term re·re + im·im is cos(m(φ + 2π·OPD/λ)) (Belcour-Barla Eq. 10). The
+// old +sin gave cos(m(φ − Δ)): invisible for dielectrics (φ ∈ {0,π}) but it
+// shifted conductor iridescence ~70 nm thinner (#902).
 ASTRORAY_TF_FN TFComplex sensitivitySpectral(float argOPD, float lambdaNm) {
     const float a = kTwoPi * argOPD / lambdaNm;
-    return {std::cos(a), std::sin(a)};
+    return {std::cos(a), -std::sin(a)};
 }
 // RGB leg (bsdf_util.h:456 + lookup_table.h): clamped linear interp of the
 // Rec.709-baked CIE sensitivity LUT. `table` is [kThinFilmTableSize][6] with

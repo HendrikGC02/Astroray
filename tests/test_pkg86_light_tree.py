@@ -284,5 +284,63 @@ class TestLightTreeComposability:
         self._test_integrator("neural-cache")
 
 
+class TestIssue851TreeSeams:
+    """#851: CPU light-tree seams that made materials_hall noisier than power."""
+
+    def test_enclosing_cluster_does_not_starve_bright_sibling(self):
+        """A point inside a dim cluster's bounding sphere must still pick a
+        bright distant light. The old max(d - r, 1e-6) distance gave the
+        enclosing cluster ~1e12x importance; Cycles clamps d >= r/2."""
+        r = astroray.Renderer()
+        r.set_background_color([0.0, 0.0, 0.0])
+        floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+        r.add_triangle([-40, 0, -40], [40, 0, -40], [40, 0, 40], floor)
+        r.add_triangle([-40, 0, -40], [40, 0, 40], [-40, 0, 40], floor)
+        dim = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 1.0})
+        for k in range(8):  # ring of radius 4 around the query point
+            a = 2 * np.pi * k / 8
+            r.add_sphere([4 * np.cos(a), 1.0, 4 * np.sin(a)], 0.05, dim)
+        bright = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 1e4})
+        r.add_sphere([30.0, 3.0, 0.0], 0.05, bright)  # light index 8
+        setup_camera(r, look_from=[0, 2, 8], look_at=[0, 0, 0], width=16, height=16)
+        r.set_light_sampler("tree")
+        r.render(1, 1, None, False)  # builds the tree
+        n = 4000
+        us = np.random.default_rng(3).uniform(0, 1, n)
+        idx, pdf = r.debug_light_tree_pick([0.0, 0.05, 0.0] * n, [0.0, 1.0, 0.0] * n, us.tolist())
+        frac = float(np.mean(np.asarray(idx) == 8))
+        # Importance ratio after the clamp: bright 1e4/30^2 vs dim 8/2.83^2 -> ~0.9.
+        assert frac > 0.5, f"bright light picked {frac:.1%} (starved by the enclosing cluster)"
+
+    def test_tree_mean_matches_power_with_lights_behind_surface(self):
+        """An unbiased sampler switch must not move the mean. Lights below the
+        floor made the old -dir proxy normal in TreeLightSampler::pdfValue
+        prune the lit cluster, so the BSDF-hit MIS weight went to 1 while NEE
+        also counted the light (double counting)."""
+        def render(mode):
+            r = astroray.Renderer()
+            r.set_integrator("path_tracer")
+            r.set_background_color([0.0, 0.0, 0.0])
+            floor = r.create_material("lambertian", [0.7, 0.7, 0.7], {})
+            r.add_triangle([-20, 0, -20], [20, 0, -20], [20, 0, 20], floor)
+            r.add_triangle([-20, 0, -20], [20, 0, 20], [-20, 0, 20], floor)
+            light = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 4.0})
+            for y in (2.0, -2.0):  # 4 lights above, 4 hidden below the floor
+                for x in (-1.0, 1.0):
+                    for z in (-1.0, 1.0):
+                        r.add_sphere([x, y, z], 0.4, light)
+            setup_camera(r, look_from=[0, 6, 0.01], look_at=[0, 0, 0], vfov=50,
+                         width=48, height=48)
+            r.set_light_sampler(mode)
+            r.set_seed(7)
+            img = np.asarray(r.render(64, 2, None, False), dtype=np.float64)
+            return img[..., :3]
+        power, tree = render("power"), render("tree")
+        # Mask pixels that see a light directly (identical in both modes).
+        m = (power.max(axis=-1) < 3.0) & (tree.max(axis=-1) < 3.0)
+        ratio = tree[m].mean() / power[m].mean()
+        assert abs(ratio - 1.0) < 0.05, f"tree/power mean ratio {ratio:.3f}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

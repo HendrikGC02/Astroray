@@ -303,6 +303,28 @@ def _compute_ulp_distance(a, b):
     return int(np.max(ulp_dist))
 
 
+def _unit_vector_ulp_distance(a, b):
+    """Max component |a-b| in units of ulp(1.0) = 2^-23.
+
+    #845: ray directions are unit vectors, so their rounding error scales with
+    the vector magnitude (~1), not with each component. Per-component ULPs of a
+    near-zero component (e.g. -0.0065, where 1 ULP ~ 5e-10) blow a 1.4e-8
+    difference up to 31 "ULP" although the vector agrees to 1 ulp(1.0).
+    """
+    import numpy as np
+    d = np.abs(np.asarray(a, np.float64) - np.asarray(b, np.float64))
+    return int(np.ceil(float(d.max()) / 2.0 ** -23 - 1e-9)) if d.size else 0
+
+
+def test_unit_vector_ulp_metric_catches_real_divergence():
+    """Negative control: a 1e-5 direction divergence (~84 ulp(1.0)) must fail
+    the PostInit max_ulp=4 bound; a 1.2e-7 rounding difference must pass."""
+    import numpy as np
+    a = np.array([[-0.0064646620, 0.6, 0.79997]], np.float32)
+    assert _unit_vector_ulp_distance(a, a + np.float32(1e-5)) > 4
+    assert _unit_vector_ulp_distance(a, a + np.float32(1.1920929e-7)) <= 4
+
+
 def _compute_stage_ulp(cpu_snapshots, gpu_snapshot_array, stage):
     """Compute max ULP distance for geometry fields at a given stage."""
     import numpy as np
@@ -327,7 +349,7 @@ def _compute_stage_ulp(cpu_snapshots, gpu_snapshot_array, stage):
         gpu_ray_dir = gpu_snapshot_array[:, 3:6].astype(np.float32)
 
         ulp_origin = _compute_ulp_distance(cpu_ray_origin.flatten(), gpu_ray_origin.flatten())
-        ulp_dir = _compute_ulp_distance(cpu_ray_dir.flatten(), gpu_ray_dir.flatten())
+        ulp_dir = _unit_vector_ulp_distance(cpu_ray_dir, gpu_ray_dir)
 
         return max(ulp_origin, ulp_dir)
 

@@ -2013,6 +2013,11 @@ class Camera {
     // pkg72: projection scalars retained so snapshotForMotion() can replay the
     // previous frame's pixel mapping without re-deriving from lowerLeft.
     float vw_ = 0, vh_ = 0, focusDist_ = 0, shiftX_ = 0, shiftY_ = 0;
+    // #845: orthographic projection (PBRT v4 OrthographicCamera, Apache-2.0,
+    // pbr-book.org/4ed/Cameras_and_Film/Orthographic_Camera): ray origin varies
+    // over the image plane through the camera; direction is the constant view
+    // axis. vw_/vh_ are then the world-space plane extents.
+    bool orthographic_ = false;
 public:
     int width, height;
     // pkg274 (#724): Blender camera clip planes, applied only to the PRIMARY
@@ -2041,6 +2046,7 @@ public:
     // geometry is out of scope per pkg72 spec).
     Vec3 prevOrigin{0}, prevU{0}, prevV{0}, prevW{0};
     float prevVw = 0, prevVh = 0, prevFocusDist = 0, prevShiftX = 0, prevShiftY = 0;
+    bool prevOrthographic = false;  // #845
     bool hasPrevCamera = false;
 
     // pkg88-A: camera motion blur shutter keyframes (T/R/S decomposed).
@@ -2058,18 +2064,29 @@ public:
     Camera(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio,
            float aperture, float focusDist, int w, int h,
            float shiftX = 0.0f, float shiftY = 0.0f,
-           float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max())
+           float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max(),
+           bool orthographic = false, float orthoWidth = 0.0f, float orthoHeight = 0.0f)
         : width(w), height(h), clipNear(clipNear), clipFar(clipFar) {
-        float theta = vfov * M_PI / 180.0f;
-        float vh = 2.0f * std::tan(theta / 2) * focusDist;
-        float vw = aspectRatio * vh;
+        float vh, vw;
+        if (orthographic) {
+            vw = orthoWidth;
+            vh = orthoHeight;
+        } else {
+            float theta = vfov * M_PI / 180.0f;
+            vh = 2.0f * std::tan(theta / 2) * focusDist;
+            vw = aspectRatio * vh;
+        }
         w_axis = (lookFrom - lookAt).normalized();
         u = vup.cross(w_axis).normalized();
         v = w_axis.cross(u);
         origin = lookFrom;
         horizontal = u * vw;
         vertical = v * vh;
-        lowerLeft = origin - horizontal * (0.5f - shiftX) - vertical * (0.5f - shiftY) - w_axis * focusDist;
+        orthographic_ = orthographic;
+        if (orthographic)  // #845: ortho image plane passes through the camera.
+            lowerLeft = origin - horizontal * (0.5f - shiftX) - vertical * (0.5f - shiftY);
+        else
+            lowerLeft = origin - horizontal * (0.5f - shiftX) - vertical * (0.5f - shiftY) - w_axis * focusDist;
         lensRadius = aperture / 2;
         vw_ = vw; vh_ = vh; focusDist_ = focusDist;
         shiftX_ = shiftX; shiftY_ = shiftY;
@@ -2106,6 +2123,8 @@ public:
         if (shutter <= 0.0f) {
             Vec3 rd = Vec3::randomInUnitDisk(gen) * lensRadius;
             Vec3 offset = u * rd.x + v * rd.y;
+            if (orthographic_) return orthoRay(lowerLeft + horizontal * s + vertical * t, offset,
+                                               origin, u, v, w_axis, time, s, t);
             Ray ray(origin + offset, lowerLeft + horizontal * s + vertical * t - origin - offset, time, s, t);
             ray.hasCameraFrame = true;
             ray.cameraOrigin = origin;
@@ -2142,6 +2161,10 @@ public:
         // Generate ray from interpolated camera
         Vec3 rd = Vec3::randomInUnitDisk(gen) * lensRadius;
         Vec3 offset = u_interp * rd.x + v_interp * rd.y;
+        if (orthographic_)
+            return orthoRay(lowerLeft_interp + w_interp * focusDist_ + horizontal_interp * s
+                                + vertical_interp * t,
+                            offset, origin_interp, u_interp, v_interp, w_interp, time, s, t);
         Ray ray(origin_interp + offset,
                 lowerLeft_interp + horizontal_interp * s + vertical_interp * t - origin_interp - offset,
                 time, s, t);
@@ -2158,11 +2181,29 @@ public:
     // intern/cycles/integrator/pass.cpp where motion-pass writes consume the
     // previous-frame camera transform. Called once per frame by the renderer
     // at the end of renderFrame().
+    // #845: PBRT v4 OrthographicCamera::GenerateRay — origin on the image
+    // plane, constant forward direction; with a lens, aim at the focus point
+    // focusDist along the view axis from the unperturbed plane point.
+    Ray orthoRay(const Vec3& planePoint, const Vec3& lensOffset, const Vec3& camOrigin,
+                 const Vec3& cu, const Vec3& cv, const Vec3& cw,
+                 float time, float s, float t) const {
+        const Vec3 fwd = cw * -1.0f;
+        const Vec3 dir = (lensRadius > 0.0f) ? fwd * focusDist_ - lensOffset : fwd;
+        Ray ray(planePoint + lensOffset, dir, time, s, t);
+        ray.hasCameraFrame = true;
+        ray.cameraOrigin = camOrigin;
+        ray.cameraU = cu;
+        ray.cameraV = cv;
+        ray.cameraW = cw;
+        return ray;
+    }
+
     void snapshotForMotion() {
         prevOrigin = origin;
         prevU = u; prevV = v; prevW = w_axis;
         prevVw = vw_; prevVh = vh_; prevFocusDist = focusDist_;
         prevShiftX = shiftX_; prevShiftY = shiftY_;
+        prevOrthographic = orthographic_;
         hasPrevCamera = true;
     }
 
@@ -2176,7 +2217,8 @@ public:
         const Vec3 d = P - prevOrigin;
         const float depth = -d.dot(prevW);    // +ve when in front of prev cam
         if (depth <= 1e-6f) return false;
-        const float alpha = prevFocusDist / depth;
+        // #845: orthographic has no perspective divide.
+        const float alpha = prevOrthographic ? 1.0f : prevFocusDist / depth;
         const float s = alpha * d.dot(prevU) / prevVw + (0.5f - prevShiftX);
         const float t = alpha * d.dot(prevV) / prevVh + (0.5f - prevShiftY);
         // Render loop maps pixel(x,y) -> u=x/(W-1), v=1-y/(H-1); invert that.
@@ -2208,6 +2250,7 @@ public:
     float getFocusDist()    const { return focusDist_; }
     float getShiftX()       const { return shiftX_; }
     float getShiftY()       const { return shiftY_; }
+    bool isOrthographic()   const { return orthographic_; }  // #845
 };
 
 // Named-buffer view over Camera's pixel data, passed to Pass::execute().

@@ -109,7 +109,7 @@ def report_unsupported_native_controls(scene, report=None, emit=True):
 
     Every world/light/camera row the Stage-0 table (``settings_map.py``) marks
     ``dropped`` has a ``(none)`` neutral target: closing those gaps needs new
-    engine capability (orthographic/panoramic cameras,
+    engine capability (panoramic cameras,
     polygonal/anamorphic bokeh, per-light specular) and is a follow-up package
     per the pkg176 non-goal. Until then the steering wheel must not drop them
     SILENTLY (Stage 3 clause). This emits ONE consolidated ``WARNING`` per
@@ -134,10 +134,10 @@ def report_unsupported_native_controls(scene, report=None, emit=True):
     cam_data = getattr(cam, "data", None) if cam is not None else None
     if cam_data is not None:
         cam_type = getattr(cam_data, "type", "PERSP")
-        if cam_type != "PERSP":
+        if cam_type not in ("PERSP", "ORTHO"):  # #845: ORTHO is native
             messages.append(
-                f"camera projection '{cam_type}' (engine renders PERSP only; "
-                f"ORTHO/PANO need new engine capability)"
+                f"camera projection '{cam_type}' (engine renders PERSP/ORTHO only; "
+                f"PANO needs new engine capability)"
             )
         dof = getattr(cam_data, "dof", None)
         if dof is not None and getattr(dof, "use_dof", False):

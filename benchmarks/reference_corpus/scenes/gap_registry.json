@@ -11,20 +11,9 @@
       "category": "camera",
       "feature": "Camera",
       "socket_or_prop": "aperture_ratio"
-    },
-    {
-      "bl_idname": "",
-      "category": "camera",
-      "feature": "Camera",
-      "socket_or_prop": "type"
-    },
-    {
-      "bl_idname": "",
-      "category": "camera",
-      "feature": "Camera",
-      "socket_or_prop": "ortho_scale"
     }
   ],
+  "camera_lens_ortho": [],
   "geometry_zoo": [
     {
       "bl_idname": "ShaderNodeVolumeAbsorption",

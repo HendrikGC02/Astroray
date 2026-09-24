@@ -193,8 +193,9 @@ class _RecordingRenderer:
     def gpu_available(self):
         return False
 
-    def setup_camera(self, *args, **_kw):
+    def setup_camera(self, *args, **kw):
         self.setup_camera_calls.append(args)
+        self.setup_camera_kwargs = kw  # #845: ortho/clip keywords
 
 
 # ---------------------------------------------------------------------------
@@ -335,13 +336,13 @@ class _CamMatrix4:
 
 def _make_camera_obj(lens=50.0, sensor_fit='AUTO', sensor_width=36.0,
                      sensor_height=24.0, shift_x=0.0, shift_y=0.0,
-                     cam_type='PERSP'):
+                     cam_type='PERSP', **extra):
     dof = types.SimpleNamespace(use_dof=False, aperture_fstop=0.0,
                                 focus_object=None, focus_distance=10.0)
     camera = types.SimpleNamespace(
         type=cam_type, lens=lens, sensor_fit=sensor_fit,
         sensor_width=sensor_width, sensor_height=sensor_height,
-        shift_x=shift_x, shift_y=shift_y, dof=dof,
+        shift_x=shift_x, shift_y=shift_y, dof=dof, **extra,
     )
     return types.SimpleNamespace(data=camera, matrix_world=_CamMatrix4())
 
@@ -351,12 +352,17 @@ def _apply_camera_args(monkeypatch, width=160, height=90, **cam_kwargs):
     positional args of the resulting setup_camera call:
       (look_from, look_at, vup, vfov, aspect, aperture, focus, w, h, shift_x, shift_y)
     """
+    return _apply_camera_call(monkeypatch, width, height, **cam_kwargs)[0]
+
+
+def _apply_camera_call(monkeypatch, width=160, height=90, rv3d=None, **cam_kwargs):
+    """(positional args, keyword args) of the resulting setup_camera call."""
     addon = _load_blender_addon(monkeypatch)
     engine = addon.CustomRaytracerRenderEngine()
     renderer = _RecordingRenderer()
     cam_obj = _make_camera_obj(**cam_kwargs)
-    engine._apply_camera(renderer, cam_obj, width, height)  # rv3d=None → F12 datablock path
-    return renderer.setup_camera_calls[-1]
+    engine._apply_camera(renderer, cam_obj, width, height, rv3d=rv3d)  # rv3d=None → F12 datablock path
+    return renderer.setup_camera_calls[-1], renderer.setup_camera_kwargs
 
 
 def test_apply_camera_sensor_fit_horizontal_vs_vertical(monkeypatch):
@@ -425,3 +431,87 @@ def test_apply_camera_known_square_vfov(monkeypatch):
     args = _apply_camera_args(monkeypatch, width=100, height=100,
                               sensor_fit='HORIZONTAL', sensor_width=36.0, lens=50.0)
     assert abs(args[3] - 39.598) < 0.1, f"expected ~39.6deg, got {args[3]:.3f}"
+
+
+# ---------------------------------------------------------------------------
+# #845 — ORTHO camera lowering (no perspective FOV fallback).
+# ---------------------------------------------------------------------------
+
+_ORTHO = dict(cam_type='ORTHO', ortho_scale=7.5, shift_x=0.1, shift_y=-0.05,
+              clip_start=0.25, clip_end=42.0)
+
+
+def test_apply_camera_ortho_landscape(monkeypatch):
+    """AUTO fit on landscape: width spans ortho_scale; shift = shift*ortho_scale
+    world units, expressed as a fraction of each plane extent."""
+    w, h = 160, 90
+    args, kw = _apply_camera_call(monkeypatch, w, h, **_ORTHO)
+    assert kw["orthographic"] is True
+    assert abs(kw["ortho_width"] - 7.5) < 1e-9
+    assert abs(kw["ortho_height"] - 7.5 * h / w) < 1e-9
+    assert abs(args[9] - 0.1) < 1e-9
+    assert abs(args[10] - (-0.05) * 7.5 / (7.5 * h / w)) < 1e-9
+    assert kw["clip_near"] == 0.25 and kw["clip_far"] == 42.0
+
+
+def test_apply_camera_ortho_portrait(monkeypatch):
+    """AUTO fit on portrait: height spans ortho_scale."""
+    w, h = 90, 160
+    args, kw = _apply_camera_call(monkeypatch, w, h, **_ORTHO)
+    assert abs(kw["ortho_height"] - 7.5) < 1e-9
+    assert abs(kw["ortho_width"] - 7.5 * w / h) < 1e-9
+    assert abs(args[9] - 0.1 * 7.5 / (7.5 * w / h)) < 1e-9
+    assert abs(args[10] - (-0.05)) < 1e-9
+
+
+def test_apply_camera_ortho_viewport_window_matrix(monkeypatch):
+    """CAMERA view: invert Blender's orthographic window_matrix (it already
+    holds zoom, pan and shift)."""
+    l, r, b, t = -3.0, 5.0, -2.0, 2.5
+    proj = [[2 / (r - l), 0, 0, -(r + l) / (r - l)],
+            [0, 2 / (t - b), 0, -(t + b) / (t - b)],
+            [0, 0, -0.1, -1.0],
+            [0, 0, 0, 1.0]]
+    rv3d = types.SimpleNamespace(window_matrix=proj)
+    args, kw = _apply_camera_call(monkeypatch, 160, 90, rv3d=rv3d, **_ORTHO)
+    assert kw["orthographic"] is True
+    assert abs(kw["ortho_width"] - (r - l)) < 1e-9
+    assert abs(kw["ortho_height"] - (t - b)) < 1e-9
+    assert abs(args[9] - ((r + l) / 2) / (r - l)) < 1e-9
+    assert abs(args[10] - ((t + b) / 2) / (t - b)) < 1e-9
+
+
+def test_apply_camera_persp_call_unchanged(monkeypatch):
+    """PERSP keeps the established 11-positional call and no ortho keywords."""
+    args, kw = _apply_camera_call(monkeypatch, 160, 90)
+    assert len(args) == 11
+    assert "orthographic" not in kw
+    assert set(kw) == {"clip_near", "clip_far"}
+
+
+def _hash_ctx(cam_type, ortho_scale):
+    cam_data = types.SimpleNamespace(
+        type=cam_type, ortho_scale=ortho_scale, lens=50.0, sensor_width=36.0,
+        sensor_height=24.0, sensor_fit='AUTO', shift_x=0.0, shift_y=0.0,
+        dof=types.SimpleNamespace(use_dof=False, aperture_fstop=5.6))
+    ident = [[1.0 if i == j else 0.0 for j in range(4)] for i in range(4)]
+    rv3d = types.SimpleNamespace(view_matrix=ident, view_perspective='CAMERA',
+                                 view_camera_zoom=0.0, view_camera_offset=(0.0, 0.0))
+    scene = types.SimpleNamespace(camera=types.SimpleNamespace(data=cam_data))
+    region = types.SimpleNamespace(width=160, height=90)
+    return types.SimpleNamespace(region_data=rv3d, space_data=types.SimpleNamespace(lens=50.0),
+                                 scene=scene, region=region)
+
+
+def test_ortho_type_and_scale_invalidate_camera_hashes(monkeypatch):
+    """#845: a camera type or ortho_scale edit in CAMERA view must change both
+    the render key hash and the substantive (accumulation-reset) hash."""
+    addon = _load_blender_addon(monkeypatch)
+    cls = addon.CustomRaytracerRenderEngine
+    base = _hash_ctx('PERSP', 6.0)
+    for other in (_hash_ctx('ORTHO', 6.0), _hash_ctx('ORTHO', 9.0)):
+        assert cls._camera_state_hash(base, base.region) != cls._camera_state_hash(other, other.region)
+        assert (cls._camera_substantive_state_hash(base, base.region)
+                != cls._camera_substantive_state_hash(other, other.region))
+    a, b = _hash_ctx('ORTHO', 6.0), _hash_ctx('ORTHO', 9.0)
+    assert cls._camera_substantive_state_hash(a, a.region) != cls._camera_substantive_state_hash(b, b.region)

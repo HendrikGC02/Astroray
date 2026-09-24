@@ -1641,14 +1641,15 @@ public:
                     const std::vector<float>& vup, float vfov, float aspectRatio,
                     float aperture, float focusDist, int width, int height,
                     float shiftX = 0.0f, float shiftY = 0.0f,
-                    float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max()) {
+                    float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max(),
+                    bool orthographic = false, float orthoWidth = 0.0f, float orthoHeight = 0.0f) {
         auto oldCamera = camera;
         camera = std::make_shared<Camera>(
             Vec3(lookFrom[0], lookFrom[1], lookFrom[2]),
             Vec3(lookAt[0], lookAt[1], lookAt[2]),
             Vec3(vup[0], vup[1], vup[2]),
             vfov, aspectRatio, aperture, focusDist, width, height,
-            shiftX, shiftY, clipNear, clipFar);
+            shiftX, shiftY, clipNear, clipFar, orthographic, orthoWidth, orthoHeight);
         // pkg72: Blender re-uploads the camera every viewport frame via
         // setup_camera; carry the previous-frame projection snapshot across
         // so motion vectors are non-zero on the second and later frames.
@@ -1663,6 +1664,7 @@ public:
             camera->prevFocusDist = oldCamera->prevFocusDist;
             camera->prevShiftX    = oldCamera->prevShiftX;
             camera->prevShiftY    = oldCamera->prevShiftY;
+            camera->prevOrthographic = oldCamera->prevOrthographic;  // #845
             camera->hasPrevCamera = true;
         }
     }
@@ -3716,7 +3718,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("setup_camera", &PyRenderer::setupCamera, "look_from"_a, "look_at"_a, "vup"_a, "vfov"_a,
              "aspect_ratio"_a, "aperture"_a, "focus_dist"_a, "width"_a, "height"_a,
              "shift_x"_a = 0.0f, "shift_y"_a = 0.0f,
-             "clip_near"_a = 0.001f, "clip_far"_a = std::numeric_limits<float>::max())
+             "clip_near"_a = 0.001f, "clip_far"_a = std::numeric_limits<float>::max(),
+             // #845: orthographic plane extents are world units (resolved by the caller).
+             "orthographic"_a = false, "ortho_width"_a = 0.0f, "ortho_height"_a = 0.0f)
         .def("set_camera_motion_blur", &PyRenderer::setCameraMotionBlur,
              "start_t"_a, "start_r"_a, "start_s"_a, "end_t"_a, "end_r"_a, "end_s"_a,
              "shutter"_a, "shutter_position"_a,

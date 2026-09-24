@@ -27,6 +27,10 @@ On-axis boost f(0) = tan h / (tan h - h): 4.66 at h = 45, 19.3 at h = 22.5.
 spread changed 1.0 rad -> pi/2 (Lambertian), since a 1.0 rad default would now
 imply a 2.8x soft-box.
 
+**h -> 0.** Cycles treats tan_half_spread == 0 as collimated: pi on the axis
+(tan a <= 1e-5), else 0. Ported for h <= 1e-10 (also avoids h^3 underflow to
+Inf * 0). Uniform-area sampling hits the axis with measure zero, so the lamp renders black.
+
 **Not ported.** Cycles clamps the sampled rectangle to the spread-visible region
 (`area_light_spread_clamp_light`); that is variance reduction only. Uniform-area
 sampling stays unbiased.

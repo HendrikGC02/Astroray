@@ -83,6 +83,10 @@ def _cells(img):
 
 
 def _agree(a, b, invert=False):
+    # Same camera on both sides, so no edge band here. The Cycles gate
+    # (astra_run/batchY/y847/run_gate.py) excludes a 1-px band around cell
+    # edges for the camera (W-1)/W pixel-mapping bug (fixed by lane u845); that
+    # fix should shrink edge mismatches further.
     m = (a != 0) & (b != 0)
     assert m.sum() > 500, f"too few textured pixels ({m.sum()})"
     return float(np.mean((a[m] == -b[m]) if invert else (a[m] == b[m])))

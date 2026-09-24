@@ -119,6 +119,7 @@ class ProgramBuilder:
         # so the addon resolves the affine base via _resolve_affine_coordinates.
         self.coord_mode = False
         self.coord_sockets = []
+        self.memo = {}          # coord mode: (node, output) -> slot (reuse, not recompute)
 
     # -- resource allocation --------------------------------------------------
     def alloc_slot(self):
@@ -289,7 +290,7 @@ def compile_socket(socket, builder, depth=0):
     Float results are already broadcast by the VM. Explicit socket metadata is
     required; lightweight callers without it retain their historical behavior.
     """
-    slot = _compile_socket_value(socket, builder, depth)
+    slot = _memo_socket_value(socket, builder, depth)
     if (getattr(socket, 'type', None) != 'VALUE'
             or not getattr(socket, 'is_linked', False)):
         return slot
@@ -305,6 +306,24 @@ def compile_socket(socket, builder, depth=0):
                      imm=VEC_MATH_OPS['DOT_PRODUCT'])
         return out
     return slot
+
+
+def _node_key(node):
+    pointer = getattr(node, 'as_pointer', None)
+    return pointer() if callable(pointer) else id(node)
+
+
+def _memo_socket_value(socket, builder, depth=0):
+    # pkg277 — coordinate programs read one node output several times (Separate
+    # XYZ X/Y/Z); reuse its slot so the chain fits VM_MAX_SLOTS. Colour chains
+    # keep their historical bytecode.
+    src = _linked_source(socket) if builder.coord_mode else None
+    if src is None:
+        return _compile_socket_value(socket, builder, depth)
+    key = (_node_key(src[0]), src[1])
+    if key not in builder.memo:
+        builder.memo[key] = _compile_socket_value(socket, builder, depth)
+    return builder.memo[key]
 
 
 def _compile_socket_value(socket, builder, depth=0):

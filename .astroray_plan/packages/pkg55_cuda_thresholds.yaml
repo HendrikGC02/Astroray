@@ -72,7 +72,7 @@ cpu_to_gpu_thresholds:
     max_ulp: 64
     fields: ["hit_t", "hit_point", "hit_normal", "hit_material"]
     p99_9_relative_error: 1.0e-5
-    note: "Pinned 2026-05-23 (PR #349). Measured raw-int ULP=32, clean FMA-fusion drift across 7 geometry fields. See diagnostic in standup §ESCALATION 1 and pkg55-followup-triangle-normal-shortcut spec. #845 (2026-09-24): hit_normal ULP measured in ulp(1.0) (unit vector), hit_point in ulp(max(|p|_inf,1)) per point; per-component ULPs of near-zero coordinates read 1930 (point, |d| 6.6e-7) / 365 (normal, |d| 9.5e-7) after the /W raster fix changed the ray set (main: 16/46, |d| 2.4e-7/7.2e-7)."
+    note: "Pinned 2026-05-23 (PR #349). Measured raw-int ULP=32, clean FMA-fusion drift across 7 geometry fields. See diagnostic in standup §ESCALATION 1 and pkg55-followup-triangle-normal-shortcut spec. #845 (2026-09-24): hit_normal ULP measured in ulp(1.0) (unit vector), hit_point in ulp(max(|p|_inf,1)) per point; per-component ULPs of near-zero coordinates read 1930 (point, |d| 6.6e-7) / 365 (normal, |d| 9.5e-7) after the /W raster fix changed the ray set (main: 16/46, |d| 2.4e-7/7.2e-7). The p99.9 relative error uses the same magnitude denominators for hit_normal (1.0) and hit_point / later-stage ray_origin (max(|p|_inf,1)); per-component it read 8.7e-5 (PostIntersect) / 9.8e-5 (PostLightSample) at a -0.0037 coordinate. Limits unchanged."
 
   # PostShade: BSDF sampling (involves transcendentals: sin/cos/exp/log/pow)
   # No ULP bound (transcendentals involved). Use p99.9 relative-error distribution.

@@ -341,13 +341,13 @@ class TestIssue851TreeSeams:
         assert abs(ratio - 1.0) < 0.05, f"tree/power mean ratio {ratio:.3f}"
 
     @pytest.mark.parametrize("mode", ["power", "tree"])
-    def test_small_triangle_emitter_nee_matches_bsdf_only(self, mode):
-        """NEE on must give the NEE-off (BSDF-only) mean. Triangle::pdfValue
-        added 1e-3 to |cos|*area, so for small emitter triangles the pdf was
-        far below the density random() samples from and NEE came out bright.
-        The tree picks nearby small triangles often, so this showed up as a
-        tree-vs-power mean shift on materials_hall (#851)."""
-        def render(nee):
+    def test_small_triangle_emitter_pdf_is_tessellation_invariant(self, mode):
+        """Splitting one emitter into 800 small triangles must not change NEE.
+        Triangle::pdfValue added 1e-3 to |cos|*area, so small triangles had a
+        pdf far below the density random() samples from: 118x too bright on
+        main. The tree picks nearby small triangles often, so this showed up
+        as a tree-vs-power mean shift on materials_hall (#851)."""
+        def render(n):
             r = astroray.Renderer()
             r.set_integrator("path_tracer")
             r.set_background_color([0.0, 0.0, 0.0])
@@ -355,7 +355,7 @@ class TestIssue851TreeSeams:
             r.add_triangle([-3, 0, -3], [3, 0, 3], [3, 0, -3], floor)
             r.add_triangle([-3, 0, -3], [-3, 0, 3], [3, 0, 3], floor)
             light = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 5.0})
-            n, h, w = 20, 0.3, 0.2  # 800 triangles of 5e-5 m^2, facing down
+            h, w = 0.3, 0.2  # 0.2 x 0.2 emitter facing down
             for i in range(n):
                 for j in range(n):
                     x0, z0 = -w / 2 + w * i / n, -w / 2 + w * j / n
@@ -365,14 +365,12 @@ class TestIssue851TreeSeams:
             setup_camera(r, look_from=[0, 2.5, 2.5], look_at=[0, 0, 0], vfov=40,
                          width=48, height=48)
             r.set_light_sampler(mode)
-            r.set_light_nee(nee)
             r.set_seed(5)
             return np.asarray(r.render(256, 2, None, False), dtype=np.float64)[..., :3]
-        on, off = render(True), render(False)
-        m = (on.max(axis=-1) < 1.0) & (off.max(axis=-1) < 1.0)  # skip the emitter itself
-        ratio = on[m].mean() / off[m].mean()
-        assert abs(ratio - 1.0) < 0.05, f"{mode}: NEE-on/NEE-off mean ratio {ratio:.3f}"
-
+        one, many = render(1), render(20)
+        m = (one.max(axis=-1) < 1.0) & (many.max(axis=-1) < 1.0)  # skip the emitter itself
+        ratio = many[m].mean() / one[m].mean()
+        assert abs(ratio - 1.0) < 0.03, f"{mode}: 800-triangle / 2-triangle mean ratio {ratio:.3f}"
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

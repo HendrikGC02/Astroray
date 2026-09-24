@@ -89,6 +89,32 @@ def test_terminate_secondary_collapses_pdfs():
     assert pdfs[1:] == [0.0, 0.0, 0.0]
 
 
+def test_terminate_secondary_scales_hero_pdf_once():
+    # pbrt-v4 TerminateSecondary: hero pdf /= N once; a second call is a no-op.
+    wl = astroray.SampledWavelengths.sample_uniform(0.3)
+    hero_pdf = wl.pdfs()[0]
+    n = len(wl.pdfs())
+    wl.terminate_secondary()
+    assert wl.pdfs()[0] == pytest.approx(hero_pdf / n, rel=1e-6)
+    wl.terminate_secondary()
+    assert wl.pdfs()[0] == pytest.approx(hero_pdf / n, rel=1e-6)
+    assert wl.pdfs()[1:] == [0.0, 0.0, 0.0]
+
+
+def test_terminate_secondary_keeps_xyz_estimator_unbiased():
+    # The collapsed (hero-only) estimator must converge to the same D65 Y as
+    # the full four-lane one; without the pdf/N rescale it converges to Y/4.
+    ref = _d65_xyz_via_ground_truth()
+    N = 512
+    sumY = 0.0
+    for i in range(N):
+        wl = astroray.SampledWavelengths.sample_uniform((i + 0.5) / N)
+        s = astroray.SampledSpectrum([astroray.sample_d65(wl.lambda_(j)) for j in range(4)])
+        wl.terminate_secondary()
+        sumY += s.to_xyz(wl).Y
+    assert sumY / N == pytest.approx(ref["Y"], rel=0.01)
+
+
 # ---------------------------------------------------------------------------
 # SampledSpectrum arithmetic.
 # ---------------------------------------------------------------------------

@@ -4721,6 +4721,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return renderer.create_material('lambertian', color, lambert_params)
 
             params.update(spec.get('scalar_programs') or {})  # #846
+            if 'metallic_program' in params:
+                # #846: the GPU lowers Disney to the closure graph with lobe weights
+                # baked from the constant Metallic, so a per-texel Metallic has no
+                # effect there (measured). Native Principled is exact on both.
+                self._warn_shader_fallback(
+                    'BSDF_PRINCIPLED', 'per-texel Metallic on the Disney material: '
+                    'GPU keeps the constant Metallic lobe mix; CPU exact')
             return renderer.create_material('disney', color, params)
 
         if kind == 'hair':

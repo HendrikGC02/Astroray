@@ -211,6 +211,8 @@ public:
     double disk_omega(double r) const override {
         return std::sqrt(M) / (std::pow(r, 1.5) + a_ * std::sqrt(M));
     }
+
+    bool kerrSpin(double& a) const override { a = a_; return true; }
 };
 
 } // namespace

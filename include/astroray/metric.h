@@ -36,6 +36,10 @@ public:
 
     // Keplerian angular velocity at radius r (for disk model)
     virtual double disk_omega(double r) const = 0;
+
+    // #897: true if this is Kerr (Schwarzschild: a = 0) in BL form, so the
+    // integrator may switch to Cartesian Kerr-Schild near the polar axis.
+    virtual bool kerrSpin(double& /*a*/) const { return false; }
 };
 
 class SchwarzschildMetric : public Metric {
@@ -144,6 +148,8 @@ public:
     double disk_omega(double r) const override {
         return std::sqrt(M / (r * r * r));
     }
+
+    bool kerrSpin(double& a) const override { a = 0.0; return true; }
 };
 
 // ============================================================================

@@ -108,7 +108,6 @@ inline ASTRORAY_NOINLINE IntegrationResult integrateGeodesic(
     const Metric&            metric,
     const NovikovThorneDisk* disk,       // nullptr if no disk
     const GeodesicState&     s_init,
-    double                   inclination,  // observer inclination (radians)
     int                      maxSteps = 5000,
     double                   h_init   =  0.5,   // positive = forward integration
     double                   atol     = 1e-8,
@@ -122,6 +121,10 @@ inline ASTRORAY_NOINLINE IntegrationResult integrateGeodesic(
     result.nCrossings     = 0;
     result.frequencyShift = 1.0;
     result.exitDirection  = Vec3(0, 0, 1);
+
+    // pkg282: p_t and p_phi are Killing-conserved (stationary, axisymmetric
+    // metric), so the photon's specific angular momentum is fixed per ray.
+    const double lambda = (s.p_t != 0.0) ? -s.p_phi / s.p_t : 0.0;
 
     double h = h_init;
     double prev_theta = s.theta;
@@ -218,7 +221,7 @@ inline ASTRORAY_NOINLINE IntegrationResult integrateGeodesic(
                     DiskCrossing& dc_rec = result.crossings[result.nCrossings++];
                     dc_rec.r     = r_cross;
                     dc_rec.phi   = phi_cross;
-                    dc_rec.g     = disk->redshiftFactor(r_cross, phi_cross, inclination);
+                    dc_rec.g     = disk->redshiftFactor(r_cross, lambda);
                     dc_rec.valid = true;
                 }
             }

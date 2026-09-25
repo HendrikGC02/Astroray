@@ -277,3 +277,58 @@ receding side, with the asymmetry scale set by Ω_H.
   (Null geodesic integration in Kerr; cross-validation source.)
 - Mościbrodzka & Gammie 2018. "ipole." MNRAS 475, 43.
   (Covariant polarized ray-tracing; BSD-3 reference implementation.)
+
+---
+
+## 6. Null-geodesic RHS, camera-ray setup, capture (pkg281, 2026-09-25)
+
+**Sources.** Carter 1968, Phys. Rev. 174, 1559 (DOI 10.1103/PhysRev.174.1559):
+separable Hamilton-Jacobi form. Chandrasekhar 1983, *The Mathematical Theory of
+Black Holes*, ch. 7 §62-63 (same form; equatorial critical impact parameters).
+BPT 1972 §III (ZAMO / locally nonrotating frame). No code copied; GYOTO 2.0.2
+(GPL/CeCILL) used only as an external executable oracle.
+
+**RHS** (`plugins/metrics/kerr.cpp` `KerrMetric::geodesic_rhs`). With covariant
+momenta and `H = g^{mu nu} p_mu p_nu / 2`:
+
+```
+N = 2 Sigma H = Delta p_r^2 + p_th^2 + Q^2 - P^2/Delta
+P = (r^2+a^2) p_t + a p_phi,   Q = p_phi/sin(th) + a sin(th) p_t
+dt/dl  = (a sin(th) Q - (r^2+a^2) P/Delta) / Sigma     dr/dl  = Delta p_r / Sigma
+dth/dl = p_th / Sigma                                   dphi/dl = (Q/sin(th) - a P/Delta) / Sigma
+dp_r/dl  = -(dN/dr  - 2r N/Sigma)          / (2 Sigma)
+dp_th/dl = -(dN/dth - N dSigma/dth / Sigma) / (2 Sigma),   dp_t = dp_phi = 0
+dN/dr = Delta' p_r^2 - 4 r p_t P/Delta + P^2 Delta'/Delta^2,  Delta' = 2(r-M)
+dN/dth = 2 Q (-p_phi cos/sin^2 + a cos p_t),  dSigma/dth = -2 a^2 sin cos
+```
+
+`H` is differentiated in full (the `N/Sigma` terms vanish only on shell), so the
+flow is exactly Hamiltonian and equals `SchwarzschildMetric::geodesic_rhs` at a=0.
+
+**Camera-ray initial state** (`BlackHole::buildInitialState`, a != 0). The
+Euclidean direction gives BL coordinate velocities as before; then
+`p_r = (Sigma/Delta) v^r`, `p_th = Sigma v^th`, `p_phi = g_phiphi v^phi` (v^phi
+relative to the ZAMO). `p_t` solves the null condition on the **past-directed**
+root (`p^t < 0`): the traced ray runs opposite to the photon, i.e. it is the
+photon geodesic with lambda reversed (the geodesic equation is invariant under
+(lambda, k) -> (-lambda, -k)). The future-directed root instead describes a
+time-reversed photon, and t -> -t maps a -> -a, which mirrors the shadow
+(measured: 34/88 px instead of GYOTO's 87/34 px). The a=0 branch uses the same
+sign; there it is inert (a=0 renders bitwise identical).
+
+**Capture.** `r < (r_+ + min r_ph)/2`. An incoming photon inside the innermost
+circular photon orbit cannot turn back. The old `r_+ + 0.5M` (1.84 M at a=0.94)
+lay outside r_ph,pro = 1.43 M and would clip the prograde edge. At a=0 the new
+threshold is 2.5 M, identical to `SchwarzschildMetric`.
+
+The polar clamp `|sin th| >= 1e-6` is shared by `buildInitialState`, `KerrMetric::geodesic_rhs`, and `SchwarzschildMetric` (`sin^2 >= 1e-12`).
+
+**Validation.** Polar observer (a=0.94, camera on the spin axis): circular shadow, radius sqrt(eta + a^2) = 4.884 M (Chandrasekhar 1983 §63, lambda=0 spherical orbit r=2.507 M) -> 62.9 px; measured area radius within 1 px, no pole streak.
+pkg280 Phase 3 frozen procedure, gr-kerr-94-faceon (equatorial
+view), a=0.94: Astroray L/R/T/B = 89/33/62.5/61.5 px vs GYOTO 87/34/61.5/61.5
+(max 2.9 %). Analytic Bardeen b_c = 6.90/2.64 M -> 88.8/34.0 px.
+
+**Known gap.** `NovikovThorneDisk` uses Schwarzschild E/L/flux formulas. Given a
+Kerr ISCO (< 3M) its flux integral diverges negative across r = 3M and the disk
+goes dark, so `BlackHole` keeps the disk model on a=0 until it is made Kerr-
+consistent (Page & Thorne 1974 with BPT 1972 eq. 2.12-2.13 E, L).

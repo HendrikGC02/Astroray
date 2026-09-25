@@ -6,6 +6,11 @@
 #   dark_disk fraction (L<0.05) = 0.053  (the BH shadow)
 #   pHash distance vs gr-schwarzschild = 18 (the disk ring keeps the pair distinct)
 #   same-seed SSIM (gate render vs reference, fixed SEED=17) = 1.0 (deterministic)
+# pkg281 (2026-09-25): spin is now honoured (Kerr geodesics). The view is exactly
+# equatorial, so the shadow is the Bardeen D-shape: prograde (flat) edge on image
+# right at ~33 px, retrograde edge on the left at ~89 px (GYOTO 34 / 87 px). The two
+# ROI dark_disk gates below lock that asymmetry; Schwarzschild gives 67/66 px and
+# fails both. reference.png must be re-blessed on the canonical build.
 
 [scene]
 description = "Kerr a/M=0.94, Novikov-Thorne thin disk, gravitationally lensing a high-contrast equirectangular grid sky. Visible: a crisp central shadow, a bright photon-sphere ring (lensed disk emission) hugging it, and the background grid bending into concentric Einstein-ring arcs. The distinguished partner of gr-schwarzschild (same grid + shadow, but the bright disk ring is absent there) — exercises the Kerr metric plugin + disk-emission dispatch and keeps the pair pHash-distinct."
@@ -35,3 +40,19 @@ type = "phash"
 threshold = 12
 direction = "le"
 description = "Structural self-stability gate. Tightened from 20 to 12 now that the lensed grid + disk ring give the frame rich perceptual structure."
+
+[[gate]]
+type = "dark_disk"
+threshold = 0.9
+direction = "ge"
+luminance_threshold = 0.05
+roi = [250, 262, 172, 184]
+description = "pkg281 Kerr retrograde edge: 72-84 px left of centre lies inside the a=0.94 shadow (edge ~89 px, GYOTO 87). Schwarzschild (67 px) measures 0.007 here."
+
+[[gate]]
+type = "dark_disk"
+threshold = 0.1
+direction = "le"
+luminance_threshold = 0.05
+roi = [250, 262, 296, 312]
+description = "pkg281 Kerr prograde edge: 40-56 px right of centre lies outside the flattened a=0.94 shadow (edge ~33 px, GYOTO 34). Schwarzschild (66 px) measures 1.0 here."

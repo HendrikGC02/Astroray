@@ -97,9 +97,9 @@ pkg280's non-goals).
 
 ## Progress
 
-- [ ] Wire `spin` through `addBlackHole` into `BlackHole`.
-- [ ] Fix `KerrMetric::geodesic_rhs`.
-- [ ] Re-run GYOTO a=0.94 ring comparison; confirm ≤5 %.
+- [x] Wire `spin` through `addBlackHole` into `BlackHole`.
+- [x] Fix `KerrMetric::geodesic_rhs`.
+- [x] Re-run GYOTO a=0.94 ring comparison; confirm ≤5 % (2026-09-25: 89/33/62.5/61.5 px vs GYOTO 87/34/61.5/61.5, max 2.9 %; a=0 unchanged at 1.5 %).
 - [ ] Rebaseline `gr-kerr-94-faceon` reference with reviewer sign-off.
 
 ---

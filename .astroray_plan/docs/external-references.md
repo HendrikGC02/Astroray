@@ -124,6 +124,7 @@ own because a dependency for 40 lines of code is ridiculous.
 
 - Novikov & Thorne 1973 — thin accretion disk (done).
 - GR thin-disk invariant transfer (pkg280): Rybicki & Lightman 1979 §4.9, Cunningham 1975 ApJ 202, 788, and BSD-3-Clause ipole method reference — [research note](gr-transfer-audit-2026-09.md).
+- Kerr null-geodesic Hamiltonian RHS (pkg281): Carter 1968 Phys. Rev. 174, 1559; Chandrasekhar 1983 ch. 7; BPT 1972 ZAMO frame — [research note §6](kerr-metric-research.md).
 - Narayan & Yi 1994 — ADAF.
 - Sądowski 2009 — slim disk.
 - Cárdenas-Avendaño et al. 2022 — photon ring analytic.

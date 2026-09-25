@@ -1565,6 +1565,9 @@ public:
         // baselines. Smaller values produce a larger visible shadow.
         double r_obs_M = params.contains("r_obs_M")
             ? params["r_obs_M"].cast<double>() : 100.0;
+        // pkg281: Kerr a/M; 0 (default) keeps the Schwarzschild metric.
+        double spin = params.contains("spin")
+            ? params["spin"].cast<double>() : 0.0;
 
         // pkg43: accretion model selector. Default to NOVIKOV_THORNE for backward compatibility.
         std::string accretion_model = params.contains("accretion_model")
@@ -1573,7 +1576,7 @@ public:
         auto bh = std::make_shared<BlackHole>(
             Vec3(position[0], position[1], position[2]),
             double(mass_solar), double(influence_radius),
-            disk_outer, mdot, incl, r_obs_M);
+            disk_outer, mdot, incl, r_obs_M, spin);
 
         // pkg43: Add slim disk emission if selected
         if (accretion_model == "SLIM_DISK") {

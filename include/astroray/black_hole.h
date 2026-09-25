@@ -5,6 +5,8 @@
 #include "emission.h"
 #include "gr_integrator.h"
 #include "spectral.h"
+#include "astroray/register.h"
+#include <array>
 #include <memory>
 #include <random>
 #include <cmath>
@@ -91,9 +93,14 @@ private:
     double influenceRadius;  // world-space radius of influence sphere
     double r_obs_M;          // influence radius in geometrized units (M)
     double worldToGR;        // scale: world unit → BL unit  (= r_obs_M / influenceRadius)
-    double inclination;      // observer inclination in radians (from spin axis)
 
-    std::unique_ptr<SchwarzschildMetric> metric;
+    double spin;             // Kerr a/M; 0 selects SchwarzschildMetric (pkg281)
+
+    std::shared_ptr<Metric> metric;
+    // pkg281 interim: NovikovThorneDisk uses Schwarzschild E/L/flux formulas;
+    // fed a Kerr ISCO (<3M) its flux integral diverges and the disk vanishes.
+    // Keep the disk on a=0 (its pre-pkg281 behaviour) until it is Kerr-consistent.
+    std::unique_ptr<SchwarzschildMetric> diskMetric;
     std::unique_ptr<NovikovThorneDisk>   disk;
     std::vector<std::shared_ptr<Emission>> emissions;
 
@@ -124,7 +131,10 @@ private:
         double M     = metric->M;
         double f     = 1.0 - 2.0 * M / r;
         double sin_th = std::sin(theta);
-        if (std::abs(sin_th) < 1e-10) sin_th = (sin_th >= 0 ? 1e-10 : -1e-10);
+        // Same polar clamp as the metric RHS (Schwarzschild sin^2 >= 1e-12,
+        // KerrMetric |sin| >= 1e-6). A smaller clamp here only inflates
+        // dph = O(1/sin) while p_phi = O(sin) stays ~0 either way.
+        if (std::abs(sin_th) < 1e-6) sin_th = (sin_th >= 0 ? 1e-6 : -1e-6);
         double sin2  = sin_th * sin_th;
         double r2    = r * r;
 
@@ -148,10 +158,42 @@ private:
         double p_th  = r2 * dth;
         double p_phi = r2 * sin2 * dph;
 
-        // Null condition → p_t
+        // Null condition → p_t, on the PAST-directed root (p^t < 0) in both
+        // branches. The traced ray starts at the camera and runs against the
+        // photon: its tangent is -k for photon momentum k. The geodesic
+        // equation is invariant under (lambda, k) -> (-lambda, -k), so tracing
+        // -k (spatial part along the camera ray, p^t < 0) retraces the real
+        // photon backwards. Keeping p^t > 0 with the spatial part reversed is
+        // a time-reversed photon, and t -> -t maps Kerr a -> -a: the shadow
+        // mirrors. pkg281 measured exactly that (L/R 34/88 px vs GYOTO 87/34);
+        // the past-directed root gives 89/33. At a=0 the sign of p_t is inert
+        // (it enters the Schwarzschild RHS only as p_t^2 and in dt/dlambda).
         double L2    = p_th * p_th + p_phi * p_phi / sin2;
         double pt2   = f * f * p_r * p_r + f * L2 / r2;
-        double p_t   = -std::sqrt(std::max(pt2, 0.0));
+        double p_t   = std::sqrt(std::max(pt2, 0.0));  // p^t = -p_t/f < 0
+
+        if (spin != 0.0) {
+            // pkg281 Kerr: p_i = g_ii v^i, with v^phi taken relative to the
+            // frame-dragging ZAMO (p_phi = g_phiphi v^phi; Bardeen, Press &
+            // Teukolsky 1972 §III). g^{tt} p_t^2 + 2 b p_t + C = 0 with
+            // b = g^{tphi} p_phi; p^t = g^{tt} p_t + b, so the root
+            // g^{tt} p_t = -b - sqrt(b^2 - g^{tt} C) gives p^t = -sqrt(.) < 0.
+            // At a=0 it equals the branch above.
+            const double a2     = spin * spin;
+            const double sigma  = r2 + a2 * cos_th * cos_th;
+            const double delta  = r2 - 2.0 * M * r + a2;
+            const double A_     = (r2 + a2) * (r2 + a2) - delta * a2 * sin2;
+            p_r   = sigma / delta * dr;
+            p_th  = sigma * dth;
+            p_phi = A_ / sigma * sin2 * dph;
+            const double g_tt  = -A_ / (sigma * delta);
+            const double g_tph = -2.0 * M * spin * r / (sigma * delta);
+            const double g_phph = (delta - a2 * sin2) / (sigma * delta * sin2);
+            const double C = delta / sigma * p_r * p_r + p_th * p_th / sigma
+                           + g_phph * p_phi * p_phi;
+            const double b = g_tph * p_phi;
+            p_t = (-b - std::sqrt(std::max(b * b - g_tt * C, 0.0))) / g_tt;
+        }
 
         GeodesicState s;
         s.t      = 0.0;
@@ -187,7 +229,7 @@ private:
         Vec3 hitPoint = incomingRay.at(entry_t);
         GeodesicState s0 = buildInitialState(hitPoint, incomingRay.direction);
         state.integration = integrateGeodesic(
-            *metric, disk.get(), s0, inclination,
+            *metric, disk.get(), s0,
             /*maxSteps=*/5000, /*h_init=*/0.5,
             /*atol=*/1e-8, /*rtol=*/1e-6,
             /*r_max=*/r_obs_M * 1.05
@@ -207,6 +249,20 @@ private:
             }
         }
         return Vec3(0, 0, 1);
+    }
+
+    // #896: world-space point where an escaped geodesic crossed r_max (just
+    // outside the influence sphere). Inverse of buildInitialState's mapping.
+    bool exitPointWorld(const IntegrationResult& ir, Vec3& out) const {
+        if (!ir.escaped) return false;
+        const GeodesicState& s = ir.finalState;
+        if (!gr_isfinite(s.r) || !gr_isfinite(s.theta) || !gr_isfinite(s.phi)) return false;
+        const double k = s.r / worldToGR;
+        const double st = std::sin(s.theta);
+        out = position + Vec3(float(k * st * std::cos(s.phi)),
+                              float(k * std::cos(s.theta)),
+                              float(k * st * std::sin(s.phi)));
+        return true;
     }
 
     astroray::SampledSpectrum diskEmissionSpectral(
@@ -277,8 +333,12 @@ private:
 public:
     BlackHole(Vec3 pos, double mass_solar, double influence_r,
               double disk_outer_M = 30.0, double mdot = 1.0,
-              double incl_deg = 75.0, double r_obs_M_in = 100.0)
-        : position(pos), mass(mass_solar), influenceRadius(influence_r)
+              // pkg282: unused. g comes from photon momentum, so the viewing
+              // inclination is the camera's actual geometry.
+              double /*incl_deg*/ = 75.0, double r_obs_M_in = 100.0,
+              double spin_a = 0.0)
+        : position(pos), mass(mass_solar), influenceRadius(influence_r),
+          spin(gr_isfinite(spin_a) ? std::clamp(spin_a, -0.998, 0.998) : 0.0)
     {
         // pkg107: r_obs_M_in controls the world-to-GR scale factor.
         // Default 100.0 preserves pkg40-pkg44 baselines. Smaller values
@@ -288,10 +348,21 @@ public:
         r_obs_M   = r_obs_M_in > 0.0 ? r_obs_M_in : 100.0;
         worldToGR = r_obs_M / double(influence_r);
 
-        metric = std::make_unique<SchwarzschildMetric>(1.0);
-        disk   = std::make_unique<NovikovThorneDisk>(metric.get(), disk_outer_M, mdot);
+        // pkg281: honour spin. Kerr lives in plugins/metrics/kerr.cpp (same
+        // |a| <= 0.998 clamp as above).
+        if (spin != 0.0) {
+            astroray::ParamDict kp;
+            kp.set("M", 1.0f);
+            kp.set("a", static_cast<float>(spin));
+            metric = astroray::MetricRegistry::instance().create("kerr", kp);
+        } else {
+            metric = std::make_shared<SchwarzschildMetric>(1.0);
+        }
+        diskMetric = std::make_unique<SchwarzschildMetric>(1.0);
+        // pkg282: emitter kinematics (Ω, u^t) follow the geodesic spin; flux
+        // and r_in stay a=0 Page-Thorne until #894.
+        disk   = std::make_unique<NovikovThorneDisk>(diskMetric.get(), disk_outer_M, mdot, spin);
 
-        inclination  = incl_deg * GR_PI / 180.0;
         // Matched to NovikovThorneDisk::TARGET_PEAK_TEMP = 20 000 K:
         // Planck at 500 nm → ~2e14 W/(m²·sr·m); CIE pipeline with 4 stratified
         // samples → Y ≈ 1.8e13; exposureScale = 1/1.8e13 ≈ 5.5e-14 → Y ≈ 1.
@@ -305,6 +376,35 @@ public:
     // --------------- Hittable interface ---------------
 
     bool isGRObject() const override { return true; }
+
+    // pkg282 test/oracle probe for one camera ray: {g, passes}. g is the
+    // first pass's first in-disk crossing redshift, -1 if captured, 0 if no
+    // disk hit (or the ray misses the sphere). passes replays the path
+    // tracer's GR chain (continuation = entry point + exit direction): the
+    // number of sphere passes before the ray leaves for good, negated if a
+    // pass is captured, 99 if still inside after 8 passes.
+    std::array<double, 2> probeDiskRedshift(const Ray& r) const {
+        double g = 0.0;
+        Ray ray = r;
+        for (int pass = 1; pass <= 8; ++pass) {
+            HitRecord rec;
+            if (!hit(ray, 0.001f, std::numeric_limits<float>::max(), rec))
+                return {g, double(pass - 1)};
+            TraceState trace = integrateIncomingRay(ray);
+            if (!trace.valid) return {g, double(pass - 1)};
+            const IntegrationResult& ir = trace.integration;
+            if (ir.captured) return {pass == 1 ? -1.0 : g, -double(pass)};
+            if (pass == 1) {
+                for (int ci = 0; ci < ir.nCrossings; ++ci) {
+                    if (ir.crossings[ci].valid) { g = ir.crossings[ci].g; break; }
+                }
+            }
+            Vec3 origin = rec.point;
+            exitPointWorld(ir, origin);
+            ray = Ray(origin, sanitizedExitDirection(ir));
+        }
+        return {g, 99.0};
+    }
 
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
         Vec3 oc     = r.origin - position;
@@ -403,6 +503,7 @@ public:
         }
 
         result.exitDirection = sanitizedExitDirection(ir);
+        result.hasExitPoint = exitPointWorld(ir, result.exitPoint);
 
         return result;
     }
@@ -438,6 +539,7 @@ public:
                         + volumetricEmissionSpectral(incomingRay, lambdas);
         result.hasEmission = !result.emission.isZero();
         result.exitDirection = sanitizedExitDirection(ir);
+        result.hasExitPoint = exitPointWorld(ir, result.exitPoint);
         // pkg67: expose the integrator's frequency-shift factor so the caller
         // can redshift the exiting ray's carried wavelengths. For
         // Schwarzschild p_t is conserved → 1.0; pkg40 Kerr will compute a

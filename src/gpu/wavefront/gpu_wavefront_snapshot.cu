@@ -107,6 +107,7 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera (mirrors production GPU render path).
@@ -284,6 +285,7 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -470,6 +472,7 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -634,6 +637,7 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -816,6 +820,7 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -1173,6 +1178,7 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     GCameraParams gcam;
@@ -1478,6 +1484,16 @@ std::vector<float> cuda_wavefront_render(
     gcam.focusDist = cam.getFocusDist();
     gcam.orthographic = cam.isOrthographic() ? 1 : 0;  // #845
     { Vec3 f = cam.viewForward(); gcam.forward = GVec3(f.x, f.y, f.z); }
+
+    // #873: primary-ray clip planes (CPU raytracer.h bounce-0 tMin/tMax). The
+    // CPU floor tMin >= 0.001 makes clipNear <= 0.001 a no-op; FLT_MAX = no far.
+    {
+        GWavefrontPrimaryClip clip{};
+        clip.nearDist = (cam.clipNear > 0.001f) ? cam.clipNear : 0.f;
+        clip.farDist = (cam.clipFar < std::numeric_limits<float>::max()) ? cam.clipFar : 0.f;
+        clip.fwdX = gcam.forward.x; clip.fwdY = gcam.forward.y; clip.fwdZ = gcam.forward.z;
+        setWavefrontPrimaryClip(clip);
+    }
 
     // Persistent context: per-path state reused across calls. Scene DATA was
     // re-converted (buildSceneArrays) and re-uploaded on EVERY call (megakernel-
@@ -2545,6 +2561,7 @@ std::vector<float> cuda_wavefront_render_restir(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     GCameraParams gcam;

@@ -60,6 +60,15 @@ void setWavefrontRenderRegion(int active, int x0, int y0, int x1, int y1) {
     cudaMemcpyToSymbol(c_wfRegion, &r, sizeof(GRenderRegion));
 }
 
+// #873: primary-ray clip planes (see GWavefrontPrimaryClip). Near is applied here
+// by advancing the camera-ray origin (Cycles camera.h: ray->P += nearclip * D);
+// far is read by intersectPathSlotT (stage_advance.cu) at bounce 0.
+__constant__ GWavefrontPrimaryClip c_wfPrimaryClip = {0.f, 0.f, 0.f, 0.f, -1.f};
+
+void setWavefrontPrimaryClip(const GWavefrontPrimaryClip& clip) {
+    cudaMemcpyToSymbol(c_wfPrimaryClip, &clip, sizeof(GWavefrontPrimaryClip));
+}
+
 namespace {
 
 // pkg201 Stage 2 (Finding D) — filter importance sampling of the primary-ray
@@ -300,6 +309,13 @@ __device__ inline void generatePrimaryRay(
         ray_direction = dir;
     }
     }  // #845 perspective
+
+    // #873: near clip plane at view-axis depth nearDist (CPU raytracer.h tMin =
+    // clipNear / dot(D, forward); Cycles camera.h moves P by nearclip * z_inv * D).
+    if (c_wfPrimaryClip.nearDist > 0.f) {
+        const float cz = fmaxf(1e-6f, ray_direction.dot(cam.forward));
+        ray_origin = ray_origin + ray_direction * (c_wfPrimaryClip.nearDist / cz);
+    }
 
     // 3. Lambda draw (CPU: std::uniform_real_distribution<float>(0,1)). pkg206:
     // primary path uses luminance-weighted IMPORTANCE sampling (mirrors CPU

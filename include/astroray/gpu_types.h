@@ -1155,3 +1155,12 @@ struct GCameraParams {
     int   orthographic = 0;
     GVec3 forward;                       // unit view direction (-w)
 };
+
+// #873: primary-ray camera clip planes, view-axis depths (Cycles camera.h:
+// nearclip/cliplength scaled by 1/dot(D, forward)). nearDist 0 = no near offset,
+// farDist 0 = no far clip; the zero default keeps unpublished drivers unchanged.
+struct GWavefrontPrimaryClip {
+    float nearDist;
+    float farDist;
+    float fwdX, fwdY, fwdZ;              // unit view direction (GCameraParams::forward)
+};

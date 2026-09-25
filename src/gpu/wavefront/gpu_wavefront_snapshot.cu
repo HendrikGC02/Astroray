@@ -108,6 +108,7 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
+    setWavefrontLightNeeOff(false);                      // #877
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera (mirrors production GPU render path).
@@ -286,6 +287,7 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
+    setWavefrontLightNeeOff(false);                      // #877
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -473,6 +475,7 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
+    setWavefrontLightNeeOff(false);                      // #877
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -638,6 +641,7 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
+    setWavefrontLightNeeOff(false);                      // #877
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -821,6 +825,7 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
+    setWavefrontLightNeeOff(false);                      // #877
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -1179,6 +1184,7 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
+    setWavefrontLightNeeOff(false);                      // #877
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     GCameraParams gcam;
@@ -1493,6 +1499,14 @@ std::vector<float> cuda_wavefront_render(
         clip.farDist = (cam.clipFar < std::numeric_limits<float>::max()) ? cam.clipFar : 0.f;
         clip.fwdX = gcam.forward.x; clip.fwdY = gcam.forward.y; clip.fwdZ = gcam.forward.z;
         setWavefrontPrimaryClip(clip);
+    }
+    // #877: set_light_nee(False) on the NEE path tracer = pure BSDF sampling (no
+    // surface/medium light sampling, emitter hits at w_B = 1), the CPU pkg265 twin.
+    // The naive multiwavelength route (enableNEE already false) is unchanged.
+    {
+        const bool lightNeeOff = enableNEE && !renderer.getLightNee();
+        setWavefrontLightNeeOff(lightNeeOff);
+        if (lightNeeOff) enableNEE = false;
     }
 
     // Persistent context: per-path state reused across calls. Scene DATA was
@@ -2562,6 +2576,7 @@ std::vector<float> cuda_wavefront_render_restir(
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
+    setWavefrontLightNeeOff(false);                      // #877
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     GCameraParams gcam;

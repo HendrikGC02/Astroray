@@ -107,3 +107,59 @@ def test_873_primary_clip_gpu():
     np.testing.assert_allclose(_regions(img), _regions(_clip_render(gpu=False)),
                                atol=0.02)
 
+
+# --------------------------------------------------------------------------- #
+# #877
+# --------------------------------------------------------------------------- #
+_SEEDS = (3, 5, 7, 9, 11, 13)
+_SIGMA_MULT = 3.0
+_REL_FLOOR = 0.03
+
+
+def _medium_render(gpu, kind, nee, seed, spp=128, res=48):
+    r = _renderer(gpu)
+    r.set_background_color([0.0, 0.0, 0.0])
+    if kind == "box":
+        r.add_homogeneous_medium([-1, -1, -1], [1, 1, 1], 1.0, [0.8, 0.8, 0.8])
+    else:
+        r.set_world_volume(0.15, [1.0, 1.0, 1.0], 0.0, 0.8)
+    r.add_area_light_dedicated([0.0, 3.0, 0.0], [1, 0, 0], [0, 0, 1], 4.0, 4.0,
+                               "RECTANGLE", {"mode": "rgb", "color": [1, 1, 1]}, 10.0)
+    r.set_light_nee(nee)
+    r.setup_camera([0, 0, 5], [0, 0, 0], [0, 1, 0], 40.0, 1.0, 0.0, 5.0, res, res)
+    r.set_seed(seed)
+    img = np.asarray(r.render(spp, 16, None, False), dtype=np.float32)
+    img = img.reshape(res, res, 3)
+    lo, hi = res // 4, 3 * res // 4
+    return float(img[lo:hi, lo:hi].mean())
+
+
+def _stats(v):
+    a = np.asarray(v, dtype=np.float64)
+    return float(a.mean()), float(a.std(ddof=1) / math.sqrt(a.size))
+
+
+def _assert_nee_invariant(gpu, kind):
+    on_v = [_medium_render(gpu, kind, True, s) for s in _SEEDS]
+    off_v = [_medium_render(gpu, kind, False, s) for s in _SEEDS]
+    assert on_v != off_v, "set_light_nee(False) did not change the estimator"
+    on, s_on = _stats(on_v)
+    off, s_off = _stats(off_v)
+    assert on > 0.0
+    tol = max(_SIGMA_MULT * math.hypot(s_on, s_off), _REL_FLOOR * on)
+    assert abs(on - off) <= tol, (
+        f"{'gpu' if gpu else 'cpu'} {kind}: NEE-on {on:.5f}+-{s_on:.5f} vs "
+        f"NEE-off {off:.5f}+-{s_off:.5f} ({100 * (off / on - 1):+.1f}%), tol {tol:.5f}")
+    return on, off
+
+
+@pytest.mark.cpu
+@pytest.mark.parametrize("kind", ["box", "fog"])
+def test_877_medium_nee_flag_cpu(kind):
+    _assert_nee_invariant(False, kind)
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("kind", ["box", "fog"])
+def test_877_medium_nee_flag_gpu(kind):
+    _assert_nee_invariant(True, kind)

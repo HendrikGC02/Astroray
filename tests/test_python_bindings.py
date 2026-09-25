@@ -974,12 +974,22 @@ def test_adaptive_sampling_flag():
 
 
 def test_direct_and_indirect_clamp_controls():
-    """Direct/indirect clamp settings should reduce bright outliers when enabled."""
+    """Direct/indirect clamp settings should reduce bright outliers when enabled.
+
+    Clamped and unclamped renders share a fixed seed: the clamp only scales
+    contributions down and consumes no RNG, so clamped <= unclamped per pixel.
+    Unseeded, the old indirect p99.5 gate flaked (CI 1.81 vs 1.39): the ~44
+    ceiling-lamp pixels (bounce-0 emission, never clamped) sit right at p99.5,
+    so it measured lamp-edge AA noise, not indirect fireflies.
+    """
     def luminance_map(pixels: np.ndarray) -> np.ndarray:
         return 0.2126 * pixels[:, :, 0] + 0.7152 * pixels[:, :, 1] + 0.0722 * pixels[:, :, 2]
 
+    seed = 1234
+
     def render_direct(clamp_direct: float) -> np.ndarray:
         r = create_renderer()
+        r.set_seed(seed)
         diffuse = r.create_material('lambertian', [0.85, 0.85, 0.85], {})
         light = r.create_material('light', [1.0, 1.0, 1.0], {'intensity': 400.0})
         r.add_sphere([0.0, 0.0, 0.0], 1.0, diffuse)
@@ -992,6 +1002,7 @@ def test_direct_and_indirect_clamp_controls():
 
     def render_indirect(clamp_indirect: float) -> np.ndarray:
         r = create_renderer()
+        r.set_seed(seed)
         create_cornell_box(r)
         glass = r.create_material('glass', [1.0, 1.0, 1.0], {'ior': 1.5})
         r.add_sphere([0, -0.6, 0], 1.0, glass)
@@ -1007,8 +1018,14 @@ def test_direct_and_indirect_clamp_controls():
 
     indirect_unclamped = luminance_map(render_indirect(0.0))
     indirect_clamped = luminance_map(render_indirect(0.5))
-    assert np.percentile(indirect_clamped, 99.5) < np.percentile(indirect_unclamped, 99.5), \
-        "clamp_indirect should reduce bright indirect-light outliers"
+    tol = 1e-4 * np.maximum(indirect_unclamped, 1.0)
+    assert np.all(indirect_clamped <= indirect_unclamped + tol), \
+        "clamp_indirect must never brighten a pixel under a shared seed"
+    # Camera-visible lamp pixels are bounce-0 emission: indirect clamp leaves them alone.
+    assert indirect_clamped.max() == pytest.approx(indirect_unclamped.max(), rel=1e-4)
+    # 20-seed CPU sweep: clamped/unclamped mean in [0.929, 0.936]; 0.97 leaves a wide margin.
+    assert indirect_clamped.mean() < 0.97 * indirect_unclamped.mean(), \
+        "clamp_indirect should remove bright indirect-light energy"
 
 
 def _luminance_map(pixels: np.ndarray) -> np.ndarray:

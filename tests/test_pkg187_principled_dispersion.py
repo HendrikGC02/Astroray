@@ -40,7 +40,8 @@ from scenes.prism_reference import (
     WIDTH,
     _add_panel,
     add_triangular_prism,
-    red_blue_centroid_separation,
+    edge_fringe,
+    render_edge_prism,
 )
 
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
@@ -91,19 +92,25 @@ def test_principled_dispersion_is_chromatic(test_results_dir):
     save_image(flat, os.path.join(test_results_dir, "pkg187_principled_flat.png"))
     save_image(dispersive, os.path.join(test_results_dir, "pkg187_principled_dispersive.png"))
 
-    flat_sep = red_blue_centroid_separation(flat)
-    disp_sep = red_blue_centroid_separation(dispersive)
     diff = np.abs(dispersive - flat)
-
-    print(f"\n  principled flat  red/blue centroid separation: {flat_sep:.3f}px")
-    print(f"  principled disp. red/blue centroid separation: {disp_sep:.3f}px")
-    print(f"  max abs RGB diff: {float(diff.max()):.4f}  mean: {float(diff.mean()):.4f}")
+    print(f"\n  max abs RGB diff: {float(diff.max()):.4f}  mean: {float(diff.mean()):.4f}")
 
     assert np.isfinite(dispersive).all()
     assert float(dispersive.mean()) > 0.01
-    # Dispersion must add clear red/blue spatial separation vs the flat prism.
     assert float(diff.max()) > 0.15
-    assert disp_sep - flat_sep > 1.0
+
+    # Dispersion signature: signed red/blue fringes at achromatic edges. The
+    # former red_blue_centroid_separation gate (flat 3.9 px, disp 7.7 px) was
+    # driven by the hero collapse rendering the prism ~4x too dark; after the
+    # pbrt-v4 pdf/N fix it reads 3.7 px (real spread is a few px here).
+    # Measured fixed build: flat 0.03, disp 0.90 (seeds 5, 17).
+    base = {"transmission_weight": 1.0, "ior": 1.5, "roughness": 0.02, "metallic": 0.0}
+    flat_edge = edge_fringe(render_edge_prism(astroray, "principled", base))
+    disp_edge_img = render_edge_prism(astroray, "principled", {**base, **DISP_PARAMS})
+    save_image(disp_edge_img, os.path.join(test_results_dir, "pkg187_principled_edges.png"))
+    disp_edge = edge_fringe(disp_edge_img)
+    print(f"  edge fringe flat {flat_edge:.4f}  disp {disp_edge:.4f}")
+    assert disp_edge > 0.15 and disp_edge > 4.0 * flat_edge
 
 
 def test_zero_dispersion_is_bit_identical(test_results_dir):

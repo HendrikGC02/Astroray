@@ -11,9 +11,9 @@ wavelengths (broadband → achromatic). pkg189 persists the collapse to SoA behi
 compile-time HasDispersion axis (flat-IOR fleet kernels bit-unchanged).
 
 This is the acceptance oracle for that fix:
-  * CONTROL FLIP — GPU dispersive disp/flat mean-ratio must now DIFFER from the
-    ~1.0 no-op, for BOTH dielectric (Sellmeier) and Principled (Cauchy) glass.
-    Expected magnitude tracks the CPU reference (disp dims the mean to ~0.55×).
+  * ENERGY — GPU dispersive/flat mean-ratio ~1 for dielectric (Sellmeier) and
+    Principled (Cauchy) glass (the old "dims to ~0.55x" was the hero-collapse
+    pdf bug, fixed in terminateSecondary).
   * CPU/GPU PARITY — per-channel mean-ratio (NOT SSIM: independent MC streams,
     memory ssim-wrong-gate-for-independent-rng).
   * VISUAL RAINBOW — a dispersive glass sphere refracting a colored backdrop is
@@ -106,40 +106,43 @@ def _gpu_available() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# CONTROL FLIP — dispersion is now LIVE on the GPU wavefront leg (was a no-op).
+# ENERGY — dispersion moves light, it does not remove it. The former gate
+# (disp/flat < 0.90, "dims to ~0.55x") encoded the hero-collapse pdf bug:
+# terminateSecondary zeroed the secondary pdfs without pbrt-v4's pdf[0] /= N,
+# so every dispersive transmission path was ~4x too dark. Persistence of the
+# collapse (the pkg189 write-back) is gated by the rainbow tests below, which
+# go achromatic if the collapse evaporates. Tolerance covers the flat IOR 1.5
+# vs BK7 ~1.519 mismatch; the matched-IOR 2 % gate is
+# tests/test_dispersion_hero_collapse_energy.py.
 # ---------------------------------------------------------------------------
 
-def test_gpu_dielectric_dispersion_control_flips():
-    """GPU dielectric BK7 disp/flat must DIFFER from the ~1.0 no-op (pkg187:
-    0.2139/0.2131 ≈ 1.003). After pkg189 the hero collapse persists → dispersion
-    dims the mean toward the CPU reference (~0.55×)."""
+ENERGY_TOL = 0.05
+
+
+def test_gpu_dielectric_dispersion_conserves_energy():
     if not _gpu_available():
         pytest.skip("CUDA GPU not available on this machine")
     flat = _means(_render(True, "dielectric", {"ior": 1.5})).mean()
     disp = _means(_render(True, "dielectric", {"sellmeier_preset": "bk7"})).mean()
     ratio = disp / max(flat, 1e-8)
-    print(f"\n[pkg189 GPU dielectric control] flat={flat:.4f} bk7={disp:.4f} "
+    print(f"\n[pkg189 GPU dielectric energy] flat={flat:.4f} bk7={disp:.4f} "
           f"disp/flat={ratio:.4f}")
-    assert ratio < 0.90, (
-        f"pkg189 GPU dielectric dispersion is STILL a no-op (bk7/flat={ratio:.4f} "
-        f">= 0.90). The hero-λ collapse is not persisting — check the HasDispersion "
-        f"write-back in shadePathSlot and hasDispersive scene flag.")
+    assert abs(ratio - 1.0) <= ENERGY_TOL, (
+        f"GPU dielectric bk7/flat={ratio:.4f} outside 1+-{ENERGY_TOL}: "
+        f"hero-collapse pdf rescale (terminateSecondary) missing or doubled?")
 
 
-def test_gpu_principled_dispersion_control_flips():
-    """GPU Principled (Cauchy) disp/flat must DIFFER from the ~1.0 no-op (pkg187:
-    0.2041/0.2041 == 1.000). After pkg189 dispersion is live for Principled too."""
+def test_gpu_principled_dispersion_conserves_energy():
     if not _gpu_available():
         pytest.skip("CUDA GPU not available on this machine")
     flat = _means(_render(True, "principled", _P_FLAT)).mean()
     disp = _means(_render(True, "principled", _P_DISP)).mean()
     ratio = disp / max(flat, 1e-8)
-    print(f"\n[pkg189 GPU principled control] flat={flat:.4f} disp={disp:.4f} "
+    print(f"\n[pkg189 GPU principled energy] flat={flat:.4f} disp={disp:.4f} "
           f"disp/flat={ratio:.4f}")
-    assert ratio < 0.90, (
-        f"pkg189 GPU Principled dispersion is STILL a no-op (disp/flat={ratio:.4f} "
-        f">= 0.90). Principled glass lowers to GMAT_CLOSURE_GRAPH; check the "
-        f"HasDispersion write-back reaches the <true,...,true> instantiation.")
+    assert abs(ratio - 1.0) <= ENERGY_TOL, (
+        f"GPU principled disp/flat={ratio:.4f} outside 1+-{ENERGY_TOL}: "
+        f"hero-collapse pdf rescale (terminateSecondary) missing or doubled?")
 
 
 # ---------------------------------------------------------------------------

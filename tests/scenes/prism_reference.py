@@ -63,6 +63,36 @@ def make_prism_scene(astroray, *, dispersive: bool):
     return r
 
 
+def render_edge_prism(astroray, kind: str, params: dict, *, seed: int = 17) -> np.ndarray:
+    """The prism in front of an achromatic backdrop (white emitter, vertical dark
+    bars). Flat glass renders it grey; dispersion adds signed red/blue fringes at
+    the bar edges. Same prism, camera, spp and depth as make_prism_scene."""
+    r = astroray.Renderer()
+    r.set_integrator("path_tracer")
+    r.set_background_color([0.0, 0.0, 0.0])
+    _add_panel(r, r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 1.0}),
+               -3.0, 3.0, -1.80)
+    dark = r.create_material("lambertian", [0.0, 0.0, 0.0], {})
+    for x in (-1.2, -0.6, 0.0, 0.6, 1.2):
+        _add_panel(r, dark, x - 0.12, x + 0.12, -1.75)
+    add_triangular_prism(r, r.create_material(kind, [1.0, 1.0, 1.0], params))
+    r.setup_camera(
+        [0.0, 0.0, 4.2], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
+        38.0, 1.0, 0.0, 4.2, WIDTH, HEIGHT)
+    r.set_seed(seed)
+    img = np.asarray(r.render(SAMPLES, MAX_DEPTH, None, True), dtype=np.float32)
+    return img.reshape(HEIGHT, WIDTH, 3) if img.ndim == 1 else img
+
+
+def edge_fringe(pixels: np.ndarray) -> float:
+    """Peak |column-mean(R - B)| over the through-prism window. Column means
+    average out per-sample hero-wavelength colour noise; a real dispersion
+    fringe is a signed, spatially coherent R-B excursion at a bar edge."""
+    h, w, _ = pixels.shape
+    band = pixels[int(h * 0.3):int(h * 0.7), int(w * 0.3):int(w * 0.7)]
+    return float(np.abs((band[..., 0] - band[..., 2]).mean(axis=0)).max())
+
+
 def render_prism(astroray, *, dispersive: bool, seed: int = 17) -> np.ndarray:
     renderer = make_prism_scene(astroray, dispersive=dispersive)
     renderer.set_seed(seed)

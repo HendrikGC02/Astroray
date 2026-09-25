@@ -106,11 +106,17 @@ struct GSampledWavelengths {
         }
     }
 
+    // Twin of astroray::SampledWavelengths::terminateSecondary (pbrt-v4
+    // TerminateSecondary, Apache-2.0): hero pdf /= N once, guarded.
     HD void terminateSecondary() {
+        bool done = true;
+        for (int i = 1; i < G_SPECTRUM_SAMPLES; ++i) if (pdf[i] != 0.f) done = false;
+        if (done) return;
         for (int i = 1; i < G_SPECTRUM_SAMPLES; ++i) {
             lambda[i] = lambda[0];
             pdf[i] = 0.f;
         }
+        pdf[0] /= float(G_SPECTRUM_SAMPLES);
     }
 };
 

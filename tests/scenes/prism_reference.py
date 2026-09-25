@@ -63,7 +63,8 @@ def make_prism_scene(astroray, *, dispersive: bool):
     return r
 
 
-def render_edge_prism(astroray, kind: str, params: dict, *, seed: int = 17) -> np.ndarray:
+def render_edge_prism(astroray, kind: str, params: dict, *, seed: int = 17,
+                      use_gpu: bool = False) -> np.ndarray:
     """The prism in front of an achromatic backdrop (white emitter, vertical dark
     bars). Flat glass renders it grey; dispersion adds signed red/blue fringes at
     the bar edges. Same prism, camera, spp and depth as make_prism_scene."""
@@ -79,6 +80,10 @@ def render_edge_prism(astroray, kind: str, params: dict, *, seed: int = 17) -> n
     r.setup_camera(
         [0.0, 0.0, 4.2], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
         38.0, 1.0, 0.0, 4.2, WIDTH, HEIGHT)
+    if use_gpu:
+        r.set_use_gpu(True)
+        r.set_wavelength_range(380.0, 780.0)   # spectral wavefront leg
+        r.set_output_mode("srgb")
     r.set_seed(seed)
     img = np.asarray(r.render(SAMPLES, MAX_DEPTH, None, True), dtype=np.float32)
     return img.reshape(HEIGHT, WIDTH, 3) if img.ndim == 1 else img

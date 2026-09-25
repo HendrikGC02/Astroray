@@ -100,66 +100,58 @@ _P_FLAT = {"transmission_weight": 1.0, "ior": 1.5, "roughness": 0.02, "metallic"
 _P_DISP = {**_P_FLAT, **DISP}
 
 
+ENERGY_TOL = 0.05
+
+
+def _check_mirrors_dielectric(use_gpu: bool) -> None:
+    """Dispersion is LIVE (signed red/blue fringes at achromatic edges), conserves
+    energy (disp/flat within +-5 %), and Principled mirrors the dielectric
+    reference on both counts.
+
+    UPDATED 2026-09-25 (hero-collapse pdf fix): the former liveness gate
+    (disp/flat < 0.90, "dispersion dims the mean ~0.55x") encoded the
+    terminateSecondary bug (no pbrt-v4 pdf[0] /= N -> dispersive transmission
+    ~4x too dark). Measured after the fix: disp/flat 1.006 (Principled) on both
+    backends."""
+    import os
+    import sys
+    sys.path.insert(0, os.path.dirname(__file__))
+    from scenes.prism_reference import edge_fringe, render_edge_prism
+
+    tag = "GPU" if use_gpu else "CPU"
+    p_ratio = float(_means(_render(use_gpu, "principled", _P_DISP)).mean()
+                    / max(_means(_render(use_gpu, "principled", _P_FLAT)).mean(), 1e-8))
+    d_ratio = float(_means(_render(use_gpu, "dielectric", {"sellmeier_preset": "bk7"})).mean()
+                    / max(_means(_render(use_gpu, "dielectric", {"ior": 1.5})).mean(), 1e-8))
+    fr = {name: edge_fringe(render_edge_prism(astroray, kind, params, use_gpu=use_gpu))
+          for name, kind, params in [("p_flat", "principled", _P_FLAT),
+                                     ("p_disp", "principled", _P_DISP),
+                                     ("d_flat", "dielectric", {"ior": 1.5}),
+                                     ("d_disp", "dielectric", {"sellmeier_preset": "bk7"})]}
+    print(f"\n[pkg187 {tag}] disp/flat principled={p_ratio:.4f} dielectric={d_ratio:.4f} "
+          f"fringe {({k: round(v, 4) for k, v in fr.items()})}")
+
+    for name, ratio in (("principled", p_ratio), ("dielectric", d_ratio)):
+        assert abs(ratio - 1.0) <= ENERGY_TOL, (
+            f"{tag} {name}: disp/flat={ratio:.4f} outside 1+-{ENERGY_TOL} "
+            f"(hero-collapse pdf rescale missing or doubled?)")
+    for m in ("p", "d"):
+        assert fr[f"{m}_disp"] > 0.15 and fr[f"{m}_disp"] > 4.0 * fr[f"{m}_flat"], (
+            f"{tag} {'principled' if m == 'p' else 'dielectric'}: dispersion not live "
+            f"(edge fringe {fr[f'{m}_disp']:.4f} vs flat {fr[f'{m}_flat']:.4f}); "
+            f"on GPU check the pkg189 HasDispersion write-back.")
+    assert abs(p_ratio - d_ratio) <= ENERGY_TOL, (
+        f"{tag}: Principled disp/flat {p_ratio:.4f} diverges from dielectric {d_ratio:.4f}")
+
+
 def test_gpu_dispersion_wired_mirrors_dielectric_reference():
-    # --- UPDATED by pkg189 (GPU wavefront hero-λ dispersion enablement). ---
-    # This gate ORIGINALLY (pkg187) asserted GPU dispersion was a NO-OP
-    # (0.95 <= disp/flat <= 1.05) for BOTH the dielectric reference and the
-    # Principled wiring, because the GPU wavefront hero-collapse never persisted
-    # to SoA (the pkg187 docstring above predicted: "enabling it lights up BOTH
-    # dielectric and Principled through this same wiring"). pkg189 landed that
-    # enablement, so the no-op assertion is now FALSE: dispersion measurably dims
-    # the mean (the hero collapse drops the broadband wash), tracking the CPU
-    # reference. The gate is flipped to assert dispersion is LIVE and that
-    # Principled still MIRRORS the dielectric reference (the original intent).
-    gp_flat = _means(_render(True, "principled", _P_FLAT))
-    gp_disp = _means(_render(True, "principled", _P_DISP))
-    gd_flat = _means(_render(True, "dielectric", {"ior": 1.5}))
-    gd_disp = _means(_render(True, "dielectric", {"sellmeier_preset": "bk7"}))
-
-    p_ratio = float(gp_disp.mean() / max(gp_flat.mean(), 1e-8))   # Principled disp/flat on GPU
-    d_ratio = float(gd_disp.mean() / max(gd_flat.mean(), 1e-8))   # dielectric reference disp/flat on GPU
-
-    print("\n[pkg189 GPU wiring gate — dispersion now LIVE]")
-    print(f"  GPU principled disp/flat = {p_ratio:.4f}")
-    print(f"  GPU dielectric disp/flat = {d_ratio:.4f}")
-
-    # Dispersion is LIVE on the GPU wavefront leg (was a no-op ~1.0 pre-pkg189).
-    assert p_ratio < 0.90, (
-        f"pkg189 GPU: Principled dispersion is still a no-op (disp/flat={p_ratio:.4f} "
-        f">= 0.90) — the hero-λ collapse write-back is not reaching the Principled "
-        f"(<true,...,true>) shade instantiation.")
-    assert d_ratio < 0.90, (
-        f"pkg189 GPU: dielectric dispersion is still a no-op (disp/flat={d_ratio:.4f} "
-        f">= 0.90) — the hero-λ collapse write-back is not reaching the dielectric "
-        f"(<false,...,true>) shade instantiation.")
-    # Principled tracks the dielectric reference's dispersion magnitude (original
-    # "mirrors dielectric" intent): both dim by a similar factor.
-    assert abs(p_ratio - d_ratio) < 0.15, (
-        f"pkg189 GPU: Principled dispersion magnitude ({p_ratio:.4f}) diverges from "
-        f"the dielectric reference ({d_ratio:.4f}) by > 0.15.")
+    if not astroray.Renderer().gpu_available:
+        pytest.skip("CUDA GPU not available on this machine")
+    _check_mirrors_dielectric(use_gpu=True)
 
 
 def test_cpu_dispersion_is_real_and_mirrors_dielectric():
-    # Companion to the GPU no-op gate: on CPU the wiring is LIVE -- Principled
-    # dispersion measurably changes the render, tracking the dielectric reference.
-    cp_flat = _means(_render(False, "principled", _P_FLAT)).mean()
-    cp_disp = _means(_render(False, "principled", _P_DISP)).mean()
-    cd_flat = _means(_render(False, "dielectric", {"ior": 1.5})).mean()
-    cd_disp = _means(_render(False, "dielectric", {"sellmeier_preset": "bk7"})).mean()
-
-    p_eff = cp_disp / cp_flat
-    d_eff = cd_disp / cd_flat
-    print(f"\n[pkg187 CPU wiring-is-real] principled disp/flat={p_eff:.4f} "
-          f"dielectric bk7/flat={d_eff:.4f}")
-
-    # CPU dispersion is live for Principled (dims, exactly as the dielectric does).
-    assert p_eff < 0.9, (
-        f"pkg187 CPU: Principled dispersion had no effect (disp/flat={p_eff:.4f}); "
-        f"the CPU wiring is broken.")
-    # And it tracks the dielectric reference's dispersion magnitude.
-    assert abs(p_eff - d_eff) < 0.1, (
-        f"pkg187 CPU: Principled dispersion magnitude ({p_eff:.4f}) diverges from "
-        f"the dielectric reference ({d_eff:.4f}).")
+    _check_mirrors_dielectric(use_gpu=False)
 
 
 # ===========================================================================

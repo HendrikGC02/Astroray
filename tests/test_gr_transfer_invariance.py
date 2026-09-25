@@ -259,7 +259,7 @@ def test_fluid_frame_frequency_is_minus_k_dot_u(beta, deg):
     gamma = 1.0 / math.sqrt(1.0 - b @ b)
     expected = nu_obs * gamma * (1.0 - b @ n)   # -k.u, k=nu(1,n), u=gamma(1,b)
     got = helpers.volumetric_fluid_frequency(nu_obs, list(n), list(b))
-    assert got == pytest.approx(expected, rel=1.0e-12)
+    assert got == pytest.approx(expected, rel=1.0e-6)   # directions cross as float3
 
 
 def test_model_fluid_velocities():

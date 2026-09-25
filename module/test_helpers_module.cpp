@@ -9,6 +9,8 @@
 #include <pybind11/stl.h>
 
 #include <array>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "astroray/sampling/wavefront_rng.h"
@@ -18,6 +20,8 @@
 #include "astroray/guiding/dtree.h"
 #include "astroray/guiding/sdtree.h"
 #include "astroray/black_hole.h"
+#include "astroray/adaf.h"
+#include "astroray/synchrotron.h"
 #include "astroray/integrator.h"
 #include "astroray/register.h"
 
@@ -149,6 +153,102 @@ std::array<int, 2> cameraPixelRoundtrip(int width, int height, int x, int y,
     return {px, py};
 }
 
+// pkg283: volumetric invariant-transport seams. They call the production
+// ADAF / SynchrotronJet transport; beta overrides the model's fluid velocity.
+// beta is a py::object (None or 3 floats): a by-value
+// std::optional<std::array<double,3>> crashed the MinGW build.
+astroray::ParamDict volumetricParams(const py::dict& d) {
+    astroray::ParamDict p;
+    for (auto item : d) {
+        const std::string key = py::str(item.first);
+        if (py::isinstance<py::bool_>(item.second)) p.set(key, item.second.cast<bool>());
+        else p.set(key, item.second.cast<float>());
+    }
+    return p;
+}
+
+astroray::SampledWavelengths volumetricLambdas(const std::vector<float>& nm) {
+    if (nm.size() != size_t(astroray::kSpectrumSamples))
+        throw std::invalid_argument("lambdas_nm needs kSpectrumSamples values");
+    std::array<float, astroray::kSpectrumSamples> a{};
+    for (int i = 0; i < astroray::kSpectrumSamples; ++i) a[i] = nm[i];
+    return astroray::SampledWavelengths::fromLambdas(a);
+}
+
+Vec3 toVec3(const std::array<double, 3>& v) { return Vec3(float(v[0]), float(v[1]), float(v[2])); }
+
+std::vector<float> spectrumValues(const astroray::SampledSpectrum& s) {
+    return std::vector<float>(s.values().begin(), s.values().end());
+}
+
+template <class Model>
+astroray::SampledSpectrum volumetricSegmentFor(
+        const Model& m, const Vec3& pos, const Vec3& dir,
+        const astroray::SampledWavelengths& lambdas, double ds,
+        const py::object& beta, astroray::SampledSpectrum& tau) {
+    Vec3 betaDir;
+    double b = 0.0;
+    if (!beta.is_none()) {
+        const auto v = beta.cast<std::array<double, 3>>();
+        b = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        betaDir = b > 0.0 ? toVec3({v[0] / b, v[1] / b, v[2] / b}) : Vec3(0.0f, 1.0f, 0.0f);
+    } else {
+        m.fluidVelocity(pos, betaDir, b);
+    }
+    return m.transportSegment(pos, dir, lambdas, ds, betaDir, b, tau);
+}
+
+std::shared_ptr<Emission> makeVolumetric(const std::string& model, const py::dict& params) {
+    if (model == "adaf")
+        return std::make_shared<astroray::adaf::ADAF>(volumetricParams(params));
+    if (model == "synchrotron_jet")
+        return std::make_shared<astroray::synchrotron::SynchrotronJet>(volumetricParams(params));
+    throw std::invalid_argument("model must be 'adaf' or 'synchrotron_jet'");
+}
+
+std::pair<std::vector<float>, std::vector<float>> volumetricSegment(
+        const std::string& model, const py::dict& params,
+        std::array<double, 3> position, std::array<double, 3> photon_dir,
+        const std::vector<float>& lambdas_nm, double ds_cm,
+        const py::object& beta) {
+    const auto emission = makeVolumetric(model, params);
+    const auto lambdas = volumetricLambdas(lambdas_nm);
+    astroray::SampledSpectrum tau(0.0f), out(0.0f);
+    if (auto* a = dynamic_cast<const astroray::adaf::ADAF*>(emission.get()))
+        out = volumetricSegmentFor(*a, toVec3(position), toVec3(photon_dir), lambdas, ds_cm, beta, tau);
+    else if (auto* j = dynamic_cast<const astroray::synchrotron::SynchrotronJet*>(emission.get()))
+        out = volumetricSegmentFor(*j, toVec3(position), toVec3(photon_dir), lambdas, ds_cm, beta, tau);
+    return {spectrumValues(out), spectrumValues(tau)};
+}
+
+std::array<double, 3> volumetricFluidVelocity(const std::string& model, const py::dict& params,
+                                              std::array<double, 3> position) {
+    const auto emission = makeVolumetric(model, params);
+    Vec3 dir;
+    double b = 0.0;
+    if (auto* a = dynamic_cast<const astroray::adaf::ADAF*>(emission.get()))
+        a->fluidVelocity(toVec3(position), dir, b);
+    else if (auto* j = dynamic_cast<const astroray::synchrotron::SynchrotronJet*>(emission.get()))
+        j->fluidVelocity(toVec3(position), dir, b);
+    return {b * dir.x, b * dir.y, b * dir.z};
+}
+
+// Uniform chord: n identical segments through the production front-to-back march.
+std::vector<float> volumetricChord(const std::string& model, const py::dict& params,
+                                   std::array<double, 3> position, std::array<double, 3> photon_dir,
+                                   const std::vector<float>& lambdas_nm, double ds_cm, int n) {
+    const auto emission = makeVolumetric(model, params);
+    const auto lambdas = volumetricLambdas(lambdas_nm);
+    astroray::SampledSpectrum I(0.0f), T(1.0f);
+    for (int i = 0; i < n; ++i) {
+        astroray::SampledSpectrum tau(0.0f);
+        const auto seg = emission->integrateSegmentTransfer(
+            toVec3(position), toVec3(photon_dir), lambdas, ds_cm, tau);
+        astroray::invariant_transfer::accumulateSegment(I, T, seg, tau);
+    }
+    return spectrumValues(I);
+}
+
 } // namespace
 
 PYBIND11_MODULE(astroray_test_helpers, m) {
@@ -182,6 +282,25 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
     m.def("gr_restir_registry_dispatch_probe", &probeRegisteredReSTIRGrDispatch,
           "emission"_a,
           "Instantiates registered restir-di and returns (Y_radiance, trace_calls).");
+    // pkg283 volumetric invariant-transport seams.
+    m.def("volumetric_fluid_frequency",
+          [](double nu_obs, std::array<double, 3> n, std::array<double, 3> beta) {
+              const double b = std::sqrt(beta[0] * beta[0] + beta[1] * beta[1] + beta[2] * beta[2]);
+              const Vec3 dir = b > 0.0 ? toVec3({beta[0] / b, beta[1] / b, beta[2] / b})
+                                       : Vec3(0.0f, 1.0f, 0.0f);
+              return astroray::invariant_transfer::fluidFrameFrequency(nu_obs, toVec3(n), dir, b);
+          },
+          "nu_obs"_a, "photon_dir"_a, "beta"_a, "nu_em = -k.u (flat chord frame).");
+    m.def("volumetric_fluid_velocity", &volumetricFluidVelocity,
+          "model"_a, "params"_a, "position"_a);
+    m.def("volumetric_segment", &volumetricSegment,
+          "model"_a, "params"_a, "position"_a, "photon_dir"_a, "lambdas_nm"_a,
+          "ds_cm"_a, "beta"_a = py::none(),
+          "Production transportSegment: (observed intensity, optical depth).");
+    m.def("volumetric_chord", &volumetricChord,
+          "model"_a, "params"_a, "position"_a, "photon_dir"_a, "lambdas_nm"_a,
+          "ds_cm"_a, "n_segments"_a,
+          "n identical segments through the production front-to-back march.");
 
     // pkg92 — WavefrontRNG (PCG32 counter-based RNG for wavefront oracles).
     // This is a test/oracle utility, not production API.

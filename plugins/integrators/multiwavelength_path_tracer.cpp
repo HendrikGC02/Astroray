@@ -196,13 +196,17 @@ private:
             // emissive path below uses (wB = 1 after a specular bounce).
             // Gated on enableNEE_: this is a light-sampling/MIS term and must NOT
             // fire in naive mode (the GPU-parity oracle contract, pkg156).
-            if (enableNEE_ && bounce > 0 && !lights.getDedicatedLights().empty()) {
+            // #903: a camera ray (bounce 0) sees cameraVisible lamps (sky sun
+            // disc = background) at unit weight, NEE on or off (GPU twin).
+            const bool camLamp = (bounce == 0) && lights.hasCameraVisibleDedicated();
+            if ((camLamp || (enableNEE_ && bounce > 0)) &&
+                !lights.getDedicatedLights().empty()) {
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
                 astroray::Light::Intersection lh;
                 if (lights.intersectDedicated(ray.origin, ray.direction, 0.001f,
-                                              surfaceT, lambdas, lh)) {
+                                              surfaceT, lambdas, lh, bounce == 0)) {
                     if (!lh.emission.isZero()) {
-                        if (wasSpecular) {
+                        if (bounce == 0 || wasSpecular) {
                             color += throughput * lh.emission;
                         } else {
                             float lp = lights.pdfValue(ray.origin, ray.direction, misNormalPrev);

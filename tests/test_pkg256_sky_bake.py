@@ -45,9 +45,12 @@ class SkyNode:
 
 
 def _expected_sun_pixel(elevation, rotation, width=W, height=H):
-    """Row/col the sun should land on, per research note §4."""
+    """Row/col the sun should land on, per research note §4. #905: the sun's
+    world azimuth is Cycles' 90deg - sun_rotation (#814, measured), and the
+    engine reads column c at azimuth -phi, so col uses (pi/2 - rotation)."""
     row = (0.5 * math.pi - elevation) / math.pi * height
-    col = ((0.5 - rotation / (2.0 * math.pi)) % 1.0) * width
+    azimuth = 0.5 * math.pi - rotation
+    col = ((0.5 - azimuth / (2.0 * math.pi)) % 1.0) * width
     return round(row) % height, round(col) % width
 
 
@@ -128,12 +131,13 @@ def test_dropped_sockets_named():
 
 def test_exposure_constant_is_derived_decomposition():
     """#799: LUM_TO_RADIANCE = (1/K_m photopic) x (Cycles-Nishita exposure),
-    not an opaque magic number. K_m = 683 lm/W; the product is exactly 1/1766
-    (corpus Nishita gate unchanged)."""
+    not an opaque magic number. K_m = 683 lm/W; the product is exactly 1/1333
+    (#905 recalibration: full-sky Cycles ratio with the sun in frame; the old
+    1/1766 was fitted with the glow at the wrong azimuth)."""
     assert sky_bake.PHOTOPIC_LUMINOUS_EFFICACY == 683.0
     expected = sky_bake.CYCLES_NISHITA_EXPOSURE / sky_bake.PHOTOPIC_LUMINOUS_EFFICACY
     assert sky_bake.LUM_TO_RADIANCE == expected
-    assert abs(sky_bake.LUM_TO_RADIANCE - 1.0 / 1766.0) < 1e-15
+    assert abs(sky_bake.LUM_TO_RADIANCE - 1.0 / 1333.0) < 1e-15
 
 
 def test_sun_disc_params_disabled_returns_none():
@@ -320,7 +324,7 @@ def test_temp_file_loads_and_orientation_matches_engine(astroray_mod):
             return float(sum(s))
 
         ce, se = math.cos(E), math.sin(E)
-        sun = (ce * math.cos(A), ce * math.sin(A), se)
+        sun = (ce * math.sin(A), ce * math.cos(A), se)  # #905: azimuth 90 - A
         sun_lum = lum(sun)
         # sample a grid of world directions; the sun must be near the top
         rng = np.random.default_rng(0)
@@ -366,17 +370,21 @@ def _ab_line(stdout, tag):
 
 @pytest.mark.serial
 def test_sky_band_luminance_within_25pct_of_cycles(blender_ab_stdout):
-    """Render the corpus world_sky_sky scene in Cycles at low res, bake the same
-    sky, project it into the camera, and compare the per-band MEAN LUMINANCE.
-    Gated loosely (±25% per band) — the per-channel colour differs by design
-    (Preetham warm horizon vs Cycles' Nishita blue). Requires Blender 5.2."""
+    """Render the corpus world_sky_sky scene in Cycles at low res with the
+    camera facing the real sun (#905), bake the same sky, project it into the
+    camera, and compare MEAN LUMINANCE. The exposure constant is calibrated on
+    full_sky, gated ±25%. The upper/horizon bands differ by model shape
+    (Preetham vs Cycles' multiple-scattering sky; measured 1.40 / 0.60), gated
+    to [0.5, 2.0]. #905: the old ±25%-per-band gate passed only with the bake's
+    glow misplaced into a frame that faced away from the true sun."""
     import json
     stdout, stderr = blender_ab_stdout
     line = _ab_line(stdout, "PKG256_AB")
     assert line is not None, f"no A/B result:\n{stdout[-2000:]}\n{stderr[-1000:]}"
     res = json.loads(line[len("PKG256_AB "):])
-    for band, data in res.items():
-        assert abs(data["ratio_lum"] - 1.0) <= 0.25, (band, data)
+    assert abs(res["full_sky"]["ratio_lum"] - 1.0) <= 0.25, res["full_sky"]
+    for band in ("upper_sky", "horizon"):
+        assert 0.5 <= res[band]["ratio_lum"] <= 2.0, (band, res[band])
 
 
 @pytest.mark.serial
@@ -384,11 +392,12 @@ def test_sun_column_matches_cycles(blender_ab_stdout):
     """Azimuth zero-reference gate (PR #793 review item 3). The per-band A/B is
     azimuth-insensitive, so a +X/+Y sun-axis swap or a 90° azimuth error would
     pass it silently. Here the brightest sky COLUMN of the Cycles render and of
-    the baked sky projected through the SAME camera must land on the same side
-    of the frame. Measured (240px wide, sun az 115°, elev 28°): cycles_col 41,
-    bake_col 26 -> dcol 15px (6.25%). Gate at 15% of width: comfortably passes
-    the real broad-peak offset yet fails a 90° swap (which moves the peak >25%
-    of the frame or off-screen entirely)."""
+    the baked sky projected through the SAME camera must coincide. #905: the
+    camera now faces the true sun (azimuth 90 - sun_rotation), so both peaks
+    sit at the frame centre (measured cycles_col 120, bake_col 120 of 240).
+    The old gate (camera at azimuth 90, true sun at -25, out of frame) passed
+    only because both peaks sat at the same frame edge. Gate at 15% of width:
+    a 90° azimuth error moves the bake peak off-screen."""
     import json
     stdout, stderr = blender_ab_stdout
     line = _ab_line(stdout, "PKG256_SUNCOL")

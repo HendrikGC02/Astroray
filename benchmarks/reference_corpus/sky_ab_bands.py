@@ -51,8 +51,17 @@ sky = next(n for n in scene.world.node_tree.nodes if n.type == "TEX_SKY")
 strength = next(nn.inputs["Strength"].default_value
                 for nn in scene.world.node_tree.nodes if nn.type == "BACKGROUND")
 
-# Camera projection (fixed across all points).
+# Camera projection (fixed across all points). #905: aim the camera at the real
+# sun (Cycles world azimuth 90deg - sun_rotation, #814), 10deg up, so the glow
+# is in frame. The blend's own camera (azimuth 90) left the sun (azimuth -25)
+# out of frame, so the old gates compared sky-away-from-the-sun only. The disc
+# is switched off: the bake has no disc (the addon adds it as a lamp).
 cam = scene.camera
+CAM_PITCH_DEG = 10.0
+sun_az = 0.5 * math.pi - sky.sun_rotation
+cam.rotation_euler = (math.radians(90.0 + CAM_PITCH_DEG), 0.0, sun_az - 0.5 * math.pi)
+sky.sun_disc = False
+bpy.context.view_layer.update()
 mw = cam.matrix_world
 R = np.array([[mw[i][0], mw[i][1], mw[i][2]] for i in range(3)], dtype=np.float64)
 fov_x = 2.0 * math.atan(cam.data.sensor_width / (2.0 * cam.data.lens))
@@ -116,7 +125,11 @@ def measure(sky_type, turbidity, elevation, rotation):
                                 turbidity=turbidity, width=1024, height=512)
     bake_dir = make_bake_dir(bake, strength)
     res = {}
-    for name, (a, b) in {"upper_sky": (0.02, 0.12), "horizon": (0.22, 0.32)}.items():
+    # Bands (camera pitched 10deg up, horizon at ~0.76 of the frame height):
+    # upper_sky ~22-26deg elevation (sun glow band), horizon ~2-6deg, full_sky
+    # = everything above the horizon.
+    for name, (a, b) in {"upper_sky": (0.02, 0.12), "horizon": (0.60, 0.70),
+                         "full_sky": (0.0, 0.72)}.items():
         cyc, bk = band(px, bake_dir, w, h, a, b)
         res[name] = {"cycles_rgb": [round(float(x), 4) for x in cyc],
                      "bake_rgb": [round(float(x), 4) for x in bk],
@@ -141,7 +154,7 @@ bake_dir = make_bake_dir(bake, strength)
 # the baked sky projected through the SAME camera: both must land on the same
 # side of the frame (toward the sun). Restricted to the upper-sky rows to
 # avoid the ground/horizon geometry.
-sky_r0, sky_r1 = 0, int(0.35 * h)
+sky_r0, sky_r1 = 0, int(0.72 * h)
 cyc_cols = px[sky_r0:sky_r1].mean(axis=2).mean(axis=0)   # (w,) column-mean lum
 bake_cols = np.zeros(w)
 for xx in range(w):

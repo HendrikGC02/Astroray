@@ -206,6 +206,9 @@ public:
     bool useMIS      = true;   // include in MIS weight computation
     bool useCaustics = false;  // light participates in caustic paths (SMS, photon map)
     int  maxBounces  = 0;      // light-ray depth limit (0 = unlimited)
+    // #903: hittable by camera rays (bounce 0). Lamps default invisible to the
+    // camera; the sky-texture sun disc sets it (Cycles draws it in the background).
+    bool cameraVisible = false;
 
     // Normalize flag (Cycles parity, pkg89 Q11 confirmed): if true, divide
     // raw emission by integrated photopic luminance so the artist's "intensity"

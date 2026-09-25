@@ -1096,10 +1096,12 @@ public:
 
     void addSunLightDedicated(const std::vector<float>& direction, float angularDiameter,
                               py::dict emissionDict, float intensity,
-                              int objectPassIndex = 0, int materialPassIndex = 0) {
+                              int objectPassIndex = 0, int materialPassIndex = 0,
+                              bool cameraVisible = false) {
         Vec3 dir(direction[0], direction[1], direction[2]);
         auto emission = parseEmissionSpectrum(emissionDict);
         auto light = std::make_unique<astroray::DistantLight>(dir, angularDiameter, emission, intensity);
+        light->cameraVisible = cameraVisible;  // #903: sky-texture sun disc
         renderer.addDedicatedLight(std::move(light));
     }
 
@@ -3760,7 +3762,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("add_sun_light_dedicated", &PyRenderer::addSunLightDedicated,
              "direction"_a, "angular_diameter"_a, "emission"_a, "intensity"_a,
              "object_pass_index"_a = 0, "material_pass_index"_a = 0,
-             "pkg89 Phase B: dedicated DistantLight with EmissionSpectrum")
+             "camera_visible"_a = false,
+             "pkg89 Phase B: dedicated DistantLight with EmissionSpectrum. #903: "
+             "camera_visible = camera rays see the disc (sky-texture sun)")
         .def("add_area_light_dedicated", &PyRenderer::addAreaLightDedicated,
              "center"_a, "axis_u"_a, "axis_v"_a, "size_x"_a, "size_y"_a,
              "shape"_a, "emission"_a, "intensity"_a,

@@ -2,7 +2,7 @@
 
 **Pillar:** 4
 **Track:** A
-**Status:** open
+**Status:** done (2026-09-25, branch feat/pkg283-volumetric-invariant — 59/59 invariance tests; D³/g³ within 1 %; jet linear +3.6× (old extra D removed); ADAF unchanged)
 **Estimated effort:** 2 sessions (~6 h), CPU
 **Depends on:** pkg280
 
@@ -83,12 +83,12 @@ same posture as pkg280).
 
 ## Acceptance criteria
 
-- [ ] ADAF and synchrotron each transport `j_ν/ν²` and `ν·α_ν` per Rybicki & Lightman §4.2.
-- [ ] Fluid-frame frequency test (`ν_em = -k·u`) passes for both paths.
-- [ ] Double-counting test (static-vs-moving ratio = analytic `g³`/`D³` within 1 %) passes for both paths.
-- [ ] Invariant residual ≤ 1 % for both paths, matching pkg280's thin-disk tolerance.
-- [ ] `adaf-sgrA-faceon` and `synchrotron-jet-m87` bank scenes re-measured on the new per-channel metric; any reference change goes through independent reviewer sign-off per pkg280 Phase 4 rules.
-- [ ] `.astroray_plan/docs/gr-transfer-audit-2026-09.md` §Validated vs unresolved paths updated to move ADAF/synchrotron out of "unresolved" once tests pass.
+- [x] ADAF and synchrotron each transport `j_ν/ν²` and `ν·α_ν` per Rybicki & Lightman §4.2.
+- [x] Fluid-frame frequency test (`ν_em = -k·u`) passes for both paths.
+- [x] Double-counting test (static-vs-moving ratio = analytic `g³`/`D³` within 1 %) passes for both paths.
+- [x] Invariant residual ≤ 1 % for both paths, matching pkg280's thin-disk tolerance.
+- [x] `adaf-sgrA-faceon` and `synchrotron-jet-m87` bank scenes re-measured on the new per-channel metric; any reference change goes through independent reviewer sign-off per pkg280 Phase 4 rules.
+- [x] `.astroray_plan/docs/gr-transfer-audit-2026-09.md` §Validated vs unresolved paths updated to move ADAF/synchrotron out of "unresolved" once tests pass.
 
 ---
 
@@ -102,13 +102,16 @@ same posture as pkg280).
 
 ## Progress
 
-- [ ] ADAF invariant transport + tests.
-- [ ] Synchrotron invariant transport + tests.
-- [ ] Bank re-measurement + reviewer sign-off.
-- [ ] Update pkg280 audit doc's validated/unresolved list.
+- [x] ADAF invariant transport + tests.
+- [x] Synchrotron invariant transport + tests.
+- [x] Bank re-measurement + reviewer sign-off.
+- [x] Update pkg280 audit doc's validated/unresolved list.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- Per lab-frame path, the thin result is g²·j(ν/g). g³ multiplies the fluid-frame intensity, and L_fluid = ds_lab/g. The old jet code applied D³ to the lab path, one power of D too many (steady jet D^{2+α}, Lind & Blandford 1985).
+- Bank display gates saturate on both scenes, so they cannot see transport. The jet changed ×3.6 in linear light and the display changed by only 2 px. No reference was changed, so no reviewer sign-off was needed. Pre-existing failures: ADAF phash 20 > 18 and jet bright_coverage 0.0759 < 0.08, the same before and after.
+- ADAF +30 % CPU render time (Kirchhoff α per sample).
+- MinGW: a by-value `std::optional<std::array<double,3>>` pybind argument crashed after an earlier call. Use `py::object`.

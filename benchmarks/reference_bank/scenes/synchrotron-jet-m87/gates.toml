@@ -1,6 +1,12 @@
 # synchrotron-jet-m87 — Phase 2b bipolar synchrotron jet scene
 # Reference blessed 2026-05-27 (pkg104 night + pkg107 r_obs_M=20).
 # Permissive gates: low priority per owner.
+# pkg283 (2026-09-25): invariant transport re-measured, CPU MinGW vs pkg282 build.
+# Linear per-channel mean ratio 3.61/3.61/3.61 (the old D^3-per-lab-path boost
+# counted one extra power of D; D < 1 at this 45 deg view). The display render
+# is saturated, so it barely changes (2 px), and the reference and thresholds stay.
+# These display gates cannot see jet transport. bright_coverage 0.0759 < 0.08 fails
+# before and after pkg283 (pre-existing).
 
 [scene]
 description = "Bipolar synchrotron jet (Pandya 2016 + pkg42) around a Kerr BH (spin default). M87-like, viewed at 45° from jet axis. Visible: two opposing cone-shaped emission features above and below the central BH."

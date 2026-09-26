@@ -260,6 +260,63 @@ public:
         return adafMagneticField(r_in_RS, m_solar_, mdot_edd_, alpha_, s_, beta_mag_);
     }
 
+    // pkg283: the ADAF fluid is static in the chord frame (u = d_t, g = 1).
+    // Orbital/inflow kinematics would be new ADAF physics (pkg283 non-goal);
+    // transportSegment takes u so the invariant transport is tested moving.
+    void fluidVelocity(const Vec3& /*position_M*/, Vec3& betaDir, double& beta) const {
+        betaDir = Vec3(0.0f, 1.0f, 0.0f);
+        beta = 0.0;
+    }
+
+    // Fluid-frame thermal j_nu (synchrotron + bremsstrahlung) and Kirchhoff
+    // alpha_nu = j_nu / B_nu(T_e) (Rybicki & Lightman 1979 eq. 1.37, LTE).
+    void fluidCoefficients(double nu_em, double ne, double T_e, double B,
+                           double& j, double& alpha) const {
+        // Pitch angle pi/2 for an isotropic/toroidal quasi-spherical field (pkg44).
+        constexpr double theta_B = GR_PI / 2.0;
+        j = ((B > 0.0) ? jnuThermalI(nu_em, ne, T_e, B, theta_B) : 0.0)
+          + jnuBremsstrahlungI(nu_em, ne, T_e);
+        const double x = kPlanckCgs * nu_em / (kBoltzmannCgs * T_e);
+        const double Bnu = (2.0 * kPlanckCgs * nu_em * nu_em * nu_em
+                            / (kLightCgs * kLightCgs)) / std::expm1(x);
+        alpha = (Bnu > 0.0 && std::isfinite(Bnu)) ? j / Bnu : 0.0;
+    }
+
+    // pkg283: invariant transport of one segment (lab path ds_cm); see
+    // astroray::invariant_transfer (j/nu^2, nu*alpha at nu_em = -k.u).
+    astroray::SampledSpectrum transportSegment(
+        const Vec3& position_M,
+        const Vec3& photon_direction,
+        const astroray::SampledWavelengths& lambdas,
+        double path_length_cm,
+        const Vec3& betaDir, double beta,
+        astroray::SampledSpectrum& tau) const {
+        astroray::SampledSpectrum out(0.0f);
+        tau = astroray::SampledSpectrum(0.0f);
+        if (!contains(position_M)) return out;
+
+        const double r = std::sqrt(double(position_M.length2()));
+        const double ne = densityAt(r);
+        const double T_e = electronTemperatureAt(r);
+        const double B = magneticFieldAt(r);
+        if (ne <= 0.0 || T_e <= 0.0) return out;
+
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+            const double nu_obs = frequencyFromWavelengthNm(lambdas.lambda(i));
+            const double nu_em = invariant_transfer::fluidFrameFrequency(
+                nu_obs, photon_direction, betaDir, beta);
+            if (nu_em <= 0.0) continue;
+            double j = 0.0, alpha = 0.0;
+            fluidCoefficients(nu_em, ne, T_e, B, j, alpha);
+            const auto seg = invariant_transfer::invariantSegment(
+                nu_obs, nu_em, j, alpha, path_length_cm);
+            out[i] = static_cast<float>(std::min(intensity_scale_ * seg.dI_obs, 1.0e30));
+            tau[i] = static_cast<float>(seg.dtau);
+        }
+        return out;
+    }
+
+    // Observed optically thin emission per unit lab path: g^2 j(nu/g), g = 1 here.
     astroray::SampledSpectrum emissivity(
         const Vec3& position_M,
         const Vec3& photon_direction,
@@ -271,33 +328,35 @@ public:
         const double ne = densityAt(r);
         const double T_e = electronTemperatureAt(r);
         const double B = magneticFieldAt(r);
-
         if (ne <= 0.0 || T_e <= 0.0) return out;
 
-        // Magnetic field pitch angle: for an isotropic/toroidal field in a
-        // quasi-spherical flow, average over pitch angles. Use theta_B = pi/2
-        // (perpendicular) as the canonical value (same as synchrotron jet).
-        constexpr double theta_B = GR_PI / 2.0;
-
+        Vec3 betaDir;
+        double beta = 0.0;
+        fluidVelocity(position_M, betaDir, beta);
         for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
-            const double nu_hz = frequencyFromWavelengthNm(lambdas.lambda(i));
-            if (nu_hz <= 0.0) continue;
-
-            // Two emission mechanisms:
-            // 1. Thermal synchrotron (reuse pkg42 Pandya 2016 fit)
-            const double j_sync = (B > 0.0)
-                ? jnuThermalI(nu_hz, ne, T_e, B, theta_B)
-                : 0.0;
-
-            // 2. Thermal bremsstrahlung (free-free)
-            const double j_ff = jnuBremsstrahlungI(nu_hz, ne, T_e);
-
-            // Total emissivity
-            const double j_total = j_sync + j_ff;
-
-            out[i] = static_cast<float>(intensity_scale_ * std::min(j_total, 1.0e30));
+            const double nu_obs = frequencyFromWavelengthNm(lambdas.lambda(i));
+            const double nu_em = invariant_transfer::fluidFrameFrequency(
+                nu_obs, photon_direction, betaDir, beta);
+            if (nu_em <= 0.0) continue;
+            double j = 0.0, alpha = 0.0;
+            fluidCoefficients(nu_em, ne, T_e, B, j, alpha);
+            const auto seg = invariant_transfer::invariantSegment(nu_obs, nu_em, j, 0.0, 1.0);
+            out[i] = static_cast<float>(intensity_scale_ * std::min(seg.dI_obs, 1.0e30));
         }
         return out;
+    }
+
+    astroray::SampledSpectrum integrateSegmentTransfer(
+        const Vec3& position_M,
+        const Vec3& photon_direction,
+        const astroray::SampledWavelengths& lambdas,
+        double path_length_cm,
+        astroray::SampledSpectrum& tau) const override {
+        Vec3 betaDir;
+        double beta = 0.0;
+        fluidVelocity(position_M, betaDir, beta);
+        return transportSegment(position_M, photon_direction, lambdas,
+                                path_length_cm, betaDir, beta, tau);
     }
 
     astroray::SampledSpectrum integrateSegment(
@@ -305,20 +364,14 @@ public:
         const Vec3& photon_direction,
         const astroray::SampledWavelengths& lambdas,
         double path_length_cm) const override {
-        // Optically thin assumption (spec §Radiative transfer):
-        // no self-absorption for the initial implementation.
-        // The ray accumulates j_nu * ds along its path.
-        astroray::SampledSpectrum out = emissivity(position_M, photon_direction, lambdas);
-        return out * static_cast<float>(std::max(0.0, path_length_cm));
+        astroray::SampledSpectrum tau;
+        return integrateSegmentTransfer(position_M, photon_direction, lambdas,
+                                        path_length_cm, tau);
     }
 
     double dopplerFactor(const Vec3& position_M,
                          const Vec3& photon_direction) const override {
-        // ADAF has orbital motion with v ~ (GM/r)^(1/2).
-        // At r ~ 10 R_S, v/c ~ 0.2 (sub-relativistic).
-        // Full Doppler boost deferred to pkg67 invariant transfer.
-        // For now, return 1.0 (no boost) as the orbital velocity is
-        // sub-relativistic and the emissivity is already in the comoving frame.
+        // Static fluid (see fluidVelocity): nu_obs / nu_em = 1.
         (void)position_M;
         (void)photon_direction;
         return 1.0;

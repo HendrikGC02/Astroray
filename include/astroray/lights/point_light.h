@@ -63,6 +63,7 @@ private:
     float            radius_;
     const IESProfile* ies_;       // not owned
     float            normalizeFactor_;
+    Vec3             refRGB_;  // #878: wavelength-independent emission RGB
     Vec3             iesFx_, iesFy_, iesFz_;  // pkg276 IES frame
     bool             softFalloff_ = true;     // #840
 };

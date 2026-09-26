@@ -48,6 +48,11 @@ AreaLight::AreaLight(const Vec3& position,
 
     // Compute normalize factor using geometric normalization (Cycles parity).
     normalizeFactor_ = Light::computeNormalizeFactor(area_, true);
+    // #878: emission_rgb (ReSTIR target, RGB re-upsample consumers) must not
+    // depend on the path's hero wavelengths: a 4-lambda toXYZ estimate
+    // re-upsampled at the same lambdas is biased (CPU restir-di sun cast).
+    bool exactRGB = false;
+    emission_.deviceReference(refRGB_, exactRGB);
 }
 
 void AreaLight::sampleLi(LiSample& sample,
@@ -94,18 +99,12 @@ void AreaLight::sampleLi(LiSample& sample,
     constexpr float kM1PiF = 0.31830988618f;  // M_1_PI_F = 1/π
     SampledSpectrum emissionSpec = emission_.eval(lambdas);
     // #852: Cycles soft-box spread attenuation (area_spread.h).
-    emissionSpec *= (intensity_ * normalizeFactor_ * kM1PiF
-                     * areaSpreadAttenuation(cosTheta, spread_));
+    const float scale = intensity_ * normalizeFactor_ * kM1PiF
+                      * areaSpreadAttenuation(cosTheta, spread_);
+    emissionSpec *= scale;
 
     sample.emission_spec = emissionSpec;
-
-    // Convert to RGB.
-    XYZ xyz = emissionSpec.toXYZ(lambdas);
-    sample.emission_rgb = Vec3(
-        3.2404542f * xyz.X - 1.5371385f * xyz.Y - 0.4985314f * xyz.Z,
-        -0.9692660f * xyz.X + 1.8760108f * xyz.Y + 0.0415560f * xyz.Z,
-        0.0556434f * xyz.X - 0.2040259f * xyz.Y + 1.0572252f * xyz.Z
-    );
+    sample.emission_rgb = refRGB_ * scale;  // #878
 
     // PDF in SOLID-ANGLE measure: pdf_ω = pdf_A · dist²/cosθ_light,
     // with pdf_A = 1/area (uniform area sampling). cosTheta > 0 here (rejected

@@ -190,3 +190,46 @@ def test_restir_di_many_lights_not_black(astroray_module):
     assert mean > 0.005, (
         f"restir-di produced near-black output on multi-light scene: mean={mean:.5f}"
     )
+
+
+def _grey_ground_dedicated(astroray_module, integrator, seed, light):
+    r = _base_renderer(astroray_module, width=48, height=48)
+    r.setup_camera(look_from=[0, -12, 8], look_at=[0, 0, 0], vup=[0, 0, 1],
+                   vfov=40, aspect_ratio=1.0, aperture=0.0, focus_dist=10.0,
+                   width=48, height=48)
+    r.set_background_color([0.0, 0.0, 0.0])
+    r.set_seed(seed)
+    r.set_use_gpu(False)
+    g = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
+    r.add_triangle([-20, -20, 0], [20, -20, 0], [20, 20, 0], g)
+    r.add_triangle([-20, -20, 0], [20, 20, 0], [-20, 20, 0], g)
+    white = {"mode": "rgb", "color": [1.0, 1.0, 1.0]}
+    if light == "sun":
+        r.add_sun_light_dedicated([-0.17435, 0.47943, -0.86009], 0.0091804, white, 1.0)
+    else:
+        r.add_point_light([0, 0, 4], white, 800.0, 0.1)
+    r.set_integrator_param("use_temporal", 0)
+    r.set_integrator_param("use_spatial", 0)
+    r.set_integrator(integrator)
+    return r
+
+
+@pytest.mark.parametrize("light", ["sun", "point"])
+def test_restir_di_dedicated_light_no_colour_cast(astroray_module, light):
+    """#878: CPU restir-di rendered a grey ground under a white sun blue
+    (restir/path_tracer = 0.87/1.17/1.40). Dedicated lights built the RGB
+    emission ReSTIR re-upsamples from a 4-wavelength toXYZ estimate at the
+    path's own hero wavelengths, a correlated (biased) round trip. Direct light
+    only (infinite plane, black sky), so DI-only ReSTIR must match per channel.
+    Tolerance 3 %: fixed build measures <= 1.2 % off with per-seed ratio
+    sd <= 0.006 (mean of 3 seeds); the bug is >= 13 % off."""
+    def mean(integrator):
+        return np.mean([
+            np.asarray(_grey_ground_dedicated(astroray_module, integrator, s, light)
+                       .render(16, 12, None, False), dtype=np.float64)[..., :3]
+            .mean(axis=(0, 1)) for s in (11, 23, 37)], axis=0)
+    pt, rs = mean("path_tracer"), mean("restir-di")
+    ratio = rs / pt
+    assert np.all(np.abs(ratio - 1.0) <= 0.03), (
+        f"#878 restir-di/path_tracer per-channel {ratio.round(4).tolist()} "
+        f"(pt {pt.round(4).tolist()}, restir {rs.round(4).tolist()})")

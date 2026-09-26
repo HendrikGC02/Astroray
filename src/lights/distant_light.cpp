@@ -65,6 +65,11 @@ DistantLight::DistantLight(const Vec3& axis,
     // Distant lights don't use geometric normalization (no area concept).
     // Just use 1.0 (Cycles distant light has no invarea factor).
     normalizeFactor_ = 1.0f;
+    // #878: emission_rgb (ReSTIR target, RGB re-upsample consumers) must not
+    // depend on the path's hero wavelengths: a 4-lambda toXYZ estimate
+    // re-upsampled at the same lambdas is biased (CPU restir-di sun cast).
+    bool exactRGB = false;
+    emission_.deviceReference(refRGB_, exactRGB);
 }
 
 void DistantLight::sampleLi(LiSample& sample,
@@ -110,8 +115,10 @@ void DistantLight::sampleLi(LiSample& sample,
     float solidAngle = distantSolidAngle(angularDiameter_);
 
     SampledSpectrum emissionSpec = emission_.eval(lambdas);
+    float scale = intensity_ * normalizeFactor_;
     if (solidAngle > 0.0f) {
-        emissionSpec *= (intensity_ * normalizeFactor_ / solidAngle);  // radiance = S/Ω
+        scale /= solidAngle;
+        emissionSpec *= scale;  // radiance = S/Ω
         sample.pdf = 1.0f / solidAngle;                                 // solid-angle pdf
         sample.isDelta = false;
     } else {
@@ -122,20 +129,14 @@ void DistantLight::sampleLi(LiSample& sample,
         // heuristic against bsdfPdf (a BSDF-sampled ray has probability 0 of
         // ever reproducing this exact direction; mirrors pbrt-v4 delta-light
         // MIS handling, src/pbrt/lights.h, Apache-2.0).
-        emissionSpec *= (intensity_ * normalizeFactor_);
+        emissionSpec *= scale;
         sample.pdf = 1.0f;
         sample.isDelta = true;
     }
 
     sample.emission_spec = emissionSpec;
 
-    // Convert to RGB.
-    XYZ xyz = emissionSpec.toXYZ(lambdas);
-    sample.emission_rgb = Vec3(
-        3.2404542f * xyz.X - 1.5371385f * xyz.Y - 0.4985314f * xyz.Z,
-        -0.9692660f * xyz.X + 1.8760108f * xyz.Y + 0.0415560f * xyz.Z,
-        0.0556434f * xyz.X - 0.2040259f * xyz.Y + 1.0572252f * xyz.Z
-    );
+    sample.emission_rgb = refRGB_ * scale;  // #878
 }
 
 float DistantLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {

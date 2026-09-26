@@ -132,7 +132,8 @@ inline std::vector<PhotonLight> buildPhotonLights(const LightsT& lights, const A
     double total = 0.0;
     for (double s : share) total += s;
     for (size_t i = 0; i < out.size(); ++i) {
-        out[i].count = static_cast<int>(std::lround(totalPhotons * share[i] / total));
+        // >= 1 photon: a dim light rounded to 0 would silently drop its flux.
+        out[i].count = std::max(1, static_cast<int>(std::lround(totalPhotons * share[i] / total)));
         out[i].emitter.ies = out[i].iesTable.empty() ? nullptr : out[i].iesTable.data();
     }
     return out;

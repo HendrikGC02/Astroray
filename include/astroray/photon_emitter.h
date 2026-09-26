@@ -4,7 +4,8 @@
 // (spectral_path_tracer / light_tracer_caustic) and the GPU (photon_caustic.cu).
 //
 // A photon leaving light i carries spectral flux
-//     Phi_p(lambda) = S(lambda) * W / N_i,   W = Le_geom * cos / (pdfPos * pdfDir)
+//     Phi_p = (S(lambda)/p(lambda)) * W / N_i = I_S * W / N_i  (lambda ~ S),
+//     W = Le_geom * cos / (pdfPos * pdfDir)
 // (Jensen 2001 §7.1; pbrt-v3 sppm.cpp photon beta = Le |cos| / (pdfPos pdfDir),
 // BSD-2), S the light's emission spectrum and W the geometric weight returned
 // by peSampleLe. Directions are importance-sampled in one cone toward the

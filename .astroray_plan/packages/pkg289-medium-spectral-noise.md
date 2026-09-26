@@ -109,9 +109,9 @@ belong to" bugs in the same integrator file.
 
 ## Progress
 
-- [ ] Ladder rungs 1–6 + doc.
-- [ ] Fix + GPU mirror + tests.
-- [ ] Collapse propagation + guide snapshot.
+- [x] Ladder rungs 1–6 + doc (2026-09-27): cause is medium NEE only at analog scatter vertices, not chromatic lanes; see `docs/pkg289-medium-chromatic-noise-ladder.md`.
+- [ ] Fix + GPU mirror: deferred by the lead to the equiangular direct-light follow-up; `test_913_shaft_variance_vs_cycles_*` is xfail(strict).
+- [x] Collapse propagation (#904, efc9f89a) + guide snapshot (#917).
 
 ---
 

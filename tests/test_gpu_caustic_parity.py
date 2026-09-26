@@ -96,7 +96,8 @@ def _gpu_available() -> bool:
     return astroray.Renderer().gpu_available
 
 
-def _build_glass_sphere(use_gpu: bool, photons: bool = True, lamp: str = "white"):
+def _build_glass_sphere(use_gpu: bool, photons: bool = True, lamp: str = "white",
+                        sun_irradiance=None):
     """Glass-sphere focused caustic — the in-scope GPU caustic scene.
 
     Mirrors benchmarks/reference_bank/scenes/glass-sphere-caustic/scene.py but at
@@ -143,7 +144,8 @@ def _build_glass_sphere(use_gpu: bool, photons: bool = True, lamp: str = "white"
     _emission = ({"mode": "measured_spd", "profile_name": "sodium_vapor"}
                  if lamp == "sodium" else {"mode": "rgb", "color": [1.0, 1.0, 1.0]})
     r.add_sun_light_dedicated(_norm([0.45, -1.0, 0.0]), _sun_ang,
-                              _emission, 6.0 * _sun_omega)
+                              _emission,
+                              6.0 * _sun_omega if sun_irradiance is None else sun_irradiance)
 
     # Floor just past the ball-lens focal plane (paraxial focus is at centre +
     # sunDir*0.9 = (0.37,-0.82,0); floor at y=-1.1 -> caustic at x~0.50). The
@@ -521,3 +523,69 @@ def test_gpu_caustic_emission_line_color(test_results_dir):
         f"pkg221: sodium caustic (warm {warm_s:.3f}) is not markedly warmer than the "
         f"broadband white caustic (warm {warm_w:.3f}); the lamp SPD is being ignored."
     )
+
+
+_NOISE_SEEDS = (11, 29, 47, 83)
+
+
+def test_gpu_caustic_noise_falls_with_spp(test_results_dir):
+    """#909 — the gathered caustic must average down with sample count, and an
+    isolated photon must not produce a firefly.
+
+    * Noise: per-pixel std across 4 seeds in the caustic ROI, 16 vs 256 spp.
+      Ideal 1/sqrt(N) gives 4.0x. Pre-#909 one photon map served every sample
+      of a render() call, so the std plateaued (measured 1.5x on main).
+      Gate >= 2.5x.
+    * Fireflies: the K-NN gather used the farthest of the few photons found as
+      its radius, so E ~ 1/d^2 near an isolated photon (a ~1400x per-sample
+      spike on main). With r = the cap when fewer than K are found (Jensen 2001)
+      the 64-spp frame max stays within 4x the caustic peak.
+    """
+    if not _gpu_available():
+        pytest.skip("CUDA GPU not available on this machine")
+
+    def stack(spp):
+        return np.stack([_luminance(_render(_build_glass_sphere(use_gpu=True), spp, s))
+                         for s in _NOISE_SEEDS])
+
+    lo, hi = stack(16), stack(256)
+    off = _luminance(_render(_build_glass_sphere(use_gpu=True, photons=False), 256, SEED))
+    contrib = hi.mean(axis=0) - off
+    roi = contrib > 0.25 * float(np.percentile(contrib, 99.9))
+    assert roi.sum() >= 50, f"caustic ROI too small ({int(roi.sum())} px)"
+    s_lo = float(np.median(np.std(lo, axis=0, ddof=1)[roi]))
+    s_hi = float(np.median(np.std(hi, axis=0, ddof=1)[roi]))
+    ratio = s_lo / max(s_hi, 1e-12)
+
+    peak = float(np.percentile(hi.mean(axis=0), 99.9))
+    mid = stack(64)
+    worst = float(mid.max())
+    print(f"\n[#909] caustic ROI median std 16spp={s_lo:.5f} 256spp={s_hi:.5f} "
+          f"ratio={ratio:.2f} (ideal 4.00) | 64spp max={worst:.3f} peak={peak:.3f}")
+    _save_image(np.repeat(hi.mean(axis=0)[..., None], 3, axis=2),
+                os.path.join(test_results_dir, "issue909_caustic_256spp.png"))
+
+    assert ratio >= 2.5, (
+        f"#909: caustic noise fell only {ratio:.2f}x from 16 to 256 spp (ideal 4x); "
+        f"the photon map is not being re-traced per sample round.")
+    assert worst <= 4.0 * peak, (
+        f"#909: 64-spp frame max {worst:.3f} > 4x caustic peak {peak:.3f} — "
+        f"K-NN gather firefly near an isolated photon.")
+
+
+def test_gpu_photon_caustics_cull_path_traced_refraction(test_results_dir):
+    """#909 — with the photon map live, path-traced refractive caustics (diffuse ->
+    delta glass -> sun) double-count the gathered caustic and, for a real sun
+    (irradiance 3, radiance ~1e5), are isolated fireflies (per-sample ~5e4 on
+    main). The shade stage now culls them (Jensen 1996 caustic-map split), so the
+    64-spp frame max stays within 4x the lit-floor/caustic 99.9th percentile."""
+    if not _gpu_available():
+        pytest.skip("CUDA GPU not available on this machine")
+    imgs = [_luminance(_render(_build_glass_sphere(use_gpu=True, sun_irradiance=3.0), 64, s))
+            for s in _NOISE_SEEDS]
+    ref = float(np.percentile(np.mean(imgs, axis=0), 99.9))
+    worst = max(float(i.max()) for i in imgs)
+    print(f"\n[#909] bright sun 64spp: max={worst:.2f} p99.9(mean)={ref:.3f}")
+    assert worst <= 4.0 * ref, (
+        f"#909: 64-spp max {worst:.2f} > 4x p99.9 {ref:.3f} — path-traced refractive "
+        f"caustic fireflies alongside the photon gather.")

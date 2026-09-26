@@ -3475,8 +3475,9 @@ __global__ void stageRegenKernel(
         atomicAdd(&c_wfAdaptive.sampleCount[pixel], 1);
     } else {
         // Flat pool (byte-identical pre-pkg131): wave k = sample k for every pixel.
+        // #909: baseSample offsets the photon-map rounds (0 for a single round).
         pixel  = w % numPixels;
-        sample = w / numPixels;
+        sample = c_wfAdaptive.baseSample + w / numPixels;
     }
     initPathSlot(idx, pixel, sample, state, cam, width, height, seed,
                  lambdaMin, lambdaMax);

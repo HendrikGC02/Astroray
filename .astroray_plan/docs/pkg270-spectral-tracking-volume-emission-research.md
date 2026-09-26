@@ -168,6 +168,10 @@ Facts that shape pkg270:
   Mesh-bounded homogeneous media emit everywhere inside the AABB (identical to
   Cycles for a cube).
 
+- **#908 (2026-09-26):** Cycles does NOT clamp `Blackbody Intensity`; Blender stores
+  values > 1 (showcase fire: 3.0) and `mix(1, T⁴, I)` extrapolates. The engine
+  clamped I to [0, 1] (fire 3× dim on CPU+GPU); now only `I >= 0` is enforced.
+
 ## 4. What we deliberately do NOT take
 
 - pbrt-v4's `r_l` bookkeeping and its light-sampler MIS (Astroray keeps its

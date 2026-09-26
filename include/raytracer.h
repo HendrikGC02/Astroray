@@ -1487,8 +1487,11 @@ public:
         sampler_->sample(out, pt, normal, lambdas, gen);
     }
 
-    float pdfValue(const Vec3& pt, const Vec3& dir, const Vec3& normal) const {
-        return sampler_->pdfValue(pt, dir, normal);
+    // #912: pass the hit emitter on a BSDF/phase emission hit (see LightSampler).
+    float pdfValue(const Vec3& pt, const Vec3& dir, const Vec3& normal,
+                   const Hittable* hitEmitter = nullptr,
+                   const astroray::Light* hitLamp = nullptr) const {
+        return sampler_->pdfValue(pt, dir, normal, hitEmitter, hitLamp);
     }
 
     // pkg181: intersect a BSDF-sampled ray against the dedicated (non-hittable)
@@ -1502,7 +1505,8 @@ public:
                             float tMin, float tMax,
                             const astroray::SampledWavelengths& lambdas,
                             astroray::Light::Intersection& out,
-                            bool cameraRay = false) const {
+                            bool cameraRay = false,
+                            const astroray::Light** hitLamp = nullptr) const {  // #912
         bool anyHit = false;
         float closest = tMax;
         for (const auto& l : dedicatedLights) {
@@ -1511,6 +1515,7 @@ public:
             if (l->intersect(origin, dir, tMin, closest, lambdas, tmp)) {
                 closest = tmp.t;
                 out = tmp;
+                if (hitLamp) *hitLamp = l.get();
                 anyHit = true;
             }
         }
@@ -3591,8 +3596,9 @@ public:
                 (bounce > 0 || lights.hasCameraVisibleDedicated())) {
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
                 astroray::Light::Intersection lh;
+                const astroray::Light* hitLamp = nullptr;
                 if (lights.intersectDedicated(ray.origin, ray.direction, 0.001f,
-                                              surfaceT, lambdas, lh, bounce == 0)) {
+                                              surfaceT, lambdas, lh, bounce == 0, &hitLamp)) {
                     if (!lh.emission.isZero()) {
                         // pkg199 Stage 1 (role 3): the lamp is closer than the
                         // surface, so throughput is not yet segment-attenuated;
@@ -3616,7 +3622,8 @@ public:
                                 clampContribSpectral(throughput * lampEmission, lambdas, bounce - 1);
                             color += c; addPass(lampPass, c);
                         } else {
-                            float lp = lights.pdfValue(ray.origin, ray.direction, misNormalPrev);
+                            float lp = lights.pdfValue(ray.origin, ray.direction, misNormalPrev,
+                                                       nullptr, hitLamp);  // #912: this lamp only
                             float bp = bsdfPdfPrev;
                             float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                             astroray::SampledSpectrum c =
@@ -3756,7 +3763,8 @@ public:
                     // same selection probabilities the NEE leg uses.
                     float lightPdfHit = lights.empty()
                         ? 0.0f
-                        : lights.pdfValue(ray.origin, ray.direction, misNormalPrev);
+                        : lights.pdfValue(ray.origin, ray.direction, misNormalPrev,
+                                          rec.hitObject);  // #912: this emitter only
                     float bp = bsdfPdfPrev, lp = lightPdfHit;
                     // Same power-heuristic form as the NEE leg above and the GPU
                     // gpu_mw_powerHeuristic, so w_L + w_B ≈ 1 per direction.

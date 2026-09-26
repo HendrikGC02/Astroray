@@ -444,12 +444,15 @@ __device__ inline float gpu_dedicated_reconstruct_pdf(
     const GDedicatedLight* dedLights, int numDed, float totalLightPower,
     const GVec3& prevPoint, const GVec3& dir,
     const GLightTreeView& lightTree, int numLights,   // #859: tree selection
-    const GVec3& prevNormal)                          // #851: NEE normal of prev vertex
+    const GVec3& prevNormal,                          // #851: NEE normal of prev vertex
+    int hitIdx = -1)                                  // #912: the lamp hit, -1 = all
 {
     if (numDed <= 0 || totalLightPower <= 0.f) return 0.f;
     float pdf = 0.f;
     GVec3 D = dir.normalized();
     for (int j = 0; j < numDed; ++j) {
+        // #912: only the hit lamp's pdf (Cycles light_sample_mis_weight_forward_lamp).
+        if (hitIdx >= 0 && j != hitIdx) continue;
         const GDedicatedLight& d = dedLights[j];
         // Tree mode: re-walk with the previous vertex's NEE normal, as the
         // pick did (CPU TreeLightSampler::pdfValue, Cycles mis_origin_n).

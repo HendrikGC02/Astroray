@@ -115,8 +115,32 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
     }
 }
 
+// #912: index of the hit emitter in the hittable light list, or -1. The hit
+// emitter's pdf alone is the reverse NEE pdf: summing every light the
+// direction line crosses also counted emitters occluded by the hit one (a
+// light behind a light), inflating lp and darkening w_B. Cycles:
+// light_sample_mis_weight_forward_surface (kernel/light/sample.h, Apache-2.0);
+// GPU twin gpu_reconstruct_light_pdf (src/gpu/gpu_nee.cuh).
+static int hitEmitterIndex(const std::vector<std::shared_ptr<Hittable>>& lights,
+                           const Hittable* hitEmitter) {
+    if (!hitEmitter) return -1;
+    for (size_t i = 0; i < lights.size(); ++i)
+        if (lights[i].get() == hitEmitter) return static_cast<int>(i);
+    return -1;
+}
+
+// #912: same for a hit dedicated lamp (Cycles light_sample_mis_weight_forward_lamp).
+static int hitLampIndex(const std::vector<std::unique_ptr<Light>>& lamps, const Light* hitLamp) {
+    if (!hitLamp) return -1;
+    for (size_t i = 0; i < lamps.size(); ++i)
+        if (lamps[i].get() == hitLamp) return static_cast<int>(i);
+    return -1;
+}
+
 float PowerLightSampler::pdfValue(const Vec3& point, const Vec3& dir,
-                                   const Vec3& /*normal*/) const {
+                                   const Vec3& /*normal*/,
+                                   const Hittable* hitEmitter,
+                                   const Light* hitLamp) const {
     const auto& lights = lightList_->getLights();
     const auto& dedicatedLights = lightList_->getDedicatedLights();
     const auto& powerDist = lightList_->getPowerDist();
@@ -128,6 +152,24 @@ float PowerLightSampler::pdfValue(const Vec3& point, const Vec3& dir,
     // (totalPower == 0, e.g. a narrow-line lamp). Uniform selPdf = 1/N.
     const size_t totalLights = lights.size() + dedicatedLights.size();
     const bool uniformFallback = (totalPower <= 0.0f);
+
+    const int hit = hitEmitterIndex(lights, hitEmitter);
+    if (hit >= 0) {
+        float selPdf = uniformFallback
+            ? 1.0f / static_cast<float>(totalLights)
+            : (hit > 0 ? powerDist[hit] - powerDist[hit - 1] : powerDist[0]) / totalPower;
+        return selPdf * lights[hit]->pdfValue(point, dir);
+    }
+    const int lamp = hitLampIndex(dedicatedLights, hitLamp);
+    if (lamp >= 0) {
+        const size_t k = lights.size() + static_cast<size_t>(lamp);
+        float selPdf = uniformFallback
+            ? 1.0f / static_cast<float>(totalLights)
+            : (k > 0 ? powerDist[k] - powerDist[k - 1] : powerDist[0]) / totalPower;
+        return selPdf * dedicatedLights[lamp]->pdfLi(point, dir);
+    }
+    // A known hit light that NEE cannot sample has pdf 0 (w_B = 1), as on GPU.
+    if (hitEmitter || hitLamp) return 0;
 
     float pdf = 0;
     size_t idx = 0;
@@ -237,7 +279,9 @@ void TreeLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& n
 }
 
 float TreeLightSampler::pdfValue(const Vec3& point, const Vec3& dir,
-                                  const Vec3& normal) const {
+                                  const Vec3& normal,
+                                  const Hittable* hitEmitter,
+                                  const Light* hitLamp) const {
     // For MIS, we compute the pdf of sampling direction `dir` from `point`.
     // This requires summing over all lights that could be sampled in that direction:
     //   pdf = sum_i [ tree_pdf(i) * light_i.pdfValue(point, dir) ]
@@ -252,6 +296,18 @@ float TreeLightSampler::pdfValue(const Vec3& point, const Vec3& dir,
     // point, so the MIS pdf equals the pick pdf (Cycles light_tree_pdf takes the
     // stored mis_origin_n, kernel/light/tree.h). The old -dir proxy pruned the
     // emitter's own cluster as "behind the surface", so pdf≈0 and w_B≈1.
+
+    const int hit = hitEmitterIndex(lights, hitEmitter);  // #912
+    if (hit >= 0) {
+        float lightPdf = lights[hit]->pdfValue(point, dir);
+        return (lightPdf > 0.0f) ? tree_->pdf(point, normal, hit, false) * lightPdf : 0.0f;
+    }
+    const int lamp = hitLampIndex(dedicatedLights, hitLamp);
+    if (lamp >= 0) {
+        float lightPdf = dedicatedLights[lamp]->pdfLi(point, dir);
+        return (lightPdf > 0.0f) ? tree_->pdf(point, normal, lamp, true) * lightPdf : 0.0f;
+    }
+    if (hitEmitter || hitLamp) return 0.0f;  // unsampleable hit light: w_B = 1, as on GPU
 
     float pdf = 0.0f;
 

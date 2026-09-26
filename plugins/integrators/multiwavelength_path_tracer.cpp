@@ -203,13 +203,15 @@ private:
                 !lights.getDedicatedLights().empty()) {
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
                 astroray::Light::Intersection lh;
+                const astroray::Light* hitLamp = nullptr;
                 if (lights.intersectDedicated(ray.origin, ray.direction, 0.001f,
-                                              surfaceT, lambdas, lh, bounce == 0)) {
+                                              surfaceT, lambdas, lh, bounce == 0, &hitLamp)) {
                     if (!lh.emission.isZero()) {
                         if (bounce == 0 || wasSpecular) {
                             color += throughput * lh.emission;
                         } else {
-                            float lp = lights.pdfValue(ray.origin, ray.direction, misNormalPrev);
+                            float lp = lights.pdfValue(ray.origin, ray.direction, misNormalPrev,
+                                                       nullptr, hitLamp);  // #912
                             float bp = bsdfPdfPrev;
                             float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                             color += throughput * lh.emission * wB;
@@ -282,7 +284,8 @@ private:
                     // against the light-sampling pdf that would have generated it.
                     float lp = lights.empty()
                         ? 0.0f
-                        : lights.pdfValue(ray.origin, ray.direction, misNormalPrev);
+                        : lights.pdfValue(ray.origin, ray.direction, misNormalPrev,
+                                          rec.hitObject);  // #912
                     float bp = bsdfPdfPrev;
                     float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                     color += throughput * Le * wB;

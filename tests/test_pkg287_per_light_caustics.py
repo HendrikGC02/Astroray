@@ -40,6 +40,9 @@ pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 W, H = 128, 96
 SPP_ON, SPP_REF = 64, 16384
+# #848 follow-up: the brute-force reference is heavy-tailed, so one 16384-spp
+# seed swung the sun ratio by ~5 %. Same budget as a mean of 8 x 2048 spp.
+REF_SEEDS = tuple(range(5, 13))
 D = (0.0, -math.cos(math.radians(30)), math.sin(math.radians(30)))  # light -> ball
 C = (0.0, 1.0, 0.0)
 R_BALL = 0.5
@@ -101,6 +104,13 @@ def _caustic(kind, photons, spp, gpu=False):
             - _lum(_scene(kind, photons, black=True, gpu=gpu), min(spp, 256)))
 
 
+def _caustic_ref(kind):
+    """Path-traced reference: mean over REF_SEEDS at SPP_REF / len(REF_SEEDS)."""
+    spp = SPP_REF // len(REF_SEEDS)
+    glass = np.mean([_lum(_scene(kind, False), spp, s) for s in REF_SEEDS], axis=0)
+    return glass - _lum(_scene(kind, False, black=True), 256)
+
+
 def _box(a, k=2):
     p = np.pad(a, k, mode="edge")
     return sum(p[k + dy:k + dy + a.shape[0], k + dx:k + dx + a.shape[1]]
@@ -126,7 +136,7 @@ def _centroid(c, m):
 @pytest.mark.parametrize("kind", KINDS)
 def test_cpu_photon_caustic_matches_path_traced(kind, test_results_dir):
     on = _caustic(kind, True, SPP_ON)
-    ref = _caustic(kind, False, SPP_REF)
+    ref = _caustic_ref(kind)
     from base_helpers import save_image
     both = np.concatenate([on, ref], axis=1)
     save_image(np.repeat(np.clip(both / max(float(np.percentile(on, 99.5)), 1e-6), 0, 1)[..., None],

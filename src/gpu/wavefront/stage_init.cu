@@ -150,9 +150,9 @@ __device__ inline GSampledWavelengths sampleUniformWavelength(float u,
 // IMPORTANCE sampling. BYTE-MIRROR of astroray::SampledWavelengths::
 // sampleImportance() (src/spectrum.cpp) — the constants and pdf formula MUST
 // match bit-for-bit. Draws the hero + stratified companions from a logistic CDF
-// fitted to a (CIE-1964 10deg y_bar + 0.25)*D65 luminance target (pre-#767 table;
-// still unbiased with the CIE 1931 2deg table, re-fit is variance-only: #848), and
-// sets each lane's pdf to the logistic density at its OWN lambda (1/nm) so the
+// whose (a, x0) minimise the worst sRGB-channel variance on a D65-lit grey
+// surface at <= the old luminance fit's luminance variance (#848 follow-up;
+// pbrt-v4 SampleVisibleWavelengths family), and sets each lane's pdf to the logistic density at its OWN lambda (1/nm) so the
 // MC estimator stays UNBIASED.
 //
 // Algorithm: Wilkie, Nawaz, Droske, Weidlich, Hanika 2014, "Hero Wavelength
@@ -169,8 +169,8 @@ __device__ inline GSampledWavelengths sampleUniformWavelength(float u,
 // spectrum.cpp::{kHeroA,kHeroX0}. Plain constexpr immediates (baked into the
 // SASS, no __constant__ bank use — keeps spec §4's shade-kernel CONSTANT[0]
 // baseline untouched; used only at init).
-constexpr float kG_HeroA  = 0.0221679280f;  // 1/nm
-constexpr float kG_HeroX0 = 552.040271f;    // nm
+constexpr float kG_HeroA  = 0.0170f;  // 1/nm
+constexpr float kG_HeroX0 = 522.5f;   // nm
 
 // Logistic CDF F(lambda)=1/(1+exp(-a(lambda-x0))); MUST mirror spectrum.cpp::heroCdf.
 __device__ inline float gHeroCdf(float lambda) {

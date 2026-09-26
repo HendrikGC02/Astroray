@@ -196,7 +196,9 @@ public:
         const auto* bvh = renderer_->getBVH().get();
         if (bvh) {
             HitRecord rec;
-            if (bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec) && rec.material) {
+            float tMin, tMax;  // #873: the AOV first hit honours the clip planes
+            renderer_->primaryClipBounds(ray.direction, tMin, tMax);
+            if (bvh->hit(ray, tMin, tMax, rec) && rec.material) {
                 r.albedo = rec.material->getAlbedo();
                 r.depth = rec.t;
                 r.normal = rec.normal;

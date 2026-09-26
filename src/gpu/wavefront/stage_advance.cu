@@ -179,6 +179,17 @@ __constant__ GWavefrontGridVolumeBinding c_wfGridVolume = {};
 // pass env queue-count reset) -- all behind `c_wfEnvNeeBinding.enabled`.
 __constant__ GWavefrontEnvNeeBinding c_wfEnvNeeBinding = {};
 
+// #873: primary-ray clip planes (setWavefrontPrimaryClip), read by
+// intersectPathSlotT at bounce 0 only. active 0 (default) = unclipped.
+__constant__ GWavefrontPrimaryClip c_wfPrimaryClip = {};
+
+// #877: set_light_nee(False) = pure BSDF sampling: the path_tracer runs with
+// enableNEE false (no surface / medium light sampling) and takes every emitter
+// or lamp hit at w_B = 1 (CPU raytracer.h pkg265). 0 (default) keeps the
+// naive-multiwavelength meaning of enableNEE false (emission only after
+// camera / specular bounces). Read only by intersectPathSlotT.
+__constant__ int c_wfLightNeeOff = 0;
+
 // pkg198 Stage 2 — light-path pass binding in constant memory (see
 // GWavefrontLightPassBinding in gpu_types.h). Set once per frame by
 // setWavefrontLightPassBinding; the shade/intersect kernels read it ONLY inside
@@ -427,8 +438,19 @@ __device__ int intersectPathSlotT(
     // to the single-level gpu_bvh_hit path inside gpu_tlas_hit, so static scenes
     // stay byte-identical (pkg114 inc-1 identity test).
     GHitRecord rec;
+    // #873: camera clip planes bound the bounce-0 hit only, exactly the CPU
+    // raytracer.h tMin/tMax (view-axis depth / dot(D, forward), dot floored at
+    // 1e-6). The origin stays at the camera, so media, lamp hits and the depth
+    // AOV see the same segment as on the CPU.
+    float tNear = 0.001f, tFar = 1e30f;
+    if (bounce == 0 && c_wfPrimaryClip.active) {
+        const float zInv = 1.f / fmaxf(1e-6f, ray.direction.dot(GVec3(
+            c_wfPrimaryClip.fwdX, c_wfPrimaryClip.fwdY, c_wfPrimaryClip.fwdZ)));
+        tNear = fmaxf(0.001f, c_wfPrimaryClip.nearDist * zInv);
+        if (c_wfPrimaryClip.hasFar) tFar = c_wfPrimaryClip.farDist * zInv;
+    }
     bool hit = gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                            ray, 0.001f, 1e30f, rec, motionVerts, curves);
+                            ray, tNear, tFar, rec, motionVerts, curves);
 
     // pkg199 Stage 2 — homogeneous medium free-flight scatter DECISION (Option A:
     // the cheap decision + queue routing lives here; the register-heavy scatter
@@ -687,7 +709,7 @@ __device__ int intersectPathSlotT(
                 if (c_worldVolume.hasVolume && !mediumScatters)
                     Le *= gpu_worldTransmittanceMW(lampT, lambdas);
                 GSampledSpectrum contrib(0.f);
-                if (bounce == 0 || wasSpecular) {
+                if (bounce == 0 || wasSpecular || c_wfLightNeeOff) {  // #877
                     contrib = throughput * Le;                 // w_B = 1
                 } else if (enableNEE) {
                     GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
@@ -844,7 +866,7 @@ __device__ int intersectPathSlotT(
     // ---- Emission (gated on camera ray or post-specular bounce; path ends).
     GSampledSpectrum Le = gpu_material_emitted_spectral(mat, rec.frontFace, lambdas);
     if (Le.maxValue() > 0.f) {
-        if (bounce == 0 || wasSpecular) {
+        if (bounce == 0 || wasSpecular || c_wfLightNeeOff) {  // #877: NEE off -> w_B = 1
             // pkg157: emissive-hit direct term, same clamp split as above.
             // Camera / post-specular ray: no NEE leg competes (w_B = 1).
             GSampledSpectrum emitContrib = gpu_clampContribMW(
@@ -3602,6 +3624,19 @@ void launchStageShadow(
 void setWavefrontEnvNeeBinding(const GWavefrontEnvNeeBinding& binding)
 {
     cudaMemcpyToSymbol(c_wfEnvNeeBinding, &binding, sizeof(GWavefrontEnvNeeBinding));
+}
+
+// #877 - publish the frame's set_light_nee(False) pure-BSDF flag.
+void setWavefrontLightNeeOff(bool off)
+{
+    const int v = off ? 1 : 0;
+    cudaMemcpyToSymbol(c_wfLightNeeOff, &v, sizeof(int));
+}
+
+// #873 - publish the frame's primary-ray clip planes.
+void setWavefrontPrimaryClip(const GWavefrontPrimaryClip& clip)
+{
+    cudaMemcpyToSymbol(c_wfPrimaryClip, &clip, sizeof(GWavefrontPrimaryClip));
 }
 
 // pkg258 - env NEE shadow-resolve launch (twin of launchStageShadow). Reads the

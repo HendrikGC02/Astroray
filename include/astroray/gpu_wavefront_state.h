@@ -536,6 +536,10 @@ void setWavefrontMissCoverage(float* coverage);
 void setWavefrontPixelFilter(int type, float width);
 // #802 Batch A item 4 - publish the Render Region rect to the wavefront init.
 void setWavefrontRenderRegion(int active, int x0, int y0, int x1, int y1);
+// #873 - publish the primary-ray camera clip planes (stage_init.cu).
+void setWavefrontPrimaryClip(const GWavefrontPrimaryClip& clip);
+// #877 - publish set_light_nee(False): emitter hits at w_B = 1 (stage_advance.cu).
+void setWavefrontLightNeeOff(bool off);
 
 // pkg201 Stage 3 (Finding A) — publish the Cycles per-type bounce limits into the
 // shade kernel's __constant__ c_wfBounceLimit[3] (index 0=diffuse, 1=glossy,

@@ -2962,6 +2962,14 @@ public:
     bool getEnvNee() const { return envNeeEnabled; }          // pkg258
     void setLightNee(bool enable) { lightNeeEnabled = enable; }  // pkg265
     bool getLightNee() const { return lightNeeEnabled; }         // pkg265
+    // #873: camera clip bounds for a primary ray (same as pathTraceSpectral's
+    // bounce-0 tMin/tMax), for plugin integrators' first hit.
+    void primaryClipBounds(const Vec3& dir, float& tMin, float& tMax) const {
+        const float zInv = 1.0f / std::max(1e-6f, dir.dot(clipForward_));
+        tMin = std::max(0.001f, clipNear_ * zInv);
+        tMax = (clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * zInv
+                                                              : std::numeric_limits<float>::max();
+    }
     // pkg201 Stage 3 (Finding A) — set the Cycles per-type bounce limits. -1 (or
     // any negative) = unlimited. Called by Renderer::render() and by the GPU
     // dispatch (blender_module.cpp) before cuda_wavefront_render so both backends
@@ -3375,7 +3383,8 @@ public:
                         if (firstInteraction) firstCat = 3;
                         // --- Medium NEE: light/phase MIS, ratio-tracking transmittance
                         //     through every medium on the shadow segment (Novák 2014) ---
-                        if (!lights.empty()) {
+                        // #877: skipped with NEE off (a lamp hit is then w_B = 1).
+                        if (lightNeeEnabled && !lights.empty()) {
                             LightSample ls;
                             lights.sample(ls, P, Vec3(0.0f), lambdas, gen);
                             if (ls.pdf > 0.0f) {
@@ -3493,7 +3502,8 @@ public:
                     int volPass = firstInteraction ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT;
                     if (firstInteraction) firstCat = 3;
                     // --- Medium NEE (phase / light MIS) ---
-                    if (!lights.empty()) {
+                    // #877: skipped with NEE off (a lamp hit is then w_B = 1).
+                    if (lightNeeEnabled && !lights.empty()) {
                         LightSample ls;
                         lights.sample(ls, P, Vec3(0.0f), lambdas, gen);
                         if (ls.pdf > 0.0f) {

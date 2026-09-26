@@ -49,6 +49,11 @@ def _scene(reflections: int):
     r = astroray.Renderer()
     r.set_background_color([0.12, 0.16, 0.24])
     r.set_use_refractive_caustics(True)
+    # Adaptive sampling stops pixels on their own values, so chain ON vs OFF
+    # consumed each tile's shared RNG differently and the ON-OFF diff was
+    # dominated by decorrelated tile noise (>=0.02) instead of the chain
+    # (max ~0.0014). Fixed sample counts keep the two renders correlated.
+    r.set_adaptive_sampling(False)
     floor = r.create_material("lambertian", [0.55, 0.55, 0.5], {})
     r.add_triangle([-12, -1.0, -14], [12, -1.0, -14], [12, -1.0, 6], floor)
     r.add_triangle([-12, -1.0, -14], [12, -1.0, 6], [-12, -1.0, 6], floor)
@@ -105,7 +110,9 @@ def test_added_energy_is_concentrated(_bow):
 def test_added_energy_is_chromatic(_bow):
     _, _, diff, _, _ = _bow
     dl = diff.max(axis=2)
-    thr = max(0.02, float(np.percentile(dl[dl > 0], 90)) if (dl > 0).any() else 1.0)
+    # Brightest decile of the chain's own contribution (no absolute floor: the
+    # correlated diff peaks ~1.4e-3, an old 0.02 floor only admitted noise).
+    thr = float(np.percentile(dl[dl > 0], 90)) if (dl > 0).any() else 1.0
     mask = dl >= thr
     px = diff[mask]
     assert px.shape[0] >= 20, f"too few bright chain pixels ({px.shape[0]})"

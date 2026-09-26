@@ -208,7 +208,7 @@ std::shared_ptr<Emission> makeVolumetric(const std::string& model, const py::dic
 
 std::pair<std::vector<float>, std::vector<float>> volumetricSegment(
         const std::string& model, const py::dict& params,
-        std::array<double, 3> position, std::array<double, 3> photon_dir,
+        const std::array<double, 3>& position, const std::array<double, 3>& photon_dir,
         const std::vector<float>& lambdas_nm, double ds_cm,
         const py::object& beta) {
     const auto emission = makeVolumetric(model, params);
@@ -222,7 +222,7 @@ std::pair<std::vector<float>, std::vector<float>> volumetricSegment(
 }
 
 std::array<double, 3> volumetricFluidVelocity(const std::string& model, const py::dict& params,
-                                              std::array<double, 3> position) {
+                                              const std::array<double, 3>& position) {
     const auto emission = makeVolumetric(model, params);
     Vec3 dir;
     double b = 0.0;
@@ -235,7 +235,7 @@ std::array<double, 3> volumetricFluidVelocity(const std::string& model, const py
 
 // Uniform chord: n identical segments through the production front-to-back march.
 std::vector<float> volumetricChord(const std::string& model, const py::dict& params,
-                                   std::array<double, 3> position, std::array<double, 3> photon_dir,
+                                   const std::array<double, 3>& position, const std::array<double, 3>& photon_dir,
                                    const std::vector<float>& lambdas_nm, double ds_cm, int n) {
     const auto emission = makeVolumetric(model, params);
     const auto lambdas = volumetricLambdas(lambdas_nm);
@@ -284,7 +284,7 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
           "Instantiates registered restir-di and returns (Y_radiance, trace_calls).");
     // pkg283 volumetric invariant-transport seams.
     m.def("volumetric_fluid_frequency",
-          [](double nu_obs, std::array<double, 3> n, std::array<double, 3> beta) {
+          [](double nu_obs, const std::array<double, 3>& n, const std::array<double, 3>& beta) {
               const double b = std::sqrt(beta[0] * beta[0] + beta[1] * beta[1] + beta[2] * beta[2]);
               const Vec3 dir = b > 0.0 ? toVec3({beta[0] / b, beta[1] / b, beta[2] / b})
                                        : Vec3(0.0f, 1.0f, 0.0f);

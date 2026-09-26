@@ -2,6 +2,10 @@
 # Reference blessed 2026-05-27 (pkg104 night + pkg107 r_obs_M=20).
 # Permissive gates: low priority per owner — captured for visual reference,
 # not a tight regression target yet. Tighten in a follow-up.
+# pkg283 (2026-09-25): invariant transport re-measured, CPU MinGW vs pkg282 build.
+# Display render byte-identical; linear per-channel mean ratio 1.0000/1.0000/1.0000
+# (static fluid, g = 1; Kirchhoff tau ~ 0 in the optical). Thresholds unchanged.
+# phash 20 > 18 fails before and after pkg283 (pre-existing, not attributed here).
 
 [scene]
 description = "Sgr A*-like ADAF (Narayan & Yi 1995) quasi-spherical emission around a Kerr BH (spin 0.9). Visible: bright halo of accretion glow + dark central BH shadow."

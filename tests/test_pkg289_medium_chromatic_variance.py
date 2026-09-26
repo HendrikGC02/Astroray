@@ -93,12 +93,8 @@ def test_913_shaft_variance_converges_gpu():
 
 # #925 (CPU): per-segment equiangular+distance direct light brought R/G from
 # ~100x to ~2.5x Cycles. B stays ~7x: the pkg206 hero-λ pdf alone gives a
-# delta-lit diffuse floor (no medium) B nv 0.0155 at 64 spp, 3.2x Cycles' shaft
-# B, so B cannot pass until the λ sampler is fixed (#848).
-_XFAIL_B = pytest.mark.xfail(
-    strict=True,
-    reason="#925 fixed R/G; B is bounded by pkg206 hero-λ blue under-sampling "
-           "(spectral floor alone 3.2x Cycles' shaft B). Tracked in #848.")
+# delta-lit diffuse floor (no medium) B nv 0.0155 at 64 spp; the #848 minimax
+# λ proposal brought B within the gate, so the full-channel test is live.
 
 
 @pytest.mark.cpu
@@ -107,7 +103,6 @@ def test_925_shaft_variance_rg_vs_cycles_cpu():
 
 
 @pytest.mark.cpu
-@_XFAIL_B
 def test_913_shaft_variance_vs_cycles_cpu():
     _assert_variance_vs_cycles(False)
 

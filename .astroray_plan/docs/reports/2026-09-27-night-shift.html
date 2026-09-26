@@ -82,7 +82,7 @@ a{color:var(--teal)}
 <div class="nm" aria-hidden="true"><span>380 nm</span><span>550 nm</span><span>780 nm</span></div>
 
 <div class="stats">
-  <div class="stat"><b>13</b><span>PRs merged (1 more in CI)</span></div>
+  <div class="stat"><b>13</b><span>PRs merged</span></div>
   <div class="stat"><b>3284 → 3601</b><span>tests passing on RTX 5070 Ti</span></div>
   <div class="stat"><b>44 / 35</b><span>issues filed / closed</span></div>
   <div class="stat"><b>US$4.36</b><span>for 46 open-model reviews and jobs</span></div>
@@ -90,7 +90,7 @@ a{color:var(--teal)}
 </div>
 
 <h2>The short version</h2>
-<p>Everything on the 2026-09-24 plan shipped: Batches U, V, Y (light transport, viewport, procedural textures), the GR pair pkg281/282, and the owner's showcase scenes. The showcase then did its real job, which was to find bugs: six of them, all now fixed. After the queue ran dry, a Fable architect run (the one exception you allowed) triaged 53 open issues and wrote ten specs; Batches AD and AE came straight out of that plan. The last batch (AE, photon caustics) passed the full suite with zero failures and is in CI as this is written.</p>
+<p>Everything on the 2026-09-24 plan shipped: Batches U, V, Y (light transport, viewport, procedural textures), the GR pair pkg281/282, and the owner's showcase scenes. The showcase then did its real job, which was to find bugs: six of them, all now fixed. After the queue ran dry, a Fable architect run (the one exception you allowed) triaged 53 open issues and wrote ten specs; Batches AD and AE came straight out of that plan. The last batch (AE, photon caustics) passed the full suite with zero failures and is merged.</p>
 <p>One thing did not land: the clamp-parity package (pkg290) is blocked, honestly. Its real cause is that light sampling inside fog is 100–500× noisier than Cycles, which is now issue #925 and the most valuable item on the next plan.</p>
 
 <h2>Correctness, in one picture</h2>
@@ -114,7 +114,7 @@ a{color:var(--teal)}
 <tr><td>#918</td><td>—</td><td>Architect plan: triage + specs pkg284–pkg293</td><td class="n">docs</td></tr>
 <tr><td>#923</td><td>AC</td><td>MIS uses the light actually hit (#912), MinGW crash (#904), load-proof tooling tests (#906)</td><td class="n">3568 / 0</td></tr>
 <tr><td>#927</td><td>AD</td><td>Paths pass through lamps (pkg288), SMS energy (#888/#919), ReSTIR colour cast (#878), closed emitters (#886)</td><td class="n">3582 / 0†</td></tr>
-<tr><td>#928</td><td>AE</td><td>Physical photon power (pkg286), per-light photons (pkg287), guiding snapshot (#917), fog-noise ladder (pkg289)</td><td class="n">3601 / 0 <span class="pill wait">CI</span></td></tr>
+<tr><td>#928</td><td>AE</td><td>Physical photon power (pkg286), per-light photons (pkg287), guiding snapshot (#917), fog-noise ladder (pkg289)</td><td class="n">3601 / 0</td></tr>
 </tbody></table></div>
 <p style="font-size:.86rem;color:var(--muted)">* one expected failure (a baseline frame from before the pixel-mapping fix). † after re-pinning tests that had been calibrated on the old, broken engine, or re-running tooling tests that time out under build load.</p>
 
@@ -203,5 +203,5 @@ a{color:var(--teal)}
 </ul>
 
 <h2>Next up</h2>
-<p>The architect's order continues with #925 (per-segment light sampling in fog; probably also fixes the clamp gap), the GPU/CPU divergence ladders (pkg292, pkg293), then the new parity corpus and the reference-bank re-bless once the transport fixes stop moving pixels. Details in <code>.astroray_plan/docs/architect-plan-2026-09-27.md</code>.</p>
+<p>#925 is already half done: the CPU now samples a light connection on every stretch of fog (lit-shaft noise from ~100× Cycles down to 2–7×), and the new unbiasedness test caught and fixed an older bias for lamps inside fog boxes. The GPU half is #929. After that the architect's order continues with the GPU/CPU divergence ladders (pkg292, pkg293), then the new parity corpus and the reference-bank re-bless once the transport fixes stop moving pixels. Details in <code>.astroray_plan/docs/architect-plan-2026-09-27.md</code>.</p>
 </div>

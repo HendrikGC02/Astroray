@@ -182,12 +182,11 @@ def _dispersive_glass(name, ior, preset):
         return mat
     finally:
         scene.render.engine = engine
-    names = [i[0] for i in sell.bl_rna.properties["preset"].enum_items] or []
     sell.use_preset = True
     try:
         sell.preset = preset
-    except TypeError:
-        print(f"[showcase] preset {preset!r} not in {names}", flush=True)
+    except TypeError as exc:  # dispersion is the scene's point: fail loudly
+        raise SystemExit(f"[showcase] Sellmeier preset {preset!r} rejected: {exc}")
     nt.links.new(sell.outputs[0], aout.inputs["Surface"])
     return mat
 
@@ -444,6 +443,8 @@ def _enable_cycles_gpu():
     prefs.get_devices()
     for d in prefs.devices:
         d.use = d.type == "OPTIX"
+    if not any(d.use for d in prefs.devices):
+        raise SystemExit("[showcase] no OptiX device; use --device cpu")
     bpy.context.scene.cycles.device = "GPU"
 
 

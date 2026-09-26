@@ -48,6 +48,13 @@ public:
                            const Hittable* hitEmitter = nullptr,
                            const Light* hitLamp = nullptr) const = 0;
 
+    // #925: re-sample the light a previous sample picked (LightSample::pickIndex)
+    // from `point`, keeping its selection pdf. Default: unsupported.
+    virtual bool resample(LightSample& /*out*/, const LightSample& /*picked*/,
+                          const Vec3& /*point*/, const Vec3& /*normal*/,
+                          const SampledWavelengths& /*lambdas*/,
+                          std::mt19937& /*gen*/) const { return false; }
+
     // Check if the sampler is empty (no lights).
     virtual bool empty() const = 0;
 
@@ -70,9 +77,17 @@ public:
     float pdfValue(const Vec3& point, const Vec3& dir, const Vec3& normal,
                    const Hittable* hitEmitter, const Light* hitLamp) const override;
 
+    bool resample(LightSample& out, const LightSample& picked, const Vec3& point,
+                  const Vec3& normal, const SampledWavelengths& lambdas,
+                  std::mt19937& gen) const override;
+
     bool empty() const override;
 
 private:
+    // Sample light `idx` (unified index) chosen with probability selPdf.
+    void sampleIndexed(LightSample& out, size_t idx, float selPdf, const Vec3& point,
+                       const Vec3& normal, const SampledWavelengths& lambdas,
+                       std::mt19937& gen) const;
     const LightList* lightList_;
 };
 

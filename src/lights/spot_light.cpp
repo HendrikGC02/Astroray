@@ -7,6 +7,7 @@
 #include <cmath>
 #include <algorithm>
 #include <random>
+#include <limits>
 
 // Reference: Cycles kernel/light/spot.h::spot_light_sample (Apache-2.0).
 
@@ -209,6 +210,73 @@ bool SpotLight::fillDeviceParams(DeviceLightParams& out) const {
         out.iesFrame = {iesFx_.x, iesFx_.y, iesFx_.z, iesFy_.x, iesFy_.y, iesFy_.z,
                         iesFz_.x, iesFz_.y, iesFz_.z};
     }
+    return true;
+}
+
+// #925: clip a ray segment to the spot cone (Cycles
+// volume_valid_direct_ray_segment / spot_light_valid_ray_segment, Apache-2.0).
+// Conservative: outer angle + 1e-3 and the apex pulled back by r/sin(θ) so the
+// cone contains the lamp sphere (a radius>0 spot emits from inside it).
+bool SpotLight::clipLitSegment(const Vec3& o, const Vec3& d, float& t0, float& t1) const {
+    const double th = double(outerAngle_) + 1e-3;
+    if (th >= 1.55) return true;
+    const double sinT = std::sin(th), cosT = std::cos(th), c2 = cosT * cosT;
+    const double ax = axis_.x, ay = axis_.y, az = axis_.z;
+    const double pull = double(radius_) / sinT;
+    const double cox = double(o.x) - (double(position_.x) - ax * pull);
+    const double coy = double(o.y) - (double(position_.y) - ay * pull);
+    const double coz = double(o.z) - (double(position_.z) - az * pull);
+    const double dx = d.x, dy = d.y, dz = d.z;
+    const double dv = dx * ax + dy * ay + dz * az;
+    const double cv = cox * ax + coy * ay + coz * az;
+    double lo = t0, hi = t1;
+    // Positive nappe: axial coordinate >= 0.
+    if (std::abs(dv) < 1e-12) {
+        if (cv < 0.0) return false;
+    } else if (dv > 0.0) {
+        lo = std::max(lo, -cv / dv);
+    } else {
+        hi = std::min(hi, -cv / dv);
+    }
+    if (!(lo <= hi)) return false;
+    // Inside the double cone: f(t) = (cv + t dv)^2 - cos^2 |co + t d|^2 >= 0.
+    const double qa = dv * dv - c2;
+    const double qb = 2.0 * (cv * dv - c2 * (cox * dx + coy * dy + coz * dz));
+    const double qc = cv * cv - c2 * (cox * cox + coy * coy + coz * coz);
+    const double inf = std::numeric_limits<double>::infinity();
+    double pieces[2][2];
+    int n = 0;
+    if (std::abs(qa) < 1e-12) {
+        if (std::abs(qb) < 1e-18) { if (qc < 0.0) return false; pieces[n][0] = -inf; pieces[n++][1] = inf; }
+        else if (qb > 0.0) { pieces[n][0] = -qc / qb; pieces[n++][1] = inf; }
+        else { pieces[n][0] = -inf; pieces[n++][1] = -qc / qb; }
+    } else {
+        const double disc = qb * qb - 4.0 * qa * qc;
+        if (disc < 0.0) {
+            if (qa < 0.0) return false;
+            pieces[n][0] = -inf; pieces[n++][1] = inf;
+        } else {
+            const double sq = std::sqrt(disc);
+            double r1 = (-qb - sq) / (2.0 * qa), r2 = (-qb + sq) / (2.0 * qa);
+            if (r1 > r2) std::swap(r1, r2);
+            if (qa > 0.0) {
+                pieces[n][0] = -inf; pieces[n++][1] = r1;
+                pieces[n][0] = r2;   pieces[n++][1] = inf;
+            } else {
+                pieces[n][0] = r1; pieces[n++][1] = r2;
+            }
+        }
+    }
+    // Within the half-space the cone is convex: take the hull of what survives.
+    double nlo = inf, nhi = -inf;
+    for (int k = 0; k < n; ++k) {
+        const double pad = 1e-4 * (1.0 + std::min(std::abs(pieces[k][0]), std::abs(pieces[k][1])));
+        const double a = std::max(lo, pieces[k][0] - pad), b = std::min(hi, pieces[k][1] + pad);
+        if (a <= b) { nlo = std::min(nlo, a); nhi = std::max(nhi, b); }
+    }
+    if (!(nlo <= nhi)) return false;
+    t0 = float(nlo);
+    t1 = float(nhi);
     return true;
 }
 

@@ -201,6 +201,12 @@ public:
     // skips it, leaving the conservative power-CDF fallback). Default: unsupported.
     virtual bool fillDeviceParams(DeviceLightParams& /*out*/) const { return false; }
 
+    // #925: clip the ray (o, unit d) interval [t0,t1] to the region this light
+    // can illuminate (conservative; Cycles volume_valid_direct_ray_segment).
+    // False = no point of the segment is lit. Default: no restriction.
+    virtual bool clipLitSegment(const Vec3& /*o*/, const Vec3& /*d*/, float& /*t0*/,
+                                float& /*t1*/) const { return true; }
+
     // Per-light flags (Cycles parity, pkg89 research §1.2).
     bool castShadow  = true;   // light casts shadows (occlusion test in NEE)
     bool useMIS      = true;   // include in MIS weight computation

@@ -304,4 +304,16 @@ bool AreaLight::withinSpread(const Vec3& direction) const {
     return angle <= spread_;
 }
 
+// #925: one-sided emitter => only the half-space in front of its plane is lit
+// (Cycles volume_valid_direct_ray_segment for area lights, Apache-2.0).
+bool AreaLight::clipLitSegment(const Vec3& o, const Vec3& d, float& t0, float& t1) const {
+    const float s0 = (o - position_).dot(normal_);
+    const float dn = d.dot(normal_);
+    if (std::abs(dn) < 1e-12f) return s0 > 0.0f;
+    const float tp = -s0 / dn;
+    if (dn > 0.0f) t0 = std::max(t0, tp);
+    else t1 = std::min(t1, tp);
+    return t0 < t1;
+}
+
 } // namespace astroray

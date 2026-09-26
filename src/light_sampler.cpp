@@ -65,6 +65,40 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
         if (idx >= totalLights) idx = totalLights - 1;
         selPdf = 1.0f / static_cast<float>(totalLights);
     }
+    sampleIndexed(out, idx, selPdf, point, normal, lambdas, gen);
+}
+
+// #925: re-sample the light `picked` chose, from `point` (Cycles
+// integrate_volume_direct_light re-samples the segment's light at the scatter
+// point). The power CDF is point-independent, so the NEE pdf matches pdfValue.
+bool PowerLightSampler::resample(LightSample& out, const LightSample& picked,
+                                 const Vec3& point, const Vec3& normal,
+                                 const SampledWavelengths& lambdas,
+                                 std::mt19937& gen) const {
+    const size_t total = lightList_->getLights().size() +
+                         lightList_->getDedicatedLights().size();
+    if (picked.pickIndex < 0 || size_t(picked.pickIndex) >= total || !(picked.pickPdf > 0.0f))
+        return false;
+    out.position = Vec3(0);
+    out.normal = Vec3(0);
+    out.emission = Vec3(0);
+    out.emission_spec = SampledSpectrum(0.0f);
+    out.pdf = 0;
+    out.distance = 0;
+    out.isDelta = false;
+    sampleIndexed(out, size_t(picked.pickIndex), picked.pickPdf, point, normal, lambdas, gen);
+    return true;
+}
+
+void PowerLightSampler::sampleIndexed(LightSample& out, size_t idx, float selPdf,
+                                      const Vec3& point, const Vec3& normal,
+                                      const SampledWavelengths& lambdas,
+                                      std::mt19937& gen) const {
+    const auto& lights = lightList_->getLights();
+    const auto& dedicatedLights = lightList_->getDedicatedLights();
+    const size_t numHittableLights = lights.size();
+    out.pickIndex = static_cast<int>(idx);
+    out.pickPdf = selPdf;
 
     // Dispatch: first numHittableLights indices are legacy Hittables, rest are dedicated.
     if (idx < numHittableLights) {

@@ -56,3 +56,10 @@ void LightList::setSampler(SamplerMode mode) {
 const astroray::LightTree* LightList::lightTree() const {
     return sampler_ ? sampler_->tree() : nullptr;
 }
+
+// #925: see LightList::resample (raytracer.h).
+bool LightList::resample(LightSample& out, const LightSample& picked, const Vec3& pt,
+                         const Vec3& normal, const astroray::SampledWavelengths& lambdas,
+                         std::mt19937& gen) const {
+    return sampler_ && sampler_->resample(out, picked, pt, normal, lambdas, gen);
+}

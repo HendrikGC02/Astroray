@@ -1487,8 +1487,10 @@ public:
         sampler_->sample(out, pt, normal, lambdas, gen);
     }
 
-    float pdfValue(const Vec3& pt, const Vec3& dir, const Vec3& normal) const {
-        return sampler_->pdfValue(pt, dir, normal);
+    // #912: pass the hit emitter on a BSDF/phase emission hit (see LightSampler).
+    float pdfValue(const Vec3& pt, const Vec3& dir, const Vec3& normal,
+                   const Hittable* hitEmitter = nullptr) const {
+        return sampler_->pdfValue(pt, dir, normal, hitEmitter);
     }
 
     // pkg181: intersect a BSDF-sampled ray against the dedicated (non-hittable)
@@ -3756,7 +3758,8 @@ public:
                     // same selection probabilities the NEE leg uses.
                     float lightPdfHit = lights.empty()
                         ? 0.0f
-                        : lights.pdfValue(ray.origin, ray.direction, misNormalPrev);
+                        : lights.pdfValue(ray.origin, ray.direction, misNormalPrev,
+                                          rec.hitObject);  // #912: this emitter only
                     float bp = bsdfPdfPrev, lp = lightPdfHit;
                     // Same power-heuristic form as the NEE leg above and the GPU
                     // gpu_mw_powerHeuristic, so w_L + w_B ≈ 1 per direction.

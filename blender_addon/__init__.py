@@ -6507,8 +6507,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     air = float(getattr(sky_node, 'air_density', 1.0))
                     aero = float(getattr(sky_node, 'aerosol_density', 1.0))
                     ozone = float(getattr(sky_node, 'ozone_density', 1.0))
+                    # #903: nishita_sky puts its sun at world azimuth = its
+                    # rotation arg; Cycles' sun sits at 90deg - sun_rotation
+                    # (#814, measured). Passing sun_rot raw put the glow 90deg
+                    # off the dedicated sun (and its shadows) at rotation 0.
                     sky_img = astroray.nishita_sky(
-                        nishita_mode, 1024, 512, sun_elev, sun_rot,
+                        nishita_mode, 1024, 512, sun_elev, 0.5 * math.pi - sun_rot,
                         altitude, air, aero, ozone)
                     fd, sky_temp_path = tempfile.mkstemp(prefix="astroray_sky_", suffix=".hdr")
                     os.close(fd)
@@ -6560,10 +6564,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
                             direction = [-(ce * math.sin(sun_rot)),
                                          -(ce * math.cos(sun_rot)),
                                          -se]
-                            renderer.add_sun_light_dedicated(
-                                direction, sun_size,
-                                {'mode': 'rgb', 'color': color},
-                                lum_s * strength, 0, 0)
+                            # #903: the sky's sun disc is part of the
+                            # background in Cycles, so camera rays see it.
+                            try:
+                                renderer.add_sun_light_dedicated(
+                                    direction, sun_size,
+                                    {'mode': 'rgb', 'color': color},
+                                    lum_s * strength, 0, 0, camera_visible=True)
+                            except TypeError:  # engine predates #903
+                                renderer.add_sun_light_dedicated(
+                                    direction, sun_size,
+                                    {'mode': 'rgb', 'color': color},
+                                    lum_s * strength, 0, 0)
                 else:
                     # #814 item 4: fallback for any UNRECOGNISED sky_type (the
                     # four known types SINGLE/MULTIPLE_SCATTERING/PREETHAM/
@@ -6589,10 +6601,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     # = sun_size) riding the same sky exposure.
                     sun = sky_bake.sun_disc_params_from_node(sky_node)
                     if sun is not None:
-                        renderer.add_sun_light_dedicated(
-                            sun['direction'], sun['angular_diameter'],
-                            {'mode': 'rgb', 'color': sun['color']},
-                            sun['intensity'] * strength, 0, 0)
+                        try:  # #903: camera-visible disc, as the Nishita path
+                            renderer.add_sun_light_dedicated(
+                                sun['direction'], sun['angular_diameter'],
+                                {'mode': 'rgb', 'color': sun['color']},
+                                sun['intensity'] * strength, 0, 0,
+                                camera_visible=True)
+                        except TypeError:  # engine predates #903
+                            renderer.add_sun_light_dedicated(
+                                sun['direction'], sun['angular_diameter'],
+                                {'mode': 'rgb', 'color': sun['color']},
+                                sun['intensity'] * strength, 0, 0)
             except Exception as e:  # noqa: BLE001 - bake must never break render
                 self._warn_shader_fallback('TEX_SKY', 'sky bake failed (%s)' % e)
                 sky_temp_path = None

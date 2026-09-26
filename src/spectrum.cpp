@@ -178,10 +178,16 @@ SampledWavelengths SampledWavelengths::sampleImportance(float u,
     return swl;
 }
 
+// pbrt-v4 SampledWavelengths::TerminateSecondary (Apache-2.0,
+// src/pbrt/util/spectrum.h): after the collapse only the hero lane
+// contributes, and toXYZ still averages over N lanes, so the hero pdf is
+// divided by N once. The guard keeps a second collapse from reapplying it.
 void SampledWavelengths::terminateSecondary() {
+    if (secondaryTerminated()) return;
     for (int i = 1; i < kSpectrumSamples; ++i) {
         pdfs_[i] = 0.0f;
     }
+    pdfs_[0] /= static_cast<float>(kSpectrumSamples);
 }
 
 bool SampledWavelengths::secondaryTerminated() const {

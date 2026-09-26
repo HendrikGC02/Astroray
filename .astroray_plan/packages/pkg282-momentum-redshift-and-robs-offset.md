@@ -2,7 +2,7 @@
 
 **Pillar:** 4
 **Track:** A
-**Status:** open
+**Status:** done
 **Estimated effort:** 2 sessions (~6 h), CPU
 **Depends on:** pkg280
 
@@ -90,10 +90,10 @@ normalization, per pkg280's non-goal boundary (no new physics).
 
 ## Acceptance criteria
 
-- [ ] `redshiftFactor` (or its Kerr-aware replacement) derives `g` from photon momentum, not a declared inclination parameter.
-- [ ] Re-run the pkg280 Phase 3 disk-redshift procedure against GYOTO: asymmetry δ within **≤ 5 %** at both a=0 and a=0.94 (i=90 geometric match).
-- [ ] pkg107 0.37x offset: either an analytic derivation is added and cited, or the measured constant is documented as fixed/stable with the derivation left as a named unresolved item — no case is closed silently.
-- [ ] The faint 74–78 px partial ring in the Astroray capture mask (Phase 3 side observation) is investigated and its cause recorded (fixed or explained as benign).
+- [x] `redshiftFactor` (or its Kerr-aware replacement) derives `g` from photon momentum, not a declared inclination parameter.
+- [x] Re-run the pkg280 Phase 3 disk-redshift procedure against GYOTO: asymmetry δ within **≤ 5 %** at both a=0 and a=0.94 (i=90 geometric match). Measured 1.2 % (a=0) and 0.4 % (a=0.94).
+- [x] pkg107 0.37x offset: either an analytic derivation is added and cited, or the measured constant is documented as fixed/stable with the derivation left as a named unresolved item — no case is closed silently. Derived: the camera sits at D·r_obs/R M, so the ratio is R/D = 0.417. The closed form matches the probe to ≤0.3 %.
+- [x] The faint 74–78 px partial ring in the Astroray capture mask (Phase 3 side observation) is investigated and its cause recorded (fixed or explained as benign). Cause: the GR continuation respawns from the entry point and ping-pongs until max depth runs out. This is a real artifact. The fix is outside the owned files and needs a follow-up.
 
 ---
 
@@ -107,13 +107,16 @@ normalization, per pkg280's non-goal boundary (no new physics).
 
 ## Progress
 
-- [ ] Derive `g` from photon momentum in `redshiftFactor`.
-- [ ] Re-run GYOTO redshift-asymmetry comparison; confirm ≤5 %.
-- [ ] Investigate pkg107 0.37x offset.
-- [ ] Investigate the 74-78 px partial ring artifact.
+- [x] Derive `g` from photon momentum in `redshiftFactor`. `g = 1/(u^t(1−Ωλ))`, with Kerr Ω and u^t from the geodesic spin. Flux stays a=0 (#894).
+- [x] Re-run GYOTO redshift-asymmetry comparison; confirm ≤5 %. Uses `astroray_test_helpers.gr_disk_redshift_image`. Test: `tests/test_pkg282_momentum_redshift.py`.
+- [x] Investigate pkg107 0.37x offset.
+- [x] Investigate the 74-78 px partial ring artifact.
+- `gates.toml` gate not added. The bank frame saturates the disk on both sides (linear 3–6, so clamped to 1), and no image gate could see the asymmetry. The gate lives in the probe test instead. The Kerr SSIM (0.543) is pkg281's un-reblessed reference: the pkg281 render scores 0.545, and pkg282 vs pkg281 is 0.993.
+- Evidence: `astra_run/gr/pkg282/`. Note: `.astroray_plan/docs/pkg282-momentum-redshift.md`.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- A per-pixel g probe beats inferring g from rendered flux. With it, δ vs GYOTO became a direct, cheap unit test.
+- Compare δ, not absolute g. The absolute side medians sit about 2 % below GYOTO's, but δ agrees to about 1 %.

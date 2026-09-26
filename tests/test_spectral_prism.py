@@ -25,7 +25,8 @@ from scenes.prism_reference import (  # noqa: E402
     HEIGHT,
     WIDTH,
     bright_region_mean_chroma_and_spread,
-    red_blue_centroid_separation,
+    edge_fringe,
+    render_edge_prism,
     render_prism,
     render_spectral_prism,
 )
@@ -56,23 +57,25 @@ def test_dispersive_prism_has_measurable_color_spread(test_results_dir):
     save_image(dispersive, os.path.join(test_results_dir, "pkg29_bk7_prism.png"))
 
     diff = np.abs(dispersive - flat)
-    flat_sep = red_blue_centroid_separation(flat)
-    dispersive_sep = red_blue_centroid_separation(dispersive)
-
-    print(f"\n  flat red/blue centroid separation: {flat_sep:.3f}px")
-    print(f"  BK7 red/blue centroid separation:  {dispersive_sep:.3f}px")
-    print(f"  max absolute RGB diff:             {float(diff.max()):.4f}")
+    print(f"\n  max absolute RGB diff:             {float(diff.max()):.4f}")
 
     assert np.isfinite(dispersive).all()
     assert float(diff.mean()) > 0.02
     assert float(diff.max()) > 0.25
-    # Dispersion must add clear red/blue spatial separation beyond the flat prism.
-    # Threshold relaxed 3.0 -> 2.0 px after the 2026-05-30 refraction fix (dielectric
-    # enter/exit now keys off rec.frontFace, correcting the exit Snell angle): the
-    # corrected refraction shifted the dispersion magnitude to ~2.77 px extra (still a
-    # clear red-left/blue-right split — verified visually). See
-    # .astroray_plan/docs/glass-dark-energy-bug-2026-05-30.md.
-    assert dispersive_sep - flat_sep > 2.0
+
+    # Dispersion signature: signed red/blue fringes at the edges of an
+    # achromatic backdrop. The former red_blue_centroid_separation gate on the
+    # coloured-panel scene (flat 3.3 px, BK7 8.7 px) was driven by the hero
+    # collapse rendering the prism ~4x too dark; with the pbrt-v4 pdf/N fix
+    # (terminateSecondary) BK7 reads 2.8 px vs flat 3.3 px there, since real BK7
+    # dispersion is ~1 px at this scale. Measured fixed build: flat 0.03,
+    # BK7 0.32-0.35 (seeds 5, 17).
+    flat_edge = edge_fringe(render_edge_prism(astroray, "dielectric", {"ior": 1.5}))
+    bk7_edge_img = render_edge_prism(astroray, "dielectric", {"sellmeier_preset": "bk7"})
+    save_image(bk7_edge_img, os.path.join(test_results_dir, "pkg29_bk7_prism_edges.png"))
+    bk7_edge = edge_fringe(bk7_edge_img)
+    print(f"  edge fringe flat {flat_edge:.4f}  BK7 {bk7_edge:.4f}")
+    assert bk7_edge > 0.15 and bk7_edge > 4.0 * flat_edge
 
 
 # --- pkg208: chromatic-light-source dispersion oracle ---------------------

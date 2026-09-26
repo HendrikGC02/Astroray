@@ -65,30 +65,34 @@ PHOTOPIC_LUMINOUS_EFFICACY = 683.0
 
 # Photometric-luminance (cd/m²) → radiance unit bridge (#799). Decomposed:
 #
-#   LUM_TO_RADIANCE = 1/1766 = (1/683) · (1/2.586)
+#   LUM_TO_RADIANCE = 1/1333 = (1/683) · (1/1.952)
 #     = [photopic K_m — PHYSICS] · [Cycles-Nishita exposure convention — UNITS]
 #
-# The 1/683 is physics (peak luminous efficacy). The residual 1/2.586
-# (equivalently 1/14.7 relative to the ~120 lm/W broadband daylight efficacy)
+# The 1/683 is physics (peak luminous efficacy). The residual 1/1.952
 # is Cycles' Nishita absolute-exposure normalisation, measured once against the
-# corpus scene (world_sky_sky: MULTIPLE_SCATTERING, turbidity 2.6, elevation
-# 28°). It is a legitimate UNITS CHOICE, not a physics fit: Cycles' Nishita
+# corpus scene (world_sky_sky: MULTIPLE_SCATTERING, elevation 28°), full-sky
+# mean with the camera facing the sun (#905). The earlier 1/1766 was fitted
+# with the bake's glow at the wrong azimuth (sun_rotation, not 90° - rotation)
+# and the camera facing away from the true sun. It is a UNITS CHOICE, not a
+# physics fit: Cycles' Nishita
 # absolute scale lives in GPL code (svm/sky.h, not read) and is undocumented as
 # an SI value.
 #
 # This residual is model- and condition-dependent, so NO single constant is
 # universal. Measured drift (benchmarks/reference_corpus/sky_ab_bands.py,
-# PKG256_AB_PT, Blender 5.2 Cycles): calibrated at Nishita/28° → ratio 1.005,
-# but Cycles' legacy PREETHAM sky_type lands at ratio 7.7–15 across
+# PKG256_AB_PT, Blender 5.2 Cycles, #905 sun-facing camera): calibrated at
+# Nishita/28° full sky → ratio 1.0; bands differ by model shape (upper 1.40,
+# horizon 0.60 at 28°; horizon 0.36 at 10°); Cycles' legacy PREETHAM sky_type
+# lands at ratio 8–25 across
 # (turbidity, elevation). Absolute cross-model/condition parity therefore needs
 # an engine-side spectral sky lookup (issue #799 Phase-2 "real fix"), which is a
 # separate architecture pass. Per the owner's physics-first rule (2026-09-08),
 # the bake's absolute radiance Y/K is the physical quantity and the Cycles A/B
 # is a cross-check band, not the gate, away from the calibrated Nishita point.
-# Measured residual = 683/1766 = 1/2.586 (units choice, §2). Written this way so
-# LUM_TO_RADIANCE is EXACTLY 1/1766 (corpus Nishita gate stays byte-identical).
-CYCLES_NISHITA_EXPOSURE = PHOTOPIC_LUMINOUS_EFFICACY / 1766.0
-LUM_TO_RADIANCE = CYCLES_NISHITA_EXPOSURE / PHOTOPIC_LUMINOUS_EFFICACY  # == 1/1766
+# Measured residual = 683/1333 = 1/1.952 (units choice, §2): 1766 x 0.755, the
+# full-sky bake/Cycles ratio measured with the old constant (#905).
+CYCLES_NISHITA_EXPOSURE = PHOTOPIC_LUMINOUS_EFFICACY / 1333.0
+LUM_TO_RADIANCE = CYCLES_NISHITA_EXPOSURE / PHOTOPIC_LUMINOUS_EFFICACY  # == 1/1333
 
 # CIE xyY -> linear sRGB (Rec.709 / D65).
 _XYZ_TO_RGB = np.array(
@@ -101,9 +105,10 @@ _XYZ_TO_RGB = np.array(
 
 def _sun_direction(elevation, rotation):
     """Blender Z-up world-frame sun direction from sun_elevation (rad, above
-    horizon) and sun_rotation (rad, azimuth about +Z)."""
+    horizon) and sun_rotation (rad). #905: Cycles' sun sits at world azimuth
+    90deg - sun_rotation (#814, measured; same as sun_disc_params)."""
     ce, se = math.cos(elevation), math.sin(elevation)
-    return np.array([ce * math.cos(rotation), ce * math.sin(rotation), se],
+    return np.array([ce * math.sin(rotation), ce * math.cos(rotation), se],
                     dtype=np.float64)
 
 

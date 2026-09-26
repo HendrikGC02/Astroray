@@ -205,11 +205,13 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
     // feeds the SAME pkg120 two-sided-MIS term the emissive-Hittable path uses
     // (wB = 1 after a specular/delta bounce). Only Area/Distant are hittable
     // (Light::intersect); see pkg181 research note.
-    if (bounce > 0 && !lights.getDedicatedLights().empty()) {
+    // #903: a cameraVisible lamp (sky sun disc) is also hit at bounce 0.
+    if (!lights.getDedicatedLights().empty() &&
+        (bounce > 0 || lights.hasCameraVisibleDedicated())) {
         float surfaceT = hit ? rec.t : std::numeric_limits<float>::max();
         astroray::Light::Intersection lh;
         if (lights.intersectDedicated(ps.ray_origin, ps.ray_direction, 0.001f,
-                                      surfaceT, ps.lambdas, lh)) {
+                                      surfaceT, ps.lambdas, lh, bounce == 0)) {
             if (!lh.emission.isZero()) {
                 if (ps.wasSpecular) {
                     ps.color += ps.throughput * lh.emission;

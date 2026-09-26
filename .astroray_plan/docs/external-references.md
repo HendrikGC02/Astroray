@@ -124,6 +124,7 @@ own because a dependency for 40 lines of code is ridiculous.
 
 - Novikov & Thorne 1973 — thin accretion disk (done).
 - GR thin-disk invariant transfer (pkg280): Rybicki & Lightman 1979 §4.9, Cunningham 1975 ApJ 202, 788, and BSD-3-Clause ipole method reference — [research note](gr-transfer-audit-2026-09.md).
+- Kerr null-geodesic Hamiltonian RHS (pkg281): Carter 1968 Phys. Rev. 174, 1559; Chandrasekhar 1983 ch. 7; BPT 1972 ZAMO frame — [research note §6](kerr-metric-research.md).
 - Narayan & Yi 1994 — ADAF.
 - Sądowski 2009 — slim disk.
 - Cárdenas-Avendaño et al. 2022 — photon ring analytic.
@@ -231,3 +232,4 @@ When in doubt, ask before adding a dependency.
 
 - Cloud-volume material (pkg273, horizon): Lorenz-Mie tables (miepython MIT / BHMIE / MIEV0), Hansen-Travis size distributions, Hu-Stamnes 1993 r_eff parameterisation, water/ice optical constants (Hale-Querry, Segelstein, Warren-Brandt; refractiveindex.info CC0), Yang 2013 / Baum 2014 ice databases (CC-BY-4.0), tabulated Mie phase sampling, cloud multiple-scattering survey: [cloud-volume-material-research-2026-09-15.md](cloud-volume-material-research-2026-09-15.md).
 - Cycles 5.2 IES pipeline (Apache-2.0): util/ies.cpp IESFile::parse/process_type_c, kernel/util/ies.h kernel_ies_interp, kernel/svm/ies.h angle convention, kernel/light/spot.h spot_light_attenuation, scene/light.cpp spot_smooth: [pkg276 research](pkg276-ies-spot-research.md).
+- Blender sky MS model (MIT) + Cycles svm/sky.h sun-disc-in-background (Apache-2.0), glow azimuth + camera-visible disc: [#903 research](903-sky-sun-disc-glow-research.md).

@@ -1096,10 +1096,12 @@ public:
 
     void addSunLightDedicated(const std::vector<float>& direction, float angularDiameter,
                               py::dict emissionDict, float intensity,
-                              int objectPassIndex = 0, int materialPassIndex = 0) {
+                              int objectPassIndex = 0, int materialPassIndex = 0,
+                              bool cameraVisible = false) {
         Vec3 dir(direction[0], direction[1], direction[2]);
         auto emission = parseEmissionSpectrum(emissionDict);
         auto light = std::make_unique<astroray::DistantLight>(dir, angularDiameter, emission, intensity);
+        light->cameraVisible = cameraVisible;  // #903: sky-texture sun disc
         renderer.addDedicatedLight(std::move(light));
     }
 
@@ -1563,6 +1565,9 @@ public:
         // baselines. Smaller values produce a larger visible shadow.
         double r_obs_M = params.contains("r_obs_M")
             ? params["r_obs_M"].cast<double>() : 100.0;
+        // pkg281: Kerr a/M; 0 (default) keeps the Schwarzschild metric.
+        double spin = params.contains("spin")
+            ? params["spin"].cast<double>() : 0.0;
 
         // pkg43: accretion model selector. Default to NOVIKOV_THORNE for backward compatibility.
         std::string accretion_model = params.contains("accretion_model")
@@ -1571,7 +1576,7 @@ public:
         auto bh = std::make_shared<BlackHole>(
             Vec3(position[0], position[1], position[2]),
             double(mass_solar), double(influence_radius),
-            disk_outer, mdot, incl, r_obs_M);
+            disk_outer, mdot, incl, r_obs_M, spin);
 
         // pkg43: Add slim disk emission if selected
         if (accretion_model == "SLIM_DISK") {
@@ -3760,7 +3765,9 @@ PYBIND11_MODULE(astroray, m) {
         .def("add_sun_light_dedicated", &PyRenderer::addSunLightDedicated,
              "direction"_a, "angular_diameter"_a, "emission"_a, "intensity"_a,
              "object_pass_index"_a = 0, "material_pass_index"_a = 0,
-             "pkg89 Phase B: dedicated DistantLight with EmissionSpectrum")
+             "camera_visible"_a = false,
+             "pkg89 Phase B: dedicated DistantLight with EmissionSpectrum. #903: "
+             "camera_visible = camera rays see the disc (sky-texture sun)")
         .def("add_area_light_dedicated", &PyRenderer::addAreaLightDedicated,
              "center"_a, "axis_u"_a, "axis_v"_a, "size_x"_a, "size_y"_a,
              "shape"_a, "emission"_a, "intensity"_a,

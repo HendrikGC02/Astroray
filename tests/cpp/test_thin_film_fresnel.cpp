@@ -95,6 +95,30 @@ static double exactAiryR(double thickness, double filmIor, double substrateN, do
     return 0.5 * R;
 }
 
+// #902: exact single-film Airy over a CONDUCTOR substrate ñ = n + ik (e^{-iωt}
+// convention, same as Cycles' fresnel_conductor_polarized). q = ñ·cosθ3 via
+// complex Snell (principal sqrt, Im q ≥ 0 = decaying into the metal).
+static double exactAiryConductorR(double thickness, double filmIor, double n, double k,
+                                  double cosI, double lambda) {
+    using C = std::complex<double>;
+    const double n1 = filmIor;
+    const double sin1 = std::sqrt(std::max(0.0, 1.0 - cosI * cosI));
+    const double sin2 = sin1 / n1;
+    const double cos2 = std::sqrt(1.0 - sin2 * sin2);
+    const C m(n, k);
+    const C q = std::sqrt(m * m - n1 * n1 * sin2 * sin2);
+    const double beta = 2.0 * M_PI * n1 * thickness * cos2 / lambda;
+    const C ph(std::cos(2.0 * beta), std::sin(2.0 * beta));
+    double R = 0.0;
+    for (int pol = 0; pol < 2; ++pol) {
+        const double r12 = pol == 0 ? amplRs(1.0, n1, cosI, cos2) : amplRp(1.0, n1, cosI, cos2);
+        const C r23 = pol == 0 ? (n1 * cos2 - q) / (n1 * cos2 + q)
+                               : (m * m * cos2 - n1 * q) / (m * m * cos2 + n1 * q);
+        R += std::norm((r12 + r23 * ph) / (1.0 + r12 * r23 * ph));
+    }
+    return 0.5 * R;
+}
+
 static float bareDielectric(float cosI, float eta) {
     // average of the polarized squared amplitudes (unpolarized F).
     tf::TFDielectric d = tf::fresnelDielectricPolarized(cosI, eta);
@@ -180,6 +204,29 @@ int main() {
     char tmsg[96];
     std::snprintf(tmsg, sizeof(tmsg), "top-interface TIR: R=%.5f (expect 1.0)", tir);
     check(approx(tir, 1.0f, 1e-5f), tmsg);
+
+    // ---- F. conductor substrate: complex phase sign vs exact Airy (#902) ----
+    // Dielectric phasors are real (±1), so A-E cannot see the sign of the
+    // sensitivity phasor; a conductor's complex φ23 can. (n,k) span the showcase
+    // metal (Gulbrandsen inversion of f0 0.55 / tint 0.70 -> 3.32+3.29i) and gold.
+    std::printf("F. conductor substrate (complex phase) == exact closed-form Airy:\n");
+    struct CCfg { float d, nf, n, k, cos, lam; };
+    const CCfg ccfgs[] = {
+        {160.f, 2.4f, 3.317f, 3.294f, 1.0f, 550.f}, {230.f, 2.4f, 3.317f, 3.294f, 1.0f, 450.f},
+        {300.f, 2.4f, 3.317f, 3.294f, 1.0f, 550.f}, {380.f, 2.4f, 3.317f, 3.294f, 0.8f, 650.f},
+        {250.f, 1.5f, 0.18f, 3.0f, 0.9f, 600.f},    {400.f, 1.33f, 1.2f, 2.5f, 0.6f, 500.f},
+    };
+    for (const CCfg& c : ccfgs) {
+        auto S = [&c](float argOPD) { return tf::sensitivitySpectral(argOPD, c.lam); };
+        float got = tf::fresnelIridescenceChannel<true>(1.0f, c.d, c.nf, c.n, c.k, -1.0f, c.cos,
+                                                        nullptr, S);
+        double ref = exactAiryConductorR(c.d, c.nf, c.n, c.k, c.cos, c.lam);
+        char cmsg[192];
+        std::snprintf(cmsg, sizeof(cmsg),
+                      "d=%.0f nf=%.2f n=%.2f+%.2fi cos=%.2f λ=%.0f: util=%.5f exact=%.5f",
+                      c.d, c.nf, c.n, c.k, c.cos, c.lam, got, ref);
+        check(approx(got, (float)ref, 5e-3f), cmsg);
+    }
 
     std::printf(g_fail == 0 ? "\nALL PASS\n" : "\n%d FAILURES\n", g_fail);
     return g_fail == 0 ? 0 : 1;

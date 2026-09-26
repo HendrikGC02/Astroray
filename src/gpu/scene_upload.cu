@@ -1264,6 +1264,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             gd.cumulativePower = powerDist[k];
             astroray::DeviceLightParams p;
             gd.emissionProfileIndex = -1;  // pkg218 default: RGB fallback
+            gd.cameraVisible = (L && L->cameraVisible) ? 1 : 0;  // #903
             if (L && L->fillDeviceParams(p)) {
                 gd.kind        = p.kind;
                 gd.position    = GVec3(p.position.x, p.position.y, p.position.z);

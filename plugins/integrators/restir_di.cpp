@@ -169,7 +169,9 @@ public:
                     !std::isfinite(exitDir.z) || !std::isfinite(len2) || len2 < 1e-10f)
                     break;
 
-                Ray next(rec.point, exitDir, pathRay.time, pathRay.screenU, pathRay.screenV);
+                // #896: continue from the geodesic's exit point.
+                const Vec3 exitOrigin = grResult.hasExitPoint ? grResult.exitPoint : rec.point;
+                Ray next(exitOrigin, exitDir, pathRay.time, pathRay.screenU, pathRay.screenV);
                 next.hasCameraFrame = pathRay.hasCameraFrame;
                 next.cameraOrigin   = pathRay.cameraOrigin;
                 next.cameraU        = pathRay.cameraU;

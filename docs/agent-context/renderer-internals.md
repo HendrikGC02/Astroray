@@ -96,7 +96,7 @@ important structural fact for any agent touching light transport.
   `kSpectrumSamples = 4` wavelengths per ray, stratified over
   `[kLambdaMin=360nm, kLambdaMax=830nm]` via `SampledWavelengths::sampleUniform()`.
 - `terminateSecondary()` collapses to the hero wavelength (zeroes the other
-  3 PDFs) when a bounce is wavelength-dependent (dispersion, volumetrics)
+  3 PDFs and divides the hero PDF by 4, once, as pbrt-v4 does) when a bounce is wavelength-dependent (dispersion, volumetrics)
   and can't be sampled coherently across all 4.
 - `astroray::SampledSpectrum` is the corresponding 4-wide radiance value.
 - GR redshift is applied directly to `SampledWavelengths` (redshift factor

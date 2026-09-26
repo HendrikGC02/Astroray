@@ -79,11 +79,19 @@ def _collinear_mean(gpu, nee, seeds=tuple(range(1, 17)), spp=512):
                    axis=0)
 
 
+# Cycles (Blender 5.2, CPU, 64 px, 1024 spp) frame mean of the same scene
+# (z-up twin, Diffuse 0.8 floor, area lamps 20 W / 60 W); evidence
+# astra_run/ad1/pkg288a_cycles.npy. Pre-pkg288 NEE off was 0.92 of it in B.
+_CYCLES_A = np.array([0.03439117, 0.02874734, 0.0651959])
+
+
 @pytest.mark.cpu
 def test_pkg288a_collinear_lamps_cpu_nee_on_matches_off():
     on = _collinear_mean(False, True)
     off = _collinear_mean(False, False)
     np.testing.assert_allclose(on, off, rtol=0.02, err_msg=f"on={on} off={off}")
+    for m in (on, off):
+        np.testing.assert_allclose(m, _CYCLES_A, rtol=0.03, err_msg=f"vs Cycles: {m}")
 
 
 @pytest.mark.gpu

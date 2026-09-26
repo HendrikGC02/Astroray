@@ -95,7 +95,7 @@ _XFAIL = pytest.mark.xfail(
     strict=True,
     reason="#913: medium direct light is sampled only at analog scatter vertices "
            "(~100-500x Cycles' variance); needs per-segment equiangular+distance "
-           "NEE (Kulla & Fajardo 2012, Cycles shade_volume.h). Fix PR un-xfails.")
+           "NEE (Kulla & Fajardo 2012, Cycles shade_volume.h). Tracked in #925; fix PR un-xfails.")
 
 
 @pytest.mark.cpu

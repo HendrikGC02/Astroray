@@ -27,7 +27,21 @@ def _captured_column(spin, dx):
 
 
 @pytest.mark.parametrize("spin", [0.0, 0.94])
-@pytest.mark.parametrize("dx", [1e-5, 3e-5, 1e-4, 3e-4, 1e-3])
+def test_ray_starting_exactly_on_axis_escapes(spin):
+    """Chief ray enters the sphere at its pole (theta=0 exactly, tangent to the
+    radius-5 sphere) and passes r=20M from the hole, so it must escape. KS entry
+    used to divide by det J ~ sin(theta) = 0 -> NaN -> 'captured'."""
+    n = 21
+    raw = helpers.gr_disk_redshift_image(
+        [0.0, 5.0, 12.0], [0.0, 5.0, 0.0], 20.0, n, n, [0.0, 0.0, 0.0],
+        5.0, 18.0, 20.0, spin)
+    a = np.asarray(raw, dtype=np.float64).reshape(n, n, 2)
+    assert not np.isnan(a).any()
+    assert a[n // 2, n // 2, 1] >= 0, f"centre ray captured: {a[n // 2, n // 2]}"
+
+
+@pytest.mark.parametrize("spin", [0.0, 0.94])
+@pytest.mark.parametrize("dx",[1e-5, 3e-5, 1e-4, 3e-4, 1e-3])
 def test_axis_grazing_rays_are_not_captured(spin, dx):
     ref = _captured_column(spin, 0.0)
     col = _captured_column(spin, dx)

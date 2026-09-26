@@ -158,10 +158,17 @@ inline void blToKsJacobian(double M, double a, double r, double th, double ph,
     J[2][0] = -X[1];                  J[2][1] = X[0];                   J[2][2] = 0.0;
 }
 
-// Covectors transform as p_BL = J^T p_KS (plus the t_KS(r) term).
+// Covectors: p_BL,k = sum_i J[k][i] p_KS,i (plus the t_KS(r) term in p_r).
+// det J ~ r sin(theta) vanishes on the axis, where the phi row is 0 and
+// p_phi = L_z = 0; J is then taken at |sin(theta)| = 1e-9, which zeroes the
+// undetermined azimuthal component (error O(1e-9)). Position uses true theta.
 inline GeodesicState fromBL(double M, double a, const GeodesicState& s) {
-    double X[3], J[3][3];
+    double X[3], J[3][3], Xj[3];
     blToKsJacobian(M, a, s.r, s.theta, s.phi, X, J);
+    if (std::abs(std::sin(s.theta)) < 1e-9) {
+        const double th = std::cos(s.theta) > 0.0 ? 1e-9 : GR_PI - 1e-9;
+        blToKsJacobian(M, a, s.r, th, s.phi, Xj, J);
+    }
     const double delta = s.r*s.r - 2.0*M*s.r + a*a;
     const double b[3] = {s.p_r - s.p_t * 2.0*M*s.r / delta, s.p_theta, s.p_phi};
     // Solve J p = b (Cramer).
@@ -286,6 +293,13 @@ inline ASTRORAY_NOINLINE IntegrationResult integrateGeodesic(
     double h = h_init;
     double prev_theta = s.theta;
     for (int step = 0; step < maxSteps; ++step) {
+        // Enter KS near the axis, including an initial state on it.
+        if (!in_ks && ks_ok && std::abs(std::sin(s.theta)) < grks::kEnter) {
+            h = std::min(h, grks::kMaxStepFrac * s.r);
+            s = grks::fromBL(ks_M, ks_a, s);
+            in_ks = true;
+        }
+
         // --- DP45 stages ---
         GeodesicState k[7];
         k[0] = rhs(s);
@@ -424,12 +438,6 @@ inline ASTRORAY_NOINLINE IntegrationResult integrateGeodesic(
             GeodesicState ds = metric.geodesic_rhs(s);
             result.exitDirection = blToCartesianDir(s, ds);
             return result;
-        }
-
-        if (ks_ok && std::abs(std::sin(s.theta)) < grks::kEnter) {
-            h = std::min(h, grks::kMaxStepFrac * s.r);
-            s = grks::fromBL(ks_M, ks_a, s);
-            in_ks = true;
         }
     }
 

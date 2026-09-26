@@ -2,7 +2,7 @@
 
 **Pillar:** 4
 **Track:** A
-**Status:** done (2026-09-25, branch feat/pkg283-volumetric-invariant — 59/59 invariance tests; D³/g³ within 1 %; jet linear +3.6× (old extra D removed); ADAF unchanged)
+**Status:** done — 2026-09-25: 59/59 invariance tests; D³/g³ within 1 %; jet linear +3.6× (old extra D removed); ADAF unchanged
 **Estimated effort:** 2 sessions (~6 h), CPU
 **Depends on:** pkg280
 

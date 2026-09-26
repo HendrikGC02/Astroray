@@ -91,13 +91,11 @@ def _mean(gpu, medium, nee):
 
 
 def _signal(medium, m):
-    # "lamps": a path ends on the first lamp it hits, but NEE shadow rays pass
-    # through lamps, so white reaches the vertex only via NEE and the grey
-    # part differs NEE on/off whatever the MIS (Cycles instead continues past a
-    # hit lamp, integrator_shade_light; separate issue). White is achromatic, so
-    # B - R is the blue lamp alone: the component the MIS weight sets.
-    # Otherwise gate G and B (red is a small off-view emitter, noisiest).
-    return np.array([m[2] - m[0]]) if medium == "lamps" else m[1:]
+    # "lamps": since pkg288 a path continues past a hit lamp (Cycles
+    # integrator_shade_light), so white behind blue is reachable by BSDF rays
+    # too and every channel is gated. Otherwise gate G and B (red is a small
+    # off-view emitter, noisiest).
+    return m if medium == "lamps" else m[1:]
 
 
 @pytest.mark.cpu

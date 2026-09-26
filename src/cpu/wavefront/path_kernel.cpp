@@ -208,11 +208,17 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
     // #903: a cameraVisible lamp (sky sun disc) is also hit at bounce 0.
     if (!lights.getDedicatedLights().empty() &&
         (bounce > 0 || lights.hasCameraVisibleDedicated())) {
+        // pkg288: every lamp on the segment adds, then the ray continues to
+        // the surface (Cycles shade_light; production pathTraceSpectral twin).
         float surfaceT = hit ? rec.t : std::numeric_limits<float>::max();
+        float lampTMin = 0.001f;
         astroray::Light::Intersection lh;
         const astroray::Light* hitLamp = nullptr;
-        if (lights.intersectDedicated(ps.ray_origin, ps.ray_direction, 0.001f,
-                                      surfaceT, ps.lambdas, lh, bounce == 0, &hitLamp)) {
+        for (int k = 0; k < 4 &&
+                        lights.intersectDedicated(ps.ray_origin, ps.ray_direction, lampTMin,
+                                                  surfaceT, ps.lambdas, lh, bounce == 0, &hitLamp);
+             ++k) {
+            lampTMin = lh.t;
             if (!lh.emission.isZero()) {
                 if (ps.wasSpecular) {
                     ps.color += ps.throughput * lh.emission;
@@ -224,8 +230,6 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
                     ps.color += ps.throughput * lh.emission * wB;
                 }
             }
-            ps.alive = false;
-            return false;
         }
     }
 

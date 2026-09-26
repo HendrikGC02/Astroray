@@ -601,6 +601,91 @@ __device__ int intersectPathSlotT(
         }
     }
 
+    // pkg181: dedicated-light visibility to BSDF rays (Cycles lights_intersect
+    // parity) — device twin of production pathTraceSpectral. Lamps are invisible
+    // to camera rays (bounce == 0). Placed in the INTERSECT stage (this kernel),
+    // NOT the REG:254-saturated shade stage (memory
+    // wavefront-shade-kernels-register-saturated). Emission + MIS mirror the
+    // emissive-Hittable block below (wB = 1 after specular / NEE off; the power
+    // heuristic otherwise; naive mode = enableNEE false takes specular only).
+    // #903: bounce 0 tests only cameraVisible lamps (sky-texture sun disc).
+    // pkg288 (#915): a lamp hit is not a vertex — Cycles integrator_shade_light
+    // (kernel/integrator/shade_light.h, Apache-2.0) adds it and re-intersects
+    // from t_lamp. Every lamp on [0.001, surfaceT) adds in t order (strict tMin
+    // skips the lamp just added, cap 4 = CPU kMaxLampPassthrough), then the path
+    // continues to the surface / env. Runs BEFORE the fog free flight, which no
+    // longer stops at lamps; each lamp's emission carries Tr(lampT) explicitly.
+    // The bounce-0 sun disc no longer counts miss coverage here: the continued
+    // ray misses below and counts it once.
+    if (numDed > 0) {
+        const float surfaceT = hit ? rec.t : 1e30f;
+        float lampTMin = 0.001f;
+        bool lampAdded = false;
+        for (int k = 0; k < 4; ++k) {
+            float lampT, lampScale;
+            int lampIdx = gpu_dedicated_intersect_closest(
+                dedLights, numDed, ray.origin, ray.direction, lampTMin, surfaceT,
+                &lampT, &lampScale, bounce == 0);
+            if (lampIdx < 0) break;
+            lampTMin = lampT;
+            // pkg218: baked device SPD for non-RGB emission modes (gpu_nee_resolve twin).
+            int profIdx = dedLights[lampIdx].emissionProfileIndex;
+            GSampledSpectrum Le;
+            if (profIdx >= 0) {
+                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                    Le.v[i] = gpu_emission_profile(profIdx, lambdas.lambda[i]) * lampScale;
+            } else {
+                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                    Le.v[i] = gpu_rgbSpectrumAt(dedLights[lampIdx].emissionRGB,
+                                                lambdas.lambda[i], GSPEC_RGB_ILLUMINANT)
+                              * lampScale;
+            }
+            // #909: receiver -> glass (exited) -> the photon map's own light is
+            // already in the bounce-0 gather; drop it here (no double count).
+            if (bounce > 0 && lampIdx == c_wfPhotonSplit.aimedLamp &&
+                c_wfPhotonSplit.chain != nullptr && c_wfPhotonSplit.chain[idx] == 3)
+                Le = GSampledSpectrum(0.f);
+            if (!(Le.maxValue() > 0.f)) continue;
+            // pkg199 role 3: attenuate over the origin→lamp segment (lampT).
+            if (c_worldVolume.hasVolume)
+                Le *= gpu_worldTransmittanceMW(lampT, lambdas);
+            GSampledSpectrum contrib(0.f);
+            if (bounce == 0 || wasSpecular || c_wfLightNeeOff) {  // #877
+                contrib = throughput * Le;                 // w_B = 1
+            } else if (enableNEE) {
+                GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
+                                    state.path_mis_nz[idx]);
+                float lp = gpu_dedicated_reconstruct_pdf(
+                    dedLights, numDed, totalLightPower, ray.origin, ray.direction,
+                    lightTree, numLights, misNormalPrev, lampIdx);  // #912
+                float wB = gpu_mw_powerHeuristic(state.path_bsdf_pdf[idx], lp);
+                contrib = throughput * Le * wB;
+            }
+            // naive mode (enableNEE == false, non-specular): no NEE leg to
+            // complement, so nothing is added — mirrors the emissive block.
+            GSampledSpectrum lampContrib = gpu_clampContribMW(
+                contrib, lambdas, bounce - 1,   // #860: emission hit = Cycles bounce-1
+                clampDirect, clampIndirect, useLuminanceOutput);
+            color += lampContrib;
+            lampAdded = true;
+            // pkg198 Stage 2: continuation-ray lamp -> firstCat's INDIRECT pass
+            // (CPU lampPass = (firstCat<0?0:firstCat)*3+1).
+            if constexpr (HasLightPassAOVs) {
+                unsigned char cat = c_wfLpBinding.firstCat[idx];
+                // #903: camera-visible sky disc -> PASS_ENVIRONMENT (CPU twin).
+                int lampPass = (bounce == 0) ? G_LP_PASS_ENVIRONMENT
+                             : (cat == G_LP_CAT_UNSET ? 0 : (int)cat) * 3 + 1;
+                lpAccumulate(idx, lampPass, lampContrib);
+            }
+        }
+        if (lampAdded) {
+            state.color_0[idx] = color.v[0];
+            state.color_1[idx] = color.v[1];
+            state.color_2[idx] = color.v[2];
+            state.color_3[idx] = color.v[3];
+        }
+    }
+
     const bool mediumScatters = HasWorldScatter &&
                                 c_worldVolume.hasVolume &&
                                 c_worldVolume.density > 0.f &&
@@ -608,14 +693,7 @@ __device__ int intersectPathSlotT(
                                 !volTerm;   // pkg271: terminate-after => absorb only
     if constexpr (HasWorldScatter) if (mediumScatters) {
         float surfaceT = hit ? rec.t : 1e30f;
-        float termT = surfaceT;
-        if (bounce > 0 && numDed > 0) {
-            float lampT, lampScale;
-            int lampIdx = gpu_dedicated_intersect_closest(
-                dedLights, numDed, ray.origin, ray.direction, 0.001f, surfaceT,
-                &lampT, &lampScale);
-            if (lampIdx >= 0) termT = lampT;
-        }
+        float termT = surfaceT;   // pkg288: lamps are transparent
         // Object-free counter-based free-flight draws (Option 3): no WavefrontRNG
         // object held, no rng_dimension round-trip — keeps this kernel register-
         // light. Salt varies per bounce (·2) and per draw (+0/+1), disjoint from the
@@ -658,10 +736,9 @@ __device__ int intersectPathSlotT(
             if (c_wfPhotonSplit.chain != nullptr) c_wfPhotonSplit.chain[idx] = 0;  // #909
             return -2;  // scattered → the wrapper enqueues to the volume queue
         } else {
-            // Reached the terminating event (surface / lamp / env): throughput *=
+            // Reached the terminating event (surface / env): throughput *=
             // Tr(termT)/pdf, pdf = avg(Tr). Replaces the Stage-1 role-1 multiply
-            // (gated off below); the role-3 lamp Tr is likewise gated off since
-            // this Tr already covers the camera→lamp segment.
+            // (gated off below).
             float capT = fminf(termT, 1e18f);
             GSampledSpectrum Tr;
             for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
@@ -676,96 +753,7 @@ __device__ int intersectPathSlotT(
             state.throughput_1[idx] = throughput.v[1];
             state.throughput_2[idx] = throughput.v[2];
             state.throughput_3[idx] = throughput.v[3];
-            // fall through to lamp-MIS / env / role-1(gated) / emission.
-        }
-    }
-
-    // pkg181: dedicated-light visibility to BSDF rays (Cycles lights_intersect
-    // parity) — device twin of production pathTraceSpectral. Lamps are invisible
-    // to camera rays (bounce == 0); a lamp closer than the surface terminates the
-    // path. Placed in the INTERSECT stage (this kernel), NOT the REG:254-saturated
-    // shade stage (memory wavefront-shade-kernels-register-saturated). The
-    // snapshot capture moment is unaffected: this kernel writes no PostIntersect
-    // snapshot; the lamp hit terminates before the hit-record is parked. Emission
-    // + MIS mirror the emissive-Hittable block below (wB = 1 after specular; the
-    // power heuristic otherwise; naive mode = enableNEE false takes specular only).
-    // #903: bounce 0 tests only cameraVisible lamps (sky-texture sun disc).
-    if (numDed > 0) {
-        float surfaceT = hit ? rec.t : 1e30f;
-        float lampT, lampScale;
-        int lampIdx = gpu_dedicated_intersect_closest(
-            dedLights, numDed, ray.origin, ray.direction, 0.001f, surfaceT,
-            &lampT, &lampScale, bounce == 0);
-        if (lampIdx >= 0) {
-            // #903: the camera-visible disc is background for transparent film.
-            if (bounce == 0 && c_wfMissCoverage != nullptr)
-                atomicAdd(&c_wfMissCoverage[state.pixel_index[idx]], 1.0f);
-            // pkg218: a directly-visible dedicated light (area/distant disc hit
-            // by a BSDF-continuation ray) reads the baked device SPD for non-RGB
-            // emission modes, same substitution as the NEE paths above/below
-            // (gpu_nee.cuh gpu_nee_resolve, stageShadowKernel). This is the
-            // INTERSECT stage per the pkg181 comment above (not the REG:254
-            // shade kernel), so the extra branch is not register-critical.
-            int profIdx = dedLights[lampIdx].emissionProfileIndex;
-            GSampledSpectrum Le;
-            if (profIdx >= 0) {
-                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
-                    Le.v[i] = gpu_emission_profile(profIdx, lambdas.lambda[i]) * lampScale;
-            } else {
-                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
-                    Le.v[i] = gpu_rgbSpectrumAt(dedLights[lampIdx].emissionRGB,
-                                                lambdas.lambda[i], GSPEC_RGB_ILLUMINANT)
-                              * lampScale;
-            }
-            // #909: receiver -> glass (exited) -> the photon map's own light is
-            // already in the bounce-0 gather; drop it here (no double count).
-            if (bounce > 0 && lampIdx == c_wfPhotonSplit.aimedLamp &&
-                c_wfPhotonSplit.chain != nullptr && c_wfPhotonSplit.chain[idx] == 3)
-                Le = GSampledSpectrum(0.f);
-            if (Le.maxValue() > 0.f) {
-                // pkg199 Stage 1 (role 3): the lamp is closer than the surface,
-                // so throughput is not yet segment-attenuated; attenuate the
-                // lamp emission over the camera→lamp segment (lampT). Mirrors the
-                // CPU dedicated-lamp block (throughput·lampEmission·Tr(lh.t)).
-                // pkg199 Stage 2: in scatter mode the free-flight estimator already
-                // applied Tr(termT=lampT)/pdf to throughput, so do NOT re-attenuate.
-                if (c_worldVolume.hasVolume && !mediumScatters)
-                    Le *= gpu_worldTransmittanceMW(lampT, lambdas);
-                GSampledSpectrum contrib(0.f);
-                if (bounce == 0 || wasSpecular || c_wfLightNeeOff) {  // #877
-                    contrib = throughput * Le;                 // w_B = 1
-                } else if (enableNEE) {
-                    GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
-                                        state.path_mis_nz[idx]);
-                    float lp = gpu_dedicated_reconstruct_pdf(
-                        dedLights, numDed, totalLightPower, ray.origin, ray.direction,
-                        lightTree, numLights, misNormalPrev, lampIdx);  // #912
-                    float wB = gpu_mw_powerHeuristic(state.path_bsdf_pdf[idx], lp);
-                    contrib = throughput * Le * wB;
-                }
-                // naive mode (enableNEE == false, non-specular): no NEE leg to
-                // complement, so nothing is added — mirrors the emissive block.
-                GSampledSpectrum lampContrib = gpu_clampContribMW(
-                    contrib, lambdas, bounce - 1,   // #860: emission hit = Cycles bounce-1
-                    clampDirect, clampIndirect, useLuminanceOutput);
-                color += lampContrib;
-                // pkg198 Stage 2: a lamp hit by a continuation ray is indirect light
-                // (bounce > 0), folded into firstCat's INDIRECT pass (CPU lampPass =
-                // (firstCat<0?0:firstCat)*3+1).
-                if constexpr (HasLightPassAOVs) {
-                    unsigned char cat = c_wfLpBinding.firstCat[idx];
-                    // #903: camera-visible sky disc -> PASS_ENVIRONMENT (CPU twin).
-                    int lampPass = (bounce == 0) ? G_LP_PASS_ENVIRONMENT
-                                 : (cat == G_LP_CAT_UNSET ? 0 : (int)cat) * 3 + 1;
-                    lpAccumulate(idx, lampPass, lampContrib);
-                }
-            }
-            state.color_0[idx] = color.v[0];
-            state.color_1[idx] = color.v[1];
-            state.color_2[idx] = color.v[2];
-            state.color_3[idx] = color.v[3];
-            state.path_alive[idx] = 0;
-            return -1;   // path terminates on the lamp
+            // fall through to env / role-1(gated) / emission.
         }
     }
 

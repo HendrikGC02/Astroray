@@ -36,3 +36,18 @@
 - `include/astroray/volume/volume_transport.h` (`sampleSegmentDirect`, `segmentTransmittanceSpectral`, spectralTrack/Overlap weight change), `include/raytracer.h` (`segmentDirectLight`, `boundedSegmentDirect`, fog + bounded blocks), `Light::clipLitSegment` (spot/area), `PowerLightSampler::resample`.
 - Tests: `tests/test_pkg289_medium_chromatic_variance.py`.
 - GPU twin: not yet (`stage_advance.cu` volume path, `stage_volume_hetero.cu`).
+
+## MIS pairing (review follow-up, Cycles main a456b761)
+- `integrate_volume_direct_light` re-samples the same light from the direct point P and weights it
+  `light_sample_mis_weight_nee(ls.pdf, phase_pdf)` at P; `volume_direct_scatter_mis` combines only
+  the equiangular and distance pdfs (`2·power_heuristic`). The phase continuation stores
+  `mis_ray_pdf = phase_pdf` at the indirect point. Direction weights are point functions of
+  (x, ω), so NEE at P and the lamp hit from P' sum to 1 at every point. Astroray does the same.
+- Test `tests/test_925_medium_segment_nee_unbiased.py` (area lamp in box / world fog, mesh
+  emitter; NEE on vs off) found a pre-existing bug instead: in bounded media a lamp hit was
+  weighted by survival to the surface, not Tr(lamp) (NEE off 17-20 % dark on the batchAE base).
+  Fixed by running the lamp pass before the bounded free flight with explicit Tr (the pkg288
+  world-fog design). GPU twin has the same structure (follow-up).
+- Light-tree mode: no same-light re-sample (the tree pick depends on the point), so the anchor
+  light and the connected light may differ: unbiased, less efficient. Fixing it needs a tree
+  re-sample API and point-consistent weights; left as a note.

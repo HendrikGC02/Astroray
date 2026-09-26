@@ -71,9 +71,9 @@ inline void accumulateSegment(astroray::SampledSpectrum& I,
 } // namespace astroray::invariant_transfer
 
 // Volumetric emission base class for Pillar-4 astrophysical emitters.
-// Concrete plugins evaluate local, fluid-frame emissivity and may integrate a
-// short optically thin segment for render paths that do not yet expose the
-// full pkg67 invariant GR transfer state.
+// Concrete plugins return the OBSERVED per-lab-path emissivity D^2 j(nu_em)
+// (Doppler boost already applied, pkg283) -- do not multiply by
+// dopplerFactor() again. integrateSegmentTransfer does the invariant transport.
 class Emission {
 public:
     virtual ~Emission() = default;

@@ -202,35 +202,88 @@ public:
                                           photon_direction);
     }
 
+    // pkg283: fluid 3-velocity (direction, |beta|) of the conical outflow.
+    void fluidVelocity(const Vec3& position_M, Vec3& betaDir, double& beta) const {
+        betaDir = bulkDirection(position_M);
+        beta = std::sqrt(std::max(0.0, 1.0 - 1.0 / (lorentz_gamma_ * lorentz_gamma_)));
+    }
+
+    // pkg283: invariant transport of one segment (lab path ds_cm) for a fluid
+    // moving with beta*betaDir. j_nu, alpha_nu are fluid-frame at nu_em = -k.u
+    // (Pandya 2016 fits); see astroray::invariant_transfer. The D^3 boost acts
+    // on the fluid-frame intensity j*L_fluid, L_fluid = ds/D, so per lab path
+    // the thin result is D^2 j(nu/D) (steady jet, Lind & Blandford 1985).
+    astroray::SampledSpectrum transportSegment(
+        const Vec3& position_M,
+        const Vec3& photon_direction,
+        const astroray::SampledWavelengths& lambdas,
+        double path_length_cm,
+        const Vec3& betaDir, double beta,
+        astroray::SampledSpectrum& tau) const {
+        astroray::SampledSpectrum out(0.0f);
+        tau = astroray::SampledSpectrum(0.0f);
+        if (!contains(position_M)) return out;
+
+        const double r = std::sqrt(double(position_M.length2()));
+        const double ne = densityAt(r);
+        const double B = magneticFieldAt(r);
+        // Toroidal-field-average approximation for an unresolved conical jet:
+        // pitch angle pi/2 (pkg42). Polarized angle transport is deferred.
+        constexpr double theta_B = GR_PI / 2.0;
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
+            const double nu_obs = frequencyFromWavelengthNm(lambdas.lambda(i));
+            const double nu_em = invariant_transfer::fluidFrameFrequency(
+                nu_obs, photon_direction, betaDir, beta);
+            const double j = jnuPowerLawI(nu_em, ne, B, theta_B,
+                                          p_, gamma_min_, gamma_max_);
+            const double alpha = include_self_absorption_
+                ? alphaPowerLawI(nu_em, ne, B, theta_B, p_, gamma_min_, gamma_max_)
+                : 0.0;
+            const auto seg = invariant_transfer::invariantSegment(
+                nu_obs, nu_em, j, alpha, path_length_cm);
+            out[i] = static_cast<float>(std::min(intensity_scale_ * seg.dI_obs, 1.0e30));
+            tau[i] = static_cast<float>(seg.dtau);
+        }
+        return out;
+    }
+
+    // Observed optically thin emission per unit lab path: D^2 j(nu/D).
     astroray::SampledSpectrum emissivity(
         const Vec3& position_M,
         const Vec3& photon_direction,
         const astroray::SampledWavelengths& lambdas) const override {
         astroray::SampledSpectrum out(0.0f);
         if (!contains(position_M)) return out;
-
         const double r = std::sqrt(double(position_M.length2()));
         const double ne = densityAt(r);
         const double B = magneticFieldAt(r);
-        const double D = std::max(1.0e-12, dopplerFactor(position_M, photon_direction));
-
-        // Toroidal-field-average approximation for an unresolved conical jet:
-        // the pitch-angle factor is set to pi/2 so the power-law spectrum is
-        // isolated in pkg42. Polarized angle transport is deferred.
+        Vec3 betaDir;
+        double beta = 0.0;
+        fluidVelocity(position_M, betaDir, beta);
         constexpr double theta_B = GR_PI / 2.0;
         for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
             const double nu_obs = frequencyFromWavelengthNm(lambdas.lambda(i));
-            const double nu_fluid = nu_obs / D;
-            const double j = jnuPowerLawI(nu_fluid, ne, B, theta_B,
+            const double nu_em = invariant_transfer::fluidFrameFrequency(
+                nu_obs, photon_direction, betaDir, beta);
+            const double j = jnuPowerLawI(nu_em, ne, B, theta_B,
                                           p_, gamma_min_, gamma_max_);
-            // The full pkg67 path will integrate j/nu^2 in invariant form.
-            // Current BlackHole fallback has only ray segments, so this local
-            // observed emissivity recovers the D^3 optically-thin limit without
-            // double-counting anywhere else.
-            const double boosted = intensity_scale_ * D * D * D * j;
-            out[i] = static_cast<float>(std::min(boosted, 1.0e30));
+            const auto seg = invariant_transfer::invariantSegment(nu_obs, nu_em, j, 0.0, 1.0);
+            out[i] = static_cast<float>(std::min(intensity_scale_ * seg.dI_obs, 1.0e30));
         }
         return out;
+    }
+
+    astroray::SampledSpectrum integrateSegmentTransfer(
+        const Vec3& position_M,
+        const Vec3& photon_direction,
+        const astroray::SampledWavelengths& lambdas,
+        double path_length_cm,
+        astroray::SampledSpectrum& tau) const override {
+        Vec3 betaDir;
+        double beta = 0.0;
+        fluidVelocity(position_M, betaDir, beta);
+        return transportSegment(position_M, photon_direction, lambdas,
+                                path_length_cm, betaDir, beta, tau);
     }
 
     astroray::SampledSpectrum integrateSegment(
@@ -238,28 +291,9 @@ public:
         const Vec3& photon_direction,
         const astroray::SampledWavelengths& lambdas,
         double path_length_cm) const override {
-        astroray::SampledSpectrum out = emissivity(position_M, photon_direction, lambdas);
-        if (!include_self_absorption_) {
-            return out * static_cast<float>(std::max(0.0, path_length_cm));
-        }
-        if (!contains(position_M)) return astroray::SampledSpectrum(0.0f);
-        const double r = std::sqrt(double(position_M.length2()));
-        const double ne = densityAt(r);
-        const double B = magneticFieldAt(r);
-        const double D = std::max(1.0e-12, dopplerFactor(position_M, photon_direction));
-        constexpr double theta_B = GR_PI / 2.0;
-        for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
-            const double nu_obs = frequencyFromWavelengthNm(lambdas.lambda(i));
-            const double nu_fluid = nu_obs / D;
-            const double alpha = alphaPowerLawI(nu_fluid, ne, B, theta_B,
-                                                p_, gamma_min_, gamma_max_);
-            const double tau = std::max(0.0, alpha * path_length_cm);
-            const double ds_eff = tau > 1.0e-8
-                ? (1.0 - std::exp(-tau)) / alpha
-                : path_length_cm;
-            out[i] *= static_cast<float>(std::max(0.0, ds_eff));
-        }
-        return out;
+        astroray::SampledSpectrum tau;
+        return integrateSegmentTransfer(position_M, photon_direction, lambdas,
+                                        path_length_cm, tau);
     }
 
     double powerLawIndex() const { return p_; }

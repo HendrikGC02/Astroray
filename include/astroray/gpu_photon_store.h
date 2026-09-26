@@ -219,8 +219,14 @@ __device__ inline GVec3 photonGridGatherKnn(const GPhotonGrid& g, const GVec3& q
         }
     }
     if (cnt == 0) return GVec3(0.f);
-    float r2 = bestD2[0];                       // adaptive radius^2 = the farthest kept
-    for (int t = 1; t < cnt; ++t) if (bestD2[t] > r2) r2 = bestD2[t];
+    // #909: fewer than K in range -> r = the cap (Jensen 2001 App. B
+    // irradiance_estimate: dist2[0] = max_dist^2 until the heap is full). The
+    // farthest of a few photons made E ~ 1/d^2 unbounded near isolated photons.
+    float r2 = maxR2;
+    if (cnt >= kk) {
+        r2 = bestD2[0];                         // adaptive radius^2 = the farthest kept
+        for (int t = 1; t < cnt; ++t) if (bestD2[t] > r2) r2 = bestD2[t];
+    }
     if (r2 <= 0.f) return GVec3(0.f);
     float r = sqrtf(r2);
     GVec3 sum(0.f);

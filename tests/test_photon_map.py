@@ -93,3 +93,15 @@ def test_irradiance_empty_region_is_dark():
     powers = [[1.0, 1.0, 1.0]] * 3
     X, Y, Z = astroray._photon_map_irradiance(points, powers, [100.0, 0.0, 0.0], 8, 1.0)
     assert (X, Y, Z) == (0.0, 0.0, 0.0)
+
+
+def test_irradiance_bounded_near_isolated_photon():
+    """#909: with fewer than k photons in range the estimate uses r = max_radius
+    (Jensen 2001 App. B irradiance_estimate), so it stays bounded near an isolated
+    photon. The old farthest-found radius gave E ~ 1/d^2 (a firefly per photon)."""
+    k, max_r, kf = 50, 0.5, 1.1
+    bound = 1.0 / ((1.0 - 2.0 / (3.0 * kf)) * math.pi * max_r * max_r)
+    for d in (1e-3, 1e-2, 0.1):
+        _, Y, _ = astroray._photon_map_irradiance(
+            [[0.0, 0.0, 0.0]], [[1.0, 1.0, 1.0]], [d, 0.0, 0.0], k, max_r)
+        assert 0.0 < Y <= bound * 1.0001, f"d={d}: E={Y:.4g} exceeds cap {bound:.4g}"

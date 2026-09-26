@@ -45,6 +45,7 @@ public:
         return kerr_->is_captured(s);
     }
     double disk_omega(double r) const override { return kerr_->disk_omega(r); }
+    bool kerrSpin(double& a) const override { return kerr_->kerrSpin(a); }
 };
 
 } // namespace

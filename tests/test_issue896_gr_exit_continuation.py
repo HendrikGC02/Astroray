@@ -97,12 +97,7 @@ def test_no_dark_pixels_outside_analytic_shadow(spin, polar):
     x, y = xx - N / 2, N / 2 - yy
     outer = _inside(curve * 1.04, x, y)   # +1.4..3.6 px edge tolerance
     inner = _inside(curve * 0.96, x, y)
-    stray = mask & ~outer
-    if not polar:
-        # Separate pre-existing defect (not #896): equatorial rays in the x=0
-        # plane cross the BL polar axis and a few die there (dotted column at
-        # x=0, pkg280 Phase 3 note). Excluded here; tracked separately.
-        stray &= np.abs(x) >= 1.0
+    stray = mask & ~outer  # includes the x=0 spin-axis column (#897)
     assert stray.sum() == 0, (
         f"{int(stray.sum())} dark px outside the shadow, radii "
         f"{np.unique(np.hypot(x, y)[stray].round())[:12]}")

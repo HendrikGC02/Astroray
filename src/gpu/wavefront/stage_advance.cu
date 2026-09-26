@@ -179,6 +179,17 @@ __constant__ GWavefrontGridVolumeBinding c_wfGridVolume = {};
 // pass env queue-count reset) -- all behind `c_wfEnvNeeBinding.enabled`.
 __constant__ GWavefrontEnvNeeBinding c_wfEnvNeeBinding = {};
 
+// #873: primary-ray clip planes (setWavefrontPrimaryClip), read by
+// intersectPathSlotT at bounce 0 only. active 0 (default) = unclipped.
+__constant__ GWavefrontPrimaryClip c_wfPrimaryClip = {};
+
+// #877: set_light_nee(False) = pure BSDF sampling: the path_tracer runs with
+// enableNEE false (no surface / medium light sampling) and takes every emitter
+// or lamp hit at w_B = 1 (CPU raytracer.h pkg265). 0 (default) keeps the
+// naive-multiwavelength meaning of enableNEE false (emission only after
+// camera / specular bounces). Read only by intersectPathSlotT.
+__constant__ int c_wfLightNeeOff = 0;
+
 // pkg198 Stage 2 — light-path pass binding in constant memory (see
 // GWavefrontLightPassBinding in gpu_types.h). Set once per frame by
 // setWavefrontLightPassBinding; the shade/intersect kernels read it ONLY inside
@@ -236,6 +247,22 @@ __constant__ uint32_t c_sobolMatrices[kSobolNumDims][kSobolMatrixSize];
 // cuda_wavefront_render (setWavefrontAdaptiveBinding). enabled=0 (the default)
 // leaves stageRegenKernel on the byte-identical flat-pool mapping.
 __constant__ GWavefrontAdaptiveBinding c_wfAdaptive = { nullptr, nullptr, nullptr, 0, 0, 0 };
+
+// #909 - photon-map split (setWavefrontPhotonSplit). chain == nullptr: inert.
+__constant__ GWavefrontPhotonSplit c_wfPhotonSplit = { nullptr, -1 };
+
+// #909 - transmissive caustic caster (mirror of photon_caustic.cu pc_isTransmissive).
+__device__ inline bool wf_isPhotonCaster(const ::GMaterial& m) {
+    if (m.type == GMAT_DIELECTRIC || m.type == GMAT_THIN_GLASS) return true;
+    if (m.type == GMAT_CLOSURE_GRAPH) {
+        if (m.transmission > 0.0f) return true;
+        for (int i = 0; i < m.closureCount; ++i)
+            if (m.closures[i].type == GCLOSURE_DIELECTRIC_TRANSMISSION ||
+                m.closures[i].type == GCLOSURE_THIN_GLASS)
+                return true;
+    }
+    return false;
+}
 
 // Splat a spectral contribution into slot `idx`'s pass `passIdx` accumulator.
 // Per-slot (mirrors the color SoA — accumulate-at-death like beauty), so no atomics:
@@ -427,8 +454,19 @@ __device__ int intersectPathSlotT(
     // to the single-level gpu_bvh_hit path inside gpu_tlas_hit, so static scenes
     // stay byte-identical (pkg114 inc-1 identity test).
     GHitRecord rec;
+    // #873: camera clip planes bound the bounce-0 hit only, exactly the CPU
+    // raytracer.h tMin/tMax (view-axis depth / dot(D, forward), dot floored at
+    // 1e-6). The origin stays at the camera, so media, lamp hits and the depth
+    // AOV see the same segment as on the CPU.
+    float tNear = 0.001f, tFar = 1e30f;
+    if (bounce == 0 && c_wfPrimaryClip.active) {
+        const float zInv = 1.f / fmaxf(1e-6f, ray.direction.dot(GVec3(
+            c_wfPrimaryClip.fwdX, c_wfPrimaryClip.fwdY, c_wfPrimaryClip.fwdZ)));
+        tNear = fmaxf(0.001f, c_wfPrimaryClip.nearDist * zInv);
+        if (c_wfPrimaryClip.hasFar) tFar = c_wfPrimaryClip.farDist * zInv;
+    }
     bool hit = gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                            ray, 0.001f, 1e30f, rec, motionVerts, curves);
+                            ray, tNear, tFar, rec, motionVerts, curves);
 
     // pkg199 Stage 2 — homogeneous medium free-flight scatter DECISION (Option A:
     // the cheap decision + queue routing lives here; the register-heavy scatter
@@ -556,6 +594,7 @@ __device__ int intersectPathSlotT(
                 state.ray_origin_y[idx] = P.y;
                 state.ray_origin_z[idx] = P.z;
                 c_wfGridVolume.mediumId[idx] = mi;
+                if (c_wfPhotonSplit.chain != nullptr) c_wfPhotonSplit.chain[idx] = 0;  // #909
                 return -3;
             }
             // escaped: delta-track survival IS the transmittance — fall through.
@@ -616,6 +655,7 @@ __device__ int intersectPathSlotT(
             state.throughput_1[idx] = throughput.v[1];
             state.throughput_2[idx] = throughput.v[2];
             state.throughput_3[idx] = throughput.v[3];
+            if (c_wfPhotonSplit.chain != nullptr) c_wfPhotonSplit.chain[idx] = 0;  // #909
             return -2;  // scattered → the wrapper enqueues to the volume queue
         } else {
             // Reached the terminating event (surface / lamp / env): throughput *=
@@ -677,6 +717,11 @@ __device__ int intersectPathSlotT(
                                                 lambdas.lambda[i], GSPEC_RGB_ILLUMINANT)
                               * lampScale;
             }
+            // #909: receiver -> glass (exited) -> the photon map's own light is
+            // already in the bounce-0 gather; drop it here (no double count).
+            if (bounce > 0 && lampIdx == c_wfPhotonSplit.aimedLamp &&
+                c_wfPhotonSplit.chain != nullptr && c_wfPhotonSplit.chain[idx] == 3)
+                Le = GSampledSpectrum(0.f);
             if (Le.maxValue() > 0.f) {
                 // pkg199 Stage 1 (role 3): the lamp is closer than the surface,
                 // so throughput is not yet segment-attenuated; attenuate the
@@ -687,7 +732,7 @@ __device__ int intersectPathSlotT(
                 if (c_worldVolume.hasVolume && !mediumScatters)
                     Le *= gpu_worldTransmittanceMW(lampT, lambdas);
                 GSampledSpectrum contrib(0.f);
-                if (bounce == 0 || wasSpecular) {
+                if (bounce == 0 || wasSpecular || c_wfLightNeeOff) {  // #877
                     contrib = throughput * Le;                 // w_B = 1
                 } else if (enableNEE) {
                     GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
@@ -793,6 +838,24 @@ __device__ int intersectPathSlotT(
 
     const ::GMaterial& mat = materials[rec.materialId];
 
+    // #909: photon-map split chain (see GWavefrontPhotonSplit). Live from a
+    // bounce-0 photon receiver; each later hit must be a caster entered then
+    // exited in turn (transmission, as the photon trace models), else dead.
+    if (c_wfPhotonSplit.chain != nullptr) {
+        unsigned char c;
+        if (bounce == 0) {
+            c = (mat.emissionIntensity <= 0.f && !wf_isPhotonCaster(mat)) ? 1 : 0;
+        } else {
+            c = c_wfPhotonSplit.chain[idx];
+            if (c & 1) {
+                const bool expectFront = (c & 2) ? !(c & 4) : true;
+                c = (wf_isPhotonCaster(mat) && rec.frontFace == expectFront)
+                        ? (unsigned char)(3 | (rec.frontFace ? 4 : 0)) : 0;
+            }
+        }
+        c_wfPhotonSplit.chain[idx] = c;
+    }
+
     // pkg197 — first-hit denoise-guide AOV capture. Written from the INTERSECT
     // stage (not the REG:254-saturated shade kernel — memory
     // wavefront-shade-kernels-register-saturated) so the fleet
@@ -844,7 +907,7 @@ __device__ int intersectPathSlotT(
     // ---- Emission (gated on camera ray or post-specular bounce; path ends).
     GSampledSpectrum Le = gpu_material_emitted_spectral(mat, rec.frontFace, lambdas);
     if (Le.maxValue() > 0.f) {
-        if (bounce == 0 || wasSpecular) {
+        if (bounce == 0 || wasSpecular || c_wfLightNeeOff) {  // #877: NEE off -> w_B = 1
             // pkg157: emissive-hit direct term, same clamp split as above.
             // Camera / post-specular ray: no NEE leg competes (w_B = 1).
             GSampledSpectrum emitContrib = gpu_clampContribMW(
@@ -3051,6 +3114,12 @@ void setWavefrontHairEnabled(bool hasHair)
     cudaMemcpyToSymbol(c_hasHair, &flag, sizeof(flag));
 }
 
+// #909 - publish the photon-map split (per render; chain=null disables).
+void setWavefrontPhotonSplit(const GWavefrontPhotonSplit& split)
+{
+    cudaMemcpyToSymbol(c_wfPhotonSplit, &split, sizeof(GWavefrontPhotonSplit));
+}
+
 // pkg131 — publish the adaptive-round binding into __constant__ c_wfAdaptive.
 // Called once per round by cuda_wavefront_render. enabled=0 (the default binding)
 // keeps stageRegenKernel on the byte-identical flat-pool mapping.
@@ -3383,9 +3452,8 @@ __global__ void stageRegenKernel(
         atomicAdd(&accum_xyz[pixel * 3 + 2], xyz.z);
         // pkg131 — scalar-luminance half-buffer: even-indexed samples feed the
         // Dammertz convergence check (host reads accum as the full sum, halfLumSum
-        // as the even-sample sum). Beauty luminance only (photon-caustic energy is
-        // added to accum below but not here → conservative convergence in those
-        // rare scenes). Zeroing color_* below is the double-add guard, shared.
+        // as the even-sample sum). Photon-caustic energy is added to both below
+        // (#909). Zeroing color_* below is the double-add guard, shared.
         if (c_wfAdaptive.enabled && (state.sample_index[idx] & 1) == 0)
             atomicAdd(&c_wfAdaptive.halfLumSum[pixel], xyz.x + xyz.y + xyz.z);
         state.color_0[idx] = 0.f;
@@ -3409,6 +3477,9 @@ __global__ void stageRegenKernel(
             atomicAdd(&accum_xyz[pixel * 3 + 0], photon_x);
             atomicAdd(&accum_xyz[pixel * 3 + 1], photon_y);
             atomicAdd(&accum_xyz[pixel * 3 + 2], photon_z);
+            // #909: keep the adaptive half-buffer on the same sum as accum.
+            if (c_wfAdaptive.enabled && (state.sample_index[idx] & 1) == 0)
+                atomicAdd(&c_wfAdaptive.halfLumSum[pixel], photon_x + photon_y + photon_z);
             state.photon_xyz_x[idx] = 0.f;
             state.photon_xyz_y[idx] = 0.f;
             state.photon_xyz_z[idx] = 0.f;
@@ -3475,8 +3546,9 @@ __global__ void stageRegenKernel(
         atomicAdd(&c_wfAdaptive.sampleCount[pixel], 1);
     } else {
         // Flat pool (byte-identical pre-pkg131): wave k = sample k for every pixel.
+        // #909: baseSample offsets the photon-map rounds (0 for a single round).
         pixel  = w % numPixels;
-        sample = w / numPixels;
+        sample = c_wfAdaptive.baseSample + w / numPixels;
     }
     initPathSlot(idx, pixel, sample, state, cam, width, height, seed,
                  lambdaMin, lambdaMax);
@@ -3602,6 +3674,19 @@ void launchStageShadow(
 void setWavefrontEnvNeeBinding(const GWavefrontEnvNeeBinding& binding)
 {
     cudaMemcpyToSymbol(c_wfEnvNeeBinding, &binding, sizeof(GWavefrontEnvNeeBinding));
+}
+
+// #877 - publish the frame's set_light_nee(False) pure-BSDF flag.
+void setWavefrontLightNeeOff(bool off)
+{
+    const int v = off ? 1 : 0;
+    cudaMemcpyToSymbol(c_wfLightNeeOff, &v, sizeof(int));
+}
+
+// #873 - publish the frame's primary-ray clip planes.
+void setWavefrontPrimaryClip(const GWavefrontPrimaryClip& clip)
+{
+    cudaMemcpyToSymbol(c_wfPrimaryClip, &clip, sizeof(GWavefrontPrimaryClip));
 }
 
 // pkg258 - env NEE shadow-resolve launch (twin of launchStageShadow). Reads the

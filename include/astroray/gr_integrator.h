@@ -104,6 +104,161 @@ inline Vec3 blToCartesianDir(const GeodesicState& s, const GeodesicState& ds) {
     return Vec3(float(dx)/len, float(dy)/len, float(dz)/len);
 }
 
+// ============================================================================
+// #897: Cartesian Kerr-Schild (KS) chart for rays near the BL polar axis.
+// BL is singular at sin(theta)=0: dphi/dlambda ~ L_z/sin^2(theta) gets stiff,
+// the RK45 hits its h floor and rejected steps burn maxSteps ("captured").
+// Near the axis we integrate Hamilton's equations in Cartesian KS, which has
+// no pole singularity, and switch back to BL away from it (chart atlas).
+// Source: Chan, Medeiros, Ozel & Psaltis, "GRay2: A General Purpose Geodesic
+//   Integrator for Kerr Spacetimes", ApJ 867, 59 (2018), arXiv:1706.07062
+//   (Cartesian KS removes the BL pole/horizon singularities); ingoing KS form
+//   g^{mu nu} = eta^{mu nu} - f l^mu l^nu from Visser, "The Kerr spacetime: a
+//   brief introduction", arXiv:0706.0622 (2007), §3.
+// Transform + derivatives derived in-house (no code copied); checked against
+// the BL inverse metric and finite differences of H:
+// .astroray_plan/docs/kerr-axis-chart-research.md.
+// KS state reuses GeodesicState: (t, r, theta, phi) = (t_KS, X, Y, Z),
+// (p_r, p_theta, p_phi) = (p_X, p_Y, p_Z); Z is the spin axis.
+// ============================================================================
+namespace grks {
+
+// BL r from KS Cartesian: r^4 - (R^2 - a^2) r^2 - a^2 Z^2 = 0.
+inline double radius(double a, double x, double y, double z) {
+    const double w = x*x + y*y + z*z - a*a;
+    return std::sqrt(0.5 * w + std::sqrt(0.25 * w * w + a*a * z*z));
+}
+
+// phi_KS = phi_BL + Phi(r), t_KS = t_BL + T(r); Phi' = a/Delta, T' = 2Mr/Delta.
+inline double phiShift(double M, double a, double r) {
+    if (a == 0.0) return 0.0;
+    const double d = std::sqrt(std::max(M*M - a*a, 0.0));
+    return a / (2.0 * d) * std::log(std::abs((r - (M + d)) / (r - (M - d))));
+}
+inline double timeShift(double M, double a, double r) {
+    const double d = std::sqrt(std::max(M*M - a*a, 0.0));
+    const double rp = M + d, rm = M - d;
+    return M / d * (rp * std::log(std::abs(r - rp))
+                    - (rm > 0.0 ? rm * std::log(std::abs(r - rm)) : 0.0));
+}
+
+// KS position X[i] and J[k][i] = dX_i/dq_k for q = (r, theta, phi_BL).
+// X + iY = (r + i a) sin(theta) e^{i psi}, psi = phi + Phi(r); Z = r cos(theta).
+inline void blToKsJacobian(double M, double a, double r, double th, double ph,
+                           double X[3], double J[3][3]) {
+    const double psi = ph + phiShift(M, a, r);
+    const double st = std::sin(th), ct = std::cos(th);
+    const double cp = std::cos(psi), sp = std::sin(psi);
+    const double dpsi = a / (r*r - 2.0*M*r + a*a);
+    X[0] = (r * cp - a * sp) * st;
+    X[1] = (r * sp + a * cp) * st;
+    X[2] = r * ct;
+    J[0][0] = st * cp - X[1] * dpsi;  J[0][1] = st * sp + X[0] * dpsi;  J[0][2] = ct;
+    J[1][0] = (r * cp - a * sp) * ct; J[1][1] = (r * sp + a * cp) * ct; J[1][2] = -r * st;
+    J[2][0] = -X[1];                  J[2][1] = X[0];                   J[2][2] = 0.0;
+}
+
+// Covectors: p_BL,k = sum_i J[k][i] p_KS,i (plus the t_KS(r) term in p_r).
+// det J ~ r sin(theta) vanishes on the axis, where the phi row is 0 and
+// p_phi = L_z = 0; J is then taken at |sin(theta)| = 1e-9, which zeroes the
+// undetermined azimuthal component (error O(1e-9)). Position uses true theta.
+inline GeodesicState fromBL(double M, double a, const GeodesicState& s) {
+    double X[3], J[3][3], Xj[3];
+    blToKsJacobian(M, a, s.r, s.theta, s.phi, X, J);
+    if (std::abs(std::sin(s.theta)) < 1e-9) {
+        const double th = std::cos(s.theta) > 0.0 ? 1e-9 : GR_PI - 1e-9;
+        blToKsJacobian(M, a, s.r, th, s.phi, Xj, J);
+    }
+    const double delta = s.r*s.r - 2.0*M*s.r + a*a;
+    const double b[3] = {s.p_r - s.p_t * 2.0*M*s.r / delta, s.p_theta, s.p_phi};
+    // Solve J p = b (Cramer).
+    auto det3 = [](const double m[3][3]) {
+        return m[0][0]*(m[1][1]*m[2][2] - m[1][2]*m[2][1])
+             - m[0][1]*(m[1][0]*m[2][2] - m[1][2]*m[2][0])
+             + m[0][2]*(m[1][0]*m[2][1] - m[1][1]*m[2][0]);
+    };
+    const double D = det3(J);
+    double p[3];
+    for (int i = 0; i < 3; ++i) {
+        double m[3][3];
+        for (int k = 0; k < 3; ++k)
+            for (int j = 0; j < 3; ++j) m[k][j] = (j == i) ? b[k] : J[k][j];
+        p[i] = det3(m) / D;
+    }
+    GeodesicState o;
+    o.t = s.t + timeShift(M, a, s.r);
+    o.r = X[0]; o.theta = X[1]; o.phi = X[2];
+    o.p_t = s.p_t;
+    o.p_r = p[0]; o.p_theta = p[1]; o.p_phi = p[2];
+    return o;
+}
+
+inline GeodesicState toBL(double M, double a, const GeodesicState& k) {
+    const double r = radius(a, k.r, k.theta, k.phi);
+    const double th = std::acos(std::clamp(k.phi / r, -1.0, 1.0));
+    const double ph = std::atan2(k.theta, k.r) - std::atan2(a, r) - phiShift(M, a, r);
+    double X[3], J[3][3];
+    blToKsJacobian(M, a, r, th, ph, X, J);
+    const double p[3] = {k.p_r, k.p_theta, k.p_phi};
+    GeodesicState s;
+    s.t = k.t - timeShift(M, a, r);
+    s.r = r; s.theta = th; s.phi = ph;
+    s.p_t = k.p_t;
+    s.p_r = k.p_t * 2.0*M*r / (r*r - 2.0*M*r + a*a);
+    s.p_theta = 0.0; s.p_phi = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        s.p_r     += J[0][i] * p[i];
+        s.p_theta += J[1][i] * p[i];
+        s.p_phi   += J[2][i] * p[i];
+    }
+    return s;
+}
+
+// Hamilton's equations for H = (eta^{mu nu} p p - f (l.p)^2)/2, l^mu = (-1, l_i),
+// l_i = ((rX + aY), (rY - aX))/(r^2+a^2), Z/r;  f = 2 M r^3/(r^4 + a^2 Z^2).
+inline GeodesicState rhs(double M, double a, const GeodesicState& k) {
+    const double x = k.r, y = k.theta, z = k.phi;
+    const double p[3] = {k.p_r, k.p_theta, k.p_phi};
+    const double a2 = a * a;
+    const double r = radius(a, x, y, z);
+    if (!gr_isfinite(r) || r < 0.5 * M) return GeodesicState{0, 0, 0, 0, 0, 0, 0, 0};
+    const double r2a2 = r*r + a2;
+    const double den = r*r*r*r + a2*z*z;
+    const double dr[3] = {r*r*r * x / den, r*r*r * y / den, r * r2a2 * z / den};
+    const double f = 2.0*M*r*r*r / den;
+    const double n1 = r*x + a*y, n2 = r*y - a*x;
+    const double l[3] = {n1 / r2a2, n2 / r2a2, z / r};
+    const double L = -k.p_t + l[0]*p[0] + l[1]*p[1] + l[2]*p[2];
+
+    GeodesicState ds;
+    ds.t = -k.p_t + f * L;
+    ds.r     = p[0] - f * L * l[0];
+    ds.theta = p[1] - f * L * l[1];
+    ds.phi   = p[2] - f * L * l[2];
+    ds.p_t = 0.0;
+    double dp[3];
+    for (int i = 0; i < 3; ++i) {
+        const double ex = (i == 0), ey = (i == 1), ez = (i == 2);
+        const double df = (6.0*M*r*r*dr[i]*den
+                           - 2.0*M*r*r*r*(4.0*r*r*r*dr[i] + 2.0*a2*z*ez)) / (den*den);
+        const double dl0 = ((dr[i]*x + r*ex + a*ey) * r2a2 - n1 * 2.0*r*dr[i]) / (r2a2*r2a2);
+        const double dl1 = ((dr[i]*y + r*ey - a*ex) * r2a2 - n2 * 2.0*r*dr[i]) / (r2a2*r2a2);
+        const double dl2 = ez / r - z * dr[i] / (r*r);
+        dp[i] = 0.5 * df * L * L + f * L * (dl0*p[0] + dl1*p[1] + dl2*p[2]);
+    }
+    ds.p_r = dp[0]; ds.p_theta = dp[1]; ds.p_phi = dp[2];
+    return ds;
+}
+
+// Hysteresis: enter KS below kEnter, return to BL above kExit (|sin theta|).
+constexpr double kEnter = 0.1;
+constexpr double kExit  = 0.2;
+// Max KS step as a fraction of r (|dX/dlambda| ~ E ~ 1): <= ~6 deg of arc,
+// so a KS leg (|sin theta| < 0.2) can never jump over the equatorial disk.
+constexpr double kMaxStepFrac = 0.1;
+
+} // namespace grks
+
 inline ASTRORAY_NOINLINE IntegrationResult integrateGeodesic(
     const Metric&            metric,
     const NovikovThorneDisk* disk,       // nullptr if no disk
@@ -126,40 +281,56 @@ inline ASTRORAY_NOINLINE IntegrationResult integrateGeodesic(
     // metric), so the photon's specific angular momentum is fixed per ray.
     const double lambda = (s.p_t != 0.0) ? -s.p_phi / s.p_t : 0.0;
 
+    // #897: KS chart near the polar axis (see grks above); BL elsewhere.
+    double ks_a = 0.0;
+    const bool ks_ok = metric.kerrSpin(ks_a);
+    const double ks_M = metric.M;
+    bool in_ks = false;
+    auto rhs = [&](const GeodesicState& x) {
+        return in_ks ? grks::rhs(ks_M, ks_a, x) : metric.geodesic_rhs(x);
+    };
+
     double h = h_init;
     double prev_theta = s.theta;
     for (int step = 0; step < maxSteps; ++step) {
+        // Enter KS near the axis, including an initial state on it.
+        if (!in_ks && ks_ok && std::abs(std::sin(s.theta)) < grks::kEnter) {
+            h = std::min(h, grks::kMaxStepFrac * s.r);
+            s = grks::fromBL(ks_M, ks_a, s);
+            in_ks = true;
+        }
+
         // --- DP45 stages ---
         GeodesicState k[7];
-        k[0] = metric.geodesic_rhs(s);
+        k[0] = rhs(s);
 
         // Stage 1
         GeodesicState s1 = s + h * (1.0/5.0) * k[0];
-        k[1] = metric.geodesic_rhs(s1);
+        k[1] = rhs(s1);
 
         // Stage 2
         GeodesicState s2 = s + h * (3.0/40.0 * k[0] + 9.0/40.0 * k[1]);
-        k[2] = metric.geodesic_rhs(s2);
+        k[2] = rhs(s2);
 
         // Stage 3
         GeodesicState s3 = s + h * (44.0/45.0 * k[0] + -56.0/15.0 * k[1] + 32.0/9.0 * k[2]);
-        k[3] = metric.geodesic_rhs(s3);
+        k[3] = rhs(s3);
 
         // Stage 4
         GeodesicState s4 = s + h * (19372.0/6561.0 * k[0] + -25360.0/2187.0 * k[1] +
                                      64448.0/6561.0 * k[2] + -212.0/729.0 * k[3]);
-        k[4] = metric.geodesic_rhs(s4);
+        k[4] = rhs(s4);
 
         // Stage 5
         GeodesicState s5 = s + h * (9017.0/3168.0 * k[0] + -355.0/33.0 * k[1] +
                                      46732.0/5247.0 * k[2] + 49.0/176.0 * k[3] +
                                      -5103.0/18656.0 * k[4]);
-        k[5] = metric.geodesic_rhs(s5);
+        k[5] = rhs(s5);
 
         // 5th-order solution
         GeodesicState s_new = s + h * (DP_C5[0]*k[0] + DP_C5[2]*k[2] + DP_C5[3]*k[3] +
                                         DP_C5[4]*k[4] + DP_C5[5]*k[5]);
-        k[6] = metric.geodesic_rhs(s_new);
+        k[6] = rhs(s_new);
 
         // 4th-order solution for error estimate
         GeodesicState s4th = s + h * (DP_C4[0]*k[0] + DP_C4[2]*k[2] + DP_C4[3]*k[3] +
@@ -203,6 +374,23 @@ inline ASTRORAY_NOINLINE IntegrationResult integrateGeodesic(
             return result;
         }
 
+        // #897: accepted KS step. Stay in KS while near the axis; otherwise
+        // map back to BL and fall through to the BL termination checks.
+        if (in_ks) {
+            h *= factor;
+            if (h < 0.0) h = -h;
+            h = std::clamp(h, 0.001, 50.0);
+            const GeodesicState bl = grks::toBL(ks_M, ks_a, s_new);
+            if (std::abs(std::sin(bl.theta)) < grks::kExit && bl.r <= r_max &&
+                !metric.is_captured(bl)) {
+                s = s_new;
+                h = std::min(h, grks::kMaxStepFrac * bl.r);
+                continue;
+            }
+            in_ks = false;
+            s = bl;
+            prev_theta = s.theta;
+        } else {
         // Accept step
         double curr_theta = s_new.theta;
 
@@ -234,6 +422,7 @@ inline ASTRORAY_NOINLINE IntegrationResult integrateGeodesic(
         h *= factor;
         if (h < 0.0) h = -h;
         h = std::clamp(h, 0.001, 50.0);
+        }
 
         // --- Termination checks ---
         if (metric.is_captured(s)) {

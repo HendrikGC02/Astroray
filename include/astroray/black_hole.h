@@ -315,6 +315,9 @@ private:
         const double ds_cm = dt * worldToGR;
         Vec3 photonDir = (-incomingRay.direction).normalized();
 
+        // pkg283: front-to-back from the camera; each segment is attenuated by
+        // the optical depth in front of it (astroray::invariant_transfer).
+        astroray::SampledSpectrum transmittance(1.0f);
         for (int i = 0; i < kSteps; ++i) {
             const float t = float(double(t0) + (double(i) + 0.5) * dt);
             Vec3 p = incomingRay.at(t);
@@ -322,10 +325,15 @@ private:
             Vec3 pos_M(float(double(rel.x) * worldToGR),
                        float(double(rel.y) * worldToGR),
                        float(double(rel.z) * worldToGR));
+            astroray::SampledSpectrum segment(0.0f);
+            astroray::SampledSpectrum tau(0.0f);
             for (const auto& e : emissions) {
                 if (!e) continue;
-                emission += e->integrateSegment(pos_M, photonDir, lambdas, ds_cm);
+                astroray::SampledSpectrum eTau(0.0f);
+                segment += e->integrateSegmentTransfer(pos_M, photonDir, lambdas, ds_cm, eTau);
+                tau += eTau;
             }
+            astroray::invariant_transfer::accumulateSegment(emission, transmittance, segment, tau);
         }
         return emission;
     }

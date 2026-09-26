@@ -3,6 +3,12 @@
 The native seam calls ``thinDiskInvariantTransferWavelength`` in the production
 header. The frequency-domain expression below is an independent oracle; this
 is analytic self-consistency, not the later external GYOTO validation.
+
+pkg283 — volumetric (ADAF, synchrotron jet) invariant transport. The oracle
+is the frame-transformation form (Rybicki & Lightman §4.9):
+I_obs(nu) = g^3 I_em(nu/g), with I_em the fluid-frame slab solution over the
+fluid-frame path L_fluid = ds_lab/g. Production integrates the invariant
+affine form (j/nu^2, nu*alpha) instead, so agreement is a real cross-check.
 """
 
 import math
@@ -161,3 +167,212 @@ def test_registered_restir_gr_dispatch_preserves_uncapped_emission():
     assert observed_trace_calls == 1
     assert reference > 0.0
     assert observed / reference == pytest.approx(64.0 / 20.0, rel=1.0e-6)
+
+
+# ---------------------------------------------------------------- pkg283 ---
+
+astroray = pytest.importorskip("astroray")
+
+C_CGS = 2.99792458e10
+H_CGS = 6.62607015e-27
+K_CGS = 1.380649e-16
+THETA_B = math.pi / 2.0
+
+JET = {
+    "half_angle_degrees": 30.0, "r_base": 1.0, "r_max": 100.0,
+    "power_law_index": 2.5, "gamma_min": 10.0, "gamma_max": 1.0e5,
+    "base_density": 1.0e4, "magnetic_field": 1.0e4, "intensity_scale": 1.0,
+}
+ADAF = {
+    "mass": 4.0e6, "mdot_edd": 1.0e-5, "alpha": 0.1, "beta_mag": 0.1,
+    "s": 0.3, "electron_temp": 5.0e10, "r_inner": 2.0, "r_outer": 100.0,
+}
+JET_POS = [0.0, 10.0, 0.0]          # on the +y jet axis
+ADAF_POS = [0.0, 0.0, 10.0]
+VISIBLE_NM = [420.0, 500.0, 580.0, 660.0]
+
+
+def _unit(v):
+    v = np.asarray(v, dtype=float)
+    return v / np.linalg.norm(v)
+
+
+def _dir_at_angle(deg):
+    """Propagation direction at `deg` from the +y jet axis, in the xy plane."""
+    a = math.radians(deg)
+    return [math.sin(a), math.cos(a), 0.0]
+
+
+def _g(beta, direction):
+    b = np.asarray(beta, dtype=float)
+    return math.sqrt(1.0 - b @ b) / (1.0 - b @ _unit(direction))
+
+
+def _nu(lambda_nm):
+    return C_CGS / (np.asarray(lambda_nm, dtype=float) * 1.0e-7)
+
+
+def _planck_nu_cgs(nu, T):
+    return (2.0 * H_CGS * nu**3 / C_CGS**2) / np.expm1(H_CGS * nu / (K_CGS * T))
+
+
+def _jet_fluid_coefficients(nu_em, params, absorb):
+    r = math.dist(JET_POS, [0.0, 0.0, 0.0])
+    ne = params["base_density"] * (r / params["r_base"]) ** -2
+    B = params["magnetic_field"] * (r / params["r_base"]) ** -1
+    args = (THETA_B, params["power_law_index"], params["gamma_min"], params["gamma_max"])
+    j = np.array([astroray.synchrotron_powerlaw_emissivity(float(n), ne, B, *args) for n in nu_em])
+    a = np.array([astroray.synchrotron_powerlaw_absorptivity(float(n), ne, B, *args) for n in nu_em])
+    return j, (a if absorb else np.zeros_like(a))
+
+
+def _adaf_fluid_coefficients(nu_em, params):
+    ne = astroray.adaf_density_at(params, ADAF_POS)
+    T = astroray.adaf_electron_temperature_at(params, ADAF_POS)
+    B = astroray.adaf_magnetic_field_at(params, ADAF_POS)
+    j = np.array([astroray.synchrotron_thermal_emissivity(float(n), ne, T, B, THETA_B)
+                  + astroray.bremsstrahlung_emissivity(float(n), ne, T) for n in nu_em])
+    return j, j / _planck_nu_cgs(nu_em, T)  # Kirchhoff, R&L eq. 1.37
+
+
+def _oracle(j_em, a_em, g, ds_lab):
+    """Frame-transformation oracle: g^3 x fluid-frame uniform-slab intensity."""
+    L_fluid = ds_lab / g
+    tau = a_em * L_fluid
+    with np.errstate(divide="ignore", invalid="ignore"):
+        slab = np.where(tau > 1.0e-9, j_em / a_em * -np.expm1(-tau), j_em * L_fluid)
+    return g**3 * slab
+
+
+def _segment(model, params, pos, direction, lambdas, ds, beta=None):
+    values, tau = helpers.volumetric_segment(model, params, list(pos), list(direction),
+                                             [float(x) for x in lambdas], float(ds), beta)
+    return np.asarray(values, dtype=float), np.asarray(tau, dtype=float)
+
+
+@pytest.mark.parametrize("beta", [[0.0, 0.0, 0.0], [0.0, 0.6, 0.0], [0.3, -0.5, 0.4], [0.0, 0.99, 0.0]])
+@pytest.mark.parametrize("deg", [0.0, 35.0, 90.0, 150.0])
+def test_fluid_frame_frequency_is_minus_k_dot_u(beta, deg):
+    nu_obs = 5.0e14
+    n = _unit(_dir_at_angle(deg))
+    b = np.asarray(beta)
+    gamma = 1.0 / math.sqrt(1.0 - b @ b)
+    expected = nu_obs * gamma * (1.0 - b @ n)   # -k.u, k=nu(1,n), u=gamma(1,b)
+    got = helpers.volumetric_fluid_frequency(nu_obs, list(n), list(b))
+    assert got == pytest.approx(expected, rel=1.0e-6)   # directions cross as float3
+
+
+def test_model_fluid_velocities():
+    # ADAF keeps its static fluid (no new ADAF kinematics in pkg283).
+    assert helpers.volumetric_fluid_velocity("adaf", ADAF, ADAF_POS) == pytest.approx([0.0, 0.0, 0.0])
+    moving = {**JET, "lorentz_factor": 5.0}
+    beta = helpers.volumetric_fluid_velocity("synchrotron_jet", moving, JET_POS)
+    assert beta == pytest.approx([0.0, math.sqrt(1.0 - 1.0 / 25.0), 0.0], rel=1.0e-6)
+    d = astroray.synchrotron_jet_doppler_factor(moving, JET_POS, _dir_at_angle(35.0))
+    nu_em = helpers.volumetric_fluid_frequency(5.0e14, _dir_at_angle(35.0), beta)
+    assert 5.0e14 / nu_em == pytest.approx(d, rel=1.0e-6)
+
+
+@pytest.mark.parametrize("absorb", [False, True])
+def test_jet_g_equals_one_reduces_to_fluid_frame_slab(absorb):
+    params = {**JET, "lorentz_factor": 1.0, "include_self_absorption": absorb}
+    lam = [1.0e5, 2.0e5, 5.0e5, 1.0e6]
+    j, a = _jet_fluid_coefficients(_nu(lam), params, absorb)
+    ds = 1.0 / max(a[1], 1.0e-30) if absorb else 1.0e9
+    got, _ = _segment("synchrotron_jet", params, JET_POS, _dir_at_angle(40.0), lam, ds)
+    np.testing.assert_allclose(got, _oracle(j, a, 1.0, ds), rtol=1.0e-4)
+
+
+def test_adaf_static_reduces_to_fluid_frame_slab():
+    j, a = _adaf_fluid_coefficients(_nu(VISIBLE_NM), ADAF)
+    ds = 1.0e12
+    got, _ = _segment("adaf", ADAF, ADAF_POS, [1.0, 0.0, 0.0], VISIBLE_NM, ds)
+    np.testing.assert_allclose(got, _oracle(j, a, 1.0, ds), rtol=1.0e-4)
+
+
+@pytest.mark.parametrize("deg", [0.0, 10.0, 35.0, 90.0, 150.0])
+def test_jet_static_vs_moving_ratio_is_d_cubed_no_double_counting(deg):
+    """Same fluid-frame slab (L_fluid) and fluid-frame frequency: moving/static = D^3.
+
+    The moving slab's lab path is D*L_fluid. Pre-pkg283 code gave D^4.
+    """
+    L_fluid = 1.0e9
+    direction = _dir_at_angle(deg)
+    moving = {**JET, "lorentz_factor": 5.0}
+    static = {**JET, "lorentz_factor": 1.0}
+    D = astroray.synchrotron_jet_doppler_factor(moving, JET_POS, direction)
+    lam_em = np.asarray(VISIBLE_NM)
+    I_static, _ = _segment("synchrotron_jet", static, JET_POS, direction, lam_em, L_fluid)
+    I_moving, _ = _segment("synchrotron_jet", moving, JET_POS, direction, lam_em / D, D * L_fluid)
+    np.testing.assert_allclose(I_moving / I_static, D**3, rtol=0.01)
+
+
+@pytest.mark.parametrize("beta", [[0.0, 0.0, 0.5], [0.0, 0.0, -0.5], [0.4, 0.0, 0.3]])
+def test_adaf_static_vs_moving_ratio_is_g_cubed_no_double_counting(beta):
+    L_fluid = 1.0e12
+    direction = [0.0, 0.0, 1.0]
+    g = _g(beta, direction)
+    lam_em = np.asarray(VISIBLE_NM)
+    I_static, _ = _segment("adaf", ADAF, ADAF_POS, direction, lam_em, L_fluid, [0.0, 0.0, 0.0])
+    I_moving, _ = _segment("adaf", ADAF, ADAF_POS, direction, lam_em / g, g * L_fluid, beta)
+    np.testing.assert_allclose(I_moving / I_static, g**3, rtol=0.01)
+
+
+def test_jet_public_segment_has_steady_jet_scaling():
+    """Public binding, same lab path and wavelengths: moving/static = D^(2+alpha).
+
+    Lind & Blandford 1985 steady-jet law, alpha = (p-1)/2. Pre-pkg283: D^(3+alpha).
+    """
+    direction = _dir_at_angle(10.0)
+    moving = {**JET, "lorentz_factor": 5.0}
+    static = {**JET, "lorentz_factor": 1.0}
+    D = astroray.synchrotron_jet_doppler_factor(moving, JET_POS, direction)
+    s = np.asarray(astroray.synchrotron_jet_sample_visible(static, JET_POS, direction, 0.5, 1.0e9)["values"])
+    m = np.asarray(astroray.synchrotron_jet_sample_visible(moving, JET_POS, direction, 0.5, 1.0e9)["values"])
+    np.testing.assert_allclose(m / s, D ** (2.0 + 0.75), rtol=0.01)
+
+
+@pytest.mark.parametrize("deg", [0.0, 35.0, 150.0])
+@pytest.mark.parametrize("tau_target", [0.3, 3.0])
+def test_jet_invariant_residual_with_absorption(deg, tau_target):
+    params = {**JET, "lorentz_factor": 5.0, "include_self_absorption": True}
+    direction = _dir_at_angle(deg)
+    D = astroray.synchrotron_jet_doppler_factor(params, JET_POS, direction)
+    lam = np.asarray([1.0e5, 2.0e5, 5.0e5, 1.0e6])    # sub-mm/mm: tau ~ 1 reachable
+    j, a = _jet_fluid_coefficients(_nu(lam) / D, params, True)
+    ds = tau_target * D / a[1]
+    got, tau = _segment("synchrotron_jet", params, JET_POS, direction, lam, ds)
+    assert np.max(np.abs(got / _oracle(j, a, D, ds) - 1.0)) <= 0.01
+    np.testing.assert_allclose(tau, a * ds / D, rtol=1.0e-4)
+
+
+@pytest.mark.parametrize("beta", [[0.0, 0.0, 0.0], [0.0, 0.0, 0.5], [0.0, 0.0, -0.5]])
+@pytest.mark.parametrize("tau_target", [0.3, 3.0])
+def test_adaf_invariant_residual_with_absorption(beta, tau_target):
+    direction = [0.0, 0.0, 1.0]
+    g = _g(beta, direction)
+    lam = np.asarray([3.0e5, 1.0e6, 3.0e6, 1.0e7])    # sub-mm to cm: self-absorbed
+    j, a = _adaf_fluid_coefficients(_nu(lam) / g, ADAF)
+    ds = tau_target * g / a[1]
+    got, tau = _segment("adaf", ADAF, ADAF_POS, direction, lam, ds, beta)
+    assert np.max(np.abs(got / _oracle(j, a, g, ds) - 1.0)) <= 0.01
+    np.testing.assert_allclose(tau, a * ds / g, rtol=1.0e-4)
+
+
+@pytest.mark.parametrize("model", ["synchrotron_jet", "adaf"])
+def test_chord_march_attenuates_front_to_back(model):
+    """N identical segments must equal one uniform slab of the total length."""
+    if model == "adaf":
+        params, pos, direction = ADAF, ADAF_POS, [0.0, 0.0, 1.0]
+        lam = [3.0e5, 1.0e6, 3.0e6, 1.0e7]
+    else:
+        params = {**JET, "lorentz_factor": 5.0, "include_self_absorption": True}
+        pos, direction, lam = JET_POS, _dir_at_angle(35.0), [1.0e5, 2.0e5, 5.0e5, 1.0e6]
+    _, tau_unit = _segment(model, params, pos, direction, lam, 1.0)
+    ds_total = 3.0 / tau_unit[1]
+    whole, _ = _segment(model, params, pos, direction, lam, ds_total)
+    n = 96
+    marched = np.asarray(helpers.volumetric_chord(model, params, list(pos), list(direction),
+                                                  [float(x) for x in lam], ds_total / n, n),
+                         dtype=float)
+    np.testing.assert_allclose(marched, whole, rtol=0.01)

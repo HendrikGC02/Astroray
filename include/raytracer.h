@@ -4401,6 +4401,13 @@ public:
                         next.cameraW = walkRay.cameraW;
                         walkRay = next;
                     }
+                    // #904: the walk's contributions were added to `color`, which
+                    // the caller resolves with `lambdas`. A dispersive refraction
+                    // on the walk collapsed walkLambdas to the hero, so collapse
+                    // the path too (pbrt-v4 TerminateSecondary: one pdf set per
+                    // path sample); else secondaries that never followed the
+                    // walk keep full weight.
+                    if (walkLambdas.secondaryTerminated()) lambdas.terminateSecondary();
                 }
             }
 

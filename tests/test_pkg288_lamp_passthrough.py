@@ -132,12 +132,16 @@ def _check_sun(gpu):
     # Sun radiance ~0.8 keeps its spectral noise small next to the background.
     spp = 1024
     lit = _render(_sun(gpu, _BG, True, False), spp, 1)
-    dark = _render(_sun(gpu, [0.0, 0.0, 0.0], True, False), spp, 2)
+    # Same seed: the disc's spectral noise cancels in lit - dark.
+    dark = _render(_sun(gpu, [0.0, 0.0, 0.0], True, False), spp, 1)
+    nosun = _render(_sun(gpu, _BG, False, False), spp, 1)
     yy, xx = np.mgrid[0:_RES, 0:_RES] - (_RES - 1) / 2.0
     disc = xx * xx + yy * yy < 16.0
     assert dark[disc].mean() > 0.3, "sun disc not visible"
-    # The ray continues past the disc to the background: lit - dark == bg.
-    np.testing.assert_allclose((lit - dark)[disc].mean(axis=0), _BG, rtol=0.02)
+    # The ray continues past the disc to the background: lit - dark equals
+    # this backend's own background (no sun) on the same pixels.
+    np.testing.assert_allclose((lit - dark)[disc].mean(axis=0), nosun[disc].mean(axis=0),
+                               rtol=0.02)
     # A lit plane is unaffected by the disc's camera visibility.
     on = _render(_sun(gpu, _BG, True, True), 32, 1)
     off = _render(_sun(gpu, _BG, False, True), 32, 1)
@@ -162,7 +166,8 @@ def test_pkg288b_sun_disc_continues_gpu():
 def _mirror(gpu):
     r = _renderer(gpu)
     r.set_background_color([0.0, 0.0, 0.0])
-    mirror = r.create_material("mirror", [1.0, 1.0, 1.0], {})
+    # metal roughness 0 = perfect reflector on both backends (GPU has no "mirror").
+    mirror = r.create_material("metal", [1.0, 1.0, 1.0], {"roughness": 0.0})
     _quad(r, [-4, -4, 0], [4, -4, 0], [4, 4, 0], [-4, 4, 0], mirror)
     wall = r.create_material("light", [0.0, 1.0, 0.0], {"intensity": 1.0})
     _quad(r, [-20, -20, 9], [-20, 20, 9], [20, 20, 9], [20, -20, 9], wall)

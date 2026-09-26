@@ -27,13 +27,20 @@ Repro: 160x120 glass ball on a floor, 4 seeds per spp, per-pixel std in the caus
   App. B `irradiance_estimate`: `dist2[0] = max_dist^2` until the heap holds K photons.
   Applied to CPU `photon_map.h` and GPU `photonGridGatherKnn`.
 - Split: Jensen 1996 two-pass photon mapping renders L S+ D only from the caustic map.
-  With the GPU map live the pkg201 refractive-caustic cull is forced on.
+  The GPU gather covers exactly: bounce-0 receiver -> caster hits entered/exited in turn
+  -> the aimed dedicated lamp. The intersect stage tracks that chain in a per-path byte
+  (`GWavefrontPhotonSplit`) and drops the lamp emission only for it. Through-glass
+  caustics, other lights and external reflections stay path traced.
+- Adaptive sampling: gathered energy now also feeds the even-sample half-buffer.
 
 ## Known limits
 
-- Gather is at the primary hit only, so a caustic seen through glass is now absent
-  (it was firefly noise before). Fix: gather at the first diffuse vertex after a
-  specular camera chain.
-- Culling applies to all lights; the photon map covers only the aimed (dominant) light.
+- Gather is at the primary hit only; a caustic seen through glass stays path traced
+  (noisy). Fix: gather at the first diffuse vertex after a specular camera chain.
+- External reflections off casters (reflective caustics) are not in the map and stay
+  path traced; with a small sun they remain a firefly source.
+- Aimed lamp = dedicated light along the aim direction (|cos| > 0.9995); an emissive-
+  mesh aim gets no split. TIR / internal Fresnel chains are treated as not covered.
+- Photon brightness uses boost/(pi*peak95) per map, not light power / N (separate issue).
 - CPU `path_tracer` photon mode (test oracle, not used by the addon) still builds one
   map per render and does not cull.

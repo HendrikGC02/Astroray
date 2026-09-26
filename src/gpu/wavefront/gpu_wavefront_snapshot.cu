@@ -1103,6 +1103,7 @@ struct WfContext {
     // halfLum = Σ even-sample luminance (the Dammertz scalar half-buffer);
     // activePixels = the compacted list of still-sampling pixel indices.
     WfDeviceBuf adaptSampleCount, adaptHalfLum, adaptActivePixels;
+    WfDeviceBuf photonChain;  // #909: per-path photon-split chain byte
     // pkg159: per-pixel cryptomatte rank arrays (numPixels*depth*2 floats
     // each). Grow-only like the rest; only allocated once a render actually
     // enables cryptomatte, so default renders pay nothing.
@@ -1784,12 +1785,34 @@ std::vector<float> cuda_wavefront_render(
             }
         }
     }
-    // #909: photon-map / path-tracing split (Jensen 1996 two-pass): with the caustic
-    // map live, L S+ D light comes from the gather only. Path-traced refractive
-    // caustics (diffuse -> delta transmission -> light) double-counted it and, for a
-    // small sun disc, were isolated fireflies. Reuses the pkg201 toggle cull.
-    if (caustic.ready)
-        setWavefrontCausticGate(renderer.getUseReflectiveCaustics(), false);
+    // #909: photon-map / path-tracing split (Jensen 1996 two-pass). The gather adds
+    // L S+ D at the primary hit for the aimed light only, so drop exactly the
+    // path-traced twin: bounce-0 receiver -> caster in/out chain -> BSDF ray hits
+    // the aimed dedicated lamp. Other lights, caustics seen through glass and
+    // reflections stay path traced. Aimed lamp = the dedicated light along sunDir.
+    {
+        GWavefrontPhotonSplit split{nullptr, -1};
+        if (caustic.ready && !useLuminanceOutput) {
+            const GVec3 sd = aim.sunDir.normalized();
+            const GVec3 casterC = aim.apertureOrigin + sd * (aim.apertureRadius + 2.0f);
+            float best = 0.9995f;
+            for (int i = 0; i < (int)res.dedicatedLights.size(); ++i) {
+                const GDedicatedLight& L = res.dedicatedLights[i];
+                float c;
+                if (L.kind == GDED_DISTANT) {
+                    c = fabsf(L.axis.normalized().dot(sd));
+                } else {
+                    GVec3 d = casterC - L.position;
+                    float len = d.length();
+                    c = (len > 0.f) ? d.dot(sd) / len : 0.f;
+                }
+                if (c > best) { best = c; split.aimedLamp = i; }
+            }
+            if (split.aimedLamp >= 0)
+                split.chain = wfEnsure<unsigned char>(C.photonChain, total_paths);
+        }
+        setWavefrontPhotonSplit(split);
+    }
 
     // Per-path state: grow-only.
     if (C.stateCapacity < total_paths) {
@@ -2490,6 +2513,7 @@ std::vector<float> cuda_wavefront_render(
     // pkg55-C5 / pkg113: release the resident photon grid after the render
     // (mirrors cuda_renderer.cu:888).
     astroray::photon::gpu::cuda_photon_caustic_free(caustic);
+    setWavefrontPhotonSplit(GWavefrontPhotonSplit{nullptr, -1});  // #909
 
     // pkg198 Stage 2: light-path pass copy-back. Runs ONCE after the barrier, like
     // the guide/cryptomatte copy-backs. Convert each per-pixel per-pass XYZ

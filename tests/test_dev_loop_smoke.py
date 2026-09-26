@@ -326,7 +326,7 @@ if ($failed) { exit 1 }
                 child_env.pop(name)
     proc = subprocess.run([pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(wrapper)],
                           cwd=repo, env=child_env, capture_output=True, text=True,
-                          timeout=60, check=False)
+                          timeout=300, check=False)  # #906: headroom under CPU load
     output = proc.stdout + proc.stderr
     assert proc.returncode == (1 if failure else 0), output
     restoration = json.loads(restored.read_text(encoding="utf-8-sig"))

@@ -131,7 +131,10 @@ public:
 
         for (int bounce = 0; bounce < maxDepth_; ++bounce) {
             HitRecord rec;
-            if (!bvh->hit(pathRay, 0.001f, std::numeric_limits<float>::max(), rec)) {
+            // #873: camera clip planes bound the primary ray (pathTraceSpectral twin).
+            float tMin = 0.001f, tMax = std::numeric_limits<float>::max();
+            if (bounce == 0) renderer_->primaryClipBounds(pathRay.direction, tMin, tMax);
+            if (!bvh->hit(pathRay, tMin, tMax, rec)) {
                 if (bounce <= worldMaxB) {
                     astroray::SampledSpectrum envSpec(0.0f);
                     if (envMap && envMap->loaded()) {

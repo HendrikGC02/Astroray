@@ -53,8 +53,9 @@ def _quad(r, z, h, mat):
 _RES = 48
 
 
-def _clip_render(gpu, clip=True):
+def _clip_scene(gpu, clip=True, integrator="path_tracer", medium=None):
     r = _renderer(gpu)
+    r.set_integrator(integrator)
     r.set_background_color([0.0, 0.0, 0.0])
 
     def light(c):
@@ -64,6 +65,10 @@ def _clip_render(gpu, clip=True):
     _quad(r, 0.0, 0.5, light([0.0, 1.0, 0.0]))    # depth 5
     _quad(r, -4.5, 6.0, light([0.0, 0.0, 1.0]))   # depth 9.5
     _quad(r, -6.0, 8.0, light([1.0, 1.0, 1.0]))   # depth 11
+    if medium == "fog":      # world fog: encloses the camera
+        r.set_world_volume(0.15, [1.0, 1.0, 1.0], 0.0, 0.5)
+    elif medium == "box":    # bounded medium enclosing the camera (z=5)
+        r.add_homogeneous_medium([-3, -3, -3], [3, 3, 7], 0.15, [0.8, 0.8, 0.8])
     kw = dict(look_from=[0, 0, 5], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=40.0,
               aspect_ratio=1.0, aperture=0.0, focus_dist=5.0,
               width=_RES, height=_RES)
@@ -71,7 +76,12 @@ def _clip_render(gpu, clip=True):
         kw.update(clip_near=2.0, clip_far=10.0)
     r.setup_camera(**kw)
     r.set_seed(873)
-    img = np.asarray(r.render(4, 2, None, False), dtype=np.float32)
+    return r
+
+
+def _clip_render(gpu, clip=True, integrator="path_tracer", spp=4):
+    r = _clip_scene(gpu, clip, integrator)
+    img = np.asarray(r.render(spp, 2, None, False), dtype=np.float32)
     return img.reshape(_RES, _RES, 3)
 
 
@@ -85,10 +95,11 @@ def _regions(img):
 def _assert_clip(img, tag):
     centre, corner = _regions(img)
     # centre: green only (red before clip_start removed)
-    assert centre[1] > 0.5 and centre[0] < 0.15 and centre[2] < 0.15, (tag, centre)
-    # (~0.05 R/G in the corners is light the other emitters bounce off blue)
+    assert centre[1] > 0.5 and centre[0] < 0.3 and centre[2] < 0.3, (tag, centre)
+    # (off-channel light <= ~0.17 is the other emitters lighting the quads;
+    # an unclipped emitter would add ~1.0)
     # corners: blue at depth 9.5 kept (view-axis), white at depth 11 removed
-    assert corner[2] > 0.5 and corner[0] < 0.15 and corner[1] < 0.15, (tag, corner)
+    assert corner[2] > 0.5 and corner[0] < 0.3 and corner[1] < 0.3, (tag, corner)
 
 
 @pytest.mark.cpu
@@ -106,6 +117,77 @@ def test_873_primary_clip_gpu():
     _assert_clip(img, "gpu")
     np.testing.assert_allclose(_regions(img), _regions(_clip_render(gpu=False)),
                                atol=0.02)
+
+
+def _depth_centre(gpu):
+    # clip_start hides the depth-1 quad; the depth AOV is the camera-to-hit
+    # distance of the green quad (5.0 on the axis), not measured from the plane.
+    r = _clip_scene(gpu)
+    r.render(4, 2, None, False)
+    d = np.asarray(r.get_depth_buffer(), dtype=np.float32).reshape(_RES, _RES)
+    c = _RES // 2
+    return float(np.median(d[c - 2:c + 2, c - 2:c + 2]))
+
+
+@pytest.mark.cpu
+def test_873_depth_aov_cpu():
+    assert abs(_depth_centre(False) - 5.0) < 0.05
+
+
+@pytest.mark.gpu
+def test_873_depth_aov_gpu():
+    assert abs(_depth_centre(True) - 5.0) < 0.05
+
+
+def _far_zero_max(gpu):
+    # clip_far = 0 is a real bound (CPU tMax = 0): nothing is visible.
+    r = _clip_scene(gpu)
+    r.setup_camera(look_from=[0, 0, 5], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=40.0,
+                   aspect_ratio=1.0, aperture=0.0, focus_dist=5.0,
+                   width=_RES, height=_RES, clip_near=0.001, clip_far=0.0)
+    return float(np.asarray(r.render(4, 2, None, False), dtype=np.float32).max())
+
+
+@pytest.mark.cpu
+def test_873_clip_far_zero_cpu():
+    assert _far_zero_max(False) == 0.0
+
+
+@pytest.mark.gpu
+def test_873_clip_far_zero_gpu():
+    assert _far_zero_max(True) == 0.0
+
+
+# ReSTIR-DI primary rays honour the clip planes on both backends.
+@pytest.mark.cpu
+def test_873_primary_clip_restir_cpu():
+    _assert_clip(_clip_render(gpu=False, integrator="restir-di"), "cpu restir")
+
+
+@pytest.mark.gpu
+def test_873_primary_clip_restir_gpu():
+    _assert_clip(_clip_render(gpu=True, integrator="restir-di"), "gpu restir")
+
+
+# A medium enclosing the camera attenuates/scatters over the whole camera
+# segment, clip_start included (clip bounds the surface hit only, as on the
+# CPU); GPU must match the CPU (pkg271 +-5 % linear-mean convention).
+@pytest.mark.gpu
+@pytest.mark.parametrize("medium", ["fog", "box"])
+def test_873_clip_with_camera_in_medium_gpu_matches_cpu(medium):
+    means = []
+    for gpu in (False, True):
+        v = []
+        for seed in (1, 2, 3):
+            r = _clip_scene(gpu, medium=medium)
+            r.set_seed(seed)
+            img = np.asarray(r.render(64, 8, None, False), dtype=np.float64)
+            v.append(img.reshape(_RES, _RES, 3).mean(axis=(0, 1)))
+        means.append(np.mean(v, axis=0))
+    cpu, gpu_m = means
+    assert cpu[1] > 0.0
+    for ch in (1, 2):  # green (centre quad) and blue (far quad) carry the signal
+        assert abs(gpu_m[ch] / cpu[ch] - 1.0) < 0.05, (medium, ch, cpu, gpu_m)
 
 
 # --------------------------------------------------------------------------- #

@@ -2962,6 +2962,14 @@ public:
     bool getEnvNee() const { return envNeeEnabled; }          // pkg258
     void setLightNee(bool enable) { lightNeeEnabled = enable; }  // pkg265
     bool getLightNee() const { return lightNeeEnabled; }         // pkg265
+    // #873: camera clip bounds for a primary ray (same as pathTraceSpectral's
+    // bounce-0 tMin/tMax), for plugin integrators' first hit.
+    void primaryClipBounds(const Vec3& dir, float& tMin, float& tMax) const {
+        const float zInv = 1.0f / std::max(1e-6f, dir.dot(clipForward_));
+        tMin = std::max(0.001f, clipNear_ * zInv);
+        tMax = (clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * zInv
+                                                              : std::numeric_limits<float>::max();
+    }
     // pkg201 Stage 3 (Finding A) — set the Cycles per-type bounce limits. -1 (or
     // any negative) = unlimited. Called by Renderer::render() and by the GPU
     // dispatch (blender_module.cpp) before cuda_wavefront_render so both backends

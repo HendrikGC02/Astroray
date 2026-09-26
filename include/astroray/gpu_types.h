@@ -1156,10 +1156,12 @@ struct GCameraParams {
     GVec3 forward;                       // unit view direction (-w)
 };
 
-// #873: primary-ray camera clip planes, view-axis depths (Cycles camera.h:
-// nearclip/cliplength scaled by 1/dot(D, forward)). nearDist 0 = no near offset,
-// farDist 0 = no far clip; the zero default keeps unpublished drivers unchanged.
+// #873: primary-ray camera clip planes as view-axis depths, applied to the
+// bounce-0 hit as tMin/tMax = depth / dot(D, forward) (CPU raytracer.h, Cycles
+// camera.h z_inv). active 0 (default) = the unclipped 0.001/1e30 bounds.
 struct GWavefrontPrimaryClip {
+    int   active;
+    int   hasFar;                        // 0: clipFar == FLT_MAX (no far plane)
     float nearDist;
     float farDist;
     float fwdX, fwdY, fwdZ;              // unit view direction (GCameraParams::forward)

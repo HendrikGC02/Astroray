@@ -98,7 +98,6 @@ class SpectralPathTracer : public Integrator {
     // pending the owner decision (1.0 = physically exact).
     float causticBoost_       = 1.2f;
     float photonFluxY_        = 0.0f;   // Σ deposited photon flux (Y), debug stat
-    static constexpr bool kPhotonDistantOnly = true;   // pkg286: suns only
 public:
     explicit SpectralPathTracer(const astroray::ParamDict& p)
         : maxDepth_(p.getInt("max_depth", 50)),
@@ -504,8 +503,7 @@ private:
 
         const int photonCount = 3000000;  // match light_tracer_caustic default
         const std::vector<astroray::photon::PhotonLight> emitters =
-            astroray::photon::buildPhotonLights(lights, casterBounds, photonCount,
-                                                /*distantOnly=*/kPhotonDistantOnly);
+            astroray::photon::buildPhotonLights(lights, casterBounds, photonCount);
         if (emitters.empty()) return;
 
         std::mt19937 gen(12345u);
@@ -546,14 +544,14 @@ private:
                     float t1 = nearestCaster(tris, o, d, n1);
                     if (t1 < 0) continue;
                     Vec3 p1 = o + d * t1;
-                    float tr = fresnelT(d.dot(n1), ior);
+                    float tr = astroray::photon::peFresnelTransmit(d.dot(n1), 1.0f / ior);
                     Vec3 d1;
                     if (!refract(d, n1, 1.0f / ior, d1)) continue;
                     Vec3 n2;
                     float t2 = nearestCaster(tris, p1 + d1 * 1e-4f, d1, n2);
                     if (t2 < 0) continue;
                     Vec3 p2 = p1 + d1 * (t2 + 1e-4f);
-                    tr *= fresnelT(d1.dot(n2), ior);
+                    tr *= astroray::photon::peFresnelTransmit(d1.dot(n2), ior);
                     Vec3 d2;
                     if (!refract(d1, n2, ior, d2)) continue;
                     HitRecord rec;
@@ -594,7 +592,7 @@ private:
                         }
                         Vec3 nd;
                         if (refract(d, nf, eta, nd)) {
-                            tr *= fresnelT(d.dot(nf), ior);
+                            tr *= astroray::photon::peFresnelTransmit(d.dot(nf), eta);
                             d = nd;
                         } else {
                             d = (d - nf * (2.0f * d.dot(nf))).normalized();
@@ -646,6 +644,15 @@ private:
         photonGatherRadius_ = 1.5f * kth[kth.size() / 2];
         if (photonGatherRadius_ <= 0.0f) return;
         photonMapReady_ = true;
+
+        // pkg287 (#909): path-traced caustics of the photon lamps are now in the
+        // gather; pathTraceSpectral drops their receiver->glass->lamp twin.
+        std::vector<const astroray::Light*> splitLamps;
+        const auto& ded = lights.getDedicatedLights();
+        for (const auto& L : emitters)
+            if (L.count > 0 && L.emitter.lightIndex < static_cast<int>(ded.size()))
+                splitLamps.push_back(ded[L.emitter.lightIndex].get());
+        scene.setPhotonSplitLamps(std::move(splitLamps));
     }
 
     // Helper: union AABB of all caustic-caster objects.
@@ -712,13 +719,6 @@ private:
         return true;
     }
 
-    // Helper: Fresnel transmission (Schlick approximation).
-    static float fresnelT(float cosi, float eta) {
-        float f0 = (1.0f - eta) / (1.0f + eta);
-        f0 *= f0;
-        float fr = f0 + (1.0f - f0) * std::pow(std::max(0.0f, 1.0f - std::fabs(cosi)), 5.0f);
-        return 1.0f - fr;
-    }
 };
 
 ASTRORAY_REGISTER_INTEGRATOR("path_tracer", SpectralPathTracer)

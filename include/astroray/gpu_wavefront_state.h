@@ -593,12 +593,12 @@ void setWavefrontAdaptiveBinding(const GWavefrontAdaptiveBinding& binding);
 
 // #909 - photon-map / path-tracing split. While the GPU caustic map is live,
 // chain[path] tracks 'bounce-0 photon receiver followed only by transmissive
-// hits entering/exiting in turn' (intersect stage), and a BSDF-ray hit on the
-// aimed dedicated lamp (the map's light) after such a chain drops its emission:
-// the gather already carries it (Jensen 1996). chain=null disables (default).
+// hits entering/exiting in turn' (intersect stage), and a BSDF-ray hit on a
+// photon-emitting dedicated lamp after such a chain drops its emission: the
+// gather already carries it (Jensen 1996). chain=null disables (default).
 struct GWavefrontPhotonSplit {
-    unsigned char* chain;   // [numPaths] bit0 live, bit1 passed glass, bit2 last frontFace
-    int            aimedLamp; // dedicated-light index of the photon map's light, -1 none
+    unsigned char* chain;    // [numPaths] bit0 live, bit1 passed glass, bit2 last frontFace
+    unsigned int   lampMask; // pkg287: bit i = dedicated light i emits photons (i < 32)
 };
 void setWavefrontPhotonSplit(const GWavefrontPhotonSplit& split);
 

@@ -18,19 +18,13 @@
 #include "astroray/photon_spd.h"
 #include "astroray/spectrum.h"
 
+#include <algorithm>
 #include <cmath>
 #include <random>
 #include <vector>
 
 namespace astroray {
 namespace photon {
-
-struct PhotonLight {
-    PhotonEmitter emitter;       // emitter.ies points into iesTable (host) or device copy
-    PhotonSpdCdf  spd;           // λ CDF ∝ S over 380..720 nm; spd.integral = I_S
-    std::vector<float> iesTable; // packed IES (empty = none)
-    int count = 0;               // photons to launch (N_i)
-};
 
 // S(λ) of a dedicated light exactly as its sampleLi evaluates it (RGB
 // illuminant, else the baked 1 nm profile, 360..830 nm).
@@ -44,10 +38,11 @@ inline float photonLightSpd(const DeviceLightParams& p, float lambda) {
 }
 
 // Build the emitters for every dedicated lamp. `casterBounds` is the union
-// AABB of the caustic casters. distantOnly keeps only suns (pkg286 stage).
+// AABB of the caustic casters (one importance cone per light toward its
+// bounding sphere).
 template <class LightsT>
 inline std::vector<PhotonLight> buildPhotonLights(const LightsT& lights, const AABB& casterBounds,
-                                                  int totalPhotons, bool distantOnly = false) {
+                                                  int totalPhotons) {
     std::vector<PhotonLight> out;
     const Vec3 c = casterBounds.centroid();
     const float diag = (casterBounds.max - casterBounds.min).length();
@@ -61,7 +56,6 @@ inline std::vector<PhotonLight> buildPhotonLights(const LightsT& lights, const A
         DeviceLightParams p;
         if (!ded[j] || !ded[j]->fillDeviceParams(p)) continue;
         if (p.kind < 0 || p.kind > 3) continue;
-        if (distantOnly && p.kind != DeviceLightParams::Distant) continue;
 
         PhotonLight L;
         PhotonEmitter& e = L.emitter;

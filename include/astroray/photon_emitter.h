@@ -23,8 +23,10 @@
 
 #include "astroray/area_spread.h"   // areaSpreadAttenuation (host+device)
 #include "astroray/ies_eval.h"      // ies::evalFrame (host+device)
+#include "astroray/photon_spd.h"    // PhotonSpdCdf
 
 #include <math.h>
+#include <vector>
 
 #if defined(__CUDACC__)
 #  define AR_PE_HD __host__ __device__
@@ -68,6 +70,21 @@ struct PhotonEmitter {
     const float* ies;     // packed IES table (host or device pointer) or null
     float iesFrame[9];    // light-local X, Y, Z columns (ies::evalFrame)
 };
+
+// Unpolarised dielectric Fresnel transmittance 1 - F at an interface with
+// relative index eta = eta_i / eta_t (pbrt-v3 FrDielectric, BSD-2). pkg286: the
+// photon passes used Schlick with the incident-side cosine, which on a
+// glass->air exit ignores TIR onset (R ~0.04 at the critical angle) and so
+// over-transmitted rim photons.
+AR_PE_HD inline float peFresnelTransmit(float cosI, float eta) {
+    cosI = fminf(fabsf(cosI), 1.0f);
+    const float sinT = eta * sqrtf(fmaxf(0.0f, 1.0f - cosI * cosI));
+    if (sinT >= 1.0f) return 0.0f;
+    const float cosT = sqrtf(fmaxf(0.0f, 1.0f - sinT * sinT));
+    const float rPar = (cosI - eta * cosT) / (cosI + eta * cosT);
+    const float rPerp = (eta * cosI - cosT) / (eta * cosI + cosT);
+    return 1.0f - 0.5f * (rPar * rPar + rPerp * rPerp);
+}
 
 // Direction uniformly inside the cone {d : d.w >= cosMax} around unit w.
 AR_PE_HD inline PeV3 peSampleCone(PeV3 w, float cosMax, float u0, float u1) {
@@ -155,6 +172,15 @@ AR_PE_HD inline float peSampleLe(const PhotonEmitter& e, float uA0, float uA1,
                                   d.x, d.y, d.z);
     return e.staticScale * falloff * omega;
 }
+
+// Host-side record of one emitting lamp (built by photon_lights.h
+// buildPhotonLights; the GPU aim uploads the IES table and swaps emitter.ies).
+struct PhotonLight {
+    PhotonEmitter emitter;        // emitter.ies points into iesTable on the host
+    PhotonSpdCdf  spd;            // λ CDF ∝ S over 380..720 nm; spd.integral = I_S
+    std::vector<float> iesTable;  // packed IES (empty = none)
+    int count = 0;                // photons to launch (N_i)
+};
 
 }  // namespace photon
 }  // namespace astroray

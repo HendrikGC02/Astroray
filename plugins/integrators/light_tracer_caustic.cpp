@@ -23,7 +23,7 @@
 //     so the flat case is kept on the special 2-face path.)
 //   * Any OTHER caster (a curved/solid shape: sphere, lens, triangulated mesh) uses
 //     the GENERAL deterministic BVH refraction loop: at each transmissive hit it
-//     refracts (Snell + Schlick-Fresnel, enter/exit from the geometric-normal sign,
+//     refracts (Snell + exact Fresnel (pkg286), enter/exit from the geometric-normal sign,
 //     per-wavelength iorAt) or reflects on TIR, through any number of faces — this
 //     is what makes a glass SPHERE focus a caustic.
 // Both paths deposit per-wavelength CIE flux into the same world-space photon map.
@@ -63,7 +63,6 @@ class LightTracerCaustic : public Integrator {
     float floorY_ = 0.0f;             // receiver plane (still floor-only; pkg111 generalizes)
     float gatherRadius_ = 0.0f;       // k-NN search radius, auto-calibrated to photon density
     float causticScale_ = 1.0f;       // pkg286: boost_/pi (Lambertian), no auto-scale
-    static constexpr bool kPhotonDistantOnly = true;   // pkg286: suns only
     bool  ready_ = false;
     float depositedFlux_ = 0.0f;
 
@@ -190,11 +189,6 @@ private:
         out = (d * eta + n * (eta * cosi - std::sqrt(1.0f - s2))).normalized();
         return true;
     }
-    static float fresnelT(float cosi, float eta) {
-        float f0 = (1.0f - eta) / (1.0f + eta); f0 *= f0;
-        float fr = f0 + (1.0f - f0) * std::pow(std::max(0.0f, 1.0f - std::fabs(cosi)), 5.0f);
-        return 1.0f - fr;
-    }
 
     void buildPhotonMap(Renderer& scene) {
         ready_ = false; depositedFlux_ = 0.0f; gatherRadius_ = 0.0f; causticScale_ = 1.0f;
@@ -210,8 +204,7 @@ private:
 
         // pkg286/287: per-light physical photon emission (photon_lights.h).
         const std::vector<astroray::photon::PhotonLight> emitters =
-            astroray::photon::buildPhotonLights(lights, casterBounds, photons_,
-                                                /*distantOnly=*/kPhotonDistantOnly);
+            astroray::photon::buildPhotonLights(lights, casterBounds, photons_);
         if (emitters.empty()) return;
 
         std::mt19937 gen(12345u);
@@ -257,12 +250,12 @@ private:
                     Vec3 n1; float t1 = nearestCaster(tris, o, d, n1);
                     if (t1 < 0) continue;
                     Vec3 p1 = o + d * t1;
-                    float tr = fresnelT(d.dot(n1), ior);
+                    float tr = astroray::photon::peFresnelTransmit(d.dot(n1), 1.0f / ior);
                     Vec3 d1; if (!refract(d, n1, 1.0f / ior, d1)) continue;
                     Vec3 n2; float t2 = nearestCaster(tris, p1 + d1 * 1e-4f, d1, n2);
                     if (t2 < 0) continue;
                     Vec3 p2 = p1 + d1 * (t2 + 1e-4f);
-                    tr *= fresnelT(d1.dot(n2), ior);
+                    tr *= astroray::photon::peFresnelTransmit(d1.dot(n2), ior);
                     Vec3 d2; if (!refract(d1, n2, ior, d2)) continue;
                     HitRecord rec;
                     if (!bvh->hit(Ray(p2 + d2 * eps, d2), eps,
@@ -274,7 +267,7 @@ private:
                     continue;
                 }
                 // General deterministic refraction loop (curved/solid glass: sphere,
-                // lens, mesh). At each transmissive hit refract (Snell + Schlick-Fresnel,
+                // lens, mesh). At each transmissive hit refract (Snell + exact Fresnel,
                 // enter/exit from the geometric-normal sign, per-wavelength iorAt) or
                 // reflect on TIR; deposit on the first diffuse receiver, only on an L S+ D
                 // path (passed >= 1 caster) so direct light is not double-counted.
@@ -296,7 +289,7 @@ private:
                         if (d.dot(ng) < 0.0f) { nf = ng;         eta = 1.0f / ior; }  // entering
                         else                  { nf = ng * -1.0f; eta = ior; }         // exiting
                         Vec3 nd;
-                        if (refract(d, nf, eta, nd)) { tr *= fresnelT(d.dot(nf), ior); d = nd; }
+                        if (refract(d, nf, eta, nd)) { tr *= astroray::photon::peFresnelTransmit(d.dot(nf), eta); d = nd; }
                         else { d = (d - nf * (2.0f * d.dot(nf))).normalized(); }       // TIR
                         // Mark the path as a caustic path on transmission (not via the
                         // per-hit caster flag): a mesh caster's flag sits on the wrapping

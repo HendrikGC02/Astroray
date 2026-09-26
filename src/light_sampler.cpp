@@ -129,9 +129,18 @@ static int hitEmitterIndex(const std::vector<std::shared_ptr<Hittable>>& lights,
     return -1;
 }
 
+// #912: same for a hit dedicated lamp (Cycles light_sample_mis_weight_forward_lamp).
+static int hitLampIndex(const std::vector<std::unique_ptr<Light>>& lamps, const Light* hitLamp) {
+    if (!hitLamp) return -1;
+    for (size_t i = 0; i < lamps.size(); ++i)
+        if (lamps[i].get() == hitLamp) return static_cast<int>(i);
+    return -1;
+}
+
 float PowerLightSampler::pdfValue(const Vec3& point, const Vec3& dir,
                                    const Vec3& /*normal*/,
-                                   const Hittable* hitEmitter) const {
+                                   const Hittable* hitEmitter,
+                                   const Light* hitLamp) const {
     const auto& lights = lightList_->getLights();
     const auto& dedicatedLights = lightList_->getDedicatedLights();
     const auto& powerDist = lightList_->getPowerDist();
@@ -150,6 +159,14 @@ float PowerLightSampler::pdfValue(const Vec3& point, const Vec3& dir,
             ? 1.0f / static_cast<float>(totalLights)
             : (hit > 0 ? powerDist[hit] - powerDist[hit - 1] : powerDist[0]) / totalPower;
         return selPdf * lights[hit]->pdfValue(point, dir);
+    }
+    const int lamp = hitLampIndex(dedicatedLights, hitLamp);
+    if (lamp >= 0) {
+        const size_t k = lights.size() + static_cast<size_t>(lamp);
+        float selPdf = uniformFallback
+            ? 1.0f / static_cast<float>(totalLights)
+            : (k > 0 ? powerDist[k] - powerDist[k - 1] : powerDist[0]) / totalPower;
+        return selPdf * dedicatedLights[lamp]->pdfLi(point, dir);
     }
 
     float pdf = 0;
@@ -261,7 +278,8 @@ void TreeLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& n
 
 float TreeLightSampler::pdfValue(const Vec3& point, const Vec3& dir,
                                   const Vec3& normal,
-                                  const Hittable* hitEmitter) const {
+                                  const Hittable* hitEmitter,
+                                  const Light* hitLamp) const {
     // For MIS, we compute the pdf of sampling direction `dir` from `point`.
     // This requires summing over all lights that could be sampled in that direction:
     //   pdf = sum_i [ tree_pdf(i) * light_i.pdfValue(point, dir) ]
@@ -281,6 +299,11 @@ float TreeLightSampler::pdfValue(const Vec3& point, const Vec3& dir,
     if (hit >= 0) {
         float lightPdf = lights[hit]->pdfValue(point, dir);
         return (lightPdf > 0.0f) ? tree_->pdf(point, normal, hit, false) * lightPdf : 0.0f;
+    }
+    const int lamp = hitLampIndex(dedicatedLights, hitLamp);
+    if (lamp >= 0) {
+        float lightPdf = dedicatedLights[lamp]->pdfLi(point, dir);
+        return (lightPdf > 0.0f) ? tree_->pdf(point, normal, lamp, true) * lightPdf : 0.0f;
     }
 
     float pdf = 0.0f;

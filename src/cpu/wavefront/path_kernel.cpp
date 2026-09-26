@@ -210,13 +210,15 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
         (bounce > 0 || lights.hasCameraVisibleDedicated())) {
         float surfaceT = hit ? rec.t : std::numeric_limits<float>::max();
         astroray::Light::Intersection lh;
+        const astroray::Light* hitLamp = nullptr;
         if (lights.intersectDedicated(ps.ray_origin, ps.ray_direction, 0.001f,
-                                      surfaceT, ps.lambdas, lh, bounce == 0)) {
+                                      surfaceT, ps.lambdas, lh, bounce == 0, &hitLamp)) {
             if (!lh.emission.isZero()) {
                 if (ps.wasSpecular) {
                     ps.color += ps.throughput * lh.emission;
                 } else {
-                    float lp = lights.pdfValue(ps.ray_origin, ps.ray_direction, ps.misNormalPrev);
+                    float lp = lights.pdfValue(ps.ray_origin, ps.ray_direction, ps.misNormalPrev,
+                                               nullptr, hitLamp);  // #912
                     float bp = ps.bsdfPdfPrev;
                     float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                     ps.color += ps.throughput * lh.emission * wB;
@@ -292,7 +294,8 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
             // direction, already unit).
             float lightPdfHit = lights.empty()
                 ? 0.0f
-                : lights.pdfValue(ps.ray_origin, ps.ray_direction, ps.misNormalPrev);
+                : lights.pdfValue(ps.ray_origin, ps.ray_direction, ps.misNormalPrev,
+                                  rec.hitObject);  // #912
             float bp = ps.bsdfPdfPrev, lp = lightPdfHit;
             float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
             ps.color += ps.throughput * Le_spec * wB;

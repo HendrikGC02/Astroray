@@ -137,12 +137,16 @@ def test_principled_coat_tint_absorbs():
                                 {"metallic": 0.0, "roughness": 0.5, "coat_weight": 1.0,
                                  "coat_tint": coat_tint})
         r.add_sphere([0, 0, 0], 1.0, mid)
-        px = np.array(r.render(48, 8, None, False), dtype=np.float32).reshape(-1, 3)
-        # Sphere pixels only: the disk is < the white (sum==3) background.
-        sphere = px[px.sum(axis=1) < 2.7]
-        return sphere[:, 0].mean(), sphere[:, 1].mean()
-    r_red, g_red = _rgb([1.0, 0.2, 0.2])
-    r_white, g_white = _rgb([1.0, 1.0, 1.0])
+        return np.array(r.render(48, 8, None, False), dtype=np.float32).reshape(-1, 3)
+    red = _rgb([1.0, 0.2, 0.2])
+    white = _rgb([1.0, 1.0, 1.0])
+    # Sphere pixels from the RED render (clearly < the white background), applied
+    # to both. #848 follow-up: the untinted coat is ~furnace-white, so selecting
+    # its own pixels by sum < 2.7 kept only noisy outliers and went empty (NaN)
+    # once the hero-lambda proposal cut spectral noise.
+    sphere = red.sum(axis=1) < 2.7
+    r_red, g_red = red[sphere, 0].mean(), red[sphere, 1].mean()
+    r_white, g_white = white[sphere, 0].mean(), white[sphere, 1].mean()
     assert g_red < g_white * 0.85, (
         f"coat_tint red did not Beer-absorb green: g_red={g_red:.3f} g_white={g_white:.3f}")
     assert r_red > g_red * 1.15, f"coat_tint red not redder than green: R={r_red:.3f} G={g_red:.3f}"

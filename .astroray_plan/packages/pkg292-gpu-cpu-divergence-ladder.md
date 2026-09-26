@@ -104,7 +104,12 @@ light. These are Opus-lane items (memory `delegate-tier-stalls-on-hard-packages`
 
 ## Progress
 
-- [ ] #876 ladder + fix.
+- [ ] #876 ladder + fix. Ladder done (lane ah1, 2026-09-27; rung table in
+      `.astroray_plan/docs/pkg292-gpu-cpu-ladders.md`): GPU default ==
+      diffuse-only 0.3178 vs CPU 0.1853 (1.715, sun ↓); metallic rung exact.
+      Convicted: opaque Disney closure graph = 0.5·Lambert + 0.5·base-tinted
+      metal. Fixed (single monolithic closure → `gpu_disney_eval`); CPU pinned
+      to Cycles within 5.7 %. Post-fix RTX run pending build.
 - [ ] #862 ladder + fix.
 - [ ] #853 ladder + oracle + fix.
 

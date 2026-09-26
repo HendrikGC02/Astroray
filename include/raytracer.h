@@ -2883,6 +2883,12 @@ public:
     }
     int getGuideDebugLeaves() const { return guideDbgLeaves_; }
     long long getGuideDebugRecords() const { return guideDbgRecords_; }
+    // pkg289 (#917) test hook: route pathTraceSpectral training records into
+    // `bufs` (indexed by OpenMP thread id; null = not learning).
+    void setGuideRecordBuffersForTest(
+            std::vector<std::vector<astroray::guiding::GuideRecord>>* bufs) {
+        guideRecordBufs_ = bufs;
+    }
     // Probe the last trained guide at world point p with N samples: returns the
     // mean sampled direction (mx,my,mz), its length (0=isotropic, 1=fully
     // concentrated), and the solid-angle pdf toward the target dir (tx,ty,tz).
@@ -3321,7 +3327,14 @@ public:
         // pkg136 — per-vertex radiance records for SD-tree training. Only populated
         // during a guiding training pass (guideLearning()); replayed into the
         // per-thread record buffer at path end. Fixed stack storage (maxDepth small).
-        struct GuideVtx { Vec3 p; Vec3 w; float Csnap; float betaSnap; float pdf; };
+        // #917: snapshot SPECTRA, not luminances — a later hero-λ collapse changes
+        // the lane pdfs toXYZ divides by, so Csnap/betaSnap are resolved with the
+        // path's FINAL lambdas at replay (same measure as Yfinal).
+        struct GuideVtx {
+            Vec3 p; Vec3 w;
+            astroray::SampledSpectrum Csnap, betaSnap;
+            float pdf;
+        };
         GuideVtx gverts[64];
         int gvertCount = 0;
         // pkg199 Stage 2 — engage the scattering estimator only when the medium
@@ -4113,9 +4126,7 @@ public:
             // came back along the sampled direction — exactly what the guide caches.
             // Non-delta only (guiding excludes Dirac lobes).
             if (guideLearning() && !wasSpecular && gvertCount < 64) {
-                gverts[gvertCount++] = GuideVtx{
-                    rec.point, bss.wi,
-                    color.toXYZ(lambdas).Y, throughput.toXYZ(lambdas).Y, bss.pdf};
+                gverts[gvertCount++] = GuideVtx{rec.point, bss.wi, color, throughput, bss.pdf};
             }
         }
         // pkg136 — replay the path's vertices into this thread's training buffer.
@@ -4127,11 +4138,12 @@ public:
 #endif
             auto& buf = (*guideRecordBufs_)[tid];
             for (int i = 0; i < gvertCount; ++i) {
-                float beta = gverts[i].betaSnap > 1e-8f ? gverts[i].betaSnap : 1e-8f;
+                const float betaY = gverts[i].betaSnap.toXYZ(lambdas).Y;  // #917
+                float beta = betaY > 1e-8f ? betaY : 1e-8f;
                 // L_i estimate = downstream/betaSnap. divPdf ⇒ splat L_i/pdf
                 // (radiance guiding, tree ≈ ∫L_i dω); else splat L_i (≈product
                 // guiding). Optional clamp caps outliers (esp. low-pdf blowups).
-                float val = (Yfinal - gverts[i].Csnap) / beta;
+                float val = (Yfinal - gverts[i].Csnap.toXYZ(lambdas).Y) / beta;
                 if (guideDivPdf_) {
                     float pdf = gverts[i].pdf > 1e-4f ? gverts[i].pdf : 1e-4f;
                     val /= pdf;

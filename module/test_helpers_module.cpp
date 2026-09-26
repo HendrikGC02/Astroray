@@ -113,6 +113,39 @@ int probeCausticWalkCollapse(int trials) {
     return collapsed;
 }
 
+// #917: guide-training records must resolve their snapshots with the path's
+// final wavelengths. Camera ray -> diffuse sphere A (NEE lights it; record
+// taken) -> continuation hits an enclosing glass shell (maxDepth=2 stops there).
+// Downstream of A is ~0 (only a rare hit on the small lamp), so a record with
+// value > 0 is spurious unless the lamp was hit. A dispersive (BK7) shell
+// collapses the lambdas after the snapshot; with luminance snapshots that
+// turns Yfinal - Csnap into collapse noise. Returns {records, trials}.
+std::array<int, 2> probeGuideSnapshotCollapse(int trials, bool dispersive) {
+    auto& reg = astroray::MaterialRegistry::instance();
+    astroray::ParamDict diffuse; diffuse.set("albedo", Vec3(0.8f));
+    astroray::ParamDict shell;
+    if (dispersive) shell.set("sellmeier_preset", std::string("bk7"));
+    else shell.set("ior", 1.5f);
+    astroray::ParamDict glow; glow.set("albedo", Vec3(1.0f)); glow.set("intensity", 50.0f);
+    Renderer renderer;
+    renderer.addObject(std::make_shared<Sphere>(Vec3(0, 0, -3), 1.0f, reg.create("lambertian", diffuse)));
+    renderer.addObject(std::make_shared<Sphere>(Vec3(0, 3, -3), 0.2f, reg.create("light", glow)));
+    renderer.addObject(std::make_shared<Sphere>(Vec3(0, 0, 0), 20.0f, reg.create("dielectric", shell)));
+    renderer.buildAcceleration();
+    renderer.setGuiding(true);
+    std::vector<std::vector<astroray::guiding::GuideRecord>> bufs(1);
+    renderer.setGuideRecordBuffersForTest(&bufs);
+    for (int s = 0; s < trials; ++s) {
+        astroray::SampledWavelengths lambdas =
+            astroray::SampledWavelengths::sampleUniform((s + 0.5f) / trials);
+        std::mt19937 gen(5000u + static_cast<unsigned>(s));
+        renderer.pathTraceSpectral(Ray(Vec3(0.0f, 0.3f, 0.0f), Vec3(0.0f, 0.0f, -1.0f)), 2,
+                                   lambdas, gen);
+    }
+    renderer.setGuideRecordBuffersForTest(nullptr);
+    return {static_cast<int>(bufs[0].size()), trials};
+}
+
 std::array<float, 2> probeRegisteredReSTIRGrDispatch(float emission) {
     int trace_calls = 0;
     Renderer renderer;
@@ -306,6 +339,8 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
           "emission"_a, "clamp_direct"_a = 0.0f, "caustic"_a = false,
           "Runs either Renderer GR dispatch and returns (radiance, trace_calls).");
     m.def("caustic_walk_collapse_probe", &probeCausticWalkCollapse, "trials"_a);
+    m.def("guide_snapshot_collapse_probe", &probeGuideSnapshotCollapse, "trials"_a,
+          "dispersive"_a);
     m.def("gr_restir_registry_dispatch_probe",&probeRegisteredReSTIRGrDispatch,
           "emission"_a,
           "Instantiates registered restir-di and returns (Y_radiance, trace_calls).");

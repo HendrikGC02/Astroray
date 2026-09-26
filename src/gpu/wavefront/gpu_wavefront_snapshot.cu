@@ -1640,7 +1640,7 @@ std::vector<float> cuda_wavefront_render(
             g.emisR = m.emission.emissionRGB[0]; g.emisG = m.emission.emissionRGB[1];
             g.emisB = m.emission.emissionRGB[2];
             g.emissionFloor = m.emissionFloor;
-            // #828 — blackbody sockets (VolumeEmission, already clamped to [0,1]).
+            // #828 — blackbody sockets (VolumeEmission, intensity >= 0, unclamped above per Cycles, #908).
             g.blackbodyIntensity = m.emission.blackbodyIntensity;
             g.temperature = m.temperature;
             g.bbTintR = m.emission.tintRGB[0]; g.bbTintG = m.emission.tintRGB[1];

@@ -2790,6 +2790,104 @@ class Renderer {
         return s;
     }
 
+    // #925 — medium NEE at P (Kulla & Fajardo 2012; Cycles shade_volume.h
+    // integrate_volume_direct_light, Apache-2.0). n phase components (σ_s,k(λ),
+    // g_k); each is MIS'd against its own HG pdf, the complement of the lamp-hit
+    // weight after a phase-sampled continuation from medium k. Returns
+    // Σ_k σ_s,k·HG_k·w_k · Le · Tr_shadow / pdf; the caller applies throughput,
+    // Tr to P and the distance-sample weight. Shadow Tr covers the world fog and
+    // every bounded medium.
+    astroray::SampledSpectrum mediumNeeAt(const Vec3& P, const Vec3& wo, int n,
+                                          const astroray::SampledSpectrum* sigS, const float* g,
+                                          float time, const astroray::SampledWavelengths& lambdas,
+                                          std::mt19937& gen) const {
+        astroray::SampledSpectrum out(0.0f);
+        LightSample ls;
+        lights.sample(ls, P, Vec3(0.0f), lambdas, gen);
+        if (!(ls.pdf > 1e-8f)) return out;
+        Vec3 wi = (ls.position - P).normalized();
+        float shadowTr = shadowTransmittance(*bvh, Ray(P, wi, time), ls.distance);
+        if (shadowTr <= 0.0f) return out;
+        astroray::SampledSpectrum sum(0.0f);
+        for (int k = 0; k < n; ++k) {
+            float ph = phaseHG(wo.dot(wi), g[k]);
+            float w = ls.isDelta ? 1.0f : (ls.pdf * ls.pdf) / (ls.pdf * ls.pdf + ph * ph + 1e-8f);
+            sum += sigS[k] * (ph * w);
+        }
+        if (sum.isZero()) return out;
+        out = sum * ls.emission_spec * (shadowTr / ls.pdf);
+        out *= worldTransmittanceSpectral(ls.distance, lambdas);
+        if (!gridMedia_.empty())
+            out *= astroray::volume::segmentTransmittanceSpectral(gridMedia_, P, wi, 1e-3f,
+                                                                  ls.distance, lambdas, gen);
+        return out;
+    }
+
+    // #925 — light-connection anchor for equiangular sampling on a segment:
+    // a light point sampled from the segment's reference point `Pref`
+    // (Cycles light_sample_from_volume_segment). Distant lights have none.
+    bool mediumAnchor(const Vec3& Pref, const astroray::SampledWavelengths& lambdas,
+                      std::mt19937& gen, Vec3& anchor) const {
+        LightSample ls;
+        lights.sample(ls, Pref, Vec3(0.0f), lambdas, gen);
+        if (!(ls.pdf > 0.0f) || !(ls.distance < 1e18f)) return false;
+        anchor = ls.position;
+        return true;
+    }
+
+    // #925 — per-segment direct light through the bounded media on
+    // [0.001, surfaceT]: returns Tr(0,t)·[Σ_k σ_s,k·HG_k·w_k·Le·Tr_shadow/pdf]·w_MIS/p
+    // (caller multiplies throughput). Distance pdf rate = Σ_k per-λ σ_t
+    // majorant of the media on the ray (exact for one homogeneous medium).
+    astroray::SampledSpectrum boundedSegmentDirect(const Ray& ray, const Vec3& dUnit,
+                                                   float surfaceT,
+                                                   const astroray::SampledWavelengths& lambdas,
+                                                   std::mt19937& gen) const {
+        namespace av = astroray::volume;
+        astroray::SampledSpectrum zero(0.0f);
+        float a = std::numeric_limits<float>::max(), b = 0.0f;
+        astroray::SampledSpectrum rate(0.0f);
+        for (const auto& m : gridMedia_) {
+            float t0, t1;
+            if (!av::intersectAABB(ray.origin, dUnit, m.aabbMin, m.aabbMax, 0.001f, surfaceT, t0, t1))
+                continue;
+            a = std::min(a, t0);
+            b = std::max(b, t1);
+            astroray::SampledSpectrum sU, aU;
+            av::principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, lambdas, sU, aU);
+            rate += (sU + aU) * (m.densityScale * m.maxDensity);
+        }
+        if (!(b > a)) return zero;
+        Vec3 anchor;
+        bool hasAnchor = mediumAnchor(ray.origin + dUnit * (0.5f * (a + b)), lambdas, gen, anchor);
+        av::SegmentDirectSample ds =
+            av::sampleSegmentDirect(ray.origin, dUnit, a, b, hasAnchor, anchor, rate, gen);
+        if (!(ds.w > 0.0f)) return zero;
+        Vec3 P = ray.origin + dUnit * ds.t;
+        constexpr int kMax = 8;
+        astroray::SampledSpectrum sigS[kMax];
+        float g[kMax];
+        int n = 0;
+        for (const auto& m : gridMedia_) {
+            if (n >= kMax) break;
+            if (P.x < m.aabbMin[0] || P.x > m.aabbMax[0] || P.y < m.aabbMin[1] ||
+                P.y > m.aabbMax[1] || P.z < m.aabbMin[2] || P.z > m.aabbMax[2])
+                continue;
+            float dens = m.densityAt(P);
+            if (dens <= 0.0f) continue;
+            astroray::SampledSpectrum sU, aU;
+            av::principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, lambdas, sU, aU);
+            sigS[n] = sU * dens;
+            g[n] = m.g;
+            ++n;
+        }
+        if (n == 0) return zero;
+        astroray::SampledSpectrum c = mediumNeeAt(P, -dUnit, n, sigS, g, ray.time, lambdas, gen);
+        if (c.isZero()) return zero;
+        return c * av::segmentTransmittanceSpectral(gridMedia_, ray.origin, dUnit, 0.001f, ds.t,
+                                                    lambdas, gen) * ds.w;
+    }
+
     // pkg199 Stage 2 — Henyey-Greenstein phase function (Henyey & Greenstein
     // 1941; PBRT-v3 `PhaseHG`, src/core/medium.cpp, BSD). cosTheta = dot(wo, wi)
     // with wo pointing back along the incoming ray. Normalised over the sphere
@@ -3388,6 +3486,19 @@ public:
                 // beta = pbrt path throughput; volRu = rescaled path pdf.
                 astroray::SampledSpectrum beta =
                     throughput * astroray::volume::heroAverage(volRu, lambdas);
+                // #925: per-segment direct light, decoupled from the free-flight
+                // scatter decision (Kulla & Fajardo 2012; Cycles shade_volume.h):
+                // one distance on the media hull (equiangular / exponential
+                // one-sample MIS), NEE there weighted by Tr(0,t)·σ_s(t).
+                if (lightNeeEnabled && !lights.empty() && !volTerminateAfter) {
+                    astroray::SampledSpectrum c =
+                        boundedSegmentDirect(ray, dUnit, surfaceT, lambdas, gen);
+                    if (!c.isZero()) {
+                        c = clampContribSpectral(throughput * c, lambdas, bounce);
+                        color += c;
+                        addPass(firstCat < 0 ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT, c);
+                    }
+                }
                 bool entered = false;
                 int mi = -1;
                 astroray::volume::SpectralFlight ff = astroray::volume::spectralTrackSegment(
@@ -3413,40 +3524,9 @@ public:
                     if (ff.event == astroray::volume::SpectralEvent::Scattered) {
                         Vec3 P = ray.origin + dUnit * ff.t;
                         Vec3 woMedium = -dUnit;
-                        bool firstInteraction = (firstCat < 0);
-                        int volPass = firstInteraction ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT;
-                        if (firstInteraction) firstCat = 3;
-                        // --- Medium NEE: light/phase MIS, ratio-tracking transmittance
-                        //     through every medium on the shadow segment (Novák 2014) ---
-                        // #877: skipped with NEE off (a lamp hit is then w_B = 1).
-                        if (lightNeeEnabled && !lights.empty()) {
-                            LightSample ls;
-                            lights.sample(ls, P, Vec3(0.0f), lambdas, gen);
-                            if (ls.pdf > 0.0f) {
-                                Vec3 wi = (ls.position - P).normalized();
-                                float shadowTr = shadowTransmittance(*bvh, Ray(P, wi, ray.time),
-                                                                     ls.distance);
-                                if (shadowTr > 0.0f) {
-                                    float ph = astroray::volume::phaseHG(woMedium.dot(wi), medG);
-                                    float a = ls.pdf, b = ph;
-                                    float wt = ls.isDelta ? 1.0f : (a * a) / (a * a + b * b + 1e-8f);
-                                    astroray::SampledSpectrum medTr(1.0f);  // pkg270 per-λ
-                                    for (const auto& mm : gridMedia_) {
-                                        float s0, s1;
-                                        if (astroray::volume::intersectAABB(P, wi, mm.aabbMin,
-                                                mm.aabbMax, 1e-3f, ls.distance, s0, s1))
-                                            medTr *= astroray::volume::ratioTrackingTransmittanceSpectral(
-                                                mm, P, wi, s0, s1, lambdas, gen);
-                                    }
-                                    astroray::SampledSpectrum neeContrib =
-                                        throughput * ls.emission_spec * ph *
-                                        (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f) * shadowTr * medTr;
-                                    astroray::SampledSpectrum c =
-                                        clampContribSpectral(neeContrib, lambdas, bounce);
-                                    color += c; addPass(volPass, c);
-                                }
-                            }
-                        }
+                        if (firstCat < 0) firstCat = 3;
+                        // #925: direct light is the per-segment sample above; this
+                        // vertex only continues (its lamp-hit MIS is the complement).
                         // pkg271: Cycles volume_bounce (+1 at this scatter); past
                         // the limit the continuation is terminate-after.
                         if (maxVolumeBounces >= 0 && volumeBounceCount >= maxVolumeBounces)
@@ -3566,6 +3646,32 @@ public:
                 // surface (env => FLT_MAX).
                 float termT = surfaceT;
                 astroray::SampledSpectrum sigmaT = worldSigmaT(lambdas);
+                // #925: per-segment direct light on [0, surfaceT] (see the
+                // bounded block): Tr(t)·σ_s·NEE at a one-sample-MIS distance.
+                if (lightNeeEnabled && !lights.empty()) {
+                    Vec3 dU = ray.direction.normalized();
+                    const float b = didHit ? rec.t : std::numeric_limits<float>::infinity();
+                    float meanRate = sigmaT.average();
+                    float tRef = didHit ? 0.5f * rec.t : (meanRate > 0.0f ? 1.0f / meanRate : 0.0f);
+                    Vec3 anchor;
+                    bool hasAnchor = mediumAnchor(ray.origin + dU * tRef, lambdas, gen, anchor);
+                    astroray::volume::SegmentDirectSample ds = astroray::volume::sampleSegmentDirect(
+                        ray.origin, dU, 0.0f, b, hasAnchor, anchor, sigmaT, gen);
+                    if (ds.w > 0.0f) {
+                        astroray::SampledSpectrum sigS = sigmaT * worldVolumeScatter;
+                        float gW = worldVolumeAnisotropy;
+                        astroray::SampledSpectrum c = mediumNeeAt(
+                            ray.origin + dU * ds.t, -dU, 1, &sigS, &gW, ray.time, lambdas, gen);
+                        if (!c.isZero()) {
+                            astroray::SampledSpectrum TrD;
+                            for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+                                TrD[i] = std::exp(-sigmaT[i] * ds.t);
+                            c = clampContribSpectral(throughput * TrD * c * ds.w, lambdas, bounce);
+                            color += c;
+                            addPass(firstCat < 0 ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT, c);
+                        }
+                    }
+                }
                 int ch = std::min((int)(dist01(gen) * astroray::kSpectrumSamples),
                                   astroray::kSpectrumSamples - 1);
                 float sigTc = sigmaT[ch];
@@ -3598,41 +3704,9 @@ public:
                     // Volume pass routing (pkg198 sum-to-beauty): first interaction
                     // => PASS_VOLUME_DIRECT + lock firstCat=3 (3*3+1=VOLUME_INDIRECT
                     // for everything downstream); a deeper scatter => VOLUME_INDIRECT.
-                    bool firstInteraction = (firstCat < 0);
-                    int volPass = firstInteraction ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT;
-                    if (firstInteraction) firstCat = 3;
-                    // --- Medium NEE (phase / light MIS) ---
-                    // #877: skipped with NEE off (a lamp hit is then w_B = 1).
-                    if (lightNeeEnabled && !lights.empty()) {
-                        LightSample ls;
-                        lights.sample(ls, P, Vec3(0.0f), lambdas, gen);
-                        if (ls.pdf > 0.0f) {
-                            Vec3 wi = (ls.position - P).normalized();
-                            // pkg253 G1: identical transparent-shadow transmittance
-                            // as the surface NEE above — a shadowAlpha<1 occluder on
-                            // the scatter→light segment attenuates by (1-alpha)
-                            // rather than fully blocking. Tr==0 for opaque scenes, so
-                            // every pre-pkg253 fog render is byte-identical.
-                            float shadowTr = shadowTransmittance(*bvh, Ray(P, wi, ray.time),
-                                                                 ls.distance);
-                            if (shadowTr > 0.0f) {
-                                float ph = phaseHG(woMedium.dot(wi), g);
-                                float a = ls.pdf, b = ph;  // HG pdf == phase value
-                                float wt = ls.isDelta ? 1.0f
-                                                      : (a * a) / (a * a + b * b + 1e-8f);
-                                astroray::SampledSpectrum neeContrib =
-                                    throughput * ls.emission_spec * ph *
-                                    (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f) * shadowTr;  // pkg253 G1
-                                // Shadow-segment transmittance through the medium
-                                // (full σ_t; ls.distance is geometric, distant lights
-                                // guarded to Tr=1) — the role-2 analog at a scatter vertex.
-                                neeContrib *= worldTransmittanceSpectral(ls.distance, lambdas);
-                                astroray::SampledSpectrum c =
-                                    clampContribSpectral(neeContrib, lambdas, bounce);
-                                color += c; addPass(volPass, c);
-                            }
-                        }
-                    }
+                    if (firstCat < 0) firstCat = 3;
+                    // #925: direct light is the per-segment sample taken before
+                    // the free flight; this vertex only continues.
                     // pkg271: count the volume scatter (see the grid block).
                     if (maxVolumeBounces >= 0 && volumeBounceCount >= maxVolumeBounces)
                         volTerminateAfter = true;

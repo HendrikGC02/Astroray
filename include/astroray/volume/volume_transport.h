@@ -24,6 +24,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <random>
 #include <vector>
 
@@ -261,17 +262,19 @@ inline SpectralFlight spectralTrack(const BoundedMedium& m, const Vec3& o, const
             if (!Le.isZero())
                 ff.emission += beta * Le * (1.0f / (sigBar * heroAverage(r_u, wl)));
         }
-        float pAbsorb = sigA[0] / sigBar;
-        float pScatter = sigS[0] / sigBar;
-        if (noScatter) { pAbsorb += pScatter; pScatter = 0.0f; }
+        float pReal = (sigA[0] + sigS[0]) / sigBar;
         float um = u(gen);
-        if (um < pAbsorb) {
-            beta = astroray::SampledSpectrum(0.0f);
-            ff.event = SpectralEvent::Absorbed; ff.t = t;
-            return ff;
-        } else if (um < pAbsorb + pScatter) {
-            astroray::SampledSpectrum ratio = sigS * (1.0f / sigS[0]);
-            beta *= ratio; r_u *= ratio;
+        if (um < pReal) {
+            // #925: absorption as a weight (Cycles shade_volume.h). A real
+            // collision (pdf σ_t[0]/σ̄) scatters with beta *= σ_s/σ_t[0],
+            // r_u *= σ_t/σ_t[0]; noScatter keeps the analog termination.
+            if (noScatter || sigS.isZero()) {
+                beta = astroray::SampledSpectrum(0.0f);
+                ff.event = SpectralEvent::Absorbed; ff.t = t;
+                return ff;
+            }
+            const float inv = 1.0f / (sigS[0] + sigA[0]);
+            beta *= sigS * inv; r_u *= (sigS + sigA) * inv;
             ff.event = SpectralEvent::Scattered; ff.t = t;
             return ff;
         } else {
@@ -329,22 +332,30 @@ inline SpectralFlight spectralTrackOverlap(const BoundedMedium* const* act, int 
         }
         if (!Le.isZero())
             ff.emission += beta * Le * (1.0f / (sigBar * heroAverage(r_u, wl)));
-        float pAbsorb = sigA[0] / sigBar;
-        if (noScatter) pAbsorb += sigS[0] / sigBar;
+        // #925: absorption as a weight. Real collision with medium k has pdf
+        // σ_t,k[0]/σ̄; beta *= σ_s,k/σ_t,k[0], r_u *= σ_t,k/σ_t,k[0].
         float um = u(gen);
-        if (um < pAbsorb) {
-            beta = astroray::SampledSpectrum(0.0f);
-            ff.event = SpectralEvent::Absorbed; ff.t = t;
-            return ff;
-        }
-        float cum = pAbsorb;
-        if (!noScatter) {
+        if (noScatter) {
+            if (um < (sigS[0] + sigA[0]) / sigBar) {
+                beta = astroray::SampledSpectrum(0.0f);
+                ff.event = SpectralEvent::Absorbed; ff.t = t;
+                return ff;
+            }
+        } else {
+            float cum = 0.0f;
             for (int k = 0; k < n; ++k) {
-                if (sigSk[k][0] <= 0.0f) continue;
-                cum += sigSk[k][0] / sigBar;
+                float dens = act[k]->densityAt(p);
+                astroray::SampledSpectrum sigTk = (sUnit[k] + aUnit[k]) * dens;
+                if (sigTk[0] <= 0.0f) continue;
+                cum += sigTk[0] / sigBar;
                 if (um < cum) {
-                    astroray::SampledSpectrum ratio = sigSk[k] * (1.0f / sigSk[k][0]);
-                    beta *= ratio; r_u *= ratio;
+                    if (sigSk[k].isZero()) {
+                        beta = astroray::SampledSpectrum(0.0f);
+                        ff.event = SpectralEvent::Absorbed; ff.t = t;
+                        return ff;
+                    }
+                    const float inv = 1.0f / sigTk[0];
+                    beta *= sigSk[k] * inv; r_u *= sigTk * inv;
                     ff.event = SpectralEvent::Scattered; ff.t = t;
                     which = k;
                     return ff;
@@ -444,6 +455,13 @@ inline astroray::SampledSpectrum ratioTrackingTransmittanceSpectral(
     std::uniform_real_distribution<float> u(0.0f, 1.0f);
     astroray::SampledSpectrum sUnit, aUnit;
     principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, wl, sUnit, aUnit);
+    if (!m.heterogeneous) {  // #925: exact Beer-Lambert (the ratio-tracking mean)
+        astroray::SampledSpectrum Tr;
+        const float len = std::max(tMax - tMin, 0.0f);
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+            Tr[i] = std::exp(-m.densityScale * (sUnit[i] + aUnit[i]) * len);
+        return Tr;
+    }
     const float sigBar = m.extinctionMajorant();
     astroray::SampledSpectrum Tr(1.0f);
     float t = tMin;
@@ -502,6 +520,103 @@ inline float equiangularPdf(const Vec3& o, const Vec3& d, const Vec3& lightPos,
     float dt = t - tClosest;
     float denom = (thetaB - thetaA) * (D * D + dt * dt);
     return (std::abs(denom) > 1e-20f) ? D / denom : 0.0f;
+}
+
+// ---------------------------------------------------------------------------
+// #925 — per-segment volume direct light (decoupled from the scatter decision).
+// Source: Kulla & Fajardo, "Importance Sampling Techniques for Path Tracing in
+// Participating Media", EGSR 2012, DOI:10.1111/j.1467-8659.2012.03145.x.
+// Reference impl: Blender Cycles src/kernel/integrator/shade_volume.h
+// (volume_integrate_state_init, volume_equiangular_sample,
+// volume_direct_scatter_mis), Apache-2.0. Research:
+// .astroray_plan/docs/issue925-volume-segment-direct-light-research.md.
+// ---------------------------------------------------------------------------
+
+// Exact per-λ transmittance over [tMin,tMax] through every bounded medium the
+// ray crosses (homogeneous: Beer-Lambert; grid: ratio tracking).
+inline astroray::SampledSpectrum segmentTransmittanceSpectral(
+        const std::vector<BoundedMedium>& media, const Vec3& o, const Vec3& d,
+        float tMin, float tMax, const astroray::SampledWavelengths& wl, std::mt19937& gen) {
+    astroray::SampledSpectrum Tr(1.0f);
+    for (const auto& m : media) {
+        float s0, s1;
+        if (intersectAABB(o, d, m.aabbMin, m.aabbMax, tMin, tMax, s0, s1))
+            Tr *= ratioTrackingTransmittanceSpectral(m, o, d, s0, s1, wl, gen);
+    }
+    return Tr;
+}
+
+// One-sample MIS distance on [a,b] (b may be +inf) for the segment direct
+// light: equiangular about `anchor` (a sampled light point) vs a lane mixture of
+// truncated exponentials with per-λ rate `rate`, each picked with probability
+// 1/2, weighted 2·power_heuristic / pdf (Cycles volume_direct_scatter_mis).
+// Without an anchor (distant light) only the exponential runs. w == 0 => none.
+struct SegmentDirectSample {
+    float t = 0.0f;
+    float w = 0.0f;  // MIS weight / pdf
+};
+inline SegmentDirectSample sampleSegmentDirect(const Vec3& o, const Vec3& d, float a, float b,
+                                               bool hasAnchor, const Vec3& anchor,
+                                               const astroray::SampledSpectrum& rate,
+                                               std::mt19937& gen) {
+    std::uniform_real_distribution<float> u(0.0f, 1.0f);
+    constexpr int kN = astroray::kSpectrumSamples;
+    SegmentDirectSample out;
+    const bool finite = std::isfinite(b) && b < 1e18f;
+    const float L = finite ? b - a : std::numeric_limits<float>::infinity();
+    if (!(L > 0.0f)) return out;
+    // Lanes whose truncated exponential is a proper pdf on [a,b].
+    int valid[kN];
+    int nValid = 0;
+    for (int i = 0; i < kN; ++i)
+        if (rate[i] > 1e-12f || finite) valid[nValid++] = i;
+    auto pdfDist = [&](float t) {
+        if (nValid == 0) return 0.0f;
+        float s = 0.0f;
+        for (int k = 0; k < nValid; ++k) {
+            float r = rate[valid[k]];
+            if (r <= 1e-12f) { s += 1.0f / L; continue; }
+            float norm = finite ? -std::expm1(-r * L) : 1.0f;
+            s += r * std::exp(-r * (t - a)) / norm;
+        }
+        return s / float(nValid);
+    };
+    // Equiangular (Kulla & Fajardo 2012 Eq. 6-7): t = tc + D tan θ.
+    const float tc = (anchor - o).dot(d);
+    const float D = std::max((anchor - (o + d * tc)).length(), 1e-4f);
+    const float thA = std::atan2(a - tc, D);
+    const float thB = finite ? std::atan2(b - tc, D) : 1.5707962f;
+    const bool eqOk = hasAnchor && thB - thA > 1e-7f;
+    auto pdfEq = [&](float t) {
+        if (!eqOk || t < a || t > b) return 0.0f;
+        float dt = t - tc;
+        return D / ((thB - thA) * (D * D + dt * dt));
+    };
+    const bool distOk = nValid > 0;
+    if (!eqOk && !distOk) return out;
+    const bool both = eqOk && distOk;
+    const bool pickEq = both ? (u(gen) >= 0.5f) : eqOk;
+    float t;
+    if (pickEq) {
+        float th = thA + u(gen) * (thB - thA);
+        t = tc + D * std::tan(th);
+    } else {
+        int c = valid[std::min(int(u(gen) * nValid), nValid - 1)];
+        float r = rate[c], xi = u(gen);
+        if (r <= 1e-12f) t = a + xi * L;
+        else t = a - std::log1p(-xi * (finite ? -std::expm1(-r * L) : 1.0f)) / r;
+    }
+    if (!(t >= a && t <= b) || !std::isfinite(t)) return out;
+    float pc = pickEq ? pdfEq(t) : pdfDist(t);
+    if (!(pc > 0.0f)) return out;
+    out.t = t;
+    if (both) {
+        float po = pickEq ? pdfDist(t) : pdfEq(t);
+        out.w = 2.0f * pc / (pc * pc + po * po);  // 2·pc²/(pc²+po²) / pc
+    } else {
+        out.w = 1.0f / pc;
+    }
+    return out;
 }
 
 }  // namespace volume

@@ -42,11 +42,11 @@ pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray module not avail
 LMIN, LMAX = 360.0, 830.0
 
 # Fitted logistic-CDF constants — MUST match spectrum.cpp / stage_init.cu.
-# (Reproduce with scripts/data/fit_hero_luminance_cdf.py.)
-A = 0.0221679280
-X0 = 552.040271
-Y0 = 0.0139650380
-N = 0.9839309253
+# (Reproduce with scripts/data/fit_hero_luminance_cdf.py --minimax.)
+A = 0.0170
+X0 = 522.5
+Y0 = 0.0593845670
+N = 0.9352771573
 
 
 def _logistic(lam):
@@ -204,3 +204,44 @@ def test_unbiased_matches_uniform_and_lower_variance():
     # Convergence win: importance variance is lower for this luminance-shaped
     # integrand (the whole point of the package).
     assert imp.var() < unif.var(), (imp.var(), unif.var())
+
+
+def _grey_floor(gpu, seed, spp=64):
+    r = astroray.Renderer()
+    if gpu:
+        try:
+            r.set_use_gpu(True)
+        except Exception as e:  # noqa: BLE001 - CPU-only build
+            pytest.skip("GPU unavailable: %s" % e)
+        if not getattr(r, "gpu_available", False):
+            pytest.skip("gpu_available is False")
+    r.set_integrator("path_tracer")
+    r.set_adaptive_sampling(False)
+    r.set_background_color([0.0, 0.0, 0.0])
+    g = r.create_material("lambertian", [0.5, 0.5, 0.5], {})
+    r.add_triangle([-20, -20, 0], [20, -20, 0], [20, 20, 0], g)
+    r.add_triangle([-20, -20, 0], [20, 20, 0], [-20, 20, 0], g)
+    r.add_spot_light_dedicated([0, 0, 7.5], [0, 0, -1], 0.6, 0.7,
+                               {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 12000.0, 0.0)
+    r.setup_camera([0, 0, 10], [0, 0, 0], [0, 1, 0], 20.0, 1.0, 0.0, 10.0, 32, 32)
+    r.set_seed(seed)
+    img = np.asarray(r.render(spp, 1, None, False), dtype=np.float64)
+    return img.reshape(32, 32, 3)[8:24, 8:24]
+
+
+@pytest.mark.parametrize("gpu", [False, True], ids=["cpu", "gpu"])
+def test_grey_floor_channel_variance_balanced(gpu):
+    """#848 follow-up: a white-spot-lit grey floor's noise is purely spectral
+    (point light, flat floor). The old luminance-fit proposal gave B nv@64 0.0154
+    vs R 0.0013 (11.6x); the minimax constants give ~0.0030 / 0.0019 (analytic
+    per-sample 0.193 / 0.121). G is excluded from the ratio: its sRGB row
+    nearly cancels on a D65 grey, so its nv is ~0 under any logistic proposal.
+    Means are unchanged (unbiased): grey 0.5 under white stays neutral at the
+    pre-change CPU mean 2.664."""
+    px = np.stack([_grey_floor(gpu, 1000 + s) for s in range(12)]).reshape(12, -1, 3)
+    mu = px.mean(0)
+    nv = (px.var(0, ddof=1) / mu ** 2).mean(0)
+    mean = px.mean((0, 1))
+    assert nv.max() < 0.0045, nv
+    assert max(nv[0], nv[2]) / min(nv[0], nv[2]) < 2.0, nv
+    np.testing.assert_allclose(mean, 2.664, rtol=0.01)

@@ -172,6 +172,10 @@ inline bool runSMSAttempt(const Renderer& renderer,
     Vec3 wi_in = -wi_x0;
     Vec3 nEntry = R.n1;
     float cosI = -wi_in.dot(nEntry);
+    // #888: same side test as runSMSAttemptPoly. A converged vertex facing x0
+    // (cosI < 0) made Schlick 1 - F = 1 - F0 - (1-F0)(1-cosI)^5 negative
+    // (down to -29): negative contributions and a negative sms_energy.
+    if (cosI <= 0.0f) return false;  // vertex faces away from x0
     float sin2T = eta * eta * std::max(0.0f, 1.0f - cosI * cosI);
     if (sin2T >= 1.0f) return false;  // TIR (wavelength-specific)
     Vec3 refracted = wi_in * eta + nEntry * (eta * cosI - std::sqrt(1.0f - sin2T));

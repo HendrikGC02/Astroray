@@ -32,6 +32,13 @@ SpotLight::SpotLight(const Vec3& position,
     // Compute normalize factor using geometric normalization (Cycles parity).
     // For point/spot lights, pass area=1.0 (normalize factor is just 1/pi).
     normalizeFactor_ = Light::computeNormalizeFactor(1.0f, true);
+    // #878: emission_rgb (ReSTIR target, RGB re-upsample consumers) must not
+    // depend on the path's hero wavelengths: a 4-lambda toXYZ estimate
+    // re-upsampled at the same lambdas is biased (CPU restir-di sun cast).
+    // Non-RGB modes (blackbody/measured): refRGB_ is an sRGB approximation that
+    // RGB consumers re-upsample as a D65 illuminant; emission_spec stays exact.
+    bool exactRGB = false;
+    emission_.deviceReference(refRGB_, exactRGB);
     // pkg276: default IES frame (no light object known): local -Z = axis.
     iesFz_ = -axis_;
     buildOrthonormalBasis(iesFz_, iesFx_, iesFy_);
@@ -105,17 +112,11 @@ void SpotLight::sampleLi(LiSample& sample,
     // path). The prior 1/π was 4× too large. Apache-2.0.
     constexpr float kInvFourPiF = 0.07957747155f;  // 1/(4π)
     SampledSpectrum emissionSpec = emission_.eval(lambdas);
-    emissionSpec *= (intensity_ * kInvFourPiF * falloff * angleFalloffFactor * iesModulation);
+    const float scale = intensity_ * kInvFourPiF * falloff * angleFalloffFactor * iesModulation;
+    emissionSpec *= scale;
 
     sample.emission_spec = emissionSpec;
-
-    // Convert to RGB.
-    XYZ xyz = emissionSpec.toXYZ(lambdas);
-    sample.emission_rgb = Vec3(
-        3.2404542f * xyz.X - 1.5371385f * xyz.Y - 0.4985314f * xyz.Z,
-        -0.9692660f * xyz.X + 1.8760108f * xyz.Y + 0.0415560f * xyz.Z,
-        0.0556434f * xyz.X - 0.2040259f * xyz.Y + 1.0572252f * xyz.Z
-    );
+    sample.emission_rgb = refRGB_ * scale;  // #878
 
     // pkg122: a radius-0 spot is a DELTA light (single direction to the source),
     // so pdf = 1 like the point light — the 1/d² falloff and cone attenuation are

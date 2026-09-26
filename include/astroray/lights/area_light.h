@@ -73,6 +73,7 @@ private:
     float            spread_;
     float            area_;            // cached at construction (Q2 resolution)
     float            normalizeFactor_;
+    Vec3             refRGB_;  // #878: wavelength-independent emission RGB
 
     // Helper: sample a point on the shape (uniform area sampling).
     Vec3 sampleSurface(std::mt19937& gen) const;

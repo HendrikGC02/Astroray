@@ -280,6 +280,7 @@ __device__ inline bool runSMSAttemptDevice(
     GVec3 wi_in = -wi_x0;
     GVec3 nEntry = R.n1;
     float cosI = -wi_in.dot(nEntry);
+    if (cosI <= 0.0f) return false;  // #888: mirrors sms_attempt.h (1-F < 0)
     float sin2T = eta * eta * fmaxf(0.0f, 1.0f - cosI * cosI);
     if (sin2T >= 1.0f) return false;  // TIR (wavelength-specific)
     GVec3 refracted = wi_in * eta + nEntry * (eta * cosI - sqrtf(1.0f - sin2T));

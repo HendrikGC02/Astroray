@@ -201,11 +201,16 @@ private:
             const bool camLamp = (bounce == 0) && lights.hasCameraVisibleDedicated();
             if ((camLamp || (enableNEE_ && bounce > 0)) &&
                 !lights.getDedicatedLights().empty()) {
+                // pkg288: lamps add and the ray continues (Cycles shade_light).
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
+                float lampTMin = 0.001f;
                 astroray::Light::Intersection lh;
                 const astroray::Light* hitLamp = nullptr;
-                if (lights.intersectDedicated(ray.origin, ray.direction, 0.001f,
-                                              surfaceT, lambdas, lh, bounce == 0, &hitLamp)) {
+                for (int k = 0; k < 4 &&
+                                lights.intersectDedicated(ray.origin, ray.direction, lampTMin,
+                                                          surfaceT, lambdas, lh, bounce == 0, &hitLamp);
+                     ++k) {
+                    lampTMin = lh.t;
                     if (!lh.emission.isZero()) {
                         if (bounce == 0 || wasSpecular) {
                             color += throughput * lh.emission;
@@ -217,7 +222,6 @@ private:
                             color += throughput * lh.emission * wB;
                         }
                     }
-                    break;  // path terminates on the lamp
                 }
             }
 

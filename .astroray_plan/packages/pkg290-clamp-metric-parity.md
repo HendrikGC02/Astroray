@@ -2,7 +2,7 @@
 
 **Pillar:** 2
 **Track:** A
-**Status:** open
+**Status:** blocked — neither fork closes the gap: excess loss is on phase-sampled lamp hits (MIS allocation / area-light + tree sampling in media), see pkg144 research note §pkg290
 **Estimated effort:** 1 session (~3 h) + GPU build
 **Depends on:** pkg144
 
@@ -101,7 +101,7 @@ clamp-off and miss what users see.
 
 ## Progress
 
-- [ ] Histograms + fork decision.
+- [x] Histograms + fork decision (sweep proxy; `test_results/pkg290/clamp_sweep.txt`): metric change rejected, blocked on sampling.
 - [ ] Metric change CPU + GPU + tests.
 - [ ] Re-pins.
 

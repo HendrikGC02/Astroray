@@ -2,7 +2,7 @@
 
 **Pillar:** 2
 **Track:** A
-**Status:** open
+**Status:** done — CPU gates pass (NEE on/off 0.4 %, Cycles ±0.2 %); GPU gates run after the lead's build
 **Estimated effort:** 1 session (~3 h) + GPU build
 **Depends on:** pkg181
 
@@ -101,12 +101,15 @@ scoped, and a precondition for pkg284's light-tree scene gates.
 
 ## Progress
 
-- [ ] CPU continuation + test (a)(b)(c).
-- [ ] GPU intersect-stage continuation + naive-mode twin.
-- [ ] Re-pins.
+- [x] CPU continuation + test (a)(b)(c) (pathTraceSpectral, caustic kernel, MW tracer, CPU wavefront twin).
+- [x] GPU intersect-stage continuation (written; build + GPU gates pending).
+- [x] Re-pins: #912 lamps case gates all channels; no other lamp test moved.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- Point/spot lamps are NEE-only (pkg181), so test (a) uses two area lamps.
+- Naive mode: pathTraceSpectral NEE-off and the GPU `c_wfLightNeeOff` path already add lamp hits at w_B = 1 (#877). The MW tracer's naive mode still drops even post-specular lamp hits while the GPU naive branch keeps them: untouched here (pkg156 oracle contract).
+- The fixed-tMin re-query (no origin shift) is exact for one-sided planar lamps and the sun; see `docs/pkg288-lamp-passthrough-research.md`.
+- The Blender addon leg of scene (a) renders 0.85 of Cycles before and after this change while the engine-direct scene matches Cycles: an addon-export discrepancy, not pkg288.

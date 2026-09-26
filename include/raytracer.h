@@ -3459,17 +3459,62 @@ public:
             // pkg271: a terminate-after path (volume_bounces exhausted) does not
             // scatter in the fog; it takes the Stage-1 absorption path instead.
             const bool fogScatter = mediumScatters && !volTerminateAfter;
+
+            // pkg181: dedicated-light visibility to BSDF rays (Cycles
+            // lights_intersect parity). Lamps are invisible to camera rays
+            // (bounce == 0) — only indirect/BSDF continuation rays see them.
+            // #903: a cameraVisible lamp (sky sun disc) is also hit at bounce 0.
+            // pkg288 (#915): a lamp hit is NOT a path vertex. Cycles
+            // integrator_shade_light (kernel/integrator/shade_light.h, Apache-2.0)
+            // adds the lamp's MIS-weighted emission and re-intersects the SAME ray
+            // from tmin = t_lamp (bounce, throughput and MIS state untouched). Here
+            // every lamp on [0.001, surfaceT) is accumulated in t order (the strict
+            // tMin of Light::intersect skips the lamp just added), then the segment
+            // continues to the surface / env. Runs BEFORE the fog free flight, which
+            // no longer stops at lamps: each lamp's emission carries Tr(lh.t)
+            // explicitly (unbiased: the lamp term is estimated deterministically,
+            // the in-scatter and surface terms by the free flight). Grid media
+            // (block above) are unchanged. Capped at kMaxLampPassthrough (GPU twin).
+            if (!lights.getDedicatedLights().empty() &&
+                (bounce > 0 || lights.hasCameraVisibleDedicated())) {
+                constexpr int kMaxLampPassthrough = 4;
+                float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
+                float lampTMin = 0.001f;
+                astroray::Light::Intersection lh;
+                const astroray::Light* hitLamp = nullptr;
+                for (int k = 0; k < kMaxLampPassthrough &&
+                                lights.intersectDedicated(ray.origin, ray.direction, lampTMin,
+                                                          surfaceT, lambdas, lh, bounce == 0, &hitLamp);
+                     ++k) {
+                    lampTMin = lh.t;
+                    if (lh.emission.isZero()) continue;
+                    // pkg199 role 3: attenuate over the origin→lamp segment (lh.t).
+                    // Vacuum / distant sentinel: Tr == 1 (guarded).
+                    astroray::SampledSpectrum lampEmission =
+                        hasWorldVolume ? lh.emission * worldTransmittanceSpectral(lh.t, lambdas)
+                                       : lh.emission;
+                    // pkg198: continuation-ray lamp = <firstCat>_INDIRECT;
+                    // #903: the camera-visible sky disc is background.
+                    int lampPass = (bounce == 0) ? PASS_ENVIRONMENT
+                                                 : (firstCat < 0 ? 0 : firstCat) * 3 + 1;
+                    float wB = 1.0f;  // specular / NEE off (pkg265): no competing NEE leg
+                    if (!wasSpecular && lightNeeEnabled) {
+                        float lp = lights.pdfValue(ray.origin, ray.direction, misNormalPrev,
+                                                   nullptr, hitLamp);  // #912: this lamp only
+                        float bp = bsdfPdfPrev;
+                        wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
+                    }
+                    astroray::SampledSpectrum c =
+                        clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce - 1);
+                    color += c; addPass(lampPass, c);
+                }
+            }
+
             if (fogScatter) {
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
-                // Nearest terminating event: surface, or a hittable dedicated lamp
-                // closer than it (bounce>0). Env => FLT_MAX.
+                // pkg288: lamps are transparent; the free flight runs to the
+                // surface (env => FLT_MAX).
                 float termT = surfaceT;
-                if (bounce > 0 && !lights.getDedicatedLights().empty()) {
-                    astroray::Light::Intersection lhBound;
-                    if (lights.intersectDedicated(ray.origin, ray.direction, 0.001f,
-                                                  surfaceT, lambdas, lhBound))
-                        termT = lhBound.t;
-                }
                 astroray::SampledSpectrum sigmaT = worldSigmaT(lambdas);
                 int ch = std::min((int)(dist01(gen) * astroray::kSpectrumSamples),
                                   astroray::kSpectrumSamples - 1);
@@ -3570,7 +3615,7 @@ public:
                     weightSum += throughput.maxValue();
                     continue;
                 } else {
-                    // Reached the terminating event (surface / lamp / env): apply
+                    // Reached the terminating event (surface / env): apply
                     // Tr/pdf, pdf = avg_ch(Tr[ch]); the Stage-1 role-1 multiply below
                     // is then skipped (transmittance is already in throughput).
                     float pdf = 0.0f;
@@ -3580,58 +3625,6 @@ public:
                     if (pdf <= 0.0f) break;
                     throughput *= Tr;
                     throughput *= (1.0f / pdf);
-                }
-            }
-
-            // pkg181: dedicated-light visibility to BSDF rays (Cycles
-            // lights_intersect parity). Lamps are invisible to camera rays
-            // (bounce == 0) — only indirect/BSDF continuation rays see them. A
-            // lamp closer than the surface terminates the path; its emission
-            // feeds the SAME pkg120 two-sided-MIS term the emissive-Hittable
-            // path uses below (wB = 1 after a specular/delta bounce, where no
-            // NEE leg competes; power-heuristic otherwise). Fixes the systemic
-            // dim + dark lamp-reflections localized by pkg180 Phase 2.
-            // #903: a cameraVisible lamp (sky sun disc) is also hit at bounce 0.
-            if (!lights.getDedicatedLights().empty() &&
-                (bounce > 0 || lights.hasCameraVisibleDedicated())) {
-                float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
-                astroray::Light::Intersection lh;
-                const astroray::Light* hitLamp = nullptr;
-                if (lights.intersectDedicated(ray.origin, ray.direction, 0.001f,
-                                              surfaceT, lambdas, lh, bounce == 0, &hitLamp)) {
-                    if (!lh.emission.isZero()) {
-                        // pkg199 Stage 1 (role 3): the lamp is closer than the
-                        // surface, so throughput is not yet segment-attenuated;
-                        // attenuate the lamp's emission over the camera→lamp
-                        // segment (lh.t). Vacuum: Tr==1 (guarded), unchanged.
-                        // pkg199 Stage 2: in scatter mode the free-flight estimator
-                        // already applied Tr(termT=lh.t)/pdf to throughput, so the
-                        // lamp emission must NOT be re-attenuated here.
-                        astroray::SampledSpectrum lampEmission =
-                            (hasWorldVolume && !fogScatter)
-                                ? lh.emission * worldTransmittanceSpectral(lh.t, lambdas)
-                                : lh.emission;
-                        // pkg198: a lamp hit by a continuation ray is indirect light
-                        // (bounce > 0), folded into the first-bounce category's INDIRECT
-                        // pass (Cycles film_write_indirect_light).
-                        // #903: the camera-visible sky disc is background.
-                        int lampPass = (bounce == 0) ? PASS_ENVIRONMENT
-                                                     : (firstCat < 0 ? 0 : firstCat) * 3 + 1;
-                        if (wasSpecular || !lightNeeEnabled) {  // pkg265: NEE off -> w_B = 1
-                            astroray::SampledSpectrum c =
-                                clampContribSpectral(throughput * lampEmission, lambdas, bounce - 1);
-                            color += c; addPass(lampPass, c);
-                        } else {
-                            float lp = lights.pdfValue(ray.origin, ray.direction, misNormalPrev,
-                                                       nullptr, hitLamp);  // #912: this lamp only
-                            float bp = bsdfPdfPrev;
-                            float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
-                            astroray::SampledSpectrum c =
-                                clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce - 1);
-                            color += c; addPass(lampPass, c);
-                        }
-                    }
-                    break;  // path terminates on the lamp
                 }
             }
 
@@ -4205,15 +4198,18 @@ public:
             // below — a lamp only contributes after a specular/delta bounce
             // (wasSpecular, wB = 1). Non-specular diffuse lamp hits stay NEE-only
             // here (unchanged); the production pathTraceSpectral does the full MIS.
+            // pkg288: the ray continues past lamps (Cycles shade_light), as there.
             if (bounce > 0 && wasSpecular && !lights.getDedicatedLights().empty()) {
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
+                float lampTMin = 0.001f;
                 astroray::Light::Intersection lh;
-                if (lights.intersectDedicated(ray.origin, ray.direction, 0.001f,
-                                              surfaceT, lambdas, lh)) {
+                for (int k = 0; k < 4 && lights.intersectDedicated(ray.origin, ray.direction,
+                                                                   lampTMin, surfaceT, lambdas, lh);
+                     ++k) {
+                    lampTMin = lh.t;
                     if (!lh.emission.isZero()) {
                         color += clampContribSpectral(throughput * lh.emission, lambdas, bounce);
                     }
-                    break;
                 }
             }
 

@@ -98,7 +98,7 @@ def _gpu_available() -> bool:
 
 def _build_glass_sphere(use_gpu: bool, photons: bool = True, lamp: str = "white",
                         sun_irradiance=None, sun_angle=None, pane=False,
-                        lamp2=False, reflective=True):
+                        lamp2=False, reflective=True, refractive=True):
     """Glass-sphere focused caustic — the in-scope GPU caustic scene.
 
     Mirrors benchmarks/reference_bank/scenes/glass-sphere-caustic/scene.py but at
@@ -168,10 +168,13 @@ def _build_glass_sphere(use_gpu: bool, photons: bool = True, lamp: str = "white"
                 r.add_triangle(a, c, b, pg); r.add_triangle(a, d, c, pg)
             else:
                 r.add_triangle(a, b, c, pg); r.add_triangle(a, c, d, pg)
-    if lamp2:  # #909: a second (non-aimed) sphere lamp; its ball caustic is path traced
-        r.add_point_light([0.0, 1.6, -1.0], {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 40.0, 0.25)
+    if lamp2:  # #909/pkg287: an emissive-mesh lamp (not a photon source); its ball
+        # caustic stays path traced. L = I / (pi r^2) of the former 40 W r 0.25 lamp.
+        r.add_sphere([0.0, 1.6, -1.0], 0.25,
+                     r.create_material("light", [1.0, 1.0, 1.0],
+                                       {"intensity": 40.0 / (4 * math.pi) / (math.pi * 0.0625)}))
 
-    r.set_use_refractive_caustics(True)
+    r.set_use_refractive_caustics(refractive)
     r.set_use_reflective_caustics(reflective)
 
     if use_gpu:
@@ -198,6 +201,15 @@ def _build_glass_sphere(use_gpu: bool, photons: bool = True, lamp: str = "white"
     r.setup_camera([0.7, 1.1, 3.2], [0.50, -1.1, 0.0], [0.0, 1.0, 0.0],
                    42.0, WIDTH / HEIGHT, 0.0, 3.6, WIDTH, HEIGHT)
     return r
+
+
+# pkg286 re-pin: the photon caustic now carries physical flux, so the default
+# 6*Omega (~5e-4 W/m^2) sun leaves it black (CPU peak 0.0011, was display-
+# normalised to ~0.4). Caustic-magnitude gates use a 0.2 W/m^2 sun (CPU peak
+# ~0.48, floor median ~0.05) with reflective caustics off: the sun disc is now
+# bright (radiance ~2.5e3), and its path-traced glass reflections are fireflies
+# the photon map does not carry.
+_CAUSTIC_SUN = dict(sun_irradiance=0.2, reflective=False)
 
 
 def _render(r, samples: int, seed: int) -> np.ndarray:
@@ -264,8 +276,8 @@ def test_gpu_glass_sphere_caustic_parity(test_results_dir):
     if not _gpu_available():
         pytest.skip("CUDA GPU not available on this machine")
 
-    gpu_img = _render(_build_glass_sphere(use_gpu=True), SAMPLES, SEED)
-    cpu_img = _render(_build_glass_sphere(use_gpu=False), SAMPLES, SEED)
+    gpu_img = _render(_build_glass_sphere(use_gpu=True, **_CAUSTIC_SUN), SAMPLES, SEED)
+    cpu_img = _render(_build_glass_sphere(use_gpu=False, **_CAUSTIC_SUN), SAMPLES, SEED)
 
     # MANDATORY parent visual check: write both PNGs (memory
     # [[general-photon-loop-needs-solid-glass]] — the numeric gates pass on
@@ -407,8 +419,12 @@ def _caustic_contribution(seed: int):
     zero, so a frozen (pre-pkg220) photon map yields near-identical caustic
     contributions across seeds (diff_seed -> 0), while the decorrelated post-pkg220
     map keeps a clear per-seed difference — a wide, stable discrimination margin."""
-    on = _render(_build_glass_sphere(use_gpu=True, photons=True), _DECORR_SAMPLES, seed)
-    off = _render(_build_glass_sphere(use_gpu=True, photons=False), _DECORR_SAMPLES, seed)
+    # pkg286: OFF drops refractive caustics too — with physical flux its path-
+    # traced twin has the gather's mean, so ON - OFF would no longer isolate it.
+    on = _render(_build_glass_sphere(use_gpu=True, photons=True, **_CAUSTIC_SUN),
+                 _DECORR_SAMPLES, seed)
+    off = _render(_build_glass_sphere(use_gpu=True, photons=False, refractive=False,
+                                      **_CAUSTIC_SUN), _DECORR_SAMPLES, seed)
     contrib = on - off
     lum = _luminance(np.maximum(contrib, 0.0))
     h, w = lum.shape
@@ -476,8 +492,10 @@ def _caustic_contrib_lamp(seed: int, lamp: str):
     """Caustic radiance contribution (photon-caustics ON minus OFF at a fixed
     seed) for a given lamp — camera + direct-lighting noise cancels, leaving the
     photon-deposited caustic whose colour is set by the photon wavelengths."""
-    on = _render(_build_glass_sphere(use_gpu=True, photons=True, lamp=lamp), SAMPLES, seed)
-    off = _render(_build_glass_sphere(use_gpu=True, photons=False, lamp=lamp), SAMPLES, seed)
+    on = _render(_build_glass_sphere(use_gpu=True, photons=True, lamp=lamp, **_CAUSTIC_SUN),
+                 SAMPLES, seed)
+    off = _render(_build_glass_sphere(use_gpu=True, photons=False, lamp=lamp, refractive=False,
+                                      **_CAUSTIC_SUN), SAMPLES, seed)   # pkg286
     return on - off
 
 
@@ -528,7 +546,7 @@ def test_gpu_caustic_emission_line_color(test_results_dir):
 
     assert cs[0] > cs[1] > cs[2], (
         f"pkg221: sodium caustic not amber-ordered (r>g>b): rgb={cs}. The photon λ "
-        f"is not tracking the sodium SPD — check buildPhotonSpdCdf + the inverse-CDF draw."
+        f"is not tracking the sodium SPD — check photon_lights.h buildPhotonLights + the inverse-CDF draw."
     )
     assert warm_s >= 0.20, (
         f"pkg221: sodium caustic warm index {warm_s:.3f} < 0.20 — not a saturated "
@@ -560,11 +578,13 @@ def test_gpu_caustic_noise_falls_with_spp(test_results_dir):
         pytest.skip("CUDA GPU not available on this machine")
 
     def stack(spp):
-        return np.stack([_luminance(_render(_build_glass_sphere(use_gpu=True), spp, s))
+        return np.stack([_luminance(_render(_build_glass_sphere(use_gpu=True, **_CAUSTIC_SUN),
+                                            spp, s))
                          for s in _NOISE_SEEDS])
 
     lo, hi = stack(16), stack(256)
-    off = _luminance(_render(_build_glass_sphere(use_gpu=True, photons=False), 256, SEED))
+    off = _luminance(_render(_build_glass_sphere(use_gpu=True, photons=False, refractive=False,
+                                                 **_CAUSTIC_SUN), 256, SEED))   # pkg286
     contrib = hi.mean(axis=0) - off
     roi = contrib > 0.25 * float(np.percentile(contrib, 99.9))
     assert roi.sum() >= 50, f"caustic ROI too small ({int(roi.sum())} px)"
@@ -636,20 +656,20 @@ def test_gpu_photon_split_keeps_caustic_seen_through_glass(test_results_dir):
         f"(ON {e_on:.4f} vs OFF {e_off:.4f}).")
 
 
-def test_gpu_photon_split_keeps_non_aimed_light_caustic(test_results_dir):
-    """#909 review — the photon map carries only the aimed light. Here the 40 W
-    sphere lamp dominates, so it is aimed; the wide sun (0.2 rad) is not, and its
-    ball caustic must stay path traced. At one seed ON - OFF = gather - dropped,
-    and only aimed-lamp paths are dropped, so the sun caustic cannot lose energy
-    (a blanket refractive cull removed it)."""
+def test_gpu_photon_split_keeps_non_photon_light_caustic(test_results_dir):
+    """#909 / pkg287 — every dedicated lamp now emits photons, but mesh emitters
+    do not. The ball caustic of an emissive-mesh lamp must stay path traced: at
+    one seed ON - OFF = gather - dropped, and only photon-lamp paths are dropped,
+    so it cannot lose energy (the dim sun is a photon source; re-pinned from the
+    pkg287-era 'non-aimed sun', which is now gathered like any lamp)."""
     if not _gpu_available():
         pytest.skip("CUDA GPU not available on this machine")
-    on, off = _on_off_same_seed(256, lamp2=True, sun_angle=0.2, sun_irradiance=0.5)
-    sun_caustic = off > 3.0 * float(np.median(off[off > 0]))
-    e_off = float(off[sun_caustic].sum())
-    e_on = float(on[sun_caustic].sum())
-    print(f"\n[#909 lamp2] sun caustic px={int(sun_caustic.sum())} OFF={e_off:.4f} ON={e_on:.4f}")
-    assert sun_caustic.sum() >= 20 and e_off > 0, "no path-traced sun caustic"
+    on, off = _on_off_same_seed(256, lamp2=True, sun_angle=0.2, sun_irradiance=1e-4)
+    mesh_caustic = off > 3.0 * float(np.median(off[off > 0]))
+    e_off = float(off[mesh_caustic].sum())
+    e_on = float(on[mesh_caustic].sum())
+    print(f"\n[#909 lamp2] mesh-lamp caustic px={int(mesh_caustic.sum())} OFF={e_off:.4f} ON={e_on:.4f}")
+    assert mesh_caustic.sum() >= 20 and e_off > 0, "no path-traced mesh-lamp caustic"
     assert e_on >= 0.99 * e_off, (
-        f"#909: non-aimed sun caustic lost energy with photons on "
+        f"#909: non-photon lamp caustic lost energy with photons on "
         f"(ON {e_on:.4f} vs OFF {e_off:.4f}).")

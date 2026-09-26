@@ -418,15 +418,22 @@ def test_sun_light_angle_controls_shadow_softness():
     assert mse > MIN_SUN_SHADOW_MSE, \
         f"Sun angle change should visibly alter shadows (MSE={mse:.6f}, min={MIN_SUN_SHADOW_MSE})"
 
-    sharp_luma = np.mean(sharp, axis=2)
-    soft_luma = np.mean(soft, axis=2)
-    roi = (slice(70, 130), slice(40, 160))
-    sharp_grad = np.abs(np.diff(sharp_luma[roi], axis=1))
-    soft_grad = np.abs(np.diff(soft_luma[roi], axis=1))
-    sharp_grad_mean = float(np.mean(sharp_grad))
-    soft_grad_mean = float(np.mean(soft_grad))
-    assert soft_grad_mean < sharp_grad_mean, \
-        f"Expected softer penumbra gradients for angle=0.05 ({soft_grad_mean:.6f} >= {sharp_grad_mean:.6f})"
+    # #848 follow-up re-pin: the old metric (mean |d luma/dx| over the ROI) was
+    # MC-noise dominated -- it barely moved with angle (0.05 -> 0.2) and flipped
+    # when the hero-lambda proposal cut spectral noise. Use the p99 edge gradient
+    # of a 5x5 box-blurred luma, normalised by the ROI mean (the disc sun is ~3%
+    # brighter than the delta sun): soft/sharp ~0.95 on 3 seeds.
+    def edge_grad(img):
+        luma = np.mean(img, axis=2)
+        p = np.pad(luma, 2, mode='edge')
+        blur = sum(p[2 + dy:2 + dy + luma.shape[0], 2 + dx:2 + dx + luma.shape[1]]
+                   for dy in range(-2, 3) for dx in range(-2, 3)) / 25.0
+        roi = blur[70:130, 40:160]
+        return float(np.percentile(np.abs(np.diff(roi, axis=1)), 99) / roi.mean())
+    sharp_edge = edge_grad(sharp)
+    soft_edge = edge_grad(soft)
+    assert soft_edge < sharp_edge, \
+        f"Expected softer penumbra gradients for angle=0.05 ({soft_edge:.4f} >= {sharp_edge:.4f})"
 
     save_image(sharp, os.path.join(OUTPUT_DIR, 'test_sun_shadow_sharp.png'))
     save_image(soft, os.path.join(OUTPUT_DIR, 'test_sun_shadow_soft.png'))

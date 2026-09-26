@@ -178,7 +178,10 @@ def test_pkg64_phase3_default_integrator_psnr_gain(test_results_dir):
     # caustic still forms, just lower in frame). The SMS mechanism is separately
     # guarded by test_pkg64_phase3_default_integrator_sms_fires (attempts/converged),
     # so here we only assert SMS does not regress receiver energy.
-    assert e_sms >= e_base, (
+    # #848 follow-up re-pin: over 4 disjoint 5-seed sets sms/base is
+    # 0.995-1.021 (old hero proposal) and 0.961-1.062 (minimax), i.e. >= 1 was
+    # a coin flip on MC noise. Gate a real regression: >= 0.94.
+    assert e_sms >= 0.94 * e_base, (
         f"SMS reduced receiver energy: sms {e_sms:.4f} < base {e_base:.4f}")
 
     # Soft gate: SMS at least matches the no-caustics path tracer in

@@ -67,7 +67,10 @@ struct VolumeEmission {
     void setup(float strength, const std::array<float, 3>& color, float bbIntensity,
                const std::array<float, 3>& tint) {
         emissionStrength = std::max(0.0f, strength);
-        blackbodyIntensity = std::clamp(bbIntensity, 0.0f, 1.0f);
+        // #908: NO upper clamp. Cycles svm_node_principled_volume (closure.h)
+        // uses the socket raw in mix(1, T⁴, I) and Blender stores values > 1
+        // (showcase fire: 3.0); clamping to 1 rendered it 3× dim (CPU + GPU).
+        blackbodyIntensity = std::max(0.0f, bbIntensity);
         std::array<float, 3> c = {std::max(0.0f, color[0]), std::max(0.0f, color[1]),
                                   std::max(0.0f, color[2])};
         emissionSpec = astroray::RGBIlluminantSpectrum(c);

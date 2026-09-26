@@ -51,7 +51,8 @@ struct PrincipledVolume {
     // "Emission Strength" x "Emission Color": constant radiance per unit length.
     float emissionStrength = 0.0f;
     std::array<float, 3> emissionColor = {1.0f, 1.0f, 1.0f};
-    // "Blackbody Intensity" (0..1, the mix(1, T^4, I) Stefan-Boltzmann weight)
+    // "Blackbody Intensity" (>= 0, unbounded above as in Cycles; the
+    // mix(1, T^4, I) Stefan-Boltzmann weight)
     // and "Blackbody Tint".
     float blackbodyIntensity = 0.0f;
     std::array<float, 3> blackbodyTint = {1.0f, 1.0f, 1.0f};

@@ -303,10 +303,10 @@ def build_volumes():
     sl._volume_object(bpy, scene, "Fire", paths["fire"], (-size - 0.2, -size / 2, 0.0), fire)
 
     # Fog slab behind the plumes (disjoint AABB) catches the light shafts.
-    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 4.0, 2.5))
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 4.0, 2.55))
     fog = bpy.context.active_object
     fog.name = "Fog"
-    fog.scale = (12.0, 3.0, 5.0)
+    fog.scale = (12.0, 3.0, 4.9)  # bottom 0.1 above ground: no coplanar faces
     fmat, nt, out = sl._bare_material(bpy, "FogMat")
     pv = nt.nodes.new("ShaderNodeVolumePrincipled")
     sl._sock(pv.inputs, "Density").default_value = 0.08

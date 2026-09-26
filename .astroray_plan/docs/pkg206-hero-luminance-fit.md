@@ -148,3 +148,45 @@ For the full band this reduces exactly to §4 (`lo = F(360) = kHeroY0`,
 `test_narrowed_band_unbiased_and_normalized` (pdf∫=1 and unbiased MC over
 [380,780]); render-level GPU-vs-CPU-uniform on the 380–780 band matches the
 B channel to 0.8 % (no blue bias). CPU↔GPU stay byte-mirrored (`heroCdf`/`gHeroCdf`).
+
+## 7. Minimax re-fit (#848 follow-up, 2026-09-27) — supersedes §4 constants
+
+**Problem.** A white-spot-lit grey floor (no medium) is noise-free except for
+wavelength sampling. Under §4's luminance fit its blue channel had nv@64 0.0154
+vs red 0.0013 (11.6×); Cycles (RGB) has none. The luminance proposal starves
+the z̄-dominated 420–480 nm band. The plain 2° re-fit #848 asked for
+(a 0.0223367, x0 555.72) shifts it redder and makes blue *worse* (1.10 vs 0.94).
+
+**References.** pbrt-v4 `src/pbrt/util/sampling.h::{SampleVisibleWavelengths,
+VisibleWavelengthsPDF}` (Apache-2.0): pdf ∝ 1/cosh²(0.0072(λ−538)), which is
+exactly the logistic density with a = 0.0144, x0 = 538 — our family. pbrt
+attributes the visible-wavelength proposal to Radziszewski, Boryczko, Alda 2009,
+"An improved technique for full spectral rendering", J. WSCG 17. Hero +
+per-lane pdf: Wilkie et al. 2014 (§3). No new construction: only (a, x0) change.
+
+**Criterion.** Exact variance of the 4-lane CDF-stratified estimator (integrated
+over u) for a D65-lit grey surface in linear sRGB; pick (a, x0) on a
+0.0005 × 2.5 nm grid minimising the worst channel nv subject to luminance nv ≤
+the §4 constants'. `python scripts/data/fit_hero_luminance_cdf.py --minimax`
+→ **kHeroA 0.0170, kHeroX0 522.5 nm**. A tabulated D65·(αx̄+βȳ+γz̄) proposal
+was also optimised: under the same luminance budget it is no better than the
+logistic (max nv 0.197 vs 0.193); equalising all channels (0.072) costs 24×
+luminance variance. So the logistic stays (no GPU table).
+
+Per-sample nv, grey D65 (analytic; the CPU render at 64 spp matched to ~3 %):
+
+| proposal | R | G | B | lum |
+|---|---|---|---|---|
+| uniform | 0.606 | 0.173 | 0.669 | 0.0219 |
+| §4 luminance fit (a .02217, x0 552.0) | 0.083 | 0.020 | 0.943 | 0.0012 |
+| #848 2° refit (a .02234, x0 555.7) | 0.073 | 0.022 | 1.103 | 0.0010 |
+| (ȳ+1)·D65 fit, larger floor (a .0162, x0 556.1) | 0.004 | 0.004 | 0.644 | 0.0003 |
+| pbrt-v4 visible (a .0144, x0 538) | 0.023 | 0.001 | 0.340 | 0.0013 |
+| **minimax (a .0170, x0 522.5)** | 0.121 | 0.007 | 0.193 | 0.0011 |
+
+Tradeoff (scenario suite: D65, 3000 K, 10000 K, red/blue/green-filtered D65;
+worst-channel var / lum², geomean vs §4): stratified 0.81×, luminance 1.06×,
+hero-collapsed (dispersion) 0.97×. Blue/cool scenes gain 3–5×; red-filtered
+D65 and 3000 K get worse in G (0.65→3.3, 0.10→0.37) — the price of the bluer
+centre. Estimator stays unbiased (per-lane pdf = own density; means unchanged).
+Gate: `test_pkg206_hero_importance_sampling.py::test_grey_floor_channel_variance_balanced`.

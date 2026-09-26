@@ -51,6 +51,8 @@ AreaLight::AreaLight(const Vec3& position,
     // #878: emission_rgb (ReSTIR target, RGB re-upsample consumers) must not
     // depend on the path's hero wavelengths: a 4-lambda toXYZ estimate
     // re-upsampled at the same lambdas is biased (CPU restir-di sun cast).
+    // Non-RGB modes (blackbody/measured): refRGB_ is an sRGB approximation that
+    // RGB consumers re-upsample as a D65 illuminant; emission_spec stays exact.
     bool exactRGB = false;
     emission_.deviceReference(refRGB_, exactRGB);
 }

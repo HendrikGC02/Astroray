@@ -103,11 +103,12 @@ SampledWavelengths SampledWavelengths::sampleUniform(float u,
 // pkg206 — Luminance-weighted hero-wavelength importance sampling.
 //
 // Draws the hero wavelength (and its stratified companions) from a logistic
-// (sigmoid) CDF fitted to Astroray's luminance-weighted D65 target,
-// (y_bar + 0.25)*D65 against the CIE-1964 10-degree observer (the pre-#767
-// table; the engine now uses CIE 1931 2deg, re-fit is variance-only: #848), instead of
-// uniformly. Wavelengths the eye sees strongly are sampled more often, cutting
-// chromatic noise on dispersive-caustic paths; each lane's pdf is the logistic
+// (sigmoid) CDF instead of uniformly. #848 follow-up: (a, x0) minimise the
+// WORST sRGB-channel variance of this 4-lane estimator on a D65-lit grey
+// surface, subject to luminance variance <= the old (y_bar+0.25)*D65 luminance
+// fit's (which left blue ~11x noisier than red). Same family as pbrt-v4
+// SampleVisibleWavelengths (1/cosh^2 == logistic density, a=0.0144, x0=538;
+// Radziszewski et al. 2009). Each lane's pdf is the logistic
 // density at its OWN wavelength (1/nm) so the MC estimator (toXYZ divides by
 // pdf) stays UNBIASED — only variance drops.
 //
@@ -125,10 +126,10 @@ SampledWavelengths SampledWavelengths::sampleUniform(float u,
 // BYTE-MIRRORED by the GPU twin sampleImportanceWavelength()
 // (src/gpu/wavefront/stage_init.cu). Constants and pdf formula MUST match.
 namespace {
-// Fitted logistic-CDF params of the (y_bar+0.25)*D65 luminance target, nm units.
-// (Full-band reference: F(360)=0.0139650, F(830)=0.9978960.)
-constexpr float kHeroA  = 0.0221679280f;  // 1/nm  (logistic steepness)
-constexpr float kHeroX0 = 552.040271f;    // nm    (luminance-weighted centre)
+// Logistic-CDF params, nm units (fit_hero_luminance_cdf.py --minimax).
+// (Full-band reference: F(360)=0.0593846, F(830)=0.9946617.)
+constexpr float kHeroA  = 0.0170f;  // 1/nm  (logistic steepness)
+constexpr float kHeroX0 = 522.5f;   // nm    (centre)
 
 // Logistic CDF F(lambda)=1/(1+exp(-a(lambda-x0))) of the fitted target. The
 // sampler WINDOWS this CDF to the actual [lambdaMin,lambdaMax] (draw in

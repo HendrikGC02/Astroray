@@ -7,6 +7,14 @@ CIE 1964 10 deg table. #767 moved the table to CIE 1931 2 deg, so re-running
 this script now fits 2 deg (kHeroA 0.0223367, kHeroX0 555.72 nm). The old
 constants stay an unbiased proposal; the re-fit is variance-only (#848).
 
+`--minimax` (#848 follow-up; the SHIPPED constants since 2026-09-27): the
+luminance fit leaves blue under-sampled (grey D65 floor: B normalised variance
+~11x R). This mode grid-searches the same logistic family (pbrt-v4
+SampleVisibleWavelengths is a member: a=0.0144, x0=538) for the (a, x0) that
+minimises the WORST sRGB-channel variance of the 4-lane CDF-stratified hero
+estimator on a D65-lit grey surface, subject to luminance variance <= the old
+constants'. Result: kHeroA 0.0170, kHeroX0 522.5 nm.
+
 Astroray carries the CIE 1964 10 deg observer + a normalized D65 SPD
 (src/spectrum.cpp, data/spectra/*.inc). Blender Cycles' merged dispersion PR
 draws the hero wavelength from a luminance-weighted D65 distribution fitted to a
@@ -61,7 +69,45 @@ def sigmoid(x, a, x0):
     return 1.0 / (1.0 + np.exp(-a * (x - x0)))
 
 
+def minimax() -> int:
+    """Worst-channel variance fit (see module docstring)."""
+    xyz = np.vstack([parse_array(CMF_INC, k) for k in ("kCieCmfX", "kCieCmfY", "kCieCmfZ")])
+    d65 = parse_array(D65_INC, "kD65Spd")
+    lam = np.arange(LMIN, LMAX + 0.5, STEP)
+    srgb = np.array([[3.2406, -1.5372, -0.4986], [-0.9689, 1.8758, 0.0415],
+                     [0.0557, -0.2040, 1.0570]])
+    rgb_d65 = (srgb @ xyz) * d65                       # grey surface under D65
+    lum_w = np.array([0.2126, 0.7152, 0.0722])
+    u = (np.arange(20000) + 0.5) / 20000 / 4           # 4 lanes stratified in CDF space
+
+    def nv(a, x0):
+        lo, hi = sigmoid(LMIN, a, x0), sigmoid(LMAX, a, x0)
+        est = 0.0
+        for i in range(4):
+            r = lo + (hi - lo) * (u + i / 4)
+            lam_i = x0 - np.log(1 / r - 1) / a
+            pdf = a * r * (1 - r) / (hi - lo)
+            est = est + np.vstack([np.interp(lam_i, lam, c) for c in rgb_d65]) / pdf
+        est /= 4
+        y = lum_w @ est
+        return est.var(1) / est.mean(1) ** 2, y.var() / y.mean() ** 2
+
+    _, lum0 = nv(0.0221679280, 552.040271)             # pre-minimax constants
+    best = None
+    for a in np.arange(0.010, 0.02405, 0.0005):
+        for x0 in np.arange(500.0, 560.05, 2.5):
+            ch, lum = nv(a, x0)
+            if lum <= lum0 and (best is None or ch.max() < best[0]):
+                best = (ch.max(), a, x0, ch, lum)
+    _, a, x0, ch, lum = best
+    print(f"kHeroA  = {a:.4f}f;  kHeroX0 = {x0:.1f}f;")
+    print(f"# grey-D65 per-sample nv RGB {np.round(ch, 4)}, lum {lum:.5f} (old {lum0:.5f})")
+    return 0
+
+
 def main() -> int:
+    if "--minimax" in sys.argv:
+        return minimax()
     ybar = parse_array(CMF_INC, "kCieCmfY")
     d65 = parse_array(D65_INC, "kD65Spd")
     assert ybar.size == d65.size == 471, (ybar.size, d65.size)

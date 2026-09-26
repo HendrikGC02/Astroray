@@ -156,6 +156,10 @@ def test_eumelanin_cross_section_matches_power_law():
 # across a small (melanin, redness) sweep instead of one accidental point — the
 # claim it defends is "the seam is engaged, not silently falling back to the RGB
 # triple", and a silent fallback would show 0% divergence EVERYWHERE.
+# #848 follow-up re-pin: converged (48 seeds x 384 spp) the divergence is only
+# 1.6-4.3% at all three points; the old > 5% gate passed on blue-channel MC
+# noise that the minimax hero proposal removed. Gate > 1% (same seed, so a
+# fallback gives ~0).
 # ---------------------------------------------------------------------------
 
 def _hair_channel_sums(img):
@@ -216,7 +220,7 @@ def test_spectral_melanin_distinct_and_red_dominant():
         print(f"  melanin={melanin} redness={redness}: rgb R/B={ra:.3f} "
               f"spectral R/B={rb_:.3f} rel={rel:.1%}")
 
-    assert max(divergences) > 0.05, (
+    assert max(divergences) > 0.01, (
         f"spectral R/B tracks the RGB-triple R/B to within {max(divergences):.1%} at "
         f"EVERY sampled (melanin, redness) point -- the spectral melanin seam appears "
         f"not engaged (it should follow the physical power law, not the Cycles RGB "

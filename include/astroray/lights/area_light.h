@@ -63,6 +63,8 @@ public:
 
     bool fillDeviceParams(DeviceLightParams& out) const override;  // pkg89-GPU
 
+    bool clipLitSegment(const Vec3& o, const Vec3& d, float& t0, float& t1) const override;  // #925
+
 private:
     Vec3             position_;
     Vec3             u_, v_, normal_;  // u × v = normal

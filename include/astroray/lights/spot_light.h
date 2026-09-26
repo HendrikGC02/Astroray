@@ -51,6 +51,8 @@ public:
 
     bool fillDeviceParams(DeviceLightParams& out) const override;  // pkg89-GPU
 
+    bool clipLitSegment(const Vec3& o, const Vec3& d, float& t0, float& t1) const override;  // #925
+
     // pkg276: the light object's frame (matrix_world 3x3 columns: local X, Y, Z
     // in world) for the IES lookup; Cycles evaluates IES in light-local space
     // (kernel/svm/ies.h). Without it a default frame is derived (see ctor).

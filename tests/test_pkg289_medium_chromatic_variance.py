@@ -74,9 +74,9 @@ def _assert_converges(gpu):
     np.testing.assert_allclose(nvs[256][1], _CYCLES_ROI_MEAN, rtol=0.06)
 
 
-def _assert_variance_vs_cycles(gpu):
+def _assert_variance_vs_cycles(gpu, channels=slice(None)):
     nv, _ = _roi_stats(gpu, 64)
-    assert np.all(nv <= _NV_FACTOR * _CYCLES_NV64), (
+    assert np.all(nv[channels] <= _NV_FACTOR * _CYCLES_NV64[channels]), (
         f"shaft normalized variance {nv} vs Cycles {_CYCLES_NV64} "
         f"(ratio {nv / _CYCLES_NV64})")
 
@@ -91,17 +91,27 @@ def test_913_shaft_variance_converges_gpu():
     _assert_converges(True)
 
 
-_XFAIL = pytest.mark.xfail(
-    strict=True,
-    reason="#913: medium direct light is sampled only at analog scatter vertices "
-           "(~100-500x Cycles' variance); needs per-segment equiangular+distance "
-           "NEE (Kulla & Fajardo 2012, Cycles shade_volume.h). Tracked in #925; fix PR un-xfails.")
+# #925 (CPU): per-segment equiangular+distance direct light brought R/G from
+# ~100x to ~2.5x Cycles. B stays ~7x: the pkg206 hero-λ pdf alone gives a
+# delta-lit diffuse floor (no medium) B nv 0.0155 at 64 spp; the #848 minimax
+# λ proposal brought B within the gate, so the full-channel test is live.
 
 
 @pytest.mark.cpu
-@_XFAIL
+def test_925_shaft_variance_rg_vs_cycles_cpu():
+    _assert_variance_vs_cycles(False, slice(0, 2))
+
+
+@pytest.mark.cpu
 def test_913_shaft_variance_vs_cycles_cpu():
     _assert_variance_vs_cycles(False)
+
+
+_XFAIL = pytest.mark.xfail(
+    strict=True,
+    reason="#913: GPU medium direct light is sampled only at analog scatter vertices "
+           "(~100-500x Cycles' variance); the CPU per-segment equiangular+distance "
+           "NEE (#925) is not yet mirrored on the GPU. GPU fix PR un-xfails.")
 
 
 @pytest.mark.gpu

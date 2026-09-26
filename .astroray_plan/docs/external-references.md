@@ -235,3 +235,4 @@ When in doubt, ask before adding a dependency.
 - Cycles 5.2 IES pipeline (Apache-2.0): util/ies.cpp IESFile::parse/process_type_c, kernel/util/ies.h kernel_ies_interp, kernel/svm/ies.h angle convention, kernel/light/spot.h spot_light_attenuation, scene/light.cpp spot_smooth: [pkg276 research](pkg276-ies-spot-research.md).
 - Blender sky MS model (MIT) + Cycles svm/sky.h sun-disc-in-background (Apache-2.0), glow azimuth + camera-visible disc: [#903 research](903-sky-sun-disc-glow-research.md).
 - Kerr BL polar-axis singularity: Cartesian Kerr-Schild chart near the axis (GRay2, Chan et al. 2018, arXiv:1706.07062; KS form Visser 2007, arXiv:0706.0622): [#897 research](kerr-axis-chart-research.md).
+- Kulla & Fajardo 2012 equiangular + distance one-sample MIS, per-segment volume direct light, absorption as weight (Cycles shade_volume.h, Apache-2.0): [#925 research](issue925-volume-segment-direct-light-research.md).

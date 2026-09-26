@@ -1,0 +1,37 @@
+pkg290 (#884) clamp sweep: geometry_zoo volume cabinet reduction (astra_run/ad1/make_cab.py),
+192x96, 512 spp, seed 278, vb4, CPU. Fraction of ROI energy removed vs clamp-off (sample_clamp_indirect=L).
+astro = Astroray addon, MinGW CPU build of feat/batch-ad-lamp-clamp-mis @0cf341de.
+
+== principled
+  Cycles, light tree on (authored)                 L1: 0.105  L3: 0.014  L10: 0.000  L30: 0.000
+  Cycles, light tree off                           L1: 0.171  L3: 0.076  L10: 0.005  L30: 0.000
+  Astroray, Y metric (current)                     L1: 0.248  L3: 0.181  L10: 0.049  L30: 0.000
+  Astroray, Y metric, power sampler                L1: 0.251  L3: 0.177  L10: 0.046  L30: 0.000
+  Astroray, Cycles metric sum|RGB| > 3L (fork a)   L1: 0.260  L3: 0.204  L10: 0.096  L30: 0.011
+== absorb
+  Cycles, light tree on (authored)                 L1: 0.017  L3: 0.006  L10: 0.000  L30: 0.000
+  Cycles, light tree off                           L1: 0.032  L3: 0.016  L10: 0.000  L30: 0.000
+  Astroray, Y metric (current)                     L1: 0.083  L3: 0.045  L10: 0.006  L30: 0.000
+  Astroray, Y metric, power sampler                L1: 0.090  L3: 0.048  L10: 0.009  L30: 0.000
+  Astroray, Cycles metric sum|RGB| > 3L (fork a)   L1: 0.093  L3: 0.056  L10: 0.015  L30: 0.000
+== scatter
+  Cycles, light tree on (authored)                 L1: 0.380  L3: 0.206  L10: 0.065  L30: 0.000
+  Cycles, light tree off                           L1: 0.446  L3: 0.318  L10: 0.165  L30: 0.000
+  Astroray, Y metric (current)                     L1: 0.503  L3: 0.415  L10: 0.204  L30: 0.002
+  Astroray, Y metric, power sampler                L1: 0.502  L3: 0.407  L10: 0.198  L30: 0.002
+  Astroray, Cycles metric sum|RGB| > 3L (fork a)   L1: 0.504  L3: 0.418  L10: 0.218  L30: 0.027
+
+Site ablation at L=10 (Astroray, one site left unclamped; fraction removed):
+  principled all=0.049  lamp-hit-unclamped=0.007  medium-NEE-unclamped=0.042  vol-emission-unclamped=0.049
+  absorb     all=0.006  lamp-hit-unclamped=0.001  medium-NEE-unclamped=0.005  vol-emission-unclamped=0.006
+  scatter    all=0.204  lamp-hit-unclamped=0.021  medium-NEE-unclamped=0.183  vol-emission-unclamped=0.204
+
+Clamp-off ROI noise (std of pixel minus 3x3 mean, / mean):
+  principled cycles           0.0283
+  principled cycles_ltoff     0.0526
+  principled astro_ad1        0.1138
+  principled astro_ad1_ltoff  0.1134
+  scatter    cycles           0.0532
+  scatter    cycles_ltoff     0.0739
+  scatter    astro_ad1        0.1008
+  scatter    astro_ad1_ltoff  0.0934

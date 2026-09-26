@@ -116,3 +116,30 @@ Python bindings (`module/blender_module.cpp`: `set_clamp_direct`/`set_clamp_indi
   as a follow-up (flagged in the PR body), consistent with "GPU parity if
   applicable... else note N/A" — the actual production twins (megakernels) are
   fixed; the dev-harness twins are not.
+
+## pkg290 (#884) fork decision — 2026-09-27: neither (a) nor (b)
+
+Evidence: `test_results/pkg290/clamp_sweep.txt` (cabinet reduction, clamp sweep
+L = 1/3/10/30 for both engines, light tree on/off, metric experiment, per-site
+ablation). Cycles exposes no per-sample dump, so the sweep curve is the
+histogram proxy (removed(L) is the tail integral of the per-sample Σ|RGB|).
+
+- **Fork (a) rejected.** Σ|RGB| ≥ Y for any non-negative colour, and Cycles
+  scales the user limit by 3 (`integrator.cpp`), so for grey light the two
+  metrics agree and for saturated light Cycles clamps *more*. Measured: the
+  Cycles metric raises Astroray's L10 loss (principled 4.9 → 9.6 %, scatter
+  20.4 → 21.8 %), and at L30 from 0.2 to 2.7 %: the RGB projection of a
+  4-lane spectral sample has noisy chromaticity that Σ|RGB| amplifies. Y stays.
+- **Fork (b) is a no-op as written.** Y already is the lane average of the
+  per-lane projections (`SampledSpectrum::toXYZ`).
+- **Root cause is estimator allocation, not the clamp.** Leaving only the
+  lamp-hit site unclamped removes ~90 % of the excess (scatter 20.4 → 2.1 %,
+  principled 4.9 → 0.7 %): phase-sampled rays hitting the 900 W backlight carry
+  more energy in Astroray (larger w_B) than in Cycles. Cycles' light tree alone
+  cuts its own loss 16.5 → 6.5 % (scatter); Astroray's tree changes nothing
+  (19.8 vs 20.4 %) and its clamp-off cube noise is 2-4x Cycles'. Candidate
+  causes: area-light NEE is area-uniform (Cycles: spherical-rectangle, Ureña
+  2013, `kernel/light/area.h`), so lp at a lamp hit is smaller; and the tree
+  pick at volume vertices is no better than power here. A clamp change cannot
+  reach the ≤ 2-point gate without biasing the clamp away from Cycles
+  semantics; pkg290 is blocked on a sampling package.

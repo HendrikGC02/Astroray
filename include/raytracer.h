@@ -2566,6 +2566,15 @@ class Renderer {
     // caustic renders (incl. the legacy SMS-GPU path) are unchanged; the photon-map scene
     // pre-pass + gather only runs when a caller explicitly opts in (set_use_photon_caustics).
     bool usePhotonCaustics = false;
+    // pkg286: GPU mirror of the path_tracer `caustic_boost` integrator param (an
+    // artistic multiplier on the physical photon caustic; set by the module).
+    float photonCausticBoost = 1.2f;
+    // pkg287 (#909 CPU twin): dedicated lamps that emit photons this frame. A
+    // BSDF ray from a bounce-0 receiver that crossed caster glass (in/out) and
+    // hits one of them drops its emission — the photon gather carries it
+    // (Jensen 1996 caustic/indirect split). Reset every render(); set by the
+    // photon-map integrator in beginFrame.
+    std::vector<const astroray::Light*> photonSplitLamps_;
     int renderSeed = 0;  // 0 = random (non-deterministic), non-zero = deterministic seed
     // #802 Batch A item 4 - Render Region pixel rect (top-down). Inactive by
     // default so every render is byte-identical unless the addon sets a border.
@@ -2856,6 +2865,10 @@ public:
     void setUseReflectiveCaustics(bool use) { useReflectiveCaustics = use; }
     void setUseRefractiveCaustics(bool use) { useRefractiveCaustics = use; }
     void setUsePhotonCaustics(bool use) { usePhotonCaustics = use; }
+    void setPhotonCausticBoost(float b) { photonCausticBoost = b; }  // pkg286
+    void setPhotonSplitLamps(std::vector<const astroray::Light*> v) {  // pkg287
+        photonSplitLamps_ = std::move(v);
+    }
     bool getUseReflectiveCaustics() const { return useReflectiveCaustics; }
     bool getUseRefractiveCaustics() const { return useRefractiveCaustics; }
     // pkg224 — progressive-sampler opt-in (GPU wavefront only).
@@ -2883,6 +2896,12 @@ public:
     }
     int getGuideDebugLeaves() const { return guideDbgLeaves_; }
     long long getGuideDebugRecords() const { return guideDbgRecords_; }
+    // pkg289 (#917) test hook: route pathTraceSpectral training records into
+    // `bufs` (indexed by OpenMP thread id; null = not learning).
+    void setGuideRecordBuffersForTest(
+            std::vector<std::vector<astroray::guiding::GuideRecord>>* bufs) {
+        guideRecordBufs_ = bufs;
+    }
     // Probe the last trained guide at world point p with N samples: returns the
     // mean sampled direction (mx,my,mz), its length (0=isotropic, 1=fully
     // concentrated), and the solid-angle pdf toward the target dir (tx,ty,tz).
@@ -2905,6 +2924,7 @@ public:
         pdfT = lastGuide_->pdfDir(p, tx, ty, tz);
     }
     bool getUsePhotonCaustics() const { return usePhotonCaustics; }
+    float getPhotonCausticBoost() const { return photonCausticBoost; }  // pkg286
     // pkg64 Phase 3 — per-object opt-in for SMS connection attempts. The
     // index is the order in which `addObject` was called (same order as
     // `getScene()`). Returns true on success.
@@ -3304,6 +3324,9 @@ public:
         bool hadDiffuseAncestor = false;
         const bool causticGateActive =
             !useReflectiveCaustics || !useRefractiveCaustics;
+        // pkg287 (#909): photon split chain, GPU GWavefrontPhotonSplit twin:
+        // bit0 live (bounce-0 receiver), bit1 passed glass, bit2 last frontFace.
+        unsigned photonChain = 0;
         auto addPass = [&](int passIdx, const astroray::SampledSpectrum& contrib) {
             if (outPasses) (*outPasses)[passIdx] += contrib;
         };
@@ -3321,7 +3344,14 @@ public:
         // pkg136 — per-vertex radiance records for SD-tree training. Only populated
         // during a guiding training pass (guideLearning()); replayed into the
         // per-thread record buffer at path end. Fixed stack storage (maxDepth small).
-        struct GuideVtx { Vec3 p; Vec3 w; float Csnap; float betaSnap; float pdf; };
+        // #917: snapshot SPECTRA, not luminances — a later hero-λ collapse changes
+        // the lane pdfs toXYZ divides by, so Csnap/betaSnap are resolved with the
+        // path's FINAL lambdas at replay (same measure as Yfinal).
+        struct GuideVtx {
+            Vec3 p; Vec3 w;
+            astroray::SampledSpectrum Csnap, betaSnap;
+            float pdf;
+        };
         GuideVtx gverts[64];
         int gvertCount = 0;
         // pkg199 Stage 2 — engage the scattering estimator only when the medium
@@ -3488,6 +3518,12 @@ public:
                      ++k) {
                     lampTMin = lh.t;
                     if (lh.emission.isZero()) continue;
+                    // pkg287 (#909): receiver -> glass (exited) -> a photon lamp is
+                    // already in the bounce-0 gather; drop it (no double count).
+                    if (bounce > 0 && photonChain == 3u &&
+                        std::find(photonSplitLamps_.begin(), photonSplitLamps_.end(),
+                                  hitLamp) != photonSplitLamps_.end())
+                        continue;
                     // pkg199 role 3: attenuate over the origin→lamp segment (lh.t).
                     // Vacuum / distant sentinel: Tr == 1 (guarded).
                     astroray::SampledSpectrum lampEmission =
@@ -3507,6 +3543,20 @@ public:
                     astroray::SampledSpectrum c =
                         clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce - 1);
                     color += c; addPass(lampPass, c);
+                }
+            }
+
+            // pkg287 (#909): advance the photon split chain with this hit — each
+            // later hit must be caster glass entered then exited in turn.
+            if (!photonSplitLamps_.empty()) {
+                const bool glass = didHit && rec.material && rec.material->isTransmissive();
+                if (bounce == 0) {
+                    photonChain = (didHit && rec.material && !rec.material->isEmissive() &&
+                                   !glass) ? 1u : 0u;
+                } else if (photonChain & 1u) {
+                    const bool expectFront = (photonChain & 2u) ? !(photonChain & 4u) : true;
+                    photonChain = (glass && rec.frontFace == expectFront)
+                        ? (3u | (rec.frontFace ? 4u : 0u)) : 0u;
                 }
             }
 
@@ -4113,9 +4163,7 @@ public:
             // came back along the sampled direction — exactly what the guide caches.
             // Non-delta only (guiding excludes Dirac lobes).
             if (guideLearning() && !wasSpecular && gvertCount < 64) {
-                gverts[gvertCount++] = GuideVtx{
-                    rec.point, bss.wi,
-                    color.toXYZ(lambdas).Y, throughput.toXYZ(lambdas).Y, bss.pdf};
+                gverts[gvertCount++] = GuideVtx{rec.point, bss.wi, color, throughput, bss.pdf};
             }
         }
         // pkg136 — replay the path's vertices into this thread's training buffer.
@@ -4127,11 +4175,12 @@ public:
 #endif
             auto& buf = (*guideRecordBufs_)[tid];
             for (int i = 0; i < gvertCount; ++i) {
-                float beta = gverts[i].betaSnap > 1e-8f ? gverts[i].betaSnap : 1e-8f;
+                const float betaY = gverts[i].betaSnap.toXYZ(lambdas).Y;  // #917
+                float beta = betaY > 1e-8f ? betaY : 1e-8f;
                 // L_i estimate = downstream/betaSnap. divPdf ⇒ splat L_i/pdf
                 // (radiance guiding, tree ≈ ∫L_i dω); else splat L_i (≈product
                 // guiding). Optional clamp caps outliers (esp. low-pdf blowups).
-                float val = (Yfinal - gverts[i].Csnap) / beta;
+                float val = (Yfinal - gverts[i].Csnap.toXYZ(lambdas).Y) / beta;
                 if (guideDivPdf_) {
                     float pdf = gverts[i].pdf > 1e-4f ? gverts[i].pdf : 1e-4f;
                     val /= pdf;
@@ -4613,6 +4662,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         }
         ensureDefaultIntegrator();
         buildAcceleration();
+        photonSplitLamps_.clear();   // pkg287: the photon integrator re-arms it
         if (integrator_) {
             integrator_->setMaxDepth(maxDepth);
             integrator_->beginFrame(*this, cam);

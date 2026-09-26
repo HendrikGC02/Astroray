@@ -2,7 +2,7 @@
 
 **Pillar:** 2
 **Track:** A
-**Status:** open
+**Status:** done — CPU gates pass (flux vs PT 1.00-1.07, centroid <0.2 px, oracle 0.991); GPU leg needs build + RTX run
 **Estimated effort:** 3 sessions (~9 h): CPU emitter + GPU emitter + aim/projection + tests
 **Depends on:** pkg286
 
@@ -106,12 +106,20 @@ this package makes the geometry right.
 
 ## Progress
 
-- [ ] `photon_emitter.h` + CPU emitter loop + test (CPU).
-- [ ] GPU aims array + kernel.
-- [ ] Showcase spot re-render + addon note.
+- [x] `photon_emitter.h` + CPU emitter loop + test (CPU).
+- [x] GPU: one launch per light (own SPD CDF, IES upload, RNG stream) instead of an
+      aim array; #909 split is a lamp bitmask. Awaiting build + RTX run.
+- [ ] Showcase spot re-render (lead, GPU). No "sun required" note existed in the addon.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The brute-force reference is the weak side for small sources: at 4096 spp a
+  point-like caustic was ~15 % low and drifting; the photons matched an
+  independent ball-lens trace to 1 % (radial fractions to 0.1 %). The test uses
+  16384 spp, a 0.2 rad sun, a 0.6 m area lamp and an r 0.3 emissive sphere as
+  the delta-lamp stand-in (intensity checked on the direct floor, 1.004).
+- The CPU had no #909 split; photon mode double-counted path-traced caustics of
+  hittable lamps (small-sun fireflies 728× p99.9). Now per-light on both backends.
+- Thick flat slabs lit by point/area lamps show TIR light-guide bands — real.

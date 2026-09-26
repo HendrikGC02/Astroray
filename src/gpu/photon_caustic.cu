@@ -3,8 +3,8 @@
 // The capstone: a once-per-frame forward photon trace through the UPLOADED
 // scene's caustic-caster glass (via the device BVH), depositing per-λ CIE flux
 // onto receivers, then a RESIDENT hash grid built from those deposits + a
-// calibrated gather radius/scale. The path-trace megakernel (path_trace_kernel.cu)
-// then gathers this grid at receiver hits.
+// calibrated gather radius (pkg286: physical photon flux, no brightness
+// calibration). The wavefront shade stage then gathers this grid at receiver hits.
 //
 // This is the device twin of the CPU pkg111 pre-pass
 // (plugins/integrators/spectral_path_tracer.cpp::buildPhotonMap, l.339-514): the
@@ -15,7 +15,7 @@
 //
 // Citations (CLAUDE.md §6; .astroray_plan/docs/pkg113-phase3-gather-wiring-research.md):
 //   Jensen 1996/2000 (photon map + §3.1 Eq. 8); Arvo 1986 (forward transport);
-//   Schlick 1994 (Fresnel); Sellmeier 1871 (n(λ), via gpu_dispersion.cuh);
+//   pbrt-v3 FrDielectric (exact Fresnel, pkg286); Sellmeier 1871 (n(λ), via gpu_dispersion.cuh);
 //   CIE 1931 2° CMF (data/spectra/cie_cmf.inc); pbrt-v3 sppm.cpp hash grid
 //   (BSD-2-Clause). Build = count/scan/scatter (same as photon_store.cu).
 
@@ -95,13 +95,6 @@ __device__ inline bool pc_refract(const GVec3& d, const GVec3& n, float eta, GVe
     return true;
 }
 
-// Schlick-Fresnel TRANSMITTANCE 1 - F (CPU :190-194 / photon_emission.cu).
-__device__ inline float pc_fresnelT(float cosi, float ior) {
-    float f0 = (1.0f - ior) / (1.0f + ior); f0 *= f0;
-    float fr = f0 + (1.0f - f0) * powf(fmaxf(0.0f, 1.0f - fabsf(cosi)), 5.0f);
-    return 1.0f - fr;
-}
-
 // Deterministic per-cell hash jitter (same as photon_emission.cu pe_jitter): the
 // forward trace draws λ + aperture-position from this so the trace is fully
 // reproducible (no curand state to manage in a pre-pass).
@@ -111,8 +104,8 @@ __device__ inline float pc_jitter(unsigned int cell, unsigned int salt) {
     return (h & 0x00FFFFFFu) * (1.0f / 16777216.0f);   // [0,1)
 }
 
-// pkg221: light-SPD CDF in constant memory (uploaded from aim.spdCdf when the
-// dominant light carries a usable SPD). 341 entries, 380..720 nm at 1 nm.
+// pkg221: light-SPD CDF in constant memory (uploaded per emitting light before
+// its launch, pkg287). 341 entries, 380..720 nm at 1 nm.
 __constant__ float g_spdCdf[341];
 
 // Device inverse-CDF sample — BYTE-MIRRORS the host photonSpdInverseCdf
@@ -161,22 +154,24 @@ __device__ inline float pc_iorAt(const GMaterial& m, float lambda) {
 }
 
 // --- Forward photon emission + bounce through the FULL scene BVH ----------------
-// One thread per aperture cell. Mirrors the CPU general BVH loop
-// (spectral_path_tracer.cpp:424-475): seed a collimated photon at the aperture,
-// march it through the scene refracting at transmissive hits (enter/exit by the
-// geometric-normal sign, Schlick transmittance accumulation, TIR reflect), and
-// deposit per-λ CIE flux · cosθ on the first diffuse (non-emissive,
-// non-transmissive) hit AFTER passing a caster. A cell that never deposits writes
-// power 0 (the host compacts survivors, like the CPU `photons` vector).
+// One thread per lattice cell of ONE light (pkg287: the host launches once per
+// emitting lamp). The cell's stratified (uA0, uA1) + jittered (uB0, uB1) feed the
+// shared emitter (photon_emitter.h peSampleLe: distant aperture / point-spot cone
+// / area surface + cone), and the photon carries physical flux
+// CMF(λ) · I_S · W / N (pkg286, Jensen 2001 §7.1). It is then marched through the
+// scene refracting at transmissive hits (enter/exit by the geometric-normal
+// sign, exact Fresnel transmittance, TIR reflect) and deposited on the first diffuse
+// (non-emissive, non-transmissive) hit AFTER passing a caster — the device twin
+// of the CPU general BVH loop (spectral_path_tracer.cpp buildPhotonMap). A cell
+// that never deposits writes power 0 (the host compacts survivors).
 __global__ void kEmitSceneCaustic(
     const GBVHNode*  bvhNodes,
     const GPrimitive* prims,
     const GTriangle*  tris,
     const GSphere*    spheres,
     const GMaterial*  materials,
-    GVec3 sunDir, GVec3 apOrigin, GVec3 apU, GVec3 apV, float apRadius,
-    int apertureN, float lambdaMin, float lambdaMax, int maxDepth,
-    unsigned int seed, int spdValid, float spdIntegral, GPhoton* out)
+    PhotonEmitter em, int apertureN, float invCount, int maxDepth,
+    unsigned int seed, float spdIntegral, GPhoton* out)
 {
     int gx = blockIdx.x * blockDim.x + threadIdx.x;
     int gy = blockIdx.y * blockDim.y + threadIdx.y;
@@ -187,26 +182,18 @@ __global__ void kEmitSceneCaustic(
     out[cell].incidentDir = GVec3(0.f);
     out[cell].lambda      = 0.f;
 
-    // Independent per-cell uniform λ (CPU: λ = lmin + (lmax-lmin)·u01). pkg220:
-    // XOR the per-iteration `seed` into the salt so each progressive iteration
-    // draws an independent λ + aperture position for this cell (decorrelated
-    // photon map per iteration → the caustic averages down). The pc_jitter hash
-    // is unchanged; XOR-ing the seed into distinct salts (1,2,101) keeps them
-    // distinct and well-mixed while the pre-pass stays stateless (no curand).
-    // pkg221: importance-sample λ ∝ the light SPD when a valid CDF was uploaded;
-    // else the pkg220 uniform draw. Same u either way (one jitter draw).
-    float uLam = pc_jitter(cell, 101u ^ seed);
-    float lambda = spdValid ? pc_spdInverseCdf(uLam)
-                            : lambdaMin + (lambdaMax - lambdaMin) * uLam;
-
-    // Jittered lattice point on the aperture disc → a collimated entry ray
-    // (CPU :426-428: ra,rb ∈ [-crad,crad]; here jittered into [-apRadius,apRadius]).
-    float jx = (gx + pc_jitter(cell, 1u ^ seed)) / float(apertureN);
-    float jy = (gy + pc_jitter(cell, 2u ^ seed)) / float(apertureN);
-    float a2 = (jx * 2.0f - 1.0f) * apRadius;
-    float b2 = (jy * 2.0f - 1.0f) * apRadius;
-    GVec3 o = apOrigin + apU * a2 + apV * b2;
-    GVec3 d = sunDir;
+    // pkg220: XOR the per-round `seed` into the jitter salts so every photon
+    // round traces an independent map. pkg221: λ ∝ the light SPD (inverse CDF).
+    float lambda = pc_spdInverseCdf(pc_jitter(cell, 101u ^ seed));
+    const float uA0 = (gx + pc_jitter(cell, 1u ^ seed)) / float(apertureN);
+    const float uA1 = (gy + pc_jitter(cell, 2u ^ seed)) / float(apertureN);
+    const float uB0 = pc_jitter(cell, 3u ^ seed);
+    const float uB1 = pc_jitter(cell, 4u ^ seed);
+    PeV3 po, pd;
+    const float w = peSampleLe(em, uA0, uA1, uB0, uB1, po, pd) * spdIntegral * invCount;
+    if (!(w > 0.0f)) return;
+    GVec3 o(po.x, po.y, po.z);
+    GVec3 d(pd.x, pd.y, pd.z);
 
     float tr = 1.0f;
     bool passedCaster = false;
@@ -232,7 +219,7 @@ __global__ void kEmitSceneCaustic(
             else                  { nf = ng * -1.0f; eta = ior; }         // exiting
             GVec3 nd;
             if (pc_refract(d, nf, eta, nd)) {
-                tr *= pc_fresnelT(d.dot(nf), ior);
+                tr *= peFresnelTransmit(d.dot(nf), eta);   // pkg286: exact Fresnel
                 d = nd;
             } else {
                 d = (d - nf * (2.0f * d.dot(nf))).normalized();           // TIR
@@ -242,19 +229,14 @@ __global__ void kEmitSceneCaustic(
             continue;
         }
 
-        // Diffuse receiver: deposit only on an L S+ D path (CPU :461).
+        // Diffuse receiver: deposit only on an L S+ D path (CPU :461). pkg286: no
+        // receiver cosine — the photon hit density already carries it.
         if (passedCaster && tr > 0.0f) {
-            // Lambert cosine (pkg111 addition, CPU :463): flux density ∝ cosθ.
-            float cosTheta = fabsf(rec.normal.dot(d));
             GVec3 cmf = pc_cieCmf(lambda);
-            // pkg221: with λ importance-sampled ∝ SPD (pdf = S/I), the S/p weight
-            // collapses to the constant I = spdIntegral; uniform λ keeps weight 1.
-            float wS = spdValid ? spdIntegral : 1.0f;
+            const float f = tr * w;
             out[cell].position    = rec.point;
             out[cell].incidentDir = d;
-            out[cell].power       = GVec3(cmf.x * tr * cosTheta * wS,
-                                          cmf.y * tr * cosTheta * wS,
-                                          cmf.z * tr * cosTheta * wS);
+            out[cell].power       = GVec3(cmf.x * f, cmf.y * f, cmf.z * f);
             out[cell].lambda      = lambda;
         }
         break;
@@ -287,27 +269,13 @@ __global__ void kScatter(const GPhoton* photons, int n, GAABB bounds,
     photonCellId[dst] = photonCellFlatten(cell[0], cell[1], cell[2], res);
 }
 
-// --- Calibration gather: estimate irradiance Y at a subsample of photons, so the
-// host can fix causticScale = boost/(π·peak_95). Mirrors the CPU peak sweep
-// (spectral_path_tracer.cpp:500-509). ---
-__global__ void kPeakGather(GPhotonGrid grid, int subStride, int subCount,
-                            float* outPeakY) {
-    int j = blockIdx.x * blockDim.x + threadIdx.x;
-    if (j >= subCount) return;
-    int pi = j * subStride;
-    if (pi >= grid.numPhotons) { outPeakY[j] = 0.f; return; }
-    int found = 0;
-    GVec3 e = photonGridGatherKnn(grid, grid.photons[pi].position, 50, 1.1f, found);
-    outPeakY[j] = e.y;   // adaptive k-NN cone estimate — same as the megakernel gather
-}
-
 // pkg113 Phase-3: per-photon k-th-nearest distance over the 27-cell neighborhood, so the
 // host can set the gather radius = 1.5 * median(kth) — the EXACT CPU calibration
 // (spectral_path_tracer.cpp:481-494). The CPU kNN is LOCAL/density-adaptive: in a focused
 // caustic the median k-th-nearest is dominated by the dense focal CORE (small radius). The
 // previous global-AABB mean-spacing instead used the whole-region (low) mean density, which
-// over-estimated the radius -> over-diffusion -> peak95 too small -> causticScale exploded
-// (~433x ROI energy). Run this on a grid built with a GENEROUS provisional radius so the 27
+// over-estimated the radius -> over-diffusion (then also a ~433x brightness error through
+// the pre-pkg286 peak calibration). Run this on a grid built with a GENEROUS provisional radius so the 27
 // cells contain >= K neighbours for the median (sparse-tail photons land above the median
 // and do not affect it).
 __global__ void kKthNearest(GPhotonGrid grid, int subStride, int subCount, int K,
@@ -384,41 +352,53 @@ GPhotonCausticResult cuda_photon_caustic_build(
     result.scale = 1.0f; result.numPhotons = 0; result.ready = false;
     result.owner = nullptr;
     result.grid = GPhotonGrid{};
-    if (!aim.valid || aim.photonCount <= 0 || !d_bvhNodes) return result;
+    if (!aim.valid || aim.lights.empty() || !d_bvhNodes) return result;
 
     uploadCausticCmf();
 
-    // --- Aperture frame around the sun direction (CPU :364-368). ---
-    GVec3 sunDir = aim.sunDir.normalized();
-    GVec3 a = (fabsf(sunDir.x) < 0.9f) ? GVec3(1, 0, 0) : GVec3(0, 1, 0);
-    GVec3 apU = (a - sunDir * a.dot(sunDir)).normalized();
-    GVec3 apV = sunDir.cross(apU);
-
-    // apertureN² photons (round the requested count up to a square lattice).
-    int apertureN = static_cast<int>(std::sqrt((double)aim.photonCount) + 0.5);
-    if (apertureN < 1) apertureN = 1;
-    const int nCells = apertureN * apertureN;
-
-    // pkg221: upload the host-built light-SPD CDF to constant memory for the
-    // importance-sampling inverse-CDF in the emit kernel (only when valid).
-    if (aim.spdValid)
-        APC_CUDA_CHECK(cudaMemcpyToSymbol(g_spdCdf, aim.spdCdf, sizeof(aim.spdCdf)));
+    // pkg287: one stratified lattice per emitting lamp (n_i² ≈ its photon share).
+    std::vector<int> latN;
+    int nCells = 0;
+    for (const auto& L : aim.lights) {
+        int n = (L.count > 0) ? static_cast<int>(std::sqrt((double)L.count) + 0.5) : 0;
+        if (L.count > 0 && n < 1) n = 1;
+        latN.push_back(n);
+        nCells += n * n;
+    }
+    if (nCells <= 0) return result;
 
     // --- Emit: forward-trace photons through the scene; survivors carry power>0. ---
     GPhoton* d_emit = nullptr;
     APC_CUDA_CHECK(cudaMalloc(&d_emit, (size_t)nCells * sizeof(GPhoton)));
-    {
+    int offset = 0;
+    for (size_t i = 0; i < aim.lights.size(); ++i) {
+        const int n = latN[i];
+        if (n <= 0) continue;
+        const PhotonLight& L = aim.lights[i];
+        // pkg221: this light's SPD CDF for the λ inverse-CDF draw.
+        APC_CUDA_CHECK(cudaMemcpyToSymbol(g_spdCdf, L.spd.cdf, sizeof(L.spd.cdf)));
+        PhotonEmitter em = L.emitter;
+        float* d_ies = nullptr;
+        if (!L.iesTable.empty()) {
+            APC_CUDA_CHECK(cudaMalloc(&d_ies, L.iesTable.size() * sizeof(float)));
+            APC_CUDA_CHECK(cudaMemcpy(d_ies, L.iesTable.data(),
+                                      L.iesTable.size() * sizeof(float),
+                                      cudaMemcpyHostToDevice));
+        }
+        em.ies = d_ies;
+        // Per-light RNG stream so rounds (#909) and lights stay decorrelated.
+        const unsigned int lseed =
+            aim.seed ^ (0x85EBCA6Bu * static_cast<unsigned int>(em.lightIndex + 1));
         dim3 block(16, 16);
-        dim3 grid((apertureN + block.x - 1) / block.x,
-                  (apertureN + block.y - 1) / block.y);
+        dim3 grid((n + block.x - 1) / block.x, (n + block.y - 1) / block.y);
         kEmitSceneCaustic<<<grid, block>>>(
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
-            sunDir, aim.apertureOrigin, apU, apV, aim.apertureRadius,
-            apertureN, aim.lambdaMin, aim.lambdaMax, aim.maxDepth,
-            aim.seed, aim.spdValid ? 1 : 0, aim.spdIntegral,   // pkg221: SPD IS
-            d_emit);   // pkg220: per-iteration jitter decorrelation seed
+            em, n, 1.0f / (float(n) * float(n)), aim.maxDepth,
+            lseed, L.spd.integral, d_emit + offset);
         APC_CUDA_CHECK(cudaGetLastError());
         APC_CUDA_CHECK(cudaDeviceSynchronize());
+        if (d_ies) cudaFree(d_ies);
+        offset += n * n;
     }
 
     // Compact survivors on the host (mirrors the CPU `photons` vector). The
@@ -545,32 +525,10 @@ GPhotonCausticResult cuda_photon_caustic_build(
     GPhotonGrid grid = buildGrid(radius);
     cudaFree(d_cellCursor);
 
-    // --- Calibrate causticScale = boost/(π·peak_95) over the same photon subsample
-    // (CPU :500-513). The 1/π folds the Lambertian L = (albedo/π)·E. Reuses S/subStride/
-    // subCount from the k-NN pass above. ---
-    float* d_peak = nullptr;
-    APC_CUDA_CHECK(cudaMalloc(&d_peak, (size_t)subCount * sizeof(float)));
-    {
-        int blocks = (subCount + TPB - 1) / TPB;
-        kPeakGather<<<blocks, TPB>>>(grid, subStride, subCount, d_peak);
-        APC_CUDA_CHECK(cudaGetLastError());
-        APC_CUDA_CHECK(cudaDeviceSynchronize());
-    }
-    std::vector<float> peaks(subCount);
-    APC_CUDA_CHECK(cudaMemcpy(peaks.data(), d_peak,
-                              (size_t)subCount * sizeof(float), cudaMemcpyDeviceToHost));
-    cudaFree(d_peak);
-
-    std::vector<float> nz;
-    nz.reserve(subCount);
-    for (float p : peaks) if (p > 0.f) nz.push_back(p);
-    if (nz.empty()) { delete owner; return result; }
-    std::sort(nz.begin(), nz.end());
-    float peak95 = nz[static_cast<size_t>(nz.size() * 0.95f)];
-    if (peak95 <= 0.f) { delete owner; return result; }
-
+    // pkg286: photons carry physical flux, so no brightness calibration; the
+    // Lambertian receiver L = (albedo/π) E and boost is an artistic multiplier.
     const float pi = 3.14159265358979323846f;
-    result.scale      = aim.boost / (pi * peak95);
+    result.scale      = aim.boost / pi;
     result.grid       = grid;
     result.numPhotons = n;
     result.owner      = owner;
@@ -589,8 +547,8 @@ GPhotonCausticResult cuda_photon_caustic_build(
         GVec3 e = mx - mn;
         std::fprintf(stderr,
             "[CAUSTIC_DBG] n=%d depositExt=(%.3f,%.3f,%.3f) centroidXZ=(%.3f,%.3f) "
-            "rmsXZ=%.4f provRadius=%.5f knnRadius=%.5f peak95=%.5f scale=%.5f totalY=%.4f\n",
-            n, e.x, e.y, e.z, c.x, c.z, rms, provRadius, radius, peak95, result.scale, wsum);
+            "rmsXZ=%.4f provRadius=%.5f knnRadius=%.5f scale=%.5f totalY=%.4f\n",
+            n, e.x, e.y, e.z, c.x, c.z, rms, provRadius, radius, result.scale, wsum);
     }
     return result;
 }

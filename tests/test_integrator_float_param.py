@@ -57,7 +57,9 @@ def _prism_caustic_signal(boost, route_float):
         r.set_integrator_param_float("caustic_boost", float(boost))
     else:
         r.set_integrator_param("caustic_boost", int(round(boost)))
-    img = np.asarray(r.render(16, mod.MAX_DEPTH, None, True), dtype=np.float32)
+    # pkg286: linear output. The caustic now carries physical flux (6 W/m^2 sun),
+    # which saturates the gamma-clamped [0,1] image and hid the boost scaling.
+    img = np.asarray(r.render(16, mod.MAX_DEPTH, None, False), dtype=np.float32)
     if img.ndim == 1:
         img = img.reshape(mod.HEIGHT, mod.WIDTH, 3)
     lum = 0.2126 * img[:, :, 0] + 0.7152 * img[:, :, 1] + 0.0722 * img[:, :, 2]
@@ -76,13 +78,16 @@ def test_integrator_float_param_route():
     half = _prism_caustic_signal(0.5, route_float=True)
     int_one = _prism_caustic_signal(1.0, route_float=False)  # int route -> getNumber
 
+    # pkg286: the caustic now carries physical flux and the floor also holds
+    # path-traced light (base), so gate on the caustic INCREMENT over base.
+    inc_q, inc_h, inc_i = quarter - base, half - base, int_one - base
     # A fractional float boost MUST produce a caustic — proving the value is honored
-    # as a float, not truncated to int 0 (which would leave the floor black).
-    assert quarter > base * 1.1 + 1.0, \
+    # as a float, not truncated to int 0 (which would add nothing).
+    assert inc_q > 0.05 * base, \
         f"float boost 0.25 produced no caustic (truncated to int?): {quarter:.1f} vs base {base:.1f}"
-    # Brightness scales with the float magnitude.
-    assert half > quarter * 1.15, \
-        f"float boost does not scale brightness: half {half:.1f} <= 1.15 * quarter {quarter:.1f}"
+    # Brightness scales linearly with the float magnitude.
+    assert 1.7 < inc_h / inc_q < 2.3, \
+        f"float boost does not scale the caustic: +{inc_h:.1f} at 0.5 vs +{inc_q:.1f} at 0.25"
     # The int route still works (back-compat: getNumber reads int as float).
-    assert int_one > base * 1.1 + 1.0, \
-        f"int route regressed (no caustic): {int_one:.1f} vs base {base:.1f}"
+    assert inc_i > inc_h, \
+        f"int route regressed: +{inc_i:.1f} at int 1 vs +{inc_h:.1f} at 0.5"

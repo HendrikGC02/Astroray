@@ -23,7 +23,7 @@
 //     so the flat case is kept on the special 2-face path.)
 //   * Any OTHER caster (a curved/solid shape: sphere, lens, triangulated mesh) uses
 //     the GENERAL deterministic BVH refraction loop: at each transmissive hit it
-//     refracts (Snell + Schlick-Fresnel, enter/exit from the geometric-normal sign,
+//     refracts (Snell + exact Fresnel (pkg286), enter/exit from the geometric-normal sign,
 //     per-wavelength iorAt) or reflects on TIR, through any number of faces — this
 //     is what makes a glass SPHERE focus a caustic.
 // Both paths deposit per-wavelength CIE flux into the same world-space photon map.
@@ -41,6 +41,7 @@
 #include "astroray/manifold/mesh_attempt.h"   // gatherTriangleCasters, CausticTri (flat-prism path)
 #include "astroray/manifold/mesh_caustic.h"    // rayTriHit
 #include "astroray/photon/photon_map.h"        // pkg109 world-space photon map (kd-tree)
+#include "astroray/photon_lights.h"             // pkg286/287 per-light physical photon emission
 
 #include <algorithm>
 #include <cmath>
@@ -61,7 +62,7 @@ class LightTracerCaustic : public Integrator {
     astroray::photon::PhotonMap pm_;  // pkg109 world-space photon store (was a 2D grid)
     float floorY_ = 0.0f;             // receiver plane (still floor-only; pkg111 generalizes)
     float gatherRadius_ = 0.0f;       // k-NN search radius, auto-calibrated to photon density
-    float causticScale_ = 1.0f;       // brightness auto-scale (peak band E -> boost_)
+    float causticScale_ = 1.0f;       // pkg286: boost_/pi (Lambertian), no auto-scale
     bool  ready_ = false;
     float depositedFlux_ = 0.0f;
 
@@ -73,6 +74,7 @@ public:
           // pkg-integrator-float-param: caustic_boost is now a direct float
           // brightness multiplier read via getNumber (accepts the int or float
           // Python route: set_integrator_param_float / set_integrator_param).
+          // pkg286: an artistic multiplier on the physical caustic (1.0 = exact).
           boost_(p.getNumber("caustic_boost", 1.0f)) {}
 
     IntegratorCapabilities capabilities() const override {
@@ -117,7 +119,7 @@ public:
                 // replaces the bilinear 2D-grid lookup.
                 astroray::XYZ E = pm_.estimateIrradiance(rec.point, gatherK_, gatherRadius_);
                 const Vec3 alb = rec.material->getAlbedo();
-                // Lambertian receiver: Lo = albedo/pi * E_irradiance (boost folds 1/pi + scale).
+                // Lambertian receiver: Lo = albedo/pi * E_irradiance (causticScale_ = boost/pi).
                 xyz.X += alb.x * E.X * causticScale_;
                 xyz.Y += alb.y * E.Y * causticScale_;
                 xyz.Z += alb.z * E.Z * causticScale_;
@@ -187,11 +189,6 @@ private:
         out = (d * eta + n * (eta * cosi - std::sqrt(1.0f - s2))).normalized();
         return true;
     }
-    static float fresnelT(float cosi, float eta) {
-        float f0 = (1.0f - eta) / (1.0f + eta); f0 *= f0;
-        float fr = f0 + (1.0f - f0) * std::pow(std::max(0.0f, 1.0f - std::fabs(cosi)), 5.0f);
-        return 1.0f - fr;
-    }
 
     void buildPhotonMap(Renderer& scene) {
         ready_ = false; depositedFlux_ = 0.0f; gatherRadius_ = 0.0f; causticScale_ = 1.0f;
@@ -202,89 +199,78 @@ private:
         // only their combined bounds are needed to aim the emission aperture.
         AABB casterBounds; int casterCount = 0;
         if (!gatherCausticCasterBounds(scene, casterBounds, casterCount)) return;
-        const Vec3 casterC = casterBounds.centroid();
-        const float crad = (casterBounds.max - casterBounds.min).length() * 0.55f + 1e-3f;
-
         const auto& lights = scene.getLights();
         if (lights.empty()) return;
 
+        // pkg286/287: per-light physical photon emission (photon_lights.h).
+        const std::vector<astroray::photon::PhotonLight> emitters =
+            astroray::photon::buildPhotonLights(lights, casterBounds, photons_);
+        if (emitters.empty()) return;
+
         std::mt19937 gen(12345u);
-        std::uniform_real_distribution<float> u01(0.0f, 1.0f);
-        astroray::SampledWavelengths probe = astroray::SampledWavelengths::sampleUniform(0.5f);
-        LightSample ls; lights.sample(ls, casterC, Vec3(0, 1, 0), probe, gen);
-        Vec3 sunDir = (casterC - ls.position).normalized();   // propagation toward the casters
-        if (sunDir.length2() < 1e-6f) return;
-
-        // Aperture frame around the sun direction (sample the entry disc).
-        Vec3 a = (std::fabs(sunDir.x) < 0.9f) ? Vec3(1, 0, 0) : Vec3(0, 1, 0);
-        Vec3 fu = (a - sunDir * a.dot(sunDir)).normalized();
-        Vec3 fv = sunDir.cross(fu);
-        Vec3 origin0 = casterC - sunDir * (crad + 2.0f);
-
         std::vector<astroray::photon::Photon> photons;
         photons.reserve(photons_ / 2);
         std::vector<float> ys;
-        const float lmin = 380.0f, lmax = 720.0f;
         const float eps = 1e-3f;
 
         // Auto-select the tracing path by caster geometry (see file header). A flat
         // prism (caster triangles forming exactly two planar faces) -> explicit
-        // 2-face refraction (clean single dispersed path); anything else -> the
-        // general deterministic BVH loop (curved/solid glass: sphere, lens, mesh).
+        // 2-face refraction (clean single dispersed path) for collimated photons;
+        // anything else -> the general deterministic BVH loop (sphere, lens, mesh).
         std::vector<amf::CausticTri> tris;
         const Material* prismMat = amf::gatherTriangleCasters(scene, tris);
         const bool flatPrism = (prismMat != nullptr) && countDistinctCasterPlanes(tris) == 2;
 
-        if (flatPrism) {
-            // Explicit 2-face prism: entry face (air->glass) then exit face
-            // (glass->air) via the nearest caster triangle; deposit on the first
-            // horizontal diffuse receiver — one clean dispersed gradient per lambda.
-            for (int p = 0; p < photons_; ++p) {
-                const float lambda = lmin + (lmax - lmin) * u01(gen);
-                const float ior = prismMat->iorAt(lambda);
-                if (ior <= 1.0f) continue;
-                const float ra = (u01(gen) * 2.0f - 1.0f) * crad;
-                const float rb = (u01(gen) * 2.0f - 1.0f) * crad;
-                Vec3 o = origin0 + fu * ra + fv * rb;
-                Vec3 d = sunDir;
-                Vec3 n1; float t1 = nearestCaster(tris, o, d, n1);
-                if (t1 < 0) continue;
-                Vec3 p1 = o + d * t1;
-                float tr = fresnelT(d.dot(n1), ior);
-                Vec3 d1; if (!refract(d, n1, 1.0f / ior, d1)) continue;
-                Vec3 n2; float t2 = nearestCaster(tris, p1 + d1 * 1e-4f, d1, n2);
-                if (t2 < 0) continue;
-                Vec3 p2 = p1 + d1 * (t2 + 1e-4f);
-                tr *= fresnelT(d1.dot(n2), ior);
-                Vec3 d2; if (!refract(d1, n2, ior, d2)) continue;
-                HitRecord rec;
-                if (!bvh->hit(Ray(p2 + d2 * eps, d2), eps,
-                              std::numeric_limits<float>::max(), rec)) continue;
-                if (!rec.material || rec.material->isEmissive()) continue;
-                if (rec.hitObject && rec.hitObject->isCausticCaster()) continue;
-                if (rec.normal.y < 0.7f) continue;            // horizontal receiver only
-                astroray::XYZ cmf = astroray::cieCmf1931_2deg(lambda);
-                astroray::photon::Photon ph;
-                ph.position = rec.point;
-                ph.incidentDir = d2;
-                ph.power = astroray::XYZ{cmf.X * tr, cmf.Y * tr, cmf.Z * tr};
-                ph.lambda = lambda;
-                photons.push_back(ph);
-                depositedFlux_ += ph.power.Y;
-                ys.push_back(rec.point.y);
-            }
-        } else {
-            // General deterministic refraction loop (curved/solid glass: sphere,
-            // lens, mesh). At each transmissive hit refract (Snell + Schlick-Fresnel,
-            // enter/exit from the geometric-normal sign, per-wavelength iorAt) or
-            // reflect on TIR; deposit on the first diffuse receiver, only on an L S+ D
-            // path (passed >= 1 caster) so direct light is not double-counted.
-            for (int p = 0; p < photons_; ++p) {
-                const float lambda = lmin + (lmax - lmin) * u01(gen);
-                const float ra = (u01(gen) * 2.0f - 1.0f) * crad;
-                const float rb = (u01(gen) * 2.0f - 1.0f) * crad;
-                Vec3 o = origin0 + fu * ra + fv * rb;
-                Vec3 d = sunDir;
+        auto deposit = [&](const HitRecord& rec, const Vec3& d, float lambda, float w) {
+            astroray::XYZ cmf = astroray::cieCmf1931_2deg(lambda);
+            astroray::photon::Photon ph;
+            ph.position = rec.point;
+            ph.incidentDir = d;
+            ph.power = astroray::XYZ{cmf.X * w, cmf.Y * w, cmf.Z * w};
+            ph.lambda = lambda;
+            photons.push_back(ph);
+            depositedFlux_ += ph.power.Y;
+            ys.push_back(rec.point.y);
+        };
+
+        for (const auto& L : emitters) {
+            const bool prismPath =
+                flatPrism && L.emitter.kind == astroray::photon::kPeDistant;
+            for (int p = 0; p < L.count; ++p) {
+                Vec3 o, d;
+                float lambda;
+                const float w = astroray::photon::emitPhoton(L, gen, o, d, lambda);
+                if (!(w > 0.0f)) continue;
+                if (prismPath) {
+                    // Explicit 2-face prism: entry face (air->glass) then exit face
+                    // (glass->air) via the nearest caster triangle; deposit on the first
+                    // horizontal diffuse receiver — one clean dispersed gradient per lambda.
+                    const float ior = prismMat->iorAt(lambda);
+                    if (ior <= 1.0f) continue;
+                    Vec3 n1; float t1 = nearestCaster(tris, o, d, n1);
+                    if (t1 < 0) continue;
+                    Vec3 p1 = o + d * t1;
+                    float tr = astroray::photon::peFresnelTransmit(d.dot(n1), 1.0f / ior);
+                    Vec3 d1; if (!refract(d, n1, 1.0f / ior, d1)) continue;
+                    Vec3 n2; float t2 = nearestCaster(tris, p1 + d1 * 1e-4f, d1, n2);
+                    if (t2 < 0) continue;
+                    Vec3 p2 = p1 + d1 * (t2 + 1e-4f);
+                    tr *= astroray::photon::peFresnelTransmit(d1.dot(n2), ior);
+                    Vec3 d2; if (!refract(d1, n2, ior, d2)) continue;
+                    HitRecord rec;
+                    if (!bvh->hit(Ray(p2 + d2 * eps, d2), eps,
+                                  std::numeric_limits<float>::max(), rec)) continue;
+                    if (!rec.material || rec.material->isEmissive()) continue;
+                    if (rec.hitObject && rec.hitObject->isCausticCaster()) continue;
+                    if (rec.normal.y < 0.7f) continue;            // horizontal receiver only
+                    deposit(rec, d2, lambda, w * tr);
+                    continue;
+                }
+                // General deterministic refraction loop (curved/solid glass: sphere,
+                // lens, mesh). At each transmissive hit refract (Snell + exact Fresnel,
+                // enter/exit from the geometric-normal sign, per-wavelength iorAt) or
+                // reflect on TIR; deposit on the first diffuse receiver, only on an L S+ D
+                // path (passed >= 1 caster) so direct light is not double-counted.
                 float tr = 1.0f;
                 bool passedCaster = false;
                 for (int bounce = 0; bounce < maxDepth_; ++bounce) {
@@ -303,7 +289,7 @@ private:
                         if (d.dot(ng) < 0.0f) { nf = ng;         eta = 1.0f / ior; }  // entering
                         else                  { nf = ng * -1.0f; eta = ior; }         // exiting
                         Vec3 nd;
-                        if (refract(d, nf, eta, nd)) { tr *= fresnelT(d.dot(nf), ior); d = nd; }
+                        if (refract(d, nf, eta, nd)) { tr *= astroray::photon::peFresnelTransmit(d.dot(nf), eta); d = nd; }
                         else { d = (d - nf * (2.0f * d.dot(nf))).normalized(); }       // TIR
                         // Mark the path as a caustic path on transmission (not via the
                         // per-hit caster flag): a mesh caster's flag sits on the wrapping
@@ -314,17 +300,8 @@ private:
                         o = rec.point + d * eps;
                         continue;
                     }
-                    if (passedCaster && rec.normal.y > 0.7f && tr > 0.0f) {
-                        astroray::XYZ cmf = astroray::cieCmf1931_2deg(lambda);
-                        astroray::photon::Photon ph;
-                        ph.position = rec.point;
-                        ph.incidentDir = d;
-                        ph.power = astroray::XYZ{cmf.X * tr, cmf.Y * tr, cmf.Z * tr};
-                        ph.lambda = lambda;
-                        photons.push_back(ph);
-                        depositedFlux_ += ph.power.Y;
-                        ys.push_back(rec.point.y);
-                    }
+                    if (passedCaster && rec.normal.y > 0.7f && tr > 0.0f)
+                        deposit(rec, d, lambda, w * tr);
                     break;
                 }
             }
@@ -338,10 +315,8 @@ private:
         // Build the world-space photon map (kd-tree). Jensen 1996 / photon_map.h.
         pm_.build(std::move(photons));
 
-        // Calibrate the gather. (1) Density-adaptive search radius = 1.5x the median
-        // k-th-nearest distance over a subsample of stored photons. (2) Brightness
-        // auto-scale so the band's near-peak irradiance maps to ~boost (keeps the
-        // result resolution/count-independent, as the old per-cell peak-scale did).
+        // Calibrate the gather radius = 1.5x the median k-th-nearest distance over a
+        // subsample of stored photons (geometry only).
         const int N = static_cast<int>(pm_.size());
         const int S = std::min(N, 4096);
         const int stride = std::max(1, N / S);
@@ -356,17 +331,9 @@ private:
         gatherRadius_ = 1.5f * kth[kth.size() / 2];
         if (gatherRadius_ <= 0.0f) return;
 
-        std::vector<float> peaks;
-        for (int i = 0; i < N; i += stride) {
-            astroray::XYZ E =
-                pm_.estimateIrradiance(pm_.photon(i).position, gatherK_, gatherRadius_);
-            if (E.Y > 0.0f) peaks.push_back(E.Y);
-        }
-        if (peaks.empty()) return;
-        std::sort(peaks.begin(), peaks.end());
-        const float peak = peaks[static_cast<size_t>(peaks.size() * 0.95f)];
-        if (peak <= 0.0f) return;
-        causticScale_ = boost_ / peak;
+        // pkg286: photons carry physical flux, so no brightness calibration;
+        // Lambertian receiver L = (albedo/pi) E, boost_ an artistic multiplier.
+        causticScale_ = boost_ / 3.14159265358979323846f;
         ready_ = true;
     }
 };

@@ -249,7 +249,7 @@ __constant__ uint32_t c_sobolMatrices[kSobolNumDims][kSobolMatrixSize];
 __constant__ GWavefrontAdaptiveBinding c_wfAdaptive = { nullptr, nullptr, nullptr, 0, 0, 0 };
 
 // #909 - photon-map split (setWavefrontPhotonSplit). chain == nullptr: inert.
-__constant__ GWavefrontPhotonSplit c_wfPhotonSplit = { nullptr, -1 };
+__constant__ GWavefrontPhotonSplit c_wfPhotonSplit = { nullptr, 0u };
 
 // #909 - transmissive caustic caster (mirror of photon_caustic.cu pc_isTransmissive).
 __device__ inline bool wf_isPhotonCaster(const ::GMaterial& m) {
@@ -640,9 +640,10 @@ __device__ int intersectPathSlotT(
                                                 lambdas.lambda[i], GSPEC_RGB_ILLUMINANT)
                               * lampScale;
             }
-            // #909: receiver -> glass (exited) -> the photon map's own light is
+            // #909: receiver -> glass (exited) -> a photon-emitting light is
             // already in the bounce-0 gather; drop it here (no double count).
-            if (bounce > 0 && lampIdx == c_wfPhotonSplit.aimedLamp &&
+            if (bounce > 0 && lampIdx < 32 &&
+                ((c_wfPhotonSplit.lampMask >> lampIdx) & 1u) &&
                 c_wfPhotonSplit.chain != nullptr && c_wfPhotonSplit.chain[idx] == 3)
                 Le = GSampledSpectrum(0.f);
             if (!(Le.maxValue() > 0.f)) continue;

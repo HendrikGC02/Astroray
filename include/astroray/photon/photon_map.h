@@ -94,7 +94,12 @@ public:
         const float maxR2 = maxRadius * maxRadius;
         locate(0, static_cast<int>(photons_.size()) - 1, q, k, maxR2, heap);
         if (heap.empty()) return {};
-        const float r2 = heap.front().first;  // max-heap: front() is the farthest kept
+        // #909: fewer than k in range -> r = maxRadius (Jensen 2001 App. B
+        // irradiance_estimate keeps dist2[0] = max_dist^2 until the heap is full).
+        // The farthest of a few photons made E ~ 1/d^2 unbounded near isolated ones.
+        const float r2 = (static_cast<int>(heap.size()) < k)
+                             ? maxR2
+                             : heap.front().first;  // max-heap: front() is the farthest kept
         if (r2 <= 0.0f) return {};
         const float r = std::sqrt(r2);
         astroray::XYZ sum;

@@ -1113,6 +1113,7 @@ struct WfContext {
     // halfLum = Σ even-sample luminance (the Dammertz scalar half-buffer);
     // activePixels = the compacted list of still-sampling pixel indices.
     WfDeviceBuf adaptSampleCount, adaptHalfLum, adaptActivePixels;
+    WfDeviceBuf photonChain;  // #909: per-path photon-split chain byte
     // pkg159: per-pixel cryptomatte rank arrays (numPixels*depth*2 floats
     // each). Grow-only like the rest; only allocated once a render actually
     // enables cryptomatte, so default renders pay nothing.
@@ -1803,14 +1804,15 @@ std::vector<float> cuda_wavefront_render(
     // Phase-3 transition-clean policy).
     astroray::photon::gpu::GPhotonCausticResult caustic{};
     caustic.ready = false;
+    astroray::photon::gpu::PhotonCausticAim aim{};
+    aim.valid = false;
     if (renderer.getUsePhotonCaustics()) {
         // pkg220: fold the full 64-bit render seed into a 32-bit photon-jitter
         // seed so each progressive iteration decorrelates the photon map. The
         // render `seed` already advances per progressive iteration (pkg191); the
         // aim GEOMETRY inside buildCausticAim stays deterministic regardless.
-        astroray::photon::gpu::PhotonCausticAim aim =
-            buildCausticAim(renderer, max_depth,
-                            static_cast<unsigned int>(seed ^ (seed >> 32)));
+        aim = buildCausticAim(renderer, max_depth,
+                              static_cast<unsigned int>(seed ^ (seed >> 32)));
         if (aim.valid) {
             caustic = astroray::photon::gpu::cuda_photon_caustic_build(
                 d_bvhNodes, d_prims, d_tris, d_spheres, d_materials, aim);
@@ -1819,6 +1821,34 @@ std::vector<float> cuda_wavefront_render(
                        caustic.numPhotons, caustic.scale);
             }
         }
+    }
+    // #909: photon-map / path-tracing split (Jensen 1996 two-pass). The gather adds
+    // L S+ D at the primary hit for the aimed light only, so drop exactly the
+    // path-traced twin: bounce-0 receiver -> caster in/out chain -> BSDF ray hits
+    // the aimed dedicated lamp. Other lights, caustics seen through glass and
+    // reflections stay path traced. Aimed lamp = the dedicated light along sunDir.
+    {
+        GWavefrontPhotonSplit split{nullptr, -1};
+        if (caustic.ready && !useLuminanceOutput) {
+            const GVec3 sd = aim.sunDir.normalized();
+            const GVec3 casterC = aim.apertureOrigin + sd * (aim.apertureRadius + 2.0f);
+            float best = 0.9995f;
+            for (int i = 0; i < (int)res.dedicatedLights.size(); ++i) {
+                const GDedicatedLight& L = res.dedicatedLights[i];
+                float c;
+                if (L.kind == GDED_DISTANT) {
+                    c = fabsf(L.axis.normalized().dot(sd));
+                } else {
+                    GVec3 d = casterC - L.position;
+                    float len = d.length();
+                    c = (len > 0.f) ? d.dot(sd) / len : 0.f;
+                }
+                if (c > best) { best = c; split.aimedLamp = i; }
+            }
+            if (split.aimedLamp >= 0)
+                split.chain = wfEnsure<unsigned char>(C.photonChain, total_paths);
+        }
+        setWavefrontPhotonSplit(split);
     }
 
     // Per-path state: grow-only.
@@ -2089,9 +2119,32 @@ std::vector<float> cuda_wavefront_render(
         // pixels (compacted host-side after each round). Uniform (adaptiveOn=false)
         // runs exactly one round of `samples` over every pixel — byte-identical.
         bool cwfCancelled = false;  // pkg241 Phase 1b
+        // #909: one photon map for all samples froze the caustic noise (per-pixel
+        // std flat from 16 to 1024 spp). With a live map, render in rounds of
+        // causticSppPerMap samples and trace a fresh, independently seeded map per
+        // round, so the gather averages over independent maps (stochastic PPM,
+        // Hachisuka & Jensen 2009; Knaus & Zwicker 2011 — fixed K-NN radius, no
+        // radius reduction). <= 256 maps per render bounds the pre-pass cost.
+        const bool causticRounds = caustic.ready;
+        const int causticSppPerMap = std::max(16, (samples + 255) / 256);
+        int causticMapSample = 0;   // baseSample at which the live map was traced
+        unsigned int causticMapIdx = 0;
         while (baseSample < samples) {
+        if (causticRounds && baseSample - causticMapSample >= causticSppPerMap) {
+            astroray::photon::gpu::PhotonCausticAim roundAim = aim;
+            roundAim.seed = aim.seed ^ (0x9E3779B9u * ++causticMapIdx);
+            astroray::photon::gpu::GPhotonCausticResult next =
+                astroray::photon::gpu::cuda_photon_caustic_build(
+                    d_bvhNodes, d_prims, d_tris, d_spheres, d_materials, roundAim);
+            if (next.ready) {   // else keep the previous map for this round
+                astroray::photon::gpu::cuda_photon_caustic_free(caustic);
+                caustic = next;
+            }
+            causticMapSample = baseSample;
+        }
         const int perPixel = !adaptiveOn
-            ? samples
+            ? (causticRounds ? std::min(causticSppPerMap, samples - baseSample)
+                             : samples)
             : std::min((roundIdx == 0 ? ap.min_samples : ap.adaptive_step),
                        samples - baseSample);
         if (perPixel <= 0) break;
@@ -2323,7 +2376,10 @@ std::vector<float> cuda_wavefront_render(
         baseSample += perPixel;
         ++roundIdx;
         if (cwfCancelled) break;           // pkg241 Phase 1b: stop rounds
-        if (!adaptiveOn) break;            // uniform: a single round
+        if (!adaptiveOn) {
+            if (!causticRounds) break;     // uniform: a single round
+            continue;                      // #909: next photon-map round
+        }
         if (baseSample >= samples) break;  // hit the sample cap
 
         // pkg131 — convergence check + mask dilation + active-pixel compaction on
@@ -2369,6 +2425,11 @@ std::vector<float> cuda_wavefront_render(
         }
         }  // while (round loop)
 
+        if (causticRounds && !adaptiveOn) {
+            // #909: clear the flat-pool baseSample offset for later entries.
+            GWavefrontAdaptiveBinding off = { nullptr, nullptr, nullptr, 0, 0, 0 };
+            setWavefrontAdaptiveBinding(off);
+        }
         if (adaptiveOn) {
             // Reset the binding so later renders / other entries see the flat pool.
             GWavefrontAdaptiveBinding off = { nullptr, nullptr, nullptr, 0, 0, 0 };
@@ -2489,6 +2550,7 @@ std::vector<float> cuda_wavefront_render(
     // pkg55-C5 / pkg113: release the resident photon grid after the render
     // (mirrors cuda_renderer.cu:888).
     astroray::photon::gpu::cuda_photon_caustic_free(caustic);
+    setWavefrontPhotonSplit(GWavefrontPhotonSplit{nullptr, -1});  // #909
 
     // pkg198 Stage 2: light-path pass copy-back. Runs ONCE after the barrier, like
     // the guide/cryptomatte copy-backs. Convert each per-pixel per-pass XYZ

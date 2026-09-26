@@ -96,7 +96,9 @@ def _gpu_available() -> bool:
     return astroray.Renderer().gpu_available
 
 
-def _build_glass_sphere(use_gpu: bool, photons: bool = True, lamp: str = "white"):
+def _build_glass_sphere(use_gpu: bool, photons: bool = True, lamp: str = "white",
+                        sun_irradiance=None, sun_angle=None, pane=False,
+                        lamp2=False, reflective=True):
     """Glass-sphere focused caustic — the in-scope GPU caustic scene.
 
     Mirrors benchmarks/reference_bank/scenes/glass-sphere-caustic/scene.py but at
@@ -134,7 +136,7 @@ def _build_glass_sphere(use_gpu: bool, photons: bool = True, lamp: str = "white"
     # intended dim collimated beam (radiance ≈ 6.0) removes the fireflies and the
     # GPU/CPU renders agree to SSIM ~0.96 again (peak ~0.41), confirming the
     # transport itself is in parity. See pkg185 spec.
-    _sun_ang = 0.01
+    _sun_ang = 0.01 if sun_angle is None else sun_angle
     _sun_omega = 2.0 * math.pi * (1.0 - math.cos(_sun_ang * 0.5))  # disk solid angle
     # pkg221: lamp="white" is the broadband rgb sun (default, unchanged); "sodium"
     # is a narrow-line measured SPD (sodium-vapor ~589 nm) whose caustic must come
@@ -143,7 +145,8 @@ def _build_glass_sphere(use_gpu: bool, photons: bool = True, lamp: str = "white"
     _emission = ({"mode": "measured_spd", "profile_name": "sodium_vapor"}
                  if lamp == "sodium" else {"mode": "rgb", "color": [1.0, 1.0, 1.0]})
     r.add_sun_light_dedicated(_norm([0.45, -1.0, 0.0]), _sun_ang,
-                              _emission, 6.0 * _sun_omega)
+                              _emission,
+                              6.0 * _sun_omega if sun_irradiance is None else sun_irradiance)
 
     # Floor just past the ball-lens focal plane (paraxial focus is at centre +
     # sunDir*0.9 = (0.37,-0.82,0); floor at y=-1.1 -> caustic at x~0.50). The
@@ -157,8 +160,19 @@ def _build_glass_sphere(use_gpu: bool, photons: bool = True, lamp: str = "white"
     r.add_triangle([-3.0, -1.1, -3.0], [4.0, -1.1, -3.0], [4.0, -1.1, 3.0], floor)
     r.add_triangle([-3.0, -1.1, -3.0], [4.0, -1.1, 3.0], [-3.0, -1.1, 3.0], floor)
 
+    if pane:   # #909: a glass slab between camera and scene (z 1.95..2.0), out of the sun beam
+        pg = r.create_material("dielectric", [1.0, 1.0, 1.0], {"ior": 1.5})
+        for z, flip in ((2.0, False), (1.95, True)):
+            a, b, c, d = [-4, -1.09, z], [5, -1.09, z], [5, 4, z], [-4, 4, z]
+            if flip:
+                r.add_triangle(a, c, b, pg); r.add_triangle(a, d, c, pg)
+            else:
+                r.add_triangle(a, b, c, pg); r.add_triangle(a, c, d, pg)
+    if lamp2:  # #909: a second (non-aimed) sphere lamp; its ball caustic is path traced
+        r.add_point_light([0.0, 1.6, -1.0], {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 40.0, 0.25)
+
     r.set_use_refractive_caustics(True)
-    r.set_use_reflective_caustics(True)
+    r.set_use_reflective_caustics(reflective)
 
     if use_gpu:
         r.set_use_gpu(True)
@@ -521,3 +535,120 @@ def test_gpu_caustic_emission_line_color(test_results_dir):
         f"pkg221: sodium caustic (warm {warm_s:.3f}) is not markedly warmer than the "
         f"broadband white caustic (warm {warm_w:.3f}); the lamp SPD is being ignored."
     )
+
+
+_NOISE_SEEDS = (11, 29, 47, 83)
+
+
+def test_gpu_caustic_noise_falls_with_spp(test_results_dir):
+    """#909 — the gathered caustic must average down with sample count, and an
+    isolated photon must not produce a firefly.
+
+    * Noise: per-pixel std across 4 seeds in the caustic ROI, 16 vs 256 spp.
+      Ideal 1/sqrt(N) gives 4.0x. Pre-#909 one photon map served every sample
+      of a render() call, so the std plateaued (measured 1.5x on main).
+      Gate >= 2.5x.
+    * Fireflies: the K-NN gather used the farthest of the few photons found as
+      its radius, so E ~ 1/d^2 near an isolated photon (a ~1400x per-sample
+      spike on main). With r = the cap when fewer than K are found (Jensen 2001)
+      the 64-spp frame max stays within 4x the caustic peak.
+    """
+    if not _gpu_available():
+        pytest.skip("CUDA GPU not available on this machine")
+
+    def stack(spp):
+        return np.stack([_luminance(_render(_build_glass_sphere(use_gpu=True), spp, s))
+                         for s in _NOISE_SEEDS])
+
+    lo, hi = stack(16), stack(256)
+    off = _luminance(_render(_build_glass_sphere(use_gpu=True, photons=False), 256, SEED))
+    contrib = hi.mean(axis=0) - off
+    roi = contrib > 0.25 * float(np.percentile(contrib, 99.9))
+    assert roi.sum() >= 50, f"caustic ROI too small ({int(roi.sum())} px)"
+    s_lo = float(np.median(np.std(lo, axis=0, ddof=1)[roi]))
+    s_hi = float(np.median(np.std(hi, axis=0, ddof=1)[roi]))
+    ratio = s_lo / max(s_hi, 1e-12)
+
+    peak = float(np.percentile(hi.mean(axis=0), 99.9))
+    mid = stack(64)
+    worst = float(mid.max())
+    print(f"\n[#909] caustic ROI median std 16spp={s_lo:.5f} 256spp={s_hi:.5f} "
+          f"ratio={ratio:.2f} (ideal 4.00) | 64spp max={worst:.3f} peak={peak:.3f}")
+    _save_image(np.repeat(hi.mean(axis=0)[..., None], 3, axis=2),
+                os.path.join(test_results_dir, "issue909_caustic_256spp.png"))
+
+    assert ratio >= 2.5, (
+        f"#909: caustic noise fell only {ratio:.2f}x from 16 to 256 spp (ideal 4x); "
+        f"the photon map is not being re-traced per sample round.")
+    assert worst <= 4.0 * peak, (
+        f"#909: 64-spp frame max {worst:.3f} > 4x caustic peak {peak:.3f} — "
+        f"K-NN gather firefly near an isolated photon.")
+
+
+def test_gpu_photon_caustics_cull_path_traced_refraction(test_results_dir):
+    """#909 — with the photon map live, path-traced refractive caustics (diffuse ->
+    delta glass -> sun) double-count the gathered caustic and, for a real sun
+    (irradiance 3, radiance ~1e5), are isolated fireflies (per-sample ~5e4 on
+    main). They are now dropped at the aimed-lamp hit (Jensen 1996 caustic-map
+    split), so the 64-spp frame max stays within 4x the 99.9th percentile.
+    Reflective caustics are off here: the map carries no external glass
+    reflection, so those stay path traced (a real, separate firefly source)."""
+    if not _gpu_available():
+        pytest.skip("CUDA GPU not available on this machine")
+    imgs = [_luminance(_render(_build_glass_sphere(use_gpu=True, sun_irradiance=3.0,
+                                                  reflective=False), 64, s))
+            for s in _NOISE_SEEDS]
+    ref = float(np.percentile(np.mean(imgs, axis=0), 99.9))
+    worst = max(float(i.max()) for i in imgs)
+    print(f"\n[#909] bright sun 64spp: max={worst:.2f} p99.9(mean)={ref:.3f}")
+    assert worst <= 4.0 * ref, (
+        f"#909: 64-spp max {worst:.2f} > 4x p99.9 {ref:.3f} — path-traced refractive "
+        f"caustic fireflies alongside the photon gather.")
+
+
+def _on_off_same_seed(spp, **kw):
+    """Photon map ON vs OFF at one seed. Neither the gather nor the #909 split draws
+    RNG, and the photon rounds offset the sample index, so every path that is not
+    gathered or dropped replays identically: ON - OFF is exactly gather - dropped."""
+    on = _luminance(_render(_build_glass_sphere(use_gpu=True, photons=True, **kw), spp, SEED))
+    off = _luminance(_render(_build_glass_sphere(use_gpu=True, photons=False, **kw), spp, SEED))
+    return on, off
+
+
+def test_gpu_photon_split_keeps_caustic_seen_through_glass(test_results_dir):
+    """#909 review — a caustic viewed through a glass pane (camera -> glass -> floor)
+    is never gathered (bounce 0 is the pane), so it must stay path traced: ON == OFF
+    at the same seed (a blanket refractive cull removed it)."""
+    if not _gpu_available():
+        pytest.skip("CUDA GPU not available on this machine")
+    on, off = _on_off_same_seed(256, pane=True, sun_angle=0.1, sun_irradiance=1.0)
+    caustic = off > 4.0 * float(np.median(off[off > 0])) if (off > 0).any() else off > 1e9
+    e_off = float(off[caustic].sum())
+    e_on = float(on[caustic].sum())
+    print(f"\n[#909 pane] caustic px={int(caustic.sum())} OFF={e_off:.4f} ON={e_on:.4f} "
+          f"whole-image rel diff={abs(on.sum()-off.sum())/max(off.sum(),1e-9):.2e}")
+    assert caustic.sum() >= 20 and e_off > 0, "no path-traced caustic seen through the pane"
+    assert abs(e_on - e_off) <= 0.01 * e_off, (
+        f"#909: caustic seen through glass lost energy with photons on "
+        f"(ON {e_on:.4f} vs OFF {e_off:.4f}).")
+
+
+def test_gpu_photon_split_keeps_non_aimed_light_caustic(test_results_dir):
+    """#909 review — the photon map carries only the aimed sun. A second lamp's ball
+    caustic must stay path traced: away from the sun's gather footprint, ON == OFF
+    at the same seed."""
+    if not _gpu_available():
+        pytest.skip("CUDA GPU not available on this machine")
+    on, off = _on_off_same_seed(256, lamp2=True)
+    sun_on, sun_off = _on_off_same_seed(256)
+    footprint = np.abs(sun_on - sun_off) > 1e-4           # sun gather / drop region
+    ref = float(np.median(off[off > 0]))
+    lamp2_caustic = (off > 3.0 * ref) & ~footprint
+    e_off = float(off[lamp2_caustic].sum())
+    e_on = float(on[lamp2_caustic].sum())
+    print(f"\n[#909 lamp2] footprint px={int(footprint.sum())} lamp2 caustic px="
+          f"{int(lamp2_caustic.sum())} OFF={e_off:.4f} ON={e_on:.4f}")
+    assert lamp2_caustic.sum() >= 20 and e_off > 0, "no lamp2 caustic outside the sun footprint"
+    assert abs(e_on - e_off) <= 0.01 * e_off, (
+        f"#909: non-aimed light's caustic lost energy with photons on "
+        f"(ON {e_on:.4f} vs OFF {e_off:.4f}).")

@@ -26,6 +26,7 @@ new reusable script, register it here in the same commit.
 | Blender differential parity harness | `benchmarks/blender_parity/harness.py` |
 | Visual reference-bank gates | `benchmarks/reference_bank/runner.py` |
 | README gallery / hero renders | `scripts/diagnostics/render_readme_gallery.py`, `render_readme_hero.py` |
+| Blender addon showcase scenes (glass dispersion, volumes, Nishita sky, thin film + metals): build `.blend` + render Cycles/Astroray PNGs | `benchmarks/blender_showcase/showcase.py` (run inside Blender; `build` / `render` subcommands) |
 | Render-output triage | `scripts/diagnostics/render_output_triage.py` |
 | Denoiser A/B | `scripts/diagnostics/oidn_comparison.py` |
 | Project knowledge index (search / owns / deps / node-tree graph) | `scripts/project_index.py` (SQLite; `build` / `query` / `owns <path>` / `script <task>` / `whatis <pkg>` / `deps` / `graph` / `gh-sync`; auto-rebuilds when a spec is newer than the DB). **Interactive 3D graph of the whole index (exactly what agents query — packages, docs, files + dependency/doc/file edges): [`.astroray_plan/project-index-graph.html`](../.astroray_plan/project-index-graph.html).** Regenerate with `python scripts/project_index.py build && python scripts/project_index.py graph --html .astroray_plan/project-index-graph.html`. |

@@ -1795,18 +1795,27 @@ std::vector<float> cuda_wavefront_render(
         if (caustic.ready && !useLuminanceOutput) {
             const GVec3 sd = aim.sunDir.normalized();
             const GVec3 casterC = aim.apertureOrigin + sd * (aim.apertureRadius + 2.0f);
-            float best = 0.9995f;
+            // The aim probe samples a point ON the light, so accept a lamp whose
+            // extent (sphere radius / area half-diagonal) subtends the aim direction.
+            float best = -1.f;
             for (int i = 0; i < (int)res.dedicatedLights.size(); ++i) {
                 const GDedicatedLight& L = res.dedicatedLights[i];
-                float c;
+                float c, cMin;
                 if (L.kind == GDED_DISTANT) {
                     c = fabsf(L.axis.normalized().dot(sd));
+                    cMin = 0.9995f;
                 } else {
                     GVec3 d = casterC - L.position;
                     float len = d.length();
-                    c = (len > 0.f) ? d.dot(sd) / len : 0.f;
+                    if (len <= 0.f) continue;
+                    c = d.dot(sd) / len;
+                    float ext = (L.kind == GDED_AREA)
+                        ? 0.5f * sqrtf(L.width * L.width + L.height * L.height)
+                        : L.radius;
+                    float sinA = fminf(1.f, (ext + 1e-3f) / len);
+                    cMin = sqrtf(fmaxf(0.f, 1.f - sinA * sinA)) - 1e-4f;
                 }
-                if (c > best) { best = c; split.aimedLamp = i; }
+                if (c >= cMin && c > best) { best = c; split.aimedLamp = i; }
             }
             if (split.aimedLamp >= 0)
                 split.chain = wfEnsure<unsigned char>(C.photonChain, total_paths);

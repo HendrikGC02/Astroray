@@ -391,8 +391,8 @@ def test_gpu_prism_rainbow_parity(test_results_dir):
     )
 
 
-_DECORR_SAMPLES = 256   # high spp: camera-gather variance -> 0 so the frozen-vs-
-                        # decorrelated photon-map difference is cleanly separated.
+_DECORR_SAMPLES = 16    # #909: <= one 16-spp photon round, so ONE map per render;
+                        # more spp now averages several maps and shrinks the seed diff.
 
 
 def _caustic_contribution(seed: int):
@@ -460,6 +460,9 @@ def test_gpu_caustic_seed_decorrelation(test_results_dir):
     # (a residual camera-gather floor — the frozen grid sampled along seed-jittered
     # camera rays), post-pkg220 = 0.048·signal (that floor PLUS the decorrelated
     # photon map). The 0.032·signal gate sits between with ~1.5x margin each side.
+    # #909 re-pin: at 256 spp the render now averages 16 maps (measured 0.024·signal,
+    # stale for this gate); at 16 spp (single map) post-#909 = 0.065·signal. A lost
+    # seed is also caught by test_gpu_caustic_noise_falls_with_spp.
     assert diff_seed >= 0.032 * max(signal, 1e-9), (
         f"pkg220: caustic map did NOT decorrelate with the seed (diff-seed "
         f"{diff_seed:.6f} = {diff_seed/max(signal,1e-9):.3f}·signal, must be "
@@ -634,21 +637,19 @@ def test_gpu_photon_split_keeps_caustic_seen_through_glass(test_results_dir):
 
 
 def test_gpu_photon_split_keeps_non_aimed_light_caustic(test_results_dir):
-    """#909 review — the photon map carries only the aimed sun. A second lamp's ball
-    caustic must stay path traced: away from the sun's gather footprint, ON == OFF
-    at the same seed."""
+    """#909 review — the photon map carries only the aimed light. Here the 40 W
+    sphere lamp dominates, so it is aimed; the wide sun (0.2 rad) is not, and its
+    ball caustic must stay path traced. At one seed ON - OFF = gather - dropped,
+    and only aimed-lamp paths are dropped, so the sun caustic cannot lose energy
+    (a blanket refractive cull removed it)."""
     if not _gpu_available():
         pytest.skip("CUDA GPU not available on this machine")
-    on, off = _on_off_same_seed(256, lamp2=True)
-    sun_on, sun_off = _on_off_same_seed(256)
-    footprint = np.abs(sun_on - sun_off) > 1e-4           # sun gather / drop region
-    ref = float(np.median(off[off > 0]))
-    lamp2_caustic = (off > 3.0 * ref) & ~footprint
-    e_off = float(off[lamp2_caustic].sum())
-    e_on = float(on[lamp2_caustic].sum())
-    print(f"\n[#909 lamp2] footprint px={int(footprint.sum())} lamp2 caustic px="
-          f"{int(lamp2_caustic.sum())} OFF={e_off:.4f} ON={e_on:.4f}")
-    assert lamp2_caustic.sum() >= 20 and e_off > 0, "no lamp2 caustic outside the sun footprint"
-    assert abs(e_on - e_off) <= 0.01 * e_off, (
-        f"#909: non-aimed light's caustic lost energy with photons on "
+    on, off = _on_off_same_seed(256, lamp2=True, sun_angle=0.2, sun_irradiance=0.5)
+    sun_caustic = off > 3.0 * float(np.median(off[off > 0]))
+    e_off = float(off[sun_caustic].sum())
+    e_on = float(on[sun_caustic].sum())
+    print(f"\n[#909 lamp2] sun caustic px={int(sun_caustic.sum())} OFF={e_off:.4f} ON={e_on:.4f}")
+    assert sun_caustic.sum() >= 20 and e_off > 0, "no path-traced sun caustic"
+    assert e_on >= 0.99 * e_off, (
+        f"#909: non-aimed sun caustic lost energy with photons on "
         f"(ON {e_on:.4f} vs OFF {e_off:.4f}).")

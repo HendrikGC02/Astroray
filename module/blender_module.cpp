@@ -3127,6 +3127,7 @@ public:
 
     void setIntegratorParam(const std::string& key, int value) {
         integratorParams_.set(key, value);
+        if (key == "caustic_boost") renderer.setPhotonCausticBoost(float(value));  // pkg286 GPU
         // pkg91: if an integrator is already registered, rebuild it with the
         // updated params (option B.1 from spec). Mirrors PBRT-v4 scene rebuild
         // on parameter change (src/pbrt/integrators.cpp, Apache-2.0). The cost
@@ -3146,6 +3147,7 @@ public:
     // read such params with ParamDict::getNumber (accepts either int or float).
     void setIntegratorParamFloat(const std::string& key, float value) {
         integratorParams_.set(key, value);
+        if (key == "caustic_boost") renderer.setPhotonCausticBoost(value);  // pkg286 GPU
         if (!integratorName_.empty()) {
             auto integrator = astroray::IntegratorRegistry::instance().create(
                 integratorName_, integratorParams_);

@@ -26,58 +26,48 @@
 
 #include "astroray/gpu_photon_store.h"   // GPhoton, GPhotonGrid
 #include "astroray/gpu_types.h"          // GVec3, GBVHNode, GPrimitive, ...
+#include "astroray/photon_emitter.h"     // PhotonEmitter, PhotonLight (pkg286/287)
+
+#include <vector>
 
 namespace astroray {
 namespace photon {
 namespace gpu {
 
-// Host-side aperture/aim parameters for the forward photon trace, computed in
-// cuda_renderer.cu from the same CPU Renderer the CPU integrator reads. Mirrors
-// the host setup in spectral_path_tracer.cpp::buildPhotonMap (l.350-368): caster
-// bounds → centroid + radius, sun direction → collimated aperture disc.
+// Host-side aim for the forward photon trace, built in gpu_wavefront_snapshot.cu
+// from the same CPU Renderer the CPU integrator reads (photon_lights.h). pkg286:
+// photons carry physical flux (no peak calibration); pkg287: one emitter per
+// dedicated lamp (point/spot/distant/area), each launched with its own share of
+// photonCount, SPD CDF and RNG stream. Host-only (holds std::vector); passed by
+// const& (memory/mingw_large_struct_byval).
 struct PhotonCausticAim {
-    GVec3 sunDir;          // collimated propagation direction (unit, toward casters)
-    GVec3 apertureOrigin;  // center of the entry aperture disc (upstream of casters)
-    float apertureRadius;  // disc radius (CPU `crad`)
-    int   photonCount;     // forward photons to trace (aperture lattice size²)
+    std::vector<PhotonLight> lights;  // emitters + SPD CDF (+ host IES table)
+    int   photonCount;     // total forward photons, split over lights
     float lambdaMin;       // 380 nm
     float lambdaMax;       // 720 nm
     int   maxDepth;        // refraction-bounce cap (CPU maxDepth_)
-    float boost;           // brightness multiplier (CPU caustic_boost, default 1.2)
-    bool  valid;           // false → no casters / no lights → skip the pre-pass
-    // pkg220: per-iteration decorrelation seed for the photon jitter. The aim
-    // GEOMETRY (sunDir/aperture) stays deterministic frame-to-frame — only the
-    // λ + aperture-disc jitter mixes this seed, so successive progressive
-    // iterations trace statistically-independent photon maps that average down
-    // instead of re-depositing a frozen (byte-identical) grid every iteration.
+    float boost;           // artistic multiplier on the physical caustic (default 1.2)
+    bool  valid;           // false → no casters / no emitting lamps → skip the pre-pass
+    // pkg220: per-iteration decorrelation seed for the photon jitter (#909: a
+    // fresh seed per photon round); the aim geometry stays deterministic.
     unsigned int seed;
-    // pkg221: light-SPD importance sampling. When spdValid, kEmitSceneCaustic
-    // draws each photon's λ ∝ the emitting light's SPD via the inverse of spdCdf
-    // (341 entries, 380..720 nm at 1 nm) and deposits CMF·spdIntegral (the S/p
-    // weight collapses to the integral I). spdValid==false keeps the uniform-λ +
-    // pure-CMF path byte-identical. spdCdf is filled host-side by buildPhotonSpdCdf
-    // and uploaded to __constant__ memory before the launch. The aim is passed by
-    // const& (memory/mingw_large_struct_byval) so the 341-float member is cheap.
-    bool  spdValid;
-    float spdIntegral;
-    float spdCdf[341];
 };
 
-// A RESIDENT device photon grid + calibrated gather scale. Built by
+// A RESIDENT device photon grid + gather scale. Built by
 // cuda_photon_caustic_build, read by the megakernel (the GPhotonGrid `grid` view
-// is passed by value to the kernel; `scale` folds boost/(π·peak) like the CPU
-// causticScale_). freed by cuda_photon_caustic_free. The opaque `owner` pointer
+// is passed by value to the kernel; `scale` = boost/π, the Lambertian 1/π on a
+// physical irradiance estimate, pkg286). freed by cuda_photon_caustic_free. The opaque `owner` pointer
 // holds the device CSR buffers + deposit array so they stay alive for the render.
 struct GPhotonCausticResult {
     GPhotonGrid grid;        // device view handed to the megakernel (by value)
-    float       scale;       // Lambertian brightness scale = boost/(π·peak)
+    float       scale;       // boost/π (pkg286)
     int         numPhotons;  // deposits that survived the trace
     bool        ready;       // false → grid empty / not enough photons → no gather
     void*       owner;       // opaque RAII handle (device buffers); free via _free
 };
 
 // Run the forward photon trace through the uploaded scene's caustic-caster glass,
-// build a resident hash grid, and calibrate radius + scale. Returns a result
+// build a resident hash grid, and calibrate the gather radius. Returns a result
 // whose `.grid` view + `.scale` the megakernel uses, and whose `.owner` must be
 // passed to cuda_photon_caustic_free after the render. `aim.valid==false` (or no
 // surviving deposits) yields `ready==false` and a null owner (nothing to free).

@@ -2,7 +2,7 @@
 
 **Pillar:** 2
 **Track:** A
-**Status:** open
+**Status:** done — CPU gates pass (furnace flux/T 1.004, 2x sun 2.000); GPU leg built-untested, needs the RTX run
 **Estimated effort:** 2 sessions (~6 h): CPU + GPU + tests
 **Depends on:** pkg113, pkg221
 
@@ -109,12 +109,23 @@ bless prism/sms/glass references until the energy is physical. Owner
 
 ## Progress
 
-- [ ] CPU (`spectral_path_tracer`, `light_tracer_caustic`, `photon_map.h`) + furnace test.
-- [ ] GPU (`photon_caustic.cu`, snapshot aim) + parity leg.
-- [ ] Re-pins + showcase inspection.
+- [x] CPU (`spectral_path_tracer`, `light_tracer_caustic`) + furnace test (photon_map.h
+      already had the Jensen cone norm and no scale argument; unchanged).
+- [x] GPU (`photon_caustic.cu`, snapshot aim) + parity leg — code done, awaiting build + RTX run.
+- [ ] Re-pins (`test_integrator_float_param`, `test_gpu_caustic_parity`) done; showcase
+      inspection is the lead's.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- Physical flux: Φ_p = S(λ)·W/N from `photon_emitter.h` (landed with pkg287's
+  per-light emitter); boost default kept at 1.2 for the owner. With boost 1.0 the
+  caustic is physical: slab furnace patch/direct 0.926 vs T 0.9216; ball-lens
+  caustic vs brute-force PT core flux 1.00 (area) to 1.07 (point).
+- Two more energy bugs surfaced: a receiver cosine on every deposit (the hit
+  density already carries it) and Schlick Fresnel with the incident cosine on
+  glass→air exits (no TIR onset). Both removed; exact Fresnel (pbrt-v3).
+- Old caustic tests were display-normalised: the 6·Ω sun made a physical
+  caustic black (peak 0.0011). Re-pinned to a 0.2 W/m² sun.
+- Notes: `.astroray_plan/docs/pkg286-287-photon-power-research.md`.

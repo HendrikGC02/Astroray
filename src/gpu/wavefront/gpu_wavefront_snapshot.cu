@@ -52,7 +52,7 @@ void uploadThinFilmTable();
 
 // pkg55-C5 / pkg113: photon caustic grid structures.
 #include "astroray/gpu_photon_caustic.h"
-#include "astroray/photon_spd.h"   // pkg221: light-SPD CDF (shared CPU/GPU host helper)
+#include "astroray/photon_lights.h"   // pkg286/287: per-light photon emitters (host setup)
 #include "astroray/gpu_photon_store.h"
 
 namespace astroray::wavefront {
@@ -1382,8 +1382,9 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     }
 }
 
-// pkg55-C5 / pkg113: build photon caustic aim from the scene (mirrors
-// cuda_renderer.cu:662 `buildCausticAim`).
+// pkg55-C5 / pkg113: build the photon caustic aim from the scene. pkg286/287:
+// one physically normalised emitter per dedicated lamp (photon_lights.h), the
+// same host setup the CPU buildPhotonMap uses.
 static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
     const Renderer& scene, int maxDepth, unsigned int seed) {
     astroray::photon::gpu::PhotonCausticAim aim{};
@@ -1391,11 +1392,9 @@ static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
     aim.lambdaMin = 380.0f;
     aim.lambdaMax = 720.0f;
     aim.maxDepth  = maxDepth;
-    aim.boost     = 1.2f;   // CPU caustic_boost default (spectral_path_tracer.cpp:499)
-    aim.photonCount = 4000000;  // forward photons (≈2000² lattice); CPU traces 3e6
+    aim.boost     = scene.getPhotonCausticBoost();   // pkg286: artistic, default 1.2
+    aim.photonCount = 4000000;  // forward photons; CPU traces 3e6
     aim.seed        = seed;     // pkg220: per-iteration photon-jitter decorrelation seed
-                                // (aim GEOMETRY below stays deterministic — the fixed
-                                // mt19937(12345) sun-direction probe is UNCHANGED)
 
     // Union AABB of all flagged caustic-caster objects.
     AABB casterBounds; bool any = false;
@@ -1408,35 +1407,10 @@ static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
     }
     if (!any) return aim;
 
-    const Vec3 casterC = casterBounds.centroid();
-    const float crad = (casterBounds.max - casterBounds.min).length() * 0.55f + 1e-3f;
-
     const auto& lights = scene.getLights();
     if (lights.empty()) return aim;
-
-    // Probe one light sample toward the caster centroid to get the sun direction
-    // (CPU :356-362). A fixed seed keeps the aim deterministic frame-to-frame.
-    std::mt19937 gen(12345u);
-    astroray::SampledWavelengths probe = astroray::SampledWavelengths::sampleUniform(0.5f);
-    LightSample ls;
-    lights.sample(ls, casterC, Vec3(0, 1, 0), probe, gen);
-    Vec3 sunDir = (casterC - ls.position).normalized();
-    if (sunDir.length2() < 1e-6f) return aim;
-
-    Vec3 origin0 = casterC - sunDir * (crad + 2.0f);
-    aim.sunDir         = GVec3(sunDir.x, sunDir.y, sunDir.z);
-    aim.apertureOrigin = GVec3(origin0.x, origin0.y, origin0.z);
-    aim.apertureRadius = crad;
-    aim.valid = true;
-
-    // pkg221: build the dominant light's SPD CDF host-side (identical helper to the
-    // CPU buildPhotonMap path) so kEmitSceneCaustic can importance-sample λ ∝ SPD.
-    // spdValid==false → the kernel keeps the uniform-λ path (broadband/no-SPD scenes
-    // unchanged). Copied into the aim (uploaded to __constant__ before the launch).
-    astroray::PhotonSpdCdf spd = astroray::buildPhotonSpdCdf(lights, casterC, Vec3(0, 1, 0));
-    aim.spdValid    = spd.valid;
-    aim.spdIntegral = spd.integral;
-    if (spd.valid) std::memcpy(aim.spdCdf, spd.cdf, sizeof(aim.spdCdf));
+    aim.lights = astroray::photon::buildPhotonLights(lights, casterBounds, aim.photonCount);
+    aim.valid = !aim.lights.empty();
     return aim;
 }
 
@@ -1823,38 +1797,19 @@ std::vector<float> cuda_wavefront_render(
         }
     }
     // #909: photon-map / path-tracing split (Jensen 1996 two-pass). The gather adds
-    // L S+ D at the primary hit for the aimed light only, so drop exactly the
+    // L S+ D at the primary hit for every photon-emitting lamp, so drop exactly the
     // path-traced twin: bounce-0 receiver -> caster in/out chain -> BSDF ray hits
-    // the aimed dedicated lamp. Other lights, caustics seen through glass and
-    // reflections stay path traced. Aimed lamp = the dedicated light along sunDir.
+    // one of those lamps. pkg287: per light — lamps without photons (mesh emitters,
+    // indices >= 32), caustics seen through glass and reflections stay path traced.
     {
-        GWavefrontPhotonSplit split{nullptr, -1};
+        GWavefrontPhotonSplit split{nullptr, 0u};
         if (caustic.ready && !useLuminanceOutput) {
-            const GVec3 sd = aim.sunDir.normalized();
-            const GVec3 casterC = aim.apertureOrigin + sd * (aim.apertureRadius + 2.0f);
-            // The aim probe samples a point ON the light, so accept a lamp whose
-            // extent (sphere radius / area half-diagonal) subtends the aim direction.
-            float best = -1.f;
-            for (int i = 0; i < (int)res.dedicatedLights.size(); ++i) {
-                const GDedicatedLight& L = res.dedicatedLights[i];
-                float c, cMin;
-                if (L.kind == GDED_DISTANT) {
-                    c = fabsf(L.axis.normalized().dot(sd));
-                    cMin = 0.9995f;
-                } else {
-                    GVec3 d = casterC - L.position;
-                    float len = d.length();
-                    if (len <= 0.f) continue;
-                    c = d.dot(sd) / len;
-                    float ext = (L.kind == GDED_AREA)
-                        ? 0.5f * sqrtf(L.width * L.width + L.height * L.height)
-                        : L.radius;
-                    float sinA = fminf(1.f, (ext + 1e-3f) / len);
-                    cMin = sqrtf(fmaxf(0.f, 1.f - sinA * sinA)) - 1e-4f;
-                }
-                if (c >= cMin && c > best) { best = c; split.aimedLamp = i; }
+            for (const auto& L : aim.lights) {
+                const int i = L.emitter.lightIndex;
+                if (L.count > 0 && i >= 0 && i < 32 && i < (int)res.dedicatedLights.size())
+                    split.lampMask |= 1u << i;
             }
-            if (split.aimedLamp >= 0)
+            if (split.lampMask != 0u)
                 split.chain = wfEnsure<unsigned char>(C.photonChain, total_paths);
         }
         setWavefrontPhotonSplit(split);
@@ -2559,7 +2514,7 @@ std::vector<float> cuda_wavefront_render(
     // pkg55-C5 / pkg113: release the resident photon grid after the render
     // (mirrors cuda_renderer.cu:888).
     astroray::photon::gpu::cuda_photon_caustic_free(caustic);
-    setWavefrontPhotonSplit(GWavefrontPhotonSplit{nullptr, -1});  // #909
+    setWavefrontPhotonSplit(GWavefrontPhotonSplit{nullptr, 0u});  // #909
 
     // pkg198 Stage 2: light-path pass copy-back. Runs ONCE after the barrier, like
     // the guide/cryptomatte copy-backs. Convert each per-pixel per-pass XYZ

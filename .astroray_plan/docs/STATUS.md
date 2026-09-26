@@ -1,5 +1,19 @@
 # Astroray Status
 
+## 2026-09-27 CURRENT — lead session (Claude Opus 5.5, 2026-09-24 evening → 2026-09-27 morning AEST; two hardware resets, all lanes resumed by agentId)
+
+**Merged (main 9330e5d7):** #882 (V), #887, #892 (Y), #893 (U), #899, #900, #907 (Z), #911 (showcase scenes), #916 (AB), #918 (architect plan), #923 (AC), #927 (AD), #928 (AE). Full RTX suite per batch before its PR: 3284 → **3601 passed, 0 failed** (AE). Run report: `reports/2026-09-27-night-shift.html` (artifact https://claude.ai/artifact/GyQHmGfShaW57ddbp8AQoA).
+
+**Headline fixes:** GPU sun starvation (#859); light tree / power sampler bias (#851); area spread (#852); overlapping media (#860/#842); ortho camera (#845); Kerr spin + momentum redshift (pkg281/282, shadow edges 89/33 px vs GYOTO 87/34) and the spin-axis column (#897); invariant ADAF/jet transport (pkg283); dispersion energy 0.25 → 1.00 (#901); metal thin-film phase sign (#902); sky disc + glow (#903/#905); blackbody intensity clamp (#908, fire 0.35 → 1.00); caustic speckle (#909) then physical photon power + per-light photons (pkg286/287, 1.00–1.07× path traced); GPU camera clip + medium NEE switch (#873/#877); CPU MIS over-counted occluded emitters (#912); MinGW AVX stack-alignment crash (#904, GCC bug 54412); lamp-hit continuation (pkg288); SMS energy sign (#888/#919); ReSTIR lamp colour cast (#878); guiding snapshot (#917).
+
+**Stale tests re-pinned (owner rule 2026-09-26):** dispersion "darkening" gates, pkg256 sky orientation, gr-kerr reference, clamp/photon-seed/raindrop-bow tests. Each commit states why the old expectation was wrong.
+
+**In flight:** #925 per-segment volume NEE (CPU done, `feat/925-volume-segment-nee` 33fec409: shaft variance ~100× → 2–7× Cycles; also fixed a bounded-medium lamp-hit bias; GPU twin #929); af2 hero-λ proposal / blue variance (#848). pkg290 clamp parity **blocked** on #922/#925.
+
+**Load policy:** two Kernel-Power 41 resets (bugcheck 0) under GPU suite + builds + 3–4 CPU lanes. Now: suite never overlaps a build, ≤2 CPU lanes, OMP 8, `-j 6`.
+
+**Owner decisions pending:** caustic boost default 1.2 → 1.0 (1.0 is physical); gate (c) trio remap onto corpus v2 (pkg284); #858 default flips; #833 engine volume stack vs DEGRADED report. Corpus: owner 2026-09-25 allows scrapping/redoing all nine scenes (pkg284). Please delete stale worktrees (incl. `Astroray-f912`, NUL-corrupted by the reset).
+
 ## 2026-09-22 CURRENT — planning session (Claude Fable 5.1 lead + GPT-6 Astra co-planner, Codex Terra reviews; 19:00 → 22:30 AEST; docs + policy only, no engine code)
 
 **Owner directives (recorded in CLAUDE.md §5 "Model policy", memory, `tiers.json`):** Opus 5 replaces Opus 4.8 on every Claude agent pin; DeepSeek V4.1 Flash is the open-model implement + grunt primary; Codex Terra reviews AND implements bounded work with no cap, Luna free, Astra only in this session (4 turns) and the render-speed session, Astra subagents Luna/Terra only; Fable subagents stay banned; Haiku summarises short files, Sonnet 5 is the Claude grunt workhorse; **project index before grep** (`index_nudge.ps1` PreToolUse hook, ≤3 nudges/session). Thaw rule: gate (a)–(f) stays the formal trigger, Pillar 4 spec amendment + one groundwork lane (pkg280) may overlap the wrap-up; Pillar 4 round 1 builds the nebula AND lensing/HMXB tracks.

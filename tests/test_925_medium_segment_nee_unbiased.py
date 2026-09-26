@@ -28,9 +28,16 @@ _SPP = 256
 _SEEDS = tuple(range(1, 9))
 
 
-def _render(kind, nee, seed):
+def _render(kind, nee, seed, gpu=False):
     r = astroray.Renderer()
-    if hasattr(r, "set_use_gpu"):
+    if gpu:
+        try:
+            r.set_use_gpu(True)
+        except Exception as e:  # noqa: BLE001 - CPU-only build
+            pytest.skip("GPU unavailable: %s" % e)
+        if not getattr(r, "gpu_available", False):
+            pytest.skip("gpu_available is False")
+    elif hasattr(r, "set_use_gpu"):
         r.set_use_gpu(False)
     r.set_integrator("path_tracer")
     r.set_adaptive_sampling(False)
@@ -58,16 +65,28 @@ def _render(kind, nee, seed):
     return img.reshape(_RES, _RES, 3).mean(axis=(0, 1))
 
 
-def _stats(kind, nee):
-    m = np.stack([_render(kind, nee, s) for s in _SEEDS])
+def _stats(kind, nee, gpu=False):
+    m = np.stack([_render(kind, nee, s, gpu) for s in _SEEDS])
     return m.mean(0), m.std(0, ddof=1) / np.sqrt(len(_SEEDS))
+
+
+def _assert_nee_on_matches_off(kind, gpu):
+    on, se_on = _stats(kind, True, gpu)
+    off, se_off = _stats(kind, False, gpu)
+    tol = 4.0 * np.hypot(se_on, se_off) + 0.005 * off
+    assert np.all(np.abs(on - off) <= tol), (
+        f"{kind}: NEE on {on} vs off {off} (rel {on / off - 1}), tol {tol}")
 
 
 @pytest.mark.cpu
 @pytest.mark.parametrize("kind", ["box", "fog", "mesh"])
 def test_925_segment_nee_matches_nee_off_cpu(kind):
-    on, se_on = _stats(kind, True)
-    off, se_off = _stats(kind, False)
-    tol = 4.0 * np.hypot(se_on, se_off) + 0.005 * off
-    assert np.all(np.abs(on - off) <= tol), (
-        f"{kind}: NEE on {on} vs off {off} (rel {on / off - 1}), tol {tol}")
+    _assert_nee_on_matches_off(kind, False)
+
+
+# #929: GPU twin (segment direct light parked by the intersect stage, resolved
+# by the shadow stage; lamp pass before the bounded free flight with Tr(lamp)).
+@pytest.mark.gpu
+@pytest.mark.parametrize("kind", ["box", "fog", "mesh"])
+def test_929_segment_nee_matches_nee_off_gpu(kind):
+    _assert_nee_on_matches_off(kind, True)

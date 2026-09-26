@@ -58,6 +58,20 @@ namespace astroray::wavefront {
 // rdc-linked gpu_gridVolume* symbols have the same qualified names in both TUs.
 #include "../gpu_volume_phase.cuh"
 
+// #929: counter-based stream for the volume-segment direct light, which runs in
+// the intersect stage (no WavefrontRNG / rng_dimension round-trip there). Found
+// by ADL from the gpu_nee.cuh templates.
+struct GSegRng {
+    uint32_t rpix, rsmp;
+    uint64_t rsd;
+    uint32_t salt, draw;
+};
+__device__ inline float gpu_rng_uniform(GSegRng* r)
+{
+    return gpu_freeflightUniform(r->rpix, r->rsmp, r->rsd,
+                                 r->salt + (r->draw++ & G_WF_SEG_DRAW_MASK));
+}
+
 // Defined in stage_advance.cu (namespace astroray::wavefront; published once per
 // frame by setWavefrontGridVolumeBinding / setWavefrontLightPassBinding).
 extern __constant__ GWavefrontGridVolumeBinding c_wfGridVolume;
@@ -208,19 +222,21 @@ __device__ int gpu_gridVolumeTrack(int mi, const GVec3& o, const GVec3& d,
                     emission.v[i] += beta.v[i] * e.v[i] * w;
             }
         }
-        float pAbsorb  = sigA.v[0] / sigBar;
-        float pScatter = sigS.v[0] / sigBar;
-        if (noScatter) { pAbsorb += pScatter; pScatter = 0.f; }
+        // #929 (CPU #925 twin): absorption as a weight (Cycles shade_volume.h). A
+        // real collision (pdf σ_t[0]/σ̄) scatters with beta *= σ_s/σ_t[0],
+        // r_u *= σ_t/σ_t[0]; noScatter keeps the analog termination.
+        float pReal = (sigA.v[0] + sigS.v[0]) / sigBar;
         float um = gpu_freeflightUniform(rpix, rsmp, rsd, salt + (draw++ & G_WF_GRID_DRAW_MASK));
-        if (um < pAbsorb) {
-            beta = GSampledSpectrum(0.f);
-            tOut = t;
-            return 1;
-        } else if (um < pAbsorb + pScatter) {
-            float inv = 1.f / sigS.v[0];
+        if (um < pReal) {
+            if (noScatter || !(sigS.maxValue() > 0.f)) {
+                beta = GSampledSpectrum(0.f);
+                tOut = t;
+                return 1;
+            }
+            float inv = 1.f / (sigS.v[0] + sigA.v[0]);
             for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
-                float r = sigS.v[i] * inv;
-                beta.v[i] *= r; r_u.v[i] *= r;
+                beta.v[i] *= sigS.v[i] * inv;
+                r_u.v[i] *= (sigS.v[i] + sigA.v[i]) * inv;
             }
             tOut = t;
             return 2;
@@ -289,29 +305,37 @@ __device__ int gpu_gridVolumeTrackOverlap(uint32_t mask, const GVec3& o, const G
             for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
                 emission.v[i] += beta.v[i] * e.v[i] * w;
         }
-        float pAbsorb = sigA.v[0] / sigBar;
-        if (noScatter) pAbsorb += sigS.v[0] / sigBar;
+        // #929 (CPU #925 twin): absorption as a weight. A real collision with
+        // medium k has pdf σ_t,k[0]/σ̄; beta *= σ_s,k/σ_t,k[0], r_u *= σ_t,k/σ_t,k[0].
         float um = gpu_freeflightUniform(rpix, rsmp, rsd, salt + (draw++ & G_WF_GRID_DRAW_MASK));
-        if (um < pAbsorb) {
-            beta = GSampledSpectrum(0.f);
-            tOut = t;
-            return 1;
-        }
-        if (!noScatter) {
-            float cum = pAbsorb;
+        if (noScatter) {
+            if (um < (sigS.v[0] + sigA.v[0]) / sigBar) {
+                beta = GSampledSpectrum(0.f);
+                tOut = t;
+                return 1;
+            }
+        } else {
+            float cum = 0.f;
             for (int k = 0; k < c_wfGridVolume.count; ++k) {
                 if (!(mask & (1u << k))) continue;
                 const GGridMedium& m = c_wfGridVolume.media[k];
                 GSampledSpectrum sUnit, aUnit;
                 gridCoeffs(m, wl, sUnit, aUnit);
-                GSampledSpectrum sk = sUnit * gridDensityAt(m, p);
-                if (sk.v[0] <= 0.f) continue;
-                cum += sk.v[0] / sigBar;
+                const float dens = gridDensityAt(m, p);
+                GSampledSpectrum sk = sUnit * dens;
+                GSampledSpectrum tk = (sUnit + aUnit) * dens;
+                if (tk.v[0] <= 0.f) continue;
+                cum += tk.v[0] / sigBar;
                 if (um < cum) {
-                    float inv = 1.f / sk.v[0];
+                    if (!(sk.maxValue() > 0.f)) {
+                        beta = GSampledSpectrum(0.f);
+                        tOut = t;
+                        return 1;
+                    }
+                    float inv = 1.f / tk.v[0];
                     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
-                        float r = sk.v[i] * inv;
-                        beta.v[i] *= r; r_u.v[i] *= r;
+                        beta.v[i] *= sk.v[i] * inv;
+                        r_u.v[i] *= tk.v[i] * inv;
                     }
                     tOut = t;
                     which = k;
@@ -348,8 +372,14 @@ __device__ GSampledSpectrum gpu_gridVolumeTransmittance(int mi, const GVec3& o,
     const GGridMedium& m = c_wfGridVolume.media[mi];
     GSampledSpectrum sUnit, aUnit;
     gridCoeffs(m, wl, sUnit, aUnit);
-    const float sigBar = gridExtinctionMajorant(m);
     GSampledSpectrum Tr(1.f);
+    if (!m.heterogeneous) {   // #929 (CPU #925 twin): exact Beer-Lambert
+        const float len = fmaxf(tMax - tMin, 0.f);
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+            Tr.v[i] = __expf(-m.densityScale * (sUnit.v[i] + aUnit.v[i]) * len);
+        return Tr;
+    }
+    const float sigBar = gridExtinctionMajorant(m);
     uint32_t draw = 0;
     float t = tMin;
     for (;;) {
@@ -370,6 +400,339 @@ __device__ GSampledSpectrum gpu_gridVolumeTransmittance(int mi, const GVec3& o,
         }
     }
     return Tr;
+}
+
+// ---------------------------------------------------------------------------
+// #929 — per-segment volume direct light (GPU twin of the CPU #925 estimator).
+// Source: Kulla & Fajardo, "Importance Sampling Techniques for Path Tracing in
+// Participating Media", EGSR 2012, DOI:10.1111/j.1467-8659.2012.03145.x.
+// Reference impl: Blender Cycles src/kernel/integrator/shade_volume.h
+// (integrate_volume_sample_direct_light, volume_valid_direct_ray_segment,
+// volume_direct_scatter_mis, integrate_volume_direct_light), Apache-2.0.
+// CPU twin (mirrored line for line): include/raytracer.h segmentDirectLight /
+// boundedSegmentDirect, volume_transport.h sampleSegmentDirect,
+// src/lights/{spot,area}_light.cpp clipLitSegment. Research:
+// .astroray_plan/docs/issue925-volume-segment-direct-light-research.md.
+// ---------------------------------------------------------------------------
+namespace {
+
+// SpotLight::clipLitSegment twin (double, as on the CPU): conservative cone
+// (outer angle + 1e-3, apex pulled back by r/sin θ so it contains the lamp).
+__device__ bool segClipSpot(const GDedicatedLight& L, const GVec3& o, const GVec3& d,
+                            float& t0, float& t1)
+{
+    const double th = (double)acosf(fminf(fmaxf(L.cosOuter, -1.f), 1.f)) + 1e-3;
+    if (th >= 1.55) return true;
+    const double kInf = 1e300;
+    const double sinT = sin(th), cosT = cos(th), c2 = cosT * cosT;
+    const double ax = L.axis.x, ay = L.axis.y, az = L.axis.z;
+    const double pull = (double)L.radius / sinT;
+    const double cox = (double)o.x - ((double)L.position.x - ax * pull);
+    const double coy = (double)o.y - ((double)L.position.y - ay * pull);
+    const double coz = (double)o.z - ((double)L.position.z - az * pull);
+    const double dx = d.x, dy = d.y, dz = d.z;
+    const double dv = dx * ax + dy * ay + dz * az;
+    const double cv = cox * ax + coy * ay + coz * az;
+    double lo = t0, hi = t1;
+    if (fabs(dv) < 1e-12) {                       // positive nappe only
+        if (cv < 0.0) return false;
+    } else if (dv > 0.0) {
+        lo = fmax(lo, -cv / dv);
+    } else {
+        hi = fmin(hi, -cv / dv);
+    }
+    if (!(lo <= hi)) return false;
+    // Inside the double cone: (cv + t dv)^2 - cos^2 |co + t d|^2 >= 0.
+    const double qa = dv * dv - c2;
+    const double qb = 2.0 * (cv * dv - c2 * (cox * dx + coy * dy + coz * dz));
+    const double qc = cv * cv - c2 * (cox * cox + coy * coy + coz * coz);
+    double p0[2], p1[2];
+    int n = 0;
+    if (fabs(qa) < 1e-12) {
+        if (fabs(qb) < 1e-18) { if (qc < 0.0) return false; p0[n] = -kInf; p1[n++] = kInf; }
+        else if (qb > 0.0) { p0[n] = -qc / qb; p1[n++] = kInf; }
+        else { p0[n] = -kInf; p1[n++] = -qc / qb; }
+    } else {
+        const double disc = qb * qb - 4.0 * qa * qc;
+        if (disc < 0.0) {
+            if (qa < 0.0) return false;
+            p0[n] = -kInf; p1[n++] = kInf;
+        } else {
+            const double sq = sqrt(disc);
+            double r1 = (-qb - sq) / (2.0 * qa), r2 = (-qb + sq) / (2.0 * qa);
+            if (r1 > r2) { const double tmp = r1; r1 = r2; r2 = tmp; }
+            if (qa > 0.0) {
+                p0[n] = -kInf; p1[n++] = r1;
+                p0[n] = r2;    p1[n++] = kInf;
+            } else {
+                p0[n] = r1; p1[n++] = r2;
+            }
+        }
+    }
+    // Within the half-space the cone is convex: hull of what survives.
+    double nlo = kInf, nhi = -kInf;
+    for (int k = 0; k < n; ++k) {
+        const double pad = 1e-4 * (1.0 + fmin(fabs(p0[k]), fabs(p1[k])));
+        const double s = fmax(lo, p0[k] - pad), e = fmin(hi, p1[k] + pad);
+        if (s <= e) { nlo = fmin(nlo, s); nhi = fmax(nhi, e); }
+    }
+    if (!(nlo <= nhi)) return false;
+    t0 = (float)nlo;
+    t1 = (float)nhi;
+    return true;
+}
+
+// AreaLight::clipLitSegment twin: one-sided emitter lights the half-space in
+// front of its plane (d.axis = area normal).
+__device__ bool segClipArea(const GDedicatedLight& L, const GVec3& o, const GVec3& d,
+                            float& t0, float& t1)
+{
+    const float s0 = (o - L.position).dot(L.axis);
+    const float dn = d.dot(L.axis);
+    if (fabsf(dn) < 1e-12f) return s0 > 0.f;
+    const float tp = -s0 / dn;
+    if (dn > 0.f) t0 = fmaxf(t0, tp);
+    else t1 = fminf(t1, tp);
+    return t0 < t1;
+}
+
+// Lane-mixture truncated-exponential pdf on [a, a+L] (sampleSegmentDirect).
+__device__ float segPdfDist(float t, float a, float L, bool finite,
+                            const GSampledSpectrum& rate, const int* valid, int nValid)
+{
+    if (nValid == 0) return 0.f;
+    float s = 0.f;
+    for (int k = 0; k < nValid; ++k) {
+        const float r = rate.v[valid[k]];
+        if (r <= 1e-12f) { s += 1.f / L; continue; }
+        const float norm = finite ? -expm1f(-r * L) : 1.f;
+        s += r * __expf(-r * (t - a)) / norm;
+    }
+    return s / float(nValid);
+}
+
+struct GSegDistance { float t, w; };
+
+// volume::sampleSegmentDirect twin: one distance on [a,b] (b >= 1e18 = open),
+// equiangular about `anchor` (K&F 2012 Eq. 6-7) vs the per-λ exponential
+// mixture, each with probability 1/2, w = 2·pc/(pc²+po²) (power heuristic / pdf).
+__device__ GSegDistance segSampleDistance(const GVec3& o, const GVec3& d, float a, float b,
+                                          bool hasAnchor, const GVec3& anchor,
+                                          const GSampledSpectrum& rate, GSegRng& rng)
+{
+    GSegDistance out{0.f, 0.f};
+    const bool finite = b < 1e18f;
+    const float L = finite ? b - a : 1e30f;
+    if (!(L > 0.f)) return out;
+    int valid[G_SPECTRUM_SAMPLES];
+    int nValid = 0;
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+        if (rate.v[i] > 1e-12f || finite) valid[nValid++] = i;
+    const float tc = (anchor - o).dot(d);
+    const float D = fmaxf((anchor - (o + d * tc)).length(), 1e-4f);
+    const float thA = atan2f(a - tc, D);
+    const float thB = finite ? atan2f(b - tc, D) : 1.5707962f;
+    const bool eqOk = hasAnchor && thB - thA > 1e-7f;
+    const bool distOk = nValid > 0;
+    if (!eqOk && !distOk) return out;
+    const bool both = eqOk && distOk;
+    const bool pickEq = both ? (gpu_rng_uniform(&rng) >= 0.5f) : eqOk;
+    float t;
+    if (pickEq) {
+        const float th = thA + gpu_rng_uniform(&rng) * (thB - thA);
+        t = tc + D * tanf(th);
+    } else {
+        const int c = valid[min(int(gpu_rng_uniform(&rng) * nValid), nValid - 1)];
+        const float r = rate.v[c], xi = gpu_rng_uniform(&rng);
+        if (r <= 1e-12f) t = a + xi * L;
+        else t = a - log1pf(-xi * (finite ? -expm1f(-r * L) : 1.f)) / r;
+    }
+    if (!(t >= a && t <= b) || !isfinite(t)) return out;
+    auto pdfEq = [&](float tt) {
+        if (!eqOk || tt < a || tt > b) return 0.f;
+        const float dt = tt - tc;
+        return D / ((thB - thA) * (D * D + dt * dt));
+    };
+    const float pc = pickEq ? pdfEq(t) : segPdfDist(t, a, L, finite, rate, valid, nValid);
+    if (!(pc > 0.f)) return out;
+    out.t = t;
+    if (both) {
+        const float po = pickEq ? segPdfDist(t, a, L, finite, rate, valid, nValid) : pdfEq(t);
+        out.w = 2.f * pc / (pc * pc + po * po);
+    } else {
+        out.w = 1.f / pc;
+    }
+    return out;
+}
+
+__device__ inline bool segInsideAabb(const GGridMedium& m, const GVec3& P)
+{
+    return !(P.x < m.aabbMin[0] || P.x > m.aabbMax[0] || P.y < m.aabbMin[1] ||
+             P.y > m.aabbMax[1] || P.z < m.aabbMin[2] || P.z > m.aabbMax[2]);
+}
+
+}  // namespace
+
+__device__ void gpu_volumeSegmentDirect(
+    int idx, int bounce, int kind, const GVec3& o, const GVec3& d, float a, float b,
+    GSampledSpectrum rate, const GSampledSpectrum& throughput,
+    const GSampledWavelengths& wl, float fogAlbedo, float fogG,
+    const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres,
+    const GLight* lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed, const GLightTreeView& lightTree,
+    uint32_t rpix, uint32_t rsmp, uint64_t rsd)
+{
+    const int cap = c_wfGridVolume.segCapacity;
+    if (cap <= 0 || (numLights + numDed) <= 0 || !(totalLightPower > 0.f)) return;
+    if (kind == 0) {
+        // boundedSegmentDirect: hull of the media on [a,b]; distance rate =
+        // Σ_k per-λ σ_t majorant (exact for one homogeneous medium).
+        float lo = 3.4e38f, hi = 0.f;
+        rate = GSampledSpectrum(0.f);
+        for (int k = 0; k < c_wfGridVolume.count; ++k) {
+            const GGridMedium& m = c_wfGridVolume.media[k];
+            float t0, t1;
+            if (!gpu_gridAabbOverlap(m, o, d, a, b, t0, t1)) continue;
+            lo = fminf(lo, t0);
+            hi = fmaxf(hi, t1);
+            GSampledSpectrum sU, aU;
+            gridCoeffs(m, wl, sU, aU);
+            rate += (sU + aU) * (m.densityScale * m.maxDensity);
+        }
+        if (!(hi > lo)) return;
+        a = lo;
+        b = hi;
+    }
+    GSegRng rng{rpix, rsmp, rsd, gpu_segSalt(bounce, kind), 0u};
+    float mr = 0.f;
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) mr += rate.v[i];
+    mr /= float(G_SPECTRUM_SAMPLES);
+    // CPU refPoint: clipped midpoint, or one mean free path past `a` if open.
+    auto refPoint = [&](float lo, float hi) {
+        const float tr = (hi < 1e18f) ? 0.5f * (lo + hi) : lo + (mr > 0.f ? 1.f / mr : 0.f);
+        return o + d * tr;
+    };
+    // Power sampler: pick once, clip to the lamp's lit region, re-sample the
+    // SAME light for the anchor and at P. Light tree: fresh picks (CPU note).
+    const bool same = !lightTree.enabled;
+    int li = 0, dj = -1;
+    float selPdf = 0.f;
+    GNEESample anc;
+    if (same) {
+        selPdf = gpu_power_light_pick(gpu_rng_uniform(&rng), lights, numLights,
+                                      totalLightPower, dedLights, numDed, li, dj);
+        if (!(selPdf > 0.f)) return;
+        if (dj >= 0) {
+            const GDedicatedLight& L = dedLights[dj];
+            if (L.kind == GDED_SPOT && !segClipSpot(L, o, d, a, b)) return;
+            if (L.kind == GDED_AREA && !segClipArea(L, o, d, a, b)) return;
+        }
+        anc = gpu_nee_sample_light(refPoint(a, b), li, dj, selPdf, prims, tris, spheres,
+                                   lights, dedLights, &rng);
+    } else {
+        GHitRecord r{};
+        r.point = refPoint(a, b);
+        r.normal = GVec3(0.f, 0.f, 0.f);
+        r.isDelta = false;
+        anc = gpu_nee_sample(r, prims, tris, spheres, lights, numLights, totalLightPower,
+                             dedLights, numDed, lightTree, &rng);
+    }
+    const bool hasAnchor = anc.valid && anc.lightPdf > 0.f && anc.geomDist > 0.f &&
+                           anc.geomDist < 1e18f;
+    const GVec3 anchor = hasAnchor ? anc.origin + anc.wi * anc.geomDist : o;
+    const GSegDistance ds = segSampleDistance(o, d, a, b, hasAnchor, anchor, rate, rng);
+    if (!(ds.w > 0.f)) return;
+    const GVec3 P = o + d * ds.t;
+
+    // Medium at P: component count + Tr from the segment start to t.
+    GSampledSpectrum TrP(1.f);
+    int n = 0;
+    if (kind == 1) {
+        n = 1;
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) TrP.v[i] = __expf(-rate.v[i] * ds.t);
+    } else {
+        for (int k = 0; k < c_wfGridVolume.count; ++k) {
+            const GGridMedium& m = c_wfGridVolume.media[k];
+            if (segInsideAabb(m, P) && gridDensityAt(m, P) > 0.f) ++n;
+        }
+        if (n > 0)
+            for (int k = 0; k < c_wfGridVolume.count; ++k) {
+                float s0, s1;
+                if (gpu_gridAabbOverlap(c_wfGridVolume.media[k], o, d, 0.001f, ds.t, s0, s1))
+                    TrP *= gpu_gridVolumeTransmittance(k, o, d, s0, s1, wl, rpix, rsmp, rsd,
+                                                       gpu_segSalt(bounce, 2 + k));
+            }
+    }
+    if (n <= 0 || !(TrP.maxValue() > 0.f)) return;
+
+    GNEESample s;
+    if (same) {
+        s = gpu_nee_sample_light(P, li, dj, selPdf, prims, tris, spheres, lights, dedLights, &rng);
+    } else {
+        GHitRecord r{};
+        r.point = P;
+        r.normal = GVec3(0.f, 0.f, 0.f);
+        r.isDelta = false;
+        s = gpu_nee_sample(r, prims, tris, spheres, lights, numLights, totalLightPower,
+                           dedLights, numDed, lightTree, &rng);
+    }
+    if (!s.valid || !(s.lightPdf > 1e-8f)) return;
+    // Each phase component MIS'd against its own HG pdf (the complement of the
+    // lamp-hit weight after a phase-sampled continuation from that medium).
+    const GVec3 wo = d * -1.f;
+    const float lp2 = s.lightPdf * s.lightPdf;
+    GSampledSpectrum sum(0.f);
+    if (kind == 1) {
+        const float ph = gpu_phaseHG(wo.dot(s.wi), fogG);
+        const float w = s.isDeltaLight ? 1.f : lp2 / (lp2 + ph * ph + 1e-8f);
+        sum = rate * (fogAlbedo * ph * w);
+    } else {
+        for (int k = 0; k < c_wfGridVolume.count; ++k) {
+            const GGridMedium& m = c_wfGridVolume.media[k];
+            if (!segInsideAabb(m, P)) continue;
+            const float dens = gridDensityAt(m, P);
+            if (dens <= 0.f) continue;
+            GSampledSpectrum sU, aU;
+            gridCoeffs(m, wl, sU, aU);
+            const float ph = gpu_phaseHG(wo.dot(s.wi), m.g);
+            const float w = s.isDeltaLight ? 1.f : lp2 / (lp2 + ph * ph + 1e-8f);
+            sum += sU * (dens * ph * w);
+        }
+    }
+    if (!(sum.maxValue() > 0.f)) return;
+    float scale = ds.w / s.lightPdf;
+    if (s.isDedicated) scale *= s.dedGeoScale;
+    const GSampledSpectrum c = throughput * sum * TrP * scale;
+
+    // Park into segment block `kind` (standard NEE lane layout).
+    float* f = c_wfGridVolume.segNeeF + (size_t)kind * G_WF_NEE_F_LANES * cap;
+    int*   q = c_wfGridVolume.segNeeI + (size_t)kind * G_WF_NEE_I_LANES * cap;
+    f[ 0 * cap + idx] = s.origin.x;
+    f[ 1 * cap + idx] = s.origin.y;
+    f[ 2 * cap + idx] = s.origin.z;
+    f[ 3 * cap + idx] = s.wi.x;
+    f[ 4 * cap + idx] = s.wi.y;
+    f[ 5 * cap + idx] = s.wi.z;
+    f[ 6 * cap + idx] = s.maxDist;
+    f[ 7 * cap + idx] = c.v[0];
+    f[ 8 * cap + idx] = c.v[1];
+    f[ 9 * cap + idx] = c.v[2];
+    f[10 * cap + idx] = c.v[3];
+    f[11 * cap + idx] = s.dedEmissionRGB.x;
+    f[12 * cap + idx] = s.dedEmissionRGB.y;
+    f[13 * cap + idx] = s.dedEmissionRGB.z;
+    f[14 * cap + idx] = s.geomDist;
+    q[0 * cap + idx] = s.lightMatId;
+    q[1 * cap + idx] = s.isSphere;
+    q[2 * cap + idx] = s.isDedicated;
+    q[3 * cap + idx] = bounce;
+    // CPU pass: firstCat < 0 ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT.
+    const bool unlocked = c_wfLpBinding.passAccum == nullptr ||
+                          c_wfLpBinding.firstCat[idx] == G_LP_CAT_UNSET;
+    q[4 * cap + idx] = unlocked ? (bounce + 1) : -(bounce + 1);
+    q[5 * cap + idx] = s.dedEmissionProfileIndex;
+    const int slot = atomicAdd(&c_wfGridVolume.segShadowCount[kind], 1);
+    c_wfGridVolume.segShadowQueue[kind * cap + slot] = idx;
 }
 
 // ---------------------------------------------------------------------------
@@ -404,16 +767,12 @@ __global__ void stageVolumeHeteroScatterKernel(
     if (mid < 0 || mid >= c_wfGridVolume.count) { state.path_alive[idx] = 0; return; }
     const float g = c_wfGridVolume.media[mid].g;
 
-    // pkg198/pkg204: first-interaction lock to the VOLUME category (CPU:
-    // firstInteraction => firstCat = 3) and DIRECT/INDIRECT attribution.
-    bool lpVolumeFirst = false;
-    if (c_wfLpBinding.passAccum != nullptr) {
-        lpVolumeFirst = (c_wfLpBinding.firstCat[idx] == G_LP_CAT_UNSET);
-        if (lpVolumeFirst) c_wfLpBinding.firstCat[idx] = 3;
-    }
+    // pkg198: first-interaction lock to the VOLUME category (CPU:
+    // firstInteraction => firstCat = 3).
+    if (c_wfLpBinding.passAccum != nullptr &&
+        c_wfLpBinding.firstCat[idx] == G_LP_CAT_UNSET)
+        c_wfLpBinding.firstCat[idx] = 3;
 
-    GVec3 P     = GVec3(state.ray_origin_x[idx], state.ray_origin_y[idx],
-                        state.ray_origin_z[idx]);
     GVec3 inDir = GVec3(state.ray_direction_x[idx], state.ray_direction_y[idx],
                         state.ray_direction_z[idx]);
     GVec3 woMedium = (inDir * -1.f).normalized();
@@ -431,50 +790,10 @@ __global__ void stageVolumeHeteroScatterKernel(
     WavefrontRNG rng(state.rng_pixel[idx], state.rng_sample[idx], state.rng_seed[idx]);
     rng.setDimension(state.rng_dimension[idx]);
 
-    // ---- Medium NEE (phase / light MIS), parked for the shadow stage ----
-    if (enableNEE && (numLights + numDed) > 0 && totalLightPower > 0.f) {
-        GHitRecord mrec{};
-        mrec.point   = P;
-        mrec.normal  = woMedium;
-        mrec.isDelta = false;
-        GNEESample s = gpu_nee_sample(mrec, prims, tris, spheres,
-                                      lights, numLights, totalLightPower,
-                                      dedLights, numDed, lightTree, &rng);
-        if (s.valid) {
-            float ph = gpu_phaseHG(woMedium.dot(s.wi), g);
-            if (ph > 0.f) {
-                float a2 = s.lightPdf * s.lightPdf;
-                float b2 = ph * ph;
-                float wt = s.isDeltaLight ? 1.f : a2 / (a2 + b2 + 1e-8f);
-                float scale = s.lightPdf > 1e-8f ? wt / s.lightPdf : 0.f;
-                if (s.isDedicated) scale *= s.dedGeoScale;
-                nee_f[ 0 * nee_capacity + idx] = s.origin.x;
-                nee_f[ 1 * nee_capacity + idx] = s.origin.y;
-                nee_f[ 2 * nee_capacity + idx] = s.origin.z;
-                nee_f[ 3 * nee_capacity + idx] = s.wi.x;
-                nee_f[ 4 * nee_capacity + idx] = s.wi.y;
-                nee_f[ 5 * nee_capacity + idx] = s.wi.z;
-                nee_f[ 6 * nee_capacity + idx] = s.maxDist;
-                nee_f[ 7 * nee_capacity + idx] = throughput.v[0] * ph * scale;
-                nee_f[ 8 * nee_capacity + idx] = throughput.v[1] * ph * scale;
-                nee_f[ 9 * nee_capacity + idx] = throughput.v[2] * ph * scale;
-                nee_f[10 * nee_capacity + idx] = throughput.v[3] * ph * scale;
-                nee_f[11 * nee_capacity + idx] = s.dedEmissionRGB.x;
-                nee_f[12 * nee_capacity + idx] = s.dedEmissionRGB.y;
-                nee_f[13 * nee_capacity + idx] = s.dedEmissionRGB.z;
-                nee_f[14 * nee_capacity + idx] = s.geomDist;
-                nee_i[ 0 * nee_capacity + idx] = s.lightMatId;
-                nee_i[ 1 * nee_capacity + idx] = s.isSphere;
-                nee_i[ 2 * nee_capacity + idx] = s.isDedicated;
-                nee_i[ 3 * nee_capacity + idx] = bounce;
-                nee_i[ 5 * nee_capacity + idx] = s.dedEmissionProfileIndex;
-                nee_i[ 4 * nee_capacity + idx] =
-                    lpVolumeFirst ? (bounce + 1) : -(bounce + 1);
-                int qslot = atomicAdd(shadow_count, 1);
-                shadow_queue[qslot] = idx;
-            }
-        }
-    }
+    // #929: no NEE at this vertex — direct light is the per-segment sample the
+    // intersect stage parked (gpu_volumeSegmentDirect); this vertex only
+    // continues (its lamp-hit MIS is the complement). The nee/light parameters
+    // are unused since #929.
 
     // pkg271 — Cycles volume_bounce (+1 at this scatter); past the cap the
     // continuation is terminate-after (intersect reads the per_type_bounce flag).

@@ -485,9 +485,9 @@ __device__ int intersectPathSlotT(
     // CPU pathTraceSpectral pkg268/pkg270 block: nearest entered medium on the
     // segment [0.001, surfaceT], hero-wavelength spectral-MIS tracking with
     // per-path r_u lanes, emission at the null-collision vertices). Compiled out
-    // of the fleet <..., HasGridVolume=false> kernels entirely; runs BEFORE the
-    // world-volume block and the lamp/emission/env legs so a scatter or an
-    // absorption intercepts the segment exactly like the CPU loop top.
+    // of the fleet <..., HasGridVolume=false> kernels entirely; runs after the
+    // lamp pass (#929, CPU #925 order) and BEFORE the world-volume block and the
+    // emission/env legs so a scatter or an absorption intercepts the segment.
     // pkg271 — volume_bounces exhausted (Cycles PATH_RAY_TERMINATE_AFTER_TRANSPARENT,
     // flag set by a volume-scatter kernel in per_type_bounce byte 3): media only
     // attenuate + emit, and a non-emissive surface hit ends the path below. Only
@@ -497,8 +497,118 @@ __device__ int intersectPathSlotT(
     if constexpr (HasGridVolume || HasWorldScatter)
         volTerm = gpu_volumeTerminateAfter(state.per_type_bounce, idx,
                                            c_wfGridVolume.volumeBounceCap);
+    // pkg181: dedicated-light visibility to BSDF rays (Cycles lights_intersect
+    // parity) — device twin of production pathTraceSpectral. Lamps are invisible
+    // to camera rays (bounce == 0). Placed in the INTERSECT stage (this kernel),
+    // NOT the REG:254-saturated shade stage (memory
+    // wavefront-shade-kernels-register-saturated). Emission + MIS mirror the
+    // emissive-Hittable block below (wB = 1 after specular / NEE off; the power
+    // heuristic otherwise; naive mode = enableNEE false takes specular only).
+    // #903: bounce 0 tests only cameraVisible lamps (sky-texture sun disc).
+    // pkg288 (#915): a lamp hit is not a vertex — Cycles integrator_shade_light
+    // (kernel/integrator/shade_light.h, Apache-2.0) adds it and re-intersects
+    // from t_lamp. Every lamp on [0.001, surfaceT) adds in t order (strict tMin
+    // skips the lamp just added, cap 4 = CPU kMaxLampPassthrough), then the path
+    // continues to the surface / env. Runs BEFORE the fog free flight, which no
+    // longer stops at lamps; each lamp's emission carries Tr(lampT) explicitly.
+    // The bounce-0 sun disc no longer counts miss coverage here: the continued
+    // ray misses below and counts it once.
+    if (numDed > 0) {
+        const float surfaceT = hit ? rec.t : 1e30f;
+        float lampTMin = 0.001f;
+        bool lampAdded = false;
+        for (int k = 0; k < 4; ++k) {
+            float lampT, lampScale;
+            int lampIdx = gpu_dedicated_intersect_closest(
+                dedLights, numDed, ray.origin, ray.direction, lampTMin, surfaceT,
+                &lampT, &lampScale, bounce == 0);
+            if (lampIdx < 0) break;
+            lampTMin = lampT;
+            // pkg218: baked device SPD for non-RGB emission modes (gpu_nee_resolve twin).
+            int profIdx = dedLights[lampIdx].emissionProfileIndex;
+            GSampledSpectrum Le;
+            if (profIdx >= 0) {
+                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                    Le.v[i] = gpu_emission_profile(profIdx, lambdas.lambda[i]) * lampScale;
+            } else {
+                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                    Le.v[i] = gpu_rgbSpectrumAt(dedLights[lampIdx].emissionRGB,
+                                                lambdas.lambda[i], GSPEC_RGB_ILLUMINANT)
+                              * lampScale;
+            }
+            // #909: receiver -> glass (exited) -> a photon-emitting light is
+            // already in the bounce-0 gather; drop it here (no double count).
+            if (bounce > 0 && lampIdx < 32 &&
+                ((c_wfPhotonSplit.lampMask >> lampIdx) & 1u) &&
+                c_wfPhotonSplit.chain != nullptr && c_wfPhotonSplit.chain[idx] == 3)
+                Le = GSampledSpectrum(0.f);
+            if (!(Le.maxValue() > 0.f)) continue;
+            // pkg199 role 3: attenuate over the origin→lamp segment (lampT).
+            if (c_worldVolume.hasVolume)
+                Le *= gpu_worldTransmittanceMW(lampT, lambdas);
+            // #929 (CPU #925 twin): bounded media too. This pass runs before their
+            // free flight, so the lamp carries Tr(lampT) explicitly instead of the
+            // flight's survival to the surface (which under-counted a lamp inside
+            // a medium box).
+            if constexpr (HasGridVolume) if (c_wfGridVolume.count > 0)
+                for (int m = 0; m < c_wfGridVolume.count; ++m) {
+                    float s0, s1;
+                    if (gpu_gridAabbOverlap(c_wfGridVolume.media[m], ray.origin, ray.direction,
+                                            0.001f, lampT, s0, s1))
+                        Le *= gpu_gridVolumeTransmittance(
+                            m, ray.origin, ray.direction, s0, s1, lambdas,
+                            state.rng_pixel[idx], state.rng_sample[idx], state.rng_seed[idx],
+                            gpu_segSalt(bounce, 10 + m));
+                }
+            GSampledSpectrum contrib(0.f);
+            if (bounce == 0 || wasSpecular || c_wfLightNeeOff) {  // #877
+                contrib = throughput * Le;                 // w_B = 1
+            } else if (enableNEE) {
+                GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
+                                    state.path_mis_nz[idx]);
+                float lp = gpu_dedicated_reconstruct_pdf(
+                    dedLights, numDed, totalLightPower, ray.origin, ray.direction,
+                    lightTree, numLights, misNormalPrev, lampIdx);  // #912
+                float wB = gpu_mw_powerHeuristic(state.path_bsdf_pdf[idx], lp);
+                contrib = throughput * Le * wB;
+            }
+            // naive mode (enableNEE == false, non-specular): no NEE leg to
+            // complement, so nothing is added — mirrors the emissive block.
+            GSampledSpectrum lampContrib = gpu_clampContribMW(
+                contrib, lambdas, bounce - 1,   // #860: emission hit = Cycles bounce-1
+                clampDirect, clampIndirect, useLuminanceOutput);
+            color += lampContrib;
+            lampAdded = true;
+            // pkg198 Stage 2: continuation-ray lamp -> firstCat's INDIRECT pass
+            // (CPU lampPass = (firstCat<0?0:firstCat)*3+1).
+            if constexpr (HasLightPassAOVs) {
+                unsigned char cat = c_wfLpBinding.firstCat[idx];
+                // #903: camera-visible sky disc -> PASS_ENVIRONMENT (CPU twin).
+                int lampPass = (bounce == 0) ? G_LP_PASS_ENVIRONMENT
+                             : (cat == G_LP_CAT_UNSET ? 0 : (int)cat) * 3 + 1;
+                lpAccumulate(idx, lampPass, lampContrib);
+            }
+        }
+        if (lampAdded) {
+            state.color_0[idx] = color.v[0];
+            state.color_1[idx] = color.v[1];
+            state.color_2[idx] = color.v[2];
+            state.color_3[idx] = color.v[3];
+        }
+    }
+
     if constexpr (HasGridVolume) if (c_wfGridVolume.count > 0) {
         const float surfaceT = hit ? rec.t : 1e30f;
+        // #929 (CPU #925 boundedSegmentDirect twin): one direct-light distance on
+        // the media hull of [0.001, surfaceT], decoupled from the flight below
+        // (Kulla & Fajardo 2012; Cycles shade_volume.h). Parked into segment slot
+        // 0 for the shadow stage; uses the pre-flight throughput.
+        if (enableNEE && !volTerm)
+            gpu_volumeSegmentDirect(idx, bounce, 0, ray.origin, ray.direction, 0.001f, surfaceT,
+                                    GSampledSpectrum(0.f), throughput, lambdas, 0.f, 0.f,
+                                    prims, tris, spheres, lights, numLights, totalLightPower,
+                                    dedLights, numDed, lightTree, state.rng_pixel[idx],
+                                    state.rng_sample[idx], state.rng_seed[idx]);
         // r_u lanes live in the side table (not GPUWavefrontState). A path starts
         // at bounce 0 with r_u = 1: reset there (no regen-kernel change needed).
         const int ruCap = c_wfGridVolume.capacity;
@@ -601,92 +711,6 @@ __device__ int intersectPathSlotT(
         }
     }
 
-    // pkg181: dedicated-light visibility to BSDF rays (Cycles lights_intersect
-    // parity) — device twin of production pathTraceSpectral. Lamps are invisible
-    // to camera rays (bounce == 0). Placed in the INTERSECT stage (this kernel),
-    // NOT the REG:254-saturated shade stage (memory
-    // wavefront-shade-kernels-register-saturated). Emission + MIS mirror the
-    // emissive-Hittable block below (wB = 1 after specular / NEE off; the power
-    // heuristic otherwise; naive mode = enableNEE false takes specular only).
-    // #903: bounce 0 tests only cameraVisible lamps (sky-texture sun disc).
-    // pkg288 (#915): a lamp hit is not a vertex — Cycles integrator_shade_light
-    // (kernel/integrator/shade_light.h, Apache-2.0) adds it and re-intersects
-    // from t_lamp. Every lamp on [0.001, surfaceT) adds in t order (strict tMin
-    // skips the lamp just added, cap 4 = CPU kMaxLampPassthrough), then the path
-    // continues to the surface / env. Runs BEFORE the fog free flight, which no
-    // longer stops at lamps; each lamp's emission carries Tr(lampT) explicitly.
-    // The bounce-0 sun disc no longer counts miss coverage here: the continued
-    // ray misses below and counts it once.
-    if (numDed > 0) {
-        const float surfaceT = hit ? rec.t : 1e30f;
-        float lampTMin = 0.001f;
-        bool lampAdded = false;
-        for (int k = 0; k < 4; ++k) {
-            float lampT, lampScale;
-            int lampIdx = gpu_dedicated_intersect_closest(
-                dedLights, numDed, ray.origin, ray.direction, lampTMin, surfaceT,
-                &lampT, &lampScale, bounce == 0);
-            if (lampIdx < 0) break;
-            lampTMin = lampT;
-            // pkg218: baked device SPD for non-RGB emission modes (gpu_nee_resolve twin).
-            int profIdx = dedLights[lampIdx].emissionProfileIndex;
-            GSampledSpectrum Le;
-            if (profIdx >= 0) {
-                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
-                    Le.v[i] = gpu_emission_profile(profIdx, lambdas.lambda[i]) * lampScale;
-            } else {
-                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
-                    Le.v[i] = gpu_rgbSpectrumAt(dedLights[lampIdx].emissionRGB,
-                                                lambdas.lambda[i], GSPEC_RGB_ILLUMINANT)
-                              * lampScale;
-            }
-            // #909: receiver -> glass (exited) -> a photon-emitting light is
-            // already in the bounce-0 gather; drop it here (no double count).
-            if (bounce > 0 && lampIdx < 32 &&
-                ((c_wfPhotonSplit.lampMask >> lampIdx) & 1u) &&
-                c_wfPhotonSplit.chain != nullptr && c_wfPhotonSplit.chain[idx] == 3)
-                Le = GSampledSpectrum(0.f);
-            if (!(Le.maxValue() > 0.f)) continue;
-            // pkg199 role 3: attenuate over the origin→lamp segment (lampT).
-            if (c_worldVolume.hasVolume)
-                Le *= gpu_worldTransmittanceMW(lampT, lambdas);
-            GSampledSpectrum contrib(0.f);
-            if (bounce == 0 || wasSpecular || c_wfLightNeeOff) {  // #877
-                contrib = throughput * Le;                 // w_B = 1
-            } else if (enableNEE) {
-                GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
-                                    state.path_mis_nz[idx]);
-                float lp = gpu_dedicated_reconstruct_pdf(
-                    dedLights, numDed, totalLightPower, ray.origin, ray.direction,
-                    lightTree, numLights, misNormalPrev, lampIdx);  // #912
-                float wB = gpu_mw_powerHeuristic(state.path_bsdf_pdf[idx], lp);
-                contrib = throughput * Le * wB;
-            }
-            // naive mode (enableNEE == false, non-specular): no NEE leg to
-            // complement, so nothing is added — mirrors the emissive block.
-            GSampledSpectrum lampContrib = gpu_clampContribMW(
-                contrib, lambdas, bounce - 1,   // #860: emission hit = Cycles bounce-1
-                clampDirect, clampIndirect, useLuminanceOutput);
-            color += lampContrib;
-            lampAdded = true;
-            // pkg198 Stage 2: continuation-ray lamp -> firstCat's INDIRECT pass
-            // (CPU lampPass = (firstCat<0?0:firstCat)*3+1).
-            if constexpr (HasLightPassAOVs) {
-                unsigned char cat = c_wfLpBinding.firstCat[idx];
-                // #903: camera-visible sky disc -> PASS_ENVIRONMENT (CPU twin).
-                int lampPass = (bounce == 0) ? G_LP_PASS_ENVIRONMENT
-                             : (cat == G_LP_CAT_UNSET ? 0 : (int)cat) * 3 + 1;
-                lpAccumulate(idx, lampPass, lampContrib);
-            }
-        }
-        if (lampAdded) {
-            state.color_0[idx] = color.v[0];
-            state.color_1[idx] = color.v[1];
-            state.color_2[idx] = color.v[2];
-            state.color_3[idx] = color.v[3];
-        }
-    }
-
     const bool mediumScatters = HasWorldScatter &&
                                 c_worldVolume.hasVolume &&
                                 c_worldVolume.density > 0.f &&
@@ -704,6 +728,14 @@ __device__ int intersectPathSlotT(
         uint64_t rsd  = state.rng_seed[idx];
         uint32_t salt = G_WF_VOL_DIM_SALT + (uint32_t)bounce * 2u;
         GSampledSpectrum sigmaT = gpu_worldSigmaT(lambdas);
+        // #929 (CPU #925 twin): per-segment direct light on [0, surfaceT] before the
+        // free flight (Tr(t)·σ_s·NEE at a one-sample-MIS distance), segment slot 1.
+        if (enableNEE)
+            gpu_volumeSegmentDirect(idx, bounce, 1, ray.origin, ray.direction, 0.f, surfaceT,
+                                    sigmaT, throughput, lambdas, c_worldVolume.scatter,
+                                    c_worldVolume.anisotropy, prims, tris, spheres, lights,
+                                    numLights, totalLightPower, dedLights, numDed, lightTree,
+                                    rpix, rsmp, rsd);
         int ch = (int)(gpu_freeflightUniform(rpix, rsmp, rsd, salt) * G_SPECTRUM_SAMPLES);
         if (ch >= G_SPECTRUM_SAMPLES) ch = G_SPECTRUM_SAMPLES - 1;
         float sigTc = sigmaT.v[ch];
@@ -2237,7 +2269,8 @@ __global__ void stageShadowKernel(
     const ::GMaterial* materials,
     bool              useLuminanceOutput,   // pkg157
     float             clampDirect, float clampIndirect,  // pkg157
-    const GCurveSegment* curves)  // pkg225 Stage 3 — curve shadow occluders
+    const GCurveSegment* curves,  // pkg225 Stage 3 — curve shadow occluders
+    int               volSegment)  // #929: volume-segment direct-light records
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= *shadow_count) return;
@@ -2400,20 +2433,13 @@ __global__ void stageShadowKernel(
     if (c_wfLpBinding.passAccum != nullptr) {
         unsigned char fc = c_wfLpBinding.firstCat[idx];
         int passIdx;
-        if (fc == 3) {
-            // pkg204: volume in-scatter direct/indirect split (closes the pkg198
-            // Stage-2 limitation). The volume-scatter kernel parked int lane 4 =
-            // +(bounce+1) for a first-interaction in-scatter NEE (CPU
-            // firstInteraction => PASS_VOLUME_DIRECT) and -(bounce+1) for a deeper
-            // scatter. Route DIRECT only when positive AND its bounce matches this
-            // NEE's own parked bounce (lane 3) -- a surface-after-fog NEE (firstCat
-            // locked to 3, lane 4 stale from an EARLIER scatter's bounce a<b) fails
-            // the match and correctly stays PASS_VOLUME_INDIRECT. Sum-to-beauty is
-            // preserved bit-for-bit: the split only re-buckets the same quantity.
-            int volEnc = nee_i[4 * nee_capacity + idx];
-            bool volDirect = (volEnc > 0) && (volEnc - 1 == bounce);
-            passIdx = volDirect ? (3 * 3 + 0)    // PASS_VOLUME_DIRECT (9)
-                                : (3 * 3 + 1);   // PASS_VOLUME_INDIRECT (10)
+        if (volSegment) {
+            // pkg204/#929: the segment direct light parked int lane 4 = +(bounce+1)
+            // when no category was locked at park time (CPU firstCat < 0 =>
+            // PASS_VOLUME_DIRECT), else -(bounce+1) (PASS_VOLUME_INDIRECT).
+            passIdx = (nee_i[4 * nee_capacity + idx] > 0) ? (3 * 3 + 0) : (3 * 3 + 1);
+        } else if (fc == 3) {
+            passIdx = 3 * 3 + 1;               // surface NEE after a volume lock
         } else if (bounce == 0) {
             int dc = (fc == G_LP_CAT_UNSET) ? 0 : (fc >= 2 ? 1 : (int)fc);
             passIdx = dc * 3 + 0;              // <reflectLobe>_DIRECT
@@ -2807,11 +2833,9 @@ void launchStageIntersectQueued(
 // ---------------------------------------------------------------------------
 // pkg199 Stage 2 — dedicated volume-scatter wavefront stage. Scheduled between
 // stageIntersectQueued and stageShadeBucketed. Drains the volume-scatter queue
-// (slots intersectPathSlot routed via its -2 return), performs the phase-sampled
-// NEE-through-medium (parked into the SAME nee_f/nee_i lanes + shadow queue the
-// surface NEE uses, so stageShadowKernel resolves it unchanged — geomDist role-2
-// Tr + clamp), and emits the HG phase-sampled continuation ray from the scatter
-// point, requeuing the survivor for the next bounce. The REG-254 shade kernel is
+// (slots intersectPathSlot routed via its -2 return) and emits the HG
+// phase-sampled continuation ray from the scatter point (#929: no NEE here, see
+// gpu_volumeSegmentDirect), requeuing the survivor for the next bounce. The REG-254 shade kernel is
 // never touched → byte-identical (this is the whole point of Option A). Device
 // twin of the CPU pathTraceSpectral scatter branch (HG NEE + phase continuation).
 // ---------------------------------------------------------------------------
@@ -2839,20 +2863,13 @@ __global__ void stageVolumeScatterKernel(
     // downstream surface/emission/env event this path sees folds into the volume
     // INDIRECT pass (3*3+1 = PASS_VOLUME_INDIRECT), matching the CPU. Runtime-gated;
     // set only when unset so a deeper scatter does not relabel an earlier lock.
-    // pkg204: capture whether THIS scatter is the first interaction (CPU
-    // `firstInteraction = firstCat < 0`) BEFORE the lock, so the deferred medium
-    // NEE below can be attributed to PASS_VOLUME_DIRECT vs PASS_VOLUME_INDIRECT.
-    bool lpVolumeFirst = false;
-    if (c_wfLpBinding.passAccum != nullptr) {
-        lpVolumeFirst = (c_wfLpBinding.firstCat[idx] == G_LP_CAT_UNSET);
-        if (lpVolumeFirst) c_wfLpBinding.firstCat[idx] = 3;
-    }
+    if (c_wfLpBinding.passAccum != nullptr &&
+        c_wfLpBinding.firstCat[idx] == G_LP_CAT_UNSET)
+        c_wfLpBinding.firstCat[idx] = 3;
 
     // Reconstruct: ray_origin == scatter point P (intersect wrote it), and
     // ray_direction == incoming direction (woMedium = -direction), per the pinned
     // snapshot semantics. throughput already carries Tr·σ_s/pdf (applied in intersect).
-    GVec3 P     = GVec3(state.ray_origin_x[idx], state.ray_origin_y[idx],
-                        state.ray_origin_z[idx]);
     GVec3 inDir = GVec3(state.ray_direction_x[idx], state.ray_direction_y[idx],
                         state.ray_direction_z[idx]);
     GVec3 woMedium = (inDir * -1.f).normalized();
@@ -2871,59 +2888,10 @@ __global__ void stageVolumeScatterKernel(
     WavefrontRNG rng(state.rng_pixel[idx], state.rng_sample[idx], state.rng_seed[idx]);
     rng.setDimension(state.rng_dimension[idx]);
 
-    // ---- Medium NEE (phase / light MIS), parked for the shadow stage ----
-    // Mirrors the surface NEE park (stage_advance shade lines): the "f" is the HG
-    // phase value; scale = wt/lightPdf with the MIS between lightPdf and the phase
-    // pdf (== phase value). The shadow kernel multiplies lanes 7-10 by L_spec and
-    // applies Tr(geomDist) + clamp, so parked lanes stay UNCLAMPED like surface NEE.
-    if (enableNEE && (numLights + numDed) > 0 && totalLightPower > 0.f) {
-        GHitRecord mrec{};
-        mrec.point   = P;
-        mrec.normal  = GVec3(0.f, 0.f, 0.f);  // #851: zero normal = volume vertex (CPU convention)
-        mrec.isDelta = false;
-        GNEESample s = gpu_nee_sample(mrec, prims, tris, spheres,
-                                      lights, numLights, totalLightPower,
-                                      dedLights, numDed, lightTree, &rng);
-        if (s.valid) {
-            float ph = gpu_phaseHG(woMedium.dot(s.wi), g);   // phase value == pdf
-            if (ph > 0.f) {
-                float a2 = s.lightPdf * s.lightPdf;
-                float b2 = ph * ph;
-                float wt = s.isDeltaLight ? 1.f : a2 / (a2 + b2 + 1e-8f);
-                float scale = s.lightPdf > 1e-8f ? wt / s.lightPdf : 0.f;
-                if (s.isDedicated) scale *= s.dedGeoScale;
-                nee_f[ 0 * nee_capacity + idx] = s.origin.x;
-                nee_f[ 1 * nee_capacity + idx] = s.origin.y;
-                nee_f[ 2 * nee_capacity + idx] = s.origin.z;
-                nee_f[ 3 * nee_capacity + idx] = s.wi.x;
-                nee_f[ 4 * nee_capacity + idx] = s.wi.y;
-                nee_f[ 5 * nee_capacity + idx] = s.wi.z;
-                nee_f[ 6 * nee_capacity + idx] = s.maxDist;
-                nee_f[ 7 * nee_capacity + idx] = throughput.v[0] * ph * scale;
-                nee_f[ 8 * nee_capacity + idx] = throughput.v[1] * ph * scale;
-                nee_f[ 9 * nee_capacity + idx] = throughput.v[2] * ph * scale;
-                nee_f[10 * nee_capacity + idx] = throughput.v[3] * ph * scale;
-                nee_f[11 * nee_capacity + idx] = s.dedEmissionRGB.x;
-                nee_f[12 * nee_capacity + idx] = s.dedEmissionRGB.y;
-                nee_f[13 * nee_capacity + idx] = s.dedEmissionRGB.z;
-                nee_f[14 * nee_capacity + idx] = s.geomDist;
-                nee_i[ 0 * nee_capacity + idx] = s.lightMatId;
-                nee_i[ 1 * nee_capacity + idx] = s.isSphere;
-                nee_i[ 2 * nee_capacity + idx] = s.isDedicated;
-                nee_i[ 3 * nee_capacity + idx] = bounce;
-                nee_i[ 5 * nee_capacity + idx] = s.dedEmissionProfileIndex;  // pkg218
-                // pkg204: volume direct/indirect encoding (see G_WF_NEE_I_LANES).
-                // +(bounce+1) for a first-interaction in-scatter (=> VOLUME_DIRECT),
-                // -(bounce+1) for a deeper scatter (=> VOLUME_INDIRECT). The shadow
-                // kernel bounce-matches this against lane 3 so a later surface-after-
-                // fog NEE (stale lane 4 from an earlier bounce) can't false-DIRECT.
-                nee_i[ 4 * nee_capacity + idx] =
-                    lpVolumeFirst ? (bounce + 1) : -(bounce + 1);
-                int qslot = atomicAdd(shadow_count, 1);
-                shadow_queue[qslot] = idx;
-            }
-        }
-    }
+    // #929: no NEE at this vertex — direct light is the per-segment sample the
+    // intersect stage parked (gpu_volumeSegmentDirect); this vertex only
+    // continues (its lamp-hit MIS is the complement). The nee/light parameters
+    // are unused since #929.
 
     // pkg271 — Cycles volume_bounce (+1 at this scatter); past the cap the
     // continuation is terminate-after (see intersectPathSlotT volTerm).
@@ -3607,7 +3575,8 @@ void launchStageShadow(
     float             clampDirect, float clampIndirect,  // pkg157
     const GCurveSegment* d_curveSegments,  // pkg225 Stage 3 (nullptr = no curves)
     bool              hasAlphaShadow,  // pkg253 (scene has a Principled alpha<1)
-    bool              hasGridVolume)   // pkg269 (bounded media present)
+    bool              hasGridVolume,   // pkg269 (bounded media present)
+    bool              volSegment)      // #929: volume-segment direct-light records
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -3637,7 +3606,8 @@ void launchStageShadow(
             d_shadow_queue, d_shadow_count, nee_capacity, \
             d_tlas, d_instances, d_blas, \
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials, \
-            useLuminanceOutput, clampDirect, clampIndirect, d_curveSegments
+            useLuminanceOutput, clampDirect, clampIndirect, d_curveSegments, \
+            (volSegment ? 1 : 0)
         #define ASTRORAY_PKG269_SHADOW_LAUNCH(G) \
             if (hc) { \
                 if (hasAlphaShadow) stageShadowKernel<true,  true,  G><<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS); \

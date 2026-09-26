@@ -494,6 +494,42 @@ __device__ inline float gpu_dedicated_reconstruct_pdf(
     return pdf;
 }
 
+// Unified power CDF over hittable emitters THEN dedicated lights (mirrors CPU
+// PowerLightSampler's single CDF; dedicated cumulativePower continues past the
+// last GLight entry). This is what lets a dedicated-light-only scene sample on
+// the GPU instead of rendering black. Out: li (hittable) or dj >= 0 (dedicated).
+// #929: shared with the volume-segment direct light (same-light re-sample).
+__device__ __forceinline__ float gpu_power_light_pick(
+    float u01, const GLight* lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed, int& li, int& dj)
+{
+    float u = u01 * totalLightPower;
+    int hit = -1;
+    for (int i = 0; i < numLights; ++i) { if (u <= lights[i].cumulativePower) { hit = i; break; } }
+    if (hit < 0 && numDed > 0) {
+        dj = numDed - 1;
+        for (int j = 0; j < numDed; ++j) { if (u <= dedLights[j].cumulativePower) { dj = j; break; } }
+        return dedLights[dj].power / totalLightPower;
+    }
+    if (hit < 0) hit = numLights - 1;   // fp fallback within hittable range
+    li = hit;
+    return lights[li].power / totalLightPower;
+}
+
+// Sample the already-selected light (li hittable, or dj >= 0 dedicated) from
+// `point` with selection pdf selPdf. #929: split out of gpu_nee_sample so the
+// volume-segment direct light re-samples the SAME light (Cycles
+// integrate_volume_direct_light); gpu_nee_sample inlines it unchanged.
+template <typename TRng>
+__device__ __forceinline__ GNEESample gpu_nee_sample_light(
+    const GVec3& point, int li, int dj, float selPdf,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const GLight*     lights,
+    const GDedicatedLight* dedLights,
+    TRng*             rng);
+
 template <typename TRng>
 __device__ inline GNEESample gpu_nee_sample(
     const GHitRecord& rec,
@@ -529,25 +565,27 @@ __device__ inline GNEESample gpu_nee_sample(
         }
         selPdf = treePdf;
     } else {
-        // Unified power CDF over hittable emitters THEN dedicated lights
-        // (mirrors CPU PowerLightSampler's single CDF; dedicated cumulativePower
-        // continues past the last GLight entry). This is what lets a dedicated-
-        // light-only scene sample on the GPU instead of rendering black.
-        float u = gpu_rng_uniform(rng) * totalLightPower;
-        int hit = -1;
-        for (int i = 0; i < numLights; ++i) { if (u <= lights[i].cumulativePower) { hit = i; break; } }
-        if (hit < 0 && numDed > 0) {
-            dj = numDed - 1;
-            for (int j = 0; j < numDed; ++j) { if (u <= dedLights[j].cumulativePower) { dj = j; break; } }
-            selPdf = dedLights[dj].power / totalLightPower;
-        } else {
-            if (hit < 0) hit = numLights - 1;   // fp fallback within hittable range
-            li = hit;
-            selPdf = lights[li].power / totalLightPower;
-        }
+        selPdf = gpu_power_light_pick(gpu_rng_uniform(rng), lights, numLights,
+                                      totalLightPower, dedLights, numDed, li, dj);
     }
+    return gpu_nee_sample_light(rec.point, li, dj, selPdf, prims, tris, spheres,
+                                lights, dedLights, rng);
+}
+
+template <typename TRng>
+__device__ __forceinline__ GNEESample gpu_nee_sample_light(
+    const GVec3& point, int li, int dj, float selPdf,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const GLight*     lights,
+    const GDedicatedLight* dedLights,
+    TRng*             rng)
+{
+    GNEESample s{};
+    s.valid = 0;
     // One call site for both selectors (keeps the shade kernel's code size flat).
-    if (dj >= 0) return gpu_dedicated_sample(dedLights[dj], dj, rec.point, selPdf, rng);
+    if (dj >= 0) return gpu_dedicated_sample(dedLights[dj], dj, point, selPdf, rng);
     int primIdx  = lights[li].primitiveIndex;
     if (primIdx < 0) return s;
 
@@ -562,7 +600,7 @@ __device__ inline GNEESample gpu_nee_sample(
 
     if (lp.type == GPRIM_SPHERE) {
         const GSphere& sp = spheres[lp.index];
-        GVec3 toC    = sp.center - rec.point;
+        GVec3 toC    = sp.center - point;
         float distSq = toC.length2();
         if (distSq <= sp.radius * sp.radius + 1e-8f) return s;
         GVec3 dir   = toC.normalized();
@@ -593,7 +631,7 @@ __device__ inline GNEESample gpu_nee_sample(
         float r1 = gpu_rng_uniform(rng), r2 = gpu_rng_uniform(rng);
         if (r1 + r2 > 1.f) { r1 = 1.f - r1; r2 = 1.f - r2; }
         GVec3 lpos = t.v0 + (t.v1 - t.v0) * r1 + (t.v2 - t.v0) * r2;
-        GVec3 d    = lpos - rec.point;
+        GVec3 d    = lpos - point;
         float dist = d.length();
         wi         = d * (1.f / fmaxf(dist, 1e-8f));
         GVec3 e1   = t.v1 - t.v0, e2 = t.v2 - t.v0;
@@ -613,7 +651,7 @@ __device__ inline GNEESample gpu_nee_sample(
     // draws) — identical output, strictly less work on the reject path.
     if (lightPdf <= 0.f) return s;
 
-    s.origin     = rec.point;
+    s.origin     = point;
     s.wi         = wi;
     s.maxDist    = maxDist;
     s.geomDist   = geomDist;   // pkg199: true vertex->light distance for Tr

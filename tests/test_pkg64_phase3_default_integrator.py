@@ -193,3 +193,38 @@ def test_pkg64_phase3_default_integrator_psnr_gain(test_results_dir):
         f"SMS regressed PSNR by {psnr_base - psnr_sms:.2f} dB "
         f"(base={psnr_base:.2f}, sms={psnr_sms:.2f}) — receiver "
         f"energy ratio was {e_sms / max(e_base, 1e-6):.2f}x")
+
+
+def _cpu_sms_stats(spectral_newton: int):
+    r = _make_prism_scene()
+    r.set_seed(145)
+    r.set_use_gpu(False)
+    r.set_use_refractive_caustics(True)
+    r.set_integrator_param("max_depth", MAX_DEPTH)
+    r.set_integrator_param("spectral_newton", spectral_newton)
+    r.set_integrator("path_tracer")
+    r.render(4, MAX_DEPTH, None, False)
+    return dict(r.get_integrator_stats())
+
+
+@pytest.mark.parametrize("spectral_newton", [0, 1])
+def test_path_tracer_sms_stats_deterministic(spectral_newton):
+    """#919: path_tracer SMS stats were racy float sums. Must be finite,
+    positive and identical for a fixed seed, in-process and single-threaded."""
+    import json
+    import subprocess
+
+    keys = ("sms_attempts", "sms_converged", "sms_energy")
+    a, b = _cpu_sms_stats(spectral_newton), _cpu_sms_stats(spectral_newton)
+    assert np.isfinite(a["sms_energy"]) and a["sms_energy"] > 0.0, a
+    for k in keys:
+        assert a[k] == pytest.approx(b[k], rel=1e-6), (k, a, b)
+    code = ("import json, sys; sys.path.insert(0, %r); "
+            "import test_pkg64_phase3_default_integrator as t; "
+            "print('STATS' + json.dumps(t._cpu_sms_stats(%d)))"
+            % (os.path.dirname(os.path.abspath(__file__)), spectral_newton))
+    out = subprocess.run([sys.executable, "-c", code], env=dict(os.environ, OMP_NUM_THREADS="1"),
+                         capture_output=True, text=True, timeout=600, check=True).stdout
+    single = json.loads(out.split("STATS", 1)[1])
+    for k in keys:
+        assert single[k] == pytest.approx(a[k], rel=1e-6), (k, single, a)

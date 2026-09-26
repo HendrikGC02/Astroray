@@ -108,6 +108,39 @@ def test_sms_convergence_counter_is_live():
     assert stats.get("sms_converged", 0.0) == 0.0, stats
 
 
+_STATS_KEYS = ("sms_attempts", "sms_converged", "sms_energy", "caustic_energy",
+               "caustic_connections")
+
+
+def test_sms_stats_finite_positive_deterministic():
+    """#888: SMS debug stats were racy float sums (counts differed between
+    identical multithreaded runs) and sms_energy read -1.4e5 because
+    runSMSAttempt accepted x0-facing vertices whose Schlick 1-F was negative.
+    Stats must be finite, non-negative and identical for a fixed seed, in-process
+    and in a single-threaded subprocess."""
+    import json
+    import subprocess
+
+    runs = [_render_with_stats("sms_caustic_path_tracer")[1] for _ in range(2)]
+    e = runs[0]["sms_energy"]
+    assert np.isfinite(e) and e > 0.0, runs[0]
+    for k in _STATS_KEYS:
+        assert runs[0][k] >= 0.0, (k, runs[0])
+        assert runs[0][k] == pytest.approx(runs[1][k], rel=1e-6), (k, runs)
+
+    code = (
+        "import json, sys; sys.path.insert(0, %r); "
+        "import test_sms_caustic_validation as t; "
+        "print('STATS' + json.dumps(t._render_with_stats('sms_caustic_path_tracer')[1]))"
+        % os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, OMP_NUM_THREADS="1")
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True,
+                         text=True, timeout=600, check=True).stdout
+    single = json.loads(out.split("STATS", 1)[1])
+    for k in _STATS_KEYS:
+        assert single[k] == pytest.approx(runs[0][k], rel=1e-6), (k, single, runs[0])
+
+
 def test_sms_caustic_validation_gate(test_results_dir):
     baseline = _render("caustic_path_tracer", samples=SAMPLES)
     sms_lo, sms_stats = _render_with_stats("sms_caustic_path_tracer", samples=SAMPLES)
@@ -135,8 +168,7 @@ def test_sms_caustic_validation_gate(test_results_dir):
     # The band cannot see "SMS found nothing" (the two agree to MC noise), so
     # check directly that the manifold solver converged and deposited energy.
     assert sms_stats.get("sms_caster_count", 0.0) >= 1.0, sms_stats
-    # (sms_energy is not used: it is an unsynchronised cross-thread float sum
-    # and read -1.4e5 on a MinGW/OpenMP build -- a debug counter, not a gate.)
+    # sms_energy is pinned by test_sms_stats_finite_positive_deterministic.
     assert sms_stats.get("sms_attempts", 0.0) > 0.0, sms_stats
     assert sms_stats.get("sms_converged", 0.0) > 0.0, (
         f"SMS found no converged caustic chains: {sms_stats}")

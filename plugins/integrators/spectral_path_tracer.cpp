@@ -7,6 +7,7 @@
 #include "astroray/manifold/mesh_attempt.h"    // pkg111: gatherTriangleCasters
 #include "astroray/manifold/mesh_caustic.h"    // pkg111: rayTriHit
 
+#include <atomic>     // #919: race-free SMS debug stats
 #include <array>      // pkg198: std::array<SampledSpectrum, PASS_COUNT> pass buffers
 #include <algorithm>  // pkg111: std::sort, std::min, std::max
 #include <cstdio>     // pkg113 CAUSTIC_DBG
@@ -77,9 +78,15 @@ class SpectralPathTracer : public Integrator {
     Renderer* renderer_ = nullptr;
     Camera* camera_ = nullptr;  // pkg87b: for Cryptomatte buffer access
     std::vector<amf::SMSCaster> casters_;
-    float smsAttempts_  = 0.0f;
-    float smsConverged_ = 0.0f;
-    float smsEnergy_    = 0.0f;
+    // #919: sampleFull runs concurrently on render threads; plain float `+=`
+    // lost updates. Double CAS add (C++17 has no atomic<double>::fetch_add).
+    std::atomic<double> smsAttempts_{0.0};
+    std::atomic<double> smsConverged_{0.0};
+    std::atomic<double> smsEnergy_{0.0};
+    static void statAdd(std::atomic<double>& a, double v) {
+        double cur = a.load(std::memory_order_relaxed);
+        while (!a.compare_exchange_weak(cur, cur + v, std::memory_order_relaxed)) {}
+    }
 
     // pkg111: photon map state (when causticMode_ == "photon_map")
     astroray::photon::PhotonMap photonMap_;
@@ -135,7 +142,9 @@ public:
         renderer_ = &scene;
         camera_ = &cam;  // pkg87b: store for Cryptomatte buffer access
         casters_.clear();
-        smsAttempts_ = smsConverged_ = smsEnergy_ = 0.0f;
+        smsAttempts_.store(0.0);
+        smsConverged_.store(0.0);
+        smsEnergy_.store(0.0);
         photonMapReady_ = false;  // pkg111
 
         // pkg111: if caustics == "photon_map", build the photon map here (before
@@ -168,9 +177,9 @@ public:
         if (casters_.empty()) return {};
         return {
             {"sms_caster_count",    static_cast<float>(casters_.size())},
-            {"sms_attempts",        smsAttempts_},
-            {"sms_converged",       smsConverged_},
-            {"sms_energy",          smsEnergy_},
+            {"sms_attempts",        static_cast<float>(smsAttempts_.load())},
+            {"sms_converged",       static_cast<float>(smsConverged_.load())},
+            {"sms_energy",          static_cast<float>(smsEnergy_.load())},
             {"sms_spectral_newton", spectralNewton_ ? 1.0f : 0.0f},
             {"sms_specular_poly",   specularPoly_ ? 1.0f : 0.0f},
         };
@@ -362,15 +371,15 @@ private:
                         hero += cr.hero; nSol += cr.nSolutions; nVal += cr.nValid;
                     }
                 }
-                smsAttempts_  += static_cast<float>(nSol);
-                smsConverged_ += static_cast<float>(nVal);
-                smsEnergy_    += hero;
+                statAdd(smsAttempts_, static_cast<float>(nSol));
+                statAdd(smsConverged_, static_cast<float>(nVal));
+                statAdd(smsEnergy_, hero);
                 out[0] = hero;
                 return out;
             }
         }
         for (int s = 0; s < smsCfg_.seeds; ++s) {
-            smsAttempts_ += 1.0f;
+            statAdd(smsAttempts_, 1.0f);
             astroray::SampledSpectrum fSpec;
             float w = 0.0f, Tr = 0.0f;
             Vec3 Le(0), wi(0);
@@ -385,8 +394,8 @@ private:
             if (sampleHero > smsCfg_.contribClamp) sampleHero = smsCfg_.contribClamp;
             if (sampleHero < 0.0f) sampleHero = 0.0f;
             heroAccum += sampleHero;
-            smsConverged_ += 1.0f;
-            smsEnergy_ += sampleHero;
+            statAdd(smsConverged_, 1.0f);
+            statAdd(smsEnergy_, sampleHero);
         }
         out[0] = heroAccum;
         return out;
@@ -431,16 +440,16 @@ private:
                         rgb = rgb + cr.rgb; nSol += cr.nSolutions; nVal += cr.nValid;
                     }
                 }
-                smsAttempts_  += static_cast<float>(nSol);
-                smsConverged_ += static_cast<float>(nVal);
-                smsEnergy_    += std::max(rgb.x, std::max(rgb.y, rgb.z));
+                statAdd(smsAttempts_, static_cast<float>(nSol));
+                statAdd(smsConverged_, static_cast<float>(nVal));
+                statAdd(smsEnergy_, std::max(rgb.x, std::max(rgb.y, rgb.z)));
                 return astroray::RGBIlluminantSpectrum(
                     {rgb.x, rgb.y, rgb.z}).sample(lambdas);
             }
         }
         Vec3 contribRGB(0);
         for (int s = 0; s < smsCfg_.seeds; ++s) {
-            smsAttempts_ += 1.0f;
+            statAdd(smsAttempts_, 1.0f);
             astroray::SampledSpectrum fSpec;
             float w = 0.0f, Tr = 0.0f;
             Vec3 Le(0), wi(0);
@@ -454,8 +463,8 @@ private:
             float maxC = std::max(sample.x, std::max(sample.y, sample.z));
             if (maxC > smsCfg_.contribClamp) sample = sample * (smsCfg_.contribClamp / maxC);
             contribRGB = contribRGB + sample;
-            smsConverged_ += 1.0f;
-            smsEnergy_ += maxC;
+            statAdd(smsConverged_, 1.0f);
+            statAdd(smsEnergy_, maxC);
         }
         return astroray::RGBIlluminantSpectrum(
             {contribRGB.x, contribRGB.y, contribRGB.z}).sample(lambdas);

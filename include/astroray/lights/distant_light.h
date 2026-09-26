@@ -56,6 +56,7 @@ private:
     EmissionSpectrum emission_;
     float            intensity_;
     float            normalizeFactor_;
+    Vec3             refRGB_;  // #878: wavelength-independent emission RGB
 };
 
 } // namespace astroray

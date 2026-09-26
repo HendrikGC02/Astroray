@@ -46,10 +46,21 @@
 #include "astroray/manifold/mesh_attempt.h"   // pkg106 Chunk D: triangulated-prism MNEE
 
 #include <algorithm>
+#include <atomic>
 #include <limits>
 #include <vector>
 
 namespace amf = astroray::manifold;
+
+namespace {
+// #888: sampleFull runs concurrently on render threads; debug counters must
+// not be plain float `+=` (lost updates). Double CAS add (C++17 has no
+// atomic<double>::fetch_add).
+inline void statAdd(std::atomic<double>& a, double v) {
+    double cur = a.load(std::memory_order_relaxed);
+    while (!a.compare_exchange_weak(cur, cur + v, std::memory_order_relaxed)) {}
+}
+}  // namespace
 
 class SMSCausticPathTracer : public Integrator {
     int   maxDepth_;
@@ -59,11 +70,11 @@ class SMSCausticPathTracer : public Integrator {
     amf::SMSConfig smsCfg_;
 
     Renderer* renderer_ = nullptr;
-    float causticConnections_ = 0.0f;
-    float causticEnergy_ = 0.0f;
-    float smsAttempts_  = 0.0f;
-    float smsConverged_ = 0.0f;
-    float smsEnergy_    = 0.0f;
+    std::atomic<double> causticConnections_{0.0};
+    std::atomic<double> causticEnergy_{0.0};
+    std::atomic<double> smsAttempts_{0.0};
+    std::atomic<double> smsConverged_{0.0};
+    std::atomic<double> smsEnergy_{0.0};
     std::vector<amf::SMSCaster> casters_;
     // pkg106 Chunk D: triangle-mesh caustic casters (a triangulated prism) for
     // the multi-vertex MNEE path. Sphere casters above stay on the single-vertex
@@ -93,8 +104,9 @@ public:
     void beginFrame(Renderer& scene, Camera& cam) override {
         renderer_ = &scene;
         camera_ = &cam;  // pkg87b
-        causticConnections_ = causticEnergy_ = 0.0f;
-        smsAttempts_ = smsConverged_ = smsEnergy_ = 0.0f;
+        for (auto* a : {&causticConnections_, &causticEnergy_, &smsAttempts_,
+                        &smsConverged_, &smsEnergy_})
+            a->store(0.0, std::memory_order_relaxed);
         // sms_caustic_path_tracer keeps the Phase-1+2 behavior of treating
         // every transmissive sphere as a candidate (requireFlag=false), so
         // its acceptance test scenes don't need to flip the new opt-in.
@@ -105,12 +117,12 @@ public:
 
     std::unordered_map<std::string, float> debugStats() const override {
         return {
-            {"caustic_connections", causticConnections_},
-            {"caustic_energy",      causticEnergy_},
+            {"caustic_connections", static_cast<float>(causticConnections_.load())},
+            {"caustic_energy",      static_cast<float>(causticEnergy_.load())},
             {"caustic_chain_iters", static_cast<float>(chainIters_)},
-            {"sms_attempts",        smsAttempts_},
-            {"sms_converged",       smsConverged_},
-            {"sms_energy",          smsEnergy_},
+            {"sms_attempts",        static_cast<float>(smsAttempts_.load())},
+            {"sms_converged",       static_cast<float>(smsConverged_.load())},
+            {"sms_energy",          static_cast<float>(smsEnergy_.load())},
             {"sms_caster_count",    static_cast<float>(casters_.size())},
             {"sms_spectral_newton", spectralNewton_ ? 1.0f : 0.0f},
             {"sms_specular_poly",   specularPoly_ ? 1.0f : 0.0f},
@@ -193,8 +205,8 @@ public:
         r.color = Vec3(xyz.X, xyz.Y, xyz.Z);
         r.bounceCount = static_cast<float>(bounces);
         r.sampleWeight = weight;
-        causticConnections_ += static_cast<float>(connections);
-        causticEnergy_ += energy;
+        statAdd(causticConnections_, static_cast<float>(connections));
+        statAdd(causticEnergy_, energy);
         return r;
     }
 
@@ -224,15 +236,15 @@ private:
                 *renderer_, x0Rec, primary, lambdas, C, eta, C.iorFlat,
                 casterPickPdf, ls, smsCfg_);
             if (!pr.fellBack) {
-                smsAttempts_  += static_cast<float>(pr.nSolutions);
-                smsConverged_ += static_cast<float>(pr.nValid);
-                smsEnergy_    += std::max(pr.rgb.x, std::max(pr.rgb.y, pr.rgb.z));
+                statAdd(smsAttempts_, static_cast<float>(pr.nSolutions));
+                statAdd(smsConverged_, static_cast<float>(pr.nValid));
+                statAdd(smsEnergy_, std::max(pr.rgb.x, std::max(pr.rgb.y, pr.rgb.z)));
                 return pr.rgb;
             }
         }
         Vec3 contrib(0);
         for (int s = 0; s < smsCfg_.seeds; ++s) {
-            smsAttempts_ += 1.0f;
+            statAdd(smsAttempts_, 1.0f);
 
             astroray::SampledSpectrum fSpec;
             float w = 0.0f, Tr = 0.0f;
@@ -250,8 +262,8 @@ private:
             if (maxC > smsCfg_.contribClamp) sample = sample * (smsCfg_.contribClamp / maxC);
 
             contrib = contrib + sample;
-            smsConverged_ += 1.0f;
-            smsEnergy_ += maxC;
+            statAdd(smsConverged_, 1.0f);
+            statAdd(smsEnergy_, maxC);
         }
         return contrib;
     }
@@ -289,15 +301,15 @@ private:
                 *renderer_, x0Rec, primary, lambdas, C, eta, iorHero,
                 casterPickPdf, ls, smsCfg_);
             if (!pr.fellBack) {
-                smsAttempts_  += static_cast<float>(pr.nSolutions);
-                smsConverged_ += static_cast<float>(pr.nValid);
-                smsEnergy_    += pr.hero;
+                statAdd(smsAttempts_, static_cast<float>(pr.nSolutions));
+                statAdd(smsConverged_, static_cast<float>(pr.nValid));
+                statAdd(smsEnergy_, pr.hero);
                 out[0] = pr.hero;
                 return out;
             }
         }
         for (int s = 0; s < smsCfg_.seeds; ++s) {
-            smsAttempts_ += 1.0f;
+            statAdd(smsAttempts_, 1.0f);
 
             astroray::SampledSpectrum fSpec;
             float w = 0.0f, Tr = 0.0f;
@@ -319,8 +331,8 @@ private:
             if (sampleHero < 0.0f) sampleHero = 0.0f;
 
             heroAccum += sampleHero;
-            smsConverged_ += 1.0f;
-            smsEnergy_ += sampleHero;
+            statAdd(smsConverged_, 1.0f);
+            statAdd(smsEnergy_, sampleHero);
         }
         out[0] = heroAccum;
         return out;
@@ -350,20 +362,20 @@ private:
             amf::SMSPolyResult pr = amf::runMeshSMSAttemptPoly(
                 *renderer_, x0Rec, primary, lambdas, meshCasters_, meshCasterMat_,
                 /*casterPickPdf=*/1.0f, ls, smsCfg_);
-            smsAttempts_  += static_cast<float>(pr.nSolutions);
-            smsConverged_ += static_cast<float>(pr.nValid);
-            smsEnergy_    += pr.hero;
+            statAdd(smsAttempts_, static_cast<float>(pr.nSolutions));
+            statAdd(smsConverged_, static_cast<float>(pr.nValid));
+            statAdd(smsEnergy_, pr.hero);
             out[0] = pr.hero;
             return out;
         }
 
         float heroAccum = 0.0f;
         for (int s = 0; s < smsCfg_.seeds; ++s) {
-            smsAttempts_ += 1.0f;
+            statAdd(smsAttempts_, 1.0f);
             float c = amf::runMeshSMSAttempt(*renderer_, x0Rec, primary, lambdas,
                                              meshCasters_, meshCasterMat_,
                                              /*casterPickPdf=*/1.0f, ls, smsCfg_);
-            if (c > 0.0f) { heroAccum += c; smsConverged_ += 1.0f; smsEnergy_ += c; }
+            if (c > 0.0f) { heroAccum += c; statAdd(smsConverged_, 1.0f); statAdd(smsEnergy_, c); }
         }
         out[0] = heroAccum;
         return out;

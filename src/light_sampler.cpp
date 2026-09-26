@@ -168,6 +168,8 @@ float PowerLightSampler::pdfValue(const Vec3& point, const Vec3& dir,
             : (k > 0 ? powerDist[k] - powerDist[k - 1] : powerDist[0]) / totalPower;
         return selPdf * dedicatedLights[lamp]->pdfLi(point, dir);
     }
+    // A known hit light that NEE cannot sample has pdf 0 (w_B = 1), as on GPU.
+    if (hitEmitter || hitLamp) return 0;
 
     float pdf = 0;
     size_t idx = 0;
@@ -305,6 +307,7 @@ float TreeLightSampler::pdfValue(const Vec3& point, const Vec3& dir,
         float lightPdf = dedicatedLights[lamp]->pdfLi(point, dir);
         return (lightPdf > 0.0f) ? tree_->pdf(point, normal, lamp, true) * lightPdf : 0.0f;
     }
+    if (hitEmitter || hitLamp) return 0.0f;  // unsampleable hit light: w_B = 1, as on GPU
 
     float pdf = 0.0f;
 

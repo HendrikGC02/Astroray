@@ -972,6 +972,12 @@ struct GNEESample {
     // `GNEESample s{};` call site, so non-distant / non-delta samples are
     // unaffected.
     int   isDeltaLight;
+    // #929: 1 = the sampled triangle point is seen from its BACK face (the
+    // frontFace a BSDF ray along wi would get, gpu_bvh convention). Emission is
+    // then evaluated with frontFace=false (one-sided emitters give 0), as on the
+    // CPU LightList::sample hit and the GPU BSDF-hit path. Parked in NEE int
+    // lane 1 bit 1 (bit 0 = isSphere).
+    int   lightBack;
 };
 
 struct GNEEOcclusion {

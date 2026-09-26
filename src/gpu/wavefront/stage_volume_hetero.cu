@@ -723,7 +723,7 @@ __device__ void gpu_volumeSegmentDirect(
     f[13 * cap + idx] = s.dedEmissionRGB.z;
     f[14 * cap + idx] = s.geomDist;
     q[0 * cap + idx] = s.lightMatId;
-    q[1 * cap + idx] = s.isSphere;
+    q[1 * cap + idx] = s.isSphere | (s.lightBack << 1);   // bit 1: triangle back face
     q[2 * cap + idx] = s.isDedicated;
     q[3 * cap + idx] = bounce;
     // CPU pass: firstCat < 0 ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT.

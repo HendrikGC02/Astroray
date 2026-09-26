@@ -645,6 +645,11 @@ __device__ __forceinline__ GNEESample gpu_nee_sample_light(
         geomDist   = dist;         // pkg199: triangle sampled-point distance is exact
         lightMatId = t.materialId;
         s.isSphere = 0;
+        // #929: side the shadow ray sees, with the gpu_bvh frontFace normal
+        // (n0 if flat, else barycentric at (r1, r2)), so one-sided emitters
+        // are dark from behind in NEE as in the BSDF-hit path and on the CPU.
+        GVec3 ns = t.flat_shaded ? t.n0 : (t.n0 * (1.f - r1 - r2) + t.n1 * r1 + t.n2 * r2);
+        s.lightBack = wi.dot(ns) >= 0.f ? 1 : 0;
     }
 
     // Originally checked after the trace; moved pre-trace (pure math, no
@@ -819,7 +824,8 @@ __device__ inline GSampledSpectrum gpu_nee_resolve(
                                               GSPEC_RGB_ILLUMINANT) * s.dedGeoScale;
         }
     } else {
-        L_spec = gpu_material_emitted_spectral(materials[s.lightMatId], lightFront, lambdas);
+        L_spec = gpu_material_emitted_spectral(materials[s.lightMatId],
+                                               lightFront && !s.lightBack, lambdas);  // #929
     }
     if (f_spec.maxValue() <= 0.f || L_spec.maxValue() <= 0.f) return direct;
 

@@ -1888,7 +1888,7 @@ __device__ bool shadePathSlot(
                         // sources). distant/infinite => 0 (non-attenuated).
                         nee_f[14 * nee_capacity + idx] = s.geomDist;
                         nee_i[ 0 * nee_capacity + idx] = s.lightMatId;
-                        nee_i[ 1 * nee_capacity + idx] = s.isSphere;
+                        nee_i[ 1 * nee_capacity + idx] = s.isSphere | (s.lightBack << 1);  // #929
                         nee_i[ 2 * nee_capacity + idx] = s.isDedicated;  // pkg89-wavefront
                         nee_i[ 5 * nee_capacity + idx] = s.dedEmissionProfileIndex;  // pkg218
                         // pkg157: park the bounce depth this NEE sample was taken
@@ -2288,7 +2288,8 @@ __global__ void stageShadowKernel(
                          nee_f[5 * nee_capacity + idx]);
     s.maxDist    = nee_f[6 * nee_capacity + idx];
     s.lightMatId = nee_i[0 * nee_capacity + idx];
-    s.isSphere   = nee_i[1 * nee_capacity + idx];
+    const int sphLane = nee_i[1 * nee_capacity + idx];   // #929: bit 1 = triangle back face
+    s.isSphere   = sphLane & 1;
     // pkg89-wavefront: dedicated-light payload (dedGeoScale was folded into
     // the parked throughput·f·scale lanes at shade time; only the reference
     // RGB is needed here for the per-λ illuminant upsample).
@@ -2360,7 +2361,7 @@ __global__ void stageShadowKernel(
                                               GSPEC_RGB_ILLUMINANT);
         }
     } else {
-        bool lightFront = s.isSphere ? (occ.frontFace != 0) : true;
+        bool lightFront = s.isSphere ? (occ.frontFace != 0) : !(sphLane & 2);
         L_spec = gpu_material_emitted_spectral(
             materials[s.lightMatId], lightFront, lambdas);
     }

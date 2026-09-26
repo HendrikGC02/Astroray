@@ -46,7 +46,7 @@ def _render(kind, nee, seed, gpu=False):
     floor = r.create_material("lambertian", [0.3, 0.3, 0.3], {})
     r.add_triangle([-6, -6, -0.5], [6, -6, -0.5], [6, 6, -0.5], floor)
     r.add_triangle([-6, -6, -0.5], [6, 6, -0.5], [-6, 6, -0.5], floor)
-    if kind == "mesh":
+    if kind in ("mesh", "mesh_surface"):
         lm = r.create_material("light", [1.0, 0.9, 0.7], {"intensity": 3.0})
         r.add_triangle([-1, -1, 3.5], [1, 1, 3.5], [1, -1, 3.5], lm)
         r.add_triangle([-1, -1, 3.5], [-1, 1, 3.5], [1, 1, 3.5], lm)
@@ -56,6 +56,11 @@ def _render(kind, nee, seed, gpu=False):
                                    {"mode": "rgb", "color": [1.0, 0.9, 0.7]}, 40.0)
     if kind == "fog":
         r.set_world_volume(0.25, [0.8, 0.8, 0.8], 0.0, 0.3)
+    elif kind == "mesh_surface":
+        # #929: no medium; a ceiling above the down-facing quad sees only its
+        # one-sided back face (dark on a BSDF hit), which NEE must match.
+        r.add_triangle([-6, -6, 4.2], [6, 6, 4.2], [6, -6, 4.2], floor)
+        r.add_triangle([-6, -6, 4.2], [-6, 6, 4.2], [6, 6, 4.2], floor)
     else:
         r.add_homogeneous_medium([-3, -3, -1], [3, 3, 4], 0.25, [0.8, 0.8, 0.8],
                                  [0.0, 0.0, 0.0], 0.3)
@@ -79,14 +84,15 @@ def _assert_nee_on_matches_off(kind, gpu):
 
 
 @pytest.mark.cpu
-@pytest.mark.parametrize("kind", ["box", "fog", "mesh"])
+@pytest.mark.parametrize("kind", ["box", "fog", "mesh", "mesh_surface"])
 def test_925_segment_nee_matches_nee_off_cpu(kind):
     _assert_nee_on_matches_off(kind, False)
 
 
 # #929: GPU twin (segment direct light parked by the intersect stage, resolved
 # by the shadow stage; lamp pass before the bounded free flight with Tr(lamp)).
+# mesh_surface isolates the GPU triangle-NEE back-face emission (no medium).
 @pytest.mark.gpu
-@pytest.mark.parametrize("kind", ["box", "fog", "mesh"])
+@pytest.mark.parametrize("kind", ["box", "fog", "mesh", "mesh_surface"])
 def test_929_segment_nee_matches_nee_off_gpu(kind):
     _assert_nee_on_matches_off(kind, True)

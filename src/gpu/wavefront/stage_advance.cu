@@ -550,16 +550,19 @@ __device__ int intersectPathSlotT(
             // free flight, so the lamp carries Tr(lampT) explicitly instead of the
             // flight's survival to the surface (which under-counted a lamp inside
             // a medium box).
-            if constexpr (HasGridVolume) if (c_wfGridVolume.count > 0)
-                for (int m = 0; m < c_wfGridVolume.count; ++m) {
-                    float s0, s1;
-                    if (gpu_gridAabbOverlap(c_wfGridVolume.media[m], ray.origin, ray.direction,
-                                            0.001f, lampT, s0, s1))
-                        Le *= gpu_gridVolumeTransmittance(
-                            m, ray.origin, ray.direction, s0, s1, lambdas,
-                            state.rng_pixel[idx], state.rng_sample[idx], state.rng_seed[idx],
-                            gpu_segSalt(bounce, 10 + m));
+            if constexpr (HasGridVolume) {
+                if (c_wfGridVolume.count > 0) {
+                    for (int m = 0; m < c_wfGridVolume.count; ++m) {
+                        float s0, s1;
+                        if (gpu_gridAabbOverlap(c_wfGridVolume.media[m], ray.origin, ray.direction,
+                                                0.001f, lampT, s0, s1))
+                            Le *= gpu_gridVolumeTransmittance(
+                                m, ray.origin, ray.direction, s0, s1, lambdas,
+                                state.rng_pixel[idx], state.rng_sample[idx], state.rng_seed[idx],
+                                gpu_segSalt(bounce, 10 + m));
+                    }
                 }
+            }
             GSampledSpectrum contrib(0.f);
             if (bounce == 0 || wasSpecular || c_wfLightNeeOff) {  // #877
                 contrib = throughput * Le;                 // w_B = 1

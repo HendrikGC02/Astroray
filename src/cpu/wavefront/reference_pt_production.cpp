@@ -132,7 +132,8 @@ SampledSpectrum tracePathSpectral(
                 // so the raw accumulation matches production bit-for-bit).
                 float lightPdfHit = lights.empty()
                     ? 0.0f
-                    : lights.pdfValue(ray.origin, ray.direction, misNormalPrev);
+                    : lights.pdfValue(ray.origin, ray.direction, misNormalPrev,
+                                      rec.hitObject);  // #912
                 float bp = bsdfPdfPrev, lp = lightPdfHit;
                 float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                 color += throughput * Le_spec * wB;

@@ -280,6 +280,21 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     # correctly in OpenMP worker threads (MinGW does not guarantee 16-byte alignment).
     add_compile_options(-mstackrealign)
 
+    # #904: Win64 GCC cannot realign the stack to 32 bytes (GCC bug 54412) yet
+    # emits aligned AVX spills (vmovdqa ymm -> [rsp+N]); -mstackrealign only
+    # guarantees 16. Crashed ~60% of MinGW light_tracer_caustic renders (photon
+    # kd-tree build). binutils >= 2.38 rewrites aligned vector moves as unaligned
+    # (same speed on aligned data).
+    if(MINGW)
+        include(CheckCXXCompilerFlag)
+        check_cxx_compiler_flag("-Wa,-muse-unaligned-vector-move" ASTRORAY_HAS_UNALIGNED_VMOVE)
+        if(ASTRORAY_HAS_UNALIGNED_VMOVE)
+            add_compile_options(-Wa,-muse-unaligned-vector-move)
+        else()
+            message(WARNING "binutils lacks -muse-unaligned-vector-move; AVX stack spills may crash (#904)")
+        endif()
+    endif()
+
     # Architecture-specific optimizations
     if(USE_NATIVE_ARCH)
         add_compile_options(-march=native)

@@ -739,7 +739,7 @@ __device__ int intersectPathSlotT(
                                         state.path_mis_nz[idx]);
                     float lp = gpu_dedicated_reconstruct_pdf(
                         dedLights, numDed, totalLightPower, ray.origin, ray.direction,
-                        lightTree, numLights, misNormalPrev);
+                        lightTree, numLights, misNormalPrev, lampIdx);  // #912
                     float wB = gpu_mw_powerHeuristic(state.path_bsdf_pdf[idx], lp);
                     contrib = throughput * Le * wB;
                 }

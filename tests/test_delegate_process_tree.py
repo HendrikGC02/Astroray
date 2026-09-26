@@ -287,7 +287,7 @@ role = sys.argv[2]
 if role == 'child':
     subprocess.Popen([sys.executable, __file__, str(root), 'grandchild'])
 (root / (role + '.ready')).write_text('ready')
-deadline = time.monotonic() + 12
+deadline = time.monotonic() + 120
 while not (root / 'after-return').exists() and time.monotonic() < deadline:
     time.sleep(0.02)
 if (root / 'after-return').exists():
@@ -298,13 +298,14 @@ if (root / 'after-return').exists():
 import pathlib, subprocess, sys, time
 root = pathlib.Path(sys.argv[1])
 subprocess.Popen([sys.executable, sys.argv[2], str(root), 'child'])
-deadline = time.monotonic() + 8
+deadline = time.monotonic() + 60
 while not (root / 'grandchild.ready').exists() and time.monotonic() < deadline:
     time.sleep(0.02)
 if sys.argv[3] == 'normal':
     sys.exit(0)
 if sys.argv[3] == 'error':
     sys.exit(7)
+deadline = time.monotonic() + 120
 while time.monotonic() < deadline:
     time.sleep(0.02)
 """)
@@ -329,7 +330,10 @@ while time.monotonic() < deadline:
         try:
             result = delegate._run_windows_contained(
                 _python_cmd(worker, str(tmp_path), writer, ending),
-                str(tmp_path), log, timeout=1.5)
+                str(tmp_path), log,
+                # #906: generous budgets so startup under CPU load still
+                # reaches grandchild.ready before the wrapper's deadline.
+                timeout=10.0 if ending == "timeout" else 60.0)
             assert result["termination_reason"] == ending
             assert result["status"] == ({"normal": "completed", "timeout": "timeout"}
                                          .get(ending, "errored"))
@@ -341,7 +345,7 @@ while time.monotonic() < deadline:
             assert sentinel.poll() is None
             before = log.read_bytes()
             (tmp_path / "after-return").touch()
-            sentinel.wait(timeout=3)
+            sentinel.wait(timeout=30)
             time.sleep(0.2)
             assert (tmp_path / "sentinel.late").read_text() == "late"
             assert not (tmp_path / "child.late").exists()

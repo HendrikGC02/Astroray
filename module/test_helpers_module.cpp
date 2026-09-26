@@ -24,6 +24,7 @@
 #include "astroray/synchrotron.h"
 #include "astroray/integrator.h"
 #include "astroray/register.h"
+#include "astroray/shapes.h"
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -85,6 +86,31 @@ std::array<float, 2> probeGrRendererDispatch(float emission, float clamp_direct,
         ? renderer.pathTraceSpectralCaustic(ray, 1, 1, lambdas, generator)
         : renderer.pathTraceSpectral(ray, 1, lambdas, generator);
     return {result[0], static_cast<float>(trace_calls)};
+}
+
+// #904: a hero-wavelength collapse inside pathTraceSpectralCaustic's specular
+// walk must reach the caller's wavelengths. The primary ray hits clear glass A
+// (delta, non-dispersive -> walk starts); maxDepth=1 stops the main path there,
+// so only the walk reaches dispersive BK7 sphere B. Returns how many of `trials`
+// seeds leave the caller's lambdas collapsed.
+int probeCausticWalkCollapse(int trials) {
+    auto& reg = astroray::MaterialRegistry::instance();
+    astroray::ParamDict clear; clear.set("ior", 1.5f);
+    astroray::ParamDict bk7; bk7.set("sellmeier_preset", std::string("bk7"));
+    astroray::ParamDict glow; glow.set("albedo", Vec3(1.0f)); glow.set("intensity", 5.0f);
+    Renderer renderer;
+    renderer.addObject(std::make_shared<Sphere>(Vec3(0, 0, -2), 0.5f, reg.create("dielectric", clear)));
+    renderer.addObject(std::make_shared<Sphere>(Vec3(0, 0, -5), 0.5f, reg.create("dielectric", bk7)));
+    renderer.addObject(std::make_shared<Sphere>(Vec3(3, 3, -3), 0.3f, reg.create("light", glow)));
+    renderer.buildAcceleration();
+    int collapsed = 0;
+    for (int s = 0; s < trials; ++s) {
+        astroray::SampledWavelengths lambdas = astroray::SampledWavelengths::sampleUniform(0.37f);
+        std::mt19937 gen(1000u + static_cast<unsigned>(s));
+        renderer.pathTraceSpectralCaustic(Ray(Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f)), 1, 6, lambdas, gen);
+        if (lambdas.secondaryTerminated()) ++collapsed;
+    }
+    return collapsed;
 }
 
 std::array<float, 2> probeRegisteredReSTIRGrDispatch(float emission) {
@@ -279,7 +305,8 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
           // cppcheck-suppress assignBoolToPointer -- pybind11 named-argument default.
           "emission"_a, "clamp_direct"_a = 0.0f, "caustic"_a = false,
           "Runs either Renderer GR dispatch and returns (radiance, trace_calls).");
-    m.def("gr_restir_registry_dispatch_probe", &probeRegisteredReSTIRGrDispatch,
+    m.def("caustic_walk_collapse_probe", &probeCausticWalkCollapse, "trials"_a);
+    m.def("gr_restir_registry_dispatch_probe",&probeRegisteredReSTIRGrDispatch,
           "emission"_a,
           "Instantiates registered restir-di and returns (Y_radiance, trace_calls).");
     // pkg283 volumetric invariant-transport seams.

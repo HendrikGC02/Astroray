@@ -105,7 +105,12 @@ light. These are Opus-lane items (memory `delegate-tier-stalls-on-hard-packages`
 ## Progress
 
 - [ ] #876 ladder + fix.
-- [ ] #862 ladder + fix.
+- [x] #862 ladder + fix (2026-09-27, lane ah2; `docs/pkg292-gpu-cpu-ladders.md`).
+  Convicted: CPU wavefront oracle kept `rec.isDelta` across bounces and skipped
+  lamp NEE after any glass/mirror bounce (production `pathTraceSpectral` + GPU
+  agree). Fixed in `path_kernel.cpp`; full-scene red 1.122 -> ~1.055, residual is
+  GPU Disney (keep-disney rung red 1.036) -> pkg293. pkg55 R bound 0.035 -> 0.020.
+  #832 texel-centre env lookup landed alongside (all four lookups).
 - [ ] #853 ladder + oracle + fix.
 
 ---

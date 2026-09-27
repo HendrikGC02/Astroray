@@ -1,5 +1,11 @@
 # Astroray Status
 
+## 2026-09-27 HANDOVER — end of the Opus 5.5 lead session
+
+**After the 2026-09-27 closeout entry below, also merged:** #931 (Batch AF: CPU per-segment volume NEE #925, hero-λ proposal #848), #932 (GPU twin #929 + one-sided triangle-lamp NEE), #935 (GPU Disney 1.7–2× under a sun, #876), #936 (#862 CPU oracle HitRecord leak; #832 texel-centre env lookups). Envmap-Cornell GPU/CPU now 1.0002/1.0006/1.0006 (was red 1.122). Full suite on the last branch: 3638 passed. 20 PRs this session incl. Astra's #870/#871.
+
+**Handover:** stable `build_cuda/` + staged `dist/astroray/` from final main; lane rules in `docs/lane-rules.md`; build queue `scripts/build/lead_build_queue.py`; next session starts with a short Fable + Astra architect run (`next-session-prompt-2026-09-27.md`). Follow-ups filed: #933 (partial-transmission Disney), #934 (metal −15 % vs Cycles), #889 second half, #853 hair ladder. Owner cleanup: `C:\Users\hgcom\OneDrive\Astroray\cleanup-2026-09-27.ps1` (dry run by default; `-Apply`); evidence archived in `astra_run_archive_2026-09-27.zip`.
+
 ## 2026-09-27 CURRENT — lead session (Claude Opus 5.5, 2026-09-24 evening → 2026-09-27 morning AEST; two hardware resets, all lanes resumed by agentId)
 
 **Merged (main 9330e5d7):** #882 (V), #887, #892 (Y), #893 (U), #899, #900, #907 (Z), #911 (showcase scenes), #916 (AB), #918 (architect plan), #923 (AC), #927 (AD), #928 (AE). Full RTX suite per batch before its PR: 3284 → **3601 passed, 0 failed** (AE). **Closeout RTX sweep on main 9330e5d7 (`build_cuda` rebuilt 05:40), `pytest -m gpu -rXf`: 1094 passed / 0 failed / 11 xfailed / 2 xpassed** (legacy pkg64 SMS-GPU prism gates now pass: review whether to un-xfail). Addon not restaged/installed (profile install is owner-side). Run report: `reports/2026-09-27-night-shift.html` (artifact https://claude.ai/artifact/GyQHmGfShaW57ddbp8AQoA).

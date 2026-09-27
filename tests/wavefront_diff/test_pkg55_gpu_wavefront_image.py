@@ -81,7 +81,14 @@ SEED = 424242
 # G/B bounds, and the historical failure modes land far outside (the 1.8-2x
 # gamma-protocol artefact ~0.17-0.21; the missing worldMaxBounces env gate
 # measured [1.277, 1.218, 1.364] => gaps 0.050 / 0.041 / 0.076).
-ABS_GAP_TOL = np.array([0.035, 0.012, 0.015])
+#
+# Re-pinned 2026-09-27 (pkg292 #862 ladder): ~2/3 of the red gap was the CPU
+# ORACLE, not the GPU -- advance_one_bounce kept rec.isDelta from a glass bounce
+# and skipped lamp NEE at every later vertex (production pathTraceSpectral agrees
+# with the GPU). Fixed oracle, 5 seeds: worst gap R 0.0129, G 0.0023, B 0.0009
+# (ratio R ~1.05-1.058); wmb=0 R 0.0091. The red residual is GPU Disney (pkg293).
+# R tightened 0.035 -> 0.020 (~55 % headroom); G/B unchanged.
+ABS_GAP_TOL = np.array([0.020, 0.012, 0.015])
 
 
 def _build_renderer():

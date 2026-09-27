@@ -131,6 +131,18 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         // already-public Material::getGPUTypeName(); does not touch
         // plugins/materials/disney.cpp.
         g.disneyMetalConductor = (mat->getGPUTypeName() == "disney");
+        if (g.disneyMetalConductor) {
+            // #876/pkg292: an opaque Disney single-closure graph evaluates the
+            // monolithic gpu_disney_eval, which reads these parent fields.
+            g.specular = mat->getSpecular();
+            g.specularTint = mat->getSpecularTint();
+            g.sheen = mat->getSheen();
+            g.sheenTint = mat->getSheenTint();
+            g.clearcoat = mat->getClearcoat();
+            g.clearcoatGloss = mat->getClearcoatGloss();
+            g.anisotropic = mat->getAnisotropic();
+            g.anisotropicRotation = mat->getAnisotropicRotation();
+        }
         // pkg187: dispersive Principled glass lowers to GMAT_CLOSURE_GRAPH, so the
         // dispersion flag/data must ride the closure-graph path too (the dielectric
         // branch below only fires for GMAT_DIELECTRIC). For the closure-graph path

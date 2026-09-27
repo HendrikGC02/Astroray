@@ -104,18 +104,18 @@ light. These are Opus-lane items (memory `delegate-tier-stalls-on-hard-packages`
 
 ## Progress
 
-- [x] #862 ladder + fix (2026-09-27, lane ah2; `docs/pkg292-gpu-cpu-ladders.md`).
-  Convicted: CPU wavefront oracle kept `rec.isDelta` across bounces and skipped
-  lamp NEE after any glass/mirror bounce (production `pathTraceSpectral` + GPU
-  agree). Fixed in `path_kernel.cpp`; full-scene red 1.122 -> ~1.055, residual is
-  GPU Disney (keep-disney rung red 1.036) -> pkg293. pkg55 R bound 0.035 -> 0.020.
-  #832 texel-centre env lookup landed alongside (all four lookups).
-- [x] #876 ladder + fix. Ladder done (lane ah1, 2026-09-27; rung table in
+- [x] #876 ladder + fix (PR #935). Ladder done (lane ah1, 2026-09-27; rung table in
       `.astroray_plan/docs/pkg292-gpu-cpu-ladders.md`): GPU default ==
       diffuse-only 0.3178 vs CPU 0.1853 (1.715, sun ↓); metallic rung exact.
       Convicted: opaque Disney closure graph = 0.5·Lambert + 0.5·base-tinted
       metal. Fixed (single monolithic closure → `gpu_disney_eval`); CPU pinned
-      to Cycles within 5.7 %. Post-fix RTX run pending build.
+      to Cycles within 5.7 %. RTX: 77/77 targeted, full suite green.
+- [x] #862 ladder + fix (lane ah2, 2026-09-27; `docs/pkg292-gpu-cpu-ladders.md`).
+      Convicted: the CPU wavefront oracle reused one HitRecord across bounces,
+      so `isDelta` (and UV-layer/hair fields) leaked and lamp NEE was skipped
+      after any glass bounce; fresh HitRecord per bounce. With #876 the full
+      scene is GPU/CPU 1.0002/1.0006/1.0006 (was red 1.122). #832 texel-centre
+      env lookups landed alongside.
 - [ ] #853 ladder + oracle + fix.
 
 ---

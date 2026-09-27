@@ -33,7 +33,7 @@ never clears it, so every vertex after a glass/mirror bounce skipped lamp NEE.
 Independent reference: production `pathTraceSpectral` (separate integrator,
 fresh `HitRecord` per bounce) — oracle/production on the dielectric rung
 0.939 / 0.955 / 0.966 before, 0.994 / 0.997 / 0.997 after; full scene 0.994.
-Fix: reset `rec.isDelta` per bounce.
+Fix: a fresh `HitRecord` per bounce (review: uvLayers, uvScaleU/V and hair_u/v leaked the same way; `test_pkg292_oracle_hitrecord_leak` guards the UV-layer leak, 0.975 -> 0.995).
 
 After the fix (5 seeds): full-scene GPU−CPU gap R 0.0113–0.0129, G ≤ 0.0023,
 B ≤ 0.0009 (red ratio 1.05–1.058); `world_max_bounces=0` R 0.0091; dielectric

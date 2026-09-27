@@ -164,12 +164,13 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
     Ray ray;
     ray.origin    = ps.ray_origin;
     ray.direction = ps.ray_direction;   // already unit; do NOT renormalize.
-    // #862: rec is carried across bounces, and delta BSDFs (dielectric, mirror,
-    // thin_glass, ...) set rec.isDelta inside sampleSpectral; bvh->hit never
-    // clears it. A stale true skipped lamp NEE at EVERY later vertex of the
-    // path (~9 % energy loss on session_n1_envmap_cornell's glass wall). Reset
-    // it per bounce, as production pathTraceSpectral does with a fresh HitRecord.
-    rec.isDelta = false;
+    // #862: both callers carry rec across bounces, and hit() only writes the
+    // fields its primitive owns: isDelta (set by delta BSDFs), uvLayers,
+    // uvScaleU/V (textured triangles), hair_u/v (curves) leaked into later
+    // vertices -- a stale isDelta skipped lamp NEE after every glass bounce
+    // (~9 % loss on session_n1_envmap_cornell). Start each bounce from a fresh
+    // record, as production pathTraceSpectral does.
+    rec = HitRecord();
     bool hit = bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec);
 
     // ---- PostIntersect snapshot.

@@ -9,8 +9,8 @@ lambertian) so the diverging term is named by the failing rung. Ladder result
   was wrong: advance_one_bounce carried rec.isDelta from a glass bounce into
   every later vertex and skipped lamp NEE there. Production pathTraceSpectral
   (independent integrator, fresh HitRecord per bounce) agrees with the GPU.
-- keep disney: GPU red +3.6 % (env-only back wall +8 %) -> GPU Disney, handed
-  to pkg293 (Disney lobe weights); the full-scene red rung stays xfail on it.
+- keep disney: GPU red +3.6 % (env-only back wall +8 %) was the GPU Disney
+  lowering (#876, 0.5 Lambert + 0.5 metal); with that fix the full scene passes.
 
 64x64, 64 spp, seed 424242 (deterministic per build).
 """
@@ -90,8 +90,6 @@ def test_gpu_cpu_rung(keep, tol):
     assert np.all(np.abs(ratio - 1.0) <= tol), ratio
 
 
-@pytest.mark.xfail(strict=False, reason="GPU Disney red residual (~1.057, pkg293); "
-                   "remove when pkg293 lands")
 def test_gpu_cpu_full_scene_red():
     ratio = _gpu_ratio(None)
     assert abs(ratio[0] - 1.0) <= 0.05, ratio

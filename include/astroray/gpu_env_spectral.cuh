@@ -43,15 +43,8 @@ __device__ inline GSampledSpectrum gpu_env_miss_spectral(
         if (u < 0.f) u += 1.f; if (u >= 1.f) u -= 1.f;
 
         // Bilinear interpolation (same as gpu_envmap_lookup but without tint).
-        float uP = u * envMap.width;
-        float vP = v * envMap.height;
-        int x0 = (int)uP; int x1 = x0 + 1;
-        int y0 = (int)vP; int y1 = y0 + 1;
-        x0 = x0 < 0 ? 0 : (x0 >= envMap.width  ? envMap.width-1  : x0);
-        x1 = x1 < 0 ? 0 : (x1 >= envMap.width  ? envMap.width-1  : x1);
-        y0 = y0 < 0 ? 0 : (y0 >= envMap.height ? envMap.height-1 : y0);
-        y1 = y1 < 0 ? 0 : (y1 >= envMap.height ? envMap.height-1 : y1);
-        float uf = uP - (int)uP, vf = vP - (int)vP;
+        int x0, x1, y0, y1; float uf, vf;
+        gpu_envmap_bilinear_texels(envMap, u, v, x0, x1, y0, y1, uf, vf);
 
         auto fetchSpec = [&](int x, int y) {
             int i = (y*envMap.width + x) * 3;

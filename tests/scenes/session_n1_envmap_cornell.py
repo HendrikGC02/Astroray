@@ -9,27 +9,32 @@ accumulate environment radiance, matching production pathTraceSpectral.
 """
 
 
-def build_scene(renderer):
+def build_scene(renderer, keep=None):
     """Populate *renderer* with a mixed-material Cornell box + env map.
+
+    keep: optional set of non-emissive material names (metal, dielectric,
+    disney, thin_glass, closure_matte) to keep; the others become the floor
+    lambertian (pkg292 #862 ladder rungs). None keeps all.
 
     Returns the material id map.
     """
+    def mat(name, kind, color, params):
+        if keep is not None and name not in keep:
+            return renderer.create_material("lambertian", [0.73, 0.73, 0.73], {})
+        return renderer.create_material(kind, color, params)
+
     # All 7 material types (matching Session 8 scope).
     lambertian_id = renderer.create_material("lambertian", [0.73, 0.73, 0.73], {})
-    metal_id = renderer.create_material("metal", [0.92, 0.78, 0.35],
-                                        {"roughness": 0.15})
-    dielectric_id = renderer.create_material("dielectric", [1.0, 1.0, 1.0],
-                                             {"ior": 1.5})
-    disney_id = renderer.create_material("disney", [0.8, 0.2, 0.3],
-                                         {"metallic": 0.3, "roughness": 0.4,
-                                          "specular": 0.6})
-    thin_glass_id = renderer.create_material("thin_glass", [0.9, 1.0, 0.95],
-                                             {"ior": 1.45, "roughness": 0.05,
-                                              "transmission": 0.95})
+    metal_id = mat("metal", "metal", [0.92, 0.78, 0.35], {"roughness": 0.15})
+    dielectric_id = mat("dielectric", "dielectric", [1.0, 1.0, 1.0], {"ior": 1.5})
+    disney_id = mat("disney", "disney", [0.8, 0.2, 0.3],
+                    {"metallic": 0.3, "roughness": 0.4, "specular": 0.6})
+    thin_glass_id = mat("thin_glass", "thin_glass", [0.9, 1.0, 0.95],
+                        {"ior": 1.45, "roughness": 0.05, "transmission": 0.95})
     diffuse_light_id = renderer.create_material("diffuse_light", [1.0, 0.8, 0.5],
                                                 {"intensity": 3.0})
     # Closure graph — closure_matte (blue-tinted diffuse).
-    closure_matte_id = renderer.create_material("closure_matte", [0.2, 0.65, 0.9], {})
+    closure_matte_id = mat("closure_matte", "closure_matte", [0.2, 0.65, 0.9], {})
 
     # Cornell box walls (leave top open so rays can miss to env map).
     # Floor — lambertian

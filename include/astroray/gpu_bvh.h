@@ -649,6 +649,23 @@ __device__ inline float gpu_envmap_pdf(const GEnvMap& em, const GVec3& dir) {
     return pdfUV / (2.f * M_PI_F * M_PI_F * sinTheta);
 }
 
+// #832: bilinear taps at texel CENTRES (x = u*W - 0.5), u wraps, v clamps.
+// Cycles kernel/device/cpu/image.h interp_bilinear (Apache-2.0). CPU twin:
+// EnvironmentMap::bilinearTexels (raytracer.h) -- keep in lockstep.
+__device__ inline void gpu_envmap_bilinear_texels(const GEnvMap& em, float u, float v,
+                                                  int& x0, int& x1, int& y0, int& y1,
+                                                  float& fu, float& fv) {
+    float x = u * em.width - 0.5f, y = v * em.height - 0.5f;
+    float fx = floorf(x), fy = floorf(y);
+    fu = x - fx; fv = y - fy;
+    x0 = (int)fx; y0 = (int)fy;
+    x1 = x0 + 1; y1 = y0 + 1;
+    x0 = (x0 % em.width + em.width) % em.width;
+    x1 = (x1 % em.width + em.width) % em.width;
+    y0 = y0 < 0 ? 0 : (y0 >= em.height ? em.height-1 : y0);
+    y1 = y1 < 0 ? 0 : (y1 >= em.height ? em.height-1 : y1);
+}
+
 __device__ inline GVec3 gpu_envmap_lookup(const GEnvMap& em, const GVec3& dir) {
     if (!em.loaded || em.width == 0) return GVec3(0.f);
     GVec3 d = gpu_envmap_apply_rot(em, dir);
@@ -658,16 +675,8 @@ __device__ inline GVec3 gpu_envmap_lookup(const GEnvMap& em, const GVec3& dir) {
     float v     = 1.f - theta / M_PI_F;
     if (u < 0.f) u += 1.f; if (u >= 1.f) u -= 1.f;
 
-    // Bilinear interpolation
-    float uP = u * em.width;
-    float vP = v * em.height;
-    int x0 = (int)uP; int x1 = x0 + 1;
-    int y0 = (int)vP; int y1 = y0 + 1;
-    x0 = x0 < 0 ? 0 : (x0 >= em.width  ? em.width-1  : x0);
-    x1 = x1 < 0 ? 0 : (x1 >= em.width  ? em.width-1  : x1);
-    y0 = y0 < 0 ? 0 : (y0 >= em.height ? em.height-1 : y0);
-    y1 = y1 < 0 ? 0 : (y1 >= em.height ? em.height-1 : y1);
-    float uf = uP - (int)uP, vf = vP - (int)vP;
+    int x0, x1, y0, y1; float uf, vf;
+    gpu_envmap_bilinear_texels(em, u, v, x0, x1, y0, y1, uf, vf);
 
     auto px = [&](int x, int y) {
         int i = (y*em.width + x) * 3;

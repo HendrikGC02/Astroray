@@ -79,7 +79,11 @@ SEED = 424242
 # contributes ~0.8 pp of the 12.2 % ratio and the root cause is #862.
 # Measured worst gap per channel (5 seeds + both cases here): R 0.0261,
 # G 0.0040, B 0.0051; seed std 0.0005 / 0.0003 / 0.0005.
-ABS_GAP_TOL = np.array([0.035, 0.012, 0.015])
+# Re-pinned 2026-09-27 (pkg292): the oracle skipped lamp NEE after a delta
+# bounce (stale rec.isDelta); fixed, worst R gap 0.0129 (default) / 0.0091
+# (wmb=0), residual = GPU Disney (pkg293). R tightened 0.035 -> 0.020; see the
+# wavefront-image gate for the full record.
+ABS_GAP_TOL = np.array([0.020, 0.012, 0.015])
 
 
 def _build_renderer(world_max_bounces=None):

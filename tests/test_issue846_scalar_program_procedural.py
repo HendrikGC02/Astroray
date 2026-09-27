@@ -120,14 +120,6 @@ def test_846_gpu_scalar_procedural_program_parity(socket, kind):
     gpu = _quadrants(_render(socket, True, kind=kind))
     ratio = gpu / np.maximum(cpu, 1e-4)
     ok = np.allclose(ratio, 1.0, atol=0.03)
-    if (kind, socket) == ("disney", "metallic"):
-        # Pre-existing (pkg219d): the GPU lowers Disney to the closure graph with
-        # lobe weights baked from the CONSTANT metallic, so the program has no
-        # effect there (GPU program render == constant render, also on main with
-        # an image input). The addon reports it; native Principled passes. Strict;
-        # tracked in #889.
-        assert not ok, "Disney metallic now within 3 % - remove this xfail branch"
-        pytest.xfail("#889: Disney GPU closure graph bakes the metallic lobe mix")
     assert ok, (
         f"{kind} {socket}: GPU/CPU quadrant ratio outside 3 %:\n{ratio}\ncpu={cpu}\ngpu={gpu}")
 

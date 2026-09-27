@@ -32,7 +32,8 @@ def _renderer(width=32, height=24):
         ("lambertian", [0.7, 0.2, 0.1], {}, {"diffuse"}),
         ("metal", [0.9, 0.7, 0.4], {"roughness": 0.35}, {"ggx_conductor"}),
         ("dielectric", [1.0, 1.0, 1.0], {"ior": 1.5}, {"dielectric_transmission"}),
-        ("disney", [0.8, 0.45, 0.25], {"roughness": 0.45}, {"diffuse", "ggx_conductor"}),
+        # #876/pkg292: opaque Disney is one monolithic lobe (was diffuse + tinted conductor).
+        ("disney", [0.8, 0.45, 0.25], {"roughness": 0.45}, {"ggx_conductor"}),
         ("disney", [0.9, 0.95, 1.0], {"transmission": 1.0, "roughness": 0.25}, {"dielectric_transmission"}),
     ],
 )

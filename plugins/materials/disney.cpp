@@ -587,6 +587,18 @@ public:
     astroray::MaterialClosureGraph closureGraph() const override {
         astroray::MaterialClosureGraph graph;
         const astroray::ClosureColor base{baseColor_.x, baseColor_.y, baseColor_.z};
+        if (transmission_ <= 1e-4f) {
+            // #876/pkg292: opaque Disney lowers to ONE lobe carrying the real
+            // metallic; the GPU (gpu_closure_as_material, disneyMetalConductor)
+            // evaluates it as the monolithic gpu_disney_eval, the twin of eval().
+            // The old diffuse(w=1)+tinted-conductor(w=1) split replaced the
+            // F0=0.04 dielectric specular with a base-tinted metal: GPU/CPU 1.84
+            // under a sun.
+            auto c = astroray::makeGGXConductorClosure(base, roughness_, 1.0f);
+            c.metallic = metallic_;
+            graph.add(c);
+            return graph;
+        }
         const float diffuseWeight = (1.0f - metallic_) * (1.0f - transmission_);
         if (diffuseWeight > 1e-4f) {
             graph.add(astroray::makeDiffuseClosure(base, diffuseWeight));

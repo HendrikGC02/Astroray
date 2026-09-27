@@ -11,12 +11,10 @@ be a Monte-Carlo / MIS artefact.
 
   - rung 2 (CPU): environment_lookup(dir) vs numpy bilinear on the stb-decoded
     float image. Catches gamma-on-load, a row-order (flip) bug, and any
-    interpolation/index arithmetic error. Also *measures* the half-texel
-    (texel-center) offset vs the Cycles svm_image convention as a diagnostic
-    (printed, not asserted): Cycles subtracts 0.5 before flooring; Astroray's
-    lookup does not, so on a high-frequency image the two disagree by up to
-    ~one texel step. Reference: Cycles intern/cycles/kernel/svm/svm_image.h
-    (svm_image_texture, Apache-2.0). See
+    interpolation/index arithmetic error. The reference is the Cycles
+    texel-centre convention (subtract 0.5 before flooring, u wraps); the engine
+    adopted it in #832 and the high-frequency rung asserts it. Reference: Cycles
+    intern/cycles/kernel/device/cpu/image.h (interp_bilinear, Apache-2.0). See
     .astroray_plan/docs/pkg275-env-lookup-research.md.
   - rung 5 (GPU): the same directions through the wavefront device lookup
     (gpu_envmap_lookup) vs the CPU environment_lookup — removes Monte Carlo
@@ -147,10 +145,11 @@ def _dir_to_uv(d):
     return u, v
 
 
-def _bilinear(img, u, v, half_texel=False):
-    """Bilinear fetch. half_texel=False mirrors EnvironmentMap::lookup
-    (x0 = floor(u*W)); half_texel=True is the Cycles svm_image convention
-    (x0 = floor(u*W - 0.5))."""
+def _bilinear(img, u, v, half_texel=True):
+    """Bilinear fetch. half_texel=True is the Cycles convention the engine uses
+    since #832 (x0 = floor(u*W - 0.5), u wraps, v clamps; Cycles
+    kernel/device/cpu/image.h interp_bilinear). half_texel=False is the old
+    texel-edge convention (x0 = floor(u*W), clamped), kept for the diagnostic."""
     h, w = img.shape[:2]
     up = u * w
     vp = v * h
@@ -163,8 +162,11 @@ def _bilinear(img, u, v, half_texel=False):
     y1 = y0 + 1
     uf = up - x0
     vf = vp - y0
-    cx0 = min(max(x0, 0), w - 1)
-    cx1 = min(max(x1, 0), w - 1)
+    if half_texel:
+        cx0, cx1 = x0 % w, x1 % w
+    else:
+        cx0 = min(max(x0, 0), w - 1)
+        cx1 = min(max(x1, 0), w - 1)
     cy0 = min(max(y0, 0), h - 1)
     cy1 = min(max(y1, 0), h - 1)
     c00 = img[cy0, cx0]
@@ -220,7 +222,7 @@ def test_rung2_cpu_lookup_matches_numpy_bilinear(hdri):
     for d in _DIRS:
         got = np.array(r.environment_lookup(d), dtype=np.float64)
         u, v = _dir_to_uv(d)
-        ref = _bilinear(img, u, v, half_texel=False).astype(np.float64)
+        ref = _bilinear(img, u, v).astype(np.float64)
         denom = np.maximum(np.abs(ref), 1e-4)
         rel = np.max(np.abs(got - ref) / denom)
         worst = max(worst, rel)
@@ -232,27 +234,27 @@ def test_rung2_cpu_lookup_matches_numpy_bilinear(hdri):
 
 
 def test_rung2_halftexel_offset_measurement(hdri_hf):
-    """Diagnostic (not a pass/fail on the offset itself): quantify the
-    half-texel (texel-center) discrepancy vs the Cycles svm_image convention on
-    a high-frequency image. The engine lookup must still equal the *engine*
-    convention exactly; the printed number is the parity gap vs Cycles."""
+    """#832: on a 1-px sawtooth (maximally aliased) the engine must sample
+    texel CENTRES like Cycles, incl. the u=0 seam (wrap, not clamp). The
+    pre-#832 texel-edge convention differs by up to ~100 % here."""
     path, img = hdri_hf
     r = _load(path)
-    worst_engine = 0.0
+    worst_edge = 0.0
     worst_cycles = 0.0
-    for d in _DIRS:
+    seam = [[math.cos(0.2) * math.cos(a), math.sin(0.2), math.cos(0.2) * math.sin(a)]
+            for a in (math.pi - 1e-3, -math.pi + 1e-3)]
+    for d in _DIRS + seam:
         got = np.array(r.environment_lookup(d), dtype=np.float64)
         u, v = _dir_to_uv(d)
-        ref_engine = _bilinear(img, u, v, half_texel=False).astype(np.float64)
+        ref_edge = _bilinear(img, u, v, half_texel=False).astype(np.float64)
         ref_cycles = _bilinear(img, u, v, half_texel=True).astype(np.float64)
-        de = np.max(np.abs(got - ref_engine) / np.maximum(np.abs(ref_engine), 1e-4))
+        de = np.max(np.abs(got - ref_edge) / np.maximum(np.abs(ref_edge), 1e-4))
         dc = np.max(np.abs(got - ref_cycles) / np.maximum(np.abs(ref_cycles), 1e-4))
-        worst_engine = max(worst_engine, de)
+        worst_edge = max(worst_edge, de)
         worst_cycles = max(worst_cycles, dc)
-    print(f"[pkg275 rung2-hf] engine-conv worst rel = {worst_engine:.2e}; "
-          f"cycles-halftexel worst rel = {worst_cycles:.2e}")
-    # The engine must match its own convention exactly even on a HF image.
-    assert worst_engine < 1e-3
+    print(f"[pkg275 rung2-hf] texel-edge worst rel = {worst_edge:.2e}; "
+          f"cycles texel-centre worst rel = {worst_cycles:.2e}")
+    assert worst_cycles < 1e-3
 
 
 # ---------------------------------------------------------------------------

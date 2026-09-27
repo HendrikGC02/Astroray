@@ -1621,6 +1621,22 @@ class EnvironmentMap {
                     rotMat[2]*d.x + rotMat[5]*d.y + rotMat[8]*d.z);
     }
 
+    // #832: bilinear taps at texel CENTRES (x = u*W - 0.5), u wraps, v clamps.
+    // Cycles kernel/device/cpu/image.h interp_bilinear (Apache-2.0). GPU twin:
+    // gpu_envmap_bilinear_texels (gpu_bvh.h) -- keep in lockstep.
+    void bilinearTexels(float u, float v, int& x0, int& x1, int& y0, int& y1,
+                        float& fu, float& fv) const {
+        float x = u * width - 0.5f, y = v * height - 0.5f;
+        float fx = std::floor(x), fy = std::floor(y);
+        fu = x - fx; fv = y - fy;
+        x0 = static_cast<int>(fx); y0 = static_cast<int>(fy);
+        x1 = x0 + 1; y1 = y0 + 1;
+        x0 = (x0 % width + width) % width;
+        x1 = (x1 % width + width) % width;
+        y0 = std::max(0, std::min(height - 1, y0));
+        y1 = std::max(0, std::min(height - 1, y1));
+    }
+
 public:
     bool loaded() const { return !data.empty(); }
 
@@ -1677,25 +1693,9 @@ public:
         if (u < 0) u += 1.0f;
         if (u >= 1.0f) u -= 1.0f;
 
-        // Convert to pixel coordinates
-        float uPixel = u * width;
-        float vPixel = v * height;
-
-        // Get integer coordinates
-        int x0 = static_cast<int>(uPixel);
-        int x1 = x0 + 1;
-        int y0 = static_cast<int>(vPixel);
-        int y1 = y0 + 1;
-
-        // Clamp coordinates
-        x0 = std::max(0, std::min(width - 1, x0));
-        x1 = std::max(0, std::min(width - 1, x1));
-        y0 = std::max(0, std::min(height - 1, y0));
-        y1 = std::max(0, std::min(height - 1, y1));
-
-        // Calculate fractional parts
-        float uFract = uPixel - x0;
-        float vFract = vPixel - y0;
+        int x0, x1, y0, y1;
+        float uFract, vFract;
+        bilinearTexels(u, v, x0, x1, y0, y1, uFract, vFract);
 
         // Get pixel colors
         auto getPixel = [&](int x, int y) -> Vec3 {
@@ -1732,16 +1732,9 @@ public:
         if (u < 0) u += 1.0f;
         if (u >= 1.0f) u -= 1.0f;
 
-        float uPixel = u * width;
-        float vPixel = v * height;
-
-        int x0 = std::max(0, std::min(width  - 1, static_cast<int>(uPixel)));
-        int x1 = std::max(0, std::min(width  - 1, x0 + 1));
-        int y0 = std::max(0, std::min(height - 1, static_cast<int>(vPixel)));
-        int y1 = std::max(0, std::min(height - 1, y0 + 1));
-
-        float uFract = uPixel - x0;
-        float vFract = vPixel - y0;
+        int x0, x1, y0, y1;
+        float uFract, vFract;
+        bilinearTexels(u, v, x0, x1, y0, y1, uFract, vFract);
 
         astroray::SampledSpectrum s00 = spectralAtlas_[y0 * width + x0].sample(lambdas);
         astroray::SampledSpectrum s10 = spectralAtlas_[y0 * width + x1].sample(lambdas);

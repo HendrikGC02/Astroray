@@ -28,9 +28,16 @@ _SPP = 256
 _SEEDS = tuple(range(1, 9))
 
 
-def _render(kind, nee, seed):
+def _render(kind, nee, seed, gpu=False):
     r = astroray.Renderer()
-    if hasattr(r, "set_use_gpu"):
+    if gpu:
+        try:
+            r.set_use_gpu(True)
+        except Exception as e:  # noqa: BLE001 - CPU-only build
+            pytest.skip("GPU unavailable: %s" % e)
+        if not getattr(r, "gpu_available", False):
+            pytest.skip("gpu_available is False")
+    elif hasattr(r, "set_use_gpu"):
         r.set_use_gpu(False)
     r.set_integrator("path_tracer")
     r.set_adaptive_sampling(False)
@@ -39,7 +46,7 @@ def _render(kind, nee, seed):
     floor = r.create_material("lambertian", [0.3, 0.3, 0.3], {})
     r.add_triangle([-6, -6, -0.5], [6, -6, -0.5], [6, 6, -0.5], floor)
     r.add_triangle([-6, -6, -0.5], [6, 6, -0.5], [-6, 6, -0.5], floor)
-    if kind == "mesh":
+    if kind in ("mesh", "mesh_surface"):
         lm = r.create_material("light", [1.0, 0.9, 0.7], {"intensity": 3.0})
         r.add_triangle([-1, -1, 3.5], [1, 1, 3.5], [1, -1, 3.5], lm)
         r.add_triangle([-1, -1, 3.5], [-1, 1, 3.5], [1, 1, 3.5], lm)
@@ -49,6 +56,11 @@ def _render(kind, nee, seed):
                                    {"mode": "rgb", "color": [1.0, 0.9, 0.7]}, 40.0)
     if kind == "fog":
         r.set_world_volume(0.25, [0.8, 0.8, 0.8], 0.0, 0.3)
+    elif kind == "mesh_surface":
+        # #929: no medium; a ceiling above the down-facing quad sees only its
+        # one-sided back face (dark on a BSDF hit), which NEE must match.
+        r.add_triangle([-6, -6, 4.2], [6, 6, 4.2], [6, -6, 4.2], floor)
+        r.add_triangle([-6, -6, 4.2], [-6, 6, 4.2], [6, 6, 4.2], floor)
     else:
         r.add_homogeneous_medium([-3, -3, -1], [3, 3, 4], 0.25, [0.8, 0.8, 0.8],
                                  [0.0, 0.0, 0.0], 0.3)
@@ -58,16 +70,29 @@ def _render(kind, nee, seed):
     return img.reshape(_RES, _RES, 3).mean(axis=(0, 1))
 
 
-def _stats(kind, nee):
-    m = np.stack([_render(kind, nee, s) for s in _SEEDS])
+def _stats(kind, nee, gpu=False):
+    m = np.stack([_render(kind, nee, s, gpu) for s in _SEEDS])
     return m.mean(0), m.std(0, ddof=1) / np.sqrt(len(_SEEDS))
 
 
-@pytest.mark.cpu
-@pytest.mark.parametrize("kind", ["box", "fog", "mesh"])
-def test_925_segment_nee_matches_nee_off_cpu(kind):
-    on, se_on = _stats(kind, True)
-    off, se_off = _stats(kind, False)
+def _assert_nee_on_matches_off(kind, gpu):
+    on, se_on = _stats(kind, True, gpu)
+    off, se_off = _stats(kind, False, gpu)
     tol = 4.0 * np.hypot(se_on, se_off) + 0.005 * off
     assert np.all(np.abs(on - off) <= tol), (
         f"{kind}: NEE on {on} vs off {off} (rel {on / off - 1}), tol {tol}")
+
+
+@pytest.mark.cpu
+@pytest.mark.parametrize("kind", ["box", "fog", "mesh", "mesh_surface"])
+def test_925_segment_nee_matches_nee_off_cpu(kind):
+    _assert_nee_on_matches_off(kind, False)
+
+
+# #929: GPU twin (segment direct light parked by the intersect stage, resolved
+# by the shadow stage; lamp pass before the bounded free flight with Tr(lamp)).
+# mesh_surface isolates the GPU triangle-NEE back-face emission (no medium).
+@pytest.mark.gpu
+@pytest.mark.parametrize("kind", ["box", "fog", "mesh", "mesh_surface"])
+def test_929_segment_nee_matches_nee_off_gpu(kind):
+    _assert_nee_on_matches_off(kind, True)

@@ -107,14 +107,15 @@ def test_913_shaft_variance_vs_cycles_cpu():
     _assert_variance_vs_cycles(False)
 
 
-_XFAIL = pytest.mark.xfail(
-    strict=True,
-    reason="#913: GPU medium direct light is sampled only at analog scatter vertices "
-           "(~100-500x Cycles' variance); the CPU per-segment equiangular+distance "
-           "NEE (#925) is not yet mirrored on the GPU. GPU fix PR un-xfails.")
+# #929: the GPU per-segment direct light (intersect-stage park, shadow-stage
+# resolve) mirrors #925.
 
 
 @pytest.mark.gpu
-@_XFAIL
+def test_929_shaft_variance_rg_vs_cycles_gpu():
+    _assert_variance_vs_cycles(True, slice(0, 2))
+
+
+@pytest.mark.gpu
 def test_913_shaft_variance_vs_cycles_gpu():
     _assert_variance_vs_cycles(True)

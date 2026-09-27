@@ -15,8 +15,8 @@ MinGW `--backend cpu` addon .pyd (run with ASTRORAY_BUILD_DIR pointing at it).
 
 The probe: a vertical gradient (file row r -> value r + 0.5, all channels) is
 loaded with blender_convention=True and read back through `environment_lookup`
-along the phi=0 meridian at each data-row centre. Bilinear averaging of two
-adjacent rows gives an exact half-integer sequence, so the check is exact.
+along the phi=0 meridian at each data-row centre. Texel-centre bilinear (#832)
+returns each row's exact half-integer value, so the check is exact.
 """
 import math
 import os
@@ -66,9 +66,10 @@ def test_flat_hdr_rows_decode_exact(tmp_path, width):
 
     got = _lookup_rows(str(p), height)
 
-    # load() flips rows, so data row y holds file row height-1-y; a row-centre
-    # probe lands at vFract = 0.5 between data rows y and y+1 (y+1 clamped).
-    expected = np.array([(height - 1 - y) for y in range(height - 1)] + [0.5],
+    # load() flips rows, so data row y holds file row height-1-y; since #832
+    # the lookup samples texel centres (Cycles), so a row-centre probe returns
+    # that row's value exactly (was a half-row blend under the edge convention).
+    expected = np.array([(height - 1 - y) + 0.5 for y in range(height)],
                         dtype=np.float64)
     assert np.all(np.isfinite(got)), got
     assert np.allclose(got, expected, atol=1e-4), (got, expected)

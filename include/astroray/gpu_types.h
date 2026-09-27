@@ -840,6 +840,17 @@ struct GWavefrontGridVolumeBinding {
     // two volume-scatter kernels and the <HasWorldScatter|HasGridVolume> intersect
     // kernels only. Per-path count/flag: GPUWavefrontState.per_type_bounce byte 3.
     int    volumeBounceCap;
+    // #929 — per-segment volume direct-light shadow slots (Kulla & Fajardo 2012;
+    // Cycles shade_volume.h). Two record blocks, kind 0 = bounded media, kind 1 =
+    // world fog; block k is a standard NEE park (G_WF_NEE_F/I_LANES field-major,
+    // stride segCapacity) at segNeeF + k*G_WF_NEE_F_LANES*segCapacity, its queue at
+    // segShadowQueue + k*segCapacity, its counter segShadowCount[k]. Resolved by
+    // stageShadowKernel (volSegment=1). segCapacity 0 (default) = off.
+    float* segNeeF;
+    int*   segNeeI;
+    int*   segShadowQueue;
+    int*   segShadowCount;
+    int    segCapacity;
     GGridMedium media[G_WF_MAX_GRID_MEDIA];
 };
 
@@ -961,6 +972,12 @@ struct GNEESample {
     // `GNEESample s{};` call site, so non-distant / non-delta samples are
     // unaffected.
     int   isDeltaLight;
+    // #929: 1 = the sampled triangle point is seen from its BACK face (the
+    // frontFace a BSDF ray along wi would get, gpu_bvh convention). Emission is
+    // then evaluated with frontFace=false (one-sided emitters give 0), as on the
+    // CPU LightList::sample hit and the GPU BSDF-hit path. Parked in NEE int
+    // lane 1 bit 1 (bit 0 = isSphere).
+    int   lightBack;
 };
 
 struct GNEEOcclusion {

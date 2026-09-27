@@ -1101,6 +1101,7 @@ struct WfContext {
     WfDeviceBuf volQueue, volCount;   // pkg199 Stage 2 volume-scatter queue
     WfDeviceBuf gridQueue, gridCount; // pkg269 heterogeneous-medium queue
     WfDeviceBuf gridRu, gridMediumId; // pkg269 per-path r_u (4 lanes) + scattered-medium id
+    WfDeviceBuf segNeeF, segNeeI, segShadowQueue, segShadowCount; // #929 segment slots (2 kinds)
     std::vector<WfDeviceBuf> gridBufs; // pkg269 device NanoVDB grid buffers (grow-only)
     std::vector<WfDeviceBuf> gridTempBufs; // #828 dense temperature grids (grow-only)
     // pkg258 - env NEE parked-record arrays + queue (SEPARATE from the lamp neeF/
@@ -1591,6 +1592,7 @@ std::vector<float> cuda_wavefront_render(
     // renderer's grids (every grid mutation binding invalidates the scene cache),
     // so no memcpy runs; the small side-table fields are rebuilt every frame.
     bool hasGridVolume = false;
+    bool segmentNee = false;   // #929
     {
         GWavefrontGridVolumeBinding gb{};
         gb.count = 0;
@@ -1680,6 +1682,20 @@ std::vector<float> cuda_wavefront_render(
             gb.ru = wfEnsure<float>(C.gridRu, size_t(G_SPECTRUM_SAMPLES) * total_paths);
             gb.mediumId = wfEnsure<int>(C.gridMediumId, total_paths);
             gb.capacity = total_paths;
+        }
+        // #929 — per-segment volume direct-light slots (kind 0 bounded, 1 fog),
+        // only for NEE renders with a scattering medium (grow-only).
+        gb.segNeeF = nullptr; gb.segNeeI = nullptr;
+        gb.segShadowQueue = nullptr; gb.segShadowCount = nullptr; gb.segCapacity = 0;
+        segmentNee = enableNEE && (hasGridVolume || (renderer.getHasWorldVolume() &&
+                                                     renderer.getWorldVolumeScatter() > 0.0f));
+        if (segmentNee) {
+            gb.segNeeF = wfEnsure<float>(C.segNeeF, size_t(2) * G_WF_NEE_F_LANES * total_paths);
+            gb.segNeeI = wfEnsure<int>(C.segNeeI, size_t(2) * G_WF_NEE_I_LANES * total_paths);
+            gb.segShadowQueue = wfEnsure<int>(C.segShadowQueue, size_t(2) * total_paths);
+            gb.segShadowCount = wfEnsure<int>(C.segShadowCount, 2);
+            gb.segCapacity = total_paths;
+            cudaMemset(gb.segShadowCount, 0, 2 * sizeof(int));
         }
         setWavefrontGridVolumeBinding(gb);
     }
@@ -2306,6 +2322,25 @@ std::vector<float> cuda_wavefront_render(
                               d_curveSegments,  // pkg225 Stage 3 — curve shadows
                               res.hasAlphaShadow,  // pkg253 — transparent shadows
                               hasGridVolume);      // pkg269 — bounded-media Tr axis
+            // #929: resolve the per-segment volume direct-light records the
+            // intersect stage parked (block 0 bounded media, block 1 world fog),
+            // then zero their counters for the next pass.
+            if (segmentNee) {
+                for (int kind = 0; kind < 2; ++kind)
+                    launchStageShadow(state, hitBufs,
+                                      reinterpret_cast<float*>(C.segNeeF.ptr) + size_t(kind) * G_WF_NEE_F_LANES * total_paths,
+                                      reinterpret_cast<int*>(C.segNeeI.ptr) + size_t(kind) * G_WF_NEE_I_LANES * total_paths,
+                                      reinterpret_cast<int*>(C.segShadowQueue.ptr) + size_t(kind) * total_paths,
+                                      reinterpret_cast<int*>(C.segShadowCount.ptr) + kind, total_paths,
+                                      d_tlas, d_instances, d_blas,
+                                      d_bvhNodes, d_prims, d_tris, d_spheres,
+                                      d_motionVerts, d_materials,
+                                      useLuminanceOutput,
+                                      clampDirect, clampIndirect,
+                                      d_curveSegments, res.hasAlphaShadow,
+                                      hasGridVolume, /*volSegment=*/true);
+                cudaMemsetAsync(reinterpret_cast<int*>(C.segShadowCount.ptr), 0, 2 * sizeof(int));
+            }
             // pkg258: resolve env NEE records parked by the shade stage this pass
             // (independent additive strategy; no-op when env NEE off / no HDRI).
             if (envNeeOn)

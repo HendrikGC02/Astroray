@@ -79,6 +79,17 @@ __device__ inline uint32_t gpu_gridShadowSalt(int bounce, int medium)
     return G_WF_GRIDSHADOW_DIM_SALT | ((uint32_t)(bounce & 0xFF) << 20)
          | ((uint32_t)(medium & 7) << 17);
 }
+// #929 — volume-segment direct light + lamp-pass Tr (intersect stage):
+//   0xC | bounce&0x3F << 22 | stream&0x1F << 17 | draw & 0x1FFFF
+// streams: 0/1 = segment sampling (kind 0 bounded / 1 fog), 2+k = camera-segment
+// Tr of medium k, 10+k = lamp-pass Tr of medium k (k < 8).
+static constexpr uint32_t G_WF_SEG_DIM_SALT  = 0xC0000000u;
+static constexpr uint32_t G_WF_SEG_DRAW_MASK = 0x0001FFFFu;
+__device__ inline uint32_t gpu_segSalt(int bounce, int stream)
+{
+    return G_WF_SEG_DIM_SALT | ((uint32_t)(bounce & 0x3F) << 22)
+         | ((uint32_t)(stream & 0x1F) << 17);
+}
 
 // pkg199 Stage 2 — OBJECT-FREE counter-based free-flight uniform. Reuses the exact
 // published keying of WavefrontRNG::GenerateForDimension (PBRT-v4 MixBits =
@@ -207,3 +218,18 @@ __device__ GSampledSpectrum gpu_gridVolumeTransmittance(int mi, const GVec3& o,
                                                         const GSampledWavelengths& wl,
                                                         uint32_t rpix, uint32_t rsmp,
                                                         uint64_t rsd, uint32_t salt);
+// #929 — per-segment volume direct light (device twin of Renderer::
+// segmentDirectLight / boundedSegmentDirect). Called from the intersect stage
+// before the free flight over [a,b] of ray (o, unit d); kind 0 = bounded media
+// (rate = Σ per-λ majorants), kind 1 = world fog (rate = σ_t, σ_s = fogAlbedo·σ_t,
+// HG g = fogG). Parks one NEE record into segment block `kind` of
+// c_wfGridVolume (resolved later by stageShadowKernel, volSegment=1).
+// Out of line (rdc): its registers stay out of the intersect kernel's frame.
+__device__ void gpu_volumeSegmentDirect(
+    int idx, int bounce, int kind, const GVec3& o, const GVec3& d, float a, float b,
+    GSampledSpectrum rate, const GSampledSpectrum& throughput,
+    const GSampledWavelengths& wl, float fogAlbedo, float fogG,
+    const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres,
+    const GLight* lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed, const GLightTreeView& lightTree,
+    uint32_t rpix, uint32_t rsmp, uint64_t rsd);

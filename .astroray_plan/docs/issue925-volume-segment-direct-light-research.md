@@ -35,7 +35,16 @@
 ## Integration
 - `include/astroray/volume/volume_transport.h` (`sampleSegmentDirect`, `segmentTransmittanceSpectral`, spectralTrack/Overlap weight change), `include/raytracer.h` (`segmentDirectLight`, `boundedSegmentDirect`, fog + bounded blocks), `Light::clipLitSegment` (spot/area), `PowerLightSampler::resample`.
 - Tests: `tests/test_pkg289_medium_chromatic_variance.py`.
-- GPU twin: not yet (`stage_advance.cu` volume path, `stage_volume_hetero.cu`).
+- GPU twin (#929): `stage_volume_hetero.cu gpu_volumeSegmentDirect` (rdc, out of the
+  intersect kernel's frame) is called by `intersectPathSlotT` before the bounded / fog
+  free flight with the pre-flight throughput. It parks one standard NEE record into a
+  per-segment slot (kind 0 bounded, kind 1 fog; `GWavefrontGridVolumeBinding.segNee*`),
+  resolved by a second `stageShadowKernel` launch per kind (`volSegment=1`: occlusion,
+  world/grid shadow Tr, clamp, VOLUME_DIRECT/INDIRECT pass). The scatter kernels no
+  longer do NEE. Same light pick / clip / MIS as the CPU; RNG is counter-based
+  (`gpu_segSalt`), independent of the CPU stream. Lamp pass runs before the bounded
+  flight with explicit grid Tr; tracking takes absorption as a weight; homogeneous
+  `gpu_gridVolumeTransmittance` is Beer-Lambert.
 
 ## MIS pairing (review follow-up, Cycles main a456b761)
 - `integrate_volume_direct_light` re-samples the same light from the direct point P and weights it

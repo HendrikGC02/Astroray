@@ -618,16 +618,12 @@ void setWavefrontPhotonSplit(const GWavefrontPhotonSplit& split);
 // world-volume Beer-Lambert Tr in stageShadowKernel. Parked SEPARATELY from
 // lane 6 (maxDist), which is a 1e30 occlusion sentinel for sphere/distant
 // sources and would collapse fogged NEE to zero if used as a path length.
-// pkg204: int lane 4 = volume-scatter direct/indirect encoding. The dedicated
-// volume-scatter stage parks (bounce+1) for a FIRST-interaction in-scatter NEE
-// (CPU firstInteraction => PASS_VOLUME_DIRECT) and -(bounce+1) for a deeper
-// scatter. The shadow-resolve kernel routes fc==3 NEE to PASS_VOLUME_DIRECT
-// only when the parked value is positive AND its (bounce+1) matches the NEE's
-// own parked bounce (int lane 3) -- so a surface-after-fog NEE (firstCat locked
-// to 3, its stale lane-4 from an EARLIER scatter's bounce a<b) never false-
-// matches and correctly falls to PASS_VOLUME_INDIRECT. Read-only in the shadow
-// kernel (no scratch mutation); zeroed per render so bounce 0's first scatter
-// (enc=1) never aliases the memset default (enc=0 => -1 != any bounce).
+// pkg204/#929: int lane 4 = volume direct/indirect encoding, written only by the
+// per-segment volume direct light (segment slots, GWavefrontGridVolumeBinding):
+// +(bounce+1) when the path had no locked category yet (CPU firstCat < 0 =>
+// PASS_VOLUME_DIRECT), else -(bounce+1) (PASS_VOLUME_INDIRECT). The shadow
+// kernel reads it only for segment records (volSegment); a surface NEE after a
+// volume lock (fc == 3) is PASS_VOLUME_INDIRECT.
 // pkg218: int lane 5 = dedEmissionProfileIndex — the source GDedicatedLight's
 // device emission-profile table row (-1 = RGB fallback, unchanged behaviour).
 // Parked at shade time alongside lanes 11-13 (dedEmissionRGB) so
@@ -665,7 +661,8 @@ void launchStageShadow(
     float             clampDirect, float clampIndirect,  // pkg157
     const GCurveSegment* d_curveSegments = nullptr,  // pkg225 Stage 3
     bool              hasAlphaShadow = false,  // pkg253 (Principled alpha<1 scene)
-    bool              hasGridVolume = false);  // pkg269 (bounded media: per-λ ratio-tracking Tr)
+    bool              hasGridVolume = false,  // pkg269 (bounded media: per-λ ratio-tracking Tr)
+    bool              volSegment = false);    // #929: records are volume-segment direct light
 
 // Session N+7 part 4: path regeneration -- dense pass accumulating dead
 // paths' radiance (atomic, per-pixel) then refilling slots from a global

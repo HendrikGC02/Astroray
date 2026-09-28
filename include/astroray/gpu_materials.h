@@ -2915,8 +2915,10 @@ __device__ inline GMaterial gpu_closure_as_material(const GMaterial& parent, con
             // Material::getGPUTypeName() at closure-graph upload time.
             if (parent.disneyMetalConductor) {
                 tmp.type = GMAT_DISNEY;
-                tmp.transmission = 0.0f;
                 if (parent.closureCount == 1) {
+                    // #933/pkg295: transmission/ior stay the closure's (set
+                    // above): partial-transmission Disney is this one lobe too,
+                    // gpu_disney_sample runs the glass roulette itself.
                     // #876/pkg292: opaque Disney is ONE closure = the whole
                     // monolithic BSDF (disney.cpp closureGraph()); restore the
                     // parent's lobe params the reset above cleared. metallic
@@ -2932,6 +2934,7 @@ __device__ inline GMaterial gpu_closure_as_material(const GMaterial& parent, con
                     tmp.anisotropicRotation = parent.anisotropicRotation;
                     break;
                 }
+                tmp.transmission = 0.0f;
                 tmp.metallic = 1.0f;
                 // Disney's closure-graph lowering does not carry clearcoat/
                 // sheen through the closure system at all (DisneyPlugin::

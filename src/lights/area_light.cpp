@@ -14,14 +14,21 @@
 // weights at medium vertices use the solid-angle pdf 1/Omega; draw and
 // estimator pdf unchanged); 2 = "draw_sa" (rectangle NEE draws + pdfLi use the
 // spherical-rectangle solid-angle map everywhere; the segment anchor stays
-// area-uniform as in Cycles area_light_eval<true>).
-int pkg294DiagMode() {  // [pkg294-diag] remove after Phase 0
+// area-uniform as in Cycles area_light_eval<true>); 3 = NEE-only and
+// 4 = phase-only at medium vertices. Tens digit = segment distance strategy:
+// 1 = equiangular only, 2 = exponential only (0 = one-sample MIS).
+// Hundreds digit 1 = the mode-2 solid-angle draw combined with modes 0/3/4.
+static int pkg294DiagRaw() {  // [pkg294-diag] remove after Phase 0
     static const int mode = [] {
         const char* e = std::getenv("ASTRORAY_PKG294_DIAG");
         return e ? std::atoi(e) : 0;
     }();
     return mode;
 }
+int pkg294DiagMode() { return pkg294DiagRaw() % 10; }  // [pkg294-diag] remove after Phase 0
+int pkg294DiagDist() { return (pkg294DiagRaw() / 10) % 10; }  // [pkg294-diag] remove after Phase 0
+// [pkg294-diag] hundreds digit 1 = solid-angle rectangle draw on top of modes 0/3/4. Remove after Phase 0.
+static bool pkg294DiagDrawSA() { return pkg294DiagMode() == 2 || (pkg294DiagRaw() / 100) % 10 == 1; }
 thread_local float g_pkg294NeeRatio = 1.0f;  // [pkg294-diag] remove after Phase 0
 thread_local bool g_pkg294Anchor = false;    // [pkg294-diag] remove after Phase 0
 
@@ -145,7 +152,7 @@ void AreaLight::sampleLi(LiSample& sample,
                          std::mt19937& gen) const {
     // [pkg294-diag] remove after Phase 0: mode 2 draws the rectangle in solid
     // angle (Cycles area_light_eval<false>); the segment anchor stays uniform.
-    const bool diagSA = pkg294DiagMode() == 2 && !g_pkg294Anchor &&
+    const bool diagSA = pkg294DiagDrawSA() && !g_pkg294Anchor &&
                         shape_ == Shape::Rectangle &&
                         spread_ >= 0.4999f * static_cast<float>(M_PI);
     float diagPdf = 0.0f;
@@ -262,7 +269,7 @@ float AreaLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {
     if (!withinSpread(-d)) return 0.0f;                // -d = light→receiver dir
     float cosLight = -denom;                           // cosθ at the light (>0)
     // [pkg294-diag] remove after Phase 0: mode 2 pairs the solid-angle draw.
-    if (pkg294DiagMode() == 2 && shape_ == Shape::Rectangle &&
+    if (pkg294DiagDrawSA() && shape_ == Shape::Rectangle &&
         spread_ >= 0.4999f * static_cast<float>(M_PI)) {
         Vec3 c = position_;
         return pkg294RectSample(shadingPoint, c, u_, width_, v_, height_, 0.0f, 0.0f, false);

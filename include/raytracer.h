@@ -472,6 +472,7 @@ public:
 
 // [pkg294-diag] Phase 0 attribution switch (src/lights/area_light.cpp). Remove after Phase 0.
 int pkg294DiagMode();
+int pkg294DiagDist();
 extern thread_local float g_pkg294NeeRatio;
 extern thread_local bool g_pkg294Anchor;
 namespace astroray { float pkg294DiagLampHitRatio(const Light* L, const Vec3& P, const Vec3& dir); }
@@ -2834,6 +2835,7 @@ class Renderer {
                                                          : lo + (mr > 0.0f ? 1.0f / mr : 0.0f);
             return o + d * tr;
         };
+        if (pkg294DiagMode() == 4) return zero;  // [pkg294-diag] mode 4 phase-only, remove after Phase 0
         LightSample picked;
         g_pkg294Anchor = true;  // [pkg294-diag] remove after Phase 0
         lights.sample(picked, refPoint(a, b), Vec3(0.0f), lambdas, gen);
@@ -2847,8 +2849,10 @@ class Renderer {
         else anc = picked;
         g_pkg294Anchor = false;  // [pkg294-diag] remove after Phase 0
         const bool hasAnchor = anc.pdf > 0.0f && anc.distance < 1e18f;
+        // [pkg294-diag] tens digit: 1 = equiangular only, 2 = exponential only. Remove after Phase 0.
         av::SegmentDirectSample ds =
-            av::sampleSegmentDirect(o, d, a, b, hasAnchor, anc.position, rate, gen);
+            av::sampleSegmentDirect(o, d, a, b, hasAnchor && pkg294DiagDist() != 2, anc.position,
+                                    rate, gen, pkg294DiagDist() == 1);
         if (!(ds.w > 0.0f)) return zero;
         const Vec3 P = o + d * ds.t;
         astroray::SampledSpectrum sigS[8];
@@ -2870,6 +2874,7 @@ class Renderer {
         for (int k = 0; k < n; ++k) {
             float ph = phaseHG((-d).dot(wi), g[k]);
             float w = ls.isDelta ? 1.0f : (misLs * misLs) / (misLs * misLs + ph * ph + 1e-8f);  // [pkg294-diag] was ls.pdf
+            if (pkg294DiagMode() == 3) w = 1.0f;  // [pkg294-diag] mode 3 NEE-only, remove after Phase 0
             sum += sigS[k] * (ph * w);
         }
         if (sum.isZero()) return zero;
@@ -3578,6 +3583,11 @@ public:
                             lp *= astroray::pkg294DiagLampHitRatio(hitLamp, ray.origin, ray.direction);
                         float bp = bsdfPdfPrev;
                         wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
+                        // [pkg294-diag] modes 3/4 (NEE-only / phase-only) at a medium vertex. Remove after Phase 0.
+                        if (misNormalPrev.dot(misNormalPrev) == 0.0f) {
+                            if (pkg294DiagMode() == 3) wB = 0.0f;
+                            if (pkg294DiagMode() == 4) wB = 1.0f;
+                        }
                     }
                     astroray::SampledSpectrum c =
                         clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce - 1);

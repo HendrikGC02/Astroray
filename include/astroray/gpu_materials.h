@@ -3291,6 +3291,13 @@ __device__ inline GSampledSpectrum gpu_material_eval_spectral(
             diffuseScale = NdotL * (1.0f / M_PI_F);
             e = e * (1.0f / diffuseScale);
         }
+    } else if (mat.disneyMetalConductor) {
+        // pkg295 (#934): twin of DisneyPlugin::evalSpectral's magnitude factoring.
+        // A GGX peak's f·cos exceeds 1 under a sun; the ALBEDO LUT clamps rgb to
+        // [0,1], which capped Disney NEE at 1 (metal r0.1 0.076x Cycles). Reuses
+        // the single upsample below; identical when max(e) <= 1.
+        diffuseScale = fmaxf(fmaxf(fmaxf(e.x, e.y), e.z), 1.0f);
+        e = e * (1.0f / diffuseScale);
     }
     return gpu_rgbToSampledSpectrum(e, wl, mat.spectralMode) * diffuseScale;
 }

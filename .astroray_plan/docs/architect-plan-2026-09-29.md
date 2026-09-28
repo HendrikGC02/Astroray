@@ -69,7 +69,8 @@ Gates: #868 test (holder survives 91 min; contended acquire never double-grants)
 
 | # | Item | Lane | Backend | Conflict key |
 |---|---|---|---|---|
-| 1 | pkg294 Phase 1 (+2 if convicted) — #922 | Opus | CPU then GPU | `src/lights/area_light.cpp`, `lamp_sampling.h`, `gpu_nee.cuh`, `stage_volume_hetero.cu`, `raytracer.h` medium NEE, `light_tree*` |
+| 0 | **#940** tilted area lamp paints a 4.9× floor footprint (mean bug, found in pkg294 Phase 0; likely the real pkg290 blocker) — runs first | Opus | CPU then GPU | area-lamp emission / lamp-hit path, addon area export |
+| 1 | pkg294 Phase 1 — #922. **Re-scoped 2026-09-29 by Phase 0** (`pkg294-media-lamp-variance-ablation.md`): hit-site pdf and light tree acquitted, Phase 2 dropped; gate = per-sample variance ≤ 1.1× Cycles, means in band (luminance only). The 64-spp gap is the CPU sampler → #941 (QMC, needs a spec; pairs with the #858 pkg224 flip) | Opus | CPU then GPU | `src/lights/area_light.cpp`, `lamp_sampling.h`, `gpu_nee.cuh`, `stage_volume_hetero.cu`, `raytracer.h` medium NEE, `light_tree*` |
 | 2 | pkg295 #934 → #933 | Opus | CPU + GPU | `plugins/materials/disney.cpp`, `gpu_materials.h` |
 | 3 | pkg284 Phase 2: `test_corpus_v2_parity.py`, assertion-level provisional rows | Sonnet 5.5 | both (GPU legs under lock) | `benchmarks/reference_corpus/`, `tests/test_corpus_v2_parity.py` |
 | 4 | pkg291 #879 worker-flip crash (when a slot frees) | Opus | GPU, isolated Blender 9877, quiet machine | `blender_addon/exporter.py`, `module/blender_module.cpp` |

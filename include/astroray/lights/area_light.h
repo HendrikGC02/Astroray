@@ -65,6 +65,9 @@ public:
 
     bool clipLitSegment(const Vec3& o, const Vec3& d, float& t0, float& t1) const override;  // #925
 
+    // [pkg294-diag] (1/Omega)/pdfLi for a full-spread rectangle, else 1. Remove after Phase 0.
+    float pkg294SolidAngleRatio(const Vec3& P, const Vec3& dir) const;
+
 private:
     Vec3             position_;
     Vec3             u_, v_, normal_;  // u × v = normal

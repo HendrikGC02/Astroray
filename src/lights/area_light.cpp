@@ -9,7 +9,88 @@
 
 // Reference: Cycles kernel/light/area.h::area_light_sample (Apache-2.0).
 
+// [pkg294-diag] Phase 0 attribution switch - remove before Phase 1 lands.
+// ASTRORAY_PKG294_DIAG: unset/0 = baseline; 1 = "mis_sa" (rectangle MIS
+// weights at medium vertices use the solid-angle pdf 1/Omega; draw and
+// estimator pdf unchanged); 2 = "draw_sa" (rectangle NEE draws + pdfLi use the
+// spherical-rectangle solid-angle map everywhere; the segment anchor stays
+// area-uniform as in Cycles area_light_eval<true>).
+int pkg294DiagMode() {  // [pkg294-diag] remove after Phase 0
+    static const int mode = [] {
+        const char* e = std::getenv("ASTRORAY_PKG294_DIAG");
+        return e ? std::atoi(e) : 0;
+    }();
+    return mode;
+}
+thread_local float g_pkg294NeeRatio = 1.0f;  // [pkg294-diag] remove after Phase 0
+thread_local bool g_pkg294Anchor = false;    // [pkg294-diag] remove after Phase 0
+
+namespace {
+// [pkg294-diag] Port of Cycles kernel/light/area.h::area_light_rect_sample
+// (Apache-2.0), itself Urena, Fajardo & King 2013 "An Area-Preserving
+// Parametrization for Spherical Rectangles". Returns the solid-angle pdf
+// 1/Omega of the rectangle seen from P; when sampleCoord, lightP (in: centre)
+// becomes a point drawn uniformly in solid angle. Remove after Phase 0.
+float pkg294RectSample(const Vec3& P, Vec3& lightP, const Vec3& x, float lenU,
+                       const Vec3& y, float lenV, float r0, float r1, bool sampleCoord) {
+    auto sasin = [](float v) { return std::asin(std::min(1.0f, std::max(-1.0f, v))); };
+    Vec3 z = x.cross(y);
+    const Vec3 dir = lightP - P;
+    float z0 = dir.dot(z);
+    if (z0 > 0.0f) { z = -z; z0 = -z0; }
+    const float xc = dir.dot(x), yc = dir.dot(y);
+    const float x0 = xc - 0.5f * lenU, x1 = xc + 0.5f * lenU;
+    const float y0 = yc - 0.5f * lenV, y1 = yc + 0.5f * lenV;
+    float nz[4] = {-y0, x1, y1, -x0};
+    for (float& n : nz) n /= std::sqrt(n * n + z0 * z0);
+    const float g0 = sasin(-nz[0] * nz[1]);
+    const float g1 = sasin(-nz[1] * nz[2]);
+    const float g2 = sasin(-nz[2] * nz[3]);
+    const float g3 = sasin(-nz[3] * nz[0]);
+    const float S = -(g0 + g1 + g2 + g3);
+    if (sampleCoord) {
+        const float b0 = nz[0], b1 = nz[2], b0sq = b0 * b0;
+        const float au = r0 * S + g2 + g3;
+        const float sau = std::sin(au);
+        const float fu = sau != 0.0f ? (std::cos(au) * b0 + b1) / sau : 0.0f;
+        float cu = std::copysign(1.0f / std::sqrt(fu * fu + b0sq), fu);
+        cu = std::min(1.0f, std::max(-1.0f, cu));
+        float xu = -(cu * z0) / std::max(std::sqrt(1.0f - cu * cu), 1e-7f);
+        xu = std::min(x1, std::max(x0, xu));
+        const float d2 = xu * xu + z0 * z0;
+        const float h0 = y0 / std::sqrt(d2 + y0 * y0);
+        const float h1 = y1 / std::sqrt(d2 + y1 * y1);
+        const float hv = h0 + r1 * (h1 - h0), hv2 = hv * hv;
+        const float yv = (hv2 < 1.0f - 1e-6f) ? hv * std::sqrt(d2 / (1.0f - hv2)) : y1;
+        lightP = P + x * xu + y * yv + z * z0;
+    }
+    float mn = 1.0f;
+    for (float n : nz) mn = std::min(mn, n * n);
+    if (S < 1e-5f || mn > 0.99999f) {
+        const float t = dir.length();
+        const float den = z0 * lenU * lenV;
+        return den != 0.0f ? (-t * t * t) / den : 0.0f;
+    }
+    return 1.0f / S;
+}
+}  // namespace
+
 namespace astroray {
+
+// [pkg294-diag] lamp-hit MIS ratio (1/Omega) / pdfLi for a full-spread
+// rectangle, else 1. Remove after Phase 0.
+float pkg294DiagLampHitRatio(const Light* L, const Vec3& P, const Vec3& dir) {
+    const AreaLight* A = dynamic_cast<const AreaLight*>(L);
+    return A ? A->pkg294SolidAngleRatio(P, dir) : 1.0f;
+}
+
+float AreaLight::pkg294SolidAngleRatio(const Vec3& P, const Vec3& dir) const {
+    if (shape_ != Shape::Rectangle || spread_ < 0.4999f * static_cast<float>(M_PI)) return 1.0f;
+    const float pa = pdfLi(P, dir);
+    if (!(pa > 0.0f)) return 1.0f;
+    Vec3 c = position_;
+    return pkg294RectSample(P, c, u_, width_, v_, height_, 0.0f, 0.0f, false) / pa;
+}
 
 AreaLight::AreaLight(const Vec3& position,
                       const Vec3& u,
@@ -62,8 +143,23 @@ void AreaLight::sampleLi(LiSample& sample,
                          const Vec3& shadingNormal,
                          const SampledWavelengths& lambdas,
                          std::mt19937& gen) const {
-    // Sample a point on the area light surface.
-    Vec3 sampledPos = sampleSurface(gen);
+    // [pkg294-diag] remove after Phase 0: mode 2 draws the rectangle in solid
+    // angle (Cycles area_light_eval<false>); the segment anchor stays uniform.
+    const bool diagSA = pkg294DiagMode() == 2 && !g_pkg294Anchor &&
+                        shape_ == Shape::Rectangle &&
+                        spread_ >= 0.4999f * static_cast<float>(M_PI);
+    float diagPdf = 0.0f;
+    Vec3 sampledPos;
+    if (diagSA) {
+        std::uniform_real_distribution<float> U(0.0f, 1.0f);
+        const float r0 = U(gen), r1 = U(gen);
+        sampledPos = position_;
+        diagPdf = pkg294RectSample(shadingPoint, sampledPos, u_, width_, v_, height_,
+                                   r0, r1, true);
+    } else {
+        // Sample a point on the area light surface.
+        sampledPos = sampleSurface(gen);
+    }
     sample.position = sampledPos;
     sample.normal = normal_;
 
@@ -112,6 +208,15 @@ void AreaLight::sampleLi(LiSample& sample,
     // with pdf_A = 1/area (uniform area sampling). cosTheta > 0 here (rejected
     // above), so the divide is safe.
     sample.pdf = distSq / (area_ * cosTheta);
+    // [pkg294-diag] remove after Phase 0.
+    if (diagSA) {
+        sample.pdf = diagPdf;
+    } else if (pkg294DiagMode() == 1 && shape_ == Shape::Rectangle &&
+               spread_ >= 0.4999f * static_cast<float>(M_PI)) {
+        Vec3 c = position_;
+        g_pkg294NeeRatio = pkg294RectSample(shadingPoint, c, u_, width_, v_, height_,
+                                            0.0f, 0.0f, false) / sample.pdf;
+    }
 }
 
 namespace {
@@ -156,6 +261,12 @@ float AreaLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {
     if (!areaInBounds(shape_, uu, vv, width_, height_)) return 0.0f;
     if (!withinSpread(-d)) return 0.0f;                // -d = light→receiver dir
     float cosLight = -denom;                           // cosθ at the light (>0)
+    // [pkg294-diag] remove after Phase 0: mode 2 pairs the solid-angle draw.
+    if (pkg294DiagMode() == 2 && shape_ == Shape::Rectangle &&
+        spread_ >= 0.4999f * static_cast<float>(M_PI)) {
+        Vec3 c = position_;
+        return pkg294RectSample(shadingPoint, c, u_, width_, v_, height_, 0.0f, 0.0f, false);
+    }
     return (t * t) / (area_ * cosLight);
 }
 

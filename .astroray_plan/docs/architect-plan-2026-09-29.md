@@ -74,6 +74,7 @@ Gates: #868 test (holder survives 91 min; contended acquire never double-grants)
 | 3 | pkg284 Phase 2: `test_corpus_v2_parity.py`, assertion-level provisional rows | Sonnet 5.5 | both (GPU legs under lock) | `benchmarks/reference_corpus/`, `tests/test_corpus_v2_parity.py` |
 | 4 | pkg291 #879 worker-flip crash (when a slot frees) | Opus | GPU, isolated Blender 9877, quiet machine | `blender_addon/exporter.py`, `module/blender_module.cpp` |
 | 5 | #921 + #773 addon export energy bisects (when a slot frees) | Sonnet 5.5 | addon, CPU | `blender_addon/__init__.py` lamp + glass export |
+| 6 | Caustic boost default 1.2 → 1.0 (owner 2026-09-29) + re-pin tests calibrated on 1.2 | Sonnet 5.5 | CPU + GPU | `raytracer.h` `photonCausticBoost`, `spectral_path_tracer.cpp`, addon default |
 
 Gates: pkg294 clamp-off cube variance ≤ 1.5× Cycles at 64 spp (one- and three-lamp) with means unchanged inside the MC band, NEE on/off ≤ 1 %, `test_883`/`pkg288`/`925`/`929`/#852 booth unchanged; pkg295 metallic=1 sun rung within ±5 % of Cycles (was 0.846), partial-transmission GPU/CPU ±5 %, furnace linear mean in [0.98, 1.005] (`apply_gamma=False`), `pkg123` band kept, REG ≤ 254; pkg284 every non-provisional (scene, backend, ROI, channel) row in band, both backends; pkg291 0 crashes over 20 flips × 2 scenes; #921 addon vs engine-only ≤ 2 % (same for #773 limb, else escalate to Opus at the BSDF). Full RTX suite before the PR.
 
@@ -85,6 +86,7 @@ Gates: pkg294 clamp-off cube variance ≤ 1.5× Cycles at 64 spp (one- and three
 | 2 | pkg293 per-hit lobe weights (#889) | Opus | GPU | `gpu_materials.h` (after pkg295), `scene_upload.cu`, `shader_vm_compiler.py` |
 | 3 | pkg285 interim bank re-bless: non-GR rows blessed with `blessed_on` commit; GR rows deferred to AN-1 (13/13 only then) | Sonnet 5.5 build + Terra attribution review + Opus visual sign-off | CPU bank (heavy), GPU legs under lock | `benchmarks/reference_bank/` |
 | 4 | #924 lamp pass-through cap (Opus design note first) | Sonnet 5.5 | CPU + GPU | `raytracer.h` ~3480, `stage_advance.cu` intersect, `path_kernel.cpp`, MW tracer |
+| 5 | #858 default flips: pkg224 progressive sampler + pkg86 GPU light tree ON (owner 2026-09-29) | Sonnet 5.5 | CPU + GPU | addon defaults, `settings_map.py`; full RTX suite + corpus v2 before/after, means in MC bands |
 
 Gates: #884 loss within 2 points of Cycles at limit 10 (cabinet ≥ 0.97 clamp-on); pkg293 `test_issue846` xfail flipped, `HasProgram=false` SASS identical, REG ≤ 254; interim bank: every non-GR row green with `blessed_on` + `ATTRIBUTION-2026-09.md`; #924 six collinear lamps NEE on/off ≤ 1 %, zero-emission lamps consume no slot.
 
@@ -107,7 +109,7 @@ Gates: transform edit ≤ 30 ms on 100k, gate (a) p95/p99 table worker ON/OFF ×
 | 1 | #894 Page-Thorne Kerr disk + #895 plugin spin → GR bank rows re-bless | Opus + Terra → Sonnet 5.5 | CPU | `accretion_disk.h`, `plugins/shapes/black_hole.cpp`, bank gr-*/adaf/jet |
 | 2 | #866 native adaptive toggle | Flash | addon | `settings_map.py`, `__init__.py` |
 | 3 | #867 Debug Sample Count pass (fixed AOV contract from the lead) | Sonnet 5.5 | addon + engine | `blender_module.cpp`, `__init__.py` (after 2) |
-| 4 | #833 DEGRADED report (minimum; engine stack is an owner decision) | Terra | addon | `volume_export.py` |
+| 4 | #833 real engine volume support for mesh-bounded volumes (owner 2026-09-29; spec pkg296) | Opus | CPU then GPU | `volume_export.py`, engine medium stack, `stage_volume_hetero.cu` |
 | 5 | pkg284 Phase 3 harness/bench wiring + #926 parity-doc note | Flash | none | `benchmarks/blender_parity/` docs |
 
 Gates: GYOTO a = 0.94 disk image; gate (d) smoke (sample-count AOV differs, flat-region noise falls); DEGRADED line in the report; `test_reference_corpus_manifest.py`.
@@ -131,18 +133,23 @@ AN-1 before the GR bank re-bless. AO in the GPU tail / idle windows.
 #855 and #721 close on the AM-1 table; #763 on pkg284 `v2_light_tree` green;
 #884 on AL-1; #876-class #933 on pkg295; #922 on pkg294; #926 doc-only.
 
-## 6. Owner decisions (listed, not made)
+## 6. Owner decisions (answered 2026-09-29)
 
-1. Caustic `boost` default 1.2 → 1.0 (1.0 is physical after pkg286; 1.2 is
-   20 % hot).
-2. Gate (c) trio remap onto corpus v2 (`v2_light_tree` / `v2_textures_opvm`
-   / `v2_camera_geometry`) or keep the v1 trio on disk.
-3. #858 default flips after the try-out: viewport worker (pkg291 gives the
-   numbers), pkg224 progressive sampler, pkg86 GPU light tree.
-4. #833: engine-side volume stack vs the DEGRADED report only (plan ships
-   the report).
-5. (minor) #926: keep physics (default) or mimic Cycles' coplanar-face
-   darkening for look-parity.
+1. Caustic `boost` default 1.2 → **1.0** (physical after pkg286). → AK-6
+   (Sonnet 5.5; `raytracer.h` `photonCausticBoost`,
+   `spectral_path_tracer.cpp` `causticBoost_`, addon default; re-pin tests
+   calibrated on 1.2; rides AK's CUDA build).
+2. Gate (c) trio **remapped onto corpus v2** (`v2_light_tree` /
+   `v2_textures_opvm` / `v2_camera_geometry`). → pkg284 Phase 2/3.
+3. #858 defaults **switch**: pkg224 progressive sampler and pkg86 GPU light
+   tree flip in AL-5 (Sonnet 5.5; full RTX suite + corpus v2 before/after,
+   means inside MC bands); the viewport worker flips with pkg291 once #879
+   is fixed (AK-4 → AM-1), never before the crash fix.
+4. #833: **real engine volume support** for mesh-bounded volumes (not the
+   DEGRADED report). → new spec pkg296, replaces AN-4; Opus lane, CPU then
+   GPU.
+5. #926: **physically correct always**, especially where it improves on
+   Cycles. No look-parity hack; corpus v2 rows document the divergence.
 
 ## 7. Astra turn log
 

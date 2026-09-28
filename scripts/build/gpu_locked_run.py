@@ -16,8 +16,8 @@ if "--" not in args or args.index("--") == 0:
     print(__doc__); sys.exit(2)
 who = args[0]; cmd = args[args.index("--") + 1:]
 t0 = time.time()
-while not acquire_lock(LOCK, 5400, {"who": who, "cmd": " ".join(cmd)[:120]}):
-    st = lock_status(LOCK, 5400)
+while not acquire_lock(LOCK, meta={"who": who, "cmd": " ".join(cmd)[:120]}):
+    st = lock_status(LOCK)
     print(f"[lock] held by {st['meta']}, waiting... ({int(time.time()-t0)}s)", flush=True)
     time.sleep(30)
 print(f"[lock] acquired for {who} after {int(time.time()-t0)}s", flush=True)

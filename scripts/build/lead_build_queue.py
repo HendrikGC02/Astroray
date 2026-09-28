@@ -17,7 +17,6 @@ without the sccache launcher (it drops >10 min stage_advance.cu compiles).
 Logs and tickets: %LOCALAPPDATA%\\astroray-lead-builds\\.
 """
 import ctypes
-import json
 import os
 import subprocess
 import sys
@@ -42,16 +41,6 @@ def _alive(pid):
         ctypes.windll.kernel32.CloseHandle(h)
         return True
     return False
-
-
-def _clear_dead_lock():
-    try:
-        with open(LOCK, encoding="utf-8") as f:
-            pid = json.load(f)["pid"]
-        if not _alive(pid):
-            os.remove(LOCK)
-    except (OSError, ValueError, KeyError):
-        pass
 
 
 def _oldest_live():
@@ -79,8 +68,7 @@ for item in sys.argv[1:]:
     open(ticket, "w").close()
     no_nvcc = kind.startswith("addon-cpu")  # MinGW-only build: safe beside a CUDA build
     while not no_nvcc:
-        _clear_dead_lock()
-        if _oldest_live() == os.path.basename(ticket) and acquire_lock(LOCK, 5400, {"who": f"lead-{lane}"}):
+        if _oldest_live() == os.path.basename(ticket) and acquire_lock(LOCK, meta={"who": f"lead-{lane}"}):
             break
         time.sleep(20)
     os.remove(ticket)

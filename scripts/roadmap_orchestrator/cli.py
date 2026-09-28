@@ -6,9 +6,10 @@ from roadmap_orchestrator.priority import parse_priority
 from roadmap_orchestrator.plan import build_tick_plan
 from roadmap_orchestrator.standup import render_standup
 
-# Canonical stale thresholds (seconds) passed by SKILL.md to locks.lock_status; not used by this read-only CLI.
-TICK_LOCK_STALE = 1500   # 25 min
-GPU_LOCK_STALE = 5400    # 90 min
+# Compatibility values for older callers. locks.lock_status no longer expires
+# a live holder by wall clock; process identity determines staleness.
+TICK_LOCK_STALE = 1500
+GPU_LOCK_STALE = 5400
 IMPL_CAP = 2
 FIXER_CAP = 1
 FIXER_DEBOUNCE = 3600

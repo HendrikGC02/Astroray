@@ -9,8 +9,8 @@ LOCK = os.path.join("C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astror
                     ".astroray_plan", ".orchestrator.gpu.lock")
 sha = subprocess.run(["git", "-C", repo, "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
 t0 = time.time()
-while not acquire_lock(LOCK, 5400, {"who": who, "sha": sha, "bat": bat}):
-    st = lock_status(LOCK, 5400)
+while not acquire_lock(LOCK, meta={"who": who, "sha": sha, "bat": bat}):
+    st = lock_status(LOCK)
     print(f"[lock] held by {st['meta']}, waiting... ({int(time.time()-t0)}s)", flush=True)
     time.sleep(30)
 print(f"[lock] acquired for {who} @ {sha} after {int(time.time()-t0)}s", flush=True)

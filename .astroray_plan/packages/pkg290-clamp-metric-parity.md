@@ -2,9 +2,9 @@
 
 **Pillar:** 2
 **Track:** A
-**Status:** blocked — neither fork closes the gap: excess loss is on phase-sampled lamp hits (MIS allocation / area-light + tree sampling in media), see pkg144 research note §pkg290
+**Status:** blocked — on pkg294 (area-lamp solid-angle pdf + tree at volume points, #922); neither clamp fork closes the gap (pkg144 research note §pkg290). Re-measure only after pkg294 lands
 **Estimated effort:** 1 session (~3 h) + GPU build
-**Depends on:** pkg144
+**Depends on:** pkg144, pkg294
 
 ---
 
@@ -102,7 +102,7 @@ clamp-off and miss what users see.
 ## Progress
 
 - [x] Histograms + fork decision (sweep proxy; `test_results/pkg290/clamp_sweep.txt`): metric change rejected, blocked on sampling.
-- [ ] Metric change CPU + GPU + tests.
+- [ ] (2026-09-29 architect) Metric change dropped: Y stays. After pkg294: re-run `clamp_sweep` (scatter cube, cabinet, principled cube); if loss is within 2 points of Cycles close #884, else name the residual term in the issue.
 - [ ] Re-pins.
 
 ---

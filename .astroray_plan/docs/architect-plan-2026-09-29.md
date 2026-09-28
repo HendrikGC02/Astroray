@@ -109,7 +109,7 @@ Gates: transform edit ≤ 30 ms on 100k, gate (a) p95/p99 table worker ON/OFF ×
 | 1 | #894 Page-Thorne Kerr disk + #895 plugin spin → GR bank rows re-bless | Opus + Terra → Sonnet 5.5 | CPU | `accretion_disk.h`, `plugins/shapes/black_hole.cpp`, bank gr-*/adaf/jet |
 | 2 | #866 native adaptive toggle | Flash | addon | `settings_map.py`, `__init__.py` |
 | 3 | #867 Debug Sample Count pass (fixed AOV contract from the lead) | Sonnet 5.5 | addon + engine | `blender_module.cpp`, `__init__.py` (after 2) |
-| 4 | #833 real engine volume support for mesh-bounded volumes (owner 2026-09-29; spec pkg296) | Opus | CPU then GPU | `volume_export.py`, engine medium stack, `stage_volume_hetero.cu` |
+| 4 | #833 real engine volume support for mesh-bounded volumes (owner 2026-09-29; spec pkg296: stateless mesh-boundary query, no per-path stack) | Opus 5.5 + Terra review | Phases 0–1 CPU here; Phase 2 GPU joins the GPU queue | `volume_transport.h`, `raytracer.h` media, `volume_export.py`/`__init__.py`; Phase 2: `stage_volume_hetero.cu`, `stage_advance.cu` shadow (serialize with pkg294) |
 | 5 | pkg284 Phase 3 harness/bench wiring + #926 parity-doc note | Flash | none | `benchmarks/blender_parity/` docs |
 
 Gates: GYOTO a = 0.94 disk image; gate (d) smoke (sample-count AOV differs, flat-region noise falls); DEGRADED line in the report; `test_reference_corpus_manifest.py`.

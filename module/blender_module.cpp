@@ -2085,6 +2085,26 @@ public:
     // #828: every media mutation drops the wavefront device scene + grid cache.
     void clearGridMedia() { renderer.clearGridMedia(); invalidateWavefrontScene(); }
 
+    // pkg296 (#833) — optional closed-mesh boundary from (N,3) world vertices +
+    // (M,3) triangle indices (counter-clockwise seen from outside). None/empty =>
+    // null (the AABB medium).
+    static std::unique_ptr<astroray::volume::MediumBoundary> makeMediumBoundary(
+            const py::object& vertices, const py::object& indices) {
+        if (vertices.is_none() || indices.is_none()) return nullptr;
+        auto v = vertices.cast<py::array_t<float, py::array::c_style | py::array::forcecast>>();
+        auto i = indices.cast<py::array_t<int32_t, py::array::c_style | py::array::forcecast>>();
+        auto vb = v.request();
+        auto ib = i.request();
+        if (vb.size == 0 || ib.size == 0) return nullptr;
+        if (vb.size % 3 != 0 || ib.size % 3 != 0)
+            throw std::runtime_error("boundary_vertices / boundary_indices must be (N,3) / (M,3)");
+        auto b = std::make_unique<astroray::volume::MediumBoundary>(
+            static_cast<const float*>(vb.ptr), size_t(vb.size / 3),
+            static_cast<const int32_t*>(ib.ptr), size_t(ib.size / 3));
+        if (b->empty()) return nullptr;
+        return b;
+    }
+
     // Heterogeneous grid medium from a dense numpy density + transforms +
     // Principled Volume basics.
     void setVolumeGrid(const std::string& /*name*/,
@@ -2098,7 +2118,8 @@ public:
                        // pkg270 — emission sockets + the temperature grid's own bbox
                        py::object temperature_bbox_min, float emission_strength,
                        std::array<float, 3> emission_color, float blackbody_intensity,
-                       std::array<float, 3> blackbody_tint, float blackbody_temperature) {
+                       std::array<float, 3> blackbody_tint, float blackbody_temperature,
+                       const py::object& boundary_vertices, const py::object& boundary_indices) {
         auto buf = density.request();
         if (buf.ndim != 3)
             throw std::runtime_error("density must be a 3D array (nz, ny, nx)");
@@ -2133,7 +2154,8 @@ public:
         pv.blackbodyIntensity = blackbody_intensity;
         pv.blackbodyTint = blackbody_tint;
         pv.temperature = blackbody_temperature;
-        renderer.addGridMedium(std::move(gm), pv);
+        renderer.addGridMedium(std::move(gm), pv,
+                               makeMediumBoundary(boundary_vertices, boundary_indices));
         invalidateWavefrontScene();  // #828 device grid cache
     }
 
@@ -2143,7 +2165,8 @@ public:
                               std::array<float, 3> absorption_color, float anisotropy,
                               float emission_strength, std::array<float, 3> emission_color,
                               float blackbody_intensity, std::array<float, 3> blackbody_tint,
-                              float blackbody_temperature) {
+                              float blackbody_temperature, const py::object& boundary_vertices,
+                              const py::object& boundary_indices) {
         astroray::volume::PrincipledVolume pv;
         pv.density = density_scale;
         pv.color = color;
@@ -2155,7 +2178,8 @@ public:
         pv.blackbodyTint = blackbody_tint;
         pv.temperature = blackbody_temperature;
         renderer.addHomogeneousMedium(Vec3(aabb_min[0], aabb_min[1], aabb_min[2]),
-                                      Vec3(aabb_max[0], aabb_max[1], aabb_max[2]), pv);
+                                      Vec3(aabb_max[0], aabb_max[1], aabb_max[2]), pv,
+                                      makeMediumBoundary(boundary_vertices, boundary_indices));
         invalidateWavefrontScene();  // #828 device grid cache
     }
 
@@ -3890,6 +3914,7 @@ PYBIND11_MODULE(astroray, m) {
              "blackbody_intensity"_a = 0.0f,
              "blackbody_tint"_a = std::array<float, 3>{1.0f, 1.0f, 1.0f},
              "blackbody_temperature"_a = 1000.0f,
+             "boundary_vertices"_a = py::none(), "boundary_indices"_a = py::none(),
              "pkg268 — register a heterogeneous GridMedium (NanoVDB) with "
              "Principled Volume basics for the spectral integrator. pkg270: "
              "chromatic σ(λ) + emission/blackbody sockets (Cycles semantics; "
@@ -3904,9 +3929,13 @@ PYBIND11_MODULE(astroray, m) {
              "blackbody_intensity"_a = 0.0f,
              "blackbody_tint"_a = std::array<float, 3>{1.0f, 1.0f, 1.0f},
              "blackbody_temperature"_a = 1000.0f,
+             "boundary_vertices"_a = py::none(), "boundary_indices"_a = py::none(),
              "pkg268 — register a bounded homogeneous medium (constant σ_t). "
              "pkg270: emission/blackbody sockets (blackbody_temperature is the "
-             "absolute T in kelvin for a mesh-bounded medium).")
+             "absolute T in kelvin for a mesh-bounded medium). pkg296: optional "
+             "closed-mesh boundary ((N,3) world vertices, (M,3) int triangles, CCW "
+             "from outside); the medium is then the mesh interior, not the AABB. "
+             "CPU only for now (the GPU still uses the AABB).")
         .def("set_guiding", &PyRenderer::setGuiding, "use"_a,
              "pkg136 — enable CPU SD-tree path guiding (off = byte-identical).")
         .def("set_guiding_params", &PyRenderer::setGuidingParams,

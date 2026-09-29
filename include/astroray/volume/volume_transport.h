@@ -30,6 +30,7 @@
 
 #include "astroray/spectrum.h"
 #include "astroray/volume/grid_medium.h"
+#include "astroray/volume/medium_boundary.h"
 #include "astroray/volume/phase.h"
 #include "astroray/volume/principled_volume.h"
 #include "astroray/volume/volume_emission.h"
@@ -43,6 +44,10 @@ struct BoundedMedium {
     const GridMedium* grid = nullptr;  // non-null iff heterogeneous
     float aabbMin[3] = {0, 0, 0};
     float aabbMax[3] = {0, 0, 0};
+    // pkg296 (#833): closed triangle boundary (owned by the Renderer). null =>
+    // the medium is its AABB (pre-pkg296 path, byte-identical); else the AABB
+    // is the boundary's bounds and only a pre-filter (see mediumCoverage).
+    const MediumBoundary* boundary = nullptr;
     float extinction = 1.0f;  // σ_t scale, 1/world-length
     float maxDensity = 1.0f;  // density majorant (homogeneous => 1)
     float g = 0.0f;           // HG anisotropy
@@ -139,6 +144,47 @@ inline bool intersectAABB(const Vec3& o, const Vec3& d, const float mn[3],
         }
     }
     return true;
+}
+
+// pkg296 (#833) — the first coverage interval [t0,t1] of medium m on
+// [cursor,tMax] along (o, unit d), t0 >= cursor (t0 == cursor iff m covers the
+// cursor). No boundary => exactly intersectAABB (the pre-pkg296 path). With a
+// boundary: the closest crossing strictly after the cursor decides — back-facing
+// => inside up to it; front-facing => the medium starts there and ends at the
+// following crossing (Cycles volume_stack.h volume_stack_enter_exit, Apache-2.0:
+// SR_BACKFACING exits, else enters). Research:
+// .astroray_plan/docs/pkg296-mesh-volume-boundary-research.md.
+inline bool mediumCoverage(const BoundedMedium& m, const Vec3& o, const Vec3& d, float cursor,
+                           float tMax, float& t0, float& t1) {
+    if (!m.boundary)
+        return intersectAABB(o, d, m.aabbMin, m.aabbMax, cursor, tMax, t0, t1);
+    constexpr float kFar = std::numeric_limits<float>::max();
+    const MediumBoundary::Crossing c = m.boundary->nextCrossing(o, d, cursor, kFar);
+    if (!c.hit) return false;
+    if (c.backFacing) {
+        t0 = cursor;
+        t1 = std::min(c.t, tMax);
+        return true;
+    }
+    if (c.t >= tMax) return false;
+    t0 = c.t;
+    const MediumBoundary::Crossing e = m.boundary->nextCrossing(o, d, c.t, kFar);
+    t1 = e.hit ? std::min(e.t, tMax) : tMax;  // no exit: open mesh, inside to tMax
+    return true;
+}
+
+// pkg296 — does m contain the point P = o + d*t (t on the same ray)? No boundary
+// => the AABB point test (#925's pre-pkg296 check); else the AABB pre-filter and
+// the next crossing after t is back-facing.
+inline bool mediumContains(const BoundedMedium& m, const Vec3& o, const Vec3& d, float t,
+                           const Vec3& P) {
+    if (P.x < m.aabbMin[0] || P.x > m.aabbMax[0] || P.y < m.aabbMin[1] ||
+        P.y > m.aabbMax[1] || P.z < m.aabbMin[2] || P.z > m.aabbMax[2])
+        return false;
+    if (!m.boundary) return true;
+    const MediumBoundary::Crossing c =
+        m.boundary->nextCrossing(o, d, t, std::numeric_limits<float>::max());
+    return c.hit && c.backFacing;
 }
 
 // Delta/Woodcock tracking free flight over [tMin,tMax] (world distances, unit d).
@@ -403,7 +449,7 @@ inline SpectralFlight spectralTrackSegment(const std::vector<BoundedMedium>& med
         bool later = false;
         for (size_t k = 0; k < media.size(); ++k) {
             float t0, t1;
-            if (!intersectAABB(o, d, media[k].aabbMin, media[k].aabbMax, cursor, tMax, t0, t1))
+            if (!mediumCoverage(media[k], o, d, cursor, tMax, t0, t1))  // pkg296
                 continue;
             if (t0 > cursor) {           // enters further on: bounds this piece
                 segEnd = std::min(segEnd, t0);
@@ -532,6 +578,23 @@ inline float equiangularPdf(const Vec3& o, const Vec3& d, const Vec3& lightPos,
 // .astroray_plan/docs/issue925-volume-segment-direct-light-research.md.
 // ---------------------------------------------------------------------------
 
+// pkg296 — Tr through one medium with a boundary over [tMin,tMax]: the product
+// over its coverage intervals (a non-convex mesh can be entered several times).
+// Each interval ends at a crossing the next query excludes (t > cursor), so the
+// cursor strictly increases.
+inline astroray::SampledSpectrum boundaryTransmittanceSpectral(
+        const BoundedMedium& m, const Vec3& o, const Vec3& d, float tMin, float tMax,
+        const astroray::SampledWavelengths& wl, std::mt19937& gen) {
+    astroray::SampledSpectrum Tr(1.0f);
+    float cur = tMin, s0, s1;
+    while (cur < tMax && mediumCoverage(m, o, d, cur, tMax, s0, s1)) {
+        Tr *= ratioTrackingTransmittanceSpectral(m, o, d, s0, s1, wl, gen);
+        if (!(s1 > cur)) break;
+        cur = s1;
+    }
+    return Tr;
+}
+
 // Exact per-λ transmittance over [tMin,tMax] through every bounded medium the
 // ray crosses (homogeneous: Beer-Lambert; grid: ratio tracking).
 inline astroray::SampledSpectrum segmentTransmittanceSpectral(
@@ -539,6 +602,10 @@ inline astroray::SampledSpectrum segmentTransmittanceSpectral(
         float tMin, float tMax, const astroray::SampledWavelengths& wl, std::mt19937& gen) {
     astroray::SampledSpectrum Tr(1.0f);
     for (const auto& m : media) {
+        if (m.boundary) {  // pkg296: mesh-bounded
+            Tr *= boundaryTransmittanceSpectral(m, o, d, tMin, tMax, wl, gen);
+            continue;
+        }
         float s0, s1;
         if (intersectAABB(o, d, m.aabbMin, m.aabbMax, tMin, tMax, s0, s1))
             Tr *= ratioTrackingTransmittanceSpectral(m, o, d, s0, s1, wl, gen);

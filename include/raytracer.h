@@ -2641,6 +2641,9 @@ class Renderer {
     // deprecated but not deleted — research note §1b).
     std::vector<std::unique_ptr<astroray::volume::GridMedium>> gridStore_;
     std::vector<astroray::volume::BoundedMedium> gridMedia_;
+    // pkg296 (#833) — owned triangle boundaries of mesh-bounded media
+    // (BoundedMedium::boundary points into these; stable across push_back).
+    std::vector<std::unique_ptr<astroray::volume::MediumBoundary>> boundaryStore_;
     // pkg136 — SD-tree path guiding (CPU Stage 1). Off by default → the render
     // path is byte-identical to pre-pkg136. When enabled, Renderer::render()
     // prepends learn-then-sample training passes that build `guideSampling_`, then
@@ -2907,9 +2910,8 @@ class Renderer {
                 int n = 0;
                 for (const auto& m : gridMedia_) {
                     if (n >= 8) break;
-                    if (P.x < m.aabbMin[0] || P.x > m.aabbMax[0] || P.y < m.aabbMin[1] ||
-                        P.y > m.aabbMax[1] || P.z < m.aabbMin[2] || P.z > m.aabbMax[2])
-                        continue;
+                    // pkg296: AABB, or the mesh boundary when the medium has one.
+                    if (!av::mediumContains(m, ray.origin, dUnit, t, P)) continue;
                     float dens = m.densityAt(P);
                     if (dens <= 0.0f) continue;
                     astroray::SampledSpectrum sU, aU;
@@ -3146,16 +3148,27 @@ public:
     void setVolumeBounces(int n) { maxVolumeBounces = (n < 0) ? -1 : n; }
     int getMaxVolumeBounces() const { return maxVolumeBounces; }
     // pkg268 — register bounded object media. Clear before a re-export.
-    void clearGridMedia() { gridMedia_.clear(); gridStore_.clear(); }
+    void clearGridMedia() { gridMedia_.clear(); gridStore_.clear(); boundaryStore_.clear(); }
     // Heterogeneous: takes ownership of a built GridMedium + Principled Volume
     // basics. AABB / density majorant are read from the grid.
+    // pkg296: an optional boundary clips the grid to a closed mesh (the AABB
+    // becomes the intersection of the grid's and the mesh's bounds).
     void addGridMedium(std::unique_ptr<astroray::volume::GridMedium> g,
-                       const astroray::volume::PrincipledVolume& pv) {
+                       const astroray::volume::PrincipledVolume& pv,
+                       std::unique_ptr<astroray::volume::MediumBoundary> boundary = nullptr) {
         if (!g || !g->valid()) return;
         astroray::volume::BoundedMedium m;
         m.heterogeneous = true;
         auto aabb = g->worldAABB();
         for (int a = 0; a < 3; ++a) { m.aabbMin[a] = aabb[a]; m.aabbMax[a] = aabb[3 + a]; }
+        if (boundary && !boundary->empty()) {
+            for (int a = 0; a < 3; ++a) {
+                m.aabbMin[a] = std::max(m.aabbMin[a], boundary->boundsMin()[a]);
+                m.aabbMax[a] = std::min(m.aabbMax[a], boundary->boundsMax()[a]);
+            }
+            m.boundary = boundary.get();
+            boundaryStore_.push_back(std::move(boundary));
+        }
         m.extinction = pv.extinctionScale();  // pkg268 Cycles σ_t = D·max_c(σ_s+σ_a)
         m.maxDensity = std::max(1e-6f, g->majorant().globalMax());
         m.g = std::clamp(pv.anisotropy, -0.99f, 0.99f);
@@ -3167,13 +3180,24 @@ public:
     }
     // Homogeneous: a bounded AABB of constant σ_t = density (the #807 cabinet's
     // Principled/Absorption/Scatter cubes, and the slab furnace).
+    // pkg296 (#833): with a boundary the medium is the closed mesh; its AABB is
+    // the triangles' bounds (aabbMin/aabbMax are ignored).
     void addHomogeneousMedium(const Vec3& aabbMin, const Vec3& aabbMax,
-                              const astroray::volume::PrincipledVolume& pv) {
+                              const astroray::volume::PrincipledVolume& pv,
+                              std::unique_ptr<astroray::volume::MediumBoundary> boundary = nullptr) {
         astroray::volume::BoundedMedium m;
         m.heterogeneous = false;
         m.grid = nullptr;
         m.aabbMin[0] = aabbMin.x; m.aabbMin[1] = aabbMin.y; m.aabbMin[2] = aabbMin.z;
         m.aabbMax[0] = aabbMax.x; m.aabbMax[1] = aabbMax.y; m.aabbMax[2] = aabbMax.z;
+        if (boundary && !boundary->empty()) {
+            for (int a = 0; a < 3; ++a) {
+                m.aabbMin[a] = boundary->boundsMin()[a];
+                m.aabbMax[a] = boundary->boundsMax()[a];
+            }
+            m.boundary = boundary.get();
+            boundaryStore_.push_back(std::move(boundary));
+        }
         m.extinction = pv.extinctionScale();  // pkg268 Cycles σ_t = D·max_c(σ_s+σ_a)
         m.maxDensity = 1.0f;
         m.g = std::clamp(pv.anisotropy, -0.99f, 0.99f);
@@ -4010,6 +4034,12 @@ public:
                             Vec3 sp = rec.point;
                             Vec3 swi = (ls.position - sp).normalized();
                             for (const auto& mm : gridMedia_) {
+                                if (mm.boundary) {  // pkg296: mesh-bounded medium
+                                    neeContrib = neeContrib *
+                                        astroray::volume::boundaryTransmittanceSpectral(
+                                            mm, sp, swi, 1e-3f, ls.distance, lambdas, gen);
+                                    continue;
+                                }
                                 float s0, s1;
                                 if (astroray::volume::intersectAABB(sp, swi, mm.aabbMin,
                                         mm.aabbMax, 1e-3f, ls.distance, s0, s1))

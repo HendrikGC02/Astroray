@@ -17,6 +17,10 @@ from pathlib import Path
 
 import pytest
 
+# Serial pass only: xdist workers race on the shared .astroray_plan/.project-index.db
+# (test_graph_json_deterministic failed under -n 4; it passes alone).
+pytestmark = pytest.mark.serial
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "project_index.py"
 DB_PATH = ROOT / ".astroray_plan" / ".project-index.db"

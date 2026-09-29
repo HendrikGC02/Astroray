@@ -195,6 +195,16 @@ a{color:var(--ac)}</style></head><body>
 <a href="perf/shade-kernel-resources/registers_chart.png"><img loading="lazy" src="perf/shade-kernel-resources/registers_chart.png" alt="registers_chart.png"></a>
 <a href="perf/shade-kernel-resources/stack_chart.png"><img loading="lazy" src="perf/shade-kernel-resources/stack_chart.png" alt="stack_chart.png"></a>
 </div>
+<div class="card"><h3>test-suite-durations</h3>
+<p>Per-area, per-file and per-test pytest junit durations, before (serial `pytest tests`) vs after (`run_split.py`). After-series CPU-pass times are divided by the 4 xdist workers, so bars are wall-equivalent seconds. Before: serial, 45.2 min wall (2711 s), 4587 cases. After, full profile (`run_split.py`): 23.8 min wall (CPU pass 451 s + GPU pass 977 s); every test still runs.</p>
+<p><a href="perf/test-suite-durations/fast_by_area_chart.json">fast_by_area_chart.json</a> &middot; <a href="perf/test-suite-durations/fast_by_file_chart.json">fast_by_file_chart.json</a> &middot; <a href="perf/test-suite-durations/fast_top_tests_chart.json">fast_top_tests_chart.json</a> &middot; <a href="perf/test-suite-durations/full_by_area_chart.json">full_by_area_chart.json</a> &middot; <a href="perf/test-suite-durations/full_by_file_chart.json">full_by_file_chart.json</a> &middot; <a href="perf/test-suite-durations/full_top_tests_chart.json">full_top_tests_chart.json</a></p>
+<a href="perf/test-suite-durations/fast_by_area_chart.png"><img loading="lazy" src="perf/test-suite-durations/fast_by_area_chart.png" alt="fast_by_area_chart.png"></a>
+<a href="perf/test-suite-durations/fast_by_file_chart.png"><img loading="lazy" src="perf/test-suite-durations/fast_by_file_chart.png" alt="fast_by_file_chart.png"></a>
+<a href="perf/test-suite-durations/fast_top_tests_chart.png"><img loading="lazy" src="perf/test-suite-durations/fast_top_tests_chart.png" alt="fast_top_tests_chart.png"></a>
+<a href="perf/test-suite-durations/full_by_area_chart.png"><img loading="lazy" src="perf/test-suite-durations/full_by_area_chart.png" alt="full_by_area_chart.png"></a>
+<a href="perf/test-suite-durations/full_by_file_chart.png"><img loading="lazy" src="perf/test-suite-durations/full_by_file_chart.png" alt="full_by_file_chart.png"></a>
+<a href="perf/test-suite-durations/full_top_tests_chart.png"><img loading="lazy" src="perf/test-suite-durations/full_top_tests_chart.png" alt="full_top_tests_chart.png"></a>
+</div>
 </div>
 <h2>addon</h2><div class="grid">
 <div class="card"><h3>settings-honour-matrix</h3>

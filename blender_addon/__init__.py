@@ -3826,6 +3826,41 @@ class CustomRaytracerRenderEngine(RenderEngine):
         return self._load_blender_image_resolved(bpy_image, renderer, resolved)
 
     @staticmethod
+    def _node_cache_id(node, depth=0):
+        """Stable texture-cache key for a node: its name (unique within a tree), else
+        a structural digest (type, socket defaults, linked sources). Never id():
+        inline_shader_nodes() trees are temporary and CPython reuses freed ids."""
+        name = getattr(node, 'name', '') or ''
+        if name:
+            return name
+        import hashlib
+        parts = [str(getattr(node, 'type', ''))]
+        inputs = getattr(node, 'inputs', None)
+        try:
+            socks = list(inputs) if inputs is not None else []
+        except TypeError:
+            socks = []
+        for sock in socks:
+            src = None
+            if getattr(sock, 'is_linked', False) and depth < 8:
+                try:
+                    link = sock.links[0]
+                    src = "%s.%s" % (CustomRaytracerRenderEngine._node_cache_id(
+                        link.from_node, depth + 1), getattr(link.from_socket, 'name', ''))
+                except (IndexError, AttributeError):
+                    src = '?'
+            elif hasattr(sock, 'default_value'):
+                try:
+                    src = repr([round(float(v), 6) for v in sock.default_value])
+                except TypeError:
+                    try:
+                        src = repr(round(float(sock.default_value), 6))
+                    except (TypeError, ValueError):
+                        src = ''
+            parts.append("%s=%s" % (getattr(sock, 'name', ''), src))
+        return "anon_" + hashlib.sha1("|".join(parts).encode()).hexdigest()[:16]
+
+    @staticmethod
     def _srgb_to_linear(rgb):
         """IEC 61966-2-1 sRGB EOTF (the transfer Blender/OCIO apply to an 'sRGB'
         image; Cycles image.cpp decodes byte sRGB textures the same way)."""
@@ -3899,9 +3934,22 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # values; Cycles decodes an 'sRGB' image to scene-linear before use
             # (svm_image.h reads the ImageManager-decoded texel), so do the same
             # here. Non-Color / Linear images and float buffers are already linear.
-            if (getattr(getattr(bpy_image, 'colorspace_settings', None), 'name', '') == 'sRGB'
-                    and not getattr(bpy_image, 'is_float', False)):
-                rgb_arr = self._srgb_to_linear(rgb_arr)
+            # Blender 5.2 (probed): a byte buffer reads back RAW whatever its colourspace,
+            # while a float buffer (EXR / 16-bit PNG / generated float) is already
+            # scene-linear (a float sRGB-tagged PNG16 reads back sRGB-decoded), so
+            # floats are never converted again. Byte images: sRGB is decoded exactly;
+            # linear / data spaces pass through; any other OCIO space is not evaluable
+            # from bpy here -> raw + a visible DEGRADED entry.
+            cs_name = getattr(getattr(bpy_image, 'colorspace_settings', None), 'name', '')
+            if not getattr(bpy_image, 'is_float', False):
+                if cs_name == 'sRGB':
+                    rgb_arr = self._srgb_to_linear(rgb_arr)
+                elif cs_name not in ('Linear Rec.709', 'scene_linear', 'Linear',
+                                     'Non-Color', 'Raw', ''):
+                    self._warn_shader_fallback(
+                        'TEX_IMAGE', "image '%s' has byte colourspace '%s' (only sRGB / "
+                        "Linear Rec.709 / Non-Color / Raw are converted); raw values used"
+                        % (bpy_image.name, cs_name))
             rgb = rgb_arr.reshape(-1).tolist()
 
             renderer.load_texture(cache_key, rgb, width, height)
@@ -3965,7 +4013,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # per-material tree lifetimes. Stub nodes in unit tests may lack
         # .name; those fall back to id() (single-node test scope).
         mat_name = getattr(self, "_current_material_name", "") or ""
-        node_id = f"{mat_name}.{getattr(node, 'name', '') or id(node)}"
+        node_id = f"{mat_name}.{self._node_cache_id(node)}"
         if fac_variant and node.type in ('TEX_CHECKER', 'TEX_BRICK'):
             node_id += "::fac"
         else:
@@ -4026,6 +4074,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 def _vsock(name, fallback):
                     s = node.inputs.get(name)
                     return float(s.default_value) if s is not None else fallback
+                dims = getattr(node, 'voronoi_dimensions', '3D')
+                if dims != '3D':
+                    self._warn_shader_fallback(
+                        'TEX_VORONOI', "voronoi_dimensions '%s' is not supported; "
+                        "evaluated as 3D" % dims)
                 scale = _vsock('Scale', 5.0)
                 randomness = _vsock('Randomness', 1.0)
                 smoothness = _vsock('Smoothness', 1.0)
@@ -4200,7 +4253,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         coord_mode, uv_layer = base['coord_mode'], base['uv_layer']
         mapping = self._affine_matrix_values(base)
         mat_name = getattr(self, "_current_material_name", "") or ""
-        node_id = f"{mat_name}.{getattr(node, 'name', '') or id(node)}"
+        node_id = f"{mat_name}.{self._node_cache_id(node)}"
         if fac_variant and node.type in ('TEX_CHECKER', 'TEX_BRICK'):
             node_id += "::fac"
         if color_output and node.type == 'TEX_VORONOI':

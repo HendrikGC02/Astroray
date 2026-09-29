@@ -252,3 +252,57 @@ def test_891_warp_texture_with_other_coordinate_is_refused(monkeypatch):
     eng.load_procedural_texture(_checker(vec), r, vector_input=vec)
     msgs = " ".join(str(x) for x in eng._degradation_report().messages())
     assert "different coordinate" in msgs
+
+
+# --------------------------------------------------------------------------- #
+# Review items: colour management, Voronoi dimensions, stable cache key
+# --------------------------------------------------------------------------- #
+def test_944_float_image_not_converted_again(monkeypatch):
+    # Blender 5.2 (probed): float buffers are already scene-linear, even sRGB-tagged.
+    eng, r = _engine(monkeypatch), _renderer()
+    img = _Img('sRGB')
+    img.name, img.is_float = "f_srgb", True
+    name = eng.load_blender_image(img, r)
+    assert np.allclose(r.sample_named_texture(name, 0.25, 0.5),
+                       [0.5960784, 0.1411765, 0.7], atol=1e-5)
+
+
+@pytest.mark.parametrize("cs,degraded", [("Linear Rec.709", False), ("Raw", False),
+                                         ("AgX Base sRGB", True)])
+def test_944_byte_colourspace_passthrough_or_degrade(monkeypatch, cs, degraded):
+    eng, r = _engine(monkeypatch), _renderer()
+    img = _Img(cs)
+    name = eng.load_blender_image(img, r)
+    assert np.allclose(r.sample_named_texture(name, 0.25, 0.5),
+                       [0.5960784, 0.1411765, 0.7], atol=1e-5)
+    msgs = " ".join(str(m) for m in eng._degradation_report().messages())
+    assert (("colourspace" in msgs) == degraded), msgs
+
+
+def test_voronoi_non_3d_dimensions_are_degraded(monkeypatch):
+    eng, r = _engine(monkeypatch), _renderer()
+    node = _voronoi('Color')
+    vnode = node.inputs[0].links[0].from_node
+    vnode.voronoi_dimensions = '4D'
+    eng.get_base_color_texture(node, 'Base Color', r)
+    assert "voronoi_dimensions '4D'" in " ".join(
+        str(m) for m in eng._degradation_report().messages())
+
+
+def test_procedural_cache_key_is_never_id_based(monkeypatch):
+    eng, r = _engine(monkeypatch), _renderer()
+    uv = Node('TEX_COORD')
+
+    def mk(scale):
+        n = Node('TEX_CHECKER', name='', inputs=[Sock('Vector', (0, 0, 0), Link(uv, 'UV')),
+                                                  Sock('Color1', list(C1) + [1.0]),
+                                                  Sock('Color2', list(C2) + [1.0]),
+                                                  Sock('Scale', scale)])
+        n.name = ''
+        return n
+    a, b = mk(1.0), mk(4.0)
+    ka = eng.load_procedural_texture(a, r, vector_input=a.inputs[0])
+    kb = eng.load_procedural_texture(b, r, vector_input=b.inputs[0])
+    assert ka != kb                      # different content -> different key
+    assert "anon_" in ka and str(id(a)) not in ka
+    assert eng.load_procedural_texture(mk(1.0), r, vector_input=a.inputs[0]) == ka  # stable

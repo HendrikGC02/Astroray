@@ -1195,11 +1195,10 @@ static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
 // native-Principled block (gpu_principled_* fast path), and every closure lobe
 // (gpu_closure_as_material reads closure.{roughness,metallic,ior,transmission}).
 // Clamps MUST match the CPU DisneyPlugin::substituted() and its constructor.
-// NOTE: closure WEIGHTS were baked at upload from the ORIGINAL metallic/transmission,
-// so metallic/transmission programs shift the per-lobe fields but not the diffuse/
-// specular/transmission MIX on GPU — exact CPU↔GPU parity holds for roughness and
-// ior (which never change lobe selection); metallic/transmission are a documented
-// closure-graph approximation (same class as other GPU closure-graph cuts).
+// Lobe mix: a Disney material with a metallic/transmission program lowers to ONE
+// closure (pkg293, disney.cpp closureGraph()); Principled is monolithic. The per-hit
+// closure.metallic/transmission written here therefore re-derive the diffuse/
+// specular/glass weights inside gpu_disney_* / gpu_principled_* (no baked weight).
 __device__ __forceinline__ void gpu_applyScalarOverride(
     ::GMaterial& mat, int slot, float v)
 {

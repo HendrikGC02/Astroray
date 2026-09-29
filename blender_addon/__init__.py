@@ -3895,9 +3895,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
             print(f"Astroray: failed to load texture '{bpy_image.name}': {e}")
             return None
 
-    def load_procedural_texture(self, node, renderer, vector_input=None):
+    def load_procedural_texture(self, node, renderer, vector_input=None, fac_variant=False):
         """Export a Blender procedural texture node to the Astroray texture manager.
         Returns a texture name string on success, None on failure.
+
+        ``fac_variant`` (pkg293): load the node's scalar Fac output instead of its
+        Color (Checker: cell parity, Brick: mortar factor — Cycles svm/checker.h,
+        svm/brick.h) by reloading it with white/black colours. The op-VM compiler
+        requests it when a Fac socket is wired (input_variants 'fac').
 
         Supported node types: TEX_NOISE, TEX_VORONOI, TEX_WAVE, TEX_MAGIC,
         TEX_CHECKER, TEX_BRICK, TEX_GRADIENT, TEX_MUSGRAVE.
@@ -3913,7 +3918,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # pkg277 (#822): a non-affine Vector chain becomes a coordinate program.
         coord_prog = self._procedural_coord_program(vector_input)
         if coord_prog is not None and hasattr(renderer, 'create_coord_program_texture'):
-            return self._load_coord_program_procedural(node, renderer, cache, *coord_prog)
+            return self._load_coord_program_procedural(node, renderer, cache, *coord_prog,
+                                                       fac_variant=fac_variant)
         # Cache key includes the transform so the same procedural node used
         # with different Mapping wiring gets distinct entries. A procedural
         # node only has one Vector input in practice, so the same id+vector
@@ -3939,6 +3945,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # .name; those fall back to id() (single-node test scope).
         mat_name = getattr(self, "_current_material_name", "") or ""
         node_id = f"{mat_name}.{getattr(node, 'name', '') or id(node)}"
+        if fac_variant and node.type in ('TEX_CHECKER', 'TEX_BRICK'):
+            node_id += "::fac"
+        else:
+            fac_variant = False
         cache_key = self._texture_variant_key(f"_proc_{node_id}", coord_mode, uv_scale, offset, rotation, uv_layer_name)
         if cache_key in cache:
             return cache[cache_key]
@@ -3977,6 +3987,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
                 c1 = list(node.inputs['Color1'].default_value[:3]) if node.inputs.get('Color1') else [1,1,1]
                 c2 = list(node.inputs['Color2'].default_value[:3]) if node.inputs.get('Color2') else [0,0,0]
+                if fac_variant:
+                    c1, c2 = [1.0, 1.0, 1.0], [0.0, 0.0, 0.0]  # Fac = parity (Color1 cell = 1)
                 tex_name = f"_proc_checker_{node_id}"
                 renderer.create_procedural_texture(tex_name, 'checker',
                     c1 + c2 + [scale])
@@ -4047,6 +4059,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 c1 = list(node.inputs['Color1'].default_value[:3]) if node.inputs.get('Color1') else [0.8, 0.8, 0.8]
                 c2 = list(node.inputs['Color2'].default_value[:3]) if node.inputs.get('Color2') else [0.2, 0.2, 0.2]
                 c_mortar = list(node.inputs['Color3'].default_value[:3]) if node.inputs.get('Color3') else [0.0, 0.0, 0.0]
+                if fac_variant:  # Fac = mortar factor
+                    c1, c2, c_mortar = [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]
                 scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
                 mort_size = float(node.inputs['Mortar Size'].default_value) if node.inputs.get('Mortar Size') else 0.02
                 mort_smooth = float(node.inputs['Mortar Smooth'].default_value) if node.inputs.get('Mortar Smooth') else 0.1
@@ -4131,19 +4145,22 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         return compiled, bases[0]
 
-    def _load_coord_program_procedural(self, node, renderer, cache, compiled, base):
+    def _load_coord_program_procedural(self, node, renderer, cache, compiled, base,
+                                       fac_variant=False):
         """pkg277: register `node` unwarped, then wrap it in a
         CoordProgramTexture carrying the base coord mode + 3-D Mapping."""
         coord_mode, uv_layer = base['coord_mode'], base['uv_layer']
         mapping = self._affine_matrix_values(base)
         mat_name = getattr(self, "_current_material_name", "") or ""
         node_id = f"{mat_name}.{getattr(node, 'name', '') or id(node)}"
+        if fac_variant and node.type in ('TEX_CHECKER', 'TEX_BRICK'):
+            node_id += "::fac"
         cache_key = self._texture_variant_key(
             f"_proc_{node_id}::coordprog", coord_mode, (1.0, 1.0), (0.0, 0.0), 0.0,
             uv_layer, mapping)
         if cache_key in cache:
             return cache[cache_key]
-        child = self.load_procedural_texture(node, renderer)
+        child = self.load_procedural_texture(node, renderer, fac_variant=fac_variant)
         if child is None:
             return None
         name = f"{child}::coordprog"
@@ -4309,9 +4326,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # native evaluator both sample the correct field. The ProgramTexture
             # (below) carries the SAME coord/Mapping, so CPU delivers `p` once and
             # the GPU shade path rebuilds the identical normalized coordinate.
-            for in_node in inputs:
+            variants = compiled.get('input_variants') or [None] * len(inputs)
+            for in_node, variant in zip(inputs, variants):
                 vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
-                cn = self.load_procedural_texture(in_node, renderer, vector_input=vinp)
+                cn = self.load_procedural_texture(in_node, renderer, vector_input=vinp,
+                                                  fac_variant=(variant == 'fac'))
+
                 if cn is None:
                     self._warn_shader_fallback('op-VM', 'procedural input failed to load; flattened')
                     return None
@@ -4419,15 +4439,94 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # #846: per-texel op-VM chains on the scalar sockets. Carried for both
             # routes (Disney + native Principled); the engine attaches them to
             # either material on CPU and GPU.
-            scalar_programs = self._scalar_program_params(node, renderer)
+            sources = {}
+            scalar_programs = self._scalar_program_params(node, renderer, sources)
             if scalar_programs:
                 spec['scalar_programs'] = scalar_programs
+                # pkg293: the source sockets, so a Mix Shader around this node
+                # can compose the per-hit blend (_blend_scalar_programs).
+                spec['scalar_sources'] = self._svm().SourceMap(sources)
         return spec
 
-    def _scalar_program_params(self, node, renderer):
+    @staticmethod
+    def _svm():
+        try:
+            from . import shader_vm_compiler as svm
+        except Exception:
+            import shader_vm_compiler as svm
+        return svm
+
+    # pkg293: (params key, program param, degradation label, default) of the
+    # Principled scalar sockets that carry per-texel op-VM programs.
+    _SCALAR_PROGRAM_KEYS = (('roughness', 'roughness_program', 'Roughness', 0.5),
+                            ('metallic', 'metallic_program', 'Metallic', 0.0),
+                            ('ior', 'ior_program', 'IOR', 1.45),
+                            ('transmission', 'transmission_program', 'Transmission', 0.0))
+
+    def _blend_scalar_programs(self, node, a, b, out, renderer):
+        """pkg293 (#889): Mix Shader(Principled, Principled) is lowered to one
+        Principled with Fac-lerped params (blend_shader_specs), which dropped the
+        branches' per-texel programs and ignored a textured Fac. For each scalar
+        socket with a program on either branch, or differing values under a
+        textured Fac, compile the per-hit lerp MixRGB(Fac, A, B) as the blended
+        material's program. Other params keep the constant lerp (reported)."""
+        if renderer is None or out is None or out.get('kind') != 'principled':
+            return
+        if not (a and b and a.get('kind') == 'principled' and b.get('kind') == 'principled'):
+            return
+        svm = self._svm()
+        fac_sock = node.inputs.get('Fac')
+        fac_linked = fac_sock is not None and getattr(fac_sock, 'is_linked', False)
+        src_a = a.get('scalar_sources') or {}
+        src_b = b.get('scalar_sources') or {}
+        if not (fac_linked or src_a or src_b):
+            return
+        fac_src = fac_sock if fac_linked else svm.ConstSocket(
+            self.get_float_input(node, 'Fac', 0.5), 'Fac')
+        pa, pb = a.get('params', {}), b.get('params', {})
+        programs, sources = {}, {}
+        for key, prog_key, label, default in self._SCALAR_PROGRAM_KEYS:
+            va, vb = float(pa.get(key, default)), float(pb.get(key, default))
+            sa, sb = src_a.get(key), src_b.get(key)
+            if sa is None and sb is None and not (fac_linked and va != vb):
+                continue
+            virt = svm.MixSocket(fac_src,
+                                 sa if sa is not None else svm.ConstSocket(va, label),
+                                 sb if sb is not None else svm.ConstSocket(vb, label),
+                                 label)
+            prog = self._maybe_build_program_texture(virt, node, label, renderer,
+                                                     allow_leaf=True)
+            if prog is not None:
+                programs[prog_key] = prog
+                sources[key] = virt
+        if programs:
+            out['scalar_programs'] = programs
+            out['scalar_sources'] = svm.SourceMap(sources)
+        if fac_linked:
+            scalar = {k for k, _, _, _ in self._SCALAR_PROGRAM_KEYS}
+            # Unset keys compare at shader_blending's Principled defaults.
+            dflt = {'clearcoat_gloss': 1.0}
+            other = [k for k in set(pa) | set(pb) if k not in scalar
+                     and pa.get(k, dflt.get(k, 0.0)) != pb.get(k, dflt.get(k, 0.0))]
+            # Native-Principled sockets (coat_ior, alpha, diffuse_roughness, ...)
+            # set on both branches with different values are constant-mixed too.
+            na, nb = a.get('native_params') or {}, b.get('native_params') or {}
+            native_scalar = scalar | {'transmission_weight'}
+            other += [k for k in set(na) & set(nb) if k not in native_scalar
+                      and k not in other and na[k] != nb[k]]
+            if list(a.get('base_color', [])) != list(b.get('base_color', [])):
+                other.append('base colour')
+            if other:
+                self._warn_shader_fallback(
+                    'MIX_SHADER', 'textured Fac is per-texel only for Roughness/'
+                    'Metallic/IOR/Transmission; %s use the constant mix'
+                    % ', '.join(sorted(other)))
+
+    def _scalar_program_params(self, node, renderer, sources=None):
         """pkg219d/#846: compile each linked Roughness/Metallic/IOR/Transmission
         chain into an op-VM program texture. Returns {param_key: program_name};
-        unrepresentable chains are warned inside _maybe_build_program_texture."""
+        unrepresentable chains are warned inside _maybe_build_program_texture.
+        pkg293: `sources` (optional dict) receives {params key: source socket}."""
         out = {}
         for sock_names, label, key in ((('Roughness',), 'Roughness', 'roughness_program'),
                                        (('Metallic',), 'Metallic', 'metallic_program'),
@@ -4447,6 +4546,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                                      allow_leaf=True)
             if prog is not None:
                 out[key] = prog
+                if sources is not None:
+                    sources[key[:-len('_program')]] = sock
         return out
 
     def _warn_scalar_programs_dropped(self, spec):
@@ -4900,11 +5001,24 @@ class CustomRaytracerRenderEngine(RenderEngine):
             fac = self.get_float_input(node, 'Fac', 0.5)
             a = self._shader_spec_from_node(self._shader_input_node(node, 'Shader'), renderer, node_tree, depth + 1)
             b = self._shader_spec_from_node(self._shader_input_node(node, 'Shader_001'), renderer, node_tree, depth + 1)
-            return blend_shader_specs(fac, a, b)
+            out = blend_shader_specs(fac, a, b)
+            self._blend_scalar_programs(node, a, b, out, renderer)  # pkg293 (#889)
+            return out
+
         if ntype == 'ADD_SHADER':
             a = self._shader_spec_from_node(self._shader_input_node(node, 'Shader'), renderer, node_tree, depth + 1)
             b = self._shader_spec_from_node(self._shader_input_node(node, 'Shader_001'), renderer, node_tree, depth + 1)
+            kinds = (a.get('kind') if a else None, b.get('kind') if b else None)
+            if a and b and kinds not in (('principled', 'emission'), ('emission', 'principled'),
+                                         ('emission', 'emission')):
+
+                # pkg293 review: add_shader_specs keeps only the first shader for
+                # every non-emission pair (not a lerp, not a sum) -- report it.
+                self._warn_shader_fallback(
+                    'ADD_SHADER', 'Add Shader of %s + %s is unsupported: the second '
+                    'shader (and its per-texel programs) is dropped' % kinds)
             return add_shader_specs(a, b)
+
         return None
 
     def _create_material_from_shader_spec(self, spec, renderer):
@@ -4976,15 +5090,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         lambert_params[key] = params[key]
                 return renderer.create_material('lambertian', color, lambert_params)
 
-            params.update(spec.get('scalar_programs') or {})  # #846
-            if 'metallic_program' in params:
-                # #846: the GPU lowers Disney to the closure graph with lobe weights
-                # baked from the constant Metallic, so a per-texel Metallic has no
-                # effect there (measured). Native Principled is exact on both.
-                self._warn_shader_fallback(
-                    'BSDF_PRINCIPLED', 'per-texel Metallic on the Disney material: '
-                    'GPU keeps the constant Metallic lobe mix; CPU exact')
+            # #846; pkg293: the GPU lowers a Disney material with a Metallic or
+            # Transmission program to one closure whose lobe mix is per hit.
+            params.update(spec.get('scalar_programs') or {})
             return renderer.create_material('disney', color, params)
+
 
         if kind == 'hair':
             # pkg225 Stage 6 — native Principled Hair BSDF (Chiang 2016). The

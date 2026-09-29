@@ -587,7 +587,12 @@ public:
     astroray::MaterialClosureGraph closureGraph() const override {
         astroray::MaterialClosureGraph graph;
         const astroray::ClosureColor base{baseColor_.x, baseColor_.y, baseColor_.z};
-        if (transmission_ < 0.999f) {
+        // pkg293/#889: a Metallic or Transmission program moves the lobe mix per
+        // hit, so it takes the single lobe too: gpu_disney_eval/sample/pdf derive
+        // the diffuse/specular/glass weights from the per-hit closure.metallic /
+        // closure.transmission (Burley 2015 §3, Cycles svm_node_closure_bsdf).
+        // The glass split below bakes them at upload (metallic is not on it).
+        if (transmission_ < 0.999f || metallicProgram_ || transmissionProgram_) {
             // #876/pkg292: opaque Disney lowers to ONE lobe carrying the real
             // metallic; the GPU (gpu_closure_as_material, disneyMetalConductor)
             // evaluates it as the monolithic gpu_disney_eval, the twin of eval().

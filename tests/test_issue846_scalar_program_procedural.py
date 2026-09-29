@@ -247,7 +247,10 @@ def test_846_addon_textured_base_colour_reports_dropped_program(monkeypatch):
     assert any('roughness_program dropped' in m for m in lines), lines
 
 
-def test_846_addon_disney_metallic_program_reports_gpu_gap(monkeypatch):
+def test_846_addon_disney_metallic_program_no_gpu_gap(monkeypatch):
+    """pkg293 (#889): the Disney Metallic program is per-hit on the GPU too (single
+    closure lowering), so the former 'per-texel Metallic' degradation entry is gone
+    on both routes (it was the documented GPU gap this test used to pin)."""
     noise = Node('TEX_NOISE', inputs=[Sock('Vector')])
     mr = Node('MAP_RANGE', interpolation_type='LINEAR',
               inputs=[Sock('Value', 0.0, Link(noise, 'Fac')),
@@ -256,6 +259,6 @@ def test_846_addon_disney_metallic_program_reports_gpu_gap(monkeypatch):
     node = _principled_node(Sock('Metallic', 0.0, Link(mr, 'Value')))
     (kind, params), lines = _convert(monkeypatch, node, False)
     assert kind == 'disney' and params.get('metallic_program'), (kind, params)
-    assert any('per-texel Metallic on the Disney material' in m for m in lines), lines
+    assert not any('per-texel Metallic' in m for m in lines), lines
     _, lines = _convert(monkeypatch, node, True)
     assert not any('per-texel Metallic' in m for m in lines), lines

@@ -102,9 +102,9 @@ with a ptxas audit in the acceptance criteria.
 
 ## Progress
 
-- [ ] Compiler slots + upload.
-- [ ] Per-hit weights + register audit.
-- [ ] Tests + xfail flip.
+- [x] Compiler: Mix Shader composes per-hit scalar programs (`MixRGB(Fac, A, B)` virtual chain, textured Fac included); Fac/Factor vs Color honoured (Checker/Brick Fac variant, Noise/Magic Fac ops). No scene_upload change needed: Mix/Add is addon-side param blending, the blended material carries ordinary pkg219d scalar slots.
+- [x] Per-hit weights: opaque/partial Disney already single-closure (#876 #935, #933 #943); Disney glass with a Metallic/Transmission program now lowers to that single closure too (`disney.cpp closureGraph`). No kernel code change (stage_advance.cu comment only) -> HasProgram=false/true SASS expected identical; lead verifies by cuobjdump.
+- [x] Tests: `tests/test_pkg293_gpu_lobe_programs.py`; test_issue846 xfail was already removed by #935; its Disney-metallic degradation test flipped (entry removed). Corpus v2_textures_opvm CPU: MixShaderProg 0.835 -> 1.014 of Cycles (pass); MetallicProg now Fac-correct (0.975, same ~3% bias as the program-free PlainRef 0.968). Research note `.astroray_plan/docs/pkg293-lobe-weights-research.md`.
 
 ---
 

@@ -370,8 +370,14 @@ def test_procedural_new_chain_warns_and_keeps_outer_legacy_mapping(engine):
     node = _Node('TEX_CHECKER', inputs={'Vector': socket}, name='checker')
     renderer = _RecordingRenderer()
     name = engine.load_procedural_texture(node, renderer, socket)
-    assert name is not None and renderer.mapping_matrix_calls == []
-    assert renderer.uv_transform_calls == [(name, 1, 1, 0.25, 0.5, 0)]
+    # #945: the outer Mapping now reaches the procedural as the full matrix (its
+    # evaluator reads the 3-D point, which the legacy 2-D transform never moved);
+    # the rejected inner chain still warns and stays default coordinates.
+    assert renderer.uv_transform_calls == []
+    assert len(renderer.mapping_matrix_calls) == 1
+    assert renderer.mapping_matrix_calls[0][0] == name
+    assert renderer.mapping_matrix_calls[0][1] == pytest.approx(
+        [1, 0, 0, 0.25, 0, 1, 0, 0.5, 0, 0, 1, 0])
     assert (name, 'GENERATED') in renderer.coord_mode_calls
     assert any('pkg242' in reason for _, reason in engine._degradation_report().approximated)
 

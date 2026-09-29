@@ -128,8 +128,10 @@ def test_affine_or_unlinked_chain_not_compiled():
 
 
 def test_texture_driven_coordinate_rejected():
-    noise = Node('TEX_NOISE', inputs=[Sock('Vector')])
-    sin = Node('MATH', operation='SINE', inputs=[Sock('Value', 0.0, Link(noise, 'Fac'))])
+    # #891 flipped the procedural case (a Noise may now drive the warp, see
+    # tests/test_am_nodes_944_945_891.py); an IMAGE-driven coordinate stays rejected.
+    noise = Node('TEX_IMAGE', inputs=[Sock('Vector')])
+    sin = Node('MATH', operation='SINE', inputs=[Sock('Value', 0.0, Link(noise, 'Color'))])
     comb = Node('COMBXYZ', inputs=[Sock('X', 0.0, Link(sin, 'Value')), Sock('Y'), Sock('Z')])
     with pytest.raises(C.VMCompileError):
         C.compile_coord_chain(Sock('Vector', (0, 0, 0), Link(comb, 'Vector')))

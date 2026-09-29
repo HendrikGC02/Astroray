@@ -220,6 +220,17 @@ public:
         }
         return value(applyUVTransform(uv), p);
     }
+    // #962 — value at an already-built texture coordinate (uv, p), applying the
+    // SAME transform chain as value(HitRecord) above (3-D Mapping if set, else
+    // the legacy UV transform). Used by the GPU scene-upload bake so baked
+    // fields sample the CPU's coordinates.
+    Vec3 valueAtCoord(const Vec2& uv, const Vec3& p) const {
+        if (hasMapping_) {
+            Vec3 mp = applyMappingPoint(p);
+            return value(Vec2(mp.x, mp.y), mp);
+        }
+        return value(applyUVTransform(uv), p);
+    }
     Vec3 valueOffset(const HitRecord& rec, const Vec3& wo, float du, float dv) const {
         auto [uv, p] = textureCoordinates(rec, wo);
         if (hasMapping_) {  // pkg242 — transform the procedural point too (see value())
@@ -1750,10 +1761,10 @@ class TexturedLight : public Material {
     float intensity_;
 public:
     TexturedLight(std::shared_ptr<Texture> e, float intensity) : emission(e), intensity_(intensity) {}
-    // Mirrors TexturedLambertian::getTexture() — exposed for a future GPU
-    // scene-upload path; the GPU wavefront leg still renders a flat colour
-    // (see backendCapabilities() below).
+    // Mirrors TexturedLambertian::getTexture(). #962: scene_upload.cu bakes it
+    // (+ getIntensity()) for the GPU wavefront's per-hit emission fetch.
     std::shared_ptr<Texture> getTexture() const { return emission; }
+    float getIntensity() const { return intensity_; }
     // No HitRecord available here (used for the mesh-light NEE power importance
     // in light_tree.cpp and the flat GPU emitter upload in scene_upload.cu).
     // #776: return the texture MEAN × intensity (not flat white × intensity) so
@@ -1768,7 +1779,8 @@ public:
     MaterialBackendCapabilities backendCapabilities() const override {
         MaterialBackendCapabilities caps = Material::backendCapabilities();
         caps.gpuApproximate = true;
-        caps.notes = "GPU: textured Emission Color not per-hit sampled; renders the texture MEAN colour (#776)";
+        caps.notes = "GPU: textured Emission Color sampled per hit on the wavefront path (#962; "
+                     "procedurals baked at 64^2/64^3); ReSTIR light reuse still uses the texture MEAN";
         return caps;
     }
     Vec3 emitted(const HitRecord& rec) const override {

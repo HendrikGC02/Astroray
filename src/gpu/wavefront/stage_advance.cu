@@ -248,6 +248,26 @@ __constant__ int c_wfSamplerMode = 0;
 // kernel. Plain runtime flag, NOT a template axis (architect-pinned).
 __constant__ int c_hasHair = 0;
 
+// #962 — textured Emission Color flag, published once per frame by
+// cuda_wavefront_render (setWavefrontEmissionTexture). 1: some emissive material
+// carries a matTexId, so c_wfTexBinding is valid this frame (an emitter's op-VM
+// chain is baked host-side, scene_upload.cu). 0 (the default, reset by
+// every other wavefront entry point) keeps the intersect-stage emissive hit and
+// the shadow-stage NEE resolve on the flat mean-colour path: bit-identical output.
+// A plain runtime flag, not a template axis: the fetch lives in __noinline__
+// helpers (memory noinline-runtime-flag-avoids-shade-spill).
+__constant__ int c_wfEmissionTex = 0;
+// #962 — global prim ids >= this belong to instanced BLASes (pkg114: flat-scene
+// prims occupy offset 0), whose triangles are object-space while the hit point is
+// world-space: those keep the flat mean (DEGRADED, reported host-side).
+__constant__ int c_wfEmissionFlatPrims = 0x7fffffff;
+
+struct GProgInputTexel { GVec3 c; bool ok; };
+// Defined after c_wfTexBinding below.
+static __device__ __noinline__ GProgInputTexel gpu_emissionTexel(
+    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris,
+    const GSphere* spheres, int matId);
+
 // pkg224 — Sobol' direction-vector table in __constant__ memory (8 KB). Filled
 // from the host constexpr kSobolMatrices32 by setWavefrontSamplerMode(true)
 // (only when the progressive sampler is enabled); the byte-identical PCG32
@@ -943,6 +963,16 @@ __device__ int intersectPathSlotT(
     // ---- Emission (gated on camera ray or post-specular bounce; path ends).
     GSampledSpectrum Le = gpu_material_emitted_spectral(mat, rec.frontFace, lambdas);
     if (Le.maxValue() > 0.f) {
+        // #962: textured Emission Color — replace the flat mean with the texel
+        // at this hit (CPU TexturedLight::emittedSpectral: RGBIlluminant of
+        // texel x intensity). Le > 0 already implies the front face.
+        if (c_wfEmissionTex && mat.type == GMAT_DIFFUSE_LIGHT) {
+            GProgInputTexel e = gpu_emissionTexel(rec.point, rec.primId, prims, tris,
+                                                  spheres, rec.materialId);
+            if (e.ok)
+                Le = gpu_rgbToSampledSpectrum(e.c * mat.emissionIntensity, lambdas,
+                                              mat.spectralMode);
+        }
         if (bounce == 0 || wasSpecular || c_wfLightNeeOff) {  // #877: NEE off -> w_B = 1
             // pkg157: emissive-hit direct term, same clamp split as above.
             // Camera / post-specular ray: no NEE leg competes (w_B = 1).
@@ -1168,7 +1198,6 @@ static __device__ __noinline__ GVec3 gpu_generatedCoord(
     return g;
 }
 
-struct GProgInputTexel { GVec3 c; bool ok; };
 static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
 {
@@ -1199,6 +1228,66 @@ static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
         uu = mu; vv = mv;
     }
     return {gpu_sampleImageTexture(tdesc, c_wfTexBinding.texelBuf, uu, vv), true};
+}
+
+// #962 — per-hit textured Emission Color (TexturedLight uploaded by
+// scene_upload.cu on the matTexId slot; an op-VM chain arrives pre-baked). Linear
+// RGB texel at a point on emissive material matId via the SAME fetch as
+// shadePathSlot's HasTexture block (gpu_progInputTexel: 3D bake / UV barycentric
+// + Mapping; 2D on a sphere: the CPU sphere UV). ok=false when untextured,
+// instanced (object-space triangles) or
+// unsampleable (caller keeps the flat mean). CPU twin: TexturedLight::emitted()/
+// emittedSpectral() = texel x intensity, evaluated per BSDF hit and per NEE
+// sample (light_sampler.cpp #776); Cycles likewise evaluates the emission shader
+// at every emitter hit and at the light-sampled point
+// (intern/cycles/kernel/light/triangle.h + kernel/integrator/shade_surface.h).
+// Caller guards on c_wfEmissionTex, so c_wfTexBinding is valid this frame.
+static __device__ __noinline__ GProgInputTexel gpu_emissionTexel(
+    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris,
+    const GSphere* spheres, int matId)
+{
+    const int texId = c_wfTexBinding.matTexId[matId];
+    if (texId < 0 || primId < 0 || primId >= c_wfEmissionFlatPrims)
+        return {GVec3(0.0f, 0.0f, 0.0f), false};
+    const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
+    if (tdesc.depth <= 1 && prims[primId].type == GPRIM_SPHERE) {
+        // 2D texture on a sphere emitter: the CPU Sphere UV (shapes.h):
+        // theta = acos(-n.y), phi = atan2(-n.z, n.x) + pi, uv = (phi/2pi, theta/pi)
+        // with n the outward unit normal, then the same Mapping + fetch as the
+        // triangle UV path (gpu_progInputTexel).
+        const GSphere& sp = spheres[prims[primId].index];
+        GVec3 n = (point - sp.center) * (1.0f / sp.radius);
+        float theta = acosf(fminf(1.0f, fmaxf(-1.0f, -n.y)));
+        float phi = atan2f(-n.z, n.x) + M_PI_F;
+        float uu = phi / (2.0f * M_PI_F), vv = theta / M_PI_F;
+        if (tdesc.hasMapping) {
+            const float* m = tdesc.mapping;
+            float mu = m[0]*uu + m[1]*vv + m[3];
+            float mv = m[4]*uu + m[5]*vv + m[7];
+            uu = mu; vv = mv;
+        }
+        return {gpu_sampleImageTexture(tdesc, c_wfTexBinding.texelBuf, uu, vv), true};
+    }
+    return gpu_progInputTexel(point, primId, prims, tris, texId);
+}
+
+// #962 — NEE twin: the exact light point gpu_nee_sample_light drew, parked in
+// the dedicated-RGB lanes 11-13 for hittable lights ((b1, b2, primIdx bits);
+// gpu_nee.cuh). Triangle: v0 + e1*b1 + e2*b2 (the sampled lpos); sphere: the
+// parked true distance along wi. No re-trace, so the fetched texel is the one
+// the BSDF-hit leg sees at that point.
+static __device__ __noinline__ GProgInputTexel gpu_emissionTexelAtLightSample(
+    GVec3 origin, GVec3 wi, float geomDist, GVec3 packed, int lightMatId,
+    const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres)
+{
+    const int primId = __float_as_int(packed.z);
+    if (primId < 0) return {GVec3(0.0f, 0.0f, 0.0f), false};
+    GVec3 p = origin + wi * geomDist;
+    if (prims[primId].type == GPRIM_TRIANGLE) {
+        const GTriangle& t = tris[prims[primId].index];
+        p = t.v0 + (t.v1 - t.v0) * packed.x + (t.v2 - t.v0) * packed.y;
+    }
+    return gpu_emissionTexel(p, primId, prims, tris, spheres, lightMatId);
 }
 
 // pkg219d — apply one op-VM scalar result to the LOCAL GMaterial copy. Overwrites
@@ -2339,6 +2428,17 @@ __global__ void stageShadowKernel(
         if (occ.occluded) return;
     }
 
+    // #962: textured emitter — fetch the texel at the exact sampled light point
+    // (parked in lanes 11-13, gpu_nee.cuh) so NEE and the BSDF-hit leg (intersect
+    // stage) integrate the same emission (CPU light_sampler.cpp #776). Done here,
+    // before the spectral state is loaded, so little is live across the call.
+    GProgInputTexel emTex{GVec3(0.0f, 0.0f, 0.0f), false};
+    if (c_wfEmissionTex && !s.isDedicated &&
+        materials[s.lightMatId].type == GMAT_DIFFUSE_LIGHT)
+        emTex = gpu_emissionTexelAtLightSample(
+            s.origin, s.wi, nee_f[14 * nee_capacity + idx], s.dedEmissionRGB,
+            s.lightMatId, prims, tris, spheres);
+
     // Emission upsample only (the BSDF/MIS parts were pre-resolved in the
     // shade stage); lambdas from the slot's live spectral state.
     GSampledWavelengths lambdas;
@@ -2375,6 +2475,10 @@ __global__ void stageShadowKernel(
         bool lightFront = s.isSphere ? (occ.frontFace != 0) : !(sphLane & 2);
         L_spec = gpu_material_emitted_spectral(
             materials[s.lightMatId], lightFront, lambdas);
+        if (emTex.ok && L_spec.maxValue() > 0.f)   // #962 (front face only)
+            L_spec = gpu_rgbToSampledSpectrum(
+                emTex.c * materials[s.lightMatId].emissionIntensity, lambdas,
+                materials[s.lightMatId].spectralMode);
     }
     if (L_spec.maxValue() <= 0.f) return;
 
@@ -3084,6 +3188,14 @@ void setWavefrontHairEnabled(bool hasHair)
 {
     const int flag = hasHair ? 1 : 0;
     cudaMemcpyToSymbol(c_hasHair, &flag, sizeof(flag));
+}
+
+// #962 — publish the textured-emission flag into __constant__ c_wfEmissionTex
+// (1: emission textures bound this frame) and the flat-scene prim count.
+void setWavefrontEmissionTexture(int flags, int flatPrims)
+{
+    cudaMemcpyToSymbol(c_wfEmissionTex, &flags, sizeof(flags));
+    cudaMemcpyToSymbol(c_wfEmissionFlatPrims, &flatPrims, sizeof(flatPrims));
 }
 
 // #909 - publish the photon-map split (per render; chain=null disables).

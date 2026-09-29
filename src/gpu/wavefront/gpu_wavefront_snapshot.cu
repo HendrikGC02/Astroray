@@ -109,6 +109,7 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
+    setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera (mirrors production GPU render path).
@@ -288,6 +289,7 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
+    setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -476,6 +478,7 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
+    setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -642,6 +645,7 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
+    setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -826,6 +830,7 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
+    setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -1187,6 +1192,7 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
+    setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     GCameraParams gcam;
@@ -1569,6 +1575,11 @@ std::vector<float> cuda_wavefront_render(
         setWavefrontProgramBinding(GWavefrontProgramBinding{
             d_programs, d_matProgId, d_matScalarProgId, d_matScalarTexId,
             d_matProgInTexId});
+    // #962 — textured Emission Color: the intersect (emissive hit) and shadow
+    // (NEE) stages fetch the texel per hit when set; both bindings above are
+    // published this frame whenever the matching bit is set.
+    setWavefrontEmissionTexture(res.hasEmissionTexture ? 1 : 0,
+                                res.emissionFlatPrims);
     // pkg199 Stage 1 — publish the homogeneous world-volume medium every frame
     // (c_worldVolume is __constant__ and persists across calls, so set it
     // unconditionally — vacuum scenes publish hasVolume==0, which the intersect /
@@ -2647,6 +2658,7 @@ std::vector<float> cuda_wavefront_render_restir(
     // #877: ReSTIR-DI is its own light-sampling estimator; set_light_nee does not
     // apply (the CPU restir_di ignores it too), so emitter hits keep MIS weights.
     setWavefrontLightNeeOff(false);
+    setWavefrontEmissionTexture(0, 0x7fffffff);  // #962: ReSTIR keeps the flat mean emission
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     GCameraParams gcam;
@@ -2669,6 +2681,10 @@ std::vector<float> cuda_wavefront_render_restir(
 
     WfContext& C = wfCtx();
     SceneUploadResult res = buildSceneArrays(renderer, &cam);
+    // #962: ReSTIR candidates/resolve carry no emitter point -> flat mean emission.
+    if (res.hasEmissionTextureRequested)
+        std::fprintf(stderr, "[#962] DEGRADED: ReSTIR-DI renders textured Emission "
+                             "Color as its texture mean (per-hit fetch is wavefront-only)\n");
     GBVHNode*   d_bvhNodes  = wfUpload(C.nodes, res.nodes);
     GPrimitive* d_prims     = wfUpload(C.prims, res.prims);
     GTriangle*  d_tris      = wfUpload(C.tris, res.triangles);

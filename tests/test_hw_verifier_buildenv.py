@@ -166,6 +166,31 @@ def test_cpu_only_carve_out_with_cuda_files():
         assert _is_cpu_only_pr(pr) is False
 
 
+def _cpu_only_with_files(files, number=130):
+    from roadmap_orchestrator.classify import _is_cpu_only_pr
+    return _is_cpu_only_pr({"number": number, "headRefOid": "x", "files": files})
+
+
+def test_cpu_only_carve_out_cuda_reachable_header():
+    """A header transitively #included by a CUDA TU (even one CPU code shares)
+    changes GPU kernels, so the PR is NOT CPU-only."""
+    assert _cpu_only_with_files(["include/astroray/gpu_materials.h"]) is False
+    assert _cpu_only_with_files(["README.md", "include/astroray/gpu_types.h"]) is False
+
+
+def test_cpu_only_carve_out_cmake_is_cuda_relevant():
+    assert _cpu_only_with_files(["CMakeLists.txt"]) is False
+    assert _cpu_only_with_files(["cmake/Foo.cmake"]) is False
+
+
+def test_cpu_only_carve_out_pure_cpu_plugin_stays_cpu_only():
+    from roadmap_orchestrator.classify import _cuda_reachable_files
+    cpu_file = "plugins/materials/lambertian.cpp"
+    assert (Path(__file__).parent.parent / cpu_file).is_file()
+    assert cpu_file not in _cuda_reachable_files()
+    assert _cpu_only_with_files([cpu_file, "tests/test_x.py"]) is True
+
+
 def test_cpu_only_classification_in_classify_prs():
     """CPU-only classification: CI-green + CPU-only → Ready (bypasses HW-untested)."""
     from roadmap_orchestrator.classify import classify_prs

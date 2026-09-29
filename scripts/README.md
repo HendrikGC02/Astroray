@@ -10,6 +10,7 @@ new reusable script, register it here in the same commit.
 
 | Task | Canonical script |
 | ---- | ---------------- |
+| Test-suite durations report (junit.xml to by-area/by-file/top-test charts + JSON; before/after with 2 files) | `python scripts/test/durations_report.py --junit PATH [--junit PATH2]` |
 | Build engine `.pyd` (dev, Ninja + sccache) | `scripts/build/build_cuda.bat` |
 | Build engine in an agent worktree (Ninja) | `scripts/build/build_cuda_worktree.bat` |
 | Run ANY command (pytest, render harness) under the shared GPU lock (main-checkout lock path; never write the lock file) | `python scripts/build/gpu_locked_run.py <who> -- <command...>` |

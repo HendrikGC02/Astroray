@@ -98,7 +98,7 @@ def main() -> int:
         x = str(Path(args.junit) / "cpu.xml") if args.junit else None
         rc, el = _run("CPU/parallel", "cpu", parallel=True, jobs=args.jobs,
                       omp=args.omp, extra=extra, fast=args.fast, junit=x)
-        xmls += [x] if x else []
+        xmls += [f"{x}@{args.jobs}"] if x else []
         results.append(("CPU/parallel", rc, el))
         total += el
 
@@ -118,9 +118,8 @@ def main() -> int:
 
     if xmls:
         rep = [sys.executable, str(REPO_ROOT / "scripts" / "test" / "durations_report.py"),
-               "--merge", "--out", str(Path(args.junit) / "durations")]
-        for x in xmls:
-            rep += ["--junit", x]
+               "--out", str(Path(args.junit) / "durations"),
+               "--junit", ",".join(xmls)]
         subprocess.run(rep, cwd=str(REPO_ROOT))
 
     # rc 5 = "no tests collected"; treat as non-fatal (e.g. --gpu-only when a

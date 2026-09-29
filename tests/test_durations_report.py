@@ -41,6 +41,19 @@ def test_outputs(tmp_path, n):
 
 
 @pytest.mark.cpu
+def test_series_divides_by_workers_and_merges(tmp_path):
+    a, b = tmp_path / "a.xml", tmp_path / "b.xml"
+    a.write_text(XML)
+    b.write_text(XML)
+    tests, counts, scaled = dr.load_series(f"{a}@4,{b}")
+    assert scaled and len(tests) == 8
+    assert counts == {"passed": 4, "skipped": 2, "failed": 2}
+    assert sum(t for _, _, t in tests) == pytest.approx(19.0 / 4 + 19.0)
+    _, _, scaled = dr.load_series(str(a))
+    assert not scaled
+
+
+@pytest.mark.cpu
 def test_file_of_keeps_subdirectories():
     assert dr.file_of("tests.statistical.test_chi2_bsdf.TestX") == "tests/statistical/test_chi2_bsdf.py"
     assert dr.file_of("test_glass") == "tests/test_glass.py"

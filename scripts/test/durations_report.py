@@ -75,6 +75,21 @@ def load(path):
     return tests, dict(counts)
 
 
+def load_series(spec):
+    """spec = "a.xml@4,b.xml": comma-merged files; "@N" divides that file's times by N
+    (xdist workers) to get wall-equivalent seconds. Returns (tests, counts, scaled)."""
+    tests, counts, scaled = [], defaultdict(int), False
+    for part in spec.split(","):
+        path, _, n = part.partition("@")
+        t, c = load(path)
+        div = float(n) if n else 1.0
+        scaled |= bool(n)
+        tests += [(f, nm, s / div) for f, nm, s in t]
+        for k, v in c.items():
+            counts[k] += v
+    return tests, dict(counts), scaled
+
+
 def aggregate(tests):
     by_file, by_area, n_area = defaultdict(float), defaultdict(float), defaultdict(int)
     for f, _, t in tests:
@@ -93,7 +108,7 @@ def git_sha():
         return "unknown"
 
 
-def chart(name, rows, series, out, meta, title, limit=None):
+def chart(name, rows, series, out, meta, title, limit=None, xlabel="seconds (s)"):
     """rows: [(label, {series: seconds})] sorted by first series; series: [(label, colour)]."""
     rows = rows[:limit] if limit else rows
     shown = rows[::-1]  # largest at top
@@ -109,7 +124,7 @@ def chart(name, rows, series, out, meta, title, limit=None):
             ax.text(v, y, f" {v:.1f}", va="center", fontsize=8)
     ax.set_yticks(range(len(shown)))
     ax.set_yticklabels([r[0] for r in shown], fontsize=8)
-    ax.set_xlabel("seconds (s)")
+    ax.set_xlabel(xlabel)
     ax.set_title(title, fontsize=11, loc="left")
     ax.spines[["top", "right"]].set_visible(False)
     if len(series) > 1:
@@ -129,24 +144,22 @@ def text_table(title, rows, total, n):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--junit", action="append", required=True, help="junit xml (1 or 2 times)")
+    ap.add_argument("--junit", action="append", required=True,
+                    help='series spec, 1 or 2 times: "a.xml@4,b.xml" = files merged into one '
+                         'series, "@N" divides that file times by N xdist workers')
     ap.add_argument("--label", action="append", help="series labels (default before/after)")
-    ap.add_argument("--merge", action="store_true", help="merge all --junit files into one series")
     ap.add_argument("--out", default=None)
     a = ap.parse_args(argv)
-    if len(a.junit) > 2 and not a.merge:
+    if len(a.junit) > 2:
         ap.error("at most two --junit files")
     labels = (a.label or []) + ["before", "after"][len(a.label or []):]
     out = Path(a.out) if a.out else results_dir("perf", "test-suite-durations")
     out.mkdir(parents=True, exist_ok=True)
 
-    loaded = [load(p) for p in a.junit]
-    if a.merge:
-        merged = defaultdict(int)
-        for _, c in loaded:
-            for k, v in c.items():
-                merged[k] += v
-        loaded = [(sum((t for t, _ in loaded), []), dict(merged))]
+    full = [load_series(p) for p in a.junit]
+    loaded = [(t, c) for t, c, _ in full]
+    xlabel = ("wall-equivalent seconds (parallel-pass times / workers)"
+              if any(sc for _, _, sc in full) else "seconds (s)")
     aggs = [aggregate(t) for t, _ in loaded]
     totals = [sum(x[2] for x in t) for t, _ in loaded]
     if len(loaded) == 1:
@@ -167,12 +180,12 @@ def main(argv=None):
 
     n0 = aggs[0]["n_area"]
     area_rows = [(f"{k} ({n0.get(k, 0)} tests)", v) for k, v in rows_for("area")]
-    chart("durations_by_area_chart", area_rows, series, out, meta, f"Test time by area - {tot_txt}")
+    chart("durations_by_area_chart", area_rows, series, out, meta, f"Test time by area - {tot_txt}", xlabel=xlabel)
     chart("durations_by_file_chart", rows_for("file"), series, out, meta,
-          f"Top 30 test files - {tot_txt}", 30)
+          f"Top 30 test files - {tot_txt}", 30, xlabel)
     test_rows = [(k if len(k) <= 70 else "..." + k[-67:], v) for k, v in rows_for("test")]
     chart("durations_top_tests_chart", test_rows, series, out, meta,
-          f"Top 30 tests - {tot_txt}", 30)
+          f"Top 30 tests - {tot_txt}", 30, xlabel)
 
     t0 = totals[0]
     text_table("Top 15 files", sorted(aggs[0]["file"].items(), key=lambda x: -x[1]), t0, 15)

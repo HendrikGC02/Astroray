@@ -49,7 +49,10 @@ $CorpusScenes = @('camera_lens', 'camera_lens_ortho', 'geometry_zoo', 'lighting_
     'render_settings', 'textures_mapping', 'volumes_smoke', 'world_sky_hdri', 'world_sky_sky',
     # pkg284 corpus v2 (Phase 1 lists the ids; Phase 3 wires the v2 gate rows)
     'v2_camera_geometry', 'v2_dispersion_caustics', 'v2_light_tree', 'v2_media', 'v2_sky_sun',
-    'v2_textures_opvm', 'v2_thin_film_metals', 'v2_viewport')
+    'v2_textures_opvm', 'v2_thin_film_metals', 'v2_viewport',
+    # pkg296 volumes_mesh (mesh-bounded volumes; gated by tests/test_pkg296_mesh_volume_boundary.py)
+    'vm_camera_inside', 'vm_glass_shell', 'vm_icosphere', 'vm_icosphere_empty', 'vm_nested',
+    'vm_overlap', 'vm_suzanne')
 $CorpusParityArgs = @()
 foreach ($CorpusScene in $CorpusScenes) {
     $CorpusParityArgs += '--scene'

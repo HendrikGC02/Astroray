@@ -91,6 +91,39 @@ __device__ inline bool gpu_triangle_hit_motion(
 }
 
 // ---------------------------------------------------------------------------
+// Hit record of a static triangle from its hit distance t and barycentrics
+// (u, v) = weights of (v1, v2). Shared by the Möller–Trumbore test below and the
+// pkg299 OptiX hit reconstruction (gpu_hw_hit_record), so both paths build the
+// record with one piece of code.
+// ---------------------------------------------------------------------------
+__device__ inline void gpu_triangle_fill_rec(
+    const GTriangle& tri, const GRay& ray, float t, float u, float v,
+    GHitRecord& rec)
+{
+    rec.t     = t;
+    rec.point = ray.at(t);
+
+    // pkg55-followup: skip redundant interpolation for flat-shaded triangles
+    GVec3 outwardNormal;
+    if (tri.flat_shaded) {
+        // n0==n1==n2, already unit; avoid (n0*w + n1*u + n2*v).normalized()
+        outwardNormal = tri.n0;
+    } else {
+        // Per-vertex normals present; interpolate and renormalize
+        float w = 1.f - u - v;
+        outwardNormal = (tri.n0 * w + tri.n1 * u + tri.n2 * v).normalized();
+    }
+
+    // Front-face test
+    rec.frontFace = ray.direction.dot(outwardNormal) < 0.f;
+    rec.normal    = rec.frontFace ? outwardNormal : -outwardNormal;
+    gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
+
+    rec.materialId = tri.materialId;
+    rec.isDelta    = false;
+}
+
+// ---------------------------------------------------------------------------
 // Ray-triangle intersection: Möller–Trumbore (exact port from raytracer.h)
 // STATIC VARIANT — no motion. Kept for backward compatibility and zero-overhead
 // when motion is disabled.
@@ -118,27 +151,7 @@ __device__ inline bool gpu_triangle_hit(
     float t = f * e2.dot(q);
     if (t < tMin || t > tMax) return false;
 
-    rec.t     = t;
-    rec.point = ray.at(t);
-
-    // pkg55-followup: skip redundant interpolation for flat-shaded triangles
-    GVec3 outwardNormal;
-    if (tri.flat_shaded) {
-        // n0==n1==n2, already unit; avoid (n0*w + n1*u + n2*v).normalized()
-        outwardNormal = tri.n0;
-    } else {
-        // Per-vertex normals present; interpolate and renormalize
-        float w = 1.f - u - v;
-        outwardNormal = (tri.n0 * w + tri.n1 * u + tri.n2 * v).normalized();
-    }
-
-    // Front-face test
-    rec.frontFace = ray.direction.dot(outwardNormal) < 0.f;
-    rec.normal    = rec.frontFace ? outwardNormal : -outwardNormal;
-    gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
-
-    rec.materialId = tri.materialId;
-    rec.isDelta    = false;
+    gpu_triangle_fill_rec(tri, ray, t, u, v, rec);
     return true;
 }
 
@@ -371,6 +384,29 @@ __device__ inline bool gpu_bvh_occluded(
 //  - rec.primId is remapped BLAS-local -> global (blas.primOffset + localPrimId)
 //    so prims[rec.primId] (Cryptomatte / NEE) keeps working unchanged.
 // ---------------------------------------------------------------------------
+// Instance-local hit -> world hit record (the invariants above). Shared by
+// gpu_tlas_hit and the pkg299 OptiX hit reconstruction.
+__device__ inline void gpu_instance_rec_to_world(
+    const GInstance& inst, const GBLAS& b, const GRay& ray,
+    const GHitRecord& lrec, GHitRecord& rec)
+{
+    // Recover local geometric outward normal, transform to
+    // world by inverse-transpose, recompute frontFace.
+    GVec3 geomOut_l = lrec.frontFace ? lrec.normal : (lrec.normal * -1.f);
+    GVec3 geomOut_w = inst.objectFromWorld
+                          .xformNormalByInvTranspose(geomOut_l)
+                          .normalized();
+    bool ff = ray.direction.dot(geomOut_w) < 0.f;
+
+    rec            = lrec;       // t, materialId, isDelta carry over
+    rec.t          = lrec.t;     // world units, unchanged
+    rec.point      = inst.worldFromObject.xformPoint(lrec.point);
+    rec.frontFace  = ff;
+    rec.normal     = ff ? geomOut_w : (geomOut_w * -1.f);
+    gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
+    rec.primId     = b.primOffset + lrec.primId;
+}
+
 template<bool HasCurves = false>  // pkg225 Stage 3 — forwarded to the single-level fallback
 __device__ inline bool gpu_tlas_hit(
     const GTLASNode*  tlas,
@@ -432,22 +468,7 @@ __device__ inline bool gpu_tlas_hit(
                     if (ih && lrec.t < tMax) {
                         hit  = true;
                         tMax = lrec.t;              // tighten the shared cutoff
-
-                        // Recover local geometric outward normal, transform to
-                        // world by inverse-transpose, recompute frontFace.
-                        GVec3 geomOut_l = lrec.frontFace ? lrec.normal : (lrec.normal * -1.f);
-                        GVec3 geomOut_w = inst.objectFromWorld
-                                              .xformNormalByInvTranspose(geomOut_l)
-                                              .normalized();
-                        bool ff = ray.direction.dot(geomOut_w) < 0.f;
-
-                        rec            = lrec;       // t, materialId, isDelta carry over
-                        rec.t          = lrec.t;     // world units, unchanged
-                        rec.point      = inst.worldFromObject.xformPoint(lrec.point);
-                        rec.frontFace  = ff;
-                        rec.normal     = ff ? geomOut_w : (geomOut_w * -1.f);
-                        gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
-                        rec.primId     = b.primOffset + lrec.primId;
+                        gpu_instance_rec_to_world(inst, b, ray, lrec, rec);
                     }
                 }
                 if (toVisit == 0) break;
@@ -502,6 +523,42 @@ __device__ inline bool gpu_tlas_occluded(
     GHitRecord rec;
     return gpu_tlas_hit<HasCurves>(tlas, instances, blas, blasNodes, prims, tris,
                         spheres, ray, tMin, tMax, rec, motionVerts, curves);
+}
+
+// ---------------------------------------------------------------------------
+// pkg299 — rebuild the hit record of an OptiX hardware-traversal hit from what
+// the closest-hit program returned (t, primitive, barycentrics b1/b2, instance).
+// OptiX reports the same (u, v) Möller–Trumbore yields (P = (1-u-v) v0 + u v1 +
+// v v2; OptiX 9.1 optixGetTriangleBarycentrics) and the world-ray t (instance
+// transforms keep the direction unnormalised, as gpu_tlas_hit does). The record
+// is built by the SAME helpers as the software path, so shading sees identical
+// record semantics; only t/u/v can differ, by the watertight hardware test.
+// Scenes routed here are triangle-only with no motion (the driver's gate).
+// inst < 0: flat GAS, prim = global prims[] index. inst >= 0: IAS instance
+// index into `instances`, prim = BLAS-local index.
+// ---------------------------------------------------------------------------
+__device__ inline bool gpu_hw_hit_record(
+    float t, int prim, float u, float v, int inst,
+    const GInstance* instances, const GBLAS* blas,
+    const GPrimitive* prims, const GTriangle* tris,
+    const GRay& ray, GHitRecord& rec)
+{
+    if (!(t >= 0.f)) return false;   // miss (-1) or dead slot
+    if (inst < 0) {
+        gpu_triangle_fill_rec(tris[prims[prim].index], ray, t, u, v, rec);
+        rec.primId = prim;
+        return true;
+    }
+    const GInstance& in = instances[inst];
+    const GBLAS&     b  = blas[in.blasIndex];
+    GRay local;   // bypass the GRay ctor: keep the local direction unnormalised
+    local.origin    = in.objectFromWorld.xformPoint(ray.origin);
+    local.direction = in.objectFromWorld.xformDir(ray.direction);
+    GHitRecord lrec;
+    gpu_triangle_fill_rec(tris[prims[b.primOffset + prim].index], local, t, u, v, lrec);
+    lrec.primId = prim;
+    gpu_instance_rec_to_world(in, b, ray, lrec, rec);
+    return true;
 }
 
 __device__ inline int gpu_lower_bound(const float* arr, int n, float target) {

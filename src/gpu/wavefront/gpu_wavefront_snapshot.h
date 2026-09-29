@@ -241,6 +241,11 @@ void cuda_wavefront_invalidate_scene();
 // last_render_info()["grid_uploads"] (tests/test_issue828_grid_cache.py).
 int cuda_wavefront_last_grid_uploads();
 
+// pkg299: 1 when the most recent cuda_wavefront_render traversed with OptiX
+// (ASTRORAY_GPU_TRAVERSAL=optix on a triangle-only scene), 0 on the software BVH.
+// Surfaced as last_render_info()["gpu_traversal"].
+int cuda_wavefront_last_traversal();
+
 // pkg55-C6b / pkg24: GPU ReSTIR-DI wavefront render. Direct-illumination
 // driver with double-buffered per-pixel reservoirs persisted across frames
 // (render calls) for temporal reuse. Returns the linear-sRGB image

@@ -196,7 +196,8 @@ endif()
 # pkg70 — Optional NVIDIA OptiX AI denoiser
 # Headers are NOT bundled (NVIDIA SDK license forbids redistribution).
 # We locate optix.h via cmake/FindOptiX.cmake (OPTIX_INSTALL_DIR env or
-# default Windows path C:\ProgramData\NVIDIA Corporation\OptiX SDK 8.x).
+# default Windows path C:\ProgramData\NVIDIA Corporation\OptiX SDK 9.x).
+# pkg299 also uses it for hardware ray traversal (see astroray_cuda below).
 # OptiX needs CUDA: with no CUDA toolkit the option is silently disabled.
 # ---------------------------------------------------------------------------
 set(ASTRORAY_OPTIX_FOUND FALSE)
@@ -209,11 +210,11 @@ if(NOT ASTRORAY_ENABLE_OPTIX STREQUAL "OFF")
         elseif(ASTRORAY_ENABLE_OPTIX STREQUAL "ON")
             message(FATAL_ERROR
                 "ASTRORAY_ENABLE_OPTIX=ON but OptiX SDK was not found. "
-                "Install the OptiX 8.x SDK and set OPTIX_INSTALL_DIR.")
+                "Install the OptiX 9.x SDK and set OPTIX_INSTALL_DIR.")
         else()
-            message(STATUS "OptiX SDK not found — OptiX denoiser disabled")
-            message(STATUS "  (Install OptiX 8.x from https://developer.nvidia.com/designworks/optix/download")
-            message(STATUS "   to default path 'C:/ProgramData/NVIDIA Corporation/OptiX SDK 8.x.x/' or set OPTIX_INSTALL_DIR.")
+            message(STATUS "OptiX SDK not found — OptiX denoiser and hardware traversal disabled")
+            message(STATUS "  (Install OptiX 9.x from https://developer.nvidia.com/designworks/optix/download")
+            message(STATUS "   to default path 'C:/ProgramData/NVIDIA Corporation/OptiX SDK 9.x.x/' or set OPTIX_INSTALL_DIR.")
             message(STATUS "   Without OptiX, the denoiser falls back to OIDN. See docs/QUICKSTART.md for details.)")
         endif()
     elseif(ASTRORAY_ENABLE_OPTIX STREQUAL "ON")
@@ -652,6 +653,49 @@ if(ASTRORAY_CUDA_FOUND)
         # Remove /Fd (PDB tracking) from flags passed to nvcc
         set_property(TARGET astroray_cuda PROPERTY CUDA_FLAGS
             "--extended-lambda --expt-relaxed-constexpr -O3")
+    endif()
+    # pkg299 — OptiX 9.x hardware traversal for the wavefront intersect/shadow
+    # stages. The OptiX programs (src/gpu/optix/optix_trace_programs.cu) compile
+    # to OptiX-IR as their own TU (never -rdc linked into stage_advance.cu), are
+    # embedded as a byte array, and load at runtime through optixModuleCreate.
+    # The host side (accel build + pipeline) links into astroray_cuda. Both .cu
+    # files are empty unless ASTRORAY_OPTIX_TRAVERSAL is defined, so the Linux
+    # cuda-syntax-check CI job (no OptiX SDK) still compiles them.
+    if(ASTRORAY_OPTIX_FOUND AND ASTRORAY_WAVEFRONT_CUDA_N3)
+        set(_optix_ir_src "${CMAKE_SOURCE_DIR}/src/gpu/optix/optix_trace_programs.cu")
+        set(_optix_ir_out "${CMAKE_BINARY_DIR}/optix/optix_trace_programs.optixir")
+        set(_optix_ir_cpp "${CMAKE_BINARY_DIR}/optix/optix_trace_programs_embed.cpp")
+        set(_optix_ir_ccbin)
+        if(CMAKE_CUDA_HOST_COMPILER)
+            set(_optix_ir_ccbin -ccbin "${CMAKE_CUDA_HOST_COMPILER}")
+        endif()
+        add_custom_command(
+            OUTPUT  "${_optix_ir_out}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/optix"
+            COMMAND "${CMAKE_CUDA_COMPILER}" ${_optix_ir_ccbin} -optix-ir -m64
+                    --std=c++17 -arch=sm_75 -lineinfo
+                    -DASTRORAY_OPTIX_TRAVERSAL
+                    "-I${OptiX_INCLUDE_DIR}" "-I${CMAKE_SOURCE_DIR}/src/gpu/optix"
+                    -o "${_optix_ir_out}" "${_optix_ir_src}"
+            DEPENDS "${_optix_ir_src}" "${CMAKE_SOURCE_DIR}/src/gpu/optix/optix_launch_params.h"
+            COMMENT "pkg299: OptiX-IR optix_trace_programs.cu"
+            VERBATIM)
+        add_custom_command(
+            OUTPUT  "${_optix_ir_cpp}"
+            COMMAND "${CMAKE_COMMAND}" "-DIN=${_optix_ir_out}" "-DOUT=${_optix_ir_cpp}"
+                    -DSYM=astroray_optix_trace_programs_ir
+                    -P "${CMAKE_SOURCE_DIR}/cmake/EmbedBinary.cmake"
+            DEPENDS "${_optix_ir_out}" "${CMAKE_SOURCE_DIR}/cmake/EmbedBinary.cmake"
+            COMMENT "pkg299: embed OptiX-IR"
+            VERBATIM)
+        target_sources(astroray_cuda PRIVATE
+            src/gpu/optix/optix_accel.cu
+            src/gpu/optix/optix_pipeline.cpp
+            src/gpu/optix/optix_ray_ab.cu      # fixed-ray A/B test hook
+            "${_optix_ir_cpp}")
+        target_include_directories(astroray_cuda PRIVATE ${OptiX_INCLUDE_DIRS} ${CUDAToolkit_INCLUDE_DIRS})
+        target_compile_definitions(astroray_cuda PUBLIC ASTRORAY_OPTIX_TRAVERSAL)
+        message(STATUS "pkg299: OptiX hardware traversal enabled (${OptiX_VERSION})")
     endif()
     # pkg55-C7: the cuRAND host-link block was removed with the megakernels —
     # the wavefront uses PCG32 (WavefrontRNG); curand_kernel.h remains a

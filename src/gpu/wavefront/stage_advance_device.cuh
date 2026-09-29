@@ -149,6 +149,11 @@ extern __constant__ GWavefrontEnvNeeBinding c_wfEnvNeeBinding;
 // intersectPathSlotT at bounce 0 only. active 0 (default) = unclipped.
 extern __constant__ GWavefrontPrimaryClip c_wfPrimaryClip;
 
+// pkg299: OptiX hardware-traversal results (setWavefrontHwHitBinding), read only
+// by the <HwHits=true> intersect and <HwOcc=true> shadow specialisations; the
+// software-BVH kernels never reference it.
+extern __constant__ GWavefrontHwHitBinding c_wfHwHits;
+
 // pkg296: where bounded media start on this ray — the bounce-0 clip start
 // (tNear) when a near clip beyond the 0.001 default is set, else 0.001. CPU
 // twin: raytracer.h mediaT0 (Cycles camera.h moves ray->P by nearclip*D, so
@@ -379,7 +384,8 @@ __device__ inline GSampledSpectrum gpu_worldSigmaT(const GSampledWavelengths& la
 // cross-TU callers (ReSTIR primary, MIS-audit; both scatter=0) link unchanged.
 template<bool HasWorldScatter, bool HasLightPassAOVs = false,
          bool HasCurves = false,  // pkg225 Stage 3 — curve-leaf isolation axis
-         bool HasGridVolume = false>  // pkg269 — bounded-media (NanoVDB) isolation axis
+         bool HasGridVolume = false,  // pkg269 — bounded-media (NanoVDB) isolation axis
+         bool HwHits = false>  // pkg299 — hit precomputed by the OptiX closest-hit launch
 __device__ int intersectPathSlotT(
     int idx,
     GPUWavefrontState& state,
@@ -463,8 +469,17 @@ __device__ int intersectPathSlotT(
         tNear = fmaxf(0.001f, c_wfPrimaryClip.nearDist * zInv);
         if (c_wfPrimaryClip.hasFar) tFar = c_wfPrimaryClip.farDist * zInv;
     }
-    bool hit = gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                            ray, tNear, tFar, rec, motionVerts, curves);
+    bool hit;
+    if constexpr (HwHits) {
+        // pkg299: OptiX traversed [tNear, tFar] already (same bounds, computed by
+        // __raygen__closest); rebuild the record with the software path's helpers.
+        hit = gpu_hw_hit_record(c_wfHwHits.t[idx], c_wfHwHits.prim[idx],
+                                c_wfHwHits.u[idx], c_wfHwHits.v[idx], c_wfHwHits.inst[idx],
+                                instances, blas, prims, tris, ray, rec);
+    } else {
+        hit = gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris, spheres,
+                                      ray, tNear, tFar, rec, motionVerts, curves);
+    }
 
     // pkg199 Stage 2 — homogeneous medium free-flight scatter DECISION (Option A:
     // the cheap decision + queue routing lives here; the register-heavy scatter

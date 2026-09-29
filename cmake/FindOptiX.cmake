@@ -1,7 +1,9 @@
 # FindOptiX.cmake — locate the NVIDIA OptiX SDK headers.
 #
 # We do NOT bundle the SDK (NVIDIA license forbids redistribution). Users
-# install OptiX 8.0+ themselves and we just locate the include directory.
+# install OptiX themselves and we just locate the include directory. pkg299
+# (hardware traversal) targets the 9.x SDK (9.1.0 tested); the denoiser
+# (pkg70) also builds against 8.x.
 #
 # Search order:
 #   1. -DOPTIX_INSTALL_DIR=<path>
@@ -32,6 +34,8 @@ if(WIN32)
     file(GLOB _optix_default_windows
         "C:/ProgramData/NVIDIA Corporation/OptiX SDK *"
     )
+    # pkg299: newest SDK first when several are installed (9.x before 8.x).
+    list(SORT _optix_default_windows COMPARE NATURAL ORDER DESCENDING)
     list(APPEND _optix_search_paths ${_optix_default_windows})
 elseif(UNIX)
     file(GLOB _optix_default_unix

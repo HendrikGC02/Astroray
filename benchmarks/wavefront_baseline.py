@@ -189,6 +189,7 @@ PAIR_MATERIALS = [
     ("light", [1.0, 1.0, 1.0], 18.0),
 ]
 PAIR_CAMERA = {"look_from": [0.0, 0.0, 6.8], "look_at": [0.0, 0.0, 0.0], "vfov": 39.6}
+TRAVERSAL: str | None = None   # pkg299: set by --traversal (None = engine default)
 
 
 def _cornell_tris() -> list[tuple[list, int]]:
@@ -298,6 +299,7 @@ def _astro_child(cfg: dict) -> None:
         np.save(cfg["save_img"], np.asarray(img, dtype=np.float32))
     out["triangles"] = int(n)
     out["module"] = astroray.__file__
+    out["gpu_traversal"] = r.last_render_info().get("gpu_traversal")  # pkg299
     print("PKG298_JSON " + json.dumps(out))
 
 
@@ -310,6 +312,8 @@ def run_astro(kind: str, device: str, res: int, spp: int, depth: int, calls: int
            "save_img": str(save_img) if save_img else None}
     env = os.environ.copy()
     env.setdefault("OMP_NUM_THREADS", "8")
+    if TRAVERSAL:   # pkg299: --traversal software|optix -> ASTRORAY_GPU_TRAVERSAL
+        env["ASTRORAY_GPU_TRAVERSAL"] = TRAVERSAL
     if profile_json:
         profile_json.parent.mkdir(parents=True, exist_ok=True)
         if profile_json.exists():
@@ -440,7 +444,12 @@ def main() -> int:
         pp.add_argument("--blender", default=os.environ.get(
             "BLENDER_EXE", r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe"))
         pp.add_argument("--out", type=Path, default=PAIR_OUT)
-        return pair_main(pp.parse_args())
+        pp.add_argument("--traversal", choices=("software", "optix"), default=None,
+                        help="pkg299: force the GPU traversal (ASTRORAY_GPU_TRAVERSAL)")
+        pargs = pp.parse_args()
+        global TRAVERSAL
+        TRAVERSAL = pargs.traversal
+        return pair_main(pargs)
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--spp", type=int, default=64,

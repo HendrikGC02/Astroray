@@ -1183,3 +1183,15 @@ struct GWavefrontPrimaryClip {
     float farDist;
     float fwdX, fwdY, fwdZ;              // unit view direction (GCameraParams::forward)
 };
+
+// pkg299: per-slot results of the OptiX hardware-traversal launches, read by the
+// <HwHits=true> intersect kernel (t/prim/u/v/inst -> gpu_hw_hit_record) and the
+// <HwOcc=true> shadow kernels (occluded). Device pointers, slot-indexed.
+struct GWavefrontHwHitBinding {
+    const float* t;
+    const int*   prim;
+    const float* u;
+    const float* v;
+    const int*   inst;
+    const int*   occluded;
+};

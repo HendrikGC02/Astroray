@@ -82,10 +82,18 @@ ids: `v2_light_tree`, `v2_media`, `v2_dispersion_caustics`, `v2_sky_sun`,
   manifest sha256 pins the committed file.
 - **Gate form**: per-ROI, per-channel linear mean ratio Astroray/Cycles, seed 278,
   adaptive sampling and denoise OFF. `gates_v2.toml` holds the bands.
-- **Bands** come from `mc_tolerance.py` (never hand-typed): Cycles CPU at `spp_gate` (64) over
-  seeds 278/279/280, `tol = max(0.02, 3*sigma_rel*sqrt(2))`, channels with Cycles mean < 0.01
-  excluded (tol 0). References: 1024 spp Cycles CPU, linear EXR in `refs_v2/`.
-  `python benchmarks/reference_corpus/mc_tolerance.py --work-dir <scratch> [--scenes ...]`.
+- **Bands** come from `mc_tolerance.py` (never hand-typed): Cycles CPU and Astroray CPU at
+  `spp_gate` (64) over seeds 278-282, `tol = max(0.02, 3*sqrt(sigma_cycles^2 + sigma_astroray^2))`
+  per channel and for Rec.709 luminance (primary); GPU/CPU rows use a 5 % floor. Channels with
+  Cycles mean < 0.01 are excluded. Per-channel MEAN gates only (Astroray's spectral R/B chroma
+  noise is measured inside sigma). References: 1024 spp Cycles CPU, linear EXR in `refs_v2/`.
+  `python benchmarks/reference_corpus/mc_tolerance.py --work-dir <scratch> [--scenes ...] [--legs cycles cpu gpu]`
+  (Astroray legs need `ASTRORAY_PYD_DIR=<OpenMP-OFF staged addon>`; the GPU leg only via
+  `scripts/build/gpu_locked_run.py`). Variant `v2_camera_geometry@ortho` = the named ortho camera.
+- **Test**: `tests/test_corpus_v2_parity.py`, one case per (scene, backend, ROI, channel); backends
+  `cpu`, `gpu`, `gpu_cpu` (GPU rows skip until banded). `provisional_v2.toml` lists assertion-level strict
+  xfails, each tied to an issue; the fixing PR deletes its rows. Documented-divergence ROIs pin Astroray
+  against its own 5-seed mean.
 - **Re-bless rule** (owner 2026-09-26): a PR that moves a gate either shows the gate encoded
   the old bug and re-pins the reference in the same PR, or fixes the engine. Never widen a
   band or revert a fix to keep green. Cycles references re-render only on a Blender upgrade.

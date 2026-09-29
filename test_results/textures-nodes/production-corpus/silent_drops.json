@@ -1,0 +1,2230 @@
+{
+ "prod_attributes|cpu": {
+  "approximated_unreported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Base Color",
+    "matrix": "APPROXIMATED",
+    "name": "Base Color",
+    "node": "Principled BSDF",
+    "socket": "input:Base Color",
+    "tree": "material:Attributes",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:Attributes",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:StageFloor",
+    "why": "value"
+   }
+  ],
+  "exercised": 26,
+  "report_entries": [
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: OBJECT_INFO) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Roughness' not representable (unsupported node type in op-VM chain: ATTRIBUTE) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: OBJECT_INFO) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Roughness' not representable (unsupported node type in op-VM chain: ATTRIBUTE) \u00e2\u20ac\u201d flattened to grey"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeAttribute",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Attribute",
+    "socket": "output:Fac",
+    "tree": "material:Attributes",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeObjectInfo",
+    "id": "Random",
+    "matrix": "DROPPED-SILENT",
+    "name": "Random",
+    "node": "Object Info",
+    "socket": "output:Random",
+    "tree": "material:Attributes",
+    "why": "linked"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeVertexColor",
+    "id": "Color",
+    "matrix": "DROPPED-SILENT",
+    "name": "Color",
+    "node": "Color Attribute",
+    "socket": "output:Color",
+    "tree": "material:Attributes",
+    "why": "linked"
+   }
+  ],
+  "supported": 5,
+  "world_pairs_excluded": 4
+ },
+ "prod_attributes|gpu": {
+  "approximated_unreported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Base Color",
+    "matrix": "APPROXIMATED",
+    "name": "Base Color",
+    "node": "Principled BSDF",
+    "socket": "input:Base Color",
+    "tree": "material:Attributes",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:Attributes",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:StageFloor",
+    "why": "value"
+   }
+  ],
+  "exercised": 26,
+  "report_entries": [
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: OBJECT_INFO) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Roughness' not representable (unsupported node type in op-VM chain: ATTRIBUTE) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: OBJECT_INFO) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Roughness' not representable (unsupported node type in op-VM chain: ATTRIBUTE) \u00e2\u20ac\u201d flattened to grey"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeAttribute",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Attribute",
+    "socket": "output:Fac",
+    "tree": "material:Attributes",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeObjectInfo",
+    "id": "Random",
+    "matrix": "DROPPED-SILENT",
+    "name": "Random",
+    "node": "Object Info",
+    "socket": "output:Random",
+    "tree": "material:Attributes",
+    "why": "linked"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeVertexColor",
+    "id": "Color",
+    "matrix": "DROPPED-SILENT",
+    "name": "Color",
+    "node": "Color Attribute",
+    "socket": "output:Color",
+    "tree": "material:Attributes",
+    "why": "linked"
+   }
+  ],
+  "supported": 5,
+  "world_pairs_excluded": 4
+ },
+ "prod_car_paint|cpu": {
+  "approximated_unreported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Base Color",
+    "matrix": "APPROXIMATED",
+    "name": "Base Color",
+    "node": "Principled BSDF",
+    "socket": "input:Base Color",
+    "tree": "material:CarPaint",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Metallic",
+    "matrix": "APPROXIMATED",
+    "name": "Metallic",
+    "node": "Principled BSDF",
+    "socket": "input:Metallic",
+    "tree": "material:CarPaint",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:CarPaint",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Normal",
+    "matrix": "APPROXIMATED",
+    "name": "Normal",
+    "node": "Principled BSDF",
+    "socket": "input:Normal",
+    "tree": "material:CarPaint",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Coat Weight",
+    "matrix": "APPROXIMATED",
+    "name": "Coat Weight",
+    "node": "Principled BSDF",
+    "socket": "input:Coat Weight",
+    "tree": "material:CarPaint",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:StageFloor",
+    "why": "value"
+   }
+  ],
+  "exercised": 38,
+  "report_entries": [
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: LAYER_WEIGHT) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Metallic' not representable (unsupported node type in op-VM chain: FRESNEL) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: LAYER_WEIGHT) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Metallic' not representable (unsupported node type in op-VM chain: FRESNEL) \u00e2\u20ac\u201d flattened to grey"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeFresnel",
+    "id": "IOR",
+    "matrix": "DROPPED-SILENT",
+    "name": "IOR",
+    "node": "Fresnel",
+    "socket": "input:IOR",
+    "tree": "material:CarPaint",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeLayerWeight",
+    "id": "Blend",
+    "matrix": "DROPPED-SILENT",
+    "name": "Blend",
+    "node": "Layer Weight",
+    "socket": "input:Blend",
+    "tree": "material:CarPaint",
+    "why": "value"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeMath",
+    "id": "operation",
+    "matrix": "DROPPED-SILENT",
+    "name": "operation",
+    "node": "Math",
+    "socket": "prop:operation",
+    "tree": "material:CarPaint",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeMix",
+    "id": "data_type",
+    "matrix": "DROPPED-SILENT",
+    "name": "data_type",
+    "node": "Mix",
+    "socket": "prop:data_type",
+    "tree": "material:CarPaint",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeTexVoronoi",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Voronoi Texture",
+    "socket": "input:Vector",
+    "tree": "material:CarPaint",
+    "why": "linked"
+   }
+  ],
+  "supported": 7,
+  "world_pairs_excluded": 4
+ },
+ "prod_car_paint|gpu": {
+  "approximated_unreported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Base Color",
+    "matrix": "APPROXIMATED",
+    "name": "Base Color",
+    "node": "Principled BSDF",
+    "socket": "input:Base Color",
+    "tree": "material:CarPaint",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Metallic",
+    "matrix": "APPROXIMATED",
+    "name": "Metallic",
+    "node": "Principled BSDF",
+    "socket": "input:Metallic",
+    "tree": "material:CarPaint",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:CarPaint",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Normal",
+    "matrix": "APPROXIMATED",
+    "name": "Normal",
+    "node": "Principled BSDF",
+    "socket": "input:Normal",
+    "tree": "material:CarPaint",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Coat Weight",
+    "matrix": "APPROXIMATED",
+    "name": "Coat Weight",
+    "node": "Principled BSDF",
+    "socket": "input:Coat Weight",
+    "tree": "material:CarPaint",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:StageFloor",
+    "why": "value"
+   }
+  ],
+  "exercised": 38,
+  "report_entries": [
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: LAYER_WEIGHT) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Metallic' not representable (unsupported node type in op-VM chain: FRESNEL) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: LAYER_WEIGHT) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Metallic' not representable (unsupported node type in op-VM chain: FRESNEL) \u00e2\u20ac\u201d flattened to grey"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeFresnel",
+    "id": "IOR",
+    "matrix": "DROPPED-SILENT",
+    "name": "IOR",
+    "node": "Fresnel",
+    "socket": "input:IOR",
+    "tree": "material:CarPaint",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeLayerWeight",
+    "id": "Blend",
+    "matrix": "DROPPED-SILENT",
+    "name": "Blend",
+    "node": "Layer Weight",
+    "socket": "input:Blend",
+    "tree": "material:CarPaint",
+    "why": "value"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeMath",
+    "id": "operation",
+    "matrix": "DROPPED-SILENT",
+    "name": "operation",
+    "node": "Math",
+    "socket": "prop:operation",
+    "tree": "material:CarPaint",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeMix",
+    "id": "data_type",
+    "matrix": "DROPPED-SILENT",
+    "name": "data_type",
+    "node": "Mix",
+    "socket": "prop:data_type",
+    "tree": "material:CarPaint",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeTexVoronoi",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Voronoi Texture",
+    "socket": "input:Vector",
+    "tree": "material:CarPaint",
+    "why": "linked"
+   }
+  ],
+  "supported": 7,
+  "world_pairs_excluded": 4
+ },
+ "prod_curves_geometry|cpu": {
+  "approximated_unreported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Base Color",
+    "matrix": "APPROXIMATED",
+    "name": "Base Color",
+    "node": "Principled BSDF",
+    "socket": "input:Base Color",
+    "tree": "material:CurvesGeometry",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:CurvesGeometry",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:StageFloor",
+    "why": "value"
+   }
+  ],
+  "exercised": 48,
+  "report_entries": [
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: NEW_GEOMETRY) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Roughness' not representable (unsupported node type in op-VM chain: CURVE_FLOAT) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: NEW_GEOMETRY) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Roughness' not representable (unsupported node type in op-VM chain: CURVE_FLOAT) \u00e2\u20ac\u201d flattened to grey"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeFloatCurve",
+    "id": "Value",
+    "matrix": "DROPPED-SILENT",
+    "name": "Value",
+    "node": "Float Curve",
+    "socket": "input:Value",
+    "tree": "material:CurvesGeometry",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeNewGeometry",
+    "id": "Backfacing",
+    "matrix": "DROPPED-SILENT",
+    "name": "Backfacing",
+    "node": "Geometry",
+    "socket": "output:Backfacing",
+    "tree": "material:CurvesGeometry",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeNewGeometry",
+    "id": "Pointiness",
+    "matrix": "DROPPED-SILENT",
+    "name": "Pointiness",
+    "node": "Geometry",
+    "socket": "output:Pointiness",
+    "tree": "material:CurvesGeometry",
+    "why": "linked"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeMath",
+    "id": "operation",
+    "matrix": "DROPPED-SILENT",
+    "name": "operation",
+    "node": "Math",
+    "socket": "prop:operation",
+    "tree": "material:CurvesGeometry",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeMix",
+    "id": "data_type",
+    "matrix": "DROPPED-SILENT",
+    "name": "data_type",
+    "node": "Mix",
+    "socket": "prop:data_type",
+    "tree": "material:CurvesGeometry",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeMix",
+    "id": "data_type",
+    "matrix": "DROPPED-SILENT",
+    "name": "data_type",
+    "node": "Mix.001",
+    "socket": "prop:data_type",
+    "tree": "material:CurvesGeometry",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeTexNoise",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Noise Texture",
+    "socket": "input:Vector",
+    "tree": "material:CurvesGeometry",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeRGBCurve",
+    "id": "Color",
+    "matrix": "DROPPED-SILENT",
+    "name": "Color",
+    "node": "RGB Curves",
+    "socket": "input:Color",
+    "tree": "material:CurvesGeometry",
+    "why": "linked"
+   }
+  ],
+  "supported": 14,
+  "world_pairs_excluded": 4
+ },
+ "prod_curves_geometry|gpu": {
+  "approximated_unreported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Base Color",
+    "matrix": "APPROXIMATED",
+    "name": "Base Color",
+    "node": "Principled BSDF",
+    "socket": "input:Base Color",
+    "tree": "material:CurvesGeometry",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:CurvesGeometry",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:StageFloor",
+    "why": "value"
+   }
+  ],
+  "exercised": 48,
+  "report_entries": [
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: NEW_GEOMETRY) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Roughness' not representable (unsupported node type in op-VM chain: CURVE_FLOAT) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: NEW_GEOMETRY) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Roughness' not representable (unsupported node type in op-VM chain: CURVE_FLOAT) \u00e2\u20ac\u201d flattened to grey"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeFloatCurve",
+    "id": "Value",
+    "matrix": "DROPPED-SILENT",
+    "name": "Value",
+    "node": "Float Curve",
+    "socket": "input:Value",
+    "tree": "material:CurvesGeometry",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeNewGeometry",
+    "id": "Backfacing",
+    "matrix": "DROPPED-SILENT",
+    "name": "Backfacing",
+    "node": "Geometry",
+    "socket": "output:Backfacing",
+    "tree": "material:CurvesGeometry",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeNewGeometry",
+    "id": "Pointiness",
+    "matrix": "DROPPED-SILENT",
+    "name": "Pointiness",
+    "node": "Geometry",
+    "socket": "output:Pointiness",
+    "tree": "material:CurvesGeometry",
+    "why": "linked"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeMath",
+    "id": "operation",
+    "matrix": "DROPPED-SILENT",
+    "name": "operation",
+    "node": "Math",
+    "socket": "prop:operation",
+    "tree": "material:CurvesGeometry",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeMix",
+    "id": "data_type",
+    "matrix": "DROPPED-SILENT",
+    "name": "data_type",
+    "node": "Mix",
+    "socket": "prop:data_type",
+    "tree": "material:CurvesGeometry",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeMix",
+    "id": "data_type",
+    "matrix": "DROPPED-SILENT",
+    "name": "data_type",
+    "node": "Mix.001",
+    "socket": "prop:data_type",
+    "tree": "material:CurvesGeometry",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeTexNoise",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Noise Texture",
+    "socket": "input:Vector",
+    "tree": "material:CurvesGeometry",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeRGBCurve",
+    "id": "Color",
+    "matrix": "DROPPED-SILENT",
+    "name": "Color",
+    "node": "RGB Curves",
+    "socket": "input:Color",
+    "tree": "material:CurvesGeometry",
+    "why": "linked"
+   }
+  ],
+  "supported": 14,
+  "world_pairs_excluded": 4
+ },
+ "prod_light_path|cpu": {
+  "approximated_unreported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:Post",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Base Color",
+    "matrix": "APPROXIMATED",
+    "name": "Base Color",
+    "node": "Principled BSDF",
+    "socket": "input:Base Color",
+    "tree": "material:RayLengthFloor",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:RayLengthFloor",
+    "why": "value"
+   }
+  ],
+  "exercised": 43,
+  "report_entries": [
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: LIGHT_PATH) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: LIGHT_PATH) \u00e2\u20ac\u201d flattened to grey"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeLightPath",
+    "id": "Is Camera Ray",
+    "matrix": "DROPPED-SILENT",
+    "name": "Is Camera Ray",
+    "node": "Light Path",
+    "socket": "output:Is Camera Ray",
+    "tree": "material:CameraHiddenEmitter",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeLightPath",
+    "id": "Ray Length",
+    "matrix": "DROPPED-SILENT",
+    "name": "Ray Length",
+    "node": "Light Path",
+    "socket": "output:Ray Length",
+    "tree": "material:RayLengthFloor",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeLightPath",
+    "id": "Is Shadow Ray",
+    "matrix": "DROPPED-SILENT",
+    "name": "Is Shadow Ray",
+    "node": "Light Path",
+    "socket": "output:Is Shadow Ray",
+    "tree": "material:ShadowlessGlass",
+    "why": "linked"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Mix Shader",
+    "socket": "input:Fac",
+    "tree": "material:CameraHiddenEmitter",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader",
+    "socket": "input:Shader",
+    "tree": "material:CameraHiddenEmitter",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader_001",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader",
+    "socket": "input:Shader_001",
+    "tree": "material:CameraHiddenEmitter",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeValToRGB",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Color Ramp",
+    "socket": "input:Fac",
+    "tree": "material:RayLengthFloor",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMath",
+    "id": "operation",
+    "matrix": "DROPPED-SILENT",
+    "name": "operation",
+    "node": "Math",
+    "socket": "prop:operation",
+    "tree": "material:RayLengthFloor",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeMath",
+    "id": "use_clamp",
+    "matrix": "DROPPED-SILENT",
+    "name": "use_clamp",
+    "node": "Math",
+    "socket": "prop:use_clamp",
+    "tree": "material:RayLengthFloor",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Mix Shader",
+    "socket": "input:Fac",
+    "tree": "material:ShadowlessGlass",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader",
+    "socket": "input:Shader",
+    "tree": "material:ShadowlessGlass",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader_001",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader",
+    "socket": "input:Shader_001",
+    "tree": "material:ShadowlessGlass",
+    "why": "linked"
+   }
+  ],
+  "supported": 5,
+  "world_pairs_excluded": 4
+ },
+ "prod_light_path|gpu": {
+  "approximated_unreported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:Post",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Base Color",
+    "matrix": "APPROXIMATED",
+    "name": "Base Color",
+    "node": "Principled BSDF",
+    "socket": "input:Base Color",
+    "tree": "material:RayLengthFloor",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:RayLengthFloor",
+    "why": "value"
+   }
+  ],
+  "exercised": 43,
+  "report_entries": [
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: LIGHT_PATH) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: LIGHT_PATH) \u00e2\u20ac\u201d flattened to grey"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeLightPath",
+    "id": "Is Camera Ray",
+    "matrix": "DROPPED-SILENT",
+    "name": "Is Camera Ray",
+    "node": "Light Path",
+    "socket": "output:Is Camera Ray",
+    "tree": "material:CameraHiddenEmitter",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeLightPath",
+    "id": "Ray Length",
+    "matrix": "DROPPED-SILENT",
+    "name": "Ray Length",
+    "node": "Light Path",
+    "socket": "output:Ray Length",
+    "tree": "material:RayLengthFloor",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeLightPath",
+    "id": "Is Shadow Ray",
+    "matrix": "DROPPED-SILENT",
+    "name": "Is Shadow Ray",
+    "node": "Light Path",
+    "socket": "output:Is Shadow Ray",
+    "tree": "material:ShadowlessGlass",
+    "why": "linked"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Mix Shader",
+    "socket": "input:Fac",
+    "tree": "material:CameraHiddenEmitter",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader",
+    "socket": "input:Shader",
+    "tree": "material:CameraHiddenEmitter",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader_001",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader",
+    "socket": "input:Shader_001",
+    "tree": "material:CameraHiddenEmitter",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeValToRGB",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Color Ramp",
+    "socket": "input:Fac",
+    "tree": "material:RayLengthFloor",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMath",
+    "id": "operation",
+    "matrix": "DROPPED-SILENT",
+    "name": "operation",
+    "node": "Math",
+    "socket": "prop:operation",
+    "tree": "material:RayLengthFloor",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeMath",
+    "id": "use_clamp",
+    "matrix": "DROPPED-SILENT",
+    "name": "use_clamp",
+    "node": "Math",
+    "socket": "prop:use_clamp",
+    "tree": "material:RayLengthFloor",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Mix Shader",
+    "socket": "input:Fac",
+    "tree": "material:ShadowlessGlass",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader",
+    "socket": "input:Shader",
+    "tree": "material:ShadowlessGlass",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader_001",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader",
+    "socket": "input:Shader_001",
+    "tree": "material:ShadowlessGlass",
+    "why": "linked"
+   }
+  ],
+  "supported": 5,
+  "world_pairs_excluded": 4
+ },
+ "prod_marble|cpu": {
+  "approximated_unreported": [],
+  "exercised": 43,
+  "report_entries": [
+   "approximated op-VM: procedural input with OBJECT coordinates on Base Color: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: coordinate program on 6_Wave Texture with OBJECT coordinates: GPU skips the texture (flat value)",
+   "CPU exact",
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian (native material has no base-color texture slot yet)",
+   "approximated op-VM: procedural input with OBJECT coordinates on Base Color: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: coordinate program on 6_Wave Texture with OBJECT coordinates: GPU skips the texture (flat value)",
+   "CPU exact",
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian (native material has no base-color texture slot yet)"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Base Color",
+    "matrix": "APPROXIMATED",
+    "name": "Base Color",
+    "node": "Principled BSDF",
+    "socket": "input:Base Color",
+    "tree": "material:Marble",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:Marble",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Coat Weight",
+    "matrix": "APPROXIMATED",
+    "name": "Coat Weight",
+    "node": "Principled BSDF",
+    "socket": "input:Coat Weight",
+    "tree": "material:Marble",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:StageFloor",
+    "why": "value"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeValToRGB",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Color Ramp",
+    "socket": "input:Fac",
+    "tree": "material:Marble",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Mapping",
+    "socket": "input:Vector",
+    "tree": "material:Marble",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Rotation",
+    "matrix": "DROPPED-SILENT",
+    "name": "Rotation",
+    "node": "Mapping",
+    "socket": "input:Rotation",
+    "tree": "material:Marble",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Scale",
+    "matrix": "DROPPED-SILENT",
+    "name": "Scale",
+    "node": "Mapping",
+    "socket": "input:Scale",
+    "tree": "material:Marble",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeTexNoise",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Noise Texture",
+    "socket": "input:Vector",
+    "tree": "material:Marble",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeVectorMath",
+    "id": "Scale",
+    "matrix": "DROPPED-SILENT",
+    "name": "Scale",
+    "node": "Vector Math",
+    "socket": "input:Scale",
+    "tree": "material:Marble",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeVectorMath",
+    "id": "operation",
+    "matrix": "DROPPED-SILENT",
+    "name": "operation",
+    "node": "Vector Math",
+    "socket": "prop:operation",
+    "tree": "material:Marble",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeTexWave",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Wave Texture",
+    "socket": "input:Vector",
+    "tree": "material:Marble",
+    "why": "linked"
+   }
+  ],
+  "supported": 11,
+  "world_pairs_excluded": 4
+ },
+ "prod_marble|gpu": {
+  "approximated_unreported": [],
+  "exercised": 43,
+  "report_entries": [
+   "approximated op-VM: procedural input with OBJECT coordinates on Base Color: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: coordinate program on 6_Wave Texture with OBJECT coordinates: GPU skips the texture (flat value)",
+   "CPU exact",
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian (native material has no base-color texture slot yet)",
+   "approximated op-VM: procedural input with OBJECT coordinates on Base Color: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: coordinate program on 6_Wave Texture with OBJECT coordinates: GPU skips the texture (flat value)",
+   "CPU exact",
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian (native material has no base-color texture slot yet)"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Base Color",
+    "matrix": "APPROXIMATED",
+    "name": "Base Color",
+    "node": "Principled BSDF",
+    "socket": "input:Base Color",
+    "tree": "material:Marble",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:Marble",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Coat Weight",
+    "matrix": "APPROXIMATED",
+    "name": "Coat Weight",
+    "node": "Principled BSDF",
+    "socket": "input:Coat Weight",
+    "tree": "material:Marble",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:StageFloor",
+    "why": "value"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeValToRGB",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Color Ramp",
+    "socket": "input:Fac",
+    "tree": "material:Marble",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Mapping",
+    "socket": "input:Vector",
+    "tree": "material:Marble",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Rotation",
+    "matrix": "DROPPED-SILENT",
+    "name": "Rotation",
+    "node": "Mapping",
+    "socket": "input:Rotation",
+    "tree": "material:Marble",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Scale",
+    "matrix": "DROPPED-SILENT",
+    "name": "Scale",
+    "node": "Mapping",
+    "socket": "input:Scale",
+    "tree": "material:Marble",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeTexNoise",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Noise Texture",
+    "socket": "input:Vector",
+    "tree": "material:Marble",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeVectorMath",
+    "id": "Scale",
+    "matrix": "DROPPED-SILENT",
+    "name": "Scale",
+    "node": "Vector Math",
+    "socket": "input:Scale",
+    "tree": "material:Marble",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeVectorMath",
+    "id": "operation",
+    "matrix": "DROPPED-SILENT",
+    "name": "operation",
+    "node": "Vector Math",
+    "socket": "prop:operation",
+    "tree": "material:Marble",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeTexWave",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Wave Texture",
+    "socket": "input:Vector",
+    "tree": "material:Marble",
+    "why": "linked"
+   }
+  ],
+  "supported": 11,
+  "world_pairs_excluded": 4
+ },
+ "prod_pbr_group|cpu": {
+  "approximated_unreported": [],
+  "exercised": 42,
+  "report_entries": [
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian (native material has no base-color texture slot yet)",
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian: per-texel metallic_program, roughness_program dropped (both backends)",
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian (native material has no base-color texture slot yet)",
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian: per-texel metallic_program, roughness_program dropped (both backends)"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Base Color",
+    "matrix": "APPROXIMATED",
+    "name": "Base Color",
+    "node": "Principled BSDF",
+    "socket": "input:Base Color",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Metallic",
+    "matrix": "APPROXIMATED",
+    "name": "Metallic",
+    "node": "Principled BSDF",
+    "socket": "input:Metallic",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Normal",
+    "matrix": "APPROXIMATED",
+    "name": "Normal",
+    "node": "Principled BSDF",
+    "socket": "input:Normal",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:StageFloor",
+    "why": "value"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeCombineXYZ",
+    "id": "X",
+    "matrix": "DROPPED-SILENT",
+    "name": "X",
+    "node": "Combine XYZ",
+    "socket": "input:X",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeCombineXYZ",
+    "id": "Y",
+    "matrix": "DROPPED-SILENT",
+    "name": "Y",
+    "node": "Combine XYZ",
+    "socket": "input:Y",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeCombineXYZ",
+    "id": "Z",
+    "matrix": "DROPPED-SILENT",
+    "name": "Z",
+    "node": "Combine XYZ",
+    "socket": "input:Z",
+    "tree": "group:PBRGroup",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Mapping",
+    "socket": "input:Vector",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Rotation",
+    "matrix": "DROPPED-SILENT",
+    "name": "Rotation",
+    "node": "Mapping",
+    "socket": "input:Rotation",
+    "tree": "group:PBRGroup",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Scale",
+    "matrix": "DROPPED-SILENT",
+    "name": "Scale",
+    "node": "Mapping",
+    "socket": "input:Scale",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   }
+  ],
+  "supported": 9,
+  "world_pairs_excluded": 4
+ },
+ "prod_pbr_group|gpu": {
+  "approximated_unreported": [],
+  "exercised": 42,
+  "report_entries": [
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian (native material has no base-color texture slot yet)",
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian: per-texel metallic_program, roughness_program dropped (both backends)",
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian (native material has no base-color texture slot yet)",
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian: per-texel metallic_program, roughness_program dropped (both backends)"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Base Color",
+    "matrix": "APPROXIMATED",
+    "name": "Base Color",
+    "node": "Principled BSDF",
+    "socket": "input:Base Color",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Metallic",
+    "matrix": "APPROXIMATED",
+    "name": "Metallic",
+    "node": "Principled BSDF",
+    "socket": "input:Metallic",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Normal",
+    "matrix": "APPROXIMATED",
+    "name": "Normal",
+    "node": "Principled BSDF",
+    "socket": "input:Normal",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:StageFloor",
+    "why": "value"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeCombineXYZ",
+    "id": "X",
+    "matrix": "DROPPED-SILENT",
+    "name": "X",
+    "node": "Combine XYZ",
+    "socket": "input:X",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeCombineXYZ",
+    "id": "Y",
+    "matrix": "DROPPED-SILENT",
+    "name": "Y",
+    "node": "Combine XYZ",
+    "socket": "input:Y",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeCombineXYZ",
+    "id": "Z",
+    "matrix": "DROPPED-SILENT",
+    "name": "Z",
+    "node": "Combine XYZ",
+    "socket": "input:Z",
+    "tree": "group:PBRGroup",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Mapping",
+    "socket": "input:Vector",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Rotation",
+    "matrix": "DROPPED-SILENT",
+    "name": "Rotation",
+    "node": "Mapping",
+    "socket": "input:Rotation",
+    "tree": "group:PBRGroup",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Scale",
+    "matrix": "DROPPED-SILENT",
+    "name": "Scale",
+    "node": "Mapping",
+    "socket": "input:Scale",
+    "tree": "group:PBRGroup",
+    "why": "linked"
+   }
+  ],
+  "supported": 9,
+  "world_pairs_excluded": 4
+ },
+ "prod_shader_stack|cpu": {
+  "approximated_unreported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Metallic",
+    "matrix": "APPROXIMATED",
+    "name": "Metallic",
+    "node": "Principled BSDF",
+    "socket": "input:Metallic",
+    "tree": "material:ShaderStack",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:ShaderStack",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF.001",
+    "socket": "input:Roughness",
+    "tree": "material:ShaderStack",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:StageFloor",
+    "why": "value"
+   }
+  ],
+  "exercised": 44,
+  "report_entries": [
+   "approximated op-VM: procedural input with OBJECT coordinates on Roughness: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: procedural input with OBJECT coordinates on Metallic: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated MIX_SHADER: textured Fac is per-texel only for Roughness/Metallic/IOR/Transmission",
+   "base colour use the constant mix",
+   "approximated op-VM: shader chain on 'Roughness' not representable (op-VM stack bound (VM_MAX_SLOTS) exceeded) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Metallic' not representable (op-VM stack bound (VM_MAX_SLOTS) exceeded) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: procedural input with OBJECT coordinates on IOR: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: procedural input with OBJECT coordinates on Transmission: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated MIX_SHADER: textured Fac is per-texel only for Roughness/Metallic/IOR/Transmission",
+   "base colour, clearcoat_gloss use the constant mix",
+   "approximated op-VM: procedural input with OBJECT coordinates on Roughness: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: procedural input with OBJECT coordinates on Metallic: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated MIX_SHADER: textured Fac is per-texel only for Roughness/Metallic/IOR/Transmission",
+   "base colour use the constant mix",
+   "approximated op-VM: shader chain on 'Roughness' not representable (op-VM stack bound (VM_MAX_SLOTS) exceeded) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Metallic' not representable (op-VM stack bound (VM_MAX_SLOTS) exceeded) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: procedural input with OBJECT coordinates on IOR: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: procedural input with OBJECT coordinates on Transmission: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated MIX_SHADER: textured Fac is per-texel only for... truncatedPKG119B_LEG REPORT {\"corpus_scene\": \"prod_shader_stack\", \"blend_sha256\": \"683e0eeefbc1a81f6cf3089020e56b4e4453dd3087762a96472fa1d8c0d43a71\", \"freeze_sha256\": \"\", \"build_id\": \"dev\", \"requested_device\": \"cpu\", \"effective_device\": \"cpu\", \"telemetry\": [{\"cancelled\": false, \"tiles_completed\": 300, \"total_tiles\": 300, \"device\": -1, \"units_launched\": 0, \"cancelled_at_unit\": -1, \"grid_uploads\": 0, \"bvh_build_ms\": 3.2992999999999997}], \"engine\": \"CUSTOM_RAYTRACER\", \"res_x\": 320, \"res_y\": 240, \"samples\": 64, \"resolved_seed\": 278, \"animated_seed\": false, \"blender_version\": \"5.2.0 LTS\", \"module_path\": \"C:\\\\Users\\\\hgcom\\\\OneDrive\\\\Astroray\\\\Astroray_repo\\\\Astroray-ap-298\\\\build_cuda\\\\astroray.cp313-win_amd64.pyd\", \"module_sha256\": \"f5666c9281c29a6f915c8cb49851d996a132416287278db07c1b5541c0af3b03\", \"addon_path\": \"C:\\\\Users\\\\hgcom\\\\OneDrive\\\\Astroray\\\\Astroray_repo\\\\Astroray-ap-310\\\\blender_addon\\\\__init__.py\", \"addon_sha256\": \"ff194e21ec4c31459b499a22974d51da8c8771d3314ca96172dd392ea3a04193\", \"bindings\": {}, \"mutation_receipt\": {\"kind\": \"baseline\", \"ok\": true}, \"mask_receipt\": null}"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Mix Shader",
+    "socket": "input:Fac",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader",
+    "socket": "input:Shader",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader_001",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader",
+    "socket": "input:Shader_001",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Mix Shader.001",
+    "socket": "input:Fac",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader.001",
+    "socket": "input:Shader",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader_001",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader.001",
+    "socket": "input:Shader_001",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeAddShader",
+    "id": "Shader",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Add Shader",
+    "socket": "input:Shader",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeAddShader",
+    "id": "Shader_001",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Add Shader",
+    "socket": "input:Shader_001",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeValToRGB",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Color Ramp",
+    "socket": "input:Fac",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeTexNoise",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Noise Texture",
+    "socket": "input:Vector",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeTexNoise",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Noise Texture.001",
+    "socket": "input:Vector",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   }
+  ],
+  "supported": 6,
+  "world_pairs_excluded": 4
+ },
+ "prod_shader_stack|gpu": {
+  "approximated_unreported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Metallic",
+    "matrix": "APPROXIMATED",
+    "name": "Metallic",
+    "node": "Principled BSDF",
+    "socket": "input:Metallic",
+    "tree": "material:ShaderStack",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:ShaderStack",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF.001",
+    "socket": "input:Roughness",
+    "tree": "material:ShaderStack",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:StageFloor",
+    "why": "value"
+   }
+  ],
+  "exercised": 44,
+  "report_entries": [
+   "approximated op-VM: procedural input with OBJECT coordinates on Roughness: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: procedural input with OBJECT coordinates on Metallic: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated MIX_SHADER: textured Fac is per-texel only for Roughness/Metallic/IOR/Transmission",
+   "base colour use the constant mix",
+   "approximated op-VM: shader chain on 'Roughness' not representable (op-VM stack bound (VM_MAX_SLOTS) exceeded) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Metallic' not representable (op-VM stack bound (VM_MAX_SLOTS) exceeded) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: procedural input with OBJECT coordinates on IOR: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: procedural input with OBJECT coordinates on Transmission: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated MIX_SHADER: textured Fac is per-texel only for Roughness/Metallic/IOR/Transmission",
+   "base colour, clearcoat_gloss use the constant mix",
+   "approximated op-VM: procedural input with OBJECT coordinates on Roughness: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: procedural input with OBJECT coordinates on Metallic: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated MIX_SHADER: textured Fac is per-texel only for Roughness/Metallic/IOR/Transmission",
+   "base colour use the constant mix",
+   "approximated op-VM: shader chain on 'Roughness' not representable (op-VM stack bound (VM_MAX_SLOTS) exceeded) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: shader chain on 'Metallic' not representable (op-VM stack bound (VM_MAX_SLOTS) exceeded) \u00e2\u20ac\u201d flattened to grey",
+   "approximated op-VM: procedural input with OBJECT coordinates on IOR: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: procedural input with OBJECT coordinates on Transmission: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated MIX_SHADER: textured Fac is per-texel only for... truncatedPKG119B_LEG REPORT {\"corpus_scene\": \"prod_shader_stack\", \"blend_sha256\": \"683e0eeefbc1a81f6cf3089020e56b4e4453dd3087762a96472fa1d8c0d43a71\", \"freeze_sha256\": \"\", \"build_id\": \"dev\", \"requested_device\": \"gpu\", \"effective_device\": \"gpu\", \"telemetry\": [{\"cancelled\": false, \"tiles_completed\": 0, \"total_tiles\": 0, \"device\": 0, \"units_launched\": 0, \"cancelled_at_unit\": -1, \"grid_uploads\": 0, \"bvh_build_ms\": 3.3159}], \"engine\": \"CUSTOM_RAYTRACER\", \"res_x\": 320, \"res_y\": 240, \"samples\": 64, \"resolved_seed\": 278, \"animated_seed\": false, \"blender_version\": \"5.2.0 LTS\", \"module_path\": \"C:\\\\Users\\\\hgcom\\\\OneDrive\\\\Astroray\\\\Astroray_repo\\\\Astroray-ap-298\\\\build_cuda\\\\astroray.cp313-win_amd64.pyd\", \"module_sha256\": \"f5666c9281c29a6f915c8cb49851d996a132416287278db07c1b5541c0af3b03\", \"addon_path\": \"C:\\\\Users\\\\hgcom\\\\OneDrive\\\\Astroray\\\\Astroray_repo\\\\Astroray-ap-310\\\\blender_addon\\\\__init__.py\", \"addon_sha256\": \"ff194e21ec4c31459b499a22974d51da8c8771d3314ca96172dd392ea3a04193\", \"bindings\": {}, \"mutation_receipt\": {\"kind\": \"baseline\", \"ok\": true}, \"mask_receipt\": null}"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Mix Shader",
+    "socket": "input:Fac",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader",
+    "socket": "input:Shader",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader_001",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader",
+    "socket": "input:Shader_001",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Mix Shader.001",
+    "socket": "input:Fac",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader.001",
+    "socket": "input:Shader",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMixShader",
+    "id": "Shader_001",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Mix Shader.001",
+    "socket": "input:Shader_001",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeAddShader",
+    "id": "Shader",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Add Shader",
+    "socket": "input:Shader",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeAddShader",
+    "id": "Shader_001",
+    "matrix": "DROPPED-SILENT",
+    "name": "Shader",
+    "node": "Add Shader",
+    "socket": "input:Shader_001",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeValToRGB",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Color Ramp",
+    "socket": "input:Fac",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeTexNoise",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Noise Texture",
+    "socket": "input:Vector",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeTexNoise",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Noise Texture.001",
+    "socket": "input:Vector",
+    "tree": "material:ShaderStack",
+    "why": "linked"
+   }
+  ],
+  "supported": 6,
+  "world_pairs_excluded": 4
+ },
+ "prod_wood|cpu": {
+  "approximated_unreported": [],
+  "exercised": 52,
+  "report_entries": [
+   "approximated op-VM: procedural input with OBJECT coordinates on Base Color: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: shader chain on 'Roughness' not representable (op-VM stack bound (VM_MAX_SLOTS) exceeded) \u00e2\u20ac\u201d flattened to grey",
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian (native material has no base-color texture slot yet)",
+   "approximated op-VM: procedural input with OBJECT coordinates on Base Color: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: shader chain on 'Roughness' not representable (op-VM stack bound (VM_MAX_SLOTS) exceeded) \u00e2\u20ac\u201d flattened to grey",
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian (native material has no base-color texture slot yet)"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:StageFloor",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Base Color",
+    "matrix": "APPROXIMATED",
+    "name": "Base Color",
+    "node": "Principled BSDF",
+    "socket": "input:Base Color",
+    "tree": "material:Wood",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:Wood",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Normal",
+    "matrix": "APPROXIMATED",
+    "name": "Normal",
+    "node": "Principled BSDF",
+    "socket": "input:Normal",
+    "tree": "material:Wood",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Specular IOR Level",
+    "matrix": "APPROXIMATED",
+    "name": "Specular IOR Level",
+    "node": "Principled BSDF",
+    "socket": "input:Specular IOR Level",
+    "tree": "material:Wood",
+    "why": "value"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeValToRGB",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Color Ramp",
+    "socket": "input:Fac",
+    "tree": "material:Wood",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Mapping",
+    "socket": "input:Vector",
+    "tree": "material:Wood",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Rotation",
+    "matrix": "DROPPED-SILENT",
+    "name": "Rotation",
+    "node": "Mapping",
+    "socket": "input:Rotation",
+    "tree": "material:Wood",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Scale",
+    "matrix": "DROPPED-SILENT",
+    "name": "Scale",
+    "node": "Mapping",
+    "socket": "input:Scale",
+    "tree": "material:Wood",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeMath",
+    "id": "operation",
+    "matrix": "DROPPED-SILENT",
+    "name": "operation",
+    "node": "Math",
+    "socket": "prop:operation",
+    "tree": "material:Wood",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeMath",
+    "id": "operation",
+    "matrix": "DROPPED-SILENT",
+    "name": "operation",
+    "node": "Math.001",
+    "socket": "prop:operation",
+    "tree": "material:Wood",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeMath",
+    "id": "operation",
+    "matrix": "DROPPED-SILENT",
+    "name": "operation",
+    "node": "Math.002",
+    "socket": "prop:operation",
+    "tree": "material:Wood",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeTexNoise",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Noise Texture",
+    "socket": "input:Vector",
+    "tree": "material:Wood",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeTexWave",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Wave Texture",
+    "socket": "input:Vector",
+    "tree": "material:Wood",
+    "why": "linked"
+   }
+  ],
+  "supported": 16,
+  "world_pairs_excluded": 4
+ },
+ "prod_wood|gpu": {
+  "approximated_unreported": [],
+  "exercised": 52,
+  "report_entries": [
+   "approximated op-VM: procedural input with OBJECT coordinates on Base Color: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: shader chain on 'Roughness' not representable (op-VM stack bound (VM_MAX_SLOTS) exceeded) \u00e2\u20ac\u201d flattened to grey",
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian (native material has no base-color texture slot yet)",
+   "approximated op-VM: procedural input with OBJECT coordinates on Base Color: GPU skips the program (flat value)",
+   "CPU exact",
+   "approximated op-VM: shader chain on 'Roughness' not representable (op-VM stack bound (VM_MAX_SLOTS) exceeded) \u00e2\u20ac\u201d flattened to grey",
+   "approximated BSDF_PRINCIPLED: textured Base Color routes through lambertian (native material has no base-color texture slot yet)"
+  ],
+  "reported": [
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:StageFloor",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Base Color",
+    "matrix": "APPROXIMATED",
+    "name": "Base Color",
+    "node": "Principled BSDF",
+    "socket": "input:Base Color",
+    "tree": "material:Wood",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Roughness",
+    "matrix": "APPROXIMATED",
+    "name": "Roughness",
+    "node": "Principled BSDF",
+    "socket": "input:Roughness",
+    "tree": "material:Wood",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Normal",
+    "matrix": "APPROXIMATED",
+    "name": "Normal",
+    "node": "Principled BSDF",
+    "socket": "input:Normal",
+    "tree": "material:Wood",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeBsdfPrincipled",
+    "id": "Specular IOR Level",
+    "matrix": "APPROXIMATED",
+    "name": "Specular IOR Level",
+    "node": "Principled BSDF",
+    "socket": "input:Specular IOR Level",
+    "tree": "material:Wood",
+    "why": "value"
+   }
+  ],
+  "silent": [
+   {
+    "bl_idname": "ShaderNodeValToRGB",
+    "id": "Fac",
+    "matrix": "DROPPED-SILENT",
+    "name": "Factor",
+    "node": "Color Ramp",
+    "socket": "input:Fac",
+    "tree": "material:Wood",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Mapping",
+    "socket": "input:Vector",
+    "tree": "material:Wood",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Rotation",
+    "matrix": "DROPPED-SILENT",
+    "name": "Rotation",
+    "node": "Mapping",
+    "socket": "input:Rotation",
+    "tree": "material:Wood",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeMapping",
+    "id": "Scale",
+    "matrix": "DROPPED-SILENT",
+    "name": "Scale",
+    "node": "Mapping",
+    "socket": "input:Scale",
+    "tree": "material:Wood",
+    "why": "value"
+   },
+   {
+    "bl_idname": "ShaderNodeMath",
+    "id": "operation",
+    "matrix": "DROPPED-SILENT",
+    "name": "operation",
+    "node": "Math",
+    "socket": "prop:operation",
+    "tree": "material:Wood",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeMath",
+    "id": "operation",
+    "matrix": "DROPPED-SILENT",
+    "name": "operation",
+    "node": "Math.001",
+    "socket": "prop:operation",
+    "tree": "material:Wood",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeMath",
+    "id": "operation",
+    "matrix": "DROPPED-SILENT",
+    "name": "operation",
+    "node": "Math.002",
+    "socket": "prop:operation",
+    "tree": "material:Wood",
+    "why": "prop"
+   },
+   {
+    "bl_idname": "ShaderNodeTexNoise",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Noise Texture",
+    "socket": "input:Vector",
+    "tree": "material:Wood",
+    "why": "linked"
+   },
+   {
+    "bl_idname": "ShaderNodeTexWave",
+    "id": "Vector",
+    "matrix": "DROPPED-SILENT",
+    "name": "Vector",
+    "node": "Wave Texture",
+    "socket": "input:Vector",
+    "tree": "material:Wood",
+    "why": "linked"
+   }
+  ],
+  "supported": 16,
+  "world_pairs_excluded": 4
+ }
+}

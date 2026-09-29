@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done (PR #TBD, 2026-09-30 - baseline CPU 0/8, GPU 0/8, 39 strict silent pairs (~7 real), 9 issues filed #988-#996; Opus contact-sheet sign-off pending)
 **Estimated effort:** 2–3 sessions (~8 h): scenes + Cycles refs ~4 h, walker + audit ~2 h, runs + backlog ~2 h
 **Depends on:** pkg278, pkg284
 
@@ -149,13 +149,16 @@ possibly a scene or reference defect first (CLAUDE.md §5c).
 
 ## Progress
 
-- [ ] Scene builders + Cycles references
-- [ ] Silent-drop audit + fixture
-- [ ] CPU/GPU runs, bands, contact sheet
-- [ ] Backlog issues + burn-down doc
+- [x] Scene builders + Cycles references
+- [x] Silent-drop audit + fixture
+- [x] CPU/GPU runs, bands, contact sheet
+- [x] Backlog issues + burn-down doc
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+* Blender 5.2 `.blend` files are zstd-compressed and not byte-reproducible (true of every corpus scene), so "bit-identical rebuild" became "manifest SHA pins the committed file + structural-identity test".
+* `test_results/pkg310/` is not a valid layout path (banned token); evidence lives in `test_results/textures-nodes/production-corpus/`.
+* The frozen coverage matrix is too coarse for a strict silent-drop gate (#996): 32 of the 39 strict hits are stale rows. Fix the matrix before promoting the audit to a merge gate.
+* Bands: use decorrelated seeds (#986), not 278-282.

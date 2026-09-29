@@ -42,6 +42,17 @@ _HEIGHTS = (0.1, 0.3, 1.0)
 _KINDS = ("sphere", "triangle", "area")
 _REL_TOL = 0.01      # predeclared #883 gate
 _SIGMA_MULT = 3.0    # NEE-off is heavy-tailed: gate on max(1 %, 3 sigma)
+# NEE-off spp per (kind, h). R2 (floor-governed tol = max(1 %, 3 sigma)): a budget
+# is cut only where the measured 3*hypot(sem_on, sem_off)/(0.01*on) over these 5
+# seeds is <= 0.5 at the new AND the next-higher budget (5-seed sems are noisy).
+# Measured 3sigma/floor at 8192 / 4096 / 2048 spp (2026-09-30, CPU):
+#   sphere   0.1: 0.20 / 0.23 / 0.35 -> 2048    sphere   0.3: 0.07 / 0.48 / 0.96 -> 4096
+#   sphere   1.0: 0.63 / 1.00 / 1.40 -> 8192    triangle 0.1: 0.40 / 0.35 / 0.76 -> 4096
+#   triangle 0.3: 0.36 / 0.59 / 1.02 -> 8192    triangle 1.0: 0.87 / 0.91 / 0.95 -> 8192
+#   area     0.1: 0.18 / 0.33 / 0.46 -> 2048    area     0.3: 0.16 / 0.40 / 1.02 -> 4096
+#   area     1.0: 0.55 / 0.48 / 1.45 -> 8192 (old budget already > 0.5: not cut)
+_OFF_SPP = {("sphere", 0.1): 2048, ("sphere", 0.3): 4096, ("triangle", 0.1): 4096,
+            ("area", 0.1): 2048, ("area", 0.3): 4096}
 
 
 def _floor_points(half):
@@ -125,14 +136,19 @@ def _stats(v):
     return float(a.mean()), float(a.std(ddof=1) / math.sqrt(a.size))
 
 
+def _cpu_params():
+    # R5: h = 0.1 (the worst #883 bias) of each kind stays in the fast profile.
+    return [pytest.param(k, h, marks=[] if h == 0.1 else [pytest.mark.slow])
+            for k in _KINDS for h in _HEIGHTS]
+
+
 @pytest.mark.cpu
-@pytest.mark.parametrize("h", _HEIGHTS)
-@pytest.mark.parametrize("kind", _KINDS)
+@pytest.mark.parametrize("kind,h", _cpu_params())
 def test_cpu_nee_on_off_match_analytic(kind, h):
     on_runs = [_render(kind, h, True, s, 256) for s in _SEEDS]
     ref = on_runs[0][1]
     on, sem_on = _stats([m for m, _ in on_runs])
-    off, sem_off = _stats([_render(kind, h, False, s, 8192)[0] for s in _SEEDS])
+    off, sem_off = _stats([_render(kind, h, False, s, _OFF_SPP.get((kind, h), 8192))[0] for s in _SEEDS])
     assert abs(on / ref - 1) < _REL_TOL, (
         f"{kind} h={h}: NEE-on {on:.5f}+-{sem_on:.5f} vs analytic {ref:.5f} "
         f"(ratio {on / ref:.4f})")

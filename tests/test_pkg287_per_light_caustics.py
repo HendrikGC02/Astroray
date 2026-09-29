@@ -102,9 +102,18 @@ def _lum(r, spp, seed=5):
     return 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
 
 
+_CPU_CAUSTIC_CACHE = {}   # R4: identical (kind, photons, spp, seed 5) CPU renders are computed once
+
+
 def _caustic(kind, photons, spp, gpu=False):
-    return (_lum(_scene(kind, photons, gpu=gpu), spp)
-            - _lum(_scene(kind, photons, black=True, gpu=gpu), min(spp, 256)))
+    key = (kind, photons, spp)
+    if not gpu and key in _CPU_CAUSTIC_CACHE:
+        return _CPU_CAUSTIC_CACHE[key]
+    out = (_lum(_scene(kind, photons, gpu=gpu), spp)
+           - _lum(_scene(kind, photons, black=True, gpu=gpu), min(spp, 256)))
+    if not gpu:
+        _CPU_CAUSTIC_CACHE[key] = out    # read-only: no test mutates it
+    return out
 
 
 def _caustic_ref(kind):
@@ -136,6 +145,8 @@ def _centroid(c, m):
     return np.array([(w * xx).sum(), (w * yy).sum()]) / w.sum()
 
 
+# R5: the 16384-spp PT reference costs 34-38 s per kind (146 s total): full profile only.
+@pytest.mark.slow
 @pytest.mark.parametrize("kind", KINDS)
 def test_cpu_photon_caustic_matches_path_traced(kind):
     on = _caustic(kind, True, SPP_ON)
@@ -164,6 +175,7 @@ def test_delta_lamp_stand_in_has_equal_intensity():
     assert abs(ratio - 1.0) <= 0.02
 
 
+@pytest.mark.slow   # R5: 5 s
 def test_cpu_split_drops_path_traced_twin():
     """#909 CPU twin: with the photon map live, receiver -> ball -> sun paths are
     dropped (the gather carries them). A small bright sun made them fireflies
@@ -239,7 +251,9 @@ def _gpu_ok():
 
 
 @pytest.mark.skipif(not _gpu_ok(), reason="CUDA GPU not available")
-@pytest.mark.parametrize("kind", KINDS)
+# R5: one kind (point) stays in the fast profile.
+@pytest.mark.parametrize("kind", [pytest.param(k, marks=pytest.mark.slow) if k != "point" else k
+                                  for k in KINDS])
 def test_gpu_photon_caustic_matches_cpu(kind):
     g = _caustic(kind, True, SPP_ON, gpu=True)
     c = _caustic(kind, True, SPP_ON)

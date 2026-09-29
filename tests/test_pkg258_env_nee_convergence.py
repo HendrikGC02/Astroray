@@ -142,6 +142,10 @@ def _reshape(img, r):
     return a
 
 
+# R5 slow (21-37 s per backend). No R4 sharing: the 65536-spp reference is rendered
+# once per backend and is the backend's own ground truth (different backend =
+# not an identical render).
+@pytest.mark.slow
 @pytest.mark.parametrize("backend", ["cpu", "gpu"])  # pkg258 GPU leg landed
 def test_sun_disc_nee_convergence(sun_hdri, backend):
     """RMSE(NEE on) <= GATE * RMSE(NEE off) vs a 64k-spp reference."""
@@ -322,6 +326,7 @@ def _disp_glass_renderer(hdri_path, seed, use_gpu, nee):
     return r
 
 
+@pytest.mark.slow   # R5: 5 s
 def test_dispersive_glass_hdri_env_nee_gpu(sun_hdri):
     """Rough dispersive glass under the sun-disc HDRI: GPU NEE-on and NEE-off
     converge to the same mean (no dispersive env-NEE bias), and CPU vs GPU agree.

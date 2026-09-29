@@ -40,7 +40,16 @@ pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 _SCENE = _REPO / "benchmarks" / "reference_bank" / "scenes" / "sms-refractive-glass-sphere"
 
 
+_RENDER_CACHE = {}   # R4: seed-pinned identical renders (poly on/off) are computed once
+
+
 def _render(poly: bool) -> np.ndarray:
+    if poly not in _RENDER_CACHE:
+        _RENDER_CACHE[poly] = _render_uncached(poly)
+    return _RENDER_CACHE[poly]
+
+
+def _render_uncached(poly: bool) -> np.ndarray:
     from benchmarks.reference_bank import runner as rb
     mod = rb._load_scene_module(_SCENE)
     r = mod.make_scene(astroray)
@@ -52,6 +61,8 @@ def _render(poly: bool) -> np.ndarray:
     return pix
 
 
+# R5 slow: the seed-pinned poly render is ~35 s (shared by both tests via the cache).
+@pytest.mark.slow
 @pytest.mark.skipif(not _SCENE.exists(), reason="glass-sphere reference scene not present")
 def test_reference_gates_hold_with_poly():
     from benchmarks.reference_bank import runner as rb
@@ -68,6 +79,7 @@ def test_reference_gates_hold_with_poly():
     assert not failed, "poly-on reference gates failed: " + "; ".join(failed)
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not _SCENE.exists(), reason="glass-sphere reference scene not present")
 def test_poly_ssim_not_worse_than_newton():
     from benchmarks.reference_bank import runner as rb

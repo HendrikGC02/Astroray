@@ -48,6 +48,15 @@ RUNGS = {
     "sheen": {"sheen": 1.0},
     "clearcoat": {"clearcoat": 1.0},
     "rough_0.2": {"roughness": 0.2},
+    # pkg295 / #934: a GGX peak far above 1 that the spectral upsample clamp
+    # used to cap (both backends).
+    "metal_r0.1": {"metallic": 1.0, "roughness": 0.1},
+    # pkg295 / #933: partial transmission used the multi-lobe GPU lowering
+    # (base-tinted metal + diffuse + glass); baseline GPU/CPU 0.67-4.2.
+    "trans_0.3_r0.05": {"transmission": 0.3, "roughness": 0.05},
+    "trans_0.3_r0.4": {"transmission": 0.3, "roughness": 0.4},
+    "trans_0.7_r0.05": {"transmission": 0.7, "roughness": 0.05},
+    "trans_0.7_r0.4": {"transmission": 0.7, "roughness": 0.4},
 }
 SUN_DIRS = {"down": [0.0, -1.0, 0.0], "oblique": [0.3, -1.0, 0.2]}
 
@@ -86,6 +95,19 @@ def test_opaque_disney_lowers_to_one_closure():
     assert len(graph) == 1
     assert graph[0]["type"] == "ggx_conductor"
     assert graph[0]["metallic"] == pytest.approx(0.3)
+
+
+def test_partial_transmission_disney_lowers_to_one_closure():
+    # #933/pkg295: 0 < transmission < 0.999 rides the same single lobe.
+    r = astroray.Renderer()
+    m = r.create_material("disney", [0.5, 0.5, 0.5],
+                          {"metallic": 0.2, "transmission": 0.6, "ior": 1.45})
+    graph = r.get_material_closure_graph(m)
+    assert len(graph) == 1
+    assert graph[0]["type"] == "ggx_conductor"
+    assert graph[0]["metallic"] == pytest.approx(0.2)
+    assert graph[0]["transmission"] == pytest.approx(0.6)
+    assert graph[0]["ior"] == pytest.approx(1.45)
 
 
 @pytest.mark.parametrize("rung", ["default", "diffuse_only"])

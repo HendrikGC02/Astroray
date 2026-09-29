@@ -587,25 +587,25 @@ public:
     astroray::MaterialClosureGraph closureGraph() const override {
         astroray::MaterialClosureGraph graph;
         const astroray::ClosureColor base{baseColor_.x, baseColor_.y, baseColor_.z};
-        if (transmission_ <= 1e-4f) {
+        if (transmission_ < 0.999f) {
             // #876/pkg292: opaque Disney lowers to ONE lobe carrying the real
             // metallic; the GPU (gpu_closure_as_material, disneyMetalConductor)
             // evaluates it as the monolithic gpu_disney_eval, the twin of eval().
             // The old diffuse(w=1)+tinted-conductor(w=1) split replaced the
             // F0=0.04 dielectric specular with a base-tinted metal: GPU/CPU 1.84
-            // under a sun.
+            // under a sun. #933/pkg295: partial transmission rides the same lobe
+            // (transmission + ior on the closure; gpu_disney_sample runs the glass
+            // roulette itself) — the split gave GPU/CPU 0.67-4.2 under a sun.
             auto c = astroray::makeGGXConductorClosure(base, roughness_, 1.0f);
             c.metallic = metallic_;
+            c.transmission = transmission_;
+            c.ior = ior_;
             graph.add(c);
             return graph;
         }
         const float diffuseWeight = (1.0f - metallic_) * (1.0f - transmission_);
         if (diffuseWeight > 1e-4f) {
             graph.add(astroray::makeDiffuseClosure(base, diffuseWeight));
-        }
-        const float conductorWeight = transmission_ < 0.999f ? 1.0f : 0.0f;
-        if (conductorWeight > 1e-4f) {
-            graph.add(astroray::makeGGXConductorClosure(base, roughness_, conductorWeight));
         }
         if (transmission_ > 1e-4f) {
             graph.add(astroray::makeDielectricTransmissionClosure(
@@ -873,20 +873,28 @@ public:
         // walk term out and give it the SAME magnitude-factoring guard sampleSpectral()
         // below already applies (#404, [[gpu-dielectric-lowers-to-closure-graph]]) — a
         // per-lobe upsample, exactly what PrincipledPlugin::evalLobeSpectral does.
-        // The rest of the material keeps the ORIGINAL clamped upsample byte-for-byte,
-        // so no non-glass Disney lobe changes: a blanket factoring was tried first and
-        // measured to break test_pkg219d_scalar_param_textures' metallic CPU/GPU
-        // roughness parity on hardware (CPU 0.0623 vs GPU 0.0425, ratio 0.682).
+        // pkg295 (#934): the non-walk remainder is magnitude-factored too
+        // (upsample(rgb/maxc)*maxc, maxc = max(rgb, 1) — sampleSpectral's guard).
+        // f·cos of a GGX peak exceeds 1 under a sun (metal r0.1: ~340), and the
+        // clamp capped NEE at 1: g0.8 r0.1 metal read 0.076x Cycles, copper r0.5
+        // red 0.94x. Byte-identical when rgb <= 1. An earlier CPU-only factoring
+        // broke test_pkg219d's CPU/GPU parity (0.0623 vs 0.0425) because the GPU
+        // still clamped; the GPU twin (gpu_material_eval_spectral) now factors too.
+        auto upsampleFactored = [&](const Vec3& c) {
+            const float maxc = std::max({c.x, c.y, c.z, 1.0f});
+            const Vec3 t = c * (1.0f / maxc);
+            return astroray::RGBAlbedoSpectrum({t.x, t.y, t.z}).sample(lambdas) * maxc;
+        };
         Vec3 walkTint(0.0f);
         float walkScalar = 0.0f;
         Vec3 rgb = evalSplit(rec, wo, wi, &walkTint, &walkScalar);
         if (walkScalar > 0.0f) {
             Vec3 rest = Vec3::max(rgb - walkTint * walkScalar, Vec3(0.0f));
-            return astroray::RGBAlbedoSpectrum({rest.x, rest.y, rest.z}).sample(lambdas) +
+            return upsampleFactored(rest) +
                    astroray::RGBAlbedoSpectrum(
                        {walkTint.x, walkTint.y, walkTint.z}).sample(lambdas) * walkScalar;
         }
-        return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
+        return upsampleFactored(rgb);
     }
 
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {

@@ -50,6 +50,10 @@ struct SceneUploadResult {
     std::vector<GVec3>         textureTexels;
     std::vector<int>           materialTextureId;
     bool                       hasTexture = false;
+    // #962 — some emissive (TexturedLight) material carries a materialTextureId:
+    // the driver publishes c_wfEmissionTex so the intersect/shadow stages fetch
+    // the emission texel per hit. False leaves both stages on the flat path.
+    bool                       hasEmissionTexture = false;
     // #847 — per-vertex Generated coords parallel to `triangles` (3 per tri;
     // NaN .x = none). Empty unless a Generated 3D bake AND a triangle carrying
     // Triangle::setGenerated exist (and the scene is not instanced).

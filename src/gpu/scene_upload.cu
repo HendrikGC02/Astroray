@@ -370,6 +370,11 @@ static void appendOnePrim(
                 mtl->getAnisotropic() > 0.0f;
             const bool imageTextured =
                 mtl && dynamic_cast<TexturedLambertian*>(mtl.get()) != nullptr;
+            // #962 — a textured emitter (non-SolidColor TexturedLight) needs the
+            // UVs for its per-hit / per-NEE-sample emission fetch.
+            const auto* telMtl = mtl ? dynamic_cast<const TexturedLight*>(mtl.get()) : nullptr;
+            const bool emissionTextured =
+                telMtl && !std::dynamic_pointer_cast<SolidColor>(telMtl->getTexture());
             // pkg223 — a normal-mapped material needs the active-layer UVs on the
             // device for the tangent-space decode (HasNormalPerturb). Checked on the
             // DECORATOR (mtl is the NormalMapped wrapper, whose inner TexturedLambertian
@@ -415,7 +420,8 @@ static void appendOnePrim(
             // backends. The anisotropic-Principled UV-tangent path is ALSO only
             // uploaded for authored layers (nothing to sample otherwise).
             const bool textureUVConsumer =
-                imageTextured || normalMapped || bumpMapped || scalarProgrammed;
+                imageTextured || emissionTextured || normalMapped || bumpMapped ||
+                scalarProgrammed;
             if (textureUVConsumer || (anisoPrincipled && tri->hasUVLayers())) {
                 Vec2 t0 = tri->getUV0(), t1 = tri->getUV1(), t2 = tri->getUV2();
                 gt.uv0 = GVec2(t0.u, t0.v);
@@ -1012,8 +1018,18 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         // #826 — texIds of the program's inputs, OP_LOAD_TEX order (-1 = none).
         int progInTex[astroray::svm::VM_MAX_TEX];
         for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t) progInTex[t] = -1;
-        if (auto* tl = dynamic_cast<TexturedLambertian*>(m.get())) {
-            std::shared_ptr<Texture> tex = tl->getTexture();
+        // #962 — a textured Emission Color (TexturedLight) rides the SAME bake +
+        // matTexId/program slots; the wavefront intersect stage (emissive hit)
+        // and shadow stage (NEE) fetch it per hit. A SolidColor TexturedLight is
+        // every untextured "light" material: left on the flat path (bit-identical).
+        auto* tl  = dynamic_cast<TexturedLambertian*>(m.get());
+        auto* tel = dynamic_cast<TexturedLight*>(m.get());
+        std::shared_ptr<Texture> emitTex;
+        if (tel && tel->getIntensity() > 0.0f &&
+            !std::dynamic_pointer_cast<SolidColor>(tel->getTexture()))
+            emitTex = tel->getTexture();
+        if (tl || emitTex) {
+            std::shared_ptr<Texture> tex = tl ? tl->getTexture() : emitTex;
             // pkg219b — a ProgramTexture (per-texel op-VM chain). GPU scope (#826):
             // 1..VM_MAX_TEX inputs, each an ImageTexture (uploaded with the
             // ProgramTexture's Mapping on its descriptor, #825 key) or a procedural
@@ -1071,8 +1087,19 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // the material's own base chroma — an exact, unbiased swap even for a
             // saturated base. Net reflectance stays texUp, so the pkg186 image path
             // (previously dividing by a near-gray base) is unchanged.
-            if (texId >= 0)
+            if (texId >= 0 && tl)
                 r.materials[id].baseColor = GVec3(1.f, 1.f, 1.f);
+            // #962 — emitter: split getEmission() (= mean x intensity) into
+            // baseColor = texture mean, emissionIntensity = intensity. Every flat
+            // consumer reads the product (the same float product as the host),
+            // while the per-hit fetch computes texel x emissionIntensity (CPU
+            // TexturedLight::emitted = texel x intensity).
+            if (texId >= 0 && !tl) {
+                const Vec3 avg = emitTex->average();
+                r.materials[id].baseColor = GVec3(avg.x, avg.y, avg.z);
+                r.materials[id].emissionIntensity = tel->getIntensity();
+                r.hasEmissionTexture = true;
+            }
         }
         // pkg223 — register the tangent-space normal texture (always a plain
         // ImageTexture from load_blender_image) on the parallel side arrays,

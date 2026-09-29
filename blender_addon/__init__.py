@@ -5030,16 +5030,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             params = {'intensity': float(spec.get('emission_strength', 1.0))}
             color_tex = spec.get('emission_color_texture')
             if color_tex is not None:
+                # #762 CPU / #962 GPU: sampled per texel (TexturedLight).
                 params['texture'] = color_tex
-                # #762: CPU samples this per-texel (TexturedLight); the GPU
-                # wavefront path has no textured-emission slot yet and renders
-                # a flat colour instead -- surface it rather than a silent
-                # CPU/GPU divergence.
-                self._warn_shader_fallback(
-                    'EMISSION',
-                    'Emission Color texture is sampled per-texel on CPU; the '
-                    'GPU path has no textured-emission slot yet (#762) and '
-                    'renders a flat colour')
             return renderer.create_material('light', spec.get('base_color', [1, 1, 1]), params)
 
         if kind == 'principled':

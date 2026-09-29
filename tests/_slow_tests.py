@@ -4,6 +4,8 @@ the marker lives in one auditable list instead of ~50 scattered decorators.
 Applied in conftest.pytest_collection_modifyitems. Never a deletion (R5): the full
 profile still runs every entry. Regenerate candidates with
 scripts/test/durations_report.py output; drop an entry once its test is cheap.
+Every area keeps at least one fast test (perf: test_benchmark_showcase_phase2.py::
+test_phase2_categories_populated is deliberately NOT listed).
 """
 
 SLOW_NODEIDS = frozenset({
@@ -19,7 +21,6 @@ SLOW_NODEIDS = frozenset({
     "tests/test_925_medium_segment_nee_unbiased.py::test_929_segment_nee_matches_nee_off_gpu[fog]",  # 3.3 s
     "tests/test_925_medium_segment_nee_unbiased.py::test_929_segment_nee_matches_nee_off_gpu[mesh]",  # 2.2 s
     "tests/test_benchmark_showcase_phase2.py::test_gpu_flag_runs_without_cuda",  # 5.4 s
-    "tests/test_benchmark_showcase_phase2.py::test_phase2_categories_populated",  # 4.2 s
     "tests/test_benchmark_showcase_runs.py::test_quick_run_produces_all_five_artefacts",  # 4.6 s
     "tests/test_blender_parity_harness.py::test_backdrop_is_parity_safe",  # 6.7 s
     "tests/test_blender_parity_harness.py::test_differential_run_local_host",  # 6.6 s

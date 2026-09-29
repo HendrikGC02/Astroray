@@ -39,7 +39,7 @@ scene = "v2_camera_geometry"
 backend = "gpu"
 roi = "hair_tuft"
 channels = ["r", "g", "b", "L"]
-issue = "#853"
+issue = "#963"
 reason = "principled_hair tuft outside band (CPU 0.85-0.95, GPU differs from CPU)"
 
 [[row]]
@@ -63,7 +63,7 @@ scene = "v2_camera_geometry"
 backend = "gpu_cpu"
 roi = "hair_tuft"
 channels = ["r", "b"]
-issue = "#853"
+issue = "#963"
 reason = "principled_hair tuft outside band (CPU 0.85-0.95, GPU differs from CPU)"
 
 [[row]]
@@ -103,7 +103,7 @@ scene = "v2_camera_geometry@ortho"
 backend = "gpu"
 roi = "hair_tuft"
 channels = ["r", "g", "b", "L"]
-issue = "#853"
+issue = "#963"
 reason = "principled_hair tuft outside band (CPU 0.83-0.94, GPU differs from CPU)"
 
 [[row]]
@@ -127,7 +127,7 @@ scene = "v2_camera_geometry@ortho"
 backend = "gpu_cpu"
 roi = "hair_tuft"
 channels = ["r", "g", "b"]
-issue = "#853"
+issue = "#963"
 reason = "principled_hair tuft outside band (CPU 0.83-0.94, GPU differs from CPU)"
 
 [[row]]
@@ -271,8 +271,8 @@ scene = "v2_media"
 backend = "cpu"
 roi = "shaft"
 channels = ["r", "g", "b", "L"]
-issue = "#922"
-reason = "spot shaft in fog reads 0.68-0.79 of Cycles after solid-angle sampling landed (media variance/bias)"
+issue = "#961"
+reason = "spot shaft in fog reads 0.68-0.79 of Cycles (mean deficit, was hidden by noise before #951)"
 
 [[row]]
 scene = "v2_media"
@@ -295,8 +295,8 @@ scene = "v2_media"
 backend = "gpu"
 roi = "shaft"
 channels = ["g", "L"]
-issue = "#922"
-reason = "spot shaft in fog reads 0.68-0.79 of Cycles after solid-angle sampling landed (media variance/bias)"
+issue = "#961"
+reason = "spot shaft in fog reads 0.68-0.79 of Cycles (mean deficit, was hidden by noise before #951)"
 
 [[row]]
 scene = "v2_sky_sun"
@@ -439,7 +439,7 @@ scene = "v2_textures_opvm"
 backend = "gpu"
 roi = "card_Noise"
 channels = ["g", "b", "L"]
-issue = "#890"
+issue = "#962"
 reason = "GPU procedural bake loses Noise detail (g/b 0.76-0.87)"
 
 [[row]]
@@ -455,7 +455,7 @@ scene = "v2_textures_opvm"
 backend = "gpu"
 roi = "card_VoronoiEdge"
 channels = ["r", "g", "b", "L"]
-issue = "#890"
+issue = "#962"
 reason = "GPU procedural bake: VoronoiEdge reads 0.044 of Cycles"
 
 [[row]]
@@ -463,7 +463,7 @@ scene = "v2_textures_opvm"
 backend = "gpu"
 roi = "card_Wave"
 channels = ["r", "g", "b", "L"]
-issue = "#890"
+issue = "#962"
 reason = "GPU procedural bake: Wave reads 1.68x Cycles"
 
 [[row]]
@@ -511,7 +511,7 @@ scene = "v2_textures_opvm"
 backend = "gpu_cpu"
 roi = "card_Noise"
 channels = ["g", "b", "L"]
-issue = "#890"
+issue = "#962"
 reason = "GPU procedural bake loses Noise detail (g/b 0.76-0.87)"
 
 [[row]]
@@ -519,7 +519,7 @@ scene = "v2_textures_opvm"
 backend = "gpu_cpu"
 roi = "card_VoronoiEdge"
 channels = ["r", "g", "b", "L"]
-issue = "#890"
+issue = "#962"
 reason = "GPU procedural bake: VoronoiEdge reads 0.044 of Cycles"
 
 [[row]]
@@ -527,7 +527,7 @@ scene = "v2_textures_opvm"
 backend = "gpu_cpu"
 roi = "card_Wave"
 channels = ["r", "g", "b", "L"]
-issue = "#890"
+issue = "#962"
 reason = "GPU procedural bake: Wave reads 1.68x Cycles"
 
 [[row]]

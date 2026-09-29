@@ -38,6 +38,8 @@ def save_contact_sheet(tiles: list[tuple[str, np.ndarray]],
         ax.axis("off")
 
     for ax, (name, pixels) in zip(axes_arr.flat, tiles):
+        if pixels is None and not name:  # unnamed None = blank padding cell
+            continue
         if pixels is None:
             ax.set_facecolor("#222")
             ax.text(0.5, 0.5, "FAILED",

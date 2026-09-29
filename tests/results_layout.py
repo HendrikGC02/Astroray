@@ -107,11 +107,12 @@ def save_comparison_sheet(path, tiles, title, rois=None) -> Path:
     flat = []
     for r in rows:
         flat.extend(r + [("", None)] * (columns - len(r)))
-    dpi = 100
-    width_in = 15.0 / columns
+    aspect = max((px.shape[0] / px.shape[1] for _, px in flat if px is not None),
+                 default=1.0)
+    width_in = 15.0 / columns  # 15 in x 100 dpi = 1500 px, under the 1600 px cap
     return _contact_sheets().save_contact_sheet(
         flat, Path(path), columns=columns, title=title, rois=rois,
-        tile_size=(width_in, width_in * 0.95), dpi=dpi)
+        tile_size=(width_in, width_in * aspect + 0.4), dpi=100)
 
 
 def _series_color(s: dict, other_idx: list) -> str:

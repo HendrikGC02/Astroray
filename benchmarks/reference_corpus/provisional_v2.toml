@@ -1,7 +1,7 @@
 # pkg284 hand-maintained gate exceptions (NOT generated; mc_tolerance.py only reads [[divergence]]).
 # [[row]]: provisional = strict xfail on that (scene, backend, roi, channel) assertion only, each tied to an
-# issue; the fixing PR removes the row (memory xfail-gated-features-must-unxfail). Measured 2026-09-29
-# on the staged addon build bcb8e10 (dist/astroray), seed 278; the lead re-runs after #940/#934/#933 merge.
+# issue; the fixing PR removes the row (memory xfail-gated-features-must-unxfail). Measured 2026-09-29, seed 278,
+# on main 7b658bb8 + pkg293 CUDA build (Astroray-al-293/build_cuda) with the matching addon Python (main).
 # [[divergence]]: Astroray keeps the physically correct result and Cycles differs (owner 2026-09-29); the ROI
 # is pinned against Astroray's own 5-seed mean instead of Cycles.
 
@@ -13,18 +13,18 @@ reason = "Sellmeier (dispersive) sphere limb vs constant-IOR Cycles glass: colou
 [[row]]
 scene = "v2_camera_geometry"
 backend = "cpu"
-roi = "instances"
+roi = "hair_tuft"
 channels = ["r", "g", "b", "L"]
-issue = "#940"
-reason = "diffuse-lit surface reads 0.94-0.98 of Cycles (spurious specular layer on Diffuse lowered to Principled, fix c7e3c1cf; area-lamp export #921)"
+issue = "#853"
+reason = "principled_hair tuft outside band (CPU 0.85-0.95, GPU differs from CPU)"
 
 [[row]]
 scene = "v2_camera_geometry"
 backend = "cpu"
-roi = "hair_tuft"
+roi = "instances"
 channels = ["r", "g", "b", "L"]
-issue = "#853"
-reason = "hair tuft reads 0.85-0.95 of Cycles (principled_hair, pkg225)"
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
 
 [[row]]
 scene = "v2_camera_geometry"
@@ -32,15 +32,47 @@ backend = "cpu"
 roi = "motion_vane"
 channels = ["r", "g", "b", "L"]
 issue = "#947"
-reason = "motion-blurred vane reads 0.84 of Cycles (blur too narrow)"
+reason = "motion-blurred vane too narrow (0.80-0.83 of Cycles)"
 
 [[row]]
-scene = "v2_camera_geometry@ortho"
-backend = "cpu"
+scene = "v2_camera_geometry"
+backend = "gpu"
+roi = "hair_tuft"
+channels = ["r", "g", "b", "L"]
+issue = "#853"
+reason = "principled_hair tuft outside band (CPU 0.85-0.95, GPU differs from CPU)"
+
+[[row]]
+scene = "v2_camera_geometry"
+backend = "gpu"
 roi = "instances"
 channels = ["r", "g", "b", "L"]
-issue = "#940"
-reason = "diffuse-lit surface reads 0.94-0.98 of Cycles (spurious specular layer on Diffuse lowered to Principled, fix c7e3c1cf; area-lamp export #921)"
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_camera_geometry"
+backend = "gpu"
+roi = "motion_vane"
+channels = ["r", "g", "b", "L"]
+issue = "#947"
+reason = "motion-blurred vane too narrow (0.80-0.83 of Cycles)"
+
+[[row]]
+scene = "v2_camera_geometry"
+backend = "gpu_cpu"
+roi = "hair_tuft"
+channels = ["r", "b"]
+issue = "#853"
+reason = "principled_hair tuft outside band (CPU 0.85-0.95, GPU differs from CPU)"
+
+[[row]]
+scene = "v2_camera_geometry"
+backend = "gpu_cpu"
+roi = "motion_vane"
+channels = ["r"]
+issue = "#947"
+reason = "motion-blurred vane too narrow (0.80-0.83 of Cycles)"
 
 [[row]]
 scene = "v2_camera_geometry@ortho"
@@ -48,7 +80,15 @@ backend = "cpu"
 roi = "hair_tuft"
 channels = ["r", "g", "b", "L"]
 issue = "#853"
-reason = "hair tuft reads 0.81-0.92 of Cycles (principled_hair, pkg225)"
+reason = "principled_hair tuft outside band (CPU 0.83-0.94, GPU differs from CPU)"
+
+[[row]]
+scene = "v2_camera_geometry@ortho"
+backend = "cpu"
+roi = "instances"
+channels = ["r", "g", "b", "L"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
 
 [[row]]
 scene = "v2_camera_geometry@ortho"
@@ -56,63 +96,231 @@ backend = "cpu"
 roi = "motion_vane"
 channels = ["r", "g", "b", "L"]
 issue = "#947"
-reason = "motion-blurred vane reads 0.40 of Cycles (blur too narrow)"
+reason = "motion-blurred vane too narrow (0.35-0.42 of Cycles)"
 
 [[row]]
-scene = "v2_light_tree"
-backend = "cpu"
-roi = "floor_under_pendant_dim"
+scene = "v2_camera_geometry@ortho"
+backend = "gpu"
+roi = "hair_tuft"
 channels = ["r", "g", "b", "L"]
-issue = "#940"
-reason = "diffuse-lit surface reads 0.94-0.98 of Cycles (spurious specular layer on Diffuse lowered to Principled, fix c7e3c1cf; area-lamp export #921)"
+issue = "#853"
+reason = "principled_hair tuft outside band (CPU 0.83-0.94, GPU differs from CPU)"
 
 [[row]]
-scene = "v2_light_tree"
-backend = "cpu"
-roi = "floor_under_pendant_bright"
+scene = "v2_camera_geometry@ortho"
+backend = "gpu"
+roi = "instances"
 channels = ["r", "g", "b", "L"]
-issue = "#940"
-reason = "diffuse-lit surface reads 0.94-0.98 of Cycles (spurious specular layer on Diffuse lowered to Principled, fix c7e3c1cf; area-lamp export #921)"
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
 
 [[row]]
-scene = "v2_light_tree"
-backend = "cpu"
-roi = "floor_under_point"
+scene = "v2_camera_geometry@ortho"
+backend = "gpu"
+roi = "motion_vane"
 channels = ["r", "g", "b", "L"]
-issue = "#940"
-reason = "diffuse-lit surface reads 0.94-0.98 of Cycles (spurious specular layer on Diffuse lowered to Principled, fix c7e3c1cf; area-lamp export #921)"
+issue = "#947"
+reason = "motion-blurred vane too narrow (0.35-0.42 of Cycles)"
 
 [[row]]
-scene = "v2_light_tree"
-backend = "cpu"
-roi = "floor_under_area"
-channels = ["r", "g", "b", "L"]
-issue = "#940"
-reason = "diffuse-lit surface reads 0.94-0.98 of Cycles (spurious specular layer on Diffuse lowered to Principled, fix c7e3c1cf; area-lamp export #921)"
+scene = "v2_camera_geometry@ortho"
+backend = "gpu_cpu"
+roi = "hair_tuft"
+channels = ["r", "g", "b"]
+issue = "#853"
+reason = "principled_hair tuft outside band (CPU 0.83-0.94, GPU differs from CPU)"
 
 [[row]]
-scene = "v2_light_tree"
-backend = "cpu"
-roi = "floor_sun_patch"
-channels = ["g", "L"]
-issue = "#940"
-reason = "diffuse-lit surface reads 0.94-0.98 of Cycles (spurious specular layer on Diffuse lowered to Principled, fix c7e3c1cf; area-lamp export #921)"
+scene = "v2_camera_geometry@ortho"
+backend = "gpu_cpu"
+roi = "motion_vane"
+channels = ["b"]
+issue = "#947"
+reason = "motion-blurred vane too narrow (0.35-0.42 of Cycles)"
+
+[[row]]
+scene = "v2_dispersion_caustics"
+backend = "gpu_cpu"
+roi = "prism_sun_caustic_floor"
+channels = ["r", "g", "b"]
+issue = "#959"
+reason = "GPU vs CPU photon caustics disagree"
+
+[[row]]
+scene = "v2_dispersion_caustics"
+backend = "gpu_cpu"
+roi = "sphere_limb"
+channels = ["r"]
+issue = "#959"
+reason = "GPU vs CPU photon caustics disagree"
+
+[[row]]
+scene = "v2_dispersion_caustics"
+backend = "gpu_cpu"
+roi = "sphere_spot_caustic_floor"
+channels = ["g", "b", "L"]
+issue = "#959"
+reason = "GPU vs CPU photon caustics disagree"
 
 [[row]]
 scene = "v2_light_tree"
 backend = "cpu"
 roi = "back_wall"
 channels = ["r", "g", "b", "L"]
-issue = "#940"
-reason = "diffuse-lit surface reads 0.94-0.98 of Cycles (spurious specular layer on Diffuse lowered to Principled, fix c7e3c1cf; area-lamp export #921)"
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_light_tree"
+backend = "cpu"
+roi = "floor_sun_patch"
+channels = ["g", "L"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_light_tree"
+backend = "cpu"
+roi = "floor_under_area"
+channels = ["r", "g", "b", "L"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_light_tree"
+backend = "cpu"
+roi = "floor_under_pendant_bright"
+channels = ["r", "g", "b", "L"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_light_tree"
+backend = "cpu"
+roi = "floor_under_pendant_dim"
+channels = ["r", "g", "b", "L"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_light_tree"
+backend = "cpu"
+roi = "floor_under_point"
+channels = ["r", "g", "b", "L"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_light_tree"
+backend = "gpu"
+roi = "back_wall"
+channels = ["r", "g", "b", "L"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_light_tree"
+backend = "gpu"
+roi = "floor_sun_patch"
+channels = ["r", "g", "b", "L"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_light_tree"
+backend = "gpu"
+roi = "floor_under_area"
+channels = ["r", "g", "b", "L"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_light_tree"
+backend = "gpu"
+roi = "floor_under_pendant_bright"
+channels = ["r", "g", "b", "L"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_light_tree"
+backend = "gpu"
+roi = "floor_under_pendant_dim"
+channels = ["r", "g", "b", "L"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_light_tree"
+backend = "gpu"
+roi = "floor_under_point"
+channels = ["r", "g", "b", "L"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
 
 [[row]]
 scene = "v2_media"
 backend = "cpu"
 roi = "fog_floor_lit"
 channels = ["r", "g", "b", "L"]
-issue = "#940"
-reason = "diffuse-lit surface reads 0.94-0.98 of Cycles (spurious specular layer on Diffuse lowered to Principled, fix c7e3c1cf; area-lamp export #921)"
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_media"
+backend = "cpu"
+roi = "shaft"
+channels = ["r", "g", "b", "L"]
+issue = "#922"
+reason = "spot shaft in fog reads 0.68-0.79 of Cycles after solid-angle sampling landed (media variance/bias)"
+
+[[row]]
+scene = "v2_media"
+backend = "gpu"
+roi = "fire_core"
+channels = ["b"]
+issue = "#960"
+reason = "GPU fire core b 0.971 marginal"
+
+[[row]]
+scene = "v2_media"
+backend = "gpu"
+roi = "fog_floor_lit"
+channels = ["r", "g", "b", "L"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_media"
+backend = "gpu"
+roi = "shaft"
+channels = ["g", "L"]
+issue = "#922"
+reason = "spot shaft in fog reads 0.68-0.79 of Cycles after solid-angle sampling landed (media variance/bias)"
+
+[[row]]
+scene = "v2_sky_sun"
+backend = "cpu"
+roi = "chrome_reflection"
+channels = ["r", "g", "b", "L"]
+issue = "#946"
+reason = "reflection of the low-elevation sky reads 0.92-0.98"
+
+[[row]]
+scene = "v2_sky_sun"
+backend = "cpu"
+roi = "ground_foreground"
+channels = ["b"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_sky_sun"
+backend = "cpu"
+roi = "stone_sky_lit_face"
+channels = ["r", "g", "b", "L"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
 
 [[row]]
 scene = "v2_sky_sun"
@@ -128,31 +336,47 @@ backend = "cpu"
 roi = "sun_glow"
 channels = ["r", "g", "b", "L"]
 issue = "#946"
-reason = "low-elevation sun glow reads 0.87-0.93 of Cycles"
+reason = "low-elevation sun glow reads 0.87-0.93"
 
 [[row]]
 scene = "v2_sky_sun"
-backend = "cpu"
-roi = "ground_foreground"
-channels = ["b"]
-issue = "#940"
-reason = "diffuse-lit surface reads 0.94-0.98 of Cycles (spurious specular layer on Diffuse lowered to Principled, fix c7e3c1cf; area-lamp export #921)"
-
-[[row]]
-scene = "v2_sky_sun"
-backend = "cpu"
+backend = "gpu"
 roi = "chrome_reflection"
-channels = ["r", "g", "b", "L"]
+channels = ["r", "g", "L"]
 issue = "#946"
 reason = "reflection of the low-elevation sky reads 0.92-0.98"
 
 [[row]]
 scene = "v2_sky_sun"
-backend = "cpu"
+backend = "gpu"
+roi = "ground_foreground"
+channels = ["b"]
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_sky_sun"
+backend = "gpu"
 roi = "stone_sky_lit_face"
 channels = ["r", "g", "b", "L"]
-issue = "#940"
-reason = "diffuse-lit surface reads 0.94-0.98 of Cycles (spurious specular layer on Diffuse lowered to Principled, fix c7e3c1cf; area-lamp export #921)"
+issue = "#953"
+reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+
+[[row]]
+scene = "v2_sky_sun"
+backend = "gpu"
+roi = "sun_disc"
+channels = ["r", "g", "b", "L"]
+issue = "#946"
+reason = "low-elevation sun disc too bright / too neutral"
+
+[[row]]
+scene = "v2_sky_sun"
+backend = "gpu"
+roi = "sun_glow"
+channels = ["r", "g", "b", "L"]
+issue = "#946"
+reason = "low-elevation sun glow reads 0.87-0.93"
 
 [[row]]
 scene = "v2_textures_opvm"
@@ -160,23 +384,7 @@ backend = "cpu"
 roi = "card_Image"
 channels = ["r", "g", "b", "L"]
 issue = "#944"
-reason = "Image card 2.0x Cycles (colour-space decode)"
-
-[[row]]
-scene = "v2_textures_opvm"
-backend = "cpu"
-roi = "card_Voronoi"
-channels = ["r", "g", "b", "L"]
-issue = "#944"
-reason = "Voronoi Color output renders grey"
-
-[[row]]
-scene = "v2_textures_opvm"
-backend = "cpu"
-roi = "card_MapBeforeWarp"
-channels = ["r", "g", "b", "L"]
-issue = "#945"
-reason = "affine Mapping -> Checker renders flat colour"
+reason = "Image card 1.7-2.1x Cycles (colour-space decode)"
 
 [[row]]
 scene = "v2_textures_opvm"
@@ -189,10 +397,26 @@ reason = "Mapping downstream of non-affine warp unsupported (affine part #945)"
 [[row]]
 scene = "v2_textures_opvm"
 backend = "cpu"
+roi = "card_MapBeforeWarp"
+channels = ["r", "g", "b", "L"]
+issue = "#945"
+reason = "affine Mapping -> Checker renders flat colour (GPU differs from CPU)"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "cpu"
+roi = "card_Voronoi"
+channels = ["r", "g", "b", "L"]
+issue = "#944"
+reason = "Voronoi Color output renders grey"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "cpu"
 roi = "sphere_MetallicProg"
 channels = ["r", "g", "b", "L"]
 issue = "#889"
-reason = "Metallic program sphere reads 1.03 of Cycles"
+reason = "Metallic program sphere reads 1.03-1.04 of Cycles (pkg293 did not change it)"
 
 [[row]]
 scene = "v2_textures_opvm"
@@ -200,20 +424,140 @@ backend = "cpu"
 roi = "sphere_MixShaderProg"
 channels = ["r", "g", "b", "L"]
 issue = "#889"
-reason = "scalar programs lost inside Mix Shader: sphere reads 0.85 of Cycles"
+reason = "Mix Shader program sphere reads 0.85 of Cycles on CPU and GPU (pkg293 did not change it)"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "gpu"
+roi = "card_Image"
+channels = ["r", "g", "b", "L"]
+issue = "#944"
+reason = "Image card 1.7-2.1x Cycles (colour-space decode)"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "gpu"
+roi = "card_Noise"
+channels = ["g", "b", "L"]
+issue = "#890"
+reason = "GPU procedural bake loses Noise detail (g/b 0.76-0.87)"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "gpu"
+roi = "card_Voronoi"
+channels = ["r", "g", "b", "L"]
+issue = "#944"
+reason = "Voronoi Color output renders grey"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "gpu"
+roi = "card_VoronoiEdge"
+channels = ["r", "g", "b", "L"]
+issue = "#890"
+reason = "GPU procedural bake: VoronoiEdge reads 0.044 of Cycles"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "gpu"
+roi = "card_Wave"
+channels = ["r", "g", "b", "L"]
+issue = "#890"
+reason = "GPU procedural bake: Wave reads 1.68x Cycles"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "gpu"
+roi = "sphere_MetallicProg"
+channels = ["r", "g", "b", "L"]
+issue = "#889"
+reason = "Metallic program sphere reads 1.03-1.04 of Cycles (pkg293 did not change it)"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "gpu"
+roi = "sphere_MixShaderProg"
+channels = ["r", "g", "b", "L"]
+issue = "#889"
+reason = "Mix Shader program sphere reads 0.85 of Cycles on CPU and GPU (pkg293 did not change it)"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "gpu_cpu"
+roi = "card_Image"
+channels = ["r", "g", "L"]
+issue = "#944"
+reason = "Image card 1.7-2.1x Cycles (colour-space decode)"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "gpu_cpu"
+roi = "card_MapAfterWarp"
+channels = ["r", "g", "b", "L"]
+issue = "#891"
+reason = "Mapping downstream of non-affine warp unsupported (affine part #945)"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "gpu_cpu"
+roi = "card_MapBeforeWarp"
+channels = ["r", "g", "b", "L"]
+issue = "#945"
+reason = "affine Mapping -> Checker renders flat colour (GPU differs from CPU)"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "gpu_cpu"
+roi = "card_Noise"
+channels = ["g", "b", "L"]
+issue = "#890"
+reason = "GPU procedural bake loses Noise detail (g/b 0.76-0.87)"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "gpu_cpu"
+roi = "card_VoronoiEdge"
+channels = ["r", "g", "b", "L"]
+issue = "#890"
+reason = "GPU procedural bake: VoronoiEdge reads 0.044 of Cycles"
+
+[[row]]
+scene = "v2_textures_opvm"
+backend = "gpu_cpu"
+roi = "card_Wave"
+channels = ["r", "g", "b", "L"]
+issue = "#890"
+reason = "GPU procedural bake: Wave reads 1.68x Cycles"
 
 [[row]]
 scene = "v2_thin_film_metals"
 backend = "cpu"
 roi = "sphere_Ti160"
 channels = ["g"]
-issue = "#934"
-reason = "conductor / thin-film metal means outside band"
+issue = "#960"
+reason = "thin-film Ti single-channel outliers"
 
 [[row]]
 scene = "v2_thin_film_metals"
 backend = "cpu"
 roi = "sphere_Ti380"
 channels = ["b"]
-issue = "#934"
-reason = "conductor / thin-film metal means outside band"
+issue = "#960"
+reason = "thin-film Ti single-channel outliers"
+
+[[row]]
+scene = "v2_thin_film_metals"
+backend = "gpu"
+roi = "sphere_Ti160"
+channels = ["g"]
+issue = "#960"
+reason = "thin-film Ti single-channel outliers"
+
+[[row]]
+scene = "v2_thin_film_metals"
+backend = "gpu"
+roi = "sphere_Ti260"
+channels = ["r"]
+issue = "#960"
+reason = "thin-film Ti single-channel outliers"

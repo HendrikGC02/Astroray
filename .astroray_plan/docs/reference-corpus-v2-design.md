@@ -140,6 +140,6 @@ VDBs (CC0, `assets/volumes_*.vdb`). No third-party assets. Gate (c) roles (owner
 
 ## Known limits
 
-- Phase 2: bands re-derived with 5 seeds (278-282) from Cycles + Astroray CPU scatter; the `v2_camera_geometry@ortho` variant (analytic ROIs, same .blend) gates the ortho camera. GPU legs are written but not yet measured or banded.
-- Provisional rows and their issues: `provisional_v2.toml` (measured on staged addon build bcb8e10, before #935/#936 and the #940/#934/#933 fixes).
+- Phase 2: bands re-derived with 5 seeds (278-282) from Cycles + Astroray CPU scatter; the `v2_camera_geometry@ortho` variant (analytic ROIs, same .blend) gates the ortho camera. GPU leg measured (5 seeds) on main 7b658bb8 + pkg293 CUDA build with the matching main addon Python; gpu and gpu_cpu rows banded.
+- Provisional rows and their issues: `provisional_v2.toml` (measured 2026-09-29 on main 7b658bb8 + pkg293 CUDA build).
 - Fog box below the floor (#926) follows the spec; the owner rule is that Astroray keeps physically correct behaviour where Cycles differs.

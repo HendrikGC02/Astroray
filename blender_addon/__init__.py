@@ -3835,6 +3835,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return name
         import hashlib
         parts = [str(getattr(node, 'type', ''))]
+        # Enum / scalar node properties (feature, noise_type, ...) change the texture.
+        for attr in sorted(dir(node)):
+            if attr.startswith(('_', 'bl_')) or attr in ('name', 'label', 'type', 'location',
+                                                          'width', 'height', 'dimensions'):
+                continue
+            try:
+                val = getattr(node, attr)
+            except Exception:
+                continue
+            if isinstance(val, (str, int, float, bool)):
+                parts.append("%s:%r" % (attr, val))
         inputs = getattr(node, 'inputs', None)
         try:
             socks = list(inputs) if inputs is not None else []

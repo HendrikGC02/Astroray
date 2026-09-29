@@ -1106,6 +1106,579 @@ VM_BUILDERS = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# pkg310 -- production node-tree corpus (eight prod_* materials). Same harness as
+# v2: ``--families prod_car_paint ... --out-dir benchmarks/reference_corpus/production``
+# (one Blender process per scene). Each is ONE object (or a small set) on a neutral
+# stage lit by sun + area lamp + the CC0 Poly Haven HDRI. Textures are procedural
+# (images generated here from numpy, packed into the .blend: no third-party data).
+# --------------------------------------------------------------------------- #
+PROD_DIR = REPO_ROOT / "benchmarks" / "reference_corpus" / "production"
+PROD_RES = (320, 240)
+PROD_SPHERE_C, PROD_SPHERE_R = (0.0, 0.0, 0.9), 0.9
+PROD_SUN_DIR = (0.55, -0.35, 0.75)  # direction TO the sun
+PROD_HDRI = "syferfontein_18d_clear_1k.hdr"
+
+
+def _pn(nt, idname, **props):
+    """New shader node with RNA props set (props first so enum-dependent sockets exist)."""
+    node = nt.nodes.new(idname)
+    for k, v in props.items():
+        setattr(node, k, v)
+    return node
+
+
+def _psock(coll, name):
+    for s in coll:
+        if getattr(s, "identifier", None) == name or s.name == name:
+            return s
+    raise KeyError(f"{name!r} not in {[s.identifier for s in coll]}")
+
+
+def _pset(node, name, value):
+    _psock(node.inputs, name).default_value = value
+
+
+def _pl(nt, out_node, out_name, in_node, in_name):
+    """Link ``out_node.outputs[out_name] -> in_node.inputs[in_name]`` (identifier-or-name);
+    an int ``in_name`` indexes the inputs (Math / Mix Shader positional sockets)."""
+    dst = in_node.inputs[in_name] if isinstance(in_name, int) else _psock(in_node.inputs, in_name)
+    nt.links.new(_psock(out_node.outputs, out_name), dst)
+
+
+def _pmix(nt, a, b, fac, blend="MIX"):
+    """RGBA Mix node (Blender 4+/5 ``ShaderNodeMix``); a/b RGBA, fac float defaults."""
+    m = _pn(nt, "ShaderNodeMix", data_type="RGBA", blend_type=blend)
+    _pset(m, "A_Color", a)
+    _pset(m, "B_Color", b)
+    _pset(m, "Factor_Float", fac)
+    return m
+
+
+def _pmath(nt, op, a=None, b=None, clamp=False):
+    m = _pn(nt, "ShaderNodeMath", operation=op, use_clamp=clamp)
+    if a is not None:
+        m.inputs[0].default_value = a
+    if b is not None:
+        m.inputs[1].default_value = b
+    return m
+
+
+def _pramp(nt, stops):
+    """Color Ramp with ``stops`` = [(pos, rgba), ...]."""
+    r = _pn(nt, "ShaderNodeValToRGB")
+    els = r.color_ramp.elements
+    while len(els) < len(stops):
+        els.new(0.5)
+    for el, (pos, col) in zip(els, stops):
+        el.position, el.color = pos, col
+    return r
+
+
+def _prod_image(bpy, name, arr, is_data):
+    """Pack a HxWx3 float array (row 0 = bottom, Blender convention) as a generated image."""
+    import numpy as np
+    h, w = arr.shape[:2]
+    rgba = np.ones((h, w, 4), dtype=np.float32)
+    rgba[:, :, :arr.shape[2]] = arr
+    img = bpy.data.images.new(name, w, h, alpha=False, float_buffer=False, is_data=is_data)
+    img.colorspace_settings.name = "Non-Color" if is_data else "sRGB"
+    img.pixels.foreach_set(rgba.ravel())
+    img.pack()
+    return img
+
+
+def _prod_sphere_pt(dx, dz):
+    """World point on the camera-facing side of the stage sphere, direction (dx, -1, dz)."""
+    d = math.sqrt(dx * dx + 1.0 + dz * dz)
+    return tuple(PROD_SPHERE_C[i] + PROD_SPHERE_R * v / d for i, v in enumerate((dx, -1.0, dz)))
+
+
+def _prod_stage(bpy, sc, sl, res=PROD_RES, floor=True, cam=((0.0, -4.6, 1.5), (0.0, 0.0, 0.85), 45.0),
+                hdri_strength=0.3, sun_strength=1.1, area_power=60.0):
+    """Neutral stage: HDRI world + sun + area lamp + diffuse floor + camera. Returns scene."""
+    scene = _v2_setup(sc, res, bounces=8)
+    world = sc._world((0.03, 0.03, 0.03), 1.0)
+    wnt = world.node_tree
+    img = bpy.data.images.load(str(V2_ASSETS / PROD_HDRI))
+    env = _pn(wnt, "ShaderNodeTexEnvironment")
+    env.image = img
+    bg = next(n for n in wnt.nodes if n.type == "BACKGROUND")
+    _pset(bg, "Strength", hdri_strength)
+    wnt.links.new(env.outputs["Color"], bg.inputs["Color"])
+    sc._light("Sun", "SUN", tuple(6.0 * v for v in PROD_SUN_DIR), (0.0, 0.0, 0.0), sun_strength,
+              color=(1.0, 0.96, 0.9), angle=math.radians(0.6))
+    sc._light("Area", "AREA", (-3.2, -3.0, 3.2), (0.0, 0.0, 0.9), area_power, size=2.0)
+    if floor:
+        fl = sc._principled("StageFloor", (0.30, 0.30, 0.29), rough=0.85)
+        bpy.ops.mesh.primitive_plane_add(size=40.0, location=(0.0, 0.0, 0.0))
+        fo = bpy.context.active_object
+        fo.name = "StageFloor"
+        sc._assign(fo, fl)
+    sc._camera(cam[0], cam[1], lens=cam[2])
+    return scene
+
+
+def _prod_object_sphere(bpy, sc, mat, name="Hero"):
+    obj = sc._uv_sphere(name, PROD_SPHERE_C, PROD_SPHERE_R, seg=96, rings=48)
+    sc._assign(obj, mat)
+    return obj
+
+
+def _prod_principled(nt, out, **inputs):
+    p = _pn(nt, "ShaderNodeBsdfPrincipled")
+    for k, v in inputs.items():
+        _pset(p, k.replace("_", " "), v)
+    nt.links.new(p.outputs["BSDF"], out.inputs["Surface"])
+    return p
+
+
+def _prod_rois(scene, points, hw=0.03):
+    r = _Rois(scene)
+    for name, (dx, dz) in points.items():
+        r.add(name, _prod_sphere_pt(dx, dz), hw)
+    return r
+
+
+def _prod_car_paint(bpy, sc, sl, addon_dir):
+    """Principled + coat; Voronoi flake normal (Bump); Layer Weight Facing mixes base and
+    flake tint; Fresnel drives Metallic."""
+    scene = _prod_stage(bpy, sc, sl)
+    mat, nt, out = sl._bare_material(bpy, "CarPaint")
+    tc = _pn(nt, "ShaderNodeTexCoord")
+    vor = _pn(nt, "ShaderNodeTexVoronoi", feature="F1")
+    _pset(vor, "Scale", 90.0)
+    _pset(vor, "Randomness", 1.0)
+    _pl(nt, tc, "Object", vor, "Vector")
+    bump = _pn(nt, "ShaderNodeBump")
+    _pset(bump, "Strength", 0.35)
+    _pset(bump, "Distance", 0.02)
+    _pl(nt, vor, "Distance", bump, "Height")
+    lw = _pn(nt, "ShaderNodeLayerWeight")
+    _pset(lw, "Blend", 0.35)
+    mix = _pmix(nt, (0.55, 0.04, 0.03, 1.0), (0.95, 0.62, 0.2, 1.0), 0.5)
+    _pl(nt, lw, "Facing", mix, "Factor_Float")
+    fr = _pn(nt, "ShaderNodeFresnel")
+    _pset(fr, "IOR", 1.8)
+    scale = _pmath(nt, "MULTIPLY", None, 0.6)
+    _pl(nt, fr, "Fac", scale, 0)
+    p = _prod_principled(nt, out, Roughness=0.32, Coat_Weight=1.0, Coat_Roughness=0.03, Coat_IOR=1.5)
+    _pl(nt, mix, "Result_Color", p, "Base Color")
+    _pl(nt, scale, "Value", p, "Metallic")
+    _pl(nt, bump, "Normal", p, "Normal")
+    _prod_object_sphere(bpy, sc, mat)
+    r = _prod_rois(scene, {"lit_front": (-0.15, 0.25), "limb_grazing": (0.62, 0.05),
+                           "lower_shadowed": (0.1, -0.55), "upper_flake": (-0.4, 0.55)})
+    return scene, PROD_RES, r, ["principled_coat", "voronoi_bump_flakes", "layer_weight_facing",
+                                "fresnel_node", "mix_rgba"], []
+
+
+def _prod_wood(bpy, sc, sl, addon_dir):
+    """Wave rings + Noise -> Color Ramp -> base colour and roughness; the same scalar chain
+    -> Bump. Object coordinates + Mapping."""
+    scene = _prod_stage(bpy, sc, sl)
+    mat, nt, out = sl._bare_material(bpy, "Wood")
+    tc = _pn(nt, "ShaderNodeTexCoord")
+    mp = _pn(nt, "ShaderNodeMapping")
+    _pset(mp, "Scale", (1.0, 1.0, 3.0))
+    _pset(mp, "Rotation", (0.0, math.radians(90.0), 0.0))
+    _pl(nt, tc, "Object", mp, "Vector")
+    noise = _pn(nt, "ShaderNodeTexNoise")
+    _pset(noise, "Scale", 3.5)
+    _pset(noise, "Detail", 4.0)
+    _pset(noise, "Roughness", 0.55)
+    _pl(nt, mp, "Vector", noise, "Vector")
+    wave = _pn(nt, "ShaderNodeTexWave", wave_type="RINGS", rings_direction="X", wave_profile="SIN")
+    _pset(wave, "Scale", 4.5)
+    _pset(wave, "Distortion", 5.0)
+    _pset(wave, "Detail", 2.0)
+    _pl(nt, mp, "Vector", wave, "Vector")
+    noise_w = _pmath(nt, "MULTIPLY", None, 0.65)
+    _pl(nt, noise, "Fac", noise_w, 0)
+    blend = _pmath(nt, "MULTIPLY_ADD", None, 0.35)  # wave*0.35 + noise*0.65
+    _pl(nt, wave, "Fac", blend, 0)
+    _pl(nt, noise_w, "Value", blend, 2)
+    ramp = _pramp(nt, [(0.25, (0.20, 0.09, 0.03, 1.0)), (0.55, (0.45, 0.24, 0.09, 1.0)),
+                       (0.85, (0.70, 0.45, 0.22, 1.0))])
+    _pl(nt, blend, "Value", ramp, "Fac")
+    rough = _pmath(nt, "MULTIPLY_ADD", None, 0.5)
+    rough.inputs[2].default_value = 0.35
+    _pl(nt, blend, "Value", rough, 0)
+    bump = _pn(nt, "ShaderNodeBump")
+    _pset(bump, "Strength", 0.5)
+    _pset(bump, "Distance", 0.03)
+    _pl(nt, blend, "Value", bump, "Height")
+    p = _prod_principled(nt, out, Specular_IOR_Level=0.4)
+    _pl(nt, ramp, "Color", p, "Base Color")
+    _pl(nt, rough, "Value", p, "Roughness")
+    _pl(nt, bump, "Normal", p, "Normal")
+    _prod_object_sphere(bpy, sc, mat)
+    r = _prod_rois(scene, {"grain_center": (0.0, 0.1), "grain_left": (-0.55, 0.2),
+                           "grain_right": (0.5, -0.15), "lower": (-0.1, -0.5)})
+    return scene, PROD_RES, r, ["wave_rings_distortion", "noise", "color_ramp_multi", "math_chain",
+                                "bump_from_chain", "mapping_rotation", "object_coords"], []
+
+
+def _prod_marble(bpy, sc, sl, addon_dir):
+    """Noise -> Vector Math warp -> Mapping (after the warp) -> Wave bands -> Color Ramp veins."""
+    scene = _prod_stage(bpy, sc, sl)
+    mat, nt, out = sl._bare_material(bpy, "Marble")
+    tc = _pn(nt, "ShaderNodeTexCoord")
+    noise = _pn(nt, "ShaderNodeTexNoise")
+    _pset(noise, "Scale", 2.5)
+    _pset(noise, "Detail", 5.0)
+    _pset(noise, "Roughness", 0.6)
+    _pl(nt, tc, "Object", noise, "Vector")
+    scl = _pn(nt, "ShaderNodeVectorMath", operation="SCALE")
+    _pset(scl, "Scale", 0.7)
+    _pl(nt, noise, "Color", scl, 0)
+    add = _pn(nt, "ShaderNodeVectorMath", operation="ADD")
+    _pl(nt, tc, "Object", add, 0)
+    _pl(nt, scl, "Vector", add, 1)
+    mp = _pn(nt, "ShaderNodeMapping")
+    _pset(mp, "Scale", (2.0, 2.0, 2.0))
+    _pset(mp, "Rotation", (0.0, 0.0, math.radians(35.0)))
+    _pl(nt, add, "Vector", mp, "Vector")
+    wave = _pn(nt, "ShaderNodeTexWave", wave_type="BANDS", bands_direction="Y", wave_profile="SAW")
+    _pset(wave, "Scale", 2.2)
+    _pset(wave, "Distortion", 6.0)
+    _pset(wave, "Detail", 3.0)
+    _pl(nt, mp, "Vector", wave, "Vector")
+    ramp = _pramp(nt, [(0.0, (0.05, 0.05, 0.06, 1.0)), (0.12, (0.55, 0.55, 0.57, 1.0)),
+                       (0.55, (0.93, 0.93, 0.92, 1.0)), (1.0, (0.85, 0.85, 0.86, 1.0))])
+    _pl(nt, wave, "Fac", ramp, "Fac")
+    p = _prod_principled(nt, out, Roughness=0.12, Coat_Weight=0.3)
+    _pl(nt, ramp, "Color", p, "Base Color")
+    _prod_object_sphere(bpy, sc, mat)
+    r = _prod_rois(scene, {"vein_zone": (0.0, 0.15), "left": (-0.55, 0.0), "right": (0.5, 0.25),
+                           "lower": (0.05, -0.55)})
+    return scene, PROD_RES, r, ["noise_vector_warp", "vector_math_scale_add", "mapping_after_warp",
+                                "wave_bands_saw", "color_ramp_4stop", "object_coords"], []
+
+
+def _prod_pbr_group(bpy, sc, sl, addon_dir):
+    """Four packed procedural images (base sRGB; roughness / metallic / normal Non-Color) inside a
+    node group with a Tiling input; Mapping; Normal Map chained into Bump."""
+    import numpy as np
+    n = 128
+    yy, xx = np.mgrid[0:n, 0:n].astype(np.float32) / n
+    tile = 4
+    fx, fy = (xx * tile) % 1.0, (yy * tile) % 1.0
+    mortar = ((fx < 0.06) | (fy < 0.06)).astype(np.float32)
+    ti, tj = np.floor(xx * tile), np.floor(yy * tile)
+    rnd = ((ti * 7 + tj * 13) % 5) / 5.0
+    metal_tile = ((ti + tj) % 3 == 0).astype(np.float32)
+    base = np.stack([0.55 + 0.25 * rnd, 0.25 + 0.2 * rnd, 0.15 + 0.1 * rnd], axis=-1)
+    base = np.where(metal_tile[..., None] > 0, np.array([0.75, 0.72, 0.65], np.float32), base)
+    base = np.where(mortar[..., None] > 0, np.array([0.12, 0.12, 0.12], np.float32), base)
+    rough = np.where(mortar > 0, 0.9, np.where(metal_tile > 0, 0.25, 0.55 + 0.2 * rnd))
+    metal = np.where(mortar > 0, 0.0, metal_tile)
+    height = np.where(mortar > 0, 0.0, 1.0) * (0.6 + 0.4 * np.sin(fx * np.pi) * np.sin(fy * np.pi))
+    height = height.astype(np.float32)
+    gx, gy = np.gradient(height, axis=1) * n * 0.03, np.gradient(height, axis=0) * n * 0.03
+    nrm = np.stack([-gx, -gy, np.ones_like(gx)], axis=-1)
+    nrm /= np.linalg.norm(nrm, axis=-1, keepdims=True)
+    nrm = nrm * 0.5 + 0.5
+
+    def grey(a):
+        return np.repeat(a[..., None].astype(np.float32), 3, axis=-1)
+    scene = _prod_stage(bpy, sc, sl)  # resets bpy.data (images too): create the textures after it
+    imgs = {"base": _prod_image(bpy, "PbrBase", base.astype(np.float32), False),
+            "rough": _prod_image(bpy, "PbrRough", grey(rough), True),
+            "metal": _prod_image(bpy, "PbrMetal", grey(metal), True),
+            "normal": _prod_image(bpy, "PbrNormal", nrm.astype(np.float32), True)}
+    grp = bpy.data.node_groups.new("PBRGroup", "ShaderNodeTree")
+    grp.interface.new_socket("Shader", in_out="OUTPUT", socket_type="NodeSocketShader")
+    grp.interface.new_socket("Tiling", in_out="INPUT", socket_type="NodeSocketFloat").default_value = 3.0
+    gi = _pn(grp, "NodeGroupInput")
+    go = _pn(grp, "NodeGroupOutput")
+    tc = _pn(grp, "ShaderNodeTexCoord")
+    mp = _pn(grp, "ShaderNodeMapping")
+    _pset(mp, "Rotation", (0.0, 0.0, math.radians(15.0)))
+    comb = _pn(grp, "ShaderNodeCombineXYZ")
+    _pl(grp, gi, "Tiling", comb, "X")
+    _pl(grp, gi, "Tiling", comb, "Y")
+    _pset(comb, "Z", 1.0)
+    _pl(grp, comb, "Vector", mp, "Scale")
+    _pl(grp, tc, "UV", mp, "Vector")
+    tex = {}
+    for key in ("base", "rough", "metal", "normal"):
+        t = _pn(grp, "ShaderNodeTexImage")
+        t.image = imgs[key]
+        t.interpolation = "Linear"
+        _pl(grp, mp, "Vector", t, "Vector")
+        tex[key] = t
+    nmap = _pn(grp, "ShaderNodeNormalMap", space="TANGENT")
+    _pset(nmap, "Strength", 1.0)
+    _pl(grp, tex["normal"], "Color", nmap, "Color")
+    bump = _pn(grp, "ShaderNodeBump")
+    _pset(bump, "Strength", 0.25)
+    _pset(bump, "Distance", 0.02)
+    _pl(grp, tex["rough"], "Color", bump, "Height")
+    _pl(grp, nmap, "Normal", bump, "Normal")
+    p = _pn(grp, "ShaderNodeBsdfPrincipled")
+    _pl(grp, tex["base"], "Color", p, "Base Color")
+    _pl(grp, tex["rough"], "Color", p, "Roughness")
+    _pl(grp, tex["metal"], "Color", p, "Metallic")
+    _pl(grp, bump, "Normal", p, "Normal")
+    grp.links.new(p.outputs["BSDF"], go.inputs["Shader"])
+    mat, nt, out = sl._bare_material(bpy, "PbrGroup")
+    gn = _pn(nt, "ShaderNodeGroup")
+    gn.node_tree = grp
+    nt.links.new(gn.outputs["Shader"], out.inputs["Surface"])
+    _prod_object_sphere(bpy, sc, mat)
+    r = _prod_rois(scene, {"centre": (0.0, 0.05), "left": (-0.5, 0.3), "right": (0.5, -0.1),
+                           "lower": (-0.15, -0.5)}, hw=0.035)
+    return scene, PROD_RES, r, ["node_group", "tex_image_srgb_and_data", "mapping_uv_rotation",
+                                "normal_map_tangent", "bump_chained_on_normal_map"], []
+
+
+def _prod_shader_stack(bpy, sc, sl, addon_dir):
+    """Add Shader( Mix( Mix(Principled metal, Principled paint, Noise mask), Glass, fac ),
+    Emission ): three shader levels deep."""
+    scene = _prod_stage(bpy, sc, sl)
+    mat, nt, out = sl._bare_material(bpy, "ShaderStack")
+    tc = _pn(nt, "ShaderNodeTexCoord")
+    noise = _pn(nt, "ShaderNodeTexNoise")
+    _pset(noise, "Scale", 4.0)
+    _pset(noise, "Detail", 3.0)
+    _pl(nt, tc, "Object", noise, "Vector")
+    metal = _pn(nt, "ShaderNodeBsdfPrincipled")
+    _pset(metal, "Base Color", (0.9, 0.62, 0.3, 1.0))
+    _pset(metal, "Metallic", 1.0)
+    _pset(metal, "Roughness", 0.18)
+    paint = _pn(nt, "ShaderNodeBsdfPrincipled")
+    _pset(paint, "Base Color", (0.08, 0.25, 0.6, 1.0))
+    _pset(paint, "Roughness", 0.4)
+    inner = _pn(nt, "ShaderNodeMixShader")
+    _pl(nt, noise, "Fac", inner, "Fac")
+    nt.links.new(metal.outputs["BSDF"], inner.inputs[1])
+    nt.links.new(paint.outputs["BSDF"], inner.inputs[2])
+    glass = _pn(nt, "ShaderNodeBsdfGlass")
+    _pset(glass, "Color", (0.85, 0.95, 1.0, 1.0))
+    _pset(glass, "Roughness", 0.05)
+    _pset(glass, "IOR", 1.45)
+    gnoise = _pn(nt, "ShaderNodeTexNoise")
+    _pset(gnoise, "Scale", 2.0)
+    _pl(nt, tc, "Object", gnoise, "Vector")
+    gfac = _pramp(nt, [(0.35, (0.0, 0.0, 0.0, 1.0)), (0.65, (0.6, 0.6, 0.6, 1.0))])
+    _pl(nt, gnoise, "Fac", gfac, "Fac")
+    outer = _pn(nt, "ShaderNodeMixShader")
+    _pl(nt, gfac, "Color", outer, "Fac")
+    nt.links.new(inner.outputs["Shader"], outer.inputs[1])
+    nt.links.new(glass.outputs["BSDF"], outer.inputs[2])
+    emit = _pn(nt, "ShaderNodeEmission")
+    _pset(emit, "Color", (1.0, 0.35, 0.08, 1.0))
+    _pset(emit, "Strength", 0.6)
+    add = _pn(nt, "ShaderNodeAddShader")
+    nt.links.new(outer.outputs["Shader"], add.inputs[0])
+    nt.links.new(emit.outputs["Emission"], add.inputs[1])
+    nt.links.new(add.outputs["Shader"], out.inputs["Surface"])
+    _prod_object_sphere(bpy, sc, mat)
+    r = _prod_rois(scene, {"lit_front": (-0.2, 0.3), "right": (0.5, 0.05), "lower": (0.0, -0.5),
+                           "upper_left": (-0.5, 0.5)})
+    return scene, PROD_RES, r, ["mix_shader_3_deep", "add_shader_bsdf_emission", "glass_in_stack",
+                                "principled_x2", "noise_masks"], []
+
+
+def _prod_attributes(bpy, sc, sl, addon_dir):
+    """Mesh Color Attribute -> Base Color, custom float Attribute -> Roughness, Object Info
+    Random -> hue on three linked instances."""
+    import bmesh
+    scene = _prod_stage(bpy, sc, sl, cam=((0.0, -5.6, 1.4), (0.0, 0.0, 0.7), 38.0))
+    me = bpy.data.meshes.new("AttrSphere")
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=64, v_segments=32, radius=0.6)
+    bm.to_mesh(me)
+    bm.free()
+    for p in me.polygons:
+        p.use_smooth = True
+    ca = me.color_attributes.new("Col", "FLOAT_COLOR", "POINT")
+    ra = me.attributes.new("rough", "FLOAT", "POINT")
+    cols, rgh = [], []
+    for v in me.vertices:
+        x, y, z = v.co
+        stripe = 0.5 + 0.5 * math.sin(9.0 * x + 3.0 * z)
+        cols.extend((0.15 + 0.75 * (0.5 + z / 1.2), 0.25 + 0.5 * stripe, 0.85 - 0.6 * (0.5 + z / 1.2), 1.0))
+        rgh.append(0.12 + 0.75 * stripe)
+    ca.data.foreach_set("color", cols)
+    ra.data.foreach_set("value", rgh)
+    mat, nt, out = sl._bare_material(bpy, "Attributes")
+    vc = _pn(nt, "ShaderNodeVertexColor", layer_name="Col")
+    at = _pn(nt, "ShaderNodeAttribute", attribute_type="GEOMETRY", attribute_name="rough")
+    oi = _pn(nt, "ShaderNodeObjectInfo")
+    hue = _pn(nt, "ShaderNodeHueSaturation")
+    shift = _pn(nt, "ShaderNodeMapRange")  # Random 0..1 -> hue 0.25..0.75
+    _pset(shift, "To Min", 0.25)
+    _pset(shift, "To Max", 0.75)
+    _pl(nt, oi, "Random", shift, "Value")
+    _pl(nt, shift, "Result", hue, "Hue")
+    _pl(nt, vc, "Color", hue, "Color")
+    p = _prod_principled(nt, out, Metallic=0.0)
+    _pl(nt, hue, "Color", p, "Base Color")
+    _pl(nt, at, "Fac", p, "Roughness")
+    me.materials.append(mat)
+    for i, x in enumerate((-1.5, 0.0, 1.5)):
+        o = bpy.data.objects.new(f"Inst{i}", me)
+        scene.collection.objects.link(o)
+        o.location = (x, 0.0, 0.6)
+    r = _Rois(scene)
+    for i, x in enumerate((-1.5, 0.0, 1.5)):
+        r.add(f"instance{i}", (x - 0.15, -0.55, 0.75), 0.03)
+    r.add("instance1_lower", (0.1, -0.55, 0.35), 0.03)
+    return scene, PROD_RES, r, ["color_attribute", "attribute_float_geometry", "object_info_random",
+                                "hue_saturation", "map_range", "linked_instances"], []
+
+
+def _prod_light_path(bpy, sc, sl, addon_dir):
+    """Is Camera Ray hides an emitter from the camera; Is Shadow Ray makes glass
+    shadow-transparent; Ray Length tints the floor."""
+    scene = _prod_stage(bpy, sc, sl, floor=False, sun_strength=1.1, area_power=40.0,
+                        cam=((0.0, -5.2, 1.6), (0.0, 0.0, 0.7), 42.0))
+    floor_mat, fnt, fout = sl._bare_material(bpy, "RayLengthFloor")
+    lp = _pn(fnt, "ShaderNodeLightPath")
+    rl = _pmath(fnt, "MULTIPLY", None, 0.12, clamp=True)
+    _pl(fnt, lp, "Ray Length", rl, 0)
+    ramp = _pramp(fnt, [(0.0, (0.75, 0.25, 0.15, 1.0)), (1.0, (0.15, 0.3, 0.75, 1.0))])
+    _pl(fnt, rl, "Value", ramp, "Fac")
+    fp = _pn(fnt, "ShaderNodeBsdfPrincipled")
+    _pset(fp, "Roughness", 0.85)
+    _pl(fnt, ramp, "Color", fp, "Base Color")
+    fnt.links.new(fp.outputs["BSDF"], fout.inputs["Surface"])
+    bpy.ops.mesh.primitive_plane_add(size=40.0, location=(0.0, 0.0, 0.0))
+    fo = bpy.context.active_object
+    fo.name = "RayLengthFloor"
+    sc._assign(fo, floor_mat)
+    # glass sphere, shadow-transparent
+    gmat, gnt, gout = sl._bare_material(bpy, "ShadowlessGlass")
+    lp2 = _pn(gnt, "ShaderNodeLightPath")
+    glass = _pn(gnt, "ShaderNodeBsdfGlass")
+    _pset(glass, "Color", (0.9, 1.0, 0.95, 1.0))
+    _pset(glass, "Roughness", 0.02)
+    _pset(glass, "IOR", 1.45)
+    trans = _pn(gnt, "ShaderNodeBsdfTransparent")
+    mx = _pn(gnt, "ShaderNodeMixShader")
+    _pl(gnt, lp2, "Is Shadow Ray", mx, "Fac")
+    gnt.links.new(glass.outputs["BSDF"], mx.inputs[1])
+    gnt.links.new(trans.outputs["BSDF"], mx.inputs[2])
+    gnt.links.new(mx.outputs["Shader"], gout.inputs["Surface"])
+    gs = sc._uv_sphere("GlassBall", (-1.0, 0.0, 0.7), 0.7, seg=64, rings=32)
+    sc._assign(gs, gmat)
+    # hidden emitter (invisible to the camera, still lights the scene)
+    emat, ent, eout = sl._bare_material(bpy, "CameraHiddenEmitter")
+    lp3 = _pn(ent, "ShaderNodeLightPath")
+    em = _pn(ent, "ShaderNodeEmission")
+    _pset(em, "Color", (1.0, 0.85, 0.6, 1.0))
+    _pset(em, "Strength", 40.0)
+    tr = _pn(ent, "ShaderNodeBsdfTransparent")
+    mx2 = _pn(ent, "ShaderNodeMixShader")
+    _pl(ent, lp3, "Is Camera Ray", mx2, "Fac")
+    ent.links.new(em.outputs["Emission"], mx2.inputs[1])
+    ent.links.new(tr.outputs["BSDF"], mx2.inputs[2])
+    ent.links.new(mx2.outputs["Shader"], eout.inputs["Surface"])
+    es = sc._uv_sphere("HiddenEmitter", (1.3, -0.3, 1.5), 0.3, seg=32, rings=16)
+    sc._assign(es, emat)
+    # a diffuse post next to the emitter so its light is visible on geometry
+    pm = sc._principled("Post", (0.6, 0.6, 0.6), rough=0.9)
+    sc._box("Post", (1.3, 0.3, 0.7), (0.5, 0.5, 1.4), pm)
+    sd = PROD_SUN_DIR
+    t = 0.7 / sd[2]  # sun shadow of the glass-ball centre on z=0 (shadow-transparent: light passes)
+    r = _Rois(scene)
+    r.add("glass_ball_centre", (-1.0, -0.7, 0.7), 0.035)
+    r.add("glass_sun_shadow_floor", (-1.0 - sd[0] * t, 0.0 - sd[1] * t, 0.0), 0.04)
+    r.add("emitter_hidden_region", (1.3, -0.3, 1.5), 0.035)
+    r.add("floor_near", (0.3, -1.0, 0.0), 0.05)
+    r.add("floor_far", (0.3, 5.0, 0.0), 0.05)
+    return scene, PROD_RES, r, ["light_path_is_camera_ray", "light_path_is_shadow_ray",
+                                "light_path_ray_length", "transparent_bsdf", "glass_in_mix"], []
+
+
+def _prod_curves_geometry(bpy, sc, sl, addon_dir):
+    """Noise -> Float Curve -> Map Range -> Math -> Roughness; Noise colour -> RGB Curves; Geometry
+    Backfacing + Pointiness -> Mix. Object: a bumpy open bowl (its interior is backfacing)."""
+    import bmesh
+    import mathutils
+    scene = _prod_stage(bpy, sc, sl, cam=((0.0, -4.4, 2.6), (0.0, 0.0, 0.6), 45.0))
+    me = bpy.data.meshes.new("Bowl")
+    bm = bmesh.new()
+    bmesh.ops.create_icosphere(bm, subdivisions=5, radius=0.9)
+    for v in bm.verts:
+        n = mathutils.noise.noise(v.co * 3.1) * 0.5 + mathutils.noise.noise(v.co * 7.3) * 0.2
+        v.co *= 1.0 + 0.22 * n
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.calc_center_median().z > 0.35], context="FACES")
+    bm.to_mesh(me)
+    bm.free()
+    for p in me.polygons:
+        p.use_smooth = True
+    mat, nt, out = sl._bare_material(bpy, "CurvesGeometry")
+    tc = _pn(nt, "ShaderNodeTexCoord")
+    noise = _pn(nt, "ShaderNodeTexNoise")
+    _pset(noise, "Scale", 6.0)
+    _pset(noise, "Detail", 4.0)
+    _pl(nt, tc, "Object", noise, "Vector")
+    fc = _pn(nt, "ShaderNodeFloatCurve")
+    c = fc.mapping.curves[0]
+    c.points[0].location = (0.0, 0.05)
+    c.points[1].location = (1.0, 0.95)
+    c.points.new(0.35, 0.1)
+    c.points.new(0.65, 0.8)
+    fc.mapping.update()
+    _pl(nt, noise, "Fac", fc, "Value")
+    mr = _pn(nt, "ShaderNodeMapRange")
+    _pset(mr, "To Min", 0.15)
+    _pset(mr, "To Max", 0.85)
+    mr.clamp = True
+    _pl(nt, fc, "Value", mr, "Value")
+    rmath = _pmath(nt, "POWER", None, 1.3)
+    _pl(nt, mr, "Result", rmath, 0)
+    rc = _pn(nt, "ShaderNodeRGBCurve")
+    cc = rc.mapping.curves[3]  # combined curve: S-shaped contrast
+    cc.points[0].location = (0.0, 0.0)
+    cc.points[1].location = (1.0, 1.0)
+    cc.points.new(0.3, 0.12)
+    cc.points.new(0.7, 0.88)
+    rc.mapping.update()
+    _pl(nt, noise, "Color", rc, "Color")
+    geo = _pn(nt, "ShaderNodeNewGeometry")
+    pt = _pn(nt, "ShaderNodeMapRange")
+    _pset(pt, "From Min", 0.35)
+    _pset(pt, "From Max", 0.65)
+    pt.clamp = True
+    _pl(nt, geo, "Pointiness", pt, "Value")
+    tint = _pmix(nt, (0.35, 0.33, 0.30, 1.0), (0.85, 0.55, 0.2, 1.0), 0.0)  # A: rock, B: worn edge
+    _pl(nt, pt, "Result", tint, "Factor_Float")
+    _pl(nt, rc, "Color", tint, "A_Color")
+    inside = _pmix(nt, (0.0, 0.0, 0.0, 1.0), (0.05, 0.4, 0.55, 1.0), 0.0)
+    _pl(nt, tint, "Result_Color", inside, "A_Color")
+    _pl(nt, geo, "Backfacing", inside, "Factor_Float")
+    p = _prod_principled(nt, out)
+    _pl(nt, inside, "Result_Color", p, "Base Color")
+    _pl(nt, rmath, "Value", p, "Roughness")
+    obj = bpy.data.objects.new("Bowl", me)
+    scene.collection.objects.link(obj)
+    obj.location = (0.0, 0.0, 0.85)
+    sc._assign(obj, mat)
+    r = _Rois(scene)
+    r.add("outer_front", (0.0, -0.9, 0.55), 0.035)
+    r.add("outer_upper_rim", (-0.6, -0.65, 1.05), 0.03)
+    r.add("inner_backface", (0.0, 0.75, 0.9), 0.04)
+    r.add("outer_left", (-0.85, -0.1, 0.5), 0.03)
+    return scene, PROD_RES, r, ["float_curve", "map_range_clamp", "math_power", "rgb_curves",
+                                "geometry_backfacing", "geometry_pointiness", "mix_rgba"], []
+
+
+PROD_BUILDERS = {
+    "prod_car_paint": _prod_car_paint,
+    "prod_wood": _prod_wood,
+    "prod_marble": _prod_marble,
+    "prod_pbr_group": _prod_pbr_group,
+    "prod_shader_stack": _prod_shader_stack,
+    "prod_attributes": _prod_attributes,
+    "prod_light_path": _prod_light_path,
+    "prod_curves_geometry": _prod_curves_geometry,
+}
+
+
 V2_BUILDERS = {
     "v2_light_tree": _v2_light_tree,
     "v2_media": _v2_media,
@@ -1116,6 +1689,7 @@ V2_BUILDERS = {
     "v2_camera_geometry": _v2_camera_geometry,
     "v2_viewport": _v2_viewport,
     **VM_BUILDERS,  # pkg296
+    **PROD_BUILDERS,  # pkg310
 }
 
 
@@ -1134,6 +1708,8 @@ def _build_v2(bpy, scene_id, out_dir, addon_dir):
     assets = [{"path": f"benchmarks/reference_corpus/assets/{a}",
                "license": "CC0 1.0 (synthetic, generated by scene_library.write_volumes_vdbs)",
                "source_url": "", "sha256": _sha256(V2_ASSETS / a)} for a in asset_names]
+    if scene_id in PROD_BUILDERS:  # pkg310: every prod scene is lit by the CC0 Poly Haven HDRI
+        assets.append({**WORLD_SKY_HDRI_ASSET, "sha256": _sha256(V2_ASSETS / PROD_HDRI)})
     bpy.ops.wm.open_mainfile(filepath=str(blend_path))
     rs = bpy.context.scene
     counts, node_ids, tri = {}, set(), 0
@@ -1187,6 +1763,11 @@ def main():
                    help="print each family's uncovered DROPPED-SILENT rows "
                         "as a Markdown table (paste into README.md) and exit")
     args = p.parse_args(argv)
+    if any(f in PROD_BUILDERS for f in args.families):  # pkg310: prod_* live in their own manifest
+        if not all(f in PROD_BUILDERS for f in args.families):
+            p.error("prod_* families cannot be mixed with others (separate manifests)")
+        if Path(args.out_dir).resolve() != PROD_DIR.resolve():
+            args.out_dir = str(PROD_DIR)
 
     import bpy  # noqa: E402  (only valid inside Blender)
 

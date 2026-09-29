@@ -3678,7 +3678,7 @@
       "family": "volumes_mesh",
       "builder_fn": "_vm_suzanne",
       "blend_path": "benchmarks/reference_corpus/scenes/vm_suzanne.blend",
-      "sha256": "790541d1ec009211ead9e6a7ea5c098410df6c9b70e7b4c7890bb5e02d7c44f8",
+      "sha256": "f0df033f9569c8bbe3134bdd4a87fa6b3e28eb54094b53e9cbb84b9ecd6d2c7a",
       "settings": {
         "res_x": 256,
         "res_y": 256,
@@ -3725,10 +3725,10 @@
           0.4008
         ],
         "cheek": [
-          0.5742,
           0.5325,
-          0.6342,
-          0.5925
+          0.5117,
+          0.5925,
+          0.5717
         ],
         "ear": [
           0.2354,

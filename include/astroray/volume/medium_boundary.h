@@ -25,6 +25,24 @@ public:
         bool backFacing = false;
         float t = 0.0f;
     };
+    // Every crossing with t > tMin along one ray, ascending (one traversal
+    // instead of one closest-hit query per interval end). overflow => more than
+    // kMax crossings: callers fall back to nextCrossing.
+    struct Crossings {
+        static constexpr int kMax = 16;
+        int n;
+        bool overflow;
+        float t[kMax];
+        bool back[kMax];
+        // The first crossing strictly after `after` (same t values as
+        // nextCrossing(o, d, after, inf) would return).
+        Crossing next(float after) const {
+            Crossing c;
+            for (int i = 0; i < n; ++i)
+                if (t[i] > after) { c.hit = true; c.t = t[i]; c.backFacing = back[i]; break; }
+            return c;
+        }
+    };
 
     // verts: 3*nv floats (world), idx: 3*nt vertex indices. Triangles with an
     // out-of-range index are dropped. Winding: counter-clockwise seen from
@@ -61,45 +79,107 @@ public:
     Crossing nextCrossing(const Vec3& o, const Vec3& d, float tMin, float tMax) const {
         Crossing best;
         if (nodes_.empty()) return best;
-        const float od[3] = {o.x, o.y, o.z}, dd[3] = {d.x, d.y, d.z};
-        float inv[3];
-        for (int a = 0; a < 3; ++a) inv[a] = 1.0f / dd[a];  // +-inf for 0 is fine (slab test)
+        const RayPre r(o, d);
+        if (!slab(nodes_[0], r, tMin, tMax)) return best;
         float tFar = tMax;
         int stack[64];
         int sp = 0;
         stack[sp++] = 0;
         while (sp > 0) {
             const Node& n = nodes_[stack[--sp]];
-            if (!slab(n, od, inv, tMin, tFar)) continue;
             if (n.count > 0) {
                 for (int i = 0; i < n.count; ++i) {
                     const Tri& tr = tris_[n.first + i];
                     float t;
-                    if (intersectTri(tr, od, dd, tMin, tFar, t)) {
+                    if (intersectTri(tr, r, tMin, tFar, t)) {
                         tFar = t;
                         best.hit = true;
                         best.t = t;
-                        best.backFacing = facingBack(tr, dd);
+                        best.backFacing = facingBack(tr, r.d);
                     }
                 }
-            } else if (sp + 2 <= 64) {
-                // Visit the nearer child first (pushed last).
-                const int l = n.first, r = n.first + 1;
-                const bool leftFirst = dd[n.axis] >= 0.0f;
-                stack[sp++] = leftFirst ? r : l;
-                stack[sp++] = leftFirst ? l : r;
+                continue;
+            }
+            // Test both children here; push the hit ones, nearer on top.
+            const int l = n.first, rr = n.first + 1;
+            const bool hl = slab(nodes_[l], r, tMin, tFar);
+            const bool hr = slab(nodes_[rr], r, tMin, tFar);
+            if (sp + 2 > 64) continue;
+            if (r.d[n.axis] >= 0.0f) {
+                if (hr) stack[sp++] = rr;
+                if (hl) stack[sp++] = l;
+            } else {
+                if (hl) stack[sp++] = l;
+                if (hr) stack[sp++] = rr;
             }
         }
         return best;
     }
 
+    Crossings allCrossings(const Vec3& o, const Vec3& d, float tMin) const {
+        Crossings out;
+        out.n = 0;
+        out.overflow = false;
+        if (nodes_.empty()) return out;
+        const RayPre r(o, d);
+        constexpr float kFar = std::numeric_limits<float>::max();
+        if (!slab(nodes_[0], r, tMin, kFar)) return out;
+        int stack[64];
+        int sp = 0;
+        stack[sp++] = 0;
+        while (sp > 0) {
+            const Node& n = nodes_[stack[--sp]];
+            if (n.count > 0) {
+                for (int i = 0; i < n.count; ++i) {
+                    const Tri& tr = tris_[n.first + i];
+                    float t;
+                    if (!intersectTri(tr, r, tMin, kFar, t)) continue;
+                    if (out.n == Crossings::kMax) { out.overflow = true; return out; }
+                    // insertion into the ascending list
+                    int j = out.n++;
+                    while (j > 0 && out.t[j - 1] > t) {
+                        out.t[j] = out.t[j - 1];
+                        out.back[j] = out.back[j - 1];
+                        --j;
+                    }
+                    out.t[j] = t;
+                    out.back[j] = facingBack(tr, r.d);
+                }
+                continue;
+            }
+            if (sp + 2 > 64) continue;
+            if (slab(nodes_[n.first + 1], r, tMin, kFar)) stack[sp++] = n.first + 1;
+            if (slab(nodes_[n.first], r, tMin, kFar)) stack[sp++] = n.first;
+        }
+        return out;
+    }
+
 private:
     struct Tri { float p[3][3]; };
-    struct Node {
+    struct alignas(32) Node {  // 32 B: one node per half cache line
         float mn[3], mx[3];
-        int first = 0;   // leaf: first triangle; interior: left child (right = first+1)
-        int count = 0;   // > 0 => leaf
-        int axis = 0;
+        int first = 0;        // leaf: first triangle; interior: left child (right = first+1)
+        int16_t count = 0;    // > 0 => leaf
+        int16_t axis = 0;
+    };
+    // Per-ray constants: slab reciprocals and the Woop 2013 permutation/shear
+    // (computed once per ray instead of per triangle; same arithmetic as pbrt-v4).
+    struct RayPre {
+        float o[3], d[3], inv[3];
+        int kx, ky, kz;
+        float Sx, Sy, Sz;
+        RayPre(const Vec3& ov, const Vec3& dv) {
+            o[0] = ov.x; o[1] = ov.y; o[2] = ov.z;
+            d[0] = dv.x; d[1] = dv.y; d[2] = dv.z;
+            for (int a = 0; a < 3; ++a) inv[a] = 1.0f / d[a];  // +-inf for 0 is fine
+            const float ax = std::abs(d[0]), ay = std::abs(d[1]), az = std::abs(d[2]);
+            kz = (ax > ay) ? (ax > az ? 0 : 2) : (ay > az ? 1 : 2);
+            kx = (kz + 1) % 3;
+            ky = (kx + 1) % 3;
+            Sx = -d[kx] / d[kz];
+            Sy = -d[ky] / d[kz];
+            Sz = 1.0f / d[kz];
+        }
     };
 
     // Back-facing: the ray travels along the geometric normal (dot(Ng, d) > 0),
@@ -113,18 +193,19 @@ private:
         return n0 * d[0] + n1 * d[1] + n2 * d[2] > 0.0f;
     }
 
-    static bool slab(const Node& n, const float o[3], const float inv[3], float tMin, float tMax) {
+    static bool slab(const Node& n, const RayPre& r, float tMin, float tMax) {
+        // Branchless (min/max) form of pbrt-v4 Bounds3::IntersectP. A NaN slab
+        // bound (0*inf: origin on a slab plane, d parallel) leaves t0/t1
+        // unchanged: std::max(t0, NaN) == t0, std::min(t1, NaN) == t1.
+        const float kRobust = 1.0f + 2.0f * gamma(3);
         float t0 = tMin, t1 = tMax;
         for (int a = 0; a < 3; ++a) {
-            float tn = (n.mn[a] - o[a]) * inv[a];
-            float tf = (n.mx[a] - o[a]) * inv[a];
-            if (tn > tf) std::swap(tn, tf);
-            tf *= 1.0f + 2.0f * gamma(3);  // pbrt-v4 Bounds3::IntersectP robustness
-            if (tn > t0) t0 = tn;          // NaN (0*inf) leaves t0/t1 unchanged
-            if (tf < t1) t1 = tf;
-            if (t0 > t1) return false;
+            const float ta = (n.mn[a] - r.o[a]) * r.inv[a];
+            const float tb = (n.mx[a] - r.o[a]) * r.inv[a];
+            t0 = std::max(t0, std::min(ta, tb));
+            t1 = std::min(t1, std::max(ta, tb) * kRobust);
         }
-        return true;
+        return t0 <= t1;
     }
 
     static constexpr float gamma(int n) {
@@ -134,25 +215,15 @@ private:
 
     // pbrt-v4 shapes.cpp IntersectTriangle (Woop, Benthin, Wald 2013, JCGT 2(1)),
     // Apache-2.0, with an added lower bound tMin (strict).
-    static bool intersectTri(const Tri& tr, const float o[3], const float d[3], float tMin,
-                             float tMax, float& tOut) {
-        float p0t[3], p1t[3], p2t[3];
-        for (int a = 0; a < 3; ++a) {
-            p0t[a] = tr.p[0][a] - o[a];
-            p1t[a] = tr.p[1][a] - o[a];
-            p2t[a] = tr.p[2][a] - o[a];
-        }
-        const float ax = std::abs(d[0]), ay = std::abs(d[1]), az = std::abs(d[2]);
-        const int kz = (ax > ay) ? (ax > az ? 0 : 2) : (ay > az ? 1 : 2);
-        const int kx = (kz + 1) % 3, ky = (kx + 1) % 3;
-        const float dx = d[kx], dy = d[ky], dz = d[kz];
-        float a0[3] = {p0t[kx], p0t[ky], p0t[kz]};
-        float a1[3] = {p1t[kx], p1t[ky], p1t[kz]};
-        float a2[3] = {p2t[kx], p2t[ky], p2t[kz]};
-        const float Sx = -dx / dz, Sy = -dy / dz, Sz = 1.0f / dz;
-        a0[0] += Sx * a0[2]; a0[1] += Sy * a0[2];
-        a1[0] += Sx * a1[2]; a1[1] += Sy * a1[2];
-        a2[0] += Sx * a2[2]; a2[1] += Sy * a2[2];
+    static bool intersectTri(const Tri& tr, const RayPre& r, float tMin, float tMax,
+                             float& tOut) {
+        const int kx = r.kx, ky = r.ky, kz = r.kz;
+        float a0[3] = {tr.p[0][kx] - r.o[kx], tr.p[0][ky] - r.o[ky], tr.p[0][kz] - r.o[kz]};
+        float a1[3] = {tr.p[1][kx] - r.o[kx], tr.p[1][ky] - r.o[ky], tr.p[1][kz] - r.o[kz]};
+        float a2[3] = {tr.p[2][kx] - r.o[kx], tr.p[2][ky] - r.o[ky], tr.p[2][kz] - r.o[kz]};
+        a0[0] += r.Sx * a0[2]; a0[1] += r.Sy * a0[2];
+        a1[0] += r.Sx * a1[2]; a1[1] += r.Sy * a1[2];
+        a2[0] += r.Sx * a2[2]; a2[1] += r.Sy * a2[2];
         float e0 = a1[0] * a2[1] - a1[1] * a2[0];
         float e1 = a2[0] * a0[1] - a2[1] * a0[0];
         float e2 = a0[0] * a1[1] - a0[1] * a1[0];
@@ -164,31 +235,33 @@ private:
         if ((e0 < 0 || e1 < 0 || e2 < 0) && (e0 > 0 || e1 > 0 || e2 > 0)) return false;
         const float det = e0 + e1 + e2;
         if (det == 0.0f) return false;
-        a0[2] *= Sz; a1[2] *= Sz; a2[2] *= Sz;
+        a0[2] *= r.Sz; a1[2] *= r.Sz; a2[2] *= r.Sz;
         const float tScaled = e0 * a0[2] + e1 * a1[2] + e2 * a2[2];
         if (det < 0 && (tScaled >= 0 || tScaled < tMax * det)) return false;
         if (det > 0 && (tScaled <= 0 || tScaled > tMax * det)) return false;
         const float invDet = 1.0f / det;
         const float t = tScaled * invDet;
+        if (!(t > tMin) || !(t < tMax)) return false;
         // Conservative t > 0 bound (pbrt-v4 deltaT).
-        const float maxZt = std::max({std::abs(a0[2]), std::abs(a1[2]), std::abs(a2[2])});
+        const float maxZt = std::max(std::abs(a0[2]), std::max(std::abs(a1[2]), std::abs(a2[2])));
         const float deltaZ = gamma(3) * maxZt;
-        const float maxXt = std::max({std::abs(a0[0]), std::abs(a1[0]), std::abs(a2[0])});
-        const float maxYt = std::max({std::abs(a0[1]), std::abs(a1[1]), std::abs(a2[1])});
+        const float maxXt = std::max(std::abs(a0[0]), std::max(std::abs(a1[0]), std::abs(a2[0])));
+        const float maxYt = std::max(std::abs(a0[1]), std::max(std::abs(a1[1]), std::abs(a2[1])));
         const float deltaX = gamma(5) * (maxXt + maxZt);
         const float deltaY = gamma(5) * (maxYt + maxZt);
         const float deltaE = 2.0f * (gamma(2) * maxXt * maxYt + deltaY * maxXt + deltaX * maxYt);
-        const float maxE = std::max({std::abs(e0), std::abs(e1), std::abs(e2)});
+        const float maxE = std::max(std::abs(e0), std::max(std::abs(e1), std::abs(e2)));
         const float deltaT =
             3.0f * (gamma(3) * maxE * maxZt + deltaE * maxZt + deltaZ * maxE) * std::abs(invDet);
         if (t <= deltaT) return false;
-        if (!(t > tMin) || !(t < tMax)) return false;
         tOut = t;
         return true;
     }
 
-    // pbrt-v4 BVHAggregate "EqualCounts" split: median of the centroids on the
-    // largest centroid-extent axis; leaves of <= 4 triangles.
+    // pbrt-v4 BVHAggregate::buildRecursive (Apache-2.0): binned SAH split
+    // (12 buckets on the largest centroid-extent axis, cost 1/2 per traversal
+    // step relative to a triangle test), equal-counts split for <= 2
+    // triangles; leaves of <= 4 triangles when no split is cheaper.
     void build() {
         nodes_.clear();
         if (tris_.empty()) return;
@@ -196,37 +269,98 @@ private:
         nodes_.push_back(Node{});
         buildRec(0, 0, int(tris_.size()));
     }
+    static float area(const float mn[3], const float mx[3]) {
+        const float dx = mx[0] - mn[0], dy = mx[1] - mn[1], dz = mx[2] - mn[2];
+        return (dx < 0.0f) ? 0.0f : 2.0f * (dx * dy + dy * dz + dz * dx);
+    }
+    static void grow(float mn[3], float mx[3], const Tri& t) {
+        for (int k = 0; k < 3; ++k)
+            for (int a = 0; a < 3; ++a) {
+                mn[a] = std::min(mn[a], t.p[k][a]);
+                mx[a] = std::max(mx[a], t.p[k][a]);
+            }
+    }
+    static void emptyBox(float mn[3], float mx[3]) {
+        for (int a = 0; a < 3; ++a) { mn[a] = std::numeric_limits<float>::max(); mx[a] = -mn[a]; }
+    }
     void buildRec(int ni, int begin, int end) {
         Node n;
-        for (int a = 0; a < 3; ++a) { n.mn[a] = std::numeric_limits<float>::max(); n.mx[a] = -n.mn[a]; }
+        emptyBox(n.mn, n.mx);
         float cmn[3], cmx[3];
-        for (int a = 0; a < 3; ++a) { cmn[a] = std::numeric_limits<float>::max(); cmx[a] = -cmn[a]; }
-        for (int i = begin; i < end; ++i)
+        emptyBox(cmn, cmx);
+        for (int i = begin; i < end; ++i) {
+            grow(n.mn, n.mx, tris_[i]);
             for (int a = 0; a < 3; ++a) {
-                float c = 0.0f;
-                for (int k = 0; k < 3; ++k) {
-                    n.mn[a] = std::min(n.mn[a], tris_[i].p[k][a]);
-                    n.mx[a] = std::max(n.mx[a], tris_[i].p[k][a]);
-                    c += tris_[i].p[k][a];
-                }
+                const float c = tris_[i].p[0][a] + tris_[i].p[1][a] + tris_[i].p[2][a];
                 cmn[a] = std::min(cmn[a], c);
                 cmx[a] = std::max(cmx[a], c);
             }
+        }
         const int count = end - begin;
         int axis = 0;
         for (int a = 1; a < 3; ++a)
             if (cmx[a] - cmn[a] > cmx[axis] - cmn[axis]) axis = a;
-        if (count <= 4 || !(cmx[axis] > cmn[axis])) {
+        auto makeLeaf = [&]() {
             n.first = begin;
-            n.count = count;
+            n.count = int16_t(count);
             nodes_[ni] = n;
-            return;
-        }
-        const int mid = begin + count / 2;
+        };
+        if (count == 1 || !(cmx[axis] > cmn[axis])) { makeLeaf(); return; }
         auto cen = [axis](const Tri& t) { return t.p[0][axis] + t.p[1][axis] + t.p[2][axis]; };
-        std::nth_element(tris_.begin() + begin, tris_.begin() + mid, tris_.begin() + end,
-                         [&](const Tri& x, const Tri& y) { return cen(x) < cen(y); });
-        n.axis = axis;
+        int mid;
+        if (count <= 2) {
+            mid = begin + count / 2;
+            std::nth_element(tris_.begin() + begin, tris_.begin() + mid, tris_.begin() + end,
+                             [&](const Tri& x, const Tri& y) { return cen(x) < cen(y); });
+        } else {
+            constexpr int kB = 12;
+            int bc[kB] = {};
+            float bmn[kB][3], bmx[kB][3];
+            for (int b = 0; b < kB; ++b) emptyBox(bmn[b], bmx[b]);
+            const float scale = kB / (cmx[axis] - cmn[axis]);
+            auto bucketOf = [&](const Tri& t) {
+                return std::min(kB - 1, int((cen(t) - cmn[axis]) * scale));
+            };
+            for (int i = begin; i < end; ++i) {
+                const int b = bucketOf(tris_[i]);
+                ++bc[b];
+                grow(bmn[b], bmx[b], tris_[i]);
+            }
+            // cost[s] of splitting after bucket s (pbrt-v4 forward/backward sweep).
+            float cost[kB - 1];
+            {
+                float mn[3], mx[3];
+                emptyBox(mn, mx);
+                int c = 0;
+                for (int b = 0; b < kB - 1; ++b) {
+                    for (int a = 0; a < 3; ++a) { mn[a] = std::min(mn[a], bmn[b][a]); mx[a] = std::max(mx[a], bmx[b][a]); }
+                    c += bc[b];
+                    cost[b] = c * area(mn, mx);
+                }
+                emptyBox(mn, mx);
+                c = 0;
+                for (int b = kB - 1; b >= 1; --b) {
+                    for (int a = 0; a < 3; ++a) { mn[a] = std::min(mn[a], bmn[b][a]); mx[a] = std::max(mx[a], bmx[b][a]); }
+                    c += bc[b];
+                    cost[b - 1] += c * area(mn, mx);
+                }
+            }
+            int best = 0;
+            for (int b = 1; b < kB - 1; ++b)
+                if (cost[b] < cost[best]) best = b;
+            const float leafCost = float(count);
+            const float splitCost = 0.5f + cost[best] / std::max(area(n.mn, n.mx), 1e-30f);
+            if (count <= 4 && leafCost <= splitCost) { makeLeaf(); return; }
+            auto it = std::partition(tris_.begin() + begin, tris_.begin() + end,
+                                     [&](const Tri& t) { return bucketOf(t) <= best; });
+            mid = int(it - tris_.begin());
+            if (mid == begin || mid == end) {  // degenerate bucketing: equal counts
+                mid = begin + count / 2;
+                std::nth_element(tris_.begin() + begin, tris_.begin() + mid, tris_.begin() + end,
+                                 [&](const Tri& x, const Tri& y) { return cen(x) < cen(y); });
+            }
+        }
+        n.axis = int16_t(axis);
         n.count = 0;
         n.first = int(nodes_.size());
         nodes_[ni] = n;

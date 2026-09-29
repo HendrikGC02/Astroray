@@ -1026,7 +1026,7 @@ def _vm_suzanne(bpy, sc, sl, addon_dir):
     _vm_volume(bpy, sl, mk, "SuzanneVol", 2.0, (0.5, 0.8, 0.9))
     r = _Rois(scene)
     r.add("forehead", (0.0, 0.0, 0.62), 0.03)
-    r.add("cheek", (0.5, 0.0, -0.3), 0.03)
+    r.add("cheek", (0.3, 0.0, -0.2), 0.03)
     r.add("ear", (-1.15, 0.0, 0.25), 0.025)
     r.add("aabb_corner", (1.2, 0.0, -0.8), 0.025)
     return scene, VM_RES, r, ["mesh_volume#833", "open_mesh"], []

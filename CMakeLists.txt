@@ -569,7 +569,31 @@ if(ASTRORAY_CUDA_FOUND)
     # pkg55-C7: the megakernels (path_trace_kernel.cu, multiwavelength_kernel.cu)
     # are DELETED — the wavefront is the only GPU render path. A CUDA build
     # without ASTRORAY_WAVEFRONT_CUDA_N3 compiles but GPU rendering throws.
-    set(ASTRORAY_CUDA_SOURCES
+    # Build-speed split: the heavy wavefront TUs go FIRST. Ninja dispatches ready
+    # edges in this order and astroray_cuda runs in a 6-slot job pool (below), so the
+    # slowest TUs must start at t=0 or they become the critical path. stage_advance.cu
+    # (intersect/shadow/regen + MIS-audit kernels) first, then the ~2x heavier
+    # HasPrincipled=true shade parts 4..11, then the HasPrincipled=false parts 0..3
+    # (stage_shade_part<k>.cu; see stage_advance_device.cuh).
+    set(ASTRORAY_CUDA_SOURCES)
+    if(ASTRORAY_WAVEFRONT_CUDA_N3)
+        list(APPEND ASTRORAY_CUDA_SOURCES
+            src/gpu/wavefront/stage_advance.cu
+            src/gpu/wavefront/stage_shade_part11.cu
+            src/gpu/wavefront/stage_shade_part10.cu
+            src/gpu/wavefront/stage_shade_part9.cu
+            src/gpu/wavefront/stage_shade_part8.cu
+            src/gpu/wavefront/stage_shade_part7.cu
+            src/gpu/wavefront/stage_shade_part6.cu
+            src/gpu/wavefront/stage_shade_part5.cu
+            src/gpu/wavefront/stage_shade_part4.cu
+            src/gpu/wavefront/stage_shade_part3.cu
+            src/gpu/wavefront/stage_shade_part2.cu
+            src/gpu/wavefront/stage_shade_part1.cu
+            src/gpu/wavefront/stage_shade_part0.cu
+        )
+    endif()
+    list(APPEND ASTRORAY_CUDA_SOURCES
         src/gpu/cuda_renderer.cu
         src/gpu/gpu_spectral_tables.cu   # pkg55-C1: shared CMF/D65/JH/profile tables
         src/gpu/gpu_glass_tables.cu      # pkg151: rough-transmission glass multiscatter tables
@@ -589,7 +613,6 @@ if(ASTRORAY_CUDA_FOUND)
             src/gpu/wavefront/stage_init.cu
             src/gpu/wavefront/stage_intersect_session_n3.cu
             src/gpu/wavefront/stage_shade_lambertian.cu
-        src/gpu/wavefront/stage_advance.cu
         src/gpu/wavefront/stage_volume_hetero.cu   # pkg269 heterogeneous-volume stage (NanoVDB)
             src/gpu/wavefront/stage_light_sample.cu
             src/gpu/wavefront/stage_russian_roulette.cu
@@ -608,6 +631,12 @@ if(ASTRORAY_CUDA_FOUND)
     target_compile_options(astroray_cuda PRIVATE
         $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --expt-relaxed-constexpr -O3>
     )
+    # Build-speed split: the stage_advance shade variants compile as 13 heavy TUs
+    # (each cicc+ptxas up to several GB RSS). Cap concurrent astroray_cuda compiles
+    # in a Ninja job pool so a many-core build cannot hard-reset the machine (it
+    # did twice under combined load). Ignored by non-Ninja generators.
+    set_property(GLOBAL APPEND PROPERTY JOB_POOLS astroray_cuda_heavy=6)
+    set_target_properties(astroray_cuda PROPERTIES JOB_POOL_COMPILE astroray_cuda_heavy)
     set_target_properties(astroray_cuda PROPERTIES
         CUDA_SEPARABLE_COMPILATION ON
         POSITION_INDEPENDENT_CODE ON

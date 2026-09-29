@@ -126,7 +126,7 @@ Item 1 — pole-shadow azimuth (sun_az = shadow_az - 180):
 | 225 deg | 222| 222| 225 | 0 deg |
 
 Astroray addon shadows match Cycles within 4 deg at every rotation.
-Evidence: test_results/batchL/814_addon_ab_contact_sheet.png (Cycles top,
+Evidence: test_results/world/sun-direction/rotation_ab_sheet.png (Cycles top,
 Astroray bottom; yellow = measured shadow azimuth).
 
 ## Item 2 — irradiance re-measure (same linear EXRs, rot=0, matched ROIs)

@@ -76,7 +76,7 @@ sections and tests.
 - **Shader graph**: procedural textures are op-VM inputs (GPU bakes 64² / 64³); multi-input programs
   warn on GPU (#826); coordinate-side non-affine math open (#822); scanner blind spot (#823); the
   Generated-coordinate checker on a plane renders slightly smaller / phase-shifted cells than Cycles on
-  BOTH backends (seen in `test_results/batchN/issue818_contact_sheet.png`, no issue yet).
+  BOTH backends (seen in `test_results/textures-nodes/procedural-opvm-checker/cycles_cpu_gpu_sheet.png`, no issue yet).
 - **Viewport**: worker (opt-in) presents while orbiting and refines at full res; material storms use
   the incremental replay (#831). Still open before re-proposing the default: metal_sweep orbit row
   (76.9 ms vs 44.6 ms OFF), ~80 ms render/present tick gap in storms, 1-spp spectral chroma noise in

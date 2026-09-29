@@ -192,4 +192,4 @@ with Astroray's SPECTRAL pipeline (Jakob-Hanika upsample of the HDRI RGB +
 conductor F0, integrated to XYZ) vs Cycles' RGB pipeline — a physics-first
 spectral-vs-RGB model difference within the "Cycles is a cross-check band" rule,
 not an env-lookup bug (lookup cleared by rungs 2-6) and not a conductor-energy
-loss (F82 rejected). Evidence renders under `test_results/pkg275/`.
+loss (F82 rejected). Evidence renders under `test_results/world/env-reflection-lookup/`.

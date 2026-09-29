@@ -118,7 +118,7 @@ second is noise whose realisation the table change re-rolled.
 
 The fix `.pyd` was overlaid on a scratch copy of the 916907b staged addon; the
 branch changes no addon `.py`. Sheet (Cycles | main | fix | ratio maps):
-`test_results/batchT/issue767_tiles_before_after.png`.
+`test_results/spectral/observer-colour-tiles/tiles_before_after_sheet.png`.
 
 | tile | white world, fix | HDRI, fix (mean ratio) | HDRI, main |
 |---|---|---|---|

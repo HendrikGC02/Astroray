@@ -1,0 +1,220 @@
+{
+ "title": "Native-settings F12 pixel-honour matrix (Blender 5.2, CPU backend)",
+ "xlabel": "verdict",
+ "ylabel": "rows (of 27)",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "rows",
+   "role": "cpu",
+   "x": [
+    "PASS",
+    "HONEST-FAIL",
+    "NEEDS-VISUAL",
+    "LIMITATION"
+   ],
+   "y": [
+    12,
+    10,
+    3,
+    2
+   ]
+  }
+ ],
+ "band": null,
+ "ref": null,
+ "meta": {
+  "rows": [
+   {
+    "stage": "1",
+    "row": "max_bounces",
+    "scene": "closed_box",
+    "verdict": "PASS",
+    "detail": "lum_mean A=0.035237 B=0.42923 ratio=12.181"
+   },
+   {
+    "stage": "1",
+    "row": "diffuse_bounces",
+    "scene": "closed_box",
+    "verdict": "HONEST-FAIL",
+    "detail": "lum_mean A=0.42923 B=0.42923 ratio=1.000 (< 1.03: setting does not add indirect energy)"
+   },
+   {
+    "stage": "1",
+    "row": "glossy_bounces",
+    "scene": "closed_box_glossy",
+    "verdict": "PASS",
+    "detail": "lum_mean A=0.067017 B=0.69941 ratio=10.436"
+   },
+   {
+    "stage": "1",
+    "row": "transmission_bounces",
+    "scene": "glass_sphere",
+    "verdict": "PASS",
+    "detail": "lum_mean A=0.42382 B=0.49861 ratio=1.176"
+   },
+   {
+    "stage": "1",
+    "row": "transparent_max_bounces",
+    "scene": "transparent_tower",
+    "verdict": "HONEST-FAIL",
+    "detail": "lum_mean A=0.33281 B=0.33281 ratio=1.000 (< 1.03: setting does not add indirect energy)"
+   },
+   {
+    "stage": "1",
+    "row": "world_max_bounces",
+    "scene": "hdri_box",
+    "verdict": "PASS",
+    "detail": "lum_mean A=0.20003 B=1.06 ratio=5.299"
+   },
+   {
+    "stage": "1",
+    "row": "volume_bounces",
+    "scene": "volume_box",
+    "verdict": "HONEST-FAIL",
+    "detail": "lum_mean A=0.021046 B=0.02101 ratio=0.998 (< 1.03: setting does not add indirect energy)"
+   },
+   {
+    "stage": "1",
+    "row": "use_light_tree",
+    "scene": "many_lights",
+    "verdict": "NEEDS-VISUAL",
+    "detail": "per-pixel |dLum| mean=0.5025 max=6.763 (setting changes pixels; confirm direction visually)"
+   },
+   {
+    "stage": "2",
+    "row": "sample_clamp_direct",
+    "scene": "firefly",
+    "verdict": "PASS",
+    "detail": "hi_pct A=26.4 B=0.5071; lum_max A=27.83 B=0.5081 (fireflies clipped)"
+   },
+   {
+    "stage": "2",
+    "row": "sample_clamp_indirect",
+    "scene": "firefly_indirect",
+    "verdict": "NEEDS-VISUAL",
+    "detail": "hi_pct A=1481 B=1481; lum_max A=1639 B=1639 (inconclusive: fireflies NEE-classified as DIRECT; clampIndirect shares the pkg157 kernel param with clampDirect, which PASSES)"
+   },
+   {
+    "stage": "2",
+    "row": "blur_glossy",
+    "scene": "firefly",
+    "verdict": "HONEST-FAIL",
+    "detail": "lum_max A=27.83 B=27.83 (blur_glossy left the highlight peak unchanged)"
+   },
+   {
+    "stage": "3",
+    "row": "film_exposure",
+    "scene": "closed_box",
+    "verdict": "PASS",
+    "detail": "per-ch mean-ratio B/A = 2.000, 2.000, 2.000 (target (1.7, 2.3))"
+   },
+   {
+    "stage": "3",
+    "row": "render_region",
+    "scene": "closed_box",
+    "verdict": "HONEST-FAIL",
+    "detail": "lum_mean A(no border)=0.42923 B(border)=0 ratio=0.000 (target ~0.25 = kept area)"
+   },
+   {
+    "stage": "3",
+    "row": "film_transparent",
+    "scene": "open_object",
+    "verdict": "HONEST-FAIL",
+    "detail": "alpha_mean transparent-A=1.000 opaque-B=1.000 (film_transparent did not open the background alpha)"
+   },
+   {
+    "stage": "3",
+    "row": "film_transparent_glass",
+    "scene": "open_glass",
+    "verdict": "HONEST-FAIL",
+    "detail": "per-pixel |dLum| mean=5.19e-11 max=6.828e-08 (setting produced no pixel change)"
+   },
+   {
+    "stage": "3",
+    "row": "samples",
+    "scene": "open_object",
+    "verdict": "PASS",
+    "detail": "MC-noise(16spp)=0.00771 (64spp)=0.003903 ratio=0.506; mean ratio=1.000 (noise falls ~1/sqrt(N))"
+   },
+   {
+    "stage": "3",
+    "row": "seed_distinct",
+    "scene": "closed_box",
+    "verdict": "PASS",
+    "detail": "lum_mean ratio=1.010, per-pixel |dLum| mean=0.2259 (same mean, different noise)"
+   },
+   {
+    "stage": "3",
+    "row": "seed_repeat",
+    "scene": "closed_box",
+    "verdict": "PASS",
+    "detail": "per-pixel |dLum| max=0 (reproducible <=1e-5)"
+   },
+   {
+    "stage": "4",
+    "row": "caustics_reflective",
+    "scene": "caustic",
+    "verdict": "HONEST-FAIL",
+    "detail": "per-pixel |dLum| mean=1.163e-11 max=7.489e-09 (setting produced no pixel change)"
+   },
+   {
+    "stage": "4",
+    "row": "caustics_refractive",
+    "scene": "caustic",
+    "verdict": "HONEST-FAIL",
+    "detail": "per-pixel |dLum| mean=1.529e-11 max=7.489e-09 (setting produced no pixel change)"
+   },
+   {
+    "stage": "4",
+    "row": "pixel_filter_type",
+    "scene": "closed_box",
+    "verdict": "HONEST-FAIL",
+    "detail": "grad_mean A=0.21698 B=0.21807 (pixel filter did not change edge gradient)"
+   },
+   {
+    "stage": "4",
+    "row": "filter_width",
+    "scene": "closed_box",
+    "verdict": "PASS",
+    "detail": "grad_mean A=0.21953 B=0.21681 (filter changes edge sharpness)"
+   },
+   {
+    "stage": "4",
+    "row": "use_denoising",
+    "scene": "denoiser_scene",
+    "verdict": "PASS",
+    "detail": "lum_var ratio denoised/noisy=0.787 (variance reduced)"
+   },
+   {
+    "stage": "4",
+    "row": "denoiser",
+    "scene": "denoiser_scene",
+    "verdict": "NEEDS-VISUAL",
+    "detail": "both backends rendered (A mean=0.4858, B mean=0.4858; per-pixel |dLum| mean=0)"
+   },
+   {
+    "stage": "0",
+    "row": "resolution",
+    "scene": "closed_box",
+    "verdict": "PASS",
+    "detail": "shape A=(64, 64) B=(96, 96)"
+   },
+   {
+    "stage": "3",
+    "row": "preview_samples",
+    "scene": "closed_box",
+    "verdict": "LIMITATION",
+    "detail": "viewport-only control \u2014 not exercisable via headless F12"
+   },
+   {
+    "stage": "4",
+    "row": "use_preview_denoising",
+    "scene": "closed_box",
+    "verdict": "LIMITATION",
+    "detail": "viewport-only control \u2014 not exercisable via headless F12"
+   }
+  ],
+  "source": "scripts/verify_pkg200_honour_matrix_run.py, pkg201"
+ }
+}

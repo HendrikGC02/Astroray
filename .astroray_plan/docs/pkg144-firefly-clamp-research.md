@@ -119,7 +119,7 @@ Python bindings (`module/blender_module.cpp`: `set_clamp_direct`/`set_clamp_indi
 
 ## pkg290 (#884) fork decision — 2026-09-27: neither (a) nor (b)
 
-Evidence: `test_results/pkg290/clamp_sweep.txt` (cabinet reduction, clamp sweep
+Evidence: `test_results/lights/sample-clamp-volume-sweep/principled_chart.png` (cabinet reduction, clamp sweep
 L = 1/3/10/30 for both engines, light tree on/off, metric experiment, per-site
 ablation). Cycles exposes no per-sample dump, so the sweep curve is the
 histogram proxy (removed(L) is the tail integral of the per-sample Σ|RGB|).

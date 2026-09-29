@@ -62,7 +62,7 @@ Then: pkg265 Phase 3 GPU walk (multi-build lane from the WIP STATE doc).
 **Owner ask still outstanding:** one or two *pretty* Blender showcase scenes by a visually capable agent —
 glass dispersion + caustics, volumes, Nishita sky + sun, thin film + metals, plus one black-hole scene if the
 GR path still renders. Not started this session. The volumes showcase
-(`test_results/batchQ/showcase_volumes_astroray_vs_cycles.png`) is the only new hero image.
+(`test_results/volumes/hetero-fire-smoke-showcase/gpu_vs_cycles_sheet.png`) is the only new hero image.
 
 ## Method that worked (keep it)
 

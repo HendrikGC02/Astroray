@@ -58,7 +58,7 @@ speckle that RGB Cycles lacks. The pixel filter is a second suspect, not measure
 The wall's median per-pixel relative variance is 0.14 against Cycles' 0.00068
 (200×), and the top 1 % of pixels hold 12 % of it (Cycles 37 %). The grain is
 uniform, not fireflies. The sheet shows the same:
-`test_results/batchT/issue763_materials_hall_cpu_variants.png`.
+`test_results/integrator/light-tree-materials-hall/cpu_variants_sheet.png`.
 
 A and I are mostly the dark world seen directly. Cycles returns it noise-free;
 Astroray's 4-λ estimate adds chroma noise. Read those two columns as the

@@ -1,0 +1,84 @@
+{
+ "title": "Indirect clamp: energy removed, volume cabinet (absorb)",
+ "xlabel": "sample_clamp_indirect L",
+ "ylabel": "fraction of ROI energy removed",
+ "kind": "line",
+ "series": [
+  {
+   "label": "Cycles (light tree on)",
+   "role": "cycles",
+   "x": [
+    1,
+    3,
+    10,
+    30
+   ],
+   "y": [
+    0.017,
+    0.006,
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "label": "Cycles (light tree off)",
+   "role": "other",
+   "x": [
+    1,
+    3,
+    10,
+    30
+   ],
+   "y": [
+    0.032,
+    0.016,
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "label": "Astroray (Y metric)",
+   "role": "cpu",
+   "x": [
+    1,
+    3,
+    10,
+    30
+   ],
+   "y": [
+    0.083,
+    0.045,
+    0.006,
+    0.0
+   ]
+  },
+  {
+   "label": "Astroray (Cycles metric)",
+   "role": "other",
+   "x": [
+    1,
+    3,
+    10,
+    30
+   ],
+   "y": [
+    0.093,
+    0.056,
+    0.015,
+    0.0
+   ]
+  }
+ ],
+ "band": null,
+ "ref": null,
+ "meta": {
+  "scene": "geometry_zoo volume cabinet, 192x96, 512 spp, seed 278, vb4, CPU",
+  "power_sampler": [
+   0.09,
+   0.048,
+   0.009,
+   0.0
+  ],
+  "source": "pkg290 (#884)"
+ }
+}

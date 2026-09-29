@@ -1,0 +1,65 @@
+{
+ "title": "Material-edit storm, worker ON: commit and tick-gap p95",
+ "xlabel": "scene / metric",
+ "ylabel": "p95 (ms)",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "before (#819)",
+   "role": "other",
+   "x": [
+    "metal_sweep commit p95",
+    "metal_sweep tick-gap p95",
+    "big commit p95",
+    "big tick-gap p95"
+   ],
+   "y": [
+    218.6,
+    196.7,
+    117.9,
+    174.7
+   ]
+  },
+  {
+   "label": "after (fix)",
+   "role": "gpu",
+   "x": [
+    "metal_sweep commit p95",
+    "metal_sweep tick-gap p95",
+    "big commit p95",
+    "big tick-gap p95"
+   ],
+   "y": [
+    73.0,
+    80.1,
+    23.4,
+    80.7
+   ]
+  }
+ ],
+ "band": [
+  0,
+  33
+ ],
+ "ref": null,
+ "meta": {
+  "budget": "tick-gap p95 <= 33 ms",
+  "sync_viewport_scene_calls_before": {
+   "metal_sweep": 46,
+   "big": 50
+  },
+  "sync_viewport_scene_calls_after": {
+   "metal_sweep": 2,
+   "big": 2
+  },
+  "sync_viewport_scene_avg_ms_before": {
+   "metal_sweep": 119.7,
+   "big": 111.5
+  },
+  "replay_true_after": {
+   "metal_sweep": 97,
+   "big": 85
+  },
+  "source": "storm721 phase measurements and #831 verdict, 2026-09-19"
+ }
+}

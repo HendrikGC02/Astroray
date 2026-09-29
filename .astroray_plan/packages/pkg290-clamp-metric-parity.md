@@ -85,7 +85,7 @@ clamp-off and miss what users see.
 
 ## Acceptance criteria
 
-- [ ] Histogram A/B saved under `test_results/pkg290/` with the fork decision written in `pkg144-firefly-clamp-research.md` (appended section).
+- [ ] Histogram A/B saved under `test_results/lights/sample-clamp-volume-sweep/` with the fork decision written in `pkg144-firefly-clamp-research.md` (appended section).
 - [ ] `test_pkg290_clamp_energy_parity.py` passes CPU and GPU (≤ 2 points on each cabinet ROI; furnace 0 %).
 - [ ] geometry_zoo cabinet clamp-on ratio ≥ 0.97 of Cycles on five seeds (was 0.92).
 - [ ] CPU/GPU clamp parity test (pkg230) still passes byte-consistent.
@@ -101,7 +101,7 @@ clamp-off and miss what users see.
 
 ## Progress
 
-- [x] Histograms + fork decision (sweep proxy; `test_results/pkg290/clamp_sweep.txt`): metric change rejected, blocked on sampling.
+- [x] Histograms + fork decision (sweep proxy; `test_results/lights/sample-clamp-volume-sweep/principled_chart.png`): metric change rejected, blocked on sampling.
 - [ ] (2026-09-29 architect) Metric change dropped: Y stays. After pkg294: re-run `clamp_sweep` (scatter cube, cabinet, principled cube); if loss is within 2 points of Cycles close #884, else name the residual term in the issue.
 - [ ] Re-pins.
 

@@ -627,15 +627,16 @@ __device__ void gpu_volumeSegmentDirect(
             if (L.kind == GDED_SPOT && !segClipSpot(L, o, d, a, b)) return;
             if (L.kind == GDED_AREA && !segClipArea(L, o, d, a, b)) return;
         }
+        // pkg294: area-uniform anchor on an area lamp (Cycles area_light_eval<true>).
         anc = gpu_nee_sample_light(refPoint(a, b), li, dj, selPdf, prims, tris, spheres,
-                                   lights, dedLights, &rng);
+                                   lights, dedLights, &rng, /*segAnchor=*/true);
     } else {
         GHitRecord r{};
         r.point = refPoint(a, b);
         r.normal = GVec3(0.f, 0.f, 0.f);
         r.isDelta = false;
         anc = gpu_nee_sample(r, prims, tris, spheres, lights, numLights, totalLightPower,
-                             dedLights, numDed, lightTree, &rng);
+                             dedLights, numDed, lightTree, &rng, /*segAnchor=*/true);
     }
     const bool hasAnchor = anc.valid && anc.lightPdf > 0.f && anc.geomDist > 0.f &&
                            anc.geomDist < 1e18f;

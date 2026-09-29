@@ -91,3 +91,21 @@ a sampler gate. Suggested re-scope:
 (b) Drop Phase 2.
 (c) File the QMC sampler gap: the pkg224 Sobol path is off on CPU and on non-adaptive GPU.
 (d) File the tilted-rectangle floor footprint as the likely pkg290 blocker, ahead of #922.
+
+## Phase 1 result (CPU, 2026-09-29)
+
+Full-spread rectangles now use the spherical-rectangle draw and pdf (`include/astroray/spherical_rectangle.h`)
+for surface NEE, the lamp-hit pdf and the re-sample at the volume scatter point. The segment anchor stays
+area-uniform. Rectangles below 180 deg spread and disks/ellipses are unchanged. Gate: per-sample
+(1 spp x 12 seeds) luminance relVar against Cycles.
+
+| scene | tree on | tree off |
+|---|---|---|
+| cube1 | 0.91 | 0.91 |
+| cube3 | 0.38 | 0.47 |
+| cube1v | 0.67 | not run |
+| cube3v | 0.42 | 0.41 |
+
+All values are ≤ 1.1. Means stay inside the band: |z| ≤ 1.3, and cube3 tree-off -1.9 with 12 seeds
+(-3.16 at 3 seeds). Equal-spp 64 spp ratios move from 5.23 to 4.33 (cube1) and from 1.14 to 1.11 (cube3v),
+as Phase 0 predicted. Table: `astra_run\AK0\ak0-294\phase1_full_table.md`.

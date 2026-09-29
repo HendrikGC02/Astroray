@@ -148,6 +148,7 @@ class TestLightTreeUnit:
         img = np.asarray(r.render(64, 5, None, True), dtype=np.float32)
         assert_valid_image(img, 256, 256, min_mean=0.001)
 
+    @pytest.mark.slow   # R5: 256x256 smoke render, ~3-13 s
     def test_tree_builds_for_single_light(self):
         """Tree should handle degenerate single-light case."""
         r = cornell_scene_with_n_lights(1)
@@ -155,6 +156,7 @@ class TestLightTreeUnit:
         img = np.asarray(r.render(64, 5, None, True), dtype=np.float32)
         assert_valid_image(img, 256, 256, min_mean=0.001)
 
+    @pytest.mark.slow   # R5: 256x256 smoke render, ~3-13 s
     def test_power_sampler_baseline(self):
         """Power sampler should still work (regression baseline)."""
         r = cornell_scene_with_n_lights(8)
@@ -215,6 +217,7 @@ class TestLightTreeAcceptance:
         # Gate: ≥2× reduction
         assert reduction >= 2.0, f"Variance reduction {reduction:.2f}× below 2× gate"
 
+    @pytest.mark.slow   # R5: 256x256 smoke render, ~3-13 s
     def test_single_light_non_regression(self):
         """
         Gate: ≤0.5 dB PSNR delta for single-light Cornell box.
@@ -276,14 +279,17 @@ class TestLightTreeComposability:
         img = np.asarray(r.render(64, 5, None, True), dtype=np.float32)
         assert_valid_image(img, 256, 256, min_mean=0.001, label=integrator_name)
 
+    @pytest.mark.slow   # R5: 256x256 smoke render, ~3-13 s
     def test_path_tracer(self):
         """path_tracer should work with tree sampler."""
         self._test_integrator("path_tracer")
 
+    @pytest.mark.slow   # R5: 256x256 smoke render, ~3-13 s
     def test_restir_di(self):
         """restir-di should work with tree sampler."""
         self._test_integrator("restir-di")
 
+    @pytest.mark.slow   # R5: 256x256 smoke render, ~3-13 s
     def test_neural_cache(self):
         """neural-cache should work with tree sampler."""
         self._test_integrator("neural-cache")

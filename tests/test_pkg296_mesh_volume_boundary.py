@@ -270,6 +270,47 @@ def test_grid_medium_clipped_to_sphere_boundary():
     assert abs(q[corner].mean() - 1.0) < 0.01, q[corner].mean()
 
 
+def _clip_inside_box(gpu, ortho, clip=1.0, sigma=0.4, spp=64):
+    """Camera at the origin inside an absorbing box medium [-3, 3]^3 looking -z
+    at an emitter beyond the box (z = -5), near clip `clip`."""
+    r = astroray.Renderer()
+    if gpu:
+        try:
+            r.set_use_gpu(True)
+        except Exception as e:  # noqa: BLE001 - CPU-only build
+            pytest.skip(f"GPU unavailable: {e}")
+        if not getattr(r, "gpu_available", False):
+            pytest.skip("gpu_available is False")
+    else:
+        r.set_use_gpu(False)
+    r.set_integrator("path_tracer")
+    r.set_adaptive_sampling(False)
+    r.set_background_color([0.0, 0.0, 0.0])
+    r.set_seed(2966)
+    _backdrop(r, z=-5.0, a=20.0)
+    r.add_homogeneous_medium([-3, -3, -3], [3, 3, 3], density_scale=sigma,
+                             color=[0, 0, 0], absorption_color=[0, 0, 0])
+    kw = {"orthographic": True, "ortho_width": 1.0, "ortho_height": 1.0} if ortho else {}
+    r.setup_camera([0, 0, 0], [0, 0, -1], [0, 1, 0], 10.0, 1.0, 0.0, 5.0, W, H,
+                   clip_near=clip, **kw)
+    img = np.asarray(r.render(spp, 8, None, False, -1, -1, -1, 0, -1), dtype=np.float64)
+    c = slice(H // 2 - 6, H // 2 + 6)
+    return img.reshape(H, W, 3)[c, c].reshape(-1, 3).mean(axis=0)
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("ortho", [False, True], ids=["persp", "ortho"])
+def test_gpu_camera_clip_start_skips_medium(ortho):
+    """pkg296: bounded media on a camera ray start at the clip start on CPU and
+    GPU alike (Cycles camera.h moves ray->P by nearclip*D): Tr = exp(-sigma *
+    (3 - clip)) on the axis, GPU/CPU within 5 % per channel."""
+    cpu, gpu = _clip_inside_box(False, ortho), _clip_inside_box(True, ortho)
+    ref = _clip_inside_box(False, ortho, sigma=0.0)
+    tr = cpu / ref
+    assert np.allclose(tr, np.exp(-0.4 * 2.0), rtol=0.03), tr        # not exp(-0.4 * 3)
+    assert (np.abs(gpu / cpu - 1.0) < 0.05).all(), (cpu, gpu)
+
+
 def _scatter_box(r, boundary):
     mn, mx = (-0.8, -0.8, -0.8), (0.8, 0.8, 0.8)
     V, F = box(mn, mx)

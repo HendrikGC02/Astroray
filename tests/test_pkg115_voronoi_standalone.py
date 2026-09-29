@@ -44,7 +44,7 @@ def test_voronoi_factory_standalone_renders():
     """The factory builds a textured material without Blender and renders it."""
     img = _render_voronoi([6.0, 1.0, 0.0, 0.0, 1.0, 0, 0, 0, 1, 1, 1])
     assert_valid_image(img, 54, 72, min_mean=0.01, label='voronoi_standalone')
-    save_image(img, str(results_path(_AREA, _FEATURE, 'test_pkg115_voronoi_standalone.png')))
+    save_image(img, str(results_path(_AREA, _FEATURE, 'voronoi_standalone.png')))
 
 
 def test_voronoi_factory_forwards_trailing_params():

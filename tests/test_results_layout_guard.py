@@ -122,6 +122,53 @@ def test_no_direct_test_results_paths_in_code():
                       "not a test_results literal:\n  " + "\n  ".join(hits))
 
 
+def _source_files(root: Path = ROOT):
+    for d in SCAN_DIRS:
+        base = root / d
+        if base.is_dir():
+            for py in base.rglob("*.py"):
+                if py.relative_to(root).as_posix() not in ALLOW_LITERAL_FILES:
+                    yield py, ast.parse(py.read_text(encoding="utf-8", errors="replace"))
+
+
+def _static_arg_violations(root: Path = ROOT):
+    """Validate literal arguments of results_path/results_dir calls and
+    module-level `_AREA, _FEATURE = "area", "feature"` constants."""
+    bad = []
+    for py, tree in _source_files(root):
+        rel = py.relative_to(root).as_posix()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Call) and getattr(n.func, "id", getattr(n.func, "attr", "")) in (
+                    "results_path", "results_dir"):
+                for i, a in enumerate(n.args[:3]):
+                    parts = ([a.value] if isinstance(a, ast.Constant) and isinstance(a.value, str) else
+                             [p.value for p in a.values if isinstance(p, ast.Constant)]
+                             if isinstance(a, ast.JoinedStr) else [])
+                    for v in parts:
+                        tok = rl.banned_token(v)
+                        if tok:
+                            bad.append(f"{rel}:{n.lineno}: banned token {tok!r} in {v!r}")
+                    if isinstance(a, ast.Constant) and isinstance(a.value, str):
+                        if i == 0 and a.value not in rl.AREAS:
+                            bad.append(f"{rel}:{n.lineno}: unknown area {a.value!r}")
+                        if i == 1 and not rl.FEATURE_RE.match(a.value):
+                            bad.append(f"{rel}:{n.lineno}: bad feature slug {a.value!r}")
+                        if i == 2 and not rl.NAME_RE.match(a.value):
+                            bad.append(f"{rel}:{n.lineno}: bad artifact name {a.value!r}")
+            if (isinstance(n, ast.Assign) and isinstance(n.value, ast.Tuple) and len(n.targets) == 1
+                    and isinstance(n.targets[0], ast.Tuple)
+                    and [getattr(t, "id", "") for t in n.targets[0].elts] == ["_AREA", "_FEATURE"]):
+                area, feat = (getattr(e, "value", "") for e in n.value.elts)
+                if area not in rl.AREAS or not rl.FEATURE_RE.match(feat) or rl.banned_token(feat):
+                    bad.append(f"{rel}:{n.lineno}: bad _AREA/_FEATURE {area!r}, {feat!r}")
+    return bad
+
+
+def test_literal_results_path_arguments_are_valid():
+    bad = _static_arg_violations()
+    assert not bad, "invalid results_path arguments:\n  " + "\n  ".join(bad)
+
+
 @pytest.fixture
 def layout_root(tmp_path, monkeypatch):
     monkeypatch.setattr(rl, "RESULTS", tmp_path)

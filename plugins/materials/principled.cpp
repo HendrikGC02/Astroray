@@ -686,12 +686,29 @@ class PrincipledPlugin : public Material {
     // grazing/high-roughness the same way the true lobe albedo does. `mu` is the
     // view cosine N.wo (Cycles cos_NI); `f0` the layer's Fresnel-at-normal
     // reflectance (specF0 for specular, F0_from_ior(coat_ior) for the coat).
+    //
+    // #953: Cycles bsdf_albedo (bsdf.h) returns sc->weight * estimate, and
+    // sc->weight already carries the preserve-energy darkening
+    // (1 + Fms*missing) / energy_scale = E * (1 + Fms*missing)
+    // (microfacet_ggx_preserve_energy, bsdf_microfacet.h). Omitting that E
+    // factor over-attenuated the diffuse by up to 1/E at high roughness
+    // (furnace 0.973 at roughness 1). Fss is Cycles' for exponent<0 /
+    // dielectric: mix(f0, 1, saturate(inverse_lerp(F0(ior), 1, Fss_dielectric(ior)))).
     Vec3 ggxLayeringAlbedo(const Vec3& f0, float roughness, float mu, float ior) const {
         const auto& t = astroray::DisneyEnergyCompensationTables::instance();
         if (!t.loaded()) return f0;
         float z = std::sqrt(std::abs((ior - 1.0f) / (ior + 1.0f)));
         float s = std::clamp(t.ggxGenSchlickIorS(roughness, mu, z), 0.0f, 1.0f);
-        return f0 * (1.0f - s) + Vec3(1.0f) * s;  // mix(f0, f90=1, s)
+        Vec3 est = f0 * (1.0f - s) + Vec3(1.0f) * s;  // mix(f0, f90=1, s)
+        float F0i = F0_from_ior(ior);
+        float FssD = (ior - 1.0f) / (4.08567f + 1.00071f * ior);  // fresnel_dielectric_Fss, ior >= 1
+        float sF = std::clamp((FssD - F0i) / std::max(1.0f - F0i, 1e-6f), 0.0f, 1.0f);
+        Vec3 Fss = f0 * (1.0f - sF) + Vec3(1.0f) * sF;
+        float E = std::max(t.ggxE(roughness, mu), 1e-4f);
+        float Eavg = std::clamp(t.ggxEavg(roughness), 0.0f, 0.999f);
+        return Vec3(est.x * E * astroray::ggxDarkeningChannel(Fss.x, E, Eavg),
+                    est.y * E * astroray::ggxDarkeningChannel(Fss.y, E, Eavg),
+                    est.z * E * astroray::ggxDarkeningChannel(Fss.z, E, Eavg));
     }
     float ggxGlassComp(float etap, float muAbs) const {
         const auto& t = astroray::DisneyEnergyCompensationTables::instance();

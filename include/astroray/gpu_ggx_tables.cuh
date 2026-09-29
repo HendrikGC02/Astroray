@@ -208,7 +208,19 @@ __device__ inline GVec3 gpu_ggxLayeringAlbedo(
     if (!g_ggxGenSchlickIorS) return f0;
     float z = sqrtf(fabsf((ior - 1.f) / (ior + 1.f)));
     float s = fminf(fmaxf(gpu_gen_schlick_sample3D(g_ggxGenSchlickIorS, roughness, mu, z), 0.f), 1.f);
-    return GVec3(f0.x * (1.f - s) + s, f0.y * (1.f - s) + s, f0.z * (1.f - s) + s);
+    GVec3 est(f0.x * (1.f - s) + s, f0.y * (1.f - s) + s, f0.z * (1.f - s) + s);
+    // #953: Cycles bsdf_albedo = sc->weight * estimate, where sc->weight carries
+    // the preserve-energy darkening E*(1 + Fms*missing) (bsdf.h / bsdf_microfacet.h
+    // microfacet_ggx_preserve_energy). Mirrors CPU principled.cpp::ggxLayeringAlbedo.
+    if (!g_ggxE || !g_ggxEavg) return est;
+    float F0i = (ior - 1.f) / (ior + 1.f); F0i *= F0i;
+    float FssD = (ior - 1.f) / (4.08567f + 1.00071f * ior);  // fresnel_dielectric_Fss, ior >= 1
+    float sF = fminf(fmaxf((FssD - F0i) / fmaxf(1.f - F0i, 1e-6f), 0.f), 1.f);
+    float E = fmaxf(gpu_ggxE(roughness, mu), 1e-4f);
+    float Eavg = fminf(fmaxf(gpu_ggxEavg(roughness), 0.f), 0.999f);
+    return GVec3(est.x * E * gpu_ggxDarkeningChannel(f0.x * (1.f - sF) + sF, E, Eavg),
+                 est.y * E * gpu_ggxDarkeningChannel(f0.y * (1.f - sF) + sF, E, Eavg),
+                 est.z * E * gpu_ggxDarkeningChannel(f0.z * (1.f - sF) + sF, E, Eavg));
 }
 
 // Mirrors CPU disney.cpp::diffuseFurnaceScale (pkg60 grazing-incidence

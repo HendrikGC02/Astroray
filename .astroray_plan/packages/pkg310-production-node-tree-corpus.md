@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** done (PR #TBD, 2026-09-30 - baseline CPU 0/8, GPU 0/8, 39 strict silent pairs (~7 real), 9 issues filed #988-#996; acceptance item "contact sheet inspected (Opus)" still OPEN: lane-inspected only, Opus sign-off pending)
+**Status:** done (PR #999, 2026-09-30 - baseline CPU 0/8, GPU 0/8, 39 strict silent pairs (~7 real), 9 issues filed #988-#996; acceptance item "contact sheet inspected (Opus)" still OPEN: lane-inspected only, Opus sign-off pending)
 **Estimated effort:** 2–3 sessions (~8 h): scenes + Cycles refs ~4 h, walker + audit ~2 h, runs + backlog ~2 h
 **Depends on:** pkg278, pkg284
 

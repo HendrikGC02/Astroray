@@ -3825,6 +3825,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
         resolved = self._resolve_affine_coordinates(vector_input, warn=self._warn_shader_fallback)
         return self._load_blender_image_resolved(bpy_image, renderer, resolved)
 
+    @staticmethod
+    def _srgb_to_linear(rgb):
+        """IEC 61966-2-1 sRGB EOTF (the transfer Blender/OCIO apply to an 'sRGB'
+        image; Cycles image.cpp decodes byte sRGB textures the same way)."""
+        import numpy as np
+        rgb = np.asarray(rgb, dtype=np.float32)
+        return np.where(rgb <= 0.04045, rgb / 12.92,
+                        ((rgb + 0.055) / 1.055) ** 2.4).astype(np.float32)
+
     def _load_blender_image_resolved(self, bpy_image, renderer, resolved, child_signature=None):
         """Upload one resolved image; only program children receive isolation salt."""
         coord_mode, uv_layer_name = resolved['coord_mode'], resolved['uv_layer']
@@ -3885,7 +3894,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # Flip vertically (Blender stores row 0 = bottom)
             pixels = np.ascontiguousarray(pixels[::-1, :, :])
             # Drop alpha; renderer takes RGB float
-            rgb = pixels[:, :, :3].reshape(-1).tolist()
+            rgb_arr = pixels[:, :, :3]
+            # #944: Image.pixels of a byte (8-bit) image returns the raw file
+            # values; Cycles decodes an 'sRGB' image to scene-linear before use
+            # (svm_image.h reads the ImageManager-decoded texel), so do the same
+            # here. Non-Color / Linear images and float buffers are already linear.
+            if (getattr(getattr(bpy_image, 'colorspace_settings', None), 'name', '') == 'sRGB'
+                    and not getattr(bpy_image, 'is_float', False)):
+                rgb_arr = self._srgb_to_linear(rgb_arr)
+            rgb = rgb_arr.reshape(-1).tolist()
 
             renderer.load_texture(cache_key, rgb, width, height)
             self._apply_texture_transform(renderer, cache_key, coord_mode, uv_scale, offset, rotation, uv_layer_name, mapping_matrix)
@@ -3895,7 +3912,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             print(f"Astroray: failed to load texture '{bpy_image.name}': {e}")
             return None
 
-    def load_procedural_texture(self, node, renderer, vector_input=None, fac_variant=False):
+    def load_procedural_texture(self, node, renderer, vector_input=None, fac_variant=False,
+                                color_output=False):
         """Export a Blender procedural texture node to the Astroray texture manager.
         Returns a texture name string on success, None on failure.
 
@@ -3903,6 +3921,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         Color (Checker: cell parity, Brick: mortar factor — Cycles svm/checker.h,
         svm/brick.h) by reloading it with white/black colours. The op-VM compiler
         requests it when a Fac socket is wired (input_variants 'fac').
+        ``color_output`` (#944): Voronoi only - load the hashed per-cell Color
+        output instead of Distance (input_variants 'color').
 
         Supported node types: TEX_NOISE, TEX_VORONOI, TEX_WAVE, TEX_MAGIC,
         TEX_CHECKER, TEX_BRICK, TEX_GRADIENT, TEX_MUSGRAVE.
@@ -3919,7 +3939,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         coord_prog = self._procedural_coord_program(vector_input)
         if coord_prog is not None and hasattr(renderer, 'create_coord_program_texture'):
             return self._load_coord_program_procedural(node, renderer, cache, *coord_prog,
-                                                       fac_variant=fac_variant)
+                                                       fac_variant=fac_variant,
+                                                       color_output=color_output)
         # Cache key includes the transform so the same procedural node used
         # with different Mapping wiring gets distinct entries. A procedural
         # node only has one Vector input in practice, so the same id+vector
@@ -3949,7 +3970,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
             node_id += "::fac"
         else:
             fac_variant = False
-        cache_key = self._texture_variant_key(f"_proc_{node_id}", coord_mode, uv_scale, offset, rotation, uv_layer_name)
+        color_output = bool(color_output) and node.type == 'TEX_VORONOI'
+        if color_output:
+            node_id += "::color"
+        # #945: the procedural evaluators read the 3-D point p, which the legacy 2-D
+        # scale/offset/rotation never touches (an affine Mapping -> Checker rendered
+        # one flat cell). Ship the full Mapping matrix (Texture::value applies it to
+        # p, pkg242) exactly as the image/program paths do.
+        mapping_matrix = self._affine_matrix_values(resolved)
+        cache_key = self._texture_variant_key(f"_proc_{node_id}", coord_mode, uv_scale, offset, rotation, uv_layer_name,
+                                              mapping_matrix)
         if cache_key in cache:
             return cache[cache_key]
 
@@ -4019,7 +4049,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 renderer.create_procedural_texture(tex_name, 'voronoi',
                     [scale, randomness, float(dm), float(feat), smoothness,
                      0, 0, 0, 1, 1, 1,
-                     detail, roughness, lacunarity, exponent, normalize])
+                     detail, roughness, lacunarity, exponent, normalize,
+                     1.0 if color_output else 0.0])
             elif ntype == 'TEX_WAVE':
                 # pkg115 chunk 3 + chunk 6 (addon dedup): full Cycles-parity Wave.
                 # Params: [wave_type, bands_direction, rings_direction, profile, scale, distortion,
@@ -4097,7 +4128,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
 
         if tex_name:
-            self._apply_texture_transform(renderer, tex_name, coord_mode, uv_scale, offset, rotation, uv_layer_name)
+            self._apply_texture_transform(renderer, tex_name, coord_mode, uv_scale, offset, rotation, uv_layer_name,
+                                          mapping_matrix)
             cache[cache_key] = tex_name
         return tex_name
 
@@ -4143,10 +4175,26 @@ class CustomRaytracerRenderEngine(RenderEngine):
             self._warn_shader_fallback(
                 'op-VM', 'coordinate program mixes base coordinates; unsupported')
             return None
+        # #891: a procedural driving the warp (Noise -> Vector Math -> ...) is sampled
+        # at the wrapper's resolved point, so its own Vector must resolve to the SAME
+        # base coordinate + Mapping (Cycles would evaluate it at its own Vector).
+        for in_node in compiled.get('inputs', ()):
+            leaf_notes = []
+            in_base = self._resolve_affine_coordinates(
+                in_node.inputs.get('Vector'), default_coord_mode='GENERATED',
+                warn=lambda *a: leaf_notes.append(a))
+            in_sig = self._texture_variant_key(
+                '', in_base['coord_mode'], (1.0, 1.0), (0.0, 0.0), 0.0,
+                in_base['uv_layer'], self._affine_matrix_values(in_base))
+            if leaf_notes or in_sig != signatures[0]:
+                self._warn_shader_fallback(
+                    'op-VM', "warp texture '%s' uses a different coordinate than the "
+                    "warped node; unsupported" % getattr(in_node, 'name', in_node.type))
+                return None
         return compiled, bases[0]
 
     def _load_coord_program_procedural(self, node, renderer, cache, compiled, base,
-                                       fac_variant=False):
+                                       fac_variant=False, color_output=False):
         """pkg277: register `node` unwarped, then wrap it in a
         CoordProgramTexture carrying the base coord mode + 3-D Mapping."""
         coord_mode, uv_layer = base['coord_mode'], base['uv_layer']
@@ -4155,19 +4203,33 @@ class CustomRaytracerRenderEngine(RenderEngine):
         node_id = f"{mat_name}.{getattr(node, 'name', '') or id(node)}"
         if fac_variant and node.type in ('TEX_CHECKER', 'TEX_BRICK'):
             node_id += "::fac"
+        if color_output and node.type == 'TEX_VORONOI':
+            node_id += "::color"
         cache_key = self._texture_variant_key(
             f"_proc_{node_id}::coordprog", coord_mode, (1.0, 1.0), (0.0, 0.0), 0.0,
             uv_layer, mapping)
         if cache_key in cache:
             return cache[cache_key]
-        child = self.load_procedural_texture(node, renderer, fac_variant=fac_variant)
+        child = self.load_procedural_texture(node, renderer, fac_variant=fac_variant,
+                                             color_output=color_output)
         if child is None:
             return None
         name = f"{child}::coordprog"
+        # #891: textures that drive the warp, loaded unwrapped (the wrapper samples
+        # them at its resolved point; _procedural_coord_program checked the base).
+        input_names = []
+        for in_node, variant in zip(compiled.get('inputs', ()),
+                                    compiled.get('input_variants', ())):
+            in_name = self.load_procedural_texture(
+                in_node, renderer, fac_variant=(variant == 'fac'),
+                color_output=(variant == 'color'))
+            if in_name is None:
+                return None
+            input_names.append(in_name)
         try:
             renderer.create_coord_program_texture(
                 name, child, coord_mode, compiled['out_slot'], compiled['code_flat'],
-                compiled['consts_flat'], compiled['ramps_flat'])
+                compiled['consts_flat'], compiled['ramps_flat'], input_names)
         except Exception as e:
             self._warn_shader_fallback('op-VM', 'coordinate program upload failed (%s)' % e)
             return None
@@ -4206,7 +4268,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                       'TEX_MAGIC', 'TEX_BRICK', 'TEX_GRADIENT', 'TEX_MUSGRAVE'}
         if linked_node.type in PROC_TYPES:
             vector_inp = linked_node.inputs.get('Vector') if hasattr(linked_node, 'inputs') else None
-            tex_name = self.load_procedural_texture(linked_node, renderer, vector_input=vector_inp)
+            tex_name = self.load_procedural_texture(
+                linked_node, renderer, vector_input=vector_inp,
+                color_output=(linked_node.type == 'TEX_VORONOI'
+                              and inp.links[0].from_socket.name == 'Color'))
             return [0.8, 0.8, 0.8], tex_name
         # pkg219b — a per-texel op-VM chain (Color Ramp / Mix / Math / Map Range
         # downstream of an image). Compile it to bytecode and register a program
@@ -4330,7 +4395,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             for in_node, variant in zip(inputs, variants):
                 vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
                 cn = self.load_procedural_texture(in_node, renderer, vector_input=vinp,
-                                                  fac_variant=(variant == 'fac'))
+                                                  fac_variant=(variant == 'fac'),
+                                                  color_output=(variant == 'color'))
 
                 if cn is None:
                     self._warn_shader_fallback('op-VM', 'procedural input failed to load; flattened')

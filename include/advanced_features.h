@@ -487,13 +487,22 @@ public:
 class CoordProgramTexture : public Texture {
     std::shared_ptr<Texture> child_;
     astroray::svm::ShaderVMProgram program_;
+    // #891 — texture-driven warps (Noise -> Vector Math -> ...): OP_LOAD_TEX k>=1
+    // reads inputs_[k-1] sampled at the same resolved point p (the compiler only
+    // admits inputs sharing the wrapper's base coordinate).
+    std::vector<std::shared_ptr<Texture>> inputs_;
 public:
     CoordProgramTexture(std::shared_ptr<Texture> child,
-                        const astroray::svm::ShaderVMProgram& p)
-        : child_(std::move(child)), program_(p) {}
+                        const astroray::svm::ShaderVMProgram& p,
+                        std::vector<std::shared_ptr<Texture>> inputs = {})
+        : child_(std::move(child)), program_(p), inputs_(std::move(inputs)) {}
     Vec3 value(const Vec2&, const Vec3& p) const override {
         GVec3 in[astroray::svm::VM_MAX_TEX];
         for (int i = 0; i < astroray::svm::VM_MAX_TEX; ++i) in[i] = GVec3(p.x, p.y, p.z);
+        for (size_t i = 0; i < inputs_.size() && i + 1 < (size_t)astroray::svm::VM_MAX_TEX; ++i) {
+            Vec3 c = inputs_[i]->value(Vec2(p.x, p.y), p);
+            in[i + 1] = GVec3(c.x, c.y, c.z);
+        }
         GVec3 w = astroray::svm::svm_eval(program_, in);
         return child_->value(Vec2(w.x, w.y), Vec3(w.x, w.y, w.z));
     }
@@ -1142,6 +1151,7 @@ class VoronoiTexture : public Texture {
     float scale, detail, roughness, lacunarity, smoothness, exponent, randomness;
     float maxDistance;  // computed from randomness and feature
     bool normalize;
+    bool outputColor;   // #944: value() returns the per-cell Color output instead of Distance
     int distMetric, feature;
     Vec3 colorLow, colorHigh;
 
@@ -1446,10 +1456,11 @@ public:
     VoronoiTexture(float sc = 5.0f, float det = 0.0f, float rough = 0.5f, float lac = 2.0f,
                    float smooth = 1.0f, float exp = 0.5f, float rand = 1.0f,
                    bool norm = false, int dm = 0, int feat = 0,
-                   const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1))
+                   const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1),
+                   bool colorOut = false)
         : scale(sc), detail(det), roughness(rough), lacunarity(lac),
           smoothness(smooth), exponent(exp), randomness(rand), normalize(norm),
-          distMetric(dm), feature(feat), colorLow(c1), colorHigh(c2) {
+          outputColor(colorOut), distMetric(dm), feature(feat), colorLow(c1), colorHigh(c2) {
         // Cycles voronoi.h:1065+ svm_node_tex_voronoi conditioning.
         detail = std::clamp(detail, 0.0f, 15.0f);
         roughness = std::clamp(roughness, 0.0f, 1.0f);
@@ -1470,6 +1481,9 @@ public:
     Vec3 value(const Vec2&, const Vec3& p) const override {
         // Legacy single-output: Distance mapped to a 2-color lerp.
         VoronoiOutput out = evalFull(p);
+        // Cycles svm_voronoi Color output: the hashed cell colour (voronoi.h
+        // out.color), in [0,1] per channel; Distance would render grey.
+        if (outputColor) return out.color;
         float t = std::clamp(out.distance, 0.0f, 1.0f);
         return colorLow * (1.0f - t) + colorHigh * t;
     }

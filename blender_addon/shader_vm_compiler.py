@@ -116,7 +116,8 @@ class ProgramBuilder:
         # pkg293 — per-input load variant, parallel to `inputs`: 'fac' when the
         # wired output is a Fac the texture's Color load cannot express (Checker /
         # Brick; see _FAC_VARIANT_TYPES), else None. The addon loads a 'fac'
-        # input as the scalar-Fac form of the node.
+        # input as the scalar-Fac form of the node. #944: 'color' = Voronoi's
+        # Color output (hashed cell colour) instead of its default Distance.
         self.input_variants = []
         self._next_slot = 0
         # pkg277 — coordinate mode: TEX_COORD / UVMAP / MAPPING sources become
@@ -125,14 +126,33 @@ class ProgramBuilder:
         self.coord_mode = False
         self.coord_sockets = []
         self.memo = {}          # coord mode: (node, output) -> slot (reuse, not recompute)
+        # #891 - coordinate programs recycle dead temporaries (a warp + a Mapping
+        # needs more than VM_MAX_SLOTS live-forever slots) and reserve input 0 for
+        # the resolved point, so texture-driven warps load their texture at input 1.
+        self.free_slots = []
+        self.consumers = {}     # coord mode: (node, output) -> number of consuming sockets
 
     # -- resource allocation --------------------------------------------------
     def alloc_slot(self):
+        if self.coord_mode and self.free_slots:
+            self.free_slots.sort()
+            return self.free_slots.pop(0)
         s = self._next_slot
         self._next_slot += 1
         if s >= VM_MAX_SLOTS:
             raise VMCompileError("op-VM stack bound (VM_MAX_SLOTS) exceeded")
         return s
+
+    def release(self, *slots):
+        """ Coordinate programs only: return consumed temporaries to the pool
+        (never a memoised slot: those are read again by later consumers)."""
+        if not self.coord_mode:
+            return
+        # A memoised slot is only dead after its LAST consumer (one consumer = now).
+        live = {sl for key, sl in self.memo.items() if self.consumers.get(key, 2) > 1}
+        for sl in slots:
+            if sl not in live and sl not in self.free_slots:
+                self.free_slots.append(sl)
 
     def emit(self, op, out, a=0, b=0, c=0, d=0, e=0, imm=0):
         if len(self.code) >= VM_MAX_INSTR:
@@ -159,7 +179,7 @@ class ProgramBuilder:
         for i, n in enumerate(self.inputs):
             if n is tex_node and self.input_variants[i] == variant:
                 return i
-        if len(self.inputs) >= VM_MAX_TEX:
+        if len(self.inputs) >= VM_MAX_TEX - (1 if self.coord_mode else 0):
             raise VMCompileError("op-VM input-texture bound (VM_MAX_TEX) exceeded")
         self.inputs.append(tex_node)
         self.input_variants.append(variant)
@@ -173,7 +193,9 @@ class ProgramBuilder:
 
     def push_tex(self, tex_node, variant=None):
         s = self.alloc_slot()
-        self.emit(OP_LOAD_TEX, s, imm=self.add_input(tex_node, variant))
+        # Coordinate programs: input 0 is the resolved point, textures start at 1.
+        self.emit(OP_LOAD_TEX, s,
+                  imm=self.add_input(tex_node, variant) + (1 if self.coord_mode else 0))
         return s
 
 
@@ -219,6 +241,10 @@ _FAC_VARIANT_TYPES = frozenset(('TEX_CHECKER', 'TEX_BRICK'))
 
 def _push_texture_output(node, out_name, socket, builder):
     ntype = getattr(node, 'type', None)
+    if ntype == 'TEX_VORONOI' and out_name == 'Color':
+        # #944: Voronoi Color = hashed cell colour (svm/voronoi.h); the default
+        # load is Distance (grey). A 'color' input variant loads the Color form.
+        return builder.push_tex(node, 'color')
     if out_name not in ('Fac', 'Factor'):  # Blender 5 labels the Fac output 'Factor'
         return builder.push_tex(node)
     if ntype in _FAC_VARIANT_TYPES:
@@ -323,6 +349,95 @@ def _compile_mix_modern(node, builder, depth):
     return out
 
 
+# #891 - node types a coordinate chain may contain and still be resolved as one
+# host-side affine (mirrors _resolve_affine_coordinates in blender_addon/__init__.py).
+_AFFINE_COORD_TYPES = frozenset(('TEX_COORD', 'UVMAP', 'MAPPING', 'VALUE', 'RGB',
+                                 'COMBXYZ', 'VECT_MATH', 'VECTOR_ROTATE'))
+_AFFINE_VECMATH = frozenset(('ADD', 'SUBTRACT', 'MULTIPLY', 'SCALE'))
+
+
+def _coord_chain_affine(socket, depth=0):
+    """True when every node feeding `socket` is affine-resolvable (no warp)."""
+    src = _linked_source(socket)
+    if src is None:
+        return True
+    node = src[0]
+    ntype = getattr(node, 'type', None)
+    if ntype in ('TEX_COORD', 'UVMAP'):
+        return True
+    if ntype not in _AFFINE_COORD_TYPES or depth > 16:
+        return False
+    if ntype == 'VECT_MATH' and getattr(node, 'operation', None) not in _AFFINE_VECMATH:
+        return False
+    return all(_coord_chain_affine(sock, depth + 1)
+               for sock in getattr(node, 'inputs', ()) if getattr(sock, 'is_linked', False))
+
+
+def _count_consumers(socket, counts, seen=None):
+    """How many sockets read each (node, output) in a coordinate chain. Counting
+    every linked input over-counts (safe: keeps a slot alive), never under-counts."""
+    seen = set() if seen is None else seen
+    src = _linked_source(socket)
+    if src is None:
+        return counts
+    key = (_node_key(src[0]), src[1])
+    counts[key] = counts.get(key, 0) + 1
+    if key in seen or getattr(src[0], 'type', None) in ('TEX_COORD', 'UVMAP')             or _is_texture_leaf(src[0]):
+        return counts
+    seen.add(key)
+    for sock in getattr(src[0], 'inputs', ()):
+        _count_consumers(sock, counts, seen)
+    return counts
+
+
+def _socket_is_const(socket, neutral):
+    """Unlinked socket whose default equals `neutral` (the op is then the identity)."""
+    if socket is None:
+        return True
+    if getattr(socket, 'is_linked', False):
+        return False
+    return all(abs(v - n) == 0.0 for v, n in zip(_socket_default_rgb(socket), neutral))
+
+
+def _compile_mapping(node, builder, depth):
+    """Mapping node as op-VM ops on a warped vector.
+
+    Cycles svm/mapping_util.h svm_mapping (Apache-2.0):
+      POINT:  out = euler_to_mat(rotation) * (vector * scale) + location
+      VECTOR: out = euler_to_mat(rotation) * (vector * scale)
+    = OP_VEC_MATH MULTIPLY, OP_VEC_ROTATE EULER_XYZ (centre 0), OP_VEC_MATH ADD.
+    A neutral unlinked control (scale 1, rotation 0, location 0) is skipped, which is
+    exact. TEXTURE / NORMAL types are not compiled (honest VMCompileError).
+    """
+    vtype = getattr(node, 'vector_type', 'POINT')
+    if vtype not in ('POINT', 'VECTOR'):
+        raise VMCompileError("unsupported Mapping type in coordinate program: %s" % vtype)
+    loc_in, rot_in, scl_in = (_get_input(node, 'Location'), _get_input(node, 'Rotation'),
+                              _get_input(node, 'Scale'))
+    cur = compile_socket(_get_input(node, 'Vector'), builder, depth + 1)
+    if not _socket_is_const(scl_in, (1.0, 1.0, 1.0)):
+        scl = compile_socket(scl_in, builder, depth + 1)
+        out = builder.alloc_slot()
+        builder.emit(OP_VEC_MATH, out, a=cur, b=scl, imm=VEC_MATH_OPS['MULTIPLY'])
+        builder.release(cur, scl)
+        cur = out
+    if not _socket_is_const(rot_in, (0.0, 0.0, 0.0)):
+        rot = compile_socket(rot_in, builder, depth + 1)
+        ctr = builder.push_const([0.0, 0.0, 0.0])
+        out = builder.alloc_slot()
+        builder.emit(OP_VEC_ROTATE, out, a=cur, b=ctr, c=rot,
+                     imm=VEC_ROTATE_TYPES['EULER_XYZ'])
+        builder.release(cur, rot, ctr)
+        cur = out
+    if vtype == 'POINT' and not _socket_is_const(loc_in, (0.0, 0.0, 0.0)):
+        loc = compile_socket(loc_in, builder, depth + 1)
+        out = builder.alloc_slot()
+        builder.emit(OP_VEC_MATH, out, a=cur, b=loc, imm=VEC_MATH_OPS['ADD'])
+        builder.release(cur, loc)
+        cur = out
+    return cur
+
+
 def compile_socket(socket, builder, depth=0):
     """Compile a value and apply Blender's implicit conversion to scalar sockets.
 
@@ -338,12 +453,14 @@ def compile_socket(socket, builder, depth=0):
     if source_type == 'RGBA':
         out = builder.alloc_slot()
         builder.emit(OP_RGB_TO_BW, out, a=slot)
+        builder.release(slot)
         return out
     if source_type == 'VECTOR':
         weight = builder.push_const([1.0 / 3.0] * 3)
         out = builder.alloc_slot()
         builder.emit(OP_VEC_MATH, out, a=slot, b=weight,
                      imm=VEC_MATH_OPS['DOT_PRODUCT'])
+        builder.release(slot, weight)
         return out
     return slot
 
@@ -384,13 +501,18 @@ def _compile_socket_value(socket, builder, depth=0):
     ntype = getattr(node, 'type', None)
 
     if builder.coord_mode:
-        if ntype in _COORD_LEAF_TYPES:
+        # #891: a Mapping whose Vector is itself warped is an in-program op (Cycles
+        # graph order: warp first, then Mapping); an affine-fed Mapping stays the leaf.
+        if ntype in _COORD_LEAF_TYPES and not (
+                ntype == 'MAPPING' and not _coord_chain_affine(_get_input(node, 'Vector'))):
             builder.coord_sockets.append(socket)
             s = builder.alloc_slot()
             builder.emit(OP_LOAD_TEX, s, imm=0)
             return s
-        if _is_texture_leaf(node):
-            raise VMCompileError("texture-driven coordinates are unsupported")
+        if _is_image_texture(node):
+            raise VMCompileError("image-driven coordinates are unsupported")
+        # A procedural (e.g. Noise) may drive the warp: OP_LOAD_TEX 1 samples it at
+        # the wrapper's resolved point; the addon verifies it shares that coordinate.
 
     # issue #818 Item 1 — image OR procedural texture nodes are input leaves.
     if _is_texture_leaf(node):
@@ -429,6 +551,9 @@ def _compile_socket_value(socket, builder, depth=0):
     if ntype == 'MIX':  # modern ShaderNodeMix
         return _compile_mix_modern(node, builder, depth)
 
+    if ntype == 'MAPPING':  # #891 — Mapping downstream of a non-affine warp
+        return _compile_mapping(node, builder, depth)
+
     if ntype == 'VECT_MATH':  # pkg230 Phase 2 — Vector Math
         op = getattr(node, 'operation', None)
         if op not in VEC_MATH_OPS:
@@ -451,6 +576,9 @@ def _compile_socket_value(socket, builder, depth=0):
         out = builder.alloc_slot()
         builder.emit(OP_VEC_MATH, out, a=a_s, b=b_s, c=c_s, d=d_s,
                      imm=VEC_MATH_OPS[op])
+        builder.release(a_s, *([b_s] if op in _VECMATH_USE_B and len(ins) > 1 else []),
+                        *([c_s] if op in _VECMATH_USE_C and len(ins) > 2 else []),
+                        *([d_s] if op in _VECMATH_USE_SCALE and len(ins) > 3 else []))
         return out
 
     if ntype == 'VECTOR_ROTATE':  # pkg230 Phase 2 — Vector Rotate
@@ -492,6 +620,7 @@ def _compile_socket_value(socket, builder, depth=0):
         v_s = compile_socket(_get_input(node, 'Vector'), builder, depth + 1)
         out = builder.alloc_slot()
         builder.emit(OP_SEP_COLOR, out, a=v_s, imm=CS_RGB * 4 + comp)
+        builder.release(v_s)
         return out
 
     if ntype == 'COMBXYZ':  # pkg277 — Combine XYZ == Combine Color (RGB)
@@ -500,6 +629,7 @@ def _compile_socket_value(socket, builder, depth=0):
         z_s = compile_socket(_get_input(node, 'Z'), builder, depth + 1)
         out = builder.alloc_slot()
         builder.emit(OP_COMBINE_COLOR, out, a=x_s, b=y_s, c=z_s, imm=CS_RGB)
+        builder.release(x_s, y_s, z_s)
         return out
 
     if ntype == 'MATH' and getattr(node, 'operation', None) in MATH_TRIG:
@@ -507,11 +637,13 @@ def _compile_socket_value(socket, builder, depth=0):
         out = builder.alloc_slot()
         builder.emit(OP_VEC_MATH, out, a=a_s,
                      imm=VEC_MATH_OPS[MATH_TRIG[node.operation]])
+        builder.release(a_s)
         if getattr(node, 'use_clamp', False):
             zero = builder.push_const([0.0, 0.0, 0.0])
             clamped = builder.alloc_slot()
             builder.emit(OP_MATH, clamped, a=out, b=zero,
                          imm=MATH_OPS['ADD'] | SVM_MATH_CLAMP)
+            builder.release(out, zero)
             return clamped
         return out
 
@@ -530,6 +662,7 @@ def _compile_socket_value(socket, builder, depth=0):
             imm |= SVM_MATH_CLAMP
         out = builder.alloc_slot()
         builder.emit(OP_MATH, out, a=a_s, b=b_s, c=c_s, imm=imm)
+        builder.release(a_s, b_s, *([c_s] if op in MATH_TERNARY and len(node.inputs) > 2 else []))
         return out
 
     if ntype == 'CLAMP':  # pkg230
@@ -693,10 +826,15 @@ def compile_coord_chain(socket):
     coord_sockets are the linked sockets of its affine base coordinate.
     """
     src = _linked_source(socket)
-    if src is None or getattr(src[0], 'type', None) in _COORD_LEAF_TYPES:
+    if src is None:
+        return None
+    root = getattr(src[0], 'type', None)
+    if root in _COORD_LEAF_TYPES and (
+            root != 'MAPPING' or _coord_chain_affine(_get_input(src[0], 'Vector'))):
         return None
     builder = ProgramBuilder()
     builder.coord_mode = True
+    _count_consumers(socket, builder.consumers)
     out_slot = compile_socket(socket, builder, 0)
     if not builder.coord_sockets:
         return None
@@ -709,6 +847,9 @@ def compile_coord_chain(socket):
         'consts_flat': builder.consts,
         'ramps_flat': builder.ramps,
         'coord_sockets': builder.coord_sockets,
+        # #891: procedural nodes that drive the warp (OP_LOAD_TEX 1..), else [].
+        'inputs': builder.inputs,
+        'input_variants': builder.input_variants,
     }
 
 

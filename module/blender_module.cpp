@@ -272,6 +272,7 @@ public:
             //   [0..4]  scale, randomness, dist_metric, feature, smoothness
             //   [5..10] r1,g1,b1, r2,g2,b2            (color_low, color_high)
             //   [11..15] detail, roughness, lacunarity, exponent, normalize   (pkg115 item 10)
+            //   [16]    output_color (1 = Color output, hashed cell colour; #944)
             // Legacy 5-param + colour scripts (size <= 11) keep working: the trailing
             // Cycles-parity params (detail/roughness/lacunarity/exponent/normalize) default
             // off, so a non-fractal, non-normalised F1 matches the old behaviour. The addon
@@ -288,10 +289,11 @@ public:
             float lac = params.size() > 13 ? params[13] : 2.0f;
             float expo = params.size() > 14 ? params[14] : 0.5f;
             bool norm = params.size() > 15 ? (params[15] != 0.0f) : false;
+            bool colorOut = params.size() > 16 ? (params[16] != 0.0f) : false;  // #944: Color output
             // New ctor: (scale, detail, roughness, lacunarity, smoothness, exponent, randomness,
-            //            normalize, dist_metric, feature, color_low, color_high).
+            //            normalize, dist_metric, feature, color_low, color_high, colorOut).
             proceduralTextures[name] = std::make_shared<VoronoiTexture>(
-                sc, det, rough, lac, smooth, expo, rand, norm, dm, feat, c1, c2);
+                sc, det, rough, lac, smooth, expo, rand, norm, dm, feat, c1, c2, colorOut);
         } else if (type == "brick") {
             // pkg115 chunk 3 + chunk 6 (addon dedup): full Cycles-parity Brick.
             // Params: [brick1_r,g,b, brick2_r,g,b, mortar_r,g,b, scale, mortar_size, mortar_smooth,
@@ -407,13 +409,21 @@ public:
                                    const std::string& coordMode, int outSlot,
                                    const std::vector<int>& code_flat,
                                    const std::vector<float>& consts_flat,
-                                   const std::vector<float>& ramps_flat) {
+                                   const std::vector<float>& ramps_flat,
+                                   const std::vector<std::string>& inputNames = {}) {
         auto child = getTexture(childName);
         if (!child)
             throw std::runtime_error("create_coord_program_texture: unknown child texture " + childName);
+        std::vector<std::shared_ptr<Texture>> inputs;  // #891: OP_LOAD_TEX 1.. samplers
+        for (const auto& n : inputNames) {
+            auto in = getTexture(n);
+            if (!in)
+                throw std::runtime_error("create_coord_program_texture: unknown input texture " + n);
+            inputs.push_back(in);
+        }
         auto t = std::make_shared<CoordProgramTexture>(child,
-            parseProgram("create_coord_program_texture", 1, outSlot,
-                         code_flat, consts_flat, ramps_flat));
+            parseProgram("create_coord_program_texture", 1 + (int)inputs.size(), outSlot,
+                         code_flat, consts_flat, ramps_flat), inputs);
         t->setCoordMode(parseCoordMode(coordMode));
         proceduralTextures[name] = t;
     }
@@ -586,9 +596,10 @@ public:
                                    const std::string& coordMode, int outSlot,
                                    const std::vector<int>& code_flat,
                                    const std::vector<float>& consts_flat,
-                                   const std::vector<float>& ramps_flat) {
+                                   const std::vector<float>& ramps_flat,
+                                   const std::vector<std::string>& inputNames = {}) {
         textureManager.createCoordProgramTexture(name, childName, coordMode, outSlot,
-                                                 code_flat, consts_flat, ramps_flat);
+                                                 code_flat, consts_flat, ramps_flat, inputNames);
     }
 
     // pkg219b test helper — sample a registered texture (image / procedural /
@@ -3740,8 +3751,10 @@ PYBIND11_MODULE(astroray, m) {
         .def("create_coord_program_texture", &PyRenderer::createCoordProgramTexture,
              "name"_a, "child_name"_a, "coord_mode"_a, "out_slot"_a,
              "code_flat"_a, "consts_flat"_a, "ramps_flat"_a = std::vector<float>{},
+             "input_names"_a = std::vector<std::string>{},
              "pkg277: register a procedural sampled at a coordinate warped by an "
-             "op-VM program (OP_LOAD_TEX 0 = resolved point). Coord mode + Mapping "
+             "op-VM program (OP_LOAD_TEX 0 = resolved point; #891: OP_LOAD_TEX k>=1 "
+             "= input_names[k-1] sampled at that point). Coord mode + Mapping "
              "live on the wrapper; the GPU bakes it like any procedural (pkg190).")
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)
         .def("eval_material", &PyRenderer::evalMaterial,

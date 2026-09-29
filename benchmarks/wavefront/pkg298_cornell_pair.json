@@ -1,0 +1,488 @@
+{
+ "schema": "astroray.pkg298.cornell_pair.v1",
+ "main_baseline": {
+  "schema": "astroray.pkg298.cornell_pair.v1",
+  "generated_utc": "2026-09-29T16:39:06Z",
+  "git_sha": "276e9154",
+  "gpu": {
+   "platform": "Windows-11-10.0.26200-SP0",
+   "nvidia_smi": [
+    "NVIDIA GeForce RTX 5070 Ti, 616.56, 16303 MiB"
+   ]
+  },
+  "args": {
+   "cornell_pair": true,
+   "devices": "gpu",
+   "res": 1024,
+   "spp": 256,
+   "depth": 8,
+   "calls": 4,
+   "repeats": 3,
+   "skip_full": false,
+   "pool": true,
+   "cycles": true,
+   "blender": "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe",
+   "out": "C:\\Users\\hgcom\\OneDrive\\Astroray\\astra_run\\AP\\ap-298\\baseline_gpu_main.json"
+  },
+  "fixed_cost": [
+   {
+    "calls": [
+     {
+      "wall_s": 0.19331120001152158,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 0.0035054000036325306,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 0.0034573999873828143,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 0.0036337000055937096,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     }
+    ],
+    "triangles": 12,
+    "module": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-am-962\\build_cuda\\astroray.cp313-win_amd64.pyd",
+    "engine": "astroray",
+    "scene": "simple",
+    "device": "gpu",
+    "res": 16,
+    "spp": 1,
+    "depth": 8,
+    "stderr_tail": "[astroray-profile] wrote C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-ap-298\\test_results\\_runs\\pkg298\\profile\\fixed_simple_gpu.json (5 kernels)\n",
+    "kernel_sum_ms": 9.213504,
+    "host_ms": {},
+    "first_s": 0.19331120001152158,
+    "warm_min_s": 0.0034573999873828143
+   },
+   {
+    "calls": [
+     {
+      "wall_s": 2.5185356000001775,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 2.5136032000009436,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 2.5086523999925703,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 2.4771652999916114,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     }
+    ],
+    "triangles": 2000012,
+    "module": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-am-962\\build_cuda\\astroray.cp313-win_amd64.pyd",
+    "engine": "astroray",
+    "scene": "heavy",
+    "device": "gpu",
+    "res": 16,
+    "spp": 1,
+    "depth": 8,
+    "stderr_tail": "[astroray-profile] wrote C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-ap-298\\test_results\\_runs\\pkg298\\profile\\fixed_heavy_gpu.json (5 kernels)\n",
+    "kernel_sum_ms": 33.903744,
+    "host_ms": {},
+    "first_s": 2.5185356000001775,
+    "warm_min_s": 2.4771652999916114
+   }
+  ],
+  "full": [
+   {
+    "calls": [
+     {
+      "wall_s": 12.499483499996131,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 12.277577699991525,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 12.262318599998252,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 12.261183499998879,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     }
+    ],
+    "triangles": 12,
+    "module": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-am-962\\build_cuda\\astroray.cp313-win_amd64.pyd",
+    "engine": "astroray",
+    "scene": "simple",
+    "device": "gpu",
+    "res": 1024,
+    "spp": 256,
+    "depth": 8,
+    "stderr_tail": "[astroray-profile] wrote C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-ap-298\\test_results\\_runs\\pkg298\\profile\\full_simple_gpu.json (5 kernels)\n",
+    "kernel_sum_ms": 48005.863709,
+    "host_ms": {},
+    "warm_min_s": 12.261183499998879
+   },
+   {
+    "calls": [
+     {
+      "wall_s": 3.173071600002004
+     },
+     {
+      "wall_s": 3.1135647999908542
+     },
+     {
+      "wall_s": 3.1073959000059403
+     },
+     {
+      "wall_s": 3.099867600001744
+     }
+    ],
+    "triangles": 12,
+    "devices": [
+     "NVIDIA GeForce RTX 5070 Ti"
+    ],
+    "blender": "5.2.0 LTS",
+    "persistent_data": false,
+    "engine": "cycles",
+    "scene": "simple",
+    "device": "OPTIX",
+    "res": 1024,
+    "spp": 256,
+    "depth": 8,
+    "warm_min_s": 3.099867600001744
+   },
+   {
+    "calls": [
+     {
+      "wall_s": 3.1049079000076745
+     },
+     {
+      "wall_s": 3.0912841000099434
+     },
+     {
+      "wall_s": 3.086882499992498
+     },
+     {
+      "wall_s": 3.07569009999861
+     }
+    ],
+    "triangles": 12,
+    "devices": [
+     "NVIDIA GeForce RTX 5070 Ti"
+    ],
+    "blender": "5.2.0 LTS",
+    "persistent_data": false,
+    "engine": "cycles",
+    "scene": "simple",
+    "device": "CUDA",
+    "res": 1024,
+    "spp": 256,
+    "depth": 8,
+    "warm_min_s": 3.07569009999861
+   },
+   {
+    "calls": [
+     {
+      "wall_s": 25.078932000003988,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 24.940151199989486,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 24.960713199994643,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 24.916235199998482,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     }
+    ],
+    "triangles": 2000012,
+    "module": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-am-962\\build_cuda\\astroray.cp313-win_amd64.pyd",
+    "engine": "astroray",
+    "scene": "heavy",
+    "device": "gpu",
+    "res": 1024,
+    "spp": 256,
+    "depth": 8,
+    "stderr_tail": "[astroray-profile] wrote C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-ap-298\\test_results\\_runs\\pkg298\\profile\\full_heavy_gpu.json (5 kernels)\n",
+    "kernel_sum_ms": 89278.212613,
+    "host_ms": {},
+    "warm_min_s": 24.916235199998482
+   },
+   {
+    "calls": [
+     {
+      "wall_s": 3.4989200999989407
+     },
+     {
+      "wall_s": 3.398460600001272
+     },
+     {
+      "wall_s": 3.39512420000392
+     },
+     {
+      "wall_s": 3.419681600003969
+     }
+    ],
+    "triangles": 2000012,
+    "devices": [
+     "NVIDIA GeForce RTX 5070 Ti"
+    ],
+    "blender": "5.2.0 LTS",
+    "persistent_data": false,
+    "engine": "cycles",
+    "scene": "heavy",
+    "device": "OPTIX",
+    "res": 1024,
+    "spp": 256,
+    "depth": 8,
+    "warm_min_s": 3.39512420000392
+   },
+   {
+    "calls": [
+     {
+      "wall_s": 6.545231900003273
+     },
+     {
+      "wall_s": 6.498875400007819
+     },
+     {
+      "wall_s": 6.500088799992227
+     },
+     {
+      "wall_s": 6.4814254000084475
+     }
+    ],
+    "triangles": 2000012,
+    "devices": [
+     "NVIDIA GeForce RTX 5070 Ti"
+    ],
+    "blender": "5.2.0 LTS",
+    "persistent_data": false,
+    "engine": "cycles",
+    "scene": "heavy",
+    "device": "CUDA",
+    "res": 1024,
+    "spp": 256,
+    "depth": 8,
+    "warm_min_s": 6.4814254000084475
+   }
+  ],
+  "pool": [
+   {
+    "calls": [
+     {
+      "wall_s": 1.0459840999974404,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 0.8555326000059722,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 0.8553991999942809,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 0.8560188000119524,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     }
+    ],
+    "triangles": 12,
+    "module": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-am-962\\build_cuda\\astroray.cp313-win_amd64.pyd",
+    "engine": "astroray",
+    "scene": "simple",
+    "device": "gpu",
+    "res": 256,
+    "spp": 256,
+    "depth": 8,
+    "stderr_tail": "",
+    "warm_min_s": 0.8553991999942809,
+    "msamples_per_s": 19.61331738457573
+   },
+   {
+    "calls": [
+     {
+      "wall_s": 12.221377299996675,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 12.024114100000588,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 12.02299729999504,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     },
+     {
+      "wall_s": 12.023114700001315,
+      "bvh_build_count": null,
+      "bvh_build_ms": null
+     }
+    ],
+    "triangles": 12,
+    "module": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-am-962\\build_cuda\\astroray.cp313-win_amd64.pyd",
+    "engine": "astroray",
+    "scene": "simple",
+    "device": "gpu",
+    "res": 1024,
+    "spp": 256,
+    "depth": 8,
+    "stderr_tail": "",
+    "warm_min_s": 12.02299729999504,
+    "msamples_per_s": 22.32683325979876
+   }
+  ]
+ },
+ "gates": {
+  "image": {
+   "simple": {
+    "new_vs_main_maxabs": 7.62939453125e-06,
+    "main_vs_main_maxabs": 3.814697265625e-06,
+    "mean": 0.4074528217315674
+   },
+   "heavy": {
+    "new_vs_main_maxabs": 1.1444091796875e-05,
+    "main_vs_main_maxabs": 7.62939453125e-06,
+    "mean": 0.37882936000823975
+   }
+  },
+  "repeat": {
+   "heavy_main": {
+    "first_s": 2.5095931999967434,
+    "warm_min_s": 2.3089175000059186,
+    "bvh_build_count": null,
+    "host_ms_total_4calls": {}
+   },
+   "heavy_new": {
+    "first_s": 1.1732329999940703,
+    "warm_min_s": 0.7077035999973305,
+    "bvh_build_count": 1,
+    "host_ms_total_4calls": {
+     "host:buildSceneArrays": 2687.4294,
+     "host:sceneUpload": 139.5573
+    }
+   }
+  },
+  "full_ab": [
+   {
+    "round": 0,
+    "build": "main",
+    "simple": 12.019765300006839,
+    "heavy": 24.6686566999997,
+    "ms_256": 19.622174210104408,
+    "ms_1024": 22.330119723717683,
+    "pool_ratio": 0.8787312586265688
+   },
+   {
+    "round": 0,
+    "build": "new",
+    "simple": 11.957167200002004,
+    "heavy": 23.58473529999901,
+    "ms_256": 21.406420874065276,
+    "ms_1024": 22.45143605015123,
+    "pool_ratio": 0.9534544171806366
+   },
+   {
+    "round": 1,
+    "build": "main",
+    "simple": 12.017980899996473,
+    "heavy": 24.634718500004965,
+    "ms_256": 19.61420935707218,
+    "ms_1024": 22.324680634973543,
+    "pool_ratio": 0.8785885754775289
+   },
+   {
+    "round": 1,
+    "build": "new",
+    "simple": 11.95396859999164,
+    "heavy": 23.58301119999669,
+    "ms_256": 21.39983775273908,
+    "ms_1024": 22.44769103560162,
+    "pool_ratio": 0.9533202198301526
+   }
+  ]
+ },
+ "cpu_fixed_cost": {
+  "base": [
+   {
+    "first_s": 1.0335065999970539,
+    "warm_min_s": 1.0358735999980127,
+    "bvh_build_ms": null
+   },
+   {
+    "first_s": 1.0152631000019028,
+    "warm_min_s": 1.0316796000042814,
+    "bvh_build_ms": null
+   },
+   {
+    "first_s": 1.0284424999990733,
+    "warm_min_s": 1.0288708999942173,
+    "bvh_build_ms": null
+   }
+  ],
+  "new": [
+   {
+    "first_s": 0.2884172000049148,
+    "warm_min_s": 0.020900299998174887,
+    "bvh_build_ms": 264.919
+   },
+   {
+    "first_s": 0.29891499999939697,
+    "warm_min_s": 0.01672580000013113,
+    "bvh_build_ms": 276.329
+   },
+   {
+    "first_s": 0.27997200000390876,
+    "warm_min_s": 0.018824700004188344,
+    "bvh_build_ms": 257.55
+   }
+  ],
+  "new_omp1": [
+   {
+    "first_s": 0.6889674000049126,
+    "warm_min_s": 0.01827429999684682,
+    "bvh_build_ms": 666.548
+   },
+   {
+    "first_s": 0.6906214999980875,
+    "warm_min_s": 0.020573699999658857,
+    "bvh_build_ms": 668.038
+   },
+   {
+    "first_s": 0.6820025000051828,
+    "warm_min_s": 0.01738409999961732,
+    "bvh_build_ms": 657.472
+   }
+  ]
+ }
+}

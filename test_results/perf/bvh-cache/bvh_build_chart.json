@@ -1,0 +1,33 @@
+{
+ "title": "CPU BVH build, 2M triangles (main = whole first render)",
+ "xlabel": "build",
+ "ylabel": "s",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "first build",
+   "x": [
+    "main (serial)",
+    "parallel, 1 thread",
+    "parallel, 8 threads"
+   ],
+   "y": [
+    1.0152631000019028,
+    0.657472,
+    0.25755
+   ],
+   "role": "cpu"
+  }
+ ],
+ "band": null,
+ "ref": [
+  0.5,
+  "gate 0.5 s"
+ ],
+ "meta": {
+  "gpu": "RTX 5070 Ti",
+  "cpu": "Ryzen 7 7800X3D, OMP 8",
+  "stat": "min over rounds",
+  "harness": "benchmarks/wavefront_baseline.py --cornell-pair"
+ }
+}

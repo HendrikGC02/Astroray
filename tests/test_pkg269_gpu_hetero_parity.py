@@ -273,5 +273,8 @@ def test_gpu_media_free_render_is_bit_identical():
     r.add_homogeneous_medium([-1, -1, -1], [1, 1, 1], 2.0, [0.5, 0.5, 0.5], [1, 1, 1], 0.0)
     r.clear_grid_media()
     b = _render(r, 32, 6, 32, 32)
-    assert np.array_equal(a, b)
+    # pkg298: the path-pool floor keeps several samples of a pixel in flight, so
+    # float atomic accumulation order varies run to run (~3e-7 here). Owner
+    # decision (#969): bit-identity gates use an absolute 1e-6 tolerance.
+    assert float(np.max(np.abs(a - b))) <= 1e-6
     assert a.max() > 0.0

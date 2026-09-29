@@ -18,6 +18,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <chrono>
 #include "stb_image.h"
 #include "astroray/gr_types.h"
 #include "astroray/material_closure.h"
@@ -1278,74 +1279,173 @@ class BVHAccel : public Hittable {
         int splitAxis, firstPrimOffset, nPrimitives;
     };
 
-    BVHBuildNode* build(std::vector<BVHPrimitiveInfo>& info, int start, int end, size_t* total, std::vector<std::shared_ptr<Hittable>>& ord) {
-        BVHBuildNode* node = new BVHBuildNode;
-        (*total)++;
-        AABB bounds;
-        for (int i = start; i < end; ++i) bounds = bounds.merge(info[i].bounds);
-        int n = end - start;
-        if (n == 1) {
-            node->firstPrimOffset = ord.size(); node->nPrimitives = n; node->bounds = bounds;
-            for (int i = start; i < end; ++i) ord.push_back(primitives[info[i].primitiveIndex]);
-            return node;
-        }
+    // pkg298 Phase 2 — deterministic parallel build of the SAME binned-SAH tree
+    // (Wald, "On fast Construction of SAH-based Bounding Volume Hierarchies",
+    // RT 2007; parallel subtree build after pbrt-v4 aggregates.cpp
+    // BVHAggregate::buildRecursive, Apache-2.0). Every node runs splitNode(), so
+    // the split decisions match the serial build exactly. Per-node reductions
+    // over big ranges run over FIXED chunks merged in chunk order (AABB merge is
+    // min/max, bucket counts are integers: exact in any order), and a leaf's
+    // primitives are info[start, end) — the depth-first leaf order of the serial
+    // build — so the tree is node-for-node identical at any thread count.
+    // OpenMP 2.0 only (MSVC /openmp has no tasks): the top levels are split on
+    // the calling thread, then the subtrees below kSubtreePrims build in one
+    // `parallel for`.
+    static constexpr int kBuckets = 12;
+    static constexpr int kSubtreePrims = 1 << 14;   // at or below: one serial job
+    static constexpr int kParallelReducePrims = 1 << 16;
+    static constexpr int kReduceChunks = 64;
+
+    static int bucketOf(const BVHPrimitiveInfo& pi, const AABB& cb, int dim) {
+        int b = kBuckets * ((pi.centroid[dim] - cb.min[dim]) / (cb.max[dim] - cb.min[dim]));
+        return b == kBuckets ? kBuckets - 1 : b;
+    }
+
+    // Splits info[start, end). Returns false for a leaf; else sets dim and mid
+    // (info reordered in place). `par` parallelises the O(n) reductions only.
+    static bool splitNode(std::vector<BVHPrimitiveInfo>& info, int start, int end,
+                          AABB& bounds, int& dim, int& mid, bool par) {
+        const int n = end - start;
         AABB cb;
-        for (int i = start; i < end; ++i) cb = cb.merge(AABB(info[i].centroid, info[i].centroid));
-        int dim = cb.maxExtent(), mid = (start + end) / 2;
-        if (cb.max[dim] == cb.min[dim]) {
-            node->firstPrimOffset = ord.size(); node->nPrimitives = n; node->bounds = bounds;
-            for (int i = start; i < end; ++i) ord.push_back(primitives[info[i].primitiveIndex]);
-            return node;
+        if (par) {
+            AABB pb[kReduceChunks], pc[kReduceChunks];
+            #pragma omp parallel for schedule(static)
+            for (int c = 0; c < kReduceChunks; ++c) {
+                const int b0 = start + static_cast<int>((static_cast<long long>(n) * c) / kReduceChunks);
+                const int b1 = start + static_cast<int>((static_cast<long long>(n) * (c + 1)) / kReduceChunks);
+                AABB lb, lc;
+                for (int i = b0; i < b1; ++i) {
+                    lb = lb.merge(info[i].bounds);
+                    lc = lc.merge(AABB(info[i].centroid, info[i].centroid));
+                }
+                pb[c] = lb; pc[c] = lc;
+            }
+            for (int c = 0; c < kReduceChunks; ++c) { bounds = bounds.merge(pb[c]); cb = cb.merge(pc[c]); }
+        } else {
+            for (int i = start; i < end; ++i) bounds = bounds.merge(info[i].bounds);
+            if (n == 1) return false;
+            for (int i = start; i < end; ++i) cb = cb.merge(AABB(info[i].centroid, info[i].centroid));
         }
+        if (n == 1) return false;
+        dim = cb.maxExtent();
+        mid = (start + end) / 2;
+        if (cb.max[dim] == cb.min[dim]) return false;
         if (n <= 4) {
             std::nth_element(&info[start], &info[mid], &info[end-1]+1, [dim](auto& a, auto& b){ return a.centroid[dim] < b.centroid[dim]; });
+            return true;
+        }
+        struct Bucket { int count = 0; AABB bounds; } buckets[kBuckets];
+        if (par) {
+            std::vector<Bucket> pbk(kReduceChunks * kBuckets);
+            #pragma omp parallel for schedule(static)
+            for (int c = 0; c < kReduceChunks; ++c) {
+                const int b0 = start + static_cast<int>((static_cast<long long>(n) * c) / kReduceChunks);
+                const int b1 = start + static_cast<int>((static_cast<long long>(n) * (c + 1)) / kReduceChunks);
+                for (int i = b0; i < b1; ++i) {
+                    Bucket& bk = pbk[c * kBuckets + bucketOf(info[i], cb, dim)];
+                    bk.count++; bk.bounds = bk.bounds.merge(info[i].bounds);
+                }
+            }
+            for (int c = 0; c < kReduceChunks; ++c)
+                for (int b = 0; b < kBuckets; ++b) {
+                    buckets[b].count += pbk[c * kBuckets + b].count;
+                    buckets[b].bounds = buckets[b].bounds.merge(pbk[c * kBuckets + b].bounds);
+                }
         } else {
-            const int NB = 12;
-            struct Bucket { int count = 0; AABB bounds; } buckets[NB];
             for (int i = start; i < end; ++i) {
-                int b = NB * ((info[i].centroid[dim] - cb.min[dim]) / (cb.max[dim] - cb.min[dim]));
-                if (b == NB) b = NB - 1;
-                buckets[b].count++; buckets[b].bounds = buckets[b].bounds.merge(info[i].bounds);
-            }
-            float minCost = std::numeric_limits<float>::max(); int minB = 0;
-            for (int i = 0; i < NB-1; ++i) {
-                AABB b0, b1; int c0 = 0, c1 = 0;
-                for (int j = 0; j <= i; ++j) { b0 = b0.merge(buckets[j].bounds); c0 += buckets[j].count; }
-                for (int j = i+1; j < NB; ++j) { b1 = b1.merge(buckets[j].bounds); c1 += buckets[j].count; }
-                float cost = 0.125f + (c0 * b0.area() + c1 * b1.area()) / bounds.area();
-                if (cost < minCost) { minCost = cost; minB = i; }
-            }
-            if (n > 4 && minCost < n) {
-                auto pmid = std::partition(&info[start], &info[end-1]+1, [=](auto& pi) {
-                    int b = NB * ((pi.centroid[dim] - cb.min[dim]) / (cb.max[dim] - cb.min[dim]));
-                    if (b == NB) b = NB - 1;
-                    return b <= minB;
-                });
-                mid = pmid - &info[0];
+                Bucket& bk = buckets[bucketOf(info[i], cb, dim)];
+                bk.count++; bk.bounds = bk.bounds.merge(info[i].bounds);
             }
         }
+        float minCost = std::numeric_limits<float>::max(); int minB = 0;
+        for (int i = 0; i < kBuckets-1; ++i) {
+            AABB b0, b1; int c0 = 0, c1 = 0;
+            for (int j = 0; j <= i; ++j) { b0 = b0.merge(buckets[j].bounds); c0 += buckets[j].count; }
+            for (int j = i+1; j < kBuckets; ++j) { b1 = b1.merge(buckets[j].bounds); c1 += buckets[j].count; }
+            float cost = 0.125f + (c0 * b0.area() + c1 * b1.area()) / bounds.area();
+            if (cost < minCost) { minCost = cost; minB = i; }
+        }
+        if (minCost < n) {
+            auto pmid = std::partition(&info[start], &info[end-1]+1, [&](auto& pi) {
+                return bucketOf(pi, cb, dim) <= minB;
+            });
+            mid = static_cast<int>(pmid - &info[0]);
+        }
+        return true;
+    }
+
+    // Build nodes live in arenas (no per-node new/delete): a subtree job's
+    // arena is reserved to its 2n-1 node bound, so pointers stay valid.
+    static BVHBuildNode* newNode(std::vector<BVHBuildNode>& arena) {
+        arena.emplace_back();
+        return &arena.back();
+    }
+
+    static void setLeaf(BVHBuildNode* node, const AABB& bounds, int start, int end) {
+        node->firstPrimOffset = start; node->nPrimitives = end - start; node->bounds = bounds;
+    }
+
+    // Serial recursive build of info[start, end).
+    static BVHBuildNode* build(std::vector<BVHPrimitiveInfo>& info, int start, int end,
+                               std::vector<BVHBuildNode>& arena) {
+        BVHBuildNode* node = newNode(arena);
+        AABB bounds; int dim = 0, mid = 0;
+        if (!splitNode(info, start, end, bounds, dim, mid, false)) { setLeaf(node, bounds, start, end); return node; }
         node->splitAxis = dim; node->nPrimitives = 0; node->bounds = bounds;
-        node->children[0] = build(info, start, mid, total, ord);
-        node->children[1] = build(info, mid, end, total, ord);
+        node->children[0] = build(info, start, mid, arena);
+        node->children[1] = build(info, mid, end, arena);
         return node;
     }
 
-    int flatten(BVHBuildNode* node, int* off) {
+    struct SubtreeJob { BVHBuildNode** slot; int start, end; std::vector<BVHBuildNode> arena; };
+
+    // Top levels: split on this thread (with parallel reductions); ranges at or
+    // below kSubtreePrims become jobs for the parallel subtree pass.
+    static void buildTop(std::vector<BVHPrimitiveInfo>& info, int start, int end,
+                         std::vector<std::unique_ptr<BVHBuildNode>>& top,
+                         BVHBuildNode** slot, std::vector<SubtreeJob>& jobs) {
+        if (end - start <= kSubtreePrims) { jobs.push_back({slot, start, end, {}}); return; }
+        top.push_back(std::make_unique<BVHBuildNode>());
+        BVHBuildNode* node = top.back().get();
+        *slot = node;
+        AABB bounds; int dim = 0, mid = 0;
+        const bool par = (end - start) >= kParallelReducePrims;
+        if (!splitNode(info, start, end, bounds, dim, mid, par)) { setLeaf(node, bounds, start, end); return; }
+        node->splitAxis = dim; node->nPrimitives = 0; node->bounds = bounds;
+        buildTop(info, start, mid, top, &node->children[0], jobs);
+        buildTop(info, mid, end, top, &node->children[1], jobs);
+    }
+
+    int flatten(const BVHBuildNode* node, int* off) {
         LinearBVHNode& ln = nodes[*off]; ln.bounds = node->bounds; int my = (*off)++;
         if (node->nPrimitives > 0) { ln.primitivesOffset = node->firstPrimOffset; ln.nPrimitives = node->nPrimitives; }
         else { ln.axis = node->splitAxis; ln.nPrimitives = 0; flatten(node->children[0], off); ln.secondChildOffset = flatten(node->children[1], off); }
-        delete node;
         return my;
     }
 
 public:
     BVHAccel(const std::vector<std::shared_ptr<Hittable>>& p) : primitives(p) {
         if (primitives.empty()) return;
-        std::vector<BVHPrimitiveInfo> info;
-        for (size_t i = 0; i < primitives.size(); ++i) { AABB b; primitives[i]->boundingBox(b); info.push_back(BVHPrimitiveInfo(i, b)); }
-        size_t total = 0;
-        std::vector<std::shared_ptr<Hittable>> ord;
-        BVHBuildNode* root = build(info, 0, primitives.size(), &total, ord);
+        const int np = static_cast<int>(primitives.size());
+        const bool big = np >= kParallelReducePrims;   // no thread fork for small meshes
+        std::vector<BVHPrimitiveInfo> info(np, BVHPrimitiveInfo(0, AABB()));
+        #pragma omp parallel for schedule(static) if(big)
+        for (int i = 0; i < np; ++i) { AABB b; primitives[i]->boundingBox(b); info[i] = BVHPrimitiveInfo(i, b); }
+        std::vector<std::unique_ptr<BVHBuildNode>> top;
+        std::vector<SubtreeJob> jobs;
+        BVHBuildNode* root = nullptr;
+        buildTop(info, 0, np, top, &root, jobs);
+        const int nj = static_cast<int>(jobs.size());
+        #pragma omp parallel for schedule(dynamic, 1) if(nj > 1)
+        for (int j = 0; j < nj; ++j) {
+            jobs[j].arena.reserve(2 * static_cast<size_t>(jobs[j].end - jobs[j].start));
+            *jobs[j].slot = build(info, jobs[j].start, jobs[j].end, jobs[j].arena);
+        }
+        size_t total = top.size();
+        for (const SubtreeJob& j : jobs) total += j.arena.size();
+        std::vector<std::shared_ptr<Hittable>> ord(np);
+        #pragma omp parallel for schedule(static) if(big)
+        for (int i = 0; i < np; ++i) ord[i] = primitives[info[i].primitiveIndex];
         primitives.swap(ord);
         nodes.resize(total);
         int off = 0;
@@ -2464,6 +2564,13 @@ class Pass; // defined in astroray/pass.h, included below
 class Renderer {
     std::vector<std::shared_ptr<Hittable>> scene;
     std::shared_ptr<BVHAccel> bvh;
+    // pkg298 — BVH cache. The BVH depends only on `scene` (the pointer list and
+    // each primitive's bounds), so it is rebuilt only after addObject, clear or
+    // getSceneMutable() (the one door to in-place geometry edits). Materials,
+    // lights, instances (pkg114 TLAS, not in `bvh`) and the camera never dirty it.
+    bool bvhDirty_ = true;
+    int bvhBuildCount_ = 0;
+    double bvhBuildMs_ = 0.0;   // wall time of the most recent build
     // pkg114 — two-level BVH instancing. A registered mesh keeps its prims in
     // OBJECT-LOCAL space and is built into one BLAS (shared across instances).
     // Instances carry a row-major 4x4 object->world transform. Empty unless a
@@ -3253,7 +3360,7 @@ public:
     bool getGpuLightPathPasses() const { return gpuLightPathPasses; }           // pkg198 Stage 2
 
     void clear() {
-        scene.clear(); bvh.reset(); lights = LightList();
+        scene.clear(); bvh.reset(); bvhDirty_ = true; lights = LightList();
         envMap.reset();
         backgroundColor = Vec3(-1);
         filmExposure = 1.0f;
@@ -4653,6 +4760,7 @@ public:
 public:
     void addObject(std::shared_ptr<Hittable> obj) {
         scene.push_back(obj);
+        bvhDirty_ = true;  // pkg298
         if (obj->isLight()) lights.add(obj);
     }
 
@@ -4664,8 +4772,16 @@ public:
     size_t dedicatedLightCount() const { return lights.getDedicatedLights().size(); }
     void removeDedicatedLights(size_t start, size_t count) { lights.removeDedicated(start, count); }
 
+    // pkg298: reuses the BVH while the scene geometry is unchanged (bvhDirty_).
     void buildAcceleration() {
-        bvh = std::make_shared<BVHAccel>(scene);
+        if (bvhDirty_ || !bvh) {
+            const auto t0 = std::chrono::steady_clock::now();
+            bvh = std::make_shared<BVHAccel>(scene);
+            bvhBuildMs_ = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - t0).count();
+            ++bvhBuildCount_;
+            bvhDirty_ = false;
+        }
         // The Tree light sampler builds and CACHES its light tree in
         // TreeLightSampler's constructor, over whatever lights exist when
         // setLightSampler() is called. Callers routinely select the sampler
@@ -4729,8 +4845,11 @@ public:
     // an existing primitive in place. Single-level BVH limitation applies —
     // see pkg56 spec "Key design decisions". Direct external mutation requires
     // the caller to rebuild the BVH afterwards (buildAcceleration()).
-    std::vector<std::shared_ptr<Hittable>>& getSceneMutable() { return scene; }
+    // pkg298: handing out mutable access marks the cached BVH dirty.
+    std::vector<std::shared_ptr<Hittable>>& getSceneMutable() { bvhDirty_ = true; return scene; }
     const std::shared_ptr<BVHAccel>& getBVH() const { return bvh; }
+    int getBvhBuildCount() const { return bvhBuildCount_; }   // pkg298
+    double getBvhBuildMs() const { return bvhBuildMs_; }      // pkg298
     const LightList& getLights() const { return lights; }
     const std::shared_ptr<EnvironmentMap>& getEnvironmentMap() const { return envMap; }
     const Vec3& getBackgroundColor() const { return backgroundColor; }

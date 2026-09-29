@@ -1,0 +1,40 @@
+{
+ "title": "Repeat render(), unchanged 2M-tri Cornell, 16x16 1 spp",
+ "xlabel": "device",
+ "ylabel": "wall s",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "main",
+   "x": [
+    "CPU",
+    "GPU"
+   ],
+   "y": [
+    1.0288708999942173,
+    2.3089175000059186
+   ],
+   "role": "other"
+  },
+  {
+   "label": "BVH cache",
+   "x": [
+    "CPU",
+    "GPU"
+   ],
+   "y": [
+    0.01672580000013113,
+    0.7077035999973305
+   ],
+   "role": "gpu"
+  }
+ ],
+ "band": null,
+ "ref": null,
+ "meta": {
+  "gpu": "RTX 5070 Ti",
+  "cpu": "Ryzen 7 7800X3D, OMP 8",
+  "stat": "min over rounds",
+  "harness": "benchmarks/wavefront_baseline.py --cornell-pair"
+ }
+}

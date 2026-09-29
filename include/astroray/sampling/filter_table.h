@@ -31,11 +31,9 @@
 
 #include <cstdint>
 
-#ifndef __CUDA_ARCH__
 #include <algorithm>
 #include <cmath>
 #include <vector>
-#endif
 
 #ifdef __CUDACC__
 #  define FT_HD __host__ __device__
@@ -54,7 +52,8 @@ FT_HD inline float halfSupport(int type, float width) {
     return (type == 1 ? 1.5f : 1.0f) * width;
 }
 
-#ifndef __CUDA_ARCH__
+// Host-only (the table is built on the host and uploaded). Declared in every
+// compilation pass: nvcc's device pass still parses host function bodies.
 // Cycles filter functions, evaluated at the pre-scaled width W.
 inline float filterFunc(int type, float v, float W) {
     if (type == 1) {  // filter_func_gaussian
@@ -85,7 +84,6 @@ inline void build(int type, float width, float* cdf) {
     cdf[0] = 0.0f;
     cdf[kCells] = 1.0f;
 }
-#endif  // !__CUDA_ARCH__
 
 // Position in [0, R] of CDF value x in [0, 1] (piecewise-constant density).
 FT_HD inline float sampleHalf(const float* cdf, float R, float x) {

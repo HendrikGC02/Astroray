@@ -1,6 +1,9 @@
 """Classify open PRs into action buckets. See plan §Shared data contracts."""
-import subprocess
+import functools
 import json
+import re
+import subprocess
+from pathlib import Path
 from roadmap_orchestrator.ci import ci_state
 
 BUCKETS = ("rebase_needed", "ci_failing", "hw_failed", "ready", "hw_untested", "in_progress")
@@ -11,6 +14,41 @@ def _hw_for_current_sha(pr: dict, ledger: dict):
     if not e or e.get("head_sha") != pr.get("headRefOid"):
         return None
     return e.get("hw_result")
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_INCLUDE_RE = re.compile(r'^\s*#\s*include\s+"([^"]+)"', re.MULTILINE)
+
+
+@functools.lru_cache(maxsize=None)
+def _cuda_reachable_files(repo_root: Path = _REPO_ROOT) -> frozenset:
+    """Repo-relative posix paths of every file reachable from a CUDA TU.
+
+    Seeds are src/gpu/**/*.cu and *.cuh; `#include "..."` is followed
+    transitively, resolving against the including file's dir, <repo>/include
+    and <repo>. A change to any such header (e.g. include/astroray/gpu_materials.h,
+    also included by CPU code) can alter GPU kernels, so it is not CPU-only.
+    """
+    gpu = repo_root / "src" / "gpu"
+    seen, stack = set(), [p for pat in ("*.cu", "*.cuh") for p in gpu.rglob(pat)]
+    while stack:
+        f = stack.pop()
+        if f in seen or not f.is_file():
+            continue
+        seen.add(f)
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for inc in _INCLUDE_RE.findall(text):
+            for base in (f.parent, repo_root / "include", repo_root):
+                cand = (base / inc).resolve()
+                if cand.is_file():
+                    stack.append(cand)
+                    break
+    root = repo_root.resolve()
+    return frozenset(p.resolve().relative_to(root).as_posix()
+                     for p in seen if root in p.resolve().parents)
 
 
 def _is_cpu_only_pr(pr: dict) -> bool:
@@ -28,7 +66,8 @@ def _is_cpu_only_pr(pr: dict) -> bool:
          tests inject a synthetic file list without hitting gh.
       2. Live `gh pr diff` — fallback for callers that didn't enrich.
 
-    Returns True if the PR is CPU-only (no .cu/.cuh/CUDA build paths in diff).
+    Returns True if the PR is CPU-only: no .cu/.cuh/CUDA build paths, no
+    CMakeLists.txt / cmake/**, and no header reachable from a CUDA TU.
     """
     files = pr.get("files")
     if files is None:
@@ -56,8 +95,13 @@ def _is_cpu_only_pr(pr: dict) -> bool:
     cuda_extensions = {".cu", ".cuh"}
     cuda_paths = {"build_cuda", "cuda", "nvcc"}
 
+    cuda_reachable = _cuda_reachable_files()
     for f in files:
         if any(f.endswith(ext) for ext in cuda_extensions):
+            return False
+        if f == "CMakeLists.txt" or f.endswith("/CMakeLists.txt") or f.startswith("cmake/"):
+            return False
+        if f in cuda_reachable:
             return False
         f_lower = f.lower()
         if any(cuda_path in f_lower for cuda_path in cuda_paths):

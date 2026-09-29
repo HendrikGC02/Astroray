@@ -5,7 +5,11 @@ Usage (one build per background task, so each completion notifies):
 
 <lane> is "main" (this checkout) or a sibling worktree suffix: "batchZ" builds
 ../Astroray-batchZ. CUDA builds go through scripts/build/build_cuda_worktree.bat
-without the sccache launcher (it drops >10 min stage_advance.cu compiles).
+with the sccache launcher (WinGet Links shim on PATH). Set ASTRORAY_NO_SCCACHE=1 to
+strip it and build uncached. The old ">10 min stage_advance.cu compile dropped" failure
+was the sccache server idle timeout (600 s) firing during one long compile;
+build_cuda_worktree.bat sets SCCACHE_IDLE_TIMEOUT=0, and the split shade TUs are
+each well under 10 min anyway.
 
 - Own lock (.astroray_plan/.lead.build.lock), not the GPU lock, so lane test runs
   are not blocked; nvcc builds never overlap (two sm_120 -rdc builds kill each other).
@@ -56,7 +60,10 @@ def _cuda_cmd(wt, sha):
                          "Ninja-build.Ninja_Microsoft.Winget.Source_8wekyb3d8bbwe")
     links = os.path.join(os.environ["LOCALAPPDATA"], "Microsoft", "WinGet", "Links")
     env = dict(os.environ)
-    env["PATH"] = ninja + ";" + env["PATH"].replace(links + ";", "")  # no sccache shim
+    path = env["PATH"]
+    if os.environ.get("ASTRORAY_NO_SCCACHE") == "1":  # escape hatch: uncached build
+        path = path.replace(links + ";", "")  # drop the sccache shim
+    env["PATH"] = ninja + ";" + path
     bat = os.path.join(MAIN, "scripts", "build", "build_cuda_worktree.bat")
     return ["cmd", "/c", bat, wt, sha], env
 

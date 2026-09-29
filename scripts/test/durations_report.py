@@ -12,6 +12,9 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests"))
+from results_layout import results_dir  # noqa: E402
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -134,8 +137,7 @@ def main(argv=None):
     if len(a.junit) > 2 and not a.merge:
         ap.error("at most two --junit files")
     labels = (a.label or []) + ["before", "after"][len(a.label or []):]
-    # TODO: switch to results_path("perf", "test-suite-durations", ...) once tests/results_layout.py lands.
-    out = Path(a.out or "test_results/_runs/perf/test-suite-durations")
+    out = Path(a.out) if a.out else results_dir("perf", "test-suite-durations")
     out.mkdir(parents=True, exist_ok=True)
 
     loaded = [load(p) for p in a.junit]

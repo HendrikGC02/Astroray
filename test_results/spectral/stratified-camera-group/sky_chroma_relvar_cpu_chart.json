@@ -1,0 +1,61 @@
+{
+ "title": "v2_sky_sun sky_upper per-pixel relVar, CPU 64 spp, 5 seeds",
+ "xlabel": "channel",
+ "ylabel": "log10 relative variance",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "before",
+   "x": [
+    "R",
+    "G",
+    "B"
+   ],
+   "y": [
+    -2.7297205706462986,
+    -3.7938840280618082,
+    -2.581213947854443
+   ]
+  },
+  {
+   "label": "after (stratified camera group)",
+   "x": [
+    "R",
+    "G",
+    "B"
+   ],
+   "y": [
+    -4.614625330598612,
+    -5.6743912209684755,
+    -4.437651297835366
+   ]
+  },
+  {
+   "label": "Cycles",
+   "role": "cycles",
+   "x": [
+    "R",
+    "G",
+    "B"
+   ],
+   "y": [
+    -7.113354987234587,
+    -7.3006483490413565,
+    -7.922990427954775
+   ]
+  }
+ ],
+ "band": null,
+ "ref": [
+  -3.619788758288394,
+  "gate 2.4e-4 (R, B)"
+ ],
+ "meta": {
+  "package": "pkg305",
+  "leg": "cpu",
+  "spp": 64,
+  "seeds": "278-282 (vs Cycles CPU 64 spp, same seeds)",
+  "base": "main 775a5d6b",
+  "evidence": "C:\\Users\\hgcom\\OneDrive\\Astroray\\astra_run\\AP\\ap-305"
+ }
+}

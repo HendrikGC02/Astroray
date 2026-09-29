@@ -1,0 +1,44 @@
+{
+ "title": "Corpus v2 ROI means, CPU 64 spp: worst |z| per scene (independent seeds)",
+ "xlabel": "scene (n seeds per leg)",
+ "ylabel": "|z| of ROI mean shift",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "after vs before, worst ROI channel",
+   "x": [
+    "sky_sun (n=30)",
+    "cam_geo (n=15)",
+    "cam_geo@ortho (n=5)",
+    "light_tree (n=15)",
+    "media (n=5)",
+    "dispersion_caustics (n=15)",
+    "thin_film_metals (n=30)",
+    "textures_opvm (n=5)"
+   ],
+   "y": [
+    2.5767006363196914,
+    2.0010918511415774,
+    1.7198090352865485,
+    2.219381511898509,
+    2.904786472862164,
+    1.591395033751437,
+    2.5540364263013657,
+    2.877928908360416
+   ]
+  }
+ ],
+ "band": [
+  0.0,
+  3.0
+ ],
+ "ref": null,
+ "meta": {
+  "package": "pkg305",
+  "leg": "cpu",
+  "spp": 64,
+  "seeds": "278 + 10000 k, independent",
+  "base": "main 775a5d6b",
+  "evidence": "C:\\Users\\hgcom\\OneDrive\\Astroray\\astra_run\\AP\\ap-305"
+ }
+}

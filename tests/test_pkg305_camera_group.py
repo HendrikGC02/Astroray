@@ -307,6 +307,38 @@ def test_progressive_chunks_continue_the_sequence():
     assert np.array_equal(first, _render(r, 16))
 
 
+def _edge_scene(seed, stratified):
+    """Emitter disc on a dark background: edge pixels see only pixel-filter
+    (anti-aliasing) variance plus the hero-wavelength chroma."""
+    r = bh.create_renderer()
+    if hasattr(r, "set_use_gpu"):
+        r.set_use_gpu(False)
+    r.set_stratified_camera(stratified)
+    r.set_seed(seed)
+    r.set_background_color([0.02, 0.02, 0.02])
+    lamp = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 1.0})
+    r.add_sphere([0.0, 0.0, 0.0], 1.0, lamp)
+    bh.setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], vup=[0, 1, 0],
+                    vfov=30, width=32, height=32)
+    return r
+
+
+def test_edge_aa_variance():
+    """Anti-aliased edges: N x relVar of the edge pixels' luminance at 16 spp
+    is <= 0.8x the white-noise camera (pkg305 edge-AA gate)."""
+    lum = np.array([0.2126, 0.7152, 0.0722])
+    seeds = [7919 * k + 5 for k in range(1, 13)]
+    rv = {}
+    for stratified in (False, True):
+        imgs = np.stack([_render(_edge_scene(s, stratified), 16) @ lum for s in seeds])
+        rv[stratified] = imgs.var(0, ddof=1) / np.maximum(imgs.mean(0) ** 2, 1e-12)
+        mean = imgs.mean(0)
+    edge = (mean > 0.2 * mean.max()) & (mean < 0.8 * mean.max())
+    assert edge.sum() >= 20
+    ratio = float(rv[True][edge].mean() / rv[False][edge].mean())
+    assert ratio <= 0.8, ratio
+
+
 def _lit_scene(seed, stratified):
     r = bh.create_renderer()
     if hasattr(r, "set_use_gpu"):

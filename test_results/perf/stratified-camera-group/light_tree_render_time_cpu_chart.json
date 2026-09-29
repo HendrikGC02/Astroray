@@ -1,0 +1,89 @@
+{
+ "title": "Render time, CPU (min of 3 after burn-in, interleaved runs)",
+ "xlabel": "scene",
+ "ylabel": "seconds",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "before",
+   "x": [
+    "v2_light_tree 16 spp"
+   ],
+   "y": [
+    12.66
+   ]
+  },
+  {
+   "label": "after (stratified camera group)",
+   "x": [
+    "v2_light_tree 16 spp"
+   ],
+   "y": [
+    12.59
+   ]
+  }
+ ],
+ "band": null,
+ "ref": [
+  13.0398,
+  "gate: before + 3 %"
+ ],
+ "meta": {
+  "package": "pkg305",
+  "leg": "cpu",
+  "spp": 64,
+  "seeds": "278-282 (vs Cycles CPU 64 spp, same seeds)",
+  "base": "main 775a5d6b",
+  "evidence": "C:\\Users\\hgcom\\OneDrive\\Astroray\\astra_run\\AP\\ap-305",
+  "runs": [
+   {
+    "tag": "base",
+    "leg": "cpu",
+    "sid": "v2_light_tree",
+    "spp": 16,
+    "times": [
+     12.83,
+     12.73,
+     12.73
+    ],
+    "min": 12.73
+   },
+   {
+    "tag": "new",
+    "leg": "cpu",
+    "sid": "v2_light_tree",
+    "spp": 16,
+    "times": [
+     12.75,
+     12.62,
+     12.81
+    ],
+    "min": 12.62
+   },
+   {
+    "tag": "base",
+    "leg": "cpu",
+    "sid": "v2_light_tree",
+    "spp": 16,
+    "times": [
+     12.66,
+     12.89,
+     13.64
+    ],
+    "min": 12.66
+   },
+   {
+    "tag": "new",
+    "leg": "cpu",
+    "sid": "v2_light_tree",
+    "spp": 16,
+    "times": [
+     12.59,
+     12.64,
+     12.73
+    ],
+    "min": 12.59
+   }
+  ]
+ }
+}

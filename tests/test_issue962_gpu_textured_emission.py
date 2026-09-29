@@ -101,7 +101,11 @@ def _make_tex(r, kind):
     elif kind == "checker_generated":
         r.create_procedural_texture("t", "checker", [0.9, 0.85, 0.2, 0.1, 0.15, 0.6, 4.0],
                                     "GENERATED")
-        r.set_texture_generated_bbox("t", [-1, -1, -1], [2, 2, 2])
+        # z-min -0.8 (not -1): with -1 the z=0 card sits at Generated z=0.5 =
+        # checker z-cell boundary, where the 64^3 GPU bake interpolates two
+        # parities (pre-existing; a textured lambertian shows the same 0.38x
+        # contrast). -0.8 puts the card mid-cell so the gate tests emission.
+        r.set_texture_generated_bbox("t", [-1, -1, -0.8], [2, 2, 2])
     elif kind == "program":
         # Checker -> Math(Multiply 0.5): the op-VM result differs from the raw
         # input, so skipping svm_eval on GPU would fail parity.

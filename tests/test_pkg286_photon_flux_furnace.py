@@ -52,7 +52,7 @@ def _box(r, lo, hi, m):
         r.add_triangle(v[a], v[c], v[d], m)
 
 
-def _scene(gpu: bool, strength: float = 1.0):
+def _scene(gpu: bool, strength: float = 1.0, boost=1.0):
     r = astroray.Renderer()
     r.set_background_color([0.0, 0.0, 0.0])
     glass = r.create_material("dielectric", [1.0, 1.0, 1.0], {"ior": 1.5})
@@ -68,7 +68,8 @@ def _scene(gpu: bool, strength: float = 1.0):
     r.set_use_refractive_caustics(True)
     r.set_integrator("path_tracer")
     r.set_integrator_param("max_depth", 8)
-    r.set_integrator_param_float("caustic_boost", 1.0)
+    if boost is not None:
+        r.set_integrator_param_float("caustic_boost", boost)
     if gpu:
         r.set_use_gpu(True)
         r.set_use_photon_caustics(True)
@@ -105,6 +106,14 @@ def test_cpu_caustic_linear_in_sun_strength():
     ratio = float(l2[PATCH].mean() / l1[PATCH].mean())
     print(f"\n[pkg286 CPU] 2x sun -> caustic x{ratio:.3f}")
     assert abs(ratio - 2.0) <= 0.05
+
+
+def test_cpu_default_caustic_boost_is_physical():
+    """Batch AK: the unset `caustic_boost` default is 1.0 (was 1.2, 20% hot)."""
+    _, lum = _render(_scene(gpu=False, boost=None))
+    ratio = float(lum[PATCH].mean() / lum[DIRECT].mean()) / T_SLAB
+    print(f"\n[ak-caustic CPU] default boost: patch/direct/T = {ratio:.4f}")
+    assert abs(ratio - 1.0) <= 0.03
 
 
 def _gpu_ok():

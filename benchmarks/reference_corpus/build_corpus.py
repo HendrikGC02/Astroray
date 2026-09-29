@@ -335,6 +335,9 @@ V2_REFERENCE_SPP = 1024
 V2_SEED = 278
 V2_ASSETS = REPO_ROOT / "benchmarks" / "reference_corpus" / "assets"
 V2_NO_GATE = ("v2_viewport",)
+# pkg296 (#833): the volumes_mesh family is gated by its own test
+# (tests/test_pkg296_mesh_volume_boundary.py, bands from volumes_mesh_bands.py),
+# not by gates_v2.toml -- see _vm_* below.
 
 
 def _load_showcase(addon_dir):
@@ -934,6 +937,175 @@ def _v2_viewport(bpy, sc, sl, addon_dir):
     return scene, res, _Rois(scene), tags, []
 
 
+# --------------------------------------------------------------------------- #
+# pkg296 (#833) -- volumes_mesh family: mesh-bounded volumes. Every scene is
+# lit by emissive meshes only (a backdrop behind the media + a softbox on the
+# camera-left), no lamp objects and no diffuse surfaces, so the Cycles/Astroray
+# comparison isolates the medium boundary. 256x256, gated per ROI by
+# tests/test_pkg296_mesh_volume_boundary.py at volume_bounces 0 and 4.
+# --------------------------------------------------------------------------- #
+VM_RES = (256, 256)
+
+
+def _vm_setup(bpy, sc, sl, ortho_scale=None, cam=(0.0, -6.0, 0.0), target=(0.0, 0.0, 0.0),
+              lens=50.0, backdrop_y=3.0, softbox=True):
+    scene = _v2_setup(sc, VM_RES, bounces=12)
+    scene.cycles.volume_bounces = 4
+    sc._world((0.0, 0.0, 0.0), 1.0)
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0.0, backdrop_y, 0.0))
+    back = bpy.context.active_object
+    back.name = "Backdrop"
+    back.rotation_euler = (math.radians(90.0), 0.0, 0.0)
+    back.scale = (12.0, 12.0, 1.0)
+    bm, _nt, _e, _o = sl._emission_card_material(bpy, "BackdropMat", 1.0)
+    sc._assign(back, bm)
+    if softbox:
+        bpy.ops.mesh.primitive_plane_add(size=1.0, location=(-3.0, -2.5, 2.5))
+        box = bpy.context.active_object
+        box.name = "Softbox"
+        box.scale = (1.5, 1.5, 1.0)
+        import mathutils
+        aim = mathutils.Vector((0.0, 0.0, 0.0)) - box.location
+        box.rotation_euler = aim.to_track_quat("Z", "Y").to_euler()  # +Z normal faces the media
+        bxm, _nt, _e, _o = sl._emission_card_material(bpy, "SoftboxMat", 6.0)
+        sc._assign(box, bxm)
+    c = sc._camera(cam, target, lens=lens)
+    if ortho_scale is not None:
+        c.data.type = "ORTHO"
+        c.data.ortho_scale = ortho_scale
+    return scene
+
+
+def _vm_volume(bpy, sl, obj, name, density, color, anisotropy=0.0, surface=None):
+    mat = sl._principled_volume_material(bpy, name, density=density, color=color,
+                                         anisotropy=anisotropy)
+    if surface is not None:  # surface + volume on one Material Output (glass shell)
+        nt = mat.node_tree
+        out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+        nt.links.new(surface(nt).outputs[0], sl._sock(out.inputs, "Surface"))
+    obj.data.materials.clear()
+    obj.data.materials.append(mat)
+    return obj
+
+
+def _vm_ico(bpy, name, loc, r, subdiv=3):
+    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=subdiv, radius=r, location=loc)
+    obj = bpy.context.active_object
+    obj.name = name
+    return obj
+
+
+def _vm_icosphere(bpy, sc, sl, addon_dir, empty=False):
+    """Absorbing+scattering icosphere (subdiv 3) under an ORTHO camera over the
+    emissive backdrop. The AABB-minus-sphere corners (aabb_corner*) are the #833
+    regression: backdrop there, not the medium."""
+    scene = _vm_setup(bpy, sc, sl, ortho_scale=2.6)
+    if not empty:
+        _vm_volume(bpy, sl, _vm_ico(bpy, "Ico", (0.0, 0.0, 0.0), 1.0), "IcoVol",
+                   1.5, (0.9, 0.6, 0.3))
+    r = _Rois(scene)
+    r.add("centre", (0.0, 0.0, 0.0), 0.05)
+    r.add("limb", (0.72, 0.0, 0.0), 0.03)
+    r.add("aabb_corner", (0.9, 0.0, 0.9), 0.025)
+    r.add("aabb_corner_ll", (-0.9, 0.0, -0.9), 0.025)
+    return scene, VM_RES, r, ["mesh_volume#833", "ortho"], []
+
+
+def _vm_icosphere_empty(bpy, sc, sl, addon_dir):
+    """The icosphere scene without the medium (silhouette-mask baseline)."""
+    return _vm_icosphere(bpy, sc, sl, addon_dir, empty=True)
+
+
+def _vm_suzanne(bpy, sc, sl, addon_dir):
+    """Suzanne (non-manifold: the eye sockets are holes) as a scattering volume.
+    ROIs stay off the eyes (research note: open-mesh divergence)."""
+    scene = _vm_setup(bpy, sc, sl, cam=(0.0, -6.0, 0.0), lens=45.0)
+    bpy.ops.mesh.primitive_monkey_add(size=2.0, location=(0.0, 0.0, 0.0))
+    mk = bpy.context.active_object
+    mk.name = "Suzanne"
+    _vm_volume(bpy, sl, mk, "SuzanneVol", 2.0, (0.5, 0.8, 0.9))
+    r = _Rois(scene)
+    r.add("forehead", (0.0, 0.0, 0.62), 0.03)
+    r.add("cheek", (0.5, 0.0, -0.3), 0.03)
+    r.add("ear", (-1.15, 0.0, 0.25), 0.025)
+    r.add("aabb_corner", (1.2, 0.0, -0.8), 0.025)
+    return scene, VM_RES, r, ["mesh_volume#833", "open_mesh"], []
+
+
+def _vm_nested(bpy, sc, sl, addon_dir):
+    """A dense absorbing icosphere nested inside a thin scattering sphere
+    (stack sum = overlap composite)."""
+    scene = _vm_setup(bpy, sc, sl, lens=50.0)
+    _vm_volume(bpy, sl, _vm_ico(bpy, "Outer", (0.0, 0.0, 0.0), 1.1), "OuterVol",
+               0.6, (0.3, 0.5, 0.9))
+    _vm_volume(bpy, sl, _vm_ico(bpy, "Inner", (0.0, 0.0, 0.0), 0.5), "InnerVol",
+               4.0, (0.9, 0.4, 0.1))
+    r = _Rois(scene)
+    r.add("centre", (0.0, -1.0, 0.0), 0.03)
+    r.add("shell", (0.85, -0.3, 0.0), 0.025)
+    r.add("aabb_corner", (0.95, -1.0, 0.95), 0.02)
+    return scene, VM_RES, r, ["mesh_volume#833", "nested_volumes"], []
+
+
+def _vm_overlap(bpy, sc, sl, addon_dir):
+    """Two overlapping icosphere media of different colour (coefficients add)."""
+    scene = _vm_setup(bpy, sc, sl, lens=50.0)
+    _vm_volume(bpy, sl, _vm_ico(bpy, "Left", (-0.45, 0.0, 0.0), 0.8), "LeftVol",
+               1.5, (0.9, 0.3, 0.2))
+    _vm_volume(bpy, sl, _vm_ico(bpy, "Right", (0.45, 0.0, 0.0), 0.8), "RightVol",
+               1.5, (0.2, 0.4, 0.9))
+    r = _Rois(scene)
+    r.add("left", (-0.9, -0.8, 0.0), 0.025)
+    r.add("overlap", (0.0, -0.8, 0.0), 0.025)
+    r.add("right", (0.9, -0.8, 0.0), 0.025)
+    r.add("overlap_top", (0.0, -0.5, 0.45), 0.02)
+    return scene, VM_RES, r, ["mesh_volume#833", "overlapping_volumes"], []
+
+
+def _vm_camera_inside(bpy, sc, sl, addon_dir):
+    """The camera starts inside a thin fog sphere (Cycles volume-stack init);
+    the backdrop lies outside it, so corner rays leave the sphere early."""
+    scene = _vm_setup(bpy, sc, sl, cam=(0.0, -1.0, 0.0), target=(0.0, 3.0, 0.0),
+                      lens=18.0, backdrop_y=5.0)
+    _vm_volume(bpy, sl, _vm_ico(bpy, "Fog", (0.0, 0.0, 0.0), 3.0, subdiv=4), "FogVol",
+               0.35, (0.85, 0.85, 0.85))
+    r = _Rois(scene)
+    r.add("centre", (0.0, 5.0, 0.0), 0.04)
+    r.add("mid", (2.5, 5.0, 2.5), 0.03)
+    r.add("corner", (4.5, 5.0, 4.5), 0.03)
+    return scene, VM_RES, r, ["mesh_volume#833", "camera_inside_volume"], []
+
+
+def _vm_glass_shell(bpy, sc, sl, addon_dir):
+    """A smooth glass sphere whose material also carries a Principled Volume:
+    the surface and the medium boundary coincide (spawn-offset case)."""
+    scene = _vm_setup(bpy, sc, sl, lens=50.0)
+    sph = sc._uv_sphere("Shell", (0.0, 0.0, 0.0), 1.0, seg=64, rings=32)
+
+    def glass(nt):
+        g = nt.nodes.new("ShaderNodeBsdfGlass")
+        sl._sock(g.inputs, "IOR").default_value = 1.45
+        sl._sock(g.inputs, "Roughness").default_value = 0.0
+        return g
+    _vm_volume(bpy, sl, sph, "ShellVol", 1.5, (0.9, 0.5, 0.2), surface=glass)
+    r = _Rois(scene)
+    r.add("centre", (0.0, -1.0, 0.0), 0.03)
+    r.add("rim", (0.8, -0.5, 0.0), 0.02)
+    r.add("outside", (1.4, 0.0, 1.0), 0.03)
+    return scene, VM_RES, r, ["mesh_volume#833", "glass_shell_volume"], []
+
+
+VM_BUILDERS = {
+    "vm_icosphere": _vm_icosphere,
+    "vm_icosphere_empty": _vm_icosphere_empty,
+    "vm_suzanne": _vm_suzanne,
+    "vm_nested": _vm_nested,
+    "vm_overlap": _vm_overlap,
+    "vm_camera_inside": _vm_camera_inside,
+    "vm_glass_shell": _vm_glass_shell,
+}
+
+
 V2_BUILDERS = {
     "v2_light_tree": _v2_light_tree,
     "v2_media": _v2_media,
@@ -943,6 +1115,7 @@ V2_BUILDERS = {
     "v2_textures_opvm": _v2_textures_opvm,
     "v2_camera_geometry": _v2_camera_geometry,
     "v2_viewport": _v2_viewport,
+    **VM_BUILDERS,  # pkg296
 }
 
 
@@ -978,14 +1151,15 @@ def _build_v2(bpy, scene_id, out_dir, addon_dir):
     if rs.world and rs.world.use_nodes and rs.world.node_tree:
         node_ids.update(n.bl_idname for n in rs.world.node_tree.nodes)
     return {
-        "family": scene_id,
+        "family": "volumes_mesh" if scene_id in VM_BUILDERS else scene_id,
         "builder_fn": builder.__name__,
         "blend_path": str(blend_path.relative_to(REPO_ROOT)).replace("\\", "/"),
         "sha256": _sha256(blend_path),
         "settings": {"res_x": res[0], "res_y": res[1], "samples": V2_GATE_SPP,
                      "saved_default_engine": "CYCLES"},
         "v2": {"seed": V2_SEED, "spp_gate": V2_GATE_SPP, "spp_reference": V2_REFERENCE_SPP,
-               "render_gate": scene_id not in V2_NO_GATE, "v2_tags": tags,
+               "render_gate": scene_id not in V2_NO_GATE and scene_id not in VM_BUILDERS,
+               "v2_tags": tags,
                "divergence": rois.notes,
                "cameras": sorted(o.name for o in rs.objects if o.type == "CAMERA"),
                "blender_version": bpy.app.version_string},

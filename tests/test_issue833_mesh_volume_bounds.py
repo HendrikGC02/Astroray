@@ -1,10 +1,13 @@
-"""Issue #833 — a mesh with a volume material is lowered to its world AABB.
+"""Issue #833 — a mesh with a volume material.
 
-Minimum fix: the addon SAYS so instead of dropping the shape silently
-(``[astroray volume] mesh '<name>' volume rendered as its bounding box`` plus an
-APPROXIMATED degradation row), unless the mesh is exactly that box (the #807
-cabinet cubes). Also covers the #828 item 3 degradation entry: more than 8
-bounded media -> the GPU side table ignores the rest.
+pkg296 re-pin (was: the icosphere is lowered to its AABB and reported): a mesh
+that is not exactly its AABB now passes its world triangles as the medium
+boundary, so a CLOSED mesh is silent on the CPU; a non-closed mesh is still
+reported (``volume boundary is not closed`` + an APPROXIMATED row), and a GPU
+render reports the bounding-box fallback until pkg296 Phase 2. The axis-aligned
+box (the #807 cabinet cubes) stays an AABB medium with no boundary. Also covers
+the #828 item 3 degradation entry: more than 8 bounded media -> the GPU side
+table ignores the rest.
 
 Pure addon logic (stub bpy, no engine, no Blender).
 """
@@ -63,17 +66,23 @@ class _V:
         self.co = co
 
 
+class _Tri:
+    def __init__(self, v):
+        self.vertices = tuple(v)
+
+
 class _MeshData:
-    def __init__(self, verts):
+    def __init__(self, verts, faces=()):
         self.vertices = [_V(tuple(v)) for v in verts]
+        self.loop_triangles = [_Tri(f) for f in faces]
         self.materials = [_Mat()]
 
 
 class _Obj:
-    def __init__(self, name, verts):
+    def __init__(self, name, verts, faces=()):
         self.name = name
         self.type = "MESH"
-        self.data = _MeshData(verts)
+        self.data = _MeshData(verts, faces)
         vs = np.asarray(verts, dtype=float)
         mn, mx = vs.min(axis=0), vs.max(axis=0)
         self.bound_box = [(x, y, z) for x in (mn[0], mx[0])
@@ -93,7 +102,7 @@ class _Renderer:
         self.media.append(("grid", a, k))
 
     def add_homogeneous_medium(self, mn, mx, *a, **k):
-        self.media.append(("homog", list(mn), list(mx)))
+        self.media.append(("homog", list(mn), list(mx), k))
 
 
 IDENT = [[1.0, 0, 0, 0], [0, 1.0, 0, 0], [0, 0, 1.0, 0], [0, 0, 0, 1.0]]
@@ -108,6 +117,13 @@ def _icosphere():
     v = [(-1, t, 0), (1, t, 0), (-1, -t, 0), (1, -t, 0), (0, -1, t), (0, 1, t),
          (0, -1, -t), (0, 1, -t), (t, 0, -1), (t, 0, 1), (-t, 0, -1), (-t, 0, 1)]
     return [tuple(c / math.sqrt(1 + t * t) for c in p) for p in v]
+
+
+# Outward (counter-clockwise seen from outside) icosahedron faces.
+ICO_FACES = [(0, 11, 5), (0, 5, 1), (0, 1, 7), (0, 7, 10), (0, 10, 11), (1, 5, 9),
+             (5, 11, 4), (11, 10, 2), (10, 7, 6), (7, 1, 8), (3, 9, 4), (3, 4, 2),
+             (3, 2, 6), (3, 6, 8), (3, 8, 9), (4, 9, 5), (2, 4, 11), (6, 2, 10),
+             (8, 6, 7), (9, 8, 1)]
 
 
 def _rot_z(deg):
@@ -157,11 +173,45 @@ def _export(monkeypatch, obj, m, suffix):
     return engine, r, consumed
 
 
-def test_icosphere_volume_reports_bounding_box(monkeypatch, capsys):
-    engine, r, consumed = _export(monkeypatch, _Obj("Ico", _icosphere()), IDENT, "i833a")
+def test_mesh_is_closed():
+    assert vol.mesh_is_closed(ICO_FACES)
+    assert not vol.mesh_is_closed(ICO_FACES[1:])                    # a hole
+    flipped = [ICO_FACES[0][::-1]] + ICO_FACES[1:]
+    assert not vol.mesh_is_closed(flipped)                          # inconsistent winding
+
+
+def test_negative_scale_flips_boundary_winding():
+    o = _Obj("Ico", _icosphere(), ICO_FACES)
+    mirror = [[-1.0, 0, 0, 0], [0, 1.0, 0, 0], [0, 0, 1.0, 0], [0, 0, 0, 1.0]]
+    v, idx = vol.mesh_world_triangles(o, mirror)
+    n = np.cross(v[idx[:, 1]] - v[idx[:, 0]], v[idx[:, 2]] - v[idx[:, 0]])
+    c = v[idx].mean(axis=1)
+    assert ((n * c).sum(axis=1) > 0).all()                          # still outward
+
+
+def test_closed_icosphere_volume_passes_boundary_silently(monkeypatch, capsys):
+    # pkg296 re-pin: was "reports bounding box"; a closed mesh now carries its
+    # triangles and renders as the mesh on the CPU.
+    engine, r, consumed = _export(monkeypatch, _Obj("Ico", _icosphere(), ICO_FACES),
+                                  IDENT, "i833a")
     assert consumed and r.media and r.media[0][0] == "homog"
+    k = r.media[0][3]
+    assert k["boundary_indices"].shape == (20, 3)
+    assert k["boundary_vertices"].shape == (12, 3)
     out = capsys.readouterr().out
-    assert "[astroray volume] mesh 'Ico' volume rendered as its bounding box" in out, out
+    assert "bounding box" not in out and "not closed" not in out, out
+    assert engine._degradation_report().is_empty()
+    engine._report_gpu_volume_cap("gpu")                            # GPU: AABB until Phase 2
+    out = capsys.readouterr().out
+    assert "mesh 'Ico' volume rendered as its bounding box on the GPU" in out, out
+
+
+def test_open_mesh_volume_is_reported(monkeypatch, capsys):
+    engine, r, consumed = _export(monkeypatch, _Obj("Open", _icosphere(), ICO_FACES[1:]),
+                                  IDENT, "i833c")
+    assert consumed and "boundary_indices" in r.media[0][3]
+    out = capsys.readouterr().out
+    assert "mesh 'Open' volume boundary is not closed" in out, out
     feats = [f for f, _ in engine._degradation_report().approximated]
     assert "Mesh volume shape" in feats, feats
 
@@ -169,6 +219,7 @@ def test_icosphere_volume_reports_bounding_box(monkeypatch, capsys):
 def test_axis_aligned_cube_volume_is_silent(monkeypatch, capsys):
     engine, r, consumed = _export(monkeypatch, _Obj("Cab", _cube(0.5)), IDENT, "i833b")
     assert consumed and r.media
+    assert "boundary_indices" not in r.media[0][3]                  # stays an AABB medium
     out = capsys.readouterr().out
     assert "bounding box" not in out, out
     assert engine._degradation_report().is_empty()

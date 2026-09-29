@@ -3534,6 +3534,478 @@
       "feature_tags": [],
       "assets": [],
       "crops": {}
+    },
+    "vm_icosphere": {
+      "family": "volumes_mesh",
+      "builder_fn": "_vm_icosphere",
+      "blend_path": "benchmarks/reference_corpus/scenes/vm_icosphere.blend",
+      "sha256": "d42f2e9e528dbd0c4f385e338ba80881aa70a220bae3b6f5ab04a1560037c307",
+      "settings": {
+        "res_x": 256,
+        "res_y": 256,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "v2": {
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "render_gate": false,
+        "v2_tags": [
+          "mesh_volume#833",
+          "ortho"
+        ],
+        "divergence": {},
+        "cameras": [
+          "Cam"
+        ],
+        "blender_version": "5.2.0 LTS"
+      },
+      "reopen_verified": true,
+      "triangle_count": 324,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "CAMERA": 1,
+        "MESH": 3
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeEmission",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeVolumePrincipled"
+      ],
+      "feature_tags": [],
+      "assets": [],
+      "crops": {
+        "centre": [
+          0.45,
+          0.45,
+          0.55,
+          0.55
+        ],
+        "limb": [
+          0.7469,
+          0.47,
+          0.8069,
+          0.53
+        ],
+        "aabb_corner": [
+          0.8212,
+          0.1288,
+          0.8712,
+          0.1788
+        ],
+        "aabb_corner_ll": [
+          0.1288,
+          0.8212,
+          0.1788,
+          0.8712
+        ]
+      }
+    },
+    "vm_icosphere_empty": {
+      "family": "volumes_mesh",
+      "builder_fn": "_vm_icosphere_empty",
+      "blend_path": "benchmarks/reference_corpus/scenes/vm_icosphere_empty.blend",
+      "sha256": "3bba987e216bc102cc7492df0c63936b686d097acd60e8e79327f7fecbfb41d3",
+      "settings": {
+        "res_x": 256,
+        "res_y": 256,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "v2": {
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "render_gate": false,
+        "v2_tags": [
+          "mesh_volume#833",
+          "ortho"
+        ],
+        "divergence": {},
+        "cameras": [
+          "Cam"
+        ],
+        "blender_version": "5.2.0 LTS"
+      },
+      "reopen_verified": true,
+      "triangle_count": 4,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "CAMERA": 1,
+        "MESH": 2
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeEmission",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld"
+      ],
+      "feature_tags": [],
+      "assets": [],
+      "crops": {
+        "centre": [
+          0.45,
+          0.45,
+          0.55,
+          0.55
+        ],
+        "limb": [
+          0.7469,
+          0.47,
+          0.8069,
+          0.53
+        ],
+        "aabb_corner": [
+          0.8212,
+          0.1288,
+          0.8712,
+          0.1788
+        ],
+        "aabb_corner_ll": [
+          0.1288,
+          0.8212,
+          0.1788,
+          0.8712
+        ]
+      }
+    },
+    "vm_suzanne": {
+      "family": "volumes_mesh",
+      "builder_fn": "_vm_suzanne",
+      "blend_path": "benchmarks/reference_corpus/scenes/vm_suzanne.blend",
+      "sha256": "790541d1ec009211ead9e6a7ea5c098410df6c9b70e7b4c7890bb5e02d7c44f8",
+      "settings": {
+        "res_x": 256,
+        "res_y": 256,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "v2": {
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "render_gate": false,
+        "v2_tags": [
+          "mesh_volume#833",
+          "open_mesh"
+        ],
+        "divergence": {},
+        "cameras": [
+          "Cam"
+        ],
+        "blender_version": "5.2.0 LTS"
+      },
+      "reopen_verified": true,
+      "triangle_count": 972,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "CAMERA": 1,
+        "MESH": 3
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeEmission",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeVolumePrincipled"
+      ],
+      "feature_tags": [],
+      "assets": [],
+      "crops": {
+        "forehead": [
+          0.47,
+          0.3408,
+          0.53,
+          0.4008
+        ],
+        "cheek": [
+          0.5742,
+          0.5325,
+          0.6342,
+          0.5925
+        ],
+        "ear": [
+          0.2354,
+          0.4229,
+          0.2854,
+          0.4729
+        ],
+        "aabb_corner": [
+          0.725,
+          0.6417,
+          0.775,
+          0.6917
+        ]
+      }
+    },
+    "vm_nested": {
+      "family": "volumes_mesh",
+      "builder_fn": "_vm_nested",
+      "blend_path": "benchmarks/reference_corpus/scenes/vm_nested.blend",
+      "sha256": "82c3054cbac9fab1b50cbb4e38319b9f75eedafd774d419a3045b3c4f6a4fbdc",
+      "settings": {
+        "res_x": 256,
+        "res_y": 256,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "v2": {
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "render_gate": false,
+        "v2_tags": [
+          "mesh_volume#833",
+          "nested_volumes"
+        ],
+        "divergence": {},
+        "cameras": [
+          "Cam"
+        ],
+        "blender_version": "5.2.0 LTS"
+      },
+      "reopen_verified": true,
+      "triangle_count": 644,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "CAMERA": 1,
+        "MESH": 4
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeEmission",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeVolumePrincipled"
+      ],
+      "feature_tags": [],
+      "assets": [],
+      "crops": {
+        "centre": [
+          0.47,
+          0.47,
+          0.53,
+          0.53
+        ],
+        "shell": [
+          0.6821,
+          0.475,
+          0.7321,
+          0.525
+        ],
+        "aabb_corner": [
+          0.7439,
+          0.2161,
+          0.7839,
+          0.2561
+        ]
+      }
+    },
+    "vm_overlap": {
+      "family": "volumes_mesh",
+      "builder_fn": "_vm_overlap",
+      "blend_path": "benchmarks/reference_corpus/scenes/vm_overlap.blend",
+      "sha256": "acba177cb376d79a3f4aedf5c04eef7d2e8bfe48f866bbd40d88cf97eceef8a0",
+      "settings": {
+        "res_x": 256,
+        "res_y": 256,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "v2": {
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "render_gate": false,
+        "v2_tags": [
+          "mesh_volume#833",
+          "overlapping_volumes"
+        ],
+        "divergence": {},
+        "cameras": [
+          "Cam"
+        ],
+        "blender_version": "5.2.0 LTS"
+      },
+      "reopen_verified": true,
+      "triangle_count": 644,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "CAMERA": 1,
+        "MESH": 4
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeEmission",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeVolumePrincipled"
+      ],
+      "feature_tags": [],
+      "assets": [],
+      "crops": {
+        "left": [
+          0.2346,
+          0.475,
+          0.2846,
+          0.525
+        ],
+        "overlap": [
+          0.475,
+          0.475,
+          0.525,
+          0.525
+        ],
+        "right": [
+          0.7154,
+          0.475,
+          0.7654,
+          0.525
+        ],
+        "overlap_top": [
+          0.48,
+          0.3664,
+          0.52,
+          0.4064
+        ]
+      }
+    },
+    "vm_camera_inside": {
+      "family": "volumes_mesh",
+      "builder_fn": "_vm_camera_inside",
+      "blend_path": "benchmarks/reference_corpus/scenes/vm_camera_inside.blend",
+      "sha256": "bde1bab09712bc8b9f4af10dc21b3b570aaa5f759ba512139b33857dfbeeb69d",
+      "settings": {
+        "res_x": 256,
+        "res_y": 256,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "v2": {
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "render_gate": false,
+        "v2_tags": [
+          "mesh_volume#833",
+          "camera_inside_volume"
+        ],
+        "divergence": {},
+        "cameras": [
+          "Cam"
+        ],
+        "blender_version": "5.2.0 LTS"
+      },
+      "reopen_verified": true,
+      "triangle_count": 1284,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "CAMERA": 1,
+        "MESH": 3
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeEmission",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeVolumePrincipled"
+      ],
+      "feature_tags": [],
+      "assets": [],
+      "crops": {
+        "centre": [
+          0.46,
+          0.46,
+          0.54,
+          0.54
+        ],
+        "mid": [
+          0.6783,
+          0.2617,
+          0.7383,
+          0.3217
+        ],
+        "corner": [
+          0.845,
+          0.095,
+          0.905,
+          0.155
+        ]
+      }
+    },
+    "vm_glass_shell": {
+      "family": "volumes_mesh",
+      "builder_fn": "_vm_glass_shell",
+      "blend_path": "benchmarks/reference_corpus/scenes/vm_glass_shell.blend",
+      "sha256": "fde8fca753db041a02dc9e3f4e1280e77d3e8481d88314dcdbd1571fac6930b1",
+      "settings": {
+        "res_x": 256,
+        "res_y": 256,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "v2": {
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "render_gate": false,
+        "v2_tags": [
+          "mesh_volume#833",
+          "glass_shell_volume"
+        ],
+        "divergence": {},
+        "cameras": [
+          "Cam"
+        ],
+        "blender_version": "5.2.0 LTS"
+      },
+      "reopen_verified": true,
+      "triangle_count": 3972,
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "object_counts": {
+        "CAMERA": 1,
+        "MESH": 3
+      },
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfGlass",
+        "ShaderNodeEmission",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeVolumePrincipled"
+      ],
+      "feature_tags": [],
+      "assets": [],
+      "crops": {
+        "centre": [
+          0.47,
+          0.47,
+          0.53,
+          0.53
+        ],
+        "rim": [
+          0.682,
+          0.48,
+          0.722,
+          0.52
+        ],
+        "outside": [
+          0.7941,
+          0.2385,
+          0.8541,
+          0.2985
+        ]
+      }
     }
   }
 }

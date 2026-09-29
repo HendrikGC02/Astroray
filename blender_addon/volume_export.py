@@ -324,6 +324,45 @@ def mesh_world_vertices(obj, matrix_world):
     return co @ m[:3, :3].T + m[:3, 3]
 
 
+def mesh_world_triangles(obj, matrix_world):
+    """pkg296 (#833) — the medium boundary of a mesh volume: world-space vertices
+    (N, 3) float32 and loop-triangle indices (M, 3) int32 of the evaluated mesh.
+    A negative-determinant transform flips the winding so the geometric normal
+    stays outward (Cycles flips Ng for negative-scaled objects)."""
+    mesh = obj.data
+    if hasattr(mesh, "calc_loop_triangles"):
+        mesh.calc_loop_triangles()
+    tris = mesh.loop_triangles
+    n = len(tris)
+    if hasattr(tris, "foreach_get"):
+        idx = np.empty(n * 3, dtype=np.int32)
+        tris.foreach_get("vertices", idx)
+    else:
+        idx = np.array([tuple(t.vertices) for t in tris], dtype=np.int32)
+    idx = idx.reshape(n, 3)
+    m = np.array([[float(c) for c in row] for row in matrix_world], dtype=np.float64)
+    if np.linalg.det(m[:3, :3]) < 0.0:
+        idx = np.ascontiguousarray(idx[:, [0, 2, 1]])
+    verts = mesh_world_vertices(obj, matrix_world).astype(np.float32)
+    return verts, idx
+
+
+def mesh_is_closed(tri_indices):
+    """pkg296 — True iff the triangles form a closed, consistently oriented
+    surface: every directed edge occurs exactly once and its reverse occurs too
+    (edge-manifold, no holes, no flipped faces)."""
+    t = np.asarray(tri_indices, dtype=np.int64).reshape(-1, 3)
+    if t.shape[0] == 0:
+        return False
+    e = np.concatenate([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]])
+    n = int(t.max()) + 1
+    fwd = e[:, 0] * n + e[:, 1]
+    rev = e[:, 1] * n + e[:, 0]
+    if np.unique(fwd).size != fwd.size:
+        return False
+    return bool(np.isin(rev, fwd).all())
+
+
 def mesh_bounds_is_exact(world_verts, aabb_min, aabb_max, rel_tol=1e-4):
     """True iff the vertices are exactly the 8 corners of [aabb_min, aabb_max],
     i.e. the AABB lowering reproduces the mesh (an axis-aligned box)."""

@@ -5615,12 +5615,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
         * obj.type == 'VOLUME': read its .vdb grids (Blender openvdb) and
           register a heterogeneous GridMedium via renderer.set_volume_grid.
         * a mesh whose material has a connected Volume output: register a bounded
-          HOMOGENEOUS medium over the mesh world-AABB (the #807 cabinet).
+          HOMOGENEOUS medium over the mesh world-AABB (the #807 cabinet). pkg296
+          (#833): unless the mesh IS that box, its world triangles are passed as
+          the medium boundary (the medium follows the mesh); a non-closed mesh
+          is reported (rays through a hole count as inside).
 
         Returns True iff the object was consumed as a volume AND has no surface
         shader (so its geometry is skipped). Emits degradation warnings for any
         socket not honoured. Silent no-op (returns False) for non-volume objects
         or when the renderer lacks the volume API (older builds)."""
+        self._vol_mesh_exported = False  # pkg296: read by convert_objects' legacy path
         if not hasattr(renderer, "set_volume_grid"):
             return False
         try:
@@ -5665,20 +5669,41 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     if pv is None:
                         continue
                     mn, mx = _vol.mesh_world_aabb(obj, obj_instance.matrix_world)
-                    renderer.add_homogeneous_medium(
-                        mn, mx, pv["density"], pv["color"],
-                        pv["absorption_color"], pv["anisotropy"],
-                        **_vol.emission_kwargs(pv))  # pkg270 emission/blackbody
-                    self._count_volume_medium()
-                    # Issue #833: the medium is the world AABB, not the mesh
-                    # shape. Report it unless the mesh IS that box.
                     try:
                         exact = _vol.mesh_bounds_is_exact(
                             _vol.mesh_world_vertices(obj, obj_instance.matrix_world),
                             mn, mx)
                     except Exception:  # pragma: no cover - report conservatively
                         exact = False
+                    # pkg296 (#833): a mesh that is not exactly its AABB passes
+                    # its world triangles as the medium boundary.
+                    boundary = {}
+                    closed = True
                     if not exact:
+                        try:
+                            bv, bi = _vol.mesh_world_triangles(obj, obj_instance.matrix_world)
+                            if len(bi):
+                                boundary = dict(boundary_vertices=bv, boundary_indices=bi)
+                                closed = _vol.mesh_is_closed(bi)
+                        except Exception as exc:  # pragma: no cover - fall back to the AABB
+                            self._vol_report("mesh '%s' volume boundary export failed: %s"
+                                             % (obj.name, exc))
+                    renderer.add_homogeneous_medium(
+                        mn, mx, pv["density"], pv["color"],
+                        pv["absorption_color"], pv["anisotropy"],
+                        **_vol.emission_kwargs(pv), **boundary)  # pkg270 emission/blackbody
+                    self._count_volume_medium()
+                    self._vol_mesh_exported = True
+                    if boundary:
+                        self._vol_boundary_names = getattr(self, "_vol_boundary_names", []) + [obj.name]
+                        if not closed:
+                            self._vol_report(
+                                "mesh '%s' volume boundary is not closed; rays through "
+                                "its holes count as inside" % obj.name)
+                            self._degradation_report().approximate(
+                                "Mesh volume shape",
+                                "'%s' volume mesh is not closed (issue #833)" % obj.name)
+                    elif not exact:
                         self._vol_report(
                             "mesh '%s' volume rendered as its bounding box" % obj.name)
                         self._degradation_report().approximate(
@@ -5712,6 +5737,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
             from . import volume_export as _vol
         except Exception:  # pragma: no cover
             import volume_export as _vol
+        # pkg296: the GPU still uses the AABB of a mesh-bounded medium (Phase 2).
+        for name in getattr(self, "_vol_boundary_names", []):
+            self._vol_report("mesh '%s' volume rendered as its bounding box on the GPU" % name)
+            self._degradation_report().approximate(
+                "Mesh volume shape",
+                "'%s' rendered as its world bounding box on the GPU (issue #833)" % name)
         n = getattr(self, "_vol_media_count", 0)
         if n > _vol.GPU_MAX_VOLUME_MEDIA:
             self._vol_report(
@@ -5762,6 +5793,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         tri_count = 0
         obj_count = 0
         self._vol_media_count = 0  # issue #828: GPU bounded-media cap report
+        self._vol_boundary_names = []  # pkg296: mesh-bounded media (GPU: AABB)
         is_render = getattr(depsgraph, 'mode', 'VIEWPORT') == 'RENDER'
         active_view_layer = getattr(depsgraph, "view_layer", None)
         # pkg114 inc 3c — GPU two-level instancing fast-path: register shared mesh
@@ -5938,7 +5970,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     volume_spec = spec
                     break
 
-            if volume_spec is not None:
+            # pkg296: a surface+volume mesh already registered as a bounded medium
+            # by _try_export_volume must not ALSO get the legacy bounding-sphere
+            # add_volume (it doubled the medium and grew it to the AABB's
+            # circumscribed sphere around e.g. a glass shell).
+            if volume_spec is not None and not getattr(self, '_vol_mesh_exported', False):
                 try:
                     bbox_points = [matrix @ mathutils.Vector(corner) for corner in obj.bound_box]
                     center = sum(bbox_points, mathutils.Vector((0.0, 0.0, 0.0))) / len(bbox_points)

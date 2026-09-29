@@ -74,6 +74,12 @@ REM configures race on first population.
 if not defined SCCACHE_DIR set SCCACHE_DIR=%LOCALAPPDATA%\astroray-cache\sccache
 if not defined FETCHCONTENT_BASE_DIR set FETCHCONTENT_BASE_DIR=%LOCALAPPDATA%\astroray-cache\fetchcontent
 set SCCACHE_BASEDIR=%CD%
+REM SCCACHE_IDLE_TIMEOUT=0: the default (600 s) shuts the sccache server down
+REM while a single long CUDA compile is the only in-flight request, which killed
+REM the compile ("connection reset"). Stop any running server first so the new
+REM env takes effect on the next auto-started one (failure tolerated).
+set SCCACHE_IDLE_TIMEOUT=0
+where sccache >nul 2>&1 && (sccache --stop-server >nul 2>&1 & ver >nul)
 set CCLAUNCH=
 where sccache >nul 2>&1 && set CCLAUNCH=sccache
 if "%CCLAUNCH%"=="" echo [build_cuda_worktree] WARNING: sccache not on PATH; building without compiler cache

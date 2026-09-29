@@ -162,6 +162,27 @@ def roi_means(img: np.ndarray, rect) -> np.ndarray:
     return np.append(m, m @ LUM)
 
 
+def score_material(scene_gates: dict, img: np.ndarray, leg: str) -> list[dict]:
+    """pkg310: every non-excluded (ROI, channel) of one ``gates_*.toml`` scene against one render.
+
+    ``scene_gates`` is ``tomllib`` output for ``[scenes.<id>]``; ``leg`` is ``cpu`` or ``gpu``. Rows the owner
+    declared documented divergences (``expected_divergence``) pin Astroray against its own N-seed mean, the
+    same rule as tests/test_corpus_v2_parity.py. Returns dicts with roi, channel, ratio, tol, ok."""
+    rows = []
+    for roi in scene_gates["roi"]:
+        m = roi_means(img, roi["rect"])
+        pinned = "expected_divergence" in roi
+        den = roi[f"{leg}_mean"] if pinned else roi["cycles_mean"]
+        tol = roi[f"{leg}_pin_tol"] if pinned else roi[f"{leg}_tol"]
+        for c, ch in enumerate(CH):
+            if roi["excluded"][c]:
+                continue
+            ratio = float(m[c] / den[c])
+            rows.append({"roi": roi["name"], "channel": ch, "ratio": ratio, "tol": float(tol[c]),
+                         "ok": abs(ratio - 1.0) <= tol[c], "pinned": pinned})
+    return rows
+
+
 def write_exr(path: Path, img: np.ndarray) -> None:
     os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
     import cv2

@@ -1766,7 +1766,7 @@ def main():
     if any(f in PROD_BUILDERS for f in args.families):  # pkg310: prod_* live in their own manifest
         if not all(f in PROD_BUILDERS for f in args.families):
             p.error("prod_* families cannot be mixed with others (separate manifests)")
-        if Path(args.out_dir).resolve() != PROD_DIR.resolve():
+        if args.out_dir == p.get_default("out_dir"):  # default -> production/; an explicit --out-dir is honoured
             args.out_dir = str(PROD_DIR)
 
     import bpy  # noqa: E402  (only valid inside Blender)

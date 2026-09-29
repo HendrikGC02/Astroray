@@ -1,0 +1,3085 @@
+{
+ "scenes": {
+  "prod_attributes": {
+   "blend_path": "benchmarks/reference_corpus/production/prod_attributes.blend",
+   "collection_errors": [],
+   "pairs": [
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeAttribute",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Attribute",
+     "socket": "output:Fac",
+     "tree": "material:Attributes",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeVertexColor",
+     "id": "Color",
+     "name": "Color",
+     "node": "Color Attribute",
+     "socket": "output:Color",
+     "tree": "material:Attributes",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeHueSaturation",
+     "id": "Hue",
+     "name": "Hue",
+     "node": "Hue/Saturation/Value",
+     "socket": "input:Hue",
+     "tree": "material:Attributes",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeHueSaturation",
+     "id": "Color",
+     "name": "Color",
+     "node": "Hue/Saturation/Value",
+     "socket": "input:Color",
+     "tree": "material:Attributes",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeHueSaturation",
+     "id": "Color",
+     "name": "Color",
+     "node": "Hue/Saturation/Value",
+     "socket": "output:Color",
+     "tree": "material:Attributes",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMapRange",
+     "id": "Value",
+     "name": "Value",
+     "node": "Map Range",
+     "socket": "input:Value",
+     "tree": "material:Attributes",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMapRange",
+     "id": "To Min",
+     "name": "To Min",
+     "node": "Map Range",
+     "socket": "input:To Min",
+     "tree": "material:Attributes",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMapRange",
+     "id": "To Max",
+     "name": "To Max",
+     "node": "Map Range",
+     "socket": "input:To Max",
+     "tree": "material:Attributes",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMapRange",
+     "id": "Result",
+     "name": "Result",
+     "node": "Map Range",
+     "socket": "output:Result",
+     "tree": "material:Attributes",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:Attributes",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeObjectInfo",
+     "id": "Random",
+     "name": "Random",
+     "node": "Object Info",
+     "socket": "output:Random",
+     "tree": "material:Attributes",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Base Color",
+     "name": "Base Color",
+     "node": "Principled BSDF",
+     "socket": "input:Base Color",
+     "tree": "material:Attributes",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:Attributes",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:Attributes",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:StageFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:StageFloor",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:StageFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Color",
+     "name": "Color",
+     "node": "Background",
+     "socket": "input:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Strength",
+     "name": "Strength",
+     "node": "Background",
+     "socket": "input:Strength",
+     "tree": "world:World",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Background",
+     "name": "Background",
+     "node": "Background",
+     "socket": "output:Background",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexEnvironment",
+     "id": "Color",
+     "name": "Color",
+     "node": "Environment Texture",
+     "socket": "output:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputWorld",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "World Output",
+     "socket": "input:Surface",
+     "tree": "world:World",
+     "why": "linked"
+    }
+   ],
+   "scene_sha256": "b489d370579e33ba9b6d5705d4a6ea8f03ade0f6a106fbc551f8d954f512f047"
+  },
+  "prod_car_paint": {
+   "blend_path": "benchmarks/reference_corpus/production/prod_car_paint.blend",
+   "collection_errors": [],
+   "pairs": [
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBump",
+     "id": "Strength",
+     "name": "Strength",
+     "node": "Bump",
+     "socket": "input:Strength",
+     "tree": "material:CarPaint",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBump",
+     "id": "Distance",
+     "name": "Distance",
+     "node": "Bump",
+     "socket": "input:Distance",
+     "tree": "material:CarPaint",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBump",
+     "id": "Height",
+     "name": "Height",
+     "node": "Bump",
+     "socket": "input:Height",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBump",
+     "id": "Normal",
+     "name": "Normal",
+     "node": "Bump",
+     "socket": "output:Normal",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeFresnel",
+     "id": "IOR",
+     "name": "IOR",
+     "node": "Fresnel",
+     "socket": "input:IOR",
+     "tree": "material:CarPaint",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeFresnel",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Fresnel",
+     "socket": "output:Fac",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeLayerWeight",
+     "id": "Blend",
+     "name": "Blend",
+     "node": "Layer Weight",
+     "socket": "input:Blend",
+     "tree": "material:CarPaint",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeLayerWeight",
+     "id": "Facing",
+     "name": "Facing",
+     "node": "Layer Weight",
+     "socket": "output:Facing",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value",
+     "name": "Value",
+     "node": "Math",
+     "socket": "input:Value",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value_001",
+     "name": "Value",
+     "node": "Math",
+     "socket": "input:Value_001",
+     "tree": "material:CarPaint",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value",
+     "name": "Value",
+     "node": "Math",
+     "socket": "output:Value",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "operation",
+     "name": "operation",
+     "node": "Math",
+     "socket": "prop:operation",
+     "tree": "material:CarPaint",
+     "why": "prop"
+    },
+    {
+     "bl_idname": "ShaderNodeMix",
+     "id": "Factor_Float",
+     "name": "Factor",
+     "node": "Mix",
+     "socket": "input:Factor_Float",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMix",
+     "id": "Result_Color",
+     "name": "Result",
+     "node": "Mix",
+     "socket": "output:Result_Color",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMix",
+     "id": "data_type",
+     "name": "data_type",
+     "node": "Mix",
+     "socket": "prop:data_type",
+     "tree": "material:CarPaint",
+     "why": "prop"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Base Color",
+     "name": "Base Color",
+     "node": "Principled BSDF",
+     "socket": "input:Base Color",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Metallic",
+     "name": "Metallic",
+     "node": "Principled BSDF",
+     "socket": "input:Metallic",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:CarPaint",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Normal",
+     "name": "Normal",
+     "node": "Principled BSDF",
+     "socket": "input:Normal",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Coat Weight",
+     "name": "Coat Weight",
+     "node": "Principled BSDF",
+     "socket": "input:Coat Weight",
+     "tree": "material:CarPaint",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexCoord",
+     "id": "Object",
+     "name": "Object",
+     "node": "Texture Coordinate",
+     "socket": "output:Object",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexVoronoi",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Voronoi Texture",
+     "socket": "input:Vector",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexVoronoi",
+     "id": "Scale",
+     "name": "Scale",
+     "node": "Voronoi Texture",
+     "socket": "input:Scale",
+     "tree": "material:CarPaint",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexVoronoi",
+     "id": "Distance",
+     "name": "Distance",
+     "node": "Voronoi Texture",
+     "socket": "output:Distance",
+     "tree": "material:CarPaint",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:StageFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:StageFloor",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:StageFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Color",
+     "name": "Color",
+     "node": "Background",
+     "socket": "input:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Strength",
+     "name": "Strength",
+     "node": "Background",
+     "socket": "input:Strength",
+     "tree": "world:World",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Background",
+     "name": "Background",
+     "node": "Background",
+     "socket": "output:Background",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexEnvironment",
+     "id": "Color",
+     "name": "Color",
+     "node": "Environment Texture",
+     "socket": "output:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputWorld",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "World Output",
+     "socket": "input:Surface",
+     "tree": "world:World",
+     "why": "linked"
+    }
+   ],
+   "scene_sha256": "5aa952a47707eda8d9b43257031f61d2f66428f66e8c0e949579ff5417fbec7f"
+  },
+  "prod_curves_geometry": {
+   "blend_path": "benchmarks/reference_corpus/production/prod_curves_geometry.blend",
+   "collection_errors": [],
+   "pairs": [
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeFloatCurve",
+     "id": "Value",
+     "name": "Value",
+     "node": "Float Curve",
+     "socket": "input:Value",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeFloatCurve",
+     "id": "Value",
+     "name": "Value",
+     "node": "Float Curve",
+     "socket": "output:Value",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeNewGeometry",
+     "id": "Backfacing",
+     "name": "Backfacing",
+     "node": "Geometry",
+     "socket": "output:Backfacing",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeNewGeometry",
+     "id": "Pointiness",
+     "name": "Pointiness",
+     "node": "Geometry",
+     "socket": "output:Pointiness",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMapRange",
+     "id": "Value",
+     "name": "Value",
+     "node": "Map Range",
+     "socket": "input:Value",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMapRange",
+     "id": "To Min",
+     "name": "To Min",
+     "node": "Map Range",
+     "socket": "input:To Min",
+     "tree": "material:CurvesGeometry",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMapRange",
+     "id": "To Max",
+     "name": "To Max",
+     "node": "Map Range",
+     "socket": "input:To Max",
+     "tree": "material:CurvesGeometry",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMapRange",
+     "id": "Result",
+     "name": "Result",
+     "node": "Map Range",
+     "socket": "output:Result",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMapRange",
+     "id": "Value",
+     "name": "Value",
+     "node": "Map Range.001",
+     "socket": "input:Value",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMapRange",
+     "id": "From Min",
+     "name": "From Min",
+     "node": "Map Range.001",
+     "socket": "input:From Min",
+     "tree": "material:CurvesGeometry",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMapRange",
+     "id": "From Max",
+     "name": "From Max",
+     "node": "Map Range.001",
+     "socket": "input:From Max",
+     "tree": "material:CurvesGeometry",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMapRange",
+     "id": "Result",
+     "name": "Result",
+     "node": "Map Range.001",
+     "socket": "output:Result",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value",
+     "name": "Value",
+     "node": "Math",
+     "socket": "input:Value",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value_001",
+     "name": "Value",
+     "node": "Math",
+     "socket": "input:Value_001",
+     "tree": "material:CurvesGeometry",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value",
+     "name": "Value",
+     "node": "Math",
+     "socket": "output:Value",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "operation",
+     "name": "operation",
+     "node": "Math",
+     "socket": "prop:operation",
+     "tree": "material:CurvesGeometry",
+     "why": "prop"
+    },
+    {
+     "bl_idname": "ShaderNodeMix",
+     "id": "Factor_Float",
+     "name": "Factor",
+     "node": "Mix",
+     "socket": "input:Factor_Float",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMix",
+     "id": "A_Color",
+     "name": "A",
+     "node": "Mix",
+     "socket": "input:A_Color",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMix",
+     "id": "Result_Color",
+     "name": "Result",
+     "node": "Mix",
+     "socket": "output:Result_Color",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMix",
+     "id": "data_type",
+     "name": "data_type",
+     "node": "Mix",
+     "socket": "prop:data_type",
+     "tree": "material:CurvesGeometry",
+     "why": "prop"
+    },
+    {
+     "bl_idname": "ShaderNodeMix",
+     "id": "Factor_Float",
+     "name": "Factor",
+     "node": "Mix.001",
+     "socket": "input:Factor_Float",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMix",
+     "id": "A_Color",
+     "name": "A",
+     "node": "Mix.001",
+     "socket": "input:A_Color",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMix",
+     "id": "Result_Color",
+     "name": "Result",
+     "node": "Mix.001",
+     "socket": "output:Result_Color",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMix",
+     "id": "data_type",
+     "name": "data_type",
+     "node": "Mix.001",
+     "socket": "prop:data_type",
+     "tree": "material:CurvesGeometry",
+     "why": "prop"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Noise Texture",
+     "socket": "input:Vector",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Scale",
+     "name": "Scale",
+     "node": "Noise Texture",
+     "socket": "input:Scale",
+     "tree": "material:CurvesGeometry",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Detail",
+     "name": "Detail",
+     "node": "Noise Texture",
+     "socket": "input:Detail",
+     "tree": "material:CurvesGeometry",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Noise Texture",
+     "socket": "output:Fac",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Color",
+     "name": "Color",
+     "node": "Noise Texture",
+     "socket": "output:Color",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Base Color",
+     "name": "Base Color",
+     "node": "Principled BSDF",
+     "socket": "input:Base Color",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeRGBCurve",
+     "id": "Color",
+     "name": "Color",
+     "node": "RGB Curves",
+     "socket": "input:Color",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeRGBCurve",
+     "id": "Color",
+     "name": "Color",
+     "node": "RGB Curves",
+     "socket": "output:Color",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexCoord",
+     "id": "Object",
+     "name": "Object",
+     "node": "Texture Coordinate",
+     "socket": "output:Object",
+     "tree": "material:CurvesGeometry",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:StageFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:StageFloor",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:StageFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Color",
+     "name": "Color",
+     "node": "Background",
+     "socket": "input:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Strength",
+     "name": "Strength",
+     "node": "Background",
+     "socket": "input:Strength",
+     "tree": "world:World",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Background",
+     "name": "Background",
+     "node": "Background",
+     "socket": "output:Background",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexEnvironment",
+     "id": "Color",
+     "name": "Color",
+     "node": "Environment Texture",
+     "socket": "output:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputWorld",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "World Output",
+     "socket": "input:Surface",
+     "tree": "world:World",
+     "why": "linked"
+    }
+   ],
+   "scene_sha256": "ec98449f058378c85afbaa48eb49b6468db7f2e4e9952f3c27ebcb7602a1a6ed"
+  },
+  "prod_light_path": {
+   "blend_path": "benchmarks/reference_corpus/production/prod_light_path.blend",
+   "collection_errors": [],
+   "pairs": [
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Strength",
+     "name": "Strength",
+     "node": "Emission",
+     "socket": "input:Strength",
+     "tree": "material:CameraHiddenEmitter",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "material:CameraHiddenEmitter",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeLightPath",
+     "id": "Is Camera Ray",
+     "name": "Is Camera Ray",
+     "node": "Light Path",
+     "socket": "output:Is Camera Ray",
+     "tree": "material:CameraHiddenEmitter",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:CameraHiddenEmitter",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Mix Shader",
+     "socket": "input:Fac",
+     "tree": "material:CameraHiddenEmitter",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Shader",
+     "name": "Shader",
+     "node": "Mix Shader",
+     "socket": "input:Shader",
+     "tree": "material:CameraHiddenEmitter",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Shader_001",
+     "name": "Shader",
+     "node": "Mix Shader",
+     "socket": "input:Shader_001",
+     "tree": "material:CameraHiddenEmitter",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Shader",
+     "name": "Shader",
+     "node": "Mix Shader",
+     "socket": "output:Shader",
+     "tree": "material:CameraHiddenEmitter",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfTransparent",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Transparent BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:CameraHiddenEmitter",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:Post",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:Post",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:Post",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeValToRGB",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Color Ramp",
+     "socket": "input:Fac",
+     "tree": "material:RayLengthFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeValToRGB",
+     "id": "Color",
+     "name": "Color",
+     "node": "Color Ramp",
+     "socket": "output:Color",
+     "tree": "material:RayLengthFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeLightPath",
+     "id": "Ray Length",
+     "name": "Ray Length",
+     "node": "Light Path",
+     "socket": "output:Ray Length",
+     "tree": "material:RayLengthFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:RayLengthFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value",
+     "name": "Value",
+     "node": "Math",
+     "socket": "input:Value",
+     "tree": "material:RayLengthFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value_001",
+     "name": "Value",
+     "node": "Math",
+     "socket": "input:Value_001",
+     "tree": "material:RayLengthFloor",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value",
+     "name": "Value",
+     "node": "Math",
+     "socket": "output:Value",
+     "tree": "material:RayLengthFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "operation",
+     "name": "operation",
+     "node": "Math",
+     "socket": "prop:operation",
+     "tree": "material:RayLengthFloor",
+     "why": "prop"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "use_clamp",
+     "name": "use_clamp",
+     "node": "Math",
+     "socket": "prop:use_clamp",
+     "tree": "material:RayLengthFloor",
+     "why": "prop"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Base Color",
+     "name": "Base Color",
+     "node": "Principled BSDF",
+     "socket": "input:Base Color",
+     "tree": "material:RayLengthFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:RayLengthFloor",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:RayLengthFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfGlass",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Glass BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:ShadowlessGlass",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfGlass",
+     "id": "IOR",
+     "name": "IOR",
+     "node": "Glass BSDF",
+     "socket": "input:IOR",
+     "tree": "material:ShadowlessGlass",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfGlass",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Glass BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:ShadowlessGlass",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeLightPath",
+     "id": "Is Shadow Ray",
+     "name": "Is Shadow Ray",
+     "node": "Light Path",
+     "socket": "output:Is Shadow Ray",
+     "tree": "material:ShadowlessGlass",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:ShadowlessGlass",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Mix Shader",
+     "socket": "input:Fac",
+     "tree": "material:ShadowlessGlass",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Shader",
+     "name": "Shader",
+     "node": "Mix Shader",
+     "socket": "input:Shader",
+     "tree": "material:ShadowlessGlass",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Shader_001",
+     "name": "Shader",
+     "node": "Mix Shader",
+     "socket": "input:Shader_001",
+     "tree": "material:ShadowlessGlass",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Shader",
+     "name": "Shader",
+     "node": "Mix Shader",
+     "socket": "output:Shader",
+     "tree": "material:ShadowlessGlass",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfTransparent",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Transparent BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:ShadowlessGlass",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Color",
+     "name": "Color",
+     "node": "Background",
+     "socket": "input:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Strength",
+     "name": "Strength",
+     "node": "Background",
+     "socket": "input:Strength",
+     "tree": "world:World",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Background",
+     "name": "Background",
+     "node": "Background",
+     "socket": "output:Background",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexEnvironment",
+     "id": "Color",
+     "name": "Color",
+     "node": "Environment Texture",
+     "socket": "output:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputWorld",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "World Output",
+     "socket": "input:Surface",
+     "tree": "world:World",
+     "why": "linked"
+    }
+   ],
+   "scene_sha256": "d0145a848655da6360eaf396aa41976c9580b40fb435f3f75742b503ebaced12"
+  },
+  "prod_marble": {
+   "blend_path": "benchmarks/reference_corpus/production/prod_marble.blend",
+   "collection_errors": [],
+   "pairs": [
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeValToRGB",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Color Ramp",
+     "socket": "input:Fac",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeValToRGB",
+     "id": "Color",
+     "name": "Color",
+     "node": "Color Ramp",
+     "socket": "output:Color",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMapping",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Mapping",
+     "socket": "input:Vector",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMapping",
+     "id": "Rotation",
+     "name": "Rotation",
+     "node": "Mapping",
+     "socket": "input:Rotation",
+     "tree": "material:Marble",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMapping",
+     "id": "Scale",
+     "name": "Scale",
+     "node": "Mapping",
+     "socket": "input:Scale",
+     "tree": "material:Marble",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMapping",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Mapping",
+     "socket": "output:Vector",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Noise Texture",
+     "socket": "input:Vector",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Scale",
+     "name": "Scale",
+     "node": "Noise Texture",
+     "socket": "input:Scale",
+     "tree": "material:Marble",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Detail",
+     "name": "Detail",
+     "node": "Noise Texture",
+     "socket": "input:Detail",
+     "tree": "material:Marble",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Noise Texture",
+     "socket": "input:Roughness",
+     "tree": "material:Marble",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Color",
+     "name": "Color",
+     "node": "Noise Texture",
+     "socket": "output:Color",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Base Color",
+     "name": "Base Color",
+     "node": "Principled BSDF",
+     "socket": "input:Base Color",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:Marble",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Coat Weight",
+     "name": "Coat Weight",
+     "node": "Principled BSDF",
+     "socket": "input:Coat Weight",
+     "tree": "material:Marble",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexCoord",
+     "id": "Object",
+     "name": "Object",
+     "node": "Texture Coordinate",
+     "socket": "output:Object",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeVectorMath",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Vector Math",
+     "socket": "input:Vector",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeVectorMath",
+     "id": "Scale",
+     "name": "Scale",
+     "node": "Vector Math",
+     "socket": "input:Scale",
+     "tree": "material:Marble",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeVectorMath",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Vector Math",
+     "socket": "output:Vector",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeVectorMath",
+     "id": "operation",
+     "name": "operation",
+     "node": "Vector Math",
+     "socket": "prop:operation",
+     "tree": "material:Marble",
+     "why": "prop"
+    },
+    {
+     "bl_idname": "ShaderNodeVectorMath",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Vector Math.001",
+     "socket": "input:Vector",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeVectorMath",
+     "id": "Vector_001",
+     "name": "Vector",
+     "node": "Vector Math.001",
+     "socket": "input:Vector_001",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeVectorMath",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Vector Math.001",
+     "socket": "output:Vector",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexWave",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Wave Texture",
+     "socket": "input:Vector",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexWave",
+     "id": "Scale",
+     "name": "Scale",
+     "node": "Wave Texture",
+     "socket": "input:Scale",
+     "tree": "material:Marble",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexWave",
+     "id": "Distortion",
+     "name": "Distortion",
+     "node": "Wave Texture",
+     "socket": "input:Distortion",
+     "tree": "material:Marble",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexWave",
+     "id": "Detail",
+     "name": "Detail",
+     "node": "Wave Texture",
+     "socket": "input:Detail",
+     "tree": "material:Marble",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexWave",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Wave Texture",
+     "socket": "output:Fac",
+     "tree": "material:Marble",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexWave",
+     "id": "bands_direction",
+     "name": "bands_direction",
+     "node": "Wave Texture",
+     "socket": "prop:bands_direction",
+     "tree": "material:Marble",
+     "why": "prop"
+    },
+    {
+     "bl_idname": "ShaderNodeTexWave",
+     "id": "wave_profile",
+     "name": "wave_profile",
+     "node": "Wave Texture",
+     "socket": "prop:wave_profile",
+     "tree": "material:Marble",
+     "why": "prop"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:StageFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:StageFloor",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:StageFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Color",
+     "name": "Color",
+     "node": "Background",
+     "socket": "input:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Strength",
+     "name": "Strength",
+     "node": "Background",
+     "socket": "input:Strength",
+     "tree": "world:World",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Background",
+     "name": "Background",
+     "node": "Background",
+     "socket": "output:Background",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexEnvironment",
+     "id": "Color",
+     "name": "Color",
+     "node": "Environment Texture",
+     "socket": "output:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputWorld",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "World Output",
+     "socket": "input:Surface",
+     "tree": "world:World",
+     "why": "linked"
+    }
+   ],
+   "scene_sha256": "689449e30f39215e3ba6628dbf2df5db332476488d8c20a3ab8b6331f8bbe7fb"
+  },
+  "prod_pbr_group": {
+   "blend_path": "benchmarks/reference_corpus/production/prod_pbr_group.blend",
+   "collection_errors": [],
+   "pairs": [
+    {
+     "bl_idname": "ShaderNodeBump",
+     "id": "Strength",
+     "name": "Strength",
+     "node": "Bump",
+     "socket": "input:Strength",
+     "tree": "group:PBRGroup",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBump",
+     "id": "Distance",
+     "name": "Distance",
+     "node": "Bump",
+     "socket": "input:Distance",
+     "tree": "group:PBRGroup",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBump",
+     "id": "Height",
+     "name": "Height",
+     "node": "Bump",
+     "socket": "input:Height",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBump",
+     "id": "Normal",
+     "name": "Normal",
+     "node": "Bump",
+     "socket": "input:Normal",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBump",
+     "id": "Normal",
+     "name": "Normal",
+     "node": "Bump",
+     "socket": "output:Normal",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeCombineXYZ",
+     "id": "X",
+     "name": "X",
+     "node": "Combine XYZ",
+     "socket": "input:X",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeCombineXYZ",
+     "id": "Y",
+     "name": "Y",
+     "node": "Combine XYZ",
+     "socket": "input:Y",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeCombineXYZ",
+     "id": "Z",
+     "name": "Z",
+     "node": "Combine XYZ",
+     "socket": "input:Z",
+     "tree": "group:PBRGroup",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeCombineXYZ",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Combine XYZ",
+     "socket": "output:Vector",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexImage",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Image Texture",
+     "socket": "input:Vector",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexImage",
+     "id": "Color",
+     "name": "Color",
+     "node": "Image Texture",
+     "socket": "output:Color",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexImage",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Image Texture.001",
+     "socket": "input:Vector",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexImage",
+     "id": "Color",
+     "name": "Color",
+     "node": "Image Texture.001",
+     "socket": "output:Color",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexImage",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Image Texture.002",
+     "socket": "input:Vector",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexImage",
+     "id": "Color",
+     "name": "Color",
+     "node": "Image Texture.002",
+     "socket": "output:Color",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexImage",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Image Texture.003",
+     "socket": "input:Vector",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexImage",
+     "id": "Color",
+     "name": "Color",
+     "node": "Image Texture.003",
+     "socket": "output:Color",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMapping",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Mapping",
+     "socket": "input:Vector",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMapping",
+     "id": "Rotation",
+     "name": "Rotation",
+     "node": "Mapping",
+     "socket": "input:Rotation",
+     "tree": "group:PBRGroup",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMapping",
+     "id": "Scale",
+     "name": "Scale",
+     "node": "Mapping",
+     "socket": "input:Scale",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMapping",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Mapping",
+     "socket": "output:Vector",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeNormalMap",
+     "id": "Color",
+     "name": "Color",
+     "node": "Normal Map",
+     "socket": "input:Color",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeNormalMap",
+     "id": "Normal",
+     "name": "Normal",
+     "node": "Normal Map",
+     "socket": "output:Normal",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Base Color",
+     "name": "Base Color",
+     "node": "Principled BSDF",
+     "socket": "input:Base Color",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Metallic",
+     "name": "Metallic",
+     "node": "Principled BSDF",
+     "socket": "input:Metallic",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Normal",
+     "name": "Normal",
+     "node": "Principled BSDF",
+     "socket": "input:Normal",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexCoord",
+     "id": "UV",
+     "name": "UV",
+     "node": "Texture Coordinate",
+     "socket": "output:UV",
+     "tree": "group:PBRGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:PbrGroup",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:StageFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:StageFloor",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:StageFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Color",
+     "name": "Color",
+     "node": "Background",
+     "socket": "input:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Strength",
+     "name": "Strength",
+     "node": "Background",
+     "socket": "input:Strength",
+     "tree": "world:World",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Background",
+     "name": "Background",
+     "node": "Background",
+     "socket": "output:Background",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexEnvironment",
+     "id": "Color",
+     "name": "Color",
+     "node": "Environment Texture",
+     "socket": "output:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputWorld",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "World Output",
+     "socket": "input:Surface",
+     "tree": "world:World",
+     "why": "linked"
+    }
+   ],
+   "scene_sha256": "28be1271813aa310a082b1defbcb0de39bd7a9849749cbf1697d9faee99248e4"
+  },
+  "prod_shader_stack": {
+   "blend_path": "benchmarks/reference_corpus/production/prod_shader_stack.blend",
+   "collection_errors": [],
+   "pairs": [
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeAddShader",
+     "id": "Shader",
+     "name": "Shader",
+     "node": "Add Shader",
+     "socket": "input:Shader",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeAddShader",
+     "id": "Shader_001",
+     "name": "Shader",
+     "node": "Add Shader",
+     "socket": "input:Shader_001",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeAddShader",
+     "id": "Shader",
+     "name": "Shader",
+     "node": "Add Shader",
+     "socket": "output:Shader",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeValToRGB",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Color Ramp",
+     "socket": "input:Fac",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeValToRGB",
+     "id": "Color",
+     "name": "Color",
+     "node": "Color Ramp",
+     "socket": "output:Color",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Strength",
+     "name": "Strength",
+     "node": "Emission",
+     "socket": "input:Strength",
+     "tree": "material:ShaderStack",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfGlass",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Glass BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:ShaderStack",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfGlass",
+     "id": "IOR",
+     "name": "IOR",
+     "node": "Glass BSDF",
+     "socket": "input:IOR",
+     "tree": "material:ShaderStack",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfGlass",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Glass BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Mix Shader",
+     "socket": "input:Fac",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Shader",
+     "name": "Shader",
+     "node": "Mix Shader",
+     "socket": "input:Shader",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Shader_001",
+     "name": "Shader",
+     "node": "Mix Shader",
+     "socket": "input:Shader_001",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Shader",
+     "name": "Shader",
+     "node": "Mix Shader",
+     "socket": "output:Shader",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Mix Shader.001",
+     "socket": "input:Fac",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Shader",
+     "name": "Shader",
+     "node": "Mix Shader.001",
+     "socket": "input:Shader",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Shader_001",
+     "name": "Shader",
+     "node": "Mix Shader.001",
+     "socket": "input:Shader_001",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMixShader",
+     "id": "Shader",
+     "name": "Shader",
+     "node": "Mix Shader.001",
+     "socket": "output:Shader",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Noise Texture",
+     "socket": "input:Vector",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Scale",
+     "name": "Scale",
+     "node": "Noise Texture",
+     "socket": "input:Scale",
+     "tree": "material:ShaderStack",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Detail",
+     "name": "Detail",
+     "node": "Noise Texture",
+     "socket": "input:Detail",
+     "tree": "material:ShaderStack",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Noise Texture",
+     "socket": "output:Fac",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Noise Texture.001",
+     "socket": "input:Vector",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Scale",
+     "name": "Scale",
+     "node": "Noise Texture.001",
+     "socket": "input:Scale",
+     "tree": "material:ShaderStack",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Noise Texture.001",
+     "socket": "output:Fac",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Metallic",
+     "name": "Metallic",
+     "node": "Principled BSDF",
+     "socket": "input:Metallic",
+     "tree": "material:ShaderStack",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:ShaderStack",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF.001",
+     "socket": "input:Roughness",
+     "tree": "material:ShaderStack",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF.001",
+     "socket": "output:BSDF",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexCoord",
+     "id": "Object",
+     "name": "Object",
+     "node": "Texture Coordinate",
+     "socket": "output:Object",
+     "tree": "material:ShaderStack",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:StageFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:StageFloor",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:StageFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Color",
+     "name": "Color",
+     "node": "Background",
+     "socket": "input:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Strength",
+     "name": "Strength",
+     "node": "Background",
+     "socket": "input:Strength",
+     "tree": "world:World",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Background",
+     "name": "Background",
+     "node": "Background",
+     "socket": "output:Background",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexEnvironment",
+     "id": "Color",
+     "name": "Color",
+     "node": "Environment Texture",
+     "socket": "output:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputWorld",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "World Output",
+     "socket": "input:Surface",
+     "tree": "world:World",
+     "why": "linked"
+    }
+   ],
+   "scene_sha256": "683e0eeefbc1a81f6cf3089020e56b4e4453dd3087762a96472fa1d8c0d43a71"
+  },
+  "prod_wood": {
+   "blend_path": "benchmarks/reference_corpus/production/prod_wood.blend",
+   "collection_errors": [],
+   "pairs": [
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Area",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeEmission",
+     "id": "Emission",
+     "name": "Emission",
+     "node": "Emission",
+     "socket": "output:Emission",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputLight",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Light Output",
+     "socket": "input:Surface",
+     "tree": "light:Sun",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:StageFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:StageFloor",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:StageFloor",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBump",
+     "id": "Strength",
+     "name": "Strength",
+     "node": "Bump",
+     "socket": "input:Strength",
+     "tree": "material:Wood",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBump",
+     "id": "Distance",
+     "name": "Distance",
+     "node": "Bump",
+     "socket": "input:Distance",
+     "tree": "material:Wood",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBump",
+     "id": "Height",
+     "name": "Height",
+     "node": "Bump",
+     "socket": "input:Height",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBump",
+     "id": "Normal",
+     "name": "Normal",
+     "node": "Bump",
+     "socket": "output:Normal",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeValToRGB",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Color Ramp",
+     "socket": "input:Fac",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeValToRGB",
+     "id": "Color",
+     "name": "Color",
+     "node": "Color Ramp",
+     "socket": "output:Color",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMapping",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Mapping",
+     "socket": "input:Vector",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMapping",
+     "id": "Rotation",
+     "name": "Rotation",
+     "node": "Mapping",
+     "socket": "input:Rotation",
+     "tree": "material:Wood",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMapping",
+     "id": "Scale",
+     "name": "Scale",
+     "node": "Mapping",
+     "socket": "input:Scale",
+     "tree": "material:Wood",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMapping",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Mapping",
+     "socket": "output:Vector",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputMaterial",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "Material Output",
+     "socket": "input:Surface",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value",
+     "name": "Value",
+     "node": "Math",
+     "socket": "input:Value",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value_001",
+     "name": "Value",
+     "node": "Math",
+     "socket": "input:Value_001",
+     "tree": "material:Wood",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value",
+     "name": "Value",
+     "node": "Math",
+     "socket": "output:Value",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "operation",
+     "name": "operation",
+     "node": "Math",
+     "socket": "prop:operation",
+     "tree": "material:Wood",
+     "why": "prop"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value",
+     "name": "Value",
+     "node": "Math.001",
+     "socket": "input:Value",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value_001",
+     "name": "Value",
+     "node": "Math.001",
+     "socket": "input:Value_001",
+     "tree": "material:Wood",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value_002",
+     "name": "Value",
+     "node": "Math.001",
+     "socket": "input:Value_002",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value",
+     "name": "Value",
+     "node": "Math.001",
+     "socket": "output:Value",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "operation",
+     "name": "operation",
+     "node": "Math.001",
+     "socket": "prop:operation",
+     "tree": "material:Wood",
+     "why": "prop"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value",
+     "name": "Value",
+     "node": "Math.002",
+     "socket": "input:Value",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value_002",
+     "name": "Value",
+     "node": "Math.002",
+     "socket": "input:Value_002",
+     "tree": "material:Wood",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "Value",
+     "name": "Value",
+     "node": "Math.002",
+     "socket": "output:Value",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeMath",
+     "id": "operation",
+     "name": "operation",
+     "node": "Math.002",
+     "socket": "prop:operation",
+     "tree": "material:Wood",
+     "why": "prop"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Noise Texture",
+     "socket": "input:Vector",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Scale",
+     "name": "Scale",
+     "node": "Noise Texture",
+     "socket": "input:Scale",
+     "tree": "material:Wood",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Detail",
+     "name": "Detail",
+     "node": "Noise Texture",
+     "socket": "input:Detail",
+     "tree": "material:Wood",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Noise Texture",
+     "socket": "input:Roughness",
+     "tree": "material:Wood",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexNoise",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Noise Texture",
+     "socket": "output:Fac",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Base Color",
+     "name": "Base Color",
+     "node": "Principled BSDF",
+     "socket": "input:Base Color",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Roughness",
+     "name": "Roughness",
+     "node": "Principled BSDF",
+     "socket": "input:Roughness",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Normal",
+     "name": "Normal",
+     "node": "Principled BSDF",
+     "socket": "input:Normal",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "Specular IOR Level",
+     "name": "Specular IOR Level",
+     "node": "Principled BSDF",
+     "socket": "input:Specular IOR Level",
+     "tree": "material:Wood",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBsdfPrincipled",
+     "id": "BSDF",
+     "name": "BSDF",
+     "node": "Principled BSDF",
+     "socket": "output:BSDF",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexCoord",
+     "id": "Object",
+     "name": "Object",
+     "node": "Texture Coordinate",
+     "socket": "output:Object",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexWave",
+     "id": "Vector",
+     "name": "Vector",
+     "node": "Wave Texture",
+     "socket": "input:Vector",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexWave",
+     "id": "Scale",
+     "name": "Scale",
+     "node": "Wave Texture",
+     "socket": "input:Scale",
+     "tree": "material:Wood",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexWave",
+     "id": "Distortion",
+     "name": "Distortion",
+     "node": "Wave Texture",
+     "socket": "input:Distortion",
+     "tree": "material:Wood",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeTexWave",
+     "id": "Fac",
+     "name": "Factor",
+     "node": "Wave Texture",
+     "socket": "output:Fac",
+     "tree": "material:Wood",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexWave",
+     "id": "wave_type",
+     "name": "wave_type",
+     "node": "Wave Texture",
+     "socket": "prop:wave_type",
+     "tree": "material:Wood",
+     "why": "prop"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Color",
+     "name": "Color",
+     "node": "Background",
+     "socket": "input:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Strength",
+     "name": "Strength",
+     "node": "Background",
+     "socket": "input:Strength",
+     "tree": "world:World",
+     "why": "value"
+    },
+    {
+     "bl_idname": "ShaderNodeBackground",
+     "id": "Background",
+     "name": "Background",
+     "node": "Background",
+     "socket": "output:Background",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeTexEnvironment",
+     "id": "Color",
+     "name": "Color",
+     "node": "Environment Texture",
+     "socket": "output:Color",
+     "tree": "world:World",
+     "why": "linked"
+    },
+    {
+     "bl_idname": "ShaderNodeOutputWorld",
+     "id": "Surface",
+     "name": "Surface",
+     "node": "World Output",
+     "socket": "input:Surface",
+     "tree": "world:World",
+     "why": "linked"
+    }
+   ],
+   "scene_sha256": "057afee8544fdd4a379431847d51c533715e312c0dd7b8f05159ebd4a920081f"
+  }
+ },
+ "schema": "pkg310.node_uses.v1"
+}

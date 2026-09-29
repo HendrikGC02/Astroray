@@ -126,9 +126,12 @@ def audit_scene(pairs: list[dict], matrix: dict[str, str], log_text: str) -> dic
     # The matrix classifies output sockets only for nodes that have no inputs (Attribute, Light Path, ...);
     # for every other node a linked output is evidence of use, not a classifiable pair.
     out_nodes = {k.split("|", 1)[0] for k in matrix if "|output:" in k}
-    silent, reported, approx_unreported, supported = [], [], [], 0
+    silent, reported, approx_unreported, supported, world = [], [], [], 0, 0
     for p in pairs:
         if p["bl_idname"] in ROOTS:
+            continue
+        if p.get("tree", "").startswith("world:"):
+            world += 1  # the shared stage HDRI world: identical in all eight scenes, gated by the v2 world rows
             continue
         if p["socket"].startswith("output:") and p["bl_idname"] not in out_nodes:
             continue
@@ -145,7 +148,8 @@ def audit_scene(pairs: list[dict], matrix: dict[str, str], log_text: str) -> dic
         else:
             silent.append({**p, "matrix": cls})
     return {"exercised": len(pairs), "supported": supported, "reported": reported, "silent": silent,
-            "approximated_unreported": approx_unreported, "report_entries": entries}
+            "approximated_unreported": approx_unreported, "world_pairs_excluded": world,
+            "report_entries": entries}
 
 
 def load_matrix(path: Path = MATRIX) -> dict[str, str]:
@@ -156,21 +160,27 @@ def load_matrix(path: Path = MATRIX) -> dict[str, str]:
 # In-Blender collector
 # --------------------------------------------------------------------------- #
 
-def _twin_defaults(bpy, node, cache: dict) -> dict:
-    """Default socket values of a fresh node of ``node``'s type with the same known enum properties."""
-    key = (node.bl_idname, tuple(sorted((k, str(v)) for k, v in CR._node_prop_variants(node).items())))
+def _twin_defaults(bpy, node, cache: dict) -> tuple[dict, dict]:
+    """``(socket defaults, property defaults)`` of a fresh node of ``node``'s type. The socket defaults are
+    read from a twin that copies the node's known enum properties (they change which sockets exist and
+    what they default to); the property defaults come from a pristine twin (Blender's node defaults differ
+    from the RNA defaults ``coverage_report`` compares against, e.g. Principled ``distribution``)."""
+    props = {k: getattr(node, k) for k in CR.KNOWN_NODE_PROPERTIES if hasattr(node, k)}
+    key = (node.bl_idname, tuple(sorted((k, str(v)) for k, v in props.items())))
     if key in cache:
         return cache[key]
     tree = bpy.data.node_groups.new("_pkg310_twin", "ShaderNodeTree")
     try:
+        pristine = tree.nodes.new(node.bl_idname)
+        pdefaults = {k: getattr(pristine, k) for k in props}
         twin = tree.nodes.new(node.bl_idname)
-        for name in CR.KNOWN_NODE_PROPERTIES:
-            if hasattr(node, name):
-                try:
-                    setattr(twin, name, getattr(node, name))
-                except (AttributeError, TypeError, ValueError, RuntimeError):
-                    pass  # read-only / pointer-valued: leave at default
-        cache[key] = {s.identifier: CR._json_safe(getattr(s, "default_value", None)) for s in twin.inputs}
+        for k, v in props.items():
+            try:
+                setattr(twin, k, v)
+            except (AttributeError, TypeError, ValueError, RuntimeError):
+                pass  # read-only / pointer-valued: leave at default
+        sdefaults = {s.identifier: CR._json_safe(getattr(s, "default_value", None)) for s in twin.inputs}
+        cache[key] = (sdefaults, pdefaults)
     finally:
         bpy.data.node_groups.remove(tree)
     return cache[key]
@@ -195,7 +205,7 @@ def collect_scene(bpy, blend_path: str) -> dict:
         if rec.get("mute") or rec["bl_idname"] in STRUCTURAL:
             continue
         node = _tree_of(bpy, tid).nodes[name]
-        defaults = _twin_defaults(bpy, node, cache)
+        defaults, prop_defaults = _twin_defaults(bpy, node, cache)
         bl = rec["bl_idname"]
         for s in node.inputs:
             if not s.enabled:
@@ -213,6 +223,8 @@ def collect_scene(bpy, blend_path: str) -> dict:
                 pairs.append({"bl_idname": bl, "socket": f"output:{s.identifier}", "id": s.identifier,
                               "name": s.name, "why": "linked", "tree": tid, "node": name})
         for prop in sorted(rec.get("prop_variants", {})):
+            if prop in prop_defaults and getattr(node, prop) == prop_defaults[prop]:
+                continue  # coverage_report's RNA-default test; the node's own default is what counts here
             pairs.append({"bl_idname": bl, "socket": f"prop:{prop}", "id": prop, "name": prop,
                           "why": "prop", "tree": tid, "node": name})
     return {"blend_path": str(blend_path), "scene_sha256": CR._sha256_file(Path(blend_path)),

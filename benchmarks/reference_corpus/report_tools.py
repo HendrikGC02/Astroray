@@ -171,7 +171,71 @@ def build_family_report(family: str, manifest_path: Path, out_dir: Path,
     return written
 
 
+def build_production_report(work: Path, out_dir: Path, seed: int = 278) -> dict:
+    """pkg310: per-material Cycles | Astroray CPU | Astroray GPU contact sheets (ROIs drawn), a
+    band-utilisation chart and ``production_summary.json`` (N/8 per backend) from the seed-``seed``
+    renders that ``mc_tolerance.render`` / tests/test_production_corpus.py keep in ``work``.
+    Band utilisation = worst |ratio - 1| / tol over the material's ROI channels (<= 1 is in band)."""
+    import numpy as np
+    import tomllib
+    sys.path.insert(0, str(REPO_ROOT / "tests"))
+    from benchmarks.reference_corpus import mc_tolerance as MC
+    from results_layout import save_comparison_sheet, save_stat_chart
+
+    gates = tomllib.loads((REPO_ROOT / "benchmarks" / "reference_corpus" / "gates_production.toml")
+                          .read_text(encoding="utf-8"))["scenes"]
+    manifest = json.loads((MC.SUITES["production"]["manifest"]).read_text(encoding="utf-8"))["scenes"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    summary = {"materials": {}, "seed": seed}
+    util = {"cpu": [], "gpu": []}
+    names = sorted(gates)
+    for sid in names:
+        g = gates[sid]
+        h, w = g["res"][1], g["res"][0]
+        ref = MC.read_exr(REPO_ROOT / g["reference"])
+        tiles = [(f"Cycles {g['spp_reference']} spp", ref)]
+        entry = summary["materials"][sid] = {}
+        for leg, label in (("cpu", "Astroray CPU"), ("gpu", "Astroray GPU")):
+            f = work / f"{sid}_{leg}_s{seed}.npy"
+            if not f.is_file():
+                util[leg].append(0.0)
+                continue
+            img = np.load(f)
+            tiles.append((f"{label} {g['spp_gate']} spp", img))
+            rows = MC.score_material(g, img, leg)
+            worst = max(abs(r["ratio"] - 1.0) / r["tol"] for r in rows)
+            util[leg].append(round(worst, 3))
+            entry[leg] = {"pass": all(r["ok"] for r in rows), "channels": len(rows),
+                          "out_of_band": [r for r in rows if not r["ok"]], "worst_band_utilisation": round(worst, 3)}
+        tiles = [(t, np.clip(px, 0.0, None) ** (1.0 / 2.2)) for t, px in tiles]
+        rois = {r["name"]: (r["rect"][0] * w, r["rect"][1] * h, r["rect"][2] * w, r["rect"][3] * h) for r in g["roi"]}
+        save_comparison_sheet(out_dir / f"{sid}_sheet.png", tiles, f"{sid} (display gamma 2.2, seed {seed})", rois)
+        _ = manifest[sid]
+    for leg in ("cpu", "gpu"):
+        summary[leg] = {"pass": sum(1 for m in summary["materials"].values() if m.get(leg, {}).get("pass")),
+                        "of": len(names)}
+    save_stat_chart(out_dir / "band_utilisation_chart.png",
+                    [{"label": "Astroray CPU", "x": names, "y": util["cpu"], "role": "cpu"},
+                     {"label": "Astroray GPU", "x": names, "y": util["gpu"], "role": "gpu"}],
+                    title="Production corpus: worst ROI-channel deviation / MC band",
+                    xlabel="material", ylabel="|ratio - 1| / tol (<= 1 in band)", ref=(1.0, "band edge"),
+                    meta={"suite": "production", "seed": seed, "summary": summary})
+    (out_dir / "production_summary.json").write_text(json.dumps(summary, indent=1) + "\n",
+                                                     encoding="utf-8", newline="\n")
+    return summary
+
+
 def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv[:1] == ["production"]:
+        pp = argparse.ArgumentParser(prog="report_tools.py production")
+        pp.add_argument("--work-dir", required=True)
+        pp.add_argument("--out-dir", required=True)
+        pa = pp.parse_args(argv[1:])
+        s = build_production_report(Path(pa.work_dir), Path(pa.out_dir))
+        print(f"[pkg310] CPU {s['cpu']['pass']}/{s['cpu']['of']}  GPU {s['gpu']['pass']}/{s['gpu']['of']}")
+        return
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--family", required=True)
     p.add_argument("--cycles-npy", default=None)

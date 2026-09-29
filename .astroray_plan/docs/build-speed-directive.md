@@ -104,7 +104,8 @@ guard. "ninja" is the `.ninja_log` span.
 | Build | queue | ninja | Critical path |
 |---|---:|---:|---|
 | before, fresh | 1874 s (31.2 min) | 1858 s | `stage_advance.cu` 1797 s → device link 50 s |
-| after, fresh | **704 s (11.7 min)** | 682 s | 13 heavy TUs in a 6-slot pool (142-342 s each, contended) → device link 75 s → `.pyd` link 11 s |
+| after, fresh, quiet machine (merged with main 073e50ff) | **477 s (8.0 min)** | 464 s | 13 heavy TUs in a 6-slot pool (103-222 s each) → device link 52 s → `.pyd` link |
+| after, fresh, other lanes loading the CPU | 704 s (11.7 min) | 682 s | same, with parts inflated to 142-342 s → device link 75 s → `.pyd` link 11 s |
 | after, touch one shade part | **208 s (3.5 min)** | 204 s | part 146 s → device link 52 s → link 5 s |
 | after, touch `stage_advance.cu` | **132 s (2.2 min)** | 128 s | TU 69 s → device link 52 s → link 7 s |
 | after, touch `stage_advance_device.cuh` or any header it reaches | ≈ fresh (~11 min) | | all 13 heavy TUs |
@@ -113,8 +114,12 @@ guard. "ninja" is the `.ninja_log` span.
 ![Per-TU compile time before vs after](build-speed-2026-09-30.png)
 
 **Kernel identity.** Compared `cuobjdump -res-usage` on the baseline `.pyd`
-(main 1d6dcfe4, same toolkit and flags) against the final `.pyd`, with
-anonymous-namespace hashes normalised:
+(main 1d6dcfe4, same toolkit and flags) against the split `.pyd`, with
+anonymous-namespace hashes normalised. After merging main 073e50ff (#962
+textured emission, ported into the split layout), the check was repeated
+against a main-equivalent build: am-nodes c1b47f8c, whose only source delta
+is host-only `advanced_features.h`. Result: 358/358 functions, 0 REG/STACK
+differences.
 
 - All 356 functions are present in both. REG, STACK, SHARED, LOCAL and
   CONSTANT[0] are identical on all 356. The implementer also diffed full SASS
@@ -129,7 +134,8 @@ anonymous-namespace hashes normalised:
   kernel to a new TU only with a res-usage comparison.** Inlining depends on
   what else the TU contains.
 
-**Smoke.** 28 GPU tests passed on the final `.pyd` (`astroray.__file__` in
+**Smoke.** On the merged `.pyd`, 38 GPU tests passed: the 28 below plus
+`test_issue962_gpu_textured_emission.py`. Before the merge, the 28 passed (`astroray.__file__` in
 `Astroray-buildspeed/build_cuda`): pkg178 principled parity, pkg186 texture,
 pkg189 dispersion, pkg223 normal map, #825/#826 op-VM inputs, and pkg198
 light-path passes. Together they cover every shade axis.
@@ -147,7 +153,8 @@ builds use sccache, and those are serialised.
 
 ## 3b. Remaining gap and next levers
 
-- Target ≤ 12 min fresh: **met** (11.7 min).
+- Target ≤ 12 min fresh: **met**. 8.0 min on a quiet machine and 11.7 min
+  under other lanes' load, against 27-35 min before.
 - Target ≤ 3 min incremental: **met for `stage_advance.cu` (2.2 min)**, and
   **missed by ~30 s for a shade part (3.5 min)**. **Missed for header edits**
   (~11 min): every GPU header change still rebuilds all 13 heavy TUs. That is

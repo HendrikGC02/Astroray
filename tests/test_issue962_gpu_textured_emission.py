@@ -217,10 +217,16 @@ def test_gpu_textured_emission_card_matches_cpu(kind):
     g = _render(lambda r: _card(r, kind), True, 32)
     c = _render(lambda r: _card(r, kind), False, 32)
     gc, cc = g[30:66, 18:78], c[30:66, 18:78]
-    # Pattern present on GPU (pre-#962: flat, luminance std ~0.02).
-    assert gc.mean(2).std() > 0.5 * cc.mean(2).std() > 0.05, (gc.mean(2).std(), cc.mean(2).std())
-    # Whole-card luminance + per-channel means within 5 %.
+    # Pattern present on GPU (pre-#962: flat). Max per-channel spatial std: the
+    # sphere view spans R/G/B stripes whose channel-means are all ~1/3.
+    gs, cs = gc.std(axis=(0, 1)).max(), cc.std(axis=(0, 1)).max()
+    assert gs > 0.5 * cs > 0.05, (gs, cs)
+    # Whole-card per-channel means within 5 % (channels with signal only: a
+    # near-black channel, e.g. blue ~0.01 on the red/green sphere view, is
+    # spectral-upsampling noise, same mask as the band check below).
     for ch in range(3):
+        if cc[..., ch].mean() <= 0.05:
+            continue
         assert abs(gc[..., ch].mean() / cc[..., ch].mean() - 1) < 0.05, (ch, gc.mean((0, 1)), cc.mean((0, 1)))
     # Per-band per-channel (spatial pattern, not just the mean).
     gb, cb = _bands(g), _bands(c)

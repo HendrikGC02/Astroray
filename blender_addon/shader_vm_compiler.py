@@ -113,6 +113,11 @@ class ProgramBuilder:
         self.consts = []        # flat floats, 3 per const
         self.ramps = []         # flat floats, RAMP_TABLE_SIZE*3 per ramp
         self.inputs = []        # input texture nodes, in OP_LOAD_TEX order
+        # pkg293 — per-input load variant, parallel to `inputs`: 'fac' when the
+        # wired output is a Fac the texture's Color load cannot express (Checker /
+        # Brick; see _FAC_VARIANT_TYPES), else None. The addon loads a 'fac'
+        # input as the scalar-Fac form of the node.
+        self.input_variants = []
         self._next_slot = 0
         # pkg277 — coordinate mode: TEX_COORD / UVMAP / MAPPING sources become
         # OP_LOAD_TEX 0 (the resolved point); their linked sockets are recorded
@@ -149,14 +154,15 @@ class ProgramBuilder:
             self.ramps.extend([float(rgb[0]), float(rgb[1]), float(rgb[2])])
         return idx
 
-    def add_input(self, tex_node):
+    def add_input(self, tex_node, variant=None):
         # dedup identical texture nodes so Mix(tex, tex) uses one input slot.
         for i, n in enumerate(self.inputs):
-            if n is tex_node:
+            if n is tex_node and self.input_variants[i] == variant:
                 return i
         if len(self.inputs) >= VM_MAX_TEX:
             raise VMCompileError("op-VM input-texture bound (VM_MAX_TEX) exceeded")
         self.inputs.append(tex_node)
+        self.input_variants.append(variant)
         return len(self.inputs) - 1
 
     # -- helpers --------------------------------------------------------------
@@ -165,9 +171,9 @@ class ProgramBuilder:
         self.emit(OP_LOAD_CONST, s, imm=self.add_const(rgb))
         return s
 
-    def push_tex(self, tex_node):
+    def push_tex(self, tex_node, variant=None):
         s = self.alloc_slot()
-        self.emit(OP_LOAD_TEX, s, imm=self.add_input(tex_node))
+        self.emit(OP_LOAD_TEX, s, imm=self.add_input(tex_node, variant))
         return s
 
 
@@ -196,6 +202,40 @@ _COORD_LEAF_TYPES = frozenset(('TEX_COORD', 'UVMAP', 'MAPPING'))
 
 def _is_texture_leaf(node):
     return _is_image_texture(node) or _is_proc_texture(node)
+
+
+# pkg293 (#889 item 3) — honour WHICH procedural output is wired (Cycles socket
+# semantics). The engine's procedural textures return one RGB (the addon loads
+# Wave / Gradient / Musgrave / Voronoi with colours 0 -> 1, so that RGB already
+# IS the Fac / Distance, broadcast). The rest:
+#   * Checker / Brick: Fac is the cell parity (svm/checker.h) / mortar factor
+#     (svm/brick.h), not derivable from the colour -> a 'fac' load variant
+#     (the addon reloads the node with white/black colours).
+#   * Noise: Color = (fac, n1, n2) (svm/noisetex.h), so Fac = Color.x; scalar
+#     ops read .x already, a colour/vector consumer needs the broadcast.
+#   * Magic: Fac = average(Color) (svm/magic.h).
+_FAC_VARIANT_TYPES = frozenset(('TEX_CHECKER', 'TEX_BRICK'))
+
+
+def _push_texture_output(node, out_name, socket, builder):
+    ntype = getattr(node, 'type', None)
+    if out_name not in ('Fac', 'Factor'):  # Blender 5 labels the Fac output 'Factor'
+        return builder.push_tex(node)
+    if ntype in _FAC_VARIANT_TYPES:
+        return builder.push_tex(node, 'fac')
+    s = builder.push_tex(node)
+    if ntype == 'TEX_NOISE':
+        if getattr(socket, 'type', None) == 'VALUE':
+            return s  # scalar consumers read .x == Fac
+        out = builder.alloc_slot()
+        builder.emit(OP_SEP_COLOR, out, a=s, imm=CS_RGB * 4 + 0)
+        return out
+    if ntype == 'TEX_MAGIC':
+        weight = builder.push_const([1.0 / 3.0] * 3)
+        out = builder.alloc_slot()
+        builder.emit(OP_VEC_MATH, out, a=s, b=weight, imm=VEC_MATH_OPS['DOT_PRODUCT'])
+        return out
+    return s
 
 
 def _linked_source(socket):
@@ -354,7 +394,7 @@ def _compile_socket_value(socket, builder, depth=0):
 
     # issue #818 Item 1 — image OR procedural texture nodes are input leaves.
     if _is_texture_leaf(node):
-        return builder.push_tex(node)
+        return _push_texture_output(node, out_name, socket, builder)
 
     if ntype == 'VALTORGB':  # Color Ramp
         fac_slot = compile_socket(_get_input(node, 'Fac'), builder, depth + 1)
@@ -638,6 +678,7 @@ def compile_chain(socket, allow_leaf=False):
         'consts_flat': builder.consts,
         'ramps_flat': builder.ramps,
         'inputs': builder.inputs,
+        'input_variants': builder.input_variants,
     }
 
 
@@ -669,3 +710,68 @@ def compile_coord_chain(socket):
         'ramps_flat': builder.ramps,
         'coord_sockets': builder.coord_sockets,
     }
+
+
+# ---- pkg293 — Mix Shader blend lowering of scalar programs --------------------
+# The addon lowers Mix Shader(Principled A, Principled B) to ONE Principled whose
+# parameters are lerped by Fac (shader_blending.blend_shader_specs). A per-texel
+# Roughness/Metallic/IOR/Transmission chain on either branch, or a texture on the
+# Fac, makes that lerp per-hit: the blended socket is compiled as the virtual
+# chain MixRGB(MIX, Fac, A-socket, B-socket) (Fac saturated, as Cycles
+# svm_node_mix_closure saturates the mix weight). The duck types below stand in
+# for Blender sockets/nodes; deepcopy returns them unchanged (they are immutable
+# and may wrap live bpy sockets, which must not be copied with the spec dicts).
+class _Immutable:
+    def __deepcopy__(self, memo):
+        return self
+
+
+class ConstSocket(_Immutable):
+    """An unlinked scalar socket holding `value`."""
+    type = 'VALUE'
+    is_linked = False
+    links = ()
+
+    def __init__(self, value, name='Value'):
+        self.name = name
+        self.default_value = float(value)
+
+
+class _VirtualLink(_Immutable):
+    def __init__(self, from_node):
+        self.from_node = from_node
+        self.from_socket = type('S', (), {'name': 'Color', 'type': 'VALUE'})()
+
+
+class _VirtualInputs(_Immutable):
+    def __init__(self, socks):
+        self._socks = socks
+
+    def get(self, name):
+        return self._socks.get(name)
+
+
+class _VirtualMixNode(_Immutable):
+    type = 'MIX_RGB'
+    blend_type = 'MIX'
+
+    def __init__(self, fac, a, b):
+        self.inputs = _VirtualInputs({'Fac': fac, 'Color1': a, 'Color2': b})
+
+
+class MixSocket(_Immutable):
+    """A scalar socket linked to MixRGB(MIX, fac, a, b); nests (a/b may be
+    MixSockets of an inner Mix Shader)."""
+    type = 'VALUE'
+    is_linked = True
+
+    def __init__(self, fac, a, b, name='Value'):
+        self.name = name
+        self.default_value = 0.0
+        self.links = [_VirtualLink(_VirtualMixNode(fac, a, b))]
+
+
+class SourceMap(dict):
+    """{param_key: socket} carried on a shader spec; shared, never deep-copied."""
+    def __deepcopy__(self, memo):
+        return self

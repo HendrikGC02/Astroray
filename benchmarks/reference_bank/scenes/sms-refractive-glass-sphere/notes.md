@@ -20,3 +20,9 @@ filed separately as an existing-Newton-path bug (poly is unaffected).
 sphere path.
 
 **Reference notes:** 384×256, 1024 spp CPU, ~30 s.
+
+**pkg305 re-bless (2026-09-30):** the stratified camera group (Sobol-Burley filter/lens/hero
+lambda) changes the seed-17 noise realization. The old reference was that realization of the old
+sampler: at seeds 11/22/33 the old engine itself scored phash 16/10/20 against it (gate 16), the new
+engine 14/14/16. Re-blessed with `runner --bless`; image mean unchanged (60.52/62.99/65.69 vs
+60.52/62.99/65.70 sRGB).

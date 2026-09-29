@@ -358,3 +358,47 @@ def test_pkg293_checker_fac_vs_color_differ(monkeypatch, use_gpu):
     col = _squares(_render_addon(monkeypatch, "principled_program", use_gpu, True, 'Color'))
     rel = np.abs(fac - col).mean() / max(float(col.mean()), 1e-4)
     assert rel > 0.05, f"Fac and Color wiring render alike (rel {rel:.3f})"
+
+
+# --------------------------------------------------------------------------- #
+# Review items: no silent approximation in the blend lowering.
+# --------------------------------------------------------------------------- #
+def _lines_for(monkeypatch, out_node, native=True):
+    _, _, lines = _addon_material_node(monkeypatch, create_renderer(), out_node, native)
+    return lines
+
+
+def _addon_material_node(monkeypatch, r, out_node, native):
+    eng = _addon_engine(monkeypatch, native)
+    rec = _Recorder(r)
+    spec = eng._shader_spec_from_node(out_node, rec, None)
+    mat = eng._create_material_from_shader_spec(spec, rec)
+    return mat, rec.materials[-1], eng._degradation_report().messages()
+
+
+def test_pkg293_two_input_composed_program_reports_gpu_constant(monkeypatch):
+    """Textured Fac + a branch program = 2 texture inputs; the GPU scalar upload
+    samples one, so the GPU keeps the constant and must say so."""
+    mix = _mix(0.5, _principled("P", roughness=0.3,
+                                metallic_link=Link(_checker("ChkA"), 'Fac')),
+               _diffuse(), fac_link=Link(_checker("ChkB"), 'Fac'))
+    lines = _lines_for(monkeypatch, mix)
+    assert any('multi-input shader program' in m and 'Metallic' in m
+               and 'GPU uses the constant' in m for m in lines), lines
+
+
+def test_pkg293_add_shader_of_two_bsdfs_reports_dropped_branch(monkeypatch):
+    add = _node('ADD_SHADER', 'Add', [Sock('Shader', None, Link(_principled("P"), 'BSDF')),
+                                      Sock('Shader_001', None, Link(_diffuse(), 'BSDF'))])
+    lines = _lines_for(monkeypatch, add)
+    assert any('ADD_SHADER' in m and 'second shader' in m for m in lines), lines
+
+
+def test_pkg293_textured_fac_reports_native_only_socket(monkeypatch):
+    def pr(name, coat_ior):
+        n = _principled(name, metallic=1.0, roughness=0.3)
+        n.inputs = _Socks(list(n.inputs) + [Sock('Coat IOR', coat_ior)])
+        return n
+    mix = _mix(0.5, pr("P1", 1.5), pr("P2", 2.0), fac_link=Link(_checker(), 'Fac'))
+    lines = _lines_for(monkeypatch, mix)
+    assert any('MIX_SHADER' in m and 'coat_ior' in m for m in lines), lines

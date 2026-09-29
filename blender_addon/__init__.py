@@ -4508,7 +4508,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
             dflt = {'clearcoat_gloss': 1.0}
             other = [k for k in set(pa) | set(pb) if k not in scalar
                      and pa.get(k, dflt.get(k, 0.0)) != pb.get(k, dflt.get(k, 0.0))]
-
+            # Native-Principled sockets (coat_ior, alpha, diffuse_roughness, ...)
+            # set on both branches with different values are constant-mixed too.
+            na, nb = a.get('native_params') or {}, b.get('native_params') or {}
+            native_scalar = scalar | {'transmission_weight'}
+            other += [k for k in set(na) & set(nb) if k not in native_scalar
+                      and k not in other and na[k] != nb[k]]
             if list(a.get('base_color', [])) != list(b.get('base_color', [])):
                 other.append('base colour')
             if other:
@@ -5003,7 +5008,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if ntype == 'ADD_SHADER':
             a = self._shader_spec_from_node(self._shader_input_node(node, 'Shader'), renderer, node_tree, depth + 1)
             b = self._shader_spec_from_node(self._shader_input_node(node, 'Shader_001'), renderer, node_tree, depth + 1)
+            kinds = (a.get('kind') if a else None, b.get('kind') if b else None)
+            if a and b and kinds not in (('principled', 'emission'), ('emission', 'principled'),
+                                         ('emission', 'emission')):
+
+                # pkg293 review: add_shader_specs keeps only the first shader for
+                # every non-emission pair (not a lerp, not a sum) -- report it.
+                self._warn_shader_fallback(
+                    'ADD_SHADER', 'Add Shader of %s + %s is unsupported: the second '
+                    'shader (and its per-texel programs) is dropped' % kinds)
             return add_shader_specs(a, b)
+
         return None
 
     def _create_material_from_shader_spec(self, spec, renderer):

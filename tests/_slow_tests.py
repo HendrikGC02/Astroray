@@ -1,0 +1,114 @@
+"""Tests >= 2 s in the 2026-09-29 timed baseline that got no bespoke fix (directive
+test-suite-speed section 4 item 15): marked `slow` (full profile only) by node id, so
+the marker lives in one auditable list instead of ~50 scattered decorators.
+Applied in conftest.pytest_collection_modifyitems. Never a deletion (R5): the full
+profile still runs every entry. Regenerate candidates with
+scripts/test/durations_report.py output; drop an entry once its test is cheap.
+"""
+
+SLOW_NODEIDS = frozenset({
+    "tests/test_873_877_clip_medium_nee.py::test_877_medium_nee_flag_cpu[box]",  # 2.8 s
+    "tests/test_873_877_clip_medium_nee.py::test_877_medium_nee_flag_cpu[fog]",  # 13.3 s
+    "tests/test_873_877_clip_medium_nee.py::test_877_medium_nee_flag_gpu[fog]",  # 2.3 s
+    "tests/test_903_sky_sun_disc.py::test_addon_sky_glow_coincides_with_sun[0.0]",  # 3.0 s
+    "tests/test_903_sky_sun_disc.py::test_addon_sky_glow_coincides_with_sun[60.0]",  # 2.8 s
+    "tests/test_925_medium_segment_nee_unbiased.py::test_925_segment_nee_matches_nee_off_cpu[box]",  # 4.7 s
+    "tests/test_925_medium_segment_nee_unbiased.py::test_925_segment_nee_matches_nee_off_cpu[fog]",  # 7.2 s
+    "tests/test_925_medium_segment_nee_unbiased.py::test_925_segment_nee_matches_nee_off_cpu[mesh]",  # 4.5 s
+    "tests/test_925_medium_segment_nee_unbiased.py::test_929_segment_nee_matches_nee_off_gpu[box]",  # 2.4 s
+    "tests/test_925_medium_segment_nee_unbiased.py::test_929_segment_nee_matches_nee_off_gpu[fog]",  # 3.3 s
+    "tests/test_925_medium_segment_nee_unbiased.py::test_929_segment_nee_matches_nee_off_gpu[mesh]",  # 2.2 s
+    "tests/test_benchmark_showcase_phase2.py::test_gpu_flag_runs_without_cuda",  # 5.4 s
+    "tests/test_benchmark_showcase_phase2.py::test_phase2_categories_populated",  # 4.2 s
+    "tests/test_benchmark_showcase_runs.py::test_quick_run_produces_all_five_artefacts",  # 4.6 s
+    "tests/test_blender_parity_harness.py::test_backdrop_is_parity_safe",  # 6.7 s
+    "tests/test_blender_parity_harness.py::test_differential_run_local_host",  # 6.6 s
+    "tests/test_blender_parity_matrix.py::test_blender_parity_matrix_generation",  # 2.6 s
+    "tests/test_claude_hooks.py::TestPreCommitDiagCheckHook::test_git_dash_c_worktree_checks_worktree_not_main",  # 2.9 s
+    "tests/test_claude_hooks.py::TestPreCommitDiagCheckHook::test_non_commit_command_is_noop",  # 2.1 s
+    "tests/test_claude_hooks.py::TestPreCommitDiagCheckHook::test_plain_commit_in_main_blocks_on_marker",  # 2.5 s
+    "tests/test_claude_hooks.py::TestPreCommitSpecLintHook::test_git_dash_c_worktree_checks_worktree_not_main",  # 2.2 s
+    "tests/test_claude_hooks.py::TestPreCommitSpecLintHook::test_plain_commit_in_main_blocks_on_bad_spec",  # 4.3 s
+    "tests/test_cryptomatte_pass.py::test_cryptomatte_iou_roundtrip",  # 3.6 s
+    "tests/test_delegate_process_tree.py::TestWindowsCanaries::test_owned_writers_stop_and_sentinel_survives[timeout]",  # 10.3 s
+    "tests/test_dispersion_hero_collapse_energy.py::test_dispersive_glass_transmits_flat_glass_energy[cpu]",  # 2.0 s
+    "tests/test_glass_sphere_caustic.py::test_glass_sphere_focused_caustic",  # 2.7 s
+    "tests/test_gpu_caustic_parity.py::test_gpu_caustic_noise_falls_with_spp",  # 17.4 s
+    "tests/test_gpu_caustic_parity.py::test_gpu_glass_sphere_caustic_parity",  # 2.6 s
+    "tests/test_gpu_caustic_parity.py::test_gpu_photon_caustics_cull_path_traced_refraction",  # 3.4 s
+    "tests/test_gpu_caustic_parity.py::test_gpu_photon_split_keeps_caustic_seen_through_glass",  # 3.1 s
+    "tests/test_gpu_caustic_parity.py::test_gpu_photon_split_keeps_non_photon_light_caustic",  # 3.3 s
+    "tests/test_gpu_multiwavelength.py::test_visible_band_cpu_gpu_ssim",  # 2.3 s
+    "tests/test_integrator_float_param.py::test_integrator_float_param_route",  # 5.2 s
+    "tests/test_issue779_run_parity_addon_leg.py::test_glass_sphere_addon_leg_renders_glass",  # 7.8 s
+    "tests/test_light_tracer_caustic_stress.py::test_light_tracer_caustic_repeated_processes_do_not_crash",  # 8.5 s
+    "tests/test_material_properties.py::test_no_material_is_overexposed",  # 7.1 s
+    "tests/test_pkg127_specular_poly.py::test_specular_poly_caustic_focus_matches_newton",  # 6.7 s
+    "tests/test_pkg127_specular_poly_unit.py::test_poly_roots_match_brute_force",  # 4.0 s
+    "tests/test_pkg136_guiding_render.py::test_guiding_reduces_variance_on_hard_scene",  # 4.9 s
+    "tests/test_pkg159_wavefront_cryptomatte.py::test_cpu_gpu_crypto_parity",  # 2.1 s
+    "tests/test_pkg163_metal_spectral_colorspace_parity.py::test_chromatic_metal_parity_in_band_and_spread_bounded",  # 4.6 s
+    "tests/test_pkg182_conductor_spectral_native.py::test_conductor_spectral_stays_chromatic",  # 3.8 s
+    "tests/test_pkg225_spectral_hair.py::test_gpu_spectral_melanin_matches_cpu",  # 7.2 s
+    "tests/test_pkg225_spectral_hair.py::test_spectral_melanin_distinct_and_red_dominant",  # 7.0 s
+    "tests/test_pkg226_newton_mnee_weight.py::test_newton_matches_poly_mnee_weight",  # 18.4 s
+    "tests/test_pkg256_sky_bake.py::test_sky_band_luminance_within_25pct_of_cycles",  # 2.4 s
+    "tests/test_pkg261_principled_rough_diffuse.py::test_principled_rough_diffuse_sweep[cpu]",  # 4.3 s
+    "tests/test_pkg266_dirty_domain_commit.py::test_worker_cheap_scene_renders_full_res_first",  # 5.1 s
+    "tests/test_pkg266_dirty_domain_commit.py::test_worker_commit_applies_render_border[False]",  # 5.1 s
+    "tests/test_pkg266_dirty_domain_commit.py::test_worker_commit_applies_render_border[True]",  # 5.1 s
+    "tests/test_pkg266_dirty_domain_commit.py::test_worker_first_unit_reduced_then_refinement_full_res",  # 5.1 s
+    "tests/test_pkg266_dirty_domain_commit.py::test_worker_refinement_survives_failed_submit",  # 5.1 s
+    "tests/test_pkg266_orbit_present.py::test_reduced_first_unit_is_brief_then_full_res",  # 3.1 s
+    "tests/test_pkg266_present_rate_settle.py::test_spurious_view_update_during_settle_does_not_starve_terminals",  # 2.4 s
+    "tests/test_pkg267_blender_volume_export.py::test_blender_volume_exports_to_grid_medium",  # 2.1 s
+    "tests/test_pkg276_ies_spot_profile.py::test_reference_reproduces_recorded_cycles[point_r01_soft]",  # 3.9 s
+    "tests/test_pkg276_ies_spot_profile.py::test_reference_reproduces_recorded_cycles[point_r10_soft]",  # 3.8 s
+    "tests/test_pkg276_ies_spot_profile.py::test_reference_reproduces_recorded_cycles[point_r10_sphere]",  # 2.9 s
+    "tests/test_pkg276_ies_spot_profile.py::test_reference_reproduces_recorded_cycles[spot_r025_soft]",  # 4.3 s
+    "tests/test_pkg276_ies_spot_profile.py::test_reference_reproduces_recorded_cycles[spot_r10_sphere]",  # 3.6 s
+    "tests/test_pkg278_gate_a_recorder.py::test_gate_manifest_rejects_wrong_device_truncation_and_forged_summary",  # 2.6 s
+    "tests/test_pkg286_photon_flux_furnace.py::test_cpu_caustic_linear_in_sun_strength",  # 2.6 s
+    "tests/test_pkg288_lamp_passthrough.py::test_pkg288a_collinear_lamps_cpu_nee_on_matches_off",  # 9.9 s
+    "tests/test_pkg288_lamp_passthrough.py::test_pkg288a_collinear_lamps_gpu_matches_cpu",  # 7.2 s
+    "tests/test_pkg289_medium_chromatic_variance.py::test_913_shaft_variance_converges_cpu",  # 7.6 s
+    "tests/test_pkg289_medium_chromatic_variance.py::test_913_shaft_variance_converges_gpu",  # 2.1 s
+    "tests/test_pkg292_env_cornell_red.py::test_cpu_oracle_matches_production_after_glass_bounce",  # 2.0 s
+    "tests/test_pkg294_area_solid_angle_sampling.py::test_large_close_lamp_nee_matches_analytic[False]",  # 2.0 s
+    "tests/test_pkg296_mesh_volume_boundary.py::test_nested_media_add",  # 3.8 s
+    "tests/test_pkg296_mesh_volume_boundary.py::test_overlapping_media_add",  # 3.9 s
+    "tests/test_pkg55_reference_pt_oracles_equivalent.py::test_reference_pt_oracles_equivalent",  # 8.0 s
+    "tests/test_pkg55_session_n1_ssim_parity.py::test_cpu_wavefront_ssim_parity",  # 2.1 s
+    "tests/test_pkg64_gpu_cpu_parity.py::test_pkg64_gpu_cpu_parity",  # 3.9 s
+    "tests/test_pkg845_orthographic_camera.py::test_grid_matches_blender_projection[cpu-landscape]",  # 3.0 s
+    "tests/test_pkg845_orthographic_camera.py::test_grid_matches_blender_projection[cpu-persp_landscape]",  # 3.1 s
+    "tests/test_pkg845_orthographic_camera.py::test_grid_matches_blender_projection[cpu-persp_portrait]",  # 3.0 s
+    "tests/test_pkg845_orthographic_camera.py::test_grid_matches_blender_projection[cpu-portrait]",  # 2.8 s
+    "tests/test_prism_caustic_rainbow.py::test_prism_rainbow_band",  # 4.9 s
+    "tests/test_prism_tilted_receiver.py::test_prism_tilted_receiver_caustic",  # 7.1 s
+    "tests/test_project_index.py::test_build_deps_graph_still_work",  # 5.4 s
+    "tests/test_project_index.py::test_graph_html_is_wellformed",  # 4.9 s
+    "tests/test_python_bindings.py::test_adaptive_sampling_flag",  # 3.5 s
+    "tests/test_python_bindings.py::test_aperture_dof",  # 3.6 s
+    "tests/test_python_bindings.py::test_cornell_box",  # 5.4 s
+    "tests/test_python_bindings.py::test_disney_brdf_parameter_grid",  # 3.3 s
+    "tests/test_python_bindings.py::test_glass_matches_principled_transmission_ior",  # 3.8 s
+    "tests/test_python_bindings.py::test_glossy_bounces_zero_reduces_specular_reflections",  # 3.0 s
+    "tests/test_python_bindings.py::test_glossy_matches_principled_metallic_roughness",  # 3.4 s
+    "tests/test_python_bindings.py::test_material_comparison_grid",  # 2.5 s
+    "tests/test_python_bindings.py::test_multiple_spheres",  # 5.4 s
+    "tests/test_python_bindings.py::test_performance_benchmark",  # 3.3 s
+    "tests/test_python_bindings.py::test_quality_analysis",  # 2.8 s
+    "tests/test_python_bindings.py::test_sampling_convergence",  # 6.2 s
+    "tests/test_python_bindings.py::test_total_max_depth_still_caps_all_paths",  # 2.0 s
+    "tests/test_spectral_lambertian.py::test_spectral_lambertian_cornell_deterministic_a_b",  # 3.0 s
+    "tests/test_spectral_materials.py::test_dispersive_dielectric_differs_from_flat",  # 3.4 s
+    "tests/test_spectral_materials.py::test_metal_spectral_deterministic_a_b",  # 3.3 s
+    "tests/test_spectral_materials.py::test_pkg13a_material_spectral_deterministic_a_b[_diffuse_light_scene-diffuse_light]",  # 3.0 s
+    "tests/test_spectral_materials.py::test_pkg13a_material_spectral_deterministic_a_b[_disney_scene-disney]",  # 3.1 s
+    "tests/test_spectral_materials.py::test_pkg13a_material_spectral_deterministic_a_b[_normal_mapped_scene-normal_mapped]",  # 3.3 s
+    "tests/test_spectral_materials.py::test_pkg13a_material_spectral_deterministic_a_b[_phong_scene-phong]",  # 3.2 s
+    "tests/test_thin_film_pr1.py::test_thin_film_furnace_no_energy_gain[1.0-glass]",  # 2.2 s
+    "tests/test_world_hdri_parity.py::test_gpu_cpu_mean_ratio_hdri",  # 8.6 s
+    "tests/wavefront_diff/test_pkg55_perf_gate.py::test_wavefront_contact_sheet_ceiling",  # 4.4 s
+})

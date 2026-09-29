@@ -49,6 +49,7 @@ def test_nee_is_deterministic_under_fixed_seed():
     assert tuple(a) == tuple(b), f"fixed-seed NEE not reproducible: {a} vs {b}"
 
 
+@pytest.mark.slow   # R5: 23 s (20 x 40000-sample estimates + numpy ray-march reference)
 def test_nee_mean_is_unbiased():
     """Independent seeds must average to the same (reference) mean — the NEE is
     unbiased. Two disjoint seed batches agree, and both match the ray-march."""

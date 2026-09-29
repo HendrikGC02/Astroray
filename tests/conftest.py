@@ -28,6 +28,7 @@ configure_test_temp_dir()
 BUILD_DIR = configure_test_imports()
 
 from _linear_render_guard import linear_render_guard, name_matches
+from _slow_tests import SLOW_NODEIDS
 from _gpu_classification import classify_path
 import results_layout
 
@@ -111,6 +112,8 @@ def pytest_collection_modifyitems(config, items):
     """
     cache: dict[str, str] = {}
     for item in items:
+        if item.nodeid in SLOW_NODEIDS:
+            item.add_marker(pytest.mark.slow)
         if (item.get_closest_marker("gpu") or item.get_closest_marker("cpu")
                 or item.get_closest_marker("serial")):
             continue

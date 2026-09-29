@@ -88,8 +88,12 @@ def _inside(poly: np.ndarray, x: np.ndarray, y: np.ndarray) -> np.ndarray:
     return inside
 
 
-@pytest.mark.parametrize("polar", [False, True], ids=["equatorial", "polar"])
-@pytest.mark.parametrize("spin", [0.0, 0.94])
+# R5: spin 0 equatorial stays fast; spin 0.94 equatorial alone is 20 s, the rest 2.6-2.9 s.
+@pytest.mark.parametrize("spin,polar", [
+    pytest.param(0.0, False, id="0.0-equatorial"),
+    pytest.param(0.0, True, id="0.0-polar", marks=pytest.mark.slow),
+    pytest.param(0.94, False, id="0.94-equatorial", marks=pytest.mark.slow),
+    pytest.param(0.94, True, id="0.94-polar", marks=pytest.mark.slow)])
 def test_no_dark_pixels_outside_analytic_shadow(spin, polar):
     mask = _mask(spin, polar)
     curve = _critical_curve(spin, polar) * FOCAL_PX / DIST_M

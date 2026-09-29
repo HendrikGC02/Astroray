@@ -35,8 +35,15 @@ def _radial_bad(img, sc):
     return checked, bad
 
 
-@pytest.mark.parametrize("radius", RADII)
-@pytest.mark.parametrize("kind", ["POINT", "SPOT"])
+# R5: the numpy quadrature reference (ref.radiance, ~4.2 s) dominates each case's ~4.7 s
+# (the 64-spp render is ~0.6 s); its quadrature is the oracle so it is left untouched.
+# One POINT + one SPOT (r = 0.1, soft falloff) stay in the fast profile.
+def _sweep_params():
+    return [pytest.param(k, r, marks=[] if r == 0.1 else [pytest.mark.slow])
+            for k in ("POINT", "SPOT") for r in RADII]
+
+
+@pytest.mark.parametrize("kind,radius", _sweep_params())
 def test_soft_falloff_radius_sweep(astroray_module, kind, radius):
     sc = ref.SpotScene(kind=kind, radius=radius, soft_falloff=True)
     img = render_astroray(astroray_module, sc, "", spp=64)
@@ -45,6 +52,7 @@ def test_soft_falloff_radius_sweep(astroray_module, kind, radius):
     assert not bad, "%s r=%g (soft falloff) off the Cycles reference: %s" % (kind, radius, bad)
 
 
+@pytest.mark.slow   # R5: ~4.7 s each (numpy reference)
 @pytest.mark.parametrize("radius", [0.25, 1.0])
 @pytest.mark.parametrize("kind", ["POINT", "SPOT"])
 def test_sphere_mode(astroray_module, kind, radius):

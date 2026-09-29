@@ -65,6 +65,8 @@ public:
 
     bool clipLitSegment(const Vec3& o, const Vec3& d, float& t0, float& t1) const override;  // #925
 
+    bool segmentAnchor(Vec3& p, std::mt19937& gen) const override;  // pkg294
+
 private:
     Vec3             position_;
     Vec3             u_, v_, normal_;  // u × v = normal
@@ -79,6 +81,10 @@ private:
 
     // Helper: sample a point on the shape (uniform area sampling).
     Vec3 sampleSurface(std::mt19937& gen) const;
+
+    // pkg294: full-spread rectangle -> spherical-rectangle solid-angle map.
+    bool usesSolidAngle() const;
+    float rectSolidAngle(const Vec3& P, Vec3* q, float u1, float u2) const;
 
     // Helper: check if angle from normal is within spread cone.
     bool withinSpread(const Vec3& direction) const;

@@ -25,6 +25,7 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
     out.pdf = 0;
     out.distance = 0;
     out.isDelta = false;  // pkg140
+    out.dedicated = nullptr;  // pkg294
 
     const auto& lights = lightList_->getLights();
     const auto& dedicatedLights = lightList_->getDedicatedLights();
@@ -86,6 +87,7 @@ bool PowerLightSampler::resample(LightSample& out, const LightSample& picked,
     out.pdf = 0;
     out.distance = 0;
     out.isDelta = false;
+    out.dedicated = nullptr;  // pkg294
     sampleIndexed(out, size_t(picked.pickIndex), picked.pickPdf, point, normal, lambdas, gen);
     return true;
 }
@@ -146,6 +148,7 @@ void PowerLightSampler::sampleIndexed(LightSample& out, size_t idx, float selPdf
         out.distance = liSample.distance;
         out.pdf = liSample.pdf * selPdf;
         out.isDelta = liSample.isDelta;  // pkg140
+        out.dedicated = light;           // pkg294
     }
 }
 
@@ -253,6 +256,7 @@ void TreeLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& n
     out.pdf = 0;
     out.distance = 0;
     out.isDelta = false;  // pkg140
+    out.dedicated = nullptr;  // pkg294
 
     if (tree_->empty()) {
         return;
@@ -309,6 +313,7 @@ void TreeLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& n
         out.distance = liSample.distance;
         out.pdf = liSample.pdf * treePdf;
         out.isDelta = liSample.isDelta;  // pkg140
+        out.dedicated = light;           // pkg294
     }
 }
 

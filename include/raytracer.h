@@ -487,6 +487,9 @@ struct LightSample {
     // segment can re-sample the SAME light from another point; -1 = none.
     int pickIndex = -1;
     float pickPdf = 0.0f;
+    // pkg294: the dedicated light sampled (nullptr for emissive geometry), so a
+    // volume segment can draw its equiangular anchor as Cycles does.
+    const astroray::Light* dedicated = nullptr;
 };
 struct BSDFSample { Vec3 wi, f; float pdf; bool isDelta; };
 struct BSDFSampleSpectral { Vec3 wi; astroray::SampledSpectrum f_spectral; float pdf; bool isDelta; };
@@ -2838,6 +2841,13 @@ class Renderer {
         LightSample anc;
         if (same) lights.resample(anc, picked, refPoint(a, b), Vec3(0.0f), lambdas, gen);
         else anc = picked;
+        // pkg294: the anchor is area-uniform on an area light (Cycles
+        // area_light_eval<true>); the connection at P below is the solid-angle
+        // draw (light_sample<false> at the scatter point).
+        if (anc.dedicated && anc.pdf > 0.0f) {
+            Vec3 ap;
+            if (anc.dedicated->segmentAnchor(ap, gen)) anc.position = ap;
+        }
         const bool hasAnchor = anc.pdf > 0.0f && anc.distance < 1e18f;
         av::SegmentDirectSample ds =
             av::sampleSegmentDirect(o, d, a, b, hasAnchor, anc.position, rate, gen);

@@ -57,10 +57,8 @@ def main():
             _, _, cv = stats(load(d64, cy, box))
             c1 = load(d1, cy, box)
             cv1 = stats(c1)[2] if c1 is not None else None
-            order = [cy, base] + sorted(t for t in tags if re.fullmatch(rf"{scene}_ar\d+_{tree}", t)
-                                        and t != base)
-            order += sorted(t for t in tags if t.startswith(f"{scene}_cy") and t.endswith(f"_{tree}")
-                            and t != cy)
+            order = [cy, base] + sorted(t for t in tags if re.fullmatch(rf"{scene}_[A-Za-z0-9]+_{tree}", t)
+                                        and t not in (cy, base))
             for tag in order:
                 m, s, v = stats(load(d64, tag, box))
                 z = (m - bm) / np.hypot(s, bs)

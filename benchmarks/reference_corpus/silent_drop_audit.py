@@ -42,7 +42,7 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from benchmarks.reference_corpus import coverage_report as CR  # noqa: E402
+from benchmarks.reference_corpus import coverage_report as CR
 
 MATRIX = REPO / "docs" / "blender_parity" / "coverage_matrix.json"
 PROD = REPO / "benchmarks" / "reference_corpus" / "production"
@@ -77,7 +77,7 @@ def _tokens(text: str) -> list[str]:
 
 def node_aliases(bl_idname: str) -> list[list[str]]:
     """Token sequences under which a report entry can name this node type."""
-    base = bl_idname[len("ShaderNode"):] if bl_idname.startswith("ShaderNode") else bl_idname
+    base = bl_idname.removeprefix("ShaderNode")
     seqs = [_tokens(base)] + [_tokens(a) for a in ALIASES.get(bl_idname, ())]
     return [s for s in seqs if s]
 

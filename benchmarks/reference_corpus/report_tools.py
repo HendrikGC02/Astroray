@@ -179,8 +179,9 @@ def build_production_report(work: Path, out_dir: Path, seed: int = 278) -> dict:
     import numpy as np
     import tomllib
     sys.path.insert(0, str(REPO_ROOT / "tests"))
-    from benchmarks.reference_corpus import mc_tolerance as MC
     from results_layout import save_comparison_sheet, save_stat_chart
+
+    from benchmarks.reference_corpus import mc_tolerance as MC
 
     gates = tomllib.loads((REPO_ROOT / "benchmarks" / "reference_corpus" / "gates_production.toml")
                           .read_text(encoding="utf-8"))["scenes"]

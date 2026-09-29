@@ -25,10 +25,10 @@ from pathlib import Path
 
 import pytest
 import tomllib
+from results_layout import results_dir
 
 from benchmarks.reference_corpus import mc_tolerance as MC
 from benchmarks.reference_corpus import silent_drop_audit as AUDIT
-from results_layout import results_dir
 
 CORPUS = Path(__file__).resolve().parents[1] / "benchmarks" / "reference_corpus"
 PROD = CORPUS / "production"
@@ -97,7 +97,9 @@ def test_corpus_has_eight_pinned_materials():
         assert e["assets"], f"{sid}: HDRI asset (with licence) not recorded"
         assert all(a["license"] and a["sha256"] for a in e["assets"])
         assert 2 <= len(GATES["scenes"][sid]["roi"]) <= 5
-    from benchmarks.blender_parity import scene_library as sl  # fail-closed: blend + asset digests match the manifest
+    from benchmarks.blender_parity import (
+        scene_library as sl,  # fail-closed: blend + asset digests match the manifest
+    )
     assert set(sl.load_corpus_manifest(PROD / "manifest.json")) == set(SCENES)
 
 

@@ -1212,9 +1212,9 @@ def _prod_stage(bpy, sc, sl, res=PROD_RES, floor=True, cam=((0.0, -4.6, 1.5), (0
     if floor:
         fl = sc._principled("StageFloor", (0.30, 0.30, 0.29), rough=0.85)
         bpy.ops.mesh.primitive_plane_add(size=40.0, location=(0.0, 0.0, 0.0))
-        fo = bpy.context.active_object
-        fo.name = "StageFloor"
-        sc._assign(fo, fl)
+        floor_obj = bpy.context.active_object
+        floor_obj.name = "StageFloor"
+        sc._assign(floor_obj, fl)
     sc._camera(cam[0], cam[1], lens=cam[2])
     return scene
 
@@ -1246,14 +1246,14 @@ def _prod_car_paint(bpy, sc, sl, addon_dir):
     scene = _prod_stage(bpy, sc, sl)
     mat, nt, out = sl._bare_material(bpy, "CarPaint")
     tc = _pn(nt, "ShaderNodeTexCoord")
-    vor = _pn(nt, "ShaderNodeTexVoronoi", feature="F1")
-    _pset(vor, "Scale", 90.0)
-    _pset(vor, "Randomness", 1.0)
-    _pl(nt, tc, "Object", vor, "Vector")
+    voro = _pn(nt, "ShaderNodeTexVoronoi", feature="F1")
+    _pset(voro, "Scale", 90.0)
+    _pset(voro, "Randomness", 1.0)
+    _pl(nt, tc, "Object", voro, "Vector")
     bump = _pn(nt, "ShaderNodeBump")
     _pset(bump, "Strength", 0.35)
     _pset(bump, "Distance", 0.02)
-    _pl(nt, vor, "Distance", bump, "Height")
+    _pl(nt, voro, "Distance", bump, "Height")
     lw = _pn(nt, "ShaderNodeLayerWeight")
     _pset(lw, "Blend", 0.35)
     mix = _pmix(nt, (0.55, 0.04, 0.03, 1.0), (0.95, 0.62, 0.2, 1.0), 0.5)
@@ -1497,7 +1497,7 @@ def _prod_attributes(bpy, sc, sl, addon_dir):
     ra = me.attributes.new("rough", "FLOAT", "POINT")
     cols, rgh = [], []
     for v in me.vertices:
-        x, y, z = v.co
+        x, _y, z = v.co
         stripe = 0.5 + 0.5 * math.sin(9.0 * x + 3.0 * z)
         cols.extend((0.15 + 0.75 * (0.5 + z / 1.2), 0.25 + 0.5 * stripe, 0.85 - 0.6 * (0.5 + z / 1.2), 1.0))
         rgh.append(0.12 + 0.75 * stripe)
@@ -1546,9 +1546,9 @@ def _prod_light_path(bpy, sc, sl, addon_dir):
     _pl(fnt, ramp, "Color", fp, "Base Color")
     fnt.links.new(fp.outputs["BSDF"], fout.inputs["Surface"])
     bpy.ops.mesh.primitive_plane_add(size=40.0, location=(0.0, 0.0, 0.0))
-    fo = bpy.context.active_object
-    fo.name = "RayLengthFloor"
-    sc._assign(fo, floor_mat)
+    floor_obj = bpy.context.active_object
+    floor_obj.name = "RayLengthFloor"
+    sc._assign(floor_obj, floor_mat)
     # glass sphere, shadow-transparent
     gmat, gnt, gout = sl._bare_material(bpy, "ShadowlessGlass")
     lp2 = _pn(gnt, "ShaderNodeLightPath")

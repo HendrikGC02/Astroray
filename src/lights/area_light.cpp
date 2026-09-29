@@ -99,6 +99,15 @@ void AreaLight::sampleLi(LiSample& sample,
         std::uniform_real_distribution<float> U(0.0f, 1.0f);
         const float u1 = U(gen), u2 = U(gen);
         saPdf = rectSolidAngle(shadingPoint, &sampledPos, u1, u2);
+        if (!(saPdf > 0.0f)) {  // on the lamp plane / degenerate: no sample (Cycles: false)
+            sample.position = position_;
+            sample.normal = normal_;
+            sample.distance = 0.0f;
+            sample.emission_spec = SampledSpectrum(0.0f);
+            sample.emission_rgb = Vec3(0);
+            sample.pdf = 0.0f;
+            return;
+        }
     } else {
         sampledPos = sampleSurface(gen);
     }

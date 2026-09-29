@@ -26,6 +26,9 @@ namespace sphrect {
 // lenV, seen from p. Returns the solid-angle pdf 1/Omega (Cycles falls back to
 // the area pdf at the centre when the rectangle is tiny or seen edge-on). When
 // sampleCoord, q receives a point drawn uniformly in solid angle from (u1, u2).
+// Returns 0 (no sample, q untouched) for a point on or numerically at the lamp
+// plane, a degenerate or non-finite rectangle, or a non-finite / non-positive
+// result; Cycles rejects these (area_light_sample returns false / pdf 0).
 AR_SPHRECT_HD inline float sample(const float p[3], const float c[3], const float x[3],
                                   float lenU, const float y[3], float lenV, float u1,
                                   float u2, bool sampleCoord, float q[3]) {
@@ -37,6 +40,12 @@ AR_SPHRECT_HD inline float sample(const float p[3], const float c[3], const floa
         z[0] = -z[0]; z[1] = -z[1]; z[2] = -z[2];
         z0 = -z0;
     }
+    // Reject before normalising nz: z0 == 0 (point on the lamp plane) at an
+    // edge/corner gives 0/0 below. NaN inputs fail every comparison here.
+    const float dirLen = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+    if (!(lenU > 0.0f) || !(lenV > 0.0f) || !(lenU < 3.0e38f) || !(lenV < 3.0e38f) ||
+        !(dirLen < 3.0e38f) || !(-z0 > 1e-7f * fmaxf(dirLen, 1.0f)))
+        return 0.0f;
     const float xc = dir[0] * x[0] + dir[1] * x[1] + dir[2] * x[2];
     const float yc = dir[0] * y[0] + dir[1] * y[1] + dir[2] * y[2];
     const float x0 = xc - 0.5f * lenU, x1 = xc + 0.5f * lenU;
@@ -49,6 +58,16 @@ AR_SPHRECT_HD inline float sample(const float p[3], const float c[3], const floa
     const float g2 = asinf(fminf(1.0f, fmaxf(-1.0f, -nz[2] * nz[3])));
     const float g3 = asinf(fminf(1.0f, fmaxf(-1.0f, -nz[3] * nz[0])));
     const float S = -(g0 + g1 + g2 + g3);
+    float pdf;
+    const float mn = fminf(fminf(nz[0] * nz[0], nz[1] * nz[1]), fminf(nz[2] * nz[2], nz[3] * nz[3]));
+    if (S < 1e-5f || mn > 0.99999f) {
+        const float t = dirLen;
+        const float den = z0 * lenU * lenV;
+        pdf = (den != 0.0f) ? (-t * t * t) / den : 0.0f;
+    } else {
+        pdf = 1.0f / S;
+    }
+    if (!(pdf > 0.0f) || !(pdf < 3.0e38f)) return 0.0f;   // NaN / Inf / <= 0
     if (sampleCoord) {
         const float b0 = nz[0], b1 = nz[2], b0sq = b0 * b0;
         const float au = u1 * S + g2 + g3;
@@ -63,15 +82,14 @@ AR_SPHRECT_HD inline float sample(const float p[3], const float c[3], const floa
         const float h1 = y1 / sqrtf(d2 + y1 * y1);
         const float hv = h0 + u2 * (h1 - h0), hv2 = hv * hv;
         const float yv = (hv2 < 1.0f - 1e-6f) ? hv * sqrtf(d2 / (1.0f - hv2)) : y1;
-        for (int i = 0; i < 3; ++i) q[i] = p[i] + xu * x[i] + yv * y[i] + z0 * z[i];
+        const float qq[3] = {p[0] + xu * x[0] + yv * y[0] + z0 * z[0],
+                             p[1] + xu * x[1] + yv * y[1] + z0 * z[1],
+                             p[2] + xu * x[2] + yv * y[2] + z0 * z[2]};
+        if (!(fabsf(qq[0]) < 3.0e38f) || !(fabsf(qq[1]) < 3.0e38f) || !(fabsf(qq[2]) < 3.0e38f))
+            return 0.0f;
+        q[0] = qq[0]; q[1] = qq[1]; q[2] = qq[2];
     }
-    const float mn = fminf(fminf(nz[0] * nz[0], nz[1] * nz[1]), fminf(nz[2] * nz[2], nz[3] * nz[3]));
-    if (S < 1e-5f || mn > 0.99999f) {
-        const float t = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
-        const float den = z0 * lenU * lenV;
-        return (den != 0.0f) ? (-t * t * t) / den : 0.0f;
-    }
-    return 1.0f / S;
+    return pdf;
 }
 
 // Astroray uses the solid-angle map only at full spread (Blender spread 180 deg,

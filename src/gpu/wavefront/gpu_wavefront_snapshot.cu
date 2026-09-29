@@ -1446,7 +1446,16 @@ static void publishPrimaryClip(const Camera& cam)
 // chunk keeps width*height slots) nor pushes the 32-bit work counter past its
 // overshoot slack. Regeneration is work-indexed (pixel = w % numPixels), so the
 // pool size changes only which slot runs a sample, never the sample itself.
-static int wavefrontPoolSize(int numPixels, int samples, int maxDepth) {
+//
+// VRAM budget (Terra review): every pool slot costs its per-path state, hit
+// buffers, queues and NEE lanes (~0.6-0.9 KB today; kPoolSlotBytes is a
+// conservative 2 KB). Growth beyond the slots already held is capped at half
+// of the free device memory, leaving room for the scene and per-pixel AOVs.
+// ASTRORAY_WF_POOL_BUDGET_MB overrides the budget for the WHOLE pool (a test
+// hook: 0 forces the pre-pkg298 width*height pool).
+static constexpr long long kPoolSlotBytes = 2048;
+
+static int wavefrontPoolSize(int numPixels, int samples, int maxDepth, int heldSlots) {
     static const long long kMinPaths = [] {
         int dev = 0, sms = 0, thr = 0;
         cudaGetDevice(&dev);
@@ -1457,13 +1466,43 @@ static int wavefrontPoolSize(int numPixels, int samples, int maxDepth) {
     const long long work = (long long)numPixels * samples;
     long long pool = std::max<long long>(numPixels, std::min(kMinPaths, work));
     if (work + pool * (16 + maxDepth + 2) > 0x7FFFFFFFLL) pool = numPixels;
+    long long cap;
+    const char* env = std::getenv("ASTRORAY_WF_POOL_BUDGET_MB");
+    if (env && env[0]) {
+        cap = (std::atoll(env) << 20) / kPoolSlotBytes;
+    } else {
+        size_t freeB = 0, totalB = 0;
+        if (cudaMemGetInfo(&freeB, &totalB) != cudaSuccess) freeB = 0;
+        cap = (long long)heldSlots + (long long)(freeB / 2) / kPoolSlotBytes;
+    }
+    pool = std::max<long long>(numPixels, std::min(pool, cap));
     static long long lastLogged = -1;
     if (pool != numPixels && pool != lastLogged) {
         lastLogged = pool;
-        std::fprintf(stderr, "[astroray] wavefront path pool %lld slots (%d pixels)\n",
-                     pool, numPixels);
+        std::fprintf(stderr, "[astroray] wavefront path pool %lld slots (%d pixels, "
+                     "budget cap %lld slots, ~%lld MB)\n",
+                     pool, numPixels, cap, pool * kPoolSlotBytes >> 20);
     }
     return (int)pool;
+}
+
+// Grow-only per-path state. On failure the context holds NO state (capacity 0),
+// so a later render can never read freed pointers.
+static bool ensureWavefrontState(GPUWavefrontState& st, GPUWavefrontHitBuffers& hb,
+                                 int& capacity, int want) {
+    if (capacity >= want) return true;
+    if (capacity > 0) {
+        freeGPUWavefrontState(st);
+        freeGPUWavefrontHitBuffers(hb);
+        capacity = 0;
+    }
+    if (!allocateGPUWavefrontState(st, want)) return false;
+    if (!allocateGPUWavefrontHitBuffers(hb, want)) {
+        freeGPUWavefrontState(st);
+        return false;
+    }
+    capacity = want;
+    return true;
 }
 
 std::vector<float> cuda_wavefront_render(
@@ -1500,7 +1539,23 @@ std::vector<float> cuda_wavefront_render(
     if (numPixels <= 0 || samples <= 0) {
         throw std::runtime_error("cuda_wavefront_render: invalid dimensions");
     }
-    const int total_paths = wavefrontPoolSize(numPixels, samples, max_depth);
+    int total_paths = wavefrontPoolSize(numPixels, samples, max_depth,
+                                        wfCtx().stateCapacity);
+    // Per-path state is allocated here, before any pool-strided buffer or
+    // binding, so a failed enlarged pool can fall back to numPixels slots.
+    {
+        WfContext& Cs = wfCtx();
+        if (!ensureWavefrontState(Cs.state, Cs.hitBufs, Cs.stateCapacity, total_paths)) {
+            if (total_paths > numPixels) {
+                std::fprintf(stderr, "[astroray] wavefront path pool %d slots failed to "
+                             "allocate; falling back to %d\n", total_paths, numPixels);
+                total_paths = numPixels;
+            }
+            (void)cudaGetLastError();  // clear the OOM so later launch checks stay clean
+            if (!ensureWavefrontState(Cs.state, Cs.hitBufs, Cs.stateCapacity, total_paths))
+                throw std::runtime_error("cuda_wavefront_render: SoA allocation failed");
+        }
+    }
 
     // Build GCameraParams from Camera (same block as the snapshot entries).
     GCameraParams gcam;
@@ -1887,21 +1942,7 @@ std::vector<float> cuda_wavefront_render(
         setWavefrontPhotonSplit(split);
     }
 
-    // Per-path state: grow-only.
-    if (C.stateCapacity < total_paths) {
-        if (C.stateCapacity > 0) {
-            freeGPUWavefrontState(C.state);
-            freeGPUWavefrontHitBuffers(C.hitBufs);
-        }
-        if (!allocateGPUWavefrontState(C.state, total_paths))
-            throw std::runtime_error("cuda_wavefront_render: SoA allocation failed");
-        if (!allocateGPUWavefrontHitBuffers(C.hitBufs, total_paths)) {
-            freeGPUWavefrontState(C.state);
-            C.stateCapacity = 0;
-            throw std::runtime_error("cuda_wavefront_render: hit buffer allocation failed");
-        }
-        C.stateCapacity = total_paths;
-    }
+    // Per-path state: allocated (grow-only) at the top of this function (pkg298).
     GPUWavefrontState& state = C.state;
     GPUWavefrontHitBuffers& hitBufs = C.hitBufs;
 

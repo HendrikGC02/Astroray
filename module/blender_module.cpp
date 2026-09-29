@@ -2811,6 +2811,9 @@ public:
         // #828: grid buffers copied host->device by the last GPU render
         // (NanoVDB density + dense temperature); 0 = served by the grid cache.
         d["grid_uploads"] = lastRenderInfoGridUploads_;
+        // pkg298: wall ms of the most recent CPU BVH build (a cached render
+        // leaves it unchanged; compare get_scene_stats()["bvh_build_count"]).
+        d["bvh_build_ms"] = renderer.getBvhBuildMs();
         return d;
     }
 
@@ -3446,7 +3449,8 @@ public:
         if (oldM == newM) return true;
         if (!oldM || !newM || oldM->isEmissive() || newM->isEmissive()) return false;
         std::vector<Hittable*> holders;
-        for (auto& h : renderer.getSceneMutable()) {
+        // pkg298: read-only scene access; a material swap keeps the cached BVH.
+        for (const auto& h : renderer.getScene()) {
             if (auto* s = dynamic_cast<Sphere*>(h.get())) {
                 if (s->getMaterial() == oldM) holders.push_back(s);
             } else if (auto* t = dynamic_cast<Triangle*>(h.get())) {
@@ -3606,6 +3610,8 @@ public:
         auto& bvh = renderer.getBVH();
         out["bvh_built"] = static_cast<bool>(bvh);
         out["bvh_nodes"] = bvh ? static_cast<int>(bvh->getNodes().size()) : 0;
+        // pkg298: BVH cache observability (CPU BVH builds so far).
+        out["bvh_build_count"] = renderer.getBvhBuildCount();
         out["lights"]    = static_cast<int>(renderer.getLights().getLights().size());
         out["env_loaded"] = (envMap && envMap->loaded());
         return out;
@@ -4170,6 +4176,40 @@ PYBIND11_MODULE(astroray, m) {
              "tests to assert that an upload_materials() / "
              "upload_lights() / upload_environment() call did not touch "
              "the geometry/BVH state.")
+        .def("_bvh_digest",
+             [](PyRenderer& self) -> std::string {
+                 // pkg298 test hook: FNV-1a over every flat BVH node (bounds bits,
+                 // counts, offsets, axis) and the leaf primitive order (as scene
+                 // indices), so two builds compare node-for-node.
+                 const Renderer& r = self.getRenderer();
+                 const auto& bvh = r.getBVH();
+                 uint64_t h = 1469598103934665603ull;
+                 auto mix = [&h](const void* p, size_t n) {
+                     const unsigned char* b = static_cast<const unsigned char*>(p);
+                     for (size_t i = 0; i < n; ++i) { h ^= b[i]; h *= 1099511628211ull; }
+                 };
+                 if (!bvh) return "none";
+                 for (const LinearBVHNode& n : bvh->getNodes()) {
+                     const float f[6] = {n.bounds.min.x, n.bounds.min.y, n.bounds.min.z,
+                                         n.bounds.max.x, n.bounds.max.y, n.bounds.max.z};
+                     mix(f, sizeof(f));
+                     const int32_t v[3] = {static_cast<int32_t>(n.nPrimitives),
+                                           n.primitivesOffset,
+                                           n.nPrimitives ? 0 : static_cast<int32_t>(n.axis)};
+                     mix(v, sizeof(v));
+                 }
+                 std::unordered_map<const Hittable*, int32_t> index;
+                 const auto& scene = r.getScene();
+                 for (size_t i = 0; i < scene.size(); ++i) index[scene[i].get()] = static_cast<int32_t>(i);
+                 for (const auto& p : bvh->getPrimitives()) {
+                     const int32_t id = index.at(p.get());
+                     mix(&id, sizeof(id));
+                 }
+                 char buf[32];
+                 std::snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(h));
+                 return std::string(buf) + ":" + std::to_string(bvh->getNodes().size());
+             },
+             "pkg298 test hook: digest of the CPU BVH (nodes + primitive order).")
         .def("_gpu_profile_lookup", &PyRenderer::gpuProfileLookup,
              "profile_index"_a, "lambda_nm"_a,
              "Return device-side reflectance for an uploaded spectral profile slot.")

@@ -12,6 +12,8 @@
 #include "raytracer.h"
 #include "astroray/spectrum.h"  // Session N+6: SampledSpectrum/XYZ host accumulation
 #include "astroray/cryptomatte.h"  // pkg159: crypto_sort_ranks for the copy-back post
+#include "../profile.h"          // pkg298: host flatten/upload timers
+#include <chrono>
 #include <cuda_runtime.h>
 #include <cstring>
 #include <algorithm>
@@ -1436,6 +1438,34 @@ static void publishPrimaryClip(const Camera& cam)
     setWavefrontPrimaryClip(clip);
 }
 
+// pkg298: path-pool floor. A pool of width*height slots under-fills the GPU at
+// low resolution (256^2 ran 18 % below 1024^2 Msamples/s). Cycles sizes its
+// state pool by device, not by image: max(SMs * maxThreadsPerSM, 65536) * 16
+// (intern/cycles/device/cuda/queue.cpp CUDADeviceQueue::num_concurrent_states,
+// Apache-2.0). The pool never exceeds the render's total work (a 1-spp viewport
+// chunk keeps width*height slots) nor pushes the 32-bit work counter past its
+// overshoot slack. Regeneration is work-indexed (pixel = w % numPixels), so the
+// pool size changes only which slot runs a sample, never the sample itself.
+static int wavefrontPoolSize(int numPixels, int samples, int maxDepth) {
+    static const long long kMinPaths = [] {
+        int dev = 0, sms = 0, thr = 0;
+        cudaGetDevice(&dev);
+        cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, dev);
+        cudaDeviceGetAttribute(&thr, cudaDevAttrMaxThreadsPerMultiProcessor, dev);
+        return std::max<long long>((long long)sms * thr, 65536) * 16;
+    }();
+    const long long work = (long long)numPixels * samples;
+    long long pool = std::max<long long>(numPixels, std::min(kMinPaths, work));
+    if (work + pool * (16 + maxDepth + 2) > 0x7FFFFFFFLL) pool = numPixels;
+    static long long lastLogged = -1;
+    if (pool != numPixels && pool != lastLogged) {
+        lastLogged = pool;
+        std::fprintf(stderr, "[astroray] wavefront path pool %lld slots (%d pixels)\n",
+                     pool, numPixels);
+    }
+    return (int)pool;
+}
+
 std::vector<float> cuda_wavefront_render(
     Renderer& renderer,
     const Camera& cam,
@@ -1464,10 +1494,13 @@ std::vector<float> cuda_wavefront_render(
     // pkg266: bounded-unit accounting, reported through last_render_info().
     int cwfUnitsLaunched = 0;
     int cwfCancelledAtUnit = -1;
-    int total_paths = width * height;
-    if (total_paths <= 0 || samples <= 0) {
+    // pkg298: per-pixel buffers use numPixels; per-path-slot buffers (state,
+    // queues, NEE lanes) use the pool size total_paths >= numPixels.
+    const int numPixels = width * height;
+    if (numPixels <= 0 || samples <= 0) {
         throw std::runtime_error("cuda_wavefront_render: invalid dimensions");
     }
+    const int total_paths = wavefrontPoolSize(numPixels, samples, max_depth);
 
     // Build GCameraParams from Camera (same block as the snapshot entries).
     GCameraParams gcam;
@@ -1512,11 +1545,14 @@ std::vector<float> cuda_wavefront_render(
     // the owning renderer's id: another renderer's upload never serves a reuse.
     const bool reuse = reuseDeviceScene && C.sceneCached && !C.sceneInvalidated
                        && C.cachedOwner == sceneOwnerId;
+    // pkg298 Phase 0: host-side flatten / upload attribution (ASTRORAY_PROFILE).
+    const auto pkg298T0 = std::chrono::steady_clock::now();
     if (!reuse) {
         C.sceneCached = false;
         C.cachedScene = buildSceneArrays(renderer, &cam);
         C.cachedOwner = sceneOwnerId;
     }
+    const auto pkg298T1 = std::chrono::steady_clock::now();
     SceneUploadResult& res = C.cachedScene;
     GBVHNode*   d_bvhNodes  = wfSync(reuse, C.nodes, res.nodes);
     GPrimitive* d_prims     = wfSync(reuse, C.prims, res.prims);
@@ -1785,6 +1821,15 @@ std::vector<float> cuda_wavefront_render(
         C.sceneCached = true;
         C.sceneInvalidated = false;
     }
+    if (astroray::gpu_profile::enabled()) {
+        const auto t2 = std::chrono::steady_clock::now();
+        auto ms = [](auto a, auto b) {
+            return std::chrono::duration<double, std::milli>(b - a).count();
+        };
+        auto& agg = astroray::gpu_profile::Aggregator::instance();
+        agg.record("host:buildSceneArrays", ms(pkg298T0, pkg298T1), 0, 0, nullptr, -1);
+        agg.record("host:sceneUpload", ms(pkg298T1, t2), 0, 0, nullptr, -1);
+    }
 
     Vec3 bg = renderer.getBackgroundColor();
     bool hasBg = bg.x >= 0.f;
@@ -1861,7 +1906,7 @@ std::vector<float> cuda_wavefront_render(
     GPUWavefrontHitBuffers& hitBufs = C.hitBufs;
 
     constexpr int kNumMatTypes = 7;  // GMAT_LAMBERTIAN..GMAT_CLOSURE_GRAPH
-    float* d_accum       = wfEnsure<float>(C.accum, size_t(total_paths) * 3);
+    float* d_accum       = wfEnsure<float>(C.accum, size_t(numPixels) * 3);
     int*   d_queueA      = wfEnsure<int>(C.queueA, total_paths);
     int*   d_queueB      = wfEnsure<int>(C.queueB, total_paths);
     int*   d_counts      = wfEnsure<int>(C.counts, 2);
@@ -1906,7 +1951,7 @@ std::vector<float> cuda_wavefront_render(
 
     {
         cudaError_t ae = cudaMemset(d_accum, 0,
-                                    size_t(total_paths) * 3 * sizeof(float));
+                                    size_t(numPixels) * 3 * sizeof(float));
         if (ae != cudaSuccess)
             throw std::runtime_error(cudaGetErrorString(ae));
     }
@@ -1930,7 +1975,7 @@ std::vector<float> cuda_wavefront_render(
                           cryptoMaterialOut != nullptr &&
                           cryptoDepth > 0;
     const size_t cryptoFloats =
-        cryptoOn ? size_t(total_paths) * size_t(cryptoDepth) * 2 : 0;
+        cryptoOn ? size_t(numPixels) * size_t(cryptoDepth) * 2 : 0;
     float* d_cryptoObj = nullptr;
     float* d_cryptoMat = nullptr;
     if (cryptoOn) {
@@ -1959,14 +2004,14 @@ std::vector<float> cuda_wavefront_render(
     float* d_guideNormal = nullptr;
     float* d_guideDepth  = nullptr;
     if (guidesOn) {
-        d_guideAlbedo = wfEnsure<float>(C.guideAlbedo, size_t(total_paths) * 3);
-        d_guideNormal = wfEnsure<float>(C.guideNormal, size_t(total_paths) * 3);
-        d_guideDepth  = wfEnsure<float>(C.guideDepth,  size_t(total_paths));
-        cudaError_t ge = cudaMemset(d_guideAlbedo, 0, size_t(total_paths) * 3 * sizeof(float));
+        d_guideAlbedo = wfEnsure<float>(C.guideAlbedo, size_t(numPixels) * 3);
+        d_guideNormal = wfEnsure<float>(C.guideNormal, size_t(numPixels) * 3);
+        d_guideDepth  = wfEnsure<float>(C.guideDepth,  size_t(numPixels));
+        cudaError_t ge = cudaMemset(d_guideAlbedo, 0, size_t(numPixels) * 3 * sizeof(float));
         if (ge == cudaSuccess)
-            ge = cudaMemset(d_guideNormal, 0, size_t(total_paths) * 3 * sizeof(float));
+            ge = cudaMemset(d_guideNormal, 0, size_t(numPixels) * 3 * sizeof(float));
         if (ge == cudaSuccess)
-            ge = cudaMemset(d_guideDepth, 0, size_t(total_paths) * sizeof(float));
+            ge = cudaMemset(d_guideDepth, 0, size_t(numPixels) * sizeof(float));
         if (ge != cudaSuccess)
             throw std::runtime_error(cudaGetErrorString(ge));
     }
@@ -1981,9 +2026,9 @@ std::vector<float> cuda_wavefront_render(
     const bool coverageOn = alphaOut != nullptr && renderer.getUseTransparentFilm();
     float* d_missCoverage = nullptr;
     if (coverageOn) {
-        d_missCoverage = wfEnsure<float>(C.missCoverage, size_t(total_paths));
+        d_missCoverage = wfEnsure<float>(C.missCoverage, size_t(numPixels));
         cudaError_t me = cudaMemset(d_missCoverage, 0,
-                                    size_t(total_paths) * sizeof(float));
+                                    size_t(numPixels) * sizeof(float));
         if (me != cudaSuccess)
             throw std::runtime_error(cudaGetErrorString(me));
     }
@@ -2007,7 +2052,7 @@ std::vector<float> cuda_wavefront_render(
         const size_t accumFloats =
             size_t(total_paths) * ASTRORAY_LP_NUM_PASSES * G_SPECTRUM_SAMPLES;
         const size_t xyzFloats =
-            size_t(total_paths) * ASTRORAY_LP_NUM_PASSES * 3;
+            size_t(numPixels) * ASTRORAY_LP_NUM_PASSES * 3;
         d_lpPassAccum = wfEnsure<float>(C.lpPassAccum, accumFloats);
         d_lpPassXYZ   = wfEnsure<float>(C.lpPassXYZ, xyzFloats);
         d_lpFirstCat  = wfEnsure<unsigned char>(C.lpFirstCat, size_t(total_paths));
@@ -2020,7 +2065,7 @@ std::vector<float> cuda_wavefront_render(
             throw std::runtime_error(cudaGetErrorString(le));
     }
     setWavefrontLightPassBinding(GWavefrontLightPassBinding{
-        d_lpPassAccum, d_lpPassXYZ, d_lpFirstCat, total_paths});
+        d_lpPassAccum, d_lpPassXYZ, d_lpFirstCat, numPixels});
 
     // Constant-memory spectral tables (JH LUT + D65 + CMF) — required by
     // every spectral upsample / XYZ conversion in the kernels. Cheap
@@ -2085,18 +2130,18 @@ std::vector<float> cuda_wavefront_render(
         int*   d_activePixels = nullptr;
         std::vector<int> activePixels;
         std::vector<unsigned char> converged;  // persistent retired mask (0 = still sampling)
-        int numActive = total_paths;
+        int numActive = numPixels;
         if (adaptiveOn) {
-            d_sampleCount  = wfEnsure<int>(C.adaptSampleCount, total_paths);
-            d_halfLum      = wfEnsure<float>(C.adaptHalfLum, total_paths);
-            d_activePixels = wfEnsure<int>(C.adaptActivePixels, total_paths);
-            cudaMemset(d_sampleCount, 0, total_paths * sizeof(int));
-            cudaMemset(d_halfLum, 0, total_paths * sizeof(float));
-            activePixels.resize(total_paths);
-            for (int i = 0; i < total_paths; ++i) activePixels[i] = i;
+            d_sampleCount  = wfEnsure<int>(C.adaptSampleCount, numPixels);
+            d_halfLum      = wfEnsure<float>(C.adaptHalfLum, numPixels);
+            d_activePixels = wfEnsure<int>(C.adaptActivePixels, numPixels);
+            cudaMemset(d_sampleCount, 0, numPixels * sizeof(int));
+            cudaMemset(d_halfLum, 0, numPixels * sizeof(float));
+            activePixels.resize(numPixels);
+            for (int i = 0; i < numPixels; ++i) activePixels[i] = i;
             cudaMemcpy(d_activePixels, activePixels.data(),
-                       total_paths * sizeof(int), cudaMemcpyHostToDevice);
-            converged.assign(total_paths, 0);
+                       numPixels * sizeof(int), cudaMemcpyHostToDevice);
+            converged.assign(numPixels, 0);
             // The progressive sampler is already published (setWavefrontSamplerMode
             // from renderer.getUseProgressiveSampler() above) — adaptiveOn requires
             // it, so its prefix property is guaranteed here.
@@ -2139,7 +2184,7 @@ std::vector<float> cuda_wavefront_render(
             : std::min((roundIdx == 0 ? ap.min_samples : ap.adaptive_step),
                        samples - baseSample);
         if (perPixel <= 0) break;
-        const int roundPixels = adaptiveOn ? numActive : total_paths;
+        const int roundPixels = adaptiveOn ? numActive : numPixels;
         const long long total_work = (long long)roundPixels * perPixel;
         const long long counter_slack =
             (long long)total_paths * (16 + max_depth + 2);
@@ -2235,7 +2280,7 @@ std::vector<float> cuda_wavefront_render(
             // same-stream ordering as the 3 cudaMemsetAsync launches it
             // replaces (~3.6k launches saved per 512-spp render).
             launchStageRegen(state, d_accum, d_work, (int)total_work,
-                             total_paths, gcam, width, height, seed,
+                             numPixels, gcam, width, height, seed,
                              lambdaMin, lambdaMax,
                              cout, d_shadeCounts, d_shadowCount, d_volCount,
                              useLuminanceOutput);
@@ -2372,7 +2417,7 @@ std::vector<float> cuda_wavefront_render(
             }
         }
         launchStageRegen(state, d_accum, d_work, (int)total_work,
-                         total_paths, gcam, width, height, seed,
+                         numPixels, gcam, width, height, seed,
                          lambdaMin, lambdaMax,
                          /*d_count_out=*/nullptr, nullptr, nullptr, nullptr,
                          useLuminanceOutput);
@@ -2398,16 +2443,16 @@ std::vector<float> cuda_wavefront_render(
         // sum; a pixel retires once its brightness-relative noise is below the auto
         // threshold. A handful of small readbacks per round (adaptive only).
         {
-            std::vector<float> h_accR(size_t(total_paths) * 3);
-            std::vector<float> h_halfR(total_paths);
-            std::vector<int>   h_cntR(total_paths);
+            std::vector<float> h_accR(size_t(numPixels) * 3);
+            std::vector<float> h_halfR(numPixels);
+            std::vector<int>   h_cntR(numPixels);
             cudaMemcpy(h_accR.data(), d_accum,
-                       size_t(total_paths) * 3 * sizeof(float), cudaMemcpyDeviceToHost);
+                       size_t(numPixels) * 3 * sizeof(float), cudaMemcpyDeviceToHost);
             cudaMemcpy(h_halfR.data(), d_halfLum,
-                       total_paths * sizeof(float), cudaMemcpyDeviceToHost);
+                       numPixels * sizeof(float), cudaMemcpyDeviceToHost);
             cudaMemcpy(h_cntR.data(), d_sampleCount,
-                       total_paths * sizeof(int), cudaMemcpyDeviceToHost);
-            for (int p = 0; p < total_paths; ++p) {
+                       numPixels * sizeof(int), cudaMemcpyDeviceToHost);
+            for (int p = 0; p < numPixels; ++p) {
                 if (converged[p]) continue;              // already retired
                 const int n = h_cntR[p];
                 if (n < 1) continue;
@@ -2418,7 +2463,7 @@ std::vector<float> cuda_wavefront_render(
                     converged[p] = 1;
             }
             // Dilate the retired mask so neighborhoods keep sampling together.
-            std::vector<unsigned char> tmp(total_paths), dil(total_paths);
+            std::vector<unsigned char> tmp(numPixels), dil(numPixels);
             astroray::adaptive::dilateConvergedMaskPass(
                 converged.data(), tmp.data(), width, height, 1);
             astroray::adaptive::dilateConvergedMaskPass(
@@ -2426,7 +2471,7 @@ std::vector<float> cuda_wavefront_render(
             converged.swap(dil);
             // Rebuild the compacted active-pixel list.
             activePixels.clear();
-            for (int p = 0; p < total_paths; ++p)
+            for (int p = 0; p < numPixels; ++p)
                 if (!converged[p]) activePixels.push_back(p);
             numActive = (int)activePixels.size();
             if (numActive == 0) break;                   // every pixel converged
@@ -2445,15 +2490,15 @@ std::vector<float> cuda_wavefront_render(
             GWavefrontAdaptiveBinding off = { nullptr, nullptr, nullptr, 0, 0, 0 };
             setWavefrontAdaptiveBinding(off);
             // Per-pixel sample counts drive the resolve divide below.
-            h_pixelSamples.resize(total_paths);
+            h_pixelSamples.resize(numPixels);
             cudaMemcpy(h_pixelSamples.data(), d_sampleCount,
-                       total_paths * sizeof(int), cudaMemcpyDeviceToHost);
+                       numPixels * sizeof(int), cudaMemcpyDeviceToHost);
         }
     }
 
-    std::vector<float> h_accum(size_t(total_paths) * 3);
+    std::vector<float> h_accum(size_t(numPixels) * 3);
     cudaError_t de = cudaMemcpy(h_accum.data(), d_accum,
-                                size_t(total_paths) * 3 * sizeof(float),
+                                size_t(numPixels) * 3 * sizeof(float),
                                 cudaMemcpyDeviceToHost);
     if (de != cudaSuccess)
         throw std::runtime_error(cudaGetErrorString(de));
@@ -2482,7 +2527,7 @@ std::vector<float> cuda_wavefront_render(
         if (ce != cudaSuccess)
             throw std::runtime_error(cudaGetErrorString(ce));
 
-        for (int p = 0; p < total_paths; ++p) {
+        for (int p = 0; p < numPixels; ++p) {
             float* obj = cryptoObjectOut + size_t(p) * cryptoDepth * 2;
             float* mat = cryptoMaterialOut + size_t(p) * cryptoDepth * 2;
             crypto_sort_ranks(obj, cryptoDepth);
@@ -2505,15 +2550,15 @@ std::vector<float> cuda_wavefront_render(
     // float), so these are straight D2H memcpys into the caller's arrays.
     if (guidesOn) {
         cudaError_t ge = cudaMemcpy(albedoOut, d_guideAlbedo,
-                                    size_t(total_paths) * 3 * sizeof(float),
+                                    size_t(numPixels) * 3 * sizeof(float),
                                     cudaMemcpyDeviceToHost);
         if (ge == cudaSuccess)
             ge = cudaMemcpy(normalOut, d_guideNormal,
-                            size_t(total_paths) * 3 * sizeof(float),
+                            size_t(numPixels) * 3 * sizeof(float),
                             cudaMemcpyDeviceToHost);
         if (ge == cudaSuccess)
             ge = cudaMemcpy(depthOut, d_guideDepth,
-                            size_t(total_paths) * sizeof(float),
+                            size_t(numPixels) * sizeof(float),
                             cudaMemcpyDeviceToHost);
         if (ge != cudaSuccess)
             throw std::runtime_error(cudaGetErrorString(ge));
@@ -2528,9 +2573,9 @@ std::vector<float> cuda_wavefront_render(
     // (SampleResult.alpha is always 1.0); see the pkg201 results delta.
     if (alphaOut != nullptr) {
         if (coverageOn) {
-            std::vector<float> h_miss(static_cast<size_t>(total_paths), 0.0f);
+            std::vector<float> h_miss(static_cast<size_t>(numPixels), 0.0f);
             cudaError_t ae = cudaMemcpy(h_miss.data(), d_missCoverage,
-                                        size_t(total_paths) * sizeof(float),
+                                        size_t(numPixels) * sizeof(float),
                                         cudaMemcpyDeviceToHost);
             if (ae != cudaSuccess)
                 throw std::runtime_error(cudaGetErrorString(ae));
@@ -2541,7 +2586,7 @@ std::vector<float> cuda_wavefront_render(
             const bool regionOn = renderer.renderRegionActive();
             const int rx0 = renderer.renderRegionX0(), ry0 = renderer.renderRegionY0();
             const int rx1 = renderer.renderRegionX1(), ry1 = renderer.renderRegionY1();
-            for (int i = 0; i < total_paths; ++i) {
+            for (int i = 0; i < numPixels; ++i) {
                 if (regionOn) {
                     const int px = i % width, py = i / width;
                     if (px < rx0 || px >= rx1 || py < ry0 || py >= ry1) {
@@ -2553,7 +2598,7 @@ std::vector<float> cuda_wavefront_render(
                 alphaOut[i] = std::clamp(cov, 0.0f, 1.0f);
             }
         } else {
-            for (int i = 0; i < total_paths; ++i) alphaOut[i] = 1.0f;
+            for (int i = 0; i < numPixels; ++i) alphaOut[i] = 1.0f;
         }
     }
 
@@ -2570,7 +2615,7 @@ std::vector<float> cuda_wavefront_render(
     // Camera::renderPassBuffers per-pass contiguous layout the caller fills.
     if (passesOn) {
         std::vector<float> h_lpXYZ(
-            size_t(total_paths) * ASTRORAY_LP_NUM_PASSES * 3);
+            size_t(numPixels) * ASTRORAY_LP_NUM_PASSES * 3);
         cudaError_t pe = cudaMemcpy(
             h_lpXYZ.data(), d_lpPassXYZ,
             h_lpXYZ.size() * sizeof(float), cudaMemcpyDeviceToHost);
@@ -2578,7 +2623,7 @@ std::vector<float> cuda_wavefront_render(
             throw std::runtime_error(cudaGetErrorString(pe));
         float exposureP = renderer.getFilmExposure();
         for (int p = 0; p < ASTRORAY_LP_NUM_PASSES; ++p) {
-            for (int i = 0; i < total_paths; ++i) {
+            for (int i = 0; i < numPixels; ++i) {
                 // device layout: [(pixel*NUM_PASSES + p)*3 + c]
                 const size_t src = (size_t(i) * ASTRORAY_LP_NUM_PASSES + p) * 3;
                 Vec3 xyz(h_lpXYZ[src + 0] / samples,
@@ -2586,7 +2631,7 @@ std::vector<float> cuda_wavefront_render(
                          h_lpXYZ[src + 2] / samples);
                 xyz *= exposureP;
                 Vec3 srgb = xyzToLinearSRGB(xyz);
-                const size_t dst = (size_t(p) * total_paths + i) * 3;
+                const size_t dst = (size_t(p) * numPixels + i) * 3;
                 passesOut[dst + 0] = std::max(Renderer::finiteOrZero(srgb.x), 0.0f);
                 passesOut[dst + 1] = std::max(Renderer::finiteOrZero(srgb.y), 0.0f);
                 passesOut[dst + 2] = std::max(Renderer::finiteOrZero(srgb.z), 0.0f);
@@ -2595,9 +2640,9 @@ std::vector<float> cuda_wavefront_render(
     }
 
     // Final conversion (mirrors cpu_wavefront_driver lines 100-113).
-    std::vector<float> rgb(size_t(total_paths) * 3);
+    std::vector<float> rgb(size_t(numPixels) * 3);
     float exposure = renderer.getFilmExposure();
-    for (int i = 0; i < total_paths; ++i) {
+    for (int i = 0; i < numPixels; ++i) {
         // pkg131 — adaptive renders vary the per-pixel sample count, so divide by
         // the pixel's own count; the uniform path divides by `samples` as before.
         const float invN = (adaptiveOn && !h_pixelSamples.empty())

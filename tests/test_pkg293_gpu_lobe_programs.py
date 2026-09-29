@@ -175,9 +175,9 @@ def test_pkg293_cpu_program_changes_squares(case, kind):
 #  * Principled rough glass: constant transmission 1 reads GPU/CPU 1.03-1.07, and
 #    the program-driven squares 1.047, identical on the pre-pkg293 main build.
 _KNOWN_GAPS = {
-    ("metallic_glass", "disney"): "pre-existing Disney m>0 & t>0 GPU/CPU twin gap",
-    ("transmission", "principled"): "pre-existing Principled rough-glass GPU/CPU ~5 %",
-    ("transmission_from_glass", "principled"): "pre-existing Principled rough-glass "
+    ("metallic_glass", "disney"): "#956: pre-existing Disney m>0 & t>0 GPU/CPU twin gap",
+    ("transmission", "principled"): "#957: pre-existing Principled rough-glass GPU/CPU ~5 %",
+    ("transmission_from_glass", "principled"): "#957: pre-existing Principled rough-glass "
                                                "GPU/CPU ~5 %",
 }
 

@@ -138,9 +138,8 @@ VDBs (CC0, `assets/volumes_*.vdb`). No third-party assets. Gate (c) roles (owner
 - Catches: pkg291 gate (a) viewport driver fixture; no render gate.
 - Res 640x360, file `benchmarks/reference_corpus/scenes/v2_viewport.blend`.
 
-## Known limits (Phase 1)
+## Known limits
 
-- Bands use three Cycles seeds (the spec acceptance asks five) and Cycles noise only; Phase 2 re-derives with 5 seeds and adds Astroray noise.
-- Astroray CPU/GPU legs, the parity test and `provisional` rows are Phase 2; the visual Astroray-vs-Cycles sign-off is Phase 2.
-- `v2_camera_geometry` gates the perspective camera only; the ortho camera object is present but not rendered.
+- Phase 2: bands re-derived with 5 seeds (278-282) from Cycles + Astroray CPU scatter; the `v2_camera_geometry@ortho` variant (analytic ROIs, same .blend) gates the ortho camera. GPU legs are written but not yet measured or banded.
+- Provisional rows and their issues: `provisional_v2.toml` (measured on staged addon build bcb8e10, before #935/#936 and the #940/#934/#933 fixes).
 - Fog box below the floor (#926) follows the spec; the owner rule is that Astroray keeps physically correct behaviour where Cycles differs.

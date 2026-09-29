@@ -431,6 +431,8 @@ def main():
                         "samples (pkg284 v2 reference legs: 1024 spp vs the 64 spp gate)")
     p.add_argument("--seed", type=int, default=None,
                    help="explicit non-zero render seed (default: gate-c seed)")
+    p.add_argument("--camera", default="",
+                   help="make this named camera object the active camera (pkg284 ortho leg)")
     p.add_argument("--light-tree", choices=("on", "off"), default=None,
                    help="force native scene.cycles.use_light_tree (default: as authored)")
     p.add_argument("--report-only", action="store_true",
@@ -589,6 +591,11 @@ def main():
                                  else args.seed if args.seed is not None else args.gate_c_seed))
         if args.seed is not None and args.seed <= 0:
             raise ValueError("--seed must be non-zero (0 is the random sentinel)")
+        if args.camera:
+            cam_obj = bpy.data.objects.get(args.camera)
+            if cam_obj is None or cam_obj.type != "CAMERA":
+                raise ValueError(f"--camera {args.camera!r} is not a camera object")
+            scene.camera = cam_obj
         if args.light_tree is not None:
             scene.cycles.use_light_tree = args.light_tree == "on"
         if gate_b_case is not None:

@@ -4,7 +4,7 @@
 **Track:** A
 **Status:** open
 **Estimated effort:** 6 sessions (~18 h): Phase 0 1, Phase 1 2-3, Phase 2 2, Phase 3 1
-**Depends on:** pkg224, pkg131, pkg294, pkg284
+**Depends on:** pkg224, pkg131, pkg294, pkg284, pkg305
 
 ---
 
@@ -47,6 +47,16 @@ Keep pkg224's primitives and plumbing, and replace its sequencing model:
   blowing the perf ceiling (0.57-0.71 s -> 1.63 s, ceiling 1.5 s).
 
 So AL-5 flips only the pkg86 light tree. The sampler flip is Phase 3 here.
+
+**Amendment 2026-09-29 (`research-noise-2026-09-29.md` §4).**
+- The camera group lands first, in pkg305: FILTER, LENS and HERO_LAMBDA, plus
+  `sobol_burley.h`, the camera slots of `path_dimensions.h`, and an inverse-CDF
+  filter table replacing rejection sampling. pkg297 extends those files per
+  bounce and does not re-implement them.
+- Add two gates when Phase 1 is measured:
+  - equal time: relVar x wall time vs Cycles, same device class, no worse than
+    the luminance gate;
+  - chroma: R/B relVar must not regress from pkg305's level.
 Opus 5.5 lane with Terra review; the lead runs CUDA builds.
 
 ---

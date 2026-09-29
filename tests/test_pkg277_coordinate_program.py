@@ -440,6 +440,10 @@ def _plain_checker_mapped(r):
     return name
 
 
+# R5 slow (44-46 s each: 6 renders at 4096 spp; spp is load-bearing for the noise-floor
+# corrected flip gate). R4 finds nothing to share: the two tests' unwarped baselines are
+# different scenes (plain vs mapped checker) and the 256-spp and 4096-spp renders differ.
+@pytest.mark.slow
 def test_gpu_cpu_parity_warped_checker():
     _gpu_cpu_gates(_checker_setup(k=24.0), "warped_checker_k24",
                    _checker_setup(warp=False), 0.486, cells=True)
@@ -450,6 +454,7 @@ def test_gpu_cpu_parity_warped_noise():
     _gpu_cpu_gates(_noise_setup, "warped_noise")
 
 
+@pytest.mark.slow
 def test_gpu_cpu_parity_mapping_then_warp():
     gpu, _ = _gpu_cpu_gates(_checker_setup(mapping=MAPPING), "mapping_warp",
                             _plain_checker_mapped, 0.590, cells=True)

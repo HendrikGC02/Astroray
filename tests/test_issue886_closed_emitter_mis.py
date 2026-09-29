@@ -79,6 +79,9 @@ def cpu_nee_off():
     return _mean(False, False, "power", 4096)
 
 
+# R5 slow, no cut: the 4096-spp NEE-off fixture has SEM ~0.05 % against a 0.1 % gate
+# (no headroom for R2), and the fixture is shared by all four cases already (R4).
+@pytest.mark.slow
 @pytest.mark.cpu
 @pytest.mark.parametrize("sampler", ["power", "tree"])
 def test_886_cpu_closed_emitter_nee_on_matches_off(cpu_nee_off, sampler):
@@ -86,6 +89,7 @@ def test_886_cpu_closed_emitter_nee_on_matches_off(cpu_nee_off, sampler):
     assert abs(on / cpu_nee_off - 1.0) < 1e-3, f"{sampler}: on={on} off={cpu_nee_off}"
 
 
+@pytest.mark.slow
 @pytest.mark.gpu
 @pytest.mark.parametrize("sampler", ["power", "tree"])
 def test_886_gpu_closed_emitter_matches_cpu_nee_off(cpu_nee_off, sampler):

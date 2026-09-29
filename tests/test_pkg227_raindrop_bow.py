@@ -38,9 +38,15 @@ try:
 except ImportError:
     AVAILABLE = False
 
-pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
+# R5 slow: all three gates share one ~30 s module fixture (two 240x200 renders).
+pytestmark = [pytest.mark.skipif(not AVAILABLE, reason="astroray not built"), pytest.mark.slow]
 
-WIDTH, HEIGHT, SAMPLES, MAX_DEPTH, SEED = 240, 200, 320, 8, 17
+# R3 budget cut 320 -> 160 spp (measured 2026-09-30, 6 seeds 3/5/7/11/13/17 at 240x200):
+# gate 1 sms_energy gain 6.67 (320 spp) -> 3.32-3.34 (threshold 1.0; it scales with
+# pixels x spp, so a half-resolution cut would FAIL the fixed threshold: 0.83); gate 2
+# top-16-row fraction 0.429 -> 0.427-0.434 (threshold 0.25); gate 3 bright chain
+# pixels 719 -> 706-709 (>= 20), red/blue-dominant >= 387 / 189 (>= 3).
+WIDTH, HEIGHT, SAMPLES, MAX_DEPTH, SEED = 240, 200, 160, 8, 17
 SUN_DIR = [0.0, -0.35, -1.0]     # elevated sun behind camera (~19 deg)
 DROP_C, DROP_R = [0.0, 0.9, 0.0], 0.6
 

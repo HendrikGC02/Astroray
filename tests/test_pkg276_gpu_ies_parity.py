@@ -61,10 +61,16 @@ def test_gpu_ies_profile_matches_reference_and_cpu(astroray_module, ies_files, k
     assert np.all(np.abs(ratio - 1.0) <= 0.03), ("GPU/CPU ROI mean ratio", ratio)
 
 
+# R5: the profile tests above (~1.2 s each) stay fast; of the 12 radius cases (3-4.4 s, a
+# CPU + GPU render each) only POINT r=0.1 soft stays fast.
+def _radius_params():
+    return [pytest.param(k, r, s, marks=[] if (k, r, s) == ("POINT", 0.1, True) else [pytest.mark.slow])
+            for k in ("POINT", "SPOT")
+            for r, s in [(0.0, True), (0.05, True), (0.1, True), (0.25, True), (1.0, True), (1.0, False)]]
+
+
 @pytest.mark.gpu
-@pytest.mark.parametrize("radius,soft", [(0.0, True), (0.05, True), (0.1, True),
-                                         (0.25, True), (1.0, True), (1.0, False)])
-@pytest.mark.parametrize("kind", ["POINT", "SPOT"])
+@pytest.mark.parametrize("kind,radius,soft", _radius_params())
 def test_gpu_lamp_radius_matches_reference(astroray_module, kind, radius, soft):
     _require_gpu(astroray_module)
     sc = ref.SpotScene(kind=kind, radius=radius, soft_falloff=soft)

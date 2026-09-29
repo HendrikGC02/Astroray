@@ -71,6 +71,7 @@ def test_ratio_tracking_transmittance_matches_raymarch():
             f"ratio-tracking Tr {got:.4f} != raymarch {expected:.4f}")
 
 
+@pytest.mark.slow   # R5: 24 s; R3 cut not attempted (fixed-threshold ratio, no multi-seed measurement)
 def test_single_scatter_matches_raymarch():
     dens = _analytic_field()
     gm = _grid(dens)

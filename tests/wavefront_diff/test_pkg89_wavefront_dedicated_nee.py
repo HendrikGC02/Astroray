@@ -117,7 +117,10 @@ def _wf_over_cpu(scene):
     return wf_mean / cpu_mean, wf_mean
 
 
-@pytest.mark.parametrize("scene", ["point_only", "area_only", "mixed"])
+# R5: point_only stays in the fast profile.
+@pytest.mark.parametrize("scene", ["point_only",
+                                   pytest.param("area_only", marks=pytest.mark.slow),
+                                   pytest.param("mixed", marks=pytest.mark.slow)])
 def test_wavefront_dedicated_light_nee(scene):
     """Wavefront NEE with dedicated lights matches the CPU oracle.
 
@@ -234,10 +237,10 @@ def _sun_roi_mean(case, gpu, integrator, sun=True):
 
 @pytest.mark.parametrize("integrator,case", [
     ("path_tracer", "none"),
-    ("path_tracer", "principled"),
-    ("path_tracer", "light"),
-    ("restir-di", "none"),        # restir-di used to drop dedicated lights
-    ("restir-di", "principled"),  # #885: fixed by the DistantLight tree energy
+    pytest.param("path_tracer", "principled", marks=pytest.mark.slow),   # R5 (9.5 s)
+    pytest.param("path_tracer", "light", marks=pytest.mark.slow),        # R5 (9.2 s)
+    pytest.param("restir-di", "none", marks=pytest.mark.slow),   # restir-di used to drop dedicated lights
+    pytest.param("restir-di", "principled", marks=pytest.mark.slow),  # #885: DistantLight tree energy
 ])
 def test_issue859_sun_survives_mesh_emitter(integrator, case):
     """GPU/CPU far-ground mean within MEAN_RATIO_TOL with a sun + mesh emitter.

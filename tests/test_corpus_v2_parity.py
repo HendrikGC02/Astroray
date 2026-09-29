@@ -86,6 +86,10 @@ def _ref_means(sid, roi):
     return MC.roi_means(MC.read_exr(CORPUS.parents[1] / GATED[sid]["reference"]), roi["rect"])
 
 
+# Slow: every case shares 3-25 s scene renders (5-seed-banded gates; no scene x backend
+# renders in < 2 s, measured in the 2026-09-29 baseline). Full profile only; the metadata
+# tests below stay in the fast profile.
+@pytest.mark.slow
 @pytest.mark.parametrize("sid,backend,roi,c", _cases())
 def test_corpus_v2_parity(sid, backend, roi, c):
     ch = CHANNELS[c]

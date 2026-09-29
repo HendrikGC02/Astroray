@@ -1,0 +1,179 @@
+{
+  "junit": [
+    "C:\\Users\\hgcom\\AppData\\Local\\Temp\\claude\\C--Users-hgcom-OneDrive-Astroray-Astroray-repo-Astroray\\10176635-5359-435c-a3cc-c22bd9cb408d\\scratchpad\\before\\junit.xml",
+    "C:\\Users\\hgcom\\AppData\\Local\\Temp\\claude\\C--Users-hgcom-OneDrive-Astroray-Astroray-repo-Astroray\\10176635-5359-435c-a3cc-c22bd9cb408d\\scratchpad\\final_full\\cpu.xml@4,C:\\Users\\hgcom\\AppData\\Local\\Temp\\claude\\C--Users-hgcom-OneDrive-Astroray-Astroray-repo-Astroray\\10176635-5359-435c-a3cc-c22bd9cb408d\\scratchpad\\final_full\\gpu.xml"
+  ],
+  "git_sha": "e19e2335",
+  "total_seconds": {
+    "before (serial pytest, 45.2 min wall)": 2699.683,
+    "after full profile (23.8 min wall)": 1396.4155
+  },
+  "test_count": {
+    "before (serial pytest, 45.2 min wall)": 4587,
+    "after full profile (23.8 min wall)": 4651
+  },
+  "outcomes": {
+    "before (serial pytest, 45.2 min wall)": {
+      "skipped": 346,
+      "passed": 4219,
+      "failed": 22
+    },
+    "after full profile (23.8 min wall)": {
+      "skipped": 323,
+      "passed": 4314,
+      "failed": 14
+    }
+  },
+  "rows": [
+    {
+      "label": "tests/test_pkg86_light_tree.py::test_variance_reduction_64_lights",
+      "before (serial pytest, 45.2 min wall)": 79.018,
+      "after full profile (23.8 min wall)": 5.436
+    },
+    {
+      "label": "tests/test_pkg227_raindrop_bow.py::test_chain_fires",
+      "before (serial pytest, 45.2 min wall)": 66.637,
+      "after full profile (23.8 min wall)": 26.20075
+    },
+    {
+      "label": "...kg127_reference_gates_poly.py::test_poly_ssim_not_worse_than_newton",
+      "before (serial pytest, 45.2 min wall)": 55.198,
+      "after full profile (23.8 min wall)": 12.2475
+    },
+    {
+      "label": "...st_pkg277_coordinate_program.py::test_gpu_cpu_parity_warped_checker",
+      "before (serial pytest, 45.2 min wall)": 45.63,
+      "after full profile (23.8 min wall)": 38.457
+    },
+    {
+      "label": "...pkg277_coordinate_program.py::test_gpu_cpu_parity_mapping_then_warp",
+      "before (serial pytest, 45.2 min wall)": 43.992,
+      "after full profile (23.8 min wall)": 39.179
+    },
+    {
+      "label": "...ght_caustics.py::test_cpu_photon_caustic_matches_path_traced[point]",
+      "before (serial pytest, 45.2 min wall)": 38.073,
+      "after full profile (23.8 min wall)": 36.435
+    },
+    {
+      "label": "...ight_caustics.py::test_cpu_photon_caustic_matches_path_traced[spot]",
+      "before (serial pytest, 45.2 min wall)": 37.967,
+      "after full profile (23.8 min wall)": 36.484
+    },
+    {
+      "label": "...t_pkg258_env_nee_convergence.py::test_sun_disc_nee_convergence[cpu]",
+      "before (serial pytest, 45.2 min wall)": 36.529,
+      "after full profile (23.8 min wall)": 35.192
+    },
+    {
+      "label": "...ight_caustics.py::test_cpu_photon_caustic_matches_path_traced[area]",
+      "before (serial pytest, 45.2 min wall)": 35.819,
+      "after full profile (23.8 min wall)": 34.152
+    },
+    {
+      "label": "...pkg127_reference_gates_poly.py::test_reference_gates_hold_with_poly",
+      "before (serial pytest, 45.2 min wall)": 35.083,
+      "after full profile (23.8 min wall)": 26.75625
+    },
+    {
+      "label": "...light_caustics.py::test_cpu_photon_caustic_matches_path_traced[sun]",
+      "before (serial pytest, 45.2 min wall)": 34.169,
+      "after full profile (23.8 min wall)": 32.619
+    },
+    {
+      "label": "...itter_mis.py::test_886_cpu_closed_emitter_nee_on_matches_off[power]",
+      "before (serial pytest, 45.2 min wall)": 28.357,
+      "after full profile (23.8 min wall)": 12.45975
+    },
+    {
+      "label": "tests/test_pkg227_mesh_smooth_caustic.py::test_smooth_fires",
+      "before (serial pytest, 45.2 min wall)": 25.929,
+      "after full profile (23.8 min wall)": 18.42525
+    },
+    {
+      "label": "...:test_corpus_v2_parity[v2_light_tree-cpu-floor_under_pendant_dim-r]",
+      "before (serial pytest, 45.2 min wall)": 24.064,
+      "after full profile (23.8 min wall)": 14.05
+    },
+    {
+      "label": "...3_nee_near_light.py::test_cpu_nee_on_off_match_analytic[sphere-0.1]",
+      "before (serial pytest, 45.2 min wall)": 23.928,
+      "after full profile (23.8 min wall)": 1.599
+    },
+    {
+      "label": "...68_heterogeneous_reference.py::test_single_scatter_matches_raymarch",
+      "before (serial pytest, 45.2 min wall)": 23.877,
+      "after full profile (23.8 min wall)": 5.891
+    },
+    {
+      "label": "...3_nee_near_light.py::test_cpu_nee_on_off_match_analytic[sphere-1.0]",
+      "before (serial pytest, 45.2 min wall)": 23.71,
+      "after full profile (23.8 min wall)": 5.6645
+    },
+    {
+      "label": "...3_nee_near_light.py::test_cpu_nee_on_off_match_analytic[sphere-0.3]",
+      "before (serial pytest, 45.2 min wall)": 23.689,
+      "after full profile (23.8 min wall)": 3.01675
+    },
+    {
+      "label": "...nee_near_light.py::test_cpu_nee_on_off_match_analytic[triangle-0.1]",
+      "before (serial pytest, 45.2 min wall)": 23.527,
+      "after full profile (23.8 min wall)": 3.0205
+    },
+    {
+      "label": "...nee_near_light.py::test_cpu_nee_on_off_match_analytic[triangle-1.0]",
+      "before (serial pytest, 45.2 min wall)": 23.4,
+      "after full profile (23.8 min wall)": 6.06275
+    },
+    {
+      "label": "tests/test_pkg268_volume_nee.py::test_nee_mean_is_unbiased",
+      "before (serial pytest, 45.2 min wall)": 23.279,
+      "after full profile (23.8 min wall)": 5.79125
+    },
+    {
+      "label": "...883_nee_near_light.py::test_cpu_nee_on_off_match_analytic[area-0.3]",
+      "before (serial pytest, 45.2 min wall)": 23.233,
+      "after full profile (23.8 min wall)": 2.934
+    },
+    {
+      "label": "...nee_near_light.py::test_cpu_nee_on_off_match_analytic[triangle-0.3]",
+      "before (serial pytest, 45.2 min wall)": 23.193,
+      "after full profile (23.8 min wall)": 5.87375
+    },
+    {
+      "label": "...883_nee_near_light.py::test_cpu_nee_on_off_match_analytic[area-1.0]",
+      "before (serial pytest, 45.2 min wall)": 23.022,
+      "after full profile (23.8 min wall)": 5.699
+    },
+    {
+      "label": "...883_nee_near_light.py::test_cpu_nee_on_off_match_analytic[area-0.1]",
+      "before (serial pytest, 45.2 min wall)": 22.98,
+      "after full profile (23.8 min wall)": 1.59675
+    },
+    {
+      "label": "...pus_v2_parity[v2_dispersion_caustics-gpu-prism_sun_caustic_floor-r]",
+      "before (serial pytest, 45.2 min wall)": 21.724,
+      "after full profile (23.8 min wall)": 3.877
+    },
+    {
+      "label": "...t_pkg258_env_nee_convergence.py::test_sun_disc_nee_convergence[gpu]",
+      "before (serial pytest, 45.2 min wall)": 20.877,
+      "after full profile (23.8 min wall)": 20.002
+    },
+    {
+      "label": "...on.py::test_no_dark_pixels_outside_analytic_shadow[0.94-equatorial]",
+      "before (serial pytest, 45.2 min wall)": 20.361,
+      "after full profile (23.8 min wall)": 6.38425
+    },
+    {
+      "label": "...orpus_v2_parity.py::test_corpus_v2_parity[v2_media-cpu-fire_core-r]",
+      "before (serial pytest, 45.2 min wall)": 20.076,
+      "after full profile (23.8 min wall)": 6.973
+    },
+    {
+      "label": "...rpus_v2_parity.py::test_corpus_v2_parity[v2_sky_sun-cpu-sun_disc-r]",
+      "before (serial pytest, 45.2 min wall)": 19.373,
+      "after full profile (23.8 min wall)": 7.163
+    }
+  ]
+}

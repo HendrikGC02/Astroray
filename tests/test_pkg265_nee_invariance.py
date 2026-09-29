@@ -57,6 +57,15 @@ _SIGMA_MULT = 3.0
 _REL_FLOOR = 0.03
 
 
+def _fast_only_r05_principled(kind, roughness):
+    """R5: only the r0.5 principled case of each family stays in the fast profile."""
+    fast = (kind, roughness) == ("principled", 0.5)
+    return pytest.param(kind, roughness, marks=[] if fast else [pytest.mark.slow])
+
+
+_KIND_ROUGH = [_fast_only_r05_principled(k, r) for k in ("principled", "disney") for r in _ROUGH]
+
+
 def _glass_material(r, kind, roughness):
     if kind == "principled":
         params = {"transmission_weight": 1.0, "ior": _IOR, "roughness": roughness}
@@ -108,8 +117,9 @@ def _reflection_probe(kind, roughness, nee, seed, spp=192, res=64):
     return float(img[lo:hi, lo:hi].mean())
 
 
-@pytest.mark.parametrize("kind", ["principled", "disney"])
-@pytest.mark.parametrize("roughness", _ROUGH)
+# R2 budget check (2026-09-30, 6 seeds, 3 sigma / (3 % floor)): the probe at 192 spp
+# is already 0.97-2.04 (>= 0.5), so its budget is NOT cut.
+@pytest.mark.parametrize("kind,roughness", _KIND_ROUGH)
 def test_reflection_probe_nee_invariant(kind, roughness):
     on = [_reflection_probe(kind, roughness, True, s) for s in _SEEDS]
     off = [_reflection_probe(kind, roughness, False, s) for s in _SEEDS]
@@ -120,7 +130,11 @@ def test_reflection_probe_nee_invariant(kind, roughness):
 # (b) lit white furnace, both strategies. The uniform field pins the answer at
 # 1.0, so this catches an eval that is merely MIS-consistent but wrongly scaled.
 # ---------------------------------------------------------------------------
-def _lit_furnace(kind, roughness, nee, seed, spp=256, res=80):
+# Furnace budget cut 256 -> 64 spp (R2/R3, 6 seeds, measured 2026-09-30): 3 sigma / (3 %
+# floor) is 0.01-0.02 at 256 spp and 0.04-0.05 at 64 spp (<= 0.5), and the NEE-on/off means
+# stay inside the fixed [0.97, 1.02] window with >= 0.018 headroom (largest: disney r0.85,
+# on 0.9891 -> 0.9886, off 0.9891 -> 0.9887; all 6 cases move < 0.0011).
+def _lit_furnace(kind, roughness, nee, seed, spp=64, res=80):
     r = astroray.Renderer()
     r.set_background_color([1.0, 1.0, 1.0])
     g = _glass_material(r, kind, roughness)
@@ -138,8 +152,7 @@ def _lit_furnace(kind, roughness, nee, seed, spp=256, res=80):
     return float(img[28:52, 28:52].mean())
 
 
-@pytest.mark.parametrize("kind", ["principled", "disney"])
-@pytest.mark.parametrize("roughness", _ROUGH)
+@pytest.mark.parametrize("kind,roughness", _KIND_ROUGH)
 def test_lit_furnace_nee_invariant(kind, roughness):
     on = [_lit_furnace(kind, roughness, True, s) for s in _SEEDS]
     off = [_lit_furnace(kind, roughness, False, s) for s in _SEEDS]
@@ -209,7 +222,10 @@ def _pkg263_scene(roughness, nee, seed, res=128, spp=128):
     }
 
 
-@pytest.mark.parametrize("roughness", _ROUGH)
+# R2 budget check: 3 sigma / floor is 0.88 / 1.55 / 2.28 at 128 spp (r0.3 / 0.5 / 0.85),
+# already >= 0.5, so the budget is NOT cut; R5 slow except r0.5.
+@pytest.mark.parametrize("roughness", [pytest.param(r, marks=[] if r == 0.5 else [pytest.mark.slow])
+                                       for r in _ROUGH])
 def test_pkg263_geometry_nee_invariant(roughness):
     on = [_pkg263_scene(roughness, True, s) for s in _SEEDS]
     off = [_pkg263_scene(roughness, False, s) for s in _SEEDS]

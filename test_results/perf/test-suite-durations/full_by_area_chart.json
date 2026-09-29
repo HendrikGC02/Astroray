@@ -1,0 +1,119 @@
+{
+  "junit": [
+    "C:\\Users\\hgcom\\AppData\\Local\\Temp\\claude\\C--Users-hgcom-OneDrive-Astroray-Astroray-repo-Astroray\\10176635-5359-435c-a3cc-c22bd9cb408d\\scratchpad\\before\\junit.xml",
+    "C:\\Users\\hgcom\\AppData\\Local\\Temp\\claude\\C--Users-hgcom-OneDrive-Astroray-Astroray-repo-Astroray\\10176635-5359-435c-a3cc-c22bd9cb408d\\scratchpad\\final_full\\cpu.xml@4,C:\\Users\\hgcom\\AppData\\Local\\Temp\\claude\\C--Users-hgcom-OneDrive-Astroray-Astroray-repo-Astroray\\10176635-5359-435c-a3cc-c22bd9cb408d\\scratchpad\\final_full\\gpu.xml"
+  ],
+  "git_sha": "e19e2335",
+  "total_seconds": {
+    "before (serial pytest, 45.2 min wall)": 2699.683,
+    "after full profile (23.8 min wall)": 1396.4155
+  },
+  "test_count": {
+    "before (serial pytest, 45.2 min wall)": 4587,
+    "after full profile (23.8 min wall)": 4651
+  },
+  "outcomes": {
+    "before (serial pytest, 45.2 min wall)": {
+      "skipped": 346,
+      "passed": 4219,
+      "failed": 22
+    },
+    "after full profile (23.8 min wall)": {
+      "skipped": 323,
+      "passed": 4314,
+      "failed": 14
+    }
+  },
+  "rows": [
+    {
+      "label": "lights (331 tests)",
+      "before (serial pytest, 45.2 min wall)": 544.3380000000001,
+      "after full profile (23.8 min wall)": 191.7040000000001
+    },
+    {
+      "label": "parity (928 tests)",
+      "before (serial pytest, 45.2 min wall)": 333.8169999999992,
+      "after full profile (23.8 min wall)": 144.2442500000002
+    },
+    {
+      "label": "caustics (67 tests)",
+      "before (serial pytest, 45.2 min wall)": 332.75100000000003,
+      "after full profile (23.8 min wall)": 251.08575
+    },
+    {
+      "label": "integrator (375 tests)",
+      "before (serial pytest, 45.2 min wall)": 324.07000000000005,
+      "after full profile (23.8 min wall)": 162.23449999999997
+    },
+    {
+      "label": "materials (842 tests)",
+      "before (serial pytest, 45.2 min wall)": 272.49699999999996,
+      "after full profile (23.8 min wall)": 117.42475000000013
+    },
+    {
+      "label": "volumes (184 tests)",
+      "before (serial pytest, 45.2 min wall)": 177.22600000000006,
+      "after full profile (23.8 min wall)": 81.4815
+    },
+    {
+      "label": "addon (557 tests)",
+      "before (serial pytest, 45.2 min wall)": 152.735,
+      "after full profile (23.8 min wall)": 106.4615
+    },
+    {
+      "label": "textures-nodes (254 tests)",
+      "before (serial pytest, 45.2 min wall)": 126.46200000000002,
+      "after full profile (23.8 min wall)": 101.75375
+    },
+    {
+      "label": "world (95 tests)",
+      "before (serial pytest, 45.2 min wall)": 104.28999999999999,
+      "after full profile (23.8 min wall)": 86.97325000000001
+    },
+    {
+      "label": "spectral (129 tests)",
+      "before (serial pytest, 45.2 min wall)": 95.13400000000003,
+      "after full profile (23.8 min wall)": 63.805249999999994
+    },
+    {
+      "label": "astro (237 tests)",
+      "before (serial pytest, 45.2 min wall)": 53.31099999999999,
+      "after full profile (23.8 min wall)": 16.835750000000004
+    },
+    {
+      "label": "tooling (114 tests)",
+      "before (serial pytest, 45.2 min wall)": 43.605000000000004,
+      "after full profile (23.8 min wall)": 6.796749999999997
+    },
+    {
+      "label": "viewport (94 tests)",
+      "before (serial pytest, 45.2 min wall)": 42.399999999999984,
+      "after full profile (23.8 min wall)": 14.908500000000002
+    },
+    {
+      "label": "geometry (118 tests)",
+      "before (serial pytest, 45.2 min wall)": 32.858000000000004,
+      "after full profile (23.8 min wall)": 12.143999999999995
+    },
+    {
+      "label": "camera (47 tests)",
+      "before (serial pytest, 45.2 min wall)": 19.977,
+      "after full profile (23.8 min wall)": 15.138250000000001
+    },
+    {
+      "label": "perf (4 tests)",
+      "before (serial pytest, 45.2 min wall)": 18.558,
+      "after full profile (23.8 min wall)": 8.1305
+    },
+    {
+      "label": "other (161 tests)",
+      "before (serial pytest, 45.2 min wall)": 14.233000000000002,
+      "after full profile (23.8 min wall)": 7.3385
+    },
+    {
+      "label": "passes (50 tests)",
+      "before (serial pytest, 45.2 min wall)": 11.421,
+      "after full profile (23.8 min wall)": 7.95475
+    }
+  ]
+}

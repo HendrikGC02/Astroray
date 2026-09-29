@@ -28,6 +28,7 @@ configure_test_temp_dir()
 BUILD_DIR = configure_test_imports()
 
 from _linear_render_guard import linear_render_guard, name_matches
+from _slow_tests import SLOW_NODEIDS
 from _gpu_classification import classify_path
 import results_layout
 
@@ -51,6 +52,11 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "cpu: test never touches CUDA — safe to run under pytest-xdist -n auto.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "slow: full-profile only; excluded by `run_split.py --fast` / `-m \"not slow\"`. "
+        "Never a deletion: the full profile still runs it.",
     )
 
 
@@ -106,6 +112,8 @@ def pytest_collection_modifyitems(config, items):
     """
     cache: dict[str, str] = {}
     for item in items:
+        if item.nodeid in SLOW_NODEIDS:
+            item.add_marker(pytest.mark.slow)
         if (item.get_closest_marker("gpu") or item.get_closest_marker("cpu")
                 or item.get_closest_marker("serial")):
             continue

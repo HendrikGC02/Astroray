@@ -1,0 +1,179 @@
+{
+  "junit": [
+    "C:\\Users\\hgcom\\AppData\\Local\\Temp\\claude\\C--Users-hgcom-OneDrive-Astroray-Astroray-repo-Astroray\\10176635-5359-435c-a3cc-c22bd9cb408d\\scratchpad\\before\\junit.xml",
+    "C:\\Users\\hgcom\\AppData\\Local\\Temp\\claude\\C--Users-hgcom-OneDrive-Astroray-Astroray-repo-Astroray\\10176635-5359-435c-a3cc-c22bd9cb408d\\scratchpad\\final_fast\\cpu.xml@4,C:\\Users\\hgcom\\AppData\\Local\\Temp\\claude\\C--Users-hgcom-OneDrive-Astroray-Astroray-repo-Astroray\\10176635-5359-435c-a3cc-c22bd9cb408d\\scratchpad\\final_fast\\gpu.xml"
+  ],
+  "git_sha": "e19e2335",
+  "total_seconds": {
+    "before (serial pytest, 45.2 min wall)": 2699.683,
+    "after fast profile (7.2 min wall)": 415.626
+  },
+  "test_count": {
+    "before (serial pytest, 45.2 min wall)": 4587,
+    "after fast profile (7.2 min wall)": 3598
+  },
+  "outcomes": {
+    "before (serial pytest, 45.2 min wall)": {
+      "skipped": 346,
+      "passed": 4219,
+      "failed": 22
+    },
+    "after fast profile (7.2 min wall)": {
+      "skipped": 73,
+      "passed": 3514,
+      "failed": 11
+    }
+  },
+  "rows": [
+    {
+      "label": "tests/test_corpus_v2_parity.py",
+      "before (serial pytest, 45.2 min wall)": 259.36699999999985,
+      "after fast profile (7.2 min wall)": 0.02025
+    },
+    {
+      "label": "tests/test_issue883_nee_near_light.py",
+      "before (serial pytest, 45.2 min wall)": 213.88699999999997,
+      "after fast profile (7.2 min wall)": 8.931000000000001
+    },
+    {
+      "label": "tests/test_pkg287_per_light_caustics.py",
+      "before (serial pytest, 45.2 min wall)": 170.126,
+      "after fast profile (7.2 min wall)": 7.31
+    },
+    {
+      "label": "tests/test_pkg265_nee_invariance.py",
+      "before (serial pytest, 45.2 min wall)": 134.662,
+      "after fast profile (7.2 min wall)": 10.19
+    },
+    {
+      "label": "tests/test_pkg86_light_tree.py",
+      "before (serial pytest, 45.2 min wall)": 117.77799999999998,
+      "after fast profile (7.2 min wall)": 6.558
+    },
+    {
+      "label": "tests/test_pkg277_coordinate_program.py",
+      "before (serial pytest, 45.2 min wall)": 94.833,
+      "after fast profile (7.2 min wall)": 4.177999999999999
+    },
+    {
+      "label": "tests/test_pkg127_reference_gates_poly.py",
+      "before (serial pytest, 45.2 min wall)": 90.281,
+      "after fast profile (7.2 min wall)": 0.0
+    },
+    {
+      "label": "tests/test_python_bindings.py",
+      "before (serial pytest, 45.2 min wall)": 85.30400000000004,
+      "after fast profile (7.2 min wall)": 31.61100000000001
+    },
+    {
+      "label": "tests/test_pkg227_raindrop_bow.py",
+      "before (serial pytest, 45.2 min wall)": 66.727,
+      "after fast profile (7.2 min wall)": 0.0
+    },
+    {
+      "label": "tests/test_pkg258_env_nee_convergence.py",
+      "before (serial pytest, 45.2 min wall)": 63.718,
+      "after fast profile (7.2 min wall)": 1.272
+    },
+    {
+      "label": "tests/test_issue840_lamp_radius.py",
+      "before (serial pytest, 45.2 min wall)": 57.91299999999999,
+      "after fast profile (7.2 min wall)": 2.9430000000000005
+    },
+    {
+      "label": "tests/test_issue886_closed_emitter_mis.py",
+      "before (serial pytest, 45.2 min wall)": 44.87,
+      "after fast profile (7.2 min wall)": 0.0
+    },
+    {
+      "label": "tests/test_pkg276_gpu_ies_parity.py",
+      "before (serial pytest, 45.2 min wall)": 44.061,
+      "after fast profile (7.2 min wall)": 8.127
+    },
+    {
+      "label": "tests/wavefront_diff/test_pkg89_wavefront_dedicated_nee.py",
+      "before (serial pytest, 45.2 min wall)": 35.944,
+      "after fast profile (7.2 min wall)": 5.180999999999999
+    },
+    {
+      "label": "tests/statistical/test_chi2_bsdf.py",
+      "before (serial pytest, 45.2 min wall)": 35.46100000000001,
+      "after fast profile (7.2 min wall)": 0.45425
+    },
+    {
+      "label": "tests/test_gpu_caustic_parity.py",
+      "before (serial pytest, 45.2 min wall)": 32.757,
+      "after fast profile (7.2 min wall)": 2.508
+    },
+    {
+      "label": "tests/test_spectral_materials.py",
+      "before (serial pytest, 45.2 min wall)": 32.456,
+      "after fast profile (7.2 min wall)": 7.173749999999999
+    },
+    {
+      "label": "tests/test_reference_corpus_manifest.py",
+      "before (serial pytest, 45.2 min wall)": 32.21900000000001,
+      "after fast profile (7.2 min wall)": 7.550999999999999
+    },
+    {
+      "label": "tests/test_pkg293_gpu_lobe_programs.py",
+      "before (serial pytest, 45.2 min wall)": 29.554000000000006,
+      "after fast profile (7.2 min wall)": 26.845999999999997
+    },
+    {
+      "label": "tests/test_issue896_gr_exit_continuation.py",
+      "before (serial pytest, 45.2 min wall)": 28.627000000000002,
+      "after fast profile (7.2 min wall)": 1.40825
+    },
+    {
+      "label": "tests/test_pkg276_ies_spot_profile.py",
+      "before (serial pytest, 45.2 min wall)": 27.185000000000002,
+      "after fast profile (7.2 min wall)": 3.7220000000000004
+    },
+    {
+      "label": "tests/test_925_medium_segment_nee_unbiased.py",
+      "before (serial pytest, 45.2 min wall)": 27.141000000000002,
+      "after fast profile (7.2 min wall)": 1.23925
+    },
+    {
+      "label": "tests/test_pkg266_dirty_domain_commit.py",
+      "before (serial pytest, 45.2 min wall)": 26.133,
+      "after fast profile (7.2 min wall)": 0.1235
+    },
+    {
+      "label": "tests/test_pkg227_mesh_smooth_caustic.py",
+      "before (serial pytest, 45.2 min wall)": 26.048,
+      "after fast profile (7.2 min wall)": 0.0
+    },
+    {
+      "label": "tests/statistical/test_chi2_principled.py",
+      "before (serial pytest, 45.2 min wall)": 25.866000000000003,
+      "after fast profile (7.2 min wall)": 5.668749999999999
+    },
+    {
+      "label": "tests/test_material_properties.py",
+      "before (serial pytest, 45.2 min wall)": 25.783999999999995,
+      "after fast profile (7.2 min wall)": 10.4755
+    },
+    {
+      "label": "tests/test_pkg268_heterogeneous_reference.py",
+      "before (serial pytest, 45.2 min wall)": 24.028,
+      "after fast profile (7.2 min wall)": 0.032
+    },
+    {
+      "label": "tests/test_pkg268_volume_nee.py",
+      "before (serial pytest, 45.2 min wall)": 23.325,
+      "after fast profile (7.2 min wall)": 0.00775
+    },
+    {
+      "label": "tests/test_873_877_clip_medium_nee.py",
+      "before (serial pytest, 45.2 min wall)": 22.031,
+      "after fast profile (7.2 min wall)": 2.8795
+    },
+    {
+      "label": "tests/test_dev_loop_smoke.py",
+      "before (serial pytest, 45.2 min wall)": 21.392,
+      "after fast profile (7.2 min wall)": 4.828749999999999
+    }
+  ]
+}

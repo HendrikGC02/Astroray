@@ -44,7 +44,8 @@ try:
 except ImportError:
     AVAILABLE = False
 
-pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
+# R5 slow: every test shares one 8-26 s module fixture, so the whole module is slow.
+pytestmark = [pytest.mark.skipif(not AVAILABLE, reason="astroray not built"), pytest.mark.slow]
 
 WIDTH, HEIGHT, SAMPLES, MAX_DEPTH, SEED = 256, 180, 128, 10, 17
 CENTER = np.array([0.0, -0.35, 0.15])

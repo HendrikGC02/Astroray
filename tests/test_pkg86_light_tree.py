@@ -23,7 +23,7 @@ configure_test_imports()
 import astroray
 
 
-def cornell_scene_with_n_lights(n_lights: int, light_power: float = 50.0) -> 'astroray.Renderer':
+def cornell_scene_with_n_lights(n_lights: int, light_power: float = 50.0, res: int = 256) -> 'astroray.Renderer':
     """
     Create a Cornell box with N randomly-placed area lights.
 
@@ -110,7 +110,7 @@ def cornell_scene_with_n_lights(n_lights: int, light_power: float = 50.0) -> 'as
 
     # Camera looking into the box from positive z
     setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=40,
-                 width=256, height=256)
+                 width=res, height=res)
 
     return r
 
@@ -148,6 +148,7 @@ class TestLightTreeUnit:
         img = np.asarray(r.render(64, 5, None, True), dtype=np.float32)
         assert_valid_image(img, 256, 256, min_mean=0.001)
 
+    @pytest.mark.slow   # R5: 256x256 smoke render, ~3-13 s
     def test_tree_builds_for_single_light(self):
         """Tree should handle degenerate single-light case."""
         r = cornell_scene_with_n_lights(1)
@@ -155,6 +156,7 @@ class TestLightTreeUnit:
         img = np.asarray(r.render(64, 5, None, True), dtype=np.float32)
         assert_valid_image(img, 256, 256, min_mean=0.001)
 
+    @pytest.mark.slow   # R5: 256x256 smoke render, ~3-13 s
     def test_power_sampler_baseline(self):
         """Power sampler should still work (regression baseline)."""
         r = cornell_scene_with_n_lights(8)
@@ -172,6 +174,7 @@ class TestLightTreeAcceptance:
                "averaging, per-emitter leaf reservoir, oriented cones for mesh emitters.",
         strict=False,
     )
+    @pytest.mark.slow   # R5: ~9 s even after the budget cut below
     def test_variance_reduction_64_lights(self):
         """
         Gate: ≥2× variance reduction on 64-light scene vs Power sampler.
@@ -180,23 +183,29 @@ class TestLightTreeAcceptance:
         """
         n_renders = 4
         seeds = [42, 123, 456, 789]
+        # R3 budget cut 256x256 @ 256 spp -> 128x128 @ 64 spp (105 s -> 9 s). The variance
+        # ratio is spp/resolution independent to first order; measured 2026-09-30 (tests
+        # seeds + 4 other 4-seed sets): 256/256 spp 1.526 (test seeds) / 1.527 (seeds 1-4);
+        # 128/64: 1.550 / 1.552 / 1.513 / 1.543 / 1.549, mean 1.541 sd 0.016 (+1.0 % vs old,
+        # < 1 sd, < 10 %). The 2x gate is unchanged.
+        res, spp = 128, 64
 
         power_images = []
         tree_images = []
 
         for seed in seeds:
             # Power sampler
-            r = cornell_scene_with_n_lights(64, light_power=30.0)
+            r = cornell_scene_with_n_lights(64, light_power=30.0, res=res)
             r.set_light_sampler("power")
             r.set_seed(seed)
-            img = np.asarray(r.render(256, 5, None, True), dtype=np.float32)
+            img = np.asarray(r.render(spp, 5, None, True), dtype=np.float32)
             power_images.append(img)
 
             # Tree sampler
-            r = cornell_scene_with_n_lights(64, light_power=30.0)
+            r = cornell_scene_with_n_lights(64, light_power=30.0, res=res)
             r.set_light_sampler("tree")
             r.set_seed(seed)
-            img = np.asarray(r.render(256, 5, None, True), dtype=np.float32)
+            img = np.asarray(r.render(spp, 5, None, True), dtype=np.float32)
             tree_images.append(img)
 
         power_var = compute_pixel_variance(power_images)
@@ -208,6 +217,7 @@ class TestLightTreeAcceptance:
         # Gate: ≥2× reduction
         assert reduction >= 2.0, f"Variance reduction {reduction:.2f}× below 2× gate"
 
+    @pytest.mark.slow   # R5: 256x256 smoke render, ~3-13 s
     def test_single_light_non_regression(self):
         """
         Gate: ≤0.5 dB PSNR delta for single-light Cornell box.
@@ -269,14 +279,17 @@ class TestLightTreeComposability:
         img = np.asarray(r.render(64, 5, None, True), dtype=np.float32)
         assert_valid_image(img, 256, 256, min_mean=0.001, label=integrator_name)
 
+    @pytest.mark.slow   # R5: 256x256 smoke render, ~3-13 s
     def test_path_tracer(self):
         """path_tracer should work with tree sampler."""
         self._test_integrator("path_tracer")
 
+    @pytest.mark.slow   # R5: 256x256 smoke render, ~3-13 s
     def test_restir_di(self):
         """restir-di should work with tree sampler."""
         self._test_integrator("restir-di")
 
+    @pytest.mark.slow   # R5: 256x256 smoke render, ~3-13 s
     def test_neural_cache(self):
         """neural-cache should work with tree sampler."""
         self._test_integrator("neural-cache")

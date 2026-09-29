@@ -171,9 +171,15 @@ PS_HD inline uint32_t indexMask(int maxSamples) {
     return ReverseBits32(np2 - 1u);
 }
 
-// Per-pixel sequence seed (pkg297 spec; pkg224 ProgressiveSobolSample keying).
+// Per-pixel sequence seed. pkg297 specifies HashHP(pixel ^ seed_lo ^ seed_hi)
+// (pkg224 keying); the seed is hashed first here so that consecutive seeds are
+// independent randomisations, as pkg297 requires for the across-seed variance
+// metric. Unhashed, seed s+1 at pixel p reproduces seed s at pixel p ^ 1, so
+// seeds 278..282 (the corpus MC seeds) would render the same set of sequences
+// and ROI means would be correlated across seeds.
 PS_HD inline uint32_t pixelSeed(uint32_t pixel, uint64_t seed) {
-    return HashHP(pixel ^ static_cast<uint32_t>(seed) ^ static_cast<uint32_t>(seed >> 32));
+    return HashHP(pixel ^ HashHP(static_cast<uint32_t>(seed) ^
+                                 HashHP(static_cast<uint32_t>(seed >> 32))));
 }
 
 }  // namespace sobol_burley

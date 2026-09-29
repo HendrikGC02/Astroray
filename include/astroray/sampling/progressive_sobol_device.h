@@ -24,6 +24,13 @@
 // (b) opt-in __constant__ runtime flag, (c) GPU-only first (owner-confirmed
 // 2026-08-29). Off by default (c_wfSamplerMode == 0) -> byte-identical to the
 // PCG32 fleet.
+//
+// Precedence (pkg305): the camera group (pixel filter, lens, hero lambda) is
+// always drawn from the Sobol-Burley sampler in sobol_burley.h when the
+// stratified camera is on (c_wfCameraGroup.enabled), whatever c_wfSamplerMode
+// says. stage_init.cu then resumes WavefrontRNG at dimension 4, so this sampler
+// (or PCG32) serves the later dimensions exactly as it did after the old 4-draw
+// box-filter camera.
 
 #ifndef ASTRORAY_SAMPLING_PROGRESSIVE_SOBOL_DEVICE_H
 #define ASTRORAY_SAMPLING_PROGRESSIVE_SOBOL_DEVICE_H

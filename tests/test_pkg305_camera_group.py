@@ -9,7 +9,6 @@ Unit gates on the shared __host__ __device__ sources:
 Render gates (CPU; GPU legs skip without CUDA): sky chroma floor, variance
 slope, means unchanged, determinism, and progressive-chunk continuation.
 """
-import math
 import os
 import subprocess
 import sys
@@ -19,8 +18,7 @@ import numpy as np
 import pytest
 
 th = pytest.importorskip("astroray_test_helpers")
-import astroray  # noqa: E402
-import base_helpers as bh  # noqa: E402
+import base_helpers as bh
 
 # --------------------------------------------------------------------------- #
 # Python port of Cycles (Apache-2.0) src/kernel/sample/sobol_burley.h,
@@ -53,7 +51,7 @@ CYCLES_TABLE = [
 
 
 def _rev(x):
-    return int("{:032b}".format(x & M32)[::-1], 2)
+    return int(f"{x & M32:032b}"[::-1], 2)
 
 
 def _hash_hp(i):
@@ -157,6 +155,15 @@ def test_2d_set_is_a_0m2_net(dim_set):
         assert np.bincount(cells, minlength=n).max() == 1, (dim_set, k)
 
 
+def test_consecutive_seeds_are_independent():
+    """Seeds 278..282 (corpus MC seeds) must not render the same set of
+    per-pixel sequences (an unhashed seed XOR only permutes pixels)."""
+    npx = 256 * 256
+    a = {th.sobol_burley_pixel_seed(p, 278) for p in range(npx)}
+    b = {th.sobol_burley_pixel_seed(p, 279) for p in range(npx)}
+    assert len(a & b) < 0.01 * npx
+
+
 def test_1d_hero_prefix_stratified():
     seed = th.sobol_burley_pixel_seed(7, 305)
     for n in (4, 16, 64):
@@ -206,18 +213,18 @@ def test_filter_box_is_unit_uniform():
 SKY = [0.25, 0.45, 0.9]
 
 
-def _sky_renderer(seed, strat, gpu=False, filt=None):
+def _sky_renderer(seed, stratified, gpu=False, filt=None):
     r = bh.create_renderer()
     if gpu:
         try:
             r.set_use_gpu(True)
         except Exception as e:  # noqa: BLE001
-            pytest.skip("GPU unavailable: %s" % e)
+            pytest.skip(f"GPU unavailable: {e}")
         if not getattr(r, "gpu_available", False):
             pytest.skip("gpu_available is False")
     elif hasattr(r, "set_use_gpu"):
         r.set_use_gpu(False)
-    r.set_stratified_camera(strat)
+    r.set_stratified_camera(stratified)
     r.set_seed(seed)
     if filt is not None:
         r.set_pixel_filter(*filt)
@@ -257,12 +264,12 @@ def test_sky_chroma_floor(gpu):
     """Directly seen sky: R/B relVar at 64 spp <= 2.4e-4 and >= 10x below the
     white-noise camera; luminance not worse; frame means within MC bands."""
     res = {}
-    for strat in (False, True):
-        imgs = np.stack([_render(_sky_renderer(s, strat, gpu), 64) for s in SEEDS])
+    for stratified in (False, True):
+        imgs = np.stack([_render(_sky_renderer(s, stratified, gpu), 64) for s in SEEDS])
         rv, _ = _rel_var(imgs)
         lum = imgs @ np.array([0.2126, 0.7152, 0.0722])
         lv = float((lum.var(0, ddof=1) / lum.mean(0) ** 2).mean())
-        res[strat] = (rv, lv) + _frame_mean_and_se(imgs)
+        res[stratified] = (rv, lv) + _frame_mean_and_se(imgs)
     rv_off, lv_off, m_off, se_off = res[False]
     rv_on, lv_on, m_on, se_on = res[True]
     assert rv_on[0] <= 2.4e-4 and rv_on[2] <= 2.4e-4, rv_on
@@ -300,11 +307,11 @@ def test_progressive_chunks_continue_the_sequence():
     assert np.array_equal(first, _render(r, 16))
 
 
-def _lit_scene(seed, strat):
+def _lit_scene(seed, stratified):
     r = bh.create_renderer()
     if hasattr(r, "set_use_gpu"):
         r.set_use_gpu(False)
-    r.set_stratified_camera(strat)
+    r.set_stratified_camera(stratified)
     r.set_seed(seed)
     r.set_pixel_filter(2, 1.5)
     r.set_background_color([0.05, 0.05, 0.08])
@@ -318,11 +325,11 @@ def _lit_scene(seed, strat):
 
 
 def test_lit_scene_means_unchanged():
-    seeds = [1000 * k + 11 for k in range(1, 9)]
+    seeds = [7919 * k + 13 for k in range(1, 25)]
     rois = {}
-    for strat in (False, True):
-        imgs = np.stack([_render(_lit_scene(s, strat), 16) for s in seeds])
-        rois[strat] = imgs[:, 8:24, 8:24].reshape(len(seeds), -1, 3).mean(1)
+    for stratified in (False, True):
+        imgs = np.stack([_render(_lit_scene(s, stratified), 16) for s in seeds])
+        rois[stratified] = imgs[:, 8:24, 8:24].reshape(len(seeds), -1, 3).mean(1)
     d = rois[True].mean(0) - rois[False].mean(0)
     se = np.sqrt((rois[True].var(0, ddof=1) + rois[False].var(0, ddof=1)) / len(seeds))
     assert np.all(np.abs(d) <= 3 * se), (d, se)
@@ -352,7 +359,7 @@ def test_deterministic_across_thread_counts():
     for n in ("1", "8"):
         env = dict(os.environ, OMP_NUM_THREADS=n)
         out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True,
-                             text=True, timeout=300, cwd=here)
+                             text=True, timeout=300, cwd=here, check=False)
         assert out.returncode == 0, out.stderr[-2000:]
         digests.append(out.stdout.strip().splitlines()[-1])
     assert digests[0] == digests[1]

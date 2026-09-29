@@ -54,6 +54,7 @@ second source of truth.
   (Track N nebula pkg45→pkg46; Track L pkg50→pkg279 HMXB), Stage 3 instrument
   pipeline (pkg51+133) + ingest (pkg48/49), Stage 4 research validation, Stage 5
   Hydra only with a second caller.
+- **Product themes (owner 2026-09-29, proposed):** [`product-themes-plan-2026-09-29.md`](product-themes-plan-2026-09-29.md) — complex node trees (pkg310 corpus + burn-down), Blender-native UI (pkg311), element line-spectra library (pkg312), spectral data cube + diagnostic AOVs (pkg313); Batch AP after AK; owner decisions in its §6.
 - **Volumes track (core Cycles parity, opened by owner 2026-09-11 §7 item 5; NOT Pillar 4):**
   pkg267→pkg268→{pkg269,pkg270}→pkg271 (+optional pkg272); dispatch pkg267+pkg268 first.
   Research + DAG: `volumes-track-research-2026-09-12.md`.

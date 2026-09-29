@@ -38,3 +38,9 @@ def test_outputs(tmp_path, n):
     for stem in ("by_area", "by_file", "top_tests"):
         assert (out / f"durations_{stem}_chart.png").exists()
         assert (out / f"durations_{stem}_chart.json").exists()
+
+
+@pytest.mark.cpu
+def test_file_of_keeps_subdirectories():
+    assert dr.file_of("tests.statistical.test_chi2_bsdf.TestX") == "tests/statistical/test_chi2_bsdf.py"
+    assert dr.file_of("test_glass") == "tests/test_glass.py"

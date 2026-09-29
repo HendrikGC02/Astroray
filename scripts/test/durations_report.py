@@ -18,23 +18,25 @@ import matplotlib.pyplot as plt
 
 # Ordered: first keyword hit on the file name wins.
 AREA_KEYWORDS = {
-    "addon": ["blender", "addon", "headless", "panel", "install"],
-    "viewport": ["viewport", "worker"],
-    "volumes": ["volume", "smoke", "fire", "medium"],
-    "caustics": ["caustic", "photon", "sms"],
+    "addon": ["blender", "addon", "headless", "panel", "install", "binding", "standalone", "settings", "nav_resolution", "exporter", "importer", "blend_import", "fits", "grid_import"],
+    "viewport": ["viewport", "worker", "dirty_domain", "orbit", "present", "cancellation", "ui_latency", "scene_switch", "buffer_identity", "progressive"],
+    "volumes": ["volume", "smoke", "fire", "medium", "media", "heterogeneous", "scattering", "subsurface"],
+    "caustics": ["caustic", "photon", "sms", "raindrop"],
     "spectral": ["spectral", "dispersion", "sellmeier", "prism", "upsampl"],
     "lights": ["light", "lamp", "ies", "sun", "emiss"],
     "world": ["sky", "world", "hdri", "env"],
     "parity": ["parity", "corpus", "cycles"],
-    "astro": ["kerr", "gr_", "astro", "nebula", "blackbody"],
+    "astro": ["kerr", "gr_", "astro", "nebula", "blackbody", "redshift", "blackhole", "schwarzschild", "adaf", "slim_disk", "synchrotron", "momentum", "observer", "physics_emitters"],
     "perf": ["perf", "timing", "bench"],
     "passes": ["aov", "pass", "crypto", "denois"],
-    "camera": ["camera", "dof", "ortho", "lens"],
-    "geometry": ["mesh", "curve", "instanc", "holdout", "geometry"],
-    "textures-nodes": ["texture", "node", "opvm", "shader_graph", "mapping"],
+    "camera": ["camera", "dof", "ortho", "lens", "motion_blur", "screen_to_pixel", "render_region"],
+    "geometry": ["mesh", "curve", "instanc", "holdout", "geometry", "heightfield", "displacement", "tlas", "shape", "thin_wall", "hair", "normal_map", "normal_buffer", "texspace", "object_space", "sphere_chain"],
+    "textures-nodes": ["texture", "node", "opvm", "op_vm", "shader_graph", "mapping", "coordinate", "procedural", "voronoi", "generated", "grid_cache"],
     "materials": ["material", "bsdf", "glass", "metal", "dielectric", "principled",
-                  "thinfilm", "alpha", "furnace"],
-    "integrator": ["converg", "adaptive", "guiding", "nee", "mis", "integrator", "sampler"],
+                  "thinfilm", "thin_film", "alpha", "furnace", "poly", "disney", "lobe", "energy", "aniso", "diffuse", "lambertian", "specular", "spectrum", "registry"],
+    "integrator": ["converg", "adaptive", "guiding", "nee", "mis", "integrator", "sampler", "oracle", "reference_pt", "restir", "dtree", "rng", "sobol", "wavefront", "bounces", "hero", "solid_angle", "practrand", "neural", "gpu_", "cuda", "tolerance", "statistical", "gate", "reservoir", "bit_identity", "regression"],
+    # chart-only bucket: not part of the test-results area taxonomy.
+    "tooling": ["orchestrator", "hooks", "index", "delegate", "scripts", "build_integrity", "html", "durations", "roadmap", "claude", "linear_render_guard", "prewarm", "process_tree", "worktree", "issue_triage", "hygiene"],
 }
 BG, C_SINGLE, C_BEFORE, C_AFTER = "#fcfcfb", "#2a78d6", "#52514e", "#2a78d6"
 
@@ -48,9 +50,11 @@ def area_of(fname):
 
 
 def file_of(classname):
-    for part in classname.split("."):
+    parts = classname.split(".")
+    for i, part in enumerate(parts):
         if part.startswith("test_"):
-            return f"tests/{part}.py"
+            d = parts[:i] if parts[:1] == ["tests"] else ["tests"] + parts[:i]
+            return "/".join(d + [part]) + ".py"
     return classname.replace(".", "/") or "unknown"
 
 
@@ -58,7 +62,7 @@ def load(path):
     """Return (tests, counts): tests = [(file, name, seconds)]."""
     tests, counts = [], defaultdict(int)
     for tc in ET.parse(path).getroot().iter("testcase"):
-        tests.append((file_of(tc.get("classname", "")), tc.get("name", ""), float(tc.get("time", 0))))
+        tests.append((file_of(tc.get("classname") or tc.get("name", "")), tc.get("name", ""), float(tc.get("time", 0))))
         if tc.find("skipped") is not None:
             counts["skipped"] += 1
         elif tc.find("failure") is not None or tc.find("error") is not None:

@@ -1,0 +1,236 @@
+# pkg310 hand-maintained gate exceptions for the production node-tree corpus (NOT generated).
+# Each [[row]] is a strict xfail on one (material, backend, kind) test in tests/test_production_corpus.py, tied to
+# the issue of its PRIMARY root cause (the full cause list is in the reason and in
+# .astroray_plan/docs/pkg310-production-corpus-burndown.md). The fixing PR deletes the row (memory
+# xfail-gated-features-must-unxfail). kind = "parity" (some ROI channel outside its MC band) or "silent"
+# (silent_drop_audit finds an exercised pair that is neither SUPPORTED in the coverage matrix nor reported).
+# Measured 2026-09-30, seed 278, Astroray CPU + GPU on the pkg298 CUDA build (main a84204d9 content) with the
+# matching addon Python; Cycles 5.2.0 LTS references.
+# [[divergence]] rows (Astroray physically right, Cycles differs; owner 2026-09-29) pin an ROI against
+# Astroray's own mean. None is needed yet: every failure below is an Astroray gap, not a Cycles quirk.
+
+# ---- parity ------------------------------------------------------------------------------------------------
+[[row]]
+scene = "prod_car_paint"
+backend = "cpu"
+kind = "parity"
+issue = "#989"
+reason = "Layer Weight / Fresnel unsupported in the op-VM (flattened to grey); lit_front G 4.64x"
+
+[[row]]
+scene = "prod_car_paint"
+backend = "gpu"
+kind = "parity"
+issue = "#989"
+reason = "Layer Weight / Fresnel unsupported in the op-VM (flattened to grey); lit_front G 4.60x"
+
+[[row]]
+scene = "prod_wood"
+backend = "cpu"
+kind = "parity"
+issue = "#988"
+reason = "textured-Principled exports as Lambertian (no gloss); also #993 slot bound on Roughness, #881 Noise pattern"
+
+[[row]]
+scene = "prod_wood"
+backend = "gpu"
+kind = "parity"
+issue = "#994"
+reason = "GPU skips OBJECT-coordinate procedural programs (flat value): grain_center B 5.9x; also #988, #993"
+
+[[row]]
+scene = "prod_marble"
+backend = "cpu"
+kind = "parity"
+issue = "#988"
+reason = "textured-Principled exports as Lambertian: sun highlight ROI right 0.58x, vein_zone 1.09x"
+
+[[row]]
+scene = "prod_marble"
+backend = "gpu"
+kind = "parity"
+issue = "#994"
+reason = "GPU skips OBJECT-coordinate procedural programs: all ROIs 0.38-0.72x; also #988"
+
+[[row]]
+scene = "prod_pbr_group"
+backend = "cpu"
+kind = "parity"
+issue = "#988"
+reason = "textured Base Color routes through Lambertian: metal tiles diffuse, per-texel roughness/metallic dropped; centre b 0.26x"
+
+[[row]]
+scene = "prod_pbr_group"
+backend = "gpu"
+kind = "parity"
+issue = "#988"
+reason = "same export as CPU (both backends): centre b 0.27x"
+
+[[row]]
+scene = "prod_shader_stack"
+backend = "cpu"
+kind = "parity"
+issue = "#995"
+reason = "nested Mix Shader with textured Fac collapses to a constant mix; Glass/Emission lost (also #955, #993): 0.28-0.45x"
+
+[[row]]
+scene = "prod_shader_stack"
+backend = "gpu"
+kind = "parity"
+issue = "#995"
+reason = "same export as CPU: 0.28-0.45x"
+
+[[row]]
+scene = "prod_attributes"
+backend = "cpu"
+kind = "parity"
+issue = "#990"
+reason = "Color Attribute / Attribute / Object Info unsupported: instances render white (G 2.2x, B 2.3x)"
+
+[[row]]
+scene = "prod_attributes"
+backend = "gpu"
+kind = "parity"
+issue = "#990"
+reason = "same export as CPU: instances render white"
+
+[[row]]
+scene = "prod_light_path"
+backend = "cpu"
+kind = "parity"
+issue = "#991"
+reason = "Light Path unsupported: hidden emitter visible (0.07x), glass shadow, Ray Length tint flat (floor_far R 4.4x)"
+
+[[row]]
+scene = "prod_light_path"
+backend = "gpu"
+kind = "parity"
+issue = "#991"
+reason = "same export as CPU"
+
+[[row]]
+scene = "prod_curves_geometry"
+backend = "cpu"
+kind = "parity"
+issue = "#989"
+reason = "Geometry Backfacing/Pointiness unsupported (inner_backface R 4.65x); also #992 Float/RGB Curves"
+
+[[row]]
+scene = "prod_curves_geometry"
+backend = "gpu"
+kind = "parity"
+issue = "#989"
+reason = "same export as CPU (inner_backface R 4.58x); also #992"
+
+# ---- silent drops (silent_drop_audit.py) --------------------------------------------------------------------
+[[row]]
+scene = "prod_attributes"
+backend = "cpu"
+kind = "silent"
+issue = "#990"
+reason = "ShaderNodeVertexColor output Color dropped with no DegradationReport entry"
+
+[[row]]
+scene = "prod_attributes"
+backend = "gpu"
+kind = "silent"
+issue = "#990"
+reason = "ShaderNodeVertexColor output Color dropped with no DegradationReport entry"
+
+[[row]]
+scene = "prod_car_paint"
+backend = "cpu"
+kind = "silent"
+issue = "#996"
+reason = "matrix-stale rows only (Math operation, Mix data_type, Voronoi Vector; the render says CPU exact)"
+
+[[row]]
+scene = "prod_car_paint"
+backend = "gpu"
+kind = "silent"
+issue = "#996"
+reason = "matrix-stale rows only (Math operation, Mix data_type, Voronoi Vector)"
+
+[[row]]
+scene = "prod_curves_geometry"
+backend = "cpu"
+kind = "silent"
+issue = "#992"
+reason = "ShaderNodeRGBCurve dropped with no report; plus matrix-stale Math/Mix/Noise rows (#996)"
+
+[[row]]
+scene = "prod_curves_geometry"
+backend = "gpu"
+kind = "silent"
+issue = "#992"
+reason = "ShaderNodeRGBCurve dropped with no report; plus matrix-stale rows (#996)"
+
+[[row]]
+scene = "prod_light_path"
+backend = "cpu"
+kind = "silent"
+issue = "#991"
+reason = "Mix Shader Fac from Is Camera Ray / Is Shadow Ray dropped with no report; plus matrix-stale rows (#996)"
+
+[[row]]
+scene = "prod_light_path"
+backend = "gpu"
+kind = "silent"
+issue = "#991"
+reason = "Mix Shader Fac from Is Camera Ray / Is Shadow Ray dropped with no report"
+
+[[row]]
+scene = "prod_marble"
+backend = "cpu"
+kind = "silent"
+issue = "#996"
+reason = "matrix-stale rows (Mapping, Noise/Wave Vector, Vector Math, Color Ramp Fac); the render says CPU exact"
+
+[[row]]
+scene = "prod_marble"
+backend = "gpu"
+kind = "silent"
+issue = "#996"
+reason = "matrix-stale rows (Mapping, Noise/Wave Vector, Vector Math, Color Ramp Fac)"
+
+[[row]]
+scene = "prod_pbr_group"
+backend = "cpu"
+kind = "silent"
+issue = "#996"
+reason = "matrix-stale rows (Mapping, Combine XYZ)"
+
+[[row]]
+scene = "prod_pbr_group"
+backend = "gpu"
+kind = "silent"
+issue = "#996"
+reason = "matrix-stale rows (Mapping, Combine XYZ)"
+
+[[row]]
+scene = "prod_shader_stack"
+backend = "cpu"
+kind = "silent"
+issue = "#955"
+reason = "Add Shader(BSDF, BSDF) keeps the first BSDF with no report; plus matrix-stale Noise/Ramp rows (#996)"
+
+[[row]]
+scene = "prod_shader_stack"
+backend = "gpu"
+kind = "silent"
+issue = "#955"
+reason = "Add Shader(BSDF, BSDF) keeps the first BSDF with no report"
+
+[[row]]
+scene = "prod_wood"
+backend = "cpu"
+kind = "silent"
+issue = "#996"
+reason = "matrix-stale rows (Mapping, Noise/Wave Vector, Math operation, Color Ramp Fac)"
+
+[[row]]
+scene = "prod_wood"
+backend = "gpu"
+kind = "silent"
+issue = "#996"
+reason = "matrix-stale rows (Mapping, Noise/Wave Vector, Math operation, Color Ramp Fac)"

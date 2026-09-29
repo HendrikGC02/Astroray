@@ -84,7 +84,7 @@ files, top-30 tests), made by `scripts/test/durations_report.py`.
 | 6 | `test_pkg227_raindrop_bow.py` (module fixture) | 67 | 240x200 @ 320 spp, depth 8 | measure the three gates' margins at half resolution / 160 spp; cut only if R3 holds; else mark slow | R3, R5 |
 | 7 | `test_pkg127_reference_gates_poly.py` | 90 | the poly render is done in both tests | module fixture for the poly render (identical inputs) | R4, then R5 |
 | 8 | `test_pkg277_coordinate_program.py::test_gpu_cpu_parity_{warped_checker,mapping_then_warp}` | 90 | 3 renders at 4096 spp, and the flip gate is noise-floor corrected (spp is load-bearing) | don't cut; share any unwarped-baseline renders between the two tests; mark slow | R4, R5 |
-| 9 | `test_pkg258_env_nee_convergence.py::test_sun_disc_nee_convergence[cpu,gpu]` | 57 | the 65536-spp reference is re-rendered for each backend | module-scoped reference fixture | R4, R5 |
+| 9 | `test_pkg258_env_nee_convergence.py::test_sun_disc_nee_convergence[cpu,gpu]` | 57 | a 65536-spp reference per backend (each backend's own ground truth, so the renders aren't identical and there's nothing to share) | mark slow | R5 |
 | 10 | `test_issue840_lamp_radius.py` (15 cases) | 58 | ~4.7 s per case at 64 spp | profile render vs numpy `ref.radiance` first; fix whichever dominates without touching tolerances; slow except one POINT + one SPOT | R3/R4, R5 |
 | 11 | `test_issue886_closed_emitter_mis.py` | 45 | 5 x 4096-spp NEE-off fixture; SEM 0.05 % against a 0.1 % gate (no headroom) | don't cut; mark slow | R5 |
 | 12 | `test_pkg276_gpu_ies_parity.py` | 44 | a CPU+GPU render per profile/kind | mark slow except one profile | R5 |
@@ -113,7 +113,26 @@ Add a `tooling` bucket (orchestrator, hooks, index, delegate, scripts) that
 exists only in the chart; the test-results area taxonomy is unchanged. Promote
 the before/after charts to the curated `test_results/perf/test-suite-durations/`.
 
-## 6. Done when
+## 6. Outcome (2026-09-30, am-962 build)
+
+| Profile | Wall | Passes |
+| ------- | ---- | ------ |
+| before, serial `pytest tests` | 45.2 min | one serial run |
+| full, `run_split.py` | **23.8 min (-47 %)** | CPU xdist 451 s + GPU serial 977 s |
+| fast, `run_split.py --fast` | **7.2 min** | 143 s + 291 s; 3593 of 4646 tests |
+
+- **Budget cuts (all measured, numbers in code comments):**
+  - issue883 NEE-off: 8192 -> 2048/4096 spp in 5 of 9 cases (R2).
+  - pkg265 furnace: 256 -> 64 spp (R2/R3).
+  - pkg86 variance gate: 256² @ 256 -> 128² @ 64 (R3).
+  - pkg227 bow: 320 -> 160 spp (R3). This makes it stricter: the fixed `sms_energy > 1` threshold is now 30 % of the signal, up from 15 %.
+- **Caches (R4):** pkg287 CPU caustic, pkg127 poly render.
+- **Slow marks:** 104 node ids in `tests/_slow_tests.py`, plus the marks in the file itself.
+- **No threshold changed.**
+- **Neither target was met:** the floor is the serial GPU pass. About 1130 sub-second tests account for ~200 s of it. Most are CPU-only tests in files that the file-level classifier tags `gpu`.
+- **Next lever:** per-test `cpu` tags in mixed files, checked by the CUDA-hidden outcome diff, would move them into the parallel pass.
+
+## 7. Done when
 
 - The full profile runs every test that ran before (same pass/xfail/skip sets
   modulo build), and its wall time is measured and charted. Target <= 15 min.

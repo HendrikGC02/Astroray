@@ -21,14 +21,6 @@ reason = "principled_hair tuft outside band (CPU 0.85-0.95, GPU differs from CPU
 [[row]]
 scene = "v2_camera_geometry"
 backend = "cpu"
-roi = "instances"
-channels = ["r", "g", "b", "L"]
-issue = "#953"
-reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
-
-[[row]]
-scene = "v2_camera_geometry"
-backend = "cpu"
 roi = "motion_vane"
 channels = ["r", "g", "b", "L"]
 issue = "#947"
@@ -81,14 +73,6 @@ roi = "hair_tuft"
 channels = ["r", "g", "b", "L"]
 issue = "#853"
 reason = "principled_hair tuft outside band (CPU 0.83-0.94, GPU differs from CPU)"
-
-[[row]]
-scene = "v2_camera_geometry@ortho"
-backend = "cpu"
-roi = "instances"
-channels = ["r", "g", "b", "L"]
-issue = "#953"
-reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
 
 [[row]]
 scene = "v2_camera_geometry@ortho"
@@ -164,54 +148,6 @@ reason = "GPU vs CPU photon caustics disagree"
 
 [[row]]
 scene = "v2_light_tree"
-backend = "cpu"
-roi = "back_wall"
-channels = ["r", "g", "b", "L"]
-issue = "#953"
-reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
-
-[[row]]
-scene = "v2_light_tree"
-backend = "cpu"
-roi = "floor_sun_patch"
-channels = ["g", "L"]
-issue = "#953"
-reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
-
-[[row]]
-scene = "v2_light_tree"
-backend = "cpu"
-roi = "floor_under_area"
-channels = ["r", "g", "b", "L"]
-issue = "#953"
-reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
-
-[[row]]
-scene = "v2_light_tree"
-backend = "cpu"
-roi = "floor_under_pendant_bright"
-channels = ["r", "g", "b", "L"]
-issue = "#953"
-reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
-
-[[row]]
-scene = "v2_light_tree"
-backend = "cpu"
-roi = "floor_under_pendant_dim"
-channels = ["r", "g", "b", "L"]
-issue = "#953"
-reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
-
-[[row]]
-scene = "v2_light_tree"
-backend = "cpu"
-roi = "floor_under_point"
-channels = ["r", "g", "b", "L"]
-issue = "#953"
-reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
-
-[[row]]
-scene = "v2_light_tree"
 backend = "gpu"
 roi = "back_wall"
 channels = ["r", "g", "b", "L"]
@@ -254,14 +190,6 @@ reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU
 scene = "v2_light_tree"
 backend = "gpu"
 roi = "floor_under_point"
-channels = ["r", "g", "b", "L"]
-issue = "#953"
-reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
-
-[[row]]
-scene = "v2_media"
-backend = "cpu"
-roi = "fog_floor_lit"
 channels = ["r", "g", "b", "L"]
 issue = "#953"
 reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
@@ -302,25 +230,9 @@ reason = "spot shaft in fog reads 0.68-0.79 of Cycles (mean deficit, was hidden 
 scene = "v2_sky_sun"
 backend = "cpu"
 roi = "chrome_reflection"
-channels = ["r", "g", "b", "L"]
+channels = ["r", "g", "L"]
 issue = "#946"
-reason = "reflection of the low-elevation sky reads 0.92-0.98"
-
-[[row]]
-scene = "v2_sky_sun"
-backend = "cpu"
-roi = "ground_foreground"
-channels = ["b"]
-issue = "#953"
-reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
-
-[[row]]
-scene = "v2_sky_sun"
-backend = "cpu"
-roi = "stone_sky_lit_face"
-channels = ["r", "g", "b", "L"]
-issue = "#953"
-reason = "Principled (spec 0.5) diffuse-lit ROI reads 0.94-0.98 of Cycles on CPU and GPU (specular-layer energy deficit); #940 fix left it unchanged"
+reason = "reflection of the low-elevation sky reads 0.92-0.98 (b channel passes since the #953 fix: 0.981)"
 
 [[row]]
 scene = "v2_sky_sun"

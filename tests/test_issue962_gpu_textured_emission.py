@@ -106,6 +106,23 @@ def _make_tex(r, kind):
         # parities (pre-existing; a textured lambertian shows the same 0.38x
         # contrast). -0.8 puts the card mid-cell so the gate tests emission.
         r.set_texture_generated_bbox("t", [-1, -1, -0.8], [2, 2, 2])
+    elif kind == "program_uvxf":
+        # Image -> Math(Multiply 1): an op-VM emitter is baked host-side; the
+        # program carries a legacy UV transform (scale 2, offset -0.5), which the
+        # CPU applies in Texture::value(HitRecord) before the image lookup, so the
+        # bake must apply it too (Terra #962 item 5).
+        r.load_texture("img", _stripes(), 8, 8, "UV")
+        img = _Node('TEX_IMAGE', inputs=[_Sock('Vector')])
+        mul = _Node('MATH', operation='MULTIPLY',
+                    inputs=[_Sock('A', 0.0, _Link(img, 'Color')), _Sock('B', 1.0)])
+        compiled = C.compile_chain(_Sock('Color', [1, 1, 1], _Link(mul, 'Color')))
+        assert compiled is not None
+        r.create_program_texture("t", "UV")
+        r.program_texture_add_input("t", "img")
+        r.set_program_texture_program(
+            "t", compiled['num_tex'], compiled['out_slot'],
+            compiled['code_flat'], compiled['consts_flat'], compiled['ramps_flat'])
+        r.set_texture_uv_transform("t", 2.0, 1.0, -0.5, 0.0)
     elif kind == "program":
         # Checker -> Math(Multiply 0.5): the op-VM result differs from the raw
         # input, so skipping svm_eval on GPU would fail parity.
@@ -140,8 +157,15 @@ def _card(r, kind):
     from base_helpers import setup_camera
     r.set_background_color([0.0, 0.0, 0.0])
     transformed = kind.endswith("_transformed")
-    _make_tex(r, kind.replace("_transformed", ""))
+    sphere = kind.endswith("_sphere")
+    _make_tex(r, kind.replace("_transformed", "").replace("_sphere", ""))
     m = r.create_material("light", [1, 1, 1], {"intensity": 2.0, "texture": "t"})
+    if sphere:
+        # 2D texture on a sphere emitter: GPU rebuilds the CPU sphere UV.
+        r.add_sphere([0.0, 0.0, 0.0], 1.0, m)
+        setup_camera(r, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0],
+                     vfov=45, width=W, height=H)
+        return
     A, B, Cc, D = (_xf(v, transformed) for v in ([-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]))
     a = np.radians(25.0) if transformed else 0.0
     n = [float(np.sin(a)), 0.0, float(np.cos(a))]
@@ -186,8 +210,8 @@ def _bands(px):
 
 
 @pytest.mark.gpu
-@pytest.mark.parametrize("kind", ["image", "image_transformed", "checker",
-                                  "checker_generated", "program"])
+@pytest.mark.parametrize("kind", ["image", "image_transformed", "image_sphere", "checker",
+                                  "checker_generated", "program", "program_uvxf"])
 def test_gpu_textured_emission_card_matches_cpu(kind):
     _gpu_or_skip()
     g = _render(lambda r: _card(r, kind), True, 32)
@@ -259,3 +283,18 @@ def test_gpu_plain_image_emission_full_resolution():
     assert c.std() > 0.2, c.std()
     assert g.std() > 0.9 * c.std(), (g.std(), c.std())
     assert np.corrcoef(g, c)[0, 1] > 0.95
+
+
+@pytest.mark.gpu
+def test_gpu_unsupported_coord_emission_reports_degraded(capfd):
+    """An emission texture in a coordinate mode the GPU cannot bake (Object) keeps
+    the flat mean and says so (Terra #962 item 4)."""
+    _gpu_or_skip()
+
+    def build(r):
+        _card(r, "checker")
+        r.set_texture_coord_mode("t", "OBJECT")
+
+    _render(build, True, 4)
+    err = capfd.readouterr().err
+    assert "[#962] DEGRADED" in err and "coordinate mode" in err, err[-500:]

@@ -265,7 +265,8 @@ __constant__ int c_wfEmissionFlatPrims = 0x7fffffff;
 struct GProgInputTexel { GVec3 c; bool ok; };
 // Defined after c_wfTexBinding below.
 static __device__ __noinline__ GProgInputTexel gpu_emissionTexel(
-    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int matId);
+    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris,
+    const GSphere* spheres, int matId);
 
 // pkg224 — Sobol' direction-vector table in __constant__ memory (8 KB). Filled
 // from the host constexpr kSobolMatrices32 by setWavefrontSamplerMode(true)
@@ -967,7 +968,7 @@ __device__ int intersectPathSlotT(
         // texel x intensity). Le > 0 already implies the front face.
         if (c_wfEmissionTex && mat.type == GMAT_DIFFUSE_LIGHT) {
             GProgInputTexel e = gpu_emissionTexel(rec.point, rec.primId, prims, tris,
-                                                  rec.materialId);
+                                                  spheres, rec.materialId);
             if (e.ok)
                 Le = gpu_rgbToSampledSpectrum(e.c * mat.emissionIntensity, lambdas,
                                               mat.spectralMode);
@@ -1233,7 +1234,8 @@ static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
 // scene_upload.cu on the matTexId slot; an op-VM chain arrives pre-baked). Linear
 // RGB texel at a point on emissive material matId via the SAME fetch as
 // shadePathSlot's HasTexture block (gpu_progInputTexel: 3D bake / UV barycentric
-// + Mapping). ok=false when untextured, instanced (object-space triangles) or
+// + Mapping; 2D on a sphere: the CPU sphere UV). ok=false when untextured,
+// instanced (object-space triangles) or
 // unsampleable (caller keeps the flat mean). CPU twin: TexturedLight::emitted()/
 // emittedSpectral() = texel x intensity, evaluated per BSDF hit and per NEE
 // sample (light_sampler.cpp #776); Cycles likewise evaluates the emission shader
@@ -1241,11 +1243,31 @@ static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
 // (intern/cycles/kernel/light/triangle.h + kernel/integrator/shade_surface.h).
 // Caller guards on c_wfEmissionTex, so c_wfTexBinding is valid this frame.
 static __device__ __noinline__ GProgInputTexel gpu_emissionTexel(
-    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int matId)
+    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris,
+    const GSphere* spheres, int matId)
 {
     const int texId = c_wfTexBinding.matTexId[matId];
     if (texId < 0 || primId < 0 || primId >= c_wfEmissionFlatPrims)
         return {GVec3(0.0f, 0.0f, 0.0f), false};
+    const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
+    if (tdesc.depth <= 1 && prims[primId].type == GPRIM_SPHERE) {
+        // 2D texture on a sphere emitter: the CPU Sphere UV (shapes.h):
+        // theta = acos(-n.y), phi = atan2(-n.z, n.x) + pi, uv = (phi/2pi, theta/pi)
+        // with n the outward unit normal, then the same Mapping + fetch as the
+        // triangle UV path (gpu_progInputTexel).
+        const GSphere& sp = spheres[prims[primId].index];
+        GVec3 n = (point - sp.center) * (1.0f / sp.radius);
+        float theta = acosf(fminf(1.0f, fmaxf(-1.0f, -n.y)));
+        float phi = atan2f(-n.z, n.x) + M_PI_F;
+        float uu = phi / (2.0f * M_PI_F), vv = theta / M_PI_F;
+        if (tdesc.hasMapping) {
+            const float* m = tdesc.mapping;
+            float mu = m[0]*uu + m[1]*vv + m[3];
+            float mv = m[4]*uu + m[5]*vv + m[7];
+            uu = mu; vv = mv;
+        }
+        return {gpu_sampleImageTexture(tdesc, c_wfTexBinding.texelBuf, uu, vv), true};
+    }
     return gpu_progInputTexel(point, primId, prims, tris, texId);
 }
 
@@ -1256,7 +1278,7 @@ static __device__ __noinline__ GProgInputTexel gpu_emissionTexel(
 // the BSDF-hit leg sees at that point.
 static __device__ __noinline__ GProgInputTexel gpu_emissionTexelAtLightSample(
     GVec3 origin, GVec3 wi, float geomDist, GVec3 packed, int lightMatId,
-    const GPrimitive* prims, const GTriangle* tris)
+    const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres)
 {
     const int primId = __float_as_int(packed.z);
     if (primId < 0) return {GVec3(0.0f, 0.0f, 0.0f), false};
@@ -1265,7 +1287,7 @@ static __device__ __noinline__ GProgInputTexel gpu_emissionTexelAtLightSample(
         const GTriangle& t = tris[prims[primId].index];
         p = t.v0 + (t.v1 - t.v0) * packed.x + (t.v2 - t.v0) * packed.y;
     }
-    return gpu_emissionTexel(p, primId, prims, tris, lightMatId);
+    return gpu_emissionTexel(p, primId, prims, tris, spheres, lightMatId);
 }
 
 // pkg219d — apply one op-VM scalar result to the LOCAL GMaterial copy. Overwrites
@@ -2415,7 +2437,7 @@ __global__ void stageShadowKernel(
         materials[s.lightMatId].type == GMAT_DIFFUSE_LIGHT)
         emTex = gpu_emissionTexelAtLightSample(
             s.origin, s.wi, nee_f[14 * nee_capacity + idx], s.dedEmissionRGB,
-            s.lightMatId, prims, tris);
+            s.lightMatId, prims, tris, spheres);
 
     // Emission upsample only (the BSDF/MIS parts were pre-resolved in the
     // shade stage); lambdas from the slot's live spectral state.

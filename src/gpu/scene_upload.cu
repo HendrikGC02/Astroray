@@ -909,8 +909,9 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 float v = 1.0f - (j + 0.5f) / res;
                 for (int i = 0; i < res; ++i) {
                     float u = (i + 0.5f) / res;
-                    Vec3 mp = tex->mappedPoint(Vec3(u, v, 0.0f));
-                    Vec3 c = tex->value(Vec2(mp.x, mp.y), mp);
+                    // #962: full CPU UV-mode chain (Mapping, else legacy UV
+                    // transform) -- Texture::value(HitRecord) with p=(u,v,0).
+                    Vec3 c = tex->valueAtCoord(Vec2(u, v), Vec3(u, v, 0.0f));
                     r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
                 }
             }
@@ -930,8 +931,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                     float py = (j + 0.5f) / res;
                     for (int i = 0; i < res; ++i) {
                         float px = (i + 0.5f) / res;
-                        Vec3 mp = tex->mappedPoint(Vec3(px, py, pz));
-                        Vec3 c = tex->value(Vec2(mp.x, mp.y), mp);
+                        // #962: CPU Generated chain (uv = g.xy, p = g).
+                        Vec3 c = tex->valueAtCoord(Vec2(px, py), Vec3(px, py, pz));
                         r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
                     }
                 }
@@ -1099,11 +1100,31 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // consumer reads the product (the same float product as the host),
             // while the per-hit fetch computes texel x emissionIntensity (CPU
             // TexturedLight::emitted = texel x intensity).
+            // #962 (item 2): a baked field (procedural / op-VM) uses the mean of
+            // the baked texels, so the flat fallback matches what the per-hit
+            // fetch integrates; a plain image keeps its exact pixel mean.
             if (texId >= 0 && !tl) {
-                const Vec3 avg = emitTex->average();
+                Vec3 avg = emitTex->average();
+                if (!std::dynamic_pointer_cast<ImageTexture>(emitTex)) {
+                    const GImageTexture& d = r.textures[texId];
+                    const size_t n = (size_t)d.width * d.height * (d.depth > 1 ? d.depth : 1);
+                    double sx = 0.0, sy = 0.0, sz = 0.0;
+                    for (size_t k = 0; k < n; ++k) {
+                        const GVec3& t = r.textureTexels[(size_t)d.offset + k];
+                        sx += t.x; sy += t.y; sz += t.z;
+                    }
+                    if (n > 0) avg = Vec3((float)(sx / n), (float)(sy / n), (float)(sz / n));
+                }
                 r.materials[id].baseColor = GVec3(avg.x, avg.y, avg.z);
                 r.materials[id].emissionIntensity = tel->getIntensity();
                 r.hasEmissionTexture = true;
+            }
+            if (!tl) {
+                r.hasEmissionTextureRequested = true;
+                if (texId < 0)   // #962 (item 4): unbakeable coord mode / empty image
+                    fprintf(stderr, "[#962] DEGRADED: Emission Color texture with an "
+                                    "unsupported GPU coordinate mode (Object/Camera/Normal/"
+                                    "Reflection/Window) renders its texture mean on GPU\n");
             }
         }
         // pkg223 — register the tangent-space normal texture (always a plain
@@ -1202,9 +1223,20 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // textured emission: the hit point is world-space, their triangles object-space.
     if (cpu.hasInstances()) {
         r.emissionFlatPrims = (int)orderedPrims.size();
-        if (r.hasEmissionTexture)
-            fprintf(stderr, "[#962] DEGRADED: instanced scene: a textured Emission "
-                            "Color on an instanced mesh renders its texture mean on GPU\n");
+        bool instancedTexEmitter = false;
+        for (size_t p = orderedPrims.size(); r.hasEmissionTexture && p < r.prims.size(); ++p) {
+            const GPrimitive& gp = r.prims[p];
+            int mid = gp.type == GPRIM_TRIANGLE ? r.triangles[gp.index].materialId
+                    : gp.type == GPRIM_SPHERE   ? r.spheres[gp.index].materialId : -1;
+            if (mid >= 0 && r.materials[mid].type == GMAT_DIFFUSE_LIGHT &&
+                r.materialTextureId[mid] >= 0) {
+                instancedTexEmitter = true;
+                break;
+            }
+        }
+        if (instancedTexEmitter)
+            fprintf(stderr, "[#962] DEGRADED: a textured Emission Color on an instanced "
+                            "mesh renders its texture mean on GPU\n");
     }
 
     // pkg202: legacy hittable suns (add_sun_light / .blend importer) detected in

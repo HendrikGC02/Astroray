@@ -57,6 +57,10 @@ struct SceneUploadResult {
     // #962 — flat-scene prim count when instanced (INT_MAX otherwise): instanced
     // prims keep the flat mean (object-space triangles vs a world-space hit).
     int                        emissionFlatPrims = 0x7fffffff;
+    // #962 — some emitter has a non-solid Emission Color texture, whether or not
+    // it could be uploaded (unbakeable coord modes keep the flat mean). Drives the
+    // ReSTIR / unsupported-mode DEGRADED reports.
+    bool                       hasEmissionTextureRequested = false;
     // #847 — per-vertex Generated coords parallel to `triangles` (3 per tri;
     // NaN .x = none). Empty unless a Generated 3D bake AND a triangle carrying
     // Triangle::setGenerated exist (and the scene is not instanced).

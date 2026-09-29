@@ -2682,7 +2682,7 @@ std::vector<float> cuda_wavefront_render_restir(
     WfContext& C = wfCtx();
     SceneUploadResult res = buildSceneArrays(renderer, &cam);
     // #962: ReSTIR candidates/resolve carry no emitter point -> flat mean emission.
-    if (res.hasEmissionTexture)
+    if (res.hasEmissionTextureRequested)
         std::fprintf(stderr, "[#962] DEGRADED: ReSTIR-DI renders textured Emission "
                              "Color as its texture mean (per-hit fetch is wavefront-only)\n");
     GBVHNode*   d_bvhNodes  = wfUpload(C.nodes, res.nodes);

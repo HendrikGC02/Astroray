@@ -220,6 +220,17 @@ public:
         }
         return value(applyUVTransform(uv), p);
     }
+    // #962 — value at an already-built texture coordinate (uv, p), applying the
+    // SAME transform chain as value(HitRecord) above (3-D Mapping if set, else
+    // the legacy UV transform). Used by the GPU scene-upload bake so baked
+    // fields sample the CPU's coordinates.
+    Vec3 valueAtCoord(const Vec2& uv, const Vec3& p) const {
+        if (hasMapping_) {
+            Vec3 mp = applyMappingPoint(p);
+            return value(Vec2(mp.x, mp.y), mp);
+        }
+        return value(applyUVTransform(uv), p);
+    }
     Vec3 valueOffset(const HitRecord& rec, const Vec3& wo, float du, float dv) const {
         auto [uv, p] = textureCoordinates(rec, wo);
         if (hasMapping_) {  // pkg242 — transform the procedural point too (see value())

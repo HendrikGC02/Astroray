@@ -1578,8 +1578,7 @@ std::vector<float> cuda_wavefront_render(
     // #962 — textured Emission Color: the intersect (emissive hit) and shadow
     // (NEE) stages fetch the texel per hit when set; both bindings above are
     // published this frame whenever the matching bit is set.
-    setWavefrontEmissionTexture(res.hasEmissionTexture
-                                    ? (1 | (res.hasProgram ? 2 : 0)) : 0,
+    setWavefrontEmissionTexture(res.hasEmissionTexture ? 1 : 0,
                                 res.emissionFlatPrims);
     // pkg199 Stage 1 — publish the homogeneous world-volume medium every frame
     // (c_worldVolume is __constant__ and persists across calls, so set it

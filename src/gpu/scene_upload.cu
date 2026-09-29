@@ -1039,7 +1039,12 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // CPU parity by construction. If any input cannot upload (empty image,
             // unbakeable coord mode, > VM_MAX_TEX inputs) the whole program falls
             // through to the flat baseColor (GPU-degraded; CPU stays correct).
-            if (auto pt = std::dynamic_pointer_cast<ProgramTexture>(tex)) {
+            // #962: an emitter's op-VM chain is NOT run per hit on GPU; it falls
+            // through to the bakeProceduralTexId branch below, which bakes the
+            // whole ProgramTexture (CPU evaluator, 64^2 / 64^3) -- keeps svm_eval
+            // out of the intersect/shadow kernels' call graph (register cost).
+            auto pt = tl ? std::dynamic_pointer_cast<ProgramTexture>(tex) : nullptr;
+            if (pt) {
                 const int numIn = (int)pt->numInputs();
                 bool inputsOk = numIn >= 1 && numIn <= astroray::svm::VM_MAX_TEX;
                 for (int t = 0; inputsOk && t < numIn; ++t) {

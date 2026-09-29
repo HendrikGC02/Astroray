@@ -213,3 +213,10 @@ guiding (CPU, off by default).
 5. pkg307's timing method (spp differencing) and pkg298's
    `wavefront_baseline.py` should share one instrument. Proposed: pkg307 calls
    pkg298's harness for GPU timing once it lands.
+
+## Owner decisions (2026-09-29)
+
+- **Metric: equal time on the same device class** (GPU vs Cycles OptiX, CPU vs Cycles CPU) is the gate; equal-spp is diagnostic only.
+- **CPU render speed is not a target**; the CPU remains the correctness oracle.
+- **pkg305 runs in parallel** with the GPU speed work (pkg298-300).
+- **Installs approved:** Mitsuba 3.9.1 (pip, venv), pbrt-v4 (CPU build from source), BlendLuxCore 2.11.1.

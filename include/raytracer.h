@@ -2641,6 +2641,10 @@ class Renderer {
     // deprecated but not deleted — research note §1b).
     std::vector<std::unique_ptr<astroray::volume::GridMedium>> gridStore_;
     std::vector<astroray::volume::BoundedMedium> gridMedia_;
+    // pkg296 (#833) — owned triangle boundaries of mesh-bounded media
+    // (BoundedMedium::boundary points into these; stable across push_back).
+    std::vector<std::unique_ptr<astroray::volume::MediumBoundary>> boundaryStore_;
+    bool hasBoundaryMedia_ = false;
     // pkg136 — SD-tree path guiding (CPU Stage 1). Off by default → the render
     // path is byte-identical to pre-pkg136. When enabled, Renderer::render()
     // prepends learn-then-sample training passes that build `guideSampling_`, then
@@ -2884,7 +2888,8 @@ class Renderer {
     // Distance rate = sum_k per-λ σ_t majorant of the media on the ray (exact
     // for one homogeneous medium).
     astroray::SampledSpectrum boundedSegmentDirect(const Ray& ray, const Vec3& dUnit,
-                                                   float surfaceT,
+                                                   float tStart, float surfaceT,
+                                                   const astroray::volume::SegmentCrossings& sc,
                                                    const astroray::SampledWavelengths& lambdas,
                                                    std::mt19937& gen) const {
         namespace av = astroray::volume;
@@ -2892,7 +2897,7 @@ class Renderer {
         astroray::SampledSpectrum rate(0.0f);
         for (const auto& m : gridMedia_) {
             float t0, t1;
-            if (!av::intersectAABB(ray.origin, dUnit, m.aabbMin, m.aabbMax, 0.001f, surfaceT, t0, t1))
+            if (!av::intersectAABB(ray.origin, dUnit, m.aabbMin, m.aabbMax, tStart, surfaceT, t0, t1))
                 continue;
             a = std::min(a, t0);
             b = std::max(b, t1);
@@ -2905,10 +2910,12 @@ class Renderer {
             [&](const Vec3& P, float t, astroray::SampledSpectrum* sigS, float* g,
                 astroray::SampledSpectrum& Tr) {
                 int n = 0;
-                for (const auto& m : gridMedia_) {
+                for (size_t k = 0; k < gridMedia_.size(); ++k) {
+                    const auto& m = gridMedia_[k];
                     if (n >= 8) break;
-                    if (P.x < m.aabbMin[0] || P.x > m.aabbMax[0] || P.y < m.aabbMin[1] ||
-                        P.y > m.aabbMax[1] || P.z < m.aabbMin[2] || P.z > m.aabbMax[2])
+                    // pkg296: AABB, or the mesh boundary when the medium has one.
+                    if (!av::mediumContains(m, ray.origin, dUnit, t, P,
+                                            m.boundary ? sc.find(k) : nullptr))
                         continue;
                     float dens = m.densityAt(P);
                     if (dens <= 0.0f) continue;
@@ -2919,8 +2926,8 @@ class Renderer {
                     ++n;
                 }
                 if (n > 0)
-                    Tr = av::segmentTransmittanceSpectral(gridMedia_, ray.origin, dUnit, 0.001f, t,
-                                                          lambdas, gen);
+                    Tr = av::segmentTransmittanceSpectral(gridMedia_, ray.origin, dUnit, tStart, t,
+                                                          lambdas, gen, &sc);
                 return n;
             });
     }
@@ -3146,16 +3153,30 @@ public:
     void setVolumeBounces(int n) { maxVolumeBounces = (n < 0) ? -1 : n; }
     int getMaxVolumeBounces() const { return maxVolumeBounces; }
     // pkg268 — register bounded object media. Clear before a re-export.
-    void clearGridMedia() { gridMedia_.clear(); gridStore_.clear(); }
+    void clearGridMedia() {
+        gridMedia_.clear(); gridStore_.clear(); boundaryStore_.clear(); hasBoundaryMedia_ = false;
+    }
     // Heterogeneous: takes ownership of a built GridMedium + Principled Volume
     // basics. AABB / density majorant are read from the grid.
+    // pkg296: an optional boundary clips the grid to a closed mesh (the AABB
+    // becomes the intersection of the grid's and the mesh's bounds).
     void addGridMedium(std::unique_ptr<astroray::volume::GridMedium> g,
-                       const astroray::volume::PrincipledVolume& pv) {
+                       const astroray::volume::PrincipledVolume& pv,
+                       std::unique_ptr<astroray::volume::MediumBoundary> boundary = nullptr) {
         if (!g || !g->valid()) return;
         astroray::volume::BoundedMedium m;
         m.heterogeneous = true;
         auto aabb = g->worldAABB();
         for (int a = 0; a < 3; ++a) { m.aabbMin[a] = aabb[a]; m.aabbMax[a] = aabb[3 + a]; }
+        if (boundary && !boundary->empty()) {
+            for (int a = 0; a < 3; ++a) {
+                m.aabbMin[a] = std::max(m.aabbMin[a], boundary->boundsMin()[a]);
+                m.aabbMax[a] = std::min(m.aabbMax[a], boundary->boundsMax()[a]);
+            }
+            m.boundary = boundary.get();
+            boundaryStore_.push_back(std::move(boundary));
+            hasBoundaryMedia_ = true;
+        }
         m.extinction = pv.extinctionScale();  // pkg268 Cycles σ_t = D·max_c(σ_s+σ_a)
         m.maxDensity = std::max(1e-6f, g->majorant().globalMax());
         m.g = std::clamp(pv.anisotropy, -0.99f, 0.99f);
@@ -3167,13 +3188,25 @@ public:
     }
     // Homogeneous: a bounded AABB of constant σ_t = density (the #807 cabinet's
     // Principled/Absorption/Scatter cubes, and the slab furnace).
+    // pkg296 (#833): with a boundary the medium is the closed mesh; its AABB is
+    // the triangles' bounds (aabbMin/aabbMax are ignored).
     void addHomogeneousMedium(const Vec3& aabbMin, const Vec3& aabbMax,
-                              const astroray::volume::PrincipledVolume& pv) {
+                              const astroray::volume::PrincipledVolume& pv,
+                              std::unique_ptr<astroray::volume::MediumBoundary> boundary = nullptr) {
         astroray::volume::BoundedMedium m;
         m.heterogeneous = false;
         m.grid = nullptr;
         m.aabbMin[0] = aabbMin.x; m.aabbMin[1] = aabbMin.y; m.aabbMin[2] = aabbMin.z;
         m.aabbMax[0] = aabbMax.x; m.aabbMax[1] = aabbMax.y; m.aabbMax[2] = aabbMax.z;
+        if (boundary && !boundary->empty()) {
+            for (int a = 0; a < 3; ++a) {
+                m.aabbMin[a] = boundary->boundsMin()[a];
+                m.aabbMax[a] = boundary->boundsMax()[a];
+            }
+            m.boundary = boundary.get();
+            boundaryStore_.push_back(std::move(boundary));
+            hasBoundaryMedia_ = true;
+        }
         m.extinction = pv.extinctionScale();  // pkg268 Cycles σ_t = D·max_c(σ_s+σ_a)
         m.maxDensity = 1.0f;
         m.g = std::clamp(pv.anisotropy, -0.99f, 0.99f);
@@ -3504,6 +3537,9 @@ public:
             const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
             const float tMin = (bounce == 0) ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
             const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv : std::numeric_limits<float>::max();
+            // pkg296: where the bounded media start on this ray (see the media
+            // block); the default 0.001 clip keeps the pre-pkg296 0.001 start.
+            const float mediaT0 = (bounce == 0 && clipNear_ > 0.001f) ? tMin : 0.001f;
             bool didHit = bvh->hit(ray, tMin, tMax, rec);
 
             // pkg199 Stage 2 — homogeneous medium free-flight sampling. Engaged
@@ -3562,7 +3598,7 @@ public:
                     // under-counted a lamp inside a medium box).
                     if (!gridMedia_.empty())
                         lampEmission *= astroray::volume::segmentTransmittanceSpectral(
-                            gridMedia_, ray.origin, ray.direction.normalized(), 0.001f, lh.t,
+                            gridMedia_, ray.origin, ray.direction.normalized(), mediaT0, lh.t,
                             lambdas, gen);
                     // pkg198: continuation-ray lamp = <firstCat>_INDIRECT;
                     // #903: the camera-visible sky disc is background.
@@ -3593,18 +3629,25 @@ public:
             if (!gridMedia_.empty()) {
                 Vec3 dUnit = ray.direction.normalized();
                 float surfaceT = didHit ? rec.t : std::numeric_limits<float>::max();
-                // #842: every medium on [0.001, surfaceT], swept in boundary order
-                // (was: only the nearest-entered one).
+                // #842: every medium on [mediaT0, surfaceT], swept in boundary order
+                // (was: only the nearest-entered one). pkg296: a camera ray's media
+                // start at the clip start like its surfaces (Cycles camera.h
+                // camera_sample_perspective moves ray->P by nearclip*D, so
+                // shade_volume never sees [0, nearclip); Apache-2.0). Secondary
+                // rays and the default 0.001 clip: 0.001 (unchanged).
                 // beta = pbrt path throughput; volRu = rescaled path pdf.
                 astroray::SampledSpectrum beta =
                     throughput * astroray::volume::heroAverage(volRu, lambdas);
+                // pkg296: mesh-boundary crossings of this segment, shared below.
+                astroray::volume::SegmentCrossings segX;
+                if (hasBoundaryMedia_) segX.build(gridMedia_, ray.origin, dUnit, mediaT0);
                 // #925: per-segment direct light, decoupled from the free-flight
                 // scatter decision (Kulla & Fajardo 2012; Cycles shade_volume.h):
                 // one distance on the media hull (equiangular / exponential
                 // one-sample MIS), NEE there weighted by Tr(0,t)·σ_s(t).
                 if (lightNeeEnabled && !lights.empty() && !volTerminateAfter) {
                     astroray::SampledSpectrum c =
-                        boundedSegmentDirect(ray, dUnit, surfaceT, lambdas, gen);
+                        boundedSegmentDirect(ray, dUnit, mediaT0, surfaceT, segX, lambdas, gen);
                     if (!c.isZero()) {
                         c = clampContribSpectral(throughput * c, lambdas, bounce);
                         color += c;
@@ -3614,8 +3657,8 @@ public:
                 bool entered = false;
                 int mi = -1;
                 astroray::volume::SpectralFlight ff = astroray::volume::spectralTrackSegment(
-                    gridMedia_, ray.origin, dUnit, 0.001f, surfaceT, lambdas, beta, volRu, gen,
-                    /*noScatter=*/volTerminateAfter, entered, mi);
+                    gridMedia_, ray.origin, dUnit, mediaT0, surfaceT, lambdas, beta, volRu, gen,
+                    /*noScatter=*/volTerminateAfter, entered, mi, &segX);
                 if (entered) {
                     const float medG = (mi >= 0) ? gridMedia_[mi].g : 0.0f;
                     if (!ff.emission.isZero()) {
@@ -4010,6 +4053,12 @@ public:
                             Vec3 sp = rec.point;
                             Vec3 swi = (ls.position - sp).normalized();
                             for (const auto& mm : gridMedia_) {
+                                if (mm.boundary) {  // pkg296: mesh-bounded medium
+                                    neeContrib = neeContrib *
+                                        astroray::volume::boundaryTransmittanceSpectral(
+                                            mm, sp, swi, 1e-3f, ls.distance, lambdas, gen);
+                                    continue;
+                                }
                                 float s0, s1;
                                 if (astroray::volume::intersectAABB(sp, swi, mm.aabbMin,
                                         mm.aabbMax, 1e-3f, ls.distance, s0, s1))

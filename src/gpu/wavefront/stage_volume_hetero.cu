@@ -584,6 +584,7 @@ __device__ void gpu_volumeSegmentDirect(
 {
     const int cap = c_wfGridVolume.segCapacity;
     if (cap <= 0 || (numLights + numDed) <= 0 || !(totalLightPower > 0.f)) return;
+    const float segStart = a;  // pkg296: Tr(P) starts where the media do (camera clip)
     if (kind == 0) {
         // boundedSegmentDirect: hull of the media on [a,b]; distance rate =
         // Σ_k per-λ σ_t majorant (exact for one homogeneous medium).
@@ -659,7 +660,7 @@ __device__ void gpu_volumeSegmentDirect(
         if (n > 0)
             for (int k = 0; k < c_wfGridVolume.count; ++k) {
                 float s0, s1;
-                if (gpu_gridAabbOverlap(c_wfGridVolume.media[k], o, d, 0.001f, ds.t, s0, s1))
+                if (gpu_gridAabbOverlap(c_wfGridVolume.media[k], o, d, segStart, ds.t, s0, s1))
                     TrP *= gpu_gridVolumeTransmittance(k, o, d, s0, s1, wl, rpix, rsmp, rsd,
                                                        gpu_segSalt(bounce, 2 + k));
             }

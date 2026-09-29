@@ -324,6 +324,82 @@ def mesh_world_vertices(obj, matrix_world):
     return co @ m[:3, :3].T + m[:3, 3]
 
 
+def mesh_world_triangles(obj, matrix_world):
+    """pkg296 (#833) — the medium boundary of a mesh volume: world-space vertices
+    (N, 3) float32 and loop-triangle indices (M, 3) int32 of the evaluated mesh.
+    A negative-determinant transform flips the winding so the geometric normal
+    stays outward (Cycles flips Ng for negative-scaled objects)."""
+    mesh = obj.data
+    if hasattr(mesh, "calc_loop_triangles"):
+        mesh.calc_loop_triangles()
+    tris = mesh.loop_triangles
+    n = len(tris)
+    if hasattr(tris, "foreach_get"):
+        idx = np.empty(n * 3, dtype=np.int32)
+        tris.foreach_get("vertices", idx)
+    else:
+        idx = np.array([tuple(t.vertices) for t in tris], dtype=np.int32)
+    idx = idx.reshape(n, 3)
+    m = np.array([[float(c) for c in row] for row in matrix_world], dtype=np.float64)
+    if np.linalg.det(m[:3, :3]) < 0.0:
+        idx = np.ascontiguousarray(idx[:, [0, 2, 1]])
+    verts = mesh_world_vertices(obj, matrix_world).astype(np.float32)
+    return verts, idx
+
+
+def mesh_is_closed(tri_indices, world_verts=None):
+    """pkg296 — True iff the triangles form a closed, consistently oriented
+    surface: every directed edge occurs exactly once and its reverse occurs too
+    (edge-manifold, no holes, no flipped faces). Degenerate triangles (a repeated
+    index, or zero area when ``world_verts`` is given) make it not closed: they
+    carry no crossing, so the boundary could leak."""
+    t = np.asarray(tri_indices, dtype=np.int64).reshape(-1, 3)
+    if t.shape[0] == 0:
+        return False
+    if ((t[:, 0] == t[:, 1]) | (t[:, 1] == t[:, 2]) | (t[:, 2] == t[:, 0])).any():
+        return False
+    if world_verts is not None:
+        v = np.asarray(world_verts, dtype=np.float64).reshape(-1, 3)
+        area2 = np.linalg.norm(np.cross(v[t[:, 1]] - v[t[:, 0]], v[t[:, 2]] - v[t[:, 0]]), axis=1)
+        scale = max(float(np.ptp(v, axis=0).max()), 1e-12)
+        if (area2 <= 1e-12 * scale * scale).any():
+            return False
+    e = np.concatenate([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]])
+    n = int(t.max()) + 1
+    fwd = e[:, 0] * n + e[:, 1]
+    rev = e[:, 1] * n + e[:, 0]
+    if np.unique(fwd).size != fwd.size:
+        return False
+    return bool(np.isin(rev, fwd).all())
+
+
+def mesh_is_aabb_box(world_verts, tri_indices, aabb_min, aabb_max, rel_tol=1e-4):
+    """pkg296 — True iff the mesh IS its world AABB: the vertices are exactly the
+    8 corners (mesh_bounds_is_exact), the triangles are a closed surface, every
+    triangle lies in one AABB face plane, and they cover the box surface area
+    once. Loose corner vertices around another shape are NOT a box."""
+    v = np.asarray(world_verts, dtype=np.float64).reshape(-1, 3)
+    t = np.asarray(tri_indices, dtype=np.int64).reshape(-1, 3)
+    if t.shape[0] < 12 or not mesh_bounds_is_exact(v, aabb_min, aabb_max, rel_tol):
+        return False
+    if not mesh_is_closed(t, v):
+        return False
+    mn = np.asarray(aabb_min, dtype=np.float64)
+    mx = np.asarray(aabb_max, dtype=np.float64)
+    ext = mx - mn
+    tol = rel_tol * max(float(ext.max()), 1e-12)
+    p = v[t]                                              # (M, 3, 3)
+    on_face = np.zeros(t.shape[0], dtype=bool)
+    for a in range(3):
+        for c in (mn[a], mx[a]):
+            on_face |= (np.abs(p[:, :, a] - c) <= tol).all(axis=1)
+    if not on_face.all():
+        return False
+    area = 0.5 * np.linalg.norm(np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]), axis=1).sum()
+    box_area = 2.0 * (ext[0] * ext[1] + ext[1] * ext[2] + ext[2] * ext[0])
+    return abs(area - box_area) <= 1e-3 * box_area
+
+
 def mesh_bounds_is_exact(world_verts, aabb_min, aabb_max, rel_tol=1e-4):
     """True iff the vertices are exactly the 8 corners of [aabb_min, aabb_max],
     i.e. the AABB lowering reproduces the mesh (an axis-aligned box)."""

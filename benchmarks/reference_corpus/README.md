@@ -101,6 +101,17 @@ ids: `v2_light_tree`, `v2_media`, `v2_dispersion_caustics`, `v2_sky_sun`,
   physically correct result and Cycles differs (owner 2026-09-29), e.g. dispersion/photon
   caustics in `v2_dispersion_caustics`. They are not failures.
 
+## volumes_mesh (pkg296) -- mesh-bounded volumes
+
+Seven small (256x256) scenes, `vm_icosphere` (+ `vm_icosphere_empty`, the silhouette
+baseline), `vm_suzanne` (open mesh; ROIs off the eyes), `vm_nested`, `vm_overlap`,
+`vm_camera_inside`, `vm_glass_shell`, lit only by emissive meshes. Built with
+`build_corpus.py --families vm_<id>` (manifest `family: volumes_mesh`, `render_gate`
+false: not part of `gates_v2.toml`). Cycles references: `volumes_mesh_bands.py
+--engine CYCLES` (5 seeds x `volume_bounces` 0/4 at 128 spp) ->
+`refs_v2/volumes_mesh_cycles.json` + `refs_v2/vm_icosphere_mask_cycles.npy`. Gate:
+`tests/test_pkg296_mesh_volume_boundary.py` (opt-in Blender leg).
+
 ## Naming and files
 
 - `scenes/<family>.blend` -- the built scene (one `.blend` per family for

@@ -2,7 +2,7 @@
 
 **Pillar:** 2
 **Track:** A
-**Status:** open
+**Status:** in-progress — Phases 0-1 (CPU + addon) done on lane/an-296 2026-09-29: icosphere IoU 0.998 vs Cycles (main 0.77), corpus ROI parity at volume_bounces 0/4; Phase 2 (GPU) open
 **Estimated effort:** 3–4 sessions (~12 h): Phase 0 ~2 h, Phase 1 (CPU + addon) ~5 h, Phase 2 (GPU) ~5 h incl. one lead-run CUDA build cycle
 **Depends on:** pkg268, pkg269, pkg271
 
@@ -181,8 +181,8 @@ The lead runs the CUDA build. Register/stack table from `cuobjdump
 
 ## Progress
 
-- [ ] Phase 0: research note, `volumes_mesh` corpus + Cycles refs, AABB regression test red on main
-- [ ] Phase 1: CPU boundary + addon, CPU gates green, reviews
+- [x] Phase 0: research note, `volumes_mesh` corpus + Cycles refs, AABB regression test red on main (main: aabb_corner 0.19 vs Cycles 1.0, IoU 0.77)
+- [x] Phase 1: CPU boundary + addon, CPU gates green (reviews pending) — pre-existing, boundary-independent divergences reported: multi-scatter red deficit at volume_bounces 4 (cube control 0.955), smooth-glass rim +7.5 % with no volume; media-free Cornell differs from main at the ulp level only (codegen, see research note)
 - [ ] Phase 2: GPU twin, register table, GPU gates green, RTX sweep
 - [ ] Lead visual inspection of icosphere/Suzanne/glass-shell renders vs Cycles
 

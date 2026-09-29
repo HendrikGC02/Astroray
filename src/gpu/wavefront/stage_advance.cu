@@ -183,6 +183,17 @@ __constant__ GWavefrontEnvNeeBinding c_wfEnvNeeBinding = {};
 // intersectPathSlotT at bounce 0 only. active 0 (default) = unclipped.
 __constant__ GWavefrontPrimaryClip c_wfPrimaryClip = {};
 
+// pkg296: where bounded media start on this ray — the bounce-0 clip start
+// (tNear) when a near clip beyond the 0.001 default is set, else 0.001. CPU
+// twin: raytracer.h mediaT0 (Cycles camera.h moves ray->P by nearclip*D, so
+// shade_volume never sees [0, nearclip)). Reuses the tNear already computed
+// for the hit; no per-path state.
+__device__ __forceinline__ float gpu_wfMediaStart(int bounce, float tNear)
+{
+    return (bounce == 0 && c_wfPrimaryClip.active && c_wfPrimaryClip.nearDist > 0.001f)
+               ? tNear : 0.001f;
+}
+
 // #877: set_light_nee(False) = pure BSDF sampling: the path_tracer runs with
 // enableNEE false (no surface / medium light sampling) and takes every emitter
 // or lamp hit at w_B = 1 (CPU raytracer.h pkg265). 0 (default) keeps the
@@ -555,7 +566,7 @@ __device__ int intersectPathSlotT(
                     for (int m = 0; m < c_wfGridVolume.count; ++m) {
                         float s0, s1;
                         if (gpu_gridAabbOverlap(c_wfGridVolume.media[m], ray.origin, ray.direction,
-                                                0.001f, lampT, s0, s1))
+                                                gpu_wfMediaStart(bounce, tNear), lampT, s0, s1))
                             Le *= gpu_gridVolumeTransmittance(
                                 m, ray.origin, ray.direction, s0, s1, lambdas,
                                 state.rng_pixel[idx], state.rng_sample[idx], state.rng_seed[idx],
@@ -607,7 +618,8 @@ __device__ int intersectPathSlotT(
         // (Kulla & Fajardo 2012; Cycles shade_volume.h). Parked into segment slot
         // 0 for the shadow stage; uses the pre-flight throughput.
         if (enableNEE && !volTerm)
-            gpu_volumeSegmentDirect(idx, bounce, 0, ray.origin, ray.direction, 0.001f, surfaceT,
+            gpu_volumeSegmentDirect(idx, bounce, 0, ray.origin, ray.direction,
+                                    gpu_wfMediaStart(bounce, tNear), surfaceT,
                                     GSampledSpectrum(0.f), throughput, lambdas, 0.f, 0.f,
                                     prims, tris, spheres, lights, numLights, totalLightPower,
                                     dedLights, numDed, lightTree, state.rng_pixel[idx],
@@ -628,7 +640,7 @@ __device__ int intersectPathSlotT(
         GSampledSpectrum ru, beta, emission(0.f);
         uint32_t draw = 0;
         const uint32_t salt = gpu_gridTrackSalt(bounce);   // #828 disjoint fields
-        float cursor = 0.001f;
+        float cursor = gpu_wfMediaStart(bounce, tNear);  // pkg296 camera clip
         while (cursor < surfaceT) {
             uint32_t mask = 0u;
             int first = -1, n = 0;

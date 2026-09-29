@@ -198,9 +198,8 @@ def build_production_report(work: Path, out_dir: Path, seed: int = 278) -> dict:
         entry = summary["materials"][sid] = {}
         for leg, label in (("cpu", "Astroray CPU"), ("gpu", "Astroray GPU")):
             f = work / f"{sid}_{leg}_s{seed}.npy"
-            if not f.is_file():
-                util[leg].append(0.0)
-                continue
+            if not f.is_file():  # fail closed: a missing leg must not read as "0 deviation"
+                raise FileNotFoundError(f"missing {leg} render for {sid}: {f} (run the leg first)")
             img = np.load(f)
             tiles.append((f"{label} {g['spp_gate']} spp", img))
             rows = MC.score_material(g, img, leg)

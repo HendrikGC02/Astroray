@@ -28,7 +28,10 @@ ROIs are within 3 % of Cycles and the 12 are dominated by one sun-highlight ROI 
 ## Silent drops
 
 Strict definition (spec): an exercised (node, socket) pair, reachable from the active output and linked or non-default,
-that the frozen coverage matrix does not classify SUPPORTED and that no DegradationReport entry names. **39 unique
+that the frozen coverage matrix does not classify SUPPORTED and that no DegradationReport entry names. Four deliberate
+deviations (in the `silent_drop_audit.py` docstring): Output-node inputs are never drops; the shared `world:` tree is
+excluded (counted, identical in all eight scenes); output sockets are judged only for node types the matrix has `output:`
+rows for; APPROXIMATED pairs with no report go to a separate unscored `approximated_unreported` bucket. **39 unique
 (material, node, socket) pairs**, identical on CPU and GPU (one Blender export path). Rules and the separate
 "approximated, no report" bucket (not scored, 13 unique pairs, dominated by Principled APPROXIMATED rows): see the
 `silent_drop_audit.py` docstring; tests: `tests/test_production_corpus.py`.

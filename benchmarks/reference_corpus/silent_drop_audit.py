@@ -11,6 +11,18 @@ known property count too. ``coverage_report --collect`` records every active inp
 reuses its tree builder and reachability trace and adds the non-default filter (compared against a fresh
 twin node with the same enum properties).
 
+Deliberate deviations from the plain definition (each keeps the audit honest, none hides a drop):
+
+* trace roots (Output Material / World / Light nodes) are never drops: the matrix marks their sockets
+  DROPPED-SILENT because scene conversion, not the shader dispatch, consumes them;
+* pairs in the ``world:`` tree are excluded and only counted (``world_pairs_excluded``): the shared stage HDRI
+  world is identical in all eight scenes and is gated by the v2 world rows;
+* output-socket pairs are judged only for node types the matrix has ``output:`` rows for (inputs-less nodes such as
+  Attribute or Light Path); for every other node a linked output is evidence of use, not a classifiable pair;
+* an APPROXIMATED pair with no report entry is listed under ``approximated_unreported`` and NOT scored: the matrix
+  marks all 28 Principled sockets APPROXIMATED from an AST scan, so scoring that bucket would fail every material
+  on matrix coarseness. It is still reported per scene so it can be tightened later.
+
 Report matching is node-granular: the addon's report entries name a node type (``shader node 'X'``,
 ``_warn_shader_fallback(node_type, ...)``), not a socket, so any entry that names the node covers all of
 its exercised pairs. That is the most generous reading; a pair listed here really has no trace in the report.

@@ -59,7 +59,9 @@ PROD = CORPUS / "production"
 # pkg310: alternative scene populations run through the identical pipeline (--suite NAME).
 SUITES = {"production": {"manifest": PROD / "manifest.json", "refs": PROD / "refs",
                          "gates": CORPUS / "gates_production.toml",
-                         "known": CORPUS / "provisional_production.toml", "label": "pkg310 production corpus", "bless": "pkg310"}}
+                         "known": CORPUS / "provisional_production.toml", "label": "pkg310 production corpus", "bless": "pkg310",
+                         # decorrelated (#986: adjacent CPU seeds share seed+tile streams); 278 stays the gate seed
+                         "seeds": [278, 1301, 2711, 4177, 6113]}}
 LABEL, BLESS = "pkg284 corpus v2", "pkg284 Phase 2"
 BAND_FLOOR, BAND_CEIL, GPU_CPU_FLOOR, DARK = 0.02, 0.15, 0.05, 0.01
 GATE_C = ("v2_light_tree", "v2_textures_opvm", "v2_camera_geometry")  # owner 2026-09-29
@@ -320,7 +322,11 @@ def write_toml(results: dict, manifest: dict, seeds, blender_version: str, base:
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--scenes", nargs="+", help="v2 scene ids incl. variants (default: every render-gated v2 scene + variants)")
-    ap.add_argument("--seeds", nargs="+", type=int, default=[278, 279, 280, 281, 282])
+    ap.add_argument("--seeds", nargs="+", type=int, default=None,
+                    help="MC seeds (default 278-282; the production suite defaults to decorrelated seeds, see SUITES)")
+    ap.add_argument("--gates", type=Path, default=None,
+                    help="write the generated bands here instead of the suite's gates file (default gates_v2.toml, "
+                         "or gates_production.toml with --suite production)")
     ap.add_argument("--legs", nargs="+", choices=LEGS, default=["cycles", "cpu"],
                     help="legs to (re)measure this run; earlier legs stay in results.json")
     ap.add_argument("--reference", action="store_true",
@@ -333,6 +339,10 @@ def main():
     a = ap.parse_args()
     if a.suite:
         use_suite(a.suite)
+    if a.gates:
+        global GATES
+        GATES = a.gates.resolve()
+    a.seeds = a.seeds or (SUITES[a.suite]["seeds"] if a.suite else [278, 279, 280, 281, 282])
     if any(s <= 0 for s in a.seeds):
         sys.exit("seeds must be non-zero (0 is the random sentinel)")
     work = Path(a.work_dir)

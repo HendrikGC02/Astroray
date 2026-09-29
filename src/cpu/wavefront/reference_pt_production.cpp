@@ -285,6 +285,11 @@ ReferencePTResult reference_pt_production_render(
     int tilesY = (cam.height + tileSize - 1) / tileSize;
 
     uint32_t baseSeed = (seed == 0) ? static_cast<uint32_t>(std::random_device{}()) : static_cast<uint32_t>(seed);
+    // pkg305 — stratified camera group, mirroring the production tile loop
+    // (Renderer::resolveCameraGroup for a standalone render with a pinned seed).
+    const bool stratCam = renderer.getStratifiedCamera();
+    const uint32_t camMask = astroray::sobol_burley::indexMask(samples);
+    const float* filterTable = renderer.buildFilterTable();
 
     for (int tileY = 0; tileY < tilesY; ++tileY) {
         for (int tileX = 0; tileX < tilesX; ++tileX) {
@@ -307,16 +312,36 @@ ReferencePTResult reference_pt_production_render(
                         //    pkg88 added `time` as a required parameter; passing 0.0f matches
                         //    production's behaviour when shutter=0 (no motion blur).
                         // 4. dist01(gen) — 1 draw for lambda sampling.
-                        float u = (x + renderer.filterSample(gen, dist)) / cam.width;  // #845
-                        float v = 1.0f - (y + renderer.filterSample(gen, dist)) / cam.height;
-                        Ray primaryRay = cam.getRay(u, v, 0.0f, gen);
+                        // pkg305: with the stratified camera group on, 1-4 come
+                        // from Sobol-Burley (FILTER, LENS, HERO_LAMBDA) and draw
+                        // nothing from gen.
+                        float u, v, heroU;
+                        Ray primaryRay;
+                        if (stratCam) {
+                            const uint32_t ps = astroray::sobol_burley::pixelSeed(
+                                static_cast<uint32_t>(pixel_index), baseSeed);
+                            const uint32_t si = static_cast<uint32_t>(s);
+                            float fu, fv, lu, lv;
+                            astroray::sobol_burley::sample2D(si, astroray::PATHDIM_FILTER, ps, camMask, fu, fv);
+                            astroray::sobol_burley::sample2D(si, astroray::PATHDIM_LENS, ps, camMask, lu, lv);
+                            heroU = astroray::sobol_burley::sample1D(si, astroray::PATHDIM_HERO_LAMBDA, ps, camMask);
+                            const int ft = renderer.getPixelFilterType();
+                            const float fw = renderer.getPixelFilterWidth();
+                            u = (x + 0.5f + astroray::filter_table::sampleOffset(ft, fw, filterTable, fu)) / cam.width;
+                            v = 1.0f - (y + 0.5f + astroray::filter_table::sampleOffset(ft, fw, filterTable, fv)) / cam.height;
+                            primaryRay = cam.getRayLens(u, v, 0.0f, lu, lv);
+                        } else {
+                            u = (x + renderer.filterSample(gen, dist)) / cam.width;  // #845
+                            v = 1.0f - (y + renderer.filterSample(gen, dist)) / cam.height;
+                            primaryRay = cam.getRay(u, v, 0.0f, gen);
+                            heroU = std::uniform_real_distribution<float>(0.0f, 1.0f)(gen);
+                        }
 
                         // Lambda sampling (production spectral_path_tracer.cpp:107-108).
                         // pkg206: primary path uses luminance-weighted IMPORTANCE
                         // sampling (unbiased; per-lane logistic-density pdf). Same
                         // ONE draw as the old uniform path.
-                        std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
-                        SampledWavelengths lambdas = SampledWavelengths::sampleImportance(dist01(gen));
+                        SampledWavelengths lambdas = SampledWavelengths::sampleImportance(heroU);
 
                         // PostInit snapshot.
                         if (sink) {

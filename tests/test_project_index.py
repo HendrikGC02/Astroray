@@ -340,3 +340,146 @@ def test_status_token_v2():
     assert mod._status_token("done — PR #716") == "done"
     assert mod._status_token("in-progress — x") == "in-progress"
     assert mod._status_token("done (PR #540)") == "done"
+
+
+# --- 9. Graph viz (index-graph-viz directive) -------------------------------
+
+@pytest.fixture(scope="module")
+def pi_mod():
+    return _load_project_index_module()
+
+
+@pytest.fixture(scope="module")
+def payload(built_db, pi_mod):
+    con = sqlite3.connect(built_db)
+    try:
+        yield pi_mod._graph_payload(con)
+    finally:
+        con.close()
+
+
+def test_header_value_keeps_text_around_inner_bold(pi_mod):
+    text = "# pkg1 — x\n\n**Status:** DONE (PR #397) — **hybrid auto-select** (owner-chosen). More.\n"
+    val = pi_mod._header_value(text, "Status")
+    assert val.startswith("DONE (PR #397)") and val.endswith("More.")
+    assert pi_mod._status_token(val) == "done"
+    assert pi_mod._status_token("**DONE — x**") == "done"
+
+
+def test_reverse_deps_are_exact_tokens(pi_mod):
+    con = sqlite3.connect(":memory:")
+    con.execute("CREATE TABLE packages (key TEXT, num TEXT, depends TEXT)")
+    con.executemany("INSERT INTO packages VALUES (?,?,?)", [
+        ("pkg28-a", "pkg28", ""), ("pkg279-b", "pkg279", "pkg280"), ("pkg5-c", "pkg5", "pkg28,pkg9"),
+    ])
+    assert pi_mod._rev_deps(con, "pkg28", "pkg28-a") == ["pkg5-c"]
+
+
+def test_build_preserves_issues_table(built_db):
+    con = _connect()
+    con.execute("INSERT INTO issues (kind, number, title, state, url) VALUES ('issue', 999999, 'probe', 'OPEN', '')")
+    con.commit()
+    con.close()
+    try:
+        assert run("build").returncode == 0
+        con = _connect()
+        assert con.execute("SELECT COUNT(*) FROM issues WHERE number = 999999").fetchone()[0] == 1
+        con.close()
+    finally:
+        con = _connect()
+        con.execute("DELETE FROM issues WHERE number = 999999")
+        con.commit()
+        con.close()
+
+
+def test_graph_auto_rebuilds_stale_db(built_db, tmp_path):
+    run("build")
+    probe = PACKAGES_DIR / "pkg994-graph-freshness-probe.md"
+    probe.write_text("# pkg994 - probe\n\n**Status:** open.\n", encoding="utf-8")
+    try:
+        future = time.time() + 20
+        os.utime(probe, (future, future))
+        out = tmp_path / "g.json"
+        r = run("graph", "--json", str(out))
+        assert r.returncode == 0, r.stderr
+        assert "(index rebuilt)" in r.stderr
+        assert any(n["id"] == "pkg994-graph-freshness-probe" for n in json.loads(out.read_text(encoding="utf-8"))["nodes"])
+    finally:
+        probe.unlink()
+        run("build")
+
+
+def test_node_ids_use_forward_slashes(payload):
+    assert not [n["id"] for n in payload["nodes"] if "\\" in n["id"]]
+    assert not [e for e in payload["edges"] if "\\" in e["source"] or "\\" in e["target"]]
+
+
+@pytest.mark.parametrize("raw,state", [
+    ("done", "done"), ("open", "open"), ("in-progress", "in-progress"), ("blocked", "blocked"),
+    ("paused", "paused"), ("superseded", "superseded"), ("unblocked", "open"),
+    ("stage 2 done", "in-progress"), ("implemented", "done"), ("closed", "done"),
+    ("complete", "done"), ("resolved 2026-08-08", "done"), ("✅ done", "done"), ("weird", "other"),
+])
+def test_state_mapping(pi_mod, raw, state):
+    assert pi_mod._pkg_state(raw) == state
+
+
+def test_package_node_schema(payload):
+    pkgs = [n for n in payload["nodes"] if n["group"] == "package"]
+    assert pkgs
+    states = {"open", "in-progress", "blocked", "paused", "done", "superseded", "other"}
+    for n in pkgs:
+        for f in ("state", "pillar", "track", "effort", "date", "prs", "goal", "path", "status"):
+            assert f in n, (n["id"], f)
+        assert n["state"] in states
+        assert n["pillar"] in ("", "1", "2", "3", "4", "5")
+        assert n["path"].startswith(".astroray_plan/packages/") and n["path"].endswith(".md")
+        assert len(n["goal"]) <= 300
+        assert n["date"] == "" or re.fullmatch(r"\d{4}-\d{2}-\d{2}", n["date"])
+    pkg110 = next(n for n in pkgs if n["num"] == "pkg110")
+    assert pkg110["state"] == "done"
+    assert set(payload["meta"]) >= {"repo", "head", "gh_synced_at"}
+
+
+def test_hub_docs_flagged_and_their_edges_marked(payload):
+    degree: dict[str, int] = {}
+    for e in payload["edges"]:
+        if e["kind"] == "doc":
+            degree[e["source"]] = degree.get(e["source"], 0) + 1
+    docs = {n["id"]: n for n in payload["nodes"] if n["group"] == "doc"}
+    assert docs
+    for did, n in docs.items():
+        assert n["hub"] == (degree.get(did, 0) > 20), did
+    for e in payload["edges"]:
+        if e["kind"] == "doc":
+            assert bool(e.get("hub")) == docs[e["source"]]["hub"]
+
+
+def test_ambiguous_dependency_edges_and_no_intra_family_edges(payload, pi_mod):
+    nums = {n["id"]: n["num"] for n in payload["nodes"] if n["group"] == "package"}
+    dep_edges = [e for e in payload["edges"] if e["kind"] == "depends"]
+    for e in dep_edges:
+        assert nums[e["source"]] != nums[e["target"]], e
+    fam = {}
+    for k, num in nums.items():
+        fam.setdefault(num, []).append(k)
+    for e in dep_edges:
+        assert bool(e.get("ambiguous")) == (len(fam[nums[e["target"]]]) > 1), e
+    assert any(e.get("ambiguous") for e in dep_edges)  # legacy duplicates (pkg55...) exist
+
+
+def test_graph_json_deterministic(built_db, tmp_path):
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    assert run("graph", "--json", str(a)).returncode == 0
+    assert run("graph", "--json", str(b)).returncode == 0
+    assert a.read_bytes() == b.read_bytes()
+
+
+def test_graph_html_embeds_data_without_placeholders(payload, pi_mod):
+    html = pi_mod._html(payload)
+    assert "__DATA__" not in html
+    assert not re.search(r"__[A-Z_]+__", pi_mod._HTML_TEMPLATE.replace("__DATA__", ""))
+    assert 'name="viewport"' in html
+    assert '"nodes":[' in html and payload["nodes"][0]["id"] in html
+    assert "</script><" not in html.split("const DATA = ", 1)[1].split(";\nconst META", 1)[0]
+    assert len(html.encode("utf-8")) < 1_500_000

@@ -31,6 +31,7 @@ silently stale.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import re
 import sqlite3
@@ -64,6 +65,7 @@ def _status_token(raw: str) -> str:
     -> "done"; "open (filed 2026-08-21)." -> "open"; "Stage 2 done ..." ->
     "stage 2 done"; "done — PR #716" -> "done".
     """
+    raw = raw.replace("**", "")
     m = _V2_STATUS_PREFIX_RE.match(raw.strip())
     if m:
         return m.group(1).lower()
@@ -124,7 +126,7 @@ def _header_value(text: str, label: str, fold: bool = False) -> str:
     lines = text.splitlines()
     for i, line in enumerate(lines):
         if line.strip().startswith(f"**{label}:**"):
-            value = line.split("**", 3)[-1].strip()
+            value = line.strip()[len(f"**{label}:**"):].strip()
             if fold:
                 for j in range(i + 1, min(i + 9, len(lines))):
                     nxt = lines[j]
@@ -409,7 +411,7 @@ def lint(paths: list[Path], baseline: set[str] | None, quiet: bool = False) -> i
 def _parse_docs() -> list[dict]:
     out = []
     for path in sorted((PLAN / "docs").rglob("*.md")):
-        rel = str(path.relative_to(PLAN))
+        rel = path.relative_to(PLAN).as_posix()
         if "/archive/" in rel or "\\archive\\" in rel:
             continue
         title = ""
@@ -459,6 +461,20 @@ def _parse_scripts_map() -> list[dict]:
     return out
 
 
+def _ensure_issue_schema(db: sqlite3.Connection) -> None:
+    """issues/meta hold gh-sync data and survive `build` (never dropped)."""
+    db.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS issues (kind TEXT, number INTEGER, title TEXT, state TEXT, url TEXT);
+        CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
+        """
+    )
+    cols = {r[1] for r in db.execute("PRAGMA table_info(issues)")}
+    for col in ("merged_at", "closed_at"):
+        if col not in cols:
+            db.execute(f"ALTER TABLE issues ADD COLUMN {col} TEXT")
+
+
 def build(db: sqlite3.Connection) -> None:
     db.executescript(
         """
@@ -466,7 +482,6 @@ def build(db: sqlite3.Connection) -> None:
         DROP TABLE IF EXISTS package_files;
         DROP TABLE IF EXISTS docs;
         DROP TABLE IF EXISTS tests;
-        DROP TABLE IF EXISTS issues;
         DROP TABLE IF EXISTS scripts_map;
         CREATE TABLE packages (
             key TEXT PRIMARY KEY, num TEXT, title TEXT, pillar TEXT,
@@ -476,10 +491,10 @@ def build(db: sqlite3.Connection) -> None:
         CREATE TABLE package_files (package_key TEXT, path TEXT, action TEXT);
         CREATE TABLE docs (file TEXT PRIMARY KEY, title TEXT);
         CREATE TABLE tests (file TEXT PRIMARY KEY, count INTEGER, names TEXT);
-        CREATE TABLE issues (kind TEXT, number INTEGER, title TEXT, state TEXT, url TEXT);
         CREATE TABLE scripts_map (task TEXT, script TEXT);
         """
     )
+    _ensure_issue_schema(db)
     for p in _pkg_files():
         d = _parse_package(p)
         db.execute(
@@ -508,16 +523,22 @@ def gh_sync(db: sqlite3.Connection) -> None:
         except Exception:
             return ""
 
+    _ensure_issue_schema(db)
     rows = []
-    for kind, query in (("issue", "--state all"), ("pr", "--state all")):
-        raw = _run([kind, "list", *query.split(), "--limit", "500", "--json", "number,title,state,url"])
+    for kind, fields in (("issue", "number,title,state,url,closedAt"),
+                         ("pr", "number,title,state,url,closedAt,mergedAt")):
+        raw = _run([kind, "list", "--state", "all", "--limit", "500", "--json", fields])
         try:
             for item in json.loads(raw):
-                rows.append((kind, item["number"], item["title"], item["state"], item["url"]))
+                rows.append((kind, item["number"], item["title"], item["state"], item["url"],
+                             item.get("mergedAt") or "", item.get("closedAt") or ""))
         except json.JSONDecodeError:
             pass
-    db.executescript("DELETE FROM issues;")
-    db.executemany("INSERT INTO issues VALUES (?,?,?,?,?)", rows)
+    if rows:  # a failed/offline fetch must not wipe previously synced data
+        db.executescript("DELETE FROM issues;")
+        db.executemany("INSERT INTO issues VALUES (?,?,?,?,?,?,?)", rows)
+        db.execute("INSERT OR REPLACE INTO meta VALUES ('gh_synced_at', ?)",
+                   (datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),))
     db.commit()
 
 
@@ -612,6 +633,12 @@ def script(db: sqlite3.Connection, task: str) -> None:
         print(f"  {t} -> {s}")
 
 
+def _rev_deps(db: sqlite3.Connection, num: str, key: str) -> list[str]:
+    """Keys of packages whose Depends-on list contains `num` as an exact token."""
+    return [k for k, d in db.execute("SELECT key, depends FROM packages ORDER BY key")
+            if k != key and num in (d.split(",") if d else [])]
+
+
 def whatis(db: sqlite3.Connection, num: str) -> None:
     num = num.lower()
     row = db.execute(
@@ -623,8 +650,7 @@ def whatis(db: sqlite3.Connection, num: str) -> None:
         return
     key, title, status, status_short, track, pillar, effort, dep_str = row
     deps_list = dep_str.split(",") if dep_str else []
-    rev = [r[0] for r in db.execute("SELECT key FROM packages WHERE depends LIKE ?", (f"%{num}%",)).fetchall()
-           if r[0] != key]
+    rev = _rev_deps(db, num, key)
     files = db.execute(
         "SELECT action, path FROM package_files WHERE package_key = ? ORDER BY action, path", (key,)
     ).fetchall()
@@ -651,68 +677,197 @@ def deps(db: sqlite3.Connection, num: str) -> None:
     print(f"{key}  [{status}] {title}")
     deps_list = dep_str.split(",") if dep_str else []
     print(f"  depends on: {', '.join(deps_list) or '(none)'}")
-    rev = db.execute("SELECT key FROM packages WHERE depends LIKE ?", (f"%{num}%",)).fetchall()
-    rev = [r[0] for r in rev if r[0] != key]
+    rev = _rev_deps(db, num, key)
     print(f"  depended on by ({len(rev)}): {', '.join(rev) or '(none)'}")
 
 
-def graph(db: sqlite3.Connection, json_out: str | None, html_out: str | None) -> None:
-    nodes = []
-    edges = []
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_PR_REF_RE = re.compile(r"#(\d+)")
+HUB_DOC_THRESHOLD = 20  # docs linked to more packages than this are "hubs"
 
-    # Resolve dependency tokens ("pkg201") to real node ids (full filename stems),
-    # which fixes the previously-dropped dependency edges.
+
+def _pkg_state(status_short: str) -> str:
+    """Normalise a Status token to open|in-progress|blocked|paused|done|superseded|other.
+
+    TEMPLATE v2 tokens map to themselves. Legacy tokens: unblocked/ready/proposed
+    -> open; in review/wip -> in-progress; complete/implemented/resolved/closed
+    -> done; a trailing " done" that is not a leading "done" ("stage 2 done",
+    "phases a + b + c done") means only part has landed -> in-progress.
+    """
+    t = re.sub(r"^[^a-z0-9]+", "", status_short.lower())
+    if t.startswith(("unblocked", "ready", "proposed", "open")):
+        return "open"
+    if t.startswith("blocked"):
+        return "blocked"
+    if t.startswith(("in-progress", "in progress", "in-review", "in review", "wip")):
+        return "in-progress"
+    if t.startswith(("done", "complete", "implemented", "resolved", "closed", "landed", "merged")):
+        return "done"
+    if t.endswith(" done"):
+        return "in-progress"
+    if t.startswith(("paused", "deferred", "on hold")):
+        return "paused"
+    if t.startswith("superseded"):
+        return "superseded"
+    return "other"
+
+
+def _goal(body: str) -> str:
+    m = re.search(r"^## Goal[ \t]*\n(.*?)(?=^## |\Z)", body.replace("\r\n", "\n"), re.MULTILINE | re.DOTALL)
+    return " ".join(m.group(1).split())[:300] if m else ""
+
+
+def _pkg_num(key: str) -> str:
+    m = PKG_ID_RE.match(key)
+    return m.group(0).lower() if m else key
+
+
+def _git_out(*args: str) -> str:
+    try:
+        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True,
+                              timeout=10, encoding="utf-8", errors="replace").stdout.strip()
+    except Exception:
+        return ""
+
+
+def _repo_url() -> str:
+    m = re.match(r"(?:git@github\.com:|https?://(?:[^@/]+@)?github\.com/)([^/]+/[^/]+?)(?:\.git)?/?$",
+                 _git_out("remote", "get-url", "origin"))
+    return f"https://github.com/{m.group(1)}" if m else ""
+
+
+def _graph_payload(db: sqlite3.Connection) -> dict:
+    """Nodes/edges (+meta) for the viz. Deterministic for a given DB/repo state."""
+    _ensure_issue_schema(db)
+    nodes: list[dict] = []
+    edges: list[dict] = []
+
+    pkg_rows = db.execute(
+        "SELECT key, num, title, pillar, track, status, status_short, effort, depends, body "
+        "FROM packages ORDER BY num, key"
+    ).fetchall()
+    # Resolve dependency tokens ("pkg201") to real node ids (full filename stems).
     num_to_keys: dict[str, list[str]] = {}
-    for row in db.execute("SELECT key, num, title, status FROM packages ORDER BY num"):
-        num_to_keys.setdefault(row[1], []).append(row[0])
+    for r in pkg_rows:
+        num_to_keys.setdefault(r[1], []).append(r[0])
+    nfiles = dict(db.execute("SELECT package_key, COUNT(DISTINCT path) FROM package_files GROUP BY package_key"))
+
+    issue_rows = db.execute(
+        "SELECT kind, number, title, state, url, merged_at, closed_at FROM issues ORDER BY kind, number"
+    ).fetchall()
+    merged_prs_by_num: dict[str, list[int]] = {}
+    for kind, number, title, state, _url, merged_at, _c in issue_rows:
+        if kind == "pr" and (merged_at or (state or "").upper() == "MERGED"):
+            for tok in {t.lower() for t in DEP_RE.findall(title or "")}:
+                merged_prs_by_num.setdefault(tok, []).append(number)
+
+    pkg_prs: dict[int, list[str]] = {}  # PR/issue number -> package keys citing it in Status
+    for key, num, title, pillar, track, status, status_short, effort, dep_str, body in pkg_rows:
+        status = status.replace("**", "").strip()
+        state = _pkg_state(status_short)
+        dm = _DATE_RE.search(status)
+        prs = sorted({int(n) for n in _PR_REF_RE.findall(status)})
+        for n in prs:
+            pkg_prs.setdefault(n, []).append(key)
+        dep_list = dep_str.split(",") if dep_str else []
         nodes.append({
-            "id": row[0], "label": row[1], "num": row[1],
-            "title": (row[2] or "")[:80], "status": row[3] or "", "group": "package",
+            "id": key, "label": num, "num": num, "title": (title or "")[:120], "status": status,
+            "group": "package", "state": state,
+            "pillar": pillar[0] if pillar and pillar[0].isdigit() else "",
+            "track": track or "", "effort": effort or "", "date": dm.group(0) if dm else "",
+            "prs": prs, "goal": _goal(body or ""), "path": f".astroray_plan/packages/{key}.md",
+            "nfiles": nfiles.get(key, 0),
+            "unresolved": [d for d in dep_list if d not in num_to_keys],
+            "stale_prs": sorted(merged_prs_by_num.get(num, [])) if state in ("open", "in-progress") else [],
         })
-    for row in db.execute("SELECT key, depends FROM packages"):
-        key, dep_str = row
-        for d in (dep_str.split(",") if dep_str else []):
-            for k in num_to_keys.get(d, []):
-                if k != key:
-                    edges.append({"source": key, "target": k, "kind": "depends"})
+        for d in dep_list:
+            keys = num_to_keys.get(d, [])
+            for k in keys:
+                # No edges between members of the same legacy duplicate family.
+                if k != key and _pkg_num(k) != num:
+                    e = {"source": key, "target": k, "kind": "depends"}
+                    if len(keys) > 1:
+                        e["ambiguous"] = True
+                    edges.append(e)
 
     # File nodes + package -> file edges.
-    file_ids: set[str] = set()
-    for pkg, path in db.execute("SELECT package_key, path FROM package_files"):
-        fid = path.replace("\\", "/")
-        file_ids.add(fid)
+    file_edges = {(pkg, path.replace("\\", "/"))
+                  for pkg, path in db.execute("SELECT package_key, path FROM package_files")}
+    for pkg, fid in sorted(file_edges):
         edges.append({"source": pkg, "target": fid, "kind": "file"})
-    for fid in sorted(file_ids):
-        nodes.append({"id": fid, "label": fid.split("/")[-1], "title": fid, "status": "", "group": "file"})
+    for fid in sorted({fid for _p, fid in file_edges}):
+        nodes.append({"id": fid, "label": fid.split("/")[-1], "title": fid, "status": "",
+                      "group": "file", "path": fid})
 
-    doc_rows = db.execute("SELECT file, title FROM docs").fetchall()
-    for row in doc_rows:
-        nodes.append({"id": row[0], "label": row[0].split("/")[-1], "title": (row[1] or "")[:80], "status": "", "group": "doc"})
-
+    doc_rows = db.execute("SELECT file, title FROM docs ORDER BY file").fetchall()
     # Doc <-> package edges: research docs otherwise float disconnected.
     # Heuristic (both directions, since citation style varies):
     #   - doc body mentions a pkgNNN token -> link doc to that package
     #   - a package spec body mentions the doc's filename stem -> link them
-    pkg_texts = {p.stem: p.read_text(encoding="utf-8", errors="replace") for p in _pkg_files()}
-    doc_edges: set[tuple[str, str]] = set()
-    for doc_file, _doc_title in doc_rows:
-        doc_path = PLAN / doc_file
+    # A token naming a duplicated legacy num links every spec of it, flagged ambiguous.
+    pkg_texts = {p.stem: p.read_text(encoding="utf-8", errors="replace").lower() for p in _pkg_files()}
+    doc_edges: dict[tuple[str, str], bool] = {}  # (doc, pkg) -> ambiguous
+    for doc_file, _t in doc_rows:
         try:
-            doc_text = doc_path.read_text(encoding="utf-8", errors="replace")
+            doc_text = (PLAN / doc_file).read_text(encoding="utf-8", errors="replace")
         except OSError:
             doc_text = ""
         for tok in {m.lower() for m in DEP_RE.findall(doc_text)}:
-            for k in num_to_keys.get(tok, []):
-                doc_edges.add((doc_file, k))
+            keys = num_to_keys.get(tok, [])
+            for k in keys:
+                doc_edges[(doc_file, k)] = len(keys) > 1
         doc_stem = Path(doc_file).stem.lower()
         if doc_stem:
             for key, text in pkg_texts.items():
-                if doc_stem in text.lower():
-                    doc_edges.add((doc_file, key))
-    for doc_file, pkg_key in doc_edges:
-        edges.append({"source": doc_file, "target": pkg_key, "kind": "doc"})
+                if doc_stem in text:
+                    doc_edges[(doc_file, key)] = False
+    doc_degree: dict[str, int] = {}
+    for doc_file, _k in doc_edges:
+        doc_degree[doc_file] = doc_degree.get(doc_file, 0) + 1
+    hubs = {d for d, n in doc_degree.items() if n > HUB_DOC_THRESHOLD}
+    for doc_file, title in doc_rows:
+        nodes.append({"id": doc_file, "label": doc_file.split("/")[-1], "title": (title or "")[:80],
+                      "status": "", "group": "doc", "path": f".astroray_plan/{doc_file}",
+                      "hub": doc_file in hubs})
+    for (doc_file, key), amb in sorted(doc_edges.items()):
+        e = {"source": doc_file, "target": key, "kind": "doc"}
+        if amb:
+            e["ambiguous"] = True
+        if doc_file in hubs:
+            e["hub"] = True
+        edges.append(e)
 
-    payload = {"nodes": nodes, "edges": edges}
+    # Issue/PR nodes: only those linked to a package (title token, or cited in a Status).
+    for kind, number, title, state, url, merged_at, closed_at in issue_rows:
+        links: dict[str, bool] = {}
+        for tok in {t.lower() for t in DEP_RE.findall(title or "")}:
+            keys = num_to_keys.get(tok, [])
+            for k in keys:
+                links[k] = len(keys) > 1
+        for k in pkg_prs.get(number, []):
+            links[k] = False
+        if not links:
+            continue
+        iid = f"{kind}#{number}"
+        nodes.append({"id": iid, "label": f"#{number}", "title": (title or "")[:120], "status": "",
+                      "group": "issue", "kind": kind, "gh_state": state or "", "url": url or "",
+                      "merged": bool(merged_at or (state or "").upper() == "MERGED")})
+        for k, amb in sorted(links.items()):
+            e = {"source": iid, "target": k, "kind": "issue"}
+            if amb:
+                e["ambiguous"] = True
+            edges.append(e)
+
+    edges.sort(key=lambda e: (e["kind"], e["source"], e["target"]))
+    row = db.execute("SELECT v FROM meta WHERE k = 'gh_synced_at'").fetchone()
+    meta = {"repo": _repo_url(), "head": _git_out("rev-parse", "--short", "HEAD"),
+            "gh_synced_at": row[0] if row else ""}
+    return {"meta": meta, "nodes": nodes, "edges": edges}
+
+
+def graph(db: sqlite3.Connection, json_out: str | None, html_out: str | None) -> None:
+    payload = _graph_payload(db)
+    nodes, edges = payload["nodes"], payload["edges"]
     if json_out:
         Path(json_out).write_text(json.dumps(payload, indent=2), encoding="utf-8")
         print(f"wrote {json_out} ({len(nodes)} nodes, {len(edges)} edges)")
@@ -724,160 +879,597 @@ def graph(db: sqlite3.Connection, json_out: str | None, html_out: str | None) ->
 
 
 def _html(payload: dict) -> str:
-    data = json.dumps(payload).replace("</", "<\\/")
+    meta = dict(payload.get("meta", {}),
+                generated=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))
+    # "<" -> \u003c keeps the JSON safe inside a <script> element (valid in JSON strings).
+    data = json.dumps(dict(payload, meta=meta), separators=(",", ":")).replace("<", "\\u003c")
     return _HTML_TEMPLATE.replace("__DATA__", data)
 
 
 _HTML_TEMPLATE = r"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Astroray knowledge graph</title>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Astroray knowledge graph</title>
 <style>
-  html,body{margin:0;height:100%;overflow:hidden;background:#0d1117;color:#e6edf3;
-    font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif}
-  #3d-graph{position:fixed;inset:0}
-  #panel{position:fixed;top:14px;left:14px;z-index:10;background:rgba(13,17,23,.92);
-    border:1px solid #30363d;border-radius:10px;padding:14px 16px;width:280px;font-size:13px;
-    box-shadow:0 8px 24px rgba(0,0,0,.4)}
-  #panel h1{margin:0 0 10px;font-size:14px;font-weight:600;letter-spacing:.2px}
-  .row{display:flex;align-items:center;gap:8px;margin:5px 0}
-  .sw{width:11px;height:11px;border-radius:50%;display:inline-block;flex:none;box-shadow:0 0 0 1px rgba(255,255,255,.15)}
-  .sw.box{border-radius:3px}
-  hr{border:none;border-top:1px solid #30363d;margin:10px 0}
-  label{cursor:pointer;user-select:none;color:#c9d1d9}
-  input[type=checkbox]{accent-color:#58a6ff}
-  #hint{position:fixed;bottom:12px;right:14px;z-index:10;color:#8b949e;font-size:12px}
-  .section{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:#8b949e;margin:8px 0 4px}
+  :root{--c-bg:#0d1117;--c-fg:#e6edf3;--c-mute:#8b949e;--c-line:#30363d;--c-panel:rgba(13,17,23,.94);--c-accent:#58a6ff;
+    --c-open:#58a6ff;--c-in-progress:#d29922;--c-blocked:#f85149;--c-paused:#39c5cf;--c-done:#3fb950;
+    --c-superseded:#6e7681;--c-other:#b0b8c1;--c-doc:#bc8cff;--c-file:#c9a26b;--c-issue:#f778ba;
+    --c-stale:#ff8c00;--c-unres:#ff3b3b;--c-nofile:#e6edf3}
+  @media (prefers-color-scheme: light){:root:not([data-theme=dark]){--c-bg:#ffffff;--c-fg:#1f2328;--c-mute:#59636e;
+    --c-line:#d0d7de;--c-panel:rgba(255,255,255,.95);--c-accent:#0969da;--c-open:#0969da;--c-in-progress:#9a6700;
+    --c-blocked:#cf222e;--c-paused:#1b7c83;--c-done:#1a7f37;--c-superseded:#6e7781;--c-other:#8c959f;--c-doc:#8250df;
+    --c-file:#a0713b;--c-issue:#bf3989;--c-stale:#d4570b;--c-unres:#cf222e;--c-nofile:#1f2328}}
+  :root[data-theme=light]{--c-bg:#ffffff;--c-fg:#1f2328;--c-mute:#59636e;--c-line:#d0d7de;--c-panel:rgba(255,255,255,.95);
+    --c-accent:#0969da;--c-open:#0969da;--c-in-progress:#9a6700;--c-blocked:#cf222e;--c-paused:#1b7c83;--c-done:#1a7f37;
+    --c-superseded:#6e7781;--c-other:#8c959f;--c-doc:#8250df;--c-file:#a0713b;--c-issue:#bf3989;--c-stale:#d4570b;
+    --c-unres:#cf222e;--c-nofile:#1f2328}
+  [hidden]{display:none!important}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--c-bg);color:var(--c-fg);
+    font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif;font-size:13px}
+  .stage{position:fixed;inset:0}
+  aside{position:fixed;z-index:10;background:var(--c-panel);border:1px solid var(--c-line);border-radius:10px;
+    box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:auto;box-sizing:border-box}
+  #panel{top:14px;left:14px;width:296px;max-height:calc(100vh - 28px);padding:12px 14px}
+  #panel header,#insp .ih{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  #panel h1{margin:0;font-size:14px;font-weight:600}
+  #panel.collapsed #pbody{display:none}
+  button{background:transparent;color:var(--c-fg);border:1px solid var(--c-line);border-radius:6px;padding:2px 8px;cursor:pointer;font:inherit}
+  button:hover{border-color:var(--c-accent)}
+  input[type=text],select{width:100%;box-sizing:border-box;background:var(--c-bg);color:var(--c-fg);border:1px solid var(--c-line);
+    border-radius:6px;padding:5px 8px;font:inherit}
+  input[type=checkbox]{accent-color:var(--c-accent);margin:0}
+  label{cursor:pointer;user-select:none}
+  .row{display:flex;align-items:center;gap:8px;margin:4px 0}
+  .grid{display:flex;flex-wrap:wrap;gap:2px 12px}
+  .chip{display:inline-flex;align-items:center;gap:5px;margin:2px 0}
+  .sw{width:11px;height:11px;border-radius:50%;display:inline-block;flex:none;box-shadow:0 0 0 1px rgba(128,128,128,.4)}
+  .sw.box{border-radius:3px}.sw.dia{border-radius:2px;transform:rotate(45deg) scale(.85)}
+  hr{border:none;border-top:1px solid var(--c-line);margin:9px 0}
+  .section{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--c-mute);margin:8px 0 4px}
+  .mute,small{color:var(--c-mute)}
+  #fresh{font-size:11px;margin:6px 0 8px;line-height:1.4}
+  #res .hit{padding:4px 6px;border-radius:6px;cursor:pointer;display:flex;gap:6px;align-items:baseline}
+  #res .hit:hover,#res .hit.first{background:rgba(128,128,128,.18)}
+  #insp{top:14px;right:14px;width:350px;max-height:calc(100vh - 28px);padding:12px 14px;line-height:1.45}
+  #insp .it{font-weight:600;margin:6px 0}
+  #insp h4{margin:10px 0 3px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--c-mute)}
+  #insp .st{margin:0;white-space:pre-wrap;word-break:break-word}
+  #insp ul{margin:2px 0;padding-left:16px}
+  #insp li{margin:1px 0;word-break:break-word}
+  #insp a{color:var(--c-accent);text-decoration:none}#insp a:hover{text-decoration:underline}
+  .badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;color:#fff;margin-left:6px}
+  .amb{color:var(--c-mute);font-size:11px}
+  .warn{color:var(--c-stale)}
+  code,.cmd{font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+  .cmd{display:flex;gap:6px;align-items:center;background:var(--c-bg);border:1px solid var(--c-line);border-radius:6px;padding:4px 6px}
+  .cmd code{flex:1;overflow-x:auto;white-space:nowrap}
+  #banner{position:fixed;z-index:20;top:0;left:0;right:0;padding:8px 14px;background:#9a6700;color:#fff;text-align:center}
+  #fallback{position:fixed;inset:0;overflow:auto;padding:52px 18px 18px;box-sizing:border-box;background:var(--c-bg)}
+  #fallback table{border-collapse:collapse;width:100%;margin-top:10px}
+  #fallback th,#fallback td{border-bottom:1px solid var(--c-line);padding:4px 8px;text-align:left;vertical-align:top}
+  @media (max-width:700px){
+    #panel{top:8px;left:8px;right:8px;width:auto;max-height:50vh}
+    #insp{top:auto;right:0;left:0;bottom:0;width:auto;max-height:45vh;border-radius:12px 12px 0 0}
+  }
 </style>
-<script src="https://unpkg.com/three@0.150.1/build/three.min.js"></script>
-<script src="https://unpkg.com/3d-force-graph@1.73.3/dist/3d-force-graph.min.js"></script>
 </head><body>
-<div id="3d-graph"></div>
-<div id="panel">
-  <h1>Astroray knowledge graph</h1>
-  <div class="section">Packages</div>
-  <div class="row"><span class="sw" style="background:#58a6ff"></span><label>open</label></div>
-  <div class="row"><span class="sw" style="background:#d29922"></span><label>in-progress / in-review</label></div>
-  <div class="row"><span class="sw" style="background:#f85149"></span><label>blocked</label></div>
-  <div class="row"><span class="sw" style="background:#8b949e"></span><label>paused / superseded / other</label></div>
-  <div class="row"><span class="sw" style="background:#3fb950"></span><label>done</label></div>
-  <div class="section">Other nodes</div>
-  <div class="row"><span class="sw box" style="background:#bc8cff"></span><label>research doc</label></div>
-  <div class="row"><span class="sw box" style="background:#2ea043"></span><label>file (source / test)</label></div>
-  <hr>
-  <div class="section">Layers</div>
-  <div class="row"><input type="checkbox" id="t-package" checked><label for="t-package">Packages</label></div>
-  <div class="row"><input type="checkbox" id="t-doc" checked><label for="t-doc">Docs</label></div>
-  <div class="row"><input type="checkbox" id="t-file"><label for="t-file">Files</label></div>
-  <div class="row"><input type="checkbox" id="t-dep" checked><label for="t-dep">Dependency edges</label></div>
-  <div class="row"><input type="checkbox" id="t-dedge" checked><label for="t-dedge">Doc edges</label></div>
-  <div class="row"><input type="checkbox" id="t-fedge"><label for="t-fedge">File edges</label></div>
-  <hr>
-  <div class="section">Layout</div>
-  <div class="row"><input type="checkbox" id="t-2d"><label for="t-2d">2D layout</label></div>
+<div id="g2" class="stage"></div>
+<div id="g3" class="stage" hidden></div>
+<div id="banner" hidden></div>
+<aside id="panel">
+  <header><h1>Astroray knowledge graph</h1>
+    <span><button id="theme" title="Toggle light/dark">&#9680;</button> <button id="collapse" title="Collapse panel">&#8211;</button></span></header>
+  <div id="pbody">
+    <div id="fresh" class="mute"></div>
+    <input type="text" id="q" placeholder="Search num / title / path  ( / )" autocomplete="off">
+    <div id="res"></div>
+    <div class="section">Layout</div>
+    <select id="layout"><option value="2d">2D graph</option><option value="3d">3D graph</option><option value="timeline">Timeline (packages by date &times; pillar)</option></select>
+    <div class="section">Focus on selection (f)</div>
+    <select id="focus"><option value="0">off</option><option value="1">1-hop neighbourhood</option><option value="2">2-hop neighbourhood</option>
+      <option value="up">upstream dependencies</option><option value="down">downstream dependants</option></select>
+    <div class="section">Layers</div>
+    <div class="grid">
+      <label class="chip"><input type="checkbox" id="t-package" checked>Packages</label>
+      <label class="chip"><input type="checkbox" id="t-doc" checked>Docs</label>
+      <label class="chip"><input type="checkbox" id="t-file">Files</label>
+      <label class="chip"><input type="checkbox" id="t-issue">Issues/PRs</label>
+    </div>
+    <div class="section">Edges</div>
+    <div class="grid">
+      <label class="chip"><input type="checkbox" id="t-dep" checked>Dependency</label>
+      <label class="chip"><input type="checkbox" id="t-dedge" checked>Doc</label>
+      <label class="chip"><input type="checkbox" id="t-hub">Hub-doc edges</label>
+      <label class="chip"><input type="checkbox" id="t-fedge">File</label>
+      <label class="chip"><input type="checkbox" id="t-iedge" checked>Issue/PR</label>
+    </div>
+    <div class="section">Package state</div>
+    <div class="grid" id="states"></div>
+    <label class="chip"><input type="checkbox" id="t-hidedone">Hide done</label>
+    <div class="section">Pillar</div>
+    <div class="grid" id="pillars"></div>
+    <div class="section">Health overlay</div>
+    <label class="chip"><input type="checkbox" id="t-health">Show rings</label>
+    <div id="hcounts" class="mute"></div>
+    <div class="section">Other nodes</div>
+    <div class="grid">
+      <span class="chip"><i class="sw box" style="background:var(--c-doc)"></i>doc</span>
+      <span class="chip"><i class="sw box" style="background:var(--c-file);transform:scale(.7)"></i>file</span>
+      <span class="chip"><i class="sw dia" style="background:var(--c-issue)"></i>issue / PR</span>
+    </div>
+    <hr><div id="counts" class="mute"></div>
+    <div class="mute" style="margin-top:6px;font-size:11px">click a node to inspect &middot; f focus &middot; / search &middot; Esc clear</div>
+  </div>
+</aside>
+<aside id="insp" hidden></aside>
+<div id="fallback" hidden>
+  <h2 style="margin:0 0 6px">Astroray package index (offline table)</h2>
+  <input type="text" id="fq" placeholder="Filter packages...">
+  <table><thead><tr><th>id</th><th>state</th><th>title</th><th>depends on</th></tr></thead><tbody id="ftb"></tbody></table>
 </div>
-<div id="hint">drag to rotate &middot; right-drag to pan &middot; scroll to zoom &middot; hover for label</div>
 <script>
 const DATA = __DATA__;
-let graph;
+const META = DATA.meta || {};
+const LIBS = {
+  fg2: 'https://unpkg.com/force-graph@1.43.5/dist/force-graph.min.js',
+  three: 'https://unpkg.com/three@0.150.1/build/three.min.js',
+  fg3: 'https://unpkg.com/3d-force-graph@1.73.3/dist/3d-force-graph.min.js'
+};
+const STATES = ['open','in-progress','blocked','paused','done','superseded','other'];
+const PILLARS = ['1','2','3','4','5',''];
+const FOCI = ['0','1','2','up','down'];
+const $ = id => document.getElementById(id);
+const T = id => $(id).checked;
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const idOf = x => (x && typeof x === 'object') ? x.id : x;
 
-function statusColor(s){ s = (s||'').toLowerCase();
-  if(s.indexOf('blocked')>=0) return '#f85149';
-  if(s.indexOf('done')>=0) return '#3fb950';
-  if(s.indexOf('paused')>=0 || s.indexOf('superseded')>=0) return '#8b949e';
-  if(s.indexOf('progress')>=0 || s.indexOf('review')>=0) return '#d29922';
-  if(s.indexOf('open')>=0) return '#58a6ff';
-  return '#8b949e'; }
-function nodeColor(n){ if(n.group==='doc') return '#bc8cff'; if(n.group==='file') return '#2ea043'; return statusColor(n.status); }
-function nodeSize(n){ return n.group==='package' ? 2.2 : n.group==='doc' ? 1.7 : 1.0; }
+// ---- indexes over the embedded data (DATA.edges is never mutated) -------------
+const byId = {};
+DATA.nodes.forEach(n => byId[n.id] = n);
+const NB = {};   // id -> {dep, rdep, doc, file, issue}: neighbours seen from that node
+const nb = id => NB[id] || (NB[id] = {dep:[], rdep:[], doc:[], file:[], issue:[]});
+DATA.edges.forEach(e => {
+  const amb = !!e.ambiguous;
+  if(e.kind === 'depends'){ nb(e.source).dep.push({id:e.target, amb}); nb(e.target).rdep.push({id:e.source, amb}); }
+  else { nb(e.source)[e.kind].push({id:e.target, amb}); nb(e.target)[e.kind].push({id:e.source, amb}); }
+});
+const PKGS = DATA.nodes.filter(n => n.group === 'package');
+const hasHealth = n => n.group === 'package' && (n.stale_prs.length || n.unresolved.length || n.nfiles === 0);
+const healthKey = n => n.stale_prs.length ? 'stale' : n.unresolved.length ? 'unres' : (n.nfiles === 0 ? 'nofile' : '');
 
-// Cache of last-known node positions/velocities, keyed by id, so toggling a
-// layer on/off doesn't teleport survivors and reheat the whole simulation
-// (previously caused disconnected components to repel to infinity).
-const posCache = {};
-
-function cachePositions(){
-  if(!graph) return;
-  graph.graphData().nodes.forEach(n => {
-    posCache[n.id] = {x:n.x, y:n.y, z:n.z, vx:n.vx, vy:n.vy, vz:n.vz};
-  });
+// ---- theme / palette (single source of truth: the CSS variables) --------------
+let PV = {};
+function readPal(){
+  const cs = getComputedStyle(document.documentElement); PV = {};
+  ['bg','fg','mute','open','in-progress','blocked','paused','done','superseded','other','doc','file','issue','stale','unres','nofile']
+    .forEach(k => PV[k] = cs.getPropertyValue('--c-' + k).trim());
 }
+function hexA(hex, a){
+  hex = hex.replace('#', ''); if(hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+  const v = parseInt(hex, 16); return 'rgba(' + (v >> 16 & 255) + ',' + (v >> 8 & 255) + ',' + (v & 255) + ',' + a + ')';
+}
+const colorOf = n => n.group === 'package' ? PV[n.state] : PV[n.group];
+function effTheme(){ return document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'); }
+function themeChanged(){
+  readPal();
+  if(g2) g2.backgroundColor(PV.bg);
+  if(g3) g3.backgroundColor(PV.bg);
+  refreshStyle();
+}
+try { const t = localStorage.getItem('idx-theme'); if(t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch(e) {}
+readPal();
 
+// ---- state --------------------------------------------------------------------
+let g2 = null, g3 = null, graph = null;
+let layout = '2d', focus = '0', sel = null, focusSet = null;
+let curNodes = [], curLinks = [], TL = null;
+const F = {state:{}, pillar:{}};
+STATES.forEach(s => F.state[s] = true);
+PILLARS.forEach(p => F.pillar[p] = true);
+
+const pkgOk = n => F.state[n.state] && F.pillar[n.pillar];
+function visible(n){
+  if(layout === 'timeline') return n.group === 'package' && pkgOk(n);
+  switch(n.group){
+    case 'package': return T('t-package') && pkgOk(n);
+    case 'doc': return T('t-doc') && (!n.hub || T('t-hub'));
+    case 'file': return T('t-file');
+    default: return T('t-issue');
+  }
+}
+function edgeOn(e){
+  switch(e.kind){
+    case 'depends': return T('t-dep');
+    case 'doc': return T('t-dedge') && (!e.hub || T('t-hub'));
+    case 'file': return T('t-fedge');
+    default: return T('t-iedge');
+  }
+}
 function build(){
-  const show = g => document.getElementById(g).checked;
-  const nodes = DATA.nodes.filter(n => (n.group==='package'&&show('t-package'))
-    || (n.group==='doc'&&show('t-doc')) || (n.group==='file'&&show('t-file')));
-  const ids = new Set(nodes.map(n=>n.id));
-  const links = DATA.edges.filter(e => {
-    if(!ids.has(e.source) || !ids.has(e.target)) return false;
-    if(e.kind==='depends') return show('t-dep');
-    if(e.kind==='doc') return show('t-dedge');
-    return show('t-fedge');
-  });
-  // Re-use prior positions for nodes that survive the filter, so rebuilding
-  // graphData() doesn't reset (and reheat) the whole layout.
-  nodes.forEach(n => {
-    const p = posCache[n.id];
-    if(p){ n.x=p.x; n.y=p.y; n.z=p.z; n.vx=p.vx; n.vy=p.vy; n.vz=p.vz; }
-  });
+  const nodes = DATA.nodes.filter(visible);
+  const ids = new Set(nodes.map(n => n.id));
+  // Fresh link objects every time: the graph libs rewrite source/target into node objects.
+  const links = DATA.edges.filter(e => edgeOn(e) && ids.has(e.source) && ids.has(e.target)).map(e => Object.assign({}, e));
   return {nodes, links};
 }
 
-function render(){
-  cachePositions();
-  const d = build();
-  if(!graph){
-    graph = ForceGraph3D()(document.getElementById('3d-graph'))
-      .graphData(d)
-      .nodeId('id')
-      .nodeLabel(n => n.title || n.label)
-      .nodeColor(nodeColor)
-      .nodeVal(nodeSize)
-      .nodeRelSize(4)
-      .linkColor(l => l.kind==='depends' ? 'rgba(88,166,255,0.9)' : l.kind==='doc' ? 'rgba(188,140,255,0.85)' : 'rgba(46,160,67,0.55)')
-      .linkWidth(l => l.kind==='depends' ? 1.6 : l.kind==='doc' ? 1.4 : 0.6)
-      .linkDirectionalParticles(l => l.kind==='file' ? 0 : 2)
-      .linkDirectionalParticleWidth(1.6)
-      .linkDirectionalParticleSpeed(0.004)
-      .linkDirectionalArrowLength(l => l.kind==='file' ? 0 : 3.5)
-      .linkDirectionalArrowRelPos(1)
-      .backgroundColor('#0d1117')
-      .showNavInfo(false)
-      .d3VelocityDecay(0.35)
-      .warmupTicks(60)
-      .cooldownTicks(200)
-      .onNodeHover(n => { document.getElementById('3d-graph').style.cursor = n ? 'pointer' : 'default'; })
-      .onNodeClick(n => {
-        const dist = 28; const deg = graph.cameraPosition();
-        graph.cameraPosition({x:n.x, y:n.y, z:n.z + dist}, {x:n.x, y:n.y, z:n.z}, 1200);
-      });
-    // Tune the force sim: bounded charge (repulsion decays past distanceMax so
-    // disconnected components don't fly apart forever), a fixed link distance,
-    // and a centering force so everything stays anchored near the origin.
-    graph.d3Force('charge').strength(-140).distanceMax(450);
-    graph.d3Force('link').distance(l => l.kind==='file' ? 16 : 42);
-    if(graph.d3Force('center')) graph.d3Force('center').strength(1);
+// ---- focus ----------------------------------------------------------------------
+function computeFocus(){
+  focusSet = null;
+  if(!sel || focus === '0') return;
+  const seen = new Set([sel]);
+  let q = [sel];
+  if(focus === 'up' || focus === 'down'){
+    const key = focus === 'up' ? 'dep' : 'rdep';
+    while(q.length){
+      const nx = [];
+      q.forEach(id => (NB[id] ? NB[id][key] : []).forEach(o => { if(!seen.has(o.id)){ seen.add(o.id); nx.push(o.id); } }));
+      q = nx;
+    }
   } else {
-    // Positions were preserved above, so only a light re-settle is needed —
-    // NOT a full reheat, which is what caused the infinite-drift bug.
-    graph.cooldownTicks(40);
-    graph.graphData(d);
+    const adj = {};
+    curLinks.forEach(l => { const a = idOf(l.source), b = idOf(l.target); (adj[a] = adj[a] || []).push(b); (adj[b] = adj[b] || []).push(a); });
+    for(let h = 0; h < +focus; h++){
+      const nx = [];
+      q.forEach(id => (adj[id] || []).forEach(o => { if(!seen.has(o)){ seen.add(o); nx.push(o); } }));
+      q = nx;
+    }
   }
+  focusSet = seen;
+}
+const dimmed = n => focusSet && !focusSet.has(n.id);
+const linkDimmed = l => focusSet && !(focusSet.has(idOf(l.source)) && focusSet.has(idOf(l.target)));
+
+// ---- drawing (2D) ---------------------------------------------------------------
+function drawNode(n, ctx, k){
+  if(n.x == null || isNaN(n.x)) return;
+  const dim = dimmed(n), isSel = n.id === sel;
+  const r = n.group === 'package' ? 4.2 : n.group === 'doc' ? 3.2 : 2.4;
+  ctx.globalAlpha = dim ? 0.12 : 1;
+  ctx.fillStyle = colorOf(n);
+  ctx.beginPath();
+  if(n.group === 'package') ctx.arc(n.x, n.y, r, 0, 2 * Math.PI);
+  else if(n.group === 'issue'){ const d = r * 1.4; ctx.moveTo(n.x, n.y - d); ctx.lineTo(n.x + d, n.y); ctx.lineTo(n.x, n.y + d); ctx.lineTo(n.x - d, n.y); ctx.closePath(); }
+  else ctx.rect(n.x - r, n.y - r, 2 * r, 2 * r);
+  ctx.fill();
+  if(T('t-health') && hasHealth(n)){
+    const hk = healthKey(n);
+    ctx.strokeStyle = PV[hk]; ctx.lineWidth = 1.6;
+    ctx.setLineDash(hk === 'nofile' ? [2, 2] : []);
+    ctx.beginPath(); ctx.arc(n.x, n.y, r + 2.6, 0, 2 * Math.PI); ctx.stroke(); ctx.setLineDash([]);
+  }
+  if(isSel){ ctx.strokeStyle = PV.fg; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(n.x, n.y, r + 5, 0, 2 * Math.PI); ctx.stroke(); }
+  let txt = null;
+  if(n.group === 'package'){
+    if(isSel || k >= 3.5) txt = (n.num + ' ' + n.title).slice(0, 64);
+    else if(k >= 1.8 || (focusSet && !dim && k >= 0.9)) txt = n.num;
+  } else if(isSel || k >= 5) txt = n.label;
+  if(txt && !dim){
+    ctx.font = (11 / k) + 'px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.lineWidth = 3 / k; ctx.strokeStyle = PV.bg; ctx.strokeText(txt, n.x, n.y + r + 2 / k);
+    ctx.fillStyle = PV.fg; ctx.fillText(txt, n.x, n.y + r + 2 / k);
+  }
+  ctx.globalAlpha = 1;
+}
+function paintArea(n, color, ctx){ if(n.x == null) return; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(n.x, n.y, 6, 0, 2 * Math.PI); ctx.fill(); }
+function linkCol(l){
+  const c = l.kind === 'depends' ? PV.open : l.kind === 'doc' ? PV.doc : l.kind === 'file' ? PV.file : PV.issue;
+  const a = linkDimmed(l) ? 0.05 : l.ambiguous ? 0.3 : l.kind === 'depends' ? 0.85 : l.kind === 'file' ? 0.35 : 0.5;
+  return hexA(c, a);
+}
+const linkW = l => l.kind === 'depends' ? 1.4 : 0.7;
+function preFrame(ctx, k){
+  if(layout !== 'timeline' || !TL) return;
+  ctx.save();
+  ctx.font = (11 / k) + 'px system-ui,sans-serif'; ctx.fillStyle = PV.mute; ctx.strokeStyle = hexA(PV.mute, 0.25); ctx.lineWidth = 1 / k;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  TL.lanes.forEach((ln, i) => {
+    const y = i * TL.laneH - TL.laneH / 2;
+    ctx.beginPath(); ctx.moveTo(TL.xmin, y); ctx.lineTo(TL.xmax, y); ctx.stroke();
+    ctx.fillText(ln, TL.xmin, y + 4 / k);
+  });
+  TL.months.forEach(m => {
+    ctx.beginPath(); ctx.moveTo(m.x, TL.ytop); ctx.lineTo(m.x, TL.ybot); ctx.stroke();
+    ctx.fillText(m.label, m.x + 2 / k, TL.ytop - 14 / k);
+  });
+  ctx.restore();
 }
 
-function setDimensions(is2D){
-  cachePositions();
-  graph.numDimensions(is2D ? 2 : 3);
-  if(is2D){
-    // Flatten cached z so nodes don't have to fight their way back to a plane.
-    Object.values(posCache).forEach(p => { p.z = 0; p.vz = 0; });
-    graph.graphData().nodes.forEach(n => { n.z = 0; n.vz = 0; });
+// ---- timeline layout ------------------------------------------------------------
+function layoutTimeline(){
+  const DAYW = 10, LANE_H = 120, X_UND = -140;
+  const times = PKGS.filter(n => n.date).map(n => Date.parse(n.date));
+  const d0 = times.length ? Math.min.apply(null, times) : Date.now();
+  const d1 = times.length ? Math.max.apply(null, times) : d0;
+  const cnt = {};
+  PKGS.forEach(n => {
+    const li = PILLARS.indexOf(n.pillar), key = li + '|' + (n.date || '-'), c = cnt[key] || 0;
+    cnt[key] = c + 1;
+    const x = n.date ? (Date.parse(n.date) - d0) / 864e5 * DAYW + Math.floor(c / 10) * 8 : X_UND - Math.floor(c / 10) * 8;
+    n.x = n.fx = x; n.y = n.fy = li * LANE_H + (c % 10) * 10 - 45;
+  });
+  const months = [{x: X_UND, label: 'undated'}];
+  const m = new Date(d0); m.setUTCDate(1);
+  for(; m.getTime() <= d1; m.setUTCMonth(m.getUTCMonth() + 1)){
+    const x = (m.getTime() - d0) / 864e5 * DAYW;
+    if(x >= 0) months.push({x, label: m.toISOString().slice(0, 7)});
   }
-  graph.cooldownTicks(120);
-  graph.d3ReheatSimulation();
+  TL = {laneH: LANE_H, months, xmin: -320, xmax: (d1 - d0) / 864e5 * DAYW + 160, ytop: -LANE_H / 2, ybot: PILLARS.length * LANE_H - LANE_H / 2,
+        lanes: PILLARS.map(p => p ? 'Pillar ' + p : 'Infra / none')};
+}
+function clearFixed(){ DATA.nodes.forEach(n => { delete n.fx; delete n.fy; }); }
+
+// ---- renderers ------------------------------------------------------------------
+function loadScript(src){
+  return new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = src; s.onload = res;
+    s.onerror = () => rej(new Error('could not load ' + src)); document.head.appendChild(s);
+  });
+}
+function make2D(){
+  g2 = ForceGraph()($('g2'))
+    .nodeId('id').backgroundColor(PV.bg)
+    .nodeCanvasObject(drawNode).nodeCanvasObjectMode(() => 'replace').nodePointerAreaPaint(paintArea)
+    .nodeLabel(n => esc(n.title || n.label))
+    .linkColor(linkCol).linkWidth(linkW).linkLineDash(l => l.ambiguous ? [3, 3] : null)
+    .linkDirectionalArrowLength(l => l.kind === 'depends' ? 3.5 : 0).linkDirectionalArrowRelPos(1)
+    .autoPauseRedraw(false).d3VelocityDecay(0.35).cooldownTicks(100)
+    .onNodeClick(n => select(n.id)).onBackgroundClick(() => select(null))
+    .onRenderFramePre(preFrame);
+  g2.d3Force('charge').strength(-90).distanceMax(400);
+  g2.d3Force('link').distance(l => l.kind === 'file' ? 14 : 38);
+}
+const nodeCol3 = n => dimmed(n) ? hexA(colorOf(n), 0.15) : colorOf(n);
+function nodeVal3(n){
+  let v = n.group === 'package' ? 2.2 : n.group === 'doc' ? 1.7 : n.group === 'issue' ? 1.4 : 1;
+  if(n.id === sel) v *= 3;
+  if(T('t-health') && hasHealth(n)) v *= 2;
+  return v;
+}
+async function ensure3D(){
+  if(g3) return;
+  if(!window.THREE) await loadScript(LIBS.three);
+  if(!window.ForceGraph3D) await loadScript(LIBS.fg3);
+  g3 = ForceGraph3D()($('g3'))
+    .nodeId('id').backgroundColor(PV.bg).nodeLabel(n => esc(n.title || n.label))
+    .nodeColor(nodeCol3).nodeVal(nodeVal3).nodeRelSize(4)
+    .linkColor(linkCol).linkWidth(l => l.kind === 'depends' ? 1.4 : 0.5)
+    .linkDirectionalArrowLength(l => l.kind === 'depends' ? 3.5 : 0).linkDirectionalArrowRelPos(1)
+    .showNavInfo(false).d3VelocityDecay(0.35).warmupTicks(40).cooldownTicks(120)
+    .onNodeClick(n => select(n.id)).onBackgroundClick(() => select(null));
+  g3.d3Force('charge').strength(-140).distanceMax(450);
+  g3.d3Force('link').distance(l => l.kind === 'file' ? 16 : 42);
+}
+function refreshStyle(){
+  if(graph && graph === g3) g3.nodeColor(nodeCol3).nodeVal(nodeVal3).linkColor(linkCol);
+}
+function resize(){
+  const el = $(layout === '3d' ? 'g3' : 'g2');
+  if(graph) graph.width(el.clientWidth || innerWidth).height(el.clientHeight || innerHeight);
+}
+function updateCounts(){
+  $('counts').textContent = 'showing ' + curNodes.length + ' nodes / ' + curLinks.length + ' edges (of ' + DATA.nodes.length + ' / ' + DATA.edges.length + ')';
+}
+function render(){
+  if(!graph) return;
+  const d = build(); curNodes = d.nodes; curLinks = d.links;
+  computeFocus();
+  graph.cooldownTicks(layout === 'timeline' ? 0 : layout === '3d' ? 120 : 100);
+  graph.graphData(d);
+  updateCounts(); refreshStyle();
+}
+async function setLayout(l){
+  if(l === '3d'){
+    try { await ensure3D(); }
+    catch(e){ showBanner('3D renderer failed to load (' + e.message + '); staying in the current layout.'); $('layout').value = layout; return; }
+  }
+  layout = l; $('layout').value = l;
+  const is3 = l === '3d';
+  $('g2').hidden = is3; $('g3').hidden = !is3;
+  if(g2) is3 ? g2.pauseAnimation() : g2.resumeAnimation();
+  if(g3) is3 ? g3.resumeAnimation() : g3.pauseAnimation();
+  graph = is3 ? g3 : g2;
+  if(l === 'timeline') layoutTimeline(); else clearFixed();
+  resize(); render();
+  if(l === 'timeline') setTimeout(() => graph.zoomToFit(400, 60), 80);
+  else if(sel) setTimeout(() => flyTo(byId[sel]), 300);
+  writeHash();
+}
+function showBanner(msg){ $('banner').textContent = msg; $('banner').hidden = false; }
+
+// ---- selection / camera ---------------------------------------------------------
+function ensureVisible(n){
+  let ch = false;
+  const on = id => { const c = $(id); if(!c.checked){ c.checked = true; ch = true; } };
+  if(layout === 'timeline' && n.group !== 'package'){ setLayout('2d'); ch = true; }
+  if(n.group === 'package'){
+    if(layout !== 'timeline') on('t-package');
+    if(!F.state[n.state]){ F.state[n.state] = true; $('s-' + n.state).checked = true; ch = true; }
+    if(!F.pillar[n.pillar]){ F.pillar[n.pillar] = true; $('p-' + (n.pillar || 'none')).checked = true; ch = true; }
+  } else if(n.group === 'doc'){ on('t-doc'); if(n.hub) on('t-hub'); }
+  else if(n.group === 'file') on('t-file');
+  else on('t-issue');
+  if(ch) render();
+  return ch;
+}
+function flyTo(n){
+  if(!graph || !n || n.x == null || isNaN(n.x)) return;
+  if(graph === g3){
+    const z = n.z || 0, h = Math.hypot(n.x, n.y, z) || 1, r = 1 + 60 / h;
+    graph.cameraPosition({x: n.x * r, y: n.y * r, z: z * r}, {x: n.x, y: n.y, z}, 900);
+  } else { graph.centerAt(n.x, n.y, 500); if(graph.zoom() < 2.5) graph.zoom(2.5, 500); }
+}
+function select(id, o){
+  o = o || {};
+  const n = id ? byId[id] : null;
+  sel = n ? n.id : null;
+  let rerendered = false;
+  if(n) rerendered = ensureVisible(n);
+  computeFocus(); refreshStyle();
+  showInspector(n); writeHash();
+  if(n && !o.noCam){ if(rerendered) setTimeout(() => flyTo(n), 450); else flyTo(n); }
+}
+function writeHash(){
+  const p = [];
+  if(sel) p.push('node=' + encodeURIComponent(sel));
+  if(focus !== '0') p.push('focus=' + focus);
+  if(layout !== '2d') p.push('layout=' + layout);
+  try { history.replaceState(null, '', p.length ? '#' + p.join('&') : location.pathname + location.search); } catch(e) {}
+}
+function parseHash(){
+  const o = {};
+  location.hash.replace(/^#/, '').split('&').forEach(kv => {
+    const i = kv.indexOf('=');
+    if(i > 0){ try { o[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1)); } catch(e) {} }
+  });
+  return o;
 }
 
-document.querySelectorAll('#panel input[type=checkbox]:not(#t-2d)').forEach(cb => cb.addEventListener('change', render));
-document.getElementById('t-2d').addEventListener('change', e => setDimensions(e.target.checked));
-render();
+// ---- inspector ------------------------------------------------------------------
+function nlink(o){
+  const m = byId[o.id];
+  const txt = !m ? o.id : (o.amb && m.group === 'package') ? m.id : m.label;
+  return '<a href="#" data-sel="' + esc(o.id) + '">' + esc(txt) + '</a>' + (o.amb ? ' <span class="amb" title="duplicate legacy number: may be any spec sharing it">(ambiguous)</span>' : '');
+}
+const list = (arr, fn) => arr.length ? '<ul>' + arr.map(x => '<li>' + fn(x) + '</li>').join('') + '</ul>' : '<div class="mute">(none)</div>';
+function ghLink(path){ return META.repo && path ? '<a href="' + esc(META.repo + '/blob/main/' + path) + '" target="_blank" rel="noopener">view on GitHub (main)</a>' : ''; }
+function prLink(num){ return META.repo ? '<a href="' + esc(META.repo + '/pull/' + num) + '" target="_blank" rel="noopener">#' + num + '</a>' : '#' + num; }
+function showInspector(n){
+  const el = $('insp');
+  if(!n){ el.hidden = true; el.innerHTML = ''; return; }
+  const N = nb(n.id);
+  let h = '<div class="ih"><span><b>' + esc(n.group === 'package' ? n.num : n.label) + '</b>';
+  if(n.group === 'package') h += '<span class="badge" style="background:' + PV[n.state] + '">' + esc(n.state) + '</span>';
+  h += '</span><button data-close="1" title="Close (Esc)">&times;</button></div>';
+  h += '<div class="it">' + esc(n.title || n.id) + '</div>';
+  if(n.group === 'package'){
+    h += '<div class="mute">' + ['pillar ' + (n.pillar || '-'), 'track ' + (n.track || '-'), 'effort ' + (n.effort || '-'), n.date ? n.date : 'undated'].map(esc).join(' &middot; ') + '</div>';
+    h += '<h4>Status</h4><p class="st">' + esc(n.status || '(none)') + '</p>';
+    if(n.goal) h += '<h4>Goal</h4><p class="st">' + esc(n.goal) + '</p>';
+    h += '<h4>Depends on</h4>' + list(N.dep, nlink);
+    if(n.unresolved.length) h += '<div class="warn">unresolved: ' + esc(n.unresolved.join(', ')) + '</div>';
+    h += '<h4>Depended on by</h4>' + list(N.rdep, nlink);
+    h += '<h4>Owned files (' + N.file.length + ')</h4>' + (N.file.length ? '<details><summary>show</summary>' + list(N.file, nlink) + '</details>' : '<div class="mute">(none)</div>');
+    h += '<h4>Linked docs (' + N.doc.length + ')</h4>' + (N.doc.length ? '<details><summary>show</summary>' + list(N.doc, o => nlink(o) + (byId[o.id] && byId[o.id].hub ? ' <span class="amb">hub</span>' : '')) + '</details>' : '<div class="mute">(none)</div>');
+    const known = new Set(N.issue.map(o => byId[o.id] && byId[o.id].label.slice(1)));
+    const extra = n.prs.filter(p => !known.has(String(p)));
+    h += '<h4>Issues / PRs</h4>' + list(N.issue.map(o => byId[o.id]).filter(Boolean),
+      i => '<a href="' + esc(i.url) + '" target="_blank" rel="noopener">' + esc(i.kind === 'pr' ? 'PR ' : 'issue ') + esc(i.label) + '</a> ' + esc(i.title) + ' <span class="amb">' + esc(i.merged ? 'merged' : i.gh_state) + '</span>');
+    if(extra.length) h += '<div class="mute">cited in Status: ' + extra.map(prLink).join(', ') + '</div>';
+    const hl = [];
+    if(n.stale_prs.length) hl.push('<span class="warn">possibly stale: merged PR ' + n.stale_prs.map(prLink).join(', ') + ' names this package but status is ' + esc(n.state) + '</span>');
+    if(n.unresolved.length) hl.push('<span class="warn">unresolved dependency tokens</span>');
+    if(n.nfiles === 0) hl.push('owns no files');
+    if(hl.length) h += '<h4>Health</h4>' + list(hl, x => x);
+    h += '<h4>Links</h4>' + ghLink(n.path);
+    const cmd = 'python scripts/project_index.py whatis ' + n.num;
+    h += '<h4>Index</h4><div class="cmd"><code>' + esc(cmd) + '</code><button data-copy="' + esc(cmd) + '">Copy</button></div>';
+  } else if(n.group === 'issue'){
+    h += '<div class="mute">' + esc(n.kind) + ' &middot; ' + esc(n.merged ? 'merged' : n.gh_state) + '</div>';
+    h += '<p><a href="' + esc(n.url) + '" target="_blank" rel="noopener">open on GitHub</a></p>';
+    h += '<h4>Linked packages</h4>' + list(N.issue, nlink);
+  } else {
+    h += '<div class="mute">' + esc(n.path) + (n.hub ? ' &middot; hub doc (linked to many packages)' : '') + '</div><p>' + ghLink(n.path) + '</p>';
+    h += '<h4>Linked packages (' + N[n.group].length + ')</h4><details open><summary>show</summary>' + list(N[n.group], nlink) + '</details>';
+  }
+  el.innerHTML = h; el.hidden = false; el.scrollTop = 0;
+}
+
+// ---- search ---------------------------------------------------------------------
+const rankOf = (n, q) => (n.group === 'package' ? (n.num === q ? -1 : 0) : n.group === 'doc' ? 1 : n.group === 'file' ? 2 : 3);
+function search(text){
+  const terms = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if(!terms.length) return [];
+  const hits = DATA.nodes.filter(n => { const hay = (n.id + ' ' + n.title + ' ' + (n.path || '') + ' ' + n.label).toLowerCase(); return terms.every(t => hay.includes(t)); });
+  hits.sort((a, b) => rankOf(a, terms[0]) - rankOf(b, terms[0]));
+  return hits.slice(0, 15);
+}
+let hits = [];
+function showResults(){
+  hits = search($('q').value);
+  $('res').innerHTML = hits.map((n, i) => '<div class="hit' + (i === 0 ? ' first' : '') + '" data-sel="' + esc(n.id) + '"><b>' + esc(n.group === 'package' ? n.num : n.label) +
+    '</b><span class="mute">' + esc((n.title || '').slice(0, 44)) + '</span></div>').join('');
+}
+function clearSearch(){ $('q').value = ''; showResults(); $('q').blur(); }
+
+// ---- wiring ---------------------------------------------------------------------
+function buildFilters(){
+  $('states').innerHTML = STATES.map(s => '<label class="chip"><input type="checkbox" id="s-' + s + '" checked><i class="sw" style="background:var(--c-' + s + ')"></i>' + s +
+    ' <small>' + PKGS.filter(n => n.state === s).length + '</small></label>').join('');
+  $('pillars').innerHTML = PILLARS.map(p => '<label class="chip"><input type="checkbox" id="p-' + (p || 'none') + '" checked>' + (p ? 'P' + p : 'none') + '</label>').join('');
+  STATES.forEach(s => $('s-' + s).addEventListener('change', e => {
+    F.state[s] = e.target.checked; if(s === 'done') $('t-hidedone').checked = !e.target.checked; render();
+  }));
+  PILLARS.forEach(p => $('p-' + (p || 'none')).addEventListener('change', e => { F.pillar[p] = e.target.checked; render(); }));
+  $('t-hidedone').addEventListener('change', e => { F.state.done = !e.target.checked; $('s-done').checked = !e.target.checked; render(); });
+  ['t-package','t-doc','t-file','t-issue','t-dep','t-dedge','t-hub','t-fedge','t-iedge'].forEach(id => $(id).addEventListener('change', render));
+  $('t-health').addEventListener('change', () => { refreshStyle(); });
+  const c = {stale: PKGS.filter(n => n.stale_prs.length).length, unres: PKGS.filter(n => n.unresolved.length).length, nofile: PKGS.filter(n => n.nfiles === 0).length};
+  $('hcounts').innerHTML = '<span style="color:var(--c-stale)">&#9679;</span> possibly stale ' + c.stale + ' &middot; <span style="color:var(--c-unres)">&#9679;</span> unresolved deps ' + c.unres + ' &middot; &#9675; no files ' + c.nofile;
+}
+function ago(iso){
+  if(!iso) return 'never';
+  const s = (Date.now() - Date.parse(iso)) / 1000; if(isNaN(s)) return iso;
+  return (s < 3600 ? Math.round(s / 60) + ' min' : s < 86400 ? Math.round(s / 3600) + ' h' : Math.round(s / 86400) + ' d') + ' ago';
+}
+function setFocus(v){ focus = v; $('focus').value = v; computeFocus(); refreshStyle(); writeHash(); }
+function wireCommon(){
+  $('fresh').textContent = 'generated ' + (META.generated || '?') + ' | HEAD ' + (META.head || '?') + ' | gh-sync ' + ago(META.gh_synced_at) +
+    ' | ' + DATA.nodes.length + ' nodes, ' + DATA.edges.length + ' edges';
+  document.addEventListener('click', e => {
+    const a = e.target.closest('[data-sel]'); if(a){ e.preventDefault(); select(a.getAttribute('data-sel')); return; }
+    if(e.target.closest('[data-close]')){ select(null); return; }
+    const c = e.target.closest('[data-copy]');
+    if(c){ try { navigator.clipboard.writeText(c.getAttribute('data-copy')); c.textContent = 'Copied'; setTimeout(() => c.textContent = 'Copy', 1200); } catch(err) {} }
+  });
+  $('collapse').addEventListener('click', () => $('panel').classList.toggle('collapsed'));
+  $('theme').addEventListener('click', () => {
+    const t = effTheme() === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = t;
+    try { localStorage.setItem('idx-theme', t); } catch(e) {}
+    themeChanged(); if(sel) showInspector(byId[sel]);
+  });
+  matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if(!document.documentElement.dataset.theme) themeChanged(); });
+  $('layout').addEventListener('change', e => setLayout(e.target.value));
+  $('focus').addEventListener('change', e => setFocus(e.target.value));
+  $('q').addEventListener('input', showResults);
+  document.addEventListener('keydown', e => {
+    const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if(e.key === 'Escape'){ if(document.activeElement === $('q') || $('q').value) clearSearch(); else select(null); return; }
+    if(e.key === 'Enter' && document.activeElement === $('q')){ if(hits[0]) select(hits[0].id); return; }
+    if(typing || e.ctrlKey || e.metaKey || e.altKey) return;
+    if(e.key === '/'){ e.preventDefault(); $('panel').classList.remove('collapsed'); $('q').focus(); $('q').select(); }
+    else if(e.key === 'f' || e.key === 'F'){ setFocus(FOCI[(FOCI.indexOf(focus) + 1) % FOCI.length]); }
+  });
+  window.addEventListener('resize', resize);
+  if(window.ResizeObserver){ const ro = new ResizeObserver(resize); ro.observe($('g2')); ro.observe($('g3')); }
+  if(innerWidth < 700) $('panel').classList.add('collapsed');
+  buildFilters();
+}
+
+// ---- offline fallback -----------------------------------------------------------
+function offline(err){
+  showBanner('Graph renderer failed to load (' + err.message + '). Showing an offline package table built from the embedded data.');
+  $('panel').hidden = true; $('insp').hidden = true; $('g2').hidden = true; $('fallback').hidden = false;
+  const rows = PKGS.map(n => ({n, hay: (n.id + ' ' + n.title + ' ' + n.state).toLowerCase()}));
+  const draw = () => {
+    const terms = $('fq').value.toLowerCase().split(/\s+/).filter(Boolean);
+    $('ftb').innerHTML = rows.filter(r => terms.every(t => r.hay.includes(t))).map(r =>
+      '<tr><td>' + esc(r.n.id) + '</td><td>' + esc(r.n.state) + '</td><td>' + esc(r.n.title) + '</td><td>' + esc(nb(r.n.id).dep.map(o => o.id).join(', ')) + '</td></tr>').join('');
+  };
+  $('fq').addEventListener('input', draw); draw();
+}
+
+// ---- start ----------------------------------------------------------------------
+(async function start(){
+  try { await loadScript(LIBS.fg2); if(!window.ForceGraph) throw new Error('force-graph missing'); }
+  catch(e){ offline(e); return; }
+  make2D(); graph = g2; wireCommon();
+  const H = parseHash();
+  if(FOCI.indexOf(H.focus) >= 0){ focus = H.focus; $('focus').value = focus; }
+  await setLayout(['2d', '3d', 'timeline'].indexOf(H.layout) >= 0 ? H.layout : '2d');
+  if(H.node && byId[H.node]) select(H.node);
+  if(!sel || layout === '2d') setTimeout(() => { if(!sel && graph === g2) g2.zoomToFit(400, 40); }, 1200);
+})();
 </script>
 </body></html>"""
 
@@ -940,7 +1532,7 @@ def main() -> None:
     db = _connect()
 
     # Read commands auto-rebuild when a source file is newer than the DB.
-    if cmd in ("query", "deps", "owns", "script", "whatis") and stale:
+    if cmd in ("query", "deps", "owns", "script", "whatis", "graph") and stale:
         build(db)
         print("(index rebuilt)", file=sys.stderr)
 

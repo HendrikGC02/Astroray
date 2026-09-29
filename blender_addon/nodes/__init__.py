@@ -291,6 +291,67 @@ class _AstrorayNodeBase:
 
 
 # --------------------------------------------------------------------------- #
+# pkg311: node status line. The converter (`_convert_astroray_native_surface`
+# in the addon __init__) resolves a native node ONLY when it is wired directly
+# into the Surface socket of the tree's output. The status line reuses that
+# exact rule (and the same output selection as `convert_node_material`), so
+# the node UI and the render cannot disagree. Pattern only from Blender's
+# node draw_buttons convention; no Blender source copied.
+# --------------------------------------------------------------------------- #
+
+# Native node types `_convert_astroray_native_surface` dispatches on. A test
+# asserts this tuple matches that function's source, so the two cannot drift.
+NATIVE_SURFACE_IDNAMES = (
+    "AstrorayShaderNodeSellmeierGlass",
+    "AstrorayShaderNodeIrUvResponse",
+    "AstrorayShaderNodeNrcHint",
+    "AstrorayShaderNodeSpectralProfile",
+    "AstrorayShaderNodeSpectrumPreset",
+    "AstrorayShaderNodeDrawnSpectrum",
+)
+
+
+def surface_root_node(node_tree):
+    """Node wired to Surface of the output the converter would choose.
+
+    Output selection mirrors `convert_node_material`: an AstrorayOutputNode if
+    present, else the active OUTPUT_MATERIAL, else any OUTPUT_MATERIAL.
+    """
+    nodes = node_tree.nodes
+    out = next((n for n in nodes if n.bl_idname == "AstrorayOutputNode"), None)
+    if out is None:
+        out = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'
+                    and getattr(n, "is_active_output", True)), None)
+    if out is None:
+        out = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+    if out is None:
+        return None
+    surface = out.inputs.get("Surface")
+    if surface is None or not surface.is_linked:
+        return None
+    return surface.links[0].from_node
+
+
+def native_surface_status(node):
+    """None when the converter will use `node`, else (icon, message)."""
+    tree = getattr(node, "id_data", None)
+    if tree is None or getattr(tree, "nodes", None) is None:
+        return None
+    if surface_root_node(tree) == node:
+        return None
+    if any(s.is_linked for s in node.outputs):
+        return ('ERROR', "No effect: only a node wired directly to Surface is used")
+    return ('INFO', "Not wired to Surface: no effect on this material")
+
+
+def _draw_native_status(node, layout):
+    status = native_surface_status(node)
+    if status is not None:
+        icon, text = status
+        layout.label(text=text, icon=icon)
+
+
+# --------------------------------------------------------------------------- #
 # 1. AstrorayOutputNode — companion to OUTPUT_MATERIAL.
 # --------------------------------------------------------------------------- #
 
@@ -332,6 +393,7 @@ class AstrorayShaderNodeSpectralProfile(_AstrorayNodeBase, bpy.types.ShaderNode)
 
     def draw_buttons(self, context, layout):
         layout.prop(self, "profile", text="")
+        _draw_native_status(self, layout)
 
 
 # --------------------------------------------------------------------------- #
@@ -372,6 +434,7 @@ class AstrorayShaderNodeSellmeierGlass(_AstrorayNodeBase, bpy.types.ShaderNode):
             col.prop(self, "preset", text="")
         else:
             col.prop(self, "ior_design")
+        _draw_native_status(self, layout)
 
 
 # --------------------------------------------------------------------------- #
@@ -385,6 +448,7 @@ class AstrorayShaderNodeIrUvResponse(_AstrorayNodeBase, bpy.types.ShaderNode):
 
     band: EnumProperty(
         name="Band",
+        description="Out-of-visible band this response applies to",
         items=[
             ("ir", "Near IR (700–1000 nm)", ""),
             ("uv", "Near UV (300–400 nm)", ""),
@@ -406,6 +470,7 @@ class AstrorayShaderNodeIrUvResponse(_AstrorayNodeBase, bpy.types.ShaderNode):
     def draw_buttons(self, context, layout):
         layout.prop(self, "band", text="")
         layout.prop(self, "reflectance")
+        _draw_native_status(self, layout)
 
 
 # --------------------------------------------------------------------------- #
@@ -430,6 +495,7 @@ class AstrorayShaderNodeNrcHint(_AstrorayNodeBase, bpy.types.ShaderNode):
 
     def draw_buttons(self, context, layout):
         layout.prop(self, "cache_this")
+        _draw_native_status(self, layout)
 
 
 # --------------------------------------------------------------------------- #
@@ -464,6 +530,7 @@ class AstrorayShaderNodeSpectrumPreset(_AstrorayNodeBase, bpy.types.ShaderNode):
     def draw_buttons(self, context, layout):
         layout.prop(self, "category", text="")
         layout.prop(self, "profile", text="")
+        _draw_native_status(self, layout)
 
 
 # --------------------------------------------------------------------------- #
@@ -496,7 +563,10 @@ class AstrorayShaderNodeDrawnSpectrum(_AstrorayNodeBase, bpy.types.ShaderNode):
     )
     # Name of the hidden node group holding the drawable CurveMapping. The .blend
     # stores the curve; the node stores only this reference.
-    curve_group: StringProperty(default="")
+    curve_group: StringProperty(
+        name="Curve Group",
+        description="Internal: name of the hidden node group that stores the drawn curve",
+        default="")
 
     def _ensure_curve_group(self):
         groups = getattr(getattr(bpy, "data", None), "node_groups", None)
@@ -543,6 +613,7 @@ class AstrorayShaderNodeDrawnSpectrum(_AstrorayNodeBase, bpy.types.ShaderNode):
         else:
             layout.label(text="Draw λ → value curve (unavailable here)", icon="FCURVE")
         layout.operator("astroray.bake_spectrum_profile", icon="FILE_TICK")
+        _draw_native_status(self, layout)
 
 
 # --------------------------------------------------------------------------- #
@@ -643,6 +714,7 @@ class AstrorayMaterialSettings(bpy.types.PropertyGroup):
     """
     sellmeier_preset: EnumProperty(
         name="Sellmeier Preset",
+        description="Default glass preset when no Sellmeier Glass node is wired",
         items=_sellmeier_preset_items,
     )
     nrc_cache_hint: BoolProperty(
@@ -659,16 +731,50 @@ class AstrorayMaterialSettings(bpy.types.PropertyGroup):
 # the deprecated nodeitems_utils API.
 # --------------------------------------------------------------------------- #
 
-_ASTRORAY_NODE_TYPES = [
-    ("Astroray Output",          "AstrorayOutputNode"),
-    ("Astroray Spectrum Preset", "AstrorayShaderNodeSpectrumPreset"),
-    ("Astroray Drawn Spectrum",  "AstrorayShaderNodeDrawnSpectrum"),
-    ("Astroray Blackbody Spectrum", "AstrorayShaderNodeBlackbodySpectrum"),
-    ("Astroray Spectral Profile","AstrorayShaderNodeSpectralProfile"),
-    ("Astroray Sellmeier Glass", "AstrorayShaderNodeSellmeierGlass"),
-    ("Astroray IR/UV Response",  "AstrorayShaderNodeIrUvResponse"),
-    ("Astroray NRC Cache Hint",  "AstrorayShaderNodeNrcHint"),
+# pkg311: categorised Add menu (Spectral Sources / Spectral Modifiers /
+# Response / Hints). The output node stays at the top level of the submenu.
+_ASTRORAY_OUTPUT_NODE = ("Astroray Output", "AstrorayOutputNode")
+
+_ASTRORAY_NODE_CATEGORIES = [
+    ("NODE_MT_astroray_add_sources", "Spectral Sources", [
+        ("Astroray Spectrum Preset", "AstrorayShaderNodeSpectrumPreset"),
+        ("Astroray Drawn Spectrum",  "AstrorayShaderNodeDrawnSpectrum"),
+        ("Astroray Blackbody Spectrum", "AstrorayShaderNodeBlackbodySpectrum"),
+        ("Astroray Spectral Profile", "AstrorayShaderNodeSpectralProfile"),
+    ]),
+    ("NODE_MT_astroray_add_modifiers", "Spectral Modifiers", [
+        ("Astroray Sellmeier Glass", "AstrorayShaderNodeSellmeierGlass"),
+    ]),
+    ("NODE_MT_astroray_add_response", "Response", [
+        ("Astroray IR/UV Response",  "AstrorayShaderNodeIrUvResponse"),
+    ]),
+    ("NODE_MT_astroray_add_hints", "Hints", [
+        ("Astroray NRC Cache Hint",  "AstrorayShaderNodeNrcHint"),
+    ]),
 ]
+
+_ASTRORAY_NODE_TYPES = [_ASTRORAY_OUTPUT_NODE] + [
+    entry for _mt, _label, entries in _ASTRORAY_NODE_CATEGORIES for entry in entries
+]
+
+
+def _draw_add_entries(layout, entries):
+    for label, bl_idname in entries:
+        op = layout.operator("node.add_node", text=label)
+        op.type = bl_idname
+        op.use_transform = True
+
+
+def _make_category_menu(mt_idname, label, entries):
+    def draw(self, context):
+        _draw_add_entries(self.layout, entries)
+    return type(mt_idname, (bpy.types.Menu,), {
+        "bl_idname": mt_idname, "bl_label": label, "draw": draw})
+
+
+_CATEGORY_MENU_CLASSES = tuple(
+    _make_category_menu(mt, label, entries)
+    for mt, label, entries in _ASTRORAY_NODE_CATEGORIES)
 
 
 def draw_astroray_nodes(self, context):
@@ -693,10 +799,10 @@ class NODE_MT_astroray_add(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
-        for label, bl_idname in _ASTRORAY_NODE_TYPES:
-            op = layout.operator("node.add_node", text=label)
-            op.type = bl_idname
-            op.use_transform = True
+        _draw_add_entries(layout, [_ASTRORAY_OUTPUT_NODE])
+        layout.separator()
+        for mt_idname, label, _entries in _ASTRORAY_NODE_CATEGORIES:
+            layout.menu(mt_idname, text=label)
 
 
 # --------------------------------------------------------------------------- #
@@ -723,6 +829,7 @@ _ALL_CLASSES = (
     *SOCKET_CLASSES,
     *NODE_CLASSES,
     ASTRORAY_OT_bake_spectrum_profile,
+    *_CATEGORY_MENU_CLASSES,
     NODE_MT_astroray_add,
     AstrorayMaterialSettings,
 )

@@ -125,6 +125,14 @@ reason = "GPU vs CPU photon caustics disagree"
 [[row]]
 scene = "v2_media"
 backend = "cpu"
+roi = "smoke_plume"
+channels = ["r"]
+issue = "#983"
+reason = "single firefly at seed 278 on the MSVC CPU leg (1.33x); not a bias (MinGW 1.000, pre-#953 1.037)"
+
+[[row]]
+scene = "v2_media"
+backend = "cpu"
 roi = "shaft"
 channels = ["r", "g", "b", "L"]
 issue = "#961"

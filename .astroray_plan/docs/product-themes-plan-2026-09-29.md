@@ -268,3 +268,12 @@ and P3 gets its own spec.
 7. **Priority.** Themes 1–2 ahead of the Pillar 4 thaw (lead: yes, they are
    integration). Should themes 3–4 P1 run now as foundation, or wait for the
    Stage 0 exit?
+
+## Owner decisions (2026-09-29)
+
+1. **Theme-1 production node-tree score becomes a Stage 0 exit-gate row** (N/8 materials in band on CPU+GPU, zero silent degradations).
+2. op-VM limits vs per-hit shader graph: decided after pkg310 reports.
+3. **UI scope: native Blender surfaces + a shipped asset library** (no custom sidebar; pkg176 stands).
+4. **Data sources: NIST (public domain) and ExoMol (CC BY-SA 4.0) may be bundled**; HITRAN/HITEMP, Kurucz and CHIANTI are not bundled.
+5-6. 5 nm grid and cube format: decided when themes 3-4 start.
+7. **Themes 3-4 (pkg312 element library, pkg313 data cube) start after the Stage 0 exit**; Batch AP = pkg310 + pkg311.

@@ -275,3 +275,13 @@ Astroray settings: `add_triangles_bulk`, then `render(256, 8, None, False)`, cam
 
 The scratch drivers were one-offs. pkg298 folds this scene and a Cycles leg into
 `benchmarks/wavefront_baseline.py`, per CLAUDE.md §5b.
+
+## Owner decisions (2026-09-29)
+
+- **OptiX 9.1 build dependency: approved** (pkg299). `cmake/FindOptiX.cmake` moves to 9.x.
+- **OptiX default: triangles first.** Default ON for triangle-only scenes once the shadow-ray phase passes parity; spheres/curves/motion blur keep the CUDA BVH until covered.
+- **CUDA 13 rebuild trial: approved** (pkg300 Phase 0).
+- **Per-scene material JIT (pkg300 Phase 3): approved** to proceed after Phases 0-2.
+- **Embree 4 for CPU: not approved now.**
+- **Bit-identity gates (#969): use an absolute tolerance of 1e-6** instead of exact equality; no `-ffp-contract=off`.
+- Owner action still needed: enable GPU performance counters once as admin (NVIDIA Control Panel > Developer), else pkg300 Phase 0 hardware counters fail with ERR_NVGPUCTRPERM.

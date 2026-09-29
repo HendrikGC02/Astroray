@@ -8,8 +8,8 @@ Gates (spec .astroray_plan/packages/pkg299-optix-hardware-traversal.md):
   shadow: occluded flag). Residual mismatches are edge watertightness (RT cores
   are watertight, Moller-Trumbore is not); they are listed on failure.
 * Agreeing hits carry the same record: t, point, normal, front face, material.
-* Rendering with ASTRORAY_GPU_TRAVERSAL=optix uses OptiX on triangle-only
-  scenes, falls back to the software BVH on scenes with spheres, and produces
+* GPU renders use OptiX by default on triangle-only scenes, fall back to the
+  software BVH on scenes with spheres, and produce
   the same image as the software path up to the rare edge-ray mismatches.
 * ASTRORAY_GPU_TRAVERSAL=software is the unchanged software path.
 
@@ -237,12 +237,29 @@ def test_sphere_scene_falls_back_to_software(monkeypatch):
     assert mode == "software"
 
 
-def test_default_is_software(monkeypatch):
+def test_default_is_optix_on_triangle_scenes(monkeypatch):
+    """Owner 2026-09-29: default on for triangle-only scenes after Phase 1."""
     monkeypatch.delenv(_ENV, raising=False)
     r = _renderer(32)
     _cornell_mesh_scene(r, sphere_n=8)
     _, mode = _render(r, spp=4)
-    assert mode == "software"
+    assert mode == "optix"
+
+
+def test_first_bounded_media_render_after_optix(monkeypatch):
+    """The hetero-medium queue counter was read before its first reset. Fresh
+    cudaMalloc memory hid it; after an OptiX render recycled device memory the
+    first bounded-media render faulted (illegal address in the intersect stage)."""
+    import test_873_877_clip_medium_nee as clip
+    monkeypatch.setenv(_ENV, "optix")
+    r = clip._clip_scene(True, medium=None, emissive_clipped=False)
+    r.render(4, 8, None, False)
+    assert r.last_render_info().get("gpu_traversal") == "optix"
+    for mode in ("software", "optix"):
+        monkeypatch.setenv(_ENV, mode)
+        r = clip._clip_scene(True, medium="box", emissive_clipped=False)
+        img = np.asarray(r.render(4, 8, None, False), dtype=np.float32)
+        assert np.isfinite(img).all()
 
 
 def _instanced_scene(r):

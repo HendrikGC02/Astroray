@@ -1881,9 +1881,11 @@ std::vector<float> cuda_wavefront_render(
         envMap.loaded          = true;
     }
     // pkg299 — OptiX hardware traversal for the intersect + shadow stages.
-    // Phases 0-1: opt-in (ASTRORAY_GPU_TRAVERSAL=optix) and triangle-only scenes
-    // (no spheres / curves / deformation motion; wfSync leaves those pointers null
-    // exactly when the scene has none, on upload and reuse calls alike). The
+    // Default on for triangle-only scenes (owner 2026-09-29: no spheres / curves /
+    // deformation motion; wfSync leaves those pointers null exactly when the scene
+    // has none, on upload and reuse calls alike). ASTRORAY_GPU_TRAVERSAL=software
+    // forces the software BVH (A/B reference). Devices without RT cores or a
+    // failed OptiX init / accel build fall back to the software BVH too. The
     // software BVH stays uploaded: it is the fallback, the A/B reference, and the
     // traversal of the photon / ReSTIR / transparent-shadow paths.
     bool hwTrav = false;
@@ -1892,8 +1894,8 @@ std::vector<float> cuda_wavefront_render(
         const bool hwEligible = d_prims != nullptr && d_tris != nullptr &&
                                 d_spheres == nullptr && d_curveSegments == nullptr &&
                                 d_motionVerts == nullptr;
-        const bool hwWanted = hwEligible && astroray::optix_trav::requested() ==
-                                                astroray::optix_trav::Request::Optix;
+        const bool hwWanted = hwEligible && astroray::optix_trav::requested() !=
+                                                astroray::optix_trav::Request::Software;
         if (!reuse) {
             C.hwAccelForCache = false;
             if (hwWanted) {
@@ -2028,6 +2030,11 @@ std::vector<float> cuda_wavefront_render(
     // pkg269 — heterogeneous-medium queue (one slot per path, one counter).
     int*   d_gridQueue   = wfEnsure<int>(C.gridQueue, total_paths);
     int*   d_gridCount   = wfEnsure<int>(C.gridCount, 1);
+    // The per-pass reset runs only after the hetero stage, so the first pass of
+    // the first bounded-media render read an uninitialised counter (garbage slot
+    // -> illegal address in stage_intersect_queued once cudaMalloc handed back
+    // recycled, non-zero memory; surfaced by pkg299's accel build/free churn).
+    cudaMemset(d_gridCount, 0, sizeof(int));
     int*   d_work        = wfEnsure<int>(C.work, 1);
 
     // pkg258 - env NEE arrays + queue, allocated only when env NEE is on AND an

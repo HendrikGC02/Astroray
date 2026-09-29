@@ -43,7 +43,8 @@ struct HwHitBuffers {
 
 enum class Request { Default, Software, Optix };
 
-// ASTRORAY_GPU_TRAVERSAL = "software" | "optix" (read on every call).
+// ASTRORAY_GPU_TRAVERSAL = "software" | "optix" (read on every call). Unset /
+// "optix": OptiX on triangle-only scenes; "software": the software BVH.
 inline Request requested() {
     const char* e = std::getenv("ASTRORAY_GPU_TRAVERSAL");
     if (e == nullptr) return Request::Default;

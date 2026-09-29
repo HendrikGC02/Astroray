@@ -242,7 +242,7 @@ void cuda_wavefront_invalidate_scene();
 int cuda_wavefront_last_grid_uploads();
 
 // pkg299: 1 when the most recent cuda_wavefront_render traversed with OptiX
-// (ASTRORAY_GPU_TRAVERSAL=optix on a triangle-only scene), 0 on the software BVH.
+// (the default on triangle-only scenes), 0 on the software BVH.
 // Surfaced as last_render_info()["gpu_traversal"].
 int cuda_wavefront_last_traversal();
 

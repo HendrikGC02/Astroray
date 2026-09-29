@@ -381,38 +381,6 @@ reason = "low-elevation sun glow reads 0.87-0.93"
 [[row]]
 scene = "v2_textures_opvm"
 backend = "cpu"
-roi = "card_Image"
-channels = ["r", "g", "b", "L"]
-issue = "#944"
-reason = "Image card 1.7-2.1x Cycles (colour-space decode)"
-
-[[row]]
-scene = "v2_textures_opvm"
-backend = "cpu"
-roi = "card_MapAfterWarp"
-channels = ["r", "g", "b", "L"]
-issue = "#891"
-reason = "Mapping downstream of non-affine warp unsupported (affine part #945)"
-
-[[row]]
-scene = "v2_textures_opvm"
-backend = "cpu"
-roi = "card_MapBeforeWarp"
-channels = ["r", "g", "b", "L"]
-issue = "#945"
-reason = "affine Mapping -> Checker renders flat colour (GPU differs from CPU)"
-
-[[row]]
-scene = "v2_textures_opvm"
-backend = "cpu"
-roi = "card_Voronoi"
-channels = ["r", "g", "b", "L"]
-issue = "#944"
-reason = "Voronoi Color output renders grey"
-
-[[row]]
-scene = "v2_textures_opvm"
-backend = "cpu"
 roi = "sphere_MixShaderProg"
 channels = ["r", "g", "b", "L"]
 issue = "#889"

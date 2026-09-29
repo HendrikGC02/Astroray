@@ -1,4 +1,4 @@
-# Material-edit storm commit cost (worker ON)
+# Continuous material-edit commit cost (worker ON)
 Continuous Base Color edit storm on the metal_sweep and big scenes; shaded band = the 33 ms tick-gap budget.
 Before: ~100% of commit cost was a full sync_viewport_scene (112-120 ms x 46-50 per storm) because every edit
 classified as fallback. After: edits dispatch as MATERIALS (replay True 97 / 85), full syncs drop to 2.

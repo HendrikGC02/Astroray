@@ -29,6 +29,7 @@ BUILD_DIR = configure_test_imports()
 
 from _linear_render_guard import linear_render_guard, name_matches
 from _gpu_classification import classify_path
+import results_layout
 
 
 # --- CPU/GPU marker split (open-model-research-2026-08 latency lever 6) --------
@@ -51,6 +52,48 @@ def pytest_configure(config):
         "markers",
         "cpu: test never touches CUDA — safe to run under pytest-xdist -n auto.",
     )
+
+
+# --- test_results guard (conventions: .astroray_plan/docs/test-results-conventions.md) ---
+# Tests must never modify the tracked curated tree (issue #861). Snapshot the
+# already-modified tracked files at session start; fail the session if new ones
+# appear. Controller process only (xdist workers skip this).
+_TR_BASELINE = None
+
+
+def _modified_tracked_results():
+    import subprocess
+    try:
+        out = subprocess.run(["git", "ls-files", "-m", "--", results_layout.RESULTS.name], cwd=PROJECT_ROOT,
+                             text=True, capture_output=True, timeout=60, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None  # no git: cannot check
+    return {p for p in out.splitlines() if p}
+
+
+def pytest_sessionstart(session):
+    global _TR_BASELINE
+    if hasattr(session.config, "workerinput"):
+        return
+    _TR_BASELINE = _modified_tracked_results()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if hasattr(session.config, "workerinput"):
+        return
+    now = _modified_tracked_results()
+    if _TR_BASELINE is not None and now is not None:
+        new = sorted(now - _TR_BASELINE)
+        if new:
+            print("\nERROR: tests modified tracked test_results files (curated evidence is "
+                  "written by promotion only; tests write via tests/results_layout.results_path):\n  "
+                  + "\n  ".join(new))
+            session.exitstatus = 1
+    if (results_layout.RESULTS / "_runs").is_dir():
+        try:
+            results_layout.write_index(runs=True)
+        except Exception as e:  # never fail a session over a convenience index
+            print(f"\nwarning: could not regenerate test_results/_runs/index.html: {e}")
 
 
 def pytest_collection_modifyitems(config, items):

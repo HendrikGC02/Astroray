@@ -66,3 +66,51 @@ float arithmetic ⇒ same t); the cursor strictly increases, so the sweep termin
   superset: the per-point membership test zeroes the integrand outside the mesh, so
   the estimator stays unbiased).
 - VDB Volume objects keep their grid AABB (non-goal: Cycles' active-voxel bounds mesh).
+
+## Phase 1 results (CPU + addon, lane an-296, 2026-09-29)
+
+- `MediumBoundary` (`include/astroray/volume/medium_boundary.h`): world triangles,
+  binned-SAH BVH, watertight Woop test with per-ray constants, `nextCrossing`
+  (closest) and `allCrossings` (every crossing, one traversal). One crossing list
+  per ray segment (`SegmentCrossings`) is shared by the sweep, the #925 segment
+  direct-light membership test and its transmittance.
+- Camera rays: bounded media start at the clip start (`mediaT0`), matching Cycles
+  `camera_sample_perspective` (`ray->P += nearclip * D`). This, not the boundary,
+  was the 3 % camera-inside deficit (a cube fog around the camera showed it too).
+- Pre-existing divergences found by the corpus, independent of the boundary (same
+  ratio with the mesh swapped for an exact-AABB cube, or the volume removed, on
+  main and on the branch): multi-scatter red deficit at `volume_bounces` 4 (cube
+  control 0.955) and a +7.5 % smooth-glass rim with no volume. Reported, not gated.
+- Media-free bit identity: `np.array_equal` fails at the ulp level (<= 2.1e-7
+  absolute) — bisected to GCC TU-wide inlining/FMA-contraction changes: pure
+  main rebuilt is identical, main `raytracer.h` + only the new
+  `segmentTransmittanceSpectral` branch already differs, and logically equivalent
+  refactors move the count between 225 and 8571 px. No pkg296 code runs when no
+  medium is registered.
+
+## Phase 2 (GPU) design notes — not implemented here
+
+- **Side table only.** `GGridMedium` gains `int boundaryNodeOffset, boundaryNodeCount,
+  boundaryTriOffset, boundaryTriCount` (or one `const GBoundaryBVH*` device pointer)
+  into one device buffer holding every medium's flattened nodes + triangles
+  (<= 8 media, uploaded with the #828 grid cache, invalidated by `clear_grid_media` /
+  media edits). `GPUWavefrontState` and the hit buffer do not change.
+- **Query sites** (all already `HasGridVolume=true`-gated or in the hetero stage):
+  `stage_advance.cu` intersect coverage loop (~639, `gpu_gridAabbOverlap`) and the
+  shadow-kernel medium Tr (~2411); `stage_volume_hetero.cu` segment NEE hull and
+  membership (~592-692) and the tracking masks (~273-321). A device
+  `gpu_mediumCoverage(m, o, d, cursor, tMax, &t0, &t1)` beside
+  `gpu_gridAabbOverlap` in `gpu_volume_phase.cuh`; boundary-less media keep the
+  AABB path byte-for-byte.
+- **State per query, not per path**: a stack-based closest-hit traversal
+  (`int stack[32]`, ~14 live registers) inside the `HasGridVolume=true`
+  instantiations only. The CPU `allCrossings` list (16 x (float, bool)) is too
+  large for registers; the GPU should use repeated closest-hit queries
+  (`nextCrossing`, 2-3 per segment) instead of a cached list.
+- **Expected register impact**: `stageShadeBucketedKernel` untouched (REG 254,
+  no new live state); `HasGridVolume=false` intersect/shadow instantiations
+  identical (the query is behind the template flag); `true` instantiations +20-30
+  REG / small STACK growth from the traversal stack; the lead verifies with
+  `cuobjdump --dump-resource-usage` (zero new spills).
+- **Also mirror** the camera-clip media start (`mediaT0`) in the bounce-0 intersect
+  kernel: the GPU hetero stage still starts at 0.001.

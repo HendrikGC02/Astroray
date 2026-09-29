@@ -26,7 +26,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import tempfile
 import time
 from pathlib import Path
@@ -56,18 +55,18 @@ def icosphere(sub=3, r=1.0, c=(0.0, 0.0, 0.0)):
          (11, 10, 2), (10, 7, 6), (7, 1, 8), (3, 9, 4), (3, 4, 2), (3, 2, 6), (3, 6, 8),
          (3, 8, 9), (4, 9, 5), (2, 4, 11), (6, 2, 10), (8, 6, 7), (9, 8, 1)]
     v = [np.array(p, float) / np.linalg.norm(p) for p in v]
+
+    def mid(cache, a, b):
+        k = (min(a, b), max(a, b))
+        if k not in cache:
+            m = v[a] + v[b]
+            v.append(m / np.linalg.norm(m))
+            cache[k] = len(v) - 1
+        return cache[k]
     for _ in range(sub):
         cache, nf = {}, []
-
-        def mid(a, b):
-            k = (min(a, b), max(a, b))
-            if k not in cache:
-                m = v[a] + v[b]
-                v.append(m / np.linalg.norm(m))
-                cache[k] = len(v) - 1
-            return cache[k]
         for a, b, cc in f:
-            ab, bc, ca = mid(a, b), mid(b, cc), mid(cc, a)
+            ab, bc, ca = mid(cache, a, b), mid(cache, b, cc), mid(cache, cc, a)
             nf += [(a, ab, ca), (b, bc, ab), (cc, ca, bc), (ab, bc, ca)]
         f = nf
     return (np.array(v) * r + np.array(c)).astype(np.float32), np.array(f, np.int32)
@@ -136,7 +135,7 @@ def _renderer(seed, ortho=True, eye=(0.0, 0.0, 5.0), clip=0.001, vfov=40.0):
     r.set_background_color([0.0, 0.0, 0.0])
     r.set_integrator("path_tracer")
     r.set_use_gpu(False)
-    kw = dict(orthographic=True, ortho_width=ORTHO, ortho_height=ORTHO) if ortho else {}
+    kw = {"orthographic": True, "ortho_width": ORTHO, "ortho_height": ORTHO} if ortho else {}
     look = [eye[0], eye[1], eye[2] - 1.0]
     r.setup_camera(list(eye), look, [0, 1, 0], vfov, W / H, 0.0, 5.0, W, H,
                    clip_near=clip, **kw)
@@ -150,7 +149,7 @@ def _backdrop(r, z=-2.0, a=6.0):
 
 
 def _absorber(r, V, F, sigma, boundary=True):
-    kw = dict(boundary_vertices=V, boundary_indices=F) if boundary else {}
+    kw = {"boundary_vertices": V, "boundary_indices": F} if boundary else {}
     r.add_homogeneous_medium(V.min(0).tolist(), V.max(0).tolist(), density_scale=sigma,
                              color=[0, 0, 0], absorption_color=[0, 0, 0], **kw)
 
@@ -274,7 +273,7 @@ def test_grid_medium_clipped_to_sphere_boundary():
 def _scatter_box(r, boundary):
     mn, mx = (-0.8, -0.8, -0.8), (0.8, 0.8, 0.8)
     V, F = box(mn, mx)
-    kw = dict(boundary_vertices=V, boundary_indices=F) if boundary else {}
+    kw = {"boundary_vertices": V, "boundary_indices": F} if boundary else {}
     r.add_homogeneous_medium(list(mn), list(mx), density_scale=1.2, color=[0.9, 0.7, 0.5],
                              anisotropy=0.3, **kw)
 
@@ -319,7 +318,7 @@ def _time_render(boundary, seed):
     r = _renderer(seed)
     _backdrop(r)
     V, F = icosphere(2, 1.0)
-    kw = dict(boundary_vertices=V, boundary_indices=F) if boundary else {}
+    kw = {"boundary_vertices": V, "boundary_indices": F} if boundary else {}
     r.add_homogeneous_medium([-1, -1, -1], [1, 1, 1], density_scale=1.5,
                              color=[0.9, 0.6, 0.3], **kw)
     t0 = time.perf_counter()

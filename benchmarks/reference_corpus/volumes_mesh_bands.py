@@ -92,7 +92,7 @@ def main():
             "bounces": a.bounces, "blender_version": bpy.app.version_string}
     Path(a.out_json).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out_json).write_text(json.dumps({"meta": meta, "scenes": out}, indent=1) + "\n",
-                                encoding="utf-8")
+                                encoding="utf-8", newline="\n")
     print(f"{SENTINEL} PASS", flush=True)
 
 

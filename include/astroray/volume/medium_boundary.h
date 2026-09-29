@@ -156,7 +156,7 @@ public:
 
 private:
     struct Tri { float p[3][3]; };
-    struct alignas(32) Node {  // 32 B: one node per half cache line
+    struct Node {  // 32 B
         float mn[3], mx[3];
         int first = 0;        // leaf: first triangle; interior: left child (right = first+1)
         int16_t count = 0;    // > 0 => leaf

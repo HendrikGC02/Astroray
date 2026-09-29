@@ -48,16 +48,12 @@ try:
 except ImportError:
     AVAILABLE = False
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "volumes", "stage2-scattering-cpu"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 SEED = 199222
-
-
-@pytest.fixture
-def test_results_dir():
-    d = os.path.join(os.path.dirname(__file__), "..", "test_results")
-    os.makedirs(d, exist_ok=True)
-    return os.path.abspath(d)
 
 
 def _render_cpu(r, spp, max_depth, w, h):
@@ -225,7 +221,7 @@ def _halo_scene(g, max_depth=2, w=64, h=64):
     return r
 
 
-def test_forward_back_scatter_asymmetry(test_results_dir):
+def test_forward_back_scatter_asymmetry():
     # Numeric gate at single-scatter depth (phase directionality, undiluted).
     fwd1 = _render_cpu(_halo_scene(0.7, max_depth=1), 256, 1, 64, 64)
     bwd1 = _render_cpu(_halo_scene(-0.7, max_depth=1), 256, 1, 64, 64)
@@ -238,10 +234,8 @@ def test_forward_back_scatter_asymmetry(test_results_dir):
     fm, bm = float(fwd.mean()), float(bwd.mean())
     print(f"[pkg199-s2 fwd/back scatter, depth4] mean(g=+0.7)={fm:.5f} "
           f"mean(g=-0.7)={bm:.5f} ratio={fm / max(bm, 1e-9):.3f}")
-    save_image(fwd.astype(np.float32), os.path.join(test_results_dir,
-              "pkg199_s2_forward_scatter.png"))
-    save_image(bwd.astype(np.float32), os.path.join(test_results_dir,
-              "pkg199_s2_back_scatter.png"))
+    save_image(fwd.astype(np.float32), str(results_path(_AREA, _FEATURE, "s2_forward_scatter.png")))
+    save_image(bwd.astype(np.float32), str(results_path(_AREA, _FEATURE, "s2_back_scatter.png")))
     # A correct HG frame gives a strong forward halo (g>0) for a light behind the
     # fog; a sign/frame bug inverts or nullifies it. Single-scatter ratio is large.
     # Measured ~2.0x forward enhancement: decisively rejects an isotropic phase
@@ -284,7 +278,7 @@ def _scatter_beauty_scene(w=48, h=48):
     return r
 
 
-def test_sum_to_beauty_with_volume_passes(test_results_dir):
+def test_sum_to_beauty_with_volume_passes():
     r = _scatter_beauty_scene()
     beauty = _render_cpu(r, 96, 6, 48, 48)
     total = None

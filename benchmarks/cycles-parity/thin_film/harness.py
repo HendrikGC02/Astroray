@@ -24,7 +24,7 @@ needs Blender 5.2 + a built OpenMP-OFF addon .pyd (pkg119b runbook).
 
 One command (run by the lead on hardware):
     python benchmarks/cycles-parity/thin_film/harness.py \
-        --out test_results/pkg178_thinfilm_ab --res 128 --samples 256
+        --out test_results/_runs/materials/thin-film-cycles-ab --res 128 --samples 256
 """
 
 from __future__ import annotations
@@ -44,6 +44,8 @@ from typing import Any
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT))  # for `benchmarks.reference_bank`
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # for sibling `scenes`
+sys.path.insert(0, str(_REPO_ROOT / "tests"))
+from results_layout import results_dir  # noqa: E402
 
 import scenes as _scenes  # noqa: E402
 
@@ -331,7 +333,7 @@ def write_reports(results: list[CellResult], out_dir: Path, band: Band) -> None:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="pkg178 thin-film A/B (Cycles-5.2 oracle).")
     p.add_argument("--out", type=Path,
-                   default=_REPO_ROOT / "test_results" / "pkg178_thinfilm_ab")
+                   default=results_dir("materials", "thin-film-cycles-ab", create=False))
     p.add_argument("--res", type=int, default=128)
     p.add_argument("--samples", type=int, default=256)
     p.add_argument("--timeout", type=int, default=900)

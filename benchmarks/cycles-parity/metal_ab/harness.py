@@ -16,7 +16,7 @@ conviction-path decision) is the LEAD's to record after running on the RTX box.
 
 One command (run by the lead on hardware):
     python benchmarks/cycles-parity/metal_ab/harness.py \
-        --out test_results/pkg129_metal_ab --res 128 --samples 256
+        --out test_results/_runs/materials/metal-cycles-ab --res 128 --samples 256
 
 The subprocess-per-engine shape follows the Apache-2.0 Blender/Cycles benchmark
 precedents (benchmarks/cycles-parity/README.md) and blender_parity's pkg119b
@@ -39,6 +39,8 @@ from typing import Any
 # repo root = .../Astroray ; metal_ab is at benchmarks/cycles-parity/metal_ab
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT))  # for `benchmarks.reference_bank`
+sys.path.insert(0, str(_REPO_ROOT / "tests"))
+from results_layout import results_dir  # noqa: E402
 # Sibling `scenes.py` is loaded under a UNIQUE module name: the thin_film harness has
 # its own `scenes.py` and a bare `import scenes` is whichever loaded first in a full
 # pytest run (pkg263 CI failure: `module 'scenes' has no attribute 'GLASS_CAM_FOV_DEG'`).
@@ -563,11 +565,11 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     if args.material == "glass":
-        out = args.out or (_REPO_ROOT / "test_results" / "pkg263_rough_glass_ab")
+        out = args.out or results_dir("materials", "rough-glass-cycles-ab", create=False)
         return run_glass(out, res=args.res or 256, samples=args.samples or 128,
                          astroray_samples=args.astroray_samples, timeout=args.timeout)
 
-    out = args.out or (_REPO_ROOT / "test_results" / "pkg129_metal_ab")
+    out = args.out or results_dir("materials", "metal-cycles-ab", create=False)
     return run(out, res=args.res or 128, samples=args.samples or 256,
                timeout=args.timeout, band=Band(args.ratio_low, args.ratio_high))
 

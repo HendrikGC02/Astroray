@@ -42,6 +42,9 @@ try:
 except ImportError:
     AVAILABLE = False
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "volumes", "world-volume-fog"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 WIDTH = HEIGHT = 64
@@ -279,7 +282,7 @@ def test_restir_render_not_contaminated_by_prior_fog():
 # VISUAL FOG — depth-staggered colored fog, saved to PNG (human/parent check).
 # ---------------------------------------------------------------------------
 
-def test_world_volume_gpu_visual(test_results_dir):
+def test_world_volume_gpu_visual():
     if not _gpu_available():
         pytest.skip("CUDA GPU not available on this machine")
     from base_helpers import save_image
@@ -308,8 +311,8 @@ def test_world_volume_gpu_visual(test_results_dir):
         img = np.asarray(r.render(512, MAX_DEPTH, None, True), dtype=np.float32)
         return img.reshape(h, w, 3) if img.ndim == 1 else img
 
-    clear_png = os.path.join(test_results_dir, "pkg199_gpu_fog_clear.png")
-    foggy_png = os.path.join(test_results_dir, "pkg199_gpu_fog_dense.png")
+    clear_png = str(results_path(_AREA, _FEATURE, "gpu_fog_clear.png"))
+    foggy_png = str(results_path(_AREA, _FEATURE, "gpu_fog_dense.png"))
     save_image(scene(None), clear_png)
     save_image(scene(FOG_DENSITY), foggy_png)
     print(f"\n[pkg199 GPU visual]\n  CLEAR PNG: {clear_png}\n  FOGGY PNG: {foggy_png}\n"

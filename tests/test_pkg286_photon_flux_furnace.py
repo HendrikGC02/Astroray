@@ -31,6 +31,9 @@ try:
 except ImportError:
     AVAILABLE = False
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "caustics", "photon-flux-furnace"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 W, H = 160, 120
@@ -85,11 +88,11 @@ def _render(r, seed=3):
     return img, 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
 
 
-def test_cpu_caustic_flux_matches_analytic(test_results_dir):
+def test_cpu_caustic_flux_matches_analytic():
     r = _scene(gpu=False)
     img, lum = _render(r)
     from base_helpers import save_image
-    save_image(img, os.path.join(test_results_dir, "pkg286_furnace_cpu.png"))
+    save_image(img, str(results_path(_AREA, _FEATURE, "furnace_cpu.png")))
     stats = r.get_integrator_stats()
     patch, direct = float(lum[PATCH].mean()), float(lum[DIRECT].mean())
     e_y = np.pi * direct / ALBEDO                   # sun irradiance (Y) from direct light
@@ -121,11 +124,11 @@ def _gpu_ok():
 
 
 @pytest.mark.skipif(not _gpu_ok(), reason="CUDA GPU not available")
-def test_gpu_caustic_flux_matches_analytic_and_cpu(test_results_dir):
+def test_gpu_caustic_flux_matches_analytic_and_cpu():
     gimg, g = _render(_scene(gpu=True))
     _, c = _render(_scene(gpu=False))
     from base_helpers import save_image
-    save_image(gimg, os.path.join(test_results_dir, "pkg286_furnace_gpu.png"))
+    save_image(gimg, str(results_path(_AREA, _FEATURE, "furnace_gpu.png")))
     gp, gd, cp = float(g[PATCH].mean()), float(g[DIRECT].mean()), float(c[PATCH].mean())
     print(f"\n[pkg286 GPU] patch={gp:.4f} direct={gd:.4f} ratio={gp/gd:.4f} "
           f"(T={T_SLAB:.4f}) | CPU patch={cp:.4f} GPU/CPU={gp/cp:.4f}")

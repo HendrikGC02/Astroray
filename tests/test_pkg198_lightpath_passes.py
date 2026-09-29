@@ -30,6 +30,9 @@ try:
 except ImportError:
     AVAILABLE = False
 
+from results_layout import results_path, slug  # noqa: E402
+_AREA, _FEATURE = "passes", "lightpath-passes"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray module not available")
 
 LIGHT_PATH_PASSES = [
@@ -56,7 +59,7 @@ def _sum_passes(r):
     return total
 
 
-def test_all_light_path_passes_readable(test_results_dir):
+def test_all_light_path_passes_readable():
     """Every light-path pass buffer reads back with the right shape and finite values."""
     r = astroray.Renderer()
     _camera(r)
@@ -71,7 +74,7 @@ def test_all_light_path_passes_readable(test_results_dir):
         assert np.all(np.isfinite(buf)), f"{name} has non-finite values"
 
 
-def test_sum_to_beauty_linear(test_results_dir):
+def test_sum_to_beauty_linear():
     """Gate 1: Σ(light-path passes) == beauty, per-channel, in LINEAR space.
 
     Passes and beauty are built from the same per-sample radiance contributions
@@ -106,8 +109,8 @@ def test_sum_to_beauty_linear(test_results_dir):
     denom = np.maximum(np.abs(beauty).sum(), 1e-6)
     rel_l1 = np.abs(passes_sum - beauty).sum() / denom
 
-    save_image(beauty.astype(np.float32), os.path.join(test_results_dir, "pkg198_beauty.png"))
-    save_image(passes_sum.astype(np.float32), os.path.join(test_results_dir, "pkg198_passes_sum.png"))
+    save_image(beauty.astype(np.float32), str(results_path(_AREA, _FEATURE, "beauty.png")))
+    save_image(passes_sum.astype(np.float32), str(results_path(_AREA, _FEATURE, "passes_sum.png")))
 
     print(f"[pkg198] sum-to-beauty per-channel ratio = {ratio}, rel_L1 = {rel_l1:.4f}")
     assert np.allclose(ratio, 1.0, atol=0.03), f"per-channel ratio off: {ratio}"
@@ -118,7 +121,7 @@ def _pass_mean(r, name):
     return float(np.array(r.get_render_pass_buffer(name), dtype=np.float64).mean())
 
 
-def test_isolated_diffuse(test_results_dir):
+def test_isolated_diffuse():
     """Gate 2a: a pure-diffuse lit scene -> diffuse passes carry energy,
     glossy and transmission passes are ~zero."""
     r = astroray.Renderer()
@@ -132,7 +135,7 @@ def test_isolated_diffuse(test_results_dir):
     for name in LIGHT_PATH_PASSES:
         save_image(
             np.array(r.get_render_pass_buffer(name), dtype=np.float32),
-            os.path.join(test_results_dir, f"pkg198_diffuse_{name}.png"),
+            str(results_path(_AREA, _FEATURE, f"diffuse_{slug(name)}.png")),
         )
     d_direct = _pass_mean(r, "diffuse_direct")
     d_indirect = _pass_mean(r, "diffuse_indirect")
@@ -146,7 +149,7 @@ def test_isolated_diffuse(test_results_dir):
     assert trans < d_direct * 1e-2, f"transmission leaked in a pure-diffuse scene: {trans}"
 
 
-def test_isolated_glossy(test_results_dir):
+def test_isolated_glossy():
     """Gate 2b: a metal sphere on a black background -> glossy passes carry the
     reflected light, diffuse/transmission ~zero on the metal."""
     r = astroray.Renderer()
@@ -164,7 +167,7 @@ def test_isolated_glossy(test_results_dir):
     assert diffuse < glossy * 1e-2, f"diffuse leaked in a metal scene: {diffuse}"
 
 
-def test_isolated_transmission(test_results_dir):
+def test_isolated_transmission():
     """Gate 2c: a glass sphere -> transmission passes carry the refracted light."""
     r = astroray.Renderer()
     _camera(r)
@@ -180,7 +183,7 @@ def test_isolated_transmission(test_results_dir):
     assert trans > 1e-3, "transmission passes should carry the refracted light through glass"
 
 
-def test_emission_pass(test_results_dir):
+def test_emission_pass():
     """A directly-visible emissive surface populates PASS_EMISSION."""
     r = astroray.Renderer()
     _camera(r)
@@ -193,7 +196,7 @@ def test_emission_pass(test_results_dir):
     assert emission > 1e-3, "emission pass empty for a directly-visible emitter"
 
 
-def test_environment_pass(test_results_dir):
+def test_environment_pass():
     """A directly-visible non-black background populates PASS_ENVIRONMENT."""
     r = astroray.Renderer()
     _camera(r)

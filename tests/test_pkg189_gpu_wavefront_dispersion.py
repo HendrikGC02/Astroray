@@ -42,6 +42,9 @@ try:
 except ImportError:
     AVAILABLE = False
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "spectral", "gpu-wavefront-dispersion"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 if AVAILABLE and not astroray.__features__.get("cuda", False):
@@ -224,7 +227,7 @@ def _saturation(img):
     return float(sat[m].mean())
 
 
-def test_gpu_dielectric_rainbow_visual(test_results_dir):
+def test_gpu_dielectric_rainbow_visual():
     if not _gpu_available():
         pytest.skip("CUDA GPU not available on this machine")
     from base_helpers import save_image
@@ -233,8 +236,8 @@ def test_gpu_dielectric_rainbow_visual(test_results_dir):
     flat_img = _make_rainbow_scene("dielectric", {"ior": 1.5}, w, h)
     bk7_img = _make_rainbow_scene("dielectric", {"sellmeier_preset": "bk7"}, w, h)
 
-    flat_png = os.path.join(test_results_dir, "pkg189_gpu_rainbow_flat.png")
-    bk7_png = os.path.join(test_results_dir, "pkg189_gpu_rainbow_bk7.png")
+    flat_png = str(results_path(_AREA, _FEATURE, "gpu_rainbow_flat.png"))
+    bk7_png = str(results_path(_AREA, _FEATURE, "gpu_rainbow_bk7.png"))
     save_image(flat_img, flat_png)
     save_image(bk7_img, bk7_png)
 
@@ -251,7 +254,7 @@ def test_gpu_dielectric_rainbow_visual(test_results_dir):
         f"(bk7 sat {s_bk7:.4f} vs flat {s_flat:.4f}). No spectral fringe / rainbow.")
 
 
-def test_gpu_principled_rainbow_visual(test_results_dir):
+def test_gpu_principled_rainbow_visual():
     if not _gpu_available():
         pytest.skip("CUDA GPU not available on this machine")
     from base_helpers import save_image
@@ -263,8 +266,8 @@ def test_gpu_principled_rainbow_visual(test_results_dir):
         "principled", {"transmission_weight": 1.0, "ior": 1.5, "roughness": 0.0,
                        "dispersion_scale": 3.0, "dispersion_abbe": 15.0}, w, h)
 
-    flat_png = os.path.join(test_results_dir, "pkg189_gpu_rainbow_principled_flat.png")
-    disp_png = os.path.join(test_results_dir, "pkg189_gpu_rainbow_principled.png")
+    flat_png = str(results_path(_AREA, _FEATURE, "gpu_rainbow_principled_flat.png"))
+    disp_png = str(results_path(_AREA, _FEATURE, "gpu_rainbow_principled.png"))
     save_image(flat_img, flat_png)
     save_image(disp_img, disp_png)
 

@@ -24,6 +24,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tests"))
+from results_layout import RESULTS  # noqa: E402
 RENDERS_DIR = ROOT / "docs" / "renders"
 
 
@@ -36,9 +38,10 @@ def _resolve_test_results() -> Path:
     env = os.environ.get("ASTRORAY_TEST_RESULTS")
     if env:
         return Path(env)
-    local = ROOT / "test_results"
-    if (local / "session_close_2026-05-14b").exists():
-        return local
+    local = RESULTS
+    for cand in (local, local / "_legacy"):  # `clean --legacy` moves old dirs here
+        if (cand / "session_close_2026-05-14b").exists():
+            return cand
     import subprocess
     try:
         common = subprocess.check_output(
@@ -46,9 +49,9 @@ def _resolve_test_results() -> Path:
         ).strip()
         # common ends in .../.git ; parent is the main worktree
         main_repo = (Path(common).resolve() / "..").resolve()
-        cand = main_repo / "test_results"
-        if cand.exists():
-            return cand
+        for cand in (main_repo / RESULTS.name, main_repo / RESULTS.name / "_legacy"):
+            if cand.exists():
+                return cand
     except Exception:
         pass
     return local  # let the FileNotFoundError surface

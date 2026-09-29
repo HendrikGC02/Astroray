@@ -109,15 +109,6 @@ def _pin_synchronous_viewport_path():
 
 
 @pytest.fixture(scope="session")
-def test_results_dir():
-    """Path to the test results directory"""
-    test_dir = os.path.dirname(os.path.abspath(__file__))
-    results_dir = os.path.join(test_dir, '..', 'test_results')
-    os.makedirs(results_dir, exist_ok=True)
-    return results_dir
-
-
-@pytest.fixture(scope="session")
 def astroray_module():
     """Import the astroray Python module (cross-platform)"""
     try:

@@ -33,10 +33,11 @@ import astroray
 from base_helpers import (
     create_renderer, setup_camera, render_image,
     save_image, save_figure, create_cornell_box,
-    assert_valid_image, get_output_dir,
-)
+    assert_valid_image, )
 
-OUTPUT_DIR = get_output_dir()
+from results_layout import results_path, slug  # noqa: E402
+_AREA, _FEATURE = "materials", "material-properties"
+
 W, H = 160, 120
 
 
@@ -124,7 +125,7 @@ def test_lambertian_color_fidelity():
         assert_valid_image(pixels, H, W, label=f'lambertian_{name}')
         center = _center(pixels, frac=0.45)
         results[name] = center.mean(axis=(0, 1))   # mean [R, G, B]
-        save_image(pixels, os.path.join(OUTPUT_DIR, f'mat_lambertian_{name}.png'))
+        save_image(pixels, str(results_path(_AREA, _FEATURE, f'mat_lambertian_{slug(name)}.png')))
 
     r_r, r_g, r_b = results['red']
     g_r, g_g, g_b = results['green']
@@ -196,7 +197,7 @@ def test_metal_roughness_affects_appearance():
         _cam_side(r)
         images[rval] = render_image(r, samples=64)
         assert_valid_image(images[rval], H, W, label=f'metal_r{rval}')
-        save_image(images[rval], os.path.join(OUTPUT_DIR, f'mat_metal_r{rval:.2f}.png'))
+        save_image(images[rval], str(results_path(_AREA, _FEATURE, f'mat_metal_r{slug(f"{rval:.2f}")}.png')))
 
     mse_a = float(np.mean((images[0.05] - images[0.20]) ** 2))
     mse_b = float(np.mean((images[0.20] - images[0.50]) ** 2))
@@ -238,7 +239,7 @@ def test_smooth_metal_has_tighter_specular_peak():
     axes[1].set_title(f'Rough (r=0.5)\npeak={max_rough:.2f}')
     axes[1].axis('off')
     plt.tight_layout()
-    save_figure(fig, os.path.join(OUTPUT_DIR, 'mat_metal_roughness_comparison.png'))
+    save_figure(fig, str(results_path(_AREA, _FEATURE, 'mat_metal_roughness_comparison.png')))
 
 
 def test_metal_albedo_tints_reflection():
@@ -273,7 +274,7 @@ def test_metal_albedo_tints_reflection():
     axes[1].set_title(f'Silver metal\nR/B={rb_silver:.2f}')
     axes[1].axis('off')
     plt.tight_layout()
-    save_figure(fig, os.path.join(OUTPUT_DIR, 'mat_metal_tint.png'))
+    save_figure(fig, str(results_path(_AREA, _FEATURE, 'mat_metal_tint.png')))
 
 
 # ===========================================================================
@@ -299,8 +300,8 @@ def test_glass_transmits_background_color():
     gr_glass,  px_glass  = render_center_green('glass',      {'ior': 1.5})
     gr_opaque, px_opaque = render_center_green('lambertian', {})
 
-    save_image(px_glass,  os.path.join(OUTPUT_DIR, 'mat_glass_transparent.png'))
-    save_image(px_opaque, os.path.join(OUTPUT_DIR, 'mat_glass_vs_opaque.png'))
+    save_image(px_glass,  str(results_path(_AREA, _FEATURE, 'mat_glass_transparent.png')))
+    save_image(px_opaque, str(results_path(_AREA, _FEATURE, 'mat_glass_vs_opaque.png')))
 
     assert gr_glass > gr_opaque + 0.05, \
         f"Glass sphere green ratio ({gr_glass:.3f}) should exceed opaque sphere " \
@@ -318,7 +319,7 @@ def test_glass_ior_changes_appearance():
         images[ior_val] = render_image(r, samples=64)
         assert_valid_image(images[ior_val], H, W, label=f'glass_ior{ior_val}')
         save_image(images[ior_val],
-                   os.path.join(OUTPUT_DIR, f'mat_glass_ior{ior_val:.1f}.png'))
+                   str(results_path(_AREA, _FEATURE, f'mat_glass_ior{slug(f"{ior_val:.1f}")}.png')))
 
     mse_a = float(np.mean((images[1.2] - images[1.5]) ** 2))
     mse_b = float(np.mean((images[1.5] - images[2.0]) ** 2))
@@ -430,7 +431,7 @@ def test_disney_metallic_tints_specular_highlight():
     axes[1].set_title(f'metallic=0  R/B={rb_diel:.2f}')
     axes[1].axis('off')
     plt.tight_layout()
-    save_figure(fig, os.path.join(OUTPUT_DIR, 'mat_disney_metallic_vs_dielectric.png'))
+    save_figure(fig, str(results_path(_AREA, _FEATURE, 'mat_disney_metallic_vs_dielectric.png')))
 
 
 @pytest.mark.xfail(
@@ -464,7 +465,7 @@ def test_disney_roughness_changes_glossiness():
         images[rval] = render_image(r, samples=64)
         assert_valid_image(images[rval], H, W, label=f'disney_r{rval}')
         save_image(images[rval],
-                   os.path.join(OUTPUT_DIR, f'mat_disney_r{rval:.2f}.png'))
+                   str(results_path(_AREA, _FEATURE, f'mat_disney_r{slug(f"{rval:.2f}")}.png')))
 
     mse_lo_mid = float(np.mean((images[0.05] - images[0.30]) ** 2))
     mse_mid_hi = float(np.mean((images[0.30] - images[0.70]) ** 2))
@@ -572,7 +573,7 @@ def test_disney_clearcoat_adds_gloss():
     axes[1].set_title(f'Clearcoat=1\nsphere p99.5={p99_coat:.2f}')
     axes[1].axis('off')
     plt.tight_layout()
-    save_figure(fig, os.path.join(OUTPUT_DIR, 'mat_disney_clearcoat.png'))
+    save_figure(fig, str(results_path(_AREA, _FEATURE, 'mat_disney_clearcoat.png')))
 
 
 def test_disney_transmission_passes_light():
@@ -700,7 +701,7 @@ def test_no_material_is_overexposed():
                      vfov=38, width=W, height=H)
         pixels = render_image(r, samples=64)
         mean_val = float(np.mean(pixels))
-        save_image(pixels, os.path.join(OUTPUT_DIR, f'mat_overexposure_{name}.png'))
+        save_image(pixels, str(results_path(_AREA, _FEATURE, f'mat_overexposure_{slug(name)}.png')))
 
         assert mean_val < 0.90, \
             f"{name}: mean {mean_val:.3f} ≥ 0.90 — BRDF likely broken (energy not conserved)"

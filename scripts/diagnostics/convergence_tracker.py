@@ -5,7 +5,7 @@ Writes per-SPP PNGs, a log-log MSE curve, and a thumbnail strip.
 
 Usage:
     python scripts/diagnostics/convergence_tracker.py [--scene cornell|glass|metal] \
-        [--max-spp 1024] [--output-dir test_results/convergence/]
+        [--max-spp 1024] [--output-dir test_results/_runs/integrator/convergence-tracker/]
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ TESTS_DIR = ROOT / "tests"
 if str(TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_DIR))
 
+from results_layout import results_dir  # noqa: E402
 from runtime_setup import configure_test_imports  # noqa: E402
 
 configure_test_imports()
@@ -183,7 +184,7 @@ def _psnr(mse: float, peak: float = 1.0) -> float:
 def run_convergence(
     scene: str = "cornell",
     max_spp: int = 1024,
-    output_dir: Path = ROOT / "test_results" / "convergence",
+    output_dir: Path = results_dir("integrator", "convergence-tracker", create=False),
     width: int = 128,
     height: int = 128,
     seed: int = 42,
@@ -264,7 +265,7 @@ def main() -> int:
     parser.add_argument("--max-spp", type=int, default=1024,
                         help="Maximum samples per pixel (default: 1024)")
     parser.add_argument("--output-dir", type=Path,
-                        default=ROOT / "test_results" / "convergence",
+                        default=results_dir("integrator", "convergence-tracker", create=False),
                         help="Directory for output files")
     args = parser.parse_args()
 

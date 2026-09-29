@@ -14,6 +14,7 @@ TESTS_DIR = ROOT / "tests"
 if str(TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_DIR))
 
+from results_layout import results_dir  # noqa: E402
 from runtime_setup import configure_test_imports  # noqa: E402
 
 configure_test_imports()
@@ -37,7 +38,7 @@ def main() -> int:
     parser.add_argument("--max-depth", type=int, default=12)
     parser.add_argument("--seed", type=int, default=145)
     parser.add_argument("--output-dir", type=Path,
-                        default=ROOT / "test_results" / "pkg29a_caustics")
+                        default=results_dir("caustics", "caustic-transport-benchmark", create=False))
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)

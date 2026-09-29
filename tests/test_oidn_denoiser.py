@@ -21,6 +21,9 @@ try:
 except ImportError:
     AVAILABLE = False
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "passes", "oidn-denoiser"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray module not available")
 
 OIDN_ENABLED = AVAILABLE and bool(
@@ -80,7 +83,7 @@ def test_oidn_in_pass_registry():
 
 
 @pytest.mark.skipif(not OIDN_ENABLED, reason="OIDN not compiled in")
-def test_oidn_reduces_variance(test_results_dir):
+def test_oidn_reduces_variance():
     """OIDN denoiser must reduce per-pixel variance compared to a raw low-spp render.
 
     Saves a side-by-side PNG (noisy | denoised) to test_results/.
@@ -126,7 +129,7 @@ def test_oidn_reduces_variance(test_results_dir):
     gap = np.full((H, 8, 3), 200, dtype=np.uint8)
     comparison = np.concatenate([noisy_u8, gap, denoised_u8], axis=1)
 
-    out_path = os.path.join(test_results_dir, "oidn_before_after.png")
+    out_path = str(results_path(_AREA, _FEATURE, "oidn_before_after.png"))
     Image.fromarray(comparison).save(out_path)
     print(f"\n  Saved side-by-side comparison to {out_path}")
     print(f"  Local variance: noisy={var_noisy:.6f}, denoised={var_denoised:.6f}")

@@ -40,6 +40,9 @@ except ImportError:
 
 from base_helpers import save_image  # noqa: E402
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "caustics", "sms-default-integrator-gpu"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 if AVAILABLE and not astroray.__features__.get("cuda", False):
@@ -144,7 +147,7 @@ def _receiver_energy(pixels: np.ndarray) -> float:
     "map, live-gated green by tests/test_gpu_caustic_parity.py on the wavefront "
     "route. Un-xfail when/if SMS is ported to the wavefront (pkg64-gpu spec "
     "follow-ups).")
-def test_pkg64_gpu_phase3_prism_receiver_energy(test_results_dir):
+def test_pkg64_gpu_phase3_prism_receiver_energy():
     """Receiver-energy ratio (SMS on vs off) ≥ 1.10× (gate from CPU pkg64-3).
 
     Multi-seed averaging to reduce MC noise (same pattern as CPU test lines 141-149).
@@ -170,9 +173,9 @@ def test_pkg64_gpu_phase3_prism_receiver_energy(test_results_dir):
     sms = avg(True, SAMPLES, test_seeds)
     ref = avg(True, SAMPLES * 8, ref_seeds)
 
-    save_image(base, os.path.join(test_results_dir, "pkg64_gpu_p3_prism_no_caustics.png"))
-    save_image(sms, os.path.join(test_results_dir, "pkg64_gpu_p3_prism_sms.png"))
-    save_image(ref, os.path.join(test_results_dir, "pkg64_gpu_p3_prism_reference.png"))
+    save_image(base, str(results_path(_AREA, _FEATURE, "gpu_p3_prism_no_caustics.png")))
+    save_image(sms, str(results_path(_AREA, _FEATURE, "gpu_p3_prism_sms.png")))
+    save_image(ref, str(results_path(_AREA, _FEATURE, "gpu_p3_prism_reference.png")))
 
     e_base = _receiver_energy(base)
     e_sms = _receiver_energy(sms)
@@ -224,7 +227,7 @@ def test_pkg64_gpu_phase3_prism_receiver_energy(test_results_dir):
            "by lowering the -0.5 floor with justification.",
     strict=False,
 )
-def test_pkg64_gpu_phase3_prism_psnr_floor(test_results_dir):
+def test_pkg64_gpu_phase3_prism_psnr_floor():
     """PSNR floor delta (SMS - baseline) >= -0.5 dB (non-regression).
 
     LEGACY/xfail since 2026-06-08 — see the xfail marker above (SMS-GPU frozen).

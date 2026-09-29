@@ -18,7 +18,7 @@ close its Phase-A UNKNOWN cell.
 One command:
     python -m benchmarks.blender_parity.harness \
         --matrix docs/blender_parity/coverage_matrix.json \
-        --out test_results/blender_parity_diff
+        --out test_results/_runs/parity/blender-parity-diff
 
 The metric/triage/report layer is import-safe and unit-tested without Blender or
 a GPU (tests/test_blender_parity_harness.py). Only ``run()`` needs Blender.
@@ -44,6 +44,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 
 from benchmarks.blender_parity import triage as T  # noqa: E402
+
+sys.path.insert(0, str(_REPO_ROOT / "tests"))
+from results_layout import results_dir  # noqa: E402
 
 SENTINEL = "PKG119B_LEG"
 DEFAULT_MATRIX = _REPO_ROOT / "docs" / "blender_parity" / "coverage_matrix.json"
@@ -1202,7 +1205,7 @@ def write_reports(results: list[FeatureResult], out_dir: Path) -> None:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Blender differential parity harness (pkg119 Phase B).")
     p.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
-    p.add_argument("--out", type=Path, default=_REPO_ROOT / "test_results" / "blender_parity_diff")
+    p.add_argument("--out", type=Path, default=results_dir("parity", "blender-parity-diff", create=False))
     p.add_argument("--res", type=int, default=128)
     p.add_argument("--samples", type=int, default=64)
     p.add_argument("--timeout", type=int, default=300)

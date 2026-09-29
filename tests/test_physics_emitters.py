@@ -16,6 +16,9 @@ except ImportError:
 
 from base_helpers import save_image  # noqa: E402
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "astro", "physics-emitters"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray module not available")
 
 
@@ -46,7 +49,7 @@ def test_physics_emitters_registered():
         assert name in names
 
 
-def test_blackbody_temperature_color_ordering(test_results_dir):
+def test_blackbody_temperature_color_ordering():
     warm = _render_emitter(
         "blackbody",
         {"temperature_kelvin": 2400.0, "intensity": 4.0},
@@ -55,8 +58,8 @@ def test_blackbody_temperature_color_ordering(test_results_dir):
         "blackbody",
         {"temperature_kelvin": 10000.0, "intensity": 4.0},
     )
-    save_image(warm, os.path.join(test_results_dir, "physics_blackbody_2400k.png"))
-    save_image(cool, os.path.join(test_results_dir, "physics_blackbody_10000k.png"))
+    save_image(warm, str(results_path(_AREA, _FEATURE, "physics_blackbody_2400k.png")))
+    save_image(cool, str(results_path(_AREA, _FEATURE, "physics_blackbody_10000k.png")))
 
     warm_mean = warm.reshape(-1, 3).mean(axis=0)
     cool_mean = cool.reshape(-1, 3).mean(axis=0)
@@ -66,13 +69,13 @@ def test_blackbody_temperature_color_ordering(test_results_dir):
     assert cool_mean[2] > cool_mean[0] * 0.7, f"cool blackbody should have strong blue, got {cool_mean}"
 
 
-def test_line_emitter_wavelength_color_ordering(test_results_dir):
+def test_line_emitter_wavelength_color_ordering():
     red = _render_emitter("line_emitter", {"wavelength_nm": 635.0, "bandwidth_nm": 10.0, "intensity": 6.0})
     green = _render_emitter("line_emitter", {"wavelength_nm": 532.0, "bandwidth_nm": 10.0, "intensity": 6.0})
     blue = _render_emitter("line_emitter", {"wavelength_nm": 460.0, "bandwidth_nm": 10.0, "intensity": 6.0})
-    save_image(red, os.path.join(test_results_dir, "physics_line_emitter_635nm.png"))
-    save_image(green, os.path.join(test_results_dir, "physics_line_emitter_532nm.png"))
-    save_image(blue, os.path.join(test_results_dir, "physics_line_emitter_460nm.png"))
+    save_image(red, str(results_path(_AREA, _FEATURE, "physics_line_emitter_635nm.png")))
+    save_image(green, str(results_path(_AREA, _FEATURE, "physics_line_emitter_532nm.png")))
+    save_image(blue, str(results_path(_AREA, _FEATURE, "physics_line_emitter_460nm.png")))
 
     red_mean = red.reshape(-1, 3).mean(axis=0)
     green_mean = green.reshape(-1, 3).mean(axis=0)

@@ -76,11 +76,19 @@ def _check(area: str, feature: str, name: str | None = None) -> None:
         raise ValueError(f"name {name!r} must match {NAME_RE.pattern}")
 
 
-def results_dir(area: str, feature: str) -> Path:
-    """`test_results/_runs/<area>/<feature>` (created)."""
+def slug(text) -> str:
+    """Lowercase `text` with runs of non-alphanumerics folded to `_`, for
+    building artifact names from dynamic parts (e.g. a preset or roughness)."""
+    return re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_")
+
+
+def results_dir(area: str, feature: str, create: bool = True) -> Path:
+    """`test_results/_runs/<area>/<feature>` (created unless `create=False`,
+    e.g. for argparse defaults)."""
     _check(area, feature)
     d = RESULTS / "_runs" / area / feature
-    d.mkdir(parents=True, exist_ok=True)
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
     return d
 
 

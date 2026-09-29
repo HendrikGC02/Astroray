@@ -35,6 +35,9 @@ except ImportError:
 
 from base_helpers import save_image  # noqa: E402
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "caustics", "sms-gpu-cpu-parity"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 if AVAILABLE and not astroray.__features__.get("cuda", False):
@@ -128,7 +131,7 @@ def _receiver_energy(pixels: np.ndarray) -> float:
     return float(np.sum(lum[receiver]))
 
 
-def test_pkg64_gpu_cpu_parity(test_results_dir):
+def test_pkg64_gpu_cpu_parity():
     """GPU (wavefront) vs CPU dispersive-BK7 prism parity on the CANONICAL path.
 
     pkg189 re-point (was xfail 2026-06-08, "SMS-GPU frozen"). The megakernels are
@@ -161,8 +164,8 @@ def test_pkg64_gpu_cpu_parity(test_results_dir):
     gpu_avg = avg(True, SAMPLES, test_seeds)
     cpu_avg = avg(False, SAMPLES, test_seeds)
 
-    save_image(gpu_avg, os.path.join(test_results_dir, "pkg64_gpu_p3_parity_gpu.png"))
-    save_image(cpu_avg, os.path.join(test_results_dir, "pkg64_gpu_p3_parity_cpu.png"))
+    save_image(gpu_avg, str(results_path(_AREA, _FEATURE, "gpu_p3_parity_gpu.png")))
+    save_image(cpu_avg, str(results_path(_AREA, _FEATURE, "gpu_p3_parity_cpu.png")))
 
     e_gpu = _receiver_energy(gpu_avg)
     e_cpu = _receiver_energy(cpu_avg)

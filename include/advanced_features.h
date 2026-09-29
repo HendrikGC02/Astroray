@@ -506,6 +506,10 @@ public:
         GVec3 w = astroray::svm::svm_eval(program_, in);
         return child_->value(Vec2(w.x, w.y), Vec3(w.x, w.y, w.z));
     }
+    // #891 — GPU emitters upload average() (flat); the default centre sample of the
+    // UNWARPED point picked one checker cell (MapAfterWarp read flat blue). The warp
+    // only moves the sample point, so the child's own mean is the right estimate.
+    Vec3 average() const override { return child_->average(); }
 };
 
 class MarbleTexture : public Texture {

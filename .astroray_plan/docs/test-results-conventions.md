@@ -65,7 +65,9 @@ CPU-vs-GPU and Astroray-vs-Cycles are **columns in a sheet**, not areas.
   `.txt` / `.log` / stdout dumps as evidence. Chart rules: one y-axis with
   units, gate/tolerance drawn as a band or reference line, legend for ≥2
   series, fixed colours per role — Cycles `#52514e`, CPU `#2a78d6`,
-  GPU `#eb6834`, third series `#1baf7a`; light surface `#fcfcfb`.
+  GPU `#eb6834`, third series `#1baf7a`; series that are not backends
+  (before/after, variants) take the order `#2a78d6`, `#eb6834`, `#1baf7a`;
+  a band's legend label names the gate it draws; light surface `#fcfcfb`.
 - **Viewport sequences** → one downscaled sheet, not N full-res screenshots.
 - Size caps (curated tree): image ≤ 2 MB, max 1600 px wide; `.blend` repro ≤ 1 MB.
 - Allowed extensions (curated): `.png .svg .json .csv .blend`, one optional

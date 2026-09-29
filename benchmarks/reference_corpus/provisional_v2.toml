@@ -389,22 +389,6 @@ reason = "Mix Shader program sphere reads 0.85 of Cycles on CPU and GPU (pkg293 
 [[row]]
 scene = "v2_textures_opvm"
 backend = "gpu"
-roi = "card_Image"
-channels = ["r", "g", "b", "L"]
-issue = "#944"
-reason = "Image card 1.7-2.1x Cycles (colour-space decode)"
-
-[[row]]
-scene = "v2_textures_opvm"
-backend = "gpu"
-roi = "card_Voronoi"
-channels = ["r", "g", "b", "L"]
-issue = "#944"
-reason = "Voronoi Color output renders grey"
-
-[[row]]
-scene = "v2_textures_opvm"
-backend = "gpu"
 roi = "sphere_MixShaderProg"
 channels = ["r", "g", "b", "L"]
 issue = "#889"
@@ -433,27 +417,4 @@ roi = "sphere_Ti160"
 channels = ["g"]
 issue = "#960"
 reason = "thin-film Ti single-channel outliers"
-
-[[row]]
-scene = "v2_thin_film_metals"
-backend = "gpu"
-roi = "sphere_Ti260"
-channels = ["r"]
-issue = "#960"
-reason = "thin-film Ti single-channel outliers"
-[[row]]
-scene = "v2_textures_opvm"
-backend = "gpu"
-roi = "card_MapAfterWarp"
-channels = ["r", "g", "b", "L"]
-issue = "#891"
-reason = "Mapping downstream of non-affine warp unsupported (affine part #945) (GPU matches CPU since #962; defect is shared)"
-
-[[row]]
-scene = "v2_textures_opvm"
-backend = "gpu"
-roi = "card_MapBeforeWarp"
-channels = ["r", "g", "b", "L"]
-issue = "#945"
-reason = "affine Mapping -> Checker renders flat colour on CPU and GPU (GPU matches CPU since #962)"
 

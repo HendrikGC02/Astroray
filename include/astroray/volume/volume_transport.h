@@ -558,8 +558,7 @@ struct SegmentDirectSample {
 inline SegmentDirectSample sampleSegmentDirect(const Vec3& o, const Vec3& d, float a, float b,
                                                bool hasAnchor, const Vec3& anchor,
                                                const astroray::SampledSpectrum& rate,
-                                               std::mt19937& gen,
-                                               bool diagEqOnly = false) {  // [pkg294-diag] remove after Phase 0
+                                               std::mt19937& gen) {
     std::uniform_real_distribution<float> u(0.0f, 1.0f);
     constexpr int kN = astroray::kSpectrumSamples;
     SegmentDirectSample out;
@@ -593,7 +592,7 @@ inline SegmentDirectSample sampleSegmentDirect(const Vec3& o, const Vec3& d, flo
         float dt = t - tc;
         return D / ((thB - thA) * (D * D + dt * dt));
     };
-    const bool distOk = nValid > 0 && !diagEqOnly;  // [pkg294-diag] remove after Phase 0
+    const bool distOk = nValid > 0;
     if (!eqOk && !distOk) return out;
     const bool both = eqOk && distOk;
     const bool pickEq = both ? (u(gen) >= 0.5f) : eqOk;

@@ -1,15 +1,20 @@
-"""#953 -- Principled (specular 0.5) white furnace vs Cycles across roughness.
+"""#953 -- Principled white furnace vs Cycles 5.2 (roughness, IOR, specular level, tints, coat, sheen).
 
-Cycles' layering albedo for the Principled specular layer is bsdf_albedo() =
-sc->weight * bsdf_microfacet_estimate_albedo(), and sc->weight already carries the
-microfacet_ggx_preserve_energy darkening E * (1 + Fms * missing). Astroray's port
-(pkg261) dropped that factor, so the diffuse beneath was attenuated by the full
-mix(f0, 1, s) while the specular lobe only reflects ~E times that: the furnace read
-0.973 at roughness 1 (Cycles 1.000), 0.782 vs 0.803 for base 0.8.
+Two Cycles-parity defects in the Principled layering (Cycles svm/closure.h, bsdf.h,
+bsdf_util.h, bsdf_microfacet.h; Apache-2.0):
+  1. Layering albedo: Cycles' bsdf_albedo() = sc->weight * estimate_albedo(), and the
+     specular/coat sc->weight already carries preserve-energy E * (1 + Fms * missing).
+     Dropping it over-attenuated the diffuse: 0.973 at roughness 1 (Cycles 1.000).
+  2. closure_layering_weight is a SCALAR, saturate(1 - reduce_max(albedo / weight)),
+     not the per-channel (1 - albedo): coloured sheen / specular tint diverged (sheen
+     tint (0.2, 0.9, 0.3): 0.995 vs Cycles 0.952 in red).
 
-Scene: unit sphere in a uniform white world, pinhole camera at z=5, vfov 45, linear
-output, mean over pixels well inside the silhouette. Cycles 5.2 references: same
-scene (256x128 smooth UV sphere, 512 spp, box filter), measured 2026-09-29.
+Scene: unit sphere in a uniform white world, pinhole camera at z=5, vertical fov 45,
+48x48, linear, mean over pixels well inside the silhouette. Pins: Cycles 5.2 CPU, same
+scene (smooth 256x128 UV sphere, 1024 spp, box filter, sensor_fit VERTICAL, angle_y 45),
+rendered headless 2026-09-29. Energy gate: white-base cases stay <= 1 + eps per channel
+(sphere mean) and per pixel after a 5x5 box (per-pixel values carry ~3% spectral MC
+noise at this spp even for a white Lambertian).
 """
 import math
 
@@ -29,12 +34,29 @@ pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray module not avail
 
 _W = _H = 48
 _FOV = 45.0
-# (base, roughness) -> Cycles 5.2 furnace mean (achromatic).
-_CYCLES = {
-    (1.0, 0.0): 0.9999, (1.0, 0.25): 0.9999, (1.0, 0.5): 0.9998, (1.0, 0.75): 0.9998,
-    (1.0, 1.0): 1.0001,
-    (0.8, 0.0): 0.8082, (0.8, 0.25): 0.8082, (0.8, 0.5): 0.8076, (0.8, 0.75): 0.8055,
-    (0.8, 1.0): 0.8031,
+_SPP = 512
+# id -> (base, params, Cycles 5.2 RGB mean over the mask)
+_CASES = {
+    "b1.0_r0.0": (1.0, {'ior': 1.5, 'roughness': 0.0}, [0.99985, 0.99985, 0.99985]),
+    "b1.0_r0.25": (1.0, {'ior': 1.5, 'roughness': 0.25}, [0.99989, 0.99989, 0.99989]),
+    "b1.0_r0.5": (1.0, {'ior': 1.5, 'roughness': 0.5}, [0.99955, 0.99955, 0.99955]),
+    "b1.0_r0.75": (1.0, {'ior': 1.5, 'roughness': 0.75}, [0.99949, 0.99949, 0.99949]),
+    "b1.0_r1.0": (1.0, {'ior': 1.5, 'roughness': 1.0}, [1.00015, 1.00015, 1.00015]),
+    "b0.8_r0.0": (0.8, {'ior': 1.5, 'roughness': 0.0}, [0.81069, 0.81069, 0.81069]),
+    "b0.8_r0.25": (0.8, {'ior': 1.5, 'roughness': 0.25}, [0.81074, 0.81074, 0.81074]),
+    "b0.8_r0.5": (0.8, {'ior': 1.5, 'roughness': 0.5}, [0.8091, 0.8091, 0.8091]),
+    "b0.8_r0.75": (0.8, {'ior': 1.5, 'roughness': 0.75}, [0.80603, 0.80603, 0.80603]),
+    "b0.8_r1.0": (0.8, {'ior': 1.5, 'roughness': 1.0}, [0.80375, 0.80375, 0.80375]),
+    "ior1.0_r0.5": (1.0, {'ior': 1.0, 'roughness': 0.5}, [0.99999, 0.99999, 0.99999]),
+    "ior1.5_lvl0": (1.0, {'ior': 1.5, 'roughness': 0.5, 'specular_ior_level': 0.0}, [0.99999, 0.99999, 0.99999]),
+    "ior1.5_lvl1": (1.0, {'ior': 1.5, 'roughness': 0.5, 'specular_ior_level': 1.0}, [0.99948, 0.99948, 0.99948]),
+    "ior3.0_r0.3": (1.0, {'ior': 3.0, 'roughness': 0.3}, [1.00029, 1.00029, 1.00029]),
+    "ior3.0_r1.0": (1.0, {'ior': 3.0, 'roughness': 1.0}, [1.00008, 1.00008, 1.00008]),
+    "spec_tint": (1.0, {'ior': 1.5, 'roughness': 0.5, 'specular_tint': [1.0, 0.2, 0.2]}, [0.99957, 0.97111, 0.97111]),
+    "coat_tint": (1.0, {'ior': 1.5, 'roughness': 0.5, 'coat_weight': 1.0, 'coat_tint': [0.9, 0.5, 0.2], 'coat_roughness': 0.2, 'coat_ior': 1.5}, [0.89514, 0.49267, 0.2136]),
+    "coat_half": (1.0, {'ior': 1.5, 'roughness': 0.5, 'coat_weight': 0.5, 'coat_roughness': 0.5, 'coat_ior': 1.5}, [0.99923, 0.99923, 0.99923]),
+    "sheen_tint": (1.0, {'ior': 1.5, 'roughness': 0.5, 'sheen_weight': 1.0, 'sheen_tint': [0.2, 0.9, 0.3], 'sheen_roughness': 0.5}, [0.95207, 0.99953, 0.95885]),
+    "combo": (1.0, {'ior': 2.0, 'roughness': 0.4, 'specular_ior_level': 0.8, 'specular_tint': [0.3, 0.6, 1.0], 'coat_weight': 0.7, 'coat_tint': [1.0, 0.8, 0.6], 'coat_roughness': 0.1, 'coat_ior': 1.6, 'sheen_weight': 0.8, 'sheen_tint': [1.0, 0.3, 0.6], 'sheen_roughness': 0.3}, [0.88768, 0.79807, 0.7141]),
 }
 
 
@@ -49,35 +71,45 @@ def _mask(margin=0.9):
     return np.sqrt(np.maximum(25.0 - b * b, 0.0)) < margin
 
 
-def _furnace(use_gpu, base, roughness, spp=128):
+def _render(use_gpu, base, params):
     r = astroray.Renderer()
     r.setup_camera(look_from=[0, 0, 5], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=_FOV,
                    aspect_ratio=1.0, aperture=0.0, focus_dist=5.0, width=_W, height=_H)
     r.set_background_color([1.0, 1.0, 1.0])
     r.set_integrator("path_tracer")
     r.set_use_gpu(use_gpu)
-    mid = r.create_material("principled", [base] * 3,
-                            {"roughness": roughness, "metallic": 0.0, "ior": 1.5})
+    mid = r.create_material("principled", [base] * 3, dict(params, metallic=0.0))
     r.add_sphere([0, 0, 0], 1.0, mid)
-    px = np.array(r.render(spp, 8, None, False), dtype=np.float64).reshape(_H, _W, -1)[..., :3]
+    px = np.array(r.render(_SPP, 8, None, False), dtype=np.float64).reshape(_H, _W, -1)[..., :3]
     assert np.isfinite(px).all()
-    return px[_mask()].mean(axis=0)
+    return px
 
 
-@pytest.mark.parametrize("use_gpu", [
+def _box5(img):
+    p = np.pad(img, ((2, 2), (2, 2), (0, 0)), mode="edge")
+    return sum(p[dy:dy + _H, dx:dx + _W] for dy in range(5) for dx in range(5)) / 25.0
+
+
+_BACKENDS = [
     pytest.param(False, id="cpu"),
     pytest.param(True, id="gpu", marks=pytest.mark.skipif(
         not (AVAILABLE and astroray.__features__.get("cuda", False)),
         reason="CUDA feature not in this build")),
-])
-@pytest.mark.parametrize("base", [1.0, 0.8])
-def test_principled_furnace_matches_cycles(use_gpu, base):
-    worst = []
-    for rough in (0.0, 0.25, 0.5, 0.75, 1.0):
-        m = _furnace(use_gpu, base, rough)
-        ref = _CYCLES[(base, rough)]
-        rel = m / ref - 1.0
-        print(f"[#953 {'gpu' if use_gpu else 'cpu'}] base={base} r={rough} mean={m} cycles={ref} rel={rel}")
-        worst.append((float(np.max(np.abs(rel))), rough, m))
-    bad = [w for w in worst if w[0] > 0.01]
-    assert not bad, f"furnace deviates >1% from Cycles at (|rel|, roughness, rgb): {bad}"
+]
+
+
+@pytest.mark.parametrize("use_gpu", _BACKENDS)
+@pytest.mark.parametrize("case", list(_CASES))
+def test_principled_furnace_matches_cycles(use_gpu, case):
+    base, params, ref = _CASES[case]
+    px = _render(use_gpu, base, params)
+    mask = _mask()
+    m = px[mask].mean(axis=0)
+    ref = np.array(ref)
+    rel = m / ref - 1.0
+    print(f"[#953 {'gpu' if use_gpu else 'cpu'}] {case} mean={m} cycles={ref} rel={rel}")
+    assert np.all(np.abs(rel) <= 0.01), f"{case}: furnace {m} vs Cycles {ref} (rel {rel}) exceeds 1%"
+    if base == 1.0:
+        assert np.all(m <= 1.005), f"{case}: sphere-mean energy gain {m}"
+        pmax = float(_box5(px)[mask].max())
+        assert pmax <= 1.04, f"{case}: 5x5-box per-pixel max {pmax:.4f} > 1.04 (energy gain)"

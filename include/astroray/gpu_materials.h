@@ -1433,6 +1433,16 @@ __device__ inline bool gpu_pr_uvAlignedTangent(const GVec3& p0, const GVec3& p1,
     if (outScaleV) *outScaleV = sqrtf(Bt.length2());
     return true;
 }
+// #953 review: Cycles bsdf_util.h closure_layering_weight, exact port (mirrors CPU
+// principled.cpp::layeringScale): saturate(1 - max over channels with weight != 0
+// of the layer-relative albedo). Principled only; Disney keeps gpu_layeringWeightAfter.
+__device__ inline float gpu_pr_layeringScale(const GVec3& weight, const GVec3& albedo) {
+    float m = 0.f;
+    if (weight.x != 0.f) m = fmaxf(m, albedo.x);
+    if (weight.y != 0.f) m = fmaxf(m, albedo.y);
+    if (weight.z != 0.f) m = fmaxf(m, albedo.z);
+    return fminf(fmaxf(1.f - m, 0.f), 1.f);
+}
 __device__ inline float gpu_pr_F0_from_ior(float ior) {
     float f = (ior - 1.f) / (ior + 1.f);
     return f * f;
@@ -1903,10 +1913,9 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
     // pkg194 Item 1 -- running per-λ layering weight (mirrors `weight`; each
     // chromatic factor upsampled SEPARATELY, achromatic scalars multiplied directly).
     // Inert when wl == nullptr (RGB callers). `usp` upsamples one reflectance colour;
-    // `layerTrans` upsamples a layering transmission (1 - albedo) as a colour.
+    // Layering transmissions are achromatic scalars (gpu_pr_layeringScale).
     GSampledSpectrum weightSp(1.f);
     auto usp = [&](const GVec3& v) { return gpu_rgbToSampledSpectrum(v, *wl, GSPEC_RGB_ALBEDO); };
-    auto layerTrans = [&](const GVec3& a) { return usp(GVec3(1.f) - gvec3_min(a, GVec3(0.999f))); };
     // 1. Transparent (alpha) — Cycles svm/closure.h transparency-FIRST ordering:
     //    bsdf_transparent_setup(sd, weight*(1-alpha)); weight *= alpha; before every
     //    other closure. Delta lobe (Cycles bsdf_transparent.h: wo=-wi, matched
@@ -1935,8 +1944,9 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
             L.sheenA = sc.aInv; L.sheenB = sc.bInv;
             L.sel = fmaxf(luminance(sheenW), 1e-4f);
             if (wl) L.weightSpec = weightSp * usp(c.sheenTint) * (c.sheenWeight * sc.albedo);
-            weight = gpu_layeringWeightAfter(weight, shAlb);
-            if (wl) weightSp = weightSp * layerTrans(shAlb);
+            float layT = gpu_pr_layeringScale(weight, shAlb);
+            weight = weight * layT;
+            if (wl) weightSp = weightSp * layT;
         }
     }
     // 3. Coat (clear GGX dielectric, coat_ior) + Beer absorption + layering
@@ -1951,10 +1961,11 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         L.sel = fmaxf(luminance(weight * c.coatWeight) * Fview, 1e-4f);
         if (wl) L.weightSpec = weightSp * c.coatWeight;
         GVec3 coatAlb = gpu_ggxLayeringAlbedo(GVec3(f0c), c.coatRoughness, nv, c.coatIor) * c.coatWeight;  // pkg261
-        weight = gpu_layeringWeightAfter(weight, coatAlb);
+        float layT = gpu_pr_layeringScale(weight, coatAlb);
+        weight = weight * layT;
         GVec3 beer = gpu_pr_coatBeerFactor(c, nv);  // chromatic coat-tint Beer
         weight = weight * beer;
-        if (wl) weightSp = weightSp * layerTrans(coatAlb) * usp(beer);
+        if (wl) weightSp = weightSp * layT * usp(beer);
     }
     // 4. Metallic (GGX + F82-tint)
     if (c.metallic > 1e-4f) {
@@ -2027,8 +2038,9 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         L.sel = fmaxf(luminance(weight * Fview), 1e-4f);
         if (wl) L.weightSpec = weightSp;  // specF0 upsampled separately in the eval
         GVec3 specAlb = gpu_ggxLayeringAlbedo(specF0, c.roughness, nv, specEta);  // pkg261
-        weight = gpu_layeringWeightAfter(weight, specAlb);
-        if (wl) weightSp = weightSp * layerTrans(specAlb);
+        float layT = gpu_pr_layeringScale(weight, specAlb);
+        weight = weight * layT;
+        if (wl) weightSp = weightSp * layT;
     }
     // 7. Subsurface — APPROXIMATE (D2=a): Lambertian base-colour stand-in for the
     //    Cycles random-walk Bssrdf (see principled.cpp for the seam/citation).

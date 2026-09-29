@@ -724,11 +724,16 @@ class PrincipledPlugin : public Material {
 
     // Cycles bsdf_util.h closure_layering_weight: attenuate the running weight
     // by the just-placed layer's directional albedo.
-    static Vec3 layeringWeightAfter(const Vec3& weight, const Vec3& albedo) {
-        // saturate(1 - max(albedo/weight)) per channel-safe form: use the
-        // simpler (1 - albedo) elementwise form disney.cpp uses (equivalent for
-        // weight≈1 and numerically robust — Kulla-Conty layering).
-        return weight * (Vec3(1.0f) - Vec3::min(albedo, Vec3(0.999f)));
+    // #953 review: exact port, weight * saturate(1 - reduce_max(safe_divide_color(
+    // layer_albedo, weight))). `albedo` here is already layer-relative (Cycles'
+    // layer_albedo / weight), so the scalar is saturate(1 - max over channels with
+    // weight != 0); the same achromatic scalar scales the per-λ weight.
+    static float layeringScale(const Vec3& weight, const Vec3& albedo) {
+        float m = 0.0f;
+        if (weight.x != 0.0f) m = std::max(m, albedo.x);
+        if (weight.y != 0.0f) m = std::max(m, albedo.y);
+        if (weight.z != 0.0f) m = std::max(m, albedo.z);
+        return std::clamp(1.0f - m, 0.0f, 1.0f);
     }
 
     // ==================================================================
@@ -859,13 +864,10 @@ class PrincipledPlugin : public Material {
         float nv = std::clamp(rec.normal.dot(wo), 1e-4f, 1.0f);
         Vec3 weight(1.0f, 1.0f, 1.0f);  // running weight (W₀ = 1)
         // pkg194 Item 1 — running per-λ layering weight (mirrors `weight`). `usp`
-        // upsamples one reflectance colour; `layerTrans` upsamples a layering
-        // transmission (1 − albedo) as a colour (pkg168 rule). No-ops when lam==nullptr.
+        // upsamples one reflectance colour; layering transmissions are achromatic
+        // scalars (layeringScale). No-ops when lam==nullptr.
         astroray::SampledSpectrum weightSp(1.0f);
         auto usp = [&](const Vec3& v) { return upsample(v, *lam); };
-        auto layerTrans = [&](const Vec3& albedo) {
-            return usp(Vec3(1.0f) - Vec3::min(albedo, Vec3(0.999f)));
-        };
 
         // 1. Transparent (alpha). Cycles svm/closure.h CLOSURE_BSDF_PRINCIPLED_ID
         //    does transparency FIRST, before every other closure:
@@ -907,8 +909,9 @@ class PrincipledPlugin : public Material {
                 // sheenValue() is colourless → the sheen tint lives entirely in weightSpec.
                 if (lam) L.weightSpec = weightSp * usp(sheenTint_) * (sheenWeight_ * sc.albedo);
                 lobes.push_back(L);
-                weight = layeringWeightAfter(weight, shAlb);
-                if (lam) weightSp = weightSp * layerTrans(shAlb);
+                float layT = layeringScale(weight, shAlb);
+                weight = weight * layT;
+                if (lam) weightSp = weightSp * layT;
             }
         }
         // 3. Coat (clear GGX dielectric, coat_ior). Beer absorption + directional-
@@ -927,10 +930,11 @@ class PrincipledPlugin : public Material {
             if (lam) L.weightSpec = weightSp * coatWeight_;
             lobes.push_back(L);
             Vec3 coatAlb = ggxLayeringAlbedo(Vec3(f0c), coatRoughness_, nv, coatIor_) * coatWeight_;
-            weight = layeringWeightAfter(weight, coatAlb);
+            float layT = layeringScale(weight, coatAlb);
+            weight = weight * layT;
             Vec3 beer = coatBeerFactor(nv);  // chromatic coat-tint Beer absorption
             weight = weight * beer;
-            if (lam) weightSp = weightSp * layerTrans(coatAlb) * usp(beer);
+            if (lam) weightSp = weightSp * layT * usp(beer);
         }
         // 4. Metallic (GGX + F82-tint). closure weight = metallic·weight.
         if (metallic_ > 1e-4f) {
@@ -1038,8 +1042,9 @@ class PrincipledPlugin : public Material {
             if (lam) L.weightSpec = weightSp;
             lobes.push_back(L);
             Vec3 specAlb = ggxLayeringAlbedo(specF0, roughness_, nv, specEta);
-            weight = layeringWeightAfter(weight, specAlb);
-            if (lam) weightSp = weightSp * layerTrans(specAlb);
+            float layT = layeringScale(weight, specAlb);
+            weight = weight * layT;
+            if (lam) weightSp = weightSp * layT;
         }
         // 7. Subsurface — APPROXIMATE (owner decision D2 = option (a)). Cycles uses
         //    a random-walk Bssrdf; here we reuse the diffusion-style plugin lineage

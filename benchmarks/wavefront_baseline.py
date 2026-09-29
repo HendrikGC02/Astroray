@@ -176,7 +176,10 @@ def gpu_info() -> dict:
 # GPU clock drift ~5 % (memory gpu-perf-ab-clock-drift): burn-in + min-of-N.
 # ---------------------------------------------------------------------------
 PAIR_OUT = OUT_DIR / "pkg298_cornell_pair.json"
-SCENE_CACHE = ROOT / "test_results" / "_runs" / "pkg298" / "scenes"
+sys.path.insert(0, str(ROOT / "tests"))
+from results_layout import results_dir  # noqa: E402  (test-results conventions)
+
+SCENE_CACHE = results_dir("perf", "cornell-pair", create=False) / "scenes"
 CYCLES_LEG = OUT_DIR / "cycles_leg.py"
 # Material slots in the *_mid.npy arrays (shared with cycles_leg.py).
 PAIR_MATERIALS = [

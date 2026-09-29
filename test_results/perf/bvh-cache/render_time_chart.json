@@ -1,0 +1,52 @@
+{
+ "title": "Cornell pair, 1024^2 256 spp depth 8 (burn-in + min of 3, 2 alternating rounds)",
+ "xlabel": "scene",
+ "ylabel": "wall s",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "Astroray main",
+   "x": [
+    "simple",
+    "heavy"
+   ],
+   "y": [
+    12.017980899996473,
+    24.634718500004965
+   ],
+   "role": "other"
+  },
+  {
+   "label": "Astroray this change",
+   "x": [
+    "simple",
+    "heavy"
+   ],
+   "y": [
+    11.95396859999164,
+    23.58301119999669
+   ],
+   "role": "gpu"
+  },
+  {
+   "label": "Cycles OptiX",
+   "x": [
+    "simple",
+    "heavy"
+   ],
+   "y": [
+    3.099867600001744,
+    3.39512420000392
+   ],
+   "role": "cycles"
+  }
+ ],
+ "band": null,
+ "ref": null,
+ "meta": {
+  "gpu": "RTX 5070 Ti",
+  "cpu": "Ryzen 7 7800X3D, OMP 8",
+  "stat": "min over rounds",
+  "harness": "benchmarks/wavefront_baseline.py --cornell-pair"
+ }
+}

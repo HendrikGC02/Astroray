@@ -1,0 +1,40 @@
+{
+ "title": "Simple Cornell GPU throughput by resolution (256 spp)",
+ "xlabel": "resolution",
+ "ylabel": "Msamples/s",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "main (pool = pixels)",
+   "x": [
+    "256^2",
+    "1024^2"
+   ],
+   "y": [
+    19.61420935707218,
+    22.324680634973543
+   ],
+   "role": "other"
+  },
+  {
+   "label": "pool floor",
+   "x": [
+    "256^2",
+    "1024^2"
+   ],
+   "y": [
+    21.39983775273908,
+    22.44769103560162
+   ],
+   "role": "gpu"
+  }
+ ],
+ "band": null,
+ "ref": null,
+ "meta": {
+  "gpu": "RTX 5070 Ti",
+  "cpu": "Ryzen 7 7800X3D, OMP 8",
+  "stat": "min over rounds",
+  "harness": "benchmarks/wavefront_baseline.py --cornell-pair"
+ }
+}

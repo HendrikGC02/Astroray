@@ -184,6 +184,14 @@ a{color:var(--ac)}</style></head><body>
 </div>
 </div>
 <h2>perf</h2><div class="grid">
+<div class="card"><h3>bvh-cache</h3>
+<p>This change compared with main on an RTX 5070 Ti and a 7800X3D (OMP 8), 2026-09-30. Each chart uses alternating rounds with burn-in, minimum of the warm calls. Harness: `benchmarks/wavefront_baseline.py --cornell-pair`.</p>
+<p><a href="perf/bvh-cache/bvh_build_chart.json">bvh_build_chart.json</a> &middot; <a href="perf/bvh-cache/pool_throughput_chart.json">pool_throughput_chart.json</a> &middot; <a href="perf/bvh-cache/render_time_chart.json">render_time_chart.json</a> &middot; <a href="perf/bvh-cache/repeat_render_chart.json">repeat_render_chart.json</a></p>
+<a href="perf/bvh-cache/bvh_build_chart.png"><img loading="lazy" src="perf/bvh-cache/bvh_build_chart.png" alt="bvh_build_chart.png"></a>
+<a href="perf/bvh-cache/pool_throughput_chart.png"><img loading="lazy" src="perf/bvh-cache/pool_throughput_chart.png" alt="pool_throughput_chart.png"></a>
+<a href="perf/bvh-cache/render_time_chart.png"><img loading="lazy" src="perf/bvh-cache/render_time_chart.png" alt="render_time_chart.png"></a>
+<a href="perf/bvh-cache/repeat_render_chart.png"><img loading="lazy" src="perf/bvh-cache/repeat_render_chart.png" alt="repeat_render_chart.png"></a>
+</div>
 <div class="card"><h3>program-shade-stack</h3>
 <p>REG / STACK per template instantiation of the op-VM shade kernel. Verdict: no change. All 64 instantiations stay at REG 254 with identical stack (4512-8736 bytes); the only new symbol is gpu_progInputTexel.</p>
 <p><a href="perf/program-shade-stack/stack_chart.json">stack_chart.json</a></p>

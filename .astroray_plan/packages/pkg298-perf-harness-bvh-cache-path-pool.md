@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** in-progress — lane ap-298, 2026-09-30: CPU gates met; GPU gates await the lead's CUDA build
+**Status:** in-progress — lane ap-298, 2026-09-30: gates met except GPU repeat render 0.71 s (buildSceneArrays ~0.67 s/call, device-scene cache follow-up) and GPU 1e-6 image match (main-vs-main noise is 7.6e-6); see test_results/perf/bvh-cache/
 **Estimated effort:** 3 sessions (~9 h): Phase 0 1, Phase 1 1, Phase 2 1
 **Depends on:** pkg55, pkg114
 
@@ -154,7 +154,7 @@ repeated F12. The work is perf-only and correctness-frozen: images must not chan
 
 - [x] Phase 0: harness, Cycles leg, attribution timers
 - [x] Phase 1: BVH dirty-flag cache + mutation-site test
-- [x] Phase 2: parallel build + path-pool floor (pool: GPU measurement pending)
+- [x] Phase 2: parallel build + path-pool floor
 
 ---
 

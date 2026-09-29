@@ -52,6 +52,7 @@
 #include "astroray/lights/spot_light.h"
 #include "astroray/lights/distant_light.h"
 #include "astroray/lights/area_light.h"
+#include "astroray/spherical_rectangle.h"  // pkg294 test bindings
 #ifdef ASTRORAY_CUDA_ENABLED
 #  include <cuda_runtime.h>  // pkg241 Phase 2 A2 spike: cudaSetDevice/cudaGetDevice for cross-thread primary-context sharing (§3.1/§9)
 #  include "astroray/gpu_renderer.h"
@@ -4466,6 +4467,62 @@ PYBIND11_MODULE(astroray, m) {
               "light"_a, "light_n"_a, "light_fixed_dir"_a = false,
               "light_dir"_a = std::array<float, 3>{0.f, 0.f, 0.f});
     }
+
+    // pkg294 (#922) — test bindings for the spherical-rectangle map shared by
+    // CPU and GPU (include/astroray/spherical_rectangle.h) and for the CPU
+    // AreaLight draw / pdf / lamp-hit consistency (tests/test_pkg294_*.py).
+    m.def("_sphrect_sample",
+          [](const std::array<float, 3>& p, const std::array<float, 3>& c,
+             const std::array<float, 3>& x, float lenU, const std::array<float, 3>& y,
+             float lenV, float u1, float u2) {
+              float q[3] = {0.0f, 0.0f, 0.0f};
+              const float pdf = astroray::sphrect::sample(p.data(), c.data(), x.data(), lenU,
+                                                          y.data(), lenV, u1, u2, true, q);
+              return py::make_tuple(pdf, std::array<float, 3>{q[0], q[1], q[2]});
+          },
+          "p"_a, "c"_a, "x"_a, "len_u"_a, "y"_a, "len_v"_a, "u1"_a, "u2"_a,
+          "pkg294: (solid-angle pdf, sampled point); pdf 0 = rejected input.");
+    m.def("_area_light_probe",
+          [](const std::array<float, 3>& center, const std::array<float, 3>& axisU,
+             const std::array<float, 3>& axisV, float sizeX, float sizeY, float spread,
+             const std::array<float, 3>& point, int n, unsigned seed) {
+              astroray::AreaLight light(
+                  Vec3(center[0], center[1], center[2]), Vec3(axisU[0], axisU[1], axisU[2]),
+                  Vec3(axisV[0], axisV[1], axisV[2]), sizeX, sizeY,
+                  astroray::AreaLight::Shape::Rectangle,
+                  astroray::EmissionSpectrum(astroray::EmissionSpectrum::RGB{Vec3(1.0f)}), 1.0f,
+                  spread);
+              const Vec3 P(point[0], point[1], point[2]);
+              const auto lambdas = astroray::SampledWavelengths::sampleUniform(0.5f);
+              std::mt19937 gen(seed);
+              // Columns: qx qy qz pdf pdfLi hit_t hit_pdfLi_ok anchor_x anchor_y anchor_z
+              std::vector<std::array<float, 10>> rows;
+              rows.reserve(static_cast<size_t>(std::max(n, 0)));
+              for (int i = 0; i < n; ++i) {
+                  astroray::Light::LiSample ls;
+                  std::memset(&ls, 0, sizeof(ls));
+                  light.sampleLi(ls, P, Vec3(0.0f), lambdas, gen);
+                  std::array<float, 10> r{};
+                  r[0] = ls.position.x; r[1] = ls.position.y; r[2] = ls.position.z;
+                  r[3] = ls.pdf;
+                  if (ls.pdf > 0.0f) {
+                      const Vec3 dir = (ls.position - P).normalized();
+                      r[4] = light.pdfLi(P, dir);
+                      astroray::Light::Intersection hit;
+                      const bool h = light.intersect(P, dir, 1e-4f, 1e30f, lambdas, hit);
+                      r[5] = h ? hit.t : -1.0f;
+                      r[6] = h ? 1.0f : 0.0f;
+                  }
+                  Vec3 a;
+                  if (light.segmentAnchor(a, gen)) { r[7] = a.x; r[8] = a.y; r[9] = a.z; }
+                  rows.push_back(r);
+              }
+              return rows;
+          },
+          "center"_a, "axis_u"_a, "axis_v"_a, "size_x"_a, "size_y"_a, "spread"_a, "point"_a,
+          "n"_a, "seed"_a,
+          "pkg294: n AreaLight::sampleLi draws from point with pdfLi and intersect() "
+          "of the same direction, plus n segment anchors (rows of 10 floats).");
 
     // pkg109 — photon-map kd-tree test bindings. Validate the balanced kd-tree
     // build + k-NN locate + Jensen density estimate against a numpy float64

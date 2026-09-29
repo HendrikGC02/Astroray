@@ -17,6 +17,7 @@
 #include "astroray/ies_eval.h"      // pkg276: Cycles kernel_ies_interp port (shared with CPU)
 #include "astroray/lamp_sampling.h" // #840: Cycles point_light_sample port (shared with CPU)
 #include "astroray/area_spread.h"   // #852: Cycles area spread attenuation (shared with CPU)
+#include "astroray/spherical_rectangle.h"  // pkg294: solid-angle rectangle map (shared with CPU)
 
 #include <curand_kernel.h>
 
@@ -221,9 +222,34 @@ __device__ __noinline__ inline GLampExt gpu_lamp_sample_ext(
     return e;
 }
 
+// pkg294 (#922): solid-angle pdf of a rectangle lamp seen from P and, when
+// sampleCoord, a point drawn uniformly in solid angle. Device twin of CPU
+// AreaLight::rectSolidAngle; Urena et al. 2013 via Cycles kernel/light/area.h
+// area_light_rect_sample (Apache-2.0). __noinline__ with pointer/by-value args
+// and a by-value result (the gpu_lamp_sample_ext pattern) keeps the asin/sqrt
+// temporaries out of the register-saturated shade kernel's allocation.
+struct GRectSA { float qx, qy, qz, pdf; };
+
+__device__ __noinline__ inline GRectSA gpu_area_rect_solid_angle(
+    const GDedicatedLight* d, GVec3 P, float u1, float u2, bool sampleCoord)
+{
+    const float pp[3] = {P.x, P.y, P.z};
+    const float c[3] = {d->position.x, d->position.y, d->position.z};
+    const float x[3] = {d->u.x, d->u.y, d->u.z};
+    const float y[3] = {d->v.x, d->v.y, d->v.z};
+    float q[3] = {0.f, 0.f, 0.f};
+    GRectSA r;
+    r.pdf = astroray::sphrect::sample(pp, c, x, d->width, y, d->height, u1, u2, sampleCoord, q);
+    r.qx = q[0]; r.qy = q[1]; r.qz = q[2];
+    return r;
+}
+
+// segAnchor (pkg294): the volume-segment equiangular anchor, drawn area-uniform
+// as Cycles area_light_eval<true>; every other caller leaves it false.
 template <typename TRng>
 __device__ inline GNEESample gpu_dedicated_sample(
-    const GDedicatedLight& d, int dj, const GVec3& shadingPoint, float selPdf, TRng* rng)
+    const GDedicatedLight& d, int dj, const GVec3& shadingPoint, float selPdf, TRng* rng,
+    bool segAnchor = false)
 {
     GNEESample s{};
     s.valid       = 0;
@@ -288,7 +314,18 @@ __device__ inline GNEESample gpu_dedicated_sample(
         float u1 = gpu_rng_uniform(rng), u2 = gpu_rng_uniform(rng);
         GVec3 sampledPos;
         float area;
-        if (d.areaShape == 1) {          // disk (width = radius)
+        // pkg294: full-spread rectangle -> solid-angle draw (Cycles
+        // area_light_eval<false>); CPU twin AreaLight::sampleLi.
+        const bool useSA = !segAnchor && d.areaShape == 0 &&
+                           astroray::sphrect::fullSpread(d.spread);
+        float saPdf = 0.f;
+        if (useSA) {
+            const GRectSA r = gpu_area_rect_solid_angle(&d, shadingPoint, u1, u2, true);
+            saPdf = r.pdf;
+            sampledPos = GVec3(r.qx, r.qy, r.qz);
+            area = d.width * d.height;
+            if (!(saPdf > 0.f)) return s;
+        } else if (d.areaShape == 1) {          // disk (width = radius)
             float rr = sqrtf(u1) * d.width; float phi = 2.f * M_PI_F * u2;
             sampledPos = d.position + d.u * (rr * cosf(phi)) + d.v * (rr * sinf(phi));
             area = M_PI_F * d.width * d.width;
@@ -316,7 +353,7 @@ __device__ inline GNEESample gpu_dedicated_sample(
         // pkg122 (Defect 1): plain-radiance emission (staticScale) + SOLID-ANGLE
         // pdf (pdf_A·dist²/cosθ) so the integrator's MIS is measure-consistent.
         // Mirrors the CPU area_light.cpp::sampleLi fix.
-        s.lightPdf    = ((dist * dist) / (area * cosTheta)) * selPdf;
+        s.lightPdf    = (useSA ? saPdf : (dist * dist) / (area * cosTheta)) * selPdf;  // pkg294
         s.dedGeoScale = d.staticScale * astroray::areaSpreadAttenuation(cosTheta, d.spread);  // #852
         s.valid       = 1;
         return s;
@@ -479,6 +516,12 @@ __device__ inline float gpu_dedicated_reconstruct_pdf(
             else                       inb = (fabsf(uu) <= 0.5f*d.width && fabsf(vv) <= 0.5f*d.height);
             if (!inb) continue;
             if ((-denom) < cosf(d.spread)) continue;
+            // pkg294: the lamp-hit pdf matches the draw (Cycles
+            // area_light_eval_from_intersection; CPU AreaLight::pdfLi).
+            if (d.areaShape == 0 && astroray::sphrect::fullSpread(d.spread)) {
+                pdf += selPdf * gpu_area_rect_solid_angle(&d, prevPoint, 0.f, 0.f, false).pdf;
+                continue;
+            }
             float area = (d.areaShape == 1) ? (M_PI_F * d.width * d.width)
                        : (d.areaShape == 2) ? (M_PI_F * d.width * d.height)
                                             : (d.width * d.height);
@@ -528,7 +571,8 @@ __device__ __forceinline__ GNEESample gpu_nee_sample_light(
     const GSphere*    spheres,
     const GLight*     lights,
     const GDedicatedLight* dedLights,
-    TRng*             rng);
+    TRng*             rng,
+    bool              segAnchor = false);   // pkg294: volume-segment anchor
 
 template <typename TRng>
 __device__ inline GNEESample gpu_nee_sample(
@@ -539,7 +583,8 @@ __device__ inline GNEESample gpu_nee_sample(
     const GLight*     lights, int numLights, float totalLightPower,
     const GDedicatedLight* dedLights, int numDed,   // pkg89-GPU / GAP 1
     GLightTreeView    lightTree,  // pkg86-B
-    TRng*             rng)
+    TRng*             rng,
+    bool              segAnchor = false)   // pkg294: volume-segment anchor
 {
     GNEESample s{};
     s.valid = 0;
@@ -569,7 +614,7 @@ __device__ inline GNEESample gpu_nee_sample(
                                       totalLightPower, dedLights, numDed, li, dj);
     }
     return gpu_nee_sample_light(rec.point, li, dj, selPdf, prims, tris, spheres,
-                                lights, dedLights, rng);
+                                lights, dedLights, rng, segAnchor);
 }
 
 template <typename TRng>
@@ -580,12 +625,13 @@ __device__ __forceinline__ GNEESample gpu_nee_sample_light(
     const GSphere*    spheres,
     const GLight*     lights,
     const GDedicatedLight* dedLights,
-    TRng*             rng)
+    TRng*             rng,
+    bool              segAnchor)
 {
     GNEESample s{};
     s.valid = 0;
     // One call site for both selectors (keeps the shade kernel's code size flat).
-    if (dj >= 0) return gpu_dedicated_sample(dedLights[dj], dj, point, selPdf, rng);
+    if (dj >= 0) return gpu_dedicated_sample(dedLights[dj], dj, point, selPdf, rng, segAnchor);
     int primIdx  = lights[li].primitiveIndex;
     if (primIdx < 0) return s;
 

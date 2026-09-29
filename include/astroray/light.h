@@ -207,6 +207,11 @@ public:
     virtual bool clipLitSegment(const Vec3& /*o*/, const Vec3& /*d*/, float& /*t0*/,
                                 float& /*t1*/) const { return true; }
 
+    // pkg294: equiangular anchor for a volume segment when it differs from the
+    // NEE draw (Cycles light_sample<in_volume_segment=true>; an area light
+    // anchors area-uniformly). False = keep the sampleLi point. Default: false.
+    virtual bool segmentAnchor(Vec3& /*p*/, std::mt19937& /*gen*/) const { return false; }
+
     // Per-light flags (Cycles parity, pkg89 research §1.2).
     bool castShadow  = true;   // light casts shadows (occlusion test in NEE)
     bool useMIS      = true;   // include in MIS weight computation

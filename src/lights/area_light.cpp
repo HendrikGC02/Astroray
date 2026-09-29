@@ -3,6 +3,7 @@
 #include "astroray/lights/area_light.h"
 #include "astroray/spectrum.h"
 #include "astroray/area_spread.h"
+#include "astroray/spherical_rectangle.h"  // pkg294
 #include <cmath>
 #include <algorithm>
 #include <random>
@@ -10,6 +11,33 @@
 // Reference: Cycles kernel/light/area.h::area_light_sample (Apache-2.0).
 
 namespace astroray {
+
+// pkg294 (#922): solid-angle pdf of this rectangle from P; when q != nullptr
+// also draws q uniformly in solid angle from (u1, u2). Urena et al. 2013 via
+// Cycles kernel/light/area.h::area_light_rect_sample (Apache-2.0), shared with
+// the GPU through include/astroray/spherical_rectangle.h.
+float AreaLight::rectSolidAngle(const Vec3& P, Vec3* q, float u1, float u2) const {
+    const float p[3] = {P.x, P.y, P.z};
+    const float c[3] = {position_.x, position_.y, position_.z};
+    const float x[3] = {u_.x, u_.y, u_.z};
+    const float y[3] = {v_.x, v_.y, v_.z};
+    float out[3] = {0.0f, 0.0f, 0.0f};
+    const float pdf = sphrect::sample(p, c, x, width_, y, height_, u1, u2, q != nullptr, out);
+    if (q) *q = Vec3(out[0], out[1], out[2]);
+    return pdf;
+}
+
+bool AreaLight::usesSolidAngle() const {
+    return shape_ == Shape::Rectangle && sphrect::fullSpread(spread_);
+}
+
+// pkg294: Cycles area_light_eval<true> draws the volume-segment (equiangular)
+// anchor uniformly over the area; only the connection at the scatter point is
+// a solid-angle sample.
+bool AreaLight::segmentAnchor(Vec3& p, std::mt19937& gen) const {
+    p = sampleSurface(gen);
+    return true;
+}
 
 AreaLight::AreaLight(const Vec3& position,
                       const Vec3& u,
@@ -62,8 +90,27 @@ void AreaLight::sampleLi(LiSample& sample,
                          const Vec3& shadingNormal,
                          const SampledWavelengths& lambdas,
                          std::mt19937& gen) const {
-    // Sample a point on the area light surface.
-    Vec3 sampledPos = sampleSurface(gen);
+    // pkg294 (#922): a full-spread rectangle is drawn uniformly in solid angle
+    // (Cycles area_light_eval<false> -> area_light_rect_sample), everything
+    // else uniformly over the area (disk/ellipse: Cycles' ellipse branch).
+    Vec3 sampledPos;
+    float saPdf = 0.0f;
+    if (usesSolidAngle()) {
+        std::uniform_real_distribution<float> U(0.0f, 1.0f);
+        const float u1 = U(gen), u2 = U(gen);
+        saPdf = rectSolidAngle(shadingPoint, &sampledPos, u1, u2);
+        if (!(saPdf > 0.0f)) {  // on the lamp plane / degenerate: no sample (Cycles: false)
+            sample.position = position_;
+            sample.normal = normal_;
+            sample.distance = 0.0f;
+            sample.emission_spec = SampledSpectrum(0.0f);
+            sample.emission_rgb = Vec3(0);
+            sample.pdf = 0.0f;
+            return;
+        }
+    } else {
+        sampledPos = sampleSurface(gen);
+    }
     sample.position = sampledPos;
     sample.normal = normal_;
 
@@ -112,6 +159,7 @@ void AreaLight::sampleLi(LiSample& sample,
     // with pdf_A = 1/area (uniform area sampling). cosTheta > 0 here (rejected
     // above), so the divide is safe.
     sample.pdf = distSq / (area_ * cosTheta);
+    if (usesSolidAngle()) sample.pdf = saPdf;  // pkg294: 1/Omega
 }
 
 namespace {
@@ -156,6 +204,9 @@ float AreaLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {
     if (!areaInBounds(shape_, uu, vv, width_, height_)) return 0.0f;
     if (!withinSpread(-d)) return 0.0f;                // -d = light→receiver dir
     float cosLight = -denom;                           // cosθ at the light (>0)
+    // pkg294: the lamp-hit pdf matches the draw (Cycles
+    // area_light_eval_from_intersection -> area_light_rect_sample, no coord).
+    if (usesSolidAngle()) return rectSolidAngle(shadingPoint, nullptr, 0.0f, 0.0f);
     return (t * t) / (area_ * cosLight);
 }
 

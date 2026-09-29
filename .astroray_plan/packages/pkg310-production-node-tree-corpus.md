@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** done (PR #999, 2026-09-30 - baseline CPU 0/8, GPU 0/8, 39 strict silent pairs (~7 real), 9 issues filed #988-#996; acceptance item "contact sheet inspected (Opus)" still OPEN: lane-inspected only, Opus sign-off pending)
+**Status:** done (PR #999, 2026-09-30 - baseline CPU 0/8, GPU 0/8, 39 strict silent pairs (~7 real), 9 issues filed #988-#996; Opus sheet sign-off done 2026-09-30)
 **Estimated effort:** 2–3 sessions (~8 h): scenes + Cycles refs ~4 h, walker + audit ~2 h, runs + backlog ~2 h
 **Depends on:** pkg278, pkg284
 
@@ -133,7 +133,7 @@ possibly a scene or reference defect first (CLAUDE.md §5c).
 - [x] `pytest tests/test_production_corpus.py` runs both backends (GPU legs under the GPU lock); every non-passing material is a strict xfail with an issue number.
 - [x] `silent_drop_audit.py` lists silent drops per material. It is proven non-vacuous by a fixture material with a deliberately unhandled node that it flags.
 - [x] Burn-down doc: baseline N/8 on CPU and on GPU, the silent-drop list, a ranked backlog of issues, and the bound-versus-closure failure count.
-- [ ] Contact sheet saved (as `test_results/textures-nodes/production-corpus/`, layout guard forbids `pkg310/`) and inspected (Opus), with the verdict in the burn-down doc. Saved and lane-inspected; **Opus sign-off pending**.
+- [x] Contact sheet saved (as `test_results/textures-nodes/production-corpus/`, layout guard forbids `pkg310/`) and inspected (Opus), with the verdict in the burn-down doc. Saved; Opus sign-off 2026-09-30 (lead): sheets valid; failures match filed issues (marble GPU flat = #994; car-paint facing-ratio tint missing = #989; light-path camera-vs-lit floor colour = #991); no scene/reference defect.
 - [x] `scripts/README.md` updated; `python scripts/project_index.py lint` clean.
 
 ---

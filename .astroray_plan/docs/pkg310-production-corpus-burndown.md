@@ -118,7 +118,7 @@ regions; Cycles shows the intended pattern in every material). Astroray CPU and 
 marble/wood (GPU flat, #994) and `prod_light_path`. Observed: car paint keeps coat and highlights but loses the
 facing-dependent tint; attributes render white; shader_stack renders one opaque brown; light_path shows the emitter and
 a grey floor; pbr_group keeps the tile layout but loses the chrome tiles; marble and wood keep the pattern (wood
-orientation differs). No sheet suggests a scene or reference defect. **Opus visual sign-off: pending (lead).**
+orientation differs). No sheet suggests a scene or reference defect. **Opus sign-off 2026-09-30 (lead): sheets valid; failures match filed issues (marble GPU flat = #994; car-paint facing-ratio tint missing = #989; light-path camera-vs-lit floor colour = #991); no scene/reference defect.**
 
 ## Lessons
 

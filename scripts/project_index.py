@@ -730,6 +730,20 @@ def _git_out(*args: str) -> str:
         return ""
 
 
+def _filed_dates() -> dict[str, str]:
+    """{repo-relative spec path: ISO date the file was first added}; ONE git call."""
+    out = _git_out("-c", "core.quotepath=off", "log", "--diff-filter=A", "--name-only",
+                   "--format=%x00%ad", "--date=short", "--", ".astroray_plan/packages")
+    dates: dict[str, str] = {}
+    for chunk in out.split("\0"):
+        lines = [ln for ln in chunk.splitlines() if ln.strip()]
+        if not lines:
+            continue
+        for path in lines[1:]:
+            dates[path.strip()] = lines[0].strip()  # newest-first: the oldest add wins
+    return dates
+
+
 def _repo_url() -> str:
     m = re.match(r"(?:git@github\.com:|https?://(?:[^@/]+@)?github\.com/)([^/]+/[^/]+?)(?:\.git)?/?$",
                  _git_out("remote", "get-url", "origin"))
@@ -761,11 +775,16 @@ def _graph_payload(db: sqlite3.Connection) -> dict:
             for tok in {t.lower() for t in DEP_RE.findall(title or "")}:
                 merged_prs_by_num.setdefault(tok, []).append(number)
 
+    filed = _filed_dates()
     pkg_prs: dict[int, list[str]] = {}  # PR/issue number -> package keys citing it in Status
     for key, num, title, pillar, track, status, status_short, effort, dep_str, body in pkg_rows:
         status = status.replace("**", "").strip()
         state = _pkg_state(status_short)
         dm = _DATE_RE.search(status)
+        spec_path = f".astroray_plan/packages/{key}.md"
+        date, date_src = (dm.group(0), "status") if dm else (filed.get(spec_path, ""), "filed")
+        if not date:
+            date_src = ""
         prs = sorted({int(n) for n in _PR_REF_RE.findall(status)})
         for n in prs:
             pkg_prs.setdefault(n, []).append(key)
@@ -774,8 +793,8 @@ def _graph_payload(db: sqlite3.Connection) -> dict:
             "id": key, "label": num, "num": num, "title": (title or "")[:120], "status": status,
             "group": "package", "state": state,
             "pillar": pillar[0] if pillar and pillar[0].isdigit() else "",
-            "track": track or "", "effort": effort or "", "date": dm.group(0) if dm else "",
-            "prs": prs, "goal": _goal(body or ""), "path": f".astroray_plan/packages/{key}.md",
+            "track": track or "", "effort": effort or "", "date": date, "date_src": date_src,
+            "prs": prs, "goal": _goal(body or ""), "path": spec_path,
             "nfiles": nfiles.get(key, 0),
             "unresolved": [d for d in dep_list if d not in num_to_keys],
             "stale_prs": sorted(merged_prs_by_num.get(num, [])) if state in ("open", "in-progress") else [],
@@ -984,6 +1003,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
         <span class="chip"><i class="sw box" style="background:var(--c-doc)"></i>doc</span>
         <span class="chip"><i class="sw box" style="background:var(--c-file);transform:scale(.7)"></i>file</span>
         <span class="chip"><i class="sw dia" style="background:var(--c-issue)"></i>issue / PR</span>
+        <span class="chip"><i class="sw" style="background:none;border:2px solid var(--c-fg)"></i>hollow = timeline date is spec filed date</span>
       </div>
     </details>
     <details class="sec"><summary>Edges</summary>
@@ -1130,7 +1150,7 @@ const linkDimmed = l => focusSet && !(focusSet.has(idOf(l.source)) && focusSet.h
 // ---- drawing (2D) ---------------------------------------------------------------
 const ACTIVE = {'open':1, 'in-progress':1, 'blocked':1};
 const shortTitle = n => (n.title || '').replace(/^pkg[0-9a-z-]*\s*[—–-]\s*/i, '');
-let Kz = 1;
+let Kz = 1, hoverId = null;
 function nodePx(n){   // on-screen radius in px (>= ~4)
   if(n.group === 'package') return ACTIVE[n.state] ? 6.5 : n.state === 'done' ? 4 : 4.5;
   return n.group === 'doc' ? 4 : n.group === 'issue' ? 4.5 : 3.5;
@@ -1138,13 +1158,19 @@ function nodePx(n){   // on-screen radius in px (>= ~4)
 function drawNode(n, ctx, k){
   if(n.x == null || isNaN(n.x)) return;
   const dim = dimmed(n), isSel = n.id === sel, r = nodePx(n) * (layout === 'timeline' ? 0.8 : 1) / k;
+  const hollow = n.date_src === 'filed';
   ctx.globalAlpha = dim ? 0.12 : n.state === 'done' ? 0.6 : 1;
   ctx.fillStyle = colorOf(n);
+  if(hollow) ctx.globalAlpha *= 0.25;
   ctx.beginPath();
   if(n.group === 'package') ctx.arc(n.x, n.y, r, 0, 2 * Math.PI);
   else if(n.group === 'issue'){ const d = r * 1.3; ctx.moveTo(n.x, n.y - d); ctx.lineTo(n.x + d, n.y); ctx.lineTo(n.x, n.y + d); ctx.lineTo(n.x - d, n.y); ctx.closePath(); }
   else ctx.rect(n.x - r, n.y - r, 2 * r, 2 * r);
   ctx.fill();
+  if(hollow){
+    ctx.globalAlpha = dim ? 0.12 : 1; ctx.strokeStyle = colorOf(n); ctx.lineWidth = 1.5 / k;
+    ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI); ctx.stroke();
+  }
   if(T('t-health') && hasHealth(n)){
     const hk = healthKey(n);
     ctx.strokeStyle = PV[hk]; ctx.lineWidth = 1.6 / k;
@@ -1153,7 +1179,9 @@ function drawNode(n, ctx, k){
   }
   if(isSel){ ctx.strokeStyle = PV.fg; ctx.lineWidth = 2 / k; ctx.beginPath(); ctx.arc(n.x, n.y, r + 5 / k, 0, 2 * Math.PI); ctx.stroke(); }
   let txt = null;
-  if(n.group === 'package'){
+  const tlNear = layout !== 'timeline' || isSel || n.id === hoverId || (sel && NB[sel] && (NB[sel].dep.concat(NB[sel].rdep)).some(o => o.id === n.id));
+  if(!tlNear){ /* timeline: labels only for selected / hovered / neighbours */ }
+  else if(n.group === 'package'){
     if(isSel || k >= 3.5) txt = (n.num + ' ' + shortTitle(n)).slice(0, 64);
     else if(ACTIVE[n.state] || k >= 1.8 || (focusSet && !dim && k >= 0.9)) txt = n.num;
   } else if(isSel || k >= 5) txt = n.label;
@@ -1174,7 +1202,7 @@ function linkCol(l){
 }
 function linkCol3(l){   // 3D lines are 1 px: needs more opacity, most of all on a light background
   const light = effTheme() === 'light';
-  const a = linkDimmed(l) ? 0.05 : touchesSel(l) ? 1 : l.kind === 'depends' ? (light ? 0.85 : 0.6) : (light ? 0.5 : 0.3);
+  const a = linkDimmed(l) ? 0.08 : (touchesSel(l) || l.kind === 'depends') ? 1 : (light ? 0.7 : 0.5);
   return hexA(linkBase(l), a);
 }
 const linkW = l => (touchesSel(l) ? 1.6 : l.kind === 'depends' ? 0.8 : 0.4) / Kz;
@@ -1199,6 +1227,7 @@ function preFrame(ctx, k){
 // ---- timeline layout ------------------------------------------------------------
 function layoutTimeline(){
   const DAYW = 14, LANE_H = 150, X_UND = -140;
+  const SLOTS = 12, STEP = 9;
   const times = PKGS.filter(n => n.date).map(n => Date.parse(n.date));
   const d0 = times.length ? Math.min.apply(null, times) : Date.now();
   const d1 = times.length ? Math.max.apply(null, times) : d0;
@@ -1206,8 +1235,8 @@ function layoutTimeline(){
   PKGS.forEach(n => {
     const li = PILLARS.indexOf(n.pillar), key = li + '|' + (n.date || '-'), c = cnt[key] || 0;
     cnt[key] = c + 1;
-    const x = n.date ? (Date.parse(n.date) - d0) / 864e5 * DAYW + Math.floor(c / 11) * 9 : X_UND - Math.floor(c / 11) * 9;
-    n.x = n.fx = x; n.y = n.fy = li * LANE_H + (c % 11) * 12 - 60;
+    const x = n.date ? (Date.parse(n.date) - d0) / 864e5 * DAYW + Math.floor(c / SLOTS) * 5 : X_UND - Math.floor(c / SLOTS) * 5;
+    n.x = n.fx = x; n.y = n.fy = li * LANE_H + (c % SLOTS) * STEP - (SLOTS - 1) * STEP / 2;
   });
   const months = [{x: X_UND, label: 'undated'}];
   const m = new Date(d0); m.setUTCDate(1);
@@ -1231,7 +1260,7 @@ function make2D(){
   g2 = ForceGraph()($('g2'))
     .nodeId('id').backgroundColor(PV.bg)
     .nodeCanvasObject(drawNode).nodeCanvasObjectMode(() => 'replace').nodePointerAreaPaint(paintArea)
-    .onZoom(z => { Kz = z.k; })
+    .onZoom(z => { Kz = z.k; }).onNodeHover(n => { hoverId = n ? n.id : null; })
     .nodeLabel(n => esc(n.title || n.label))
     .linkColor(linkCol).linkWidth(linkW).linkLineDash(l => l.ambiguous ? [3, 3] : null)
     .linkDirectionalArrowLength(l => l.kind === 'depends' ? 5 / Kz : 0).linkDirectionalArrowRelPos(1)
@@ -1244,7 +1273,7 @@ function make2D(){
 }
 const nodeCol3 = n => dimmed(n) ? hexA(colorOf(n), 0.15) : colorOf(n);
 function nodeVal3(n){
-  let v = n.group === 'package' ? 2.2 : n.group === 'doc' ? 1.7 : n.group === 'issue' ? 1.4 : 1;
+  let v = n.group === 'package' ? (ACTIVE[n.state] ? 6 : n.state === 'done' ? 2.5 : 3.5) : n.group === 'doc' ? 2 : n.group === 'issue' ? 2.5 : 1.5;
   if(n.id === sel) v *= 3;
   if(T('t-health') && hasHealth(n)) v *= 2;
   return v;
@@ -1254,8 +1283,8 @@ async function ensure3D(){
   if(!window.ForceGraph3D) await loadScript(LIBS.fg3);
   g3 = ForceGraph3D()($('g3'))
     .nodeId('id').backgroundColor(PV.bg).nodeLabel(n => esc(n.title || n.label))
-    .nodeColor(nodeCol3).nodeVal(nodeVal3).nodeRelSize(4)
-    .linkColor(linkCol3).linkWidth(l => l.kind === 'depends' ? 1 : 0.4)
+    .nodeColor(nodeCol3).nodeVal(nodeVal3).nodeRelSize(7)
+    .linkColor(linkCol3).linkOpacity(0.7).linkWidth(l => l.kind === 'depends' ? 1.5 : 0.5)
     .linkDirectionalArrowLength(l => l.kind === 'depends' ? 3.5 : 0).linkDirectionalArrowRelPos(1)
     .showNavInfo(false).d3VelocityDecay(0.35).warmupTicks(0).cooldownTicks(Infinity).cooldownTime(6000)
     .onEngineStop(() => { if(fitPending){ fitPending = false; fitAll(); } })
@@ -1323,6 +1352,7 @@ async function setLayout(l){
   if(l === 'timeline') layoutTimeline(); else clearFixed();
   resize(); render();
   if(sel) setTimeout(() => flyTo(byId[sel]), 300); else setTimeout(fitAll, 150);
+  if(is3){ fitPending = false; [1500, 4000].forEach(ms => setTimeout(() => { if(layout === '3d' && !sel) fitAll(); }, ms)); }
   writeHash();
 }
 function showBanner(msg){ $('banner').textContent = msg; $('banner').hidden = false; }
@@ -1395,7 +1425,7 @@ function showInspector(n){
   h += '</span><button data-close="1" title="Close (Esc)">&times;</button></div>';
   h += '<div class="it">' + esc(n.title || n.id) + '</div>';
   if(n.group === 'package'){
-    h += '<div class="mute">' + ['pillar ' + (n.pillar || '-'), 'track ' + (n.track || '-'), 'effort ' + (n.effort || '-'), n.date ? n.date : 'undated'].map(esc).join(' &middot; ') + '</div>';
+    h += '<div class="mute">' + ['pillar ' + (n.pillar || '-'), 'track ' + (n.track || '-'), 'effort ' + (n.effort || '-'), n.date ? n.date + (n.date_src === 'filed' ? ' (filed)' : '') : 'undated'].map(esc).join(' &middot; ') + '</div>';
     const long = (n.status || '').length > 240;
     h += '<h4>Status</h4><p class="st' + (long ? ' clamp' : '') + '">' + esc(n.status || '(none)') + '</p>' + (long ? '<a href="#" data-more="1">more</a>' : '');
     if(n.goal) h += '<h4>Goal</h4><p class="st">' + esc(n.goal) + '</p>';

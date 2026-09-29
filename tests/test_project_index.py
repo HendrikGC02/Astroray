@@ -483,3 +483,14 @@ def test_graph_html_embeds_data_without_placeholders(payload, pi_mod):
     assert '"nodes":[' in html and payload["nodes"][0]["id"] in html
     assert "</script><" not in html.split("const DATA = ", 1)[1].split(";\nconst META", 1)[0]
     assert len(html.encode("utf-8")) < 1_500_000
+
+
+def test_date_fallback_uses_spec_filed_date(payload):
+    pkgs = [n for n in payload["nodes"] if n["group"] == "package"]
+    assert {n["date_src"] for n in pkgs} <= {"status", "filed", ""}
+    for n in pkgs:
+        assert (n["date"] == "") == (n["date_src"] == "")
+        if n["date_src"]:
+            assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", n["date"])
+    # a spec whose Status carries no ISO date gets its git add date
+    assert any(n["date_src"] == "filed" for n in pkgs)

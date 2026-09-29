@@ -1393,7 +1393,7 @@ static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
     aim.lambdaMin = 380.0f;
     aim.lambdaMax = 720.0f;
     aim.maxDepth  = maxDepth;
-    aim.boost     = scene.getPhotonCausticBoost();   // pkg286: artistic, default 1.2
+    aim.boost     = scene.getPhotonCausticBoost();   // pkg286: artistic, default 1.0
     aim.photonCount = 4000000;  // forward photons; CPU traces 3e6
     aim.seed        = seed;     // pkg220: per-iteration photon-jitter decorrelation seed
 

@@ -2578,7 +2578,7 @@ class Renderer {
     bool usePhotonCaustics = false;
     // pkg286: GPU mirror of the path_tracer `caustic_boost` integrator param (an
     // artistic multiplier on the physical photon caustic; set by the module).
-    float photonCausticBoost = 1.2f;
+    float photonCausticBoost = 1.0f;
     // pkg287 (#909 CPU twin): dedicated lamps that emit photons this frame. A
     // BSDF ray from a bounce-0 receiver that crossed caster glass (in/out) and
     // hits one of them drops its emission — the photon gather carries it

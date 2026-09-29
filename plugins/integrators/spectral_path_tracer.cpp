@@ -96,7 +96,7 @@ class SpectralPathTracer : public Integrator {
     bool  photonMapReady_     = false;
     // pkg286: artistic multiplier on the physical caustic. Default 1.2 kept
     // pending the owner decision (1.0 = physically exact).
-    float causticBoost_       = 1.2f;
+    float causticBoost_       = 1.0f;
     float photonFluxY_        = 0.0f;   // Σ deposited photon flux (Y), debug stat
 public:
     explicit SpectralPathTracer(const astroray::ParamDict& p)
@@ -135,7 +135,7 @@ public:
         smsCfg_.contribClamp  = p.getFloat("sms_contrib_clamp", 4.0f);
         // pkg111: photon map parameters (used when caustics == "photon_map")
         photonGatherK_ = p.getInt("photon_knn", 50);
-        causticBoost_  = p.getNumber("caustic_boost", 1.2f);   // pkg286
+        causticBoost_  = p.getNumber("caustic_boost", 1.0f);   // pkg286
         // pkg227 Phase 2a: sphere internal-reflection rainbow chain depth. 0 = off
         // (byte-identical to the pkg127 single-vertex lens caustic); 1 = primary
         // bow, 2 = secondary. Owner decision #4: sphere cap 3 vertices (=1 reflect)

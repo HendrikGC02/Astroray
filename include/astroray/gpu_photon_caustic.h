@@ -46,7 +46,7 @@ struct PhotonCausticAim {
     float lambdaMin;       // 380 nm
     float lambdaMax;       // 720 nm
     int   maxDepth;        // refraction-bounce cap (CPU maxDepth_)
-    float boost;           // artistic multiplier on the physical caustic (default 1.2)
+    float boost;           // artistic multiplier on the physical caustic (default 1.0)
     bool  valid;           // false → no casters / no emitting lamps → skip the pre-pass
     // pkg220: per-iteration decorrelation seed for the photon jitter (#909: a
     // fresh seed per photon round); the aim geometry stays deterministic.

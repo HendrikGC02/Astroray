@@ -1193,6 +1193,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // stays -1 (GLight unwired).
     static const std::vector<std::shared_ptr<Hittable>> kNoPrims;
     const auto& orderedPrims = cpuBvh ? cpuBvh->getPrimitives() : kNoPrims;
+    // #962 — instanced prims (global ids past the flat scene) keep the flat mean
+    // textured emission: the hit point is world-space, their triangles object-space.
+    if (cpu.hasInstances()) {
+        r.emissionFlatPrims = (int)orderedPrims.size();
+        if (r.hasEmissionTexture)
+            fprintf(stderr, "[#962] DEGRADED: instanced scene: a textured Emission "
+                            "Color on an instanced mesh renders its texture mean on GPU\n");
+    }
 
     // pkg202: legacy hittable suns (add_sun_light / .blend importer) detected in
     // the loop below are converted to dedicated distant lights (appended to

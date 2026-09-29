@@ -257,6 +257,10 @@ __constant__ int c_hasHair = 0;
 // A plain runtime flag, not a template axis: the fetch lives in __noinline__
 // helpers (memory noinline-runtime-flag-avoids-shade-spill).
 __constant__ int c_wfEmissionTex = 0;
+// #962 — global prim ids >= this belong to instanced BLASes (pkg114: flat-scene
+// prims occupy offset 0), whose triangles are object-space while the hit point is
+// world-space: those keep the flat mean (DEGRADED, reported host-side).
+__constant__ int c_wfEmissionFlatPrims = 0x7fffffff;
 
 struct GProgInputTexel { GVec3 c; bool ok; };
 // Defined after c_wfTexBinding / c_wfProgBinding below.
@@ -1242,7 +1246,8 @@ static __device__ __noinline__ GProgInputTexel gpu_emissionTexel(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int matId)
 {
     const int texId = c_wfTexBinding.matTexId[matId];
-    if (texId < 0) return {GVec3(0.0f, 0.0f, 0.0f), false};
+    if (texId < 0 || primId < 0 || primId >= c_wfEmissionFlatPrims)
+        return {GVec3(0.0f, 0.0f, 0.0f), false};
     GProgInputTexel e = gpu_progInputTexel(point, primId, prims, tris, texId);
     if (!e.ok || !(c_wfEmissionTex & 2) || !c_wfProgBinding.matProgId) return e;
     const int progId = c_wfProgBinding.matProgId[matId];
@@ -1264,30 +1269,23 @@ static __device__ __noinline__ GProgInputTexel gpu_emissionTexel(
     return e;
 }
 
-// #962 — NEE twin: the deferred shadow stage has no light primitive id, so
-// re-find the sampled emitter point with a closest-hit trace in a thin window
-// around the parked true distance (geomDist, lane 14; the sample was unoccluded
-// up to maxDist = geomDist - 1e-3, so the first surface in the window is the
-// emitter). Only reached for a textured emitter (c_wfEmissionTex), so fleet
-// scenes never pay the trace; __noinline__ keeps the traversal's registers out
-// of the lean shadow kernel.
-template<bool HasCurves>
-static __device__ __noinline__ GProgInputTexel gpu_emissionTexelAtNee(
-    GVec3 origin, GVec3 wi, float geomDist, int lightMatId, float time,
-    const GTLASNode* tlas, const GInstance* instances, const GBLAS* blas,
-    const GBVHNode* bvhNodes, const GPrimitive* prims, const GTriangle* tris,
-    const GSphere* spheres, const GVec3* motionVerts, const GCurveSegment* curves)
+// #962 — NEE twin: the exact light point gpu_nee_sample_light drew, parked in
+// the dedicated-RGB lanes 11-13 for hittable lights ((b1, b2, primIdx bits);
+// gpu_nee.cuh). Triangle: v0 + e1*b1 + e2*b2 (the sampled lpos); sphere: the
+// parked true distance along wi. No re-trace, so the fetched texel is the one
+// the BSDF-hit leg sees at that point.
+static __device__ __noinline__ GProgInputTexel gpu_emissionTexelAtLightSample(
+    GVec3 origin, GVec3 wi, float geomDist, GVec3 packed, int lightMatId,
+    const GPrimitive* prims, const GTriangle* tris)
 {
-    const GProgInputTexel miss{GVec3(0.0f, 0.0f, 0.0f), false};
-    if (!(geomDist > 0.0f)) return miss;
-    const float win = 2e-3f + 1e-4f * geomDist;
-    GHitRecord lrec;
-    if (!gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                                 GRay(origin, wi, time), fmaxf(1e-3f, geomDist - win),
-                                 geomDist + win, lrec, motionVerts, curves))
-        return miss;
-    if (lrec.materialId != lightMatId) return miss;
-    return gpu_emissionTexel(lrec.point, lrec.primId, prims, tris, lightMatId);
+    const int primId = __float_as_int(packed.z);
+    if (primId < 0) return {GVec3(0.0f, 0.0f, 0.0f), false};
+    GVec3 p = origin + wi * geomDist;
+    if (prims[primId].type == GPRIM_TRIANGLE) {
+        const GTriangle& t = tris[prims[primId].index];
+        p = t.v0 + (t.v1 - t.v0) * packed.x + (t.v2 - t.v0) * packed.y;
+    }
+    return gpu_emissionTexel(p, primId, prims, tris, lightMatId);
 }
 
 // pkg219d — apply one op-VM scalar result to the LOCAL GMaterial copy. Overwrites
@@ -2466,13 +2464,12 @@ __global__ void stageShadowKernel(
             materials[s.lightMatId], lightFront, lambdas);
         // #962: textured emitter — evaluate the texel at the sampled light point
         // so NEE and the BSDF-hit leg (intersect stage) integrate the same
-        // emission (CPU light_sampler.cpp #776). Flat mean on a miss.
+        // emission (CPU light_sampler.cpp #776).
         if (c_wfEmissionTex && L_spec.maxValue() > 0.f &&
             materials[s.lightMatId].type == GMAT_DIFFUSE_LIGHT) {
-            GProgInputTexel e = gpu_emissionTexelAtNee<HasCurves>(
-                s.origin, s.wi, nee_f[14 * nee_capacity + idx], s.lightMatId, time,
-                tlas, instances, blas, bvhNodes, prims, tris, spheres, motionVerts,
-                curves);
+            GProgInputTexel e = gpu_emissionTexelAtLightSample(
+                s.origin, s.wi, nee_f[14 * nee_capacity + idx], s.dedEmissionRGB,
+                s.lightMatId, prims, tris);
             if (e.ok)
                 L_spec = gpu_rgbToSampledSpectrum(
                     e.c * materials[s.lightMatId].emissionIntensity, lambdas,
@@ -3191,9 +3188,10 @@ void setWavefrontHairEnabled(bool hasHair)
 
 // #962 — publish the textured-emission flag into __constant__ c_wfEmissionTex
 // (bit 0: emission textures bound this frame; bit 1: op-VM programs bound).
-void setWavefrontEmissionTexture(int flags)
+void setWavefrontEmissionTexture(int flags, int flatPrims)
 {
     cudaMemcpyToSymbol(c_wfEmissionTex, &flags, sizeof(flags));
+    cudaMemcpyToSymbol(c_wfEmissionFlatPrims, &flatPrims, sizeof(flatPrims));
 }
 
 // #909 - publish the photon-map split (per render; chain=null disables).

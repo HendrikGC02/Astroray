@@ -120,13 +120,27 @@ def _make_tex(r, kind):
         raise ValueError(kind)
 
 
+def _xf(p, transformed):
+    # Transformed (non-instanced) emitter: the addon bakes the object matrix
+    # into the vertices; rotate 25 deg about Y and shift, so a world-vs-object
+    # coordinate mix-up in the UV fetch would misplace the pattern.
+    if not transformed:
+        return p
+    a = np.radians(25.0)
+    x, y, z = p
+    return [float(np.cos(a) * x + np.sin(a) * z + 0.1), float(y + 0.05),
+            float(-np.sin(a) * x + np.cos(a) * z - 0.2)]
+
+
 def _card(r, kind):
     from base_helpers import setup_camera
     r.set_background_color([0.0, 0.0, 0.0])
-    _make_tex(r, kind)
+    transformed = kind.endswith("_transformed")
+    _make_tex(r, kind.replace("_transformed", ""))
     m = r.create_material("light", [1, 1, 1], {"intensity": 2.0, "texture": "t"})
-    A, B, Cc, D = [-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]
-    n = [0, 0, 1]
+    A, B, Cc, D = (_xf(v, transformed) for v in ([-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]))
+    a = np.radians(25.0) if transformed else 0.0
+    n = [float(np.sin(a)), 0.0, float(np.cos(a))]
     r.add_triangle_layers(A, B, Cc, m, {"UVMap": [[0, 0], [1, 0], [1, 1]]}, n, n, n)
     r.add_triangle_layers(A, Cc, D, m, {"UVMap": [[0, 0], [1, 1], [0, 1]]}, n, n, n)
     setup_camera(r, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0],
@@ -168,7 +182,8 @@ def _bands(px):
 
 
 @pytest.mark.gpu
-@pytest.mark.parametrize("kind", ["image", "checker", "checker_generated", "program"])
+@pytest.mark.parametrize("kind", ["image", "image_transformed", "checker",
+                                  "checker_generated", "program"])
 def test_gpu_textured_emission_card_matches_cpu(kind):
     _gpu_or_skip()
     g = _render(lambda r: _card(r, kind), True, 32)

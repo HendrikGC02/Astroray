@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** in-review (Phase 1 implemented on lane/ap-311; PR pending)
+**Status:** done — Phase 1 (PR #987, 2026-09-30)
 **Estimated effort:** 2 sessions (~6 h), addon Python only
 **Depends on:** pkg176, pkg195
 

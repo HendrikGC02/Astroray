@@ -36,6 +36,9 @@ from base_helpers import (  # noqa: E402
     create_cornell_box, save_image, setup_camera,
 )
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "spectral", "lambertian-cornell"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 SPP = 64
@@ -155,10 +158,10 @@ def test_back_face_returns_zero():
         assert val < 0.0, "expected negative without guard — confirms guard needed"
 
 
-def test_cornell_box_png_saved(test_results_dir):
+def test_cornell_box_png_saved():
     """PNG must be written to test_results/ for visual review."""
     spec = _render_cornell("path_tracer", seed=7)
-    out = os.path.join(test_results_dir, 'pkg12_spectral_lambertian_cornell.png')
+    out = str(results_path(_AREA, _FEATURE, 'spectral_lambertian_cornell.png'))
     save_image(spec, out)
     assert os.path.exists(out), f"PNG not written: {out}"
     assert os.path.getsize(out) > 1000, "PNG suspiciously small"

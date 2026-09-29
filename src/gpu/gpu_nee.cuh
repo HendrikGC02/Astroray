@@ -672,6 +672,8 @@ __device__ __forceinline__ GNEESample gpu_nee_sample_light(
         }
         lightMatId  = sp.materialId;
         s.isSphere  = 1;
+        // #962: see the triangle branch (a sphere's point is origin + wi*geomDist).
+        s.dedEmissionRGB = GVec3(0.f, 0.f, __int_as_float(primIdx));
     } else {
         const GTriangle& t = tris[lp.index];
         float r1 = gpu_rng_uniform(rng), r2 = gpu_rng_uniform(rng);
@@ -696,6 +698,11 @@ __device__ __forceinline__ GNEESample gpu_nee_sample_light(
         // are dark from behind in NEE as in the BSDF-hit path and on the CPU.
         GVec3 ns = t.flat_shaded ? t.n0 : (t.n0 * (1.f - r1 - r2) + t.n1 * r1 + t.n2 * r2);
         s.lightBack = wi.dot(ns) >= 0.f ? 1 : 0;
+        // #962: a hittable light parks its sampled point for the deferred shadow
+        // stage's textured-emission fetch in the dedicated-RGB lanes, which are
+        // read ONLY when isDedicated: (b1, b2, primIdx bits). Replaces the
+        // constant zero in the same GNEESample field -- no new live state.
+        s.dedEmissionRGB = GVec3(r1, r2, __int_as_float(primIdx));
     }
 
     // Originally checked after the trace; moved pre-trace (pure math, no

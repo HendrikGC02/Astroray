@@ -45,6 +45,9 @@ except ImportError:
 
 from base_helpers import save_image  # noqa: E402
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "caustics", "sms-default-integrator"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 
@@ -133,7 +136,7 @@ def test_pkg64_phase3_default_integrator_sms_fires():
     assert stats.get("sms_converged", 0) > 0
 
 
-def test_pkg64_phase3_default_integrator_psnr_gain(test_results_dir):
+def test_pkg64_phase3_default_integrator_psnr_gain():
     # Multi-seed averaging — single-seed comparisons are noise-dominated
     # because the SMS hook consumes RNG, shifting the path tracer's
     # underlying stochastic pattern between use_caustics=True and False
@@ -152,9 +155,9 @@ def test_pkg64_phase3_default_integrator_psnr_gain(test_results_dir):
     sms  = avg(True,  SAMPLES, test_seeds)
     ref  = avg(True,  SAMPLES * 8, ref_seeds)
 
-    save_image(base, os.path.join(test_results_dir, "pkg64p3_path_tracer_no_caustics.png"))
-    save_image(sms,  os.path.join(test_results_dir, "pkg64p3_path_tracer_sms.png"))
-    save_image(ref,  os.path.join(test_results_dir, "pkg64p3_path_tracer_reference.png"))
+    save_image(base, str(results_path(_AREA, _FEATURE, "path_tracer_no_caustics.png")))
+    save_image(sms,  str(results_path(_AREA, _FEATURE, "path_tracer_sms.png")))
+    save_image(ref,  str(results_path(_AREA, _FEATURE, "path_tracer_reference.png")))
 
     psnr_base = _psnr(base, ref)
     psnr_sms  = _psnr(sms,  ref)

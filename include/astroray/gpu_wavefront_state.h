@@ -570,6 +570,10 @@ void setWavefrontSamplerMode(bool useProgressive);
 // (gpu_hair.cuh) so its transcendental register pressure never touches the
 // REG:254 fleet shade kernel.
 void setWavefrontHairEnabled(bool hasHair);
+// #962 — textured Emission Color flag (1: emission textures bound this
+// frame; 0 = flat mean-colour emission) and the
+// count of flat-scene (non-instanced) prims eligible for the per-hit fetch.
+void setWavefrontEmissionTexture(int flags, int flatPrims);
 
 // pkg131 — GPU zero-knob adaptive sampling. When enabled, stageRegenKernel maps a
 // claimed work item w to pixel = activePixels[w % numActive], sample = baseSample +

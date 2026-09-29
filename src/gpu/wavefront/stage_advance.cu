@@ -59,6 +59,8 @@ __constant__ int c_wfBounceLimit[3] = { -1, -1, -1 };
 __constant__ int c_wfCausticGate[2] = { 1, 1 };
 __constant__ int c_wfSamplerMode = 0;
 __constant__ int c_hasHair = 0;
+__constant__ int c_wfEmissionTex = 0;
+__constant__ int c_wfEmissionFlatPrims = 0x7fffffff;
 __constant__ uint32_t c_sobolMatrices[kSobolNumDims][kSobolMatrixSize];
 __constant__ GWavefrontAdaptiveBinding c_wfAdaptive = { nullptr, nullptr, nullptr, 0, 0, 0 };
 __constant__ GWavefrontPhotonSplit c_wfPhotonSplit = { nullptr, 0u };
@@ -186,6 +188,17 @@ __global__ void stageShadowKernel(
         if (occ.occluded) return;
     }
 
+    // #962: textured emitter — fetch the texel at the exact sampled light point
+    // (parked in lanes 11-13, gpu_nee.cuh) so NEE and the BSDF-hit leg (intersect
+    // stage) integrate the same emission (CPU light_sampler.cpp #776). Done here,
+    // before the spectral state is loaded, so little is live across the call.
+    GProgInputTexel emTex{GVec3(0.0f, 0.0f, 0.0f), false};
+    if (c_wfEmissionTex && !s.isDedicated &&
+        materials[s.lightMatId].type == GMAT_DIFFUSE_LIGHT)
+        emTex = gpu_emissionTexelAtLightSample(
+            s.origin, s.wi, nee_f[14 * nee_capacity + idx], s.dedEmissionRGB,
+            s.lightMatId, prims, tris, spheres);
+
     // Emission upsample only (the BSDF/MIS parts were pre-resolved in the
     // shade stage); lambdas from the slot's live spectral state.
     GSampledWavelengths lambdas;
@@ -222,6 +235,10 @@ __global__ void stageShadowKernel(
         bool lightFront = s.isSphere ? (occ.frontFace != 0) : !(sphLane & 2);
         L_spec = gpu_material_emitted_spectral(
             materials[s.lightMatId], lightFront, lambdas);
+        if (emTex.ok && L_spec.maxValue() > 0.f)   // #962 (front face only)
+            L_spec = gpu_rgbToSampledSpectrum(
+                emTex.c * materials[s.lightMatId].emissionIntensity, lambdas,
+                materials[s.lightMatId].spectralMode);
     }
     if (L_spec.maxValue() <= 0.f) return;
 
@@ -874,6 +891,15 @@ void setWavefrontHairEnabled(bool hasHair)
     const int flag = hasHair ? 1 : 0;
     cudaMemcpyToSymbol(c_hasHair, &flag, sizeof(flag));
 }
+
+// #962 — publish the textured-emission flag into __constant__ c_wfEmissionTex
+// (1: emission textures bound this frame) and the flat-scene prim count.
+void setWavefrontEmissionTexture(int flags, int flatPrims)
+{
+    cudaMemcpyToSymbol(c_wfEmissionTex, &flags, sizeof(flags));
+    cudaMemcpyToSymbol(c_wfEmissionFlatPrims, &flatPrims, sizeof(flatPrims));
+}
+
 
 // #909 - publish the photon-map split (per render; chain=null disables).
 void setWavefrontPhotonSplit(const GWavefrontPhotonSplit& split)

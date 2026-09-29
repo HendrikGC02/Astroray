@@ -49,15 +49,14 @@ from test_world_hdri_parity import _write_radiance_hdr  # noqa: E402
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 SAVE = os.environ.get("PKG258_SAVE_RENDERS")
-SAVE_DIR = os.path.join(os.path.dirname(__file__), "..",
-                        "test_results", "2026-09-08-pkg258")
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "world", "env-nee-convergence"
 
 
 def _save_png(name, img_lin):
     """Write a linear->sRGB 8-bit PNG for the lead's visual inspection."""
     if not SAVE:
         return
-    os.makedirs(SAVE_DIR, exist_ok=True)
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.image as mpimg
@@ -66,7 +65,7 @@ def _save_png(name, img_lin):
     x = x * 0.9
     srgb = np.where(x <= 0.0031308, 12.92 * x, 1.055 * np.power(x, 1 / 2.4) - 0.055)
     srgb = np.clip(srgb, 0.0, 1.0)
-    mpimg.imsave(os.path.join(SAVE_DIR, name), srgb)
+    mpimg.imsave(str(results_path(_AREA, _FEATURE, name)), srgb)
 
 
 def _sun_disc_hdri(width=64, height=32):

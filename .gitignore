@@ -35,7 +35,27 @@ cmake_install.cmake
 _deps/
 
 # Test outputs
-test_results/
+# test_results: only curated evidence is tracked (conventions:
+# .astroray_plan/docs/test-results-conventions.md). _runs/, tmp/, _legacy/ stay ignored.
+test_results/*
+!test_results/index.html
+!test_results/README.md
+!test_results/materials/
+!test_results/textures-nodes/
+!test_results/lights/
+!test_results/world/
+!test_results/volumes/
+!test_results/caustics/
+!test_results/spectral/
+!test_results/camera/
+!test_results/geometry/
+!test_results/passes/
+!test_results/integrator/
+!test_results/viewport/
+!test_results/perf/
+!test_results/parity/
+!test_results/addon/
+!test_results/astro/
 tests/output/
 benchmarks/cycles-parity/results/
 benchmarks/cycles-parity/scenes/cache/
@@ -118,6 +138,8 @@ Thumbs.db
 !docs/showcase/*.png
 # pkg93 README hero + gallery — checked-in static images referenced by README.md.
 !docs/renders/*.png
+# curated test_results evidence (area/feature/*.png)
+!test_results/*/*/*.png
 # north-star gate (c): small Cycles/Astroray CPU reference renders for the
 # pinned reference-scene corpus (benchmarks/blender_parity/scenes/manifest.json).
 !benchmarks/blender_parity/scenes/refs/*.png

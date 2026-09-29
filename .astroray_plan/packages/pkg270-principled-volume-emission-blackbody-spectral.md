@@ -128,7 +128,7 @@ implementation. Research: `docs/volumes-track-research-2026-09-12.md` §2, §4.
 - [x] Exporter socket lowering (Emission/Blackbody/Temperature + attribute
       names, temperature-grid bbox) + bindings.
 - [x] Blackbody furnace + spectral-extinction gates; #807 cabinet A/B
-      (`test_results/batchK/VOLUME_cabinet_AB_pkg270.png`), grid-free Cornell
+      (`test_results/volumes/principled-volume-emission/cabinet_ab_sheet.png`), grid-free Cornell
       byte-identical vs main.
 
 ### Known limitations (documented for reviewers)

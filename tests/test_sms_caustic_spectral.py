@@ -41,6 +41,9 @@ except ImportError:
 
 from base_helpers import save_image  # noqa: E402
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "caustics", "sms-spectral"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 
@@ -124,14 +127,14 @@ def test_spectral_newton_param_accepted():
     r.set_integrator_param("spectral_newton", 1)
 
 
-def test_sms_spectral_chromatic_caustic(test_results_dir):
+def test_sms_spectral_chromatic_caustic():
     sms_rgb,  rgb_time  = _render(spectral_newton=False, samples=SAMPLES, seed=145)
     sms_spec, spec_time = _render(spectral_newton=True,  samples=SAMPLES, seed=145)
     sms_ref,  _         = _render(spectral_newton=True,  samples=SAMPLES * 4, seed=911)
 
-    save_image(sms_rgb,  os.path.join(test_results_dir, "pkg64p2_sms_rgb.png"))
-    save_image(sms_spec, os.path.join(test_results_dir, "pkg64p2_sms_spectral.png"))
-    save_image(sms_ref,  os.path.join(test_results_dir, "pkg64p2_sms_reference.png"))
+    save_image(sms_rgb,  str(results_path(_AREA, _FEATURE, "sms_rgb.png")))
+    save_image(sms_spec, str(results_path(_AREA, _FEATURE, "sms_spectral.png")))
+    save_image(sms_ref,  str(results_path(_AREA, _FEATURE, "sms_reference.png")))
 
     psnr_rgb  = _psnr(sms_rgb,  sms_ref)
     psnr_spec = _psnr(sms_spec, sms_ref)

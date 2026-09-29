@@ -31,6 +31,9 @@ from scenes.prism_reference import (  # noqa: E402
     render_spectral_prism,
 )
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "spectral", "dispersive-prism"
+
 
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
@@ -39,9 +42,9 @@ PROFILES_BIN = os.path.join(REPO_ROOT, "data", "spectral_profiles", "profiles.bi
 HAS_PROFILES = os.path.exists(PROFILES_BIN)
 
 
-def test_dispersive_prism_render_is_finite_and_saved(test_results_dir):
+def test_dispersive_prism_render_is_finite_and_saved():
     pixels = render_prism(astroray, dispersive=True, seed=17)
-    save_image(pixels, os.path.join(test_results_dir, "pkg29_dispersive_prism.png"))
+    save_image(pixels, str(results_path(_AREA, _FEATURE, "dispersive_prism.png")))
 
     assert pixels.shape == (HEIGHT, WIDTH, 3)
     assert np.isfinite(pixels).all()
@@ -49,12 +52,12 @@ def test_dispersive_prism_render_is_finite_and_saved(test_results_dir):
     assert float(pixels.max()) > 0.1
 
 
-def test_dispersive_prism_has_measurable_color_spread(test_results_dir):
+def test_dispersive_prism_has_measurable_color_spread():
     flat = render_prism(astroray, dispersive=False, seed=17)
     dispersive = render_prism(astroray, dispersive=True, seed=17)
 
-    save_image(flat, os.path.join(test_results_dir, "pkg29_flat_prism.png"))
-    save_image(dispersive, os.path.join(test_results_dir, "pkg29_bk7_prism.png"))
+    save_image(flat, str(results_path(_AREA, _FEATURE, "flat_prism.png")))
+    save_image(dispersive, str(results_path(_AREA, _FEATURE, "bk7_prism.png")))
 
     diff = np.abs(dispersive - flat)
     print(f"\n  max absolute RGB diff:             {float(diff.max()):.4f}")
@@ -72,7 +75,7 @@ def test_dispersive_prism_has_measurable_color_spread(test_results_dir):
     # BK7 0.32-0.35 (seeds 5, 17).
     flat_edge = edge_fringe(render_edge_prism(astroray, "dielectric", {"ior": 1.5}))
     bk7_edge_img = render_edge_prism(astroray, "dielectric", {"sellmeier_preset": "bk7"})
-    save_image(bk7_edge_img, os.path.join(test_results_dir, "pkg29_bk7_prism_edges.png"))
+    save_image(bk7_edge_img, str(results_path(_AREA, _FEATURE, "bk7_prism_edges.png")))
     bk7_edge = edge_fringe(bk7_edge_img)
     print(f"  edge fringe flat {flat_edge:.4f}  BK7 {bk7_edge:.4f}")
     assert bk7_edge > 0.15 and bk7_edge > 4.0 * flat_edge
@@ -94,12 +97,12 @@ pytestmark_profiles = pytest.mark.skipif(not HAS_PROFILES, reason="profiles.bin 
 
 
 @pytestmark_profiles
-def test_narrow_line_band_is_amber_hued(test_results_dir):
+def test_narrow_line_band_is_amber_hued():
     """pkg208 predicate 1: the sodium_vapor (~589 nm) line's dispersed band is
     amber/yellow-dominant (R > G > 3*B in chromaticity), not a rainbow."""
     astroray.load_spectral_profiles(PROFILES_BIN)
     sodium = render_spectral_prism(astroray, profile_name="sodium_vapor", seed=17)
-    save_image(sodium, os.path.join(test_results_dir, "pkg208_sodium_prism.png"))
+    save_image(sodium, str(results_path(_AREA, _FEATURE, "sodium_prism.png")))
 
     assert np.isfinite(sodium).all()
     mean_chroma, _ = bright_region_mean_chroma_and_spread(sodium)
@@ -113,7 +116,7 @@ def test_narrow_line_band_is_amber_hued(test_results_dir):
 
 
 @pytestmark_profiles
-def test_narrow_line_disperses_narrower_than_broadband(test_results_dir):
+def test_narrow_line_disperses_narrower_than_broadband():
     """pkg208 predicate 2 (the crux): the sodium_vapor narrow-line prism band's
     chromaticity spread is well below the led_6500k broadband control's --
     reusing the same prism, only the light's SPD changes. If this INVERTS
@@ -123,7 +126,7 @@ def test_narrow_line_disperses_narrower_than_broadband(test_results_dir):
     astroray.load_spectral_profiles(PROFILES_BIN)
     sodium = render_spectral_prism(astroray, profile_name="sodium_vapor", seed=17)
     broadband = render_spectral_prism(astroray, profile_name="led_6500k", seed=17)
-    save_image(broadband, os.path.join(test_results_dir, "pkg208_led6500k_prism.png"))
+    save_image(broadband, str(results_path(_AREA, _FEATURE, "led6500k_prism.png")))
 
     assert np.isfinite(sodium).all()
     assert np.isfinite(broadband).all()

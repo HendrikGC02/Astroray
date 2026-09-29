@@ -19,11 +19,12 @@ from runtime_setup import configure_test_imports
 configure_test_imports()
 
 from base_helpers import save_image
+from results_layout import results_path
 
 import astroray
 
 SEED = 268777
-_OUT = os.path.join(os.path.dirname(__file__), "..", "test_results", "batchF")
+_AREA, _FEATURE = "volumes", "scatter-volume-shapes"
 
 
 def _render(r, spp, max_depth, w, h):
@@ -52,17 +53,16 @@ def _scene(with_volume, w=96, h=96):
 
 
 def test_red_scatter_cube_is_translucent_and_reddish():
-    os.makedirs(_OUT, exist_ok=True)
     w = h = 96
     bg = _render(_scene(False, w, h), 64, 8, w, h)
     vol = _render(_scene(True, w, h), 256, 8, w, h)
-    save_image(vol, os.path.join(_OUT, "pkg268_red_scatter_cube.png"))
-    save_image(bg, os.path.join(_OUT, "pkg268_backdrop_novolume.png"))
+    save_image(vol, str(results_path(_AREA, _FEATURE, "red_scatter_cube.png")))
+    save_image(bg, str(results_path(_AREA, _FEATURE, "backdrop_novolume.png")))
     # a gamma-corrected beauty render for qualitative inspection (viewing only).
     beauty = np.asarray(_scene(True, w, h).render(256, 8, None, True), dtype=np.float64)
     if beauty.ndim == 1:
         beauty = beauty.reshape(h, w, 3)
-    save_image(beauty, os.path.join(_OUT, "pkg268_red_scatter_cube_gamma.png"))
+    save_image(beauty, str(results_path(_AREA, _FEATURE, "red_scatter_cube_gamma.png")))
 
     # center region overlaps the cube.
     cy0, cy1 = h // 2 - 12, h // 2 + 12

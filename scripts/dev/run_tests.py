@@ -11,6 +11,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TESTS_DIR = REPO_ROOT / "tests"
+sys.path.insert(0, str(TESTS_DIR))
+from runtime_setup import DEFAULT_TEMP_DIR  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:
@@ -24,7 +26,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--temp-dir",
-        default=os.environ.get("ASTRORAY_TEST_TEMP_DIR", str(REPO_ROOT / "test_results" / "tmp")),
+        default=os.environ.get("ASTRORAY_TEST_TEMP_DIR", str(DEFAULT_TEMP_DIR)),
         help="Scratch directory for pytest/tempfile, default: ./test_results/tmp",
     )
     parser.add_argument(

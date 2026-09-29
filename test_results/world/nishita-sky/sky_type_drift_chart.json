@@ -1,0 +1,57 @@
+{
+ "title": "Sky A/B drift before the Nishita sky: Astroray / Cycles",
+ "xlabel": "sky type, turbidity, elevation",
+ "ylabel": "luminance ratio (Astroray / Cycles)",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "upper sky",
+   "role": "cpu",
+   "x": [
+    "MULT t2.6 e10",
+    "MULT t2.6 e28",
+    "MULT t2.6 e60",
+    "PREE t2.6 e28",
+    "PREE t5.0 e10",
+    "PREE t2.0 e60"
+   ],
+   "y": [
+    1.145,
+    1.005,
+    0.665,
+    14.969,
+    7.688,
+    11.117
+   ]
+  },
+  {
+   "label": "horizon",
+   "role": "other",
+   "x": [
+    "MULT t2.6 e10",
+    "MULT t2.6 e28",
+    "MULT t2.6 e60",
+    "PREE t2.6 e28",
+    "PREE t5.0 e10",
+    "PREE t2.0 e60"
+   ],
+   "y": [
+    1.222,
+    0.898,
+    0.561,
+    13.966,
+    7.54,
+    10.664
+   ]
+  }
+ ],
+ "band": null,
+ "ref": [
+  1.0,
+  "parity"
+ ],
+ "meta": {
+  "note": "MULT = MULTIPLE_SCATTERING, PREE = PREETHAM (old bake)",
+  "source": "pkg256 A/B, 2026-09-12"
+ }
+}

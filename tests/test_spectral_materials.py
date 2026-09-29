@@ -36,6 +36,9 @@ except ImportError:
 
 from base_helpers import create_cornell_box, save_image, setup_camera  # noqa: E402
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "spectral", "spectral-materials"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 SPP = 64
@@ -133,17 +136,17 @@ def test_metal_spectral_deterministic_a_b():
 # Dielectric / Mirror — delta materials, evalSpectral returns 0
 # ---------------------------------------------------------------------------
 
-def test_dielectric_spectral_no_nan(test_results_dir):
+def test_dielectric_spectral_no_nan():
     """Spectral render with a glass sphere must not produce NaN/Inf."""
     pixels = _render("path_tracer", _dielectric_scene)
-    save_image(pixels, os.path.join(test_results_dir, 'pkg13_dielectric_spectral.png'))
+    save_image(pixels, str(results_path(_AREA, _FEATURE, 'dielectric_spectral.png')))
     assert not np.any(np.isnan(pixels))
     assert not np.any(np.isinf(pixels))
     assert pixels.min() >= 0.0
     assert float(pixels.mean()) > 0.001
 
 
-def test_dispersive_dielectric_differs_from_flat(test_results_dir):
+def test_dispersive_dielectric_differs_from_flat():
     """Sellmeier dispersion must produce different pixels than flat-IOR glass."""
     def flat_scene(r):
         create_cornell_box(r)
@@ -158,8 +161,8 @@ def test_dispersive_dielectric_differs_from_flat(test_results_dir):
 
     flat_px = _render("path_tracer", flat_scene, seed=123)
     disp_px = _render("path_tracer", dispersive_scene, seed=123)
-    save_image(flat_px, os.path.join(test_results_dir, 'pkg31_flat_glass.png'))
-    save_image(disp_px, os.path.join(test_results_dir, 'pkg31_dispersive_glass.png'))
+    save_image(flat_px, str(results_path(_AREA, _FEATURE, 'flat_glass.png')))
+    save_image(disp_px, str(results_path(_AREA, _FEATURE, 'dispersive_glass.png')))
 
     assert not np.any(np.isnan(disp_px))
     assert not np.any(np.isinf(disp_px))
@@ -171,7 +174,7 @@ def test_dispersive_dielectric_differs_from_flat(test_results_dir):
     )
 
 
-def test_mirror_spectral_no_nan(test_results_dir):
+def test_mirror_spectral_no_nan():
     def mirror_scene(r):
         create_cornell_box(r)
         mat = r.create_material("mirror", [1.0, 1.0, 1.0], {})
@@ -187,7 +190,7 @@ def test_mirror_spectral_no_nan(test_results_dir):
 # Subsurface
 # ---------------------------------------------------------------------------
 
-def test_subsurface_spectral_no_nan(test_results_dir):
+def test_subsurface_spectral_no_nan():
     def ss_scene(r):
         create_cornell_box(r)
         mat = r.create_material("subsurface", [0.8, 0.4, 0.2],
@@ -195,7 +198,7 @@ def test_subsurface_spectral_no_nan(test_results_dir):
         r.add_sphere([0, -1, 0], 1.0, mat)
 
     pixels = _render("path_tracer", ss_scene)
-    save_image(pixels, os.path.join(test_results_dir, 'pkg13_subsurface_spectral.png'))
+    save_image(pixels, str(results_path(_AREA, _FEATURE, 'subsurface_spectral.png')))
     assert not np.any(np.isnan(pixels))
     assert not np.any(np.isinf(pixels))
     assert pixels.min() >= 0.0
@@ -209,21 +212,21 @@ def test_subsurface_spectral_no_nan(test_results_dir):
 # pkg13c — OrenNayar, Isotropic, TwoSided, Emissive
 # ---------------------------------------------------------------------------
 
-def test_oren_nayar_spectral_no_nan(test_results_dir):
+def test_oren_nayar_spectral_no_nan():
     def scene(r):
         create_cornell_box(r)
         mat = r.create_material("oren_nayar", [0.8, 0.6, 0.3], {"roughness": 0.6})
         r.add_sphere([0, -1, 0], 1.0, mat)
 
     pixels = _render("path_tracer", scene)
-    save_image(pixels, os.path.join(test_results_dir, 'pkg13c_oren_nayar_spectral.png'))
+    save_image(pixels, str(results_path(_AREA, _FEATURE, 'oren_nayar_spectral.png')))
     assert not np.any(np.isnan(pixels))
     assert not np.any(np.isinf(pixels))
     assert pixels.min() >= 0.0
     assert float(pixels.mean()) > 0.001
 
 
-def test_isotropic_spectral_no_nan(test_results_dir):
+def test_isotropic_spectral_no_nan():
     def scene(r):
         create_cornell_box(r)
         mat = r.create_material("isotropic", [0.9, 0.9, 0.9], {})
@@ -235,7 +238,7 @@ def test_isotropic_spectral_no_nan(test_results_dir):
     assert pixels.min() >= 0.0
 
 
-def test_two_sided_spectral_no_nan(test_results_dir):
+def test_two_sided_spectral_no_nan():
     def scene(r):
         create_cornell_box(r)
         mat = r.create_material("two_sided", [0.7, 0.4, 0.9],
@@ -248,7 +251,7 @@ def test_two_sided_spectral_no_nan(test_results_dir):
     assert pixels.min() >= 0.0
 
 
-def test_emissive_spectral_emits(test_results_dir):
+def test_emissive_spectral_emits():
     """Emissive plugin (two-sided) should produce nonzero luminance."""
     def scene(r):
         create_cornell_box(r)
@@ -256,7 +259,7 @@ def test_emissive_spectral_emits(test_results_dir):
         r.add_sphere([0, -1, 0], 0.5, mat)
 
     pixels = _render("path_tracer", scene)
-    save_image(pixels, os.path.join(test_results_dir, 'pkg13c_emissive_spectral.png'))
+    save_image(pixels, str(results_path(_AREA, _FEATURE, 'emissive_spectral.png')))
     assert not np.any(np.isnan(pixels))
     assert not np.any(np.isinf(pixels))
     assert float(pixels.mean()) > 0.01, "emissive sphere should illuminate the scene"

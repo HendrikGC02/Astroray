@@ -27,6 +27,9 @@ try:
 except ImportError:
     AVAILABLE = False
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "spectral", "sellmeier-prism"
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROFILES_BIN = os.path.join(REPO_ROOT, "data", "spectral_profiles", "profiles.bin")
 HAS_PROFILES = os.path.exists(PROFILES_BIN)
@@ -282,15 +285,15 @@ def _prism_scene(glass_params, seed=17):
     return pixels, red_blue_centroid_separation(pixels)
 
 
-def test_c4_sellmeier_manual_bc_matches_preset(test_results_dir):
+def test_c4_sellmeier_manual_bc_matches_preset():
     """C4: manual BK7 B/C (no preset) reproduces the bk7 preset's prism dispersion.
     Before Stage C, sellmeier_b/sellmeier_c were exported but no engine code read
     them (silent no-op); the manual-coefficient UI did nothing."""
     from base_helpers import save_image
     preset_px, preset_sep = _prism_scene({"sellmeier_preset": "bk7"})
     manual_px, manual_sep = _prism_scene({"sellmeier_b": BK7_B, "sellmeier_c": BK7_C})
-    save_image(preset_px, os.path.join(test_results_dir, "pkg195c_prism_bk7_preset.png"))
-    save_image(manual_px, os.path.join(test_results_dir, "pkg195c_prism_bk7_manual.png"))
+    save_image(preset_px, str(results_path(_AREA, _FEATURE, "prism_bk7_preset.png")))
+    save_image(manual_px, str(results_path(_AREA, _FEATURE, "prism_bk7_manual.png")))
     print(f"[C4] bk7 preset red/blue separation = {preset_sep:.3f}px")
     print(f"[C4] manual B/C  red/blue separation = {manual_sep:.3f}px")
     # Manual coefficients must produce real dispersion (a flat-IOR glass gives a

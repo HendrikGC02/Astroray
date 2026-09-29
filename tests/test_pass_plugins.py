@@ -16,6 +16,9 @@ try:
 except ImportError:
     AVAILABLE = False
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "passes", "pass-plugins"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray module not available")
 
 
@@ -38,7 +41,7 @@ def test_pass_registry_names_contains_builtins():
     assert "albedo_aov"    in names, f"'albedo_aov' not in registry: {names}"
 
 
-def test_add_pass_aov_no_crash(test_results_dir):
+def test_add_pass_aov_no_crash():
     """AOV passes must execute without crashing on a rendered framebuffer."""
     r = _renderer()
     mat = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
@@ -47,7 +50,7 @@ def test_add_pass_aov_no_crash(test_results_dir):
     r.add_pass("normal_aov")
     r.add_pass("albedo_aov")
     pixels = np.array(r.render(samples_per_pixel=1, max_depth=4), dtype=np.float32)
-    save_image(pixels, os.path.join(test_results_dir, "pass_stack_aovs.png"))
+    save_image(pixels, str(results_path(_AREA, _FEATURE, "pass_stack_aovs.png")))
     assert pixels is not None
     assert pixels.size > 0
 
@@ -71,14 +74,14 @@ def test_clear_passes_removes_all_passes():
     assert np.array_equal(base, after), "clear_passes() must leave output unchanged"
 
 
-def test_oidn_pass_executes_or_gracefully_skips(test_results_dir):
+def test_oidn_pass_executes_or_gracefully_skips():
     """oidn_denoiser pass must run without throwing even if OIDN is unavailable."""
     r = _renderer()
     mat = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
     r.add_sphere([0, 0, 0], 1.0, mat)
     r.add_pass("oidn_denoiser")
     pixels = np.array(r.render(samples_per_pixel=4, max_depth=4), dtype=np.float32)
-    save_image(pixels, os.path.join(test_results_dir, "pass_oidn_denoiser.png"))
+    save_image(pixels, str(results_path(_AREA, _FEATURE, "pass_oidn_denoiser.png")))
     assert pixels is not None
     assert pixels.size > 0
     assert np.all(np.isfinite(pixels)), "oidn_denoiser output contains non-finite values"

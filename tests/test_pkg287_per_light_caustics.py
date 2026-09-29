@@ -36,6 +36,9 @@ try:
 except ImportError:
     AVAILABLE = False
 
+from results_layout import results_path, slug  # noqa: E402
+_AREA, _FEATURE = "caustics", "per-light-caustics"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 W, H = 128, 96
@@ -134,14 +137,14 @@ def _centroid(c, m):
 
 
 @pytest.mark.parametrize("kind", KINDS)
-def test_cpu_photon_caustic_matches_path_traced(kind, test_results_dir):
+def test_cpu_photon_caustic_matches_path_traced(kind):
     on = _caustic(kind, True, SPP_ON)
     ref = _caustic_ref(kind)
     from base_helpers import save_image
     both = np.concatenate([on, ref], axis=1)
     save_image(np.repeat(np.clip(both / max(float(np.percentile(on, 99.5)), 1e-6), 0, 1)[..., None],
                          3, axis=2),
-               os.path.join(test_results_dir, f"pkg287_{kind}_photon_vs_pt.png"))
+               str(results_path(_AREA, _FEATURE, f"{slug(kind)}_photon_vs_pt.png")))
     m = _core(on)
     ratio = float(on[m].sum() / ref[m].sum())
     shift = float(np.linalg.norm(_centroid(on, m) - _centroid(ref, m)))
@@ -237,13 +240,13 @@ def _gpu_ok():
 
 @pytest.mark.skipif(not _gpu_ok(), reason="CUDA GPU not available")
 @pytest.mark.parametrize("kind", KINDS)
-def test_gpu_photon_caustic_matches_cpu(kind, test_results_dir):
+def test_gpu_photon_caustic_matches_cpu(kind):
     g = _caustic(kind, True, SPP_ON, gpu=True)
     c = _caustic(kind, True, SPP_ON)
     from base_helpers import save_image
     save_image(np.repeat(np.clip(g / max(float(np.percentile(g, 99.5)), 1e-6), 0, 1)[..., None],
                          3, axis=2),
-               os.path.join(test_results_dir, f"pkg287_{kind}_gpu.png"))
+               str(results_path(_AREA, _FEATURE, f"{slug(kind)}_gpu.png")))
     m = _core(c)
     ratio = float(g[m].sum() / c[m].sum())
     shift = float(np.linalg.norm(_centroid(g, m) - _centroid(c, m)))

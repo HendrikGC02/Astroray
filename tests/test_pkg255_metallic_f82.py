@@ -312,11 +312,10 @@ def test_f82_renders_nongrey_and_edge_tint_responsive():
         f"render difference ({diff:.6f}) -- F82 tint is not reaching the "
         f"conductor closure")
 
-    out_dir = os.path.join(REPO_ROOT, "test_results", "2026-09-08-pkg255")
-    os.makedirs(out_dir, exist_ok=True)
     from PIL import Image
+    from results_layout import results_path
     for name, img in (("f82_edge_tint_neutral.png", neutral), ("f82_edge_tint_tinted.png", tinted)):
-        Image.fromarray((np.clip(img, 0, 1) * 255).astype(np.uint8)).save(os.path.join(out_dir, name))
+        Image.fromarray((np.clip(img, 0, 1) * 255).astype(np.uint8)).save(str(results_path("materials", "metallic-f82", name)))
 
 
 @needs_astroray

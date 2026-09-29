@@ -18,10 +18,11 @@ import numpy as np
 
 from base_helpers import (
     create_renderer, setup_camera, render_image, assert_valid_image,
-    save_image, get_output_dir,
-)
+    save_image, )
 
-OUTPUT_DIR = get_output_dir()
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "textures-nodes", "voronoi-standalone"
+
 
 
 def _render_voronoi(params, seed=7, w=72, h=54):
@@ -43,7 +44,7 @@ def test_voronoi_factory_standalone_renders():
     """The factory builds a textured material without Blender and renders it."""
     img = _render_voronoi([6.0, 1.0, 0.0, 0.0, 1.0, 0, 0, 0, 1, 1, 1])
     assert_valid_image(img, 54, 72, min_mean=0.01, label='voronoi_standalone')
-    save_image(img, os.path.join(OUTPUT_DIR, 'test_pkg115_voronoi_standalone.png'))
+    save_image(img, str(results_path(_AREA, _FEATURE, 'voronoi_standalone.png')))
 
 
 def test_voronoi_factory_forwards_trailing_params():

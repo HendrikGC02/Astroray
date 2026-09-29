@@ -37,7 +37,8 @@ except ImportError:
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 SEED = 269269
-_OUT = os.path.join(os.path.dirname(__file__), "..", "test_results", "batchK")
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "volumes", "hetero-smoke-grid"
 
 
 def _gpu_available() -> bool:
@@ -142,12 +143,11 @@ def test_gpu_heterogeneous_smoke_parity_and_visual():
     if not _gpu_available():
         pytest.skip("CUDA GPU not available on this machine")
     from base_helpers import save_image
-    os.makedirs(_OUT, exist_ok=True)
     w = h = 48
     cpu = _render(_smoke_scene(False, True, w, h), 256, 6, w, h)
     gpu = _render(_smoke_scene(True, True, w, h), 256, 6, w, h)
-    save_image(cpu, os.path.join(_OUT, "pkg269_smoke_cpu.png"))
-    save_image(gpu, os.path.join(_OUT, "pkg269_smoke_gpu.png"))
+    save_image(cpu, str(results_path(_AREA, _FEATURE, "smoke_cpu.png")))
+    save_image(gpu, str(results_path(_AREA, _FEATURE, "smoke_gpu.png")))
     # ROI = the smoke's projected footprint (centre 24x24).
     roi_c = _center(cpu, 12)
     roi_g = _center(gpu, 12)
@@ -248,10 +248,8 @@ def test_gpu_blackbody_temperature_grid_parity_and_finite():
     w = h = 32
     cpu_img = _render(_fire_grid_scene(False, w, h), 1024, 4, w, h)
     gpu_img = _render(_fire_grid_scene(True, w, h), 1024, 4, w, h)
-    out = os.path.join(os.path.dirname(__file__), "..", "test_results", "batchQ")
-    os.makedirs(out, exist_ok=True)
-    save_image(cpu_img, os.path.join(out, "issue828_fire_cpu.png"))
-    save_image(gpu_img, os.path.join(out, "issue828_fire_gpu.png"))
+    save_image(cpu_img, str(results_path(_AREA, "hetero-fire-grid", "fire_cpu.png")))
+    save_image(gpu_img, str(results_path(_AREA, "hetero-fire-grid", "fire_gpu.png")))
     assert np.all(np.isfinite(cpu_img)), "CPU fire has NaN/inf (cold-rim normaliser)"
     assert np.all(np.isfinite(gpu_img)), "GPU fire has NaN/inf"
     cpu, gpu = _center(cpu_img, 10), _center(gpu_img, 10)

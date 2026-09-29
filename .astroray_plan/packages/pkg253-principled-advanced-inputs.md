@@ -226,7 +226,7 @@ still missing, instead of re-implementing sockets that already work.
       0.4328/0.3194, CPU 0.5461/0.4329/0.3197 (<0.1%). Emissive sphere: GPU/CPU
       <1%. `test_alpha0_casts_no_shadow_gpu` xfail removed; new
       `test_alpha_shadow_dedicated_area_lamp_gpu` added (10/10 pkg253 pass).
-      A/B renders under `test_results/batch-h/`. NOTE: the UNRELATED geometry
+      A/B renders under `test_results/materials/principled-alpha-shadow/`. NOTE: the UNRELATED geometry
       helper `add_area_light` (an `AreaLightShape` added via `addObject`, NOT a
       dedicated light) is not GPU-NEE-supported and renders black — a separate
       pre-existing gap for that non-dedicated API, not the Blender lamp path.

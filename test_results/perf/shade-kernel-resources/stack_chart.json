@@ -1,0 +1,86 @@
+{
+ "title": "Kernels changed by the emission fix: stack",
+ "xlabel": "kernel",
+ "ylabel": "stack frame (bytes)",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "before (main)",
+   "role": "other",
+   "x": [
+    "NeeMis<false>",
+    "NeeMis<true>",
+    "Shadow<false, true, false>",
+    "Shadow<false, false, true>",
+    "Shadow<false, true, true>",
+    "Shadow<true, false, true>",
+    "Isect<false, false, false, false>",
+    "Isect<false, true, false, false>",
+    "Isect<true, false, false, false>",
+    "Isect<true, true, false, false>",
+    "Isect<false, false, true, false>",
+    "Isect<false, true, true, false>",
+    "Isect<false, false, false, true>",
+    "Isect<false, true, false, true>"
+   ],
+   "y": [
+    4280,
+    8376,
+    584,
+    864,
+    864,
+    1848,
+    616,
+    616,
+    632,
+    632,
+    1704,
+    1704,
+    944,
+    944
+   ]
+  },
+  {
+   "label": "after (fix)",
+   "role": "gpu",
+   "x": [
+    "NeeMis<false>",
+    "NeeMis<true>",
+    "Shadow<false, true, false>",
+    "Shadow<false, false, true>",
+    "Shadow<false, true, true>",
+    "Shadow<true, false, true>",
+    "Isect<false, false, false, false>",
+    "Isect<false, true, false, false>",
+    "Isect<true, false, false, false>",
+    "Isect<true, true, false, false>",
+    "Isect<false, false, true, false>",
+    "Isect<false, true, true, false>",
+    "Isect<false, false, false, true>",
+    "Isect<false, true, false, true>"
+   ],
+   "y": [
+    4248,
+    8344,
+    584,
+    864,
+    864,
+    1832,
+    584,
+    584,
+    600,
+    600,
+    1672,
+    1672,
+    944,
+    944
+   ]
+  }
+ ],
+ "band": null,
+ "ref": null,
+ "meta": {
+  "tool": "cuobjdump --dump-resource-usage, sm_120",
+  "source": "Batch S 49ff1efe vs main 916907b"
+ }
+}

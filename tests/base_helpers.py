@@ -156,7 +156,3 @@ def assert_valid_image(pixels: np.ndarray, height: int, width: int,
     assert bright >= min_brightness, \
         f"{label}: max brightness {bright:.4f} < min {min_brightness}"
 
-
-def get_output_dir() -> str:
-    """Get the output directory for test results"""
-    return os.path.join(os.path.dirname(__file__), '..', 'test_results')

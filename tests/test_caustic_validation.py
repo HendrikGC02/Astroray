@@ -25,6 +25,9 @@ except ImportError:
 from base_helpers import save_image  # noqa: E402
 from scenes.caustic_validation import SCENES, image_metrics, render_scene  # noqa: E402
 
+from results_layout import results_path, slug  # noqa: E402
+_AREA, _FEATURE = "caustics", "caustic-validation-scenes"
+
 
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
@@ -34,7 +37,7 @@ def test_caustic_integrator_registered():
 
 
 @pytest.mark.parametrize("scene_name", sorted(SCENES))
-def test_caustic_validation_scenes_save_images_and_stats(scene_name, test_results_dir):
+def test_caustic_validation_scenes_save_images_and_stats(scene_name):
     records = [
         render_scene(astroray, scene_name, "path_tracer", samples=8, max_depth=10),
         render_scene(astroray, scene_name, "caustic_path_tracer", samples=8, max_depth=10),
@@ -49,7 +52,7 @@ def test_caustic_validation_scenes_save_images_and_stats(scene_name, test_result
 
         save_image(
             pixels,
-            os.path.join(test_results_dir, f"pkg29a_{scene_name}_{record.integrator}.png"),
+            str(results_path(_AREA, _FEATURE, f"{slug(scene_name)}_{slug(record.integrator)}.png")),
         )
 
         metrics = image_metrics(pixels, scene_name)
@@ -62,8 +65,8 @@ def test_caustic_validation_scenes_save_images_and_stats(scene_name, test_result
         }
         rows.append(row)
 
-    json_path = os.path.join(test_results_dir, f"pkg29a_{scene_name}_stats.json")
-    csv_path = os.path.join(test_results_dir, f"pkg29a_{scene_name}_stats.csv")
+    json_path = str(results_path(_AREA, _FEATURE, f"{slug(scene_name)}_stats.json"))
+    csv_path = str(results_path(_AREA, _FEATURE, f"{slug(scene_name)}_stats.csv"))
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(rows, f, indent=2, sort_keys=True)
     with open(csv_path, "w", newline="", encoding="utf-8") as f:

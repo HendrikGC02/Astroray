@@ -370,6 +370,11 @@ static void appendOnePrim(
                 mtl->getAnisotropic() > 0.0f;
             const bool imageTextured =
                 mtl && dynamic_cast<TexturedLambertian*>(mtl.get()) != nullptr;
+            // #962 — a textured emitter (non-SolidColor TexturedLight) needs the
+            // UVs for its per-hit / per-NEE-sample emission fetch.
+            const auto* telMtl = mtl ? dynamic_cast<const TexturedLight*>(mtl.get()) : nullptr;
+            const bool emissionTextured =
+                telMtl && !std::dynamic_pointer_cast<SolidColor>(telMtl->getTexture());
             // pkg223 — a normal-mapped material needs the active-layer UVs on the
             // device for the tangent-space decode (HasNormalPerturb). Checked on the
             // DECORATOR (mtl is the NormalMapped wrapper, whose inner TexturedLambertian
@@ -415,7 +420,8 @@ static void appendOnePrim(
             // backends. The anisotropic-Principled UV-tangent path is ALSO only
             // uploaded for authored layers (nothing to sample otherwise).
             const bool textureUVConsumer =
-                imageTextured || normalMapped || bumpMapped || scalarProgrammed;
+                imageTextured || emissionTextured || normalMapped || bumpMapped ||
+                scalarProgrammed;
             if (textureUVConsumer || (anisoPrincipled && tri->hasUVLayers())) {
                 Vec2 t0 = tri->getUV0(), t1 = tri->getUV1(), t2 = tri->getUV2();
                 gt.uv0 = GVec2(t0.u, t0.v);
@@ -903,8 +909,9 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 float v = 1.0f - (j + 0.5f) / res;
                 for (int i = 0; i < res; ++i) {
                     float u = (i + 0.5f) / res;
-                    Vec3 mp = tex->mappedPoint(Vec3(u, v, 0.0f));
-                    Vec3 c = tex->value(Vec2(mp.x, mp.y), mp);
+                    // #962: full CPU UV-mode chain (Mapping, else legacy UV
+                    // transform) -- Texture::value(HitRecord) with p=(u,v,0).
+                    Vec3 c = tex->valueAtCoord(Vec2(u, v), Vec3(u, v, 0.0f));
                     r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
                 }
             }
@@ -924,8 +931,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                     float py = (j + 0.5f) / res;
                     for (int i = 0; i < res; ++i) {
                         float px = (i + 0.5f) / res;
-                        Vec3 mp = tex->mappedPoint(Vec3(px, py, pz));
-                        Vec3 c = tex->value(Vec2(mp.x, mp.y), mp);
+                        // #962: CPU Generated chain (uv = g.xy, p = g).
+                        Vec3 c = tex->valueAtCoord(Vec2(px, py), Vec3(px, py, pz));
                         r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
                     }
                 }
@@ -1012,8 +1019,18 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         // #826 — texIds of the program's inputs, OP_LOAD_TEX order (-1 = none).
         int progInTex[astroray::svm::VM_MAX_TEX];
         for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t) progInTex[t] = -1;
-        if (auto* tl = dynamic_cast<TexturedLambertian*>(m.get())) {
-            std::shared_ptr<Texture> tex = tl->getTexture();
+        // #962 — a textured Emission Color (TexturedLight) rides the SAME bake +
+        // matTexId/program slots; the wavefront intersect stage (emissive hit)
+        // and shadow stage (NEE) fetch it per hit. A SolidColor TexturedLight is
+        // every untextured "light" material: left on the flat path (bit-identical).
+        auto* tl  = dynamic_cast<TexturedLambertian*>(m.get());
+        auto* tel = dynamic_cast<TexturedLight*>(m.get());
+        std::shared_ptr<Texture> emitTex;
+        if (tel && tel->getIntensity() > 0.0f &&
+            !std::dynamic_pointer_cast<SolidColor>(tel->getTexture()))
+            emitTex = tel->getTexture();
+        if (tl || emitTex) {
+            std::shared_ptr<Texture> tex = tl ? tl->getTexture() : emitTex;
             // pkg219b — a ProgramTexture (per-texel op-VM chain). GPU scope (#826):
             // 1..VM_MAX_TEX inputs, each an ImageTexture (uploaded with the
             // ProgramTexture's Mapping on its descriptor, #825 key) or a procedural
@@ -1023,7 +1040,12 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // CPU parity by construction. If any input cannot upload (empty image,
             // unbakeable coord mode, > VM_MAX_TEX inputs) the whole program falls
             // through to the flat baseColor (GPU-degraded; CPU stays correct).
-            if (auto pt = std::dynamic_pointer_cast<ProgramTexture>(tex)) {
+            // #962: an emitter's op-VM chain is NOT run per hit on GPU; it falls
+            // through to the bakeProceduralTexId branch below, which bakes the
+            // whole ProgramTexture (CPU evaluator, 64^2 / 64^3) -- keeps svm_eval
+            // out of the intersect/shadow kernels' call graph (register cost).
+            auto pt = tl ? std::dynamic_pointer_cast<ProgramTexture>(tex) : nullptr;
+            if (pt) {
                 const int numIn = (int)pt->numInputs();
                 bool inputsOk = numIn >= 1 && numIn <= astroray::svm::VM_MAX_TEX;
                 for (int t = 0; inputsOk && t < numIn; ++t) {
@@ -1071,8 +1093,39 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // the material's own base chroma — an exact, unbiased swap even for a
             // saturated base. Net reflectance stays texUp, so the pkg186 image path
             // (previously dividing by a near-gray base) is unchanged.
-            if (texId >= 0)
+            if (texId >= 0 && tl)
                 r.materials[id].baseColor = GVec3(1.f, 1.f, 1.f);
+            // #962 — emitter: split getEmission() (= mean x intensity) into
+            // baseColor = texture mean, emissionIntensity = intensity. Every flat
+            // consumer reads the product (the same float product as the host),
+            // while the per-hit fetch computes texel x emissionIntensity (CPU
+            // TexturedLight::emitted = texel x intensity).
+            // #962 (item 2): a baked field (procedural / op-VM) uses the mean of
+            // the baked texels, so the flat fallback matches what the per-hit
+            // fetch integrates; a plain image keeps its exact pixel mean.
+            if (texId >= 0 && !tl) {
+                Vec3 avg = emitTex->average();
+                if (!std::dynamic_pointer_cast<ImageTexture>(emitTex)) {
+                    const GImageTexture& d = r.textures[texId];
+                    const size_t n = (size_t)d.width * d.height * (d.depth > 1 ? d.depth : 1);
+                    double sx = 0.0, sy = 0.0, sz = 0.0;
+                    for (size_t k = 0; k < n; ++k) {
+                        const GVec3& t = r.textureTexels[(size_t)d.offset + k];
+                        sx += t.x; sy += t.y; sz += t.z;
+                    }
+                    if (n > 0) avg = Vec3((float)(sx / n), (float)(sy / n), (float)(sz / n));
+                }
+                r.materials[id].baseColor = GVec3(avg.x, avg.y, avg.z);
+                r.materials[id].emissionIntensity = tel->getIntensity();
+                r.hasEmissionTexture = true;
+            }
+            if (!tl) {
+                r.hasEmissionTextureRequested = true;
+                if (texId < 0)   // #962 (item 4): unbakeable coord mode / empty image
+                    fprintf(stderr, "[#962] DEGRADED: Emission Color texture with an "
+                                    "unsupported GPU coordinate mode (Object/Camera/Normal/"
+                                    "Reflection/Window) renders its texture mean on GPU\n");
+            }
         }
         // pkg223 — register the tangent-space normal texture (always a plain
         // ImageTexture from load_blender_image) on the parallel side arrays,
@@ -1166,6 +1219,25 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // stays -1 (GLight unwired).
     static const std::vector<std::shared_ptr<Hittable>> kNoPrims;
     const auto& orderedPrims = cpuBvh ? cpuBvh->getPrimitives() : kNoPrims;
+    // #962 — instanced prims (global ids past the flat scene) keep the flat mean
+    // textured emission: the hit point is world-space, their triangles object-space.
+    if (cpu.hasInstances()) {
+        r.emissionFlatPrims = (int)orderedPrims.size();
+        bool instancedTexEmitter = false;
+        for (size_t p = orderedPrims.size(); r.hasEmissionTexture && p < r.prims.size(); ++p) {
+            const GPrimitive& gp = r.prims[p];
+            int mid = gp.type == GPRIM_TRIANGLE ? r.triangles[gp.index].materialId
+                    : gp.type == GPRIM_SPHERE   ? r.spheres[gp.index].materialId : -1;
+            if (mid >= 0 && r.materials[mid].type == GMAT_DIFFUSE_LIGHT &&
+                r.materialTextureId[mid] >= 0) {
+                instancedTexEmitter = true;
+                break;
+            }
+        }
+        if (instancedTexEmitter)
+            fprintf(stderr, "[#962] DEGRADED: a textured Emission Color on an instanced "
+                            "mesh renders its texture mean on GPU\n");
+    }
 
     // pkg202: legacy hittable suns (add_sun_light / .blend importer) detected in
     // the loop below are converted to dedicated distant lights (appended to

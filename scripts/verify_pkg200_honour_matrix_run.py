@@ -19,7 +19,7 @@ One command (holds the GPU lock for the whole sweep — batch it):
         --addon-dir dist/astroray \
         --blender "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" \
         --blender "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" \
-        --out test_results/pkg200_honour
+        --out test_results/_runs/addon/settings-honour-matrix
 
 Subset / smoke:
     ... --rows film_exposure,max_bounces
@@ -38,6 +38,8 @@ from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "scripts"))
+sys.path.insert(0, str(_REPO / "tests"))
+from results_layout import results_dir  # noqa: E402
 
 import pkg200_honour_matrix as M  # noqa: E402
 
@@ -274,7 +276,7 @@ def main(argv=None) -> int:
                    help="staged/installed addon dir (astroray*.pyd + __init__.py)")
     p.add_argument("--blender", action="append", default=[],
                    help="blender.exe (repeatable); default = 5.1 + 5.2 if present")
-    p.add_argument("--out", type=Path, default=_REPO / "test_results" / "pkg200_honour")
+    p.add_argument("--out", type=Path, default=results_dir("addon", "settings-honour-matrix", create=False))
     p.add_argument("--rows", default="", help="comma list of row names (default: all)")
     p.add_argument("--timeout", type=int, default=600)
     args = p.parse_args(argv)

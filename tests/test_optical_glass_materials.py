@@ -22,6 +22,9 @@ except ImportError:
 
 from base_helpers import save_image  # noqa: E402
 
+from results_layout import results_path, slug  # noqa: E402
+_AREA, _FEATURE = "materials", "optical-glass-presets"
+
 
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
@@ -41,7 +44,7 @@ def test_optical_glass_presets_are_registered():
     assert expected.issubset(names)
 
 
-def test_optical_glass_presets_render_finite_contact_tiles(test_results_dir):
+def test_optical_glass_presets_render_finite_contact_tiles():
     presets = ["bk7", "flint_sf11", "diamond", "emerald"]
     tiles = []
     for i, preset in enumerate(presets):
@@ -53,17 +56,17 @@ def test_optical_glass_presets_render_finite_contact_tiles(test_results_dir):
         r.add_sphere([0.0, 0.0, 0.0], 0.75, mat)
         _setup_camera(r, 56, 56)
         pixels = np.asarray(r.render(12, 8, None, True), dtype=np.float32)
-        save_image(pixels, os.path.join(test_results_dir, f"material_preset_{preset}.png"))
+        save_image(pixels, str(results_path(_AREA, _FEATURE, f"material_preset_{slug(preset)}.png")))
         assert pixels.shape == (56, 56, 3)
         assert np.isfinite(pixels).all()
         assert float(pixels.mean()) > 0.01
         tiles.append(pixels)
 
     contact = np.concatenate(tiles, axis=1)
-    save_image(contact, os.path.join(test_results_dir, "material_optical_glass_presets.png"))
+    save_image(contact, str(results_path(_AREA, _FEATURE, "material_optical_glass_presets.png")))
 
 
-def test_thin_glass_transmits_background_and_saves_image(test_results_dir):
+def test_thin_glass_transmits_background_and_saves_image():
     def render_pane(material_type, color, params):
         r = astroray.Renderer()
         r.set_integrator("path_tracer")
@@ -78,8 +81,8 @@ def test_thin_glass_transmits_background_and_saves_image(test_results_dir):
     thin = render_pane("thin_glass", [1.0, 1.0, 1.0], {"ior": 1.5, "transmission": 1.0})
     opaque = render_pane("lambertian", [0.0, 0.0, 0.0], {})
 
-    save_image(thin, os.path.join(test_results_dir, "material_thin_glass_pane.png"))
-    save_image(opaque, os.path.join(test_results_dir, "material_thin_glass_opaque_ref.png"))
+    save_image(thin, str(results_path(_AREA, _FEATURE, "material_thin_glass_pane.png")))
+    save_image(opaque, str(results_path(_AREA, _FEATURE, "material_thin_glass_opaque_ref.png")))
 
     center = thin[20:44, 20:44]
     opaque_center = opaque[20:44, 20:44]

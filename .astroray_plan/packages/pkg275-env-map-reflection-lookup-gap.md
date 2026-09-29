@@ -185,7 +185,7 @@ lookup change and are reassigned per the evidence (research note + PR #829).
       issue #832 with the Cycles `svm_image` citation (lead: no fleet-wide
       lookup churn in this PR).
 - [x] Saved before/after renders qualitatively inspected under
-      `test_results/pkg275/` (no visual regression; lookup unchanged).
+      `test_results/world/env-reflection-lookup/` (no visual regression; lookup unchanged).
 
 NOTE: the extended `tests/test_world_hdri_parity.py` mirror-sphere-vs-Cycles
 gate is intentionally NOT added — a lookup-clean engine cannot host a

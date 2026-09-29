@@ -10,11 +10,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests"))
+from results_layout import RESULTS  # noqa: E402
 
 
 def analyze_png(path: Path) -> dict[str, Any]:
@@ -80,7 +84,7 @@ def main() -> int:
     parser.add_argument(
         "directory",
         nargs="?",
-        default="test_results",
+        default=str(RESULTS / "_runs"),
         help="Directory containing PNG render outputs.",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of a Markdown table.")

@@ -1,0 +1,42 @@
+{
+ "title": "Sun disc: ground luminance, MS sky e28, same camera",
+ "xlabel": "ROI",
+ "ylabel": "linear luminance",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "Cycles",
+   "role": "cycles",
+   "x": [
+    "shadowed ground",
+    "sunlit ground"
+   ],
+   "y": [
+    0.067,
+    0.683
+   ]
+  },
+  {
+   "label": "Astroray CPU",
+   "role": "cpu",
+   "x": [
+    "shadowed ground",
+    "sunlit ground"
+   ],
+   "y": [
+    0.07,
+    1.209
+   ]
+  }
+ ],
+ "band": null,
+ "ref": null,
+ "meta": {
+  "scene": "world_sky_sky MULTIPLE_SCATTERING e28 rot115 sun_disc=on, same camera",
+  "finding": "sun disc ~1.85x too bright vs Cycles (overshot old 1.8:1 undershoot). Partly missing limb darkening (Cycles avg ~0.8x); remaining ~1.48x under investigation (mean vs interp, XYZ->RGB, disc irradiance derivation).",
+  "shadow_ratio": 1.04,
+  "direct_diffuse_ratio_cycles": "10.2:1",
+  "direct_diffuse_ratio_astroray": "17.4:1",
+  "source": "Batch J gate1/gate2, 2026-09-13"
+ }
+}

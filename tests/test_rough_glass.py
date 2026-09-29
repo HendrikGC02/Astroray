@@ -17,6 +17,9 @@ except ImportError:
 
 from base_helpers import assert_valid_image, save_image  # noqa: E402
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "materials", "rough-glass-disney"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray module not available")
 
 
@@ -81,11 +84,11 @@ def _center(img, frac=0.48):
     return img[y0:y1, x0:x1]
 
 
-def test_rough_disney_glass_remains_transmissive_and_bounded(test_results_dir):
+def test_rough_disney_glass_remains_transmissive_and_bounded():
     smooth = _render_disney_glass(0.0)
     rough = _render_disney_glass(0.65)
-    save_image(smooth, os.path.join(test_results_dir, "rough_glass_disney_smooth.png"))
-    save_image(rough, os.path.join(test_results_dir, "rough_glass_disney_r065.png"))
+    save_image(smooth, str(results_path(_AREA, _FEATURE, "rough_glass_disney_smooth.png")))
+    save_image(rough, str(results_path(_AREA, _FEATURE, "rough_glass_disney_r065.png")))
 
     assert_valid_image(smooth, H, W, min_mean=0.02, label="smooth_disney_glass")
     assert_valid_image(rough, H, W, min_mean=0.02, label="rough_disney_glass")
@@ -96,12 +99,12 @@ def test_rough_disney_glass_remains_transmissive_and_bounded(test_results_dir):
     assert float(np.mean(rough)) < 0.90, "rough Disney glass should remain energy-bounded"
 
 
-def test_roughness_changes_transmitted_structure(test_results_dir):
+def test_roughness_changes_transmitted_structure():
     smooth = _render_disney_glass(0.0, seed=321)
     mid = _render_disney_glass(0.35, seed=321)
     rough = _render_disney_glass(0.75, seed=321)
-    save_image(mid, os.path.join(test_results_dir, "rough_glass_disney_r035.png"))
-    save_image(rough, os.path.join(test_results_dir, "rough_glass_disney_r075.png"))
+    save_image(mid, str(results_path(_AREA, _FEATURE, "rough_glass_disney_r035.png")))
+    save_image(rough, str(results_path(_AREA, _FEATURE, "rough_glass_disney_r075.png")))
 
     smooth_center = _center(smooth)
     mid_center = _center(mid)

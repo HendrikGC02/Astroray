@@ -1,0 +1,45 @@
+{
+ "title": "Rough glass sphere: limb / centre brightness (G)",
+ "xlabel": "roughness",
+ "ylabel": "limb / centre luminance ratio",
+ "kind": "line",
+ "series": [
+  {
+   "label": "Cycles",
+   "role": "cycles",
+   "x": [
+    0.0,
+    0.2,
+    0.5,
+    0.85
+   ],
+   "y": [
+    1.5956044813150785,
+    1.7553185488759975,
+    1.9402431814009016,
+    1.7328774867690888
+   ]
+  },
+  {
+   "label": "Astroray CPU",
+   "role": "cpu",
+   "x": [
+    0.0,
+    0.2,
+    0.5,
+    0.85
+   ],
+   "y": [
+    1.3395465099144417,
+    1.5609263497148482,
+    1.8508687230516898,
+    1.2115741550825472
+   ]
+  }
+ ],
+ "band": null,
+ "ref": null,
+ "meta": {
+  "source": "pkg263 live-Cycles A/B, Batch I"
+ }
+}

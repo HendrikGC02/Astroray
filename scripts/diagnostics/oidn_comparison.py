@@ -14,6 +14,7 @@ TESTS_DIR = ROOT / "tests"
 if str(TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_DIR))
 
+from results_layout import results_dir  # noqa: E402
 from runtime_setup import configure_test_imports  # noqa: E402
 
 configure_test_imports()
@@ -75,7 +76,7 @@ def main() -> int:
     parser.add_argument("--max-depth", type=int, default=6)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output-dir", type=Path,
-                        default=ROOT / "test_results" / "oidn_comparison")
+                        default=results_dir("passes", "oidn-comparison", create=False))
     args = parser.parse_args()
 
     if not bool(astroray.__features__.get("oidn_denoiser", False)):

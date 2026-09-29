@@ -39,7 +39,9 @@ pytestmark = pytest.mark.gpu
 # ---------------------------------------------------------------------------
 
 BUILD_DIR = configure_test_imports()
-OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'test_results')
+sys.path.insert(0, os.path.dirname(__file__))
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "integrator", "standalone-renderer"
 
 
 def _get_exe():
@@ -86,8 +88,7 @@ def test_help():
 
 def test_cornell_box_scene():
     """Scene 1 (Cornell Box) should render to a valid PNG."""
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    out = os.path.join(OUTPUT_DIR, 'standalone_cornell_box.png')
+    out = str(results_path(_AREA, _FEATURE, 'standalone_cornell_box.png'))
     r = _run(['--scene', '1',
               '--width', '200', '--height', '150',
               '--samples', '32',

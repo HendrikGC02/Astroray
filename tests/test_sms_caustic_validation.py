@@ -36,6 +36,9 @@ except ImportError:
 
 from base_helpers import save_image  # noqa: E402
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "caustics", "sms-validation"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 
@@ -141,16 +144,16 @@ def test_sms_stats_finite_positive_deterministic():
         assert single[k] == pytest.approx(runs[0][k], rel=1e-6), (k, single, runs[0])
 
 
-def test_sms_caustic_validation_gate(test_results_dir):
+def test_sms_caustic_validation_gate():
     baseline = _render("caustic_path_tracer", samples=SAMPLES)
     sms_lo, sms_stats = _render_with_stats("sms_caustic_path_tracer", samples=SAMPLES)
     # Reference: same SMS integrator at higher spp. Phase 1 cares about
     # *relative* improvement; we don't compare absolute pixel-perfect.
     sms_hi  = _render("sms_caustic_path_tracer", samples=SAMPLES * 4, seed=911)
 
-    save_image(baseline, os.path.join(test_results_dir, "pkg64_baseline.png"))
-    save_image(sms_lo,   os.path.join(test_results_dir, "pkg64_sms_lo.png"))
-    save_image(sms_hi,   os.path.join(test_results_dir, "pkg64_sms_reference.png"))
+    save_image(baseline, str(results_path(_AREA, _FEATURE, "baseline.png")))
+    save_image(sms_lo,   str(results_path(_AREA, _FEATURE, "sms_lo.png")))
+    save_image(sms_hi,   str(results_path(_AREA, _FEATURE, "sms_reference.png")))
 
     psnr_baseline = _psnr(baseline, sms_hi)
     psnr_sms      = _psnr(sms_lo,   sms_hi)

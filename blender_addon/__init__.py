@@ -5669,25 +5669,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     if pv is None:
                         continue
                     mn, mx = _vol.mesh_world_aabb(obj, obj_instance.matrix_world)
-                    try:
-                        exact = _vol.mesh_bounds_is_exact(
-                            _vol.mesh_world_vertices(obj, obj_instance.matrix_world),
-                            mn, mx)
-                    except Exception:  # pragma: no cover - report conservatively
-                        exact = False
-                    # pkg296 (#833): a mesh that is not exactly its AABB passes
-                    # its world triangles as the medium boundary.
+                    # pkg296 (#833): a mesh that is not exactly its AABB (vertices AND
+                    # box-face topology) passes its world triangles as the boundary.
                     boundary = {}
                     closed = True
-                    if not exact:
-                        try:
-                            bv, bi = _vol.mesh_world_triangles(obj, obj_instance.matrix_world)
-                            if len(bi):
-                                boundary = dict(boundary_vertices=bv, boundary_indices=bi)
-                                closed = _vol.mesh_is_closed(bi)
-                        except Exception as exc:  # pragma: no cover - fall back to the AABB
-                            self._vol_report("mesh '%s' volume boundary export failed: %s"
-                                             % (obj.name, exc))
+                    exact = False
+                    try:
+                        bv, bi = _vol.mesh_world_triangles(obj, obj_instance.matrix_world)
+                        exact = _vol.mesh_is_aabb_box(bv, bi, mn, mx)
+                        if not exact and len(bi):
+                            boundary = dict(boundary_vertices=bv, boundary_indices=bi)
+                            closed = _vol.mesh_is_closed(bi, bv)
+                    except Exception as exc:  # pragma: no cover - fall back to the AABB
+                        self._vol_report("mesh '%s' volume boundary export failed: %s"
+                                         % (obj.name, exc))
                     renderer.add_homogeneous_medium(
                         mn, mx, pv["density"], pv["color"],
                         pv["absorption_color"], pv["anisotropy"],

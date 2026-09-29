@@ -112,6 +112,22 @@ def _cube(s=1.0):
     return [(x, y, z) for x in (-s, s) for y in (-s, s) for z in (-s, s)]
 
 
+def _outward(verts, faces):
+    """Wind each triangle counter-clockwise seen from outside (convex mesh)."""
+    v = np.asarray(verts, dtype=float)
+    c = v.mean(axis=0)
+    out = []
+    for a, b, d in faces:
+        n = np.cross(v[b] - v[a], v[d] - v[a])
+        out.append((a, b, d) if n.dot(v[[a, b, d]].mean(axis=0) - c) > 0 else (a, d, b))
+    return out
+
+
+# _cube vertex index = 4*xi + 2*yi + zi; two triangles per box face.
+CUBE_FACES = _outward(_cube(), [(0, 1, 3), (0, 3, 2), (4, 5, 7), (4, 7, 6), (0, 1, 5), (0, 5, 4),
+                                (2, 3, 7), (2, 7, 6), (0, 2, 6), (0, 6, 4), (1, 3, 7), (1, 7, 5)])
+
+
 def _icosphere():
     t = (1.0 + math.sqrt(5.0)) / 2.0
     v = [(-1, t, 0), (1, t, 0), (-1, -t, 0), (1, -t, 0), (0, -1, t), (0, 1, t),
@@ -180,6 +196,41 @@ def test_mesh_is_closed():
     assert not vol.mesh_is_closed(flipped)                          # inconsistent winding
 
 
+def test_mesh_is_closed_rejects_degenerate_triangles():
+    # Review item 4: repeated indices / zero area carry no crossing.
+    tris = ICO_FACES + [(0, 0, 1), (0, 1, 0)]
+    assert not vol.mesh_is_closed(tris)
+    # A tetrahedron is closed; with vertex 3 moved onto vertex 0 it keeps the
+    # same (closed) topology but two faces have zero area.
+    tet = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]
+    faces = _outward(tet, [(0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3)])
+    assert vol.mesh_is_closed(faces, tet)
+    flat = tet[:3] + [tet[0]]
+    assert vol.mesh_is_closed(faces) and not vol.mesh_is_closed(faces, flat)
+
+
+# A tetrahedron on 4 alternating cube corners + the other 4 corners as loose
+# vertices: every vertex is an AABB corner, the surface is not the box.
+TET_ON_CUBE = _outward(_cube(), [(0, 3, 5), (0, 3, 6), (0, 5, 6), (3, 5, 6)])
+
+
+def test_box_check_needs_box_faces_not_just_corner_vertices():
+    # Review item 3: the vertex-only check is fooled by loose corner vertices.
+    w = np.asarray(_cube())
+    assert vol.mesh_is_aabb_box(w, CUBE_FACES, [-1, -1, -1], [1, 1, 1])
+    assert vol.mesh_bounds_is_exact(w, [-1, -1, -1], [1, 1, 1])        # fooled
+    assert not vol.mesh_is_aabb_box(w, TET_ON_CUBE, [-1, -1, -1], [1, 1, 1])
+
+
+def test_tetrahedron_with_loose_corner_vertices_exports_boundary(monkeypatch, capsys):
+    _, rr, consumed = _export(monkeypatch, _Obj("Loose", _cube(), TET_ON_CUBE),
+                                   IDENT, "i833d")
+    assert consumed and rr.media[0][3]["boundary_indices"].shape == (4, 3)
+    out = capsys.readouterr().out
+    assert "bounding box" not in out and "not closed" not in out, out
+
+
+
 def test_negative_scale_flips_boundary_winding():
     o = _Obj("Ico", _icosphere(), ICO_FACES)
     mirror = [[-1.0, 0, 0, 0], [0, 1.0, 0, 0], [0, 0, 1.0, 0], [0, 0, 0, 1.0]]
@@ -217,7 +268,7 @@ def test_open_mesh_volume_is_reported(monkeypatch, capsys):
 
 
 def test_axis_aligned_cube_volume_is_silent(monkeypatch, capsys):
-    engine, r, consumed = _export(monkeypatch, _Obj("Cab", _cube(0.5)), IDENT, "i833b")
+    engine, r, consumed = _export(monkeypatch, _Obj("Cab", _cube(0.5), CUBE_FACES), IDENT, "i833b")
     assert consumed and r.media
     assert "boundary_indices" not in r.media[0][3]                  # stays an AABB medium
     out = capsys.readouterr().out
@@ -233,10 +284,10 @@ def test_more_than_eight_media_reports_gpu_cap_on_gpu_only(monkeypatch, capsys):
     engine._vol_media_count = 0
     r = _Renderer()
     for k in range(vol.GPU_MAX_VOLUME_MEDIA):
-        engine._try_export_volume(_Obj(f"C{k}", _cube(0.5)), _Inst(IDENT), r)
+        engine._try_export_volume(_Obj(f"C{k}", _cube(0.5), CUBE_FACES), _Inst(IDENT), r)
     engine._report_gpu_volume_cap("gpu")
     assert "GPU renders only" not in capsys.readouterr().out      # exactly 8: fine
-    engine._try_export_volume(_Obj("C9", _cube(0.5)), _Inst(IDENT), r)
+    engine._try_export_volume(_Obj("C9", _cube(0.5), CUBE_FACES), _Inst(IDENT), r)
     assert len(r.media) == vol.GPU_MAX_VOLUME_MEDIA + 1
     engine._report_gpu_volume_cap("cpu")                           # CPU honours all 9
     assert "GPU renders only" not in capsys.readouterr().out

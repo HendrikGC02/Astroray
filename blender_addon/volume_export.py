@@ -347,13 +347,23 @@ def mesh_world_triangles(obj, matrix_world):
     return verts, idx
 
 
-def mesh_is_closed(tri_indices):
+def mesh_is_closed(tri_indices, world_verts=None):
     """pkg296 — True iff the triangles form a closed, consistently oriented
     surface: every directed edge occurs exactly once and its reverse occurs too
-    (edge-manifold, no holes, no flipped faces)."""
+    (edge-manifold, no holes, no flipped faces). Degenerate triangles (a repeated
+    index, or zero area when ``world_verts`` is given) make it not closed: they
+    carry no crossing, so the boundary could leak."""
     t = np.asarray(tri_indices, dtype=np.int64).reshape(-1, 3)
     if t.shape[0] == 0:
         return False
+    if ((t[:, 0] == t[:, 1]) | (t[:, 1] == t[:, 2]) | (t[:, 2] == t[:, 0])).any():
+        return False
+    if world_verts is not None:
+        v = np.asarray(world_verts, dtype=np.float64).reshape(-1, 3)
+        area2 = np.linalg.norm(np.cross(v[t[:, 1]] - v[t[:, 0]], v[t[:, 2]] - v[t[:, 0]]), axis=1)
+        scale = max(float(np.ptp(v, axis=0).max()), 1e-12)
+        if (area2 <= 1e-12 * scale * scale).any():
+            return False
     e = np.concatenate([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]])
     n = int(t.max()) + 1
     fwd = e[:, 0] * n + e[:, 1]
@@ -361,6 +371,33 @@ def mesh_is_closed(tri_indices):
     if np.unique(fwd).size != fwd.size:
         return False
     return bool(np.isin(rev, fwd).all())
+
+
+def mesh_is_aabb_box(world_verts, tri_indices, aabb_min, aabb_max, rel_tol=1e-4):
+    """pkg296 — True iff the mesh IS its world AABB: the vertices are exactly the
+    8 corners (mesh_bounds_is_exact), the triangles are a closed surface, every
+    triangle lies in one AABB face plane, and they cover the box surface area
+    once. Loose corner vertices around another shape are NOT a box."""
+    v = np.asarray(world_verts, dtype=np.float64).reshape(-1, 3)
+    t = np.asarray(tri_indices, dtype=np.int64).reshape(-1, 3)
+    if t.shape[0] < 12 or not mesh_bounds_is_exact(v, aabb_min, aabb_max, rel_tol):
+        return False
+    if not mesh_is_closed(t, v):
+        return False
+    mn = np.asarray(aabb_min, dtype=np.float64)
+    mx = np.asarray(aabb_max, dtype=np.float64)
+    ext = mx - mn
+    tol = rel_tol * max(float(ext.max()), 1e-12)
+    p = v[t]                                              # (M, 3, 3)
+    on_face = np.zeros(t.shape[0], dtype=bool)
+    for a in range(3):
+        for c in (mn[a], mx[a]):
+            on_face |= (np.abs(p[:, :, a] - c) <= tol).all(axis=1)
+    if not on_face.all():
+        return False
+    area = 0.5 * np.linalg.norm(np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]), axis=1).sum()
+    box_area = 2.0 * (ext[0] * ext[1] + ext[1] * ext[2] + ext[2] * ext[0])
+    return abs(area - box_area) <= 1e-3 * box_area
 
 
 def mesh_bounds_is_exact(world_verts, aabb_min, aabb_max, rel_tol=1e-4):

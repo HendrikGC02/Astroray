@@ -218,12 +218,14 @@ def test_render_uses_optix_and_matches_software(monkeypatch):
     assert mode_sw == "software"
     assert mode_hw == "optix"
     assert np.isfinite(hw).all()
-    # Same seed and RNG streams: only paths whose rays hit an edge differently
-    # can diverge, so the images agree almost everywhere.
-    diff = np.abs(hw - sw)
-    frac_same = (diff.max(axis=-1) <= 1e-6).mean()
-    assert frac_same >= 0.99, f"only {frac_same:.4f} of pixels agree within 1e-6"
-    assert abs(hw.mean() - sw.mean()) <= 1e-3 * max(sw.mean(), 1e-6)
+    # Same seed and RNG streams, same triangles hit: the only difference is the
+    # hardware t / barycentrics (~1e-5 relative), which moves later bounce
+    # origins by float rounding. Measured 2026-09-30: max per-pixel relative
+    # difference 7e-6, image means equal. An edge ray hitting a different
+    # triangle would show as a pixel far outside this band.
+    rel = np.abs(hw - sw).max(axis=-1) / np.maximum(sw.max(axis=-1), 1e-3)
+    assert rel.max() <= 1e-4, f"max per-pixel relative difference {rel.max():.3e}"
+    assert abs(hw.mean() - sw.mean()) <= 1e-5 * max(sw.mean(), 1e-6)
 
 
 def test_sphere_scene_falls_back_to_software(monkeypatch):
@@ -241,3 +243,31 @@ def test_default_is_software(monkeypatch):
     _cornell_mesh_scene(r, sphere_n=8)
     _, mode = _render(r, spp=4)
     assert mode == "software"
+
+
+def _instanced_scene(r):
+    floor = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
+    red = r.create_material("lambertian", [0.8, 0.2, 0.2], {})
+    for t in _quad([-3, -1, -3], [3, -1, -3], [3, -1, 3], [-3, -1, 3]):
+        r.add_triangle(t[0], t[1], t[2], floor)
+    sph = _displaced_sphere([0.0, 0.0, 0.0], 0.5, 16)
+    mesh = r.register_mesh_triangles([list(t.reshape(-1)) for t in sph], red)
+    for x, s in ((-1.5, 1.0), (0.0, 0.6), (1.4, 1.3)):
+        M = np.array([[s, 0, 0, x], [0, s, 0, 0.0], [0, 0, s, 0.3 * x], [0, 0, 0, 1]],
+                     np.float32)
+        r.add_instance(mesh, list(M.reshape(-1)))
+    r.set_background_color([0.6, 0.6, 0.6])
+
+
+def test_instanced_render_matches_software(monkeypatch):
+    imgs = {}
+    for mode in ("software", "optix"):
+        monkeypatch.setenv(_ENV, mode)
+        r = _renderer()
+        _instanced_scene(r)
+        imgs[mode], used = _render(r, spp=8)
+        assert used == mode
+    sw, hw = imgs["software"], imgs["optix"]
+    assert sw.mean() > 0.05
+    rel = np.abs(hw - sw).max(axis=-1) / np.maximum(sw.max(axis=-1), 1e-3)
+    assert rel.max() <= 1e-4, f"max per-pixel relative difference {rel.max():.3e}"

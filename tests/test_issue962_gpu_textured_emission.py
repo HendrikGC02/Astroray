@@ -220,3 +220,42 @@ def test_gpu_textured_emitter_nee_on_off_and_cpu_parity():
     assert abs(on @ lum / (off @ lum) - 1) < 0.01, (on, off)
     for ch in range(3):
         assert abs(on[ch] / cpu[ch] - 1) < 0.05, (ch, on, cpu)
+
+
+def _fine_image_card(r):
+    # 256^2 image, 4-texel vertical stripes (32 periods): detail far above the
+    # 64^2 op-VM/procedural bake, so a baked plain image would lose it.
+    from base_helpers import setup_camera
+    r.set_background_color([0.0, 0.0, 0.0])
+    img = np.zeros((256, 256, 3), np.float32)
+    img[:, (np.arange(256) // 4) % 2 == 0] = (1.0, 0.8, 0.6)
+    r.load_texture("t", img, 256, 256, "UV")
+    m = r.create_material("light", [1, 1, 1], {"intensity": 1.0, "texture": "t"})
+    A, B, Cc, D = [-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]
+    n = [0, 0, 1]
+    r.add_triangle_layers(A, B, Cc, m, {"UVMap": [[0, 0], [1, 0], [1, 1]]}, n, n, n)
+    r.add_triangle_layers(A, Cc, D, m, {"UVMap": [[0, 0], [1, 1], [0, 1]]}, n, n, n)
+    setup_camera(r, look_from=[0, 0, 2.2], look_at=[0, 0, 0], vup=[0, 1, 0],
+                 vfov=45, width=256, height=256)
+
+
+@pytest.mark.gpu
+def test_gpu_plain_image_emission_full_resolution():
+    """A plain Image Texture emitter (no op-VM chain) is uploaded at its own
+    resolution (uploadImageTexId), not the 64^2 bake op-VM chains get: the
+    GPU stripe profile keeps the CPU's contrast."""
+    _gpu_or_skip()
+    prof = []
+    for gpu in (True, False):
+        r = astroray.Renderer()
+        r.set_integrator("path_tracer")
+        r.set_seed(7)
+        if gpu:
+            r.set_use_gpu(True)
+        _fine_image_card(r)
+        px = np.asarray(r.render(16, 2, None, False), np.float32).reshape(256, 256, 3)
+        prof.append(px[100:156, 40:216, 0].mean(0))  # column profile
+    g, c = prof
+    assert c.std() > 0.2, c.std()
+    assert g.std() > 0.9 * c.std(), (g.std(), c.std())
+    assert np.corrcoef(g, c)[0, 1] > 0.95

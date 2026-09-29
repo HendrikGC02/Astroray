@@ -105,6 +105,7 @@ def test_node_status_line(leg):
     assert d["unwired"] == [["Unwired: no effect", "INFO"]]
     assert d["wired"] == []  # used by the converter -> no status line
     assert d["behind_mix"][0][1] == "ERROR"
+    assert len(d["direct"]) == 12 and all(v is None for v in d["direct"].values()), d["direct"]
     # The UI's reachable set is exactly the converter's dispatch set.
     assert d["status_idnames"] == d["converter_idnames"]
 
@@ -113,7 +114,42 @@ def test_unregister_is_clean(leg):
     assert _ok(leg, "unregister_clean")["left"] == []
 
 
-def test_presets_packaged():
-    text = (REPO / "scripts" / "build" / "build_blender_addon.py").read_text(encoding="utf-8")
-    assert '"presets"' in text
-    assert (REPO / "blender_addon" / "presets" / "astroray_black_hole" / "M87_star.py").exists()
+def test_presets_in_staged_zip_and_found_by_clean_blender(tmp_path, monkeypatch):
+    """Stage the addon into a temp dist (fake module), then a clean-profile
+    Blender resolves the presets from the unpacked package."""
+    import zipfile
+    sys.path.insert(0, str(REPO / "scripts" / "build"))
+    import build_blender_addon as bba
+    monkeypatch.setattr(bba, "DIST_DIR", tmp_path / "dist")
+    monkeypatch.setattr(bba, "STAGE_DIR", tmp_path / "dist" / "astroray")
+    (tmp_path / "dist").mkdir()
+    fake = tmp_path / "astroray.cp313-win_amd64.pyd"
+    fake.write_bytes(b"not a real module")
+    zip_path = bba.stage_and_zip(fake, backend="cpu", build_id="pkg311-test")
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+        unpack = tmp_path / "unpacked"
+        zf.extractall(unpack)
+    for want in ("presets/astroray_black_hole/Sgr_A_star.py",
+                 "presets/astroray_black_hole/M87_star.py",
+                 "presets/astroray_render/Final.py"):
+        assert any(n.replace("\\", "/").endswith(want) for n in names), want
+
+    exe = _find_blender()
+    if exe is None:
+        pytest.skip("Blender 5.x not installed")
+    root = next(p for p in unpack.rglob("presets") if p.is_dir()).parent
+    script = tmp_path / "probe.py"
+    script.write_text(chr(10).join([
+        "import bpy, os, json",
+        f"bpy.utils.register_preset_path(r'{root}')",
+        "out = {s: sorted(f for d in bpy.utils.preset_paths(s) for f in os.listdir(d)"
+        " if f.endswith('.py')) for s in ('astroray_black_hole', 'astroray_render')}",
+        f"open(r'{tmp_path / 'probe.json'}', 'w').write(json.dumps(out))",
+    ]), encoding="utf-8")
+    subprocess.run([exe, "--background", "--factory-startup", "--python", str(script)],
+                   capture_output=True, text=True, timeout=120)
+    found = json.loads((tmp_path / "probe.json").read_text())
+    assert found["astroray_black_hole"] == ["M87_star.py", "Sgr_A_star.py",
+                                            "Stellar_mass_HMXB_Cyg_X-1.py"]
+    assert found["astroray_render"] == ["Draft.py", "Final.py", "Preview.py"]

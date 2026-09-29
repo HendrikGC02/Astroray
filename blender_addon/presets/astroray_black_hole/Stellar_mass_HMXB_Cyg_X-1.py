@@ -4,6 +4,8 @@
 # Spin 0.998: Zhao et al. 2021, ApJ 908, 117, doi:10.3847/1538-4357/abbcd6
 #   report a* > 0.9985; clipped to the addon's 0.998 maximum.
 # Model Novikov-Thorne: thin disk (soft state).
+# Distance is not a preset value: the addon has no physical-distance property
+# (r_obs_M is a world-to-GR scale, not a distance), so it is left untouched.
 import bpy
 bh = bpy.context.object.astroray_black_hole
 

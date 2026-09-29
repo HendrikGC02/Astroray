@@ -6,6 +6,8 @@
 # Spin 0.94: the highest |a*| in the EHT GRMHD library (Paper V); spin is NOT
 #   measured by EHT, so this is a library reference value, not a measurement.
 # Model ADAF: Sgr A* is a radiatively inefficient flow (Narayan & Yi 1995).
+# Distance is not a preset value: the addon has no physical-distance property
+# (r_obs_M is a world-to-GR scale, not a distance), so it is left untouched.
 import bpy
 bh = bpy.context.object.astroray_black_hole
 

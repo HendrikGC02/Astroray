@@ -6,6 +6,8 @@
 # Spin 0.94: highest |a*| in the EHT GRMHD library (Paper V); EHT does not
 #   measure spin, so this is a library reference value.
 # Model ADAF + jet: low-luminosity, jet-launching flow.
+# Distance is not a preset value: the addon has no physical-distance property
+# (r_obs_M is a world-to-GR scale, not a distance), so it is left untouched.
 import bpy
 bh = bpy.context.object.astroray_black_hole
 

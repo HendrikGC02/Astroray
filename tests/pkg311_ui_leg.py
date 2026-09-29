@@ -260,6 +260,18 @@ def _():
         addon.CustomRaytracerRenderEngine._convert_astroray_native_surface)
     res["converter_idnames"] = sorted(set(re.findall(r"AstrorayShaderNode\w+", src)))
     res["status_idnames"] = sorted(anodes.NATIVE_SURFACE_IDNAMES)
+    # Behavioural: every native idname wired directly to Surface is "used",
+    # under both a Material Output and an AstrorayOutputNode.
+    direct = {}
+    for idname in anodes.NATIVE_SURFACE_IDNAMES:
+        for out_id in ("ShaderNodeOutputMaterial", "AstrorayOutputNode"):
+            t2 = bpy.data.node_groups.new("pkg311_direct", 'ShaderNodeTree')
+            o2 = t2.nodes.new(out_id)
+            n2 = t2.nodes.new(idname)
+            src = n2.outputs[0]
+            t2.links.new(src, o2.inputs['Surface'])
+            direct[f"{idname}/{out_id}"] = anodes.native_surface_status(n2)
+    res["direct"] = direct
     # Every native surface node resolves a status without error. (draw_buttons
     # itself is C-typed to a real UILayout, so the mock drives the shared helper.)
     for idname in anodes.NATIVE_SURFACE_IDNAMES:

@@ -60,7 +60,7 @@ a fixture and the next re-bless is again "visually identical, gate red".
 
 ## Prerequisites
 
-- [ ] Batch AD (pkg288 lamp-hit continuation, pkg290 clamp) and Batch AE (pkg286/287 photons) merged, or the affected scenes' references are marked `provisional` in the manifest until they land.
+- [x] Batch AD (pkg288 lamp-hit continuation) and Batch AE (pkg286/287 photons) merged (#927, #928); remaining transport moves (#922, #934) are absorbed by assertion-level `provisional` rows.
 - [ ] Blender 5.2 headless with the staged CUDA addon (`dist/astroray`) and Cycles OptiX/CPU.
 - [ ] GPU lock free for the reference render session (each scene ≤ 60 s per engine at reference spp).
 
@@ -73,7 +73,7 @@ a fixture and the next re-bless is again "visually identical, gate red".
 | File | Purpose |
 |---|---|
 | `benchmarks/reference_corpus/scenes/v2_light_tree.blend` | Interior with 6 mesh emitters of unequal power + 1 point + 1 area(spread 45°) + 1 sun: light tree/MIS, dedicated lamps, #886 closed emitter (an emissive sphere). ROIs: floor under each light class, back wall, emitter faces. |
-| `benchmarks/reference_corpus/scenes/v2_media.blend` | Fog box + smoke VDB + fire (Principled Volume blackbody) + two mesh emitters inside the medium + one lamp behind it: #912/#913/#884 territory. ROIs: shaft, smoke, fire core, fog floor. |
+| `benchmarks/reference_corpus/scenes/v2_media.blend` | Fog box + smoke VDB + fire (Principled Volume blackbody) + two mesh emitters inside the medium + one lamp behind it: #912/#913/#884 territory. ROIs: shaft, smoke, fire core, fog floor. The fog box must NOT sit flush on the floor (#926: Cycles' coincident-face volume-stack artifact darkens the floor 1.9×; sink the box 0.1 m below the floor). |
 | `benchmarks/reference_corpus/scenes/v2_dispersion_caustics.blend` | Showcase glass (SF11 prism + Sellmeier sphere) under a sun AND a spot (pkg287): caustic ROIs on the floor, refracted beam, sphere limb, background firefly ROI. |
 | `benchmarks/reference_corpus/scenes/v2_sky_sun.blend` | Showcase sky (Nishita, 4° sun) with a chrome ball and a diffuse ground: disc, glow, zenith, ground, reflection ROIs. |
 | `benchmarks/reference_corpus/scenes/v2_thin_film_metals.blend` | Showcase metals: gold/copper/titanium films at three thicknesses, rough-glass thin film (#783). ROIs per sphere (channels < 0.01 excluded). |
@@ -83,7 +83,7 @@ a fixture and the next re-bless is again "visually identical, gate red".
 | `benchmarks/reference_corpus/gates_v2.toml` | Per scene: `seed`, `spp_gate`, `spp_reference`, ROI list, per-channel tolerance, `provisional` flag, `blessed_on` (commit + PR). |
 | `benchmarks/reference_corpus/refs_v2/<scene>_{cycles,astroray_cpu,astroray_gpu}.exr` | Linear references (EXR, not PNG; `git add -f`, memory `evidence-png-gitignore-trap`). |
 | `benchmarks/reference_corpus/mc_tolerance.py` | Renders a scene with N seeds at `spp_gate`, writes per-ROI per-channel σ/mean; tolerance = max(0.02, 3·σ_rel·√2) written into `gates_v2.toml`. |
-| `tests/test_corpus_v2_parity.py` | One parametrised test per (scene, backend): render at `spp_gate`, compare per-ROI channel means to the Cycles reference within tolerance; `provisional` rows xfail(strict). Marked `gpu` for the GPU leg. |
+| `tests/test_corpus_v2_parity.py` | Parametrised per (scene, backend, ROI, channel) — one render per (scene, backend) cached in a module fixture, one assertion per case — so a `provisional` case is a strict `xfail` marker on that case only and never hides sibling checks (no `pytest.xfail()` calls). Marked `gpu` for the GPU leg. |
 | `.astroray_plan/docs/reference-corpus-v2-design.md` | Per-scene concept, ROI map (annotated PNG), what each ROI is meant to catch, which v1 scene it retires, asset licences. |
 
 ### Files to modify
@@ -103,7 +103,7 @@ a fixture and the next re-bless is again "visually identical, gate red".
 - **Gate form is fixed: per-ROI, per-channel linear mean ratio Astroray/Cycles, fixed seed, adaptive off, denoise off.** No SSIM, no pHash on this corpus (those stay in the bank for Astroray-only scenes). Ratio bands come from `mc_tolerance.py`, never hand-typed; floor 2 % covers Cycles' own seed noise. Channels whose Cycles mean < 0.01 are excluded (showcase convention).
 - **Three legs per scene:** Cycles CPU (reference), Astroray CPU, Astroray GPU. A GPU/CPU gate (±5 %, pkg271 convention) is derived from the same renders; it is what catches #876/#912-class bugs.
 - **Re-bless rule (owner 2026-09-26):** a PR that moves a gate must either (a) show the gate encoded the old bug and re-pin `blessed_on` in the same PR with the reason in the commit, or (b) fix the engine. Never revert a fix or widen a band to keep green. Cycles references are re-rendered only when Blender is upgraded (record version in `gates_v2.toml`).
-- **`provisional` rows** exist so scenes can land before their fix (e.g. fire before #908 landed): strict xfail, flipped in the fixing PR (memory `xfail-gated-features-must-unxfail`).
+- **`provisional` rows** exist so scenes can land before their fix (e.g. fire before #908 landed): strict xfail, flipped in the fixing PR (memory `xfail-gated-features-must-unxfail`). Provisional is per (scene, backend, ROI, channel) assertion tied to an issue number — never a whole scene — so unrelated regressions in the same scene stay caught (Astra 2026-09-29). Known provisional rows at creation: `v2_media` shaft/fog-floor variance (#922), `v2_thin_film_metals` metal means (#934), `v2_textures_opvm` Metallic-program cards on GPU (#889), `v2_camera_geometry` hair (#853).
 - **Gate (c) trio:** the owner chose gallery/workshop/terrace-with-hair from v1. Proposed remap: `v2_light_tree` / `v2_textures_opvm` / `v2_camera_geometry` (hair). This is an owner decision; until confirmed, v1 `materials_hall`, `textures_mapping` and `hdri_exterior_hair` stay on disk and `gate_c` keeps pointing at them.
 - **Spp:** `spp_gate` 64 (test, ≤ 10 s CPU per scene at 320×180), `spp_reference` 1024 for Cycles. Resolution per scene in the manifest; the ROI map is in normalised coordinates so resolution can change without re-blessing.
 - **Coverage report** (`coverage_report.py`) keeps working: v2 feature tags are a subset of the matrix; uncovered SUPPORTED rows are listed, not failed, until pkg278 decides gate (b)'s population.

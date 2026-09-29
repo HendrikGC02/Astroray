@@ -1,5 +1,7 @@
 # Architect plan — 2026-09-27
 
+> Batches AG–AJ superseded by `architect-plan-2026-09-29.md` (AD, AE, AF, pkg292 #876/#862 landed).
+
 Owner-authorised Fable architect run (2026-09-25). Input: STATUS.md,
 `next-session-prompt-2026-09-24.md`, `astra_run/progress.md`, the 2026-09-27
 open-issue list, main 573fbce3. In flight, not re-specced: PR #916 (Batch AB:

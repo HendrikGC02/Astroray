@@ -3,7 +3,7 @@
 **Pillar:** 5
 **Track:** A
 **Status:** open
-**Estimated effort:** 1 session (~3 h) + one GPU-lock render window
+**Estimated effort:** 1 session (~3 h) + one GPU-lock render window; GR rows (gr-*, adaf, jet) re-blessed a second time after #894/#895 (plan 2026-09-29: interim bank in Batch AL, 13/13 only after Batch AN-1; `blessed_on` records the commit per row)
 **Depends on:** pkg280, pkg286
 
 ---
@@ -80,7 +80,7 @@ lands or the bank is re-blessed twice.
 ### Key design decisions
 
 - **Attribute before blessing.** Render each scene on baseline (be340452), main, and the candidate; a scene may be re-blessed only when its delta is explained by a landed, cited fix. Unexplained deltas become issues, not references.
-- **Two phases:** Phase 1 now — GR (schwarzschild, kerr, adaf, jet), cornell-mini, disney-sweep. Phase 2 after pkg286 — prism-bk7/sf11, prism-tilted, sms-*, glass-*.
+- **Two phases (re-sequenced 2026-09-29):** Phase 1 = interim bank in Batch AL after pkg294/pkg295 land — cornell-mini, disney-sweep, prism-bk7/sf11, prism-tilted, sms-*, glass-* (pkg286 landed). Phase 2 = GR rows (schwarzschild, kerr, adaf, jet) after #894/#895 (Batch AN-1); 13/13 only then.
 - **Gate choice:** structural metrics stay because those scenes are Astroray-only (no Cycles reference); MC-noisy scenes move to per-ROI ratios. Thresholds are derived from the blessed render, not typed.
 - **Independent sign-off:** a Sonnet or Terra reviewer reads the side-by-side PNGs and the attribution note before `--bless` runs (pkg280 Phase 4 wording).
 

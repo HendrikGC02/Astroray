@@ -4,7 +4,7 @@
 **Track:** A
 **Status:** open
 **Estimated effort:** 2 sessions (~6 h) + register audit
-**Depends on:** pkg230, pkg219d
+**Depends on:** pkg230, pkg219d, pkg295
 
 ---
 

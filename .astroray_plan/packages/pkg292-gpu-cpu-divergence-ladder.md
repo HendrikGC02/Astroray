@@ -116,7 +116,8 @@ light. These are Opus-lane items (memory `delegate-tier-stalls-on-hard-packages`
       after any glass bounce; fresh HitRecord per bounce. With #876 the full
       scene is GPU/CPU 1.0002/1.0006/1.0006 (was red 1.122). #832 texel-centre
       env lookups landed alongside.
-- [ ] #853 ladder + oracle + fix.
+- [ ] #853 ladder + oracle + fix (ladder build: Sonnet 5.5; diagnosis/fix: Opus; plan 2026-09-29 Batch AM).
+- [ ] (2026-09-29 architect) #933 partial-transmission lowering and #934 metal −15 % moved to pkg295 (same files as #876's fix).
 
 ---
 

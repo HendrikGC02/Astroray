@@ -2,11 +2,12 @@
 # -*- coding: utf-8 -*-
 """Two-pass CPU/GPU test runner (open-model-research-2026-08 latency lever 6).
 
-Pass 1 (CPU): ``pytest -m cpu -n auto`` — the CPU-only subset in parallel via
-              pytest-xdist. OMP_NUM_THREADS is left UNSET by default (all cores):
-              pinning it starves the few OpenMP-heavy reference renders and the
-              slowest single-threaded test dominates the tail. Pin explicitly
-              with ``--omp N`` / ASTRORAY_TEST_OMP_THREADS after measuring.
+Pass 1 (CPU): ``pytest -m cpu -n 4`` — the CPU-only subset in parallel via
+              pytest-xdist, with OMP_NUM_THREADS=2 (4 workers x 2 threads = the
+              8 physical cores; ``-n auto`` x all-core OpenMP oversubscribes 8x)
+              and CUDA_VISIBLE_DEVICES=-1, so a misclassified test cannot start
+              concurrent CUDA (memory cuda_verifier_concurrency). A test that
+              only passes with a visible GPU must be tagged @pytest.mark.gpu.
 Pass 2 (GPU): ``pytest -m "not cpu" -p no:xdist`` — everything not positively
               classified CPU, run strictly serial in a single GPU context.
               Anything left unclassified falls here (the SAFE side): memory
@@ -17,7 +18,9 @@ Usage:
     python scripts/test/run_split.py                 # both passes, report wall time
     python scripts/test/run_split.py --cpu-only      # just the parallel CPU pass
     python scripts/test/run_split.py --gpu-only      # just the serial GPU pass
-    python scripts/test/run_split.py --jobs 8        # override -n auto
+    python scripts/test/run_split.py --fast          # skip @pytest.mark.slow tests
+    python scripts/test/run_split.py --junit DIR     # DIR/cpu.xml, DIR/gpu.xml + duration charts
+    python scripts/test/run_split.py --jobs 8        # override -n 4
     python scripts/test/run_split.py -- -x -q tests/test_foo.py   # extra pytest args
 
 Extra pytest args after ``--`` are forwarded to BOTH passes.
@@ -36,8 +39,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _run(label: str, marker: str, *, parallel: bool, jobs: str,
-         omp: str | None, extra: list[str]) -> tuple[int, float]:
+         omp: str | None, extra: list[str], fast: bool = False,
+         junit: str | None = None) -> tuple[int, float]:
+    if fast:
+        marker = f"({marker}) and not slow"
     cmd = [sys.executable, "-m", "pytest", "-m", marker]
+    if junit:
+        cmd += [f"--junitxml={junit}"]
     if parallel:
         cmd += ["-n", jobs]
     else:
@@ -46,12 +54,11 @@ def _run(label: str, marker: str, *, parallel: bool, jobs: str,
 
     env = dict(os.environ)
     omp_note = ""
+    if parallel:
+        env["CUDA_VISIBLE_DEVICES"] = "-1"
     if parallel and omp:
-        # OpenMP is left at its default (all cores) by design: the CPU subset
-        # is a few OpenMP-heavy reference renders plus many fast tests. Pinning
-        # OMP_NUM_THREADS=1 starves those renders of threads and the slowest
-        # single-threaded test dominates the tail (measured: >600s). Only pin
-        # if the caller asks (e.g. --omp 2) after measuring their own hardware.
+        # 4 xdist workers x 2 OpenMP threads = 8 cores. (OMP=1 starves the
+        # OpenMP-heavy reference renders; all-core x N workers oversubscribes.)
         env["OMP_NUM_THREADS"] = omp
         omp_note = f"  (OMP_NUM_THREADS={omp})"
 
@@ -69,10 +76,11 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cpu-only", action="store_true", help="run only the parallel CPU pass")
     ap.add_argument("--gpu-only", action="store_true", help="run only the serial GPU pass")
-    ap.add_argument("--jobs", default="auto", help="xdist worker count for the CPU pass (default: auto)")
-    ap.add_argument("--omp", default=os.environ.get("ASTRORAY_TEST_OMP_THREADS"),
-                    help="pin OMP_NUM_THREADS for the CPU pass (default: unset = all "
-                         "cores; OpenMP-heavy reference renders need their threads)")
+    ap.add_argument("--jobs", default="4", help="xdist worker count for the CPU pass (default: 4)")
+    ap.add_argument("--omp", default=os.environ.get("ASTRORAY_TEST_OMP_THREADS", "2"),
+                    help="OMP_NUM_THREADS for the CPU pass (default: 2)")
+    ap.add_argument("--fast", action="store_true", help='AND "not slow" into both passes')
+    ap.add_argument("--junit", metavar="DIR", help="write DIR/cpu.xml, DIR/gpu.xml and run durations_report.py")
     ap.add_argument("pytest_args", nargs="*", help="extra args forwarded to pytest (prefix with --)")
     args = ap.parse_args()
 
@@ -82,16 +90,23 @@ def main() -> int:
 
     results: list[tuple[str, int, float]] = []
     total = 0.0
+    xmls: list[str] = []
+    if args.junit:
+        Path(args.junit).mkdir(parents=True, exist_ok=True)
 
     if not args.gpu_only:
-        rc, el = _run("CPU/parallel", "cpu", parallel=True,
-                      jobs=args.jobs, omp=args.omp, extra=extra)
+        x = str(Path(args.junit) / "cpu.xml") if args.junit else None
+        rc, el = _run("CPU/parallel", "cpu", parallel=True, jobs=args.jobs,
+                      omp=args.omp, extra=extra, fast=args.fast, junit=x)
+        xmls += [x] if x else []
         results.append(("CPU/parallel", rc, el))
         total += el
 
     if not args.cpu_only:
-        rc, el = _run("GPU/serial", "not cpu", parallel=False,
-                      jobs=args.jobs, omp=args.omp, extra=extra)
+        x = str(Path(args.junit) / "gpu.xml") if args.junit else None
+        rc, el = _run("GPU/serial", "not cpu", parallel=False, jobs=args.jobs,
+                      omp=args.omp, extra=extra, fast=args.fast, junit=x)
+        xmls += [x] if x else []
         results.append(("GPU/serial", rc, el))
         total += el
 
@@ -100,6 +115,13 @@ def main() -> int:
         status = "PASS" if rc == 0 else ("NO-TESTS" if rc == 5 else f"FAIL(exit={rc})")
         print(f"#   {label:<14} {status:<14} {el:8.1f}s")
     print(f"#   {'TOTAL wall':<14} {'':<14} {total:8.1f}s\n{'#' * 70}")
+
+    if xmls:
+        rep = [sys.executable, str(REPO_ROOT / "scripts" / "test" / "durations_report.py"),
+               "--merge", "--out", str(Path(args.junit) / "durations")]
+        for x in xmls:
+            rep += ["--junit", x]
+        subprocess.run(rep, cwd=str(REPO_ROOT))
 
     # rc 5 = "no tests collected"; treat as non-fatal (e.g. --gpu-only when a
     # CUDA-less build skips every GPU module). Any other non-zero is a failure.

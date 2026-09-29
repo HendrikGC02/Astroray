@@ -128,9 +128,10 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--junit", action="append", required=True, help="junit xml (1 or 2 times)")
     ap.add_argument("--label", action="append", help="series labels (default before/after)")
+    ap.add_argument("--merge", action="store_true", help="merge all --junit files into one series")
     ap.add_argument("--out", default=None)
     a = ap.parse_args(argv)
-    if len(a.junit) > 2:
+    if len(a.junit) > 2 and not a.merge:
         ap.error("at most two --junit files")
     labels = (a.label or []) + ["before", "after"][len(a.label or []):]
     # TODO: switch to results_path("perf", "test-suite-durations", ...) once tests/results_layout.py lands.
@@ -138,6 +139,12 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
 
     loaded = [load(p) for p in a.junit]
+    if a.merge:
+        merged = defaultdict(int)
+        for _, c in loaded:
+            for k, v in c.items():
+                merged[k] += v
+        loaded = [(sum((t for t, _ in loaded), []), dict(merged))]
     aggs = [aggregate(t) for t, _ in loaded]
     totals = [sum(x[2] for x in t) for t, _ in loaded]
     if len(loaded) == 1:

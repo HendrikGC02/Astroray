@@ -52,6 +52,11 @@ def pytest_configure(config):
         "markers",
         "cpu: test never touches CUDA — safe to run under pytest-xdist -n auto.",
     )
+    config.addinivalue_line(
+        "markers",
+        "slow: full-profile only; excluded by `run_split.py --fast` / `-m \"not slow\"`. "
+        "Never a deletion: the full profile still runs it.",
+    )
 
 
 # --- test_results guard (conventions: .astroray_plan/docs/test-results-conventions.md) ---

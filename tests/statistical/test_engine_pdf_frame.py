@@ -8,11 +8,9 @@ import numpy as np
 import sys
 sys.path.insert(0, 'build_cuda/Release')
 
-try:
-    import astroray
-except ImportError:
-    print("Skipping - astroray not available")
-    sys.exit(0)
+import pytest
+
+astroray = pytest.importorskip("astroray")
 
 
 def test_engine_pdf_frame():

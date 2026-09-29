@@ -86,7 +86,7 @@ jobs:
           g++ -o RNG_test tools/RNG_test.cpp PractRand.a -O3 -Iinclude -Itools -pthread
 
       - name: Test
-        run: python -m pytest tests/ -v
+        run: python -m pytest tests/ -v --durations=30
 
       - name: Reference bank smoke
         # Informational only: pytest above (tests/test_reference_bank_smoke.py)

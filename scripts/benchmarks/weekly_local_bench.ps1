@@ -46,7 +46,10 @@ $parityCode = $LASTEXITCODE
 "run_parity.py exit=$parityCode" | Out-File $Log -Append -Encoding ascii
 
 $CorpusScenes = @('camera_lens', 'camera_lens_ortho', 'geometry_zoo', 'lighting_studio', 'materials_hall',
-    'render_settings', 'textures_mapping', 'volumes_smoke', 'world_sky_hdri', 'world_sky_sky')
+    'render_settings', 'textures_mapping', 'volumes_smoke', 'world_sky_hdri', 'world_sky_sky',
+    # pkg284 corpus v2 (Phase 1 lists the ids; Phase 3 wires the v2 gate rows)
+    'v2_camera_geometry', 'v2_dispersion_caustics', 'v2_light_tree', 'v2_media', 'v2_sky_sun',
+    'v2_textures_opvm', 'v2_thin_film_metals', 'v2_viewport')
 $CorpusParityArgs = @()
 foreach ($CorpusScene in $CorpusScenes) {
     $CorpusParityArgs += '--scene'

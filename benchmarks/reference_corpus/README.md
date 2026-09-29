@@ -63,6 +63,36 @@ against its own Cycles reference" cannot be a single scene.
 | `render_settings` | A small hero shot proving samples/film_transparent/use_denoising/denoiser by scene authorship, plus an opposed-mirror `max_bounces` gap card. | Phase 3 (built) |
 | `volumes` | Scene id `volumes_smoke`: a sun-lit OpenVDB smoke plume and a self-lit blackbody fire with a sooty plume on a dark ground (two Volume objects, synthetic grids), `volume_bounces` = 2. Owns the `volume_bounces` row (allocation `SOCKET_OVERRIDE`); the Principled Volume rows stay with `geometry_zoo`. | pkg271 (built) |
 
+## Corpus v2 (pkg284 Phase 1) -- Cycles-parity scenes
+
+Eight scenes, one per transport feature, replace the nine-scene corpus as the
+parity population (v1 files stay until the owner-confirmed gate (c) remap lands;
+gate (c) trio = `v2_light_tree`, `v2_textures_opvm`, `v2_camera_geometry`). Scene
+ids: `v2_light_tree`, `v2_media`, `v2_dispersion_caustics`, `v2_sky_sun`,
+`v2_thin_film_metals`, `v2_textures_opvm`, `v2_camera_geometry`, `v2_viewport`
+(manifest only, no render gate). Per-scene concept and ROI map:
+`.astroray_plan/docs/reference-corpus-v2-design.md`.
+
+- **Build** (one scene per Blender process; `--addon-dir dist/astroray` needed only by
+  `v2_dispersion_caustics` for the Sellmeier node):
+  `blender -b --factory-startup --python build_corpus.py -- --families v2_media`.
+  Builders import `benchmarks/blender_showcase/showcase.py`; ROIs are projected from world
+  points through the scene camera and stored as `crops` (normalised, row 0 = top). `.blend`
+  files are not byte-reproducible across rebuilds (Blender embeds session data): the
+  manifest sha256 pins the committed file.
+- **Gate form**: per-ROI, per-channel linear mean ratio Astroray/Cycles, seed 278,
+  adaptive sampling and denoise OFF. `gates_v2.toml` holds the bands.
+- **Bands** come from `mc_tolerance.py` (never hand-typed): Cycles CPU at `spp_gate` (64) over
+  seeds 278/279/280, `tol = max(0.02, 3*sigma_rel*sqrt(2))`, channels with Cycles mean < 0.01
+  excluded (tol 0). References: 1024 spp Cycles CPU, linear EXR in `refs_v2/`.
+  `python benchmarks/reference_corpus/mc_tolerance.py --work-dir <scratch> [--scenes ...]`.
+- **Re-bless rule** (owner 2026-09-26): a PR that moves a gate either shows the gate encoded
+  the old bug and re-pins the reference in the same PR, or fixes the engine. Never widen a
+  band or revert a fix to keep green. Cycles references re-render only on a Blender upgrade.
+- **Documented divergences** (`expected_divergence` in the toml): rows where Astroray keeps the
+  physically correct result and Cycles differs (owner 2026-09-29), e.g. dispersion/photon
+  caustics in `v2_dispersion_caustics`. They are not failures.
+
 ## Naming and files
 
 - `scenes/<family>.blend` -- the built scene (one `.blend` per family for

@@ -426,6 +426,9 @@ def main():
     p.add_argument("--gate-c-seed", type=int, default=278)
     p.add_argument("--gate-c-control", default="", help="declared gate-c negative control kind")
     p.add_argument("--gate-c-mask-out", default="", help="write source-geometry gate-c mask here")
+    p.add_argument("--spp-override", type=int, default=None,
+                   help="render this many samples instead of the corpus scene's declared "
+                        "samples (pkg284 v2 reference legs: 1024 spp vs the 64 spp gate)")
     p.add_argument("--seed", type=int, default=None,
                    help="explicit non-zero render seed (default: gate-c seed)")
     p.add_argument("--light-tree", choices=("on", "off"), default=None,
@@ -460,6 +463,10 @@ def main():
                 setattr(args, arg, declared)
             if args.gate_c_freeze:
                 freeze = _load_gate_c_freeze(args.gate_c_freeze, args.gate_c_freeze_sha256)
+        if args.spp_override is not None:
+            if args.spp_override <= 0:
+                raise ValueError("--spp-override must be positive")
+            args.samples = args.spp_override
         if bool(args.gate_b_case) != bool(args.gate_b_report):
             raise ValueError("--gate-b-case and --gate-b-report must be supplied together")
         if bool(args.gate_b_case) != bool(args.gate_b_control) or bool(args.gate_b_case) != bool(args.gate_b_mask_out):

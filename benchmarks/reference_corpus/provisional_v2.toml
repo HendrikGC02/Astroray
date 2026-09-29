@@ -418,3 +418,11 @@ channels = ["g"]
 issue = "#960"
 reason = "thin-film Ti single-channel outliers"
 
+
+[[row]]
+scene = "v2_thin_film_metals"
+backend = "gpu"
+roi = "sphere_Ti260"
+channels = ["r"]
+issue = "#960"
+reason = "thin-film Ti single-channel outliers"

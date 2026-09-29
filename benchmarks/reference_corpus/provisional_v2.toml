@@ -242,3 +242,30 @@ roi = "sphere_Ti260"
 channels = ["r"]
 issue = "#960"
 reason = "thin-film Ti single-channel outliers"
+
+# pkg305 (stratified camera group, 2026-09-30): CPU seed-278 re-measure on f0f8b5f6. With
+# 15-30 independent seeds (278 + 10000 k) the means equal the baseline's (|z| <= 2.6); these
+# rows fail on one seed-278 realization. Evidence: astra_run/AP/ap-305.
+[[row]]
+scene = "v2_thin_film_metals"
+backend = "cpu"
+roi = "sphere_Ti260"
+channels = ["r", "L"]
+issue = "#960"
+reason = "thin-film Ti single-channel outliers: 30-seed CPU mean r 1.04 of Cycles (band edge), seed 278 reads 1.074"
+
+[[row]]
+scene = "v2_dispersion_caustics"
+backend = "cpu"
+roi = "prism_sun_caustic_floor"
+channels = ["g", "b", "L"]
+issue = "#986"
+reason = "firefly lottery: 1/15 seeds on main, 2/15 with pkg305 carry a firefly (G 0.3-3.1 vs 0.022); medians equal"
+
+[[row]]
+scene = "v2_dispersion_caustics"
+backend = "cpu"
+roi = "sphere_limb"
+channels = ["r"]
+issue = "#986"
+reason = "pin sigma from correlated seeds 278-282; 15-seed means equal the baseline (z -0.4), seed 278 reads 1.116"

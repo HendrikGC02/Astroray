@@ -102,7 +102,7 @@ def test_preset_files_cite_a_doi():
 
 def test_node_status_line(leg):
     d = _ok(leg, "node_status_line")
-    assert d["unwired"] == [["Not wired to Surface: no effect on this material", "INFO"]]
+    assert d["unwired"] == [["Unwired: no effect", "INFO"]]
     assert d["wired"] == []  # used by the converter -> no status line
     assert d["behind_mix"][0][1] == "ERROR"
     # The UI's reachable set is exactly the converter's dispatch set.

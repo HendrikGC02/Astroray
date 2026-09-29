@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** in-review (Phase 1 implemented on lane/ap-311; PR pending)
 **Estimated effort:** 2 sessions (~6 h), addon Python only
 **Depends on:** pkg176, pkg195
 
@@ -123,11 +123,11 @@ engine build.
 
 ## Progress
 
-- [ ] Conventions note
-- [ ] Add-menu categories + node status line
-- [ ] Black Hole sub-panels + presets
-- [ ] Tooltip lint + un-honoured labels
-- [ ] Tests, screenshots, packaging
+- [x] Conventions note
+- [x] Add-menu categories + node status line
+- [x] Black Hole sub-panels + presets
+- [x] Tooltip lint + un-honoured labels
+- [x] Tests, screenshots, packaging
 
 ---
 

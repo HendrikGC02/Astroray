@@ -340,8 +340,8 @@ def native_surface_status(node):
     if surface_root_node(tree) == node:
         return None
     if any(s.is_linked for s in node.outputs):
-        return ('ERROR', "No effect: only a node wired directly to Surface is used")
-    return ('INFO', "Not wired to Surface: no effect on this material")
+        return ('ERROR', "Ignored: not direct")
+    return ('INFO', "Unwired: no effect")
 
 
 def _draw_native_status(node, layout):

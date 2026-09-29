@@ -26,6 +26,9 @@
 #include "astroray/gpu_wavefront_state.h"
 #include "astroray/gpu_types.h"
 #include "astroray/sampling/wavefront_rng_device.h"
+#include "astroray/sampling/sobol_burley.h"     // pkg305 camera group
+#include "astroray/sampling/path_dimensions.h"
+#include "astroray/sampling/filter_table.h"
 #include "../profile.h"
 
 #include <cuda_runtime.h>
@@ -45,6 +48,34 @@ __constant__ GPixelFilterParams c_wfPixelFilter = {0, 1.0f};
 void setWavefrontPixelFilter(int type, float width) {
     GPixelFilterParams p{type, width};
     cudaMemcpyToSymbol(c_wfPixelFilter, &p, sizeof(GPixelFilterParams));
+}
+
+// pkg305 — the single device definition of the Sobol-Burley table declared in
+// sobol_burley.h (statically initialised from the Cycles literal).
+}  // namespace astroray::wavefront
+namespace astroray { namespace sobol_burley {
+__constant__ uint32_t c_table[4][32] = ASTRORAY_SOBOL_BURLEY_TABLE_INIT;
+} }  // namespace astroray::sobol_burley
+namespace astroray::wavefront {
+
+// pkg305 — stratified camera group (FILTER / LENS / HERO_LAMBDA from
+// Sobol-Burley, sobol_burley.h), published ONCE per frame by cuda_wavefront_render
+// / cuda_wavefront_render_restir (setWavefrontCameraGroup). enabled == 0 (the
+// default, and what launchStageInit publishes for the snapshot drivers) keeps the
+// pre-pkg305 PCG32 camera draws, which the CPU wavefront oracle mirrors.
+struct GCameraGroup { int enabled; uint32_t seed; uint32_t indexOffset; uint32_t mask; };
+__constant__ GCameraGroup c_wfCameraGroup = {0, 0u, 0u, 0xFFFFFFFFu};
+// pkg305 — tabulated pixel-filter CDF (filter_table.h), Gaussian / BH only.
+__constant__ float c_wfFilterTable[astroray::filter_table::kSize];
+
+void setWavefrontCameraGroup(int enabled, uint32_t seed, uint32_t indexOffset, uint32_t mask) {
+    GCameraGroup g{enabled, seed, indexOffset, mask};
+    cudaMemcpyToSymbol(c_wfCameraGroup, &g, sizeof(GCameraGroup));
+}
+
+void setWavefrontFilterTable(const float* table) {
+    cudaMemcpyToSymbol(c_wfFilterTable, table,
+                       sizeof(float) * astroray::filter_table::kSize);
 }
 
 // #802 Batch A item 4 - Render Region, published ONCE per frame into this
@@ -238,16 +269,53 @@ __device__ inline void generatePrimaryRay(
     int px, int py, int width, int height,
     GVec3& ray_origin, GVec3& ray_direction,
     GSampledWavelengths& lambdas,
-    float lambdaMin, float lambdaMax)
+    float lambdaMin, float lambdaMax,
+    uint32_t pixel, uint32_t sample_idx)
 {
+    float u, v, lens_offset_x, lens_offset_y, lambda_u;
+    if (c_wfCameraGroup.enabled) {
+        // pkg305 — stratified camera group, the SAME Sobol-Burley draws as the CPU
+        // tile loop (include/raytracer.h): Cycles path_rng_2D(PRNG_FILTER),
+        // path_rng_2D(PRNG_LENS), 1D hero lambda (Wilkie et al. 2014), keyed by
+        // (pixel, global sample index, seed). Filter via the tabulated CDF
+        // (filter_table.h, Cycles filter functions); lens via the concentric disk map
+        // (Shirley & Chiu 1997; Cycles sample_uniform_disk).
+        const uint32_t pseed = astroray::sobol_burley::pixelSeed(pixel, c_wfCameraGroup.seed);
+        const uint32_t si = c_wfCameraGroup.indexOffset + sample_idx;
+        const uint32_t mask = c_wfCameraGroup.mask;
+        float fu, fv, lu, lv;
+        astroray::sobol_burley::sample2D(si, astroray::PATHDIM_FILTER, pseed, mask, fu, fv);
+        astroray::sobol_burley::sample2D(si, astroray::PATHDIM_LENS, pseed, mask, lu, lv);
+        lambda_u = astroray::sobol_burley::sample1D(si, astroray::PATHDIM_HERO_LAMBDA, pseed, mask);
+        const int ftype = c_wfPixelFilter.type;
+        const float fw = c_wfPixelFilter.width;
+        u = (px + 0.5f + astroray::filter_table::sampleOffset(ftype, fw, c_wfFilterTable, fu)) / float(width);
+        v = 1.0f - (py + 0.5f + astroray::filter_table::sampleOffset(ftype, fw, c_wfFilterTable, fv)) / float(height);
+        const float a = 2.0f * lu - 1.0f;
+        const float b = 2.0f * lv - 1.0f;
+        float dx = 0.0f, dy = 0.0f;
+        if (a != 0.0f || b != 0.0f) {
+            const float kPi4 = 0.78539816339744830962f;
+            float r, phi;
+            if (a * a > b * b) { r = a; phi = kPi4 * (b / a); }
+            else               { r = b; phi = 2.0f * kPi4 - kPi4 * (a / b); }
+            dx = r * cosf(phi);
+            dy = r * sinf(phi);
+        }
+        lens_offset_x = dx * cam.lensRadius;
+        lens_offset_y = dy * cam.lensRadius;
+        // Later draws keep the PCG32 (or pkg224) stream at the box-filter
+        // position the legacy camera leaves it (4 draws).
+        rng.setDimension(4u);
+    } else {
     // 1. Filter u/v (CPU draws 2× std::uniform_real_distribution<float>(0,1)).
     // pkg212: +0.5f pixel-center offset — filterSample() returns the filter
     // offset centered at 0 ([-0.5,0.5]); the raster pixel-center convention
     // (integer+0.5, matches Cycles + the megakernel raytracer.h) belongs at
     // the call site, not inside filterSample. See pkg212 spec.
     // #845: divide by W/H so pixel i's centre lands at film (i+0.5)/W (Cycles).
-    float u = (px + 0.5f + filterSample(rng)) / float(width);
-    float v = 1.0f - (py + 0.5f + filterSample(rng)) / float(height);
+    u = (px + 0.5f + filterSample(rng)) / float(width);
+    v = 1.0f - (py + 0.5f + filterSample(rng)) / float(height);
 
     // 2. Lens seed draw (CPU converts to mt19937; we consume the same dimension).
     uint32_t lens_seed = rng.UniformUInt32();
@@ -262,8 +330,13 @@ __device__ inline void generatePrimaryRay(
     float lens_u2 = ((lens_seed >> 16) & 0xFFFF) / float(0xFFFF);
     float lens_r = sqrtf(lens_u1);
     float lens_theta = 2.0f * 3.14159265f * lens_u2;
-    float lens_offset_x = lens_r * cosf(lens_theta) * cam.lensRadius;
-    float lens_offset_y = lens_r * sinf(lens_theta) * cam.lensRadius;
+    lens_offset_x = lens_r * cosf(lens_theta) * cam.lensRadius;
+    lens_offset_y = lens_r * sinf(lens_theta) * cam.lensRadius;
+
+    // 3. Lambda draw (CPU: std::uniform_real_distribution<float>(0,1)). Drawn
+    // here (4th PCG draw, as before; ray building below consumes no RNG).
+    lambda_u = rng.Uniform();
+    }  // pkg305 legacy camera draws
 
     if (cam.orthographic) {
         // #845: PBRT v4 OrthographicCamera (mirrors CPU Camera::orthoRay):
@@ -301,10 +374,8 @@ __device__ inline void generatePrimaryRay(
     }
     }  // #845 perspective
 
-    // 3. Lambda draw (CPU: std::uniform_real_distribution<float>(0,1)). pkg206:
-    // primary path uses luminance-weighted IMPORTANCE sampling (mirrors CPU
-    // path_kernel.cpp::init_path). Same ONE-draw count as the old uniform path.
-    float lambda_u = rng.Uniform();
+    // pkg206: primary path uses luminance-weighted IMPORTANCE sampling (mirrors
+    // CPU path_kernel.cpp::init_path). Same ONE-draw count as the old uniform path.
     lambdas = sampleImportanceWavelength(lambda_u, lambdaMin, lambdaMax);
 }
 
@@ -338,7 +409,8 @@ __device__ void initPathSlot(
     GVec3 ray_origin, ray_direction;
     GSampledWavelengths lambdas;
     generatePrimaryRay(rng, cam, px, py, width, height, ray_origin, ray_direction, lambdas,
-                       lambdaMin, lambdaMax);
+                       lambdaMin, lambdaMax, static_cast<uint32_t>(pixel),
+                       static_cast<uint32_t>(sample_idx));
 
     // SoA writes. Store the LIVE RNG state (dimension counter advanced by 4 draws).
     state.pixel_index[idx]  = pixel;
@@ -448,6 +520,10 @@ void launchStageInit(
         throw std::runtime_error(
             "wavefront::launchStageInit — SoA capacity smaller than pixel count");
     }
+    // pkg305: only the snapshot drivers launch this kernel; they compare against
+    // the PCG32 CPU wavefront oracle, so the camera group is published OFF here
+    // (c_wfCameraGroup persists across calls; cuda_wavefront_render re-publishes).
+    setWavefrontCameraGroup(0, 0u, 0u, 0xFFFFFFFFu);
     int threads = 256;
     int blocks  = (total + threads - 1) / threads;
     {

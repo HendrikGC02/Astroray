@@ -87,8 +87,10 @@ public:
         if (!renderer_) return r;
 
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
+        // pkg305: stratified hero uniform from the camera group when supplied.
+        const float heroU = ray.heroLambdaU >= 0.0f ? ray.heroLambdaU : dist01(gen);
         astroray::SampledWavelengths lambdas =
-            astroray::SampledWavelengths::sampleUniform(dist01(gen), lambdaMin_, lambdaMax_);
+            astroray::SampledWavelengths::sampleUniform(heroU, lambdaMin_, lambdaMax_);
 
         // First-hit albedo AOV
         const auto* bvh = renderer_->getBVH().get();

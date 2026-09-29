@@ -1997,6 +1997,11 @@ public:
         renderer.setSeed(seed);
     }
 
+    // pkg305 — stratified camera group (Sobol-Burley filter/lens/hero lambda).
+    void setStratifiedCamera(bool use) { renderer.setStratifiedCamera(use); }
+    bool getStratifiedCamera() const { return renderer.getStratifiedCamera(); }
+    void setProgressiveSampleOffset(int offset) { renderer.setProgressiveSampleOffset(offset); }
+
     void setPixelFilter(int filterType, float filterWidth) {
         renderer.setPixelFilter(filterType, filterWidth);
     }
@@ -2449,10 +2454,16 @@ public:
             // GPU viewport stayed frozen at the 1-sample noise while the CPU
             // viewport (which already honours this contract) refined. A non-zero
             // pin stays deterministic (final render / parity + golden tests).
-            const uint64_t effectiveSeed =
+            uint64_t effectiveSeed =
                 (renderer.getSeed() == 0)
                     ? static_cast<uint64_t>(std::random_device{}())
                     : static_cast<uint64_t>(renderer.getSeed());
+            // pkg305: a later progressive chunk (local sample indices restart at 0)
+            // must not replay chunk 0's PCG stream under a pinned seed. The camera
+            // group itself continues the global index (resolveCameraGroup).
+            if (renderer.getProgressiveSampleOffset() > 0)
+                effectiveSeed ^= static_cast<uint64_t>(astroray::HashHP(
+                    static_cast<uint32_t>(renderer.getProgressiveSampleOffset()))) << 32;
             // pkg201 Stage 3 (Finding A) — the GPU branch does NOT call
             // Renderer::render(), so store the per-type bounce limits on the
             // renderer here; cuda_wavefront_render reads them
@@ -3901,6 +3912,17 @@ PYBIND11_MODULE(astroray, m) {
         .def("set_clamp_indirect", &PyRenderer::setClampIndirect, "value"_a)
         .def("set_filter_glossy", &PyRenderer::setFilterGlossy, "value"_a)
         .def("set_seed", &PyRenderer::setSeed, "seed"_a)
+        .def("set_stratified_camera", &PyRenderer::setStratifiedCamera, "use"_a,
+             "pkg305: True (default) draws the pixel-filter, lens and hero-wavelength "
+             "samples from a per-pixel Sobol-Burley sequence (CPU and GPU); False "
+             "restores the white-noise camera draws.")
+        .def("get_stratified_camera", &PyRenderer::getStratifiedCamera)
+        .def("set_progressive_sample_offset", &PyRenderer::setProgressiveSampleOffset,
+             "offset"_a,
+             "pkg305: >= 0 marks the next render() as a progressive chunk that renders "
+             "global sample indices [offset, offset + spp) of one session (viewport "
+             "accumulation); seed 0 keeps the session's random seed after offset 0. "
+             "-1 (default) = standalone render.")
         .def("set_pixel_filter", &PyRenderer::setPixelFilter, "filter_type"_a, "filter_width"_a)
         .def("set_light_sampler", &PyRenderer::setLightSampler, "mode"_a)
         .def("debug_light_tree_pick", &PyRenderer::debugLightTreePick,

@@ -1808,6 +1808,15 @@ std::vector<float> cuda_wavefront_render(
     // offset over the full filter width (stage_init.cu::filterSample).
     setWavefrontPixelFilter(renderer.getPixelFilterType(),
                             renderer.getPixelFilterWidth());
+    // pkg305 — stratified camera group + filter table, the same keying as the CPU
+    // tile loop (Renderer::resolveCameraGroup; sample index continues across
+    // progressive chunks via its indexOffset).
+    {
+        const Renderer::CameraGroupParams cg = renderer.resolveCameraGroup(samples);
+        const float* ftable = renderer.buildFilterTable();
+        if (cg.enabled && renderer.getPixelFilterType() != 0) setWavefrontFilterTable(ftable);
+        setWavefrontCameraGroup(cg.enabled ? 1 : 0, cg.seed, cg.indexOffset, cg.mask);
+    }
     // #802 Batch A item 4 - publish the Render Region every frame. Inactive
     // (renderRegionActive()==false) is the byte-identical fleet default; when a
     // border is set the init stage kills outside-pixel paths so wavefront work
@@ -2746,6 +2755,7 @@ std::vector<float> cuda_wavefront_render_restir(
     setWavefrontLightNeeOff(false);
     setWavefrontEmissionTexture(0, 0x7fffffff);  // #962: ReSTIR keeps the flat mean emission
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
+    setWavefrontCameraGroup(0, 0u, 0u, 0xFFFFFFFFu);  // pkg305: ReSTIR keeps PCG32 camera draws
 
     GCameraParams gcam;
     gcam.origin     = GVec3(cam.getOrigin().x, cam.getOrigin().y, cam.getOrigin().z);

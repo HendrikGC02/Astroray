@@ -172,13 +172,10 @@ def test_pkg293_cpu_program_changes_squares(case, kind):
 #  * Disney metallic 1 + transmission > 0 single closure: constant m=1, t=0.9 gives
 #    GPU/CPU 2.2-4.0 (CPU sample() runs the transmission roulette ignoring
 #    metallic; the GPU twin differs). The metal squares here are m=1, t=1.
-#  * Principled rough glass: constant transmission 1 reads GPU/CPU 1.03-1.07, and
-#    the program-driven squares 1.047, identical on the pre-pkg293 main build.
+#  (The Principled rough-glass squares, #957, pass since the #953 layering fix:
+#   strict xfail on the pre-fix build, parity on 1456472c.)
 _KNOWN_GAPS = {
     ("metallic_glass", "disney"): "#956: pre-existing Disney m>0 & t>0 GPU/CPU twin gap",
-    ("transmission", "principled"): "#957: pre-existing Principled rough-glass GPU/CPU ~5 %",
-    ("transmission_from_glass", "principled"): "#957: pre-existing Principled rough-glass "
-                                               "GPU/CPU ~5 %",
 }
 
 

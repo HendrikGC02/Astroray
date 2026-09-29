@@ -909,7 +909,11 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .stage{position:fixed;inset:0}
   aside{position:fixed;z-index:10;background:var(--c-panel);border:1px solid var(--c-line);border-radius:10px;
     box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:auto;box-sizing:border-box}
-  #panel{top:14px;left:14px;width:296px;max-height:calc(100vh - 28px);padding:12px 14px}
+  #panel{top:14px;left:14px;width:260px;max-height:calc(100vh - 28px);padding:10px 12px}
+  #panel.collapsed{width:auto}
+  details.sec{margin:6px 0}details.sec>summary{cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--c-mute)}
+  #loading{position:fixed;z-index:15;top:50%;left:50%;transform:translate(-50%,-50%);padding:8px 16px;border-radius:8px;background:var(--c-panel);border:1px solid var(--c-line)}
+  .clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
   #panel header,#insp .ih{display:flex;align-items:center;justify-content:space-between;gap:8px}
   #panel h1{margin:0;font-size:14px;font-weight:600}
   #panel.collapsed #pbody{display:none}
@@ -930,7 +934,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
   #fresh{font-size:11px;margin:6px 0 8px;line-height:1.4}
   #res .hit{padding:4px 6px;border-radius:6px;cursor:pointer;display:flex;gap:6px;align-items:baseline}
   #res .hit:hover,#res .hit.first{background:rgba(128,128,128,.18)}
-  #insp{top:14px;right:14px;width:350px;max-height:calc(100vh - 28px);padding:12px 14px;line-height:1.45}
+  #insp{top:14px;right:14px;width:340px;max-height:calc(100vh - 28px);padding:12px 14px;line-height:1.45}
   #insp .it{font-weight:600;margin:6px 0}
   #insp h4{margin:10px 0 3px;font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--c-mute)}
   #insp .st{margin:0;white-space:pre-wrap;word-break:break-word}
@@ -956,6 +960,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
 <div id="g2" class="stage"></div>
 <div id="g3" class="stage" hidden></div>
 <div id="banner" hidden></div>
+<div id="loading" hidden>Loading 3D&hellip;</div>
 <aside id="panel">
   <header><h1>Astroray knowledge graph</h1>
     <span><button id="theme" title="Toggle light/dark">&#9680;</button> <button id="collapse" title="Collapse panel">&#8211;</button></span></header>
@@ -963,40 +968,42 @@ _HTML_TEMPLATE = r"""<!doctype html>
     <div id="fresh" class="mute"></div>
     <input type="text" id="q" placeholder="Search num / title / path  ( / )" autocomplete="off">
     <div id="res"></div>
-    <div class="section">Layout</div>
+    <div class="section" style="margin-top:6px">Layout</div>
     <select id="layout"><option value="2d">2D graph</option><option value="3d">3D graph</option><option value="timeline">Timeline (packages by date &times; pillar)</option></select>
     <div class="section">Focus on selection (f)</div>
     <select id="focus"><option value="0">off</option><option value="1">1-hop neighbourhood</option><option value="2">2-hop neighbourhood</option>
       <option value="up">upstream dependencies</option><option value="down">downstream dependants</option></select>
-    <div class="section">Layers</div>
-    <div class="grid">
-      <label class="chip"><input type="checkbox" id="t-package" checked>Packages</label>
-      <label class="chip"><input type="checkbox" id="t-doc" checked>Docs</label>
-      <label class="chip"><input type="checkbox" id="t-file">Files</label>
-      <label class="chip"><input type="checkbox" id="t-issue">Issues/PRs</label>
-    </div>
-    <div class="section">Edges</div>
-    <div class="grid">
-      <label class="chip"><input type="checkbox" id="t-dep" checked>Dependency</label>
-      <label class="chip"><input type="checkbox" id="t-dedge" checked>Doc</label>
-      <label class="chip"><input type="checkbox" id="t-hub">Hub-doc edges</label>
-      <label class="chip"><input type="checkbox" id="t-fedge">File</label>
-      <label class="chip"><input type="checkbox" id="t-iedge" checked>Issue/PR</label>
-    </div>
-    <div class="section">Package state</div>
-    <div class="grid" id="states"></div>
-    <label class="chip"><input type="checkbox" id="t-hidedone">Hide done</label>
-    <div class="section">Pillar</div>
-    <div class="grid" id="pillars"></div>
-    <div class="section">Health overlay</div>
-    <label class="chip"><input type="checkbox" id="t-health">Show rings</label>
-    <div id="hcounts" class="mute"></div>
-    <div class="section">Other nodes</div>
-    <div class="grid">
-      <span class="chip"><i class="sw box" style="background:var(--c-doc)"></i>doc</span>
-      <span class="chip"><i class="sw box" style="background:var(--c-file);transform:scale(.7)"></i>file</span>
-      <span class="chip"><i class="sw dia" style="background:var(--c-issue)"></i>issue / PR</span>
-    </div>
+    <details class="sec"><summary>Layers</summary>
+      <div class="grid">
+        <label class="chip"><input type="checkbox" id="t-package" checked>Packages</label>
+        <label class="chip"><input type="checkbox" id="t-doc">Docs</label>
+        <label class="chip"><input type="checkbox" id="t-file">Files</label>
+        <label class="chip"><input type="checkbox" id="t-issue">Issues/PRs</label>
+      </div>
+      <div class="grid" style="margin-top:4px">
+        <span class="chip"><i class="sw box" style="background:var(--c-doc)"></i>doc</span>
+        <span class="chip"><i class="sw box" style="background:var(--c-file);transform:scale(.7)"></i>file</span>
+        <span class="chip"><i class="sw dia" style="background:var(--c-issue)"></i>issue / PR</span>
+      </div>
+    </details>
+    <details class="sec"><summary>Edges</summary>
+      <div class="grid">
+        <label class="chip"><input type="checkbox" id="t-dep" checked>Dependency</label>
+        <label class="chip"><input type="checkbox" id="t-dedge">Doc</label>
+        <label class="chip"><input type="checkbox" id="t-hub">Hub-doc edges</label>
+        <label class="chip"><input type="checkbox" id="t-fedge">File</label>
+        <label class="chip"><input type="checkbox" id="t-iedge" checked>Issue/PR</label>
+      </div>
+    </details>
+    <details class="sec"><summary>Package state</summary>
+      <div class="grid" id="states"></div>
+      <label class="chip"><input type="checkbox" id="t-hidedone">Hide done</label>
+    </details>
+    <details class="sec"><summary>Pillar</summary><div class="grid" id="pillars"></div></details>
+    <details class="sec"><summary>Health overlay</summary>
+      <label class="chip"><input type="checkbox" id="t-health">Show rings</label>
+      <div id="hcounts" class="mute"></div>
+    </details>
     <hr><div id="counts" class="mute"></div>
     <div class="mute" style="margin-top:6px;font-size:11px">click a node to inspect &middot; f focus &middot; / search &middot; Esc clear</div>
   </div>
@@ -1012,7 +1019,6 @@ const DATA = __DATA__;
 const META = DATA.meta || {};
 const LIBS = {
   fg2: 'https://unpkg.com/force-graph@1.43.5/dist/force-graph.min.js',
-  three: 'https://unpkg.com/three@0.150.1/build/three.min.js',
   fg3: 'https://unpkg.com/3d-force-graph@1.73.3/dist/3d-force-graph.min.js'
 };
 const STATES = ['open','in-progress','blocked','paused','done','superseded','other'];
@@ -1089,7 +1095,8 @@ function build(){
   const nodes = DATA.nodes.filter(visible);
   const ids = new Set(nodes.map(n => n.id));
   // Fresh link objects every time: the graph libs rewrite source/target into node objects.
-  const links = DATA.edges.filter(e => edgeOn(e) && ids.has(e.source) && ids.has(e.target)).map(e => Object.assign({}, e));
+  const links = DATA.edges.filter(e => edgeOn(e) && ids.has(e.source) && ids.has(e.target) &&
+    (layout !== 'timeline' || e.source === sel || e.target === sel)).map(e => Object.assign({}, e));
   return {nodes, links};
 }
 
@@ -1121,52 +1128,66 @@ const dimmed = n => focusSet && !focusSet.has(n.id);
 const linkDimmed = l => focusSet && !(focusSet.has(idOf(l.source)) && focusSet.has(idOf(l.target)));
 
 // ---- drawing (2D) ---------------------------------------------------------------
+const ACTIVE = {'open':1, 'in-progress':1, 'blocked':1};
+const shortTitle = n => (n.title || '').replace(/^pkg[0-9a-z-]*\s*[—–-]\s*/i, '');
+let Kz = 1;
+function nodePx(n){   // on-screen radius in px (>= ~4)
+  if(n.group === 'package') return ACTIVE[n.state] ? 6.5 : n.state === 'done' ? 4 : 4.5;
+  return n.group === 'doc' ? 4 : n.group === 'issue' ? 4.5 : 3.5;
+}
 function drawNode(n, ctx, k){
   if(n.x == null || isNaN(n.x)) return;
-  const dim = dimmed(n), isSel = n.id === sel;
-  const r = n.group === 'package' ? 4.2 : n.group === 'doc' ? 3.2 : 2.4;
-  ctx.globalAlpha = dim ? 0.12 : 1;
+  const dim = dimmed(n), isSel = n.id === sel, r = nodePx(n) * (layout === 'timeline' ? 0.8 : 1) / k;
+  ctx.globalAlpha = dim ? 0.12 : n.state === 'done' ? 0.6 : 1;
   ctx.fillStyle = colorOf(n);
   ctx.beginPath();
   if(n.group === 'package') ctx.arc(n.x, n.y, r, 0, 2 * Math.PI);
-  else if(n.group === 'issue'){ const d = r * 1.4; ctx.moveTo(n.x, n.y - d); ctx.lineTo(n.x + d, n.y); ctx.lineTo(n.x, n.y + d); ctx.lineTo(n.x - d, n.y); ctx.closePath(); }
+  else if(n.group === 'issue'){ const d = r * 1.3; ctx.moveTo(n.x, n.y - d); ctx.lineTo(n.x + d, n.y); ctx.lineTo(n.x, n.y + d); ctx.lineTo(n.x - d, n.y); ctx.closePath(); }
   else ctx.rect(n.x - r, n.y - r, 2 * r, 2 * r);
   ctx.fill();
   if(T('t-health') && hasHealth(n)){
     const hk = healthKey(n);
-    ctx.strokeStyle = PV[hk]; ctx.lineWidth = 1.6;
-    ctx.setLineDash(hk === 'nofile' ? [2, 2] : []);
-    ctx.beginPath(); ctx.arc(n.x, n.y, r + 2.6, 0, 2 * Math.PI); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = PV[hk]; ctx.lineWidth = 1.6 / k;
+    ctx.setLineDash(hk === 'nofile' ? [2 / k, 2 / k] : []);
+    ctx.beginPath(); ctx.arc(n.x, n.y, r + 2.6 / k, 0, 2 * Math.PI); ctx.stroke(); ctx.setLineDash([]);
   }
-  if(isSel){ ctx.strokeStyle = PV.fg; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(n.x, n.y, r + 5, 0, 2 * Math.PI); ctx.stroke(); }
+  if(isSel){ ctx.strokeStyle = PV.fg; ctx.lineWidth = 2 / k; ctx.beginPath(); ctx.arc(n.x, n.y, r + 5 / k, 0, 2 * Math.PI); ctx.stroke(); }
   let txt = null;
   if(n.group === 'package'){
-    if(isSel || k >= 3.5) txt = (n.num + ' ' + n.title).slice(0, 64);
-    else if(k >= 1.8 || (focusSet && !dim && k >= 0.9)) txt = n.num;
+    if(isSel || k >= 3.5) txt = (n.num + ' ' + shortTitle(n)).slice(0, 64);
+    else if(ACTIVE[n.state] || k >= 1.8 || (focusSet && !dim && k >= 0.9)) txt = n.num;
   } else if(isSel || k >= 5) txt = n.label;
   if(txt && !dim){
+    ctx.globalAlpha = 1;
     ctx.font = (11 / k) + 'px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.lineWidth = 3 / k; ctx.strokeStyle = PV.bg; ctx.strokeText(txt, n.x, n.y + r + 2 / k);
     ctx.fillStyle = PV.fg; ctx.fillText(txt, n.x, n.y + r + 2 / k);
   }
   ctx.globalAlpha = 1;
 }
-function paintArea(n, color, ctx){ if(n.x == null) return; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(n.x, n.y, 6, 0, 2 * Math.PI); ctx.fill(); }
+function paintArea(n, color, ctx, k){ if(n.x == null) return; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(n.x, n.y, (nodePx(n) + 2) / (k || 1), 0, 2 * Math.PI); ctx.fill(); }
+const touchesSel = l => sel && (idOf(l.source) === sel || idOf(l.target) === sel);
+const linkBase = l => l.kind === 'depends' ? PV.open : l.kind === 'doc' ? PV.doc : l.kind === 'file' ? PV.file : PV.issue;
 function linkCol(l){
-  const c = l.kind === 'depends' ? PV.open : l.kind === 'doc' ? PV.doc : l.kind === 'file' ? PV.file : PV.issue;
-  const a = linkDimmed(l) ? 0.05 : l.ambiguous ? 0.3 : l.kind === 'depends' ? 0.85 : l.kind === 'file' ? 0.35 : 0.5;
-  return hexA(c, a);
+  const a = linkDimmed(l) ? 0.04 : touchesSel(l) ? 0.9 : l.ambiguous ? 0.25 : l.kind === 'depends' ? 0.45 : l.kind === 'issue' ? 0.3 : 0.2;
+  return hexA(linkBase(l), a);
 }
-const linkW = l => l.kind === 'depends' ? 1.4 : 0.7;
+function linkCol3(l){   // 3D lines are 1 px: needs more opacity, most of all on a light background
+  const light = effTheme() === 'light';
+  const a = linkDimmed(l) ? 0.05 : touchesSel(l) ? 1 : l.kind === 'depends' ? (light ? 0.85 : 0.6) : (light ? 0.5 : 0.3);
+  return hexA(linkBase(l), a);
+}
+const linkW = l => (touchesSel(l) ? 1.6 : l.kind === 'depends' ? 0.8 : 0.4) / Kz;
 function preFrame(ctx, k){
   if(layout !== 'timeline' || !TL) return;
+  const lx = graph.screen2GraphCoords(freeRect().x0 + 8, 0).x;
   ctx.save();
   ctx.font = (11 / k) + 'px system-ui,sans-serif'; ctx.fillStyle = PV.mute; ctx.strokeStyle = hexA(PV.mute, 0.25); ctx.lineWidth = 1 / k;
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
   TL.lanes.forEach((ln, i) => {
     const y = i * TL.laneH - TL.laneH / 2;
     ctx.beginPath(); ctx.moveTo(TL.xmin, y); ctx.lineTo(TL.xmax, y); ctx.stroke();
-    ctx.fillText(ln, TL.xmin, y + 4 / k);
+    ctx.fillStyle = PV.fg; ctx.fillText(ln, lx, y + 4 / k); ctx.fillStyle = PV.mute;
   });
   TL.months.forEach(m => {
     ctx.beginPath(); ctx.moveTo(m.x, TL.ytop); ctx.lineTo(m.x, TL.ybot); ctx.stroke();
@@ -1177,7 +1198,7 @@ function preFrame(ctx, k){
 
 // ---- timeline layout ------------------------------------------------------------
 function layoutTimeline(){
-  const DAYW = 10, LANE_H = 120, X_UND = -140;
+  const DAYW = 14, LANE_H = 150, X_UND = -140;
   const times = PKGS.filter(n => n.date).map(n => Date.parse(n.date));
   const d0 = times.length ? Math.min.apply(null, times) : Date.now();
   const d1 = times.length ? Math.max.apply(null, times) : d0;
@@ -1185,8 +1206,8 @@ function layoutTimeline(){
   PKGS.forEach(n => {
     const li = PILLARS.indexOf(n.pillar), key = li + '|' + (n.date || '-'), c = cnt[key] || 0;
     cnt[key] = c + 1;
-    const x = n.date ? (Date.parse(n.date) - d0) / 864e5 * DAYW + Math.floor(c / 10) * 8 : X_UND - Math.floor(c / 10) * 8;
-    n.x = n.fx = x; n.y = n.fy = li * LANE_H + (c % 10) * 10 - 45;
+    const x = n.date ? (Date.parse(n.date) - d0) / 864e5 * DAYW + Math.floor(c / 11) * 9 : X_UND - Math.floor(c / 11) * 9;
+    n.x = n.fx = x; n.y = n.fy = li * LANE_H + (c % 11) * 12 - 60;
   });
   const months = [{x: X_UND, label: 'undated'}];
   const m = new Date(d0); m.setUTCDate(1);
@@ -1194,7 +1215,7 @@ function layoutTimeline(){
     const x = (m.getTime() - d0) / 864e5 * DAYW;
     if(x >= 0) months.push({x, label: m.toISOString().slice(0, 7)});
   }
-  TL = {laneH: LANE_H, months, xmin: -320, xmax: (d1 - d0) / 864e5 * DAYW + 160, ytop: -LANE_H / 2, ybot: PILLARS.length * LANE_H - LANE_H / 2,
+  TL = {laneH: LANE_H, months, xmin: -260, xmax: (d1 - d0) / 864e5 * DAYW + 160, ytop: -LANE_H / 2, ybot: PILLARS.length * LANE_H - LANE_H / 2,
         lanes: PILLARS.map(p => p ? 'Pillar ' + p : 'Infra / none')};
 }
 function clearFixed(){ DATA.nodes.forEach(n => { delete n.fx; delete n.fy; }); }
@@ -1210,10 +1231,12 @@ function make2D(){
   g2 = ForceGraph()($('g2'))
     .nodeId('id').backgroundColor(PV.bg)
     .nodeCanvasObject(drawNode).nodeCanvasObjectMode(() => 'replace').nodePointerAreaPaint(paintArea)
+    .onZoom(z => { Kz = z.k; })
     .nodeLabel(n => esc(n.title || n.label))
     .linkColor(linkCol).linkWidth(linkW).linkLineDash(l => l.ambiguous ? [3, 3] : null)
-    .linkDirectionalArrowLength(l => l.kind === 'depends' ? 3.5 : 0).linkDirectionalArrowRelPos(1)
+    .linkDirectionalArrowLength(l => l.kind === 'depends' ? 5 / Kz : 0).linkDirectionalArrowRelPos(1)
     .autoPauseRedraw(false).d3VelocityDecay(0.35).cooldownTicks(100)
+    .onEngineStop(() => { if(fitPending){ fitPending = false; fitAll(); } })
     .onNodeClick(n => select(n.id)).onBackgroundClick(() => select(null))
     .onRenderFramePre(preFrame);
   g2.d3Force('charge').strength(-90).distanceMax(400);
@@ -1228,25 +1251,51 @@ function nodeVal3(n){
 }
 async function ensure3D(){
   if(g3) return;
-  if(!window.THREE) await loadScript(LIBS.three);
   if(!window.ForceGraph3D) await loadScript(LIBS.fg3);
   g3 = ForceGraph3D()($('g3'))
     .nodeId('id').backgroundColor(PV.bg).nodeLabel(n => esc(n.title || n.label))
     .nodeColor(nodeCol3).nodeVal(nodeVal3).nodeRelSize(4)
-    .linkColor(linkCol).linkWidth(l => l.kind === 'depends' ? 1.4 : 0.5)
+    .linkColor(linkCol3).linkWidth(l => l.kind === 'depends' ? 1 : 0.4)
     .linkDirectionalArrowLength(l => l.kind === 'depends' ? 3.5 : 0).linkDirectionalArrowRelPos(1)
-    .showNavInfo(false).d3VelocityDecay(0.35).warmupTicks(40).cooldownTicks(120)
+    .showNavInfo(false).d3VelocityDecay(0.35).warmupTicks(0).cooldownTicks(Infinity).cooldownTime(6000)
+    .onEngineStop(() => { if(fitPending){ fitPending = false; fitAll(); } })
     .onNodeClick(n => select(n.id)).onBackgroundClick(() => select(null));
   g3.d3Force('charge').strength(-140).distanceMax(450);
   g3.d3Force('link').distance(l => l.kind === 'file' ? 16 : 42);
 }
 function refreshStyle(){
-  if(graph && graph === g3) g3.nodeColor(nodeCol3).nodeVal(nodeVal3).linkColor(linkCol);
+  if(graph && graph === g3) g3.nodeColor(nodeCol3).nodeVal(nodeVal3).linkColor(linkCol3);
 }
+let fitPending = false, resizeTimer = 0;
 function resize(){
   const el = $(layout === '3d' ? 'g3' : 'g2');
   if(graph) graph.width(el.clientWidth || innerWidth).height(el.clientHeight || innerHeight);
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if(!sel) fitAll(); }, 250);
 }
+// Region of the window not covered by the panel / inspector.
+function freeRect(){
+  const W = innerWidth, H = innerHeight, p = $('panel'), i = $('insp'), pr = p.getBoundingClientRect();
+  let x0 = 0, x1 = W, y0 = 0, y1 = H;
+  if(W <= 700){ if(!p.hidden) y0 = pr.bottom + 4; if(!i.hidden) y1 = i.getBoundingClientRect().top - 4; }
+  else { if(!p.hidden && !p.classList.contains('collapsed')) x0 = pr.right + 10; if(!i.hidden) x1 = i.getBoundingClientRect().left - 10; }
+  return {x0, x1: Math.max(x1, x0 + 50), y0, y1: Math.max(y1, y0 + 50)};
+}
+// Zoom/centre so `ns` fills the free area (2D); 3D uses the engine's fit with overlay padding.
+function fitTo(ns, minK){
+  ns = ns.filter(n => n.x != null && !isNaN(n.x));
+  if(!graph || !ns.length) return;
+  const fr = freeRect();
+  if(graph === g3){ graph.zoomToFit(400, 60 + Math.max(fr.x0, innerWidth - fr.x1)); return; }
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  ns.forEach(n => { x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x); y0 = Math.min(y0, n.y); y1 = Math.max(y1, n.y); });
+  const fw = fr.x1 - fr.x0, fh = fr.y1 - fr.y0;
+  let k = Math.min(fw / Math.max(x1 - x0, 1), fh / Math.max(y1 - y0, 1)) * 0.85;
+  k = Math.min(Math.max(k, 0.05), 4); if(minK) k = Math.max(k, minK);
+  const dx = (fr.x0 + fr.x1) / 2 - innerWidth / 2, dy = (fr.y0 + fr.y1) / 2 - innerHeight / 2;
+  graph.zoom(k, 400); graph.centerAt((x0 + x1) / 2 - dx / k, (y0 + y1) / 2 - dy / k, 400);
+}
+function fitAll(){ fitTo(sel && focusSet ? curNodes.filter(n => focusSet.has(n.id)) : curNodes); }
 function updateCounts(){
   $('counts').textContent = 'showing ' + curNodes.length + ' nodes / ' + curLinks.length + ' edges (of ' + DATA.nodes.length + ' / ' + DATA.edges.length + ')';
 }
@@ -1254,14 +1303,16 @@ function render(){
   if(!graph) return;
   const d = build(); curNodes = d.nodes; curLinks = d.links;
   computeFocus();
-  graph.cooldownTicks(layout === 'timeline' ? 0 : layout === '3d' ? 120 : 100);
+  graph.cooldownTicks(layout === 'timeline' ? 0 : layout === '3d' ? Infinity : 100);
   graph.graphData(d);
+  fitPending = !sel || !!focusSet;
   updateCounts(); refreshStyle();
 }
 async function setLayout(l){
   if(l === '3d'){
-    try { await ensure3D(); }
-    catch(e){ showBanner('3D renderer failed to load (' + e.message + '); staying in the current layout.'); $('layout').value = layout; return; }
+    $('loading').hidden = false;
+    try { await new Promise(r => setTimeout(r, 30)); await ensure3D(); $('loading').hidden = true; }
+    catch(e){ $('loading').hidden = true; showBanner('3D renderer failed to load (' + e.message + '); staying in the current layout.'); $('layout').value = layout; return; }
   }
   layout = l; $('layout').value = l;
   const is3 = l === '3d';
@@ -1271,8 +1322,7 @@ async function setLayout(l){
   graph = is3 ? g3 : g2;
   if(l === 'timeline') layoutTimeline(); else clearFixed();
   resize(); render();
-  if(l === 'timeline') setTimeout(() => graph.zoomToFit(400, 60), 80);
-  else if(sel) setTimeout(() => flyTo(byId[sel]), 300);
+  if(sel) setTimeout(() => flyTo(byId[sel]), 300); else setTimeout(fitAll, 150);
   writeHash();
 }
 function showBanner(msg){ $('banner').textContent = msg; $('banner').hidden = false; }
@@ -1294,10 +1344,11 @@ function ensureVisible(n){
 }
 function flyTo(n){
   if(!graph || !n || n.x == null || isNaN(n.x)) return;
+  if(focusSet){ fitTo(curNodes.filter(m => focusSet.has(m.id))); return; }
   if(graph === g3){
     const z = n.z || 0, h = Math.hypot(n.x, n.y, z) || 1, r = 1 + 60 / h;
     graph.cameraPosition({x: n.x * r, y: n.y * r, z: z * r}, {x: n.x, y: n.y, z}, 900);
-  } else { graph.centerAt(n.x, n.y, 500); if(graph.zoom() < 2.5) graph.zoom(2.5, 500); }
+  } else fitTo([n], Math.max(Kz, 2.5));
 }
 function select(id, o){
   o = o || {};
@@ -1305,9 +1356,10 @@ function select(id, o){
   sel = n ? n.id : null;
   let rerendered = false;
   if(n) rerendered = ensureVisible(n);
+  if(layout === 'timeline' && !rerendered) render();
   computeFocus(); refreshStyle();
   showInspector(n); writeHash();
-  if(n && !o.noCam){ if(rerendered) setTimeout(() => flyTo(n), 450); else flyTo(n); }
+  if(n && !o.noCam){ if(rerendered) setTimeout(() => flyTo(n), 450); else setTimeout(() => flyTo(n), 30); }
 }
 function writeHash(){
   const p = [];
@@ -1344,7 +1396,8 @@ function showInspector(n){
   h += '<div class="it">' + esc(n.title || n.id) + '</div>';
   if(n.group === 'package'){
     h += '<div class="mute">' + ['pillar ' + (n.pillar || '-'), 'track ' + (n.track || '-'), 'effort ' + (n.effort || '-'), n.date ? n.date : 'undated'].map(esc).join(' &middot; ') + '</div>';
-    h += '<h4>Status</h4><p class="st">' + esc(n.status || '(none)') + '</p>';
+    const long = (n.status || '').length > 240;
+    h += '<h4>Status</h4><p class="st' + (long ? ' clamp' : '') + '">' + esc(n.status || '(none)') + '</p>' + (long ? '<a href="#" data-more="1">more</a>' : '');
     if(n.goal) h += '<h4>Goal</h4><p class="st">' + esc(n.goal) + '</p>';
     h += '<h4>Depends on</h4>' + list(N.dep, nlink);
     if(n.unresolved.length) h += '<div class="warn">unresolved: ' + esc(n.unresolved.join(', ')) + '</div>';
@@ -1373,16 +1426,24 @@ function showInspector(n){
     h += '<h4>Linked packages (' + N[n.group].length + ')</h4><details open><summary>show</summary>' + list(N[n.group], nlink) + '</details>';
   }
   el.innerHTML = h; el.hidden = false; el.scrollTop = 0;
+  if(innerWidth < 1100) $('panel').classList.add('collapsed');
 }
 
 // ---- search ---------------------------------------------------------------------
-const rankOf = (n, q) => (n.group === 'package' ? (n.num === q ? -1 : 0) : n.group === 'doc' ? 1 : n.group === 'file' ? 2 : 3);
+const stateRank = n => ACTIVE[n.state] ? 0 : n.state === 'paused' ? 1 : n.state === 'other' ? 2 : n.state === 'done' ? 3 : n.state === 'superseded' ? 4 : 5;
 function search(text){
   const terms = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if(!terms.length) return [];
-  const hits = DATA.nodes.filter(n => { const hay = (n.id + ' ' + n.title + ' ' + (n.path || '') + ' ' + n.label).toLowerCase(); return terms.every(t => hay.includes(t)); });
-  hits.sort((a, b) => rankOf(a, terms[0]) - rankOf(b, terms[0]));
-  return hits.slice(0, 15);
+  const t0 = terms[0], out = [];
+  DATA.nodes.forEach((n, i) => {
+    const title = (n.title || '').toLowerCase(), hay = (n.id + ' ' + title + ' ' + (n.path || '') + ' ' + n.label).toLowerCase();
+    if(!terms.every(t => hay.includes(t))) return;
+    const num = (n.group === 'package' ? n.num : n.label).toLowerCase();
+    const m = num === t0 ? 0 : num.startsWith(t0) ? 1 : terms.every(t => title.includes(t)) ? 2 : 3;
+    out.push({n, key: [m, n.group === 'package' ? 0 : n.group === 'doc' ? 1 : n.group === 'file' ? 2 : 3, n.group === 'package' ? stateRank(n) : 0, i]});
+  });
+  out.sort((a, b) => { for(let j = 0; j < 4; j++) if(a.key[j] !== b.key[j]) return a.key[j] - b.key[j]; return 0; });
+  return out.slice(0, 15).map(o => o.n);
 }
 let hits = [];
 function showResults(){
@@ -1412,13 +1473,16 @@ function ago(iso){
   const s = (Date.now() - Date.parse(iso)) / 1000; if(isNaN(s)) return iso;
   return (s < 3600 ? Math.round(s / 60) + ' min' : s < 86400 ? Math.round(s / 3600) + ' h' : Math.round(s / 86400) + ' d') + ' ago';
 }
-function setFocus(v){ focus = v; $('focus').value = v; computeFocus(); refreshStyle(); writeHash(); }
+function setFocus(v){ focus = v; $('focus').value = v; computeFocus(); refreshStyle(); writeHash();
+  if(sel) setTimeout(() => flyTo(byId[sel]), 30); }
 function wireCommon(){
   $('fresh').textContent = 'generated ' + (META.generated || '?') + ' | HEAD ' + (META.head || '?') + ' | gh-sync ' + ago(META.gh_synced_at) +
     ' | ' + DATA.nodes.length + ' nodes, ' + DATA.edges.length + ' edges';
   document.addEventListener('click', e => {
     const a = e.target.closest('[data-sel]'); if(a){ e.preventDefault(); select(a.getAttribute('data-sel')); return; }
     if(e.target.closest('[data-close]')){ select(null); return; }
+    const mo = e.target.closest('[data-more]');
+    if(mo){ e.preventDefault(); const p = mo.previousElementSibling; mo.textContent = p.classList.toggle('clamp') ? 'more' : 'less'; return; }
     const c = e.target.closest('[data-copy]');
     if(c){ try { navigator.clipboard.writeText(c.getAttribute('data-copy')); c.textContent = 'Copied'; setTimeout(() => c.textContent = 'Copy', 1200); } catch(err) {} }
   });
@@ -1459,16 +1523,24 @@ function offline(err){
   $('fq').addEventListener('input', draw); draw();
 }
 
+async function applyHash(){
+  const H = parseHash(), f = H.focus || '0';
+  if(FOCI.indexOf(f) >= 0 && f !== focus){ focus = f; $('focus').value = f; }
+  const l = ['2d', '3d', 'timeline'].indexOf(H.layout) >= 0 ? H.layout : '2d';
+  if(l !== layout) await setLayout(l);
+  const id = H.node && byId[H.node] ? H.node : null;
+  if(id !== sel) select(id); else { computeFocus(); refreshStyle(); }
+}
 // ---- start ----------------------------------------------------------------------
 (async function start(){
   try { await loadScript(LIBS.fg2); if(!window.ForceGraph) throw new Error('force-graph missing'); }
   catch(e){ offline(e); return; }
   make2D(); graph = g2; wireCommon();
+  window.addEventListener('hashchange', applyHash);
   const H = parseHash();
   if(FOCI.indexOf(H.focus) >= 0){ focus = H.focus; $('focus').value = focus; }
   await setLayout(['2d', '3d', 'timeline'].indexOf(H.layout) >= 0 ? H.layout : '2d');
   if(H.node && byId[H.node]) select(H.node);
-  if(!sel || layout === '2d') setTimeout(() => { if(!sel && graph === g2) g2.zoomToFit(400, 40); }, 1200);
 })();
 </script>
 </body></html>"""

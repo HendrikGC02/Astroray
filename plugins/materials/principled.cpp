@@ -279,6 +279,11 @@ class PrincipledPlugin : public Material {
         float f = (ior - 1.0f) / (ior + 1.0f);
         return f * f;
     }
+    // Cycles bsdf_util.h: ior_from_F0 (inverse of F0_from_ior, f0 clamped to 0.99).
+    static float iorFromF0(float f0) {
+        const float s = std::sqrt(std::clamp(f0, 0.0f, 0.99f));
+        return (1.0f + s) / (1.0f - s);
+    }
     // Cycles bsdf_util.h: fresnel_dielectric_cos (unpolarized, real Fresnel).
     static float fresnelDielectricCos(float cosi, float eta) {
         float c = std::abs(cosi);
@@ -988,23 +993,34 @@ class PrincipledPlugin : public Material {
         }
         // 6. Specular dielectric (generalized-Schlick, exponent = -ior).
         if (luminance(weight) > 1e-4f) {
-            float f0s = F0_from_ior(ior_) * 2.0f * specularIorLevel_;
+            // #940: specular_ior_level re-derives the layer IOR from the scaled f0
+            // (Cycles svm/closure.h principled "Apply IOR adjustment", Apache-2.0);
+            // the Fresnel exponent and bsdf->ior use this eta, not ior_. With ior_,
+            // level 0 (f0 = 0) still reflected the grazing real-Fresnel rise: a
+            // mirror image of lamps on "Diffuse BSDF" floors.
+            float f0s = F0_from_ior(ior_);
+            float specEta = ior_;
+            if (specularIorLevel_ != 0.5f) {
+                f0s *= 2.0f * specularIorLevel_;
+                specEta = iorFromF0(f0s);
+                if (ior_ < 1.0f) specEta = 1.0f / specEta;
+            }
             Vec3 specF0 = Vec3(f0s) * specularTint_;  // fresnel->f0 = f0 * specular_tint
-            float sView = generalizedSchlickS(nv, ior_);
+            float sView = generalizedSchlickS(nv, specEta);
             Vec3 Fview = specF0 + (Vec3(1.0f) - specF0) * sView;  // mix(f0, f90=1, s)
             Lobe L;
             L.kind = LobeKind::Specular;
             L.weight = weight;
             L.color = specF0;
             L.roughness = roughness_;
-            L.ior = ior_;
+            L.ior = specEta;
             L.anisotropic = anisotropic_;          // pkg178 PR-4b
             L.anisoRotation = anisotropicRotation_;
             L.sel = std::max(luminance(weight * Fview), 1e-4f);
             // specF0 upsampled separately in the eval (Fresnel) → weightSpec = layer weight.
             if (lam) L.weightSpec = weightSp;
             lobes.push_back(L);
-            Vec3 specAlb = ggxLayeringAlbedo(specF0, roughness_, nv, ior_);
+            Vec3 specAlb = ggxLayeringAlbedo(specF0, roughness_, nv, specEta);
             weight = layeringWeightAfter(weight, specAlb);
             if (lam) weightSp = weightSp * layerTrans(specAlb);
         }

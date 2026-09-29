@@ -1437,6 +1437,11 @@ __device__ inline float gpu_pr_F0_from_ior(float ior) {
     float f = (ior - 1.f) / (ior + 1.f);
     return f * f;
 }
+// Cycles bsdf_util.h ior_from_F0 (#940).
+__device__ inline float gpu_pr_ior_from_F0(float f0) {
+    float s = sqrtf(fminf(fmaxf(f0, 0.f), 0.99f));
+    return (1.f + s) / (1.f - s);
+}
 __device__ inline float gpu_pr_fresnelDielectricCos(float cosi, float eta) {
     float c = fabsf(cosi);
     float g = eta * eta - 1.f + c * c;
@@ -2003,17 +2008,25 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
     }
     // 6. Specular dielectric (generalized-Schlick, exponent = -ior)
     if (luminance(weight) > 1e-4f) {
-        float f0s = gpu_pr_F0_from_ior(c.ior) * 2.f * c.specularIorLevel;
+        // #940: specular_ior_level re-derives the layer eta from the scaled f0
+        // (Cycles svm/closure.h principled IOR adjustment); twin of principled.cpp.
+        float f0s = gpu_pr_F0_from_ior(c.ior);
+        float specEta = c.ior;
+        if (c.specularIorLevel != 0.5f) {
+            f0s *= 2.f * c.specularIorLevel;
+            specEta = gpu_pr_ior_from_F0(f0s);
+            if (c.ior < 1.f) specEta = 1.f / specEta;
+        }
         GVec3 specF0 = GVec3(f0s) * c.specularTint;
-        float sView = gpu_pr_generalizedSchlickS(nv, c.ior);
+        float sView = gpu_pr_generalizedSchlickS(nv, specEta);
         GVec3 Fview = specF0 + (GVec3(1.f) - specF0) * sView;
         GPrincipledLobe& L = lobes[n++];
         L.kind = GPR_SPECULAR; L.weight = weight; L.color = specF0;
-        L.roughness = c.roughness; L.ior = c.ior; L.isDelta = false;
+        L.roughness = c.roughness; L.ior = specEta; L.isDelta = false;
         L.anisotropic = c.anisotropic; L.anisoRotation = c.anisotropicRotation;  // PR-4b
         L.sel = fmaxf(luminance(weight * Fview), 1e-4f);
         if (wl) L.weightSpec = weightSp;  // specF0 upsampled separately in the eval
-        GVec3 specAlb = gpu_ggxLayeringAlbedo(specF0, c.roughness, nv, c.ior);  // pkg261
+        GVec3 specAlb = gpu_ggxLayeringAlbedo(specF0, c.roughness, nv, specEta);  // pkg261
         weight = gpu_layeringWeightAfter(weight, specAlb);
         if (wl) weightSp = weightSp * layerTrans(specAlb);
     }

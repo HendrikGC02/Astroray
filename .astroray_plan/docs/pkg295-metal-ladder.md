@@ -31,6 +31,12 @@ backends. Identical when rgb ≤ 1, so the white furnace (no NEE) is unchanged:
 metallic 1 base 1 linear 0.999 / 0.999 / 0.997 / 1.000 / 0.981 at r 0.05 / 0.1 /
 0.3 / 0.5 / 1.0.
 
+**GPU (build 7014a505).** #934 twin: metal g0.8 r0.1 GPU/CPU 1.02/1.01/1.00,
+copper r0.5 1.00. #933 (partial transmission, single closure), GPU/CPU per rung
+t0.3/0.7 × r0.05/0.4 × sun ↓/oblique: 0.985–1.012; t0.5 m0.5 r0.4 orange 1.00
+(baseline main: 0.67–0.83 at r0.05, 2.1–4.2 at r0.4). stageShadeBucketed
+REG/STACK identical to main (lead cuobjdump).
+
 **Not fixed here (follow-up):** half-metal −7…9 %. Astroray's half-metal reads
 6 % below its own linear mix of the metal and dielectric rungs, while Cycles'
 Principled mixes the conductor and dielectric closures linearly by metallic.

@@ -17,6 +17,9 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from results_layout import results_dir  # noqa: E402
+
 
 def _find_blender():
     """Locate Blender executable (env var override or default install path)."""
@@ -118,7 +121,7 @@ def test_blender_parity_matrix_generation():
     for ephemeral test output."""
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "scripts" / "generate_blender_parity_matrix.py"
-    output_dir = repo_root / "test_results" / "blender_parity"
+    output_dir = results_dir("parity", "blender-parity-matrix", create=False)
 
     # Clean output dir for fresh run
     if output_dir.exists():

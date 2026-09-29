@@ -63,6 +63,9 @@ try:
 except ImportError:
     AVAILABLE = False
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "caustics", "gpu-caustic-parity"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 
@@ -272,7 +275,7 @@ def _caustic_roi_energy(img: np.ndarray) -> float:
 # the geometric outward normal in both CPU caustic loops (light_tracer_caustic.cpp,
 # spectral_path_tracer.cpp::buildPhotonMap). The floor was moved to ~the focal plane so
 # the correct caustic is concentrated. Now: ROI ratio ~1.09x, SSIM ~0.96, GPU peak ~0.41.
-def test_gpu_glass_sphere_caustic_parity(test_results_dir):
+def test_gpu_glass_sphere_caustic_parity():
     if not _gpu_available():
         pytest.skip("CUDA GPU not available on this machine")
 
@@ -282,8 +285,8 @@ def test_gpu_glass_sphere_caustic_parity(test_results_dir):
     # MANDATORY parent visual check: write both PNGs (memory
     # [[general-photon-loop-needs-solid-glass]] — the numeric gates pass on
     # salt-and-pepper noise, so a human must eyeball a clean focused caustic).
-    gpu_png = os.path.join(test_results_dir, "pkg113_gpu_glass_sphere.png")
-    cpu_png = os.path.join(test_results_dir, "pkg113_cpu_glass_sphere.png")
+    gpu_png = str(results_path(_AREA, _FEATURE, "gpu_glass_sphere.png"))
+    cpu_png = str(results_path(_AREA, _FEATURE, "cpu_glass_sphere.png"))
     _save_image(gpu_img, gpu_png)
     _save_image(cpu_img, cpu_png)
 
@@ -354,7 +357,7 @@ def test_gpu_glass_sphere_caustic_parity(test_results_dir):
            "caustic band) until the 2-face port lands.",
     strict=False,
 )
-def test_gpu_prism_rainbow_parity(test_results_dir):
+def test_gpu_prism_rainbow_parity():
     if not _gpu_available():
         pytest.skip("CUDA GPU not available on this machine")
 
@@ -376,7 +379,7 @@ def test_gpu_prism_rainbow_parity(test_results_dir):
     img = np.asarray(r.render(SAMPLES, mod.MAX_DEPTH, None, False), dtype=np.float32)
     if img.ndim == 1:
         img = img.reshape(mod.HEIGHT, mod.WIDTH, 3)
-    _save_image(img, os.path.join(test_results_dir, "pkg113_gpu_prism_rainbow.png"))
+    _save_image(img, str(results_path(_AREA, _FEATURE, "gpu_prism_rainbow.png")))
 
     # A real rainbow caustic is (1) a wide spread of hues AND (2) a spatially
     # COHERENT bright band on the floor. The flat-prism GPU general loop scatters
@@ -433,7 +436,7 @@ def _caustic_contribution(seed: int):
     return contrib, mask
 
 
-def test_gpu_caustic_seed_decorrelation(test_results_dir):
+def test_gpu_caustic_seed_decorrelation():
     """pkg220 (headline) — the photon-caustic map must DECORRELATE with the render
     seed, so successive progressive iterations trace independent maps and the
     caustic averages down instead of staying frozen-grainy.
@@ -513,7 +516,7 @@ def _caustic_chroma(contrib):
     return chroma, float(chroma[0] - chroma[2])   # (normalized rgb, warm index r-b)
 
 
-def test_gpu_caustic_emission_line_color(test_results_dir):
+def test_gpu_caustic_emission_line_color():
     """pkg221 (headline) — a narrow-line lamp must cast a caustic COLOURED by its
     emission line, not a broadband continuous rainbow. A sodium-vapor lamp
     (~589 nm) must produce an AMBER caustic (r>g>b, strongly warm) and be markedly
@@ -531,8 +534,8 @@ def test_gpu_caustic_emission_line_color(test_results_dir):
 
     sod = _caustic_contrib_lamp(SEED, "sodium")
     wht = _caustic_contrib_lamp(SEED, "white")
-    _save_image(np.clip(sod, 0, None), os.path.join(test_results_dir, "pkg221_sodium_caustic.png"))
-    _save_image(np.clip(wht, 0, None), os.path.join(test_results_dir, "pkg221_white_caustic.png"))
+    _save_image(np.clip(sod, 0, None), str(results_path(_AREA, _FEATURE, "sodium_caustic.png")))
+    _save_image(np.clip(wht, 0, None), str(results_path(_AREA, _FEATURE, "white_caustic.png")))
 
     cs, warm_s = _caustic_chroma(sod)
     cw, warm_w = _caustic_chroma(wht)
@@ -561,7 +564,7 @@ def test_gpu_caustic_emission_line_color(test_results_dir):
 _NOISE_SEEDS = (11, 29, 47, 83)
 
 
-def test_gpu_caustic_noise_falls_with_spp(test_results_dir):
+def test_gpu_caustic_noise_falls_with_spp():
     """#909 — the gathered caustic must average down with sample count, and an
     isolated photon must not produce a firefly.
 
@@ -598,7 +601,7 @@ def test_gpu_caustic_noise_falls_with_spp(test_results_dir):
     print(f"\n[#909] caustic ROI median std 16spp={s_lo:.5f} 256spp={s_hi:.5f} "
           f"ratio={ratio:.2f} (ideal 4.00) | 64spp max={worst:.3f} peak={peak:.3f}")
     _save_image(np.repeat(hi.mean(axis=0)[..., None], 3, axis=2),
-                os.path.join(test_results_dir, "issue909_caustic_256spp.png"))
+                str(results_path(_AREA, _FEATURE, "caustic_256spp.png")))
 
     assert ratio >= 2.5, (
         f"#909: caustic noise fell only {ratio:.2f}x from 16 to 256 spp (ideal 4x); "
@@ -608,7 +611,7 @@ def test_gpu_caustic_noise_falls_with_spp(test_results_dir):
         f"K-NN gather firefly near an isolated photon.")
 
 
-def test_gpu_photon_caustics_cull_path_traced_refraction(test_results_dir):
+def test_gpu_photon_caustics_cull_path_traced_refraction():
     """#909 — with the photon map live, path-traced refractive caustics (diffuse ->
     delta glass -> sun) double-count the gathered caustic and, for a real sun
     (irradiance 3, radiance ~1e5), are isolated fireflies (per-sample ~5e4 on
@@ -638,7 +641,7 @@ def _on_off_same_seed(spp, **kw):
     return on, off
 
 
-def test_gpu_photon_split_keeps_caustic_seen_through_glass(test_results_dir):
+def test_gpu_photon_split_keeps_caustic_seen_through_glass():
     """#909 review — a caustic viewed through a glass pane (camera -> glass -> floor)
     is never gathered (bounce 0 is the pane), so it must stay path traced: ON == OFF
     at the same seed (a blanket refractive cull removed it)."""
@@ -656,7 +659,7 @@ def test_gpu_photon_split_keeps_caustic_seen_through_glass(test_results_dir):
         f"(ON {e_on:.4f} vs OFF {e_off:.4f}).")
 
 
-def test_gpu_photon_split_keeps_non_photon_light_caustic(test_results_dir):
+def test_gpu_photon_split_keeps_non_photon_light_caustic():
     """#909 / pkg287 — every dedicated lamp now emits photons, but mesh emitters
     do not. The ball caustic of an emissive-mesh lamp must stay path traced: at
     one seed ON - OFF = gather - dropped, and only photon-lamp paths are dropped,

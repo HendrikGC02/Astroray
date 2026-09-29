@@ -43,7 +43,7 @@ kernel): an Opus 5.5 lane with a Terra review.
 
 ## Evidence
 
-- 2026-09-27 (pkg290, lane ad1): `test_results/pkg290/clamp_sweep.txt` — leaving only the lamp-hit site unclamped removes ~90 % of the excess (scatter 20.4 → 2.1 %, principled 4.9 → 0.7 %); Cycles' light tree alone cuts its loss 16.5 → 6.5 %, Astroray's tree changes nothing (19.8 vs 20.4 %); clamp-off cube noise 2–4× Cycles.
+- 2026-09-27 (pkg290, lane ad1): `test_results/lights/sample-clamp-volume-sweep/principled_chart.png` — leaving only the lamp-hit site unclamped removes ~90 % of the excess (scatter 20.4 → 2.1 %, principled 4.9 → 0.7 %); Cycles' light tree alone cuts its loss 16.5 → 6.5 %, Astroray's tree changes nothing (19.8 vs 20.4 %); clamp-off cube noise 2–4× Cycles.
 - `src/lights/area_light.cpp:60-139`: `sampleLi` draws `sampleSurface` (uniform area) and returns pdf d²/(A·cosθ); `pdfLi` mirrors it.
 - `src/gpu/gpu_nee.cuh:189-225` (`gpu_lamp_sample_ext`, `gpu_dedicated_sample`) and `include/astroray/lamp_sampling.h::sample` share the disk/sphere maps; rectangles are area-uniform on the GPU too.
 - `src/light_tree.cpp:581` `LightTree::importance(node, point, normal)` and `src/gpu/light_tree_device.cuh:117` — no normal-free variant; `stage_volume_hetero.cu:617` passes the tree into the medium NEE.

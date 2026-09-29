@@ -16,7 +16,7 @@ is the plan §4 "conductor" row of the hue-trajectory sweep (thickness {100, 200
 
 One command:
     python benchmarks/cycles-parity/thin_film/conductor_hue_sweep.py \
-        --out test_results/pkg178_conductor_hue --res 128 --samples 256
+        --out test_results/_runs/materials/thin-film-conductor-hue --res 128 --samples 256
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ import numpy as np
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_REPO_ROOT / "tests"))
+from results_layout import results_dir  # noqa: E402
 
 # Imports below run AFTER the sys.path setup above (build-dir bootstrap), so the
 # module block is intentionally interleaved with configure_test_imports().
@@ -129,7 +130,7 @@ def run(out_dir: str, res: int, samples: int) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--out", default="test_results/pkg178_conductor_hue")
+    ap.add_argument("--out", default=str(results_dir("materials", "thin-film-conductor-hue", create=False)))
     ap.add_argument("--res", type=int, default=128)
     ap.add_argument("--samples", type=int, default=256)
     args = ap.parse_args()

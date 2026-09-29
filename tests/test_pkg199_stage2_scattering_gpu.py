@@ -40,6 +40,9 @@ try:
 except ImportError:
     AVAILABLE = False
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "volumes", "stage2-scattering-gpu"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 SEED = 199223
@@ -49,13 +52,6 @@ W = H = 64
 def _gpu_available() -> bool:
     return AVAILABLE and astroray.__features__.get("cuda", False) \
         and astroray.Renderer().gpu_available
-
-
-@pytest.fixture
-def test_results_dir():
-    d = os.path.join(os.path.dirname(__file__), "..", "test_results")
-    os.makedirs(d, exist_ok=True)
-    return os.path.abspath(d)
 
 
 def _godray_scene(use_gpu: bool, density: float, scatter: float, g: float,
@@ -116,7 +112,7 @@ def test_alpha_zero_gpu_is_absorption():
 # CPU?GPU GOD-RAY PARITY -- the decisive Stage-2 gate.
 # ---------------------------------------------------------------------------
 
-def test_godray_cpu_gpu_parity(test_results_dir):
+def test_godray_cpu_gpu_parity():
     if not _gpu_available():
         pytest.skip("CUDA GPU not available")
     gpu = _render(_godray_scene(True, 0.12, 0.6, 0.4))
@@ -126,9 +122,9 @@ def test_godray_cpu_gpu_parity(test_results_dir):
     print(f"\n[pkg199-s2 god-ray CPU/GPU] GPU={np.round(gm,4)} CPU={np.round(cm,4)} "
           f"ratio={np.round(ratio,4)}")
     save_image(gpu.astype(np.float32),
-               os.path.join(test_results_dir, "pkg199_s2_godray_gpu.png"))
+               str(results_path(_AREA, _FEATURE, "s2_godray_gpu.png")))
     save_image(cpu.astype(np.float32),
-               os.path.join(test_results_dir, "pkg199_s2_godray_cpu.png"))
+               str(results_path(_AREA, _FEATURE, "s2_godray_cpu.png")))
     for c, ch in enumerate("RGB"):
         assert 0.85 <= ratio[c] <= 1.18, (
             f"pkg199-s2 god-ray CPU/GPU parity FAILED ch {ch}: ratio {ratio[c]:.4f} "

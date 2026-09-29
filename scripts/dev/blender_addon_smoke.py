@@ -34,11 +34,13 @@ REPO_ROOT     = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR   = REPO_ROOT / "scripts" / "dev"
 BUILD_DIR     = REPO_ROOT / "scripts" / "build"
 DEFAULT_SCENE = REPO_ROOT / "blender_addon" / "Test_scene.blend"
-OUTPUT_DIR    = REPO_ROOT / "test_results"
 
 # Import the build helpers so we share the Python/Blender discovery logic.
 sys.path.insert(0, str(BUILD_DIR))
 import build_blender_addon as bba   # type: ignore  # noqa: E402
+
+sys.path.insert(0, str(REPO_ROOT / "tests"))
+from results_layout import results_path  # noqa: E402
 
 
 def main():
@@ -47,7 +49,7 @@ def main():
     ap.add_argument("--python-exe", help="Python matching Blender's bundled Python minor version")
     ap.add_argument("--scene", default=str(DEFAULT_SCENE),
                     help="Scene .blend to render (default: %(default)s)")
-    ap.add_argument("--output", default=str(OUTPUT_DIR / "blender_addon_test.png"),
+    ap.add_argument("--output", default=str(results_path("addon", "addon-smoke", "blender_addon_test.png")),
                     help="Destination PNG (default: %(default)s)")
     ap.add_argument("--samples", type=int, default=16)
     ap.add_argument("--width", type=int, default=0)

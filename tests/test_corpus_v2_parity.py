@@ -27,6 +27,7 @@ import pytest
 import tomllib
 
 from benchmarks.reference_corpus import mc_tolerance as MC
+from results_layout import results_dir
 
 CORPUS = Path(__file__).resolve().parents[1] / "benchmarks" / "reference_corpus"
 GATES = tomllib.loads((CORPUS / "gates_v2.toml").read_text(encoding="utf-8"))
@@ -34,7 +35,7 @@ PROVISIONAL = tomllib.loads((CORPUS / "provisional_v2.toml").read_text(encoding=
 CHANNELS = MC.CH
 GATED = {sid: s for sid, s in GATES.get("scenes", {}).items() if s["render_gate"]}
 
-WORK = Path(os.environ.get("PKG284_WORK", str(CORPUS.parents[1] / "test_results" / "pkg284")))
+WORK = Path(os.environ.get("PKG284_WORK", str(results_dir("parity", "corpus-v2-work", create=False))))
 _LEG = {"cpu": "cpu", "gpu": "gpu"}
 _cache: dict = {}
 

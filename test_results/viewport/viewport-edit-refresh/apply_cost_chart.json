@@ -1,0 +1,56 @@
+{
+ "title": "Viewport edit apply cost, big scene (mean of 6 edits)",
+ "xlabel": "edit kind",
+ "ylabel": "apply_ms (mean)",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "GPU before",
+   "role": "other",
+   "x": [
+    "light energy",
+    "object move",
+    "base colour"
+   ],
+   "y": [
+    110.843,
+    80.325,
+    0.102
+   ]
+  },
+  {
+   "label": "GPU after",
+   "role": "gpu",
+   "x": [
+    "light energy",
+    "object move",
+    "base colour"
+   ],
+   "y": [
+    0.12,
+    0.07,
+    0.102
+   ]
+  },
+  {
+   "label": "CPU after",
+   "role": "cpu",
+   "x": [
+    "light energy",
+    "object move",
+    "base colour"
+   ],
+   "y": [
+    0.12,
+    0.07,
+    0.107
+   ]
+  }
+ ],
+ "band": null,
+ "ref": null,
+ "meta": {
+  "scene": "big (pkg241 ico scene)",
+  "source": "cost_*.json"
+ }
+}

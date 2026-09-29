@@ -1,0 +1,159 @@
+{
+ "title": "Sphere centre pixel per edit, worker ON vs OFF",
+ "xlabel": "edit step",
+ "ylabel": "mean of centre-pixel RGB (linear, display)",
+ "kind": "line",
+ "series": [
+  {
+   "label": "worker ON",
+   "role": "gpu",
+   "x": [
+    "base",
+    "base colour red",
+    "roughness 0.03",
+    "noise -> base colour",
+    "image A (red)",
+    "image B (blue)",
+    "emission 0",
+    "emission 5",
+    "undo emission"
+   ],
+   "y": [
+    0.776,
+    0.6543,
+    0.638,
+    0.772,
+    0.6413,
+    0.677,
+    0.771,
+    0.7367,
+    0.7723
+   ]
+  },
+  {
+   "label": "worker OFF",
+   "role": "other",
+   "x": [
+    "base",
+    "base colour red",
+    "roughness 0.03",
+    "noise -> base colour",
+    "image A (red)",
+    "image B (blue)",
+    "emission 0",
+    "emission 5",
+    "undo emission"
+   ],
+   "y": [
+    0.7637,
+    0.644,
+    0.6273,
+    0.7637,
+    0.6323,
+    0.6673,
+    0.765,
+    0.724,
+    0.7637
+   ]
+  }
+ ],
+ "band": null,
+ "ref": null,
+ "meta": {
+  "centre_rgb_on": [
+   [
+    0.795,
+    0.782,
+    0.751
+   ],
+   [
+    0.902,
+    0.557,
+    0.504
+   ],
+   [
+    0.906,
+    0.529,
+    0.479
+   ],
+   [
+    0.795,
+    0.77,
+    0.751
+   ],
+   [
+    0.92,
+    0.529,
+    0.475
+   ],
+   [
+    0.523,
+    0.65,
+    0.858
+   ],
+   [
+    0.79,
+    0.777,
+    0.746
+   ],
+   [
+    0.762,
+    0.745,
+    0.703
+   ],
+   [
+    0.791,
+    0.778,
+    0.748
+   ]
+  ],
+  "centre_rgb_off": [
+   [
+    0.785,
+    0.773,
+    0.733
+   ],
+   [
+    0.895,
+    0.546,
+    0.491
+   ],
+   [
+    0.898,
+    0.52,
+    0.464
+   ],
+   [
+    0.789,
+    0.764,
+    0.738
+   ],
+   [
+    0.914,
+    0.52,
+    0.463
+   ],
+   [
+    0.51,
+    0.643,
+    0.849
+   ],
+   [
+    0.785,
+    0.772,
+    0.738
+   ],
+   [
+    0.752,
+    0.735,
+    0.685
+   ],
+   [
+    0.784,
+    0.772,
+    0.735
+   ]
+  ],
+  "source": "issue #721 verdict table, 2026-09-19"
+ }
+}

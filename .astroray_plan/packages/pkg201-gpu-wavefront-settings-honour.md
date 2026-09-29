@@ -162,7 +162,7 @@ Every measured number is byte-identical between Blender 5.1 and 5.2, and identic
 
 ## Driver closeout — verbatim re-run on Blender 5.2 (2026-09-13, batch-I)
 
-Ran `scripts/verify_pkg200_honour_matrix_run.py` VERBATIM on Blender 5.2 with the **CPU-backend** staged addon (`--backend cpu`, cuda=False; the GPU-wavefront rerun is gated on the lead's CUDA build). 27 rows. Full table + EXR/JSON evidence: `test_results/batch-i/pkg200_honour/results.{md,json}`.
+Ran `scripts/verify_pkg200_honour_matrix_run.py` VERBATIM on Blender 5.2 with the **CPU-backend** staged addon (`--backend cpu`, cuda=False; the GPU-wavefront rerun is gated on the lead's CUDA build). 27 rows. Full table + EXR/JSON evidence: `test_results/addon/settings-honour-matrix/verdict_chart.{png,json}`.
 
 **Verdict tally (CPU path, bl5.2):** `PASS 12, HONEST-FAIL 10, NEEDS-VISUAL 3, LIMITATION 2`.
 

@@ -22,6 +22,7 @@ new reusable script, register it here in the same commit.
 | Diagnose the local Blender MCP bridge without changing it | `scripts/dev/check_blender_mcp.ps1` |
 | Run the test suite against a build dir | `scripts/dev/run_tests.py` (default: `build_cuda/`) |
 | Material contact sheet / showcase renders / convergence + timing graphs | `benchmarks/showcase/runner.py` (curated presets: `config.MATERIAL_ZOO_VARIANTS`) |
+| Test-result output paths, labelled comparison sheets, stat charts, `test_results/index.html`, `clean` (`python tests/results_layout.py index\|clean [--legacy]`) | `tests/results_layout.py` (`results_path`, `save_comparison_sheet`, `save_stat_chart`); rules in `.astroray_plan/docs/test-results-conventions.md` |
 | Multi-scene SPP convergence sweep (diagnostic) | `scripts/diagnostics/convergence_tracker.py` |
 | Cycles↔Astroray parity table (CI) | `scripts/run_parity.py` + `scripts/summarize_parity.py` |
 | Blender differential parity harness | `benchmarks/blender_parity/harness.py` |

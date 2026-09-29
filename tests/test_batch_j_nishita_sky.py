@@ -73,7 +73,7 @@ def test_sky_glow_matches_distant_sun(mode, rot_deg):
     azimuth convention, independent of the bake's own column mapping. This is the
     cycles-parity-reviewer's cross-check (PR #813) — the earlier column-only
     assertion enshrined a mirrored convention. A same-scene render
-    (test_results/batch_j/sky_cycles_vs_astroray_samescene_e28.png) confirms the
+    (test_results/world/nishita-sky/samescene_sheet.png) confirms the
     sky glow + shadows agree with Cycles."""
     elev = 20.0
     w, h = 720, 180

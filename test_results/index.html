@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Astroray test results</title><style>:root{--bg:#fcfcfb;--fg:#1c1c1a;--mut:#6b6a66;--card:#fff;--bd:#e4e4e1;--ac:#2a78d6}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--fg:#ecebe8;--mut:#a3a29d;--card:#1f1f1e;--bd:#33332f;--ac:#6aa8f0}}
+body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif}
+h1{font-size:20px}h2{font-size:16px;margin:24px 0 8px;border-bottom:1px solid var(--bd)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:6px;padding:10px}
+.card h3{margin:0 0 4px;font-size:14px}.card p{margin:4px 0;color:var(--mut);font-size:12px}
+.card img{width:100%;height:auto;border:1px solid var(--bd);margin-top:6px}
+a{color:var(--ac)}</style></head><body>
+<h1>Astroray test results</h1>
+<h2>materials</h2><div class="grid">
+<div class="card"><h3>diffuse-specular-default</h3>
+<p>Two diffuse spheres: Principled specular forced to 0 (left) vs the default (right). Verdict: the two spheres look identical (specular 0 vs default shows no visible difference). Provenance: Batch A item 2, addon diffuse default, 2026-09.</p>
+<a href="materials/diffuse-specular-default/spec0_vs_default_sheet.png"><img loading="lazy" src="materials/diffuse-specular-default/spec0_vs_default_sheet.png" alt="spec0_vs_default_sheet.png"></a>
+</div>
+<div class="card"><h3>glass-sphere-legs</h3>
+<p>Three glass spheres: Cycles 5.2 CPU | Astroray CPU addon leg | Astroray CPU old blend_import leg (dark proxy). Verdict: the old run_parity blend_import leg is a base-colour-only diffuse proxy (issue #779), so the parity glass row was not a true glass comparison; the addon leg renders real glass (noisier than Cycles).</p>
+<a href="materials/glass-sphere-legs/legs_sheet.png"><img loading="lazy" src="materials/glass-sphere-legs/legs_sheet.png" alt="legs_sheet.png"></a>
+</div>
+<div class="card"><h3>principled-alpha-shadow</h3>
+<p>Principled BSDF alpha 0 / 0.5 / 1 on a red-tinted card above a floor: the card&#x27;s shadow scales with alpha (none, half, opaque). Verdict: shadow density tracks alpha as expected (visual check).</p>
+<a href="materials/principled-alpha-shadow/alpha_gpu_sheet.png"><img loading="lazy" src="materials/principled-alpha-shadow/alpha_gpu_sheet.png" alt="alpha_gpu_sheet.png"></a>
+</div>
+<div class="card"><h3>principled-emission-gpu</h3>
+<p>Viewport edit sequence: base, base colour red, Emission Strength 5 / 10, emission green, emission 0. Verdict: on main the GPU ignores Principled Emission (spheres go dark); after the fix it emits as an illuminant (GPU/CPU 0.994-1.003) with worker ON and OFF identical.</p>
+<a href="materials/principled-emission-gpu/gpu_emission_sheet.png"><img loading="lazy" src="materials/principled-emission-gpu/gpu_emission_sheet.png" alt="gpu_emission_sheet.png"></a>
+</div>
+<div class="card"><h3>rough-glass-cycles-ab</h3>
+<p>Astroray/Cycles mean ratio per ROI (centre, limb, background) at roughness 0 / 0.2 / 0.5 / 0.85. Verdict (diagnostic): background 1.00; centre 0.99 at r=0, 1.08 at r=0.5, 1.63 at r=0.85; limb 0.84 at r=0 rising to 1.13; limb/centre 1.34 vs Cycles 1.60 at r=0. Findings route to pkg124 (VNDF reflection lobe) / pkg179 phase 2.</p>
+<p><a href="materials/rough-glass-cycles-ab/limb_centre_chart.json">limb_centre_chart.json</a> &middot; <a href="materials/rough-glass-cycles-ab/roi_ratio_chart.json">roi_ratio_chart.json</a></p>
+<a href="materials/rough-glass-cycles-ab/limb_centre_chart.png"><img loading="lazy" src="materials/rough-glass-cycles-ab/limb_centre_chart.png" alt="limb_centre_chart.png"></a>
+<a href="materials/rough-glass-cycles-ab/roi_ratio_chart.png"><img loading="lazy" src="materials/rough-glass-cycles-ab/roi_ratio_chart.png" alt="roi_ratio_chart.png"></a>
+</div>
+</div>
+<h2>textures-nodes</h2><div class="grid">
+<div class="card"><h3>mapping-node-tiles</h3>
+<p>Four tile textures (checker + colour gradients) in the addon: Cycles CPU | Astroray CPU | Astroray GPU (white box = ROI). Verdict: after Batch R all three agree; main_before_sheet shows the GPU leg rendering flat grey on the first two tiles before the fix.</p>
+<a href="textures-nodes/mapping-node-tiles/cycles_cpu_gpu_sheet.png"><img loading="lazy" src="textures-nodes/mapping-node-tiles/cycles_cpu_gpu_sheet.png" alt="cycles_cpu_gpu_sheet.png"></a>
+<a href="textures-nodes/mapping-node-tiles/main_before_sheet.png"><img loading="lazy" src="textures-nodes/mapping-node-tiles/main_before_sheet.png" alt="main_before_sheet.png"></a>
+</div>
+<div class="card"><h3>procedural-opvm-checker</h3>
+<p>Procedural texture through Math / Mix / Color Ramp / Map Range into a BSDF socket: Cycles CPU | Astroray CPU | Astroray GPU. Verdict: all three show the marbled sphere (not flat) after the op-VM fix; open observation: the generated-coordinate Checker floor has slightly smaller / phase-shifted cells than Cycles on both Astroray backends.</p>
+<p><a href="textures-nodes/procedural-opvm-checker/repro_scene.blend">repro_scene.blend</a></p>
+<a href="textures-nodes/procedural-opvm-checker/cycles_cpu_gpu_sheet.png"><img loading="lazy" src="textures-nodes/procedural-opvm-checker/cycles_cpu_gpu_sheet.png" alt="cycles_cpu_gpu_sheet.png"></a>
+</div>
+</div>
+<h2>lights</h2><div class="grid">
+<div class="card"><h3>ies-spot-cone</h3>
+<p>Reference (Cycles-exact) | CPU | GPU for a spot with an IES profile, before (main) and after the fix. Verdict: on main the GPU cone is flat grey and the CPU cone has a streak; after, CPU and GPU both match the reference. Provenance: pkg276 IES spot research, Batch P, 2026-09.</p>
+<a href="lights/ies-spot-cone/after_sheet.png"><img loading="lazy" src="lights/ies-spot-cone/after_sheet.png" alt="after_sheet.png"></a>
+<a href="lights/ies-spot-cone/main_sheet.png"><img loading="lazy" src="lights/ies-spot-cone/main_sheet.png" alt="main_sheet.png"></a>
+</div>
+<div class="card"><h3>ies-studio-booths</h3>
+<p>lighting_studio.blend with POINT / SUN / SPOT / AREA booths and a synthetic wall-washer IES on the spot. Verdict: INCONCLUSIVE. SUN matches (0.995); POINT 0.52, AREA 0.21, SPOT_ies 0.02 are all dim, a broad scene/measurement artifact rather than a clean IES verdict (needs a single-spot A/B).</p>
+<p><a href="lights/ies-studio-booths/ratio_chart.json">ratio_chart.json</a></p>
+<a href="lights/ies-studio-booths/cycles_vs_astroray_sheet.png"><img loading="lazy" src="lights/ies-studio-booths/cycles_vs_astroray_sheet.png" alt="cycles_vs_astroray_sheet.png"></a>
+<a href="lights/ies-studio-booths/ratio_chart.png"><img loading="lazy" src="lights/ies-studio-booths/ratio_chart.png" alt="ratio_chart.png"></a>
+</div>
+<div class="card"><h3>lighting-studio-parity</h3>
+<p>lighting_studio scene (point / sun / spot / area booths), Astroray vs Cycles, before and after the Batch P lamp changes. Verdict: Astroray reproduces the booth layout and colours; the after sheet is the current behaviour.</p>
+<a href="lights/lighting-studio-parity/after_vs_cycles_sheet.png"><img loading="lazy" src="lights/lighting-studio-parity/after_vs_cycles_sheet.png" alt="after_vs_cycles_sheet.png"></a>
+<a href="lights/lighting-studio-parity/main_vs_cycles_sheet.png"><img loading="lazy" src="lights/lighting-studio-parity/main_vs_cycles_sheet.png" alt="main_vs_cycles_sheet.png"></a>
+</div>
+<div class="card"><h3>sample-clamp-volume-sweep</h3>
+<p>Fraction of ROI energy removed at clamp L = 1/3/10/30 for principled / absorb / scatter media, Cycles vs Astroray. Verdict: Astroray removes more energy than Cycles at L&lt;=10 (principled L10 0.049 vs 0.000-0.005; scatter 0.204 vs 0.065-0.165); the gap is the medium-NEE site (0.183 of scatter&#x27;s 0.204). The Cycles metric (sum|RGB| &gt; 3L) removes even more.</p>
+<p><a href="lights/sample-clamp-volume-sweep/absorb_chart.json">absorb_chart.json</a> &middot; <a href="lights/sample-clamp-volume-sweep/principled_chart.json">principled_chart.json</a> &middot; <a href="lights/sample-clamp-volume-sweep/scatter_chart.json">scatter_chart.json</a></p>
+<a href="lights/sample-clamp-volume-sweep/absorb_chart.png"><img loading="lazy" src="lights/sample-clamp-volume-sweep/absorb_chart.png" alt="absorb_chart.png"></a>
+<a href="lights/sample-clamp-volume-sweep/principled_chart.png"><img loading="lazy" src="lights/sample-clamp-volume-sweep/principled_chart.png" alt="principled_chart.png"></a>
+<a href="lights/sample-clamp-volume-sweep/scatter_chart.png"><img loading="lazy" src="lights/sample-clamp-volume-sweep/scatter_chart.png" alt="scatter_chart.png"></a>
+</div>
+<div class="card"><h3>textured-emitter-floor</h3>
+<p>Emitter face with a red/green checker emission (left) and the floor it lights via NEE (right). Verdict: the floor is lit by the red+green mix (yellow), so textured emission reaches NEE (issue #776). Provenance: Batch E1, issue #776, 2026-09.</p>
+<a href="lights/textured-emitter-floor/textured_emitter_floor_sheet.png"><img loading="lazy" src="lights/textured-emitter-floor/textured_emitter_floor_sheet.png" alt="textured_emitter_floor_sheet.png"></a>
+</div>
+</div>
+<h2>world</h2><div class="grid">
+<div class="card"><h3>env-reflection-lookup</h3>
+<p>Chrome sphere reflecting an HDRI: Cycles, Astroray, and the per-pixel luminance ratio map. Verdict: lookup unchanged, no visual regression; the ratio is ~flat except the sun-glint corner (F82 was rejected; the residual is the #795 chrome G +8% spectral skew).</p>
+<a href="world/env-reflection-lookup/sphere_sheet.png"><img loading="lazy" src="world/env-reflection-lookup/sphere_sheet.png" alt="sphere_sheet.png"></a>
+</div>
+<div class="card"><h3>nishita-sky</h3>
+<p>camera_cycles_old_new_sheet: Cycles MS sky + sun disc vs the old Preetham bake vs the new engine Nishita sky (e28). samescene_sheet: same-scene Cycles vs Astroray. Charts give the band luminance ratio Astroray/Cycles. Verdict: MULTIPLE_SCATTERING sits at 1.03 (60 deg) to 1.26 (10 deg upper band) of Cycles; the old PREETHAM bake was 7-15x.</p>
+<p><a href="world/nishita-sky/band_ratio_chart.json">band_ratio_chart.json</a> &middot; <a href="world/nishita-sky/sky_type_drift_chart.json">sky_type_drift_chart.json</a></p>
+<a href="world/nishita-sky/band_ratio_chart.png"><img loading="lazy" src="world/nishita-sky/band_ratio_chart.png" alt="band_ratio_chart.png"></a>
+<a href="world/nishita-sky/camera_cycles_old_new_sheet.png"><img loading="lazy" src="world/nishita-sky/camera_cycles_old_new_sheet.png" alt="camera_cycles_old_new_sheet.png"></a>
+<a href="world/nishita-sky/samescene_sheet.png"><img loading="lazy" src="world/nishita-sky/samescene_sheet.png" alt="samescene_sheet.png"></a>
+<a href="world/nishita-sky/sky_type_drift_chart.png"><img loading="lazy" src="world/nishita-sky/sky_type_drift_chart.png" alt="sky_type_drift_chart.png"></a>
+</div>
+<div class="card"><h3>sun-direction</h3>
+<p>Addon sun_rotation 0 / 90 / 225: Cycles (top) vs Astroray (bottom), yellow = measured shadow azimuth. Verdict: Astroray shadows match Cycles within 4 deg at every rotation after the #814 fix (Cycles az 92/2/222 vs Astroray 88/2/222). roi_rot0_sheet shows the matched irradiance ROIs.</p>
+<a href="world/sun-direction/roi_rot0_sheet.png"><img loading="lazy" src="world/sun-direction/roi_rot0_sheet.png" alt="roi_rot0_sheet.png"></a>
+<a href="world/sun-direction/rotation_ab_sheet.png"><img loading="lazy" src="world/sun-direction/rotation_ab_sheet.png" alt="rotation_ab_sheet.png"></a>
+<a href="world/sun-direction/samescene_strip_sheet.png"><img loading="lazy" src="world/sun-direction/samescene_strip_sheet.png" alt="samescene_strip_sheet.png"></a>
+</div>
+<div class="card"><h3>sun-disc-shadow</h3>
+<p>shadow_sheet: Astroray sun disc (elev 28, intensity 4). sky_sun_disc_ab_sheet: Cycles Nishita (sun disc) vs the old Astroray bake + sun disc. ground_ratio_chart: ground luminance Cycles vs Astroray. Verdict (Batch J, pre-fix): sky illumination within 4% (umbra 0.070 vs 0.067) but the sun disc was ~1.8x too</p>
+<p><a href="world/sun-disc-shadow/ground_ratio_chart.json">ground_ratio_chart.json</a></p>
+<a href="world/sun-disc-shadow/ground_ratio_chart.png"><img loading="lazy" src="world/sun-disc-shadow/ground_ratio_chart.png" alt="ground_ratio_chart.png"></a>
+<a href="world/sun-disc-shadow/shadow_sheet.png"><img loading="lazy" src="world/sun-disc-shadow/shadow_sheet.png" alt="shadow_sheet.png"></a>
+<a href="world/sun-disc-shadow/sky_sun_disc_ab_sheet.png"><img loading="lazy" src="world/sun-disc-shadow/sky_sun_disc_ab_sheet.png" alt="sky_sun_disc_ab_sheet.png"></a>
+</div>
+</div>
+<h2>volumes</h2><div class="grid">
+<div class="card"><h3>hetero-fire-smoke-showcase</h3>
+<p>Astroray GPU 1024 spp (16.3 s, post-#837) above Cycles GPU 256 spp. Verdict: close visual match of smoke and fire shape, colour and shadow; Cycles is slightly softer. Provenance: Batch Q showcase, only new hero image of the session, 2026-09-21.</p>
+<a href="volumes/hetero-fire-smoke-showcase/gpu_vs_cycles_sheet.png"><img loading="lazy" src="volumes/hetero-fire-smoke-showcase/gpu_vs_cycles_sheet.png" alt="gpu_vs_cycles_sheet.png"></a>
+</div>
+<div class="card"><h3>hetero-smoke-grid</h3>
+<p>Small smoke grid volume rendered on CPU and GPU (48x48 tiles scaled up). Verdict: CPU and GPU agree in shape and brightness. Test tests/test_pkg269_gpu_hetero_parity.py now writes to test_results/_runs/ (issue #861).</p>
+<a href="volumes/hetero-smoke-grid/cpu_vs_gpu_sheet.png"><img loading="lazy" src="volumes/hetero-smoke-grid/cpu_vs_gpu_sheet.png" alt="cpu_vs_gpu_sheet.png"></a>
+</div>
+<div class="card"><h3>principled-volume-emission</h3>
+<p>Volume cabinet: Cycles CPU (ref) | Astroray main | Astroray with spectral Planck emission; zoo_crop_after_sheet is a later re-run. Verdict: the red glowing volume under the box appears with the spectral emission path, matching the Cycles hue. Provenance: pkg270, Batch K (PR #820), 2026-09.</p>
+<a href="volumes/principled-volume-emission/cabinet_ab_sheet.png"><img loading="lazy" src="volumes/principled-volume-emission/cabinet_ab_sheet.png" alt="cabinet_ab_sheet.png"></a>
+<a href="volumes/principled-volume-emission/zoo_crop_after_sheet.png"><img loading="lazy" src="volumes/principled-volume-emission/zoo_crop_after_sheet.png" alt="zoo_crop_after_sheet.png"></a>
+</div>
+<div class="card"><h3>scatter-volume-shapes</h3>
+<p>Grid volumes (blobs, blocky cloud, box, fbm cloud) and a red scattering cube against the empty backdrop. Verdict: shapes and the red tint over the backdrop are visible (the test asserts the tint, not these pixels). Test tests/test_pkg268_volume_visual.py now writes to test_results/_runs/ (issue #861).</p>
+<a href="volumes/scatter-volume-shapes/shapes_sheet.png"><img loading="lazy" src="volumes/scatter-volume-shapes/shapes_sheet.png" alt="shapes_sheet.png"></a>
+</div>
+<div class="card"><h3>volume-bounces</h3>
+<p>Smoke + fire showcase at volume_bounces 2, 0 (Blender default) and 64: Cycles (left) vs Astroray CPU (right); gpu_sheet has the Astroray GPU vb=2 and vb=0 legs. Verdict: Astroray follows Cycles as vb changes (vb=0 darkens the smoke); vb=64 shown at the pre-pkg271 behaviour.</p>
+<a href="volumes/volume-bounces/cycles_vs_cpu_sheet.png"><img loading="lazy" src="volumes/volume-bounces/cycles_vs_cpu_sheet.png" alt="cycles_vs_cpu_sheet.png"></a>
+<a href="volumes/volume-bounces/gpu_sheet.png"><img loading="lazy" src="volumes/volume-bounces/gpu_sheet.png" alt="gpu_sheet.png"></a>
+</div>
+</div>
+<h2>spectral</h2><div class="grid">
+<div class="card"><h3>observer-colour-tiles</h3>
+<p>Colour tiles before / after switching the engine spectral table to the CIE 1931 2 deg observer. Verdict: the observer mismatch (1964 10 deg CMF vs 1931 sRGB matrix) caused the grey and low-chroma skew; the fix removes it (residual up to ~9% on saturated albedo is physical).</p>
+<a href="spectral/observer-colour-tiles/tiles_before_after_sheet.png"><img loading="lazy" src="spectral/observer-colour-tiles/tiles_before_after_sheet.png" alt="tiles_before_after_sheet.png"></a>
+</div>
+</div>
+<h2>camera</h2><div class="grid">
+<div class="card"><h3>render-region-border</h3>
+<p>Cornell box rendered full frame and with Blender&#x27;s render region border + crop. Verdict: the region renders only the bordered area (rest black), matching the requested crop. Provenance: Batch A item 4 (addon Render Region, later #801), 2026-09.</p>
+<a href="camera/render-region-border/full_vs_bordered_sheet.png"><img loading="lazy" src="camera/render-region-border/full_vs_bordered_sheet.png" alt="full_vs_bordered_sheet.png"></a>
+</div>
+</div>
+<h2>geometry</h2><div class="grid">
+<div class="card"><h3>holdout-clip-planes</h3>
+<p>Sphere over a striped backdrop: normal | holdout | camera clip planes (CPU path). Verdict: per the pkg274 spec, clip planes use view-axis depths (Cycles z_inv) and holdout cuts the object out. Provenance: pkg274 (addon gaps), PR #830, 2026-09-19.</p>
+<a href="geometry/holdout-clip-planes/holdout_clip_sheet.png"><img loading="lazy" src="geometry/holdout-clip-planes/holdout_clip_sheet.png" alt="holdout_clip_sheet.png"></a>
+</div>
+</div>
+<h2>integrator</h2><div class="grid">
+<div class="card"><h3>light-tree-materials-hall</h3>
+<p>Rows: Cycles CPU | Astroray CPU (light tree on) | light tree off (power) | practical bulb removed; 32 spp, seed 11. Verdict: the CPU light tree owns the variance gap; the GPU falls back to the power CDF and already matches (follow-up issue #851).</p>
+<a href="integrator/light-tree-materials-hall/cpu_variants_sheet.png"><img loading="lazy" src="integrator/light-tree-materials-hall/cpu_variants_sheet.png" alt="cpu_variants_sheet.png"></a>
+</div>
+</div>
+<h2>viewport</h2><div class="grid">
+<div class="card"><h3>continuous-edit-commit</h3>
+<p>Continuous Base Color edit storm on the metal_sweep and big scenes; shaded band = the 33 ms tick-gap budget. Before: ~100% of commit cost was a full sync_viewport_scene (112-120 ms x 46-50 per storm) because every edit classified as fallback. After: edits dispatch as MATERIALS (replay True 97 / 85), full syncs drop to 2.</p>
+<p><a href="viewport/continuous-edit-commit/commit_chart.json">commit_chart.json</a></p>
+<a href="viewport/continuous-edit-commit/commit_chart.png"><img loading="lazy" src="viewport/continuous-edit-commit/commit_chart.png" alt="commit_chart.png"></a>
+</div>
+<div class="card"><h3>material-edit-worker-parity</h3>
+<p>Nine edits on a Principled sphere (base colour, roughness, node link, image swap, emission): worker_on_sheet and worker_off_sheet (downscaled viewport screenshots); centre_rgb_chart plots the centre pixel per step. Verdict: PASS. ON and OFF match within ~1% on every edit, so the incremental-replay fix (#721) adds no staleness.</p>
+<p><a href="viewport/material-edit-worker-parity/centre_rgb_chart.json">centre_rgb_chart.json</a></p>
+<a href="viewport/material-edit-worker-parity/centre_rgb_chart.png"><img loading="lazy" src="viewport/material-edit-worker-parity/centre_rgb_chart.png" alt="centre_rgb_chart.png"></a>
+<a href="viewport/material-edit-worker-parity/worker_off_sheet.png"><img loading="lazy" src="viewport/material-edit-worker-parity/worker_off_sheet.png" alt="worker_off_sheet.png"></a>
+<a href="viewport/material-edit-worker-parity/worker_on_sheet.png"><img loading="lazy" src="viewport/material-edit-worker-parity/worker_on_sheet.png" alt="worker_on_sheet.png"></a>
+</div>
+<div class="card"><h3>viewport-edit-refresh</h3>
+<p>Sphere on a floor: material edits (base colour red, emission 5/10, green, 0) and object edits (move sphere, light x4), worker ON and OFF, before (pre) and after (post) the fix. Each sheet: rows pre OFF / pre ON / post OFF / post ON. Verdict: before, base colour / move / light edits were not reflected (stale frames); after, all steps update on</p>
+<p><a href="viewport/viewport-edit-refresh/apply_cost_chart.json">apply_cost_chart.json</a></p>
+<a href="viewport/viewport-edit-refresh/apply_cost_chart.png"><img loading="lazy" src="viewport/viewport-edit-refresh/apply_cost_chart.png" alt="apply_cost_chart.png"></a>
+<a href="viewport/viewport-edit-refresh/material_cpu_sheet.png"><img loading="lazy" src="viewport/viewport-edit-refresh/material_cpu_sheet.png" alt="material_cpu_sheet.png"></a>
+<a href="viewport/viewport-edit-refresh/material_gpu_sheet.png"><img loading="lazy" src="viewport/viewport-edit-refresh/material_gpu_sheet.png" alt="material_gpu_sheet.png"></a>
+<a href="viewport/viewport-edit-refresh/object_cpu_sheet.png"><img loading="lazy" src="viewport/viewport-edit-refresh/object_cpu_sheet.png" alt="object_cpu_sheet.png"></a>
+<a href="viewport/viewport-edit-refresh/object_gpu_sheet.png"><img loading="lazy" src="viewport/viewport-edit-refresh/object_gpu_sheet.png" alt="object_gpu_sheet.png"></a>
+</div>
+<div class="card"><h3>worker-orbit-frames</h3>
+<p>Frames captured before, during and after a region-view orbit on the big and metal_sweep scenes. Verdict: with the worker ON the view keeps presenting during the orbit and hands off to the final full-res frame (final_full = True); details in worker-tick-gap.</p>
+<a href="viewport/worker-orbit-frames/before_during_after_sheet.png"><img loading="lazy" src="viewport/worker-orbit-frames/before_during_after_sheet.png" alt="before_during_after_sheet.png"></a>
+</div>
+<div class="card"><h3>worker-tick-gap</h3>
+<p>Main-thread tick-gap p95 for settle / continuous (storm) / orbit patterns on a 2100x1221 and a 2112x829 region; band = 33 ms budget. Verdict: the off-thread worker meets the budget for settle (17-21 ms vs 185-280 ms OFF) and big-scene orbit</p>
+<p><a href="viewport/worker-tick-gap/tick_gap_chart.json">tick_gap_chart.json</a></p>
+<a href="viewport/worker-tick-gap/tick_gap_chart.png"><img loading="lazy" src="viewport/worker-tick-gap/tick_gap_chart.png" alt="tick_gap_chart.png"></a>
+</div>
+</div>
+<h2>perf</h2><div class="grid">
+<div class="card"><h3>program-shade-stack</h3>
+<p>REG / STACK per template instantiation of the op-VM shade kernel. Verdict: no change. All 64 instantiations stay at REG 254 with identical stack (4512-8736 bytes); the only new symbol is gpu_progInputTexel.</p>
+<p><a href="perf/program-shade-stack/stack_chart.json">stack_chart.json</a></p>
+<a href="perf/program-shade-stack/stack_chart.png"><img loading="lazy" src="perf/program-shade-stack/stack_chart.png" alt="stack_chart.png"></a>
+</div>
+<div class="card"><h3>shade-kernel-resources</h3>
+<p>cuobjdump resource usage, main vs the fix: only kernels that call gpu_material_emitted changed. Verdict: the REG:254 stageShadeBucketedKernel is untouched (128/128 instantiations identical); the 14 changed kernels move by at most +7 registers and -32 stack bytes.</p>
+<p><a href="perf/shade-kernel-resources/registers_chart.json">registers_chart.json</a> &middot; <a href="perf/shade-kernel-resources/stack_chart.json">stack_chart.json</a></p>
+<a href="perf/shade-kernel-resources/registers_chart.png"><img loading="lazy" src="perf/shade-kernel-resources/registers_chart.png" alt="registers_chart.png"></a>
+<a href="perf/shade-kernel-resources/stack_chart.png"><img loading="lazy" src="perf/shade-kernel-resources/stack_chart.png" alt="stack_chart.png"></a>
+</div>
+</div>
+<h2>addon</h2><div class="grid">
+<div class="card"><h3>settings-honour-matrix</h3>
+<p>27 rows over 5 stages: 12 PASS, 10 HONEST-FAIL, 3 NEEDS-VISUAL, 2 LIMITATION (viewport-only controls). Verdict: bounces, exposure, seed, samples, sample_clamp_direct and filter width are honoured; HONEST-FAIL rows (diffuse/transparent/volume bounces, blur_glossy, film_transparent, render_region, caustics flags, pixel filter type)</p>
+<p><a href="addon/settings-honour-matrix/verdict_chart.json">verdict_chart.json</a></p>
+<a href="addon/settings-honour-matrix/verdict_chart.png"><img loading="lazy" src="addon/settings-honour-matrix/verdict_chart.png" alt="verdict_chart.png"></a>
+</div>
+</div>
+</body></html>

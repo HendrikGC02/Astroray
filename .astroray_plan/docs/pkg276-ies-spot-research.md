@@ -145,7 +145,7 @@ edges shifted by the camera's `(res-1)` divisor). AREA 0.17 is untouched here
 ## GPU leg (A') — measured on a80d219b vs the 627bfe67 build (2026-09-20)
 - Controlled IES spot, 128 spp, per 2-deg annulus / 30-deg sector vs reference:
   CPU 1.001..1.003, GPU 1.000..1.003 (main: CPU azimuth 0.28..2.98, GPU a plain
-  cone 0.22..2.08). Sheets: `test_results/batchP/ies_spot_{main,after}_sheet.png`.
+  cone 0.22..2.08). Sheets: `test_results/lights/ies-spot-cone/{main,after}_sheet.png`.
 - Gates: `test_pkg276_gpu_ies_parity.py` + pkg89 wavefront/GPU dedicated suites
   21/21; CPU pkg276 21/21, #840 15/15.
 - `cuobjdump -res-usage`: all 128 `stageShadeBucketedKernel` REG 254; STACK

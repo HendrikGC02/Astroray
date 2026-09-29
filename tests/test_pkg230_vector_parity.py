@@ -25,7 +25,8 @@ VECMATH_ADD = 0
 VECROT_Z_AXIS = 3
 MIX_BLEND = 0
 
-_OUT = os.path.join(os.path.dirname(__file__), "..", "test_results", "pkg230-p2")
+from results_layout import results_path, slug  # noqa: E402
+_AREA, _FEATURE = "textures-nodes", "vector-parity"
 
 
 def _has_cuda_gpu(renderer):
@@ -107,8 +108,8 @@ def test_cpu_program_changes_image(kind):
     prog = _render(kind, use_gpu=False)
     mad = float(np.abs(plain - prog).mean())
     assert mad > 0.02, f"CPU {kind} had no effect (mean|diff|={mad:.4f})"
-    save_image(prog, os.path.join(_OUT, f"pkg230_{kind}_cpu.png"))
-    np.save(os.path.join(_OUT, f"pkg230_{kind}_cpu.npy"), prog)
+    save_image(prog, str(results_path(_AREA, _FEATURE, f"{slug(kind)}_cpu.png")))
+    np.save(str(results_path(_AREA, _FEATURE, f"{slug(kind)}_cpu.npy")), prog)
 
 
 @pytest.mark.parametrize("kind", ["vec_math", "vec_rotate", "mix"])
@@ -117,8 +118,8 @@ def test_gpu_program_changes_image(kind):
     prog = _render(kind, use_gpu=True)
     mad = float(np.abs(plain - prog).mean())
     assert mad > 0.02, f"GPU {kind} had no effect (mean|diff|={mad:.4f})"
-    save_image(prog, os.path.join(_OUT, f"pkg230_{kind}_gpu.png"))
-    np.save(os.path.join(_OUT, f"pkg230_{kind}_gpu.npy"), prog)
+    save_image(prog, str(results_path(_AREA, _FEATURE, f"{slug(kind)}_gpu.png")))
+    np.save(str(results_path(_AREA, _FEATURE, f"{slug(kind)}_gpu.npy")), prog)
 
 
 @pytest.mark.parametrize("kind", ["vec_math", "vec_rotate", "mix"])

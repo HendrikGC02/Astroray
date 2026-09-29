@@ -30,10 +30,11 @@ import shader_blending
 from base_helpers import (
     create_renderer, setup_camera, render_image,
     save_image, save_figure, create_cornell_box,
-    calculate_image_metrics, assert_valid_image, get_output_dir,
-)
+    calculate_image_metrics, assert_valid_image, )
 
-OUTPUT_DIR = get_output_dir()
+from results_layout import results_path, slug  # noqa: E402
+_AREA, _FEATURE = "integrator", "python-bindings"
+
 W, H = 200, 150   # fast default resolution for most tests
 SAMPLES_FAST = 16
 SAMPLES_MED  = 64
@@ -173,9 +174,9 @@ def test_area_light_shapes_affect_specular_reflection_and_support_ellipse():
     assert ellipse_fill < rect_fill - 0.05, \
         f"Ellipse footprint should have rounded corners vs rectangle ({ellipse_fill:.3f} vs {rect_fill:.3f})"
 
-    save_image(rect, os.path.join(OUTPUT_DIR, 'test_area_light_rectangle_specular.png'))
-    save_image(disk, os.path.join(OUTPUT_DIR, 'test_area_light_disk_specular.png'))
-    save_image(ellipse, os.path.join(OUTPUT_DIR, 'test_area_light_ellipse_specular.png'))
+    save_image(rect, str(results_path(_AREA, _FEATURE, 'test_area_light_rectangle_specular.png')))
+    save_image(disk, str(results_path(_AREA, _FEATURE, 'test_area_light_disk_specular.png')))
+    save_image(ellipse, str(results_path(_AREA, _FEATURE, 'test_area_light_ellipse_specular.png')))
 
 
 def test_area_light_spread_focuses_beam():
@@ -215,8 +216,8 @@ def test_area_light_spread_focuses_beam():
     assert float(np.mean(focused_lum)) < float(np.mean(wide_lum)) * 0.5, \
         "Narrow spread should reduce total illuminated area/energy on the wall"
 
-    save_image(wide, os.path.join(OUTPUT_DIR, 'test_area_light_spread_wide.png'))
-    save_image(focused, os.path.join(OUTPUT_DIR, 'test_area_light_spread_focused.png'))
+    save_image(wide, str(results_path(_AREA, _FEATURE, 'test_area_light_spread_wide.png')))
+    save_image(focused, str(results_path(_AREA, _FEATURE, 'test_area_light_spread_focused.png')))
 def _render_material_parity_scene(mat_type, color, params, samples=SAMPLES_MED):
     r = create_renderer()
     create_cornell_box(r)
@@ -435,8 +436,8 @@ def test_sun_light_angle_controls_shadow_softness():
     assert soft_edge < sharp_edge, \
         f"Expected softer penumbra gradients for angle=0.05 ({soft_edge:.4f} >= {sharp_edge:.4f})"
 
-    save_image(sharp, os.path.join(OUTPUT_DIR, 'test_sun_shadow_sharp.png'))
-    save_image(soft, os.path.join(OUTPUT_DIR, 'test_sun_shadow_soft.png'))
+    save_image(sharp, str(results_path(_AREA, _FEATURE, 'test_sun_shadow_sharp.png')))
+    save_image(soft, str(results_path(_AREA, _FEATURE, 'test_sun_shadow_soft.png')))
 
 
 def test_mix_shader_blends_principled_red_blue_to_purple():
@@ -613,7 +614,7 @@ def test_lambertian_render():
     setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
     pixels = render_image(r, samples=SAMPLES_FAST)
     assert_valid_image(pixels, H, W, min_mean=0.05, label='lambertian')
-    path = os.path.join(OUTPUT_DIR, 'test_basic_sphere.png')
+    path = str(results_path(_AREA, _FEATURE, 'test_basic_sphere.png'))
     save_image(pixels, path)
 
 
@@ -772,7 +773,7 @@ def test_cornell_box():
         "Left region should be redder than right"
     assert np.mean(right_region[:, :, 1]) > np.mean(left_region[:, :, 1]), \
         "Right region should be greener than left"
-    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_cornell_box.png'))
+    save_image(pixels, str(results_path(_AREA, _FEATURE, 'test_cornell_box.png')))
 
 
 # ---------------------------------------------------------------------------
@@ -792,7 +793,7 @@ def test_multiple_spheres():
                  vfov=38, width=400, height=300)
     pixels = render_image(r, samples=SAMPLES_MED)
     assert_valid_image(pixels, 300, 400, min_mean=0.05, label='multiple_spheres')
-    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_multiple_spheres.png'))
+    save_image(pixels, str(results_path(_AREA, _FEATURE, 'test_multiple_spheres.png')))
 
 
 # ---------------------------------------------------------------------------
@@ -818,7 +819,7 @@ def test_aperture_dof():
     # DoF image should differ visibly from no-DoF
     mse, _ = calculate_image_metrics(px_no_dof, px_dof)
     assert mse > 1e-4, f"DoF image identical to no-DoF image (mse={mse:.6f})"
-    save_image(px_dof, os.path.join(OUTPUT_DIR, 'test_sphere_aperture.png'))
+    save_image(px_dof, str(results_path(_AREA, _FEATURE, 'test_sphere_aperture.png')))
 
 
 # ---------------------------------------------------------------------------
@@ -867,7 +868,7 @@ def test_disney_brdf_parameter_grid():
 
     plt.suptitle('Disney BRDF Parameter Tests', fontsize=14)
     plt.tight_layout()
-    save_figure(fig, os.path.join(OUTPUT_DIR, 'test_disney_brdf_grid.png'))
+    save_figure(fig, str(results_path(_AREA, _FEATURE, 'test_disney_brdf_grid.png')))
 
 
 # ---------------------------------------------------------------------------
@@ -913,7 +914,7 @@ def test_material_comparison_grid():
 
     plt.suptitle('Material Type Comparison', fontsize=14)
     plt.tight_layout()
-    save_figure(fig, os.path.join(OUTPUT_DIR, 'test_material_comparison.png'))
+    save_figure(fig, str(results_path(_AREA, _FEATURE, 'test_material_comparison.png')))
 
 
 # ---------------------------------------------------------------------------
@@ -955,7 +956,7 @@ def test_sampling_convergence():
         axes[i].axis('off')
     plt.suptitle('Sample Count Convergence')
     plt.tight_layout()
-    save_figure(fig, os.path.join(OUTPUT_DIR, 'test_convergence.png'))
+    save_figure(fig, str(results_path(_AREA, _FEATURE, 'test_convergence.png')))
 
 
 # ---------------------------------------------------------------------------
@@ -1201,7 +1202,7 @@ def test_performance_benchmark():
 
     plt.suptitle('Performance Benchmark')
     plt.tight_layout()
-    save_figure(fig, os.path.join(OUTPUT_DIR, 'test_performance_100samples.png'))
+    save_figure(fig, str(results_path(_AREA, _FEATURE, 'test_performance_100samples.png')))
 
 
 # ---------------------------------------------------------------------------
@@ -1248,7 +1249,7 @@ def test_quality_analysis():
 
     plt.suptitle('Quality Analysis vs Reference')
     plt.tight_layout()
-    save_figure(fig, os.path.join(OUTPUT_DIR, 'test_quality_analysis.png'))
+    save_figure(fig, str(results_path(_AREA, _FEATURE, 'test_quality_analysis.png')))
 
 
 # ---------------------------------------------------------------------------
@@ -1425,7 +1426,7 @@ def test_environment_map_renders_brighter_than_black():
     assert hdri_mean > dark_mean + 0.05, \
         f"HDRI scene ({hdri_mean:.3f}) should be significantly brighter than black bg ({dark_mean:.3f})"
 
-    save_image(pixels_hdri, os.path.join(OUTPUT_DIR, 'test_hdri_lit.png'))
+    save_image(pixels_hdri, str(results_path(_AREA, _FEATURE, 'test_hdri_lit.png')))
 
 
 def test_solid_background_color():
@@ -1699,7 +1700,7 @@ def test_black_hole_shadow_is_dark():
     assert center_mean < edge_mean, (
         f"Shadow center ({center_mean:.3f}) should be darker than edges ({edge_mean:.3f})"
     )
-    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_shadow.png'))
+    save_image(pixels, str(results_path(_AREA, _FEATURE, 'test_bh_shadow.png')))
 
 
 def test_black_hole_with_geometry():
@@ -1838,7 +1839,7 @@ def test_black_hole_showcase_scene():
     assert float(np.max(pixels)) > 0.15, \
         "Showcase scene appears entirely black — disk emission missing?"
 
-    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_bh_showcase.png'))
+    save_image(pixels, str(results_path(_AREA, _FEATURE, 'test_bh_showcase.png')))
 
 
 # ---------------------------------------------------------------------------
@@ -1881,7 +1882,7 @@ def test_multi_material_mesh():
         f"left red-minus-blue={left_red_ratio:.3f}, "
         f"right blue-minus-red={right_blue_ratio:.3f}"
     )
-    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_multi_material.png'))
+    save_image(pixels, str(results_path(_AREA, _FEATURE, 'test_multi_material.png')))
 
 
 def test_vertex_normals_smooth_shading():
@@ -1926,7 +1927,7 @@ def test_vertex_normals_smooth_shading():
         f"(mean abs diff = {diff:.6f}); barycentric interpolation path is "
         f"probably not engaged."
     )
-    save_image(smooth, os.path.join(OUTPUT_DIR, 'test_vertex_normals.png'))
+    save_image(smooth, str(results_path(_AREA, _FEATURE, 'test_vertex_normals.png')))
 
 
 def test_textured_material_checkerboard():
@@ -1963,7 +1964,7 @@ def test_textured_material_checkerboard():
         f"Textured quad has near-uniform color (std={per_channel_std:.4f}); "
         f"texture sampling appears broken."
     )
-    save_image(pixels, os.path.join(OUTPUT_DIR, 'test_textured_material.png'))
+    save_image(pixels, str(results_path(_AREA, _FEATURE, 'test_textured_material.png')))
 
 
 def test_texture_coordinate_generated_creates_bbox_gradient():
@@ -1991,7 +1992,7 @@ def test_texture_coordinate_generated_creates_bbox_gradient():
     assert (right - left) > 0.008, (
         f"Generated coord gradient too weak (left={left:.4f}, right={right:.4f})."
     )
-    save_image(img, os.path.join(OUTPUT_DIR, 'test_texture_coord_generated.png'))
+    save_image(img, str(results_path(_AREA, _FEATURE, 'test_texture_coord_generated.png')))
 
 
 def test_texture_coordinate_object_is_stable_under_translation():
@@ -2019,7 +2020,7 @@ def test_texture_coordinate_object_is_stable_under_translation():
     b = render_at(1.0)
     mad = float(np.mean(np.abs(a - b)))
     assert mad < 0.03, f"Object-space texture drifted after translation (MAD={mad:.4f})."
-    save_image(b, os.path.join(OUTPUT_DIR, 'test_texture_coord_object.png'))
+    save_image(b, str(results_path(_AREA, _FEATURE, 'test_texture_coord_object.png')))
 
 
 def test_texture_coordinate_uv_mode_matches_default_behavior():
@@ -2089,7 +2090,7 @@ def test_normal_map_adds_visible_surface_detail():
         f"Normal map produced too little visible change "
         f"(mean abs delta={detail_delta:.4f})."
     )
-    save_image(mapped, os.path.join(OUTPUT_DIR, 'test_normal_map_detail.png'))
+    save_image(mapped, str(results_path(_AREA, _FEATURE, 'test_normal_map_detail.png')))
 
 
 def test_normal_map_shifts_specular_highlights():
@@ -2133,7 +2134,7 @@ def test_normal_map_shifts_specular_highlights():
         f"Specular response changed too little with normal map "
         f"(centroid shift={centroid_shift:.3f}px, mean abs delta={image_delta:.4f})."
     )
-    save_image(tilted, os.path.join(OUTPUT_DIR, 'test_normal_map_specular_shift.png'))
+    save_image(tilted, str(results_path(_AREA, _FEATURE, 'test_normal_map_specular_shift.png')))
 
 
 def test_bump_strength_zero_matches_no_bump_output():
@@ -2194,7 +2195,7 @@ def test_pixel_filter():
         assert img is not None and img.size > 0, f"{name} filter produced empty render"
         assert np.all(np.isfinite(img)), f"{name} filter produced NaN/Inf pixels"
         assert np.any(img > 0), f"{name} filter produced all-black render"
-        save_image(img, os.path.join(OUTPUT_DIR, f'test_pixel_filter_{name}.png'))
+        save_image(img, str(results_path(_AREA, _FEATURE, f'test_pixel_filter_{slug(name)}.png')))
 
 
 def _edge_gradient_mean(img):

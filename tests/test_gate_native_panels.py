@@ -64,6 +64,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from results_layout import results_dir
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # --------------------------------------------------------------------------- #
@@ -1508,7 +1510,7 @@ def test_gate_d_native_panels_effect():
             "staged addon dir is required for exact engine/build provenance")
 
     backends = _requested_backends()
-    out_dir = Path(os.environ.get(_OUT_ENV, REPO_ROOT / "test_results" / "gate_native_panels"))
+    out_dir = Path(os.environ.get(_OUT_ENV, results_dir("addon", "native-panels", create=False)))
     out_dir.mkdir(parents=True, exist_ok=True)
     expected_identity = {
         "build_id": os.environ.get(_EXPECTED_BUILD_ENV, ""),

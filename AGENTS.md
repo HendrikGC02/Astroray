@@ -189,7 +189,7 @@ viewport baseline.
 - `tests/test_spectral_*.py` and `tests/test_spectrum.py` — spectral pipeline, spectral materials/textures/env maps
 - `tests/test_*_plugins.py` — registry/plugin contract coverage
 
-All tests write images/charts to `test_results/` (gitignored).
+Tests, scripts and benchmarks write images/charts/stats only through `tests/results_layout.py` (`results_path(area, feature, name)` -> ignored `test_results/_runs/<area>/<feature>/`); the tracked `test_results/<area>/<feature>/` tree is curated evidence, promoted by hand, never written by a test. Layout, naming, sheet/chart rules and size caps: `.astroray_plan/docs/test-results-conventions.md` (enforced by `tests/test_results_layout_guard.py`).
 
 ## Furnace/energy tests
 

@@ -38,6 +38,8 @@ from base_helpers import (  # noqa: E402
     create_cornell_box, save_image, setup_camera,
 )
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "spectral", "path-tracer-cornell"
 
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
@@ -46,12 +48,6 @@ SPP = 32
 WIDTH = 200
 HEIGHT = 150
 MAX_DEPTH = 8
-
-
-def _output_dir():
-    d = os.path.join(os.path.dirname(__file__), '..', 'test_results')
-    os.makedirs(d, exist_ok=True)
-    return d
 
 
 def _render_cornell(integrator_name: str, seed: int = 1) -> np.ndarray:
@@ -74,7 +70,7 @@ def test_spectral_path_tracer_registered():
         f"old name 'spectral_path_tracer' still present after pkg14 rename")
 
 
-def test_cornell_ab_match(test_results_dir):
+def test_cornell_ab_match():
     """path_tracer Cornell render is valid and consistent across two identical seeds.
 
     Since pkg14 deleted the legacy RGB path, this is a deterministic
@@ -83,7 +79,7 @@ def test_cornell_ab_match(test_results_dir):
     render_a = _render_cornell("path_tracer")
     render_b = _render_cornell("path_tracer")
 
-    save_image(render_a, os.path.join(test_results_dir, 'pkg11_cornell_spectral_a.png'))
+    save_image(render_a, str(results_path(_AREA, _FEATURE, 'cornell_spectral_a.png')))
 
     mean_a = render_a.reshape(-1, 3).mean(axis=0)
     print(f"\n  Cornell mean: {mean_a}")

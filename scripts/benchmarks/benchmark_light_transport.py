@@ -23,6 +23,7 @@ TESTS_DIR = ROOT / "tests"
 if str(TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_DIR))
 
+from results_layout import results_dir  # noqa: E402
 from runtime_setup import configure_test_imports  # noqa: E402
 
 configure_test_imports()
@@ -188,7 +189,7 @@ def run_benchmark(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", type=Path, default=ROOT / "test_results" / "light_transport_benchmark")
+    parser.add_argument("--output-dir", type=Path, default=results_dir("lights", "light-transport-benchmark", create=False))
     parser.add_argument("--width", type=int, default=32)
     parser.add_argument("--height", type=int, default=32)
     parser.add_argument("--samples", type=int, default=4)

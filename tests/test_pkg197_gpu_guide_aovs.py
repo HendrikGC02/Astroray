@@ -37,6 +37,9 @@ try:
 except ImportError:
     AVAILABLE = False
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "passes", "gpu-denoise-guides"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray module not available")
 
 OIDN_ENABLED = AVAILABLE and bool(
@@ -165,7 +168,7 @@ def test_gpu_guide_toggle_off_zeroes():
 
 
 @pytest.mark.skipif(not OIDN_ENABLED, reason="OIDN not compiled in")
-def test_gpu_denoise_guides_beat_guideless(test_results_dir):
+def test_gpu_denoise_guides_beat_guideless():
     """OIDN on a GPU low-spp render retains the sphere/floor silhouette better
     with the pkg197 guides than guide-less. Metric: MSE-to-reference in the edge
     band (where albedo/normal guides matter most). Saves a before/after PNG."""
@@ -214,7 +217,7 @@ def test_gpu_denoise_guides_beat_guideless(test_results_dir):
         from PIL import Image
         gap = np.full((H, 6, 3), 200, dtype=np.uint8)
         strip = np.concatenate([_u8(guideless), gap, _u8(guided), gap, _u8(reference)], axis=1)
-        out = os.path.join(test_results_dir, "pkg197_denoise_guides_ab.png")
+        out = str(results_path(_AREA, _FEATURE, "denoise_guides_ab.png"))
         Image.fromarray(strip).save(out)
         print(f"  Saved denoise A/B strip to {out}")
     except Exception as e:  # noqa: BLE001 — PNG is evidence, not a gate

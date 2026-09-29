@@ -1,0 +1,87 @@
+{
+ "title": "Kernels changed by the emission fix: registers",
+ "xlabel": "kernel",
+ "ylabel": "registers per thread",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "before (main)",
+   "role": "other",
+   "x": [
+    "NeeMis<false>",
+    "NeeMis<true>",
+    "Shadow<false, true, false>",
+    "Shadow<false, false, true>",
+    "Shadow<false, true, true>",
+    "Shadow<true, false, true>",
+    "Isect<false, false, false, false>",
+    "Isect<false, true, false, false>",
+    "Isect<true, false, false, false>",
+    "Isect<true, true, false, false>",
+    "Isect<false, false, true, false>",
+    "Isect<false, true, true, false>",
+    "Isect<false, false, false, true>",
+    "Isect<false, true, false, true>"
+   ],
+   "y": [
+    254,
+    254,
+    121,
+    109,
+    117,
+    158,
+    125,
+    127,
+    135,
+    137,
+    158,
+    158,
+    134,
+    136
+   ]
+  },
+  {
+   "label": "after (fix)",
+   "role": "gpu",
+   "x": [
+    "NeeMis<false>",
+    "NeeMis<true>",
+    "Shadow<false, true, false>",
+    "Shadow<false, false, true>",
+    "Shadow<false, true, true>",
+    "Shadow<true, false, true>",
+    "Isect<false, false, false, false>",
+    "Isect<false, true, false, false>",
+    "Isect<true, false, false, false>",
+    "Isect<true, true, false, false>",
+    "Isect<false, false, true, false>",
+    "Isect<false, true, true, false>",
+    "Isect<false, false, false, true>",
+    "Isect<false, true, false, true>"
+   ],
+   "y": [
+    254,
+    254,
+    122,
+    110,
+    116,
+    158,
+    132,
+    133,
+    140,
+    141,
+    158,
+    158,
+    136,
+    134
+   ]
+  }
+ ],
+ "band": null,
+ "ref": null,
+ "meta": {
+  "tool": "cuobjdump --dump-resource-usage, sm_120, 385 kernels",
+  "note": "stageShadeBucketedKernel: 128/128 instantiations identical (REG 254)",
+  "source": "Batch S 49ff1efe vs main 916907b"
+ }
+}

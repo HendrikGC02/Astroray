@@ -86,7 +86,7 @@ def _skip_if_no_gpu():
         pytest.skip("CUDA GPU not available")
 
 
-def test_gpu_sum_to_beauty(test_results_dir):
+def test_gpu_sum_to_beauty():
     """Gate 1: Σ(GPU passes) == GPU beauty (partition energy closure), LINEAR."""
     _skip_if_no_gpu()
     r = astroray.Renderer()
@@ -113,7 +113,7 @@ def test_gpu_sum_to_beauty(test_results_dir):
     assert rel_l1 < 0.03, f"GPU pixelwise rel-L1 too high: {rel_l1:.5f}"
 
 
-def test_gpu_fleet_inert_beauty(test_results_dir):
+def test_gpu_fleet_inert_beauty():
     """Gate 3: passes ON vs OFF leave the GPU beauty unchanged (the partition must
     not perturb the beauty math). Same seed → the wavefront is deterministic given
     the seed, so this is a tight bound (only the pass-write side effects differ)."""
@@ -139,7 +139,7 @@ def test_gpu_fleet_inert_beauty(test_results_dir):
     assert max_abs < 1e-4, f"passes toggled the beauty: max abs diff {max_abs:.3e}"
 
 
-def test_cpu_gpu_pass_parity(test_results_dir):
+def test_cpu_gpu_pass_parity():
     """Gate 2: each light-path pass agrees CPU<->GPU in aggregate (per-channel
     mean-ratio). Independent RNG streams → mean-ratio, not pixelwise/SSIM."""
     _skip_if_no_gpu()

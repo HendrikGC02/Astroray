@@ -44,6 +44,9 @@ from scenes.prism_reference import (
     render_edge_prism,
 )
 
+from results_layout import results_path  # noqa: E402
+_AREA, _FEATURE = "spectral", "principled-dispersion"
+
 pytestmark = pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 
 # Dense-flint-like dispersion: Abbe 20, full scale -> strong, unambiguous spread.
@@ -85,12 +88,12 @@ def _render(glass_extra: dict, *, seed: int = 17) -> np.ndarray:
     return np.asarray(r.render(SAMPLES, MAX_DEPTH, None, True), dtype=np.float32)
 
 
-def test_principled_dispersion_is_chromatic(test_results_dir):
+def test_principled_dispersion_is_chromatic():
     flat = _render({})
     dispersive = _render(DISP_PARAMS)
 
-    save_image(flat, os.path.join(test_results_dir, "pkg187_principled_flat.png"))
-    save_image(dispersive, os.path.join(test_results_dir, "pkg187_principled_dispersive.png"))
+    save_image(flat, str(results_path(_AREA, _FEATURE, "principled_flat.png")))
+    save_image(dispersive, str(results_path(_AREA, _FEATURE, "principled_dispersive.png")))
 
     diff = np.abs(dispersive - flat)
     print(f"\n  max abs RGB diff: {float(diff.max()):.4f}  mean: {float(diff.mean()):.4f}")
@@ -107,13 +110,13 @@ def test_principled_dispersion_is_chromatic(test_results_dir):
     base = {"transmission_weight": 1.0, "ior": 1.5, "roughness": 0.02, "metallic": 0.0}
     flat_edge = edge_fringe(render_edge_prism(astroray, "principled", base))
     disp_edge_img = render_edge_prism(astroray, "principled", {**base, **DISP_PARAMS})
-    save_image(disp_edge_img, os.path.join(test_results_dir, "pkg187_principled_edges.png"))
+    save_image(disp_edge_img, str(results_path(_AREA, _FEATURE, "principled_edges.png")))
     disp_edge = edge_fringe(disp_edge_img)
     print(f"  edge fringe flat {flat_edge:.4f}  disp {disp_edge:.4f}")
     assert disp_edge > 0.15 and disp_edge > 4.0 * flat_edge
 
 
-def test_zero_dispersion_is_bit_identical(test_results_dir):
+def test_zero_dispersion_is_bit_identical():
     """Regression guard: dispersion_scale=0 and 'no dispersion params' must both
     reproduce the non-dispersive baseline BYTE-for-byte (dispersive_ is false, so
     the added sampleSpectral branches never execute)."""

@@ -1,0 +1,71 @@
+{
+ "title": "Viewport UI tick-gap p95, worker ON vs OFF (before the #721 fix)",
+ "xlabel": "pattern / scene",
+ "ylabel": "tick-gap p95 (ms)",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "worker ON",
+   "role": "gpu",
+   "x": [
+    "settle / big",
+    "settle / metal",
+    "continuous / big",
+    "continuous / metal",
+    "orbit / big",
+    "orbit / metal"
+   ],
+   "y": [
+    21.45,
+    17.11,
+    174.7,
+    196.68,
+    13.41,
+    76.85
+   ]
+  },
+  {
+   "label": "worker OFF",
+   "role": "other",
+   "x": [
+    "settle / big",
+    "settle / metal",
+    "continuous / big",
+    "continuous / metal",
+    "orbit / big",
+    "orbit / metal"
+   ],
+   "y": [
+    280.23,
+    184.7,
+    217.96,
+    299.92,
+    25.53,
+    44.56
+   ]
+  }
+ ],
+ "band": [
+  0,
+  33
+ ],
+ "ref": null,
+ "meta": {
+  "budget": "settle tick-gap p95 <= 33 ms",
+  "hardware": "RTX 5070 Ti, Blender 5.2",
+  "protocol": "2 reps x 6 s",
+  "orbit_spike_np_on": {
+   "big": 469,
+   "metal_sweep": 8
+  },
+  "orbit_full_res_frac_on": {
+   "big": 0.0085,
+   "metal_sweep": 1.0
+  },
+  "samples_per_s_on_settle": {
+   "big": 3.57,
+   "metal_sweep": 8.22
+  },
+  "source": "pkg266 section 9 table, Batch M (#817), 2026-09-19"
+ }
+}

@@ -71,13 +71,6 @@ def _gpu_available() -> bool:
     )
 
 
-@pytest.fixture
-def test_results_dir():
-    d = os.path.join(os.path.dirname(__file__), "..", "test_results")
-    os.makedirs(d, exist_ok=True)
-    return os.path.abspath(d)
-
-
 def _fog_scene(density=0.14, scatter=0.7, g=0.3, w=W, h=H):
     """A point light embedded in scattering fog with a diffuse floor -- gives a
     first-scatter NEE (VOLUME_DIRECT), deeper multi-scatter + surface-after-fog

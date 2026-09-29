@@ -10,7 +10,6 @@ must still show up in the image.
 The parallel build must produce the node-for-node identical tree at any thread
 count (`_bvh_digest` hashes every flat node and the leaf primitive order).
 """
-import json
 import os
 import subprocess
 import sys
@@ -19,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import runtime_setup  # noqa: F401 — configures sys.path + DLL dirs
+import runtime_setup  # configures sys.path + DLL dirs
 runtime_setup.configure_test_imports()
 import astroray
 
@@ -187,12 +186,16 @@ def test_dedicated_light_edit_keeps_bvh_but_updates_image():
     _same(after, _render(fresh))
 
 
-def test_generated_transform_marks_dirty():
+def test_generated_transform_keeps_bvh():
+    gen = [2, 0, 0, 0.1, 0, 2, 0, 0, 0, 0, 2, 0]
     r, _ = _base()
     _render(r)
-    r.set_objects_generated_transform(0, 6, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])
-    _render(r)
-    assert _builds(r) == 2   # conservative: mutable scene access dirties
+    r.set_objects_generated_transform(0, 6, gen)
+    after = _render(r)
+    assert _builds(r) == 1   # Generated coords are shading data, not bounds
+    fresh, _ = _base()
+    fresh.set_objects_generated_transform(0, 6, gen)
+    _same(after, _render(fresh))
 
 
 def test_instance_transform_keeps_cpu_bvh():
@@ -235,7 +238,7 @@ def _digest(threads):
     env = dict(os.environ, OMP_NUM_THREADS=str(threads))
     code = _DIGEST_CHILD.format(tests=str(Path(__file__).resolve().parent))
     out = subprocess.run([sys.executable, "-c", code], env=env,
-                         capture_output=True, text=True, timeout=300)
+                         capture_output=True, text=True, timeout=300, check=False)
     assert out.returncode == 0, out.stderr[-2000:]
     line = [ln for ln in out.stdout.splitlines() if ln.startswith("DIGEST ")]
     assert line, out.stdout[-2000:]

@@ -2263,7 +2263,8 @@ public:
     int setObjectsGeneratedTransform(int begin, int end, const std::vector<float>& m) {
         if (m.size() != 12)
             throw std::runtime_error("set_objects_generated_transform: matrix must have 12 floats");
-        auto& scene = renderer.getSceneMutable();
+        // pkg298: Generated coords are not bounds; read-only access keeps the BVH.
+        const auto& scene = renderer.getScene();
         invalidateWavefrontScene();  // #801: triangle data read by buildSceneArrays
         begin = std::max(begin, 0);
         end = std::min(end, static_cast<int>(scene.size()));

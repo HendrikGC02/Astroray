@@ -396,7 +396,7 @@ def _count_consumers(socket, counts, seen=None):
     return counts
 
 
-def _compile_shading_input(node, out_name, builder, depth):
+def _shading_input(node, out_name, builder, depth, arg, normal):
     """#989 — Layer Weight (Fresnel / Facing), Fresnel (Fac) and Geometry
     (Backfacing) as OP_SHADING over the per-hit context (cos(view, N), back-face
     flag). Semantics: Cycles kernel/svm/fresnel.h svm_node_layer_weight /
@@ -406,22 +406,19 @@ def _compile_shading_input(node, out_name, builder, depth):
     if builder.coord_mode:
         raise VMCompileError("per-hit shading input in a coordinate chain")
     ntype = getattr(node, 'type', None)
+    if normal is not None and getattr(normal, 'is_linked', False):
+        raise VMCompileError("%s with a linked Normal unsupported" % ntype)
     if ntype == 'NEW_GEOMETRY':
         if out_name != 'Backfacing':
             raise VMCompileError("Geometry output '%s' unsupported in the op-VM (only "
                                  "Backfacing)" % out_name)
-        which, arg = SH_BACKFACING, None
-    else:
-        normal = _get_input(node, 'Normal')
-        if normal is not None and getattr(normal, 'is_linked', False):
-            raise VMCompileError("%s with a linked Normal unsupported" % ntype)
-        if ntype == 'LAYER_WEIGHT':
-            which = {'Fresnel': SH_LAYER_FRESNEL, 'Facing': SH_LAYER_FACING}.get(out_name)
-            if which is None:
-                raise VMCompileError("unsupported Layer Weight output: %s" % out_name)
-            arg = _get_input(node, 'Blend')
-        else:  # FRESNEL
-            which, arg = SH_FRESNEL, _get_input(node, 'IOR')
+        which = SH_BACKFACING
+    elif ntype == 'LAYER_WEIGHT':
+        which = {'Fresnel': SH_LAYER_FRESNEL, 'Facing': SH_LAYER_FACING}.get(out_name)
+        if which is None:
+            raise VMCompileError("unsupported Layer Weight output: %s" % out_name)
+    else:  # FRESNEL
+        which = SH_FRESNEL
     a_s = compile_socket(arg, builder, depth + 1) if arg is not None else 0
     out = builder.alloc_slot()
     builder.emit(OP_SHADING, out, a=a_s, imm=which)
@@ -558,8 +555,16 @@ def _compile_socket_value(socket, builder, depth=0):
     if _is_texture_leaf(node):
         return _push_texture_output(node, out_name, socket, builder)
 
-    if ntype in ('LAYER_WEIGHT', 'FRESNEL', 'NEW_GEOMETRY'):  # #989 per-hit inputs
-        return _compile_shading_input(node, out_name, builder, depth)
+    # #989 per-hit shading inputs (one branch per node type: the coverage-matrix
+    # AST scanner credits the sockets each branch reads).
+    if ntype == 'LAYER_WEIGHT':
+        return _shading_input(node, out_name, builder, depth,
+                              _get_input(node, 'Blend'), _get_input(node, 'Normal'))
+    if ntype == 'FRESNEL':
+        return _shading_input(node, out_name, builder, depth,
+                              _get_input(node, 'IOR'), _get_input(node, 'Normal'))
+    if ntype == 'NEW_GEOMETRY':
+        return _shading_input(node, out_name, builder, depth, None, None)
 
     if ntype == 'VALTORGB':  # Color Ramp
         fac_slot = compile_socket(_get_input(node, 'Fac'), builder, depth + 1)

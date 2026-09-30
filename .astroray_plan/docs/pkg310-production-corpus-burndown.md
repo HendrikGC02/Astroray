@@ -25,6 +25,26 @@ PASS = every non-excluded ROI channel inside its MC band AND an empty silent-dro
 Nothing rounds up: the closest material is `prod_marble` on CPU, 12 of 16 channels out of band, but three of the four
 ROIs are within 3 % of Cycles and the 12 are dominated by one sun-highlight ROI (0.58x) and the 2 % band floor.
 
+## After lane aq-nodes (#988, #989, #994; build 0d626f94, 2026-09-30)
+
+Bands re-blessed from 5 seeds on this build (`mc_tolerance.py --suite production`): the kept Principled lobes raise
+Astroray's seed-to-seed variance, so the pkg310 bands were calibrated on the lambertian export. Seed 278.
+
+| Material | CPU in band (was) | GPU in band (was) | Now blocked by |
+|---|---|---|---|
+| prod_car_paint | 6/16 (0) | 1/16 (0) | #1005 Voronoi flake Bump dropped silently (lit_front B 0.78x, upper_flake G 1.17x) |
+| prod_wood | 1/16 (4) | 5/16 (0) | #993, #881, #1006; GPU also #1007 (64^3 bake aliases the rings) |
+| prod_marble | 11/16 (4) | 8/16 (0) | pattern residual <= 5 % vs 2-3 % bands (#1006 / #881); GPU #1007 |
+| prod_pbr_group | 2/16 (1) | 2/16 (0) | #1004 Mapping Scale from the node-group input dropped silently (tiles 3x large) |
+| prod_curves_geometry | 0/16 | 2/16 | Pointiness (reported, not implemented) + #992 |
+| others | unchanged | unchanged | #990, #991, #995, #955 |
+| **Materials passing** | **0/8** | **0/8** | |
+
+What changed: marble's sun-highlight ROI 0.58x -> 0.97x (CPU); car-paint `lit_front` G 4.64x -> 0.87x; marble GPU
+0.38-0.72x -> 0.99-1.08x; wood GPU `grain_center` B 5.9x -> 0.98x. No row flipped to pass: each material has a second
+root cause (the new issues above were found here). The GPU Object-coordinate bake is lossy (sphere region, 8 px
+blocks, |GPU - CPU| / mean: marble 6.7 % vs CPU seed-to-seed 3.7 %, wood 16.4 % vs 5.5 %) and is reported per render.
+
 ## Silent drops
 
 Strict definition (spec): an exercised (node, socket) pair, reachable from the active output and linked or non-default,

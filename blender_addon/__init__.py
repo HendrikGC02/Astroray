@@ -299,7 +299,8 @@ class CustomRaytracerRenderSettings(PropertyGroup):
     )
     use_adaptive_sampling: BoolProperty(name="Adaptive Sampling", default=True,
         description="Stop sampling pixels that have already converged")
-    adaptive_threshold: FloatProperty(name="Noise Threshold", min=0.001, max=1.0, default=0.01)
+    adaptive_threshold: FloatProperty(name="Noise Threshold", min=0.001, max=1.0, default=0.01,
+        description="Not used: the engine's adaptive sampler derives its own threshold from the sample budget")
     light_sampler: EnumProperty(
         name="Light Sampler",
         description="Strategy for sampling lights in Next Event Estimation (Conty et al. 2018 Light Tree)",
@@ -846,13 +847,21 @@ class CustomRaytracerMaterialSettings(PropertyGroup):
         description="Material type from the plugin registry",
         items=_material_type_items,
     )
-    use_disney: BoolProperty(name="Use Disney BRDF", default=True)
-    metallic: FloatProperty(name="Metallic", min=0, max=1, default=0)
-    roughness: FloatProperty(name="Roughness", min=0, max=1, default=0.5)
-    transmission: FloatProperty(name="Transmission", min=0, max=1, default=0)
-    ior: FloatProperty(name="IOR", min=1, max=3, default=1.45)
-    clearcoat: FloatProperty(name="Clearcoat", min=0, max=1, default=0)
-    clearcoat_gloss: FloatProperty(name="Clearcoat Gloss", min=0, max=1, default=1)
+    use_disney: BoolProperty(name="Use Disney BRDF", default=True,
+        description="Node-less materials: use the Disney BRDF with the values below "
+                    "(off: use the Material Type instead)")
+    metallic: FloatProperty(name="Metallic", min=0, max=1, default=0,
+        description="Disney metallic amount for materials without a node tree")
+    roughness: FloatProperty(name="Roughness", min=0, max=1, default=0.5,
+        description="Disney surface roughness for materials without a node tree")
+    transmission: FloatProperty(name="Transmission", min=0, max=1, default=0,
+        description="Disney specular transmission for materials without a node tree")
+    ior: FloatProperty(name="IOR", min=1, max=3, default=1.45,
+        description="Index of refraction for materials without a node tree")
+    clearcoat: FloatProperty(name="Clearcoat", min=0, max=1, default=0,
+        description="Disney clearcoat amount for materials without a node tree")
+    clearcoat_gloss: FloatProperty(name="Clearcoat Gloss", min=0, max=1, default=1,
+        description="Disney clearcoat glossiness for materials without a node tree")
     # pkg39: spectral profile for outside-visible rendering
     spectral_profile: EnumProperty(
         name="Spectral Profile",
@@ -7158,6 +7167,10 @@ class RENDER_PT_custom_raytracer_sampling(AstrorayPanelBase, Panel):
     bl_region_type = 'WINDOW'
     bl_context = "render"
 
+    def draw_header_preset(self, context):
+        if RENDER_PT_custom_raytracer_sampling_presets is not None:
+            RENDER_PT_custom_raytracer_sampling_presets.draw_panel_header(self.layout)
+
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = True
@@ -7190,7 +7203,10 @@ class RENDER_PT_custom_raytracer_sampling(AstrorayPanelBase, Panel):
         layout.prop(settings, "use_adaptive_sampling")
         sub = layout.column()
         sub.active = settings.use_adaptive_sampling
-        sub.prop(settings, "adaptive_threshold")
+        thr = sub.column()
+        thr.enabled = False  # pkg311: vestigial control (settings_map: dropped)
+        thr.prop(settings, "adaptive_threshold")
+        sub.label(text="Threshold is chosen automatically", icon='INFO')
 
         layout.separator()
         layout.prop(settings, "light_sampler")
@@ -7582,7 +7598,8 @@ class MATERIAL_PT_AstrorayLivePreview(AstrorayPanelBase, Panel):
 
 class CustomRaytracerPreferences(AddonPreferences):
     bl_idname = __name__
-    debug_mode: BoolProperty(name="Debug Mode", default=False)
+    debug_mode: BoolProperty(name="Debug Mode", default=False,
+        description="Informational flag stored in the preferences; no effect on rendering")
 
     def draw(self, context):
         layout = self.layout
@@ -7621,14 +7638,14 @@ class AstrorayObjectProperties(PropertyGroup):
 class AstrorayBlackHoleProperties(PropertyGroup):
     mass: FloatProperty(name="Mass (M\u2609)", min=0.1, max=1e10, default=10.0,
                         description="Black hole mass in solar masses")
-    influence_radius: FloatProperty(name="Influence Radius", min=1.0, max=10000.0, default=100.0,
+    influence_radius: FloatProperty(name="Influence Radius (scene units)", min=1.0, max=10000.0, default=100.0,
                                     description="World-space radius of the GR influence sphere")
 
     # pkg107: world-to-GR scale factor. Smaller values shrink the world-to-GR
     # mapping, growing the visible photon-orbit shadow at the same camera
     # distance. Default 100.0 preserves pkg40-pkg44 baselines; pkg104 reference
     # bank GR scenes use 20.0 for dramatic shadow visualisation.
-    r_obs_M: FloatProperty(name="r_obs_M", min=1.0, max=1000.0, default=100.0,
+    r_obs_M: FloatProperty(name="Observer Scale r_obs (M)", min=1.0, max=1000.0, default=100.0,
                            description="World-to-GR scale: smaller \u2192 bigger visible shadow at the same camera distance")
 
     # General Kerr spin (separates from slim_disk_spin which is specific to slim disk).
@@ -7650,11 +7667,12 @@ class AstrorayBlackHoleProperties(PropertyGroup):
 
     disk_outer: FloatProperty(name="Disk Outer Radius (M)", min=6.0, max=1000.0, default=30.0,
                                description="Accretion disk outer radius in units of M")
-    accretion_rate: FloatProperty(name="Accretion Rate", min=0.01, max=100.0, default=1.0,
+    accretion_rate: FloatProperty(name="Accretion Rate (dimensionless)", min=0.01, max=100.0, default=1.0,
                                    description="Dimensionless accretion rate (sets disk brightness)")
     inclination: FloatProperty(name="Inclination (\u00b0)", min=0.0, max=90.0, default=75.0,
                                 description="Observer inclination from the spin axis")
-    show_disk: BoolProperty(name="Show Accretion Disk", default=True)
+    show_disk: BoolProperty(name="Show Accretion Disk", default=True,
+                            description="Render the accretion disk around the black hole")
 
     # pkg44 ADAF parameters (active when accretion_model == 'ADAF').
     # Defaults are Sgr A*-like (radiatively-inefficient, near-spherical glow).
@@ -7684,7 +7702,7 @@ class AstrorayBlackHoleProperties(PropertyGroup):
                                       description="Inner disk edge in M (0 = ISCO)")
     slim_disk_intensity_scale: FloatProperty(name="Intensity Scale", min=0.0, max=1000.0, default=1.0,
                                               description="Emission intensity multiplier")
-    slim_disk_base_density: FloatProperty(name="Base Density", min=0.0, max=1.0e12, default=1.0e3,
+    slim_disk_base_density: FloatProperty(name="Base Density (cm\u207b\u00b3)", min=0.0, max=1.0e12, default=1.0e3,
                                           description="Electron density at midplane in cm^-3")
     enable_jet: BoolProperty(name="Synchrotron Jets", default=False,
                              description="Enable pkg42 bipolar synchrotron jet emission")
@@ -7694,9 +7712,9 @@ class AstrorayBlackHoleProperties(PropertyGroup):
                                   description="Opening half-angle of each conical jet")
     jet_power_law_index: FloatProperty(name="Jet Electron Index", min=1.5, max=6.5, default=2.5,
                                        description="Power-law electron index p")
-    jet_base_density: FloatProperty(name="Jet Base Density", min=0.0, max=1.0e12, default=1.0,
+    jet_base_density: FloatProperty(name="Jet Base Density (cm\u207b\u00b3)", min=0.0, max=1.0e12, default=1.0,
                                     description="Electron density at the jet base in cm^-3")
-    jet_magnetic_field: FloatProperty(name="Jet Magnetic Field", min=0.0, max=1.0e8, default=30.0,
+    jet_magnetic_field: FloatProperty(name="Jet Magnetic Field (G)", min=0.0, max=1.0e8, default=30.0,
                                       description="Magnetic field at the jet base in Gauss")
 
 
@@ -7714,6 +7732,10 @@ class ASTRORAY_OT_add_black_hole(Operator):
         return {'FINISHED'}
 
 
+# pkg311: Black Hole object panel split into Cycles-style sub-panels
+# (bl_parent_id hierarchy, pattern only from Cycles' CYCLES_PT_* layout) plus a
+# preset menu built on Blender's PresetPanel / script.execute_preset mechanism.
+# Presets live in presets/astroray_black_hole/ (values cited per file).
 class OBJECT_PT_astroray_black_hole(Panel):
     bl_label = "Astroray Black Hole"
     bl_space_type = 'PROPERTIES'
@@ -7726,60 +7748,124 @@ class OBJECT_PT_astroray_black_hole(Panel):
         return (obj is not None and obj.type == 'EMPTY'
                 and hasattr(obj, 'astroray_black_hole'))
 
+    def draw_header_preset(self, context):
+        if OBJECT_PT_astroray_black_hole_presets is not None:
+            OBJECT_PT_astroray_black_hole_presets.draw_panel_header(self.layout)
+
+    def draw(self, context):
+        pass
+
+
+class _BlackHoleSubPanel:
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "object"
+    bl_parent_id = "OBJECT_PT_astroray_black_hole"
+
+    @classmethod
+    def poll(cls, context):
+        return OBJECT_PT_astroray_black_hole.poll(context)
+
+
+class OBJECT_PT_astroray_black_hole_mass_spin(_BlackHoleSubPanel, Panel):
+    bl_label = "Mass & Spin"
+
     def draw(self, context):
         layout = self.layout
-        bh = context.active_object.astroray_black_hole
         layout.use_property_split = True
+        layout.use_property_decorate = False
+        bh = context.active_object.astroray_black_hole
         col = layout.column(align=True)
         col.prop(bh, "mass")
-        col.prop(bh, "influence_radius")
-        col.prop(bh, "r_obs_M")          # pkg107: controls visible shadow size
         col.prop(bh, "spin")             # general Kerr spin
-        col.separator()
+
+
+class OBJECT_PT_astroray_black_hole_disk(_BlackHoleSubPanel, Panel):
+    bl_label = "Accretion Disk"
+
+    def draw_header(self, context):
+        self.layout.prop(context.active_object.astroray_black_hole, "show_disk", text="")
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        bh = context.active_object.astroray_black_hole
+        layout.active = bh.show_disk
 
         # Accretion model selector (pkg43/pkg44)
-        col.prop(bh, "accretion_model")
-
-        col.separator()
+        layout.prop(bh, "accretion_model")
+        col = layout.column(align=True)
         col.prop(bh, "disk_outer")
         col.prop(bh, "accretion_rate")
-        col.prop(bh, "inclination")
-        col.prop(bh, "show_disk")
 
         # Show slim disk parameters only when SLIM_DISK is selected
         if bh.accretion_model == 'SLIM_DISK':
-            col.separator()
-            slim_col = col.column(align=True)
-            slim_col.label(text="Slim Disk Parameters:")
+            slim_col = layout.column(align=True, heading="Slim Disk")
             slim_col.prop(bh, "slim_disk_spin")
             slim_col.prop(bh, "slim_disk_r_inner")
             slim_col.prop(bh, "slim_disk_intensity_scale")
             slim_col.prop(bh, "slim_disk_base_density")
 
-        # pkg44 ADAF parameters
-        if bh.accretion_model == 'ADAF':
-            col.separator()
-            adaf_col = col.column(align=True)
-            adaf_col.label(text="ADAF Parameters (Narayan & Yi 1995 / pkg44):")
-            adaf_col.prop(bh, "adaf_mdot_edd")
-            adaf_col.prop(bh, "adaf_electron_temp")
-            adaf_col.prop(bh, "adaf_beta_mag")
-            adaf_col.prop(bh, "adaf_r_inner")
-            adaf_col.prop(bh, "adaf_r_outer")
-            adaf_col.prop(bh, "adaf_flattening")
-            adaf_col.prop(bh, "adaf_alpha")
-            adaf_col.prop(bh, "adaf_s")
-            adaf_col.prop(bh, "adaf_intensity_scale")
 
-        col.separator()
-        col.prop(bh, "enable_jet")
-        jet_col = col.column(align=True)
-        jet_col.enabled = bh.enable_jet
-        jet_col.prop(bh, "jet_lorentz_factor")
-        jet_col.prop(bh, "jet_half_angle")
-        jet_col.prop(bh, "jet_power_law_index")
-        jet_col.prop(bh, "jet_base_density")
-        jet_col.prop(bh, "jet_magnetic_field")
+class OBJECT_PT_astroray_black_hole_adaf(_BlackHoleSubPanel, Panel):
+    bl_label = "ADAF"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        bh = context.active_object.astroray_black_hole
+        if bh.accretion_model != 'ADAF':
+            layout.label(text="Active when Accretion Model is ADAF", icon='INFO')
+        # pkg44 ADAF parameters (Narayan & Yi 1995)
+        col = layout.column(align=True)
+        col.active = bh.accretion_model == 'ADAF'
+        col.prop(bh, "adaf_mdot_edd")
+        col.prop(bh, "adaf_electron_temp")
+        col.prop(bh, "adaf_beta_mag")
+        col.prop(bh, "adaf_r_inner")
+        col.prop(bh, "adaf_r_outer")
+        col.prop(bh, "adaf_flattening")
+        col.prop(bh, "adaf_alpha")
+        col.prop(bh, "adaf_s")
+        col.prop(bh, "adaf_intensity_scale")
+
+
+class OBJECT_PT_astroray_black_hole_jet(_BlackHoleSubPanel, Panel):
+    bl_label = "Jet"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        self.layout.prop(context.active_object.astroray_black_hole, "enable_jet", text="")
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        bh = context.active_object.astroray_black_hole
+        layout.active = bh.enable_jet
+        col = layout.column(align=True)
+        col.prop(bh, "jet_lorentz_factor")
+        col.prop(bh, "jet_half_angle")
+        col.prop(bh, "jet_power_law_index")
+        col.prop(bh, "jet_base_density")
+        col.prop(bh, "jet_magnetic_field")
+
+
+class OBJECT_PT_astroray_black_hole_observer(_BlackHoleSubPanel, Panel):
+    bl_label = "Observer"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        bh = context.active_object.astroray_black_hole
+        col = layout.column(align=True)
+        col.prop(bh, "inclination")
+        col.prop(bh, "r_obs_M")          # pkg107: controls visible shadow size
+        col.prop(bh, "influence_radius")
 
 
 class OBJECT_PT_astroray_object(Panel):
@@ -7853,6 +7939,85 @@ class DATA_PT_custom_raytracer_light(AstrorayPanelBase, Panel):
             layout.label(text="GPU: RGB-approximated (CPU is exact)", icon='ERROR')
 
 
+# pkg311: preset menus/operators through Blender's own PresetPanel /
+# AddPresetBase (bl_ui.utils, bl_operators.presets). Both modules are absent
+# under the CI bpy stub, so the classes are defined only when they import.
+OBJECT_PT_astroray_black_hole_presets = None
+RENDER_PT_custom_raytracer_sampling_presets = None
+_PRESET_CLASSES = ()
+try:
+    from bl_ui.utils import PresetPanel as _PresetPanel
+    from bl_operators.presets import AddPresetBase as _AddPresetBase
+
+    class OBJECT_PT_astroray_black_hole_presets(_PresetPanel, Panel):
+        bl_label = "Black Hole Presets"
+        preset_subdir = "astroray_black_hole"
+        preset_operator = "script.execute_preset"
+        preset_add_operator = "astroray.black_hole_preset_add"
+
+    class ASTRORAY_OT_black_hole_preset_add(_AddPresetBase, Operator):
+        bl_idname = "astroray.black_hole_preset_add"
+        bl_label = "Add Black Hole Preset"
+        bl_description = "Save the current black hole settings as a preset"
+        preset_menu = "OBJECT_PT_astroray_black_hole_presets"
+        preset_subdir = "astroray_black_hole"
+        preset_defines = ["bh = bpy.context.object.astroray_black_hole"]
+        preset_values = [
+            "bh.mass", "bh.spin", "bh.inclination", "bh.accretion_model",
+            "bh.show_disk", "bh.enable_jet",
+        ]
+
+    class RENDER_PT_custom_raytracer_sampling_presets(_PresetPanel, Panel):
+        bl_label = "Sampling Presets"
+        preset_subdir = "astroray_render"
+        preset_operator = "script.execute_preset"
+        preset_add_operator = "astroray.sampling_preset_add"
+        COMPAT_ENGINES = {'CUSTOM_RAYTRACER'}
+
+    class ASTRORAY_OT_sampling_preset_add(_AddPresetBase, Operator):
+        bl_idname = "astroray.sampling_preset_add"
+        bl_label = "Add Sampling Preset"
+        bl_description = "Save the current sampling settings as a preset"
+        preset_menu = "RENDER_PT_custom_raytracer_sampling_presets"
+        preset_subdir = "astroray_render"
+        preset_defines = [
+            "cycles = bpy.context.scene.cycles",
+            "settings = bpy.context.scene.custom_raytracer",
+        ]
+        preset_values = [
+            "cycles.samples", "cycles.preview_samples",
+            "settings.use_adaptive_sampling",
+        ]
+
+    _PRESET_CLASSES = (
+        OBJECT_PT_astroray_black_hole_presets, ASTRORAY_OT_black_hole_preset_add,
+        RENDER_PT_custom_raytracer_sampling_presets, ASTRORAY_OT_sampling_preset_add,
+    )
+except ImportError:
+    pass
+
+
+def _register_preset_path():
+    """Make Blender search <addon>/presets/ (astroray_black_hole, astroray_render)."""
+    utils = getattr(bpy, "utils", None)
+    if utils is None or not hasattr(utils, "register_preset_path"):
+        return
+    try:
+        utils.register_preset_path(addon_dir)
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"Astroray: could not register preset path ({exc})")
+
+
+def _unregister_preset_path():
+    utils = getattr(bpy, "utils", None)
+    if utils is None or not hasattr(utils, "unregister_preset_path"):
+        return
+    try:
+        utils.unregister_preset_path(addon_dir)
+    except Exception:
+        pass
+
+
 classes = [
     CustomRaytracerRenderSettings, CustomRaytracerMaterialSettings,
     CustomRaytracerLightSettings,
@@ -7870,6 +8035,12 @@ classes = [
     MATERIAL_PT_AstrorayLivePreview,
     CustomRaytracerPreferences,
     ASTRORAY_OT_add_black_hole, OBJECT_PT_astroray_black_hole,
+    OBJECT_PT_astroray_black_hole_mass_spin,
+    OBJECT_PT_astroray_black_hole_disk,
+    OBJECT_PT_astroray_black_hole_adaf,
+    OBJECT_PT_astroray_black_hole_jet,
+    OBJECT_PT_astroray_black_hole_observer,
+    *_PRESET_CLASSES,
     OBJECT_PT_astroray_object,
     DATA_PT_custom_raytracer_light,
 ]
@@ -8089,6 +8260,7 @@ def register():
               "module 'bpy.types' has no attribute 'Light'")
     bpy.types.Object.astroray_black_hole = PointerProperty(type=AstrorayBlackHoleProperties)
     bpy.types.Object.astroray_object = PointerProperty(type=AstrorayObjectProperties)
+    _register_preset_path()
 
     # pkg57: native shader nodes + per-material settings.
     global native_nodes_register_error
@@ -8125,6 +8297,7 @@ def unregister():
         del _light_type.custom_raytracer
     del bpy.types.Object.astroray_black_hole
     del bpy.types.Object.astroray_object
+    _unregister_preset_path()
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
     print("Astroray renderer addon unregistered")

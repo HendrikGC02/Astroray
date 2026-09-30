@@ -904,6 +904,14 @@ def stage_and_zip(module_path: Path, backend: str = "cpu", build_id: str | None 
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
                         dirs_exist_ok=True)
 
+    # pkg311: ship Blender preset menus (astroray_black_hole, astroray_render);
+    # the addon registers this directory via bpy.utils.register_preset_path.
+    presets_src = ADDON_SRC / "presets"
+    if presets_src.is_dir():
+        shutil.copytree(presets_src, STAGE_DIR / "presets",
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                        dirs_exist_ok=True)
+
     # pkg58: ship reference IR/UV scenes (optional in source tree).
     scenes_src = ADDON_SRC / "scenes"
     if scenes_src.is_dir():

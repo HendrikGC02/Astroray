@@ -26,6 +26,10 @@ OpenMP-OFF staged addon build: ``ASTRORAY_PYD_DIR=<dist/astroray>``. GPU legs on
     python benchmarks/reference_corpus/mc_tolerance.py --scenes v2_light_tree ... \\
         --seeds 278 279 280 281 282 --legs cycles cpu --work-dir <dir> [--reference]
 
+``--suite production`` (pkg310) runs the same pipeline over the eight ``prod_*`` production node-tree
+scenes: manifest ``production/manifest.json``, references ``production/refs/``, bands written to
+``gates_production.toml``, provisional rows in ``provisional_production.toml`` (see SUITES).
+
 Variant scenes ``<scene>@<variant>`` (VARIANTS below) reuse a scene's .blend with another
 camera; today only ``v2_camera_geometry@ortho`` (the named ortho camera, #845).
 """
@@ -51,6 +55,14 @@ KNOWN = CORPUS / "provisional_v2.toml"  # hand-maintained: provisional rows + ex
 RENDER_LEG = REPO / "benchmarks" / "blender_parity" / "render_leg.py"
 BLENDER = Path(os.environ.get("ASTRORAY_BLENDER",
                               r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe"))
+PROD = CORPUS / "production"
+# pkg310: alternative scene populations run through the identical pipeline (--suite NAME).
+SUITES = {"production": {"manifest": PROD / "manifest.json", "refs": PROD / "refs",
+                         "gates": CORPUS / "gates_production.toml",
+                         "known": CORPUS / "provisional_production.toml", "label": "pkg310 production corpus", "bless": "pkg310",
+                         # decorrelated (#986: adjacent CPU seeds share seed+tile streams); 278 stays the gate seed
+                         "seeds": [278, 1301, 2711, 4177, 6113]}}
+LABEL, BLESS = "pkg284 corpus v2", "pkg284 Phase 2"
 BAND_FLOOR, BAND_CEIL, GPU_CPU_FLOOR, DARK = 0.02, 0.15, 0.05, 0.01
 GATE_C = ("v2_light_tree", "v2_textures_opvm", "v2_camera_geometry")  # owner 2026-09-29
 LUM = np.array([0.2126, 0.7152, 0.0722])
@@ -108,21 +120,36 @@ def scene_entry(manifest: dict, sid: str) -> dict:
     return e
 
 
+def use_suite(name: str) -> None:
+    """Point the module-level manifest/reference/gates/provisional paths at a SUITES entry (CLI only)."""
+    global MANIFEST, REFS, GATES, KNOWN, GATE_C, LABEL, BLESS
+    s = SUITES[name]
+    MANIFEST, REFS, GATES, KNOWN = s["manifest"], s["refs"], s["gates"], s["known"]
+    LABEL, BLESS = s["label"], s["bless"]
+    GATE_C = ()
+
+
 def render(sid: str, leg: str, seed: int, spp: int, stem: Path, threads: int = 8,
-           timeout: int = 600) -> np.ndarray:
-    """One render through render_leg.py; returns linear HxWx3 (row 0 = top)."""
+           timeout: int = 600, manifest: Path | None = None) -> np.ndarray:
+    """One render through render_leg.py; returns linear HxWx3 (row 0 = top). The Blender log is kept
+    next to the array as ``<stem>.log`` (pkg310 silent_drop_audit reads the DegradationReport from it).
+    ``manifest`` overrides the module manifest (pkg310 tests pass the production one explicitly)."""
     base = VARIANTS[sid]["base"] if sid in VARIANTS else sid
     engine, device = {"cycles": ("CYCLES", "cpu"), "cpu": ("CUSTOM_RAYTRACER", "cpu"),
                       "gpu": ("CUSTOM_RAYTRACER", "gpu")}[leg]
     cmd = [str(BLENDER), "-b", "--factory-startup", "--threads", str(threads),
            "--python", str(RENDER_LEG), "--", "--engine", engine, "--device", device,
-           "--corpus-manifest", str(MANIFEST), "--corpus-scene", base,
+           "--corpus-manifest", str(manifest or MANIFEST), "--corpus-scene", base,
            "--out", str(stem), "--seed", str(seed), "--spp-override", str(spp)]
     if sid in VARIANTS:
         cmd += ["--camera", VARIANTS[sid]["camera"]]
     env = dict(os.environ, OMP_NUM_THREADS=str(threads))
     stem.parent.mkdir(parents=True, exist_ok=True)
-    out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False, env=env)
+    for _ in range(3):  # Blender 5.2 rarely dies in BKE_image_render_write_exr (no sentinel printed): retry a crash
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False, env=env)
+        if "PKG119B_LEG PASS" in out.stdout or "PKG119B_LEG FAIL" in out.stdout:
+            break
+    stem.with_suffix(".log").write_text(out.stdout + "\n" + out.stderr, encoding="utf-8", errors="replace")
     if "PKG119B_LEG PASS" not in out.stdout:
         raise RuntimeError(f"{sid} {leg} seed={seed}: render leg failed\n{out.stdout[-1500:]}\n{out.stderr[-500:]}")
     return np.load(stem.with_suffix(".npy"))
@@ -135,6 +162,27 @@ def roi_means(img: np.ndarray, rect) -> np.ndarray:
     box = img[round(y0 * h):round(y1 * h), round(x0 * w):round(x1 * w)]
     m = box.reshape(-1, 3).mean(axis=0)
     return np.append(m, m @ LUM)
+
+
+def score_material(scene_gates: dict, img: np.ndarray, leg: str) -> list[dict]:
+    """pkg310: every non-excluded (ROI, channel) of one ``gates_*.toml`` scene against one render.
+
+    ``scene_gates`` is ``tomllib`` output for ``[scenes.<id>]``; ``leg`` is ``cpu`` or ``gpu``. Rows the owner
+    declared documented divergences (``expected_divergence``) pin Astroray against its own N-seed mean, the
+    same rule as tests/test_corpus_v2_parity.py. Returns dicts with roi, channel, ratio, tol, ok."""
+    rows = []
+    for roi in scene_gates["roi"]:
+        m = roi_means(img, roi["rect"])
+        pinned = "expected_divergence" in roi
+        den = roi[f"{leg}_mean"] if pinned else roi["cycles_mean"]
+        tol = roi[f"{leg}_pin_tol"] if pinned else roi[f"{leg}_tol"]
+        for c, ch in enumerate(CH):
+            if roi["excluded"][c]:
+                continue
+            ratio = float(m[c] / den[c])
+            rows.append({"roi": roi["name"], "channel": ch, "ratio": ratio, "tol": float(tol[c]),
+                         "ok": abs(ratio - 1.0) <= tol[c], "pinned": pinned})
+    return rows
 
 
 def write_exr(path: Path, img: np.ndarray) -> None:
@@ -231,14 +279,14 @@ def build_rois(entry: dict, res: dict) -> list[dict]:
 
 
 def write_toml(results: dict, manifest: dict, seeds, blender_version: str, base: str) -> None:
-    L = ["# pkg284 corpus v2 gates -- generated by mc_tolerance.py; bands are measured, never hand-typed.",
+    L = [f"# {LABEL} gates -- generated by mc_tolerance.py; bands are measured, never hand-typed.",
          "# Gate: per-ROI per-channel + luminance linear mean ratio Astroray/Cycles; fixed seed, adaptive OFF, denoise OFF.",
          "# tol = max(0.02, 3*sqrt(sigma_cycles^2 + sigma_astroray^2)); GPU/CPU tol floor 0.05; sigmas from the",
          "# seed-to-seed scatter at spp_gate. Channels/luminance with Cycles mean < 0.01 are excluded (tol = 0).",
-         "# Vectors are [r, g, b, luminance]. Provisional rows live in provisional_v2.toml. Re-bless rule: README.md.", "",
+         f"# Vectors are [r, g, b, luminance]. Provisional rows live in {KNOWN.name}. Re-bless rule: README.md.", "",
          "[meta]", f'blender = "{blender_version}"', f"seed = {seeds[0]}", f"mc_seeds = {seeds}",
          "adaptive_sampling = false", "denoise = false", f"band_floor = {BAND_FLOOR}",
-         f'blessed_on = "Cycles references: Blender {blender_version}; bands: {len(seeds)} seeds, Cycles + Astroray CPU spread, base commit {base}, pkg284 Phase 2"', ""]
+         f'blessed_on = "Cycles references: Blender {blender_version}; bands: {len(seeds)} seeds, Cycles + Astroray CPU spread, base commit {base}, {BLESS}"', ""]
     for sid in sorted(results):
         e = scene_entry(manifest, sid)
         v2 = e["v2"]
@@ -249,7 +297,7 @@ def write_toml(results: dict, manifest: dict, seeds, blender_version: str, base:
               f"gate_c = {str(sid in GATE_C).lower()}"]
         if sid in VARIANTS:
             L += [f'base = "{VARIANTS[sid]["base"]}"', f'camera = "{VARIANTS[sid]["camera"]}"']
-        L += [f'reference = "benchmarks/reference_corpus/refs_v2/{exr_path(sid).name}"', ""]
+        L += [f'reference = "{exr_path(sid).relative_to(REPO).as_posix()}"', ""]
         for r in build_rois(e, results[sid]):
             L += [f'[[scenes."{sid}".roi]]', f'name = "{r["name"]}"', f"rect = {_arr(r['rect'], '{:.4f}')}",
                   f"cycles_mean = {_arr(r['cycles_mean'])}",
@@ -274,22 +322,34 @@ def write_toml(results: dict, manifest: dict, seeds, blender_version: str, base:
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--scenes", nargs="+", help="v2 scene ids incl. variants (default: every render-gated v2 scene + variants)")
-    ap.add_argument("--seeds", nargs="+", type=int, default=[278, 279, 280, 281, 282])
+    ap.add_argument("--seeds", nargs="+", type=int, default=None,
+                    help="MC seeds (default 278-282; the production suite defaults to decorrelated seeds, see SUITES)")
+    ap.add_argument("--gates", type=Path, default=None,
+                    help="write the generated bands here instead of the suite's gates file (default gates_v2.toml, "
+                         "or gates_production.toml with --suite production)")
     ap.add_argument("--legs", nargs="+", choices=LEGS, default=["cycles", "cpu"],
                     help="legs to (re)measure this run; earlier legs stay in results.json")
     ap.add_argument("--reference", action="store_true",
                     help="re-render the 1024 spp Cycles reference EXR (default: reuse refs_v2/)")
     ap.add_argument("--work-dir", required=True, help="scratch dir for .npy/.png renders + results.json")
+    ap.add_argument("--suite", choices=sorted(SUITES), default=None,
+                    help="scene population (default: the pkg284 v2 corpus)")
     ap.add_argument("--table-only", action="store_true",
                     help="rewrite gates_v2.toml from <work>/results.json without rendering")
     a = ap.parse_args()
+    if a.suite:
+        use_suite(a.suite)
+    if a.gates:
+        global GATES
+        GATES = a.gates.resolve()
+    a.seeds = a.seeds or (SUITES[a.suite]["seeds"] if a.suite else [278, 279, 280, 281, 282])
     if any(s <= 0 for s in a.seeds):
         sys.exit("seeds must be non-zero (0 is the random sentinel)")
     work = Path(a.work_dir)
     work.mkdir(parents=True, exist_ok=True)
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     gated = [s for s, e in manifest["scenes"].items() if "v2" in e and e["v2"]["render_gate"]]
-    scenes = a.scenes or sorted(gated) + sorted(VARIANTS)
+    scenes = a.scenes or sorted(gated) + ([] if a.suite else sorted(VARIANTS))
     res_path = work / "results.json"
     results = json.loads(res_path.read_text()) if res_path.is_file() else {}
     if not a.table_only:

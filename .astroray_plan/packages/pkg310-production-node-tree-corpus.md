@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done — PR #999, 2026-09-30: baseline CPU 0/8, GPU 0/8, 39 strict silent pairs (~7 real), issues #988-#996; Opus sheet sign-off done
 **Estimated effort:** 2–3 sessions (~8 h): scenes + Cycles refs ~4 h, walker + audit ~2 h, runs + backlog ~2 h
 **Depends on:** pkg278, pkg284
 
@@ -56,9 +56,9 @@ Sonnet 5.5 lane, Terra review, Opus visual sign-off on the contact sheet.
 
 ## Prerequisites
 
-- [ ] pkg284 Phase 2 on main (`test_corpus_v2_parity.py`, MC-band tooling).
-- [ ] Blender 5.2 headless available (`blender-5-1-installed-locally`); a current `build_cuda` + staged addon for the GPU leg.
-- [ ] `python scripts/project_index.py query "corpus"` and `scripts/README.md` read; no new harness script where a flag suffices.
+- [x] pkg284 Phase 2 on main (`test_corpus_v2_parity.py`, MC-band tooling).
+- [x] Blender 5.2 headless available (`blender-5-1-installed-locally`); a current `build_cuda` + staged addon for the GPU leg.
+- [x] `python scripts/project_index.py query "corpus"` and `scripts/README.md` read; no new harness script where a flag suffices.
 
 ---
 
@@ -129,12 +129,12 @@ possibly a scene or reference defect first (CLAUDE.md §5c).
 
 ## Acceptance criteria
 
-- [ ] 8 `prod_*.blend` scenes + Cycles references + `gates_production.toml`, rebuilt from `build_corpus.py` bit-identically (manifest SHAs).
-- [ ] `pytest tests/test_production_corpus.py` runs both backends (GPU legs under the GPU lock); every non-passing material is a strict xfail with an issue number.
-- [ ] `silent_drop_audit.py` lists silent drops per material. It is proven non-vacuous by a fixture material with a deliberately unhandled node that it flags.
-- [ ] Burn-down doc: baseline N/8 on CPU and on GPU, the silent-drop list, a ranked backlog of issues, and the bound-versus-closure failure count.
-- [ ] Contact sheet saved under `test_results/pkg310/` and inspected (Opus), with the verdict in the burn-down doc.
-- [ ] `scripts/README.md` updated; `python scripts/project_index.py lint` clean.
+- [x] 8 `prod_*.blend` scenes + Cycles references + `gates_production.toml`, rebuilt from `build_corpus.py` (structurally identical; Blender 5.2 `.blend` bytes are not reproducible, manifest SHAs pin the committed files).
+- [x] `pytest tests/test_production_corpus.py` runs both backends (GPU legs under the GPU lock); every non-passing material is a strict xfail with an issue number.
+- [x] `silent_drop_audit.py` lists silent drops per material. It is proven non-vacuous by a fixture material with a deliberately unhandled node that it flags.
+- [x] Burn-down doc: baseline N/8 on CPU and on GPU, the silent-drop list, a ranked backlog of issues, and the bound-versus-closure failure count.
+- [x] Contact sheet saved (as `test_results/textures-nodes/production-corpus/`, layout guard forbids `pkg310/`) and inspected (Opus), with the verdict in the burn-down doc. Saved; Opus sign-off 2026-09-30 (lead): sheets valid; failures match filed issues (marble GPU flat = #994; car-paint facing-ratio tint missing = #989; light-path camera-vs-lit floor colour = #991); no scene/reference defect.
+- [x] `scripts/README.md` updated; `python scripts/project_index.py lint` clean.
 
 ---
 
@@ -149,13 +149,16 @@ possibly a scene or reference defect first (CLAUDE.md §5c).
 
 ## Progress
 
-- [ ] Scene builders + Cycles references
-- [ ] Silent-drop audit + fixture
-- [ ] CPU/GPU runs, bands, contact sheet
-- [ ] Backlog issues + burn-down doc
+- [x] Scene builders + Cycles references
+- [x] Silent-drop audit + fixture
+- [x] CPU/GPU runs, bands, contact sheet
+- [x] Backlog issues + burn-down doc
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+* Blender 5.2 `.blend` files are zstd-compressed and not byte-reproducible (true of every corpus scene), so "bit-identical rebuild" became "manifest SHA pins the committed file + structural-identity test".
+* `test_results/pkg310/` is not a valid layout path (banned token); evidence lives in `test_results/textures-nodes/production-corpus/`.
+* The frozen coverage matrix is too coarse for a strict silent-drop gate (#996): 32 of the 39 strict hits are stale rows. Fix the matrix before promoting the audit to a merge gate.
+* Bands: use decorrelated seeds (#986), not 278-282.

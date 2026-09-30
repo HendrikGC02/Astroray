@@ -30,6 +30,9 @@
 #include "astroray/sampling/adaptive_sampling.h"  // pkg131 zero-knob adaptive core
 #include "astroray/guiding/sdtree.h"               // pkg136 SD-tree path guiding
 #include "astroray/guiding/guide_context.h"        // pkg136 training record
+#include "astroray/sampling/sobol_burley.h"        // pkg305 stratified camera group
+#include "astroray/sampling/path_dimensions.h"     // pkg305 camera dimension sets
+#include "astroray/sampling/filter_table.h"        // pkg305 tabulated-CDF pixel filter
 #ifdef _OPENMP
 #include <omp.h>                                    // pkg136 per-thread record buffer index
 #endif
@@ -337,6 +340,9 @@ struct Ray {
     float screenU = 0.5f, screenV = 0.5f;  // [0,1] camera-window coordinates
     bool hasCameraFrame = false;
     Vec3 cameraOrigin, cameraU, cameraV, cameraW;
+    // pkg305: stratified hero-wavelength uniform for a primary ray (camera group,
+    // Sobol-Burley PATHDIM_HERO_LAMBDA); < 0 = none, the integrator draws its own.
+    float heroLambdaU = -1.0f;
     Ray() : time(0) {}
     Ray(const Vec3& o, const Vec3& d, float t = 0, float su = 0.5f, float sv = 0.5f)
         : origin(o), direction(d.normalized()), time(t), screenU(su), screenV(sv) {}
@@ -2309,6 +2315,29 @@ public:
     // time ∈ [0, 1] within the shutter window; mapped to actual shutter
     // subframe by shutterPosition. Signature change per spec Q10.
     Ray getRay(float s, float t, float time, std::mt19937& gen) const {
+        return getRayDisk(s, t, time, Vec3::randomInUnitDisk(gen));
+    }
+
+    // pkg305: lens position from a stratified 2D uniform (camera group LENS),
+    // mapped to the unit disk by the concentric map (Shirley & Chiu 1997; Cycles
+    // kernel/sample/mapping.h sample_uniform_disk, Apache-2.0), which keeps the
+    // 2D stratification.
+    Ray getRayLens(float s, float t, float time, float lensU, float lensV) const {
+        const float a = 2.0f * lensU - 1.0f;
+        const float b = 2.0f * lensV - 1.0f;
+        Vec3 disk(0.0f, 0.0f, 0.0f);
+        if (a != 0.0f || b != 0.0f) {
+            constexpr float kPi4 = 0.78539816339744830962f;
+            float r, phi;
+            if (a * a > b * b) { r = a; phi = kPi4 * (b / a); }
+            else               { r = b; phi = 2.0f * kPi4 - kPi4 * (a / b); }
+            disk = Vec3(r * std::cos(phi), r * std::sin(phi), 0.0f);
+        }
+        return getRayDisk(s, t, time, disk);
+    }
+
+    // Camera ray through film point (s, t) with the lens at unit-disk point `disk`.
+    Ray getRayDisk(float s, float t, float time, const Vec3& disk) const {
         // pkg88-A: if shutter is off, use current camera basis (pre-pkg88 path).
         // This gates acceptance criterion A3 (zero-shutter regression).
         // pkg88-C.0: the sampled time still rides on the ray — the shutter
@@ -2316,7 +2345,7 @@ public:
         // with motion data) blurs whenever motion steps exist, mirroring the
         // GPU kernels; static scenes have no time consumers so A3 holds.
         if (shutter <= 0.0f) {
-            Vec3 rd = Vec3::randomInUnitDisk(gen) * lensRadius;
+            Vec3 rd = disk * lensRadius;
             Vec3 offset = u * rd.x + v * rd.y;
             if (orthographic_) return orthoRay(lowerLeft + horizontal * s + vertical * t, offset,
                                                origin, u, v, w_axis, time, s, t);
@@ -2354,7 +2383,7 @@ public:
                                                - w_interp * focusDist_;
 
         // Generate ray from interpolated camera
-        Vec3 rd = Vec3::randomInUnitDisk(gen) * lensRadius;
+        Vec3 rd = disk * lensRadius;
         Vec3 offset = u_interp * rd.x + v_interp * rd.y;
         if (orthographic_)
             return orthoRay(lowerLeft_interp + w_interp * focusDist_ + horizontal_interp * s
@@ -2696,6 +2725,19 @@ class Renderer {
     // photon-map integrator in beginFrame.
     std::vector<const astroray::Light*> photonSplitLamps_;
     int renderSeed = 0;  // 0 = random (non-deterministic), non-zero = deterministic seed
+    // pkg305 — stratified camera group (Sobol-Burley FILTER / LENS / HERO_LAMBDA,
+    // include/astroray/sampling/sobol_burley.h). false = the pre-pkg305 white-noise
+    // camera draws from the tile mt19937 / PCG32 stream (byte-identical).
+    bool useStratifiedCamera_ = true;
+    // pkg305 — progressive (viewport) chunk: this render() renders global sample
+    // indices [offset, offset + spp) of one session. -1 = standalone render.
+    // Seed 0 draws the session seed at offset 0 and reuses it for later chunks.
+    int progressiveSampleOffset_ = -1;
+    uint32_t cameraSessionSeed_ = 0;
+    bool cameraSessionSeedValid_ = false;
+    // pkg305 — tabulated filter CDF (Gaussian / Blackman-Harris, filter_table.h),
+    // rebuilt per render; Box needs none.
+    std::array<float, astroray::filter_table::kSize> filterTable_{};
     // #802 Batch A item 4 - Render Region pixel rect (top-down). Inactive by
     // default so every render is byte-identical unless the addon sets a border.
     int renderRegionX0_ = 0, renderRegionY0_ = 0, renderRegionX1_ = 0, renderRegionY1_ = 0;
@@ -3206,6 +3248,45 @@ public:
     int getSceneObjectCount() const { return static_cast<int>(scene.size()); }
     void setSeed(int s) { renderSeed = s; }
     int getSeed() const { return renderSeed; }
+    // pkg305 — stratified camera group toggle and progressive chunk offset.
+    void setStratifiedCamera(bool use) { useStratifiedCamera_ = use; }
+    bool getStratifiedCamera() const { return useStratifiedCamera_; }
+    void setProgressiveSampleOffset(int offset) { progressiveSampleOffset_ = std::max(-1, offset); }
+    int getProgressiveSampleOffset() const { return progressiveSampleOffset_; }
+    // pkg305 — per-render camera-group keying, shared by the CPU tile loop and the
+    // GPU wavefront (cuda_wavefront_render publishes it to c_wfCameraGroup).
+    // seed: the Sobol-Burley sequence seed (pixel seed = HashHP(pixel ^ seed),
+    // pkg297 spec); indexOffset: global index of this call's sample 0; mask:
+    // Cycles sobol_index_mask (full for progressive chunks so every chunk reads
+    // the same sequence). Call once per render() call.
+    struct CameraGroupParams { bool enabled; uint32_t seed; uint32_t indexOffset; uint32_t mask; };
+    CameraGroupParams resolveCameraGroup(int maxSamples) {
+        const bool progressive = progressiveSampleOffset_ >= 0;
+        uint32_t seed;
+        if (renderSeed != 0) {
+            seed = static_cast<uint32_t>(renderSeed);
+        } else {
+            // Seed 0 is the random sentinel: one draw per render, or per
+            // progressive session (offset 0 starts a session).
+            if (!progressive || progressiveSampleOffset_ == 0 || !cameraSessionSeedValid_) {
+                cameraSessionSeed_ = static_cast<uint32_t>(std::random_device{}());
+                cameraSessionSeedValid_ = true;
+            }
+            seed = cameraSessionSeed_;
+        }
+        CameraGroupParams p;
+        p.enabled = useStratifiedCamera_;
+        p.seed = seed;
+        p.indexOffset = progressive ? static_cast<uint32_t>(progressiveSampleOffset_) : 0u;
+        p.mask = progressive ? 0xFFFFFFFFu : astroray::sobol_burley::indexMask(maxSamples);
+        return p;
+    }
+    // pkg305 — the GPU uploads the same table (setWavefrontPixelFilter).
+    const float* buildFilterTable() {
+        if (pixelFilterType != 0)
+            astroray::filter_table::build(pixelFilterType, pixelFilterWidth, filterTable_.data());
+        return filterTable_.data();
+    }
     // pkg241 Phase 1b - cooperative-cancellation completion metadata.
     bool getLastRenderCancelled() const { return lastRenderCancelled_; }
     int getLastRenderTilesCompleted() const { return lastRenderTilesCompleted_; }
@@ -4957,6 +5038,11 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         // GPU wavefront leg will (include/astroray/sampling/adaptive_sampling.h).
         const astroray::adaptive::AdaptiveParams adaptiveParams =
             astroray::adaptive::deriveAdaptiveParams(maxSamples, /*auto*/0.0f, /*auto*/0);
+        // pkg305 — stratified camera group: FILTER / LENS / HERO_LAMBDA come from
+        // Sobol-Burley keyed by (pixel, global sample index, seed) instead of the
+        // tile mt19937, which keeps every later draw. Resolved once per call.
+        const CameraGroupParams camGroup = resolveCameraGroup(maxSamples);
+        const float* filterTable = buildFilterTable();
         std::atomic<int> tilesCompleted{0};
         // pkg241 Phase 1b - cooperative cancellation. A false return from the
         // progress callback sets this; not-yet-started tiles then skip their
@@ -5116,6 +5202,10 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                 uint32_t baseSeed = (renderSeed == 0)
                     ? static_cast<uint32_t>(std::random_device{}())
                     : static_cast<uint32_t>(renderSeed);
+                // pkg305: a later progressive chunk with a pinned seed must not
+                // replay chunk 0's white-noise stream (offset <= 0 unchanged).
+                if (progressiveSampleOffset_ > 0)
+                    baseSeed += astroray::HashHP(static_cast<uint32_t>(progressiveSampleOffset_));
                 std::mt19937 gen(baseSeed + static_cast<uint32_t>(tileY * tilesX + tileX));
                 std::uniform_real_distribution<float> dist(0, 1);
                 int x0 = tileX * tileSize, x1 = std::min(x0 + tileSize, cam.width);
@@ -5171,11 +5261,32 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         float firstPixelCurrX = 0.0f, firstPixelCurrY = 0.0f;
                         bool firstRayCaptured = false;
 
+                        // pkg305: per-pixel Sobol-Burley seed (pkg297 spec keying).
+                        const uint32_t camPixelSeed = astroray::sobol_burley::pixelSeed(
+                            static_cast<uint32_t>(idx), camGroup.seed);
                         for (int s = 0; s < maxSamples; ++s) {
                             // #845: pixel i's centre (i+0.5; filterSample is centred on
                             // 0.5) maps to film (i+0.5)/W, as Cycles/Blender (was /(W-1)).
-                            float u = (x + filterSample(gen, dist)) / cam.width;
-                            float v = 1.0f - (y + filterSample(gen, dist)) / cam.height;
+                            float u, v, lensU = 0.0f, lensV = 0.0f, heroU = -1.0f;
+                            if (camGroup.enabled) {
+                                // pkg305: camera group (Cycles path_rng_2D/1D with
+                                // PRNG_FILTER/PRNG_LENS; hero lambda per Wilkie 2014).
+                                const uint32_t si = camGroup.indexOffset + static_cast<uint32_t>(s);
+                                float fu, fv;
+                                astroray::sobol_burley::sample2D(si, astroray::PATHDIM_FILTER,
+                                                                 camPixelSeed, camGroup.mask, fu, fv);
+                                astroray::sobol_burley::sample2D(si, astroray::PATHDIM_LENS,
+                                                                 camPixelSeed, camGroup.mask, lensU, lensV);
+                                heroU = astroray::sobol_burley::sample1D(si, astroray::PATHDIM_HERO_LAMBDA,
+                                                                         camPixelSeed, camGroup.mask);
+                                u = (x + 0.5f + astroray::filter_table::sampleOffset(
+                                         pixelFilterType, pixelFilterWidth, filterTable, fu)) / cam.width;
+                                v = 1.0f - (y + 0.5f + astroray::filter_table::sampleOffset(
+                                         pixelFilterType, pixelFilterWidth, filterTable, fv)) / cam.height;
+                            } else {
+                                u = (x + filterSample(gen, dist)) / cam.width;
+                                v = 1.0f - (y + filterSample(gen, dist)) / cam.height;
+                            }
 
                             // pkg88-A: sample time from Halton dimension 8 (independent per spp).
                             // Per spec Q-Owner-4, we use independent Halton (not stratified)
@@ -5196,7 +5307,10 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                             // below can recover the world-space hit point (origin + dir*depth)
                             // even for integrators that don't populate SampleResult.position.
                             // pkg88-A: pass sampled time to getRay (signature change per spec Q10).
-                            Ray primaryRay = cam.getRay(u, v, time, gen);
+                            Ray primaryRay = camGroup.enabled
+                                ? cam.getRayLens(u, v, time, lensU, lensV)
+                                : cam.getRay(u, v, time, gen);
+                            primaryRay.heroLambdaU = heroU;  // pkg305 (-1 = integrator draws)
                             if (s == 0) {
                                 firstPrimaryRay = primaryRay;
                                 // pkg72: use the jittered pixel coordinate as

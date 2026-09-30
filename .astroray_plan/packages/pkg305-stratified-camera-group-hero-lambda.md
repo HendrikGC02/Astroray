@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** open
+**Status:** done — PR #1003, 2026-09-30: sky R/B relVar 1.9e-3/2.6e-3 -> 2.4e-5/3.7e-5 (CPU+GPU), sky_sun bulk 190x -> 4.2x Cycles, cost 0 %, shade REG unchanged
 **Estimated effort:** 2 sessions (~6 h): CPU 1, GPU + gates 1
 **Depends on:** pkg224, pkg284
 
@@ -179,13 +179,23 @@ Opus 5.5 lane with Terra review; the lead runs CUDA builds.
 
 ## Progress
 
-- [ ] `sobol_burley.h` + camera slots + filter table (CPU), unit tests
-- [ ] CPU tile loop + hero input; gates on CPU
-- [ ] GPU `stage_init` port; REG report; gates on GPU
-- [ ] Default on; re-pins; pkg297 note
+- [x] `sobol_burley.h` + camera slots + filter table (CPU), unit tests
+- [x] CPU tile loop + hero input; gates on CPU
+- [x] GPU `stage_init` port; REG report; gates on GPU
+- [x] Default on; re-pins; pkg297 note
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The spec's `HashHP(pixel ^ seed)` makes seed s+1 at pixel p replay seed s at
+  pixel p ^ 1, so the corpus MC seeds 278..282 would render one set of
+  sequences. The seed is hashed first.
+- Cycles' uniform-u inverse filter table fails chi2 in the near-zero tails
+  (BH 1.5 outer bin 5x); a forward CDF + binary search passes.
+- The CPU tile stream `mt19937(seed + tile)` also correlates consecutive
+  seeds: corpus CPU band sigmas are underestimated (#986). Use seeds 10000 apart
+  for A/B z-tests.
+- Several seed-pinned tests encoded one realization of the old stream
+  (pkg67 SSIM, glass-sphere phash, pkg287 max, ReSTIR spatial MSE); each was
+  attributed against a main build before re-pinning.

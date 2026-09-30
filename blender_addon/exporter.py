@@ -2034,6 +2034,13 @@ class Exporter:
         # mid-call, so ordinary completion is unchanged.
         def _viewport_progress(_frac):
             return not self._viewport_cancel_requested
+        # pkg305: continue the stratified camera group's global sample index
+        # across progressive chunks (offset 0 starts a new accumulation).
+        _set_offset = getattr(renderer, "set_progressive_sample_offset", None)
+        if _set_offset is not None:
+            _set_offset(int(self._viewport_current_spp)
+                        if (self._viewport_accum_pixels is not None
+                            and self._viewport_current_spp > 0) else 0)
         _render_t0 = time.perf_counter()
         pixels = renderer.render(
             samples, depth, _viewport_progress, False,
@@ -2427,6 +2434,10 @@ class Exporter:
                 samples = min(chunk, target - accum_spp)
                 if samples <= 0:
                     break
+                # pkg305: continue the camera group's global sample index.
+                _set_offset = getattr(renderer, "set_progressive_sample_offset", None)
+                if _set_offset is not None:
+                    _set_offset(int(accum_spp) if accum is not None else 0)
                 _chunk_t0 = time.perf_counter()
                 pixels = renderer.render(
                     samples, depth, progress, False,

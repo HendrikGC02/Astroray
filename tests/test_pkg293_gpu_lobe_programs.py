@@ -95,20 +95,20 @@ def _setup_quad(r, mat, light):
                  vfov=_WINDOW_VFOV, width=_W, height=_H)
 
 
-def _renderer(use_gpu):
+def _renderer(use_gpu, seed=1):
     r = create_renderer()
     if use_gpu:
         if not _has_cuda_gpu(r):
             pytest.skip("No CUDA GPU — pkg293 GPU leg runs on the RTX box.")
         r.set_use_gpu(True)
-    r.set_seed(1)
+    r.set_seed(seed)
     r.set_background_color([0.0, 0.0, 0.0])
     return r
 
 
-def _render(case, use_gpu, kind, with_program=True, samples=256):
+def _render(case, use_gpu, kind, with_program=True, samples=256, seed=1):
     param, build, consts, light = _CASES[case]
-    r = _renderer(use_gpu)
+    r = _renderer(use_gpu, seed)
     params = dict(consts)
     if kind == "principled" and "transmission" in params:
         params["transmission_weight"] = params.pop("transmission")
@@ -184,8 +184,11 @@ _KNOWN_GAPS = {
     if (c, k) in _KNOWN_GAPS else (c, k)
     for c in sorted(_CASES) for k in _KINDS])
 def test_pkg293_gpu_lobe_program_parity(case, kind):
-    cpu = _squares(_render(case, False, kind))
-    gpu = _squares(_render(case, True, kind))
+    # pkg305: the rough-glass squares' GPU/CPU ratio scatters +-3-6 % per seed at
+    # 256 spp (main too), so one seed flips with the RNG stream; mean of 4 seeds.
+    seeds = (1, 2, 3, 4)
+    cpu = np.mean([_squares(_render(case, False, kind, seed=s)) for s in seeds], axis=0)
+    gpu = np.mean([_squares(_render(case, True, kind, seed=s)) for s in seeds], axis=0)
     _assert_parity(cpu, gpu, f"{kind} {case}")
 
 

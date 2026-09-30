@@ -534,6 +534,12 @@ void setWavefrontMissCoverage(float* coverage);
 // Gaussian/Blackman-Harris honour width (offsets cross pixel boundaries for
 // width>1). Read by stage_init.cu::filterSample at primary-ray generation.
 void setWavefrontPixelFilter(int type, float width);
+// pkg305 — publish the stratified camera group (Sobol-Burley FILTER / LENS /
+// HERO_LAMBDA, Renderer::resolveCameraGroup) and the tabulated filter CDF
+// (filter_table::kSize floats, Gaussian / Blackman-Harris) read by
+// stage_init.cu::generatePrimaryRay. enabled == 0 = pre-pkg305 PCG32 camera draws.
+void setWavefrontCameraGroup(int enabled, uint32_t seed, uint32_t indexOffset, uint32_t mask);
+void setWavefrontFilterTable(const float* table);
 // #802 Batch A item 4 - publish the Render Region rect to the wavefront init.
 void setWavefrontRenderRegion(int active, int x0, int y0, int x1, int y1);
 // #873 - publish the primary-ray camera clip planes (stage_init.cu).

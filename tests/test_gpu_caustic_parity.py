@@ -293,7 +293,11 @@ def test_gpu_glass_sphere_caustic_parity():
     e_gpu = _caustic_roi_energy(gpu_img)
     e_cpu = _caustic_roi_energy(cpu_img)
     ratio = e_gpu / max(e_cpu, 1e-6)
-    ssim = _ssim(gpu_img, cpu_img)
+    # pkg305: one camera -> glass -> sun firefly (~35 vs a 0.4 caustic peak) sets
+    # the global-SSIM variance on its own; it appears in 5/150 seeds on main and
+    # 8/150 with the stratified camera. Cap both images for the structural SSIM.
+    cap = 2.0 * float(np.percentile(cpu_img, 99.9))
+    ssim = _ssim(np.minimum(gpu_img, cap), np.minimum(cpu_img, cap))
     gpu_peak = float(_luminance(gpu_img).max())
 
     print(

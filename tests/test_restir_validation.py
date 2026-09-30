@@ -210,6 +210,9 @@ class TestSpatialMSE:
     def _scene(self, r):
         build_many_light_scene(r, n_lights=self.N_LIGHTS, light_intensity=6.0)
 
+    # pkg305: the effect is below the frame noise (spatial/no-reuse 0.98-1.02
+    # across seeds on main, 3 of 8 seeds fail); the result follows the RNG stream.
+    @pytest.mark.xfail(strict=False, reason="#997: underpowered, fails at 3/8 seeds on main")
     def test_spatial_reduces_mse(self, astroray_module):
         # Converged reference (fixed non-zero seed — see class docstring).
         ref_r = make_renderer(astroray_module, self.WIDTH, self.HEIGHT)

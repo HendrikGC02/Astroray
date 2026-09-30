@@ -15,6 +15,8 @@
 
 #include "astroray/sampling/wavefront_rng.h"
 #include "astroray/sampling/progressive_sobol.h"
+#include "astroray/sampling/sobol_burley.h"   // pkg305
+#include "astroray/sampling/filter_table.h"   // pkg305
 #include "astroray/sampling/adaptive_sampling.h"
 #include "astroray/energy_compensation.h"
 #include "astroray/guiding/dtree.h"
@@ -393,6 +395,47 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
           "kernel returns from WavefrontRNG::Uniform() when c_wfSamplerMode is on.");
     m.def("fast_owen_scramble", &astroray::FastOwenScramble, "v"_a, "seed"_a,
           "Burley 2020 FastOwenScrambler (pbrt-v4).");
+
+    // pkg305 — Sobol-Burley camera-group sampler and the pixel-filter table
+    // (single __host__ __device__ sources shared with stage_init.cu).
+    m.def("sobol_burley_1d", &astroray::sobol_burley::sample1D,
+          "index"_a, "dimension"_a, "seed"_a, "mask"_a,
+          "Cycles sobol_burley_sample_1D port.");
+    m.def("sobol_burley_2d",
+          [](uint32_t index, uint32_t dimSet, uint32_t seed, uint32_t mask) {
+              float a, b;
+              astroray::sobol_burley::sample2D(index, dimSet, seed, mask, a, b);
+              return std::make_pair(a, b);
+          },
+          "index"_a, "dimension_set"_a, "seed"_a, "mask"_a,
+          "Cycles sobol_burley_sample_2D port.");
+    m.def("sobol_burley_index_mask", &astroray::sobol_burley::indexMask, "max_samples"_a,
+          "Cycles sobol_index_mask for a max sample count (<= 0: full mask).");
+    m.def("sobol_burley_pixel_seed", &astroray::sobol_burley::pixelSeed, "pixel"_a, "seed"_a);
+    m.def("sobol_burley_table",
+          []() {
+              std::vector<uint32_t> t;
+              for (int d = 0; d < 4; ++d)
+                  for (int j = 0; j < 32; ++j) t.push_back(astroray::sobol_burley::kTable[d][j]);
+              return t;
+          });
+    m.def("filter_table_build",
+          [](int type, float width) {
+              std::vector<float> t(astroray::filter_table::kSize);
+              astroray::filter_table::build(type, width, t.data());
+              return t;
+          },
+          "type"_a, "width"_a, "Tabulated pixel-filter CDF over the half range (1=Gaussian, 2=BH).");
+    m.def("filter_table_sample",
+          [](int type, float width, const std::vector<float>& us) {
+              std::vector<float> t(astroray::filter_table::kSize, 0.0f);
+              if (type != 0) astroray::filter_table::build(type, width, t.data());
+              std::vector<float> out(us.size());
+              for (size_t i = 0; i < us.size(); ++i)
+                  out[i] = astroray::filter_table::sampleOffset(type, width, t.data(), us[i]);
+              return out;
+          },
+          "type"_a, "width"_a, "u"_a, "Centred filter offsets for uniforms u.");
 
     // pkg151 — DisneyEnergyCompensationTables glass (rough-transmission)
     // lookups, exposed read-only for the trilinear sample3D + z(ior)-remap +

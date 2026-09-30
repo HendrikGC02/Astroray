@@ -235,10 +235,13 @@ public:
         // unbiased on the full band AND any narrowed set_wavelength_range band —
         // no defaultBand fallback needed (pkg206 refix, parity review). One
         // uniform draw either way — RNG dimension count is identical.
+        // pkg305: the tile loop supplies a stratified hero uniform on the primary
+        // ray (camera group); otherwise draw it here as before.
+        const float heroU = ray.heroLambdaU >= 0.0f ? ray.heroLambdaU : dist01(gen);
         astroray::SampledWavelengths lambdas =
             heroImportance_
-                ? astroray::SampledWavelengths::sampleImportance(dist01(gen), lambdaMin_, lambdaMax_)
-                : astroray::SampledWavelengths::sampleUniform(dist01(gen), lambdaMin_, lambdaMax_);
+                ? astroray::SampledWavelengths::sampleImportance(heroU, lambdaMin_, lambdaMax_)
+                : astroray::SampledWavelengths::sampleUniform(heroU, lambdaMin_, lambdaMax_);
         int bounces = 0;
         float weight = 0.0f;
 

@@ -54,7 +54,7 @@ reason = "principled_hair tuft outside band (CPU 0.85-0.95, GPU differs from CPU
 scene = "v2_camera_geometry"
 backend = "gpu_cpu"
 roi = "motion_vane"
-channels = ["r"]
+channels = ["r", "L"]
 issue = "#947"
 reason = "motion-blurred vane too narrow (0.80-0.83 of Cycles)"
 
@@ -102,7 +102,7 @@ reason = "L added 2026-09-30: 1.047 -> 1.052 after #953 layering fix (tol 0.05);
 scene = "v2_camera_geometry@ortho"
 backend = "gpu_cpu"
 roi = "motion_vane"
-channels = ["b"]
+channels = ["r", "g", "b", "L"]
 issue = "#947"
 reason = "motion-blurred vane too narrow (0.35-0.42 of Cycles)"
 
@@ -110,7 +110,7 @@ reason = "motion-blurred vane too narrow (0.35-0.42 of Cycles)"
 scene = "v2_dispersion_caustics"
 backend = "gpu_cpu"
 roi = "prism_sun_caustic_floor"
-channels = ["r", "g", "b"]
+channels = ["g"]
 issue = "#959"
 reason = "GPU vs CPU photon caustics disagree"
 
@@ -118,17 +118,9 @@ reason = "GPU vs CPU photon caustics disagree"
 scene = "v2_dispersion_caustics"
 backend = "gpu_cpu"
 roi = "sphere_spot_caustic_floor"
-channels = ["g", "b", "L"]
+channels = ["g", "L"]
 issue = "#959"
 reason = "GPU vs CPU photon caustics disagree"
-
-[[row]]
-scene = "v2_media"
-backend = "cpu"
-roi = "smoke_plume"
-channels = ["r"]
-issue = "#983"
-reason = "single firefly at seed 278 on the MSVC CPU leg (1.33x); not a bias (MinGW 1.000, pre-#953 1.037)"
 
 [[row]]
 scene = "v2_media"
@@ -142,7 +134,7 @@ reason = "spot shaft in fog reads 0.68-0.79 of Cycles (mean deficit, was hidden 
 scene = "v2_media"
 backend = "gpu"
 roi = "shaft"
-channels = ["g", "L"]
+channels = ["g"]
 issue = "#961"
 reason = "spot shaft in fog reads 0.68-0.79 of Cycles (mean deficit, was hidden by noise before #951)"
 
@@ -235,10 +227,46 @@ issue = "#960"
 reason = "thin-film Ti single-channel outliers"
 
 
+# pkg305 (stratified camera group, 2026-09-30): seed-278 re-measure on f0f8b5f6. With 15-30
+# independent seeds (278 + 10000 k) the means equal the baseline's (CPU |z| <= 2.6, GPU <= 1.8
+# on the rows below); they fail on one seed-278 realization. Measured on MinGW CPU and on the
+# CUDA build (MSVC CPU leg); rows the new stream passes were trimmed. Evidence: astra_run/AP/ap-305.
+[[row]]
+scene = "v2_thin_film_metals"
+backend = "cpu"
+roi = "sphere_Ti260"
+channels = ["r", "L"]
+issue = "#960"
+reason = "thin-film Ti single-channel outliers: 30-seed CPU mean r 1.04 of Cycles (band edge), seed 278 reads 1.074"
+
+[[row]]
+scene = "v2_dispersion_caustics"
+backend = "cpu"
+roi = "prism_sun_caustic_floor"
+channels = ["g", "b", "L"]
+issue = "#986"
+reason = "firefly lottery: 1/15 seeds on main, 2/15 with pkg305 carry a firefly (G 0.3-3.1 vs 0.022); medians equal"
+
+[[row]]
+scene = "v2_media"
+backend = "gpu_cpu"
+roi = "shaft"
+channels = ["r"]
+issue = "#961"
+reason = "spot shaft in fog; GPU/CPU 1.07 (new) vs 1.11 (main) over 5 seeds, seed 278 reads 1.29"
+
+[[row]]
+scene = "v2_media"
+backend = "gpu"
+roi = "emitter_cool_glow"
+channels = ["b"]
+issue = "#986"
+reason = "heavy-tailed emitter glow; 5-seed GPU mean = baseline (z 0.3), seed 278 reads 0.929"
+
 [[row]]
 scene = "v2_thin_film_metals"
 backend = "gpu"
-roi = "sphere_Ti260"
-channels = ["r"]
-issue = "#960"
-reason = "thin-film Ti single-channel outliers"
+roi = "sphere_RoughGlassFilm"
+channels = ["g", "L"]
+issue = "#986"
+reason = "20-seed GPU mean = baseline (z -0.3); seed 278 reads 0.951"

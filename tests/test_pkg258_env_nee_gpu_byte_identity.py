@@ -84,6 +84,8 @@ _WORKER = textwrap.dedent(r"""
     r.set_seed(seed)
     r.set_adaptive_sampling(False)
     r.set_env_nee(False)
+    if hasattr(r, "set_stratified_camera"):  # pkg305: compare on the legacy camera draws
+        r.set_stratified_camera(False)
     floor = r.create_material("lambertian", [0.75, 0.75, 0.75], {})
     s = 40.0
     r.add_triangle([-s, 0, -s], [s, 0, -s], [s, 0, s], floor)

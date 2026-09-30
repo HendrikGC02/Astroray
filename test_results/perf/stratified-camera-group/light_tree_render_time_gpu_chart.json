@@ -1,0 +1,89 @@
+{
+ "title": "Render time, GPU (min of 3 after burn-in, interleaved runs)",
+ "xlabel": "scene",
+ "ylabel": "seconds",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "before",
+   "x": [
+    "v2_light_tree 16 spp"
+   ],
+   "y": [
+    2.57
+   ]
+  },
+  {
+   "label": "after (stratified camera group)",
+   "x": [
+    "v2_light_tree 16 spp"
+   ],
+   "y": [
+    2.57
+   ]
+  }
+ ],
+ "band": null,
+ "ref": [
+  2.6471,
+  "gate: before + 3 %"
+ ],
+ "meta": {
+  "package": "pkg305",
+  "leg": "gpu",
+  "spp": 64,
+  "seeds": "278-282 (vs Cycles CPU 64 spp, same seeds)",
+  "base": "main 775a5d6b",
+  "evidence": "C:\\Users\\hgcom\\OneDrive\\Astroray\\astra_run\\AP\\ap-305",
+  "runs": [
+   {
+    "tag": "base",
+    "leg": "gpu",
+    "sid": "v2_light_tree",
+    "spp": 256,
+    "times": [
+     2.58,
+     2.57,
+     2.57
+    ],
+    "min": 2.57
+   },
+   {
+    "tag": "new",
+    "leg": "gpu",
+    "sid": "v2_light_tree",
+    "spp": 256,
+    "times": [
+     2.58,
+     2.58,
+     2.57
+    ],
+    "min": 2.57
+   },
+   {
+    "tag": "base",
+    "leg": "gpu",
+    "sid": "v2_light_tree",
+    "spp": 256,
+    "times": [
+     2.57,
+     2.57,
+     2.57
+    ],
+    "min": 2.57
+   },
+   {
+    "tag": "new",
+    "leg": "gpu",
+    "sid": "v2_light_tree",
+    "spp": 256,
+    "times": [
+     2.57,
+     2.57,
+     2.57
+    ],
+    "min": 2.57
+   }
+  ]
+ }
+}

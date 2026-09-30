@@ -57,6 +57,25 @@ So AL-5 flips only the pkg86 light tree. The sampler flip is Phase 3 here.
   - equal time: relVar x wall time vs Cycles, same device class, no worse than
     the luminance gate;
   - chroma: R/B relVar must not regress from pkg305's level.
+
+**Landed in pkg305 (2026-09-30).** Build on these; do not re-implement:
+- `sobol_burley.h`: `sample1D`, `sample2D`, `indexMask`, `pixelSeed`, the Cycles
+  4x32 table (host `kTable`; device `__constant__ c_table`, defined once in
+  `stage_init.cu`). Add `sample3D/4D` here.
+- `path_dimensions.h`: `PATHDIM_FILTER = 0`, `PATHDIM_LENS = 1`,
+  `PATHDIM_HERO_LAMBDA = 2`, `kBounceStride = 16`.
+- `filter_table.h`: tabulated FORWARD CDF + binary search (pbrt-v4
+  PiecewiseConstant1D), not Cycles' inverse table, which fails chi2 in the tails.
+- Keying: `Renderer::resolveCameraGroup(spp)` gives (seed, indexOffset, mask);
+  `set_progressive_sample_offset(accum_spp)` (viewport chunks, exporter.py) keeps
+  the global index and the seed-0 session seed. Progressive chunks use the full
+  mask. GPU: `c_wfCameraGroup` (stage_init.cu); WavefrontRNG resumes at dim 4.
+- Still on PCG32 camera draws: the snapshot drivers + CPU wavefront oracle
+  (`launchStageInit` publishes the group off) and GPU ReSTIR. Phase 2 moves them.
+- Correction for the Phase 1 unit test: the mask DOES change values for
+  index < N (the Owen shuffle leaves a per-seed constant in index bits >= log2 N,
+  which the mask removes). Test instead that mask(N) makes indices 0..N-1 a
+  permutation of [0, N) (every prefix stays a (0, m, 2)-net).
 Opus 5.5 lane with Terra review; the lead runs CUDA builds.
 
 ---

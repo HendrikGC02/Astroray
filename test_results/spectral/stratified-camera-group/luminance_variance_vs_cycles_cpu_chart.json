@@ -1,0 +1,67 @@
+{
+ "title": "Luminance variance vs Cycles, corpus v2, CPU 64 spp (median per-pixel ratio)",
+ "xlabel": "scene",
+ "ylabel": "log10 luminance variance ratio Astroray/Cycles",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "before",
+   "x": [
+    "sky_sun",
+    "cam_geo",
+    "cam_geo@ortho",
+    "light_tree",
+    "media",
+    "dispersion_caustics",
+    "thin_film_metals",
+    "textures_opvm"
+   ],
+   "y": [
+    2.279193442317733,
+    1.1097098578674975,
+    1.2384315513065844,
+    -0.22097721269188697,
+    0.4000811377353517,
+    0.3473557085443991,
+    0.6392556638891269,
+    1.3828301354106172
+   ]
+  },
+  {
+   "label": "after (stratified camera group)",
+   "x": [
+    "sky_sun",
+    "cam_geo",
+    "cam_geo@ortho",
+    "light_tree",
+    "media",
+    "dispersion_caustics",
+    "thin_film_metals",
+    "textures_opvm"
+   ],
+   "y": [
+    0.6258308756948924,
+    1.1097355252562382,
+    1.228830634536914,
+    -0.23088193390320066,
+    0.3979396024339879,
+    0.3356160166766486,
+    0.6327281311923859,
+    0.09534916895246678
+   ]
+  }
+ ],
+ "band": null,
+ "ref": [
+  0.6989700043360189,
+  "sky_sun gate (ratio 5)"
+ ],
+ "meta": {
+  "package": "pkg305",
+  "leg": "cpu",
+  "spp": 64,
+  "seeds": "278-282 (vs Cycles CPU 64 spp, same seeds)",
+  "base": "main 775a5d6b",
+  "evidence": "C:\\Users\\hgcom\\OneDrive\\Astroray\\astra_run\\AP\\ap-305"
+ }
+}

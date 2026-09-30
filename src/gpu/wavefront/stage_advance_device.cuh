@@ -1142,7 +1142,10 @@ static __device__ __noinline__ GVec3 gpu_generatedCoord(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
 {
     const GVec3* tg = c_wfTexBinding.triGenerated;
-    if (tg && primId >= 0 && prims[primId].type == GPRIM_TRIANGLE) {
+    // #994: an OBJECT-coordinate bake is indexed by the world hit point in its
+    // bbox frame (below), never by the per-vertex Generated coords.
+    if (tg && !c_wfTexBinding.textures[texId].objectCoord &&
+        primId >= 0 && prims[primId].type == GPRIM_TRIANGLE) {
         const int ti = prims[primId].index;
         const GVec3 g0 = tg[3 * ti];
         if (!isnan(g0.x)) {

@@ -4266,6 +4266,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return None
         return compiled, bases[0]
 
+    # Coordinate modes the GPU bakes procedurals over (scene_upload.cu
+    # bakeProceduralTexId): UV (2D), Generated and Object (#994, world bbox) 3D.
+    _GPU_BAKED_COORDS = ('UV', 'GENERATED', 'OBJECT')
+
     def _load_coord_program_procedural(self, node, renderer, cache, compiled, base,
                                        fac_variant=False, color_output=False):
         """pkg277: register `node` unwarped, then wrap it in a
@@ -4308,7 +4312,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         self._apply_texture_transform(renderer, name, coord_mode, (1.0, 1.0), (0.0, 0.0),
                                       0.0, uv_layer, mapping)
-        if coord_mode not in ('UV', 'GENERATED'):
+        if coord_mode not in self._GPU_BAKED_COORDS:
             self._warn_shader_fallback(
                 'op-VM', 'coordinate program on %s with %s coordinates: GPU skips the '
                 'texture (flat value); CPU exact' % (getattr(node, 'name', node.type), coord_mode))
@@ -4448,10 +4452,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         resolved = resolved_inputs[0]
         coord_mode, uvlayer = resolved['coord_mode'], resolved['uv_layer']
-        # The GPU bakes procedural inputs only over UV / Generated coordinates
-        # (scene_upload.cu bakeProceduralTexId); any other mode drops the whole
-        # program to the flat base colour on the GPU. Keep that non-silent.
-        if proc_kind and coord_mode not in ('UV', 'GENERATED'):
+        # The GPU bakes procedural inputs only over UV / Generated / Object (#994)
+        # coordinates (scene_upload.cu bakeProceduralTexId); any other mode drops
+        # the whole program to the flat base colour on the GPU. Keep that non-silent.
+        if proc_kind and coord_mode not in self._GPU_BAKED_COORDS:
             self._warn_shader_fallback(
                 'op-VM', 'procedural input with %s coordinates on %s: GPU skips '
                 'the program (flat value); CPU exact' % (coord_mode, input_name))

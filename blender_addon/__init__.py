@@ -4390,8 +4390,23 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # cases (single input; or several images) are unaffected.
         inputs = compiled['inputs']
         if not inputs:
-            self._warn_shader_fallback('op-VM', 'program has no texture inputs; flattened')
-            return None
+            if not compiled.get('per_hit'):
+                self._warn_shader_fallback('op-VM', 'program has no texture inputs; flattened')
+                return None
+            # #989: a chain over per-hit shading inputs only (Layer Weight -> Mix,
+            # Fresnel -> Math): no child texture and no coordinate.
+            prog_name = "_prog_%s.%s.%s" % (getattr(self, "_current_material_name", "") or "",
+                                            getattr(node, "name", "n"), input_name)
+            try:
+                renderer.create_program_texture(prog_name, 'UV')
+                renderer.set_program_texture_program(
+                    prog_name, 0, compiled['out_slot'], compiled['code_flat'],
+                    compiled['consts_flat'], compiled['ramps_flat'])
+            except Exception as e:
+                self._warn_shader_fallback("op-VM", "program upload failed (%s)" % e)
+                return None
+            self._per_hit_program_names().add(prog_name)
+            return prog_name
         PROC_TYPES = {'TEX_NOISE', 'TEX_CHECKER', 'TEX_VORONOI', 'TEX_WAVE',
                       'TEX_MAGIC', 'TEX_BRICK', 'TEX_GRADIENT', 'TEX_MUSGRAVE'}
         kinds = set()
@@ -4517,7 +4532,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
         except Exception as e:
             self._warn_shader_fallback("op-VM", "program upload failed (%s)" % e)
             return None
+        if compiled.get('per_hit'):
+            self._per_hit_program_names().add(prog_name)
         return prog_name
+
+    def _per_hit_program_names(self):
+        """#989: names of registered programs that read per-hit shading inputs
+        (Layer Weight / Fresnel / Backfacing). Only surface consumers (Principled
+        base colour + scalar sockets) evaluate them with the hit context."""
+        names = getattr(self, '_per_hit_programs', None)
+        if names is None:
+            names = self._per_hit_programs = set()
+        return names
 
     # ------------------------------------------------------------------ #
     # Shader-node dispatch
@@ -4906,7 +4932,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # diffuse-only spec (Diffuse BSDF, #757) keeps the textured-lambertian
         # route: identical closure, and the cheaper GPU throughput swap.
         base_tex = spec.get('base_color_texture')
-        if base_tex is not None and not self._native_is_pure_diffuse(native):
+        # #989: a per-hit program (Layer Weight / Fresnel) needs the Principled
+        # route too (the GPU lambertian path runs only textured programs).
+        if base_tex is not None and (not self._native_is_pure_diffuse(native) or
+                                     base_tex in self._per_hit_program_names()):
             native['base_color_texture'] = base_tex
             return renderer.create_material('principled', color, native)
         if base_tex is not None:
@@ -5147,6 +5176,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 'emission_strength': self.get_float_input(node, 'Strength', 1.0),
             }
             _, color_tex = self.get_base_color_texture(node, 'Color', renderer)
+            if color_tex is not None and color_tex in self._per_hit_program_names():
+                # #989: emitters are evaluated without the shading context
+                # (NEE light samples, GPU bake), so a per-hit chain is dropped.
+                self._warn_shader_fallback(
+                    'EMISSION', 'per-hit shading input (Layer Weight / Fresnel / '
+                    'Geometry) on Emission Color unsupported; constant colour')
+                color_tex = None
             if color_tex is not None:
                 spec['emission_color_texture'] = color_tex
             elif (color_input is not None and color_input.is_linked
@@ -5238,6 +5274,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
             base_tex = spec.get('base_color_texture')
             if base_tex is not None:
                 self._warn_scalar_programs_dropped(spec)
+                if base_tex in self._per_hit_program_names():
+                    self._warn_shader_fallback(
+                        'BSDF_PRINCIPLED', 'per-hit shading input on Base Color '
+                        '(legacy Disney route): GPU uses the constant colour')
                 lambert_params = {'texture': base_tex}
                 for key in ('normal_map_texture', 'normal_strength',
                             'bump_map_texture', 'bump_strength', 'bump_distance'):

@@ -1102,7 +1102,9 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             auto pt = (tl || prBase) ? std::dynamic_pointer_cast<ProgramTexture>(tex) : nullptr;
             if (pt) {
                 const int numIn = (int)pt->numInputs();
-                bool inputsOk = numIn >= 1 && numIn <= astroray::svm::VM_MAX_TEX;
+                // #989: a Principled base-colour program may read only per-hit
+                // shading inputs (Layer Weight -> Mix): zero textures, texId -1.
+                bool inputsOk = (numIn >= 1 || prBase) && numIn <= astroray::svm::VM_MAX_TEX;
                 for (int t = 0; inputsOk && t < numIn; ++t) {
                     progInTex[t] = uploadProgInputTexId(pt.get(), t);
                     inputsOk = progInTex[t] >= 0;
@@ -1152,11 +1154,11 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 r.materials[id].baseColor = GVec3(1.f, 1.f, 1.f);
             // #988 — the Principled base-colour override runs only in the
             // <HasProgram=true> shade kernel (even for a plain image / bake).
-            if (texId >= 0 && prBase) {
+            if ((texId >= 0 || progId >= 0) && prBase) {
                 r.hasTexture = true;
                 r.hasProgram = true;
             }
-            if (prBase && texId < 0)
+            if (prBase && texId < 0 && progId < 0)
                 fprintf(stderr, "[#988] DEGRADED: Principled Base Color texture with an "
                                 "unsupported GPU input (coordinate mode / empty image / "
                                 "program inputs) renders the constant Base Color on GPU\n");
@@ -1233,10 +1235,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         // addon reports it; CPU stays correct). Read only in <HasProgram=true>.
         auto uploadProgramTexture = [&](const std::shared_ptr<ProgramTexture>& pt,
                                         int& outTexId, int& outProgId) {
-            if (pt->numInputs() != 1) return;
-            int inTex = uploadProgInputTexId(pt.get(), 0);
-            if (inTex < 0) return;
-            outTexId = inTex;
+            // #989: zero inputs = a program over per-hit shading inputs only
+            // (Fresnel -> Math -> Metallic); matScalarTexId stays -1.
+            if (pt->numInputs() > 1) return;
+            if (pt->numInputs() == 1) {
+                int inTex = uploadProgInputTexId(pt.get(), 0);
+                if (inTex < 0) return;
+                outTexId = inTex;
+            }
             auto pit = progIdx.find(pt.get());
             if (pit != progIdx.end()) {
                 outProgId = pit->second;

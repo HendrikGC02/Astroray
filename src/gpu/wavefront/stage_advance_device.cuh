@@ -1211,14 +1211,19 @@ static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
 // caller keeps the constant base colour, as the lambertian path does). __noinline__
 // keeps the fetch + VM register file out of the REG:254 <HasProgram=true> caller.
 static __device__ __noinline__ GProgInputTexel gpu_principledBaseTexel(
-    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int matId)
+    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int matId,
+    astroray::svm::SvmShading sh)
 {
     const GProgInputTexel miss{GVec3(0.0f, 0.0f, 0.0f), false};
     const int texId = c_wfTexBinding.matTexId ? c_wfTexBinding.matTexId[matId] : -1;
-    if (texId < 0) return miss;
-    const GProgInputTexel t0 = gpu_progInputTexel(point, primId, prims, tris, texId);
-    if (!t0.ok) return miss;
     const int progId = c_wfProgBinding.matProgId ? c_wfProgBinding.matProgId[matId] : -1;
+    if (texId < 0 && progId < 0) return miss;
+    // #989: a program over per-hit shading inputs only has no texture (texId -1).
+    GProgInputTexel t0{GVec3(0.0f, 0.0f, 0.0f), true};
+    if (texId >= 0) {
+        t0 = gpu_progInputTexel(point, primId, prims, tris, texId);
+        if (!t0.ok) return miss;
+    }
     if (progId < 0) return t0;
     GVec3 vmIn[astroray::svm::VM_MAX_TEX];
     vmIn[0] = t0.c;
@@ -1233,7 +1238,7 @@ static __device__ __noinline__ GProgInputTexel gpu_principledBaseTexel(
             vmIn[t] = s.c;
         }
     }
-    return {astroray::svm::svm_eval(c_wfProgBinding.programs[progId], vmIn), true};
+    return {astroray::svm::svm_eval(c_wfProgBinding.programs[progId], vmIn, &sh), true};
 }
 
 // #962 — per-hit textured Emission Color (TexturedLight uploaded by
@@ -1713,22 +1718,29 @@ __device__ bool shadePathSlot(
     GScalarOverride<HasProgram> matScalarOv;
     if constexpr (HasProgram) {
         bool anyOverride = false;
+        // #989 — per-hit shading context for OP_SHADING (CPU twin: ProgramTexture::
+        // valueAtHit): cos(view, shading normal) and the back-face flag.
+        astroray::svm::SvmShading sh;
+        sh.cosI = (ray.direction * -1.0f).normalized().dot(rec.normal);
+        sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
         if (c_wfProgBinding.matScalarProgId && c_wfProgBinding.matScalarTexId) {
             const int base = rec.materialId * astroray::svm::VM_SCALAR_SLOTS;
             for (int slot = 0; slot < astroray::svm::VM_SCALAR_SLOTS; ++slot) {
                 int sProg = c_wfProgBinding.matScalarProgId[base + slot];
                 int sTex  = c_wfProgBinding.matScalarTexId[base + slot];
-                if (sProg < 0 || sTex < 0) continue;
+                if (sProg < 0) continue;
                 // #846: same fetch as base-colour inputs — 2D image / UV bake or a
-                // Generated 3D voxel bake of a procedural input.
-                GProgInputTexel src = gpu_progInputTexel(rec.point, rec.primId,
-                                                         prims, tris, sTex);
+                // Generated 3D voxel bake of a procedural input. #989: sTex -1 with
+                // a program = shading inputs only (scene_upload uploadProgramTexture).
+                GProgInputTexel src{GVec3(0.0f, 0.0f, 0.0f), true};
+                if (sTex >= 0)
+                    src = gpu_progInputTexel(rec.point, rec.primId, prims, tris, sTex);
                 if (!src.ok)
                     continue;  // non-triangle / UV-less hit → skip (mirrors base colour)
                 GVec3 vmIn[astroray::svm::VM_MAX_TEX];
                 for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t) vmIn[t] = src.c;
                 float v = astroray::svm::svm_eval(
-                    c_wfProgBinding.programs[sProg], vmIn).x;
+                    c_wfProgBinding.programs[sProg], vmIn, &sh).x;
                 if (!anyOverride) {
                     matScalarOv.mat = materials[rec.materialId];
                     anyOverride = true;
@@ -1743,7 +1755,7 @@ __device__ bool shadePathSlot(
         // of the lambertian throughput swap (skipped for Principled below).
         if (gpu_closure_graph_is_principled(materials[rec.materialId])) {
             const GProgInputTexel bc = gpu_principledBaseTexel(
-                rec.point, rec.primId, prims, tris, rec.materialId);
+                rec.point, rec.primId, prims, tris, rec.materialId, sh);
             if (bc.ok) {
                 if (!anyOverride) {
                     matScalarOv.mat = materials[rec.materialId];
@@ -1889,9 +1901,14 @@ __device__ bool shadePathSlot(
                                 haveTex = haveTex && s.ok;
                             }
                         }
-                        if (haveTex)
+                        if (haveTex) {
+                            // #989: same per-hit shading context as the override block.
+                            astroray::svm::SvmShading shL;
+                            shL.cosI = (ray.direction * -1.0f).normalized().dot(rec.normal);
+                            shL.backfacing = rec.frontFace ? 0.0f : 1.0f;
                             texColor = astroray::svm::svm_eval(
-                                c_wfProgBinding.programs[progId], vmIn);
+                                c_wfProgBinding.programs[progId], vmIn, &shL);
+                        }
                     }
                 }
             }

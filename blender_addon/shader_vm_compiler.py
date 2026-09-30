@@ -20,6 +20,9 @@ Opcode / sub-op enums MUST match include/astroray/shader_vm.h exactly.
 (OP_END, OP_LOAD_TEX, OP_LOAD_CONST, OP_MATH, OP_MIX, OP_RAMP, OP_MAP_RANGE,
  OP_HSV, OP_INVERT, OP_GAMMA, OP_BRIGHT_CONTRAST, OP_SEP_COLOR,
  OP_COMBINE_COLOR, OP_RGB_TO_BW, OP_CLAMP, OP_VEC_MATH, OP_VEC_ROTATE) = range(17)
+# #989 — per-hit shading inputs (include/astroray/shader_vm.h OP_SHADING / ShadingInput).
+OP_SHADING = 17
+SH_LAYER_FRESNEL, SH_LAYER_FACING, SH_FRESNEL, SH_BACKFACING = range(4)
 
 # pkg230 — Clamp node type (Cycles NodeClampType) + clamp FLAG bits packed into
 # the free high bits of an op's imm (mirror include/astroray/shader_vm.h).
@@ -131,6 +134,9 @@ class ProgramBuilder:
         # the resolved point, so texture-driven warps load their texture at input 1.
         self.free_slots = []
         self.consumers = {}     # coord mode: (node, output) -> number of consuming sockets
+        # #989 — the program reads a per-hit shading input (Layer Weight / Fresnel /
+        # Geometry Backfacing): not constant-foldable even with no texture input.
+        self.per_hit = False
 
     # -- resource allocation --------------------------------------------------
     def alloc_slot(self):
@@ -390,6 +396,40 @@ def _count_consumers(socket, counts, seen=None):
     return counts
 
 
+def _compile_shading_input(node, out_name, builder, depth):
+    """#989 — Layer Weight (Fresnel / Facing), Fresnel (Fac) and Geometry
+    (Backfacing) as OP_SHADING over the per-hit context (cos(view, N), back-face
+    flag). Semantics: Cycles kernel/svm/fresnel.h svm_node_layer_weight /
+    svm_node_fresnel and svm/light_path.h NODE_LP_backfacing (Apache-2.0). Only the
+    default Normal (the shading normal) is represented; the other Geometry outputs
+    (Pointiness needs per-vertex curvature) raise VMCompileError -> reported."""
+    if builder.coord_mode:
+        raise VMCompileError("per-hit shading input in a coordinate chain")
+    ntype = getattr(node, 'type', None)
+    if ntype == 'NEW_GEOMETRY':
+        if out_name != 'Backfacing':
+            raise VMCompileError("Geometry output '%s' unsupported in the op-VM (only "
+                                 "Backfacing)" % out_name)
+        which, arg = SH_BACKFACING, None
+    else:
+        normal = _get_input(node, 'Normal')
+        if normal is not None and getattr(normal, 'is_linked', False):
+            raise VMCompileError("%s with a linked Normal unsupported" % ntype)
+        if ntype == 'LAYER_WEIGHT':
+            which = {'Fresnel': SH_LAYER_FRESNEL, 'Facing': SH_LAYER_FACING}.get(out_name)
+            if which is None:
+                raise VMCompileError("unsupported Layer Weight output: %s" % out_name)
+            arg = _get_input(node, 'Blend')
+        else:  # FRESNEL
+            which, arg = SH_FRESNEL, _get_input(node, 'IOR')
+    a_s = compile_socket(arg, builder, depth + 1) if arg is not None else 0
+    out = builder.alloc_slot()
+    builder.emit(OP_SHADING, out, a=a_s, imm=which)
+    builder.release(*([a_s] if arg is not None else []))
+    builder.per_hit = True
+    return out
+
+
 def _socket_is_const(socket, neutral):
     """Unlinked socket whose default equals `neutral` (the op is then the identity)."""
     if socket is None:
@@ -517,6 +557,9 @@ def _compile_socket_value(socket, builder, depth=0):
     # issue #818 Item 1 — image OR procedural texture nodes are input leaves.
     if _is_texture_leaf(node):
         return _push_texture_output(node, out_name, socket, builder)
+
+    if ntype in ('LAYER_WEIGHT', 'FRESNEL', 'NEW_GEOMETRY'):  # #989 per-hit inputs
+        return _compile_shading_input(node, out_name, builder, depth)
 
     if ntype == 'VALTORGB':  # Color Ramp
         fac_slot = compile_socket(_get_input(node, 'Fac'), builder, depth + 1)
@@ -781,9 +824,10 @@ def compile_chain(socket, allow_leaf=False):
     texture to a one-op program instead.
 
     On success returns a dict:
-      {num_tex, out_slot, code_flat, consts_flat, ramps_flat, inputs}
+      {num_tex, out_slot, code_flat, consts_flat, ramps_flat, inputs, per_hit}
     where `inputs` is the ordered list of Blender texture nodes (image OR
-    procedural — issue #818 Item 1).
+    procedural — issue #818 Item 1) and `per_hit` flags an OP_SHADING read (#989;
+    such a program may have no texture input).
     """
     src = _linked_source(socket)
     if src is None:
@@ -798,8 +842,8 @@ def compile_chain(socket, allow_leaf=False):
 
     builder = ProgramBuilder()
     out_slot = compile_socket(socket, builder, 0)
-    if not builder.inputs:
-        # no texture in the chain -> constant-foldable, no VM needed
+    if not builder.inputs and not builder.per_hit:
+        # no texture and no per-hit input in the chain -> constant-foldable
         return None
     code_flat = []
     for ins in builder.code:
@@ -812,6 +856,7 @@ def compile_chain(socket, allow_leaf=False):
         'ramps_flat': builder.ramps,
         'inputs': builder.inputs,
         'input_variants': builder.input_variants,
+        'per_hit': builder.per_hit,  # #989
     }
 
 

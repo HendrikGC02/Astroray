@@ -70,6 +70,26 @@ enum OpCode : unsigned char {
     OP_VEC_MATH   = 15, // reg[out] = vec_math(imm=op, a, b, c, scale=d.x)  svm/math_util.h
     OP_VEC_ROTATE = 16, // reg[out] = vec_rotate(imm=type|invert, a=vec, b=center,
                         //                      c=axis|rotation, d=angle) svm/vector_rotate.h
+    // #989 — per-hit shading inputs (Layer Weight / Fresnel / Geometry Backfacing).
+    OP_SHADING    = 17, // reg[out].x = shading(imm=ShadingInput, a=blend|ior) svm/fresnel.h
+};
+
+// #989 — which per-hit shading input OP_SHADING reads (compiler-owned enum).
+enum ShadingInput : unsigned char {
+    SH_LAYER_FRESNEL = 0,  // Layer Weight.Fresnel (a = Blend)
+    SH_LAYER_FACING  = 1,  // Layer Weight.Facing  (a = Blend)
+    SH_FRESNEL       = 2,  // Fresnel.Fac          (a = IOR)
+    SH_BACKFACING    = 3,  // Geometry.Backfacing  (svm/light_path.h NODE_LP_backfacing)
+};
+
+// #989 — the per-hit shading context the caller hands svm_eval. cosI = dot(wi, N)
+// with wi the unit direction toward the viewer (Cycles sd->wi; Astroray wo) and N
+// the shading normal; backfacing = 1 when the ray hit the back of the geometry
+// (Cycles SR_BACKFACING; Astroray !rec.frontFace). A null context (texture bakes,
+// finite-difference bump taps) reads normal incidence on the front face.
+struct SvmShading {
+    float cosI = 1.0f;
+    float backfacing = 0.0f;
 };
 
 // pkg230 — Clamp node type (Cycles NodeClampType, svm_clamp / node_clamp.osl).
@@ -526,14 +546,64 @@ HD inline GVec3 svm_vec_rotate(unsigned char type, bool invert, GVec3 vector,
     return svm_rotate_around_axis(vector - center, axis / axis_len, a) + center;
 }
 
+// ---- #989 per-hit shading inputs (Cycles svm/fresnel.h + svm/light_path.h) --
+// Unpolarised dielectric Fresnel reflectance from cos(incidence) and relative
+// IOR, without the refracted direction. Verbatim port of Cycles
+// kernel/closure/bsdf_util.h fresnel_dielectric_cos (Apache-2.0).
+HD inline float svm_fresnel_dielectric_cos(float cosi, float eta) {
+    const float c = fabsf(cosi);
+    float g = eta * eta - 1.f + c * c;
+    if (g > 0.f) {
+        g = sqrtf(g);
+        const float A = (g - c) / (g + c);
+        const float B = (c * (g + c) - 1.f) / (c * (g - c) + 1.f);
+        return 0.5f * A * A * (1.f + B * B);
+    }
+    return 1.0f;  // TIR (no refracted component)
+}
+
+// Cycles svm_node_layer_weight / svm_node_fresnel (kernel/svm/fresnel.h) with the
+// default Normal (sd->N), and svm_node_light_path NODE_LP_backfacing.
+HD inline float svm_shading(unsigned char which, float arg, const SvmShading& sh) {
+    const bool back = sh.backfacing > 0.5f;
+    switch (which) {
+        case SH_LAYER_FRESNEL: {
+            float eta = fmaxf(1.0f - arg, 1e-5f);
+            eta = back ? eta : 1.0f / eta;
+            return svm_fresnel_dielectric_cos(sh.cosI, eta);
+        }
+        case SH_LAYER_FACING: {
+            float f = fabsf(sh.cosI);
+            float blend = arg;
+            if (blend != 0.5f) {
+                blend = svm_clampf(blend, 0.0f, 1.0f - 1e-5f);
+                blend = (blend < 0.5f) ? 2.0f * blend : 0.5f / (1.0f - blend);
+                f = powf(f, blend);
+            }
+            return 1.0f - f;
+        }
+        case SH_FRESNEL: {
+            float eta = fmaxf(arg, 1e-5f);
+            eta = back ? 1.0f / eta : eta;
+            return svm_fresnel_dielectric_cos(sh.cosI, eta);
+        }
+        case SH_BACKFACING:
+            return back ? 1.0f : 0.0f;
+        default:
+            return 0.0f;
+    }
+}
+
 // ============================================================================
 // The evaluator. Pure, HD, byte-identical CPU<->GPU. `inputs` holds the
 // pre-sampled child-texture RGBs. Returns the program's output slot RGB.
 // A bounded fixed-size register file (VM_MAX_SLOTS GVec3) — small enough that
 // the <true> GPU shade specialization pays only a few slots of local memory,
 // while the <false> fleet specialization compiles this out entirely.
+// #989: `sh` is the per-hit shading context read by OP_SHADING (null -> defaults).
 // ============================================================================
-HD inline GVec3 svm_eval(const ShaderVMProgram& p, const GVec3* inputs) {
+HD inline GVec3 svm_eval(const ShaderVMProgram& p, const GVec3* inputs,
+                         const SvmShading* sh = nullptr) {
     GVec3 reg[VM_MAX_SLOTS];
     int n = p.numInstr < VM_MAX_INSTR ? p.numInstr : VM_MAX_INSTR;
     for (int pc = 0; pc < n; ++pc) {
@@ -616,6 +686,10 @@ HD inline GVec3 svm_eval(const ShaderVMProgram& p, const GVec3* inputs) {
             }
             case OP_RGB_TO_BW:
                 reg[in.out] = GVec3(svm_rgb_to_bw(reg[in.a]));
+                break;
+            case OP_SHADING:
+                reg[in.out] = GVec3(svm_shading(in.imm, reg[in.a].x,
+                                                sh ? *sh : SvmShading()));
                 break;
             case OP_END:
             default:

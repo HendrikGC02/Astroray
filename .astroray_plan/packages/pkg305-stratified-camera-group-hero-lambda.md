@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** in-progress — CPU gates met 2026-09-30 (sky R/B relVar 1.9e-3/2.6e-3 -> 2.4e-5/3.7e-5, sky_sun bulk 190x -> 4.2x Cycles); GPU leg pending the CUDA build
+**Status:** done — PR #1003, 2026-09-30: sky R/B relVar 1.9e-3/2.6e-3 -> 2.4e-5/3.7e-5 (CPU+GPU), sky_sun bulk 190x -> 4.2x Cycles, cost 0 %, shade REG unchanged
 **Estimated effort:** 2 sessions (~6 h): CPU 1, GPU + gates 1
 **Depends on:** pkg224, pkg284
 
@@ -181,7 +181,7 @@ Opus 5.5 lane with Terra review; the lead runs CUDA builds.
 
 - [x] `sobol_burley.h` + camera slots + filter table (CPU), unit tests
 - [x] CPU tile loop + hero input; gates on CPU
-- [ ] GPU `stage_init` port (code done); REG report; gates on GPU
+- [x] GPU `stage_init` port; REG report; gates on GPU
 - [x] Default on; re-pins; pkg297 note
 
 ---

@@ -4022,6 +4022,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             allow_affine=False)
         coord_mode, uv_layer_name = resolved['coord_mode'], resolved['uv_layer']
         uv_scale, offset, rotation = resolved['legacy']
+        if coord_mode == 'OBJECT':
+            self._warn_object_coord_bake(node)
         # pkg115 residual fix (black gradient/magic spheres): id(node) is NOT a
         # stable key — convert_node_material works on a temporary
         # inline_shader_nodes() tree that is freed after each material, and
@@ -4266,6 +4268,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return None
         return compiled, bases[0]
 
+    def _warn_object_coord_bake(self, node):
+        """#994: the GPU bakes an OBJECT-coordinate procedural into a 64^3 voxel grid
+        over the geometry's world bbox (no device procedural evaluators yet): detail
+        finer than a voxel aliases (wood rings, marble veins). Reported, not silent."""
+        self._warn_shader_fallback(
+            'op-VM', "procedural '%s' with OBJECT coordinates: GPU samples a 64^3 voxel "
+            "bake of the object bbox (fine detail aliased); CPU exact"
+            % getattr(node, 'name', getattr(node, 'type', '?')))
+
     # Coordinate modes the GPU bakes procedurals over (scene_upload.cu
     # bakeProceduralTexId): UV (2D), Generated and Object (#994, world bbox) 3D.
     _GPU_BAKED_COORDS = ('UV', 'GENERATED', 'OBJECT')
@@ -4312,6 +4323,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         self._apply_texture_transform(renderer, name, coord_mode, (1.0, 1.0), (0.0, 0.0),
                                       0.0, uv_layer, mapping)
+        if coord_mode == 'OBJECT':
+            self._warn_object_coord_bake(node)
         if coord_mode not in self._GPU_BAKED_COORDS:
             self._warn_shader_fallback(
                 'op-VM', 'coordinate program on %s with %s coordinates: GPU skips the '

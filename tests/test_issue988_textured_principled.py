@@ -62,7 +62,7 @@ def _scene(r, use_gpu, textured_lambertian=False):
     r.add_triangle_layers(A, B, C, mat, {"UVMap": [[0, 0], [1, 0], [1, 1]]}, n, n, n)
     r.add_triangle_layers(A, C, D, mat, {"UVMap": [[0, 0], [1, 1], [0, 1]]}, n, n, n)
     light = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 20.0})
-    r.add_sphere([0.0, 0.0, 2.2], 0.35, light)
+    r.add_sphere([1.5, 1.5, 1.5], 0.3, light)  # outside the view: lights the plane only
     setup_camera(r, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0],
                  vfov=45, width=64, height=64)
 

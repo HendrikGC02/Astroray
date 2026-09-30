@@ -4274,7 +4274,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         finer than a voxel aliases (wood rings, marble veins). Reported, not silent."""
         self._warn_shader_fallback(
             'op-VM', "procedural '%s' with OBJECT coordinates: GPU samples a 64^3 voxel "
-            "bake of the object bbox (fine detail aliased); CPU exact"
+            "bake of the object bbox (fine detail aliased); both backends use the "
+            "world position, not object-local (#1006)"
             % getattr(node, 'name', getattr(node, 'type', '?')))
 
     # Coordinate modes the GPU bakes procedurals over (scene_upload.cu

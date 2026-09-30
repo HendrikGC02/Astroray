@@ -91,6 +91,25 @@ CUdeviceptr uploadRecord(OptixProgramGroup g, int count = 1) {
     return d;
 }
 
+// Reverse-order teardown of whatever initPipeline created (partial-init path).
+void destroyPipeline(Pipeline& p) {
+    auto freeDev = [](CUdeviceptr& d) {
+        if (d) cudaFree(reinterpret_cast<void*>(d));
+        d = 0;
+    };
+    freeDev(p.dParams); freeDev(p.dHit); freeDev(p.dMiss);
+    freeDev(p.dRgShadow); freeDev(p.dRgClosest);
+    if (p.pipe) optixPipelineDestroy(p.pipe);
+    for (OptixProgramGroup* g : { &p.hitGroup, &p.msShadow, &p.msClosest, &p.rgShadow, &p.rgClosest }) {
+        if (*g) optixProgramGroupDestroy(*g);
+        *g = nullptr;
+    }
+    if (p.module) optixModuleDestroy(p.module);
+    if (p.ctx) optixDeviceContextDestroy(p.ctx);
+    p.pipe = nullptr; p.module = nullptr; p.ctx = nullptr;
+    p.sbtClosest = {}; p.sbtShadow = {};
+}
+
 void initPipeline(Pipeline& p) {
     ASTRORAY_OPTIX_TRAV_CHECK(optixInit());
     ASTRORAY_OPTIX_TRAV_CUDA(cudaFree(0));   // make sure the primary context exists
@@ -226,6 +245,10 @@ bool available() {
             initPipeline(p);
             p.ok = true;
         } catch (const std::exception& e) {
+            // No retry per render: a device without RT cores or a broken
+            // driver would pay the init cost on every call. Release what was
+            // created; the process stays on the software BVH.
+            destroyPipeline(p);
             p.ok = false;
             p.error = e.what();
             std::fprintf(stderr, "%s — GPU traversal stays on the software BVH\n", e.what());

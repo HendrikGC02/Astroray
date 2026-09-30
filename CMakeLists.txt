@@ -661,7 +661,12 @@ if(ASTRORAY_CUDA_FOUND)
     # The host side (accel build + pipeline) links into astroray_cuda. Both .cu
     # files are empty unless ASTRORAY_OPTIX_TRAVERSAL is defined, so the Linux
     # cuda-syntax-check CI job (no OptiX SDK) still compiles them.
-    if(ASTRORAY_OPTIX_FOUND AND ASTRORAY_WAVEFRONT_CUDA_N3)
+    # Needs the OptiX 9.1 host API (optixPipelineSetStackSizeFromCallDepths); an
+    # 8.x SDK keeps the denoiser and the software BVH.
+    if(ASTRORAY_OPTIX_FOUND AND ASTRORAY_WAVEFRONT_CUDA_N3 AND OptiX_VERSION VERSION_LESS 9.1)
+        message(STATUS "pkg299: OptiX ${OptiX_VERSION} < 9.1 — hardware traversal disabled (denoiser unaffected)")
+    endif()
+    if(ASTRORAY_OPTIX_FOUND AND ASTRORAY_WAVEFRONT_CUDA_N3 AND OptiX_VERSION VERSION_GREATER_EQUAL 9.1)
         set(_optix_ir_src "${CMAKE_SOURCE_DIR}/src/gpu/optix/optix_trace_programs.cu")
         set(_optix_ir_out "${CMAKE_BINARY_DIR}/optix/optix_trace_programs.optixir")
         set(_optix_ir_cpp "${CMAKE_BINARY_DIR}/optix/optix_trace_programs_embed.cpp")

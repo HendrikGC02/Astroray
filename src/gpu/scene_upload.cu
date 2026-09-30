@@ -402,7 +402,9 @@ static void appendOnePrim(
                 (scalarMtl->scalarProgram(astroray::svm::SCALAR_ROUGHNESS) ||
                  scalarMtl->scalarProgram(astroray::svm::SCALAR_METALLIC) ||
                  scalarMtl->scalarProgram(astroray::svm::SCALAR_TRANSMISSION) ||
-                 scalarMtl->scalarProgram(astroray::svm::SCALAR_IOR));
+                 scalarMtl->scalarProgram(astroray::svm::SCALAR_IOR) ||
+                 // #988 — textured Principled Base Color (image / 2D bake input).
+                 scalarMtl->scalarProgram(astroray::svm::SCALAR_BASE_COLOR));
             // pkg242 Phase 0 -- UV-less fallback contract. The CPU Triangle ALWAYS
             // defines (uv0,uv1,uv2): authored layer 0 when present, else the
             // implicit default domain uv0=(0,0),uv1=(1,0),uv2=(0,1)
@@ -1029,8 +1031,15 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         if (tel && tel->getIntensity() > 0.0f &&
             !std::dynamic_pointer_cast<SolidColor>(tel->getTexture()))
             emitTex = tel->getTexture();
-        if (tl || emitTex) {
-            std::shared_ptr<Texture> tex = tl ? tl->getTexture() : emitTex;
+        // #988 — a native Principled with a per-texel Base Color rides the SAME
+        // bake + matTexId/program slots as a textured lambertian, but the shade
+        // path substitutes the texel into the Principled base colour on a local
+        // GMaterial copy (HasProgram block) instead of the lambertian throughput
+        // swap (the Principled lobes are not linear in base colour).
+        std::shared_ptr<Texture> prBase = (!tl && !emitTex)
+            ? m->scalarProgram(astroray::svm::SCALAR_BASE_COLOR) : nullptr;
+        if (tl || emitTex || prBase) {
+            std::shared_ptr<Texture> tex = tl ? tl->getTexture() : (emitTex ? emitTex : prBase);
             // pkg219b — a ProgramTexture (per-texel op-VM chain). GPU scope (#826):
             // 1..VM_MAX_TEX inputs, each an ImageTexture (uploaded with the
             // ProgramTexture's Mapping on its descriptor, #825 key) or a procedural
@@ -1044,7 +1053,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // through to the bakeProceduralTexId branch below, which bakes the
             // whole ProgramTexture (CPU evaluator, 64^2 / 64^3) -- keeps svm_eval
             // out of the intersect/shadow kernels' call graph (register cost).
-            auto pt = tl ? std::dynamic_pointer_cast<ProgramTexture>(tex) : nullptr;
+            auto pt = (tl || prBase) ? std::dynamic_pointer_cast<ProgramTexture>(tex) : nullptr;
             if (pt) {
                 const int numIn = (int)pt->numInputs();
                 bool inputsOk = numIn >= 1 && numIn <= astroray::svm::VM_MAX_TEX;
@@ -1095,6 +1104,16 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // (previously dividing by a near-gray base) is unchanged.
             if (texId >= 0 && tl)
                 r.materials[id].baseColor = GVec3(1.f, 1.f, 1.f);
+            // #988 — the Principled base-colour override runs only in the
+            // <HasProgram=true> shade kernel (even for a plain image / bake).
+            if (texId >= 0 && prBase) {
+                r.hasTexture = true;
+                r.hasProgram = true;
+            }
+            if (prBase && texId < 0)
+                fprintf(stderr, "[#988] DEGRADED: Principled Base Color texture with an "
+                                "unsupported GPU input (coordinate mode / empty image / "
+                                "program inputs) renders the constant Base Color on GPU\n");
             // #962 — emitter: split getEmission() (= mean x intensity) into
             // baseColor = texture mean, emissionIntensity = intensity. Every flat
             // consumer reads the product (the same float product as the host),
@@ -1103,7 +1122,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // #962 (item 2): a baked field (procedural / op-VM) uses the mean of
             // the baked texels, so the flat fallback matches what the per-hit
             // fetch integrates; a plain image keeps its exact pixel mean.
-            if (texId >= 0 && !tl) {
+            if (texId >= 0 && emitTex) {
                 Vec3 avg = emitTex->average();
                 if (!std::dynamic_pointer_cast<ImageTexture>(emitTex)) {
                     const GImageTexture& d = r.textures[texId];
@@ -1119,7 +1138,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 r.materials[id].emissionIntensity = tel->getIntensity();
                 r.hasEmissionTexture = true;
             }
-            if (!tl) {
+            if (emitTex) {
                 r.hasEmissionTextureRequested = true;
                 if (texId < 0)   // #962 (item 4): unbakeable coord mode / empty image
                     fprintf(stderr, "[#962] DEGRADED: Emission Color texture with an "

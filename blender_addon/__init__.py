@@ -4839,14 +4839,33 @@ class CustomRaytracerRenderEngine(RenderEngine):
             native['coat_roughness'] = 1.0 - float(params['clearcoat_gloss'])
         return native
 
+    # #988: native param -> engine default (plugins/materials/principled.cpp ctor).
+    _NATIVE_NON_DIFFUSE_DEFAULTS = (('specular_ior_level', 0.5), ('metallic', 0.0),
+                                    ('transmission_weight', 0.0), ('coat_weight', 0.0),
+                                    ('sheen_weight', 0.0), ('subsurface_weight', 0.0),
+                                    ('diffuse_roughness', 0.0))
+
+    def _native_is_pure_diffuse(self, native):
+        """#988: True when the native Principled reduces to a Lambertian (no
+        specular / metal / glass / coat / sheen / subsurface lobe, opaque, no
+        emission, no per-texel scalar program): the textured-lambertian route is
+        then the same closure."""
+        if any(float(native.get(k, d)) != 0.0 for k, d in self._NATIVE_NON_DIFFUSE_DEFAULTS):
+            return False
+        if float(native.get('alpha', 1.0)) != 1.0:
+            return False
+        if float(native.get('emission_strength', 0.0)) > 0.0 and any(
+                float(c) > 0.0 for c in native.get('emission_color', (0.0, 0.0, 0.0))):
+            return False
+        return not any(k.endswith('_program') for k in native)
+
     def _create_native_principled_material(self, spec, renderer, color, params,
                                            emission_color, emission_strength):
         """pkg178 Stage 5 — route a Blender Principled node to the NATIVE
         'principled' material. Alpha routes through the native 'alpha' param (NOT
         the transmission conflation the Disney path uses); emission lives inside
         the node (the promote-to-light heuristic is retired on this path). A
-        textured base colour still routes through textured-lambertian because
-        neither material has a base-colour texture slot (spec Non-goal)."""
+        textured base colour rides the native base-colour slot (#988)."""
         # Standalone BSDF nodes (Glass/Metallic/Glossy/...) and Mix/Add blends
         # produce a 'principled' spec whose 'params' use Disney names but carry
         # NO native_params. Translate those to native names first so their
@@ -4877,15 +4896,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # #846: per-texel scalar op-VM programs (Roughness/Metallic/IOR/Transmission).
         native.update(spec.get('scalar_programs') or {})
 
-        # Textured base colour → textured-lambertian (Non-goal: base-colour
-        # texture slot on the native material). Mirrors the Disney path.
+        # #988: a textured Base Color rides the native material's per-texel
+        # base-colour slot (engine SCALAR_BASE_COLOR; CPU substituted(), GPU
+        # HasProgram override), keeping every lobe and the scalar programs. Only a
+        # diffuse-only spec (Diffuse BSDF, #757) keeps the textured-lambertian
+        # route: identical closure, and the cheaper GPU throughput swap.
         base_tex = spec.get('base_color_texture')
+        if base_tex is not None and not self._native_is_pure_diffuse(native):
+            native['base_color_texture'] = base_tex
+            return renderer.create_material('principled', color, native)
         if base_tex is not None:
-            self._warn_shader_fallback(
-                'BSDF_PRINCIPLED',
-                'textured Base Color routes through lambertian (native material '
-                'has no base-color texture slot yet)')
-            self._warn_scalar_programs_dropped(spec)
             lambert_params = {'texture': base_tex}
             for key in ('normal_map_texture', 'normal_strength',
                         'bump_map_texture', 'bump_strength', 'bump_distance'):

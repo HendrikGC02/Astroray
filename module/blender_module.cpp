@@ -760,6 +760,8 @@ public:
                 {"metallic_program",     astroray::svm::SCALAR_METALLIC},
                 {"transmission_program", astroray::svm::SCALAR_TRANSMISSION},
                 {"ior_program",          astroray::svm::SCALAR_IOR},
+                // #988 — per-texel Base Color on the native Principled (any texture).
+                {"base_color_texture",   astroray::svm::SCALAR_BASE_COLOR},
             };
             for (const auto& sp : scalarProgs) {
                 if (auto tex = getTexture(sp.first))

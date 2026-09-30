@@ -40,7 +40,13 @@ constexpr int VM_MAX_RAMPS      = 2;
 // and CPU DisneyPlugin all index by it): {0:ROUGHNESS,1:METALLIC,2:TRANSMISSION,3:IOR}.
 constexpr int VM_SCALAR_SLOTS   = 4;
 enum ScalarSlot : int { SCALAR_ROUGHNESS = 0, SCALAR_METALLIC = 1,
-                        SCALAR_TRANSMISSION = 2, SCALAR_IOR = 3 };
+                        SCALAR_TRANSMISSION = 2, SCALAR_IOR = 3,
+                        // #988 — colour-valued per-texel Base Color (native Principled).
+                        // Deliberately OUTSIDE the VM_SCALAR_SLOTS GPU scalar table: the
+                        // GPU uploads it on the base-colour texture slots (matTexId /
+                        // matProgId / matProgInTexId, multi-input capable) and overrides
+                        // the Principled base colour per hit (stage_advance_device.cuh).
+                        SCALAR_BASE_COLOR = 4 };
 
 enum OpCode : unsigned char {
     OP_END        = 0,

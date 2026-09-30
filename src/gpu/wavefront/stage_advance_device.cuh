@@ -1200,6 +1200,39 @@ static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
     return {gpu_sampleImageTexture(tdesc, c_wfTexBinding.texelBuf, uu, vv), true};
 }
 
+// #988 — per-texel Base Color of a native Principled material (scene_upload.cu
+// uploads it on the base-colour slots: matTexId = input 0, matProgId + matProgInTexId
+// for an op-VM program). Same fetch + svm_eval as the textured-lambertian block of
+// shadePathSlot; returns the RGB the CPU PrincipledPlugin::substituted() writes into
+// baseColor_. ok=false when untextured or when any input misses at this hit (the
+// caller keeps the constant base colour, as the lambertian path does). __noinline__
+// keeps the fetch + VM register file out of the REG:254 <HasProgram=true> caller.
+static __device__ __noinline__ GProgInputTexel gpu_principledBaseTexel(
+    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int matId)
+{
+    const GProgInputTexel miss{GVec3(0.0f, 0.0f, 0.0f), false};
+    const int texId = c_wfTexBinding.matTexId ? c_wfTexBinding.matTexId[matId] : -1;
+    if (texId < 0) return miss;
+    const GProgInputTexel t0 = gpu_progInputTexel(point, primId, prims, tris, texId);
+    if (!t0.ok) return miss;
+    const int progId = c_wfProgBinding.matProgId ? c_wfProgBinding.matProgId[matId] : -1;
+    if (progId < 0) return t0;
+    GVec3 vmIn[astroray::svm::VM_MAX_TEX];
+    vmIn[0] = t0.c;
+    const int* inTexIds = c_wfProgBinding.matProgInTexId;
+    const int inBase = matId * astroray::svm::VM_MAX_TEX;
+    for (int t = 1; t < astroray::svm::VM_MAX_TEX; ++t) {
+        vmIn[t] = t0.c;  // single-input program: broadcast input 0 (#826)
+        const int inTex = inTexIds ? inTexIds[inBase + t] : -1;
+        if (inTex >= 0) {
+            const GProgInputTexel s = gpu_progInputTexel(point, primId, prims, tris, inTex);
+            if (!s.ok) return miss;
+            vmIn[t] = s.c;
+        }
+    }
+    return {astroray::svm::svm_eval(c_wfProgBinding.programs[progId], vmIn), true};
+}
+
 // #962 — per-hit textured Emission Color (TexturedLight uploaded by
 // scene_upload.cu on the matTexId slot; an op-VM chain arrives pre-baked). Linear
 // RGB texel at a point on emissive material matId via the SAME fetch as
@@ -1676,9 +1709,9 @@ __device__ bool shadePathSlot(
     const ::GMaterial* matPtr = &materials[rec.materialId];
     GScalarOverride<HasProgram> matScalarOv;
     if constexpr (HasProgram) {
+        bool anyOverride = false;
         if (c_wfProgBinding.matScalarProgId && c_wfProgBinding.matScalarTexId) {
             const int base = rec.materialId * astroray::svm::VM_SCALAR_SLOTS;
-            bool anyOverride = false;
             for (int slot = 0; slot < astroray::svm::VM_SCALAR_SLOTS; ++slot) {
                 int sProg = c_wfProgBinding.matScalarProgId[base + slot];
                 int sTex  = c_wfProgBinding.matScalarTexId[base + slot];
@@ -1699,8 +1732,26 @@ __device__ bool shadePathSlot(
                 }
                 gpu_applyScalarOverride(matScalarOv.mat, slot, v);
             }
-            if (anyOverride) matPtr = &matScalarOv.mat;
         }
+        // #988 — per-texel Base Color of a native Principled (CPU twin:
+        // PrincipledPlugin::substituted). The Principled lobes are not linear in
+        // base colour, so the texel is written into the LOCAL copy's every base-
+        // colour representation (gpu_principled_* reads principled.color) instead
+        // of the lambertian throughput swap (skipped for Principled below).
+        if (gpu_closure_graph_is_principled(materials[rec.materialId])) {
+            const GProgInputTexel bc = gpu_principledBaseTexel(
+                rec.point, rec.primId, prims, tris, rec.materialId);
+            if (bc.ok) {
+                if (!anyOverride) {
+                    matScalarOv.mat = materials[rec.materialId];
+                    anyOverride = true;
+                }
+                matScalarOv.mat.baseColor = bc.c;
+                matScalarOv.mat.principled.color = bc.c;
+                matScalarOv.mat.closures[0].color = bc.c;
+            }
+        }
+        if (anyOverride) matPtr = &matScalarOv.mat;
     }
     const ::GMaterial& mat = *matPtr;
 
@@ -1749,7 +1800,9 @@ __device__ bool shadePathSlot(
     if constexpr (HasTexture) {
         const int* matTexId = c_wfTexBinding.matTexId;
         int texId = matTexId[rec.materialId];
-        if (texId >= 0) {
+        // #988: a Principled base-colour texture was already substituted into the
+        // material above (HasProgram block); the lambertian swap must not re-apply it.
+        if (texId >= 0 && !gpu_closure_graph_is_principled(mat)) {
             const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
             GVec3 texColor;
             bool  haveTex = false;

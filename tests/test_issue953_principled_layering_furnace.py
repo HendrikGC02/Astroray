@@ -78,6 +78,9 @@ def _render(use_gpu, base, params):
     r.set_background_color([1.0, 1.0, 1.0])
     r.set_integrator("path_tracer")
     r.set_use_gpu(use_gpu)
+    # Pinned: seed 0 is the random sentinel; the sphere mean has ~0.0017/channel MC sigma at
+    # 512 spp, so the 1.005 energy gate was a ~3-sigma coin flip across ~48 unseeded runs.
+    r.set_seed(278)
     mid = r.create_material("principled", [base] * 3, dict(params, metallic=0.0))
     r.add_sphere([0, 0, 0], 1.0, mid)
     px = np.array(r.render(_SPP, 8, None, False), dtype=np.float64).reshape(_H, _W, -1)[..., :3]

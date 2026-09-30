@@ -406,6 +406,8 @@ def _shading_input(node, out_name, builder, depth, arg, normal):
     if builder.coord_mode:
         raise VMCompileError("per-hit shading input in a coordinate chain")
     ntype = getattr(node, 'type', None)
+    # An UNLINKED Normal means sd->N in Cycles whatever its (hidden) value:
+    # svm_node_fresnel / svm_node_layer_weight use stack_load_float3_default(.., sd->N).
     if normal is not None and getattr(normal, 'is_linked', False):
         raise VMCompileError("%s with a linked Normal unsupported" % ntype)
     if ntype == 'NEW_GEOMETRY':

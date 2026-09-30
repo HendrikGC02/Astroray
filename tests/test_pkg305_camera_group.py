@@ -339,6 +339,34 @@ def test_edge_aa_variance():
     assert ratio <= 0.8, ratio
 
 
+@pytest.mark.gpu
+def test_gpu_camera_group_samples_match_cpu():
+    """CPU and GPU draw the same camera-group tuple per (pixel, sample): with a
+    defocused emitter disc, BH filter and aperture, GPU vs CPU at one seed differ
+    far less than CPU vs CPU at two seeds (filter, lens and hero conventions)."""
+    def rend(seed, gpu):
+        r = _edge_scene(seed, True)
+        if gpu:
+            try:
+                r.set_use_gpu(True)
+            except Exception as e:  # noqa: BLE001
+                pytest.skip(f"GPU unavailable: {e}")
+            if not getattr(r, "gpu_available", False):
+                pytest.skip("gpu_available is False")
+        r.set_pixel_filter(2, 1.5)
+        bh.setup_camera(r, look_from=[0, 0, 5], look_at=[0, 0, 0], vup=[0, 1, 0],
+                        vfov=30, width=32, height=32, aperture=0.3, focus_dist=3.5)
+        return _render(r, 16)
+    cpu_a, cpu_b, gpu_a = rend(305, False), rend(306, False), rend(305, True)
+    edge = np.abs(cpu_a - cpu_b).max(-1) > 0.0
+    d_gc = float(np.abs(gpu_a - cpu_a)[edge].mean())
+    d_cc = float(np.abs(cpu_b - cpu_a)[edge].mean())
+    assert edge.sum() >= 20
+    # Measured: d_gc 0.21x d_cc (residual = float/lens-model differences); the
+    # legacy GPU camera gives 1.5x, an independent stream 1.0x.
+    assert d_gc < 0.35 * d_cc, (d_gc, d_cc)
+
+
 def _lit_scene(seed, stratified):
     r = bh.create_renderer()
     if hasattr(r, "set_use_gpu"):

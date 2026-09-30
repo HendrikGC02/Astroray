@@ -133,13 +133,18 @@ a{color:var(--ac)}</style></head><body>
 <a href="spectral/observer-colour-tiles/tiles_before_after_sheet.png"><img loading="lazy" src="spectral/observer-colour-tiles/tiles_before_after_sheet.png" alt="tiles_before_after_sheet.png"></a>
 </div>
 <div class="card"><h3>stratified-camera-group</h3>
-<p>Tests: the per-pixel Sobol-Burley camera draws (pkg305) against the white-noise camera, corpus v2 on CPU at 64 spp (seeds 278-282; means with independent seeds). Verdict (CPU): sky_upper R/B relVar 1.9e-3/2.6e-3 -&gt; 2.4e-5/3.7e-5; v2_sky_sun</p>
-<p><a href="spectral/stratified-camera-group/chroma_variance_vs_cycles_cpu_chart.json">chroma_variance_vs_cycles_cpu_chart.json</a> &middot; <a href="spectral/stratified-camera-group/luminance_variance_vs_cycles_cpu_chart.json">luminance_variance_vs_cycles_cpu_chart.json</a> &middot; <a href="spectral/stratified-camera-group/roi_mean_shift_cpu_chart.json">roi_mean_shift_cpu_chart.json</a> &middot; <a href="spectral/stratified-camera-group/sky_chroma_relvar_cpu_chart.json">sky_chroma_relvar_cpu_chart.json</a></p>
+<p>Tests: the per-pixel Sobol-Burley camera draws (pkg305) against the white-noise camera, corpus v2 on CPU and GPU at 64 spp (seeds 278-282 vs Cycles; means with independent seeds 278 + 10000 k).</p>
+<p><a href="spectral/stratified-camera-group/chroma_variance_vs_cycles_cpu_chart.json">chroma_variance_vs_cycles_cpu_chart.json</a> &middot; <a href="spectral/stratified-camera-group/chroma_variance_vs_cycles_gpu_chart.json">chroma_variance_vs_cycles_gpu_chart.json</a> &middot; <a href="spectral/stratified-camera-group/luminance_variance_vs_cycles_cpu_chart.json">luminance_variance_vs_cycles_cpu_chart.json</a> &middot; <a href="spectral/stratified-camera-group/luminance_variance_vs_cycles_gpu_chart.json">luminance_variance_vs_cycles_gpu_chart.json</a> &middot; <a href="spectral/stratified-camera-group/roi_mean_shift_cpu_chart.json">roi_mean_shift_cpu_chart.json</a> &middot; <a href="spectral/stratified-camera-group/roi_mean_shift_gpu_chart.json">roi_mean_shift_gpu_chart.json</a> &middot; <a href="spectral/stratified-camera-group/sky_chroma_relvar_cpu_chart.json">sky_chroma_relvar_cpu_chart.json</a> &middot; <a href="spectral/stratified-camera-group/sky_chroma_relvar_gpu_chart.json">sky_chroma_relvar_gpu_chart.json</a></p>
 <a href="spectral/stratified-camera-group/camera_group_crops_cpu_sheet.png"><img loading="lazy" src="spectral/stratified-camera-group/camera_group_crops_cpu_sheet.png" alt="camera_group_crops_cpu_sheet.png"></a>
+<a href="spectral/stratified-camera-group/camera_group_crops_gpu_sheet.png"><img loading="lazy" src="spectral/stratified-camera-group/camera_group_crops_gpu_sheet.png" alt="camera_group_crops_gpu_sheet.png"></a>
 <a href="spectral/stratified-camera-group/chroma_variance_vs_cycles_cpu_chart.png"><img loading="lazy" src="spectral/stratified-camera-group/chroma_variance_vs_cycles_cpu_chart.png" alt="chroma_variance_vs_cycles_cpu_chart.png"></a>
+<a href="spectral/stratified-camera-group/chroma_variance_vs_cycles_gpu_chart.png"><img loading="lazy" src="spectral/stratified-camera-group/chroma_variance_vs_cycles_gpu_chart.png" alt="chroma_variance_vs_cycles_gpu_chart.png"></a>
 <a href="spectral/stratified-camera-group/luminance_variance_vs_cycles_cpu_chart.png"><img loading="lazy" src="spectral/stratified-camera-group/luminance_variance_vs_cycles_cpu_chart.png" alt="luminance_variance_vs_cycles_cpu_chart.png"></a>
+<a href="spectral/stratified-camera-group/luminance_variance_vs_cycles_gpu_chart.png"><img loading="lazy" src="spectral/stratified-camera-group/luminance_variance_vs_cycles_gpu_chart.png" alt="luminance_variance_vs_cycles_gpu_chart.png"></a>
 <a href="spectral/stratified-camera-group/roi_mean_shift_cpu_chart.png"><img loading="lazy" src="spectral/stratified-camera-group/roi_mean_shift_cpu_chart.png" alt="roi_mean_shift_cpu_chart.png"></a>
+<a href="spectral/stratified-camera-group/roi_mean_shift_gpu_chart.png"><img loading="lazy" src="spectral/stratified-camera-group/roi_mean_shift_gpu_chart.png" alt="roi_mean_shift_gpu_chart.png"></a>
 <a href="spectral/stratified-camera-group/sky_chroma_relvar_cpu_chart.png"><img loading="lazy" src="spectral/stratified-camera-group/sky_chroma_relvar_cpu_chart.png" alt="sky_chroma_relvar_cpu_chart.png"></a>
+<a href="spectral/stratified-camera-group/sky_chroma_relvar_gpu_chart.png"><img loading="lazy" src="spectral/stratified-camera-group/sky_chroma_relvar_gpu_chart.png" alt="sky_chroma_relvar_gpu_chart.png"></a>
 </div>
 </div>
 <h2>camera</h2><div class="grid">
@@ -213,9 +218,10 @@ a{color:var(--ac)}</style></head><body>
 <a href="perf/shade-kernel-resources/stack_chart.png"><img loading="lazy" src="perf/shade-kernel-resources/stack_chart.png" alt="stack_chart.png"></a>
 </div>
 <div class="card"><h3>stratified-camera-group</h3>
-<p>Tests: render time of v2_light_tree (16 spp, CPU, OpenMP-off addon build) with the Sobol-Burley camera group vs the white-noise camera; min of 3 after a burn-in, two interleaved rounds.</p>
-<p><a href="perf/stratified-camera-group/light_tree_render_time_cpu_chart.json">light_tree_render_time_cpu_chart.json</a></p>
+<p>Tests: render time of v2_light_tree with the Sobol-Burley camera group vs the white-noise camera; min of 3 after a burn-in, two interleaved rounds. CPU 16 spp (OpenMP-off addon build), GPU 256 spp (RTX 5070 Ti).</p>
+<p><a href="perf/stratified-camera-group/light_tree_render_time_cpu_chart.json">light_tree_render_time_cpu_chart.json</a> &middot; <a href="perf/stratified-camera-group/light_tree_render_time_gpu_chart.json">light_tree_render_time_gpu_chart.json</a></p>
 <a href="perf/stratified-camera-group/light_tree_render_time_cpu_chart.png"><img loading="lazy" src="perf/stratified-camera-group/light_tree_render_time_cpu_chart.png" alt="light_tree_render_time_cpu_chart.png"></a>
+<a href="perf/stratified-camera-group/light_tree_render_time_gpu_chart.png"><img loading="lazy" src="perf/stratified-camera-group/light_tree_render_time_gpu_chart.png" alt="light_tree_render_time_gpu_chart.png"></a>
 </div>
 <div class="card"><h3>test-suite-durations</h3>
 <p>Per-area, per-file and per-test pytest junit durations, before (serial `pytest tests`) vs after (`run_split.py`). After-series CPU-pass times are divided by the 4 xdist workers, so bars are wall-equivalent seconds. Before: serial, 45.2 min wall (2711 s), 4587 cases. After, full profile (`run_split.py`): 23.8 min wall (CPU pass 451 s + GPU pass 977 s); every test still runs.</p>

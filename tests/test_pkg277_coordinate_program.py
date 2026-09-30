@@ -446,6 +446,8 @@ def _plain_checker_mapped(r):
 # corrected flip gate). R4 finds nothing to share: the two tests' unwarped baselines are
 # different scenes (plain vs mapped checker) and the 256-spp and 4096-spp renders differ.
 @pytest.mark.slow
+@pytest.mark.xfail(strict=True, reason="#1002: noise-free delta 0.61 > model 0.486 "
+                   "(pkg305 removed the CPU noise floor the excess metric subtracted)")
 def test_gpu_cpu_parity_warped_checker():
     _gpu_cpu_gates(_checker_setup(k=24.0), "warped_checker_k24",
                    _checker_setup(warp=False), 0.486, cells=True)

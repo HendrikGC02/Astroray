@@ -176,12 +176,12 @@ def test_gpu_denoise_guides_beat_guideless():
     if not _has_cuda_gpu(r0):
         pytest.skip("No CUDA GPU available — pkg197 denoise A/B runs on the RTX box.")
 
-    def _gpu_render(samples, denoise, guides):
+    def _gpu_render(samples, denoise, guides, seed=1234):
         r = create_renderer()
         r.set_use_gpu(True)
         r.set_gpu_guide_aovs(guides)
         _build_scene(r)
-        r.set_seed(1234)
+        r.set_seed(seed)
         if denoise:
             r.add_pass("oidn_denoiser")
         return np.array(r.render(samples, 4, None, False), dtype=np.float32)
@@ -223,7 +223,17 @@ def test_gpu_denoise_guides_beat_guideless():
     except Exception as e:  # noqa: BLE001 — PNG is evidence, not a gate
         print(f"  (PNG save skipped: {e})")
 
-    # Guides must not degrade edge retention, and should improve it.
-    assert mse_guided <= mse_guideless * 1.02, (
-        f"pkg197 guides HURT edge retention: guided={mse_guided:.6f} > "
-        f"guideless={mse_guideless:.6f} — the guide buffers may be wrong")
+    # Guides must not degrade edge retention, and should improve it. pkg305: the
+    # guided/guideless ratio scatters 0.86-1.13 from seed to seed on main (12
+    # seeds, mean 0.97), so one seed flips with the RNG stream; gate the mean of
+    # 12 seeds (seed 1234 + 11 more).
+    ratios = [mse_guided / max(mse_guideless, 1e-12)]
+    for k in range(1, 12):
+        s = 7919 * k + 1
+        ratios.append(edge_mse(_gpu_render(8, True, True, s)) /
+                      max(edge_mse(_gpu_render(8, True, False, s)), 1e-12))
+    mean_ratio = float(np.mean(ratios))
+    print(f"  pkg197 guided/guideless edge MSE, 12-seed mean = {mean_ratio:.3f}")
+    assert mean_ratio <= 1.02, (
+        f"pkg197 guides HURT edge retention: guided/guideless edge MSE "
+        f"{mean_ratio:.3f} (12-seed mean) > 1.02 — the guide buffers may be wrong")

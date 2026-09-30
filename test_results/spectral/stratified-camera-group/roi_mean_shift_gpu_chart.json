@@ -1,0 +1,44 @@
+{
+ "title": "Corpus v2 ROI means, GPU 64 spp: worst |z| per scene (independent seeds)",
+ "xlabel": "scene (n seeds per leg)",
+ "ylabel": "|z| of ROI mean shift",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "after vs before, worst ROI channel",
+   "x": [
+    "sky_sun (n=5)",
+    "cam_geo (n=20)",
+    "cam_geo@ortho (n=20)",
+    "light_tree (n=5)",
+    "media (n=5)",
+    "dispersion_caustics (n=5)",
+    "thin_film_metals (n=20)",
+    "textures_opvm (n=20)"
+   ],
+   "y": [
+    2.597541930356331,
+    2.2147164592920587,
+    3.8720461070154437,
+    2.2642491661803894,
+    1.9095532191590872,
+    2.7615841769002927,
+    2.2986186513329936,
+    2.9727213683734184
+   ]
+  }
+ ],
+ "band": [
+  0.0,
+  3.0
+ ],
+ "ref": null,
+ "meta": {
+  "package": "pkg305",
+  "leg": "gpu",
+  "spp": 64,
+  "seeds": "278 + 10000 k, independent",
+  "base": "main 775a5d6b",
+  "evidence": "C:\\Users\\hgcom\\OneDrive\\Astroray\\astra_run\\AP\\ap-305"
+ }
+}

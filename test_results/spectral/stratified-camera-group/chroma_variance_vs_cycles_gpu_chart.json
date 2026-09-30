@@ -1,0 +1,67 @@
+{
+ "title": "Chroma variance vs Cycles, corpus v2, GPU 64 spp (median per-pixel ratio)",
+ "xlabel": "scene",
+ "ylabel": "log10 var(rgb/lum) ratio Astroray/Cycles",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "before",
+   "x": [
+    "sky_sun",
+    "cam_geo",
+    "cam_geo@ortho",
+    "light_tree",
+    "media",
+    "dispersion_caustics",
+    "thin_film_metals",
+    "textures_opvm"
+   ],
+   "y": [
+    5.087416672097977,
+    1.9181508476716804,
+    1.6929317119014724,
+    0.2327712306951012,
+    1.1440088010958411,
+    2.2082882695768253,
+    2.7338023067335877,
+    3.7322833560203277
+   ]
+  },
+  {
+   "label": "after (stratified camera group)",
+   "x": [
+    "sky_sun",
+    "cam_geo",
+    "cam_geo@ortho",
+    "light_tree",
+    "media",
+    "dispersion_caustics",
+    "thin_film_metals",
+    "textures_opvm"
+   ],
+   "y": [
+    3.230329381428813,
+    1.448428552756563,
+    1.3130743044708497,
+    0.10592864715362445,
+    0.8890604955284193,
+    2.054363296153261,
+    2.1549152646238685,
+    2.6650959198505118
+   ]
+  }
+ ],
+ "band": null,
+ "ref": [
+  0.0,
+  "Cycles"
+ ],
+ "meta": {
+  "package": "pkg305",
+  "leg": "gpu",
+  "spp": 64,
+  "seeds": "278-282 (vs Cycles CPU 64 spp, same seeds)",
+  "base": "main 775a5d6b",
+  "evidence": "C:\\Users\\hgcom\\OneDrive\\Astroray\\astra_run\\AP\\ap-305"
+ }
+}

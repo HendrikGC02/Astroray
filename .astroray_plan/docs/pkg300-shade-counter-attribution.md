@@ -50,6 +50,14 @@ callee. `nvlink` reports the kernel at the call graph's maximum. A kernel-level
 move the 254. Phase 1 therefore inlines the body into budgeted kernels
 (`stage_shade_budget.cu`) and keeps a call-path control kernel to confirm this.
 
+Build 98d68391 confirmed this with ptxas errors. Under `-rdc`, a `__maxnreg__` cap on an
+entry cannot be lower than the register count of any out-of-line callee:
+`gpu_closure_graph_eval_spectral` 254, `gpu_env_nee_generate` 206, `gpu_disney_sample`
+204, hair sample 198, `gpu_closure_eval` 150, `gpu_disney_eval` 147,
+`gpu_pr_evalLobe` 141. So no budget below 254 exists while the `__noinline__`
+isolation stays in place. The capped sweep kernels (`stage_shade_budget_fi.cu`)
+force-inline every callee in that TU only, which is the Cycles arrangement.
+
 ## Conclusions and phase order
 
 - **Divergence is not the bottleneck.** Branch uniformity is 98.5 % and warps run

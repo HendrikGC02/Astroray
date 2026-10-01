@@ -994,8 +994,8 @@ static const ShadePartLaunchFn kShadePartLaunch[12] = {
     stageShadePartLaunch_6, stageShadePartLaunch_7, stageShadePartLaunch_8,
     stageShadePartLaunch_9, stageShadePartLaunch_10, stageShadePartLaunch_11 };
 
-// pkg300 Phase 1 sweep (stage_shade_budget.cu). ASTRORAY_SHADE_BUDGET = 0 (generic,
-// default) | 1 inline | 2 inline+168 | 3 inline+128 | 4 call+128; ASTRORAY_SHADE_THREADS
+// pkg300 Phase 1 sweep (stage_shade_budget*.cu). ASTRORAY_SHADE_BUDGET = 0 (generic,
+// default) | 1 inline body | 2 fully inlined | 3 +maxnreg 168 | 4 +maxnreg 128; ASTRORAY_SHADE_THREADS
 // = shade block size (default 256). Read once per process.
 const void* stageShadeBudget(int mode, bool P, bool launch,
                              int blocks, int threads, const StageShadeArgs& a);

@@ -101,7 +101,11 @@ protected:
         return rec.uv;
     }
 
-    std::pair<Vec2, Vec3> textureCoordinates(const HitRecord& rec, const Vec3& wo) const {
+    // #1005: `dP` displaces the hit point (world == object space: the addon bakes world
+    // transforms into vertices) for procedural bump taps; zero everywhere else.
+    std::pair<Vec2, Vec3> textureCoordinates(const HitRecord& rec, const Vec3& wo,
+                                             const Vec3& dP = Vec3(0.0f)) const {
+        const Vec3 pt = rec.point + dP, opt = rec.objectPoint + dP;
         Vec2 uv = selectedUV(rec);
         switch (coordMode) {
             case CoordMode::Generated: {
@@ -119,7 +123,7 @@ protected:
                 // per object) takes precedence over the per-texture bbox.
                 {
                     Vec3 g;
-                    if (rec.hitObject && rec.hitObject->generatedCoord(rec.point, g)) {
+                    if (rec.hitObject && rec.hitObject->generatedCoord(pt, g)) {
                         g = Vec3(std::clamp(g.x, 0.0f, 1.0f),
                                  std::clamp(g.y, 0.0f, 1.0f),
                                  std::clamp(g.z, 0.0f, 1.0f));
@@ -128,7 +132,7 @@ protected:
                 }
                 if (hasGenBBox_) {
                     Vec3 size = genSize_;
-                    Vec3 p = rec.objectPoint;
+                    Vec3 p = opt;
                     Vec3 g(
                         size.x > 1e-6f ? (p.x - genMin_.x) / size.x : 0.0f,
                         size.y > 1e-6f ? (p.y - genMin_.y) / size.y : 0.0f,
@@ -143,7 +147,7 @@ protected:
                     AABB box;
                     if (rec.hitObject->boundingBox(box)) {
                         Vec3 size = box.max - box.min;
-                        Vec3 p = rec.objectPoint;
+                        Vec3 p = opt;
                         Vec3 g(
                             size.x > 1e-6f ? (p.x - box.min.x) / size.x : 0.0f,
                             size.y > 1e-6f ? (p.y - box.min.y) / size.y : 0.0f,
@@ -155,13 +159,13 @@ protected:
                         return {Vec2(g.x, g.y), g};
                     }
                 }
-                return {uv, rec.objectPoint};
+                return {uv, opt};
             }
             case CoordMode::Object:
-                return {Vec2(rec.objectPoint.x, rec.objectPoint.y), rec.objectPoint};
+                return {Vec2(opt.x, opt.y), opt};
             case CoordMode::Camera: {
-                if (!rec.hasCameraFrame) return {Vec2(rec.point.x, rec.point.y), rec.point};
-                Vec3 rel = rec.point - rec.cameraOrigin;
+                if (!rec.hasCameraFrame) return {Vec2(pt.x, pt.y), pt};
+                Vec3 rel = pt - rec.cameraOrigin;
                 Vec3 c(rel.dot(rec.cameraU), rel.dot(rec.cameraV), rel.dot(-rec.cameraW));
                 return {Vec2(c.x, c.y), c};
             }
@@ -236,6 +240,17 @@ public:
             return value(Vec2(mp.x, mp.y), mp);
         }
         return value(applyUVTransform(uv), p);
+    }
+    // #1005 - value with the hit point displaced by a WORLD-space step dP (procedural
+    // bump taps for Object / Generated / Camera coordinates). valueOffset() steps in
+    // UV units, which is the right domain only for UV coordinates and images.
+    Vec3 valueDisplaced(const HitRecord& rec, const Vec3& wo, const Vec3& dP) const {
+        auto [uv, p] = textureCoordinates(rec, wo, dP);
+        if (hasMapping_) {
+            Vec3 mp = applyMappingPoint(p);
+            return valueAtHit(Vec2(mp.x, mp.y), mp, rec, wo);
+        }
+        return valueAtHit(applyUVTransform(uv), p, rec, wo);
     }
     Vec3 valueOffset(const HitRecord& rec, const Vec3& wo, float du, float dv) const {
         auto [uv, p] = textureCoordinates(rec, wo);

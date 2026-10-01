@@ -72,8 +72,24 @@ class NormalMappedPlugin : public Material {
             Vec3 dPdx = T * (eps * rec.uvScaleU);
             Vec3 dPdy = Bt * (eps * rec.uvScaleV);
             float h_c = heightValue(bumpTexture_->value(rec, Vec3(0)));
-            float h_x = heightValue(bumpTexture_->valueOffset(rec, Vec3(0), eps, 0.0f));
-            float h_y = heightValue(bumpTexture_->valueOffset(rec, Vec3(0), 0.0f, eps));
+            float h_x, h_y;
+            const CoordMode bcm = bumpTexture_->getCoordMode();
+            if ((bcm == CoordMode::Object || bcm == CoordMode::Generated || bcm == CoordMode::Camera) &&
+                !dynamic_cast<const ImageTexture*>(bumpTexture_.get())) {
+                // #1005: a procedural Height in Object / Generated / Camera coordinates
+                // is differenced along the surface in WORLD space (the UV-unit step above
+                // moves the 3-D point along an arbitrary axis at the wrong length). The
+                // surfgrad formula is invariant to the step length (det ~ h^2, surfgrad ~
+                // h^2), so a small fixed world step approximates Cycles' pixel footprint.
+                const float h = 1.0e-3f;
+                dPdx = T * h;
+                dPdy = Bt * h;
+                h_x = heightValue(bumpTexture_->valueDisplaced(rec, Vec3(0), dPdx));
+                h_y = heightValue(bumpTexture_->valueDisplaced(rec, Vec3(0), dPdy));
+            } else {
+                h_x = heightValue(bumpTexture_->valueOffset(rec, Vec3(0), eps, 0.0f));
+                h_y = heightValue(bumpTexture_->valueOffset(rec, Vec3(0), 0.0f, eps));
+            }
             Vec3 Rx = dPdy.cross(n);
             Vec3 Ry = n.cross(dPdx);
             float det = dPdx.dot(Rx);

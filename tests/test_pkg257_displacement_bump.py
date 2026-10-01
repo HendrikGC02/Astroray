@@ -196,6 +196,7 @@ class _RecordingRenderer:
 
     def set_material_spectral_profile(self, *a, **k): pass
     def clear_material_spectral_profile(self, *a, **k): pass
+    def set_texture_extension(self, *a, **k): pass  # #1004: the addon tags every image texture
 
 
 def _displacement_node(height_link=None, midlevel=0.5, scale=1.0, normal_link=None):
@@ -295,7 +296,9 @@ def test_midlevel_is_read_but_inert(monkeypatch):
     result_low, warn_low = engine.get_displacement_bump_inputs(output_low, mat)
     result_high, warn_high = engine.get_displacement_bump_inputs(output_high, mat)
 
-    assert result_low == result_high, (
+    # #1005: 'bump_node' is the (per-material) Displacement node itself, not a parameter.
+    drop_node = lambda r: {k: v for k, v in r.items() if k != 'bump_node'}  # noqa: E731
+    assert drop_node(result_low) == drop_node(result_high), (
         f"Midlevel changed the extracted bump params: {result_low} vs {result_high}")
     assert warn_low is None and warn_high is None
 

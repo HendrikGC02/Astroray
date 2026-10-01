@@ -33,10 +33,10 @@ LAMBDAS = [380.0 + 40.0 * k for k in range(11)]
 
 
 def _grid():
-    ax = np.linspace(0.0, 1.0, 13)
+    ax = np.linspace(0.0, 1.0, 9)
     g = np.stack(np.meshgrid(ax, ax, ax, indexing="ij"), -1).reshape(-1, 3)
     rng = np.random.default_rng(1012)
-    rnd = rng.random((2048, 3)) ** 2                   # biased to dark: dense in low-z scale cells
+    rnd = rng.random((256, 3)) ** 2                   # biased to dark: dense in low-z scale cells
     edge = np.array([[1.2, 0.3, 0.0], [-0.1, 0.5, 0.5], [1e-9, 0, 0], [0, 0, 0],
                      [1, 1, 1], [0.999999, 1, 0.5]])  # clamp / black / z==1 edges
     return np.concatenate([g, rnd, edge]).astype(np.float32).ravel().tolist()

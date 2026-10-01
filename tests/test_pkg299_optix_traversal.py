@@ -218,14 +218,17 @@ def test_render_uses_optix_and_matches_software(monkeypatch):
     assert mode_sw == "software"
     assert mode_hw == "optix"
     assert np.isfinite(hw).all()
-    # Same seed and RNG streams, same triangles hit: the only difference is the
-    # hardware t / barycentrics (~1e-5 relative), which moves later bounce
-    # origins by float rounding. Measured 2026-09-30: max per-pixel relative
-    # difference 7e-6, image means equal. An edge ray hitting a different
-    # triangle would show as a pixel far outside this band.
+    # Same seed and RNG streams. Where both traversals hit the same triangle the
+    # only difference is the hardware t / barycentrics (~1e-5 relative), so the
+    # pixel stays within 1e-4. A ray through a shared edge can pick the other
+    # triangle (watertight vs Moller-Trumbore); that path then decorrelates and
+    # its pixel moves by an MC-noise amount. Measured: 2026-09-30 no such pixel;
+    # after pkg305's stratified camera, 1 of 4096 (4e-2). Bound the count, and
+    # the image mean, instead of the per-pixel max.
     rel = np.abs(hw - sw).max(axis=-1) / np.maximum(sw.max(axis=-1), 1e-3)
-    assert rel.max() <= 1e-4, f"max per-pixel relative difference {rel.max():.3e}"
-    assert abs(hw.mean() - sw.mean()) <= 1e-5 * max(sw.mean(), 1e-6)
+    outliers = int((rel > 1e-4).sum())
+    assert outliers <= 0.002 * rel.size, f"{outliers} pixels differ by > 1e-4 (max {rel.max():.3e})"
+    assert abs(hw.mean() - sw.mean()) <= 1e-4 * max(sw.mean(), 1e-6)
 
 
 def test_sphere_scene_falls_back_to_software(monkeypatch):
@@ -287,4 +290,6 @@ def test_instanced_render_matches_software(monkeypatch):
     sw, hw = imgs["software"], imgs["optix"]
     assert sw.mean() > 0.05
     rel = np.abs(hw - sw).max(axis=-1) / np.maximum(sw.max(axis=-1), 1e-3)
-    assert rel.max() <= 1e-4, f"max per-pixel relative difference {rel.max():.3e}"
+    outliers = int((rel > 1e-4).sum())   # edge rays, see the test above
+    assert outliers <= 0.002 * rel.size, f"{outliers} pixels differ by > 1e-4 (max {rel.max():.3e})"
+    assert abs(hw.mean() - sw.mean()) <= 1e-4 * max(sw.mean(), 1e-6)

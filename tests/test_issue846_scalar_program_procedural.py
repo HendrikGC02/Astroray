@@ -238,13 +238,17 @@ def test_846_addon_bare_texture_on_roughness_attaches(monkeypatch):
     assert kind == 'principled' and params.get('roughness_program'), (kind, params)
 
 
-def test_846_addon_textured_base_colour_reports_dropped_program(monkeypatch):
+def test_846_addon_textured_base_colour_keeps_scalar_program(monkeypatch):
+    # #988 flips this guard: a textured Base Color used to route the native
+    # Principled through lambertian and report the dropped roughness_program; it now
+    # keeps the Principled (base_color_texture) AND the program, with no drop entry.
     chk = Node('TEX_CHECKER', inputs=[Sock('Vector')])
     base = Sock('Base Color', [0.8, 0.8, 0.8], Link(chk, 'Color'))
-    (kind, _), lines = _convert(
+    (kind, params), lines = _convert(
         monkeypatch, _principled_node(_noise_map_range_roughness(), base), True)
-    assert kind == 'lambertian', kind
-    assert any('roughness_program dropped' in m for m in lines), lines
+    assert kind == 'principled', kind
+    assert params.get('base_color_texture') and params.get('roughness_program'), params
+    assert not any('roughness_program dropped' in m for m in lines), lines
 
 
 def test_846_addon_disney_metallic_program_no_gpu_gap(monkeypatch):

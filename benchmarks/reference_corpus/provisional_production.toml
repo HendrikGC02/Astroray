@@ -144,14 +144,14 @@ scene = "prod_car_paint"
 backend = "cpu"
 kind = "silent"
 issue = "#996"
-reason = "matrix-stale rows only (Math operation, Mix data_type, Voronoi Vector); Layer Weight / Fresnel now SUPPORTED"
+reason = "matrix-stale rows only (Math operation, Mix data_type, Voronoi Vector, and since #989 Layer Weight Blend / Fresnel IOR: handled by OP_SHADING, matrix rows await a corpus-covered regeneration)"
 
 [[row]]
 scene = "prod_car_paint"
 backend = "gpu"
 kind = "silent"
 issue = "#996"
-reason = "matrix-stale rows only (Math operation, Mix data_type, Voronoi Vector)"
+reason = "matrix-stale rows only (Math operation, Mix data_type, Voronoi Vector, Layer Weight Blend, Fresnel IOR)"
 
 [[row]]
 scene = "prod_curves_geometry"

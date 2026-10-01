@@ -1420,16 +1420,16 @@
     "feature": "FRESNEL",
     "bl_idname": "ShaderNodeFresnel",
     "socket_or_prop": "input:IOR",
-    "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "FRESNEL",
     "bl_idname": "ShaderNodeFresnel",
     "socket_or_prop": "input:Normal",
-    "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
@@ -1516,16 +1516,16 @@
     "feature": "LAYER_WEIGHT",
     "bl_idname": "ShaderNodeLayerWeight",
     "socket_or_prop": "input:Blend",
-    "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",
     "feature": "LAYER_WEIGHT",
     "bl_idname": "ShaderNodeLayerWeight",
     "socket_or_prop": "input:Normal",
-    "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
+    "classification": "DROPPED-SILENT",
+    "notes": "no handler in addon translation layer"
   },
   {
     "category": "shader_node",

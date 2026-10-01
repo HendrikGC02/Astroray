@@ -293,13 +293,13 @@ def test_gpu_plain_image_emission_full_resolution():
 
 @pytest.mark.gpu
 def test_gpu_unsupported_coord_emission_reports_degraded(capfd):
-    """An emission texture in a coordinate mode the GPU cannot bake (Object) keeps
-    the flat mean and says so (Terra #962 item 4)."""
+    """An emission texture in a coordinate mode the GPU cannot bake (Camera; Object
+    is baked since #994) keeps the flat mean and says so (Terra #962 item 4)."""
     _gpu_or_skip()
 
     def build(r):
         _card(r, "checker")
-        r.set_texture_coord_mode("t", "OBJECT")
+        r.set_texture_coord_mode("t", "CAMERA")
 
     _render(build, True, 4)
     err = capfd.readouterr().err

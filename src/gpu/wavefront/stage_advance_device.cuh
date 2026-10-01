@@ -2422,7 +2422,8 @@ __device__ bool shadePathSlot(
 // (no 2 KB param stack copy); fully inlined + __maxnreg__(128) at 256 threads
 // (2 blocks = 16 warps/SM) is the best of {254, 168, 128} x {256, 384, 512}.
 // The cap needs every callee inlined, so it only applies where
-// shade_force_inline.cuh was included first (the stage_shade_part<k>.cu TUs).
+// shade_force_inline.cuh was included first (HasPrincipled=false parts 0..3);
+// the Principled parts 4..11 run the inlined body uncapped (see that header).
 #define ASTRORAY_SHADE_MAXNREG 128
 #if defined(ASTRORAY_SHADE_FORCE_INLINE)
 #define ASTRORAY_SHADE_KERNEL_BUDGET __maxnreg__(ASTRORAY_SHADE_MAXNREG)

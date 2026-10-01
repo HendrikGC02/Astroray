@@ -8,6 +8,10 @@
 // .astroray_plan/docs/pkg300-shade-counter-attribution.md). Cycles compiles its
 // kernels the same way: fully inlined under GPU_KERNEL_MAX_REGISTERS
 // (kernel/device/cuda/config.h, Apache-2.0). Other TUs keep __noinline__.
+// Included by the HasPrincipled=false parts 0..3 only. In the Principled parts
+// 4..11 the compiler also keeps gpu_pr_evalLobe (plain `inline`, 141 regs) out of
+// line, and full inlining doubled the shade-part build time (934 s vs ~460 s,
+// build 899b09bf), so those parts take the inlined body without a cap.
 // Attribute-only spelling (several sites already say `__noinline__ inline`):
 // MSVC-mode frontend -> __forceinline, GNU mode -> always_inline.
 #pragma once

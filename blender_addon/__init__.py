@@ -3352,33 +3352,28 @@ class CustomRaytracerRenderEngine(RenderEngine):
         return src if src.type == 'TEX_IMAGE' and src.image else None
 
     def load_bump_height_texture(self, spec, renderer):
-        """Texture name for the Height of a Bump / Displacement node (#1005), or None.
+        """Texture name for the Height of a Bump / Displacement node, or None.
 
         `spec` is a get_normal_inputs / get_displacement_bump_inputs result. An
-        Image Texture Height keeps the image path (with its Mapping, #1004). Any
-        other linked Height (procedural texture, op-VM chain) resolves through the
-        same resolver as Base Color: the CPU NormalMapped bump finite-differences
-        any Texture (Cycles svm_bump, Apache-2.0: three height taps); the GPU bump
-        path samples uploaded images only, so the non-image case is reported
-        (CPU exact, GPU unperturbed), never silently dropped."""
+        Image Texture Height keeps the image path (with its Mapping, #1004). A
+        procedural / op-VM Height is NOT applied but reported (#1005, formerly a
+        silent drop): the CPU can difference any Texture (NormalMapped +
+        Texture::valueDisplaced), but the exact derivative is ~2x stronger than
+        Cycles' pixel-footprint finite difference (svm_node_set_bump,
+        Apache-2.0) on prod_car_paint, and the GPU bump path samples uploaded
+        images only; binding it needs per-hit ray differentials (see #1005)."""
         if spec.get('bump_image') is not None:
             return self.load_blender_image(spec['bump_image'], renderer,
                                            vector_input=spec.get('bump_vector'),
                                            extension=spec.get('bump_extension', 'REPEAT'))
         bump_node = spec.get('bump_node')
         height = bump_node.inputs.get('Height') if bump_node is not None else None
-        if not height or not height.is_linked:
-            return None
-        _, tex = self.get_base_color_texture(bump_node, 'Height', renderer)
-        if tex is None:
+        if height and height.is_linked:
             self._warn_shader_fallback(
-                'BUMP', "Height from '%s' is not representable; bump dropped"
+                'BUMP', "Height from '%s' is not an Image Texture: bump not applied "
+                "(procedural bump needs per-hit footprint differentials, #1005)"
                 % getattr(height.links[0].from_node, 'type', '?'))
-            return None
-        self._warn_shader_fallback(
-            'BUMP', 'non-image Height (%s): CPU exact; GPU bump samples images only, '
-            'so the surface is unperturbed on GPU' % getattr(height.links[0].from_node, 'type', '?'))
-        return tex
+        return None
 
     def get_normal_inputs(self, node):
         """Extract normal-map / bump-map inputs wired into Principled Normal."""

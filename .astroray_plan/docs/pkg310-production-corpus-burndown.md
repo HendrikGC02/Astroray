@@ -146,3 +146,21 @@ orientation differs). No sheet suggests a scene or reference defect. **Opus sign
   is rank 1 for the audit to become a gate rather than a to-do list.
 * A quick "disable the lobes in both engines" A/B (marble) separated a lobe deficit from a pattern error in one run;
   the same trick is worth building into the corpus tooling for the fixing PRs.
+
+## After lane aq-nodes2 (#1004 root cause, #1005 report; 2026-10-02)
+
+* **#1004 was not a node-group problem.** Blender's `inline_shader_nodes()` already folds the group Tiling input into
+  `Mapping.Scale = (3, 3, 1)`. The engine clamped every image sample to [0,1] (no Image Texture `extension`), so a
+  Mapping scale > 1 smeared edge texels; the Normal Map / Bump image uploads also dropped their `Vector`/Mapping.
+  Fix: `GImgExt` REPEAT / EXTEND / CLIP / MIRROR on CPU `ImageTexture` + GPU `gpu_sampleImageTexture` (Cycles
+  `kernel/device/cpu/image.h`, Apache-2.0), tagged from `node.extension` (Blender default REPEAT; untagged native
+  textures stay EXTEND). prod_pbr_group: CPU 2/16 -> 8/16, GPU 2/16 -> 7/16 channels; tile layout now matches Cycles.
+  Residual (centre ~0.91-0.93x, GPU right ROI B 1.42x): not Closest-vs-Linear alone (Cycles Closest vs Linear <= 4 %).
+  Suspect: bump/normal finite-difference step is taken after the Mapping (slope off by the Mapping scale), see #1004.
+* **#1005**: a procedural Bump Height is now a reported DEGRADED entry (was silent). The CPU can difference any texture
+  (`Texture::valueDisplaced`, exact world-space derivative; verified equal to the image-ramp bump), but it is ~2x
+  stronger than Cycles' pixel-footprint finite difference on prod_car_paint (lit_front B 1.41x, upper_flake B 0.68x) and the
+  CPU sheet turns sparkly while the GPU (image-only bump) cannot do it, so the addon does not bind it until per-hit
+  footprint differentials exist. prod_car_paint stays 5/16 CPU, 2/16 GPU (unchanged).
+* No strict xfail row was removed: every affected row still fails on a residual cause (reasons updated).
+* Shade kernels: REG 254 unchanged; STACK +64 B on two `stageShadeBucketedKernel` variants (4472 -> 4536).

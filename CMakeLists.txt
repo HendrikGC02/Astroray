@@ -580,6 +580,7 @@ if(ASTRORAY_CUDA_FOUND)
     if(ASTRORAY_WAVEFRONT_CUDA_N3)
         list(APPEND ASTRORAY_CUDA_SOURCES
             src/gpu/wavefront/stage_advance.cu
+            src/gpu/wavefront/stage_shade_budget.cu  # pkg300 register-budget sweep kernels
             src/gpu/wavefront/stage_shade_part11.cu
             src/gpu/wavefront/stage_shade_part10.cu
             src/gpu/wavefront/stage_shade_part9.cu

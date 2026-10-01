@@ -1453,7 +1453,10 @@ template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPho
          bool HasDispersion = false, bool HasLightPassAOVs = false,  // pkg198 S2 pass axis
          bool HasProgram = false,   // pkg219b — per-texel op-VM axis
          bool HasNormalPerturb = false>  // pkg223 — tangent-space normal-map axis
-__device__ bool shadePathSlot(
+// pkg300: the body is __forceinline__ so a register-budgeted kernel (__maxnreg__) can
+// inline it and the budget then covers the whole shade body. The generic kernels
+// keep calling the out-of-line shadePathSlot wrapper below (unchanged codegen).
+__device__ __forceinline__ bool shadePathSlotImpl(
     int idx,
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
@@ -2383,6 +2386,35 @@ __device__ bool shadePathSlot(
         return false;
     }
     return true;
+}
+
+template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPhotons = false,
+         bool HasDispersion = false, bool HasLightPassAOVs = false,
+         bool HasProgram = false, bool HasNormalPerturb = false>
+__device__ bool shadePathSlot(
+    int idx, GPUWavefrontState& state, GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode* tlas, const GInstance* instances, const GBLAS* blas,
+    const GBVHNode* bvhNodes, const GPrimitive* prims, const GTriangle* tris,
+    const GSphere* spheres, const GVec3* motionVerts, const ::GMaterial* materials,
+    const ::GLight* lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed, GLightTreeView lightTree,
+    int max_depth, float* nee_f, int* nee_i,
+    int* shadow_queue, int* shadow_count, int nee_capacity,
+    bool useLuminanceOutput, bool enableNEE,
+    float clampDirect, float clampIndirect,
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid, float photonScale,
+    bool captureMis = false,
+    float* cryptoObjectRanks = nullptr, float* cryptoMaterialRanks = nullptr,
+    int cryptoDepth = 0)
+{
+    return shadePathSlotImpl<Deferred, HasPrincipled, HasTexture, HasPhotons, HasDispersion,
+                             HasLightPassAOVs, HasProgram, HasNormalPerturb>(
+        idx, state, hitBufs, tlas, instances, blas, bvhNodes, prims, tris, spheres,
+        motionVerts, materials, lights, numLights, totalLightPower, dedLights, numDed,
+        lightTree, max_depth, nee_f, nee_i, shadow_queue, shadow_count, nee_capacity,
+        useLuminanceOutput, enableNEE, clampDirect, clampIndirect,
+        photonGrid, hasPhotonGrid, photonScale, captureMis,
+        cryptoObjectRanks, cryptoMaterialRanks, cryptoDepth);
 }
 
 template<bool HasPrincipled, bool HasTexture, bool HasPhotons, bool HasDispersion,

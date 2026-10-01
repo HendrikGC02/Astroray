@@ -193,7 +193,7 @@ public:
             }
         }
         float t, u, v;
-        if (!watertightTriangle(p0, p1, p2, r, tMin, tMax, t, u, v)) return false;
+        if (!astroray::watertightTriangle(p0, p1, p2, r, tMin, tMax, t, u, v)) return false;
         rec.t = t;
         rec.point = r.at(t);
         rec.objectPoint = rec.point;

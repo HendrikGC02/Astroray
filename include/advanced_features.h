@@ -1,6 +1,7 @@
 #pragma once
 #include "raytracer.h"
 #include "astroray/shader_vm.h"   // pkg219b — bounded per-texel op-VM
+#include "astroray/gpu_types.h"   // #1004 — GImgExt / gpu_imageWrapTexel
 #include <utility>
 #include <cstdio>   // pkg242 — visible warning for singular Mapping matrices
 

@@ -869,25 +869,33 @@ enum GImgExt { G_IMG_EXTEND = 0, G_IMG_REPEAT = 1, G_IMG_CLIP = 2, G_IMG_MIRROR 
 
 // Non-EXTEND texel index (nearest). Cycles intern/cycles/kernel/device/cpu/image.h
 // (Apache-2.0): ix = floor(u*w), iy = floor(v*h) then wrap_periodic / wrap_mirror;
-// EXTENSION_CLIP returns zero outside the image (false here). iy counts from the
-// bottom row like Cycles; the texel buffer is top-first, hence the final flip.
+// EXTENSION_CLIP returns zero outside the image (false here). Wrapping is done on
+// the float coordinate BEFORE the integer conversion (same texel for non-integer
+// u*w, no int overflow for huge Mapping scales): periodic = fract(u); mirror folds
+// |u| into [0,1] with period 2 (Cycles' texel mirror is symmetric in |u|). iy counts
+// from the bottom row like Cycles; the texel buffer is top-first, hence the flip.
+HD inline float gpu_imageWrapCoord(int ext, float u) {
+    if (!(u > -3.0e38f && u < 3.0e38f)) return 0.f;   // NaN / inf guard
+    if (ext == G_IMG_MIRROR) {
+        float a = u < 0.f ? -u : u;
+        float m = a - 2.f * floorf(a * 0.5f);   // [0,2)
+        return m >= 1.f ? 2.f - m : m;
+    }
+    return u - floorf(u);                        // REPEAT: [0,1)
+}
+
 HD inline bool gpu_imageWrapTexel(int ext, int w, int h, float u, float v,
                                   int* ti, int* tj) {
-    if (!(u > -1.0e7f && u < 1.0e7f)) u = 0.f;   // NaN / absurd scale guard
-    if (!(v > -1.0e7f && v < 1.0e7f)) v = 0.f;
-    int ix = (int)floorf(u * (float)w);
-    int iy = (int)floorf(v * (float)h);
     if (ext == G_IMG_CLIP) {
-        if (ix < 0 || ix >= w || iy < 0 || iy >= h) return false;
-    } else if (ext == G_IMG_MIRROR) {
-        int mx = ix + (ix < 0 ? 1 : 0); mx = (mx < 0 ? -mx : mx) % (2 * w);
-        int my = iy + (iy < 0 ? 1 : 0); my = (my < 0 ? -my : my) % (2 * h);
-        ix = mx >= w ? 2 * w - mx - 1 : mx;
-        iy = my >= h ? 2 * h - my - 1 : my;
-    } else {   // REPEAT: wrap_periodic
-        ix %= w; if (ix < 0) ix += w;
-        iy %= h; if (iy < 0) iy += h;
+        if (!(u >= 0.f && u < 1.f && v >= 0.f && v < 1.f)) return false;
+    } else {
+        u = gpu_imageWrapCoord(ext, u);
+        v = gpu_imageWrapCoord(ext, v);
     }
+    int ix = (int)(u * (float)w);
+    int iy = (int)(v * (float)h);
+    if (ix > w - 1) ix = w - 1;
+    if (iy > h - 1) iy = h - 1;
     *ti = ix;
     *tj = h - 1 - iy;
     return true;

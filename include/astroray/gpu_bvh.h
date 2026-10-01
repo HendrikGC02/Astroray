@@ -21,9 +21,10 @@
 // ---------------------------------------------------------------------------
 // Watertight ray/triangle test: Woop, Benthin, Wald, "Watertight Ray/Triangle
 // Intersection", JCGT 2(1), 2013, with the error-free edge-function product
-// (DifferenceOfProducts via FMA) and the double-precision fallback when an edge
-// function is exactly zero, as in pbrt-v4 shapes.h Triangle intersection
-// (Apache-2.0). Replaces an absolute |det| < 1e-6 Moller-Trumbore rejection that
+// (DifferenceOfProducts via FMA) as in pbrt-v4 shapes.h (Apache-2.0). The
+// paper's double-precision fallback for exactly-zero edge functions is omitted:
+// it costs registers in the intersect kernel and a zero edge counts as inside for
+// both neighbours, so shared edges still do not leak. Replaces an absolute |det| < 1e-6 Moller-Trumbore rejection that
 // dropped small/grazing triangles (#1000). Mirrors astroray::watertightTriangle
 // in watertight_triangle.h so the CPU oracle and this fallback agree. Returns t and the
 // barycentric weights (u, v) of (p1, p2), as the Moller-Trumbore code did.
@@ -47,18 +48,13 @@ __device__ inline bool gpu_triangle_watertight(
     float dz = d[kz];
     if (dz == 0.f) return false;
     GVec3 a = p0 - ray.origin, b = p1 - ray.origin, c = p2 - ray.origin;
-    float Sx = -d[kx] / dz, Sy = -d[ky] / dz, Sz = 1.f / dz;
+    float Sz = 1.f / dz, Sx = -d[kx] * Sz, Sy = -d[ky] * Sz;
     float ax = a[kx] + Sx * a[kz], ay = a[ky] + Sy * a[kz];
     float bx = b[kx] + Sx * b[kz], by = b[ky] + Sy * b[kz];
     float cx = c[kx] + Sx * c[kz], cy = c[ky] + Sy * c[kz];
     float e0 = gpu_dop(bx, cy, by, cx);
     float e1 = gpu_dop(cx, ay, cy, ax);
     float e2 = gpu_dop(ax, by, ay, bx);
-    if (e0 == 0.f || e1 == 0.f || e2 == 0.f) {
-        e0 = (float)((double)bx * cy - (double)by * cx);
-        e1 = (float)((double)cx * ay - (double)cy * ax);
-        e2 = (float)((double)ax * by - (double)ay * bx);
-    }
     if ((e0 < 0.f || e1 < 0.f || e2 < 0.f) && (e0 > 0.f || e1 > 0.f || e2 > 0.f)) return false;
     float det = e0 + e1 + e2;
     if (det == 0.f) return false;

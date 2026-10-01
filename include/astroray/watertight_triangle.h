@@ -5,7 +5,8 @@
 namespace astroray {
 // Watertight ray/triangle test: Woop, Benthin, Wald, "Watertight Ray/Triangle
 // Intersection", JCGT 2(1), 2013, with the FMA error-free edge-function product
-// and double fallback on a zero edge function (pbrt-v4 shapes.h, Apache-2.0).
+// (pbrt-v4 shapes.h, Apache-2.0); the double fallback for exactly-zero edge
+// functions is omitted (a zero edge counts as inside for both neighbours).
 // Replaces an absolute |det| < 1e-6 Moller-Trumbore rejection that dropped
 // small/grazing triangles (#1000). GPU twin: gpu_triangle_watertight
 // (gpu_bvh.h). Returns t and barycentric weights (u, v) of (p1, p2).
@@ -27,18 +28,13 @@ inline bool watertightTriangle(const Vec3& p0, const Vec3& p1, const Vec3& p2,
     float dz = d[kz];
     if (dz == 0.f) return false;
     Vec3 a = p0 - r.origin, b = p1 - r.origin, c = p2 - r.origin;
-    float Sx = -d[kx] / dz, Sy = -d[ky] / dz, Sz = 1.f / dz;
+    float Sz = 1.f / dz, Sx = -d[kx] * Sz, Sy = -d[ky] * Sz;
     float ax = a[kx] + Sx * a[kz], ay = a[ky] + Sy * a[kz];
     float bx = b[kx] + Sx * b[kz], by = b[ky] + Sy * b[kz];
     float cx = c[kx] + Sx * c[kz], cy = c[ky] + Sy * c[kz];
     float e0 = watertightDop(bx, cy, by, cx);
     float e1 = watertightDop(cx, ay, cy, ax);
     float e2 = watertightDop(ax, by, ay, bx);
-    if (e0 == 0.f || e1 == 0.f || e2 == 0.f) {
-        e0 = (float)((double)bx * cy - (double)by * cx);
-        e1 = (float)((double)cx * ay - (double)cy * ax);
-        e2 = (float)((double)ax * by - (double)ay * bx);
-    }
     if ((e0 < 0.f || e1 < 0.f || e2 < 0.f) && (e0 > 0.f || e1 > 0.f || e2 > 0.f)) return false;
     float det = e0 + e1 + e2;
     if (det == 0.f) return false;

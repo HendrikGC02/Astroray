@@ -184,6 +184,9 @@ class _RecordingRenderer:
     def load_texture(self, name, rgb, width, height):
         self.loaded_textures.append((name, list(rgb), width, height))
 
+    def set_texture_extension(self, name, ext):  # #1004: the addon tags every image texture
+        pass
+
 
 class _FakeImage:
     def __init__(self, name, filepath, packed_file=None, **extra):

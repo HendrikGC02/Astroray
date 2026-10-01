@@ -410,6 +410,7 @@ class ImageTexture : public Texture {
     std::vector<Vec3> data;
     int width = 0, height = 0;
     Vec3 mean_{1, 0, 1};  // #776 — cached pixel mean for average()
+    int extension_ = 0;   // #1004 - GImgExt::G_IMG_EXTEND
     // Spectral cache: one RGBAlbedoSpectrum per texel, built eagerly in setData().
     std::vector<astroray::RGBAlbedoSpectrum> spectral_cache_;
 public:
@@ -431,8 +432,19 @@ public:
     int getWidth()  const { return width; }
     int getHeight() const { return height; }
     const std::vector<Vec3>& getData() const { return data; }
+    // #1004 - Image Texture extension (GImgExt, shared with the GPU sampler).
+    // Default EXTEND (clamp) keeps every untagged texture byte-identical; the
+    // addon tags REPEAT / CLIP / MIRROR from the node.
+    void setExtension(int ext) { extension_ = ext; }
+    int getExtension() const { return extension_; }
     Vec3 value(const Vec2& uv, const Vec3&) const override {
         if (data.empty()) return Vec3(1, 0, 1);
+        if (extension_ != G_IMG_EXTEND) {
+            int wi, wj;
+            if (!gpu_imageWrapTexel(extension_, width, height, uv.u, uv.v, &wi, &wj))
+                return Vec3(0, 0, 0);
+            return data[wj * width + wi];
+        }
         float u = std::clamp(uv.u, 0.0f, 1.0f);
         float v = 1 - std::clamp(uv.v, 0.0f, 1.0f);
         int i = std::min((int)(u * width), width - 1);
@@ -445,6 +457,12 @@ public:
         if (spectral_cache_.empty()) {
             Vec3 rgb = value(uv, Vec3(0));
             return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
+        }
+        if (extension_ != G_IMG_EXTEND) {
+            int wi, wj;
+            if (!gpu_imageWrapTexel(extension_, width, height, uv.u, uv.v, &wi, &wj))
+                return astroray::RGBAlbedoSpectrum({0.f, 0.f, 0.f}).sample(lambdas);
+            return spectral_cache_[wj * width + wi].sample(lambdas);
         }
         float u = std::clamp(uv.u, 0.0f, 1.0f);
         float v = 1 - std::clamp(uv.v, 0.0f, 1.0f);

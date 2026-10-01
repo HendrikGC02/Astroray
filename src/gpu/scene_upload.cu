@@ -870,6 +870,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         }
         desc.width  = img->getWidth();
         desc.height = img->getHeight();
+        desc.extension = img->getExtension();   // #1004 (REPEAT / CLIP / MIRROR)
         // pkg219a — full 3-D Mapping matrix so the GPU image sample honors it
         // exactly like the CPU (M*(u,v,0)).
         if (mapSrc->hasMapping()) {

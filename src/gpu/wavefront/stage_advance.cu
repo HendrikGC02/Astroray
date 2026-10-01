@@ -42,7 +42,7 @@
 //   - Laine, Karras, Aila 2013 (HPG) — wavefront scheduling.
 
 #include "stage_advance_device.cuh"
-#include <cstdlib>  // pkg300: std::getenv (shade budget sweep)
+#include <cstdlib>  // pkg300: std::getenv (shade reference kernel)
 
 namespace astroray::wavefront {
 
@@ -994,16 +994,10 @@ static const ShadePartLaunchFn kShadePartLaunch[12] = {
     stageShadePartLaunch_6, stageShadePartLaunch_7, stageShadePartLaunch_8,
     stageShadePartLaunch_9, stageShadePartLaunch_10, stageShadePartLaunch_11 };
 
-// pkg300 Phase 1 sweep (stage_shade_budget*.cu). ASTRORAY_SHADE_BUDGET = 0 (generic,
-// default) | 1 inline body | 2 fully inlined | 3 +maxnreg 168 | 4 +maxnreg 128; ASTRORAY_SHADE_THREADS
-// = shade block size (default 256). Read once per process.
-const void* stageShadeBudget(int mode, bool P, bool launch,
-                             int blocks, int threads, const StageShadeArgs& a);
-static int pkg300EnvInt(const char* name, int fallback)
-{
-    const char* v = std::getenv(name);
-    return (v && *v) ? std::atoi(v) : fallback;
-}
+// pkg300 equivalence reference (stage_shade_reference.cu): ASTRORAY_SHADE_REFERENCE=1
+// runs the pre-pkg300 out-of-line, uncapped shade kernel for fleet-axis launches.
+const void* stageShadeReference(bool P, bool launch, int blocks, int threads,
+                                const StageShadeArgs& a);
 
 void launchStageShadeBucketed(
     GPUWavefrontState& state,
@@ -1061,9 +1055,11 @@ void launchStageShadeBucketed(
     // handles any value. Threads past a bucket's count retire immediately;
     // surviving warps are material-coherent within their bucket.
     long long total = (long long)G_WF_NUM_MAT_TYPES * capacity;
-    static const int kBudgetMode = pkg300EnvInt("ASTRORAY_SHADE_BUDGET", 0);
-    static const int kShadeThreads = pkg300EnvInt("ASTRORAY_SHADE_THREADS", 256);
-    int threads = kShadeThreads;
+    static const bool kReference = [] {
+        const char* v = std::getenv("ASTRORAY_SHADE_REFERENCE");
+        return v && *v == '1';
+    }();
+    int threads = 256;
     int blocks  = (int)((total + threads - 1) / threads);
     {
         // pkg178 Stage-3b D4 / pkg186 / pkg184 / pkg189 / pkg198 / pkg219b / pkg223:
@@ -1085,10 +1081,9 @@ void launchStageShadeBucketed(
         const int part = (sel < 8) ? (sel >> 1) : 4 + 2 * ((sel >> 1) & 3) + (hasD ? 1 : 0);
         const bool fleetAxes = !hasTexture && !hasPhotons && !hasD && !hasLightPassAOVs
                             && !hasProgram && !hasNormalPerturb;
-        const void* budgetK = (kBudgetMode != 0 && fleetAxes)
-            ? stageShadeBudget(kBudgetMode, hasPrincipled, false, 0, 0, StageShadeArgs{})
-            : nullptr;
-        const void* kptr = budgetK ? budgetK
+        const bool useRef = kReference && fleetAxes;
+        const void* kptr = useRef
+            ? stageShadeReference(hasPrincipled, false, 0, 0, StageShadeArgs{})
             : kShadePartKptr[part](hasD, hasLightPassAOVs, hasProgram, hasNormalPerturb);
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_shade_bucketed_n7", kptr, blocks, threads);
@@ -1104,8 +1099,8 @@ void launchStageShadeBucketed(
             clampDirect, clampIndirect,
             photonGrid, hasPhotonGrid, photonScale,
             d_cryptoObjectRanks, d_cryptoMaterialRanks, cryptoDepth };
-        if (budgetK)
-            stageShadeBudget(kBudgetMode, hasPrincipled, true, blocks, threads, a);
+        if (useRef)
+            stageShadeReference(hasPrincipled, true, blocks, threads, a);
         else
             kShadePartLaunch[part](hasD, hasLightPassAOVs, hasProgram, hasNormalPerturb,
                                    blocks, threads, a);

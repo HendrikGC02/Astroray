@@ -96,10 +96,15 @@ class PrincipledPlugin : public Material {
     // GPU twin is gpu_applyScalarOverride (stage_advance.cu); clamps match the ctor.
     std::shared_ptr<Texture> roughnessProgram_, metallicProgram_,
                              transmissionProgram_, iorProgram_;
+    // #988 — per-texel Base Color (image / procedural / op-VM program). Evaluated in
+    // substituted() like the scalar programs, so every lobe (diffuse, subsurface,
+    // metallic F82 tint, transmission tint) sees the texel. GPU twin: the
+    // HasProgram base-colour override in stage_advance_device.cuh.
+    std::shared_ptr<Texture> baseColorProgram_;
 
     bool hasScalarProgram() const {
         return roughnessProgram_ || metallicProgram_ ||
-               transmissionProgram_ || iorProgram_;
+               transmissionProgram_ || iorProgram_ || baseColorProgram_;
     }
 
     PrincipledPlugin substituted(const HitRecord& rec, const Vec3& wo) const {
@@ -114,11 +119,18 @@ class PrincipledPlugin : public Material {
             c.ior_ = std::max(1.0f, iorProgram_->value(rec, wo).x);
             cauchyAB(c.ior_, invAbbe_, c.cauchyA_, c.cauchyB_);
         }
+        if (baseColorProgram_) {
+            // Unclamped, like the constant base_color the ctor reads.
+            c.baseColor_ = baseColorProgram_->value(rec, wo);
+            // The thin-film metallic conductor (n,k,g) is derived from the base
+            // colour; refit it only when the film is on (else it is never read).
+            if (c.filmActive()) c.precomputeConductorNK();
+        }
         // Same rule as the ctor, on the per-hit transmission (gates the hero-λ
         // refraction + collapse in sampleSpectral).
         c.dispersive_ = (c.transmission_ > 1e-4f) && (invAbbe_ > 0.0f);
         c.roughnessProgram_ = c.metallicProgram_ =
-            c.transmissionProgram_ = c.iorProgram_ = nullptr;
+            c.transmissionProgram_ = c.iorProgram_ = c.baseColorProgram_ = nullptr;
         return c;
     }
 
@@ -1955,6 +1967,7 @@ public:
             case astroray::svm::SCALAR_METALLIC:     metallicProgram_ = prog;     break;
             case astroray::svm::SCALAR_TRANSMISSION: transmissionProgram_ = prog; break;
             case astroray::svm::SCALAR_IOR:          iorProgram_ = prog;          break;
+            case astroray::svm::SCALAR_BASE_COLOR:   baseColorProgram_ = prog;    break;
             default: break;
         }
     }
@@ -1964,6 +1977,7 @@ public:
             case astroray::svm::SCALAR_METALLIC:     return metallicProgram_;
             case astroray::svm::SCALAR_TRANSMISSION: return transmissionProgram_;
             case astroray::svm::SCALAR_IOR:          return iorProgram_;
+            case astroray::svm::SCALAR_BASE_COLOR:   return baseColorProgram_;
             default: return nullptr;
         }
     }

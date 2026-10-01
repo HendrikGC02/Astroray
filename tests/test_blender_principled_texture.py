@@ -10,9 +10,9 @@ Bug context:
     helper existed but was orphaned (nothing called it).
 
     The fix carries `base_color_texture` (and normal/bump textures) through
-    the spec dict to material-creation time, where a textured base color is
-    routed through the `lambertian` path because the registry's Disney plugin
-    does not yet have a base-color texture slot.
+    the spec dict to material-creation time. Since #988 the native Principled
+    carries it on its own per-texel base-colour slot (every lobe kept); it used
+    to route through `lambertian`, which dropped the specular/coat/metal lobes.
 
 These tests exercise the conversion path with mocked Blender + renderer
 objects and assert the texture name actually reaches the material.
@@ -167,9 +167,10 @@ def _principled_node(base_color_link=None, base_color_default=(0.8, 0.8, 0.8, 1.
 # Tests
 # ---------------------------------------------------------------------------
 
-def test_principled_with_image_texture_routes_to_textured_lambertian(monkeypatch):
-    """Wiring an Image Texture into Base Color must produce a 'lambertian'
-    material with `texture=<name>` — NOT a grey 'disney' material.
+def test_principled_with_image_texture_keeps_principled_lobes(monkeypatch):
+    """Wiring an Image Texture into Base Color must produce a 'principled'
+    material with `base_color_texture=<name>` — NOT a grey material and (#988)
+    NOT a textured 'lambertian', which dropped every non-diffuse lobe.
 
     This is the regression that hid the user's screenshot bug: textures were
     silently dropped because the live converter never carried the image name
@@ -195,18 +196,18 @@ def test_principled_with_image_texture_routes_to_textured_lambertian(monkeypatch
         f"Expected one load_texture call, got: {renderer.loaded_textures}"
     )
 
-    # Material creation must use the textured-Lambertian path.
+    # #988: material creation keeps the native Principled (was: lambertian).
     mat_id = engine._create_material_from_shader_spec(spec, renderer)
     assert mat_id == 1
     assert len(renderer.created_materials) == 1, (
         f"Expected one create_material call, got: {renderer.created_materials}"
     )
     mat_type, color, params = renderer.created_materials[0]
-    assert mat_type == "lambertian", (
-        f"Textured Principled must route to 'lambertian' (until Disney has "
-        f"a texture slot); got {mat_type!r}."
+    assert mat_type == "principled", (
+        f"Textured Principled must keep the native material; got {mat_type!r}."
     )
-    assert params.get('texture') == "20191206_160143.jpg", (
+    assert 'texture' not in params, params
+    assert params.get('base_color_texture') == "20191206_160143.jpg", (
         f"Texture name missing from material params: {params}"
     )
 

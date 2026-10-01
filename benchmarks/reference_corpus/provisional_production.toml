@@ -6,6 +6,8 @@
 # (silent_drop_audit finds an exercised pair that is neither SUPPORTED in the coverage matrix nor reported).
 # Measured 2026-09-30, seed 278, Astroray CPU + GPU on the pkg298 CUDA build (main a84204d9 content) with the
 # matching addon Python; Cycles 5.2.0 LTS references.
+# Re-measured by lane aq-nodes (#988 #989 #994) on build 0d626f94 against bands re-blessed from 5 seeds on
+# that build (the new lobes raise Astroray's variance).
 # [[divergence]] rows (Astroray physically right, Cycles differs; owner 2026-09-29) pin an ROI against
 # Astroray's own mean. None is needed yet: every failure below is an Astroray gap, not a Cycles quirk.
 
@@ -14,57 +16,57 @@
 scene = "prod_car_paint"
 backend = "cpu"
 kind = "parity"
-issue = "#989"
-reason = "Layer Weight / Fresnel unsupported in the op-VM (flattened to grey); lit_front G 4.64x"
+issue = "#1005"
+reason = "#989 fixed (facing tint present); residual: Voronoi flake Bump dropped silently: lit_front B 0.78x, upper_flake G 1.17x (6/16)"
 
 [[row]]
 scene = "prod_car_paint"
 backend = "gpu"
 kind = "parity"
-issue = "#989"
-reason = "Layer Weight / Fresnel unsupported in the op-VM (flattened to grey); lit_front G 4.60x"
+issue = "#1005"
+reason = "#989 fixed; same residual as CPU: lit_front B 0.78x, upper_flake G 1.17x (1/16)"
 
 [[row]]
 scene = "prod_wood"
 backend = "cpu"
 kind = "parity"
-issue = "#988"
-reason = "textured-Principled exports as Lambertian (no gloss); also #993 slot bound on Roughness, #881 Noise pattern"
+issue = "#993"
+reason = "#988 fixed (varnish lobes kept); Roughness chain hits VM_MAX_SLOTS (#993), Noise pattern (#881), world-vs-local Object coords (#1006): grain_right B 0.71x (1/16)"
 
 [[row]]
 scene = "prod_wood"
 backend = "gpu"
 kind = "parity"
-issue = "#994"
-reason = "GPU skips OBJECT-coordinate procedural programs (flat value): grain_center B 5.9x; also #988, #993"
+issue = "#1007"
+reason = "#994: Object bake replaces the flat value (grain_center B 5.9x -> 0.98x) but the 64^3 bake aliases the rings (#1007); plus the CPU causes: grain_right B 0.82x (5/16)"
 
 [[row]]
 scene = "prod_marble"
 backend = "cpu"
 kind = "parity"
-issue = "#988"
-reason = "textured-Principled exports as Lambertian: sun highlight ROI right 0.58x, vein_zone 1.09x"
+issue = "#1006"
+reason = "#988 fixed (sun highlight 0.58x -> 0.97x); pattern residual <= 5 % (vein_zone 1.03-1.05x, left 0.96x) vs 2-3 % bands: Object coords world-not-local (#1006) / Noise (#881) (11/16)"
 
 [[row]]
 scene = "prod_marble"
 backend = "gpu"
 kind = "parity"
-issue = "#994"
-reason = "GPU skips OBJECT-coordinate procedural programs: all ROIs 0.38-0.72x; also #988"
+issue = "#1007"
+reason = "#994: Object bake instead of a flat value (0.38-0.72x -> 0.99-1.08x) but voxel aliasing (#1007): vein_zone 1.05x, lower 1.05x (8/16)"
 
 [[row]]
 scene = "prod_pbr_group"
 backend = "cpu"
 kind = "parity"
-issue = "#988"
-reason = "textured Base Color routes through Lambertian: metal tiles diffuse, per-texel roughness/metallic dropped; centre b 0.26x"
+issue = "#1004"
+reason = "#988 fixed (metal tiles metallic); Mapping Scale from the node-group Tiling input dropped silently (tiles 3x too large): centre R 2.47x (2/16)"
 
 [[row]]
 scene = "prod_pbr_group"
 backend = "gpu"
 kind = "parity"
-issue = "#988"
-reason = "same export as CPU (both backends): centre b 0.27x"
+issue = "#1004"
+reason = "same as CPU: centre R 2.47x (2/16)"
 
 [[row]]
 scene = "prod_shader_stack"
@@ -113,14 +115,14 @@ scene = "prod_curves_geometry"
 backend = "cpu"
 kind = "parity"
 issue = "#989"
-reason = "Geometry Backfacing/Pointiness unsupported (inner_backface R 4.65x); also #992 Float/RGB Curves"
+reason = "Geometry Backfacing now supported, but the chain also reads Pointiness (not implemented, reported) so it still flattens; also #992 Curves: inner_backface R 4.61x"
 
 [[row]]
 scene = "prod_curves_geometry"
 backend = "gpu"
 kind = "parity"
 issue = "#989"
-reason = "same export as CPU (inner_backface R 4.58x); also #992"
+reason = "same as CPU (Pointiness, #992): inner_backface R 4.57x"
 
 # ---- silent drops (silent_drop_audit.py) --------------------------------------------------------------------
 [[row]]
@@ -142,14 +144,14 @@ scene = "prod_car_paint"
 backend = "cpu"
 kind = "silent"
 issue = "#996"
-reason = "matrix-stale rows only (Math operation, Mix data_type, Voronoi Vector; the render says CPU exact)"
+reason = "matrix-stale rows only (Math operation, Mix data_type, Voronoi Vector, and since #989 Layer Weight Blend / Fresnel IOR: handled by OP_SHADING, matrix rows await a corpus-covered regeneration)"
 
 [[row]]
 scene = "prod_car_paint"
 backend = "gpu"
 kind = "silent"
 issue = "#996"
-reason = "matrix-stale rows only (Math operation, Mix data_type, Voronoi Vector)"
+reason = "matrix-stale rows only (Math operation, Mix data_type, Voronoi Vector, Layer Weight Blend, Fresnel IOR)"
 
 [[row]]
 scene = "prod_curves_geometry"

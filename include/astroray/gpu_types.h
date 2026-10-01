@@ -675,6 +675,11 @@ struct GImageTexture {
     // branch + a few FMAs on already-live (u,v), no per-ray SoA state.
     int   hasMapping = 0;
     float mapping[12] = {1.f,0.f,0.f,0.f, 0.f,1.f,0.f,0.f, 0.f,0.f,1.f,0.f};
+    // #994 — 3D bake of an OBJECT-coordinate procedural over the world-space
+    // bbox of the geometry using it (CPU Object coords = the hit point, the addon
+    // bakes world transforms into vertices). genMin/genSize are that bbox; the
+    // device skips the per-vertex Generated (#847) frame for such a slice.
+    int   objectCoord = 0;
 };
 
 // pkg186 — wavefront image-texture binding. Published ONCE per frame into a

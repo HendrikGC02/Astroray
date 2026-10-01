@@ -329,19 +329,31 @@ def test_multi_input_base_color_program_no_degradation(monkeypatch):
     assert not any("procedural input with" in m for m in lines), lines
 
 
-def test_unbakeable_procedural_program_records_degradation(monkeypatch):
-    # Object coords: the GPU cannot bake the procedural, so it drops the whole
-    # program (critic finding on #826) — must stay non-silent.
+def _two_noise_coord_socket(coord_output):
     tc = Node('TEX_COORD')
-    noise_a = Node('TEX_NOISE', inputs=[Sock('Vector', link=Link(tc, 'Object'))])
-    noise_b = Node('TEX_NOISE', inputs=[Sock('Vector', link=Link(tc, 'Object'))])
+    noise_a = Node('TEX_NOISE', inputs=[Sock('Vector', link=Link(tc, coord_output))])
+    noise_b = Node('TEX_NOISE', inputs=[Sock('Vector', link=Link(tc, coord_output))])
     mix = Node('MIX_RGB', blend_type='MIX',
                inputs=[Sock('Fac', 0.5),
                        Sock('Color1', [0, 0, 0], Link(noise_a, 'Color')),
                        Sock('Color2', [0, 0, 0], Link(noise_b, 'Color'))])
-    base = Sock('Base Color', [0.5, 0.5, 0.5], Link(mix, 'Color'))
-    lines = _degradation_lines(monkeypatch, 'Base Color', base)
-    assert any("procedural input with OBJECT coordinates" in m for m in lines), lines
+    return Sock('Base Color', [0.5, 0.5, 0.5], Link(mix, 'Color'))
+
+
+def test_unbakeable_procedural_program_records_degradation(monkeypatch):
+    # Camera coords: the GPU cannot bake the procedural, so it drops the whole
+    # program (critic finding on #826) — must stay non-silent. (Was Object coords
+    # until #994 made the GPU bake those over the geometry's world bbox.)
+    lines = _degradation_lines(monkeypatch, 'Base Color', _two_noise_coord_socket('Camera'))
+    assert any("procedural input with CAMERA coordinates" in m for m in lines), lines
+
+
+def test_object_coord_procedural_program_reports_voxel_bake(monkeypatch):
+    # #994: Object-coordinate procedural inputs are baked on the GPU (no longer a
+    # flat value), but a 64^3 voxel bake aliases fine detail -> still reported.
+    lines = _degradation_lines(monkeypatch, 'Base Color', _two_noise_coord_socket('Object'))
+    assert not any("procedural input with" in m for m in lines), lines
+    assert any("OBJECT coordinates: GPU samples a 64^3 voxel" in m for m in lines), lines
 
 
 def test_multi_input_scalar_program_records_degradation(monkeypatch):

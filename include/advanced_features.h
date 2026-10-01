@@ -216,9 +216,15 @@ public:
         // byte-identical (untransformed baseline).
         if (hasMapping_) {
             Vec3 mp = applyMappingPoint(p);
-            return value(Vec2(mp.x, mp.y), mp);
+            return valueAtHit(Vec2(mp.x, mp.y), mp, rec, wo);
         }
-        return value(applyUVTransform(uv), p);
+        return valueAtHit(applyUVTransform(uv), p, rec, wo);
+    }
+    // #989 — value at a resolved coordinate that may also read the hit itself
+    // (op-VM per-hit shading inputs, ProgramTexture). Default: value(uv, p).
+    virtual Vec3 valueAtHit(const Vec2& uv, const Vec3& p,
+                            const HitRecord& /*rec*/, const Vec3& /*wo*/) const {
+        return value(uv, p);
     }
     // #962 — value at an already-built texture coordinate (uv, p), applying the
     // SAME transform chain as value(HitRecord) above (3-D Mapping if set, else
@@ -340,9 +346,15 @@ public:
         // pkg242 — full 3-D Mapping applies to the sample coord AND p (see value()).
         if (hasMapping_) {
             Vec3 mp = applyMappingPoint(p);
-            return sampleSpectral(Vec2(mp.x, mp.y), mp, lambdas);
+            return sampleSpectralAtHit(Vec2(mp.x, mp.y), mp, rec, wo, lambdas);
         }
-        return sampleSpectral(applyUVTransform(uv), p, lambdas);
+        return sampleSpectralAtHit(applyUVTransform(uv), p, rec, wo, lambdas);
+    }
+    // #989 — spectral twin of valueAtHit (default: sampleSpectral(uv, p)).
+    virtual astroray::SampledSpectrum sampleSpectralAtHit(
+            const Vec2& uv, const Vec3& p, const HitRecord& /*rec*/, const Vec3& /*wo*/,
+            const astroray::SampledWavelengths& lambdas) const {
+        return sampleSpectral(uv, p, lambdas);
     }
 };
 
@@ -463,6 +475,26 @@ public:
     std::shared_ptr<Texture> getInput(size_t i) const { return inputs_[i]; }
 
     Vec3 value(const Vec2& uv, const Vec3& p) const override {
+        return eval(uv, p, nullptr);
+    }
+    // #989 — per-hit shading context for OP_SHADING: cos between the view
+    // direction (wo, Cycles sd->wi) and the shading normal, and the back-face flag.
+    Vec3 valueAtHit(const Vec2& uv, const Vec3& p, const HitRecord& rec,
+                    const Vec3& wo) const override {
+        astroray::svm::SvmShading sh;
+        sh.cosI = wo.dot(rec.normal);
+        sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
+        return eval(uv, p, &sh);
+    }
+    astroray::SampledSpectrum sampleSpectralAtHit(
+            const Vec2& uv, const Vec3& p, const HitRecord& rec, const Vec3& wo,
+            const astroray::SampledWavelengths& lambdas) const override {
+        Vec3 rgb = valueAtHit(uv, p, rec, wo);
+        return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
+    }
+
+private:
+    Vec3 eval(const Vec2& uv, const Vec3& p, const astroray::svm::SvmShading* sh) const {
         GVec3 in[astroray::svm::VM_MAX_TEX];
         int nt = program_.numTex;
         if (nt > astroray::svm::VM_MAX_TEX) nt = astroray::svm::VM_MAX_TEX;
@@ -470,7 +502,7 @@ public:
             Vec3 c = i < (int)inputs_.size() ? inputs_[i]->value(uv, p) : Vec3(0.f);
             in[i] = GVec3(c.x, c.y, c.z);
         }
-        GVec3 r = astroray::svm::svm_eval(program_, in);
+        GVec3 r = astroray::svm::svm_eval(program_, in, sh);
         return Vec3(r.x, r.y, r.z);
     }
 };

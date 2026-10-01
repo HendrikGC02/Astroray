@@ -528,7 +528,9 @@ def test_addon_object_base_records_degradation(monkeypatch):
     created = [a for n, a in rr.calls if n == 'create_coord_program_texture']
     assert created and created[0][2] == 'OBJECT'
     msgs = " ".join(str(m) for m in eng._degradation_report().messages())
-    assert "coordinate program" in msgs and "OBJECT" in msgs
+    # #994: the GPU now bakes Object coordinates (not "skips the texture"); the
+    # lossy 64^3 bake is still reported.
+    assert "OBJECT coordinates: GPU samples a 64^3 voxel" in msgs
 
 
 def test_addon_affine_chain_keeps_legacy_path(monkeypatch):

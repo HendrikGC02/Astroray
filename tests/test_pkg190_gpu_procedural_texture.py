@@ -218,19 +218,17 @@ def test_object_mode_procedural_cpu_evaluates():
     )
 
 
-def test_object_mode_procedural_gpu_guarded_fallback():
-    """RTX leg: the GPU must NOT bake an Object-mode procedural into the
-    normalized-domain voxel grid (that field is wrong by construction). The
-    guarded fallback is the flat albedo: an unbaked TexturedLambertian uploads
-    getAlbedo() == Vec3(0.5) (advanced_features.h — the documented pre-pkg190
-    flatten), so with the same pinned seed the GPU Object-mode render must
-    match a plain 0.5-gray lambertian render."""
-    tex = _render(textured=True, use_gpu=True, coord_mode="OBJECT")
+def test_object_mode_procedural_gpu_matches_cpu():
+    """RTX leg. Was a guard that the GPU must NOT bake an Object-mode procedural
+    into the normalized Generated grid (wrong by construction, PR #612 review), so
+    it rendered the flat 0.5 albedo. #994 bakes it in the CPU's OWN domain instead
+    (world bbox of the geometry, raw world point, scene_upload.cu objectCoord), so
+    the original intent -- no CPU<->GPU field divergence -- is now asserted directly:
+    the GPU render matches the CPU render, and is not the flat fallback."""
+    gpu = _render(textured=True, use_gpu=True, coord_mode="OBJECT")
+    cpu = _render(textured=True, use_gpu=False, coord_mode="OBJECT")
     flat = _render(textured=False, use_gpu=True, base_color=(0.5, 0.5, 0.5))
-    mean_abs_diff = float(np.abs(tex - flat).mean())
-    assert mean_abs_diff < 0.01, (
-        f"GPU Object-mode render differs from flat albedo (mean|diff|="
-        f"{mean_abs_diff:.4f}); an Object-mode procedural was baked/sampled on "
-        f"the GPU despite the CPU passing raw unnormalized objectPoint — "
-        f"CPU<->GPU divergence by construction (PR #612 review)."
-    )
+    assert float(np.abs(gpu - flat).mean()) > 0.05, "GPU Object-mode render is the flat fallback"
+    g = gpu.reshape(8, gpu.shape[0] // 8, 8, gpu.shape[1] // 8, 3).mean(axis=(1, 3))
+    c = cpu.reshape(8, cpu.shape[0] // 8, 8, cpu.shape[1] // 8, 3).mean(axis=(1, 3))
+    assert float(np.abs(g - c).mean()) < 0.03, float(np.abs(g - c).mean())

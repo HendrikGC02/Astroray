@@ -4022,6 +4022,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             allow_affine=False)
         coord_mode, uv_layer_name = resolved['coord_mode'], resolved['uv_layer']
         uv_scale, offset, rotation = resolved['legacy']
+        if coord_mode == 'OBJECT':
+            self._warn_object_coord_bake(node)
         # pkg115 residual fix (black gradient/magic spheres): id(node) is NOT a
         # stable key — convert_node_material works on a temporary
         # inline_shader_nodes() tree that is freed after each material, and
@@ -4266,6 +4268,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return None
         return compiled, bases[0]
 
+    def _warn_object_coord_bake(self, node):
+        """#994: the GPU bakes an OBJECT-coordinate procedural into a 64^3 voxel grid
+        over the geometry's world bbox (no device procedural evaluators yet): detail
+        finer than a voxel aliases (wood rings, marble veins). Reported, not silent."""
+        self._warn_shader_fallback(
+            'op-VM', "procedural '%s' with OBJECT coordinates: GPU samples a 64^3 voxel "
+            "bake of the object bbox (fine detail aliased); both backends use the "
+            "world position, not object-local (#1006)"
+            % getattr(node, 'name', getattr(node, 'type', '?')))
+
+    # Coordinate modes the GPU bakes procedurals over (scene_upload.cu
+    # bakeProceduralTexId): UV (2D), Generated and Object (#994, world bbox) 3D.
+    _GPU_BAKED_COORDS = ('UV', 'GENERATED', 'OBJECT')
+
     def _load_coord_program_procedural(self, node, renderer, cache, compiled, base,
                                        fac_variant=False, color_output=False):
         """pkg277: register `node` unwarped, then wrap it in a
@@ -4308,7 +4324,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         self._apply_texture_transform(renderer, name, coord_mode, (1.0, 1.0), (0.0, 0.0),
                                       0.0, uv_layer, mapping)
-        if coord_mode not in ('UV', 'GENERATED'):
+        if coord_mode == 'OBJECT':
+            self._warn_object_coord_bake(node)
+        if coord_mode not in self._GPU_BAKED_COORDS:
             self._warn_shader_fallback(
                 'op-VM', 'coordinate program on %s with %s coordinates: GPU skips the '
                 'texture (flat value); CPU exact' % (getattr(node, 'name', node.type), coord_mode))
@@ -4386,8 +4404,23 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # cases (single input; or several images) are unaffected.
         inputs = compiled['inputs']
         if not inputs:
-            self._warn_shader_fallback('op-VM', 'program has no texture inputs; flattened')
-            return None
+            if not compiled.get('per_hit'):
+                self._warn_shader_fallback('op-VM', 'program has no texture inputs; flattened')
+                return None
+            # #989: a chain over per-hit shading inputs only (Layer Weight -> Mix,
+            # Fresnel -> Math): no child texture and no coordinate.
+            prog_name = "_prog_%s.%s.%s" % (getattr(self, "_current_material_name", "") or "",
+                                            getattr(node, "name", "n"), input_name)
+            try:
+                renderer.create_program_texture(prog_name, 'UV')
+                renderer.set_program_texture_program(
+                    prog_name, 0, compiled['out_slot'], compiled['code_flat'],
+                    compiled['consts_flat'], compiled['ramps_flat'])
+            except Exception as e:
+                self._warn_shader_fallback("op-VM", "program upload failed (%s)" % e)
+                return None
+            self._per_hit_program_names().add(prog_name)
+            return prog_name
         PROC_TYPES = {'TEX_NOISE', 'TEX_CHECKER', 'TEX_VORONOI', 'TEX_WAVE',
                       'TEX_MAGIC', 'TEX_BRICK', 'TEX_GRADIENT', 'TEX_MUSGRAVE'}
         kinds = set()
@@ -4448,10 +4481,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         resolved = resolved_inputs[0]
         coord_mode, uvlayer = resolved['coord_mode'], resolved['uv_layer']
-        # The GPU bakes procedural inputs only over UV / Generated coordinates
-        # (scene_upload.cu bakeProceduralTexId); any other mode drops the whole
-        # program to the flat base colour on the GPU. Keep that non-silent.
-        if proc_kind and coord_mode not in ('UV', 'GENERATED'):
+        # The GPU bakes procedural inputs only over UV / Generated / Object (#994)
+        # coordinates (scene_upload.cu bakeProceduralTexId); any other mode drops
+        # the whole program to the flat base colour on the GPU. Keep that non-silent.
+        if proc_kind and coord_mode not in self._GPU_BAKED_COORDS:
             self._warn_shader_fallback(
                 'op-VM', 'procedural input with %s coordinates on %s: GPU skips '
                 'the program (flat value); CPU exact' % (coord_mode, input_name))
@@ -4513,7 +4546,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
         except Exception as e:
             self._warn_shader_fallback("op-VM", "program upload failed (%s)" % e)
             return None
+        if compiled.get('per_hit'):
+            self._per_hit_program_names().add(prog_name)
         return prog_name
+
+    def _per_hit_program_names(self):
+        """#989: names of registered programs that read per-hit shading inputs
+        (Layer Weight / Fresnel / Backfacing). Only surface consumers (Principled
+        base colour + scalar sockets) evaluate them with the hit context."""
+        names = getattr(self, '_per_hit_programs', None)
+        if names is None:
+            names = self._per_hit_programs = set()
+        return names
 
     # ------------------------------------------------------------------ #
     # Shader-node dispatch
@@ -4839,14 +4883,33 @@ class CustomRaytracerRenderEngine(RenderEngine):
             native['coat_roughness'] = 1.0 - float(params['clearcoat_gloss'])
         return native
 
+    # #988: native param -> engine default (plugins/materials/principled.cpp ctor).
+    _NATIVE_NON_DIFFUSE_DEFAULTS = (('specular_ior_level', 0.5), ('metallic', 0.0),
+                                    ('transmission_weight', 0.0), ('coat_weight', 0.0),
+                                    ('sheen_weight', 0.0), ('subsurface_weight', 0.0),
+                                    ('diffuse_roughness', 0.0))
+
+    def _native_is_pure_diffuse(self, native):
+        """#988: True when the native Principled reduces to a Lambertian (no
+        specular / metal / glass / coat / sheen / subsurface lobe, opaque, no
+        emission, no per-texel scalar program): the textured-lambertian route is
+        then the same closure."""
+        if any(float(native.get(k, d)) != 0.0 for k, d in self._NATIVE_NON_DIFFUSE_DEFAULTS):
+            return False
+        if float(native.get('alpha', 1.0)) != 1.0:
+            return False
+        if float(native.get('emission_strength', 0.0)) > 0.0 and any(
+                float(c) > 0.0 for c in native.get('emission_color', (0.0, 0.0, 0.0))):
+            return False
+        return not any(k.endswith('_program') for k in native)
+
     def _create_native_principled_material(self, spec, renderer, color, params,
                                            emission_color, emission_strength):
         """pkg178 Stage 5 — route a Blender Principled node to the NATIVE
         'principled' material. Alpha routes through the native 'alpha' param (NOT
         the transmission conflation the Disney path uses); emission lives inside
         the node (the promote-to-light heuristic is retired on this path). A
-        textured base colour still routes through textured-lambertian because
-        neither material has a base-colour texture slot (spec Non-goal)."""
+        textured base colour rides the native base-colour slot (#988)."""
         # Standalone BSDF nodes (Glass/Metallic/Glossy/...) and Mix/Add blends
         # produce a 'principled' spec whose 'params' use Disney names but carry
         # NO native_params. Translate those to native names first so their
@@ -4877,15 +4940,19 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # #846: per-texel scalar op-VM programs (Roughness/Metallic/IOR/Transmission).
         native.update(spec.get('scalar_programs') or {})
 
-        # Textured base colour → textured-lambertian (Non-goal: base-colour
-        # texture slot on the native material). Mirrors the Disney path.
+        # #988: a textured Base Color rides the native material's per-texel
+        # base-colour slot (engine SCALAR_BASE_COLOR; CPU substituted(), GPU
+        # HasProgram override), keeping every lobe and the scalar programs. Only a
+        # diffuse-only spec (Diffuse BSDF, #757) keeps the textured-lambertian
+        # route: identical closure, and the cheaper GPU throughput swap.
         base_tex = spec.get('base_color_texture')
+        # #989: a per-hit program (Layer Weight / Fresnel) needs the Principled
+        # route too (the GPU lambertian path runs only textured programs).
+        if base_tex is not None and (not self._native_is_pure_diffuse(native) or
+                                     base_tex in self._per_hit_program_names()):
+            native['base_color_texture'] = base_tex
+            return renderer.create_material('principled', color, native)
         if base_tex is not None:
-            self._warn_shader_fallback(
-                'BSDF_PRINCIPLED',
-                'textured Base Color routes through lambertian (native material '
-                'has no base-color texture slot yet)')
-            self._warn_scalar_programs_dropped(spec)
             lambert_params = {'texture': base_tex}
             for key in ('normal_map_texture', 'normal_strength',
                         'bump_map_texture', 'bump_strength', 'bump_distance'):
@@ -5123,6 +5190,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 'emission_strength': self.get_float_input(node, 'Strength', 1.0),
             }
             _, color_tex = self.get_base_color_texture(node, 'Color', renderer)
+            if color_tex is not None and color_tex in self._per_hit_program_names():
+                # #989: emitters are evaluated without the shading context
+                # (NEE light samples, GPU bake), so a per-hit chain is dropped.
+                self._warn_shader_fallback(
+                    'EMISSION', 'per-hit shading input (Layer Weight / Fresnel / '
+                    'Geometry) on Emission Color unsupported; constant colour')
+                color_tex = None
             if color_tex is not None:
                 spec['emission_color_texture'] = color_tex
             elif (color_input is not None and color_input.is_linked
@@ -5214,6 +5288,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
             base_tex = spec.get('base_color_texture')
             if base_tex is not None:
                 self._warn_scalar_programs_dropped(spec)
+                if base_tex in self._per_hit_program_names():
+                    self._warn_shader_fallback(
+                        'BSDF_PRINCIPLED', 'per-hit shading input on Base Color '
+                        '(legacy Disney route): GPU uses the constant colour')
                 lambert_params = {'texture': base_tex}
                 for key in ('normal_map_texture', 'normal_strength',
                             'bump_map_texture', 'bump_strength', 'bump_distance'):

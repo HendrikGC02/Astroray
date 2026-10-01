@@ -402,7 +402,9 @@ static void appendOnePrim(
                 (scalarMtl->scalarProgram(astroray::svm::SCALAR_ROUGHNESS) ||
                  scalarMtl->scalarProgram(astroray::svm::SCALAR_METALLIC) ||
                  scalarMtl->scalarProgram(astroray::svm::SCALAR_TRANSMISSION) ||
-                 scalarMtl->scalarProgram(astroray::svm::SCALAR_IOR));
+                 scalarMtl->scalarProgram(astroray::svm::SCALAR_IOR) ||
+                 // #988 — textured Principled Base Color (image / 2D bake input).
+                 scalarMtl->scalarProgram(astroray::svm::SCALAR_BASE_COLOR));
             // pkg242 Phase 0 -- UV-less fallback contract. The CPU Triangle ALWAYS
             // defines (uv0,uv1,uv2): authored layer 0 when present, else the
             // implicit default domain uv0=(0,0),uv1=(1,0),uv2=(0,1)
@@ -885,16 +887,34 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // ProgramTexture. Bakes the CPU texture's own evaluator into the flat texel
     // buffer over its coord domain (2D-UV grid or 3D voxel, Mapping folded in per
     // pkg242) and returns the texId, or -1 for an unbakeable coord mode
-    // (Object/Camera/Normal/Reflection/Window — CPU stays the reference). Dedups
+    // (Camera/Normal/Reflection/Window; Object without a bbox — CPU stays the reference). Dedups
     // on (pointer, Mapping) via procBakeIdx. Does NOT set r.hasTexture; the caller
     // does when texId >= 0.
+    // #994 — world-space bbox of the flat-scene geometry per material (filled
+    // before the geometry walk) and the bbox of the material getOrAddMat is
+    // uploading: the bake domain of an OBJECT-coordinate procedural.
+    std::unordered_map<const Material*, AABB> matWorldBox;
+    const AABB* curObjBox = nullptr;
     auto bakeProceduralTexId = [&](Texture* tex) -> int {
         Texture* key = tex;
         const Texture::CoordMode cmode = tex->getCoordMode();
         const bool uvMode  = cmode == Texture::CoordMode::UV;
-        const bool bakeable = uvMode || cmode == Texture::CoordMode::Generated;
+        // #994: OBJECT coords (CPU: the world hit point, advanced_features.h
+        // CoordMode::Object) bake as a 3D voxel over the using geometry's world
+        // bbox, the same 64^3 nearest-voxel resolution as a Generated bake. No
+        // bbox (instanced-only material) -> unbaked, as before.
+        const bool objMode = cmode == Texture::CoordMode::Object && curObjBox;
+        const bool bakeable = uvMode || cmode == Texture::CoordMode::Generated || objMode;
         if (!bakeable) return -1;
         std::string pkey = procBakeKey(key);
+        if (objMode) {
+            const float bb[6] = {curObjBox->min.x, curObjBox->min.y, curObjBox->min.z,
+                                 curObjBox->max.x, curObjBox->max.y, curObjBox->max.z};
+            for (float f : bb) {
+                uint32_t bits; std::memcpy(&bits, &f, sizeof bits);
+                pkey += "|o"; pkey += std::to_string(bits);
+            }
+        }
         auto tit = procBakeIdx.find(pkey);
         if (tit != procBakeIdx.end()) return tit->second;
         int res = 64;  // pkg190 default bake resolution
@@ -913,6 +933,30 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                     // transform) -- Texture::value(HitRecord) with p=(u,v,0).
                     Vec3 c = tex->valueAtCoord(Vec2(u, v), Vec3(u, v, 0.0f));
                     r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+                }
+            }
+        } else if (objMode) {
+            desc.depth = res;
+            desc.objectCoord = 1;
+            Vec3 gmin = curObjBox->min, gsize = curObjBox->max - curObjBox->min;
+            // A flat axis (plane) gets a 1e-4 slab so the device frame stays finite.
+            for (int a = 0; a < 3; ++a) {
+                if (gsize[a] < 1e-4f) { gmin[a] -= 0.5e-4f; gsize[a] = 1e-4f; }
+            }
+            desc.genMin  = GVec3(gmin.x,  gmin.y,  gmin.z);
+            desc.genSize = GVec3(gsize.x, gsize.y, gsize.z);
+            r.textureTexels.reserve(r.textureTexels.size() + (size_t)res * res * res);
+            for (int k = 0; k < res; ++k) {
+                for (int j = 0; j < res; ++j) {
+                    for (int i = 0; i < res; ++i) {
+                        // Voxel centre in world space; the CPU Object chain is
+                        // uv = p.xy, p = hit point (then Mapping / UV transform).
+                        Vec3 p(gmin.x + gsize.x * (i + 0.5f) / res,
+                               gmin.y + gsize.y * (j + 0.5f) / res,
+                               gmin.z + gsize.z * (k + 0.5f) / res);
+                        Vec3 c = tex->valueAtCoord(Vec2(p.x, p.y), p);
+                        r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+                    }
                 }
             }
         } else {
@@ -958,6 +1002,10 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         if (it != matIdx.end()) return it->second;
         int id = (int)r.materials.size();
         matIdx[mIn.get()] = id;
+        {   // #994: OBJECT-coordinate bakes of this material cover its geometry.
+            auto wb = matWorldBox.find(mIn.get());
+            curObjBox = (wb != matWorldBox.end()) ? &wb->second : nullptr;
+        }
         // pkg223 — unwrap a NormalMapped decorator: the GMaterial + base-colour
         // texture come from the INNER material; the tangent-space normal texture +
         // Strength ride the parallel side arrays (materialNormalTexId/Strength),
@@ -1029,8 +1077,15 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         if (tel && tel->getIntensity() > 0.0f &&
             !std::dynamic_pointer_cast<SolidColor>(tel->getTexture()))
             emitTex = tel->getTexture();
-        if (tl || emitTex) {
-            std::shared_ptr<Texture> tex = tl ? tl->getTexture() : emitTex;
+        // #988 — a native Principled with a per-texel Base Color rides the SAME
+        // bake + matTexId/program slots as a textured lambertian, but the shade
+        // path substitutes the texel into the Principled base colour on a local
+        // GMaterial copy (HasProgram block) instead of the lambertian throughput
+        // swap (the Principled lobes are not linear in base colour).
+        std::shared_ptr<Texture> prBase = (!tl && !emitTex)
+            ? m->scalarProgram(astroray::svm::SCALAR_BASE_COLOR) : nullptr;
+        if (tl || emitTex || prBase) {
+            std::shared_ptr<Texture> tex = tl ? tl->getTexture() : (emitTex ? emitTex : prBase);
             // pkg219b — a ProgramTexture (per-texel op-VM chain). GPU scope (#826):
             // 1..VM_MAX_TEX inputs, each an ImageTexture (uploaded with the
             // ProgramTexture's Mapping on its descriptor, #825 key) or a procedural
@@ -1044,10 +1099,12 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // through to the bakeProceduralTexId branch below, which bakes the
             // whole ProgramTexture (CPU evaluator, 64^2 / 64^3) -- keeps svm_eval
             // out of the intersect/shadow kernels' call graph (register cost).
-            auto pt = tl ? std::dynamic_pointer_cast<ProgramTexture>(tex) : nullptr;
+            auto pt = (tl || prBase) ? std::dynamic_pointer_cast<ProgramTexture>(tex) : nullptr;
             if (pt) {
                 const int numIn = (int)pt->numInputs();
-                bool inputsOk = numIn >= 1 && numIn <= astroray::svm::VM_MAX_TEX;
+                // #989: a Principled base-colour program may read only per-hit
+                // shading inputs (Layer Weight -> Mix): zero textures, texId -1.
+                bool inputsOk = (numIn >= 1 || prBase) && numIn <= astroray::svm::VM_MAX_TEX;
                 for (int t = 0; inputsOk && t < numIn; ++t) {
                     progInTex[t] = uploadProgInputTexId(pt.get(), t);
                     inputsOk = progInTex[t] >= 0;
@@ -1080,7 +1137,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 // the pkg186 fetch machinery. Factored into bakeProceduralTexId
                 // (issue #818 Item 1) which the ProgramTexture procedural-input path
                 // shares; see that lambda for the coord-domain / Mapping / dedup
-                // convention (Object/Camera/… stay UNBAKED → -1, CPU is the
+                // convention (Camera/Normal/… stay UNBAKED → -1, CPU is the
                 // reference). The bake calls the material's OWN CPU evaluator, so
                 // parity is exact-by-construction modulo grid resolution.
                 texId = bakeProceduralTexId(tex.get());
@@ -1095,6 +1152,16 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // (previously dividing by a near-gray base) is unchanged.
             if (texId >= 0 && tl)
                 r.materials[id].baseColor = GVec3(1.f, 1.f, 1.f);
+            // #988 — the Principled base-colour override runs only in the
+            // <HasProgram=true> shade kernel (even for a plain image / bake).
+            if ((texId >= 0 || progId >= 0) && prBase) {
+                r.hasTexture = true;
+                r.hasProgram = true;
+            }
+            if (prBase && texId < 0 && progId < 0)
+                fprintf(stderr, "[#988] DEGRADED: Principled Base Color texture with an "
+                                "unsupported GPU input (coordinate mode / empty image / "
+                                "program inputs) renders the constant Base Color on GPU\n");
             // #962 — emitter: split getEmission() (= mean x intensity) into
             // baseColor = texture mean, emissionIntensity = intensity. Every flat
             // consumer reads the product (the same float product as the host),
@@ -1103,7 +1170,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // #962 (item 2): a baked field (procedural / op-VM) uses the mean of
             // the baked texels, so the flat fallback matches what the per-hit
             // fetch integrates; a plain image keeps its exact pixel mean.
-            if (texId >= 0 && !tl) {
+            if (texId >= 0 && emitTex) {
                 Vec3 avg = emitTex->average();
                 if (!std::dynamic_pointer_cast<ImageTexture>(emitTex)) {
                     const GImageTexture& d = r.textures[texId];
@@ -1119,12 +1186,13 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 r.materials[id].emissionIntensity = tel->getIntensity();
                 r.hasEmissionTexture = true;
             }
-            if (!tl) {
+            if (emitTex) {
                 r.hasEmissionTextureRequested = true;
                 if (texId < 0)   // #962 (item 4): unbakeable coord mode / empty image
                     fprintf(stderr, "[#962] DEGRADED: Emission Color texture with an "
-                                    "unsupported GPU coordinate mode (Object/Camera/Normal/"
-                                    "Reflection/Window) renders its texture mean on GPU\n");
+                                    "unsupported GPU coordinate mode (Camera/Normal/Reflection/"
+                                    "Window; Object on instanced-only geometry) renders its "
+                                    "texture mean on GPU\n");
             }
         }
         // pkg223 — register the tangent-space normal texture (always a plain
@@ -1167,10 +1235,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         // addon reports it; CPU stays correct). Read only in <HasProgram=true>.
         auto uploadProgramTexture = [&](const std::shared_ptr<ProgramTexture>& pt,
                                         int& outTexId, int& outProgId) {
-            if (pt->numInputs() != 1) return;
-            int inTex = uploadProgInputTexId(pt.get(), 0);
-            if (inTex < 0) return;
-            outTexId = inTex;
+            // #989: zero inputs = a program over per-hit shading inputs only
+            // (Fresnel -> Math -> Metallic); matScalarTexId stays -1.
+            if (pt->numInputs() > 1) return;
+            if (pt->numInputs() == 1) {
+                int inTex = uploadProgInputTexId(pt.get(), 0);
+                if (inTex < 0) return;
+                outTexId = inTex;
+            }
             auto pit = progIdx.find(pt.get());
             if (pit != progIdx.end()) {
                 outProgId = pit->second;
@@ -1197,6 +1269,22 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // when instanced, r.tlas/instances/blas are also populated so the device
     // engages gpu_tlas_hit (otherwise it falls back to gpu_bvh_hit, unchanged). ---
     auto& cpuBvh = cpu.getBVH();
+    // #994 — per-material world bbox of the flat (world-space) scene, read by
+    // bakeProceduralTexId for OBJECT-coordinate procedurals. Instanced meshes are
+    // object-space and not included (their materials stay unbaked, as before).
+    if (cpuBvh) {
+        for (const auto& h : cpuBvh->getPrimitives()) {
+            const Material* pm = nullptr;
+            if (auto* t = dynamic_cast<Triangle*>(h.get())) pm = t->getMaterial().get();
+            else if (auto* s = dynamic_cast<Sphere*>(h.get())) pm = s->getMaterial().get();
+            else if (auto* c = dynamic_cast<CurveSegment*>(h.get())) pm = c->getMaterial().get();
+            AABB hb;
+            if (!pm || !h->boundingBox(hb)) continue;
+            auto it = matWorldBox.find(pm);
+            if (it == matWorldBox.end()) matWorldBox.emplace(pm, hb);
+            else it->second = it->second.merge(hb);
+        }
+    }
     if (cpu.hasInstances()) {
         // pkg114 inc 3b — mixed: flat scene (cpuBvh) folded in as an identity BLAS.
         buildTwoLevelArrays(cpu, cpuBvh.get(), r, getOrAddMat);

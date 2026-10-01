@@ -589,6 +589,9 @@ public:
     void setTextureUVLayerName(const std::string& name, const std::string& layerName) {
         textureManager.setTextureUVLayerName(name, layerName);
     }
+    void setTextureExtension(const std::string& name, const std::string& ext) {
+        textureManager.setTextureExtension(name, ext);
+    }
     void setTextureMappingMatrix(const std::string& name,
                                  const std::vector<float>& m) {
         textureManager.setTextureMappingMatrix(name, m);

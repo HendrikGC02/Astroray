@@ -3329,12 +3329,63 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return src.image
         return None
 
+    def get_image_vector_from_socket(self, socket):
+        """Vector socket of the Image Texture get_image_from_socket resolved (or None).
+        The normal / bump image uploads must honour its Mapping chain exactly like
+        a Base Color image does (#1004: the Vector was dropped)."""
+        node = self._image_node_from_socket(socket)
+        return node.inputs.get('Vector') if node is not None else None
+
+    def get_image_extension_from_socket(self, socket):
+        """Extension ('REPEAT' / 'EXTEND' / 'CLIP' / 'MIRROR') of that Image Texture."""
+        node = self._image_node_from_socket(socket)
+        return getattr(node, 'extension', 'REPEAT') if node is not None else 'REPEAT'
+
+    @staticmethod
+    def _image_node_from_socket(socket):
+        if not socket or not socket.is_linked:
+            return None
+        try:
+            src = socket.links[0].from_node
+        except (IndexError, AttributeError):
+            return None
+        return src if src.type == 'TEX_IMAGE' and src.image else None
+
+    def load_bump_height_texture(self, spec, renderer):
+        """Texture name for the Height of a Bump / Displacement node, or None.
+
+        `spec` is a get_normal_inputs / get_displacement_bump_inputs result. An
+        Image Texture Height keeps the image path (with its Mapping, #1004). A
+        procedural / op-VM Height is NOT applied but reported (#1005, formerly a
+        silent drop): the CPU can difference any Texture (NormalMapped +
+        Texture::valueDisplaced), but the exact derivative is ~2x stronger than
+        Cycles' pixel-footprint finite difference (svm_node_set_bump,
+        Apache-2.0) on prod_car_paint, and the GPU bump path samples uploaded
+        images only; binding it needs per-hit ray differentials (see #1005)."""
+        if spec.get('bump_image') is not None:
+            return self.load_blender_image(spec['bump_image'], renderer,
+                                           vector_input=spec.get('bump_vector'),
+                                           extension=spec.get('bump_extension', 'REPEAT'))
+        bump_node = spec.get('bump_node')
+        height = bump_node.inputs.get('Height') if bump_node is not None else None
+        if height and height.is_linked:
+            self._warn_shader_fallback(
+                'BUMP', "Height from '%s' is not an Image Texture: bump not applied "
+                "(procedural bump needs per-hit footprint differentials, #1005)"
+                % getattr(height.links[0].from_node, 'type', '?'))
+        return None
+
     def get_normal_inputs(self, node):
         """Extract normal-map / bump-map inputs wired into Principled Normal."""
         result = {
             'normal_image': None,
+            'normal_vector': None,
+            'normal_extension': 'REPEAT',
             'normal_strength': 1.0,
             'bump_image': None,
+            'bump_vector': None,
+            'bump_extension': 'REPEAT',
+            'bump_node': None,
             'bump_strength': 1.0,
             'bump_distance': 0.01,
         }
@@ -3355,6 +3406,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             if src.type == 'NORMAL_MAP':
                 result['normal_strength'] = self.get_float_input(src, 'Strength', 1.0)
                 result['normal_image'] = self.get_image_from_socket(src.inputs.get('Color'))
+                result['normal_vector'] = self.get_image_vector_from_socket(src.inputs.get('Color'))
+                result['normal_extension'] = self.get_image_extension_from_socket(src.inputs.get('Color'))
                 walk_normal_chain(src.inputs.get('Normal'))
                 return
 
@@ -3362,6 +3415,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 result['bump_strength'] = self.get_float_input(src, 'Strength', 1.0)
                 result['bump_distance'] = self.get_float_input(src, 'Distance', 0.01)
                 result['bump_image'] = self.get_image_from_socket(src.inputs.get('Height'))
+                result['bump_vector'] = self.get_image_vector_from_socket(src.inputs.get('Height'))
+                result['bump_extension'] = self.get_image_extension_from_socket(src.inputs.get('Height'))
+                result['bump_node'] = src
                 walk_normal_chain(src.inputs.get('Normal'))
                 return
 
@@ -3396,6 +3452,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return result, None
 
         result['bump_image'] = self.get_image_from_socket(disp_node.inputs.get('Height'))
+        result['bump_vector'] = self.get_image_vector_from_socket(disp_node.inputs.get('Height'))
+        result['bump_extension'] = self.get_image_extension_from_socket(disp_node.inputs.get('Height'))
+        result['bump_node'] = disp_node
         # Issue #746: Cycles' ShaderGraph::bump_from_displacement (Apache-2.0)
         # feeds its BumpNode height = dot(displacement, N) = Scale * (h - Midlevel)
         # in OBJECT units with `set_distance(1.0f)` and unit strength, so Scale
@@ -3814,7 +3873,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             self._warn_shader_fallback('MAPPING', 'native coordinate binding unavailable '
                                        '(%s); using available coordinate defaults' % error)
 
-    def load_blender_image(self, bpy_image, renderer, vector_input=None):
+    def load_blender_image(self, bpy_image, renderer, vector_input=None, extension='REPEAT'):
         """Load a Blender image datablock into the renderer's texture manager.
         Returns the texture name (string) on success, None on failure.
 
@@ -3832,7 +3891,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         # One traversal supplies both provenance and the complete affine.
         resolved = self._resolve_affine_coordinates(vector_input, warn=self._warn_shader_fallback)
-        return self._load_blender_image_resolved(bpy_image, renderer, resolved)
+        return self._load_blender_image_resolved(bpy_image, renderer, resolved,
+                                                 extension=extension)
 
     @staticmethod
     def _node_cache_id(node, depth=0):
@@ -3889,8 +3949,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
         return np.where(rgb <= 0.04045, rgb / 12.92,
                         ((rgb + 0.055) / 1.055) ** 2.4).astype(np.float32)
 
-    def _load_blender_image_resolved(self, bpy_image, renderer, resolved, child_signature=None):
-        """Upload one resolved image; only program children receive isolation salt."""
+    def _load_blender_image_resolved(self, bpy_image, renderer, resolved, child_signature=None,
+                                     extension='REPEAT'):
+        """Upload one resolved image; only program children receive isolation salt.
+        ``extension`` is the Image Texture node's extension (#1004; Cycles default REPEAT)."""
         coord_mode, uv_layer_name = resolved['coord_mode'], resolved['uv_layer']
         uv_scale, offset, rotation = (1.0, 1.0), (0.0, 0.0), 0.0
         mapping_matrix = self._affine_matrix_values(resolved)
@@ -3898,6 +3960,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                               offset, rotation, uv_layer_name, mapping_matrix)
         if child_signature is not None:
             cache_key += "::program-child[%s]" % child_signature
+        if extension != 'REPEAT':
+            cache_key += "::ext=%s" % extension
 
         # Deduplicate: a single (image, transform) pair is uploaded at most
         # once per conversion pass.
@@ -3974,6 +4038,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
             renderer.load_texture(cache_key, rgb, width, height)
             self._apply_texture_transform(renderer, cache_key, coord_mode, uv_scale, offset, rotation, uv_layer_name, mapping_matrix)
+            # #1004: Cycles Image Texture extension (the native default is EXTEND/clamp).
+            if hasattr(renderer, 'set_texture_extension'):
+                renderer.set_texture_extension(cache_key, extension)
+            elif extension != 'EXTEND':
+                self._warn_shader_fallback(
+                    'TEX_IMAGE', "extension '%s' needs native set_texture_extension; "
+                    "samples outside [0,1] are clamped" % extension)
             cache[cache_key] = cache_key
             return cache_key
         except Exception as e:
@@ -4351,7 +4422,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # so Mapping/Texture-Coordinate wiring is honored by the upload path.
         if linked_node.type == 'TEX_IMAGE' and linked_node.image:
             vector_inp = linked_node.inputs.get('Vector') if hasattr(linked_node, 'inputs') else None
-            tex_name = self.load_blender_image(linked_node.image, renderer, vector_input=vector_inp)
+            tex_name = self.load_blender_image(linked_node.image, renderer, vector_input=vector_inp,
+                                               extension=getattr(linked_node, 'extension', 'REPEAT'))
             fallback = list(inp.default_value[:3]) if hasattr(inp.default_value, '__iter__') else [0.8, 0.8, 0.8]
             return fallback, tex_name
         # Procedural texture
@@ -4515,7 +4587,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             identity = {'matrix': np.identity(4), 'coord_mode': 'UV', 'uv_layer': ''}
             for in_node in inputs:
                 cn = self._load_blender_image_resolved(
-                    in_node.image, renderer, identity, child_signature=signatures[0])
+                    in_node.image, renderer, identity, child_signature=signatures[0],
+                    extension=getattr(in_node, 'extension', 'REPEAT'))
                 if cn is None:
                     return None
                 child_names.append(cn)
@@ -4609,12 +4682,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 spec['base_color_texture'] = base_color_tex
             normal_inputs = self.get_normal_inputs(node)
             if normal_inputs.get('normal_image') is not None:
-                tex = self.load_blender_image(normal_inputs['normal_image'], renderer)
+                tex = self.load_blender_image(normal_inputs['normal_image'], renderer,
+                                            vector_input=normal_inputs.get('normal_vector'),
+                                            extension=normal_inputs.get('normal_extension', 'REPEAT'))
                 if tex:
                     spec['normal_map_texture'] = tex
                     spec['normal_strength'] = normal_inputs['normal_strength']
-            if normal_inputs.get('bump_image') is not None:
-                tex = self.load_blender_image(normal_inputs['bump_image'], renderer)
+            if normal_inputs.get('bump_image') is not None or normal_inputs.get('bump_node') is not None:
+                tex = self.load_bump_height_texture(normal_inputs, renderer)
                 if tex:
                     spec['bump_map_texture'] = tex
                     spec['bump_strength'] = normal_inputs['bump_strength']
@@ -5441,8 +5516,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 f"shader node '{ntype}'",
                 "unsupported surface shader -> neutral grey",
             )
-        elif displacement_bump is not None and displacement_bump.get('bump_image') is not None:
-            tex_name = self.load_blender_image(displacement_bump['bump_image'], renderer)
+        elif displacement_bump is not None and (displacement_bump.get('bump_image') is not None or
+                                                displacement_bump.get('bump_node') is not None):
+            tex_name = self.load_bump_height_texture(displacement_bump, renderer)
             if tex_name:
                 spec['bump_map_texture'] = tex_name
                 spec['bump_strength'] = float(displacement_bump.get('bump_strength', 1.0))
@@ -5513,12 +5589,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         normal_inputs = self.get_normal_inputs(node)
         if normal_inputs['normal_image'] is not None:
-            tex_name = self.load_blender_image(normal_inputs['normal_image'], renderer)
+            tex_name = self.load_blender_image(normal_inputs['normal_image'], renderer,
+                                            vector_input=normal_inputs.get('normal_vector'),
+                                            extension=normal_inputs.get('normal_extension', 'REPEAT'))
             if tex_name:
                 params['normal_map_texture'] = tex_name
                 params['normal_strength'] = normal_inputs['normal_strength']
-        if normal_inputs['bump_image'] is not None:
-            tex_name = self.load_blender_image(normal_inputs['bump_image'], renderer)
+        if normal_inputs['bump_image'] is not None or normal_inputs.get('bump_node') is not None:
+            tex_name = self.load_bump_height_texture(normal_inputs, renderer)
             if tex_name:
                 params['bump_map_texture'] = tex_name
                 params['bump_strength'] = normal_inputs['bump_strength']

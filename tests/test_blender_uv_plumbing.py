@@ -122,6 +122,7 @@ class _RecordingRenderer:
         self.uv_transform_calls = []   # (name, sx, sy, ox, oy)
         self.mapping_matrix_calls = [] # (name, [12 floats])  pkg219a
         self.uv_layer_calls = []       # (name, layer)
+        self.extension_calls = []      # (name, extension)  #1004
         self.proc_texture_calls = []   # (name, type, params)
         self.created_materials = []
         self._next_id = 1
@@ -140,6 +141,9 @@ class _RecordingRenderer:
 
     def set_texture_uv_layer(self, name, layer):
         self.uv_layer_calls.append((name, layer))
+
+    def set_texture_extension(self, name, ext):
+        self.extension_calls.append((name, ext))
 
     def create_procedural_texture(self, name, ttype, params):
         self.proc_texture_calls.append((name, ttype, list(params)))

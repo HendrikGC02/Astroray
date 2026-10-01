@@ -17,14 +17,14 @@ scene = "prod_car_paint"
 backend = "cpu"
 kind = "parity"
 issue = "#1005"
-reason = "#989 fixed (facing tint present); residual: Voronoi flake Bump dropped silently: lit_front B 0.78x, upper_flake G 1.17x (6/16)"
+reason = "#1005: procedural Voronoi flake Bump Height now REPORTED (was silent) but not applied: lit_front B 0.79x, upper_flake B 1.18x (5/16); CPU exact-derivative taps overshoot Cycles ~2x (lit_front B 1.41x, upper_flake B 0.68x), needs per-hit footprint differentials"
 
 [[row]]
 scene = "prod_car_paint"
 backend = "gpu"
 kind = "parity"
 issue = "#1005"
-reason = "#989 fixed; same residual as CPU: lit_front B 0.78x, upper_flake G 1.17x (1/16)"
+reason = "#1005: same as CPU (reported, not applied): lit_front B 0.78x, upper_flake B 1.21x (2/16)"
 
 [[row]]
 scene = "prod_wood"
@@ -59,14 +59,14 @@ scene = "prod_pbr_group"
 backend = "cpu"
 kind = "parity"
 issue = "#1004"
-reason = "#988 fixed (metal tiles metallic); Mapping Scale from the node-group Tiling input dropped silently (tiles 3x too large): centre R 2.47x (2/16)"
+reason = "#1004 root cause was Image Texture extension REPEAT (fixed: tile layout now matches); residual ~8% dim centre / right-ROI, linear-vs-nearest interpolation and Bump/Normal-with-Mapping step (see #1004 comment): centre 0.91-0.92x (8/16)"
 
 [[row]]
 scene = "prod_pbr_group"
 backend = "gpu"
 kind = "parity"
 issue = "#1004"
-reason = "same as CPU: centre R 2.47x (2/16)"
+reason = "same residual as CPU; right ROI B 1.42x (7/16)"
 
 [[row]]
 scene = "prod_shader_stack"

@@ -357,6 +357,19 @@ public:
     void setTextureUVLayerName(const std::string& name, const std::string& layerName) {
         if (auto tex = getTexture(name)) tex->setUVLayerName(layerName);
     }
+    // #1004: Blender Image Texture extension. Image textures only; other kinds
+    // have no outside-[0,1] contract and ignore it.
+    void setTextureExtension(const std::string& name, const std::string& ext) {
+        int mode;
+        if (ext == "REPEAT") mode = G_IMG_REPEAT;
+        else if (ext == "EXTEND") mode = G_IMG_EXTEND;
+        else if (ext == "CLIP") mode = G_IMG_CLIP;
+        else if (ext == "MIRROR") mode = G_IMG_MIRROR;
+        else throw std::runtime_error("set_texture_extension: unknown extension '" + ext + "'");
+        auto it = imageTextures.find(name);
+        if (it != imageTextures.end())
+            if (auto img = std::dynamic_pointer_cast<ImageTexture>(it->second)) img->setExtension(mode);
+    }
     // pkg219a: full 3-D Mapping matrix (top 3x4 rows, row-major) composed by the
     // addon with mathutils.Matrix.LocRotScale (exact Blender euler parity).
     void setTextureMappingMatrix(const std::string& name,
@@ -575,6 +588,9 @@ public:
     }
     void setTextureUVLayerName(const std::string& name, const std::string& layerName) {
         textureManager.setTextureUVLayerName(name, layerName);
+    }
+    void setTextureExtension(const std::string& name, const std::string& ext) {
+        textureManager.setTextureExtension(name, ext);
     }
     void setTextureMappingMatrix(const std::string& name,
                                  const std::vector<float>& m) {
@@ -3752,6 +3768,10 @@ PYBIND11_MODULE(astroray, m) {
              "Apply scale + Z-rotation + offset (UV-space) to a texture; "
              "baked from a Blender Mapping node. Order matches Blender Point "
              "mapping: scale → rotate → translate. Rotation is in radians.")
+        .def("set_texture_extension", &PyRenderer::setTextureExtension,
+             "name"_a, "extension"_a,
+             "#1004: Image Texture extension (REPEAT / EXTEND / CLIP / MIRROR) for "
+             "samples outside [0,1]; Cycles kernel/device/cpu/image.h semantics.")
         .def("set_texture_mapping_matrix", &PyRenderer::setTextureMappingMatrix,
              "name"_a, "matrix"_a,
              "pkg219a: apply a full 3-D Blender Mapping node transform (top 3x4 "

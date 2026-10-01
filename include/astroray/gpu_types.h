@@ -680,6 +680,9 @@ struct GImageTexture {
     // bakes world transforms into vertices). genMin/genSize are that bbox; the
     // device skips the per-vertex Generated (#847) frame for such a slice.
     int   objectCoord = 0;
+    // #1004 - Image Texture `extension` (outside [0,1]): see GImgExt. 0 = EXTEND
+    // (clamp, the historical behaviour; every baked procedural uses it).
+    int   extension = 0;
 };
 
 // pkg186 — wavefront image-texture binding. Published ONCE per frame into a
@@ -859,11 +862,57 @@ struct GWavefrontGridVolumeBinding {
     GGridMedium media[G_WF_MAX_GRID_MEDIA];
 };
 
+// #1004 - Blender Image Texture extension modes. EXTEND (clamp) is the historical
+// behaviour and the default of every texture the addon does not tag; the addon
+// sets REPEAT (Blender's node default) / CLIP / MIRROR from node.extension.
+enum GImgExt { G_IMG_EXTEND = 0, G_IMG_REPEAT = 1, G_IMG_CLIP = 2, G_IMG_MIRROR = 3 };
+
+// Non-EXTEND texel index (nearest). Cycles intern/cycles/kernel/device/cpu/image.h
+// (Apache-2.0): ix = floor(u*w), iy = floor(v*h) then wrap_periodic / wrap_mirror;
+// EXTENSION_CLIP returns zero outside the image (false here). Wrapping is done on
+// the float coordinate BEFORE the integer conversion (same texel for non-integer
+// u*w, no int overflow for huge Mapping scales): periodic = fract(u); mirror folds
+// |u| into [0,1] with period 2 (Cycles' texel mirror is symmetric in |u|). iy counts
+// from the bottom row like Cycles; the texel buffer is top-first, hence the flip.
+HD inline float gpu_imageWrapCoord(int ext, float u) {
+    if (!(u > -3.0e38f && u < 3.0e38f)) return 0.f;   // NaN / inf guard
+    if (ext == G_IMG_MIRROR) {
+        float a = u < 0.f ? -u : u;
+        float m = a - 2.f * floorf(a * 0.5f);   // [0,2)
+        return m >= 1.f ? 2.f - m : m;
+    }
+    return u - floorf(u);                        // REPEAT: [0,1)
+}
+
+HD inline bool gpu_imageWrapTexel(int ext, int w, int h, float u, float v,
+                                  int* ti, int* tj) {
+    if (ext == G_IMG_CLIP) {
+        if (!(u >= 0.f && u < 1.f && v >= 0.f && v < 1.f)) return false;
+    } else {
+        u = gpu_imageWrapCoord(ext, u);
+        v = gpu_imageWrapCoord(ext, v);
+    }
+    int ix = (int)(u * (float)w);
+    int iy = (int)(v * (float)h);
+    if (ix > w - 1) ix = w - 1;
+    if (iy > h - 1) iy = h - 1;
+    *ti = ix;
+    *tj = h - 1 - iy;
+    return true;
+}
+
 // Nearest-neighbour image fetch — mirrors CPU ImageTexture::value EXACTLY
-// (clamp u,v to [0,1]; v flip; floor to texel; clamp index to bounds).
+// (EXTEND: clamp u,v to [0,1]; v flip; floor to texel; clamp index to bounds;
+// #1004: REPEAT / MIRROR / CLIP via gpu_imageWrapTexel).
 HD inline GVec3 gpu_sampleImageTexture(const GImageTexture& tex,
                                        const GVec3* texels,
                                        float u, float v) {
+    if (tex.extension != G_IMG_EXTEND) {
+        int wi, wj;
+        if (!gpu_imageWrapTexel(tex.extension, tex.width, tex.height, u, v, &wi, &wj))
+            return GVec3(0.f, 0.f, 0.f);
+        return texels[tex.offset + wj * tex.width + wi];
+    }
     u = u < 0.f ? 0.f : (u > 1.f ? 1.f : u);
     v = 1.f - (v < 0.f ? 0.f : (v > 1.f ? 1.f : v));
     int i = (int)(u * (float)tex.width);

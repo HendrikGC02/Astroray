@@ -310,5 +310,8 @@ def test_issue859_light_add_order_invariant(gpu):
         _require_gpu()
     a = _order_scene(gpu, sun_first=True)
     b = _order_scene(gpu, sun_first=False)
-    diff = float(np.abs(a - b).max())
-    assert diff <= 1e-6, f"#859: light add order changes the render (max |diff| {diff})"
+    # Relative 1e-6 (owner 2026-09-29: 1e-6 tolerance, not bit-identity). The light CDF sums
+    # in a different order, so pixels move by a few ulps (7.5e-7 rel on GPU); #859 itself
+    # scrambled selection probabilities, an O(1) change.
+    diff = float((np.abs(a - b) / np.maximum(np.abs(a), 1.0)).max())
+    assert diff <= 1e-6, f"#859: light add order changes the render (max rel |diff| {diff})"

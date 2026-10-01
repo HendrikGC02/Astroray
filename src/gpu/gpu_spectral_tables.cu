@@ -234,13 +234,15 @@ void uploadJakobHanikaLut() {
 }
 
 // Trilinear interpolation in the JH coefficient cube. Mirrors
-// JakobHanikaLut::lookup() in src/spectrum.cpp exactly. TU-local: only
-// gpu_jhEvalSpectrum below uses it.
-__device__ inline void gpu_jhLookupCoeffs(
-    float r, float g, float b, float& c0, float& c1, float& c2)
+// JakobHanikaLut::lookup() in src/spectrum.cpp exactly. Cross-TU (declared in
+// gpu_materials.h) so call sites that upsample one RGB at several wavelengths
+// (gpu_rgbToSampledSpectrum) look the coefficients up ONCE (#1012); returned
+// by value (registers), not through reference outputs (which would force a
+// caller stack slot).
+__device__ float3 gpu_jhLookupCoeffs(float r, float g, float b)
 {
     int res = g_jhLutRes;
-    if (res <= 0) { c0 = 0.f; c1 = 0.f; c2 = -1e20f; return; }
+    if (res <= 0) return make_float3(0.f, 0.f, -1e20f);
 
     // Clamp to [0, 1] (CPU RGBAlbedoSpectrum constructor does the same).
     r = fminf(fmaxf(r, 0.f), 1.f);
@@ -251,7 +253,7 @@ __device__ inline void gpu_jhLookupCoeffs(
     float vMax = r;
     if (g > vMax) { i = 1; vMax = g; }
     if (b > vMax) { i = 2; vMax = b; }
-    if (vMax <= 1e-8f) { c0 = 0.f; c1 = 0.f; c2 = -1e20f; return; }
+    if (vMax <= 1e-8f) return make_float3(0.f, 0.f, -1e20f);
 
     float comp[3] = { r, g, b };
     int   o0 = (i + 1) % 3;
@@ -263,9 +265,9 @@ __device__ inline void gpu_jhLookupCoeffs(
     int   resM1 = res - 1;
     const float* scale = g_jhLutScale;
 
-    // Locate k such that scale[k] <= z <= scale[k+1].
-    int k = 0;
-    while (k + 1 < resM1 && scale[k + 1] < z) ++k;
+    // Locate k such that scale[k] <= z <= scale[k+1] (bisection, #1012;
+    // shared with the CPU lookup via astroray::jhFindScaleIndex).
+    int k = astroray::jhFindScaleIndex(scale, resM1, z);
     float denomZ = scale[k + 1] - scale[k];
     float tz = (denomZ > 0.f) ? (z - scale[k]) / denomZ : 0.f;
     tz = fminf(fmaxf(tz, 0.f), 1.f);
@@ -301,15 +303,14 @@ __device__ inline void gpu_jhLookupCoeffs(
                     + (p011[comp_i] * (1.f - tx) + p111[comp_i] * tx) * ty;
         out[comp_i] = cLow * (1.f - tz) + cHigh * tz;
     }
-    c0 = out[0];  c1 = out[1];  c2 = out[2];
+    return make_float3(out[0], out[1], out[2]);
 }
 
 // Per-wavelength upsampled reflectance, mirroring CPU
 // RGBAlbedoSpectrum::sample → evalSigmoidCoeffs.
 __device__ float gpu_jhEvalSpectrum(const GVec3& rgb, float lambda) {
-    float c0, c1, c2;
-    gpu_jhLookupCoeffs(rgb.x, rgb.y, rgb.z, c0, c1, c2);
-    return astroray::jhEvalSpectrumF(c0, c1, c2, lambda);
+    float3 c = gpu_jhLookupCoeffs(rgb.x, rgb.y, rgb.z);
+    return astroray::jhEvalSpectrumF(c.x, c.y, c.z, lambda);
 }
 
 // Mirror of astroray::sampleD65 in src/spectrum.cpp — linear lookup into
@@ -473,13 +474,22 @@ __global__ void gpu_rgb_upsample_batch_kernel(
     const float* rgbs, int nRgb, const float* lambdas, int nLambda,
     int mode, float* out)
 {
+    // #1012: one thread per (rgb, group of G_SPECTRUM_SAMPLES lambdas) through
+    // gpu_rgbToSampledSpectrum, i.e. the production hoisted-lookup path.
+    int groups = (nLambda + G_SPECTRUM_SAMPLES - 1) / G_SPECTRUM_SAMPLES;
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    int total = nRgb * nLambda;
-    if (tid >= total) return;
-    int ri = tid / nLambda;
-    int li = tid % nLambda;
+    if (tid >= nRgb * groups) return;
+    int ri = tid / groups;
+    int g0 = (tid % groups) * G_SPECTRUM_SAMPLES;
     GVec3 rgb(rgbs[ri * 3 + 0], rgbs[ri * 3 + 1], rgbs[ri * 3 + 2]);
-    out[tid] = gpu_rgbSpectrumAt(rgb, lambdas[li], (GSpectralMode)mode);
+    GSampledWavelengths wl;
+    for (int j = 0; j < G_SPECTRUM_SAMPLES; ++j) {
+        wl.lambda[j] = lambdas[min(g0 + j, nLambda - 1)];
+        wl.pdf[j] = 1.f;
+    }
+    GSampledSpectrum sp = gpu_rgbToSampledSpectrum(rgb, wl, (GSpectralMode)mode);
+    for (int j = 0; j < G_SPECTRUM_SAMPLES && g0 + j < nLambda; ++j)
+        out[ri * nLambda + g0 + j] = sp[j];
 }
 
 std::vector<float> launchRgbUpsampleBatch(
@@ -504,7 +514,8 @@ std::vector<float> launchRgbUpsampleBatch(
     if (err == cudaSuccess) err = cudaMemcpy(dLam, lambdas.data(), lambdas.size() * sizeof(float), cudaMemcpyHostToDevice);
     if (err == cudaSuccess) {
         int block = 256;
-        int grid  = (total + block - 1) / block;
+        int nThreads = nRgb * ((nLambda + G_SPECTRUM_SAMPLES - 1) / G_SPECTRUM_SAMPLES);
+        int grid  = (nThreads + block - 1) / block;
         gpu_rgb_upsample_batch_kernel<<<grid, block>>>(dRgb, nRgb, dLam, nLambda, mode, dOut);
         err = cudaGetLastError();
         if (err == cudaSuccess) err = cudaDeviceSynchronize();

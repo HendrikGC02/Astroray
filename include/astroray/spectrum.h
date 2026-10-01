@@ -82,6 +82,23 @@ ASTRORAY_HD inline float jhEvalSpectrumF(float c0, float c1, float c2, float lam
 #endif
 }
 
+// Scale-grid interval search shared by the CPU lookup (JakobHanikaLut::lookup)
+// and the device lookup (gpu_jhLookupCoeffs). Returns the smallest k in
+// [0, resM1-1] with scale[k+1] >= z (resM1-1 if none) -- exactly what the former
+// linear scan `while (k+1 < resM1 && scale[k+1] < z) ++k` returned, in
+// ceil(log2(resM1)) steps instead of ~39 (#1012). `scale` is monotone: Jakob &
+// Hanika 2019 generate it as smoothstep(smoothstep(k/(res-1))) (rgb2spec_opt.cpp,
+// BSD-3-Clause, mitsuba-renderer/rgb2spec); pbrt-v4 FindInterval locates the
+// interval by the same bisection. Notes: .astroray_plan/docs/jh-scale-search-research.md
+ASTRORAY_HD inline int jhFindScaleIndex(const float* scale, int resM1, float z) {
+    int lo = 0, hi = resM1 - 1;
+    while (lo < hi) {
+        int mid = (lo + hi) >> 1;
+        if (scale[mid + 1] < z) lo = mid + 1; else hi = mid;
+    }
+    return lo;
+}
+
 // Read-only accessors for the lazily-loaded sRGB LUT. Used by the CUDA
 // uploader (src/gpu/multiwavelength_kernel.cu::uploadJakobHanikaLut) to
 // cudaMemcpy the table into device global memory exactly once. Loading is

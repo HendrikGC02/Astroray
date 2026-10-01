@@ -544,10 +544,8 @@ __device__ int intersectPathSlotT(
                 for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
                     Le.v[i] = gpu_emission_profile(profIdx, lambdas.lambda[i]) * lampScale;
             } else {
-                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
-                    Le.v[i] = gpu_rgbSpectrumAt(dedLights[lampIdx].emissionRGB,
-                                                lambdas.lambda[i], GSPEC_RGB_ILLUMINANT)
-                              * lampScale;
+                Le = gpu_rgbToSampledSpectrum(dedLights[lampIdx].emissionRGB, lambdas,
+                                              GSPEC_RGB_ILLUMINANT) * lampScale;  // #1012
             }
             // #909: receiver -> glass (exited) -> a photon-emitting light is
             // already in the bounce-0 gather; drop it here (no double count).

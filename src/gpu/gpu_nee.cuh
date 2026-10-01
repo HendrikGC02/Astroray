@@ -872,9 +872,8 @@ __device__ inline GSampledSpectrum gpu_nee_resolve(
                 L_spec[i] = gpu_emission_profile(s.dedEmissionProfileIndex,
                                                  lambdas.lambda[i]) * s.dedGeoScale;
         } else {
-            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
-                L_spec[i] = gpu_rgbSpectrumAt(s.dedEmissionRGB, lambdas.lambda[i],
-                                              GSPEC_RGB_ILLUMINANT) * s.dedGeoScale;
+            L_spec = gpu_rgbToSampledSpectrum(s.dedEmissionRGB, lambdas,
+                                              GSPEC_RGB_ILLUMINANT) * s.dedGeoScale;  // #1012
         }
     } else {
         L_spec = gpu_material_emitted_spectral(materials[s.lightMatId],

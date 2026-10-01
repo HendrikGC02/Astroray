@@ -73,8 +73,8 @@ class NormalMappedPlugin : public Material {
             Vec3 dPdy = Bt * (eps * rec.uvScaleV);
             float h_c = heightValue(bumpTexture_->value(rec, Vec3(0)));
             float h_x, h_y;
-            const CoordMode bcm = bumpTexture_->getCoordMode();
-            if ((bcm == CoordMode::Object || bcm == CoordMode::Generated || bcm == CoordMode::Camera) &&
+            const Texture::CoordMode bcm = bumpTexture_->getCoordMode();
+            if ((bcm == Texture::CoordMode::Object || bcm == Texture::CoordMode::Generated || bcm == Texture::CoordMode::Camera) &&
                 !dynamic_cast<const ImageTexture*>(bumpTexture_.get())) {
                 // #1005: a procedural Height in Object / Generated / Camera coordinates
                 // is differenced along the surface in WORLD space (the UV-unit step above

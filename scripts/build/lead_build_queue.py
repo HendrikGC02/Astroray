@@ -93,7 +93,14 @@ for item in sys.argv[1:]:
             cmd, env = _cuda_cmd(wt, sha)
         with open(log, "w", encoding="utf-8", errors="replace") as lf:
             r = subprocess.run(cmd, cwd=wt, stdout=lf, stderr=subprocess.STDOUT, env=env)
-        print(f"[{lane}{':' + kind if kind else ''}] exit {r.returncode} sha {sha} "
+        rc = r.returncode
+        if rc == 0:
+            # Backstop: a ninja/nvcc exit of -1 once slipped past `if errorlevel 1` and a stale
+            # astroray .pyd was reported green. Any ninja FAILED line fails the build.
+            with open(log, encoding="utf-8", errors="replace") as lf:
+                if any(ln.startswith(("FAILED: ", "ninja: build stopped")) for ln in lf):
+                    rc = 99
+        print(f"[{lane}{':' + kind if kind else ''}] exit {rc} sha {sha} "
               f"{int(time.time() - t0)}s log {log}", flush=True)
     finally:
         if not no_nvcc:

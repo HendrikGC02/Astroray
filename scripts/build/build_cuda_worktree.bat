@@ -26,7 +26,7 @@ if not exist "%WORKTREE%" (
 
 REM Change to worktree
 cd /d "%WORKTREE%"
-if errorlevel 1 (
+if %ERRORLEVEL% NEQ 0 (
     echo ERROR: Failed to cd into worktree
     exit /b 1
 )
@@ -42,7 +42,7 @@ echo [build_cuda_worktree] Git SHA verified: %ACTUAL_SHA:~0,7%
 
 REM Source vcvarsall
 call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64
-if errorlevel 1 (
+if %ERRORLEVEL% NEQ 0 (
     echo ERROR: vcvarsall failed
     exit /b 1
 )
@@ -120,7 +120,7 @@ cmake .. ^
   -DFETCHCONTENT_BASE_DIR="%FETCHCONTENT_BASE_DIR%" ^
   -DCMAKE_CUDA_COMPILER="%NVCC%"
 
-if errorlevel 1 (
+if %ERRORLEVEL% NEQ 0 (
     echo ERROR: CMake configure failed
     exit /b 1
 )
@@ -155,7 +155,7 @@ REM multi-config generator), an un---config'd build silently resolves to Debug
 REM and dies with /RTC1 + /O2 -> D8016. Bit the pkg152 verifier 2026-07-25;
 REM see memory build-cuda-worktree-debug-config.
 cmake --build . --config Release --target astroray
-if errorlevel 1 (
+if %ERRORLEVEL% NEQ 0 (
     echo ERROR: Build failed
     exit /b 1
 )
@@ -165,7 +165,7 @@ REM astroray target. tests/test_pkg92_wavefront_rng.py and
 REM test_pkg92_practrand_gate.py import it; without this step they fail with a
 REM spurious ModuleNotFoundError that looks like a code regression.
 cmake --build . --config Release --target astroray_test_helpers
-if errorlevel 1 (
+if %ERRORLEVEL% NEQ 0 (
     echo ERROR: astroray_test_helpers build failed
     exit /b 1
 )
@@ -175,7 +175,7 @@ where python >nul 2>&1 || goto :pkg183_post_skip
 python "%REPO_ROOT%\scripts\build\build_guard.py" write --repo-root "%REPO_ROOT%" --build-dir "%CD%" --sha %ACTUAL_SHA%
 echo [build_cuda_worktree] pkg183: verifying built CUDA arch (cuobjdump ground truth)...
 python "%REPO_ROOT%\scripts\build\build_guard.py" arch-verify --pyd-dir "%CD%"
-if errorlevel 1 (
+if %ERRORLEVEL% NEQ 0 (
     echo ====================================================================
     echo ERROR [pkg183]: CUDA ARCH GATE FAILED -- the built .pyd targets the
     echo wrong GPU arch ^(stale/shadowed CMAKE_CUDA_ARCHITECTURES^). Resource/perf
@@ -186,7 +186,7 @@ if errorlevel 1 (
 )
 echo [build_cuda_worktree] pkg183: running host-only ABI canary (no GPU)...
 python "%REPO_ROOT%\scripts\build\build_guard.py" canary --repo-root "%REPO_ROOT%" --build-dir "%CD%"
-if errorlevel 1 (
+if %ERRORLEVEL% NEQ 0 (
     echo ====================================================================
     echo ERROR [pkg183]: ABI CANARY FAILED -- this is NOT a compile/link error.
     echo The freshly built astroray.pyd crashed on a host-only lambertian

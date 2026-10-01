@@ -53,6 +53,7 @@ __constant__ GWorldVolume c_worldVolume;
 __constant__ GWavefrontGridVolumeBinding c_wfGridVolume = {};
 __constant__ GWavefrontEnvNeeBinding c_wfEnvNeeBinding = {};
 __constant__ GWavefrontPrimaryClip c_wfPrimaryClip = {};
+__constant__ GWavefrontHwHitBinding c_wfHwHits = {};   // pkg299
 __constant__ int c_wfLightNeeOff = 0;
 __constant__ GWavefrontLightPassBinding c_wfLpBinding;
 __constant__ int c_wfBounceLimit[3] = { -1, -1, -1 };
@@ -115,7 +116,8 @@ __device__ int intersectPathSlot(
 // identical); <*, true> walks transparent occluders and attenuates the NEE
 // contribution by the accumulated transmittance.
 template<bool HasCurves = false, bool HasAlphaShadow = false,
-         bool HasGridVolume = false>  // pkg269 — bounded-media isolation axis
+         bool HasGridVolume = false,  // pkg269 — bounded-media isolation axis
+         bool HwOcc = false>  // pkg299 — occlusion traced by the OptiX shadow launch
 __global__ void stageShadowKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -181,6 +183,11 @@ __global__ void stageShadowKernel(
             s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
             materials, time, motionVerts, curves, &occ.frontFace);
         if (shadowTr <= 0.0f) return;
+    } else if constexpr (HwOcc) {
+        // pkg299: __raygen__shadow traced [0.001, maxDist] any-hit, the triangle
+        // branch of gpu_nee_occlude. HwOcc scenes carry no sphere lights (the
+        // driver's triangle-only gate), so the reach-the-sphere branch never applies.
+        if (c_wfHwHits.occluded[idx]) return;
     } else {
         occ = gpu_nee_occlude<HasCurves>(
             s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
@@ -342,7 +349,7 @@ __global__ void stageShadowKernel(
 // the SAME spectral lookup the miss leg uses (gpu_env_miss_spectral); everything
 // else (throughput*f*wt/envPdf) was prefolded at shade time. Not register-critical.
 // No-op when envShadowCount is 0 (env NEE off / no HDRI).
-template<bool HasCurves = false>
+template<bool HasCurves = false, bool HwOcc = false>  // pkg299 HwOcc: OptiX occlusion
 __global__ void stageEnvShadowKernel(
     GPUWavefrontState state,
     const GTLASNode*  tlas,
@@ -373,11 +380,15 @@ __global__ void stageEnvShadowKernel(
     s.lightMatId = -1;
     s.valid   = 1;
 
-    float time = state.path_time[idx];
-    GNEEOcclusion occ = gpu_nee_occlude<HasCurves>(
-        s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
-        time, motionVerts, curves);
-    if (occ.occluded) return;
+    if constexpr (HwOcc) {
+        if (c_wfHwHits.occluded[idx]) return;   // pkg299: __raygen__shadow, tMax 1e30
+    } else {
+        float time = state.path_time[idx];
+        GNEEOcclusion occ = gpu_nee_occlude<HasCurves>(
+            s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
+            time, motionVerts, curves);
+        if (occ.occluded) return;
+    }
 
     // pkg258 (Terra item 10): use the wavelength state PARKED with the record
     // (generate-time lambdas), NOT state.lambda_*[idx] — a dispersive refraction
@@ -452,7 +463,8 @@ __global__ void stageQueueIotaKernel(int* queue, int* count, int n)
 // ---------------------------------------------------------------------------
 template<bool HasWorldScatter, bool HasLightPassAOVs = false,
          bool HasCurves = false,   // pkg225 Stage 3 — curve-leaf isolation axis
-         bool HasGridVolume = false>  // pkg269 — bounded-media isolation axis
+         bool HasGridVolume = false,  // pkg269 — bounded-media isolation axis
+         bool HwHits = false>  // pkg299 — hits from the OptiX closest-hit launch
 __global__ void stageIntersectQueuedKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -499,7 +511,7 @@ __global__ void stageIntersectQueuedKernel(
     // queue where exhausted slots stay dead.
     if (state.path_alive[idx] == 0) return;
     int matType = intersectPathSlotT<HasWorldScatter, HasLightPassAOVs, HasCurves,
-                                     HasGridVolume>(
+                                     HasGridVolume, HwHits>(
                                     idx, state, hitBufs, tlas, instances, blas,
                                     bvhNodes, prims, tris, spheres, motionVerts,
                                     materials, envMap, backgroundColor,
@@ -570,7 +582,8 @@ void launchStageIntersectQueued(
     bool has_light_pass_aovs,             // pkg198 Stage 2: picks the pass-AOV axis
     const GCurveSegment* d_curveSegments, // pkg225 Stage 3 (nullptr = no curves)
     int* d_grid_queue, int* d_grid_count, // pkg269 (nullptr = no bounded media)
-    bool has_grid_volume)                 // pkg269: picks the bounded-media axis
+    bool has_grid_volume,                 // pkg269: picks the bounded-media axis
+    bool hw_hits)                         // pkg299: hits precomputed by OptiX
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -619,7 +632,17 @@ void launchStageIntersectQueued(
                  sel == 2 ? (const void*)stageIntersectQueuedKernel<true, false, false, G> : \
                  sel == 1 ? (const void*)stageIntersectQueuedKernel<false, true, false, G> : \
                             (const void*)stageIntersectQueuedKernel<false, false, false, G>))
-        const void* kptr = has_grid_volume ? ASTRORAY_PKG269_KSEL(true) : ASTRORAY_PKG269_KSEL(false);
+        // pkg299: the HwHits axis exists only for curve-free scenes (OptiX
+        // traversal is triangle-only), so it adds 8 instantiations, not 16.
+        #define ASTRORAY_PKG299_KSEL(G) \
+                (sel == 3 ? (const void*)stageIntersectQueuedKernel<true, true, false, G, true>  : \
+                 sel == 2 ? (const void*)stageIntersectQueuedKernel<true, false, false, G, true> : \
+                 sel == 1 ? (const void*)stageIntersectQueuedKernel<false, true, false, G, true> : \
+                            (const void*)stageIntersectQueuedKernel<false, false, false, G, true>)
+        const bool hw = hw_hits && !hc;
+        const void* kptr = hw ? (has_grid_volume ? ASTRORAY_PKG299_KSEL(true) : ASTRORAY_PKG299_KSEL(false))
+                              : (has_grid_volume ? ASTRORAY_PKG269_KSEL(true) : ASTRORAY_PKG269_KSEL(false));
+        #undef ASTRORAY_PKG299_KSEL
         #undef ASTRORAY_PKG269_KSEL
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_intersect_queued_n7", kptr, blocks, threads);
@@ -639,7 +662,17 @@ void launchStageIntersectQueued(
                     default:stageIntersectQueuedKernel<false, false, false, G><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break; \
                 } \
             }
-        if (has_grid_volume) { ASTRORAY_PKG269_LAUNCH(true) } else { ASTRORAY_PKG269_LAUNCH(false) }
+        #define ASTRORAY_PKG299_LAUNCH(G) \
+            switch (sel) { \
+                case 3: stageIntersectQueuedKernel<true, true, false, G, true> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break; \
+                case 2: stageIntersectQueuedKernel<true, false, false, G, true><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break; \
+                case 1: stageIntersectQueuedKernel<false, true, false, G, true> <<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break; \
+                default:stageIntersectQueuedKernel<false, false, false, G, true><<<blocks, threads>>>(ASTRORAY_PKG199_INTERSECT_ARGS); break; \
+            }
+        if (hw) {
+            if (has_grid_volume) { ASTRORAY_PKG299_LAUNCH(true) } else { ASTRORAY_PKG299_LAUNCH(false) }
+        } else if (has_grid_volume) { ASTRORAY_PKG269_LAUNCH(true) } else { ASTRORAY_PKG269_LAUNCH(false) }
+        #undef ASTRORAY_PKG299_LAUNCH
         #undef ASTRORAY_PKG269_LAUNCH
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
@@ -1339,7 +1372,8 @@ void launchStageShadow(
     const GCurveSegment* d_curveSegments,  // pkg225 Stage 3 (nullptr = no curves)
     bool              hasAlphaShadow,  // pkg253 (scene has a Principled alpha<1)
     bool              hasGridVolume,   // pkg269 (bounded media present)
-    bool              volSegment)      // #929: volume-segment direct-light records
+    bool              volSegment,      // #929: volume-segment direct-light records
+    bool              hw_occ)          // pkg299: occlusion from c_wfHwHits.occluded
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -1359,8 +1393,13 @@ void launchStageShadow(
                                   : (const void*)stageShadowKernel<true,  false, G>) \
                 : (hasAlphaShadow ? (const void*)stageShadowKernel<false, true,  G> \
                                   : (const void*)stageShadowKernel<false, false, G>))
-        const void* kfn = hasGridVolume ? ASTRORAY_PKG269_SHADOW_KFN(true)
-                                        : ASTRORAY_PKG269_SHADOW_KFN(false);
+        // pkg299: HwOcc only for the binary-occlusion, curve-free kernels (the
+        // transparent-shadow walk stays on the software BVH): 2 instantiations.
+        const bool hw = hw_occ && !hc && !hasAlphaShadow;
+        const void* kfn = hw ? (hasGridVolume ? (const void*)stageShadowKernel<false, false, true, true>
+                                              : (const void*)stageShadowKernel<false, false, false, true>)
+                             : hasGridVolume ? ASTRORAY_PKG269_SHADOW_KFN(true)
+                                             : ASTRORAY_PKG269_SHADOW_KFN(false);
         #undef ASTRORAY_PKG269_SHADOW_KFN
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_shadow_n7", kfn, blocks, threads);
@@ -1379,7 +1418,10 @@ void launchStageShadow(
                 if (hasAlphaShadow) stageShadowKernel<false, true,  G><<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS); \
                 else                stageShadowKernel<false, false, G><<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS); \
             }
-        if (hasGridVolume) { ASTRORAY_PKG269_SHADOW_LAUNCH(true) } else { ASTRORAY_PKG269_SHADOW_LAUNCH(false) }
+        if (hw) {
+            if (hasGridVolume) stageShadowKernel<false, false, true, true> <<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS);
+            else               stageShadowKernel<false, false, false, true><<<blocks, threads>>>(ASTRORAY_PKG225_SHADOW_ARGS);
+        } else if (hasGridVolume) { ASTRORAY_PKG269_SHADOW_LAUNCH(true) } else { ASTRORAY_PKG269_SHADOW_LAUNCH(false) }
         #undef ASTRORAY_PKG269_SHADOW_LAUNCH
         #undef ASTRORAY_PKG225_SHADOW_ARGS
         cudaError_t err = cudaGetLastError();
@@ -1411,6 +1453,12 @@ void setWavefrontPrimaryClip(const GWavefrontPrimaryClip& clip)
     cudaMemcpyToSymbol(c_wfPrimaryClip, &clip, sizeof(GWavefrontPrimaryClip));
 }
 
+// pkg299 - publish the OptiX hardware-traversal side buffers.
+void setWavefrontHwHitBinding(const GWavefrontHwHitBinding& binding)
+{
+    cudaMemcpyToSymbol(c_wfHwHits, &binding, sizeof(GWavefrontHwHitBinding));
+}
+
 // pkg258 - env NEE shadow-resolve launch (twin of launchStageShadow). Reads the
 // env queue / arrays / HDRI from c_wfEnvNeeBinding, so only geometry pointers are
 // passed. The kernel early-outs on an empty queue, so calling it every pass with
@@ -1427,19 +1475,23 @@ void launchStageEnvShadow(
     const GVec3*      d_motionVerts,
     bool              useLuminanceOutput,
     float             clampDirect, float clampIndirect,
-    const GCurveSegment* d_curves)
+    const GCurveSegment* d_curves,
+    bool              hw_occ)          // pkg299: occlusion from c_wfHwHits.occluded
 {
     if (state.num_active <= 0) return;
     int threads = 256;
     int blocks  = (state.num_active + threads - 1) / threads;
     const bool hc = (d_curves != nullptr);
+    const bool hw = hw_occ && !hc;
     astroray::gpu_profile::ScopedTimer _t(
         "wavefront_stage_env_shadow_pkg258",
-        hc ? (const void*)stageEnvShadowKernel<true> : (const void*)stageEnvShadowKernel<false>,
+        hw ? (const void*)stageEnvShadowKernel<false, true>
+           : hc ? (const void*)stageEnvShadowKernel<true> : (const void*)stageEnvShadowKernel<false>,
         blocks, threads);
     #define ASTRORAY_PKG258_ENV_SHADOW_ARGS         state, d_tlas, d_instances, d_blas,         d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts,         useLuminanceOutput, clampDirect, clampIndirect, d_curves
-    if (hc) stageEnvShadowKernel<true> <<<blocks, threads>>>(ASTRORAY_PKG258_ENV_SHADOW_ARGS);
-    else    stageEnvShadowKernel<false><<<blocks, threads>>>(ASTRORAY_PKG258_ENV_SHADOW_ARGS);
+    if (hw)      stageEnvShadowKernel<false, true><<<blocks, threads>>>(ASTRORAY_PKG258_ENV_SHADOW_ARGS);
+    else if (hc) stageEnvShadowKernel<true> <<<blocks, threads>>>(ASTRORAY_PKG258_ENV_SHADOW_ARGS);
+    else         stageEnvShadowKernel<false><<<blocks, threads>>>(ASTRORAY_PKG258_ENV_SHADOW_ARGS);
     #undef ASTRORAY_PKG258_ENV_SHADOW_ARGS
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {

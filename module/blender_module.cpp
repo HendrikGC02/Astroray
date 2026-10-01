@@ -59,6 +59,7 @@
 #  include "astroray/gpu_photon_store.h"   // pkg113 Phase 1 — GPU photon store query
 #  include "astroray/gpu_photon_emit.h"    // pkg113 Phase 2 — GPU photon emission/bounce
 #  include "astroray/gpu_tlas_parity.h"    // pkg114 inc 1 — two-level BVH identity parity probe
+#  include "astroray/gpu_optix_traversal.h" // pkg299 — OptiX traversal fixed-ray A/B probe
 #  ifdef ASTRORAY_WAVEFRONT_CUDA_N3
 #    include "../src/gpu/wavefront/gpu_wavefront_snapshot.h"
 #  endif
@@ -530,6 +531,7 @@ class PyRenderer {
     // #828: grid buffers copied host->device by the last GPU render (0 = the
     // device grid cache served it; always 0 on the CPU path).
     int lastRenderInfoGridUploads_ = 0;
+    bool lastRenderInfoOptix_ = false;  // pkg299: last GPU render used OptiX traversal
     // pkg89 Phase B: IES profile cache (shared_ptr keeps profiles alive).
     std::unordered_map<std::string, std::shared_ptr<IESProfile>> iesProfiles_;
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -2667,6 +2669,8 @@ public:
                 lastRenderInfoCancelledAtUnit_ = gpuCancelledAtUnit;
                 lastRenderInfoGridUploads_ =
                     astroray::wavefront::cuda_wavefront_last_grid_uploads();  // #828
+                lastRenderInfoOptix_ =
+                    astroray::wavefront::cuda_wavefront_last_traversal() != 0;  // pkg299
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],
@@ -2770,6 +2774,7 @@ public:
             lastRenderInfoUnitsLaunched_ = 0;
             lastRenderInfoCancelledAtUnit_ = -1;
             lastRenderInfoGridUploads_ = 0;  // #828
+            lastRenderInfoOptix_ = false;    // pkg299
         }
         if (callbackError) std::rethrow_exception(callbackError);
 
@@ -2823,6 +2828,9 @@ public:
         // #828: grid buffers copied host->device by the last GPU render
         // (NanoVDB density + dense temperature); 0 = served by the grid cache.
         d["grid_uploads"] = lastRenderInfoGridUploads_;
+        // pkg299: "optix" when the last GPU render traced with OptiX hardware
+        // traversal, else "software" (the CPU BVH flattened to the device).
+        d["gpu_traversal"] = lastRenderInfoOptix_ ? "optix" : "software";
         // pkg298: wall ms of the most recent CPU BVH build (a cached render
         // leaves it unchanged; compare get_scene_stats()["bvh_build_count"]).
         d["bvh_build_ms"] = renderer.getBvhBuildMs();
@@ -4722,6 +4730,47 @@ PYBIND11_MODULE(astroray, m) {
           "max_neighbors"_a = 256,
           "pkg113 Phase 1: build the GPU photon hash grid and gather at each "
           "query. Returns [(irradiance(3), neighbor_indices, found_count), ...].");
+
+#ifdef ASTRORAY_OPTIX_TRAVERSAL
+    // pkg299 — fixed-ray A/B: the same rays through the software BVH and through
+    // OptiX hardware traversal (+ the intersect stage's hit reconstruction).
+    // Triangle-only scenes. Validated by tests/test_pkg299_optix_traversal.py.
+    m.def("_gpu_optix_ray_ab",
+          [](PyRenderer& r,
+             py::array_t<float, py::array::c_style | py::array::forcecast> origins,
+             py::array_t<float, py::array::c_style | py::array::forcecast> dirs,
+             py::array_t<float, py::array::c_style | py::array::forcecast> tmax,
+             bool shadow) {
+              const int n = static_cast<int>(tmax.size());
+              if (origins.size() != 3 * tmax.size() || dirs.size() != 3 * tmax.size())
+                  throw std::runtime_error("origins/dirs must be (N, 3) and tmax (N,)");
+              r.getRenderer().buildAcceleration();
+              auto res = astroray::optix_trav::cuda_optix_ray_ab(
+                  r.getRenderer(), origins.data(), dirs.data(), tmax.data(), n, shadow);
+              auto ai = [](const std::vector<int>& v) {
+                  return py::array_t<int>(static_cast<py::ssize_t>(v.size()), v.data());
+              };
+              auto af = [](const std::vector<float>& v) {
+                  return py::array_t<float>(static_cast<py::ssize_t>(v.size()), v.data());
+              };
+              py::dict d;
+              if (shadow) {
+                  d["sw_occluded"] = ai(res.swOccluded);
+                  d["hw_occluded"] = ai(res.hwOccluded);
+              } else {
+                  d["sw_hit"] = ai(res.swHit);   d["hw_hit"] = ai(res.hwHit);
+                  d["sw_t"] = af(res.swT);       d["hw_t"] = af(res.hwT);
+                  d["sw_prim"] = ai(res.swPrim); d["hw_prim"] = ai(res.hwPrim);
+                  d["point_delta"] = af(res.dPoint);
+                  d["normal_delta"] = af(res.dNormal);
+                  d["same_front_face"] = ai(res.sameFace);
+                  d["same_material"] = ai(res.sameMat);
+              }
+              return d;
+          },
+          "renderer"_a, "origins"_a, "dirs"_a, "tmax"_a, "shadow"_a = false,
+          "pkg299: fixed-ray A/B of the software BVH vs OptiX hardware traversal.");
+#endif
 
     // pkg114 increment 1 — two-level BVH (TLAS-over-BLAS) identity-passthrough
     // parity probe. Builds a single identity instance (one BLAS = the whole

@@ -1,0 +1,197 @@
+{
+  "schema": "astroray.pkg298.cornell_pair.v1",
+  "generated_utc": "2026-09-29T23:34:02Z",
+  "git_sha": "5ba2b67d",
+  "gpu": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "nvidia_smi": [
+      "NVIDIA GeForce RTX 5070 Ti, 616.56, 16303 MiB"
+    ]
+  },
+  "args": {
+    "cornell_pair": true,
+    "devices": "gpu",
+    "res": 1024,
+    "spp": 256,
+    "depth": 8,
+    "calls": 4,
+    "repeats": 3,
+    "skip_full": false,
+    "pool": false,
+    "cycles": false,
+    "blender": "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe",
+    "out": "test_results\\perf\\optix-traversal\\pair_optix.json",
+    "traversal": "optix"
+  },
+  "fixed_cost": [
+    {
+      "calls": [
+        {
+          "wall_s": 0.35384589999739546,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 0.0168
+        },
+        {
+          "wall_s": 0.005556699994485825,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 0.0168
+        },
+        {
+          "wall_s": 0.0052133999997749925,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 0.0168
+        },
+        {
+          "wall_s": 0.004719799995655194,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 0.0168
+        }
+      ],
+      "triangles": 12,
+      "module": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-ap-299\\build_cuda\\astroray.cp313-win_amd64.pyd",
+      "gpu_traversal": "optix",
+      "engine": "astroray",
+      "scene": "simple",
+      "device": "gpu",
+      "res": 16,
+      "spp": 1,
+      "depth": 8,
+      "stderr_tail": "[astroray-profile] wrote C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-ap-299\\test_results\\_runs\\perf\\cornell-pair\\profile\\fixed_simple_gpu.json (10 kernels)\n",
+      "kernel_sum_ms": 22.028321,
+      "host_ms": {
+        "host:buildSceneArrays": 0.1281,
+        "host:optixAccelBuild": 113.5911,
+        "host:sceneUpload": 118.9381
+      },
+      "first_s": 0.35384589999739546,
+      "warm_min_s": 0.004719799995655194
+    },
+    {
+      "calls": [
+        {
+          "wall_s": 1.730901000002632,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 611.5624
+        },
+        {
+          "wall_s": 0.7570895999961067,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 611.5624
+        },
+        {
+          "wall_s": 0.7558711000019684,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 611.5624
+        },
+        {
+          "wall_s": 0.7748113000125159,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 611.5624
+        }
+      ],
+      "triangles": 2000012,
+      "module": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-ap-299\\build_cuda\\astroray.cp313-win_amd64.pyd",
+      "gpu_traversal": "optix",
+      "engine": "astroray",
+      "scene": "heavy",
+      "device": "gpu",
+      "res": 16,
+      "spp": 1,
+      "depth": 8,
+      "stderr_tail": "[astroray-profile] wrote C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-ap-299\\test_results\\_runs\\perf\\cornell-pair\\profile\\fixed_heavy_gpu.json (10 kernels)\n",
+      "kernel_sum_ms": 11.058240000000001,
+      "host_ms": {
+        "host:buildSceneArrays": 2891.1718,
+        "host:optixAccelBuild": 143.9563,
+        "host:sceneUpload": 294.341
+      },
+      "first_s": 1.730901000002632,
+      "warm_min_s": 0.7558711000019684
+    }
+  ],
+  "full": [
+    {
+      "calls": [
+        {
+          "wall_s": 12.319061100002727,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 0.018
+        },
+        {
+          "wall_s": 12.080897399995592,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 0.018
+        },
+        {
+          "wall_s": 12.010111299998243,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 0.018
+        },
+        {
+          "wall_s": 12.33021239998925,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 0.018
+        }
+      ],
+      "triangles": 12,
+      "module": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-ap-299\\build_cuda\\astroray.cp313-win_amd64.pyd",
+      "gpu_traversal": "optix",
+      "engine": "astroray",
+      "scene": "simple",
+      "device": "gpu",
+      "res": 1024,
+      "spp": 256,
+      "depth": 8,
+      "stderr_tail": "[astroray] wavefront path pool 1720320 slots (1048576 pixels, budget cap 3849472 slots, ~3360 MB)\n[astroray-profile] wrote C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-ap-299\\test_results\\_runs\\perf\\cornell-pair\\profile\\full_simple_gpu.json (10 kernels)\n",
+      "kernel_sum_ms": 46567.211486,
+      "host_ms": {
+        "host:buildSceneArrays": 0.1558,
+        "host:optixAccelBuild": 101.9272,
+        "host:sceneUpload": 104.9942
+      },
+      "warm_min_s": 12.010111299998243
+    },
+    {
+      "calls": [
+        {
+          "wall_s": 15.84116759999597,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 1330.1325
+        },
+        {
+          "wall_s": 13.73701820000133,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 1330.1325
+        },
+        {
+          "wall_s": 13.745596900000237,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 1330.1325
+        },
+        {
+          "wall_s": 14.343496600005892,
+          "bvh_build_count": 1,
+          "bvh_build_ms": 1330.1325
+        }
+      ],
+      "triangles": 2000012,
+      "module": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-ap-299\\build_cuda\\astroray.cp313-win_amd64.pyd",
+      "gpu_traversal": "optix",
+      "engine": "astroray",
+      "scene": "heavy",
+      "device": "gpu",
+      "res": 1024,
+      "spp": 256,
+      "depth": 8,
+      "stderr_tail": "[astroray] wavefront path pool 1720320 slots (1048576 pixels, budget cap 3849472 slots, ~3360 MB)\n[astroray-profile] wrote C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-ap-299\\test_results\\_runs\\perf\\cornell-pair\\profile\\full_heavy_gpu.json (10 kernels)\n",
+      "kernel_sum_ms": 49553.534906,
+      "host_ms": {
+        "host:buildSceneArrays": 3070.7602,
+        "host:optixAccelBuild": 243.3788,
+        "host:sceneUpload": 408.3606
+      },
+      "warm_min_s": 13.73701820000133
+    }
+  ],
+  "pool": []
+}

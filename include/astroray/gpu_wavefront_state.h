@@ -347,7 +347,15 @@ void launchStageIntersectQueued(
     // pkg269 — heterogeneous-volume queue (intersect returns -3 for a path that
     // scattered in a bounded medium) + the HasGridVolume fleet-isolation axis.
     int* d_grid_queue = nullptr, int* d_grid_count = nullptr,
-    bool has_grid_volume = false);
+    bool has_grid_volume = false,
+    // pkg299 — the OptiX closest-hit launch already wrote this pass's hits into
+    // c_wfHwHits (setWavefrontHwHitBinding); launch the <HwHits=true> kernels.
+    // Only for curve-free scenes (the driver's triangle-only gate).
+    bool hw_hits = false);
+
+// pkg299 — publish the OptiX hardware-traversal side buffers (slot-indexed t /
+// prim / barycentrics / instance / occlusion) into c_wfHwHits.
+void setWavefrontHwHitBinding(const GWavefrontHwHitBinding& binding);
 
 // pkg269 — publish the frame's bounded-media side table (grid handles +
 // Principled params) into the wavefront's __constant__ binding. Call ONCE per
@@ -517,7 +525,8 @@ void launchStageEnvShadow(
     const GVec3*      d_motionVerts,
     bool              useLuminanceOutput,
     float             clampDirect, float clampIndirect,
-    const GCurveSegment* d_curves = nullptr);
+    const GCurveSegment* d_curves = nullptr,
+    bool              hw_occ = false);   // pkg299: occlusion from c_wfHwHits.occluded
 
 // pkg201 Stage 2 (Finding F, transparent film) — publish the frame's bounce-0
 // background-miss coverage accumulator (numPixels floats, or nullptr to disable).
@@ -672,7 +681,8 @@ void launchStageShadow(
     const GCurveSegment* d_curveSegments = nullptr,  // pkg225 Stage 3
     bool              hasAlphaShadow = false,  // pkg253 (Principled alpha<1 scene)
     bool              hasGridVolume = false,  // pkg269 (bounded media: per-λ ratio-tracking Tr)
-    bool              volSegment = false);    // #929: records are volume-segment direct light
+    bool              volSegment = false,     // #929: records are volume-segment direct light
+    bool              hw_occ = false);        // pkg299: occlusion from c_wfHwHits.occluded
 
 // Session N+7 part 4: path regeneration -- dense pass accumulating dead
 // paths' radiance (atomic, per-pixel) then refilling slots from a global

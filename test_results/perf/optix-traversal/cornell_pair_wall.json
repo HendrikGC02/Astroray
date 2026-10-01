@@ -1,0 +1,41 @@
+{
+ "title": "Cornell pair, 1024^2 x 256 spp, depth 8: min of 3 after burn-in (RTX 5070 Ti)",
+ "xlabel": "scene",
+ "ylabel": "render wall time (s)",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "software BVH",
+   "x": [
+    "simple (12 tris)",
+    "heavy (2M tris)"
+   ],
+   "y": [
+    12.169332100005704,
+    23.048296399996616
+   ],
+   "role": "other"
+  },
+  {
+   "label": "OptiX traversal",
+   "x": [
+    "simple (12 tris)",
+    "heavy (2M tris)"
+   ],
+   "y": [
+    12.010111299998243,
+    13.73701820000133
+   ],
+   "role": "gpu"
+  }
+ ],
+ "band": null,
+ "ref": [
+  16.0,
+  "heavy target 16 s"
+ ],
+ "meta": {
+  "harness": "benchmarks/wavefront_baseline.py --cornell-pair --devices gpu --traversal {software,optix}",
+  "git_sha": "5ba2b67d"
+ }
+}

@@ -13,6 +13,8 @@
 #include "astroray/spectrum.h"  // Session N+6: SampledSpectrum/XYZ host accumulation
 #include "astroray/cryptomatte.h"  // pkg159: crypto_sort_ranks for the copy-back post
 #include "../profile.h"          // pkg298: host flatten/upload timers
+#include "astroray/gpu_optix_traversal.h"  // pkg299: OptiX hardware traversal
+#include "../optix/optix_launch_params.h"   // pkg299: ClosestLaunch / ShadowLaunch
 #include <chrono>
 #include <cuda_runtime.h>
 #include <cstring>
@@ -1095,6 +1097,9 @@ struct WfContext {
     // Any host-side scene mutation that bypasses render() (the pkg56 per-domain
     // uploaders, the pkg114 TLAS refit) calls cuda_wavefront_invalidate_scene().
     SceneUploadResult cachedScene;
+    // pkg299: an OptiX accel was built for the cached scene (rebuilt on every
+    // non-reuse upload; a reuse render without one stays on the software BVH).
+    bool hwAccelForCache = false;
     bool sceneCached = false;
     bool sceneInvalidated = false;
     uint64_t cachedOwner = 0;   // sceneOwnerId of the renderer that uploaded it
@@ -1167,6 +1172,10 @@ void cuda_wavefront_invalidate_scene() {
 // #828: grid buffers uploaded by the last cuda_wavefront_render (see header).
 static int s_lastGridUploads = 0;
 int cuda_wavefront_last_grid_uploads() { return s_lastGridUploads; }
+
+// pkg299: 1 when the last cuda_wavefront_render traced with OptiX, else 0.
+static int s_lastTraversal = 0;
+int cuda_wavefront_last_traversal() { return s_lastTraversal; }
 
 // pkg55-C2 MIS audit: run stage_init + the PRODUCTION intersect+shade (deferred
 // NEE parking) for one bounce and download the shade-time MIS pdfs the wavefront
@@ -1426,7 +1435,7 @@ static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
 // #873: publish the camera clip planes for the bounce-0 hit (CPU raytracer.h
 // tMin/tMax). The binding defaults (near 0.001, far FLT_MAX) stay inactive, so
 // default renders keep the unclipped 0.001/1e30 bounds. clipFar 0 is a real bound.
-static void publishPrimaryClip(const Camera& cam)
+static GWavefrontPrimaryClip publishPrimaryClip(const Camera& cam)
 {
     GWavefrontPrimaryClip clip{};
     clip.hasFar = cam.clipFar < std::numeric_limits<float>::max() ? 1 : 0;
@@ -1436,6 +1445,7 @@ static void publishPrimaryClip(const Camera& cam)
     const Vec3 f = cam.viewForward();
     clip.fwdX = f.x; clip.fwdY = f.y; clip.fwdZ = f.z;
     setWavefrontPrimaryClip(clip);
+    return clip;
 }
 
 // pkg298: path-pool floor. A pool of width*height slots under-fills the GPU at
@@ -1576,7 +1586,7 @@ std::vector<float> cuda_wavefront_render(
     gcam.orthographic = cam.isOrthographic() ? 1 : 0;  // #845
     { Vec3 f = cam.viewForward(); gcam.forward = GVec3(f.x, f.y, f.z); }
 
-    publishPrimaryClip(cam);  // #873
+    const GWavefrontPrimaryClip primaryClip = publishPrimaryClip(cam);  // #873 (+ pkg299 raygen)
     // #877: set_light_nee(False) on the NEE path tracer = pure BSDF sampling (no
     // surface/medium light sampling, emitter hits at w_B = 1), the CPU pkg265 twin.
     // The naive multiwavelength route (enableNEE already false) is unchanged.
@@ -1870,6 +1880,53 @@ std::vector<float> cuda_wavefront_render(
         envMap.totalPower      = res.envTotalPower;
         envMap.loaded          = true;
     }
+    // pkg299 — OptiX hardware traversal for the intersect + shadow stages.
+    // Default on for triangle-only scenes (owner 2026-09-29: no spheres / curves /
+    // deformation motion; wfSync leaves those pointers null exactly when the scene
+    // has none, on upload and reuse calls alike). ASTRORAY_GPU_TRAVERSAL=software
+    // forces the software BVH (A/B reference). Devices without RT cores or a
+    // failed OptiX init / accel build fall back to the software BVH too. The
+    // software BVH stays uploaded: it is the fallback, the A/B reference, and the
+    // traversal of the photon / ReSTIR / transparent-shadow paths.
+    bool hwTrav = false;
+    astroray::optix_trav::HwHitBuffers hwBufs{};
+    {
+        const bool hwEligible = d_prims != nullptr && d_tris != nullptr &&
+                                d_spheres == nullptr && d_curveSegments == nullptr &&
+                                d_motionVerts == nullptr;
+        const bool hwWanted = hwEligible && astroray::optix_trav::requested() !=
+                                                astroray::optix_trav::Request::Software;
+        if (!reuse) {
+            C.hwAccelForCache = false;
+            if (hwWanted) {
+                const auto a0 = std::chrono::steady_clock::now();
+                C.hwAccelForCache = astroray::optix_trav::buildAccel(
+                    d_prims, (int)res.prims.size(), d_tris,
+                    res.instances.data(), (int)res.instances.size(),
+                    res.blas.data(), (int)res.blas.size());
+                if (astroray::gpu_profile::enabled())
+                    astroray::gpu_profile::Aggregator::instance().record(
+                        "host:optixAccelBuild",
+                        std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - a0).count(), 0, 0, nullptr, -1);
+            } else {
+                astroray::optix_trav::releaseAccel();
+            }
+        }
+        hwTrav = hwWanted && C.hwAccelForCache && astroray::optix_trav::accelReady();
+        if (hwTrav) {
+            try {
+                hwBufs = astroray::optix_trav::ensureBuffers(total_paths);
+                setWavefrontHwHitBinding(GWavefrontHwHitBinding{
+                    hwBufs.t, hwBufs.prim, hwBufs.u, hwBufs.v, hwBufs.inst, hwBufs.occluded});
+            } catch (const std::exception& e) {
+                std::fprintf(stderr, "%s -- GPU traversal stays on the software BVH\n", e.what());
+                (void)cudaGetLastError();
+                hwTrav = false;
+            }
+        }
+        s_lastTraversal = hwTrav ? 1 : 0;
+    }
     if (!reuse) {
         // #801: the device slices now hold this scene. Release the bulk host
         // arrays (they are rebuilt by the next non-reuse call); keep the small
@@ -1973,6 +2030,11 @@ std::vector<float> cuda_wavefront_render(
     // pkg269 — heterogeneous-medium queue (one slot per path, one counter).
     int*   d_gridQueue   = wfEnsure<int>(C.gridQueue, total_paths);
     int*   d_gridCount   = wfEnsure<int>(C.gridCount, 1);
+    // The per-pass reset runs only after the hetero stage, so the first pass of
+    // the first bounded-media render read an uninitialised counter (garbage slot
+    // -> illegal address in stage_intersect_queued once cudaMalloc handed back
+    // recycled, non-zero memory; surfaced by pkg299's accel build/free churn).
+    cudaMemset(d_gridCount, 0, sizeof(int));
     int*   d_work        = wfEnsure<int>(C.work, 1);
 
     // pkg258 - env NEE arrays + queue, allocated only when env NEE is on AND an
@@ -2334,6 +2396,23 @@ std::vector<float> cuda_wavefront_render(
                              lambdaMin, lambdaMax,
                              cout, d_shadeCounts, d_shadowCount, d_volCount,
                              useLuminanceOutput);
+            if (hwTrav) {
+                // pkg299: hardware closest hit over this pass's queue; the
+                // <HwHits=true> intersect kernel below reads the results.
+                astroray::optix_trav::ClosestLaunch cl{};
+                cl.queue = d_queueA; cl.count = d_counts + 0;
+                cl.alive = state.path_alive; cl.bounce = state.bounce;
+                cl.ox = state.ray_origin_x; cl.oy = state.ray_origin_y; cl.oz = state.ray_origin_z;
+                cl.dx = state.ray_direction_x; cl.dy = state.ray_direction_y; cl.dz = state.ray_direction_z;
+                cl.clipActive = primaryClip.active; cl.clipHasFar = primaryClip.hasFar;
+                cl.clipNear = primaryClip.nearDist; cl.clipFar = primaryClip.farDist;
+                cl.fwdX = primaryClip.fwdX; cl.fwdY = primaryClip.fwdY; cl.fwdZ = primaryClip.fwdZ;
+                cl.outT = hwBufs.t; cl.outPrim = hwBufs.prim;
+                cl.outU = hwBufs.u; cl.outV = hwBufs.v; cl.outInst = hwBufs.inst;
+                astroray::gpu_profile::ScopedTimer _t("wavefront_optix_closest", nullptr,
+                                                      state.num_active, 1);
+                astroray::optix_trav::traceClosest(cl, state.num_active);
+            }
             launchStageIntersectQueued(state, hitBufs, d_queueA, d_counts + 0,
                                        d_shadeQueues, d_shadeCounts,
                                        total_paths,
@@ -2359,7 +2438,8 @@ std::vector<float> cuda_wavefront_render(
                                            renderer.getWorldVolumeScatter() > 0.0f,
                                        passesOn,   // pkg198 Stage 2 pass-AOV axis
                                        d_curveSegments,  // pkg225 Stage 3
-                                       d_gridQueue, d_gridCount, hasGridVolume);  // pkg269
+                                       d_gridQueue, d_gridCount, hasGridVolume,  // pkg269
+                                       hwTrav);  // pkg299
             // pkg199 Stage 2 — dedicated volume-scatter stage, between intersect
             // and shade. Drains the volume queue (scattered slots), parks the
             // phase NEE into the shared nee/shadow lanes, and requeues survivors
@@ -2418,6 +2498,19 @@ std::vector<float> cuda_wavefront_render(
                                      passesOn,  // pkg198 Stage 2 pass-AOV axis
                                      res.hasProgram,  // pkg219b per-texel op-VM axis
                                      res.hasNormalPerturb);  // pkg223 normal-map axis
+            // pkg299: hardware any-hit occlusion for the binary-shadow kernels
+            // (the transparent-shadow walk stays on the software BVH).
+            const bool hwOcc = hwTrav && !res.hasAlphaShadow;
+            auto traceShadowHw = [&](const int* q, const int* cnt, const float* f,
+                                     int cap, int maxDistLane) {
+                astroray::optix_trav::ShadowLaunch sl{};
+                sl.queue = q; sl.count = cnt; sl.f = f; sl.cap = cap;
+                sl.maxDistLane = maxDistLane; sl.outOccluded = hwBufs.occluded;
+                astroray::gpu_profile::ScopedTimer _t("wavefront_optix_shadow", nullptr,
+                                                      state.num_active, 1);
+                astroray::optix_trav::traceShadow(sl, state.num_active);
+            };
+            if (hwOcc) traceShadowHw(d_shadowQueue, d_shadowCount, d_neeF, total_paths, 6);
             launchStageShadow(state, hitBufs, d_neeF, d_neeI,
                               d_shadowQueue, d_shadowCount, total_paths,
                               d_tlas, d_instances, d_blas,  // pkg55-C4
@@ -2427,12 +2520,18 @@ std::vector<float> cuda_wavefront_render(
                               clampDirect, clampIndirect,  // pkg157
                               d_curveSegments,  // pkg225 Stage 3 — curve shadows
                               res.hasAlphaShadow,  // pkg253 — transparent shadows
-                              hasGridVolume);      // pkg269 — bounded-media Tr axis
+                              hasGridVolume,       // pkg269 — bounded-media Tr axis
+                              /*volSegment=*/false, hwOcc);  // pkg299
             // #929: resolve the per-segment volume direct-light records the
             // intersect stage parked (block 0 bounded media, block 1 world fog),
             // then zero their counters for the next pass.
             if (segmentNee) {
-                for (int kind = 0; kind < 2; ++kind)
+                for (int kind = 0; kind < 2; ++kind) {
+                    if (hwOcc)
+                        traceShadowHw(reinterpret_cast<int*>(C.segShadowQueue.ptr) + size_t(kind) * total_paths,
+                                      reinterpret_cast<int*>(C.segShadowCount.ptr) + kind,
+                                      reinterpret_cast<float*>(C.segNeeF.ptr) + size_t(kind) * G_WF_NEE_F_LANES * total_paths,
+                                      total_paths, 6);
                     launchStageShadow(state, hitBufs,
                                       reinterpret_cast<float*>(C.segNeeF.ptr) + size_t(kind) * G_WF_NEE_F_LANES * total_paths,
                                       reinterpret_cast<int*>(C.segNeeI.ptr) + size_t(kind) * G_WF_NEE_I_LANES * total_paths,
@@ -2444,16 +2543,23 @@ std::vector<float> cuda_wavefront_render(
                                       useLuminanceOutput,
                                       clampDirect, clampIndirect,
                                       d_curveSegments, res.hasAlphaShadow,
-                                      hasGridVolume, /*volSegment=*/true);
+                                      hasGridVolume, /*volSegment=*/true, hwOcc);
+                }
                 cudaMemsetAsync(reinterpret_cast<int*>(C.segShadowCount.ptr), 0, 2 * sizeof(int));
             }
             // pkg258: resolve env NEE records parked by the shade stage this pass
             // (independent additive strategy; no-op when env NEE off / no HDRI).
-            if (envNeeOn)
+            if (envNeeOn) {
+                // pkg299: env NEE shadow rays run to the 1e30 occlusion sentinel.
+                if (hwTrav)
+                    traceShadowHw(d_envShadowQueue, d_envShadowCount, d_envNeeF,
+                                  total_paths, /*maxDistLane: 1e30*/ -1);
                 launchStageEnvShadow(state, d_tlas, d_instances, d_blas,
                                      d_bvhNodes, d_prims, d_tris, d_spheres,
                                      d_motionVerts, useLuminanceOutput,
-                                     clampDirect, clampIndirect, d_curveSegments);
+                                     clampDirect, clampIndirect, d_curveSegments,
+                                     hwTrav);  // pkg299
+            }
             if (waves == 1) continue;  // fixed pass count, no readbacks
             if (workExhausted) {
                 if (--drainLeft <= 0) break;

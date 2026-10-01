@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** open
+**Status:** in-progress — Phase 0+1 + default-on (2026-09-30): heavy Cornell 23.05 s -> 13.74 s; Phase 2 and #1001 follow-ups open
 **Estimated effort:** 6 sessions (~18 h): Phase 0 1, Phase 1 2, Phase 2 2, Phase 3 1
 **Depends on:** pkg298, pkg114, pkg225, pkg88
 
@@ -170,13 +170,14 @@ The OptiX SDK dependency already exists, optionally, for the denoiser (pkg70).
 
 ## Progress
 
-- [ ] Phase 0: triangle GAS + closest-hit stage, fixed-ray A/B
-- [ ] Phase 1: shadow and env-shadow stages
+- [x] Phase 0: triangle GAS + closest-hit stage, fixed-ray A/B
+- [x] Phase 1: shadow and env-shadow stages (segment-NEE shadows too; transparent-shadow walk stays software, #1001)
 - [ ] Phase 2: spheres, curves, motion
-- [ ] Phase 3: default on + fallback switch
+- [ ] Phase 3: default on + fallback switch — default on for triangle-only scenes and `ASTRORAY_GPU_TRAVERSAL=software` landed with Phase 1 (owner 2026-09-29); TTFS (CPU BVH off the GPU path) and IAS refit open in #1001
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- Phase 0/1 (2026-09-30): the fixed-ray A/B on the 2M-triangle Cornell found a software bug, not an OptiX one. Möller–Trumbore's absolute `|det| < 1e-6` drops small or grazing triangles (217/1M closest-hit rays, 0.6 % of shadow rays leak), filed as #1000. The mesh Cornell agrees 100 %.
+- OptiX's accel build/free churn exposed an uninitialised pkg269 queue counter (`d_gridCount`): the first bounded-media render faulted. Allocation patterns change when a new GPU allocator user arrives, so run the full `-m gpu` sweep, not only the package tests.

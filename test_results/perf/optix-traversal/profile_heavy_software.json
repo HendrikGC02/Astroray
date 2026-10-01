@@ -1,0 +1,96 @@
+{
+  "schema": "astroray.profile.v1",
+  "kernels": {
+    "host:buildSceneArrays": {
+      "count": 2,
+      "mean_ms": 757.215350,
+      "min_ms": 707.723600,
+      "max_ms": 806.707100,
+      "sum_ms": 1514.430700,
+      "regs_per_thread": -1,
+      "shared_mem_bytes": -1,
+      "max_threads_per_block": -1,
+      "active_blocks_per_sm": -1,
+      "launch_threads": -1,
+      "launch_blocks": -1
+    },
+    "host:sceneUpload": {
+      "count": 2,
+      "mean_ms": 39.921850,
+      "min_ms": 35.770300,
+      "max_ms": 44.073400,
+      "sum_ms": 79.843700,
+      "regs_per_thread": -1,
+      "shared_mem_bytes": -1,
+      "max_threads_per_block": -1,
+      "active_blocks_per_sm": -1,
+      "launch_threads": -1,
+      "launch_blocks": -1
+    },
+    "wavefront_stage_intersect_queued_n7": {
+      "count": 1584,
+      "mean_ms": 11.152999,
+      "min_ms": 0.075968,
+      "max_ms": 13.126496,
+      "sum_ms": 17666.350704,
+      "regs_per_thread": 144,
+      "shared_mem_bytes": 0,
+      "max_threads_per_block": 384,
+      "active_blocks_per_sm": 1,
+      "launch_threads": 256,
+      "launch_blocks": 6720
+    },
+    "wavefront_stage_regen_n7": {
+      "count": 1586,
+      "mean_ms": 1.797975,
+      "min_ms": 0.573312,
+      "max_ms": 2.033536,
+      "sum_ms": 2851.589088,
+      "regs_per_thread": 108,
+      "shared_mem_bytes": 0,
+      "max_threads_per_block": 512,
+      "active_blocks_per_sm": 2,
+      "launch_threads": 256,
+      "launch_blocks": 6720
+    },
+    "wavefront_stage_shade_bucketed_n7": {
+      "count": 1584,
+      "mean_ms": 11.079903,
+      "min_ms": 3.716800,
+      "max_ms": 16.771200,
+      "sum_ms": 17550.565925,
+      "regs_per_thread": 254,
+      "shared_mem_bytes": 0,
+      "max_threads_per_block": 256,
+      "active_blocks_per_sm": 1,
+      "launch_threads": 256,
+      "launch_blocks": 47040
+    },
+    "wavefront_stage_shadow_n7": {
+      "count": 1584,
+      "mean_ms": 3.930578,
+      "min_ms": 0.010272,
+      "max_ms": 5.357696,
+      "sum_ms": 6226.036134,
+      "regs_per_thread": 114,
+      "shared_mem_bytes": 0,
+      "max_threads_per_block": 512,
+      "active_blocks_per_sm": 2,
+      "launch_threads": 256,
+      "launch_blocks": 6720
+    },
+    "wavefront_stage_volume_scatter": {
+      "count": 1584,
+      "mean_ms": 0.006853,
+      "min_ms": 0.006240,
+      "max_ms": 0.008832,
+      "sum_ms": 10.855712,
+      "regs_per_thread": 61,
+      "shared_mem_bytes": 0,
+      "max_threads_per_block": 1024,
+      "active_blocks_per_sm": 4,
+      "launch_threads": 256,
+      "launch_blocks": 6720
+    }
+  }
+}

@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-import test_blender_uv_plumbing as P  # noqa: E402  (stub loader + recording renderer)
+import test_blender_uv_plumbing as P  # stub loader + recording renderer
 
 # ---------------------------------------------------------------------------
 # Addon legs (no native module needed)
@@ -52,7 +52,7 @@ def test_load_blender_image_passes_node_extension(monkeypatch, ext):
     r = _ExtRenderer()
     name = engine.load_blender_image(P._FakeImage("b.png"), r, extension=ext)
     assert r.extension_calls == [(name, ext)]
-    assert ("::ext=%s" % ext) in name   # same image, different extension: distinct texture
+    assert f"::ext={ext}" in name   # same image, different extension: distinct texture
 
 
 def test_old_module_without_binding_reports_non_extend(monkeypatch):
@@ -84,7 +84,7 @@ def test_normal_inputs_carry_vector_and_extension(monkeypatch):
     engine = addon.CustomRaytracerRenderEngine()
     image = P._FakeImage("n.png")
     vec = P._Socket()
-    shader, img_node, _ = _bump_chain(P, image, None, vector=vec)
+    shader, _, _ = _bump_chain(P, image, None, vector=vec)
     res = engine.get_normal_inputs(shader)
     assert res["normal_image"] is image
     assert res["normal_vector"] is vec           # #1004: Mapping chain no longer dropped
@@ -95,8 +95,8 @@ def test_bump_with_procedural_height_is_loaded_not_dropped(monkeypatch):
     """#1005: Voronoi Height -> the bump texture is the procedural, and the GPU gap is reported."""
     addon = P._load_blender_addon(monkeypatch)
     engine = addon.CustomRaytracerRenderEngine()
-    vor = P._Node("TEX_VORONOI", inputs={"Vector": P._Socket()})
-    height = P._Socket(linked_to=vor, output_name="Distance")
+    vnode = P._Node("TEX_VORONOI", inputs={"Vector": P._Socket()})
+    height = P._Socket(linked_to=vnode, output_name="Distance")
     shader, _, bump = _bump_chain(P, P._FakeImage("n2.png"), height)
     res = engine.get_normal_inputs(shader)
     assert res["bump_image"] is None and res["bump_node"] is bump
@@ -126,12 +126,8 @@ def test_bump_with_unrepresentable_height_is_reported(monkeypatch):
 # Native render legs
 # ---------------------------------------------------------------------------
 
-try:
-    import astroray
-    from base_helpers import create_renderer, render_image, setup_camera
-    _HAVE_NATIVE = hasattr(astroray, "Renderer") or True
-except Exception:  # pragma: no cover
-    _HAVE_NATIVE = False
+import astroray
+from base_helpers import create_renderer, render_image, setup_camera
 
 _SCALE2 = [2.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
 

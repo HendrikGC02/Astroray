@@ -15,8 +15,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))
-from test_pkg299_optix_traversal import _renderer  # noqa: E402
-import astroray  # noqa: E402
+import astroray
+from test_pkg299_optix_traversal import _renderer
 
 
 def test_cpu_watertight_cpp(tmp_path):
@@ -27,7 +27,7 @@ def test_cpu_watertight_cpp(tmp_path):
     src = ROOT / "tests" / "cpp" / "test_watertight_triangle.cpp"
     subprocess.run([cxx, "-std=c++17", "-O2", "-I", str(ROOT / "include"), str(src), "-o", str(exe)],
                    check=True)
-    res = subprocess.run([str(exe)], capture_output=True, text=True)
+    res = subprocess.run([str(exe)], capture_output=True, text=True, check=False)
     assert res.returncode == 0, res.stdout
 
 

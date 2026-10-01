@@ -46,4 +46,3 @@ inline bool watertightTriangle(const Vec3& p0, const Vec3& p1, const Vec3& p2,
     return true;
 }
 }  // namespace astroray
-

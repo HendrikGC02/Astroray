@@ -28,19 +28,22 @@ import test_blender_uv_plumbing as P  # stub loader + recording renderer
 # ---------------------------------------------------------------------------
 
 
-class _ExtRenderer(P._RecordingRenderer):
-    def __init__(self):
-        super().__init__()
-        self.extension_calls = []
+class _OldModuleRenderer:
+    """A native module that predates #1004: no set_texture_extension."""
 
-    def set_texture_extension(self, name, ext):
-        self.extension_calls.append((name, ext))
+    def __init__(self):
+        self._inner = P._RecordingRenderer()
+
+    def __getattr__(self, name):
+        if name == "set_texture_extension":
+            raise AttributeError(name)
+        return getattr(self._inner, name)
 
 
 def test_load_blender_image_sets_repeat_by_default(monkeypatch):
     addon = P._load_blender_addon(monkeypatch)
     engine = addon.CustomRaytracerRenderEngine()
-    r = _ExtRenderer()
+    r = P._RecordingRenderer()
     name = engine.load_blender_image(P._FakeImage("a.png"), r)
     assert r.extension_calls == [(name, "REPEAT")]
 
@@ -49,7 +52,7 @@ def test_load_blender_image_sets_repeat_by_default(monkeypatch):
 def test_load_blender_image_passes_node_extension(monkeypatch, ext):
     addon = P._load_blender_addon(monkeypatch)
     engine = addon.CustomRaytracerRenderEngine()
-    r = _ExtRenderer()
+    r = P._RecordingRenderer()
     name = engine.load_blender_image(P._FakeImage("b.png"), r, extension=ext)
     assert r.extension_calls == [(name, ext)]
     assert f"::ext={ext}" in name   # same image, different extension: distinct texture
@@ -60,7 +63,7 @@ def test_old_module_without_binding_reports_non_extend(monkeypatch):
     engine = addon.CustomRaytracerRenderEngine()
     seen = []
     engine._warn_shader_fallback = lambda *a, **k: seen.append(a)
-    engine.load_blender_image(P._FakeImage("c.png"), P._RecordingRenderer())  # no binding
+    engine.load_blender_image(P._FakeImage("c.png"), _OldModuleRenderer())  # no binding
     assert seen and seen[0][0] == "TEX_IMAGE"
 
 

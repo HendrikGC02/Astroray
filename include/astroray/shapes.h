@@ -10,6 +10,7 @@
 // that only need the type name don't have to pull in the full curve-math header).
 class CurveSegment;
 #include "raytracer.h"
+#include "watertight_triangle.h"  // #1000 — Woop 2013 watertight ray/triangle
 #include "manifold/surface_partials.h"  // pkg178 PR-3 — trianglePartials (dp_du/dp_dv)
 #include <fstream>
 #include <sstream>
@@ -166,7 +167,6 @@ public:
     }
 
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
-        const float EPS = 1e-6f;
         // pkg88-C.0 — time-aware vertex interpolation. Per Cycles motion_triangle.h (Apache-2.0):
         // bracket ray.time into [step, step+1], then linear blend: v = (1-t)*v[step] + t*v[step+1].
         Vec3 p0 = v0, p1 = v1, p2 = v2;
@@ -192,19 +192,8 @@ public:
                 p2 = currVerts[2] * (1.0f - t) + nextVerts[2] * t;
             }
         }
-        Vec3 e1 = p1 - p0, e2 = p2 - p0;
-        Vec3 h = r.direction.cross(e2);
-        float a = e1.dot(h);
-        if (std::fabs(a) < EPS) return false;
-        float f = 1.0f / a;
-        Vec3 s = r.origin - p0;
-        float u = f * s.dot(h);
-        if (u < 0 || u > 1) return false;
-        Vec3 q = s.cross(e1);
-        float v = f * r.direction.dot(q);
-        if (v < 0 || u + v > 1) return false;
-        float t = f * e2.dot(q);
-        if (t < tMin || t > tMax) return false;
+        float t, u, v;
+        if (!watertightTriangle(p0, p1, p2, r, tMin, tMax, t, u, v)) return false;
         rec.t = t;
         rec.point = r.at(t);
         rec.objectPoint = rec.point;

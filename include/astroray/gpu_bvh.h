@@ -18,6 +18,58 @@
 // call) is dead-code-eliminated. Only scenes that actually upload curve segments
 // launch the <true> intersect/shadow kernels and pay the cost.
 
+// ---------------------------------------------------------------------------
+// Watertight ray/triangle test: Woop, Benthin, Wald, "Watertight Ray/Triangle
+// Intersection", JCGT 2(1), 2013, with the error-free edge-function product
+// (DifferenceOfProducts via FMA) and the double-precision fallback when an edge
+// function is exactly zero, as in pbrt-v4 shapes.h Triangle intersection
+// (Apache-2.0). Replaces an absolute |det| < 1e-6 Moller-Trumbore rejection that
+// dropped small/grazing triangles (#1000). Mirrors astroray::watertightTriangle
+// in watertight_triangle.h so the CPU oracle and this fallback agree. Returns t and the
+// barycentric weights (u, v) of (p1, p2), as the Moller-Trumbore code did.
+// ---------------------------------------------------------------------------
+__device__ inline float gpu_dop(float a, float b, float c, float d) {
+    float w = d * c;
+    float e = fmaf(-d, c, w);
+    float f = fmaf(a, b, -w);
+    return f + e;
+}
+
+__device__ inline bool gpu_triangle_watertight(
+    const GVec3& p0, const GVec3& p1, const GVec3& p2, const GRay& ray,
+    float tMin, float tMax, float& t_out, float& u_out, float& v_out)
+{
+    const GVec3 d = ray.direction;
+    float adx = fabsf(d.x), ady = fabsf(d.y), adz = fabsf(d.z);
+    int kz = (adx > ady) ? ((adx > adz) ? 0 : 2) : ((ady > adz) ? 1 : 2);
+    int kx = kz + 1; if (kx == 3) kx = 0;
+    int ky = kx + 1; if (ky == 3) ky = 0;
+    float dz = d[kz];
+    if (dz == 0.f) return false;
+    GVec3 a = p0 - ray.origin, b = p1 - ray.origin, c = p2 - ray.origin;
+    float Sx = -d[kx] / dz, Sy = -d[ky] / dz, Sz = 1.f / dz;
+    float ax = a[kx] + Sx * a[kz], ay = a[ky] + Sy * a[kz];
+    float bx = b[kx] + Sx * b[kz], by = b[ky] + Sy * b[kz];
+    float cx = c[kx] + Sx * c[kz], cy = c[ky] + Sy * c[kz];
+    float e0 = gpu_dop(bx, cy, by, cx);
+    float e1 = gpu_dop(cx, ay, cy, ax);
+    float e2 = gpu_dop(ax, by, ay, bx);
+    if (e0 == 0.f || e1 == 0.f || e2 == 0.f) {
+        e0 = (float)((double)bx * cy - (double)by * cx);
+        e1 = (float)((double)cx * ay - (double)cy * ax);
+        e2 = (float)((double)ax * by - (double)ay * bx);
+    }
+    if ((e0 < 0.f || e1 < 0.f || e2 < 0.f) && (e0 > 0.f || e1 > 0.f || e2 > 0.f)) return false;
+    float det = e0 + e1 + e2;
+    if (det == 0.f) return false;
+    float tScaled = e0 * (Sz * a[kz]) + e1 * (Sz * b[kz]) + e2 * (Sz * c[kz]);
+    float invDet = 1.f / det;
+    float t = tScaled * invDet;
+    if (t < tMin || t > tMax) return false;
+    t_out = t; u_out = e1 * invDet; v_out = e2 * invDet;
+    return true;
+}
+
 // pkg88-C.0 GPU — verify on RTX. Motion-aware triangle hit: interpolate vertices
 // at ray.time before Möller-Trumbore. Per Cycles motion_triangle.h (Apache-2.0):
 // linear blend between bracketing time steps. If motionOffset < 0, falls back to static.
@@ -26,7 +78,6 @@ __device__ inline bool gpu_triangle_hit_motion(
     const GTriangle& tri, const GRay& ray, float tMin, float tMax,
     GHitRecord& rec, const GVec3* d_motionVertices)
 {
-    const float EPS = 1e-6f;
     // Interpolate vertices at ray.time if motion data exists
     GVec3 p0 = tri.v0, p1 = tri.v1, p2 = tri.v2;
     if (tri.motionOffset >= 0 && tri.motionSteps > 1) {
@@ -51,23 +102,8 @@ __device__ inline bool gpu_triangle_hit_motion(
             p2 = currVerts[2] * (1.0f - t) + nextVerts[2] * t;
         }
     }
-    GVec3 e1 = p1 - p0;
-    GVec3 e2 = p2 - p0;
-    GVec3 h  = ray.direction.cross(e2);
-    float a  = e1.dot(h);
-    if (fabsf(a) < EPS) return false;
-
-    float f  = 1.f / a;
-    GVec3 s  = ray.origin - p0;
-    float u  = f * s.dot(h);
-    if (u < 0.f || u > 1.f) return false;
-
-    GVec3 q = s.cross(e1);
-    float v = f * ray.direction.dot(q);
-    if (v < 0.f || u + v > 1.f) return false;
-
-    float t_hit = f * e2.dot(q);
-    if (t_hit < tMin || t_hit > tMax) return false;
+    float t_hit, u, v;
+    if (!gpu_triangle_watertight(p0, p1, p2, ray, tMin, tMax, t_hit, u, v)) return false;
 
     rec.t     = t_hit;
     rec.point = ray.at(t_hit);
@@ -124,7 +160,7 @@ __device__ inline void gpu_triangle_fill_rec(
 }
 
 // ---------------------------------------------------------------------------
-// Ray-triangle intersection: Möller–Trumbore (exact port from raytracer.h)
+// Ray-triangle intersection: watertight, Woop 2013 (gpu_triangle_watertight)
 // STATIC VARIANT — no motion. Kept for backward compatibility and zero-overhead
 // when motion is disabled.
 // ---------------------------------------------------------------------------
@@ -132,24 +168,8 @@ __device__ inline bool gpu_triangle_hit(
     const GTriangle& tri, const GRay& ray, float tMin, float tMax,
     GHitRecord& rec)
 {
-    const float EPS = 1e-6f;
-    GVec3 e1 = tri.v1 - tri.v0;
-    GVec3 e2 = tri.v2 - tri.v0;
-    GVec3 h  = ray.direction.cross(e2);
-    float a  = e1.dot(h);
-    if (fabsf(a) < EPS) return false;
-
-    float f  = 1.f / a;
-    GVec3 s  = ray.origin - tri.v0;
-    float u  = f * s.dot(h);
-    if (u < 0.f || u > 1.f) return false;
-
-    GVec3 q = s.cross(e1);
-    float v = f * ray.direction.dot(q);
-    if (v < 0.f || u + v > 1.f) return false;
-
-    float t = f * e2.dot(q);
-    if (t < tMin || t > tMax) return false;
+    float t, u, v;
+    if (!gpu_triangle_watertight(tri.v0, tri.v1, tri.v2, ray, tMin, tMax, t, u, v)) return false;
 
     gpu_triangle_fill_rec(tri, ray, t, u, v, rec);
     return true;

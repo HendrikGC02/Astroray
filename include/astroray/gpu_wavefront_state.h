@@ -25,6 +25,7 @@
 #include <cstdint>
 #include "astroray/gpu_types.h"  // GVec3, GSampledWavelengths, GSampledSpectrum
 #include "astroray/shader_vm.h"  // pkg219b GWavefrontProgramBinding
+#include "astroray/shader_graph.h"  // pkg314 GWavefrontGraphBinding
 // pkg157: GPhotonGrid, needed by launchStageShadeBucketed's declaration below.
 // Safe from any TU: gpu_photon_store.h is explicitly written to compile under
 // both nvcc and pure C++ (its device-only helpers sit behind __CUDACC__), and
@@ -479,6 +480,17 @@ void setWavefrontTextureBinding(const GWavefrontTextureBinding& binding);
 // launchStageShadeBucketed (only for scenes with a program material); see
 // stage_advance.cu / GWavefrontProgramBinding (astroray/shader_vm.h).
 void setWavefrontProgramBinding(const GWavefrontProgramBinding& binding);
+
+// pkg314 — dedicated graph-evaluation kernel (stage_graph_eval.cu). Publish the
+// frame's graph arenas / per-material program slots / output + scratch buffers
+// once per frame, then call launchStageGraphEval before every
+// launchStageShadeBucketed (scenes with graph programs only). `batch` is the
+// launch width the scratch was sized for (GWavefrontGraphBinding::batch).
+void setWavefrontGraphBinding(const GWavefrontGraphBinding& binding);
+void launchStageGraphEval(GPUWavefrontState& state, GPUWavefrontHitBuffers& hitBufs,
+                          const int* d_shade_queues, const int* d_shade_counts,
+                          int capacity, const GPrimitive* d_prims,
+                          const GTriangle* d_tris, int batch);
 
 // pkg197 — publish the frame's first-hit denoise-guide output pointers into the
 // intersect stage's __constant__ binding. Call ONCE per frame before the render

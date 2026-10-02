@@ -5,6 +5,7 @@
 #include "astroray/gpu_types.h"
 #include "astroray/shader_vm.h"  // pkg219b — ShaderVMProgram
 #include "astroray/procedural_tex.h"  // #1007 — GProcTexture
+#include "astroray/shader_graph.h"  // pkg314 — graph programs
 #include "astroray/manifold/sms_attempt_device.cuh"  // pkg64-gpu Phase 2
 #include <vector>
 
@@ -116,6 +117,22 @@ struct SceneUploadResult {
     // #1007 — procedurals evaluated per hit in the <HasProgram=true> kernel
     // (GImageTexture::procId indexes this). Each one also sets hasProgram.
     std::vector<astroray::proc::GProcTexture>   procTextures;
+    // pkg314 — dynamic value programs (shader_graph.h). Immutable arenas shared by
+    // every program of the scene; graphPrograms holds one descriptor (32-bit
+    // offsets) per unique GraphProgramTexture; graphTexRefs maps a program's
+    // texture references to `textures` ids. materialGraphProg is
+    // [mat*GRAPH_MAT_SLOTS + slot] (-1 = none). hasGraph launches the dedicated
+    // graph-evaluation kernel (and also sets hasProgram so the shade reads its
+    // outputs); graphMaxSlots sizes the kernel's scratch.
+    std::vector<astroray::sgraph::GraphInstr>       graphInstrs;
+    std::vector<GVec3>                              graphConsts;
+    std::vector<astroray::sgraph::GraphTable>       graphTables;
+    std::vector<GVec3>                              graphTableData;
+    std::vector<int>                                graphTexRefs;
+    std::vector<astroray::sgraph::GraphProgramDesc> graphPrograms;
+    std::vector<int>                                materialGraphProg;
+    bool                                            hasGraph = false;
+    int                                             graphMaxSlots = 0;
 
     // pkg189 — true when ANY uploaded material is dispersive (Sellmeier dielectric
     // → GMAT_DIELECTRIC, or Cauchy Principled glass → GMAT_CLOSURE_GRAPH; both set

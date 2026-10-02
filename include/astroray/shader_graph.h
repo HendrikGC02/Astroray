@@ -322,7 +322,6 @@ struct GWavefrontGraphBinding {
     const astroray::sgraph::GraphTable*       tables;
     const GVec3*                              tableData;
     const int*                                texRefs;      // -> c_wfTexBinding.textures
-    const unsigned char*                      texCoordKind; // 1 = sampled at a computed uv
     const astroray::sgraph::GraphProgramDesc* programs;
     const int*                                matGraphProg; // [mat*GRAPH_MAT_SLOTS+slot], -1 none
     float*                                    out;          // [k*outStride + pathIdx]

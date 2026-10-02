@@ -322,6 +322,12 @@ VIEWPORT_NAV_SETTLE_S = 0.25   # snap back to full res after this quiet window.
 # rendering full res immediately.
 VIEWPORT_START_RES_DIVISOR = 4       # coarse first present on the expensive profile.
 VIEWPORT_INTERACTIVE_BUDGET_MS = 100.0  # pinned edit->present p95 budget (GPU).
+# pkg291: the render is only part of edit->present (commit, texture upload and
+# the draw follow it: ~35 ms at 2100x1221 in the gate (a) lifelines), so the
+# coarse start engages once the full-res render alone would take more than this
+# share of the budget (Cycles starts every viewport reset coarse,
+# RenderScheduler start_resolution, Apache-2.0).
+VIEWPORT_START_RES_RENDER_SHARE = 0.5
 # #801: refinement-chunk time budget. Cycles targets ~0.1 s per viewport update
 # but renders on its own thread; our default path renders synchronously inside
 # view_draw, so the chunk IS the UI stall. 50 ms keeps the UI at ~15 Hz while
@@ -1385,11 +1391,13 @@ class Exporter:
     def _budget_start_divisor(self):
         """pkg241 Phase 1: interactive-resolution budget. Return the coarse
         starting divisor for a fresh edit when the last render's estimated
-        full-resolution wall time exceeds VIEWPORT_INTERACTIVE_BUDGET_MS, else 1
+        full-resolution wall time exceeds VIEWPORT_INTERACTIVE_BUDGET_MS *
+        VIEWPORT_START_RES_RENDER_SHARE (pkg291), else 1
         (full res). The estimate (_viewport_last_full_render_ms) is measured, so
         the coarse profile engages only above the threshold and cheap scenes
         render full res immediately (Cycles start_resolution analogue)."""
-        if self._viewport_last_full_render_ms > VIEWPORT_INTERACTIVE_BUDGET_MS:
+        if (self._viewport_last_full_render_ms
+                > VIEWPORT_INTERACTIVE_BUDGET_MS * VIEWPORT_START_RES_RENDER_SHARE):
             return VIEWPORT_START_RES_DIVISOR
         return 1
 

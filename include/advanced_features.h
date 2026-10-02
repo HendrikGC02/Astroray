@@ -1,6 +1,7 @@
 #pragma once
 #include "raytracer.h"
 #include "astroray/shader_vm.h"   // pkg219b — bounded per-texel op-VM
+#include "astroray/shader_graph.h"  // pkg314 — dynamic value programs
 #include "astroray/gpu_types.h"   // #1004 — GImgExt / gpu_imageWrapTexel
 #include "astroray/procedural_tex.h"  // #1007 — host+device Noise / Wave / Voronoi
 #include <utility>
@@ -592,6 +593,98 @@ public:
     // UNWARPED point picked one checker cell (MapAfterWarp read flat blue). The warp
     // only moves the sample point, so the child's own mean is the right estimate.
     Vec3 average() const override { return child_->average(); }
+};
+
+// ============================================================================
+// pkg314 — GraphProgramTexture: a dynamic value program (shader_graph.h) over
+// any number of input textures. CPU twin of the GPU graph-evaluation kernel
+// (src/gpu/wavefront/stage_graph_eval.cu): the SAME graph_eval runs over the
+// same arenas; only the texture service differs. Inputs are sampled inside the
+// program: GOP_TEX_NATIVE k at input k's own coordinate contract (its coord mode
+// + Mapping, value(HitRecord)), GOP_TEX_COORD k at a computed uv (the raw
+// value(uv, p) evaluator; the addon loads such an image with no Mapping).
+// ============================================================================
+class GraphProgramTexture : public Texture {
+    std::vector<std::shared_ptr<Texture>> inputs_;
+    std::vector<unsigned char> coordKind_;   // 1 = GOP_TEX_COORD input
+    astroray::sgraph::GraphProgramData prog_;
+
+    struct CpuSvc {
+        const GraphProgramTexture* self;
+        const HitRecord* rec;
+        Vec3 wo;
+        astroray::svm::SvmShading sh;
+        bool tex_native(uint32_t k, GVec3& o) const {
+            Vec3 c = self->inputs_[k]->value(*rec, wo);
+            o = GVec3(c.x, c.y, c.z);
+            return true;
+        }
+        bool tex_coord(uint32_t k, const GVec3& uv, GVec3& o) const {
+            Vec3 c = self->inputs_[k]->value(Vec2(uv.x, uv.y), Vec3(uv.x, uv.y, uv.z));
+            o = GVec3(c.x, c.y, c.z);
+            return true;
+        }
+        bool geom(unsigned char, GVec3& o) const {   // GEOM_UV: active UV layer
+            o = GVec3(rec->uv.u, rec->uv.v, 0.0f);
+            return true;
+        }
+        const astroray::svm::SvmShading& shading() const { return sh; }
+    };
+
+    Vec3 eval(const HitRecord& rec, const Vec3& wo, const astroray::svm::SvmShading& sh) const {
+        const astroray::sgraph::GraphArenas ar{prog_.instrs.data(), prog_.consts.data(),
+                                               prog_.tables.data(), prog_.tableData.data()};
+        std::vector<GVec3> regs(prog_.desc.numSlots);
+        CpuSvc svc{this, &rec, wo, sh};
+        GVec3 r;
+        if (!astroray::sgraph::graph_eval(prog_.desc, ar, regs.data(), 1, svc, r))
+            return Vec3(0.0f);
+        return Vec3(r.x, r.y, r.z);
+    }
+
+public:
+    // Throws std::runtime_error when the program is malformed or over budget
+    // (the addon reports it as DEGRADED and keeps the constant socket value).
+    GraphProgramTexture(std::vector<std::shared_ptr<Texture>> inputs,
+                        std::vector<unsigned char> coordKind,
+                        astroray::sgraph::GraphProgramData prog)
+        : inputs_(std::move(inputs)), coordKind_(std::move(coordKind)), prog_(std::move(prog)) {
+        if (coordKind_.size() != inputs_.size())
+            throw std::runtime_error("graph program: input kind count mismatch");
+        std::string err = astroray::sgraph::validateGraphProgram(prog_, (int)inputs_.size());
+        if (!err.empty()) throw std::runtime_error("graph program rejected: " + err);
+    }
+    const astroray::sgraph::GraphProgramData& getProgram() const { return prog_; }
+    size_t numInputs() const { return inputs_.size(); }
+    std::shared_ptr<Texture> getInput(size_t i) const { return inputs_[i]; }
+    bool inputIsCoord(size_t i) const { return coordKind_[i] != 0; }
+
+    // No hit (texture bakes, sample_named_texture): a front-facing hit at
+    // (uv, p) seen at normal incidence; inputs resolve their coordinates from it.
+    Vec3 value(const Vec2& uv, const Vec3& p) const override {
+        HitRecord rec;
+        rec.point = p;
+        rec.objectPoint = p;
+        rec.uv = uv;
+        rec.normal = Vec3(0.0f, 0.0f, 1.0f);
+        rec.frontFace = true;
+        rec.t = 0.0f;
+        return eval(rec, Vec3(0.0f, 0.0f, 1.0f), astroray::svm::SvmShading());
+    }
+    // #989 shading context, as ProgramTexture::valueAtHit.
+    Vec3 valueAtHit(const Vec2&, const Vec3&, const HitRecord& rec,
+                    const Vec3& wo) const override {
+        astroray::svm::SvmShading sh;
+        sh.cosI = wo.dot(rec.normal);
+        sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
+        return eval(rec, wo, sh);
+    }
+    astroray::SampledSpectrum sampleSpectralAtHit(
+            const Vec2& uv, const Vec3& p, const HitRecord& rec, const Vec3& wo,
+            const astroray::SampledWavelengths& lambdas) const override {
+        Vec3 rgb = valueAtHit(uv, p, rec, wo);
+        return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
+    }
 };
 
 class MarbleTexture : public Texture {

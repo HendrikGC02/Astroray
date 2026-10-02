@@ -4510,6 +4510,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
         the chain is not a per-texel op (or the renderer lacks the bindings)."""
         if not hasattr(renderer, "create_program_texture"):
             return None
+        # pkg314 equivalence harness: ASTRORAY_GRAPH_PROGRAMS=force routes every
+        # chain through a graph program (old-vs-new comparisons, IR stats runs).
+        if os.environ.get("ASTRORAY_GRAPH_PROGRAMS") == "force":
+            graph = self._build_graph_program(socket, node, input_name, renderer, allow_leaf)
+            if graph is not None:
+                return graph
         try:
             from . import shader_vm_compiler as svm
         except Exception:

@@ -37,7 +37,6 @@ def _render(scene: str, out: str) -> None:
     sys.path.insert(0, str(ROOT))
     from runtime_setup import configure_test_imports
     configure_test_imports()
-    import astroray
     if scene.startswith("cornell_"):
         sys.argv = [sys.argv[0]]
         sys.path.insert(0, str(ROOT / "benchmarks"))
@@ -83,7 +82,7 @@ def _run(scene: str, out: Path, reference: bool) -> np.ndarray:
     if reference:
         env["ASTRORAY_SHADE_REFERENCE"] = "1"
     proc = subprocess.run([sys.executable, str(Path(__file__).resolve()), scene, str(out)],
-                          env=env, capture_output=True, text=True)
+                          env=env, capture_output=True, text=True, check=False)
     if "PKG300_NO_GPU" in proc.stdout:
         pytest.skip("gpu_available is False")
     assert proc.returncode == 0 and out.exists(), proc.stderr[-2000:]

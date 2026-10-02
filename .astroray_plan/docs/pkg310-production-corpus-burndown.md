@@ -3,7 +3,7 @@
 Eight production materials (`benchmarks/reference_corpus/production/`), rendered Cycles 5.2 LTS (1024 spp reference) vs
 Astroray CPU and GPU (64 spp, seed 278, adaptive off, denoise off), bands from 5 seeds. Charts and contact sheets:
 `test_results/textures-nodes/production-corpus/` (`<material>_sheet.png`, `band_utilisation_chart.png`,
-`production_summary.json`, `silent_drops.json`). Gate: `tests/test_production_corpus.py` (32 strict xfails, each tied to
+`production_summary.json`, `silent_drops.json`). Gate: `tests/test_production_corpus.py` (24 strict xfails after #996, each tied to
 an issue in `benchmarks/reference_corpus/provisional_production.toml`).
 
 ## Baseline: N/8
@@ -52,7 +52,7 @@ that the frozen coverage matrix does not classify SUPPORTED and that no Degradat
 deviations (in the `silent_drop_audit.py` docstring): Output-node inputs are never drops; the shared `world:` tree is
 excluded (counted, identical in all eight scenes); output sockets are judged only for node types the matrix has `output:`
 rows for; APPROXIMATED pairs with no report go to a separate unscored `approximated_unreported` bucket. **39 unique
-(material, node, socket) pairs**, identical on CPU and GPU (one Blender export path). Rules and the separate
+(material, node, socket) pairs at baseline**, identical on CPU and GPU (one Blender export path). Rules and the separate
 "approximated, no report" bucket (not scored, 13 unique pairs, dominated by Principled APPROXIMATED rows): see the
 `silent_drop_audit.py` docstring; tests: `tests/test_production_corpus.py`.
 
@@ -67,13 +67,50 @@ rows for; APPROXIMATED pairs with no report go to a separate unscored `approxima
 | prod_shader_stack | AddShader.Shader / Shader_001, TexNoise.Vector, ValToRGB.Fac |
 | prod_wood | Mapping.Rotation / Scale / Vector, Math.operation, TexNoise.Vector, TexWave.Vector, ValToRGB.Fac |
 
-Triage: **7 are real drops** (no report and the render is wrong): AddShader x2 (#955), MixShader Fac/Shader x3 from
-Light Path (#991), VertexColor (#990), RGBCurve (#992). **The other 32 are matrix-stale** (#996): the render reports
+Triage (baseline): **7 were real drops** (no report and the render is wrong): AddShader x2 (#955), MixShader Fac/Shader
+x3 from Light Path (#991), VertexColor (#990), RGBCurve (#992). The other 32 were matrix-stale (#996): the render reports
 "CPU exact" for those op-VM chains, and disabling the specular lobes in both engines brings `prod_marble` CPU to
-0.95-1.04. The matrix (pkg229) keys inputs by UI name, marks whole nodes APPROXIMATED, and was frozen by pkg278, so
-it was not touched here (non-goal). Non-vacuity: `silent_drop_audit.py --self-test` (fixture with an unhandled Attribute
-node is flagged, is not flagged once reported, an unreachable Layer Weight is never exercised) and
-`test_audit_flags_the_real_attributes_material`.
+0.95-1.04. Non-vacuity: `silent_drop_audit.py --self-test` (fixture with an unhandled Attribute node is flagged, is not
+flagged once reported, an unreachable Layer Weight is never exercised) and `test_audit_flags_the_real_attributes_material`.
+
+**After #996 (2026-10-03, lane at-n3; fresh CPU+GPU renders on the main `build_cuda`, seed 278): 7 unique silent pairs,
+all real, 32 stale rows gone; 8 of 16 (material, backend) legs are silent-free** (car_paint, marble, pbr_group, wood on CPU
+and GPU; their `silent` xfails are deleted and pass strictly).
+
+| Material | Silent pairs now |
+|---|---|
+| prod_attributes | VertexColor.Color (#990) |
+| prod_curves_geometry | RGBCurve.Color (#992) |
+| prod_light_path | MixShader.Fac / Shader / Shader_001 from Light Path (#991) |
+| prod_shader_stack | AddShader.Shader / Shader_001 (#955) |
+| prod_car_paint, prod_marble, prod_pbr_group, prod_wood | none |
+
+How the matrix became trustworthy (`scripts/generate_blender_parity_matrix.py`, all AST-derived, Blender 5.2):
+
+* Named reads (`_get_input(node, 'Fac')`) credit a socket by identifier OR first same-named UI name (Color Ramp's `Fac`
+  is `Factor` in Blender 5); Math/Vector Math `operation`, Mix `data_type`, Mapping/Rotate `vector_type`/`rotation_type`
+  and every other property the dispatch branch reads are credited (an unrepresentable value raises `VMCompileError`
+  and the addon reports "op-VM ... not representable").
+* A socket read only under a semantic guard (Math 3rd operand under `op in MATH_TERNARY`, Vector Math `Scale` under
+  `op in _VECMATH_USE_SCALE`) is credited iff the guard, evaluated against the compiler's own module constants, holds
+  for every enum value for which Blender enables the socket and the compiler does not raise. Math `Value_002` is
+  consumed (COMPARE/WRAP/SMOOTH_MIN enable it but the compiler rejects them with a report); a socket Blender enables
+  for an accepted op the compiler skips stays DROPPED-SILENT.
+* Procedural texture `Vector` is credited from `get_base_color_texture`'s `PROC_TYPES` branch
+  (`inputs.get('Vector')` feeds `load_procedural_texture`).
+* #872: the hand-edited TEX_SKY rows moved into `SCANNER_BLIND_OVERRIDES`; the report is sorted, so a regeneration
+  is reproducible and `tests/test_blender_parity_matrix.py` asserts regeneration == committed (Blender 5.2).
+  Drift the scanner now sees truthfully: Emission, Image Texture `Vector` and Voronoi are APPROXIMATED (they warn),
+  Image `colorspace_settings` / `extension` are SUPPORTED.
+* 47 newly SUPPORTED rows allocated to `textures_mapping` are not wired into any corpus scene yet; they are listed in
+  `benchmarks/reference_corpus/scenes/proof_pending.json` (shrink-only: the manifest test fails once a scene tags one).
+  A proof card for them is the follow-up; gate (b) scores only exercised sockets, so it is unaffected.
+
+Weighted socket-coverage (pkg278 formula, `silent_drop_audit.py coverage`, matrix classification only, CPU = GPU
+because the matrix is backend-agnostic): gate population 0.3811 -> 0.4185 (297 uses; matrix-silent uses 140 -> 120);
+production corpus 0.5331 -> 0.7686 (71 uses; matrix-silent 32 -> 15). The gate score proper (`coverage_report --score`)
+is `unmeasured` for CPU and GPU: it needs a hash-verified per-variant evidence artifact for every nonzero use and
+the frozen v3 input is integrity-failed against the current corpus (scene hashes, matrix hash).
 
 ## Ranked backlog
 
@@ -82,7 +119,7 @@ theme-1 taxonomy; observable and threshold are in each issue.
 
 | # | Issue | Category | Backend | Materials | Phase |
 |---|---|---|---|---|---|
-| 1 | #996 coverage matrix marks op-VM-handled sockets DROPPED-SILENT (tooling; 32 of 39 silent pairs) | tooling | both | 7 (silent rows) | P0 |
+| 1 | #996 coverage matrix marks op-VM-handled sockets DROPPED-SILENT (tooling; 32 of 39 silent pairs) **done 2026-10-03** | tooling | both | 7 (silent rows) | P0 |
 | 2 | #988 Principled with per-texel Base Color exports as Lambertian: lobes lost | closure composition / export | both | marble, wood, pbr_group | P2 |
 | 3 | #989 no per-hit shading inputs: Layer Weight, Fresnel, Geometry Backfacing/Pointiness | per-hit input | both | car_paint, curves_geometry | P3 |
 | 4 | #993 VM_MAX_SLOTS exceeded by an ordinary wood Roughness chain | op-VM bound | both | wood, shader_stack | P3 |
@@ -142,8 +179,8 @@ orientation differs). No sheet suggests a scene or reference defect. **Opus sign
 
 ## Lessons
 
-* Log-derived silent-drop auditing needs the matrix to be trustworthy; 32 of 39 strict hits are matrix rows, so #996
-  is rank 1 for the audit to become a gate rather than a to-do list.
+* Log-derived silent-drop auditing needs the matrix to be trustworthy; 32 of 39 strict hits were matrix rows, so #996
+  was rank 1 for the audit to become a gate rather than a to-do list (done: 7 real pairs remain).
 * A quick "disable the lobes in both engines" A/B (marble) separated a lobe deficit from a pattern error in one run;
   the same trick is worth building into the corpus tooling for the fixing PRs.
 

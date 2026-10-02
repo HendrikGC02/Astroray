@@ -1085,6 +1085,7 @@ struct WfContext {
     WfDeviceBuf programs, materialProgramId;   // pkg219b op-VM programs
     WfDeviceBuf materialProgInputTexId;        // #826 op-VM input texIds [mat*VM_MAX_TEX+t]
     WfDeviceBuf materialScalarProgId, materialScalarTexId;  // pkg219d scalar-param programs
+    WfDeviceBuf procTextures;                  // #1007 per-hit procedural evaluators
     WfDeviceBuf tlas, instances, blas;        // pkg55-C4 / pkg114
     WfDeviceBuf motionVertices;               // pkg55-C4 / pkg88-C.0
     WfDeviceBuf treeNodes, treeEmitters, lightToEmitter;
@@ -1693,10 +1694,12 @@ std::vector<float> cuda_wavefront_render(
     // #826 — per-material program input texIds (inputs t >= 1 of a multi-input
     // program ride here; t = 0 is d_matTexId).
     int* d_matProgInTexId = wfSync(reuse, C.materialProgInputTexId, res.materialProgInputTexId);
+    // #1007 — per-hit procedural evaluators (GImageTexture::procId), null when none.
+    astroray::proc::GProcTexture* d_procs = wfSync(reuse, C.procTextures, res.procTextures);
     if (res.hasProgram)
         setWavefrontProgramBinding(GWavefrontProgramBinding{
             d_programs, d_matProgId, d_matScalarProgId, d_matScalarTexId,
-            d_matProgInTexId});
+            d_matProgInTexId, d_procs});
     // #962 — textured Emission Color: the intersect (emissive hit) and shadow
     // (NEE) stages fetch the texel per hit when set; both bindings above are
     // published this frame whenever the matching bit is set.

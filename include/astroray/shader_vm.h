@@ -25,6 +25,7 @@
 #include "astroray/gpu_types.h"   // GVec3, HD
 
 namespace astroray {
+namespace proc { struct GProcTexture; }  // #1007, astroray/procedural_tex.h
 namespace svm {
 
 // ---- static bounds (see research note §"Static limits") --------------------
@@ -729,4 +730,8 @@ struct GWavefrontProgramBinding {
     // shade path samples t >= 1 from here (t = 0 is c_wfTexBinding.matTexId).
     // Read ONLY inside the <HasProgram=true> shade kernel.
     const int*                            matProgInTexId;
+    // #1007 - per-hit procedural evaluators (GImageTexture::procId indexes this;
+    // astroray/procedural_tex.h). Read ONLY by gpu_procTexEval, which only the
+    // <HasProgram=true> shade kernel reaches.
+    const astroray::proc::GProcTexture*   procs;
 };

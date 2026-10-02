@@ -614,6 +614,7 @@ if(ASTRORAY_CUDA_FOUND)
     if(ASTRORAY_WAVEFRONT_CUDA_N3)
         list(APPEND ASTRORAY_CUDA_SOURCES
             src/gpu/wavefront/wavefront_state.cu
+            src/gpu/wavefront/proc_tex_eval.cu   # #1007 per-hit procedural evaluator
             src/gpu/wavefront/stage_init.cu
             src/gpu/wavefront/stage_intersect_session_n3.cu
             src/gpu/wavefront/stage_shade_lambertian.cu

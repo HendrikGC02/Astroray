@@ -4,6 +4,7 @@
 
 #include "astroray/gpu_types.h"
 #include "astroray/shader_vm.h"  // pkg219b — ShaderVMProgram
+#include "astroray/procedural_tex.h"  // #1007 — GProcTexture
 #include "astroray/manifold/sms_attempt_device.cuh"  // pkg64-gpu Phase 2
 #include <vector>
 
@@ -108,6 +109,9 @@ struct SceneUploadResult {
     // image uploads through the pkg186 texture path).
     std::vector<int>                            materialScalarProgId;
     std::vector<int>                            materialScalarTexId;
+    // #1007 — procedurals evaluated per hit in the <HasProgram=true> kernel
+    // (GImageTexture::procId indexes this). Each one also sets hasProgram.
+    std::vector<astroray::proc::GProcTexture>   procTextures;
 
     // pkg189 — true when ANY uploaded material is dispersive (Sellmeier dielectric
     // → GMAT_DIELECTRIC, or Cauchy Principled glass → GMAT_CLOSURE_GRAPH; both set

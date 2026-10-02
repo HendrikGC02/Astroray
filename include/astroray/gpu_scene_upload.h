@@ -66,6 +66,10 @@ struct SceneUploadResult {
     // NaN .x = none). Empty unless a Generated 3D bake AND a triangle carrying
     // Triangle::setGenerated exist (and the scene is not instanced).
     std::vector<GVec3>         triGenerated;
+    // #1006 — per-vertex OBJECT-local positions parallel to `triangles` (3 per
+    // tri; NaN .x = none). Empty unless an OBJECT-coordinate descriptor AND a
+    // triangle carrying Triangle::setObjectLocal exist.
+    std::vector<GVec3>         triObjectLocal;
 
     // pkg223 — tangent-space normal maps. Parallel to `materials`:
     // `materialNormalTexId[i]` indexes `textures` for material i's normal map

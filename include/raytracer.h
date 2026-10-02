@@ -899,6 +899,10 @@ public:
     // #847 — per-object Generated texture coordinate at world point p (Cycles
     // ATTR_STD_GENERATED). false = none; Texture falls back to its bbox frame.
     virtual bool generatedCoord(const Vec3& /*p*/, Vec3& /*out*/) const { return false; }
+    // #1006 — OBJECT-local position at world point p (Cycles svm/tex_coord.h
+    // NODE_TEXCO_OBJECT: object_inverse_position_transform). false = none; the
+    // Object coordinate falls back to the world point.
+    virtual bool objectCoord(const Vec3& /*p*/, Vec3& /*out*/) const { return false; }
     virtual bool isLight() const { return false; }
     virtual bool isInfiniteLight() const { return false; }
     virtual Vec3 emittedRadiance() const { return Vec3(0); }

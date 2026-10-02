@@ -1080,6 +1080,7 @@ struct WfContext {
     WfDeviceBuf dedLights;                    // pkg89-wavefront (C7)
     WfDeviceBuf textures, textureTexels, materialTextureId;  // pkg186 image textures
     WfDeviceBuf triGenerated;                 // #847 per-vertex Generated coords
+    WfDeviceBuf triObjectLocal;               // #1006 per-vertex object-local positions
     WfDeviceBuf materialNormalTexId, materialNormalStrength;  // pkg223 normal maps
     WfDeviceBuf materialBumpTexId, materialBumpStrength, materialBumpDistance;  // pkg223b bump
     WfDeviceBuf programs, materialProgramId;   // pkg219b op-VM programs
@@ -1667,6 +1668,7 @@ std::vector<float> cuda_wavefront_render(
     GVec3*         d_texelBuf  = wfSync(reuse, C.textureTexels, res.textureTexels);
     int*           d_matTexId  = wfSync(reuse, C.materialTextureId, res.materialTextureId);
     GVec3*         d_triGen    = wfSync(reuse, C.triGenerated, res.triGenerated);  // #847
+    GVec3*         d_triObj    = wfSync(reuse, C.triObjectLocal, res.triObjectLocal);  // #1006
     // pkg223 — normal-map side arrays, published on the SAME binding. Set the
     // binding when EITHER a base-colour texture OR a normal map is present (a
     // normal map on a non-textured Principled/Disney BSDF has hasTexture=false).
@@ -1679,7 +1681,7 @@ std::vector<float> cuda_wavefront_render(
     if (res.hasTexture || res.hasNormalPerturb)
         setWavefrontTextureBinding(GWavefrontTextureBinding{
             d_textures, d_texelBuf, d_matTexId, d_matNormalTexId, d_matNormalStrength,
-            d_matBumpTexId, d_matBumpStrength, d_matBumpDistance, d_triGen});
+            d_matBumpTexId, d_matBumpStrength, d_matBumpDistance, d_triGen, d_triObj});
     // pkg219b — op-VM program device arrays (all null when no material carries a
     // program; res.hasProgram=false then selects the <…,false> shade kernel).
     astroray::svm::ShaderVMProgram* d_programs =
@@ -1961,6 +1963,7 @@ std::vector<float> cuda_wavefront_render(
         release(res.spheres); release(res.curveSegments); release(res.tlas);
         release(res.instances); release(res.blas); release(res.motionVertices);
         release(res.textures); release(res.textureTexels); release(res.triGenerated);
+        release(res.triObjectLocal);
         release(res.envData); release(res.envCondCdf); release(res.envCondFunc);
         release(res.envMargCdf); release(res.envMargFunc);
         C.sceneCached = true;

@@ -450,6 +450,17 @@ static void appendOnePrim(
                 r.triGenerated.push_back(GVec3(g2.x, g2.y, g2.z));
             }
         }
+        // #1006 — per-vertex OBJECT-local positions, same NaN-padded layout.
+        {
+            Vec3 o0, o1, o2;
+            if (tri->getObjectLocal(o0, o1, o2)) {
+                const float nan = std::numeric_limits<float>::quiet_NaN();
+                r.triObjectLocal.resize((size_t)gp.index * 3, GVec3(nan, nan, nan));
+                r.triObjectLocal.push_back(GVec3(o0.x, o0.y, o0.z));
+                r.triObjectLocal.push_back(GVec3(o1.x, o1.y, o1.z));
+                r.triObjectLocal.push_back(GVec3(o2.x, o2.y, o2.z));
+            }
+        }
         r.triangles.push_back(gt);
         std::string objName = tri->getName();
         if (objName.empty()) objName = "Unnamed_Triangle_" + std::to_string(r.triangles.size() - 1);
@@ -1380,14 +1391,27 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // #994 — per-material world bbox of the flat (world-space) scene, read by
     // bakeProceduralTexId for OBJECT-coordinate procedurals. Instanced meshes are
     // object-space and not included (their materials stay unbaked, as before).
+    // #1006: a triangle with object-local positions contributes their bbox (the
+    // frame gpu_generatedCoord indexes the Object bake in).
     if (cpuBvh) {
         for (const auto& h : cpuBvh->getPrimitives()) {
             const Material* pm = nullptr;
-            if (auto* t = dynamic_cast<Triangle*>(h.get())) pm = t->getMaterial().get();
+            AABB hb;
+            bool haveBox = false;
+            if (auto* t = dynamic_cast<Triangle*>(h.get())) {
+                pm = t->getMaterial().get();
+                Vec3 o0, o1, o2;
+                if (t->getObjectLocal(o0, o1, o2)) {
+                    hb = AABB(Vec3(std::min({o0.x, o1.x, o2.x}), std::min({o0.y, o1.y, o2.y}),
+                                   std::min({o0.z, o1.z, o2.z})),
+                              Vec3(std::max({o0.x, o1.x, o2.x}), std::max({o0.y, o1.y, o2.y}),
+                                   std::max({o0.z, o1.z, o2.z})));
+                    haveBox = true;
+                }
+            }
             else if (auto* s = dynamic_cast<Sphere*>(h.get())) pm = s->getMaterial().get();
             else if (auto* c = dynamic_cast<CurveSegment*>(h.get())) pm = c->getMaterial().get();
-            AABB hb;
-            if (!pm || !h->boundingBox(hb)) continue;
+            if (!pm || !(haveBox || h->boundingBox(hb))) continue;
             auto it = matWorldBox.find(pm);
             if (it == matWorldBox.end()) matWorldBox.emplace(pm, hb);
             else it->second = it->second.merge(hb);
@@ -1793,6 +1817,20 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         } else if (!r.triGenerated.empty()) {
             const float nan = std::numeric_limits<float>::quiet_NaN();
             r.triGenerated.resize(r.triangles.size() * 3, GVec3(nan, nan, nan));
+        }
+    }
+    // --- #1006: per-vertex OBJECT-local positions ---
+    // Only read for OBJECT-coordinate descriptors (gpu_objectCoord). Instanced
+    // BLAS triangles never carry them (the addon flattens Object-coordinate
+    // materials), so their NaN entries fall back to the world point.
+    {
+        bool hasObjCoord = false;
+        for (const auto& t : r.textures) hasObjCoord = hasObjCoord || t.objectCoord;
+        if (!hasObjCoord) {
+            r.triObjectLocal.clear();
+        } else if (!r.triObjectLocal.empty()) {
+            const float nan = std::numeric_limits<float>::quiet_NaN();
+            r.triObjectLocal.resize(r.triangles.size() * 3, GVec3(nan, nan, nan));
         }
     }
 

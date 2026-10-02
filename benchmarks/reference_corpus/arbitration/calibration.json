@@ -1,0 +1,29 @@
+{
+ "arb_chromatic_medium": {
+  "lamp_scale": 28.30527064323482,
+  "anchor": {
+   "roi": "floor_direct",
+   "leg": "cycles"
+  },
+  "anchor_leg_lum": 0.1336429562638203,
+  "mitsuba_unit_scale_lum": 0.0047214866075043875
+ },
+ "arb_narrowband_wall": {
+  "lamp_scale": 12272.724118141212,
+  "anchor": {
+   "roi": "wall_centre",
+   "leg": "cpu"
+  },
+  "anchor_leg_lum": 3.302130372810364,
+  "mitsuba_unit_scale_lum": 0.00026906254398151454
+ },
+ "arb_prism_sun": {
+  "lamp_scale": 0.8772303009057294,
+  "anchor": {
+   "roi": "floor_far",
+   "leg": "cycles"
+  },
+  "anchor_leg_lum": 0.16103102763493857,
+  "mitsuba_unit_scale_lum": 0.18356756198306878
+ }
+}

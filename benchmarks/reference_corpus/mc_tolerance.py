@@ -470,6 +470,14 @@ def _nb_render(sid, leg, spp, seed, work, threads=8, **kw):
     return render(sid, leg, seed, spp, stem, threads=threads, timeout=3600, **kw)
 
 
+def _nb_cached(sid, leg, spp, seed, work) -> np.ndarray:
+    """The report stage only reads renders; the ``render`` stage owns producing them (a missing file is an error, never a GPU job)."""
+    path = _nb_paths(work)["renders"] / f"{sid.replace('@', '_')}_{leg}_spp{spp}_s{seed}.npy"
+    if not path.is_file():
+        raise SystemExit(f"[noise-bench] missing render {path.name}: run the 'render' stage (the spp plan follows the timings)")
+    return np.load(path)
+
+
 def _gpu_note() -> str:
     try:
         q = subprocess.run(["nvidia-smi", "--query-gpu=clocks.sm,clocks.max.sm,temperature.gpu,power.draw",
@@ -530,7 +538,7 @@ def nb_rows(sid, leg, plan, t_frame, entry, ref, work, seeds) -> list[dict]:
     rows = []
     rects = {"image": ([0.0, 0.0, 1.0, 1.0], NB_IMAGE_FLOOR), **{n: (r, None) for n, r in entry["crops"].items()}}
     for spp, labels in sorted(plan.items()):
-        stack = np.stack([_nb_render(sid, leg, spp, s, work) for s in seeds])
+        stack = np.stack([_nb_cached(sid, leg, spp, s, work) for s in seeds])
         for name, (rect, floor) in rects.items():
             m = noise_metrics(stack, ref, rect, floor)
             t = spp * t_frame

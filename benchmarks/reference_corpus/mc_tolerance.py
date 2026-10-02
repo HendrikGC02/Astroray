@@ -42,6 +42,7 @@ import math
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -372,7 +373,7 @@ NB_IMAGE_FLOOR = 0.01  # the 'image' row keeps pixels with reference luminance a
 
 def floor_pow2(x: float) -> int | None:
     """Largest power of two <= x, None when x < 1."""
-    return None if x < 1.0 else 1 << int(math.floor(math.log2(x)))
+    return None if x < 1.0 else 1 << math.floor(math.log2(x))
 
 
 def equal_time_spp(budget_s: float, t_per_spp_s: float, cap: int = NB_SPP_MAX) -> int | None:
@@ -568,11 +569,10 @@ def nb_receipt(work: Path, force: bool) -> None:
 
 
 def nb_meta(seeds, budgets, base_spps, timing: dict, manifest: dict, scenes) -> dict:
-    import datetime
     pyd_dir = Path(os.environ.get("ASTRORAY_PYD_DIR", REPO / "build_cuda"))
     pyd = next(iter(pyd_dir.glob("astroray*.pyd")), None)
     first = next(iter(next(iter(timing.values())).values()), {}) if timing else {}
-    return {"date": datetime.date.today().isoformat(), "seeds": seeds, "budgets_s": budgets,
+    return {"date": time.strftime("%Y-%m-%d"), "seeds": seeds, "budgets_s": budgets,
             "base_spps": base_spps, "frame": list(NB_FRAME),
             "ref": f"{REF_LEG} reference EXRs in {REFS.relative_to(REPO).as_posix()}", "suite": REFS.parent.name,
             "crops": {sid: scene_entry(manifest, sid)["crops"] for sid in scenes},

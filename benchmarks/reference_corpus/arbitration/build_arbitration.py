@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """pkg307 Phase 2 -- builds the three spectral arbitration scenes (runs INSIDE Blender 5.2).
 
     blender -b --factory-startup --python build_arbitration.py -- [--out-dir <dir>]
@@ -29,7 +28,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 sys.path[:0] = [str(HERE), str(REPO / "benchmarks" / "reference_corpus"), str(REPO / "benchmarks" / "blender_parity")]
 
-import mitsuba_scenes as ms  # noqa: E402  (pure python)
+import mitsuba_scenes as ms  # pure python: no mitsuba import at module level
 
 # (name, world point, half-width as a fraction of image width): projected through the scene camera.
 ROIS = {
@@ -124,7 +123,7 @@ def main():
     (out / "scenes").mkdir(parents=True, exist_ok=True)
     manifest = {"scenes": {}}
     for sid in ms.SCENES:
-        scene, crops = build_scene(sid, bc, sc, sl, bpy, a.draft)
+        _, crops = build_scene(sid, bc, sc, sl, bpy, a.draft)
         blend = out / "scenes" / f"{sid}.blend"
         bpy.ops.wm.save_as_mainfile(filepath=str(blend))
         manifest["scenes"][sid] = {

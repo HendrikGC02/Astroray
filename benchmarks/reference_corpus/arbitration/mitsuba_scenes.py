@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """pkg307 Phase 2 -- Mitsuba 3 spectral scenes for the three arbitration scenes.
 
 ``PARAMS`` is the single source of truth for scene geometry, materials, lamps and cameras: it is imported by
@@ -123,7 +122,7 @@ def sodium_spd(step_nm: int = 5, lo: int = 360, hi: int = 830):
     cache = HERE / "spd_sodium_vapor.json"
     if cache.is_file():
         return [tuple(x) for x in json.loads(cache.read_text())]
-    import astroray  # noqa: PLC0415 - only to build the cache
+    import astroray  # only to build the cache
     vals = [(float(w), float(astroray.spectral_profile_reflectance("sodium_vapor", float(w)))) for w in range(lo, hi + 1, step_nm)]
     cache.write_text(json.dumps(vals))
     return vals
@@ -253,8 +252,8 @@ def render_scene(sid: str, spp: int, seed: int, res, work: Path, variant: str = 
     """(HxWx3 TensorXf image, render-only seconds). Wavefronts above ~2^24 lanes are split into spp chunks with
     decorrelated seeds (a 1280x720 x 320 spp wavefront does not fit in GPU memory). No numpy here: the Mitsuba venv
     has none, so the image leaves as an EXR that the driver reads."""
-    import mitsuba as mi
     import drjit as dr
+    import mitsuba as mi
     mi.set_variant(variant)
     register_dispersive_dielectric(mi, dr)
     chunk = max(1, min(spp, (1 << 24) // (res[0] * res[1])))

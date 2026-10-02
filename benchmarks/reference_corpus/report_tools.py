@@ -425,10 +425,10 @@ def nb_markdown(res: dict) -> str:
     out = []
     for lab in [f"{b:g}s" for b in res["meta"]["budgets_s"]]:
         out += [f"### Equal time: {lab} per 1280x720 frame (whole image)", "",
-                "| scene | Cycles OptiX spp / relMSE | Astroray GPU spp / relMSE | **GPU eff. ratio** | "
-                "Cycles CPU spp / relMSE | Astroray CPU spp / relMSE | CPU eff. ratio |", "|---|---|---|---|---|---|---|"]
+                ("| scene | Cycles OptiX spp / relMSE | Astroray GPU spp / relMSE | **GPU eff. ratio** | "
+                 "Cycles CPU spp / relMSE | Astroray CPU spp / relMSE | CPU eff. ratio |"), "|---|---|---|---|---|---|---|"]
         for h in nb_headline(res, lab):
-            def cell(leg):
+            def cell(leg, h=h):
                 d = h.get(leg)
                 return f"{d['spp']} / {d['relmse']:.2e}" if d else "n/a"
             gr, cr = h.get("gpu_vs_optix"), h.get("cpu_vs_cycles")

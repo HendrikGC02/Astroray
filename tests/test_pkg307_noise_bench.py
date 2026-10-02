@@ -168,6 +168,6 @@ MITSUBA_PY = MC.MITSUBA_PY
 def test_mitsuba_scenes_load_and_render_on_the_cpu(sid, tmp_path):
     out = subprocess.run([str(MITSUBA_PY), str(Path(MS.__file__)), "--scene", sid, "--spp", "2", "--out", str(tmp_path / sid),
                           "--res-percent", "10", "--variant", "scalar_spectral"], capture_output=True, text=True,
-                         timeout=300)
+                         timeout=300, check=False)
     assert "PKG119B_LEG PASS" in out.stdout, out.stdout[-800:] + out.stderr[-800:]
     assert (tmp_path / f"{sid}.exr").is_file()

@@ -369,11 +369,16 @@ def _install():
 
     _xf_state = {"toggle": False}
 
+    # pkg291: move along the object's thinnest axis (a planar object's normal),
+    # so the edit is visible in the frame instead of sliding within its plane.
+    _xf_axis = (min(range(3), key=lambda i: xform_obj.dimensions[i])
+                if xform_obj is not None else 0)
+
     def apply_transform():
-        # pkg291: oscillate the big mesh object +/-0.05 along X (a rigid move ->
-        # the in-place triangle-range path, #875).
+        # pkg291: oscillate the big mesh object +/-0.05 (a rigid move -> the
+        # in-place triangle-range path, #875).
         _xf_state["toggle"] = not _xf_state["toggle"]
-        xform_obj.location.x += 0.05 if _xf_state["toggle"] else -0.05
+        xform_obj.location[_xf_axis] += 0.05 if _xf_state["toggle"] else -0.05
 
     apply = {"material": apply_material, "transform": apply_transform}.get(
         EVENT_CLASS, apply_camera)

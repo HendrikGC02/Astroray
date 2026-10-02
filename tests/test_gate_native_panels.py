@@ -98,6 +98,11 @@ FLAT_MAX_GRADIENT_ENERGY = 0.02    # flat ROI must remain distinguishable from c
 # inflate the ratio and hide a real blur).
 DETAIL_SMOOTH = 3
 
+# Denoise must remove at least half of the residual flat-region noise (declared
+# margin; measured 4.0x CPU / 2.4x GPU on 2026-10-03). A bare ``after < before``
+# passes on 1e-4 differences.
+DENOISE_NOISE_RATIO_MAX = 0.5
+
 # Declared reference-comparison regions (top-down, x0, y0, x1, y1), fixed BEFORE
 # the render; never chosen after the fact. The flat region is a featureless
 # diffuse floor patch and the detail region carries a high-contrast checker.
@@ -164,11 +169,20 @@ def _box_smooth(img: np.ndarray) -> np.ndarray:
 
 def flat_region_noise(img: np.ndarray,
                       roi: tuple[float, float, float, float] = DECLARED_REGIONS["flat"]) -> float:
-    """Standard deviation of luminance over a featureless region (MC noise)."""
+    """Monte-Carlo noise in the declared flat region: std of the high-pass
+    residual (luminance minus its 3x3 box smooth, border pixels dropped).
+
+    The 2026-10-03 re-run showed the plain ROI std is signal-dominated: the
+    authored "flat" ROI carries a smooth horizon ramp (std 0.4214 in EVERY leg,
+    incl. the converged reference), so ``after < before`` was decided by ~1e-4
+    of ramp, not by noise (denoise's real 4x noise drop hid inside it).
+    """
     region = luminance(resolve_region(img, roi))
     if region.size == 0:
         return float("nan")
-    return float(np.std(region))
+    resid = (region - _box_smooth(region))[DETAIL_SMOOTH // 2:-(DETAIL_SMOOTH // 2),
+                                           DETAIL_SMOOTH // 2:-(DETAIL_SMOOTH // 2)]
+    return float(np.std(resid))
 
 
 def mean_relative_luminance_error(actual: np.ndarray, reference: np.ndarray,
@@ -271,8 +285,9 @@ def denoise_effect_ok(
     before = flat_region_noise(denoise_off, roi)
     after = flat_region_noise(denoise_on, roi)
     valid = np.isfinite(before) and np.isfinite(after)
-    return bool(valid and after < before), {
-        "valid": bool(valid), "residual_noise_off": before, "residual_noise_on": after}
+    return bool(valid and after <= DENOISE_NOISE_RATIO_MAX * before), {
+        "valid": bool(valid), "residual_noise_off": before, "residual_noise_on": after,
+        "noise_ratio_max": DENOISE_NOISE_RATIO_MAX}
 
 
 def accuracy_safeguard_ok(actual: np.ndarray, reference: np.ndarray) -> tuple[bool, dict]:
@@ -386,6 +401,40 @@ def test_denoise_effect_ok_direction():
     assert ok and stats["residual_noise_on"] < stats["residual_noise_off"]
     ok2, _ = denoise_effect_ok(off, off.copy())
     assert not ok2
+
+
+def test_flat_noise_ignores_smooth_ramp_signal():
+    """Regression (2026-10-03): a smooth ramp in the flat ROI must not count as noise."""
+    h = w = 64
+    ramp = np.tile(np.linspace(0.2, 2.0, h, dtype=np.float32)[:, None, None], (1, w, 3))
+    rng = np.random.default_rng(5)
+    noisy = ramp + rng.normal(0, 0.02, ramp.shape).astype(np.float32)
+    assert flat_region_noise(ramp) < 1e-5
+    assert 0.01 < flat_region_noise(noisy) < 0.03
+
+
+def test_denoise_effect_requires_declared_margin():
+    h = w = 64
+    ramp = np.tile(np.linspace(0.2, 2.0, h, dtype=np.float32)[:, None, None], (1, w, 3))
+    rng = np.random.default_rng(6)
+    n = rng.normal(0, 0.02, ramp.shape).astype(np.float32)
+    off = ramp + n
+    assert not denoise_effect_ok(off, ramp + 0.9 * n)[0]   # 10 % is not an effect
+    assert denoise_effect_ok(off, ramp + 0.3 * n)[0]
+
+
+def test_adaptive_effect_red_when_off_leg_resolved_on():
+    ref = _split_reference(seed=21, size=64)
+    legs = {n: {"native": {"samples": 64, "use_adaptive_sampling": n == "adaptive_on",
+                           "use_denoising": False},
+                "resolved": {"samples": 64, "use_adaptive_sampling": True,
+                             "use_denoising": False}}
+            for n in LEG_NAMES}
+    arrays = {n: ref.copy() for n in LEG_NAMES}
+    arrays["adaptive_on"] = np.full_like(ref, 0.5)   # looks "cleaner" by chance
+    rec = evaluate_backend("cpu", legs, arrays, {"present": False, "reason": "n/a"})
+    chk = rec["checks"]["adaptive_effect"]
+    assert not chk["passed"] and "#866" in chk["stats"]["reason"]
 
 
 def test_accuracy_safeguard_rejects_biased_flat_output():
@@ -564,6 +613,14 @@ def evaluate_backend(backend: str, legs: dict, arrays: dict, aov: dict,
         record("adaptive_effect", False, "unmeasured", {"reason": "leg artifact missing"})
     else:
         ok, stats = adaptive_effect_ok(a_off, a_on)
+        off_meta = legs.get("adaptive_off", {})
+        off_native = off_meta.get("native", {}).get("use_adaptive_sampling")
+        off_resolved = off_meta.get("resolved", {}).get("use_adaptive_sampling")
+        if off_native is False and off_resolved is True:
+            # The "off" leg actually ran adaptive-ON (#866): both legs are the
+            # same code path, so any measured delta is a coin flip, never an effect.
+            ok = False
+            stats = dict(stats, reason="adaptive_off leg resolved to adaptive ON (#866); A/B is not an adaptive comparison")
         record("adaptive_effect", ok, "green" if ok else "red", stats)
     if a_on is None or ref is None:
         record("adaptive_accuracy", False, "unmeasured", {"reason": "leg artifact missing"})

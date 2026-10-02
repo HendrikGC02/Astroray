@@ -194,9 +194,10 @@ def test_report_none_is_silent(capsys):
 # --------------------------------------------------------------------------- #
 
 def test_approximated_and_dropped_stay_custom():
-    """use_adaptive_sampling (dropped) and denoiser_backend (approximated) must
-    fall through to the custom prop even though native counterparts
-    (use_adaptive_sampling / denoiser) exist on scene.cycles.
+    """denoiser_backend (approximated) must fall through to the custom prop even
+    though a native counterpart (denoiser) exists on scene.cycles. (#866:
+    use_adaptive_sampling used to be asserted custom-only here; the native bool
+    now drives it -- see test_native_adaptive_sampling_toggle_drives_engine.)
 
     light_sampler is APPROXIMATED and was custom-only through pkg176 (this test
     originally asserted ``resolved.light_sampler == 'power'``, i.e. the native
@@ -207,7 +208,7 @@ def test_approximated_and_dropped_stay_custom():
     now yields 'tree', overriding the custom 'power'."""
     resolved = ns.resolve_native_settings(_scene(_native_cycles()))
     assert resolved.light_sampler == 'tree'            # pkg201: native use_light_tree=True -> engine 'tree'
-    assert resolved.use_adaptive_sampling is False     # not native True
+    assert resolved.use_adaptive_sampling is True      # #866: native True wins over custom False
     assert resolved.denoiser_backend == 'auto'         # not native 'OPTIX'
 
     # light_sampler is reconciled OUTSIDE the DIRECT alias loop, so it (and the
@@ -215,6 +216,17 @@ def test_approximated_and_dropped_stay_custom():
     aliased_custom = {c for _, c in ns.DIRECT_ALIASES}
     for name in ("light_sampler", "use_adaptive_sampling", "denoiser_backend", "adaptive_threshold"):
         assert name not in aliased_custom
+
+
+def test_native_adaptive_sampling_toggle_drives_engine():
+    """#866: scene.cycles.use_adaptive_sampling (both values) is what the engine
+    session is told; the custom prop is only the Cycles-less fallback."""
+    for native in (True, False):
+        cy = _native_cycles()
+        cy.use_adaptive_sampling = native
+        assert ns.resolve_native_settings(_scene(cy)).use_adaptive_sampling is native
+    # Cycles-less scene keeps the custom prop (False in the stub).
+    assert ns.resolve_native_settings(_scene(None)).use_adaptive_sampling is False
 
 
 # --------------------------------------------------------------------------- #

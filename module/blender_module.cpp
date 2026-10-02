@@ -2726,7 +2726,8 @@ public:
                     gpuCancelHook,                             // pkg241 Phase 1b
                     subPassBudget,                             // pkg266
                     &gpuUnitsLaunched, &gpuCancelledAtUnit,    // pkg266
-                    skipUpload, sceneOwnerId_);                // #801 device scene cache
+                    skipUpload, sceneOwnerId_,                 // #801 device scene cache
+                    camera->sampleCountBuffer.data());         // #867
                 lastRenderInfoUnitsLaunched_ = gpuUnitsLaunched;
                 lastRenderInfoCancelledAtUnit_ = gpuCancelledAtUnit;
                 lastRenderInfoGridUploads_ =
@@ -2987,6 +2988,17 @@ public:
         float* ptr = static_cast<float*>(buf.ptr);
         size_t size = camera->depthBuffer.size();
         for (size_t i = 0; i < size; ++i) ptr[i] = camera->depthBuffer[i];
+        return result;
+    }
+
+    // #867: per-pixel samples taken (adaptive sampling varies it across the image).
+    py::array_t<float> getSampleCountBuffer() {
+        if (!camera) throw std::runtime_error("Camera not set up");
+        py::ssize_t shape[2] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width)};
+        auto result = py::array_t<float>(shape);
+        float* ptr = static_cast<float*>(result.request().ptr);
+        const size_t size = camera->sampleCountBuffer.size();
+        for (size_t i = 0; i < size; ++i) ptr[i] = camera->sampleCountBuffer[i];
         return result;
     }
 
@@ -4184,6 +4196,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("get_motion_buffer", &PyRenderer::getMotionBuffer)
         .def("get_alpha_buffer", &PyRenderer::getAlphaBuffer)
         .def("get_depth_buffer", &PyRenderer::getDepthBuffer)
+        .def("get_sample_count_buffer", &PyRenderer::getSampleCountBuffer,
+             "#867 — per-pixel samples taken (H x W float32).")
         .def("get_position_buffer", &PyRenderer::getPositionBuffer)
         .def("get_uv_buffer", &PyRenderer::getUVBuffer)
         .def("get_object_index_buffer", &PyRenderer::getObjectIndexBuffer)

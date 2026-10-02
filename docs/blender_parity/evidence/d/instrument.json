@@ -1,0 +1,37 @@
+{
+  "schema": "pkg278.instrument.v2",
+  "row": "d",
+  "instrument": "native_panel_smoke",
+  "scene_sha256": [
+    "c99f8e8d67a073695d19bd984c9fafd5a674cf2e60261e0378e03c64a2533455"
+  ],
+  "build_id": "dev",
+  "backend": [
+    "CPU",
+    "GPU"
+  ],
+  "settings": {},
+  "metric": {
+    "source": "canonical_native_panel_reducer"
+  },
+  "value": {},
+  "threshold": {
+    "mean_rel_error_max": 0.02,
+    "detail_preservation_min": 0.95
+  },
+  "records": [
+    {
+      "kind": "native_panel_aggregate",
+      "artifact": {
+        "path": "raw_aggregate.json",
+        "sha256": "a76da5c6a61cfcd33b8aa01d76c0bca0eee764cf68c28bdf3386245f0f88cbce"
+      },
+      "expected_identity": {
+        "build_id": "dev",
+        "engine_id": "CUSTOM_RAYTRACER",
+        "module_sha256": "ebbd234aa21e280d3fe632bc13de174397fe51c6c07cf79cf6e6fd9b06ae9fa3",
+        "addon_init_sha256": "ce9288f2abaefe6c4b2da93fa8009fe0a7c949bdd68864a36f289c61ab1adb73"
+      }
+    }
+  ]
+}

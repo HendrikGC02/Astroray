@@ -1,0 +1,506 @@
+{
+  "artifacts": {
+    "ac2076b95fe54d27acfe21ad178b1b36_gpu_adaptive_off.exr": {
+      "backend": "gpu",
+      "kind": "linear_exr",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\ac2076b95fe54d27acfe21ad178b1b36_gpu_adaptive_off.exr",
+      "sha256": "2b7eca2d6b9e4c5077f8bc0d010ae7a527b6b92858d828b53bb5963b725ac997",
+      "shape": null
+    },
+    "ac2076b95fe54d27acfe21ad178b1b36_gpu_adaptive_off.npy": {
+      "backend": "gpu",
+      "kind": "linear_topdown_npy",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\ac2076b95fe54d27acfe21ad178b1b36_gpu_adaptive_off.npy",
+      "sha256": "e82b2740b4de09600a82ae8aa9c6fa141b9e616f82cf77b76e9160f441caf6e7",
+      "shape": [
+        128,
+        128,
+        3
+      ]
+    },
+    "ac2076b95fe54d27acfe21ad178b1b36_gpu_adaptive_on.exr": {
+      "backend": "gpu",
+      "kind": "linear_exr",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\ac2076b95fe54d27acfe21ad178b1b36_gpu_adaptive_on.exr",
+      "sha256": "e2ec4360aa5d4c35908399e6e5cc153d0ac8b92f49327b18f1b8b105b7896d7c",
+      "shape": null
+    },
+    "ac2076b95fe54d27acfe21ad178b1b36_gpu_adaptive_on.npy": {
+      "backend": "gpu",
+      "kind": "linear_topdown_npy",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\ac2076b95fe54d27acfe21ad178b1b36_gpu_adaptive_on.npy",
+      "sha256": "a29e2e763cc6fbc274b108b8ffbb4d8fb315239e14ccf393064dc183d7ff9886",
+      "shape": [
+        128,
+        128,
+        3
+      ]
+    },
+    "ac2076b95fe54d27acfe21ad178b1b36_gpu_denoise_off.exr": {
+      "backend": "gpu",
+      "kind": "linear_exr",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\ac2076b95fe54d27acfe21ad178b1b36_gpu_denoise_off.exr",
+      "sha256": "8befc65bf119f1775bf456a509a0301b773c93dc2c44842ffc2ec765e8cd5695",
+      "shape": null
+    },
+    "ac2076b95fe54d27acfe21ad178b1b36_gpu_denoise_off.npy": {
+      "backend": "gpu",
+      "kind": "linear_topdown_npy",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\ac2076b95fe54d27acfe21ad178b1b36_gpu_denoise_off.npy",
+      "sha256": "6c0538b05635ebb1047ee6549850b2d782529eb58585655ee07586204934f5ab",
+      "shape": [
+        128,
+        128,
+        3
+      ]
+    },
+    "ac2076b95fe54d27acfe21ad178b1b36_gpu_denoise_on.exr": {
+      "backend": "gpu",
+      "kind": "linear_exr",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\ac2076b95fe54d27acfe21ad178b1b36_gpu_denoise_on.exr",
+      "sha256": "9ca044204731ffd6b67d70f77338b9a8ba79235f09ec0b20506ccd619d7aad9a",
+      "shape": null
+    },
+    "ac2076b95fe54d27acfe21ad178b1b36_gpu_denoise_on.npy": {
+      "backend": "gpu",
+      "kind": "linear_topdown_npy",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\ac2076b95fe54d27acfe21ad178b1b36_gpu_denoise_on.npy",
+      "sha256": "06bf2cbf5219a35e51c6d406ea1fc16a52b1078f9abf9fc56615f37931d3f27e",
+      "shape": [
+        128,
+        128,
+        3
+      ]
+    },
+    "ac2076b95fe54d27acfe21ad178b1b36_gpu_reference.exr": {
+      "backend": "gpu",
+      "kind": "linear_exr",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\ac2076b95fe54d27acfe21ad178b1b36_gpu_reference.exr",
+      "sha256": "3ffd3c44d14a2ac50314bae24ab3ed4dc00db4fb374b9ddb7aa04aae9b82c7ee",
+      "shape": null
+    },
+    "ac2076b95fe54d27acfe21ad178b1b36_gpu_reference.npy": {
+      "backend": "gpu",
+      "kind": "linear_topdown_npy",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\ac2076b95fe54d27acfe21ad178b1b36_gpu_reference.npy",
+      "sha256": "3141edeff3b6bf0f0742de58ba578fba18354472752e5df03f44698ddff3ea00",
+      "shape": [
+        128,
+        128,
+        3
+      ]
+    }
+  },
+  "backend": "gpu",
+  "build": {
+    "addon_dir": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\dist\\astroray",
+    "addon_init": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\dist\\astroray\\__init__.py",
+    "addon_init_sha256": "ce9288f2abaefe6c4b2da93fa8009fe0a7c949bdd68864a36f289c61ab1adb73",
+    "astroray_module": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\dist\\astroray\\astroray.cp313-win_amd64.pyd",
+    "blender_binary": "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe",
+    "blender_version": "5.2.0 LTS",
+    "build_id": "dev",
+    "engine_id": "CUSTOM_RAYTRACER",
+    "expected_identity": {
+      "addon_init_sha256": "ce9288f2abaefe6c4b2da93fa8009fe0a7c949bdd68864a36f289c61ab1adb73",
+      "build_id": "dev",
+      "module_sha256": "ebbd234aa21e280d3fe632bc13de174397fe51c6c07cf79cf6e6fd9b06ae9fa3"
+    },
+    "gpu_available": true,
+    "module_sha256": "ebbd234aa21e280d3fe632bc13de174397fe51c6c07cf79cf6e6fd9b06ae9fa3",
+    "provenance_claim": "candidate",
+    "version": "3.0.0"
+  },
+  "checks": {
+    "actual_backend_provenance": {
+      "backend": "gpu",
+      "check": "actual_backend_provenance",
+      "passed": true,
+      "stats": {
+        "expected": "gpu",
+        "observed": [
+          "gpu",
+          "gpu",
+          "gpu",
+          "gpu",
+          "gpu"
+        ],
+        "reason": null
+      },
+      "status": "green"
+    },
+    "adaptive_accuracy": {
+      "backend": "gpu",
+      "check": "adaptive_accuracy",
+      "passed": true,
+      "stats": {
+        "detail_preservation": 1.0009337065418726,
+        "detail_preservation_min": 0.95,
+        "mean_rel_error": {
+          "detail": 0.004964552864518277,
+          "flat": 0.0008694834995331579
+        },
+        "mean_rel_error_max": 0.02,
+        "valid": true
+      },
+      "status": "green"
+    },
+    "adaptive_effect": {
+      "backend": "gpu",
+      "check": "adaptive_effect",
+      "passed": false,
+      "stats": {
+        "flat_noise_off": 0.0013920284786689023,
+        "flat_noise_on": 0.001417129078692692,
+        "reason": "adaptive_off leg resolved to adaptive ON (#866); A/B is not an adaptive comparison",
+        "valid": true
+      },
+      "status": "red"
+    },
+    "denoise_accuracy": {
+      "backend": "gpu",
+      "check": "denoise_accuracy",
+      "passed": true,
+      "stats": {
+        "detail_preservation": 1.0008216298253017,
+        "detail_preservation_min": 0.95,
+        "mean_rel_error": {
+          "detail": 0.004785308392721306,
+          "flat": 0.0007369408723621453
+        },
+        "mean_rel_error_max": 0.02,
+        "valid": true
+      },
+      "status": "green"
+    },
+    "denoise_effect": {
+      "backend": "gpu",
+      "check": "denoise_effect",
+      "passed": true,
+      "stats": {
+        "noise_ratio_max": 0.5,
+        "residual_noise_off": 0.0013810862258259828,
+        "residual_noise_on": 0.0006084455051790368,
+        "valid": true
+      },
+      "status": "green"
+    },
+    "finite": {
+      "backend": "gpu",
+      "check": "finite",
+      "passed": true,
+      "stats": {
+        "missing_legs": [],
+        "non_finite_legs": []
+      },
+      "status": "green"
+    },
+    "native_settings_honored": {
+      "backend": "gpu",
+      "check": "native_settings_honored",
+      "passed": false,
+      "stats": {
+        "ignored_native_settings": [
+          {
+            "leg": "adaptive_off",
+            "native": false,
+            "resolved": true,
+            "setting": "use_adaptive_sampling"
+          },
+          {
+            "leg": "denoise_off",
+            "native": false,
+            "resolved": true,
+            "setting": "use_adaptive_sampling"
+          },
+          {
+            "leg": "denoise_on",
+            "native": false,
+            "resolved": true,
+            "setting": "use_adaptive_sampling"
+          },
+          {
+            "leg": "reference",
+            "native": false,
+            "resolved": true,
+            "setting": "use_adaptive_sampling"
+          }
+        ]
+      },
+      "status": "red"
+    },
+    "reference_nonvacuous": {
+      "backend": "gpu",
+      "check": "reference_nonvacuous",
+      "passed": true,
+      "stats": {
+        "detail_energy_floor": 1e-06,
+        "detail_gradient_energy": 0.17061870180049868,
+        "finite": true,
+        "light_floor": 0.0001,
+        "mean_luminance": 0.8062246733319279
+      },
+      "status": "green"
+    },
+    "reference_regions_identified": {
+      "backend": "gpu",
+      "check": "reference_regions_identified",
+      "passed": true,
+      "stats": {
+        "checker_bright_fraction": 0.5842524509803921,
+        "checker_bright_min": 0.45,
+        "checker_dark_fraction": 0.3912377450980392,
+        "checker_dark_max": 0.25,
+        "checker_min_fraction": 0.02,
+        "flat_gradient_energy": 0.0010656156330571395,
+        "flat_max_gradient_energy": 0.02,
+        "valid": true
+      },
+      "status": "green"
+    },
+    "sample_count_aov_changes": {
+      "backend": "gpu",
+      "check": "sample_count_aov_changes",
+      "passed": false,
+      "stats": {
+        "attempted": [],
+        "passes_seen": [],
+        "reason": "sample-count pass absent after valid capture: adaptive_off, adaptive_on"
+      },
+      "status": "red"
+    }
+  },
+  "declared": {
+    "adaptive_budget_samples": 64,
+    "budget_note": "equal max-spp is an upper bound on equal work: adaptive sampling may retire pixels early; declared budgets and resolved per-leg sample counts are recorded for audit",
+    "denoise_settle_samples": 64,
+    "detail_preservation_min": 0.95,
+    "mean_rel_error_max": 0.02,
+    "reference_samples": 512,
+    "region_nonvacuity": {
+      "checker_bright_min": 0.45,
+      "checker_dark_max": 0.25,
+      "checker_min_fraction": 0.02,
+      "flat_max_gradient_energy": 0.02
+    },
+    "regions": {
+      "detail": [
+        0.55,
+        0.45,
+        0.95,
+        0.95
+      ],
+      "flat": [
+        0.05,
+        0.45,
+        0.45,
+        0.95
+      ]
+    }
+  },
+  "legs": {
+    "adaptive_off": {
+      "artifact": "ac2076b95fe54d27acfe21ad178b1b36_gpu_adaptive_off.npy",
+      "backend": "gpu",
+      "error": null,
+      "finite": true,
+      "leg": "adaptive_off",
+      "mean_luminance": 0.8062928915023804,
+      "native": {
+        "samples": 64,
+        "use_adaptive_sampling": false,
+        "use_denoising": false
+      },
+      "output_telemetry": [
+        {
+          "bvh_build_ms": 0.014799999999999999,
+          "cancelled": false,
+          "cancelled_at_unit": -1,
+          "device": 0,
+          "gpu_scene_reused": false,
+          "gpu_traversal": "optix",
+          "grid_uploads": 0,
+          "tiles_completed": 0,
+          "total_tiles": 0,
+          "units_launched": 0
+        }
+      ],
+      "rendered": true,
+      "resolved": {
+        "device_mode": "gpu",
+        "samples": 64,
+        "use_adaptive_sampling": true,
+        "use_denoising": false
+      },
+      "sha256": "e82b2740b4de09600a82ae8aa9c6fa141b9e616f82cf77b76e9160f441caf6e7",
+      "shape": [
+        128,
+        128,
+        3
+      ]
+    },
+    "adaptive_on": {
+      "artifact": "ac2076b95fe54d27acfe21ad178b1b36_gpu_adaptive_on.npy",
+      "backend": "gpu",
+      "error": null,
+      "finite": true,
+      "leg": "adaptive_on",
+      "mean_luminance": 0.8063127994537354,
+      "native": {
+        "samples": 64,
+        "use_adaptive_sampling": true,
+        "use_denoising": false
+      },
+      "output_telemetry": [
+        {
+          "bvh_build_ms": 0.0066,
+          "cancelled": false,
+          "cancelled_at_unit": -1,
+          "device": 0,
+          "gpu_scene_reused": false,
+          "gpu_traversal": "optix",
+          "grid_uploads": 0,
+          "tiles_completed": 0,
+          "total_tiles": 0,
+          "units_launched": 0
+        }
+      ],
+      "rendered": true,
+      "resolved": {
+        "device_mode": "gpu",
+        "samples": 64,
+        "use_adaptive_sampling": true,
+        "use_denoising": false
+      },
+      "sha256": "a29e2e763cc6fbc274b108b8ffbb4d8fb315239e14ccf393064dc183d7ff9886",
+      "shape": [
+        128,
+        128,
+        3
+      ]
+    },
+    "denoise_off": {
+      "artifact": "ac2076b95fe54d27acfe21ad178b1b36_gpu_denoise_off.npy",
+      "backend": "gpu",
+      "error": null,
+      "finite": true,
+      "leg": "denoise_off",
+      "mean_luminance": 0.8063247203826904,
+      "native": {
+        "samples": 64,
+        "use_adaptive_sampling": false,
+        "use_denoising": false
+      },
+      "output_telemetry": [
+        {
+          "bvh_build_ms": 0.0058,
+          "cancelled": false,
+          "cancelled_at_unit": -1,
+          "device": 0,
+          "gpu_scene_reused": false,
+          "gpu_traversal": "optix",
+          "grid_uploads": 0,
+          "tiles_completed": 0,
+          "total_tiles": 0,
+          "units_launched": 0
+        }
+      ],
+      "rendered": true,
+      "resolved": {
+        "device_mode": "gpu",
+        "samples": 64,
+        "use_adaptive_sampling": true,
+        "use_denoising": false
+      },
+      "sha256": "6c0538b05635ebb1047ee6549850b2d782529eb58585655ee07586204934f5ab",
+      "shape": [
+        128,
+        128,
+        3
+      ]
+    },
+    "denoise_on": {
+      "artifact": "ac2076b95fe54d27acfe21ad178b1b36_gpu_denoise_on.npy",
+      "backend": "gpu",
+      "error": null,
+      "finite": true,
+      "leg": "denoise_on",
+      "mean_luminance": 0.8060229420661926,
+      "native": {
+        "samples": 64,
+        "use_adaptive_sampling": false,
+        "use_denoising": true
+      },
+      "output_telemetry": [
+        {
+          "bvh_build_ms": 0.0060999999999999995,
+          "cancelled": false,
+          "cancelled_at_unit": -1,
+          "device": 0,
+          "gpu_scene_reused": false,
+          "gpu_traversal": "optix",
+          "grid_uploads": 0,
+          "tiles_completed": 0,
+          "total_tiles": 0,
+          "units_launched": 0
+        }
+      ],
+      "rendered": true,
+      "resolved": {
+        "device_mode": "gpu",
+        "samples": 64,
+        "use_adaptive_sampling": true,
+        "use_denoising": true
+      },
+      "sha256": "06bf2cbf5219a35e51c6d406ea1fc16a52b1078f9abf9fc56615f37931d3f27e",
+      "shape": [
+        128,
+        128,
+        3
+      ]
+    },
+    "reference": {
+      "artifact": "ac2076b95fe54d27acfe21ad178b1b36_gpu_reference.npy",
+      "backend": "gpu",
+      "error": null,
+      "finite": true,
+      "leg": "reference",
+      "mean_luminance": 0.8062246441841125,
+      "native": {
+        "samples": 512,
+        "use_adaptive_sampling": false,
+        "use_denoising": false
+      },
+      "output_telemetry": [
+        {
+          "bvh_build_ms": 0.006999999999999999,
+          "cancelled": false,
+          "cancelled_at_unit": -1,
+          "device": 0,
+          "gpu_scene_reused": false,
+          "gpu_traversal": "optix",
+          "grid_uploads": 0,
+          "tiles_completed": 0,
+          "total_tiles": 0,
+          "units_launched": 0
+        }
+      ],
+      "rendered": true,
+      "resolved": {
+        "device_mode": "gpu",
+        "samples": 512,
+        "use_adaptive_sampling": true,
+        "use_denoising": false
+      },
+      "sha256": "3141edeff3b6bf0f0742de58ba578fba18354472752e5df03f44698ddff3ea00",
+      "shape": [
+        128,
+        128,
+        3
+      ]
+    }
+  },
+  "run_id": "ac2076b95fe54d27acfe21ad178b1b36",
+  "scene_sha256": "c99f8e8d67a073695d19bd984c9fafd5a674cf2e60261e0378e03c64a2533455",
+  "status": "red"
+}

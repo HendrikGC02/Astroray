@@ -92,3 +92,28 @@ def test_adaptive_changes_and_sane():
         "adaptive produced a byte-identical image to the uniform render — the round "
         "loop / compaction never engaged")
     assert 0.05 < on.mean() and 0.05 < off.mean()
+
+
+def _gpu_counts(adaptive, samples):
+    r = create_renderer()
+    if not _has_cuda_gpu(r):
+        pytest.skip("No CUDA GPU — pkg131 GPU adaptive gate runs on the RTX box.")
+    if not hasattr(r, "get_sample_count_buffer"):
+        pytest.skip("engine build predates #867 get_sample_count_buffer")
+    r.set_use_gpu(True)
+    r.set_use_progressive_sampler(adaptive)
+    r.set_adaptive_sampling(adaptive)
+    _build_scene(r)
+    r.set_seed(1234)
+    render_image(r, samples=samples, max_depth=3, apply_gamma=False)
+    return np.asarray(r.get_sample_count_buffer())
+
+
+def test_sample_count_buffer_reflects_adaptive_867():
+    """#867: GPU per-pixel sample counts equal the budget when adaptive is off and
+    vary (never above budget) when the round loop engages."""
+    off = _gpu_counts(False, 256)
+    assert off.shape == (48, 48) and np.all(off == 256)
+    on = _gpu_counts(True, 256)
+    assert on.max() <= 256 and on.min() >= 1
+    assert on.min() < on.max(), "GPU adaptive left the sample-count AOV constant"

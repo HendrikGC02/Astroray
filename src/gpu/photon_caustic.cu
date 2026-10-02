@@ -159,8 +159,8 @@ __device__ inline float pc_iorAt(const GMaterial& m, float lambda) {
 // shared emitter (photon_emitter.h peSampleLe: distant aperture / point-spot cone
 // / area surface + cone), and the photon carries physical flux
 // CMF(λ) · I_S · W / N (pkg286, Jensen 2001 §7.1). It is then marched through the
-// scene refracting at transmissive hits (enter/exit by the geometric-normal
-// sign, exact Fresnel transmittance, TIR reflect) and deposited on the first diffuse
+// scene through transmissive hits (enter/exit by the geometric-normal sign,
+// Fresnel-sampled reflect/refract, #959) and deposited on the first diffuse
 // (non-emissive, non-transmissive) hit AFTER passing a caster — the device twin
 // of the CPU general BVH loop (spectral_path_tracer.cpp buildPhotonMap). A cell
 // that never deposits writes power 0 (the host compacts survivors).
@@ -195,7 +195,6 @@ __global__ void kEmitSceneCaustic(
     GVec3 o(po.x, po.y, po.z);
     GVec3 d(pd.x, pd.y, pd.z);
 
-    float tr = 1.0f;
     bool passedCaster = false;
     const float eps = 1e-3f;
 
@@ -217,12 +216,16 @@ __global__ void kEmitSceneCaustic(
             GVec3 nf; float eta;
             if (d.dot(ng) < 0.0f) { nf = ng;        eta = 1.0f / ior; }  // entering
             else                  { nf = ng * -1.0f; eta = ior; }         // exiting
+            // #959: reflect with probability R (exact Fresnel, 1 on TIR), else
+            // refract; power unchanged (Jensen 2001 §5, pbrt-v3 FresnelSpecular,
+            // BSD-2). The map then holds every caster chain, matching the split cull.
             GVec3 nd;
-            if (pc_refract(d, nf, eta, nd)) {
-                tr *= peFresnelTransmit(d.dot(nf), eta);   // pkg286: exact Fresnel
+            const float T = peFresnelTransmit(d.dot(nf), eta);
+            if (pc_jitter(cell, (200u + (unsigned int)bounce) ^ seed) < T &&
+                pc_refract(d, nf, eta, nd)) {
                 d = nd;
             } else {
-                d = (d - nf * (2.0f * d.dot(nf))).normalized();           // TIR
+                d = (d - nf * (2.0f * d.dot(nf))).normalized();           // R / TIR
             }
             passedCaster = true;
             o = rec.point + d * eps;
@@ -231,9 +234,9 @@ __global__ void kEmitSceneCaustic(
 
         // Diffuse receiver: deposit only on an L S+ D path (CPU :461). pkg286: no
         // receiver cosine — the photon hit density already carries it.
-        if (passedCaster && tr > 0.0f) {
+        if (passedCaster) {
             GVec3 cmf = pc_cieCmf(lambda);
-            const float f = tr * w;
+            const float f = w;
             out[cell].position    = rec.point;
             out[cell].incidentDir = d;
             out[cell].power       = GVec3(cmf.x * f, cmf.y * f, cmf.z * f);

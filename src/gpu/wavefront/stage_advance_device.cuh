@@ -877,19 +877,15 @@ __device__ int intersectPathSlotT(
     const ::GMaterial& mat = materials[rec.materialId];
 
     // #909: photon-map split chain (see GWavefrontPhotonSplit). Live from a
-    // bounce-0 photon receiver; each later hit must be a caster entered then
-    // exited in turn (transmission, as the photon trace models), else dead.
+    // bounce-0 photon receiver; each later hit must be a caster (any face,
+    // reflected or refracted: #959, the photon trace Fresnel-samples both), else dead.
     if (c_wfPhotonSplit.chain != nullptr) {
         unsigned char c;
         if (bounce == 0) {
             c = (mat.emissionIntensity <= 0.f && !wf_isPhotonCaster(mat)) ? 1 : 0;
         } else {
             c = c_wfPhotonSplit.chain[idx];
-            if (c & 1) {
-                const bool expectFront = (c & 2) ? !(c & 4) : true;
-                c = (wf_isPhotonCaster(mat) && rec.frontFace == expectFront)
-                        ? (unsigned char)(3 | (rec.frontFace ? 4 : 0)) : 0;
-            }
+            if (c & 1) c = wf_isPhotonCaster(mat) ? 3 : 0;
         }
         c_wfPhotonSplit.chain[idx] = c;
     }
@@ -2123,7 +2119,9 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     if constexpr (HasPhotons) {
         if (bounce == 0 && hasPhotonGrid && !useLuminanceOutput && photonGrid.numPhotons > 0) {
             // rec is already the primary hit from intersectPathSlot; check non-emissive.
-            if (mat.emissionIntensity <= 0.0f) {
+            // #959: receivers only (a caster holds no photons; the split chain
+            // starts only at a non-caster receiver) -- CPU sampleFull twin.
+            if (mat.emissionIntensity <= 0.0f && !wf_isPhotonCaster(mat)) {
                 int found = 0;
                 GVec3 E = astroray::photon::gpu::photonGridGatherKnn(
                     photonGrid, rec.point, 50, 1.1f, found);

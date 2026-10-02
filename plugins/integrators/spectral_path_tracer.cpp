@@ -63,6 +63,7 @@ class SpectralPathTracer : public Integrator {
     int  sphereChainRefl_ = 0; // pkg227: sphere internal-reflection rainbow depth (0=off)
     amf::SMSConfig smsCfg_;
     std::string causticMode_; // pkg111: "none", "sms" (default), or "photon_map"
+    bool photonMode_ = false; // #959: photon map built this frame (photon_map or usePhotonCaustics)
     // pkg125: band awareness. Mirrors multiwavelength_path_tracer.cpp:22-23,45-46
     // — read the wavelength range Renderer::setWavelengthRange wrote into
     // integratorParams_ ("lambda_min"/"lambda_max", raytracer.h:2160-2162) so
@@ -153,8 +154,14 @@ public:
         photonMapReady_ = false;  // pkg111
 
         // pkg111: if caustics == "photon_map", build the photon map here (before
-        // the camera pass). Otherwise, fall through to the SMS path.
-        if (causticMode_ == "photon_map") {
+        // the camera pass). Otherwise, fall through to the SMS path. #959: the
+        // renderer-level usePhotonCaustics switch (the addon sets it whenever a
+        // caster is flagged; the GPU pre-pass keys on it) selects the same map on
+        // the CPU, so both backends run one estimator. Without it a point/spot
+        // lamp's caustic is unreachable here (a path-traced ray cannot hit it).
+        photonMode_ = causticMode_ == "photon_map" ||
+                      (causticMode_ != "none" && scene.getUsePhotonCaustics());
+        if (photonMode_) {
             buildPhotonMap(scene);
         } else if (scene.getUseRefractiveCaustics()) {
             // SMS path: per-object opt-in: only flagged objects participate.
@@ -166,7 +173,7 @@ public:
 
     std::unordered_map<std::string, float> debugStats() const override {
         // pkg111: report photon map stats when in photon_map mode.
-        if (causticMode_ == "photon_map") {
+        if (photonMode_) {
             return {
                 {"pm_ready",          photonMapReady_ ? 1.0f : 0.0f},
                 {"pm_stored_photons", static_cast<float>(photonMap_.size())},
@@ -297,8 +304,11 @@ public:
         // pkg111: Add photon-mapped caustic at the first diffuse hit (when ready).
         if (photonMapReady_ && bvh) {
             HitRecord rec;
+            // #959: receivers only — a caster surface holds no photons, and the
+            // split chain (pathTraceSpectral) starts only at a non-caster receiver.
             if (bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec) &&
-                rec.material && !rec.material->isEmissive()) {
+                rec.material && !rec.material->isEmissive() &&
+                !rec.material->isTransmissive()) {
                 // k-NN density estimate (Jensen 1996 Eq. 8) at ANY diffuse surface.
                 astroray::XYZ E = photonMap_.estimateIrradiance(
                     rec.point, photonGatherK_, photonGatherRadius_);
@@ -509,7 +519,10 @@ private:
             astroray::photon::buildPhotonLights(lights, casterBounds, photonCount);
         if (emitters.empty()) return;
 
-        std::mt19937 gen(12345u);
+        // #959: decorrelate maps across render seeds (GPU pkg220 twin); seed 0 keeps
+        // the historical fixed stream.
+        std::mt19937 gen(12345u ^ (static_cast<uint32_t>(scene.getSeed()) * 0x9E3779B9u));
+        std::uniform_real_distribution<float> u01(0.0f, 1.0f);
         std::vector<astroray::photon::Photon> photons;
         photons.reserve(photonCount / 2);
         const float eps = 1e-3f;
@@ -566,8 +579,12 @@ private:
                     deposit(rec, d2, lambda, w * tr);
                     continue;
                 }
-                // General BVH loop (curved/solid glass).
-                float tr = 1.0f;
+                // General BVH loop (curved/solid glass). #959: at each caster hit the
+                // photon reflects with probability R (exact Fresnel, 1 on TIR), else
+                // refracts; power unchanged (Jensen 2001 §5 Russian roulette, pbrt-v3
+                // FresnelSpecular::Sample_f, BSD-2). The map then holds every caster
+                // chain L S+ D, which is exactly what pathTraceSpectral's split culls.
+                // Research: .astroray_plan/docs/caustic-photon-fresnel-split-research.md
                 bool passedCaster = false;
                 for (int bounce = 0; bounce < maxDepth_; ++bounce) {
                     HitRecord rec;
@@ -594,8 +611,8 @@ private:
                             eta = ior;
                         }
                         Vec3 nd;
-                        if (refract(d, nf, eta, nd)) {
-                            tr *= astroray::photon::peFresnelTransmit(d.dot(nf), eta);
+                        const float T = astroray::photon::peFresnelTransmit(d.dot(nf), eta);
+                        if (u01(gen) < T && refract(d, nf, eta, nd)) {
                             d = nd;
                         } else {
                             d = (d - nf * (2.0f * d.dot(nf))).normalized();
@@ -605,7 +622,7 @@ private:
                         continue;
                     }
                     // pkg111: REMOVED `rec.normal.y > 0.7f` — deposit on ANY diffuse receiver.
-                    if (passedCaster && tr > 0.0f) deposit(rec, d, lambda, w * tr);
+                    if (passedCaster) deposit(rec, d, lambda, w);
                     break;
                 }
             }

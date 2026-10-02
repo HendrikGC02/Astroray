@@ -3698,7 +3698,7 @@ public:
         const bool causticGateActive =
             !useReflectiveCaustics || !useRefractiveCaustics;
         // pkg287 (#909): photon split chain, GPU GWavefrontPhotonSplit twin:
-        // bit0 live (bounce-0 receiver), bit1 passed glass, bit2 last frontFace.
+        // bit0 live (bounce-0 receiver), bit1 passed glass.
         unsigned photonChain = 0;
         auto addPass = [&](int passIdx, const astroray::SampledSpectrum& contrib) {
             if (outPasses) (*outPasses)[passIdx] += contrib;
@@ -3920,17 +3920,19 @@ public:
                 }
             }
 
-            // pkg287 (#909): advance the photon split chain with this hit — each
-            // later hit must be caster glass entered then exited in turn.
+            // pkg287 (#909): advance the photon split chain with this hit. #959:
+            // every later hit must be caster glass (any face, reflected or
+            // refracted): the photon loop Fresnel-samples both lobes, so the map
+            // holds every receiver <- caster+ <- lamp chain, TIR and external
+            // reflections included (the old enter/exit alternation kept TIR
+            // chains path-traced AND in the map: counted twice).
             if (!photonSplitLamps_.empty()) {
                 const bool glass = didHit && rec.material && rec.material->isTransmissive();
                 if (bounce == 0) {
                     photonChain = (didHit && rec.material && !rec.material->isEmissive() &&
                                    !glass) ? 1u : 0u;
                 } else if (photonChain & 1u) {
-                    const bool expectFront = (photonChain & 2u) ? !(photonChain & 4u) : true;
-                    photonChain = (glass && rec.frontFace == expectFront)
-                        ? (3u | (rec.frontFace ? 4u : 0u)) : 0u;
+                    photonChain = glass ? 3u : 0u;
                 }
             }
 

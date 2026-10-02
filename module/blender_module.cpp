@@ -4785,6 +4785,11 @@ PYBIND11_MODULE(astroray, m) {
               if (origins.size() != 3 * tmax.size() || dirs.size() != 3 * tmax.size())
                   throw std::runtime_error("origins/dirs must be (N, 3) and tmax (N,)");
               r.getRenderer().buildAcceleration();
+              // #981: the probe replaces (then releases) the process-global OptiX
+              // accel the wavefront scene cache was built with.
+#ifdef ASTRORAY_WAVEFRONT_CUDA_N3
+              astroray::wavefront::cuda_wavefront_invalidate_scene();
+#endif
               auto res = astroray::optix_trav::cuda_optix_ray_ab(
                   r.getRenderer(), origins.data(), dirs.data(), tmax.data(), n, shadow);
               auto ai = [](const std::vector<int>& v) {

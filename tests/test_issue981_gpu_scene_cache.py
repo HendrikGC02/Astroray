@@ -20,8 +20,8 @@ import subprocess
 
 import numpy as np
 import pytest
-
 import runtime_setup  # configures sys.path + DLL dirs
+
 runtime_setup.configure_test_imports()
 import astroray
 
@@ -179,6 +179,10 @@ def _object_name(r, m):
     r.set_object_name(2, "renamed_for_981")
 
 
+def _caustic_caster(r, m):
+    assert r.set_object_caustic_caster(2, True)
+
+
 # (mutate, expect a visible change). Names/sampler edits change data but not (or only
 # stochastically) the image; the cold-vs-fresh equality is still asserted.
 EDITS = [
@@ -186,7 +190,7 @@ EDITS = [
     (_add_emissive_geometry, True), (_move_object, True), (_material_rebind, True),
     (_add_point_light, True), (_tree_sampler, False), (_texture_mapping, True),
     (_texture_extension, False), (_texture_swap, True), (_environment, True),
-    (_object_name, False),
+    (_object_name, False), (_caustic_caster, False),
 ]
 
 
@@ -300,6 +304,26 @@ def test_traversal_switch_rebuilds(monkeypatch):
     assert r.last_render_info()["gpu_traversal"] == "software"
     _render(r)
     assert _reused(r)
+
+
+def test_optix_probe_invalidates_cache():
+    """The fixed-ray A/B probe replaces then releases the process-global OptiX accel."""
+    if not hasattr(astroray, "_gpu_optix_ray_ab"):
+        pytest.skip("OptiX traversal not compiled in")
+    r, _ = _base()
+    _render(r)
+    _render(r)
+    assert _reused(r)
+    one = np.ones(1, np.float32)
+    try:
+        astroray._gpu_optix_ray_ab(r, np.array([[0.0, 0.0, 4.0]], np.float32),
+                                   np.array([[0.0, 0.0, -1.0]], np.float32), 100.0 * one, False)
+    except RuntimeError as e:
+        pytest.skip(f"OptiX unavailable: {e}")
+    after = _render(r)
+    assert not _reused(r)
+    fresh, _ = _base()
+    _same(after, _render(fresh))
 
 
 def _used_mb():

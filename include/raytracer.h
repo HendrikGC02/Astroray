@@ -3235,6 +3235,7 @@ public:
         if (objectIndex < 0 || static_cast<size_t>(objectIndex) >= scene.size())
             return false;
         scene[objectIndex]->setCausticCaster(enabled);
+        touchScene();  // #981: isCausticCaster is uploaded (GSphere)
         return true;
     }
     // pkg274 (#36) — per-object holdout opt-in (mirrors setObjectCausticCaster).
@@ -3243,6 +3244,7 @@ public:
         if (objectIndex < 0 || static_cast<size_t>(objectIndex) >= scene.size())
             return false;
         scene[objectIndex]->setHoldout(enabled);
+        touchScene();  // #981
         return true;
     }
     // pkg87c — Cryptomatte object name setter
@@ -3250,6 +3252,7 @@ public:
         if (objectIndex < 0 || static_cast<size_t>(objectIndex) >= scene.size())
             return false;
         scene[objectIndex]->setName(name);
+        touchScene();  // #981: objectHash is uploaded
         return true;
     }
     int getCausticCasterCount() const {

@@ -39,7 +39,10 @@ Steps (run from the repo root):
 
        python benchmarks/reference_corpus/silent_drop_audit.py audit --work-dir <dir> [--out drops.json]
 
-3. ``--self-test``: a fixture material with a deliberately unhandled node must be flagged, the same
+3. ``coverage``: the pkg278 weighted score formula over the matrix classification alone (an upper bound for gate (b))
+   for the gate population snapshot and the production corpus; the gate score itself stays ``unmeasured`` until
+   hash-verified evidence exists (``coverage_report --score``).
+4. ``--self-test``: a fixture material with a deliberately unhandled node must be flagged, the same
    material must NOT be flagged once its node is reported, and a supported / unlinked node never is.
 """
 from __future__ import annotations
@@ -284,6 +287,60 @@ def cmd_audit(a) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Weighted coverage ceiling (classification only)
+# --------------------------------------------------------------------------- #
+
+def weighted_ceiling(use_classes: dict[str, tuple[set, str]]) -> dict:
+    """pkg278's weighted socket-coverage formula, S = sum(min(n, 3) * s) / sum(min(n, 3)), with ``s`` taken from
+    the MATRIX CLASSIFICATION alone (SUPPORTED 1, APPROXIMATED 0.5, else 0) -- the upper bound gate (b) can reach.
+    The gate score itself additionally needs a hash-verified per-backend, per-variant evidence artifact for
+    every nonzero use (``coverage_report.score_use``), so it reads ``unmeasured`` until those exist; the matrix is
+    backend-agnostic, so CPU and GPU share one ceiling."""
+    num = den = 0.0
+    silent = []
+    for key, (scenes, cls) in sorted(use_classes.items()):
+        w = min(len(scenes), CR.WEIGHT_CAP)
+        num += w * (CR.SCORE_SUPPORTED if cls == CR.SUPPORTED else CR.SCORE_APPROXIMATION if cls == CR.APPROXIMATED else 0.0)
+        den += w
+        if cls == CR.DROPPED_SILENT or not cls:
+            silent.append(key)
+    return {"uses": len(use_classes), "weight": den, "ceiling": (num / den) if den else None,
+            "matrix_silent": silent}
+
+
+def gate_population_classes(snapshot: dict, matrix: dict[str, str]) -> dict[str, tuple[set, str]]:
+    """key -> (scenes, matrix class) for a ``coverage_report --collect`` snapshot (the gate (b) population)."""
+    uses = CR._ledger_uses(CR.materialize_use_ledger(snapshot))
+    return {k: (scenes, matrix.get(k, "")) for k, scenes in uses.items()}
+
+
+def production_classes(scenes: dict, matrix: dict[str, str]) -> dict[str, tuple[set, str]]:
+    """Same, for the pkg310 production ``node_uses.json`` (the audit's pair filters apply)."""
+    out_nodes = {k.split("|", 1)[0] for k in matrix if "|output:" in k}
+    out: dict[str, tuple[set, str]] = {}
+    for sid, scene in scenes.items():
+        for p in scene["pairs"]:
+            if p["bl_idname"] in ROOTS or p.get("tree", "").startswith("world:"):
+                continue
+            if p["socket"].startswith("output:") and p["bl_idname"] not in out_nodes:
+                continue
+            key = f"{p['bl_idname']}|{p['socket']}[{p['id']}]"
+            out.setdefault(key, (set(), classification(matrix, p["bl_idname"], p)))[0].add(sid)
+    return out
+
+
+def cmd_coverage(a) -> int:
+    matrix = load_matrix(a.matrix)
+    gate = gate_population_classes(json.loads(Path(a.gate_node_uses).read_text(encoding="utf-8")), matrix)
+    prod = production_classes(json.loads(Path(a.node_uses).read_text(encoding="utf-8"))["scenes"], matrix)
+    for label, classes in (("gate (b) population", gate), ("production corpus", prod)):
+        r = weighted_ceiling(classes)
+        print(f"{label:22s}: {r['uses']:3d} uses, weight {r['weight']:.0f}, matrix-only ceiling "
+              f"{r['ceiling']:.4f} (CPU = GPU), matrix-silent {len(r['matrix_silent'])}")
+    return 0
+
+
+# --------------------------------------------------------------------------- #
 # Non-vacuity fixture
 # --------------------------------------------------------------------------- #
 
@@ -358,6 +415,10 @@ def main(argv=None) -> int:
     u.add_argument("--work-dir", required=True)
     u.add_argument("--seed", type=int, default=278)
     u.add_argument("--out", default="")
+    v = sub.add_parser("coverage", help="matrix-only weighted coverage ceiling (gate (b) formula, no evidence)")
+    v.add_argument("--node-uses", default=str(PROD / "node_uses.json"))
+    v.add_argument("--gate-node-uses", default=str(REPO / "docs" / "blender_parity" / "evidence" / "gate_b" / "node_uses_v3.json"))
+    v.add_argument("--matrix", default=str(MATRIX))
     a = p.parse_args(argv)
     if a.self_test:
         return 0 if self_test() else 1
@@ -365,6 +426,8 @@ def main(argv=None) -> int:
         return cmd_collect(a)
     if a.cmd == "audit":
         return cmd_audit(a)
+    if a.cmd == "coverage":
+        return cmd_coverage(a)
     p.print_help()
     return 2
 

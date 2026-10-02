@@ -316,6 +316,84 @@ def test_family_declared_features_present_in_scene(manifest, scene_id):
             f"but that node type never appears in the scene's node_ids")
 
 
+# #996 baseline: the rows credited by the generated matrix and not yet wired (shrink-only: the registry must stay a
+# subset of this set).
+PROOF_PENDING_BASELINE = frozenset({  # textures_mapping; delete an entry once a scene wires it
+    "ShaderNodeClamp|prop:clamp_type",
+    "ShaderNodeCombineColor|prop:mode",
+    "ShaderNodeCombineXYZ|input:X",
+    "ShaderNodeCombineXYZ|input:Y",
+    "ShaderNodeCombineXYZ|input:Z",
+    "ShaderNodeFresnel|input:IOR",
+    "ShaderNodeFresnel|input:Normal",
+    "ShaderNodeInvert|input:Factor",
+    "ShaderNodeLayerWeight|input:Blend",
+    "ShaderNodeLayerWeight|input:Normal",
+    "ShaderNodeMapRange|prop:interpolation_type",
+    "ShaderNodeMapping|input:Location",
+    "ShaderNodeMapping|input:Rotation",
+    "ShaderNodeMapping|input:Scale",
+    "ShaderNodeMapping|input:Vector",
+    "ShaderNodeMapping|prop:vector_type",
+    "ShaderNodeMath|input:Value[Value_002]",
+    "ShaderNodeMath|prop:operation",
+    "ShaderNodeMath|prop:use_clamp",
+    "ShaderNodeMixRGB|input:Factor",
+    "ShaderNodeMixRGB|prop:use_clamp",
+    "ShaderNodeMix|prop:clamp_factor",
+    "ShaderNodeMix|prop:clamp_result",
+    "ShaderNodeMix|prop:data_type",
+    "ShaderNodeMix|prop:factor_mode",
+    "ShaderNodeSeparateColor|prop:mode",
+    "ShaderNodeSeparateXYZ|input:Vector",
+    "ShaderNodeTexBrick|input:Vector",
+    "ShaderNodeTexChecker|input:Vector",
+    "ShaderNodeTexGradient|input:Vector",
+    "ShaderNodeTexImage|extension",
+    "ShaderNodeTexMagic|input:Vector",
+    "ShaderNodeTexNoise|input:Vector",
+    "ShaderNodeTexVoronoi|input:Vector",
+    "ShaderNodeTexVoronoi|prop:voronoi_dimensions",
+    "ShaderNodeTexWave|input:Vector",
+    "ShaderNodeValToRGB|input:Factor",
+    "ShaderNodeVectorMath|input:Scale",
+    "ShaderNodeVectorMath|input:Vector[Vector_001]",
+    "ShaderNodeVectorMath|input:Vector[Vector_002]",
+    "ShaderNodeVectorMath|prop:operation",
+    "ShaderNodeVectorRotate|input:Angle",
+    "ShaderNodeVectorRotate|input:Axis",
+    "ShaderNodeVectorRotate|input:Rotation",
+    "ShaderNodeVectorRotate|prop:invert",
+    "ShaderNodeVectorRotate|prop:rotation_type",
+    "|colorspace_settings.name",
+})
+
+
+def _proof_pending() -> dict:
+    """family -> {(bl_idname, socket_or_prop)} credited SUPPORTED/APPROXIMATED by the scanner (#996) but not
+    yet wired into a scene (scenes/proof_pending.json)."""
+    path = SCENES_DIR / "proof_pending.json"
+    data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    return {fam: {(r["bl_idname"], r["socket_or_prop"]) for r in rows} for fam, rows in data.items()}
+
+
+def test_proof_pending_is_shrink_only(manifest, matrix_rows):
+    """Every proof-pending row is a real SUPPORTED/APPROXIMATED matrix row that no scene tags yet; once a
+    scene wires it the entry must be deleted (the registry may only shrink)."""
+    by_pair = {(r["bl_idname"], r["socket_or_prop"]): r["classification"] for r in matrix_rows}
+    current = {f"{b}|{sock}" for pairs in _proof_pending().values() for b, sock in pairs}
+    assert current <= PROOF_PENDING_BASELINE, (
+        f"proof_pending.json gained rows outside the #996 baseline: {sorted(current - PROOF_PENDING_BASELINE)}; "
+        "wire them into a scene (or file them as gaps) instead of exempting them")
+    for family, pairs in _proof_pending().items():
+        tagged = {(t["bl_idname"], t["socket_or_prop"])
+                  for e in manifest["scenes"].values() if e.get("family") == family
+                  for t in e["feature_tags"] if not t["gap_card"]}
+        for pair in pairs:
+            assert by_pair.get(pair) in ("SUPPORTED", "APPROXIMATED"), f"{family}: {pair} is not a credited row"
+            assert pair not in tagged, f"{family}: {pair} is now tagged by a scene; delete it from proof_pending.json"
+
+
 def test_families_cover_their_allocated_rows(manifest, matrix_rows, assign_map, socket_overrides):
     """Every SUPPORTED/APPROXIMATED row the allocation table assigns to a
     built family appears in that family's feature_tags; every DROPPED-SILENT
@@ -333,6 +411,7 @@ def test_families_cover_their_allocated_rows(manifest, matrix_rows, assign_map, 
     gap_registry = {}
     if gap_registry_path.is_file():
         gap_registry = json.loads(gap_registry_path.read_text(encoding="utf-8"))
+    pending = _proof_pending()
 
     for family in FAMILIES:
         entries = [e for e in manifest["scenes"].values() if e.get("family") == family]
@@ -349,6 +428,7 @@ def test_families_cover_their_allocated_rows(manifest, matrix_rows, assign_map, 
             r for r in family_rows
             if r["classification"] in ("SUPPORTED", "APPROXIMATED")
             and (r["bl_idname"], r["socket_or_prop"]) not in tagged
+            and (r["bl_idname"], r["socket_or_prop"]) not in pending.get(family, set())
         ]
         assert not missing_required, (
             f"{family}: {len(missing_required)} SUPPORTED/APPROXIMATED row(s) "

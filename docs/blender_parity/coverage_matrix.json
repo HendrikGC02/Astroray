@@ -1173,7 +1173,7 @@
     "bl_idname": "ShaderNodeClamp",
     "socket_or_prop": "input:Value",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: ctype not in CLAMP_TYPES"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): ctype not in CLAMP_TYPES"
   },
   {
     "category": "shader_node",
@@ -1181,7 +1181,7 @@
     "bl_idname": "ShaderNodeClamp",
     "socket_or_prop": "input:Min",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: ctype not in CLAMP_TYPES"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): ctype not in CLAMP_TYPES"
   },
   {
     "category": "shader_node",
@@ -1189,15 +1189,15 @@
     "bl_idname": "ShaderNodeClamp",
     "socket_or_prop": "input:Max",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: ctype not in CLAMP_TYPES"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): ctype not in CLAMP_TYPES"
   },
   {
     "category": "shader_node",
     "feature": "CLAMP",
     "bl_idname": "ShaderNodeClamp",
     "socket_or_prop": "prop:clamp_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
@@ -1205,7 +1205,7 @@
     "bl_idname": "ShaderNodeCombineColor",
     "socket_or_prop": "input:Red",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: mode not in _COLOR_SPACE"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): mode not in _COLOR_SPACE"
   },
   {
     "category": "shader_node",
@@ -1213,7 +1213,7 @@
     "bl_idname": "ShaderNodeCombineColor",
     "socket_or_prop": "input:Green",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: mode not in _COLOR_SPACE"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): mode not in _COLOR_SPACE"
   },
   {
     "category": "shader_node",
@@ -1221,39 +1221,39 @@
     "bl_idname": "ShaderNodeCombineColor",
     "socket_or_prop": "input:Blue",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: mode not in _COLOR_SPACE"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): mode not in _COLOR_SPACE"
   },
   {
     "category": "shader_node",
     "feature": "COMBINE_COLOR",
     "bl_idname": "ShaderNodeCombineColor",
     "socket_or_prop": "prop:mode",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "COMBXYZ",
     "bl_idname": "ShaderNodeCombineXYZ",
     "socket_or_prop": "input:X",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "shader_node",
     "feature": "COMBXYZ",
     "bl_idname": "ShaderNodeCombineXYZ",
     "socket_or_prop": "input:Y",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "shader_node",
     "feature": "COMBXYZ",
     "bl_idname": "ShaderNodeCombineXYZ",
     "socket_or_prop": "input:Z",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "shader_node",
@@ -1380,7 +1380,7 @@
     "feature": "EMISSION",
     "bl_idname": "ShaderNodeEmission",
     "socket_or_prop": "input:Color",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -1388,7 +1388,7 @@
     "feature": "EMISSION",
     "bl_idname": "ShaderNodeEmission",
     "socket_or_prop": "input:Strength",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -1420,16 +1420,16 @@
     "feature": "FRESNEL",
     "bl_idname": "ShaderNodeFresnel",
     "socket_or_prop": "input:IOR",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "shader_node",
     "feature": "FRESNEL",
     "bl_idname": "ShaderNodeFresnel",
     "socket_or_prop": "input:Normal",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "shader_node",
@@ -1500,7 +1500,7 @@
     "feature": "INVERT",
     "bl_idname": "ShaderNodeInvert",
     "socket_or_prop": "input:Factor",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
@@ -1516,16 +1516,16 @@
     "feature": "LAYER_WEIGHT",
     "bl_idname": "ShaderNodeLayerWeight",
     "socket_or_prop": "input:Blend",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "shader_node",
     "feature": "LAYER_WEIGHT",
     "bl_idname": "ShaderNodeLayerWeight",
     "socket_or_prop": "input:Normal",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "shader_node",
@@ -1549,7 +1549,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Value",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: interp not in MAP_RANGE_OPS"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS"
   },
   {
     "category": "shader_node",
@@ -1557,7 +1557,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Min",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: interp not in MAP_RANGE_OPS"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS"
   },
   {
     "category": "shader_node",
@@ -1565,7 +1565,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Max",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: interp not in MAP_RANGE_OPS"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS"
   },
   {
     "category": "shader_node",
@@ -1573,7 +1573,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Min",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: interp not in MAP_RANGE_OPS"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS"
   },
   {
     "category": "shader_node",
@@ -1581,7 +1581,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Max",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: interp not in MAP_RANGE_OPS"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS"
   },
   {
     "category": "shader_node",
@@ -1589,7 +1589,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Steps",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: interp not in MAP_RANGE_OPS"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS"
   },
   {
     "category": "shader_node",
@@ -1597,7 +1597,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Vector",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: interp not in MAP_RANGE_OPS"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS"
   },
   {
     "category": "shader_node",
@@ -1605,7 +1605,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Min[From_Min_FLOAT3]",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: interp not in MAP_RANGE_OPS"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS"
   },
   {
     "category": "shader_node",
@@ -1613,7 +1613,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Max[From_Max_FLOAT3]",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: interp not in MAP_RANGE_OPS"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS"
   },
   {
     "category": "shader_node",
@@ -1621,7 +1621,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Min[To_Min_FLOAT3]",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: interp not in MAP_RANGE_OPS"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS"
   },
   {
     "category": "shader_node",
@@ -1629,7 +1629,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Max[To_Max_FLOAT3]",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: interp not in MAP_RANGE_OPS"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS"
   },
   {
     "category": "shader_node",
@@ -1637,7 +1637,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Steps[Steps_FLOAT3]",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: interp not in MAP_RANGE_OPS"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS"
   },
   {
     "category": "shader_node",
@@ -1660,48 +1660,48 @@
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "prop:interpolation_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MAPPING",
     "bl_idname": "ShaderNodeMapping",
     "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: POINT, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): vtype not in ('POINT', 'VECTOR') | not _socket_is_const(scl_in, (1.0, 1.0, 1.0)) | not _socket_is_const(rot_in, (0.0, 0.0, 0.0)) | vtype == 'POINT' and (not _socket_is_const(loc_in, (0.0, 0.0, 0.0)))"
   },
   {
     "category": "shader_node",
     "feature": "MAPPING",
     "bl_idname": "ShaderNodeMapping",
     "socket_or_prop": "input:Location",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: POINT, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): vtype not in ('POINT', 'VECTOR') | not _socket_is_const(scl_in, (1.0, 1.0, 1.0)) | not _socket_is_const(rot_in, (0.0, 0.0, 0.0)) | vtype == 'POINT' and (not _socket_is_const(loc_in, (0.0, 0.0, 0.0)))"
   },
   {
     "category": "shader_node",
     "feature": "MAPPING",
     "bl_idname": "ShaderNodeMapping",
     "socket_or_prop": "input:Rotation",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: POINT, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): vtype not in ('POINT', 'VECTOR') | not _socket_is_const(scl_in, (1.0, 1.0, 1.0)) | not _socket_is_const(rot_in, (0.0, 0.0, 0.0)) | vtype == 'POINT' and (not _socket_is_const(loc_in, (0.0, 0.0, 0.0)))"
   },
   {
     "category": "shader_node",
     "feature": "MAPPING",
     "bl_idname": "ShaderNodeMapping",
     "socket_or_prop": "input:Scale",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: POINT, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): vtype not in ('POINT', 'VECTOR') | not _socket_is_const(scl_in, (1.0, 1.0, 1.0)) | not _socket_is_const(rot_in, (0.0, 0.0, 0.0)) | vtype == 'POINT' and (not _socket_is_const(loc_in, (0.0, 0.0, 0.0)))"
   },
   {
     "category": "shader_node",
     "feature": "MAPPING",
     "bl_idname": "ShaderNodeMapping",
     "socket_or_prop": "prop:vector_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
@@ -1709,7 +1709,7 @@
     "bl_idname": "ShaderNodeMath",
     "socket_or_prop": "input:Value",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: op not in MATH_OPS | op in MATH_TERNARY and len(node.inputs) > 2 | getattr(node, 'use_clamp', False)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): getattr(node, 'use_clamp', False) | op not in MATH_OPS | op in MATH_TERNARY and len(node.inputs) > 2"
   },
   {
     "category": "shader_node",
@@ -1717,31 +1717,31 @@
     "bl_idname": "ShaderNodeMath",
     "socket_or_prop": "input:Value[Value_001]",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: op not in MATH_OPS | op in MATH_TERNARY and len(node.inputs) > 2 | getattr(node, 'use_clamp', False)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): getattr(node, 'use_clamp', False) | op not in MATH_OPS | op in MATH_TERNARY and len(node.inputs) > 2"
   },
   {
     "category": "shader_node",
     "feature": "MATH",
     "bl_idname": "ShaderNodeMath",
     "socket_or_prop": "input:Value[Value_002]",
-    "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: op not in MATH_OPS | op in MATH_TERNARY and len(node.inputs) > 2 | getattr(node, 'use_clamp', False)"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): getattr(node, 'use_clamp', False) | op not in MATH_OPS | op in MATH_TERNARY and len(node.inputs) > 2"
   },
   {
     "category": "shader_node",
     "feature": "MATH",
     "bl_idname": "ShaderNodeMath",
     "socket_or_prop": "prop:operation",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MATH",
     "bl_idname": "ShaderNodeMath",
     "socket_or_prop": "prop:use_clamp",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
@@ -1749,7 +1749,7 @@
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:Factor[Factor_Float]",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; conditional reads not credited: data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
   },
   {
     "category": "shader_node",
@@ -1757,7 +1757,7 @@
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:Factor[Factor_Vector]",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; conditional reads not credited: data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
   },
   {
     "category": "shader_node",
@@ -1765,7 +1765,7 @@
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A[A_Float]",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; conditional reads not credited: data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
   },
   {
     "category": "shader_node",
@@ -1773,7 +1773,7 @@
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B[B_Float]",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; conditional reads not credited: data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
   },
   {
     "category": "shader_node",
@@ -1781,7 +1781,7 @@
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A[A_Vector]",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; conditional reads not credited: data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
   },
   {
     "category": "shader_node",
@@ -1789,7 +1789,7 @@
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B[B_Vector]",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; conditional reads not credited: data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
   },
   {
     "category": "shader_node",
@@ -1797,7 +1797,7 @@
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A[A_Color]",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; conditional reads not credited: data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
   },
   {
     "category": "shader_node",
@@ -1805,7 +1805,7 @@
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B[B_Color]",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; conditional reads not credited: data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
   },
   {
     "category": "shader_node",
@@ -1813,7 +1813,7 @@
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:A[A_Rotation]",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; conditional reads not credited: data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
   },
   {
     "category": "shader_node",
@@ -1821,7 +1821,7 @@
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "input:B[B_Rotation]",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; conditional reads not credited: data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)"
   },
   {
     "category": "shader_node",
@@ -1836,40 +1836,40 @@
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "prop:clamp_factor",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "prop:clamp_result",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "prop:data_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX",
     "bl_idname": "ShaderNodeMix",
     "socket_or_prop": "prop:factor_mode",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "MIX_RGB",
     "bl_idname": "ShaderNodeMixRGB",
     "socket_or_prop": "input:Factor",
-    "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: blend not in MIX_OPS | getattr(node, 'use_clamp', False)"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): blend not in MIX_OPS | getattr(node, 'use_clamp', False)"
   },
   {
     "category": "shader_node",
@@ -1877,7 +1877,7 @@
     "bl_idname": "ShaderNodeMixRGB",
     "socket_or_prop": "input:Color1",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: blend not in MIX_OPS | getattr(node, 'use_clamp', False)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): blend not in MIX_OPS | getattr(node, 'use_clamp', False)"
   },
   {
     "category": "shader_node",
@@ -1885,7 +1885,7 @@
     "bl_idname": "ShaderNodeMixRGB",
     "socket_or_prop": "input:Color2",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: blend not in MIX_OPS | getattr(node, 'use_clamp', False)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): blend not in MIX_OPS | getattr(node, 'use_clamp', False)"
   },
   {
     "category": "shader_node",
@@ -1908,8 +1908,8 @@
     "feature": "MIX_RGB",
     "bl_idname": "ShaderNodeMixRGB",
     "socket_or_prop": "prop:use_clamp",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
@@ -2301,23 +2301,23 @@
     "bl_idname": "ShaderNodeSeparateColor",
     "socket_or_prop": "input:Color",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: mode not in _COLOR_SPACE"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): mode not in _COLOR_SPACE"
   },
   {
     "category": "shader_node",
     "feature": "SEPARATE_COLOR",
     "bl_idname": "ShaderNodeSeparateColor",
     "socket_or_prop": "prop:mode",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "SEPXYZ",
     "bl_idname": "ShaderNodeSeparateXYZ",
     "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "shader_node",
@@ -2444,7 +2444,7 @@
     "feature": "TEX_BRICK",
     "bl_idname": "ShaderNodeTexBrick",
     "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -2556,7 +2556,7 @@
     "feature": "TEX_CHECKER",
     "bl_idname": "ShaderNodeTexChecker",
     "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -2676,7 +2676,7 @@
     "feature": "TEX_GRADIENT",
     "bl_idname": "ShaderNodeTexGradient",
     "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -2716,7 +2716,7 @@
     "feature": "TEX_IMAGE",
     "bl_idname": "ShaderNodeTexImage",
     "socket_or_prop": "input:Vector",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": "op-VM / vector-input path (pkg219/pkg223)"
   },
   {
@@ -2756,7 +2756,7 @@
     "feature": "TEX_MAGIC",
     "bl_idname": "ShaderNodeTexMagic",
     "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -2788,7 +2788,7 @@
     "feature": "TEX_NOISE",
     "bl_idname": "ShaderNodeTexNoise",
     "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -2996,7 +2996,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -3012,7 +3012,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Scale",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -3020,7 +3020,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Detail",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -3028,7 +3028,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Roughness",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -3036,7 +3036,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Lacunarity",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -3044,7 +3044,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Smoothness",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -3052,7 +3052,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Exponent",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -3060,7 +3060,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Randomness",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -3068,7 +3068,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "prop:distance",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -3076,7 +3076,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "prop:feature",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -3084,7 +3084,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "prop:normalize",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": ""
   },
   {
@@ -3092,15 +3092,15 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "prop:voronoi_dimensions",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "APPROXIMATED",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "TEX_WAVE",
     "bl_idname": "ShaderNodeTexWave",
     "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -3228,7 +3228,7 @@
     "feature": "VALTORGB",
     "bl_idname": "ShaderNodeValToRGB",
     "socket_or_prop": "input:Factor",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
@@ -3285,39 +3285,39 @@
     "bl_idname": "ShaderNodeVectorMath",
     "socket_or_prop": "input:Vector",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: op not in VEC_MATH_OPS | op in _VECMATH_USE_B and len(ins) > 1 | op in _VECMATH_USE_C and len(ins) > 2 | op in _VECMATH_USE_SCALE and len(ins) > 3"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): op not in VEC_MATH_OPS | op in _VECMATH_USE_B and len(ins) > 1 | op in _VECMATH_USE_C and len(ins) > 2 | op in _VECMATH_USE_SCALE and len(ins) > 3"
   },
   {
     "category": "shader_node",
     "feature": "VECT_MATH",
     "bl_idname": "ShaderNodeVectorMath",
     "socket_or_prop": "input:Vector[Vector_001]",
-    "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: op not in VEC_MATH_OPS | op in _VECMATH_USE_B and len(ins) > 1 | op in _VECMATH_USE_C and len(ins) > 2 | op in _VECMATH_USE_SCALE and len(ins) > 3"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): op not in VEC_MATH_OPS | op in _VECMATH_USE_B and len(ins) > 1 | op in _VECMATH_USE_C and len(ins) > 2 | op in _VECMATH_USE_SCALE and len(ins) > 3"
   },
   {
     "category": "shader_node",
     "feature": "VECT_MATH",
     "bl_idname": "ShaderNodeVectorMath",
     "socket_or_prop": "input:Vector[Vector_002]",
-    "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: op not in VEC_MATH_OPS | op in _VECMATH_USE_B and len(ins) > 1 | op in _VECMATH_USE_C and len(ins) > 2 | op in _VECMATH_USE_SCALE and len(ins) > 3"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): op not in VEC_MATH_OPS | op in _VECMATH_USE_B and len(ins) > 1 | op in _VECMATH_USE_C and len(ins) > 2 | op in _VECMATH_USE_SCALE and len(ins) > 3"
   },
   {
     "category": "shader_node",
     "feature": "VECT_MATH",
     "bl_idname": "ShaderNodeVectorMath",
     "socket_or_prop": "input:Scale",
-    "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: op not in VEC_MATH_OPS | op in _VECMATH_USE_B and len(ins) > 1 | op in _VECMATH_USE_C and len(ins) > 2 | op in _VECMATH_USE_SCALE and len(ins) > 3"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): op not in VEC_MATH_OPS | op in _VECMATH_USE_B and len(ins) > 1 | op in _VECMATH_USE_C and len(ins) > 2 | op in _VECMATH_USE_SCALE and len(ins) > 3"
   },
   {
     "category": "shader_node",
     "feature": "VECT_MATH",
     "bl_idname": "ShaderNodeVectorMath",
     "socket_or_prop": "prop:operation",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
@@ -3325,7 +3325,7 @@
     "bl_idname": "ShaderNodeVectorRotate",
     "socket_or_prop": "input:Vector",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: rtype not in VEC_ROTATE_TYPES | rtype == 'AXIS_ANGLE' | rtype == 'EULER_XYZ' | getattr(node, 'invert', False)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): rtype not in VEC_ROTATE_TYPES | rtype == 'AXIS_ANGLE' | rtype == 'EULER_XYZ' | getattr(node, 'invert', False)"
   },
   {
     "category": "shader_node",
@@ -3333,47 +3333,47 @@
     "bl_idname": "ShaderNodeVectorRotate",
     "socket_or_prop": "input:Center",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: rtype not in VEC_ROTATE_TYPES | rtype == 'AXIS_ANGLE' | rtype == 'EULER_XYZ' | getattr(node, 'invert', False)"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): rtype not in VEC_ROTATE_TYPES | rtype == 'AXIS_ANGLE' | rtype == 'EULER_XYZ' | getattr(node, 'invert', False)"
   },
   {
     "category": "shader_node",
     "feature": "VECTOR_ROTATE",
     "bl_idname": "ShaderNodeVectorRotate",
     "socket_or_prop": "input:Axis",
-    "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: rtype not in VEC_ROTATE_TYPES | rtype == 'AXIS_ANGLE' | rtype == 'EULER_XYZ' | getattr(node, 'invert', False)"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): rtype not in VEC_ROTATE_TYPES | rtype == 'AXIS_ANGLE' | rtype == 'EULER_XYZ' | getattr(node, 'invert', False)"
   },
   {
     "category": "shader_node",
     "feature": "VECTOR_ROTATE",
     "bl_idname": "ShaderNodeVectorRotate",
     "socket_or_prop": "input:Angle",
-    "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: rtype not in VEC_ROTATE_TYPES | rtype == 'AXIS_ANGLE' | rtype == 'EULER_XYZ' | getattr(node, 'invert', False)"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): rtype not in VEC_ROTATE_TYPES | rtype == 'AXIS_ANGLE' | rtype == 'EULER_XYZ' | getattr(node, 'invert', False)"
   },
   {
     "category": "shader_node",
     "feature": "VECTOR_ROTATE",
     "bl_idname": "ShaderNodeVectorRotate",
     "socket_or_prop": "input:Rotation",
-    "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; conditional reads not credited: rtype not in VEC_ROTATE_TYPES | rtype == 'AXIS_ANGLE' | rtype == 'EULER_XYZ' | getattr(node, 'invert', False)"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): rtype not in VEC_ROTATE_TYPES | rtype == 'AXIS_ANGLE' | rtype == 'EULER_XYZ' | getattr(node, 'invert', False)"
   },
   {
     "category": "shader_node",
     "feature": "VECTOR_ROTATE",
     "bl_idname": "ShaderNodeVectorRotate",
     "socket_or_prop": "prop:invert",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "VECTOR_ROTATE",
     "bl_idname": "ShaderNodeVectorRotate",
     "socket_or_prop": "prop:rotation_type",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
@@ -3829,7 +3829,7 @@
     "bl_idname": "",
     "socket_or_prop": "volume_bounces",
     "classification": "SUPPORTED",
-    "notes": "pkg271: engine honours it on CPU+GPU (Cycles max_volume_bounce semantics); output-effect test tests/test_pkg271_volume_passes.py"
+    "notes": ""
   },
   {
     "category": "render_settings",
@@ -4308,7 +4308,7 @@
     "feature": "Image",
     "bl_idname": "",
     "socket_or_prop": "colorspace_settings.name",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -4340,7 +4340,7 @@
     "feature": "ShaderNodeTexImage",
     "bl_idname": "ShaderNodeTexImage",
     "socket_or_prop": "extension",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -4357,7 +4357,7 @@
     "bl_idname": "ShaderNodeNewGeometry",
     "socket_or_prop": "output:Position",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4365,7 +4365,7 @@
     "bl_idname": "ShaderNodeNewGeometry",
     "socket_or_prop": "output:Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4373,7 +4373,7 @@
     "bl_idname": "ShaderNodeNewGeometry",
     "socket_or_prop": "output:Tangent",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4381,7 +4381,7 @@
     "bl_idname": "ShaderNodeNewGeometry",
     "socket_or_prop": "output:True Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4389,7 +4389,7 @@
     "bl_idname": "ShaderNodeNewGeometry",
     "socket_or_prop": "output:Incoming",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4397,7 +4397,7 @@
     "bl_idname": "ShaderNodeNewGeometry",
     "socket_or_prop": "output:Parametric",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4405,7 +4405,7 @@
     "bl_idname": "ShaderNodeNewGeometry",
     "socket_or_prop": "output:Backfacing",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4413,7 +4413,7 @@
     "bl_idname": "ShaderNodeNewGeometry",
     "socket_or_prop": "output:Pointiness",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4421,7 +4421,7 @@
     "bl_idname": "ShaderNodeNewGeometry",
     "socket_or_prop": "output:Random Per Island",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",

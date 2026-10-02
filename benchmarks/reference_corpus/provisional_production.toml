@@ -140,39 +140,25 @@ issue = "#990"
 reason = "ShaderNodeVertexColor output Color dropped with no DegradationReport entry"
 
 [[row]]
-scene = "prod_car_paint"
-backend = "cpu"
-kind = "silent"
-issue = "#996"
-reason = "matrix-stale rows only (Math operation, Mix data_type, Voronoi Vector, and since #989 Layer Weight Blend / Fresnel IOR: handled by OP_SHADING, matrix rows await a corpus-covered regeneration)"
-
-[[row]]
-scene = "prod_car_paint"
-backend = "gpu"
-kind = "silent"
-issue = "#996"
-reason = "matrix-stale rows only (Math operation, Mix data_type, Voronoi Vector, Layer Weight Blend, Fresnel IOR)"
-
-[[row]]
 scene = "prod_curves_geometry"
 backend = "cpu"
 kind = "silent"
 issue = "#992"
-reason = "ShaderNodeRGBCurve dropped with no report; plus matrix-stale Math/Mix/Noise rows (#996)"
+reason = "ShaderNodeRGBCurve dropped with no report"
 
 [[row]]
 scene = "prod_curves_geometry"
 backend = "gpu"
 kind = "silent"
 issue = "#992"
-reason = "ShaderNodeRGBCurve dropped with no report; plus matrix-stale rows (#996)"
+reason = "ShaderNodeRGBCurve dropped with no report"
 
 [[row]]
 scene = "prod_light_path"
 backend = "cpu"
 kind = "silent"
 issue = "#991"
-reason = "Mix Shader Fac from Is Camera Ray / Is Shadow Ray dropped with no report; plus matrix-stale rows (#996)"
+reason = "Mix Shader Fac from Is Camera Ray / Is Shadow Ray dropped with no report"
 
 [[row]]
 scene = "prod_light_path"
@@ -182,39 +168,11 @@ issue = "#991"
 reason = "Mix Shader Fac from Is Camera Ray / Is Shadow Ray dropped with no report"
 
 [[row]]
-scene = "prod_marble"
-backend = "cpu"
-kind = "silent"
-issue = "#996"
-reason = "matrix-stale rows (Mapping, Noise/Wave Vector, Vector Math, Color Ramp Fac); the render says CPU exact"
-
-[[row]]
-scene = "prod_marble"
-backend = "gpu"
-kind = "silent"
-issue = "#996"
-reason = "matrix-stale rows (Mapping, Noise/Wave Vector, Vector Math, Color Ramp Fac)"
-
-[[row]]
-scene = "prod_pbr_group"
-backend = "cpu"
-kind = "silent"
-issue = "#996"
-reason = "matrix-stale rows (Mapping, Combine XYZ)"
-
-[[row]]
-scene = "prod_pbr_group"
-backend = "gpu"
-kind = "silent"
-issue = "#996"
-reason = "matrix-stale rows (Mapping, Combine XYZ)"
-
-[[row]]
 scene = "prod_shader_stack"
 backend = "cpu"
 kind = "silent"
 issue = "#955"
-reason = "Add Shader(BSDF, BSDF) keeps the first BSDF with no report; plus matrix-stale Noise/Ramp rows (#996)"
+reason = "Add Shader(BSDF, BSDF) keeps the first BSDF with no report"
 
 [[row]]
 scene = "prod_shader_stack"
@@ -222,17 +180,3 @@ backend = "gpu"
 kind = "silent"
 issue = "#955"
 reason = "Add Shader(BSDF, BSDF) keeps the first BSDF with no report"
-
-[[row]]
-scene = "prod_wood"
-backend = "cpu"
-kind = "silent"
-issue = "#996"
-reason = "matrix-stale rows (Mapping, Noise/Wave Vector, Math operation, Color Ramp Fac)"
-
-[[row]]
-scene = "prod_wood"
-backend = "gpu"
-kind = "silent"
-issue = "#996"
-reason = "matrix-stale rows (Mapping, Noise/Wave Vector, Math operation, Color Ramp Fac)"

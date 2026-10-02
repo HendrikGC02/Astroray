@@ -1,0 +1,333 @@
+{
+  "textures_mapping": [
+    {
+      "bl_idname": "ShaderNodeClamp",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "CLAMP",
+      "socket_or_prop": "prop:clamp_type"
+    },
+    {
+      "bl_idname": "ShaderNodeCombineColor",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "COMBINE_COLOR",
+      "socket_or_prop": "prop:mode"
+    },
+    {
+      "bl_idname": "ShaderNodeCombineXYZ",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "COMBXYZ",
+      "socket_or_prop": "input:X"
+    },
+    {
+      "bl_idname": "ShaderNodeCombineXYZ",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "COMBXYZ",
+      "socket_or_prop": "input:Y"
+    },
+    {
+      "bl_idname": "ShaderNodeCombineXYZ",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "COMBXYZ",
+      "socket_or_prop": "input:Z"
+    },
+    {
+      "bl_idname": "ShaderNodeFresnel",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "FRESNEL",
+      "socket_or_prop": "input:IOR"
+    },
+    {
+      "bl_idname": "ShaderNodeFresnel",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "FRESNEL",
+      "socket_or_prop": "input:Normal"
+    },
+    {
+      "bl_idname": "ShaderNodeInvert",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "INVERT",
+      "socket_or_prop": "input:Factor"
+    },
+    {
+      "bl_idname": "ShaderNodeLayerWeight",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "LAYER_WEIGHT",
+      "socket_or_prop": "input:Blend"
+    },
+    {
+      "bl_idname": "ShaderNodeLayerWeight",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "LAYER_WEIGHT",
+      "socket_or_prop": "input:Normal"
+    },
+    {
+      "bl_idname": "ShaderNodeMapRange",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MAP_RANGE",
+      "socket_or_prop": "prop:interpolation_type"
+    },
+    {
+      "bl_idname": "ShaderNodeMapping",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MAPPING",
+      "socket_or_prop": "input:Vector"
+    },
+    {
+      "bl_idname": "ShaderNodeMapping",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MAPPING",
+      "socket_or_prop": "input:Location"
+    },
+    {
+      "bl_idname": "ShaderNodeMapping",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MAPPING",
+      "socket_or_prop": "input:Rotation"
+    },
+    {
+      "bl_idname": "ShaderNodeMapping",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MAPPING",
+      "socket_or_prop": "input:Scale"
+    },
+    {
+      "bl_idname": "ShaderNodeMapping",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MAPPING",
+      "socket_or_prop": "prop:vector_type"
+    },
+    {
+      "bl_idname": "ShaderNodeMath",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MATH",
+      "socket_or_prop": "input:Value[Value_002]"
+    },
+    {
+      "bl_idname": "ShaderNodeMath",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MATH",
+      "socket_or_prop": "prop:operation"
+    },
+    {
+      "bl_idname": "ShaderNodeMath",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MATH",
+      "socket_or_prop": "prop:use_clamp"
+    },
+    {
+      "bl_idname": "ShaderNodeMix",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MIX",
+      "socket_or_prop": "prop:clamp_factor"
+    },
+    {
+      "bl_idname": "ShaderNodeMix",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MIX",
+      "socket_or_prop": "prop:clamp_result"
+    },
+    {
+      "bl_idname": "ShaderNodeMix",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MIX",
+      "socket_or_prop": "prop:data_type"
+    },
+    {
+      "bl_idname": "ShaderNodeMix",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MIX",
+      "socket_or_prop": "prop:factor_mode"
+    },
+    {
+      "bl_idname": "ShaderNodeMixRGB",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MIX_RGB",
+      "socket_or_prop": "input:Factor"
+    },
+    {
+      "bl_idname": "ShaderNodeMixRGB",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MIX_RGB",
+      "socket_or_prop": "prop:use_clamp"
+    },
+    {
+      "bl_idname": "ShaderNodeSeparateColor",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "SEPARATE_COLOR",
+      "socket_or_prop": "prop:mode"
+    },
+    {
+      "bl_idname": "ShaderNodeSeparateXYZ",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "SEPXYZ",
+      "socket_or_prop": "input:Vector"
+    },
+    {
+      "bl_idname": "ShaderNodeTexBrick",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "TEX_BRICK",
+      "socket_or_prop": "input:Vector"
+    },
+    {
+      "bl_idname": "ShaderNodeTexChecker",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "TEX_CHECKER",
+      "socket_or_prop": "input:Vector"
+    },
+    {
+      "bl_idname": "ShaderNodeTexGradient",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "TEX_GRADIENT",
+      "socket_or_prop": "input:Vector"
+    },
+    {
+      "bl_idname": "ShaderNodeTexMagic",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "TEX_MAGIC",
+      "socket_or_prop": "input:Vector"
+    },
+    {
+      "bl_idname": "ShaderNodeTexNoise",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "TEX_NOISE",
+      "socket_or_prop": "input:Vector"
+    },
+    {
+      "bl_idname": "ShaderNodeTexVoronoi",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "TEX_VORONOI",
+      "socket_or_prop": "input:Vector"
+    },
+    {
+      "bl_idname": "ShaderNodeTexVoronoi",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "TEX_VORONOI",
+      "socket_or_prop": "prop:voronoi_dimensions"
+    },
+    {
+      "bl_idname": "ShaderNodeTexWave",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "TEX_WAVE",
+      "socket_or_prop": "input:Vector"
+    },
+    {
+      "bl_idname": "ShaderNodeValToRGB",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "VALTORGB",
+      "socket_or_prop": "input:Factor"
+    },
+    {
+      "bl_idname": "ShaderNodeVectorMath",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "VECT_MATH",
+      "socket_or_prop": "input:Vector[Vector_001]"
+    },
+    {
+      "bl_idname": "ShaderNodeVectorMath",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "VECT_MATH",
+      "socket_or_prop": "input:Vector[Vector_002]"
+    },
+    {
+      "bl_idname": "ShaderNodeVectorMath",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "VECT_MATH",
+      "socket_or_prop": "input:Scale"
+    },
+    {
+      "bl_idname": "ShaderNodeVectorMath",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "VECT_MATH",
+      "socket_or_prop": "prop:operation"
+    },
+    {
+      "bl_idname": "ShaderNodeVectorRotate",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "VECTOR_ROTATE",
+      "socket_or_prop": "input:Axis"
+    },
+    {
+      "bl_idname": "ShaderNodeVectorRotate",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "VECTOR_ROTATE",
+      "socket_or_prop": "input:Angle"
+    },
+    {
+      "bl_idname": "ShaderNodeVectorRotate",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "VECTOR_ROTATE",
+      "socket_or_prop": "input:Rotation"
+    },
+    {
+      "bl_idname": "ShaderNodeVectorRotate",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "VECTOR_ROTATE",
+      "socket_or_prop": "prop:invert"
+    },
+    {
+      "bl_idname": "ShaderNodeVectorRotate",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "VECTOR_ROTATE",
+      "socket_or_prop": "prop:rotation_type"
+    },
+    {
+      "bl_idname": "",
+      "category": "image_property",
+      "classification": "SUPPORTED",
+      "feature": "Image",
+      "socket_or_prop": "colorspace_settings.name"
+    },
+    {
+      "bl_idname": "ShaderNodeTexImage",
+      "category": "image_property",
+      "classification": "SUPPORTED",
+      "feature": "ShaderNodeTexImage",
+      "socket_or_prop": "extension"
+    }
+  ]
+}

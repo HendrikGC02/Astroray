@@ -4492,7 +4492,8 @@ public:
             if (firstCat < 0) firstCat = lobeCat;
             lpc = astroray::lightpath::next_surface(  // #991
                 lpc, lobeCat, bss.isDelta,
-                astroray::lightpath::is_transparent_pass(bss.isDelta, wo.dot(bss.wi)));
+                astroray::lightpath::is_transparent_pass(bss.isDelta, wo.dot(bss.wi),
+                    rec.material->shadowAlpha(rec) < 1.0f));
 
             // pkg201 Stage 3 (Finding E) — native caustic toggle cull. Reuses the
             // per-bounce lobeCat (item A): a delta reflection is lobeCat==1
@@ -4894,7 +4895,8 @@ public:
                               : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
                 lpc = astroray::lightpath::next_surface(
                     lpc, cat, bss.isDelta,
-                    astroray::lightpath::is_transparent_pass(bss.isDelta, wo.dot(bss.wi)));
+                    astroray::lightpath::is_transparent_pass(bss.isDelta, wo.dot(bss.wi),
+                    rec.material->shadowAlpha(rec) < 1.0f));
             }
 
             Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);

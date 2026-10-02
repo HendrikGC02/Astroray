@@ -355,7 +355,11 @@ def mesh_attribute_layers(mesh, obj, matrix, keys, slot_materials):
             if vals is None:
                 if why != "not found":
                     notes.append((key, why))
-                arr = const([0.0, 0.0, 0.0])
+                # Cycles' missing value: colour 0; alpha 1 for the Attribute node
+                # (shader_nodes.cpp Missing Alpha), 0 for Color Attribute
+                # (svm/vertex_color.h).
+                miss = 1.0 if (variant == 'alpha' and kind == 'attr') else 0.0
+                arr = const([miss] * 3)
             else:
                 arr = _attribute_output(vals, variant)
         names.append(key)

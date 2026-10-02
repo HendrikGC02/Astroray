@@ -240,3 +240,24 @@ def test_camera_ray_survives_a_transparent_pass(use_gpu):
         vals[output] = _roi(_render(r, [0, 0, 0], [0, 1, 0], vfov=10), 24, 24).mean()
     assert vals['Is Camera Ray'] > 0.8, vals
     assert vals['Transparent Depth'] > 0.8, vals
+
+
+@pytest.mark.parametrize("use_gpu", BACKENDS)
+def test_normal_incidence_glass_is_a_transmission_not_a_transparent_pass(use_gpu):
+    """Terra review: a smooth dielectric refracts a normal-incidence ray straight on
+    (wi == -wo) like a transparent pass, but Cycles labels it a singular
+    transmission. A wall coloured Is Transmission Ray seen through a glass slab
+    at normal incidence must read 1."""
+    r = _renderer(use_gpu)
+    r.set_background_color([1.0, 1.0, 1.0])
+    _program(r, "tr991", C.compile_chain(_lp_value('Is Transmission Ray')))
+    wall = r.create_material("principled", [0.8, 0.8, 0.8],
+                             {"roughness": 1.0, "specular_ior_level": 0.0,
+                              "base_color_texture": "tr991"})
+    glass = r.create_material("principled", [1.0, 1.0, 1.0],
+                              {"transmission_weight": 1.0, "ior": 1.5, "roughness": 0.0})
+    _quad(r, glass, [0, 2.0, 0], [1.0, 0, 0], [0, 0, 1.0])     # front face, normal -y
+    _quad(r, glass, [0, 2.2, 0], [0, 0, 1.0], [1.0, 0, 0])     # back face, normal +y
+    _quad(r, wall, [0, 5, 0], [6.0, 0, 0], [0, 0, 6.0])
+    val = _roi(_render(r, [0, 0, 0], [0, 1, 0], vfov=2), 24, 24).mean()
+    assert val > 0.3, val

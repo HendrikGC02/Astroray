@@ -1936,7 +1936,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     }
     if (cpu.hasInstances() && !r.attrLayers.empty())
         fprintf(stderr, "[#990] DEGRADED: shading attributes on instanced meshes read 0 "
-                        "on GPU (object-space BLAS triangles)\n");
+                        "on GPU (object-space BLAS triangles; the addon flattens objects "
+                        "whose materials read attributes)\n");
 
     // --- #847: per-vertex Generated coords ---
     // Only read by the Generated 3D-bake fetch (depth > 1) and the #1007 per-hit

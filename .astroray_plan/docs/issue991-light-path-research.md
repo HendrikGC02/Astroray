@@ -34,8 +34,9 @@
   `wi == -wo`) is Cycles' `LABEL_TRANSPARENT`: the flags are kept and `transparentDepth` counts it, so
   a camera ray stays a camera ray through a camera-hidden surface (the inner back face of the hidden
   emitter, found on build 03b7a0bb: CPU `emitter_hidden_region` 0.000). Ray Depth subtracts the
-  transparent passes (Cycles' bounce excludes them). An IOR-1 smooth refraction is geometrically the
-  same and is classified the same way.
+  transparent passes (Cycles' bounce excludes them). Only a material with a transparent lobe
+  (Principled Alpha < 1; CPU `shadowAlpha() < 1`) qualifies, so a dielectric's normal-incidence
+  refraction (also `wi == -wo`) stays a singular transmission (Terra review).
 * Camera Ray Length is measured from the near-clip start (Cycles `camera_sample_perspective` moves P
   by `nearclip * z_inv`).
 * Values feed the op-VM through `OP_SHADING` (`SH_LIGHT_PATH + output`), so a Ray Length -> Ramp

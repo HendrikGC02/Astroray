@@ -133,11 +133,12 @@ HD inline PathContext next_surface(const PathContext& c, int lobeCat, bool singu
     return n;
 }
 
-// A straight-through delta sample (Principled Alpha / Transparent BSDF pass:
-// wi == -wo) is Cycles' LABEL_TRANSPARENT. An IOR-1 smooth refraction is
-// geometrically identical and is classified the same way here.
-HD inline bool is_transparent_pass(bool isDelta, float woDotWi) {
-    return isDelta && woDotWi < -0.99999f;
+// Cycles' LABEL_TRANSPARENT: the straight-through delta sample (wi == -wo) of a
+// material that carries a transparent lobe (Principled Alpha < 1, which is how a
+// Transparent BSDF child is exported). `hasTransparentLobe` keeps a dielectric's
+// normal-incidence refraction (also wi == -wo) a singular transmission.
+HD inline bool is_transparent_pass(bool isDelta, float woDotWi, bool hasTransparentLobe) {
+    return hasTransparentLobe && isDelta && woDotWi < -0.99999f;
 }
 
 // Cycles path_state_next for a volume scatter: visibility VOLUME_SCATTER only,

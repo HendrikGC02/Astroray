@@ -57,8 +57,13 @@ __device__ __noinline__ unsigned gpu_lpAdvance(unsigned lpState, const ::GMateri
     const float sWi = wi.dot(n);
     const int cat = (sWo * sWi < 0.f) ? 2
                   : ((isDelta || gpu_material_is_glossy(*mat)) ? 1 : 0);
+    // Transparent lobe: a Principled alpha < 1 (device twin of the CPU
+    // shadowAlpha() < 1 test; gpu_nee.cuh gpu_shadowAlpha).
+    const bool alphaLobe = mat->closureCount >= 1 &&
+                           mat->closures[0].type == GCLOSURE_PRINCIPLED &&
+                           mat->principled.alpha < 1.0f;
     return pack_state(next_surface(unpack_state(lpState, 0, 0.f), cat, isDelta,
-                                   is_transparent_pass(isDelta, wo.dot(wi))));
+                                   is_transparent_pass(isDelta, wo.dot(wi), alphaLobe)));
 }
 
 // Volume-scatter continuation (path_state_next LABEL_VOLUME_SCATTER).
@@ -74,10 +79,15 @@ __device__ __noinline__ unsigned gpu_lpVolume(unsigned lpState)
 // Triangle::attributeValue twin). A non-triangle hit reads 0 (Cycles' missing
 // attribute), as the CPU AttributeTexture does.
 extern __constant__ GWavefrontTextureBinding c_wfTexBinding;   // stage_advance.cu
+extern __constant__ int c_wfEmissionFlatPrims;                 // stage_advance.cu
 __device__ __noinline__ GVec3 gpu_attrTexel(int texId, GVec3 point, int primId,
                                             const GPrimitive* prims, const GTriangle* tris)
 {
-    if (primId < 0 || prims[primId].type != GPRIM_TRIANGLE) return GVec3(0.f, 0.f, 0.f);
+    // Instanced (pkg114 BLAS) prims start at c_wfEmissionFlatPrims: their
+    // triangles are object-space while `point` is world-space, and scene_upload
+    // gives them no attribute corners -> 0 (reported host-side).
+    if (primId < 0 || primId >= c_wfEmissionFlatPrims ||
+        prims[primId].type != GPRIM_TRIANGLE) return GVec3(0.f, 0.f, 0.f);
     const int ti = prims[primId].index;
     const GVec3* c = c_wfTexBinding.texelBuf + c_wfTexBinding.textures[texId].offset + 3 * ti;
     const GTriangle& t = tris[ti];

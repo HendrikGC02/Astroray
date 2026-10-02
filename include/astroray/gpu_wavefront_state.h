@@ -140,6 +140,12 @@ struct GPUWavefrontState {
     float*    path_mis_nx     = nullptr;
     float*    path_mis_ny     = nullptr;
     float*    path_mis_nz     = nullptr;
+    // #961: after a medium scatter (env_nee_sampled_prev == 2) path_mis_n* holds
+    // P - segment origin and path_mis_dt the segment length the NEE light was
+    // picked for (Cycles mis_origin_n / previous_dt); the lamp/emitter-hit MIS
+    // re-walks the light tree's segment pick. Written by the intersect stage at
+    // the scatter, read only when that flag is set.
+    float*    path_mis_dt     = nullptr;
 
     // pkg55-C5 / pkg113: photon caustic contribution (XYZ) accumulated at primary
     // hit (bounce==0) from photonGridGatherKnn. Added to accum_xyz during regen

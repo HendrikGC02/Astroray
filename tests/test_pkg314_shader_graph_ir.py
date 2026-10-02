@@ -583,3 +583,143 @@ def test_malformed_or_mismatched_program_is_rejected():
     code[0] = 99
     with pytest.raises(Exception, match="unknown opcode"):
         _load_graph(r, "bad_op", dict(prog, code=code), names)
+
+
+# =========================================================================== #
+# GPU (RTX box): dedicated graph-evaluation kernel vs CPU, and op-VM vs graph
+# program on the GPU. Independent RNG streams CPU vs GPU -> per-ROI mean ratio.
+# =========================================================================== #
+_W, _H = 96, 64
+
+
+def _has_gpu(r):
+    import astroray
+    return bool(astroray.__features__.get("cuda", False)) and bool(getattr(r, "gpu_available", False))
+
+
+def _quad_uv(r, mat):
+    A, B, C, D = [-1.5, -1, 0], [1.5, -1, 0], [1.5, 1, 0], [-1.5, 1, 0]
+    n = [0, 0, 1]
+    r.add_triangle_layers(A, B, C, mat, {"UVMap": [[0, 0], [1, 0], [1, 1]]}, n, n, n)
+    r.add_triangle_layers(A, C, D, mat, {"UVMap": [[0, 0], [1, 1], [0, 1]]}, n, n, n)
+
+
+def _render_scene(build, use_gpu, samples=128):
+    from base_helpers import create_renderer, render_image, setup_camera
+    r = create_renderer()
+    if use_gpu:
+        if not _has_gpu(r):
+            pytest.skip("no CUDA GPU (RTX-box leg)")
+        r.set_use_gpu(True)
+    r.set_seed(7)
+    r.set_background_color([0.6, 0.6, 0.6])
+    build(r)
+    setup_camera(r, look_from=[0, 0, 3.2], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=40,
+                 width=_W, height=_H)
+    return render_image(r, samples=samples, max_depth=3, apply_gamma=False)
+
+
+def _rois(img):
+    H, W = img.shape[:2]
+    out = []
+    for ya, yb in ((0.25, 0.45), (0.55, 0.75)):
+        for xa, xb in ((0.2, 0.35), (0.42, 0.58), (0.65, 0.8)):
+            out.append(img[int(ya * H):int(yb * H), int(xa * W):int(xb * W)].reshape(-1, 3).mean(0))
+    return __import__('numpy').array(out)
+
+
+def _assert_rois(a, b, tol, label):
+    import numpy as np
+    ra, rb = _rois(a), _rois(b)
+    ratio = ra / np.maximum(rb, 1e-4)
+    assert np.allclose(ratio, 1.0, atol=tol), "%s\n%s\na=%s\nb=%s" % (label, ratio, ra, rb)
+
+
+def _ramp_chain():
+    t = img('t')
+    node = ramp_node(link(t, 'Color', 'RGBA'), lambda x: (x, 0.2 + 0.6 * x * x, 1.0 - x))
+    return Sock('Base Color', (0, 0, 0), link=Link(node, 'Color', None), type='RGBA'), t
+
+
+def _build_lambertian(kind):
+    def build(r):
+        sock, t = _ramp_chain()
+        _gradient(r, "grad")
+        if kind == 'opvm':
+            _load_opvm(r, "bc", C.compile_chain(sock, allow_leaf=True), {id(t): "grad"})
+        else:
+            _load_graph(r, "bc", G.compile_value_program(sock, allow_leaf=True), {id(t): "grad"})
+        mat = r.create_material("lambertian", [1.0, 1.0, 1.0], {"texture": "bc"})
+        _quad_uv(r, mat)
+    return build
+
+
+def test_gpu_opvm_vs_graph_lambertian_base_colour():
+    """Old-vs-new on the GPU: the same Color Ramp chain as an op-VM program and
+    as a graph program (dedicated kernel) render the same image (same seed)."""
+    old = _render_scene(_build_lambertian('opvm'), True)
+    new = _render_scene(_build_lambertian('graph'), True)
+    _assert_rois(new, old, 0.01, "GPU graph vs GPU op-VM")
+
+
+def test_gpu_vs_cpu_graph_lambertian_base_colour():
+    cpu = _render_scene(_build_lambertian('graph'), False)
+    gpu = _render_scene(_build_lambertian('graph'), True)
+    _assert_rois(gpu, cpu, 0.03, "graph GPU vs CPU")
+
+
+def _three_tex_metallic_curve(r):
+    """Principled: Metallic from 3 images (op-VM cannot: VM_MAX_TEX) and a base
+    colour through RGB Curves (#992) — both graph programs."""
+    a, b, c = img('a'), img('b'), img('c')
+    m1 = Node('MIX_RGB', [Sock('Fac', 0.3, type='VALUE'),
+                          Sock('Color1', (0, 0, 0), link=link(a)),
+                          Sock('Color2', (0, 0, 0), link=link(b))], blend_type='MIX')
+    m2 = Node('MIX_RGB', [Sock('Fac', 0.0, link=link(c, 'Color', 'RGBA'), type='VALUE'),
+                          Sock('Color1', (0, 0, 0), link=link(m1)),
+                          Sock('Color2', (1, 1, 1))], blend_type='MIX')
+    met = G.compile_value_program(Sock('Metallic', 0.0, link=Link(m2, 'Color', 'RGBA'),
+                                       type='VALUE'), allow_leaf=True)
+    _gradient(r, "ga")
+    _solid(r, "sb", (0.9, 0.9, 0.9))
+    _gradient(r, "gc", 4, 2)
+    _load_graph(r, "met", met, {id(a): "ga", id(b): "sb", id(c): "gc"})
+    t = img('t')
+    curve = rgb_curve(link(t), [(0, 0.1), (1, 0.9)], [(0, 0), (0.5, 0.8), (1, 1)],
+                      [(0, 1), (1, 0)], [(0, 0.2), (1, 0.8)], fac=0.8)
+    bc = G.compile_value_program(Sock('Base Color', (0, 0, 0), link=link(curve)),
+                                 allow_leaf=True)
+    _load_graph(r, "bcc", bc, {id(t): "ga"})
+    mat = r.create_material("principled", [0.8, 0.8, 0.8],
+                            {"metallic_program": "met", "base_color_texture": "bcc",
+                             "roughness": 0.4})
+    _quad_uv(r, mat)
+
+
+def test_gpu_vs_cpu_graph_principled_three_textures_and_curves():
+    cpu = _render_scene(_three_tex_metallic_curve, False)
+    gpu = _render_scene(_three_tex_metallic_curve, True)
+    _assert_rois(gpu, cpu, 0.03, "principled graph programs GPU vs CPU")
+
+
+def _warped(r):
+    tc = Node('TEX_COORD', [])
+    warp = Node('VECT_MATH', [Sock('Vector', (0, 0, 0), link=Link(tc, 'UV', 'VECTOR')),
+                              Sock('Vector_001', (2.0, 1.0, 1.0)), Sock('Vector_002', (0, 0, 0)),
+                              Sock('Scale', 1.0)], operation='MULTIPLY')
+    sinw = Node('VECT_MATH', [Sock('Vector', (0, 0, 0), link=Link(warp, 'Vector', 'VECTOR')),
+                              Sock('Vector_001', (0, 0, 0)), Sock('Vector_002', (0, 0, 0)),
+                              Sock('Scale', 1.0)], operation='SINE')
+    image = img('w', vector=Link(sinw, 'Vector', 'VECTOR'))
+    p = G.compile_value_program(Sock('Base Color', (0, 0, 0), link=link(image)), allow_leaf=True)
+    assert p['input_kinds'] == ['coord']
+    _gradient(r, "gw")
+    _load_graph(r, "warp", p, {id(image): "gw"})
+    mat = r.create_material("lambertian", [1.0, 1.0, 1.0], {"texture": "warp"})
+    _quad_uv(r, mat)
+
+
+def test_gpu_vs_cpu_graph_warped_image_coordinate():
+    cpu = _render_scene(_warped, False)
+    gpu = _render_scene(_warped, True)
+    _assert_rois(gpu, cpu, 0.03, "computed-uv image GPU vs CPU")

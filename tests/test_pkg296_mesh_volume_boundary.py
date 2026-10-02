@@ -304,8 +304,11 @@ def test_gpu_camera_clip_start_skips_medium(ortho):
     """pkg296: bounded media on a camera ray start at the clip start on CPU and
     GPU alike (Cycles camera.h moves ray->P by nearclip*D): Tr = exp(-sigma *
     (3 - clip)) on the axis, GPU/CPU within 5 % per channel."""
-    cpu, gpu = _clip_inside_box(False, ortho), _clip_inside_box(True, ortho)
-    ref = _clip_inside_box(False, ortho, sigma=0.0)
+    # #961: 256 spp. At 64 spp one seed's per-channel sigma is 0.005 (1.1 %), so
+    # rtol 3 % was a 2.5-sigma single-seed gate; a changed RNG stream read 0.464
+    # (8-seed mean 0.448, unbiased) and failed. Same tolerance, 2x less noise.
+    cpu, gpu = _clip_inside_box(False, ortho, spp=256), _clip_inside_box(True, ortho, spp=256)
+    ref = _clip_inside_box(False, ortho, sigma=0.0, spp=256)
     tr = cpu / ref
     assert np.allclose(tr, np.exp(-0.4 * 2.0), rtol=0.03), tr        # not exp(-0.4 * 3)
     assert (np.abs(gpu / cpu - 1.0) < 0.05).all(), (cpu, gpu)

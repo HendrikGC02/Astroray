@@ -2905,9 +2905,9 @@ class Renderer {
     // `bounce` clamped that leg with sample_clamp_indirect (Blender default 10) and
     // dimmed the backlit geometry_zoo volume cubes to 0.55-0.8 of Cycles.
     // #884: (R+G+B)/3 of an XYZ contribution in linear Rec.709 (Cycles
-    // film_clamp_light's reduce_add(fabs(L)) against 3x the user limit). Same
-    // matrix as astroray::xyzToLinearSRGB, without its gamut desaturation. The
-    // signed sum equals Cycles' fabs sum for in-gamut colour and is linear in
+    // film_clamp_light's reduce_add(fabs(L)) against 3x the user limit), with
+    // the film matrix of xyzToLinearSRGBExact (spectral.h includes this header,
+    // so it is repeated here). The signed sum equals Cycles' fabs sum for in-gamut colour and is linear in
     // XYZ (>= 0 for any non-negative spectrum): fabs of a hero-wavelength
     // sample's chroma noise would inflate the metric (blue emitter clamped to
     // 0.85 of Cycles with fabs, 0.94 signed).

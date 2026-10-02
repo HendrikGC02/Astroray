@@ -98,7 +98,10 @@ def operand_fields(op, sub):
             f.append('d')
         return tuple(f)
     if op == svm.OP_SHADING:
-        return () if sub == svm.SH_BACKFACING else ('a',)
+        # Only Layer Weight / Fresnel read an argument; Backfacing and the #991
+        # Light Path outputs (sub >= 4, lane at-n1) take none.
+        return ('a',) if sub in (svm.SH_LAYER_FRESNEL, svm.SH_LAYER_FACING,
+                                 svm.SH_FRESNEL) else ()
     raise svm.VMCompileError("graph IR: unknown opcode %d" % op)
 
 

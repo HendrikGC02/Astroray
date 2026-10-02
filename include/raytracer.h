@@ -2267,7 +2267,8 @@ public:
     std::vector<float> sampleCountBuffer;
     // pkg87a — Cryptomatte ranked histograms (flat arrays of [id0,weight0,id1,weight1,...])
     std::vector<float> cryptoObjectBuffer, cryptoMaterialBuffer;
-    int cryptomatteDepth = 6;  // number of (id, weight) pairs per pixel (default 6 ranks = 3 EXR layers)
+    static constexpr int kDefaultCryptomatteDepth = 6;  // pkg291: named for setupCamera's reuse check
+    int cryptomatteDepth = kDefaultCryptomatteDepth;  // number of (id, weight) pairs per pixel (default 6 ranks = 3 EXR layers)
     std::array<std::vector<Vec3>, PASS_COUNT> renderPassBuffers;
 
     // pkg72: snapshot of previous-frame projection state. Populated by
@@ -2296,7 +2297,39 @@ public:
            float shiftX = 0.0f, float shiftY = 0.0f,
            float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max(),
            bool orthographic = false, float orthoWidth = 0.0f, float orthoHeight = 0.0f)
-        : width(w), height(h), clipNear(clipNear), clipFar(clipFar) {
+        : width(w), height(h) {
+        setView(lookFrom, lookAt, vup, vfov, aspectRatio, aperture, focusDist,
+                shiftX, shiftY, clipNear, clipFar, orthographic, orthoWidth, orthoHeight);
+        pixels.resize(width * height, Vec3(0));
+        albedoBuffer.resize(width * height, Vec3(0));
+        normalBuffer.resize(width * height, Vec3(0));
+        motionBuffer.resize(static_cast<size_t>(width) * height * 2, 0.0f);
+        alphaBuffer.resize(width * height, 1.0f);
+        depthBuffer.resize(width * height, 0.0f);
+        positionBuffer.resize(width * height, Vec3(0));
+        uvBuffer.resize(width * height, Vec3(0));
+        objectIndexBuffer.resize(width * height, 0.0f);
+        materialIndexBuffer.resize(width * height, 0.0f);
+        bounceCountBuffer.resize(width * height, 0.0f);
+        sampleWeightBuffer.resize(width * height, 0.0f);
+        sampleCountBuffer.resize(width * height, 0.0f);
+        // pkg87a — Cryptomatte buffers: width*height*depth*2 floats (depth pairs of [id, weight])
+        cryptoObjectBuffer.resize(static_cast<size_t>(width) * height * cryptomatteDepth * 2, 0.0f);
+        cryptoMaterialBuffer.resize(static_cast<size_t>(width) * height * cryptomatteDepth * 2, 0.0f);
+        for (auto& passBuffer : renderPassBuffers) {
+            passBuffer.resize(width * height, Vec3(0));
+        }
+    }
+
+    // pkg291: the view/projection part of the constructor, factored out so a
+    // viewport commit can re-aim an existing Camera without reallocating its
+    // per-pixel buffers (PyRenderer::setupCamera). Same arithmetic as before.
+    void setView(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio,
+                 float aperture, float focusDist, float shiftX, float shiftY,
+                 float clipNearIn, float clipFarIn, bool orthographic,
+                 float orthoWidth, float orthoHeight) {
+        clipNear = clipNearIn;
+        clipFar = clipFarIn;
         float vh, vw;
         if (orthographic) {
             vw = orthoWidth;
@@ -2320,25 +2353,6 @@ public:
         lensRadius = aperture / 2;
         vw_ = vw; vh_ = vh; focusDist_ = focusDist;
         shiftX_ = shiftX; shiftY_ = shiftY;
-        pixels.resize(width * height, Vec3(0));
-        albedoBuffer.resize(width * height, Vec3(0));
-        normalBuffer.resize(width * height, Vec3(0));
-        motionBuffer.resize(static_cast<size_t>(width) * height * 2, 0.0f);
-        alphaBuffer.resize(width * height, 1.0f);
-        depthBuffer.resize(width * height, 0.0f);
-        positionBuffer.resize(width * height, Vec3(0));
-        uvBuffer.resize(width * height, Vec3(0));
-        objectIndexBuffer.resize(width * height, 0.0f);
-        materialIndexBuffer.resize(width * height, 0.0f);
-        bounceCountBuffer.resize(width * height, 0.0f);
-        sampleWeightBuffer.resize(width * height, 0.0f);
-        sampleCountBuffer.resize(width * height, 0.0f);
-        // pkg87a — Cryptomatte buffers: width*height*depth*2 floats (depth pairs of [id, weight])
-        cryptoObjectBuffer.resize(static_cast<size_t>(width) * height * cryptomatteDepth * 2, 0.0f);
-        cryptoMaterialBuffer.resize(static_cast<size_t>(width) * height * cryptomatteDepth * 2, 0.0f);
-        for (auto& passBuffer : renderPassBuffers) {
-            passBuffer.resize(width * height, Vec3(0));
-        }
     }
 
     // pkg88-A: getRay now requires explicit time parameter (no default).

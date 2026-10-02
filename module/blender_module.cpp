@@ -1729,6 +1729,29 @@ public:
                     float shiftX = 0.0f, float shiftY = 0.0f,
                     float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max(),
                     bool orthographic = false, float orthoWidth = 0.0f, float orthoHeight = 0.0f) {
+        // pkg291: a viewport commit re-aims the SAME-size camera every
+        // generation. Constructing a fresh Camera allocated and zero-filled ~20
+        // per-pixel buffers (pixels, AOVs, cryptomatte ranks, every render pass:
+        // ~110-190 ms at 2100x1221, the dominant gate (a) commit cost). Same
+        // size and cryptomatte depth -> re-aim in place and keep the buffers
+        // (every render overwrites what it outputs; the render-region path
+        // clears outside the rect - #802 already allows a reused Camera). The
+        // per-setup state a fresh Camera would reset (shutter keyframes) is
+        // reset here; the previous-frame motion snapshot is kept as before.
+        if (camera && camera->width == width && camera->height == height &&
+            camera->cryptomatteDepth == Camera::kDefaultCryptomatteDepth) {
+            camera->setView(Vec3(lookFrom[0], lookFrom[1], lookFrom[2]),
+                            Vec3(lookAt[0], lookAt[1], lookAt[2]),
+                            Vec3(vup[0], vup[1], vup[2]),
+                            vfov, aspectRatio, aperture, focusDist, shiftX, shiftY,
+                            clipNear, clipFar, orthographic, orthoWidth, orthoHeight);
+            camera->shutterStartT = Vec3(0); camera->shutterEndT = Vec3(0);
+            camera->shutterStartR = Quaternion{}; camera->shutterEndR = Quaternion{};
+            camera->shutterStartS = Vec3(1, 1, 1); camera->shutterEndS = Vec3(1, 1, 1);
+            camera->shutter = 0.0f;
+            camera->shutterPosition = Camera::ShutterPosition::Center;
+            return;
+        }
         auto oldCamera = camera;
         camera = std::make_shared<Camera>(
             Vec3(lookFrom[0], lookFrom[1], lookFrom[2]),

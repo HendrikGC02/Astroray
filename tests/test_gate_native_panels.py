@@ -86,8 +86,12 @@ ENGINE_ID = "CUSTOM_RAYTRACER"
 
 MEAN_REL_ERROR_MAX = 0.02          # mean relative luminance error <= 2 %
 DETAIL_PRESERVATION_MIN = 0.95     # edge/texture gradient energy >= 0.95
-ADAPTIVE_BUDGET_SAMPLES = 64       # declared fixed budget for the comparison
-REFERENCE_SAMPLES = 512            # converged reference budget
+# 256 (was 64): the auto min-sample floor is ceil(16/thr^0.3), thr = 1/budget, i.e.
+# 56 of 64 samples, so at 64 spp adaptive cannot retire anything (measured
+# 2026-10-03: CPU sample-count AOV constant 1.0, GPU mean 0.90). At 256 the floor
+# is ~88 (>= 65 % of samples are retirable).
+ADAPTIVE_BUDGET_SAMPLES = 256      # declared fixed budget for the comparison
+REFERENCE_SAMPLES = 1024           # converged reference budget (4x the adaptive budget)
 DENOISE_SETTLE_SAMPLES = 64
 LIGHT_FLOOR = 1e-4                 # reference must carry real light
 DETAIL_ENERGY_FLOOR = 1e-6         # reference detail region must carry edges

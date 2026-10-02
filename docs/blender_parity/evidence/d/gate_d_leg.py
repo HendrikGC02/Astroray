@@ -323,17 +323,25 @@ def main():
         return
 
     specs = [
-        ("adaptive_off", False, False, 64),
-        ("adaptive_on", True, False, 64),
+        ("adaptive_off", False, False, 256),
+        ("adaptive_on", True, False, 256),
+        ("equal_work_off", False, False, None),   # samples = adaptive_on's mean spp
         ("denoise_off", False, False, 64),
         ("denoise_on", False, True, 64),
-        ("reference", False, False, 512),
+        ("reference", False, False, 1024),
     ]
 
     run_id = uuid.uuid4().hex
     aov_captures = {}
     aov_arrays = {}
+    on_mean_spp = None
     for name, adaptive, denoise, samples in specs:
+        if samples is None:
+            # Equal-work leg: same MEAN spp the adaptive-on leg spent (from its
+            # sample-count AOV, normalised to the adaptive budget); falls back to
+            # the budget when the AOV is absent (the leg is then recorded as such).
+            samples = int(round(on_mean_spp)) if on_mean_spp else 256
+            samples = max(1, min(samples, 256))
         # NATIVE PANEL ONLY: samples / adaptive / denoise come exclusively from
         # scene.cycles.*. The custom_raytracer duplicates are never written here.
         scene.cycles.samples = int(samples)
@@ -395,6 +403,9 @@ def main():
             "output_telemetry": capture["telemetry"],
             "requested_sample_count_pass": requested_sample_count_pass,
         }
+        if name == "equal_work_off":
+            legs_meta[name]["equal_work_basis"] = (
+                "adaptive_on_mean_spp" if on_mean_spp else "budget_fallback_no_aov")
 
         if name in ("adaptive_off", "adaptive_on"):
             aov_info = {k: v for k, v in capture.items() if k != "sample_count"}
@@ -418,6 +429,8 @@ def main():
                     aov_arr = rect.reshape(arr.shape[0], arr.shape[1], channels)[::-1].copy()
                     aov_info["present"] = True
                     aov_info["reason"] = None
+                    if name == "adaptive_on":
+                        on_mean_spp = float(aov_arr[..., 0].mean()) * int(scene.cycles.samples)
             aov_captures[name] = aov_info
             if aov_info.get("present"):
                 aov_path = out_dir / (run_id + "_" + args.backend + "_aov_" + name + ".npy")

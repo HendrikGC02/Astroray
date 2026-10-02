@@ -1,10 +1,19 @@
 {
   "aov": {
-    "artifacts": {},
+    "artifacts": {
+      "adaptive_off": {
+        "artifact": "cb7411bfcd8b4b04b78f2015d53971c2_cpu_aov_adaptive_off.npy",
+        "sha256": "553366256187fade64317ffd6f1d3e28275f883bf2d61ee1f7d1abbfbc32fe13"
+      },
+      "adaptive_on": {
+        "artifact": "cb7411bfcd8b4b04b78f2015d53971c2_cpu_aov_adaptive_on.npy",
+        "sha256": "1b80e3e978a39f3512c493a78d16f1172a706288119cd726749af9e0447a50c8"
+      }
+    },
     "captures": {
       "adaptive_off": {
         "end_result_calls": 0,
-        "normalization_max_samples": 64,
+        "normalization_max_samples": 256,
         "pass_name": "Debug Sample Count",
         "passes": [
           {
@@ -12,15 +21,21 @@
             "layer": "ViewLayer",
             "name": "Combined",
             "rect_len": 65536
+          },
+          {
+            "channels": 1,
+            "layer": "ViewLayer",
+            "name": "Debug Sample Count",
+            "rect_len": 16384
           }
         ],
-        "present": false,
-        "reason": "requested Debug Sample Count pass not registered",
+        "present": true,
+        "reason": null,
         "requested": true,
         "result_seen": true,
         "telemetry": [
           {
-            "bvh_build_ms": 0.013699999999999999,
+            "bvh_build_ms": 0.0124,
             "cancelled": false,
             "cancelled_at_unit": -1,
             "device": -1,
@@ -39,7 +54,7 @@
       },
       "adaptive_on": {
         "end_result_calls": 0,
-        "normalization_max_samples": 64,
+        "normalization_max_samples": 256,
         "pass_name": "Debug Sample Count",
         "passes": [
           {
@@ -47,15 +62,21 @@
             "layer": "ViewLayer",
             "name": "Combined",
             "rect_len": 65536
+          },
+          {
+            "channels": 1,
+            "layer": "ViewLayer",
+            "name": "Debug Sample Count",
+            "rect_len": 16384
           }
         ],
-        "present": false,
-        "reason": "requested Debug Sample Count pass not registered",
+        "present": true,
+        "reason": null,
         "requested": true,
         "result_seen": true,
         "telemetry": [
           {
-            "bvh_build_ms": 0.006,
+            "bvh_build_ms": 0.0052,
             "cancelled": false,
             "cancelled_at_unit": -1,
             "device": -1,
@@ -75,75 +96,110 @@
     }
   },
   "artifacts": {
-    "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_adaptive_off.exr": {
+    "cb7411bfcd8b4b04b78f2015d53971c2_cpu_adaptive_off.exr": {
       "kind": "linear_exr",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\a45e96e20ead47bf9003ca8c8a6a69fb_cpu_adaptive_off.exr",
-      "sha256": "3237cd0de6f33421c031cedebe5d67ee6ca9b9b1345db8ff9ce3c03b1d28140d"
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\cb7411bfcd8b4b04b78f2015d53971c2_cpu_adaptive_off.exr",
+      "sha256": "16aff13217126829048c8b1fe07b0ec74903e749bbc1f35cb6c56d75c94c1592"
     },
-    "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_adaptive_off.npy": {
+    "cb7411bfcd8b4b04b78f2015d53971c2_cpu_adaptive_off.npy": {
       "kind": "linear_topdown_npy",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\a45e96e20ead47bf9003ca8c8a6a69fb_cpu_adaptive_off.npy",
-      "sha256": "deec32667e8f8f365504617666e3707e193ca7a3f50b522528d82d0ca562500d",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\cb7411bfcd8b4b04b78f2015d53971c2_cpu_adaptive_off.npy",
+      "sha256": "08ce726f429bbf7ad76a42858549ed5da50093ed074dbaf57f55cc9079d243d3",
       "shape": [
         128,
         128,
         3
       ]
     },
-    "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_adaptive_on.exr": {
+    "cb7411bfcd8b4b04b78f2015d53971c2_cpu_adaptive_on.exr": {
       "kind": "linear_exr",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\a45e96e20ead47bf9003ca8c8a6a69fb_cpu_adaptive_on.exr",
-      "sha256": "2daf0e1348a9ec9efcf256e438de7a8fbcea2297cba877a9011668ecf224e922"
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\cb7411bfcd8b4b04b78f2015d53971c2_cpu_adaptive_on.exr",
+      "sha256": "426328f9a64d542bb9d1bdd874b9dae76015da82259090868ed038a5c671f1ec"
     },
-    "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_adaptive_on.npy": {
+    "cb7411bfcd8b4b04b78f2015d53971c2_cpu_adaptive_on.npy": {
       "kind": "linear_topdown_npy",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\a45e96e20ead47bf9003ca8c8a6a69fb_cpu_adaptive_on.npy",
-      "sha256": "ffca3230b0303d39f3304f7cec65c9812b7aa0c509ec69de5e8632e8fabc4569",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\cb7411bfcd8b4b04b78f2015d53971c2_cpu_adaptive_on.npy",
+      "sha256": "d783a94f37353e6a5f2962a9e9d630fcf1f7e69a658a8f085c75da526a301485",
       "shape": [
         128,
         128,
         3
       ]
     },
-    "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_denoise_off.exr": {
-      "kind": "linear_exr",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\a45e96e20ead47bf9003ca8c8a6a69fb_cpu_denoise_off.exr",
-      "sha256": "1de486b64d8721d50bbe4d38c64d454e55d4a37fedf09084ceaf459057927379"
+    "cb7411bfcd8b4b04b78f2015d53971c2_cpu_aov_adaptive_off.npy": {
+      "kind": "sample_count_aov",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\cb7411bfcd8b4b04b78f2015d53971c2_cpu_aov_adaptive_off.npy",
+      "sha256": "553366256187fade64317ffd6f1d3e28275f883bf2d61ee1f7d1abbfbc32fe13",
+      "shape": [
+        128,
+        128,
+        1
+      ]
     },
-    "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_denoise_off.npy": {
+    "cb7411bfcd8b4b04b78f2015d53971c2_cpu_aov_adaptive_on.npy": {
+      "kind": "sample_count_aov",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\cb7411bfcd8b4b04b78f2015d53971c2_cpu_aov_adaptive_on.npy",
+      "sha256": "1b80e3e978a39f3512c493a78d16f1172a706288119cd726749af9e0447a50c8",
+      "shape": [
+        128,
+        128,
+        1
+      ]
+    },
+    "cb7411bfcd8b4b04b78f2015d53971c2_cpu_denoise_off.exr": {
+      "kind": "linear_exr",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\cb7411bfcd8b4b04b78f2015d53971c2_cpu_denoise_off.exr",
+      "sha256": "0623aa9ab29570338275dd3b85d53ac802aacd28e6998ae2d63ce72d17c75095"
+    },
+    "cb7411bfcd8b4b04b78f2015d53971c2_cpu_denoise_off.npy": {
       "kind": "linear_topdown_npy",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\a45e96e20ead47bf9003ca8c8a6a69fb_cpu_denoise_off.npy",
-      "sha256": "a196d6d71a22a27e07eac2480f8adb3410917e5e87b79c51d912512865b4abe6",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\cb7411bfcd8b4b04b78f2015d53971c2_cpu_denoise_off.npy",
+      "sha256": "aaf16157955823b7273889688e14f85a8dc497b8966c759f4edb99f1025711b4",
       "shape": [
         128,
         128,
         3
       ]
     },
-    "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_denoise_on.exr": {
+    "cb7411bfcd8b4b04b78f2015d53971c2_cpu_denoise_on.exr": {
       "kind": "linear_exr",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\a45e96e20ead47bf9003ca8c8a6a69fb_cpu_denoise_on.exr",
-      "sha256": "0003713bb231979f78ec901e8aee973bebaf9079f5fde8793bb10f4c325e7dae"
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\cb7411bfcd8b4b04b78f2015d53971c2_cpu_denoise_on.exr",
+      "sha256": "5059131026fcdf7285efd6e285901f47df7e5e96335dd40056731b4ffec3cb50"
     },
-    "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_denoise_on.npy": {
+    "cb7411bfcd8b4b04b78f2015d53971c2_cpu_denoise_on.npy": {
       "kind": "linear_topdown_npy",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\a45e96e20ead47bf9003ca8c8a6a69fb_cpu_denoise_on.npy",
-      "sha256": "52e363e280921cbbe29dd11c09a44a0fc6db569cf6a2a1d3f832342bbfa9502f",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\cb7411bfcd8b4b04b78f2015d53971c2_cpu_denoise_on.npy",
+      "sha256": "308aee81333732705c3aee4ca36726363518901c76b791bf3cf1a3b766f10603",
       "shape": [
         128,
         128,
         3
       ]
     },
-    "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_reference.exr": {
+    "cb7411bfcd8b4b04b78f2015d53971c2_cpu_equal_work_off.exr": {
       "kind": "linear_exr",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\a45e96e20ead47bf9003ca8c8a6a69fb_cpu_reference.exr",
-      "sha256": "036b685b0def38012c4c93fd32056b07a4da415500d2bced66bae3252670bdf9"
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\cb7411bfcd8b4b04b78f2015d53971c2_cpu_equal_work_off.exr",
+      "sha256": "34acfb28ce782fad42f9df0c8811f417294c61f8ac4de886fbfbf1bdd695499f"
     },
-    "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_reference.npy": {
+    "cb7411bfcd8b4b04b78f2015d53971c2_cpu_equal_work_off.npy": {
       "kind": "linear_topdown_npy",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\a45e96e20ead47bf9003ca8c8a6a69fb_cpu_reference.npy",
-      "sha256": "a8978491c3090036607029544b0d453d12d077b711e84ff3ee3a3c61aeba4ae1",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\cb7411bfcd8b4b04b78f2015d53971c2_cpu_equal_work_off.npy",
+      "sha256": "c9e24067c98f34479d745139ee6a043be61d52ab03074656a02e67c714b038d3",
+      "shape": [
+        128,
+        128,
+        3
+      ]
+    },
+    "cb7411bfcd8b4b04b78f2015d53971c2_cpu_reference.exr": {
+      "kind": "linear_exr",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\cb7411bfcd8b4b04b78f2015d53971c2_cpu_reference.exr",
+      "sha256": "3184fb3e23770973982476fdc17da5f61ad1cc2454eed7d91dd859efda36f3e0"
+    },
+    "cb7411bfcd8b4b04b78f2015d53971c2_cpu_reference.npy": {
+      "kind": "linear_topdown_npy",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\cb7411bfcd8b4b04b78f2015d53971c2_cpu_reference.npy",
+      "sha256": "89e1a184711cf6ae08e50210a13ff5267e27321cee2b47e925107a11896bf50b",
       "shape": [
         128,
         128,
@@ -155,39 +211,39 @@
   "build": {
     "addon_dir": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\dist\\astroray",
     "addon_init": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\dist\\astroray\\__init__.py",
-    "addon_init_sha256": "ce9288f2abaefe6c4b2da93fa8009fe0a7c949bdd68864a36f289c61ab1adb73",
+    "addon_init_sha256": "051da4d321bd6e81cf527413483962f4fa98fc94a435b8223e2aba6887d6c2dc",
     "astroray_module": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\dist\\astroray\\astroray.cp313-win_amd64.pyd",
     "blender_binary": "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe",
     "blender_version": "5.2.0 LTS",
     "build_id": "dev",
     "engine_id": "CUSTOM_RAYTRACER",
     "expected_identity": {
-      "addon_init_sha256": "ce9288f2abaefe6c4b2da93fa8009fe0a7c949bdd68864a36f289c61ab1adb73",
+      "addon_init_sha256": "051da4d321bd6e81cf527413483962f4fa98fc94a435b8223e2aba6887d6c2dc",
       "build_id": "dev",
-      "module_sha256": "ebbd234aa21e280d3fe632bc13de174397fe51c6c07cf79cf6e6fd9b06ae9fa3"
+      "module_sha256": "9fa9833100735e8ffa19cf24499c25727e2144058a3d531b26964383e2d9f95a"
     },
     "gpu_available": true,
-    "module_sha256": "ebbd234aa21e280d3fe632bc13de174397fe51c6c07cf79cf6e6fd9b06ae9fa3",
+    "module_sha256": "9fa9833100735e8ffa19cf24499c25727e2144058a3d531b26964383e2d9f95a",
     "provenance_claim": "candidate",
     "version": "3.0.0"
   },
   "instrument": "gate_native_panels",
   "legs": {
     "adaptive_off": {
-      "artifact": "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_adaptive_off.npy",
+      "artifact": "cb7411bfcd8b4b04b78f2015d53971c2_cpu_adaptive_off.npy",
       "backend": "cpu",
       "error": null,
       "finite": true,
       "leg": "adaptive_off",
-      "mean_luminance": 0.7976213097572327,
+      "mean_luminance": 0.7976107597351074,
       "native": {
-        "samples": 64,
+        "samples": 256,
         "use_adaptive_sampling": false,
         "use_denoising": false
       },
       "output_telemetry": [
         {
-          "bvh_build_ms": 0.013699999999999999,
+          "bvh_build_ms": 0.0124,
           "cancelled": false,
           "cancelled_at_unit": -1,
           "device": -1,
@@ -203,11 +259,11 @@
       "requested_sample_count_pass": true,
       "resolved": {
         "device_mode": "cpu",
-        "samples": 64,
-        "use_adaptive_sampling": true,
+        "samples": 256,
+        "use_adaptive_sampling": false,
         "use_denoising": false
       },
-      "sha256": "deec32667e8f8f365504617666e3707e193ca7a3f50b522528d82d0ca562500d",
+      "sha256": "08ce726f429bbf7ad76a42858549ed5da50093ed074dbaf57f55cc9079d243d3",
       "shape": [
         128,
         128,
@@ -215,20 +271,20 @@
       ]
     },
     "adaptive_on": {
-      "artifact": "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_adaptive_on.npy",
+      "artifact": "cb7411bfcd8b4b04b78f2015d53971c2_cpu_adaptive_on.npy",
       "backend": "cpu",
       "error": null,
       "finite": true,
       "leg": "adaptive_on",
-      "mean_luminance": 0.7977007627487183,
+      "mean_luminance": 0.797683835029602,
       "native": {
-        "samples": 64,
+        "samples": 256,
         "use_adaptive_sampling": true,
         "use_denoising": false
       },
       "output_telemetry": [
         {
-          "bvh_build_ms": 0.006,
+          "bvh_build_ms": 0.0052,
           "cancelled": false,
           "cancelled_at_unit": -1,
           "device": -1,
@@ -244,11 +300,11 @@
       "requested_sample_count_pass": true,
       "resolved": {
         "device_mode": "cpu",
-        "samples": 64,
+        "samples": 256,
         "use_adaptive_sampling": true,
         "use_denoising": false
       },
-      "sha256": "ffca3230b0303d39f3304f7cec65c9812b7aa0c509ec69de5e8632e8fabc4569",
+      "sha256": "d783a94f37353e6a5f2962a9e9d630fcf1f7e69a658a8f085c75da526a301485",
       "shape": [
         128,
         128,
@@ -256,12 +312,12 @@
       ]
     },
     "denoise_off": {
-      "artifact": "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_denoise_off.npy",
+      "artifact": "cb7411bfcd8b4b04b78f2015d53971c2_cpu_denoise_off.npy",
       "backend": "cpu",
       "error": null,
       "finite": true,
       "leg": "denoise_off",
-      "mean_luminance": 0.7976539134979248,
+      "mean_luminance": 0.7976104021072388,
       "native": {
         "samples": 64,
         "use_adaptive_sampling": false,
@@ -269,7 +325,7 @@
       },
       "output_telemetry": [
         {
-          "bvh_build_ms": 0.0053,
+          "bvh_build_ms": 0.0058,
           "cancelled": false,
           "cancelled_at_unit": -1,
           "device": -1,
@@ -286,10 +342,10 @@
       "resolved": {
         "device_mode": "cpu",
         "samples": 64,
-        "use_adaptive_sampling": true,
+        "use_adaptive_sampling": false,
         "use_denoising": false
       },
-      "sha256": "a196d6d71a22a27e07eac2480f8adb3410917e5e87b79c51d912512865b4abe6",
+      "sha256": "aaf16157955823b7273889688e14f85a8dc497b8966c759f4edb99f1025711b4",
       "shape": [
         128,
         128,
@@ -297,12 +353,12 @@
       ]
     },
     "denoise_on": {
-      "artifact": "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_denoise_on.npy",
+      "artifact": "cb7411bfcd8b4b04b78f2015d53971c2_cpu_denoise_on.npy",
       "backend": "cpu",
       "error": null,
       "finite": true,
       "leg": "denoise_on",
-      "mean_luminance": 0.7975320816040039,
+      "mean_luminance": 0.7975175976753235,
       "native": {
         "samples": 64,
         "use_adaptive_sampling": false,
@@ -310,7 +366,7 @@
       },
       "output_telemetry": [
         {
-          "bvh_build_ms": 0.0059,
+          "bvh_build_ms": 0.0060999999999999995,
           "cancelled": false,
           "cancelled_at_unit": -1,
           "device": -1,
@@ -327,10 +383,52 @@
       "resolved": {
         "device_mode": "cpu",
         "samples": 64,
-        "use_adaptive_sampling": true,
+        "use_adaptive_sampling": false,
         "use_denoising": true
       },
-      "sha256": "52e363e280921cbbe29dd11c09a44a0fc6db569cf6a2a1d3f832342bbfa9502f",
+      "sha256": "308aee81333732705c3aee4ca36726363518901c76b791bf3cf1a3b766f10603",
+      "shape": [
+        128,
+        128,
+        3
+      ]
+    },
+    "equal_work_off": {
+      "artifact": "cb7411bfcd8b4b04b78f2015d53971c2_cpu_equal_work_off.npy",
+      "backend": "cpu",
+      "equal_work_basis": "adaptive_on_mean_spp",
+      "error": null,
+      "finite": true,
+      "leg": "equal_work_off",
+      "mean_luminance": 0.7976471185684204,
+      "native": {
+        "samples": 109,
+        "use_adaptive_sampling": false,
+        "use_denoising": false
+      },
+      "output_telemetry": [
+        {
+          "bvh_build_ms": 0.0058,
+          "cancelled": false,
+          "cancelled_at_unit": -1,
+          "device": -1,
+          "gpu_scene_reused": false,
+          "gpu_traversal": "software",
+          "grid_uploads": 0,
+          "tiles_completed": 64,
+          "total_tiles": 64,
+          "units_launched": 0
+        }
+      ],
+      "rendered": true,
+      "requested_sample_count_pass": true,
+      "resolved": {
+        "device_mode": "cpu",
+        "samples": 109,
+        "use_adaptive_sampling": false,
+        "use_denoising": false
+      },
+      "sha256": "c9e24067c98f34479d745139ee6a043be61d52ab03074656a02e67c714b038d3",
       "shape": [
         128,
         128,
@@ -338,20 +436,20 @@
       ]
     },
     "reference": {
-      "artifact": "a45e96e20ead47bf9003ca8c8a6a69fb_cpu_reference.npy",
+      "artifact": "cb7411bfcd8b4b04b78f2015d53971c2_cpu_reference.npy",
       "backend": "cpu",
       "error": null,
       "finite": true,
       "leg": "reference",
-      "mean_luminance": 0.7976458668708801,
+      "mean_luminance": 0.7976174354553223,
       "native": {
-        "samples": 512,
+        "samples": 1024,
         "use_adaptive_sampling": false,
         "use_denoising": false
       },
       "output_telemetry": [
         {
-          "bvh_build_ms": 0.005399999999999999,
+          "bvh_build_ms": 0.0068,
           "cancelled": false,
           "cancelled_at_unit": -1,
           "device": -1,
@@ -367,11 +465,11 @@
       "requested_sample_count_pass": true,
       "resolved": {
         "device_mode": "cpu",
-        "samples": 512,
-        "use_adaptive_sampling": true,
+        "samples": 1024,
+        "use_adaptive_sampling": false,
         "use_denoising": false
       },
-      "sha256": "a8978491c3090036607029544b0d453d12d077b711e84ff3ee3a3c61aeba4ae1",
+      "sha256": "89e1a184711cf6ae08e50210a13ff5267e27321cee2b47e925107a11896bf50b",
       "shape": [
         128,
         128,
@@ -379,7 +477,7 @@
       ]
     }
   },
-  "run_id": "a45e96e20ead47bf9003ca8c8a6a69fb",
+  "run_id": "cb7411bfcd8b4b04b78f2015d53971c2",
   "scene": {
     "camera_location": [
       0.0,

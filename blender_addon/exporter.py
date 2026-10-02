@@ -110,6 +110,9 @@ _LIVE_VIEWPORT_SESSIONS = []
 # threading.Lock permits release by a thread other than the one that acquired it
 # — exactly the main-commits-then-hands-to-worker hand-off (§3.2).
 _GLOBAL_ADMISSION_TOKEN = threading.Lock()
+# #879: longest the synchronous (worker-off) path waits on the main thread for
+# the token a sibling viewport worker holds for one bounded chunk.
+SYNC_ADMISSION_TIMEOUT_S = 0.25
 
 # pkg266 (design §3.5): the F12 process-wide pause gate. While set, NO viewport
 # worker may be admitted (every maybe_submit try-acquire fails and re-queues its
@@ -1288,6 +1291,12 @@ class Exporter:
         # path, so the default behaviour is unchanged. _worker_engine_methods /
         # _worker_redraw_fn cache the main-thread callables the pump needs.
         self._worker = None
+        # #879: the viewport path (worker vs synchronous) latched for this
+        # session; None until the first view_update/view_draw. Re-read from the
+        # env var only at view_update with no worker render in flight
+        # (_resolve_worker_mode), so a live ASTRORAY_VIEWPORT_WORKER flip can
+        # never start a main-thread render while the worker is mid-render.
+        self._worker_mode = None
         self._worker_timer = None
         self._worker_engine_methods = None
         self._worker_redraw_fn = None
@@ -2108,8 +2117,9 @@ class Exporter:
 
         # pkg241 Phase 2 A2 spike: route material/scene edits through the
         # off-thread worker when the flag is set (§9). Synchronous path unchanged
-        # when unset.
-        if viewport_worker_enabled():
+        # when unset. #879: the path is latched per session (see
+        # _resolve_worker_mode); view_update is the only place it may switch.
+        if self._resolve_worker_mode(at_view_update=True):
             self._worker_view_update(
                 context, depsgraph, configure_backend_fn,
                 effective_integrator_name_fn, viewport_perf_record_fn,
@@ -2127,6 +2137,10 @@ class Exporter:
             settings = resolve_fn(scene, self.engine.report)
         region = context.region
 
+        # #879: the synchronous path renders on the main thread; it must own the
+        # global admission token like every other renderer user.
+        if not self._enter_sync_path(request_viewport_redraw_fn):
+            return
         try:
             renderer = self._get_viewport_renderer()
 
@@ -2189,6 +2203,8 @@ class Exporter:
         except Exception as e:
             print(f"Astroray viewport preview error: {e}")
             traceback.print_exc()
+        finally:
+            self._exit_sync_path()
 
     def view_draw(self, context, depsgraph, raytracer_available,
                  configure_backend_fn, viewport_perf_record_fn,
@@ -2206,7 +2222,8 @@ class Exporter:
         # reduced to: detect a camera edit -> bump generation + request cancel;
         # pump the worker (present the freshest published frame); commit + submit
         # the desired generation when the worker is idle; blit the latest frame.
-        if viewport_worker_enabled():
+        # #879: the path latched by view_update (or the first call) is used.
+        if self._resolve_worker_mode(at_view_update=False):
             self._worker_view_draw(
                 context, depsgraph, configure_backend_fn,
                 effective_integrator_name_fn, viewport_perf_record_fn,
@@ -2214,6 +2231,19 @@ class Exporter:
                 request_viewport_redraw_fn, engine_methods)
             return
 
+        # #879: own the global admission token for the synchronous render; while
+        # another holder renders, keep showing the last frame.
+        if not self._enter_sync_path(request_viewport_redraw_fn):
+            if self._viewport_texture is not None:
+                try:
+                    from gpu_extras.presets import draw_texture_2d
+                    self.engine.bind_display_space_shader(depsgraph.scene)
+                    draw_texture_2d(self._viewport_texture, (0, 0),
+                                    context.region.width, context.region.height)
+                    self.engine.unbind_display_space_shader()
+                except Exception:
+                    pass
+            return
         try:
             region = context.region
             scene = depsgraph.scene
@@ -2390,6 +2420,8 @@ class Exporter:
         except Exception as e:
             print(f"Astroray view_draw error: {e}")
             traceback.print_exc()
+        finally:
+            self._exit_sync_path()
 
     # -----------------------------------------------------------------------
     # pkg241 Phase 2 A2 spike — off-thread worker path (design §3.2-§3.4, §9).
@@ -2912,6 +2944,54 @@ class Exporter:
         except Exception as e:
             print(f"Astroray worker view_draw error: {e}")
             traceback.print_exc()
+
+    # -- #879: one render thread at a time ---------------------------------
+    def _resolve_worker_mode(self, at_view_update):
+        """#879 root cause: viewport_worker_enabled() was re-read on EVERY
+        view_update/view_draw, so a live ASTRORAY_VIEWPORT_WORKER=0 flip sent the
+        next view_draw down the synchronous path, which called renderer.render()
+        on the main thread while this session's worker thread was still inside
+        renderer.render() (the GPU render releases the GIL) -- two threads in
+        the process-global wavefront WfContext, and Blender died in
+        nvcuda64.dll. The path is now latched per session: read on the first
+        call, changed only at view_update with no worker render in flight, and
+        leaving worker mode stops the worker (cancel -> join -> token released)
+        before the synchronous path renders."""
+        desired = viewport_worker_enabled()
+        if self._worker_mode is None:
+            self._worker_mode = desired
+        elif at_view_update and desired != self._worker_mode:
+            w = self._worker
+            if w is not None:
+                w.pump(present=False)  # refresh in_flight_generation
+            if w is None or w.in_flight_generation is None:
+                self._worker_mode = desired
+        if not self._worker_mode and self._worker is not None:
+            self.stop_worker()
+        return self._worker_mode
+
+    def _enter_sync_path(self, request_viewport_redraw_fn):
+        """#879: the synchronous path renders on the main thread, so it takes the
+        ONE process-global admission token (pkg266 §3.5) like the worker and F12,
+        after reaping orphaned worker sessions of freed engines (they would keep
+        rendering into the shared WfContext). Never waits on F12 (pause gate
+        raised); otherwise waits at most SYNC_ADMISSION_TIMEOUT_S for a sibling
+        viewport worker's chunk. False = skip this frame and retry on a redraw."""
+        _reap_dead_viewport_sessions(keep=self)
+        tok = _GLOBAL_ADMISSION_TOKEN
+        if tok.acquire(blocking=False) or (
+                not _admission_gate_raised()
+                and tok.acquire(timeout=SYNC_ADMISSION_TIMEOUT_S)):
+            return True
+        try:
+            request_viewport_redraw_fn()
+        except Exception:
+            pass
+        return False
+
+    @staticmethod
+    def _exit_sync_path():
+        _GLOBAL_ADMISSION_TOKEN.release()
 
     def pause_worker_for_f12(self, timeout=5.0):
         """§3.5 step 2 (F12 pause handshake): cancel this session's in-flight

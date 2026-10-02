@@ -136,7 +136,8 @@ def calibration() -> dict:
     return json.loads(CALIBRATION.read_text()) if CALIBRATION.is_file() else {}
 
 
-def build_dict(sid: str, mi, work: Path, res=RES, spp: int = 64, lamp_scale: float | None = None) -> dict:
+def build_dict(sid: str, mi, work: Path, res=RES, spp: int = 64, lamp_scale: float | None = None,
+               prism_bsdf: str = "sellmeier") -> dict:
     """The ``mi.load_dict`` dictionary of one arbitration scene."""
     p = PARAMS[sid]
     cam = p["camera"]
@@ -162,6 +163,10 @@ def build_dict(sid: str, mi, work: Path, res=RES, spp: int = 64, lamp_scale: flo
         d["prism"] = {"type": "obj", "filename": str(obj), "face_normals": True,
                       "bsdf": {"type": "dispersive_dielectric", "b": ",".join(map(str, pr["glass"]["B"])),
                                  "c": ",".join(map(str, pr["glass"]["C"]))}}
+        if prism_bsdf == "const_plugin":  # validation pair: the plugin at constant IOR vs the stock dielectric
+            d["prism"]["bsdf"]["ior"] = str(pr["ior_d"])
+        elif prism_bsdf == "builtin":
+            d["prism"]["bsdf"] = {"type": "dielectric", "int_ior": pr["ior_d"]}
         # Sun = a far sphere of angular half-angle angle/2 (the 4 degree Blender angle is a full angle).
         dist, half = 100.0, math.radians(s["angle_deg"] / 2.0)
         dvec = sun_direction(s)
@@ -204,12 +209,15 @@ def register_dispersive_dielectric(mi, dr):
             mi.BSDF.__init__(self, props)
             self.b = [float(x) for x in props["b"].split(",")]  # Mitsuba properties carry no lists: comma-separated
             self.c = [float(x) for x in props["c"].split(",")]
+            self.const_ior = float(props["ior"]) if props.has_property("ior") else 0.0  # validation: constant IOR, same collapse
             refl = mi.BSDFFlags.DeltaReflection | mi.BSDFFlags.FrontSide | mi.BSDFFlags.BackSide
             trans = mi.BSDFFlags.DeltaTransmission | mi.BSDFFlags.FrontSide | mi.BSDFFlags.BackSide
             self.m_components = [refl, trans]
             self.m_flags = refl | trans
 
         def eta(self, lam_nm):
+            if self.const_ior > 0.0:
+                return self.const_ior + 0.0 * lam_nm
             l2 = dr.square(lam_nm * 1e-3)  # micrometres^2
             n2 = 1.0 + sum(b * l2 / (l2 - c) for b, c in zip(self.b, self.c))  # Sellmeier
             return dr.sqrt(n2)
@@ -252,7 +260,7 @@ def register_dispersive_dielectric(mi, dr):
 
 
 def render_scene(sid: str, spp: int, seed: int, res, work: Path, variant: str = "cuda_ad_spectral",
-                 lamp_scale: float | None = None):
+                 lamp_scale: float | None = None, prism_bsdf: str = "sellmeier"):
     """(HxWx3 TensorXf image, render-only seconds). Wavefronts above ~2^24 lanes are split into spp chunks with
     decorrelated seeds (a 1280x720 x 320 spp wavefront does not fit in GPU memory). No numpy here: the Mitsuba venv
     has none, so the image leaves as raw float32 that the driver reads."""
@@ -261,7 +269,7 @@ def render_scene(sid: str, spp: int, seed: int, res, work: Path, variant: str = 
     mi.set_variant(variant)
     register_dispersive_dielectric(mi, dr)
     chunk = max(1, min(spp, (1 << 24) // (res[0] * res[1])))
-    scene = mi.load_dict(build_dict(sid, mi, work, res, chunk, lamp_scale))
+    scene = mi.load_dict(build_dict(sid, mi, work, res, chunk, lamp_scale, prism_bsdf))
     acc, done, t = None, 0, 0.0
     while done < spp:
         k = min(chunk, spp - done)
@@ -286,12 +294,14 @@ def main(argv=None):
     ap.add_argument("--variant", default=os.environ.get("ASTRORAY_MITSUBA_VARIANT", "cuda_ad_spectral"),
                     help="Mitsuba variant (scalar_spectral for CPU-only development runs)")
     ap.add_argument("--lamp-scale", type=float, default=None, help="override the calibrated lamp scale (calibration run)")
+    ap.add_argument("--prism-bsdf", choices=("sellmeier", "const_plugin", "builtin"), default="sellmeier",
+                    help="validation: const_plugin = the dispersive plugin at constant IOR, builtin = stock dielectric")
     a = ap.parse_args(argv)
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     res = (round(RES[0] * a.res_percent / 100), round(RES[1] * a.res_percent / 100))
     try:
-        img, secs = render_scene(a.scene, a.spp, a.seed, res, out.parent, a.variant, a.lamp_scale)
+        img, secs = render_scene(a.scene, a.spp, a.seed, res, out.parent, a.variant, a.lamp_scale, a.prism_bsdf)
     except Exception as exc:  # noqa: BLE001 - the driver keys on the sentinel
         import traceback
         traceback.print_exc()

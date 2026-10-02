@@ -304,10 +304,15 @@ def nb_efficiency_chart(res: dict, out: Path) -> Path:
             scenes = [h["scene"].replace("v2_", "") for h in hl]
             vals = [h.get(key, float("nan")) for h in hl]
             x = np.arange(len(hl)) + (i - (len(labels) - 1) / 2) * 0.26
-            ax.bar(x, vals, width=0.26, color=("#9a9893", "#2a78d6", "#eb6834")[i % 3],
+            floor = 1e-3  # bars below the axis floor are drawn at it and annotated (the JSON keeps the value)
+            ax.bar(x, [max(v, floor) for v in vals], width=0.26, color=("#9a9893", "#2a78d6", "#eb6834")[i % 3],
                    label=f"{lab} per 1280x720 frame")
+            for xi, v in zip(x, vals):
+                if v < floor:
+                    ax.text(xi, floor * 1.3, f"{v:.0e}", rotation=90, ha="center", va="bottom", fontsize=6)
             series[f"{key}@{lab}"] = dict(zip(scenes, vals))
         ax.set_yscale("log")
+        ax.set_ylim(1e-3, 3.0)
         ax.axhline(1.0, color="#52514e", ls="--", lw=1.0, label="parity (efficiency ratio 1)")
         ax.set_xticks(range(len(scenes)))
         ax.set_xticklabels(scenes, rotation=30, ha="right", fontsize=8)
@@ -439,10 +444,55 @@ def nb_markdown(res: dict) -> str:
     return "\n".join(out)
 
 
+def nb_arbitration_table(res: dict, work: Path, out: Path, spp: int = 256) -> Path:
+    """Per ROI mean (R, G, B, luminance) of every leg at ``spp`` against the Mitsuba spectral reference, with z-scores.
+
+    The mean over the run's seeds has a standard error from the seed scatter; the reference carries the relative standard
+    error measured from its two halves (``<scene>_mitsuba_se.json``). z = (leg - ref) / hypot(se_leg, se_ref). Channels whose
+    reference mean is below 0.01 (or negative: out of the sRGB gamut) are not compared."""
+    import numpy as np
+    meta, rows = res["meta"], {}
+    refs_dir = REPO_ROOT / meta["ref"].split(" in ")[1]
+    lum = np.array([0.2126, 0.7152, 0.0722])
+    out_rows = []
+    for sid in sorted(meta["crops"]):
+        se_ref = json.loads((refs_dir / f"{sid}_mitsuba_se.json").read_text())
+        ref_img = _nb_read_exr(refs_dir / f"{sid}_mitsuba.exr")
+        for roi, rect in meta["crops"][sid].items():
+            def roi_mean(img):
+                h, w = img.shape[:2]
+                box = img[round(rect[1] * h):round(rect[3] * h), round(rect[0] * w):round(rect[2] * w)].reshape(-1, 3).mean(0)
+                return np.append(box, box @ lum)
+            ref = roi_mean(ref_img)
+            row = {"scene": sid, "roi": roi, "ref": ref.tolist(), "ref_rel_se": se_ref[roi]["rel_se"], "legs": {}}
+            for leg in NB_ORDER:
+                files = sorted((Path(work) / "renders").glob(f"{sid}_{leg}_spp{spp}_s*.npy"))
+                if not files:
+                    continue
+                m = np.stack([roi_mean(np.load(f)) for f in files])
+                mean, se = m.mean(0), m.std(0, ddof=1) / math.sqrt(len(m))
+                z = (mean - ref) / np.hypot(se, se_ref[roi]["rel_se"] * np.abs(ref))
+                row["legs"][leg] = {"mean": mean.tolist(), "se": se.tolist(), "ratio": (mean / ref).tolist(), "z": z.tolist()}
+            out_rows.append(row)
+    p = out / "arbitration_roi_means.json"
+    p.write_text(json.dumps({"spp": spp, "rows": out_rows}, indent=1) + chr(10), encoding="utf-8", newline=chr(10))
+    return p
+
+
+def _nb_read_exr(path: Path):
+    import os
+    os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
+    import cv2
+    im = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    return im[:, :, :3][:, :, ::-1].astype("float32")
+
+
 def build_noise_bench_report(work: Path, out: Path, sheets: bool = True, tag: str = "") -> dict:
     res = _nb_load(work, tag)
     written = {"csv": nb_write_csv(res, out), "efficiency": nb_efficiency_chart(res, out),
                "curves": nb_curves_chart(res, out), "anatomy": nb_anatomy_chart(res, out)}
+    if res["meta"].get("suite") == "arbitration":
+        written["arbitration"] = nb_arbitration_table(res, work, out)
     if sheets:
         written["sheets"] = nb_equal_time_sheets(res, work, out)
     (out / "headline.md").write_text(nb_markdown(res), encoding="utf-8", newline="\n")

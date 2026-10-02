@@ -21,13 +21,15 @@ TYPES = ["FBM", "MULTIFRACTAL", "HYBRID_MULTIFRACTAL", "RIDGED_MULTIFRACTAL", "H
 CASES = []
 for dims in ("1D", "2D", "3D", "4D"):
     for ntype in TYPES:
-        CASES.append(dict(dims=dims, type=ntype, scale=2.3, detail=2.5, roughness=0.55,
-                          lacunarity=2.1, offset=0.3, gain=1.1, distortion=0.0,
-                          normalize=True))
-    CASES.append(dict(dims=dims, type="FBM", scale=1.7, detail=3.0, roughness=0.5,
-                      lacunarity=2.0, offset=0.0, gain=1.0, distortion=1.3, normalize=True))
-    CASES.append(dict(dims=dims, type="FBM", scale=3.1, detail=1.0, roughness=0.6,
-                      lacunarity=2.0, offset=0.0, gain=1.0, distortion=0.0, normalize=False))
+        CASES.append({"dims": dims, "type": ntype, "scale": 2.3, "detail": 2.5,
+                      "roughness": 0.55, "lacunarity": 2.1, "offset": 0.3, "gain": 1.1,
+                      "distortion": 0.0, "normalize": True})
+    CASES.append({"dims": dims, "type": "FBM", "scale": 1.7, "detail": 3.0, "roughness": 0.5,
+                  "lacunarity": 2.0, "offset": 0.0, "gain": 1.0, "distortion": 1.3,
+                  "normalize": True})
+    CASES.append({"dims": dims, "type": "FBM", "scale": 3.1, "detail": 1.0, "roughness": 0.6,
+                  "lacunarity": 2.0, "offset": 0.0, "gain": 1.0, "distortion": 0.0,
+                  "normalize": False})
 
 rng = random.Random(881)
 POINTS = [[rng.uniform(-3.0, 3.0) for _ in range(3)] for _ in range(24)]
@@ -89,6 +91,6 @@ for case in CASES:
     obj.modifiers.remove(mod)
     bpy.data.node_groups.remove(tree)
 
-OUT.write_text(json.dumps({"blender": bpy.app.version_string, "points": POINTS, "w": WS,
-                           "results": results}, indent=0), encoding="utf-8")
+OUT.write_bytes((json.dumps({"blender": bpy.app.version_string, "points": POINTS, "w": WS,
+                            "results": results}, separators=(",", ":")) + "\n").encode("utf-8"))
 print("ISSUE881_REF OK", OUT, len(results))

@@ -6,7 +6,6 @@ Color triple. #1006: materials reading Texture Coordinate > Object are detected
 (also inside node groups) and get the world -> object-local affine.
 """
 import numpy as np
-
 from test_issue818_procedural_opvm import Link, Node, Sock, _load_addon_stub
 
 
@@ -44,7 +43,7 @@ def _noise_params(monkeypatch, out_socket, dims="3D"):
                                              Link(_noise(dims), out_socket))])
     _, tex = eng.get_base_color_texture(bsdf, 'Color', rec)
     assert tex is not None
-    (_, kind, params), = [c for c in rec.calls if c[1] == 'noise_perlin']
+    (_, _, params), = [c for c in rec.calls if c[1] == 'noise_perlin']
     return params
 
 
@@ -76,7 +75,9 @@ def test_object_coord_tree_scan(monkeypatch):
         n.outputs = _Outs(Object=type("O", (), {"is_linked": linked})())
         return n
 
-    tree = lambda *nodes: type("T", (), {"nodes": list(nodes)})()  # noqa: E731
+    def tree(*nodes):
+        return type("T", (), {"nodes": list(nodes)})()
+
     assert addon._tree_uses_object_coords(tree(tc(True)))
     assert not addon._tree_uses_object_coords(tree(tc(False), Node('TEX_NOISE')))
     group = Node('GROUP', node_tree=tree(Node('MATH'), tc(True)))

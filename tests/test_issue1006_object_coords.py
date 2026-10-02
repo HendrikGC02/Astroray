@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 astroray = pytest.importorskip("astroray")
-from base_helpers import create_renderer, render_image, setup_camera  # noqa: E402
+from base_helpers import create_renderer, render_image, setup_camera
 
 _TEX = "issue1006_noise"
 _HALF = 0.5
@@ -49,7 +49,10 @@ def _xf(m, p):
     return list((m @ np.append(np.asarray(p, float), 1.0))[:3])
 
 
-def _render(backend, objects, cam=np.eye(4), use_frames=True, size=96):
+_ID = np.eye(4)
+
+
+def _render(backend, objects, cam=_ID, use_frames=True, size=96):
     """objects: list of 4x4 object->world matrices applied to one local quad."""
     r = create_renderer()
     if backend == "gpu":

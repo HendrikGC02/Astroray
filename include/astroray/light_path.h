@@ -22,8 +22,10 @@
 //   surface hit  : labels of the bounce that produced the ray
 //   shadow ray   : SHADOW only (visibility); Ray Depth = bounce + 1
 //   emission eval: no visibility bit, EMISSION path flag; Ray Depth = bounce + 1
-// Astroray has no separate transparent bounce: a Transparent BSDF pass counts as
-// a transmission bounce, so Transparent Depth reads 0 (reported by the addon).
+// A transparent pass (a straight-through delta sample: Principled Alpha / a
+// Transparent BSDF) keeps the ray's flags, as Cycles' LABEL_TRANSPARENT does, and
+// counts in transparentDepth; Astroray's bounce counter still includes it, so
+// Ray Depth subtracts it.
 //
 // SPDX-License-Identifier: Apache-2.0 (semantics derived from Cycles).
 // ============================================================================
@@ -64,6 +66,7 @@ struct PathContext {
     unsigned short diffuseDepth = 0;
     unsigned short glossyDepth = 0;
     unsigned short transmissionDepth = 0;
+    unsigned short transparentDepth = 0;
     float rayLength = 0.0f;
 };
 
@@ -84,13 +87,14 @@ HD inline float light_path_output(unsigned char o, const PathContext& c) {
         case LPO_RAY_DEPTH: {
             // "For background, light emission and shadow evaluation from a surface
             // or volume we are effectively one bounce further." (light_path.h)
-            float d = (float)c.depth;
+            // Cycles' bounce excludes transparent passes; Astroray's counts them.
+            float d = (float)(c.depth > c.transparentDepth ? c.depth - c.transparentDepth : 0);
             if (c.flags & (LPF_SHADOW | LPF_EMISSION)) d += 1.0f;
             return d;
         }
         case LPO_DIFFUSE_DEPTH:      return (float)c.diffuseDepth;
         case LPO_GLOSSY_DEPTH:       return (float)c.glossyDepth;
-        case LPO_TRANSPARENT_DEPTH:  return 0.0f;
+        case LPO_TRANSPARENT_DEPTH:  return (float)c.transparentDepth;
         case LPO_TRANSMISSION_DEPTH: return (float)c.transmissionDepth;
         default:                     return 0.0f;
     }
@@ -101,9 +105,15 @@ HD inline float light_path_output(unsigned char o, const PathContext& c) {
 // classifier, shared by both backends). A transmission ray carries no diffuse/
 // glossy visibility (path_state_ray_visibility); a delta reflection is glossy +
 // singular. The returned context is the one the NEXT vertex is shaded with
-// (depth and rayLength are filled in there).
-HD inline PathContext next_surface(const PathContext& c, int lobeCat, bool singular) {
+// (depth and rayLength are filled in there). `transparent`: a straight-through
+// delta pass (Cycles LABEL_TRANSPARENT): flags kept, transparentDepth + 1.
+HD inline PathContext next_surface(const PathContext& c, int lobeCat, bool singular,
+                                   bool transparent = false) {
     PathContext n = c;
+    if (transparent) {
+        n.transparentDepth = (unsigned short)(c.transparentDepth + 1);
+        return n;
+    }
     unsigned f = 0u;
     if (lobeCat == 2) {
         f |= LPF_TRANSMIT;
@@ -123,6 +133,13 @@ HD inline PathContext next_surface(const PathContext& c, int lobeCat, bool singu
     return n;
 }
 
+// A straight-through delta sample (Principled Alpha / Transparent BSDF pass:
+// wi == -wo) is Cycles' LABEL_TRANSPARENT. An IOR-1 smooth refraction is
+// geometrically identical and is classified the same way here.
+HD inline bool is_transparent_pass(bool isDelta, float woDotWi) {
+    return isDelta && woDotWi < -0.99999f;
+}
+
 // Cycles path_state_next for a volume scatter: visibility VOLUME_SCATTER only,
 // reflect/singular cleared, surface counters unchanged.
 HD inline PathContext next_volume(const PathContext& c) {
@@ -140,21 +157,23 @@ HD inline PathContext emission_context(unsigned short depth) {
 }
 
 // GPU per-path packing (GPUWavefrontState.lp_state, one uint32 per slot): bits
-// 0-8 label flags, then three 7-bit saturating counters (diffuse, glossy,
-// transmission). Depth and ray length are not stored: they are the slot's
-// bounce and the parked hit t.
+// 0-8 label flags, then three 6-bit saturating counters (diffuse, glossy,
+// transmission) and a 5-bit transparent counter. Depth and ray length are not
+// stored: they are the slot's bounce and the parked hit t.
 HD inline unsigned pack_state(const PathContext& c) {
-    unsigned d = c.diffuseDepth < 127 ? c.diffuseDepth : 127;
-    unsigned g = c.glossyDepth < 127 ? c.glossyDepth : 127;
-    unsigned t = c.transmissionDepth < 127 ? c.transmissionDepth : 127;
-    return (c.flags & LPF_LABEL_MASK) | (d << 9) | (g << 16) | (t << 23);
+    unsigned d = c.diffuseDepth < 63 ? c.diffuseDepth : 63;
+    unsigned g = c.glossyDepth < 63 ? c.glossyDepth : 63;
+    unsigned t = c.transmissionDepth < 63 ? c.transmissionDepth : 63;
+    unsigned a = c.transparentDepth < 31 ? c.transparentDepth : 31;
+    return (c.flags & LPF_LABEL_MASK) | (d << 9) | (g << 15) | (t << 21) | (a << 27);
 }
 HD inline PathContext unpack_state(unsigned s, int depth, float rayLength) {
     PathContext c;
     c.flags = s & LPF_LABEL_MASK;
-    c.diffuseDepth = (unsigned short)((s >> 9) & 127u);
-    c.glossyDepth = (unsigned short)((s >> 16) & 127u);
-    c.transmissionDepth = (unsigned short)((s >> 23) & 127u);
+    c.diffuseDepth = (unsigned short)((s >> 9) & 63u);
+    c.glossyDepth = (unsigned short)((s >> 15) & 63u);
+    c.transmissionDepth = (unsigned short)((s >> 21) & 63u);
+    c.transparentDepth = (unsigned short)((s >> 27) & 31u);
     c.depth = (unsigned short)(depth > 0 ? depth : 0);
     c.rayLength = rayLength;
     return c;

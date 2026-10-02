@@ -753,7 +753,7 @@ __global__ void stageVolumeScatterKernel(
     // continuation is terminate-after (see intersectPathSlotT volTerm).
     gpu_countVolumeBounce(state.per_type_bounce, idx, c_wfGridVolume.volumeBounceCap);
     // #991 — Light Path: the continuation is a volume-scatter ray.
-    if (c_wfLightPath.enabled) gpu_lpVolumeScatter(state, idx);
+    if (c_wfLightPath.enabled) state.lp_state[idx] = gpu_lpVolume(state.lp_state[idx]);
 
     // ---- HG phase-sampled continuation from P (throughput *= phase/pdf = 1) ----
     float phasePdf;

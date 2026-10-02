@@ -77,6 +77,7 @@ __device__ inline float gpu_rng_uniform(GSegRng* r)
 extern __constant__ GWavefrontGridVolumeBinding c_wfGridVolume;
 extern __constant__ GWavefrontLightPassBinding  c_wfLpBinding;
 extern __constant__ GWavefrontLightPathBinding  c_wfLightPath;   // #991
+__device__ unsigned gpu_lpVolume(unsigned lpState);              // #991 light_path_eval.cu
 
 namespace {
 
@@ -803,10 +804,7 @@ __global__ void stageVolumeHeteroScatterKernel(
     gpu_countVolumeBounce(state.per_type_bounce, idx, c_wfGridVolume.volumeBounceCap);
     // #991 — Light Path: the continuation is a volume-scatter ray (Cycles
     // path_state_next LABEL_VOLUME_SCATTER; astroray/light_path.h).
-    if (c_wfLightPath.enabled) {
-        using namespace astroray::lightpath;
-        state.lp_state[idx] = pack_state(next_volume(unpack_state(state.lp_state[idx], 0, 0.f)));
-    }
+    if (c_wfLightPath.enabled) state.lp_state[idx] = gpu_lpVolume(state.lp_state[idx]);
 
     // ---- HG phase-sampled continuation from P (throughput *= phase/pdf = 1) ----
     float phasePdf;

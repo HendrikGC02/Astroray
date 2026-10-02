@@ -4176,7 +4176,9 @@ public:
             // Fac resolves to the child this ray type shades with (Cycles).
             rec.lightPath = lpc;
             rec.lightPath.depth = (unsigned short)bounce;
-            rec.lightPath.rayLength = rec.t;
+            // Cycles measures a camera ray from its near-clip start (camera.h
+            // camera_sample_perspective: P += nearclip * z_inv * D).
+            rec.lightPath.rayLength = (bounce == 0) ? rec.t - clipNear_ * clipZInv : rec.t;
             resolveLightPathMaterial(rec);
 
             // Emission (gated on camera ray or post-specular bounce).
@@ -4484,7 +4486,9 @@ public:
                         : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
             }
             if (firstCat < 0) firstCat = lobeCat;
-            lpc = astroray::lightpath::next_surface(lpc, lobeCat, bss.isDelta);  // #991
+            lpc = astroray::lightpath::next_surface(  // #991
+                lpc, lobeCat, bss.isDelta,
+                astroray::lightpath::is_transparent_pass(bss.isDelta, wo.dot(bss.wi)));
 
             // pkg201 Stage 3 (Finding E) — native caustic toggle cull. Reuses the
             // per-bounce lobeCat (item A): a delta reflection is lobeCat==1
@@ -4720,7 +4724,7 @@ public:
             if (!rec.material) break;
             rec.lightPath = lpc;  // #991
             rec.lightPath.depth = (unsigned short)bounce;
-            rec.lightPath.rayLength = rec.t;
+            rec.lightPath.rayLength = (bounce == 0) ? rec.t - clipNear_ * clipZInv : rec.t;
             resolveLightPathMaterial(rec);
 
             astroray::SampledSpectrum Le_spec = rec.material->emittedSpectral(rec, lambdas);
@@ -4884,7 +4888,9 @@ public:
                 const bool transmitted = wo.dot(rec.normal) * bss.wi.dot(rec.normal) < 0.0f;
                 const int cat = transmitted ? 2
                               : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
-                lpc = astroray::lightpath::next_surface(lpc, cat, bss.isDelta);
+                lpc = astroray::lightpath::next_surface(
+                    lpc, cat, bss.isDelta,
+                    astroray::lightpath::is_transparent_pass(bss.isDelta, wo.dot(bss.wi)));
             }
 
             Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);

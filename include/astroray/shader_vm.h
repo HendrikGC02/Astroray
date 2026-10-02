@@ -99,6 +99,15 @@ struct SvmShading {
     lightpath::PathContext path;
 };
 
+#if defined(__CUDACC__)
+}  // namespace svm
+namespace lightpath {
+// #991 — device Light Path output, defined once in light_path_eval.cu (-rdc).
+__device__ float light_path_output_dev(unsigned char o, const PathContext& c);
+}  // namespace lightpath
+namespace svm {
+#endif
+
 // pkg230 — Clamp node type (Cycles NodeClampType, svm_clamp / node_clamp.osl).
 enum ClampType : unsigned char { CLAMP_MINMAX = 0, CLAMP_RANGE = 1 };
 
@@ -598,9 +607,17 @@ HD inline float svm_shading(unsigned char which, float arg, const SvmShading& sh
             return back ? 1.0f : 0.0f;
         default:
             // #991 Cycles svm_node_light_path (astroray/light_path.h).
-            if (which >= SH_LIGHT_PATH)
+            if (which >= SH_LIGHT_PATH) {
+#if defined(__CUDA_ARCH__)
+                // Out of line on the device (light_path_eval.cu): one call per
+                // svm_eval copy instead of the switch body.
+                return lightpath::light_path_output_dev(
+                    (unsigned char)(which - SH_LIGHT_PATH), sh.path);
+#else
                 return lightpath::light_path_output(
                     (unsigned char)(which - SH_LIGHT_PATH), sh.path);
+#endif
+            }
             return 0.0f;
     }
 }

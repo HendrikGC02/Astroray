@@ -24,7 +24,7 @@ def _floor(gpu, sun, dome):
         try:
             r.set_use_gpu(True)
         except Exception as e:  # noqa: BLE001 - CPU-only build
-            pytest.skip("GPU unavailable: %s" % e)
+            pytest.skip(f"GPU unavailable: {e}")
         if not getattr(r, "gpu_available", False):
             pytest.skip("gpu_available is False")
     elif hasattr(r, "set_use_gpu"):

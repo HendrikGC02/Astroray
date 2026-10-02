@@ -14,10 +14,9 @@ import math
 import re
 from pathlib import Path
 
+import astroray
 import numpy as np
 import pytest
-
-import astroray
 
 ROOT = Path(__file__).resolve().parent.parent
 PROFILE = "sodium_vapor"
@@ -56,7 +55,7 @@ def _render(gpu):
         try:
             r.set_use_gpu(True)
         except Exception as e:  # noqa: BLE001 - CPU-only build
-            pytest.skip("GPU unavailable: %s" % e)
+            pytest.skip(f"GPU unavailable: {e}")
         if not getattr(r, "gpu_available", False):
             pytest.skip("gpu_available is False")
     elif hasattr(r, "set_use_gpu"):

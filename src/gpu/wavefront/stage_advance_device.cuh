@@ -1453,13 +1453,13 @@ template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPho
          bool HasDispersion = false, bool HasLightPassAOVs = false,  // pkg198 S2 pass axis
          bool HasProgram = false,   // pkg219b — per-texel op-VM axis
          bool HasNormalPerturb = false>  // pkg223 — tangent-space normal-map axis
-// pkg300: the body is __forceinline__ so stageShadeBucketedKernel inlines it (its
-// __maxnreg__ budget then covers the whole shade body). The MIS-snapshot kernel and
-// the pkg300 reference kernel call the out-of-line shadePathSlot wrapper below.
+// pkg300: the body is __forceinline__ so a kernel can inline it (the pkg300 sweep
+// kernels in stage_shade_exp*.cu); stageShadeBucketedKernel and the MIS-snapshot
+// kernel call the out-of-line shadePathSlot wrapper below.
 __device__ __forceinline__ bool shadePathSlotImpl(
     int idx,
-    GPUWavefrontState& state,
-    GPUWavefrontHitBuffers& hitBufs,
+    const GPUWavefrontState& state,       // pkg300: const so the kernel can pass its
+    const GPUWavefrontHitBuffers& hitBufs, // __grid_constant__ params without a copy
     const GTLASNode*  tlas,        // pkg55-C4 / pkg114
     const GInstance*  instances,   // pkg55-C4 / pkg114
     const GBLAS*      blas,        // pkg55-C4 / pkg114
@@ -2392,7 +2392,7 @@ template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPho
          bool HasDispersion = false, bool HasLightPassAOVs = false,
          bool HasProgram = false, bool HasNormalPerturb = false>
 __device__ bool shadePathSlot(
-    int idx, GPUWavefrontState& state, GPUWavefrontHitBuffers& hitBufs,
+    int idx, const GPUWavefrontState& state, const GPUWavefrontHitBuffers& hitBufs,
     const GTLASNode* tlas, const GInstance* instances, const GBLAS* blas,
     const GBVHNode* bvhNodes, const GPrimitive* prims, const GTriangle* tris,
     const GSphere* spheres, const GVec3* motionVerts, const ::GMaterial* materials,
@@ -2417,27 +2417,17 @@ __device__ bool shadePathSlot(
         cryptoObjectRanks, cryptoMaterialRanks, cryptoDepth);
 }
 
-// pkg300 Phase 1: register budget of the shade kernel. Measured on the pkg298 Cornell
-// pair (1024², 256 spp, min of 5): the inlined body alone halves shade time
-// (no 2 KB param stack copy); fully inlined + __maxnreg__(128) at 256 threads
-// (2 blocks = 16 warps/SM) is the best of {254, 168, 128} x {256, 384, 512}.
-// The cap needs every callee inlined, so it only applies where
-// shade_force_inline.cuh was included first (HasPrincipled=false parts 0..3);
-// the Principled parts 4..11 run the inlined body uncapped (see that header).
-#define ASTRORAY_SHADE_MAXNREG 128
-#if defined(ASTRORAY_SHADE_FORCE_INLINE)
-#define ASTRORAY_SHADE_KERNEL_BUDGET __maxnreg__(ASTRORAY_SHADE_MAXNREG)
-#else
-#define ASTRORAY_SHADE_KERNEL_BUDGET
-#endif
-
 template<bool HasPrincipled, bool HasTexture, bool HasPhotons, bool HasDispersion,
          bool HasLightPassAOVs = false,  // pkg178 D4; pkg186 texture; pkg184 photons; pkg189 dispersion; pkg198 S2 pass axis
          bool HasProgram = false,   // pkg219b — per-texel op-VM axis
          bool HasNormalPerturb = false>  // pkg223 — tangent-space normal-map axis
-__global__ void ASTRORAY_SHADE_KERNEL_BUDGET stageShadeBucketedKernel(
-    GPUWavefrontState state,
-    GPUWavefrontHitBuffers hitBufs,
+__global__ void stageShadeBucketedKernel(
+    // pkg300: __grid_constant__ lets the out-of-line shadePathSlot take these ~2 KB
+    // by const reference straight from kernel-parameter space. Without it the
+    // kernel copied them to the local stack before every call (27 % of shade
+    // stall samples, .astroray_plan/docs/pkg300-shade-counter-attribution.md).
+    __grid_constant__ const GPUWavefrontState state,
+    __grid_constant__ const GPUWavefrontHitBuffers hitBufs,
     const int* shade_queues, const int* shade_counts, int capacity,
     int* queue_out, int* count_out,
     float* nee_f, int* nee_i, int* shadow_queue, int* shadow_count,
@@ -2470,7 +2460,7 @@ __global__ void ASTRORAY_SHADE_KERNEL_BUDGET stageShadeBucketedKernel(
     // pkg186: texture data comes from the __constant__ c_wfTexBinding symbol, NOT
     // kernel params — keeps the untextured <false,false> signature at its
     // pre-pkg186 footprint (see c_wfTexBinding note above).
-    bool alive = shadePathSlotImpl<true, HasPrincipled, HasTexture, HasPhotons, HasDispersion, HasLightPassAOVs, HasProgram, HasNormalPerturb>(idx, state, hitBufs, tlas, instances, blas,
+    bool alive = shadePathSlot<true, HasPrincipled, HasTexture, HasPhotons, HasDispersion, HasLightPassAOVs, HasProgram, HasNormalPerturb>(idx, state, hitBufs, tlas, instances, blas,
                                bvhNodes, prims, tris, spheres, motionVerts,
                                materials, lights, numLights,
                                totalLightPower, dedLights, numDed,

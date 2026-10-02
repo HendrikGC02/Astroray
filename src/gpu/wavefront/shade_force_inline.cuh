@@ -1,17 +1,14 @@
-// shade_force_inline.cuh - pkg300: include FIRST in a shade-kernel TU
-// (stage_shade_part<k>.cu) to force-inline every __noinline__ device function of
-// that TU into stageShadeBucketedKernel, so its __maxnreg__ budget covers the
-// whole shade path. Under -rdc ptxas rejects a cap below any out-of-line callee's
+// shade_force_inline.cuh - pkg300: include FIRST in a shade-kernel TU to
+// force-inline every __noinline__ device function of that TU into the kernel,
+// so a __maxnreg__ budget covers the whole shade path. Under -rdc ptxas rejects a cap below any out-of-line callee's
 // register count (gpu_closure_graph_eval_spectral is 254), and the out-of-line
 // shadePathSlot call made the kernel a 40-register shell that copied ~2 KB of
 // by-value params to the stack (27 % of shade stall samples; see
 // .astroray_plan/docs/pkg300-shade-counter-attribution.md). Cycles compiles its
 // kernels the same way: fully inlined under GPU_KERNEL_MAX_REGISTERS
 // (kernel/device/cuda/config.h, Apache-2.0). Other TUs keep __noinline__.
-// Included by the HasPrincipled=false parts 0..3 only. In the Principled parts
-// 4..11 the compiler also keeps gpu_pr_evalLobe (plain `inline`, 141 regs) out of
-// line, and full inlining doubled the shade-part build time (934 s vs ~460 s,
-// build 899b09bf), so those parts take the inlined body without a cap.
+// Full inlining doubled the shade-part build (1189 s vs ~460 s, build 7af4baa5),
+// so it is currently used only by the pkg300 sweep TUs (stage_shade_exp_*.cu).
 // Attribute-only spelling (several sites already say `__noinline__ inline`):
 // MSVC-mode frontend -> __forceinline, GNU mode -> always_inline.
 #pragma once

@@ -4,7 +4,7 @@
    "family": "arb_prism_sun",
    "builder_fn": "build_scene",
    "blend_path": "benchmarks/reference_corpus/arbitration/scenes/arb_prism_sun.blend",
-   "sha256": "3fb1bbfb077a5d332fdd9844ea44b8f5dffc8985682037fb97084b338bd5f8e6",
+   "sha256": "f49ce3e0a9def489899a8e917066760bc229b5645e38286c25916b9c90ea8688",
    "settings": {
     "res_x": 320,
     "res_y": 180,
@@ -59,7 +59,7 @@
    "family": "arb_chromatic_medium",
    "builder_fn": "build_scene",
    "blend_path": "benchmarks/reference_corpus/arbitration/scenes/arb_chromatic_medium.blend",
-   "sha256": "5fc58607d892459c4de6e532060b8096034923faeea0528606e3eb324a041c54",
+   "sha256": "b4eb8312e3742ffea9d09cd1e11ecdfd4d9ea450fafff9815337f5665ba27581",
    "settings": {
     "res_x": 320,
     "res_y": 180,
@@ -120,7 +120,7 @@
    "family": "arb_narrowband_wall",
    "builder_fn": "build_scene",
    "blend_path": "benchmarks/reference_corpus/arbitration/scenes/arb_narrowband_wall.blend",
-   "sha256": "c0ae080a31eceecb590ee2e3083c06b3c37b4bf9a0561f3e880bea94ca9efa78",
+   "sha256": "ae4040e089a89908d4ac5a95bc2fca9f31731dad392c35afc757acc833db46ee",
    "settings": {
     "res_x": 320,
     "res_y": 180,

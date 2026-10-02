@@ -64,7 +64,7 @@ PARAMS = {
         "floor_albedo": (0.5, 0.5, 0.5),
         "wall_albedo": (0.85, 0.45, 0.10),
         "wall_y": 2.0,
-        "lamp": {"loc": (-1.0, -0.2, 1.8), "target": (0.8, 2.0, 0.6), "size": 0.5, "power_w": 80.0,
+        "lamp": {"loc": (-1.0, -0.2, 1.8), "target": (0.8, 2.0, 0.6), "size": 0.5, "power_w": 18.0,
                  "profile": "sodium_vapor", "color": (1.0, 1.0, 1.0)},
         "camera": {"loc": (3.4, -1.2, 1.3), "target": (-0.3, 1.6, 0.9), "lens": 26.0},
         "max_depth": 8,

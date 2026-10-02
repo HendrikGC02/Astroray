@@ -609,6 +609,27 @@ def arb_calibrate(a, manifest, scenes) -> None:
     cal_path.write_text(json.dumps(cal, indent=1) + "\n", encoding="utf-8", newline="\n")
 
 
+def arb_reference(a, manifest, scenes) -> None:
+    """--arb-reference: the Mitsuba 3 spectral reference EXR of each arbitration scene (``spp_reference`` samples as two
+    independent halves). Half the difference of the two halves is a one-degree-of-freedom estimate of each ROI mean's
+    standard error, kept in ``<sid>_mitsuba_se.json``: caustic ROIs are heavy-tailed, so a bias^2 against this reference is only
+    meaningful where that error is small."""
+    work = Path(a.work_dir)
+    for sid in scenes:
+        entry = scene_entry(manifest, sid)
+        half = entry["v2"]["spp_reference"] // 2
+        halves = [render(sid, "mitsuba", seed, half, work / f"{sid}_mitsuba_ref{k}", timeout=7200)
+                  for k, seed in enumerate((4242, 4243))]
+        ref = np.mean(halves, axis=0)
+        write_exr(exr_path(sid), ref)
+        se = {}
+        for roi, rect in entry["crops"].items():
+            m0, m1, mr = (roi_means(x, rect)[3] for x in (halves[0], halves[1], ref))
+            se[roi] = {"lum": float(mr), "rel_se": float(abs(m0 - m1) / 2.0 / max(mr, 1e-12))}
+        exr_path(sid).with_name(f"{sid}_mitsuba_se.json").write_text(json.dumps(se, indent=1) + chr(10), encoding="utf-8", newline=chr(10))
+        print(f"[arb-reference] {sid}: {half * 2} spp, ROI rel. SE {({k: round(v['rel_se'], 4) for k, v in se.items()})}", flush=True)
+
+
 def nb_run(a, manifest, scenes) -> None:
     """--noise-bench: stages ``time`` -> ``render`` -> ``report`` (each cached under --work-dir, resumable)."""
     work = Path(a.work_dir)
@@ -676,6 +697,7 @@ def main():
                     help="scene population (default: the pkg284 v2 corpus)")
     ap.add_argument("--noise-bench", action="store_true",
                     help="pkg307: noise-per-time benchmark (equal-spp and equal-time tables) instead of the gate bands")
+    ap.add_argument("--arb-reference", action="store_true", help="pkg307: render the Mitsuba spectral reference EXRs of the arbitration scenes")
     ap.add_argument("--arb-calibrate", action="store_true", help="pkg307: match the Mitsuba lamp scale to each scene's anchor ROI")
     ap.add_argument("--nb-legs", nargs="+", choices=NB_LEGS, default=["cycles", "cycles_gpu", "cpu", "gpu"])
     ap.add_argument("--nb-stages", nargs="+", choices=("time", "render", "report"), default=["time", "render", "report"])
@@ -701,6 +723,9 @@ def main():
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     gated = [s for s, e in manifest["scenes"].items() if "v2" in e and e["v2"]["render_gate"]]
     scenes = a.scenes or sorted(gated) + ([] if a.suite else sorted(VARIANTS))
+    if a.arb_reference:
+        arb_reference(a, manifest, a.scenes or sorted(gated))
+        return
     if a.arb_calibrate:
         arb_calibrate(a, manifest, a.scenes or sorted(gated))
         return

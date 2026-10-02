@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** done — PR #984, 2026-09-29: CPU heavy repeat render 1.03 s -> 0.017 s, first BVH build 1.0 s -> 0.26 s, parallel BVH identical to serial; GPU repeat render 0.71 s (gate 0.3 s) and GPU 1e-6 image match not met, device-scene cache follow-up #981
+**Status:** in-progress — PR #984 landed 2026-09-29: CPU heavy repeat render 1.03 s -> 0.017 s, first BVH build 1.0 s -> 0.26 s, parallel BVH identical to serial; GPU repeat render 0.71 s (gate 0.3 s) and GPU 1e-6 image match not met, device-scene cache follow-up #981
 **Estimated effort:** 3 sessions (~9 h): Phase 0 1, Phase 1 1, Phase 2 1
 **Depends on:** pkg55, pkg114
 

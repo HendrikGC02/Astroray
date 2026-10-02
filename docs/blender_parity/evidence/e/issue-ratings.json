@@ -1,0 +1,634 @@
+{
+ "schema": "pkg278.issue_ratings.v2",
+ "review": {
+  "identity": "Codex gpt-5.6-terra (independent pass) reconciled with Claude Sonnet 5.5 lane at-e",
+  "review_timestamp": "2026-10-02T14:53:41.560602+00:00",
+  "snapshot_sha256": "e39a237a12d7211cea2acbb7864624cd4850e7141417a40e615f745592253ce9"
+ },
+ "ratings": [
+  {
+   "id": 36,
+   "severity": "low",
+   "rationale": "[low] Holdout landed (#830, e55288ca); remaining indirect-only objects is a feature gap, no wrong image on a supported path. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 38,
+   "severity": "low",
+   "rationale": "[low] Feature request (tiling); only matters for >GPU-memory frames; no wrong output. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 39,
+   "severity": "low",
+   "rationale": "[low] Feature request (persistent data); perf only. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 141,
+   "severity": "low",
+   "rationale": "[low] New-feature request (grating BSDF); no code, no regression. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 144,
+   "severity": "low",
+   "rationale": "[low] New-feature request (nebula media); Pillar 4 paused. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 398,
+   "severity": "low",
+   "rationale": "[low] Long-horizon architecture tracker (pkg177). Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 721,
+   "severity": "medium",
+   "rationale": "[medium] Viewport latency (~155 ms/camera event); no wrong image, worker opt-in; improving (#831/#850), in flight. Reconciliation: Terra low (perf-only); kept medium (higher). Not high either way.",
+   "claude": "medium",
+   "terra": "low",
+   "in_flight": "viewport"
+  },
+  {
+   "id": 763,
+   "severity": "medium",
+   "rationale": "[medium] Equal-spp noise vs Cycles, means match (geometry/colour agree); variance tracker (Batch O, #941). Reconciliation: Terra high; kept medium. Evidence: issue body states geometry/colour match, 'not a colour/shape divergence'; variance not bias; #941 root cause.",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 773,
+   "severity": "medium",
+   "rationale": "[medium] Limb 0.84x under clamp_indirect=10 is Cycles-only speckle caustic (diffuse->glass->lamp); addon export verified faithful (2026-09-29 comment); physics-vs-Cycles look. Reconciliation: Terra high; kept medium. Evidence: 2026-09-29 comment: addon export faithful (addon/engine 1.00); remaining gap is Cycles-only speckle caustic transport, documented limitation.",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 783,
+   "severity": "low",
+   "rationale": "[low] Thin-film rough glass is gated out of the walk (falls to single-scatter); niche follow-up. Reconciliation: Terra already-fixed (b09e2713); kept low. Evidence: #778 only gated thin-film OUT of the walk; the issue's subject (thin-film-aware walk) is unimplemented.",
+   "claude": "low",
+   "terra": "already-fixed",
+   "in_flight": ""
+  },
+  {
+   "id": 789,
+   "severity": "low",
+   "rationale": "[low] Rough-glass walk achromatic; not a regression, smooth-glass dispersion works; niche. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 853,
+   "severity": "medium",
+   "rationale": "[medium] GPU hair +11% flat vs CPU (-13% blue when pigmented); inside the pkg225 +-15% gate; strict xfail row (comment 2). Reconciliation: Terra high; kept medium. Evidence: inside the documented pkg225 +-15% gate, strict-xfail row filed (comment 2).",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 855,
+   "severity": "low",
+   "rationale": "[low] Re-measurement task for viewport storm row; no defect claim. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 858,
+   "severity": "low",
+   "rationale": "[low] Owner try-out checklist, not a defect. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 864,
+   "severity": "low",
+   "rationale": "[low] Test-harness module-path bug (pkg258 byte-identity test). Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 865,
+   "severity": "low",
+   "rationale": "[low] Delegate tooling investigation. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 866,
+   "severity": "high",
+   "rationale": "[high] Native scene.cycles.use_adaptive_sampling=False still resolves adaptive=True on CPU+GPU (settings_map.py L81-93 reads only the custom prop; _gpu_adaptive_ignored_reason covers only the GPU progressive case). Native setting silently ignored. Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 867,
+   "severity": "high",
+   "rationale": "[high] Native view_layer.cycles.pass_debug_sample_count requested, RenderResult lacks the pass on CPU+GPU, no report. Native pass silently ignored (borderline: debug pass). Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 868,
+   "severity": "not-applicable",
+   "rationale": "[already-fixed] Live GPU-lock holders no longer expire by age, atomic acquire: 9a0286b0 'fix(lock) ... (#868)' on main. Reconciliation: Terra low (tooling); kept already-fixed. Evidence: 9a0286b0 on main.",
+   "claude": "already-fixed",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 869,
+   "severity": "low",
+   "rationale": "[low] Build tooling: scripts/build/build_cuda_worktree.bat L119 still sets the CUDA launcher to sccache; developer-only. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 872,
+   "severity": "low",
+   "rationale": "[low] Coverage-matrix generator drift (dev tooling); committed matrix is the authority. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 875,
+   "severity": "medium",
+   "rationale": "[medium] Object moves full re-sync (~130 ms); correct but slow, no wrong image; in flight (viewport). Reconciliation: Terra low; kept medium (higher).",
+   "claude": "medium",
+   "terra": "low",
+   "in_flight": "viewport"
+  },
+  {
+   "id": 879,
+   "severity": "high",
+   "rationale": "[high] Blender crash in nvcuda64.dll on live worker flip + shading toggle (100k GPU scene); env-var-before-launch workaround. Crash. Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": "viewport"
+  },
+  {
+   "id": 881,
+   "severity": "high",
+   "rationale": "[high] Default Noise Texture correlates 0.73 vs Cycles (hash/octave/normalisation differ): wrong pattern on a ubiquitous node, no report. No landed commit on main references it. Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 884,
+   "severity": "high",
+   "rationale": "[high] Indirect-clamp removes 9-10% vs 2% in media at default clamp: cabinet reads 0.92x Cycles; <10%, clamp is biased by design; metric-mismatch candidate. Reconciliation: Terra high accepted: unflagged clamp energy loss (9-10% vs 2% Cycles, up to 21% scatter cube), no documentation of the gap.",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 890,
+   "severity": "medium",
+   "rationale": "[medium] GPU 64^3 procedural bake loses high-frequency detail; reported as DEGRADED/approximated (#1009); per-hit eval (#1007) in flight. Reconciliation: agree",
+   "claude": "medium",
+   "terra": "medium",
+   "in_flight": ""
+  },
+  {
+   "id": 894,
+   "severity": "medium",
+   "rationale": "[medium] Kerr disk stays on Schwarzschild model when spin != 0: Pillar 4 (paused) documented limitation; not a Blender-native setting. Reconciliation: Terra high; kept medium. Evidence: issue states the disk is deliberately kept on the documented a=0 model; Pillar 4 paused.",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 895,
+   "severity": "high",
+   "rationale": "[high] black_hole shape plugin ignores spin/r_obs_M (plugins/shapes/black_hole.cpp has neither); binding path honours both; Pillar 4 paused, not a Blender-native setting. Reconciliation: Terra high accepted: spin/r_obs_M silently ignored on the plugin path (wrong image for spin != 0).",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 898,
+   "severity": "low",
+   "rationale": "[low] Reference-bank re-bless (stale references); test infrastructure. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 920,
+   "severity": "low",
+   "rationale": "[low] Dead code (runSMSAttemptDevice has no callers); nothing renders wrong. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 924,
+   "severity": "medium",
+   "rationale": "[medium] 5th+ lamp on one segment dropped (kMaxLampPassthrough=4, raytracer.h L3778); rare, small energy loss. Reconciliation: Terra high; kept medium. Evidence: needs >=5 lamps intersected by one ray segment; cap is a code-documented limit (raytracer.h L3775-3778).",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 926,
+   "severity": "not-applicable",
+   "rationale": "[not-a-bug] Issue itself shows Astroray is physically consistent; Cycles coincident-face volume-stack artifact. Docs/corpus action only. Reconciliation: agree",
+   "claude": "not-a-bug",
+   "terra": "not-a-bug",
+   "in_flight": ""
+  },
+  {
+   "id": 941,
+   "severity": "medium",
+   "rationale": "[medium] CPU white-noise sampler (no QMC): variance, not bias; means unchanged. Reconciliation: Terra high; kept medium. Evidence: issue body: 'means unchanged in MC band'; variance only (converges).",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 942,
+   "severity": "medium",
+   "rationale": "[medium] Disney half-metal 0.91-0.93x Cycles under a sun: single blended lobe; <10%, Disney (Blender export uses Principled). Reconciliation: Terra high; kept medium. Evidence: 7-9% on Disney (custom material; Blender export maps Principled to the Principled plugin, #940/#1009).",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 946,
+   "severity": "high",
+   "rationale": "[high] Nishita low-sun (4 deg): sun disc 1.24x (b 1.58x), glow 0.91x, disc not reddened: wrong image on the native Nishita sky at sunset; strict-xfail rows, no report. Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 947,
+   "severity": "high",
+   "rationale": "[high] Motion blur: vane reads 0.84x/0.40x of Cycles, near-sharp vs wide blur, while matrix lists use_motion_blur SUPPORTED: native setting effectively wrong, unreported. Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 950,
+   "severity": "low",
+   "rationale": "[low] Test-infra only (_pyd_dir ordering). Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 954,
+   "severity": "medium",
+   "rationale": "[medium] GPU scalar op-VM multi-input programs constant; reported as a DEGRADED entry (CPU exact). Reconciliation: agree",
+   "claude": "medium",
+   "terra": "medium",
+   "in_flight": ""
+  },
+  {
+   "id": 955,
+   "severity": "high",
+   "rationale": "[high] Add Shader keeps first BSDF (reported DEGRADED by pkg293) but the Mix Shader 'dominant shader' fallback is silent (shader_blending.py L111-112 returns with no report): silent wrong shader for unsupported pairs. Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 956,
+   "severity": "medium",
+   "rationale": "[medium] Disney metallic+transmission roulette: GPU/CPU 2-4x at m=1, strict xfails; Disney custom material (Blender export uses Principled), odd corner. Reconciliation: Terra high; kept medium. Evidence: Disney-only, strict xfails in tests/test_pkg293_gpu_lobe_programs.py (documented), metallic=1+transmission corner.",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 957,
+   "severity": "medium",
+   "rationale": "[medium] GPU rough glass 1.03-1.07x CPU (single-scatter vs walk); pre-existing, strict xfails. Reconciliation: Terra high; kept medium. Evidence: 3-7% GPU/CPU, strict xfails, single-scatter-vs-walk is a known engine difference.",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 959,
+   "severity": "high",
+   "rationale": "[high] GPU vs CPU photon caustics disagree up to 6.8x (prism sun floor) in v2_dispersion_caustics: wrong image on one backend, no report; strict-xfail rows (related #1025). Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 960,
+   "severity": "medium",
+   "rationale": "[medium] Thin-film Ti single channels 1.05-1.18x, luminance 1.02-1.05, marginal outside band; maybe noise-underestimated bands. Reconciliation: Terra high; kept medium. Evidence: luminance 1.02-1.05; single channels 0.03-0.04 outside the 3-sigma band, strict-xfail rows (project's documented-limitation mechanism).",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 961,
+   "severity": "high",
+   "rationale": "[high] Spot-lamp shaft through fog 0.70x (CPU)/0.75x (GPU) of Cycles with 5-seed sigma 0.054: real mean bug on a common scene type, unreported. Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 963,
+   "severity": "high",
+   "rationale": "[high] GPU renders corpus hair tuft with no strands (CPU matches Cycles): wrong image, no hair-drop report; distinct from #853. Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 965,
+   "severity": "medium",
+   "rationale": "[medium] ReSTIR-DI textured emission = texture mean; prints a DEGRADED line. Reconciliation: Terra already-fixed (073e50ff); kept medium. Evidence: 073e50ff is #962 (wavefront); #965 is the ReSTIR-DI follow-up filed after it, and prints DEGRADED.",
+   "claude": "medium",
+   "terra": "already-fixed",
+   "in_flight": ""
+  },
+  {
+   "id": 966,
+   "severity": "medium",
+   "rationale": "[medium] GPU instanced textured emission = texture mean; DEGRADED report. Reconciliation: agree",
+   "claude": "medium",
+   "terra": "medium",
+   "in_flight": ""
+  },
+  {
+   "id": 967,
+   "severity": "medium",
+   "rationale": "[medium] Homogeneous media red 0.955x Cycles at volume_bounces 4 (4.5%); pre-existing. Reconciliation: Terra high; kept medium. Evidence: 4.5% single channel, inside corpus bands (4-9%).",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 968,
+   "severity": "medium",
+   "rationale": "[medium] Glass rim +7.5% vs Cycles, no volume; pre-existing Fresnel/TIR energy difference (<10%). Reconciliation: Terra high; kept medium. Evidence: 7.5% rim ROI, inside corpus bands (4-9%).",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 969,
+   "severity": "low",
+   "rationale": "[low] Bit-stability of CPU renders across refactors (<=2e-7 per pixel); gate-tolerance question. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 975,
+   "severity": "medium",
+   "rationale": "[medium] Voronoi 2D/4D evaluated as 3D; reported DEGRADED. Reconciliation: agree",
+   "claude": "medium",
+   "terra": "medium",
+   "in_flight": ""
+  },
+  {
+   "id": 977,
+   "severity": "low",
+   "rationale": "[low] test_results housekeeping follow-ups. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 983,
+   "severity": "low",
+   "rationale": "[low] Single seed-278 firefly on the MSVC CPU leg, not a bias (MinGW reads 1.000); tracked strict row. Reconciliation: Terra high; kept low. Evidence: issue body: not a bias, one firefly at one seed, MinGW builds read 1.000; strict provisional row.",
+   "claude": "low",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 986,
+   "severity": "low",
+   "rationale": "[low] Corpus band sigma underestimated from correlated seeds; test-band methodology. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 988,
+   "severity": "not-applicable",
+   "rationale": "[already-fixed] Textured Principled keeps all lobes: #1009 (150fad17) body: marble highlight 0.58 -> 0.97 CPU; tests/test_issue988_textured_principled.py. PR left it open; remaining errors are other root causes (#1006/#881/#993). Reconciliation: agree",
+   "claude": "already-fixed",
+   "terra": "already-fixed",
+   "in_flight": ""
+  },
+  {
+   "id": 989,
+   "severity": "medium",
+   "rationale": "[medium] Layer Weight/Fresnel/Backfacing landed in #1009 (OP_SHADING; car-paint lit_front G 4.64 -> 0.87); remaining Pointiness/other Geometry outputs are reported (DEGRADED), not silent. Reconciliation: Terra already-fixed (150fad17); kept medium. Evidence: #1009 body lists Pointiness/other Geometry outputs still reported DEGRADED; issue left open by the PR.",
+   "claude": "medium",
+   "terra": "already-fixed",
+   "in_flight": ""
+  },
+  {
+   "id": 990,
+   "severity": "high",
+   "rationale": "[high] Color Attribute drop is unreported; Object Info Random/Attribute flatten to grey (prod_attributes G 2.20x). In flight (N1). Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": "N1"
+  },
+  {
+   "id": 991,
+   "severity": "high",
+   "rationale": "[high] Mix Shader with Light Path Is Camera/Shadow Ray Fac dropped silently (emitter ring visible, hidden-emitter L 0.07 vs 2.2). In flight (N1). Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": "N1"
+  },
+  {
+   "id": 992,
+   "severity": "high",
+   "rationale": "[high] RGB Curves dropped with no report; Float Curve flattens chain (reported); prod_curves_geometry outer_front R 0.36. In flight (N2). Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": "N2"
+  },
+  {
+   "id": 993,
+   "severity": "medium",
+   "rationale": "[medium] VM_MAX_SLOTS exceeded: chain flattened to grey but reported ('not representable ... flattened to grey'). In flight (N2). Reconciliation: agree",
+   "claude": "medium",
+   "terra": "medium",
+   "in_flight": "N2"
+  },
+  {
+   "id": 994,
+   "severity": "medium",
+   "rationale": "[medium] GPU Object-coordinate programs now baked (64^3, #1009) and reported approximated; marble GPU 0.99-1.08 after; per-hit eval (#1007) in flight. Reconciliation: Terra already-fixed; kept medium. Evidence: #1009 body: GPU bake is lossy and reported approximated; per-hit eval is #1007.",
+   "claude": "medium",
+   "terra": "already-fixed",
+   "in_flight": ""
+  },
+  {
+   "id": 995,
+   "severity": "medium",
+   "rationale": "[medium] Nested Mix with textured Fac + Glass collapses to constant mix, reported ('approximated MIX_SHADER ...'); prod_shader_stack 0.28-0.45x. Large error but flagged. Reconciliation: agree",
+   "claude": "medium",
+   "terra": "medium",
+   "in_flight": ""
+  },
+  {
+   "id": 996,
+   "severity": "low",
+   "rationale": "[low] Coverage-matrix/audit classification (stale rows): instrumentation, not render output. In flight (N3). Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": "N3"
+  },
+  {
+   "id": 997,
+   "severity": "low",
+   "rationale": "[low] Flaky test (spatial-reuse MSE coin flip). Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 998,
+   "severity": "medium",
+   "rationale": "[medium] Photon sun caustic 1.07-1.10x PT reference vs 0.10 gate; either 9% bright or noisy reference; undecided. Reconciliation: Terra low; kept medium (higher).",
+   "claude": "medium",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 1001,
+   "severity": "low",
+   "rationale": "[low] pkg299 perf follow-ups (TTFS, refit, shared context). Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 1002,
+   "severity": "medium",
+   "rationale": "[medium] GPU warped-checker bake error 0.61 > 0.486 model; lossy bake reported approximated; strict xfail; addressed by #1007. Reconciliation: agree",
+   "claude": "medium",
+   "terra": "medium",
+   "in_flight": ""
+  },
+  {
+   "id": 1004,
+   "severity": "medium",
+   "rationale": "[medium] Cause fixed in #1011 (ff7e1438: image REPEAT + Normal/Bump Mapping); tile layout matches; residual centre ~0.91x. No longer silent. Reconciliation: Terra already-fixed (ff7e1438); kept medium. Evidence: lane comment: residual centre ~0.91x, issue deliberately left open.",
+   "claude": "medium",
+   "terra": "already-fixed",
+   "in_flight": ""
+  },
+  {
+   "id": 1005,
+   "severity": "medium",
+   "rationale": "[medium] Procedural Bump Height is now a DegradationReport entry (#1011); CPU overshoots ~2x on car_paint but flagged. Reconciliation: agree",
+   "claude": "medium",
+   "terra": "medium",
+   "in_flight": ""
+  },
+  {
+   "id": 1006,
+   "severity": "high",
+   "rationale": "[high] CoordMode::Object returns the world point (advanced_features.h L165-166); every Object-coordinate procedural on a non-identity object is shifted/rotated/scaled vs Blender, unreported. Not in any lane. Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 1007,
+   "severity": "medium",
+   "rationale": "[medium] GPU procedurals via lossy 64^3 bake, reported approximated; per-hit eval in flight (#1023). Reconciliation: agree",
+   "claude": "medium",
+   "terra": "medium",
+   "in_flight": "#1023"
+  },
+  {
+   "id": 1015,
+   "severity": "low",
+   "rationale": "[low] Failing test (progressive Sobol GPU assertion); test issue, check sampler engagement. Reconciliation: agree",
+   "claude": "low",
+   "terra": "low",
+   "in_flight": ""
+  },
+  {
+   "id": 1017,
+   "severity": "high",
+   "rationale": "[high] CPU op-VM drops an input's own Mapping node (prod_wood rotate/scale lost) silently, both backends. In flight (#1023). Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": "#1023"
+  },
+  {
+   "id": 1019,
+   "severity": "high",
+   "rationale": "[high] Heavy-tailed variance (fireflies) in media; noise not bias. Reconciliation: Terra high accepted: fireflies persist at 1024 spp, variance falls slower than 1/N (heavy tail); unflagged visible artifact.",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 1020,
+   "severity": "high",
+   "rationale": "[high] Narrow-band lamp R/G 14% below CIE integral of its own SPD: colour-accuracy bug. In flight (as-arb). Reconciliation: Terra already-fixed (0d697932); kept high/in flight. Evidence: 0d697932 is on lane/as-arb only (git branch --contains), not on main.",
+   "claude": "high",
+   "terra": "already-fixed",
+   "in_flight": "as-arb"
+  },
+  {
+   "id": 1021,
+   "severity": "high",
+   "rationale": "[high] Sun-lit floor 12-16% brighter than both Cycles and Mitsuba: wrong image. In flight (as-arb). Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": "as-arb"
+  },
+  {
+   "id": 1024,
+   "severity": "medium",
+   "rationale": "[medium] Design decision: negative out-of-gamut channels clipped to 0 per pass; follow-up of #1020. Reconciliation: Terra high; kept medium. Evidence: deliberate documented design choice (clip at 0) awaiting an owner decision; follow-up of #1020.",
+   "claude": "medium",
+   "terra": "high",
+   "in_flight": ""
+  },
+  {
+   "id": 1025,
+   "severity": "high",
+   "rationale": "[high] CPU prism sun caustic 0.74x of Mitsuba (z -7.4): real CPU transport deficit exposed by the #1020 fix (follow-up of as-arb, not itself in a lane). Reconciliation: agree",
+   "claude": "high",
+   "terra": "high",
+   "in_flight": ""
+  }
+ ]
+}

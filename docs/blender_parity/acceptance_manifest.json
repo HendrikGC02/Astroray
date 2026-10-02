@@ -1,6 +1,6 @@
 {
   "schema": "pkg278.acceptance_manifest.v1",
-  "generated": "2026-09-23T13:54:34+00:00",
+  "generated": "2026-10-02T14:53:44+00:00",
   "rows": {
     "a": {
       "row": "a",
@@ -17,7 +17,7 @@
       "evidence_sha256": null,
       "dimensions": {},
       "subchecks": {},
-      "date": "2026-09-23"
+      "date": "2026-10-02"
     },
     "b": {
       "row": "b",
@@ -34,7 +34,7 @@
       "evidence_sha256": null,
       "dimensions": {},
       "subchecks": {},
-      "date": "2026-09-23"
+      "date": "2026-10-02"
     },
     "c": {
       "row": "c",
@@ -51,7 +51,7 @@
       "evidence_sha256": null,
       "dimensions": {},
       "subchecks": {},
-      "date": "2026-09-23"
+      "date": "2026-10-02"
     },
     "d": {
       "row": "d",
@@ -68,24 +68,67 @@
       "evidence_sha256": null,
       "dimensions": {},
       "subchecks": {},
-      "date": "2026-09-23"
+      "date": "2026-10-02"
     },
     "e": {
       "row": "e",
       "instrument": "issue_triage",
-      "status": "unmeasured",
+      "status": "red",
       "scene_sha256": [],
-      "build_id": null,
+      "build_id": "live-github",
       "backend": [],
-      "settings": {},
-      "metric": {},
-      "value": null,
-      "threshold": {},
-      "evidence_path": null,
-      "evidence_sha256": null,
-      "dimensions": {},
-      "subchecks": {},
-      "date": "2026-09-23"
+      "settings": {
+        "scope": "all-open-issues"
+      },
+      "metric": {
+        "name": "independently_rated_high_count"
+      },
+      "value": {
+        "high_count": 21
+      },
+      "threshold": {
+        "high_count": 0
+      },
+      "evidence_path": "docs/blender_parity/evidence/e/instrument.json",
+      "evidence_sha256": "bbe36204ee294aae54baa652589897aced98ac9e1b199dce2e29489caca3ac99",
+      "dimensions": {
+        "issue_snapshot": "raw-artifacts",
+        "ratings": "independent-review"
+      },
+      "subchecks": {
+        "snapshot_unique": true,
+        "count_matches_total": true,
+        "all_rated_independently": true,
+        "delta_empty": true
+      },
+      "date": "2026-10-02",
+      "schema": "pkg278.instrument.v2",
+      "records": [
+        {
+          "kind": "snapshot",
+          "phase": "baseline",
+          "artifact": {
+            "path": "issues-baseline.json",
+            "sha256": "e39a237a12d7211cea2acbb7864624cd4850e7141417a40e615f745592253ce9"
+          }
+        },
+        {
+          "kind": "snapshot",
+          "phase": "recheck",
+          "artifact": {
+            "path": "issues-recheck.json",
+            "sha256": "6b4d94cbd1eefc4d4c2125747ecb32b0c0027db40fdc5d15a8d54b1492532024"
+          }
+        },
+        {
+          "kind": "ratings",
+          "artifact": {
+            "path": "issue-ratings.json",
+            "sha256": "0f4c62f279b6eb5a25cb1dd4e9c18a5be2669b35c4ca4802d0af6043097f4337"
+          }
+        }
+      ],
+      "hand_edit_detected": true
     },
     "f": {
       "row": "f",
@@ -102,7 +145,7 @@
       "evidence_sha256": null,
       "dimensions": {},
       "subchecks": {},
-      "date": "2026-09-23"
+      "date": "2026-10-02"
     }
   }
 }

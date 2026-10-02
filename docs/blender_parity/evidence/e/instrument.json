@@ -1,0 +1,45 @@
+{
+  "schema": "pkg278.instrument.v2",
+  "row": "e",
+  "instrument": "issue_triage",
+  "scene_sha256": [],
+  "build_id": "live-github",
+  "backend": [],
+  "settings": {
+    "scope": "all-open-issues"
+  },
+  "metric": {
+    "name": "independently_rated_high_count"
+  },
+  "value": {
+    "high_count": 21
+  },
+  "threshold": {
+    "high_count": 0
+  },
+  "records": [
+    {
+      "kind": "snapshot",
+      "phase": "baseline",
+      "artifact": {
+        "path": "issues-baseline.json",
+        "sha256": "e39a237a12d7211cea2acbb7864624cd4850e7141417a40e615f745592253ce9"
+      }
+    },
+    {
+      "kind": "snapshot",
+      "phase": "recheck",
+      "artifact": {
+        "path": "issues-recheck.json",
+        "sha256": "6b4d94cbd1eefc4d4c2125747ecb32b0c0027db40fdc5d15a8d54b1492532024"
+      }
+    },
+    {
+      "kind": "ratings",
+      "artifact": {
+        "path": "issue-ratings.json",
+        "sha256": "0f4c62f279b6eb5a25cb1dd4e9c18a5be2669b35c4ca4802d0af6043097f4337"
+      }
+    }
+  ]
+}

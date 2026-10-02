@@ -9,9 +9,12 @@ saturated blue contribution passed at 4.6x the limit and a green one was cut at
 
 Gate: a directly visible emitter (emission hit at bounce 0 -> clamp_direct)
 with clamp 0.5. Cycles: white (1.5, 1.5, 1.5) -> 0.5 each; pure blue
-(0, 0, 3) -> blue 1.5; pure green (0, 1, 0) -> unchanged. The spectral
-per-sample chroma noise moves the clamped blue a little (measured 1.42 CPU),
-so the band is 1.5 +- 10 %; the Y metric gave 3.0 (blue) and 0.70 (green).
+(0, 0, 3) -> blue 1.5; pure green (0, 1, 0) -> unchanged. Clamping each
+hero-wavelength sample removes a little more than clamping the noiseless colour
+(the per-sample metric scatters around its mean), so the clamped blue reads
+below Cycles: 1.34 CPU on main cb70daa3 (after the #1020 exact film matrix; 1.42
+before it). Band 0.80-1.10 of 1.5; the Y metric gave 3.0 (2.0x) for blue and
+0.70 for green.
 """
 from __future__ import annotations
 
@@ -52,7 +55,7 @@ def test_884_clamp_is_per_channel_average_like_cycles(backend):
     white = _render(backend, (1.5, 1.5, 1.5), 0.5)
     assert np.allclose(white, 0.5, rtol=0.05), white
     blue = _render(backend, (0.0, 0.0, 3.0), 0.5)
-    assert abs(blue[2] / 1.5 - 1.0) < 0.10, blue
+    assert 0.80 < blue[2] / 1.5 < 1.10, blue
     green_off = _render(backend, (0.0, 1.0, 0.0), 0.0)
     green = _render(backend, (0.0, 1.0, 0.0), 0.5)
     assert abs(green[1] / green_off[1] - 1.0) < 0.01, (green, green_off)

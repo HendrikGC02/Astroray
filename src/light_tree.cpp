@@ -710,10 +710,11 @@ LightTree::PickResult LightTree::pickWith(const Imp& imp, float u) const {
         imp(right.bbox, right.bcone, right.energy, rightImp, unused);
         float totalImp = leftImp + rightImp;
 
-        if (totalImp < 1e-8f) {
-            // Both children have zero importance; pick left arbitrarily.
-            nodeIdx = node.leftChild;
-            pdf *= 0.5f;
+        if (!(totalImp > 0.0f)) {
+            // #961 review: both children have zero importance -> no light, as
+            // Cycles get_left_probability. (Picking left with pdf 0.5 doubled
+            // the left subtree and gave the right one a pdf it could not have.)
+            return PickResult{-1, false, 0.0f};
         } else {
             float leftProb = leftImp / totalImp;
             if (u < leftProb) {
@@ -856,10 +857,8 @@ float LightTree::pdfWith(const Imp& imp, int lightIndex, bool isDedicated) const
             return 0.0f;
         }
 
-        if (totalImp < 1e-8f) {
-            // Both children have zero importance. Uniform fallback.
-            pdf *= 0.5f;
-            nodeIdx = inLeft ? node.leftChild : node.rightChild;
+        if (!(totalImp > 0.0f)) {
+            return 0.0f;  // #961 review: pickWith cannot reach any light here
         } else {
             float leftProb = leftImp / totalImp;
             if (inLeft) {

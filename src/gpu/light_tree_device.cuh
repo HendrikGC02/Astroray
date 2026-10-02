@@ -187,9 +187,9 @@ __device__ inline int gpu_light_tree_pick(
         float rightImp = gpu_light_tree_importance(right, point, normal);
         float totalImp = leftImp + rightImp;
 
-        if (totalImp < 1e-8f) {
-            nodeIdx = node.leftChild;  // both zero: pick left arbitrarily
-            pdf *= 0.5f;
+        if (!(totalImp > 0.0f)) {  // #961 review: no light (CPU pickWith, Cycles)
+            *outPdf = 0.f;
+            return -1;
         } else {
             float leftProb = leftImp / totalImp;
             if (u < leftProb) {
@@ -281,9 +281,8 @@ __device__ inline float gpu_light_tree_pdf(
         bool goLeft = (trail & 1u) == 0u;
         trail >>= 1;
 
-        if (totalImp < 1e-8f) {
-            pdf *= 0.5f;
-        } else {
+        if (!(totalImp > 0.0f)) return 0.f;  // #961 review: the pick fails here
+        {
             float leftProb = leftImp / totalImp;
             pdf *= goLeft ? leftProb : (1.0f - leftProb);
         }
@@ -411,9 +410,9 @@ __device__ inline int gpu_light_tree_pick_segment(
         float rightImp = gpu_light_tree_importance_seg(right.bboxMin, right.bboxMax, right.bconeAxis,
                                                        right.thetaO, right.thetaE, right.energy, o, d, t);
         float totalImp = leftImp + rightImp;
-        if (totalImp < 1e-8f) {
-            nodeIdx = node.leftChild;
-            pdf *= 0.5f;
+        if (!(totalImp > 0.0f)) {
+            *outPdf = 0.f;
+            return -1;
         } else {
             float leftProb = leftImp / totalImp;
             if (u < leftProb) {
@@ -473,9 +472,8 @@ __device__ inline float gpu_light_tree_pdf_segment(
         float totalImp = leftImp + rightImp;
         bool goLeft = (trail & 1u) == 0u;
         trail >>= 1;
-        if (totalImp < 1e-8f) {
-            pdf *= 0.5f;
-        } else {
+        if (!(totalImp > 0.0f)) return 0.f;  // #961 review: the pick fails here
+        {
             float leftProb = leftImp / totalImp;
             pdf *= goLeft ? leftProb : (1.0f - leftProb);
         }

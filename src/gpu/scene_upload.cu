@@ -1026,7 +1026,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             astroray::proc::GProcTexture gi;
             if (cp->numInputs() == 1 && !lowerProcLeaf(cp->getInput(0).get(), gi)) return -1;
             if (cp->numInputs() == 1) {
-                g.warpInputput = (int)r.procTextures.size();
+                g.warpInput = (int)r.procTextures.size();
                 r.procTextures.push_back(gi);
             }
             auto pit = progIdx.find(t);  // a CoordProgramTexture* never aliases a ProgramTexture*

@@ -27,7 +27,7 @@ __device__ __noinline__ GVec3 gpu_procTexEval(int procId, GVec3 p)
     if (t.warpProg >= 0) {
         GVec3 in[astroray::svm::VM_MAX_TEX];
         for (int i = 0; i < astroray::svm::VM_MAX_TEX; ++i) in[i] = p;
-        if (t.warpInputput >= 0)
+        if (t.warpInput >= 0)
             in[1] = astroray::proc::proc_texture_eval(c_wfProgBinding.procs[t.warpInput], p);
         p = astroray::svm::svm_eval(c_wfProgBinding.programs[t.warpProg], in);
     }

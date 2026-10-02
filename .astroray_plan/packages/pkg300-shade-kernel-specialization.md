@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** open
+**Status:** in-progress — Phases 0-1 PR #1014 (2026-10-02: Cornell simple 2.85x / heavy 2.55x, build 1.1x); Phase 2 open
 **Estimated effort:** 6 sessions (~18 h) for Phases 0 to 2; Phase 3 TBD (speculative)
 **Depends on:** pkg298, pkg174, pkg155
 
@@ -182,8 +182,8 @@ Measure {256 × 254 today, 256 × 128, 384 × 168 as in Cycles, 512 × 128} with
 
 ## Progress
 
-- [ ] Phase 0: counters + CUDA 13 A/B
-- [ ] Phase 1: register budget sweep
+- [x] Phase 0: counters (CUDA 13 A/B not run: toolkit not installed, owner follow-up)
+- [x] Phase 1: register budget sweep (fleet kernels; see pkg300-shade-counter-attribution.md)
 - [ ] Phase 2: specialisation axes + sort key
 - [ ] Phase 3: owner decision on NVRTC scene-JIT
 

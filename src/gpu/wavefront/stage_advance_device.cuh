@@ -6,6 +6,7 @@
 // under -rdc); each is DEFINED exactly once in stage_advance.cu with its host
 // setter.
 #pragma once
+#include "astroray/gpu_shade_noinline.h"  // pkg300: ASTRORAY_SHADE_NOINLINE
 
 #include "astroray/gpu_wavefront_state.h"
 #include "astroray/gpu_types.h"
@@ -235,7 +236,7 @@ extern __constant__ int c_wfEmissionFlatPrims;
 
 struct GProgInputTexel { GVec3 c; bool ok; };
 // Defined after c_wfTexBinding below.
-static __device__ __noinline__ GProgInputTexel gpu_emissionTexel(
+static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_emissionTexel(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris,
     const GSphere* spheres, int matId);
 
@@ -1136,7 +1137,7 @@ template<> struct GScalarOverride<true> { ::GMaterial mat; };
 // below). Otherwise the pre-#847 per-texture bbox frame:
 // g = (point - genMin)/genSize (include/advanced_features.h CoordMode::Generated).
 // __noinline__ keeps the body out of the REG:254 shade kernel's allocation.
-static __device__ __noinline__ GVec3 gpu_generatedCoord(
+static __device__ ASTRORAY_SHADE_NOINLINE inline GVec3 gpu_generatedCoord(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
 {
     const GVec3* tg = c_wfTexBinding.triGenerated;
@@ -1169,7 +1170,7 @@ static __device__ __noinline__ GVec3 gpu_generatedCoord(
     return g;
 }
 
-static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
+static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_progInputTexel(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
 {
     const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
@@ -1208,7 +1209,7 @@ static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
 // baseColor_. ok=false when untextured or when any input misses at this hit (the
 // caller keeps the constant base colour, as the lambertian path does). __noinline__
 // keeps the fetch + VM register file out of the REG:254 <HasProgram=true> caller.
-static __device__ __noinline__ GProgInputTexel gpu_principledBaseTexel(
+static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_principledBaseTexel(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int matId,
     astroray::svm::SvmShading sh)
 {
@@ -1251,7 +1252,7 @@ static __device__ __noinline__ GProgInputTexel gpu_principledBaseTexel(
 // at every emitter hit and at the light-sampled point
 // (intern/cycles/kernel/light/triangle.h + kernel/integrator/shade_surface.h).
 // Caller guards on c_wfEmissionTex, so c_wfTexBinding is valid this frame.
-static __device__ __noinline__ GProgInputTexel gpu_emissionTexel(
+static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_emissionTexel(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris,
     const GSphere* spheres, int matId)
 {
@@ -1285,7 +1286,7 @@ static __device__ __noinline__ GProgInputTexel gpu_emissionTexel(
 // gpu_nee.cuh). Triangle: v0 + e1*b1 + e2*b2 (the sampled lpos); sphere: the
 // parked true distance along wi. No re-trace, so the fetched texel is the one
 // the BSDF-hit leg sees at that point.
-static __device__ __noinline__ GProgInputTexel gpu_emissionTexelAtLightSample(
+static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_emissionTexelAtLightSample(
     GVec3 origin, GVec3 wi, float geomDist, GVec3 packed, int lightMatId,
     const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres)
 {
@@ -1382,7 +1383,7 @@ __device__ __forceinline__ void gpu_applyScalarOverride(
 // lazily in stageEnvShadowKernel (register economy); here we prefold everything
 // except L_spec: throughput * f_spec * (wt / envPdf).
 template<bool HasPrincipled>
-__device__ __noinline__ bool gpu_env_nee_generate(
+__device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_env_nee_generate(
     int idx, int bounce, GHitRecord& rec, const GVec3& wo,
     const GMaterial& mat, const GSampledSpectrum& throughput,
     const GSampledWavelengths& lambdas, WavefrontRNG* rng)
@@ -1453,10 +1454,13 @@ template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPho
          bool HasDispersion = false, bool HasLightPassAOVs = false,  // pkg198 S2 pass axis
          bool HasProgram = false,   // pkg219b — per-texel op-VM axis
          bool HasNormalPerturb = false>  // pkg223 — tangent-space normal-map axis
-__device__ bool shadePathSlot(
+// pkg300: the body is __forceinline__ so a kernel can inline it (the pkg300 fleet
+// kernels in stage_shade_fleet_p<P>.cu); stageShadeBucketedKernel and the MIS-snapshot
+// kernel call the out-of-line shadePathSlot wrapper below.
+__device__ __forceinline__ bool shadePathSlotImpl(
     int idx,
-    GPUWavefrontState& state,
-    GPUWavefrontHitBuffers& hitBufs,
+    const GPUWavefrontState& state,       // pkg300: const so the kernel can pass its
+    const GPUWavefrontHitBuffers& hitBufs, // __grid_constant__ params without a copy
     const GTLASNode*  tlas,        // pkg55-C4 / pkg114
     const GInstance*  instances,   // pkg55-C4 / pkg114
     const GBLAS*      blas,        // pkg55-C4 / pkg114
@@ -2385,13 +2389,46 @@ __device__ bool shadePathSlot(
     return true;
 }
 
+template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPhotons = false,
+         bool HasDispersion = false, bool HasLightPassAOVs = false,
+         bool HasProgram = false, bool HasNormalPerturb = false>
+__device__ bool shadePathSlot(
+    int idx, const GPUWavefrontState& state, const GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode* tlas, const GInstance* instances, const GBLAS* blas,
+    const GBVHNode* bvhNodes, const GPrimitive* prims, const GTriangle* tris,
+    const GSphere* spheres, const GVec3* motionVerts, const ::GMaterial* materials,
+    const ::GLight* lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed, GLightTreeView lightTree,
+    int max_depth, float* nee_f, int* nee_i,
+    int* shadow_queue, int* shadow_count, int nee_capacity,
+    bool useLuminanceOutput, bool enableNEE,
+    float clampDirect, float clampIndirect,
+    astroray::photon::gpu::GPhotonGrid photonGrid, bool hasPhotonGrid, float photonScale,
+    bool captureMis = false,
+    float* cryptoObjectRanks = nullptr, float* cryptoMaterialRanks = nullptr,
+    int cryptoDepth = 0)
+{
+    return shadePathSlotImpl<Deferred, HasPrincipled, HasTexture, HasPhotons, HasDispersion,
+                             HasLightPassAOVs, HasProgram, HasNormalPerturb>(
+        idx, state, hitBufs, tlas, instances, blas, bvhNodes, prims, tris, spheres,
+        motionVerts, materials, lights, numLights, totalLightPower, dedLights, numDed,
+        lightTree, max_depth, nee_f, nee_i, shadow_queue, shadow_count, nee_capacity,
+        useLuminanceOutput, enableNEE, clampDirect, clampIndirect,
+        photonGrid, hasPhotonGrid, photonScale, captureMis,
+        cryptoObjectRanks, cryptoMaterialRanks, cryptoDepth);
+}
+
 template<bool HasPrincipled, bool HasTexture, bool HasPhotons, bool HasDispersion,
          bool HasLightPassAOVs = false,  // pkg178 D4; pkg186 texture; pkg184 photons; pkg189 dispersion; pkg198 S2 pass axis
          bool HasProgram = false,   // pkg219b — per-texel op-VM axis
          bool HasNormalPerturb = false>  // pkg223 — tangent-space normal-map axis
 __global__ void stageShadeBucketedKernel(
-    GPUWavefrontState state,
-    GPUWavefrontHitBuffers hitBufs,
+    // pkg300: __grid_constant__ lets the out-of-line shadePathSlot take these ~2 KB
+    // by const reference straight from kernel-parameter space. Without it the
+    // kernel copied them to the local stack before every call (27 % of shade
+    // stall samples, .astroray_plan/docs/pkg300-shade-counter-attribution.md).
+    __grid_constant__ const GPUWavefrontState state,
+    __grid_constant__ const GPUWavefrontHitBuffers hitBufs,
     const int* shade_queues, const int* shade_counts, int capacity,
     int* queue_out, int* count_out,
     float* nee_f, int* nee_i, int* shadow_queue, int* shadow_count,

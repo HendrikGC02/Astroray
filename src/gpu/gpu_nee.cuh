@@ -1,4 +1,5 @@
 #pragma once
+#include "astroray/gpu_shade_noinline.h"  // pkg300: ASTRORAY_SHADE_NOINLINE
 // gpu_nee.cuh — shared NEE thirds (pkg55-B' shadow stage / template-RNG arc).
 //
 // MOVED VERBATIM from multiwavelength_kernel.cu (where they were rdc-exported
@@ -187,7 +188,7 @@ __device__ inline float gpu_reconstruct_light_pdf(
 // ---------------------------------------------------------------------------
 struct GLampExt { float qx, qy, qz, pdf, scale; };
 
-__device__ __noinline__ inline GLampExt gpu_lamp_sample_ext(
+__device__ ASTRORAY_SHADE_NOINLINE inline GLampExt gpu_lamp_sample_ext(
     const GDedicatedLight* d, int dj, GVec3 P, float u1, float u2)
 {
     GLampExt e{};
@@ -230,7 +231,7 @@ __device__ __noinline__ inline GLampExt gpu_lamp_sample_ext(
 // temporaries out of the register-saturated shade kernel's allocation.
 struct GRectSA { float qx, qy, qz, pdf; };
 
-__device__ __noinline__ inline GRectSA gpu_area_rect_solid_angle(
+__device__ ASTRORAY_SHADE_NOINLINE inline GRectSA gpu_area_rect_solid_angle(
     const GDedicatedLight* d, GVec3 P, float u1, float u2, bool sampleCoord)
 {
     const float pp[3] = {P.x, P.y, P.z};

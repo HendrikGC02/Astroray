@@ -1,0 +1,23 @@
+{
+ "note": "min of 5 interleaved, base = aq-1012 build (main ec07ec0d C++), new = 8172ffa5",
+ "cornell_simple_1024_256spp": [
+  13.43,
+  4.72
+ ],
+ "cornell_heavy_1024_256spp": [
+  15.0,
+  5.89
+ ],
+ "principled_spheres_512_64spp": [
+  0.505,
+  0.262
+ ],
+ "textured_principled_512_64spp": [
+  0.432,
+  0.272
+ ],
+ "closure_graph_cornell_512_64spp": [
+  1.708,
+  1.032
+ ]
+}

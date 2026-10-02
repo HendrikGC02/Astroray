@@ -580,6 +580,9 @@ if(ASTRORAY_CUDA_FOUND)
     if(ASTRORAY_WAVEFRONT_CUDA_N3)
         list(APPEND ASTRORAY_CUDA_SOURCES
             src/gpu/wavefront/stage_advance.cu
+            src/gpu/wavefront/stage_shade_reference.cu  # pkg300 equivalence reference kernel
+            src/gpu/wavefront/stage_shade_fleet_p1.cu  # pkg300 fleet shade kernel (Principled)
+            src/gpu/wavefront/stage_shade_fleet_p0.cu  # pkg300 fleet shade kernel
             src/gpu/wavefront/stage_shade_part11.cu
             src/gpu/wavefront/stage_shade_part10.cu
             src/gpu/wavefront/stage_shade_part9.cu
@@ -623,6 +626,13 @@ if(ASTRORAY_CUDA_FOUND)
         message(STATUS "pkg55-B' Session N+3+N+4+N+5: CUDA wavefront stage_init + intersect + shade (Lambertian + metal) + light_sample + RR (spectral + PCG32)")
     endif()
     add_library(astroray_cuda STATIC ${ASTRORAY_CUDA_SOURCES})
+    if(ASTRORAY_WAVEFRONT_CUDA_N3)
+        # pkg300: register budget of the non-Principled fleet shade kernel. A TU-wide
+        # cap, not __maxnreg__, so an arch whose inliner keeps a callee out of line
+        # still builds (see stage_shade_fleet_p0.cu).
+        set_source_files_properties(src/gpu/wavefront/stage_shade_fleet_p0.cu
+            PROPERTIES COMPILE_OPTIONS "-maxrregcount=128")
+    endif()
     if(ASTRORAY_WAVEFRONT_CUDA_N3)
         target_compile_definitions(astroray_cuda PUBLIC ASTRORAY_WAVEFRONT_CUDA_N3)
     endif()

@@ -420,6 +420,38 @@ def pair_main(args) -> int:
     return 0
 
 
+def env_sweep_main(args) -> int:
+    """pkg300: interleaved A/B over env-selected configs (label:K=V+K=V,...).
+
+    Each round runs every config once per scene (burn-in call + 1 warm call), so
+    GPU clock drift hits all configs alike; the record keeps min-of-rounds."""
+    configs = []
+    for item in args.env_sweep.split(","):
+        label, _, envs = item.partition(":")
+        env = dict(kv.split("=", 1) for kv in envs.split("+") if kv)
+        configs.append((label, env))
+    scenes = [k for k in args.scenes.split(",") if k]
+    res: dict = {f"{s}/{lab}": [] for s in scenes for lab, _ in configs}
+    for rnd in range(args.repeats):
+        for s in scenes:
+            for lab, env in configs:
+                rec = run_astro(s, "gpu", args.res, args.spp, args.depth, 2, extra_env=env)
+                t = _warm_min(rec) if not rec.get("skipped") else None
+                res[f"{s}/{lab}"].append(t)
+                print(f"[pkg300] round {rnd} {s:6s} {lab:12s} {t}", flush=True)
+    record = {"schema": "astroray.pkg300.env_sweep.v1", "git_sha": _git_sha(),
+              "gpu": gpu_info(), "args": {k: (str(v) if isinstance(v, Path) else v)
+                                          for k, v in vars(args).items()},
+              "configs": {lab: env for lab, env in configs}, "runs": res,
+              "min_s": {k: min([t for t in v if t] or [None]) if any(v) else None
+                        for k, v in res.items()}}
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(record, indent=2))
+    for k, v in record["min_s"].items():
+        print(f"[pkg300] min {k:24s} {v}")
+    return 0
+
+
 def main() -> int:
     if len(sys.argv) == 3 and sys.argv[1] == "--_astro-child":
         _astro_child(json.loads(sys.argv[2]))
@@ -446,9 +478,14 @@ def main() -> int:
         pp.add_argument("--out", type=Path, default=PAIR_OUT)
         pp.add_argument("--traversal", choices=("software", "optix"), default=None,
                         help="pkg299: force the GPU traversal (ASTRORAY_GPU_TRAVERSAL)")
+        pp.add_argument("--env-sweep", default=None,
+                        help="pkg300: interleaved env A/B, 'label:K=V+K=V,label2:...'")
+        pp.add_argument("--scenes", default="simple,heavy")
         pargs = pp.parse_args()
         global TRAVERSAL
         TRAVERSAL = pargs.traversal
+        if pargs.env_sweep:
+            return env_sweep_main(pargs)
         return pair_main(pargs)
 
     ap = argparse.ArgumentParser()

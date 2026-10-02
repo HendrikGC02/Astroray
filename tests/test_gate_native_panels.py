@@ -34,6 +34,9 @@ runtime dependency (no Blender / no addon dir / no CUDA device) is recorded as
 invalid (missing artifacts, dangling hashes, non-finite data, vacuous
 reference) - a measured RED gate row is a valid pkg278 result.
 
+Adaptive judged at EQUAL WORK (spec decision 2026-10-03): see LEG_NAMES /
+SAMPLE_RATIO_MAX. The equal-max-spp flat-noise comparison is diagnostic only.
+
 Fixed-budget note
 -----------------
 
@@ -111,7 +114,24 @@ DECLARED_REGIONS = {
     "detail": (0.55, 0.45, 0.95, 0.95),
 }
 
-LEG_NAMES = ("adaptive_off", "adaptive_on", "denoise_off", "denoise_on", "reference")
+# "equal_work_off" is adaptive-OFF rendered at the SAME mean samples-per-pixel the
+# adaptive-ON leg actually spent (taken from its sample-count AOV), so the
+# adaptive judgement is at EQUAL WORK, not equal max spp (spec decision, lead
+# 2026-10-03: adaptive retires pixels early and can never beat the same
+# estimator run longer at equal MAX spp, so that comparison is ill-posed).
+LEG_NAMES = ("adaptive_off", "adaptive_on", "equal_work_off", "denoise_off", "denoise_on", "reference")
+
+# Adaptive acceptance (equal work), predeclared:
+#  (1) allocation: mean samples in the flat ROI <= SAMPLE_RATIO_MAX x mean samples
+#      in the detail ROI (adaptive must spend fewer samples where it converged).
+#      0.9 is provisional: the reference-derived ideal ratio (relative-variance
+#      flat/detail, estimated from the off leg vs reference) is recorded as a
+#      diagnostic and this bound must be revisited with the first post-#866/#867
+#      measurement before row d can go GREEN.
+#  (2) mean error + detail preservation: the existing accuracy_safeguard_ok.
+#  (3) at equal mean spp, adaptive-on RMSE vs the converged reference in the hard
+#      (detail) ROI is below the equal-work adaptive-off leg's.
+SAMPLE_RATIO_MAX = 0.9
 SAMPLE_COUNT_PASS_NAME = "Debug Sample Count"
 SAMPLE_COUNT_UNITS = "normalized_to_max_samples"
 
@@ -323,6 +343,51 @@ def sample_count_aov_differs(off: np.ndarray, on: np.ndarray) -> tuple[bool, dic
     differs = not np.allclose(a, b, rtol=0.0, atol=0.0)
     return differs, {"valid": True,
                      "max_abs_delta": float(np.max(np.abs(a - b))) if differs else 0.0}
+
+
+def sample_allocation_ok(on_aov: np.ndarray, off_aov: np.ndarray | None = None) -> tuple[bool, dict]:
+    """Adaptive-on sample-count AOV must (a) differ across the image and (b) spend
+    fewer samples in the flat ROI than in the detail ROI (ratio <= SAMPLE_RATIO_MAX)."""
+    on = np.asarray(on_aov, dtype=np.float64)
+    if on.ndim == 3:
+        on = on[..., 0]
+    if not np.isfinite(on).all() or on.size == 0:
+        return False, {"valid": False, "reason": "non_finite_or_empty"}
+    flat = float(np.mean(resolve_region(on, DECLARED_REGIONS["flat"])))
+    detail = float(np.mean(resolve_region(on, DECLARED_REGIONS["detail"])))
+    if detail <= 0.0:
+        return False, {"valid": False, "reason": "detail_roi_zero_samples"}
+    ratio = flat / detail
+    varies = bool(on.max() > on.min())
+    ok = varies and ratio <= SAMPLE_RATIO_MAX
+    stats = {"valid": True, "mean_flat": flat, "mean_detail": detail,
+             "flat_over_detail": ratio, "ratio_max": SAMPLE_RATIO_MAX,
+             "varies_across_image": varies, "mean_overall": float(on.mean())}
+    if off_aov is not None:
+        stats["off_constant"] = bool(np.ptp(np.asarray(off_aov, dtype=np.float64)) == 0.0)
+    return ok, stats
+
+
+def rmse_vs_reference(img: np.ndarray, reference: np.ndarray,
+                      roi: tuple[float, float, float, float]) -> float:
+    a = luminance(resolve_region(img, roi))
+    r = luminance(resolve_region(reference, roi))
+    if a.shape != r.shape or a.size == 0 or not (np.isfinite(a).all() and np.isfinite(r).all()):
+        return float("nan")
+    return float(np.sqrt(np.mean((a - r) ** 2)))
+
+
+def adaptive_equal_work_ok(adaptive_on: np.ndarray, equal_work_off: np.ndarray,
+                           reference: np.ndarray,
+                           roi: tuple[float, float, float, float] = DECLARED_REGIONS["detail"],
+                           ) -> tuple[bool, dict]:
+    """At equal mean spp, adaptive-on must be closer to the converged reference
+    than adaptive-off in the hard (detail) region."""
+    on = rmse_vs_reference(adaptive_on, reference, roi)
+    off = rmse_vs_reference(equal_work_off, reference, roi)
+    valid = np.isfinite(on) and np.isfinite(off)
+    return bool(valid and on < off), {"valid": bool(valid), "rmse_adaptive_on": on,
+                                      "rmse_equal_work_off": off, "roi": "detail"}
 
 
 def merge_status(statuses) -> str:
@@ -609,10 +674,15 @@ def evaluate_backend(backend: str, legs: dict, arrays: dict, aov: dict,
 
     # --- adaptive effect + accuracy safeguard ------------------------------
     a_off, a_on = arrays.get("adaptive_off"), arrays.get("adaptive_on")
-    if a_off is None or a_on is None:
+    a_eq = arrays.get("equal_work_off")
+    ref_for_adaptive = arrays.get("reference")
+    if a_off is None or a_on is None or a_eq is None or ref_for_adaptive is None:
         record("adaptive_effect", False, "unmeasured", {"reason": "leg artifact missing"})
     else:
-        ok, stats = adaptive_effect_ok(a_off, a_on)
+        ok, stats = adaptive_equal_work_ok(a_on, a_eq, ref_for_adaptive)
+        # Diagnostic only (the old equal-max-spp comparison, not gating).
+        stats["diag_flat_noise_off"] = flat_region_noise(a_off)
+        stats["diag_flat_noise_on"] = flat_region_noise(a_on)
         off_meta = legs.get("adaptive_off", {})
         off_native = off_meta.get("native", {}).get("use_adaptive_sampling")
         off_resolved = off_meta.get("resolved", {}).get("use_adaptive_sampling")
@@ -653,6 +723,19 @@ def evaluate_backend(backend: str, legs: dict, arrays: dict, aov: dict,
                 "passes_seen": aov.get("passes_seen", [])})
     else:
         ok, stats = sample_count_aov_differs(aov.get("off"), aov.get("on"))
+        ok2, alloc = sample_allocation_ok(aov.get("on"), aov.get("off"))
+        ref_a, off_a = arrays.get("reference"), arrays.get("adaptive_off")
+        if ref_a is not None and off_a is not None and alloc.get("valid"):
+            # Reference-derived ideal allocation (diagnostic): samples needed ~
+            # brightness-relative variance ~ mean((off-ref)^2)/mean(ref)^2 per ROI.
+            def _relvar(roi):
+                r = luminance(resolve_region(ref_a, roi)); o = luminance(resolve_region(off_a, roi))
+                d = float(np.mean(r))
+                return float(np.mean((o - r) ** 2)) / (d * d) if d > 1e-8 else float("nan")
+            rf, rd = _relvar(DECLARED_REGIONS["flat"]), _relvar(DECLARED_REGIONS["detail"])
+            alloc["reference_ideal_flat_over_detail"] = rf / rd if rd and np.isfinite(rd) else None
+        stats = dict(stats, allocation=alloc)
+        ok = ok and ok2
         record("sample_count_aov_changes", ok, "green" if ok else "red", stats)
 
     status = merge_status(c["status"] for c in checks.values())
@@ -679,11 +762,15 @@ def test_evaluate_backend_green_on_synthetic_effect():
     arrays = {
         "adaptive_off": noisy.copy(),
         "adaptive_on": ref.copy(),
+        "equal_work_off": noisy.copy(),
         "denoise_off": noisy.copy(),
         "denoise_on": (ref + rng.normal(0, 0.001, ref.shape)).astype(np.float32),
         "reference": ref,
     }
-    aov = {"present": True, "off": np.ones((8, 8)), "on": np.ones((8, 8)) * 64}
+    on_aov = np.full((64, 64), 64.0)
+    on_aov[:, 32:] = 64.0
+    on_aov[:, :32] = 8.0          # flat (left) half retired early
+    aov = {"present": True, "off": np.full((64, 64), 64.0), "on": on_aov}
     rec = evaluate_backend("cpu", legs, arrays, aov)
     assert rec["status"] == "green", rec["checks"]
     assert rec["checks"]["sample_count_aov_changes"]["passed"]
@@ -1136,6 +1223,7 @@ def main():
     specs = [
         ("adaptive_off", False, False, __ADAPTIVE_BUDGET__),
         ("adaptive_on", True, False, __ADAPTIVE_BUDGET__),
+        ("equal_work_off", False, False, None),   # samples = adaptive_on's mean spp
         ("denoise_off", False, False, __DENOISE_SETTLE__),
         ("denoise_on", False, True, __DENOISE_SETTLE__),
         ("reference", False, False, __REFERENCE__),
@@ -1144,7 +1232,14 @@ def main():
     run_id = uuid.uuid4().hex
     aov_captures = {}
     aov_arrays = {}
+    on_mean_spp = None
     for name, adaptive, denoise, samples in specs:
+        if samples is None:
+            # Equal-work leg: same MEAN spp the adaptive-on leg spent (from its
+            # sample-count AOV, normalised to the adaptive budget); falls back to
+            # the budget when the AOV is absent (the leg is then recorded as such).
+            samples = int(round(on_mean_spp)) if on_mean_spp else __ADAPTIVE_BUDGET__
+            samples = max(1, min(samples, __ADAPTIVE_BUDGET__))
         # NATIVE PANEL ONLY: samples / adaptive / denoise come exclusively from
         # scene.cycles.*. The custom_raytracer duplicates are never written here.
         scene.cycles.samples = int(samples)
@@ -1206,6 +1301,9 @@ def main():
             "output_telemetry": capture["telemetry"],
             "requested_sample_count_pass": requested_sample_count_pass,
         }
+        if name == "equal_work_off":
+            legs_meta[name]["equal_work_basis"] = (
+                "adaptive_on_mean_spp" if on_mean_spp else "budget_fallback_no_aov")
 
         if name in ("adaptive_off", "adaptive_on"):
             aov_info = {k: v for k, v in capture.items() if k != "sample_count"}
@@ -1229,6 +1327,8 @@ def main():
                     aov_arr = rect.reshape(arr.shape[0], arr.shape[1], channels)[::-1].copy()
                     aov_info["present"] = True
                     aov_info["reason"] = None
+                    if name == "adaptive_on":
+                        on_mean_spp = float(aov_arr[..., 0].mean()) * int(scene.cycles.samples)
             aov_captures[name] = aov_info
             if aov_info.get("present"):
                 aov_path = out_dir / (run_id + "_" + args.backend + "_aov_" + name + ".npy")
@@ -1659,6 +1759,7 @@ def test_host_evaluate_backend_reads_and_verifies_artifacts(tmp_path):
     arrays = {
         "adaptive_off": noisy,
         "adaptive_on": ref,
+        "equal_work_off": noisy,
         "denoise_off": noisy,
         "denoise_on": (ref + rng.normal(0, 0.001, ref.shape)).astype(np.float32),
         "reference": ref,
@@ -1695,7 +1796,7 @@ def test_host_evaluate_backend_reads_and_verifies_artifacts(tmp_path):
     record = _host_evaluate_backend(raw, tmp_path)
     assert record["status"] == "red"  # absent sample-count AOV, not PASS
     assert record["checks"]["finite"]["passed"]
-    assert record["checks"]["adaptive_effect"]["passed"]
+    assert record["checks"]["adaptive_effect"]["passed"]  # equal-work: on (=ref) beats noisy off
     assert record["checks"]["denoise_effect"]["passed"]
     assert record["checks"]["sample_count_aov_changes"]["status"] == "red"
     assert record["build"]["build_id"] == "test-build"
@@ -1736,3 +1837,27 @@ def test_merged_pair_rejects_mismatched_build_or_reused_run(tmp_path):
     gpu["build"] = build
     gpu["run_id"] = "cpu-run"
     assert _write_merged(tmp_path, {"cpu": cpu, "gpu": gpu})["status"] == "error"
+
+
+def test_sample_allocation_requires_fewer_samples_in_flat_roi():
+    h = w = 64
+    flat_heavy = np.full((h, w), 32.0)                      # constant: no allocation
+    ok, st = sample_allocation_ok(flat_heavy)
+    assert not ok and not st["varies_across_image"]
+    inverted = np.full((h, w), 8.0); inverted[:, w // 2:] = 8.0
+    inverted[int(0.45 * h):int(0.95 * h), int(0.05 * w):int(0.45 * w)] = 64.0   # flat ROI heavy
+    assert not sample_allocation_ok(inverted)[0]
+    good = np.full((h, w), 64.0)
+    good[int(0.45 * h):int(0.95 * h), int(0.05 * w):int(0.45 * w)] = 8.0
+    ok, st = sample_allocation_ok(good)
+    assert ok and st["flat_over_detail"] <= SAMPLE_RATIO_MAX
+
+
+def test_adaptive_equal_work_needs_lower_error_in_hard_region():
+    ref = _split_reference(seed=51, size=64)
+    rng = np.random.default_rng(52)
+    quiet = (ref + rng.normal(0, 0.01, ref.shape)).astype(np.float32)
+    loud = (ref + rng.normal(0, 0.05, ref.shape)).astype(np.float32)
+    assert adaptive_equal_work_ok(quiet, loud, ref)[0]
+    assert not adaptive_equal_work_ok(loud, quiet, ref)[0]
+    assert not adaptive_equal_work_ok(quiet, quiet.copy(), ref)[0]

@@ -627,6 +627,13 @@ if(ASTRORAY_CUDA_FOUND)
     endif()
     add_library(astroray_cuda STATIC ${ASTRORAY_CUDA_SOURCES})
     if(ASTRORAY_WAVEFRONT_CUDA_N3)
+        # pkg300: register budget of the non-Principled fleet shade kernel. A TU-wide
+        # cap, not __maxnreg__, so an arch whose inliner keeps a callee out of line
+        # still builds (see stage_shade_fleet_p0.cu).
+        set_source_files_properties(src/gpu/wavefront/stage_shade_fleet_p0.cu
+            PROPERTIES COMPILE_OPTIONS "-maxrregcount=128")
+    endif()
+    if(ASTRORAY_WAVEFRONT_CUDA_N3)
         target_compile_definitions(astroray_cuda PUBLIC ASTRORAY_WAVEFRONT_CUDA_N3)
     endif()
     target_include_directories(astroray_cuda

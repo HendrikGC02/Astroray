@@ -4,7 +4,7 @@
 // these instead of the generic variant. Both inline the shade body and read
 // state/hitBufs in place (__grid_constant__).
 //  - P=0 (stage_shade_fleet_p0.cu) also force-inlines every callee
-//    (shade_force_inline.cuh) under __maxnreg__(128) at 256 threads: 2 blocks =
+//    (shade_force_inline.cuh) under -maxrregcount=128 at 256 threads: 2 blocks =
 //    16 warps per SM against 8 for the 254-register generic kernel. Measured on
 //    the pkg298 Cornell pair (1024^2, 256 spp, min of 5): 2.64x simple, 2.32x heavy.
 //  - P=1 (stage_shade_fleet_p1.cu) is uncapped: forcing the Principled call tree

@@ -573,7 +573,6 @@ def main():
     ap.add_argument("--nb-legs", nargs="+", choices=NB_LEGS, default=["cycles", "cycles_gpu", "cpu", "gpu"])
     ap.add_argument("--nb-stages", nargs="+", choices=("time", "render", "report"), default=["time", "render", "report"])
     ap.add_argument("--nb-tag", default="", help="suffix for timing/results files (repeat-run reproducibility check)")
-    ap.add_argument("--nb-tag", default="", help="suffix for timing/results files (repeat-run reproducibility check)")
     ap.add_argument("--nb-retime", action="store_true", help="redo cached per-sample timings")
     ap.add_argument("--budgets", nargs="+", type=float, default=[2.0, 10.0, 60.0],
                     help="equal-time budgets in seconds per 1280x720 frame")

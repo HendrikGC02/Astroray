@@ -32,8 +32,13 @@ import mitsuba_scenes as ms  # pure python: no mitsuba import at module level
 
 # (name, world point, half-width as a fraction of image width): projected through the scene camera.
 ROIS = {
-    "arb_prism_sun": [("floor_caustic", (-1.2, 1.4, 0.0), 0.04), ("floor_prism_shadow", (1.9, -0.35, 0.0), 0.04),
-                      ("prism_body", (-0.4, 0.3, 0.65), 0.03), ("floor_far", (0.5, 2.6, 0.0), 0.05)],
+    # prism_sun_glint (was floor_caustic, #1025): the camera sees the prism there, and 97 % of the ROI is the sun after a
+    # TIR off the prism base. The floor_* beams are the floor caustics (oracle path signatures): rainbow = refraction
+    # T T, tir_beam = T r T (TIR), reflection_beam = T r T + external reflection R.
+    "arb_prism_sun": [("prism_sun_glint", (-1.2, 1.4, 0.0), 0.04), ("floor_prism_shadow", (1.9, -0.35, 0.0), 0.04),
+                      ("prism_body", (-0.4, 0.3, 0.65), 0.03), ("floor_far", (0.5, 2.6, 0.0), 0.05),
+                      ("floor_rainbow", (0.35, 1.8, 0.0), 0.02), ("floor_tir_beam", (-2.0, -0.05, 0.0), 0.02),
+                      ("floor_reflection_beam", (0.55, -1.1, 0.0), 0.02)],
     "arb_chromatic_medium": [("floor_direct", (2.0, -0.5, 0.0), 0.05), ("medium_core", (0.0, 0.0, 0.8), 0.04),
                              ("medium_edge", (-0.55, -0.7, 1.2), 0.03), ("floor_under_medium", (0.0, 0.0, 0.0), 0.04),
                              ("floor_beside_medium", (-1.4, 0.2, 0.0), 0.04)],

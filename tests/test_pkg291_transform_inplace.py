@@ -176,12 +176,14 @@ def test_gpu_patches_cached_scene_and_matches_fresh_render(traversal, monkeypatc
     moved = render(a)
     info = a.last_render_info()
     assert info["gpu_scene_patched"] is True and info["gpu_scene_reused"] is False
-    fresh = render(b)
-    assert float(np.abs(moved - fresh).max()) <= 1e-4
-    assert float(np.abs(moved - before).max()) > 1e-2   # the edit is visible
+    # Re-render BEFORE touching renderer b: the device-scene cache is process-
+    # global and keyed on the owning renderer (#801), so b's render evicts a's.
     again = render(a)
     assert a.last_render_info()["gpu_scene_reused"] is True
     assert float(np.abs(again - moved).max()) <= 1e-6
+    fresh = render(b)
+    assert float(np.abs(moved - fresh).max()) <= 1e-4
+    assert float(np.abs(moved - before).max()) > 1e-2   # the edit is visible
     # A non-refit edit after a refit breaks the chain: full re-flatten.
     a.add_sphere([0.0, 0.0, 1.2], 0.2, a.create_material("lambertian", [1, 1, 1], {}))
     render(a)

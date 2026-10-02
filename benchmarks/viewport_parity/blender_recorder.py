@@ -42,7 +42,7 @@ from mathutils import Quaternion
 
 # ``_PKG241_CONFIG`` is injected by the driver before this source runs.
 _CFG = dict(globals().get("_PKG241_CONFIG", {}))
-EVENT_CLASS = _CFG.get("event_class", "camera")   # 'camera' | 'material'
+EVENT_CLASS = _CFG.get("event_class", "camera")   # 'camera' | 'material' | 'transform'
 N_EVENTS = int(_CFG.get("n", 50))
 N_REPS = int(_CFG.get("reps", 3))
 N_WARMUP = int(_CFG.get("warmup", 5))
@@ -65,6 +65,13 @@ def _tag_redraw():
     area, _ = _find_v3d()
     if area is not None:
         area.tag_redraw()
+
+
+def _pick_transform_object():
+    """pkg291: the mesh object with the most polygons (the 100k-triangle mesh of
+    the pinned gate (a) grids) - the object a transform edit moves."""
+    meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
+    return max(meshes, key=lambda o: len(o.data.polygons)) if meshes else None
 
 
 def _pick_material():
@@ -117,6 +124,7 @@ def _install():
     # allowed to keep their preview floor, so they cannot prove stale-frame
     # suppression by themselves.
     mat, bsdf = _pick_material()
+    xform_obj = _pick_transform_object() if EVENT_CLASS == "transform" else None
 
     S = {
         "cfg": {
@@ -214,6 +222,8 @@ def _install():
 
     def w_draw(self, context, depsgraph):
         e = time.perf_counter()
+        if S.get("exporter_instance") is None:  # pkg291: sync path has no binding
+            S["exporter_instance"] = self.__dict__.get("_exporter")
         try:
             return o_draw(self, context, depsgraph)
         finally:
@@ -227,6 +237,7 @@ def _install():
         finally:
             S["updates"].append((e, time.perf_counter()))
             bind_after_engine_call(self, "material")
+            bind_after_engine_call(self, "transform")  # pkg291
             _observe_cancel_floor(self)
 
     def w_render(self, *a, **k):
@@ -292,6 +303,10 @@ def _install():
 
     def results():
         return {"cfg": S["cfg"], "material": S["material"],
+                "camera_driver": S.get("camera_driver"),
+                "camera_driver_error": S.get("camera_driver_error"),
+                "transform_object": xform_obj.name if xform_obj is not None else None,
+                "worker_mode": getattr(S.get("exporter_instance"), "_worker_mode", None),
                 "events": S["events"], "raw_events": S["raw_events"],
                 "done": S["done"], "error": S["error"]}
 
@@ -301,6 +316,22 @@ def _install():
     _mat_state = {"toggle": False}
 
     _cam_state = {"toggle": False}
+    S["camera_driver"] = None
+
+    def _orbit_operator(sign):
+        """pkg291: real region-view navigation - the same view3d.view_orbit
+        operator a numpad orbit runs (memory viewport-gate-table-misses-real-
+        navigation: edits must move the REGION view, not a camera object)."""
+        area, _rv = _find_v3d()
+        region = next((r for r in area.regions if r.type == "WINDOW"), None) if area else None
+        if region is None:
+            return False
+        win = next(w for w in bpy.context.window_manager.windows
+                   if any(a == area for a in w.screen.areas))
+        with bpy.context.temp_override(window=win, area=area, region=region):
+            res = bpy.ops.view3d.view_orbit(angle=math.radians(ROTATE_DEG),
+                                           type="ORBITRIGHT" if sign > 0 else "ORBITLEFT")
+        return "FINISHED" in res
 
     def apply_camera():
         # Oscillate +/- ROTATE_DEG around the start pose instead of accumulating,
@@ -310,6 +341,13 @@ def _install():
         # scene-complexity variation across viewpoints.
         _cam_state["toggle"] = not _cam_state["toggle"]
         sign = 1.0 if _cam_state["toggle"] else -1.0
+        try:
+            if _orbit_operator(sign):
+                S["camera_driver"] = "view3d.view_orbit"
+                return
+        except Exception as exc:  # fall back to the region_3d nudge
+            S["camera_driver_error"] = str(exc)
+        S["camera_driver"] = "region_3d.view_rotation"
         _, rv = _find_v3d()
         q = Quaternion((0.0, 0.0, 1.0), math.radians(sign * ROTATE_DEG))
         rv.view_rotation = (q @ rv.view_rotation).normalized()
@@ -329,11 +367,22 @@ def _install():
         col[0] = v
         bsdf.inputs["Base Color"].default_value = col
 
-    apply = apply_material if EVENT_CLASS == "material" else apply_camera
+    _xf_state = {"toggle": False}
+
+    def apply_transform():
+        # pkg291: oscillate the big mesh object +/-0.05 along X (a rigid move ->
+        # the in-place triangle-range path, #875).
+        _xf_state["toggle"] = not _xf_state["toggle"]
+        xform_obj.location.x += 0.05 if _xf_state["toggle"] else -0.05
+
+    apply = {"material": apply_material, "transform": apply_transform}.get(
+        EVENT_CLASS, apply_camera)
 
     def input_fingerprint():
         if EVENT_CLASS == "material" and bsdf is not None:
             return tuple(round(float(v), 7) for v in bsdf.inputs["Base Color"].default_value)
+        if EVENT_CLASS == "transform" and xform_obj is not None:
+            return tuple(round(float(v), 7) for v in xform_obj.location)
         _, rv = _find_v3d()
         return tuple(round(float(v), 7) for row in rv.view_matrix for v in row) if rv else None
 
@@ -343,8 +392,30 @@ def _install():
                 return x
         return None
 
+    def _sync_path():
+        exp = S.get("exporter_instance")
+        return exp is not None and getattr(exp, "_worker", None) is None
+
+    def _sync_correct_present(pending):
+        """pkg291: worker OFF has no generation stream. The synchronous path
+        renders the edited state inside view_update/view_draw, so the first
+        correct frame is the first POST_PIXEL present at/after the end of a
+        render_viewport_frame that STARTED after dispatch."""
+        d = pending["dispatch_ns"] / 1e9
+        rnd = next((r for r in S["renders"] if r[0] >= d), None)
+        if rnd is None:
+            return None
+        return next((p for p in S["presents"] if p >= rnd[1]), None)
+
     def _correct_presented(pending):
         """Gate-A's serialized dispatch barrier, using the recorded producer path."""
+        if GATE_A and _sync_path():
+            pres = _sync_correct_present(pending)
+            if pres is None:
+                return False
+            pending["sync"] = True
+            pending["correct_present_ns"] = int(pres * 1e9)
+            return True
         if not GATE_A or not pending.get("bound"):
             return not GATE_A
         gen, epoch, start = pending["generation"], pending["epoch"], pending["dispatch_ns"]
@@ -487,7 +558,9 @@ def _install():
                 if GATE_A:
                     pending = S.get("pending") or {}
                     _capture_viewport("post", pending.get("generation"), pending.get("epoch"))
-                    if not _stimulate_material_cancel():
+                    if pending.get("sync"):
+                        pass  # pkg291: no worker -> no cancel/stale stimulus
+                    elif not _stimulate_material_cancel():
                         S["error"] = "no real in-flight material cancellation stimulus"
                         S["done"] = True
                         return None

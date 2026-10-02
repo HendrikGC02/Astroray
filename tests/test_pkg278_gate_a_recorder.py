@@ -253,3 +253,36 @@ def test_gate_manifest_rejects_wrong_device_truncation_and_forged_summary(tmp_pa
         row = GM.load_instruments(None, {"a": path})["a"]
         computed, _ = GM.compute_row("a", row, GM.ROW_SPEC["a"], tmp_path)
         assert computed["status"] != "green"
+
+
+# --- pkg291: worker-OFF reducer + table grading -----------------------------
+def test_sync_reducer_requires_a_correct_synchronous_present():
+    ok = {"event_id": 1, "dispatch_ns": 1_000_000, "correct_present_ns": 31_000_000,
+          "sync": True}
+    red = DRV.reduce_gate_a_sync_capture([ok])
+    assert red["complete"] and red["rows"][0]["present_ns"] == 31_000_000
+    for bad in ({**ok, "sync": False}, {**ok, "correct_present_ns": None},
+                {**ok, "correct_present_ns": 0}):
+        assert DRV.reduce_gate_a_sync_capture([bad])["errors"]
+    assert DRV.reduce_gate_a_sync_capture([ok], truncated=True)["errors"]
+
+
+def _row(ms):
+    return {"event_ns": 0, "present_ns": int(ms * 1e6)}
+
+
+def test_gate_a_cell_grading():
+    fast = {"rows": [_row(20)] * 50, "errors": [],
+            "cancels": [{"cancel_ns": 0, "idle_drain_ns": int(50e6),
+                         "stale_frames_after_ack": 0}]}
+    c = DRV.summarize_gate_a_cell([fast], scene_tris=100000, kind="transform", worker=True)
+    assert c["gate_pass"] and c["transform_target_pass"] is False   # 20 ms is not < 20
+    stale = {**fast, "cancels": [{**fast["cancels"][0], "stale_frames_after_ack": 1}]}
+    assert not DRV.summarize_gate_a_cell([stale], scene_tris=10000, kind="material",
+                                         worker=True)["gate_pass"]
+    # Worker OFF has no cancel stream: graded on latency only.
+    off = {"rows": [_row(90)] * 98 + [_row(160)] * 2, "errors": [], "cancels": []}
+    c = DRV.summarize_gate_a_cell([off], scene_tris=10000, kind="camera", worker=False)
+    assert c["stale_frames_after_ack"] is None and not c["gate_pass"]   # p99 160 > 150
+    assert not DRV.summarize_gate_a_cell([{**fast, "errors": ["x"]}], scene_tris=10000,
+                                         kind="camera", worker=True)["gate_pass"]

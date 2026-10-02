@@ -668,7 +668,9 @@ def _run_class(host, port, event_class, n, reps, warmup, deadline_s,
     _bridge(_TEARDOWN, host, port)
     events = [e for e in res.get("events", []) if not e.get("warmup")]
     return {"events": events, "raw_events": res.get("raw_events", []),
-            "truncated": truncated, "material": res.get("material")}
+            "truncated": truncated, "material": res.get("material"),
+            "camera_driver": res.get("camera_driver"),          # pkg291
+            "worker_mode": res.get("worker_mode")}
 
 
 def _gate_a_event(raw):
@@ -1341,6 +1343,174 @@ def run_gate_a(args) -> dict:
             "date": _dt.date.today().isoformat()}
 
 
+# --- pkg291: gate (a) table (worker ON/OFF x scenes x edit kinds x reps) -----
+GATE_A_THRESHOLDS = {"p95_ms": 100.0, "p99_ms": 150.0,
+                     "cancel_p95_ms": 200.0, "cancel_p99_ms": 300.0,
+                     "stale_frames_after_ack": 0}
+# pkg291 spec: an in-place object move on the 100k scene presents in < 20 ms p95.
+TRANSFORM_100K_P95_MS = 20.0
+
+_SET_WORKER = (
+    "import os\n"
+    "os.environ['ASTRORAY_VIEWPORT_WORKER'] = __V__\n"
+    "result = {'env': os.environ['ASTRORAY_VIEWPORT_WORKER']}\n")
+
+
+def reduce_gate_a_sync_capture(edits, *, truncated=False):
+    """pkg291: worker OFF has no generation stream. The recorder marks an edit
+    `sync` and records `correct_present_ns` = the first POST_PIXEL present after
+    a render_viewport_frame that STARTED after dispatch (the synchronous path
+    renders the edited state before presenting). There is no in-flight render to
+    cancel and no stale publication, so the cancel / stale columns are N/A."""
+    errors, rows = [], []
+    if truncated:
+        errors.append("capture truncated")
+    for e in edits:
+        d, pres = e.get("dispatch_ns"), e.get("correct_present_ns")
+        if not e.get("sync") or not isinstance(d, int) or not isinstance(pres, int) or pres < d:
+            errors.append(f"edit {e.get('event_id')!r} has no correct synchronous present")
+            continue
+        rows.append({"event_id": e.get("event_id"), "event_ns": d, "present_ns": pres,
+                     "correct_present": True})
+    return {"rows": rows, "cancels": [], "errors": errors,
+            "complete": not errors and bool(rows)}
+
+
+def _pct_ms(xs, p):
+    return _percentile(xs, p) if xs else None
+
+
+def summarize_gate_a_cell(reductions, *, scene_tris, kind, worker):
+    """Pool the per-rep reductions of one (scene, kind, worker) cell and grade it
+    against the gate (a) thresholds (north-star 2(a)) plus, for 100k transform
+    edits, the pkg291 in-place target."""
+    lat = [(r["present_ns"] - r["event_ns"]) / 1e6 for red in reductions for r in red["rows"]]
+    canc = [(c["idle_drain_ns"] - c["cancel_ns"]) / 1e6 for red in reductions
+            for c in red["cancels"]]
+    stale = sum(c["stale_frames_after_ack"] for red in reductions for c in red["cancels"])
+    errors = [e for red in reductions for e in red["errors"]]
+    cell = {"scene_tris": scene_tris, "kind": kind, "worker": worker,
+            "reps": len(reductions), "events": len(lat), "errors": len(errors),
+            "p50_ms": _pct_ms(lat, 50), "p95_ms": _pct_ms(lat, 95), "p99_ms": _pct_ms(lat, 99),
+            "cancel_n": len(canc), "cancel_p95_ms": _pct_ms(canc, 95),
+            "cancel_p99_ms": _pct_ms(canc, 99),
+            "stale_frames_after_ack": stale if worker else None}
+    t = GATE_A_THRESHOLDS
+    ok = (bool(lat) and not errors and cell["p95_ms"] <= t["p95_ms"]
+          and cell["p99_ms"] <= t["p99_ms"])
+    if worker:
+        ok = (ok and bool(canc) and cell["cancel_p95_ms"] <= t["cancel_p95_ms"]
+              and cell["cancel_p99_ms"] <= t["cancel_p99_ms"] and stale == 0)
+    cell["gate_pass"] = ok
+    if kind == "transform" and scene_tris >= 100000:
+        cell["transform_target_pass"] = bool(lat) and cell["p95_ms"] < TRANSFORM_100K_P95_MS
+    return cell
+
+
+def run_gate_a_table(args):
+    """pkg291: the gate (a) table measured in a real Blender session. For each
+    worker mode (set live, then a Rendered toggle so the new engine latches it,
+    #879), each frozen workload and each edit kind: `reps` serialized captures of
+    `events` edits through the pkg278 recorder (real region-view navigation for
+    camera edits, Base Color for material, an object move for transform). Worker
+    ON captures go through the fail-closed generation-chain reducer; worker OFF
+    through reduce_gate_a_sync_capture."""
+    import gzip
+    workloads = _load_gate_a_workloads(args.gate_a_workload)
+    host, port = args.host, args.port
+    gpu = _bridge(_GPU_NAME, host, port).get("gpu", "")
+    raw_dir = Path(args.gate_a_raw_dir).resolve()
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    cells = []
+    meta = {"gpu": gpu, "workloads": workloads, "events": args.gate_a_events,
+            "reps": args.gate_a_reps, "warmup": args.warmup, "kinds": args.gate_a_kinds,
+            "workers": args.gate_a_workers, "observed": []}
+    for worker in args.gate_a_workers:
+        for wl in workloads:
+            info = _open_scene(host, port, wl["path"])
+            if info.get("tris") != wl["triangles"]:
+                raise RuntimeError(f"{wl['name']}: Blender reported {info.get('tris')} tris")
+            _bridge(_SET_WORKER.replace("__V__", repr("1" if worker == "on" else "0")),
+                    host, port)
+            _switch_device(host, port, "gpu")   # Rendered toggle -> engine latches the mode
+            settings = _bridge(_GATE_A_SETTINGS, host, port)
+            observed = _bridge(_GATE_A_OBSERVED_RUNTIME, host, port)
+            meta["observed"].append({"worker": worker, "workload": wl["name"],
+                                     "region": info.get("region"),
+                                     "settings": settings, "runtime": observed})
+            for kind in args.gate_a_kinds:
+                reds = []
+                for rep_i in range(args.gate_a_reps):
+                    ev = raw_dir / "frames" / f"{wl['name']}-{worker}" / kind / str(rep_i)
+                    res = _run_class(host, port, kind, args.gate_a_events, 1, args.warmup,
+                                     args.gpu_deadline_s, args.rotate_deg, gate_a=True,
+                                     evidence_dir=str(ev))
+                    sync = any(e.get("sync") for e in res["events"])
+                    if (worker == "on") == sync:
+                        raise RuntimeError(f"{wl['name']}/{kind}: worker={worker} but the "
+                                           f"capture {'was' if sync else 'was not'} synchronous")
+                    red = (reduce_gate_a_sync_capture(res["events"], truncated=res["truncated"])
+                           if sync else reduce_gate_a_capture(res["raw_events"], res["events"],
+                                                              truncated=res["truncated"]))
+                    devices = None if sync else _actual_gpu_devices(res["raw_events"])
+                    reds.append(red)
+                    # Frames were hash-verified by the reducer; keep event 1's
+                    # pre/post per capture (hashes stay in the raw JSON).
+                    for png in ev.glob("*.png"):
+                        if not png.name.startswith("0001-"):
+                            png.unlink()
+                    stem = f"{wl['name']}-{worker}-{kind}-{rep_i}"
+                    with gzip.open(raw_dir / f"{stem}.json.gz", "wt", encoding="utf-8") as fh:
+                        json.dump({"workload": wl, "worker": worker, "kind": kind, "rep": rep_i,
+                                   "devices": devices, "reduced": red,
+                                   "camera_driver": res.get("camera_driver"),
+                                   "edits": res["events"], "raw_events": res["raw_events"]}, fh)
+                    print(f"[pkg291] {stem}: rows={len(red['rows'])} "
+                          f"errors={len(red['errors'])}", flush=True)
+                cells.append(summarize_gate_a_cell(reds, scene_tris=wl["triangles"],
+                                                   kind=kind, worker=worker == "on"))
+    return {"schema": "pkg291.gate_a_table.v1", "thresholds": GATE_A_THRESHOLDS,
+            "transform_100k_p95_ms": TRANSFORM_100K_P95_MS, "cells": cells, "meta": meta,
+            "date": _dt.date.today().isoformat()}
+
+
+def write_gate_a_table(doc, out_dir):
+    """Markdown table + p95/p99 chart for the gate (a) table document."""
+    out_dir = Path(out_dir)
+
+    def f(v):
+        return "n/a" if v is None else f"{v:.1f}"
+    lines = ["| scene | edit | worker | events | p50 ms | p95 ms | p99 ms | cancel p95 / p99 ms "
+             "| stale after ack | chain errors | gate (a) |",
+             "|---|---|---|---|---|---|---|---|---|---|---|"]
+    for c in doc["cells"]:
+        verdict = "PASS" if c["gate_pass"] else "FAIL"
+        if "transform_target_pass" in c:
+            verdict += f" (<20 ms: {'PASS' if c['transform_target_pass'] else 'FAIL'})"
+        stale = c["stale_frames_after_ack"]
+        lines.append(
+            f"| {c['scene_tris'] // 1000}k | {c['kind']} | {'ON' if c['worker'] else 'OFF'} "
+            f"| {c['events']} | {f(c['p50_ms'])} | {f(c['p95_ms'])} | {f(c['p99_ms'])} "
+            f"| {f(c['cancel_p95_ms'])} / {f(c['cancel_p99_ms'])} "
+            f"| {'n/a' if stale is None else stale} | {c['errors']} | {verdict} |")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "latency_table.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    sys.path.insert(0, str(_REPO / "tests"))
+    from results_layout import save_stat_chart
+    labels = [f"{c['scene_tris'] // 1000}k {c['kind']} {'ON' if c['worker'] else 'OFF'}"
+              for c in doc["cells"]]
+    save_stat_chart(out_dir / "latency_chart.png",
+                    [{"label": "p95", "x": labels, "y": [c["p95_ms"] or 0 for c in doc["cells"]],
+                      "role": "gpu"},
+                     {"label": "p99", "x": labels, "y": [c["p99_ms"] or 0 for c in doc["cells"]],
+                      "role": "other"}],
+                    title="Viewport event -> first correct presented frame (real Blender)",
+                    xlabel="scene / edit / worker", ylabel="ms",
+                    ref=(GATE_A_THRESHOLDS["p95_ms"], "p95 gate 100 ms"),
+                    meta={"gpu": doc["meta"]["gpu"], "date": doc["date"]})
+    return "\n".join(lines)
+
+
 def _write_summary_md(doc, path):
     lines = ["# pkg241 Phase 0 — viewport / cancellation latency", "",
              f"Generated: {doc['generated_utc']}  ", f"GPU: {doc['gpu']}  ",
@@ -1776,7 +1946,8 @@ def main():
                    choices=["CYCLES", "CUSTOM_RAYTRACER"])
     p.add_argument("--mode", default="offline",
                    choices=["offline", "interactive", "ui_latency",
-                            "present_check", "buffer_identity", "gate_a"])
+                            "present_check", "buffer_identity", "gate_a",
+                            "gate_a_table"])
     p.add_argument("--frames", type=int, default=30)
     p.add_argument("--width", type=int, default=512)
     p.add_argument("--height", type=int, default=512)
@@ -1816,6 +1987,15 @@ def main():
     p.add_argument("--rotate-deg", dest="rotate_deg", type=float, default=1.0)
     p.add_argument("--gate-a-workload", action="append", default=[], metavar="JSON",
                    help="required frozen workload descriptor(s): exactly one 10k and one 100k .blend SHA")
+    # pkg291 --mode gate_a_table
+    p.add_argument("--gate-a-workers", nargs="+", default=["on", "off"],
+                   choices=["on", "off"])
+    p.add_argument("--gate-a-kinds", nargs="+", default=["camera", "material", "transform"],
+                   choices=["camera", "material", "transform"])
+    p.add_argument("--gate-a-events", type=int, default=60)
+    p.add_argument("--gate-a-reps", type=int, default=5)
+    p.add_argument("--gate-a-raw-dir", default="test_results/_runs/viewport/gate-a-latency",
+                   help="raw captures + frame evidence (ignored run tree)")
     p.add_argument("--gate-a-build-id", default=None,
                    help="required build identity recorded in the gate-(a) producer")
     p.add_argument("--cancel", action="store_true",
@@ -1870,6 +2050,14 @@ def main():
         args.cpu_events = args.events
     if args.cpu_reps is None:
         args.cpu_reps = args.reps
+
+    if args.mode == "gate_a_table":
+        doc = run_gate_a_table(args)
+        args.out.mkdir(parents=True, exist_ok=True)
+        (args.out / "latency_table.json").write_text(json.dumps(doc, indent=1),
+                                                     encoding="utf-8")
+        print(write_gate_a_table(doc, args.out))
+        return
 
     if args.mode == "gate_a":
         if not args.gate_a_build_id or not args.gate_a_workload:

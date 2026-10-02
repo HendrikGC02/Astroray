@@ -52,8 +52,9 @@ def _xf(m, p):
 _ID = np.eye(4)
 
 
-def _render(backend, objects, cam=_ID, use_frames=True, size=96):
-    """objects: list of 4x4 object->world matrices applied to one local quad."""
+def _render(backend, objects, cam=_ID, use_frames=True, size=96, black=False, spp=8):
+    """objects: list of 4x4 object->world matrices applied to one local quad.
+    black: untextured black quad (coverage mask render)."""
     r = create_renderer()
     if backend == "gpu":
         if not _has_cuda_gpu(r):
@@ -65,7 +66,8 @@ def _render(backend, objects, cam=_ID, use_frames=True, size=96):
     r.set_background_color([1.0, 1.0, 1.0])
     r.create_procedural_texture(_TEX, "noise_perlin", [3.0, 2.0, 0.5, 2.0, 0, 1, 0, 0, 1],
                                 "OBJECT")
-    mat = r.create_material("lambertian", [0.8, 0.8, 0.8], {"texture": _TEX})
+    mat = (r.create_material("lambertian", [0.0, 0.0, 0.0], {}) if black else
+           r.create_material("lambertian", [0.8, 0.8, 0.8], {"texture": _TEX}))
     local = [[-_HALF, -_HALF, 0.0], [_HALF, -_HALF, 0.0], [_HALF, _HALF, 0.0],
              [-_HALF, _HALF, 0.0]]
     for m in objects:
@@ -82,7 +84,7 @@ def _render(backend, objects, cam=_ID, use_frames=True, size=96):
     setup_camera(r, look_from=_xf(cam, [0, 0, 3]), look_at=_xf(cam, [0, 0, 0]),
                  vup=list(cam[:3, :3] @ np.array([0.0, 1.0, 0.0])),
                  vfov=30, width=size, height=size)
-    return np.asarray(render_image(r, samples=8, max_depth=2, apply_gamma=False))
+    return np.asarray(render_image(r, samples=spp, max_depth=2, apply_gamma=False))
 
 
 def _corr(a, b, mask):
@@ -90,9 +92,10 @@ def _corr(a, b, mask):
     return float(np.corrcoef(x, y)[0, 1])
 
 
-def _quad_mask(img):
-    # Background radiance is 1.0; the textured quad (albedo noise <= ~0.8) is darker.
-    return img.mean(axis=-1) < 0.95
+def _quad_mask(backend, objects, cam=_ID):
+    # Coverage from a black-albedo render (the white background carries spectral
+    # noise of +-0.2, so a threshold on the textured image would leak).
+    return _render(backend, objects, cam=cam, black=True).mean(axis=-1) < 0.5
 
 
 _M = _affine(_rot([0.3, 0.5, 0.8], 35.0) * 1.7, [0.7, -1.2, 0.4])
@@ -102,7 +105,7 @@ _M = _affine(_rot([0.3, 0.5, 0.8], 35.0) * 1.7, [0.7, -1.2, 0.4])
 def test_object_coords_follow_the_object(backend):
     ref = _render(backend, [np.eye(4)])
     moved = _render(backend, [_M], cam=_M)
-    mask = _quad_mask(ref) & _quad_mask(moved)
+    mask = _quad_mask(backend, [np.eye(4)])
     assert mask.sum() > 2000, f"quad too small on screen ({mask.sum()} px)"
     assert _corr(ref, moved, mask) > 0.99
     assert float(np.abs(ref - moved)[mask].mean()) < 0.01
@@ -114,7 +117,7 @@ def test_world_point_fallback_is_not_attached(backend):
     same similarity transform moves the pattern relative to the object."""
     ref = _render(backend, [np.eye(4)])
     moved = _render(backend, [_M], cam=_M, use_frames=False)
-    mask = _quad_mask(ref) & _quad_mask(moved)
+    mask = _quad_mask(backend, [np.eye(4)])
     assert _corr(ref, moved, mask) < 0.5
 
 
@@ -122,11 +125,14 @@ def test_world_point_fallback_is_not_attached(backend):
 def test_copies_keep_their_own_frame(backend):
     a = _affine(np.eye(3) * 0.6, [-0.55, 0.0, 0.0])
     b = _affine(_rot([0, 0, 1], 180.0), [0.0, 0.0, 0.0]) @ a
-    img = _render(backend, [a, b])
+    # Mirrored pixels have independent sample streams: compare luminance at 64 spp
+    # (8 spp spectral colour noise alone caps the per-channel correlation near 0.8).
+    img = _render(backend, [a, b], spp=64).mean(axis=-1, keepdims=True)
     flip = img[::-1, ::-1]
-    mask = _quad_mask(img) & _quad_mask(flip)
+    cover = _quad_mask(backend, [a, b])
+    mask = cover & cover[::-1, ::-1]
     assert mask.sum() > 1000
     assert _corr(img, flip, mask) > 0.98
     # The same copies without frames are not symmetric (world point differs).
-    img_w = _render(backend, [a, b], use_frames=False)
+    img_w = _render(backend, [a, b], use_frames=False, spp=64).mean(axis=-1, keepdims=True)
     assert _corr(img_w, img_w[::-1, ::-1], mask) < 0.5

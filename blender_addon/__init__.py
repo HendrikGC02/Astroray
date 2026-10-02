@@ -4748,6 +4748,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         if prog['per_hit']:
             self._per_hit_program_names().add(name)
+        if getattr(node, 'type', None) == 'EMISSION' or input_name == 'Emission Color':
+            report.degraded('graph program', "graph program on '%s' (emission): GPU renders "
+                            "the texture mean (emitters are not evaluated per hit on GPU); "
+                            "CPU exact" % input_name)
         stats = getattr(self, '_graph_program_stats', None)
         if stats is None:
             stats = self._graph_program_stats = {}

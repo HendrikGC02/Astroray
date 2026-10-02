@@ -2077,6 +2077,44 @@ def build_textures_mapping_scene(bpy):
     tag("ShaderNodeTexNoise", "input:W")
     tag("ShaderNodeTexNoise", "prop:noise_dimensions")
 
+    # pkg314 / #992: Float Curve, RGB Curves and Vector Curves (graph-program
+    # opcodes; the bounded op-VM has no curve op). One card off the grid's right
+    # edge, a Diffuse BSDF (Color) lit by the raking light: an emitter would show
+    # the GPU's texture mean (emission graph programs are CPU-only per hit).
+    # Noise.Color -> Vector Curves -> RGB Curves -> Diffuse; RGB Curves' Fac is
+    # Float Curve(Noise.Fac). Every curve is non-identity so each socket matters.
+    plane = _flat_card(3.35, 0.7, Z, 0.85, "CurvesCard")
+    mat, nt, out = _bare_material(bpy, "CurvesCardMat")
+    diff = nt.nodes.new("ShaderNodeBsdfDiffuse")
+    nt.links.new(_sock(diff.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+    coord = nt.nodes.new("ShaderNodeTexCoord")
+    noise = nt.nodes.new("ShaderNodeTexNoise")
+    cfg_noise(noise)
+    nt.links.new(_sock(coord.outputs, "Generated"), _sock(noise.inputs, "Vector"))
+    vcurve = nt.nodes.new("ShaderNodeVectorCurve")
+    vcurve.mapping.curves[0].points[0].location = (-1.0, -0.6)
+    vcurve.mapping.curves[1].points[1].location = (1.0, 0.4)
+    _sock(vcurve.inputs, "Fac").default_value = 0.9
+    rgbc = nt.nodes.new("ShaderNodeRGBCurve")
+    rgbc.mapping.curves[0].points.new(0.5, 0.8)
+    rgbc.mapping.curves[2].points[1].location = (1.0, 0.3)
+    rgbc.mapping.curves[3].points.new(0.4, 0.6)
+    fcurve = nt.nodes.new("ShaderNodeFloatCurve")
+    fcurve.mapping.curves[0].points.new(0.5, 0.15)
+    _sock(fcurve.inputs, "Factor").default_value = 0.85
+    nt.links.new(_sock(noise.outputs, "Color"), _sock(vcurve.inputs, "Vector"))
+    nt.links.new(_sock(vcurve.outputs, "Vector"), _sock(rgbc.inputs, "Color"))
+    nt.links.new(_sock(noise.outputs, "Fac"), _sock(fcurve.inputs, "Value"))
+    nt.links.new(_sock(fcurve.outputs, "Value"), _sock(rgbc.inputs, "Fac"))
+    nt.links.new(_sock(rgbc.outputs, "Color"), _sock(diff.inputs, "Color"))
+    plane.data.materials.append(mat)
+    crop_for("CurvesCard", plane)
+    for bl, socks in (("ShaderNodeFloatCurve", ("Factor", "Value")),
+                      ("ShaderNodeRGBCurve", ("Factor", "Color")),
+                      ("ShaderNodeVectorCurve", ("Factor", "Vector"))):
+        for sock in socks:
+            tag(bl, f"input:{sock}")
+
     # The workshop's non-vacuity proof is its real Checker Texture card, not
     # a synthetic crop chosen after rendering.
     scene["gate_c"] = {

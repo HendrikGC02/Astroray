@@ -813,8 +813,17 @@ def _compile_socket_value(socket, builder, depth=0):
         f = float(node.outputs[0].default_value)
         return builder.push_const([f, f, f])
 
-    if ntype in _CURVE_TYPES:  # pkg314 / #992 — graph programs only
-        return _compile_curve(node, builder, depth)
+    # pkg314 / #992 — graph programs only (one branch per type: the coverage-matrix
+    # AST scanner credits literal node-type dispatch).
+    if ntype == 'CURVE_FLOAT':
+        return _compile_curve(node, builder, depth, _get_input(node, 'Factor', 'Fac'),
+                              _get_input(node, 'Value'))
+    if ntype == 'CURVE_RGB':
+        return _compile_curve(node, builder, depth, _get_input(node, 'Fac', 'Factor'),
+                              _get_input(node, 'Color'))
+    if ntype == 'CURVE_VEC':
+        return _compile_curve(node, builder, depth, _get_input(node, 'Fac', 'Factor'),
+                              _get_input(node, 'Vector'))
 
     raise VMCompileError("unsupported node type in op-VM chain: %s" % ntype)
 
@@ -824,9 +833,7 @@ def _compile_socket_value(socket, builder, depth=0):
 # blender/util.h curvemapping_*_to_array + blender/shader.cpp (Apache-2.0); notes in
 # .astroray_plan/docs/pkg314-curves-research.md. The op-VM has no curve opcode, so
 # only a graph-IR builder (supports_curves) compiles them.
-_CURVE_TYPES = {'CURVE_FLOAT': (1, ('Factor', 'Fac'), 'Value'),
-                'CURVE_RGB': (4, ('Fac', 'Factor'), 'Color'),
-                'CURVE_VEC': (3, ('Fac', 'Factor'), 'Vector')}
+_CURVE_TYPES = {'CURVE_FLOAT': 1, 'CURVE_RGB': 4, 'CURVE_VEC': 3}  # curves per mapping
 CURVE_TABLE_SIZE = 256  # Cycles RAMP_TABLE_SIZE; the curve table holds SIZE + 1 entries
 
 
@@ -834,7 +841,7 @@ def _bake_curve(node):
     """Cycles curvemapping_minmax + curvemapping_{float,color}_to_array: returns
     (table, min_x, max_x, extrapolate). RGB Curves compose the combined (C) curve
     first: entry = (R(C(t)), G(C(t)), B(C(t)))."""
-    n_curves = _CURVE_TYPES[node.type][0]
+    n_curves = _CURVE_TYPES[node.type]
     mapping = node.mapping
     curves = mapping.curves
     min_x, max_x = float('inf'), float('-inf')
@@ -868,13 +875,12 @@ def _bake_curve(node):
     return table, min_x, max_x, extrapolate
 
 
-def _compile_curve(node, builder, depth):
+def _compile_curve(node, builder, depth, fac_in, value_in):
     if not getattr(builder, 'supports_curves', False):
         raise VMCompileError("unsupported node type in op-VM chain: %s" % node.type)
-    _, fac_names, value_name = _CURVE_TYPES[node.type]
     table, min_x, max_x, extrapolate = _bake_curve(node)
-    fac_s = compile_socket(_get_input(node, *fac_names), builder, depth + 1)
-    val_s = compile_socket(_get_input(node, value_name), builder, depth + 1)
+    fac_s = compile_socket(fac_in, builder, depth + 1)
+    val_s = compile_socket(value_in, builder, depth + 1)
     mode = 0 if node.type == 'CURVE_FLOAT' else 1  # shader_graph_ir CURVE_FLOAT / CURVE_RGB
     return builder.curve(mode, fac_s, val_s, table, min_x, max_x - min_x, extrapolate)
 

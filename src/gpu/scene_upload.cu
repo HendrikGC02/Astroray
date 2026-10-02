@@ -1319,6 +1319,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                     texId = uploadImageTexId(img.get(), img.get());
                     r.hasTexture = true;
                 }
+            } else if (emitTex && std::dynamic_pointer_cast<GraphProgramTexture>(tex)) {
+                // pkg314 — a graph program on an Emission Color is not evaluated by the
+                // intersect / shadow stages and its inputs have per-input coordinates,
+                // so no single bake domain exists: GPU keeps the texture mean
+                // (reported below and by the addon); CPU evaluates it per hit.
+                fprintf(stderr, "[pkg314] DEGRADED: Emission Color graph program renders "
+                                "its texture mean on GPU
+");
             } else if (tex) {
                 // pkg190 — bake a PROCEDURAL base-colour texture (checker / brick /
                 // wave / magic / …) into the flat device texel buffer, then reuse

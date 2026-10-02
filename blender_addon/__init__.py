@@ -4770,8 +4770,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return self._load_blender_image_resolved(
                     image, renderer, identity, child_signature='graph-coord',
                     extension=extension)
-            return self.load_blender_image(image, renderer, vector_input=vinp,
+            name = self.load_blender_image(image, renderer, vector_input=vinp,
                                            extension=extension)
+            mode = self._resolve_affine_coordinates(vinp, warn=lambda *a: None)['coord_mode']
+            if name is not None and mode != 'UV':
+                self._degradation_report().degraded(
+                    'graph program', "image input '%s' with %s coordinates: GPU skips the "
+                    "program (constant value); CPU exact" % (getattr(in_node, 'name', ntype),
+                                                             mode))
+            return name
         if kind == 'coord':
             return None
         name = self.load_procedural_texture(in_node, renderer, vector_input=vinp,

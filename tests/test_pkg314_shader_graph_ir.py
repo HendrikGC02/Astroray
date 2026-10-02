@@ -769,3 +769,58 @@ def test_shading_context_normal_ignores_bump(kind, use_gpu):
     cpu = flat if not use_gpu else _render_scene(_facing_scene(kind, False), False, samples=32)
     assert np.allclose(_rois(flat), _rois(cpu), atol=0.01), (_rois(flat), _rois(cpu))
     assert _rois(cpu).max() - _rois(cpu).min() > 0.01   # facing varies off-centre
+
+
+# =========================================================================== #
+# Validator dataflow (Terra review): def-before-use, decoder parity with the IR.
+# =========================================================================== #
+def _raw_program(code, num_slots, out_slot, consts=((0.5, 0.5, 0.5),), tables=()):
+    return {'version': G.GRAPH_IR_VERSION, 'num_slots': num_slots, 'out_slot': out_slot,
+            'code': code, 'consts': [v for c in consts for v in c],
+            'tables': [list(t) for t in tables],
+            'table_data': [0.0, 0.0, 0.0, 1.0, 1.0, 1.0] * len(tables),
+            'inputs': [], 'input_kinds': []}
+
+
+def test_validator_rejects_undefined_reads_and_empty_programs():
+    r = _renderer()
+    with pytest.raises(Exception, match="empty program"):
+        _load_graph(r, "e", _raw_program([], 1, 0), {})
+    # MATH ADD reading slot 1 that nothing wrote
+    code = [C.OP_LOAD_CONST, 0, 0, 0, 0, 0, 0, 0, 0,
+            C.OP_MATH, 0, 2, 0, 1, 0, 0, 0, 0]
+    with pytest.raises(Exception, match="undefined slot"):
+        _load_graph(r, "u", _raw_program(code, 3, 2), {})
+    with pytest.raises(Exception, match="never written"):
+        _load_graph(r, "o", _raw_program(code[:9], 3, 2), {})
+
+
+def _all_op_subs():
+    out = [(C.OP_MATH, s | f) for s in C.MATH_OPS.values() for f in (0, C.SVM_MATH_CLAMP)]
+    out += [(C.OP_VEC_MATH, s) for s in C.VEC_MATH_OPS.values()]
+    out += [(C.OP_VEC_ROTATE, t | inv) for t in C.VEC_ROTATE_TYPES.values() for inv in (0, 8)]
+    out += [(C.OP_SHADING, s) for s in range(4)]
+    out += [(op, 0) for op in (C.OP_MIX, C.OP_CLAMP, C.OP_BRIGHT_CONTRAST, C.OP_COMBINE_COLOR,
+                               C.OP_MAP_RANGE, C.OP_HSV, C.OP_INVERT, C.OP_GAMMA, C.OP_SEP_COLOR,
+                               C.OP_RGB_TO_BW, C.OP_RAMP, G.OP_CURVE)]
+    return out
+
+
+def test_validator_reads_match_ir_operand_fields():
+    """The engine accepts a program that defines exactly the fields the IR says an
+    op reads (C++ graphOperandReads is a subset of operand_fields) and rejects it
+    when one of them is missing (not a strict subset)."""
+    r = _renderer()
+    slot = {'a': 1, 'b': 2, 'c': 3, 'd': 4, 'e': 5}
+    for n, (op, sub) in enumerate(_all_op_subs()):
+        fields = G.operand_fields(op, sub)
+        tables = [(2, 0.0, 1.0, 0)] if op in (C.OP_RAMP, G.OP_CURVE) else []
+        prelude = []
+        for f in fields:
+            prelude += [C.OP_LOAD_CONST, 0, slot[f], 0, 0, 0, 0, 0, 0]
+        ins = [op, sub, 0, 1, 2, 3, 4, 5, 0]
+        _load_graph(r, "ok%d" % n, _raw_program(prelude + ins, 6, 0, tables=tables), {})
+        if fields:
+            with pytest.raises(Exception, match="undefined slot"):
+                _load_graph(r, "bad%d" % n, _raw_program(prelude[9:] + ins, 6, 0,
+                                                         tables=tables), {})

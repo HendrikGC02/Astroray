@@ -242,6 +242,47 @@ HD inline bool graph_eval(const GraphProgramDesc& p, const GraphArenas& ar,
 }
 
 #ifndef __CUDACC_RTC__
+// Operand fields an instruction actually reads (bit 0 = a .. bit 4 = e). Mirrors
+// blender_addon/shader_graph_ir.py operand_fields and the per-op decoding of
+// svm_apply_pure / graph_eval; the validator uses it for def-before-use checks.
+inline unsigned graphOperandReads(unsigned char op, unsigned char sub) {
+    using namespace astroray::svm;
+    constexpr unsigned A = 1, B = 2, C = 4, D = 8, E = 16;
+    switch (op) {
+        case OP_MATH:    return A | B | (((sub & 0x7Fu) == MATH_MULADD) ? C : 0u);
+        case OP_MIX: case OP_CLAMP: case OP_BRIGHT_CONTRAST: case OP_COMBINE_COLOR:
+            return A | B | C;
+        case OP_MAP_RANGE: case OP_HSV: return A | B | C | D | E;
+        case OP_INVERT: case OP_GAMMA: case GOP_CURVE: return A | B;
+        case OP_RAMP: case OP_SEP_COLOR: case OP_RGB_TO_BW: case GOP_TEX_COORD: return A;
+        case OP_VEC_MATH: {
+            unsigned m = A;
+            switch (sub) {  // VecMathOp operands (Cycles svm_vector_math)
+                case VECMATH_ADD: case VECMATH_SUBTRACT: case VECMATH_MULTIPLY:
+                case VECMATH_DIVIDE: case VECMATH_CROSS_PRODUCT: case VECMATH_PROJECT:
+                case VECMATH_REFLECT: case VECMATH_DOT_PRODUCT: case VECMATH_DISTANCE:
+                case VECMATH_SNAP: case VECMATH_MODULO: case VECMATH_POWER:
+                case VECMATH_MINIMUM: case VECMATH_MAXIMUM:
+                    m |= B; break;
+                case VECMATH_REFRACT: m |= B | D; break;
+                case VECMATH_FACEFORWARD: case VECMATH_MULTIPLY_ADD: case VECMATH_WRAP:
+                    m |= B | C; break;
+                case VECMATH_SCALE: m |= D; break;
+                default: break;
+            }
+            return m;
+        }
+        case OP_VEC_ROTATE: {
+            const unsigned t = sub & 7u;
+            return A | B | ((t == VECROT_AXIS_ANGLE || t == VECROT_EULER_XYZ) ? C : 0u) |
+                   ((t != VECROT_EULER_XYZ) ? D : 0u);
+        }
+        case OP_SHADING:
+            return (sub == SH_LAYER_FRESNEL || sub == SH_LAYER_FACING || sub == SH_FRESNEL) ? A : 0u;
+        default: return 0u;   // constants, texture samples, geometry inputs
+    }
+}
+
 // ---- host-side program (one per GraphProgramTexture; arenas start at 0) -----
 struct GraphProgramData {
     GraphProgramDesc        desc{};
@@ -268,6 +309,7 @@ inline std::string validateGraphProgram(const GraphProgramData& g, int numTex) {
     if (numTex < 0 || numTex > GRAPH_MAX_TEX || d.numTex != (uint32_t)numTex)
         return "texture count over budget";
     if (d.outSlot >= d.numSlots) return "output slot out of range";
+    if (d.numInstr == 0) return "empty program";
     for (const GraphTable& t : g.tables) {
         if (t.size < 2 || t.size > (uint32_t)GRAPH_MAX_TABLE_SIZE ||
             (size_t)t.offset + t.size > g.tableData.size())
@@ -304,6 +346,20 @@ inline std::string validateGraphProgram(const GraphProgramData& g, int numTex) {
                 return "unknown opcode " + std::to_string(in.op) + at;
         }
     }
+    // Dataflow: every operand an instruction reads, and the output, must have
+    // been written earlier in the program (no read of uninitialised CPU registers
+    // or of the GPU kernel's persistent scratch).
+    std::vector<unsigned char> defined(d.numSlots, 0);
+    for (size_t i = 0; i < g.instrs.size(); ++i) {
+        const GraphInstr& in = g.instrs[i];
+        const unsigned reads = graphOperandReads(in.op, in.sub);
+        const uint16_t ops[5] = {in.a, in.b, in.c, in.d, in.e};
+        for (int f = 0; f < 5; ++f)
+            if ((reads >> f) & 1u && !defined[ops[f]])
+                return "read of an undefined slot at instruction " + std::to_string(i);
+        defined[in.dst] = 1;
+    }
+    if (!defined[d.outSlot]) return "output slot never written";
     return "";
 }
 #endif

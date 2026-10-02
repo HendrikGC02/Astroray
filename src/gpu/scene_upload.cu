@@ -1127,7 +1127,12 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             std::shared_ptr<Texture> child = gpt->getInput(k);
             int texId = -1;
             if (auto img = std::dynamic_pointer_cast<ImageTexture>(child)) {
-                if (!img->getData().empty() && !(gpt->inputIsCoord(k) && img->hasMapping()))
+                // The device image fetch (gpu_progInputTexel) rebuilds UV only: a
+                // native image in another coordinate mode is not uploaded (reported
+                // by the addon; CPU exact), never sampled at the wrong coordinate.
+                const bool uvOk = img->getCoordMode() == Texture::CoordMode::UV;
+                if (!img->getData().empty() && uvOk &&
+                    !(gpt->inputIsCoord(k) && img->hasMapping()))
                     texId = uploadImageTexId(img.get(), img.get());
             } else if (child && !gpt->inputIsCoord(k)) {
                 // #1007 per-hit evaluator at the input's own point, else the bake.

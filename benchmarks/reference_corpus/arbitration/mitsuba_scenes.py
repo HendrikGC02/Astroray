@@ -6,7 +6,7 @@ same scene by construction, not by hand-copied numbers. Importing this module ne
 ``mitsuba`` is imported inside the functions, so run it with the Mitsuba venv:
 
     C:/Users/hgcom/tools/venv-mitsuba/Scripts/python.exe mitsuba_scenes.py --scene arb_prism_sun --spp 256 \\
-        --seed 278 --out <stem>             # writes <stem>.exr (linear HxWx3, row 0 = top), prints PKG307_INFO
+        --seed 278 --out <stem>             # writes <stem>.f32 (raw float32 linear HxWx3, row 0 = top), prints PKG307_INFO
 
 Why a Python BSDF: Mitsuba 3.9.1's ``dielectric`` has a constant IOR (the named materials are single numbers; a
 spectrum for ``int_ior`` is rejected: 'expected string, got spectrum'), so dispersion needs ``DispersiveDielectric``
@@ -255,7 +255,7 @@ def render_scene(sid: str, spp: int, seed: int, res, work: Path, variant: str = 
                  lamp_scale: float | None = None):
     """(HxWx3 TensorXf image, render-only seconds). Wavefronts above ~2^24 lanes are split into spp chunks with
     decorrelated seeds (a 1280x720 x 320 spp wavefront does not fit in GPU memory). No numpy here: the Mitsuba venv
-    has none, so the image leaves as an EXR that the driver reads."""
+    has none, so the image leaves as raw float32 that the driver reads."""
     import drjit as dr
     import mitsuba as mi
     mi.set_variant(variant)
@@ -298,7 +298,15 @@ def main(argv=None):
         print(f"PKG119B_LEG FAIL {type(exc).__name__}: {exc}")
         return 1
     import mitsuba as mi
-    mi.util.write_bitmap(str(out.with_suffix(".exr")), img)
+    import array
+    flat = img.array  # no numpy in this venv: dr arrays export host memory through the buffer protocol (memview)
+    buf = array.array("f")
+    if hasattr(flat, "memview"):
+        buf.frombytes(flat.memview().cast("B"))
+    else:  # scalar variants
+        buf.extend(float(x) for x in flat)
+    assert len(buf) == res[0] * res[1] * 3, (len(buf), res)
+    out.with_suffix(".f32").write_bytes(buf.tobytes())
     print("PKG307_INFO " + json.dumps({"render_s": secs, "engine": "mitsuba", "device": a.variant, "res": list(res),
                                        "samples": a.spp, "mitsuba": mi.__version__}), flush=True)
     print("PKG119B_LEG PASS", flush=True)

@@ -159,9 +159,14 @@ def render(sid: str, leg: str, seed: int, spp: int, stem: Path, threads: int = 8
         if info is not None:
             line = next((ln for ln in out.stdout.splitlines() if ln.startswith("PKG307_INFO ")), None)
             info.update(json.loads(line[len("PKG307_INFO "):]) if line else {})
-        img = read_exr(stem.with_suffix(".exr"))  # the Mitsuba venv has no numpy: the script leaves an EXR
+        w, h = info["res"] if info and "res" in info else (None, None)
+        raw = np.fromfile(stem.with_suffix(".f32"), dtype=np.float32)  # the Mitsuba venv has no numpy: raw float32 HxWx3
+        if w is None:
+            line = next(ln for ln in out.stdout.splitlines() if ln.startswith("PKG307_INFO "))
+            w, h = json.loads(line[len("PKG307_INFO "):])["res"]
+        img = raw.reshape(h, w, 3)
         np.save(stem.with_suffix(".npy"), img)
-        stem.with_suffix(".exr").unlink()
+        stem.with_suffix(".f32").unlink()
         return img
     engine, device = {"cycles": ("CYCLES", "cpu"), "cycles_gpu": ("CYCLES", "cpu"), "cpu": ("CUSTOM_RAYTRACER", "cpu"),
                       "gpu": ("CUSTOM_RAYTRACER", "gpu")}[leg]

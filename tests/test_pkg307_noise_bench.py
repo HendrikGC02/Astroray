@@ -170,4 +170,4 @@ def test_mitsuba_scenes_load_and_render_on_the_cpu(sid, tmp_path):
                           "--res-percent", "10", "--variant", "scalar_spectral"], capture_output=True, text=True,
                          timeout=300, check=False)
     assert "PKG119B_LEG PASS" in out.stdout, out.stdout[-800:] + out.stderr[-800:]
-    assert (tmp_path / f"{sid}.exr").is_file()
+    assert (tmp_path / f"{sid}.f32").stat().st_size == 4 * 3 * 32 * 18

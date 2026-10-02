@@ -200,3 +200,15 @@ def test_committed_matrix_leaves_only_real_drops_on_the_production_corpus():
     assert set(flagged) <= allowed, {k: sorted(v) for k, v in flagged.items() if k not in allowed}
     for stale in ("prod_marble", "prod_wood", "prod_pbr_group", "prod_car_paint"):
         assert not [v for v in flagged.values() for x in v if x.startswith(stale + ":")], stale
+
+
+def test_weighted_ceiling_matches_the_pkg278_formula():
+    """S = sum(min(n,3) s) / sum(min(n,3)); s = 1 SUPPORTED, 0.5 APPROXIMATED, 0 otherwise."""
+    from benchmarks.reference_corpus import silent_drop_audit as AUDIT
+    r = AUDIT.weighted_ceiling({
+        "a": ({"s1", "s2", "s3", "s4"}, "SUPPORTED"),     # weight 3 (capped), 1.0
+        "b": ({"s1"}, "APPROXIMATED"),                    # weight 1, 0.5
+        "c": ({"s1", "s2"}, "DROPPED-SILENT"),            # weight 2, 0
+    })
+    assert r["weight"] == 6 and r["ceiling"] == pytest.approx((3 + 0.5) / 6)
+    assert r["matrix_silent"] == ["c"]

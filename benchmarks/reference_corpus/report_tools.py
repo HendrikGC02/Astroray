@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -237,8 +238,8 @@ NB_COLOR = {"cycles": "#52514e", "cycles_gpu": "#9a9893", "cpu": "#2a78d6", "gpu
 NB_SURFACE = "#fcfcfb"
 
 
-def _nb_load(work: Path) -> dict:
-    return json.loads((Path(work) / "nb_results.json").read_text(encoding="utf-8"))
+def _nb_load(work: Path, tag: str = "") -> dict:
+    return json.loads((Path(work) / f"nb_results{tag}.json").read_text(encoding="utf-8"))
 
 
 def nb_index(res: dict) -> dict:
@@ -351,14 +352,16 @@ def nb_anatomy_chart(res: dict, out: Path, label: str = "spp64") -> Path:
     hl = nb_headline(res, label)
     scenes = [h["scene"].replace("v2_", "") for h in hl]
     legs = [lg for lg in ("cycles_gpu", "gpu", "cycles", "cpu") if any(lg in h for h in hl)]
-    fig, axes = _nb_axes(15.0, 4.4, ncols=3)
+    fig, axes = _nb_axes(19.0, 4.4, ncols=4)
     series = {}
+    slope = lambda h, leg: res.get("slopes", {}).get(h["scene"], {}).get(leg, {}).get("image", float("nan"))
     panels = (("bias2 share of relMSE", lambda d: d["bias2"] / d["relmse"], False),
               ("top 0.1 % pixels' share of variance", lambda d: d["tail"], False),
               ("chroma relVar (sum of channel variances of rgb/L)", lambda d: d["chroma"], True))
+    panels += (("N x relVar slope (0 = plain MC, < 0 = stratified)", None, False),)
     for ax, (title, fn, log) in zip(axes, panels):
         for i, leg in enumerate(legs):
-            vals = [fn(h[leg]) if leg in h else float("nan") for h in hl]
+            vals = [slope(h, leg) if fn is None else (fn(h[leg]) if leg in h else float("nan")) for h in hl]
             ax.bar(np.arange(len(hl)) + (i - (len(legs) - 1) / 2) * 0.8 / len(legs), vals, width=0.8 / len(legs),
                    color=NB_COLOR[leg], label=NB_NAME[leg])
             series[f"{title}/{leg}"] = dict(zip(scenes, vals))
@@ -366,27 +369,24 @@ def nb_anatomy_chart(res: dict, out: Path, label: str = "spp64") -> Path:
             ax.set_yscale("log")
         ax.set_xticks(range(len(scenes)))
         ax.set_xticklabels(scenes, rotation=35, ha="right", fontsize=8)
-        ax.set_title(f"{title} at 64 spp", fontsize=9)
+        ax.set_title(title if fn is None else f"{title} at 64 spp", fontsize=9)
         ax.grid(axis="y", color="#e4e4e1", lw=0.6)
     axes[0].legend(frameon=False, fontsize=7)
     fig.tight_layout()
     return _nb_save(fig, out / "noise_anatomy_chart.png", res["meta"], series)
 
 
-def nb_equal_time_sheets(res: dict, work: Path, out: Path, labels=("2s", "10s", "60s"), seed: int = 278) -> list[Path]:
+def nb_equal_time_sheets(res: dict, work: Path, out: Path, labels=None, seed: int = 278) -> list[Path]:
     """One sheet per scene: rows = equal-time budgets, columns = legs, every tile at the spp its leg affords
     in that budget per 1280x720 frame (seed ``seed``), ROIs drawn."""
     import numpy as np
     sys.path.insert(0, str(REPO_ROOT / "tests"))
     from results_layout import save_comparison_sheet
-    manifest = json.loads((REPO_ROOT / "benchmarks" / "reference_corpus" / "scenes" / "manifest.json").read_text())
+    labels = labels or [f"{b:g}s" for b in res["meta"]["budgets_s"]]
     idx = nb_index(res)
     paths = []
     for sid in sorted({r["scene"] for r in res["rows"]}):
-        crops = manifest["scenes"].get(sid.split("@")[0], {}).get("crops", {})
-        if "@" in sid:  # variant: ROIs are the variant's own (mc_tolerance.scene_entry), not the base scene's
-            from benchmarks.reference_corpus import mc_tolerance as mt
-            crops = mt.scene_entry(manifest, sid)["crops"]
+        crops = res["meta"].get("crops", {}).get(sid, {})  # the run's own ROIs (suite- and variant-aware)
         rows = []
         for lab in labels:
             row = []
@@ -439,8 +439,8 @@ def nb_markdown(res: dict) -> str:
     return "\n".join(out)
 
 
-def build_noise_bench_report(work: Path, out: Path, sheets: bool = True) -> dict:
-    res = _nb_load(work)
+def build_noise_bench_report(work: Path, out: Path, sheets: bool = True, tag: str = "") -> dict:
+    res = _nb_load(work, tag)
     written = {"csv": nb_write_csv(res, out), "efficiency": nb_efficiency_chart(res, out),
                "curves": nb_curves_chart(res, out), "anatomy": nb_anatomy_chart(res, out)}
     if sheets:
@@ -465,9 +465,10 @@ def main(argv=None):
         pp.add_argument("--work-dir", required=True)
         pp.add_argument("--out-dir", required=True)
         pp.add_argument("--no-sheets", action="store_true")
+        pp.add_argument("--tag", default="", help="the --nb-tag of the run to report")
         pa = pp.parse_args(argv[1:])
-        w = build_noise_bench_report(Path(pa.work_dir), Path(pa.out_dir), sheets=not pa.no_sheets)
-        print("[pkg307] wrote " + ", ".join(w))
+        w = build_noise_bench_report(Path(pa.work_dir), Path(pa.out_dir), sheets=not pa.no_sheets, tag=pa.tag)
+        print("[pkg307] wrote " + ", ".join(f"{k}={v}" if not isinstance(v, list) else f"{k}x{len(v)}" for k, v in w.items()))
         return
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--family", required=True)

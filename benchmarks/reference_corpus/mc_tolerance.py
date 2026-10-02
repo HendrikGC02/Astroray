@@ -36,6 +36,7 @@ camera; today only ``v2_camera_geometry@ortho`` (the named ortho camera, #845).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -383,6 +384,17 @@ def per_sample_time(t_small: float, t_large: float, n_small: int, n_large: int) 
     return (t_large - t_small) / (n_large - n_small)
 
 
+def paired_per_sample_time(raw, n_small: int, n_large: int) -> float:
+    """Median over repetitions of the differencing slope of the two renders of ONE repetition. Pairing keeps both points
+    of a slope in the same clock/thermal state; independent minima of the two points can come from different states."""
+    by_rep: dict = {}
+    for rep, n, t in raw:
+        by_rep.setdefault(rep, {})[n] = t
+    slopes = [per_sample_time(d[n_small], d[n_large], n_small, n_large) for d in by_rep.values()
+              if n_small in d and n_large in d]
+    return float(np.median(slopes))
+
+
 def noise_metrics(stack: np.ndarray, ref: np.ndarray, rect, floor: float | None = None,
                   dark: float = DARK, tail: float = NB_TAIL) -> dict:
     """Noise metrics of one ROI from ``stack`` (seeds x H x W x 3 linear) against the reference ``ref`` (H x W x 3).
@@ -406,6 +418,10 @@ def noise_metrics(stack: np.ndarray, ref: np.ndarray, rect, floor: float | None 
     n = int(keep.sum())
     rm = rk.mean(axis=0)
     r_lum = float(rm @ LUM)
+    if n == 0 or not r_lum > 0.0:  # an empty or black reference ROI has no relative noise: fail closed
+        nan = float("nan")
+        return {"n_px": n, "ref_lum": r_lum, "relvar_lum": nan, "relvar_rgb": [nan] * 3, "chroma": nan, "bias2": nan,
+                "relmse": nan, "tail_share": nan}
     lum = xk @ LUM
     var_l = lum.var(axis=0, ddof=1)
     var_c = xk.var(axis=0, ddof=1).mean(axis=0)
@@ -452,8 +468,11 @@ def _nb_render(sid, leg, spp, seed, work, threads=8, **kw):
 
 
 def _gpu_note() -> str:
-    q = subprocess.run(["nvidia-smi", "--query-gpu=clocks.sm,clocks.max.sm,temperature.gpu,power.draw",
-                        "--format=csv,noheader"], capture_output=True, text=True, check=False)
+    try:
+        q = subprocess.run(["nvidia-smi", "--query-gpu=clocks.sm,clocks.max.sm,temperature.gpu,power.draw",
+                            "--format=csv,noheader"], capture_output=True, text=True, check=False)
+    except OSError:
+        return "nvidia-smi unavailable"
     return q.stdout.strip() or "nvidia-smi unavailable"
 
 
@@ -480,9 +499,11 @@ def time_leg(sid: str, leg: str, work: Path, reps: int = 3, spps=None) -> dict:
                 best[n] = min(best[n], info["render_s"])
                 raw.append([rep, n, info["render_s"]])
     gpu_notes.append(_gpu_note())
-    t_ps = per_sample_time(best[n_small], best[n_large], n_small, n_large)
+    t_ps = paired_per_sample_time(raw, n_small, n_large)
     area = res[0] * res[1]
     return {"t_per_spp_frame_s": t_ps * NB_FRAME[0] * NB_FRAME[1] / area, "t_per_spp_at_res_s": t_ps,
+            "estimator": "paired-median",
+            "t_per_spp_independent_min_s": per_sample_time(best[n_small], best[n_large], n_small, n_large),
             "timing_res": res, "n": [n_small, n_large], "min_s": [best[n_small], best[n_large]], "raw": raw,
             "gpu_clock_notes": gpu_notes, "settings": {k: info.get(k) for k in (
                 "pattern", "blur_glossy", "clamp_direct", "clamp_indirect", "adaptive", "denoise",
@@ -519,13 +540,31 @@ def _git(*args, cwd=REPO) -> str:
     return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, check=False).stdout.strip()
 
 
-def nb_meta(seeds, budgets, base_spps, timing: dict) -> dict:
+def nb_receipt(work: Path, force: bool) -> None:
+    """Pin the inputs a work directory's cached renders and timings belong to; refuse to mix in another build."""
+    pyd_dir = Path(os.environ.get("ASTRORAY_PYD_DIR", REPO / "build_cuda"))
+    pyd = next(iter(pyd_dir.glob("astroray*.pyd")), None)
+    now = {"manifest_sha256": hashlib.sha256(MANIFEST.read_bytes()).hexdigest(), "suite_ref": REF_LEG,
+           "pyd": [pyd.name, pyd.stat().st_size, int(pyd.stat().st_mtime)] if pyd else None, "blender": str(BLENDER)}
+    path = work / "receipt.json"
+    if path.is_file() and not force:
+        old = json.loads(path.read_text())
+        if old != now:
+            raise SystemExit(f"[noise-bench] {path} belongs to a different build/manifest: cached {old}, now {now}; "
+                             "use a fresh --work-dir, or --nb-force to overwrite the receipt")
+    work.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(now, indent=1))
+
+
+def nb_meta(seeds, budgets, base_spps, timing: dict, manifest: dict, scenes) -> dict:
     import datetime
     pyd_dir = Path(os.environ.get("ASTRORAY_PYD_DIR", REPO / "build_cuda"))
     pyd = next(iter(pyd_dir.glob("astroray*.pyd")), None)
     first = next(iter(next(iter(timing.values())).values()), {}) if timing else {}
     return {"date": datetime.date.today().isoformat(), "seeds": seeds, "budgets_s": budgets,
-            "base_spps": base_spps, "frame": list(NB_FRAME), "ref": "Cycles 1024 spp refs_v2",
+            "base_spps": base_spps, "frame": list(NB_FRAME),
+            "ref": f"{REF_LEG} reference EXRs in {REFS.relative_to(REPO).as_posix()}", "suite": REFS.parent.name,
+            "crops": {sid: scene_entry(manifest, sid)["crops"] for sid in scenes},
             "harness_sha": _git("rev-parse", "--short", "HEAD"),
             "astroray_build": {"pyd": str(pyd), "pyd_mtime": pyd.stat().st_mtime if pyd else None,
                                "build_sha": _git("rev-parse", "--short", "HEAD", cwd=pyd_dir.parent) if pyd else ""},
@@ -563,7 +602,16 @@ def nb_run(a, manifest, scenes) -> None:
     """--noise-bench: stages ``time`` -> ``render`` -> ``report`` (each cached under --work-dir, resumable)."""
     work = Path(a.work_dir)
     paths = _nb_paths(work, a.nb_tag)
+    nb_receipt(work, a.nb_force)
     timing = json.loads(paths["timing"].read_text()) if paths["timing"].is_file() else {}
+    for per_leg in timing.values():  # entries timed with the old independent-minimum estimator: re-derive from the raw pairs
+        for t in per_leg.values():
+            if "estimator" not in t:
+                n_small, n_large = t["n"]
+                t["t_per_spp_independent_min_s"] = t["t_per_spp_at_res_s"]
+                t["t_per_spp_at_res_s"] = paired_per_sample_time(t["raw"], n_small, n_large)
+                t["t_per_spp_frame_s"] = t["t_per_spp_at_res_s"] * NB_FRAME[0] * NB_FRAME[1] / (t["timing_res"][0] * t["timing_res"][1])
+                t["estimator"] = "paired-median"
     if "time" in a.nb_stages:
         for sid in scenes:
             for leg in a.nb_legs:
@@ -589,7 +637,13 @@ def nb_run(a, manifest, scenes) -> None:
             if "report" in a.nb_stages:
                 rows += nb_rows(sid, leg, plan, t_frame, entry, ref, work, a.seeds)
     if "report" in a.nb_stages:
-        out = {"meta": nb_meta(a.seeds, a.budgets, a.spps, timing), "timing": timing, "plans": plans, "rows": rows}
+        slopes: dict = {}
+        for r in rows:
+            slopes.setdefault(r["scene"], {}).setdefault(r["leg"], {}).setdefault(r["roi"], []).append((r["spp"], r["relvar_lum"]))
+        slopes = {sid: {leg: {roi: nvar_slope(*zip(*pts)) for roi, pts in d.items()} for leg, d in legs.items()}
+                  for sid, legs in slopes.items()}
+        out = {"meta": nb_meta(a.seeds, a.budgets, a.spps, timing, manifest, scenes), "timing": timing, "plans": plans, "rows": rows,
+               "slopes": slopes}
         paths["results"].write_text(json.dumps(out, indent=1))
         print(f"[noise-bench] wrote {paths['results']}")
 
@@ -615,6 +669,7 @@ def main():
     ap.add_argument("--nb-legs", nargs="+", choices=NB_LEGS, default=["cycles", "cycles_gpu", "cpu", "gpu"])
     ap.add_argument("--nb-stages", nargs="+", choices=("time", "render", "report"), default=["time", "render", "report"])
     ap.add_argument("--nb-tag", default="", help="suffix for timing/results files (repeat-run reproducibility check)")
+    ap.add_argument("--nb-force", action="store_true", help="overwrite the work-dir receipt (build/manifest pin)")
     ap.add_argument("--nb-retime", action="store_true", help="redo cached per-sample timings")
     ap.add_argument("--budgets", nargs="+", type=float, default=[2.0, 10.0, 60.0],
                     help="equal-time budgets in seconds per 1280x720 frame")
@@ -639,7 +694,7 @@ def main():
         arb_calibrate(a, manifest, a.scenes or sorted(gated))
         return
     if a.noise_bench:
-        nb_run(a, manifest, a.scenes or sorted(gated) + sorted(VARIANTS))
+        nb_run(a, manifest, a.scenes or sorted(gated) + ([] if a.suite else sorted(VARIANTS)))
         return
     res_path = work / "results.json"
     results = json.loads(res_path.read_text()) if res_path.is_file() else {}

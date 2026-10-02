@@ -80,6 +80,25 @@ def test_per_sample_time_removes_fixed_cost():
     assert t == pytest.approx(per)
 
 
+def test_paired_timing_survives_a_clock_drift_that_biases_independent_minima():
+    # rep 1 ran in a slow clock state (x1.3); rep 2's SMALL render caught a boost spike (x0.6); reps 3-5 are clean.
+    fixed, per = 2.0, 0.02
+    small, large = fixed + per * 64, fixed + per * 320
+    raw = [[1, 64, small * 1.3], [1, 320, large * 1.3], [2, 64, small * 0.6], [2, 320, large],
+           [3, 64, small], [3, 320, large], [4, 64, small], [4, 320, large], [5, 64, small], [5, 320, large]]
+    independent = MC.per_sample_time(min(t for _, n, t in raw if n == 64), min(t for _, n, t in raw if n == 320), 64, 320)
+    assert independent / per - 1 > 0.2  # independent minima: the spiked small render inflates the slope by > 20 %
+    assert MC.paired_per_sample_time(raw, 64, 320) == pytest.approx(per)  # median of paired slopes is not fooled
+
+
+def test_black_or_empty_reference_roi_fails_closed():
+    ref = np.zeros((16, 16, 3))
+    st = np.random.default_rng(0).random((4, 16, 16, 3))
+    m = MC.noise_metrics(st, ref, FULL)
+    assert math.isnan(m["relvar_lum"]) and math.isnan(m["relmse"]) and math.isnan(m["tail_share"])
+    assert math.isnan(MC.noise_metrics(st, ref + 0.5, FULL, floor=1.0)["relmse"])  # floor removes every pixel
+
+
 def test_equal_time_spp_rounds_down_to_a_power_of_two():
     assert MC.floor_pow2(100.0) == 64 and MC.floor_pow2(64.0) == 64 and MC.floor_pow2(0.9) is None
     assert MC.equal_time_spp(10.0, 0.0207) == 256  # 483 -> 256

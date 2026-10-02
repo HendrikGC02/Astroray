@@ -723,3 +723,49 @@ def test_gpu_vs_cpu_graph_warped_image_coordinate():
     cpu = _render_scene(_warped, False)
     gpu = _render_scene(_warped, True)
     _assert_rois(gpu, cpu, 0.03, "computed-uv image GPU vs CPU")
+
+
+# =========================================================================== #
+# Shading context = Cycles sd->N (pre-bump). Layer Weight / Fresnel with an
+# unlinked Normal read sd->N, which a Bump node does not change (Cycles 5.2 probe:
+# ortho top view of a bumped plane with Base Color = Layer Weight.Facing renders
+# flat 0). A lambertian under a uniform white world has radiance = albedo, so a
+# per-hit Facing program must render the SAME with and without a bump map.
+# =========================================================================== #
+def _facing_scene(kind, bump):
+    def build(r):
+        import numpy as np
+        lw = Node('LAYER_WEIGHT', [Sock('Blend', 0.5, type='VALUE'), Sock('Normal', (0, 0, 0))])
+        sock = Sock('Color', (0, 0, 0), link=Link(lw, 'Facing', 'VALUE'), type='RGBA')
+        if kind == 'opvm':
+            c = C.compile_chain(sock)
+            r.create_program_texture("lwp", "UV")
+            r.set_program_texture_program("lwp", 0, c['out_slot'], c['code_flat'],
+                                          c['consts_flat'], c['ramps_flat'])
+        else:
+            _load_graph(r, "lwp", G.compile_value_program(sock), {})
+        params = {"texture": "lwp"}
+        if bump:
+            px = [(1.0 if (i // 4) % 2 else 0.0,) * 3 for j in range(32) for i in range(32)]
+            r.load_texture("stripes", np.array(px, dtype="float32").ravel(), 32, 32, "UV")
+            params.update({"bump_map_texture": "stripes", "bump_strength": 1.0,
+                           "bump_distance": 0.3})
+        mat = r.create_material("lambertian", [1.0, 1.0, 1.0], params)
+        _quad_uv(r, mat)
+    return build
+
+
+@pytest.mark.parametrize("kind,use_gpu", [
+    ('opvm', False), ('graph', False), ('graph', True),
+    pytest.param('opvm', True, marks=pytest.mark.xfail(
+        strict=True, reason="#1031: GPU lambertian skips a texture-less op-VM program"))])
+def test_shading_context_normal_ignores_bump(kind, use_gpu):
+    import numpy as np
+    flat = _render_scene(_facing_scene(kind, False), use_gpu, samples=32)
+    bumped = _render_scene(_facing_scene(kind, True), use_gpu, samples=32)
+    assert np.allclose(_rois(bumped), _rois(flat), atol=0.01), (_rois(bumped), _rois(flat))
+    # Non-vacuous: the per-hit Facing value is applied (CPU reference; the GPU must
+    # match it, which also catches a backend that ignores the program).
+    cpu = flat if not use_gpu else _render_scene(_facing_scene(kind, False), False, samples=32)
+    assert np.allclose(_rois(flat), _rois(cpu), atol=0.01), (_rois(flat), _rois(cpu))
+    assert _rois(cpu).max() - _rois(cpu).min() > 0.01   # facing varies off-centre

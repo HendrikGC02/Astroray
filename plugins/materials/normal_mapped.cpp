@@ -16,6 +16,11 @@ class NormalMappedPlugin : public Material {
     HitRecord perturbNormal(const HitRecord& rec) const {
         HitRecord out = rec;
         Vec3 n = rec.normal;
+        // pkg314: keep sd->N for the per-hit shading inputs (raytracer.h svmNormal).
+        if (!out.hasSvmNormal) {
+            out.svmNormal = rec.normal;
+            out.hasSvmNormal = true;
+        }
 
         if (normalTexture_) {
             Vec3 rgb = normalTexture_->value(rec, Vec3(0));

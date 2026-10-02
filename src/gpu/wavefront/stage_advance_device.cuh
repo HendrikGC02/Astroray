@@ -1788,7 +1788,12 @@ __device__ __forceinline__ bool shadePathSlotImpl(
         // #989 — per-hit shading context for OP_SHADING (CPU twin: ProgramTexture::
         // valueAtHit): cos(view, shading normal) and the back-face flag.
         astroray::svm::SvmShading sh;
-        sh.cosI = (ray.direction * -1.0f).normalized().dot(rec.normal);
+        // pkg314: Cycles sd->N, i.e. the parked shading normal BEFORE the Bump /
+        // Normal Map perturbation above (verified against Cycles 5.2; CPU twin
+        // HitRecord::shadingContextNormal, GPU graph kernel stage_graph_eval.cu).
+        const GVec3 svmN(hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx],
+                         hitBufs.hit_normal_z[idx]);
+        sh.cosI = (ray.direction * -1.0f).normalized().dot(svmN);
         sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
         if (c_wfProgBinding.matScalarProgId && c_wfProgBinding.matScalarTexId) {
             const int base = rec.materialId * astroray::svm::VM_SCALAR_SLOTS;
@@ -2033,7 +2038,9 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                         if (haveTex) {
                             // #989: same per-hit shading context as the override block.
                             astroray::svm::SvmShading shL;
-                            shL.cosI = (ray.direction * -1.0f).normalized().dot(rec.normal);
+                            shL.cosI = (ray.direction * -1.0f).normalized().dot(GVec3(
+                                hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx],
+                                hitBufs.hit_normal_z[idx]));  // pkg314: sd->N, pre-bump
                             shL.backfacing = rec.frontFace ? 0.0f : 1.0f;
                             texColor = astroray::svm::svm_eval(
                                 c_wfProgBinding.programs[progId], vmIn, &shL);

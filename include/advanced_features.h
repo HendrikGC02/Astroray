@@ -527,7 +527,7 @@ public:
     Vec3 valueAtHit(const Vec2& uv, const Vec3& p, const HitRecord& rec,
                     const Vec3& wo) const override {
         astroray::svm::SvmShading sh;
-        sh.cosI = wo.dot(rec.normal);
+        sh.cosI = wo.dot(rec.shadingContextNormal());  // pkg314: sd->N, pre-bump
         sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
         return eval(uv, p, &sh);
     }
@@ -675,7 +675,7 @@ public:
     Vec3 valueAtHit(const Vec2&, const Vec3&, const HitRecord& rec,
                     const Vec3& wo) const override {
         astroray::svm::SvmShading sh;
-        sh.cosI = wo.dot(rec.normal);
+        sh.cosI = wo.dot(rec.shadingContextNormal());  // pkg314: sd->N, pre-bump
         sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
         return eval(rec, wo, sh);
     }

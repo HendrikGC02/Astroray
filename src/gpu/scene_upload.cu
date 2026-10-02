@@ -1325,8 +1325,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 // so no single bake domain exists: GPU keeps the texture mean
                 // (reported below and by the addon); CPU evaluates it per hit.
                 fprintf(stderr, "[pkg314] DEGRADED: Emission Color graph program renders "
-                                "its texture mean on GPU
-");
+                                "its texture mean on GPU\n");
             } else if (tex) {
                 // pkg190 — bake a PROCEDURAL base-colour texture (checker / brick /
                 // wave / magic / …) into the flat device texel buffer, then reuse

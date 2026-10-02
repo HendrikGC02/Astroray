@@ -95,3 +95,14 @@ def test_object_local_affine_is_the_inverse(monkeypatch):
     world = m @ np.append(p, 1.0)
     assert np.allclose(a @ world, p, atol=1e-9)
     assert addon._object_local_affine(np.zeros((4, 4)).tolist()) is None
+
+
+def test_linked_w_is_reported_not_silent(monkeypatch):
+    # A linked W (1D / 4D) is read as its default value, as every linked Noise socket
+    # is until per-hit socket inputs exist; it must be a reported degradation.
+    _, eng = _engine(monkeypatch)
+    noise = _noise("4D")
+    noise.inputs.get('W')._link = Link(Node('VALUE'), 'Value')
+    bsdf = Node('BSDF_DIFFUSE', inputs=[Sock('Color', [0.8, 0.8, 0.8], Link(noise, 'Fac'))])
+    eng.get_base_color_texture(bsdf, 'Color', _Recorder())
+    assert any("linked W input" in m for m in eng._degradation_report().messages())

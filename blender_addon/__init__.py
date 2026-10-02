@@ -6522,6 +6522,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 if obj_affine is not None:
                     renderer.set_objects_object_transform(
                         scene_count_before, scene_count_after, obj_affine)
+                if motion_end_matrix is not None:
+                    # The per-vertex frame is interpolated with barycentrics of the
+                    # shutter-open triangle (as #847 Generated), so a moving object's
+                    # pattern slides across the shutter instead of staying attached.
+                    self._warn_shader_fallback(
+                        'TEX_COORD', "Object coordinates on motion-blurred '%s' use the "
+                        "shutter-open pose (#1034)" % obj.name)
             for oid in range(scene_count_before, scene_count_after):
                 # pkg64 Phase 3 — caustic caster flag
                 if is_caustic_caster and hasattr(renderer, "set_object_caustic_caster"):

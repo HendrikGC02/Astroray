@@ -55,4 +55,4 @@ Instances: CPU never traverses instances (duplis are flattened, one frame per du
 GPU two-level fast path is skipped for materials that read Object coordinates
 (`_object_instanceable`), so they flatten too. Not covered: Texture Coordinate with an
 explicit `object` (Cycles `NODE_TEXCO_OBJECT_WITH_TRANSFORM`), and the Normal output's
-object-space normal. Both are follow-ups.
+object-space normal. Both are follow-ups. Motion blur: the frame is interpolated with shutter-open barycentrics (as #847 Generated), reported as APPROXIMATED; fix tracked in #1034 (Terra review).

@@ -1,0 +1,41 @@
+{
+ "title": "Repeat GPU render(), unchanged scene, 16x16 1 spp (min of 6 warm)",
+ "xlabel": "scene",
+ "ylabel": "wall s",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "main 34c3d929",
+   "x": [
+    "simple 12 tri",
+    "heavy 2M tri"
+   ],
+   "y": [
+    0.0040929999959189445,
+    0.8857957000145689
+   ],
+   "role": "other"
+  },
+  {
+   "label": "device-scene cache",
+   "x": [
+    "simple 12 tri",
+    "heavy 2M tri"
+   ],
+   "y": [
+    0.003501800005324185,
+    0.0035084999981336296
+   ],
+   "role": "gpu"
+  }
+ ],
+ "band": null,
+ "ref": [
+  0.3,
+  "0.3 s gate"
+ ],
+ "meta": {
+  "gpu": "RTX 5070 Ti",
+  "issue": 981
+ }
+}

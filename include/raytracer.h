@@ -2598,6 +2598,18 @@ class Renderer {
     // getSceneMutable() (the one door to in-place geometry edits). Materials,
     // lights, instances (pkg114 TLAS, not in `bvh`) and the camera never dirty it.
     bool bvhDirty_ = true;
+    // #981 - scene version for the GPU device-scene cache. Process-unique and
+    // monotonic (a fresh or re-assigned Renderer never repeats a version), bumped
+    // by every mutation of what buildSceneArrays reads: geometry, lights, the
+    // light sampler, instances, motion vertices, the environment map, curve mode.
+    // The wavefront driver reuses its flattened + uploaded scene (and the OptiX
+    // accel built from it) while this is unchanged. Material / texture edits that
+    // bypass Renderer call touchScene() from the binding layer.
+    static uint64_t nextSceneVersion() {
+        static std::atomic<uint64_t> counter{0};
+        return ++counter;
+    }
+    uint64_t sceneVersion_ = nextSceneVersion();
     int bvhBuildCount_ = 0;
     double bvhBuildMs_ = 0.0;   // wall time of the most recent build
     // pkg114 — two-level BVH instancing. A registered mesh keeps its prims in
@@ -3143,7 +3155,7 @@ public:
     // out-of-line below render() where Pass/Framebuffer are complete types.
     void applyPasses(Camera& cam);
 
-    void setEnvironmentMap(std::shared_ptr<EnvironmentMap> map) { envMap = map; }
+    void setEnvironmentMap(std::shared_ptr<EnvironmentMap> map) { envMap = map; touchScene(); }  // #981
     void setBackgroundColor(const Vec3& color) { backgroundColor = color; }
     void setFilmExposure(float exposure) { filmExposure = exposure; }
     void setUseTransparentFilm(bool use) { useTransparentFilm = use; }
@@ -3166,7 +3178,7 @@ public:
     void setUseProgressiveSampler(bool use) { useProgressiveSampler = use; }
     bool getUseProgressiveSampler() const { return useProgressiveSampler; }
     // pkg225 Stage 3 — GPU curve shading mode (ribbon default / thick parity).
-    void setCurveThickMode(bool thick) { curveThickMode = thick; }
+    void setCurveThickMode(bool thick) { curveThickMode = thick; touchScene(); }  // #981
     bool getCurveThickMode() const { return curveThickMode; }
     // pkg131 — GPU adaptive-sampling opt-in (see field above).
     void setUseAdaptiveSampling(bool use) { useAdaptiveSampling = use; }
@@ -3427,6 +3439,7 @@ public:
 
     // pkg86: Set light sampling strategy (Power or Tree).
     void setLightSampler(LightList::SamplerMode mode) {
+        touchScene();  // #981
         lights.setSampler(mode);
     }
 
@@ -3442,6 +3455,7 @@ public:
 
     void clear() {
         scene.clear(); bvh.reset(); bvhDirty_ = true; lights = LightList();
+        touchScene();  // #981
         envMap.reset();
         backgroundColor = Vec3(-1);
         filmExposure = 1.0f;
@@ -4842,16 +4856,25 @@ public:
     void addObject(std::shared_ptr<Hittable> obj) {
         scene.push_back(obj);
         bvhDirty_ = true;  // pkg298
+        touchScene();      // #981
         if (obj->isLight()) lights.add(obj);
     }
 
     // pkg89 Phase B: add dedicated Light (not a Hittable).
     void addDedicatedLight(std::unique_ptr<astroray::Light> light) {
+        touchScene();  // #981
         lights.addLight(std::move(light));
     }
+    // #981: bump the scene version (see sceneVersion_). Public so the binding
+    // layer can mark in-place material / texture / name edits.
+    void touchScene() { sceneVersion_ = nextSceneVersion(); }
+    uint64_t getSceneVersion() const { return sceneVersion_; }
     // #849: in-place viewport light re-sync.
     size_t dedicatedLightCount() const { return lights.getDedicatedLights().size(); }
-    void removeDedicatedLights(size_t start, size_t count) { lights.removeDedicated(start, count); }
+    void removeDedicatedLights(size_t start, size_t count) {
+        touchScene();  // #981
+        lights.removeDedicated(start, count);
+    }
 
     // pkg298: reuses the BVH while the scene geometry is unchanged (bvhDirty_).
     void buildAcceleration() {
@@ -4882,6 +4905,7 @@ public:
     // BLAS is built immediately and reused by every instance of this mesh.
     int registerMesh(const std::vector<std::shared_ptr<Hittable>>& localPrims) {
         int id = static_cast<int>(meshBlas_.size());
+        touchScene();  // #981
         meshPrims_.push_back(localPrims);
         meshBlas_.push_back(std::make_shared<BVHAccel>(localPrims));
         return id;
@@ -4892,6 +4916,7 @@ public:
         if (meshId < 0 || static_cast<size_t>(meshId) >= meshBlas_.size())
             throw std::runtime_error("addInstance: mesh id out of range");
         int id = static_cast<int>(instances_.size());
+        touchScene();  // #981
         instances_.push_back(InstanceRecord{meshId, transform});
         return id;
     }
@@ -4900,6 +4925,7 @@ public:
     void updateInstanceTransform(int instanceId, const std::array<float, 16>& transform) {
         if (instanceId < 0 || static_cast<size_t>(instanceId) >= instances_.size())
             throw std::runtime_error("updateInstanceTransform: instance id out of range");
+        touchScene();  // #981
         instances_[instanceId].transform = transform;
     }
     bool hasInstances() const { return !instances_.empty(); }
@@ -4913,6 +4939,7 @@ public:
     // with motionVertexBuffer + tri*3 arithmetic, so contiguity holds within
     // a batch. Layout per batch: [v0_end, v1_end, v2_end, ...] for 2 steps.
     const Vec3* appendMotionVertices(std::vector<Vec3> motionVerts) {
+        touchScene();  // #981
         motionVertexBatches_.push_back(std::move(motionVerts));
         return motionVertexBatches_.back().data();
     }
@@ -4927,7 +4954,7 @@ public:
     // see pkg56 spec "Key design decisions". Direct external mutation requires
     // the caller to rebuild the BVH afterwards (buildAcceleration()).
     // pkg298: handing out mutable access marks the cached BVH dirty.
-    std::vector<std::shared_ptr<Hittable>>& getSceneMutable() { bvhDirty_ = true; return scene; }
+    std::vector<std::shared_ptr<Hittable>>& getSceneMutable() { bvhDirty_ = true; touchScene(); return scene; }
     const std::shared_ptr<BVHAccel>& getBVH() const { return bvh; }
     int getBvhBuildCount() const { return bvhBuildCount_; }   // pkg298
     double getBvhBuildMs() const { return bvhBuildMs_; }      // pkg298

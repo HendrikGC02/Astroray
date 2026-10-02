@@ -1103,6 +1103,11 @@ struct WfContext {
     bool sceneCached = false;
     bool sceneInvalidated = false;
     uint64_t cachedOwner = 0;   // sceneOwnerId of the renderer that uploaded it
+    // #981: Renderer::getSceneVersion() at upload (process-unique per scene
+    // state) and the ASTRORAY_GPU_TRAVERSAL request the OptiX accel was built
+    // under; a render reuses the cache only when both still match.
+    uint64_t cachedVersion = 0;
+    int cachedTraversal = -1;
     // Per-path state (grow-only via the existing allocators).
     GPUWavefrontState state{};
     GPUWavefrontHitBuffers hitBufs{};
@@ -1172,6 +1177,11 @@ void cuda_wavefront_invalidate_scene() {
 // #828: grid buffers uploaded by the last cuda_wavefront_render (see header).
 static int s_lastGridUploads = 0;
 int cuda_wavefront_last_grid_uploads() { return s_lastGridUploads; }
+
+// #981: 1 when the last cuda_wavefront_render served the device scene (and OptiX
+// accel) from the cache, 0 when it re-flattened and re-uploaded.
+static int s_lastSceneReused = 0;
+int cuda_wavefront_last_scene_reused() { return s_lastSceneReused; }
 
 // pkg299: 1 when the last cuda_wavefront_render traced with OptiX, else 0.
 static int s_lastTraversal = 0;
@@ -1608,8 +1618,19 @@ std::vector<float> cuda_wavefront_render(
     // The context is process-global while PyRenderer objects are many (the
     // Blender viewport and F12 use separate renderers), so the cache is keyed on
     // the owning renderer's id: another renderer's upload never serves a reuse.
-    const bool reuse = reuseDeviceScene && C.sceneCached && !C.sceneInvalidated
-                       && C.cachedOwner == sceneOwnerId;
+    // #981: the scene version replaces the caller's assertion. Any unchanged
+    // scene (F12 repeat renders, viewport camera-only frames) reuses the device
+    // scene and the OptiX accel built from it; any edit bumps the version (or
+    // invalidates the cache) and re-flattens + re-uploads in full. The traversal
+    // request is part of the key because the accel is only built for OptiX and
+    // the host arrays it needs are released after upload.
+    (void)reuseDeviceScene;   // subsumed by the version check (a stale assertion cannot serve)
+    const int traversalKey = static_cast<int>(astroray::optix_trav::requested());
+    const bool reuse = C.sceneCached && !C.sceneInvalidated
+                       && C.cachedOwner == sceneOwnerId
+                       && C.cachedVersion == renderer.getSceneVersion()
+                       && C.cachedTraversal == traversalKey;
+    s_lastSceneReused = reuse ? 1 : 0;
     // pkg298 Phase 0: host-side flatten / upload attribution (ASTRORAY_PROFILE).
     const auto pkg298T0 = std::chrono::steady_clock::now();
     if (!reuse) {
@@ -1941,6 +1962,8 @@ std::vector<float> cuda_wavefront_render(
         release(res.envMargCdf); release(res.envMargFunc);
         C.sceneCached = true;
         C.sceneInvalidated = false;
+        C.cachedVersion = renderer.getSceneVersion();
+        C.cachedTraversal = traversalKey;
     }
     if (astroray::gpu_profile::enabled()) {
         const auto t2 = std::chrono::steady_clock::now();
@@ -2882,6 +2905,9 @@ std::vector<float> cuda_wavefront_render_restir(
     { Vec3 f = cam.viewForward(); gcam.forward = GVec3(f.x, f.y, f.z); }
 
     WfContext& C = wfCtx();
+    // #981: this path overwrites the shared scene slices with its own upload, so
+    // the cache must not serve the next cuda_wavefront_render.
+    C.sceneCached = false;
     SceneUploadResult res = buildSceneArrays(renderer, &cam);
     // #962: ReSTIR candidates/resolve carry no emitter point -> flat mean emission.
     if (res.hasEmissionTextureRequested)

@@ -545,6 +545,7 @@ class PyRenderer {
     // device grid cache served it; always 0 on the CPU path).
     int lastRenderInfoGridUploads_ = 0;
     bool lastRenderInfoOptix_ = false;  // pkg299: last GPU render used OptiX traversal
+    bool lastRenderInfoSceneReused_ = false;  // #981: last GPU render served the device scene cache
     // pkg89 Phase B: IES profile cache (shared_ptr keeps profiles alive).
     std::unordered_map<std::string, std::shared_ptr<IESProfile>> iesProfiles_;
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -577,24 +578,30 @@ public:
                                  const std::vector<float>& bmin,
                                  const std::vector<float>& bsize) {
         textureManager.setTextureGeneratedBBox(name, bmin, bsize);
+        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
     }
     void setTextureCoordMode(const std::string& name, const std::string& coordMode) {
         textureManager.setTextureCoordMode(name, coordMode);
+        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
     }
     void setTextureUVTransform(const std::string& name,
                                float sx, float sy, float ox, float oy,
                                float rotZRad = 0.0f) {
         textureManager.setTextureUVTransform(name, sx, sy, ox, oy, rotZRad);
+        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
     }
     void setTextureUVLayerName(const std::string& name, const std::string& layerName) {
         textureManager.setTextureUVLayerName(name, layerName);
+        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
     }
     void setTextureExtension(const std::string& name, const std::string& ext) {
         textureManager.setTextureExtension(name, ext);
+        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
     }
     void setTextureMappingMatrix(const std::string& name,
                                  const std::vector<float>& m) {
         textureManager.setTextureMappingMatrix(name, m);
+        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
     }
     // pkg219b op-VM builder forwarders.
     void createProgramTexture(const std::string& name, const std::string& coordMode) {
@@ -602,6 +609,7 @@ public:
     }
     void programTextureAddInput(const std::string& name, const std::string& inputName) {
         textureManager.programTextureAddInput(name, inputName);
+        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
     }
     void setProgramTextureProgram(const std::string& name, int numTex, int outSlot,
                                   const std::vector<int>& code_flat,
@@ -609,6 +617,7 @@ public:
                                   const std::vector<float>& ramps_flat) {
         textureManager.setProgramTextureProgram(name, numTex, outSlot,
                                                 code_flat, consts_flat, ramps_flat);
+        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
     }
     void createCoordProgramTexture(const std::string& name, const std::string& childName,
                                    const std::string& coordMode, int outSlot,
@@ -2320,6 +2329,7 @@ public:
     // pkg87d — register names in manifest registry
     bool setObjectName(int objectId, const std::string& name) {
         bool ok = renderer.setObjectName(objectId, name);
+        invalidateWavefrontScene();  // #981: objectHash is uploaded
         if (ok) {
             crypto_name_registry::instance().add_object(name);
         }
@@ -2329,6 +2339,7 @@ public:
     void setMaterialName(int materialId, const std::string& name) {
         if (materials.count(materialId)) {
             materials[materialId]->setName(name);
+            invalidateWavefrontScene();  // #981: materialHash is uploaded
             crypto_name_registry::instance().add_material(name);
         }
     }
@@ -2689,6 +2700,8 @@ public:
                     astroray::wavefront::cuda_wavefront_last_grid_uploads();  // #828
                 lastRenderInfoOptix_ =
                     astroray::wavefront::cuda_wavefront_last_traversal() != 0;  // pkg299
+                lastRenderInfoSceneReused_ =
+                    astroray::wavefront::cuda_wavefront_last_scene_reused() != 0;  // #981
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],
@@ -2793,6 +2806,7 @@ public:
             lastRenderInfoCancelledAtUnit_ = -1;
             lastRenderInfoGridUploads_ = 0;  // #828
             lastRenderInfoOptix_ = false;    // pkg299
+            lastRenderInfoSceneReused_ = false;  // #981
         }
         if (callbackError) std::rethrow_exception(callbackError);
 
@@ -2849,6 +2863,8 @@ public:
         // pkg299: "optix" when the last GPU render traced with OptiX hardware
         // traversal, else "software" (the CPU BVH flattened to the device).
         d["gpu_traversal"] = lastRenderInfoOptix_ ? "optix" : "software";
+        // #981: true when the last GPU render reused the device scene + OptiX accel.
+        d["gpu_scene_reused"] = lastRenderInfoSceneReused_;
         // pkg298: wall ms of the most recent CPU BVH build (a cached render
         // leaves it unchanged; compare get_scene_stats()["bvh_build_count"]).
         d["bvh_build_ms"] = renderer.getBvhBuildMs();
@@ -3264,11 +3280,13 @@ public:
         if (profile) it->second->setSpectralProfile(
             profile, replace ? astroray::ProfileMode::Replace
                              : astroray::ProfileMode::ExtendOnly);
+        invalidateWavefrontScene();  // #981
     }
 
     void clearMaterialSpectralProfile(int materialId) {
         auto it = materials.find(materialId);
         if (it != materials.end()) it->second->setSpectralProfile(nullptr);
+        invalidateWavefrontScene();  // #981
     }
 
     void setIntegrator(const std::string& name) {
@@ -5188,6 +5206,9 @@ PYBIND11_MODULE(astroray, m) {
     // pkg39: spectral profile database
     m.def("load_spectral_profiles", [](const std::string& path) {
         astroray::SpectralProfileDatabase::instance().load(path);
+#if defined(ASTRORAY_CUDA_ENABLED) && defined(ASTRORAY_WAVEFRONT_CUDA_N3)
+        astroray::wavefront::cuda_wavefront_invalidate_scene();  // #981: profile table is uploaded
+#endif
     }, "path"_a, "Load the ASPR profiles.bin database.");
     m.def("spectral_profile_names", []() {
         return astroray::SpectralProfileDatabase::instance().names();
@@ -5202,6 +5223,9 @@ PYBIND11_MODULE(astroray, m) {
              const std::vector<float>& values) -> bool {
         const auto* p = astroray::SpectralProfileDatabase::instance().registerProfile(
             name, lambda_min_nm, lambda_step_nm, values);
+#if defined(ASTRORAY_CUDA_ENABLED) && defined(ASTRORAY_WAVEFRONT_CUDA_N3)
+        astroray::wavefront::cuda_wavefront_invalidate_scene();  // #981: profile table is uploaded
+#endif
         return p != nullptr;
     }, "name"_a, "lambda_min_nm"_a, "lambda_step_nm"_a, "values"_a,
        "Register a runtime spectral profile sampled on a regular grid "

@@ -37,6 +37,17 @@ def _render(scene: str, out: str) -> None:
     sys.path.insert(0, str(ROOT))
     from runtime_setup import configure_test_imports
     configure_test_imports()
+    import astroray
+    probe = astroray.Renderer()
+    try:
+        probe.set_use_gpu(True)
+    except Exception:  # noqa: BLE001 - CPU-only build
+        print("PKG300_NO_GPU")
+        return
+    if not getattr(probe, "gpu_available", False):
+        print("PKG300_NO_GPU")
+        return
+    del probe
     if scene.startswith("cornell_"):
         sys.argv = [sys.argv[0]]
         sys.path.insert(0, str(ROOT / "benchmarks"))
@@ -49,9 +60,6 @@ def _render(scene: str, out: str) -> None:
     import base_helpers as bh
     r = bh.create_renderer()
     r.set_use_gpu(True)
-    if not getattr(r, "gpu_available", False):
-        print("PKG300_NO_GPU")
-        return
     r.set_seed(300)
     r.set_adaptive_sampling(False)
     if scene == "closure_graph_cornell":

@@ -9,6 +9,12 @@
 // (kernel/device/cuda/config.h, Apache-2.0). Other TUs keep __noinline__.
 // Full inlining doubled the shade-part build (1189 s vs ~460 s, build 7af4baa5),
 // so only the HasPrincipled=false fleet kernel uses it (stage_shade_fleet_p0.cu).
+// Linkage: the redefinition only changes inlining, never semantics, and with every
+// callee inlined the TU emits no out-of-line copy of any external-linkage header
+// function, so nvlink has no weak copy from here to choose (cuobjdump of
+// stage_shade_fleet_p0.cu.obj, build 8172ffa5: the kernel, one internal-linkage
+// hair helper and the compiler's div/rcp/sqrt slowpaths only). A future callee
+// that cannot be inlined would emit an ordinary ABI-compatible weak copy.
 // Attribute-only spelling (several sites already say `__noinline__ inline`):
 // MSVC-mode frontend -> __forceinline, GNU mode -> always_inline.
 #pragma once

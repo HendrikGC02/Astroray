@@ -439,8 +439,11 @@ __device__ inline bool gpu_tlas_hit(
     // Deformation motion on INSTANCED meshes is out of scope v1 (the BLAS
     // walk below intentionally does not receive the buffer).
     const GVec3*      motionVerts = nullptr,
-    // pkg225 Stage 3: curves live in the single-level BVH (addObject → orderedPrims),
-    // not in a per-mesh BLAS, so they are threaded to the null-TLAS fallback only.
+    // pkg225 Stage 3: curves live in the flat scene (addObject → orderedPrims),
+    // never in a registered-mesh BLAS. With a TLAS the flat scene is the
+    // identity-transform BLAS (pkg114 inc 3b), so curves go into the BLAS walk
+    // too (#963: dropping them hid every strand once a scene had instances).
+    // Registered-mesh BLASes hold no GPRIM_CURVE, so the leaf never fires there.
     const GCurveSegment* curves = nullptr)
 {
     // No TLAS uploaded -> behave exactly like the single-level path. (Lets a
@@ -479,8 +482,9 @@ __device__ inline bool gpu_tlas_hit(
                     // The BLAS's leaf primitivesOffset is BLAS-LOCAL, so the prims
                     // base is offset by blas.primOffset; tris/spheres are indexed
                     // by GPrimitive.index which is already global (no offset).
-                    bool ih = gpu_bvh_hit(blasNodes + b.nodeOffset, prims + b.primOffset,
-                                          tris, spheres, local, tMin, tMax, lrec);
+                    bool ih = gpu_bvh_hit<HasCurves>(blasNodes + b.nodeOffset, prims + b.primOffset,
+                                          tris, spheres, local, tMin, tMax, lrec,
+                                          nullptr, curves);
                     if (ih && lrec.t < tMax) {
                         hit  = true;
                         tMax = lrec.t;              // tighten the shared cutoff
@@ -529,7 +533,7 @@ __device__ inline bool gpu_tlas_occluded(
     const GRay&       ray,
     float tMin, float tMax,
     const GVec3*      motionVerts = nullptr,
-    // pkg225 Stage 3 — curves cast shadows (single-level fallback only).
+    // pkg225 Stage 3 — curves cast shadows (both paths; see gpu_tlas_hit, #963).
     const GCurveSegment* curves = nullptr)
 {
     if (!tlas || !instances || !blas) {

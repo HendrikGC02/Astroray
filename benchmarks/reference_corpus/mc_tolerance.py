@@ -418,8 +418,9 @@ def efficiency(relmse: float, t_s: float) -> float:
     return 1.0 / (relmse * t_s) if relmse > 0 and t_s > 0 else float("nan")
 
 
-def _nb_paths(work: Path) -> dict:
-    return {"timing": work / "timing.json", "renders": work / "renders", "results": work / "nb_results.json"}
+def _nb_paths(work: Path, tag: str = "") -> dict:
+    """``tag`` separates repeat timing runs that share one (deterministic, cached) render directory."""
+    return {"timing": work / f"timing{tag}.json", "renders": work / "renders", "results": work / f"nb_results{tag}.json"}
 
 
 def _nb_render(sid, leg, spp, seed, work, threads=8, **kw):
@@ -520,7 +521,7 @@ def nb_meta(seeds, budgets, base_spps, timing: dict) -> dict:
 def nb_run(a, manifest, scenes) -> None:
     """--noise-bench: stages ``time`` -> ``render`` -> ``report`` (each cached under --work-dir, resumable)."""
     work = Path(a.work_dir)
-    paths = _nb_paths(work)
+    paths = _nb_paths(work, a.nb_tag)
     timing = json.loads(paths["timing"].read_text()) if paths["timing"].is_file() else {}
     if "time" in a.nb_stages:
         for sid in scenes:
@@ -571,6 +572,8 @@ def main():
                     help="pkg307: noise-per-time benchmark (equal-spp and equal-time tables) instead of the gate bands")
     ap.add_argument("--nb-legs", nargs="+", choices=NB_LEGS, default=["cycles", "cycles_gpu", "cpu", "gpu"])
     ap.add_argument("--nb-stages", nargs="+", choices=("time", "render", "report"), default=["time", "render", "report"])
+    ap.add_argument("--nb-tag", default="", help="suffix for timing/results files (repeat-run reproducibility check)")
+    ap.add_argument("--nb-tag", default="", help="suffix for timing/results files (repeat-run reproducibility check)")
     ap.add_argument("--nb-retime", action="store_true", help="redo cached per-sample timings")
     ap.add_argument("--budgets", nargs="+", type=float, default=[2.0, 10.0, 60.0],
                     help="equal-time budgets in seconds per 1280x720 frame")

@@ -1,4 +1,5 @@
 #pragma once
+#include "astroray/gpu_shade_noinline.h"  // pkg300: ASTRORAY_SHADE_NOINLINE
 // pkg225 Stage 3 — GPU ray-curve intersection (device port of the CPU
 // CurveSegment::hit in include/astroray/curves.h).
 //
@@ -110,7 +111,7 @@ __device__ inline bool gBoundsOverlapRay(const GVec3 cp[4], float radius,
 // register budget (see file header). Return value is the hit boolean; on true
 // the caller narrows its own tMax (gpu_bvh_hit leaf contract).
 // ---------------------------------------------------------------------------
-__device__ __noinline__ inline bool gpu_curve_intersect(
+__device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_curve_intersect(
     const GCurveSegment& seg, const GRay& ray, float tMin, float tMax,
     GHitRecord& rec)
 {

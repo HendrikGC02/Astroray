@@ -34,6 +34,7 @@
 
 #ifndef ASTRORAY_SAMPLING_PROGRESSIVE_SOBOL_DEVICE_H
 #define ASTRORAY_SAMPLING_PROGRESSIVE_SOBOL_DEVICE_H
+#include "astroray/gpu_shade_noinline.h"  // pkg300: ASTRORAY_SHADE_NOINLINE
 
 #include <cstdint>
 
@@ -156,7 +157,7 @@ PS_HD inline float ProgressiveSobolSample(uint32_t pixel, uint32_t sample,
 // reaches it only when c_wfSamplerMode != 0, so on the byte-identical fleet
 // off-path the register allocator sees a not-taken call, not an inlined body.
 // The pkg224 register-probe gate is what confirms this holds.
-__device__ __noinline__ inline float ProgressiveSobolSampleDevice(
+__device__ ASTRORAY_SHADE_NOINLINE inline float ProgressiveSobolSampleDevice(
     uint32_t pixel, uint32_t sample, uint32_t dimension, uint64_t scene_seed) {
     return ProgressiveSobolSample(pixel, sample, dimension, scene_seed);
 }

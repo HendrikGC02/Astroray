@@ -6,6 +6,7 @@
 // under -rdc); each is DEFINED exactly once in stage_advance.cu with its host
 // setter.
 #pragma once
+#include "astroray/gpu_shade_noinline.h"  // pkg300: ASTRORAY_SHADE_NOINLINE
 
 #include "astroray/gpu_wavefront_state.h"
 #include "astroray/gpu_types.h"
@@ -235,7 +236,7 @@ extern __constant__ int c_wfEmissionFlatPrims;
 
 struct GProgInputTexel { GVec3 c; bool ok; };
 // Defined after c_wfTexBinding below.
-static __device__ __noinline__ GProgInputTexel gpu_emissionTexel(
+static __device__ ASTRORAY_SHADE_NOINLINE GProgInputTexel gpu_emissionTexel(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris,
     const GSphere* spheres, int matId);
 
@@ -1136,7 +1137,7 @@ template<> struct GScalarOverride<true> { ::GMaterial mat; };
 // below). Otherwise the pre-#847 per-texture bbox frame:
 // g = (point - genMin)/genSize (include/advanced_features.h CoordMode::Generated).
 // __noinline__ keeps the body out of the REG:254 shade kernel's allocation.
-static __device__ __noinline__ GVec3 gpu_generatedCoord(
+static __device__ ASTRORAY_SHADE_NOINLINE GVec3 gpu_generatedCoord(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
 {
     const GVec3* tg = c_wfTexBinding.triGenerated;
@@ -1169,7 +1170,7 @@ static __device__ __noinline__ GVec3 gpu_generatedCoord(
     return g;
 }
 
-static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
+static __device__ ASTRORAY_SHADE_NOINLINE GProgInputTexel gpu_progInputTexel(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
 {
     const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
@@ -1208,7 +1209,7 @@ static __device__ __noinline__ GProgInputTexel gpu_progInputTexel(
 // baseColor_. ok=false when untextured or when any input misses at this hit (the
 // caller keeps the constant base colour, as the lambertian path does). __noinline__
 // keeps the fetch + VM register file out of the REG:254 <HasProgram=true> caller.
-static __device__ __noinline__ GProgInputTexel gpu_principledBaseTexel(
+static __device__ ASTRORAY_SHADE_NOINLINE GProgInputTexel gpu_principledBaseTexel(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int matId,
     astroray::svm::SvmShading sh)
 {
@@ -1251,7 +1252,7 @@ static __device__ __noinline__ GProgInputTexel gpu_principledBaseTexel(
 // at every emitter hit and at the light-sampled point
 // (intern/cycles/kernel/light/triangle.h + kernel/integrator/shade_surface.h).
 // Caller guards on c_wfEmissionTex, so c_wfTexBinding is valid this frame.
-static __device__ __noinline__ GProgInputTexel gpu_emissionTexel(
+static __device__ ASTRORAY_SHADE_NOINLINE GProgInputTexel gpu_emissionTexel(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris,
     const GSphere* spheres, int matId)
 {
@@ -1285,7 +1286,7 @@ static __device__ __noinline__ GProgInputTexel gpu_emissionTexel(
 // gpu_nee.cuh). Triangle: v0 + e1*b1 + e2*b2 (the sampled lpos); sphere: the
 // parked true distance along wi. No re-trace, so the fetched texel is the one
 // the BSDF-hit leg sees at that point.
-static __device__ __noinline__ GProgInputTexel gpu_emissionTexelAtLightSample(
+static __device__ ASTRORAY_SHADE_NOINLINE GProgInputTexel gpu_emissionTexelAtLightSample(
     GVec3 origin, GVec3 wi, float geomDist, GVec3 packed, int lightMatId,
     const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres)
 {
@@ -1382,7 +1383,7 @@ __device__ __forceinline__ void gpu_applyScalarOverride(
 // lazily in stageEnvShadowKernel (register economy); here we prefold everything
 // except L_spec: throughput * f_spec * (wt / envPdf).
 template<bool HasPrincipled>
-__device__ __noinline__ bool gpu_env_nee_generate(
+__device__ ASTRORAY_SHADE_NOINLINE bool gpu_env_nee_generate(
     int idx, int bounce, GHitRecord& rec, const GVec3& wo,
     const GMaterial& mat, const GSampledSpectrum& throughput,
     const GSampledWavelengths& lambdas, WavefrontRNG* rng)

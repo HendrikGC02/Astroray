@@ -1,4 +1,5 @@
 #pragma once
+#include "astroray/gpu_shade_noinline.h"  // pkg300: ASTRORAY_SHADE_NOINLINE
 // pkg225 Stage 4 — GPU Principled Hair BSDF (Chiang 2016).
 //
 // Device twin of plugins/materials/principled_hair.cpp. Reuses the EXACT shared
@@ -230,7 +231,7 @@ __device__ inline GVec3 gpu_hair_sampleDir(const GHairMat& m, const GHairGeom& g
 //  pressure stays OUT of the REG:254 fleet shade kernel (see file header).
 // ===========================================================================
 
-__device__ __noinline__ inline GVec3 gpu_hair_eval(
+__device__ ASTRORAY_SHADE_NOINLINE inline GVec3 gpu_hair_eval(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi) {
     if (rec.hairV < 0.0f) return GVec3(0.f);
     GHairMat m = gpu_hair_unpack(mat);
@@ -245,7 +246,7 @@ __device__ __noinline__ inline GVec3 gpu_hair_eval(
     return out;
 }
 
-__device__ __noinline__ inline GSampledSpectrum gpu_hair_eval_spectral(
+__device__ ASTRORAY_SHADE_NOINLINE inline GSampledSpectrum gpu_hair_eval_spectral(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
     const GSampledWavelengths& wl) {
     GSampledSpectrum out(0.f);
@@ -262,7 +263,7 @@ __device__ __noinline__ inline GSampledSpectrum gpu_hair_eval_spectral(
     return out;
 }
 
-__device__ __noinline__ inline float gpu_hair_pdf(
+__device__ ASTRORAY_SHADE_NOINLINE inline float gpu_hair_pdf(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi) {
     if (rec.hairV < 0.0f) return 0.0f;
     GHairMat m = gpu_hair_unpack(mat);
@@ -279,7 +280,7 @@ __device__ __noinline__ inline float gpu_hair_pdf(
 // sampler below; this keeps the material switch complete so a hair material never
 // falls through to the black default.
 template <typename TRng>
-__device__ __noinline__ inline GBSDFSample gpu_hair_sample(
+__device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_hair_sample(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng) {
     GBSDFSample s;
     s.isDelta = false;
@@ -307,7 +308,7 @@ __device__ __noinline__ inline GBSDFSample gpu_hair_sample(
 // Spectral sample: pick a direction, return f_spectral directly (mirrors the CPU
 // sampleSpectral override — do NOT route through the RGBAlbedo eta^2 clamp).
 template <typename TRng>
-__device__ __noinline__ inline GBSDFSample gpu_hair_sample_spectral(
+__device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_hair_sample_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo,
     GSampledWavelengths& wl, TRng* rng) {
     GBSDFSample s;

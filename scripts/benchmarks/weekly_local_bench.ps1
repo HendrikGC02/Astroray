@@ -91,10 +91,19 @@ if ($parityCode -eq 0) {
 $showcaseCode = $LASTEXITCODE
 "runner.py exit=$showcaseCode" | Out-File $Log -Append -Encoding ascii
 
+# pkg307 noise-per-time benchmark, quick weekly slice: GPU legs (Astroray vs Cycles OptiX) on two corpus scenes, 10 s
+# per-frame budget. The full 8-scene x 4-leg run is hand-triggered (hours): see scripts/README.md and
+# test_results/integrator/noise-per-time. Output stays under LOCALAPPDATA; this script never commits.
+"=== noise-bench (quick): mc_tolerance.py --noise-bench ===" | Out-File $Log -Append -Encoding ascii
+$NoiseWork = Join-Path $LogDir "noise_bench_$stamp"
+& python scripts/build/gpu_locked_run.py weekly-noise-bench -- python benchmarks/reference_corpus/mc_tolerance.py --noise-bench --scenes v2_light_tree v2_camera_geometry --nb-legs cycles_gpu gpu --budgets 10 --spps 64 --work-dir $NoiseWork *>> $Log
+$noiseCode = $LASTEXITCODE
+"noise-bench exit=$noiseCode" | Out-File $Log -Append -Encoding ascii
+
 "=== weekly_local_bench done ===" | Out-File $Log -Append -Encoding ascii
 Write-Host "Log written to $Log"
 
-if ($parityCode -ne 0 -or $corpusParityCode -ne 0 -or $gateCCode -ne 0 -or $showcaseCode -ne 0) {
+if ($parityCode -ne 0 -or $corpusParityCode -ne 0 -or $gateCCode -ne 0 -or $showcaseCode -ne 0 -or $noiseCode -ne 0) {
     exit 1
 }
 exit 0

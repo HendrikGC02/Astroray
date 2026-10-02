@@ -433,6 +433,11 @@ def main():
                    help="explicit non-zero render seed (default: gate-c seed)")
     p.add_argument("--camera", default="",
                    help="make this named camera object the active camera (pkg284 ortho leg)")
+    p.add_argument("--cycles-leg-device", choices=("cpu", "gpu"), default="cpu",
+                   help="pkg307: Cycles device for --engine CYCLES (gpu = OptiX); Astroray uses --device. Not "
+                        "--cycles-device: Cycles' own argv parser claims that name and rejects 'gpu'")
+    p.add_argument("--res-percent", type=int, default=None,
+                   help="pkg307: scene.render.resolution_percentage (GPU timing at >= 1280x720)")
     p.add_argument("--light-tree", choices=("on", "off"), default=None,
                    help="force native scene.cycles.use_light_tree (default: as authored)")
     p.add_argument("--report-only", action="store_true",
@@ -591,6 +596,20 @@ def main():
                                  else args.seed if args.seed is not None else args.gate_c_seed))
         if args.seed is not None and args.seed <= 0:
             raise ValueError("--seed must be non-zero (0 is the random sentinel)")
+        if args.engine == "CYCLES" and args.cycles_leg_device == "gpu":
+            # pkg307: Cycles OptiX leg (headless; Blender 5.2 --factory-startup has no device prefs).
+            prefs = bpy.context.preferences.addons["cycles"].preferences
+            prefs.compute_device_type = "OPTIX"
+            prefs.get_devices()
+            for dev in prefs.devices:
+                dev.use = dev.type == "OPTIX"
+            if not any(dev.use for dev in prefs.devices):
+                raise ValueError("--cycles-leg-device gpu: no OptiX device found")
+            scene.cycles.device = "GPU"
+        elif args.engine == "CYCLES":
+            scene.cycles.device = "CPU"
+        if args.res_percent is not None:
+            scene.render.resolution_percentage = args.res_percent
         if args.camera:
             cam_obj = bpy.data.objects.get(args.camera)
             if cam_obj is None or cam_obj.type != "CAMERA":
@@ -627,11 +646,30 @@ def main():
                     except (AttributeError, RuntimeError, TypeError, ValueError) as exc: telemetry.append({"last_render_info_error": repr(exc)})
                 return original_write(self, *call_args, **call_kwargs)
             engine_cls.write_pixels = capture_write
+        import time
+        t_render = time.perf_counter()
         try:
             npy = _render_to_npy(bpy, scene, out_stem, args.res)
         finally:
             if engine_cls is not None and original_write is not None:
                 engine_cls.write_pixels = original_write
+        t_render = time.perf_counter() - t_render
+        # pkg307: render-only seconds (incl. per-call scene sync; spp differencing removes it) + the
+        # settings every noise-bench table must state.
+        cyc = scene.cycles
+        print("PKG307_INFO " + json.dumps({
+            "render_s": t_render, "engine": args.engine,
+            "device": scene.cycles.device if args.engine == "CYCLES" else args.device,
+            "res": [int(scene.render.resolution_x * scene.render.resolution_percentage / 100),
+                    int(scene.render.resolution_y * scene.render.resolution_percentage / 100)],
+            "samples": int(cyc.samples), "pattern": str(getattr(cyc, "sampling_pattern", "")),
+            "blur_glossy": float(getattr(cyc, "blur_glossy", -1)),
+            "clamp_direct": float(getattr(cyc, "sample_clamp_direct", -1)),
+            "clamp_indirect": float(getattr(cyc, "sample_clamp_indirect", -1)),
+            "adaptive": bool(cyc.use_adaptive_sampling), "denoise": bool(cyc.use_denoising),
+            "filter_type": str(getattr(cyc, "pixel_filter_type", "")),
+            "filter_width": float(getattr(cyc, "filter_width", -1)),
+            "blender": bpy.app.version_string}), flush=True)
         if gate_b_case is not None:
             import numpy as np
 

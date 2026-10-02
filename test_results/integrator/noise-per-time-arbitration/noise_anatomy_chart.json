@@ -1,0 +1,215 @@
+{
+ "meta": {
+  "date": "2026-10-02",
+  "seeds": [
+   278,
+   279,
+   280,
+   281,
+   282
+  ],
+  "budgets_s": [
+   2.0,
+   10.0,
+   60.0
+  ],
+  "base_spps": [
+   16,
+   64,
+   256
+  ],
+  "frame": [
+   1280,
+   720
+  ],
+  "ref": "mitsuba reference EXRs in benchmarks/reference_corpus/arbitration/refs",
+  "suite": "arbitration",
+  "crops": {
+   "arb_chromatic_medium": {
+    "floor_direct": [
+     0.7891,
+     0.6458,
+     0.8891,
+     0.8236
+    ],
+    "medium_core": [
+     0.46,
+     0.4009,
+     0.54,
+     0.5432
+    ],
+    "medium_edge": [
+     0.3695,
+     0.3279,
+     0.4295,
+     0.4346
+    ],
+    "floor_under_medium": [
+     0.46,
+     0.62,
+     0.54,
+     0.7622
+    ],
+    "floor_beside_medium": [
+     0.2481,
+     0.6045,
+     0.3281,
+     0.7467
+    ]
+   },
+   "arb_narrowband_wall": {
+    "wall_near_lamp": [
+     0.5606,
+     0.2893,
+     0.6406,
+     0.4315
+    ],
+    "wall_centre": [
+     0.497,
+     0.4318,
+     0.597,
+     0.6095
+    ],
+    "wall_far": [
+     0.3568,
+     0.4009,
+     0.4568,
+     0.5786
+    ],
+    "floor_lit": [
+     0.469,
+     0.7259,
+     0.569,
+     0.9036
+    ]
+   },
+   "arb_prism_sun": {
+    "floor_caustic": [
+     0.3004,
+     0.2754,
+     0.3804,
+     0.4176
+    ],
+    "floor_prism_shadow": [
+     0.5528,
+     0.6034,
+     0.6328,
+     0.7456
+    ],
+    "prism_body": [
+     0.3043,
+     0.2686,
+     0.3643,
+     0.3753
+    ],
+    "floor_far": [
+     0.5175,
+     0.235,
+     0.6175,
+     0.4128
+    ]
+   }
+  },
+  "harness_sha": "f1c296d7",
+  "astroray_build": {
+   "pyd": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-aq-300\\build_cuda\\astroray.cp313-win_amd64.pyd",
+   "pyd_mtime": 1790913935.7736263,
+   "build_sha": "0551a7c3"
+  },
+  "blender": "Blender 5.2",
+  "settings": {
+   "pattern": "AUTOMATIC",
+   "blur_glossy": 0.0,
+   "clamp_direct": 0.0,
+   "clamp_indirect": 0.0,
+   "adaptive": false,
+   "denoise": false,
+   "filter_type": "BOX",
+   "filter_width": 1.0,
+   "blender": "5.2.0 LTS"
+  },
+  "banner": "Corpus scenes author blur_glossy = 0 and sample_clamp_indirect = 0 (not Blender's defaults); adaptive sampling OFF, denoise OFF; pixel filter and sampling pattern as authored (settings); equal-time budgets are per 1280x720 frame, noise is measured per pixel at the manifest resolution; bias^2 is ROI-mean level."
+ },
+ "series": {
+  "bias2 share of relMSE/cycles_gpu": {
+   "arb_chromatic_medium": 0.026253673069291116,
+   "arb_narrowband_wall": 0.9999990105829397,
+   "arb_prism_sun": 0.0033677814697126917
+  },
+  "bias2 share of relMSE/gpu": {
+   "arb_chromatic_medium": 0.004315510309904389,
+   "arb_narrowband_wall": 0.9990638221100638,
+   "arb_prism_sun": 0.00012221552912544946
+  },
+  "bias2 share of relMSE/cycles": {
+   "arb_chromatic_medium": 0.026124275827322657,
+   "arb_narrowband_wall": 0.9999990106058494,
+   "arb_prism_sun": 0.9998565179232717
+  },
+  "bias2 share of relMSE/cpu": {
+   "arb_chromatic_medium": 0.004008892737968943,
+   "arb_narrowband_wall": 0.9990687797829562,
+   "arb_prism_sun": 0.00010908329514060766
+  },
+  "top 0.1 % pixels' share of variance/cycles_gpu": {
+   "arb_chromatic_medium": 0.03133706535611637,
+   "arb_narrowband_wall": 0.013434007632426305,
+   "arb_prism_sun": 0.9999990899015607
+  },
+  "top 0.1 % pixels' share of variance/gpu": {
+   "arb_chromatic_medium": 0.025147775111220655,
+   "arb_narrowband_wall": 0.009673482554523237,
+   "arb_prism_sun": 0.9861593062659794
+  },
+  "top 0.1 % pixels' share of variance/cycles": {
+   "arb_chromatic_medium": 0.030836284308474102,
+   "arb_narrowband_wall": 0.013434342510025548,
+   "arb_prism_sun": 0.09231561417197398
+  },
+  "top 0.1 % pixels' share of variance/cpu": {
+   "arb_chromatic_medium": 0.02870627804085046,
+   "arb_narrowband_wall": 0.00942631742539088,
+   "arb_prism_sun": 0.9857161213613819
+  },
+  "chroma relVar (sum of channel variances of rgb/L)/cycles_gpu": {
+   "arb_chromatic_medium": 0.0014429749012446124,
+   "arb_narrowband_wall": 0.0002747088376133352,
+   "arb_prism_sun": 1.957852129511684e-15
+  },
+  "chroma relVar (sum of channel variances of rgb/L)/gpu": {
+   "arb_chromatic_medium": 0.0020604726294025,
+   "arb_narrowband_wall": 0.012567454672360642,
+   "arb_prism_sun": 0.02279202333765113
+  },
+  "chroma relVar (sum of channel variances of rgb/L)/cycles": {
+   "arb_chromatic_medium": 0.0014408366437355365,
+   "arb_narrowband_wall": 0.0002747113814200031,
+   "arb_prism_sun": 4.375512134660468e-32
+  },
+  "chroma relVar (sum of channel variances of rgb/L)/cpu": {
+   "arb_chromatic_medium": 0.0020677167515545207,
+   "arb_narrowband_wall": 0.013187409277939405,
+   "arb_prism_sun": 0.025182970027681627
+  },
+  "N x relVar slope (0 = plain MC, < 0 = stratified)/cycles_gpu": {
+   "arb_chromatic_medium": -0.039587428102085105,
+   "arb_narrowband_wall": -0.10490620008858371,
+   "arb_prism_sun": -0.02932791151528369
+  },
+  "N x relVar slope (0 = plain MC, < 0 = stratified)/gpu": {
+   "arb_chromatic_medium": -0.001946862335157017,
+   "arb_narrowband_wall": -0.2742948613727379,
+   "arb_prism_sun": -0.1461923191733828
+  },
+  "N x relVar slope (0 = plain MC, < 0 = stratified)/cycles": {
+   "arb_chromatic_medium": -0.10572371383077242,
+   "arb_narrowband_wall": -0.21060612589408714,
+   "arb_prism_sun": -0.1559465825705868
+  },
+  "N x relVar slope (0 = plain MC, < 0 = stratified)/cpu": {
+   "arb_chromatic_medium": -0.006160184249576567,
+   "arb_narrowband_wall": -0.5818537928070542,
+   "arb_prism_sun": -0.12387503169332653
+  }
+ }
+}

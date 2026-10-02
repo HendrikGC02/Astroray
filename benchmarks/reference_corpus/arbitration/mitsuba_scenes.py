@@ -307,8 +307,9 @@ def main(argv=None):
         traceback.print_exc()
         print(f"PKG119B_LEG FAIL {type(exc).__name__}: {exc}")
         return 1
-    import mitsuba as mi
     import array
+
+    import mitsuba as mi
     flat = img.array  # no numpy in this venv: dr arrays export host memory through the buffer protocol (memview)
     buf = array.array("f")
     if hasattr(flat, "memview"):

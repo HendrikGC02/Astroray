@@ -329,7 +329,7 @@ def nb_curves_chart(res: dict, out: Path) -> Path:
     scenes = sorted({r["scene"] for r in res["rows"]})
     cols = 4
     nrows = math.ceil(len(scenes) / cols)
-    fig, axes = _nb_axes(15.0, 3.2 * nrows, nrows=nrows, ncols=cols, squeeze=False)
+    fig, axes = _nb_axes(14.0, 3.2 * nrows, nrows=nrows, ncols=cols, squeeze=False)
     series = {}
     for ax, sid in zip(axes.flat, scenes):
         for leg in NB_ORDER:
@@ -357,7 +357,7 @@ def nb_anatomy_chart(res: dict, out: Path, label: str = "spp64") -> Path:
     hl = nb_headline(res, label)
     scenes = [h["scene"].replace("v2_", "") for h in hl]
     legs = [lg for lg in ("cycles_gpu", "gpu", "cycles", "cpu") if any(lg in h for h in hl)]
-    fig, axes = _nb_axes(19.0, 4.4, ncols=4)
+    fig, axes = _nb_axes(14.0, 4.4, ncols=4)
     series = {}
     slope = lambda h, leg: res.get("slopes", {}).get(h["scene"], {}).get(leg, {}).get("image", float("nan"))
     panels = (("bias2 share of relMSE", lambda d: d["bias2"] / d["relmse"], False),
@@ -451,7 +451,7 @@ def nb_arbitration_table(res: dict, work: Path, out: Path, spp: int = 256) -> Pa
     error measured from its two halves (``<scene>_mitsuba_se.json``). z = (leg - ref) / hypot(se_leg, se_ref). Channels whose
     reference mean is below 0.01 (or negative: out of the sRGB gamut) are not compared."""
     import numpy as np
-    meta, rows = res["meta"], {}
+    meta = res["meta"]
     refs_dir = REPO_ROOT / meta["ref"].split(" in ")[1]
     lum = np.array([0.2126, 0.7152, 0.0722])
     out_rows = []
@@ -459,7 +459,7 @@ def nb_arbitration_table(res: dict, work: Path, out: Path, spp: int = 256) -> Pa
         se_ref = json.loads((refs_dir / f"{sid}_mitsuba_se.json").read_text())
         ref_img = _nb_read_exr(refs_dir / f"{sid}_mitsuba.exr")
         for roi, rect in meta["crops"][sid].items():
-            def roi_mean(img):
+            def roi_mean(img, rect=rect):
                 h, w = img.shape[:2]
                 box = img[round(rect[1] * h):round(rect[3] * h), round(rect[0] * w):round(rect[2] * w)].reshape(-1, 3).mean(0)
                 return np.append(box, box @ lum)

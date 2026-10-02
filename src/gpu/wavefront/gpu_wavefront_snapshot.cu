@@ -1121,6 +1121,7 @@ struct WfContext {
     std::unordered_map<const Hittable*, int> triIndexOf;
     const BVHAccel* triIndexBvh = nullptr;
     int triIndexBuildCount = -1;
+    WfDeviceBuf patchIdx, patchGeom;   // pkg291: scatter upload of moved triangles
     // Per-path state (grow-only via the existing allocators).
     GPUWavefrontState state{};
     GPUWavefrontHitBuffers hitBufs{};
@@ -1199,6 +1200,25 @@ static int s_lastScenePatched = 0;  // pkg291
 int cuda_wavefront_last_scene_patched() { return s_lastScenePatched; }
 
 namespace {
+// pkg291 (#875): geometry of one moved triangle, scattered into d_tris on the
+// device (a ~76 B upload per moved triangle instead of a round trip of the
+// whole GTriangle array).
+struct WfTriGeom {
+    GVec3 v0, v1, v2, n0, n1, n2;
+    int flat;
+};
+
+__global__ void wfScatterTriGeometryKernel(GTriangle* tris, const int* idx,
+                                           const WfTriGeom* geom, int n) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    GTriangle& t = tris[idx[i]];
+    const WfTriGeom& g = geom[i];
+    t.v0 = g.v0; t.v1 = g.v1; t.v2 = g.v2;
+    t.n0 = g.n0; t.n1 = g.n1; t.n2 = g.n2;
+    t.flat_shaded = g.flat != 0;
+}
+
 // pkg291 (#875): patch the cached device scene for the in-place object moves
 // logged since it was uploaded: re-fill the moved triangles' geometry (same
 // fillTriangleGeometry as the full flatten) and re-push the refit node bounds.
@@ -1223,21 +1243,41 @@ bool wfPatchRefit(WfContext& C, const Renderer& renderer) {
         C.triIndexBvh = bvh;
         C.triIndexBuildCount = renderer.getBvhBuildCount();
     }
+    // Each moved triangle once (an object moved twice since the cached upload
+    // appears in two log steps; its current geometry is what gets uploaded).
+    std::vector<int> idx;
+    std::vector<char> seen(C.tris.count, 0);
+    for (size_t k = first; k < log.size(); ++k)
+        for (const Hittable* h : log[k].moved) {
+            auto it = C.triIndexOf.find(h);
+            if (it == C.triIndexOf.end()) return false;
+            if (!seen[it->second]) { seen[it->second] = 1; idx.push_back(it->second); }
+        }
+    std::vector<const Triangle*> src(C.tris.count, nullptr);
     for (size_t k = first; k < log.size(); ++k)
         for (const Hittable* h : log[k].moved)
-            if (!C.triIndexOf.count(h)) return false;
-    std::vector<GTriangle> tris(C.tris.count);
-    const size_t triBytes = tris.size() * sizeof(GTriangle);
-    if (cudaMemcpy(tris.data(), C.tris.ptr, triBytes, cudaMemcpyDeviceToHost) != cudaSuccess)
-        return false;
-    for (size_t k = first; k < log.size(); ++k)
-        for (const Hittable* h : log[k].moved)
-            fillTriangleGeometry(*static_cast<const Triangle*>(h), tris[C.triIndexOf[h]]);
-    if (cudaMemcpy(C.tris.ptr, tris.data(), triBytes, cudaMemcpyHostToDevice) != cudaSuccess ||
-        cudaMemcpy(C.nodes.ptr, nodes.data(), nodes.size() * sizeof(GBVHNode),
-                   cudaMemcpyHostToDevice) != cudaSuccess) {
+            src[C.triIndexOf[h]] = static_cast<const Triangle*>(h);
+    std::vector<WfTriGeom> geom(idx.size());
+    const int nIdx = static_cast<int>(idx.size());
+    #pragma omp parallel for schedule(static) if(nIdx >= 16384)
+    for (int i = 0; i < nIdx; ++i) {
+        GTriangle t;
+        fillTriangleGeometry(*src[idx[i]], t);
+        geom[i] = WfTriGeom{t.v0, t.v1, t.v2, t.n0, t.n1, t.n2, t.flat_shaded ? 1 : 0};
+    }
+    try {
+        int* d_idx = wfUpload(C.patchIdx, idx);
+        WfTriGeom* d_geom = wfUpload(C.patchGeom, geom);
+        const int threads = 256;
+        wfScatterTriGeometryKernel<<<(nIdx + threads - 1) / threads, threads>>>(
+            reinterpret_cast<GTriangle*>(C.tris.ptr), d_idx, d_geom, nIdx);
+        if (cudaGetLastError() != cudaSuccess ||
+            cudaMemcpy(C.nodes.ptr, nodes.data(), nodes.size() * sizeof(GBVHNode),
+                       cudaMemcpyHostToDevice) != cudaSuccess)
+            throw std::runtime_error("pkg291: refit patch upload failed");
+    } catch (...) {
         C.sceneInvalidated = true;  // half-patched: the next render re-flattens
-        throw std::runtime_error("pkg291: refit patch upload failed");
+        throw;
     }
     return true;
 }
@@ -1987,14 +2027,19 @@ std::vector<float> cuda_wavefront_render(
         const bool hwWanted = hwEligible && astroray::optix_trav::requested() !=
                                                 astroray::optix_trav::Request::Software;
         if (!reuse || (patched && C.hwAccelForCache)) {
-            // pkg291: a patched scene rebuilds the OptiX accel from the patched
-            // device triangles (the cached host prim/instance arrays are empty
-            // for a single-level scene, which is all buildAccel reads them for).
+            // pkg291: a patched scene refits (or first rebuilds updatable) the
+            // OptiX accel from the patched device triangles.
             C.hwAccelForCache = false;
-            if (hwWanted) {
+            if (hwWanted && patched) {
+                // pkg291: refit the updatable GAS in place; the first patch of a
+                // cached scene rebuilds it updatable (OptiX "Dynamic updates").
+                C.hwAccelForCache =
+                    astroray::optix_trav::refitAccel(d_prims, C.cachedPrimCount, d_tris) ||
+                    astroray::optix_trav::buildAccelUpdatable(d_prims, C.cachedPrimCount, d_tris);
+            } else if (hwWanted) {
                 const auto a0 = std::chrono::steady_clock::now();
                 C.hwAccelForCache = astroray::optix_trav::buildAccel(
-                    d_prims, patched ? C.cachedPrimCount : (int)res.prims.size(), d_tris,
+                    d_prims, (int)res.prims.size(), d_tris,
                     res.instances.data(), (int)res.instances.size(),
                     res.blas.data(), (int)res.blas.size());
                 if (astroray::gpu_profile::enabled())

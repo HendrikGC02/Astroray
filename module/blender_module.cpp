@@ -496,6 +496,8 @@ private:
 class PyRenderer {
     Renderer renderer;
     std::shared_ptr<Camera> camera;
+    // pkg291: the previously active Camera of another size (setupCamera).
+    std::shared_ptr<Camera> spareCamera_;
     // #801: process-unique id of this renderer, keying the wavefront device
     // scene cache (a viewport renderer's render(skip_upload=True) must never
     // reuse the scene an F12 renderer uploaded last).
@@ -1738,6 +1740,16 @@ public:
         // clears outside the rect - #802 already allows a reused Camera). The
         // per-setup state a fresh Camera would reset (shutter keyframes) is
         // reset here; the previous-frame motion snapshot is kept as before.
+        // pkg291: the viewport worker alternates a coarse first unit (W/4 x H/4)
+        // with its full-resolution refinement every edit; keep the other size's
+        // Camera as a spare and swap it in, so neither size reallocates per edit.
+        // A size change never carried the previous-frame motion snapshot, so the
+        // swapped-in camera starts without one (as a fresh Camera would).
+        if (camera && (camera->width != width || camera->height != height) &&
+            spareCamera_ && spareCamera_->width == width && spareCamera_->height == height) {
+            std::swap(camera, spareCamera_);
+            camera->hasPrevCamera = false;
+        }
         if (camera && camera->width == width && camera->height == height &&
             camera->cryptomatteDepth == Camera::kDefaultCryptomatteDepth) {
             camera->setView(Vec3(lookFrom[0], lookFrom[1], lookFrom[2]),
@@ -1753,6 +1765,7 @@ public:
             return;
         }
         auto oldCamera = camera;
+        spareCamera_ = oldCamera;   // pkg291: reused by a later same-size setup
         camera = std::make_shared<Camera>(
             Vec3(lookFrom[0], lookFrom[1], lookFrom[2]),
             Vec3(lookAt[0], lookAt[1], lookAt[2]),
@@ -3555,7 +3568,9 @@ public:
         if (!(std::fabs(det) > 1e-12)) return false;
         const double nm[9] = {c00/det, c01/det, c02/det, c10/det, c11/det, c12/det,
                              c20/det, c21/det, c22/det};
-        for (Triangle* t : tris) t->applyTransform(m, nm);
+        const int nt = static_cast<int>(tris.size());
+        #pragma omp parallel for schedule(static) if(nt >= 16384)
+        for (int i = 0; i < nt; ++i) tris[i]->applyTransform(m, nm);  // independent
         // The GPU device scene is NOT invalidated: the refit is logged against
         // the scene version, and the wavefront driver patches only the moved
         // triangles + node bounds (cuda_wavefront_render, pkg291).
@@ -3750,6 +3765,7 @@ public:
     void clear() {
         renderer = Renderer();
         camera.reset();
+        spareCamera_.reset();  // pkg291
         materials.clear();
         nextMaterialId = 0;
         textureManager = TextureManager();

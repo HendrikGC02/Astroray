@@ -641,6 +641,7 @@ def test_worker_view_draw_schedules_fullres_refinement():
             self.state = self.IDLE
             self.submitted_generation = 5
             self.desired_generation = 5
+            self.presents = 0   # pkg291: nothing presented this draw
 
         def request(self):
             self.desired_generation += 1

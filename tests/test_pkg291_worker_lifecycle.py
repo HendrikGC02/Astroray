@@ -287,3 +287,44 @@ def test_gpu_worker_then_sync_render_one_context(capfd):
     assert len(set(devices)) == 1 and devices[0] >= 0
     err = capfd.readouterr().err.lower()
     assert "illegal" not in err and "cudaerror" not in err and "invalid value" not in err
+
+
+def test_refinement_waits_one_draw_behind_a_fresh_present():
+    """pkg291 gate (a) lifeline: the coarse unit was uploaded at +34 ms but shown
+    at +210 ms because the full-res refinement's commit ran in the same draw,
+    before the blit. A draw that presents a new frame defers the refinement to
+    the next redraw (requested); the following draw schedules it."""
+    class _W:
+        IDLE = exp._ViewportSpikeWorker.IDLE
+
+        def __init__(self):
+            self.state, self.submitted_generation, self.desired_generation = self.IDLE, 5, 5
+            self.presents, self.present_next = 0, True
+
+        def request(self):
+            self.desired_generation += 1
+
+        def pump(self, present=True):
+            if present and self.present_next:
+                self.presents += 1
+                self.present_next = False
+
+    w = _W()
+    calls, redraws = [], []
+    s = types.SimpleNamespace(
+        _ensure_worker=lambda em, rd: w, _worker=w, _worker_deferred_scene=False,
+        _worker_refine_pending=True, _worker_refine_gen=5, _worker_fullres_next=False,
+        _viewport_camera_hash=1, _viewport_camera_substantive_hash=1, _viewport_texture=None)
+    s._worker_commit_and_submit = lambda *a, **k: (calls.append(
+        (k["commit_mode"], s._worker_fullres_next)), True)[1]
+    ctx = types.SimpleNamespace(region=types.SimpleNamespace(width=64, height=64))
+    dg = types.SimpleNamespace(scene=types.SimpleNamespace(custom_raytracer=object()))
+    kw = dict(configure_backend_fn=None, effective_integrator_name_fn=None,
+              viewport_perf_record_fn=None, camera_state_hash_fn=lambda c, r: 1,
+              camera_substantive_state_hash_fn=lambda c, r: 1,
+              request_viewport_redraw_fn=lambda: redraws.append(1),
+              engine_methods={"resolve_settings": lambda sc, rp: object()})
+    exp.Exporter._worker_view_draw(s, ctx, dg, **kw)
+    assert [c for c in calls if c[1]] == [] and s._worker_refine_pending and redraws
+    exp.Exporter._worker_view_draw(s, ctx, dg, **kw)       # next redraw: no new frame
+    assert any(c[1] for c in calls) and not s._worker_refine_pending

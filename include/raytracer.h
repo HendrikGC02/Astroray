@@ -1495,18 +1495,24 @@ public:
     // i+1, right at secondChildOffset > i), so one reverse pass sees updated
     // children. On an unmoved scene this reproduces the built bounds exactly.
     void refit() {
-        for (int i = static_cast<int>(nodes.size()) - 1; i >= 0; --i) {
+        // Leaves are independent (parallel); interior nodes then need both
+        // children done, which the reverse pass guarantees.
+        const int nn = static_cast<int>(nodes.size());
+        #pragma omp parallel for schedule(static) if(nn >= 65536)
+        for (int i = 0; i < nn; ++i) {
             LinearBVHNode& n = nodes[i];
+            if (n.nPrimitives == 0) continue;
             AABB b;
-            if (n.nPrimitives > 0) {
-                for (int k = 0; k < n.nPrimitives; ++k) {
-                    AABB pb;
-                    if (primitives[n.primitivesOffset + k]->boundingBox(pb)) b = b.merge(pb);
-                }
-            } else {
-                b = nodes[i + 1].bounds.merge(nodes[n.secondChildOffset].bounds);
+            for (int k = 0; k < n.nPrimitives; ++k) {
+                AABB pb;
+                if (primitives[n.primitivesOffset + k]->boundingBox(pb)) b = b.merge(pb);
             }
             n.bounds = b;
+        }
+        for (int i = nn - 1; i >= 0; --i) {
+            LinearBVHNode& n = nodes[i];
+            if (n.nPrimitives == 0)
+                n.bounds = nodes[i + 1].bounds.merge(nodes[n.secondChildOffset].bounds);
         }
     }
 

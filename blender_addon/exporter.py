@@ -2954,7 +2954,14 @@ class Exporter:
                     camera_substantive_state_hash_fn(context, region)
 
             # Pump: present the freshest valid published frame + advance state.
+            presents_before = worker.presents
             worker.pump()
+            # pkg291: a frame was uploaded in this draw -> blit it first and
+            # schedule the full-resolution refinement on the next redraw, so its
+            # main-thread commit never delays the frame that is already ready
+            # (gate (a) lifeline: the coarse unit was ready at +34 ms but reached
+            # the screen at +210 ms, behind the refinement commit).
+            just_presented = worker.presents != presents_before
             # Commit + submit the desired generation if the worker is now idle.
             # pkg241 P2.2 item 2: a scene edit deferred while the worker was busy is
             # re-committed here as a full sync (its live depsgraph is gone); an
@@ -2973,7 +2980,7 @@ class Exporter:
             # device; only the film resolution changes). A user edit that arrived
             # meanwhile would have bumped desired_generation and is committed by
             # the block above instead, so a stale state is never refined.
-            if (self._worker_refine_pending
+            if (self._worker_refine_pending and not just_presented
                     and worker.state == _ViewportSpikeWorker.IDLE
                     and worker.submitted_generation == self._worker_refine_gen
                     and worker.desired_generation == worker.submitted_generation):
@@ -2988,8 +2995,10 @@ class Exporter:
                     self._worker_refine_pending = False
                 request_viewport_redraw_fn()
 
-            # Keep the loop alive while a render is in flight or a frame is queued.
-            if worker.state != _ViewportSpikeWorker.IDLE:
+            # Keep the loop alive while a render is in flight or a frame is queued
+            # (or a refinement was deferred behind this draw's present).
+            if (worker.state != _ViewportSpikeWorker.IDLE
+                    or (just_presented and self._worker_refine_pending)):
                 request_viewport_redraw_fn()
 
             # Blit the latest published buffer (pure blit — no render, §3.3).

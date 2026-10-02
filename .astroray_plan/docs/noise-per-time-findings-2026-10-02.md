@@ -100,8 +100,9 @@ Means at 256 spp, 5 seeds, ratio to the Mitsuba 16384 spp reference (`arbitratio
 
 - Mitsuba 3.9.1's `dielectric` has a constant IOR, so scene (a) uses a Python `DispersiveDielectric` (Sellmeier at the hero
   wavelength, lanes 1-3 terminated, x4 once per path at hits from outside). A BSDF cannot see throughput, so a path with a
-  diffuse bounce between two prism hits is over-weighted; the floor albedo is 0.15 to keep that share small and the plugin
-  is validated against the stock dielectric at constant IOR. It is a bounded few-percent effect, not an exact estimator.
+  diffuse bounce between two prism hits is over-weighted; the floor albedo is 0.15 to keep that share small. Measured against the stock dielectric at constant IOR (8 seeds x 8192 spp):
+  floor_caustic +1.4 % (z 3.1), prism_body +6.9 % (z 3.5), floor ROIs 0.0 %. So the plugin over-reads the caustic by 1-7 %: the
+  Astroray-minus-Mitsuba caustic gap (+11-17 %) is larger than this, but not by an order of magnitude. Not an exact estimator.
 - Mitsuba rows on scene (a) are references, not a noise-per-time comparison of a spectral path tracer.
 - The sun is a 4 degree disc in all engines (a delta sun is invisible to path tracers). Mitsuba's lamp scale is anchored on
   a ROI that does not depend on the effect under test (floor vs Cycles; wall luminance vs Astroray CPU for the narrow-band

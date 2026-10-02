@@ -49,7 +49,7 @@ def _yup(p):
     return [p[0], p[2], -p[1]]   # arbitration scenes are +Z up; the Python API is +Y up
 
 
-def _scene(photons: bool, gpu: bool):
+def _scene(photons: bool, gpu: bool, reflective: bool = True):
     r = astroray.Renderer()
     r.set_background_color([0.0, 0.0, 0.0])
     prism = MS.PARAMS["arb_prism_sun"]["prism"]
@@ -68,7 +68,7 @@ def _scene(photons: bool, gpu: bool):
     r.set_integrator("path_tracer")
     r.set_integrator_param("max_depth", 16)
     r.set_use_refractive_caustics(True)
-    r.set_use_reflective_caustics(True)
+    r.set_use_reflective_caustics(reflective)
     r.set_adaptive_sampling(False)   # adaptive stops bias heavy-tailed caustic pixels low
     r.set_use_gpu(gpu)
     r.set_use_photon_caustics(photons)
@@ -77,8 +77,8 @@ def _scene(photons: bool, gpu: bool):
     return r
 
 
-def _lum(photons, gpu, spp, seed):
-    r = _scene(photons, gpu)
+def _lum(photons, gpu, spp, seed, reflective=True):
+    r = _scene(photons, gpu, reflective)
     r.set_seed(seed)
     img = np.asarray(r.render(spp, 16, None, False), dtype=np.float64).reshape(H, W, 3)
     return img @ LUM, r
@@ -105,9 +105,9 @@ def test_cpu_use_photon_caustics_builds_the_photon_map():
     assert off_stats.get("pm_ready", 0.0) == 0.0
 
 
-def _check_split(gpu, spp_pt, seeds_pt, tol):
-    on = np.mean([_lum(True, gpu, 64, s)[0] for s in (1, 2)], axis=0)
-    off = np.mean([_lum(False, gpu, spp_pt, s)[0] for s in seeds_pt], axis=0)
+def _check_split(gpu, spp_pt, seeds_pt, tol, reflective=True):
+    on = np.mean([_lum(True, gpu, 64, s, reflective)[0] for s in (1, 2)], axis=0)
+    off = np.mean([_lum(False, gpu, spp_pt, s, reflective)[0] for s in seeds_pt], axis=0)
     a, b = _regions(on), _regions(off)
     ratios = {k: a[k] / b[k] for k in REGIONS}
     print(f"\n[#959] photons ON / path traced ({'gpu' if gpu else 'cpu'}): "
@@ -126,6 +126,13 @@ def test_cpu_photon_split_matches_path_tracing():
 def test_gpu_photon_split_matches_path_tracing():
     # Before #959: tir_beam 1.322, reflection_beam 1.080, whole 1.047 (RTX 5070 Ti).
     _check_split(True, 4096, (1, 2), 0.03)
+
+
+@pytest.mark.skipif(not _gpu_ok(), reason="CUDA GPU not available")
+def test_gpu_photon_split_matches_path_tracing_reflective_caustics_off():
+    # Reflective caustics off: the photon loop drops reflected photons (TIR too), as the
+    # path tracer's caustic gate drops the reflection after the receiver (Terra #959 review).
+    _check_split(True, 4096, (1, 2), 0.03, reflective=False)
 
 
 @pytest.mark.skipif(not _gpu_ok(), reason="CUDA GPU not available")

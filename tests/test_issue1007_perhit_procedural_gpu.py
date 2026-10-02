@@ -221,28 +221,30 @@ def test_gpu_perhit_procedural_matches_cpu_per_pixel(case, capfd):
     _save(gpu, f"{case}_gpu.png")
     _save(cpu, f"{case}_cpu.png")
     assert "[#1007] DEGRADED" not in err, err[-800:]
-    # The pattern is resolved (not a flat or blurred field) ...
-    assert cpu[..., 0].std() > 0.08, cpu[..., 0].std()
+    # The pattern is resolved (not a flat field; CPU std 0.064 - 0.27) ...
+    assert cpu[..., 0].std() > 0.04, cpu[..., 0].std()
     # ... and the GPU draws the same pixels: under a uniform world the lambertian
-    # radiance is the albedo, so only sub-pixel jitter separates the two.
+    # radiance is the albedo, so only sub-pixel jitter separates the two. Measured on
+    # build c5a26eac: per hit 0.0008 - 0.0022; main's 64^3 bake 0.034 - 0.19.
     diff = np.abs(gpu - cpu).mean()
-    assert diff < 0.02, diff
+    assert diff < 0.008, diff
     ratio = gpu.reshape(-1, 3).mean(0) / np.maximum(cpu.reshape(-1, 3).mean(0), 1e-6)
-    assert np.all(np.abs(ratio - 1.0) < 0.02), ratio
+    assert np.all(np.abs(ratio - 1.0) < 0.005), ratio
 
 
 @pytest.mark.gpu
 @pytest.mark.parametrize("case", ["wave_object", "program_object"])
 def test_gpu_perhit_principled_base_matches_cpu(case, capfd):
     # #988 Principled base colour runs through gpu_principledBaseTexel; 8x8 blocks
-    # absorb the specular lobe's MC noise.
+    # absorb the specular lobe's MC noise. Measured on build c5a26eac: per hit
+    # 0.0009 - 0.0010; main's bake 0.0058 (wave) / 0.0135 (program).
     gpu = _render(CASES[case], True, principled=True)
     err = capfd.readouterr().err
     cpu = _render(CASES[case], False, principled=True)
     assert "[#1007] DEGRADED" not in err, err[-800:]
     g = gpu.reshape(RES // 8, 8, RES // 8, 8, 3).mean(axis=(1, 3))
     c = cpu.reshape(RES // 8, 8, RES // 8, 8, 3).mean(axis=(1, 3))
-    assert np.abs(g - c).mean() < 0.02, np.abs(g - c).mean()
+    assert np.abs(g - c).mean() < 0.003, np.abs(g - c).mean()
 
 
 @pytest.mark.gpu

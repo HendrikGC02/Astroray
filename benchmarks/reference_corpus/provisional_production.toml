@@ -30,15 +30,15 @@ reason = "#1005: same as CPU (reported, not applied): lit_front B 0.78x, upper_f
 scene = "prod_wood"
 backend = "cpu"
 kind = "parity"
-issue = "#993"
-reason = "#988 fixed (varnish lobes kept); Roughness chain hits VM_MAX_SLOTS (#993), op-VM inputs ignore their own Mapping (#1017, the rings' 90 deg rotation), Noise pattern (#881), world-vs-local Object coords (#1006): grain_right B 0.72x (1/16)"
+issue = "#1006"
+reason = "#1017 fixed (the program carries the inputs' Mapping: rings now horizontal as in Cycles, 1/16 -> 4/16); band phase / spacing differ: Object coords world-not-local (#1006, sphere at z=0.9, rings centred on the origin), Noise pattern (#881), Roughness chain hits VM_MAX_SLOTS (#993): grain_center B 0.76x, lower G 1.16x (4/16)"
 
 [[row]]
 scene = "prod_wood"
 backend = "gpu"
 kind = "parity"
-issue = "#1017"
-reason = "#1007 fixed (per-hit Wave / Noise, no bake): the GPU now reproduces the CPU ROI ratios (grain_right B 0.72x vs CPU 0.72x, grain_center L 1.13x vs 1.10x), including the CPU dropping the program inputs' Mapping (#1017) that the old bake applied; plus #993 / #881 / #1006 (0/16)"
+issue = "#1006"
+reason = "#1007 + #1017 fixed (per-hit Wave / Noise with the inputs' Mapping): GPU tracks CPU (grain_center B 0.78x vs CPU 0.76x, lower G 1.16x vs 1.16x); same causes as CPU: #1006 / #881 / #993 (3/16; the main 64^3 bake read 5/16 from an aliased, differently rotated field)"
 
 [[row]]
 scene = "prod_marble"

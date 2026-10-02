@@ -4609,16 +4609,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
         prog_name = "_prog_%s.%s.%s" % (mat_name, getattr(node, "name", "n"), input_name)
         # The ProgramTexture carries the SAME coordinate contract as its children
         # so the CPU delivers `p` exactly once (child value(uv,p) never re-resolves)
-        # and the GPU shade path rebuilds the identical coordinate. Procedural
-        # children were registered via load_procedural_texture, which uses the
-        # legacy 2-D Mapping (allow_affine=False); mirror that here so CPU (prog)
-        # and GPU (baked child) apply the identical transform. Image children use
-        # the 3-D affine matrix path unchanged.
-        if proc_kind and not resolved.get('coord_program'):
-            p_scale, p_offset, p_rot = resolved['legacy']
-            p_matrix = None
-        else:
-            p_scale, p_offset, p_rot, p_matrix = scale, offset, rot, mapping_matrix
+        # and the GPU shade path rebuilds the identical coordinate. Every input has
+        # the same coordinate + Mapping signature (checked above), so the program's
+        # 3-D Mapping matrix IS each input's own Mapping chain. #1017: procedural
+        # inputs used to get the legacy 2-D transform here, which never moves the
+        # point a procedural reads, so their Mapping was dropped on the CPU (and on
+        # the #1007 per-hit GPU path) while the children themselves carry the full
+        # matrix since #945. An identity Mapping exports None (no transform call).
+        p_scale, p_offset, p_rot, p_matrix = scale, offset, rot, mapping_matrix
         try:
             renderer.create_program_texture(prog_name, coord_mode)
             self._apply_texture_transform(renderer, prog_name, coord_mode, p_scale,

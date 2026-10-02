@@ -24,7 +24,7 @@
     1.721,
     2.351,
     35.785,
-    6.358
+    9.237
    ],
    "role": "cpu"
   },
@@ -48,7 +48,7 @@
     1.889,
     6.657,
     35.785,
-    6.916
+    10.031
    ],
    "role": "gpu"
   }
@@ -1543,7 +1543,7 @@
        {
         "roi": "grain_center",
         "channel": "r",
-        "ratio": 1.0952015451970014,
+        "ratio": 0.9191543748796911,
         "tol": 0.0238,
         "ok": false,
         "pinned": false
@@ -1551,15 +1551,23 @@
        {
         "roi": "grain_center",
         "channel": "g",
-        "ratio": 1.1122745526734923,
+        "ratio": 0.8886747788582927,
         "tol": 0.0292,
         "ok": false,
         "pinned": false
        },
        {
         "roi": "grain_center",
+        "channel": "b",
+        "ratio": 0.7598503203033771,
+        "tol": 0.026,
+        "ok": false,
+        "pinned": false
+       },
+       {
+        "roi": "grain_center",
         "channel": "L",
-        "ratio": 1.1038233592516422,
+        "ratio": 0.8971299571818236,
         "tol": 0.0264,
         "ok": false,
         "pinned": false
@@ -1567,47 +1575,23 @@
        {
         "roi": "grain_left",
         "channel": "r",
-        "ratio": 0.9490045978784751,
+        "ratio": 0.9734527587049828,
         "tol": 0.02,
         "ok": false,
         "pinned": false
        },
        {
         "roi": "grain_left",
-        "channel": "g",
-        "ratio": 0.9482631234459498,
-        "tol": 0.0323,
-        "ok": false,
-        "pinned": false
-       },
-       {
-        "roi": "grain_left",
-        "channel": "b",
-        "ratio": 0.941220865308777,
-        "tol": 0.0415,
-        "ok": false,
-        "pinned": false
-       },
-       {
-        "roi": "grain_left",
         "channel": "L",
-        "ratio": 0.9483235182835594,
+        "ratio": 0.974584357423091,
         "tol": 0.0252,
         "ok": false,
         "pinned": false
        },
        {
         "roi": "grain_right",
-        "channel": "r",
-        "ratio": 0.8566900062699149,
-        "tol": 0.079,
-        "ok": false,
-        "pinned": false
-       },
-       {
-        "roi": "grain_right",
         "channel": "g",
-        "ratio": 0.828837506379948,
+        "ratio": 0.9306791862440765,
         "tol": 0.065,
         "ok": false,
         "pinned": false
@@ -1615,23 +1599,15 @@
        {
         "roi": "grain_right",
         "channel": "b",
-        "ratio": 0.7151506185942748,
+        "ratio": 0.8199247083459456,
         "tol": 0.0448,
-        "ok": false,
-        "pinned": false
-       },
-       {
-        "roi": "grain_right",
-        "channel": "L",
-        "ratio": 0.8365485968130928,
-        "tol": 0.0695,
         "ok": false,
         "pinned": false
        },
        {
         "roi": "lower",
         "channel": "r",
-        "ratio": 1.0595428708086543,
+        "ratio": 1.112008813690017,
         "tol": 0.0336,
         "ok": false,
         "pinned": false
@@ -1639,7 +1615,7 @@
        {
         "roi": "lower",
         "channel": "g",
-        "ratio": 1.0870409287649718,
+        "ratio": 1.1631067246095659,
         "tol": 0.0337,
         "ok": false,
         "pinned": false
@@ -1647,7 +1623,7 @@
        {
         "roi": "lower",
         "channel": "b",
-        "ratio": 1.0341794439666934,
+        "ratio": 1.1310517677796426,
         "tol": 0.0273,
         "ok": false,
         "pinned": false
@@ -1655,13 +1631,13 @@
        {
         "roi": "lower",
         "channel": "L",
-        "ratio": 1.0759207571006173,
+        "ratio": 1.1438127341051607,
         "tol": 0.033,
         "ok": false,
         "pinned": false
        }
       ],
-      "worst_band_utilisation": 6.358
+      "worst_band_utilisation": 9.237
      },
      "gpu": {
       "pass": false,
@@ -1670,7 +1646,7 @@
        {
         "roi": "grain_center",
         "channel": "r",
-        "ratio": 1.1160577954831048,
+        "ratio": 0.9347930768495455,
         "tol": 0.0342,
         "ok": false,
         "pinned": false
@@ -1678,7 +1654,7 @@
        {
         "roi": "grain_center",
         "channel": "g",
-        "ratio": 1.1383193179994184,
+        "ratio": 0.9113169062337704,
         "tol": 0.02,
         "ok": false,
         "pinned": false
@@ -1686,7 +1662,7 @@
        {
         "roi": "grain_center",
         "channel": "b",
-        "ratio": 1.0231947006788613,
+        "ratio": 0.7773117558650436,
         "tol": 0.0222,
         "ok": false,
         "pinned": false
@@ -1694,47 +1670,23 @@
        {
         "roi": "grain_center",
         "channel": "L",
-        "ratio": 1.1278040715144697,
+        "ratio": 0.9171078944423652,
         "tol": 0.02,
         "ok": false,
         "pinned": false
        },
        {
         "roi": "grain_left",
-        "channel": "r",
-        "ratio": 0.9502296195337089,
-        "tol": 0.0302,
-        "ok": false,
-        "pinned": false
-       },
-       {
-        "roi": "grain_left",
-        "channel": "g",
-        "ratio": 0.9437180311270494,
-        "tol": 0.0289,
-        "ok": false,
-        "pinned": false
-       },
-       {
-        "roi": "grain_left",
         "channel": "b",
-        "ratio": 0.9344737577214827,
+        "ratio": 0.9735199727032233,
         "tol": 0.0226,
-        "ok": false,
-        "pinned": false
-       },
-       {
-        "roi": "grain_left",
-        "channel": "L",
-        "ratio": 0.9456763035835233,
-        "tol": 0.0284,
         "ok": false,
         "pinned": false
        },
        {
         "roi": "grain_right",
         "channel": "r",
-        "ratio": 0.8448762016655482,
+        "ratio": 0.9209575383754678,
         "tol": 0.0396,
         "ok": false,
         "pinned": false
@@ -1742,7 +1694,7 @@
        {
         "roi": "grain_right",
         "channel": "g",
-        "ratio": 0.8270176484534517,
+        "ratio": 0.918412673043927,
         "tol": 0.0312,
         "ok": false,
         "pinned": false
@@ -1750,7 +1702,7 @@
        {
         "roi": "grain_right",
         "channel": "b",
-        "ratio": 0.72155500847022,
+        "ratio": 0.812891552850309,
         "tol": 0.0416,
         "ok": false,
         "pinned": false
@@ -1758,7 +1710,7 @@
        {
         "roi": "grain_right",
         "channel": "L",
-        "ratio": 0.8313002136823181,
+        "ratio": 0.9171845099981786,
         "tol": 0.0315,
         "ok": false,
         "pinned": false
@@ -1766,7 +1718,7 @@
        {
         "roi": "lower",
         "channel": "r",
-        "ratio": 1.0840063558501376,
+        "ratio": 1.1194887942483047,
         "tol": 0.0286,
         "ok": false,
         "pinned": false
@@ -1774,7 +1726,7 @@
        {
         "roi": "lower",
         "channel": "g",
-        "ratio": 1.1152020581070674,
+        "ratio": 1.1612016483645349,
         "tol": 0.0359,
         "ok": false,
         "pinned": false
@@ -1782,7 +1734,7 @@
        {
         "roi": "lower",
         "channel": "b",
-        "ratio": 1.0550923594658934,
+        "ratio": 1.1188094499092198,
         "tol": 0.0537,
         "ok": false,
         "pinned": false
@@ -1790,13 +1742,13 @@
        {
         "roi": "lower",
         "channel": "L",
-        "ratio": 1.1025839348996904,
+        "ratio": 1.1451154643437056,
         "tol": 0.0326,
         "ok": false,
         "pinned": false
        }
       ],
-      "worst_band_utilisation": 6.916
+      "worst_band_utilisation": 10.031
      }
     }
    },

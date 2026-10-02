@@ -171,6 +171,10 @@ The GPU evaluates the procedurals per hit (shared host + device code, `include/a
 the #994 64^3 voxel bake. CPU output unchanged (marble / wood CPU renders bit-identical to main). Sphere region, 8 px
 blocks, |GPU - CPU| / mean, seed 278: marble 3.7 % (main bake 6.0 %, CPU seed-to-seed 3.3 %), wood 5.9 % (main bake
 14.9 %, CPU seed-to-seed 4.7 %). The contact sheets lose the voxel blocks (marble) and concentric aliased rings (wood).
-No row flips: the GPU now carries the CPU's residuals. Marble GPU 8/16 re-pointed to #1006; wood GPU 0/16 (was 5/16)
-re-pointed to #1017 because the old bake applied the op-VM inputs' own Mapping, which the CPU (and so now the GPU)
-drops (rings unrotated vs Cycles).
+#1017 (same lane): procedural op-VM inputs lost their Mapping on the CPU (the addon gave the ProgramTexture the
+legacy 2-D transform, which never moves the point a procedural reads) and hence on the per-hit GPU; the program now
+carries the inputs' 3-D Mapping matrix (all inputs share one signature). Unmapped materials export the same calls
+(marble CPU bit-identical to main). Wood vs Cycles, channels in band: CPU 1/16 -> 4/16, GPU 5/16 (main bake, an
+aliased field rotated differently) -> 0/16 (#1007 alone) -> 3/16 (#1007 + #1017); the rings are now horizontal as in
+Cycles. Remaining wood residual: band phase / spacing, rows re-pointed to #1006 (world-not-local Object coords,
+sphere at z = 0.9) / #881 / #993. Marble GPU 8/16 re-pointed to #1006 (the CPU's residual).

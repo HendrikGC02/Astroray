@@ -1259,7 +1259,6 @@ bool wfPatchRefit(WfContext& C, const Renderer& renderer) {
             src[C.triIndexOf[h]] = static_cast<const Triangle*>(h);
     std::vector<WfTriGeom> geom(idx.size());
     const int nIdx = static_cast<int>(idx.size());
-    #pragma omp parallel for schedule(static) if(nIdx >= 16384)
     for (int i = 0; i < nIdx; ++i) {
         GTriangle t;
         fillTriangleGeometry(*src[idx[i]], t);

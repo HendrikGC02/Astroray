@@ -1495,10 +1495,10 @@ public:
     // i+1, right at secondChildOffset > i), so one reverse pass sees updated
     // children. On an unmoved scene this reproduces the built bounds exactly.
     void refit() {
-        // Leaves are independent (parallel); interior nodes then need both
-        // children done, which the reverse pass guarantees.
+        // Leaves first, then interior nodes in reverse (both children done).
+        // Serial: the viewport edit path is latency-bound on a busy host, where
+        // an OpenMP region costs more than this O(n) pass (pkg291 measurement).
         const int nn = static_cast<int>(nodes.size());
-        #pragma omp parallel for schedule(static) if(nn >= 65536)
         for (int i = 0; i < nn; ++i) {
             LinearBVHNode& n = nodes[i];
             if (n.nPrimitives == 0) continue;

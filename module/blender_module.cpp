@@ -3568,9 +3568,9 @@ public:
         if (!(std::fabs(det) > 1e-12)) return false;
         const double nm[9] = {c00/det, c01/det, c02/det, c10/det, c11/det, c12/det,
                              c20/det, c21/det, c22/det};
-        const int nt = static_cast<int>(tris.size());
-        #pragma omp parallel for schedule(static) if(nt >= 16384)
-        for (int i = 0; i < nt; ++i) tris[i]->applyTransform(m, nm);  // independent
+        // Serial on purpose: an OpenMP region here measured 75-150 ms vs 7-15 ms
+        // serial for 100k triangles on a loaded host (oversubscription).
+        for (Triangle* t : tris) t->applyTransform(m, nm);
         // The GPU device scene is NOT invalidated: the refit is logged against
         // the scene version, and the wavefront driver patches only the moved
         // triangles + node bounds (cuda_wavefront_render, pkg291).

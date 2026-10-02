@@ -118,13 +118,17 @@ def sun_direction(s: dict):
 
 def sodium_spd(step_nm: int = 5, lo: int = 360, hi: int = 830):
     """The Astroray ``sodium_vapor`` emission profile as (wavelength nm, value) pairs, read from its own database.
+    Astroray stores it on a 5 nm grid and interpolates linearly (``SpectralProfile::emission``); Mitsuba's ``spectrum`` is also
+    linear between points, so the two engines integrate the identical lamp curve (the broadened-line shape is Astroray's own).
     Needs the astroray module (ASTRORAY_PYD_DIR); cached in ``spd_<profile>.json`` so the Mitsuba venv never imports it."""
     cache = HERE / "spd_sodium_vapor.json"
     if cache.is_file():
-        return [tuple(x) for x in json.loads(cache.read_text())]
+        c = json.loads(cache.read_text())
+        if c["profile"] == "sodium_vapor" and c["grid"] == [lo, hi, step_nm]:
+            return [tuple(x) for x in c["values"]]
     import astroray  # only to build the cache
     vals = [(float(w), float(astroray.spectral_profile_reflectance("sodium_vapor", float(w)))) for w in range(lo, hi + 1, step_nm)]
-    cache.write_text(json.dumps(vals))
+    cache.write_text(json.dumps({"profile": "sodium_vapor", "grid": [lo, hi, step_nm], "values": vals}))
     return vals
 
 
@@ -162,9 +166,9 @@ def build_dict(sid: str, mi, work: Path, res=RES, spp: int = 64, lamp_scale: flo
         dist, half = 100.0, math.radians(s["angle_deg"] / 2.0)
         dvec = sun_direction(s)
         pos = [-dist * dvec[i] for i in range(3)]
-        omega = 2.0 * math.pi * (1.0 - math.cos(half))
+        e_norm = math.pi * math.sin(half) ** 2  # normal irradiance of a uniform disc of radiance 1 and angular half-width ``half``
         d["sun"] = {"type": "sphere", "center": pos, "radius": dist * math.sin(half),
-                    "emitter": {"type": "area", "radiance": {"type": "rgb", "value": [c * s["strength"] * scale / omega for c in s["color"]]}}}
+                    "emitter": {"type": "area", "radiance": {"type": "rgb", "value": [c * s["strength"] * scale / e_norm for c in s["color"]]}}}
     elif sid == "arb_chromatic_medium":
         c, lp = p["cube"], p["lamp"]
         # Cycles Principled Volume with Absorption Color black: extinction = density (grey) and the Color is the scattering

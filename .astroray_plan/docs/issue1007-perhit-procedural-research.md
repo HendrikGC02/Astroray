@@ -21,9 +21,11 @@ All three licences are compatible with Astroray's. Code: `include/astroray/proce
   pkg115 code with the same operations in the same order: `std::` calls became the float C functions they resolve to,
   `Vec3 / s` became an explicit per-component division (`GVec3::operator/` multiplies by the reciprocal), and the
   Voronoi neighbour cell ids keep the int -> float -> int round trip the port had.
-* `random_float3_offset` is a table of its five values (seeds 0..4), computed with two roundings. With constant seeds
-  the old CPU build folded `100 + hash * 100` at compile time; computed at run time, FMA contraction (nvcc by default,
-  MSVC `/fp:fast`, GCC `-mfma`) moves the offset by an ulp and the fractal octaves amplify that to ~1e-4 in the noise.
+* `random_float3_offset` is a table of its five values (seeds 0..4) computed as a fused multiply-add. Whether a
+  compiler fuses `100 + hash * 100` depends on inlining: the production MSVC build (`/arch:AVX2 /fp:fast`) of main
+  fused it (four of the fifteen values differ by an ulp from the two-rounding result; found by comparing
+  `eval_texture_at_3d` between the main and branch builds), g++ `-mfma` folded the constant-seed call unfused, nvcc
+  fuses. The fractal octaves amplify one ulp of offset to ~1e-4 in the noise, so the table pins the MSVC value.
 * GPU: `scene_upload.cu perHitTexId` lowers a Noise / Wave / Voronoi (and a pkg277 coordinate program over them) with
   Object or Generated coordinates on a surface consumer into a `GImageTexture` with `procId >= 0`; the
   `<HasProgram=true>` shade kernel evaluates it at the hit (`gpu_progInputEval` -> `gpu_procTexEval`,
@@ -34,7 +36,8 @@ All three licences are compatible with Astroray's. Code: `include/astroray/proce
 
 A scratch harness evaluated 112 parameter sets x 404 points (all noise types / detail / distortion, all wave
 modes / profiles, Voronoi features 0-6 x 4 metrics x detail x normalize x output) through the old and new headers,
-printing hex floats: identical with `g++ -O2`, and identical with `-O2 -mavx2 -mfma` once the offsets were tabulated.
+printing hex floats: identical with `g++ -O2` (and with `-O2 -mavx2 -mfma` for a two-rounding table). The production
+MSVC build is compared with main through `eval_texture_at_3d` (75 parameter sets x 300 points) in the PR.
 Under `-ffast-math` both the old and the new build differ from the exact build (old vs exact up to 1.5 at saw-profile
 discontinuities), so a fast-math build is not bit-stable under any refactor; the production MSVC build is checked
 empirically against the main build in the PR.

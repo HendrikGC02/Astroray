@@ -356,16 +356,17 @@ struct NoiseParams {
 };
 
 // Cycles noisetex.h random_float3_offset(seed) = 100 + hash_float2_to_float(seed, k) * 100
-// for the five seeds noise_texture uses, precomputed with two roundings (the value the
-// CPU had when the compiler folded the constant seeds). At run time FMA contraction
-// (nvcc, MSVC /fp:fast, GCC -mfma) fuses it and moves the offset by an ulp, which the
-// fractal octaves amplify to ~1e-4 in the noise value.
+// for the five seeds noise_texture uses, precomputed as a fused multiply-add (one
+// rounding): the value the production CPU build (MSVC /arch:AVX2 /fp:fast) produced and
+// nvcc produces. Whether a compiler fuses it depends on inlining (GCC -mfma folded the
+// old constant-seed call unfused), and the one-ulp offset change is amplified by the
+// fractal octaves to ~1e-4 in the noise value, so the table pins it.
 HD inline GVec3 random_float3_offset(int seed) {
     switch (seed) {
-        case 0:  return GVec3(0x1.741004p+7f, 0x1.cbd2e6p+6f, 0x1.34e52p+7f);
-        case 1:  return GVec3(0x1.8fae14p+7f, 0x1.4495dp+7f, 0x1.3418b2p+7f);
-        case 2:  return GVec3(0x1.be890ep+6f, 0x1.3abd2p+7f, 0x1.8e2d1cp+7f);
-        case 3:  return GVec3(0x1.4ae3fcp+7f, 0x1.458954p+7f, 0x1.82d11cp+7f);
+        case 0:  return GVec3(0x1.741004p+7f, 0x1.cbd2e6p+6f, 0x1.34e51ep+7f);
+        case 1:  return GVec3(0x1.8fae14p+7f, 0x1.4495cep+7f, 0x1.3418b2p+7f);
+        case 2:  return GVec3(0x1.be890ep+6f, 0x1.3abd22p+7f, 0x1.8e2d1cp+7f);
+        case 3:  return GVec3(0x1.4ae3fcp+7f, 0x1.458954p+7f, 0x1.82d11ap+7f);
         default: return GVec3(0x1.37296ep+7f, 0x1.624f2cp+7f, 0x1.1447b2p+7f);
     }
 }
@@ -790,7 +791,7 @@ HD inline GVec3 voronoi_texture(const VoronoiParams& vp, GVec3 p) {
 // Device-side tagged evaluator (GPU per-hit procedurals, #1007). One entry per
 // procedural the GPU evaluates per hit (scene_upload.cu lowerProcTexture). A
 // CoordProgramTexture (pkg277) is the child's entry plus the warp: p is replaced
-// by svm_eval(program warpProg, {p, input warpIn sampled at p}) before the child
+// by svm_eval(program warpProg, {p, input warpInput sampled at p}) before the child
 // runs (see gpu_procTexEval).
 // ---------------------------------------------------------------------------
 enum GProcKind : int { G_PROC_NOISE = 0, G_PROC_WAVE = 1, G_PROC_VORONOI = 2 };
@@ -798,7 +799,7 @@ enum GProcKind : int { G_PROC_NOISE = 0, G_PROC_WAVE = 1, G_PROC_VORONOI = 2 };
 struct GProcTexture {
     int kind = G_PROC_NOISE;
     int warpProg = -1;   // CoordProgramTexture warp program (index into programs), -1 none
-    int warpIn = -1;     // GProcTexture index of the warp's texture input, -1 none
+    int warpInput = -1;     // GProcTexture index of the warp's texture input, -1 none
     NoiseParams noise{};
     WaveParams wave{};
     VoronoiParams voronoi{};

@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "blender_addon"))
-import shader_vm_compiler as C  # noqa: E402
+import shader_vm_compiler as C
 
 astroray = pytest.importorskip("astroray")
 

@@ -66,35 +66,41 @@ see `efficiency_table.csv`). Three sources, in order of measured weight:
 
 CPU is similar: Astroray CPU is 1.5-5.5x slower per spp and 0.9-5.8x the variance at equal spp.
 
-## Arbitration scenes (Mitsuba 3 spectral reference; lamp scale anchored to one ROI per scene)
+## Arbitration scenes (Mitsuba 3 spectral reference)
 
-Means at 256 spp, 5 seeds, ratio to the Mitsuba 16384 spp reference (`arbitration/arbitration_roi_means.json`):
+Means at 256 spp, 5 seeds, ratio to the Mitsuba 16384 spp reference (`arbitration/arbitration_roi_means.json`). Prism and
+narrow-band rows re-run 2026-10-03 after the #1020/#1021 fixes (Astroray build e584ad85; Cycles legs from the pkg307 run):
 
 | scene / ROI | Cycles | Astroray CPU | Astroray GPU | note |
 |---|---|---|---|---|
 | chromatic medium, medium_core (R, G, B) | 1.08 / 0.99 / 1.20 | 0.96 / 1.00 / 1.01 | 0.96 / 1.00 / 1.01 | Cycles RGB transport is up to 20 % off in blue; Astroray within 4 % |
 | chromatic medium, floor ROIs | 1.00-1.05 | 0.98-1.00 | 0.98-1.00 | all engines agree |
-| narrow band (sodium), luminance | 0.18 (white lamp: RGB limit) | 0.999 | 0.999 | anchored at wall_centre |
-| narrow band, R / G | 0.11 / 0.27 | 0.93 / 1.07 | 0.93 / 1.07 | **Astroray R/G is 14 % below the CIE integral** |
-| prism, floor_caustic (luminance) | 0.04 CPU / 0.38 OptiX | 1.17 | 1.11 | dispersive floor caustic: Astroray mean 11-17 % above Mitsuba, ref SE 1 % |
+| narrow band (sodium), R / G | 0.13 / 0.30 (white lamp: RGB limit) | 1.000 / 0.997 | 1.000 / 0.997 | R/G 4.62 = CIE integral (Astroray -0.04 % analytic); was 0.93 / 1.07 (#1020) |
+| prism, floor_far (luminance) | 0.886 | 1.004 (z 0.4) | 0.988 (z -1.4) | sun-lit floor + prism light; was 1.16 / 1.12 against a Cycles-anchored ref (#1021) |
+| prism, floor_caustic (luminance) | 0.04 CPU / 0.33 OptiX | 0.74 (z -7.4) | 0.92 (z -2.5) | CPU caustic deficit #1025; was 1.17 / 1.11 with the desaturating film |
+| prism, floor_prism_shadow (luminance) | 1.08 | 1.08 | 1.08 | all three engines 8 % above Mitsuba (z ~40); not isolated |
 
 - **Setup check.** Mitsuba matches a first-principles CIE 1931 integration of the same SPD and Jakob-Hanika albedo to 0.3 %
   in R/G (4.61 vs 4.62); Astroray and Mitsuba share identical CMF tables (max difference 0). Medium and floor ROIs agree
   to 1-4 % across all three engines.
-- **Narrow-band chromaticity (new finding).** Astroray renders the sodium lamp with R/G = 3.90 on a grey wall; the CIE
-  integral of the same stored SPD (Astroray's `emission(λ)` is `reflectance(λ)`) gives 4.51. That equals a ~1.75 nm shift of
-  the SPD. Mitsuba's negative blue (-0.1, out of the sRGB gamut) is clipped to 0 in Astroray. Cause not isolated
-  (CMF tables are identical; suspects: wavelength sampling of narrow SPDs on the CPU path, composite white filter).
-  Follow-up for pkg218 / the architect; **the acceptance sentence "Mitsuba and Astroray means agree within 3 sigma" holds for
-  luminance and for the medium scene, and fails for R and G on the narrow-band scene.**
+- **#1020 (fixed): narrow-band chromaticity.** The film conversion of the final pixel (CPU and GPU) desaturated out-of-gamut
+  colours toward white (`rgb -= min(rgb)`, a display heuristic from the 2026-04 GR commit). The sodium lamp has B < 0, so
+  R/G fell from 4.52 (CIE integral of the stored SPD) to 3.90 and luminance rose 12 %. The film now uses the exact
+  IEC 61966-2-1 matrix and clips negative channels per channel (B renders 0 where Mitsuba writes -0.08; #1024 decides
+  whether scene-linear output keeps negatives). The narrow-band lamp scale had been anchored on the inflated Astroray
+  luminance; re-anchored, with the Mitsuba anchor luminance clipped like the film. R agrees within 3 sigma; G is 0.3 % low
+  at |z| 4-8 because the reference SE is 0.01 %: that residual is Mitsuba's own 0.3 % offset from the CIE integral above.
+- **#1021 (not an engine bug): sun-lit floor.** A Lambertian floor under the 4 degree sun at 22 degrees renders
+  rho S sin(e) / pi to -0.3 % on CPU and GPU (sun, uniform dome, both; `tests/test_1021_sun_floor_analytic.py`). Mitsuba
+  without the prism gives 0.16115 at `floor_far` (analytic 0.16098), with it 0.1811: the ROI holds 12.5 % prism light that
+  Cycles barely renders. The pkg307 calibration anchored Mitsuba's lamp to Cycles on that ROI, scaling Mitsuba down by
+  exactly the missing light (0.886), so "Cycles and Mitsuba agree" was by construction. The prism scene now runs Mitsuba in
+  physical sun units (no anchor).
 - **Dispersion floor (for pkg306).** The Mitsuba reference shows the same streak morphology as Astroray GPU (equal-time
-  sheet). Astroray's caustic mean is within 11-17 % of Mitsuba (z 3-5 at ref SE 1 %), so the Astroray floor "confetti" is
-  mostly real specular-caustic transport, not an energy bug; the variance there (248x Cycles) is tail variance, and
-  Mitsuba shows the same sparse hits at equal spp. Cycles recovers only 4 % (CPU) / 38 % (OptiX) of the caustic (no
-  dispersion; it finds the 4 degree sun only by chance paths).
-- **Open.** Astroray reads 12-16 % above Cycles and Mitsuba at `floor_far` (the anchor ROI, which the sun lights directly);
-  `floor_prism_shadow` is 22 % lower in Mitsuba than in all three other engines. Neither is isolated; a prism-less control
-  render separates sun/floor convention from caustic leakage.
+  sheet). With the desaturation gone, Astroray GPU is 8 % and CPU 26 % below Mitsuba on the caustic: the CPU deficit is
+  transport (clipping can only raise a channel), filed as #1025 (related #959). Cycles recovers only 4 % (CPU) / 33 %
+  (OptiX) of the caustic (no dispersion; it finds the 4 degree sun only by chance paths).
+- **Open.** `floor_prism_shadow` is 8 % lower in Mitsuba than in Cycles and both Astroray legs (all three agree).
 
 ## Limits
 
@@ -102,9 +108,10 @@ Means at 256 spp, 5 seeds, ratio to the Mitsuba 16384 spp reference (`arbitratio
   wavelength, lanes 1-3 terminated, x4 once per path at hits from outside). A BSDF cannot see throughput, so a path with a
   diffuse bounce between two prism hits is over-weighted; the floor albedo is 0.15 to keep that share small. Measured against the stock dielectric at constant IOR (8 seeds x 8192 spp):
   floor_caustic +1.4 % (z 3.1), prism_body +6.9 % (z 3.5), floor ROIs 0.0 %. So the plugin over-reads the caustic by 1-7 %: the
-  Astroray-minus-Mitsuba caustic gap (+11-17 %) is larger than this, but not by an order of magnitude. Not an exact estimator.
+  plugin bias is small next to the post-#1020 Astroray caustic gaps (GPU -8 %, CPU -26 %). Not an exact estimator.
 - Mitsuba rows on scene (a) are references, not a noise-per-time comparison of a spectral path tracer.
-- The sun is a 4 degree disc in all engines (a delta sun is invisible to path tracers). Mitsuba's lamp scale is anchored on
-  a ROI that does not depend on the effect under test (floor vs Cycles; wall luminance vs Astroray CPU for the narrow-band
-  lamp, since Astroray does not draw the lamp face), so luminance on the anchor ROI is agreement by construction.
+- The sun is a 4 degree disc in all engines (a delta sun is invisible to path tracers). Mitsuba's sun is in physical units
+  (irradiance = Blender strength). The rectangle lamps' scale is anchored on a ROI that does not depend on the effect under
+  test (lit floor vs Cycles for the medium; wall luminance vs Astroray CPU for the narrow-band lamp, since Astroray does not
+  draw the lamp face), so luminance on an anchor ROI is agreement by construction.
 - LuxCore and pbrt-v4 legs are follow-ups (BlendLuxCore 2.11.1 is not installed; pbrt is not built).

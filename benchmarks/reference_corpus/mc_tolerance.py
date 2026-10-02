@@ -597,18 +597,25 @@ def arb_calibrate(a, manifest, scenes) -> None:
     Lamp units differ per engine (Blender watts vs radiance) and light transport is linear in emitter power, so one scalar
     per scene fixes the units. The anchor is a ROI whose value does not depend on the effect under test: the
     directly sun/lamp-lit floor against Cycles (RGB-safe), the visible lamp face against Astroray CPU for the narrow-band
-    lamp (Cycles cannot render it). Every other ROI is then an independent comparison. Writes calibration.json."""
+    lamp (Cycles cannot render it). Every other ROI is then an independent comparison. Writes calibration.json.
+    Anchor ``None``: the Mitsuba emitter is already in physical units (the sun, #1021), lamp_scale 1.0."""
     work = Path(a.work_dir)
     cal_path = ARB / "calibration.json"
     cal = json.loads(cal_path.read_text()) if cal_path.is_file() else {}
     for sid in scenes:
         entry = scene_entry(manifest, sid)
         anchor = entry["v2"]["anchor"]
+        if anchor is None:
+            cal[sid] = {"lamp_scale": 1.0, "anchor": None}
+            print(f"[arb-calibrate] {sid}: physical units, lamp_scale 1.0", flush=True)
+            continue
         rect = entry["crops"][anchor["roi"]]
         tgt = np.mean([roi_means(render(sid, anchor["leg"], s, 256, work / f"{sid}_{anchor['leg']}_cal_s{s}", timeout=3600), rect)[3]
                        for s in a.seeds[:3]])
-        unit = np.mean([roi_means(render(sid, "mitsuba", s, 256, work / f"{sid}_mitsuba_cal_s{s}", timeout=3600,
-                                         extra=("--lamp-scale", "1.0")), rect)[3] for s in a.seeds[:3]])
+        # Clip negatives as the anchor leg's film does (#1020: Astroray clips an out-of-gamut channel at 0; an unclipped
+        # Mitsuba luminance would push the clipped channel's share into the scale and bias R and G by ~1 % on the lamp).
+        unit = np.mean([roi_means(np.maximum(render(sid, "mitsuba", s, 256, work / f"{sid}_mitsuba_cal_s{s}", timeout=3600,
+                                                    extra=("--lamp-scale", "1.0")), 0.0), rect)[3] for s in a.seeds[:3]])
         cal[sid] = {"lamp_scale": float(tgt / unit), "anchor": anchor, "anchor_leg_lum": float(tgt), "mitsuba_unit_scale_lum": float(unit)}
         print(f"[arb-calibrate] {sid}: anchor {anchor} target {tgt:.5g} mitsuba@1 {unit:.5g} -> lamp_scale {tgt / unit:.5g}", flush=True)
     cal_path.write_text(json.dumps(cal, indent=1) + "\n", encoding="utf-8", newline="\n")

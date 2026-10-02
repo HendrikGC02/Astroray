@@ -5477,9 +5477,9 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                               PASS_TRANSMISSION_DIRECT, PASS_TRANSMISSION_INDIRECT,
                                               PASS_VOLUME_DIRECT, PASS_VOLUME_INDIRECT,
                                               PASS_EMISSION, PASS_ENVIRONMENT}) {
-                            passColor[passIndex] = xyzToLinearSRGB(passColor[passIndex]);
+                            passColor[passIndex] = xyzToLinearSRGBExact(passColor[passIndex]);
                         }
-                        color = xyzToLinearSRGB(color);
+                        color = xyzToLinearSRGBExact(color);
                         if (applyGamma) {
                             color.x = std::pow(finiteClamped(color.x, 0.0f, 1.0f), 1.0f / 2.2f);
                             color.y = std::pow(finiteClamped(color.y, 0.0f, 1.0f), 1.0f / 2.2f);

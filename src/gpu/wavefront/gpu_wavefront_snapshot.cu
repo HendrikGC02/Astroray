@@ -2812,7 +2812,7 @@ std::vector<float> cuda_wavefront_render(
                          h_lpXYZ[src + 1] / samples,
                          h_lpXYZ[src + 2] / samples);
                 xyz *= exposureP;
-                Vec3 srgb = xyzToLinearSRGB(xyz);
+                Vec3 srgb = xyzToLinearSRGBExact(xyz);
                 const size_t dst = (size_t(p) * numPixels + i) * 3;
                 passesOut[dst + 0] = std::max(Renderer::finiteOrZero(srgb.x), 0.0f);
                 passesOut[dst + 1] = std::max(Renderer::finiteOrZero(srgb.y), 0.0f);
@@ -2834,7 +2834,7 @@ std::vector<float> cuda_wavefront_render(
                       h_accum[i * 3 + 1] * invN,
                       h_accum[i * 3 + 2] * invN);
         colorXYZ *= exposure;
-        Vec3 colorSRGB = xyzToLinearSRGB(colorXYZ);
+        Vec3 colorSRGB = xyzToLinearSRGBExact(colorXYZ);
         rgb[i * 3 + 0] = std::max(Renderer::finiteOrZero(colorSRGB.x), 0.0f);
         rgb[i * 3 + 1] = std::max(Renderer::finiteOrZero(colorSRGB.y), 0.0f);
         rgb[i * 3 + 2] = std::max(Renderer::finiteOrZero(colorSRGB.z), 0.0f);
@@ -3107,7 +3107,7 @@ std::vector<float> cuda_wavefront_render_restir(
                       h_accum[i * 3 + 1] / samples,
                       h_accum[i * 3 + 2] / samples);
         colorXYZ *= exposure;
-        Vec3 colorSRGB = xyzToLinearSRGB(colorXYZ);
+        Vec3 colorSRGB = xyzToLinearSRGBExact(colorXYZ);
         rgb[i * 3 + 0] = std::max(Renderer::finiteOrZero(colorSRGB.x), 0.0f);
         rgb[i * 3 + 1] = std::max(Renderer::finiteOrZero(colorSRGB.y), 0.0f);
         rgb[i * 3 + 2] = std::max(Renderer::finiteOrZero(colorSRGB.z), 0.0f);

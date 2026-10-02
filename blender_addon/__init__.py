@@ -5520,7 +5520,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             colour = [float(c) for c in spec.get('base_color', [1.0, 1.0, 1.0])[:3]]
             if any(abs(c - 1.0) > 1e-6 for c in colour):
                 self._warn_shader_fallback(
-                    'BSDF_TRANSPARENT', 'tinted Transparent BSDF in a Light Path switch: '
+                    'MIX_SHADER', 'tinted Transparent BSDF in a Light Path switch: '
                     'rendered untinted (Principled alpha has no tint)')
             spec = blend_shader_specs(
                 1.0, {'kind': 'principled', 'base_color': [1.0, 1.0, 1.0], 'params': {}}, spec)

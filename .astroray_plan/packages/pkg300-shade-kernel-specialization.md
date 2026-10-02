@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** in-progress — Phases 0-1 PR pending (2026-10-02: Cornell simple 2.85x / heavy 2.55x, build 1.1x)
+**Status:** in-progress — Phases 0-1 PR #1014 (2026-10-02: Cornell simple 2.85x / heavy 2.55x, build 1.1x); Phase 2 open
 **Estimated effort:** 6 sessions (~18 h) for Phases 0 to 2; Phase 3 TBD (speculative)
 **Depends on:** pkg298, pkg174, pkg155
 

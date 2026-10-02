@@ -156,6 +156,8 @@ def test_arbitration_anchor_rois_exist_and_the_builder_matches_the_params():
     from benchmarks.reference_corpus.arbitration import build_arbitration as BA
     assert set(BA.ROIS) == set(MS.PARAMS)
     for sid, p in MS.PARAMS.items():
+        if p["anchor"] is None:  # physical lamp units (#1021: the sun)
+            continue
         assert p["anchor"]["roi"] in {name for name, _, _ in BA.ROIS[sid]}
         assert p["anchor"]["leg"] in MC.NB_LEGS
 

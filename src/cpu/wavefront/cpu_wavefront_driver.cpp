@@ -101,7 +101,7 @@ std::vector<float> cpu_wavefront_render(
             colorXYZ = colorXYZ / float(samples);
 
             colorXYZ *= renderer.getFilmExposure();
-            Vec3 colorSRGB = xyzToLinearSRGB(colorXYZ);
+            Vec3 colorSRGB = xyzToLinearSRGBExact(colorXYZ);
             colorSRGB.x = std::max(Renderer::finiteOrZero(colorSRGB.x), 0.0f);
             colorSRGB.y = std::max(Renderer::finiteOrZero(colorSRGB.y), 0.0f);
             colorSRGB.z = std::max(Renderer::finiteOrZero(colorSRGB.z), 0.0f);

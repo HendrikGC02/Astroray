@@ -133,11 +133,24 @@ inline ASTRORAY_NOINLINE Vec3 spectralToXYZ(const SpectralSample& s) {
     return Vec3(float(X), float(Y), float(Z));
 }
 
-// CIE XYZ → linear sRGB (D65 white point)
-inline Vec3 xyzToLinearSRGB(const Vec3& xyz) {
+// CIE XYZ → linear sRGB (D65 white point), IEC 61966-2-1 matrix, no gamut
+// mapping: an out-of-gamut colour keeps its negative channel. This is the film
+// (scene-linear pixel) conversion; callers clip negatives per channel. #1020:
+// the desaturating variant below added -min(rgb) to every channel of the final
+// pixel, which shifted narrow-band R/G by 14 % and added luminance.
+inline Vec3 xyzToLinearSRGBExact(const Vec3& xyz) {
     float r =  3.2406f * xyz.x - 1.5372f * xyz.y - 0.4986f * xyz.z;
     float g = -0.9689f * xyz.x + 1.8758f * xyz.y + 0.0415f * xyz.z;
     float b =  0.0557f * xyz.x - 0.2040f * xyz.y + 1.0570f * xyz.z;
+    return Vec3(r, g, b);
+}
+
+// CIE XYZ → displayable linear sRGB: the exact matrix, then out-of-gamut
+// colours desaturated toward white. For deriving an RGB *colour* from a
+// spectrum (line/blackbody emitters, GR disk); never for film pixels.
+inline Vec3 xyzToLinearSRGB(const Vec3& xyz) {
+    Vec3 c = xyzToLinearSRGBExact(xyz);
+    float r = c.x, g = c.y, b = c.z;
 
     // Desaturate out-of-gamut colours toward white
     float minC = std::min({r, g, b});

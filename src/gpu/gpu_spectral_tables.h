@@ -237,12 +237,11 @@ __device__ inline GSampledSpectrum gpu_clampContribMW(
     return contrib;
 }
 
-// CIE XYZ (D65) → linear sRGB. Mirrors include/astroray/spectral.h.
+// CIE XYZ (D65) → linear sRGB, no gamut mapping. Mirrors
+// include/astroray/spectral.h xyzToLinearSRGBExact (#1020 film conversion).
 __device__ inline GVec3 xyzToLinearSRGB_dev(const GVec3& xyz) {
     float r =  3.2406f * xyz.x - 1.5372f * xyz.y - 0.4986f * xyz.z;
     float g = -0.9689f * xyz.x + 1.8758f * xyz.y + 0.0415f * xyz.z;
     float b =  0.0557f * xyz.x - 0.2040f * xyz.y + 1.0570f * xyz.z;
-    float minC = fminf(fminf(r, g), b);
-    if (minC < 0.f) { r -= minC; g -= minC; b -= minC; }
     return GVec3(r, g, b);
 }

@@ -597,13 +597,18 @@ def arb_calibrate(a, manifest, scenes) -> None:
     Lamp units differ per engine (Blender watts vs radiance) and light transport is linear in emitter power, so one scalar
     per scene fixes the units. The anchor is a ROI whose value does not depend on the effect under test: the
     directly sun/lamp-lit floor against Cycles (RGB-safe), the visible lamp face against Astroray CPU for the narrow-band
-    lamp (Cycles cannot render it). Every other ROI is then an independent comparison. Writes calibration.json."""
+    lamp (Cycles cannot render it). Every other ROI is then an independent comparison. Writes calibration.json.
+    Anchor ``None``: the Mitsuba emitter is already in physical units (the sun, #1021), lamp_scale 1.0."""
     work = Path(a.work_dir)
     cal_path = ARB / "calibration.json"
     cal = json.loads(cal_path.read_text()) if cal_path.is_file() else {}
     for sid in scenes:
         entry = scene_entry(manifest, sid)
         anchor = entry["v2"]["anchor"]
+        if anchor is None:
+            cal[sid] = {"lamp_scale": 1.0, "anchor": None}
+            print(f"[arb-calibrate] {sid}: physical units, lamp_scale 1.0", flush=True)
+            continue
         rect = entry["crops"][anchor["roi"]]
         tgt = np.mean([roi_means(render(sid, anchor["leg"], s, 256, work / f"{sid}_{anchor['leg']}_cal_s{s}", timeout=3600), rect)[3]
                        for s in a.seeds[:3]])

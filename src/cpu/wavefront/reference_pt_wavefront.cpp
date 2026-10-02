@@ -87,7 +87,7 @@ ReferencePTResult reference_pt_wavefront_render(
             colorXYZ *= renderer.getFilmExposure();
 
             // 2. XYZ -> linear sRGB conversion.
-            Vec3 colorSRGB = xyzToLinearSRGB(colorXYZ);
+            Vec3 colorSRGB = xyzToLinearSRGBExact(colorXYZ);
 
             // 3. finiteOrZero clamping (apply_gamma=False path).
             colorSRGB.x = std::max(Renderer::finiteOrZero(colorSRGB.x), 0.0f);

@@ -380,7 +380,7 @@ ReferencePTResult reference_pt_production_render(
                     colorXYZ *= renderer.getFilmExposure();
 
                     // 2. XYZ → linear sRGB conversion (astroray/spectral.h:137-148).
-                    Vec3 colorSRGB = xyzToLinearSRGB(colorXYZ);
+                    Vec3 colorSRGB = xyzToLinearSRGBExact(colorXYZ);
 
                     // 3. finiteOrZero clamping (production raytracer.h:2601-2603, apply_gamma=False path).
                     colorSRGB.x = std::max(Renderer::finiteOrZero(colorSRGB.x), 0.0f);

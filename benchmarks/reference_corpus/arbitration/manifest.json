@@ -21,10 +21,7 @@
     ],
     "blender_version": "5.2.0 LTS",
     "doc": "SF11 prism under a 4 degree sun, diffuse floor: dispersive floor caustic (Cycles has no dispersion).",
-    "anchor": {
-     "roi": "floor_far",
-     "leg": "cycles"
-    },
+    "anchor": null,
     "divergence": {}
    },
    "assets": [],

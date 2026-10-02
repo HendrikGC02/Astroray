@@ -18,12 +18,7 @@
   "mitsuba_unit_scale_lum": 0.0002685381262102358
  },
  "arb_prism_sun": {
-  "lamp_scale": 0.8864323104427793,
-  "anchor": {
-   "roi": "floor_far",
-   "leg": "cycles"
-  },
-  "anchor_leg_lum": 0.16103102763493857,
-  "mitsuba_unit_scale_lum": 0.1816619562913974
+  "lamp_scale": 1.0,
+  "anchor": null
  }
 }

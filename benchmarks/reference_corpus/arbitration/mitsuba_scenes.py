@@ -19,7 +19,8 @@ the same pdf. A BSDF cannot see the path throughput, so the x4 is not idempotent
 prism hits: a few-percent effect on the caustic at floor albedo 0.15, bounded by the constant-IOR validation.
 
 Lamp scale: every engine's lamp units differ (Blender W vs radiance), and transport is linear in emitter power, so
-``calibration.json`` holds one scalar per scene that matches Mitsuba to its anchor ROI (see ``--calibrate``).
+``calibration.json`` holds one scalar per scene that matches Mitsuba to its anchor ROI (see ``--calibrate``). A scene
+whose anchor is ``None`` is in physical units already (the sun: lamp_scale 1.0).
 """
 from __future__ import annotations
 
@@ -47,7 +48,10 @@ PARAMS = {
         "sun": {"elev_deg": 22.0, "az_deg": -12.0, "angle_deg": 4.0, "strength": 9.0, "color": (1.0, 1.0, 1.0)},
         "camera": {"loc": (3.4, -4.6, 3.0), "target": (1.0, 0.2, 0.2), "lens": 32.0},
         "max_depth": 16,
-        "anchor": {"roi": "floor_far", "leg": "cycles"},
+        # No anchor (#1021): the Mitsuba sun below is in physical units (irradiance = Blender strength; floor without the
+        # prism 0.16115 vs analytic 0.16098), and every floor ROI also receives prism light Cycles barely renders, so a
+        # Cycles anchor scaled Mitsuba down by the missing caustic (lamp_scale 0.886 at floor_far).
+        "anchor": None,
     },
     "arb_chromatic_medium": {
         "doc": "Chromatic homogeneous medium cube above a diffuse floor, lit by a rectangle lamp.",

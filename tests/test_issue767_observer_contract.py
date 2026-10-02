@@ -60,7 +60,7 @@ LAM = np.arange(360.0, 831.0)
 BAND = (LAM >= 380.0) & (LAM <= 780.0)  # production render band
 CMF = np.stack([_inc_array("kCieCmfX"), _inc_array("kCieCmfY"), _inc_array("kCieCmfZ")])
 D65 = _inc_array("kD65Spd")
-M_CPU = _matrix("include/astroray/spectral.h", "inline Vec3 xyzToLinearSRGB")
+M_CPU = _matrix("include/astroray/spectral.h", "inline Vec3 xyzToLinearSRGBExact")
 M_GPU = _matrix("src/gpu/gpu_spectral_tables.h", "xyzToLinearSRGB_dev")
 
 

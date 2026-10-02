@@ -348,12 +348,15 @@ def test_unbakeable_procedural_program_records_degradation(monkeypatch):
     assert any("procedural input with CAMERA coordinates" in m for m in lines), lines
 
 
-def test_object_coord_procedural_program_reports_voxel_bake(monkeypatch):
-    # #994: Object-coordinate procedural inputs are baked on the GPU (no longer a
-    # flat value), but a 64^3 voxel bake aliases fine detail -> still reported.
+def test_object_coord_procedural_program_reports_world_position(monkeypatch):
+    # #994 baked Object-coordinate procedural inputs into a 64^3 voxel grid (reported
+    # as aliased). #1007 evaluates Noise per hit on the GPU, so only the shared
+    # world-vs-object-local approximation (#1006) is reported, never the bake.
     lines = _degradation_lines(monkeypatch, 'Base Color', _two_noise_coord_socket('Object'))
     assert not any("procedural input with" in m for m in lines), lines
-    assert any("OBJECT coordinates: GPU samples a 64^3 voxel" in m for m in lines), lines
+    assert any("OBJECT coordinates: both backends use the world position" in m
+               for m in lines), lines
+    assert not any("64^3 voxel" in m for m in lines), lines
 
 
 def test_multi_input_scalar_program_records_degradation(monkeypatch):

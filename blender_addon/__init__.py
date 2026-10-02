@@ -4339,15 +4339,28 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return None
         return compiled, bases[0]
 
-    def _warn_object_coord_bake(self, node):
-        """#994: the GPU bakes an OBJECT-coordinate procedural into a 64^3 voxel grid
-        over the geometry's world bbox (no device procedural evaluators yet): detail
-        finer than a voxel aliases (wood rings, marble veins). Reported, not silent."""
+    # #1007: procedural node types the GPU evaluates per hit (astroray/procedural_tex.h,
+    # scene_upload.cu perHitTexId) for Object / Generated coordinates on surface
+    # consumers; every other type keeps the #994 64^3 voxel bake.
+    _GPU_PER_HIT_PROCEDURALS = ('TEX_NOISE', 'TEX_WAVE', 'TEX_VORONOI')
+
+    def _warn_object_coord_bake(self, node, inputs=()):
+        """OBJECT coordinates are the world position on both backends (#1006). The GPU
+        evaluates Noise / Wave / Voronoi per hit (#1007); any other procedural (or a
+        warp `inputs` texture of another type) is baked into a 64^3 voxel grid over the
+        geometry's world bbox, where detail finer than a voxel aliases (#994). An
+        emitter's texture is always baked; scene_upload.cu reports that at render time."""
+        name = getattr(node, 'name', getattr(node, 'type', '?'))
+        types = [getattr(n, 'type', None) for n in (node,) + tuple(inputs)]
+        if all(t in self._GPU_PER_HIT_PROCEDURALS for t in types):
+            self._warn_shader_fallback(
+                'op-VM', "procedural '%s' with OBJECT coordinates: both backends use the "
+                "world position, not object-local (#1006)" % name)
+            return
         self._warn_shader_fallback(
             'op-VM', "procedural '%s' with OBJECT coordinates: GPU samples a 64^3 voxel "
             "bake of the object bbox (fine detail aliased); both backends use the "
-            "world position, not object-local (#1006)"
-            % getattr(node, 'name', getattr(node, 'type', '?')))
+            "world position, not object-local (#1006)" % name)
 
     # Coordinate modes the GPU bakes procedurals over (scene_upload.cu
     # bakeProceduralTexId): UV (2D), Generated and Object (#994, world bbox) 3D.
@@ -4396,7 +4409,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         self._apply_texture_transform(renderer, name, coord_mode, (1.0, 1.0), (0.0, 0.0),
                                       0.0, uv_layer, mapping)
         if coord_mode == 'OBJECT':
-            self._warn_object_coord_bake(node)
+            self._warn_object_coord_bake(node, compiled.get('inputs', ()))
         if coord_mode not in self._GPU_BAKED_COORDS:
             self._warn_shader_fallback(
                 'op-VM', 'coordinate program on %s with %s coordinates: GPU skips the '
@@ -4596,16 +4609,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
         prog_name = "_prog_%s.%s.%s" % (mat_name, getattr(node, "name", "n"), input_name)
         # The ProgramTexture carries the SAME coordinate contract as its children
         # so the CPU delivers `p` exactly once (child value(uv,p) never re-resolves)
-        # and the GPU shade path rebuilds the identical coordinate. Procedural
-        # children were registered via load_procedural_texture, which uses the
-        # legacy 2-D Mapping (allow_affine=False); mirror that here so CPU (prog)
-        # and GPU (baked child) apply the identical transform. Image children use
-        # the 3-D affine matrix path unchanged.
-        if proc_kind and not resolved.get('coord_program'):
-            p_scale, p_offset, p_rot = resolved['legacy']
-            p_matrix = None
-        else:
-            p_scale, p_offset, p_rot, p_matrix = scale, offset, rot, mapping_matrix
+        # and the GPU shade path rebuilds the identical coordinate. Every input has
+        # the same coordinate + Mapping signature (checked above), so the program's
+        # 3-D Mapping matrix IS each input's own Mapping chain. #1017: procedural
+        # inputs used to get the legacy 2-D transform here, which never moves the
+        # point a procedural reads, so their Mapping was dropped on the CPU (and on
+        # the #1007 per-hit GPU path) while the children themselves carry the full
+        # matrix since #945. An identity Mapping exports None (no transform call).
+        p_scale, p_offset, p_rot, p_matrix = scale, offset, rot, mapping_matrix
         try:
             renderer.create_program_texture(prog_name, coord_mode)
             self._apply_texture_transform(renderer, prog_name, coord_mode, p_scale,

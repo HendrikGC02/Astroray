@@ -2,6 +2,7 @@
 #include "raytracer.h"
 #include "astroray/shader_vm.h"   // pkg219b — bounded per-texel op-VM
 #include "astroray/gpu_types.h"   // #1004 — GImgExt / gpu_imageWrapTexel
+#include "astroray/procedural_tex.h"  // #1007 — host+device Noise / Wave / Voronoi
 #include <utility>
 #include <cstdio>   // pkg242 — visible warning for singular Mapping matrices
 
@@ -546,8 +547,9 @@ private:
 // coordinate warped by an op-VM program (Separate XYZ -> Math(Sin) -> Combine
 // XYZ -> Noise). OP_LOAD_TEX 0 reads the resolved (+Mapped) point p; the child
 // is sampled at p' = svm_eval(prog, {p}). Coord mode + Mapping live on the
-// wrapper, so Mapping precedes the warp. No device code: the GPU bakes
-// value() via scene_upload.cu bakeProceduralTexId (pkg190) like any procedural.
+// wrapper, so Mapping precedes the warp. GPU: evaluated per hit when the child
+// and input are Noise / Wave / Voronoi (#1007, gpu_procTexEval), else value() is
+// baked via scene_upload.cu bakeProceduralTexId (pkg190).
 // Design: .astroray_plan/docs/issue822-coordinate-side-opvm-design.md
 // ============================================================================
 class CoordProgramTexture : public Texture {
@@ -562,6 +564,11 @@ public:
                         const astroray::svm::ShaderVMProgram& p,
                         std::vector<std::shared_ptr<Texture>> inputs = {})
         : child_(std::move(child)), program_(p), inputs_(std::move(inputs)) {}
+    // #1007: read by the GPU per-hit lowering (scene_upload.cu lowerProcTexture).
+    const std::shared_ptr<Texture>& child() const { return child_; }
+    const astroray::svm::ShaderVMProgram& program() const { return program_; }
+    size_t numInputs() const { return inputs_.size(); }
+    const std::shared_ptr<Texture>& getInput(size_t i) const { return inputs_[i]; }
     Vec3 value(const Vec2&, const Vec3& p) const override {
         GVec3 in[astroray::svm::VM_MAX_TEX];
         for (int i = 0; i < astroray::svm::VM_MAX_TEX; ++i) in[i] = GVec3(p.x, p.y, p.z);
@@ -662,449 +669,27 @@ public:
 };
 
 // --- Wave texture ---
-// Ported from Blender intern/cycles/kernel/svm/wave.h (Apache-2.0).
-// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
-// SPDX-License-Identifier: Apache-2.0
-//
-// pkg115 chunk 3: full parity with Blender/Cycles Wave node.
-// wave_type: 0=Bands, 1=Rings
-// bands_direction: 0=X, 1=Y, 2=Z, 3=Diagonal
-// rings_direction: 0=X, 1=Y, 2=Z, 3=Spherical
-// profile: 0=Sine, 1=Saw, 2=Triangle
-// NOTE (pkg115 chunk 3): the hash/perlin/fractal namespaces are defined
-// ABOVE WaveTexture because the Cycles Wave port consumes
-// fractal_noise::noise_fbm for its detail distortion.
-namespace cycles_hash {
-
-inline uint32_t rot(uint32_t x, int k) {
-    return (x << k) | (x >> (32 - k));
-}
-
-#define HASH_MIX(a, b, c) \
-    do { \
-        a -= c; a ^= rot(c, 4); c += b; \
-        b -= a; b ^= rot(a, 6); a += c; \
-        c -= b; c ^= rot(b, 8); b += a; \
-        a -= c; a ^= rot(c, 16); c += b; \
-        b -= a; b ^= rot(a, 19); a += c; \
-        c -= b; c ^= rot(b, 4); b += a; \
-    } while(0)
-
-#define HASH_FINAL(a, b, c) \
-    do { \
-        c ^= b; c -= rot(b, 14); \
-        a ^= c; a -= rot(c, 11); \
-        b ^= a; b -= rot(a, 25); \
-        c ^= b; c -= rot(b, 16); \
-        a ^= c; a -= rot(c, 4); \
-        b ^= a; b -= rot(a, 14); \
-        c ^= b; c -= rot(b, 24); \
-    } while(0)
-
-inline uint32_t hash_uint(uint32_t kx) {
-    uint32_t a, b, c;
-    a = b = c = 0xdeadbeefu + (1u << 2) + 13u;
-    a += kx;
-    HASH_FINAL(a, b, c);
-    return c;
-}
-
-inline uint32_t hash_uint2(uint32_t kx, uint32_t ky) {
-    uint32_t a, b, c;
-    a = b = c = 0xdeadbeefu + (2u << 2) + 13u;
-    b += ky;
-    a += kx;
-    HASH_FINAL(a, b, c);
-    return c;
-}
-
-inline uint32_t hash_uint3(uint32_t kx, uint32_t ky, uint32_t kz) {
-    uint32_t a, b, c;
-    a = b = c = 0xdeadbeefu + (3u << 2) + 13u;
-    c += kz;
-    b += ky;
-    a += kx;
-    HASH_FINAL(a, b, c);
-    return c;
-}
-
-inline uint32_t hash_uint4(uint32_t kx, uint32_t ky, uint32_t kz, uint32_t kw) {
-    uint32_t a, b, c;
-    a = b = c = 0xdeadbeefu + (4u << 2) + 13u;
-    a += kx;
-    b += ky;
-    c += kz;
-    HASH_MIX(a, b, c);
-    a += kw;
-    HASH_FINAL(a, b, c);
-    return c;
-}
-
-inline float uint_to_float_incl(uint32_t n) {
-    return (float)n * (1.0f / (float)0xFFFFFFFFu);
-}
-
-inline uint32_t float_as_uint(float f) {
-    union { float f; uint32_t u; } conv;
-    conv.f = f;
-    return conv.u;
-}
-
-inline float hash_uint_to_float(uint32_t kx) {
-    return uint_to_float_incl(hash_uint(kx));
-}
-
-inline float hash_uint2_to_float(uint32_t kx, uint32_t ky) {
-    return uint_to_float_incl(hash_uint2(kx, ky));
-}
-
-inline float hash_uint3_to_float(uint32_t kx, uint32_t ky, uint32_t kz) {
-    return uint_to_float_incl(hash_uint3(kx, ky, kz));
-}
-
-inline float hash_uint4_to_float(uint32_t kx, uint32_t ky, uint32_t kz, uint32_t kw) {
-    return uint_to_float_incl(hash_uint4(kx, ky, kz, kw));
-}
-
-inline float hash_float_to_float(float k) {
-    return hash_uint_to_float(float_as_uint(k));
-}
-
-inline float hash_float2_to_float(float kx, float ky) {
-    return hash_uint2_to_float(float_as_uint(kx), float_as_uint(ky));
-}
-
-inline float hash_float3_to_float(float kx, float ky, float kz) {
-    return hash_uint3_to_float(float_as_uint(kx), float_as_uint(ky), float_as_uint(kz));
-}
-
-inline float hash_float4_to_float(float kx, float ky, float kz, float kw) {
-    return hash_uint4_to_float(float_as_uint(kx), float_as_uint(ky), float_as_uint(kz), float_as_uint(kw));
-}
-
-// PCG3D hash for int3 -> float3 (required by Voronoi cell colors).
-// Cycles util/hash.h hash_pcg3d_i (Apache-2.0). NOTE: Cycles runs this on
-// SIGNED int3, so the >>16 is an ARITHMETIC shift — emulate it by casting
-// through int32_t for the shift only (all other arithmetic stays unsigned
-// for defined wraparound). pkg98 review: the logical-shift version diverged
-// bit-wise for negative intermediates.
-inline uint32_t pcg_xorshift_signed16(uint32_t v) {
-    return v ^ (uint32_t)(((int32_t)v) >> 16);
-}
-
-inline Vec3 hash_int3_to_float3(int ix, int iy, int iz) {
-    uint32_t vx = (uint32_t)ix;
-    uint32_t vy = (uint32_t)iy;
-    uint32_t vz = (uint32_t)iz;
-    vx = vx * 1664525u + 1013904223u;
-    vy = vy * 1664525u + 1013904223u;
-    vz = vz * 1664525u + 1013904223u;
-    vx += vy * vz;
-    vy += vz * vx;
-    vz += vx * vy;
-    vx = pcg_xorshift_signed16(vx);
-    vy = pcg_xorshift_signed16(vy);
-    vz = pcg_xorshift_signed16(vz);
-    vx += vy * vz;
-    vy += vz * vx;
-    vz += vx * vy;
-    vx = vx & 0x7FFFFFFFu;
-    vy = vy & 0x7FFFFFFFu;
-    vz = vz & 0x7FFFFFFFu;
-    return Vec3((float)vx * (1.0f / (float)0x7FFFFFFFu),
-                (float)vy * (1.0f / (float)0x7FFFFFFFu),
-                (float)vz * (1.0f / (float)0x7FFFFFFFu));
-}
-
-inline Vec3 hash_float3_to_float3(float kx, float ky, float kz) {
-    return Vec3(hash_float3_to_float(kx, ky, kz),
-                hash_float4_to_float(kx, ky, kz, 1.0f),
-                hash_float4_to_float(kx, ky, kz, 2.0f));
-}
-
-}  // namespace cycles_hash
-
-// ============================================================================
-// PERLIN NOISE CORE (pkg115 chunk 2)
-// ============================================================================
-// Ported from Blender intern/cycles/kernel/svm/noise.h (BSD-3-Clause).
-// SPDX-FileCopyrightText: 2009-2010 Sony Pictures Imageworks Inc., et al.
-// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
-// SPDX-License-Identifier: BSD-3-Clause
-// Adapted code from Open Shading Language.
-
-namespace perlin_noise {
-
-inline float floorfrac(float x, int* i) {
-    *i = (int)std::floor(x);
-    return x - (float)(*i);
-}
-
-inline float negate_if(float val, int condition) {
-    return condition ? -val : val;
-}
-
-inline float fade(float t) {
-    return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
-}
-
-inline float grad3(int hash, float x, float y, float z) {
-    int h = hash & 15;
-    float u = (h < 8) ? x : y;
-    float vt = ((h == 12) || (h == 14)) ? x : z;
-    float v = (h < 4) ? y : vt;
-    return negate_if(u, h & 1) + negate_if(v, h & 2);
-}
-
-inline float tri_mix(float v0, float v1, float v2, float v3,
-                     float v4, float v5, float v6, float v7,
-                     float x, float y, float z) {
-    float x1 = 1.0f - x;
-    float y1 = 1.0f - y;
-    float z1 = 1.0f - z;
-    return z1 * (y1 * (v0 * x1 + v1 * x) + y * (v2 * x1 + v3 * x)) +
-           z * (y1 * (v4 * x1 + v5 * x) + y * (v6 * x1 + v7 * x));
-}
-
-inline float perlin_3d(float x, float y, float z) {
-    int X, Y, Z;
-    float fx = floorfrac(x, &X);
-    float fy = floorfrac(y, &Y);
-    float fz = floorfrac(z, &Z);
-    float u = fade(fx);
-    float v = fade(fy);
-    float w = fade(fz);
-    using cycles_hash::hash_uint3;
-    float r = tri_mix(
-        grad3(hash_uint3(X, Y, Z), fx, fy, fz),
-        grad3(hash_uint3(X + 1, Y, Z), fx - 1.0f, fy, fz),
-        grad3(hash_uint3(X, Y + 1, Z), fx, fy - 1.0f, fz),
-        grad3(hash_uint3(X + 1, Y + 1, Z), fx - 1.0f, fy - 1.0f, fz),
-        grad3(hash_uint3(X, Y, Z + 1), fx, fy, fz - 1.0f),
-        grad3(hash_uint3(X + 1, Y, Z + 1), fx - 1.0f, fy, fz - 1.0f),
-        grad3(hash_uint3(X, Y + 1, Z + 1), fx, fy - 1.0f, fz - 1.0f),
-        grad3(hash_uint3(X + 1, Y + 1, Z + 1), fx - 1.0f, fy - 1.0f, fz - 1.0f),
-        u, v, w);
-    return r;
-}
-
-inline float noise_scale3(float result) {
-    return 0.9820f * result;
-}
-
-inline float snoise_3d(Vec3 p) {
-    // Precision guard per Cycles noise.h:725-736.
-    const float precision_limit = 1000000.0f;
-    Vec3 correction(0.0f);
-    if (std::abs(p.x) >= precision_limit) correction.x = 0.5f;
-    if (std::abs(p.y) >= precision_limit) correction.y = 0.5f;
-    if (std::abs(p.z) >= precision_limit) correction.z = 0.5f;
-    p.x = std::fmod(p.x, 100000.0f) + correction.x;
-    p.y = std::fmod(p.y, 100000.0f) + correction.y;
-    p.z = std::fmod(p.z, 100000.0f) + correction.z;
-    return noise_scale3(perlin_3d(p.x, p.y, p.z));
-}
-
-inline float noise_3d(Vec3 p) {
-    return 0.5f * snoise_3d(p) + 0.5f;
-}
-
-}  // namespace perlin_noise
-
-// ============================================================================
-// FRACTAL NOISE STACK (pkg115 chunk 2)
-// ============================================================================
-// Ported from Blender intern/cycles/kernel/svm/fractal_noise.h (Apache-2.0).
-// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
-// SPDX-License-Identifier: Apache-2.0
-
-namespace fractal_noise {
-
-using perlin_noise::snoise_3d;
-
-inline float noise_fbm(Vec3 p, float detail, float roughness, float lacunarity, bool normalize) {
-    float fscale = 1.0f;
-    float amp = 1.0f;
-    float maxamp = 0.0f;
-    float sum = 0.0f;
-    int octaves = (int)detail;
-    for (int i = 0; i <= octaves; i++) {
-        float t = snoise_3d(p * fscale);
-        sum += t * amp;
-        maxamp += amp;
-        amp *= roughness;
-        fscale *= lacunarity;
-    }
-    float rmd = detail - std::floor(detail);
-    if (rmd != 0.0f) {
-        float t = snoise_3d(p * fscale);
-        float sum2 = sum + t * amp;
-        float result = normalize ?
-            (0.5f * sum / maxamp + 0.5f) * (1.0f - rmd) + (0.5f * sum2 / (maxamp + amp) + 0.5f) * rmd :
-            sum * (1.0f - rmd) + sum2 * rmd;
-        return result;
-    }
-    return normalize ? 0.5f * sum / maxamp + 0.5f : sum;
-}
-
-inline float noise_multi_fractal(Vec3 p, float detail, float roughness, float lacunarity) {
-    float value = 1.0f;
-    float pwr = 1.0f;
-    int octaves = (int)detail;
-    for (int i = 0; i <= octaves; i++) {
-        value *= (pwr * snoise_3d(p) + 1.0f);
-        pwr *= roughness;
-        p = p * lacunarity;
-    }
-    float rmd = detail - std::floor(detail);
-    if (rmd != 0.0f) {
-        value *= (rmd * pwr * snoise_3d(p) + 1.0f);
-    }
-    return value;
-}
-
-inline float noise_hetero_terrain(Vec3 p, float detail, float roughness, float lacunarity, float offset) {
-    float pwr = roughness;
-    float value = offset + snoise_3d(p);
-    p = p * lacunarity;
-    int octaves = (int)detail;
-    for (int i = 1; i <= octaves; i++) {
-        float increment = (snoise_3d(p) + offset) * pwr * value;
-        value += increment;
-        pwr *= roughness;
-        p = p * lacunarity;
-    }
-    float rmd = detail - std::floor(detail);
-    if (rmd != 0.0f) {
-        float increment = (snoise_3d(p) + offset) * pwr * value;
-        value += rmd * increment;
-    }
-    return value;
-}
-
-inline float noise_hybrid_multi_fractal(Vec3 p, float detail, float roughness,
-                                        float lacunarity, float offset, float gain) {
-    float pwr = 1.0f;
-    float value = 0.0f;
-    float weight = 1.0f;
-    int octaves = (int)detail;
-    for (int i = 0; (weight > 0.001f) && (i <= octaves); i++) {
-        weight = std::min(weight, 1.0f);
-        float signal = (snoise_3d(p) + offset) * pwr;
-        pwr *= roughness;
-        value += weight * signal;
-        weight *= gain * signal;
-        p = p * lacunarity;
-    }
-    float rmd = detail - std::floor(detail);
-    if ((rmd != 0.0f) && (weight > 0.001f)) {
-        weight = std::min(weight, 1.0f);
-        float signal = (snoise_3d(p) + offset) * pwr;
-        value += rmd * weight * signal;
-    }
-    return value;
-}
-
-inline float noise_ridged_multi_fractal(Vec3 p, float detail, float roughness,
-                                        float lacunarity, float offset, float gain) {
-    float pwr = roughness;
-    float signal = offset - std::abs(snoise_3d(p));
-    signal *= signal;
-    float value = signal;
-    float weight = 1.0f;
-    int octaves = (int)detail;
-    for (int i = 1; i <= octaves; i++) {
-        p = p * lacunarity;
-        weight = std::clamp(signal * gain, 0.0f, 1.0f);
-        signal = offset - std::abs(snoise_3d(p));
-        signal *= signal;
-        signal *= weight;
-        value += signal * pwr;
-        pwr *= roughness;
-    }
-    return value;
-}
-
-}  // namespace fractal_noise
-
-// ============================================================================
-// WHITE NOISE TEXTURE (pkg115 chunk 2)
-// ============================================================================
+// Cycles intern/cycles/kernel/svm/wave.h svm_wave (Apache-2.0), pkg115 chunk 3.
+// The evaluator lives in astroray/procedural_tex.h (host + device, #1007): the
+// GPU runs the same code per hit.
+// wave_type: 0=Bands, 1=Rings; bands_direction: 0=X, 1=Y, 2=Z, 3=Diagonal;
+// rings_direction: 0=X, 1=Y, 2=Z, 3=Spherical; profile: 0=Sine, 1=Saw, 2=Triangle.
+inline GVec3 toProcVec(const Vec3& v) { return GVec3(v.x, v.y, v.z); }
+inline Vec3 fromProcVec(const GVec3& v) { return Vec3(v.x, v.y, v.z); }
 
 class WaveTexture : public Texture {
-    int waveType;           // 0=bands, 1=rings
-    int bandsDirection;     // 0=X, 1=Y, 2=Z, 3=Diagonal
-    int ringsDirection;     // 0=X, 1=Y, 2=Z, 3=Spherical
-    int profile;            // 0=sine, 1=saw, 2=triangle
-    float scale, distortion, detail, detailScale, detailRoughness, phaseOffset;
-    Vec3 colorLow, colorHigh;
+    astroray::proc::WaveParams params_;
 public:
     WaveTexture(int wt = 0, int bd = 0, int rd = 0, int prof = 0,
                 float sc = 5.0f, float dist = 0.0f, float det = 2.0f,
                 float dscale = 1.0f, float drough = 0.5f, float phase = 0.0f,
                 const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1))
-        : waveType(wt), bandsDirection(bd), ringsDirection(rd), profile(prof),
-          scale(sc), distortion(dist), detail(det), detailScale(dscale),
-          detailRoughness(drough), phaseOffset(phase), colorLow(c1), colorHigh(c2) {}
-
+        : params_{wt, bd, rd, prof, sc, dist, det, dscale, drough, phase,
+                  toProcVec(c1), toProcVec(c2)} {}
+    // #1007: the GPU per-hit evaluator reads the same parameters.
+    const astroray::proc::WaveParams& procParams() const { return params_; }
     Vec3 value(const Vec2&, const Vec3& p) const override {
-        // Cycles intern/cycles/kernel/svm/wave.h::svm_wave (Apache-2.0).
-        // Precision guard per Cycles.
-        Vec3 pp = (p + Vec3(0.000001f)) * 0.999999f;
-        pp = pp * scale;
-
-        float n = 0.0f;
-        if (waveType == 0) {
-            // Bands
-            switch (bandsDirection) {
-                case 0: n = pp.x * 20.0f; break;  // X
-                case 1: n = pp.y * 20.0f; break;  // Y
-                case 2: n = pp.z * 20.0f; break;  // Z
-                case 3: n = (pp.x + pp.y + pp.z) * 10.0f; break;  // Diagonal
-            }
-        } else {
-            // Rings: zero one axis then len * 20
-            Vec3 rp = pp;
-            switch (ringsDirection) {
-                case 0: rp.x = 0.0f; break;  // X
-                case 1: rp.y = 0.0f; break;  // Y
-                case 2: rp.z = 0.0f; break;  // Z
-                case 3: break;  // Spherical (no zeroing)
-            }
-            float r = std::sqrt(rp.x*rp.x + rp.y*rp.y + rp.z*rp.z);
-            n = r * 20.0f;
-        }
-
-        n += phaseOffset;
-
-        if (distortion != 0.0f) {
-            // Distortion via SIGNED fBM (lacunarity fixed 2.0, normalized).
-            float distort = fractal_noise::noise_fbm(pp * detailScale, detail,
-                                                     detailRoughness, 2.0f, true);
-            n += distortion * (distort * 2.0f - 1.0f);
-        }
-
-        float t;
-        const float pi = 3.14159265358979323846f;
-        const float two_pi = 2.0f * pi;
-        switch (profile) {
-            case 1: {  // Saw
-                float frac = n / two_pi;
-                t = frac - std::floor(frac);
-                break;
-            }
-            case 2: {  // Triangle
-                float frac = n / two_pi;
-                t = std::abs(frac - std::floor(frac + 0.5f)) * 2.0f;
-                break;
-            }
-            default: {  // Sine
-                t = 0.5f + 0.5f * std::sin(n - pi / 2.0f);
-                break;
-            }
-        }
-
-        return colorLow * (1.0f - t) + colorHigh * t;
+        return fromProcVec(astroray::proc::wave_texture(params_, toProcVec(p)));
     }
 };
 
@@ -1193,22 +778,12 @@ public:
 };
 
 // --- Voronoi texture ---
-// Ported from Blender intern/cycles/kernel/svm/voronoi.h (Apache-2.0).
-// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
-// SPDX-License-Identifier: Apache-2.0
-//
-// SPDX-License-Identifier: MIT
-// Original code is copyright (c) 2013 Inigo Quilez.
-// Smooth Voronoi and Distance-to-Edge formulas from:
-//   https://www.iquilezles.org/www/articles/voronoilines/voronoilines.htm
-//
-// pkg115 chunk 4: full parity with Blender/Cycles Voronoi node.
+// Cycles intern/cycles/kernel/svm/voronoi.h (Apache-2.0; smooth F1 / distance to
+// edge after Inigo Quilez 2013, MIT), pkg115 chunk 4. The evaluator lives in
+// astroray/procedural_tex.h (host + device, #1007).
 // Distance metrics: Euclidean / Manhattan / Chebychev / Minkowski(exponent param).
 // Features (Blender order): 0=F1, 1=Smooth F1, 2=F2, 3=Distance to Edge, 4=N-Sphere Radius.
 // Standalone-only legacy features: 5=F1+F2, 6=F2-F1.
-// Fractal: detail, roughness, lacunarity. Normalize divides by max_amplitude * max_distance.
-// Hash: uses cycles_hash::hash_int3_to_float3 (ported in chunk 2) for identical pattern to Cycles.
-//
 // VoronoiOutput: distance, color (cell hash RGB), position (jittered cell center).
 struct VoronoiOutput {
     float distance;
@@ -1218,370 +793,30 @@ struct VoronoiOutput {
 };
 
 class VoronoiTexture : public Texture {
-    float scale, detail, roughness, lacunarity, smoothness, exponent, randomness;
-    float maxDistance;  // computed from randomness and feature
-    bool normalize;
-    bool outputColor;   // #944: value() returns the per-cell Color output instead of Distance
-    int distMetric, feature;
-    Vec3 colorLow, colorHigh;
-
-    // Cycles voronoi.h:57-72 distance metrics.
-    float voronoi_distance(const Vec3& a, const Vec3& b) const {
-        Vec3 d = a - b;
-        switch (distMetric) {
-            case 1: return std::abs(d.x) + std::abs(d.y) + std::abs(d.z);  // Manhattan
-            case 2: return std::max({std::abs(d.x), std::abs(d.y), std::abs(d.z)});  // Chebychev
-            case 3: {  // Minkowski with exponent param (default 0.5)
-                float sum = std::pow(std::abs(d.x), exponent) +
-                            std::pow(std::abs(d.y), exponent) +
-                            std::pow(std::abs(d.z), exponent);
-                return std::pow(sum, 1.0f / exponent);
-            }
-            default: return std::sqrt(d.dot(d));  // Euclidean
-        }
-    }
-
-    // Cycles voronoi.h:479-510 voronoi_f1 3D.
-    VoronoiOutput voronoi_f1(const Vec3& coord) const {
-        Vec3 cellPositionF = Vec3(std::floor(coord.x), std::floor(coord.y), std::floor(coord.z));
-        Vec3 localPosition = coord - cellPositionF;
-
-        float minDistance = 1e9f;
-        Vec3 targetOffset(0.0f);
-        Vec3 targetPosition(0.0f);
-
-        for (int k = -1; k <= 1; ++k) {
-            for (int j = -1; j <= 1; ++j) {
-                for (int i = -1; i <= 1; ++i) {
-                    Vec3 cellOffset((float)i, (float)j, (float)k);
-                    Vec3 cellPos((int)cellPositionF.x + i, (int)cellPositionF.y + j, (int)cellPositionF.z + k);
-                    Vec3 pointPosition = cellOffset +
-                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness;
-                    float d = voronoi_distance(pointPosition, localPosition);
-                    if (d < minDistance) {
-                        minDistance = d;
-                        targetOffset = cellOffset;
-                        targetPosition = pointPosition;
-                    }
-                }
-            }
-        }
-
-        VoronoiOutput out;
-        out.distance = minDistance;
-        Vec3 targetCell = cellPositionF + targetOffset;
-        out.color = cycles_hash::hash_int3_to_float3((int)targetCell.x, (int)targetCell.y, (int)targetCell.z);
-        out.position = targetPosition + cellPositionF;
-        out.radius = 0.0f;
-        return out;
-    }
-
-    // Cycles voronoi.h:512-552 voronoi_smooth_f1 3D (5x5x5 neighborhood, polynomial smooth-min).
-    VoronoiOutput voronoi_smooth_f1(const Vec3& coord) const {
-        Vec3 cellPositionF = Vec3(std::floor(coord.x), std::floor(coord.y), std::floor(coord.z));
-        Vec3 localPosition = coord - cellPositionF;
-
-        float smoothDistance = 1e9f;
-        Vec3 smoothColor(0.0f);
-        Vec3 smoothPosition(0.0f);
-        float h = -1.0f;
-
-        for (int k = -2; k <= 2; ++k) {
-            for (int j = -2; j <= 2; ++j) {
-                for (int i = -2; i <= 2; ++i) {
-                    Vec3 cellOffset((float)i, (float)j, (float)k);
-                    Vec3 cellPos((int)cellPositionF.x + i, (int)cellPositionF.y + j, (int)cellPositionF.z + k);
-                    Vec3 pointPosition = cellOffset +
-                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness;
-                    float d = voronoi_distance(pointPosition, localPosition);
-                    Vec3 cellColor = cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z);
-
-                    h = (h == -1.0f) ? 1.0f :
-                        std::clamp(0.5f + 0.5f * (smoothDistance - d) / smoothness, 0.0f, 1.0f);
-                    h = h * h * (3.0f - 2.0f * h);  // smoothstep
-                    float correction = smoothness * h * (1.0f - h);
-                    smoothDistance = smoothDistance * (1.0f - h) + d * h - correction;
-                    correction /= 1.0f + 3.0f * smoothness;
-                    smoothColor = smoothColor * (1.0f - h) + cellColor * h - Vec3(correction);
-                    smoothPosition = smoothPosition * (1.0f - h) + pointPosition * h - Vec3(correction);
-                }
-            }
-        }
-
-        VoronoiOutput out;
-        out.distance = smoothDistance;
-        out.color = smoothColor;
-        out.position = smoothPosition + cellPositionF;
-        out.radius = 0.0f;
-        return out;
-    }
-
-    // Cycles voronoi.h:553-596 voronoi_f2 3D (two nearest).
-    VoronoiOutput voronoi_f2(const Vec3& coord) const {
-        Vec3 cellPositionF = Vec3(std::floor(coord.x), std::floor(coord.y), std::floor(coord.z));
-        Vec3 localPosition = coord - cellPositionF;
-
-        float dist1 = 1e9f, dist2 = 1e9f;
-        Vec3 offset1(0.0f), offset2(0.0f);
-        Vec3 position1(0.0f), position2(0.0f);
-
-        for (int k = -1; k <= 1; ++k) {
-            for (int j = -1; j <= 1; ++j) {
-                for (int i = -1; i <= 1; ++i) {
-                    Vec3 cellOffset((float)i, (float)j, (float)k);
-                    Vec3 cellPos((int)cellPositionF.x + i, (int)cellPositionF.y + j, (int)cellPositionF.z + k);
-                    Vec3 pointPosition = cellOffset +
-                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness;
-                    float d = voronoi_distance(pointPosition, localPosition);
-
-                    if (d < dist1) {
-                        dist2 = dist1; offset2 = offset1; position2 = position1;
-                        dist1 = d; offset1 = cellOffset; position1 = pointPosition;
-                    } else if (d < dist2) {
-                        dist2 = d; offset2 = cellOffset; position2 = pointPosition;
-                    }
-                }
-            }
-        }
-
-        VoronoiOutput out;
-        out.distance = dist2;
-        Vec3 cell2 = cellPositionF + offset2;
-        out.color = cycles_hash::hash_int3_to_float3((int)cell2.x, (int)cell2.y, (int)cell2.z);
-        out.position = position2 + cellPositionF;
-        out.radius = 0.0f;
-        return out;
-    }
-
-    // Cycles voronoi.h:597+ voronoi_distance_to_edge 3D (IQ two-pass perpendicular edge distance).
-    // Both passes work in vectors RELATIVE to localPosition (vectorToPoint = pointPosition -
-    // localPosition), matching Cycles. First pass uses squared Euclidean and IGNORES the metric.
-    // Edge distance = dot((vectorToClosest + vectorToPoint)/2, normalize(perpendicularToEdge)).
-    VoronoiOutput voronoi_distance_to_edge(const Vec3& coord) const {
-        Vec3 cellPositionF = Vec3(std::floor(coord.x), std::floor(coord.y), std::floor(coord.z));
-        Vec3 localPosition = coord - cellPositionF;
-
-        float minDistance = 1e9f;
-        Vec3 targetOffset(0.0f);
-        Vec3 vectorToClosest(0.0f);
-
-        // First pass: find closest point (squared Euclidean, metric ignored per Cycles).
-        for (int k = -1; k <= 1; ++k) {
-            for (int j = -1; j <= 1; ++j) {
-                for (int i = -1; i <= 1; ++i) {
-                    Vec3 cellOffset((float)i, (float)j, (float)k);
-                    Vec3 cellPos((int)cellPositionF.x + i, (int)cellPositionF.y + j, (int)cellPositionF.z + k);
-                    Vec3 vectorToPoint = cellOffset +
-                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness
-                        - localPosition;
-                    float d = vectorToPoint.dot(vectorToPoint);
-                    if (d < minDistance) {
-                        minDistance = d;
-                        targetOffset = cellOffset;
-                        vectorToClosest = vectorToPoint;
-                    }
-                }
-            }
-        }
-
-        // Second pass: perpendicular distance to the edge between closest and neighbor.
-        minDistance = 1e9f;
-        for (int k = -1; k <= 1; ++k) {
-            for (int j = -1; j <= 1; ++j) {
-                for (int i = -1; i <= 1; ++i) {
-                    Vec3 cellOffset((float)i, (float)j, (float)k);
-                    Vec3 cellPos((int)cellPositionF.x + i, (int)cellPositionF.y + j, (int)cellPositionF.z + k);
-                    Vec3 vectorToPoint = cellOffset +
-                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness
-                        - localPosition;
-                    Vec3 perpendicularToEdge = vectorToPoint - vectorToClosest;
-                    if (perpendicularToEdge.dot(perpendicularToEdge) > 1e-4f) {
-                        Vec3 perpN = perpendicularToEdge /
-                            std::sqrt(perpendicularToEdge.dot(perpendicularToEdge));
-                        float d = ((vectorToClosest + vectorToPoint) * 0.5f).dot(perpN);
-                        minDistance = std::min(minDistance, d);
-                    }
-                }
-            }
-        }
-
-        VoronoiOutput out;
-        out.distance = minDistance;
-        Vec3 targetCell = cellPositionF + targetOffset;
-        out.color = cycles_hash::hash_int3_to_float3((int)targetCell.x, (int)targetCell.y, (int)targetCell.z);
-        out.position = vectorToClosest + localPosition + cellPositionF;
-        out.radius = 0.0f;
-        return out;
-    }
-
-    // Cycles voronoi.h:645+ voronoi_n_sphere_radius 3D (half distance between closest point and its closest neighbor).
-    VoronoiOutput voronoi_n_sphere_radius(const Vec3& coord) const {
-        Vec3 cellPositionF = Vec3(std::floor(coord.x), std::floor(coord.y), std::floor(coord.z));
-        Vec3 localPosition = coord - cellPositionF;
-
-        float minDistance = 1e9f;
-        Vec3 targetOffset(0.0f);
-        Vec3 targetPosition(0.0f);
-
-        // First pass: find closest point.
-        for (int k = -1; k <= 1; ++k) {
-            for (int j = -1; j <= 1; ++j) {
-                for (int i = -1; i <= 1; ++i) {
-                    Vec3 cellOffset((float)i, (float)j, (float)k);
-                    Vec3 cellPos((int)cellPositionF.x + i, (int)cellPositionF.y + j, (int)cellPositionF.z + k);
-                    Vec3 pointPosition = cellOffset +
-                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness;
-                    float d = voronoi_distance(pointPosition, localPosition);
-                    if (d < minDistance) {
-                        minDistance = d;
-                        targetOffset = cellOffset;
-                        targetPosition = pointPosition;
-                    }
-                }
-            }
-        }
-
-        // Second pass: find closest neighbor to the closest point.
-        float closestNeighborDist = 1e9f;
-        for (int k = -1; k <= 1; ++k) {
-            for (int j = -1; j <= 1; ++j) {
-                for (int i = -1; i <= 1; ++i) {
-                    if (i == 0 && j == 0 && k == 0) continue;
-                    Vec3 cellOffset((float)i, (float)j, (float)k);
-                    Vec3 cellPos((int)cellPositionF.x + (int)targetOffset.x + i,
-                                 (int)cellPositionF.y + (int)targetOffset.y + j,
-                                 (int)cellPositionF.z + (int)targetOffset.z + k);
-                    Vec3 pointPosition = cellOffset +
-                        cycles_hash::hash_int3_to_float3((int)cellPos.x, (int)cellPos.y, (int)cellPos.z) * randomness;
-                    float d = voronoi_distance(Vec3(0.0f), pointPosition);
-                    closestNeighborDist = std::min(closestNeighborDist, d);
-                }
-            }
-        }
-
-        VoronoiOutput out;
-        out.distance = minDistance;
-        Vec3 targetCell = cellPositionF + targetOffset;
-        out.color = cycles_hash::hash_int3_to_float3((int)targetCell.x, (int)targetCell.y, (int)targetCell.z);
-        out.position = targetPosition + cellPositionF;
-        out.radius = closestNeighborDist / 2.0f;
-        return out;
-    }
-
-    // Cycles voronoi.h:940-992 fractal_voronoi_x_fx (octave loop with normalize).
-    VoronoiOutput fractal_voronoi(const Vec3& coord) const {
-        float octaveScale = 1.0f;  // accumulated per-octave scale (member `scale` is params.scale)
-        float amplitude = 1.0f;
-        float maxAmplitude = 0.0f;
-        VoronoiOutput sum;
-        sum.distance = 0.0f;
-        sum.color = Vec3(0.0f);
-        sum.position = Vec3(0.0f);
-        sum.radius = 0.0f;
-
-        int octaves = (int)std::ceil(detail);
-        for (int i = 0; i <= octaves; ++i) {
-            VoronoiOutput octave;
-            switch (feature) {
-                case 1: octave = voronoi_smooth_f1(coord * octaveScale); break;
-                case 2: octave = voronoi_f2(coord * octaveScale); break;
-                case 3: octave = voronoi_distance_to_edge(coord * octaveScale); break;
-                case 4: octave = voronoi_n_sphere_radius(coord * octaveScale); break;
-                default: octave = voronoi_f1(coord * octaveScale); break;
-            }
-
-            if (i <= (int)detail) {
-                sum.distance += octave.distance * amplitude;
-                sum.color = sum.color + octave.color * amplitude;
-                sum.position = sum.position + octave.position * amplitude;
-                sum.radius += octave.radius * amplitude;
-                maxAmplitude += amplitude;
-            } else {
-                // Fractional detail: lerp last octave.
-                float rmd = detail - std::floor(detail);
-                sum.distance = sum.distance * (1.0f - rmd) + (sum.distance + octave.distance * amplitude) * rmd;
-                sum.color = sum.color * (1.0f - rmd) + (sum.color + octave.color * amplitude) * rmd;
-                sum.position = sum.position * (1.0f - rmd) + (sum.position + octave.position * amplitude) * rmd;
-                sum.radius = sum.radius * (1.0f - rmd) + (sum.radius + octave.radius * amplitude) * rmd;
-                if (normalize) {
-                    maxAmplitude = maxAmplitude * (1.0f - rmd) + (maxAmplitude + amplitude) * rmd;
-                }
-            }
-
-            octaveScale *= lacunarity;
-            amplitude *= roughness;
-        }
-
-        if (normalize) {
-            sum.distance /= maxAmplitude * maxDistance;
-            sum.color = sum.color / maxAmplitude;
-        }
-        // Cycles voronoi.h fractal_voronoi_x_fx: output.position = safe_divide(position, params.scale).
-        // `scale` here is the class member (= params.scale), not the per-octave accumulator.
-        sum.position = (scale != 0.0f) ? (sum.position / scale) : sum.position;
-        return sum;
-    }
-
+    astroray::proc::VoronoiParams params_;
 public:
     VoronoiTexture(float sc = 5.0f, float det = 0.0f, float rough = 0.5f, float lac = 2.0f,
                    float smooth = 1.0f, float exp = 0.5f, float rand = 1.0f,
                    bool norm = false, int dm = 0, int feat = 0,
                    const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1),
                    bool colorOut = false)
-        : scale(sc), detail(det), roughness(rough), lacunarity(lac),
-          smoothness(smooth), exponent(exp), randomness(rand), normalize(norm),
-          outputColor(colorOut), distMetric(dm), feature(feat), colorLow(c1), colorHigh(c2) {
-        // Cycles voronoi.h:1065+ svm_node_tex_voronoi conditioning.
-        detail = std::clamp(detail, 0.0f, 15.0f);
-        roughness = std::clamp(roughness, 0.0f, 1.0f);
-        randomness = std::clamp(randomness, 0.0f, 1.0f);
-        smoothness = std::clamp(smoothness / 2.0f, 0.0f, 0.5f);  // Node UI passes 0-1; Cycles uses 0-0.5.
-
-        // Compute max_distance for normalization.
-        Vec3 ones(0.5f + 0.5f * randomness);
-        if (feature == 3) {
-            // Distance to edge.
-            maxDistance = 0.5f + 0.5f * randomness;
-        } else {
-            maxDistance = voronoi_distance(Vec3(0.0f), ones);
-            if (feature == 2) maxDistance *= 2.0f;  // F2
-        }
+        : params_{sc, det, rough, lac, smooth, exp, rand, 0.0f, norm ? 1 : 0, colorOut ? 1 : 0,
+                  dm, feat, toProcVec(c1), toProcVec(c2)} {
+        // Cycles svm_node_tex_voronoi conditioning + max_distance for normalize.
+        astroray::proc::voronoi_condition(params_);
     }
+    // #1007: the GPU per-hit evaluator reads the same (conditioned) parameters.
+    const astroray::proc::VoronoiParams& procParams() const { return params_; }
 
+    // #944: Color output returns the hashed cell colour; Distance is a 2-colour lerp.
     Vec3 value(const Vec2&, const Vec3& p) const override {
-        // Legacy single-output: Distance mapped to a 2-color lerp.
-        VoronoiOutput out = evalFull(p);
-        // Cycles svm_voronoi Color output: the hashed cell colour (voronoi.h
-        // out.color), in [0,1] per channel; Distance would render grey.
-        if (outputColor) return out.color;
-        float t = std::clamp(out.distance, 0.0f, 1.0f);
-        return colorLow * (1.0f - t) + colorHigh * t;
+        return fromProcVec(astroray::proc::voronoi_texture(params_, toProcVec(p)));
     }
 
-    // Full multi-output eval for plugin use. Features 0-4 ALWAYS route through the
-    // fractal wrapper -- Cycles svm_node_tex_voronoi calls fractal_voronoi_x_fx even at
-    // detail=0 (single octave), so `normalize` must apply at detail=0 too. Standalone-only
-    // features 5/6 (F1+F2, F2-F1) have no Cycles counterpart and bypass fractal/normalize.
+    // Full multi-output eval (distance, color, position, radius).
     VoronoiOutput evalFull(const Vec3& p) const {
-        Vec3 coord = p * scale;
-        if (feature <= 4) {
-            return fractal_voronoi(coord);
-        }
-        switch (feature) {
-            case 5: {  // Standalone-only F1+F2
-                VoronoiOutput f1 = voronoi_f1(coord);
-                VoronoiOutput f2 = voronoi_f2(coord);
-                f1.distance = (f1.distance + f2.distance) * 0.5f;
-                return f1;
-            }
-            case 6: {  // Standalone-only F2-F1
-                VoronoiOutput f1 = voronoi_f1(coord);
-                VoronoiOutput f2 = voronoi_f2(coord);
-                f1.distance = f2.distance - f1.distance;
-                return f1;
-            }
-            default: return voronoi_f1(coord);
-        }
+        astroray::proc::VoronoiOut o = astroray::proc::voronoi_eval_full(params_, toProcVec(p));
+        return VoronoiOutput{o.distance, fromProcVec(o.color), fromProcVec(o.position), o.radius};
     }
 };
 
@@ -1663,24 +898,13 @@ public:
     }
 };
 
-// --- Musgrave (fBm) texture ---
-// ============================================================================
-// HASH FAMILY (pkg115 chunk 2)
-// ============================================================================
-// Ported from Blender intern/cycles/util/hash.h (Apache-2.0).
-// SPDX-FileCopyrightText: 2011-2022 Blender Foundation
-// SPDX-License-Identifier: Apache-2.0
-//
-// Jenkins Lookup3 hash core. Required by Perlin, Voronoi, White Noise, and
-// the Noise node's random offsets. Bit-identical to Cycles for parity.
-
 class WhiteNoiseTexture : public Texture {
 public:
     WhiteNoiseTexture() = default;
     Vec3 value(const Vec2&, const Vec3& p) const override {
         // Cycles intern/cycles/kernel/svm/white_noise.h::svm_node_tex_white_noise (Apache-2.0).
-        // 3D white noise: color = hash_float3_to_float3, value = hash_float3_to_float.
-        return cycles_hash::hash_float3_to_float3(p.x, p.y, p.z);
+        // 3D white noise: color = hash_float3_to_float3 (astroray/procedural_tex.h).
+        return fromProcVec(astroray::proc::hash_float3_to_float3(p.x, p.y, p.z));
     }
 };
 
@@ -1688,61 +912,26 @@ public:
 // NOISE TEXTURE (real Perlin-based, pkg115 chunk 2)
 // ============================================================================
 // Blender "Noise Texture" node (includes Musgrave semantics since Blender 4.1).
-// Cycles intern/cycles/kernel/svm/noisetex.h (Apache-2.0).
+// Cycles intern/cycles/kernel/svm/noisetex.h (Apache-2.0); evaluator in
+// astroray/procedural_tex.h (host + device, #1007).
 // Default noise_type = fBM (0), normalize = true. Musgrave types map to the
 // noise_type enum: 1=MULTIFRACTAL, 2=HYBRID_MULTIFRACTAL, 3=RIDGED_MULTIFRACTAL, 4=HETERO_TERRAIN.
 class NoiseTextureCycles : public Texture {
-    float scale, detail, roughness, lacunarity, offset, gain, distortion;
-    int noise_type;  // 0=fBM, 1=multifractal, 2=hybrid, 3=ridged, 4=hetero
-    bool normalize;
+    astroray::proc::NoiseParams params_;
 public:
     NoiseTextureCycles(float s = 5.0f, float det = 2.0f, float rough = 0.5f,
                        float lac = 2.0f, float off = 0.0f, float g = 1.0f,
                        float dist = 0.0f, int type = 0, bool norm = true)
-        : scale(s), detail(det), roughness(rough), lacunarity(lac),
-          offset(off), gain(g), distortion(dist), noise_type(type), normalize(norm) {}
-
-    static Vec3 random_float3_offset(float seed) {
-        // Cycles noisetex.h:32-37 (Apache-2.0).
-        using cycles_hash::hash_float2_to_float;
-        return Vec3(100.0f + hash_float2_to_float(seed, 0.0f) * 100.0f,
-                    100.0f + hash_float2_to_float(seed, 1.0f) * 100.0f,
-                    100.0f + hash_float2_to_float(seed, 2.0f) * 100.0f);
-    }
-
-    float noise_select(Vec3 p, float det, float rough, float lac, float off, float g, int type, bool norm) const {
-        // Cycles noisetex.h:48-78 (Apache-2.0).
-        using namespace fractal_noise;
-        switch (type) {
-            case 1: return noise_multi_fractal(p, det, rough, lac);
-            case 2: return noise_hybrid_multi_fractal(p, det, rough, lac, off, g);
-            case 3: return noise_ridged_multi_fractal(p, det, rough, lac, off, g);
-            case 4: return noise_hetero_terrain(p, det, rough, lac, off);
-            case 0:
-            default:
-                return noise_fbm(p, det, rough, lac, norm);
-        }
-    }
+        : params_{s, det, rough, lac, off, g, dist, type, norm ? 1 : 0} {}
+    // #1007: the GPU per-hit evaluator reads the same parameters.
+    const astroray::proc::NoiseParams& procParams() const { return params_; }
 
     Vec3 value(const Vec2&, const Vec3& p) const override {
-        // Cycles noisetex.h:161-201 noise_texture_3d (Apache-2.0).
-        // Clamp detail [0,15], roughness >= 0 per svm_node_tex_noise:245+.
-        float det = std::clamp(detail, 0.0f, 15.0f);
-        float rough = std::max(roughness, 0.0f);
-        Vec3 co = p * scale;
-        Vec3 distorted = co;
-        if (distortion != 0.0f) {
-            distorted.x += perlin_noise::snoise_3d(co + random_float3_offset(0.0f)) * distortion;
-            distorted.y += perlin_noise::snoise_3d(co + random_float3_offset(1.0f)) * distortion;
-            distorted.z += perlin_noise::snoise_3d(co + random_float3_offset(2.0f)) * distortion;
-        }
-        float fac = noise_select(distorted, det, rough, lacunarity, offset, gain, noise_type, normalize);
-        float r = noise_select(distorted + random_float3_offset(3.0f), det, rough, lacunarity, offset, gain, noise_type, normalize);
-        float g = noise_select(distorted + random_float3_offset(4.0f), det, rough, lacunarity, offset, gain, noise_type, normalize);
-        return Vec3(fac, r, g);
+        return fromProcVec(astroray::proc::noise_texture(params_, toProcVec(p)));
     }
 };
 
+// --- Musgrave (fBm) texture ---
 class MusgraveTexture : public Texture {
     // type: 0=fBm, 1=multifractal, 2=ridged, 3=hybrid
     int musType;

@@ -11,6 +11,7 @@
 #include "astroray/gpu_wavefront_state.h"
 #include "astroray/gpu_types.h"
 #include "astroray/shader_vm.h"  // pkg219b — op-VM program + svm_eval
+#include "astroray/procedural_tex.h"  // #1007 — per-hit procedural point clamp
 #include "astroray/gpu_materials.h"
 #include "astroray/gpu_bvh.h"
 #include "astroray/gpu_env_spectral.cuh"
@@ -1202,6 +1203,37 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_progInputTe
     return {gpu_sampleImageTexture(tdesc, c_wfTexBinding.texelBuf, uu, vv), true};
 }
 
+// #1007 — a program / base-colour input in the <HasProgram=true> kernel. A
+// descriptor with procId >= 0 (scene_upload.cu perHitTexId) is a Noise / Wave /
+// Voronoi evaluated at this hit instead of a 64^3 bake: the CPU texture point
+// (Object: the world hit point = the CPU objectPoint on flat geometry; Generated:
+// gpu_generatedCoord clamped to [0,1], advanced_features.h CoordMode::Generated),
+// then the 3-D Mapping M*p (Texture::value), then gpu_procTexEval
+// (proc_tex_eval.cu). Every other descriptor is the texel fetch above. Never
+// called from the emission (intersect / shadow) paths, so the evaluator's
+// registers stay out of those kernels.
+__device__ GVec3 gpu_procTexEval(int procId, GVec3 p);  // proc_tex_eval.cu
+static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_progInputEval(
+    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
+{
+    const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
+    if (tdesc.procId < 0) return gpu_progInputTexel(point, primId, prims, tris, texId);
+    GVec3 p = point;
+    if (!tdesc.objectCoord) {
+        const GVec3 g = gpu_generatedCoord(point, primId, prims, tris, texId);
+        p = GVec3(astroray::proc::pclamp(g.x, 0.0f, 1.0f),
+                  astroray::proc::pclamp(g.y, 0.0f, 1.0f),
+                  astroray::proc::pclamp(g.z, 0.0f, 1.0f));
+    }
+    if (tdesc.hasMapping) {
+        const float* m = tdesc.mapping;
+        p = GVec3(m[0]*p.x + m[1]*p.y + m[2]*p.z  + m[3],
+                  m[4]*p.x + m[5]*p.y + m[6]*p.z  + m[7],
+                  m[8]*p.x + m[9]*p.y + m[10]*p.z + m[11]);
+    }
+    return {gpu_procTexEval(tdesc.procId, p), true};
+}
+
 // #988 — per-texel Base Color of a native Principled material (scene_upload.cu
 // uploads it on the base-colour slots: matTexId = input 0, matProgId + matProgInTexId
 // for an op-VM program). Same fetch + svm_eval as the textured-lambertian block of
@@ -1220,7 +1252,7 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_principledB
     // #989: a program over per-hit shading inputs only has no texture (texId -1).
     GProgInputTexel t0{GVec3(0.0f, 0.0f, 0.0f), true};
     if (texId >= 0) {
-        t0 = gpu_progInputTexel(point, primId, prims, tris, texId);
+        t0 = gpu_progInputEval(point, primId, prims, tris, texId);
         if (!t0.ok) return miss;
     }
     if (progId < 0) return t0;
@@ -1232,7 +1264,7 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_principledB
         vmIn[t] = t0.c;  // single-input program: broadcast input 0 (#826)
         const int inTex = inTexIds ? inTexIds[inBase + t] : -1;
         if (inTex >= 0) {
-            const GProgInputTexel s = gpu_progInputTexel(point, primId, prims, tris, inTex);
+            const GProgInputTexel s = gpu_progInputEval(point, primId, prims, tris, inTex);
             if (!s.ok) return miss;
             vmIn[t] = s.c;
         }
@@ -1736,7 +1768,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                 // a program = shading inputs only (scene_upload uploadProgramTexture).
                 GProgInputTexel src{GVec3(0.0f, 0.0f, 0.0f), true};
                 if (sTex >= 0)
-                    src = gpu_progInputTexel(rec.point, rec.primId, prims, tris, sTex);
+                    src = gpu_progInputEval(rec.point, rec.primId, prims, tris, sTex);
                 if (!src.ok)
                     continue;  // non-triangle / UV-less hit → skip (mirrors base colour)
                 GVec3 vmIn[astroray::svm::VM_MAX_TEX];
@@ -1823,7 +1855,14 @@ __device__ __forceinline__ bool shadePathSlotImpl(
             const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
             GVec3 texColor;
             bool  haveTex = false;
-            if (tdesc.depth > 1) {
+            // #1007: a per-hit procedural descriptor only exists when scene_upload
+            // set hasProgram, so the <HasProgram=false> kernels compile this out.
+            bool perHitProc = false;
+            if constexpr (HasProgram) perHitProc = tdesc.procId >= 0;
+            if (perHitProc) {
+                texColor = gpu_progInputEval(rec.point, rec.primId, prims, tris, texId).c;
+                haveTex = true;
+            } else if (tdesc.depth > 1) {
                 // pkg190 — 3D voxel procedural (Generated coord; Object-mode
                 // procedurals are never baked — scene_upload.cu convention:
                 // CPU Object passes the raw unnormalized objectPoint). Rebuild
@@ -1897,7 +1936,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                             int inTex = inTexIds ? inTexIds[inBase + t] : -1;
                             vmIn[t] = texColor;
                             if (inTex >= 0) {
-                                GProgInputTexel s = gpu_progInputTexel(
+                                GProgInputTexel s = gpu_progInputEval(
                                     rec.point, rec.primId, prims, tris, inTex);
                                 vmIn[t] = s.c;
                                 haveTex = haveTex && s.ok;

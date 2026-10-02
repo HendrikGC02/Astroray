@@ -918,6 +918,13 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         }
         auto tit = procBakeIdx.find(pkey);
         if (tit != procBakeIdx.end()) return tit->second;
+        // #1007: Noise / Wave / Voronoi on surface consumers are evaluated per hit
+        // (perHitTexId); a 3D bake is the fallback (other texture types, emission).
+        if (!uvMode)
+            fprintf(stderr, "[#1007] DEGRADED: procedural texture with %s coordinates "
+                            "sampled from a 64^3 voxel bake on GPU (no per-hit evaluator "
+                            "for this texture or consumer); detail finer than a voxel "
+                            "aliases\n", objMode ? "Object" : "Generated");
         int res = 64;  // pkg190 default bake resolution
         GImageTexture desc;
         desc.offset = (int)r.textureTexels.size();
@@ -988,15 +995,111 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         r.textures.push_back(desc);
         return texId;
     };
+    // #1007 — per-hit procedural evaluation (replaces the 64^3 bake above for the
+    // texture types astroray/procedural_tex.h implements). lowerProcLeaf copies a
+    // CPU evaluator's parameters (the SAME struct its value() runs on);
+    // lowerProcTexture adds the pkg277 CoordProgramTexture warp (program + at most
+    // one texture input, CoordProgramTexture::value). -1 = no device evaluator.
+    auto lowerProcLeaf = [](const Texture* t, astroray::proc::GProcTexture& g) -> bool {
+        if (auto* n = dynamic_cast<const NoiseTextureCycles*>(t)) {
+            g.kind = astroray::proc::G_PROC_NOISE; g.noise = n->procParams(); return true;
+        }
+        if (auto* w = dynamic_cast<const WaveTexture*>(t)) {
+            g.kind = astroray::proc::G_PROC_WAVE; g.wave = w->procParams(); return true;
+        }
+        if (auto* v = dynamic_cast<const VoronoiTexture*>(t)) {
+            g.kind = astroray::proc::G_PROC_VORONOI; g.voronoi = v->procParams(); return true;
+        }
+        return false;
+    };
+    std::unordered_map<const Texture*, int> procEvalIdx;
+    auto lowerProcTexture = [&](Texture* t) -> int {
+        auto it = procEvalIdx.find(t);
+        if (it != procEvalIdx.end()) return it->second;
+        astroray::proc::GProcTexture g;
+        if (auto* cp = dynamic_cast<CoordProgramTexture*>(t)) {
+            if (!lowerProcLeaf(cp->child().get(), g)) return -1;
+            // VM input 0 is p and input 1 the warp texture (VM_MAX_TEX == 2); the CPU
+            // ignores inputs past VM_MAX_TEX - 1, so more than one is not lowered.
+            static_assert(astroray::svm::VM_MAX_TEX == 2, "warp lowering assumes 2 VM inputs");
+            if (cp->numInputs() > 1) return -1;
+            astroray::proc::GProcTexture gi;
+            if (cp->numInputs() == 1 && !lowerProcLeaf(cp->getInput(0).get(), gi)) return -1;
+            if (cp->numInputs() == 1) {
+                g.warpInput = (int)r.procTextures.size();
+                r.procTextures.push_back(gi);
+            }
+            auto pit = progIdx.find(t);  // a CoordProgramTexture* never aliases a ProgramTexture*
+            if (pit != progIdx.end()) {
+                g.warpProg = pit->second;
+            } else {
+                g.warpProg = (int)r.programs.size();
+                progIdx[t] = g.warpProg;
+                r.programs.push_back(cp->program());
+            }
+        } else if (!lowerProcLeaf(t, g)) {
+            return -1;
+        }
+        const int id = (int)r.procTextures.size();
+        r.procTextures.push_back(g);
+        procEvalIdx[t] = id;
+        return id;
+    };
+    // Descriptor of `evalTex` evaluated per hit at the point `pointSrc` resolves
+    // (CPU: Texture::value(rec) of pointSrc -> coordinate mode, then the 3-D Mapping
+    // M*p; the legacy UV transform never moves p). A direct procedural is its own
+    // pointSrc; an op-VM input is evaluated at its PARENT's point, exactly as
+    // ProgramTexture::eval samples inputs_[i]->value(uv, p) (the child's own
+    // coordinate mode / Mapping are not applied on the CPU). Object (flat
+    // geometry, the same gate as the bake) and Generated coordinates only; -1 =
+    // fall back to the bake. Sets hasProgram: only <HasProgram=true> evaluates it.
+    std::unordered_map<std::string, int> perHitIdx;
+    auto perHitTexId = [&](Texture* pointSrc, Texture* evalTex) -> int {
+        const Texture::CoordMode cmode = pointSrc->getCoordMode();
+        const bool objMode = cmode == Texture::CoordMode::Object && curObjBox;
+        if (!objMode && cmode != Texture::CoordMode::Generated) return -1;
+        const std::string key = std::to_string(reinterpret_cast<uintptr_t>(pointSrc)) + "|" +
+                                std::to_string(reinterpret_cast<uintptr_t>(evalTex));
+        auto it = perHitIdx.find(key);
+        if (it != perHitIdx.end()) return it->second;
+        const int procId = lowerProcTexture(evalTex);
+        if (procId < 0) return -1;
+        GImageTexture desc;
+        desc.offset = 0;
+        desc.width = desc.height = desc.depth = 1;
+        desc.procId = procId;
+        if (objMode) {
+            desc.objectCoord = 1;
+        } else {  // the Generated bake's frame (bakeProceduralTexId)
+            Vec3 gmin  = pointSrc->hasGeneratedBBox() ? pointSrc->getGeneratedMin()
+                                                      : Vec3(0.f, 0.f, 0.f);
+            Vec3 gsize = pointSrc->hasGeneratedBBox() ? pointSrc->getGeneratedSize()
+                                                      : Vec3(1.f, 1.f, 1.f);
+            desc.genMin  = GVec3(gmin.x,  gmin.y,  gmin.z);
+            desc.genSize = GVec3(gsize.x, gsize.y, gsize.z);
+        }
+        if (pointSrc->hasMapping()) {
+            desc.hasMapping = 1;
+            const float* mm = pointSrc->getMappingMatrix();
+            for (int i = 0; i < 12; ++i) desc.mapping[i] = mm[i];
+        }
+        const int texId = (int)r.textures.size();
+        r.textures.push_back(desc);
+        perHitIdx[key] = texId;
+        r.hasProgram = true;
+        return texId;
+    };
     // Input t of an op-VM ProgramTexture → texId: an image (with the program's
-    // Mapping, #825 key) or a procedural (pkg190 bake, #818 Item 1). -1 = cannot
-    // upload (empty image / unbakeable coord). Shared by base-colour and scalar
-    // programs (#846).
+    // Mapping, #825 key) or a procedural (#1007 per-hit evaluator, else the pkg190
+    // bake, #818 Item 1). -1 = cannot upload (empty image / unbakeable coord).
+    // Shared by base-colour and scalar programs (#846).
     auto uploadProgInputTexId = [&](ProgramTexture* pt, int t) -> int {
         std::shared_ptr<Texture> child = pt->getInput(t);
         if (auto childImg = std::dynamic_pointer_cast<ImageTexture>(child))
             return childImg->getData().empty() ? -1 : uploadImageTexId(childImg.get(), pt);
-        return child ? bakeProceduralTexId(child.get()) : -1;
+        if (!child) return -1;
+        const int perHit = perHitTexId(pt, child.get());
+        return perHit >= 0 ? perHit : bakeProceduralTexId(child.get());
     };
     auto getOrAddMat = [&](const std::shared_ptr<Material>& mIn) -> int {
         auto it = matIdx.find(mIn.get());
@@ -1141,7 +1244,11 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 // convention (Camera/Normal/… stay UNBAKED → -1, CPU is the
                 // reference). The bake calls the material's OWN CPU evaluator, so
                 // parity is exact-by-construction modulo grid resolution.
-                texId = bakeProceduralTexId(tex.get());
+                // #1007: a surface consumer (lambertian / Principled base colour)
+                // evaluates Noise / Wave / Voronoi per hit instead; an emitter keeps
+                // the bake (the intersect/shadow kernels have no evaluator).
+                if (!emitTex) texId = perHitTexId(tex.get(), tex.get());
+                if (texId < 0) texId = bakeProceduralTexId(tex.get());
                 if (texId >= 0) r.hasTexture = true;
             }
             // pkg190 fold-guard exactness (advisory #1, PR #590): a textured
@@ -1673,12 +1780,14 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     }
 
     // --- #847: per-vertex Generated coords ---
-    // Only read by the Generated 3D-bake fetch (depth > 1). Instanced BLAS
+    // Only read by the Generated 3D-bake fetch (depth > 1) and the #1007 per-hit
+    // Generated evaluation (procId >= 0, not objectCoord). Instanced BLAS
     // triangles are object-local while the fetch uses the world hit point, so
     // instanced scenes keep the per-texture bbox frame (pre-#847 behaviour).
     {
         bool hasGenBake = false;
-        for (const auto& t : r.textures) hasGenBake = hasGenBake || t.depth > 1;
+        for (const auto& t : r.textures)
+            hasGenBake = hasGenBake || t.depth > 1 || (t.procId >= 0 && !t.objectCoord);
         if (!hasGenBake || cpu.hasInstances()) {
             r.triGenerated.clear();
         } else if (!r.triGenerated.empty()) {

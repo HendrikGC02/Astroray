@@ -30,15 +30,15 @@ reason = "#1005: same as CPU (reported, not applied): lit_front B 0.78x, upper_f
 scene = "prod_wood"
 backend = "cpu"
 kind = "parity"
-issue = "#993"
-reason = "#988 fixed (varnish lobes kept); Roughness chain hits VM_MAX_SLOTS (#993), Noise pattern (#881), world-vs-local Object coords (#1006): grain_right B 0.71x (1/16)"
+issue = "#1006"
+reason = "#1017 fixed (the program carries the inputs' Mapping: rings now horizontal as in Cycles, 1/16 -> 4/16); band phase / spacing differ: Object coords world-not-local (#1006, sphere at z=0.9, rings centred on the origin), Noise pattern (#881), Roughness chain hits VM_MAX_SLOTS (#993): grain_center B 0.76x, lower G 1.16x (4/16)"
 
 [[row]]
 scene = "prod_wood"
 backend = "gpu"
 kind = "parity"
-issue = "#1007"
-reason = "#994: Object bake replaces the flat value (grain_center B 5.9x -> 0.98x) but the 64^3 bake aliases the rings (#1007); plus the CPU causes: grain_right B 0.82x (5/16)"
+issue = "#1006"
+reason = "#1007 + #1017 fixed (per-hit Wave / Noise with the inputs' Mapping): GPU tracks CPU (grain_center B 0.78x vs CPU 0.76x, lower G 1.16x vs 1.16x); same causes as CPU: #1006 / #881 / #993 (3/16; the main 64^3 bake read 5/16 from an aliased, differently rotated field)"
 
 [[row]]
 scene = "prod_marble"
@@ -51,8 +51,8 @@ reason = "#988 fixed (sun highlight 0.58x -> 0.97x); pattern residual <= 5 % (ve
 scene = "prod_marble"
 backend = "gpu"
 kind = "parity"
-issue = "#1007"
-reason = "#994: Object bake instead of a flat value (0.38-0.72x -> 0.99-1.08x) but voxel aliasing (#1007): vein_zone 1.05x, lower 1.05x (8/16)"
+issue = "#1006"
+reason = "#1007 fixed (per-hit evaluation, no voxel aliasing): the GPU now has the CPU's pattern residual, Object coords world-not-local (#1006) / Noise (#881): vein_zone 1.05x (CPU 1.04-1.05x), left 0.95x (CPU B 0.96x) (8/16)"
 
 [[row]]
 scene = "prod_pbr_group"

@@ -683,6 +683,13 @@ struct GImageTexture {
     // #1004 - Image Texture `extension` (outside [0,1]): see GImgExt. 0 = EXTEND
     // (clamp, the historical behaviour; every baked procedural uses it).
     int   extension = 0;
+    // #1007 - >= 0: no texels; a procedural evaluated per hit (index into
+    // GWavefrontProgramBinding::procs, astroray/procedural_tex.h). The point is
+    // resolved like a 3D bake (objectCoord: the hit point; else the Generated
+    // coord in the genMin/genSize frame, clamped to [0,1] as the CPU does), then
+    // transformed by `mapping` when hasMapping (CPU Texture::value M*p). Only
+    // read in the <HasProgram=true> shade kernel (gpu_progInputEval).
+    int   procId = -1;
 };
 
 // pkg186 — wavefront image-texture binding. Published ONCE per frame into a

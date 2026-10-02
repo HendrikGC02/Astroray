@@ -23,6 +23,23 @@ Opcode / sub-op enums MUST match include/astroray/shader_vm.h exactly.
 # #989 — per-hit shading inputs (include/astroray/shader_vm.h OP_SHADING / ShadingInput).
 OP_SHADING = 17
 SH_LAYER_FRESNEL, SH_LAYER_FACING, SH_FRESNEL, SH_BACKFACING = range(4)
+# #991 — Light Path outputs: OP_SHADING imm = SH_LIGHT_PATH + index, index in
+# include/astroray/light_path.h lightpath::Output order (Blender 5.2 socket names).
+SH_LIGHT_PATH = 4
+LIGHT_PATH_OUTPUTS = ('Is Camera Ray', 'Is Shadow Ray', 'Is Diffuse Ray', 'Is Glossy Ray',
+                      'Is Singular Ray', 'Is Reflection Ray', 'Is Transmission Ray',
+                      'Is Volume Scatter Ray', 'Ray Length', 'Ray Depth', 'Diffuse Depth',
+                      'Glossy Depth', 'Transparent Depth', 'Transmission Depth')
+# Boolean outputs (indices 0..7) can drive a Mix Shader Fac as a per-ray closure
+# switch (create_light_path_mix).
+LIGHT_PATH_BOOLEAN = LIGHT_PATH_OUTPUTS[:8]
+# Outputs whose Astroray value is approximate (reported by the addon):
+#   Is Diffuse / Is Glossy Ray, Diffuse / Glossy Depth use Astroray's per-MATERIAL
+#   bounce class (the pkg201 bounce-limit classifier: a Principled bounce counts
+#   as glossy), not Cycles' per-closure label; Transparent Depth is always 0
+#   (Astroray counts a Transparent BSDF pass as a transmission bounce).
+LIGHT_PATH_APPROXIMATE = ('Is Diffuse Ray', 'Is Glossy Ray', 'Diffuse Depth', 'Glossy Depth',
+                          'Transparent Depth')
 
 # pkg230 — Clamp node type (Cycles NodeClampType) + clamp FLAG bits packed into
 # the free high bits of an op's imm (mirror include/astroray/shader_vm.h).
@@ -137,6 +154,8 @@ class ProgramBuilder:
         # #989 — the program reads a per-hit shading input (Layer Weight / Fresnel /
         # Geometry Backfacing): not constant-foldable even with no texture input.
         self.per_hit = False
+        # #991 — approximate Light Path outputs read by the program (reported).
+        self.light_path_approx = []
 
     # -- resource allocation --------------------------------------------------
     def alloc_slot(self):
@@ -429,6 +448,22 @@ def _shading_input(node, out_name, builder, depth, arg, normal):
     return out
 
 
+def _light_path_input(node, out_name, builder):
+    """#991 — a Light Path output as OP_SHADING over the per-hit path context
+    (astroray/light_path.h; Cycles kernel/svm/light_path.h svm_node_light_path,
+    Apache-2.0). No argument. Portal Depth (no Astroray portal lights) raises."""
+    if builder.coord_mode:
+        raise VMCompileError("Light Path output in a coordinate chain")
+    if out_name not in LIGHT_PATH_OUTPUTS:
+        raise VMCompileError("Light Path output '%s' unsupported in the op-VM" % out_name)
+    if out_name in LIGHT_PATH_APPROXIMATE and out_name not in builder.light_path_approx:
+        builder.light_path_approx.append(out_name)
+    out = builder.alloc_slot()
+    builder.emit(OP_SHADING, out, a=0, imm=SH_LIGHT_PATH + LIGHT_PATH_OUTPUTS.index(out_name))
+    builder.per_hit = True
+    return out
+
+
 def _socket_is_const(socket, neutral):
     """Unlinked socket whose default equals `neutral` (the op is then the identity)."""
     if socket is None:
@@ -567,6 +602,8 @@ def _compile_socket_value(socket, builder, depth=0):
                               _get_input(node, 'IOR'), _get_input(node, 'Normal'))
     if ntype == 'NEW_GEOMETRY':
         return _shading_input(node, out_name, builder, depth, None, None)
+    if ntype == 'LIGHT_PATH':  # #991
+        return _light_path_input(node, out_name, builder)
 
     if ntype == 'VALTORGB':  # Color Ramp
         fac_slot = compile_socket(_get_input(node, 'Fac'), builder, depth + 1)
@@ -864,6 +901,7 @@ def compile_chain(socket, allow_leaf=False):
         'inputs': builder.inputs,
         'input_variants': builder.input_variants,
         'per_hit': builder.per_hit,  # #989
+        'light_path_approx': list(builder.light_path_approx),  # #991
     }
 
 

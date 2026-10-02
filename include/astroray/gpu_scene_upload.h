@@ -117,6 +117,14 @@ struct SceneUploadResult {
     // (GImageTexture::procId indexes this). Each one also sets hasProgram.
     std::vector<astroray::proc::GProcTexture>   procTextures;
 
+    // #991 — Light Path. `lightPathSwitch` is parallel to `materials` (empty when
+    // no material is a Mix Shader with a Light Path Fac); `hasLightPath` = some
+    // switch OR some program reading a Light Path output, which makes the driver
+    // publish c_wfLightPath (lp_state maintenance) and forces the HasProgram
+    // shade kernel (where the lp_state update lives).
+    std::vector<astroray::lightpath::GLightPathSwitch> lightPathSwitch;
+    bool                                        hasLightPath = false;
+
     // pkg189 — true when ANY uploaded material is dispersive (Sellmeier dielectric
     // → GMAT_DIELECTRIC, or Cauchy Principled glass → GMAT_CLOSURE_GRAPH; both set
     // GMaterial::isDispersive in scene_upload.cu). Selects the

@@ -528,6 +528,7 @@ public:
         astroray::svm::SvmShading sh;
         sh.cosI = wo.dot(rec.normal);
         sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
+        sh.path = rec.lightPath;  // #991 Light Path outputs
         return eval(uv, p, &sh);
     }
     astroray::SampledSpectrum sampleSpectralAtHit(

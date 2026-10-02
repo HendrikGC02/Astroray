@@ -16,6 +16,7 @@
 #include "advanced_features.h"
 #include "astroray/nishita_sky.h"  // Batch J (#799 Phase 2): engine-side Nishita sky
 #include "astroray/shapes.h"
+#include "astroray/light_path_mix.h"  // #991 Mix Shader with a Light Path Fac
 #include "astroray/curves.h"  // pkg225 Stage 1 — CurveSegment / CurveStrip
 #include "astroray/black_hole.h"
 #include "astroray/register.h"
@@ -804,6 +805,21 @@ public:
                 getFloat("normal_strength", 1.0f), getFloat("bump_strength", 1.0f), getFloat("bump_distance", 0.01f));
         int id = nextMaterialId++;
         materials[id] = mat;
+        return id;
+    }
+
+    // #991 — Mix Shader(A, B) whose Fac is the boolean Light Path output
+    // `output` (astroray::lightpath::Output). Both children are already-created
+    // material ids; returns the id of the switch material.
+    int createLightPathMix(int materialA, int materialB, int output) {
+        auto ia = materials.find(materialA), ib = materials.find(materialB);
+        if (ia == materials.end() || ib == materials.end())
+            throw std::runtime_error("create_light_path_mix: unknown material id");
+        if (output < 0 || !astroray::lightpath::is_boolean_output((unsigned char)output))
+            throw std::runtime_error("create_light_path_mix: output must be a boolean Light Path output");
+        int id = nextMaterialId++;
+        materials[id] = std::make_shared<astroray::LightPathMixMaterial>(
+            ia->second, ib->second, (unsigned char)output);
         return id;
     }
 
@@ -3868,6 +3884,11 @@ PYBIND11_MODULE(astroray, m) {
              "= input_names[k-1] sampled at that point). Coord mode + Mapping "
              "live on the wrapper; the GPU bakes it like any procedural (pkg190).")
         .def("create_material", &PyRenderer::createMaterial, "type"_a, "base_color"_a, "params"_a)
+        .def("create_light_path_mix", &PyRenderer::createLightPathMix,
+             "material_a"_a, "material_b"_a, "output"_a,
+             "#991: Mix Shader(A, B) with a boolean Light Path Fac (0 Is Camera, 1 Is Shadow, "
+             "2 Is Diffuse, 3 Is Glossy, 4 Is Singular, 5 Is Reflection, 6 Is Transmission, "
+             "7 Is Volume Scatter); every ray shades with exactly one child.")
         .def("eval_material", &PyRenderer::evalMaterial,
              "material_id"_a, "wo"_a, "wi"_a,
              "normal"_a = std::vector<float>{0.0f, 1.0f, 0.0f})

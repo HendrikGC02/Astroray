@@ -25,6 +25,7 @@
 #include <cstdint>
 #include "astroray/gpu_types.h"  // GVec3, GSampledWavelengths, GSampledSpectrum
 #include "astroray/shader_vm.h"  // pkg219b GWavefrontProgramBinding
+#include "astroray/light_path.h" // #991 GWavefrontLightPathBinding
 // pkg157: GPhotonGrid, needed by launchStageShadeBucketed's declaration below.
 // Safe from any TU: gpu_photon_store.h is explicitly written to compile under
 // both nvcc and pure C++ (its device-only helpers sit behind __CUDACC__), and
@@ -169,6 +170,14 @@ struct GPUWavefrontState {
     // Reset to 0 at initPathSlot. Read in shadePathSlot ONLY when a caustic toggle
     // is off; both-on (default) never touches it → fleet renders byte-identical.
     int*      had_diffuse_ancestor = nullptr;
+
+    // #991 — Light Path state of the ray in flight (astroray/light_path.h
+    // pack_state: label flags of the bounce that produced it + diffuse/glossy/
+    // transmission depths). Reset to kInitialState (camera) at initPathSlot;
+    // advanced by the shade / volume stages only when c_wfLightPath.enabled
+    // (a scene with a Light Path node), read by the intersect stage (Mix Shader
+    // switch) and the op-VM shading context. Path state, not hit-buffer state.
+    uint32_t* lp_state = nullptr;
 
     // Path-continuation flags.
     int*      was_specular  = nullptr;  // 0/1
@@ -479,6 +488,11 @@ void setWavefrontTextureBinding(const GWavefrontTextureBinding& binding);
 // launchStageShadeBucketed (only for scenes with a program material); see
 // stage_advance.cu / GWavefrontProgramBinding (astroray/shader_vm.h).
 void setWavefrontProgramBinding(const GWavefrontProgramBinding& binding);
+
+// #991 — publish the frame's Light Path switch side table + the lp_state
+// maintenance flag (GWavefrontLightPathBinding, astroray/light_path.h). Every
+// wavefront entry point publishes it (all-null = off) so no stale table leaks.
+void setWavefrontLightPathBinding(const GWavefrontLightPathBinding& binding);
 
 // pkg197 — publish the frame's first-hit denoise-guide output pointers into the
 // intersect stage's __constant__ binding. Call ONCE per frame before the render

@@ -11,6 +11,7 @@
 // Only include from .cu files compiled by nvcc.
 
 #include "astroray/gpu_types.h"
+#include "astroray/light_path.h"   // #991 GLightPathSwitch
 #include "astroray/gpu_materials.h"
 #include "astroray/gpu_bvh.h"
 #include "light_tree_device.cuh"  // gpu_light_tree_pick (pkg86-B)
@@ -806,7 +807,11 @@ __device__ inline float gpu_shadow_transmittance(
     float             time,
     const GVec3*      motionVerts,
     const GCurveSegment* curves = nullptr,
-    int*              frontFaceOut = nullptr)
+    int*              frontFaceOut = nullptr,
+    // #991 — Light Path switch side table (null: no Light Path in the scene). A
+    // Mix Shader with a Light Path Fac blocks shadow rays as its shadow-context
+    // child (Is Shadow Ray -> Transparent: no shadow).
+    const astroray::lightpath::GLightPathSwitch* lpSwitch = nullptr)
 {
     const int maxHops = 8;  // Cycles transparent_max_bounce default (matches CPU)
     const bool reachLight = (s.isSphere != 0);  // sphere light = reach its geometry
@@ -828,7 +833,8 @@ __device__ inline float gpu_shadow_transmittance(
             if (frontFaceOut) *frontFaceOut = sh.frontFace ? 1 : 0;
             return Tr;  // reached the emissive sphere light
         }
-        Tr *= (1.0f - gpu_shadowAlpha(materials[sh.materialId]));
+        const int shMat = lpSwitch ? lpSwitch[sh.materialId].shadowId : sh.materialId;
+        Tr *= (1.0f - gpu_shadowAlpha(materials[shMat]));
         if (Tr < 1e-3f) return 0.0f;  // opaque enough to fully block
         float advance = sh.t + 1e-3f;
         origin = origin + dir * advance;

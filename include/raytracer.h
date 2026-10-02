@@ -27,6 +27,7 @@
 #include "astroray/light_sampler.h"
 #include "astroray/cryptomatte.h"
 #include "astroray/ies_eval.h"                   // pkg276 Cycles IES lookup (CPU+GPU)
+#include "astroray/light_path.h"                 // #991 Light Path context (CPU+GPU)
 #include "astroray/sampling/adaptive_sampling.h"  // pkg131 zero-knob adaptive core
 #include "astroray/guiding/sdtree.h"               // pkg136 SD-tree path guiding
 #include "astroray/guiding/guide_context.h"        // pkg136 training record
@@ -408,6 +409,10 @@ struct HitRecord {
     // — see .astroray_plan/docs/pkg225-curve-intersect-research.md. -1 sentinel
     // on any non-curve hit (Sphere/Triangle/Mesh never touch these fields).
     float hair_u = -1.0f, hair_v = -1.0f;
+    // #991 — path state of the ray that produced this hit (Light Path node).
+    // Filled by the integrator after the hit (pathTraceSpectral /
+    // pathTraceSpectralCaustic); default = camera ray, depth 0.
+    astroray::lightpath::PathContext lightPath;
 
     HitRecord() : t(std::numeric_limits<float>::max()), frontFace(true), isDelta(false), hitObject(nullptr) {}
 
@@ -559,6 +564,10 @@ public:
     // Cycles' "Transparent Shadows" (an Alpha<1 surface lets (1-alpha) of the
     // shadow ray's light through). See pathTraceSpectral / pathTraceSpectralCaustic.
     virtual float shadowAlpha(const HitRecord& /*rec*/) const { return 1.0f; }
+    // #991 — Mix Shader with a Light Path Fac (LightPathMixMaterial): the child
+    // material a ray with path state `ctx` shades with, or null (= this material).
+    virtual std::shared_ptr<Material> lightPathSelect(
+            const astroray::lightpath::PathContext& /*ctx*/) const { return nullptr; }
     virtual Vec3 getAlbedo() const { return Vec3(0.5f); }
     virtual std::string getGPUTypeName() const { return ""; }
     // pkg223 — normal-map decorator unwrap for GPU upload. A NormalMapped
@@ -2542,6 +2551,17 @@ inline float halton(int index, int base) {
     return result;
 }
 
+// #991 — resolve a Mix Shader with a Light Path Fac (LightPathMixMaterial) to
+// the child the hit's path state selects (rec.lightPath). Nested switches
+// resolve in turn; a plain material is left as is.
+inline void resolveLightPathMaterial(HitRecord& rec) {
+    for (int k = 0; k < 8 && rec.material; ++k) {
+        auto sel = rec.material->lightPathSelect(rec.lightPath);
+        if (!sel) return;
+        rec.material = std::move(sel);
+    }
+}
+
 // ============================================================================
 // pkg253 G1 — shared shadow-ray transmittance (transparent shadows).
 // ============================================================================
@@ -3704,6 +3724,9 @@ public:
         // causticGateActive is false in the default (both toggles on) so the whole
         // block is a no-op → byte-identical to pre-pkg201.
         bool hadDiffuseAncestor = false;
+        // #991 — Light Path state of the ray being traced (Cycles path flags +
+        // per-type depths), advanced at every scatter (astroray/light_path.h).
+        astroray::lightpath::PathContext lpc;
         const bool causticGateActive =
             !useReflectiveCaustics || !useRefractiveCaustics;
         // pkg287 (#909): photon split chain, GPU GWavefrontPhotonSplit twin:
@@ -3913,6 +3936,7 @@ public:
                         next.cameraW = ray.cameraW;
                         ray = next;
                         wasSpecular = false;
+                        lpc = astroray::lightpath::next_volume(lpc);  // #991
                         bsdfPdfPrev = phasePdf;
                         misNormalPrev = Vec3(0.0f);
                         envNeeSampledPrev = false;
@@ -4020,6 +4044,7 @@ public:
                     next.cameraW = ray.cameraW;
                     ray = next;
                     wasSpecular = false;
+                    lpc = astroray::lightpath::next_volume(lpc);  // #991
                     bsdfPdfPrev = phasePdf;
                     misNormalPrev = Vec3(0.0f);
                     // pkg258 (Terra Q1c): medium NEE samples lamps only, NOT the
@@ -4147,6 +4172,12 @@ public:
                 continue;
             }
             if (!rec.material) break;
+            // #991 — this hit's Light Path context; a Mix Shader with a Light Path
+            // Fac resolves to the child this ray type shades with (Cycles).
+            rec.lightPath = lpc;
+            rec.lightPath.depth = (unsigned short)bounce;
+            rec.lightPath.rayLength = rec.t;
+            resolveLightPathMaterial(rec);
 
             // Emission (gated on camera ray or post-specular bounce).
             astroray::SampledSpectrum Le_spec =
@@ -4453,6 +4484,7 @@ public:
                         : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
             }
             if (firstCat < 0) firstCat = lobeCat;
+            lpc = astroray::lightpath::next_surface(lpc, lobeCat, bss.isDelta);  // #991
 
             // pkg201 Stage 3 (Finding E) — native caustic toggle cull. Reuses the
             // per-bounce lobeCat (item A): a delta reflection is lobeCat==1
@@ -4606,6 +4638,7 @@ public:
         float weightSum = 0.0f;
         int causticConnections = 0;
         float causticEnergy = 0.0f;
+        astroray::lightpath::PathContext lpc;  // #991 (see pathTraceSpectral)
 
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             lastBounce = bounce;
@@ -4685,6 +4718,10 @@ public:
                 continue;
             }
             if (!rec.material) break;
+            rec.lightPath = lpc;  // #991
+            rec.lightPath.depth = (unsigned short)bounce;
+            rec.lightPath.rayLength = rec.t;
+            resolveLightPathMaterial(rec);
 
             astroray::SampledSpectrum Le_spec = rec.material->emittedSpectral(rec, lambdas);
             if (!Le_spec.isZero()) {
@@ -4843,6 +4880,12 @@ public:
 
             wasSpecular = bss.isDelta;
             throughput = nextThroughput;
+            {   // #991 — same bounce class as pathTraceSpectral's lobeCat.
+                const bool transmitted = wo.dot(rec.normal) * bss.wi.dot(rec.normal) < 0.0f;
+                const int cat = transmitted ? 2
+                              : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
+                lpc = astroray::lightpath::next_surface(lpc, cat, bss.isDelta);
+            }
 
             Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
             next.hasCameraFrame = ray.hasCameraFrame;

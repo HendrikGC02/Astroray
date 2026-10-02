@@ -235,6 +235,35 @@ extern __constant__ int c_wfEmissionTex;
 // world-space: those keep the flat mean (DEGRADED, reported host-side).
 extern __constant__ int c_wfEmissionFlatPrims;
 
+// #991 — Light Path binding (GWavefrontLightPathBinding, astroray/light_path.h),
+// published once per frame by setWavefrontLightPathBinding. sw == nullptr (every
+// scene without a Light Path node) skips the intersect remap and the shadow
+// resolve; enabled == 0 skips the lp_state updates (shade / volume stages).
+extern __constant__ GWavefrontLightPathBinding c_wfLightPath;
+
+// #991 — intersect-stage remap of a Mix Shader with a Light Path Fac to the
+// child this ray shades with (camera / indirect context). Out of line so the
+// intersect kernels pay one call, not the unpack + chain walk, in their
+// register budget; reached only when c_wfLightPath.sw is set.
+static __device__ __noinline__ int gpu_lpRemap(int matId, unsigned lpState, int bounce,
+                                               float rayLength) {
+    return astroray::lightpath::resolve_switch(
+        c_wfLightPath.sw, matId,
+        astroray::lightpath::unpack_state(lpState, bounce, rayLength));
+}
+
+// #991 — Cycles path_state_next across a surface bounce (lobeCat: the pkg201
+// bounce class) / a volume scatter.
+static __device__ __noinline__ unsigned gpu_lpAdvance(unsigned lpState, int lobeCat,
+                                                      bool singular) {
+    using namespace astroray::lightpath;
+    return pack_state(next_surface(unpack_state(lpState, 0, 0.f), lobeCat, singular));
+}
+static __device__ inline void gpu_lpVolumeScatter(const GPUWavefrontState& state, int idx) {
+    using namespace astroray::lightpath;
+    state.lp_state[idx] = pack_state(next_volume(unpack_state(state.lp_state[idx], 0, 0.f)));
+}
+
 struct GProgInputTexel { GVec3 c; bool ok; };
 // Defined after c_wfTexBinding below.
 static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_emissionTexel(
@@ -874,6 +903,11 @@ __device__ int intersectPathSlotT(
         return -1;
     }
 
+    // #991 — a Mix Shader with a Light Path Fac shades as the child this ray
+    // type selects (Is Camera Ray -> hidden emitter). Downstream (emission,
+    // bucketing, the parked hit) all see the resolved id.
+    if (c_wfLightPath.sw)
+        rec.materialId = gpu_lpRemap(rec.materialId, state.lp_state[idx], bounce, rec.t);
     const ::GMaterial& mat = materials[rec.materialId];
 
     // #909: photon-map split chain (see GWavefrontPhotonSplit). Live from a
@@ -1789,6 +1823,8 @@ __device__ __forceinline__ bool shadePathSlotImpl(
         astroray::svm::SvmShading sh;
         sh.cosI = (ray.direction * -1.0f).normalized().dot(rec.normal);
         sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
+        // #991 — Light Path outputs: path state + the parked hit distance.
+        sh.path = astroray::lightpath::unpack_state(state.lp_state[idx], bounce, rec.t);
         if (c_wfProgBinding.matScalarProgId && c_wfProgBinding.matScalarTexId) {
             const int base = rec.materialId * astroray::svm::VM_SCALAR_SLOTS;
             for (int slot = 0; slot < astroray::svm::VM_SCALAR_SLOTS; ++slot) {
@@ -1979,6 +2015,8 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                             astroray::svm::SvmShading shL;
                             shL.cosI = (ray.direction * -1.0f).normalized().dot(rec.normal);
                             shL.backfacing = rec.frontFace ? 0.0f : 1.0f;
+                            shL.path = astroray::lightpath::unpack_state(  // #991
+                                state.lp_state[idx], bounce, rec.t);
                             texColor = astroray::svm::svm_eval(
                                 c_wfProgBinding.programs[progId], vmIn, &shL);
                         }
@@ -2347,6 +2385,20 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     }
 
     throughput *= bss.fSpectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
+
+    // #991 — advance the Light Path state across this bounce (CPU twin:
+    // pathTraceSpectral lpc = next_surface(lpc, lobeCat, isDelta)), with the
+    // pkg201 bounce class. Light Path scenes always run the HasProgram kernel
+    // (scene_upload forces it), so the other variants compile this out.
+    if constexpr (HasProgram) {
+        if (c_wfLightPath.enabled) {
+            const float sWo = wo.dot(rec.normal);
+            const float sWi = bss.wi.dot(rec.normal);
+            const int cat = (sWo * sWi < 0.f) ? 2
+                          : ((bss.isDelta || gpu_material_is_glossy(mat)) ? 1 : 0);
+            state.lp_state[idx] = gpu_lpAdvance(state.lp_state[idx], cat, bss.isDelta);
+        }
+    }
 
     // ---- Throughput clamp (CPU: maxC > 10 -> scale to 10).
     float maxC = throughput.maxValue();

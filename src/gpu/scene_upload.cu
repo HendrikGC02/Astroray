@@ -10,6 +10,7 @@
 #include "raytracer.h"
 #include "astroray/light_tree.h"   // pkg86-B: LightTree flattening (needs raytracer.h's Vec3/AABB)
 #include "advanced_features.h"
+#include "astroray/light_path_mix.h"  // #991 Mix Shader with a Light Path Fac
 // pkg87a — Cryptomatte hash function.
 // Path is `src/util/...` (not `util/...`) because astroray_cuda's include
 // search has `${CMAKE_SOURCE_DIR}` private — not `${CMAKE_SOURCE_DIR}/src`.
@@ -1112,14 +1113,26 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         const int perHit = perHitTexId(pt, child.get());
         return perHit >= 0 ? perHit : bakeProceduralTexId(child.get());
     };
-    auto getOrAddMat = [&](const std::shared_ptr<Material>& mIn) -> int {
-        auto it = matIdx.find(mIn.get());
+    // #991 — switches met by getOrAddMat; their side-table entries are filled
+    // after the geometry walk (children are added then, see below).
+    std::vector<std::pair<int, std::shared_ptr<Material>>> lpPending;
+    auto getOrAddMat = [&](const std::shared_ptr<Material>& mKey) -> int {
+        auto it = matIdx.find(mKey.get());
         if (it != matIdx.end()) return it->second;
         int id = (int)r.materials.size();
-        matIdx[mIn.get()] = id;
+        matIdx[mKey.get()] = id;
         {   // #994: OBJECT-coordinate bakes of this material cover its geometry.
-            auto wb = matWorldBox.find(mIn.get());
+            auto wb = matWorldBox.find(mKey.get());
             curObjBox = (wb != matWorldBox.end()) ? &wb->second : nullptr;
+        }
+        // #991 — a Mix Shader with a Light Path Fac uploads its emission-context
+        // leaf (child A, unwrapped) at its own id: every reader unaware of the
+        // switch (light list, emitter evaluation) sees Cycles' emission child.
+        std::shared_ptr<Material> mIn = mKey;
+        if (dynamic_cast<astroray::LightPathMixMaterial*>(mKey.get())) {
+            lpPending.emplace_back(id, mKey);
+            while (auto* lp = dynamic_cast<astroray::LightPathMixMaterial*>(mIn.get()))
+                mIn = lp->childA();
         }
         // pkg223 — unwrap a NormalMapped decorator: the GMaterial + base-colour
         // texture come from the INNER material; the tangent-space normal texture +
@@ -1423,6 +1436,62 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     } else {
         if (!cpuBvh) throw std::runtime_error("BVH not built — call buildAcceleration() first");
         appendFlatScene(cpu, cpuBvh.get(), r, getOrAddMat);
+    }
+
+    // #991 — Light Path switch side table. Child materials are not referenced
+    // by geometry, so they are added here (inheriting the switch's world bbox
+    // for OBJECT-coordinate bakes); nested switches append to lpPending as
+    // they are met, so the loop runs until it drains.
+    if (!lpPending.empty()) {
+        using astroray::LightPathMixMaterial;
+        using astroray::lightpath::GLightPathSwitch;
+        std::vector<std::pair<int, GLightPathSwitch>> entries;
+        for (size_t k = 0; k < lpPending.size(); ++k) {
+            const int self = lpPending[k].first;
+            const std::shared_ptr<Material> sw = lpPending[k].second;
+            auto* lp = static_cast<LightPathMixMaterial*>(sw.get());
+            auto wb = matWorldBox.find(sw.get());
+            auto addChild = [&](const std::shared_ptr<Material>& c) {
+                if (wb != matWorldBox.end() && !matWorldBox.count(c.get()))
+                    matWorldBox.emplace(c.get(), wb->second);
+                return getOrAddMat(c);
+            };
+            std::shared_ptr<Material> leafA = sw;   // what `self` uploaded
+            while (auto* l = dynamic_cast<LightPathMixMaterial*>(leafA.get()))
+                leafA = l->childA();
+            std::shared_ptr<Material> leafS = sw;   // what shadow rays see
+            const astroray::lightpath::PathContext shadowCtx =
+                astroray::lightpath::shadow_context(0);
+            while (auto* l = dynamic_cast<LightPathMixMaterial*>(leafS.get()))
+                leafS = l->select(shadowCtx);
+            GLightPathSwitch e;
+            e.aId = dynamic_cast<LightPathMixMaterial*>(lp->childA().get())
+                  ? addChild(lp->childA()) : self;
+            e.bId = addChild(lp->childB());
+            e.shadowId = (leafS == leafA) ? self : addChild(leafS);
+            e.output = (int)lp->output();
+            entries.emplace_back(self, e);
+        }
+        r.lightPathSwitch.resize(r.materials.size());
+        for (int i = 0; i < (int)r.materials.size(); ++i)
+            r.lightPathSwitch[i] = GLightPathSwitch{ i, -1, i, 0 };
+        for (const auto& kv : entries) r.lightPathSwitch[kv.first] = kv.second;
+        r.hasLightPath = true;
+    }
+    // #991 — a program reading a Light Path output (OP_SHADING >= SH_LIGHT_PATH)
+    // needs the per-path lp_state maintained as well.
+    for (const auto& prog : r.programs) {
+        for (int k = 0; k < prog.numInstr && k < astroray::svm::VM_MAX_INSTR; ++k) {
+            if (prog.code[k].op == astroray::svm::OP_SHADING &&
+                prog.code[k].imm >= astroray::svm::SH_LIGHT_PATH)
+                r.hasLightPath = true;
+        }
+    }
+    // The lp_state update lives in the HasProgram shade kernel (which also reads
+    // the texture binding: publish it too, with all-(-1) material tables).
+    if (r.hasLightPath) {
+        r.hasProgram = true;
+        r.hasTexture = true;
     }
 
     // --- Lights ---

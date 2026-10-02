@@ -4537,6 +4537,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         if compiled is None:
             return None
+        for out_name in compiled.get('light_path_approx') or ():  # #991
+            self._warn_shader_fallback(
+                'LIGHT_PATH', "'%s' is approximate: %s" % (
+                    out_name, "always 0 (Astroray counts a Transparent BSDF pass as a "
+                    "transmission bounce)" if out_name == 'Transparent Depth' else
+                    "Astroray's per-material bounce class (a Principled bounce counts as "
+                    "glossy), not the Cycles per-closure label"))
         # issue #818 Item 1 — op-VM inputs may be image OR procedural texture
         # nodes. All inputs of one program must share a single coordinate
         # signature (the ProgramTexture carries one coord_mode + Mapping), and
@@ -5355,9 +5362,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     "using a flat default colour instead of the textured pattern")
             return spec
         if ntype == 'MIX_SHADER':
-            fac = self.get_float_input(node, 'Fac', 0.5)
             a = self._shader_spec_from_node(self._shader_input_node(node, 'Shader'), renderer, node_tree, depth + 1)
             b = self._shader_spec_from_node(self._shader_input_node(node, 'Shader_001'), renderer, node_tree, depth + 1)
+            # #991: a boolean Light Path output as Fac selects one child per ray.
+            lp_output = self._light_path_mix_output(node, a, b)
+            if lp_output is not None:
+                return {'kind': 'light_path_mix', 'output': lp_output, 'a': a, 'b': b}
+            fac = self.get_float_input(node, 'Fac', 0.5)
+            self._warn_light_path_mix_nested(a, b)
             out = blend_shader_specs(fac, a, b)
             self._blend_scalar_programs(node, a, b, out, renderer)  # pkg293 (#889)
             return out
@@ -5365,6 +5377,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if ntype == 'ADD_SHADER':
             a = self._shader_spec_from_node(self._shader_input_node(node, 'Shader'), renderer, node_tree, depth + 1)
             b = self._shader_spec_from_node(self._shader_input_node(node, 'Shader_001'), renderer, node_tree, depth + 1)
+            self._warn_light_path_mix_nested(a, b)
             kinds = (a.get('kind') if a else None, b.get('kind') if b else None)
             if a and b and kinds not in (('principled', 'emission'), ('emission', 'principled'),
                                          ('emission', 'emission')):
@@ -5378,11 +5391,99 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         return None
 
+    def _light_path_mix_output(self, node, a, b):
+        """#991: the Light Path output index (shader_vm_compiler.LIGHT_PATH_OUTPUTS)
+        when this Mix Shader's Fac is linked straight to a BOOLEAN Light Path output
+        and both shader inputs are connected; else None. Other Light Path Fac links
+        (Ray Length / depths, or through other nodes) are reported: the Fac then
+        constant-mixes (pkg293 keeps per-hit Roughness/Metallic/IOR/Transmission)."""
+        try:
+            from . import shader_vm_compiler as svm
+        except Exception:
+            import shader_vm_compiler as svm
+        fac = node.inputs.get('Fac')
+        src = svm._linked_source(fac)
+        if src is None:
+            return None
+        src_node, out_name = src
+        if getattr(src_node, 'type', None) != 'LIGHT_PATH':
+            if self._chain_reads_light_path(src_node):
+                self._warn_shader_fallback(
+                    'MIX_SHADER', "Fac computed from a Light Path output through other nodes "
+                    "is unsupported as a per-ray closure switch; the Fac is constant-mixed")
+            return None
+        if out_name not in svm.LIGHT_PATH_BOOLEAN:
+            self._warn_shader_fallback(
+                'MIX_SHADER', "Light Path '%s' as Fac is unsupported (only the boolean "
+                "ray-type outputs switch closures); the Fac is constant-mixed" % out_name)
+            return None
+        if a is None or b is None:
+            self._warn_shader_fallback(
+                'MIX_SHADER', "Light Path Fac with an unconnected shader input is "
+                "unsupported; the connected shader is used for every ray")
+            return None
+        if out_name in svm.LIGHT_PATH_APPROXIMATE:
+            self._warn_shader_fallback(
+                'LIGHT_PATH', "'%s' uses Astroray's per-material bounce class (a "
+                "Principled bounce counts as glossy), not the Cycles per-closure label" % out_name)
+        if out_name in ('Is Singular Ray', 'Is Reflection Ray'):
+            self._warn_shader_fallback(
+                'LIGHT_PATH', "'%s' as a Mix Shader Fac: shadow rays use the Fac=0 "
+                "shader (Cycles reads the parent path flag there)" % out_name)
+        return svm.LIGHT_PATH_OUTPUTS.index(out_name)
+
+    def _chain_reads_light_path(self, node, depth=0):
+        """#991: True when `node` or anything upstream of it is a Light Path node."""
+        if node is None or depth > 32:
+            return False
+        if getattr(node, 'type', None) == 'LIGHT_PATH':
+            return True
+        for inp in getattr(node, 'inputs', ()):
+            if getattr(inp, 'is_linked', False):
+                try:
+                    if self._chain_reads_light_path(inp.links[0].from_node, depth + 1):
+                        return True
+                except (IndexError, AttributeError):
+                    pass
+        return False
+
+    def _warn_light_path_mix_nested(self, a, b):
+        """#991: a Light Path closure switch below a constant Mix / Add Shader cannot
+        be blended into one closure; the blend keeps a single branch (reported)."""
+        if any(s is not None and s.get('kind') == 'light_path_mix' for s in (a, b)):
+            self._warn_shader_fallback(
+                'MIX_SHADER', "a Light Path closure switch inside another Mix / Add Shader "
+                "is unsupported; one branch is kept")
+
+    def _light_path_child_material(self, spec, renderer):
+        """#991: create one child of a Light Path closure switch. A Transparent BSDF
+        child becomes a native Principled with Alpha 0 (Cycles: a Principled alpha
+        IS a mix with a white Transparent BSDF), so camera rays pass straight
+        through and shadow rays are not blocked (pkg253 transparent shadows)."""
+        if spec is not None and spec.get('kind') == 'transparent':
+            colour = [float(c) for c in spec.get('base_color', [1.0, 1.0, 1.0])[:3]]
+            if any(abs(c - 1.0) > 1e-6 for c in colour):
+                self._warn_shader_fallback(
+                    'BSDF_TRANSPARENT', 'tinted Transparent BSDF in a Light Path switch: '
+                    'rendered untinted (Principled alpha has no tint)')
+            spec = blend_shader_specs(
+                1.0, {'kind': 'principled', 'base_color': [1.0, 1.0, 1.0], 'params': {}}, spec)
+        return self._create_material_from_shader_spec(spec, renderer)
+
     def _create_material_from_shader_spec(self, spec, renderer):
         if spec is None:
             return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
 
         kind = spec.get('kind')
+        if kind == 'light_path_mix':
+            # #991: Mix Shader with a boolean Light Path Fac -> per-ray closure switch.
+            if not hasattr(renderer, 'create_light_path_mix'):
+                self._warn_shader_fallback('MIX_SHADER', 'engine without Light Path '
+                                           'switches: the first shader is used')
+                return self._create_material_from_shader_spec(spec.get('a'), renderer)
+            ida = self._light_path_child_material(spec.get('a'), renderer)
+            idb = self._light_path_child_material(spec.get('b'), renderer)
+            return renderer.create_light_path_mix(ida, idb, int(spec['output']))
         if kind == 'emission':
             params = {'intensity': float(spec.get('emission_strength', 1.0))}
             color_tex = spec.get('emission_color_texture')

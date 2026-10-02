@@ -68,6 +68,7 @@ __constant__ GWavefrontAdaptiveBinding c_wfAdaptive = { nullptr, nullptr, nullpt
 __constant__ GWavefrontPhotonSplit c_wfPhotonSplit = { nullptr, 0u };
 __constant__ GWavefrontTextureBinding c_wfTexBinding;
 __constant__ GWavefrontProgramBinding c_wfProgBinding;
+__constant__ GWavefrontLightPathBinding c_wfLightPath = { nullptr, 0 };  // #991
 
 // pkg199 Stage 2 — non-template `intersectPathSlot` symbol. Forwards to the
 // <false> (Stage-1, no medium scatter) specialization. This is the symbol the
@@ -182,7 +183,8 @@ __global__ void stageShadowKernel(
         s.geomDist = nee_f[14 * nee_capacity + idx];
         shadowTr = gpu_shadow_transmittance<HasCurves>(
             s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
-            materials, time, motionVerts, curves, &occ.frontFace);
+            materials, time, motionVerts, curves, &occ.frontFace,
+            c_wfLightPath.sw);  // #991: Is Shadow Ray Mix Shader
         if (shadowTr <= 0.0f) return;
     } else if constexpr (HwOcc) {
         // pkg299: __raygen__shadow traced [0.001, maxDist] any-hit, the triangle
@@ -750,6 +752,8 @@ __global__ void stageVolumeScatterKernel(
     // pkg271 — Cycles volume_bounce (+1 at this scatter); past the cap the
     // continuation is terminate-after (see intersectPathSlotT volTerm).
     gpu_countVolumeBounce(state.per_type_bounce, idx, c_wfGridVolume.volumeBounceCap);
+    // #991 — Light Path: the continuation is a volume-scatter ray.
+    if (c_wfLightPath.enabled) gpu_lpVolumeScatter(state, idx);
 
     // ---- HG phase-sampled continuation from P (throughput *= phase/pdf = 1) ----
     float phasePdf;
@@ -967,6 +971,14 @@ void setWavefrontLightPassBinding(const GWavefrontLightPassBinding& binding)
 void setWavefrontProgramBinding(const GWavefrontProgramBinding& binding)
 {
     cudaMemcpyToSymbol(c_wfProgBinding, &binding, sizeof(GWavefrontProgramBinding));
+}
+
+// #991 — publish the Light Path switch side table + lp_state maintenance flag.
+// All-null (every non-Light-Path render and every harness entry point) makes
+// the intersect remap, the shadow resolve and the lp_state updates no-ops.
+void setWavefrontLightPathBinding(const GWavefrontLightPathBinding& binding)
+{
+    cudaMemcpyToSymbol(c_wfLightPath, &binding, sizeof(GWavefrontLightPathBinding));
 }
 
 // Build-speed split: host entry points of the 12 shade part TUs

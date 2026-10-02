@@ -395,7 +395,9 @@ def test_worker_view_update_pumps_control_only_preserving_the_frame():
         engine_methods=engine_methods)
 
     # The single pump in view_update must be control-plane only (present=False).
-    assert pump_calls == [False]
+    # pkg291: view_update now drains control before request() as well; every
+    # pump there must still be control-only (never present=True off a draw).
+    assert pump_calls and not any(pump_calls)
 
 
 def test_cancel_request_emitted_only_for_in_flight_generation_once():

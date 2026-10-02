@@ -2879,6 +2879,12 @@ class Exporter:
                 worker.pump(present=False)
                 request_viewport_redraw_fn()
                 return
+            # pkg291: drain idle/error notifications FIRST so in_flight_generation
+            # is current. A render that already finished (idle queued, not yet
+            # drained) otherwise looked in flight, and request() emitted a
+            # cancel_request for it that no idle_ack could follow (the gate (a)
+            # reducer's "cancel lacks same-generation idle_ack" errors).
+            worker.pump(present=False)
             worker.request()
             # pkg266 (#817 bug 1): a genuine scene/material edit CHANGES the image
             # content, so every frame rendered before it is now stale to present.
@@ -2946,6 +2952,7 @@ class Exporter:
                 # move. present_floor_generation is left untouched — a camera move
                 # does not change image content, so the just-published (one-step
                 # stale) frame stays presentable.
+                worker.pump(present=False)  # pkg291: current in-flight state first
                 cancel_inflight = (self._worker_committed_divisor == 1
                                    and worker.in_flight_generation is not None)
                 worker.request(cancel_inflight=cancel_inflight)

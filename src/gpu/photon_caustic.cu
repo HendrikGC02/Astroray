@@ -171,7 +171,7 @@ __global__ void kEmitSceneCaustic(
     const GSphere*    spheres,
     const GMaterial*  materials,
     PhotonEmitter em, int apertureN, float invCount, int maxDepth,
-    unsigned int seed, float spdIntegral, GPhoton* out)
+    unsigned int seed, float spdIntegral, bool reflective, GPhoton* out)
 {
     int gx = blockIdx.x * blockDim.x + threadIdx.x;
     int gy = blockIdx.y * blockDim.y + threadIdx.y;
@@ -225,6 +225,7 @@ __global__ void kEmitSceneCaustic(
                 pc_refract(d, nf, eta, nd)) {
                 d = nd;
             } else {
+                if (!reflective && T > 0.0f) return;   // reflective caustics off (TIR kept)
                 d = (d - nf * (2.0f * d.dot(nf))).normalized();           // R / TIR
             }
             passedCaster = true;
@@ -397,7 +398,7 @@ GPhotonCausticResult cuda_photon_caustic_build(
         kEmitSceneCaustic<<<grid, block>>>(
             d_bvhNodes, d_prims, d_tris, d_spheres, d_materials,
             em, n, 1.0f / (float(n) * float(n)), aim.maxDepth,
-            lseed, L.spd.integral, d_emit + offset);
+            lseed, L.spd.integral, aim.reflective, d_emit + offset);
         APC_CUDA_CHECK(cudaGetLastError());
         APC_CUDA_CHECK(cudaDeviceSynchronize());
         if (d_ies) cudaFree(d_ies);

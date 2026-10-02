@@ -519,10 +519,10 @@ private:
             astroray::photon::buildPhotonLights(lights, casterBounds, photonCount);
         if (emitters.empty()) return;
 
-        // #959: decorrelate maps across render seeds (GPU pkg220 twin); seed 0 keeps
-        // the historical fixed stream.
-        std::mt19937 gen(12345u ^ (static_cast<uint32_t>(scene.getSeed()) * 0x9E3779B9u));
-        std::uniform_real_distribution<float> u01(0.0f, 1.0f);
+        // #959: decorrelate maps across render seeds (GPU pkg220 twin); one RNG
+        // stream per (light, chunk) so the OpenMP trace is thread-count independent.
+        const uint32_t seedBase = 12345u ^ (static_cast<uint32_t>(scene.getSeed()) * 0x9E3779B9u);
+        const bool reflective = scene.getUseReflectiveCaustics();   // #959
         std::vector<astroray::photon::Photon> photons;
         photons.reserve(photonCount / 2);
         const float eps = 1e-3f;
@@ -533,21 +533,30 @@ private:
         const Material* prismMat = amf::gatherTriangleCasters(scene, tris);
         const bool flatPrism = (prismMat != nullptr) && countDistinctCasterPlanes(tris) == 2;
 
-        auto deposit = [&](const HitRecord& rec, const Vec3& d, float lambda, float w) {
-            // pkg286: no receiver cosine — the photon hit density already carries it.
-            astroray::XYZ cmf = astroray::cieCmf1931_2deg(lambda);
-            astroray::photon::Photon ph;
-            ph.position = rec.point;
-            ph.incidentDir = d;
-            ph.power = astroray::XYZ{cmf.X * w, cmf.Y * w, cmf.Z * w};
-            ph.lambda = lambda;
-            photons.push_back(ph);
-        };
-
-        for (const auto& L : emitters) {
+        const int kChunk = 1 << 16;
+        for (size_t li = 0; li < emitters.size(); ++li) {
+            const auto& L = emitters[li];
             const bool prismPath =
                 flatPrism && L.emitter.kind == astroray::photon::kPeDistant;
-            for (int p = 0; p < L.count; ++p) {
+            const int nChunks = (L.count + kChunk - 1) / kChunk;
+            std::vector<std::vector<astroray::photon::Photon>> chunkOut(nChunks);
+            #pragma omp parallel for schedule(dynamic, 1)
+            for (int c = 0; c < nChunks; ++c) {
+            std::mt19937 gen(seedBase ^ (0x85EBCA6Bu * static_cast<uint32_t>(li * 65536u + c + 1u)));
+            std::uniform_real_distribution<float> u01(0.0f, 1.0f);
+            auto& out = chunkOut[c];
+            auto deposit = [&](const HitRecord& rec, const Vec3& d, float lambda, float w) {
+                // pkg286: no receiver cosine — the photon hit density already carries it.
+                astroray::XYZ cmf = astroray::cieCmf1931_2deg(lambda);
+                astroray::photon::Photon ph;
+                ph.position = rec.point;
+                ph.incidentDir = d;
+                ph.power = astroray::XYZ{cmf.X * w, cmf.Y * w, cmf.Z * w};
+                ph.lambda = lambda;
+                out.push_back(ph);
+            };
+            const int pEnd = std::min(L.count, (c + 1) * kChunk);
+            for (int p = c * kChunk; p < pEnd; ++p) {
                 Vec3 o, d;
                 float lambda;
                 const float w = astroray::photon::emitPhoton(L, gen, o, d, lambda);
@@ -615,6 +624,9 @@ private:
                         if (u01(gen) < T && refract(d, nf, eta, nd)) {
                             d = nd;
                         } else {
+                            // Reflective caustics off: drop the Fresnel-reflected
+                            // photon (TIR kept), as pathTraceSpectral's caustic gate does.
+                            if (!reflective && T > 0.0f) break;
                             d = (d - nf * (2.0f * d.dot(nf))).normalized();
                         }
                         passedCaster = true;
@@ -626,6 +638,8 @@ private:
                     break;
                 }
             }
+            }
+            for (auto& v : chunkOut) photons.insert(photons.end(), v.begin(), v.end());
         }
         if (photons.size() < 16) return;
         for (const auto& p : photons) photonFluxY_ += p.power.Y;

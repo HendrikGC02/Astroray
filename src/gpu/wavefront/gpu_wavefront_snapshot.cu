@@ -1424,6 +1424,7 @@ static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
     aim.boost     = scene.getPhotonCausticBoost();   // pkg286: artistic, default 1.0
     aim.photonCount = 4000000;  // forward photons; CPU traces 3e6
     aim.seed        = seed;     // pkg220: per-iteration photon-jitter decorrelation seed
+    aim.reflective  = scene.getUseReflectiveCaustics();   // #959
 
     // Union AABB of all flagged caustic-caster objects.
     AABB casterBounds; bool any = false;

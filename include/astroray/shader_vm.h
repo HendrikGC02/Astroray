@@ -102,7 +102,7 @@ struct SvmShading {
 #if defined(__CUDACC__)
 }  // namespace svm
 namespace lightpath {
-// #991 — device Light Path output, defined once in light_path_eval.cu (-rdc).
+// #991 — device Light Path output, defined once in shading_inputs_eval.cu (-rdc).
 __device__ float light_path_output_dev(unsigned char o, const PathContext& c);
 }  // namespace lightpath
 namespace svm {
@@ -609,7 +609,7 @@ HD inline float svm_shading(unsigned char which, float arg, const SvmShading& sh
             // #991 Cycles svm_node_light_path (astroray/light_path.h).
             if (which >= SH_LIGHT_PATH) {
 #if defined(__CUDA_ARCH__)
-                // Out of line on the device (light_path_eval.cu): one call per
+                // Out of line on the device (shading_inputs_eval.cu): one call per
                 // svm_eval copy instead of the switch body.
                 return lightpath::light_path_output_dev(
                     (unsigned char)(which - SH_LIGHT_PATH), sh.path);

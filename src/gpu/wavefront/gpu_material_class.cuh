@@ -1,7 +1,7 @@
 #pragma once
 // gpu_material_class.cuh - the device material bounce class (diffuse vs glossy),
 // moved verbatim out of stage_advance_device.cuh (#991) so the out-of-line Light
-// Path TU (light_path_eval.cu) shares the one definition with the shade kernels.
+// Path TU (shading_inputs_eval.cu) shares the one definition with the shade kernels.
 // Included INSIDE namespace astroray::wavefront by stage_advance_device.cuh.
 #include "astroray/gpu_types.h"
 

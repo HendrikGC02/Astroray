@@ -462,6 +462,17 @@ static void appendOnePrim(
                 r.triObjectLocal.push_back(GVec3(o2.x, o2.y, o2.z));
             }
         }
+        // #990 — corners of every attribute layer a GPU descriptor reads,
+        // padded with zeros (Cycles' missing attribute) for triangles without it.
+        for (size_t k = 0; k < r.attrLayers.size(); ++k) {
+            Vec3 c0, c1, c2;
+            if (!tri->attributeCorners(r.attrLayers[k], c0, c1, c2)) continue;
+            auto& v = r.attrCorners[k];
+            v.resize((size_t)gp.index * 3, GVec3(0.f, 0.f, 0.f));
+            v.push_back(GVec3(c0.x, c0.y, c0.z));
+            v.push_back(GVec3(c1.x, c1.y, c1.z));
+            v.push_back(GVec3(c2.x, c2.y, c2.z));
+        }
         r.triangles.push_back(gt);
         std::string objName = tri->getName();
         if (objName.empty()) objName = "Unnamed_Triangle_" + std::to_string(r.triangles.size() - 1);
@@ -1105,8 +1116,36 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // Mapping, #825 key) or a procedural (#1007 per-hit evaluator, else the pkg190
     // bake, #818 Item 1). -1 = cannot upload (empty image / unbakeable coord).
     // Shared by base-colour and scalar programs (#846).
+    // #990 — a shading attribute layer as a GPU descriptor (attrLayer = slot);
+    // its corner texels are appended after the geometry walk. Deduped by layer.
+    // Read only in the <HasProgram=true> kernel, hence hasProgram.
+    auto uploadAttrTexId = [&](const AttributeTexture* at) -> int {
+        int slot = -1;
+        for (size_t k = 0; k < r.attrLayers.size(); ++k)
+            if (r.attrLayers[k] == at->layer()) slot = (int)k;
+        if (slot < 0) {
+            slot = (int)r.attrLayers.size();
+            r.attrLayers.push_back(at->layer());
+            r.attrCorners.emplace_back();
+        }
+        const std::string k = "attr|" + std::to_string(slot);
+        auto tit = texIdx.find(k);
+        if (tit != texIdx.end()) return tit->second;
+        GImageTexture desc;
+        desc.offset = 0;           // patched after the geometry walk
+        desc.width = desc.height = 1;
+        desc.attrLayer = slot;
+        const int texId = (int)r.textures.size();
+        texIdx[k] = texId;
+        r.textures.push_back(desc);
+        r.hasTexture = true;
+        r.hasProgram = true;
+        return texId;
+    };
     auto uploadProgInputTexId = [&](ProgramTexture* pt, int t) -> int {
         std::shared_ptr<Texture> child = pt->getInput(t);
+        if (auto at = std::dynamic_pointer_cast<AttributeTexture>(child))  // #990
+            return uploadAttrTexId(at.get());
         if (auto childImg = std::dynamic_pointer_cast<ImageTexture>(child))
             return childImg->getData().empty() ? -1 : uploadImageTexId(childImg.get(), pt);
         if (!child) return -1;
@@ -1259,6 +1298,12 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                     texId = uploadImageTexId(img.get(), img.get());
                     r.hasTexture = true;
                 }
+            } else if (auto at = std::dynamic_pointer_cast<AttributeTexture>(tex)) {
+                // #990 — a bare attribute layer on a surface consumer; an emitter
+                // keeps its flat colour (the emission fetch has no attribute path).
+                if (!emitTex) texId = uploadAttrTexId(at.get());
+                else fprintf(stderr, "[#990] DEGRADED: an attribute-driven Emission Color "
+                                     "renders flat on GPU\n");
             } else if (tex) {
                 // pkg190 — bake a PROCEDURAL base-colour texture (checker / brick /
                 // wave / magic / …) into the flat device texel buffer, then reuse
@@ -1437,6 +1482,10 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         if (!cpuBvh) throw std::runtime_error("BVH not built — call buildAcceleration() first");
         appendFlatScene(cpu, cpuBvh.get(), r, getOrAddMat);
     }
+
+    // #990: attribute layers first met after this point (a Light Path switch
+    // child, below) have no corners: the walk already ran.
+    const size_t attrLayersWalked = r.attrLayers.size();
 
     // #991 — Light Path switch side table. Child materials are not referenced
     // by geometry, so they are added here (inheriting the switch's world bbox
@@ -1871,6 +1920,23 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         for (const auto& v : batch)
             r.motionVertices.push_back(GVec3(v.x, v.y, v.z));
     }
+
+    // --- #990: attribute-layer corner slices (descriptor offsets patched) ---
+    if (r.attrLayers.size() > attrLayersWalked)
+        fprintf(stderr, "[#990] DEGRADED: a shading attribute read only by a Light Path "
+                        "switch child reads 0 on GPU\n");
+    for (size_t k = 0; k < r.attrLayers.size(); ++k) {
+        auto& v = r.attrCorners[k];
+        v.resize(r.triangles.size() * 3, GVec3(0.f, 0.f, 0.f));
+        const int offset = (int)r.textureTexels.size();
+        r.textureTexels.insert(r.textureTexels.end(), v.begin(), v.end());
+        for (auto& d : r.textures)
+            if (d.attrLayer == (int)k) d.offset = offset;
+        std::vector<GVec3>().swap(v);
+    }
+    if (cpu.hasInstances() && !r.attrLayers.empty())
+        fprintf(stderr, "[#990] DEGRADED: shading attributes on instanced meshes read 0 "
+                        "on GPU (object-space BLAS triangles)\n");
 
     // --- #847: per-vertex Generated coords ---
     // Only read by the Generated 3D-bake fetch (depth > 1) and the #1007 per-hit

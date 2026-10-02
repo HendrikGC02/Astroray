@@ -29,8 +29,15 @@
 * Bounce class: Astroray has no per-closure lobe labels; the existing pkg201 classifier (transmitted
   by geometric sign, glossy if delta or the material `isGlossy()`, else diffuse) is shared by both
   backends. It is per-material (a Principled bounce counts as glossy), so Is Diffuse / Is Glossy Ray
-  and Diffuse / Glossy Depth are reported APPROXIMATED. Transparent Depth is 0 (a Transparent pass is
-  a transmission bounce here): reported. Portal Depth: unsupported (reported).
+  and Diffuse / Glossy Depth are reported APPROXIMATED. Portal Depth: unsupported (reported).
+* Transparent passes: a straight-through delta sample (Principled Alpha / a Transparent child,
+  `wi == -wo`) is Cycles' `LABEL_TRANSPARENT`: the flags are kept and `transparentDepth` counts it, so
+  a camera ray stays a camera ray through a camera-hidden surface (the inner back face of the hidden
+  emitter, found on build 03b7a0bb: CPU `emitter_hidden_region` 0.000). Ray Depth subtracts the
+  transparent passes (Cycles' bounce excludes them). An IOR-1 smooth refraction is geometrically the
+  same and is classified the same way.
+* Camera Ray Length is measured from the near-clip start (Cycles `camera_sample_perspective` moves P
+  by `nearclip * z_inv`).
 * Values feed the op-VM through `OP_SHADING` (`SH_LIGHT_PATH + output`), so a Ray Length -> Ramp
   base colour runs per hit on CPU (`ProgramTexture::valueAtHit`) and GPU (`<HasProgram>` shade block).
 * Mix Shader with a boolean Light Path Fac -> `LightPathMixMaterial` (CPU) / a `GLightPathSwitch`
@@ -40,8 +47,9 @@
   (NEE light samples, light list) sees child A, which is what every boolean output selects there.
   A Transparent child becomes Principled Alpha 0 (Cycles: Alpha is a mix with a white Transparent
   BSDF), so it passes camera rays and casts no shadow through the existing pkg253 path.
+* GPU services are out of line in `src/gpu/wavefront/shading_inputs_eval.cu` (one definition each:
+  context, switch remap, per-bounce update, the op-VM output), called behind the `c_wfLightPath`
+  runtime flag / switch table.
 * Reported limits: a Light Path Fac through other nodes or from Ray Length / a depth; Is Singular /
   Is Reflection as Fac on shadow rays (Cycles reads the parent path flag there); a tinted Transparent
-  child; a switch nested under another Mix / Add Shader. After a camera ray passes a camera-hidden
-  surface Astroray has counted a bounce, so a second surface behind it reads Is Camera Ray = 0
-  (Cycles keeps the camera flag through transparent bounces).
+  child; a switch nested under another Mix / Add Shader.

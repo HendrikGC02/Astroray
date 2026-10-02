@@ -33,6 +33,7 @@ from degradation import DegradationReport
 from _bulk_geometry import mesh_to_bulk_arrays  # pkg112 batched geometry upload
 from _bulk_geometry import mesh_world_positions  # pkg88-B object motion blur bake
 from _bulk_geometry import extract_curves_bulk   # pkg225 Stage 6 hair/curves export
+from _bulk_geometry import mesh_attribute_layers  # #990 Attribute / Object Info layers
 
 
 def _matrices_differ(m1, m2, eps=1e-6):
@@ -2613,6 +2614,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # (Blender Texture Coordinate > Generated semantics).
         self._generated_textures_by_material = {}
         self._object_coord_materials = {}  # #1006: material name -> uses Object coords
+        # #990: attribute layers (Attribute / Color Attribute / Object Info) each
+        # material reads, filled per triangle corner by the mesh export.
+        self._material_attr_layers = {}
         for mat in bpy.data.materials:
             self._current_material_name = mat.name
             mat_id = self.convert_node_material(mat, renderer)
@@ -4539,11 +4543,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         for out_name in compiled.get('light_path_approx') or ():  # #991
             self._warn_shader_fallback(
-                'LIGHT_PATH', "'%s' is approximate: %s" % (
-                    out_name, "always 0 (Astroray counts a Transparent BSDF pass as a "
-                    "transmission bounce)" if out_name == 'Transparent Depth' else
-                    "Astroray's per-material bounce class (a Principled bounce counts as "
-                    "glossy), not the Cycles per-closure label"))
+                'LIGHT_PATH', "'%s' is approximate: Astroray's per-material bounce class "
+                "(a Principled bounce counts as glossy), not the Cycles per-closure label"
+                % out_name)
         # issue #818 Item 1 — op-VM inputs may be image OR procedural texture
         # nodes. All inputs of one program must share a single coordinate
         # signature (the ProgramTexture carries one coord_mode + Mapping), and
@@ -4566,6 +4568,35 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 renderer.set_program_texture_program(
                     prog_name, 0, compiled['out_slot'], compiled['code_flat'],
                     compiled['consts_flat'], compiled['ramps_flat'])
+            except Exception as e:
+                self._warn_shader_fallback("op-VM", "program upload failed (%s)" % e)
+                return None
+            self._per_hit_program_names().add(prog_name)
+            return prog_name
+        # #990: attribute inputs (Attribute / Color Attribute / Object Info) have no
+        # coordinates: each loads an engine attribute layer the mesh export fills,
+        # and is left out of the coordinate / kind checks below.
+        all_inputs = inputs
+        all_variants = compiled.get('input_variants') or [None] * len(all_inputs)
+        attr_names = {}
+        for i, (in_node, variant) in enumerate(zip(all_inputs, all_variants)):
+            if getattr(in_node, 'type', None) in svm.ATTRIBUTE_NODE_TYPES:
+                attr_names[i] = self._attribute_layer_texture(
+                    svm.attribute_layer_key(in_node, variant), renderer)
+                if attr_names[i] is None:
+                    return None
+        inputs = [n for i, n in enumerate(all_inputs) if i not in attr_names]
+        tex_variants = [v for i, v in enumerate(all_variants) if i not in attr_names]
+        if not inputs:
+            prog_name = "_prog_%s.%s.%s" % (getattr(self, "_current_material_name", "") or "",
+                                            getattr(node, "name", "n"), input_name)
+            try:
+                renderer.create_program_texture(prog_name, 'UV')
+                for i in range(len(all_inputs)):
+                    renderer.program_texture_add_input(prog_name, attr_names[i])
+                renderer.set_program_texture_program(
+                    prog_name, compiled['num_tex'], compiled['out_slot'],
+                    compiled['code_flat'], compiled['consts_flat'], compiled['ramps_flat'])
             except Exception as e:
                 self._warn_shader_fallback("op-VM", "program upload failed (%s)" % e)
                 return None
@@ -4595,11 +4626,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # GPU scalar-parameter path (Roughness/Metallic/IOR/Transmission,
         # scene_upload.cu uploadProgramTexture) still samples ONE input, so a
         # multi-input scalar program keeps its visible degradation. CPU is exact.
-        if len(inputs) > 1 and input_name in ('Roughness', 'Metallic', 'IOR',
-                                              'Transmission'):
+        if len(all_inputs) > 1 and input_name in ('Roughness', 'Metallic', 'IOR',
+                                                  'Transmission'):
             self._warn_shader_fallback(
                 'op-VM', 'multi-input shader program (%d texture inputs) on %s: '
-                'GPU uses the constant value; CPU exact' % (len(inputs), input_name))
+                'GPU uses the constant value; CPU exact' % (len(all_inputs), input_name))
         # Procedural inputs default to GENERATED coords (Blender standard for an
         # unconnected Vector) and reject affine coordinate chains, exactly like
         # the direct-to-BSDF procedural path (load_procedural_texture); image
@@ -4647,8 +4678,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # native evaluator both sample the correct field. The ProgramTexture
             # (below) carries the SAME coord/Mapping, so CPU delivers `p` once and
             # the GPU shade path rebuilds the identical normalized coordinate.
-            variants = compiled.get('input_variants') or [None] * len(inputs)
-            for in_node, variant in zip(inputs, variants):
+            for in_node, variant in zip(inputs, tex_variants):
                 vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
                 cn = self.load_procedural_texture(in_node, renderer, vector_input=vinp,
                                                   fac_variant=(variant == 'fac'),
@@ -4670,6 +4700,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 if cn is None:
                     return None
                 child_names.append(cn)
+        if attr_names:  # #990: back into the program's input order
+            tex_children = iter(child_names)
+            child_names = [attr_names[i] if i in attr_names else next(tex_children)
+                           for i in range(len(all_inputs))]
         mat_name = getattr(self, "_current_material_name", "") or ""
         prog_name = "_prog_%s.%s.%s" % (mat_name, getattr(node, "name", "n"), input_name)
         # The ProgramTexture carries the SAME coordinate contract as its children
@@ -4695,9 +4729,31 @@ class CustomRaytracerRenderEngine(RenderEngine):
         except Exception as e:
             self._warn_shader_fallback("op-VM", "program upload failed (%s)" % e)
             return None
-        if compiled.get('per_hit'):
+        if compiled.get('per_hit') or attr_names:  # #989 / #990
             self._per_hit_program_names().add(prog_name)
         return prog_name
+
+    def _attribute_layer_texture(self, key, renderer):
+        """#990: the engine texture reading attribute layer `key`
+        (shader_vm_compiler.attribute_layer_key), registered once per renderer, and
+        the layer recorded for the current material so the mesh export fills it."""
+        if not hasattr(renderer, 'create_attribute_texture'):
+            self._warn_shader_fallback('ATTRIBUTE', 'engine without attribute layers: '
+                                       'flattened')
+            return None
+        name = '_attr_' + key
+        made = getattr(self, '_attr_textures_made', None)
+        if made is None or made[0] is not renderer:
+            made = self._attr_textures_made = (renderer, set())
+        if name not in made[1]:
+            renderer.create_attribute_texture(name, key)
+            made[1].add(name)
+        mat_name = getattr(self, "_current_material_name", "") or ""
+        layers = getattr(self, '_material_attr_layers', None)
+        if layers is None:
+            layers = self._material_attr_layers = {}
+        layers.setdefault(mat_name, set()).add(key)
+        return name
 
     def _per_hit_program_names(self):
         """#989: names of registered programs that read per-hit shading inputs
@@ -5911,7 +5967,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return False
             if self._material_emits(mat):
                 return False
-            if self._material_uses_object_coords(mat):
+            if self._material_uses_object_coords(mat) or \
+                    getattr(self, '_material_attr_layers', {}).get(mat.name):
                 return False
         return True
 
@@ -6536,11 +6593,27 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # slot→id remap, same active-first UV-layer order, same inverse-
             # transpose corner normals. Falls back when the engine build lacks the
             # bulk binding (older .pyd) or when BULK_GEOMETRY_UPLOAD is disabled.
+            # #990: the attribute layers this object's materials read.
+            attr_keys = set()
+            for slot in obj.material_slots:
+                if slot.material is not None:
+                    attr_keys |= getattr(self, '_material_attr_layers', {}).get(
+                        slot.material.name, set())
             if (BULK_GEOMETRY_UPLOAD and n_tri > 0
                     and hasattr(renderer, "add_triangles_bulk")):
                 positions, material_ids, mat_pass, uvs, uv_names, normals = \
                     mesh_to_bulk_arrays(mesh, matrix, normal_matrix,
                                         slot_to_id, default_mat_id, uv_layer_items)
+                attr_kw = {}
+                if attr_keys:
+                    attr_names, attrs, attr_notes = mesh_attribute_layers(
+                        mesh, obj, matrix, attr_keys,
+                        [slot.material for slot in obj.material_slots])
+                    for key, why in attr_notes:
+                        self._warn_shader_fallback(
+                            'ATTRIBUTE', "layer %s on '%s' unsupported (%s): reads 0"
+                            % (key, obj.name, why))
+                    attr_kw = {'attr_names': attr_names, 'attrs': attrs}
                 # pkg88-B: motion candidates go through add_triangles_bulk_motion
                 # with the SHUTTER-OPEN pose as positions_start (NOT `positions`,
                 # which mesh_to_bulk_arrays built from the current-frame matrix --
@@ -6556,15 +6629,24 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     positions_start = mesh_world_positions(mesh, motion_start_matrix)
                     positions_end = mesh_world_positions(mesh, motion_end_matrix)
                     gen_matrix = motion_start_matrix  # #847: stored verts' pose
+                    if attr_kw:
+                        self._warn_shader_fallback(
+                            'ATTRIBUTE', "attribute / Object Info layers on the "
+                            "motion-blurred '%s' are unsupported: read 0" % obj.name)
                     renderer.add_triangles_bulk_motion(
                         positions_start, positions_end, material_ids, mat_pass,
                         int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals)
                 else:
                     renderer.add_triangles_bulk(
                         positions, material_ids, mat_pass,
-                        int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals)
+                        int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals,
+                        **attr_kw)
                 tri_count += n_tri
             else:
+                if attr_keys:
+                    self._warn_shader_fallback(
+                        'ATTRIBUTE', "attribute / Object Info layers need the bulk "
+                        "geometry upload: '%s' reads 0" % obj.name)
                 for tri in mesh.loop_triangles:
                     v0 = matrix @ mesh.vertices[tri.vertices[0]].co
                     v1 = matrix @ mesh.vertices[tri.vertices[1]].co

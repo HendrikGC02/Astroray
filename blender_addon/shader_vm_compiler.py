@@ -38,8 +38,27 @@ LIGHT_PATH_BOOLEAN = LIGHT_PATH_OUTPUTS[:8]
 #   bounce class (the pkg201 bounce-limit classifier: a Principled bounce counts
 #   as glossy), not Cycles' per-closure label; Transparent Depth is always 0
 #   (Astroray counts a Transparent BSDF pass as a transmission bounce).
-LIGHT_PATH_APPROXIMATE = ('Is Diffuse Ray', 'Is Glossy Ray', 'Diffuse Depth', 'Glossy Depth',
-                          'Transparent Depth')
+LIGHT_PATH_APPROXIMATE = ('Is Diffuse Ray', 'Is Glossy Ray', 'Diffuse Depth', 'Glossy Depth')
+
+# #990 — shading attribute inputs. Each (node, output) is one engine attribute
+# layer (include/astroray/attribute_layers.h) that the addon fills per triangle
+# corner at mesh export with Cycles' value for that output (kernel/svm/
+# attribute.h svm_node_attr; svm/geometry.h NODE_INFO_OB_*). attribute_layer_key
+# names it; the program loads it as a texture input (OP_LOAD_TEX).
+ATTRIBUTE_NODE_TYPES = ('ATTRIBUTE', 'VERTEX_COLOR', 'OBJECT_INFO')
+OBJECT_INFO_OUTPUTS = ('Location', 'Color', 'Alpha', 'Object Index', 'Material Index', 'Random')
+
+
+def attribute_layer_key(node, variant):
+    """Layer key for an attribute input (variant from the compiler's push_tex):
+    'objinfo:<Output>', 'color:<layer>|<rgb|fac|alpha>' (Color Attribute; '' =
+    the mesh's default colour attribute) or 'attr:<name>|<rgb|fac|alpha>'."""
+    ntype = getattr(node, 'type', None)
+    if ntype == 'OBJECT_INFO':
+        return variant
+    if ntype == 'VERTEX_COLOR':
+        return 'color:%s|%s' % (getattr(node, 'layer_name', '') or '', variant)
+    return 'attr:%s|%s' % (getattr(node, 'attribute_name', '') or '', variant)
 
 # pkg230 — Clamp node type (Cycles NodeClampType) + clamp FLAG bits packed into
 # the free high bits of an op's imm (mirror include/astroray/shader_vm.h).
@@ -448,6 +467,26 @@ def _shading_input(node, out_name, builder, depth, arg, normal):
     return out
 
 
+def _attribute_input(node, out_name, builder):
+    """#990 — Attribute (Geometry type) / Color Attribute / Object Info output as
+    a texture input over an engine attribute layer (see attribute_layer_key)."""
+    if builder.coord_mode:
+        raise VMCompileError("attribute input in a coordinate chain")
+    ntype = getattr(node, 'type', None)
+    if ntype == 'OBJECT_INFO':
+        if out_name not in OBJECT_INFO_OUTPUTS:
+            raise VMCompileError("Object Info output '%s' unsupported" % out_name)
+        return builder.push_tex(node, 'objinfo:' + out_name)
+    if ntype == 'ATTRIBUTE' and getattr(node, 'attribute_type', 'GEOMETRY') != 'GEOMETRY':
+        raise VMCompileError("Attribute type %s unsupported (only Geometry)"
+                             % getattr(node, 'attribute_type', '?'))
+    variant = {'Color': 'rgb', 'Vector': 'rgb', 'Fac': 'fac', 'Factor': 'fac',
+               'Alpha': 'alpha'}.get(out_name)
+    if variant is None:
+        raise VMCompileError("%s output '%s' unsupported" % (ntype, out_name))
+    return builder.push_tex(node, variant)
+
+
 def _light_path_input(node, out_name, builder):
     """#991 — a Light Path output as OP_SHADING over the per-hit path context
     (astroray/light_path.h; Cycles kernel/svm/light_path.h svm_node_light_path,
@@ -604,6 +643,13 @@ def _compile_socket_value(socket, builder, depth=0):
         return _shading_input(node, out_name, builder, depth, None, None)
     if ntype == 'LIGHT_PATH':  # #991
         return _light_path_input(node, out_name, builder)
+    # #990 shading attribute inputs (one branch per node type, see above).
+    if ntype == 'ATTRIBUTE':
+        return _attribute_input(node, out_name, builder)
+    if ntype == 'VERTEX_COLOR':
+        return _attribute_input(node, out_name, builder)
+    if ntype == 'OBJECT_INFO':
+        return _attribute_input(node, out_name, builder)
 
     if ntype == 'VALTORGB':  # Color Ramp
         fac_slot = compile_socket(_get_input(node, 'Fac'), builder, depth + 1)

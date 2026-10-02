@@ -1,4 +1,5 @@
-// light_path_eval.cu - #991: the GPU Light Path services, out of line.
+// shading_inputs_eval.cu - #991 / #990: the GPU per-hit shading-input services,
+// out of line (Light Path state; shading attribute layers).
 //
 // The Light Path context of a hit, the Mix Shader closure-switch remap, the
 // per-bounce path-state update and the op-VM Light Path output. The math is the
@@ -10,6 +11,7 @@
 // the bodies' registers never enter the fleet, intersect or shadow kernels
 // (pattern: proc_tex_eval.cu, #1007).
 #include "astroray/light_path.h"
+#include "astroray/attribute_layers.h"
 #include "astroray/gpu_types.h"
 #include "astroray/gpu_wavefront_state.h"
 
@@ -64,6 +66,25 @@ __device__ __noinline__ unsigned gpu_lpVolume(unsigned lpState)
 {
     using namespace astroray::lightpath;
     return pack_state(next_volume(unpack_state(lpState, 0, 0.f)));
+}
+
+// #990 — shading attribute layer at this hit: the uploaded triangle's three
+// corner values (scene_upload.cu, [offset + 3*triIndex + k]) interpolated with
+// barycentrics recomputed from the point (astroray/attribute_layers.h, the CPU
+// Triangle::attributeValue twin). A non-triangle hit reads 0 (Cycles' missing
+// attribute), as the CPU AttributeTexture does.
+extern __constant__ GWavefrontTextureBinding c_wfTexBinding;   // stage_advance.cu
+__device__ __noinline__ GVec3 gpu_attrTexel(int texId, GVec3 point, int primId,
+                                            const GPrimitive* prims, const GTriangle* tris)
+{
+    if (primId < 0 || prims[primId].type != GPRIM_TRIANGLE) return GVec3(0.f, 0.f, 0.f);
+    const int ti = prims[primId].index;
+    const GVec3* c = c_wfTexBinding.texelBuf + c_wfTexBinding.textures[texId].offset + 3 * ti;
+    const GTriangle& t = tris[ti];
+    GVec3 out(0.f, 0.f, 0.f);
+    if (!astroray::attr::interpolate_corners(t.v0, t.v1, t.v2, point, c[0], c[1], c[2], out))
+        return c[0];
+    return out;
 }
 
 }  // namespace astroray::wavefront

@@ -692,6 +692,12 @@ struct GImageTexture {
     // transformed by `mapping` when hasMapping (CPU Texture::value M*p). Only
     // read in the <HasProgram=true> shade kernel (gpu_progInputEval).
     int   procId = -1;
+    // #990 - >= 0: a shading attribute layer (Attribute / Color Attribute /
+    // Object Info). The texels at `offset` hold three corner values per uploaded
+    // triangle ([offset + 3*triIndex + k]), interpolated with barycentrics at the
+    // hit (gpu_attrTexel, shading_inputs_eval.cu). Only read in the
+    // <HasProgram=true> shade kernel (scene_upload sets hasProgram).
+    int   attrLayer = -1;
 };
 
 // pkg186 — wavefront image-texture binding. Published ONCE per frame into a

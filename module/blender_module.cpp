@@ -394,6 +394,11 @@ public:
         return nullptr;
     }
 
+    // #990 — a shading attribute layer as a texture (AttributeTexture).
+    void createAttributeTexture(const std::string& name, const std::string& layer) {
+        proceduralTextures[name] = std::make_shared<AttributeTexture>(astroray::attr::layer_id(layer));
+    }
+
     // ---- pkg219b op-VM builder API -----------------------------------------
     void createProgramTexture(const std::string& name, const std::string& coordMode) {
         auto pt = std::make_shared<ProgramTexture>();
@@ -612,6 +617,9 @@ public:
     // pkg219b op-VM builder forwarders.
     void createProgramTexture(const std::string& name, const std::string& coordMode) {
         textureManager.createProgramTexture(name, coordMode);
+    }
+    void createAttributeTexture(const std::string& name, const std::string& layer) {
+        textureManager.createAttributeTexture(name, layer);  // #990
     }
     void programTextureAddInput(const std::string& name, const std::string& inputName) {
         textureManager.programTextureAddInput(name, inputName);
@@ -1322,11 +1330,26 @@ public:
             int objectPassIndex,
             py::array_t<float, py::array::c_style | py::array::forcecast> uvs,
             std::vector<std::string> uvLayerNames,
-            py::array_t<float, py::array::c_style | py::array::forcecast> normals) {
+            py::array_t<float, py::array::c_style | py::array::forcecast> normals,
+            std::vector<std::string> attrNames = {},
+            py::array_t<float, py::array::c_style | py::array::forcecast> attrs =
+                py::array_t<float, py::array::c_style | py::array::forcecast>()) {
         auto pos = positions.unchecked<3>();              // (Nt, 3, 3)
         const py::ssize_t nt = pos.shape(0);
         if (pos.shape(1) != 3 || pos.shape(2) != 3)
             throw std::runtime_error("add_triangles_bulk: positions must be (N,3,3)");
+        // #990 — per-corner attribute layers (nAttr, Nt, 3, 3), names interned once.
+        const py::ssize_t nAttr = (py::ssize_t)attrNames.size();
+        if (nAttr > 0 && (attrs.ndim() != 4 || attrs.shape(0) != nAttr || attrs.shape(1) != nt ||
+                          attrs.shape(2) != 3 || attrs.shape(3) != 3))
+            throw std::runtime_error("add_triangles_bulk: attrs must be (len(attr_names),N,3,3)");
+        std::shared_ptr<const std::vector<int>> attrIds;
+        if (nAttr > 0) {
+            auto ids = std::make_shared<std::vector<int>>();
+            for (const auto& n : attrNames) ids->push_back(astroray::attr::layer_id(n));
+            attrIds = ids;
+        }
+        const float* aPtr = nAttr > 0 ? attrs.data() : nullptr;
         auto mid = materialIds.unchecked<1>();            // (Nt,)
         auto mpi = materialPassIndices.unchecked<1>();    // (Nt,)
         if (mid.shape(0) != nt || mpi.shape(0) != nt)
@@ -1378,6 +1401,15 @@ public:
             }
             tri->setObjectPassIndex(objectPassIndex);
             tri->setMaterialPassIndex(mpi(t));
+            if (nAttr > 0) {
+                std::vector<std::array<Vec3, 3>> vals(nAttr);
+                for (py::ssize_t l = 0; l < nAttr; ++l)
+                    for (int c = 0; c < 3; ++c) {
+                        const float* q = aPtr + (((l * nt + t) * 3 + c) * 3);
+                        vals[l][c] = Vec3(q[0], q[1], q[2]);
+                    }
+                tri->setAttributes(attrIds, std::move(vals));
+            }
             renderer.addObject(tri);
         }
     }
@@ -3966,9 +3998,16 @@ PYBIND11_MODULE(astroray, m) {
         .def("add_triangles_bulk", &PyRenderer::addTrianglesBulk,
              "positions"_a, "material_ids"_a, "material_pass_indices"_a, "object_pass_index"_a,
              "uvs"_a, "uv_layer_names"_a, "normals"_a,
+             "attr_names"_a = std::vector<std::string>(),
+             "attrs"_a = py::array_t<float, py::array::c_style | py::array::forcecast>(),
              "pkg112: bulk triangle ingest from NumPy arrays (loops in C++ to cut per-tri "
              "pybind overhead). positions (N,3,3) world; uvs (nLayers,N,3,2) active-first; "
-             "normals (N,3,3) or empty. Pixel-identical to add_triangle/add_triangle_layers.")
+             "normals (N,3,3) or empty. Pixel-identical to add_triangle/add_triangle_layers. "
+             "#990: attrs (len(attr_names),N,3,3) per-corner shading attribute layers.")
+        .def("create_attribute_texture", &PyRenderer::createAttributeTexture,
+             "name"_a, "layer"_a,
+             "#990: register texture `name` reading per-corner attribute layer `layer` "
+             "(add_triangles_bulk attr_names) at the hit; 0 where the layer is absent.")
         .def("add_triangles_bulk_motion", &PyRenderer::addTrianglesBulkMotion,
              "positions_start"_a, "positions_end"_a, "material_ids"_a, "material_pass_indices"_a,
              "object_pass_index"_a, "uvs"_a, "uv_layer_names"_a, "normals"_a,

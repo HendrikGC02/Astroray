@@ -218,3 +218,24 @@ def test_is_shadow_ray_switch_makes_glass_shadow_transparent(use_gpu):
         vals[mode] = _roi(img, 24, 24, 2)  # the sun shadow of the sphere, (0.25, 0, 0)
     assert vals["glass"].mean() < 0.6 * vals["none"].mean(), vals
     np.testing.assert_allclose(vals["switch"], vals["none"], rtol=0.06)
+
+
+@pytest.mark.parametrize("use_gpu", BACKENDS)
+def test_camera_ray_survives_a_transparent_pass(use_gpu):
+    """Cycles keeps the ray flags through a transparent pass (path_state_next
+    LABEL_TRANSPARENT): a wall coloured Is Camera Ray seen through an Alpha-0
+    sheet is still lit as a camera hit (white), and Transparent Depth counts 1."""
+    vals = {}
+    for output in ('Is Camera Ray', 'Transparent Depth'):
+        r = _renderer(use_gpu)
+        r.set_background_color([1.0, 1.0, 1.0])
+        _program(r, "tp991", C.compile_chain(_lp_value(output)))
+        wall = r.create_material("principled", [0.8, 0.8, 0.8],
+                                 {"roughness": 1.0, "specular_ior_level": 0.0,
+                                  "base_color_texture": "tp991"})
+        sheet = r.create_material("principled", [1.0, 1.0, 1.0], {"alpha": 0.0})
+        _quad(r, sheet, [0, 2, 0], [2.0, 0, 0], [0, 0, 2.0])
+        _quad(r, wall, [0, 5, 0], [6.0, 0, 0], [0, 0, 6.0])
+        vals[output] = _roi(_render(r, [0, 0, 0], [0, 1, 0], vfov=10), 24, 24).mean()
+    assert vals['Is Camera Ray'] > 0.8, vals
+    assert vals['Transparent Depth'] > 0.8, vals

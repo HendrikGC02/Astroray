@@ -28,6 +28,7 @@
 #include "astroray/cryptomatte.h"
 #include "astroray/ies_eval.h"                   // pkg276 Cycles IES lookup (CPU+GPU)
 #include "astroray/light_path.h"                 // #991 Light Path context (CPU+GPU)
+#include "astroray/attribute_layers.h"           // #990 per-corner attribute layers
 #include "astroray/sampling/adaptive_sampling.h"  // pkg131 zero-knob adaptive core
 #include "astroray/guiding/sdtree.h"               // pkg136 SD-tree path guiding
 #include "astroray/guiding/guide_context.h"        // pkg136 training record
@@ -912,6 +913,9 @@ public:
     // NODE_TEXCO_OBJECT: object_inverse_position_transform). false = none; the
     // Object coordinate falls back to the world point.
     virtual bool objectCoord(const Vec3& /*p*/, Vec3& /*out*/) const { return false; }
+    // #990 — shading attribute layer `layer` (astroray::attr::layer_id) at world
+    // point p (Attribute / Color Attribute / Object Info). false = no such layer.
+    virtual bool attributeValue(int /*layer*/, const Vec3& /*p*/, Vec3& /*out*/) const { return false; }
     virtual bool isLight() const { return false; }
     virtual bool isInfiniteLight() const { return false; }
     virtual Vec3 emittedRadiance() const { return Vec3(0); }

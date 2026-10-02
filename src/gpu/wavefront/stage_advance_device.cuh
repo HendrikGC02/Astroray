@@ -241,7 +241,7 @@ extern __constant__ int c_wfEmissionFlatPrims;
 // resolve; enabled == 0 skips the lp_state updates (shade / volume stages).
 extern __constant__ GWavefrontLightPathBinding c_wfLightPath;
 
-// #991 — Light Path services, defined ONCE out of line in light_path_eval.cu
+// #991 — Light Path services, defined ONCE out of line in shading_inputs_eval.cu
 // (one call per site here, not the body: build time + register isolation).
 // gpu_lpContext: the hit's PathContext; gpu_lpRemap: the Mix Shader closure-
 // switch child (intersect, only when c_wfLightPath.sw); gpu_lpAdvance /
@@ -319,7 +319,7 @@ __device__ __forceinline__ int lpEmitOrBgPass(unsigned char cat, int emissionBuc
 }
 
 // gpu_material_is_glossy: moved to gpu_material_class.cuh (#991, shared with
-// light_path_eval.cu).
+// shading_inputs_eval.cu).
 #include "gpu_material_class.cuh"
 
 // pkg199 Stage 1 — spectral Beer-Lambert transmittance exp(-sigma_t·d) per
@@ -1247,10 +1247,15 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_progInputTe
 // called from the emission (intersect / shadow) paths, so the evaluator's
 // registers stay out of those kernels.
 __device__ GVec3 gpu_procTexEval(int procId, GVec3 p);  // proc_tex_eval.cu
+// #990 — shading attribute layer at the hit (shading_inputs_eval.cu).
+__device__ GVec3 gpu_attrTexel(int texId, GVec3 point, int primId,
+                               const GPrimitive* prims, const GTriangle* tris);
 static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_progInputEval(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
 {
     const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
+    if (tdesc.attrLayer >= 0)  // #990
+        return {gpu_attrTexel(texId, point, primId, prims, tris), true};
     if (tdesc.procId < 0) return gpu_progInputTexel(point, primId, prims, tris, texId);
     GVec3 p = point;
     if (tdesc.objectCoord) {
@@ -1897,7 +1902,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
             // #1007: a per-hit procedural descriptor only exists when scene_upload
             // set hasProgram, so the <HasProgram=false> kernels compile this out.
             bool perHitProc = false;
-            if constexpr (HasProgram) perHitProc = tdesc.procId >= 0;
+            if constexpr (HasProgram) perHitProc = tdesc.procId >= 0 || tdesc.attrLayer >= 0;  // #990
             if (perHitProc) {
                 texColor = gpu_progInputEval(rec.point, rec.primId, prims, tris, texId).c;
                 haveTex = true;

@@ -77,7 +77,7 @@ __device__ inline float gpu_rng_uniform(GSegRng* r)
 extern __constant__ GWavefrontGridVolumeBinding c_wfGridVolume;
 extern __constant__ GWavefrontLightPassBinding  c_wfLpBinding;
 extern __constant__ GWavefrontLightPathBinding  c_wfLightPath;   // #991
-__device__ unsigned gpu_lpVolume(unsigned lpState);              // #991 light_path_eval.cu
+__device__ unsigned gpu_lpVolume(unsigned lpState);              // #991 shading_inputs_eval.cu
 
 namespace {
 

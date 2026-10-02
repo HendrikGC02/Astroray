@@ -999,8 +999,8 @@ static const ShadePartLaunchFn kShadePartLaunch[12] = {
 // out-of-line call, no cap) instead of the fleet kernel for fleet-axis launches.
 const void* stageShadeReference(bool P, bool launch, int blocks, int threads,
                                 const StageShadeArgs& a);
-// pkg300 fleet shade kernels (stage_shade_fleet_p<P>.cu): fully inlined under
-// __maxnreg__(128), used whenever HasPrincipled is the only active axis.
+// pkg300 fleet shade kernels (stage_shade_fleet_p<P>.cu), used whenever
+// HasPrincipled is the only active axis (P=0 fully inlined under __maxnreg__(128)).
 const void* stageShadeFleet_0(bool, int, int, const StageShadeArgs&);
 const void* stageShadeFleet_1(bool, int, int, const StageShadeArgs&);
 

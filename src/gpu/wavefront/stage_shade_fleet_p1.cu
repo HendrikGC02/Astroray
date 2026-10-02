@@ -1,6 +1,6 @@
-// stage_shade_fleet_p1.cu - pkg300 fleet shade kernel, HasPrincipled=true.
+// stage_shade_fleet_p1.cu - pkg300 fleet shade kernel, HasPrincipled=true:
+// inlined body, callees left to the compiler, no register cap.
 // See stage_shade_fleet.cuh.
-#include "shade_force_inline.cuh"  // must precede every other include
 #include "stage_shade_fleet.cuh"
 
-ASTRORAY_DEFINE_SHADE_FLEET(1)
+ASTRORAY_DEFINE_SHADE_FLEET(1, )

@@ -3,4 +3,4 @@
 #include "shade_force_inline.cuh"  // must precede every other include
 #include "stage_shade_fleet.cuh"
 
-ASTRORAY_DEFINE_SHADE_FLEET(0)
+ASTRORAY_DEFINE_SHADE_FLEET(0, __maxnreg__(128))

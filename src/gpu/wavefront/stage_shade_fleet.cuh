@@ -1,22 +1,26 @@
-// stage_shade_fleet.cuh - pkg300 Phase 1: the fleet shade kernel. For launches
+// stage_shade_fleet.cuh - pkg300 Phase 1: the fleet shade kernels. For launches
 // whose only active axis is HasPrincipled (no texture, photons, dispersion,
-// light-pass AOVs, op-VM program or normal map), stageShadeBucketed runs this
-// kernel instead of the generic variant: the shade body and every callee fully
-// inlined (shade_force_inline.cuh) under __maxnreg__(128) at 256 threads,
-// i.e. 2 blocks = 16 warps per SM against 8 for the 254-register generic kernel.
-// Measured on the pkg298 Cornell pair (1024^2, 256 spp, min of 5): 2.65x simple,
-// 2.32x heavy vs main; the generic kernel (__grid_constant__ only) gives 1.59x /
-// 1.46x. Full inlining of all 128 variants doubled the build (1189 s vs ~460 s),
-// so it is limited to these two variants, one TU each (stage_shade_fleet_p<P>.cu).
+// light-pass AOVs, op-VM program or normal map), stageShadeBucketed runs one of
+// these instead of the generic variant. Both inline the shade body and read
+// state/hitBufs in place (__grid_constant__).
+//  - P=0 (stage_shade_fleet_p0.cu) also force-inlines every callee
+//    (shade_force_inline.cuh) under __maxnreg__(128) at 256 threads: 2 blocks =
+//    16 warps per SM against 8 for the 254-register generic kernel. Measured on
+//    the pkg298 Cornell pair (1024^2, 256 spp, min of 5): 2.64x simple, 2.32x heavy.
+//  - P=1 (stage_shade_fleet_p1.cu) is uncapped: forcing the Principled call tree
+//    inline only moved other callees out of line above 128 registers (builds
+//    899b09bf, 724da915, a16e7145). Scene specialisation (pkg300 Phase 2) is the
+//    fix: compiling out unused material types shrinks the tree.
+// Full inlining of all 128 variants doubled the build (1189 s vs ~460 s).
 // Budget after Cycles kernel/device/cuda/config.h (GPU_KERNEL_MAX_REGISTERS via
 // __launch_bounds__, Apache-2.0); the sweep is in
 // .astroray_plan/docs/pkg300-shade-counter-attribution.md.
 #pragma once
 #include "stage_advance_device.cuh"
 
-#define ASTRORAY_DEFINE_SHADE_FLEET(P) \
+#define ASTRORAY_DEFINE_SHADE_FLEET(P, BUDGET) \
 namespace astroray::wavefront { \
-__global__ void __maxnreg__(128) stageShadeFleetKernel_##P( \
+__global__ void BUDGET stageShadeFleetKernel_##P( \
     __grid_constant__ const GPUWavefrontState state, \
     __grid_constant__ const GPUWavefrontHitBuffers hitBufs, \
     const int* shade_queues, const int* shade_counts, int capacity, \

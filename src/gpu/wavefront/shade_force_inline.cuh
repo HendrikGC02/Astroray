@@ -8,9 +8,7 @@
 // kernels the same way: fully inlined under GPU_KERNEL_MAX_REGISTERS
 // (kernel/device/cuda/config.h, Apache-2.0). Other TUs keep __noinline__.
 // Full inlining doubled the shade-part build (1189 s vs ~460 s, build 7af4baa5),
-// so only the two fleet-kernel TUs use it (stage_shade_fleet_p<P>.cu).
-// ASTRORAY_SHADE_ALWAYS_INLINE also forces plain-`inline` helpers the compiler
-// would keep out of line (gpu_pr_evalLobe, 141 regs: ptxas rejects the cap).
+// so only the HasPrincipled=false fleet kernel uses it (stage_shade_fleet_p0.cu).
 // Attribute-only spelling (several sites already say `__noinline__ inline`):
 // MSVC-mode frontend -> __forceinline, GNU mode -> always_inline.
 #pragma once
@@ -22,4 +20,3 @@
 #define __noinline__ __attribute__((always_inline))
 #endif
 #define ASTRORAY_SHADE_FORCE_INLINE 1
-#define ASTRORAY_SHADE_ALWAYS_INLINE __noinline__

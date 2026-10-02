@@ -228,7 +228,6 @@ public:
             int noise_type = params.size() > 7 ? (int)params[7] : 0;
             bool normalize = params.size() > 8 ? (params[8] != 0.0f) : true;
             int dims = params.size() > 9 ? (int)params[9] : 3;
-            if (dims < 1 || dims > 4) dims = 3;
             float w = params.size() > 10 ? params[10] : 0.0f;
             bool facOnly = params.size() > 11 && params[11] != 0.0f;
             proceduralTextures[name] = std::make_shared<NoiseTextureCycles>(

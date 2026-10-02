@@ -934,7 +934,7 @@ public:
                        int dims = 3, float w = 0.0f, bool facOnly = false)
         : params_{s, det, rough, lac, off, g, dist, type, norm ? 1 : 0} {
         // #881: Noise dimensions (1D-4D) + W, and the grey Fac-only output.
-        params_.dimensions = dims;
+        params_.dimensions = (dims >= 1 && dims <= 4) ? dims : 3;
         params_.w = w;
         params_.facOnly = facOnly ? 1 : 0;
     }

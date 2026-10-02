@@ -2887,11 +2887,13 @@ class Renderer {
     //   const float limit = (bounce > 0) ? sample_clamp_indirect : sample_clamp_direct;
     //   const float sum = reduce_add(fabs(*L));
     //   if (sum > limit) *L *= limit / sum;
-    // Cycles compares against sum(|RGB|); Astroray's existing brightness metric
-    // (the pre-pkg144 always-on `sLum > 20` cap this replaces) is XYZ photometric
-    // luminance (Y), so this clamps on toXYZ(lambdas).Y instead — same bounce-
-    // indexed limit selection and 0-disables semantics, different (but
-    // already-established in this codebase) brightness metric. Applied to each
+    // #884: Blender's setting is per-channel-average brightness: Cycles scales
+    // the user limit by 3 (scene/integrator.cpp: sample_clamp_* * 3.0f) and
+    // compares sum(|RGB|), i.e. mean(|R|,|G|,|B|) > limit. The contribution's
+    // XYZ is taken to film linear Rec.709 (no gamut mapping) and compared the
+    // same way (clampMetricRGB), so a saturated colour clamps where Cycles does
+    // (XYZ Y, the old metric, let a blue contribution through at 4.6x the
+    // limit and clamped a green one at 0.47x). Applied to each
     // contribution BEFORE it is summed into the path color, so direct (bounce==0,
     // including delta-light NEE) and indirect (bounce>0) contributions are
     // clamped independently rather than the old top-level clamp on the whole
@@ -2902,13 +2904,26 @@ class Renderer {
     // reached by the continuation from the first vertex is DIRECT light. Passing
     // `bounce` clamped that leg with sample_clamp_indirect (Blender default 10) and
     // dimmed the backlit geometry_zoo volume cubes to 0.55-0.8 of Cycles.
+    // #884: (R+G+B)/3 of an XYZ contribution in linear Rec.709 (Cycles
+    // film_clamp_light's reduce_add(fabs(L)) against 3x the user limit). Same
+    // matrix as astroray::xyzToLinearSRGB, without its gamut desaturation. The
+    // signed sum equals Cycles' fabs sum for in-gamut colour and is linear in
+    // XYZ (>= 0 for any non-negative spectrum): fabs of a hero-wavelength
+    // sample's chroma noise would inflate the metric (blue emitter clamped to
+    // 0.85 of Cycles with fabs, 0.94 signed).
+    static float clampMetricRGB(float X, float Y, float Z) {
+        const float r = 3.2406f * X - 1.5372f * Y - 0.4986f * Z;
+        const float g = -0.9689f * X + 1.8758f * Y + 0.0415f * Z;
+        const float b = 0.0557f * X - 0.2040f * Y + 1.0570f * Z;
+        return std::max(0.0f, r + g + b) * (1.0f / 3.0f);
+    }
     astroray::SampledSpectrum clampContribSpectral(const astroray::SampledSpectrum& contrib,
                                                     const astroray::SampledWavelengths& lambdas,
                                                     int bounce) const {
         float limit = (bounce > 0) ? clampIndirect : clampDirect;
         if (limit <= 0.0f) return contrib;
         astroray::XYZ xyz = contrib.toXYZ(lambdas);
-        float lum = xyz.Y;
+        float lum = clampMetricRGB(xyz.X, xyz.Y, xyz.Z);
         if (lum > limit && lum > 0.0f) return contrib * (limit / lum);
         return contrib;
     }

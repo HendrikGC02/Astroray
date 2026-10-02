@@ -183,6 +183,8 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
   ROI; (2) mean error and detail preservation within the existing thresholds; (3) an extra `equal_work_off` leg (adaptive OFF at adaptive-on's mean
   spp) has higher RMSE vs the converged reference in the detail (hard) ROI than adaptive-ON. Flat-region noise is the high-pass residual (the ROI std
   is dominated by a horizon ramp). Denoise must cut residual noise >= 2x.
+  **Declared budget 256 spp, reference 1024 spp (was 64 / 512; decision 2026-10-03):** the auto min-sample floor is `ceil(16/thr^0.3)`, `thr = 1/budget`,
+  i.e. 56 of 64 samples, so at 64 spp adaptive cannot retire pixels (measured: CPU sample-count AOV constant 1.0, GPU mean 0.90). At 256 the floor is ~88.
 - Driven only by native panel properties, never a custom property. Output-effect test, not a reachability test.
 - Accuracy safeguard: compare adaptive-on and denoise-on outputs against a converged reference at a fixed budget, and require mean-error and
   detail-preservation (edge/texture) checks, so lower variance purchased by blurring or bias cannot pass. Numeric limits are predeclared in the test

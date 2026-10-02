@@ -72,29 +72,29 @@ reason = "same export as CPU: 0.28-0.45x"
 scene = "prod_attributes"
 backend = "cpu"
 kind = "parity"
-issue = "#990"
-reason = "Color Attribute / Attribute / Object Info unsupported: instances render white (G 2.2x, B 2.3x)"
+issue = "#993"
+reason = "#990 implemented (attribute / Object Info layers; Roughness <- Attribute now per hit); the Base Color chain (Color Attribute -> Hue/Saturation <- Map Range <- Object Info Random) needs 10 op-VM slots (VM_MAX_SLOTS 8): flattened + reported (#993, pkg314 graph programs): instance0 G 2.14x"
 
 [[row]]
 scene = "prod_attributes"
 backend = "gpu"
 kind = "parity"
-issue = "#990"
-reason = "same export as CPU: instances render white"
+issue = "#993"
+reason = "same as CPU (#990 layers in, Base Color chain over VM_MAX_SLOTS, #993): instance0 G 2.15x"
 
 [[row]]
 scene = "prod_light_path"
 backend = "cpu"
 kind = "parity"
-issue = "#991"
-reason = "Light Path unsupported: hidden emitter visible (0.07x), glass shadow, Ray Length tint flat (floor_far R 4.4x)"
+issue = "#1038"
+reason = "#991 fixed (hidden emitter 0.07x -> 1.00, shadow-transparent glass, Ray Length floor tint); bands re-blessed on b4e15d06 (the old ones measured the flattened export). Residual: glass_ball_centre r 1.065 / b 1.037 = the plain-Glass bias (#1038), floor_near r 0.975 (17/20)"
 
 [[row]]
 scene = "prod_light_path"
 backend = "gpu"
 kind = "parity"
-issue = "#991"
-reason = "same export as CPU"
+issue = "#1038"
+reason = "#991 fixed as on CPU; residual glass_ball_centre r 1.095 / b 1.063 (#1038, GPU/CPU 1.000 at 256 spp), floor_far +2.1-2.7 % (GPU/CPU 1.007 without Light Path) (14/20)"
 
 [[row]]
 scene = "prod_curves_geometry"

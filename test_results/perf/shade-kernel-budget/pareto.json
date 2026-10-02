@@ -1,0 +1,39 @@
+{
+ "note": "pkg298 Cornell pair 1024^2 256 spp, interleaved min of 5 vs a base build in the same run; build = fresh build total (lead, ninja_log). Base renders differ by run (main moved: #1013).",
+ "points": [
+  {
+   "label": "main (base)",
+   "build_s": 460,
+   "simple_s": 13.43,
+   "heavy_s": 15.0,
+   "build": "aq-1012 (ec07ec0d C++)"
+  },
+  {
+   "label": "__grid_constant__ only",
+   "build_s": 495,
+   "simple_s": 9.42,
+   "heavy_s": 11.02,
+   "base_simple_s": 14.93,
+   "base_heavy_s": 16.11,
+   "build": "3b3d46c7"
+  },
+  {
+   "label": "full inline + 128 regs, parts 0-3",
+   "build_s": 1189,
+   "simple_s": 5.64,
+   "heavy_s": 6.94,
+   "base_simple_s": 14.94,
+   "base_heavy_s": 16.11,
+   "build": "7af4baa5"
+  },
+  {
+   "label": "shipped: fleet kernels + __grid_constant__",
+   "build_s": 509,
+   "simple_s": 4.72,
+   "heavy_s": 5.89,
+   "base_simple_s": 13.43,
+   "base_heavy_s": 15.0,
+   "build": "8172ffa5"
+  }
+ ]
+}

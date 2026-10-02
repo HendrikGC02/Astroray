@@ -79,3 +79,46 @@ force-inline every callee in that TU only, which is the Cycles arrangement.
 Not run. Only CUDA 12.6 and 12.8 are installed, and installing 13.x was not
 authorised for this lane. The build embeds no PTX (`cuobjdump -lptx` finds none), so a driver-JIT proxy A/B is not possible without a rebuild.
 This is an owner follow-up: install CUDA 13.x and run one AOT `sm_120` rebuild.
+
+## Phase 1 results (register budget)
+
+Cornell pair at 1024² and 256 spp, interleaved min of 5. The sweep build was 9fae6ce2, with
+the fleet variant selected by environment variable. Times are simple / heavy in seconds.
+
+| Shade kernel | REG | STACK | Simple | Heavy |
+|---|---|---|---|---|
+| generic (main) | 254 | 3768 | 14.70 | 16.68 |
+| body inlined, callees out of line | 254 | 2528 | 7.22 | 8.68 |
+| fully inlined, uncapped | 255 | 1160 | 7.26 | 8.62 |
+| fully inlined, `__maxnreg__(168)`, 256 threads | 168 | 1416 | 7.24 | 8.65 |
+| same, 384 threads | 168 | 1416 | 6.24 | 7.59 |
+| fully inlined, `__maxnreg__(128)`, 256 threads | 128 | 1544 | **5.79** | **7.10** |
+| same, 384 / 512 threads | 128 | 1544 | 6.27 / 5.77 | 7.71 / 7.19 |
+
+- **Inlining matters most.** It removes the parameter stack copy (2.0x). Occupancy adds
+  1.25x: 128 registers give 16 warps per SM.
+- **ptxas flags make no difference.** `-O2` and `--allow-expensive-optimizations=false`
+  gave identical REG/STACK, render time within 0.1 % and compile time within 1 s.
+- **Inlining is limited by build time and the call tree.** Full inlining of all 128
+  variants under the cap built in 1189 s, against about 460 s for the base. Forcing the
+  Principled call tree inline only pushed other callees out of line above 128 registers
+  (builds 899b09bf, 724da915, a16e7145).
+
+**Shipped (8172ffa5): 509 s build (1.1x).**
+- All variants take `state`/`hitBufs` as `__grid_constant__` by const reference (no copy).
+- Fleet launches (HasPrincipled the only active axis) run a dedicated kernel. P=0 is fully
+  inlined under `__maxnreg__(128)` (REG 128, STACK 432). P=1 is the inlined body, uncapped
+  (REG 198, STACK 4904).
+
+Results against main (ec07ec0d C++), min of 5 interleaved:
+
+| Scene | main | pkg300 | speedup |
+|---|---|---|---|
+| Cornell simple, 1024², 256 spp | 13.43 s | 4.72 s | 2.85x |
+| Cornell heavy, 2 M tris | 15.00 s | 5.89 s | 2.55x |
+| Principled spheres, 512², 64 spp | 0.505 s | 0.262 s | 1.93x |
+| Textured Principled (generic, `__grid_constant__` only) | 0.432 s | 0.272 s | 1.58x |
+| `closure_graph_cornell` (7 material types) | 1.708 s | 1.032 s | 1.65x |
+
+**Follow-up.** Inlining under a cap does not converge on the Principled path. The fix is
+Phase 2 scene specialisation, which compiles out unused material types.

@@ -225,7 +225,7 @@ __global__ void kEmitSceneCaustic(
                 pc_refract(d, nf, eta, nd)) {
                 d = nd;
             } else {
-                if (!reflective && T > 0.0f) return;   // reflective caustics off (TIR kept)
+                if (!reflective) return;   // reflective caustics off: the PT gate drops these too
                 d = (d - nf * (2.0f * d.dot(nf))).normalized();           // R / TIR
             }
             passedCaster = true;

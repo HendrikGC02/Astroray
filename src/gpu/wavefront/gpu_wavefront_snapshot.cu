@@ -1440,6 +1440,13 @@ static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
     const auto& lights = scene.getLights();
     if (lights.empty()) return aim;
     aim.lights = astroray::photon::buildPhotonLights(lights, casterBounds, aim.photonCount);
+    // #959: the #909 split cull is a 32-bit lamp mask; a lamp past it would be both
+    // in the map and path traced. Its caustic stays path traced (unbiased) instead.
+    aim.lights.erase(std::remove_if(aim.lights.begin(), aim.lights.end(),
+                                    [](const astroray::photon::PhotonLight& L) {
+                                        return L.emitter.lightIndex >= 32;
+                                    }),
+                     aim.lights.end());
     aim.valid = !aim.lights.empty();
     return aim;
 }

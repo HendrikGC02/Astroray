@@ -561,32 +561,48 @@ private:
                 float lambda;
                 const float w = astroray::photon::emitPhoton(L, gen, o, d, lambda);
                 if (!(w > 0.0f)) continue;
+                bool passedCaster = false;
                 if (prismPath) {
                     // Explicit 2-face prism (mirrors light_tracer_caustic.cpp:238-275).
+                    // #959: the same Fresnel roulette as the general loop below; a
+                    // reflected photon continues there (the split culls every caster
+                    // chain, so a dropped reflection would be missing energy).
                     const float ior = prismMat->iorAt(lambda);
                     if (ior <= 1.0f) continue;
                     Vec3 n1;
                     float t1 = nearestCaster(tris, o, d, n1);
                     if (t1 < 0) continue;
                     Vec3 p1 = o + d * t1;
-                    float tr = astroray::photon::peFresnelTransmit(d.dot(n1), 1.0f / ior);
                     Vec3 d1;
-                    if (!refract(d, n1, 1.0f / ior, d1)) continue;
-                    Vec3 n2;
-                    float t2 = nearestCaster(tris, p1 + d1 * 1e-4f, d1, n2);
-                    if (t2 < 0) continue;
-                    Vec3 p2 = p1 + d1 * (t2 + 1e-4f);
-                    tr *= astroray::photon::peFresnelTransmit(d1.dot(n2), ior);
-                    Vec3 d2;
-                    if (!refract(d1, n2, ior, d2)) continue;
-                    HitRecord rec;
-                    if (!bvh->hit(Ray(p2 + d2 * eps, d2), eps, std::numeric_limits<float>::max(), rec))
-                        continue;
-                    if (!rec.material || rec.material->isEmissive()) continue;
-                    if (rec.hitObject && rec.hitObject->isCausticCaster()) continue;
-                    // pkg111: REMOVED the `rec.normal.y < 0.7f` gate — deposit on ANY diffuse surface.
-                    deposit(rec, d2, lambda, w * tr);
-                    continue;
+                    const float T1 = astroray::photon::peFresnelTransmit(d.dot(n1), 1.0f / ior);
+                    if (!(u01(gen) < T1 && refract(d, n1, 1.0f / ior, d1))) {
+                        if (!reflective) continue;
+                        d = (d - n1 * (2.0f * d.dot(n1))).normalized();
+                        o = p1 + d * eps;
+                        passedCaster = true;
+                    } else {
+                        Vec3 n2;
+                        float t2 = nearestCaster(tris, p1 + d1 * 1e-4f, d1, n2);
+                        if (t2 < 0) continue;
+                        Vec3 p2 = p1 + d1 * (t2 + 1e-4f);
+                        Vec3 d2;
+                        const float T2 = astroray::photon::peFresnelTransmit(d1.dot(n2), ior);
+                        if (!(u01(gen) < T2 && refract(d1, n2, ior, d2))) {
+                            if (!reflective) continue;
+                            d = (d1 - n2 * (2.0f * d1.dot(n2))).normalized();
+                            o = p2 + d * eps;
+                            passedCaster = true;
+                        } else {
+                            HitRecord rec;
+                            if (!bvh->hit(Ray(p2 + d2 * eps, d2), eps, std::numeric_limits<float>::max(), rec))
+                                continue;
+                            if (!rec.material || rec.material->isEmissive()) continue;
+                            if (rec.hitObject && rec.hitObject->isCausticCaster()) continue;
+                            // pkg111: REMOVED the `rec.normal.y < 0.7f` gate — deposit on ANY diffuse surface.
+                            deposit(rec, d2, lambda, w);
+                            continue;
+                        }
+                    }
                 }
                 // General BVH loop (curved/solid glass). #959: at each caster hit the
                 // photon reflects with probability R (exact Fresnel, 1 on TIR), else
@@ -594,7 +610,6 @@ private:
                 // FresnelSpecular::Sample_f, BSD-2). The map then holds every caster
                 // chain L S+ D, which is exactly what pathTraceSpectral's split culls.
                 // Research: .astroray_plan/docs/caustic-photon-fresnel-split-research.md
-                bool passedCaster = false;
                 for (int bounce = 0; bounce < maxDepth_; ++bounce) {
                     HitRecord rec;
                     if (!bvh->hit(Ray(o, d), eps, std::numeric_limits<float>::max(), rec)) break;
@@ -624,9 +639,10 @@ private:
                         if (u01(gen) < T && refract(d, nf, eta, nd)) {
                             d = nd;
                         } else {
-                            // Reflective caustics off: drop the Fresnel-reflected
-                            // photon (TIR kept), as pathTraceSpectral's caustic gate does.
-                            if (!reflective && T > 0.0f) break;
+                            // Reflective caustics off: drop every reflected photon
+                            // (TIR too), as pathTraceSpectral's caustic gate drops the
+                            // delta reflection after a diffuse vertex.
+                            if (!reflective) break;
                             d = (d - nf * (2.0f * d.dot(nf))).normalized();
                         }
                         passedCaster = true;

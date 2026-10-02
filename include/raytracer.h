@@ -5266,45 +5266,55 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                 // pixels in the returned buffer).
                 if (cancelled.load(std::memory_order_relaxed)) continue;
 
-                for (int y = y0; y < y1; ++y) {
-                    for (int x = x0; x < x1; ++x) {
+                // #1036: per-pixel accumulators live in a tile-local array so the
+                // adaptive path can sample in rounds (Cycles-style: convergence is
+                // checked for the whole tile at step boundaries and the converged
+                // mask dilated before pixels are retired). processPixel runs the
+                // samples [sBeg, sEnd) for one pixel and, when `finalize`, resolves
+                // it into the camera buffers.
+                struct PixelAccum {
+                    Vec3 color = Vec3(0), albedo = Vec3(0), normal = Vec3(0),
+                         position = Vec3(0), uv = Vec3(0);
+                    std::array<Vec3, PASS_COUNT> passColor;
+                    float alpha = 0.0f, depth = 0.0f;
+                    float bounceCountAccum = 0.0f, sampleWeightAccum = 0.0f;
+                    float objectIndex = 0.0f, materialIndex = 0.0f;
+                    float fullLumSum = 0.0f, halfLumSum = 0.0f;
+                    int samples = 0;
+                    Ray firstPrimaryRay;
+                    float firstPixelCurrX = 0.0f, firstPixelCurrY = 0.0f;
+                    bool firstRayCaptured = false;
+                    PixelAccum() { passColor.fill(Vec3(0)); }
+                };
+                const int tileW = x1 - x0, tileH = y1 - y0;
+                std::vector<PixelAccum> pixAccum(static_cast<size_t>(tileW) * tileH);
+                auto processPixel = [&](int x, int y, int sBeg, int sEnd, bool finalize) {
                         // #802 item 4: clip partial edge tiles to the region.
                         if (renderRegionActive_ &&
                             (x < renderRegionX0_ || x >= renderRegionX1_ ||
                              y < renderRegionY0_ || y >= renderRegionY1_)) {
-                            continue;
+                            return;
                         }
                         int idx = y * cam.width + x;
-                        Vec3 color(0), albedo(0), normal(0), position(0), uv(0);
-                        std::array<Vec3, PASS_COUNT> passColor;
-                        passColor.fill(Vec3(0));
-                        float alpha = 0.0f;
-                        float depth = 0.0f;
-                        float bounceCountAccum = 0.0f;
-                        float sampleWeightAccum = 0.0f;
-                        float objectIndex = 0.0f;
-                        float materialIndex = 0.0f;
-                        // pkg87a: objectSampleCounts/materialSampleCounts removed — old placeholder
-                        // cryptomatte logic deleted; pkg87b will add per-shade-point accumulation.
-                        // pkg131 — scalar-luminance half-buffer for the Dammertz
-                        // convergence check: fullLumSum over all samples, halfLumSum
-                        // over even-indexed samples only. Luminance = X+Y+Z (matches
-                        // Cycles' (I.x+I.y+I.z) intensity reduction).
-                        float fullLumSum = 0.0f, halfLumSum = 0.0f;
-                        int samples = 0;
-                        // pkg72: remember the s==0 primary ray so we can recover
-                        // the world-space hit point for the motion-vector write
-                        // below. Mirrors Cycles intern/cycles/integrator/pass.cpp
-                        // PASS_MOTION (Apache-2.0) which uses the first-sample
-                        // primary ray's hit position.
-                        Ray firstPrimaryRay;
-                        float firstPixelCurrX = 0.0f, firstPixelCurrY = 0.0f;
-                        bool firstRayCaptured = false;
+                        PixelAccum& pa = pixAccum[static_cast<size_t>(y - y0) * tileW + (x - x0)];
+                        Vec3& color = pa.color; Vec3& albedo = pa.albedo; Vec3& normal = pa.normal;
+                        Vec3& position = pa.position; Vec3& uv = pa.uv;
+                        std::array<Vec3, PASS_COUNT>& passColor = pa.passColor;
+                        float& alpha = pa.alpha; float& depth = pa.depth;
+                        float& bounceCountAccum = pa.bounceCountAccum;
+                        float& sampleWeightAccum = pa.sampleWeightAccum;
+                        float& objectIndex = pa.objectIndex; float& materialIndex = pa.materialIndex;
+                        float& fullLumSum = pa.fullLumSum; float& halfLumSum = pa.halfLumSum;
+                        int& samples = pa.samples;
+                        Ray& firstPrimaryRay = pa.firstPrimaryRay;
+                        float& firstPixelCurrX = pa.firstPixelCurrX;
+                        float& firstPixelCurrY = pa.firstPixelCurrY;
+                        bool& firstRayCaptured = pa.firstRayCaptured;
 
                         // pkg305: per-pixel Sobol-Burley seed (pkg297 spec keying).
                         const uint32_t camPixelSeed = astroray::sobol_burley::pixelSeed(
                             static_cast<uint32_t>(idx), camGroup.seed);
-                        for (int s = 0; s < maxSamples; ++s) {
+                        for (int s = sBeg; s < sEnd; ++s) {
                             // #845: pixel i's centre (i+0.5; filterSample is centred on
                             // 0.5) maps to film (i+0.5)/W, as Cycles/Blender (was /(W-1)).
                             float u, v, lensU = 0.0f, lensV = 0.0f, heroU = -1.0f;
@@ -5435,16 +5445,12 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                             {
                                 const float lum = sCol.x + sCol.y + sCol.z;
                                 fullLumSum += lum;
-                                if ((s & 1) == 0) halfLumSum += lum;
-                            }
-                            if (adaptive &&
-                                astroray::adaptive::needConvergenceCheck(adaptiveParams, samples) &&
-                                astroray::adaptive::pixelConverged(
-                                    fullLumSum, halfLumSum, samples,
-                                    adaptiveParams.threshold, filmExposure)) {
-                                break;
+                                // even-indexed by the PIXEL's own sample count (a pixel
+                                // that pauses and resumes keeps contiguous parity).
+                                if (((samples - 1) & 1) == 0) halfLumSum += lum;
                             }
                         }
+                        if (!finalize) return;
 
                         // pkg136-S1B: fold the discarded-no-more training samples
                         // into this pixel. They are unbiased estimates of the same
@@ -5542,7 +5548,58 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                 std::max(passColor[passIndex].z, 0.0f)
                             );
                         }
+                };
+
+                // Drive: a single round (byte-identical to the pre-#1036 per-pixel
+                // loop) unless adaptive sampling can actually fire.
+                const bool adaptiveRounds = adaptive && maxSamples > adaptiveParams.min_samples;
+                if (!adaptiveRounds) {
+                    for (int y = y0; y < y1; ++y)
+                        for (int x = x0; x < x1; ++x)
+                            processPixel(x, y, 0, maxSamples, true);
+                } else {
+                    // Cycles adaptive_sampling.h / adaptive_sampling.cpp (Apache-2.0):
+                    // the first check is at the first step-aligned sample count past
+                    // the minimum; thereafter every adaptive_step samples. After each
+                    // round the per-pixel Dammertz test builds a converged mask which
+                    // is dilated 3x3 (film_adaptive_sampling_filter_x/_y) so a pixel
+                    // keeps sampling while ANY neighbour is unconverged (#1036: a
+                    // pixel that has not yet caught a rare light path no longer reads
+                    // as converged on its own). The dilation is tile-local (16x16):
+                    // neighbours across a tile edge are ignored (deterministic).
+                    const int step = adaptiveParams.adaptive_step;
+                    int sBeg = 0;
+                    int sEnd = std::min(maxSamples, (adaptiveParams.min_samples / step + 1) * step);
+                    std::vector<unsigned char> stopped(static_cast<size_t>(tileW) * tileH, 0);
+                    std::vector<unsigned char> tmpMask(stopped.size()), dilMask(stopped.size());
+                    while (true) {
+                        for (int y = y0; y < y1; ++y)
+                            for (int x = x0; x < x1; ++x)
+                                if (!stopped[static_cast<size_t>(y - y0) * tileW + (x - x0)])
+                                    processPixel(x, y, sBeg, sEnd, false);
+                        if (sEnd >= maxSamples) break;
+                        for (int ty = 0; ty < tileH; ++ty)
+                            for (int tx = 0; tx < tileW; ++tx) {
+                                const size_t k = static_cast<size_t>(ty) * tileW + tx;
+                                if (stopped[k]) continue;  // retired pixels stay marked converged
+                                const PixelAccum& pa = pixAccum[k];
+                                stopped[k] = (pa.samples > 0 &&
+                                    astroray::adaptive::pixelConverged(
+                                        pa.fullLumSum, pa.halfLumSum, pa.samples,
+                                        adaptiveParams.threshold, filmExposure)) ? 1 : 0;
+                            }
+                        astroray::adaptive::dilateConvergedMaskPass(stopped.data(), tmpMask.data(), tileW, tileH, 1);
+                        astroray::adaptive::dilateConvergedMaskPass(tmpMask.data(), dilMask.data(), tileW, tileH, tileW);
+                        stopped.swap(dilMask);
+                        bool anyActive = false;
+                        for (unsigned char v : stopped) if (!v) { anyActive = true; break; }
+                        if (!anyActive) break;
+                        sBeg = sEnd;
+                        sEnd = std::min(maxSamples, sEnd + step);
                     }
+                    for (int y = y0; y < y1; ++y)
+                        for (int x = x0; x < x1; ++x)
+                            processPixel(x, y, 0, 0, true);
                 }
 
                 // Count every completed tile (even without a progress

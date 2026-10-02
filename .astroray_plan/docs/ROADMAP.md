@@ -55,6 +55,7 @@ second source of truth.
   pipeline (pkg51+133) + ingest (pkg48/49), Stage 4 research validation, Stage 5
   Hydra only with a second caller.
 - **Product themes (owner 2026-09-29, proposed):** [`product-themes-plan-2026-09-29.md`](product-themes-plan-2026-09-29.md) — complex node trees (pkg310 corpus + burn-down), Blender-native UI (pkg311), element line-spectra library (pkg312), spectral data cube + diagnostic AOVs (pkg313); Batch AP after AK; owner decisions in its §6.
+- **2026-10-02 closeout:** pkg298/305/310(baseline)/311(P1) done; pkg299 (OptiX) and pkg300 (shade diet) Phases 0-1 done, Phase 2 of each open; Cornell GPU 14.9 s -> ~4.7 s. Production node corpus (Stage 0 exit-gate row) still 0/8 on CPU and GPU. See `STATUS.md` 2026-10-02.
 - **Volumes track (core Cycles parity, opened by owner 2026-09-11 §7 item 5; NOT Pillar 4):**
   pkg267→pkg268→{pkg269,pkg270}→pkg271 (+optional pkg272); dispatch pkg267+pkg268 first.
   Research + DAG: `volumes-track-research-2026-09-12.md`.

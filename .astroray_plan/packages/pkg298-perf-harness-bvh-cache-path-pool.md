@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** in-progress — lane ap-298, 2026-09-30: gates met except GPU repeat render 0.71 s (buildSceneArrays ~0.67 s/call, device-scene cache follow-up) and GPU 1e-6 image match (main-vs-main noise is 7.6e-6); see test_results/perf/bvh-cache/
+**Status:** done — PR #984, 2026-09-29: CPU heavy repeat render 1.03 s -> 0.017 s, first BVH build 1.0 s -> 0.26 s, parallel BVH identical to serial; GPU repeat render 0.71 s (gate 0.3 s) and GPU 1e-6 image match not met, device-scene cache follow-up #981
 **Estimated effort:** 3 sessions (~9 h): Phase 0 1, Phase 1 1, Phase 2 1
 **Depends on:** pkg55, pkg114
 

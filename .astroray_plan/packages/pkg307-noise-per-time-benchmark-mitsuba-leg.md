@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** B
-**Status:** in review (PR pending, 2026-10-02: 8 scenes x 4 legs + Mitsuba arbitration; GPU efficiency 0.006-0.31 of Cycles OptiX; two quiet runs within 10 %)
+**Status:** in-progress — PR #1018, 2026-10-02: 8 scenes x 4 legs + Mitsuba arbitration; GPU efficiency 0.006-0.31 of Cycles OptiX; narrow-band 3σ criterion open; LuxCore/pbrt legs follow-up
 **Estimated effort:** 3 sessions (~9 h): Phase 1 1.5, Phase 2 1 (after owner install), Phase 3 0.5
 **Depends on:** pkg284, pkg298
 

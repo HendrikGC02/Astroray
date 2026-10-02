@@ -1785,14 +1785,8 @@ __device__ inline float gpu_pr_vndfPdf(const GVec3& N, const GVec3& wo, const GV
     float G1 = gpu_pr_smithG1(absCosO, alpha);
     return G1 / absCosO * D * HdotO;
 }
-// pkg300: plain-inline Principled entry points the compiler may keep out of line.
-// Forced inline only in the fleet shade TUs (shade_force_inline.cuh), where a
-// __maxnreg__(128) cap rejects any out-of-line callee above 128 registers.
-#ifndef ASTRORAY_SHADE_ALWAYS_INLINE
-#define ASTRORAY_SHADE_ALWAYS_INLINE
-#endif
 template <typename TRng>
-__device__ inline ASTRORAY_SHADE_ALWAYS_INLINE GVec3 gpu_pr_sampleGgxVNDF(const GHitRecord& rec, const GVec3& wo,
+__device__ inline GVec3 gpu_pr_sampleGgxVNDF(const GHitRecord& rec, const GVec3& wo,
                                              float roughness, TRng* rng) {
     float alpha = fmaxf(roughness * roughness, 0.0064f);
     float u1 = gpu_rng_uniform(rng), u2 = gpu_rng_uniform(rng);
@@ -1932,7 +1926,7 @@ struct GPrincipledLobe {
 static constexpr int   kMaxPrincipledLobes  = 10;
 static constexpr float kPrincipledDeltaGlassRoughness = 0.03f;  // principled.cpp:43
 
-__device__ inline ASTRORAY_SHADE_ALWAYS_INLINE int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GHitRecord& rec,
+__device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GHitRecord& rec,
                                            const GVec3& wo, GPrincipledLobe lobes[kMaxPrincipledLobes],
                                            const GSampledWavelengths* wl = nullptr) {
     float nv = fminf(fmaxf(rec.normal.dot(wo), 1e-4f), 1.f);
@@ -2232,7 +2226,7 @@ __device__ inline GSampledSpectrum gpu_pr_ggxReflectConsistentSpectral(
 // peak is the straight-through direction −wo (mirror the light to the front
 // hemisphere, then evaluate a standard GGX reflection about N). Constant white
 // Fresnel; T' lives in the weight; reflection ggx_E energy tables (Cycles :1348).
-__device__ inline ASTRORAY_SHADE_ALWAYS_INLINE GVec3 gpu_pr_thinGlassTransmitEval(const GPrincipledLobe& L, const GHitRecord& rec,
+__device__ inline GVec3 gpu_pr_thinGlassTransmitEval(const GPrincipledLobe& L, const GHitRecord& rec,
                                                      const GVec3& wo, const GVec3& wi) {
     if (L.isDelta) return GVec3(0.f);
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
@@ -2269,7 +2263,7 @@ __device__ inline float gpu_pr_thinGlassTransmitPdf(const GPrincipledLobe& L, co
 // branches optionally split into chromatic reflectance COLOUR + achromatic SCALAR so
 // the spectral caller upsamples the colour at natural magnitude and applies the
 // scalar (incl. glass eta²) post-upsample. RGB callers pass nullptr → unchanged.
-__device__ inline ASTRORAY_SHADE_ALWAYS_INLINE GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, const GPrincipledLobe& L,
+__device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, const GPrincipledLobe& L,
                                                 const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
                                                 GVec3* outColour = nullptr, float* outScalar = nullptr) {
     if (L.isDelta) return GVec3(0.f);  // delta handled in sampling
@@ -2420,7 +2414,7 @@ __device__ inline GSampledSpectrum gpu_pr_transmissionEvalSpectral(
 }
 
 // --- Per-lobe eval / pdf (principled.cpp:355-461) --------------------------
-__device__ inline ASTRORAY_SHADE_ALWAYS_INLINE GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrincipledLobe& L,
+__device__ inline GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrincipledLobe& L,
                                         const GHitRecord& rec, const GVec3& wo, const GVec3& wi) {
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
     switch (L.kind) {
@@ -2543,7 +2537,7 @@ __device__ inline float gpu_pr_pdfLobe(const GPrincipledLobe& L, const GHitRecor
     }
     return 0.f;
 }
-__device__ inline ASTRORAY_SHADE_ALWAYS_INLINE GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClosure& c, const GPrincipledLobe& L,
+__device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClosure& c, const GPrincipledLobe& L,
                                                            const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
                                                            const GSampledWavelengths& wl) {
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
@@ -2649,7 +2643,7 @@ __device__ inline ASTRORAY_SHADE_ALWAYS_INLINE GSampledSpectrum gpu_pr_evalLobeS
 }
 
 // --- Mixture eval / pdf / spectral eval (principled.cpp:611-709) -----------
-__device__ inline ASTRORAY_SHADE_ALWAYS_INLINE GVec3 gpu_principled_eval(const GPrincipledClosure& c, const GHitRecord& rec,
+__device__ inline GVec3 gpu_principled_eval(const GPrincipledClosure& c, const GHitRecord& rec,
                                             const GVec3& wo, const GVec3& wi) {
     GPrincipledLobe lobes[kMaxPrincipledLobes];
     int n = gpu_pr_assembleLobes(c, rec, wo, lobes);
@@ -2658,7 +2652,7 @@ __device__ inline ASTRORAY_SHADE_ALWAYS_INLINE GVec3 gpu_principled_eval(const G
         if (!lobes[i].isDelta) sum += gpu_pr_evalLobe(c, lobes[i], rec, wo, wi);
     return gvec3_max(sum, GVec3(0.f));
 }
-__device__ inline ASTRORAY_SHADE_ALWAYS_INLINE float gpu_principled_pdf(const GPrincipledClosure& c, const GHitRecord& rec,
+__device__ inline float gpu_principled_pdf(const GPrincipledClosure& c, const GHitRecord& rec,
                                            const GVec3& wo, const GVec3& wi) {
     GPrincipledLobe lobes[kMaxPrincipledLobes];
     int n = gpu_pr_assembleLobes(c, rec, wo, lobes);
@@ -2670,7 +2664,7 @@ __device__ inline ASTRORAY_SHADE_ALWAYS_INLINE float gpu_principled_pdf(const GP
         if (!lobes[i].isDelta) p += (lobes[i].sel / W) * gpu_pr_pdfLobe(lobes[i], rec, wo, wi);
     return p;
 }
-__device__ inline ASTRORAY_SHADE_ALWAYS_INLINE GSampledSpectrum gpu_principled_eval_spectral(const GPrincipledClosure& c, const GHitRecord& rec,
+__device__ inline GSampledSpectrum gpu_principled_eval_spectral(const GPrincipledClosure& c, const GHitRecord& rec,
                                                                 const GVec3& wo, const GVec3& wi,
                                                                 const GSampledWavelengths& wl) {
     GPrincipledLobe lobes[kMaxPrincipledLobes];
@@ -2692,7 +2686,7 @@ struct GPrincipledDir {
     float eta;
 };
 template <typename TRng>
-__device__ inline ASTRORAY_SHADE_ALWAYS_INLINE GPrincipledDir gpu_pr_chooseAndSampleDir(const GHitRecord& rec, const GVec3& wo,
+__device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GHitRecord& rec, const GVec3& wo,
                                                            TRng* rng, const GPrincipledLobe lobes[kMaxPrincipledLobes],
                                                            int n, float W) {
     GPrincipledDir ds;
@@ -2847,7 +2841,7 @@ __device__ inline ASTRORAY_SHADE_ALWAYS_INLINE GPrincipledDir gpu_pr_chooseAndSa
     return ds;
 }
 template <typename TRng>
-__device__ inline ASTRORAY_SHADE_ALWAYS_INLINE GBSDFSample gpu_principled_sample(const GPrincipledClosure& c, GHitRecord& rec,
+__device__ inline GBSDFSample gpu_principled_sample(const GPrincipledClosure& c, GHitRecord& rec,
                                                     const GVec3& wo, TRng* rng,
                                                     float heroIor = -1.f,
                                                     bool* refractedOut = nullptr) {

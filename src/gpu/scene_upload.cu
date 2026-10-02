@@ -1019,7 +1019,10 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         astroray::proc::GProcTexture g;
         if (auto* cp = dynamic_cast<CoordProgramTexture*>(t)) {
             if (!lowerProcLeaf(cp->child().get(), g)) return -1;
-            if (cp->numInputs() > (size_t)astroray::svm::VM_MAX_TEX - 1) return -1;
+            // VM input 0 is p and input 1 the warp texture (VM_MAX_TEX == 2); the CPU
+            // ignores inputs past VM_MAX_TEX - 1, so more than one is not lowered.
+            static_assert(astroray::svm::VM_MAX_TEX == 2, "warp lowering assumes 2 VM inputs");
+            if (cp->numInputs() > 1) return -1;
             astroray::proc::GProcTexture gi;
             if (cp->numInputs() == 1 && !lowerProcLeaf(cp->getInput(0).get(), gi)) return -1;
             if (cp->numInputs() == 1) {

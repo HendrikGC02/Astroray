@@ -2414,7 +2414,11 @@ __device__ inline GSampledSpectrum gpu_pr_transmissionEvalSpectral(
 }
 
 // --- Per-lobe eval / pdf (principled.cpp:355-461) --------------------------
-__device__ inline GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrincipledLobe& L,
+// pkg300: forced inline only in the fleet shade TUs (shade_force_inline.cuh).
+#ifndef ASTRORAY_SHADE_ALWAYS_INLINE
+#define ASTRORAY_SHADE_ALWAYS_INLINE
+#endif
+__device__ inline ASTRORAY_SHADE_ALWAYS_INLINE GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrincipledLobe& L,
                                         const GHitRecord& rec, const GVec3& wo, const GVec3& wi) {
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
     switch (L.kind) {

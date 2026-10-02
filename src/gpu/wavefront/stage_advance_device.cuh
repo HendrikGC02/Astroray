@@ -1453,8 +1453,8 @@ template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPho
          bool HasDispersion = false, bool HasLightPassAOVs = false,  // pkg198 S2 pass axis
          bool HasProgram = false,   // pkg219b — per-texel op-VM axis
          bool HasNormalPerturb = false>  // pkg223 — tangent-space normal-map axis
-// pkg300: the body is __forceinline__ so a kernel can inline it (the pkg300 sweep
-// kernels in stage_shade_exp*.cu); stageShadeBucketedKernel and the MIS-snapshot
+// pkg300: the body is __forceinline__ so a kernel can inline it (the pkg300 fleet
+// kernels in stage_shade_fleet_p<P>.cu); stageShadeBucketedKernel and the MIS-snapshot
 // kernel call the out-of-line shadePathSlot wrapper below.
 __device__ __forceinline__ bool shadePathSlotImpl(
     int idx,

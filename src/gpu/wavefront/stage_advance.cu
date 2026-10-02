@@ -995,15 +995,14 @@ static const ShadePartLaunchFn kShadePartLaunch[12] = {
     stageShadePartLaunch_9, stageShadePartLaunch_10, stageShadePartLaunch_11 };
 
 // pkg300 equivalence reference (stage_shade_reference.cu): ASTRORAY_SHADE_REFERENCE=1
-// runs the pre-pkg300 out-of-line, uncapped shade kernel for fleet-axis launches.
+// runs the pre-pkg300 shade kernel (by-value params copied to the stack for the
+// out-of-line call, no cap) instead of the fleet kernel for fleet-axis launches.
 const void* stageShadeReference(bool P, bool launch, int blocks, int threads,
                                 const StageShadeArgs& a);
-// pkg300 sweep-only (stage_shade_exp_<k>.cu): ASTRORAY_SHADE_EXP=k runs the fully
-// inlined __maxnreg__(128) fleet kernel built with ptxas flag set k (P=false only).
-const void* stageShadeExp_1(bool, int, int, const StageShadeArgs&);
-const void* stageShadeExp_2(bool, int, int, const StageShadeArgs&);
-const void* stageShadeExp_3(bool, int, int, const StageShadeArgs&);
-using ShadeExpFn = const void* (*)(bool, int, int, const StageShadeArgs&);
+// pkg300 fleet shade kernels (stage_shade_fleet_p<P>.cu): fully inlined under
+// __maxnreg__(128), used whenever HasPrincipled is the only active axis.
+const void* stageShadeFleet_0(bool, int, int, const StageShadeArgs&);
+const void* stageShadeFleet_1(bool, int, int, const StageShadeArgs&);
 
 void launchStageShadeBucketed(
     GPUWavefrontState& state,
@@ -1065,10 +1064,6 @@ void launchStageShadeBucketed(
         const char* v = std::getenv("ASTRORAY_SHADE_REFERENCE");
         return v && *v == '1';
     }();
-    static const int kExp = [] {
-        const char* v = std::getenv("ASTRORAY_SHADE_EXP");
-        return (v && *v) ? std::atoi(v) : 0;
-    }();
     int threads = 256;
     int blocks  = (int)((total + threads - 1) / threads);
     {
@@ -1092,12 +1087,11 @@ void launchStageShadeBucketed(
         const bool fleetAxes = !hasTexture && !hasPhotons && !hasD && !hasLightPassAOVs
                             && !hasProgram && !hasNormalPerturb;
         const bool useRef = kReference && fleetAxes;
-        static const ShadeExpFn kExpFn[4] = {nullptr, stageShadeExp_1, stageShadeExp_2, stageShadeExp_3};
-        const ShadeExpFn expFn = (kExp >= 1 && kExp <= 3 && fleetAxes && !hasPrincipled)
-            ? kExpFn[kExp] : nullptr;
+        const bool useFleet = fleetAxes && !useRef;
+        const auto fleetFn = hasPrincipled ? stageShadeFleet_1 : stageShadeFleet_0;
         const void* kptr = useRef
             ? stageShadeReference(hasPrincipled, false, 0, 0, StageShadeArgs{})
-            : expFn ? expFn(false, 0, 0, StageShadeArgs{})
+            : useFleet ? fleetFn(false, 0, 0, StageShadeArgs{})
             : kShadePartKptr[part](hasD, hasLightPassAOVs, hasProgram, hasNormalPerturb);
         astroray::gpu_profile::ScopedTimer _t(
             "wavefront_stage_shade_bucketed_n7", kptr, blocks, threads);
@@ -1115,8 +1109,8 @@ void launchStageShadeBucketed(
             d_cryptoObjectRanks, d_cryptoMaterialRanks, cryptoDepth };
         if (useRef)
             stageShadeReference(hasPrincipled, true, blocks, threads, a);
-        else if (expFn)
-            expFn(true, blocks, threads, a);
+        else if (useFleet)
+            fleetFn(true, blocks, threads, a);
         else
             kShadePartLaunch[part](hasD, hasLightPassAOVs, hasProgram, hasNormalPerturb,
                                    blocks, threads, a);

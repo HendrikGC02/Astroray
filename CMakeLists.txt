@@ -581,9 +581,8 @@ if(ASTRORAY_CUDA_FOUND)
         list(APPEND ASTRORAY_CUDA_SOURCES
             src/gpu/wavefront/stage_advance.cu
             src/gpu/wavefront/stage_shade_reference.cu  # pkg300 equivalence reference kernel
-            src/gpu/wavefront/stage_shade_exp_1.cu  # pkg300 sweep: full inline + 128 regs
-            src/gpu/wavefront/stage_shade_exp_2.cu  # pkg300 sweep: same, ptxas -O2
-            src/gpu/wavefront/stage_shade_exp_3.cu  # pkg300 sweep: same, no expensive opts
+            src/gpu/wavefront/stage_shade_fleet_p1.cu  # pkg300 fleet shade kernel (Principled)
+            src/gpu/wavefront/stage_shade_fleet_p0.cu  # pkg300 fleet shade kernel
             src/gpu/wavefront/stage_shade_part11.cu
             src/gpu/wavefront/stage_shade_part10.cu
             src/gpu/wavefront/stage_shade_part9.cu
@@ -627,12 +626,6 @@ if(ASTRORAY_CUDA_FOUND)
         message(STATUS "pkg55-B' Session N+3+N+4+N+5: CUDA wavefront stage_init + intersect + shade (Lambertian + metal) + light_sample + RR (spectral + PCG32)")
     endif()
     add_library(astroray_cuda STATIC ${ASTRORAY_CUDA_SOURCES})
-    if(ASTRORAY_WAVEFRONT_CUDA_N3)  # pkg300 sweep-only ptxas flag A/B (removed before merge)
-        set_source_files_properties(src/gpu/wavefront/stage_shade_exp_2.cu
-            PROPERTIES COMPILE_OPTIONS "-Xptxas=-O2")
-        set_source_files_properties(src/gpu/wavefront/stage_shade_exp_3.cu
-            PROPERTIES COMPILE_OPTIONS "-Xptxas=--allow-expensive-optimizations=false")
-    endif()
     if(ASTRORAY_WAVEFRONT_CUDA_N3)
         target_compile_definitions(astroray_cuda PUBLIC ASTRORAY_WAVEFRONT_CUDA_N3)
     endif()

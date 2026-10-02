@@ -9,13 +9,14 @@ include/astroray/light_path.h. Research note:
 import math
 import os
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "blender_addon"))
-import shader_vm_compiler as C  # noqa: E402
-from test_issue989_perhit_shading_inputs import Link, Node, Sock  # noqa: E402
+import shader_vm_compiler as C
+from test_issue989_perhit_shading_inputs import Link, Node, Sock
 
 
 def _lp_value(output, scale=1.0):
@@ -43,8 +44,8 @@ def test_light_path_portal_depth_is_reported_not_silent():
 
 def test_light_path_enum_matches_engine_header():
     """The compiler's output order must equal lightpath::Output (light_path.h)."""
-    hdr = open(os.path.join(os.path.dirname(__file__), "..", "include", "astroray",
-                            "light_path.h"), encoding="utf-8").read()
+    hdr = Path(__file__).resolve().parents[1].joinpath(
+        "include", "astroray", "light_path.h").read_text(encoding="utf-8")
     body = hdr[hdr.index("enum Output"):hdr.index("LPO_COUNT")]
     names = [t.strip().split("=")[0].strip() for t in body.split("{", 1)[1].split(",") if t.strip()]
     assert len(names) == len(C.LIGHT_PATH_OUTPUTS)

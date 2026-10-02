@@ -15,9 +15,9 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "blender_addon"))
-import _bulk_geometry as BG  # noqa: E402
-import shader_vm_compiler as C  # noqa: E402
-from test_issue989_perhit_shading_inputs import Link, Node, Sock  # noqa: E402
+import _bulk_geometry as BG
+import shader_vm_compiler as C
+from test_issue989_perhit_shading_inputs import Link, Node, Sock
 
 
 def _base(node, out):

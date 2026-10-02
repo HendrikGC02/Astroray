@@ -261,13 +261,13 @@ def _attribute_corners(attr, lidx, vidx, poly):
     """(Nt, 3, comp) float32 corner values of a mesh attribute, or (None, reason)."""
     fetch = _ATTR_FETCH.get(getattr(attr, 'data_type', None))
     if fetch is None:
-        return None, "data type %s" % getattr(attr, 'data_type', '?')
+        return None, f"data type {getattr(attr, 'data_type', '?')}"
     prop, comp, dtype = fetch
     domain = getattr(attr, 'domain', 'POINT')
     index = {'POINT': vidx, 'CORNER': lidx,
              'FACE': None if poly is None else np.repeat(poly[:, None], 3, axis=1)}.get(domain)
     if index is None:
-        return None, "domain %s" % domain
+        return None, f"domain {domain}"
     n = len(attr.data)
     buf = np.empty(n * comp, dtype=dtype)
     attr.data.foreach_get(prop, buf)  # BYTE_COLOR `color` is scene-linear
@@ -339,7 +339,7 @@ def mesh_attribute_layers(mesh, obj, matrix, keys, slot_materials):
                 pi = lut[np.clip(mface, 0, len(lut) - 1)]
                 arr = np.repeat(np.repeat(pi[:, None, None], 3, axis=1), 3, axis=2)
             else:
-                notes.append((key, "Object Info output %s" % out_name))
+                notes.append((key, f"Object Info output {out_name}"))
                 arr = const([0.0, 0.0, 0.0])
         else:
             kind, rest = key.split(':', 1)

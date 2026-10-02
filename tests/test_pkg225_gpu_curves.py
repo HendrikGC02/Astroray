@@ -246,3 +246,36 @@ def test_gpu_spectral_naive_mode_still_naive():
         f"enable_nee=0 no longer reaches the GPU wavefront (naive mean "
         f"{naive.mean():.6f} vs NEE-on {lit.mean():.6f}); the naive parity oracle "
         f"in test_gpu_multiwavelength.py is compromised.")
+
+
+def test_gpu_curves_survive_instancing():
+    """#963: once a scene has any instance, the GPU uploads the flat scene as an
+    identity BLAS under a TLAS; gpu_tlas_hit walked that BLAS without the curve
+    array, so every strand vanished (v2_camera_geometry: bare scalp). A curve
+    field plus one off-screen instanced triangle must render the same strands
+    as the flat scene, and the repeat render (#981/#1022 cached device scene)
+    must keep them."""
+    def render(instanced: bool, repeat: bool = False) -> np.ndarray:
+        r = _make_curve_scene(use_gpu=True)
+        if instanced:
+            dm = r.create_material("lambertian", [0.5, 0.5, 0.5], {})
+            mesh = r.register_mesh_triangles([[0, 0, 0, 0.2, 0, 0, 0, 0.2, 0]], dm)
+            r.add_instance(mesh, [1, 0, 0, 10, 0, 1, 0, 10, 0, 0, 1, -10, 0, 0, 0, 1])
+        r.set_seed(SEED)
+        img = r.render(SAMPLES, MAX_DEPTH, None, False)
+        if repeat:
+            img = r.render(SAMPLES, MAX_DEPTH, None, False)
+        return np.asarray(img, dtype=np.float32)
+
+    flat = render(False)
+    lit_flat = int((flat.sum(-1) > 1e-3).sum())
+    assert lit_flat > COVERAGE_FLOOR * WIDTH * HEIGHT
+    for repeat in (False, True):
+        inst = render(True, repeat)
+        lit_inst = int((inst.sum(-1) > 1e-3).sum())
+        ratio = float(inst.mean()) / max(float(flat.mean()), 1e-9)
+        print(f"  repeat={repeat}: lit flat={lit_flat} instanced={lit_inst} "
+              f"mean ratio={ratio:.4f}")
+        assert lit_inst >= 0.95 * lit_flat, (
+            f"#963: instanced scene lost its curves on GPU ({lit_inst} vs {lit_flat} lit px)")
+        assert RATIO_LOW <= ratio <= RATIO_HIGH

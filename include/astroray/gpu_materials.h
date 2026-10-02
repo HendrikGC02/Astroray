@@ -4,6 +4,7 @@
 // Only include this from .cu files compiled by nvcc.
 
 #include "gpu_types.h"
+#include "astroray/spectrum.h"   // jhEvalSpectrumF (#1012 hoisted-coefficient eval)
 #include "gpu_dispersion.cuh"
 #include "gpu_glass_tables.cuh"  // pkg151: rough-transmission multiscatter compensation
 #include "gpu_ggx_tables.cuh"    // pkg152: reflection-lobe multiscatter/layering compensation
@@ -99,6 +100,10 @@ __device__ float gpu_sampleD65(float lambda);
 // reaches parity with the CPU integrator. Requires uploadJakobHanikaLut().
 __device__ float gpu_jhEvalSpectrum(const GVec3& rgb, float lambda);
 
+// #1012: coefficient half of gpu_jhEvalSpectrum (clamps rgb to [0,1]); defined
+// in src/gpu/gpu_spectral_tables.cu. Evaluate with astroray::jhEvalSpectrumF.
+__device__ float3 gpu_jhLookupCoeffs(float r, float g, float b);
+
 __device__ inline float gpu_rgbSpectrumAt(const GVec3& rgb, float lambda, GSpectralMode mode) {
     if (mode == GSPEC_NONE) return luminance(rgb);
     // pkg54c: JH 2019 sigmoid upsampling replaces the earlier 3-Gaussian
@@ -120,12 +125,30 @@ __device__ inline float gpu_rgbSpectrumAt(const GVec3& rgb, float lambda, GSpect
     return fmaxf(gpu_jhEvalSpectrum(rgb, lambda), 0.f);
 }
 
+// #1012: one coefficient lookup per RGB, then the sigmoid per wavelength
+// (was one lookup per wavelength). Values identical to gpu_rgbSpectrumAt.
 __device__ inline GSampledSpectrum gpu_rgbToSampledSpectrum(
     const GVec3& rgb, const GSampledWavelengths& wl, GSpectralMode mode)
 {
     GSampledSpectrum s;
+    if (mode == GSPEC_NONE) {
+        float y = luminance(rgb);
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) s[i] = y;
+        return s;
+    }
+    if (mode == GSPEC_RGB_ILLUMINANT) {
+        float m = fmaxf(fmaxf(rgb.x, rgb.y), rgb.z);
+        if (m <= 0.f) return s;
+        float scale = 2.f * m;
+        float3 c = gpu_jhLookupCoeffs(rgb.x / scale, rgb.y / scale, rgb.z / scale);
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+            s[i] = fmaxf(scale * astroray::jhEvalSpectrumF(c.x, c.y, c.z, wl.lambda[i])
+                               * gpu_sampleD65(wl.lambda[i]), 0.f);
+        return s;
+    }
+    float3 c = gpu_jhLookupCoeffs(rgb.x, rgb.y, rgb.z);
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
-        s[i] = gpu_rgbSpectrumAt(rgb, wl.lambda[i], mode);
+        s[i] = fmaxf(astroray::jhEvalSpectrumF(c.x, c.y, c.z, wl.lambda[i]), 0.f);
     return s;
 }
 

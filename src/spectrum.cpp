@@ -472,10 +472,9 @@ std::array<float, 3> JakobHanikaLut::lookup(const std::array<float, 3>& rgb) con
 
     const int resM1 = res_ - 1;
 
-    // Locate k such that scale_[k] <= z <= scale_[k+1]. Monotonic, so
-    // a simple linear scan is fine (res is small and constant).
-    int k = 0;
-    while (k + 1 < resM1 && scale_[k + 1] < z) ++k;
+    // Locate k such that scale_[k] <= z <= scale_[k+1] (bisection, #1012;
+    // same helper as the device lookup).
+    int k = jhFindScaleIndex(scale_.data(), resM1, z);
     float denomZ = scale_[k + 1] - scale_[k];
     float tz = (denomZ > 0.0f) ? (z - scale_[k]) / denomZ : 0.0f;
     tz = std::clamp(tz, 0.0f, 1.0f);

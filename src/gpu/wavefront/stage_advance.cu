@@ -234,9 +234,8 @@ __global__ void stageShadowKernel(
                 L_spec[k] = gpu_emission_profile(s.dedEmissionProfileIndex,
                                                  lambdas.lambda[k]);
         } else {
-            for (int k = 0; k < G_SPECTRUM_SAMPLES; ++k)
-                L_spec[k] = gpu_rgbSpectrumAt(s.dedEmissionRGB, lambdas.lambda[k],
-                                              GSPEC_RGB_ILLUMINANT);
+            L_spec = gpu_rgbToSampledSpectrum(s.dedEmissionRGB, lambdas,
+                                              GSPEC_RGB_ILLUMINANT);  // #1012 one lookup
         }
     } else {
         bool lightFront = s.isSphere ? (occ.frontFace != 0) : !(sphLane & 2);

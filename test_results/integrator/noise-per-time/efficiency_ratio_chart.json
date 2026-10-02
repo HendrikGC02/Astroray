@@ -1,0 +1,475 @@
+{
+ "meta": {
+  "date": "2026-10-02",
+  "seeds": [
+   278,
+   279,
+   280,
+   281,
+   282
+  ],
+  "budgets_s": [
+   2.0,
+   10.0,
+   60.0
+  ],
+  "base_spps": [
+   16,
+   64,
+   256
+  ],
+  "frame": [
+   1280,
+   720
+  ],
+  "ref": "cycles reference EXRs in benchmarks/reference_corpus/refs_v2",
+  "suite": "reference_corpus",
+  "crops": {
+   "v2_camera_geometry": {
+    "instances": [
+     0.1115,
+     0.5082,
+     0.2115,
+     0.686
+    ],
+    "hair_tuft": [
+     0.3234,
+     0.4529,
+     0.4234,
+     0.6307
+    ],
+    "motion_vane": [
+     0.5134,
+     0.4251,
+     0.6134,
+     0.6029
+    ],
+    "mesh_volume": [
+     0.7243,
+     0.4479,
+     0.8143,
+     0.6079
+    ],
+    "post_far_visible": [
+     0.2752,
+     0.36,
+     0.2992,
+     0.4026
+    ],
+    "post_far_clipped_region": [
+     0.4415,
+     0.3302,
+     0.4655,
+     0.3729
+    ],
+    "near_clip_column": [
+     0.47,
+     0.04,
+     0.53,
+     0.145
+    ]
+   },
+   "v2_dispersion_caustics": {
+    "prism_sun_caustic_floor": [
+     0.6862,
+     0.7564,
+     0.7662,
+     0.8986
+    ],
+    "beam_through_prism": [
+     0.271,
+     0.3087,
+     0.351,
+     0.4509
+    ],
+    "sphere_limb": [
+     0.6892,
+     0.5855,
+     0.7292,
+     0.6566
+    ],
+    "sphere_spot_caustic_floor": [
+     0.5161,
+     0.602,
+     0.5961,
+     0.7442
+    ],
+    "background_firefly": [
+     0.65,
+     0.05,
+     0.85,
+     0.228
+    ]
+   },
+   "v2_light_tree": {
+    "floor_under_pendant_dim": [
+     0.1609,
+     0.7224,
+     0.2409,
+     0.8646
+    ],
+    "floor_under_pendant_bright": [
+     0.6384,
+     0.5438,
+     0.7184,
+     0.686
+    ],
+    "floor_under_point": [
+     0.8422,
+     0.7224,
+     0.9222,
+     0.8646
+    ],
+    "floor_under_area": [
+     0.1878,
+     0.5986,
+     0.2678,
+     0.7408
+    ],
+    "floor_sun_patch": [
+     0.5152,
+     0.5651,
+     0.5952,
+     0.7073
+    ],
+    "back_wall": [
+     0.42,
+     0.1813,
+     0.58,
+     0.4657
+    ],
+    "emitter_bright_face": [
+     0.6863,
+     0.1309,
+     0.7163,
+     0.1843
+    ],
+    "emitter_dim_face": [
+     0.1203,
+     0.0235,
+     0.1503,
+     0.0768
+    ],
+    "closed_emitter_sphere": [
+     0.7938,
+     0.5791,
+     0.8438,
+     0.668
+    ]
+   },
+   "v2_media": {
+    "fire_core": [
+     0.163,
+     0.6384,
+     0.263,
+     0.8161
+    ],
+    "smoke_plume": [
+     0.5803,
+     0.4991,
+     0.6803,
+     0.6769
+    ],
+    "shaft": [
+     0.4927,
+     0.2905,
+     0.5927,
+     0.4683
+    ],
+    "fog_floor_lit": [
+     0.4102,
+     0.6417,
+     0.5102,
+     0.8195
+    ],
+    "emitter_warm_glow": [
+     0.352,
+     0.4914,
+     0.412,
+     0.5981
+    ],
+    "emitter_cool_glow": [
+     0.6567,
+     0.4014,
+     0.7167,
+     0.508
+    ]
+   },
+   "v2_sky_sun": {
+    "sun_disc": [
+     0.5012,
+     0.5301,
+     0.5412,
+     0.6012
+    ],
+    "sun_glow": [
+     0.4711,
+     0.3768,
+     0.5711,
+     0.5546
+    ],
+    "sky_upper": [
+     0.4608,
+     0.1953,
+     0.5808,
+     0.4086
+    ],
+    "ground_foreground": [
+     0.25,
+     0.8,
+     0.75,
+     0.97
+    ],
+    "chrome_reflection": [
+     0.378,
+     0.6891,
+     0.418,
+     0.7602
+    ],
+    "stone_sky_lit_face": [
+     0.345,
+     0.52,
+     0.39,
+     0.8
+    ]
+   },
+   "v2_textures_opvm": {
+    "card_Image": [
+     0.2332,
+     0.1333,
+     0.3232,
+     0.2933
+    ],
+    "card_Noise": [
+     0.3811,
+     0.1333,
+     0.4711,
+     0.2933
+    ],
+    "card_Voronoi": [
+     0.5289,
+     0.1333,
+     0.6189,
+     0.2933
+    ],
+    "card_Wave": [
+     0.6768,
+     0.1333,
+     0.7668,
+     0.2933
+    ],
+    "card_Checker": [
+     0.2332,
+     0.3961,
+     0.3232,
+     0.5561
+    ],
+    "card_MapBeforeWarp": [
+     0.3811,
+     0.3961,
+     0.4711,
+     0.5561
+    ],
+    "card_MapAfterWarp": [
+     0.5289,
+     0.3961,
+     0.6189,
+     0.5561
+    ],
+    "card_VoronoiEdge": [
+     0.6768,
+     0.3961,
+     0.7668,
+     0.5561
+    ],
+    "sphere_MetallicProg": [
+     0.2432,
+     0.7245,
+     0.3132,
+     0.849
+    ],
+    "sphere_RoughnessProg": [
+     0.3911,
+     0.7245,
+     0.4611,
+     0.849
+    ],
+    "sphere_MixShaderProg": [
+     0.5389,
+     0.7245,
+     0.6089,
+     0.849
+    ],
+    "sphere_PlainRef": [
+     0.6868,
+     0.7245,
+     0.7568,
+     0.849
+    ]
+   },
+   "v2_thin_film_metals": {
+    "sphere_Gold": [
+     0.0757,
+     0.5487,
+     0.1557,
+     0.6909
+    ],
+    "sphere_Copper": [
+     0.2294,
+     0.5487,
+     0.3094,
+     0.6909
+    ],
+    "sphere_Ti160": [
+     0.3831,
+     0.5487,
+     0.4631,
+     0.6909
+    ],
+    "sphere_Ti260": [
+     0.5369,
+     0.5487,
+     0.6169,
+     0.6909
+    ],
+    "sphere_Ti380": [
+     0.6906,
+     0.5487,
+     0.7706,
+     0.6909
+    ],
+    "sphere_RoughGlassFilm": [
+     0.8443,
+     0.5487,
+     0.9243,
+     0.6909
+    ]
+   },
+   "v2_camera_geometry@ortho": {
+    "instances": [
+     0.1017,
+     0.5317,
+     0.1817,
+     0.6739
+    ],
+    "hair_tuft": [
+     0.3267,
+     0.4729,
+     0.4067,
+     0.6152
+    ],
+    "motion_vane": [
+     0.5267,
+     0.4436,
+     0.6067,
+     0.5858
+    ],
+    "mesh_volume": [
+     0.7433,
+     0.4583,
+     0.8233,
+     0.6005
+    ],
+    "post_far_visible": [
+     0.0547,
+     0.237,
+     0.0787,
+     0.2796
+    ],
+    "post_far_clipped_region": [
+     0.338,
+     0.0,
+     0.362,
+     0.0425
+    ],
+    "near_clip_column": [
+     0.47,
+     0.3662,
+     0.53,
+     0.4729
+    ]
+   }
+  },
+  "harness_sha": "6034114d",
+  "astroray_build": {
+   "pyd": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-aq-300\\build_cuda\\astroray.cp313-win_amd64.pyd",
+   "pyd_mtime": 1790913935.7736263,
+   "build_sha": "0551a7c3"
+  },
+  "blender": "Blender 5.2",
+  "settings": {
+   "pattern": "AUTOMATIC",
+   "blur_glossy": 0.0,
+   "clamp_direct": 0.0,
+   "clamp_indirect": 0.0,
+   "adaptive": false,
+   "denoise": false,
+   "filter_type": "BLACKMAN_HARRIS",
+   "filter_width": 1.5,
+   "blender": "5.2.0 LTS"
+  },
+  "banner": "Corpus scenes author blur_glossy = 0 and sample_clamp_indirect = 0 (not Blender's defaults); adaptive sampling OFF, denoise OFF; pixel filter and sampling pattern as authored (settings); equal-time budgets are per 1280x720 frame, noise is measured per pixel at the manifest resolution; bias^2 is ROI-mean level."
+ },
+ "series": {
+  "gpu_vs_optix@2s": {
+   "camera_geometry": 0.16167606465345993,
+   "camera_geometry@ortho": 0.15445161163861398,
+   "dispersion_caustics": 0.041374664162599044,
+   "light_tree": 0.30889205162534,
+   "media": 0.05174212442906249,
+   "sky_sun": 0.09330220165136913,
+   "textures_opvm": 0.08500013763861322,
+   "thin_film_metals": 0.2636185195946189
+  },
+  "gpu_vs_optix@10s": {
+   "camera_geometry": 0.14847169454201586,
+   "camera_geometry@ortho": 0.13724399117031544,
+   "dispersion_caustics": 0.04206933290617776,
+   "light_tree": 0.27715678947774264,
+   "media": 0.02743301259724617,
+   "sky_sun": 0.07264447288894939,
+   "textures_opvm": 0.0805149630706819,
+   "thin_film_metals": 0.24325511951574402
+  },
+  "gpu_vs_optix@60s": {
+   "camera_geometry": 0.1338830683475079,
+   "camera_geometry@ortho": 0.10376937774699367,
+   "dispersion_caustics": 0.01369561315474669,
+   "light_tree": 0.2606528893140707,
+   "media": 0.006225182867357455,
+   "sky_sun": 0.06701321614182176,
+   "textures_opvm": 0.06800094229734174,
+   "thin_film_metals": 0.24483240862380187
+  },
+  "cpu_vs_cycles@2s": {
+   "camera_geometry": 0.1827351442018721,
+   "camera_geometry@ortho": 0.1862451830061007,
+   "dispersion_caustics": 2.634868433251244e-08,
+   "light_tree": NaN,
+   "media": 0.4658113175442527,
+   "sky_sun": 0.048404389411917,
+   "textures_opvm": 0.036511033213070615,
+   "thin_film_metals": 0.18691671227955645
+  },
+  "cpu_vs_cycles@10s": {
+   "camera_geometry": 0.13436991191033448,
+   "camera_geometry@ortho": 0.15024983133632525,
+   "dispersion_caustics": 0.4406891676290702,
+   "light_tree": 0.21257512948208743,
+   "media": 0.12400130076248912,
+   "sky_sun": 0.04260996284671447,
+   "textures_opvm": 0.028886585985513663,
+   "thin_film_metals": 0.1856459715528816
+  },
+  "cpu_vs_cycles@60s": {
+   "camera_geometry": 0.10673181399841819,
+   "camera_geometry@ortho": 0.11392708280401942,
+   "dispersion_caustics": 0.09326348905889277,
+   "light_tree": 0.20684044889066838,
+   "media": 0.03717040796536092,
+   "sky_sun": 0.06214930718252168,
+   "textures_opvm": 0.029409884690672076,
+   "thin_film_metals": 0.17375609229508118
+  }
+ }
+}

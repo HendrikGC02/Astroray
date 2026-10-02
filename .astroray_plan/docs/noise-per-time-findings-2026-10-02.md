@@ -22,18 +22,22 @@ Evidence: `test_results/integrator/noise-per-time/` (charts, equal-time sheets, 
 
 | scene | GPU 2 s | GPU 10 s | GPU 60 s | CPU 10 s |
 |---|---|---|---|---|
-| camera_geometry | 0.161 | 0.148 | 0.133 | 0.129 |
-| camera_geometry@ortho | 0.160 | 0.142 | 0.108 | 0.267 |
-| dispersion_caustics | 0.042 | 0.043 | 0.014 | 0.120 |
-| light_tree | 0.322 | 0.289 | 0.271 | 0.275 |
-| media | 0.052 | 0.028 | 0.006 | 0.128 |
-| sky_sun | 0.090 | 0.070 | 0.064 | 0.040 |
-| textures_opvm | 0.093 | 0.088 | 0.074 | 0.040 |
-| thin_film_metals | 0.255 | 0.250 | 0.251 | 0.230 |
+| camera_geometry | 0.162 | 0.148 | 0.134 | 0.134 |
+| camera_geometry@ortho | 0.154 | 0.137 | 0.104 | 0.150 |
+| dispersion_caustics | 0.041 | 0.042 | 0.014 | 0.441 (tail-noise) |
+| light_tree | 0.309 | 0.277 | 0.261 | 0.213 |
+| media | 0.052 | 0.027 | 0.006 | 0.124 |
+| sky_sun | 0.093 | 0.073 | 0.067 | 0.043 |
+| textures_opvm | 0.085 | 0.081 | 0.068 | 0.029 |
+| thin_film_metals | 0.264 | 0.243 | 0.245 | 0.186 |
 
-At equal time on the GPU Astroray's MSE is 3x (light_tree) to 36x (media at 60 s) Cycles OptiX's; the GPU figures are far
-from parity everywhere (best 0.32). Per-spp time ratios (GPU, was 3.8-9.1x on 2026-09-29, now after pkg298/299/300):
-1.4 (media), 2.1 (opvm), 2.5-2.7 (camera), 3.0 (thin film), 3.3 (light_tree), 3.5 (sky), 3.8 (dispersion).
+Run of record: the third full run (two quiet runs agree: 46 of 47 efficiency ratios within 10 %, worst 19 % on a 2 s
+dispersion CPU row whose relMSE is 1e6, i.e. pure noise; the first run was not quiet and is not used, its CPU timings
+differed by up to 47 %).
+
+At equal time on the GPU Astroray's MSE is 3.2x (light_tree) to 167x (media at 60 s) Cycles OptiX's; the GPU figures are far
+from parity everywhere (best 0.31). Per-spp time ratios (GPU, was 3.8-9.1x on 2026-09-29, now after pkg298/299/300):
+1.4 (media), 2.3 (opvm), 2.6-2.7 (camera), 3.0 (thin film), 3.4 (light_tree, sky), 3.8 (dispersion); CPU 1.5-6.7x.
 
 ## Where Astroray is noisier, and why (64 spp, whole image, GPU vs OptiX)
 

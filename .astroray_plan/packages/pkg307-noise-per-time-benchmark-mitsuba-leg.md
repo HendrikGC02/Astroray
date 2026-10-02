@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** B
-**Status:** open
+**Status:** in review (PR pending, 2026-10-02: 8 scenes x 4 legs + Mitsuba arbitration; GPU efficiency 0.006-0.31 of Cycles OptiX; two quiet runs within 10 %)
 **Estimated effort:** 3 sessions (~9 h): Phase 1 1.5, Phase 2 1 (after owner install), Phase 3 0.5
 **Depends on:** pkg284, pkg298
 
@@ -160,12 +160,18 @@ arbitration scenes.
 
 ## Progress
 
-- [ ] Phase 1: Cycles OptiX flag, noise-bench mode, metrics, self-test, N0 table
-- [ ] Phase 2: Mitsuba leg + arbitration scenes (after install approval)
-- [ ] Phase 3: weekly bench entry
+- [x] Phase 1: Cycles OptiX flag (`--cycles-leg-device`: Cycles claims `--cycles-device`), noise-bench mode, metrics, self-test, N0 table
+- [x] Phase 2: Mitsuba leg + arbitration scenes (installed by the owner)
+- [x] Phase 3: weekly bench entry (quick GPU slice)
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- Mitsuba 3.9.1 `dielectric` has a constant IOR (a spectrum `int_ior` is rejected), so the spec's "dielectric (spectral IOR)" does not
+  exist: dispersion needs a Python BSDF, and a BSDF cannot see path throughput, so hero collapse is not exactly idempotent.
+- The Mitsuba venv has no numpy; images leave through `Float.memview()` (`.tolist()` is 64 us per element).
+- Never time against concurrent CPU work: the first run's CPU timings were off by up to 47 %; repeat runs are cheap checks.
+- Independent minima of the two spp-differencing points can come from different clock states: use paired slopes.
+- Image-level bias^2 is negligible (< 0.5 %); the gap is time x variance, with tails (media, dispersion) growing it with budget.
+- Dedicated lamps are not drawn by Astroray, so the narrow-band anchor is a wall ROI, not the lamp face.

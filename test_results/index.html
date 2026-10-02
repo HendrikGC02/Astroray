@@ -177,6 +177,31 @@ a{color:var(--ac)}</style></head><body>
 <p>Rows: Cycles CPU | Astroray CPU (light tree on) | light tree off (power) | practical bulb removed; 32 spp, seed 11. Verdict: the CPU light tree owns the variance gap; the GPU falls back to the power CDF and already matches (follow-up issue #851).</p>
 <a href="integrator/light-tree-materials-hall/cpu_variants_sheet.png"><img loading="lazy" src="integrator/light-tree-materials-hall/cpu_variants_sheet.png" alt="cpu_variants_sheet.png"></a>
 </div>
+<div class="card"><h3>noise-per-time</h3>
+<p>Tests: equal-spp and equal-time (2/10/60 s per 1280x720 frame) relMSE, relVar, chroma, tail share, N x relVar slope and efficiency 1/(relMSE x t); Astroray CPU/GPU vs Cycles CPU/OptiX, 8 scenes, 5 seeds, render-only time by spp differencing. Settings: `blur_glossy = 0`, `sample_clamp_indirect = 0` (authored, not Blender defaults), adaptive/denoise off.</p>
+<p><a href="integrator/noise-per-time/efficiency_ratio_chart.json">efficiency_ratio_chart.json</a> &middot; <a href="integrator/noise-per-time/efficiency_table.csv">efficiency_table.csv</a> &middot; <a href="integrator/noise-per-time/noise_anatomy_chart.json">noise_anatomy_chart.json</a> &middot; <a href="integrator/noise-per-time/relmse_vs_time_chart.json">relmse_vs_time_chart.json</a></p>
+<a href="integrator/noise-per-time/efficiency_ratio_chart.png"><img loading="lazy" src="integrator/noise-per-time/efficiency_ratio_chart.png" alt="efficiency_ratio_chart.png"></a>
+<a href="integrator/noise-per-time/equal_time_camera_geometry_ortho_sheet.png"><img loading="lazy" src="integrator/noise-per-time/equal_time_camera_geometry_ortho_sheet.png" alt="equal_time_camera_geometry_ortho_sheet.png"></a>
+<a href="integrator/noise-per-time/equal_time_camera_geometry_sheet.png"><img loading="lazy" src="integrator/noise-per-time/equal_time_camera_geometry_sheet.png" alt="equal_time_camera_geometry_sheet.png"></a>
+<a href="integrator/noise-per-time/equal_time_dispersion_caustics_sheet.png"><img loading="lazy" src="integrator/noise-per-time/equal_time_dispersion_caustics_sheet.png" alt="equal_time_dispersion_caustics_sheet.png"></a>
+<a href="integrator/noise-per-time/equal_time_light_tree_sheet.png"><img loading="lazy" src="integrator/noise-per-time/equal_time_light_tree_sheet.png" alt="equal_time_light_tree_sheet.png"></a>
+<a href="integrator/noise-per-time/equal_time_media_sheet.png"><img loading="lazy" src="integrator/noise-per-time/equal_time_media_sheet.png" alt="equal_time_media_sheet.png"></a>
+<a href="integrator/noise-per-time/equal_time_sky_sun_sheet.png"><img loading="lazy" src="integrator/noise-per-time/equal_time_sky_sun_sheet.png" alt="equal_time_sky_sun_sheet.png"></a>
+<a href="integrator/noise-per-time/equal_time_textures_opvm_sheet.png"><img loading="lazy" src="integrator/noise-per-time/equal_time_textures_opvm_sheet.png" alt="equal_time_textures_opvm_sheet.png"></a>
+<a href="integrator/noise-per-time/equal_time_thin_film_metals_sheet.png"><img loading="lazy" src="integrator/noise-per-time/equal_time_thin_film_metals_sheet.png" alt="equal_time_thin_film_metals_sheet.png"></a>
+<a href="integrator/noise-per-time/noise_anatomy_chart.png"><img loading="lazy" src="integrator/noise-per-time/noise_anatomy_chart.png" alt="noise_anatomy_chart.png"></a>
+<a href="integrator/noise-per-time/relmse_vs_time_chart.png"><img loading="lazy" src="integrator/noise-per-time/relmse_vs_time_chart.png" alt="relmse_vs_time_chart.png"></a>
+</div>
+<div class="card"><h3>noise-per-time-arbitration</h3>
+<p>Tests: prism under a 4 degree sun (dispersive caustic), chromatic homogeneous medium, narrow-band (sodium) lamp on a coloured wall; Cycles, Astroray CPU/GPU and Mitsuba 3.9.1 `cuda_ad_spectral` (16384 spp reference, lamp scale anchored per scene). Verdict: medium agrees 1-4 % (Cycles up to 20 % off in blue); narrow-band luminance agrees, Astroray R/G is 14 % below the</p>
+<p><a href="integrator/noise-per-time-arbitration/arbitration_roi_means.json">arbitration_roi_means.json</a> &middot; <a href="integrator/noise-per-time-arbitration/efficiency_ratio_chart.json">efficiency_ratio_chart.json</a> &middot; <a href="integrator/noise-per-time-arbitration/efficiency_table.csv">efficiency_table.csv</a> &middot; <a href="integrator/noise-per-time-arbitration/noise_anatomy_chart.json">noise_anatomy_chart.json</a> &middot; <a href="integrator/noise-per-time-arbitration/relmse_vs_time_chart.json">relmse_vs_time_chart.json</a></p>
+<a href="integrator/noise-per-time-arbitration/efficiency_ratio_chart.png"><img loading="lazy" src="integrator/noise-per-time-arbitration/efficiency_ratio_chart.png" alt="efficiency_ratio_chart.png"></a>
+<a href="integrator/noise-per-time-arbitration/equal_time_arb_chromatic_medium_sheet.png"><img loading="lazy" src="integrator/noise-per-time-arbitration/equal_time_arb_chromatic_medium_sheet.png" alt="equal_time_arb_chromatic_medium_sheet.png"></a>
+<a href="integrator/noise-per-time-arbitration/equal_time_arb_narrowband_wall_sheet.png"><img loading="lazy" src="integrator/noise-per-time-arbitration/equal_time_arb_narrowband_wall_sheet.png" alt="equal_time_arb_narrowband_wall_sheet.png"></a>
+<a href="integrator/noise-per-time-arbitration/equal_time_arb_prism_sun_sheet.png"><img loading="lazy" src="integrator/noise-per-time-arbitration/equal_time_arb_prism_sun_sheet.png" alt="equal_time_arb_prism_sun_sheet.png"></a>
+<a href="integrator/noise-per-time-arbitration/noise_anatomy_chart.png"><img loading="lazy" src="integrator/noise-per-time-arbitration/noise_anatomy_chart.png" alt="noise_anatomy_chart.png"></a>
+<a href="integrator/noise-per-time-arbitration/relmse_vs_time_chart.png"><img loading="lazy" src="integrator/noise-per-time-arbitration/relmse_vs_time_chart.png" alt="relmse_vs_time_chart.png"></a>
+</div>
 </div>
 <h2>viewport</h2><div class="grid">
 <div class="card"><h3>continuous-edit-commit</h3>

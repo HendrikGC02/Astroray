@@ -164,3 +164,13 @@ orientation differs). No sheet suggests a scene or reference defect. **Opus sign
   footprint differentials exist. prod_car_paint stays 5/16 CPU, 2/16 GPU (unchanged).
 * No strict xfail row was removed: every affected row still fails on a residual cause (reasons updated).
 * Shade kernels: REG 254 unchanged; STACK +64 B on two `stageShadeBucketedKernel` variants (4472 -> 4536).
+
+## After lane ar-1007 (#1007 GPU per-hit Noise / Wave / Voronoi; build c5a26eac, 2026-10-02)
+
+The GPU evaluates the procedurals per hit (shared host + device code, `include/astroray/procedural_tex.h`) instead of
+the #994 64^3 voxel bake. CPU output unchanged (marble / wood CPU renders bit-identical to main). Sphere region, 8 px
+blocks, |GPU - CPU| / mean, seed 278: marble 3.7 % (main bake 6.0 %, CPU seed-to-seed 3.3 %), wood 5.9 % (main bake
+14.9 %, CPU seed-to-seed 4.7 %). The contact sheets lose the voxel blocks (marble) and concentric aliased rings (wood).
+No row flips: the GPU now carries the CPU's residuals. Marble GPU 8/16 re-pointed to #1006; wood GPU 0/16 (was 5/16)
+re-pointed to #1017 because the old bake applied the op-VM inputs' own Mapping, which the CPU (and so now the GPU)
+drops (rings unrotated vs Cycles).

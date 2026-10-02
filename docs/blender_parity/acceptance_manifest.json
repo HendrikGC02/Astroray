@@ -89,7 +89,7 @@
       "threshold": {
         "high_count": 0
       },
-      "evidence_path": "docs\\blender_parity\\evidence\\e\\instrument.json",
+      "evidence_path": "docs/blender_parity/evidence/e/instrument.json",
       "evidence_sha256": "bbe36204ee294aae54baa652589897aced98ac9e1b199dce2e29489caca3ac99",
       "dimensions": {
         "issue_snapshot": "raw-artifacts",

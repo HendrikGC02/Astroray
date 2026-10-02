@@ -40,3 +40,29 @@
   it whenever a caster is flagged), so CPU and GPU run one estimator; without it
   the CPU had no point/spot-lamp caustics at all (a delta lamp cannot be hit by
   a path-traced ray).
+
+## Measured after the fix (build 211a4361, 2026-10-03)
+Lifted `arb_prism_sun`, 1024 spp x 4 seeds, luminance ratio to the oracle / the
+new Mitsuba reference (prism lifted, sun at 1e4 m):
+
+| ROI | oracle | Mitsuba | GPU before | GPU after | CPU after |
+|---|---|---|---|---|---|
+| floor_rainbow (T T) | 0.2163 | 0.2171 | 1.006 | 0.998 | 0.998 |
+| floor_tir_beam (T r T) | 0.2553 | 0.2571 | 1.395 | 0.998 | 0.999 |
+| floor_reflection_beam (R + T r T) | 0.2113 | 0.2153 | 1.141 | 1.001 | 1.002 |
+| prism_sun_glint (camera, TIR off the base) | 7.03 | 7.07 | 0.978 | 0.978 | 0.987 |
+
+- `tests/test_959_caustic_photon_split.py` (8 deg sun, photons ON / path traced):
+  GPU TIR beam 1.317 -> 0.998, reflection 1.085 -> 1.007; CPU 1.007 / 1.004.
+- Corpus v2 `v2_dispersion_caustics`, 5 seeds x 64 spp, GPU/CPU (L): prism floor
+  1.005, spot floor 1.009 (CPU 0.0782 vs Cycles MNEE 0.0783; the CPU had no spot
+  caustic before), sphere limb 1.022.
+- Side finding: the CPU's default adaptive sampling reads heavy-tailed path-traced
+  caustics 10-25 % low at 2048 spp (stops on a noise estimate the rare sun hits
+  have not reached yet); off, CPU and GPU path tracing agree.
+
+## Known limit
+- The CPU traces one 3M-photon map per render call; the GPU traces a fresh 4M map
+  every 16 spp (#909). At 256+ spp the CPU therefore shows frozen photon-gather
+  speckle in sparse regions (photons scattered off the sphere) that the GPU averages
+  away. ROI means agree; the noise does not fall with spp on the CPU.

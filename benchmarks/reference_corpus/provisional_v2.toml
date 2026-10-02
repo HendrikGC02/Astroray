@@ -115,22 +115,6 @@ issue = "#947"
 reason = "motion-blurred vane too narrow (0.35-0.42 of Cycles)"
 
 [[row]]
-scene = "v2_dispersion_caustics"
-backend = "gpu_cpu"
-roi = "prism_sun_caustic_floor"
-channels = ["g"]
-issue = "#959"
-reason = "GPU vs CPU photon caustics disagree"
-
-[[row]]
-scene = "v2_dispersion_caustics"
-backend = "gpu_cpu"
-roi = "sphere_spot_caustic_floor"
-channels = ["g", "L"]
-issue = "#959"
-reason = "GPU vs CPU photon caustics disagree"
-
-[[row]]
 scene = "v2_media"
 backend = "cpu"
 roi = "shaft"
@@ -246,14 +230,6 @@ roi = "sphere_Ti260"
 channels = ["r", "L"]
 issue = "#960"
 reason = "thin-film Ti single-channel outliers: 30-seed CPU mean r 1.04 of Cycles (band edge), seed 278 reads 1.074"
-
-[[row]]
-scene = "v2_dispersion_caustics"
-backend = "cpu"
-roi = "prism_sun_caustic_floor"
-channels = ["g", "b"]  # L un-xfailed by #1020: the film no longer adds white to the firefly pixel (seed 278 L 2.03 -> 1.09, pin 0.248)
-issue = "#986"
-reason = "firefly lottery: 1/15 seeds on main, 2/15 with pkg305 carry a firefly (G 0.3-3.1 vs 0.022); medians equal"
 
 [[row]]
 scene = "v2_media"

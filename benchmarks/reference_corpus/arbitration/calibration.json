@@ -9,13 +9,13 @@
   "mitsuba_unit_scale_lum": 0.004721567574578027
  },
  "arb_narrowband_wall": {
-  "lamp_scale": 2766.755448182265,
+  "lamp_scale": 2451.3386579895778,
   "anchor": {
    "roi": "wall_centre",
    "leg": "cpu"
   },
-  "anchor_leg_lum": 0.7429793237368266,
-  "mitsuba_unit_scale_lum": 0.0002685381262102358
+  "anchor_leg_lum": 0.6644024414777755,
+  "mitsuba_unit_scale_lum": 0.0002710365780396387
  },
  "arb_prism_sun": {
   "lamp_scale": 1.0,

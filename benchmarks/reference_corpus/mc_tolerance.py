@@ -612,8 +612,10 @@ def arb_calibrate(a, manifest, scenes) -> None:
         rect = entry["crops"][anchor["roi"]]
         tgt = np.mean([roi_means(render(sid, anchor["leg"], s, 256, work / f"{sid}_{anchor['leg']}_cal_s{s}", timeout=3600), rect)[3]
                        for s in a.seeds[:3]])
-        unit = np.mean([roi_means(render(sid, "mitsuba", s, 256, work / f"{sid}_mitsuba_cal_s{s}", timeout=3600,
-                                         extra=("--lamp-scale", "1.0")), rect)[3] for s in a.seeds[:3]])
+        # Clip negatives as the anchor leg's film does (#1020: Astroray clips an out-of-gamut channel at 0; an unclipped
+        # Mitsuba luminance would push the clipped channel's share into the scale and bias R and G by ~1 % on the lamp).
+        unit = np.mean([roi_means(np.maximum(render(sid, "mitsuba", s, 256, work / f"{sid}_mitsuba_cal_s{s}", timeout=3600,
+                                                    extra=("--lamp-scale", "1.0")), 0.0), rect)[3] for s in a.seeds[:3]])
         cal[sid] = {"lamp_scale": float(tgt / unit), "anchor": anchor, "anchor_leg_lum": float(tgt), "mitsuba_unit_scale_lum": float(unit)}
         print(f"[arb-calibrate] {sid}: anchor {anchor} target {tgt:.5g} mitsuba@1 {unit:.5g} -> lamp_scale {tgt / unit:.5g}", flush=True)
     cal_path.write_text(json.dumps(cal, indent=1) + "\n", encoding="utf-8", newline="\n")

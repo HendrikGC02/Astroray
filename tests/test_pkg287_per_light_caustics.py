@@ -203,8 +203,11 @@ def test_cpu_split_drops_path_traced_twin():
 
 
 def _ball_lens_oracle_flux(n_rays=2_000_000):
-    """Independent ball-lens trace: point lamp -> ball (exact Fresnel twice) ->
-    floor. Returns the Y-flux per unit Y of the lamp SPD."""
+    """Independent ball-lens trace: point lamp -> ball -> floor over every Fresnel
+    branch (external reflection, transmission, up to 8 internal reflections), each
+    weighted by its exact Fresnel factor. #959: the photon map now Fresnel-samples
+    reflect/refract, so it holds the reflected chains too (the refraction-only
+    oracle read 1.070 of the map). Returns the Y-flux per unit Y of the lamp SPD."""
     rng = np.random.default_rng(1)
     c, lp = np.array(C), np.array(LP)
     dist = np.linalg.norm(c - lp)
@@ -237,15 +240,27 @@ def _ball_lens_oracle_flux(n_rays=2_000_000):
                                )[:, None]
         return out / np.linalg.norm(out, axis=1)[:, None], cosi
 
+    def reflect(d, nrm):
+        return d - 2 * np.sum(d * nrm, 1)[:, None] * nrm
+
     ok1, t = hit(np.tile(lp, (n_rays, 1)), d, False)
-    p1 = lp + d * t[:, None]
-    d1, c1 = refract(d, (p1 - c) / R_BALL, 1 / 1.5)
-    ok2, t = hit(p1 + d1 * 1e-5, d1, True)
-    p2 = p1 + d1 * t[:, None]
-    d2, c2 = refract(d1, -(p2 - c) / R_BALL, 1.5)
-    T = fres_t(c1, 1 / 1.5) * fres_t(c2, 1.5)
-    good = ok1 & ok2 & (d2[:, 1] < 0)
-    return P_LAMP / (4 * math.pi) * 2 * math.pi * (1 - cmax) / n_rays * float(T[good].sum())
+    p = lp + d * t[:, None]
+    n1 = (p - c) / R_BALL
+    total = 0.0
+    T1 = fres_t(-np.sum(d * n1, 1), 1 / 1.5)
+    total += float(((1 - T1) * (ok1 & (reflect(d, n1)[:, 1] < 0))).sum())   # external reflection
+    w = T1 * ok1
+    d, _ = refract(d, n1, 1 / 1.5)
+    for _ in range(9):   # inside: exit with T, else reflect (TIR: T = 0)
+        _, t = hit(p + d * 1e-5, d, True)
+        p = p + d * t[:, None]
+        nin = -(p - c) / R_BALL
+        T = fres_t(-np.sum(d * nin, 1), 1.5)
+        dout, _ = refract(d, nin, 1.5)
+        total += float((w * T * (dout[:, 1] < 0)).sum())
+        w = w * (1 - T)
+        d = reflect(d, nin)
+    return P_LAMP / (4 * math.pi) * 2 * math.pi * (1 - cmax) / n_rays * total
 
 
 def test_point_photon_flux_matches_ball_lens_oracle():

@@ -46,7 +46,10 @@ SAMPLES = 384
 MAX_DEPTH = 6
 SEED = 225501
 # #853 GPU/CPU parity band (CPU adaptive sampling off; see the parity gate).
-BAND_LO, BAND_HI = 0.5, 2.0
+# Measured 2026-10-03 (7 seeds pooled): melanin 0 -> 0.995/0.990/0.986,
+# melanin 0.6 -> 0.990/0.983/0.948 (pigmented blue is ~130 dim px of noise).
+# Was 0.85-1.15 with the CPU adaptive sampler on (1.11 unpigmented, #853).
+BAND_LO, BAND_HI = 0.92, 1.08
 
 
 def _make_tuft():
@@ -272,6 +275,6 @@ def test_gpu_spectral_melanin_matches_cpu(melanin):
         cs += [float(cpu[..., c][lit].sum()) for c in range(3)]
         gs += [float(gpu[..., c][lit].sum()) for c in range(3)]
     ratios = [(g / c) if c > 1e-9 else 1.0 for g, c in zip(gs, cs)]
-    print(f"  melanin={melanin} pooled GPU/CPU RGB = {[round(x, 4) for x in ratios]}")
+    print(f"  melanin={melanin} pooled GPU/CPU RGB = {[round(float(x), 4) for x in ratios]}")
     for ch, ratio in zip("RGB", ratios):
         assert BAND_LO <= ratio <= BAND_HI, f"GPU/CPU melanin channel {ch} ratio {ratio:.4f} out of band"

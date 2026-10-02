@@ -7,15 +7,17 @@ same scene by construction, not by hand-copied numbers. Importing this module ne
 ``mitsuba`` is imported inside the functions, so run it with the Mitsuba venv:
 
     C:/Users/hgcom/tools/venv-mitsuba/Scripts/python.exe mitsuba_scenes.py --scene arb_prism_sun --spp 256 \\
-        --seed 278 --out <stem>             # writes <stem>.npy (linear HxWx3, row 0 = top), prints PKG307_INFO
+        --seed 278 --out <stem>             # writes <stem>.exr (linear HxWx3, row 0 = top), prints PKG307_INFO
 
 Why a Python BSDF: Mitsuba 3.9.1's ``dielectric`` has a constant IOR (the named materials are single numbers; a
 spectrum for ``int_ior`` is rejected: 'expected string, got spectrum'), so dispersion needs ``DispersiveDielectric``
 below. It is the documented tinted-dielectric Python plugin (Mitsuba docs, "Custom Python plugin", BSD-3) with the
 IOR taken from a Sellmeier fit at the path's hero wavelength and the other three wavelengths terminated, as pbrt-v4
 does at a dispersive interface (Pharr/Jakob/Humphreys, PBR 4e section 4.5.4, ``TerminateSecondary``): the throughput
-of lane 0 is multiplied by 4 and lanes 1-3 are zeroed, which keeps the film estimator (a mean over the four
-wavelengths) unbiased because each lane is marginally distributed with the same pdf.
+of lane 0 is multiplied by 4 (once per path, at hits from outside the convex prism) and lanes 1-3 are zeroed, which
+keeps the film estimator (a mean over the four wavelengths) unbiased because each lane is marginally distributed with
+the same pdf. A BSDF cannot see the path throughput, so the x4 is not idempotent across a diffuse bounce between two
+prism hits: a few-percent effect on the caustic at floor albedo 0.15, bounded by the constant-IOR validation.
 
 Lamp scale: every engine's lamp units differ (Blender W vs radiance), and transport is linear in emitter power, so
 ``calibration.json`` holds one scalar per scene that matches Mitsuba to its anchor ROI (see ``--calibrate``).
@@ -25,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 import time
 from pathlib import Path
@@ -40,18 +43,18 @@ SF11 = {"B": (1.73759695, 0.313747346, 1.89878101), "C": (0.013188707, 0.0623068
 PARAMS = {
     "arb_prism_sun": {
         "doc": "SF11 prism under a 4 degree sun, diffuse floor: dispersive floor caustic (Cycles has no dispersion).",
-        "floor_albedo": (0.6, 0.6, 0.6),
+        "floor_albedo": (0.15, 0.15, 0.15),
         "prism": {"loc": (-0.4, 0.3, 0.0), "side": 0.8, "length": 1.3, "rot_z_deg": -33.0, "glass": SF11, "ior_d": 1.7847},
-        "sun": {"elev_deg": 22.0, "az_deg": -12.0, "angle_deg": 4.0, "strength": 3.0, "color": (1.0, 1.0, 1.0)},
-        "camera": {"loc": (2.3, -4.4, 2.8), "target": (0.55, 0.55, 0.25), "lens": 40.0},
+        "sun": {"elev_deg": 22.0, "az_deg": -12.0, "angle_deg": 4.0, "strength": 9.0, "color": (1.0, 1.0, 1.0)},
+        "camera": {"loc": (3.4, -4.6, 3.0), "target": (1.0, 0.2, 0.2), "lens": 32.0},
         "max_depth": 16,
-        "anchor": {"roi": "floor_direct", "leg": "cycles"},
+        "anchor": {"roi": "floor_far", "leg": "cycles"},
     },
     "arb_chromatic_medium": {
         "doc": "Chromatic homogeneous medium cube above a diffuse floor, lit by a rectangle lamp.",
         "floor_albedo": (0.5, 0.5, 0.5),
         "cube": {"center": (0.0, 0.0, 0.8), "size": 1.4, "density": 1.5, "color": (0.95, 0.45, 0.12), "anisotropy": 0.0},
-        "lamp": {"loc": (-2.5, -1.5, 3.0), "target": (0.0, 0.0, 0.8), "size": 1.5, "power_w": 800.0, "color": (1.0, 1.0, 1.0)},
+        "lamp": {"loc": (-2.5, -1.5, 3.0), "target": (0.0, 0.0, 0.8), "size": 1.5, "power_w": 200.0, "color": (1.0, 1.0, 1.0)},
         "camera": {"loc": (0.0, -6.0, 1.8), "target": (0.0, 0.0, 0.7), "lens": 35.0},
         "max_depth": 12,
         "anchor": {"roi": "floor_direct", "leg": "cycles"},
@@ -61,11 +64,11 @@ PARAMS = {
         "floor_albedo": (0.5, 0.5, 0.5),
         "wall_albedo": (0.85, 0.45, 0.10),
         "wall_y": 2.0,
-        "lamp": {"loc": (-1.8, -0.8, 1.6), "target": (0.3, 2.0, 0.8), "size": 0.5, "power_w": 400.0,
+        "lamp": {"loc": (-1.0, -0.2, 1.8), "target": (0.8, 2.0, 0.6), "size": 0.5, "power_w": 80.0,
                  "profile": "sodium_vapor", "color": (1.0, 1.0, 1.0)},
-        "camera": {"loc": (0.4, -3.5, 1.2), "target": (0.2, 2.0, 0.9), "lens": 28.0},
+        "camera": {"loc": (3.4, -1.2, 1.3), "target": (-0.3, 1.6, 0.9), "lens": 26.0},
         "max_depth": 8,
-        "anchor": {"roi": "lamp_face", "leg": "cpu"},
+        "anchor": {"roi": "wall_centre", "leg": "cpu"},
     },
 }
 SCENES = tuple(PARAMS)
@@ -165,11 +168,12 @@ def build_dict(sid: str, mi, work: Path, res=RES, spp: int = 64, lamp_scale: flo
                     "emitter": {"type": "area", "radiance": {"type": "rgb", "value": [c * s["strength"] * scale / omega for c in s["color"]]}}}
     elif sid == "arb_chromatic_medium":
         c, lp = p["cube"], p["lamp"]
-        sigma = [c["density"] * k for k in c["color"]]  # Volume Scatter / Principled Volume: sigma_s = density x colour, sigma_a = 0
+        # Cycles Principled Volume with Absorption Color black: extinction = density (grey) and the Color is the scattering
+        # albedo (sigma_s = density x colour, sigma_a = density x (1 - colour)); Mitsuba: unit sigma_t scaled by density.
         d["medium"] = {"type": "cube", "to_world": T().translate(list(c["center"])).scale([c["size"] / 2.0] * 3),
                        "bsdf": {"type": "null"},
-                       "interior": {"type": "homogeneous", "albedo": {"type": "rgb", "value": [1.0, 1.0, 1.0]},
-                                    "sigma_t": {"type": "rgb", "value": sigma},
+                       "interior": {"type": "homogeneous", "albedo": {"type": "rgb", "value": list(c["color"])},
+                                    "sigma_t": {"type": "uniform", "value": 1.0}, "scale": c["density"],
                                     "phase": {"type": "hg", "g": c["anisotropy"]}}}
         d["lamp"] = _rect_lamp(lp, T, {"type": "rgb", "value": [k * scale for k in lp["color"]]})
     else:
@@ -222,7 +226,11 @@ def register_dispersive_dielectric(mi, dr):
             bs.eta = dr.select(sel_r, 1.0, eta_it)
             w = dr.select(sel_r, 1.0, dr.square(eta_ti))  # radiance scaling across the interface, as dielectric.cpp
             value = dr.zeros(mi.UnpolarizedSpectrum)
-            value[0] = 4.0 * w  # hero carries the whole path
+            # Hero carries the whole path. The x4 must be applied once per path, and a BSDF cannot see the throughput, so it is
+            # applied at hits from OUTSIDE (cos_i > 0): a path inside the convex prism is already collapsed. A second outside hit
+            # needs a diffuse bounce in between, so that error is O(floor albedo x prism solid-angle share); the scene keeps the
+            # floor dark and tests the plugin against the stock dielectric at constant IOR (tests/test_pkg307_arbitration.py).
+            value[0] = w * dr.select(cos_i > 0, 4.0, 1.0)
             return bs, value
 
         def eval(self, ctx, si, wo, active):
@@ -242,11 +250,11 @@ def register_dispersive_dielectric(mi, dr):
 
 def render_scene(sid: str, spp: int, seed: int, res, work: Path, variant: str = "cuda_ad_spectral",
                  lamp_scale: float | None = None):
-    """(HxWx3 float32 image, render-only seconds). Wavefronts above ~2^24 lanes are split into spp chunks with
-    decorrelated seeds (a 1280x720 x 320 spp wavefront does not fit in GPU memory)."""
+    """(HxWx3 TensorXf image, render-only seconds). Wavefronts above ~2^24 lanes are split into spp chunks with
+    decorrelated seeds (a 1280x720 x 320 spp wavefront does not fit in GPU memory). No numpy here: the Mitsuba venv
+    has none, so the image leaves as an EXR that the driver reads."""
     import mitsuba as mi
     import drjit as dr
-    import numpy as np
     mi.set_variant(variant)
     register_dispersive_dielectric(mi, dr)
     chunk = max(1, min(spp, (1 << 24) // (res[0] * res[1])))
@@ -256,13 +264,13 @@ def render_scene(sid: str, spp: int, seed: int, res, work: Path, variant: str = 
         k = min(chunk, spp - done)
         t0 = time.perf_counter()
         img = mi.render(scene, spp=k, seed=seed * 7919 + done)
-        dr.eval(img)
+        arr = img * k
+        dr.eval(arr)
         dr.sync_thread()
-        arr = np.array(img, dtype=np.float64) * k
         t += time.perf_counter() - t0
         acc = arr if acc is None else acc + arr
         done += k
-    return (acc / spp).astype(np.float32), t
+    return acc / spp, t
 
 
 def main(argv=None):
@@ -272,10 +280,10 @@ def main(argv=None):
     ap.add_argument("--seed", type=int, default=278)
     ap.add_argument("--out", required=True, help="output stem; writes <stem>.npy")
     ap.add_argument("--res-percent", type=int, default=100)
-    ap.add_argument("--variant", default="cuda_ad_spectral")
+    ap.add_argument("--variant", default=os.environ.get("ASTRORAY_MITSUBA_VARIANT", "cuda_ad_spectral"),
+                    help="Mitsuba variant (scalar_spectral for CPU-only development runs)")
     ap.add_argument("--lamp-scale", type=float, default=None, help="override the calibrated lamp scale (calibration run)")
     a = ap.parse_args(argv)
-    import numpy as np
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     res = (round(RES[0] * a.res_percent / 100), round(RES[1] * a.res_percent / 100))
@@ -286,8 +294,8 @@ def main(argv=None):
         traceback.print_exc()
         print(f"PKG119B_LEG FAIL {type(exc).__name__}: {exc}")
         return 1
-    np.save(out.with_suffix(".npy"), np.ascontiguousarray(img))
     import mitsuba as mi
+    mi.util.write_bitmap(str(out.with_suffix(".exr")), img)
     print("PKG307_INFO " + json.dumps({"render_s": secs, "engine": "mitsuba", "device": a.variant, "res": list(res),
                                        "samples": a.spp, "mitsuba": mi.__version__}), flush=True)
     print("PKG119B_LEG PASS", flush=True)

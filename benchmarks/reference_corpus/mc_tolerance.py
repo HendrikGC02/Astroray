@@ -158,7 +158,10 @@ def render(sid: str, leg: str, seed: int, spp: int, stem: Path, threads: int = 8
         if info is not None:
             line = next((ln for ln in out.stdout.splitlines() if ln.startswith("PKG307_INFO ")), None)
             info.update(json.loads(line[len("PKG307_INFO "):]) if line else {})
-        return np.load(stem.with_suffix(".npy"))
+        img = read_exr(stem.with_suffix(".exr"))  # the Mitsuba venv has no numpy: the script leaves an EXR
+        np.save(stem.with_suffix(".npy"), img)
+        stem.with_suffix(".exr").unlink()
+        return img
     engine, device = {"cycles": ("CYCLES", "cpu"), "cycles_gpu": ("CYCLES", "cpu"), "cpu": ("CUSTOM_RAYTRACER", "cpu"),
                       "gpu": ("CUSTOM_RAYTRACER", "gpu")}[leg]
     cmd = [str(BLENDER), "-b", "--factory-startup", "--threads", str(threads),
@@ -416,7 +419,7 @@ def noise_metrics(stack: np.ndarray, ref: np.ndarray, rect, floor: float | None 
     keep = np.ones(r.shape[:2], bool) if floor is None else (r @ LUM) > floor
     xk, rk = x[:, keep], r[keep]
     n = int(keep.sum())
-    rm = rk.mean(axis=0)
+    rm = rk.mean(axis=0) if n else np.zeros(3)
     r_lum = float(rm @ LUM)
     if n == 0 or not r_lum > 0.0:  # an empty or black reference ROI has no relative noise: fail closed
         nan = float("nan")

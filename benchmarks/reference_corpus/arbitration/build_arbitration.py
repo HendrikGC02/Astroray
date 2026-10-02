@@ -33,15 +33,14 @@ import mitsuba_scenes as ms  # noqa: E402  (pure python)
 
 # (name, world point, half-width as a fraction of image width): projected through the scene camera.
 ROIS = {
-    "arb_prism_sun": [("floor_direct", (-2.2, -0.8, 0.0), 0.04), ("floor_caustic", (1.9, -0.35, 0.0), 0.04),
-                      ("floor_prism_shadow", (1.0, -0.1, 0.0), 0.03), ("prism_body", (-0.4, 0.3, 0.65), 0.03),
-                      ("floor_far", (0.5, 2.6, 0.0), 0.05)],
+    "arb_prism_sun": [("floor_caustic", (-1.2, 1.4, 0.0), 0.04), ("floor_prism_shadow", (1.9, -0.35, 0.0), 0.04),
+                      ("prism_body", (-0.4, 0.3, 0.65), 0.03), ("floor_far", (0.5, 2.6, 0.0), 0.05)],
     "arb_chromatic_medium": [("floor_direct", (2.0, -0.5, 0.0), 0.05), ("medium_core", (0.0, 0.0, 0.8), 0.04),
                              ("medium_edge", (-0.55, -0.7, 1.2), 0.03), ("floor_under_medium", (0.0, 0.0, 0.0), 0.04),
                              ("floor_beside_medium", (-1.4, 0.2, 0.0), 0.04)],
-    "arb_narrowband_wall": [("lamp_face", (-1.8, -0.8, 1.6), 0.02), ("wall_near_lamp", (-0.6, 2.0, 1.0), 0.04),
-                            ("wall_centre", (0.3, 2.0, 0.8), 0.05), ("wall_far", (2.6, 2.0, 0.8), 0.05),
-                            ("floor_lit", (0.2, 0.6, 0.0), 0.05)],
+    "arb_narrowband_wall": [("wall_near_lamp", (0.2, 2.0, 1.4), 0.04),
+                            ("wall_centre", (-0.3, 2.0, 0.8), 0.05), ("wall_far", (-2.2, 2.0, 0.8), 0.05),
+                            ("floor_lit", (0.4, 1.2, 0.0), 0.05)],
 }
 
 
@@ -54,7 +53,7 @@ def _diffuse(sl, bpy, name, rgb):
     return mat
 
 
-def build_scene(sid: str, bc, sc, sl, bpy):
+def build_scene(sid: str, bc, sc, sl, bpy, draft: bool = False):
     """One arbitration scene in the current Blender session -> (scene, crops)."""
     p = ms.PARAMS[sid]
     scene = sc._reset()
@@ -81,8 +80,11 @@ def build_scene(sid: str, bc, sc, sl, bpy):
         cube = bpy.context.active_object
         cube.name = "Medium"
         cube.scale = (c["size"],) * 3
-        cube.data.materials.append(sl._principled_volume_material(
-            bpy, "ChromaticMedium", density=c["density"], color=c["color"], anisotropy=c["anisotropy"]))
+        mat = sl._principled_volume_material(bpy, "ChromaticMedium", density=c["density"], color=c["color"],
+                                             anisotropy=c["anisotropy"])
+        pv = next(n for n in mat.node_tree.nodes if n.bl_idname == "ShaderNodeVolumePrincipled")
+        sl._sock(pv.inputs, "Absorption Color").default_value = (0.0, 0.0, 0.0, 1.0)  # explicit: Color is then the scattering albedo
+        cube.data.materials.append(mat)
         sc._light("Lamp", "AREA", lp["loc"], lp["target"], lp["power_w"], color=lp["color"], shape="SQUARE", size=lp["size"])
     else:
         lp = p["lamp"]
@@ -93,32 +95,42 @@ def build_scene(sid: str, bc, sc, sl, bpy):
         lamp.data.custom_raytracer.preset_profile = lp["profile"]
     sc._camera(cam["loc"], cam["target"], lens=cam["lens"])
     r = bc._Rois(scene)
+    crops = {}
     for name, pt, hw in ROIS[sid]:
-        r.add(name, pt, hw)
-    return scene, r.project()
+        r.items = {name: (tuple(pt), hw)}
+        try:
+            crops.update(r.project())
+        except SystemExit as exc:  # off-frame ROI: fatal unless drafting the camera/ROI layout
+            if not draft:
+                raise
+            print(f"[pkg307-draft] {exc}", flush=True)
+    return scene, crops
 
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", default=str(HERE))
+    ap.add_argument("--draft", action="store_true", help="tolerate off-frame ROIs while laying out cameras (never commit a draft)")
     a = ap.parse_args(argv)
     import bpy
     import build_corpus as bc
     import render_leg
     render_leg._bootstrap_astroray_addon(REPO)
+    print(f"[pkg307] sodium_vapor SPD: {len(ms.sodium_spd())} samples cached for the Mitsuba lamp", flush=True)
     sc = bc._load_showcase(None)
     import scene_library as sl
     out = Path(a.out_dir)
     (out / "scenes").mkdir(parents=True, exist_ok=True)
     manifest = {"scenes": {}}
     for sid in ms.SCENES:
-        scene, crops = build_scene(sid, bc, sc, sl, bpy)
+        scene, crops = build_scene(sid, bc, sc, sl, bpy, a.draft)
         blend = out / "scenes" / f"{sid}.blend"
         bpy.ops.wm.save_as_mainfile(filepath=str(blend))
         manifest["scenes"][sid] = {
             "family": sid, "builder_fn": "build_scene",
-            "blend_path": str(blend.resolve().relative_to(REPO)).replace("\\", "/"),
+            "blend_path": (blend.resolve().relative_to(REPO).as_posix() if blend.resolve().is_relative_to(REPO)
+                           else blend.resolve().as_posix()),
             "sha256": hashlib.sha256(blend.read_bytes()).hexdigest(),
             "settings": {"res_x": ms.RES[0], "res_y": ms.RES[1], "samples": 64, "saved_default_engine": "CYCLES"},
             "v2": {"seed": 278, "spp_gate": 64, "spp_reference": 16384, "render_gate": True, "cameras": ["Cam"],

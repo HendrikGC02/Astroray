@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import math
 import os
+import subprocess
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from benchmarks.reference_corpus import mc_tolerance as MC
+from benchmarks.reference_corpus.arbitration import mitsuba_scenes as MS
 
 FULL = [0.0, 0.0, 1.0, 1.0]
 
@@ -126,3 +129,45 @@ def test_sky_roi_relvar_reproduces_the_research_from_fresh_renders(tmp_path):
     m = MC.noise_metrics(st, MC.read_exr(MC.exr_path("v2_sky_sun")), entry["crops"]["sky_upper"])
     assert m["relvar_rgb"][0] == pytest.approx(0.0024, rel=0.30)
     assert m["relvar_rgb"][2] == pytest.approx(0.0026, rel=0.30)
+
+
+# --- Phase 2: arbitration scenes (pure geometry/parameter checks; Mitsuba-gated smoke) -----------------------------------
+
+def test_arbitration_prism_is_a_closed_outward_oriented_equilateral_prism():
+    p = MS.PARAMS["arb_prism_sun"]["prism"]
+    tris = MS.prism_triangles(p)
+    assert len(tris) == 8
+    vol = 0.0
+    cen = np.mean([v for t in tris for v in t], axis=0)
+    for a, b, c in tris:
+        a, b, c = map(np.asarray, (a, b, c))
+        n = np.cross(b - a, c - a)
+        assert n @ ((a + b + c) / 3 - cen) > 0  # outward winding
+        vol += a @ np.cross(b, c) / 6.0  # divergence theorem: signed volume of the closed mesh
+    assert vol == pytest.approx(math.sqrt(3) / 4 * p["side"] ** 2 * p["length"], rel=1e-9)
+
+
+def test_arbitration_sun_direction_is_a_unit_vector_travelling_down():
+    d = MS.sun_direction(MS.PARAMS["arb_prism_sun"]["sun"])
+    assert np.linalg.norm(d) == pytest.approx(1.0) and d[2] < 0
+
+
+def test_arbitration_anchor_rois_exist_and_the_builder_matches_the_params():
+    from benchmarks.reference_corpus.arbitration import build_arbitration as BA
+    assert set(BA.ROIS) == set(MS.PARAMS)
+    for sid, p in MS.PARAMS.items():
+        assert p["anchor"]["roi"] in {name for name, _, _ in BA.ROIS[sid]}
+        assert p["anchor"]["leg"] in MC.NB_LEGS
+
+
+MITSUBA_PY = MC.MITSUBA_PY
+
+
+@pytest.mark.skipif(not MITSUBA_PY.is_file(), reason="Mitsuba venv not installed")
+@pytest.mark.parametrize("sid", MS.SCENES)
+def test_mitsuba_scenes_load_and_render_on_the_cpu(sid, tmp_path):
+    out = subprocess.run([str(MITSUBA_PY), str(Path(MS.__file__)), "--scene", sid, "--spp", "2", "--out", str(tmp_path / sid),
+                          "--res-percent", "10", "--variant", "scalar_spectral"], capture_output=True, text=True,
+                         timeout=300)
+    assert "PKG119B_LEG PASS" in out.stdout, out.stdout[-800:] + out.stderr[-800:]
+    assert (tmp_path / f"{sid}.exr").is_file()

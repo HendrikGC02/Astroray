@@ -1489,6 +1489,27 @@ public:
 
     bool boundingBox(AABB& box) const override { if (!nodes.empty()) box = nodes[0].bounds; return !nodes.empty(); }
 
+    // pkg291 (#875): refit after primitives moved in place - same topology,
+    // bounds recomputed bottom-up (Cycles BVH2::refit_nodes, bvh/bvh2.cpp,
+    // Apache-2.0). flatten() stores both children after their parent (left at
+    // i+1, right at secondChildOffset > i), so one reverse pass sees updated
+    // children. On an unmoved scene this reproduces the built bounds exactly.
+    void refit() {
+        for (int i = static_cast<int>(nodes.size()) - 1; i >= 0; --i) {
+            LinearBVHNode& n = nodes[i];
+            AABB b;
+            if (n.nPrimitives > 0) {
+                for (int k = 0; k < n.nPrimitives; ++k) {
+                    AABB pb;
+                    if (primitives[n.primitivesOffset + k]->boundingBox(pb)) b = b.merge(pb);
+                }
+            } else {
+                b = nodes[i + 1].bounds.merge(nodes[n.secondChildOffset].bounds);
+            }
+            n.bounds = b;
+        }
+    }
+
     // Accessors for scene_upload.cu â€” read the flat BVH and ordered primitive list
     const std::vector<LinearBVHNode>& getNodes() const { return nodes; }
     const std::vector<std::shared_ptr<Hittable>>& getPrimitives() const { return primitives; }
@@ -2619,6 +2640,12 @@ class Renderer {
         return ++counter;
     }
     uint64_t sceneVersion_ = nextSceneVersion();
+    // pkg291 (#875): in-place refit steps (see refitAcceleration); a contiguous
+    // version chain, capped at 64 steps.
+public:
+    struct RefitStep { uint64_t before, after; std::vector<const Hittable*> moved; };
+private:
+    std::vector<RefitStep> refitLog_;
     int bvhBuildCount_ = 0;
     double bvhBuildMs_ = 0.0;   // wall time of the most recent build
     // pkg114 — two-level BVH instancing. A registered mesh keeps its prims in
@@ -4911,6 +4938,24 @@ public:
         // Power mode reads the light list live, so this rebuild is a no-op cost.
         lights.setSampler(lights.samplerMode());
     }
+
+    // pkg291 (#875): after the primitives in `moved` were moved in place, refit
+    // the cached BVH (bounds only) instead of rebuilding it, bump the scene
+    // version, and log the step so the GPU driver can patch its cached device
+    // scene (positions, normals, node bounds) instead of re-flattening it. The
+    // log is a contiguous version chain; any other mutation in between breaks it
+    // (the driver then re-flattens). False when there is no clean BVH to refit.
+    bool refitAcceleration(std::vector<const Hittable*> moved) {
+        if (!bvh || bvhDirty_) return false;
+        bvh->refit();
+        if (!refitLog_.empty() && refitLog_.back().after != sceneVersion_) refitLog_.clear();
+        if (refitLog_.size() >= 64) refitLog_.erase(refitLog_.begin());
+        const uint64_t before = sceneVersion_;
+        touchScene();
+        refitLog_.push_back({before, sceneVersion_, std::move(moved)});
+        return true;
+    }
+    const std::vector<RefitStep>& getRefitLog() const { return refitLog_; }
 
     // pkg114 — two-level BVH instancing API.
     // Register a mesh's OBJECT-LOCAL primitives once; returns its mesh id. The

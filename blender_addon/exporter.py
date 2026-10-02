@@ -1540,6 +1540,27 @@ class Exporter:
 
         instancing_related = any(_related(nm) for nm in xform_names)
 
+        # pkg291 (#875): a transform-only edit of a mesh object whose triangle
+        # range convert_objects recorded moves in place. Capture its live
+        # matrix_world now (the deferred replay runs after depsgraph.updates is
+        # gone); it rides flat_transforms keyed by NAME (a str), which
+        # _dispatch_dirty_domains routes to _move_object_in_place.
+        ranges = getattr(self.engine, '_renderer_object_ranges', None) or {}
+        if xform_names and ranges:
+            moved = set()
+            for upd in updates:
+                uid = getattr(upd, 'id', None)
+                nm = getattr(uid, 'name', None)
+                if (nm in xform_names and nm not in moved and not _related(nm)
+                        and ranges.get(nm) is not None):
+                    try:
+                        m = [float(x) for row in uid.matrix_world for x in row]
+                    except Exception:
+                        continue  # unreadable -> stays a geometry promote
+                    flat_transforms.append((nm, m))
+                    moved.add(nm)
+            xform_names = [nm for nm in xform_names if nm not in moved]
+
         if geometry:
             changes |= Change.GEOMETRY
         if flat_transforms or xform_names:
@@ -1652,6 +1673,10 @@ class Exporter:
             self._viewport_skip_upload_next = True
         elif changes & Change.TRANSFORMS:
             for obj_id, mat16 in flat_transforms:
+                if isinstance(obj_id, str):  # pkg291 (#875): mesh object by name
+                    if not self._move_object_in_place(renderer, obj_id, mat16):
+                        return False  # -> full sync
+                    continue
                 try:
                     renderer.update_object_transform(obj_id, mat16)
                 except (RuntimeError, AttributeError, TypeError):
@@ -1661,6 +1686,33 @@ class Exporter:
 
         # Any image-changing dispatch resets accumulation
         self._reset_viewport_accumulation()
+        return True
+
+    def _move_object_in_place(self, renderer, name, mat16):
+        """pkg291 (#875): move one mesh object in place instead of a full sync
+        (~130 ms on 100k tris). delta = M_new * M_old^-1 (float64) is applied to
+        the object's recorded triangle range; the engine refits the BVH and the
+        GPU patches only those triangles + node bounds. False (caller full-syncs)
+        when the object has no range, the engine lacks the binding, delta is
+        singular, the volume scale changes by more than 10 % (refit quality,
+        spec), or the engine refuses (emissive / motion triangles)."""
+        ranges = getattr(self.engine, '_renderer_object_ranges', None) or {}
+        entry = ranges.get(name)
+        if entry is None or not hasattr(renderer, 'transform_object_range'):
+            return False
+        start, count, old = entry
+        try:
+            delta = (np.asarray(mat16, dtype=np.float64).reshape(4, 4)
+                     @ np.linalg.inv(np.asarray(old, dtype=np.float64).reshape(4, 4)))
+        except np.linalg.LinAlgError:
+            return False
+        scale = abs(float(np.linalg.det(delta[:3, :3]))) ** (1.0 / 3.0)
+        if not 0.9 <= scale <= 1.1:
+            return False
+        if not renderer.transform_object_range(int(start), int(count),
+                                               delta.reshape(16).tolist()):
+            return False
+        ranges[name] = (start, count, list(mat16))
         return True
 
     # -- #849 in-place material / light re-sync ------------------------------

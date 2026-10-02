@@ -62,6 +62,13 @@ SUITES = {"production": {"manifest": PROD / "manifest.json", "refs": PROD / "ref
                          "known": CORPUS / "provisional_production.toml", "label": "pkg310 production corpus", "bless": "pkg310",
                          # decorrelated (#986: adjacent CPU seeds share seed+tile streams); 278 stays the gate seed
                          "seeds": [278, 1301, 2711, 4177, 6113]}}
+ARB = CORPUS / "arbitration"
+# pkg307 Phase 2: the three spectral arbitration scenes. Their reference is a Mitsuba 3 spectral render (Cycles is RGB).
+SUITES["arbitration"] = {"manifest": ARB / "manifest.json", "refs": ARB / "refs", "gates": ARB / "gates_arbitration.toml",
+                         "known": ARB / "no_known_rows.toml", "label": "pkg307 arbitration", "bless": "pkg307",
+                         "ref_leg": "mitsuba", "seeds": [278, 279, 280, 281, 282]}
+MITSUBA_PY = Path(os.environ.get("ASTRORAY_MITSUBA_PY", r"C:\Users\hgcom\tools\venv-mitsuba\Scripts\python.exe"))
+REF_LEG = "cycles"  # which engine renders the scene reference (the arbitration suite uses Mitsuba)
 LABEL, BLESS = "pkg284 corpus v2", "pkg284 Phase 2"
 BAND_FLOOR, BAND_CEIL, GPU_CPU_FLOOR, DARK = 0.02, 0.15, 0.05, 0.01
 GATE_C = ("v2_light_tree", "v2_textures_opvm", "v2_camera_geometry")  # owner 2026-09-29
@@ -122,8 +129,9 @@ def scene_entry(manifest: dict, sid: str) -> dict:
 
 def use_suite(name: str) -> None:
     """Point the module-level manifest/reference/gates/provisional paths at a SUITES entry (CLI only)."""
-    global MANIFEST, REFS, GATES, KNOWN, GATE_C, LABEL, BLESS
+    global MANIFEST, REFS, GATES, KNOWN, GATE_C, LABEL, BLESS, REF_LEG
     s = SUITES[name]
+    REF_LEG = s.get("ref_leg", "cycles")
     MANIFEST, REFS, GATES, KNOWN = s["manifest"], s["refs"], s["gates"], s["known"]
     LABEL, BLESS = s["label"], s["bless"]
     GATE_C = ()
@@ -131,13 +139,25 @@ def use_suite(name: str) -> None:
 
 def render(sid: str, leg: str, seed: int, spp: int, stem: Path, threads: int = 8,
            timeout: int = 600, manifest: Path | None = None, res_percent: int | None = None,
-           info: dict | None = None) -> np.ndarray:
+           info: dict | None = None, extra: tuple = ()) -> np.ndarray:
     """One render through render_leg.py; returns linear HxWx3 (row 0 = top). The Blender log is kept
     next to the array as ``<stem>.log`` (pkg310 silent_drop_audit reads the DegradationReport from it).
     ``manifest`` overrides the module manifest (pkg310 tests pass the production one explicitly).
     pkg307: leg ``cycles_gpu`` is Cycles OptiX; ``res_percent`` scales the frame (timing at >= 1280x720);
     a passed ``info`` dict receives the leg's ``PKG307_INFO`` line (render-only seconds, Cycles settings)."""
     base = VARIANTS[sid]["base"] if sid in VARIANTS else sid
+    if leg == "mitsuba":  # pkg307 Phase 2: Mitsuba 3 spectral (its own venv), arbitration scenes only
+        cmd = [str(MITSUBA_PY), str(ARB / "mitsuba_scenes.py"), "--scene", base, "--spp", str(spp), "--seed", str(seed),
+               "--out", str(stem)] + (["--res-percent", str(res_percent)] if res_percent else []) + list(extra)
+        stem.parent.mkdir(parents=True, exist_ok=True)
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        stem.with_suffix(".log").write_text(out.stdout + "\n" + out.stderr, encoding="utf-8", errors="replace")
+        if "PKG119B_LEG PASS" not in out.stdout:
+            raise RuntimeError(f"{sid} mitsuba seed={seed}: render failed\n{out.stdout[-1500:]}\n{out.stderr[-1500:]}")
+        if info is not None:
+            line = next((ln for ln in out.stdout.splitlines() if ln.startswith("PKG307_INFO ")), None)
+            info.update(json.loads(line[len("PKG307_INFO "):]) if line else {})
+        return np.load(stem.with_suffix(".npy"))
     engine, device = {"cycles": ("CYCLES", "cpu"), "cycles_gpu": ("CYCLES", "cpu"), "cpu": ("CUSTOM_RAYTRACER", "cpu"),
                       "gpu": ("CUSTOM_RAYTRACER", "gpu")}[leg]
     cmd = [str(BLENDER), "-b", "--factory-startup", "--threads", str(threads),
@@ -213,13 +233,13 @@ def read_exr(path: Path) -> np.ndarray:
 
 
 def exr_path(sid: str) -> Path:
-    return REFS / f"{sid.replace('@', '_')}_cycles.exr"
+    return REFS / f"{sid.replace('@', '_')}_{REF_LEG}.exr"
 
 
 def reference(sid: str, manifest: dict, work: Path, render_it: bool, seed: int) -> np.ndarray:
     if render_it or not exr_path(sid).is_file():  # variants have no Phase 1 reference
         entry = scene_entry(manifest, sid)
-        ref = render(sid, "cycles", seed, entry["v2"]["spp_reference"], work / f"{sid}_cycles_ref")
+        ref = render(sid, REF_LEG, seed, entry["v2"]["spp_reference"], work / f"{sid}_{REF_LEG}_ref", timeout=3600)
         write_exr(exr_path(sid), ref)
         return ref
     return read_exr(exr_path(sid))
@@ -337,7 +357,7 @@ NB_LEGS = ("cycles", "cycles_gpu", "cpu", "gpu", "mitsuba")
 NB_LABEL = {"cycles": "Cycles CPU", "cycles_gpu": "Cycles OptiX", "cpu": "Astroray CPU",
             "gpu": "Astroray GPU", "mitsuba": "Mitsuba 3 spectral"}
 NB_FRAME = (1280, 720)  # every time is normalised to one frame of this size
-NB_GPU_LEGS = ("gpu", "cycles_gpu")
+NB_GPU_LEGS = ("gpu", "cycles_gpu", "mitsuba")
 # (small, large) spp of the differencing pair: both in the linear regime (Cycles OptiX has a ~2 s floor below ~64 spp)
 NB_TIMING_SPP = {"gpu": (64, 320), "cycles_gpu": (64, 320), "cpu": (8, 72), "cycles": (8, 72),
                  "mitsuba": (64, 320)}
@@ -428,8 +448,6 @@ def _nb_render(sid, leg, spp, seed, work, threads=8, **kw):
     stem = _nb_paths(work)["renders"] / f"{sid.replace('@', '_')}_{leg}_spp{spp}_s{seed}"
     if stem.with_suffix(".npy").is_file():
         return np.load(stem.with_suffix(".npy"))
-    if leg == "mitsuba":
-        raise RuntimeError("mitsuba renders come from the arbitration scenes (--nb-arbitration)")
     return render(sid, leg, seed, spp, stem, threads=threads, timeout=3600, **kw)
 
 
@@ -518,6 +536,29 @@ def nb_meta(seeds, budgets, base_spps, timing: dict) -> dict:
                        "resolution; bias^2 is ROI-mean level.")}
 
 
+def arb_calibrate(a, manifest, scenes) -> None:
+    """--arb-calibrate: scale each arbitration scene's Mitsuba lamp so its anchor ROI matches the anchor leg.
+
+    Lamp units differ per engine (Blender watts vs radiance) and light transport is linear in emitter power, so one scalar
+    per scene fixes the units. The anchor is a ROI whose value does not depend on the effect under test: the
+    directly sun/lamp-lit floor against Cycles (RGB-safe), the visible lamp face against Astroray CPU for the narrow-band
+    lamp (Cycles cannot render it). Every other ROI is then an independent comparison. Writes calibration.json."""
+    work = Path(a.work_dir)
+    cal_path = ARB / "calibration.json"
+    cal = json.loads(cal_path.read_text()) if cal_path.is_file() else {}
+    for sid in scenes:
+        entry = scene_entry(manifest, sid)
+        anchor = entry["v2"]["anchor"]
+        rect = entry["crops"][anchor["roi"]]
+        tgt = np.mean([roi_means(render(sid, anchor["leg"], s, 256, work / f"{sid}_{anchor['leg']}_cal_s{s}", timeout=3600), rect)[3]
+                       for s in a.seeds[:3]])
+        unit = np.mean([roi_means(render(sid, "mitsuba", s, 256, work / f"{sid}_mitsuba_cal_s{s}", timeout=3600,
+                                         extra=("--lamp-scale", "1.0")), rect)[3] for s in a.seeds[:3]])
+        cal[sid] = {"lamp_scale": float(tgt / unit), "anchor": anchor, "anchor_leg_lum": float(tgt), "mitsuba_unit_scale_lum": float(unit)}
+        print(f"[arb-calibrate] {sid}: anchor {anchor} target {tgt:.5g} mitsuba@1 {unit:.5g} -> lamp_scale {tgt / unit:.5g}", flush=True)
+    cal_path.write_text(json.dumps(cal, indent=1) + "\n", encoding="utf-8", newline="\n")
+
+
 def nb_run(a, manifest, scenes) -> None:
     """--noise-bench: stages ``time`` -> ``render`` -> ``report`` (each cached under --work-dir, resumable)."""
     work = Path(a.work_dir)
@@ -570,6 +611,7 @@ def main():
                     help="scene population (default: the pkg284 v2 corpus)")
     ap.add_argument("--noise-bench", action="store_true",
                     help="pkg307: noise-per-time benchmark (equal-spp and equal-time tables) instead of the gate bands")
+    ap.add_argument("--arb-calibrate", action="store_true", help="pkg307: match the Mitsuba lamp scale to each scene's anchor ROI")
     ap.add_argument("--nb-legs", nargs="+", choices=NB_LEGS, default=["cycles", "cycles_gpu", "cpu", "gpu"])
     ap.add_argument("--nb-stages", nargs="+", choices=("time", "render", "report"), default=["time", "render", "report"])
     ap.add_argument("--nb-tag", default="", help="suffix for timing/results files (repeat-run reproducibility check)")
@@ -593,6 +635,9 @@ def main():
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     gated = [s for s, e in manifest["scenes"].items() if "v2" in e and e["v2"]["render_gate"]]
     scenes = a.scenes or sorted(gated) + ([] if a.suite else sorted(VARIANTS))
+    if a.arb_calibrate:
+        arb_calibrate(a, manifest, a.scenes or sorted(gated))
+        return
     if a.noise_bench:
         nb_run(a, manifest, a.scenes or sorted(gated) + sorted(VARIANTS))
         return

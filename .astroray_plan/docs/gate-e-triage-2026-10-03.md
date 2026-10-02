@@ -133,3 +133,10 @@ In-flight lanes: N1 #990/#991, N2 #993/#992, N3 #996, viewport #875/#721/#879, a
 | 1021 | Sun-lit floor ROI (floor_far) 12-16 % brighter than both Cycles and Mitsuba | high | high | **high** | as-arb | Sun-lit floor 12-16% brighter than both Cycles and Mitsuba: wrong image. In flight (as-arb). | agree |
 | 1024 | Film: out-of-gamut channels clipped to 0 per pass/beauty; decide whether scene-linear outp | medium | high | **medium** | no | Design decision: negative out-of-gamut channels clipped to 0 per pass; follow-up of #1020. | Terra high; kept medium. Evidence: deliberate documented design choice (clip at 0) awaiting an owner decision; follow-up of #1020. |
 | 1025 | CPU prism sun caustic reads 0.74 of Mitsuba (GPU 0.92) once the film stops adding white | high | high | **high** | no | CPU prism sun caustic 0.74x of Mitsuba (z -7.4): real CPU transport deficit exposed by the #1020 fix (follow-up of as-arb, not itself in a lane). | agree |
+
+
+## Lead review (2026-10-03)
+
+- **#853 upgraded to HIGH**: an 11 % GPU-vs-CPU brightness gap on hair is a wrong image on one backend (rubric: wrong image), regardless of the Cycles comparison. Added to the uncovered-HIGH blocker set.
+- #868 and #988 closed by the lead with the evidence above.
+- Lanes opened for the blocker set: caustics (#959, #1025), media (#1019, #961, #884), hair (#963, #853), patterns/coordinates (#1006, #881); #866/#867 folded into the gate (d) lane.

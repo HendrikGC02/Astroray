@@ -294,7 +294,9 @@ def _astro_child(cfg: dict) -> None:
         st = r.get_scene_stats()
         out["calls"].append({"wall_s": wall,
                              "bvh_build_count": st.get("bvh_build_count"),
-                             "bvh_build_ms": r.last_render_info().get("bvh_build_ms")})
+                             "bvh_build_ms": r.last_render_info().get("bvh_build_ms"),
+                             # #981: absent on builds that predate the device-scene cache
+                             "scene_reused": r.last_render_info().get("gpu_scene_reused")})
     if cfg.get("save_img"):
         np.save(cfg["save_img"], np.asarray(img, dtype=np.float32))
     out["triangles"] = int(n)

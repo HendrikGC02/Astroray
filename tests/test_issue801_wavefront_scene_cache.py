@@ -138,8 +138,12 @@ def test_reuse_is_cheaper_than_upload_on_a_large_scene():
     _render(r, spp=1, skip_upload=False)  # warm-up (BVH + first upload)
 
     def best(skip):
+        # #981: an unchanged scene is cached for skip_upload=False too, so the
+        # upload leg forces a cold render with a domain-uploader invalidation.
         ts = []
         for _ in range(5):
+            if not skip:
+                r.upload_materials()
             t = time.perf_counter()
             _render(r, spp=1, skip_upload=skip)
             ts.append(time.perf_counter() - t)

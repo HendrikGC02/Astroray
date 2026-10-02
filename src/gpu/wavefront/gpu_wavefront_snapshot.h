@@ -241,6 +241,11 @@ void cuda_wavefront_invalidate_scene();
 // last_render_info()["grid_uploads"] (tests/test_issue828_grid_cache.py).
 int cuda_wavefront_last_grid_uploads();
 
+// #981: 1 when the most recent cuda_wavefront_render reused the cached device
+// scene (no buildSceneArrays, no scene upload, no OptiX accel rebuild).
+// Surfaced as last_render_info()["gpu_scene_reused"].
+int cuda_wavefront_last_scene_reused();
+
 // pkg299: 1 when the most recent cuda_wavefront_render traversed with OptiX
 // (the default on triangle-only scenes), 0 on the software BVH.
 // Surfaced as last_render_info()["gpu_traversal"].

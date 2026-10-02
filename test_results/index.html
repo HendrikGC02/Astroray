@@ -244,6 +244,11 @@ a{color:var(--ac)}</style></head><body>
 <a href="perf/bvh-cache/render_time_chart.png"><img loading="lazy" src="perf/bvh-cache/render_time_chart.png" alt="render_time_chart.png"></a>
 <a href="perf/bvh-cache/repeat_render_chart.png"><img loading="lazy" src="perf/bvh-cache/repeat_render_chart.png" alt="repeat_render_chart.png"></a>
 </div>
+<div class="card"><h3>gpu-scene-cache</h3>
+<p>Repeat `render()` of an unchanged scene, 16x16, 1 spp, RTX 5070 Ti, min of 6 warm calls after one cold call. Harness: `benchmarks/wavefront_baseline.py --cornell-pair --devices gpu --skip-full --calls 7`. - `repeat_render_chart.png`: heavy 2M-triangle Cornell 0.886 s -&gt; 0.004 s; 12-triangle scene 0.004 s unchanged.</p>
+<p><a href="perf/gpu-scene-cache/repeat_render_chart.json">repeat_render_chart.json</a></p>
+<a href="perf/gpu-scene-cache/repeat_render_chart.png"><img loading="lazy" src="perf/gpu-scene-cache/repeat_render_chart.png" alt="repeat_render_chart.png"></a>
+</div>
 <div class="card"><h3>jh-upsample-lookup</h3>
 <p><a href="perf/jh-upsample-lookup/cornell_pair_wall.json">cornell_pair_wall.json</a></p>
 <a href="perf/jh-upsample-lookup/cornell_pair_wall.png"><img loading="lazy" src="perf/jh-upsample-lookup/cornell_pair_wall.png" alt="cornell_pair_wall.png"></a>

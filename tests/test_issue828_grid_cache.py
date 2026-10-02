@@ -155,11 +155,18 @@ def test_grid_reuse_is_cheaper_than_upload():
     def run(skip):
         r.render(1, 2, None, False, -1, -1, -1, -1, -1, skip)
 
+    def run_cold():
+        # #981: an unchanged scene is cached for skip_upload=False too; a
+        # domain-uploader call (outside the timed render) forces the upload path.
+        r.upload_materials()
+
     run(False)  # warm-up (first upload, LUT upload, kernel load)
 
     def best(skip):
         ts = []
         for _ in range(7):
+            if not skip:
+                run_cold()
             t = time.perf_counter()
             run(skip)
             ts.append(time.perf_counter() - t)

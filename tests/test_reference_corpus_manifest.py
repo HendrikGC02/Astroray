@@ -316,6 +316,10 @@ def test_family_declared_features_present_in_scene(manifest, scene_id):
             f"but that node type never appears in the scene's node_ids")
 
 
+# #996 baseline: the rows credited by the generated matrix and not yet wired. Lower it as scenes wire rows.
+PROOF_PENDING_BASELINE = 47
+
+
 def _proof_pending() -> dict:
     """family -> {(bl_idname, socket_or_prop)} credited SUPPORTED/APPROXIMATED by the scanner (#996) but not
     yet wired into a scene (scenes/proof_pending.json)."""
@@ -328,6 +332,10 @@ def test_proof_pending_is_shrink_only(manifest, matrix_rows):
     """Every proof-pending row is a real SUPPORTED/APPROXIMATED matrix row that no scene tags yet; once a
     scene wires it the entry must be deleted (the registry may only shrink)."""
     by_pair = {(r["bl_idname"], r["socket_or_prop"]): r["classification"] for r in matrix_rows}
+    total = sum(len(p) for p in _proof_pending().values())
+    assert total <= PROOF_PENDING_BASELINE, (
+        f"proof_pending.json grew to {total} rows (baseline {PROOF_PENDING_BASELINE}): wire the new rows into a "
+        "scene (or file them as gaps) instead of exempting them")
     for family, pairs in _proof_pending().items():
         tagged = {(t["bl_idname"], t["socket_or_prop"])
                   for e in manifest["scenes"].values() if e.get("family") == family

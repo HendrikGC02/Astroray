@@ -29,6 +29,7 @@ version drift).
 """
 import argparse
 import ast
+import copy
 import inspect
 import json
 import os
@@ -791,6 +792,33 @@ class _VMReadCollector(ast.NodeVisitor):
             if prop:
                 self.props_read.add(prop)
 
+    def _rewrite(self, expr):
+        """Copy of a guard with each `node.P` / `getattr(node, 'P', ...)` replaced by the Name `__node_P`
+        (bound to a config value at evaluation time; registered in `var_props`)."""
+        collector = self
+
+        class _Rewrite(ast.NodeTransformer):
+            def _swap(self, node):
+                prop = collector._node_prop(node)
+                if prop is None:
+                    return None
+                collector.var_props['__node_' + prop] = prop
+                return ast.copy_location(ast.Name(id='__node_' + prop, ctx=ast.Load()), node)
+
+            def visit_Attribute(self, node):
+                return self._swap(node) or self.generic_visit(node)
+
+            def visit_Call(self, node):
+                return self._swap(node) or self.generic_visit(node)
+
+        return _Rewrite().visit(copy.deepcopy(expr))
+
+    def push_initial(self, guards):
+        """Guards the whole dispatch branch sits under (compound `ntype == 'X' and <cond>` tests, and the
+        negation of earlier compound branches of the same node type)."""
+        self._guards = [self._rewrite(g) for g in guards]
+        self._semantic = bool(guards)
+
     @staticmethod
     def _semantic_conjuncts(test):
         """The non-arity conjuncts of a guard (`op in X and len(ins) > 3` -> [`op in X`])."""
@@ -826,17 +854,17 @@ class _VMReadCollector(ast.NodeVisitor):
             if accepted is not None and self.accepted_types is None:
                 self.accepted_types = accepted
         if any(isinstance(stmt, ast.Raise) for stmt in node.body):
-            self.reject_tests.append(node.test)
+            self.reject_tests.append((self._rewrite(node.test), tuple(self._guards)))
         prev = self._semantic
         depth = len(self._guards)
         if not arity:
             self._semantic = True
-        self._guards.extend(self._semantic_conjuncts(node.test))
+        self._guards.extend(self._rewrite(g) for g in self._semantic_conjuncts(node.test))
         for stmt in node.body:
             self.visit(stmt)
         del self._guards[depth:]
         if not arity:
-            self._guards.append(ast.UnaryOp(op=ast.Not(), operand=node.test))
+            self._guards.append(ast.UnaryOp(op=ast.Not(), operand=self._rewrite(node.test)))
         for stmt in node.orelse:
             self.visit(stmt)
         del self._guards[depth:]
@@ -851,11 +879,11 @@ class _VMReadCollector(ast.NodeVisitor):
             self._record_guard(node.test)
         self._note_props(node.test)
         self.visit(node.test)
-        self._guards.extend(self._semantic_conjuncts(node.test))
+        self._guards.extend(self._rewrite(g) for g in self._semantic_conjuncts(node.test))
         self.visit(node.body)
         del self._guards[depth:]
         if not arity:
-            self._guards.append(ast.UnaryOp(op=ast.Not(), operand=node.test))
+            self._guards.append(ast.UnaryOp(op=ast.Not(), operand=self._rewrite(node.test)))
         self.visit(node.orelse)
         del self._guards[depth:]
         self._semantic = prev
@@ -969,7 +997,8 @@ def _conditional_reads_cover(node_info, vm_evidence, reads, socket_identifier):
             continue
         env = dict(vm_evidence['consts'])
         env.update({v: value for v in bound})
-        if any(_guard_value(t, env) is True for t in vm_evidence['reject_tests']):
+        if any(_guard_value(t, env) is True and not any(_guard_value(g, env) is False for g in under)
+               for t, under in vm_evidence['reject_tests']):
             continue
         seen = True
         ok = False
@@ -1034,13 +1063,21 @@ def scan_vm_socket_evidence(addon_module, vm_path=None):
                if name.startswith('_compile_') and name != '_compile_socket_value'}
 
     evidence = {}
+    earlier_extras = {}  # node type -> compound-branch conditions of the branches before this one
     for stmt in dispatch.body:
         if not isinstance(stmt, ast.If):
             continue
+        # A compound test (`ntype == 'MATH' and getattr(node, 'operation', None) in MATH_TRIG`) selects a
+        # configuration: its extra conjuncts guard that branch, and their negation guards the later
+        # branches of the same node type (the dispatch is a first-match if-chain).
+        extras = ([v for v in stmt.test.values if not _vm_branch_literals(v)]
+                  if isinstance(stmt.test, ast.BoolOp) and isinstance(stmt.test.op, ast.And) else [])
         for node_type in _vm_branch_literals(stmt.test):
             if not isinstance(node_type, str):
                 continue
             collector = _VMReadCollector(helpers)
+            collector.push_initial(list(extras) + [ast.UnaryOp(op=ast.Not(), operand=e)
+                                                   for e in earlier_extras.get(node_type, [])])
             for body_stmt in stmt.body:
                 collector.visit(body_stmt)
             entry = evidence.setdefault(node_type, {
@@ -1072,6 +1109,9 @@ def scan_vm_socket_evidence(addon_module, vm_path=None):
                 if guard not in entry['semantic_guards']:
                     entry['semantic_guards'].append(guard)
             entry['source_lines'].append(stmt.lineno)
+            if extras:
+                earlier_extras.setdefault(node_type, []).append(
+                    extras[0] if len(extras) == 1 else ast.BoolOp(op=ast.And(), values=extras))
 
     print(f"[pkg119] #823 op-VM per-socket evidence: {len(evidence)} dispatch "
           f"node types ({', '.join(sorted(evidence))})")

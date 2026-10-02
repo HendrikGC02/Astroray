@@ -30,6 +30,7 @@ OPS = {'ADD': 0, 'MUL': 1, 'MAD': 2, 'WRAPLIKE': 3}
 TERNARY = {'MAD'}
 USE_SCALE = {'SCALE', 'REFRACT'}
 VEC_OPS = {'ADD': 0, 'SCALE': 1, 'REFRACT': 2}
+TRIG = {'SIN'}
 
 
 def _get_input(node, *names):
@@ -58,6 +59,16 @@ def _compile_socket_value(socket, builder, depth=0):
         if getattr(node, 'use_clamp', False):
             pass
         return a
+    if ntype == 'TM' and getattr(node, 'operation', None) in TRIG:   # compound dispatch test
+        compile_socket(node.inputs[0], builder, depth + 1)
+        return 0
+    if ntype == 'TM':
+        op = node.operation
+        if op not in OPS:
+            raise VMCompileError("unsupported op")
+        compile_socket(node.inputs[0], builder, depth + 1)
+        compile_socket(node.inputs[1], builder, depth + 1)
+        return 0
     if ntype == 'RAMP':
         return compile_socket(_get_input(node, 'Fac'), builder, depth + 1)
     if ntype == 'VMATH':
@@ -101,7 +112,7 @@ def _classify(vm, node_type, sockets, props, enum_configs):
 
 
 def test_dispatch_discovers_exactly_the_handled_nodes(vm):
-    assert set(vm) == {"MATH", "RAMP", "VMATH"}  # an unhandled node type has no branch and no evidence
+    assert set(vm) == {"MATH", "RAMP", "VMATH", "TM"}  # an unhandled node type has no branch and no evidence
 
 
 def test_name_or_identifier_read_credits_the_socket(vm):
@@ -149,6 +160,18 @@ def test_positional_guarded_read_with_arity_conjunct(vm):
     bad = _classify(vm, "VMATH", socks, {"operation": "ENUM"},
                     {"operation": {"SCALE": ["Vector", "Scale"], "ADD": ["Vector", "Scale"]}})
     assert "Scale" not in bad["supported_socket_ids"]  # ADD enables Scale in this config but the compiler skips it
+
+
+def test_compound_dispatch_test_guards_its_branch_and_the_later_branches(vm):
+    """`if ntype == 'TM' and op in TRIG:` reads only operand 0; the plain `ntype == 'TM'` branch is reached only
+    for the other operations. A socket Blender enables for a TRIG operation is therefore NOT consumed."""
+    socks = [_sock("Value"), _sock("Value", "Value_001")]
+    leaky = _classify(vm, "TM", socks, {"operation": "ENUM"},
+                      {"operation": {"ADD": ["Value", "Value_001"], "SIN": ["Value", "Value_001"]}})
+    assert leaky["supported_socket_ids"] == {"Value"}
+    tight = _classify(vm, "TM", socks, {"operation": "ENUM"},
+                      {"operation": {"ADD": ["Value", "Value_001"], "SIN": ["Value"]}})
+    assert tight["supported_socket_ids"] == {"Value", "Value_001"}
 
 
 def test_procedural_vector_read_only_for_the_proc_types(tmp_path):

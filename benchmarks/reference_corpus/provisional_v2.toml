@@ -251,7 +251,7 @@ reason = "thin-film Ti single-channel outliers: 30-seed CPU mean r 1.04 of Cycle
 scene = "v2_dispersion_caustics"
 backend = "cpu"
 roi = "prism_sun_caustic_floor"
-channels = ["g", "b", "L"]
+channels = ["g", "b"]  # L un-xfailed by #1020: the film no longer adds white to the firefly pixel (seed 278 L 2.03 -> 1.09, pin 0.248)
 issue = "#986"
 reason = "firefly lottery: 1/15 seeds on main, 2/15 with pkg305 carry a firefly (G 0.3-3.1 vs 0.022); medians equal"
 

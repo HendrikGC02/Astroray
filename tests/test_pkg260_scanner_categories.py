@@ -123,11 +123,21 @@ def test_image_property_category_rows_present(matrix_rows):
     assert present == IMAGE_PROPERTY_ROW_KEYS
 
 
-def test_image_property_all_dropped_silent(matrix_rows):
+# #996 / #872: a fresh regeneration finds the two reads the addon gained after pkg260 (the Image
+# Texture node's `extension` -> load_blender_image, and `colorspace_settings` for the sRGB/linear
+# decision); the other four stay unread.
+IMAGE_PROPERTY_SUPPORTED = {
+    ("image_property", "Image", "", "colorspace_settings.name"),
+    ("image_property", "ShaderNodeTexImage", "ShaderNodeTexImage", "extension"),
+}
+
+
+def test_image_property_only_scanned_reads_supported(matrix_rows):
     rows = [r for r in matrix_rows if r["category"] == "image_property"]
     assert len(rows) == 6
     for r in rows:
-        assert r["classification"] == "DROPPED-SILENT", r
+        expected = "SUPPORTED" if _row_key(r) in IMAGE_PROPERTY_SUPPORTED else "DROPPED-SILENT"
+        assert r["classification"] == expected, r
 
 
 # ---------------------------------------------------------------------------

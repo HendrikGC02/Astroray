@@ -37,7 +37,10 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-import bpy  # type: ignore
+try:
+    import bpy  # type: ignore
+except ImportError:  # the AST scanners below are importable (and unit-tested) outside Blender
+    bpy = None
 
 
 # =============================================================================
@@ -746,12 +749,56 @@ class _VMReadCollector(ast.NodeVisitor):
         self._semantic = False
         self._following = set()
         self._input_aliases = set()
+        # #996: property reads, the local variables bound to a node property (`op = node.operation`),
+        # every semantic-guarded read with the guard expressions it sits under, and the `if ...: raise`
+        # tests (a configuration for which one holds is rejected -- the compiler raises and the addon
+        # reports the fallback, so it is not a silent drop).
+        self.props_read = set()
+        self.var_props = {}
+        self.conditional_reads = []
+        self.reject_tests = []
+        self._guards = []
 
     def _add_named(self, name):
-        (self.conditional_named if self._semantic else self.named).add(name)
+        if self._semantic:
+            self.conditional_named.add(name)
+            self.conditional_reads.append(('named', name, tuple(self._guards)))
+        else:
+            self.named.add(name)
 
     def _add_positional(self, index):
-        (self.conditional_positional if self._semantic else self.positional).add(index)
+        if self._semantic:
+            self.conditional_positional.add(index)
+            self.conditional_reads.append(('positional', index, tuple(self._guards)))
+        else:
+            self.positional.add(index)
+
+    @staticmethod
+    def _node_prop(expr):
+        """Property name for `node.P` / `getattr(node, 'P', ...)`, else None."""
+        if (isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name)
+                and expr.value.id == 'node' and isinstance(expr.ctx, ast.Load)):
+            return expr.attr
+        if (isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id == 'getattr'
+                and len(expr.args) >= 2 and isinstance(expr.args[0], ast.Name) and expr.args[0].id == 'node'
+                and isinstance(expr.args[1], ast.Constant) and isinstance(expr.args[1].value, str)):
+            return expr.args[1].value
+        return None
+
+    def _note_props(self, expr):
+        for sub in ast.walk(expr):
+            prop = self._node_prop(sub)
+            if prop:
+                self.props_read.add(prop)
+
+    @staticmethod
+    def _semantic_conjuncts(test):
+        """The non-arity conjuncts of a guard (`op in X and len(ins) > 3` -> [`op in X`])."""
+        if _is_arity_or_capability_guard(test):
+            return []
+        if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
+            return [v for v in test.values if not _is_arity_or_capability_guard(v)]
+        return [test]
 
     def _record_guard(self, test):
         try:
@@ -772,29 +819,45 @@ class _VMReadCollector(ast.NodeVisitor):
 
     def visit_If(self, node):
         arity = _is_arity_or_capability_guard(node.test)
+        self._note_props(node.test)
         if not arity:
             self._record_guard(node.test)
             accepted = _accepted_type_guard(node.test, node.body)
             if accepted is not None and self.accepted_types is None:
                 self.accepted_types = accepted
+        if any(isinstance(stmt, ast.Raise) for stmt in node.body):
+            self.reject_tests.append(node.test)
         prev = self._semantic
+        depth = len(self._guards)
         if not arity:
             self._semantic = True
+        self._guards.extend(self._semantic_conjuncts(node.test))
         for stmt in node.body:
             self.visit(stmt)
+        del self._guards[depth:]
+        if not arity:
+            self._guards.append(ast.UnaryOp(op=ast.Not(), operand=node.test))
         for stmt in node.orelse:
             self.visit(stmt)
+        del self._guards[depth:]
         self._semantic = prev
 
     def visit_IfExp(self, node):
         arity = _is_arity_or_capability_guard(node.test)
         prev = self._semantic
+        depth = len(self._guards)
         if not arity:
             self._semantic = True
             self._record_guard(node.test)
+        self._note_props(node.test)
         self.visit(node.test)
+        self._guards.extend(self._semantic_conjuncts(node.test))
         self.visit(node.body)
+        del self._guards[depth:]
+        if not arity:
+            self._guards.append(ast.UnaryOp(op=ast.Not(), operand=node.test))
         self.visit(node.orelse)
+        del self._guards[depth:]
         self._semantic = prev
 
     def visit_Assign(self, node):
@@ -802,10 +865,24 @@ class _VMReadCollector(ast.NodeVisitor):
             for tgt in node.targets:
                 if isinstance(tgt, ast.Name):
                     self._input_aliases.add(tgt.id)
+        prop = self._node_prop(node.value)
+        if prop:
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name):
+                    self.var_props[tgt.id] = prop
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node):
+        prop = self._node_prop(node)
+        if prop:
+            self.props_read.add(prop)
         self.generic_visit(node)
 
     def visit_Call(self, node):
         f = node.func
+        prop = self._node_prop(node)
+        if prop:
+            self.props_read.add(prop)
         if isinstance(f, ast.Name) and f.id == '_get_input':
             for arg in node.args[1:]:
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
@@ -826,7 +903,87 @@ class _VMReadCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def scan_vm_socket_evidence(addon_module):
+def _literal_collection(expr):
+    """frozenset of the members of a literal dict (keys) / set / tuple / list / `frozenset(<literal>)`,
+    else None."""
+    if (isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name)
+            and expr.func.id in ('frozenset', 'set') and len(expr.args) == 1):
+        expr = expr.args[0]
+    try:
+        value = ast.literal_eval(expr)
+    except (ValueError, TypeError, SyntaxError):
+        return None
+    if isinstance(value, (dict, set, frozenset, tuple, list)):
+        try:
+            return frozenset(value)
+        except TypeError:
+            return None
+    return None
+
+
+def _module_constants(tree):
+    """Module-level `NAME = <literal collection>` assignments (#996): what the dispatch guards
+    (`op in MATH_TERNARY`, `op not in MATH_OPS`) test membership in. Pure AST, no import."""
+    out = {}
+    for stmt in tree.body:
+        if (isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)):
+            value = _literal_collection(stmt.value)
+            if value is not None:
+                out[stmt.targets[0].id] = value
+    return out
+
+
+def _guard_value(expr, env):
+    """Evaluate a guard expression over `env`; None when it references anything unresolved."""
+    try:
+        tree = ast.fix_missing_locations(ast.Expression(body=expr))
+        return bool(eval(compile(tree, '<guard>', 'eval'), {'__builtins__': {}}, dict(env)))
+    except Exception:
+        return None
+
+
+def _conditional_reads_cover(node_info, vm_evidence, reads, socket_identifier):
+    """#996 -- is a socket read only under semantic guards nevertheless consumed in EVERY configuration
+    in which Blender shows it?
+
+    For each value of the (single) enum property the guards test, the socket must be enabled (Blender's
+    own enabled set, recorded by the enumerator) and the compiler must accept the configuration (no
+    `if <test>: raise` fires -- a rejection is a reported fallback, not a silent drop) before the
+    guards are required to hold. Covered iff at least one such configuration exists and every one of
+    them satisfies some read's guards. Anything unresolvable is not credited."""
+    var_props = vm_evidence['var_props']
+    names = {n.id for _, _, guards in reads for g in guards for n in ast.walk(g)
+             if isinstance(n, ast.Name) and n.id in var_props}
+    props = {var_props[n] for n in names}
+    if len(props) != 1:
+        return False
+    prop = next(iter(props))
+    configs = node_info.get('enum_configs', {}).get(prop)
+    if not configs:
+        return False
+    bound = [v for v, p in var_props.items() if p == prop]
+    seen = False
+    for value, enabled in configs.items():
+        if socket_identifier not in enabled:
+            continue
+        env = dict(vm_evidence['consts'])
+        env.update({v: value for v in bound})
+        if any(_guard_value(t, env) is True for t in vm_evidence['reject_tests']):
+            continue
+        seen = True
+        ok = False
+        for _, _, guards in reads:
+            results = [_guard_value(g, env) for g in guards]
+            if all(r is True for r in results):
+                ok = True
+                break
+        if not ok:
+            return False
+    return seen
+
+
+def scan_vm_socket_evidence(addon_module, vm_path=None):
     """#823 -- PER-SOCKET AST evidence for the op-VM compiler dispatch.
 
     `scan_vm_and_vector_supported_types` above returns whole-node types handled
@@ -855,14 +1012,16 @@ def scan_vm_socket_evidence(addon_module):
     `inputs[i]` accesses; the data-type gate is the compiler's own
     `not in (...)` guard. No hand-written node/socket table.
     """
-    addon_path = inspect.getfile(addon_module.CustomRaytracerRenderEngine)
-    vm_path = Path(addon_path).parent / 'shader_vm_compiler.py'
+    if vm_path is None:
+        addon_path = inspect.getfile(addon_module.CustomRaytracerRenderEngine)
+        vm_path = Path(addon_path).parent / 'shader_vm_compiler.py'
     try:
         with open(vm_path, 'r', encoding='utf-8') as f:
             tree = ast.parse(f.read())
     except (OSError, SyntaxError) as exc:
         print(f"[pkg119] #823 FATAL: cannot parse shader_vm_compiler.py: {exc}")
         sys.exit(1)
+    consts = _module_constants(tree)  # #996: literal sets/dicts the dispatch guards test membership in
 
     functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
     dispatch = functions.get('_compile_socket_value')
@@ -892,11 +1051,21 @@ def scan_vm_socket_evidence(addon_module):
                 'accepted_types': None,
                 'semantic_guards': [],
                 'source_lines': [],
+                # #996: properties read, and the guard algebra needed to decide conditional reads.
+                'props_read': set(),
+                'var_props': {},
+                'conditional_reads': [],
+                'reject_tests': [],
+                'consts': consts,
             })
             entry['named'] |= collector.named
             entry['positional'] |= collector.positional
             entry['conditional_named'] |= collector.conditional_named
             entry['conditional_positional'] |= collector.conditional_positional
+            entry['props_read'] |= collector.props_read
+            entry['var_props'].update(collector.var_props)
+            entry['conditional_reads'] += collector.conditional_reads
+            entry['reject_tests'] += collector.reject_tests
             if collector.accepted_types is not None:
                 entry['accepted_types'] = collector.accepted_types
             for guard in collector.semantic_guards:
@@ -1083,12 +1252,35 @@ def enumerate_shader_nodes_via_bpy_types():
                     except (AttributeError, KeyError):
                         pass
 
+            # #996: which input sockets Blender enables for each value of each enum property (Math's third
+            # operand only for ternary ops, Vector Math's Scale only for SCALE/REFRACT). Guard-conditional
+            # compiler reads are checked against this, not against a hand-typed table.
+            enum_configs = {}
+            for prop_name, prop_info in properties.items():
+                if prop_info['type'] != 'ENUM':
+                    continue
+                original = getattr(node, prop_name, None)
+                per_value = {}
+                for item in prop_info.get('enum_items', []):
+                    try:
+                        setattr(node, prop_name, item)
+                    except (AttributeError, TypeError, ValueError, RuntimeError):
+                        continue
+                    per_value[item] = sorted(i.identifier for i in node.inputs if getattr(i, 'enabled', True))
+                try:
+                    setattr(node, prop_name, original)
+                except (AttributeError, TypeError, ValueError, RuntimeError):
+                    pass
+                if per_value:
+                    enum_configs[prop_name] = per_value
+
             results.append({
                 'bl_idname': bl_idname,
                 'node_type': getattr(node, 'type', ''),
                 'sockets_in': sockets_in,
                 'sockets_out': sockets_out,
                 'properties': properties,
+                'enum_configs': enum_configs,
             })
 
         except Exception as exc:
@@ -1281,8 +1473,9 @@ def _classify_compiler_node(node_info, evidence, vm_evidence):
     accepted = vm_evidence.get('accepted_types')
     supported_ids = set()
     supported_names = set()
-    # ``_get_input(node, 'Name')`` delegates to ``node.inputs.get('Name')``.
-    # RNA returns the first same-named socket even if it is disabled.  Map
+    # ``_get_input(node, 'Name')`` delegates to ``node.inputs.get('Name')``, which resolves a socket by
+    # its identifier OR its (first same-named) UI name (#996: Color Ramp's `Fac` is named `Factor` in
+    # Blender 5).  RNA returns the first same-named socket even if it is disabled.  Map
     # Range exposes FLOAT and FLOAT_VECTOR duplicates (From Min, etc.); only
     # the first FLOAT occurrence is the compiler operand.  A data-type-gated
     # helper such as modern Mix is different: it selects its enabled inputs
@@ -1290,20 +1483,26 @@ def _classify_compiler_node(node_info, evidence, vm_evidence):
     first_named_index = {}
     for index, sock in enumerate(node_info['sockets_in']):
         first_named_index.setdefault(sock['name'], index)
+    named, positional = vm_evidence['named'], vm_evidence['positional']
     for index, sock in enumerate(node_info['sockets_in']):
         name = sock['name']
-        if name in vm_evidence['conditional_named']:
-            continue
-        if index in vm_evidence['conditional_positional']:
-            continue
-        if name not in vm_evidence['named'] and index not in vm_evidence['positional']:
-            continue
-        if (accepted is None and name in vm_evidence['named']
-                and index != first_named_index[name]):
-            continue
+        ident = sock.get('identifier', name)
         if accepted is not None and not _socket_variant_accepted(sock, accepted):
             continue
-        supported_ids.add(sock['identifier'])
+        by_ident = ident in named
+        by_name = name in named and not by_ident
+        unconditional = by_ident or name in named or index in positional
+        if unconditional:
+            if (accepted is None and by_name and index != first_named_index[name]
+                    and index not in positional):
+                continue
+        else:
+            reads = [r for r in vm_evidence.get('conditional_reads', ())
+                     if (r[0] == 'named' and (r[1] == ident or (r[1] == name and index == first_named_index[name])))
+                     or (r[0] == 'positional' and r[1] == index)]
+            if not reads or not _conditional_reads_cover(node_info, vm_evidence, reads, ident):
+                continue
+        supported_ids.add(ident)
         supported_names.add(name)
 
     note = ('op-VM compiler dispatch (#823): per-socket AST evidence from '
@@ -1314,8 +1513,8 @@ def _classify_compiler_node(node_info, evidence, vm_evidence):
                  'non-uniform VECTOR factor_mode) are not claimed by this '
                  'socket-only matrix')
     if vm_evidence.get('semantic_guards'):
-        note += ('; conditional reads not credited: '
-                 + ' | '.join(vm_evidence['semantic_guards']))
+        note += ('; guarded reads credited only where the guard holds for every enabled configuration '
+                 'the compiler accepts (#996): ' + ' | '.join(vm_evidence['semantic_guards']))
     return {
         'classification': cls,
         'sockets_supported': sorted(supported_names),
@@ -1325,8 +1524,11 @@ def _classify_compiler_node(node_info, evidence, vm_evidence):
         # A_Float/A_Vector/A_Color/A_Rotation all named "A"). generate_matrix
         # consumes this instead of the name-based fields for these nodes.
         'supported_socket_ids': supported_ids,
+        # #996: every property the dispatch branch reads is consumed; a value it cannot represent
+        # raises VMCompileError and the addon reports "op-VM ... not representable" (never silent).
         'properties_supported': sorted(
-            set(node_info['properties'].keys()) & base.get('properties', set())),
+            set(node_info['properties'].keys())
+            & (base.get('properties', set()) | vm_evidence.get('props_read', set()))),
         'notes': note,
     }
 
@@ -1782,7 +1984,7 @@ def write_markdown_report(matrix_rows, stale_socket_findings, output_path: Path)
             f.write("These socket names appear in UNGUARDED addon reads but do NOT exist on the live node.\n")
             f.write("The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.\n")
             f.write("**Each entry is a real latent bug.**\n\n")
-            for finding in genuine_bugs:
+            for finding in sorted(genuine_bugs, key=lambda f: (f['node_type'], f['stale_socket_name'])):  # set-ordered scan: sort for a reproducible report (#872)
                 node_type = finding['node_type']
                 stale_name = finding['stale_socket_name']
                 lines = ', '.join(f"line {ln}" for ln in finding['source_lines'])
@@ -1795,7 +1997,7 @@ def write_markdown_report(matrix_rows, stale_socket_findings, output_path: Path)
             f.write("(second arg in `_float_with_fallback(node, 'New', 'Old')`) ")
             f.write("but do NOT exist in Blender 5.1. They are dormant — only activate if the ")
             f.write("primary name also doesn't exist. Informational, not bugs.\n\n")
-            for finding in dormant_fallbacks:
+            for finding in sorted(dormant_fallbacks, key=lambda f: (f['node_type'], f['stale_socket_name'])):  # set-ordered scan: sort for a reproducible report (#872)
                 node_type = finding['node_type']
                 stale_name = finding['stale_socket_name']
                 lines = ', '.join(f"line {ln}" for ln in finding['source_lines'])
@@ -1873,6 +2075,95 @@ def _apply_displacement_evidence(evidence):
     return evidence
 
 
+def scan_procedural_input_evidence(addon_module, addon_path=None):
+    """#996 -- sockets the addon reads off a LINKED procedural-texture node itself.
+
+    `get_base_color_texture` routes a texture node feeding a shader input through
+    `load_procedural_texture(node, ..., vector_input=<node>.inputs.get('Vector'))` when the node's type
+    is in its local `PROC_TYPES = {...}` set: the procedural's Vector input (Mapping / Texture
+    Coordinate wiring, or a warp chain the coordinate op-VM resolves) is consumed there, a path
+    neither the `convert_shader_node` scanner nor the op-VM dispatch scan opens. Returns
+    {node_type: {socket names read}} from that function's AST (the `if x.type in PROC_TYPES:` branch).
+    """
+    if addon_path is None:
+        addon_path = inspect.getfile(addon_module.CustomRaytracerRenderEngine)
+    try:
+        with open(addon_path, 'r', encoding='utf-8') as f:
+            tree = ast.parse(f.read())
+    except (OSError, SyntaxError):
+        return {}
+    out = {}
+    for fn in ast.walk(tree):
+        if not (isinstance(fn, ast.FunctionDef) and fn.name == 'get_base_color_texture'):
+            continue
+        local = {}
+        for sub_ in ast.walk(fn):
+            if (isinstance(sub_, ast.Assign) and len(sub_.targets) == 1
+                    and isinstance(sub_.targets[0], ast.Name)):
+                value = _literal_collection(sub_.value)
+                if value is not None:
+                    local[sub_.targets[0].id] = value
+        for branch in ast.walk(fn):
+            if not (isinstance(branch, ast.If) and isinstance(branch.test, ast.Compare)
+                    and len(branch.test.ops) == 1 and isinstance(branch.test.ops[0], ast.In)
+                    and isinstance(branch.test.comparators[0], ast.Name)
+                    and branch.test.comparators[0].id in local):
+                continue
+            reads = set()
+            for call in (n for stmt in branch.body for n in ast.walk(stmt) if isinstance(n, ast.Call)):
+                f = call.func
+                if (isinstance(f, ast.Attribute) and f.attr == 'get' and isinstance(f.value, ast.Attribute)
+                        and f.value.attr == 'inputs' and call.args
+                        and isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str)):
+                    reads.add(call.args[0].value)
+            for node_type in local[branch.test.comparators[0].id]:
+                out.setdefault(node_type, set()).update(reads)
+    print(f"[pkg119] #996 procedural-texture input reads: "
+          f"{', '.join(f'{t}:{sorted(r)}' for t, r in sorted(out.items()))}")
+    return out
+
+
+def _apply_procedural_input_evidence(evidence, procedural_reads):
+    """Credit the sockets `scan_procedural_input_evidence` found for the texture types that already have
+    a scanned handler (a node with no handler stays DROPPED-SILENT)."""
+    for node_type, sockets in procedural_reads.items():
+        if node_type in evidence:
+            evidence[node_type]['sockets'] = set(evidence[node_type]['sockets']) | sockets
+    return evidence
+
+
+# Rows whose evidence the AST scanners cannot see (#872). TEX_SKY is consumed by setup_world's
+# `node.type == 'TEX_SKY'` branch -> sky_bake.py (pkg256, PR #793), outside every scanned function; the
+# runtime degradation warning names each dropped socket. Hand-verified rows live HERE (reproducible by a
+# regeneration) rather than being hand-edited into coverage_matrix.json.
+SCANNER_BLIND_OVERRIDES = {
+    ('TEX_SKY', 'prop:aerosol_density'): (
+        'APPROXIMATED', 'folded into effective Perez turbidity for the Nishita family (pkg256, approx)'),
+    ('TEX_SKY', 'prop:air_density'): (
+        'DROPPED-SILENT',
+        ('Rayleigh axis (more air -> bluer); folding onto Perez turbidity (a haziness axis) would invert '
+         'its direction, so dropped + named in the runtime degradation warning (pkg256, PR #793 review)')),
+    ('TEX_SKY', 'prop:sky_type'): (
+        'APPROXIMATED', 'sky_type -> Preetham turbidity source (pkg256, Preetham/Perez bake)'),
+    ('TEX_SKY', 'prop:sun_elevation'): (
+        'APPROXIMATED', 'drives baked sun elevation in the equirect image (pkg256)'),
+    ('TEX_SKY', 'prop:sun_rotation'): (
+        'APPROXIMATED', 'drives baked sun azimuth in the equirect image (pkg256)'),
+    ('TEX_SKY', 'prop:turbidity'): (
+        'APPROXIMATED', 'Perez turbidity for PREETHAM/HOSEK_WILKIE sky_type (pkg256)'),
+}
+
+
+def _apply_scanner_blind_overrides(matrix_rows):
+    for row in matrix_rows:
+        if row['category'] != 'shader_node':
+            continue
+        override = SCANNER_BLIND_OVERRIDES.get((row['feature'], row['socket_or_prop']))
+        if override:
+            row['classification'], row['notes'] = override
+    return matrix_rows
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate Blender parity coverage matrix (AST-scanned)")
     parser.add_argument('--out', type=str, default='docs/blender_parity',
@@ -1889,10 +2180,12 @@ def main():
     vm_supported_types = scan_vm_and_vector_supported_types(addon_module)
     vm_socket_evidence = scan_vm_socket_evidence(addon_module)  # #823
     evidence = _apply_displacement_evidence(evidence)
+    evidence = _apply_procedural_input_evidence(evidence, scan_procedural_input_evidence(addon_module))  # #996
     found_attrs, compare_literals = scan_object_image_evidence(addon_module)  # pkg260
 
     matrix_rows, stale_socket_findings = generate_matrix(
         evidence, vm_supported_types, found_attrs, compare_literals, vm_socket_evidence)
+    matrix_rows = _apply_scanner_blind_overrides(matrix_rows)  # #872
 
     output_dir = Path(args.out)
     write_json_report(matrix_rows, output_dir / "coverage_matrix.json")

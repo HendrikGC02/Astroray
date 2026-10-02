@@ -62,14 +62,16 @@ def _assert_823_op_vm_per_socket_evidence(rows):
 
     Positive: sockets the compiler unconditionally consumes for every node
     configuration. Negative: sockets with no read, or a read reachable only
-    under a semantic guard the socket-only matrix cannot represent (Math's
-    MATH_TERNARY third operand, Map Range's Steps, Mix's rotation variants and
+    under a semantic guard that does not hold for every live configuration (Map Range's Steps, Mix's rotation variants and
     its never-enabled Factor_Vector)."""
     # Math: two unconditional positional reads.
     for sock in ('input:Value', 'input:Value[Value_001]'):
         assert _row_classification(rows, 'MATH', sock) == 'SUPPORTED', sock
-    # Math: third operand read only for MULTIPLY_ADD -> conservatively dropped.
-    assert _row_classification(rows, 'MATH', 'input:Value[Value_002]') == 'DROPPED-SILENT'
+    # Math: the third operand is read only under `op in MATH_TERNARY`. #996 evaluates that guard for
+    # every operation Blender enables the socket for AND the compiler accepts (COMPARE / WRAP / SMOOTH_MIN
+    # are not in MATH_OPS: rejected with a reported fallback), so it is consumed in every live
+    # configuration -> SUPPORTED (was conservatively dropped before the guard was evaluated).
+    assert _row_classification(rows, 'MATH', 'input:Value[Value_002]') == 'SUPPORTED'
 
     # Map Range: five named reads.
     for sock in ('input:Value', 'input:From Min', 'input:From Max',
@@ -158,7 +160,8 @@ def test_blender_parity_matrix_generation():
     ]
 
     print(f"\n[test_blender_parity_matrix] Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=120)
+    result = subprocess.run(cmd, env=env, capture_output=True, text=True, encoding='utf-8',
+                            errors='replace', timeout=120)  # the generator prints UTF-8 (warning glyphs)
 
     # Print output for debugging
     print(result.stdout)
@@ -198,6 +201,15 @@ def test_blender_parity_matrix_generation():
 
     # #823 -- per-socket op-VM evidence must hold in the FRESH matrix too.
     _assert_823_op_vm_per_socket_evidence(matrix_rows)
+
+    # #872/#996 -- a regeneration reproduces the committed matrix (it carries no hand edits). The socket
+    # set is Blender-version specific and the committed file was generated on 5.2.
+    if "Blender version: 5.2" in result.stdout:
+        committed = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
+        assert matrix_rows == committed, (
+            "docs/blender_parity/coverage_matrix.json is not the generator's output; regenerate with "
+            "`blender -b --factory-startup --python scripts/generate_blender_parity_matrix.py -- "
+            "--out docs/blender_parity` (move any hand-verified row into SCANNER_BLIND_OVERRIDES)")
 
     # Print summary
     from collections import defaultdict

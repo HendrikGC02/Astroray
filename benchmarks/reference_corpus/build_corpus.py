@@ -161,6 +161,12 @@ def _build_one(bpy, scene_id: str, out_dir: Path, assign, overrides, matrix_rows
     elif scene_id == "camera_lens_ortho":
         family_rows = [r for r in family_rows if r["socket_or_prop"] in ortho_socks]
 
+    # #996: SUPPORTED/APPROXIMATED rows the scanner credits but no scene wires yet (scenes/proof_pending.json,
+    # shrink-only; tests/test_reference_corpus_manifest.py fails a stale entry). Not a tag, not a gap card.
+    pending_path = out_dir / "proof_pending.json"
+    pending = {(r["bl_idname"], r["socket_or_prop"])
+               for r in (json.loads(pending_path.read_text(encoding="utf-8")).get(scene_id, [])
+                         if pending_path.is_file() else [])}
     feature_tags = []
     missing = []
     covered_pairs = set()
@@ -173,7 +179,7 @@ def _build_one(bpy, scene_id: str, out_dir: Path, assign, overrides, matrix_rows
                                           "classification")},
                                       "gap_card": False})
                 covered_pairs.add(pair)
-            else:
+            elif pair not in pending:
                 missing.append(row)
         elif row["classification"] == "DROPPED-SILENT":
             if pair in gap_set:

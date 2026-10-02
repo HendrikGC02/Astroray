@@ -1,5 +1,19 @@
 # Astroray Status
 
+## 2026-10-02 CURRENT — long-haul run closeout (2026-09-29 -> 2026-10-02)
+
+**Merged:** #984 pkg298, #985 (#953), #987 pkg311 P1, #999 pkg310, #1003 pkg305, #1008 pkg299 P0-1, #1009 (#988/#994/#989), #1011 (#1004/#1005), #1013 (#1012), #1014 pkg300 P0-1, #1010 (#1000). Direct to main: 54c54e7e (build script: negative exit codes no longer false-green), 89269a37 / d3beb878 / 1a13d7f0 / fdb7a530 (test tolerance fixes).
+
+**Headline numbers:**
+- **GPU speed:** Cornell 1024^2 256 spp 14.9 s -> ~4.7 s (pkg300 simple 13.43 -> 4.72 s 2.85x, heavy 15.00 -> 5.89 s 2.55x; build time 1.1x) on top of OptiX 9.1 traversal (pkg299, default on for triangle-only scenes): heavy 2M-tri Cornell 23.05 -> 13.74 s, 1.68x. JH scale bisection (#1013) 1.11x/1.13x. Watertight triangles (#1010): software-vs-OptiX closest-hit disagreements 217 -> 1.
+- **Noise:** pkg305 stratified camera group (Sobol-Burley filter, lens, hero wavelength): sky_sun bulk chroma/luminance variance vs Cycles at equal time 190x -> 4.2x (CPU+GPU), cost 0 %.
+- **pkg298:** CPU repeat render 1.03 -> 0.017 s, BVH build 1.0 -> 0.26 s; GPU repeat render 0.71 s (gate 0.3 s) and GPU 1e-6 match not met (#981).
+- **Principled layering (#985, #953):** diffuse 3-6 % dark vs Cycles fixed (furnace 0.972 -> 0.999).
+- **Stage 0 exit-gate row, production node corpus (pkg310):** baseline CPU 0/8, GPU 0/8 materials passing, 39 strict silent-drop pairs. After #1009/#1011 (`docs/pkg310-production-corpus-burndown.md`): still **0/8 CPU, 0/8 GPU**, but channels in band rose (marble CPU 11/16, GPU 8/16; pbr_group CPU 8/16, GPU 7/16; car_paint CPU 5/16, GPU 2/16).
+- **UI (pkg311 P1):** categorised node menu, node status badges, Black Hole sub-panels + presets, Draft/Preview/Final sampling presets.
+
+**Open follow-ups:** pkg299 Phase 2 (spheres/curves/motion) + #1001 (TTFS, IAS refit, shared OptiX context, transparent-shadow walk); pkg300 Phase 2 scene specialisation; #981 GPU device-scene cache; node: #1005 procedural Bump, #1006 Object-coord transform, #1007 per-hit procedurals (replaces the lossy 64^3 bake) in flight; #1015 progressive-Sobol test fails on main; #853 GPU hair 11 % bright; #950 parity-harness `_pyd_dir`. CUDA 13 trial needs the owner to install the toolkit.
+
 ## 2026-09-27 HANDOVER — end of the Opus 5.5 lead session
 
 **After the 2026-09-27 closeout entry below, also merged:** #931 (Batch AF: CPU per-segment volume NEE #925, hero-λ proposal #848), #932 (GPU twin #929 + one-sided triangle-lamp NEE), #935 (GPU Disney 1.7–2× under a sun, #876), #936 (#862 CPU oracle HitRecord leak; #832 texel-centre env lookups). Envmap-Cornell GPU/CPU now 1.0002/1.0006/1.0006 (was red 1.122). Full suite on the last branch: 3638 passed. 20 PRs this session incl. Astra's #870/#871.

@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** in-progress — Phase 0+1 + default-on (2026-09-30): heavy Cornell 23.05 s -> 13.74 s; Phase 2 and #1001 follow-ups open
+**Status:** in-progress — Phases 0-1 done (PR #1008, 2026-10-01: OptiX 9.1 default on for triangle-only scenes, heavy 2M-tri Cornell 23.05 s -> 13.74 s, 1.68x; watertight triangles PR #1010 cut software-vs-OptiX disagreements 217 -> 1); Phase 2 (spheres, curves, motion) and #1001 follow-ups open
 **Estimated effort:** 6 sessions (~18 h): Phase 0 1, Phase 1 2, Phase 2 2, Phase 3 1
 **Depends on:** pkg298, pkg114, pkg225, pkg88
 

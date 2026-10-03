@@ -216,33 +216,13 @@ def test_spectral_melanin_distinct_and_red_dominant():
         f"clamped-upsample defect in the spectral hair path, not an absorption shape "
         f"difference.")
 
-    # (b) The spectral physical path differs meaningfully from the RGB triple
-    # SOMEWHERE in the parameter space. A silent fallback to the RGB triple would
-    # show ~0% divergence at every point; the power law diverges most where the
-    # pheomelanin exponent (lambda^-4.75) and the concentration are highest.
-    divergences = []
-    for melanin, redness in [(0.6, 0.0), (0.9, 0.5), (0.9, 1.0)]:
-        a = _render(use_gpu=False, spectral=False, melanin=melanin, redness=redness)
-        b = _render(use_gpu=False, spectral=True, melanin=melanin, redness=redness)
-        sa, _ = _hair_channel_sums(a)
-        sb, _ = _hair_channel_sums(b)
-        assert sa is not None and sb is not None, "too little hair coverage to gate"
-        ra = sa[0] / max(sa[2], 1e-9)
-        rb_ = sb[0] / max(sb[2], 1e-9)
-        rel = abs(rb_ - ra) / max(ra, 1e-9)
-        divergences.append(rel)
-        print(f"  melanin={melanin} redness={redness}: rgb R/B={ra:.3f} "
-              f"spectral R/B={rb_:.3f} rel={rel:.1%}")
-
-    # #1037: was > 1 %. Pre-fix the self-shadowed tuft was all coloured multi-strand
-    # light (rgb 16.7 vs spectral 15.2 R/B, ~9 %); the achromatic R-lobe glint now
-    # dilutes the R/B gap to ~0.7-1.0 % (seeds 225501/7/8, melanin 0.6), so the
-    # bound is 0.5 %: a silent RGB fallback still reads ~0 %.
-    assert max(divergences) > 0.005, (
-        f"spectral R/B tracks the RGB-triple R/B to within {max(divergences):.1%} at "
-        f"EVERY sampled (melanin, redness) point -- the spectral melanin seam appears "
-        f"not engaged (it should follow the physical power law, not the Cycles RGB "
-        f"coefficients).")
+    # (b) REMOVED (#1037 follow-up). The render-level spectral-vs-RGB R/B
+    # comparison cannot discriminate a silent fallback: the lambda^-3.33 /
+    # lambda^-4.75 power laws are anchored at 550 nm to the Cycles green
+    # coefficient and integrate to nearly the Cycles RGB triple, so the R/B
+    # difference is physically <= 0.4 % (backlit, noise 0.3 %) and is noise-level
+    # (+-1-8 % per seed) in the front-lit tuft. Seam engagement is checked
+    # deterministically by the sigma_a binding test instead.
 
 
 # ---------------------------------------------------------------------------

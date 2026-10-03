@@ -269,9 +269,12 @@ def test_sync_reducer_requires_a_correct_synchronous_present():
           "sync": True, "input_fingerprint": [0.7, 0.2], "sync_render_fingerprint": [0.7, 0.2]}
     red = DRV.reduce_gate_a_sync_capture([ok], raw)
     assert red["complete"] and red["rows"][0]["present_ns"] == 31_000_000
+    near = {**ok, "sync_render_fingerprint": [0.70000004, 0.2]}   # view_matrix recompute
+    assert DRV.reduce_gate_a_sync_capture([near], raw)["complete"]
     for bad in ({**ok, "sync": False}, {**ok, "correct_present_ns": None},
                 {**ok, "correct_present_ns": 0},
                 {**ok, "sync_render_fingerprint": [0.3, 0.2]},     # render saw the OLD input
+                {**ok, "sync_render_fingerprint": None},
                 {**ok, "correct_present_ns": 50_000_000}):         # post capture precedes it
         assert DRV.reduce_gate_a_sync_capture([bad], raw)["errors"]
     assert DRV.reduce_gate_a_sync_capture([ok], [])["errors"]          # no pixel evidence

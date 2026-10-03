@@ -1356,6 +1356,14 @@ _SET_WORKER = (
     "result = {'env': os.environ['ASTRORAY_VIEWPORT_WORKER']}\n")
 
 
+def _fingerprints_match(a, b, tol=1e-4):
+    """pkg291: the edited-input fingerprint the render saw vs the edit's. The
+    camera fingerprint (view_matrix) is recomputed by Blender between edit and
+    render, so compare within 1e-4 (a 1-degree orbit edit moves entries ~1.7e-2)."""
+    return (isinstance(a, (list, tuple)) and isinstance(b, (list, tuple))
+            and len(a) == len(b) and all(abs(x - y) <= tol for x, y in zip(a, b)))
+
+
 def _pixel_evidence_ok(raw_events, event_id, present_ns, artifact_root=None):
     """pre/post framebuffer captures exist for this edit, are real PNGs whose
     SHA-256 matches the recorded digest, pre precedes the edit's present and post
@@ -1395,7 +1403,8 @@ def reduce_gate_a_sync_capture(edits, raw_events=(), *, truncated=False, artifac
         d, present = e.get("dispatch_ns"), e.get("correct_present_ns")
         if (not e.get("sync") or not isinstance(d, int) or not isinstance(present, int)
                 or present < d or "input_fingerprint" not in e
-                or e.get("sync_render_fingerprint") != e.get("input_fingerprint")
+                or not _fingerprints_match(e.get("sync_render_fingerprint"),
+                                           e.get("input_fingerprint"))
                 or not _pixel_evidence_ok(raw_events, e.get("event_id"), present,
                                           artifact_root)):
             errors.append(f"edit {e.get('event_id')!r} has no correct synchronous present")

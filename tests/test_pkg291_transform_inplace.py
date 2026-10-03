@@ -126,8 +126,10 @@ def test_transform_100k_wall_time_under_10ms():
     assert n >= 100_000
     d = _delta()
     inv = (M_OLD @ np.linalg.inv(M_NEW)).reshape(-1).tolist()
+    for i in range(2):   # untimed warm-up: first touches after the scene build
+        assert a.transform_object_range(start, n, d if i % 2 == 0 else inv)
     times = []
-    for i in range(6):
+    for i in range(8):
         t0 = time.perf_counter()
         assert a.transform_object_range(start, n, d if i % 2 == 0 else inv)
         times.append((time.perf_counter() - t0) * 1e3)

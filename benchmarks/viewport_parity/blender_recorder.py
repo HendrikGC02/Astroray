@@ -400,6 +400,13 @@ def _install():
                 return x
         return None
 
+    def _fp_match(a, b, tol=1e-4):
+        # pkg291: Blender recomputes view_matrix from view_rotation between the
+        # edit and the render, so the 7-digit camera fingerprint differs in the
+        # last digits; a 1-degree orbit edit changes entries by ~1.7e-2.
+        return (a is not None and b is not None and len(a) == len(b)
+                and all(abs(x - y) <= tol for x, y in zip(a, b)))
+
     def _sync_path():
         exp = S.get("exporter_instance")
         return exp is not None and getattr(exp, "_worker", None) is None
@@ -411,7 +418,7 @@ def _install():
         render_viewport_frame that STARTED after dispatch."""
         d = pending["dispatch_ns"] / 1e9
         want = pending.get("input_fingerprint")
-        rnd = next((r for r in S["renders"] if r[0] >= d and r[3] == want), None)
+        rnd = next((r for r in S["renders"] if r[0] >= d and _fp_match(r[3], want)), None)
         if rnd is None:
             return None
         pending["sync_render_fingerprint"] = rnd[3]

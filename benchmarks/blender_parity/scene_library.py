@@ -2056,6 +2056,27 @@ def build_textures_mapping_scene(bpy):
     for sock in ("A[A_Vector]", "B[B_Vector]"):
         tag("ShaderNodeMix", f"input:{sock}")
 
+    # #881: Noise dimensions + W. Two cards off the grid's left edge, Diffuse
+    # BSDF (Color) so the GPU evaluates the Noise per hit (an emitter would read the
+    # 64^3 bake): 4D Noise with a non-zero W, and 2D Noise.
+    for key, dims, y in (("Noise4DCard", "4D", 1.55), ("Noise2DCard", "2D", 0.55)):
+        plane = _flat_card(-3.35, y, Z, 0.6, key)
+        mat, nt, out = _bare_material(bpy, f"{key}Mat")
+        diff = nt.nodes.new("ShaderNodeBsdfDiffuse")
+        nt.links.new(_sock(diff.outputs, "BSDF"), _sock(out.inputs, "Surface"))
+        coord = nt.nodes.new("ShaderNodeTexCoord")
+        noise = nt.nodes.new("ShaderNodeTexNoise")
+        noise.noise_dimensions = dims
+        _sock(noise.inputs, "Scale").default_value = 4.0
+        _sock(noise.inputs, "Detail").default_value = 3.0
+        _sock(noise.inputs, "W").default_value = 0.37
+        nt.links.new(_sock(coord.outputs, "Generated"), _sock(noise.inputs, "Vector"))
+        nt.links.new(_sock(noise.outputs, "Color"), _sock(diff.inputs, "Color"))
+        plane.data.materials.append(mat)
+        crop_for(key, plane)
+    tag("ShaderNodeTexNoise", "input:W")
+    tag("ShaderNodeTexNoise", "prop:noise_dimensions")
+
     # The workshop's non-vacuity proof is its real Checker Texture card, not
     # a synthetic crop chosen after rendering.
     scene["gate_c"] = {

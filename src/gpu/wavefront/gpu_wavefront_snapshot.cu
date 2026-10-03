@@ -1080,12 +1080,17 @@ struct WfContext {
     WfDeviceBuf dedLights;                    // pkg89-wavefront (C7)
     WfDeviceBuf textures, textureTexels, materialTextureId;  // pkg186 image textures
     WfDeviceBuf triGenerated;                 // #847 per-vertex Generated coords
+    WfDeviceBuf triObjectLocal;               // #1006 per-vertex object-local positions
     WfDeviceBuf materialNormalTexId, materialNormalStrength;  // pkg223 normal maps
     WfDeviceBuf materialBumpTexId, materialBumpStrength, materialBumpDistance;  // pkg223b bump
     WfDeviceBuf programs, materialProgramId;   // pkg219b op-VM programs
     WfDeviceBuf materialProgInputTexId;        // #826 op-VM input texIds [mat*VM_MAX_TEX+t]
     WfDeviceBuf materialScalarProgId, materialScalarTexId;  // pkg219d scalar-param programs
     WfDeviceBuf procTextures;                  // #1007 per-hit procedural evaluators
+    // pkg314 graph value programs: arenas + per-material slots (scene slices) and
+    // the graph kernel's per-path outputs + batched scratch (per render).
+    WfDeviceBuf graphInstrs, graphConsts, graphTables, graphTableData, graphTexRefs;
+    WfDeviceBuf graphPrograms, materialGraphProg, graphOut, graphScratch;
     WfDeviceBuf tlas, instances, blas;        // pkg55-C4 / pkg114
     WfDeviceBuf motionVertices;               // pkg55-C4 / pkg88-C.0
     WfDeviceBuf treeNodes, treeEmitters, lightToEmitter;
@@ -1557,7 +1562,8 @@ std::vector<float> cuda_wavefront_render(
     int* unitsLaunchedOut,     // pkg266
     int* cancelledAtUnitOut,   // pkg266
     bool reuseDeviceScene,     // #801
-    uint64_t sceneOwnerId)     // #801
+    uint64_t sceneOwnerId,     // #801
+    float* sampleCountOut)     // #867
 {
     // pkg266: bounded-unit accounting, reported through last_render_info().
     int cwfUnitsLaunched = 0;
@@ -1675,6 +1681,7 @@ std::vector<float> cuda_wavefront_render(
     GVec3*         d_texelBuf  = wfSync(reuse, C.textureTexels, res.textureTexels);
     int*           d_matTexId  = wfSync(reuse, C.materialTextureId, res.materialTextureId);
     GVec3*         d_triGen    = wfSync(reuse, C.triGenerated, res.triGenerated);  // #847
+    GVec3*         d_triObj    = wfSync(reuse, C.triObjectLocal, res.triObjectLocal);  // #1006
     // pkg223 — normal-map side arrays, published on the SAME binding. Set the
     // binding when EITHER a base-colour texture OR a normal map is present (a
     // normal map on a non-textured Principled/Disney BSDF has hasTexture=false).
@@ -1687,7 +1694,7 @@ std::vector<float> cuda_wavefront_render(
     if (res.hasTexture || res.hasNormalPerturb)
         setWavefrontTextureBinding(GWavefrontTextureBinding{
             d_textures, d_texelBuf, d_matTexId, d_matNormalTexId, d_matNormalStrength,
-            d_matBumpTexId, d_matBumpStrength, d_matBumpDistance, d_triGen});
+            d_matBumpTexId, d_matBumpStrength, d_matBumpDistance, d_triGen, d_triObj});
     // pkg219b — op-VM program device arrays (all null when no material carries a
     // program; res.hasProgram=false then selects the <…,false> shade kernel).
     astroray::svm::ShaderVMProgram* d_programs =
@@ -1704,10 +1711,40 @@ std::vector<float> cuda_wavefront_render(
     int* d_matProgInTexId = wfSync(reuse, C.materialProgInputTexId, res.materialProgInputTexId);
     // #1007 — per-hit procedural evaluators (GImageTexture::procId), null when none.
     astroray::proc::GProcTexture* d_procs = wfSync(reuse, C.procTextures, res.procTextures);
+    // pkg314 — graph value programs: immutable arenas (scene slices) + the
+    // dedicated kernel's per-path output buffer and batched scratch. The scratch
+    // holds `graphBatch` threads x the scene's largest slot count; the batch is
+    // capped so the scratch stays within 64 MiB (65536 hits x 64 slots would be
+    // 48 MiB) and never exceeds the path pool.
+    int graphBatch = 0;
+    float* d_graphOut = nullptr;
+    const int* d_matGraphProg = nullptr;
+    if (res.hasGraph) {
+        using namespace astroray::sgraph;
+        const GraphInstr* d_gInstrs = wfSync(reuse, C.graphInstrs, res.graphInstrs);
+        const GVec3* d_gConsts = wfSync(reuse, C.graphConsts, res.graphConsts);
+        const GraphTable* d_gTables = wfSync(reuse, C.graphTables, res.graphTables);
+        const GVec3* d_gTableData = wfSync(reuse, C.graphTableData, res.graphTableData);
+        const int* d_gTexRefs = wfSync(reuse, C.graphTexRefs, res.graphTexRefs);
+        const GraphProgramDesc* d_gPrograms = wfSync(reuse, C.graphPrograms, res.graphPrograms);
+        d_matGraphProg = wfSync(reuse, C.materialGraphProg, res.materialGraphProg);
+        const size_t slots = (size_t)std::max(res.graphMaxSlots, 1);
+        const size_t kScratchBudget = size_t(64) << 20;
+        size_t batch = kScratchBudget / (slots * sizeof(GVec3));
+        batch = std::min<size_t>(batch, 65536);
+        batch = std::min<size_t>(batch, ((size_t)total_paths + 255) / 256 * 256);
+        batch = std::max<size_t>(batch / 256 * 256, 256);
+        graphBatch = (int)batch;
+        GVec3* d_gScratch = wfEnsure<GVec3>(C.graphScratch, batch * slots);
+        d_graphOut = wfEnsure<float>(C.graphOut, (size_t)GRAPH_OUT_FLOATS * total_paths);
+        setWavefrontGraphBinding(GWavefrontGraphBinding{
+            d_gInstrs, d_gConsts, d_gTables, d_gTableData, d_gTexRefs, d_gPrograms,
+            d_matGraphProg, d_graphOut, total_paths, d_gScratch, graphBatch});
+    }
     if (res.hasProgram)
         setWavefrontProgramBinding(GWavefrontProgramBinding{
             d_programs, d_matProgId, d_matScalarProgId, d_matScalarTexId,
-            d_matProgInTexId, d_procs});
+            d_matProgInTexId, d_procs, d_matGraphProg, d_graphOut, total_paths});
     // #962 — textured Emission Color: the intersect (emissive hit) and shadow
     // (NEE) stages fetch the texel per hit when set; both bindings above are
     // published this frame whenever the matching bit is set.
@@ -1969,6 +2006,7 @@ std::vector<float> cuda_wavefront_render(
         release(res.spheres); release(res.curveSegments); release(res.tlas);
         release(res.instances); release(res.blas); release(res.motionVertices);
         release(res.textures); release(res.textureTexels); release(res.triGenerated);
+        release(res.triObjectLocal);
         release(res.envData); release(res.envCondCdf); release(res.envCondFunc);
         release(res.envMargCdf); release(res.envMargFunc);
         C.sceneCached = true;
@@ -2506,6 +2544,11 @@ std::vector<float> cuda_wavefront_render(
                                                useLuminanceOutput, enableNEE);
                 cudaMemsetAsync(d_gridCount, 0, sizeof(int));
             }
+            // pkg314: graph value programs run in their own kernel over this
+            // round's shade queues; the <HasProgram=true> shade reads the results.
+            if (res.hasGraph)
+                launchStageGraphEval(state, hitBufs, d_shadeQueues, d_shadeCounts,
+                                     total_paths, d_prims, d_tris, graphBatch);
             launchStageShadeBucketed(state, hitBufs,
                                      d_shadeQueues, d_shadeCounts,
                                      total_paths, d_queueB, cout,
@@ -2592,7 +2635,8 @@ std::vector<float> cuda_wavefront_render(
                                      d_bvhNodes, d_prims, d_tris, d_spheres,
                                      d_motionVerts, useLuminanceOutput,
                                      clampDirect, clampIndirect, d_curveSegments,
-                                     hwTrav);  // pkg299
+                                     hwTrav,  // pkg299
+                                     hitBufs.hit_prim_id);  // #1037
             }
             if (waves == 1) continue;  // fixed pass count, no readbacks
             if (workExhausted) {
@@ -2846,6 +2890,13 @@ std::vector<float> cuda_wavefront_render(
         rgb[i * 3 + 0] = std::max(Renderer::finiteOrZero(colorSRGB.x), 0.0f);
         rgb[i * 3 + 1] = std::max(Renderer::finiteOrZero(colorSRGB.y), 0.0f);
         rgb[i * 3 + 2] = std::max(Renderer::finiteOrZero(colorSRGB.z), 0.0f);
+    }
+    // #867: per-pixel sample count (adaptive: the counter the resolve divide
+    // above used; uniform path: `samples`).
+    if (sampleCountOut) {
+        for (int i = 0; i < numPixels; ++i)
+            sampleCountOut[i] = (adaptiveOn && !h_pixelSamples.empty())
+                ? float(h_pixelSamples[i]) : float(samples);
     }
     // pkg266: publish bounded-unit accounting for last_render_info().
     if (unitsLaunchedOut) *unitsLaunchedOut = cwfUnitsLaunched;

@@ -226,7 +226,11 @@ __device__ inline bool gpu_bvh_hit(
     // keeps every non-curve caller byte-identical — the GPRIM_CURVE leaf below
     // is guarded on `curves`, and the intersection body is __noinline__ so it
     // adds only a guarded call to the inlined traversal loop).
-    const GCurveSegment* curves = nullptr)
+    const GCurveSegment* curves = nullptr,
+    // #1037: ordered-prim index (relative to `prims`) of the curve segment the
+    // ray leaves; that segment is skipped (Cycles intersection_skip_self,
+    // kernel/bvh/util.h). -1 = none. Only the HasCurves curve leaf reads it.
+    int skipPrim = -1)
 {
     if (!nodes) return false;
 
@@ -264,9 +268,10 @@ __device__ inline bool gpu_bvh_hit(
                         // if constexpr: DCE'd entirely in the <false> fleet path,
                         // so the __noinline__ gpu_curve_intersect call never enters
                         // the non-curve intersect kernel's register/stack budget.
-                        if (curves != nullptr && p.type == GPRIM_CURVE)
+                        if (curves != nullptr && p.type == GPRIM_CURVE &&
+                            (int)(n.primitivesOffset + i) != skipPrim)
                             isHit = gpu_curve_intersect(curves[p.index], ray, tMin, tMax, tmpRec);
-                        // else GPRIM_SKIP → isHit stays false
+                        // else GPRIM_SKIP / own segment (#1037) → isHit stays false
                     }
                     // (HasCurves=false: GPRIM_CURVE/SKIP fall through, isHit stays false)
                     if (isHit) {
@@ -316,7 +321,8 @@ __device__ inline bool gpu_bvh_occluded(
     float tMin, float tMax,
     const GVec3*     motionVerts = nullptr,
     // pkg225 Stage 3 — curves cast shadows too (any-hit). nullptr = no curves.
-    const GCurveSegment* curves = nullptr)
+    const GCurveSegment* curves = nullptr,
+    int skipPrim = -1)  // #1037: see gpu_bvh_hit
 {
     if (!nodes) return false;
 
@@ -346,7 +352,8 @@ __device__ inline bool gpu_bvh_occluded(
                     } else if (p.type == GPRIM_SPHERE) {
                         isHit = gpu_sphere_hit(spheres[p.index], ray, tMin, tMax, tmpRec);
                     } else if constexpr (HasCurves) {
-                        if (curves != nullptr && p.type == GPRIM_CURVE)
+                        if (curves != nullptr && p.type == GPRIM_CURVE &&
+                            (int)(n.primitivesOffset + i) != skipPrim)  // #1037
                             isHit = gpu_curve_intersect(curves[p.index], ray, tMin, tMax, tmpRec);
                     }
                     if (isHit) return true;  // any hit occludes
@@ -439,14 +446,21 @@ __device__ inline bool gpu_tlas_hit(
     // Deformation motion on INSTANCED meshes is out of scope v1 (the BLAS
     // walk below intentionally does not receive the buffer).
     const GVec3*      motionVerts = nullptr,
-    // pkg225 Stage 3: curves live in the single-level BVH (addObject → orderedPrims),
-    // not in a per-mesh BLAS, so they are threaded to the null-TLAS fallback only.
-    const GCurveSegment* curves = nullptr)
+    // pkg225 Stage 3: curves live in the flat scene (addObject → orderedPrims),
+    // never in a registered-mesh BLAS. With a TLAS the flat scene is the
+    // identity-transform BLAS (pkg114 inc 3b), so curves go into the BLAS walk
+    // too (#963: dropping them hid every strand once a scene had instances).
+    // Registered-mesh BLASes hold no GPRIM_CURVE, so the leaf never fires there.
+    const GCurveSegment* curves = nullptr,
+    // #1037: GLOBAL ordered-prim index of the curve segment the ray leaves
+    // (GHitRecord::primId of the previous vertex); -1 = none.
+    int skipPrim = -1)
 {
     // No TLAS uploaded -> behave exactly like the single-level path. (Lets a
     // caller route unconditionally through gpu_tlas_hit before instances exist.)
     if (!tlas || !instances || !blas) {
-        return gpu_bvh_hit<HasCurves>(blasNodes, prims, tris, spheres, ray, tMin, tMax, rec, motionVerts, curves);
+        return gpu_bvh_hit<HasCurves>(blasNodes, prims, tris, spheres, ray, tMin, tMax, rec,
+                                      motionVerts, curves, skipPrim);
     }
 
     bool  hit    = false;
@@ -479,8 +493,10 @@ __device__ inline bool gpu_tlas_hit(
                     // The BLAS's leaf primitivesOffset is BLAS-LOCAL, so the prims
                     // base is offset by blas.primOffset; tris/spheres are indexed
                     // by GPrimitive.index which is already global (no offset).
-                    bool ih = gpu_bvh_hit(blasNodes + b.nodeOffset, prims + b.primOffset,
-                                          tris, spheres, local, tMin, tMax, lrec);
+                    bool ih = gpu_bvh_hit<HasCurves>(blasNodes + b.nodeOffset, prims + b.primOffset,
+                                          tris, spheres, local, tMin, tMax, lrec,
+                                          nullptr, curves,
+                                          skipPrim >= 0 ? skipPrim - b.primOffset : -1);
                     if (ih && lrec.t < tMax) {
                         hit  = true;
                         tMax = lrec.t;              // tighten the shared cutoff
@@ -529,16 +545,17 @@ __device__ inline bool gpu_tlas_occluded(
     const GRay&       ray,
     float tMin, float tMax,
     const GVec3*      motionVerts = nullptr,
-    // pkg225 Stage 3 — curves cast shadows (single-level fallback only).
-    const GCurveSegment* curves = nullptr)
+    // pkg225 Stage 3 — curves cast shadows (both paths; see gpu_tlas_hit, #963).
+    const GCurveSegment* curves = nullptr,
+    int skipPrim = -1)  // #1037: see gpu_tlas_hit
 {
     if (!tlas || !instances || !blas) {
         return gpu_bvh_occluded<HasCurves>(blasNodes, prims, tris, spheres,
-                                ray, tMin, tMax, motionVerts, curves);
+                                ray, tMin, tMax, motionVerts, curves, skipPrim);
     }
     GHitRecord rec;
     return gpu_tlas_hit<HasCurves>(tlas, instances, blas, blasNodes, prims, tris,
-                        spheres, ray, tMin, tMax, rec, motionVerts, curves);
+                        spheres, ray, tMin, tMax, rec, motionVerts, curves, skipPrim);
 }
 
 // ---------------------------------------------------------------------------

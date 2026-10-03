@@ -218,7 +218,12 @@ __device__ inline GVec3 spectrumToXYZ(
 // The brightness metric mirrors the wavefront's own final accumulation
 // (stageRegenKernel): mean of the spectral samples when useLuminanceOutput
 // (non-visible bands carry no CIE CMF signal, so XYZ.Y would be ~0 and never
-// clamp), else XYZ.Y via spectrumToXYZ above.
+// clamp), else (#884) (R+G+B)/3 in linear Rec.709: Cycles scales the user
+// limit by 3 (scene/integrator.cpp) and compares reduce_add(fabs(L)), so
+// Blender's setting is a per-channel-average limit. CPU twin:
+// Renderer::clampMetricRGB (film matrix xyzToLinearSRGB_dev below, signed sum;
+// out-of-gamut narrow-band light clamps later than a fabs sum, see the CPU note
+// and #1024).
 // ---------------------------------------------------------------------------
 __device__ inline GSampledSpectrum gpu_clampContribMW(
         const GSampledSpectrum& contrib, const GSampledWavelengths& lambdas,
@@ -231,7 +236,11 @@ __device__ inline GSampledSpectrum gpu_clampContribMW(
         for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) avg += contrib.v[i];
         lum = avg / float(G_SPECTRUM_SAMPLES);
     } else {
-        lum = spectrumToXYZ(contrib, lambdas).y;
+        const GVec3 xyz = spectrumToXYZ(contrib, lambdas);
+        const float r =  3.2406f * xyz.x - 1.5372f * xyz.y - 0.4986f * xyz.z;
+        const float g = -0.9689f * xyz.x + 1.8758f * xyz.y + 0.0415f * xyz.z;
+        const float b =  0.0557f * xyz.x - 0.2040f * xyz.y + 1.0570f * xyz.z;
+        lum = fmaxf(0.f, r + g + b) * (1.f / 3.f);  // signed: see CPU clampMetricRGB
     }
     if (lum > limit && lum > 0.f) return contrib * (limit / lum);
     return contrib;

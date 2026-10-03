@@ -12,6 +12,7 @@
 #include "astroray/gpu_types.h"
 #include "astroray/shader_vm.h"  // pkg219b — op-VM program + svm_eval
 #include "astroray/procedural_tex.h"  // #1007 — per-hit procedural point clamp
+#include "astroray/shader_graph.h"  // pkg314 — GRAPH_MAT_SLOTS (graph-kernel outputs)
 #include "astroray/gpu_materials.h"
 #include "astroray/gpu_bvh.h"
 #include "astroray/gpu_env_spectral.cuh"
@@ -479,8 +480,15 @@ __device__ int intersectPathSlotT(
                                 c_wfHwHits.u[idx], c_wfHwHits.v[idx], c_wfHwHits.inst[idx],
                                 instances, blas, prims, tris, ray, rec);
     } else {
+        // #1037: a continuation ray leaves the previous vertex's prim, still in
+        // hit_prim_id (written by the previous intersect; reset to -1 at a medium
+        // scatter vertex). Only the HasCurves curve leaf reads it.
+        int skipPrim = -1;
+        if constexpr (HasCurves) {
+            if (bounce > 0) skipPrim = hitBufs.hit_prim_id[idx];
+        }
         hit = gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                                      ray, tNear, tFar, rec, motionVerts, curves);
+                                      ray, tNear, tFar, rec, motionVerts, curves, skipPrim);
     }
 
     // pkg199 Stage 2 — homogeneous medium free-flight scatter DECISION (Option A:
@@ -582,9 +590,12 @@ __device__ int intersectPathSlotT(
             } else if (enableNEE) {
                 GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
                                     state.path_mis_nz[idx]);
+                // #961: medium vertex -> the segment its NEE light was picked for.
+                const float misSegT = (state.env_nee_sampled_prev[idx] == 2)
+                                    ? state.path_mis_dt[idx] : 0.f;
                 float lp = gpu_dedicated_reconstruct_pdf(
                     dedLights, numDed, totalLightPower, ray.origin, ray.direction,
-                    lightTree, numLights, misNormalPrev, lampIdx);  // #912
+                    lightTree, numLights, misNormalPrev, lampIdx, misSegT);  // #912
                 float wB = gpu_mw_powerHeuristic(state.path_bsdf_pdf[idx], lp);
                 contrib = throughput * Le * wB;
             }
@@ -720,8 +731,15 @@ __device__ int intersectPathSlotT(
                 state.ray_origin_x[idx] = P.x;
                 state.ray_origin_y[idx] = P.y;
                 state.ray_origin_z[idx] = P.z;
+                // #961: the segment the NEE light was picked for (CPU misSeg*;
+                // Cycles mis_origin_n / previous_dt), for the next hit's MIS.
+                state.path_mis_nx[idx] = ray.direction.x * tEv;
+                state.path_mis_ny[idx] = ray.direction.y * tEv;
+                state.path_mis_nz[idx] = ray.direction.z * tEv;
+                state.path_mis_dt[idx] = surfaceT;
                 c_wfGridVolume.mediumId[idx] = mi;
                 if (c_wfPhotonSplit.chain != nullptr) c_wfPhotonSplit.chain[idx] = 0;  // #909
+                if constexpr (HasCurves) hitBufs.hit_prim_id[idx] = -1;  // #1037: medium vertex
                 return -3;
             }
             // escaped: delta-track survival IS the transmittance — fall through.
@@ -779,11 +797,17 @@ __device__ int intersectPathSlotT(
             state.ray_origin_x[idx] = P.x;
             state.ray_origin_y[idx] = P.y;
             state.ray_origin_z[idx] = P.z;
+            // #961: NEE segment for the next hit's MIS (see the grid scatter above).
+            state.path_mis_nx[idx] = ray.direction.x * fdist;
+            state.path_mis_ny[idx] = ray.direction.y * fdist;
+            state.path_mis_nz[idx] = ray.direction.z * fdist;
+            state.path_mis_dt[idx] = surfaceT;
             state.throughput_0[idx] = throughput.v[0];
             state.throughput_1[idx] = throughput.v[1];
             state.throughput_2[idx] = throughput.v[2];
             state.throughput_3[idx] = throughput.v[3];
             if (c_wfPhotonSplit.chain != nullptr) c_wfPhotonSplit.chain[idx] = 0;  // #909
+            if constexpr (HasCurves) hitBufs.hit_prim_id[idx] = -1;  // #1037: medium vertex
             return -2;  // scattered → the wrapper enqueues to the volume queue
         } else {
             // Reached the terminating event (surface / env): throughput *=
@@ -843,7 +867,7 @@ __device__ int intersectPathSlotT(
             // latter is NOT wrongly discounted. Gated on the loaded HDRI + the
             // runtime enabled flag: no-op (byte-identical) otherwise.
             if (c_wfEnvNeeBinding.enabled && envMap.loaded && bounce > 0 &&
-                !wasSpecular && state.env_nee_sampled_prev[idx]) {
+                !wasSpecular && state.env_nee_sampled_prev[idx] == 1) {  // #961: 2 = medium
                 float ep = gpu_envmap_pdf(envMap, dir);
                 float bsdfPdfPrev = state.path_bsdf_pdf[idx];
                 // pkg258 (Terra item 6): complementary heuristic — this w(bsdf,env)
@@ -987,10 +1011,13 @@ __device__ int intersectPathSlotT(
             // #851: the NEE normal of the previous vertex (tree pick == pdf).
             GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
                                 state.path_mis_nz[idx]);
+            // #961: medium vertex -> the segment its NEE light was picked for.
+            const float misSegT = (state.env_nee_sampled_prev[idx] == 2)
+                                ? state.path_mis_dt[idx] : 0.f;
             float lp = gpu_reconstruct_light_pdf(
                 rec, ray.origin, ray.direction,
                 lights, numLights, totalLightPower,
-                prims, tris, spheres, lightTree, misNormalPrev);
+                prims, tris, spheres, lightTree, misNormalPrev, misSegT);
             float wB = gpu_mw_powerHeuristic(bsdfPdfPrev, lp);
             GSampledSpectrum contrib = throughput * Le;
             contrib *= wB;
@@ -1134,6 +1161,34 @@ template<> struct GScalarOverride<true> { ::GMaterial mat; };
 // below). Otherwise the pre-#847 per-texture bbox frame:
 // g = (point - genMin)/genSize (include/advanced_features.h CoordMode::Generated).
 // __noinline__ keeps the body out of the REG:254 shade kernel's allocation.
+// #1006 — OBJECT coordinate at a hit: the triangle's per-vertex object-local
+// positions (c_wfTexBinding.triObjectLocal, the inverse object transform of the
+// world-baked vertices; Cycles svm/tex_coord.h object_inverse_position_transform)
+// interpolated with barycentrics recomputed from the hit point (Ericson §3.4, as
+// gpu_generatedCoord), else the world point (CPU CoordMode::Object fallback).
+static __device__ ASTRORAY_SHADE_NOINLINE inline GVec3 gpu_objectCoord(
+    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris)
+{
+    const GVec3* to = c_wfTexBinding.triObjectLocal;
+    if (to && primId >= 0 && prims[primId].type == GPRIM_TRIANGLE) {
+        const int ti = prims[primId].index;
+        const GVec3 o0 = to[3 * ti];
+        if (!isnan(o0.x)) {
+            const GTriangle& t = tris[ti];
+            GVec3 e1 = t.v1 - t.v0, e2 = t.v2 - t.v0, ep = point - t.v0;
+            float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
+            float d20 = ep.dot(e1), d21 = ep.dot(e2);
+            float denom = d00 * d11 - d01 * d01;
+            if (fabsf(denom) > 1e-20f) {
+                float b1 = (d11 * d20 - d01 * d21) / denom;
+                float b2 = (d00 * d21 - d01 * d20) / denom;
+                return o0 + (to[3 * ti + 1] - o0) * b1 + (to[3 * ti + 2] - o0) * b2;
+            }
+        }
+    }
+    return point;
+}
+
 static __device__ ASTRORAY_SHADE_NOINLINE inline GVec3 gpu_generatedCoord(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
 {
@@ -1160,6 +1215,8 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GVec3 gpu_generatedCoord(
         }
     }
     const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
+    // #1006: an OBJECT bake's bbox frame is object-local (scene_upload.cu matWorldBox).
+    if (tdesc.objectCoord) point = gpu_objectCoord(point, primId, prims, tris);
     GVec3 g;
     g.x = tdesc.genSize.x > 1e-6f ? (point.x - tdesc.genMin.x) / tdesc.genSize.x : 0.0f;
     g.y = tdesc.genSize.y > 1e-6f ? (point.y - tdesc.genMin.y) / tdesc.genSize.y : 0.0f;
@@ -1202,7 +1259,7 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_progInputTe
 // #1007 — a program / base-colour input in the <HasProgram=true> kernel. A
 // descriptor with procId >= 0 (scene_upload.cu perHitTexId) is a Noise / Wave /
 // Voronoi evaluated at this hit instead of a 64^3 bake: the CPU texture point
-// (Object: the world hit point = the CPU objectPoint on flat geometry; Generated:
+// (Object: gpu_objectCoord, the object-local point (#1006); Generated:
 // gpu_generatedCoord clamped to [0,1], advanced_features.h CoordMode::Generated),
 // then the 3-D Mapping M*p (Texture::value), then gpu_procTexEval
 // (proc_tex_eval.cu). Every other descriptor is the texel fetch above. Never
@@ -1215,7 +1272,9 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_progInputEv
     const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
     if (tdesc.procId < 0) return gpu_progInputTexel(point, primId, prims, tris, texId);
     GVec3 p = point;
-    if (!tdesc.objectCoord) {
+    if (tdesc.objectCoord) {
+        p = gpu_objectCoord(point, primId, prims, tris);  // #1006
+    } else {
         const GVec3 g = gpu_generatedCoord(point, primId, prims, tris, texId);
         p = GVec3(astroray::proc::pclamp(g.x, 0.0f, 1.0f),
                   astroray::proc::pclamp(g.y, 0.0f, 1.0f),
@@ -1751,7 +1810,12 @@ __device__ __forceinline__ bool shadePathSlotImpl(
         // #989 — per-hit shading context for OP_SHADING (CPU twin: ProgramTexture::
         // valueAtHit): cos(view, shading normal) and the back-face flag.
         astroray::svm::SvmShading sh;
-        sh.cosI = (ray.direction * -1.0f).normalized().dot(rec.normal);
+        // pkg314: Cycles sd->N, i.e. the parked shading normal BEFORE the Bump /
+        // Normal Map perturbation above (verified against Cycles 5.2; CPU twin
+        // HitRecord::shadingContextNormal, GPU graph kernel stage_graph_eval.cu).
+        const GVec3 svmN(hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx],
+                         hitBufs.hit_normal_z[idx]);
+        sh.cosI = (ray.direction * -1.0f).normalized().dot(svmN);
         sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
         if (c_wfProgBinding.matScalarProgId && c_wfProgBinding.matScalarTexId) {
             const int base = rec.materialId * astroray::svm::VM_SCALAR_SLOTS;
@@ -1794,6 +1858,40 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                 matScalarOv.mat.baseColor = bc.c;
                 matScalarOv.mat.principled.color = bc.c;
                 matScalarOv.mat.closures[0].color = bc.c;
+            }
+        }
+        // pkg314 — graph value programs. The dedicated graph-evaluation kernel
+        // (stage_graph_eval.cu) ran this round's programs before this launch; read
+        // its per-path results (NaN = an input missed at this hit -> constant kept,
+        // as the op-VM path). CPU twin: GraphProgramTexture via the plugins' scalar
+        // programs / PrincipledPlugin::substituted.
+        if (c_wfProgBinding.matGraphProg) {
+            const int* gp = c_wfProgBinding.matGraphProg +
+                            rec.materialId * astroray::sgraph::GRAPH_MAT_SLOTS;
+            const float* go = c_wfProgBinding.graphOut;
+            const int gst = c_wfProgBinding.graphOutStride;
+            for (int slot = 0; slot < astroray::svm::VM_SCALAR_SLOTS; ++slot) {
+                if (gp[slot] < 0) continue;
+                const float v = go[slot * gst + idx];
+                if (isnan(v)) continue;
+                if (!anyOverride) {
+                    matScalarOv.mat = materials[rec.materialId];
+                    anyOverride = true;
+                }
+                gpu_applyScalarOverride(matScalarOv.mat, slot, v);
+            }
+            if (gp[astroray::sgraph::GRAPH_SLOT_BASE_COLOR] >= 0 &&
+                gpu_closure_graph_is_principled(materials[rec.materialId])) {
+                const GVec3 c(go[4 * gst + idx], go[5 * gst + idx], go[6 * gst + idx]);
+                if (!isnan(c.x)) {
+                    if (!anyOverride) {
+                        matScalarOv.mat = materials[rec.materialId];
+                        anyOverride = true;
+                    }
+                    matScalarOv.mat.baseColor = c;
+                    matScalarOv.mat.principled.color = c;
+                    matScalarOv.mat.closures[0].color = c;
+                }
             }
         }
         if (anyOverride) matPtr = &matScalarOv.mat;
@@ -1845,6 +1943,27 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     if constexpr (HasTexture) {
         const int* matTexId = c_wfTexBinding.matTexId;
         int texId = matTexId[rec.materialId];
+        // pkg314 — a textured lambertian whose base colour is a graph value
+        // program (texId -1): the graph-evaluation kernel's per-path result, then
+        // the SAME albedo swap as the texture path below (scene_upload neutralises
+        // baseColor to (1,1,1) for it as for any textured lambertian).
+        if constexpr (HasProgram) {
+            const int* gp = c_wfProgBinding.matGraphProg;
+            if (texId < 0 && gp && !gpu_closure_graph_is_principled(mat) &&
+                gp[rec.materialId * astroray::sgraph::GRAPH_MAT_SLOTS +
+                   astroray::sgraph::GRAPH_SLOT_BASE_COLOR] >= 0) {
+                const float* go = c_wfProgBinding.graphOut;
+                const int gst = c_wfProgBinding.graphOutStride;
+                const GVec3 gc(go[4 * gst + idx], go[5 * gst + idx], go[6 * gst + idx]);
+                if (!isnan(gc.x)) {
+                    GSampledSpectrum texUp = gpu_rgbToSampledSpectrum(gc, lambdas, mat.spectralMode);
+                    GSampledSpectrum baseUp =
+                        gpu_rgbToSampledSpectrum(mat.baseColor, lambdas, mat.spectralMode);
+                    for (int s = 0; s < G_SPECTRUM_SAMPLES; ++s)
+                        throughput.v[s] *= texUp[s] / fmaxf(baseUp[s], 1e-4f);
+                }
+            }
+        }
         // #988: a Principled base-colour texture was already substituted into the
         // material above (HasProgram block); the lambertian swap must not re-apply it.
         if (texId >= 0 && !gpu_closure_graph_is_principled(mat)) {
@@ -1941,7 +2060,9 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                         if (haveTex) {
                             // #989: same per-hit shading context as the override block.
                             astroray::svm::SvmShading shL;
-                            shL.cosI = (ray.direction * -1.0f).normalized().dot(rec.normal);
+                            shL.cosI = (ray.direction * -1.0f).normalized().dot(GVec3(
+                                hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx],
+                                hitBufs.hit_normal_z[idx]));  // pkg314: sd->N, pre-bump
                             shL.backfacing = rec.frontFace ? 0.0f : 1.0f;
                             texColor = astroray::svm::svm_eval(
                                 c_wfProgBinding.programs[progId], vmIn, &shL);

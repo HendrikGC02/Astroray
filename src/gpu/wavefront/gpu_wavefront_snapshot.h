@@ -228,7 +228,11 @@ std::vector<float> cuda_wavefront_render(
     bool reuseDeviceScene = false,
     // #801: identity of the renderer whose scene is on the device; the cache
     // serves a reuse only to the same owner (viewport vs F12 renderers).
-    uint64_t sceneOwnerId = 0);
+    uint64_t sceneOwnerId = 0,
+    // #867: optional per-pixel sample-count out (numPixels floats): the samples
+    // each pixel actually received (adaptive retires pixels early) or the
+    // uniform `samples` on the flat path. Null (the default) skips the fill.
+    float* sampleCountOut = nullptr);
 
 // #801: mark the wavefront device scene cache stale. Called by every host-side
 // scene mutation that bypasses render() (pkg56 per-domain uploaders, the pkg114

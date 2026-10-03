@@ -120,6 +120,26 @@ class Triangle : public Hittable {
     // OBJECT-local co), interpolated barycentrically at the hit.
     Vec3 gen0_, gen1_, gen2_;
     bool hasGenerated_ = false;
+    // #1006 — per-vertex OBJECT-local positions (inverse object transform of the
+    // world-baked vertices). The transform is affine, so the barycentric blend at
+    // the hit equals the inverse transform of the hit point (Cycles
+    // object_inverse_position_transform), and it stays attached when
+    // update_object_transform moves the vertices.
+    Vec3 obj0_, obj1_, obj2_;
+    bool hasObjectLocal_ = false;
+    // Barycentric blend of per-vertex attributes a/b/c at p (see generatedCoord).
+    bool interpolateAt(const Vec3& p, const Vec3& a, const Vec3& b, const Vec3& c,
+                       Vec3& out) const {
+        Vec3 e1 = v1 - v0, e2 = v2 - v0, ep = p - v0;
+        float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
+        float d20 = ep.dot(e1), d21 = ep.dot(e2);
+        float denom = d00 * d11 - d01 * d01;
+        if (std::fabs(denom) <= 1e-20f) return false;
+        float b1 = (d11 * d20 - d01 * d21) / denom;
+        float b2 = (d00 * d21 - d01 * d20) / denom;
+        out = a + (b - a) * b1 + (c - a) * b2;  // exact on flat axes
+        return true;
+    }
 public:
     Triangle(const Vec3& a, const Vec3& b, const Vec3& c, std::shared_ptr<Material> m)
         : v0(a), v1(b), v2(c), material(m), uv0(0,0), uv1(1,0), uv2(0,1),
@@ -332,15 +352,21 @@ public:
     // Static vertices: motion-blurred triangles use the shutter-start pose.
     bool generatedCoord(const Vec3& p, Vec3& out) const override {
         if (!hasGenerated_) return false;
-        Vec3 e1 = v1 - v0, e2 = v2 - v0, ep = p - v0;
-        float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
-        float d20 = ep.dot(e1), d21 = ep.dot(e2);
-        float denom = d00 * d11 - d01 * d01;
-        if (std::fabs(denom) <= 1e-20f) return false;
-        float b1 = (d11 * d20 - d01 * d21) / denom;
-        float b2 = (d00 * d21 - d01 * d20) / denom;
-        out = gen0_ + (gen1_ - gen0_) * b1 + (gen2_ - gen0_) * b2;  // exact on flat axes
+        return interpolateAt(p, gen0_, gen1_, gen2_, out);
+    }
+    // #1006 — per-vertex OBJECT-local positions (see obj0_ above).
+    void setObjectLocal(const Vec3& a, const Vec3& b, const Vec3& c) {
+        obj0_ = a; obj1_ = b; obj2_ = c;
+        hasObjectLocal_ = true;
+    }
+    bool getObjectLocal(Vec3& a, Vec3& b, Vec3& c) const {
+        if (!hasObjectLocal_) return false;
+        a = obj0_; b = obj1_; c = obj2_;
         return true;
+    }
+    bool objectCoord(const Vec3& p, Vec3& out) const override {
+        if (!hasObjectLocal_) return false;
+        return interpolateAt(p, obj0_, obj1_, obj2_, out);
     }
 };
 

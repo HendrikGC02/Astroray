@@ -14,9 +14,9 @@ reason = "Sellmeier (dispersive) sphere limb vs constant-IOR Cycles glass: colou
 scene = "v2_camera_geometry"
 backend = "cpu"
 roi = "hair_tuft"
-channels = ["r", "g", "b", "L"]
-issue = "#853"
-reason = "principled_hair tuft outside band (CPU 0.85-0.95, GPU differs from CPU)"
+channels = ["g", "b", "L"]
+issue = "#1051"
+reason = "principled_hair tuft after #1037 self-skip: r matches Cycles, g 0.94 / b 0.94 / L 0.96 of Cycles (was 0.81-0.96); residual hair g/b/L gap tracked in the follow-up issue"
 
 [[row]]
 scene = "v2_camera_geometry"
@@ -30,9 +30,9 @@ reason = "motion-blurred vane too narrow (0.80-0.83 of Cycles)"
 scene = "v2_camera_geometry"
 backend = "gpu"
 roi = "hair_tuft"
-channels = ["r", "g", "b", "L"]
-issue = "#963"
-reason = "principled_hair tuft outside band (CPU 0.85-0.95, GPU differs from CPU)"
+channels = ["g", "b", "L"]
+issue = "#1051"
+reason = "principled_hair tuft after #1037 self-skip: GPU r 1.01 matches Cycles, g 0.95 / b 0.94 / L 0.97 of Cycles (was 0.86-0.97), GPU/CPU within 1 %; residual hair gap tracked in #1051"
 
 [[row]]
 scene = "v2_camera_geometry"
@@ -41,22 +41,6 @@ roi = "motion_vane"
 channels = ["r", "g", "b", "L"]
 issue = "#947"
 reason = "motion-blurred vane too narrow (0.80-0.83 of Cycles)"
-
-[[row]]
-scene = "v2_camera_geometry"
-backend = "gpu_cpu"
-roi = "hair_tuft"
-channels = ["r", "b"]
-issue = "#963"
-reason = "principled_hair tuft outside band (CPU 0.85-0.95, GPU differs from CPU)"
-
-[[row]]
-scene = "v2_camera_geometry"
-backend = "gpu_cpu"
-roi = "hair_tuft"
-channels = ["g"]
-issue = "#853"
-reason = "GPU principled_hair brighter than CPU: g ratio 1.0523 vs 1.05 band (1.0493 before the #1000 watertight CPU triangle fix)"
 
 [[row]]
 scene = "v2_camera_geometry"
@@ -70,9 +54,9 @@ reason = "motion-blurred vane too narrow (0.80-0.83 of Cycles)"
 scene = "v2_camera_geometry@ortho"
 backend = "cpu"
 roi = "hair_tuft"
-channels = ["r", "g", "b", "L"]
-issue = "#853"
-reason = "principled_hair tuft outside band (CPU 0.83-0.94, GPU differs from CPU)"
+channels = ["g", "b", "L"]
+issue = "#1051"
+reason = "principled_hair tuft after #1037 self-skip: r matches Cycles, g 0.91 / b 0.91 / L 0.93 of Cycles (was 0.81-0.96); residual hair g/b/L gap tracked in the follow-up issue"
 
 [[row]]
 scene = "v2_camera_geometry@ortho"
@@ -87,8 +71,8 @@ scene = "v2_camera_geometry@ortho"
 backend = "gpu"
 roi = "hair_tuft"
 channels = ["r", "g", "b", "L"]
-issue = "#963"
-reason = "principled_hair tuft outside band (CPU 0.83-0.94, GPU differs from CPU)"
+issue = "#1051"
+reason = "principled_hair tuft after #1037 self-skip: GPU 0.95 / 0.89 / 0.89 / 0.91 (r/g/b/L) of Cycles (was 0.80-0.91), GPU/CPU within 3 %; residual hair gap tracked in #1051"
 
 [[row]]
 scene = "v2_camera_geometry@ortho"
@@ -101,34 +85,10 @@ reason = "motion-blurred vane too narrow (0.35-0.42 of Cycles)"
 [[row]]
 scene = "v2_camera_geometry@ortho"
 backend = "gpu_cpu"
-roi = "hair_tuft"
-channels = ["r", "g", "b", "L"]
-issue = "#963"
-reason = "L added 2026-09-30: 1.047 -> 1.052 after #953 layering fix (tol 0.05); principled_hair tuft outside band (CPU 0.83-0.94, GPU differs from CPU)"
-
-[[row]]
-scene = "v2_camera_geometry@ortho"
-backend = "gpu_cpu"
 roi = "motion_vane"
 channels = ["r", "g", "b", "L"]
 issue = "#947"
 reason = "motion-blurred vane too narrow (0.35-0.42 of Cycles)"
-
-[[row]]
-scene = "v2_media"
-backend = "cpu"
-roi = "shaft"
-channels = ["r", "g", "b", "L"]
-issue = "#961"
-reason = "spot shaft in fog reads 0.68-0.79 of Cycles (mean deficit, was hidden by noise before #951)"
-
-[[row]]
-scene = "v2_media"
-backend = "gpu"
-roi = "shaft"
-channels = ["g"]
-issue = "#961"
-reason = "spot shaft in fog reads 0.68-0.79 of Cycles (mean deficit, was hidden by noise before #951)"
 
 [[row]]
 scene = "v2_sky_sun"
@@ -230,14 +190,6 @@ roi = "sphere_Ti260"
 channels = ["r", "L"]
 issue = "#960"
 reason = "thin-film Ti single-channel outliers: 30-seed CPU mean r 1.04 of Cycles (band edge), seed 278 reads 1.074"
-
-[[row]]
-scene = "v2_media"
-backend = "gpu_cpu"
-roi = "shaft"
-channels = ["r"]
-issue = "#961"
-reason = "spot shaft in fog; GPU/CPU 1.07 (new) vs 1.11 (main) over 5 seeds, seed 278 reads 1.29"
 
 [[row]]
 scene = "v2_media"

@@ -975,6 +975,36 @@ def _generated_texspace_bbox(obj, matrix):
     return bmin, bsize
 
 
+def _object_local_affine(matrix):
+    """#1006: row-major 3x4 WORLD -> OBJECT-local affine (12 floats), or None.
+
+    Blender Texture Coordinate > Object is the object-local position (Cycles
+    svm/tex_coord.h NODE_TEXCO_OBJECT: object_inverse_position_transform); the
+    exporter bakes `matrix` into the vertices, so the engine bakes matrix^-1 back
+    onto them per vertex (set_objects_object_transform)."""
+    m = np.array([[float(matrix[r][c]) for c in range(4)] for r in range(4)])
+    try:
+        minv = np.linalg.inv(m)
+    except np.linalg.LinAlgError:
+        return None
+    return [float(x) for x in minv[:3, :].reshape(-1)]
+
+
+def _tree_uses_object_coords(tree, depth=0):
+    """#1006: does a node tree (or a nested group) read Texture Coordinate > Object?"""
+    if tree is None or depth > 16:
+        return False
+    for n in getattr(tree, 'nodes', ()):
+        t = getattr(n, 'type', '')
+        if t == 'TEX_COORD':
+            out = n.outputs.get('Object') if hasattr(n, 'outputs') else None
+            if out is not None and getattr(out, 'is_linked', False):
+                return True
+        elif t == 'GROUP' and _tree_uses_object_coords(getattr(n, 'node_tree', None), depth + 1):
+            return True
+    return False
+
+
 def _generated_texspace_affine(obj, matrix):
     """#847: row-major 3x4 WORLD -> Generated affine (12 floats), or None.
 
@@ -1271,7 +1301,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
         ("UV", "uv", 4, "RGBA", "use_pass_uv"),
         ("IndexOB", "object_index", 4, "RGBA", "use_pass_object_index"),
         ("IndexMA", "material_index", 4, "RGBA", "use_pass_material_index"),
+        # #867: Cycles' Debug > Sample Count pass (view_layer.cycles.pass_debug_sample_count);
+        # single VALUE channel, linear, normalised by the max sample budget.
+        ("Debug Sample Count", "sample_count", 1, "X", "cycles.pass_debug_sample_count"),
     ]
+    @staticmethod
+    def _pass_toggle(view_layer, toggle_name):
+        """Read a pass toggle; a dotted name walks sub-groups (``cycles.pass_...``)."""
+        obj = view_layer
+        for part in toggle_name.split("."):
+            obj = getattr(obj, part, None)
+            if obj is None:
+                return False
+        return bool(obj)
+
     # pkg87c: Cryptomatte passes are generated dynamically based on depth setting
     @classmethod
     def _cryptomatte_pass_specs(cls, scene):
@@ -1291,11 +1334,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 self.register_pass(scene, renderlayer, display_name, 4, "RGBA", "COLOR")
         registered_data_passes = set()
         for display_name, _, channels, channel_id, toggle_name in self._DATA_PASS_SPECS:
-            if getattr(renderlayer, toggle_name, False):
+            if self._pass_toggle(renderlayer, toggle_name):
                 if display_name in registered_data_passes:
                     continue
                 registered_data_passes.add(display_name)
-                self.register_pass(scene, renderlayer, display_name, channels, channel_id, "COLOR")
+                self.register_pass(scene, renderlayer, display_name, channels, channel_id,
+                                   "VALUE" if channels == 1 else "COLOR")
         # pkg87c: Register Cryptomatte passes dynamically based on depth
         for display_name, _, toggle_name in self._cryptomatte_pass_specs(scene):
             if getattr(renderlayer, toggle_name, False):
@@ -1314,7 +1358,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         enabled = []
         seen = set()
         for display_name, key, _, _, toggle_name in cls._DATA_PASS_SPECS:
-            if getattr(view_layer, toggle_name, False):
+            if cls._pass_toggle(view_layer, toggle_name):
                 if display_name in seen:
                     continue
                 seen.add(display_name)
@@ -2568,6 +2612,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # convert_objects can bake each using object's bounding box onto them
         # (Blender Texture Coordinate > Generated semantics).
         self._generated_textures_by_material = {}
+        self._object_coord_materials = {}  # #1006: material name -> uses Object coords
         for mat in bpy.data.materials:
             self._current_material_name = mat.name
             mat_id = self.convert_node_material(mat, renderer)
@@ -4107,7 +4152,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # .name; those fall back to id() (single-node test scope).
         mat_name = getattr(self, "_current_material_name", "") or ""
         node_id = f"{mat_name}.{self._node_cache_id(node)}"
-        if fac_variant and node.type in ('TEX_CHECKER', 'TEX_BRICK'):
+        if fac_variant and node.type in ('TEX_CHECKER', 'TEX_BRICK', 'TEX_NOISE'):
             node_id += "::fac"
         else:
             fac_variant = False
@@ -4140,7 +4185,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 noise_offset = _nsock('Offset', 0.0)
                 noise_gain = _nsock('Gain', 1.0)
                 noise_dist = _nsock('Distortion', 0.0)
-                # Blender Noise Texture noise_dimensions: '3D' is the only one the engine supports (node has 1D/2D/3D/4D).
+                # #881: noise_dimensions 1D/2D/3D/4D (Cycles noisetex.h); 1D/4D read W.
+                noise_dims = {'1D': 1.0, '2D': 2.0, '3D': 3.0, '4D': 4.0}.get(
+                    getattr(node, 'noise_dimensions', '3D'), 3.0)
+                noise_w = _nsock('W', 0.0)
+                w_sock = node.inputs.get('W')
+                if noise_dims in (1.0, 4.0) and w_sock is not None and w_sock.is_linked:
+                    # Keyed 'TEX_NOISE.W', not 'TEX_NOISE': the coverage-matrix scanner
+                    # marks every socket of a warned node type APPROXIMATED.
+                    self._warn_shader_fallback(
+                        'TEX_NOISE.W', "linked W input on '%s' not supported; using its "
+                        "default value %g" % (getattr(node, 'name', node.type), noise_w))
                 # noise_type: Blender enum FBM/MULTIFRACTAL/RIDGED_MULTIFRACTAL/HYBRID_MULTIFRACTAL/HETERO_TERRAIN
                 # maps to the ENGINE ordering (advanced_features.h noise_select):
                 # 0=fBM, 1=multifractal, 2=HYBRID, 3=RIDGED, 4=hetero.
@@ -4152,8 +4207,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 nt = noise_type_map.get(getattr(node, 'noise_type', 'FBM'), 0.0)
                 noise_norm = 1.0 if getattr(node, 'normalize', True) else 0.0
                 tex_name = f"_proc_noise_{node_id}"
+                # #881: fac_variant = the Fac output wired into a colour socket -> grey
+                # (Fac, Fac, Fac), not the Color triple.
                 renderer.create_procedural_texture(tex_name, 'noise_perlin',
-                    [noise_scale, noise_detail, noise_rough, noise_lac, noise_offset, noise_gain, noise_dist, nt, noise_norm])
+                    [noise_scale, noise_detail, noise_rough, noise_lac, noise_offset, noise_gain, noise_dist, nt, noise_norm,
+                     noise_dims, noise_w, 1.0 if fac_variant else 0.0])
             elif ntype == 'TEX_CHECKER':
                 scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
                 c1 = list(node.inputs['Color1'].default_value[:3]) if node.inputs.get('Color1') else [1,1,1]
@@ -4345,22 +4403,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
     _GPU_PER_HIT_PROCEDURALS = ('TEX_NOISE', 'TEX_WAVE', 'TEX_VORONOI')
 
     def _warn_object_coord_bake(self, node, inputs=()):
-        """OBJECT coordinates are the world position on both backends (#1006). The GPU
+        """OBJECT coordinates are object-local on both backends (#1006). The GPU
         evaluates Noise / Wave / Voronoi per hit (#1007); any other procedural (or a
         warp `inputs` texture of another type) is baked into a 64^3 voxel grid over the
-        geometry's world bbox, where detail finer than a voxel aliases (#994). An
+        geometry's object-local bbox, where detail finer than a voxel aliases (#994). An
         emitter's texture is always baked; scene_upload.cu reports that at render time."""
         name = getattr(node, 'name', getattr(node, 'type', '?'))
         types = [getattr(n, 'type', None) for n in (node,) + tuple(inputs)]
         if all(t in self._GPU_PER_HIT_PROCEDURALS for t in types):
-            self._warn_shader_fallback(
-                'op-VM', "procedural '%s' with OBJECT coordinates: both backends use the "
-                "world position, not object-local (#1006)" % name)
-            return
+            return  # #1006: object-local on both backends, evaluated per hit (#1007)
         self._warn_shader_fallback(
             'op-VM', "procedural '%s' with OBJECT coordinates: GPU samples a 64^3 voxel "
-            "bake of the object bbox (fine detail aliased); both backends use the "
-            "world position, not object-local (#1006)" % name)
+            "bake of the object bbox (fine detail aliased)" % name)
 
     # Coordinate modes the GPU bakes procedurals over (scene_upload.cu
     # bakeProceduralTexId): UV (2D), Generated and Object (#994, world bbox) 3D.
@@ -4374,7 +4428,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         mapping = self._affine_matrix_values(base)
         mat_name = getattr(self, "_current_material_name", "") or ""
         node_id = f"{mat_name}.{self._node_cache_id(node)}"
-        if fac_variant and node.type in ('TEX_CHECKER', 'TEX_BRICK'):
+        if fac_variant and node.type in ('TEX_CHECKER', 'TEX_BRICK', 'TEX_NOISE'):
             node_id += "::fac"
         if color_output and node.type == 'TEX_VORONOI':
             node_id += "::color"
@@ -4444,10 +4498,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
                       'TEX_MAGIC', 'TEX_BRICK', 'TEX_GRADIENT', 'TEX_MUSGRAVE'}
         if linked_node.type in PROC_TYPES:
             vector_inp = linked_node.inputs.get('Vector') if hasattr(linked_node, 'inputs') else None
+            from_name = inp.links[0].from_socket.name
             tex_name = self.load_procedural_texture(
                 linked_node, renderer, vector_input=vector_inp,
+                # #881: Noise Fac into a colour socket is grey (svm/noisetex.h value).
+                fac_variant=(linked_node.type == 'TEX_NOISE'
+                             and from_name in ('Fac', 'Factor')),
                 color_output=(linked_node.type == 'TEX_VORONOI'
-                              and inp.links[0].from_socket.name == 'Color'))
+                              and from_name == 'Color'))
             return [0.8, 0.8, 0.8], tex_name
         # pkg219b — a per-texel op-VM chain (Color Ramp / Mix / Math / Map Range
         # downstream of an image). Compile it to bytecode and register a program
@@ -4466,6 +4524,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
         the chain is not a per-texel op (or the renderer lacks the bindings)."""
         if not hasattr(renderer, "create_program_texture"):
             return None
+        # pkg314 equivalence harness: ASTRORAY_GRAPH_PROGRAMS=force routes every
+        # chain through a graph program (old-vs-new comparisons, IR stats runs).
+        if os.environ.get("ASTRORAY_GRAPH_PROGRAMS") == "force":
+            graph = self._build_graph_program(socket, node, input_name, renderer, allow_leaf)
+            if graph is not None:
+                return graph
         try:
             from . import shader_vm_compiler as svm
         except Exception:
@@ -4473,6 +4537,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         try:
             compiled = svm.compile_chain(socket, allow_leaf=allow_leaf)
         except svm.VMCompileError as e:
+            # pkg314: a chain the bounded op-VM cannot hold (slots, length, curves,
+            # >2 textures) runs as a dynamic value program instead.
+            graph = self._build_graph_program(socket, node, input_name, renderer, allow_leaf)
+            if graph is not None:
+                return graph
             self._warn_shader_fallback(
                 "op-VM", "shader chain on '%s' not representable (%s) — "
                 "flattened to grey" % (input_name, e))
@@ -4520,6 +4589,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     'op-VM', 'op-VM input is not a loadable texture; flattened')
                 return None
         if len(kinds) > 1:
+            # pkg314: a graph program samples each input at its own coordinates.
+            graph = self._build_graph_program(socket, node, input_name, renderer, allow_leaf)
+            if graph is not None:
+                return graph
             self._warn_shader_fallback(
                 'op-VM', 'op-VM inputs mix image + procedural textures; '
                 'flattened (unsupported)')
@@ -4532,6 +4605,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # multi-input scalar program keeps its visible degradation. CPU is exact.
         if len(inputs) > 1 and input_name in ('Roughness', 'Metallic', 'IOR',
                                               'Transmission'):
+            # pkg314: a graph program samples every input in-program on both
+            # backends (no single-input GPU path).
+            graph = self._build_graph_program(socket, node, input_name, renderer, allow_leaf)
+            if graph is not None:
+                return graph
             self._warn_shader_fallback(
                 'op-VM', 'multi-input shader program (%d texture inputs) on %s: '
                 'GPU uses the constant value; CPU exact' % (len(inputs), input_name))
@@ -4561,6 +4639,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 resolved['uv_layer'], self._affine_matrix_values(resolved))
                 + ('::coordprog' if coord_prog is not None else ''))
         if any(signature != signatures[0] for signature in signatures[1:]):
+            # pkg314: per-input coordinates are native to a graph program.
+            graph = self._build_graph_program(socket, node, input_name, renderer, allow_leaf)
+            if graph is not None:
+                return graph
             self._warn_shader_fallback('op-VM', 'texture inputs have differing coordinate mappings; '
                                        'independent program coordinates are unsupported; flattened')
             return None
@@ -4633,6 +4715,103 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if compiled.get('per_hit'):
             self._per_hit_program_names().add(prog_name)
         return prog_name
+
+    def _build_graph_program(self, socket, node, input_name, renderer, allow_leaf=False):
+        """pkg314: compile the chain feeding `socket` into a dynamic value program
+        (blender_addon/shader_graph_ir.py; engine include/astroray/shader_graph.h)
+        and register it. Inputs are sampled inside the program, each at its own
+        coordinate contract (or at a compiled uv for a warped image). Returns the
+        registered name, or None (the reason is reported DEGRADED, never silent)."""
+        if not hasattr(renderer, 'create_graph_program_texture'):
+            return None
+        try:
+            from . import shader_graph_ir as gir
+            from . import shader_vm_compiler as svm
+        except Exception:
+            import shader_graph_ir as gir
+            import shader_vm_compiler as svm
+        report = self._degradation_report()
+        try:
+            prog = gir.compile_value_program(socket, allow_leaf=allow_leaf)
+        except svm.VMCompileError as e:
+            report.degraded('graph program', "shader chain on '%s' not representable "
+                            "(%s); constant value used" % (input_name, e))
+            return None
+        if prog is None:
+            return None
+        names = []
+        for in_node, variant, kind in zip(prog['inputs'], prog['input_variants'],
+                                          prog['input_kinds']):
+            in_name = self._load_graph_input(in_node, variant, kind, renderer)
+            if in_name is None:
+                report.degraded('graph program', "input '%s' of the chain on '%s' failed "
+                                "to load; constant value used"
+                                % (getattr(in_node, 'name', in_node.type), input_name))
+                return None
+            names.append(in_name)
+        mat_name = getattr(self, "_current_material_name", "") or ""
+        name = "_graph_%s.%s.%s" % (mat_name, getattr(node, "name", "n"), input_name)
+        try:
+            renderer.create_graph_program_texture(
+                name, prog['version'], prog['num_slots'], prog['out_slot'], prog['code'],
+                prog['consts'], [v for t in prog['tables'] for v in t], prog['table_data'],
+                names, [1 if k == 'coord' else 0 for k in prog['input_kinds']])
+        except Exception as e:
+            report.degraded('graph program', "program on '%s' rejected by the engine (%s); "
+                            "constant value used" % (input_name, e))
+            return None
+        if prog['per_hit']:
+            self._per_hit_program_names().add(name)
+        if getattr(node, 'type', None) == 'EMISSION' or input_name == 'Emission Color':
+            report.degraded('graph program', "graph program on '%s' (emission): GPU renders "
+                            "the texture mean (emitters are not evaluated per hit on GPU); "
+                            "CPU exact" % input_name)
+        stats = getattr(self, '_graph_program_stats', None)
+        if stats is None:
+            stats = self._graph_program_stats = {}
+        stats[name] = prog['stats']
+        return name
+
+    def _load_graph_input(self, in_node, variant, kind, renderer):
+        """pkg314: register one graph-program input. 'native': the texture with its
+        own coordinates + Mapping, exactly as when wired straight to a socket.
+        'coord': an image with NO Mapping, sampled at the program's computed uv."""
+        ntype = getattr(in_node, 'type', None)
+        vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
+        extension = getattr(in_node, 'extension', 'REPEAT')
+        if ntype == 'TEX_IMAGE':
+            image = getattr(in_node, 'image', None)
+            if image is None:
+                return None
+            if kind == 'coord':
+                identity = {'matrix': np.identity(4), 'coord_mode': 'UV', 'uv_layer': ''}
+                return self._load_blender_image_resolved(
+                    image, renderer, identity, child_signature='graph-coord',
+                    extension=extension)
+            name = self.load_blender_image(image, renderer, vector_input=vinp,
+                                           extension=extension)
+            mode = self._resolve_affine_coordinates(vinp, warn=lambda *a: None)['coord_mode']
+            if name is not None and mode != 'UV':
+                self._degradation_report().degraded(
+                    'graph program', "image input '%s' with %s coordinates: GPU skips the "
+                    "program (constant value); CPU exact" % (getattr(in_node, 'name', ntype),
+                                                             mode))
+            return name
+        if kind == 'coord':
+            return None
+        name = self.load_procedural_texture(in_node, renderer, vector_input=vinp,
+                                            fac_variant=(variant == 'fac'),
+                                            color_output=(variant == 'color'))
+        if name is not None:
+            mode = self._resolve_affine_coordinates(
+                vinp, default_coord_mode='GENERATED', warn=lambda *a: None,
+                allow_affine=False)['coord_mode']
+            if mode not in self._GPU_BAKED_COORDS:
+                self._degradation_report().degraded(
+                    'graph program', "procedural input '%s' with %s coordinates: GPU "
+                    "skips the program (constant value); CPU exact"
+                    % (getattr(in_node, 'name', ntype), mode))
+        return name
 
     def _per_hit_program_names(self):
         """#989: names of registered programs that read per-hit shading inputs
@@ -5720,11 +5899,22 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     return True
         return False
 
+    def _material_uses_object_coords(self, mat):
+        """#1006: cached per sync (reset with the material conversion pass)."""
+        cache = getattr(self, '_object_coord_materials', None)
+        if cache is None:
+            cache = self._object_coord_materials = {}
+        if mat.name not in cache:
+            cache[mat.name] = bool(getattr(mat, 'use_nodes', False)) and                 _tree_uses_object_coords(getattr(mat, 'node_tree', None))
+        return cache[mat.name]
+
     def _object_instanceable(self, obj):
         """A mesh object is eligible for the two-level instancing fast-path only
         when it is a plain MESH with no instancing-deferred feature: no emissive
-        material (NEE), no caustic-caster flag (SMS), no volume material. Anything
-        else falls back to the flatten path (current behaviour, fully correct)."""
+        material (NEE), no caustic-caster flag (SMS), no volume material, no
+        Object texture coordinates (#1006: the per-vertex object-local frame is
+        baked on the flatten path). Anything else falls back to the flatten path
+        (current behaviour, fully correct)."""
         if obj is None or obj.type != 'MESH':
             return False
         ao = getattr(obj, "astroray_object", None)
@@ -5740,6 +5930,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             if vol_map.get(mat.name) is not None:
                 return False
             if self._material_emits(mat):
+                return False
+            if self._material_uses_object_coords(mat):
                 return False
         return True
 
@@ -6458,6 +6650,22 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 if gen_affine is not None:
                     renderer.set_objects_generated_transform(
                         scene_count_before, scene_count_after, gen_affine)
+            # #1006 — per-object OBJECT-local frame (inverse of the baked pose).
+            if (hasattr(renderer, "set_objects_object_transform")
+                    and any(s.material is not None
+                            and self._material_uses_object_coords(s.material)
+                            for s in obj.material_slots)):
+                obj_affine = _object_local_affine(gen_matrix)
+                if obj_affine is not None:
+                    renderer.set_objects_object_transform(
+                        scene_count_before, scene_count_after, obj_affine)
+                if motion_end_matrix is not None:
+                    # The per-vertex frame is interpolated with barycentrics of the
+                    # shutter-open triangle (as #847 Generated), so a moving object's
+                    # pattern slides across the shutter instead of staying attached.
+                    self._warn_shader_fallback(
+                        'TEX_COORD', "Object coordinates on motion-blurred '%s' use the "
+                        "shutter-open pose (#1034)" % obj.name)
             for oid in range(scene_count_before, scene_count_after):
                 # pkg64 Phase 3 — caustic caster flag
                 if is_caustic_caster and hasattr(renderer, "set_object_caustic_caster"):
@@ -7203,6 +7411,19 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         idx_data = np.asarray(renderer.get_material_index_buffer(), dtype=np.float32)
                         pass_rgba = np.ones((height, width, 4), dtype=np.float32)
                         pass_rgba[:, :, :3] = idx_data[:, :, None]
+                    elif key == "sample_count":
+                        # #867: single-channel pass, linear count / max budget
+                        # (Blender 5.2 "Debug Sample Count" normalisation).
+                        counts = np.asarray(renderer.get_sample_count_buffer(), dtype=np.float32)
+                        budget = float(getattr(getattr(scene, "cycles", None), "samples", 0) or 0)
+                        if budget <= 0.0:
+                            budget = max(float(counts.max()), 1.0)
+                        count_flat = np.ascontiguousarray((counts / budget)[::-1]).reshape(-1)
+                        try:
+                            target_pass.rect.foreach_set(count_flat)
+                        except AttributeError:
+                            target_pass.rect = count_flat.tolist()
+                        continue
                     else:
                         continue
                 except Exception:
@@ -7367,9 +7588,13 @@ class RENDER_PT_custom_raytracer_sampling(AstrorayPanelBase, Panel):
         sub.prop(settings, "denoiser_backend", text="Denoiser")
 
         layout.separator()
-        layout.prop(settings, "use_adaptive_sampling")
+        # #866: the native Cycles toggle is what the engine reads (see
+        # native_settings.resolve_native_settings); the custom prop is only the
+        # Cycles-less fallback, so draw the one that is actually honoured.
+        _adaptive_owner = cycles if hasattr(cycles, "use_adaptive_sampling") else settings
+        layout.prop(_adaptive_owner, "use_adaptive_sampling", text="Adaptive Sampling")
         sub = layout.column()
-        sub.active = settings.use_adaptive_sampling
+        sub.active = bool(_adaptive_owner.use_adaptive_sampling)
         thr = sub.column()
         thr.enabled = False  # pkg311: vestigial control (settings_map: dropped)
         thr.prop(settings, "adaptive_threshold")

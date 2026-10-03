@@ -273,9 +273,12 @@ private:
                 // path (passed >= 1 caster) so direct light is not double-counted.
                 float tr = 1.0f;
                 bool passedCaster = false;
+                const Hittable* selfPrim = nullptr;  // #1037: primitive the ray leaves
                 for (int bounce = 0; bounce < maxDepth_; ++bounce) {
                     HitRecord rec;
-                    if (!bvh->hit(Ray(o, d), eps, std::numeric_limits<float>::max(), rec)) break;
+                    Ray stepRay(o, d);
+                    stepRay.self = selfPrim;
+                    if (!bvh->hit(stepRay, eps, std::numeric_limits<float>::max(), rec)) break;
                     if (!rec.material || rec.material->isEmissive()) break;
                     if (rec.material->isTransmissive()) {
                         float ior = rec.material->iorAt(lambda);
@@ -298,6 +301,7 @@ private:
                         // integrator only runs when a flagged caster exists, so this is safe.
                         passedCaster = true;
                         o = rec.point + d * eps;
+                        selfPrim = rec.hitObject;
                         continue;
                     }
                     if (passedCaster && rec.normal.y > 0.7f && tr > 0.0f)

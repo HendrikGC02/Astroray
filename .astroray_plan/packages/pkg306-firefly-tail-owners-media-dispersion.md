@@ -186,7 +186,15 @@ nothing. Opus 5.5 diagnosis lane; Sonnet 5.5 runs the ablation grid.
 ## Progress
 
 - [ ] Phase 0: tail report flag + ablation grid + attribution doc
-- [ ] Phase 1: media fix (CPU, then GPU)
+- [ ] Phase 1: media fix (CPU, then GPU). 2026-10-03 lane au-media (#961/#1019):
+      media tail owner = the light-tree path of the #925/#929 segment direct light
+      (midpoint point pick for the anchor, independent pick at P;
+      `include/raytracer.h` segmentDirectLight, `stage_volume_hetero.cu`
+      gpu_volumeSegmentDirect). Fixed with Cycles' segment light-tree pick; CPU
+      v2_media 64 spp: top-0.1 % share 0.957 -> 0.494 (Cycles 0.705), relVar 64x ->
+      4.6x Cycles, emitter_cool_glow variance 28x -> 4.2x. Remaining smoke-VDB
+      per-sample excess filed as #1032. Notes:
+      `.astroray_plan/docs/issue961-segment-light-tree-research.md`.
 - [ ] Phase 1: dispersion fix or arbitration
 - [ ] Phase 2: bands + gates
 

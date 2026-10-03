@@ -72,6 +72,12 @@ public:
     }
 
     bool hit(const Ray& r, float tMin, float tMax, HitRecord& rec) const override {
+        // #1037: a ray leaving this segment never re-hits it (Cycles
+        // intersection_skip_self, kernel/bvh/util.h). The hit point sits at the
+        // centreline depth INSIDE the tube, so without this every spawned ray
+        // whose closest approach lies ahead re-enters the fibre the Chiang BSDF
+        // already scattered through.
+        if (r.self == this) return false;
         Vec3 zAxis = r.direction;  // already normalized (Ray ctor)
         Vec3 chord = bezier_[3] - bezier_[0];
         Vec3 dxHint = zAxis.cross(chord);

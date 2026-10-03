@@ -108,7 +108,7 @@ inline float runMeshSMSAttempt(const Renderer& renderer,
     wi_x0 = wi_x0 * (1.0f / distX0);
     {
         HitRecord vr;
-        if (!bvh->hit(Ray(x0Rec.point, wi_x0), 1e-3f, distX0 + 1e-2f, vr)) return 0.0f;
+        if (!bvh->hit(spawnRay(x0Rec, wi_x0), 1e-3f, distX0 + 1e-2f, vr)) return 0.0f;
         if (!(vr.hitObject && vr.hitObject->isCausticCaster())) return 0.0f;
     }
     // Visibility last-vertex -> light: only the caster (glass) may lie between.
@@ -268,7 +268,7 @@ inline SMSPolyResult runMeshSMSAttemptPoly(const Renderer& renderer,
 
             // Visibility x0 -> x1 must reach a caustic-caster face (the glass).
             HitRecord vrec;
-            if (!bvh->hit(Ray(x0Rec.point, wi_x0), 0.001f, distX0X1 + 1e-2f, vrec))
+            if (!bvh->hit(spawnRay(x0Rec, wi_x0), 0.001f, distX0X1 + 1e-2f, vrec))
                 continue;
             if (!(vrec.hitObject && vrec.hitObject->isCausticCaster())) continue;
 

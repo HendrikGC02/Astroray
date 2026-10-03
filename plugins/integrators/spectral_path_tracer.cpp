@@ -610,9 +610,12 @@ private:
                 // FresnelSpecular::Sample_f, BSD-2). The map then holds every caster
                 // chain L S+ D, which is exactly what pathTraceSpectral's split culls.
                 // Research: .astroray_plan/docs/caustic-photon-fresnel-split-research.md
+                const Hittable* selfPrim = nullptr;  // #1037: primitive the ray leaves
                 for (int bounce = 0; bounce < maxDepth_; ++bounce) {
                     HitRecord rec;
-                    if (!bvh->hit(Ray(o, d), eps, std::numeric_limits<float>::max(), rec)) break;
+                    Ray stepRay(o, d);
+                    stepRay.self = selfPrim;
+                    if (!bvh->hit(stepRay, eps, std::numeric_limits<float>::max(), rec)) break;
                     if (!rec.material || rec.material->isEmissive()) break;
                     if (rec.material->isTransmissive()) {
                         float ior = rec.material->iorAt(lambda);
@@ -647,6 +650,7 @@ private:
                         }
                         passedCaster = true;
                         o = rec.point + d * eps;
+                        selfPrim = rec.hitObject;
                         continue;
                     }
                     // pkg111: REMOVED `rec.normal.y > 0.7f` — deposit on ANY diffuse receiver.

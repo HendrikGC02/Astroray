@@ -82,8 +82,9 @@ _RENDER_SAMPLING = [
                  "custom_raytracer.use_adaptive_sampling", "renderer.set_adaptive_sampling",
                  "approximated", "DROPPED-SILENT",
                  "pkg131 wired this to the engine's zero-knob adaptive sampler; pkg262 made it "
-                 "actually take effect on GPU. Reads the CUSTOM prop, not the native "
-                 "scene.cycles.use_adaptive_sampling bool -- stays APPROXIMATED (Cycles' "
+                 "actually take effect on GPU. #866: the exporter now reads the NATIVE "
+                 "scene.cycles.use_adaptive_sampling bool (custom prop = Cycles-less fallback); "
+                 "stays APPROXIMATED (Cycles' "
                  "knob-based min/max-samples + noise-threshold model has no equivalent; "
                  "Astroray auto-derives its threshold from the sample budget, Dammertz 2010). "
                  "GPU-only takes effect when the pkg224 progressive sampler is also active "

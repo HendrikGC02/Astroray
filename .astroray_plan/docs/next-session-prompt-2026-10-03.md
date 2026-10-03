@@ -14,3 +14,11 @@ Open lanes (worktrees `Astroray-<lane>`, branches `lane/<lane>`, all pushed; res
 - au-hair (#963/#853) — no report yet.
 Then: #955 + closure contract (graph Phase 4), #946, #947, #895; formal gate scoring pass on a fresh main build; owner run report (detailed, witty, charts, before/after renders) — NOT yet written.
 Codex: Astra (`gpt-6-astra`) for hard thinking; Terra for reviews. Machine was heavily loaded (builds ~2x slower).
+
+## Update 2026-10-03 ~08:00 (second usage-limit cut-off)
+Merged since: #1028 (#996 matrix). Report published (private): https://claude.ai/artifact/1wWmessxtbGiSt33NaFFcg — source `scratchpad/report/report_template.html` + `build_report.py`; republish to the same file path/URL.
+BUILD QUEUE IS PAUSED (quiet window for the viewport gate (a) table; lane at-v reports "TABLE DONE"). Then build, in order (lead_build_queue.py <lane>):
+- at-n1 (HEAD 52e85936; Terra fixes) · at-n2 (fac9c7ef; then PR #1030 out of draft) · au-media (f56509f6) · au-caustic (6c0815ad).
+Built and verifying: au-coords a13e7f5c (prod_marble 16/16 CPU+GPU — first passing material; PR pending), at-d a271f3df (#1029 gate d GREEN; lead reviewed engine diff OK; merge after confirmation legs), at-adaptive 14814ef3 (#1036 fix), au-hair 5c1fe03c (#963; then #1037 on lane/au-hair-1037).
+New issues: #1036 CPU adaptive bias (HIGH), #1037 hair self-hit (HIGH), #1038 glass centre 8 %, #1039 generator credits outputs, #1032/#1033 media, #1034, #1035.
+Caustics lane decision pending: CPU per-round photon maps (frozen speckle at high spp) — suggested separate follow-up; also "CPU adaptive reads path-traced caustics 10-25 % low" → fold into #1036.

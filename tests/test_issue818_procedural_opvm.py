@@ -307,17 +307,19 @@ def _two_noise_mix_socket(socket_name):
     return Sock(socket_name, [0.5, 0.5, 0.5], Link(mix, 'Color'))
 
 
-def _degradation_lines(monkeypatch, socket_name, sock):
+def _degradation_lines(monkeypatch, socket_name, sock, with_name=False):
     addon = _load_addon_stub(monkeypatch)
     eng = addon.CustomRaytracerRenderEngine.__new__(addon.CustomRaytracerRenderEngine)
     eng._current_material_name = "M"
     eng._generated_textures_by_material = {}
     node = Node('BSDF_PRINCIPLED', inputs=[sock])
+    name = None
     try:
-        eng._maybe_build_program_texture(sock, node, socket_name, _NoopProgRenderer())
+        name = eng._maybe_build_program_texture(sock, node, socket_name, _NoopProgRenderer())
     except Exception:
         pass  # the warning fires before any renderer program call; build outcome irrelevant
-    return eng._degradation_report().messages()
+    lines = eng._degradation_report().messages()
+    return (lines, name) if with_name else lines
 
 
 def test_multi_input_base_color_program_no_degradation(monkeypatch):
@@ -348,27 +350,30 @@ def test_unbakeable_procedural_program_records_degradation(monkeypatch):
     assert any("procedural input with CAMERA coordinates" in m for m in lines), lines
 
 
-def test_object_coord_procedural_program_reports_world_position(monkeypatch):
+def test_object_coord_procedural_program_not_degraded(monkeypatch):
     # #994 baked Object-coordinate procedural inputs into a 64^3 voxel grid (reported
-    # as aliased). #1007 evaluates Noise per hit on the GPU, so only the shared
-    # world-vs-object-local approximation (#1006) is reported, never the bake.
+    # as aliased). #1007 evaluates Noise per hit on the GPU and #1006 made Object
+    # coordinates object-local on both backends (this test used to assert the
+    # "world position" approximation entry), so nothing is reported.
     lines = _degradation_lines(monkeypatch, 'Base Color', _two_noise_coord_socket('Object'))
     assert not any("procedural input with" in m for m in lines), lines
-    assert any("OBJECT coordinates: both backends use the world position" in m
-               for m in lines), lines
+    assert not any("OBJECT coordinates" in m for m in lines), lines
     assert not any("64^3 voxel" in m for m in lines), lines
 
 
-def test_multi_input_scalar_program_records_degradation(monkeypatch):
-    # The GPU scalar-parameter path still samples one input -> stays non-silent.
-    lines = _degradation_lines(monkeypatch, 'Roughness',
-                               _two_noise_mix_socket('Roughness'))
-    assert any("multi-input shader program" in m and "Roughness" in m
-               for m in lines), lines
+def test_multi_input_scalar_program_routes_to_graph_program(monkeypatch):
+    # pkg314 flips the #821/#826 guard (the GPU scalar path sampled ONE input and
+    # broadcast it, so this asserted a degradation): a multi-input scalar chain now
+    # runs as a graph program that samples every input in-program on both backends.
+    lines, name = _degradation_lines(monkeypatch, 'Roughness',
+                                     _two_noise_mix_socket('Roughness'), with_name=True)
+    assert not any("multi-input shader program" in m for m in lines), lines
+    assert name is not None and name.startswith("_graph_"), name
 
 
-def test_three_input_program_flattened_with_warning(monkeypatch):
-    # > VM_MAX_TEX inputs: the compiler rejects the chain -> flattened + warned.
+def test_three_input_program_routes_to_graph_program(monkeypatch):
+    # > VM_MAX_TEX inputs: the op-VM rejects the chain; pkg314 compiles it to a
+    # graph program (was: flattened + warned).
     tex = [Node('TEX_NOISE', inputs=[Sock('Vector')]) for _ in range(3)]
     inner = Node('MIX_RGB', blend_type='MIX',
                  inputs=[Sock('Fac', 0.5),
@@ -381,5 +386,6 @@ def test_three_input_program_flattened_with_warning(monkeypatch):
     base = Sock('Base Color', [0.5, 0.5, 0.5], Link(outer, 'Color'))
     with pytest.raises(C.VMCompileError):
         C.compile_chain(base)
-    lines = _degradation_lines(monkeypatch, 'Base Color', base)
-    assert any("VM_MAX_TEX" in m for m in lines), lines
+    lines, name = _degradation_lines(monkeypatch, 'Base Color', base, with_name=True)
+    assert not any("VM_MAX_TEX" in m for m in lines), lines
+    assert name is not None and name.startswith("_graph_"), name

@@ -563,7 +563,7 @@
       "family": "textures_mapping",
       "builder_fn": "build_textures_mapping_scene",
       "blend_path": "benchmarks/reference_corpus/scenes/textures_mapping.blend",
-      "sha256": "9f2f1c88d362687c18caf4debf3dce0bf87f79e1e38c02e155d831e8ec248080",
+      "sha256": "0150900d1d41bd59ea8c9fc9ca6fb55c70c971bcf66611235f1de0ab2a880104",
       "settings": {
         "res_x": 960,
         "res_y": 540,
@@ -571,23 +571,25 @@
         "saved_default_engine": "CYCLES"
       },
       "reopen_verified": true,
-      "triangle_count": 2930,
+      "triangle_count": 2936,
       "curve_count": 0,
       "curve_point_count": 0,
       "object_counts": {
-        "MESH": 23,
+        "MESH": 26,
         "LIGHT": 2,
         "CAMERA": 1
       },
       "node_ids": [
         "ShaderNodeBackground",
         "ShaderNodeBrightContrast",
+        "ShaderNodeBsdfDiffuse",
         "ShaderNodeBsdfPrincipled",
         "ShaderNodeBump",
         "ShaderNodeClamp",
         "ShaderNodeCombineColor",
         "ShaderNodeDisplacement",
         "ShaderNodeEmission",
+        "ShaderNodeFloatCurve",
         "ShaderNodeGamma",
         "ShaderNodeHueSaturation",
         "ShaderNodeInvert",
@@ -601,6 +603,7 @@
         "ShaderNodeOutputLight",
         "ShaderNodeOutputMaterial",
         "ShaderNodeOutputWorld",
+        "ShaderNodeRGBCurve",
         "ShaderNodeRGBToBW",
         "ShaderNodeSeparateColor",
         "ShaderNodeTexBrick",
@@ -612,6 +615,7 @@
         "ShaderNodeTexNoise",
         "ShaderNodeTexVoronoi",
         "ShaderNodeTexWave",
+        "ShaderNodeVectorCurve",
         "ShaderNodeVectorMath",
         "ShaderNodeVectorRotate"
       ],
@@ -750,6 +754,22 @@
           "bl_idname": "ShaderNodeDisplacement",
           "socket_or_prop": "input:Scale",
           "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "CURVE_FLOAT",
+          "bl_idname": "ShaderNodeFloatCurve",
+          "socket_or_prop": "input:Factor",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "CURVE_FLOAT",
+          "bl_idname": "ShaderNodeFloatCurve",
+          "socket_or_prop": "input:Value",
+          "classification": "SUPPORTED",
           "gap_card": false
         },
         {
@@ -978,6 +998,22 @@
         },
         {
           "category": "shader_node",
+          "feature": "CURVE_RGB",
+          "bl_idname": "ShaderNodeRGBCurve",
+          "socket_or_prop": "input:Factor",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "CURVE_RGB",
+          "bl_idname": "ShaderNodeRGBCurve",
+          "socket_or_prop": "input:Color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
           "feature": "RGBTOBW",
           "bl_idname": "ShaderNodeRGBToBW",
           "socket_or_prop": "input:Color",
@@ -1117,7 +1153,7 @@
           "feature": "TEX_IMAGE",
           "bl_idname": "ShaderNodeTexImage",
           "socket_or_prop": "input:Vector",
-          "classification": "SUPPORTED",
+          "classification": "APPROXIMATED",
           "gap_card": false
         },
         {
@@ -1141,6 +1177,14 @@
           "feature": "TEX_MAGIC",
           "bl_idname": "ShaderNodeTexMagic",
           "socket_or_prop": "prop:turbulence_depth",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_NOISE",
+          "bl_idname": "ShaderNodeTexNoise",
+          "socket_or_prop": "input:W",
           "classification": "SUPPORTED",
           "gap_card": false
         },
@@ -1204,6 +1248,14 @@
           "category": "shader_node",
           "feature": "TEX_NOISE",
           "bl_idname": "ShaderNodeTexNoise",
+          "socket_or_prop": "prop:noise_dimensions",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "TEX_NOISE",
+          "bl_idname": "ShaderNodeTexNoise",
           "socket_or_prop": "prop:noise_type",
           "classification": "SUPPORTED",
           "gap_card": false
@@ -1221,7 +1273,7 @@
           "feature": "TEX_VORONOI",
           "bl_idname": "ShaderNodeTexVoronoi",
           "socket_or_prop": "input:Scale",
-          "classification": "SUPPORTED",
+          "classification": "APPROXIMATED",
           "gap_card": false
         },
         {
@@ -1229,7 +1281,7 @@
           "feature": "TEX_VORONOI",
           "bl_idname": "ShaderNodeTexVoronoi",
           "socket_or_prop": "input:Detail",
-          "classification": "SUPPORTED",
+          "classification": "APPROXIMATED",
           "gap_card": false
         },
         {
@@ -1237,7 +1289,7 @@
           "feature": "TEX_VORONOI",
           "bl_idname": "ShaderNodeTexVoronoi",
           "socket_or_prop": "input:Roughness",
-          "classification": "SUPPORTED",
+          "classification": "APPROXIMATED",
           "gap_card": false
         },
         {
@@ -1245,7 +1297,7 @@
           "feature": "TEX_VORONOI",
           "bl_idname": "ShaderNodeTexVoronoi",
           "socket_or_prop": "input:Lacunarity",
-          "classification": "SUPPORTED",
+          "classification": "APPROXIMATED",
           "gap_card": false
         },
         {
@@ -1253,7 +1305,7 @@
           "feature": "TEX_VORONOI",
           "bl_idname": "ShaderNodeTexVoronoi",
           "socket_or_prop": "input:Smoothness",
-          "classification": "SUPPORTED",
+          "classification": "APPROXIMATED",
           "gap_card": false
         },
         {
@@ -1261,7 +1313,7 @@
           "feature": "TEX_VORONOI",
           "bl_idname": "ShaderNodeTexVoronoi",
           "socket_or_prop": "input:Exponent",
-          "classification": "SUPPORTED",
+          "classification": "APPROXIMATED",
           "gap_card": false
         },
         {
@@ -1269,7 +1321,7 @@
           "feature": "TEX_VORONOI",
           "bl_idname": "ShaderNodeTexVoronoi",
           "socket_or_prop": "input:Randomness",
-          "classification": "SUPPORTED",
+          "classification": "APPROXIMATED",
           "gap_card": false
         },
         {
@@ -1277,7 +1329,7 @@
           "feature": "TEX_VORONOI",
           "bl_idname": "ShaderNodeTexVoronoi",
           "socket_or_prop": "prop:distance",
-          "classification": "SUPPORTED",
+          "classification": "APPROXIMATED",
           "gap_card": false
         },
         {
@@ -1285,7 +1337,7 @@
           "feature": "TEX_VORONOI",
           "bl_idname": "ShaderNodeTexVoronoi",
           "socket_or_prop": "prop:feature",
-          "classification": "SUPPORTED",
+          "classification": "APPROXIMATED",
           "gap_card": false
         },
         {
@@ -1293,7 +1345,7 @@
           "feature": "TEX_VORONOI",
           "bl_idname": "ShaderNodeTexVoronoi",
           "socket_or_prop": "prop:normalize",
-          "classification": "SUPPORTED",
+          "classification": "APPROXIMATED",
           "gap_card": false
         },
         {
@@ -1373,6 +1425,22 @@
           "feature": "TEX_WAVE",
           "bl_idname": "ShaderNodeTexWave",
           "socket_or_prop": "prop:wave_type",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "CURVE_VEC",
+          "bl_idname": "ShaderNodeVectorCurve",
+          "socket_or_prop": "input:Factor",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "CURVE_VEC",
+          "bl_idname": "ShaderNodeVectorCurve",
+          "socket_or_prop": "input:Vector",
           "classification": "SUPPORTED",
           "gap_card": false
         },
@@ -1528,6 +1596,24 @@
           0.5223,
           0.7285,
           0.6141
+        ],
+        "Noise4DCard": [
+          0.2362,
+          0.3065,
+          0.3332,
+          0.4006
+        ],
+        "Noise2DCard": [
+          0.219,
+          0.3821,
+          0.3199,
+          0.4826
+        ],
+        "CurvesCard": [
+          0.668,
+          0.3603,
+          0.7893,
+          0.4804
         ]
       },
       "gate_c": {

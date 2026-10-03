@@ -1,6 +1,7 @@
 #pragma once
 #include "raytracer.h"
 #include "astroray/shader_vm.h"   // pkg219b — bounded per-texel op-VM
+#include "astroray/shader_graph.h"  // pkg314 — dynamic value programs
 #include "astroray/gpu_types.h"   // #1004 — GImgExt / gpu_imageWrapTexel
 #include "astroray/procedural_tex.h"  // #1007 — host+device Noise / Wave / Voronoi
 #include <utility>
@@ -163,8 +164,17 @@ protected:
                 }
                 return {uv, opt};
             }
-            case CoordMode::Object:
+            case CoordMode::Object: {
+                // #1006 — object-local position (Cycles svm/tex_coord.h
+                // NODE_TEXCO_OBJECT, object_inverse_position_transform). The addon
+                // bakes world transforms into the vertices, so the triangle carries
+                // per-vertex object-local positions (set_objects_object_transform);
+                // without them (API scenes, spheres) world == object space.
+                Vec3 o;
+                if (rec.hitObject && rec.hitObject->objectCoord(pt, o))
+                    return {Vec2(o.x, o.y), o};
                 return {Vec2(opt.x, opt.y), opt};
+            }
             case CoordMode::Camera: {
                 if (!rec.hasCameraFrame) return {Vec2(pt.x, pt.y), pt};
                 Vec3 rel = pt - rec.cameraOrigin;
@@ -517,7 +527,7 @@ public:
     Vec3 valueAtHit(const Vec2& uv, const Vec3& p, const HitRecord& rec,
                     const Vec3& wo) const override {
         astroray::svm::SvmShading sh;
-        sh.cosI = wo.dot(rec.normal);
+        sh.cosI = wo.dot(rec.shadingContextNormal());  // pkg314: sd->N, pre-bump
         sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
         return eval(uv, p, &sh);
     }
@@ -583,6 +593,98 @@ public:
     // UNWARPED point picked one checker cell (MapAfterWarp read flat blue). The warp
     // only moves the sample point, so the child's own mean is the right estimate.
     Vec3 average() const override { return child_->average(); }
+};
+
+// ============================================================================
+// pkg314 — GraphProgramTexture: a dynamic value program (shader_graph.h) over
+// any number of input textures. CPU twin of the GPU graph-evaluation kernel
+// (src/gpu/wavefront/stage_graph_eval.cu): the SAME graph_eval runs over the
+// same arenas; only the texture service differs. Inputs are sampled inside the
+// program: GOP_TEX_NATIVE k at input k's own coordinate contract (its coord mode
+// + Mapping, value(HitRecord)), GOP_TEX_COORD k at a computed uv (the raw
+// value(uv, p) evaluator; the addon loads such an image with no Mapping).
+// ============================================================================
+class GraphProgramTexture : public Texture {
+    std::vector<std::shared_ptr<Texture>> inputs_;
+    std::vector<unsigned char> coordKind_;   // 1 = GOP_TEX_COORD input
+    astroray::sgraph::GraphProgramData prog_;
+
+    struct CpuSvc {
+        const GraphProgramTexture* self;
+        const HitRecord* rec;
+        Vec3 wo;
+        astroray::svm::SvmShading sh;
+        bool tex_native(uint32_t k, GVec3& o) const {
+            Vec3 c = self->inputs_[k]->value(*rec, wo);
+            o = GVec3(c.x, c.y, c.z);
+            return true;
+        }
+        bool tex_coord(uint32_t k, const GVec3& uv, GVec3& o) const {
+            Vec3 c = self->inputs_[k]->value(Vec2(uv.x, uv.y), Vec3(uv.x, uv.y, uv.z));
+            o = GVec3(c.x, c.y, c.z);
+            return true;
+        }
+        bool geom(unsigned char, GVec3& o) const {   // GEOM_UV: active UV layer
+            o = GVec3(rec->uv.u, rec->uv.v, 0.0f);
+            return true;
+        }
+        const astroray::svm::SvmShading& shading() const { return sh; }
+    };
+
+    Vec3 eval(const HitRecord& rec, const Vec3& wo, const astroray::svm::SvmShading& sh) const {
+        const astroray::sgraph::GraphArenas ar{prog_.instrs.data(), prog_.consts.data(),
+                                               prog_.tables.data(), prog_.tableData.data()};
+        std::vector<GVec3> regs(prog_.desc.numSlots);
+        CpuSvc svc{this, &rec, wo, sh};
+        GVec3 r;
+        if (!astroray::sgraph::graph_eval(prog_.desc, ar, regs.data(), 1, svc, r))
+            return Vec3(0.0f);
+        return Vec3(r.x, r.y, r.z);
+    }
+
+public:
+    // Throws std::runtime_error when the program is malformed or over budget
+    // (the addon reports it as DEGRADED and keeps the constant socket value).
+    GraphProgramTexture(std::vector<std::shared_ptr<Texture>> inputs,
+                        std::vector<unsigned char> coordKind,
+                        astroray::sgraph::GraphProgramData prog)
+        : inputs_(std::move(inputs)), coordKind_(std::move(coordKind)), prog_(std::move(prog)) {
+        if (coordKind_.size() != inputs_.size())
+            throw std::runtime_error("graph program: input kind count mismatch");
+        std::string err = astroray::sgraph::validateGraphProgram(prog_, (int)inputs_.size());
+        if (!err.empty()) throw std::runtime_error("graph program rejected: " + err);
+    }
+    const astroray::sgraph::GraphProgramData& getProgram() const { return prog_; }
+    size_t numInputs() const { return inputs_.size(); }
+    std::shared_ptr<Texture> getInput(size_t i) const { return inputs_[i]; }
+    bool inputIsCoord(size_t i) const { return coordKind_[i] != 0; }
+
+    // No hit (texture bakes, sample_named_texture): a front-facing hit at
+    // (uv, p) seen at normal incidence; inputs resolve their coordinates from it.
+    Vec3 value(const Vec2& uv, const Vec3& p) const override {
+        HitRecord rec;
+        rec.point = p;
+        rec.objectPoint = p;
+        rec.uv = uv;
+        rec.normal = Vec3(0.0f, 0.0f, 1.0f);
+        rec.frontFace = true;
+        rec.t = 0.0f;
+        return eval(rec, Vec3(0.0f, 0.0f, 1.0f), astroray::svm::SvmShading());
+    }
+    // #989 shading context, as ProgramTexture::valueAtHit.
+    Vec3 valueAtHit(const Vec2&, const Vec3&, const HitRecord& rec,
+                    const Vec3& wo) const override {
+        astroray::svm::SvmShading sh;
+        sh.cosI = wo.dot(rec.shadingContextNormal());  // pkg314: sd->N, pre-bump
+        sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
+        return eval(rec, wo, sh);
+    }
+    astroray::SampledSpectrum sampleSpectralAtHit(
+            const Vec2& uv, const Vec3& p, const HitRecord& rec, const Vec3& wo,
+            const astroray::SampledWavelengths& lambdas) const override {
+        Vec3 rgb = valueAtHit(uv, p, rec, wo);
+        return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
+    }
 };
 
 class MarbleTexture : public Texture {
@@ -921,8 +1023,14 @@ class NoiseTextureCycles : public Texture {
 public:
     NoiseTextureCycles(float s = 5.0f, float det = 2.0f, float rough = 0.5f,
                        float lac = 2.0f, float off = 0.0f, float g = 1.0f,
-                       float dist = 0.0f, int type = 0, bool norm = true)
-        : params_{s, det, rough, lac, off, g, dist, type, norm ? 1 : 0} {}
+                       float dist = 0.0f, int type = 0, bool norm = true,
+                       int dims = 3, float w = 0.0f, bool facOnly = false)
+        : params_{s, det, rough, lac, off, g, dist, type, norm ? 1 : 0} {
+        // #881: Noise dimensions (1D-4D) + W, and the grey Fac-only output.
+        params_.dimensions = (dims >= 1 && dims <= 4) ? dims : 3;
+        params_.w = w;
+        params_.facOnly = facOnly ? 1 : 0;
+    }
     // #1007: the GPU per-hit evaluator reads the same parameters.
     const astroray::proc::NoiseParams& procParams() const { return params_; }
 
@@ -1103,6 +1211,7 @@ public:
         moved.cameraU = r.cameraU;
         moved.cameraV = r.cameraV;
         moved.cameraW = r.cameraW;
+        moved.self = r.self;  // #1037
         if (!object->hit(moved, tMin, tMax, rec)) return false;
         rec.point += offset;
         // Keep the inner hit's normal AND rec.frontFace. Translation does not rotate
@@ -1140,6 +1249,7 @@ public:
         scaled.cameraU = r.cameraU;
         scaled.cameraV = r.cameraV;
         scaled.cameraW = r.cameraW;
+        scaled.self = r.self;  // #1037
         if (!object->hit(scaled, tMin * sdlen, tMax * sdlen, rec)) return false;
         rec.t /= sdlen;
         rec.point = Vec3(rec.point.x*scale.x, rec.point.y*scale.y, rec.point.z*scale.z);
@@ -1175,6 +1285,7 @@ public:
         rot.cameraU = r.cameraU;
         rot.cameraV = r.cameraV;
         rot.cameraW = r.cameraW;
+        rot.self = r.self;  // #1037
         if (!object->hit(rot, tMin, tMax, rec)) return false;
         Vec3 p = rec.point;
         rec.point = Vec3(cosT*p.x - sinT*p.z, p.y, sinT*p.x + cosT*p.z);

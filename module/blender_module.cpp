@@ -180,6 +180,8 @@ class TextureManager {
     // downstream of a texture). Registered separately so scene_upload can
     // detect them and upload the compiled program to the GPU.
     std::unordered_map<std::string, std::shared_ptr<ProgramTexture>> programTextures;
+    // pkg314 — dynamic value programs (shader_graph.h).
+    std::unordered_map<std::string, std::shared_ptr<GraphProgramTexture>> graphTextures;
     static Texture::CoordMode parseCoordMode(const std::string& mode) {
         std::string m = mode;
         for (char& c : m) c = static_cast<char>(std::toupper(c));
@@ -216,7 +218,8 @@ public:
             proceduralTextures[name] = std::make_shared<NoiseTexture>(params.size() > 0 ? params[0] : 1.0f);
         } else if (type == "noise_perlin") {
             // pkg115 chunk 2 + chunk 6 (addon dedup): ShaderNodeTexNoise → NoiseTextureCycles.
-            // Params: [scale, detail, roughness, lacunarity, offset, gain, distortion, noise_type, normalize]
+            // Params: [scale, detail, roughness, lacunarity, offset, gain, distortion, noise_type, normalize,
+            //          dimensions (#881, default 3), w (#881), fac_only (#881: grey Fac output)]
             float scale = params.size() > 0 ? params[0] : 5.0f;
             float detail = params.size() > 1 ? params[1] : 2.0f;
             float roughness = params.size() > 2 ? params[2] : 0.5f;
@@ -226,8 +229,12 @@ public:
             float distortion = params.size() > 6 ? params[6] : 0.0f;
             int noise_type = params.size() > 7 ? (int)params[7] : 0;
             bool normalize = params.size() > 8 ? (params[8] != 0.0f) : true;
+            int dims = params.size() > 9 ? (int)params[9] : 3;
+            float w = params.size() > 10 ? params[10] : 0.0f;
+            bool facOnly = params.size() > 11 && params[11] != 0.0f;
             proceduralTextures[name] = std::make_shared<NoiseTextureCycles>(
-                scale, detail, roughness, lacunarity, offset, gain, distortion, noise_type, normalize);
+                scale, detail, roughness, lacunarity, offset, gain, distortion, noise_type, normalize,
+                dims, w, facOnly);
         } else if (type == "marble") {
             proceduralTextures[name] = std::make_shared<MarbleTexture>(params.size() > 0 ? params[0] : 1.0f);
         } else if (type == "wood") {
@@ -385,6 +392,8 @@ public:
         if (it2 != proceduralTextures.end()) return it2->second;
         auto it3 = programTextures.find(name);
         if (it3 != programTextures.end()) return it3->second;
+        auto it4 = graphTextures.find(name);
+        if (it4 != graphTextures.end()) return it4->second;
         return nullptr;
     }
 
@@ -415,6 +424,84 @@ public:
             throw std::runtime_error("set_program_texture_program: unknown program texture " + name);
         it->second->setProgram(parseProgram("set_program_texture_program", numTex, outSlot,
                                             code_flat, consts_flat, ramps_flat));
+    }
+    // pkg314 — register a graph value program (blender_addon/shader_graph_ir.py
+    // finalize()). code = 9 ints/instr (op,sub,dst,a,b,c,d,e,res); consts = 3
+    // floats/const; tables = 4 floats/table (size, min_x, range_x, extrapolate)
+    // over table_data (3 floats/entry, tables back to back); input_kinds[i] = 1
+    // when input i is sampled at a computed uv (GOP_TEX_COORD). Throws on a
+    // version mismatch, a malformed program or an exceeded budget.
+    void createGraphProgramTexture(const std::string& name, int version, int numSlots,
+                                   int outSlot, const std::vector<int>& code,
+                                   const std::vector<float>& consts,
+                                   const std::vector<float>& tables,
+                                   const std::vector<float>& tableData,
+                                   const std::vector<std::string>& inputNames,
+                                   const std::vector<int>& inputKinds) {
+        using namespace astroray::sgraph;
+        const std::string who = "create_graph_program_texture: ";
+        if (version != GRAPH_IR_VERSION)
+            throw std::runtime_error(who + "IR version " + std::to_string(version) +
+                                     " != engine " + std::to_string(GRAPH_IR_VERSION));
+        if (code.size() % 9 != 0 || consts.size() % 3 != 0 || tables.size() % 4 != 0 ||
+            tableData.size() % 3 != 0 || inputKinds.size() != inputNames.size())
+            throw std::runtime_error(who + "malformed buffers");
+        GraphProgramData g;
+        const size_t ni = code.size() / 9;
+        if (ni > (size_t)GRAPH_MAX_INSTR || consts.size() / 3 > (size_t)GRAPH_MAX_CONST ||
+            tables.size() / 4 > (size_t)GRAPH_MAX_TABLES || numSlots < 1 ||
+            numSlots > GRAPH_MAX_SLOTS || outSlot < 0)
+            throw std::runtime_error(who + "program over budget");
+        for (size_t i = 0; i < ni; ++i) {
+            const int* c = &code[i * 9];
+            for (int k = 0; k < 8; ++k)
+                if (c[k] < 0 || (k < 2 ? c[k] > 0xFF : c[k] > 0xFFFF))
+                    throw std::runtime_error(who + "field out of range at instruction " +
+                                             std::to_string(i));
+            if (c[8] < 0)
+                throw std::runtime_error(who + "negative resource index at instruction " +
+                                         std::to_string(i));
+            GraphInstr in{};
+            in.op = (uint8_t)c[0]; in.sub = (uint8_t)c[1]; in.dst = (uint16_t)c[2];
+            in.a = (uint16_t)c[3]; in.b = (uint16_t)c[4]; in.c = (uint16_t)c[5];
+            in.d = (uint16_t)c[6]; in.e = (uint16_t)c[7]; in.res = (uint32_t)c[8];
+            g.instrs.push_back(in);
+        }
+        for (size_t i = 0; i < consts.size(); i += 3)
+            g.consts.push_back(GVec3(consts[i], consts[i + 1], consts[i + 2]));
+        for (size_t i = 0; i < tableData.size(); i += 3)
+            g.tableData.push_back(GVec3(tableData[i], tableData[i + 1], tableData[i + 2]));
+        uint32_t off = 0;
+        for (size_t i = 0; i < tables.size(); i += 4) {
+            if (!(tables[i] >= 2.0f) || tables[i] > (float)GRAPH_MAX_TABLE_SIZE)
+                throw std::runtime_error(who + "bad table size");
+            GraphTable t{};
+            t.offset = off;
+            t.size = (uint32_t)tables[i];
+            t.minX = tables[i + 1];
+            t.rangeX = tables[i + 2];
+            t.extrapolate = tables[i + 3] != 0.0f ? 1u : 0u;
+            off += t.size;
+            g.tables.push_back(t);
+        }
+        if ((size_t)off != g.tableData.size())
+            throw std::runtime_error(who + "table data length mismatch");
+        g.desc.numInstr = (uint32_t)g.instrs.size();
+        g.desc.numConst = (uint32_t)g.consts.size();
+        g.desc.numTables = (uint32_t)g.tables.size();
+        g.desc.numTex = (uint32_t)inputNames.size();
+        g.desc.numSlots = (uint32_t)numSlots;
+        g.desc.outSlot = (uint32_t)outSlot;
+        std::vector<std::shared_ptr<Texture>> inputs;
+        std::vector<unsigned char> kinds;
+        for (size_t i = 0; i < inputNames.size(); ++i) {
+            auto in = getTexture(inputNames[i]);
+            if (!in) throw std::runtime_error(who + "unknown input texture " + inputNames[i]);
+            inputs.push_back(in);
+            kinds.push_back(inputKinds[i] ? 1 : 0);
+        }
+        graphTextures[name] = std::make_shared<GraphProgramTexture>(
+            std::move(inputs), std::move(kinds), std::move(g));
     }
     // pkg277 (#822): wrap a registered procedural in a coordinate program. The
     // wrapper carries coord_mode (+ Mapping via set_texture_mapping_matrix);
@@ -618,6 +705,18 @@ public:
         textureManager.setProgramTextureProgram(name, numTex, outSlot,
                                                 code_flat, consts_flat, ramps_flat);
         invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
+    }
+    void createGraphProgramTexture(const std::string& name, int version, int numSlots,
+                                   int outSlot, const std::vector<int>& code,
+                                   const std::vector<float>& consts,
+                                   const std::vector<float>& tables,
+                                   const std::vector<float>& tableData,
+                                   const std::vector<std::string>& inputNames,
+                                   const std::vector<int>& inputKinds) {
+        textureManager.createGraphProgramTexture(name, version, numSlots, outSlot, code,
+                                                 consts, tables, tableData, inputNames,
+                                                 inputKinds);
+        invalidateWavefrontScene();  // #981: new texture read by buildSceneArrays
     }
     void createCoordProgramTexture(const std::string& name, const std::string& childName,
                                    const std::string& coordMode, int outSlot,
@@ -2317,6 +2416,34 @@ public:
         return n;
     }
 
+    // #1006 — per-object OBJECT-local frame. `m` is the row-major 3x4 world ->
+    // object affine (the inverse of the object's matrix_world, which the addon
+    // bakes into the vertices); baked onto every Triangle in [begin, end) as
+    // per-vertex object-local positions, read by Texture Coordinate > Object
+    // (Cycles svm/tex_coord.h object_inverse_position_transform). Returns the
+    // number of triangles set.
+    int setObjectsObjectTransform(int begin, int end, const std::vector<float>& m) {
+        if (m.size() != 12)
+            throw std::runtime_error("set_objects_object_transform: matrix must have 12 floats");
+        const auto& scene = renderer.getScene();  // not bounds: the BVH stays valid
+        invalidateWavefrontScene();  // #801: triangle data read by buildSceneArrays
+        begin = std::max(begin, 0);
+        end = std::min(end, static_cast<int>(scene.size()));
+        auto apply = [&](const Vec3& p) {
+            return Vec3(m[0]*p.x + m[1]*p.y + m[2]*p.z  + m[3],
+                        m[4]*p.x + m[5]*p.y + m[6]*p.z  + m[7],
+                        m[8]*p.x + m[9]*p.y + m[10]*p.z + m[11]);
+        };
+        int n = 0;
+        for (int i = begin; i < end; ++i) {
+            if (auto* tri = dynamic_cast<Triangle*>(scene[i].get())) {
+                tri->setObjectLocal(apply(tri->getV0()), apply(tri->getV1()), apply(tri->getV2()));
+                ++n;
+            }
+        }
+        return n;
+    }
+
     int getCausticCasterCount() const {
         return renderer.getCausticCasterCount();
     }
@@ -2693,7 +2820,8 @@ public:
                     gpuCancelHook,                             // pkg241 Phase 1b
                     subPassBudget,                             // pkg266
                     &gpuUnitsLaunched, &gpuCancelledAtUnit,    // pkg266
-                    skipUpload, sceneOwnerId_);                // #801 device scene cache
+                    skipUpload, sceneOwnerId_,                 // #801 device scene cache
+                    camera->sampleCountBuffer.data());         // #867
                 lastRenderInfoUnitsLaunched_ = gpuUnitsLaunched;
                 lastRenderInfoCancelledAtUnit_ = gpuCancelledAtUnit;
                 lastRenderInfoGridUploads_ =
@@ -2954,6 +3082,17 @@ public:
         float* ptr = static_cast<float*>(buf.ptr);
         size_t size = camera->depthBuffer.size();
         for (size_t i = 0; i < size; ++i) ptr[i] = camera->depthBuffer[i];
+        return result;
+    }
+
+    // #867: per-pixel samples taken (adaptive sampling varies it across the image).
+    py::array_t<float> getSampleCountBuffer() {
+        if (!camera) throw std::runtime_error("Camera not set up");
+        py::ssize_t shape[2] = {static_cast<py::ssize_t>(camera->height), static_cast<py::ssize_t>(camera->width)};
+        auto result = py::array_t<float>(shape);
+        float* ptr = static_cast<float*>(result.request().ptr);
+        const size_t size = camera->sampleCountBuffer.size();
+        for (size_t i = 0; i < size; ++i) ptr[i] = camera->sampleCountBuffer[i];
         return result;
     }
 
@@ -3814,6 +3953,14 @@ PYBIND11_MODULE(astroray, m) {
              "pkg219b: set the compiled bytecode. code_flat = 8 ints/instr "
              "(op,out,a,b,c,d,e,imm); consts_flat = 3 floats/const; ramps_flat = "
              "numRamps*256*3 floats (baked Color-Ramp tables, RGB).")
+        .def("create_graph_program_texture", &PyRenderer::createGraphProgramTexture,
+             "name"_a, "version"_a, "num_slots"_a, "out_slot"_a, "code"_a, "consts"_a,
+             "tables"_a, "table_data"_a, "input_names"_a, "input_kinds"_a,
+             "pkg314: register a dynamic value program (shader_graph.h; built by "
+             "blender_addon/shader_graph_ir.py). code = 9 ints/instr (op,sub,dst,a,b,"
+             "c,d,e,res); tables = (size, min_x, range_x, extrapolate) per table over "
+             "table_data; input_kinds[i] = 1 for a computed-uv image input. Raises "
+             "on a version mismatch, malformed program or exceeded budget.")
         .def("create_coord_program_texture", &PyRenderer::createCoordProgramTexture,
              "name"_a, "child_name"_a, "coord_mode"_a, "out_slot"_a,
              "code_flat"_a, "consts_flat"_a, "ramps_flat"_a = std::vector<float>{},
@@ -4064,6 +4211,12 @@ PYBIND11_MODULE(astroray, m) {
              "#847 — bake a row-major 3x4 world->Generated affine onto the "
              "triangles in [begin, end) (addObject order) as per-vertex Generated "
              "coords (Blender object-space texture space). Returns the count set.")
+        .def("set_objects_object_transform", &PyRenderer::setObjectsObjectTransform,
+             "begin"_a, "end"_a, "matrix"_a,
+             "#1006 — bake a row-major 3x4 world->object affine (inverse "
+             "matrix_world) onto the triangles in [begin, end) (addObject order) as "
+             "per-vertex object-local positions for Texture Coordinate > Object. "
+             "Returns the count set.")
         .def("caustic_caster_count", &PyRenderer::getCausticCasterCount)
         .def("scene_object_count", &PyRenderer::getSceneObjectCount)
         .def("set_object_name", &PyRenderer::setObjectName,
@@ -4145,6 +4298,8 @@ PYBIND11_MODULE(astroray, m) {
         .def("get_motion_buffer", &PyRenderer::getMotionBuffer)
         .def("get_alpha_buffer", &PyRenderer::getAlphaBuffer)
         .def("get_depth_buffer", &PyRenderer::getDepthBuffer)
+        .def("get_sample_count_buffer", &PyRenderer::getSampleCountBuffer,
+             "#867 — per-pixel samples taken (H x W float32).")
         .def("get_position_buffer", &PyRenderer::getPositionBuffer)
         .def("get_uv_buffer", &PyRenderer::getUVBuffer)
         .def("get_object_index_buffer", &PyRenderer::getObjectIndexBuffer)

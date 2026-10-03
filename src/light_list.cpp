@@ -63,3 +63,15 @@ bool LightList::resample(LightSample& out, const LightSample& picked, const Vec3
                          std::mt19937& gen) const {
     return sampler_ && sampler_->resample(out, picked, pt, normal, lambdas, gen);
 }
+
+// #961: see LightSampler::pickSegment / pdfValueSegment.
+bool LightList::pickSegment(LightSample& picked, const Vec3& o, const Vec3& d, float t,
+                            std::mt19937& gen) const {
+    return sampler_ && sampler_->pickSegment(picked, o, d, t, gen);
+}
+
+float LightList::pdfValueSegment(const Vec3& o, const Vec3& d, float t, const Vec3& pt,
+                                 const Vec3& dir, const Hittable* hitEmitter,
+                                 const astroray::Light* hitLamp) const {
+    return sampler_ ? sampler_->pdfValueSegment(o, d, t, pt, dir, hitEmitter, hitLamp) : 0.0f;
+}

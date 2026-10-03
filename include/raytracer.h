@@ -343,6 +343,10 @@ struct Ray {
     // pkg305: stratified hero-wavelength uniform for a primary ray (camera group,
     // Sobol-Burley PATHDIM_HERO_LAMBDA); < 0 = none, the integrator draws its own.
     float heroLambdaU = -1.0f;
+    // #1037: primitive this ray leaves (Cycles ray.self.prim, kernel/bvh/util.h
+    // intersection_skip_self). Only CurveSegment tests it: its hit point lies
+    // inside its own tube, so a spawned ray would re-hit the same segment.
+    const Hittable* self = nullptr;
     Ray() : time(0) {}
     Ray(const Vec3& o, const Vec3& d, float t = 0, float su = 0.5f, float sv = 0.5f)
         : origin(o), direction(d.normalized()), time(t), screenU(su), screenV(sv) {}
@@ -408,6 +412,14 @@ struct HitRecord {
     // — see .astroray_plan/docs/pkg225-curve-intersect-research.md. -1 sentinel
     // on any non-curve hit (Sphere/Triangle/Mesh never touch these fields).
     float hair_u = -1.0f, hair_v = -1.0f;
+    // pkg314 — the shading normal BEFORE a Bump / Normal Map perturbation
+    // (NormalMappedPlugin::perturbNormal sets it). Cycles' Layer Weight / Fresnel /
+    // Geometry with an unlinked Normal read sd->N, which the Bump node does not
+    // change (kernel/svm/fresnel.h; bump only feeds closure normals), so the op-VM
+    // and graph programs' shading context reads this. Verified against Cycles 5.2.
+    bool hasSvmNormal = false;
+    Vec3 svmNormal;
+    const Vec3& shadingContextNormal() const { return hasSvmNormal ? svmNormal : normal; }
 
     HitRecord() : t(std::numeric_limits<float>::max()), frontFace(true), isDelta(false), hitObject(nullptr) {}
 
@@ -434,6 +446,14 @@ struct HitRecord {
         uvBitangentSign = 1.0f;
     }
 };
+
+// #1037: a ray leaving a surface hit carries the hit primitive as Ray::self
+// (Cycles ray.self.prim) so the curve leaf can skip its own segment.
+inline Ray spawnRay(const HitRecord& rec, const Vec3& dir, float time = 0.0f) {
+    Ray r(rec.point, dir, time);
+    r.self = rec.hitObject;
+    return r;
+}
 
 // ============================================================================
 // AABB
@@ -899,6 +919,10 @@ public:
     // #847 — per-object Generated texture coordinate at world point p (Cycles
     // ATTR_STD_GENERATED). false = none; Texture falls back to its bbox frame.
     virtual bool generatedCoord(const Vec3& /*p*/, Vec3& /*out*/) const { return false; }
+    // #1006 — OBJECT-local position at world point p (Cycles svm/tex_coord.h
+    // NODE_TEXCO_OBJECT: object_inverse_position_transform). false = none; the
+    // Object coordinate falls back to the world point.
+    virtual bool objectCoord(const Vec3& /*p*/, Vec3& /*out*/) const { return false; }
     virtual bool isLight() const { return false; }
     virtual bool isInfiniteLight() const { return false; }
     virtual Vec3 emittedRadiance() const { return Vec3(0); }
@@ -1606,6 +1630,12 @@ public:
     bool resample(LightSample& out, const LightSample& picked, const Vec3& pt,
                   const Vec3& normal, const astroray::SampledWavelengths& lambdas,
                   std::mt19937& gen) const;
+    // #961: segment pick / segment-pick MIS pdf (see LightSampler::pickSegment).
+    bool pickSegment(LightSample& picked, const Vec3& o, const Vec3& d, float t,
+                     std::mt19937& gen) const;
+    float pdfValueSegment(const Vec3& o, const Vec3& d, float t, const Vec3& pt, const Vec3& dir,
+                          const Hittable* hitEmitter = nullptr,
+                          const astroray::Light* hitLamp = nullptr) const;
     // #925: the dedicated light a power-sampler pick names, else nullptr.
     const astroray::Light* pickedDedicated(const LightSample& picked) const {
         if (picked.pickIndex < (int)lights.size()) return nullptr;
@@ -2236,6 +2266,10 @@ public:
     std::vector<float> motionBuffer;
     std::vector<float> alphaBuffer, depthBuffer, objectIndexBuffer, materialIndexBuffer;
     std::vector<float> bounceCountBuffer, sampleWeightBuffer;
+    // #867: per-pixel samples actually taken (adaptive sampling retires pixels
+    // early, so this varies across the image). CPU: filled by Renderer::render;
+    // GPU: filled from the wavefront's per-pixel counter / uniform spp.
+    std::vector<float> sampleCountBuffer;
     // pkg87a — Cryptomatte ranked histograms (flat arrays of [id0,weight0,id1,weight1,...])
     std::vector<float> cryptoObjectBuffer, cryptoMaterialBuffer;
     int cryptomatteDepth = 6;  // number of (id, weight) pairs per pixel (default 6 ranks = 3 EXR layers)
@@ -2303,6 +2337,7 @@ public:
         materialIndexBuffer.resize(width * height, 0.0f);
         bounceCountBuffer.resize(width * height, 0.0f);
         sampleWeightBuffer.resize(width * height, 0.0f);
+        sampleCountBuffer.resize(width * height, 0.0f);
         // pkg87a — Cryptomatte buffers: width*height*depth*2 floats (depth pairs of [id, weight])
         cryptoObjectBuffer.resize(static_cast<size_t>(width) * height * cryptomatteDepth * 2, 0.0f);
         cryptoMaterialBuffer.resize(static_cast<size_t>(width) * height * cryptomatteDepth * 2, 0.0f);
@@ -2566,9 +2601,12 @@ inline float shadowTransmittance(const Hittable& bvh, const Ray& shadowRay,
     Vec3 origin = shadowRay.origin;
     const Vec3 dir = shadowRay.direction;  // Ray ctor already normalized it
     float remaining = maxDist;
+    const Hittable* selfPrim = shadowRay.self;  // #1037: primitive the hop leaves
     for (int hop = 0; hop < maxHops; ++hop) {
         HitRecord shadow;
-        if (!bvh.hit(Ray(origin, dir, shadowRay.time), 0.001f, remaining - 0.001f, shadow))
+        Ray hop_ray(origin, dir, shadowRay.time);
+        hop_ray.self = selfPrim;
+        if (!bvh.hit(hop_ray, 0.001f, remaining - 0.001f, shadow))
             return Tr;  // unobstructed to the light
         if (shadow.hitObject && shadow.hitObject->isInfiniteLight())
             return Tr;  // distant/infinite lights are never occluders
@@ -2579,6 +2617,7 @@ inline float shadowTransmittance(const Hittable& bvh, const Ray& shadowRay,
         float advance = shadow.t + 1e-3f;
         origin = origin + dir * advance;
         remaining -= advance;
+        selfPrim = shadow.hitObject;  // #1037: Cycles shadow walk skips the last transparent hit
         if (remaining <= 0.001f) return Tr;
     }
     return Tr;  // exhausted transparent-shadow bounce budget
@@ -2881,11 +2920,13 @@ class Renderer {
     //   const float limit = (bounce > 0) ? sample_clamp_indirect : sample_clamp_direct;
     //   const float sum = reduce_add(fabs(*L));
     //   if (sum > limit) *L *= limit / sum;
-    // Cycles compares against sum(|RGB|); Astroray's existing brightness metric
-    // (the pre-pkg144 always-on `sLum > 20` cap this replaces) is XYZ photometric
-    // luminance (Y), so this clamps on toXYZ(lambdas).Y instead — same bounce-
-    // indexed limit selection and 0-disables semantics, different (but
-    // already-established in this codebase) brightness metric. Applied to each
+    // #884: Blender's setting is per-channel-average brightness: Cycles scales
+    // the user limit by 3 (scene/integrator.cpp: sample_clamp_* * 3.0f) and
+    // compares sum(|RGB|), i.e. mean(|R|,|G|,|B|) > limit. The contribution's
+    // XYZ is taken to film linear Rec.709 (no gamut mapping) and compared the
+    // same way (clampMetricRGB), so a saturated colour clamps where Cycles does
+    // (XYZ Y, the old metric, let a blue contribution through at 4.6x the
+    // limit and clamped a green one at 0.47x). Applied to each
     // contribution BEFORE it is summed into the path color, so direct (bounce==0,
     // including delta-light NEE) and indirect (bounce>0) contributions are
     // clamped independently rather than the old top-level clamp on the whole
@@ -2896,13 +2937,29 @@ class Renderer {
     // reached by the continuation from the first vertex is DIRECT light. Passing
     // `bounce` clamped that leg with sample_clamp_indirect (Blender default 10) and
     // dimmed the backlit geometry_zoo volume cubes to 0.55-0.8 of Cycles.
+    // #884: (R+G+B)/3 of an XYZ contribution in linear Rec.709 (Cycles
+    // film_clamp_light's reduce_add(fabs(L)) against 3x the user limit), with
+    // the film matrix of xyzToLinearSRGBExact (spectral.h includes this header,
+    // so it is repeated here). The signed sum equals Cycles' fabs sum for in-gamut colour and is linear in
+    // XYZ (>= 0 for any non-negative spectrum): fabs of a hero-wavelength
+    // sample's chroma noise would inflate the metric (blue emitter clamped to
+    // 0.85 of Cycles with fabs, 0.94 signed). Difference from Cycles: light
+    // outside Rec.709 (narrow-band lamps) has a negative channel that the
+    // signed sum cancels, so it clamps later than a fabs sum would; Cycles, an
+    // RGB engine, has no such contribution. Film handling of negatives: #1024.
+    static float clampMetricRGB(float X, float Y, float Z) {
+        const float r = 3.2406f * X - 1.5372f * Y - 0.4986f * Z;
+        const float g = -0.9689f * X + 1.8758f * Y + 0.0415f * Z;
+        const float b = 0.0557f * X - 0.2040f * Y + 1.0570f * Z;
+        return std::max(0.0f, r + g + b) * (1.0f / 3.0f);
+    }
     astroray::SampledSpectrum clampContribSpectral(const astroray::SampledSpectrum& contrib,
                                                     const astroray::SampledWavelengths& lambdas,
                                                     int bounce) const {
         float limit = (bounce > 0) ? clampIndirect : clampDirect;
         if (limit <= 0.0f) return contrib;
         astroray::XYZ xyz = contrib.toXYZ(lambdas);
-        float lum = xyz.Y;
+        float lum = clampMetricRGB(xyz.X, xyz.Y, xyz.Z);
         if (lum > limit && lum > 0.0f) return contrib * (limit / lum);
         return contrib;
     }
@@ -2974,16 +3031,20 @@ class Renderer {
     // Cycles src/kernel/integrator/shade_volume.h (integrate_volume_sample_direct_light,
     // integrate_volume_direct_light, volume_direct_scatter_mis), Apache-2.0.
     // Research: .astroray_plan/docs/issue925-volume-segment-direct-light-research.md.
-    // Pick a light, clip the medium interval [a,b] of ray (o, unit d) to what it
-    // can light, draw one distance (equiangular about a point on that light /
-    // exponential with per-λ `rate`, one-sample MIS) and connect to the SAME
-    // light there. `mediumAt(P, t, sigS[], g[], Tr)` fills the phase components
-    // at P (<= 8) and Tr from the segment start to t, returning their count.
-    // Each component is MIS'd against its own HG pdf, the complement of the
-    // lamp-hit weight after a phase-sampled continuation from that medium.
-    // Returns the contribution before `throughput`.
+    // Pick a light for the segment, clip the medium interval [a,b] of ray
+    // (o, unit d) to what it can light, draw one distance (equiangular about a
+    // point on that light / exponential with per-λ `rate`, one-sample MIS) and
+    // connect to the SAME light there. `segT` is the length of the ray segment
+    // the light is picked for (the surface hit, >= 1e18 = open); the forward
+    // MIS after a scatter on this segment uses the same (o, d, segT).
+    // `mediumAt(P, t, sigS[], g[], Tr)` fills the phase components at P (<= 8)
+    // and Tr from the segment start to t, returning their count. Each component
+    // is MIS'd against its own HG pdf, the complement of the lamp-hit weight
+    // after a phase-sampled continuation from that medium. Returns the
+    // contribution before `throughput`.
     template <class MediumAt>
     astroray::SampledSpectrum segmentDirectLight(const Ray& ray, const Vec3& d, float a, float b,
+                                                 float segT,
                                                  const astroray::SampledSpectrum& rate,
                                                  const astroray::SampledWavelengths& lambdas,
                                                  std::mt19937& gen, MediumAt&& mediumAt) const {
@@ -2996,24 +3057,30 @@ class Renderer {
                                                          : lo + (mr > 0.0f ? 1.0f / mr : 0.0f);
             return o + d * tr;
         };
+        // #961: one light for the whole segment (Cycles
+        // light_sample_from_volume_segment: the light tree's segment importance,
+        // or the power CDF), re-sampled at the anchor and at P with that
+        // selection pdf (integrate_volume_direct_light). The light tree used to
+        // pick at the segment midpoint and again, independently, at P: when the
+        // midpoint was outside a spot cone there was no anchor, and the
+        // majorant-rate exponential alone could not reach the lit part (spot
+        // shaft behind a VDB 0.70 of Cycles, heavy tail; #961, #1019).
         LightSample picked;
-        lights.sample(picked, refPoint(a, b), Vec3(0.0f), lambdas, gen);
-        const bool same = picked.pickIndex >= 0;  // power sampler: re-sample this light
-        if (same) {
-            if (const astroray::Light* L = lights.pickedDedicated(picked))
-                if (!L->clipLitSegment(o, d, a, b)) return zero;
-        }
+        if (!lights.pickSegment(picked, o, d, segT, gen)) return zero;
+        if (const astroray::Light* L = lights.pickedDedicated(picked))
+            if (!L->clipLitSegment(o, d, a, b)) return zero;
         LightSample anc;
-        if (same) lights.resample(anc, picked, refPoint(a, b), Vec3(0.0f), lambdas, gen);
-        else anc = picked;
+        if (!lights.resample(anc, picked, refPoint(a, b), Vec3(0.0f), lambdas, gen)) return zero;
         // pkg294: the anchor is area-uniform on an area light (Cycles
         // area_light_eval<true>); the connection at P below is the solid-angle
-        // draw (light_sample<false> at the scatter point).
-        if (anc.dedicated && anc.pdf > 0.0f) {
+        // draw (light_sample<false> at the scatter point). #961: any drawn
+        // light point anchors, lit from refPoint or not (light_sample<true>
+        // never rejects, e.g. a spot cone).
+        if (anc.dedicated) {
             Vec3 ap;
             if (anc.dedicated->segmentAnchor(ap, gen)) anc.position = ap;
         }
-        const bool hasAnchor = anc.pdf > 0.0f && anc.distance < 1e18f;
+        const bool hasAnchor = anc.distance > 0.0f && anc.distance < 1e18f;
         av::SegmentDirectSample ds =
             av::sampleSegmentDirect(o, d, a, b, hasAnchor, anc.position, rate, gen);
         if (!(ds.w > 0.0f)) return zero;
@@ -3024,8 +3091,7 @@ class Renderer {
         int n = mediumAt(P, ds.t, sigS, g, TrP);
         if (n <= 0 || TrP.isZero()) return zero;
         LightSample ls;
-        if (!same || !lights.resample(ls, picked, P, Vec3(0.0f), lambdas, gen))
-            lights.sample(ls, P, Vec3(0.0f), lambdas, gen);
+        if (!lights.resample(ls, picked, P, Vec3(0.0f), lambdas, gen)) return zero;
         if (!(ls.pdf > 1e-8f)) return zero;
         const Vec3 wi = (ls.position - P).normalized();
         const float shadowTr = shadowTransmittance(*bvh, Ray(P, wi, ray.time), ls.distance);
@@ -3067,7 +3133,7 @@ class Renderer {
             rate += (sU + aU) * (m.densityScale * m.maxDensity);
         }
         if (!(b > a)) return astroray::SampledSpectrum(0.0f);
-        return segmentDirectLight(ray, dUnit, a, b, rate, lambdas, gen,
+        return segmentDirectLight(ray, dUnit, a, b, surfaceT, rate, lambdas, gen,
             [&](const Vec3& P, float t, astroray::SampledSpectrum* sigS, float* g,
                 astroray::SampledSpectrum& Tr) {
                 int n = 0;
@@ -3711,6 +3777,12 @@ public:
         // #851: normal the previous vertex passed to lights.sample() (zero for a
         // medium vertex); pdfValue must re-walk the light tree with it.
         Vec3 misNormalPrev(0.0f);
+        // #961: after a medium scatter, the ray segment its NEE light was picked
+        // for (o, unit d, length; Cycles mis_origin_n / previous_dt); the forward
+        // MIS of a lamp/emitter hit re-walks that segment pick.
+        bool misSegPrev = false;
+        Vec3 misSegO(0.0f), misSegD(0.0f);
+        float misSegT = 0.0f;
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
         int lastBounce = 0;
         float weightSum = 0.0f;
@@ -3811,8 +3883,11 @@ public:
                                                  : (firstCat < 0 ? 0 : firstCat) * 3 + 1;
                     float wB = 1.0f;  // specular / NEE off (pkg265): no competing NEE leg
                     if (!wasSpecular && lightNeeEnabled) {
-                        float lp = lights.pdfValue(ray.origin, ray.direction, misNormalPrev,
-                                                   nullptr, hitLamp);  // #912: this lamp only
+                        float lp = misSegPrev  // #961: segment pick after a medium scatter
+                            ? lights.pdfValueSegment(misSegO, misSegD, misSegT, ray.origin,
+                                                     ray.direction, nullptr, hitLamp)
+                            : lights.pdfValue(ray.origin, ray.direction, misNormalPrev,
+                                              nullptr, hitLamp);  // #912: this lamp only
                         float bp = bsdfPdfPrev;
                         wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                     }
@@ -3906,6 +3981,10 @@ public:
                         wasSpecular = false;
                         bsdfPdfPrev = phasePdf;
                         misNormalPrev = Vec3(0.0f);
+                        misSegPrev = true;  // #961
+                        misSegO = P - dUnit * ff.t;
+                        misSegD = dUnit;
+                        misSegT = surfaceT;
                         envNeeSampledPrev = false;
                         if (bounce > rrDepth) {
                             astroray::XYZ thrXYZ = throughput.toXYZ(lambdas);
@@ -3947,7 +4026,7 @@ public:
                 if (lightNeeEnabled && !lights.empty()) {
                     Vec3 dU = ray.direction.normalized();
                     const float b = didHit ? rec.t : std::numeric_limits<float>::infinity();
-                    astroray::SampledSpectrum c = segmentDirectLight(ray, dU, 0.0f, b, sigmaT, lambdas, gen,
+                    astroray::SampledSpectrum c = segmentDirectLight(ray, dU, 0.0f, b, b, sigmaT, lambdas, gen,
                         [&](const Vec3&, float t, astroray::SampledSpectrum* sigS, float* g,
                             astroray::SampledSpectrum& Tr) {
                             sigS[0] = sigmaT * worldVolumeScatter;
@@ -4015,6 +4094,10 @@ public:
                     wasSpecular = false;
                     bsdfPdfPrev = phasePdf;
                     misNormalPrev = Vec3(0.0f);
+                    misSegPrev = true;  // #961
+                    misSegD = woMedium * -1.0f;
+                    misSegO = P - misSegD * fdist;
+                    misSegT = surfaceT;
                     // pkg258 (Terra Q1c): medium NEE samples lamps only, NOT the
                     // environment, so env NEE did not compete here — the next env
                     // miss must be UNWEIGHTED.
@@ -4170,6 +4253,9 @@ public:
                     // same selection probabilities the NEE leg uses.
                     float lightPdfHit = lights.empty()
                         ? 0.0f
+                        : misSegPrev  // #961: segment pick after a medium scatter
+                        ? lights.pdfValueSegment(misSegO, misSegD, misSegT, ray.origin,
+                                                 ray.direction, rec.hitObject)
                         : lights.pdfValue(ray.origin, ray.direction, misNormalPrev,
                                           rec.hitObject);  // #912: this emitter only
                     float bp = bsdfPdfPrev, lp = lightPdfHit;
@@ -4205,7 +4291,7 @@ public:
                     // shadowAlpha<1 occluder in FRONT of an opaque one still shadows
                     // — the trace continues past it. Tr==0 for an all-opaque scene in
                     // one hop, so every pre-pkg253 render is byte-identical.
-                    float shadowTr = shadowTransmittance(*bvh, Ray(rec.point, wi, ray.time), ls.distance);
+                    float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi, ray.time), ls.distance);
                     if (shadowTr > 0.0f) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
@@ -4318,7 +4404,7 @@ public:
                     // transmittance (pkg253); infinite maxDist since the env is at
                     // infinite distance. Unobstructed (Tr=1) when nothing occludes.
                     float shadowTr = shadowTransmittance(
-                        *bvh, Ray(rec.point, wi, ray.time),
+                        *bvh, spawnRay(rec, wi, ray.time),
                         std::numeric_limits<float>::max());
                     if (shadowTr > 0.0f) {
                         astroray::SampledSpectrum f_spec =
@@ -4419,6 +4505,7 @@ public:
             // emissive-hit two-sided MIS can weight the BSDF leg (see above).
             bsdfPdfPrev = bss.pdf;
             misNormalPrev = rec.normal;
+            misSegPrev = false;  // #961
             // pkg258 (Terra Q1c): env NEE competed at THIS surface vertex iff the
             // env-NEE strategy was active (enabled, HDRI loaded, bounce gate) AND
             // this is a non-delta lobe (a delta continuation is unweighted on miss).
@@ -4515,6 +4602,7 @@ public:
             }
 
             Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
+            next.self = rec.hitObject;  // #1037
             next.hasCameraFrame = ray.hasCameraFrame;
             next.cameraOrigin = ray.cameraOrigin;
             next.cameraU = ray.cameraU;
@@ -4700,7 +4788,7 @@ public:
                     // shadowAlpha<1 occluder in FRONT of an opaque one still shadows
                     // — the trace continues past it. Tr==0 for an all-opaque scene in
                     // one hop, so every pre-pkg253 render is byte-identical.
-                    float shadowTr = shadowTransmittance(*bvh, Ray(rec.point, wi, ray.time), ls.distance);
+                    float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi, ray.time), ls.distance);
                     if (shadowTr > 0.0f) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
@@ -4757,6 +4845,7 @@ public:
                 lights.sample(ls, rec.point, rec.normal, lambdas, gen);
                 if (ls.pdf > 0.0f) {
                     Ray walkRay(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
+                    walkRay.self = rec.hitObject;  // #1037
                     walkRay.hasCameraFrame = ray.hasCameraFrame;
                     walkRay.cameraOrigin = ray.cameraOrigin;
                     walkRay.cameraU = ray.cameraU;
@@ -4791,7 +4880,7 @@ public:
                         float dist = std::sqrt(dist2);
                         Vec3 wiToLight = toLight * (1.0f / dist);
                         HitRecord occ;
-                        bool blocked = bvh->hit(Ray(wrec.point, wiToLight), 0.001f, dist - 0.001f, occ);
+                        bool blocked = bvh->hit(spawnRay(wrec, wiToLight), 0.001f, dist - 0.001f, occ);
                         if (!blocked) {
                             Vec3 wwo = -walkRay.direction.normalized();
                             astroray::SampledSpectrum f_spec =
@@ -4822,6 +4911,7 @@ public:
                         next.cameraU = walkRay.cameraU;
                         next.cameraV = walkRay.cameraV;
                         next.cameraW = walkRay.cameraW;
+                        next.self = wrec.hitObject;  // #1037
                         walkRay = next;
                     }
                     // #904: the walk's contributions were added to `color`, which
@@ -4838,6 +4928,7 @@ public:
             throughput = nextThroughput;
 
             Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
+            next.self = rec.hitObject;  // #1037
             next.hasCameraFrame = ray.hasCameraFrame;
             next.cameraOrigin = ray.cameraOrigin;
             next.cameraU = ray.cameraU;
@@ -5011,7 +5102,7 @@ public:
             Vec3 wo = (ray.direction * -1.0f).normalized();
             BSDFSample bs = rec.material->sample(rec, wo, gen);
             if (bs.pdf <= 0.0f) return 0.0f;
-            ray = Ray(rec.point, bs.wi, ray.time);
+            ray = spawnRay(rec, bs.wi, ray.time);
         }
         return 0.0f;  // exhausted the glass-chain budget → treat as uncovered
     }
@@ -5222,6 +5313,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                     cam.uvBuffer[idx] = Vec3(0);
                     cam.objectIndexBuffer[idx] = 0.0f;
                     cam.materialIndexBuffer[idx] = 0.0f;
+                    cam.sampleCountBuffer[idx] = 0.0f;
                     for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex)
                         cam.renderPassBuffers[passIndex][idx] = Vec3(0);
                 }
@@ -5258,45 +5350,55 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                 // pixels in the returned buffer).
                 if (cancelled.load(std::memory_order_relaxed)) continue;
 
-                for (int y = y0; y < y1; ++y) {
-                    for (int x = x0; x < x1; ++x) {
+                // #1036: per-pixel accumulators live in a tile-local array so the
+                // adaptive path can sample in rounds (Cycles-style: convergence is
+                // checked for the whole tile at step boundaries and the converged
+                // mask dilated before pixels are retired). processPixel runs the
+                // samples [sBeg, sEnd) for one pixel and, when `finalize`, resolves
+                // it into the camera buffers.
+                struct PixelAccum {
+                    Vec3 color = Vec3(0), albedo = Vec3(0), normal = Vec3(0),
+                         position = Vec3(0), uv = Vec3(0);
+                    std::array<Vec3, PASS_COUNT> passColor;
+                    float alpha = 0.0f, depth = 0.0f;
+                    float bounceCountAccum = 0.0f, sampleWeightAccum = 0.0f;
+                    float objectIndex = 0.0f, materialIndex = 0.0f;
+                    float fullLumSum = 0.0f, halfLumSum = 0.0f;
+                    int samples = 0;
+                    Ray firstPrimaryRay;
+                    float firstPixelCurrX = 0.0f, firstPixelCurrY = 0.0f;
+                    bool firstRayCaptured = false;
+                    PixelAccum() { passColor.fill(Vec3(0)); }
+                };
+                const int tileW = x1 - x0, tileH = y1 - y0;
+                std::vector<PixelAccum> pixAccum(static_cast<size_t>(tileW) * tileH);
+                auto processPixel = [&](int x, int y, int sBeg, int sEnd, bool finalize) {
                         // #802 item 4: clip partial edge tiles to the region.
                         if (renderRegionActive_ &&
                             (x < renderRegionX0_ || x >= renderRegionX1_ ||
                              y < renderRegionY0_ || y >= renderRegionY1_)) {
-                            continue;
+                            return;
                         }
                         int idx = y * cam.width + x;
-                        Vec3 color(0), albedo(0), normal(0), position(0), uv(0);
-                        std::array<Vec3, PASS_COUNT> passColor;
-                        passColor.fill(Vec3(0));
-                        float alpha = 0.0f;
-                        float depth = 0.0f;
-                        float bounceCountAccum = 0.0f;
-                        float sampleWeightAccum = 0.0f;
-                        float objectIndex = 0.0f;
-                        float materialIndex = 0.0f;
-                        // pkg87a: objectSampleCounts/materialSampleCounts removed — old placeholder
-                        // cryptomatte logic deleted; pkg87b will add per-shade-point accumulation.
-                        // pkg131 — scalar-luminance half-buffer for the Dammertz
-                        // convergence check: fullLumSum over all samples, halfLumSum
-                        // over even-indexed samples only. Luminance = X+Y+Z (matches
-                        // Cycles' (I.x+I.y+I.z) intensity reduction).
-                        float fullLumSum = 0.0f, halfLumSum = 0.0f;
-                        int samples = 0;
-                        // pkg72: remember the s==0 primary ray so we can recover
-                        // the world-space hit point for the motion-vector write
-                        // below. Mirrors Cycles intern/cycles/integrator/pass.cpp
-                        // PASS_MOTION (Apache-2.0) which uses the first-sample
-                        // primary ray's hit position.
-                        Ray firstPrimaryRay;
-                        float firstPixelCurrX = 0.0f, firstPixelCurrY = 0.0f;
-                        bool firstRayCaptured = false;
+                        PixelAccum& pa = pixAccum[static_cast<size_t>(y - y0) * tileW + (x - x0)];
+                        Vec3& color = pa.color; Vec3& albedo = pa.albedo; Vec3& normal = pa.normal;
+                        Vec3& position = pa.position; Vec3& uv = pa.uv;
+                        std::array<Vec3, PASS_COUNT>& passColor = pa.passColor;
+                        float& alpha = pa.alpha; float& depth = pa.depth;
+                        float& bounceCountAccum = pa.bounceCountAccum;
+                        float& sampleWeightAccum = pa.sampleWeightAccum;
+                        float& objectIndex = pa.objectIndex; float& materialIndex = pa.materialIndex;
+                        float& fullLumSum = pa.fullLumSum; float& halfLumSum = pa.halfLumSum;
+                        int& samples = pa.samples;
+                        Ray& firstPrimaryRay = pa.firstPrimaryRay;
+                        float& firstPixelCurrX = pa.firstPixelCurrX;
+                        float& firstPixelCurrY = pa.firstPixelCurrY;
+                        bool& firstRayCaptured = pa.firstRayCaptured;
 
                         // pkg305: per-pixel Sobol-Burley seed (pkg297 spec keying).
                         const uint32_t camPixelSeed = astroray::sobol_burley::pixelSeed(
                             static_cast<uint32_t>(idx), camGroup.seed);
-                        for (int s = 0; s < maxSamples; ++s) {
+                        for (int s = sBeg; s < sEnd; ++s) {
                             // #845: pixel i's centre (i+0.5; filterSample is centred on
                             // 0.5) maps to film (i+0.5)/W, as Cycles/Blender (was /(W-1)).
                             float u, v, lensU = 0.0f, lensV = 0.0f, heroU = -1.0f;
@@ -5427,16 +5529,12 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                             {
                                 const float lum = sCol.x + sCol.y + sCol.z;
                                 fullLumSum += lum;
-                                if ((s & 1) == 0) halfLumSum += lum;
-                            }
-                            if (adaptive &&
-                                astroray::adaptive::needConvergenceCheck(adaptiveParams, samples) &&
-                                astroray::adaptive::pixelConverged(
-                                    fullLumSum, halfLumSum, samples,
-                                    adaptiveParams.threshold, filmExposure)) {
-                                break;
+                                // even-indexed by the PIXEL's own sample count (a pixel
+                                // that pauses and resumes keeps contiguous parity).
+                                if (((samples - 1) & 1) == 0) halfLumSum += lum;
                             }
                         }
+                        if (!finalize) return;
 
                         // pkg136-S1B: fold the discarded-no-more training samples
                         // into this pixel. They are unbiased estimates of the same
@@ -5501,6 +5599,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         cam.materialIndexBuffer[idx] = materialIndex;
                         cam.bounceCountBuffer[idx] = bounceCountAccum / float(samples);
                         cam.sampleWeightBuffer[idx] = sampleWeightAccum / float(samples);
+                        cam.sampleCountBuffer[idx] = float(totalSamples);  // #867
                         cam.alphaBuffer[idx] = std::clamp(alpha, 0.0f, 1.0f);
                         // pkg72: motion vector (previous->current screen-space pixel
                         // offset, OptiX flow convention: motion = prev - curr).
@@ -5533,7 +5632,58 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                 std::max(passColor[passIndex].z, 0.0f)
                             );
                         }
+                };
+
+                // Drive: a single round (byte-identical to the pre-#1036 per-pixel
+                // loop) unless adaptive sampling can actually fire.
+                const bool adaptiveRounds = adaptive && maxSamples > adaptiveParams.min_samples;
+                if (!adaptiveRounds) {
+                    for (int y = y0; y < y1; ++y)
+                        for (int x = x0; x < x1; ++x)
+                            processPixel(x, y, 0, maxSamples, true);
+                } else {
+                    // Cycles adaptive_sampling.h / adaptive_sampling.cpp (Apache-2.0):
+                    // the first check is at the first step-aligned sample count past
+                    // the minimum; thereafter every adaptive_step samples. After each
+                    // round the per-pixel Dammertz test builds a converged mask which
+                    // is dilated 3x3 (film_adaptive_sampling_filter_x/_y) so a pixel
+                    // keeps sampling while ANY neighbour is unconverged (#1036: a
+                    // pixel that has not yet caught a rare light path no longer reads
+                    // as converged on its own). The dilation is tile-local (16x16):
+                    // neighbours across a tile edge are ignored (deterministic).
+                    const int step = adaptiveParams.adaptive_step;
+                    int sBeg = 0;
+                    int sEnd = std::min(maxSamples, (adaptiveParams.min_samples / step + 1) * step);
+                    std::vector<unsigned char> stopped(static_cast<size_t>(tileW) * tileH, 0);
+                    std::vector<unsigned char> tmpMask(stopped.size()), dilMask(stopped.size());
+                    while (true) {
+                        for (int y = y0; y < y1; ++y)
+                            for (int x = x0; x < x1; ++x)
+                                if (!stopped[static_cast<size_t>(y - y0) * tileW + (x - x0)])
+                                    processPixel(x, y, sBeg, sEnd, false);
+                        if (sEnd >= maxSamples) break;
+                        for (int ty = 0; ty < tileH; ++ty)
+                            for (int tx = 0; tx < tileW; ++tx) {
+                                const size_t k = static_cast<size_t>(ty) * tileW + tx;
+                                if (stopped[k]) continue;  // retired pixels stay marked converged
+                                const PixelAccum& pa = pixAccum[k];
+                                stopped[k] = (pa.samples > 0 &&
+                                    astroray::adaptive::pixelConverged(
+                                        pa.fullLumSum, pa.halfLumSum, pa.samples,
+                                        adaptiveParams.threshold, filmExposure)) ? 1 : 0;
+                            }
+                        astroray::adaptive::dilateConvergedMaskPass(stopped.data(), tmpMask.data(), tileW, tileH, 1);
+                        astroray::adaptive::dilateConvergedMaskPass(tmpMask.data(), dilMask.data(), tileW, tileH, tileW);
+                        stopped.swap(dilMask);
+                        bool anyActive = false;
+                        for (unsigned char v : stopped) if (!v) { anyActive = true; break; }
+                        if (!anyActive) break;
+                        sBeg = sEnd;
+                        sEnd = std::min(maxSamples, sEnd + step);
                     }
+                    for (int y = y0; y < y1; ++y)
+                        for (int x = x0; x < x1; ++x)
+                            processPixel(x, y, 0, 0, true);
                 }
 
                 // Count every completed tile (even without a progress

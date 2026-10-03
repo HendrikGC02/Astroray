@@ -261,6 +261,12 @@ def resolve_native_settings(scene, report=None):
     # otherwise throw on the UI's 'uniform'/'light_tree' values).
     resolved["light_sampler"] = resolve_light_sampler(
         cycles, getattr(settings, "light_sampler", "power"))
+    # #866: the native Cycles adaptive-sampling toggle drives the engine's
+    # zero-knob adaptive sampler (the threshold / min-samples knobs stay
+    # unmapped and are reported by report_unsupported_native_controls).
+    # Cycles-less scenes / stubs keep the custom prop.
+    if cycles is not None and hasattr(cycles, "use_adaptive_sampling"):
+        resolved["use_adaptive_sampling"] = bool(cycles.use_adaptive_sampling)
     # pkg274 (#722): resolve the APPROXIMATED device_mode row to the engine
     # backend token. 'auto' honours the native scene.cycles.device; an explicit
     # 'cpu'/'gpu' override still wins (see resolve_device_mode).

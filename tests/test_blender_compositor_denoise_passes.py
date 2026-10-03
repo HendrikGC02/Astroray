@@ -82,3 +82,52 @@ def test_write_pixels_emits_denoising_albedo_and_normal(monkeypatch):
 
     assert passes["Albedo"].rect.values.reshape(2, 2, 4)[0, 0, :3].tolist() == [0.25, 0.25, 0.25]
     assert passes["Normal"].rect.values.reshape(2, 2, 4)[0, 0, :3].tolist() == [0.75, 0.75, 0.75]
+
+
+def test_debug_sample_count_pass_registered_and_filled_normalised(monkeypatch):
+    """#867: view_layer.cycles.pass_debug_sample_count registers a 1-channel VALUE
+    pass "Debug Sample Count" and write_pixels fills it linearly as
+    count / max-sample-budget, bottom-up (Blender row order)."""
+    counts = np.array([[64.0, 16.0], [32.0, 8.0]], dtype=np.float32)  # top-down
+
+    class RendererStub:
+        def get_sample_count_buffer(self):
+            return counts
+
+    addon = _load_blender_addon(monkeypatch, RendererStub)
+    engine = addon.CustomRaytracerRenderEngine()
+    registered = []
+    engine.register_pass = lambda scene, layer, name, channels, channel_id, kind: registered.append(
+        (name, channels, channel_id, kind))
+    view_layer = types.SimpleNamespace(
+        cycles=types.SimpleNamespace(pass_debug_sample_count=True),
+        use_pass_cryptomatte_object=False, use_pass_cryptomatte_material=False)
+    engine.update_render_passes(types.SimpleNamespace(), view_layer)
+    assert ("Debug Sample Count", 1, "X", "VALUE") in registered
+
+    off_layer = types.SimpleNamespace(
+        cycles=types.SimpleNamespace(pass_debug_sample_count=False),
+        use_pass_cryptomatte_object=False, use_pass_cryptomatte_material=False)
+    registered.clear()
+    engine.update_render_passes(types.SimpleNamespace(), off_layer)
+    assert not registered
+
+    class RectStub:
+        values = None
+
+        def foreach_set(self, flat):
+            self.values = np.asarray(flat, dtype=np.float32)
+
+    class PassStub:
+        def __init__(self):
+            self.rect = RectStub()
+
+    passes = {"Combined": PassStub(), "Debug Sample Count": PassStub()}
+    result = types.SimpleNamespace(layers=[types.SimpleNamespace(passes=passes)])
+    engine.begin_result = lambda *_a, **_k: result
+    engine.end_result = lambda _r: None
+    engine.write_pixels(np.zeros((2, 2, 3), np.float32), 2, 2, renderer=RendererStub(),
+                        view_layer=view_layer,
+                        scene=types.SimpleNamespace(cycles=types.SimpleNamespace(samples=64)))
+    # bottom row first: [32, 8] / 64 then [64, 16] / 64
+    assert passes["Debug Sample Count"].rect.values.tolist() == [0.5, 0.125, 1.0, 0.25]

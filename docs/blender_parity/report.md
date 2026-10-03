@@ -10,9 +10,9 @@
 
 ## Summary
 
-- **SUPPORTED**: 182 features
+- **SUPPORTED**: 190 features
 - **APPROXIMATED**: 82 features
-- **DROPPED-SILENT**: 322 features ⚠️
+- **DROPPED-SILENT**: 314 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 586 features
 
@@ -22,25 +22,25 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5249)
-- **MIX_SHADER**: socket `Fac` (addon __init__.py line 5288, line 5452)
-- **TEX_BRICK**: socket `Color3` (addon __init__.py line 4110, line 4232)
-- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4110, line 4232)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5425)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5425)
+- **MIX_SHADER**: socket `Fac` (addon __init__.py line 5464, line 5628)
+- **TEX_BRICK**: socket `Color3` (addon __init__.py line 4141, line 4276)
+- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4141, line 4276)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5249)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5425)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5425)
+- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5425)
+- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5425)
+- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5425)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5425)
+- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5425)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5425)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5425)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -237,8 +237,6 @@ These features are silently ignored by the addon with no warning:
 - **EEVEE_SPECULAR**: `input:Clear Coat Normal` — no handler in addon translation layer
 - **EEVEE_SPECULAR**: `input:Weight` — no handler in addon translation layer
 - **EMISSION**: `input:Weight`
-- **CURVE_FLOAT**: `input:Factor` — no handler in addon translation layer
-- **CURVE_FLOAT**: `input:Value` — no handler in addon translation layer
 - **HOLDOUT**: `input:Weight` — no handler in addon translation layer
 - **LIGHT_FALLOFF**: `input:Strength` — no handler in addon translation layer
 - **LIGHT_FALLOFF**: `input:Smooth` — no handler in addon translation layer
@@ -286,8 +284,6 @@ These features are silently ignored by the addon with no warning:
 - **OUTPUT_WORLD**: `input:Volume` — no handler in addon translation layer
 - **OUTPUT_WORLD**: `prop:is_active_output` — property BOOLEAN
 - **OUTPUT_WORLD**: `prop:target` — property ENUM
-- **CURVE_RGB**: `input:Factor` — no handler in addon translation layer
-- **CURVE_RGB**: `input:Color` — no handler in addon translation layer
 - **ShaderNodeRadialTiling**: `input:Vector` — no handler in addon translation layer
 - **ShaderNodeRadialTiling**: `input:Sides` — no handler in addon translation layer
 - **ShaderNodeRadialTiling**: `input:Roundness` — no handler in addon translation layer
@@ -335,8 +331,6 @@ These features are silently ignored by the addon with no warning:
 - **TEX_IMAGE**: `prop:interpolation` — property ENUM
 - **TEX_IMAGE**: `prop:projection` — property ENUM
 - **TEX_IMAGE**: `prop:projection_blend` — property FLOAT
-- **TEX_NOISE**: `input:W`
-- **TEX_NOISE**: `prop:noise_dimensions` — property ENUM
 - **TEX_SKY**: `input:Vector` — no handler in addon translation layer
 - **TEX_SKY**: `prop:air_density` — Rayleigh axis (more air -> bluer); folding onto Perez turbidity (a haziness axis) would invert its direction, so dropped + named in the runtime degradation warning (pkg256, PR #793 review)
 - **TEX_SKY**: `prop:altitude` — property FLOAT
@@ -352,8 +346,6 @@ These features are silently ignored by the addon with no warning:
 - **TEX_WHITE_NOISE**: `prop:noise_dimensions` — property ENUM
 - **UVALONGSTROKE**: `prop:use_tips` — property BOOLEAN
 - **UVMAP**: `prop:from_instancer` — property BOOLEAN
-- **CURVE_VEC**: `input:Factor` — no handler in addon translation layer
-- **CURVE_VEC**: `input:Vector` — no handler in addon translation layer
 - **VECTOR_DISPLACEMENT**: `input:Vector` — no handler in addon translation layer
 - **VECTOR_DISPLACEMENT**: `input:Midlevel` — no handler in addon translation layer
 - **VECTOR_DISPLACEMENT**: `input:Scale` — no handler in addon translation layer
@@ -723,8 +715,8 @@ These features are silently ignored by the addon with no warning:
 | EMISSION | input:Color | APPROXIMATED |  |
 | EMISSION | input:Strength | APPROXIMATED |  |
 | EMISSION | input:Weight | DROPPED-SILENT |  |
-| CURVE_FLOAT | input:Factor | DROPPED-SILENT | no handler in addon translation layer |
-| CURVE_FLOAT | input:Value | DROPPED-SILENT | no handler in addon translation layer |
+| CURVE_FLOAT | input:Factor | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
+| CURVE_FLOAT | input:Value | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
 | FRESNEL | input:IOR | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
 | FRESNEL | input:Normal | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
 | GAMMA | input:Color | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
@@ -820,8 +812,8 @@ These features are silently ignored by the addon with no warning:
 | OUTPUT_WORLD | input:Volume | DROPPED-SILENT | no handler in addon translation layer |
 | OUTPUT_WORLD | prop:is_active_output | DROPPED-SILENT | property BOOLEAN |
 | OUTPUT_WORLD | prop:target | DROPPED-SILENT | property ENUM |
-| CURVE_RGB | input:Factor | DROPPED-SILENT | no handler in addon translation layer |
-| CURVE_RGB | input:Color | DROPPED-SILENT | no handler in addon translation layer |
+| CURVE_RGB | input:Factor | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
+| CURVE_RGB | input:Color | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
 | RGBTOBW | input:Color | SUPPORTED |  |
 | ShaderNodeRadialTiling | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
 | ShaderNodeRadialTiling | input:Sides | DROPPED-SILENT | no handler in addon translation layer |
@@ -897,7 +889,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_MAGIC | input:Distortion | SUPPORTED |  |
 | TEX_MAGIC | prop:turbulence_depth | SUPPORTED |  |
 | TEX_NOISE | input:Vector | SUPPORTED |  |
-| TEX_NOISE | input:W | DROPPED-SILENT |  |
+| TEX_NOISE | input:W | SUPPORTED |  |
 | TEX_NOISE | input:Scale | SUPPORTED |  |
 | TEX_NOISE | input:Detail | SUPPORTED |  |
 | TEX_NOISE | input:Roughness | SUPPORTED |  |
@@ -905,7 +897,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_NOISE | input:Offset | SUPPORTED |  |
 | TEX_NOISE | input:Gain | SUPPORTED |  |
 | TEX_NOISE | input:Distortion | SUPPORTED |  |
-| TEX_NOISE | prop:noise_dimensions | DROPPED-SILENT | property ENUM |
+| TEX_NOISE | prop:noise_dimensions | SUPPORTED |  |
 | TEX_NOISE | prop:noise_type | SUPPORTED |  |
 | TEX_NOISE | prop:normalize | SUPPORTED |  |
 | TEX_SKY | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
@@ -952,8 +944,8 @@ These features are silently ignored by the addon with no warning:
 | UVALONGSTROKE | prop:use_tips | DROPPED-SILENT | property BOOLEAN |
 | UVMAP | prop:from_instancer | DROPPED-SILENT | property BOOLEAN |
 | VALTORGB | input:Factor | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| CURVE_VEC | input:Factor | DROPPED-SILENT | no handler in addon translation layer |
-| CURVE_VEC | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
+| CURVE_VEC | input:Factor | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
+| CURVE_VEC | input:Vector | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
 | VECTOR_DISPLACEMENT | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
 | VECTOR_DISPLACEMENT | input:Midlevel | DROPPED-SILENT | no handler in addon translation layer |
 | VECTOR_DISPLACEMENT | input:Scale | DROPPED-SILENT | no handler in addon translation layer |

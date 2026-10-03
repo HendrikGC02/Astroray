@@ -45,6 +45,11 @@ WIDTH = HEIGHT = 96
 SAMPLES = 384
 MAX_DEPTH = 6
 SEED = 225501
+# #853 GPU/CPU parity band (CPU adaptive sampling off; see the parity gate).
+# Measured 2026-10-03 (7 seeds pooled): melanin 0 -> 0.995/0.990/0.986,
+# melanin 0.6 -> 0.990/0.983/0.948 (pigmented blue is ~130 dim px of noise).
+# Was 0.85-1.15 with the CPU adaptive sampler on (1.11 unpigmented, #853).
+BAND_LO, BAND_HI = 0.92, 1.08
 
 
 def _make_tuft():
@@ -98,9 +103,10 @@ def _make_hair_scene(*, use_gpu: bool, spectral: bool, melanin: float,
 
 
 def _render(*, use_gpu: bool, spectral: bool, melanin: float, redness: float = 0.0,
-            seed: int = SEED):
+            seed: int = SEED, adaptive: bool = True):
     r = _make_hair_scene(use_gpu=use_gpu, spectral=spectral, melanin=melanin,
                          redness=redness)
+    r.set_adaptive_sampling(adaptive)
     r.set_seed(seed)
     return np.asarray(r.render(SAMPLES, MAX_DEPTH, None, False), dtype=np.float32)
 
@@ -185,8 +191,16 @@ def test_spectral_melanin_distinct_and_red_dominant():
     print(f"\n[pkg225-S5] eumelanin red/blue  rgb-mode={rb_rgb:.3f}  spectral={rb_spec:.3f}")
 
     # (a) Pure eumelanin passes red, absorbs blue -> red-dominant in both modes.
-    assert rb_spec > 1.5, (
-        f"spectral eumelanin R/B={rb_spec:.3f} should be red-dominant (>1.5); the "
+    # #1037: the old 1.5 bound was calibrated while ~90 % of the direct light was
+    # self-shadowed by the strand's own tube (engine R/B 15-17, coloured multi-strand
+    # light only). Independent reference: Cycles 5.2 CPU, Principled Hair (Chiang,
+    # melanin 0.6, redness 0, roughness/radial 0.3, coat 0), this exact tuft/light/
+    # camera, 384 spp, same covered-pixel R/B: 1.145 (seeds 1,2: 1.145/1.144), and
+    # 1.035 / 1.058 for (0.9, 0.5) / (0.9, 1.0) -- NOT strongly red-dominant, because
+    # the achromatic R-lobe glint is part of the sum. Engine now reads 1.217 (rgb) /
+    # 1.205 (spectral). Bound = ~0.92 x Cycles; > 1 = red-dominant.
+    assert rb_spec > 1.05, (
+        f"spectral eumelanin R/B={rb_spec:.3f} should be red-dominant (>1.05); the "
         f"lambda^-3.33 absorption must pass red and absorb blue. Melanin seam broken?")
     # (a2) The spectral magnitude must track the RGB mode: both parametrizations
     # describe the SAME material, so a large brightness gap means the spectral
@@ -220,7 +234,11 @@ def test_spectral_melanin_distinct_and_red_dominant():
         print(f"  melanin={melanin} redness={redness}: rgb R/B={ra:.3f} "
               f"spectral R/B={rb_:.3f} rel={rel:.1%}")
 
-    assert max(divergences) > 0.01, (
+    # #1037: was > 1 %. Pre-fix the self-shadowed tuft was all coloured multi-strand
+    # light (rgb 16.7 vs spectral 15.2 R/B, ~9 %); the achromatic R-lobe glint now
+    # dilutes the R/B gap to ~0.7-1.0 % (seeds 225501/7/8, melanin 0.6), so the
+    # bound is 0.5 %: a silent RGB fallback still reads ~0 %.
+    assert max(divergences) > 0.005, (
         f"spectral R/B tracks the RGB-triple R/B to within {max(divergences):.1%} at "
         f"EVERY sampled (melanin, redness) point -- the spectral melanin seam appears "
         f"not engaged (it should follow the physical power law, not the Cycles RGB "
@@ -246,27 +264,29 @@ def test_spectral_melanin_distinct_and_red_dominant():
 @pytest.mark.skipif(
     not (AVAILABLE and astroray.__features__.get("cuda", False)),
     reason="CUDA feature not in this build -- GPU spectral melanin parity needs the RTX box.")
-def test_gpu_spectral_melanin_matches_cpu():
-    # Pooled over these 7 seeds (#767 / PR #837), including the historical fixed
-    # SEED = 225501. One seed's ~130 lit pixels gave a per-seed B GPU/CPU spread
-    # of 0.79-0.91 on main (2 of 7 seeds below the 0.85 floor), so the
-    # single-seed gate measured noise. The CIE 1931 table change re-rolled the
-    # RR stream and moved SEED=225501 from 0.869 to 0.832. Re-measured over all
-    # 7 seeds under the GPU lock: pooled GPU/CPU = (0.956, 0.942, 0.865) on
-    # main and (0.959, 0.941, 0.873) on #837 -- the fix does not regress it.
-    # The underlying GPU-vs-CPU hair difference is pre-existing (#853).
+@pytest.mark.parametrize("melanin", [0.0, 0.6])
+def test_gpu_spectral_melanin_matches_cpu(melanin):
+    # #853: the "GPU ~11 % brighter on unpigmented hair" was the CPU leg's
+    # adaptive sampler (on by default; the GPU has none) stopping hair pixels
+    # early. Hair light is rare and spiky (sharp R/TT/TRT lobes), so a pixel that
+    # has not yet caught a light path reads as converged and is undercounted.
+    # With the CPU adaptive sampler on, pooled GPU/CPU was 1.11/1.11/1.12
+    # (melanin 0); with it off, 1.00/1.00/1.01. Independent-RNG parity gates must
+    # disable it (memory adaptive-sampling-colour-blind-stop-metric). The shared
+    # BSDF math (hair_bsdf.h) already makes CPU and GPU per-lobe identical.
     def _lum(im):
         return 0.2126 * im[..., 0] + 0.7152 * im[..., 1] + 0.0722 * im[..., 2]
     cs, gs = np.zeros(3), np.zeros(3)
     for seed in (7, 11, 23, 31, 47, 59, SEED):
-        cpu = _render(use_gpu=False, spectral=True, melanin=0.6, redness=0.0, seed=seed)
-        gpu = _render(use_gpu=True, spectral=True, melanin=0.6, redness=0.0, seed=seed)
+        cpu = _render(use_gpu=False, spectral=True, melanin=melanin, redness=0.0,
+                      seed=seed, adaptive=False)
+        gpu = _render(use_gpu=True, spectral=True, melanin=melanin, redness=0.0, seed=seed)
         assert int(np.sum(~np.isfinite(gpu))) == 0
         lit = (_lum(cpu) > 0.01) | (_lum(gpu) > 0.01)
         assert int(lit.sum()) > 50, f"too few lit hair pixels ({int(lit.sum())})"
         cs += [float(cpu[..., c][lit].sum()) for c in range(3)]
         gs += [float(gpu[..., c][lit].sum()) for c in range(3)]
     ratios = [(g / c) if c > 1e-9 else 1.0 for g, c in zip(gs, cs)]
+    print(f"  melanin={melanin} pooled GPU/CPU RGB = {[round(float(x), 4) for x in ratios]}")
     for ch, ratio in zip("RGB", ratios):
-        assert 0.85 <= ratio <= 1.15, f"GPU/CPU melanin channel {ch} ratio {ratio:.4f} out of band"
-    assert max(ratios) / min(ratios) <= 1.15
+        assert BAND_LO <= ratio <= BAND_HI, f"GPU/CPU melanin channel {ch} ratio {ratio:.4f} out of band"

@@ -25,6 +25,7 @@
 #include <cstdint>
 #include "astroray/gpu_types.h"  // GVec3, GSampledWavelengths, GSampledSpectrum
 #include "astroray/shader_vm.h"  // pkg219b GWavefrontProgramBinding
+#include "astroray/shader_graph.h"  // pkg314 GWavefrontGraphBinding
 // pkg157: GPhotonGrid, needed by launchStageShadeBucketed's declaration below.
 // Safe from any TU: gpu_photon_store.h is explicitly written to compile under
 // both nvcc and pure C++ (its device-only helpers sit behind __CUDACC__), and
@@ -140,6 +141,12 @@ struct GPUWavefrontState {
     float*    path_mis_nx     = nullptr;
     float*    path_mis_ny     = nullptr;
     float*    path_mis_nz     = nullptr;
+    // #961: after a medium scatter (env_nee_sampled_prev == 2) path_mis_n* holds
+    // P - segment origin and path_mis_dt the segment length the NEE light was
+    // picked for (Cycles mis_origin_n / previous_dt); the lamp/emitter-hit MIS
+    // re-walks the light tree's segment pick. Written by the intersect stage at
+    // the scatter, read only when that flag is set.
+    float*    path_mis_dt     = nullptr;
 
     // pkg55-C5 / pkg113: photon caustic contribution (XYZ) accumulated at primary
     // hit (bounce==0) from photonGridGatherKnn. Added to accum_xyz during regen
@@ -175,12 +182,14 @@ struct GPUWavefrontState {
     // pkg258 - env-NEE-competed flag (device twin of CPU pathTraceSpectral's
     // envNeeSampledPrev). Set to 1 by the surface shade kernel when env NEE
     // actually ran at the current vertex, 0 at path birth and after a volume
-    // phase scatter (which does lamp NEE only, never env NEE). The miss leg
+    // phase scatter (which does lamp NEE only, never env NEE). #961: a medium
+    // scatter writes 2 (no env NEE; path_mis_n*/path_mis_dt hold the NEE segment
+    // for the lamp/emitter-hit MIS), so env readers test == 1. The miss leg
     // discounts a background hit by the env power heuristic ONLY when this flag
     // is set, so was_specular==0 alone (true after a phase event) does not
     // wrongly discount a post-scatter env miss. Byte-identical when env NEE is
     // off (never set true; the miss leg's env-MIS branch is gated on the flag).
-    int*      env_nee_sampled_prev = nullptr;  // 0/1
+    int*      env_nee_sampled_prev = nullptr;  // 0/1, 2 = medium vertex (#961)
     int*      path_alive    = nullptr;  // 0 = terminated, 1 = active
 
     // Sizing.
@@ -480,6 +489,17 @@ void setWavefrontTextureBinding(const GWavefrontTextureBinding& binding);
 // stage_advance.cu / GWavefrontProgramBinding (astroray/shader_vm.h).
 void setWavefrontProgramBinding(const GWavefrontProgramBinding& binding);
 
+// pkg314 — dedicated graph-evaluation kernel (stage_graph_eval.cu). Publish the
+// frame's graph arenas / per-material program slots / output + scratch buffers
+// once per frame, then call launchStageGraphEval before every
+// launchStageShadeBucketed (scenes with graph programs only). `batch` is the
+// launch width the scratch was sized for (GWavefrontGraphBinding::batch).
+void setWavefrontGraphBinding(const GWavefrontGraphBinding& binding);
+void launchStageGraphEval(GPUWavefrontState& state, GPUWavefrontHitBuffers& hitBufs,
+                          const int* d_shade_queues, const int* d_shade_counts,
+                          int capacity, const GPrimitive* d_prims,
+                          const GTriangle* d_tris, int batch);
+
 // pkg197 — publish the frame's first-hit denoise-guide output pointers into the
 // intersect stage's __constant__ binding. Call ONCE per frame before the render
 // loop. Pass all-null (the default) to disable guide capture. See
@@ -526,7 +546,10 @@ void launchStageEnvShadow(
     bool              useLuminanceOutput,
     float             clampDirect, float clampIndirect,
     const GCurveSegment* d_curves = nullptr,
-    bool              hw_occ = false);   // pkg299: occlusion from c_wfHwHits.occluded
+    bool              hw_occ = false,    // pkg299: occlusion from c_wfHwHits.occluded
+    // #1037: hitBufs.hit_prim_id (the shading vertex's prim) so env shadow rays
+    // skip their own curve segment; nullptr = no skip.
+    const int*        d_hitPrimId = nullptr);
 
 // pkg201 Stage 2 (Finding F, transparent film) — publish the frame's bounce-0
 // background-miss coverage accumulator (numPixels floats, or nullptr to disable).

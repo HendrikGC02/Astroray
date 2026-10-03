@@ -122,6 +122,13 @@ public:
     // PDF for a given light index from the shading point (for MIS).
     float pdf(const Vec3& point, const Vec3& normal, int lightIndex, bool isDedicated) const;
 
+    // #961: pick / pdf for a medium SEGMENT (origin o, unit d, length t; t >= 1e18
+    // = open), Cycles light_tree_sample<true> / light_tree_pdf<true>
+    // (kernel/light/tree.h, Apache-2.0): importance energy·θ_d/d at the ray's
+    // closest approach, no incidence term, min importance 0.
+    PickResult pickSegment(const Vec3& o, const Vec3& d, float t, float u) const;
+    float pdfSegment(const Vec3& o, const Vec3& d, float t, int lightIndex, bool isDedicated) const;
+
     bool empty() const { return nodes.empty(); }
 
     // pkg86-B: read-only access to the flat arrays for GPU upload
@@ -145,20 +152,33 @@ private:
     // Mirrors Cycles should_split (scene/light_tree.cpp, Apache-2.0).
     bool shouldSplit(int start, int end, int& splitAxis, int& splitIndex, float& splitCost) const;
 
-    // Compute importance of a node from a shading point.
-    // Mirrors Cycles light_tree_importance (kernel/light/tree.h, Apache-2.0).
-    float importance(const LightTreeNode& node, const Vec3& point, const Vec3& normal) const;
-
     // Upper/lower importance bounds shared by nodes and emitters (#851).
     // Mirrors Cycles light_tree_importance (kernel/light/tree.h, Apache-2.0).
     void importanceMinMax(const AABB& bbox, const OrientationBounds& bcone, float energy,
                           const Vec3& point, const Vec3& normal,
                           float& maxImp, float& minImp) const;
 
+    // #961: segment form of importanceMinMax (Cycles in_volume_segment).
+    void importanceMinMaxSegment(const AABB& bbox, const OrientationBounds& bcone, float energy,
+                                 const Vec3& o, const Vec3& d, float t,
+                                 float& maxImp, float& minImp) const;
+
+    // Shared importance tail (Cycles light_tree_importance): outgoing-cone
+    // bound, incidence term when `normal` is non-zero, θ_d/d for a segment.
+    static void importanceFromGeometry(const Vec3& pointToCentroidNorm, float cosSubtendedAngle,
+                                       float clampedDistance, const OrientationBounds& bcone,
+                                       float energy, const Vec3& normal, bool inVolumeSegment,
+                                       float thetaD, float& maxImp, float& minImp);
+
+    // Traversal shared by the point and segment queries (#961). `imp(bbox,
+    // bcone, energy, maxImp, minImp)` is the importance bound.
+    template <class Imp> PickResult pickWith(const Imp& imp, float u) const;
+    template <class Imp> float pdfWith(const Imp& imp, int lightIndex, bool isDedicated) const;
+
     // Selection probability of emitter `target` inside `leaf` (#851).
     // Mirrors Cycles light_tree_cluster_select_emitter (kernel/light/tree.h).
-    float leafEmitterProb(const LightTreeNode& leaf, int target, const Vec3& point,
-                          const Vec3& normal) const;
+    template <class Imp> float leafEmitterProb(const LightTreeNode& leaf, int target,
+                                               const Imp& imp) const;
 
     // Cycles sample_reservoir (kernel/light/tree.h).
     static void sampleReservoir(int index, float weight, int& selected, float& selectedWeight,

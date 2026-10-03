@@ -450,6 +450,17 @@ static void appendOnePrim(
                 r.triGenerated.push_back(GVec3(g2.x, g2.y, g2.z));
             }
         }
+        // #1006 — per-vertex OBJECT-local positions, same NaN-padded layout.
+        {
+            Vec3 o0, o1, o2;
+            if (tri->getObjectLocal(o0, o1, o2)) {
+                const float nan = std::numeric_limits<float>::quiet_NaN();
+                r.triObjectLocal.resize((size_t)gp.index * 3, GVec3(nan, nan, nan));
+                r.triObjectLocal.push_back(GVec3(o0.x, o0.y, o0.z));
+                r.triObjectLocal.push_back(GVec3(o1.x, o1.y, o1.z));
+                r.triObjectLocal.push_back(GVec3(o2.x, o2.y, o2.z));
+            }
+        }
         r.triangles.push_back(gt);
         std::string objName = tri->getName();
         if (objName.empty()) objName = "Unnamed_Triangle_" + std::to_string(r.triangles.size() - 1);
@@ -1101,6 +1112,65 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         const int perHit = perHitTexId(pt, child.get());
         return perHit >= 0 ? perHit : bakeProceduralTexId(child.get());
     };
+    // pkg314 — graph value programs (shader_graph.h). One descriptor per unique
+    // GraphProgramTexture, appended to the scene arenas with rebased 32-bit
+    // offsets. Each input becomes a texture id: an image with its own Mapping on
+    // the descriptor (native input) or with none (computed-uv input), or a
+    // procedural at its own point (#1007 per-hit evaluator, else the bake). An
+    // input the GPU cannot sample fails the whole program on GPU, reported.
+    std::unordered_map<const GraphProgramTexture*, int> graphIdx;
+    auto uploadGraphProgram = [&](const GraphProgramTexture* gpt) -> int {
+        auto git = graphIdx.find(gpt);
+        if (git != graphIdx.end()) return git->second;
+        std::vector<int> refs;
+        for (size_t k = 0; k < gpt->numInputs(); ++k) {
+            std::shared_ptr<Texture> child = gpt->getInput(k);
+            int texId = -1;
+            if (auto img = std::dynamic_pointer_cast<ImageTexture>(child)) {
+                // The device image fetch (gpu_progInputTexel) rebuilds UV only: a
+                // native image in another coordinate mode is not uploaded (reported
+                // by the addon; CPU exact), never sampled at the wrong coordinate.
+                const bool uvOk = img->getCoordMode() == Texture::CoordMode::UV;
+                if (!img->getData().empty() && uvOk &&
+                    !(gpt->inputIsCoord(k) && img->hasMapping()))
+                    texId = uploadImageTexId(img.get(), img.get());
+            } else if (child && !gpt->inputIsCoord(k)) {
+                // #1007 per-hit evaluator at the input's own point, else the bake.
+                const int perHit = perHitTexId(child.get(), child.get());
+                texId = perHit >= 0 ? perHit : bakeProceduralTexId(child.get());
+            }
+            if (texId < 0) {
+                fprintf(stderr, "[pkg314] DEGRADED: graph program input %zu cannot be "
+                                "sampled on the GPU (empty image / unbakeable coordinate "
+                                "mode); the socket keeps its constant value on GPU\n", k);
+                graphIdx[gpt] = -1;
+                return -1;
+            }
+            refs.push_back(texId);
+        }
+        const astroray::sgraph::GraphProgramData& g = gpt->getProgram();
+        astroray::sgraph::GraphProgramDesc d = g.desc;
+        d.instrOffset = (uint32_t)r.graphInstrs.size();
+        d.constOffset = (uint32_t)r.graphConsts.size();
+        d.tableOffset = (uint32_t)r.graphTables.size();
+        d.texOffset   = (uint32_t)r.graphTexRefs.size();
+        const uint32_t dataBase = (uint32_t)r.graphTableData.size();
+        r.graphInstrs.insert(r.graphInstrs.end(), g.instrs.begin(), g.instrs.end());
+        r.graphConsts.insert(r.graphConsts.end(), g.consts.begin(), g.consts.end());
+        for (astroray::sgraph::GraphTable t : g.tables) {
+            t.offset += dataBase;
+            r.graphTables.push_back(t);
+        }
+        r.graphTableData.insert(r.graphTableData.end(), g.tableData.begin(), g.tableData.end());
+        r.graphTexRefs.insert(r.graphTexRefs.end(), refs.begin(), refs.end());
+        const int id = (int)r.graphPrograms.size();
+        r.graphPrograms.push_back(d);
+        r.graphMaxSlots = std::max(r.graphMaxSlots, (int)d.numSlots);
+        r.hasGraph = true;
+        if (!refs.empty()) r.hasTexture = true;   // publishes c_wfTexBinding
+        graphIdx[gpt] = id;
+        return id;
+    };
     auto getOrAddMat = [&](const std::shared_ptr<Material>& mIn) -> int {
         auto it = matIdx.find(mIn.get());
         if (it != matIdx.end()) return it->second;
@@ -1168,6 +1238,9 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         // same buffer — 3D voxel for Generated coords, 2D for UV.
         int texId = -1;
         int progId = -1;
+        // pkg314 — graph programs per slot (svm::ScalarSlot order, 4 = base colour).
+        int graphSlots[astroray::sgraph::GRAPH_MAT_SLOTS];
+        for (int s = 0; s < astroray::sgraph::GRAPH_MAT_SLOTS; ++s) graphSlots[s] = -1;
         // #826 — texIds of the program's inputs, OP_LOAD_TEX order (-1 = none).
         int progInTex[astroray::svm::VM_MAX_TEX];
         for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t) progInTex[t] = -1;
@@ -1204,7 +1277,18 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // whole ProgramTexture (CPU evaluator, 64^2 / 64^3) -- keeps svm_eval
             // out of the intersect/shadow kernels' call graph (register cost).
             auto pt = (tl || prBase) ? std::dynamic_pointer_cast<ProgramTexture>(tex) : nullptr;
-            if (pt) {
+            // pkg314 — a graph value program on the base colour: evaluated by the
+            // dedicated graph kernel, read by the <HasProgram=true> shade (lambertian
+            // swap or the Principled base-colour override); texId stays -1.
+            auto gpt = (tl || prBase) ? std::dynamic_pointer_cast<GraphProgramTexture>(tex)
+                                      : nullptr;
+            if (gpt) {
+                graphSlots[astroray::sgraph::GRAPH_SLOT_BASE_COLOR] = uploadGraphProgram(gpt.get());
+                if (graphSlots[astroray::sgraph::GRAPH_SLOT_BASE_COLOR] >= 0) {
+                    r.hasTexture = true;
+                    r.hasProgram = true;
+                }
+            } else if (pt) {
                 const int numIn = (int)pt->numInputs();
                 // #989: a Principled base-colour program may read only per-hit
                 // shading inputs (Layer Weight -> Mix): zero textures, texId -1.
@@ -1235,6 +1319,13 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                     texId = uploadImageTexId(img.get(), img.get());
                     r.hasTexture = true;
                 }
+            } else if (emitTex && std::dynamic_pointer_cast<GraphProgramTexture>(tex)) {
+                // pkg314 — a graph program on an Emission Color is not evaluated by the
+                // intersect / shadow stages and its inputs have per-input coordinates,
+                // so no single bake domain exists: GPU keeps the texture mean
+                // (reported below and by the addon); CPU evaluates it per hit.
+                fprintf(stderr, "[pkg314] DEGRADED: Emission Color graph program renders "
+                                "its texture mean on GPU\n");
             } else if (tex) {
                 // pkg190 — bake a PROCEDURAL base-colour texture (checker / brick /
                 // wave / magic / …) into the flat device texel buffer, then reuse
@@ -1258,7 +1349,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             // the material's own base chroma — an exact, unbiased swap even for a
             // saturated base. Net reflectance stays texUp, so the pkg186 image path
             // (previously dividing by a near-gray base) is unchanged.
-            if (texId >= 0 && tl)
+            if ((texId >= 0 || graphSlots[astroray::sgraph::GRAPH_SLOT_BASE_COLOR] >= 0) && tl)
                 r.materials[id].baseColor = GVec3(1.f, 1.f, 1.f);
             // #988 — the Principled base-colour override runs only in the
             // <HasProgram=true> shade kernel (even for a plain image / bake).
@@ -1266,7 +1357,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 r.hasTexture = true;
                 r.hasProgram = true;
             }
-            if (prBase && texId < 0 && progId < 0)
+            if (prBase && texId < 0 && progId < 0 &&
+                graphSlots[astroray::sgraph::GRAPH_SLOT_BASE_COLOR] < 0)
                 fprintf(stderr, "[#988] DEGRADED: Principled Base Color texture with an "
                                 "unsupported GPU input (coordinate mode / empty image / "
                                 "program inputs) renders the constant Base Color on GPU\n");
@@ -1364,11 +1456,18 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         };
         for (int slot = 0; slot < astroray::svm::VM_SCALAR_SLOTS; ++slot) {
             int sTexId = -1, sProgId = -1;
-            if (auto pt = std::dynamic_pointer_cast<ProgramTexture>(m->scalarProgram(slot)))
+            if (auto pt = std::dynamic_pointer_cast<ProgramTexture>(m->scalarProgram(slot))) {
                 uploadProgramTexture(pt, sTexId, sProgId);
+            } else if (auto gpt = std::dynamic_pointer_cast<GraphProgramTexture>(
+                           m->scalarProgram(slot))) {
+                graphSlots[slot] = uploadGraphProgram(gpt.get());   // pkg314
+                if (graphSlots[slot] >= 0) r.hasProgram = true;
+            }
             r.materialScalarProgId.push_back(sProgId);
             r.materialScalarTexId.push_back(sTexId);
         }
+        for (int s = 0; s < astroray::sgraph::GRAPH_MAT_SLOTS; ++s)
+            r.materialGraphProg.push_back(graphSlots[s]);
         return id;
     };
 
@@ -1380,14 +1479,27 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // #994 — per-material world bbox of the flat (world-space) scene, read by
     // bakeProceduralTexId for OBJECT-coordinate procedurals. Instanced meshes are
     // object-space and not included (their materials stay unbaked, as before).
+    // #1006: a triangle with object-local positions contributes their bbox (the
+    // frame gpu_generatedCoord indexes the Object bake in).
     if (cpuBvh) {
         for (const auto& h : cpuBvh->getPrimitives()) {
             const Material* pm = nullptr;
-            if (auto* t = dynamic_cast<Triangle*>(h.get())) pm = t->getMaterial().get();
+            AABB hb;
+            bool haveBox = false;
+            if (auto* t = dynamic_cast<Triangle*>(h.get())) {
+                pm = t->getMaterial().get();
+                Vec3 o0, o1, o2;
+                if (t->getObjectLocal(o0, o1, o2)) {
+                    hb = AABB(Vec3(std::min({o0.x, o1.x, o2.x}), std::min({o0.y, o1.y, o2.y}),
+                                   std::min({o0.z, o1.z, o2.z})),
+                              Vec3(std::max({o0.x, o1.x, o2.x}), std::max({o0.y, o1.y, o2.y}),
+                                   std::max({o0.z, o1.z, o2.z})));
+                    haveBox = true;
+                }
+            }
             else if (auto* s = dynamic_cast<Sphere*>(h.get())) pm = s->getMaterial().get();
             else if (auto* c = dynamic_cast<CurveSegment*>(h.get())) pm = c->getMaterial().get();
-            AABB hb;
-            if (!pm || !h->boundingBox(hb)) continue;
+            if (!pm || !(haveBox || h->boundingBox(hb))) continue;
             auto it = matWorldBox.find(pm);
             if (it == matWorldBox.end()) matWorldBox.emplace(pm, hb);
             else it->second = it->second.merge(hb);
@@ -1793,6 +1905,20 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         } else if (!r.triGenerated.empty()) {
             const float nan = std::numeric_limits<float>::quiet_NaN();
             r.triGenerated.resize(r.triangles.size() * 3, GVec3(nan, nan, nan));
+        }
+    }
+    // --- #1006: per-vertex OBJECT-local positions ---
+    // Only read for OBJECT-coordinate descriptors (gpu_objectCoord). Instanced
+    // BLAS triangles never carry them (the addon flattens Object-coordinate
+    // materials), so their NaN entries fall back to the world point.
+    {
+        bool hasObjCoord = false;
+        for (const auto& t : r.textures) hasObjCoord = hasObjCoord || t.objectCoord;
+        if (!hasObjCoord) {
+            r.triObjectLocal.clear();
+        } else if (!r.triObjectLocal.empty()) {
+            const float nan = std::numeric_limits<float>::quiet_NaN();
+            r.triObjectLocal.resize(r.triangles.size() * 3, GVec3(nan, nan, nan));
         }
     }
 

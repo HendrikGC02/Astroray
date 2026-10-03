@@ -36,7 +36,7 @@ public:
         Vec3 local = Vec3::randomCosineDirection(gen);
         Vec3 dir = (u * local.x + v * local.y + rec.normal * local.z).normalized();
         HitRecord shadow;
-        float vis = bvh->hit(Ray(rec.point, dir), 0.001f, maxDist_, shadow) ? 0.0f : 1.0f;
+        float vis = bvh->hit(spawnRay(rec, dir), 0.001f, maxDist_, shadow) ? 0.0f : 1.0f;
 
         // pkg87b: Cryptomatte accumulation for AO integrator.
         // Weight = visibility-fraction (the degenerate Cycles behaviour for non-lighting integrators).

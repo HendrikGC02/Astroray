@@ -443,8 +443,6 @@ bool LightTree::shouldSplit(int start, int end, int& outSplitAxis, int& outSplit
 void LightTree::importanceMinMax(const AABB& bbox, const OrientationBounds& bcone,
                                  float energy, const Vec3& point, const Vec3& normal,
                                  float& maxImp, float& minImp) const {
-    maxImp = 0.0f;
-    minImp = 0.0f;
     Vec3 pointToCentroidNorm;
     float cosSubtendedAngle;
     float clampedDistance;
@@ -482,6 +480,83 @@ void LightTree::importanceMinMax(const AABB& bbox, const OrientationBounds& bcon
         // point ~1e12 importance, starving its sibling (e.g. the key light).
         clampedDistance = std::max(0.5f * bboxRadius, distance);
     }
+    importanceFromGeometry(pointToCentroidNorm, cosSubtendedAngle, clampedDistance, bcone, energy,
+                           normal, /*inVolumeSegment=*/false, 1.0f, maxImp, minImp);
+}
+
+// #961: Cycles light_tree_node_importance<true> (kernel/light/tree.h,
+// Apache-2.0, main a456b761): the cluster seen from a ray segment (o, unit d,
+// length t; t >= 1e18 = open). Distance = the ray's perpendicular distance to
+// the centroid, theta_d = the angle the segment subtends there (Kulla & Fajardo
+// 2012 Eq. 4; Conty & Kulla 2018 §5.3), theta_u from the segment's clamped
+// closest point, the outgoing angle from compute_v (the segment point that
+// forms the smallest angle with the cone axis). As for points, Astroray uses
+// the node form for emitters too.
+void LightTree::importanceMinMaxSegment(const AABB& bbox, const OrientationBounds& bcone,
+                                        float energy, const Vec3& o, const Vec3& d, float t,
+                                        float& maxImp, float& minImp) const {
+    const bool open = !(t < 1e18f);
+    Vec3 pointToCentroidNorm;
+    float cosSubtendedAngle;
+    float clampedDistance;
+    float thetaD;
+    if (isDistantBox(bbox)) {
+        pointToCentroidNorm = (bcone.axis * -1.0f).normalized();
+        cosSubtendedAngle = std::cos(std::min(static_cast<float>(M_PI), bcone.theta_o + bcone.theta_e));
+        clampedDistance = 1.0f;
+        // Distant: the Eq. 4 integral is the ray length (1 for an open ray).
+        thetaD = open ? 1.0f : t;
+    } else {
+        const Vec3 centroid = bbox.centroid();
+        const float closestT = (centroid - o).dot(d);
+        const Vec3 closestPoint = o + d * std::clamp(closestT, 0.0f, open ? 1e30f : t);
+        const float distance = (centroid - o - d * closestT).length();
+        if (open) {
+            thetaD = std::atan2(closestT, distance) + 0.5f * static_cast<float>(M_PI);
+        } else {
+            // atan((t - c)/d) + atan(c/d) via atan(a) + atan(b) = atan2(a + b, 1 - ab).
+            const float sd = distance > 0.0f ? (t - closestT) / distance : 0.0f;
+            thetaD = std::atan2(t, distance - closestT * sd);
+        }
+        // compute_v: the segment point direction forming the minimal angle with
+        // the cone axis; point_to_centroid = -v.
+        const Vec3 v0u = o - centroid;
+        const Vec3 v1u = v0u + d * std::min(t, 1e12f);
+        const float l0 = v0u.length(), l1 = v1u.length();
+        Vec3 v;
+        if (!(l0 > 0.0f) || !(l1 > 0.0f)) {
+            v = (l0 > 0.0f) ? v0u / l0 : (l1 > 0.0f ? v1u / l1 : bcone.axis * -1.0f);
+        } else {
+            const Vec3 v0 = v0u / l0, v1 = v1u / l1;
+            // make_orthonormals_tangent(o0 = v0, v1): o1 = cross(normalize(cross(v0, v1)), v0).
+            const Vec3 b = v0.cross(v1);
+            const float bl = b.length();
+            const Vec3 o1 = bl > 0.0f ? (b / bl).cross(v0) : Vec3(0.0f);
+            const float a0 = v0.dot(bcone.axis), a1 = o1.dot(bcone.axis);
+            const float len = std::sqrt(a0 * a0 + a1 * a1);
+            const float cosPhi0 = len > 0.0f ? a0 / len : 1.0f;
+            if (a1 < 0.0f || v0.dot(v1) > cosPhi0 || !(len > 0.0f))
+                v = (a0 > v1.dot(bcone.axis)) ? v0 : v1;
+            else
+                v = v0 * cosPhi0 + o1 * (a1 / len);
+        }
+        pointToCentroidNorm = v * -1.0f;
+        const float bboxRadius = (bbox.max - centroid).length();
+        const float dc2 = (closestPoint - centroid).length2();
+        const float r2 = bboxRadius * bboxRadius;
+        cosSubtendedAngle = (dc2 <= r2) ? -1.0f : std::sqrt(std::max(0.0f, 1.0f - r2 / dc2));
+        clampedDistance = std::max(0.5f * bboxRadius, distance);
+    }
+    importanceFromGeometry(pointToCentroidNorm, cosSubtendedAngle, clampedDistance, bcone, energy,
+                           Vec3(0.0f), /*inVolumeSegment=*/true, thetaD, maxImp, minImp);
+}
+
+void LightTree::importanceFromGeometry(const Vec3& pointToCentroidNorm, float cosSubtendedAngle,
+                                       float clampedDistance, const OrientationBounds& bcone,
+                                       float energy, const Vec3& normal, bool inVolumeSegment,
+                                       float thetaD, float& maxImp, float& minImp) {
+    maxImp = 0.0f;
+    minImp = 0.0f;
     float sinSubtendedAngle = std::sqrt(std::max(0.0f, 1.0f - cosSubtendedAngle * cosSubtendedAngle));
 
     // Incidence term, Cycles tree.h:142-167. A zero normal marks a volume
@@ -536,6 +611,13 @@ void LightTree::importanceMinMax(const AABB& bbox, const OrientationBounds& bcon
         return;
     }
 
+    // #961: a segment weighs theta_d/d (Eq. 4) and has no lower bound (Cycles
+    // "TODO: compute proper min importance for volume").
+    if (inVolumeSegment) {
+        maxImp = std::abs(energy * cosMinOutgoingAngle * thetaD / clampedDistance);
+        return;
+    }
+
     // Final importance: (energy / distance²) · cos_min_incidence_angle · cos_min_outgoing_angle.
     // Cycles: line 215-216 in kernel/light/tree.h.
     maxImp = energy * cosMinIncidenceAngle * cosMinOutgoingAngle /
@@ -578,27 +660,20 @@ void LightTree::sampleReservoir(int index, float weight, int& selected, float& s
     rand = std::clamp(rand, 0.0f, 1.0f);
 }
 
-float LightTree::importance(const LightTreeNode& node, const Vec3& point,
-                            const Vec3& normal) const {
-    float maxImp, minImp;
-    importanceMinMax(node.bbox, node.bcone, node.energy, point, normal, maxImp, minImp);
-    return maxImp;
-}
-
 // #851: probability of emitter `target` (absolute index) within `leaf`, Cycles
 // light_tree_pdf leaf branch (kernel/light/tree.h, Apache-2.0):
 // p = 0.5 * (max_i/sum(max) + min_i/sum(min)), where the min term falls back to
 // uniform over emitters with max > 0 when sum(min) == 0. 0 when no emitter has
 // importance (pick() then returns no light, as Cycles). One pass; pick() draws
 // the same distribution with Cycles' two-reservoir scheme.
-float LightTree::leafEmitterProb(const LightTreeNode& leaf, int target, const Vec3& point,
-                                 const Vec3& normal) const {
+template <class Imp>
+float LightTree::leafEmitterProb(const LightTreeNode& leaf, int target, const Imp& imp) const {
     float sumMax = 0.0f, sumMin = 0.0f, tMax = 0.0f, tMin = 0.0f;
     int numHas = 0;
     for (int i = leaf.firstEmitter; i < leaf.firstEmitter + leaf.numEmitters; ++i) {
         const LightTreeEmitter& e = emitters[i];
         float mx, mn;
-        importanceMinMax(e.bbox, e.bcone, e.energy, point, normal, mx, mn);
+        imp(e.bbox, e.bcone, e.energy, mx, mn);
         sumMax += mx;
         sumMin += mn;
         numHas += (mx > 0.0f) ? 1 : 0;
@@ -613,9 +688,10 @@ float LightTree::leafEmitterProb(const LightTreeNode& leaf, int target, const Ve
 // LightTree::pick — sample a light from the tree
 // ============================================================================
 
-// Cycles light_tree_sample (kernel/light/tree.h, Apache-2.0).
-LightTree::PickResult LightTree::pick(const Vec3& point, const Vec3& normal, float u,
-                                      std::mt19937& gen) const {
+// Cycles light_tree_sample (kernel/light/tree.h, Apache-2.0). #961: `imp` is the
+// point (pick) or segment (pickSegment) importance bound.
+template <class Imp>
+LightTree::PickResult LightTree::pickWith(const Imp& imp, float u) const {
     if (nodes.empty()) {
         return PickResult{-1, false, 0.0f};
     }
@@ -629,14 +705,16 @@ LightTree::PickResult LightTree::pick(const Vec3& point, const Vec3& normal, flo
         const LightTreeNode& left = nodes[node.leftChild];
         const LightTreeNode& right = nodes[node.rightChild];
 
-        float leftImp = importance(left, point, normal);
-        float rightImp = importance(right, point, normal);
+        float leftImp, rightImp, unused;
+        imp(left.bbox, left.bcone, left.energy, leftImp, unused);
+        imp(right.bbox, right.bcone, right.energy, rightImp, unused);
         float totalImp = leftImp + rightImp;
 
-        if (totalImp < 1e-8f) {
-            // Both children have zero importance; pick left arbitrarily.
-            nodeIdx = node.leftChild;
-            pdf *= 0.5f;
+        if (!(totalImp > 0.0f)) {
+            // #961 review: both children have zero importance -> no light, as
+            // Cycles get_left_probability. (Picking left with pdf 0.5 doubled
+            // the left subtree and gave the right one a pdf it could not have.)
+            return PickResult{-1, false, 0.0f};
         } else {
             float leftProb = leftImp / totalImp;
             if (u < leftProb) {
@@ -666,7 +744,7 @@ LightTree::PickResult LightTree::pick(const Vec3& point, const Vec3& normal, flo
     for (int i = leaf.firstEmitter; i < leaf.firstEmitter + leaf.numEmitters; ++i) {
         const LightTreeEmitter& e = emitters[i];
         float mx, mn;
-        importanceMinMax(e.bbox, e.bcone, e.energy, point, normal, mx, mn);
+        imp(e.bbox, e.bcone, e.energy, mx, mn);
         if (sampleMax) {  // reservoir on max importance
             sampleReservoir(i, mx, emitterIdx, selMax, totMax, u);
             if (emitterIdx == i) selMin = mn;
@@ -689,7 +767,7 @@ LightTree::PickResult LightTree::pick(const Vec3& point, const Vec3& normal, flo
             for (int i = leaf.firstEmitter; i < leaf.firstEmitter + leaf.numEmitters; ++i) {
                 const LightTreeEmitter& e = emitters[i];
                 float mx, mn;
-                importanceMinMax(e.bbox, e.bcone, e.energy, point, normal, mx, mn);
+                imp(e.bbox, e.bcone, e.energy, mx, mn);
                 sampleReservoir(i, mx > 0.0f ? 1.0f : 0.0f, emitterIdx, w, t, u);
                 if (emitterIdx == i) selMax = mx;
             }
@@ -702,6 +780,20 @@ LightTree::PickResult LightTree::pick(const Vec3& point, const Vec3& normal, flo
 
     const LightTreeEmitter& e = emitters[emitterIdx];
     return PickResult{e.lightIndex, e.isDedicated, pdf};
+}
+
+LightTree::PickResult LightTree::pick(const Vec3& point, const Vec3& normal, float u,
+                                      std::mt19937& /*gen*/) const {
+    return pickWith([&](const AABB& b, const OrientationBounds& c, float en, float& mx, float& mn) {
+        importanceMinMax(b, c, en, point, normal, mx, mn);
+    }, u);
+}
+
+// #961: Cycles light_sample_from_volume_segment -> light_tree_sample<true>.
+LightTree::PickResult LightTree::pickSegment(const Vec3& o, const Vec3& d, float t, float u) const {
+    return pickWith([&](const AABB& b, const OrientationBounds& c, float en, float& mx, float& mn) {
+        importanceMinMaxSegment(b, c, en, o, d, t, mx, mn);
+    }, u);
 }
 
 // ============================================================================
@@ -726,8 +818,8 @@ bool LightTree::subtreeContainsEmitter(int nodeIdx, int emitterIdx) const {
            subtreeContainsEmitter(node.rightChild, emitterIdx);
 }
 
-float LightTree::pdf(const Vec3& point, const Vec3& normal, int lightIndex,
-                     bool isDedicated) const {
+template <class Imp>
+float LightTree::pdfWith(const Imp& imp, int lightIndex, bool isDedicated) const {
     // Find the emitter in the flat array.
     int emitterIdx = -1;
     for (size_t i = 0; i < emitters.size(); ++i) {
@@ -742,7 +834,7 @@ float LightTree::pdf(const Vec3& point, const Vec3& normal, int lightIndex,
     }
 
     // Walk the tree to compute the probability of reaching this emitter.
-    // This mirrors the traversal logic in pick().
+    // This mirrors the traversal logic in pickWith().
     float pdf = 1.0f;
     int nodeIdx = 0;
 
@@ -751,8 +843,9 @@ float LightTree::pdf(const Vec3& point, const Vec3& normal, int lightIndex,
         const LightTreeNode& left = nodes[node.leftChild];
         const LightTreeNode& right = nodes[node.rightChild];
 
-        float leftImp = importance(left, point, normal);
-        float rightImp = importance(right, point, normal);
+        float leftImp, rightImp, unused;
+        imp(left.bbox, left.bcone, left.energy, leftImp, unused);
+        imp(right.bbox, right.bcone, right.energy, rightImp, unused);
         float totalImp = leftImp + rightImp;
 
         // Determine which subtree contains our target emitter.
@@ -764,10 +857,8 @@ float LightTree::pdf(const Vec3& point, const Vec3& normal, int lightIndex,
             return 0.0f;
         }
 
-        if (totalImp < 1e-8f) {
-            // Both children have zero importance. Uniform fallback.
-            pdf *= 0.5f;
-            nodeIdx = inLeft ? node.leftChild : node.rightChild;
+        if (!(totalImp > 0.0f)) {
+            return 0.0f;  // #961 review: pickWith cannot reach any light here
         } else {
             float leftProb = leftImp / totalImp;
             if (inLeft) {
@@ -780,10 +871,26 @@ float LightTree::pdf(const Vec3& point, const Vec3& normal, int lightIndex,
         }
     }
 
-    // At leaf: the same importance mixture pick() samples from (#851).
-    pdf *= leafEmitterProb(nodes[nodeIdx], emitterIdx, point, normal);
+    // At leaf: the same importance mixture pickWith() samples from (#851).
+    pdf *= leafEmitterProb(nodes[nodeIdx], emitterIdx, imp);
 
     return pdf;
+}
+
+float LightTree::pdf(const Vec3& point, const Vec3& normal, int lightIndex,
+                     bool isDedicated) const {
+    return pdfWith([&](const AABB& b, const OrientationBounds& c, float en, float& mx, float& mn) {
+        importanceMinMax(b, c, en, point, normal, mx, mn);
+    }, lightIndex, isDedicated);
+}
+
+// #961: Cycles light_tree_pdf<true> (forward MIS after a volume scatter, over
+// the segment the scatter sampled from: mis_origin_n / previous_dt).
+float LightTree::pdfSegment(const Vec3& o, const Vec3& d, float t, int lightIndex,
+                            bool isDedicated) const {
+    return pdfWith([&](const AABB& b, const OrientationBounds& c, float en, float& mx, float& mn) {
+        importanceMinMaxSegment(b, c, en, o, d, t, mx, mn);
+    }, lightIndex, isDedicated);
 }
 
 } // namespace astroray

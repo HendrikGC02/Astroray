@@ -123,7 +123,8 @@ class _RecordingRenderer:
 
 def test_noise_translation_param_vector(monkeypatch):
     """ShaderNodeTexNoise → create_procedural_texture('noise_perlin', ...)
-    with [scale, detail, roughness, lacunarity, offset, gain, distortion, noise_type, normalize]."""
+    with [scale, detail, roughness, lacunarity, offset, gain, distortion, noise_type, normalize,
+    dimensions, w, fac_only] (#881 appended the last three; a 3D Color load is 3, 0, 0)."""
     addon = _load_blender_addon(monkeypatch)
     engine = addon.CustomRaytracerRenderEngine()
     renderer = _RecordingRenderer()
@@ -142,8 +143,9 @@ def test_noise_translation_param_vector(monkeypatch):
     assert len(renderer.proc_texture_calls) == 1
     name, ttype, params = renderer.proc_texture_calls[0]
     assert ttype == 'noise_perlin'
-    assert len(params) == 9, f"expected 9 params, got {len(params)}: {params}"
-    scale, detail, rough, lac, offset, gain, dist, nt, norm = params
+    assert len(params) == 12, f"expected 12 params, got {len(params)}: {params}"
+    scale, detail, rough, lac, offset, gain, dist, nt, norm, dims, w, fac_only = params
+    assert (dims, w, fac_only) == (3.0, 0.0, 0.0)
     assert (scale, detail, rough, lac, offset, gain, dist) == (6.0, 3.0, 0.7, 2.5, 0.1, 1.2, 0.5)
     assert nt == 3.0, ("RIDGED_MULTIFRACTAL must map to noise_type index 3 "
                        "(ENGINE ordering: advanced_features.h noise_select "

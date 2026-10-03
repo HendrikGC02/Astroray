@@ -1461,7 +1461,12 @@ def run_gate_a_table(args):
     workloads = _load_gate_a_workloads(args.gate_a_workload)
     host, port = args.host, args.port
     gpu = _bridge(_GPU_NAME, host, port).get("gpu", "")
-    raw_dir = Path(args.gate_a_raw_dir).resolve()
+    if args.gate_a_raw_dir:
+        raw_dir = Path(args.gate_a_raw_dir).resolve()
+    else:
+        sys.path.insert(0, str(_REPO / "tests"))
+        from results_layout import results_dir
+        raw_dir = results_dir("viewport", "gate-a-latency").resolve()
     raw_dir.mkdir(parents=True, exist_ok=True)
     cells = []
     meta = {"gpu": gpu, "workloads": workloads, "events": args.gate_a_events,
@@ -2037,8 +2042,9 @@ def main():
                    choices=["camera", "material", "transform"])
     p.add_argument("--gate-a-events", type=int, default=60)
     p.add_argument("--gate-a-reps", type=int, default=5)
-    p.add_argument("--gate-a-raw-dir", default="test_results/_runs/viewport/gate-a-latency",
-                   help="raw captures + frame evidence (ignored run tree)")
+    p.add_argument("--gate-a-raw-dir", default=None,
+                   help="raw captures + frame evidence (default: "
+                        "results_layout.results_dir('viewport', 'gate-a-latency'))")
     p.add_argument("--gate-a-build-id", default=None,
                    help="required build identity recorded in the gate-(a) producer")
     p.add_argument("--cancel", action="store_true",

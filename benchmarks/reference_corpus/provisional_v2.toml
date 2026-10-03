@@ -14,9 +14,9 @@ reason = "Sellmeier (dispersive) sphere limb vs constant-IOR Cycles glass: colou
 scene = "v2_camera_geometry"
 backend = "cpu"
 roi = "hair_tuft"
-channels = ["r", "g", "b", "L"]
-issue = "#1037"
-reason = "principled_hair tuft under Cycles (CPU 0.86-0.96, GPU 0.86-0.97 of Cycles, GPU/CPU within 1.6 % after #963); hair rays re-hit their own strand (#1037)"
+channels = ["g", "b", "L"]
+issue = "#1051"
+reason = "principled_hair tuft after #1037 self-skip: r matches Cycles, g 0.94 / b 0.94 / L 0.96 of Cycles (was 0.81-0.96); residual hair g/b/L gap tracked in the follow-up issue"
 
 [[row]]
 scene = "v2_camera_geometry"
@@ -30,9 +30,9 @@ reason = "motion-blurred vane too narrow (0.80-0.83 of Cycles)"
 scene = "v2_camera_geometry"
 backend = "gpu"
 roi = "hair_tuft"
-channels = ["r", "g", "b", "L"]
-issue = "#1037"
-reason = "principled_hair tuft under Cycles (CPU 0.86-0.96, GPU 0.86-0.97 of Cycles, GPU/CPU within 1.6 % after #963); hair rays re-hit their own strand (#1037)"
+channels = ["g", "b", "L"]
+issue = "#1051"
+reason = "principled_hair tuft after #1037 self-skip: GPU r 1.01 matches Cycles, g 0.95 / b 0.94 / L 0.97 of Cycles (was 0.86-0.97), GPU/CPU within 1 %; residual hair gap tracked in #1051"
 
 [[row]]
 scene = "v2_camera_geometry"
@@ -54,9 +54,9 @@ reason = "motion-blurred vane too narrow (0.80-0.83 of Cycles)"
 scene = "v2_camera_geometry@ortho"
 backend = "cpu"
 roi = "hair_tuft"
-channels = ["r", "g", "b", "L"]
-issue = "#1037"
-reason = "principled_hair tuft under Cycles (CPU 0.81-0.92, GPU 0.80-0.91 of Cycles, GPU/CPU within 1.6 % after #963); hair rays re-hit their own strand (#1037)"
+channels = ["g", "b", "L"]
+issue = "#1051"
+reason = "principled_hair tuft after #1037 self-skip: r matches Cycles, g 0.91 / b 0.91 / L 0.93 of Cycles (was 0.81-0.96); residual hair g/b/L gap tracked in the follow-up issue"
 
 [[row]]
 scene = "v2_camera_geometry@ortho"
@@ -71,8 +71,8 @@ scene = "v2_camera_geometry@ortho"
 backend = "gpu"
 roi = "hair_tuft"
 channels = ["r", "g", "b", "L"]
-issue = "#1037"
-reason = "principled_hair tuft under Cycles (CPU 0.81-0.92, GPU 0.80-0.91 of Cycles, GPU/CPU within 1.6 % after #963); hair rays re-hit their own strand (#1037)"
+issue = "#1051"
+reason = "principled_hair tuft after #1037 self-skip: GPU 0.95 / 0.89 / 0.89 / 0.91 (r/g/b/L) of Cycles (was 0.80-0.91), GPU/CPU within 3 %; residual hair gap tracked in #1051"
 
 [[row]]
 scene = "v2_camera_geometry@ortho"

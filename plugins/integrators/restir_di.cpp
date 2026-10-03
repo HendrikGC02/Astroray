@@ -297,7 +297,7 @@ public:
                     // pkg253 G1: shared transparent-shadow transmittance (see
                     // shadowTransmittance in raytracer.h). Tr==0 for an all-opaque
                     // scene in one hop, so pre-pkg253 ReSTIR renders are unchanged.
-                    float shadowTr = shadowTransmittance(*bvh, Ray(rec.point, wi), distLocal);
+                    float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi), distLocal);
                     if (shadowTr > 0.0f) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
@@ -368,6 +368,7 @@ public:
             throughput *= bss.f_spectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
 
             Ray next(rec.point, bss.wi, pathRay.time, pathRay.screenU, pathRay.screenV);
+            next.self = rec.hitObject;  // #1037
             next.hasCameraFrame = pathRay.hasCameraFrame;
             next.cameraOrigin   = pathRay.cameraOrigin;
             next.cameraU        = pathRay.cameraU;

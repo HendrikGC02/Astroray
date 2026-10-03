@@ -480,8 +480,15 @@ __device__ int intersectPathSlotT(
                                 c_wfHwHits.u[idx], c_wfHwHits.v[idx], c_wfHwHits.inst[idx],
                                 instances, blas, prims, tris, ray, rec);
     } else {
+        // #1037: a continuation ray leaves the previous vertex's prim, still in
+        // hit_prim_id (written by the previous intersect; reset to -1 at a medium
+        // scatter vertex). Only the HasCurves curve leaf reads it.
+        int skipPrim = -1;
+        if constexpr (HasCurves) {
+            if (bounce > 0) skipPrim = hitBufs.hit_prim_id[idx];
+        }
         hit = gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                                      ray, tNear, tFar, rec, motionVerts, curves);
+                                      ray, tNear, tFar, rec, motionVerts, curves, skipPrim);
     }
 
     // pkg199 Stage 2 — homogeneous medium free-flight scatter DECISION (Option A:
@@ -723,6 +730,7 @@ __device__ int intersectPathSlotT(
                 state.ray_origin_z[idx] = P.z;
                 c_wfGridVolume.mediumId[idx] = mi;
                 if (c_wfPhotonSplit.chain != nullptr) c_wfPhotonSplit.chain[idx] = 0;  // #909
+                if constexpr (HasCurves) hitBufs.hit_prim_id[idx] = -1;  // #1037: medium vertex
                 return -3;
             }
             // escaped: delta-track survival IS the transmittance — fall through.
@@ -785,6 +793,7 @@ __device__ int intersectPathSlotT(
             state.throughput_2[idx] = throughput.v[2];
             state.throughput_3[idx] = throughput.v[3];
             if (c_wfPhotonSplit.chain != nullptr) c_wfPhotonSplit.chain[idx] = 0;  // #909
+            if constexpr (HasCurves) hitBufs.hit_prim_id[idx] = -1;  // #1037: medium vertex
             return -2;  // scattered → the wrapper enqueues to the volume queue
         } else {
             // Reached the terminating event (surface / env): throughput *=

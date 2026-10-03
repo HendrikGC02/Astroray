@@ -2627,7 +2627,8 @@ std::vector<float> cuda_wavefront_render(
                                      d_bvhNodes, d_prims, d_tris, d_spheres,
                                      d_motionVerts, useLuminanceOutput,
                                      clampDirect, clampIndirect, d_curveSegments,
-                                     hwTrav);  // pkg299
+                                     hwTrav,  // pkg299
+                                     hitBufs.hit_prim_id);  // #1037
             }
             if (waves == 1) continue;  // fixed pass count, no readbacks
             if (workExhausted) {

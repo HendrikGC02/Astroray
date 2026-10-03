@@ -83,6 +83,9 @@ struct PathState {
     // #851: normal passed to lights.sample() at the previous vertex; the tree
     // sampler's MIS pdf re-walks the tree with it.
     Vec3 misNormalPrev;
+    // #1037: primitive the current ray leaves (Ray::self); null for the
+    // primary ray.
+    const Hittable* rayself = nullptr;
 
     int pixel_index;
     int sample_index;

@@ -164,6 +164,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
     Ray ray;
     ray.origin    = ps.ray_origin;
     ray.direction = ps.ray_direction;   // already unit; do NOT renormalize.
+    ray.self      = ps.rayself;         // #1037
     // #862: both callers carry rec across bounces, and hit() only writes the
     // fields its primitive owns: isDelta (set by delta BSDFs), uvLayers,
     // uvScaleU/V (textured triangles), hair_u/v (curves) leaked into later
@@ -329,7 +330,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
             // shadowTransmittance in raytracer.h). This kernel claims per-channel
             // parity with production pathTraceSpectral, so it mirrors the exact
             // same shadow-ray treatment. Tr==0 for opaque scenes.
-            float shadowTr = shadowTransmittance(*bvh, Ray(rec.point, wi), ls.distance);
+            float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi), ls.distance);
             if (shadowTr > 0.0f) {
                 SampledSpectrum f_spec = rec.material->evalSpectral(rec, wo, wi, ps.lambdas);
                 SampledSpectrum L_spec = ls.emission_spec;
@@ -402,7 +403,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
                 float bsdfPdf = rec.material->pdf(rec, wo, wi);
                 if (bsdfPdf > 0.0f) {
                     float shadowTr = shadowTransmittance(
-                        *bvh, Ray(rec.point, wi), std::numeric_limits<float>::max());
+                        *bvh, spawnRay(rec, wi), std::numeric_limits<float>::max());
                     if (shadowTr > 0.0f) {
                         SampledSpectrum f_spec = rec.material->evalSpectral(rec, wo, wi, ps.lambdas);
                         SampledSpectrum L_spec = envMap->evalSpectral(wi, ps.lambdas);
@@ -494,6 +495,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
     // never renormalizes again at the SoA boundary.
     ps.ray_origin    = rec.point;
     ps.ray_direction = bss.wi.normalized();  // matches Ray ctor's d.normalized()
+    ps.rayself       = rec.hitObject;        // #1037
 
     // ---- Throughput clamp.
     float maxC = ps.throughput.maxValue();

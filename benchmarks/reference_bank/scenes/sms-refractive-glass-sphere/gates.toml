@@ -7,6 +7,10 @@
 # Measured baselines (poly): bright_coverage L>0.35 in floor ROI = 0.1874 (same
 # caustic focus/peak as the old reference; the biased estimator's excess spread
 # energy is gone).
+# Reference RE-BLESSED 2026-10-03 (#1040): the 09-30 reference carried the CPU
+# adaptive-sampling darkening (#1036, caustic ROI -0.9 % vs adaptive-off 4096 spp);
+# re-blessed on the fixed engine at seed 17. phash is at the MC noise floor and only
+# holds for the same seed realization (see notes.md, #1052).
 
 [scene]
 description = "Non-dispersive BK7-equivalent (scalar IOR 1.52) glass sphere + area emitter + diffuse floor. Tests SMS path-finding for refractive caustics without the per-wavelength complication."

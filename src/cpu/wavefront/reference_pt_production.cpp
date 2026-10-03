@@ -153,7 +153,7 @@ SampledSpectrum tracePathSpectral(
                 // pkg253 G1: shared transparent-shadow transmittance (see
                 // shadowTransmittance in raytracer.h). Mirrors production
                 // pathTraceSpectral exactly for the per-channel parity claim.
-                float shadowTr = shadowTransmittance(*bvh, Ray(rec.point, wi), ls.distance);
+                float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi), ls.distance);
                 if (shadowTr > 0.0f) {
                     SampledSpectrum f_spec = rec.material->evalSpectral(rec, wo, wi, lambdas);
                     // pkg89: use emission_spec directly (fixes RGB-collapse bug).
@@ -248,6 +248,7 @@ SampledSpectrum tracePathSpectral(
 
         // Advance ray (production lines 2190-2196).
         Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
+        next.self = rec.hitObject;  // #1037
         next.hasCameraFrame = ray.hasCameraFrame;
         next.cameraOrigin = ray.cameraOrigin;
         next.cameraU = ray.cameraU;

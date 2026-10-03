@@ -187,9 +187,9 @@ __device__ inline int gpu_light_tree_pick(
         float rightImp = gpu_light_tree_importance(right, point, normal);
         float totalImp = leftImp + rightImp;
 
-        if (totalImp < 1e-8f) {
-            nodeIdx = node.leftChild;  // both zero: pick left arbitrarily
-            pdf *= 0.5f;
+        if (!(totalImp > 0.0f)) {  // #961 review: no light (CPU pickWith, Cycles)
+            *outPdf = 0.f;
+            return -1;
         } else {
             float leftProb = leftImp / totalImp;
             if (u < leftProb) {
@@ -281,9 +281,8 @@ __device__ inline float gpu_light_tree_pdf(
         bool goLeft = (trail & 1u) == 0u;
         trail >>= 1;
 
-        if (totalImp < 1e-8f) {
-            pdf *= 0.5f;
-        } else {
+        if (!(totalImp > 0.0f)) return 0.f;  // #961 review: the pick fails here
+        {
             float leftProb = leftImp / totalImp;
             pdf *= goLeft ? leftProb : (1.0f - leftProb);
         }
@@ -291,4 +290,194 @@ __device__ inline float gpu_light_tree_pdf(
     }
 
     return pdf * gpu_light_tree_leaf_prob(view, view.nodes[nodeIdx], emitterIdx, point, normal);
+}
+
+// ---------------------------------------------------------------------------
+// #961: segment (in_volume_segment) importance / pick / pdf. Device mirror of
+// LightTree::importanceMinMaxSegment / pickSegment / pdfSegment
+// (src/light_tree.cpp; Cycles light_tree_node_importance<true> /
+// light_tree_sample<true> / light_tree_pdf<true>, kernel/light/tree.h,
+// Apache-2.0). Separate functions so the point traversal the shade kernels
+// inline above stays untouched; only the intersect stage (segment direct
+// light, lamp/emitter-hit MIS after a medium scatter) calls these.
+// ---------------------------------------------------------------------------
+__device__ inline float gpu_light_tree_importance_seg(
+    const GVec3& bboxMin, const GVec3& bboxMax, const GVec3& bconeAxis,
+    float thetaO, float thetaE, float energy,
+    const GVec3& o, const GVec3& d, float t)
+{
+    const bool open = !(t < 1e18f);
+    GVec3 centroid = (bboxMin + bboxMax) * 0.5f;
+    float bboxRadius = (bboxMax - centroid).length();
+    GVec3 pointToCentroidNorm;
+    float cosSubtendedAngle, clampedDistance, thetaD;
+    if (!(bboxRadius < 1e9f)) {
+        pointToCentroidNorm = (bconeAxis * -1.0f).normalized();
+        cosSubtendedAngle = cosf(fminf(M_PI_F, thetaO + thetaE));
+        clampedDistance = 1.0f;
+        thetaD = open ? 1.0f : t;
+    } else {
+        const float closestT = (centroid - o).dot(d);
+        const GVec3 closestPoint = o + d * fminf(fmaxf(closestT, 0.0f), open ? 1e30f : t);
+        const float distance = (centroid - o - d * closestT).length();
+        if (open) {
+            thetaD = atan2f(closestT, distance) + 0.5f * M_PI_F;
+        } else {
+            const float sd = distance > 0.0f ? (t - closestT) / distance : 0.0f;
+            thetaD = atan2f(t, distance - closestT * sd);
+        }
+        // compute_v (Cycles kernel/light/tree.h).
+        const GVec3 v0u = o - centroid;
+        const GVec3 v1u = v0u + d * fminf(t, 1e12f);
+        const float l0 = v0u.length(), l1 = v1u.length();
+        GVec3 v;
+        if (!(l0 > 0.0f) || !(l1 > 0.0f)) {
+            v = (l0 > 0.0f) ? v0u / l0 : (l1 > 0.0f ? v1u / l1 : bconeAxis * -1.0f);
+        } else {
+            const GVec3 v0 = v0u / l0, v1 = v1u / l1;
+            const GVec3 b = v0.cross(v1);
+            const float bl = b.length();
+            const GVec3 o1 = bl > 0.0f ? (b / bl).cross(v0) : GVec3(0.0f, 0.0f, 0.0f);
+            const float a0 = v0.dot(bconeAxis), a1 = o1.dot(bconeAxis);
+            const float len = sqrtf(a0 * a0 + a1 * a1);
+            const float cosPhi0 = len > 0.0f ? a0 / len : 1.0f;
+            if (a1 < 0.0f || v0.dot(v1) > cosPhi0 || !(len > 0.0f))
+                v = (a0 > v1.dot(bconeAxis)) ? v0 : v1;
+            else
+                v = v0 * cosPhi0 + o1 * (a1 / len);
+        }
+        pointToCentroidNorm = v * -1.0f;
+        const float dc2 = (closestPoint - centroid).length2();
+        const float r2 = bboxRadius * bboxRadius;
+        cosSubtendedAngle = (dc2 <= r2) ? -1.0f : sqrtf(fmaxf(0.0f, 1.0f - r2 / dc2));
+        clampedDistance = fmaxf(0.5f * bboxRadius, distance);
+    }
+    float sinSubtendedAngle = sqrtf(fmaxf(0.0f, 1.0f - cosSubtendedAngle * cosSubtendedAngle));
+    GVec3 negPointToCentroid = pointToCentroidNorm * -1.0f;
+    float cosTheta = bconeAxis.dot(negPointToCentroid);
+    float sinTheta = sqrtf(fmaxf(0.0f, 1.0f - cosTheta * cosTheta));
+    float cosThetaMinusSubtended = cosTheta * cosSubtendedAngle + sinTheta * sinSubtendedAngle;
+    float cosThetaO = cosf(thetaO);
+    float sinThetaO = sinf(thetaO);
+    float cosMinOutgoingAngle;
+    if (cosTheta >= cosSubtendedAngle || cosThetaMinusSubtended >= cosThetaO) {
+        cosMinOutgoingAngle = 1.0f;
+    } else if ((thetaO + thetaE > M_PI_F) ||
+               (cosThetaMinusSubtended > cosf(thetaO + thetaE))) {
+        float sinThetaMinusSubtended = sqrtf(fmaxf(0.0f, 1.0f - cosThetaMinusSubtended * cosThetaMinusSubtended));
+        cosMinOutgoingAngle = cosThetaMinusSubtended * cosThetaO + sinThetaMinusSubtended * sinThetaO;
+    } else {
+        return 0.0f;
+    }
+    // No incidence term, theta_d/d, min importance 0 (Cycles in_volume_segment).
+    return fabsf(energy * cosMinOutgoingAngle * thetaD / clampedDistance);
+}
+
+// Leaf probability with the segment importance (min importance 0, so the min
+// term is uniform over emitters with max importance > 0).
+__device__ inline float gpu_light_tree_leaf_prob_seg(
+    const GLightTreeView& view, const GLightTreeNode& leaf, int target,
+    const GVec3& o, const GVec3& d, float t)
+{
+    float sumMax = 0.0f, tMax = 0.0f;
+    int numHas = 0;
+    for (int i = leaf.firstEmitter; i < leaf.firstEmitter + leaf.numEmitters; ++i) {
+        const GLightTreeEmitter& e = view.emitters[i];
+        float mx = gpu_light_tree_importance_seg(e.bboxMin, e.bboxMax, e.bconeAxis,
+                                                 e.thetaO, e.thetaE, e.energy, o, d, t);
+        sumMax += mx;
+        numHas += (mx > 0.0f) ? 1 : 0;
+        if (i == target) tMax = mx;
+    }
+    if (!(sumMax > 0.0f) || !(tMax > 0.0f)) return 0.0f;
+    return 0.5f * (tMax / sumMax + 1.0f / (float)numHas);
+}
+
+// Mirror of LightTree::pickSegment (pickWith + segment importance).
+__device__ inline int gpu_light_tree_pick_segment(
+    const GLightTreeView& view, const GVec3& o, const GVec3& d, float t,
+    float u, float* outPdf)
+{
+    if (!view.enabled || view.numNodes == 0) { *outPdf = 0.f; return -1; }
+    int nodeIdx = 0;
+    float pdf = 1.0f;
+    while (!(view.nodes[nodeIdx].firstEmitter >= 0)) {
+        const GLightTreeNode& node  = view.nodes[nodeIdx];
+        const GLightTreeNode& left  = view.nodes[node.leftChild];
+        const GLightTreeNode& right = view.nodes[node.rightChild];
+        float leftImp = gpu_light_tree_importance_seg(left.bboxMin, left.bboxMax, left.bconeAxis,
+                                                      left.thetaO, left.thetaE, left.energy, o, d, t);
+        float rightImp = gpu_light_tree_importance_seg(right.bboxMin, right.bboxMax, right.bconeAxis,
+                                                       right.thetaO, right.thetaE, right.energy, o, d, t);
+        float totalImp = leftImp + rightImp;
+        if (!(totalImp > 0.0f)) {
+            *outPdf = 0.f;
+            return -1;
+        } else {
+            float leftProb = leftImp / totalImp;
+            if (u < leftProb) {
+                nodeIdx = node.leftChild;
+                pdf *= leftProb;
+                u = u / leftProb;
+            } else {
+                nodeIdx = node.rightChild;
+                pdf *= (1.0f - leftProb);
+                u = (u - leftProb) / (1.0f - leftProb);
+            }
+        }
+    }
+    // Leaf: two reservoirs; the min one is uniform over lit emitters (min = 0),
+    // the CPU pickWith fallback with every min importance 0.
+    const GLightTreeNode& leaf = view.nodes[nodeIdx];
+    int emitterIdx = -1;
+    float selMax = 0.0f, totMax = 0.0f;
+    int numHas = 0;
+    const bool sampleMax = (u > 0.5f);
+    if (leaf.numEmitters > 1) u = u * 2.0f - (sampleMax ? 1.0f : 0.0f);
+    float w = 0.0f, tw = 0.0f;
+    for (int i = leaf.firstEmitter; i < leaf.firstEmitter + leaf.numEmitters; ++i) {
+        const GLightTreeEmitter& e = view.emitters[i];
+        float mx = gpu_light_tree_importance_seg(e.bboxMin, e.bboxMax, e.bconeAxis,
+                                                 e.thetaO, e.thetaE, e.energy, o, d, t);
+        if (sampleMax) {
+            gpu_light_tree_reservoir(i, mx, &emitterIdx, &selMax, &totMax, &u);
+        } else {
+            gpu_light_tree_reservoir(i, mx > 0.0f ? 1.0f : 0.0f, &emitterIdx, &w, &tw, &u);
+            if (emitterIdx == i) selMax = mx;
+            totMax += mx;
+        }
+        numHas += (mx > 0.0f) ? 1 : 0;
+    }
+    if (numHas == 0 || emitterIdx < 0) { *outPdf = 0.f; return -1; }
+    *outPdf = pdf * 0.5f * (selMax / totMax + 1.0f / (float)numHas);
+    return emitterIdx;
+}
+
+// Mirror of LightTree::pdfSegment (bit-trail walk, segment importance).
+__device__ inline float gpu_light_tree_pdf_segment(
+    const GLightTreeView& view, const GVec3& o, const GVec3& d, float t, int emitterIdx)
+{
+    if (!view.enabled || view.numNodes == 0 || emitterIdx < 0) return 0.f;
+    unsigned int trail = view.emitters[emitterIdx].bitTrail;
+    float pdf = 1.0f;
+    int nodeIdx = 0;
+    while (!(view.nodes[nodeIdx].firstEmitter >= 0)) {
+        const GLightTreeNode& node  = view.nodes[nodeIdx];
+        const GLightTreeNode& left  = view.nodes[node.leftChild];
+        const GLightTreeNode& right = view.nodes[node.rightChild];
+        float leftImp = gpu_light_tree_importance_seg(left.bboxMin, left.bboxMax, left.bconeAxis,
+                                                      left.thetaO, left.thetaE, left.energy, o, d, t);
+        float rightImp = gpu_light_tree_importance_seg(right.bboxMin, right.bboxMax, right.bconeAxis,
+                                                       right.thetaO, right.thetaE, right.energy, o, d, t);
+        float totalImp = leftImp + rightImp;
+        bool goLeft = (trail & 1u) == 0u;
+        trail >>= 1;
+        if (!(totalImp > 0.0f)) return 0.f;  // #961 review: the pick fails here
+        {
+            float leftProb = leftImp / totalImp;
+            pdf *= goLeft ? leftProb : (1.0f - leftProb);
+        }
+        nodeIdx = goLeft ? node.leftChild : node.rightChild;
+    }
+    return pdf * gpu_light_tree_leaf_prob_seg(view, view.nodes[nodeIdx], emitterIdx, o, d, t);
 }

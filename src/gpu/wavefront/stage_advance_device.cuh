@@ -478,8 +478,15 @@ __device__ int intersectPathSlotT(
                                 c_wfHwHits.u[idx], c_wfHwHits.v[idx], c_wfHwHits.inst[idx],
                                 instances, blas, prims, tris, ray, rec);
     } else {
+        // #1037: a continuation ray leaves the previous vertex's prim, still in
+        // hit_prim_id (written by the previous intersect; reset to -1 at a medium
+        // scatter vertex). Only the HasCurves curve leaf reads it.
+        int skipPrim = -1;
+        if constexpr (HasCurves) {
+            if (bounce > 0) skipPrim = hitBufs.hit_prim_id[idx];
+        }
         hit = gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                                      ray, tNear, tFar, rec, motionVerts, curves);
+                                      ray, tNear, tFar, rec, motionVerts, curves, skipPrim);
     }
 
     // pkg199 Stage 2 — homogeneous medium free-flight scatter DECISION (Option A:
@@ -581,9 +588,12 @@ __device__ int intersectPathSlotT(
             } else if (enableNEE) {
                 GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
                                     state.path_mis_nz[idx]);
+                // #961: medium vertex -> the segment its NEE light was picked for.
+                const float misSegT = (state.env_nee_sampled_prev[idx] == 2)
+                                    ? state.path_mis_dt[idx] : 0.f;
                 float lp = gpu_dedicated_reconstruct_pdf(
                     dedLights, numDed, totalLightPower, ray.origin, ray.direction,
-                    lightTree, numLights, misNormalPrev, lampIdx);  // #912
+                    lightTree, numLights, misNormalPrev, lampIdx, misSegT);  // #912
                 float wB = gpu_mw_powerHeuristic(state.path_bsdf_pdf[idx], lp);
                 contrib = throughput * Le * wB;
             }
@@ -719,8 +729,15 @@ __device__ int intersectPathSlotT(
                 state.ray_origin_x[idx] = P.x;
                 state.ray_origin_y[idx] = P.y;
                 state.ray_origin_z[idx] = P.z;
+                // #961: the segment the NEE light was picked for (CPU misSeg*;
+                // Cycles mis_origin_n / previous_dt), for the next hit's MIS.
+                state.path_mis_nx[idx] = ray.direction.x * tEv;
+                state.path_mis_ny[idx] = ray.direction.y * tEv;
+                state.path_mis_nz[idx] = ray.direction.z * tEv;
+                state.path_mis_dt[idx] = surfaceT;
                 c_wfGridVolume.mediumId[idx] = mi;
                 if (c_wfPhotonSplit.chain != nullptr) c_wfPhotonSplit.chain[idx] = 0;  // #909
+                if constexpr (HasCurves) hitBufs.hit_prim_id[idx] = -1;  // #1037: medium vertex
                 return -3;
             }
             // escaped: delta-track survival IS the transmittance — fall through.
@@ -778,11 +795,17 @@ __device__ int intersectPathSlotT(
             state.ray_origin_x[idx] = P.x;
             state.ray_origin_y[idx] = P.y;
             state.ray_origin_z[idx] = P.z;
+            // #961: NEE segment for the next hit's MIS (see the grid scatter above).
+            state.path_mis_nx[idx] = ray.direction.x * fdist;
+            state.path_mis_ny[idx] = ray.direction.y * fdist;
+            state.path_mis_nz[idx] = ray.direction.z * fdist;
+            state.path_mis_dt[idx] = surfaceT;
             state.throughput_0[idx] = throughput.v[0];
             state.throughput_1[idx] = throughput.v[1];
             state.throughput_2[idx] = throughput.v[2];
             state.throughput_3[idx] = throughput.v[3];
             if (c_wfPhotonSplit.chain != nullptr) c_wfPhotonSplit.chain[idx] = 0;  // #909
+            if constexpr (HasCurves) hitBufs.hit_prim_id[idx] = -1;  // #1037: medium vertex
             return -2;  // scattered → the wrapper enqueues to the volume queue
         } else {
             // Reached the terminating event (surface / env): throughput *=
@@ -842,7 +865,7 @@ __device__ int intersectPathSlotT(
             // latter is NOT wrongly discounted. Gated on the loaded HDRI + the
             // runtime enabled flag: no-op (byte-identical) otherwise.
             if (c_wfEnvNeeBinding.enabled && envMap.loaded && bounce > 0 &&
-                !wasSpecular && state.env_nee_sampled_prev[idx]) {
+                !wasSpecular && state.env_nee_sampled_prev[idx] == 1) {  // #961: 2 = medium
                 float ep = gpu_envmap_pdf(envMap, dir);
                 float bsdfPdfPrev = state.path_bsdf_pdf[idx];
                 // pkg258 (Terra item 6): complementary heuristic — this w(bsdf,env)
@@ -996,10 +1019,13 @@ __device__ int intersectPathSlotT(
             // #851: the NEE normal of the previous vertex (tree pick == pdf).
             GVec3 misNormalPrev(state.path_mis_nx[idx], state.path_mis_ny[idx],
                                 state.path_mis_nz[idx]);
+            // #961: medium vertex -> the segment its NEE light was picked for.
+            const float misSegT = (state.env_nee_sampled_prev[idx] == 2)
+                                ? state.path_mis_dt[idx] : 0.f;
             float lp = gpu_reconstruct_light_pdf(
                 rec, ray.origin, ray.direction,
                 lights, numLights, totalLightPower,
-                prims, tris, spheres, lightTree, misNormalPrev);
+                prims, tris, spheres, lightTree, misNormalPrev, misSegT);
             float wB = gpu_mw_powerHeuristic(bsdfPdfPrev, lp);
             GSampledSpectrum contrib = throughput * Le;
             contrib *= wB;

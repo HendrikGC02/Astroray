@@ -27,23 +27,22 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
     out.isDelta = false;  // pkg140
     out.dedicated = nullptr;  // pkg294
 
-    const auto& lights = lightList_->getLights();
-    const auto& dedicatedLights = lightList_->getDedicatedLights();
+    size_t idx = 0;
+    float selPdf = 0.0f;
+    if (!pickIndex(gen, idx, selPdf)) return;
+    sampleIndexed(out, idx, selPdf, point, normal, lambdas, gen);
+}
+
+// Power-CDF pick shared by sample() and pickSegment() (#961).
+bool PowerLightSampler::pickIndex(std::mt19937& gen, size_t& idx, float& selPdf) const {
     const auto& powerDist = lightList_->getPowerDist();
-    float totalPower = lightList_->getTotalPower();
-
-    size_t numHittableLights = lights.size();
-    size_t numDedicatedLights = dedicatedLights.size();
-    size_t totalLights = numHittableLights + numDedicatedLights;
-
-    if (totalLights == 0) {
-        return;
-    }
-
+    const float totalPower = lightList_->getTotalPower();
+    const size_t totalLights = lightList_->getLights().size() +
+                               lightList_->getDedicatedLights().size();
+    if (totalLights == 0) return false;
     // Sample light index from unified power CDF.
     std::uniform_real_distribution<float> dist(0, 1);
-    size_t idx = 0;
-    float selPdf;
+    idx = 0;
     if (totalPower > 0.0f) {
         float u = dist(gen) * totalPower;
         for (size_t i = 0; i < powerDist.size(); ++i) {
@@ -66,7 +65,26 @@ void PowerLightSampler::sample(LightSample& out, const Vec3& point, const Vec3& 
         if (idx >= totalLights) idx = totalLights - 1;
         selPdf = 1.0f / static_cast<float>(totalLights);
     }
-    sampleIndexed(out, idx, selPdf, point, normal, lambdas, gen);
+    return true;
+}
+
+// #961: segment pick for the power sampler -- the CDF does not depend on the
+// segment, so this is the point pick without drawing a light point.
+bool PowerLightSampler::pickSegment(LightSample& picked, const Vec3& /*o*/, const Vec3& /*d*/,
+                                    float /*t*/, std::mt19937& gen) const {
+    size_t idx = 0;
+    float selPdf = 0.0f;
+    if (!pickIndex(gen, idx, selPdf)) return false;
+    picked.pickIndex = static_cast<int>(idx);
+    picked.pickPdf = selPdf;
+    return selPdf > 0.0f;
+}
+
+float PowerLightSampler::pdfValueSegment(const Vec3& /*o*/, const Vec3& /*d*/, float /*t*/,
+                                         const Vec3& point, const Vec3& dir,
+                                         const Hittable* hitEmitter,
+                                         const Light* hitLamp) const {
+    return pdfValue(point, dir, Vec3(0.0f), hitEmitter, hitLamp);
 }
 
 // #925: re-sample the light `picked` chose, from `point` (Cycles
@@ -369,6 +387,60 @@ float TreeLightSampler::pdfValue(const Vec3& point, const Vec3& dir,
         }
     }
 
+    return pdf;
+}
+
+// #961: the same light at another point (Cycles integrate_volume_direct_light
+// keeps ls->emitter_id and pdf_selection of the segment pick). The unified
+// index and stored selection pdf make this the power sampler's draw.
+bool TreeLightSampler::resample(LightSample& out, const LightSample& picked,
+                                const Vec3& point, const Vec3& normal,
+                                const SampledWavelengths& lambdas,
+                                std::mt19937& gen) const {
+    return PowerLightSampler(lightList_).resample(out, picked, point, normal, lambdas, gen);
+}
+
+// #961: Cycles light_sample_from_volume_segment -> light_tree_sample<true>.
+bool TreeLightSampler::pickSegment(LightSample& picked, const Vec3& o, const Vec3& d, float t,
+                                   std::mt19937& gen) const {
+    if (tree_->empty()) return false;
+    std::uniform_real_distribution<float> dist(0, 1);
+    LightTree::PickResult p = tree_->pickSegment(o, d, t, dist(gen));
+    if (p.lightIndex < 0 || !(p.pdf > 0.0f)) return false;
+    picked.pickIndex = p.isDedicated
+        ? static_cast<int>(lightList_->getLights().size()) + p.lightIndex : p.lightIndex;
+    picked.pickPdf = p.pdf;
+    return true;
+}
+
+// #961: pdfValue with the segment selection pdf (Cycles light_tree_pdf<true>).
+float TreeLightSampler::pdfValueSegment(const Vec3& o, const Vec3& d, float t,
+                                        const Vec3& point, const Vec3& dir,
+                                        const Hittable* hitEmitter,
+                                        const Light* hitLamp) const {
+    if (tree_->empty()) return 0.0f;
+    const auto& lights = lightList_->getLights();
+    const auto& dedicatedLights = lightList_->getDedicatedLights();
+    const int hit = hitEmitterIndex(lights, hitEmitter);
+    if (hit >= 0) {
+        float lightPdf = lights[hit]->pdfValue(point, dir);
+        return (lightPdf > 0.0f) ? tree_->pdfSegment(o, d, t, hit, false) * lightPdf : 0.0f;
+    }
+    const int lamp = hitLampIndex(dedicatedLights, hitLamp);
+    if (lamp >= 0) {
+        float lightPdf = dedicatedLights[lamp]->pdfLi(point, dir);
+        return (lightPdf > 0.0f) ? tree_->pdfSegment(o, d, t, lamp, true) * lightPdf : 0.0f;
+    }
+    if (hitEmitter || hitLamp) return 0.0f;
+    float pdf = 0.0f;
+    for (size_t i = 0; i < lights.size(); ++i) {
+        float lightPdf = lights[i]->pdfValue(point, dir);
+        if (lightPdf > 0.0f) pdf += tree_->pdfSegment(o, d, t, static_cast<int>(i), false) * lightPdf;
+    }
+    for (size_t i = 0; i < dedicatedLights.size(); ++i) {
+        float lightPdf = dedicatedLights[i]->pdfLi(point, dir);
+        if (lightPdf > 0.0f) pdf += tree_->pdfSegment(o, d, t, static_cast<int>(i), true) * lightPdf;
+    }
     return pdf;
 }
 

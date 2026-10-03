@@ -129,6 +129,13 @@ a{color:var(--ac)}</style></head><body>
 <p>Small smoke grid volume rendered on CPU and GPU (48x48 tiles scaled up). Verdict: CPU and GPU agree in shape and brightness. Test tests/test_pkg269_gpu_hetero_parity.py now writes to test_results/_runs/ (issue #861).</p>
 <a href="volumes/hetero-smoke-grid/cpu_vs_gpu_sheet.png"><img loading="lazy" src="volumes/hetero-smoke-grid/cpu_vs_gpu_sheet.png" alt="cpu_vs_gpu_sheet.png"></a>
 </div>
+<div class="card"><h3>media-segment-light-pick</h3>
+<p>v2_media at 64 spp: Cycles CPU (1024 spp) | Astroray CPU before | CPU after | GPU after, ROIs drawn. n_x_relvar_*: N x relVar of luminance vs spp (flat = 1/N noise), shaft ROI and whole image. Verdict: the shaft now reaches Cycles&#x27; level (mean 0.19 vs 0.19) and the heavy tail is gone (N x relVar flat 22-26 vs 28-71 before);</p>
+<p><a href="volumes/media-segment-light-pick/n_x_relvar_image.json">n_x_relvar_image.json</a> &middot; <a href="volumes/media-segment-light-pick/n_x_relvar_shaft.json">n_x_relvar_shaft.json</a></p>
+<a href="volumes/media-segment-light-pick/cycles_cpu_before_after_gpu.png"><img loading="lazy" src="volumes/media-segment-light-pick/cycles_cpu_before_after_gpu.png" alt="cycles_cpu_before_after_gpu.png"></a>
+<a href="volumes/media-segment-light-pick/n_x_relvar_image.png"><img loading="lazy" src="volumes/media-segment-light-pick/n_x_relvar_image.png" alt="n_x_relvar_image.png"></a>
+<a href="volumes/media-segment-light-pick/n_x_relvar_shaft.png"><img loading="lazy" src="volumes/media-segment-light-pick/n_x_relvar_shaft.png" alt="n_x_relvar_shaft.png"></a>
+</div>
 <div class="card"><h3>principled-volume-emission</h3>
 <p>Volume cabinet: Cycles CPU (ref) | Astroray main | Astroray with spectral Planck emission; zoo_crop_after_sheet is a later re-run. Verdict: the red glowing volume under the box appears with the spectral emission path, matching the Cycles hue. Provenance: pkg270, Batch K (PR #820), 2026-09.</p>
 <a href="volumes/principled-volume-emission/cabinet_ab_sheet.png"><img loading="lazy" src="volumes/principled-volume-emission/cabinet_ab_sheet.png" alt="cabinet_ab_sheet.png"></a>
@@ -174,6 +181,10 @@ a{color:var(--ac)}</style></head><body>
 <div class="card"><h3>hair-curves-instancing</h3>
 <p>`hair_tuft_before_after.png`: corpus v2 `v2_camera_geometry` (perspective, ortho) hair tuft, 3x nearest-neighbour crops. Columns: Cycles 1024 spp reference, Astroray CPU, Astroray GPU on main (bare scalp: the scene&#x27;s collection instances put the flat scene under a TLAS and the GPU</p>
 <a href="geometry/hair-curves-instancing/hair_tuft_before_after.png"><img loading="lazy" src="geometry/hair-curves-instancing/hair_tuft_before_after.png" alt="hair_tuft_before_after.png"></a>
+</div>
+<div class="card"><h3>hair-self-skip</h3>
+<a href="geometry/hair-self-skip/hair_tuft_cpu_cycles_before_after.png"><img loading="lazy" src="geometry/hair-self-skip/hair_tuft_cpu_cycles_before_after.png" alt="hair_tuft_cpu_cycles_before_after.png"></a>
+<a href="geometry/hair-self-skip/hair_tuft_cycles_cpu_gpu_after.png"><img loading="lazy" src="geometry/hair-self-skip/hair_tuft_cycles_cpu_gpu_after.png" alt="hair_tuft_cycles_cpu_gpu_after.png"></a>
 </div>
 <div class="card"><h3>holdout-clip-planes</h3>
 <p>Sphere over a striped backdrop: normal | holdout | camera clip planes (CPU path). Verdict: per the pkg274 spec, clip planes use view-axis depths (Cycles z_inv) and holdout cuts the object out. Provenance: pkg274 (addon gaps), PR #830, 2026-09-19.</p>

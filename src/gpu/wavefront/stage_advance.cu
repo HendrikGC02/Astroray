@@ -176,6 +176,11 @@ __global__ void stageShadowKernel(
     GNEEOcclusion occ{};
     occ.frontFace = 1;
     float shadowTr = 1.0f;
+    // #1037: a surface record leaves the shading vertex's prim (hit_prim_id is
+    // still that vertex: this stage runs between shade and the next intersect;
+    // a medium-scatter vertex reset it to -1 in the intersect stage). Volume
+    // segment records start inside a medium -> no skip.
+    const int skipPrim = (HasCurves && volSegment == 0) ? hitBufs.hit_prim_id[idx] : -1;
     if constexpr (HasAlphaShadow) {
         // True vertex->light distance (lane 14) bounds the walk for finite sources
         // (NOT the 1e30 maxDist occlusion sentinel — memory
@@ -183,7 +188,7 @@ __global__ void stageShadowKernel(
         s.geomDist = nee_f[14 * nee_capacity + idx];
         shadowTr = gpu_shadow_transmittance<HasCurves>(
             s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
-            materials, time, motionVerts, curves, &occ.frontFace,
+            materials, time, motionVerts, curves, &occ.frontFace, skipPrim,
             c_wfLightPath.sw);  // #991: Is Shadow Ray Mix Shader
         if (shadowTr <= 0.0f) return;
     } else if constexpr (HwOcc) {
@@ -194,7 +199,7 @@ __global__ void stageShadowKernel(
     } else {
         occ = gpu_nee_occlude<HasCurves>(
             s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
-            time, motionVerts, curves);
+            time, motionVerts, curves, skipPrim);
         if (occ.occluded) return;
     }
 
@@ -364,7 +369,8 @@ __global__ void stageEnvShadowKernel(
     const GVec3*      motionVerts,
     bool              useLuminanceOutput,
     float             clampDirect, float clampIndirect,
-    const GCurveSegment* curves)
+    const GCurveSegment* curves,
+    const int*        hitPrimId)  // #1037: shading vertex prim (env NEE is surface-only)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     const int* countPtr = c_wfEnvNeeBinding.envShadowCount;
@@ -386,9 +392,12 @@ __global__ void stageEnvShadowKernel(
         if (c_wfHwHits.occluded[idx]) return;   // pkg299: __raygen__shadow, tMax 1e30
     } else {
         float time = state.path_time[idx];
+        // #1037: env NEE records are parked only at surface vertices, and this
+        // stage runs before the next intersect rewrites hit_prim_id.
+        const int skipPrim = (HasCurves && hitPrimId != nullptr) ? hitPrimId[idx] : -1;
         GNEEOcclusion occ = gpu_nee_occlude<HasCurves>(
             s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
-            time, motionVerts, curves);
+            time, motionVerts, curves, skipPrim);
         if (occ.occluded) return;
     }
 
@@ -791,11 +800,10 @@ __global__ void stageVolumeScatterKernel(
     // the env-NEE-competed flag -- otherwise the next-bounce env miss would be
     // wrongly discounted (was_specular==0 alone is insufficient after a phase
     // event; memory occlusion-sentinel / wavefront-snapshot-semantics).
-    state.env_nee_sampled_prev[idx] = 0;
+    // #961: 2 = medium vertex (Cycles PATH_RAY_VOLUME_SCATTER): no env NEE ran,
+    // and path_mis_n*/path_mis_dt (written by intersect) hold the NEE segment.
+    state.env_nee_sampled_prev[idx] = 2;
     state.path_bsdf_pdf[idx] = phasePdf;
-    state.path_mis_nx[idx] = 0.f;  // #851: medium vertex, zero MIS normal
-    state.path_mis_ny[idx] = 0.f;
-    state.path_mis_nz[idx] = 0.f;
     state.rng_dimension[idx] = rng.dimension();
     int next_bounce = bounce + 1;
     state.bounce[idx] = next_bounce;
@@ -1514,7 +1522,8 @@ void launchStageEnvShadow(
     bool              useLuminanceOutput,
     float             clampDirect, float clampIndirect,
     const GCurveSegment* d_curves,
-    bool              hw_occ)          // pkg299: occlusion from c_wfHwHits.occluded
+    bool              hw_occ,          // pkg299: occlusion from c_wfHwHits.occluded
+    const int*        d_hitPrimId)     // #1037
 {
     if (state.num_active <= 0) return;
     int threads = 256;
@@ -1526,7 +1535,7 @@ void launchStageEnvShadow(
         hw ? (const void*)stageEnvShadowKernel<false, true>
            : hc ? (const void*)stageEnvShadowKernel<true> : (const void*)stageEnvShadowKernel<false>,
         blocks, threads);
-    #define ASTRORAY_PKG258_ENV_SHADOW_ARGS         state, d_tlas, d_instances, d_blas,         d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts,         useLuminanceOutput, clampDirect, clampIndirect, d_curves
+    #define ASTRORAY_PKG258_ENV_SHADOW_ARGS         state, d_tlas, d_instances, d_blas,         d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts,         useLuminanceOutput, clampDirect, clampIndirect, d_curves, d_hitPrimId
     if (hw)      stageEnvShadowKernel<false, true><<<blocks, threads>>>(ASTRORAY_PKG258_ENV_SHADOW_ARGS);
     else if (hc) stageEnvShadowKernel<true> <<<blocks, threads>>>(ASTRORAY_PKG258_ENV_SHADOW_ARGS);
     else         stageEnvShadowKernel<false><<<blocks, threads>>>(ASTRORAY_PKG258_ENV_SHADOW_ARGS);

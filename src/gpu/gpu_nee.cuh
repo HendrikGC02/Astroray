@@ -91,7 +91,8 @@ __device__ inline float gpu_reconstruct_light_pdf(
     const GHitRecord& rec, const GVec3& prevPoint, const GVec3& dir,
     const GLight* lights, int numLights, float totalLightPower,
     const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres,
-    const GLightTreeView& lightTree, const GVec3& prevNormal)
+    const GLightTreeView& lightTree, const GVec3& prevNormal,
+    float misSegT = 0.f)  // #961: > 0 = medium vertex, prevNormal = P - segment origin
 {
     if (numLights <= 0 || totalLightPower <= 0.f) return 0.f;
 
@@ -108,7 +109,12 @@ __device__ inline float gpu_reconstruct_light_pdf(
     if (lightTree.enabled) {
         int emitterIdx = lightTree.lightToEmitter[lightIdx];
         if (emitterIdx < 0) return 0.f;
-        selPdf = gpu_light_tree_pdf(lightTree, prevPoint, prevNormal, emitterIdx);
+        // #961: after a medium scatter, the segment pick (Cycles light_tree_pdf<true>
+        // from mis_origin_n / previous_dt; CPU pdfValueSegment).
+        selPdf = (misSegT > 0.f)
+            ? gpu_light_tree_pdf_segment(lightTree, prevPoint - prevNormal,
+                                         prevNormal.normalized(), misSegT, emitterIdx)
+            : gpu_light_tree_pdf(lightTree, prevPoint, prevNormal, emitterIdx);
     } else {
         float prevCum = (lightIdx > 0) ? lights[lightIdx - 1].cumulativePower : 0.f;
         selPdf = (lights[lightIdx].cumulativePower - prevCum) / totalLightPower;
@@ -484,7 +490,8 @@ __device__ inline float gpu_dedicated_reconstruct_pdf(
     const GVec3& prevPoint, const GVec3& dir,
     const GLightTreeView& lightTree, int numLights,   // #859: tree selection
     const GVec3& prevNormal,                          // #851: NEE normal of prev vertex
-    int hitIdx = -1)                                  // #912: the lamp hit, -1 = all
+    int hitIdx = -1,                                  // #912: the lamp hit, -1 = all
+    float misSegT = 0.f)                              // #961: medium vertex segment
 {
     if (numDed <= 0 || totalLightPower <= 0.f) return 0.f;
     float pdf = 0.f;
@@ -499,6 +506,9 @@ __device__ inline float gpu_dedicated_reconstruct_pdf(
         if (lightTree.enabled) {
             int e = lightTree.lightToEmitter[numLights + j];
             selPdf = (e < 0) ? 0.f
+                   : (misSegT > 0.f)  // #961: segment pick after a medium scatter
+                   ? gpu_light_tree_pdf_segment(lightTree, prevPoint - prevNormal,
+                                                prevNormal.normalized(), misSegT, e)
                    : gpu_light_tree_pdf(lightTree, prevPoint, prevNormal, e);
         } else {
             selPdf = d.power / totalLightPower;
@@ -734,7 +744,8 @@ __device__ inline GNEEOcclusion gpu_nee_occlude(
     float             time,         // pkg88-C.0: path shutter time for shadow rays
     const GVec3*      motionVerts,  // pkg88-C.0 (nullptr = static)
     // pkg225 Stage 3 — curves occlude shadow rays too (nullptr = no curves).
-    const GCurveSegment* curves = nullptr)
+    const GCurveSegment* curves = nullptr,
+    int skipPrim = -1)  // #1037: shading vertex's curve segment (gpu_tlas_hit)
 {
     GNEEOcclusion occ{};
     occ.occluded = 1;
@@ -744,7 +755,8 @@ __device__ inline GNEEOcclusion gpu_nee_occlude(
         // Sphere sources: the ray must REACH the light (hit it, with the
         // light's own material) — miss or a different material = occluded.
         if (!gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                         GRay(s.origin, s.wi, time), 0.001f, s.maxDist, sh, motionVerts, curves) ||
+                         GRay(s.origin, s.wi, time), 0.001f, s.maxDist, sh, motionVerts, curves,
+                         skipPrim) ||
             sh.materialId != s.lightMatId)
             return occ;
         occ.frontFace = sh.frontFace ? 1 : 0;
@@ -756,7 +768,7 @@ __device__ inline GNEEOcclusion gpu_nee_occlude(
         // Cycles scene_intersect_shadow).
         if (gpu_tlas_occluded<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris,
                               spheres, GRay(s.origin, s.wi, time), 0.001f,
-                              s.maxDist, motionVerts, curves))
+                              s.maxDist, motionVerts, curves, skipPrim))
             return occ;
     }
     occ.occluded = 0;
@@ -808,6 +820,7 @@ __device__ inline float gpu_shadow_transmittance(
     const GVec3*      motionVerts,
     const GCurveSegment* curves = nullptr,
     int*              frontFaceOut = nullptr,
+    int               skipPrim = -1,  // #1037: shading vertex's curve segment
     // #991 — Light Path switch side table (null: no Light Path in the scene). A
     // Mix Shader with a Light Path Fac blocks shadow rays as its shadow-context
     // child (Is Shadow Ray -> Transparent: no shadow).
@@ -827,7 +840,7 @@ __device__ inline float gpu_shadow_transmittance(
         GHitRecord sh;
         if (!gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris,
                           spheres, GRay(origin, dir, time), 0.001f,
-                          remaining - 0.001f, sh, motionVerts, curves))
+                          remaining - 0.001f, sh, motionVerts, curves, skipPrim))
             return Tr;  // unobstructed to the light
         if (reachLight && sh.materialId == s.lightMatId) {
             if (frontFaceOut) *frontFaceOut = sh.frontFace ? 1 : 0;
@@ -839,6 +852,7 @@ __device__ inline float gpu_shadow_transmittance(
         float advance = sh.t + 1e-3f;
         origin = origin + dir * advance;
         remaining -= advance;
+        skipPrim = sh.primId;  // #1037: Cycles shadow walk skips the last transparent hit (non-curve ids are inert)
         if (remaining <= 0.001f) return Tr;
     }
     return Tr;  // exhausted transparent-shadow bounce budget

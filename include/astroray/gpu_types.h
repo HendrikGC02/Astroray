@@ -679,6 +679,8 @@ struct GImageTexture {
     // bbox of the geometry using it (CPU Object coords = the hit point, the addon
     // bakes world transforms into vertices). genMin/genSize are that bbox; the
     // device skips the per-vertex Generated (#847) frame for such a slice.
+    // #1006: on triangles with object-local positions (triObjectLocal) both the
+    // bbox and the fetch use that object-local frame (gpu_objectCoord).
     int   objectCoord = 0;
     // #1004 - Image Texture `extension` (outside [0,1]): see GImgExt. 0 = EXTEND
     // (clamp, the historical behaviour; every baked procedural uses it).
@@ -721,6 +723,9 @@ struct GWavefrontTextureBinding {
     // #847 — per-vertex Generated coords, 3 per triangle (tris[] index), or
     // nullptr. A NaN .x in the first entry = none (use the texture's bbox).
     const GVec3*         triGenerated;
+    // #1006 — per-vertex OBJECT-local positions, 3 per triangle (tris[] index),
+    // or nullptr. A NaN .x in the first entry = none (use the world hit point).
+    const GVec3*         triObjectLocal;
 };
 
 // pkg197 — wavefront first-hit denoise-guide AOV binding. Published ONCE per

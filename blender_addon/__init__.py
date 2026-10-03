@@ -975,6 +975,36 @@ def _generated_texspace_bbox(obj, matrix):
     return bmin, bsize
 
 
+def _object_local_affine(matrix):
+    """#1006: row-major 3x4 WORLD -> OBJECT-local affine (12 floats), or None.
+
+    Blender Texture Coordinate > Object is the object-local position (Cycles
+    svm/tex_coord.h NODE_TEXCO_OBJECT: object_inverse_position_transform); the
+    exporter bakes `matrix` into the vertices, so the engine bakes matrix^-1 back
+    onto them per vertex (set_objects_object_transform)."""
+    m = np.array([[float(matrix[r][c]) for c in range(4)] for r in range(4)])
+    try:
+        minv = np.linalg.inv(m)
+    except np.linalg.LinAlgError:
+        return None
+    return [float(x) for x in minv[:3, :].reshape(-1)]
+
+
+def _tree_uses_object_coords(tree, depth=0):
+    """#1006: does a node tree (or a nested group) read Texture Coordinate > Object?"""
+    if tree is None or depth > 16:
+        return False
+    for n in getattr(tree, 'nodes', ()):
+        t = getattr(n, 'type', '')
+        if t == 'TEX_COORD':
+            out = n.outputs.get('Object') if hasattr(n, 'outputs') else None
+            if out is not None and getattr(out, 'is_linked', False):
+                return True
+        elif t == 'GROUP' and _tree_uses_object_coords(getattr(n, 'node_tree', None), depth + 1):
+            return True
+    return False
+
+
 def _generated_texspace_affine(obj, matrix):
     """#847: row-major 3x4 WORLD -> Generated affine (12 floats), or None.
 
@@ -2568,6 +2598,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # convert_objects can bake each using object's bounding box onto them
         # (Blender Texture Coordinate > Generated semantics).
         self._generated_textures_by_material = {}
+        self._object_coord_materials = {}  # #1006: material name -> uses Object coords
         for mat in bpy.data.materials:
             self._current_material_name = mat.name
             mat_id = self.convert_node_material(mat, renderer)
@@ -4107,7 +4138,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # .name; those fall back to id() (single-node test scope).
         mat_name = getattr(self, "_current_material_name", "") or ""
         node_id = f"{mat_name}.{self._node_cache_id(node)}"
-        if fac_variant and node.type in ('TEX_CHECKER', 'TEX_BRICK'):
+        if fac_variant and node.type in ('TEX_CHECKER', 'TEX_BRICK', 'TEX_NOISE'):
             node_id += "::fac"
         else:
             fac_variant = False
@@ -4140,7 +4171,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 noise_offset = _nsock('Offset', 0.0)
                 noise_gain = _nsock('Gain', 1.0)
                 noise_dist = _nsock('Distortion', 0.0)
-                # Blender Noise Texture noise_dimensions: '3D' is the only one the engine supports (node has 1D/2D/3D/4D).
+                # #881: noise_dimensions 1D/2D/3D/4D (Cycles noisetex.h); 1D/4D read W.
+                noise_dims = {'1D': 1.0, '2D': 2.0, '3D': 3.0, '4D': 4.0}.get(
+                    getattr(node, 'noise_dimensions', '3D'), 3.0)
+                noise_w = _nsock('W', 0.0)
+                w_sock = node.inputs.get('W')
+                if noise_dims in (1.0, 4.0) and w_sock is not None and w_sock.is_linked:
+                    # Keyed 'TEX_NOISE.W', not 'TEX_NOISE': the coverage-matrix scanner
+                    # marks every socket of a warned node type APPROXIMATED.
+                    self._warn_shader_fallback(
+                        'TEX_NOISE.W', "linked W input on '%s' not supported; using its "
+                        "default value %g" % (getattr(node, 'name', node.type), noise_w))
                 # noise_type: Blender enum FBM/MULTIFRACTAL/RIDGED_MULTIFRACTAL/HYBRID_MULTIFRACTAL/HETERO_TERRAIN
                 # maps to the ENGINE ordering (advanced_features.h noise_select):
                 # 0=fBM, 1=multifractal, 2=HYBRID, 3=RIDGED, 4=hetero.
@@ -4152,8 +4193,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 nt = noise_type_map.get(getattr(node, 'noise_type', 'FBM'), 0.0)
                 noise_norm = 1.0 if getattr(node, 'normalize', True) else 0.0
                 tex_name = f"_proc_noise_{node_id}"
+                # #881: fac_variant = the Fac output wired into a colour socket -> grey
+                # (Fac, Fac, Fac), not the Color triple.
                 renderer.create_procedural_texture(tex_name, 'noise_perlin',
-                    [noise_scale, noise_detail, noise_rough, noise_lac, noise_offset, noise_gain, noise_dist, nt, noise_norm])
+                    [noise_scale, noise_detail, noise_rough, noise_lac, noise_offset, noise_gain, noise_dist, nt, noise_norm,
+                     noise_dims, noise_w, 1.0 if fac_variant else 0.0])
             elif ntype == 'TEX_CHECKER':
                 scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0
                 c1 = list(node.inputs['Color1'].default_value[:3]) if node.inputs.get('Color1') else [1,1,1]
@@ -4345,22 +4389,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
     _GPU_PER_HIT_PROCEDURALS = ('TEX_NOISE', 'TEX_WAVE', 'TEX_VORONOI')
 
     def _warn_object_coord_bake(self, node, inputs=()):
-        """OBJECT coordinates are the world position on both backends (#1006). The GPU
+        """OBJECT coordinates are object-local on both backends (#1006). The GPU
         evaluates Noise / Wave / Voronoi per hit (#1007); any other procedural (or a
         warp `inputs` texture of another type) is baked into a 64^3 voxel grid over the
-        geometry's world bbox, where detail finer than a voxel aliases (#994). An
+        geometry's object-local bbox, where detail finer than a voxel aliases (#994). An
         emitter's texture is always baked; scene_upload.cu reports that at render time."""
         name = getattr(node, 'name', getattr(node, 'type', '?'))
         types = [getattr(n, 'type', None) for n in (node,) + tuple(inputs)]
         if all(t in self._GPU_PER_HIT_PROCEDURALS for t in types):
-            self._warn_shader_fallback(
-                'op-VM', "procedural '%s' with OBJECT coordinates: both backends use the "
-                "world position, not object-local (#1006)" % name)
-            return
+            return  # #1006: object-local on both backends, evaluated per hit (#1007)
         self._warn_shader_fallback(
             'op-VM', "procedural '%s' with OBJECT coordinates: GPU samples a 64^3 voxel "
-            "bake of the object bbox (fine detail aliased); both backends use the "
-            "world position, not object-local (#1006)" % name)
+            "bake of the object bbox (fine detail aliased)" % name)
 
     # Coordinate modes the GPU bakes procedurals over (scene_upload.cu
     # bakeProceduralTexId): UV (2D), Generated and Object (#994, world bbox) 3D.
@@ -4374,7 +4414,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         mapping = self._affine_matrix_values(base)
         mat_name = getattr(self, "_current_material_name", "") or ""
         node_id = f"{mat_name}.{self._node_cache_id(node)}"
-        if fac_variant and node.type in ('TEX_CHECKER', 'TEX_BRICK'):
+        if fac_variant and node.type in ('TEX_CHECKER', 'TEX_BRICK', 'TEX_NOISE'):
             node_id += "::fac"
         if color_output and node.type == 'TEX_VORONOI':
             node_id += "::color"
@@ -4444,10 +4484,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
                       'TEX_MAGIC', 'TEX_BRICK', 'TEX_GRADIENT', 'TEX_MUSGRAVE'}
         if linked_node.type in PROC_TYPES:
             vector_inp = linked_node.inputs.get('Vector') if hasattr(linked_node, 'inputs') else None
+            from_name = inp.links[0].from_socket.name
             tex_name = self.load_procedural_texture(
                 linked_node, renderer, vector_input=vector_inp,
+                # #881: Noise Fac into a colour socket is grey (svm/noisetex.h value).
+                fac_variant=(linked_node.type == 'TEX_NOISE'
+                             and from_name in ('Fac', 'Factor')),
                 color_output=(linked_node.type == 'TEX_VORONOI'
-                              and inp.links[0].from_socket.name == 'Color'))
+                              and from_name == 'Color'))
             return [0.8, 0.8, 0.8], tex_name
         # pkg219b — a per-texel op-VM chain (Color Ramp / Mix / Math / Map Range
         # downstream of an image). Compile it to bytecode and register a program
@@ -5720,11 +5764,22 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     return True
         return False
 
+    def _material_uses_object_coords(self, mat):
+        """#1006: cached per sync (reset with the material conversion pass)."""
+        cache = getattr(self, '_object_coord_materials', None)
+        if cache is None:
+            cache = self._object_coord_materials = {}
+        if mat.name not in cache:
+            cache[mat.name] = bool(getattr(mat, 'use_nodes', False)) and                 _tree_uses_object_coords(getattr(mat, 'node_tree', None))
+        return cache[mat.name]
+
     def _object_instanceable(self, obj):
         """A mesh object is eligible for the two-level instancing fast-path only
         when it is a plain MESH with no instancing-deferred feature: no emissive
-        material (NEE), no caustic-caster flag (SMS), no volume material. Anything
-        else falls back to the flatten path (current behaviour, fully correct)."""
+        material (NEE), no caustic-caster flag (SMS), no volume material, no
+        Object texture coordinates (#1006: the per-vertex object-local frame is
+        baked on the flatten path). Anything else falls back to the flatten path
+        (current behaviour, fully correct)."""
         if obj is None or obj.type != 'MESH':
             return False
         ao = getattr(obj, "astroray_object", None)
@@ -5740,6 +5795,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             if vol_map.get(mat.name) is not None:
                 return False
             if self._material_emits(mat):
+                return False
+            if self._material_uses_object_coords(mat):
                 return False
         return True
 
@@ -6458,6 +6515,22 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 if gen_affine is not None:
                     renderer.set_objects_generated_transform(
                         scene_count_before, scene_count_after, gen_affine)
+            # #1006 — per-object OBJECT-local frame (inverse of the baked pose).
+            if (hasattr(renderer, "set_objects_object_transform")
+                    and any(s.material is not None
+                            and self._material_uses_object_coords(s.material)
+                            for s in obj.material_slots)):
+                obj_affine = _object_local_affine(gen_matrix)
+                if obj_affine is not None:
+                    renderer.set_objects_object_transform(
+                        scene_count_before, scene_count_after, obj_affine)
+                if motion_end_matrix is not None:
+                    # The per-vertex frame is interpolated with barycentrics of the
+                    # shutter-open triangle (as #847 Generated), so a moving object's
+                    # pattern slides across the shutter instead of staying attached.
+                    self._warn_shader_fallback(
+                        'TEX_COORD', "Object coordinates on motion-blurred '%s' use the "
+                        "shutter-open pose (#1034)" % obj.name)
             for oid in range(scene_count_before, scene_count_after):
                 # pkg64 Phase 3 — caustic caster flag
                 if is_caustic_caster and hasattr(renderer, "set_object_caustic_caster"):

@@ -236,18 +236,137 @@ HD inline float snoise_3d(GVec3 p) {
     return noise_scale3(perlin_3d(p.x, p.y, p.z));
 }
 
+// #881 - the Noise Texture's 1D / 2D / 4D dimensions (Cycles noise.h, scalar
+// non-SSE path; the SSE path computes the same values). PVec2 / PVec4 stand in
+// for Cycles float2 / float4.
+struct PVec2 { float x, y; };
+struct PVec4 { float x, y, z, w; };
+HD inline PVec2 operator*(const PVec2& a, float s) { return PVec2{a.x * s, a.y * s}; }
+HD inline PVec2 operator+(const PVec2& a, const PVec2& b) { return PVec2{a.x + b.x, a.y + b.y}; }
+HD inline PVec4 operator*(const PVec4& a, float s) {
+    return PVec4{a.x * s, a.y * s, a.z * s, a.w * s};
+}
+HD inline PVec4 operator+(const PVec4& a, const PVec4& b) {
+    return PVec4{a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w};
+}
+
+// Cycles util/math_base.h mix().
+HD inline float pmix(float a, float b, float t) { return a + t * (b - a); }
+
+HD inline float grad1(int hash, float x) {
+    int h = hash & 15;
+    float g = (float)(1 + (h & 7));
+    return negate_if(g, h & 8) * x;
+}
+
+HD inline float perlin_1d(float x) {
+    int X;
+    float fx = floorfrac(x, &X);
+    float u = fade(fx);
+    return pmix(grad1(hash_uint(X), fx), grad1(hash_uint(X + 1), fx - 1.0f), u);
+}
+
+HD inline float bi_mix(float v0, float v1, float v2, float v3, float x, float y) {
+    float x1 = 1.0f - x;
+    return (1.0f - y) * (v0 * x1 + v1 * x) + y * (v2 * x1 + v3 * x);
+}
+
+HD inline float grad2(int hash, float x, float y) {
+    int h = hash & 7;
+    float u = h < 4 ? x : y;
+    float v = 2.0f * (h < 4 ? y : x);
+    return negate_if(u, h & 1) + negate_if(v, h & 2);
+}
+
+HD inline float perlin_2d(float x, float y) {
+    int X, Y;
+    float fx = floorfrac(x, &X);
+    float fy = floorfrac(y, &Y);
+    float u = fade(fx);
+    float v = fade(fy);
+    return bi_mix(grad2(hash_uint2(X, Y), fx, fy),
+                  grad2(hash_uint2(X + 1, Y), fx - 1.0f, fy),
+                  grad2(hash_uint2(X, Y + 1), fx, fy - 1.0f),
+                  grad2(hash_uint2(X + 1, Y + 1), fx - 1.0f, fy - 1.0f),
+                  u, v);
+}
+
+HD inline float grad4(int hash, float x, float y, float z, float w) {
+    int h = hash & 31;
+    float u = h < 24 ? x : y;
+    float v = h < 16 ? y : z;
+    float s = h < 8 ? z : w;
+    return negate_if(u, h & 1) + negate_if(v, h & 2) + negate_if(s, h & 4);
+}
+
+HD inline float quad_mix(float v0, float v1, float v2, float v3, float v4, float v5, float v6,
+                         float v7, float v8, float v9, float v10, float v11, float v12,
+                         float v13, float v14, float v15, float x, float y, float z, float w) {
+    return pmix(tri_mix(v0, v1, v2, v3, v4, v5, v6, v7, x, y, z),
+                tri_mix(v8, v9, v10, v11, v12, v13, v14, v15, x, y, z), w);
+}
+
+HD inline float perlin_4d(float x, float y, float z, float w) {
+    int X, Y, Z, W;
+    float fx = floorfrac(x, &X);
+    float fy = floorfrac(y, &Y);
+    float fz = floorfrac(z, &Z);
+    float fw = floorfrac(w, &W);
+    float u = fade(fx);
+    float v = fade(fy);
+    float t = fade(fz);
+    float s = fade(fw);
+    return quad_mix(
+        grad4(hash_uint4(X, Y, Z, W), fx, fy, fz, fw),
+        grad4(hash_uint4(X + 1, Y, Z, W), fx - 1.0f, fy, fz, fw),
+        grad4(hash_uint4(X, Y + 1, Z, W), fx, fy - 1.0f, fz, fw),
+        grad4(hash_uint4(X + 1, Y + 1, Z, W), fx - 1.0f, fy - 1.0f, fz, fw),
+        grad4(hash_uint4(X, Y, Z + 1, W), fx, fy, fz - 1.0f, fw),
+        grad4(hash_uint4(X + 1, Y, Z + 1, W), fx - 1.0f, fy, fz - 1.0f, fw),
+        grad4(hash_uint4(X, Y + 1, Z + 1, W), fx, fy - 1.0f, fz - 1.0f, fw),
+        grad4(hash_uint4(X + 1, Y + 1, Z + 1, W), fx - 1.0f, fy - 1.0f, fz - 1.0f, fw),
+        grad4(hash_uint4(X, Y, Z, W + 1), fx, fy, fz, fw - 1.0f),
+        grad4(hash_uint4(X + 1, Y, Z, W + 1), fx - 1.0f, fy, fz, fw - 1.0f),
+        grad4(hash_uint4(X, Y + 1, Z, W + 1), fx, fy - 1.0f, fz, fw - 1.0f),
+        grad4(hash_uint4(X + 1, Y + 1, Z, W + 1), fx - 1.0f, fy - 1.0f, fz, fw - 1.0f),
+        grad4(hash_uint4(X, Y, Z + 1, W + 1), fx, fy, fz - 1.0f, fw - 1.0f),
+        grad4(hash_uint4(X + 1, Y, Z + 1, W + 1), fx - 1.0f, fy, fz - 1.0f, fw - 1.0f),
+        grad4(hash_uint4(X, Y + 1, Z + 1, W + 1), fx, fy - 1.0f, fz - 1.0f, fw - 1.0f),
+        grad4(hash_uint4(X + 1, Y + 1, Z + 1, W + 1), fx - 1.0f, fy - 1.0f, fz - 1.0f, fw - 1.0f),
+        u, v, t, s);
+}
+
+// Precision guard as snoise_3d: repeat every 100000, shift by 0.5 past 1e6.
+HD inline float noise_wrap(float x) {
+    return fmodf(x, 100000.0f) + ((fabsf(x) >= 1000000.0f) ? 0.5f : 0.0f);
+}
+
+HD inline float snoise_1d(float p) { return 0.2500f * perlin_1d(noise_wrap(p)); }
+HD inline float snoise_2d(PVec2 p) { return 0.6616f * perlin_2d(noise_wrap(p.x), noise_wrap(p.y)); }
+HD inline float snoise_4d(PVec4 p) {
+    return 0.8344f * perlin_4d(noise_wrap(p.x), noise_wrap(p.y), noise_wrap(p.z), noise_wrap(p.w));
+}
+
+// Overloads so the fractal templates below follow the point type (Cycles overloads
+// noise_fbm etc. per dimension with identical bodies).
+HD inline float snoise(float p) { return snoise_1d(p); }
+HD inline float snoise(const PVec2& p) { return snoise_2d(p); }
+HD inline float snoise(const GVec3& p) { return snoise_3d(p); }
+HD inline float snoise(const PVec4& p) { return snoise_4d(p); }
+
 // ---------------------------------------------------------------------------
-// Fractal noise - Cycles kernel/svm/fractal_noise.h (Apache-2.0).
+// Fractal noise - Cycles kernel/svm/fractal_noise.h (Apache-2.0). T is float,
+// PVec2, GVec3 or PVec4 (the 1D-4D Noise dimensions).
 // ---------------------------------------------------------------------------
-HD inline float noise_fbm(GVec3 p, float detail, float roughness, float lacunarity,
-                          bool normalize) {
+template<typename T>
+HD inline float noise_fbm(T p, float detail, float roughness, float lacunarity, bool normalize) {
     float fscale = 1.0f;
     float amp = 1.0f;
     float maxamp = 0.0f;
     float sum = 0.0f;
     int octaves = (int)detail;
     for (int i = 0; i <= octaves; i++) {
-        float t = snoise_3d(p * fscale);
+        float t = snoise(p * fscale);
         sum += t * amp;
         maxamp += amp;
         amp *= roughness;
@@ -255,54 +374,55 @@ HD inline float noise_fbm(GVec3 p, float detail, float roughness, float lacunari
     }
     float rmd = detail - floorf(detail);
     if (rmd != 0.0f) {
-        float t = snoise_3d(p * fscale);
+        float t = snoise(p * fscale);
         float sum2 = sum + t * amp;
-        float result = normalize ?
-            (0.5f * sum / maxamp + 0.5f) * (1.0f - rmd) +
-                (0.5f * sum2 / (maxamp + amp) + 0.5f) * rmd :
-            sum * (1.0f - rmd) + sum2 * rmd;
-        return result;
+        return normalize ?
+            pmix(0.5f * sum / maxamp + 0.5f, 0.5f * sum2 / (maxamp + amp) + 0.5f, rmd) :
+            pmix(sum, sum2, rmd);
     }
     return normalize ? 0.5f * sum / maxamp + 0.5f : sum;
 }
 
-HD inline float noise_multi_fractal(GVec3 p, float detail, float roughness, float lacunarity) {
+template<typename T>
+HD inline float noise_multi_fractal(T p, float detail, float roughness, float lacunarity) {
     float value = 1.0f;
     float pwr = 1.0f;
     int octaves = (int)detail;
     for (int i = 0; i <= octaves; i++) {
-        value *= (pwr * snoise_3d(p) + 1.0f);
+        value *= (pwr * snoise(p) + 1.0f);
         pwr *= roughness;
         p = p * lacunarity;
     }
     float rmd = detail - floorf(detail);
     if (rmd != 0.0f) {
-        value *= (rmd * pwr * snoise_3d(p) + 1.0f);
+        value *= (rmd * pwr * snoise(p) + 1.0f);
     }
     return value;
 }
 
-HD inline float noise_hetero_terrain(GVec3 p, float detail, float roughness, float lacunarity,
+template<typename T>
+HD inline float noise_hetero_terrain(T p, float detail, float roughness, float lacunarity,
                                      float offset) {
     float pwr = roughness;
-    float value = offset + snoise_3d(p);
+    float value = offset + snoise(p);
     p = p * lacunarity;
     int octaves = (int)detail;
     for (int i = 1; i <= octaves; i++) {
-        float increment = (snoise_3d(p) + offset) * pwr * value;
+        float increment = (snoise(p) + offset) * pwr * value;
         value += increment;
         pwr *= roughness;
         p = p * lacunarity;
     }
     float rmd = detail - floorf(detail);
     if (rmd != 0.0f) {
-        float increment = (snoise_3d(p) + offset) * pwr * value;
+        float increment = (snoise(p) + offset) * pwr * value;
         value += rmd * increment;
     }
     return value;
 }
 
-HD inline float noise_hybrid_multi_fractal(GVec3 p, float detail, float roughness,
+template<typename T>
+HD inline float noise_hybrid_multi_fractal(T p, float detail, float roughness,
                                            float lacunarity, float offset, float gain) {
     float pwr = 1.0f;
     float value = 0.0f;
@@ -310,7 +430,7 @@ HD inline float noise_hybrid_multi_fractal(GVec3 p, float detail, float roughnes
     int octaves = (int)detail;
     for (int i = 0; (weight > 0.001f) && (i <= octaves); i++) {
         weight = pmin(weight, 1.0f);
-        float signal = (snoise_3d(p) + offset) * pwr;
+        float signal = (snoise(p) + offset) * pwr;
         pwr *= roughness;
         value += weight * signal;
         weight *= gain * signal;
@@ -319,16 +439,17 @@ HD inline float noise_hybrid_multi_fractal(GVec3 p, float detail, float roughnes
     float rmd = detail - floorf(detail);
     if ((rmd != 0.0f) && (weight > 0.001f)) {
         weight = pmin(weight, 1.0f);
-        float signal = (snoise_3d(p) + offset) * pwr;
+        float signal = (snoise(p) + offset) * pwr;
         value += rmd * weight * signal;
     }
     return value;
 }
 
-HD inline float noise_ridged_multi_fractal(GVec3 p, float detail, float roughness,
+template<typename T>
+HD inline float noise_ridged_multi_fractal(T p, float detail, float roughness,
                                            float lacunarity, float offset, float gain) {
     float pwr = roughness;
-    float signal = offset - fabsf(snoise_3d(p));
+    float signal = offset - fabsf(snoise(p));
     signal *= signal;
     float value = signal;
     float weight = 1.0f;
@@ -336,7 +457,7 @@ HD inline float noise_ridged_multi_fractal(GVec3 p, float detail, float roughnes
     for (int i = 1; i <= octaves; i++) {
         p = p * lacunarity;
         weight = pclamp(signal * gain, 0.0f, 1.0f);
-        signal = offset - fabsf(snoise_3d(p));
+        signal = offset - fabsf(snoise(p));
         signal *= signal;
         signal *= weight;
         value += signal * pwr;
@@ -346,32 +467,76 @@ HD inline float noise_ridged_multi_fractal(GVec3 p, float detail, float roughnes
 }
 
 // ---------------------------------------------------------------------------
-// Noise Texture node - Cycles kernel/svm/noisetex.h noise_texture_3d (Apache-2.0).
+// Noise Texture node - Cycles kernel/svm/noisetex.h svm_node_tex_noise (Apache-2.0).
 // type: 0=fBM, 1=multifractal, 2=hybrid, 3=ridged, 4=hetero terrain.
+// dimensions 1-4 (#881): 1D reads only w, 2D (x, y), 3D the point, 4D (point, w);
+// Cycles scales w by Scale too. facOnly (#881): the Fac output wired into a
+// colour / vector socket is grey (Fac, Fac, Fac), not the Color triple.
 // ---------------------------------------------------------------------------
 struct NoiseParams {
     float scale, detail, roughness, lacunarity, offset, gain, distortion;
     int type;
     int normalize;
+    int dimensions = 3;
+    float w = 0.0f;
+    int facOnly = 0;
 };
 
-// Cycles noisetex.h random_float3_offset(seed) = 100 + hash_float2_to_float(seed, k) * 100
-// for the five seeds noise_texture uses, precomputed as a fused multiply-add (one
-// rounding): the value the production CPU build (MSVC /arch:AVX2 /fp:fast) produced and
-// nvcc produces. Whether a compiler fuses it depends on inlining (GCC -mfma folded the
-// old constant-seed call unfused), and the one-ulp offset change is amplified by the
-// fractal octaves to ~1e-4 in the noise value, so the table pins it.
-HD inline GVec3 random_float3_offset(int seed) {
-    switch (seed) {
-        case 0:  return GVec3(0x1.741004p+7f, 0x1.cbd2e6p+6f, 0x1.34e51ep+7f);
-        case 1:  return GVec3(0x1.8fae14p+7f, 0x1.4495cep+7f, 0x1.3418b2p+7f);
-        case 2:  return GVec3(0x1.be890ep+6f, 0x1.3abd22p+7f, 0x1.8e2d1cp+7f);
-        case 3:  return GVec3(0x1.4ae3fcp+7f, 0x1.458954p+7f, 0x1.82d11ap+7f);
-        default: return GVec3(0x1.37296ep+7f, 0x1.624f2cp+7f, 0x1.1447b2p+7f);
+// Cycles noisetex.h random_float{,2,3,4}_offset(seed): component k is
+// 100 + hash_float2_to_float(seed, k) * 100 (1D: hash_float_to_float(seed)),
+// precomputed as a fused multiply-add (one rounding): the value the production CPU
+// build (MSVC /arch:AVX2 /fp:fast) produced and nvcc produces. Whether a compiler
+// fuses it depends on inlining (GCC -mfma folded the old constant-seed call
+// unfused), and the one-ulp offset change is amplified by the fractal octaves to
+// ~1e-4 in the noise value, so the table pins it. Seeds 0-5, k 0-3; the 2D / 3D
+// offsets are prefixes of the 4D ones. Generator + check against the original 3D
+// table: .astroray_plan/docs/issue881-1006-noise-objcoords-research.md.
+HD inline float random_offset(int seed, int k) {
+    switch (seed * 4 + k) {
+        case 0:  return 0x1.741004p+7f;  case 1:  return 0x1.cbd2e6p+6f;
+        case 2:  return 0x1.34e51ep+7f;  case 3:  return 0x1.1d0284p+7f;
+        case 4:  return 0x1.8fae14p+7f;  case 5:  return 0x1.4495cep+7f;
+        case 6:  return 0x1.3418b2p+7f;  case 7:  return 0x1.1c8902p+7f;
+        case 8:  return 0x1.be890ep+6f;  case 9:  return 0x1.3abd22p+7f;
+        case 10: return 0x1.8e2d1cp+7f;  case 11: return 0x1.64df4ep+7f;
+        case 12: return 0x1.4ae3fcp+7f;  case 13: return 0x1.458954p+7f;
+        case 14: return 0x1.82d11ap+7f;  case 15: return 0x1.2282d2p+7f;
+        case 16: return 0x1.37296ep+7f;  case 17: return 0x1.624f2cp+7f;
+        case 18: return 0x1.1447b2p+7f;  case 19: return 0x1.685f18p+7f;
+        case 20: return 0x1.79b524p+7f;  case 21: return 0x1.095afap+7f;
+        case 22: return 0x1.441ab4p+7f;  default: return 0x1.72894cp+7f;
     }
 }
 
-HD inline float noise_select(GVec3 p, float det, float rough, float lac, float off, float g,
+HD inline float random_float_offset(int seed) {
+    switch (seed) {
+        case 0:  return 0x1.3c7c34p+7f;
+        case 1:  return 0x1.cb581ep+6f;
+        default: return 0x1.78fa36p+7f;
+    }
+}
+
+HD inline PVec2 random_float2_offset(int seed) {
+    return PVec2{random_offset(seed, 0), random_offset(seed, 1)};
+}
+
+HD inline GVec3 random_float3_offset(int seed) {
+    return GVec3(random_offset(seed, 0), random_offset(seed, 1), random_offset(seed, 2));
+}
+
+HD inline PVec4 random_float4_offset(int seed) {
+    return PVec4{random_offset(seed, 0), random_offset(seed, 1), random_offset(seed, 2),
+                 random_offset(seed, 3)};
+}
+
+// Offset of the point's own dimension (overload on the point type).
+HD inline float random_offset_like(float, int seed) { return random_float_offset(seed); }
+HD inline PVec2 random_offset_like(const PVec2&, int seed) { return random_float2_offset(seed); }
+HD inline GVec3 random_offset_like(const GVec3&, int seed) { return random_float3_offset(seed); }
+HD inline PVec4 random_offset_like(const PVec4&, int seed) { return random_float4_offset(seed); }
+
+template<typename T>
+HD inline float noise_select(T p, float det, float rough, float lac, float off, float g,
                              int type, bool norm) {
     switch (type) {
         case 1: return noise_multi_fractal(p, det, rough, lac);
@@ -384,25 +549,64 @@ HD inline float noise_select(GVec3 p, float det, float rough, float lac, float o
     }
 }
 
-// Color output (Fac, noise(+offset 3), noise(+offset 4)); Fac = .x.
+// Cycles noise_texture_{1,2,3,4}d: value at the distorted point; the Color output is
+// (value, select(p + offset c0), select(p + offset c1)) with per-dimension seeds.
+template<typename T>
+HD inline GVec3 noise_texture_nd(const NoiseParams& np, const T& p, int c0, int c1,
+                                 float det, float rough, bool norm) {
+    float fac = noise_select(p, det, rough, np.lacunarity, np.offset, np.gain, np.type, norm);
+    if (np.facOnly) return GVec3(fac);
+    const T o0 = random_offset_like(p, c0), o1 = random_offset_like(p, c1);
+    float r = noise_select(p + o0, det, rough, np.lacunarity, np.offset, np.gain, np.type, norm);
+    float g = noise_select(p + o1, det, rough, np.lacunarity, np.offset, np.gain, np.type, norm);
+    return GVec3(fac, r, g);
+}
+
+// Color output (Fac, noise(+offset), noise(+offset)); Fac = .x.
 HD inline GVec3 noise_texture(const NoiseParams& np, GVec3 p) {
     // Clamp detail [0,15], roughness >= 0 per svm_node_tex_noise.
     float det = pclamp(np.detail, 0.0f, 15.0f);
     float rough = pmax(np.roughness, 0.0f);
     bool norm = np.normalize != 0;
+    const float d = np.distortion;
     GVec3 co = p * np.scale;
-    GVec3 distorted = co;
-    if (np.distortion != 0.0f) {
-        distorted.x += snoise_3d(co + random_float3_offset(0)) * np.distortion;
-        distorted.y += snoise_3d(co + random_float3_offset(1)) * np.distortion;
-        distorted.z += snoise_3d(co + random_float3_offset(2)) * np.distortion;
+    float w = np.w * np.scale;
+    switch (np.dimensions) {
+        case 1: {
+            float q = w;
+            if (d != 0.0f) q += snoise_1d(q + random_float_offset(0)) * d;
+            return noise_texture_nd(np, q, 1, 2, det, rough, norm);
+        }
+        case 2: {
+            PVec2 q{co.x, co.y};
+            if (d != 0.0f) {
+                PVec2 dq{snoise_2d(q + random_float2_offset(0)) * d,
+                         snoise_2d(q + random_float2_offset(1)) * d};
+                q = q + dq;
+            }
+            return noise_texture_nd(np, q, 2, 3, det, rough, norm);
+        }
+        case 4: {
+            PVec4 q{co.x, co.y, co.z, w};
+            if (d != 0.0f) {
+                PVec4 dq{snoise_4d(q + random_float4_offset(0)) * d,
+                         snoise_4d(q + random_float4_offset(1)) * d,
+                         snoise_4d(q + random_float4_offset(2)) * d,
+                         snoise_4d(q + random_float4_offset(3)) * d};
+                q = q + dq;
+            }
+            return noise_texture_nd(np, q, 4, 5, det, rough, norm);
+        }
+        default: {
+            GVec3 distorted = co;
+            if (d != 0.0f) {
+                distorted.x += snoise_3d(co + random_float3_offset(0)) * d;
+                distorted.y += snoise_3d(co + random_float3_offset(1)) * d;
+                distorted.z += snoise_3d(co + random_float3_offset(2)) * d;
+            }
+            return noise_texture_nd(np, distorted, 3, 4, det, rough, norm);
+        }
     }
-    float fac = noise_select(distorted, det, rough, np.lacunarity, np.offset, np.gain, np.type, norm);
-    float r = noise_select(distorted + random_float3_offset(3), det, rough, np.lacunarity,
-                           np.offset, np.gain, np.type, norm);
-    float g = noise_select(distorted + random_float3_offset(4), det, rough, np.lacunarity,
-                           np.offset, np.gain, np.type, norm);
-    return GVec3(fac, r, g);
 }
 
 // ---------------------------------------------------------------------------

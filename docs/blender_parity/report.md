@@ -10,9 +10,9 @@
 
 ## Summary
 
-- **SUPPORTED**: 182 features
+- **SUPPORTED**: 184 features
 - **APPROXIMATED**: 82 features
-- **DROPPED-SILENT**: 322 features ⚠️
+- **DROPPED-SILENT**: 320 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 586 features
 
@@ -22,25 +22,25 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5249)
-- **MIX_SHADER**: socket `Fac` (addon __init__.py line 5288, line 5452)
-- **TEX_BRICK**: socket `Color3` (addon __init__.py line 4110, line 4232)
-- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4110, line 4232)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5304)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5304)
+- **MIX_SHADER**: socket `Fac` (addon __init__.py line 5343, line 5507)
+- **TEX_BRICK**: socket `Color3` (addon __init__.py line 4141, line 4276)
+- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4141, line 4276)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5249)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5249)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5304)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5304)
+- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5304)
+- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5304)
+- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5304)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5304)
+- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5304)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5304)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5304)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -335,8 +335,6 @@ These features are silently ignored by the addon with no warning:
 - **TEX_IMAGE**: `prop:interpolation` — property ENUM
 - **TEX_IMAGE**: `prop:projection` — property ENUM
 - **TEX_IMAGE**: `prop:projection_blend` — property FLOAT
-- **TEX_NOISE**: `input:W`
-- **TEX_NOISE**: `prop:noise_dimensions` — property ENUM
 - **TEX_SKY**: `input:Vector` — no handler in addon translation layer
 - **TEX_SKY**: `prop:air_density` — Rayleigh axis (more air -> bluer); folding onto Perez turbidity (a haziness axis) would invert its direction, so dropped + named in the runtime degradation warning (pkg256, PR #793 review)
 - **TEX_SKY**: `prop:altitude` — property FLOAT
@@ -897,7 +895,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_MAGIC | input:Distortion | SUPPORTED |  |
 | TEX_MAGIC | prop:turbulence_depth | SUPPORTED |  |
 | TEX_NOISE | input:Vector | SUPPORTED |  |
-| TEX_NOISE | input:W | DROPPED-SILENT |  |
+| TEX_NOISE | input:W | SUPPORTED |  |
 | TEX_NOISE | input:Scale | SUPPORTED |  |
 | TEX_NOISE | input:Detail | SUPPORTED |  |
 | TEX_NOISE | input:Roughness | SUPPORTED |  |
@@ -905,7 +903,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_NOISE | input:Offset | SUPPORTED |  |
 | TEX_NOISE | input:Gain | SUPPORTED |  |
 | TEX_NOISE | input:Distortion | SUPPORTED |  |
-| TEX_NOISE | prop:noise_dimensions | DROPPED-SILENT | property ENUM |
+| TEX_NOISE | prop:noise_dimensions | SUPPORTED |  |
 | TEX_NOISE | prop:noise_type | SUPPORTED |  |
 | TEX_NOISE | prop:normalize | SUPPORTED |  |
 | TEX_SKY | input:Vector | DROPPED-SILENT | no handler in addon translation layer |

@@ -163,8 +163,17 @@ protected:
                 }
                 return {uv, opt};
             }
-            case CoordMode::Object:
+            case CoordMode::Object: {
+                // #1006 — object-local position (Cycles svm/tex_coord.h
+                // NODE_TEXCO_OBJECT, object_inverse_position_transform). The addon
+                // bakes world transforms into the vertices, so the triangle carries
+                // per-vertex object-local positions (set_objects_object_transform);
+                // without them (API scenes, spheres) world == object space.
+                Vec3 o;
+                if (rec.hitObject && rec.hitObject->objectCoord(pt, o))
+                    return {Vec2(o.x, o.y), o};
                 return {Vec2(opt.x, opt.y), opt};
+            }
             case CoordMode::Camera: {
                 if (!rec.hasCameraFrame) return {Vec2(pt.x, pt.y), pt};
                 Vec3 rel = pt - rec.cameraOrigin;
@@ -921,8 +930,14 @@ class NoiseTextureCycles : public Texture {
 public:
     NoiseTextureCycles(float s = 5.0f, float det = 2.0f, float rough = 0.5f,
                        float lac = 2.0f, float off = 0.0f, float g = 1.0f,
-                       float dist = 0.0f, int type = 0, bool norm = true)
-        : params_{s, det, rough, lac, off, g, dist, type, norm ? 1 : 0} {}
+                       float dist = 0.0f, int type = 0, bool norm = true,
+                       int dims = 3, float w = 0.0f, bool facOnly = false)
+        : params_{s, det, rough, lac, off, g, dist, type, norm ? 1 : 0} {
+        // #881: Noise dimensions (1D-4D) + W, and the grey Fac-only output.
+        params_.dimensions = (dims >= 1 && dims <= 4) ? dims : 3;
+        params_.w = w;
+        params_.facOnly = facOnly ? 1 : 0;
+    }
     // #1007: the GPU per-hit evaluator reads the same parameters.
     const astroray::proc::NoiseParams& procParams() const { return params_; }
 

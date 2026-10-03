@@ -2796,7 +2796,7 @@
     "feature": "TEX_NOISE",
     "bl_idname": "ShaderNodeTexNoise",
     "socket_or_prop": "input:W",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -2860,8 +2860,8 @@
     "feature": "TEX_NOISE",
     "bl_idname": "ShaderNodeTexNoise",
     "socket_or_prop": "prop:noise_dimensions",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",

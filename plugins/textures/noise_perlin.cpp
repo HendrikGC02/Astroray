@@ -15,7 +15,11 @@ public:
             // int-like params arrive as floats through the Python dict
             // bindings — read via getFloat like gradient.cpp's grad_type.
             static_cast<int>(p.getFloat("noise_type", 0.0f)),
-            p.getFloat("normalize", 1.0f) != 0.0f) {}
+            p.getFloat("normalize", 1.0f) != 0.0f,
+            // #881: noise_dimensions 1-4, W, and the grey Fac-only output.
+            static_cast<int>(p.getFloat("dimensions", 3.0f)),
+            p.getFloat("w", 0.0f),
+            p.getFloat("fac_only", 0.0f) != 0.0f) {}
     astroray::SampledSpectrum sampleSpectral(
             const Vec2& uv, const Vec3& p,
             const astroray::SampledWavelengths& lambdas) const override {

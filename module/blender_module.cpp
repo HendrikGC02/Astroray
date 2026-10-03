@@ -216,7 +216,8 @@ public:
             proceduralTextures[name] = std::make_shared<NoiseTexture>(params.size() > 0 ? params[0] : 1.0f);
         } else if (type == "noise_perlin") {
             // pkg115 chunk 2 + chunk 6 (addon dedup): ShaderNodeTexNoise → NoiseTextureCycles.
-            // Params: [scale, detail, roughness, lacunarity, offset, gain, distortion, noise_type, normalize]
+            // Params: [scale, detail, roughness, lacunarity, offset, gain, distortion, noise_type, normalize,
+            //          dimensions (#881, default 3), w (#881), fac_only (#881: grey Fac output)]
             float scale = params.size() > 0 ? params[0] : 5.0f;
             float detail = params.size() > 1 ? params[1] : 2.0f;
             float roughness = params.size() > 2 ? params[2] : 0.5f;
@@ -226,8 +227,12 @@ public:
             float distortion = params.size() > 6 ? params[6] : 0.0f;
             int noise_type = params.size() > 7 ? (int)params[7] : 0;
             bool normalize = params.size() > 8 ? (params[8] != 0.0f) : true;
+            int dims = params.size() > 9 ? (int)params[9] : 3;
+            float w = params.size() > 10 ? params[10] : 0.0f;
+            bool facOnly = params.size() > 11 && params[11] != 0.0f;
             proceduralTextures[name] = std::make_shared<NoiseTextureCycles>(
-                scale, detail, roughness, lacunarity, offset, gain, distortion, noise_type, normalize);
+                scale, detail, roughness, lacunarity, offset, gain, distortion, noise_type, normalize,
+                dims, w, facOnly);
         } else if (type == "marble") {
             proceduralTextures[name] = std::make_shared<MarbleTexture>(params.size() > 0 ? params[0] : 1.0f);
         } else if (type == "wood") {
@@ -2317,6 +2322,34 @@ public:
         return n;
     }
 
+    // #1006 — per-object OBJECT-local frame. `m` is the row-major 3x4 world ->
+    // object affine (the inverse of the object's matrix_world, which the addon
+    // bakes into the vertices); baked onto every Triangle in [begin, end) as
+    // per-vertex object-local positions, read by Texture Coordinate > Object
+    // (Cycles svm/tex_coord.h object_inverse_position_transform). Returns the
+    // number of triangles set.
+    int setObjectsObjectTransform(int begin, int end, const std::vector<float>& m) {
+        if (m.size() != 12)
+            throw std::runtime_error("set_objects_object_transform: matrix must have 12 floats");
+        const auto& scene = renderer.getScene();  // not bounds: the BVH stays valid
+        invalidateWavefrontScene();  // #801: triangle data read by buildSceneArrays
+        begin = std::max(begin, 0);
+        end = std::min(end, static_cast<int>(scene.size()));
+        auto apply = [&](const Vec3& p) {
+            return Vec3(m[0]*p.x + m[1]*p.y + m[2]*p.z  + m[3],
+                        m[4]*p.x + m[5]*p.y + m[6]*p.z  + m[7],
+                        m[8]*p.x + m[9]*p.y + m[10]*p.z + m[11]);
+        };
+        int n = 0;
+        for (int i = begin; i < end; ++i) {
+            if (auto* tri = dynamic_cast<Triangle*>(scene[i].get())) {
+                tri->setObjectLocal(apply(tri->getV0()), apply(tri->getV1()), apply(tri->getV2()));
+                ++n;
+            }
+        }
+        return n;
+    }
+
     int getCausticCasterCount() const {
         return renderer.getCausticCasterCount();
     }
@@ -4064,6 +4097,12 @@ PYBIND11_MODULE(astroray, m) {
              "#847 — bake a row-major 3x4 world->Generated affine onto the "
              "triangles in [begin, end) (addObject order) as per-vertex Generated "
              "coords (Blender object-space texture space). Returns the count set.")
+        .def("set_objects_object_transform", &PyRenderer::setObjectsObjectTransform,
+             "begin"_a, "end"_a, "matrix"_a,
+             "#1006 — bake a row-major 3x4 world->object affine (inverse "
+             "matrix_world) onto the triangles in [begin, end) (addObject order) as "
+             "per-vertex object-local positions for Texture Coordinate > Object. "
+             "Returns the count set.")
         .def("caustic_caster_count", &PyRenderer::getCausticCasterCount)
         .def("scene_object_count", &PyRenderer::getSceneObjectCount)
         .def("set_object_name", &PyRenderer::setObjectName,

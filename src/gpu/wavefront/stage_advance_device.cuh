@@ -1138,6 +1138,34 @@ template<> struct GScalarOverride<true> { ::GMaterial mat; };
 // below). Otherwise the pre-#847 per-texture bbox frame:
 // g = (point - genMin)/genSize (include/advanced_features.h CoordMode::Generated).
 // __noinline__ keeps the body out of the REG:254 shade kernel's allocation.
+// #1006 — OBJECT coordinate at a hit: the triangle's per-vertex object-local
+// positions (c_wfTexBinding.triObjectLocal, the inverse object transform of the
+// world-baked vertices; Cycles svm/tex_coord.h object_inverse_position_transform)
+// interpolated with barycentrics recomputed from the hit point (Ericson §3.4, as
+// gpu_generatedCoord), else the world point (CPU CoordMode::Object fallback).
+static __device__ ASTRORAY_SHADE_NOINLINE inline GVec3 gpu_objectCoord(
+    GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris)
+{
+    const GVec3* to = c_wfTexBinding.triObjectLocal;
+    if (to && primId >= 0 && prims[primId].type == GPRIM_TRIANGLE) {
+        const int ti = prims[primId].index;
+        const GVec3 o0 = to[3 * ti];
+        if (!isnan(o0.x)) {
+            const GTriangle& t = tris[ti];
+            GVec3 e1 = t.v1 - t.v0, e2 = t.v2 - t.v0, ep = point - t.v0;
+            float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
+            float d20 = ep.dot(e1), d21 = ep.dot(e2);
+            float denom = d00 * d11 - d01 * d01;
+            if (fabsf(denom) > 1e-20f) {
+                float b1 = (d11 * d20 - d01 * d21) / denom;
+                float b2 = (d00 * d21 - d01 * d20) / denom;
+                return o0 + (to[3 * ti + 1] - o0) * b1 + (to[3 * ti + 2] - o0) * b2;
+            }
+        }
+    }
+    return point;
+}
+
 static __device__ ASTRORAY_SHADE_NOINLINE inline GVec3 gpu_generatedCoord(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
 {
@@ -1164,6 +1192,8 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GVec3 gpu_generatedCoord(
         }
     }
     const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
+    // #1006: an OBJECT bake's bbox frame is object-local (scene_upload.cu matWorldBox).
+    if (tdesc.objectCoord) point = gpu_objectCoord(point, primId, prims, tris);
     GVec3 g;
     g.x = tdesc.genSize.x > 1e-6f ? (point.x - tdesc.genMin.x) / tdesc.genSize.x : 0.0f;
     g.y = tdesc.genSize.y > 1e-6f ? (point.y - tdesc.genMin.y) / tdesc.genSize.y : 0.0f;
@@ -1206,7 +1236,7 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_progInputTe
 // #1007 — a program / base-colour input in the <HasProgram=true> kernel. A
 // descriptor with procId >= 0 (scene_upload.cu perHitTexId) is a Noise / Wave /
 // Voronoi evaluated at this hit instead of a 64^3 bake: the CPU texture point
-// (Object: the world hit point = the CPU objectPoint on flat geometry; Generated:
+// (Object: gpu_objectCoord, the object-local point (#1006); Generated:
 // gpu_generatedCoord clamped to [0,1], advanced_features.h CoordMode::Generated),
 // then the 3-D Mapping M*p (Texture::value), then gpu_procTexEval
 // (proc_tex_eval.cu). Every other descriptor is the texel fetch above. Never
@@ -1219,7 +1249,9 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_progInputEv
     const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
     if (tdesc.procId < 0) return gpu_progInputTexel(point, primId, prims, tris, texId);
     GVec3 p = point;
-    if (!tdesc.objectCoord) {
+    if (tdesc.objectCoord) {
+        p = gpu_objectCoord(point, primId, prims, tris);  // #1006
+    } else {
         const GVec3 g = gpu_generatedCoord(point, primId, prims, tris, texId);
         p = GVec3(astroray::proc::pclamp(g.x, 0.0f, 1.0f),
                   astroray::proc::pclamp(g.y, 0.0f, 1.0f),

@@ -215,3 +215,28 @@ carries the inputs' 3-D Mapping matrix (all inputs share one signature). Unmappe
 aliased field rotated differently) -> 0/16 (#1007 alone) -> 3/16 (#1007 + #1017); the rings are now horizontal as in
 Cycles. Remaining wood residual: band phase / spacing, rows re-pointed to #1006 (world-not-local Object coords,
 sphere at z = 0.9) / #881 / #993. Marble GPU 8/16 re-pointed to #1006 (the CPU's residual).
+
+## After lane au-coords (#881 Noise parity, #1006 object-local Object coords; build 0d494227, 2026-10-03)
+
+**N/8 now 1/8 on both backends: prod_marble passes** (parity 16/16 CPU and GPU; its silent rows were removed by
+#1028). Seed 278, same build, before = main a97e97ee content (ar-1007 build):
+
+| Material | CPU in band (before) | GPU in band (before) | Residual |
+|---|---|---|---|
+| prod_marble | **16/16** (11) | **16/16** (8) | none (strict xfails removed) |
+| prod_wood | 7/16 (4) | 6/16 (3) | #993 Roughness chain flattened (too glossy, sun highlight) + #1005 procedural Bump not applied |
+| other six | identical | identical | unchanged |
+
+* **#1006**: the addon bakes `matrix_world^-1` per triangle vertex (`set_objects_object_transform`; GPU side table
+  `triObjectLocal`, read by `gpu_objectCoord`). Texture Coordinate > Object is now object-local, as in Cycles
+  `NODE_TEXCO_OBJECT`. Object-coordinate materials skip the GPU instancing fast path (flattened, one frame per dupli).
+* **#881**: the 3D Perlin port was already exact. The defects were (1) Noise **Fac** wired straight into a colour
+  socket loaded the Color triple, and (2) 1D/2D/4D (and W) were evaluated as 3D. Cycles render probe (Diffuse under
+  a uniform white world, 64 spp; min channel r over coplanar tiles):
+
+  | | before | after (CPU = GPU) |
+  |---|---|---|
+  | 3D / 2D / 4D / Color / distortion / fractional detail / Object coords | -0.49 to -0.10 | >= 0.9989 |
+  | multifractal / ridged | negative | 0.88 / 0.92 (slope 1.00 below albedo 0.9: Astroray clamps Diffuse albedo > 1) |
+* Lesson: tiles at different heights shade each other's sky (r 0.94-0.98 with occlusion vs 0.999 coplanar); probes
+  that isolate a texture need coplanar geometry under a uniform world.

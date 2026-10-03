@@ -348,14 +348,14 @@ def test_unbakeable_procedural_program_records_degradation(monkeypatch):
     assert any("procedural input with CAMERA coordinates" in m for m in lines), lines
 
 
-def test_object_coord_procedural_program_reports_world_position(monkeypatch):
+def test_object_coord_procedural_program_not_degraded(monkeypatch):
     # #994 baked Object-coordinate procedural inputs into a 64^3 voxel grid (reported
-    # as aliased). #1007 evaluates Noise per hit on the GPU, so only the shared
-    # world-vs-object-local approximation (#1006) is reported, never the bake.
+    # as aliased). #1007 evaluates Noise per hit on the GPU and #1006 made Object
+    # coordinates object-local on both backends (this test used to assert the
+    # "world position" approximation entry), so nothing is reported.
     lines = _degradation_lines(monkeypatch, 'Base Color', _two_noise_coord_socket('Object'))
     assert not any("procedural input with" in m for m in lines), lines
-    assert any("OBJECT coordinates: both backends use the world position" in m
-               for m in lines), lines
+    assert not any("OBJECT coordinates" in m for m in lines), lines
     assert not any("64^3 voxel" in m for m in lines), lines
 
 

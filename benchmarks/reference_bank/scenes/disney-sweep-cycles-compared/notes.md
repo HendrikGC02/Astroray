@@ -16,7 +16,7 @@ Cycles, because:
 **Re-blessing the Cycles reference:**
 
 ```powershell
-"C:/Program Files/Blender Foundation/Blender 5.1/blender.exe" --background `
+"C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" --background `
     --python benchmarks/reference_bank/scenes/disney-sweep-cycles-compared/cycles_bless.py
 ```
 

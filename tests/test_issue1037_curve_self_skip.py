@@ -94,7 +94,7 @@ def test_continuation_does_not_re_enter_own_segment(gpu):
 def test_adjacent_segment_of_same_strand_still_hit(gpu):
     # Only the originating segment is skipped (Cycles skips one primitive): on a
     # bent two-segment strand a continuation off one segment still reaches the
-    # other. Measured depth2/depth1 = 1.157 (CPU); a lone segment reads 1.000.
+    # other. Measured depth2/depth1 = 1.11-1.16 (CPU); a lone segment reads 1.000.
     d1 = float(_scene(gpu, False, 1, VEE).sum())
     d2 = float(_scene(gpu, False, 2, VEE).sum())
     print(f"  vee depth1={d1:.4f} depth2={d2:.4f} ratio={d2 / d1:.4f}")

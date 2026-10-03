@@ -584,6 +584,8 @@ private:
 class PyRenderer {
     Renderer renderer;
     std::shared_ptr<Camera> camera;
+    // pkg291: the previously active Camera of another size (setupCamera).
+    std::shared_ptr<Camera> spareCamera_;
     // #801: process-unique id of this renderer, keying the wavefront device
     // scene cache (a viewport renderer's render(skip_upload=True) must never
     // reuse the scene an F12 renderer uploaded last).
@@ -639,6 +641,7 @@ class PyRenderer {
     int lastRenderInfoGridUploads_ = 0;
     bool lastRenderInfoOptix_ = false;  // pkg299: last GPU render used OptiX traversal
     bool lastRenderInfoSceneReused_ = false;  // #981: last GPU render served the device scene cache
+    bool lastRenderInfoScenePatched_ = false;  // pkg291: last GPU render patched an object move in place
     // pkg89 Phase B: IES profile cache (shared_ptr keeps profiles alive).
     std::unordered_map<std::string, std::shared_ptr<IESProfile>> iesProfiles_;
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -1870,7 +1873,41 @@ public:
                     float shiftX = 0.0f, float shiftY = 0.0f,
                     float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max(),
                     bool orthographic = false, float orthoWidth = 0.0f, float orthoHeight = 0.0f) {
+        // pkg291: a viewport commit re-aims the SAME-size camera every
+        // generation. Constructing a fresh Camera allocated and zero-filled ~20
+        // per-pixel buffers (pixels, AOVs, cryptomatte ranks, every render pass:
+        // ~110-190 ms at 2100x1221, the dominant gate (a) commit cost). Same
+        // size and cryptomatte depth -> re-aim in place and keep the buffers
+        // (every render overwrites what it outputs; the render-region path
+        // clears outside the rect - #802 already allows a reused Camera). The
+        // per-setup state a fresh Camera would reset (shutter keyframes) is
+        // reset here; the previous-frame motion snapshot is kept as before.
+        // pkg291: the viewport worker alternates a coarse first unit (W/4 x H/4)
+        // with its full-resolution refinement every edit; keep the other size's
+        // Camera as a spare and swap it in, so neither size reallocates per edit.
+        // A size change never carried the previous-frame motion snapshot, so the
+        // swapped-in camera starts without one (as a fresh Camera would).
+        if (camera && (camera->width != width || camera->height != height) &&
+            spareCamera_ && spareCamera_->width == width && spareCamera_->height == height) {
+            std::swap(camera, spareCamera_);
+            camera->hasPrevCamera = false;
+        }
+        if (camera && camera->width == width && camera->height == height &&
+            camera->cryptomatteDepth == Camera::kDefaultCryptomatteDepth) {
+            camera->setView(Vec3(lookFrom[0], lookFrom[1], lookFrom[2]),
+                            Vec3(lookAt[0], lookAt[1], lookAt[2]),
+                            Vec3(vup[0], vup[1], vup[2]),
+                            vfov, aspectRatio, aperture, focusDist, shiftX, shiftY,
+                            clipNear, clipFar, orthographic, orthoWidth, orthoHeight);
+            camera->shutterStartT = Vec3(0); camera->shutterEndT = Vec3(0);
+            camera->shutterStartR = Quaternion{}; camera->shutterEndR = Quaternion{};
+            camera->shutterStartS = Vec3(1, 1, 1); camera->shutterEndS = Vec3(1, 1, 1);
+            camera->shutter = 0.0f;
+            camera->shutterPosition = Camera::ShutterPosition::Center;
+            return;
+        }
         auto oldCamera = camera;
+        spareCamera_ = oldCamera;   // pkg291: reused by a later same-size setup
         camera = std::make_shared<Camera>(
             Vec3(lookFrom[0], lookFrom[1], lookFrom[2]),
             Vec3(lookAt[0], lookAt[1], lookAt[2]),
@@ -2878,6 +2915,8 @@ public:
                     astroray::wavefront::cuda_wavefront_last_traversal() != 0;  // pkg299
                 lastRenderInfoSceneReused_ =
                     astroray::wavefront::cuda_wavefront_last_scene_reused() != 0;  // #981
+                lastRenderInfoScenePatched_ =
+                    astroray::wavefront::cuda_wavefront_last_scene_patched() != 0;  // pkg291
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],
@@ -2983,6 +3022,7 @@ public:
             lastRenderInfoGridUploads_ = 0;  // #828
             lastRenderInfoOptix_ = false;    // pkg299
             lastRenderInfoSceneReused_ = false;  // #981
+            lastRenderInfoScenePatched_ = false;  // pkg291
         }
         if (callbackError) std::rethrow_exception(callbackError);
 
@@ -3041,6 +3081,7 @@ public:
         d["gpu_traversal"] = lastRenderInfoOptix_ ? "optix" : "software";
         // #981: true when the last GPU render reused the device scene + OptiX accel.
         d["gpu_scene_reused"] = lastRenderInfoSceneReused_;
+        d["gpu_scene_patched"] = lastRenderInfoScenePatched_;  // pkg291
         // pkg298: wall ms of the most recent CPU BVH build (a cached render
         // leaves it unchanged; compare get_scene_stats()["bvh_build_count"]).
         d["bvh_build_ms"] = renderer.getBvhBuildMs();
@@ -3640,6 +3681,46 @@ public:
         invalidateWavefrontScene();  // #801
     }
 
+    // pkg291 (#875): move one non-instanced mesh object in place. Its triangles
+    // are the contiguous scene range [start, start+count) (add_triangles_bulk);
+    // `delta` = M_new * M_old^-1 (row-major 4x4) is applied to the world-space
+    // vertices, the inverse-transpose to the vertex normals, and the cached BVH
+    // is refit, not rebuilt. Returns false, changing nothing, unless every
+    // primitive is a static, non-emissive Triangle and delta is invertible; the
+    // caller then full-syncs.
+    bool transformObjectRange(int start, int count, const std::vector<double>& delta) {
+        if (delta.size() != 16)
+            throw std::runtime_error("transform_object_range: delta must have 16 floats");
+        const auto& scene = renderer.getScene();
+        if (start < 0 || count <= 0 || static_cast<size_t>(start) + count > scene.size())
+            return false;
+        std::vector<Triangle*> tris;
+        tris.reserve(static_cast<size_t>(count));
+        for (int i = start; i < start + count; ++i) {
+            auto* t = dynamic_cast<Triangle*>(scene[i].get());
+            if (!t || t->isLight() || t->getMotionSteps() > 1) return false;
+            tris.push_back(t);
+        }
+        const double* m = delta.data();
+        // Inverse-transpose of the upper 3x3 = cofactor matrix / det.
+        const double c00 = m[5]*m[10] - m[6]*m[9], c01 = m[6]*m[8] - m[4]*m[10], c02 = m[4]*m[9] - m[5]*m[8];
+        const double c10 = m[2]*m[9] - m[1]*m[10], c11 = m[0]*m[10] - m[2]*m[8], c12 = m[1]*m[8] - m[0]*m[9];
+        const double c20 = m[1]*m[6] - m[2]*m[5], c21 = m[2]*m[4] - m[0]*m[6], c22 = m[0]*m[5] - m[1]*m[4];
+        const double det = m[0]*c00 + m[1]*c01 + m[2]*c02;
+        if (!(std::fabs(det) > 1e-12)) return false;
+        const double nm[9] = {c00/det, c01/det, c02/det, c10/det, c11/det, c12/det,
+                             c20/det, c21/det, c22/det};
+        // Serial on purpose: an OpenMP region here measured 75-150 ms vs 7-15 ms
+        // serial for 100k triangles on a loaded host (oversubscription).
+        for (Triangle* t : tris) t->applyTransform(m, nm);
+        // The GPU device scene is NOT invalidated: the refit is logged against
+        // the scene version, and the wavefront driver patches only the moved
+        // triangles + node bounds (cuda_wavefront_render, pkg291).
+        if (!renderer.refitAcceleration(std::vector<const Hittable*>(tris.begin(), tris.end())))
+            (void)renderer.getSceneMutable();  // no clean BVH: rebuild + re-flatten later
+        return true;
+    }
+
     // #801: the wavefront driver caches the device scene across
     // render(skip_upload=True) calls; every host-side scene mutation that
     // bypasses render() must mark it stale so the next render re-uploads.
@@ -3826,6 +3907,7 @@ public:
     void clear() {
         renderer = Renderer();
         camera.reset();
+        spareCamera_.reset();  // pkg291
         materials.clear();
         nextMaterialId = 0;
         textureManager = TextureManager();
@@ -4445,6 +4527,14 @@ PYBIND11_MODULE(astroray, m) {
              "cost win waits on a future two-level acceleration structure. "
              "Cycles equivalent: ObjectManager::tag_update_modified_flag, "
              "intern/cycles/blender/object.cpp:246-249.")
+        .def("transform_object_range", &PyRenderer::transformObjectRange,
+             "start"_a, "count"_a, "delta"_a,
+             "pkg291 (#875): move a mesh object's triangles [start, start+count) "
+             "in place by delta = M_new * M_old^-1 (16 floats, row-major): "
+             "positions, normals (inverse-transpose); Generated coords are "
+             "object-local and kept. Refits the BVH (no rebuild). False = "
+             "unsupported range (emissive / motion / non-triangle), caller "
+             "full-syncs.")
         .def("update_instance_transform", &PyRenderer::updateInstanceTransform,
              "instance_id"_a, "transform_matrix"_a,
              "pkg114 inc 3d: replace a registered instance's object->world "
@@ -4496,6 +4586,61 @@ PYBIND11_MODULE(astroray, m) {
                  return std::string(buf) + ":" + std::to_string(bvh->getNodes().size());
              },
              "pkg298 test hook: digest of the CPU BVH (nodes + primitive order).")
+        .def("_triangle_geometry",
+             [](PyRenderer& self, int start, int count) -> py::tuple {
+                 // pkg291 test hook: positions / vertex normals / Generated coords
+                 // of scene triangles [start, start+count) as (count, 3, 3)
+                 // float32 arrays (normals: face normal when per-vertex absent;
+                 // Generated: NaN when absent).
+                 const auto& scene = self.getRenderer().getScene();
+                 if (start < 0 || count < 0 || static_cast<size_t>(start) + count > scene.size())
+                     throw std::runtime_error("_triangle_geometry: range out of bounds");
+                 py::array_t<float> P({count, 3, 3}), N({count, 3, 3}), G({count, 3, 3});
+                 float* p = P.mutable_data(); float* n = N.mutable_data(); float* g = G.mutable_data();
+                 const float nan = std::numeric_limits<float>::quiet_NaN();
+                 for (int i = 0; i < count; ++i) {
+                     auto* t = dynamic_cast<const Triangle*>(scene[start + i].get());
+                     if (!t) throw std::runtime_error("_triangle_geometry: not a triangle");
+                     Vec3 v[3] = {t->getV0(), t->getV1(), t->getV2()}, vn[3], gn[3];
+                     if (!t->getVertexNormals(vn[0], vn[1], vn[2])) vn[0] = vn[1] = vn[2] = t->getFaceNormal();
+                     const bool hasG = t->getGenerated(gn[0], gn[1], gn[2]);
+                     for (int k = 0; k < 3; ++k) {
+                         const size_t o = (static_cast<size_t>(i) * 3 + k) * 3;
+                         p[o] = v[k].x; p[o + 1] = v[k].y; p[o + 2] = v[k].z;
+                         n[o] = vn[k].x; n[o + 1] = vn[k].y; n[o + 2] = vn[k].z;
+                         g[o] = hasG ? gn[k].x : nan; g[o + 1] = hasG ? gn[k].y : nan;
+                         g[o + 2] = hasG ? gn[k].z : nan;
+                     }
+                 }
+                 return py::make_tuple(P, N, G);
+             }, "start"_a, "count"_a)
+        .def("_bvh_encloses_prims",
+             [](PyRenderer& self) -> bool {
+                 // pkg291 test hook: every BVH node bound contains its primitives'
+                 // bounds (leaves) or its children's bounds (interior nodes).
+                 const auto& bvh = self.getRenderer().getBVH();
+                 if (!bvh) return false;
+                 const auto& nodes = bvh->getNodes();
+                 const auto& prims = bvh->getPrimitives();
+                 auto inside = [](const AABB& in, const AABB& out) {
+                     return in.min.x >= out.min.x && in.min.y >= out.min.y && in.min.z >= out.min.z &&
+                            in.max.x <= out.max.x && in.max.y <= out.max.y && in.max.z <= out.max.z;
+                 };
+                 for (size_t i = 0; i < nodes.size(); ++i) {
+                     const LinearBVHNode& node = nodes[i];
+                     if (node.nPrimitives > 0) {
+                         for (int k = 0; k < node.nPrimitives; ++k) {
+                             AABB pb;
+                             if (prims[node.primitivesOffset + k]->boundingBox(pb) && !inside(pb, node.bounds))
+                                 return false;
+                         }
+                     } else if (!inside(nodes[i + 1].bounds, node.bounds) ||
+                                !inside(nodes[node.secondChildOffset].bounds, node.bounds)) {
+                         return false;
+                     }
+                 }
+                 return true;
+             })
         .def("_gpu_profile_lookup", &PyRenderer::gpuProfileLookup,
              "profile_index"_a, "lambda_nm"_a,
              "Return device-side reflectance for an uploaded spectral profile slot.")

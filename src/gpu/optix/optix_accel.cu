@@ -51,6 +51,10 @@ struct AccelState {
     OptixTraversableHandle root = 0;
     bool ready = false;
     std::string error;
+    // pkg291 (#875): updatable single-level GAS (buildAccelUpdatable).
+    bool updatable = false;
+    int updPrims = 0;
+    DevBuf updVerts, updTemp;
     // Side buffers (grow-only).
     int capacity = 0;
     HwHitBuffers bufs{};
@@ -171,10 +175,38 @@ void releaseAll(AccelState& s) {
     s.gas.clear();
     s.gasHandle.clear();
     s.ias.release();
+    s.updVerts.release();
+    s.updTemp.release();
+    s.updatable = false;
+    s.updPrims = 0;
     s.root = 0;
     s.ready = false;
     setRoot(0, 0);
 }
+
+// pkg291: triangle build input over a packed non-indexed vertex stream (the
+// same input buildTriangleGas uses).
+OptixBuildInput triangleInput(const CUdeviceptr* verts, int n, const unsigned int* flags) {
+    OptixBuildInput in = {};
+    in.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
+    in.triangleArray.vertexFormat        = OPTIX_VERTEX_FORMAT_FLOAT3;
+    in.triangleArray.vertexStrideInBytes = sizeof(float3);
+    in.triangleArray.numVertices         = static_cast<unsigned int>(3 * n);
+    in.triangleArray.vertexBuffers       = verts;
+    in.triangleArray.flags               = flags;
+    in.triangleArray.numSbtRecords       = 1;
+    return in;
+}
+
+void packInto(const GPrimitive* d_prims, const GTriangle* d_tris, int n, DevBuf& verts) {
+    const int threads = 256;
+    packTrianglesKernel<<<(n + threads - 1) / threads, threads>>>(
+        d_prims, d_tris, 0, n, reinterpret_cast<float3*>(verts.ptr));
+    ASTRORAY_OPTIX_TRAV_CUDA(cudaGetLastError());
+}
+
+constexpr unsigned int kUpdatableFlags =
+    OPTIX_BUILD_FLAG_PREFER_FAST_TRACE | OPTIX_BUILD_FLAG_ALLOW_UPDATE;
 
 }  // namespace
 
@@ -261,6 +293,92 @@ bool buildAccel(const GPrimitive* d_prims, int numPrims, const GTriangle* d_tris
     }
     return true;
 }
+
+// pkg291 (#875): updatable single-level GAS. OptiX 9.1 Programming Guide,
+// "Dynamic updates": build with OPTIX_BUILD_FLAG_ALLOW_UPDATE, then refit with
+// OPTIX_BUILD_OPERATION_UPDATE on the same input layout (vertex positions may
+// change, topology may not) into the same output buffer, using
+// tempUpdateSizeInBytes of scratch. Not compacted (kept simple; viewport only).
+bool buildAccelUpdatable(const GPrimitive* d_prims, int numPrims, const GTriangle* d_tris) {
+    AccelState& s = S();
+    releaseAll(s);
+    s.error.clear();
+    if (!available()) { s.error = lastError(); return false; }
+    if (numPrims <= 0 || d_prims == nullptr || d_tris == nullptr) {
+        s.error = "empty scene";
+        return false;
+    }
+    OptixDeviceContext ctx = context();
+    DevBuf temp, out;
+    try {
+        ASTRORAY_OPTIX_TRAV_CUDA(cudaMalloc(reinterpret_cast<void**>(&s.updVerts.ptr),
+                                            sizeof(float3) * 3 * static_cast<size_t>(numPrims)));
+        s.updVerts.bytes = sizeof(float3) * 3 * static_cast<size_t>(numPrims);
+        packInto(d_prims, d_tris, numPrims, s.updVerts);
+        const unsigned int flags[1] = { OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT };
+        OptixBuildInput in = triangleInput(&s.updVerts.ptr, numPrims, flags);
+        OptixAccelBuildOptions opts = {};
+        opts.buildFlags = kUpdatableFlags;
+        opts.operation  = OPTIX_BUILD_OPERATION_BUILD;
+        OptixAccelBufferSizes sizes = {};
+        ASTRORAY_OPTIX_TRAV_CHECK(optixAccelComputeMemoryUsage(ctx, &opts, &in, 1, &sizes));
+        ASTRORAY_OPTIX_TRAV_CUDA(cudaMalloc(reinterpret_cast<void**>(&temp.ptr), sizes.tempSizeInBytes));
+        ASTRORAY_OPTIX_TRAV_CUDA(cudaMalloc(reinterpret_cast<void**>(&out.ptr), sizes.outputSizeInBytes));
+        out.bytes = sizes.outputSizeInBytes;
+        ASTRORAY_OPTIX_TRAV_CUDA(cudaMalloc(reinterpret_cast<void**>(&s.updTemp.ptr),
+                                            std::max<size_t>(sizes.tempUpdateSizeInBytes, 1)));
+        s.updTemp.bytes = sizes.tempUpdateSizeInBytes;
+        OptixTraversableHandle h = 0;
+        ASTRORAY_OPTIX_TRAV_CHECK(optixAccelBuild(ctx, 0, &opts, &in, 1, temp.ptr,
+                                                  sizes.tempSizeInBytes, out.ptr,
+                                                  sizes.outputSizeInBytes, &h, nullptr, 0));
+        ASTRORAY_OPTIX_TRAV_CUDA(cudaStreamSynchronize(0));
+        temp.release();
+        s.gas.assign(1, out);
+        s.gasHandle.assign(1, h);
+        s.root = h;
+        setRoot(s.root, 0);
+        s.updatable = true;
+        s.updPrims = numPrims;
+        s.ready = true;
+    } catch (const std::exception& e) {
+        temp.release(); out.release();
+        std::fprintf(stderr, "%s — GPU traversal falls back to the software BVH\n", e.what());
+        (void)cudaGetLastError();
+        releaseAll(s);
+        s.error = e.what();
+        return false;
+    }
+    return true;
+}
+
+bool refitAccel(const GPrimitive* d_prims, int numPrims, const GTriangle* d_tris) {
+    AccelState& s = S();
+    if (!s.ready || !s.updatable || numPrims != s.updPrims || s.gas.size() != 1) return false;
+    try {
+        packInto(d_prims, d_tris, numPrims, s.updVerts);
+        const unsigned int flags[1] = { OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT };
+        OptixBuildInput in = triangleInput(&s.updVerts.ptr, numPrims, flags);
+        OptixAccelBuildOptions opts = {};
+        opts.buildFlags = kUpdatableFlags;
+        opts.operation  = OPTIX_BUILD_OPERATION_UPDATE;
+        OptixTraversableHandle h = 0;
+        ASTRORAY_OPTIX_TRAV_CHECK(optixAccelBuild(context(), 0, &opts, &in, 1, s.updTemp.ptr,
+                                                  s.updTemp.bytes, s.gas[0].ptr, s.gas[0].bytes,
+                                                  &h, nullptr, 0));
+        s.gasHandle[0] = h;
+        s.root = h;
+        setRoot(s.root, 0);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "%s — OptiX refit failed; rebuilding\n", e.what());
+        (void)cudaGetLastError();
+        releaseAll(s);
+        return false;
+    }
+    return true;
+}
+
+bool accelUpdatable() { return S().ready && S().updatable; }
 
 bool accelReady() { return S().ready; }
 

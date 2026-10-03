@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done — PR #1049, 2026-10-03: #879 crash fixed (baseline 2/2 crash, fix 0/40); in-place move 100k engine 5.6-6.4 ms CPU, in Blender p95 OFF 23.5 / ON 46.8 ms (<20 ms target missed); gate (a) 5/6 cells in both modes, 100k material fails; default stays OFF
 **Estimated effort:** 2 sessions (~6 h): 1 crash + transforms (addon/engine), 1 measurement table on the isolated GUI
 **Depends on:** pkg266, pkg241
 
@@ -92,10 +92,10 @@ numbers the decision needs. Viewport performance is a co-equal product goal
 
 ## Acceptance criteria
 
-- [ ] #879 reproduction (isolated GUI, 100k, flip + shading toggle ×10) no longer crashes; lifecycle test green.
-- [ ] Object move on 100k: in-place path < 20 ms p95 event→present (was ~130 ms full sync); transform test green.
-- [ ] Gate (a) table doc complete with p95/p99 per row; #721 closed or re-scoped on the table with numbers.
-- [ ] Full suite + GPU sweep green; addon packaged file list unchanged or updated (memory `addon-packaging-file-list`).
+- [x] #879 reproduction (isolated GUI, 100k, flip + shading toggle ×10) no longer crashes; lifecycle test green.
+- [~] Object move on 100k: in-place path 23.5 ms p95 OFF / 46.8 ms ON event→present (was ~130 ms full sync); the < 20 ms target is NOT met end to end (engine side 5.6-6.4 ms); transform test green.
+- [x] Gate (a) table doc complete with p95/p99 per row (`.astroray_plan/docs/viewport-gate-a-table-2026-10.md`); #721 disposition: numbers supplied, owner judges.
+- [x] Full suite + GPU sweep green (only #1015, pre-existing); addon packaged file list unchanged or updated (memory `addon-packaging-file-list`).
 
 ---
 
@@ -109,12 +109,14 @@ numbers the decision needs. Viewport performance is a co-equal product goal
 
 ## Progress
 
-- [ ] #879 root cause + lifecycle fix + test.
-- [ ] #875 in-place transform + refit + test.
-- [ ] Table doc + #721/#855 disposition.
+- [x] #879 root cause + lifecycle fix + test.
+- [x] #875 in-place transform + refit + test (end-to-end < 20 ms missed).
+- [x] Table doc + #721/#855 disposition.
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- A recorder fingerprint that hashes `view_matrix` is stale right after `view_orbit` (lazy recompute at redraw); fingerprint `view_rotation`/`view_location`/`view_distance`. Run a 6-event probe cell before a 25-minute table.
+- Worker OFF beat ON on user-visible latency in 5 of 6 cells; the default stayed OFF (it blocks the UI during a render).
+- Terra caught that W1 OFF numbers predated the stricter synchronous predicate; always re-measure after tightening the instrument.

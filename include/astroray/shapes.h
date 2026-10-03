@@ -331,6 +331,26 @@ public:
         v0 = a; v1 = b; v2 = c;
         normal = (v1 - v0).cross(v2 - v0).normalized();
     }
+    // pkg291 (#875): in-place object move. Vertices by the row-major 4x4 `m`,
+    // vertex normals by the row-major 3x3 inverse-transpose `nm` (renormalised),
+    // evaluated in double and rounded once. Generated coords are object-local
+    // and unchanged by an object transform.
+    void applyTransform(const double* m, const double* nm) {
+        auto xp = [m](const Vec3& p) {
+            const double x = p.x, y = p.y, z = p.z;
+            return Vec3(static_cast<float>(m[0]*x + m[1]*y + m[2]*z + m[3]),
+                        static_cast<float>(m[4]*x + m[5]*y + m[6]*z + m[7]),
+                        static_cast<float>(m[8]*x + m[9]*y + m[10]*z + m[11]));
+        };
+        auto xn = [nm](const Vec3& n) {
+            const double x = n.x, y = n.y, z = n.z;
+            return Vec3(static_cast<float>(nm[0]*x + nm[1]*y + nm[2]*z),
+                        static_cast<float>(nm[3]*x + nm[4]*y + nm[5]*z),
+                        static_cast<float>(nm[6]*x + nm[7]*y + nm[8]*z)).normalized();
+        };
+        setVertices(xp(v0), xp(v1), xp(v2));
+        if (hasVertexNormals) { vn0 = xn(vn0); vn1 = xn(vn1); vn2 = xn(vn2); }
+    }
     // pkg88-C.0 — attach motion data to this triangle. The buffer pointer must
     // remain valid for the triangle's lifetime (typically points into Renderer::motionVertices_).
     // steps = 2 means buffer has 3 Vec3s [v0_end, v1_end, v2_end] for shutter close.

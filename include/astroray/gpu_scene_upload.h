@@ -248,6 +248,15 @@ inline SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera& cam
     return buildSceneArrays(cpu, &cam);
 }
 
+// pkg291 (#875): the in-place object-move patch of a cached device scene.
+// fillTriangleGeometry writes a GTriangle's vertices / normals / flat flag
+// exactly as the full flatten does (appendOnePrim calls it too);
+// convertBvhNodes flattens a (refit) CPU BVH into device nodes.
+class Triangle;
+class BVHAccel;
+void fillTriangleGeometry(const Triangle& tri, GTriangle& gt);
+std::vector<GBVHNode> convertBvhNodes(const BVHAccel& bvh);
+
 // pkg114 inc 3d — TLAS-only refit. Rebuilds ONLY r.tlas + r.instances from the
 // current instance transforms (no BLAS geometry walk); the caller re-pushes just
 // those two device buffers. All other SceneUploadResult fields stay empty.

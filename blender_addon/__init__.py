@@ -4839,9 +4839,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
         """pkg314: register one graph-program input. 'native': the texture with its
         own coordinates + Mapping, exactly as when wired straight to a socket.
         'coord': an image with NO Mapping, sampled at the program's computed uv."""
+        try:
+            from . import shader_vm_compiler as svm
+        except Exception:
+            import shader_vm_compiler as svm
+        svm_attr_types = svm.ATTRIBUTE_NODE_TYPES
         ntype = getattr(in_node, 'type', None)
         vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
         extension = getattr(in_node, 'extension', 'REPEAT')
+        if ntype in svm_attr_types:
+            # #990: Attribute / Color Attribute / Object Info = an engine attribute layer
+            # the mesh export fills (no coordinates; same keys as the op-VM path).
+            if kind == 'coord':
+                return None
+            return self._attribute_layer_texture(
+                svm.attribute_layer_key(in_node, variant), renderer)
         if ntype == 'TEX_IMAGE':
             image = getattr(in_node, 'image', None)
             if image is None:

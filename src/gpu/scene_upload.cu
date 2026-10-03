@@ -1177,6 +1177,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 if (!img->getData().empty() && uvOk &&
                     !(gpt->inputIsCoord(k) && img->hasMapping()))
                     texId = uploadImageTexId(img.get(), img.get());
+            } else if (auto at = std::dynamic_pointer_cast<AttributeTexture>(child)) {
+                texId = uploadAttrTexId(at.get());  // #990 attribute layer input
             } else if (child && !gpt->inputIsCoord(k)) {
                 // #1007 per-hit evaluator at the input's own point, else the bake.
                 const int perHit = perHitTexId(child.get(), child.get());

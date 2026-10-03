@@ -712,6 +712,7 @@ public:
         astroray::svm::SvmShading sh;
         sh.cosI = wo.dot(rec.shadingContextNormal());  // pkg314: sd->N, pre-bump
         sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
+        sh.path = rec.lightPath;  // #991 Light Path outputs (as ProgramTexture::valueAtHit)
         return eval(rec, wo, sh);
     }
     astroray::SampledSpectrum sampleSpectralAtHit(

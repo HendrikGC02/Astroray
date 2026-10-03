@@ -129,6 +129,10 @@ __global__ void stageGraphEvalKernel(
                           hitBufs.hit_normal_z[idx]);
             svc.sh.cosI = wo.dot(n);
             svc.sh.backfacing = hitBufs.hit_front_face[idx] != 0 ? 0.0f : 1.0f;
+            // #991 Light Path outputs (CPU twin: GraphProgramTexture::valueAtHit).
+            if (c_wfLightPath.enabled)
+                svc.sh.path = gpu_lpContext(state.lp_state[idx], state.bounce[idx],
+                                            hitBufs.hit_t[idx], wo * -1.0f);
             for (int s = 0; s < GRAPH_MAT_SLOTS; ++s) {
                 if (progs[s] < 0) continue;
                 GVec3 r;

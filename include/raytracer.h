@@ -408,6 +408,14 @@ struct HitRecord {
     // — see .astroray_plan/docs/pkg225-curve-intersect-research.md. -1 sentinel
     // on any non-curve hit (Sphere/Triangle/Mesh never touch these fields).
     float hair_u = -1.0f, hair_v = -1.0f;
+    // pkg314 — the shading normal BEFORE a Bump / Normal Map perturbation
+    // (NormalMappedPlugin::perturbNormal sets it). Cycles' Layer Weight / Fresnel /
+    // Geometry with an unlinked Normal read sd->N, which the Bump node does not
+    // change (kernel/svm/fresnel.h; bump only feeds closure normals), so the op-VM
+    // and graph programs' shading context reads this. Verified against Cycles 5.2.
+    bool hasSvmNormal = false;
+    Vec3 svmNormal;
+    const Vec3& shadingContextNormal() const { return hasSvmNormal ? svmNormal : normal; }
 
     HitRecord() : t(std::numeric_limits<float>::max()), frontFace(true), isDelta(false), hitObject(nullptr) {}
 

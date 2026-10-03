@@ -180,6 +180,8 @@ class TextureManager {
     // downstream of a texture). Registered separately so scene_upload can
     // detect them and upload the compiled program to the GPU.
     std::unordered_map<std::string, std::shared_ptr<ProgramTexture>> programTextures;
+    // pkg314 — dynamic value programs (shader_graph.h).
+    std::unordered_map<std::string, std::shared_ptr<GraphProgramTexture>> graphTextures;
     static Texture::CoordMode parseCoordMode(const std::string& mode) {
         std::string m = mode;
         for (char& c : m) c = static_cast<char>(std::toupper(c));
@@ -390,6 +392,8 @@ public:
         if (it2 != proceduralTextures.end()) return it2->second;
         auto it3 = programTextures.find(name);
         if (it3 != programTextures.end()) return it3->second;
+        auto it4 = graphTextures.find(name);
+        if (it4 != graphTextures.end()) return it4->second;
         return nullptr;
     }
 
@@ -420,6 +424,84 @@ public:
             throw std::runtime_error("set_program_texture_program: unknown program texture " + name);
         it->second->setProgram(parseProgram("set_program_texture_program", numTex, outSlot,
                                             code_flat, consts_flat, ramps_flat));
+    }
+    // pkg314 — register a graph value program (blender_addon/shader_graph_ir.py
+    // finalize()). code = 9 ints/instr (op,sub,dst,a,b,c,d,e,res); consts = 3
+    // floats/const; tables = 4 floats/table (size, min_x, range_x, extrapolate)
+    // over table_data (3 floats/entry, tables back to back); input_kinds[i] = 1
+    // when input i is sampled at a computed uv (GOP_TEX_COORD). Throws on a
+    // version mismatch, a malformed program or an exceeded budget.
+    void createGraphProgramTexture(const std::string& name, int version, int numSlots,
+                                   int outSlot, const std::vector<int>& code,
+                                   const std::vector<float>& consts,
+                                   const std::vector<float>& tables,
+                                   const std::vector<float>& tableData,
+                                   const std::vector<std::string>& inputNames,
+                                   const std::vector<int>& inputKinds) {
+        using namespace astroray::sgraph;
+        const std::string who = "create_graph_program_texture: ";
+        if (version != GRAPH_IR_VERSION)
+            throw std::runtime_error(who + "IR version " + std::to_string(version) +
+                                     " != engine " + std::to_string(GRAPH_IR_VERSION));
+        if (code.size() % 9 != 0 || consts.size() % 3 != 0 || tables.size() % 4 != 0 ||
+            tableData.size() % 3 != 0 || inputKinds.size() != inputNames.size())
+            throw std::runtime_error(who + "malformed buffers");
+        GraphProgramData g;
+        const size_t ni = code.size() / 9;
+        if (ni > (size_t)GRAPH_MAX_INSTR || consts.size() / 3 > (size_t)GRAPH_MAX_CONST ||
+            tables.size() / 4 > (size_t)GRAPH_MAX_TABLES || numSlots < 1 ||
+            numSlots > GRAPH_MAX_SLOTS || outSlot < 0)
+            throw std::runtime_error(who + "program over budget");
+        for (size_t i = 0; i < ni; ++i) {
+            const int* c = &code[i * 9];
+            for (int k = 0; k < 8; ++k)
+                if (c[k] < 0 || (k < 2 ? c[k] > 0xFF : c[k] > 0xFFFF))
+                    throw std::runtime_error(who + "field out of range at instruction " +
+                                             std::to_string(i));
+            if (c[8] < 0)
+                throw std::runtime_error(who + "negative resource index at instruction " +
+                                         std::to_string(i));
+            GraphInstr in{};
+            in.op = (uint8_t)c[0]; in.sub = (uint8_t)c[1]; in.dst = (uint16_t)c[2];
+            in.a = (uint16_t)c[3]; in.b = (uint16_t)c[4]; in.c = (uint16_t)c[5];
+            in.d = (uint16_t)c[6]; in.e = (uint16_t)c[7]; in.res = (uint32_t)c[8];
+            g.instrs.push_back(in);
+        }
+        for (size_t i = 0; i < consts.size(); i += 3)
+            g.consts.push_back(GVec3(consts[i], consts[i + 1], consts[i + 2]));
+        for (size_t i = 0; i < tableData.size(); i += 3)
+            g.tableData.push_back(GVec3(tableData[i], tableData[i + 1], tableData[i + 2]));
+        uint32_t off = 0;
+        for (size_t i = 0; i < tables.size(); i += 4) {
+            if (!(tables[i] >= 2.0f) || tables[i] > (float)GRAPH_MAX_TABLE_SIZE)
+                throw std::runtime_error(who + "bad table size");
+            GraphTable t{};
+            t.offset = off;
+            t.size = (uint32_t)tables[i];
+            t.minX = tables[i + 1];
+            t.rangeX = tables[i + 2];
+            t.extrapolate = tables[i + 3] != 0.0f ? 1u : 0u;
+            off += t.size;
+            g.tables.push_back(t);
+        }
+        if ((size_t)off != g.tableData.size())
+            throw std::runtime_error(who + "table data length mismatch");
+        g.desc.numInstr = (uint32_t)g.instrs.size();
+        g.desc.numConst = (uint32_t)g.consts.size();
+        g.desc.numTables = (uint32_t)g.tables.size();
+        g.desc.numTex = (uint32_t)inputNames.size();
+        g.desc.numSlots = (uint32_t)numSlots;
+        g.desc.outSlot = (uint32_t)outSlot;
+        std::vector<std::shared_ptr<Texture>> inputs;
+        std::vector<unsigned char> kinds;
+        for (size_t i = 0; i < inputNames.size(); ++i) {
+            auto in = getTexture(inputNames[i]);
+            if (!in) throw std::runtime_error(who + "unknown input texture " + inputNames[i]);
+            inputs.push_back(in);
+            kinds.push_back(inputKinds[i] ? 1 : 0);
+        }
+        graphTextures[name] = std::make_shared<GraphProgramTexture>(
+            std::move(inputs), std::move(kinds), std::move(g));
     }
     // pkg277 (#822): wrap a registered procedural in a coordinate program. The
     // wrapper carries coord_mode (+ Mapping via set_texture_mapping_matrix);
@@ -623,6 +705,18 @@ public:
         textureManager.setProgramTextureProgram(name, numTex, outSlot,
                                                 code_flat, consts_flat, ramps_flat);
         invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
+    }
+    void createGraphProgramTexture(const std::string& name, int version, int numSlots,
+                                   int outSlot, const std::vector<int>& code,
+                                   const std::vector<float>& consts,
+                                   const std::vector<float>& tables,
+                                   const std::vector<float>& tableData,
+                                   const std::vector<std::string>& inputNames,
+                                   const std::vector<int>& inputKinds) {
+        textureManager.createGraphProgramTexture(name, version, numSlots, outSlot, code,
+                                                 consts, tables, tableData, inputNames,
+                                                 inputKinds);
+        invalidateWavefrontScene();  // #981: new texture read by buildSceneArrays
     }
     void createCoordProgramTexture(const std::string& name, const std::string& childName,
                                    const std::string& coordMode, int outSlot,
@@ -3859,6 +3953,14 @@ PYBIND11_MODULE(astroray, m) {
              "pkg219b: set the compiled bytecode. code_flat = 8 ints/instr "
              "(op,out,a,b,c,d,e,imm); consts_flat = 3 floats/const; ramps_flat = "
              "numRamps*256*3 floats (baked Color-Ramp tables, RGB).")
+        .def("create_graph_program_texture", &PyRenderer::createGraphProgramTexture,
+             "name"_a, "version"_a, "num_slots"_a, "out_slot"_a, "code"_a, "consts"_a,
+             "tables"_a, "table_data"_a, "input_names"_a, "input_kinds"_a,
+             "pkg314: register a dynamic value program (shader_graph.h; built by "
+             "blender_addon/shader_graph_ir.py). code = 9 ints/instr (op,sub,dst,a,b,"
+             "c,d,e,res); tables = (size, min_x, range_x, extrapolate) per table over "
+             "table_data; input_kinds[i] = 1 for a computed-uv image input. Raises "
+             "on a version mismatch, malformed program or exceeded budget.")
         .def("create_coord_program_texture", &PyRenderer::createCoordProgramTexture,
              "name"_a, "child_name"_a, "coord_mode"_a, "out_slot"_a,
              "code_flat"_a, "consts_flat"_a, "ramps_flat"_a = std::vector<float>{},

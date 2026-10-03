@@ -1146,18 +1146,6 @@
       "socket_or_prop": "prop:space"
     },
     {
-      "bl_idname": "ShaderNodeFloatCurve",
-      "category": "shader_node",
-      "feature": "CURVE_FLOAT",
-      "socket_or_prop": "input:Factor"
-    },
-    {
-      "bl_idname": "ShaderNodeFloatCurve",
-      "category": "shader_node",
-      "feature": "CURVE_FLOAT",
-      "socket_or_prop": "input:Value"
-    },
-    {
       "bl_idname": "ShaderNodeLightFalloff",
       "category": "shader_node",
       "feature": "LIGHT_FALLOFF",
@@ -1270,18 +1258,6 @@
       "category": "shader_node",
       "feature": "NORMAL_MAP",
       "socket_or_prop": "prop:space"
-    },
-    {
-      "bl_idname": "ShaderNodeRGBCurve",
-      "category": "shader_node",
-      "feature": "CURVE_RGB",
-      "socket_or_prop": "input:Factor"
-    },
-    {
-      "bl_idname": "ShaderNodeRGBCurve",
-      "category": "shader_node",
-      "feature": "CURVE_RGB",
-      "socket_or_prop": "input:Color"
     },
     {
       "bl_idname": "ShaderNodeRadialTiling",
@@ -1450,18 +1426,6 @@
       "category": "shader_node",
       "feature": "UVMAP",
       "socket_or_prop": "prop:from_instancer"
-    },
-    {
-      "bl_idname": "ShaderNodeVectorCurve",
-      "category": "shader_node",
-      "feature": "CURVE_VEC",
-      "socket_or_prop": "input:Factor"
-    },
-    {
-      "bl_idname": "ShaderNodeVectorCurve",
-      "category": "shader_node",
-      "feature": "CURVE_VEC",
-      "socket_or_prop": "input:Vector"
     },
     {
       "bl_idname": "ShaderNodeVectorDisplacement",

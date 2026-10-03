@@ -12,6 +12,7 @@
 #include "astroray/gpu_types.h"
 #include "astroray/shader_vm.h"  // pkg219b — op-VM program + svm_eval
 #include "astroray/procedural_tex.h"  // #1007 — per-hit procedural point clamp
+#include "astroray/shader_graph.h"  // pkg314 — GRAPH_MAT_SLOTS (graph-kernel outputs)
 #include "astroray/gpu_materials.h"
 #include "astroray/gpu_bvh.h"
 #include "astroray/gpu_env_spectral.cuh"
@@ -1787,7 +1788,12 @@ __device__ __forceinline__ bool shadePathSlotImpl(
         // #989 — per-hit shading context for OP_SHADING (CPU twin: ProgramTexture::
         // valueAtHit): cos(view, shading normal) and the back-face flag.
         astroray::svm::SvmShading sh;
-        sh.cosI = (ray.direction * -1.0f).normalized().dot(rec.normal);
+        // pkg314: Cycles sd->N, i.e. the parked shading normal BEFORE the Bump /
+        // Normal Map perturbation above (verified against Cycles 5.2; CPU twin
+        // HitRecord::shadingContextNormal, GPU graph kernel stage_graph_eval.cu).
+        const GVec3 svmN(hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx],
+                         hitBufs.hit_normal_z[idx]);
+        sh.cosI = (ray.direction * -1.0f).normalized().dot(svmN);
         sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
         if (c_wfProgBinding.matScalarProgId && c_wfProgBinding.matScalarTexId) {
             const int base = rec.materialId * astroray::svm::VM_SCALAR_SLOTS;
@@ -1830,6 +1836,40 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                 matScalarOv.mat.baseColor = bc.c;
                 matScalarOv.mat.principled.color = bc.c;
                 matScalarOv.mat.closures[0].color = bc.c;
+            }
+        }
+        // pkg314 — graph value programs. The dedicated graph-evaluation kernel
+        // (stage_graph_eval.cu) ran this round's programs before this launch; read
+        // its per-path results (NaN = an input missed at this hit -> constant kept,
+        // as the op-VM path). CPU twin: GraphProgramTexture via the plugins' scalar
+        // programs / PrincipledPlugin::substituted.
+        if (c_wfProgBinding.matGraphProg) {
+            const int* gp = c_wfProgBinding.matGraphProg +
+                            rec.materialId * astroray::sgraph::GRAPH_MAT_SLOTS;
+            const float* go = c_wfProgBinding.graphOut;
+            const int gst = c_wfProgBinding.graphOutStride;
+            for (int slot = 0; slot < astroray::svm::VM_SCALAR_SLOTS; ++slot) {
+                if (gp[slot] < 0) continue;
+                const float v = go[slot * gst + idx];
+                if (isnan(v)) continue;
+                if (!anyOverride) {
+                    matScalarOv.mat = materials[rec.materialId];
+                    anyOverride = true;
+                }
+                gpu_applyScalarOverride(matScalarOv.mat, slot, v);
+            }
+            if (gp[astroray::sgraph::GRAPH_SLOT_BASE_COLOR] >= 0 &&
+                gpu_closure_graph_is_principled(materials[rec.materialId])) {
+                const GVec3 c(go[4 * gst + idx], go[5 * gst + idx], go[6 * gst + idx]);
+                if (!isnan(c.x)) {
+                    if (!anyOverride) {
+                        matScalarOv.mat = materials[rec.materialId];
+                        anyOverride = true;
+                    }
+                    matScalarOv.mat.baseColor = c;
+                    matScalarOv.mat.principled.color = c;
+                    matScalarOv.mat.closures[0].color = c;
+                }
             }
         }
         if (anyOverride) matPtr = &matScalarOv.mat;
@@ -1881,6 +1921,27 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     if constexpr (HasTexture) {
         const int* matTexId = c_wfTexBinding.matTexId;
         int texId = matTexId[rec.materialId];
+        // pkg314 — a textured lambertian whose base colour is a graph value
+        // program (texId -1): the graph-evaluation kernel's per-path result, then
+        // the SAME albedo swap as the texture path below (scene_upload neutralises
+        // baseColor to (1,1,1) for it as for any textured lambertian).
+        if constexpr (HasProgram) {
+            const int* gp = c_wfProgBinding.matGraphProg;
+            if (texId < 0 && gp && !gpu_closure_graph_is_principled(mat) &&
+                gp[rec.materialId * astroray::sgraph::GRAPH_MAT_SLOTS +
+                   astroray::sgraph::GRAPH_SLOT_BASE_COLOR] >= 0) {
+                const float* go = c_wfProgBinding.graphOut;
+                const int gst = c_wfProgBinding.graphOutStride;
+                const GVec3 gc(go[4 * gst + idx], go[5 * gst + idx], go[6 * gst + idx]);
+                if (!isnan(gc.x)) {
+                    GSampledSpectrum texUp = gpu_rgbToSampledSpectrum(gc, lambdas, mat.spectralMode);
+                    GSampledSpectrum baseUp =
+                        gpu_rgbToSampledSpectrum(mat.baseColor, lambdas, mat.spectralMode);
+                    for (int s = 0; s < G_SPECTRUM_SAMPLES; ++s)
+                        throughput.v[s] *= texUp[s] / fmaxf(baseUp[s], 1e-4f);
+                }
+            }
+        }
         // #988: a Principled base-colour texture was already substituted into the
         // material above (HasProgram block); the lambertian swap must not re-apply it.
         if (texId >= 0 && !gpu_closure_graph_is_principled(mat)) {
@@ -1977,7 +2038,9 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                         if (haveTex) {
                             // #989: same per-hit shading context as the override block.
                             astroray::svm::SvmShading shL;
-                            shL.cosI = (ray.direction * -1.0f).normalized().dot(rec.normal);
+                            shL.cosI = (ray.direction * -1.0f).normalized().dot(GVec3(
+                                hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx],
+                                hitBufs.hit_normal_z[idx]));  // pkg314: sd->N, pre-bump
                             shL.backfacing = rec.frontFace ? 0.0f : 1.0f;
                             texColor = astroray::svm::svm_eval(
                                 c_wfProgBinding.programs[progId], vmIn, &shL);

@@ -240,3 +240,22 @@ sphere at z = 0.9) / #881 / #993. Marble GPU 8/16 re-pointed to #1006 (the CPU's
   | multifractal / ridged | negative | 0.88 / 0.92 (slope 1.00 below albedo 0.9: Astroray clamps Diffuse albedo > 1) |
 * Lesson: tiles at different heights shade each other's sky (r 0.94-0.98 with occlusion vs 0.999 coplanar); probes
   that isolate a texture need coplanar geometry under a uniform world.
+
+## After lane at-n2 (pkg314 graph IR + value programs, #993, #992; build 7a4efb91, 2026-10-03)
+
+| Material | CPU in band (post-#1023) | GPU in band (post-#1023) | Still blocked by |
+|---|---|---|---|
+| prod_wood | 7/16 (4) | 7/16 (3) | #1006 / #881 ring phase and spacing (grain_center B 0.90-0.92x, lower 1.13-1.16x) |
+| prod_curves_geometry | 0/16 (0) | 3/16 (2) | Pointiness (Base Color chain Noise -> RGB Curves -> Mix is reported, not evaluated) |
+| others | unchanged | unchanged | as above |
+
+* #993: the wood Roughness chain compiles (4 peak slots with last-use reuse; the op-VM's monotonic allocator needed > 8) and
+  runs as a graph program on both backends; no `VM_MAX_SLOTS` report. grain_left in band, grain_right L 1.00 (CPU).
+  The spurious sharp sun highlight (constant roughness) is gone on both backends (contact sheet).
+* #992: Float Curve / RGB Curves / Vector Curves are graph opcodes (Cycles `svm_node_curve(s)`, 257-entry LUT,
+  extrapolation, combined-curve composition, factor). prod_curves_geometry Roughness (Noise -> Float Curve -> ...)
+  evaluates; its Base Color chain stays reported because it also reads Pointiness.
+* IR stats for every production + corpus v2 program root: `.astroray_plan/docs/pkg314-ir-stats.md` (largest program
+  9 instructions / 5 slots; max closures 4, prod_shader_stack).
+* No strict xfail removed: every material keeps a residual cause. prod_attributes' Base Color chain needs 10 op-VM
+  slots: it routes to a graph program once lane at-n1 (#990) lands (whichever PR merges second re-runs it).

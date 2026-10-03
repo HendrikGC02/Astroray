@@ -46,7 +46,7 @@ reason = "motion-blurred vane too narrow (0.80-0.83 of Cycles)"
 scene = "v2_camera_geometry"
 backend = "gpu_cpu"
 roi = "motion_vane"
-channels = ["r", "L"]
+channels = ["r"]
 issue = "#947"
 reason = "motion-blurred vane too narrow (0.80-0.83 of Cycles)"
 

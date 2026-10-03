@@ -2587,10 +2587,11 @@ inline float shadowTransmittance(const Hittable& bvh, const Ray& shadowRay,
     Vec3 origin = shadowRay.origin;
     const Vec3 dir = shadowRay.direction;  // Ray ctor already normalized it
     float remaining = maxDist;
+    const Hittable* selfPrim = shadowRay.self;  // #1037: primitive the hop leaves
     for (int hop = 0; hop < maxHops; ++hop) {
         HitRecord shadow;
         Ray hop_ray(origin, dir, shadowRay.time);
-        hop_ray.self = shadowRay.self;  // #1037: still leaving the shading primitive
+        hop_ray.self = selfPrim;
         if (!bvh.hit(hop_ray, 0.001f, remaining - 0.001f, shadow))
             return Tr;  // unobstructed to the light
         if (shadow.hitObject && shadow.hitObject->isInfiniteLight())
@@ -2602,6 +2603,7 @@ inline float shadowTransmittance(const Hittable& bvh, const Ray& shadowRay,
         float advance = shadow.t + 1e-3f;
         origin = origin + dir * advance;
         remaining -= advance;
+        selfPrim = shadow.hitObject;  // #1037: Cycles shadow walk skips the last transparent hit
         if (remaining <= 0.001f) return Tr;
     }
     return Tr;  // exhausted transparent-shadow bounce budget

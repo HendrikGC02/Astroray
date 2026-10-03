@@ -836,6 +836,7 @@ __device__ inline float gpu_shadow_transmittance(
         float advance = sh.t + 1e-3f;
         origin = origin + dir * advance;
         remaining -= advance;
+        skipPrim = sh.primId;  // #1037: Cycles shadow walk skips the last transparent hit (non-curve ids are inert)
         if (remaining <= 0.001f) return Tr;
     }
     return Tr;  // exhausted transparent-shadow bounce budget

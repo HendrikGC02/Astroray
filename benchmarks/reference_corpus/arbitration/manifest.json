@@ -4,7 +4,7 @@
    "family": "arb_prism_sun",
    "builder_fn": "build_scene",
    "blend_path": "benchmarks/reference_corpus/arbitration/scenes/arb_prism_sun.blend",
-   "sha256": "e66c593605685c73b29ec0c86e589c8a779bba512376a0dec68bc69ac376d311",
+   "sha256": "b307e631561a50e7647c06421e481c577bcecfee379f1f92f60970d660773d54",
    "settings": {
     "res_x": 320,
     "res_y": 180,
@@ -26,7 +26,7 @@
    },
    "assets": [],
    "crops": {
-    "floor_caustic": [
+    "prism_sun_glint": [
      0.3004,
      0.2754,
      0.3804,
@@ -49,6 +49,24 @@
      0.235,
      0.6175,
      0.4128
+    ],
+    "floor_rainbow": [
+     0.4955,
+     0.3369,
+     0.5355,
+     0.408
+    ],
+    "floor_tir_beam": [
+     0.1319,
+     0.3892,
+     0.1719,
+     0.4603
+    ],
+    "floor_reflection_beam": [
+     0.3148,
+     0.6502,
+     0.3548,
+     0.7213
     ]
    }
   },

@@ -47,6 +47,10 @@ struct PhotonCausticAim {
     float lambdaMax;       // 720 nm
     int   maxDepth;        // refraction-bounce cap (CPU maxDepth_)
     float boost;           // artistic multiplier on the physical caustic (default 1.0)
+    // #959: Renderer::useReflectiveCaustics. Off: a photon that reflects off a caster
+    // (Fresnel or TIR) is dropped, as the path tracer's caustic gate drops the delta
+    // reflection after a diffuse vertex, so photons ON and OFF stay one estimator.
+    bool  reflective;
     bool  valid;           // false → no casters / no emitting lamps → skip the pre-pass
     // pkg220: per-iteration decorrelation seed for the photon jitter (#909: a
     // fresh seed per photon round); the aim geometry stays deterministic.

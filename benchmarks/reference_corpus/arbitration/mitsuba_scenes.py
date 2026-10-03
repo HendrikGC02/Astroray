@@ -44,7 +44,9 @@ PARAMS = {
     "arb_prism_sun": {
         "doc": "SF11 prism under a 4 degree sun, diffuse floor: dispersive floor caustic (Cycles has no dispersion).",
         "floor_albedo": (0.15, 0.15, 0.15),
-        "prism": {"loc": (-0.4, 0.3, 0.0), "side": 0.8, "length": 1.3, "rot_z_deg": -33.0, "glass": SF11, "ior_d": 1.7847},
+        # loc z 5 mm (#1025): a base coplanar with the floor top z-fights; the light that TIRs off the base (the whole
+        # prism_sun_glint ROI) then survives ~50 % of the time, at a different rate in every engine.
+        "prism": {"loc": (-0.4, 0.3, 0.005), "side": 0.8, "length": 1.3, "rot_z_deg": -33.0, "glass": SF11, "ior_d": 1.7847},
         "sun": {"elev_deg": 22.0, "az_deg": -12.0, "angle_deg": 4.0, "strength": 9.0, "color": (1.0, 1.0, 1.0)},
         "camera": {"loc": (3.4, -4.6, 3.0), "target": (1.0, 0.2, 0.2), "lens": 32.0},
         "max_depth": 16,
@@ -171,8 +173,9 @@ def build_dict(sid: str, mi, work: Path, res=RES, spp: int = 64, lamp_scale: flo
             d["prism"]["bsdf"]["ior"] = str(pr["ior_d"])
         elif prism_bsdf == "builtin":
             d["prism"]["bsdf"] = {"type": "dielectric", "int_ior": pr["ior_d"]}
-        # Sun = a far sphere of angular half-angle angle/2 (the 4 degree Blender angle is a full angle).
-        dist, half = 100.0, math.radians(s["angle_deg"] / 2.0)
+        # Sun = a far sphere of angular half-angle angle/2 (the 4 degree Blender angle is a full angle). 1e4 m (#1025): at
+        # 100 m the disc shifts ~0.3 deg across the scene, which moved the prism_sun_glint ROI 15 % vs a distant sun.
+        dist, half = 1.0e4, math.radians(s["angle_deg"] / 2.0)
         dvec = sun_direction(s)
         pos = [-dist * dvec[i] for i in range(3)]
         e_norm = math.pi * math.sin(half) ** 2  # normal irradiance of a uniform disc of radiance 1 and angular half-width ``half``

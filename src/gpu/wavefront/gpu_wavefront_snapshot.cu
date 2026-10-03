@@ -1533,6 +1533,7 @@ static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
     aim.boost     = scene.getPhotonCausticBoost();   // pkg286: artistic, default 1.0
     aim.photonCount = 4000000;  // forward photons; CPU traces 3e6
     aim.seed        = seed;     // pkg220: per-iteration photon-jitter decorrelation seed
+    aim.reflective  = scene.getUseReflectiveCaustics();   // #959
 
     // Union AABB of all flagged caustic-caster objects.
     AABB casterBounds; bool any = false;
@@ -1548,6 +1549,13 @@ static astroray::photon::gpu::PhotonCausticAim buildCausticAim(
     const auto& lights = scene.getLights();
     if (lights.empty()) return aim;
     aim.lights = astroray::photon::buildPhotonLights(lights, casterBounds, aim.photonCount);
+    // #959: the #909 split cull is a 32-bit lamp mask; a lamp past it would be both
+    // in the map and path traced. Its caustic stays path traced (unbiased) instead.
+    aim.lights.erase(std::remove_if(aim.lights.begin(), aim.lights.end(),
+                                    [](const astroray::photon::PhotonLight& L) {
+                                        return L.emitter.lightIndex >= 32;
+                                    }),
+                     aim.lights.end());
     aim.valid = !aim.lights.empty();
     return aim;
 }

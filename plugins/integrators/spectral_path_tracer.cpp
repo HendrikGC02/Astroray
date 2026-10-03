@@ -63,6 +63,7 @@ class SpectralPathTracer : public Integrator {
     int  sphereChainRefl_ = 0; // pkg227: sphere internal-reflection rainbow depth (0=off)
     amf::SMSConfig smsCfg_;
     std::string causticMode_; // pkg111: "none", "sms" (default), or "photon_map"
+    bool photonMode_ = false; // #959: photon map built this frame (photon_map or usePhotonCaustics)
     // pkg125: band awareness. Mirrors multiwavelength_path_tracer.cpp:22-23,45-46
     // — read the wavelength range Renderer::setWavelengthRange wrote into
     // integratorParams_ ("lambda_min"/"lambda_max", raytracer.h:2160-2162) so
@@ -153,8 +154,14 @@ public:
         photonMapReady_ = false;  // pkg111
 
         // pkg111: if caustics == "photon_map", build the photon map here (before
-        // the camera pass). Otherwise, fall through to the SMS path.
-        if (causticMode_ == "photon_map") {
+        // the camera pass). Otherwise, fall through to the SMS path. #959: the
+        // renderer-level usePhotonCaustics switch (the addon sets it whenever a
+        // caster is flagged; the GPU pre-pass keys on it) selects the same map on
+        // the CPU, so both backends run one estimator. Without it a point/spot
+        // lamp's caustic is unreachable here (a path-traced ray cannot hit it).
+        photonMode_ = causticMode_ == "photon_map" ||
+                      (causticMode_ != "none" && scene.getUsePhotonCaustics());
+        if (photonMode_) {
             buildPhotonMap(scene);
         } else if (scene.getUseRefractiveCaustics()) {
             // SMS path: per-object opt-in: only flagged objects participate.
@@ -166,7 +173,7 @@ public:
 
     std::unordered_map<std::string, float> debugStats() const override {
         // pkg111: report photon map stats when in photon_map mode.
-        if (causticMode_ == "photon_map") {
+        if (photonMode_) {
             return {
                 {"pm_ready",          photonMapReady_ ? 1.0f : 0.0f},
                 {"pm_stored_photons", static_cast<float>(photonMap_.size())},
@@ -297,8 +304,11 @@ public:
         // pkg111: Add photon-mapped caustic at the first diffuse hit (when ready).
         if (photonMapReady_ && bvh) {
             HitRecord rec;
+            // #959: receivers only — a caster surface holds no photons, and the
+            // split chain (pathTraceSpectral) starts only at a non-caster receiver.
             if (bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec) &&
-                rec.material && !rec.material->isEmissive()) {
+                rec.material && !rec.material->isEmissive() &&
+                !rec.material->isTransmissive()) {
                 // k-NN density estimate (Jensen 1996 Eq. 8) at ANY diffuse surface.
                 astroray::XYZ E = photonMap_.estimateIrradiance(
                     rec.point, photonGatherK_, photonGatherRadius_);
@@ -509,7 +519,10 @@ private:
             astroray::photon::buildPhotonLights(lights, casterBounds, photonCount);
         if (emitters.empty()) return;
 
-        std::mt19937 gen(12345u);
+        // #959: decorrelate maps across render seeds (GPU pkg220 twin); one RNG
+        // stream per (light, chunk) so the OpenMP trace is thread-count independent.
+        const uint32_t seedBase = 12345u ^ (static_cast<uint32_t>(scene.getSeed()) * 0x9E3779B9u);
+        const bool reflective = scene.getUseReflectiveCaustics();   // #959
         std::vector<astroray::photon::Photon> photons;
         photons.reserve(photonCount / 2);
         const float eps = 1e-3f;
@@ -520,55 +533,83 @@ private:
         const Material* prismMat = amf::gatherTriangleCasters(scene, tris);
         const bool flatPrism = (prismMat != nullptr) && countDistinctCasterPlanes(tris) == 2;
 
-        auto deposit = [&](const HitRecord& rec, const Vec3& d, float lambda, float w) {
-            // pkg286: no receiver cosine — the photon hit density already carries it.
-            astroray::XYZ cmf = astroray::cieCmf1931_2deg(lambda);
-            astroray::photon::Photon ph;
-            ph.position = rec.point;
-            ph.incidentDir = d;
-            ph.power = astroray::XYZ{cmf.X * w, cmf.Y * w, cmf.Z * w};
-            ph.lambda = lambda;
-            photons.push_back(ph);
-        };
-
-        for (const auto& L : emitters) {
+        const int kChunk = 1 << 16;
+        for (size_t li = 0; li < emitters.size(); ++li) {
+            const auto& L = emitters[li];
             const bool prismPath =
                 flatPrism && L.emitter.kind == astroray::photon::kPeDistant;
-            for (int p = 0; p < L.count; ++p) {
+            const int nChunks = (L.count + kChunk - 1) / kChunk;
+            std::vector<std::vector<astroray::photon::Photon>> chunkOut(nChunks);
+            #pragma omp parallel for schedule(dynamic, 1)
+            for (int c = 0; c < nChunks; ++c) {
+            std::mt19937 gen(seedBase ^ (0x85EBCA6Bu * static_cast<uint32_t>(li * 65536u + c + 1u)));
+            std::uniform_real_distribution<float> u01(0.0f, 1.0f);
+            auto& out = chunkOut[c];
+            auto deposit = [&](const HitRecord& rec, const Vec3& d, float lambda, float w) {
+                // pkg286: no receiver cosine — the photon hit density already carries it.
+                astroray::XYZ cmf = astroray::cieCmf1931_2deg(lambda);
+                astroray::photon::Photon ph;
+                ph.position = rec.point;
+                ph.incidentDir = d;
+                ph.power = astroray::XYZ{cmf.X * w, cmf.Y * w, cmf.Z * w};
+                ph.lambda = lambda;
+                out.push_back(ph);
+            };
+            const int pEnd = std::min(L.count, (c + 1) * kChunk);
+            for (int p = c * kChunk; p < pEnd; ++p) {
                 Vec3 o, d;
                 float lambda;
                 const float w = astroray::photon::emitPhoton(L, gen, o, d, lambda);
                 if (!(w > 0.0f)) continue;
+                bool passedCaster = false;
                 if (prismPath) {
                     // Explicit 2-face prism (mirrors light_tracer_caustic.cpp:238-275).
+                    // #959: the same Fresnel roulette as the general loop below; a
+                    // reflected photon continues there (the split culls every caster
+                    // chain, so a dropped reflection would be missing energy).
                     const float ior = prismMat->iorAt(lambda);
                     if (ior <= 1.0f) continue;
                     Vec3 n1;
                     float t1 = nearestCaster(tris, o, d, n1);
                     if (t1 < 0) continue;
                     Vec3 p1 = o + d * t1;
-                    float tr = astroray::photon::peFresnelTransmit(d.dot(n1), 1.0f / ior);
                     Vec3 d1;
-                    if (!refract(d, n1, 1.0f / ior, d1)) continue;
-                    Vec3 n2;
-                    float t2 = nearestCaster(tris, p1 + d1 * 1e-4f, d1, n2);
-                    if (t2 < 0) continue;
-                    Vec3 p2 = p1 + d1 * (t2 + 1e-4f);
-                    tr *= astroray::photon::peFresnelTransmit(d1.dot(n2), ior);
-                    Vec3 d2;
-                    if (!refract(d1, n2, ior, d2)) continue;
-                    HitRecord rec;
-                    if (!bvh->hit(Ray(p2 + d2 * eps, d2), eps, std::numeric_limits<float>::max(), rec))
-                        continue;
-                    if (!rec.material || rec.material->isEmissive()) continue;
-                    if (rec.hitObject && rec.hitObject->isCausticCaster()) continue;
-                    // pkg111: REMOVED the `rec.normal.y < 0.7f` gate — deposit on ANY diffuse surface.
-                    deposit(rec, d2, lambda, w * tr);
-                    continue;
+                    const float T1 = astroray::photon::peFresnelTransmit(d.dot(n1), 1.0f / ior);
+                    if (!(u01(gen) < T1 && refract(d, n1, 1.0f / ior, d1))) {
+                        if (!reflective) continue;
+                        d = (d - n1 * (2.0f * d.dot(n1))).normalized();
+                        o = p1 + d * eps;
+                        passedCaster = true;
+                    } else {
+                        Vec3 n2;
+                        float t2 = nearestCaster(tris, p1 + d1 * 1e-4f, d1, n2);
+                        if (t2 < 0) continue;
+                        Vec3 p2 = p1 + d1 * (t2 + 1e-4f);
+                        Vec3 d2;
+                        const float T2 = astroray::photon::peFresnelTransmit(d1.dot(n2), ior);
+                        if (!(u01(gen) < T2 && refract(d1, n2, ior, d2))) {
+                            if (!reflective) continue;
+                            d = (d1 - n2 * (2.0f * d1.dot(n2))).normalized();
+                            o = p2 + d * eps;
+                            passedCaster = true;
+                        } else {
+                            HitRecord rec;
+                            if (!bvh->hit(Ray(p2 + d2 * eps, d2), eps, std::numeric_limits<float>::max(), rec))
+                                continue;
+                            if (!rec.material || rec.material->isEmissive()) continue;
+                            if (rec.hitObject && rec.hitObject->isCausticCaster()) continue;
+                            // pkg111: REMOVED the `rec.normal.y < 0.7f` gate — deposit on ANY diffuse surface.
+                            deposit(rec, d2, lambda, w);
+                            continue;
+                        }
+                    }
                 }
-                // General BVH loop (curved/solid glass).
-                float tr = 1.0f;
-                bool passedCaster = false;
+                // General BVH loop (curved/solid glass). #959: at each caster hit the
+                // photon reflects with probability R (exact Fresnel, 1 on TIR), else
+                // refracts; power unchanged (Jensen 2001 §5 Russian roulette, pbrt-v3
+                // FresnelSpecular::Sample_f, BSD-2). The map then holds every caster
+                // chain L S+ D, which is exactly what pathTraceSpectral's split culls.
+                // Research: .astroray_plan/docs/caustic-photon-fresnel-split-research.md
                 const Hittable* selfPrim = nullptr;  // #1037: primitive the ray leaves
                 for (int bounce = 0; bounce < maxDepth_; ++bounce) {
                     HitRecord rec;
@@ -597,10 +638,14 @@ private:
                             eta = ior;
                         }
                         Vec3 nd;
-                        if (refract(d, nf, eta, nd)) {
-                            tr *= astroray::photon::peFresnelTransmit(d.dot(nf), eta);
+                        const float T = astroray::photon::peFresnelTransmit(d.dot(nf), eta);
+                        if (u01(gen) < T && refract(d, nf, eta, nd)) {
                             d = nd;
                         } else {
+                            // Reflective caustics off: drop every reflected photon
+                            // (TIR too), as pathTraceSpectral's caustic gate drops the
+                            // delta reflection after a diffuse vertex.
+                            if (!reflective) break;
                             d = (d - nf * (2.0f * d.dot(nf))).normalized();
                         }
                         passedCaster = true;
@@ -609,10 +654,12 @@ private:
                         continue;
                     }
                     // pkg111: REMOVED `rec.normal.y > 0.7f` — deposit on ANY diffuse receiver.
-                    if (passedCaster && tr > 0.0f) deposit(rec, d, lambda, w * tr);
+                    if (passedCaster) deposit(rec, d, lambda, w);
                     break;
                 }
             }
+            }
+            for (auto& v : chunkOut) photons.insert(photons.end(), v.begin(), v.end());
         }
         if (photons.size() < 16) return;
         for (const auto& p : photons) photonFluxY_ += p.power.Y;

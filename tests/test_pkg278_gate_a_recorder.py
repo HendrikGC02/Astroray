@@ -257,14 +257,27 @@ def test_gate_manifest_rejects_wrong_device_truncation_and_forged_summary(tmp_pa
 
 # --- pkg291: worker-OFF reducer + table grading -----------------------------
 def test_sync_reducer_requires_a_correct_synchronous_present():
+    root = _pixel_artifacts()
+    raw = []
+    for label, ts in (("pre", 500_000), ("post", 40_000_000)):
+        path = root / f"sync-{label}.png"
+        path.write_bytes(PNG + label.encode())
+        raw.append({"name": "viewport_pixels", "generation": None, "epoch": None, "t_ns": ts,
+                    "extra": {"label": label, "path": str(path), "event_id": 1,
+                              "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}})
     ok = {"event_id": 1, "dispatch_ns": 1_000_000, "correct_present_ns": 31_000_000,
-          "sync": True}
-    red = DRV.reduce_gate_a_sync_capture([ok])
+          "sync": True, "input_fingerprint": [0.7, 0.2], "sync_render_fingerprint": [0.7, 0.2]}
+    red = DRV.reduce_gate_a_sync_capture([ok], raw)
     assert red["complete"] and red["rows"][0]["present_ns"] == 31_000_000
     for bad in ({**ok, "sync": False}, {**ok, "correct_present_ns": None},
-                {**ok, "correct_present_ns": 0}):
-        assert DRV.reduce_gate_a_sync_capture([bad])["errors"]
-    assert DRV.reduce_gate_a_sync_capture([ok], truncated=True)["errors"]
+                {**ok, "correct_present_ns": 0},
+                {**ok, "sync_render_fingerprint": [0.3, 0.2]},     # render saw the OLD input
+                {**ok, "correct_present_ns": 50_000_000}):         # post capture precedes it
+        assert DRV.reduce_gate_a_sync_capture([bad], raw)["errors"]
+    assert DRV.reduce_gate_a_sync_capture([ok], [])["errors"]          # no pixel evidence
+    forged = [dict(raw[0]), {**raw[1], "extra": {**raw[1]["extra"], "sha256": "0" * 64}}]
+    assert DRV.reduce_gate_a_sync_capture([ok], forged)["errors"]
+    assert DRV.reduce_gate_a_sync_capture([ok], raw, truncated=True)["errors"]
 
 
 def _row(ms):
@@ -277,6 +290,7 @@ def test_gate_a_cell_grading():
                          "stale_frames_after_ack": 0}]}
     c = DRV.summarize_gate_a_cell([fast], scene_tris=100000, kind="transform", worker=True)
     assert c["gate_pass"] and c["transform_target_pass"] is False   # 20 ms is not < 20
+    assert c["verdict_pass"] is False                                # pkg291 target folds in
     stale = {**fast, "cancels": [{**fast["cancels"][0], "stale_frames_after_ack": 1}]}
     assert not DRV.summarize_gate_a_cell([stale], scene_tris=10000, kind="material",
                                          worker=True)["gate_pass"]

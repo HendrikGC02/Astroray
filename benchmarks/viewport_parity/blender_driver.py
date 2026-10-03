@@ -1356,19 +1356,48 @@ _SET_WORKER = (
     "result = {'env': os.environ['ASTRORAY_VIEWPORT_WORKER']}\n")
 
 
-def reduce_gate_a_sync_capture(edits, *, truncated=False):
-    """pkg291: worker OFF has no generation stream. The recorder marks an edit
-    `sync` and records `correct_present_ns` = the first POST_PIXEL present after
-    a render_viewport_frame that STARTED after dispatch (the synchronous path
-    renders the edited state before presenting). There is no in-flight render to
-    cancel and no stale publication, so the cancel / stale columns are N/A."""
+def _pixel_evidence_ok(raw_events, event_id, present_ns, artifact_root=None):
+    """pre/post framebuffer captures exist for this edit, are real PNGs whose
+    SHA-256 matches the recorded digest, pre precedes the edit's present and post
+    follows it."""
+    pix = {}
+    for raw in raw_events:
+        name, _gen, ts, _epoch, extra = _gate_a_event(raw)
+        if name == "viewport_pixels" and extra.get("event_id") == event_id:
+            pix[extra.get("label")] = (ts, extra)
+    if set(pix) != {"pre", "post"} or pix["post"][0] < present_ns or pix["pre"][0] > present_ns:
+        return False
+    for _ts, extra in pix.values():
+        path, digest = extra.get("path"), extra.get("sha256")
+        target = Path(path) if isinstance(path, str) else None
+        if target is not None and not target.is_absolute() and artifact_root is not None:
+            target = Path(artifact_root) / target
+        if target is None or not target.is_file() or not isinstance(digest, str):
+            return False
+        blob = target.read_bytes()
+        if not blob.startswith(b"\x89PNG\r\n\x1a\n") or hashlib.sha256(blob).hexdigest() != digest:
+            return False
+    return True
+
+
+def reduce_gate_a_sync_capture(edits, raw_events=(), *, truncated=False, artifact_root=None):
+    """pkg291: worker OFF has no generation stream. The recorder binds an edit's
+    `correct_present_ns` to the first POST_PIXEL present after a
+    render_viewport_frame that STARTED after dispatch AND saw the edited input
+    (`sync_render_fingerprint` == the edit's `input_fingerprint`); the reducer
+    re-checks that binding and the pre/post framebuffer evidence. There is no
+    in-flight render to cancel and no stale publication, so the cancel / stale
+    columns are N/A."""
     errors, rows = [], []
     if truncated:
         errors.append("capture truncated")
     for e in edits:
         d, present = e.get("dispatch_ns"), e.get("correct_present_ns")
         if (not e.get("sync") or not isinstance(d, int) or not isinstance(present, int)
-                or present < d):
+                or present < d or "input_fingerprint" not in e
+                or e.get("sync_render_fingerprint") != e.get("input_fingerprint")
+                or not _pixel_evidence_ok(raw_events, e.get("event_id"), present,
+                                          artifact_root)):
             errors.append(f"edit {e.get('event_id')!r} has no correct synchronous present")
             continue
         rows.append({"event_id": e.get("event_id"), "event_ns": d, "present_ns": present,
@@ -1403,8 +1432,11 @@ def summarize_gate_a_cell(reductions, *, scene_tris, kind, worker):
         ok = (ok and bool(canc) and cell["cancel_p95_ms"] <= t["cancel_p95_ms"]
               and cell["cancel_p99_ms"] <= t["cancel_p99_ms"] and stale == 0)
     cell["gate_pass"] = ok
+    # pkg291's own target: a 100k-scene object move presents in < 20 ms p95. It
+    # is graded separately from gate (a) and folded into `verdict_pass`.
     if kind == "transform" and scene_tris >= 100000:
         cell["transform_target_pass"] = bool(lat) and cell["p95_ms"] < TRANSFORM_100K_P95_MS
+    cell["verdict_pass"] = ok and cell.get("transform_target_pass", True)
     return cell
 
 
@@ -1450,7 +1482,8 @@ def run_gate_a_table(args):
                     if (worker == "on") == sync:
                         raise RuntimeError(f"{wl['name']}/{kind}: worker={worker} but the "
                                            f"capture {'was' if sync else 'was not'} synchronous")
-                    red = (reduce_gate_a_sync_capture(res["events"], truncated=res["truncated"])
+                    red = (reduce_gate_a_sync_capture(res["events"], res["raw_events"],
+                                                      truncated=res["truncated"])
                            if sync else reduce_gate_a_capture(res["raw_events"], res["events"],
                                                               truncated=res["truncated"]))
                     devices = None if sync else _actual_gpu_devices(res["raw_events"])
@@ -1482,18 +1515,18 @@ def write_gate_a_table(doc, out_dir):
     def f(v):
         return "n/a" if v is None else f"{v:.1f}"
     lines = ["| scene | edit | worker | events | p50 ms | p95 ms | p99 ms | cancel p95 / p99 ms "
-             "| stale after ack | chain errors | gate (a) |",
-             "|---|---|---|---|---|---|---|---|---|---|---|"]
+             "| stale after ack | chain errors | gate (a) | 100k move < 20 ms |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for c in doc["cells"]:
-        verdict = "PASS" if c["gate_pass"] else "FAIL"
-        if "transform_target_pass" in c:
-            verdict += f" (<20 ms: {'PASS' if c['transform_target_pass'] else 'FAIL'})"
+        target = c.get("transform_target_pass")
         stale = c["stale_frames_after_ack"]
         lines.append(
             f"| {c['scene_tris'] // 1000}k | {c['kind']} | {'ON' if c['worker'] else 'OFF'} "
             f"| {c['events']} | {f(c['p50_ms'])} | {f(c['p95_ms'])} | {f(c['p99_ms'])} "
             f"| {f(c['cancel_p95_ms'])} / {f(c['cancel_p99_ms'])} "
-            f"| {'n/a' if stale is None else stale} | {c['errors']} | {verdict} |")
+            f"| {'n/a' if stale is None else stale} | {c['errors']} "
+            f"| {'PASS' if c['gate_pass'] else 'FAIL'} "
+            f"| {'n/a' if target is None else ('PASS' if target else 'FAIL')} |")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "latency_table.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     sys.path.insert(0, str(_REPO / "tests"))

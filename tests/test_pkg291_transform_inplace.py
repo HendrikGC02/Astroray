@@ -131,7 +131,7 @@ def test_transform_100k_wall_time_under_10ms():
         t0 = time.perf_counter()
         assert a.transform_object_range(start, n, d if i % 2 == 0 else inv)
         times.append((time.perf_counter() - t0) * 1e3)
-    assert min(times) < 10.0, times
+    assert sorted(times)[len(times) // 2] < 10.0, times   # median, not the best case
 
 
 def test_cpu_render_after_move_matches_fresh_scene():
@@ -213,7 +213,7 @@ def test_gpu_patched_move_100k_faster_than_reflatten():
         a.render(1, 3, None, False)
         full.append((time.perf_counter() - t0) * 1e3)
     print(f"[pkg291] 100k move+render ms patched={sorted(patched)} full={sorted(full)}")
-    assert min(patched) < min(full)
+    assert sorted(patched)[len(patched) // 2] < sorted(full)[len(full) // 2]
 
 
 # ------------------------------------------------- exporter dispatch (bpy-free)

@@ -242,6 +242,9 @@ def _install():
 
     def w_render(self, *a, **k):
         e = time.perf_counter()
+        # pkg291: the edited input as this synchronous render sees it, so a
+        # worker-OFF "correct present" is bound to a render of THIS edit.
+        fp = input_fingerprint() if GATE_A else None
         try:
             return o_render(self, *a, **k)
         finally:
@@ -249,7 +252,7 @@ def _install():
             # at (self is the Exporter instance) so the driver can report the
             # effective interactive-resolution divisor engaged per event class.
             div = getattr(self, "_viewport_render_divisor", None)
-            S["renders"].append((e, time.perf_counter(), div))
+            S["renders"].append((e, time.perf_counter(), div, fp))
 
     eng_cls.view_draw = w_draw
     eng_cls.view_update = w_update
@@ -407,9 +410,12 @@ def _install():
         correct frame is the first POST_PIXEL present at/after the end of a
         render_viewport_frame that STARTED after dispatch."""
         d = pending["dispatch_ns"] / 1e9
-        rnd = next((r for r in S["renders"] if r[0] >= d), None)
+        want = pending.get("input_fingerprint")
+        rnd = next((r for r in S["renders"] if r[0] >= d and r[3] == want), None)
         if rnd is None:
             return None
+        pending["sync_render_fingerprint"] = rnd[3]
+        pending["sync_render_end_ns"] = int(rnd[1] * 1e9)
         return next((p for p in S["presents"] if p >= rnd[1]), None)
 
     def _correct_presented(pending):

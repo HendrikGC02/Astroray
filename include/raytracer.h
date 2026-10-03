@@ -5272,9 +5272,10 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         // #802 Batch A item 4 - Render Region: clear pixels outside the rect to
         // 0 / alpha 0 (Cycles crop-off semantics) BEFORE the trace loop, which
         // then skips them. Only runs when a region is active, so the default
-        // render path is byte-identical. Not cleared (zero on a fresh Camera,
-        // stale only if a populated Camera is reused for a region render):
-        // bounceCount/sampleWeight/motion/crypto buffers (cpp-abi-guard note).
+        // render path is byte-identical. pkg291: setup_camera now re-aims a
+        // same-size Camera instead of building a fresh (zeroed) one, so EVERY
+        // externally readable per-pixel buffer is cleared here, including the
+        // bounceCount/sampleWeight/motion/crypto buffers (Terra review).
         if (renderRegionActive_) {
             const int rx0 = std::max(0, renderRegionX0_);
             const int ry0 = std::max(0, renderRegionY0_);
@@ -5297,6 +5298,13 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                     cam.sampleCountBuffer[idx] = 0.0f;
                     for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex)
                         cam.renderPassBuffers[passIndex][idx] = Vec3(0);
+                    cam.bounceCountBuffer[idx] = 0.0f;   // pkg291
+                    cam.sampleWeightBuffer[idx] = 0.0f;
+                    cam.motionBuffer[2 * static_cast<size_t>(idx)] = 0.0f;
+                    cam.motionBuffer[2 * static_cast<size_t>(idx) + 1] = 0.0f;
+                    const size_t cs = static_cast<size_t>(cam.cryptomatteDepth) * 2;
+                    std::fill_n(cam.cryptoObjectBuffer.begin() + idx * cs, cs, 0.0f);
+                    std::fill_n(cam.cryptoMaterialBuffer.begin() + idx * cs, cs, 0.0f);
                 }
             }
         }

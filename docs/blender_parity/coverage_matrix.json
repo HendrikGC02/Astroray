@@ -4429,7 +4429,7 @@
     "bl_idname": "ShaderNodeObjectInfo",
     "socket_or_prop": "output:Location",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4437,7 +4437,7 @@
     "bl_idname": "ShaderNodeObjectInfo",
     "socket_or_prop": "output:Color",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4445,7 +4445,7 @@
     "bl_idname": "ShaderNodeObjectInfo",
     "socket_or_prop": "output:Alpha",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4453,7 +4453,7 @@
     "bl_idname": "ShaderNodeObjectInfo",
     "socket_or_prop": "output:Object Index",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4461,7 +4461,7 @@
     "bl_idname": "ShaderNodeObjectInfo",
     "socket_or_prop": "output:Material Index",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4469,7 +4469,7 @@
     "bl_idname": "ShaderNodeObjectInfo",
     "socket_or_prop": "output:Random",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4477,7 +4477,7 @@
     "bl_idname": "ShaderNodeAttribute",
     "socket_or_prop": "output:Color",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4485,7 +4485,7 @@
     "bl_idname": "ShaderNodeAttribute",
     "socket_or_prop": "output:Vector",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4493,7 +4493,7 @@
     "bl_idname": "ShaderNodeAttribute",
     "socket_or_prop": "output:Factor",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4501,7 +4501,7 @@
     "bl_idname": "ShaderNodeAttribute",
     "socket_or_prop": "output:Alpha",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4509,7 +4509,7 @@
     "bl_idname": "ShaderNodeVertexColor",
     "socket_or_prop": "output:Color",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4517,7 +4517,7 @@
     "bl_idname": "ShaderNodeVertexColor",
     "socket_or_prop": "output:Alpha",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4573,7 +4573,7 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Is Camera Ray",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4581,7 +4581,7 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Is Shadow Ray",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4589,7 +4589,7 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Is Diffuse Ray",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4597,7 +4597,7 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Is Glossy Ray",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4605,7 +4605,7 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Is Singular Ray",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4613,7 +4613,7 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Is Reflection Ray",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4621,7 +4621,7 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Is Transmission Ray",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4629,7 +4629,7 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Is Volume Scatter Ray",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4637,7 +4637,7 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Ray Length",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4645,7 +4645,7 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Ray Depth",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4653,7 +4653,7 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Diffuse Depth",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4661,7 +4661,7 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Glossy Depth",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4669,7 +4669,7 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Transparent Depth",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4677,7 +4677,7 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Transmission Depth",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   },
   {
     "category": "input_node",
@@ -4685,6 +4685,6 @@
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Portal Depth",
     "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value"
   }
 ]

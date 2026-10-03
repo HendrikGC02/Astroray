@@ -1,3 +1,0 @@
-{
-  "tests/test_pkg224_progressive_sobol_gpu.py::test_progressive_lowers_noise": true
-}

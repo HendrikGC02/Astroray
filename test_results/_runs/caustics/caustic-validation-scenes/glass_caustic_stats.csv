@@ -1,3 +1,0 @@
-caustic_chain_iters,caustic_connections,caustic_energy,integrator,max_luminance,mean_luminance,nonzero_fraction,p99_luminance,receiver_energy,red_blue_centroid_spread,scene,seconds
-,,,path_tracer,1.0,0.19185787439346313,1.0,0.28668391704559326,613.2831420898438,0.0,glass_caustic,0.05252869997639209
-3.0,2930.0,6.068521022796631,caustic_path_tracer,1.0,0.19200895726680756,1.0,0.287868469953537,617.0810546875,0.0,glass_caustic,0.04523240000708029

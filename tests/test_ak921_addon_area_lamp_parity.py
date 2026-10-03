@@ -30,7 +30,9 @@ def _find_blender():
 
 def _pyd_dir():
     env = os.environ.get("ASTRORAY_PYD_DIR")
-    for d in ([Path(env)] if env else []) + [REPO / "build_blender_addon"]:
+    # dist/astroray is the staged addon build_blender_addon.py refreshes (as in
+    # test_780); build_blender_addon/ is a CPU build dir that goes stale.
+    for d in ([Path(env)] if env else []) + [REPO / "dist" / "astroray", REPO / "build_blender_addon"]:
         if d.is_dir() and list(d.glob("astroray*.pyd")):
             return d
     return None

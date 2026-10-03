@@ -343,6 +343,10 @@ struct Ray {
     // pkg305: stratified hero-wavelength uniform for a primary ray (camera group,
     // Sobol-Burley PATHDIM_HERO_LAMBDA); < 0 = none, the integrator draws its own.
     float heroLambdaU = -1.0f;
+    // #1037: primitive this ray leaves (Cycles ray.self.prim, kernel/bvh/util.h
+    // intersection_skip_self). Only CurveSegment tests it: its hit point lies
+    // inside its own tube, so a spawned ray would re-hit the same segment.
+    const Hittable* self = nullptr;
     Ray() : time(0) {}
     Ray(const Vec3& o, const Vec3& d, float t = 0, float su = 0.5f, float sv = 0.5f)
         : origin(o), direction(d.normalized()), time(t), screenU(su), screenV(sv) {}
@@ -434,6 +438,14 @@ struct HitRecord {
         uvBitangentSign = 1.0f;
     }
 };
+
+// #1037: a ray leaving a surface hit carries the hit primitive as Ray::self
+// (Cycles ray.self.prim) so the curve leaf can skip its own segment.
+inline Ray spawnRay(const HitRecord& rec, const Vec3& dir, float time = 0.0f) {
+    Ray r(rec.point, dir, time);
+    r.self = rec.hitObject;
+    return r;
+}
 
 // ============================================================================
 // AABB
@@ -2577,7 +2589,9 @@ inline float shadowTransmittance(const Hittable& bvh, const Ray& shadowRay,
     float remaining = maxDist;
     for (int hop = 0; hop < maxHops; ++hop) {
         HitRecord shadow;
-        if (!bvh.hit(Ray(origin, dir, shadowRay.time), 0.001f, remaining - 0.001f, shadow))
+        Ray hop_ray(origin, dir, shadowRay.time);
+        hop_ray.self = shadowRay.self;  // #1037: still leaving the shading primitive
+        if (!bvh.hit(hop_ray, 0.001f, remaining - 0.001f, shadow))
             return Tr;  // unobstructed to the light
         if (shadow.hitObject && shadow.hitObject->isInfiniteLight())
             return Tr;  // distant/infinite lights are never occluders
@@ -4212,7 +4226,7 @@ public:
                     // shadowAlpha<1 occluder in FRONT of an opaque one still shadows
                     // — the trace continues past it. Tr==0 for an all-opaque scene in
                     // one hop, so every pre-pkg253 render is byte-identical.
-                    float shadowTr = shadowTransmittance(*bvh, Ray(rec.point, wi, ray.time), ls.distance);
+                    float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi, ray.time), ls.distance);
                     if (shadowTr > 0.0f) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
@@ -4325,7 +4339,7 @@ public:
                     // transmittance (pkg253); infinite maxDist since the env is at
                     // infinite distance. Unobstructed (Tr=1) when nothing occludes.
                     float shadowTr = shadowTransmittance(
-                        *bvh, Ray(rec.point, wi, ray.time),
+                        *bvh, spawnRay(rec, wi, ray.time),
                         std::numeric_limits<float>::max());
                     if (shadowTr > 0.0f) {
                         astroray::SampledSpectrum f_spec =
@@ -4522,6 +4536,7 @@ public:
             }
 
             Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
+            next.self = rec.hitObject;  // #1037
             next.hasCameraFrame = ray.hasCameraFrame;
             next.cameraOrigin = ray.cameraOrigin;
             next.cameraU = ray.cameraU;
@@ -4707,7 +4722,7 @@ public:
                     // shadowAlpha<1 occluder in FRONT of an opaque one still shadows
                     // — the trace continues past it. Tr==0 for an all-opaque scene in
                     // one hop, so every pre-pkg253 render is byte-identical.
-                    float shadowTr = shadowTransmittance(*bvh, Ray(rec.point, wi, ray.time), ls.distance);
+                    float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi, ray.time), ls.distance);
                     if (shadowTr > 0.0f) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
@@ -4764,6 +4779,7 @@ public:
                 lights.sample(ls, rec.point, rec.normal, lambdas, gen);
                 if (ls.pdf > 0.0f) {
                     Ray walkRay(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
+                    walkRay.self = rec.hitObject;  // #1037
                     walkRay.hasCameraFrame = ray.hasCameraFrame;
                     walkRay.cameraOrigin = ray.cameraOrigin;
                     walkRay.cameraU = ray.cameraU;
@@ -4845,6 +4861,7 @@ public:
             throughput = nextThroughput;
 
             Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
+            next.self = rec.hitObject;  // #1037
             next.hasCameraFrame = ray.hasCameraFrame;
             next.cameraOrigin = ray.cameraOrigin;
             next.cameraU = ray.cameraU;
@@ -5018,7 +5035,7 @@ public:
             Vec3 wo = (ray.direction * -1.0f).normalized();
             BSDFSample bs = rec.material->sample(rec, wo, gen);
             if (bs.pdf <= 0.0f) return 0.0f;
-            ray = Ray(rec.point, bs.wi, ray.time);
+            ray = spawnRay(rec, bs.wi, ray.time);
         }
         return 0.0f;  // exhausted the glass-chain budget → treat as uncovered
     }

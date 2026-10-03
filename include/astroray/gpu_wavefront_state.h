@@ -526,7 +526,10 @@ void launchStageEnvShadow(
     bool              useLuminanceOutput,
     float             clampDirect, float clampIndirect,
     const GCurveSegment* d_curves = nullptr,
-    bool              hw_occ = false);   // pkg299: occlusion from c_wfHwHits.occluded
+    bool              hw_occ = false,    // pkg299: occlusion from c_wfHwHits.occluded
+    // #1037: hitBufs.hit_prim_id (the shading vertex's prim) so env shadow rays
+    // skip their own curve segment; nullptr = no skip.
+    const int*        d_hitPrimId = nullptr);
 
 // pkg201 Stage 2 (Finding F, transparent film) — publish the frame's bounce-0
 // background-miss coverage accumulator (numPixels floats, or nullptr to disable).

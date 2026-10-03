@@ -733,7 +733,8 @@ __device__ inline GNEEOcclusion gpu_nee_occlude(
     float             time,         // pkg88-C.0: path shutter time for shadow rays
     const GVec3*      motionVerts,  // pkg88-C.0 (nullptr = static)
     // pkg225 Stage 3 — curves occlude shadow rays too (nullptr = no curves).
-    const GCurveSegment* curves = nullptr)
+    const GCurveSegment* curves = nullptr,
+    int skipPrim = -1)  // #1037: shading vertex's curve segment (gpu_tlas_hit)
 {
     GNEEOcclusion occ{};
     occ.occluded = 1;
@@ -743,7 +744,8 @@ __device__ inline GNEEOcclusion gpu_nee_occlude(
         // Sphere sources: the ray must REACH the light (hit it, with the
         // light's own material) — miss or a different material = occluded.
         if (!gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                         GRay(s.origin, s.wi, time), 0.001f, s.maxDist, sh, motionVerts, curves) ||
+                         GRay(s.origin, s.wi, time), 0.001f, s.maxDist, sh, motionVerts, curves,
+                         skipPrim) ||
             sh.materialId != s.lightMatId)
             return occ;
         occ.frontFace = sh.frontFace ? 1 : 0;
@@ -755,7 +757,7 @@ __device__ inline GNEEOcclusion gpu_nee_occlude(
         // Cycles scene_intersect_shadow).
         if (gpu_tlas_occluded<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris,
                               spheres, GRay(s.origin, s.wi, time), 0.001f,
-                              s.maxDist, motionVerts, curves))
+                              s.maxDist, motionVerts, curves, skipPrim))
             return occ;
     }
     occ.occluded = 0;
@@ -806,7 +808,8 @@ __device__ inline float gpu_shadow_transmittance(
     float             time,
     const GVec3*      motionVerts,
     const GCurveSegment* curves = nullptr,
-    int*              frontFaceOut = nullptr)
+    int*              frontFaceOut = nullptr,
+    int               skipPrim = -1)  // #1037: shading vertex's curve segment
 {
     const int maxHops = 8;  // Cycles transparent_max_bounce default (matches CPU)
     const bool reachLight = (s.isSphere != 0);  // sphere light = reach its geometry
@@ -822,7 +825,7 @@ __device__ inline float gpu_shadow_transmittance(
         GHitRecord sh;
         if (!gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris,
                           spheres, GRay(origin, dir, time), 0.001f,
-                          remaining - 0.001f, sh, motionVerts, curves))
+                          remaining - 0.001f, sh, motionVerts, curves, skipPrim))
             return Tr;  // unobstructed to the light
         if (reachLight && sh.materialId == s.lightMatId) {
             if (frontFaceOut) *frontFaceOut = sh.frontFace ? 1 : 0;

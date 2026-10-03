@@ -392,7 +392,12 @@ def _install():
         if EVENT_CLASS == "transform" and xform_obj is not None:
             return tuple(round(float(v), 7) for v in xform_obj.location)
         _, rv = _find_v3d()
-        return tuple(round(float(v), 7) for row in rv.view_matrix for v in row) if rv else None
+        # pkg291: view_rotation/location/distance are updated by the orbit
+        # operator immediately; view_matrix is recomputed lazily at redraw, so
+        # right after apply() it still holds the PRE-edit pose.
+        return (tuple(round(float(v), 7) for v in
+                      (*rv.view_rotation, *rv.view_location, rv.view_distance))
+                if rv else None)
 
     def _first_after(seq, ts, key=lambda x: x):
         for x in seq:
@@ -401,9 +406,8 @@ def _install():
         return None
 
     def _fp_match(a, b, tol=1e-4):
-        # pkg291: Blender recomputes view_matrix from view_rotation between the
-        # edit and the render, so the 7-digit camera fingerprint differs in the
-        # last digits; a 1-degree orbit edit changes entries by ~1.7e-2.
+        # pkg291: tolerate float-recompute noise between the edit and the render;
+        # a 1-degree orbit edit changes the rotation quaternion by ~8.7e-3.
         return (a is not None and b is not None and len(a) == len(b)
                 and all(abs(x - y) <= tol for x, y in zip(a, b)))
 

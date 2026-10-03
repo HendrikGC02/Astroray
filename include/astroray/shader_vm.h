@@ -23,6 +23,7 @@
 // ============================================================================
 
 #include "astroray/gpu_types.h"   // GVec3, HD
+#include "astroray/light_path.h"  // #991 Light Path context (shared service)
 
 namespace astroray {
 namespace proc { struct GProcTexture; }  // #1007, astroray/procedural_tex.h
@@ -81,6 +82,8 @@ enum ShadingInput : unsigned char {
     SH_LAYER_FACING  = 1,  // Layer Weight.Facing  (a = Blend)
     SH_FRESNEL       = 2,  // Fresnel.Fac          (a = IOR)
     SH_BACKFACING    = 3,  // Geometry.Backfacing  (svm/light_path.h NODE_LP_backfacing)
+    // #991 — Light Path outputs: SH_LIGHT_PATH + lightpath::Output (no argument).
+    SH_LIGHT_PATH    = 4,
 };
 
 // #989 — the per-hit shading context the caller hands svm_eval. cosI = dot(wi, N)
@@ -91,7 +94,19 @@ enum ShadingInput : unsigned char {
 struct SvmShading {
     float cosI = 1.0f;
     float backfacing = 0.0f;
+    // #991 — path state of the ray that reached this hit (default: camera ray,
+    // depth 0, length 0). Filled by the caller from state live at the vertex.
+    lightpath::PathContext path;
 };
+
+#if defined(__CUDACC__)
+}  // namespace svm
+namespace lightpath {
+// #991 — device Light Path output, defined once in shading_inputs_eval.cu (-rdc).
+__device__ float light_path_output_dev(unsigned char o, const PathContext& c);
+}  // namespace lightpath
+namespace svm {
+#endif
 
 // pkg230 — Clamp node type (Cycles NodeClampType, svm_clamp / node_clamp.osl).
 enum ClampType : unsigned char { CLAMP_MINMAX = 0, CLAMP_RANGE = 1 };
@@ -591,6 +606,18 @@ HD inline float svm_shading(unsigned char which, float arg, const SvmShading& sh
         case SH_BACKFACING:
             return back ? 1.0f : 0.0f;
         default:
+            // #991 Cycles svm_node_light_path (astroray/light_path.h).
+            if (which >= SH_LIGHT_PATH) {
+#if defined(__CUDA_ARCH__)
+                // Out of line on the device (shading_inputs_eval.cu): one call per
+                // svm_eval copy instead of the switch body.
+                return lightpath::light_path_output_dev(
+                    (unsigned char)(which - SH_LIGHT_PATH), sh.path);
+#else
+                return lightpath::light_path_output(
+                    (unsigned char)(which - SH_LIGHT_PATH), sh.path);
+#endif
+            }
             return 0.0f;
     }
 }

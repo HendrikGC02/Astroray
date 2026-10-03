@@ -10,6 +10,7 @@
 #include "raytracer.h"
 #include "astroray/light_tree.h"   // pkg86-B: LightTree flattening (needs raytracer.h's Vec3/AABB)
 #include "advanced_features.h"
+#include "astroray/light_path_mix.h"  // #991 Mix Shader with a Light Path Fac
 // pkg87a — Cryptomatte hash function.
 // Path is `src/util/...` (not `util/...`) because astroray_cuda's include
 // search has `${CMAKE_SOURCE_DIR}` private — not `${CMAKE_SOURCE_DIR}/src`.
@@ -473,6 +474,17 @@ static void appendOnePrim(
                 r.triObjectLocal.push_back(GVec3(o1.x, o1.y, o1.z));
                 r.triObjectLocal.push_back(GVec3(o2.x, o2.y, o2.z));
             }
+        }
+        // #990 — corners of every attribute layer a GPU descriptor reads,
+        // padded with zeros (Cycles' missing attribute) for triangles without it.
+        for (size_t k = 0; k < r.attrLayers.size(); ++k) {
+            Vec3 c0, c1, c2;
+            if (!tri->attributeCorners(r.attrLayers[k], c0, c1, c2)) continue;
+            auto& v = r.attrCorners[k];
+            v.resize((size_t)gp.index * 3, GVec3(0.f, 0.f, 0.f));
+            v.push_back(GVec3(c0.x, c0.y, c0.z));
+            v.push_back(GVec3(c1.x, c1.y, c1.z));
+            v.push_back(GVec3(c2.x, c2.y, c2.z));
         }
         r.triangles.push_back(gt);
         std::string objName = tri->getName();
@@ -1117,14 +1129,45 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // Mapping, #825 key) or a procedural (#1007 per-hit evaluator, else the pkg190
     // bake, #818 Item 1). -1 = cannot upload (empty image / unbakeable coord).
     // Shared by base-colour and scalar programs (#846).
+    // #990 — a shading attribute layer as a GPU descriptor (attrLayer = slot);
+    // its corner texels are appended after the geometry walk. Deduped by layer.
+    // Read only in the <HasProgram=true> kernel, hence hasProgram.
+    auto uploadAttrTexId = [&](const AttributeTexture* at) -> int {
+        int slot = -1;
+        for (size_t k = 0; k < r.attrLayers.size(); ++k)
+            if (r.attrLayers[k] == at->layer()) slot = (int)k;
+        if (slot < 0) {
+            slot = (int)r.attrLayers.size();
+            r.attrLayers.push_back(at->layer());
+            r.attrCorners.emplace_back();
+        }
+        const std::string k = "attr|" + std::to_string(slot);
+        auto tit = texIdx.find(k);
+        if (tit != texIdx.end()) return tit->second;
+        GImageTexture desc;
+        desc.offset = 0;           // patched after the geometry walk
+        desc.width = desc.height = 1;
+        desc.attrLayer = slot;
+        const int texId = (int)r.textures.size();
+        texIdx[k] = texId;
+        r.textures.push_back(desc);
+        r.hasTexture = true;
+        r.hasProgram = true;
+        return texId;
+    };
     auto uploadProgInputTexId = [&](ProgramTexture* pt, int t) -> int {
         std::shared_ptr<Texture> child = pt->getInput(t);
+        if (auto at = std::dynamic_pointer_cast<AttributeTexture>(child))  // #990
+            return uploadAttrTexId(at.get());
         if (auto childImg = std::dynamic_pointer_cast<ImageTexture>(child))
             return childImg->getData().empty() ? -1 : uploadImageTexId(childImg.get(), pt);
         if (!child) return -1;
         const int perHit = perHitTexId(pt, child.get());
         return perHit >= 0 ? perHit : bakeProceduralTexId(child.get());
     };
+    // #991 — switches met by getOrAddMat; their side-table entries are filled
+    // after the geometry walk (children are added then, see below).
+    std::vector<std::pair<int, std::shared_ptr<Material>>> lpPending;
     // pkg314 — graph value programs (shader_graph.h). One descriptor per unique
     // GraphProgramTexture, appended to the scene arenas with rebased 32-bit
     // offsets. Each input becomes a texture id: an image with its own Mapping on
@@ -1147,6 +1190,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 if (!img->getData().empty() && uvOk &&
                     !(gpt->inputIsCoord(k) && img->hasMapping()))
                     texId = uploadImageTexId(img.get(), img.get());
+            } else if (auto at = std::dynamic_pointer_cast<AttributeTexture>(child)) {
+                texId = uploadAttrTexId(at.get());  // #990 attribute layer input
             } else if (child && !gpt->inputIsCoord(k)) {
                 // #1007 per-hit evaluator at the input's own point, else the bake.
                 const int perHit = perHitTexId(child.get(), child.get());
@@ -1184,14 +1229,23 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         graphIdx[gpt] = id;
         return id;
     };
-    auto getOrAddMat = [&](const std::shared_ptr<Material>& mIn) -> int {
-        auto it = matIdx.find(mIn.get());
+    auto getOrAddMat = [&](const std::shared_ptr<Material>& mKey) -> int {
+        auto it = matIdx.find(mKey.get());
         if (it != matIdx.end()) return it->second;
         int id = (int)r.materials.size();
-        matIdx[mIn.get()] = id;
+        matIdx[mKey.get()] = id;
         {   // #994: OBJECT-coordinate bakes of this material cover its geometry.
-            auto wb = matWorldBox.find(mIn.get());
+            auto wb = matWorldBox.find(mKey.get());
             curObjBox = (wb != matWorldBox.end()) ? &wb->second : nullptr;
+        }
+        // #991 — a Mix Shader with a Light Path Fac uploads its emission-context
+        // leaf (child A, unwrapped) at its own id: every reader unaware of the
+        // switch (light list, emitter evaluation) sees Cycles' emission child.
+        std::shared_ptr<Material> mIn = mKey;
+        if (dynamic_cast<astroray::LightPathMixMaterial*>(mKey.get())) {
+            lpPending.emplace_back(id, mKey);
+            while (auto* lp = dynamic_cast<astroray::LightPathMixMaterial*>(mIn.get()))
+                mIn = lp->childA();
         }
         // pkg223 — unwrap a NormalMapped decorator: the GMaterial + base-colour
         // texture come from the INNER material; the tangent-space normal texture +
@@ -1332,6 +1386,12 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                     texId = uploadImageTexId(img.get(), img.get());
                     r.hasTexture = true;
                 }
+            } else if (auto at = std::dynamic_pointer_cast<AttributeTexture>(tex)) {
+                // #990 — a bare attribute layer on a surface consumer; an emitter
+                // keeps its flat colour (the emission fetch has no attribute path).
+                if (!emitTex) texId = uploadAttrTexId(at.get());
+                else fprintf(stderr, "[#990] DEGRADED: an attribute-driven Emission Color "
+                                     "renders flat on GPU\n");
             } else if (emitTex && std::dynamic_pointer_cast<GraphProgramTexture>(tex)) {
                 // pkg314 — a graph program on an Emission Color is not evaluated by the
                 // intersect / shadow stages and its inputs have per-input coordinates,
@@ -1524,6 +1584,66 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     } else {
         if (!cpuBvh) throw std::runtime_error("BVH not built — call buildAcceleration() first");
         appendFlatScene(cpu, cpuBvh.get(), r, getOrAddMat);
+    }
+
+    // #990: attribute layers first met after this point (a Light Path switch
+    // child, below) have no corners: the walk already ran.
+    const size_t attrLayersWalked = r.attrLayers.size();
+
+    // #991 — Light Path switch side table. Child materials are not referenced
+    // by geometry, so they are added here (inheriting the switch's world bbox
+    // for OBJECT-coordinate bakes); nested switches append to lpPending as
+    // they are met, so the loop runs until it drains.
+    if (!lpPending.empty()) {
+        using astroray::LightPathMixMaterial;
+        using astroray::lightpath::GLightPathSwitch;
+        std::vector<std::pair<int, GLightPathSwitch>> entries;
+        for (size_t k = 0; k < lpPending.size(); ++k) {
+            const int self = lpPending[k].first;
+            const std::shared_ptr<Material> sw = lpPending[k].second;
+            auto* lp = static_cast<LightPathMixMaterial*>(sw.get());
+            auto wb = matWorldBox.find(sw.get());
+            auto addChild = [&](const std::shared_ptr<Material>& c) {
+                if (wb != matWorldBox.end() && !matWorldBox.count(c.get()))
+                    matWorldBox.emplace(c.get(), wb->second);
+                return getOrAddMat(c);
+            };
+            std::shared_ptr<Material> leafA = sw;   // what `self` uploaded
+            while (auto* l = dynamic_cast<LightPathMixMaterial*>(leafA.get()))
+                leafA = l->childA();
+            std::shared_ptr<Material> leafS = sw;   // what shadow rays see
+            const astroray::lightpath::PathContext shadowCtx =
+                astroray::lightpath::shadow_context(0);
+            while (auto* l = dynamic_cast<LightPathMixMaterial*>(leafS.get()))
+                leafS = l->select(shadowCtx);
+            GLightPathSwitch e;
+            e.aId = dynamic_cast<LightPathMixMaterial*>(lp->childA().get())
+                  ? addChild(lp->childA()) : self;
+            e.bId = addChild(lp->childB());
+            e.shadowId = (leafS == leafA) ? self : addChild(leafS);
+            e.output = (int)lp->output();
+            entries.emplace_back(self, e);
+        }
+        r.lightPathSwitch.resize(r.materials.size());
+        for (int i = 0; i < (int)r.materials.size(); ++i)
+            r.lightPathSwitch[i] = GLightPathSwitch{ i, -1, i, 0 };
+        for (const auto& kv : entries) r.lightPathSwitch[kv.first] = kv.second;
+        r.hasLightPath = true;
+    }
+    // #991 — a program reading a Light Path output (OP_SHADING >= SH_LIGHT_PATH)
+    // needs the per-path lp_state maintained as well.
+    for (const auto& prog : r.programs) {
+        for (int k = 0; k < prog.numInstr && k < astroray::svm::VM_MAX_INSTR; ++k) {
+            if (prog.code[k].op == astroray::svm::OP_SHADING &&
+                prog.code[k].imm >= astroray::svm::SH_LIGHT_PATH)
+                r.hasLightPath = true;
+        }
+    }
+    // The lp_state update lives in the HasProgram shade kernel (which also reads
+    // the texture binding: publish it too, with all-(-1) material tables).
+    if (r.hasLightPath) {
+        r.hasProgram = true;
+        r.hasTexture = true;
     }
 
     // --- Lights ---
@@ -1903,6 +2023,24 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         for (const auto& v : batch)
             r.motionVertices.push_back(GVec3(v.x, v.y, v.z));
     }
+
+    // --- #990: attribute-layer corner slices (descriptor offsets patched) ---
+    if (r.attrLayers.size() > attrLayersWalked)
+        fprintf(stderr, "[#990] DEGRADED: a shading attribute read only by a Light Path "
+                        "switch child reads 0 on GPU\n");
+    for (size_t k = 0; k < r.attrLayers.size(); ++k) {
+        auto& v = r.attrCorners[k];
+        v.resize(r.triangles.size() * 3, GVec3(0.f, 0.f, 0.f));
+        const int offset = (int)r.textureTexels.size();
+        r.textureTexels.insert(r.textureTexels.end(), v.begin(), v.end());
+        for (auto& d : r.textures)
+            if (d.attrLayer == (int)k) d.offset = offset;
+        std::vector<GVec3>().swap(v);
+    }
+    if (cpu.hasInstances() && !r.attrLayers.empty())
+        fprintf(stderr, "[#990] DEGRADED: shading attributes on instanced meshes read 0 "
+                        "on GPU (object-space BLAS triangles; the addon flattens objects "
+                        "whose materials read attributes)\n");
 
     // --- #847: per-vertex Generated coords ---
     // Only read by the Generated 3D-bake fetch (depth > 1) and the #1007 per-hit

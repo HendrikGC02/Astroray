@@ -140,6 +140,10 @@ class Triangle : public Hittable {
         out = a + (b - a) * b1 + (c - a) * b2;  // exact on flat axes
         return true;
     }
+    // #990 — per-corner attribute layers (astroray/attribute_layers.h): ids shared
+    // by every triangle of one bulk upload, values per triangle.
+    std::shared_ptr<const std::vector<int>> attrIds_;
+    std::vector<std::array<Vec3, 3>> attrVals_;
 public:
     Triangle(const Vec3& a, const Vec3& b, const Vec3& c, std::shared_ptr<Material> m)
         : v0(a), v1(b), v2(c), material(m), uv0(0,0), uv1(1,0), uv2(0,1),
@@ -366,6 +370,27 @@ public:
         if (!hasGenerated_) return false;
         a = gen0_; b = gen1_; c = gen2_;
         return true;
+    }
+    // #990 — attach attribute layers (ids[i] <-> vals[i], three corners each).
+    void setAttributes(std::shared_ptr<const std::vector<int>> ids,
+                       std::vector<std::array<Vec3, 3>> vals) {
+        attrIds_ = std::move(ids);
+        attrVals_ = std::move(vals);
+    }
+    // Corner values of layer `layer` (GPU upload); false = absent.
+    bool attributeCorners(int layer, Vec3& a, Vec3& b, Vec3& c) const {
+        if (!attrIds_) return false;
+        for (size_t i = 0; i < attrIds_->size() && i < attrVals_.size(); ++i) {
+            if ((*attrIds_)[i] != layer) continue;
+            a = attrVals_[i][0]; b = attrVals_[i][1]; c = attrVals_[i][2];
+            return true;
+        }
+        return false;
+    }
+    bool attributeValue(int layer, const Vec3& p, Vec3& out) const override {
+        Vec3 a, b, c;
+        if (!attributeCorners(layer, a, b, c)) return false;
+        return astroray::attr::interpolate_corners(v0, v1, v2, p, a, b, c, out);
     }
     // Barycentrics recomputed from the hit point (Ericson, Real-Time Collision
     // Detection §3.4), same as the GPU texture fetch in stage_advance.cu.

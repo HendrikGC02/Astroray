@@ -616,6 +616,7 @@ if(ASTRORAY_CUDA_FOUND)
         list(APPEND ASTRORAY_CUDA_SOURCES
             src/gpu/wavefront/wavefront_state.cu
             src/gpu/wavefront/proc_tex_eval.cu   # #1007 per-hit procedural evaluator
+            src/gpu/wavefront/shading_inputs_eval.cu  # #991/#990 Light Path + attribute services (out of line)
             src/gpu/wavefront/stage_init.cu
             src/gpu/wavefront/stage_intersect_session_n3.cu
             src/gpu/wavefront/stage_shade_lambertian.cu

@@ -134,6 +134,22 @@ struct SceneUploadResult {
     bool                                            hasGraph = false;
     int                                             graphMaxSlots = 0;
 
+    // #991 — Light Path. `lightPathSwitch` is parallel to `materials` (empty when
+    // no material is a Mix Shader with a Light Path Fac); `hasLightPath` = some
+    // switch OR some program reading a Light Path output, which makes the driver
+    // publish c_wfLightPath (lp_state maintenance) and forces the HasProgram
+    // shade kernel (where the lp_state update lives).
+    std::vector<astroray::lightpath::GLightPathSwitch> lightPathSwitch;
+    bool                                        hasLightPath = false;
+
+    // #990 — shading attribute layers read by GPU texture descriptors
+    // (GImageTexture::attrLayer = slot). attrLayers[slot] is the engine layer id
+    // (astroray::attr::layer_id); attrCorners[slot] holds three corners per
+    // uploaded triangle (lazily padded with zeros, like triGenerated) and is
+    // appended to textureTexels after the geometry walk (build-time only).
+    std::vector<int>                attrLayers;
+    std::vector<std::vector<GVec3>> attrCorners;
+
     // pkg189 — true when ANY uploaded material is dispersive (Sellmeier dielectric
     // → GMAT_DIELECTRIC, or Cauchy Principled glass → GMAT_CLOSURE_GRAPH; both set
     // GMaterial::isDispersive in scene_upload.cu). Selects the

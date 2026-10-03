@@ -38,7 +38,7 @@ Astroray's seed-to-seed variance, so the pkg310 bands were calibrated on the lam
 | prod_pbr_group | 2/16 (1) | 2/16 (0) | #1004 Mapping Scale from the node-group input dropped silently (tiles 3x large) |
 | prod_curves_geometry | 0/16 | 2/16 | Pointiness (reported, not implemented) + #992 |
 | others | unchanged | unchanged | #990, #991, #995, #955 |
-| **Materials passing** | **0/8** | **0/8** | |
+| **Materials passing** | **1/8** (prod_marble, #1006) | **1/8** | |
 
 What changed: marble's sun-highlight ROI 0.58x -> 0.97x (CPU); car-paint `lit_front` G 4.64x -> 0.87x; marble GPU
 0.38-0.72x -> 0.99-1.08x; wood GPU `grain_center` B 5.9x -> 0.98x. No row flipped to pass: each material has a second
@@ -240,6 +240,30 @@ sphere at z = 0.9) / #881 / #993. Marble GPU 8/16 re-pointed to #1006 (the CPU's
   | multifractal / ridged | negative | 0.88 / 0.92 (slope 1.00 below albedo 0.9: Astroray clamps Diffuse albedo > 1) |
 * Lesson: tiles at different heights shade each other's sky (r 0.94-0.98 with occlusion vs 0.999 coplanar); probes
   that isolate a texture need coplanar geometry under a uniform world.
+
+## After lane at-n1 (#991 Light Path, #990 attributes; build b4e15d06, 2026-10-03)
+
+| Material | CPU in band (was) | GPU in band (was) | Now blocked by |
+|---|---|---|---|
+| prod_light_path | 17/20 (4) | 14/20 (8) | #1038 plain-Glass bias (glass centre r 1.07-1.10, identical with the Mix Shader replaced by its Glass BSDF); GPU floor +2 % (GPU/CPU 1.007 without Light Path) |
+| prod_attributes | 0/16 (0) | 0/16 (0) | #993: the Base Color chain needs 10 op-VM slots (reported); pkg314 graph programs host it |
+| others | unchanged | unchanged | |
+| **Materials passing** | **1/8** (prod_marble, #1006) | **1/8** | |
+
+* **#991 Light Path** (Cycles `svm/light_path.h`, `path_state.h`; shared service `include/astroray/light_path.h`): per-hit
+  path state (CPU integrator locals, GPU `GPUWavefrontState.lp_state`), op-VM `OP_SHADING` outputs, and a Mix Shader with a
+  boolean Light Path Fac as a per-ray closure switch (CPU `LightPathMixMaterial`, GPU `GLightPathSwitch` intersect remap,
+  shadow-context `shadowAlpha` / `gpu_shadow_transmittance`, emission context = child A). Hidden emitter 0.07x -> 1.00x,
+  floor Ray Length tint and shadow-transparent glass match Cycles. A transparent pass keeps the ray flags (found on the
+  first build: the camera ray hit the hidden emitter's inner back face as a non-camera ray and went black).
+* **#990** (Cycles `svm/attribute.h`, `svm/geometry.h`; service `include/astroray/attribute_layers.h`): per-corner
+  attribute layers filled at mesh export with Cycles' output value; Object Info Random reproduces Cycles exactly.
+* **Bands:** prod_light_path re-blessed from the 5 production seeds (only that block): the old CPU sigma 0.41 at the
+  glass centre measured the constant-mixed glass of the flattened export.
+* **Silent drops:** the remaining prod_light_path / prod_attributes pairs are exactly the sockets this lane handles; the
+  generated matrix (#1028) has no output-socket evidence and does not scan the Mix Shader branch (#1039).
+* Registers vs post-#1023: generic shade variants <= 255 (HasProgram +64 B stack), fleet p0 128/432 and p1 198/4904
+  unchanged, intersect +2 REG; the Light Path / attribute bodies are out of line (`shading_inputs_eval.cu`). Build 694 s.
 
 ## After lane at-n2 (pkg314 graph IR + value programs, #993, #992; build 7a4efb91, 2026-10-03)
 

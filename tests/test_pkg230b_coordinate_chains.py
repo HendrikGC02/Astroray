@@ -332,6 +332,7 @@ class _ProgramRenderer(_RecordingRenderer):
 def _program(engine, monkeypatch, renderer, images, name):
     module = types.ModuleType('shader_vm_compiler')
     module.VMCompileError = ValueError
+    module.ATTRIBUTE_NODE_TYPES = ()   # #990: addon reads this off the compiler module
     module.compile_chain = lambda _socket, **_kw: {
         'inputs': images, 'num_tex': len(images), 'out_slot': 0,
         'code_flat': [], 'consts_flat': [], 'ramps_flat': [],

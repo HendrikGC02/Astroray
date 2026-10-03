@@ -236,6 +236,24 @@ extern __constant__ int c_wfEmissionTex;
 // world-space: those keep the flat mean (DEGRADED, reported host-side).
 extern __constant__ int c_wfEmissionFlatPrims;
 
+// #991 — Light Path binding (GWavefrontLightPathBinding, astroray/light_path.h),
+// published once per frame by setWavefrontLightPathBinding. sw == nullptr (every
+// scene without a Light Path node) skips the intersect remap and the shadow
+// resolve; enabled == 0 skips the lp_state updates (shade / volume stages).
+extern __constant__ GWavefrontLightPathBinding c_wfLightPath;
+
+// #991 — Light Path services, defined ONCE out of line in shading_inputs_eval.cu
+// (one call per site here, not the body: build time + register isolation).
+// gpu_lpContext: the hit's PathContext; gpu_lpRemap: the Mix Shader closure-
+// switch child (intersect, only when c_wfLightPath.sw); gpu_lpAdvance /
+// gpu_lpVolume: the per-bounce lp_state update (only when c_wfLightPath.enabled).
+__device__ astroray::lightpath::PathContext gpu_lpContext(
+    unsigned lpState, int bounce, float t, GVec3 dir);
+__device__ int gpu_lpRemap(int matId, unsigned lpState, int bounce, float t, GVec3 dir);
+__device__ unsigned gpu_lpAdvance(unsigned lpState, const ::GMaterial* mat,
+                                  GVec3 wo, GVec3 n, GVec3 wi, bool isDelta);
+__device__ unsigned gpu_lpVolume(unsigned lpState);
+
 struct GProgInputTexel { GVec3 c; bool ok; };
 // Defined after c_wfTexBinding below.
 static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_emissionTexel(
@@ -301,29 +319,9 @@ __device__ __forceinline__ int lpEmitOrBgPass(unsigned char cat, int emissionBuc
     return (cat == G_LP_CAT_UNSET) ? emissionBucket : ((int)cat * 3 + 1);
 }
 
-// Device twin of the CPU Material::isGlossy() (raytracer.h:455) — base Material is
-// false; Metal (plugins/materials/metal.cpp) and Principled/Disney
-// (plugins/materials/principled.cpp) override to true. Used to split the
-// reflection-lobe category for a non-delta, non-transmitted first bounce (diffuse
-// vs glossy). CRITICAL: scene_upload.cu lowers EVERY material that produces a valid
-// closure graph to GMAT_CLOSURE_GRAPH (line 112) — so a Metal is uploaded as a
-// GCLOSURE_GGX_CONDUCTOR closure and a Principled as GCLOSURE_PRINCIPLED, NOT as
-// GMAT_METAL/GMAT_DISNEY. Checking only those two types misses the metal (its
-// glossy indirect leaks into diffuse_indirect — the pkg198-s2 parity failure). So
-// also scan the closure graph: a conductor or principled closure ⇒ glossy; a
-// diffuse/dielectric-transmission/thin-glass closure ⇒ not glossy (matching the CPU
-// Lambertian/Dielectric isGlossy()==false). Behind `if constexpr(HasLightPassAOVs)`
-// at the one call site, so the fleet <…,false> shade kernel never compiles it.
-__device__ __forceinline__ bool gpu_material_is_glossy(const ::GMaterial& m) {
-    if (m.type == GMAT_METAL || m.type == GMAT_DISNEY) return true;
-    if (m.type == GMAT_CLOSURE_GRAPH) {
-        for (int i = 0; i < (int)m.closureCount; ++i) {
-            GClosureType t = m.closures[i].type;
-            if (t == GCLOSURE_GGX_CONDUCTOR || t == GCLOSURE_PRINCIPLED) return true;
-        }
-    }
-    return false;
-}
+// gpu_material_is_glossy: moved to gpu_material_class.cuh (#991, shared with
+// shading_inputs_eval.cu).
+#include "gpu_material_class.cuh"
 
 // pkg199 Stage 1 — spectral Beer-Lambert transmittance exp(-sigma_t·d) per
 // wavelength through the homogeneous world medium (PBRT-v4 §11.3; Cycles
@@ -898,6 +896,12 @@ __device__ int intersectPathSlotT(
         return -1;
     }
 
+    // #991 — a Mix Shader with a Light Path Fac shades as the child this ray
+    // type selects (Is Camera Ray -> hidden emitter). Downstream (emission,
+    // bucketing, the parked hit) all see the resolved id.
+    if (c_wfLightPath.sw)
+        rec.materialId = gpu_lpRemap(rec.materialId, state.lp_state[idx], bounce, rec.t,
+                                     ray.direction);
     const ::GMaterial& mat = materials[rec.materialId];
 
     // #909: photon-map split chain (see GWavefrontPhotonSplit). Live from a
@@ -1270,10 +1274,15 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_progInputTe
 // called from the emission (intersect / shadow) paths, so the evaluator's
 // registers stay out of those kernels.
 __device__ GVec3 gpu_procTexEval(int procId, GVec3 p);  // proc_tex_eval.cu
+// #990 — shading attribute layer at the hit (shading_inputs_eval.cu).
+__device__ GVec3 gpu_attrTexel(int texId, GVec3 point, int primId,
+                               const GPrimitive* prims, const GTriangle* tris);
 static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_progInputEval(
     GVec3 point, int primId, const GPrimitive* prims, const GTriangle* tris, int texId)
 {
     const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
+    if (tdesc.attrLayer >= 0)  // #990
+        return {gpu_attrTexel(texId, point, primId, prims, tris), true};
     if (tdesc.procId < 0) return gpu_progInputTexel(point, primId, prims, tris, texId);
     GVec3 p = point;
     if (tdesc.objectCoord) {
@@ -1821,6 +1830,9 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                          hitBufs.hit_normal_z[idx]);
         sh.cosI = (ray.direction * -1.0f).normalized().dot(svmN);
         sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
+        // #991 — Light Path outputs: path state + the parked hit distance.
+        if (c_wfLightPath.enabled)
+            sh.path = gpu_lpContext(state.lp_state[idx], bounce, rec.t, ray.direction);
         if (c_wfProgBinding.matScalarProgId && c_wfProgBinding.matScalarTexId) {
             const int base = rec.materialId * astroray::svm::VM_SCALAR_SLOTS;
             for (int slot = 0; slot < astroray::svm::VM_SCALAR_SLOTS; ++slot) {
@@ -1977,7 +1989,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
             // #1007: a per-hit procedural descriptor only exists when scene_upload
             // set hasProgram, so the <HasProgram=false> kernels compile this out.
             bool perHitProc = false;
-            if constexpr (HasProgram) perHitProc = tdesc.procId >= 0;
+            if constexpr (HasProgram) perHitProc = tdesc.procId >= 0 || tdesc.attrLayer >= 0;  // #990
             if (perHitProc) {
                 texColor = gpu_progInputEval(rec.point, rec.primId, prims, tris, texId).c;
                 haveTex = true;
@@ -2068,6 +2080,9 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                                 hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx],
                                 hitBufs.hit_normal_z[idx]));  // pkg314: sd->N, pre-bump
                             shL.backfacing = rec.frontFace ? 0.0f : 1.0f;
+                            if (c_wfLightPath.enabled)  // #991
+                                shL.path = gpu_lpContext(state.lp_state[idx], bounce,
+                                                         rec.t, ray.direction);
                             texColor = astroray::svm::svm_eval(
                                 c_wfProgBinding.programs[progId], vmIn, &shL);
                         }
@@ -2436,6 +2451,16 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     }
 
     throughput *= bss.fSpectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
+
+    // #991 — advance the Light Path state across this bounce (CPU twin:
+    // pathTraceSpectral lpc = next_surface(lpc, lobeCat, isDelta)), with the
+    // pkg201 bounce class. Light Path scenes always run the HasProgram kernel
+    // (scene_upload forces it), so the other variants compile this out.
+    if constexpr (HasProgram) {
+        if (c_wfLightPath.enabled)
+            state.lp_state[idx] = gpu_lpAdvance(state.lp_state[idx], &mat, wo, rec.normal,
+                                                bss.wi, bss.isDelta);
+    }
 
     // ---- Throughput clamp (CPU: maxC > 10 -> scale to 10).
     float maxC = throughput.maxValue();

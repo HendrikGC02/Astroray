@@ -529,7 +529,8 @@ public:
         astroray::svm::SvmShading sh;
         sh.cosI = wo.dot(rec.shadingContextNormal());  // pkg314: sd->N, pre-bump
         sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
-        return eval(uv, p, &sh);
+        sh.path = rec.lightPath;  // #991 Light Path outputs
+        return eval(uv, p, &sh, &rec, &wo);
     }
     astroray::SampledSpectrum sampleSpectralAtHit(
             const Vec2& uv, const Vec3& p, const HitRecord& rec, const Vec3& wo,
@@ -539,16 +540,50 @@ public:
     }
 
 private:
-    Vec3 eval(const Vec2& uv, const Vec3& p, const astroray::svm::SvmShading* sh) const {
+    // #990: with a hit (rec != null) each input is sampled through valueAtHit, so
+    // a per-hit input (AttributeTexture) reads the hit; every other texture's
+    // valueAtHit is value(uv, p), unchanged.
+    Vec3 eval(const Vec2& uv, const Vec3& p, const astroray::svm::SvmShading* sh,
+              const HitRecord* rec = nullptr, const Vec3* wo = nullptr) const {
         GVec3 in[astroray::svm::VM_MAX_TEX];
         int nt = program_.numTex;
         if (nt > astroray::svm::VM_MAX_TEX) nt = astroray::svm::VM_MAX_TEX;
         for (int i = 0; i < nt; ++i) {
-            Vec3 c = i < (int)inputs_.size() ? inputs_[i]->value(uv, p) : Vec3(0.f);
+            Vec3 c = i >= (int)inputs_.size() ? Vec3(0.f)
+                   : rec ? inputs_[i]->valueAtHit(uv, p, *rec, *wo)
+                         : inputs_[i]->value(uv, p);
             in[i] = GVec3(c.x, c.y, c.z);
         }
         GVec3 r = astroray::svm::svm_eval(program_, in, sh);
         return Vec3(r.x, r.y, r.z);
+    }
+};
+
+// ============================================================================
+// #990 — AttributeTexture: a per-corner shading attribute layer (Attribute /
+// Color Attribute / Object Info, astroray/attribute_layers.h) read at the hit
+// from the hit triangle and interpolated barycentrically. No coordinates; a
+// lookup without a hit (texture bakes) or on a primitive without the layer
+// reads 0, Cycles' missing-attribute value. GPU: scene_upload.cu uploads the
+// layer's corners and gpu_progInputTexel interpolates them per hit.
+// ============================================================================
+class AttributeTexture : public Texture {
+    int layer_;
+public:
+    explicit AttributeTexture(int layer) : layer_(layer) {}
+    int layer() const { return layer_; }
+    Vec3 value(const Vec2&, const Vec3&) const override { return Vec3(0.0f); }
+    Vec3 valueAtHit(const Vec2&, const Vec3&, const HitRecord& rec,
+                    const Vec3&) const override {
+        Vec3 v(0.0f);
+        if (rec.hitObject && rec.hitObject->attributeValue(layer_, rec.point, v)) return v;
+        return Vec3(0.0f);
+    }
+    astroray::SampledSpectrum sampleSpectralAtHit(
+            const Vec2& uv, const Vec3& p, const HitRecord& rec, const Vec3& wo,
+            const astroray::SampledWavelengths& lambdas) const override {
+        Vec3 rgb = valueAtHit(uv, p, rec, wo);
+        return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
     }
 };
 
@@ -677,6 +712,7 @@ public:
         astroray::svm::SvmShading sh;
         sh.cosI = wo.dot(rec.shadingContextNormal());  // pkg314: sd->N, pre-bump
         sh.backfacing = rec.frontFace ? 0.0f : 1.0f;
+        sh.path = rec.lightPath;  // #991 Light Path outputs (as ProgramTexture::valueAtHit)
         return eval(rec, wo, sh);
     }
     astroray::SampledSpectrum sampleSpectralAtHit(

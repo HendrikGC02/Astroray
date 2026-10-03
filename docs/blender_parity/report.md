@@ -10,9 +10,9 @@
 
 ## Summary
 
-- **SUPPORTED**: 190 features
+- **SUPPORTED**: 184 features
 - **APPROXIMATED**: 82 features
-- **DROPPED-SILENT**: 314 features ⚠️
+- **DROPPED-SILENT**: 320 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 586 features
 
@@ -22,25 +22,25 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5425)
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5425)
-- **MIX_SHADER**: socket `Fac` (addon __init__.py line 5464, line 5628)
-- **TEX_BRICK**: socket `Color3` (addon __init__.py line 4141, line 4276)
-- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4141, line 4276)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5381)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5381)
+- **MIX_SHADER**: socket `Fac` (addon __init__.py line 5420, line 5678)
+- **TEX_BRICK**: socket `Color3` (addon __init__.py line 4159, line 4294)
+- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4159, line 4294)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5425)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5425)
-- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5425)
-- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5425)
-- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5425)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5425)
-- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5425)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5425)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5425)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5381)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5381)
+- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5381)
+- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5381)
+- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5381)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5381)
+- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5381)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5381)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5381)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -72,39 +72,39 @@ These features are silently ignored by the addon with no warning:
 - **NEW_GEOMETRY**: `output:Backfacing` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
 - **NEW_GEOMETRY**: `output:Pointiness` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
 - **NEW_GEOMETRY**: `output:Random Per Island` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **OBJECT_INFO**: `output:Location` — no handler in addon translation layer
-- **OBJECT_INFO**: `output:Color` — no handler in addon translation layer
-- **OBJECT_INFO**: `output:Alpha` — no handler in addon translation layer
-- **OBJECT_INFO**: `output:Object Index` — no handler in addon translation layer
-- **OBJECT_INFO**: `output:Material Index` — no handler in addon translation layer
-- **OBJECT_INFO**: `output:Random` — no handler in addon translation layer
-- **ATTRIBUTE**: `output:Color` — no handler in addon translation layer
-- **ATTRIBUTE**: `output:Vector` — no handler in addon translation layer
-- **ATTRIBUTE**: `output:Factor` — no handler in addon translation layer
-- **ATTRIBUTE**: `output:Alpha` — no handler in addon translation layer
-- **VERTEX_COLOR**: `output:Color` — no handler in addon translation layer
-- **VERTEX_COLOR**: `output:Alpha` — no handler in addon translation layer
+- **OBJECT_INFO**: `output:Location` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **OBJECT_INFO**: `output:Color` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **OBJECT_INFO**: `output:Alpha` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **OBJECT_INFO**: `output:Object Index` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **OBJECT_INFO**: `output:Material Index` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **OBJECT_INFO**: `output:Random` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **ATTRIBUTE**: `output:Color` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **ATTRIBUTE**: `output:Vector` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **ATTRIBUTE**: `output:Factor` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **ATTRIBUTE**: `output:Alpha` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **VERTEX_COLOR**: `output:Color` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **VERTEX_COLOR**: `output:Alpha` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
 - **HAIR_INFO**: `output:Is Strand` — no handler in addon translation layer
 - **HAIR_INFO**: `output:Intercept` — no handler in addon translation layer
 - **HAIR_INFO**: `output:Length` — no handler in addon translation layer
 - **HAIR_INFO**: `output:Thickness` — no handler in addon translation layer
 - **HAIR_INFO**: `output:Tangent Normal` — no handler in addon translation layer
 - **HAIR_INFO**: `output:Random` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Is Camera Ray` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Is Shadow Ray` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Is Diffuse Ray` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Is Glossy Ray` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Is Singular Ray` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Is Reflection Ray` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Is Transmission Ray` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Is Volume Scatter Ray` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Ray Length` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Ray Depth` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Diffuse Depth` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Glossy Depth` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Transparent Depth` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Transmission Depth` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Portal Depth` — no handler in addon translation layer
+- **LIGHT_PATH**: `output:Is Camera Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Is Shadow Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Is Diffuse Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Is Glossy Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Is Singular Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Is Reflection Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Is Transmission Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Is Volume Scatter Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Ray Length` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Ray Depth` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Diffuse Depth` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Glossy Depth` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Transparent Depth` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Transmission Depth` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Portal Depth` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
 
 ### light
 
@@ -237,6 +237,8 @@ These features are silently ignored by the addon with no warning:
 - **EEVEE_SPECULAR**: `input:Clear Coat Normal` — no handler in addon translation layer
 - **EEVEE_SPECULAR**: `input:Weight` — no handler in addon translation layer
 - **EMISSION**: `input:Weight`
+- **CURVE_FLOAT**: `input:Factor` — no handler in addon translation layer
+- **CURVE_FLOAT**: `input:Value` — no handler in addon translation layer
 - **HOLDOUT**: `input:Weight` — no handler in addon translation layer
 - **LIGHT_FALLOFF**: `input:Strength` — no handler in addon translation layer
 - **LIGHT_FALLOFF**: `input:Smooth` — no handler in addon translation layer
@@ -284,6 +286,8 @@ These features are silently ignored by the addon with no warning:
 - **OUTPUT_WORLD**: `input:Volume` — no handler in addon translation layer
 - **OUTPUT_WORLD**: `prop:is_active_output` — property BOOLEAN
 - **OUTPUT_WORLD**: `prop:target` — property ENUM
+- **CURVE_RGB**: `input:Factor` — no handler in addon translation layer
+- **CURVE_RGB**: `input:Color` — no handler in addon translation layer
 - **ShaderNodeRadialTiling**: `input:Vector` — no handler in addon translation layer
 - **ShaderNodeRadialTiling**: `input:Sides` — no handler in addon translation layer
 - **ShaderNodeRadialTiling**: `input:Roundness` — no handler in addon translation layer
@@ -346,6 +350,8 @@ These features are silently ignored by the addon with no warning:
 - **TEX_WHITE_NOISE**: `prop:noise_dimensions` — property ENUM
 - **UVALONGSTROKE**: `prop:use_tips` — property BOOLEAN
 - **UVMAP**: `prop:from_instancer` — property BOOLEAN
+- **CURVE_VEC**: `input:Factor` — no handler in addon translation layer
+- **CURVE_VEC**: `input:Vector` — no handler in addon translation layer
 - **VECTOR_DISPLACEMENT**: `input:Vector` — no handler in addon translation layer
 - **VECTOR_DISPLACEMENT**: `input:Midlevel` — no handler in addon translation layer
 - **VECTOR_DISPLACEMENT**: `input:Scale` — no handler in addon translation layer
@@ -431,39 +437,39 @@ These features are silently ignored by the addon with no warning:
 | NEW_GEOMETRY | output:Backfacing | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
 | NEW_GEOMETRY | output:Pointiness | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
 | NEW_GEOMETRY | output:Random Per Island | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| OBJECT_INFO | output:Location | DROPPED-SILENT | no handler in addon translation layer |
-| OBJECT_INFO | output:Color | DROPPED-SILENT | no handler in addon translation layer |
-| OBJECT_INFO | output:Alpha | DROPPED-SILENT | no handler in addon translation layer |
-| OBJECT_INFO | output:Object Index | DROPPED-SILENT | no handler in addon translation layer |
-| OBJECT_INFO | output:Material Index | DROPPED-SILENT | no handler in addon translation layer |
-| OBJECT_INFO | output:Random | DROPPED-SILENT | no handler in addon translation layer |
-| ATTRIBUTE | output:Color | DROPPED-SILENT | no handler in addon translation layer |
-| ATTRIBUTE | output:Vector | DROPPED-SILENT | no handler in addon translation layer |
-| ATTRIBUTE | output:Factor | DROPPED-SILENT | no handler in addon translation layer |
-| ATTRIBUTE | output:Alpha | DROPPED-SILENT | no handler in addon translation layer |
-| VERTEX_COLOR | output:Color | DROPPED-SILENT | no handler in addon translation layer |
-| VERTEX_COLOR | output:Alpha | DROPPED-SILENT | no handler in addon translation layer |
+| OBJECT_INFO | output:Location | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| OBJECT_INFO | output:Color | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| OBJECT_INFO | output:Alpha | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| OBJECT_INFO | output:Object Index | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| OBJECT_INFO | output:Material Index | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| OBJECT_INFO | output:Random | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| ATTRIBUTE | output:Color | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| ATTRIBUTE | output:Vector | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| ATTRIBUTE | output:Factor | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| ATTRIBUTE | output:Alpha | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| VERTEX_COLOR | output:Color | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| VERTEX_COLOR | output:Alpha | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
 | HAIR_INFO | output:Is Strand | DROPPED-SILENT | no handler in addon translation layer |
 | HAIR_INFO | output:Intercept | DROPPED-SILENT | no handler in addon translation layer |
 | HAIR_INFO | output:Length | DROPPED-SILENT | no handler in addon translation layer |
 | HAIR_INFO | output:Thickness | DROPPED-SILENT | no handler in addon translation layer |
 | HAIR_INFO | output:Tangent Normal | DROPPED-SILENT | no handler in addon translation layer |
 | HAIR_INFO | output:Random | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Is Camera Ray | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Is Shadow Ray | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Is Diffuse Ray | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Is Glossy Ray | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Is Singular Ray | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Is Reflection Ray | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Is Transmission Ray | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Is Volume Scatter Ray | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Ray Length | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Ray Depth | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Diffuse Depth | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Glossy Depth | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Transparent Depth | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Transmission Depth | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Portal Depth | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_PATH | output:Is Camera Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Is Shadow Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Is Diffuse Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Is Glossy Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Is Singular Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Is Reflection Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Is Transmission Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Is Volume Scatter Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Ray Length | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Ray Depth | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Diffuse Depth | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Glossy Depth | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Transparent Depth | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Transmission Depth | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Portal Depth | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
 
 ### light
 
@@ -715,8 +721,8 @@ These features are silently ignored by the addon with no warning:
 | EMISSION | input:Color | APPROXIMATED |  |
 | EMISSION | input:Strength | APPROXIMATED |  |
 | EMISSION | input:Weight | DROPPED-SILENT |  |
-| CURVE_FLOAT | input:Factor | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
-| CURVE_FLOAT | input:Value | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
+| CURVE_FLOAT | input:Factor | DROPPED-SILENT | no handler in addon translation layer |
+| CURVE_FLOAT | input:Value | DROPPED-SILENT | no handler in addon translation layer |
 | FRESNEL | input:IOR | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
 | FRESNEL | input:Normal | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
 | GAMMA | input:Color | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
@@ -812,8 +818,8 @@ These features are silently ignored by the addon with no warning:
 | OUTPUT_WORLD | input:Volume | DROPPED-SILENT | no handler in addon translation layer |
 | OUTPUT_WORLD | prop:is_active_output | DROPPED-SILENT | property BOOLEAN |
 | OUTPUT_WORLD | prop:target | DROPPED-SILENT | property ENUM |
-| CURVE_RGB | input:Factor | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
-| CURVE_RGB | input:Color | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
+| CURVE_RGB | input:Factor | DROPPED-SILENT | no handler in addon translation layer |
+| CURVE_RGB | input:Color | DROPPED-SILENT | no handler in addon translation layer |
 | RGBTOBW | input:Color | SUPPORTED |  |
 | ShaderNodeRadialTiling | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
 | ShaderNodeRadialTiling | input:Sides | DROPPED-SILENT | no handler in addon translation layer |
@@ -944,8 +950,8 @@ These features are silently ignored by the addon with no warning:
 | UVALONGSTROKE | prop:use_tips | DROPPED-SILENT | property BOOLEAN |
 | UVMAP | prop:from_instancer | DROPPED-SILENT | property BOOLEAN |
 | VALTORGB | input:Factor | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| CURVE_VEC | input:Factor | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
-| CURVE_VEC | input:Vector | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
+| CURVE_VEC | input:Factor | DROPPED-SILENT | no handler in addon translation layer |
+| CURVE_VEC | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
 | VECTOR_DISPLACEMENT | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
 | VECTOR_DISPLACEMENT | input:Midlevel | DROPPED-SILENT | no handler in addon translation layer |
 | VECTOR_DISPLACEMENT | input:Scale | DROPPED-SILENT | no handler in addon translation layer |

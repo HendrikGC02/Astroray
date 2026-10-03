@@ -33,6 +33,7 @@ from degradation import DegradationReport
 from _bulk_geometry import mesh_to_bulk_arrays  # pkg112 batched geometry upload
 from _bulk_geometry import mesh_world_positions  # pkg88-B object motion blur bake
 from _bulk_geometry import extract_curves_bulk   # pkg225 Stage 6 hair/curves export
+from _bulk_geometry import mesh_attribute_layers  # #990 Attribute / Object Info layers
 
 
 def _matrices_differ(m1, m2, eps=1e-6):
@@ -2613,6 +2614,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # (Blender Texture Coordinate > Generated semantics).
         self._generated_textures_by_material = {}
         self._object_coord_materials = {}  # #1006: material name -> uses Object coords
+        # #990: attribute layers (Attribute / Color Attribute / Object Info) each
+        # material reads, filled per triangle corner by the mesh export.
+        self._material_attr_layers = {}
         for mat in bpy.data.materials:
             self._current_material_name = mat.name
             mat_id = self.convert_node_material(mat, renderer)
@@ -4548,6 +4552,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         if compiled is None:
             return None
+        for out_name in compiled.get('light_path_approx') or ():  # #991
+            self._warn_shader_fallback(
+                'LIGHT_PATH', "'%s' is approximate: Astroray's per-material bounce class "
+                "(a Principled bounce counts as glossy), not the Cycles per-closure label"
+                % out_name)
         # issue #818 Item 1 — op-VM inputs may be image OR procedural texture
         # nodes. All inputs of one program must share a single coordinate
         # signature (the ProgramTexture carries one coord_mode + Mapping), and
@@ -4570,6 +4579,35 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 renderer.set_program_texture_program(
                     prog_name, 0, compiled['out_slot'], compiled['code_flat'],
                     compiled['consts_flat'], compiled['ramps_flat'])
+            except Exception as e:
+                self._warn_shader_fallback("op-VM", "program upload failed (%s)" % e)
+                return None
+            self._per_hit_program_names().add(prog_name)
+            return prog_name
+        # #990: attribute inputs (Attribute / Color Attribute / Object Info) have no
+        # coordinates: each loads an engine attribute layer the mesh export fills,
+        # and is left out of the coordinate / kind checks below.
+        all_inputs = inputs
+        all_variants = compiled.get('input_variants') or [None] * len(all_inputs)
+        attr_names = {}
+        for i, (in_node, variant) in enumerate(zip(all_inputs, all_variants)):
+            if getattr(in_node, 'type', None) in svm.ATTRIBUTE_NODE_TYPES:
+                attr_names[i] = self._attribute_layer_texture(
+                    svm.attribute_layer_key(in_node, variant), renderer)
+                if attr_names[i] is None:
+                    return None
+        inputs = [n for i, n in enumerate(all_inputs) if i not in attr_names]
+        tex_variants = [v for i, v in enumerate(all_variants) if i not in attr_names]
+        if not inputs:
+            prog_name = "_prog_%s.%s.%s" % (getattr(self, "_current_material_name", "") or "",
+                                            getattr(node, "name", "n"), input_name)
+            try:
+                renderer.create_program_texture(prog_name, 'UV')
+                for i in range(len(all_inputs)):
+                    renderer.program_texture_add_input(prog_name, attr_names[i])
+                renderer.set_program_texture_program(
+                    prog_name, compiled['num_tex'], compiled['out_slot'],
+                    compiled['code_flat'], compiled['consts_flat'], compiled['ramps_flat'])
             except Exception as e:
                 self._warn_shader_fallback("op-VM", "program upload failed (%s)" % e)
                 return None
@@ -4603,7 +4641,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # GPU scalar-parameter path (Roughness/Metallic/IOR/Transmission,
         # scene_upload.cu uploadProgramTexture) still samples ONE input, so a
         # multi-input scalar program keeps its visible degradation. CPU is exact.
-        if len(inputs) > 1 and input_name in ('Roughness', 'Metallic', 'IOR',
+        if len(all_inputs) > 1 and input_name in ('Roughness', 'Metallic', 'IOR',
                                               'Transmission'):
             # pkg314: a graph program samples every input in-program on both
             # backends (no single-input GPU path).
@@ -4612,7 +4650,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return graph
             self._warn_shader_fallback(
                 'op-VM', 'multi-input shader program (%d texture inputs) on %s: '
-                'GPU uses the constant value; CPU exact' % (len(inputs), input_name))
+                'GPU uses the constant value; CPU exact' % (len(all_inputs), input_name))
         # Procedural inputs default to GENERATED coords (Blender standard for an
         # unconnected Vector) and reject affine coordinate chains, exactly like
         # the direct-to-BSDF procedural path (load_procedural_texture); image
@@ -4664,8 +4702,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # native evaluator both sample the correct field. The ProgramTexture
             # (below) carries the SAME coord/Mapping, so CPU delivers `p` once and
             # the GPU shade path rebuilds the identical normalized coordinate.
-            variants = compiled.get('input_variants') or [None] * len(inputs)
-            for in_node, variant in zip(inputs, variants):
+            for in_node, variant in zip(inputs, tex_variants):
                 vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
                 cn = self.load_procedural_texture(in_node, renderer, vector_input=vinp,
                                                   fac_variant=(variant == 'fac'),
@@ -4687,6 +4724,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 if cn is None:
                     return None
                 child_names.append(cn)
+        if attr_names:  # #990: back into the program's input order
+            tex_children = iter(child_names)
+            child_names = [attr_names[i] if i in attr_names else next(tex_children)
+                           for i in range(len(all_inputs))]
         mat_name = getattr(self, "_current_material_name", "") or ""
         prog_name = "_prog_%s.%s.%s" % (mat_name, getattr(node, "name", "n"), input_name)
         # The ProgramTexture carries the SAME coordinate contract as its children
@@ -4712,9 +4753,31 @@ class CustomRaytracerRenderEngine(RenderEngine):
         except Exception as e:
             self._warn_shader_fallback("op-VM", "program upload failed (%s)" % e)
             return None
-        if compiled.get('per_hit'):
+        if compiled.get('per_hit') or attr_names:  # #989 / #990
             self._per_hit_program_names().add(prog_name)
         return prog_name
+
+    def _attribute_layer_texture(self, key, renderer):
+        """#990: the engine texture reading attribute layer `key`
+        (shader_vm_compiler.attribute_layer_key), registered once per renderer, and
+        the layer recorded for the current material so the mesh export fills it."""
+        if not hasattr(renderer, 'create_attribute_texture'):
+            self._warn_shader_fallback('ATTRIBUTE', 'engine without attribute layers: '
+                                       'flattened')
+            return None
+        name = '_attr_' + key
+        made = getattr(self, '_attr_textures_made', None)
+        if made is None or made[0] is not renderer:
+            made = self._attr_textures_made = (renderer, set())
+        if name not in made[1]:
+            renderer.create_attribute_texture(name, key)
+            made[1].add(name)
+        mat_name = getattr(self, "_current_material_name", "") or ""
+        layers = getattr(self, '_material_attr_layers', None)
+        if layers is None:
+            layers = self._material_attr_layers = {}
+        layers.setdefault(mat_name, set()).add(key)
+        return name
 
     def _build_graph_program(self, socket, node, input_name, renderer, allow_leaf=False):
         """pkg314: compile the chain feeding `socket` into a dynamic value program
@@ -4776,9 +4839,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
         """pkg314: register one graph-program input. 'native': the texture with its
         own coordinates + Mapping, exactly as when wired straight to a socket.
         'coord': an image with NO Mapping, sampled at the program's computed uv."""
+        try:
+            from . import shader_vm_compiler as svm
+        except Exception:
+            import shader_vm_compiler as svm
+        svm_attr_types = svm.ATTRIBUTE_NODE_TYPES
         ntype = getattr(in_node, 'type', None)
         vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
         extension = getattr(in_node, 'extension', 'REPEAT')
+        if ntype in svm_attr_types:
+            # #990: Attribute / Color Attribute / Object Info = an engine attribute layer
+            # the mesh export fills (no coordinates; same keys as the op-VM path).
+            if kind == 'coord':
+                return None
+            return self._attribute_layer_texture(
+                svm.attribute_layer_key(in_node, variant), renderer)
         if ntype == 'TEX_IMAGE':
             image = getattr(in_node, 'image', None)
             if image is None:
@@ -5476,9 +5551,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     "using a flat default colour instead of the textured pattern")
             return spec
         if ntype == 'MIX_SHADER':
-            fac = self.get_float_input(node, 'Fac', 0.5)
             a = self._shader_spec_from_node(self._shader_input_node(node, 'Shader'), renderer, node_tree, depth + 1)
             b = self._shader_spec_from_node(self._shader_input_node(node, 'Shader_001'), renderer, node_tree, depth + 1)
+            # #991: a boolean Light Path output as Fac selects one child per ray.
+            lp_output = self._light_path_mix_output(node, a, b)
+            if lp_output is not None:
+                return {'kind': 'light_path_mix', 'output': lp_output, 'a': a, 'b': b}
+            fac = self.get_float_input(node, 'Fac', 0.5)
+            self._warn_light_path_mix_nested(a, b)
             out = blend_shader_specs(fac, a, b)
             self._blend_scalar_programs(node, a, b, out, renderer)  # pkg293 (#889)
             return out
@@ -5486,6 +5566,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if ntype == 'ADD_SHADER':
             a = self._shader_spec_from_node(self._shader_input_node(node, 'Shader'), renderer, node_tree, depth + 1)
             b = self._shader_spec_from_node(self._shader_input_node(node, 'Shader_001'), renderer, node_tree, depth + 1)
+            self._warn_light_path_mix_nested(a, b)
             kinds = (a.get('kind') if a else None, b.get('kind') if b else None)
             if a and b and kinds not in (('principled', 'emission'), ('emission', 'principled'),
                                          ('emission', 'emission')):
@@ -5499,11 +5580,99 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         return None
 
+    def _light_path_mix_output(self, node, a, b):
+        """#991: the Light Path output index (shader_vm_compiler.LIGHT_PATH_OUTPUTS)
+        when this Mix Shader's Fac is linked straight to a BOOLEAN Light Path output
+        and both shader inputs are connected; else None. Other Light Path Fac links
+        (Ray Length / depths, or through other nodes) are reported: the Fac then
+        constant-mixes (pkg293 keeps per-hit Roughness/Metallic/IOR/Transmission)."""
+        try:
+            from . import shader_vm_compiler as svm
+        except Exception:
+            import shader_vm_compiler as svm
+        fac = node.inputs.get('Fac')
+        src = svm._linked_source(fac)
+        if src is None:
+            return None
+        src_node, out_name = src
+        if getattr(src_node, 'type', None) != 'LIGHT_PATH':
+            if self._chain_reads_light_path(src_node):
+                self._warn_shader_fallback(
+                    'MIX_SHADER', "Fac computed from a Light Path output through other nodes "
+                    "is unsupported as a per-ray closure switch; the Fac is constant-mixed")
+            return None
+        if out_name not in svm.LIGHT_PATH_BOOLEAN:
+            self._warn_shader_fallback(
+                'MIX_SHADER', "Light Path '%s' as Fac is unsupported (only the boolean "
+                "ray-type outputs switch closures); the Fac is constant-mixed" % out_name)
+            return None
+        if a is None or b is None:
+            self._warn_shader_fallback(
+                'MIX_SHADER', "Light Path Fac with an unconnected shader input is "
+                "unsupported; the connected shader is used for every ray")
+            return None
+        if out_name in svm.LIGHT_PATH_APPROXIMATE:
+            self._warn_shader_fallback(
+                'LIGHT_PATH', "'%s' uses Astroray's per-material bounce class (a "
+                "Principled bounce counts as glossy), not the Cycles per-closure label" % out_name)
+        if out_name in ('Is Singular Ray', 'Is Reflection Ray'):
+            self._warn_shader_fallback(
+                'LIGHT_PATH', "'%s' as a Mix Shader Fac: shadow rays use the Fac=0 "
+                "shader (Cycles reads the parent path flag there)" % out_name)
+        return svm.LIGHT_PATH_OUTPUTS.index(out_name)
+
+    def _chain_reads_light_path(self, node, depth=0):
+        """#991: True when `node` or anything upstream of it is a Light Path node."""
+        if node is None or depth > 32:
+            return False
+        if getattr(node, 'type', None) == 'LIGHT_PATH':
+            return True
+        for inp in getattr(node, 'inputs', ()):
+            if getattr(inp, 'is_linked', False):
+                try:
+                    if self._chain_reads_light_path(inp.links[0].from_node, depth + 1):
+                        return True
+                except (IndexError, AttributeError):
+                    pass
+        return False
+
+    def _warn_light_path_mix_nested(self, a, b):
+        """#991: a Light Path closure switch below a constant Mix / Add Shader cannot
+        be blended into one closure; the blend keeps a single branch (reported)."""
+        if any(s is not None and s.get('kind') == 'light_path_mix' for s in (a, b)):
+            self._warn_shader_fallback(
+                'MIX_SHADER', "a Light Path closure switch inside another Mix / Add Shader "
+                "is unsupported; one branch is kept")
+
+    def _light_path_child_material(self, spec, renderer):
+        """#991: create one child of a Light Path closure switch. A Transparent BSDF
+        child becomes a native Principled with Alpha 0 (Cycles: a Principled alpha
+        IS a mix with a white Transparent BSDF), so camera rays pass straight
+        through and shadow rays are not blocked (pkg253 transparent shadows)."""
+        if spec is not None and spec.get('kind') == 'transparent':
+            colour = [float(c) for c in spec.get('base_color', [1.0, 1.0, 1.0])[:3]]
+            if any(abs(c - 1.0) > 1e-6 for c in colour):
+                self._warn_shader_fallback(
+                    'MIX_SHADER', 'tinted Transparent BSDF in a Light Path switch: '
+                    'rendered untinted (Principled alpha has no tint)')
+            spec = blend_shader_specs(
+                1.0, {'kind': 'principled', 'base_color': [1.0, 1.0, 1.0], 'params': {}}, spec)
+        return self._create_material_from_shader_spec(spec, renderer)
+
     def _create_material_from_shader_spec(self, spec, renderer):
         if spec is None:
             return renderer.create_material('disney', [0.8, 0.8, 0.8], {})
 
         kind = spec.get('kind')
+        if kind == 'light_path_mix':
+            # #991: Mix Shader with a boolean Light Path Fac -> per-ray closure switch.
+            if not hasattr(renderer, 'create_light_path_mix'):
+                self._warn_shader_fallback('MIX_SHADER', 'engine without Light Path '
+                                           'switches: the first shader is used')
+                return self._create_material_from_shader_spec(spec.get('a'), renderer)
+            ida = self._light_path_child_material(spec.get('a'), renderer)
+            idb = self._light_path_child_material(spec.get('b'), renderer)
+            return renderer.create_light_path_mix(ida, idb, int(spec['output']))
         if kind == 'emission':
             params = {'intensity': float(spec.get('emission_strength', 1.0))}
             color_tex = spec.get('emission_color_texture')
@@ -5931,7 +6100,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return False
             if self._material_emits(mat):
                 return False
-            if self._material_uses_object_coords(mat):
+            if self._material_uses_object_coords(mat) or \
+                    getattr(self, '_material_attr_layers', {}).get(mat.name):
                 return False
         return True
 
@@ -6559,11 +6729,27 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # slot→id remap, same active-first UV-layer order, same inverse-
             # transpose corner normals. Falls back when the engine build lacks the
             # bulk binding (older .pyd) or when BULK_GEOMETRY_UPLOAD is disabled.
+            # #990: the attribute layers this object's materials read.
+            attr_keys = set()
+            for slot in obj.material_slots:
+                if slot.material is not None:
+                    attr_keys |= getattr(self, '_material_attr_layers', {}).get(
+                        slot.material.name, set())
             if (BULK_GEOMETRY_UPLOAD and n_tri > 0
                     and hasattr(renderer, "add_triangles_bulk")):
                 positions, material_ids, mat_pass, uvs, uv_names, normals = \
                     mesh_to_bulk_arrays(mesh, matrix, normal_matrix,
                                         slot_to_id, default_mat_id, uv_layer_items)
+                attr_kw = {}
+                if attr_keys:
+                    attr_names, attrs, attr_notes = mesh_attribute_layers(
+                        mesh, obj, matrix, attr_keys,
+                        [slot.material for slot in obj.material_slots])
+                    for key, why in attr_notes:
+                        self._warn_shader_fallback(
+                            'ATTRIBUTE', "layer %s on '%s' unsupported (%s): reads 0"
+                            % (key, obj.name, why))
+                    attr_kw = {'attr_names': attr_names, 'attrs': attrs}
                 # pkg88-B: motion candidates go through add_triangles_bulk_motion
                 # with the SHUTTER-OPEN pose as positions_start (NOT `positions`,
                 # which mesh_to_bulk_arrays built from the current-frame matrix --
@@ -6579,15 +6765,24 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     positions_start = mesh_world_positions(mesh, motion_start_matrix)
                     positions_end = mesh_world_positions(mesh, motion_end_matrix)
                     gen_matrix = motion_start_matrix  # #847: stored verts' pose
+                    if attr_kw:
+                        self._warn_shader_fallback(
+                            'ATTRIBUTE', "attribute / Object Info layers on the "
+                            "motion-blurred '%s' are unsupported: read 0" % obj.name)
                     renderer.add_triangles_bulk_motion(
                         positions_start, positions_end, material_ids, mat_pass,
                         int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals)
                 else:
                     renderer.add_triangles_bulk(
                         positions, material_ids, mat_pass,
-                        int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals)
+                        int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals,
+                        **attr_kw)
                 tri_count += n_tri
             else:
+                if attr_keys:
+                    self._warn_shader_fallback(
+                        'ATTRIBUTE', "attribute / Object Info layers need the bulk "
+                        "geometry upload: '%s' reads 0" % obj.name)
                 for tri in mesh.loop_triangles:
                     v0 = matrix @ mesh.vertices[tri.vertices[0]].co
                     v1 = matrix @ mesh.vertices[tri.vertices[1]].co

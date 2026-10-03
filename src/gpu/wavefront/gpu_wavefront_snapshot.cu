@@ -116,6 +116,7 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
+    setWavefrontLightPathBinding(GWavefrontLightPathBinding{ nullptr, 0 });  // #991
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera (mirrors production GPU render path).
@@ -296,6 +297,7 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
+    setWavefrontLightPathBinding(GWavefrontLightPathBinding{ nullptr, 0 });  // #991
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -485,6 +487,7 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
+    setWavefrontLightPathBinding(GWavefrontLightPathBinding{ nullptr, 0 });  // #991
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -652,6 +655,7 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
+    setWavefrontLightPathBinding(GWavefrontLightPathBinding{ nullptr, 0 });  // #991
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -837,6 +841,7 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
+    setWavefrontLightPathBinding(GWavefrontLightPathBinding{ nullptr, 0 });  // #991
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     // Build GCameraParams from Camera.
@@ -1089,6 +1094,7 @@ struct WfContext {
     WfDeviceBuf materialProgInputTexId;        // #826 op-VM input texIds [mat*VM_MAX_TEX+t]
     WfDeviceBuf materialScalarProgId, materialScalarTexId;  // pkg219d scalar-param programs
     WfDeviceBuf procTextures;                  // #1007 per-hit procedural evaluators
+    WfDeviceBuf lightPathSwitch;               // #991 Light Path Mix Shader side table
     // pkg314 graph value programs: arenas + per-material slots (scene slices) and
     // the graph kernel's per-path outputs + batched scratch (per render).
     WfDeviceBuf graphInstrs, graphConsts, graphTables, graphTableData, graphTexRefs;
@@ -1317,6 +1323,7 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
+    setWavefrontLightPathBinding(GWavefrontLightPathBinding{ nullptr, 0 });  // #991
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
 
     GCameraParams gcam;
@@ -1839,6 +1846,13 @@ std::vector<float> cuda_wavefront_render(
         setWavefrontProgramBinding(GWavefrontProgramBinding{
             d_programs, d_matProgId, d_matScalarProgId, d_matScalarTexId,
             d_matProgInTexId, d_procs, d_matGraphProg, d_graphOut, total_paths});
+    // #991 — Light Path: switch side table (null when no Mix Shader has a Light
+    // Path Fac) + lp_state maintenance (any switch or Light Path program).
+    {
+        auto* d_lpSwitch = wfSync(reuse, C.lightPathSwitch, res.lightPathSwitch);
+        setWavefrontLightPathBinding(GWavefrontLightPathBinding{
+            d_lpSwitch, res.hasLightPath ? 1 : 0 });
+    }
     // #962 — textured Emission Color: the intersect (emissive hit) and shadow
     // (NEE) stages fetch the texel per hit when set; both bindings above are
     // published this frame whenever the matching bit is set.
@@ -3051,6 +3065,7 @@ std::vector<float> cuda_wavefront_render_restir(
     // apply (the CPU restir_di ignores it too), so emitter hits keep MIS weights.
     setWavefrontLightNeeOff(false);
     setWavefrontEmissionTexture(0, 0x7fffffff);  // #962: ReSTIR keeps the flat mean emission
+    setWavefrontLightPathBinding(GWavefrontLightPathBinding{ nullptr, 0 });  // #991: ReSTIR: no Light Path switch
     setWavefrontGridVolumeBinding(GWavefrontGridVolumeBinding{});  // pkg269: no bounded media here
     setWavefrontCameraGroup(0, 0u, 0u, 0xFFFFFFFFu);  // pkg305: ReSTIR keeps PCG32 camera draws
 

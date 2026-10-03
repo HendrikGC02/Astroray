@@ -27,6 +27,7 @@
 #include "astroray/integrator.h"
 #include "astroray/register.h"
 #include "astroray/shapes.h"
+#include "astroray/hair_melanin_spectral.h"  // #1037 follow-up: sigma_a(lambda) seam probe
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -340,6 +341,9 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
           // cppcheck-suppress assignBoolToPointer -- pybind11 named-argument default.
           "emission"_a, "clamp_direct"_a = 0.0f, "caustic"_a = false,
           "Runs either Renderer GR dispatch and returns (radiance, trace_calls).");
+    // pkg225 Stage 5 seam: physical per-lambda melanin absorption (deterministic).
+    m.def("hair_melanin_sigma_at_lambda", &astroray::hair::melaninSigmaAtLambda,
+          "eumelanin"_a, "pheomelanin"_a, "lambda_nm"_a);
     m.def("caustic_walk_collapse_probe", &probeCausticWalkCollapse, "trials"_a);
     m.def("guide_snapshot_collapse_probe", &probeGuideSnapshotCollapse, "trials"_a,
           "dispersive"_a);

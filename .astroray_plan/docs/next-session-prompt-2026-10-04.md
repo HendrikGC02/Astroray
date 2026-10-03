@@ -4,10 +4,10 @@ Owner reclaimed the PC before the final local pass. Everything is on main. No fe
 
 ## Merged 2026-10-03 (after the 08:00 handoff)
 #1041 Noise 1D-4D + object-local Object coords · #1043 GPU curves under instancing · #1029 gate (d) adaptive toggle + sample-count pass · #1030 pkg314 shader-graph IR + dynamic value programs (arch Phases 1-2) · #1053 #1037 hair self-hit (Cycles self-prim skip, CPU+GPU, incl. transparent-shadow hops) · #1054 #961/#1019/#884 volume segment light pick (GPU eff vs OptiX 0.006 -> 0.087 @60 s) · #1040 #1036 CPU adaptive bias (sms-glass reference re-blessed, notes.md) · #1049 pkg291 viewport gate (a) closeout (default stays OFF; ON/OFF tables in doc) · #1048 #991/#990 Light Path + Attribute/Color Attribute/Object Info + prod_attributes graph wiring · #1055 #959/#1025 caustics (Fresnel photons, CPU photon map from Blender; Mitsuba arbitration CPU/GPU within 1-3 %) · 3a16065b + #1056 pkg225 melanin: render R/B divergence assertion removed (physically <=0.4 %), deterministic sigma_a(lambda) binding test.
-Pending merge: #1058 checkpoint polish (ak921 uses dist/astroray; Disney-sweep reference on Blender 5.2). Watcher armed; merge on green if this session ended first.
+Also merged: #1058 checkpoint polish (ak921 uses dist/astroray; Disney-sweep reference on Blender 5.2). Main HEAD at checkpoint: f9aa2f1c.
 
 ## Do first next session (needs the PC; nothing below has run on final main)
-1. `python scripts/build/lead_build_queue.py main` then `main:addon-cuda` (main HEAD after #1058).
+1. `python scripts/build/lead_build_queue.py main` then `main:addon-cuda` (main HEAD f9aa2f1c or later).
 2. Full `python scripts/test/run_split.py` + `tests/test_production_corpus.py tests/test_corpus_v2_parity.py -m "gpu or not gpu"` with `ASTRORAY_PYD_DIR=<main>/dist/astroray` (unset -> 728 corpus tests silently skip).
    Confirm: #947 motion_vane rows and #992 prod_curves_geometry rows have no strict XPASS. Run #1015 progressive-Sobol 3x.
 3. Fix #1057 (GPU patch cache keyed on raw BVH pointer -> stale lookup when a new renderer reuses the address; one-line fix in the issue), build, verify the pkg291 GPU tests.
@@ -17,7 +17,7 @@ Pending merge: #1058 checkpoint polish (ak921 uses dist/astroray; Disney-sweep r
 7. Delete the 4 empty dirs `Astroray_repo/Astroray-{aq-1000,ar-981,at-d,at-n1}` (held open by old processes at checkpoint time).
 
 ## Repo state after cleanup
-Worktrees: main and `Astroray-polish` (remove after #1058 merges). Remote branches: main, `feat/batch-h2-pkg265-gpu-walk` (unwired GPU microsurface-walk draft, kept on purpose), `repin-post-pkg181` (delete after #1058).
+Worktrees: main only. Branches: main, `feat/batch-h2-pkg265-gpu-walk` (unwired GPU microsurface-walk draft, kept on purpose).
 312 remote and 127 local merged branches were deleted. Name+SHA restore lists: `branch-cleanup-2026-10-03.txt` beside this file.
 `Astroray_image_backup_2026-08-11` stays (owner).
 

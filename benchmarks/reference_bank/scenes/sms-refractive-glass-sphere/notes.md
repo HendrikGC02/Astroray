@@ -26,3 +26,22 @@ lambda) changes the seed-17 noise realization. The old reference was that realiz
 sampler: at seeds 11/22/33 the old engine itself scored phash 16/10/20 against it (gate 16), the new
 engine 14/14/16. Re-blessed with `runner --bless`; image mean unchanged (60.52/62.99/65.69 vs
 60.52/62.99/65.70 sRGB).
+
+**#1040 re-bless (2026-10-03):** the 09-30 reference was blessed with the CPU adaptive sampler on
+(the default), which retired pixels before they caught rare camera->glass->light paths (#1036). The
+reference matched that bias exactly. CPU, seed 17 unless noted:
+
+| render | image mean | caustic ROI mean | bright_coverage |
+|---|---|---|---|
+| 09-30 reference | 0.24732 | 0.32520 | - |
+| old engine, adaptive on (seeds 11/17/22/33) | 0.2473 | 0.3252 | 0.165 |
+| adaptive off, 1024 spp (old == new, byte-identical) | 0.24888 | 0.32778 | 0.196 |
+| adaptive off, 4096 spp (independent, 2 seeds) | 0.24906 | 0.32806 | 0.186 |
+| #1040 engine, adaptive on (seeds 11/17/22/33) | 0.2488 | 0.3278 | 0.194-0.197 |
+
+The fixed engine agrees with the independent adaptive-off renders, and the old reference was dark by
+0.9 % in the caustic ROI. Re-blessed with `runner --bless` (seed 17, fixed engine). This is a
+same-engine re-bless (pkg305 precedent) validated against the adaptive-off table above, not an
+independent reference: the phash gate is at the MC noise floor (two independent 4096-spp renders
+differ by phash 14; 1024-spp seeds by 12-22), so an independent reference fails it at seed 17
+(phash 20) while SSIM/dE/bright_coverage pass. Follow-up: #1052.

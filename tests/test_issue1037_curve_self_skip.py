@@ -41,15 +41,20 @@ def _gpu_ok() -> bool:
     return AVAILABLE and bool(astroray.__features__.get("cuda", False))
 
 
-def _scene(gpu: bool, furnace: bool, depth: int):
+STRAIGHT = [(0.0, 1.2, 0.0), (0.0, -1.2, 0.0)]
+# Two segments (n points -> n-1) meeting at a sharp bend.
+VEE = [(-0.9, 1.2, 0.0), (0.0, -0.9, 0.0), (0.9, 1.2, 0.0)]
+
+
+def _scene(gpu: bool, furnace: bool, depth: int, strand=STRAIGHT):
     r = astroray.Renderer()
     r.set_background_color([1.0, 1.0, 1.0] if furnace else [0.0, 0.0, 0.0])
     hair = r.create_material(
         "principled_hair", [0.5, 0.5, 0.5],
         {"roughness": 0.3, "radial_roughness": 0.3, "coat": 0.0,
          "parametrization": "melanin", "melanin": 0.0, "melanin_redness": 0.0})
-    pts = np.asarray([(0.0, 1.2, 0.0), (0.0, -1.2, 0.0)], dtype=np.float32)
-    r.add_curves_bulk(pts, np.full(2, 0.3, dtype=np.float32), [2], hair)
+    pts = np.asarray(strand, dtype=np.float32)
+    r.add_curves_bulk(pts, np.full(len(pts), 0.3, dtype=np.float32), [len(pts)], hair)
     if not furnace:
         r.add_point_light([2.2, 1.4, 1.6], {"mode": "rgb", "color": [1, 1, 1]}, 200.0, 0.0)
     r.setup_camera([0.0, 0.0, 4.2], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
@@ -83,6 +88,17 @@ def test_continuation_does_not_re_enter_own_segment(gpu):
     assert d2 / d1 < 1.01, (
         f"#1037: depth 2 adds {d2 / d1 - 1:.1%} over depth 1 on a lone strand; "
         "continuation rays re-hit their own curve segment")
+
+
+@pytest.mark.parametrize("gpu", BACKENDS, ids=lambda g: "gpu" if g else "cpu")
+def test_adjacent_segment_of_same_strand_still_hit(gpu):
+    # Only the originating segment is skipped (Cycles skips one primitive): on a
+    # bent two-segment strand a continuation off one segment still reaches the
+    # other. Measured depth2/depth1 = 1.157 (CPU); a lone segment reads 1.000.
+    d1 = float(_scene(gpu, False, 1, VEE).sum())
+    d2 = float(_scene(gpu, False, 2, VEE).sum())
+    print(f"  vee depth1={d1:.4f} depth2={d2:.4f} ratio={d2 / d1:.4f}")
+    assert d2 / d1 > 1.05, "adjacent segment of the same strand must stay hittable"
 
 
 @pytest.mark.parametrize("gpu", BACKENDS, ids=lambda g: "gpu" if g else "cpu")

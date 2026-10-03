@@ -191,8 +191,12 @@ def test_spectral_melanin_distinct_and_red_dominant():
     print(f"\n[pkg225-S5] eumelanin red/blue  rgb-mode={rb_rgb:.3f}  spectral={rb_spec:.3f}")
 
     # (a) Pure eumelanin passes red, absorbs blue -> red-dominant in both modes.
-    assert rb_spec > 1.5, (
-        f"spectral eumelanin R/B={rb_spec:.3f} should be red-dominant (>1.5); the "
+    # #1037: the old 1.5 bound was calibrated while ~90 % of the direct light was
+    # self-shadowed by the strand's own tube (R/B 15-17, coloured multi-strand
+    # light only). With the self-hit gone the achromatic R-lobe glint is visible,
+    # so the sum reads 1.2 (rgb 1.217 / spectral 1.205); still > 1 = red-dominant.
+    assert rb_spec > 1.1, (
+        f"spectral eumelanin R/B={rb_spec:.3f} should be red-dominant (>1.1); the "
         f"lambda^-3.33 absorption must pass red and absorb blue. Melanin seam broken?")
     # (a2) The spectral magnitude must track the RGB mode: both parametrizations
     # describe the SAME material, so a large brightness gap means the spectral
@@ -226,7 +230,11 @@ def test_spectral_melanin_distinct_and_red_dominant():
         print(f"  melanin={melanin} redness={redness}: rgb R/B={ra:.3f} "
               f"spectral R/B={rb_:.3f} rel={rel:.1%}")
 
-    assert max(divergences) > 0.01, (
+    # #1037: was > 1 %. Pre-fix the self-shadowed tuft was all coloured multi-strand
+    # light (rgb 16.7 vs spectral 15.2 R/B, ~9 %); the achromatic R-lobe glint now
+    # dilutes the R/B gap to ~0.7-1.0 % (seeds 225501/7/8, melanin 0.6), so the
+    # bound is 0.5 %: a silent RGB fallback still reads ~0 %.
+    assert max(divergences) > 0.005, (
         f"spectral R/B tracks the RGB-triple R/B to within {max(divergences):.1%} at "
         f"EVERY sampled (melanin, redness) point -- the spectral melanin seam appears "
         f"not engaged (it should follow the physical power law, not the Cycles RGB "

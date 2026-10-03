@@ -1118,6 +1118,7 @@ public:
         moved.cameraU = r.cameraU;
         moved.cameraV = r.cameraV;
         moved.cameraW = r.cameraW;
+        moved.self = r.self;  // #1037
         if (!object->hit(moved, tMin, tMax, rec)) return false;
         rec.point += offset;
         // Keep the inner hit's normal AND rec.frontFace. Translation does not rotate
@@ -1155,6 +1156,7 @@ public:
         scaled.cameraU = r.cameraU;
         scaled.cameraV = r.cameraV;
         scaled.cameraW = r.cameraW;
+        scaled.self = r.self;  // #1037
         if (!object->hit(scaled, tMin * sdlen, tMax * sdlen, rec)) return false;
         rec.t /= sdlen;
         rec.point = Vec3(rec.point.x*scale.x, rec.point.y*scale.y, rec.point.z*scale.z);
@@ -1190,6 +1192,7 @@ public:
         rot.cameraU = r.cameraU;
         rot.cameraV = r.cameraV;
         rot.cameraW = r.cameraW;
+        rot.self = r.self;  // #1037
         if (!object->hit(rot, tMin, tMax, rec)) return false;
         Vec3 p = rec.point;
         rec.point = Vec3(cosT*p.x - sinT*p.z, p.y, sinT*p.x + cosT*p.z);

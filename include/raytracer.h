@@ -4814,7 +4814,7 @@ public:
                         float dist = std::sqrt(dist2);
                         Vec3 wiToLight = toLight * (1.0f / dist);
                         HitRecord occ;
-                        bool blocked = bvh->hit(Ray(wrec.point, wiToLight), 0.001f, dist - 0.001f, occ);
+                        bool blocked = bvh->hit(spawnRay(wrec, wiToLight), 0.001f, dist - 0.001f, occ);
                         if (!blocked) {
                             Vec3 wwo = -walkRay.direction.normalized();
                             astroray::SampledSpectrum f_spec =
@@ -4845,6 +4845,7 @@ public:
                         next.cameraU = walkRay.cameraU;
                         next.cameraV = walkRay.cameraV;
                         next.cameraW = walkRay.cameraW;
+                        next.self = wrec.hitObject;  // #1037
                         walkRay = next;
                     }
                     // #904: the walk's contributions were added to `color`, which

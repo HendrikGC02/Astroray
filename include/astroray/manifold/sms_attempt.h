@@ -164,7 +164,7 @@ inline bool runSMSAttempt(const Renderer& renderer,
     float distX0X1 = std::sqrt(distX0X1_2);
     Vec3 wi_x0 = dirToX1 * (1.0f / distX0X1);
     HitRecord vrec;
-    if (!bvh->hit(Ray(x0Rec.point, wi_x0), 0.001f, distX0X1 + 1e-2f, vrec))
+    if (!bvh->hit(spawnRay(x0Rec, wi_x0), 0.001f, distX0X1 + 1e-2f, vrec))
         return false;
     if (vrec.hitObject != static_cast<const Hittable*>(C.sphere))
         return false;
@@ -294,7 +294,7 @@ inline SMSPolyResult runSMSAttemptPoly(const Renderer& renderer,
 
         // Visibility x0 -> x1 must actually reach this caster sphere.
         HitRecord vrec;
-        if (!bvh->hit(Ray(x0Rec.point, wi_x0), 0.001f, distX0X1 + 1e-2f, vrec))
+        if (!bvh->hit(spawnRay(x0Rec, wi_x0), 0.001f, distX0X1 + 1e-2f, vrec))
             continue;
         if (vrec.hitObject != static_cast<const Hittable*>(C.sphere))
             continue;
@@ -434,7 +434,7 @@ inline SMSPolyResult runSphereChainAttempt(const Renderer& renderer,
 
         // Visibility x0 -> entry must actually reach this caster sphere.
         HitRecord vrec;
-        if (!bvh->hit(Ray(x0Rec.point, wi_x0), 0.001f, distX0X1 + 1e-2f, vrec))
+        if (!bvh->hit(spawnRay(x0Rec, wi_x0), 0.001f, distX0X1 + 1e-2f, vrec))
             continue;
         if (vrec.hitObject != static_cast<const Hittable*>(C.sphere))
             continue;

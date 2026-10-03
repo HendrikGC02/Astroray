@@ -87,7 +87,8 @@ def _configure_render(scene, engine, res, samples, device="gpu", res_y=None, see
     if hasattr(scene, "cycles"):
         scene.cycles.samples = samples
         scene.cycles.use_denoising = False
-        scene.cycles.use_adaptive_sampling = False
+        # ASTRORAY_LEG_ADAPTIVE=1 re-enables adaptive sampling (#1036 bias checks).
+        scene.cycles.use_adaptive_sampling = os.environ.get("ASTRORAY_LEG_ADAPTIVE") == "1"
         scene.cycles.seed = seed
         scene.cycles.use_animated_seed = False
     if engine == "CUSTOM_RAYTRACER" and hasattr(scene, "custom_raytracer"):
@@ -98,7 +99,7 @@ def _configure_render(scene, engine, res, samples, device="gpu", res_y=None, see
         if hasattr(cr, "device_mode"):
             cr.device_mode = device
         # Adaptive sampling remains an Astroray-only setting in the resolver.
-        cr.use_adaptive_sampling = False
+        cr.use_adaptive_sampling = os.environ.get("ASTRORAY_LEG_ADAPTIVE") == "1"
 
 def _gate_b_settings(scene):
     """Return the immutable render settings a witnessed case freezes."""

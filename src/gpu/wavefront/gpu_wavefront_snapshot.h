@@ -249,6 +249,9 @@ int cuda_wavefront_last_grid_uploads();
 // scene (no buildSceneArrays, no scene upload, no OptiX accel rebuild).
 // Surfaced as last_render_info()["gpu_scene_reused"].
 int cuda_wavefront_last_scene_reused();
+// pkg291 (#875): 1 when the last cuda_wavefront_render patched an in-place
+// object move into the cached device scene instead of re-flattening it.
+int cuda_wavefront_last_scene_patched();
 
 // pkg299: 1 when the most recent cuda_wavefront_render traversed with OptiX
 // (the default on triangle-only scenes), 0 on the software BVH.

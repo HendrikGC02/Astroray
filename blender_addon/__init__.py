@@ -6279,6 +6279,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         obj_count = 0
         self._vol_media_count = 0  # issue #828: GPU bounded-media cap report
         self._vol_boundary_names = []  # pkg296: mesh-bounded media (GPU: AABB)
+        # pkg291 (#875): Blender object name -> (first scene index, triangle
+        # count, row-major matrix_world) of each in-place-movable mesh object.
+        self._renderer_object_ranges = {}
         is_render = getattr(depsgraph, 'mode', 'VIEWPORT') == 'RENDER'
         active_view_layer = getattr(depsgraph, "view_layer", None)
         # pkg114 inc 3c — GPU two-level instancing fast-path: register shared mesh
@@ -6676,6 +6679,19 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 # pkg87c — Cryptomatte object name
                 if hasattr(renderer, "set_object_name"):
                     renderer.set_object_name(oid, obj.name)
+            # pkg291 (#875): a real (non-dupli), static mesh whose materials do not
+            # bake a world-space Generated bbox can move in place (Exporter
+            # transform-only dispatch -> transform_object_range). A name seen twice
+            # (or ineligible) is recorded as None.
+            if scene_count_after > scene_count_before:
+                _rng = self._renderer_object_ranges
+                _ok = (obj.name not in _rng and motion_end_matrix is None
+                       and not needs_generated
+                       and not getattr(obj_instance, 'is_instance', False))
+                _rng[obj.name] = ((scene_count_before,
+                                   scene_count_after - scene_count_before,
+                                   [float(x) for row in matrix for x in row])
+                                  if _ok else None)
 
             # pkg117: free the temporary mesh produced by to_mesh() for non-MESH
             # geometry. Blender requires an explicit to_mesh_clear(); plain meshes

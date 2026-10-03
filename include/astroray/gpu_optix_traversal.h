@@ -68,6 +68,13 @@ bool buildAccel(const GPrimitive* d_prims, int numPrims, const GTriangle* d_tris
                 const GBLAS* h_blas, int numBlas);
 bool accelReady();
 void releaseAccel();
+// pkg291 (#875): in-place object moves. buildAccelUpdatable builds the single-
+// level GAS with OPTIX_BUILD_FLAG_ALLOW_UPDATE (uncompacted, keeping its vertex
+// stream + update scratch); refitAccel re-packs the vertices from d_tris and runs
+// OPTIX_BUILD_OPERATION_UPDATE (same topology). False = fall back (rebuild).
+bool buildAccelUpdatable(const GPrimitive* d_prims, int numPrims, const GTriangle* d_tris);
+bool refitAccel(const GPrimitive* d_prims, int numPrims, const GTriangle* d_tris);
+bool accelUpdatable();
 
 // Grow-only side buffers for `capacity` path slots.
 HwHitBuffers ensureBuffers(int capacity);
@@ -96,6 +103,9 @@ inline bool buildAccel(const GPrimitive*, int, const GTriangle*, const GInstance
                        const GBLAS*, int) { return false; }
 inline bool accelReady() { return false; }
 inline void releaseAccel() {}
+inline bool buildAccelUpdatable(const GPrimitive*, int, const GTriangle*) { return false; }
+inline bool refitAccel(const GPrimitive*, int, const GTriangle*) { return false; }
+inline bool accelUpdatable() { return false; }
 inline HwHitBuffers ensureBuffers(int) { return HwHitBuffers{}; }
 inline void traceClosest(const ClosestLaunch&, int) {}
 inline void traceShadow(const ShadowLaunch&, int) {}

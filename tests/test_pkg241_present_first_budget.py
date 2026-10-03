@@ -223,6 +223,11 @@ def test_budget_divisor_engages_above_measured_threshold(monkeypatch):
     exporter._viewport_last_full_render_ms = budget * 5.0
     assert exporter._budget_start_divisor() == coarse, "expensive scene starts coarse"
 
+    # pkg291: commit + upload + present also spend the budget, so a full-res
+    # render above half of it already starts coarse.
+    exporter._viewport_last_full_render_ms = budget * 0.6
+    assert exporter._budget_start_divisor() == coarse
+
 
 def test_expensive_edit_starts_coarse(monkeypatch):
     """A scene edit whose estimated full-res render is over budget renders its

@@ -229,6 +229,12 @@ a{color:var(--ac)}</style></head><body>
 <p><a href="viewport/continuous-edit-commit/commit_chart.json">commit_chart.json</a></p>
 <a href="viewport/continuous-edit-commit/commit_chart.png"><img loading="lazy" src="viewport/continuous-edit-commit/commit_chart.png" alt="commit_chart.png"></a>
 </div>
+<div class="card"><h3>edit-latency</h3>
+<p>Edit dispatch to first correct Blender-presented frame, GPU, 2100x1221 region, 10k and 100k triangle grids, camera (view_orbit) / material / object-move edits, 300 events per cell, 0 chain errors, 0 stale frames. latency_chart: p95 per cell, worker ON vs worker OFF (synchronous); dashed line = gate (a) p95 100 ms.</p>
+<p><a href="viewport/edit-latency/latency_chart.json">latency_chart.json</a></p>
+<a href="viewport/edit-latency/before_during_after.png"><img loading="lazy" src="viewport/edit-latency/before_during_after.png" alt="before_during_after.png"></a>
+<a href="viewport/edit-latency/latency_chart.png"><img loading="lazy" src="viewport/edit-latency/latency_chart.png" alt="latency_chart.png"></a>
+</div>
 <div class="card"><h3>material-edit-worker-parity</h3>
 <p>Nine edits on a Principled sphere (base colour, roughness, node link, image swap, emission): worker_on_sheet and worker_off_sheet (downscaled viewport screenshots); centre_rgb_chart plots the centre pixel per step. Verdict: PASS. ON and OFF match within ~1% on every edit, so the incremental-replay fix (#721) adds no staleness.</p>
 <p><a href="viewport/material-edit-worker-parity/centre_rgb_chart.json">centre_rgb_chart.json</a></p>

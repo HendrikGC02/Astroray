@@ -1301,7 +1301,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
         ("UV", "uv", 4, "RGBA", "use_pass_uv"),
         ("IndexOB", "object_index", 4, "RGBA", "use_pass_object_index"),
         ("IndexMA", "material_index", 4, "RGBA", "use_pass_material_index"),
+        # #867: Cycles' Debug > Sample Count pass (view_layer.cycles.pass_debug_sample_count);
+        # single VALUE channel, linear, normalised by the max sample budget.
+        ("Debug Sample Count", "sample_count", 1, "X", "cycles.pass_debug_sample_count"),
     ]
+    @staticmethod
+    def _pass_toggle(view_layer, toggle_name):
+        """Read a pass toggle; a dotted name walks sub-groups (``cycles.pass_...``)."""
+        obj = view_layer
+        for part in toggle_name.split("."):
+            obj = getattr(obj, part, None)
+            if obj is None:
+                return False
+        return bool(obj)
+
     # pkg87c: Cryptomatte passes are generated dynamically based on depth setting
     @classmethod
     def _cryptomatte_pass_specs(cls, scene):
@@ -1321,11 +1334,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 self.register_pass(scene, renderlayer, display_name, 4, "RGBA", "COLOR")
         registered_data_passes = set()
         for display_name, _, channels, channel_id, toggle_name in self._DATA_PASS_SPECS:
-            if getattr(renderlayer, toggle_name, False):
+            if self._pass_toggle(renderlayer, toggle_name):
                 if display_name in registered_data_passes:
                     continue
                 registered_data_passes.add(display_name)
-                self.register_pass(scene, renderlayer, display_name, channels, channel_id, "COLOR")
+                self.register_pass(scene, renderlayer, display_name, channels, channel_id,
+                                   "VALUE" if channels == 1 else "COLOR")
         # pkg87c: Register Cryptomatte passes dynamically based on depth
         for display_name, _, toggle_name in self._cryptomatte_pass_specs(scene):
             if getattr(renderlayer, toggle_name, False):
@@ -1344,7 +1358,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         enabled = []
         seen = set()
         for display_name, key, _, _, toggle_name in cls._DATA_PASS_SPECS:
-            if getattr(view_layer, toggle_name, False):
+            if cls._pass_toggle(view_layer, toggle_name):
                 if display_name in seen:
                     continue
                 seen.add(display_name)
@@ -7276,6 +7290,19 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         idx_data = np.asarray(renderer.get_material_index_buffer(), dtype=np.float32)
                         pass_rgba = np.ones((height, width, 4), dtype=np.float32)
                         pass_rgba[:, :, :3] = idx_data[:, :, None]
+                    elif key == "sample_count":
+                        # #867: single-channel pass, linear count / max budget
+                        # (Blender 5.2 "Debug Sample Count" normalisation).
+                        counts = np.asarray(renderer.get_sample_count_buffer(), dtype=np.float32)
+                        budget = float(getattr(getattr(scene, "cycles", None), "samples", 0) or 0)
+                        if budget <= 0.0:
+                            budget = max(float(counts.max()), 1.0)
+                        count_flat = np.ascontiguousarray((counts / budget)[::-1]).reshape(-1)
+                        try:
+                            target_pass.rect.foreach_set(count_flat)
+                        except AttributeError:
+                            target_pass.rect = count_flat.tolist()
+                        continue
                     else:
                         continue
                 except Exception:
@@ -7440,9 +7467,13 @@ class RENDER_PT_custom_raytracer_sampling(AstrorayPanelBase, Panel):
         sub.prop(settings, "denoiser_backend", text="Denoiser")
 
         layout.separator()
-        layout.prop(settings, "use_adaptive_sampling")
+        # #866: the native Cycles toggle is what the engine reads (see
+        # native_settings.resolve_native_settings); the custom prop is only the
+        # Cycles-less fallback, so draw the one that is actually honoured.
+        _adaptive_owner = cycles if hasattr(cycles, "use_adaptive_sampling") else settings
+        layout.prop(_adaptive_owner, "use_adaptive_sampling", text="Adaptive Sampling")
         sub = layout.column()
-        sub.active = settings.use_adaptive_sampling
+        sub.active = bool(_adaptive_owner.use_adaptive_sampling)
         thr = sub.column()
         thr.enabled = False  # pkg311: vestigial control (settings_map: dropped)
         thr.prop(settings, "adaptive_threshold")

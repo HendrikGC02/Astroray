@@ -67,3 +67,25 @@ def test_adaptive_highbudget_unbiased_and_bounded():
     # Bounded: residual per-pixel noise stays within the threshold-level tolerance
     # (the auto threshold at budget 256 is ~0.02 brightness-relative).
     assert float(np.abs(on - off).mean()) < 0.05
+
+
+def _counts(adaptive, samples):
+    r = create_renderer()
+    _smooth_lit_quad(r)
+    r.set_seed(1234)
+    r.set_adaptive_sampling(adaptive)
+    render_image(r, samples=samples, max_depth=3, apply_gamma=False)
+    if not hasattr(r, "get_sample_count_buffer"):
+        import pytest
+        pytest.skip("engine build predates #867 get_sample_count_buffer")
+    return np.asarray(r.get_sample_count_buffer())
+
+
+def test_sample_count_buffer_reflects_adaptive_867():
+    """#867: the per-pixel sample-count buffer is the budget everywhere with
+    adaptive OFF, and varies (never above budget) with adaptive ON."""
+    off = _counts(False, 256)
+    assert off.shape == (32, 32) and np.all(off == 256)
+    on = _counts(True, 256)
+    assert on.max() <= 256 and on.min() >= 1
+    assert on.min() < on.max(), "adaptive sampling left the sample-count AOV constant"

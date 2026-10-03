@@ -56,19 +56,56 @@
     "d": {
       "row": "d",
       "instrument": "native_panel_smoke",
-      "status": "unmeasured",
-      "scene_sha256": [],
-      "build_id": null,
-      "backend": [],
+      "status": "green",
+      "scene_sha256": [
+        "c99f8e8d67a073695d19bd984c9fafd5a674cf2e60261e0378e03c64a2533455"
+      ],
+      "build_id": "dev",
+      "backend": [
+        "CPU",
+        "GPU"
+      ],
       "settings": {},
-      "metric": {},
-      "value": null,
-      "threshold": {},
-      "evidence_path": null,
-      "evidence_sha256": null,
-      "dimensions": {},
-      "subchecks": {},
-      "date": "2026-10-02"
+      "metric": {
+        "source": "canonical_native_panel_reducer"
+      },
+      "value": {
+        "mean_rel_error_max": 0.004862958015598719,
+        "detail_preservation_min": 0.999923015750928
+      },
+      "threshold": {
+        "mean_rel_error_max": 0.02,
+        "detail_preservation_min": 0.95
+      },
+      "evidence_path": "docs/blender_parity/evidence/d/instrument.json",
+      "evidence_sha256": "f2eba516da6690d64a29b0c755e8b5301afec402d82cc4d5f3ee2c27ad0b2479",
+      "dimensions": {
+        "backend": "CPU+GPU",
+        "panel": "native Cycles settings"
+      },
+      "subchecks": {
+        "adaptive_changes_sample_count_aov": true,
+        "adaptive_lowers_flat_noise": true,
+        "denoise_lowers_residual_noise": true,
+        "reference_comparison": true
+      },
+      "date": "2026-10-03",
+      "schema": "pkg278.instrument.v2",
+      "records": [
+        {
+          "kind": "native_panel_aggregate",
+          "artifact": {
+            "path": "raw_aggregate.json",
+            "sha256": "37b2ba77f2a9ee48c96af4b349da39ab9358bd3c37ffd50278fd9527f9d85bbc"
+          },
+          "expected_identity": {
+            "build_id": "dev",
+            "engine_id": "CUSTOM_RAYTRACER",
+            "module_sha256": "fffbcde791dbc53c3563a9e1a0f8beab11dca059f76397021caba506666fe249",
+            "addon_init_sha256": "53b6facff12df6e0a974f5823d2c4106e7045056736ab96cce547a0da1596f1b"
+          }
+        }
+      ]
     },
     "e": {
       "row": "e",

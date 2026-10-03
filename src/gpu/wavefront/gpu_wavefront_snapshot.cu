@@ -1550,7 +1550,8 @@ std::vector<float> cuda_wavefront_render(
     int* unitsLaunchedOut,     // pkg266
     int* cancelledAtUnitOut,   // pkg266
     bool reuseDeviceScene,     // #801
-    uint64_t sceneOwnerId)     // #801
+    uint64_t sceneOwnerId,     // #801
+    float* sampleCountOut)     // #867
 {
     // pkg266: bounded-unit accounting, reported through last_render_info().
     int cwfUnitsLaunched = 0;
@@ -2841,6 +2842,13 @@ std::vector<float> cuda_wavefront_render(
         rgb[i * 3 + 0] = std::max(Renderer::finiteOrZero(colorSRGB.x), 0.0f);
         rgb[i * 3 + 1] = std::max(Renderer::finiteOrZero(colorSRGB.y), 0.0f);
         rgb[i * 3 + 2] = std::max(Renderer::finiteOrZero(colorSRGB.z), 0.0f);
+    }
+    // #867: per-pixel sample count (adaptive: the counter the resolve divide
+    // above used; uniform path: `samples`).
+    if (sampleCountOut) {
+        for (int i = 0; i < numPixels; ++i)
+            sampleCountOut[i] = (adaptiveOn && !h_pixelSamples.empty())
+                ? float(h_pixelSamples[i]) : float(samples);
     }
     // pkg266: publish bounded-unit accounting for last_render_info().
     if (unitsLaunchedOut) *unitsLaunchedOut = cwfUnitsLaunched;

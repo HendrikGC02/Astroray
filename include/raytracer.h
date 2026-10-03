@@ -2240,6 +2240,10 @@ public:
     std::vector<float> motionBuffer;
     std::vector<float> alphaBuffer, depthBuffer, objectIndexBuffer, materialIndexBuffer;
     std::vector<float> bounceCountBuffer, sampleWeightBuffer;
+    // #867: per-pixel samples actually taken (adaptive sampling retires pixels
+    // early, so this varies across the image). CPU: filled by Renderer::render;
+    // GPU: filled from the wavefront's per-pixel counter / uniform spp.
+    std::vector<float> sampleCountBuffer;
     // pkg87a — Cryptomatte ranked histograms (flat arrays of [id0,weight0,id1,weight1,...])
     std::vector<float> cryptoObjectBuffer, cryptoMaterialBuffer;
     int cryptomatteDepth = 6;  // number of (id, weight) pairs per pixel (default 6 ranks = 3 EXR layers)
@@ -2307,6 +2311,7 @@ public:
         materialIndexBuffer.resize(width * height, 0.0f);
         bounceCountBuffer.resize(width * height, 0.0f);
         sampleWeightBuffer.resize(width * height, 0.0f);
+        sampleCountBuffer.resize(width * height, 0.0f);
         // pkg87a — Cryptomatte buffers: width*height*depth*2 floats (depth pairs of [id, weight])
         cryptoObjectBuffer.resize(static_cast<size_t>(width) * height * cryptomatteDepth * 2, 0.0f);
         cryptoMaterialBuffer.resize(static_cast<size_t>(width) * height * cryptomatteDepth * 2, 0.0f);
@@ -5224,6 +5229,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                     cam.uvBuffer[idx] = Vec3(0);
                     cam.objectIndexBuffer[idx] = 0.0f;
                     cam.materialIndexBuffer[idx] = 0.0f;
+                    cam.sampleCountBuffer[idx] = 0.0f;
                     for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex)
                         cam.renderPassBuffers[passIndex][idx] = Vec3(0);
                 }
@@ -5503,6 +5509,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                         cam.materialIndexBuffer[idx] = materialIndex;
                         cam.bounceCountBuffer[idx] = bounceCountAccum / float(samples);
                         cam.sampleWeightBuffer[idx] = sampleWeightAccum / float(samples);
+                        cam.sampleCountBuffer[idx] = float(totalSamples);  // #867
                         cam.alphaBuffer[idx] = std::clamp(alpha, 0.0f, 1.0f);
                         // pkg72: motion vector (previous->current screen-space pixel
                         // offset, OptiX flow convention: motion = prev - curr).

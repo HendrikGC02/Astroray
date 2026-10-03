@@ -221,7 +221,9 @@ __device__ inline GVec3 spectrumToXYZ(
 // clamp), else (#884) (R+G+B)/3 in linear Rec.709: Cycles scales the user
 // limit by 3 (scene/integrator.cpp) and compares reduce_add(fabs(L)), so
 // Blender's setting is a per-channel-average limit. CPU twin:
-// Renderer::clampMetricRGB (film matrix xyzToLinearSRGB_dev below, signed sum).
+// Renderer::clampMetricRGB (film matrix xyzToLinearSRGB_dev below, signed sum;
+// out-of-gamut narrow-band light clamps later than a fabs sum, see the CPU note
+// and #1024).
 // ---------------------------------------------------------------------------
 __device__ inline GSampledSpectrum gpu_clampContribMW(
         const GSampledSpectrum& contrib, const GSampledWavelengths& lambdas,

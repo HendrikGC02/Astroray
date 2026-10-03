@@ -2910,7 +2910,10 @@ class Renderer {
     // so it is repeated here). The signed sum equals Cycles' fabs sum for in-gamut colour and is linear in
     // XYZ (>= 0 for any non-negative spectrum): fabs of a hero-wavelength
     // sample's chroma noise would inflate the metric (blue emitter clamped to
-    // 0.85 of Cycles with fabs, 0.94 signed).
+    // 0.85 of Cycles with fabs, 0.94 signed). Difference from Cycles: light
+    // outside Rec.709 (narrow-band lamps) has a negative channel that the
+    // signed sum cancels, so it clamps later than a fabs sum would; Cycles, an
+    // RGB engine, has no such contribution. Film handling of negatives: #1024.
     static float clampMetricRGB(float X, float Y, float Z) {
         const float r = 3.2406f * X - 1.5372f * Y - 0.4986f * Z;
         const float g = -0.9689f * X + 1.8758f * Y + 0.0415f * Z;

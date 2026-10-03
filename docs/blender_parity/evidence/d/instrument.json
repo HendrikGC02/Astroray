@@ -24,13 +24,13 @@
       "kind": "native_panel_aggregate",
       "artifact": {
         "path": "raw_aggregate.json",
-        "sha256": "4599d309ab2a9e3f8ffcc76f075180b8492e59f1658dc7ca3d789380d662d3e4"
+        "sha256": "37b2ba77f2a9ee48c96af4b349da39ab9358bd3c37ffd50278fd9527f9d85bbc"
       },
       "expected_identity": {
         "build_id": "dev",
         "engine_id": "CUSTOM_RAYTRACER",
-        "module_sha256": "9fa9833100735e8ffa19cf24499c25727e2144058a3d531b26964383e2d9f95a",
-        "addon_init_sha256": "051da4d321bd6e81cf527413483962f4fa98fc94a435b8223e2aba6887d6c2dc"
+        "module_sha256": "fffbcde791dbc53c3563a9e1a0f8beab11dca059f76397021caba506666fe249",
+        "addon_init_sha256": "53b6facff12df6e0a974f5823d2c4106e7045056736ab96cce547a0da1596f1b"
       }
     }
   ]

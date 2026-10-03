@@ -1,45 +1,45 @@
 {
   "artifacts": {
-    "c86333e1b84a40dbbdd2bfa42a646647_gpu_adaptive_off.exr": {
+    "d1b97f9508e84442b209a9af8ff27f3a_gpu_adaptive_off.exr": {
       "backend": "gpu",
       "kind": "linear_exr",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\c86333e1b84a40dbbdd2bfa42a646647_gpu_adaptive_off.exr",
-      "sha256": "0cb02667c85f032560a7eb545db5513df2164deea0bc7a3a04694b4da1c5f157",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\d1b97f9508e84442b209a9af8ff27f3a_gpu_adaptive_off.exr",
+      "sha256": "18fbc1c1ca64cbd96a6eb0bcd3bba881f64a82249c57d3117ce98c6045bc7696",
       "shape": null
     },
-    "c86333e1b84a40dbbdd2bfa42a646647_gpu_adaptive_off.npy": {
+    "d1b97f9508e84442b209a9af8ff27f3a_gpu_adaptive_off.npy": {
       "backend": "gpu",
       "kind": "linear_topdown_npy",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\c86333e1b84a40dbbdd2bfa42a646647_gpu_adaptive_off.npy",
-      "sha256": "2159dd16e89e7e2099b9c1dc355530926fa89bac39888449c1e2f8b034b0a1eb",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\d1b97f9508e84442b209a9af8ff27f3a_gpu_adaptive_off.npy",
+      "sha256": "749ebe1d8dfeab846b1e8894092d3c903455626b9b17a4f00ea3018857d13c79",
       "shape": [
         128,
         128,
         3
       ]
     },
-    "c86333e1b84a40dbbdd2bfa42a646647_gpu_adaptive_on.exr": {
+    "d1b97f9508e84442b209a9af8ff27f3a_gpu_adaptive_on.exr": {
       "backend": "gpu",
       "kind": "linear_exr",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\c86333e1b84a40dbbdd2bfa42a646647_gpu_adaptive_on.exr",
-      "sha256": "fef8634f63108b40fc9b85f0adfde6ce7858527ea42231da693a1a155fc6fb4e",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\d1b97f9508e84442b209a9af8ff27f3a_gpu_adaptive_on.exr",
+      "sha256": "d463001af8e43e8fafb75d42f38929c7174a5bbd2bc98f6cbf083f78eeea4b61",
       "shape": null
     },
-    "c86333e1b84a40dbbdd2bfa42a646647_gpu_adaptive_on.npy": {
+    "d1b97f9508e84442b209a9af8ff27f3a_gpu_adaptive_on.npy": {
       "backend": "gpu",
       "kind": "linear_topdown_npy",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\c86333e1b84a40dbbdd2bfa42a646647_gpu_adaptive_on.npy",
-      "sha256": "a5277ed84366576012c81ee1bb0e4f4f584f9c6f7dbc63d0406d582caa9e3cfb",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\d1b97f9508e84442b209a9af8ff27f3a_gpu_adaptive_on.npy",
+      "sha256": "bd0cdf682214740d4d35eadd6e03f3ee8b8e1aa3db84a3e902e876ba06fd9765",
       "shape": [
         128,
         128,
         3
       ]
     },
-    "c86333e1b84a40dbbdd2bfa42a646647_gpu_aov_adaptive_off.npy": {
+    "d1b97f9508e84442b209a9af8ff27f3a_gpu_aov_adaptive_off.npy": {
       "backend": "gpu",
       "kind": "sample_count_aov",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\c86333e1b84a40dbbdd2bfa42a646647_gpu_aov_adaptive_off.npy",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\d1b97f9508e84442b209a9af8ff27f3a_gpu_aov_adaptive_off.npy",
       "sha256": "553366256187fade64317ffd6f1d3e28275f883bf2d61ee1f7d1abbfbc32fe13",
       "shape": [
         128,
@@ -47,83 +47,83 @@
         1
       ]
     },
-    "c86333e1b84a40dbbdd2bfa42a646647_gpu_aov_adaptive_on.npy": {
+    "d1b97f9508e84442b209a9af8ff27f3a_gpu_aov_adaptive_on.npy": {
       "backend": "gpu",
       "kind": "sample_count_aov",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\c86333e1b84a40dbbdd2bfa42a646647_gpu_aov_adaptive_on.npy",
-      "sha256": "ee5b049fee5fde260d7d21bdefba76c4d8e8e26940c3f710bad5f0d48ef5e95a",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\d1b97f9508e84442b209a9af8ff27f3a_gpu_aov_adaptive_on.npy",
+      "sha256": "76733528378c96abba2abf0938d3531aca1dd4701ad648ea84cfc1bf3fb51792",
       "shape": [
         128,
         128,
         1
       ]
     },
-    "c86333e1b84a40dbbdd2bfa42a646647_gpu_denoise_off.exr": {
+    "d1b97f9508e84442b209a9af8ff27f3a_gpu_denoise_off.exr": {
       "backend": "gpu",
       "kind": "linear_exr",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\c86333e1b84a40dbbdd2bfa42a646647_gpu_denoise_off.exr",
-      "sha256": "ab34b7aa449eff2c1d4e2625d6ce6a594446481ac8993abeb8dcd71318aae92f",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\d1b97f9508e84442b209a9af8ff27f3a_gpu_denoise_off.exr",
+      "sha256": "f3f0a89655de5359987d341f648bb88c165f8c556582bc37cbb9c67aad47f9ff",
       "shape": null
     },
-    "c86333e1b84a40dbbdd2bfa42a646647_gpu_denoise_off.npy": {
+    "d1b97f9508e84442b209a9af8ff27f3a_gpu_denoise_off.npy": {
       "backend": "gpu",
       "kind": "linear_topdown_npy",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\c86333e1b84a40dbbdd2bfa42a646647_gpu_denoise_off.npy",
-      "sha256": "b27a1cf914ac8d533c1b89e344a7fc998420f34cb6d6f4005e4f376f3449e497",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\d1b97f9508e84442b209a9af8ff27f3a_gpu_denoise_off.npy",
+      "sha256": "7b6f673ac51a60a4e230a27ef2f700d0d6429bade17fca0801f58240f4060db4",
       "shape": [
         128,
         128,
         3
       ]
     },
-    "c86333e1b84a40dbbdd2bfa42a646647_gpu_denoise_on.exr": {
+    "d1b97f9508e84442b209a9af8ff27f3a_gpu_denoise_on.exr": {
       "backend": "gpu",
       "kind": "linear_exr",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\c86333e1b84a40dbbdd2bfa42a646647_gpu_denoise_on.exr",
-      "sha256": "ae3d7ebf75327e8f02f4a682873ecc73a8d1941b53be82638934d5abf5fc54ad",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\d1b97f9508e84442b209a9af8ff27f3a_gpu_denoise_on.exr",
+      "sha256": "39de8253f3b240937c6cd012966919f5b6b84e1b999bc078aeb6810d3036fd19",
       "shape": null
     },
-    "c86333e1b84a40dbbdd2bfa42a646647_gpu_denoise_on.npy": {
+    "d1b97f9508e84442b209a9af8ff27f3a_gpu_denoise_on.npy": {
       "backend": "gpu",
       "kind": "linear_topdown_npy",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\c86333e1b84a40dbbdd2bfa42a646647_gpu_denoise_on.npy",
-      "sha256": "fe6bd48f9627758b1c7a7af231e48a752a85d7a3a182ade377946139602e49f6",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\d1b97f9508e84442b209a9af8ff27f3a_gpu_denoise_on.npy",
+      "sha256": "ffbbe07506ec611b74254053297c638ce6e6f70ae7f969a0b365ffbd8b0a76b4",
       "shape": [
         128,
         128,
         3
       ]
     },
-    "c86333e1b84a40dbbdd2bfa42a646647_gpu_equal_work_off.exr": {
+    "d1b97f9508e84442b209a9af8ff27f3a_gpu_equal_work_off.exr": {
       "backend": "gpu",
       "kind": "linear_exr",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\c86333e1b84a40dbbdd2bfa42a646647_gpu_equal_work_off.exr",
-      "sha256": "e98876a453c48c934a22aeafb474b9849656e9acdd4c0f07edfcddca88bedcde",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\d1b97f9508e84442b209a9af8ff27f3a_gpu_equal_work_off.exr",
+      "sha256": "857ab6ed34b5b7a260f6fdbed6972cd89b105e053ed3d6eb8b5b42eb1686b282",
       "shape": null
     },
-    "c86333e1b84a40dbbdd2bfa42a646647_gpu_equal_work_off.npy": {
+    "d1b97f9508e84442b209a9af8ff27f3a_gpu_equal_work_off.npy": {
       "backend": "gpu",
       "kind": "linear_topdown_npy",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\c86333e1b84a40dbbdd2bfa42a646647_gpu_equal_work_off.npy",
-      "sha256": "f86be85aa7ab3df6e2fb1aaf383442be7822cc114956b089d3fae65f9562b16a",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\d1b97f9508e84442b209a9af8ff27f3a_gpu_equal_work_off.npy",
+      "sha256": "ea2a925c83dfbb4027a960474055773ccb3003e35e3a2b2d3e7dd303c8a25b34",
       "shape": [
         128,
         128,
         3
       ]
     },
-    "c86333e1b84a40dbbdd2bfa42a646647_gpu_reference.exr": {
+    "d1b97f9508e84442b209a9af8ff27f3a_gpu_reference.exr": {
       "backend": "gpu",
       "kind": "linear_exr",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\c86333e1b84a40dbbdd2bfa42a646647_gpu_reference.exr",
-      "sha256": "751ba8126acbe25204b1ceba44fc7405a1ac9c7db6ef34655a7bd290e3d90263",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\d1b97f9508e84442b209a9af8ff27f3a_gpu_reference.exr",
+      "sha256": "18aa23450a2919cb001d18beda821ca02618991add38e075788bb0675248af56",
       "shape": null
     },
-    "c86333e1b84a40dbbdd2bfa42a646647_gpu_reference.npy": {
+    "d1b97f9508e84442b209a9af8ff27f3a_gpu_reference.npy": {
       "backend": "gpu",
       "kind": "linear_topdown_npy",
-      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\c86333e1b84a40dbbdd2bfa42a646647_gpu_reference.npy",
-      "sha256": "4de51af7f38858392ab556acf374557397c6dd369665bd1b5046a01e4ac44d46",
+      "path": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\docs\\blender_parity\\evidence\\d\\d1b97f9508e84442b209a9af8ff27f3a_gpu_reference.npy",
+      "sha256": "ff88d3e836dbc38d482e2b6c23d704ccafd9b6f744000e1ea3fde7792d6b83c1",
       "shape": [
         128,
         128,
@@ -135,19 +135,19 @@
   "build": {
     "addon_dir": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\dist\\astroray",
     "addon_init": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\dist\\astroray\\__init__.py",
-    "addon_init_sha256": "051da4d321bd6e81cf527413483962f4fa98fc94a435b8223e2aba6887d6c2dc",
+    "addon_init_sha256": "53b6facff12df6e0a974f5823d2c4106e7045056736ab96cce547a0da1596f1b",
     "astroray_module": "C:\\Users\\hgcom\\OneDrive\\Astroray\\Astroray_repo\\Astroray-at-d\\dist\\astroray\\astroray.cp313-win_amd64.pyd",
     "blender_binary": "C:\\Program Files\\Blender Foundation\\Blender 5.2\\blender.exe",
     "blender_version": "5.2.0 LTS",
     "build_id": "dev",
     "engine_id": "CUSTOM_RAYTRACER",
     "expected_identity": {
-      "addon_init_sha256": "051da4d321bd6e81cf527413483962f4fa98fc94a435b8223e2aba6887d6c2dc",
+      "addon_init_sha256": "53b6facff12df6e0a974f5823d2c4106e7045056736ab96cce547a0da1596f1b",
       "build_id": "dev",
-      "module_sha256": "9fa9833100735e8ffa19cf24499c25727e2144058a3d531b26964383e2d9f95a"
+      "module_sha256": "fffbcde791dbc53c3563a9e1a0f8beab11dca059f76397021caba506666fe249"
     },
     "gpu_available": true,
-    "module_sha256": "9fa9833100735e8ffa19cf24499c25727e2144058a3d531b26964383e2d9f95a",
+    "module_sha256": "fffbcde791dbc53c3563a9e1a0f8beab11dca059f76397021caba506666fe249",
     "provenance_claim": "candidate",
     "version": "3.0.0"
   },
@@ -175,11 +175,11 @@
       "check": "adaptive_accuracy",
       "passed": true,
       "stats": {
-        "detail_preservation": 1.0001407966805602,
+        "detail_preservation": 0.999923015750928,
         "detail_preservation_min": 0.95,
         "mean_rel_error": {
-          "detail": 0.0017508727218915605,
-          "flat": 0.0006181327080577348
+          "detail": 0.0017994090445159932,
+          "flat": 0.0006170770733171803
         },
         "mean_rel_error_max": 0.02,
         "valid": true
@@ -191,10 +191,10 @@
       "check": "adaptive_effect",
       "passed": true,
       "stats": {
-        "diag_flat_noise_off": 0.001405845399504074,
-        "diag_flat_noise_on": 0.0008913215379847425,
-        "rmse_adaptive_on": 0.005496085608812709,
-        "rmse_equal_work_off": 0.009164481593802511,
+        "diag_flat_noise_off": 0.0014182591983091255,
+        "diag_flat_noise_on": 0.0008982328272835229,
+        "rmse_adaptive_on": 0.00571898591068461,
+        "rmse_equal_work_off": 0.00922483165418659,
         "roi": "detail",
         "valid": true
       },
@@ -205,11 +205,11 @@
       "check": "denoise_accuracy",
       "passed": true,
       "stats": {
-        "detail_preservation": 1.0004053744627877,
+        "detail_preservation": 1.0001364142789493,
         "detail_preservation_min": 0.95,
         "mean_rel_error": {
-          "detail": 0.004658478382936232,
-          "flat": 0.0007901807708895763
+          "detail": 0.004862958015598719,
+          "flat": 0.000769597051042156
         },
         "mean_rel_error_max": 0.02,
         "valid": true
@@ -222,8 +222,8 @@
       "passed": true,
       "stats": {
         "noise_ratio_max": 0.5,
-        "residual_noise_off": 0.0026943122985491562,
-        "residual_noise_on": 0.0006899612239989201,
+        "residual_noise_off": 0.0026676707681073087,
+        "residual_noise_on": 0.0006631528238077235,
         "valid": true
       },
       "status": "green"
@@ -253,10 +253,10 @@
       "passed": true,
       "stats": {
         "detail_energy_floor": 1e-06,
-        "detail_gradient_energy": 0.1706472741313653,
+        "detail_gradient_energy": 0.17064658724570128,
         "finite": true,
         "light_floor": 0.0001,
-        "mean_luminance": 0.8062368861806775
+        "mean_luminance": 0.8062387864628752
       },
       "status": "green"
     },
@@ -267,10 +267,10 @@
       "stats": {
         "checker_bright_fraction": 0.5842524509803921,
         "checker_bright_min": 0.45,
-        "checker_dark_fraction": 0.3909313725490196,
+        "checker_dark_fraction": 0.3912377450980392,
         "checker_dark_max": 0.25,
         "checker_min_fraction": 0.02,
-        "flat_gradient_energy": 0.0010656740403448336,
+        "flat_gradient_energy": 0.0010654913053867036,
         "flat_max_gradient_energy": 0.02,
         "valid": true
       },
@@ -282,13 +282,13 @@
       "passed": true,
       "stats": {
         "allocation": {
-          "flat_over_detail": 0.7782559085694523,
-          "mean_detail": 0.7750998104319853,
-          "mean_flat": 0.6032260071997549,
-          "mean_overall": 0.5884401798248291,
+          "flat_over_detail": 0.7988138211571454,
+          "mean_detail": 0.7708201688878676,
+          "mean_flat": 0.6157418045343137,
+          "mean_overall": 0.5883734226226807,
           "off_constant": true,
           "ratio_max": 0.9,
-          "reference_ideal_flat_over_detail": 0.09283006004336232,
+          "reference_ideal_flat_over_detail": 0.09191503457325308,
           "valid": true,
           "varies_across_image": true
         },
@@ -328,12 +328,12 @@
   },
   "legs": {
     "adaptive_off": {
-      "artifact": "c86333e1b84a40dbbdd2bfa42a646647_gpu_adaptive_off.npy",
+      "artifact": "d1b97f9508e84442b209a9af8ff27f3a_gpu_adaptive_off.npy",
       "backend": "gpu",
       "error": null,
       "finite": true,
       "leg": "adaptive_off",
-      "mean_luminance": 0.8062826991081238,
+      "mean_luminance": 0.80623459815979,
       "native": {
         "samples": 256,
         "use_adaptive_sampling": false,
@@ -341,7 +341,7 @@
       },
       "output_telemetry": [
         {
-          "bvh_build_ms": 0.0212,
+          "bvh_build_ms": 0.011399999999999999,
           "cancelled": false,
           "cancelled_at_unit": -1,
           "device": 0,
@@ -360,7 +360,7 @@
         "use_adaptive_sampling": false,
         "use_denoising": false
       },
-      "sha256": "2159dd16e89e7e2099b9c1dc355530926fa89bac39888449c1e2f8b034b0a1eb",
+      "sha256": "749ebe1d8dfeab846b1e8894092d3c903455626b9b17a4f00ea3018857d13c79",
       "shape": [
         128,
         128,
@@ -368,12 +368,12 @@
       ]
     },
     "adaptive_on": {
-      "artifact": "c86333e1b84a40dbbdd2bfa42a646647_gpu_adaptive_on.npy",
+      "artifact": "d1b97f9508e84442b209a9af8ff27f3a_gpu_adaptive_on.npy",
       "backend": "gpu",
       "error": null,
       "finite": true,
       "leg": "adaptive_on",
-      "mean_luminance": 0.8062312006950378,
+      "mean_luminance": 0.8062169551849365,
       "native": {
         "samples": 256,
         "use_adaptive_sampling": true,
@@ -381,7 +381,7 @@
       },
       "output_telemetry": [
         {
-          "bvh_build_ms": 0.006699999999999999,
+          "bvh_build_ms": 0.0056,
           "cancelled": false,
           "cancelled_at_unit": -1,
           "device": 0,
@@ -400,7 +400,7 @@
         "use_adaptive_sampling": true,
         "use_denoising": false
       },
-      "sha256": "a5277ed84366576012c81ee1bb0e4f4f584f9c6f7dbc63d0406d582caa9e3cfb",
+      "sha256": "bd0cdf682214740d4d35eadd6e03f3ee8b8e1aa3db84a3e902e876ba06fd9765",
       "shape": [
         128,
         128,
@@ -408,12 +408,12 @@
       ]
     },
     "denoise_off": {
-      "artifact": "c86333e1b84a40dbbdd2bfa42a646647_gpu_denoise_off.npy",
+      "artifact": "d1b97f9508e84442b209a9af8ff27f3a_gpu_denoise_off.npy",
       "backend": "gpu",
       "error": null,
       "finite": true,
       "leg": "denoise_off",
-      "mean_luminance": 0.806298553943634,
+      "mean_luminance": 0.8062844276428223,
       "native": {
         "samples": 64,
         "use_adaptive_sampling": false,
@@ -421,7 +421,7 @@
       },
       "output_telemetry": [
         {
-          "bvh_build_ms": 0.0066,
+          "bvh_build_ms": 0.0055,
           "cancelled": false,
           "cancelled_at_unit": -1,
           "device": 0,
@@ -440,7 +440,7 @@
         "use_adaptive_sampling": false,
         "use_denoising": false
       },
-      "sha256": "b27a1cf914ac8d533c1b89e344a7fc998420f34cb6d6f4005e4f376f3449e497",
+      "sha256": "7b6f673ac51a60a4e230a27ef2f700d0d6429bade17fca0801f58240f4060db4",
       "shape": [
         128,
         128,
@@ -448,12 +448,12 @@
       ]
     },
     "denoise_on": {
-      "artifact": "c86333e1b84a40dbbdd2bfa42a646647_gpu_denoise_on.npy",
+      "artifact": "d1b97f9508e84442b209a9af8ff27f3a_gpu_denoise_on.npy",
       "backend": "gpu",
       "error": null,
       "finite": true,
       "leg": "denoise_on",
-      "mean_luminance": 0.806141197681427,
+      "mean_luminance": 0.8061637282371521,
       "native": {
         "samples": 64,
         "use_adaptive_sampling": false,
@@ -461,7 +461,7 @@
       },
       "output_telemetry": [
         {
-          "bvh_build_ms": 0.0063999999999999994,
+          "bvh_build_ms": 0.0062,
           "cancelled": false,
           "cancelled_at_unit": -1,
           "device": 0,
@@ -480,7 +480,7 @@
         "use_adaptive_sampling": false,
         "use_denoising": true
       },
-      "sha256": "fe6bd48f9627758b1c7a7af231e48a752a85d7a3a182ade377946139602e49f6",
+      "sha256": "ffbbe07506ec611b74254053297c638ce6e6f70ae7f969a0b365ffbd8b0a76b4",
       "shape": [
         128,
         128,
@@ -488,12 +488,12 @@
       ]
     },
     "equal_work_off": {
-      "artifact": "c86333e1b84a40dbbdd2bfa42a646647_gpu_equal_work_off.npy",
+      "artifact": "d1b97f9508e84442b209a9af8ff27f3a_gpu_equal_work_off.npy",
       "backend": "gpu",
       "error": null,
       "finite": true,
       "leg": "equal_work_off",
-      "mean_luminance": 0.8062681555747986,
+      "mean_luminance": 0.8062160015106201,
       "native": {
         "samples": 151,
         "use_adaptive_sampling": false,
@@ -501,7 +501,7 @@
       },
       "output_telemetry": [
         {
-          "bvh_build_ms": 0.0083,
+          "bvh_build_ms": 0.0055,
           "cancelled": false,
           "cancelled_at_unit": -1,
           "device": 0,
@@ -520,7 +520,7 @@
         "use_adaptive_sampling": false,
         "use_denoising": false
       },
-      "sha256": "f86be85aa7ab3df6e2fb1aaf383442be7822cc114956b089d3fae65f9562b16a",
+      "sha256": "ea2a925c83dfbb4027a960474055773ccb3003e35e3a2b2d3e7dd303c8a25b34",
       "shape": [
         128,
         128,
@@ -528,12 +528,12 @@
       ]
     },
     "reference": {
-      "artifact": "c86333e1b84a40dbbdd2bfa42a646647_gpu_reference.npy",
+      "artifact": "d1b97f9508e84442b209a9af8ff27f3a_gpu_reference.npy",
       "backend": "gpu",
       "error": null,
       "finite": true,
       "leg": "reference",
-      "mean_luminance": 0.8062368631362915,
+      "mean_luminance": 0.8062387704849243,
       "native": {
         "samples": 1024,
         "use_adaptive_sampling": false,
@@ -541,7 +541,7 @@
       },
       "output_telemetry": [
         {
-          "bvh_build_ms": 0.006699999999999999,
+          "bvh_build_ms": 0.0052,
           "cancelled": false,
           "cancelled_at_unit": -1,
           "device": 0,
@@ -560,7 +560,7 @@
         "use_adaptive_sampling": false,
         "use_denoising": false
       },
-      "sha256": "4de51af7f38858392ab556acf374557397c6dd369665bd1b5046a01e4ac44d46",
+      "sha256": "ff88d3e836dbc38d482e2b6c23d704ccafd9b6f744000e1ea3fde7792d6b83c1",
       "shape": [
         128,
         128,
@@ -568,7 +568,7 @@
       ]
     }
   },
-  "run_id": "c86333e1b84a40dbbdd2bfa42a646647",
+  "run_id": "d1b97f9508e84442b209a9af8ff27f3a",
   "scene_sha256": "c99f8e8d67a073695d19bd984c9fafd5a674cf2e60261e0378e03c64a2533455",
   "status": "green"
 }

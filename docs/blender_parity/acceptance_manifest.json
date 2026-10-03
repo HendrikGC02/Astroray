@@ -70,15 +70,15 @@
         "source": "canonical_native_panel_reducer"
       },
       "value": {
-        "mean_rel_error_max": 0.004658478382936232,
-        "detail_preservation_min": 0.9991085769338036
+        "mean_rel_error_max": 0.004862958015598719,
+        "detail_preservation_min": 0.999923015750928
       },
       "threshold": {
         "mean_rel_error_max": 0.02,
         "detail_preservation_min": 0.95
       },
       "evidence_path": "docs/blender_parity/evidence/d/instrument.json",
-      "evidence_sha256": "13bcf63acbccac9612fdee3398e0e0e00637aed5a4b00ee2a9bc9ec3861af957",
+      "evidence_sha256": "f2eba516da6690d64a29b0c755e8b5301afec402d82cc4d5f3ee2c27ad0b2479",
       "dimensions": {
         "backend": "CPU+GPU",
         "panel": "native Cycles settings"
@@ -89,20 +89,20 @@
         "denoise_lowers_residual_noise": true,
         "reference_comparison": true
       },
-      "date": "2026-10-02",
+      "date": "2026-10-03",
       "schema": "pkg278.instrument.v2",
       "records": [
         {
           "kind": "native_panel_aggregate",
           "artifact": {
             "path": "raw_aggregate.json",
-            "sha256": "4599d309ab2a9e3f8ffcc76f075180b8492e59f1658dc7ca3d789380d662d3e4"
+            "sha256": "37b2ba77f2a9ee48c96af4b349da39ab9358bd3c37ffd50278fd9527f9d85bbc"
           },
           "expected_identity": {
             "build_id": "dev",
             "engine_id": "CUSTOM_RAYTRACER",
-            "module_sha256": "9fa9833100735e8ffa19cf24499c25727e2144058a3d531b26964383e2d9f95a",
-            "addon_init_sha256": "051da4d321bd6e81cf527413483962f4fa98fc94a435b8223e2aba6887d6c2dc"
+            "module_sha256": "fffbcde791dbc53c3563a9e1a0f8beab11dca059f76397021caba506666fe249",
+            "addon_init_sha256": "53b6facff12df6e0a974f5823d2c4106e7045056736ab96cce547a0da1596f1b"
           }
         }
       ]

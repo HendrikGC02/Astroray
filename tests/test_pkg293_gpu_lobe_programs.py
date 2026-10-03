@@ -393,15 +393,16 @@ def _addon_material_node(monkeypatch, r, out_node, native):
     return mat, rec.materials[-1], eng._degradation_report().messages()
 
 
-def test_pkg293_two_input_composed_program_reports_gpu_constant(monkeypatch):
-    """Textured Fac + a branch program = 2 texture inputs; the GPU scalar upload
-    samples one, so the GPU keeps the constant and must say so."""
+def test_pkg293_two_input_composed_program_is_a_graph_program(monkeypatch):
+    """Textured Fac + a branch program = 2 texture inputs. The op-VM GPU scalar
+    upload sampled one (this asserted a GPU-constant report); pkg314 routes the
+    chain to a graph program that samples both inputs on CPU and GPU."""
     mix = _mix(0.5, _principled("P", roughness=0.3,
                                 metallic_link=Link(_checker("ChkA"), 'Fac')),
                _diffuse(), fac_link=Link(_checker("ChkB"), 'Fac'))
-    lines = _lines_for(monkeypatch, mix)
-    assert any('multi-input shader program' in m and 'Metallic' in m
-               and 'GPU uses the constant' in m for m in lines), lines
+    _, (_kind, params), lines = _addon_material_node(monkeypatch, create_renderer(), mix, True)
+    assert not any('multi-input shader program' in m for m in lines), lines
+    assert str(params.get('metallic_program', '')).startswith('_graph_'), params
 
 
 def test_pkg293_add_shader_of_two_bsdfs_reports_dropped_branch(monkeypatch):

@@ -563,7 +563,7 @@
       "family": "textures_mapping",
       "builder_fn": "build_textures_mapping_scene",
       "blend_path": "benchmarks/reference_corpus/scenes/textures_mapping.blend",
-      "sha256": "2f2f2348e0dff55a846b4d53ce9c37a3ee73760aa2fc77dbe3f30fbabb35fc73",
+      "sha256": "0150900d1d41bd59ea8c9fc9ca6fb55c70c971bcf66611235f1de0ab2a880104",
       "settings": {
         "res_x": 960,
         "res_y": 540,
@@ -571,11 +571,11 @@
         "saved_default_engine": "CYCLES"
       },
       "reopen_verified": true,
-      "triangle_count": 2934,
+      "triangle_count": 2936,
       "curve_count": 0,
       "curve_point_count": 0,
       "object_counts": {
-        "MESH": 25,
+        "MESH": 26,
         "LIGHT": 2,
         "CAMERA": 1
       },
@@ -589,6 +589,7 @@
         "ShaderNodeCombineColor",
         "ShaderNodeDisplacement",
         "ShaderNodeEmission",
+        "ShaderNodeFloatCurve",
         "ShaderNodeGamma",
         "ShaderNodeHueSaturation",
         "ShaderNodeInvert",
@@ -602,6 +603,7 @@
         "ShaderNodeOutputLight",
         "ShaderNodeOutputMaterial",
         "ShaderNodeOutputWorld",
+        "ShaderNodeRGBCurve",
         "ShaderNodeRGBToBW",
         "ShaderNodeSeparateColor",
         "ShaderNodeTexBrick",
@@ -613,6 +615,7 @@
         "ShaderNodeTexNoise",
         "ShaderNodeTexVoronoi",
         "ShaderNodeTexWave",
+        "ShaderNodeVectorCurve",
         "ShaderNodeVectorMath",
         "ShaderNodeVectorRotate"
       ],
@@ -751,6 +754,22 @@
           "bl_idname": "ShaderNodeDisplacement",
           "socket_or_prop": "input:Scale",
           "classification": "APPROXIMATED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "CURVE_FLOAT",
+          "bl_idname": "ShaderNodeFloatCurve",
+          "socket_or_prop": "input:Factor",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "CURVE_FLOAT",
+          "bl_idname": "ShaderNodeFloatCurve",
+          "socket_or_prop": "input:Value",
+          "classification": "SUPPORTED",
           "gap_card": false
         },
         {
@@ -973,6 +992,22 @@
           "category": "shader_node",
           "feature": "NORMAL_MAP",
           "bl_idname": "ShaderNodeNormalMap",
+          "socket_or_prop": "input:Color",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "CURVE_RGB",
+          "bl_idname": "ShaderNodeRGBCurve",
+          "socket_or_prop": "input:Factor",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "CURVE_RGB",
+          "bl_idname": "ShaderNodeRGBCurve",
           "socket_or_prop": "input:Color",
           "classification": "SUPPORTED",
           "gap_card": false
@@ -1395,6 +1430,22 @@
         },
         {
           "category": "shader_node",
+          "feature": "CURVE_VEC",
+          "bl_idname": "ShaderNodeVectorCurve",
+          "socket_or_prop": "input:Factor",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
+          "feature": "CURVE_VEC",
+          "bl_idname": "ShaderNodeVectorCurve",
+          "socket_or_prop": "input:Vector",
+          "classification": "SUPPORTED",
+          "gap_card": false
+        },
+        {
+          "category": "shader_node",
           "feature": "VECT_MATH",
           "bl_idname": "ShaderNodeVectorMath",
           "socket_or_prop": "input:Vector",
@@ -1557,6 +1608,12 @@
           0.3821,
           0.3199,
           0.4826
+        ],
+        "CurvesCard": [
+          0.668,
+          0.3603,
+          0.7893,
+          0.4804
         ]
       },
       "gate_c": {

@@ -414,6 +414,14 @@ struct HitRecord {
     // Filled by the integrator after the hit (pathTraceSpectral /
     // pathTraceSpectralCaustic); default = camera ray, depth 0.
     astroray::lightpath::PathContext lightPath;
+    // pkg314 — the shading normal BEFORE a Bump / Normal Map perturbation
+    // (NormalMappedPlugin::perturbNormal sets it). Cycles' Layer Weight / Fresnel /
+    // Geometry with an unlinked Normal read sd->N, which the Bump node does not
+    // change (kernel/svm/fresnel.h; bump only feeds closure normals), so the op-VM
+    // and graph programs' shading context reads this. Verified against Cycles 5.2.
+    bool hasSvmNormal = false;
+    Vec3 svmNormal;
+    const Vec3& shadingContextNormal() const { return hasSvmNormal ? svmNormal : normal; }
 
     HitRecord() : t(std::numeric_limits<float>::max()), frontFace(true), isDelta(false), hitObject(nullptr) {}
 

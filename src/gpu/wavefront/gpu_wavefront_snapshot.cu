@@ -1093,6 +1093,10 @@ struct WfContext {
     WfDeviceBuf materialScalarProgId, materialScalarTexId;  // pkg219d scalar-param programs
     WfDeviceBuf procTextures;                  // #1007 per-hit procedural evaluators
     WfDeviceBuf lightPathSwitch;               // #991 Light Path Mix Shader side table
+    // pkg314 graph value programs: arenas + per-material slots (scene slices) and
+    // the graph kernel's per-path outputs + batched scratch (per render).
+    WfDeviceBuf graphInstrs, graphConsts, graphTables, graphTableData, graphTexRefs;
+    WfDeviceBuf graphPrograms, materialGraphProg, graphOut, graphScratch;
     WfDeviceBuf tlas, instances, blas;        // pkg55-C4 / pkg114
     WfDeviceBuf motionVertices;               // pkg55-C4 / pkg88-C.0
     WfDeviceBuf treeNodes, treeEmitters, lightToEmitter;
@@ -1706,10 +1710,40 @@ std::vector<float> cuda_wavefront_render(
     int* d_matProgInTexId = wfSync(reuse, C.materialProgInputTexId, res.materialProgInputTexId);
     // #1007 — per-hit procedural evaluators (GImageTexture::procId), null when none.
     astroray::proc::GProcTexture* d_procs = wfSync(reuse, C.procTextures, res.procTextures);
+    // pkg314 — graph value programs: immutable arenas (scene slices) + the
+    // dedicated kernel's per-path output buffer and batched scratch. The scratch
+    // holds `graphBatch` threads x the scene's largest slot count; the batch is
+    // capped so the scratch stays within 64 MiB (65536 hits x 64 slots would be
+    // 48 MiB) and never exceeds the path pool.
+    int graphBatch = 0;
+    float* d_graphOut = nullptr;
+    const int* d_matGraphProg = nullptr;
+    if (res.hasGraph) {
+        using namespace astroray::sgraph;
+        const GraphInstr* d_gInstrs = wfSync(reuse, C.graphInstrs, res.graphInstrs);
+        const GVec3* d_gConsts = wfSync(reuse, C.graphConsts, res.graphConsts);
+        const GraphTable* d_gTables = wfSync(reuse, C.graphTables, res.graphTables);
+        const GVec3* d_gTableData = wfSync(reuse, C.graphTableData, res.graphTableData);
+        const int* d_gTexRefs = wfSync(reuse, C.graphTexRefs, res.graphTexRefs);
+        const GraphProgramDesc* d_gPrograms = wfSync(reuse, C.graphPrograms, res.graphPrograms);
+        d_matGraphProg = wfSync(reuse, C.materialGraphProg, res.materialGraphProg);
+        const size_t slots = (size_t)std::max(res.graphMaxSlots, 1);
+        const size_t kScratchBudget = size_t(64) << 20;
+        size_t batch = kScratchBudget / (slots * sizeof(GVec3));
+        batch = std::min<size_t>(batch, 65536);
+        batch = std::min<size_t>(batch, ((size_t)total_paths + 255) / 256 * 256);
+        batch = std::max<size_t>(batch / 256 * 256, 256);
+        graphBatch = (int)batch;
+        GVec3* d_gScratch = wfEnsure<GVec3>(C.graphScratch, batch * slots);
+        d_graphOut = wfEnsure<float>(C.graphOut, (size_t)GRAPH_OUT_FLOATS * total_paths);
+        setWavefrontGraphBinding(GWavefrontGraphBinding{
+            d_gInstrs, d_gConsts, d_gTables, d_gTableData, d_gTexRefs, d_gPrograms,
+            d_matGraphProg, d_graphOut, total_paths, d_gScratch, graphBatch});
+    }
     if (res.hasProgram)
         setWavefrontProgramBinding(GWavefrontProgramBinding{
             d_programs, d_matProgId, d_matScalarProgId, d_matScalarTexId,
-            d_matProgInTexId, d_procs});
+            d_matProgInTexId, d_procs, d_matGraphProg, d_graphOut, total_paths});
     // #991 — Light Path: switch side table (null when no Mix Shader has a Light
     // Path Fac) + lp_state maintenance (any switch or Light Path program).
     {
@@ -2516,6 +2550,11 @@ std::vector<float> cuda_wavefront_render(
                                                useLuminanceOutput, enableNEE);
                 cudaMemsetAsync(d_gridCount, 0, sizeof(int));
             }
+            // pkg314: graph value programs run in their own kernel over this
+            // round's shade queues; the <HasProgram=true> shade reads the results.
+            if (res.hasGraph)
+                launchStageGraphEval(state, hitBufs, d_shadeQueues, d_shadeCounts,
+                                     total_paths, d_prims, d_tris, graphBatch);
             launchStageShadeBucketed(state, hitBufs,
                                      d_shadeQueues, d_shadeCounts,
                                      total_paths, d_queueB, cout,

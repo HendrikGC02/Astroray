@@ -22,6 +22,7 @@ new reusable script, register it here in the same commit.
 | One-command Blender dev loop (build → install → smoke) | `scripts/dev_addon.ps1` |
 | Diagnose the local Blender MCP bridge without changing it | `scripts/dev/check_blender_mcp.ps1` |
 | Run the test suite against a build dir | `scripts/dev/run_tests.py` (default: `build_cuda/`) |
+| pkg314 graph-IR resource stats (instructions, peak slots, constants, tables, textures, max closures) per shader-graph program root of a set of `.blend` files (run inside Blender) | `scripts/dev/shader_graph_ir_stats.py -- --out <md> <files...>` |
 | Material contact sheet / showcase renders / convergence + timing graphs | `benchmarks/showcase/runner.py` (curated presets: `config.MATERIAL_ZOO_VARIANTS`) |
 | Test-result output paths, labelled comparison sheets, stat charts, `test_results/index.html`, `clean` (`python tests/results_layout.py index\|clean [--legacy]`) | `tests/results_layout.py` (`results_path`, `save_comparison_sheet`, `save_stat_chart`); rules in `.astroray_plan/docs/test-results-conventions.md` |
 | Multi-scene SPP convergence sweep (diagnostic) | `scripts/diagnostics/convergence_tracker.py` |

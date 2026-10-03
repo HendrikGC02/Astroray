@@ -603,7 +603,7 @@ def _compile_socket_value(socket, builder, depth=0):
     becomes OP_LOAD_TEX; a supported node emits its opcode. Unsupported input ->
     VMCompileError (caller falls back to constant-fold).
     """
-    if depth > 8:
+    if depth > getattr(builder, 'max_depth', 8):  # pkg314: the graph IR allows deeper chains
         raise VMCompileError("op-VM chain too deep")
     src = _linked_source(socket)
     if src is None:
@@ -626,6 +626,10 @@ def _compile_socket_value(socket, builder, depth=0):
             raise VMCompileError("image-driven coordinates are unsupported")
         # A procedural (e.g. Noise) may drive the warp: OP_LOAD_TEX 1 samples it at
         # the wrapper's resolved point; the addon verifies it shares that coordinate.
+
+    # pkg314 — a graph program compiles a warped image coordinate from its source.
+    if ntype in ('TEX_COORD', 'UVMAP') and hasattr(builder, 'geom_input'):
+        return builder.geom_input(node, out_name)
 
     # issue #818 Item 1 — image OR procedural texture nodes are input leaves.
     if _is_texture_leaf(node):
@@ -892,7 +896,76 @@ def _compile_socket_value(socket, builder, depth=0):
         f = float(node.outputs[0].default_value)
         return builder.push_const([f, f, f])
 
+    # pkg314 / #992 — graph programs only (one branch per type: the coverage-matrix
+    # AST scanner credits literal node-type dispatch).
+    if ntype == 'CURVE_FLOAT':
+        return _compile_curve(node, builder, depth, _get_input(node, 'Factor', 'Fac'),
+                              _get_input(node, 'Value'))
+    if ntype == 'CURVE_RGB':
+        return _compile_curve(node, builder, depth, _get_input(node, 'Fac', 'Factor'),
+                              _get_input(node, 'Color'))
+    if ntype == 'CURVE_VEC':
+        return _compile_curve(node, builder, depth, _get_input(node, 'Fac', 'Factor'),
+                              _get_input(node, 'Vector'))
+
     raise VMCompileError("unsupported node type in op-VM chain: %s" % ntype)
+
+
+# pkg314 / #992 — Float Curve, RGB Curves, Vector Curves. Semantics: Cycles
+# kernel/svm/ramp.h svm_node_curve / svm_node_curves and the Blender sync
+# blender/util.h curvemapping_*_to_array + blender/shader.cpp (Apache-2.0); notes in
+# .astroray_plan/docs/pkg314-curves-research.md. The op-VM has no curve opcode, so
+# only a graph-IR builder (supports_curves) compiles them.
+_CURVE_TYPES = {'CURVE_FLOAT': 1, 'CURVE_RGB': 4, 'CURVE_VEC': 3}  # curves per mapping
+CURVE_TABLE_SIZE = 256  # Cycles RAMP_TABLE_SIZE; the curve table holds SIZE + 1 entries
+
+
+def _bake_curve(node):
+    """Cycles curvemapping_minmax + curvemapping_{float,color}_to_array: returns
+    (table, min_x, max_x, extrapolate). RGB Curves compose the combined (C) curve
+    first: entry = (R(C(t)), G(C(t)), B(C(t)))."""
+    n_curves = _CURVE_TYPES[node.type]
+    mapping = node.mapping
+    curves = mapping.curves
+    min_x, max_x = float('inf'), float('-inf')
+    for i in range(n_curves):
+        pts = curves[i].points
+        min_x = min(min_x, float(pts[0].location[0]))
+        max_x = max(max_x, float(pts[len(pts) - 1].location[0]))
+    if not max_x > min_x:
+        raise VMCompileError("%s with a degenerate x range" % node.type)
+    init = getattr(mapping, 'initialize', None)
+    if callable(init):
+        init()  # bpy: CurveMap.evaluate needs the owner's tables
+    upd = getattr(mapping, 'update', None)
+    if callable(upd):
+        upd()   # Cycles: cumap.update()
+    ev = mapping.evaluate
+    table = []
+    for i in range(CURVE_TABLE_SIZE + 1):
+        t = min_x + float(i) / float(CURVE_TABLE_SIZE) * (max_x - min_x)
+        if node.type == 'CURVE_FLOAT':
+            v = float(ev(curves[0], t))
+            table.append((v, v, v))
+        elif node.type == 'CURVE_RGB':
+            c = ev(curves[3], t)
+            table.append((float(ev(curves[0], c)), float(ev(curves[1], c)),
+                          float(ev(curves[2], c))))
+        else:
+            table.append((float(ev(curves[0], t)), float(ev(curves[1], t)),
+                          float(ev(curves[2], t))))
+    extrapolate = getattr(mapping, 'extend', 'HORIZONTAL') == 'EXTRAPOLATED'
+    return table, min_x, max_x, extrapolate
+
+
+def _compile_curve(node, builder, depth, fac_in, value_in):
+    if not getattr(builder, 'supports_curves', False):
+        raise VMCompileError("unsupported node type in op-VM chain: %s" % node.type)
+    table, min_x, max_x, extrapolate = _bake_curve(node)
+    fac_s = compile_socket(fac_in, builder, depth + 1)
+    val_s = compile_socket(value_in, builder, depth + 1)
+    mode = 0 if node.type == 'CURVE_FLOAT' else 1  # shader_graph_ir CURVE_FLOAT / CURVE_RGB
+    return builder.curve(mode, fac_s, val_s, table, min_x, max_x - min_x, extrapolate)
 
 
 def _bake_ramp(node):

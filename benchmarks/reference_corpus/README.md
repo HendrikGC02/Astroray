@@ -569,56 +569,37 @@ registered by the other appears in only one of the two lists below (see the
 - `SHADERTORGB` (`ShaderNodeShaderToRGB`): input:Shader
 - `SUBSURFACE_SCATTERING` (`ShaderNodeSubsurfaceScattering`): input:Color, input:Scale, input:Radius, input:IOR, input:Roughness, input:Anisotropy, input:Normal, input:Weight, prop:falloff
 
-### `textures_mapping` (181 rows)
+### `textures_mapping` (110 rows)
 
 - `AMBIENT_OCCLUSION` (`ShaderNodeAmbientOcclusion`): input:Color, input:Distance, input:Normal, prop:inside, prop:only_local, prop:samples
-- `ATTRIBUTE` (`ShaderNodeAttribute`): prop:attribute_type
+- `ATTRIBUTE` (`ShaderNodeAttribute`): prop:attribute_type, output:Color, output:Vector, output:Factor, output:Alpha
 - `BEVEL` (`ShaderNodeBevel`): input:Radius, input:Normal, prop:samples
 - `BUMP` (`ShaderNodeBump`): prop:invert
-- `CLAMP` (`ShaderNodeClamp`): input:Value, input:Min, input:Max, prop:clamp_type
-- `COMBINE_COLOR` (`ShaderNodeCombineColor`): input:Red, input:Green, input:Blue, prop:mode
-- `COMBXYZ` (`ShaderNodeCombineXYZ`): input:X, input:Y, input:Z
-- `CURVE_FLOAT` (`ShaderNodeFloatCurve`): input:Factor, input:Value
-- `CURVE_RGB` (`ShaderNodeRGBCurve`): input:Factor, input:Color
-- `CURVE_VEC` (`ShaderNodeVectorCurve`): input:Factor, input:Vector
 - `DISPLACEMENT` (`ShaderNodeDisplacement`): input:Normal, prop:space
-- `FRESNEL` (`ShaderNodeFresnel`): input:IOR, input:Normal
-- `INVERT` (`ShaderNodeInvert`): input:Factor
-- `LAYER_WEIGHT` (`ShaderNodeLayerWeight`): input:Blend, input:Normal
+- `Image` (``): alpha_mode, source==TILED (UDIM)
 - `LIGHT_FALLOFF` (`ShaderNodeLightFalloff`): input:Strength, input:Smooth
-- `LIGHT_PATH` (`ShaderNodeLightPath`, pkg260): output:Is Camera Ray, output:Is Shadow Ray, output:Is Diffuse Ray, output:Is Glossy Ray, output:Is Singular Ray, output:Is Reflection Ray, output:Is Transmission Ray, output:Is Volume Scatter Ray, output:Ray Length, output:Ray Depth, output:Diffuse Depth, output:Glossy Depth, output:Transparent Depth, output:Transmission Depth, output:Portal Depth
-- `MAPPING` (`ShaderNodeMapping`): input:Vector, input:Location, input:Rotation, input:Scale, prop:vector_type
-- `MAP_RANGE` (`ShaderNodeMapRange`): input:Value, input:From Min, input:From Max, input:To Min, input:To Max, input:Steps, input:Vector, input:From Min, input:From Max, input:To Min, input:To Max, input:Steps, prop:clamp, prop:data_type, prop:interpolation_type
-- `MATH` (`ShaderNodeMath`): input:Value, input:Value, input:Value, prop:operation, prop:use_clamp
-- `MIX` (`ShaderNodeMix`): input:Factor, input:Factor, input:A, input:B, input:A, input:B, input:A, input:B, input:A, input:B, prop:clamp_factor, prop:clamp_result, prop:data_type, prop:factor_mode
-- `MIX_RGB` (`ShaderNodeMixRGB`): input:Factor, input:Color1, input:Color2, prop:use_alpha, prop:use_clamp
-- `NEW_GEOMETRY` (`ShaderNodeNewGeometry`, pkg260): output:Position, output:Normal, output:Tangent, output:True Normal, output:Incoming, output:Parametric, output:Backfacing, output:Pointiness, output:Random Per Island
+- `LIGHT_PATH` (`ShaderNodeLightPath`): output:Is Camera Ray, output:Is Shadow Ray, output:Is Diffuse Ray, output:Is Glossy Ray, output:Is Singular Ray, output:Is Reflection Ray, output:Is Transmission Ray, output:Is Volume Scatter Ray, output:Ray Length, output:Ray Depth, output:Diffuse Depth, output:Glossy Depth, output:Transparent Depth, output:Transmission Depth, output:Portal Depth
+- `MAP_RANGE` (`ShaderNodeMapRange`): input:Steps, input:Vector, input:From Min[From_Min_FLOAT3], input:From Max[From_Max_FLOAT3], input:To Min[To_Min_FLOAT3], input:To Max[To_Max_FLOAT3], input:Steps[Steps_FLOAT3], prop:clamp, prop:data_type
+- `MIX` (`ShaderNodeMix`): input:Factor[Factor_Vector], input:A[A_Rotation], input:B[B_Rotation]
+- `MIX_RGB` (`ShaderNodeMixRGB`): prop:use_alpha
+- `NEW_GEOMETRY` (`ShaderNodeNewGeometry`): output:Position, output:Normal, output:Tangent, output:True Normal, output:Incoming, output:Parametric, output:Backfacing, output:Pointiness, output:Random Per Island
 - `NORMAL` (`ShaderNodeNormal`): input:Normal
 - `NORMAL_MAP` (`ShaderNodeNormalMap`): prop:base, prop:convention, prop:space
-- `OBJECT_INFO` (`ShaderNodeObjectInfo`, pkg260): output:Location, output:Color, output:Alpha, output:Object Index, output:Material Index, output:Random
-- `SEPARATE_COLOR` (`ShaderNodeSeparateColor`): input:Color, prop:mode
-- `SEPXYZ` (`ShaderNodeSeparateXYZ`): input:Vector
+- `OBJECT_INFO` (`ShaderNodeObjectInfo`): output:Location, output:Color, output:Alpha, output:Object Index, output:Material Index, output:Random
 - `SQUEEZE` (`ShaderNodeSqueeze`): input:Value, input:Width, input:Center
 - `ShaderNodeRadialTiling` (`ShaderNodeRadialTiling`): input:Vector, input:Sides, input:Roundness, prop:normalize
+- `ShaderNodeTexImage` (`ShaderNodeTexImage`): interpolation, projection
 - `TANGENT` (`ShaderNodeTangent`): prop:axis, prop:direction_type
-- `TEX_BRICK` (`ShaderNodeTexBrick`): input:Vector, input:Mortar, prop:offset
-- `TEX_CHECKER` (`ShaderNodeTexChecker`): input:Vector
+- `TEX_BRICK` (`ShaderNodeTexBrick`): input:Mortar, prop:offset
 - `TEX_COORD` (`ShaderNodeTexCoord`): prop:from_instancer
-- `TEX_GABOR` (`ShaderNodeTexGabor`): input:Vector, input:Scale, input:Frequency, input:Anisotropy, input:Orientation, input:Orientation, prop:gabor_type
-- `TEX_GRADIENT` (`ShaderNodeTexGradient`): input:Vector
+- `TEX_GABOR` (`ShaderNodeTexGabor`): input:Vector, input:Scale, input:Frequency, input:Anisotropy, input:Orientation[Orientation 2D], input:Orientation[Orientation 3D], prop:gabor_type
 - `TEX_IMAGE` (`ShaderNodeTexImage`): prop:extension, prop:interpolation, prop:projection, prop:projection_blend
-- `TEX_MAGIC` (`ShaderNodeTexMagic`): input:Vector
-- `TEX_NOISE` (`ShaderNodeTexNoise`): input:Vector, input:W, prop:noise_dimensions
-- `TEX_VORONOI` (`ShaderNodeTexVoronoi`): input:Vector, input:W, prop:voronoi_dimensions
-- `TEX_WAVE` (`ShaderNodeTexWave`): input:Vector
+- `TEX_VORONOI` (`ShaderNodeTexVoronoi`): input:W
 - `TEX_WHITE_NOISE` (`ShaderNodeTexWhiteNoise`): input:Vector, input:W, prop:noise_dimensions
 - `UVMAP` (`ShaderNodeUVMap`): prop:from_instancer
-- `VALTORGB` (`ShaderNodeValToRGB`): input:Factor
 - `VECTOR_DISPLACEMENT` (`ShaderNodeVectorDisplacement`): input:Vector, input:Midlevel, input:Scale, prop:space
-- `VECTOR_ROTATE` (`ShaderNodeVectorRotate`): input:Vector, input:Center, input:Axis, input:Angle, input:Rotation, prop:invert, prop:rotation_type
-- `VECT_MATH` (`ShaderNodeVectorMath`): input:Vector, input:Vector, input:Vector, input:Scale, prop:operation
 - `VECT_TRANSFORM` (`ShaderNodeVectorTransform`): input:Vector, prop:convert_from, prop:convert_to, prop:vector_type
-- `VERTEX_COLOR` (`ShaderNodeVertexColor`, pkg260): output:Color, output:Alpha
+- `VERTEX_COLOR` (`ShaderNodeVertexColor`): output:Color, output:Alpha
 - `WIREFRAME` (`ShaderNodeWireframe`): input:Size, prop:use_pixel_size
 
 ### `lighting_studio` (8 rows)

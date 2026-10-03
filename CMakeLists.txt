@@ -595,6 +595,7 @@ if(ASTRORAY_CUDA_FOUND)
             src/gpu/wavefront/stage_shade_part2.cu
             src/gpu/wavefront/stage_shade_part1.cu
             src/gpu/wavefront/stage_shade_part0.cu
+            src/gpu/wavefront/stage_graph_eval.cu  # pkg314 dedicated graph-evaluation kernel
         )
     endif()
     list(APPEND ASTRORAY_CUDA_SOURCES

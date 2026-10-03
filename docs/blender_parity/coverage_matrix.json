@@ -1404,16 +1404,16 @@
     "feature": "CURVE_FLOAT",
     "bl_idname": "ShaderNodeFloatCurve",
     "socket_or_prop": "input:Factor",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT'"
   },
   {
     "category": "shader_node",
     "feature": "CURVE_FLOAT",
     "bl_idname": "ShaderNodeFloatCurve",
     "socket_or_prop": "input:Value",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT'"
   },
   {
     "category": "shader_node",
@@ -2180,16 +2180,16 @@
     "feature": "CURVE_RGB",
     "bl_idname": "ShaderNodeRGBCurve",
     "socket_or_prop": "input:Factor",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT'"
   },
   {
     "category": "shader_node",
     "feature": "CURVE_RGB",
     "bl_idname": "ShaderNodeRGBCurve",
     "socket_or_prop": "input:Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT'"
   },
   {
     "category": "shader_node",
@@ -3236,16 +3236,16 @@
     "feature": "CURVE_VEC",
     "bl_idname": "ShaderNodeVectorCurve",
     "socket_or_prop": "input:Factor",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT'"
   },
   {
     "category": "shader_node",
     "feature": "CURVE_VEC",
     "bl_idname": "ShaderNodeVectorCurve",
     "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
-    "notes": "no handler in addon translation layer"
+    "classification": "SUPPORTED",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT'"
   },
   {
     "category": "shader_node",

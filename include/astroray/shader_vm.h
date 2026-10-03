@@ -761,4 +761,13 @@ struct GWavefrontProgramBinding {
     // astroray/procedural_tex.h). Read ONLY by gpu_procTexEval, which only the
     // <HasProgram=true> shade kernel reaches.
     const astroray::proc::GProcTexture*   procs;
+    // pkg314 — dynamic value programs. matGraphProg[mat*GRAPH_MAT_SLOTS + slot]
+    // (astroray/shader_graph.h; slots 0..3 = ScalarSlot, 4 = base colour) is the
+    // material's graph program on that slot (-1 = none); graphOut holds the
+    // dedicated graph-evaluation kernel's results for this round's hits,
+    // [k*graphOutStride + pathIdx] (k 0..3 scalars, 4..6 base colour; NaN = the
+    // program missed an input at this hit). Read ONLY in <HasProgram=true>.
+    const int*                            matGraphProg;
+    const float*                          graphOut;
+    int                                   graphOutStride;
 };

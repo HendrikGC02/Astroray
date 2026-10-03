@@ -4528,6 +4528,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
         the chain is not a per-texel op (or the renderer lacks the bindings)."""
         if not hasattr(renderer, "create_program_texture"):
             return None
+        # pkg314 equivalence harness: ASTRORAY_GRAPH_PROGRAMS=force routes every
+        # chain through a graph program (old-vs-new comparisons, IR stats runs).
+        if os.environ.get("ASTRORAY_GRAPH_PROGRAMS") == "force":
+            graph = self._build_graph_program(socket, node, input_name, renderer, allow_leaf)
+            if graph is not None:
+                return graph
         try:
             from . import shader_vm_compiler as svm
         except Exception:
@@ -4535,6 +4541,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         try:
             compiled = svm.compile_chain(socket, allow_leaf=allow_leaf)
         except svm.VMCompileError as e:
+            # pkg314: a chain the bounded op-VM cannot hold (slots, length, curves,
+            # >2 textures) runs as a dynamic value program instead.
+            graph = self._build_graph_program(socket, node, input_name, renderer, allow_leaf)
+            if graph is not None:
+                return graph
             self._warn_shader_fallback(
                 "op-VM", "shader chain on '%s' not representable (%s) — "
                 "flattened to grey" % (input_name, e))
@@ -4616,6 +4627,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     'op-VM', 'op-VM input is not a loadable texture; flattened')
                 return None
         if len(kinds) > 1:
+            # pkg314: a graph program samples each input at its own coordinates.
+            graph = self._build_graph_program(socket, node, input_name, renderer, allow_leaf)
+            if graph is not None:
+                return graph
             self._warn_shader_fallback(
                 'op-VM', 'op-VM inputs mix image + procedural textures; '
                 'flattened (unsupported)')
@@ -4627,7 +4642,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # scene_upload.cu uploadProgramTexture) still samples ONE input, so a
         # multi-input scalar program keeps its visible degradation. CPU is exact.
         if len(all_inputs) > 1 and input_name in ('Roughness', 'Metallic', 'IOR',
-                                                  'Transmission'):
+                                              'Transmission'):
+            # pkg314: a graph program samples every input in-program on both
+            # backends (no single-input GPU path).
+            graph = self._build_graph_program(socket, node, input_name, renderer, allow_leaf)
+            if graph is not None:
+                return graph
             self._warn_shader_fallback(
                 'op-VM', 'multi-input shader program (%d texture inputs) on %s: '
                 'GPU uses the constant value; CPU exact' % (len(all_inputs), input_name))
@@ -4657,6 +4677,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 resolved['uv_layer'], self._affine_matrix_values(resolved))
                 + ('::coordprog' if coord_prog is not None else ''))
         if any(signature != signatures[0] for signature in signatures[1:]):
+            # pkg314: per-input coordinates are native to a graph program.
+            graph = self._build_graph_program(socket, node, input_name, renderer, allow_leaf)
+            if graph is not None:
+                return graph
             self._warn_shader_fallback('op-VM', 'texture inputs have differing coordinate mappings; '
                                        'independent program coordinates are unsupported; flattened')
             return None
@@ -4753,6 +4777,103 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if layers is None:
             layers = self._material_attr_layers = {}
         layers.setdefault(mat_name, set()).add(key)
+        return name
+
+    def _build_graph_program(self, socket, node, input_name, renderer, allow_leaf=False):
+        """pkg314: compile the chain feeding `socket` into a dynamic value program
+        (blender_addon/shader_graph_ir.py; engine include/astroray/shader_graph.h)
+        and register it. Inputs are sampled inside the program, each at its own
+        coordinate contract (or at a compiled uv for a warped image). Returns the
+        registered name, or None (the reason is reported DEGRADED, never silent)."""
+        if not hasattr(renderer, 'create_graph_program_texture'):
+            return None
+        try:
+            from . import shader_graph_ir as gir
+            from . import shader_vm_compiler as svm
+        except Exception:
+            import shader_graph_ir as gir
+            import shader_vm_compiler as svm
+        report = self._degradation_report()
+        try:
+            prog = gir.compile_value_program(socket, allow_leaf=allow_leaf)
+        except svm.VMCompileError as e:
+            report.degraded('graph program', "shader chain on '%s' not representable "
+                            "(%s); constant value used" % (input_name, e))
+            return None
+        if prog is None:
+            return None
+        names = []
+        for in_node, variant, kind in zip(prog['inputs'], prog['input_variants'],
+                                          prog['input_kinds']):
+            in_name = self._load_graph_input(in_node, variant, kind, renderer)
+            if in_name is None:
+                report.degraded('graph program', "input '%s' of the chain on '%s' failed "
+                                "to load; constant value used"
+                                % (getattr(in_node, 'name', in_node.type), input_name))
+                return None
+            names.append(in_name)
+        mat_name = getattr(self, "_current_material_name", "") or ""
+        name = "_graph_%s.%s.%s" % (mat_name, getattr(node, "name", "n"), input_name)
+        try:
+            renderer.create_graph_program_texture(
+                name, prog['version'], prog['num_slots'], prog['out_slot'], prog['code'],
+                prog['consts'], [v for t in prog['tables'] for v in t], prog['table_data'],
+                names, [1 if k == 'coord' else 0 for k in prog['input_kinds']])
+        except Exception as e:
+            report.degraded('graph program', "program on '%s' rejected by the engine (%s); "
+                            "constant value used" % (input_name, e))
+            return None
+        if prog['per_hit']:
+            self._per_hit_program_names().add(name)
+        if getattr(node, 'type', None) == 'EMISSION' or input_name == 'Emission Color':
+            report.degraded('graph program', "graph program on '%s' (emission): GPU renders "
+                            "the texture mean (emitters are not evaluated per hit on GPU); "
+                            "CPU exact" % input_name)
+        stats = getattr(self, '_graph_program_stats', None)
+        if stats is None:
+            stats = self._graph_program_stats = {}
+        stats[name] = prog['stats']
+        return name
+
+    def _load_graph_input(self, in_node, variant, kind, renderer):
+        """pkg314: register one graph-program input. 'native': the texture with its
+        own coordinates + Mapping, exactly as when wired straight to a socket.
+        'coord': an image with NO Mapping, sampled at the program's computed uv."""
+        ntype = getattr(in_node, 'type', None)
+        vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
+        extension = getattr(in_node, 'extension', 'REPEAT')
+        if ntype == 'TEX_IMAGE':
+            image = getattr(in_node, 'image', None)
+            if image is None:
+                return None
+            if kind == 'coord':
+                identity = {'matrix': np.identity(4), 'coord_mode': 'UV', 'uv_layer': ''}
+                return self._load_blender_image_resolved(
+                    image, renderer, identity, child_signature='graph-coord',
+                    extension=extension)
+            name = self.load_blender_image(image, renderer, vector_input=vinp,
+                                           extension=extension)
+            mode = self._resolve_affine_coordinates(vinp, warn=lambda *a: None)['coord_mode']
+            if name is not None and mode != 'UV':
+                self._degradation_report().degraded(
+                    'graph program', "image input '%s' with %s coordinates: GPU skips the "
+                    "program (constant value); CPU exact" % (getattr(in_node, 'name', ntype),
+                                                             mode))
+            return name
+        if kind == 'coord':
+            return None
+        name = self.load_procedural_texture(in_node, renderer, vector_input=vinp,
+                                            fac_variant=(variant == 'fac'),
+                                            color_output=(variant == 'color'))
+        if name is not None:
+            mode = self._resolve_affine_coordinates(
+                vinp, default_coord_mode='GENERATED', warn=lambda *a: None,
+                allow_affine=False)['coord_mode']
+            if mode not in self._GPU_BAKED_COORDS:
+                self._degradation_report().degraded(
+                    'graph program', "procedural input '%s' with %s coordinates: GPU "
+                    "skips the program (constant value); CPU exact"
+                    % (getattr(in_node, 'name', ntype), mode))
         return name
 
     def _per_hit_program_names(self):

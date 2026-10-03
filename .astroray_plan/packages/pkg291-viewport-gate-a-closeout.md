@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** done (PR #TBD, 2026-10-03 — #879 crash fixed (baseline 2/2 crash, fix 0/40); in-place move 100k engine 5.6-6.4 ms CPU, in Blender p95 OFF 23.5 / ON 46.8 ms (<20 ms target missed); gate (a) 5/6 cells in both modes, 100k material fails; default stays OFF)
+**Status:** done — PR #TBD, 2026-10-03: #879 crash fixed (baseline 2/2 crash, fix 0/40); in-place move 100k engine 5.6-6.4 ms CPU, in Blender p95 OFF 23.5 / ON 46.8 ms (<20 ms target missed); gate (a) 5/6 cells in both modes, 100k material fails; default stays OFF
 **Estimated effort:** 2 sessions (~6 h): 1 crash + transforms (addon/engine), 1 measurement table on the isolated GUI
 **Depends on:** pkg266, pkg241
 

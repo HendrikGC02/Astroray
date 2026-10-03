@@ -66,3 +66,7 @@ new Mitsuba reference (prism lifted, sun at 1e4 m):
   every 16 spp (#909). At 256+ spp the CPU therefore shows frozen photon-gather
   speckle in sparse regions (photons scattered off the sphere) that the GPU averages
   away. ROI means agree; the noise does not fall with spp on the CPU.
+- The photon gather is a Lambertian albedo/pi estimate at the first non-emissive, non-transmissive hit (pkg111, unchanged here), and
+  the split cull also drops the path-traced lamp chain after such a surface. A glossy/metallic primary receiver therefore
+  gets a diffuse photon estimate instead of its BSDF (Terra re-review MEDIUM, pre-existing; not covered by tests). CPU photon-map
+  seeding with renderSeed 0 (the random sentinel) is fixed (Terra LOW). Both are follow-ups.

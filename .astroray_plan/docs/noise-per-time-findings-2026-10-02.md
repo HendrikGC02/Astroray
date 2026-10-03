@@ -68,17 +68,19 @@ CPU is similar: Astroray CPU is 1.5-5.5x slower per spp and 0.9-5.8x the varianc
 
 ## Arbitration scenes (Mitsuba 3 spectral reference)
 
-Means at 256 spp, 5 seeds, ratio to the Mitsuba 16384 spp reference (`arbitration/arbitration_roi_means.json`). Prism and
-narrow-band rows re-run 2026-10-03 after the #1020/#1021 fixes (Astroray build e584ad85; Cycles legs from the pkg307 run):
+Means at 256 spp, 5 seeds, ratio to the Mitsuba 16384 spp reference (`arbitration/arbitration_roi_means.json`). Prism rows re-run 2026-10-03 on the #959/#1025 build (lifted prism, Mitsuba sun at 1e4 m, 5 seeds x 256 spp, every leg incl. Cycles fresh; z = against the 16384 spp Mitsuba reference); narrow-band rows from the #1020 run:
 
 | scene / ROI | Cycles | Astroray CPU | Astroray GPU | note |
 |---|---|---|---|---|
 | chromatic medium, medium_core (R, G, B) | 1.08 / 0.99 / 1.20 | 0.96 / 1.00 / 1.01 | 0.96 / 1.00 / 1.01 | Cycles RGB transport is up to 20 % off in blue; Astroray within 4 % |
 | chromatic medium, floor ROIs | 1.00-1.05 | 0.98-1.00 | 0.98-1.00 | all engines agree |
 | narrow band (sodium), R / G | 0.13 / 0.30 (white lamp: RGB limit) | 1.000 / 0.997 | 1.000 / 0.997 | R/G 4.62 = CIE integral (Astroray -0.04 % analytic); was 0.93 / 1.07 (#1020) |
-| prism, floor_far (luminance) | 0.886 | 1.004 (z 0.4) | 0.988 (z -1.4) | sun-lit floor + prism light; was 1.16 / 1.12 against a Cycles-anchored ref (#1021) |
-| prism, floor_caustic (luminance) | 0.04 CPU / 0.33 OptiX | 0.74 (z -7.4) | 0.92 (z -2.5) | CPU caustic deficit #1025; was 1.17 / 1.11 with the desaturating film |
-| prism, floor_prism_shadow (luminance) | 1.08 | 1.08 | 1.08 | all three engines 8 % above Mitsuba (z ~40); not isolated |
+| prism, floor_far (luminance) | 0.887 | 0.994 (z -1.1) | 0.994 (z -1.0) | sun-lit floor + prism light (#1021) |
+| prism, prism_sun_glint (luminance) | 0.996 | 0.968 (z -1.2) | 0.998 (z -0.1) | sun glint after TIR off the prism base; was ROI `floor_caustic`, which showed the prism (#1025) |
+| prism, floor_rainbow (luminance) | 0.742 | 0.994 (z -0.5) | 0.994 (z -0.5) | dispersed rainbow on the floor; Cycles has no dispersion |
+| prism, floor_tir_beam (luminance) | 0.627 | 0.991 (z -0.8) | 0.990 (z -0.8) | beam after TIR inside the prism; GPU was 1.395x the oracle before #959 |
+| prism, floor_reflection_beam (luminance) | 0.748 | 0.981 (z -1.9) | 0.982 (z -1.8) | Fresnel-reflection beam |
+| prism, floor_prism_shadow (luminance) | 1.001 | 0.998 | 0.998 | was 1.08 in all engines: the Mitsuba 100 m sun had parallax; now 1e4 m |
 
 - **Setup check.** Mitsuba matches a first-principles CIE 1931 integration of the same SPD and Jakob-Hanika albedo to 0.3 %
   in R/G (4.61 vs 4.62); Astroray and Mitsuba share identical CMF tables (max difference 0). Medium and floor ROIs agree
@@ -96,11 +98,18 @@ narrow-band rows re-run 2026-10-03 after the #1020/#1021 fixes (Astroray build e
   Cycles barely renders. The pkg307 calibration anchored Mitsuba's lamp to Cycles on that ROI, scaling Mitsuba down by
   exactly the missing light (0.886), so "Cycles and Mitsuba agree" was by construction. The prism scene now runs Mitsuba in
   physical sun units (no anchor).
-- **Dispersion floor (for pkg306).** The Mitsuba reference shows the same streak morphology as Astroray GPU (equal-time
-  sheet). With the desaturation gone, Astroray GPU is 8 % and CPU 26 % below Mitsuba on the caustic: the CPU deficit is
-  transport (clipping can only raise a channel), filed as #1025 (related #959). Cycles recovers only 4 % (CPU) / 33 %
-  (OptiX) of the caustic (no dispersion; it finds the 4 degree sun only by chance paths).
-- **Open.** `floor_prism_shadow` is 8 % lower in Mitsuba than in Cycles and both Astroray legs (all three agree).
+- **#1025 / #959 (fixed): prism caustic.** The old ROI `floor_caustic` showed the prism, not the floor; 97 % of its value was the
+  sun after a TIR off the prism base, which was coplanar with the floor top (z-fight: Mitsuba kept ~57 %, GPU 54 %, CPU 48 %).
+  The prism is lifted 5 mm, the ROI renamed `prism_sun_glint`, and `floor_rainbow`, `floor_tir_beam`, `floor_reflection_beam`
+  added. Mitsuba's sun moves from 100 m to 1e4 m (the glint shifted 15 %, the prism shadow 8 %: that was the old "Open"
+  `floor_prism_shadow` gap). An independent numpy oracle agrees with the new Mitsuba reference within ~2 % on every ROI.
+  Engine fixes: the photon loops now use Fresnel roulette (pbrt-v3 FresnelSpecular) and the split cull drops any
+  receiver -> caster+ -> lamp chain, so TIR chains are no longer both in the map and path traced (GPU TIR beam 1.395 -> 0.998
+  of the oracle); the CPU now builds a photon map from Blender when caustics are on. See `caustic-photon-fresnel-split-research.md`.
+- **Dispersion floor (for pkg306).** The Mitsuba reference shows the same streak morphology as Astroray GPU. Cycles recovers the
+  glint but only 63-75 % of the floor beams and rainbow (no dispersion; it finds the 4 degree sun only by chance paths).
+- **Open.** CPU caustics: one 3M photon map per render so speckle stays frozen at 256+ spp (#1044); CPU adaptive sampling reads
+  path-traced caustics 10-25 % low at 2048 spp (#1036).
 
 ## Limits
 
@@ -108,7 +117,7 @@ narrow-band rows re-run 2026-10-03 after the #1020/#1021 fixes (Astroray build e
   wavelength, lanes 1-3 terminated, x4 once per path at hits from outside). A BSDF cannot see throughput, so a path with a
   diffuse bounce between two prism hits is over-weighted; the floor albedo is 0.15 to keep that share small. Measured against the stock dielectric at constant IOR (8 seeds x 8192 spp):
   floor_caustic +1.4 % (z 3.1), prism_body +6.9 % (z 3.5), floor ROIs 0.0 %. So the plugin over-reads the caustic by 1-7 %: the
-  plugin bias is small next to the post-#1020 Astroray caustic gaps (GPU -8 %, CPU -26 %). Not an exact estimator.
+  plugin bias is small. Not an exact estimator.
 - Mitsuba rows on scene (a) are references, not a noise-per-time comparison of a spectral path tracer.
 - The sun is a 4 degree disc in all engines (a delta sun is invisible to path tracers). Mitsuba's sun is in physical units
   (irradiance = Blender strength). The rectangle lamps' scale is anchored on a ROI that does not depend on the effect under

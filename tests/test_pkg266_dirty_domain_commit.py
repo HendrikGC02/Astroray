@@ -583,6 +583,24 @@ def test_worker_cheap_scene_renders_full_res_first():
     assert exporter._worker_refine_pending is False
 
 
+def test_worker_mid_cost_scene_starts_at_nav_divisor():
+    """pkg291 (gate (a) table): a scene whose full-res render exceeds one display
+    frame but not the budget threshold (the 10k grid: ~45 ms at 2100x1221) starts
+    its first unit at the navigation divisor, then refines to full res."""
+    exp = _load_exporter_module()
+    exporter = _make_exporter(exp)
+    exporter._worker = _idle_worker(exp)
+    region = types.SimpleNamespace(width=256, height=256)
+    context = types.SimpleNamespace(region=region)
+    exporter._viewport_last_full_render_ms = 45.0
+    exporter._worker.desired_generation = 1
+    assert exporter._worker_commit_and_submit(
+        context, None, _worker_settings(), region, lambda *a: None, lambda *a: None,
+        lambda *a: "path", _worker_engine_methods({}), commit_mode='camera') is True
+    assert exporter._worker._current_job["width"] == region.width // exp.VIEWPORT_NAV_RES_DIVISOR
+    assert exporter._worker_refine_pending is True
+
+
 class _RegionSpyRenderer(_SpyRenderer):
     def set_render_region(self, x0, y0, x1, y1):
         self._rec("set_render_region", x0, y0, x1, y1)

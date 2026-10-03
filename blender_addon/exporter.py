@@ -328,6 +328,9 @@ VIEWPORT_INTERACTIVE_BUDGET_MS = 100.0  # pinned edit->present p95 budget (GPU).
 # share of the budget (Cycles starts every viewport reset coarse,
 # RenderScheduler start_resolution, Apache-2.0).
 VIEWPORT_START_RES_RENDER_SHARE = 0.5
+# pkg291: one 60 Hz display frame. A worker edit whose full-res render exceeds it
+# starts at the navigation divisor (see _worker_commit_and_submit).
+VIEWPORT_FRAME_MS = 1000.0 / 60.0
 # #801: refinement-chunk time budget. Cycles targets ~0.1 s per viewport update
 # but renders on its own thread; our default path renders synchronously inside
 # view_draw, so the chunk IS the UI stall. 50 ms keeps the UI at ~15 Hz while
@@ -2714,6 +2717,17 @@ class Exporter:
             # submit (token contended) -- cleared below on success (Luna re-review).
         else:
             res_divisor = self._budget_start_divisor()
+            # pkg291: a fresh edit whose full-res render takes longer than one
+            # display frame starts at least at the navigation divisor, as the
+            # synchronous path does for camera moves (Cycles starts every viewport
+            # reset coarse). Gate (a) table: the 10k grid's full-res render
+            # (~45 ms at 2100x1221) sat under the budget threshold, so its first
+            # unit rendered + uploaded full res (p50 87 ms vs 19 ms on the
+            # coarse-starting 100k grid). Cheap/unmeasured scenes stay full res;
+            # the full-res refinement follows as before.
+            if (res_divisor == 1
+                    and self._viewport_last_full_render_ms > VIEWPORT_FRAME_MS):
+                res_divisor = VIEWPORT_NAV_RES_DIVISOR
 
         def commit_fn(gen):
             renderer = self._get_viewport_renderer()

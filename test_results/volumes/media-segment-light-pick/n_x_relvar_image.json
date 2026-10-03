@@ -1,0 +1,59 @@
+{
+ "title": "v2_media image: N x relVar vs spp (flat = 1/N noise)",
+ "xlabel": "samples per pixel",
+ "ylabel": "N x relVar (luminance)",
+ "kind": "line",
+ "series": [
+  {
+   "label": "Cycles CPU",
+   "x": [
+    16,
+    64,
+    256
+   ],
+   "y": [
+    10.687900298470112,
+    6.014228756554742,
+    4.134738949551207
+   ],
+   "role": "cycles"
+  },
+  {
+   "label": "Astroray CPU before",
+   "x": [
+    16,
+    64,
+    256
+   ],
+   "y": [
+    55.83594452409955,
+    372.63930079802725,
+    91.53776254423784
+   ],
+   "role": "other"
+  },
+  {
+   "label": "Astroray CPU after",
+   "x": [
+    16,
+    64,
+    256
+   ],
+   "y": [
+    28.955504365196944,
+    27.5630586783248,
+    25.48036064868101
+   ],
+   "role": "cpu"
+  }
+ ],
+ "band": null,
+ "ref": null,
+ "meta": {
+  "scene": "v2_media",
+  "roi": "image",
+  "seeds": "11-16 (256 spp: 11-14)",
+  "ref": "Cycles CPU 1024 spp",
+  "branch": "lane/au-media 5db27480"
+ }
+}

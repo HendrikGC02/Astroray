@@ -585,6 +585,7 @@ __device__ void gpu_volumeSegmentDirect(
     const int cap = c_wfGridVolume.segCapacity;
     if (cap <= 0 || (numLights + numDed) <= 0 || !(totalLightPower > 0.f)) return;
     const float segStart = a;  // pkg296: Tr(P) starts where the media do (camera clip)
+    const float segT = b;      // #961: the light is picked for the ray segment (o, d, b)
     if (kind == 0) {
         // boundedSegmentDirect: hull of the media on [a,b]; distance rate =
         // Σ_k per-λ σ_t majorant (exact for one homogeneous medium).
@@ -613,32 +614,35 @@ __device__ void gpu_volumeSegmentDirect(
         const float tr = (hi < 1e18f) ? 0.5f * (lo + hi) : lo + (mr > 0.f ? 1.f / mr : 0.f);
         return o + d * tr;
     };
-    // Power sampler: pick once, clip to the lamp's lit region, re-sample the
-    // SAME light for the anchor and at P. Light tree: fresh picks (CPU note).
-    const bool same = !lightTree.enabled;
+    // #961 (CPU segmentDirectLight twin): pick ONE light for the segment (light
+    // tree: Cycles light_tree_sample<true> segment importance; else the power
+    // CDF), clip to the lamp's lit region, re-sample the SAME light for the
+    // anchor and at P with that selection pdf.
     int li = 0, dj = -1;
     float selPdf = 0.f;
-    GNEESample anc;
-    if (same) {
+    if (lightTree.enabled) {
+        const int e = gpu_light_tree_pick_segment(lightTree, o, d, segT,
+                                                  gpu_rng_uniform(&rng), &selPdf);
+        if (e < 0 || !(selPdf > 0.f)) return;
+        li = lightTree.emitters[e].lightIndex;
+        if (li < 0) {
+            dj = -li - 1;
+            if (dj >= numDed) return;
+        }
+    } else {
         selPdf = gpu_power_light_pick(gpu_rng_uniform(&rng), lights, numLights,
                                       totalLightPower, dedLights, numDed, li, dj);
-        if (!(selPdf > 0.f)) return;
-        if (dj >= 0) {
-            const GDedicatedLight& L = dedLights[dj];
-            if (L.kind == GDED_SPOT && !segClipSpot(L, o, d, a, b)) return;
-            if (L.kind == GDED_AREA && !segClipArea(L, o, d, a, b)) return;
-        }
-        // pkg294: area-uniform anchor on an area lamp (Cycles area_light_eval<true>).
-        anc = gpu_nee_sample_light(refPoint(a, b), li, dj, selPdf, prims, tris, spheres,
-                                   lights, dedLights, &rng, /*segAnchor=*/true);
-    } else {
-        GHitRecord r{};
-        r.point = refPoint(a, b);
-        r.normal = GVec3(0.f, 0.f, 0.f);
-        r.isDelta = false;
-        anc = gpu_nee_sample(r, prims, tris, spheres, lights, numLights, totalLightPower,
-                             dedLights, numDed, lightTree, &rng, /*segAnchor=*/true);
     }
+    if (!(selPdf > 0.f)) return;
+    if (dj >= 0) {
+        const GDedicatedLight& L = dedLights[dj];
+        if (L.kind == GDED_SPOT && !segClipSpot(L, o, d, a, b)) return;
+        if (L.kind == GDED_AREA && !segClipArea(L, o, d, a, b)) return;
+    }
+    // pkg294: area-uniform anchor on an area lamp (Cycles area_light_eval<true>).
+    const GNEESample anc = gpu_nee_sample_light(refPoint(a, b), li, dj, selPdf, prims, tris,
+                                                spheres, lights, dedLights, &rng,
+                                                /*segAnchor=*/true);
     const bool hasAnchor = anc.valid && anc.lightPdf > 0.f && anc.geomDist > 0.f &&
                            anc.geomDist < 1e18f;
     const GVec3 anchor = hasAnchor ? anc.origin + anc.wi * anc.geomDist : o;
@@ -667,17 +671,8 @@ __device__ void gpu_volumeSegmentDirect(
     }
     if (n <= 0 || !(TrP.maxValue() > 0.f)) return;
 
-    GNEESample s;
-    if (same) {
-        s = gpu_nee_sample_light(P, li, dj, selPdf, prims, tris, spheres, lights, dedLights, &rng);
-    } else {
-        GHitRecord r{};
-        r.point = P;
-        r.normal = GVec3(0.f, 0.f, 0.f);
-        r.isDelta = false;
-        s = gpu_nee_sample(r, prims, tris, spheres, lights, numLights, totalLightPower,
-                           dedLights, numDed, lightTree, &rng);
-    }
+    const GNEESample s =
+        gpu_nee_sample_light(P, li, dj, selPdf, prims, tris, spheres, lights, dedLights, &rng);
     if (!s.valid || !(s.lightPdf > 1e-8f)) return;
     // Each phase component MIS'd against its own HG pdf (the complement of the
     // lamp-hit weight after a phase-sampled continuation from that medium).
@@ -831,11 +826,10 @@ __global__ void stageVolumeHeteroScatterKernel(
     state.throughput_2[idx] = throughput.v[2];
     state.throughput_3[idx] = throughput.v[3];
     state.was_specular[idx]  = 0;
-    state.env_nee_sampled_prev[idx] = 0;
+    // #961: medium vertex flag; path_mis_n*/path_mis_dt hold the NEE segment
+    // (written by intersect), see stageVolumeScatterKernel.
+    state.env_nee_sampled_prev[idx] = 2;
     state.path_bsdf_pdf[idx] = phasePdf;
-    state.path_mis_nx[idx] = 0.f;  // #851: medium vertex, zero MIS normal
-    state.path_mis_ny[idx] = 0.f;
-    state.path_mis_nz[idx] = 0.f;
     state.rng_dimension[idx] = rng.dimension();
     int next_bounce = bounce + 1;
     state.bounce[idx] = next_bounce;

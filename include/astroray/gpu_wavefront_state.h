@@ -141,6 +141,12 @@ struct GPUWavefrontState {
     float*    path_mis_nx     = nullptr;
     float*    path_mis_ny     = nullptr;
     float*    path_mis_nz     = nullptr;
+    // #961: after a medium scatter (env_nee_sampled_prev == 2) path_mis_n* holds
+    // P - segment origin and path_mis_dt the segment length the NEE light was
+    // picked for (Cycles mis_origin_n / previous_dt); the lamp/emitter-hit MIS
+    // re-walks the light tree's segment pick. Written by the intersect stage at
+    // the scatter, read only when that flag is set.
+    float*    path_mis_dt     = nullptr;
 
     // pkg55-C5 / pkg113: photon caustic contribution (XYZ) accumulated at primary
     // hit (bounce==0) from photonGridGatherKnn. Added to accum_xyz during regen
@@ -176,12 +182,14 @@ struct GPUWavefrontState {
     // pkg258 - env-NEE-competed flag (device twin of CPU pathTraceSpectral's
     // envNeeSampledPrev). Set to 1 by the surface shade kernel when env NEE
     // actually ran at the current vertex, 0 at path birth and after a volume
-    // phase scatter (which does lamp NEE only, never env NEE). The miss leg
+    // phase scatter (which does lamp NEE only, never env NEE). #961: a medium
+    // scatter writes 2 (no env NEE; path_mis_n*/path_mis_dt hold the NEE segment
+    // for the lamp/emitter-hit MIS), so env readers test == 1. The miss leg
     // discounts a background hit by the env power heuristic ONLY when this flag
     // is set, so was_specular==0 alone (true after a phase event) does not
     // wrongly discount a post-scatter env miss. Byte-identical when env NEE is
     // off (never set true; the miss leg's env-MIS branch is gated on the flag).
-    int*      env_nee_sampled_prev = nullptr;  // 0/1
+    int*      env_nee_sampled_prev = nullptr;  // 0/1, 2 = medium vertex (#961)
     int*      path_alive    = nullptr;  // 0 = terminated, 1 = active
 
     // Sizing.

@@ -796,11 +796,10 @@ __global__ void stageVolumeScatterKernel(
     // the env-NEE-competed flag -- otherwise the next-bounce env miss would be
     // wrongly discounted (was_specular==0 alone is insufficient after a phase
     // event; memory occlusion-sentinel / wavefront-snapshot-semantics).
-    state.env_nee_sampled_prev[idx] = 0;
+    // #961: 2 = medium vertex (Cycles PATH_RAY_VOLUME_SCATTER): no env NEE ran,
+    // and path_mis_n*/path_mis_dt (written by intersect) hold the NEE segment.
+    state.env_nee_sampled_prev[idx] = 2;
     state.path_bsdf_pdf[idx] = phasePdf;
-    state.path_mis_nx[idx] = 0.f;  // #851: medium vertex, zero MIS normal
-    state.path_mis_ny[idx] = 0.f;
-    state.path_mis_nz[idx] = 0.f;
     state.rng_dimension[idx] = rng.dimension();
     int next_bounce = bounce + 1;
     state.bounce[idx] = next_bounce;

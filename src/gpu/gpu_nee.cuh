@@ -90,7 +90,8 @@ __device__ inline float gpu_reconstruct_light_pdf(
     const GHitRecord& rec, const GVec3& prevPoint, const GVec3& dir,
     const GLight* lights, int numLights, float totalLightPower,
     const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres,
-    const GLightTreeView& lightTree, const GVec3& prevNormal)
+    const GLightTreeView& lightTree, const GVec3& prevNormal,
+    float misSegT = 0.f)  // #961: > 0 = medium vertex, prevNormal = P - segment origin
 {
     if (numLights <= 0 || totalLightPower <= 0.f) return 0.f;
 
@@ -107,7 +108,12 @@ __device__ inline float gpu_reconstruct_light_pdf(
     if (lightTree.enabled) {
         int emitterIdx = lightTree.lightToEmitter[lightIdx];
         if (emitterIdx < 0) return 0.f;
-        selPdf = gpu_light_tree_pdf(lightTree, prevPoint, prevNormal, emitterIdx);
+        // #961: after a medium scatter, the segment pick (Cycles light_tree_pdf<true>
+        // from mis_origin_n / previous_dt; CPU pdfValueSegment).
+        selPdf = (misSegT > 0.f)
+            ? gpu_light_tree_pdf_segment(lightTree, prevPoint - prevNormal,
+                                         prevNormal.normalized(), misSegT, emitterIdx)
+            : gpu_light_tree_pdf(lightTree, prevPoint, prevNormal, emitterIdx);
     } else {
         float prevCum = (lightIdx > 0) ? lights[lightIdx - 1].cumulativePower : 0.f;
         selPdf = (lights[lightIdx].cumulativePower - prevCum) / totalLightPower;
@@ -483,7 +489,8 @@ __device__ inline float gpu_dedicated_reconstruct_pdf(
     const GVec3& prevPoint, const GVec3& dir,
     const GLightTreeView& lightTree, int numLights,   // #859: tree selection
     const GVec3& prevNormal,                          // #851: NEE normal of prev vertex
-    int hitIdx = -1)                                  // #912: the lamp hit, -1 = all
+    int hitIdx = -1,                                  // #912: the lamp hit, -1 = all
+    float misSegT = 0.f)                              // #961: medium vertex segment
 {
     if (numDed <= 0 || totalLightPower <= 0.f) return 0.f;
     float pdf = 0.f;
@@ -498,6 +505,9 @@ __device__ inline float gpu_dedicated_reconstruct_pdf(
         if (lightTree.enabled) {
             int e = lightTree.lightToEmitter[numLights + j];
             selPdf = (e < 0) ? 0.f
+                   : (misSegT > 0.f)  // #961: segment pick after a medium scatter
+                   ? gpu_light_tree_pdf_segment(lightTree, prevPoint - prevNormal,
+                                                prevNormal.normalized(), misSegT, e)
                    : gpu_light_tree_pdf(lightTree, prevPoint, prevNormal, e);
         } else {
             selPdf = d.power / totalLightPower;

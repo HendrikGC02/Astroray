@@ -55,6 +55,21 @@ public:
                           const SampledWavelengths& /*lambdas*/,
                           std::mt19937& /*gen*/) const { return false; }
 
+    // #961: pick a light for a medium segment (origin o, unit d, length t;
+    // t >= 1e18 = open), Cycles light_sample_from_volume_segment
+    // (kernel/light/sample.h, Apache-2.0). Fills picked.pickIndex (unified:
+    // hittables first, then dedicated) and picked.pickPdf only; resample()
+    // then draws the SAME light at a point. False = no light.
+    virtual bool pickSegment(LightSample& picked, const Vec3& o, const Vec3& d, float t,
+                             std::mt19937& gen) const = 0;
+
+    // #961: pdfValue with the selection pdf of the segment pick instead of the
+    // point pick (Cycles light_tree_pdf from mis_origin_n / previous_dt after a
+    // volume scatter); the direction pdf is still taken at `point`.
+    virtual float pdfValueSegment(const Vec3& o, const Vec3& d, float t, const Vec3& point,
+                                  const Vec3& dir, const Hittable* hitEmitter,
+                                  const Light* hitLamp) const = 0;
+
     // Check if the sampler is empty (no lights).
     virtual bool empty() const = 0;
 
@@ -81,9 +96,18 @@ public:
                   const Vec3& normal, const SampledWavelengths& lambdas,
                   std::mt19937& gen) const override;
 
+    bool pickSegment(LightSample& picked, const Vec3& o, const Vec3& d, float t,
+                     std::mt19937& gen) const override;
+
+    float pdfValueSegment(const Vec3& o, const Vec3& d, float t, const Vec3& point,
+                          const Vec3& dir, const Hittable* hitEmitter,
+                          const Light* hitLamp) const override;
+
     bool empty() const override;
 
 private:
+    // Power-CDF pick: unified index and its selection pdf; false = no lights.
+    bool pickIndex(std::mt19937& gen, size_t& idx, float& selPdf) const;
     // Sample light `idx` (unified index) chosen with probability selPdf.
     void sampleIndexed(LightSample& out, size_t idx, float selPdf, const Vec3& point,
                        const Vec3& normal, const SampledWavelengths& lambdas,
@@ -105,6 +129,17 @@ public:
 
     float pdfValue(const Vec3& point, const Vec3& dir, const Vec3& normal,
                    const Hittable* hitEmitter, const Light* hitLamp) const override;
+
+    bool resample(LightSample& out, const LightSample& picked, const Vec3& point,
+                  const Vec3& normal, const SampledWavelengths& lambdas,
+                  std::mt19937& gen) const override;
+
+    bool pickSegment(LightSample& picked, const Vec3& o, const Vec3& d, float t,
+                     std::mt19937& gen) const override;
+
+    float pdfValueSegment(const Vec3& o, const Vec3& d, float t, const Vec3& point,
+                          const Vec3& dir, const Hittable* hitEmitter,
+                          const Light* hitLamp) const override;
 
     bool empty() const override;
 

@@ -1366,11 +1366,12 @@ def reduce_gate_a_sync_capture(edits, *, truncated=False):
     if truncated:
         errors.append("capture truncated")
     for e in edits:
-        d, pres = e.get("dispatch_ns"), e.get("correct_present_ns")
-        if not e.get("sync") or not isinstance(d, int) or not isinstance(pres, int) or pres < d:
+        d, present = e.get("dispatch_ns"), e.get("correct_present_ns")
+        if (not e.get("sync") or not isinstance(d, int) or not isinstance(present, int)
+                or present < d):
             errors.append(f"edit {e.get('event_id')!r} has no correct synchronous present")
             continue
-        rows.append({"event_id": e.get("event_id"), "event_ns": d, "present_ns": pres,
+        rows.append({"event_id": e.get("event_id"), "event_ns": d, "present_ns": present,
                      "correct_present": True})
     return {"rows": rows, "cancels": [], "errors": errors,
             "complete": not errors and bool(rows)}

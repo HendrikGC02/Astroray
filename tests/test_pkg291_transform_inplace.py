@@ -18,8 +18,8 @@ import time
 
 import numpy as np
 import pytest
-
 import runtime_setup  # configures sys.path + DLL dirs
+
 runtime_setup.configure_test_imports()
 import astroray
 
@@ -298,6 +298,6 @@ def test_exporter_full_syncs_unranged_or_rescaled_or_refused_move():
     # Engine refuses (emissive / motion): dispatch reports False -> full sync.
     e, _ = _exporter_with_range(mod, M_OLD)
     dg.updates = [_Upd(_Obj("Grid", M_NEW))]
-    status, changes, flat, refit = e._classify_depsgraph_domains(dg, None)
+    _status, changes, flat, refit = e._classify_depsgraph_domains(dg, None)
     assert not e._dispatch_dirty_domains(_StubRenderer(ok=False), dg, None, None, None,
                                          changes, flat, refit)

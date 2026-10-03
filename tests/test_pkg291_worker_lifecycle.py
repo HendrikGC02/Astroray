@@ -319,11 +319,11 @@ def test_refinement_waits_one_draw_behind_a_fresh_present():
         (k["commit_mode"], s._worker_fullres_next)), True)[1]
     ctx = types.SimpleNamespace(region=types.SimpleNamespace(width=64, height=64))
     dg = types.SimpleNamespace(scene=types.SimpleNamespace(custom_raytracer=object()))
-    kw = dict(configure_backend_fn=None, effective_integrator_name_fn=None,
-              viewport_perf_record_fn=None, camera_state_hash_fn=lambda c, r: 1,
-              camera_substantive_state_hash_fn=lambda c, r: 1,
-              request_viewport_redraw_fn=lambda: redraws.append(1),
-              engine_methods={"resolve_settings": lambda sc, rp: object()})
+    kw = {"configure_backend_fn": None, "effective_integrator_name_fn": None,
+          "viewport_perf_record_fn": None, "camera_state_hash_fn": lambda c, r: 1,
+          "camera_substantive_state_hash_fn": lambda c, r: 1,
+          "request_viewport_redraw_fn": lambda: redraws.append(1),
+          "engine_methods": {"resolve_settings": lambda sc, rp: object()}}
     exp.Exporter._worker_view_draw(s, ctx, dg, **kw)
     assert [c for c in calls if c[1]] == [] and s._worker_refine_pending and redraws
     exp.Exporter._worker_view_draw(s, ctx, dg, **kw)       # next redraw: no new frame

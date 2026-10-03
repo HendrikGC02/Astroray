@@ -4465,15 +4465,15 @@ PYBIND11_MODULE(astroray, m) {
                             in.max.x <= out.max.x && in.max.y <= out.max.y && in.max.z <= out.max.z;
                  };
                  for (size_t i = 0; i < nodes.size(); ++i) {
-                     const LinearBVHNode& nd = nodes[i];
-                     if (nd.nPrimitives > 0) {
-                         for (int k = 0; k < nd.nPrimitives; ++k) {
+                     const LinearBVHNode& node = nodes[i];
+                     if (node.nPrimitives > 0) {
+                         for (int k = 0; k < node.nPrimitives; ++k) {
                              AABB pb;
-                             if (prims[nd.primitivesOffset + k]->boundingBox(pb) && !inside(pb, nd.bounds))
+                             if (prims[node.primitivesOffset + k]->boundingBox(pb) && !inside(pb, node.bounds))
                                  return false;
                          }
-                     } else if (!inside(nodes[i + 1].bounds, nd.bounds) ||
-                                !inside(nodes[nd.secondChildOffset].bounds, nd.bounds)) {
+                     } else if (!inside(nodes[i + 1].bounds, node.bounds) ||
+                                !inside(nodes[node.secondChildOffset].bounds, node.bounds)) {
                          return false;
                      }
                  }
